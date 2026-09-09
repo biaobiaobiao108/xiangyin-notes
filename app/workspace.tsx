@@ -51,8 +51,20 @@ export function Workspace() {
   }, [deferredQuery, navigate, notebookId, view]);
   useEffect(() => { if (!ready) return; void api.listNotebooks().then((result) => setNotebooks(result.notebooks)); }, [ready]);
   useEffect(() => { if (!ready) return; const timer = setTimeout(() => void loadNotes(), 180); return () => clearTimeout(timer); }, [loadNotes, ready]);
-  useEffect(() => { if (!selectedId) { setSelectedNote(null); return; } void api.getNote(selectedId).then((result) => { setSelectedNote(result.note); pendingRef.current = result.note; setSaveState("saved"); }).catch(() => setSelectedNote(null)); }, [selectedId]);
-  useEffect(() => { const onKeyDown = (event: KeyboardEvent) => { if ((event.ctrlKey || event.metaKey) && event.key === "/") { event.preventDefault(); setCommandOpen(true); } }; window.addEventListener("keydown", onKeyDown); return () => window.removeEventListener("keydown", onKeyDown); }, []);
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const isMod = event.ctrlKey || event.metaKey;
+      if (isMod && (event.key === "/" || event.key === "k" || event.key === "K")) {
+        event.preventDefault();
+        setCommandOpen(true);
+      } else if (isMod && (event.key === "b" || event.key === "B")) {
+        event.preventDefault();
+        setSidebarCollapsed((value) => !value);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
   useEffect(() => () => { if (saveTimer.current) clearTimeout(saveTimer.current); }, []);
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(""), 3000); return () => clearTimeout(timer); }, [toast]);
 

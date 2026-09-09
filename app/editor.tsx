@@ -111,6 +111,17 @@ export function NoteEditor({ note, notebooks = [], saveState, onChange, onShare,
     contentType: "markdown",
     editorProps: {
       attributes: { class: "note-prose" },
+      handleClick: (_view, _pos, event) => {
+        if (event.ctrlKey || event.metaKey) {
+          const target = event.target as HTMLElement | null;
+          const anchor = target?.closest("a");
+          if (anchor?.href) {
+            window.open(anchor.href, "_blank", "noopener,noreferrer");
+            return true;
+          }
+        }
+        return false;
+      },
       handleKeyDown: (_view, event) => {
         if (!pendingHeadingRef.current) return false;
         // Chromium reports the first key from many Windows IMEs as 229

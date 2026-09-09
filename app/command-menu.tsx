@@ -5,14 +5,17 @@ import { parseCreateNoteCommand, type CreateNoteCommand } from "./command-parser
 
 export type CommandId = "new-note" | "search" | "toggle-sidebar" | "share" | "favorite" | "trash" | "restore";
 
+const isMac = typeof navigator !== "undefined" && /(Mac|iPhone|iPod|iPad)/i.test(navigator.platform || navigator.userAgent);
+const modKey = isMac ? "⌘" : "Ctrl";
+
 const COMMANDS: Array<{ id: CommandId; label: string; shortcut: string; icon: LucideIcon }> = [
-  { id: "new-note", label: "新建笔记", shortcut: "N", icon: FilePlus2 },
-  { id: "search", label: "搜索笔记", shortcut: "⌘ F", icon: Search },
-  { id: "toggle-sidebar", label: "切换侧栏", shortcut: "⌘ ", icon: PanelLeft },
-  { id: "share", label: "分享笔记", shortcut: "S", icon: Link2 },
-  { id: "favorite", label: "切换收藏", shortcut: "F", icon: Bookmark },
-  { id: "trash", label: "移入回收站", shortcut: "⌫", icon: Trash2 },
-  { id: "restore", label: "恢复笔记", shortcut: "R", icon: Archive },
+  { id: "new-note", label: "新建笔记", shortcut: "↵", icon: FilePlus2 },
+  { id: "search", label: "搜索笔记", shortcut: "↵", icon: Search },
+  { id: "toggle-sidebar", label: "切换侧栏", shortcut: `${modKey} B`, icon: PanelLeft },
+  { id: "share", label: "分享笔记", shortcut: "↵", icon: Link2 },
+  { id: "favorite", label: "切换收藏", shortcut: "↵", icon: Bookmark },
+  { id: "trash", label: "移入回收站", shortcut: "↵", icon: Trash2 },
+  { id: "restore", label: "恢复笔记", shortcut: "↵", icon: Archive },
 ];
 
 type CommandOption = {
