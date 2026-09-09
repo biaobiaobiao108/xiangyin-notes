@@ -6,7 +6,8 @@ import type { ShareSnapshot } from "../shared/types";
 const SESSION_COOKIE = "lumen_session";
 const SESSION_TTL = 60 * 60 * 24 * 30;
 const SHARE_TTL = 60 * 60 * 24 * 7;
-const PASSWORD_ITERATIONS = 120_000;
+// Cloudflare workerd currently rejects PBKDF2 iteration counts above 100,000.
+const PASSWORD_ITERATIONS = 100_000;
 const encoder = new TextEncoder();
 
 type UserRow = {
