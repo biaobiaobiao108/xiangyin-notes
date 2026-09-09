@@ -22,12 +22,12 @@ export type NoteSummary = {
   isFavorite: boolean;
   deletedAt: number | null;
   version: number;
+  createdAt: number;
   updatedAt: number;
 };
 
 export type Note = NoteSummary & {
   contentMarkdown: string;
-  createdAt: number;
 };
 
 export type Share = {

@@ -97,8 +97,39 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .list-header { justify-content: space-between; min-height: 80px; padding: 22px 20px 15px; border-bottom: 1px solid var(--border); }
 .list-header h2 { margin: 0; font-size: 1.04rem; letter-spacing: -0.025em; }
 .list-header p { margin: 5px 0 0; color: var(--soft-muted); font-size: 0.77rem; }
-.sort-button { gap: 5px; padding: 5px 0 5px 8px; border: 0; background: transparent; color: var(--muted); font-size: 0.76rem; }
-.sort-button:hover { color: var(--ink); }
+.sort-menu-wrap { position: relative; }
+.sort-button { gap: 5px; padding: 5px 8px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--muted); font-size: 0.76rem; }
+.sort-button:hover { color: var(--ink); background: var(--surface-muted); }
+.sort-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 10;
+  display: grid;
+  gap: 2px;
+  min-width: 108px;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  box-shadow: 0 10px 24px rgba(39, 47, 41, 0.12);
+  animation: dialog-in 140ms ease both;
+}
+.sort-option {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.76rem;
+  cursor: pointer;
+  text-align: left;
+}
+.sort-option:hover { background: var(--surface-muted); color: var(--ink); }
+.sort-option.is-active { background: var(--accent-soft); color: var(--accent-dark); font-weight: 600; }
 .note-list { min-height: 0; flex: 1; overflow: auto; overscroll-behavior: contain; }
 .note-row { display: grid; gap: 7px; width: 100%; padding: 17px 20px 15px; border: 0; border-bottom: 1px solid #edf0ed; background: transparent; text-align: left; cursor: pointer; transition: background-color 160ms ease, box-shadow 160ms ease; }
 .note-row:hover { background: #fbfbfa; }

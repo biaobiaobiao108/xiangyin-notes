@@ -143,12 +143,13 @@ function toNote(row: NoteRow) {
     isFavorite: Boolean(row.is_favorite),
     deletedAt: row.deleted_at,
     version: row.version,
+    createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
 function toFullNote(row: NoteRow) {
-  return { ...toNote(row), contentMarkdown: row.content_markdown, createdAt: row.created_at };
+  return { ...toNote(row), contentMarkdown: row.content_markdown };
 }
 
 async function getCurrentUser(env: Env, request: Request) {

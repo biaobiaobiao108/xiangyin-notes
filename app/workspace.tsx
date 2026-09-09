@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useEffect, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { Archive, ChevronDown, ChevronLeft, FileText, Folder, Inbox, LayoutPanelLeft, Link2, LogOut, Menu, Pencil, Plus, Search, Share2, Star, Trash2, UsersRound, X } from "lucide-react";
 import { useNavigate } from "react-router";
 import { ApiError, api } from "./api";
@@ -182,7 +182,64 @@ function Sidebar({ view, setView, notebooks, notebookId, setNotebookId, query, s
 }
 
 function NoteListPanel({ notes, selectedId, onSelect, view, query, mobileOpen, onOpenSidebar }: { notes: NoteSummary[]; selectedId: string | null; onSelect: (id: string) => void; view: NoteView; query: string; mobileOpen: boolean; onOpenSidebar: () => void }) {
-  return <section className={`note-list-panel ${mobileOpen ? "is-mobile-open" : ""}`} aria-label="笔记列表"><header className="list-header"><button className="icon-button mobile-only" type="button" aria-label="打开导航" onClick={onOpenSidebar}><Menu size={20} /></button><div><h2>{query ? "搜索结果" : viewLabel(view)}</h2><p>{query ? `包含“${query}”的笔记` : `${notes.length} 篇笔记`}</p></div><button className="sort-button" type="button">最近更新 <ChevronDown size={15} /></button></header><div className="note-list" role="list">{notes.map((note) => <button key={note.id} role="listitem" type="button" className={`note-row ${selectedId === note.id ? "is-selected" : ""}`} onClick={() => onSelect(note.id)}><span className="note-row-title">{note.title || "未命名笔记"}{note.isFavorite && <Star size={13} fill="currentColor" />}</span><span className="note-row-preview">{note.preview || "还没有内容，开始写下第一句话。"}</span><span className="note-row-meta"><span>{note.notebookName}</span><time>{relativeDate(note.updatedAt)}</time></span></button>)}{!notes.length && <div className="list-empty"><span className="empty-icon"><Archive size={23} /></span><strong>这里还没有笔记</strong><span>按下“新建笔记”，让一个想法有地方落脚。</span></div>}</div></section>;
+  const [sort, setSort] = useState<"updated" | "created" | "title">("updated");
+  const [sortOpen, setSortOpen] = useState(false);
+  const sortRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!sortOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && !sortRef.current?.contains(event.target)) setSortOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSortOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [sortOpen]);
+
+  const sortedNotes = useMemo(() => {
+    const list = [...notes];
+    if (sort === "created") return list.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+    if (sort === "title") return list.sort((a, b) => (a.title || "未命名笔记").localeCompare(b.title || "未命名笔记", "zh-CN"));
+    return list.sort((a, b) => b.updatedAt - a.updatedAt);
+  }, [notes, sort]);
+
+  const sortLabels: Record<"updated" | "created" | "title", string> = {
+    updated: "最近更新",
+    created: "创建时间",
+    title: "标题排序",
+  };
+
+  return <section className={`note-list-panel ${mobileOpen ? "is-mobile-open" : ""}`} aria-label="笔记列表">
+    <header className="list-header">
+      <button className="icon-button mobile-only" type="button" aria-label="打开导航" onClick={onOpenSidebar}><Menu size={20} /></button>
+      <div>
+        <h2>{query ? "搜索结果" : viewLabel(view)}</h2>
+        <p>{query ? `包含“${query}”的笔记` : `${notes.length} 篇笔记`}</p>
+      </div>
+      <div className="sort-menu-wrap" ref={sortRef}>
+        <button className="sort-button" type="button" aria-haspopup="listbox" aria-expanded={sortOpen} onClick={() => setSortOpen((open) => !open)}>
+          {sortLabels[sort]} <ChevronDown size={15} />
+        </button>
+        {sortOpen && (
+          <div className="sort-dropdown" role="listbox" aria-label="笔记排序方式">
+            <button type="button" className={`sort-option ${sort === "updated" ? "is-active" : ""}`} onClick={() => { setSort("updated"); setSortOpen(false); }}>最近更新</button>
+            <button type="button" className={`sort-option ${sort === "created" ? "is-active" : ""}`} onClick={() => { setSort("created"); setSortOpen(false); }}>创建时间</button>
+            <button type="button" className={`sort-option ${sort === "title" ? "is-active" : ""}`} onClick={() => { setSort("title"); setSortOpen(false); }}>标题排序</button>
+          </div>
+        )}
+      </div>
+    </header>
+    <div className="note-list" role="list">
+      {sortedNotes.map((note) => <button key={note.id} role="listitem" type="button" className={`note-row ${selectedId === note.id ? "is-selected" : ""}`} onClick={() => onSelect(note.id)}><span className="note-row-title">{note.title || "未命名笔记"}{note.isFavorite && <Star size={13} fill="currentColor" />}</span><span className="note-row-preview">{note.preview || "还没有内容，开始写下第一句话。"}</span><span className="note-row-meta"><span>{note.notebookName}</span><time>{relativeDate(note.updatedAt)}</time></span></button>)}
+      {!sortedNotes.length && <div className="list-empty"><span className="empty-icon"><Archive size={23} /></span><strong>这里还没有笔记</strong><span>按下“新建笔记”，让一个想法有地方落脚。</span></div>}
+    </div>
+  </section>;
 }
 
 function EmptyEditor({ onNewNote, onOpenList }: { onNewNote: () => void; onOpenList: () => void }) { return <section className="empty-editor"><button className="icon-button mobile-only empty-back" type="button" aria-label="打开笔记列表" onClick={onOpenList}><ChevronLeft size={20} /></button><div className="empty-editor-mark"><span>✦</span></div><h1>让想法有地方落脚</h1><p>创建一篇笔记，记录此刻值得留下的东西。</p><button className="primary-button" type="button" onClick={onNewNote}><Plus size={18} />新建笔记</button><span className="empty-shortcut">或按 Ctrl / 打开命令菜单</span></section>; }
