@@ -112,6 +112,23 @@ export function Workspace() {
   const toggleFavorite = useCallback(() => { const current = selectedRef.current; if (!current) return; const next = { ...current, isFavorite: !current.isFavorite }; selectedRef.current = next; setSelectedNote(next); persist(next); }, [persist]);
   const moveToTrash = useCallback(() => { const current = selectedRef.current; if (!current) return; const next = { ...current, deletedAt: Math.floor(Date.now() / 1000) }; selectedRef.current = next; setSelectedNote(next); persist(next); setToast("已移入回收站"); }, [persist]);
   const restoreFromTrash = useCallback(() => { const current = selectedRef.current; if (!current) return; const next = { ...current, deletedAt: null }; selectedRef.current = next; setSelectedNote(next); persist(next); setView("all"); setNotebookId(undefined); setToast("已恢复笔记"); }, [persist]);
+  const permanentDeleteNote = useCallback(async () => {
+    const current = selectedRef.current;
+    if (!current) return;
+    if (!window.confirm(`确定要彻底删除笔记“${current.title || "未命名笔记"}”吗？此操作无法撤销。`)) return;
+    try {
+      await api.deleteNote(current.id);
+      setNotes((prev) => prev.filter((note) => note.id !== current.id));
+      setSelectedId(null);
+      setSelectedNote(null);
+      selectedRef.current = null;
+      pendingRef.current = null;
+      setToast("已彻底删除笔记");
+      refreshNotebooks();
+    } catch {
+      setToast("彻底删除笔记失败，请重试");
+    }
+  }, [refreshNotebooks]);
   const command = useCallback((id: CommandId) => { if (id === "new-note") void createNote(); if (id === "search") { setView("all"); setMobileSidebarOpen(true); requestAnimationFrame(() => searchRef.current?.focus()); } if (id === "toggle-sidebar") setSidebarCollapsed((value) => !value); if (id === "share" && selectedNote) setShareOpen(true); if (id === "favorite") toggleFavorite(); if (id === "trash") moveToTrash(); if (id === "restore") restoreFromTrash(); }, [createNote, moveToTrash, restoreFromTrash, selectedNote, toggleFavorite]);
   const logout = async () => { await api.logout().catch(() => undefined); navigate("/login", { replace: true }); };
   if (!ready) return <main className="app-loading"><span className="loading-ring" /><span>正在进入你的空间……</span></main>;
@@ -120,7 +137,7 @@ export function Workspace() {
     <Sidebar view={view} setView={(next) => { setView(next); setNotebookId(undefined); setMobileSidebarOpen(false); }} notebooks={notebooks} notebookId={notebookId} setNotebookId={(id) => { setNotebookId(id); setView("all"); setMobileSidebarOpen(false); }} query={query} setQuery={setQuery} searchRef={searchRef} onNewNote={() => void createNote()} onCreateNotebook={() => void createNotebook()} collapsed={sidebarCollapsed} onCollapse={() => setSidebarCollapsed((value) => !value)} mobileOpen={mobileSidebarOpen} onLogout={logout} />
     <NoteListPanel notes={notes} selectedId={selectedId} onSelect={(id) => { setSelectedId(id); setMobileListOpen(false); }} view={view} query={query} mobileOpen={mobileListOpen} onOpenSidebar={() => setMobileSidebarOpen(true)} />
     <main className="editor-region">
-      {selectedNote ? <NoteEditor key={selectedNote.id} note={selectedNote} notebooks={notebooks} saveState={saveState} onChange={onNoteChange} onShare={() => setShareOpen(true)} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onOpenList={() => setMobileListOpen(true)} /> : <EmptyEditor onNewNote={() => void createNote()} onOpenList={() => setMobileListOpen(true)} />}
+      {selectedNote ? <NoteEditor key={selectedNote.id} note={selectedNote} notebooks={notebooks} saveState={saveState} onChange={onNoteChange} onShare={() => setShareOpen(true)} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={() => setMobileListOpen(true)} /> : <EmptyEditor onNewNote={() => void createNote()} onOpenList={() => setMobileListOpen(true)} />}
     </main>
     <CommandMenu open={commandOpen} onClose={() => setCommandOpen(false)} onCommand={command} onCreateNoteInNotebook={createNoteInNotebook} canRestore={Boolean(selectedNote?.deletedAt)} notebooks={notebooks} />
     {shareOpen && selectedNote && <ShareDialog note={selectedNote} onClose={() => setShareOpen(false)} onToast={setToast} />}

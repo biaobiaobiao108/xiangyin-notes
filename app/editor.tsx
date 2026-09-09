@@ -7,13 +7,13 @@ import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
-import { ChevronLeft, Link2, ListTree, Minus, Undo2 } from "lucide-react";
+import { ChevronLeft, Link2, ListTree, Minus, Trash2, Undo2 } from "lucide-react";
 import type { Note, Notebook } from "../shared/types";
 import { buildOutlineItems, countEditorText, isMarkdownHeadingMarker, parseMarkdownHeadingPrefix, type EditorStats, type OutlineItem } from "./editor-metrics";
 
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
 
-export function NoteEditor({ note, notebooks = [], saveState, onChange, onShare, onToggleFavorite, onMoveToTrash, onRestore, onOpenList }: {
+export function NoteEditor({ note, notebooks = [], saveState, onChange, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList }: {
   note: Note;
   notebooks?: Notebook[];
   saveState: "idle" | "saving" | "saved" | "conflict" | "error";
@@ -22,6 +22,7 @@ export function NoteEditor({ note, notebooks = [], saveState, onChange, onShare,
   onToggleFavorite: () => void;
   onMoveToTrash: () => void;
   onRestore: () => void;
+  onPermanentDelete?: () => void;
   onOpenList?: () => void;
 }) {
   const editorScrollRef = useRef<HTMLDivElement>(null);
@@ -97,6 +98,7 @@ export function NoteEditor({ note, notebooks = [], saveState, onChange, onShare,
   };
 
   const editor = useEditor({
+    editable: !note.deletedAt,
     extensions: [
       StarterKit.configure({ heading: { levels: [1, 2, 3] }, link: false }),
       Link.configure({ openOnClick: false, autolink: true, linkOnPaste: true }),
@@ -165,6 +167,11 @@ export function NoteEditor({ note, notebooks = [], saveState, onChange, onShare,
       composingRef.current = false;
     };
   }, [editor]);
+
+  useEffect(() => {
+    if (!editor) return;
+    editor.setEditable(!note.deletedAt);
+  }, [editor, note.deletedAt]);
 
   useEffect(() => {
     if (!editor) return;
@@ -290,15 +297,25 @@ export function NoteEditor({ note, notebooks = [], saveState, onChange, onShare,
           <span className={`save-status save-status--${saveState}`} aria-live="polite"><span className="save-dot" />{saveLabel}</span>
           <button className={`icon-button ${note.isFavorite ? "is-active" : ""}`} type="button" aria-label={note.isFavorite ? "取消收藏" : "收藏笔记"} title={note.isFavorite ? "取消收藏" : "收藏笔记"} onClick={onToggleFavorite}><span className="star-glyph">★</span></button>
           <button className="icon-button" type="button" aria-label="分享笔记" title="分享笔记" onClick={onShare}><Link2 size={18} strokeWidth={1.8} /></button>
-          {note.deletedAt ? <button className="icon-button" type="button" aria-label="恢复笔记" title="恢复笔记" onClick={onRestore}><Undo2 size={18} strokeWidth={1.8} /></button> : <button className="icon-button" type="button" aria-label="移入回收站" title="移入回收站" onClick={onMoveToTrash}><Minus size={18} strokeWidth={1.8} className="trash-mark" /></button>}
+          {note.deletedAt ? <>
+            <button className="icon-button" type="button" aria-label="恢复笔记" title="恢复笔记" onClick={onRestore}><Undo2 size={18} strokeWidth={1.8} /></button>
+            {onPermanentDelete && <button className="icon-button danger-button" type="button" aria-label="彻底删除" title="彻底删除" onClick={onPermanentDelete}><Trash2 size={18} strokeWidth={1.8} /></button>}
+          </> : <button className="icon-button" type="button" aria-label="移入回收站" title="移入回收站" onClick={onMoveToTrash}><Minus size={18} strokeWidth={1.8} className="trash-mark" /></button>}
         </div>
       </header>
       <div className="editor-scroll" ref={editorScrollRef}>
         <div className="editor-document">
+          {note.deletedAt && (
+            <div className="trashed-banner" role="status">
+              <span>此笔记已在回收站中，恢复后可继续编辑。</span>
+              <button className="text-button" type="button" onClick={onRestore}>立即恢复</button>
+            </div>
+          )}
           <input
             className="note-title-input"
             value={note.title}
             maxLength={200}
+            readOnly={Boolean(note.deletedAt)}
             onChange={(event) => onChange({ title: event.target.value })}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.nativeEvent.isComposing && event.keyCode !== 229) {

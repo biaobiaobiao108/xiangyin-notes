@@ -144,6 +144,21 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .star-glyph { color: currentColor; font-size: 20px; line-height: 1; }
 .icon-button.is-active { color: var(--accent); }
 .trash-mark { transform: rotate(45deg); }
+.danger-button:hover { color: var(--accent-dark); background: var(--accent-soft); border-color: #f2c2b4; }
+.trashed-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  margin-bottom: 24px;
+  border: 1px solid #f2c2b4;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+  font-size: 0.84rem;
+}
+.trashed-banner button { font-weight: 600; text-decoration: underline; }
 .editor-scroll { flex: 1; overflow: auto; scrollbar-gutter: stable; overscroll-behavior: contain; }
 .editor-document { width: min(820px, calc(100% - 96px)); margin: 0 auto; padding: 60px 0 128px; }
 .note-title-input { width: 100%; padding: 0; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: clamp(2rem, 3.5vw, 3.05rem); font-weight: 700; letter-spacing: -0.065em; line-height: 1.08; }
