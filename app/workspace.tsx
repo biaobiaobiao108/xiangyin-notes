@@ -1,5 +1,5 @@
 import { useCallback, useDeferredValue, useEffect, useRef, useState } from "react";
-import { Archive, ChevronDown, ChevronLeft, FileText, Folder, Inbox, LayoutPanelLeft, Link2, LogOut, Menu, Plus, Search, Share2, Star, Trash2, UsersRound, X } from "lucide-react";
+import { Archive, ChevronDown, ChevronLeft, FileText, Folder, Inbox, LayoutPanelLeft, Link2, LogOut, Menu, Pencil, Plus, Search, Share2, Star, Trash2, UsersRound, X } from "lucide-react";
 import { useNavigate } from "react-router";
 import { ApiError, api } from "./api";
 import { CommandId, CommandMenu } from "./command-menu";
@@ -35,7 +35,7 @@ export function Workspace() {
   const [mobileListOpen, setMobileListOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
-  const [notebookOpen, setNotebookOpen] = useState(false);
+  const [editingNotebook, setEditingNotebook] = useState<Notebook | null | undefined>(undefined);
   const [toast, setToast] = useState("");
   const [ready, setReady] = useState(false);
 
@@ -108,7 +108,38 @@ export function Workspace() {
   }, []);
   const createNote = useCallback(async () => { try { const result = await api.createNote({ notebookId: notebooks.find((notebook) => notebook.isSystem)?.id }); revealCreatedNote(result.note, undefined, "已创建新笔记"); refreshNotebooks(); } catch { setToast("创建笔记失败"); } }, [notebooks, refreshNotebooks, revealCreatedNote]);
   const createNoteInNotebook = useCallback(async (commandToCreate: CreateNoteCommand) => { try { const result = await api.createNote({ notebookId: commandToCreate.notebookId, title: commandToCreate.title }); revealCreatedNote(result.note, commandToCreate.notebookId, `已在“${commandToCreate.notebookName}”中创建“${commandToCreate.title}”`); refreshNotebooks(); } catch (reason) { if (reason instanceof ApiError && reason.status === 401) navigate("/login", { replace: true }); setToast("创建笔记失败，请稍后重试"); } }, [navigate, refreshNotebooks, revealCreatedNote]);
-  const createNotebook = useCallback(() => setNotebookOpen(true), []);
+  const createNotebook = useCallback(() => setEditingNotebook(null), []);
+  const saveNotebook = useCallback((saved: Notebook) => {
+    setNotebooks((current) => {
+      const exists = current.some((nb) => nb.id === saved.id);
+      return exists ? current.map((nb) => nb.id === saved.id ? { ...nb, name: saved.name } : nb) : [...current, saved];
+    });
+    if (editingNotebook) {
+      if (selectedNote?.notebookId === saved.id) {
+        setSelectedNote((prev) => prev ? { ...prev, notebookName: saved.name } : prev);
+      }
+      setToast(`已更新笔记本“${saved.name}”`);
+    } else {
+      setNotebookId(saved.id);
+      setView("all");
+      setMobileSidebarOpen(false);
+      setToast(`已创建笔记本“${saved.name}”`);
+    }
+    setEditingNotebook(undefined);
+  }, [editingNotebook, selectedNote?.notebookId]);
+  const deleteNotebook = useCallback(async (id: string) => {
+    try {
+      await api.deleteNotebook(id);
+      setNotebooks((current) => current.filter((nb) => nb.id !== id));
+      if (notebookId === id) setNotebookId(undefined);
+      refreshNotebooks();
+      void loadNotes();
+      setToast("已删除笔记本，原笔记已归入收件箱");
+      setEditingNotebook(undefined);
+    } catch {
+      setToast("删除笔记本失败");
+    }
+  }, [loadNotes, notebookId, refreshNotebooks]);
   const toggleFavorite = useCallback(() => { const current = selectedRef.current; if (!current) return; const next = { ...current, isFavorite: !current.isFavorite }; selectedRef.current = next; setSelectedNote(next); persist(next); }, [persist]);
   const moveToTrash = useCallback(() => { const current = selectedRef.current; if (!current) return; const next = { ...current, deletedAt: Math.floor(Date.now() / 1000) }; selectedRef.current = next; setSelectedNote(next); persist(next); setToast("已移入回收站"); }, [persist]);
   const restoreFromTrash = useCallback(() => { const current = selectedRef.current; if (!current) return; const next = { ...current, deletedAt: null }; selectedRef.current = next; setSelectedNote(next); persist(next); setView("all"); setNotebookId(undefined); setToast("已恢复笔记"); }, [persist]);
@@ -134,20 +165,20 @@ export function Workspace() {
   if (!ready) return <main className="app-loading"><span className="loading-ring" /><span>正在进入你的空间……</span></main>;
   return <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
     <button className={`mobile-scrim ${mobileSidebarOpen || mobileListOpen ? "is-visible" : ""}`} type="button" aria-label="关闭导航" onClick={() => { setMobileSidebarOpen(false); setMobileListOpen(false); }} />
-    <Sidebar view={view} setView={(next) => { setView(next); setNotebookId(undefined); setMobileSidebarOpen(false); }} notebooks={notebooks} notebookId={notebookId} setNotebookId={(id) => { setNotebookId(id); setView("all"); setMobileSidebarOpen(false); }} query={query} setQuery={setQuery} searchRef={searchRef} onNewNote={() => void createNote()} onCreateNotebook={() => void createNotebook()} collapsed={sidebarCollapsed} onCollapse={() => setSidebarCollapsed((value) => !value)} mobileOpen={mobileSidebarOpen} onLogout={logout} />
+    <Sidebar view={view} setView={(next) => { setView(next); setNotebookId(undefined); setMobileSidebarOpen(false); }} notebooks={notebooks} notebookId={notebookId} setNotebookId={(id) => { setNotebookId(id); setView("all"); setMobileSidebarOpen(false); }} query={query} setQuery={setQuery} searchRef={searchRef} onNewNote={() => void createNote()} onCreateNotebook={() => void createNotebook()} onEditNotebook={(target) => setEditingNotebook(target)} collapsed={sidebarCollapsed} onCollapse={() => setSidebarCollapsed((value) => !value)} mobileOpen={mobileSidebarOpen} onLogout={logout} />
     <NoteListPanel notes={notes} selectedId={selectedId} onSelect={(id) => { setSelectedId(id); setMobileListOpen(false); }} view={view} query={query} mobileOpen={mobileListOpen} onOpenSidebar={() => setMobileSidebarOpen(true)} />
     <main className="editor-region">
       {selectedNote ? <NoteEditor key={selectedNote.id} note={selectedNote} notebooks={notebooks} saveState={saveState} onChange={onNoteChange} onShare={() => setShareOpen(true)} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={() => setMobileListOpen(true)} /> : <EmptyEditor onNewNote={() => void createNote()} onOpenList={() => setMobileListOpen(true)} />}
     </main>
     <CommandMenu open={commandOpen} onClose={() => setCommandOpen(false)} onCommand={command} onCreateNoteInNotebook={createNoteInNotebook} canRestore={Boolean(selectedNote?.deletedAt)} notebooks={notebooks} />
     {shareOpen && selectedNote && <ShareDialog note={selectedNote} onClose={() => setShareOpen(false)} onToast={setToast} />}
-    {notebookOpen && <NotebookDialog onClose={() => setNotebookOpen(false)} onCreated={(notebook) => { setNotebooks((current) => [...current, notebook]); setNotebookId(notebook.id); setView("all"); setMobileSidebarOpen(false); setToast(`已创建笔记本“${notebook.name}”`); }} onToast={setToast} />}
+    {editingNotebook !== undefined && <NotebookDialog notebook={editingNotebook} onClose={() => setEditingNotebook(undefined)} onSaved={saveNotebook} onDeleted={deleteNotebook} onToast={setToast} />}
     {toast && <div className="toast" role="status">{toast}</div>}
   </div>;
 }
 
-function Sidebar({ view, setView, notebooks, notebookId, setNotebookId, query, setQuery, searchRef, onNewNote, onCreateNotebook, collapsed, onCollapse, mobileOpen, onLogout }: { view: NoteView; setView: (view: NoteView) => void; notebooks: Notebook[]; notebookId?: string; setNotebookId: (id: string) => void; query: string; setQuery: (query: string) => void; searchRef: React.RefObject<HTMLInputElement | null>; onNewNote: () => void; onCreateNotebook: () => void; collapsed: boolean; onCollapse: () => void; mobileOpen: boolean; onLogout: () => void }) {
-  return <aside className={`sidebar ${mobileOpen ? "is-mobile-open" : ""}`} aria-label="主导航"><div className="brand-row"><span className="brand-mark"><span className="brand-star">✦</span></span><span className="brand-name">Lumen Notes</span><button className="icon-button collapse-button" type="button" onClick={onCollapse} aria-label={collapsed ? "展开侧栏" : "收起侧栏"}><LayoutPanelLeft size={18} /></button></div><div className="workspace-picker"><span className="workspace-avatar">L</span><span className="workspace-name">个人空间</span><ChevronDown size={16} /></div><button className="primary-button new-note-button" type="button" onClick={onNewNote}><Plus size={18} />新建笔记</button><label className="search-box"><Search size={17} /><input ref={searchRef} value={query} onChange={(event) => { setQuery(event.target.value); setView("all"); }} placeholder="搜索笔记……" aria-label="搜索笔记" /><kbd>Ctrl /</kbd></label><nav className="main-nav"><ul>{navItems.map((item) => { const Icon = item.icon; return <li key={item.id}><button className={`nav-item ${view === item.id && !notebookId ? "is-active" : ""}`} type="button" onClick={() => setView(item.id)}><Icon size={18} /><span>{item.label}</span></button></li>; })}</ul></nav><div className="notebook-section"><div className="section-heading"><span>笔记本</span><button className="icon-button tiny-button" type="button" aria-label="新建笔记本" title="新建笔记本" onClick={onCreateNotebook}><Plus size={16} /></button></div><ul>{notebooks.map((notebook) => <li key={notebook.id}><button className={`notebook-item ${notebook.id === notebookId ? "is-active" : ""}`} type="button" aria-label={`${notebook.name}，${notebook.count} 篇笔记`} onClick={() => setNotebookId(notebook.id)}><span className="notebook-dot" style={{ background: notebook.color }} /><span>{notebook.name}</span><em>{notebook.count}</em></button></li>)}</ul></div><div className="sidebar-bottom"><button className="nav-item" type="button" onClick={onLogout}><LogOut size={18} /><span>退出登录</span></button><div className="sidebar-hint"><span className="status-pulse" />数据安全保存在你的空间</div></div></aside>;
+function Sidebar({ view, setView, notebooks, notebookId, setNotebookId, query, setQuery, searchRef, onNewNote, onCreateNotebook, onEditNotebook, collapsed, onCollapse, mobileOpen, onLogout }: { view: NoteView; setView: (view: NoteView) => void; notebooks: Notebook[]; notebookId?: string; setNotebookId: (id: string) => void; query: string; setQuery: (query: string) => void; searchRef: React.RefObject<HTMLInputElement | null>; onNewNote: () => void; onCreateNotebook: () => void; onEditNotebook: (notebook: Notebook) => void; collapsed: boolean; onCollapse: () => void; mobileOpen: boolean; onLogout: () => void }) {
+  return <aside className={`sidebar ${mobileOpen ? "is-mobile-open" : ""}`} aria-label="主导航"><div className="brand-row"><span className="brand-mark"><span className="brand-star">✦</span></span><span className="brand-name">Lumen Notes</span><button className="icon-button collapse-button" type="button" onClick={onCollapse} aria-label={collapsed ? "展开侧栏" : "收起侧栏"}><LayoutPanelLeft size={18} /></button></div><div className="workspace-picker"><span className="workspace-avatar">L</span><span className="workspace-name">个人空间</span><ChevronDown size={16} /></div><button className="primary-button new-note-button" type="button" onClick={onNewNote}><Plus size={18} />新建笔记</button><label className="search-box"><Search size={17} /><input ref={searchRef} value={query} onChange={(event) => { setQuery(event.target.value); setView("all"); }} placeholder="搜索笔记……" aria-label="搜索笔记" /><kbd>Ctrl /</kbd></label><nav className="main-nav"><ul>{navItems.map((item) => { const Icon = item.icon; return <li key={item.id}><button className={`nav-item ${view === item.id && !notebookId ? "is-active" : ""}`} type="button" onClick={() => setView(item.id)}><Icon size={18} /><span>{item.label}</span></button></li>; })}</ul></nav><div className="notebook-section"><div className="section-heading"><span>笔记本</span><button className="icon-button tiny-button" type="button" aria-label="新建笔记本" title="新建笔记本" onClick={onCreateNotebook}><Plus size={16} /></button></div><ul>{notebooks.map((notebook) => <li key={notebook.id} className="notebook-row-item"><div className="notebook-row-wrap"><button className={`notebook-item ${notebook.id === notebookId ? "is-active" : ""}`} type="button" aria-label={`${notebook.name}，${notebook.count} 篇笔记`} onClick={() => setNotebookId(notebook.id)}><span className="notebook-dot" style={{ background: notebook.color }} /><span>{notebook.name}</span><em>{notebook.count}</em></button>{!notebook.isSystem && <button className="icon-button tiny-button notebook-edit-button" type="button" aria-label={`管理笔记本“${notebook.name}”`} title="管理笔记本" onClick={(e) => { e.stopPropagation(); onEditNotebook(notebook); }}><Pencil size={12} /></button>}</div></li>)}</ul></div><div className="sidebar-bottom"><button className="nav-item" type="button" onClick={onLogout}><LogOut size={18} /><span>退出登录</span></button><div className="sidebar-hint"><span className="status-pulse" />数据安全保存在你的空间</div></div></aside>;
 }
 
 function NoteListPanel({ notes, selectedId, onSelect, view, query, mobileOpen, onOpenSidebar }: { notes: NoteSummary[]; selectedId: string | null; onSelect: (id: string) => void; view: NoteView; query: string; mobileOpen: boolean; onOpenSidebar: () => void }) {
@@ -177,14 +208,37 @@ function ShareDialog({ note, onClose, onToast }: { note: Note; onClose: () => vo
   </dialog>;
 }
 
-function NotebookDialog({ onClose, onCreated, onToast }: { onClose: () => void; onCreated: (notebook: Notebook) => void; onToast: (message: string) => void }) {
+function NotebookDialog({ notebook, onClose, onSaved, onDeleted, onToast }: { notebook?: Notebook | null; onClose: () => void; onSaved: (notebook: Notebook) => void; onDeleted?: (id: string) => void; onToast: (message: string) => void }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const [name, setName] = useState("");
+  const [name, setName] = useState(notebook?.name ?? "");
   const [busy, setBusy] = useState(false);
+  const isEditing = Boolean(notebook);
   useEffect(() => { const dialog = dialogRef.current; if (!dialog) return; dialog.showModal(); requestAnimationFrame(() => inputRef.current?.focus()); return () => { if (dialog.open) dialog.close(); }; }, []);
-  const submit = async (event: React.FormEvent<HTMLFormElement>) => { event.preventDefault(); const trimmed = name.trim(); if (!trimmed) return; setBusy(true); try { const result = await api.createNotebook({ name: trimmed }); onCreated(result.notebook); onClose(); } catch { onToast("创建笔记本失败"); } finally { setBusy(false); } };
-  return <dialog ref={dialogRef} className="notebook-dialog" onCancel={(event) => { event.preventDefault(); onClose(); }}><form onSubmit={(event) => void submit(event)}><div className="dialog-heading"><div><span className="dialog-eyebrow"><Folder size={15} />整理上下文</span><h2>新建笔记本</h2><p>给一组想法一个清晰的落点。</p></div><button className="icon-button" type="button" aria-label="关闭新建笔记本窗口" onClick={onClose}><X size={18} /></button></div><label className="dialog-field"><span>名称</span><input ref={inputRef} value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：项目资料" maxLength={80} autoComplete="off" /></label><div className="dialog-actions"><button className="secondary-button" type="button" onClick={onClose}>取消</button><button className="primary-button" type="submit" disabled={busy || !name.trim()}>{busy ? "正在创建……" : "创建笔记本"}</button></div></form></dialog>;
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setBusy(true);
+    try {
+      if (isEditing && notebook) {
+        const result = await api.updateNotebook(notebook.id, { name: trimmed });
+        onSaved({ ...notebook, name: result.notebook.name });
+      } else {
+        const result = await api.createNotebook({ name: trimmed });
+        onSaved(result.notebook);
+      }
+      onClose();
+    } catch {
+      onToast(isEditing ? "更新笔记本失败" : "创建笔记本失败");
+    } finally { setBusy(false); }
+  };
+  const handleDelete = () => {
+    if (!notebook || !onDeleted) return;
+    if (!window.confirm(`确定要删除笔记本“${notebook.name}”吗？其中的笔记将自动移入收件箱。`)) return;
+    onDeleted(notebook.id);
+  };
+  return <dialog ref={dialogRef} className="notebook-dialog" onCancel={(event) => { event.preventDefault(); onClose(); }}><form onSubmit={(event) => void submit(event)}><div className="dialog-heading"><div><span className="dialog-eyebrow"><Folder size={15} />整理上下文</span><h2>{isEditing ? "编辑笔记本" : "新建笔记本"}</h2><p>{isEditing ? "修改笔记本名称或管理该分类。" : "给一组想法一个清晰的落点。"}</p></div><button className="icon-button" type="button" aria-label="关闭新建笔记本窗口" onClick={onClose}><X size={18} /></button></div><label className="dialog-field"><span>名称</span><input ref={inputRef} value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：项目资料" maxLength={40} autoComplete="off" /></label><div className="dialog-actions">{isEditing && !notebook?.isSystem && onDeleted && <button className="text-button text-danger" type="button" onClick={handleDelete} disabled={busy} style={{ marginRight: "auto" }}>删除笔记本</button>}<button className="secondary-button" type="button" onClick={onClose}>取消</button><button className="primary-button" type="submit" disabled={busy || !name.trim()}>{busy ? "正在保存……" : isEditing ? "保存修改" : "创建笔记本"}</button></div></form></dialog>;
 }
 
 function viewLabel(view: NoteView) { return ({ all: "全部笔记", inbox: "收件箱", favorites: "收藏", shared: "已分享", trash: "回收站" })[view]; }

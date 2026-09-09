@@ -78,6 +78,12 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .notebook-item { min-height: 36px; font-size: 0.87rem; }
 .notebook-dot { width: 10px; height: 10px; border-radius: 3px; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.12); }
 .notebook-item em { margin-left: auto; color: var(--soft-muted); font-size: 0.74rem; font-style: normal; }
+.notebook-row-item { list-style: none; }
+.notebook-row-wrap { display: flex; align-items: center; width: 100%; position: relative; }
+.notebook-row-wrap .notebook-item { flex: 1; min-width: 0; }
+.notebook-edit-button { opacity: 0; transition: opacity 160ms ease, background-color 160ms ease; width: 24px; height: 24px; flex: none; color: var(--soft-muted); margin-left: -2px; }
+.notebook-row-wrap:hover .notebook-edit-button, .notebook-row-wrap:focus-within .notebook-edit-button { opacity: 1; }
+.notebook-edit-button:hover { color: var(--ink); }
 .sidebar-bottom { display: grid; gap: 10px; margin-top: auto; }
 .sidebar-hint { display: flex; align-items: center; gap: 8px; padding: 0 10px; color: var(--soft-muted); font-size: 0.72rem; white-space: nowrap; }
 .status-pulse { width: 7px; height: 7px; border-radius: 50%; background: #7eb58b; box-shadow: 0 0 0 4px rgba(126,181,139,0.12); }
@@ -277,6 +283,8 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
 .dialog-actions .primary-button, .dialog-actions .secondary-button { min-height: 40px; }
 .text-button { margin-left: auto; padding: 4px 0; border: 0; background: transparent; color: var(--accent-dark); font-size: 0.75rem; }
 .text-button:hover, .text-link:hover { color: var(--accent-dark); }
+.text-danger { color: #c34b35 !important; }
+.text-danger:hover { color: #9c3622 !important; text-decoration: underline; }
 
 .toast { position: fixed; right: 24px; bottom: 24px; z-index: 10; max-width: min(360px, calc(100% - 48px)); padding: 11px 14px; border: 1px solid var(--border); border-radius: 9px; background: rgba(255,255,255,0.96); box-shadow: var(--shadow); color: var(--ink); font-size: 0.8rem; animation: toast-in 180ms ease both; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: translateY(0); } }
