@@ -35,7 +35,7 @@ Lumen Notes 是一款运行在 Cloudflare Workers 上的单所有者 Markdown �
 - 前端入口是 `app/index.html`，由 Bun bundler 构建到 `dist/client`。
 - Worker 入口是 `worker/index.ts`，由 Bun bundler 构建到 `dist/worker/index.js`。
 - Cloudflare 生产环境不运行 Bun runtime。Worker 代码只能使用 Fetch、Web Crypto、D1、KV 和其他 Cloudflare Worker/Web API。
-- `wrangler.jsonc` 只配置 Worker 名称、兼容日期、Worker 入口和静态资源；不要向其中添加生产 D1/KV ID。
+- `wrangler.jsonc` 只配置 Worker 名称、兼容日期、Worker 入口、静态资源，以及部署时继承 Dashboard 绑定的元数据；不要向其中添加生产 D1/KV ID。配置还声明了 `LUMEN_USERNAME` 和 `LUMEN_PASSWORD` 为必需 Secret，缺少时部署应直接失败。
 
 ### 数据存储
 
@@ -298,7 +298,7 @@ lumen-notes
 4. 选择 **KV namespace**，变量名填写 `SHARE_KV`，选择目标 namespace 并保存。
 5. 按 Dashboard 提示点击 **Deploy**。
 
-`ASSETS` 由 `wrangler.jsonc` 的静态资源配置提供，不要把生产 D1/KV ID 补写回配置文件。Worker 源码中使用的绑定名必须保持为 `DB`、`SHARE_KV` 和 `ASSETS`，否则 API 或前端资源会无法工作。
+`ASSETS` 由 `wrangler.jsonc` 的静态资源配置提供。配置中的 `keep_bindings` 要求 Wrangler 在新版本中继承 Dashboard 已有的 D1、KV、变量和 Secret；其中只包含绑定类型，不包含任何资源 ID或 Secret 值。不要把生产 D1/KV ID 补写回配置文件。Worker 源码中使用的绑定名必须保持为 `DB`、`SHARE_KV` 和 `ASSETS`，否则 API 或前端资源会无法工作。
 
 Cloudflare 官方绑定说明：[D1 Dashboard 绑定](https://developers.cloudflare.com/d1/best-practices/remote-development/)、[KV Dashboard 绑定](https://developers.cloudflare.com/kv/concepts/kv-namespaces/)。
 
@@ -387,6 +387,7 @@ bun run deploy
 本项目故意采用 Dashboard 管理 D1/KV，但当前 Wrangler 版本可能检测远程 Dashboard 设置和本地配置之间的差异。部署时请遵守以下规则：
 
 - 不要把 `DB`、`SHARE_KV` 的 ID 回写到生产 `wrangler.jsonc`。
+- `wrangler.jsonc` 已配置 `keep_vars` 和 `keep_bindings`，用于保留 Dashboard 中的变量、D1 和 KV 绑定；如果当前版本已经丢失绑定，先在 Dashboard 重新添加一次，后续 Git 部署会继承它们。
 - 如果 Wrangler 提示要把远程绑定同步到本地配置，先停止并检查提示内容；不要提交包含账号级 ID 的配置文件。
 - 如果提示可能删除或覆盖已有的 Dashboard 绑定，不要继续部署；回到 Worker 的 **Settings → Bindings** 检查 `DB` 和 `SHARE_KV` 是否存在。
 - 部署完成后再次打开 Bindings 页面，确认两个绑定仍然存在，并使用实际页面做 API 验证。
@@ -485,7 +486,7 @@ PowerShell 可以直接使用项目脚本；如果手动复制多行 Bun 命令�
 
 - 不要提交 D1 database ID、KV namespace ID、Cloudflare API token、密码或真实分享 token。
 - 不要提交 `.wrangler/`、`.wrangler.local.jsonc`、`.wrangler.remote.jsonc`、`.dev.vars*`、`dist/` 或 `node_modules/`。
-- `wrangler.jsonc` 没有生产 D1/KV 绑定是有意设计，不是遗漏。
+- `wrangler.jsonc` 不保存生产 D1/KV 的资源 ID；它通过 `keep_bindings` 继承 Dashboard 中已经配置的绑定。
 - 生产迁移前确认 `LUMEN_D1_DATABASE_ID` 指向正确数据库；迁移命令不可替代备份和变更评审。
 - 不要在 Worker 中使用 Bun 专属 API；Cloudflare 生产运行时只提供 Web/Workers API。
 - 分享链接是公开只读链接，拿到 token 的人可以在 7 天内读取快照；不要分享包含敏感信息的笔记。
