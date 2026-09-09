@@ -1,0 +1,41 @@
+{
+  "name": "lumen-notes",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run scripts/dev.ts",
+    "build:client": "bun build ./app/index.html --outdir ./dist/client --target browser --format esm --splitting --production --sourcemap=external",
+    "build:worker": "bun build ./worker/index.ts --outdir ./dist/worker --target browser --format esm --production --sourcemap=external",
+    "build": "bun run build:client && bun run build:worker",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "bun test",
+    "preview": "bun run scripts/preview.ts",
+    "db:migrate:local": "bun run scripts/migrate-local.ts",
+    "db:migrate:remote": "bun run scripts/migrate-remote.ts",
+    "deploy": "bun run build && wrangler deploy"
+  },
+  "dependencies": {
+    "@tiptap/core": "^3.31.3",
+    "@tiptap/extension-link": "^3.31.3",
+    "@tiptap/extension-placeholder": "^3.31.3",
+    "@tiptap/extension-task-item": "^3.31.3",
+    "@tiptap/extension-task-list": "^3.31.3",
+    "@tiptap/markdown": "^3.31.3",
+    "@tiptap/react": "^3.31.3",
+    "@tiptap/starter-kit": "^3.31.3",
+    "hono": "^4.13.7",
+    "lucide-react": "^1.43.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-router": "^8.3.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260908.1",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "bun-types": "^1.4.2",
+    "typescript": "^7.0.2",
+    "wrangler": "^4.130.0"
+  }
+}

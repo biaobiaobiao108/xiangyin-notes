@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title>Lumen Notes</title>
+  <rect width="64" height="64" rx="16" fill="#f6f4ef"/>
+  <path d="M32 9 36.2 27.8 55 32l-18.8 4.2L32 55l-4.2-18.8L9 32l18.8-4.2Z" fill="#d96245"/>
+  <circle cx="32" cy="32" r="4.2" fill="#fffaf5"/>
+</svg>

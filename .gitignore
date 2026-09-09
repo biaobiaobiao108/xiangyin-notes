@@ -1,0 +1,7 @@
+node_modules
+dist
+.wrangler
+.wrangler.local.jsonc
+.wrangler.remote.jsonc
+.dev.vars*
+*.log
