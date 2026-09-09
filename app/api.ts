@@ -28,7 +28,6 @@ async function request<T>(path: string, init: RequestInit = {}) {
 
 export const api = {
   bootstrap: () => request<{ configured: boolean }>("/api/bootstrap"),
-  setup: (payload: { username: string; password: string }) => request<{ user: User }>("/api/setup", { method: "POST", body: JSON.stringify(payload) }),
   login: (payload: { username: string; password: string }) => request<{ user: User }>("/api/auth/login", { method: "POST", body: JSON.stringify(payload) }),
   logout: () => request<{ ok: true }>("/api/auth/logout", { method: "POST" }),
   me: () => request<{ user: User }>("/api/me"),

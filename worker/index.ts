@@ -99,7 +99,7 @@ function setSessionCookie(c: Context<AppEnv>, token: string, maxAge = SESSION_TT
   c.header("Set-Cookie", `${SESSION_COOKIE}=${encodeURIComponent(token)}; Max-Age=${maxAge}; Path=/; HttpOnly; SameSite=Lax${secure}`);
 }
 
-function jsonError(c: Context<AppEnv>, status: 400 | 401 | 403 | 404 | 409 | 410 | 413 | 429 | 500, code: string, message: string, fields?: Record<string, string>) {
+function jsonError(c: Context<AppEnv>, status: 400 | 401 | 403 | 404 | 409 | 410 | 413 | 429 | 500 | 503, code: string, message: string, fields?: Record<string, string>) {
   return c.json({ error: { code, message, ...(fields ? { fields } : {}) } }, status);
 }
 
@@ -122,6 +122,18 @@ function validPassword(value: unknown): value is string {
 function validText(value: unknown, maxLength: number): value is string {
   return typeof value === "string" && value.length <= maxLength;
 }
+
+type AuthCredentials = {
+  username: string;
+  password: string;
+};
+
+function getAuthCredentials(env: Env): AuthCredentials | null {
+  if (!validUsername(env.LUMEN_USERNAME) || !validPassword(env.LUMEN_PASSWORD)) return null;
+  return { username: env.LUMEN_USERNAME, password: env.LUMEN_PASSWORD };
+}
+
+const welcomeMarkdown = "## 欢迎来到 Lumen Notes\n\n这是你的第一个笔记。按下 **Ctrl /** 可以打开命令菜单，开始记录你的想法。\n\n- 写下值得保留的东西\n- 用笔记本整理上下文\n- 随时生成一个 7 天有效的只读分享\n";
 
 function formatPreview(markdown: string) {
   return markdown
@@ -152,13 +164,44 @@ function toFullNote(row: NoteRow) {
   return { ...toNote(row), contentMarkdown: row.content_markdown };
 }
 
+async function ensureEnvironmentUser(env: Env, credentials: AuthCredentials): Promise<UserRow> {
+  const existing = await env.DB.prepare("SELECT id, username FROM users WHERE username = ?")
+    .bind(credentials.username)
+    .first<UserRow>();
+  if (existing) return existing;
+
+  const userId = crypto.randomUUID();
+  const inboxId = crypto.randomUUID();
+  const noteId = crypto.randomUUID();
+  const createdAt = now();
+  const password = await hashPassword(credentials.password);
+
+  try {
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO users (id, username, password_hash, password_salt, created_at) VALUES (?, ?, ?, ?, ?)").bind(userId, credentials.username, password.hash, password.salt, createdAt),
+      env.DB.prepare("INSERT INTO notebooks (id, user_id, name, color, is_system, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, 1, 0, ?, ?)").bind(inboxId, userId, "收件箱", "#d96245", createdAt, createdAt),
+      env.DB.prepare("INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)").bind(noteId, userId, inboxId, "开始记录你的想法", welcomeMarkdown, createdAt, createdAt),
+      env.DB.prepare("INSERT INTO notes_fts (note_id, title, content) VALUES (?, ?, ?)").bind(noteId, "开始记录你的想法", welcomeMarkdown),
+    ]);
+    return { id: userId, username: credentials.username };
+  } catch (error) {
+    const concurrent = await env.DB.prepare("SELECT id, username FROM users WHERE username = ?")
+      .bind(credentials.username)
+      .first<UserRow>();
+    if (concurrent) return concurrent;
+    throw error;
+  }
+}
+
 async function getCurrentUser(env: Env, request: Request) {
+  const credentials = getAuthCredentials(env);
+  if (!credentials) return null;
   const session = cookieValue(request.headers.get("Cookie") ?? undefined, SESSION_COOKIE);
   if (!session) return null;
   const tokenHash = await digestHex(session);
   const row = await env.DB.prepare(
-    "SELECT users.id, users.username FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.token_hash = ? AND sessions.expires_at > ?",
-  ).bind(tokenHash, now()).first<UserRow>();
+    "SELECT users.id, users.username FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.token_hash = ? AND sessions.expires_at > ? AND users.username = ?",
+  ).bind(tokenHash, now(), credentials.username).first<UserRow>();
   return row ?? null;
 }
 
@@ -195,56 +238,34 @@ api.use("/api/*", async (c, next) => {
 });
 
 api.get("/api/bootstrap", async (c) => {
-  const row = await c.env.DB.prepare("SELECT COUNT(*) AS count FROM users").first<{ count: number }>();
-  return c.json({ configured: Number(row?.count ?? 0) > 0 });
+  return c.json({ configured: Boolean(getAuthCredentials(c.env)) });
 });
 
-api.post("/api/setup", async (c) => {
-  const payload = await readJson<{ username?: unknown; password?: unknown }>(c);
-  if (!payload || !validUsername(payload.username) || !validPassword(payload.password)) {
-    return jsonError(c, 400, "INVALID_SETUP", "请输入 3–32 位用户名和至少 12 位密码", {
-      username: "用户名只能包含字母、数字、下划线和短横线",
-      password: "密码长度至少为 12 位",
-    });
-  }
-
-  const existing = await c.env.DB.prepare("SELECT id FROM users LIMIT 1").first<{ id: string }>();
-  if (existing) return jsonError(c, 409, "ALREADY_CONFIGURED", "此空间已经完成初始化");
-
-  const userId = crypto.randomUUID();
-  const inboxId = crypto.randomUUID();
-  const noteId = crypto.randomUUID();
-  const createdAt = now();
-  const password = await hashPassword(payload.password);
-  const welcomeMarkdown = "## 欢迎来到 Lumen Notes\n\n这是你的第一个笔记。按下 **Ctrl /** 可以打开命令菜单，开始记录你的想法。\n\n- 写下值得保留的东西\n- 用笔记本整理上下文\n- 随时生成一个 7 天有效的只读分享\n";
-
-  await c.env.DB.batch([
-    c.env.DB.prepare("INSERT INTO users (id, username, password_hash, password_salt, created_at) VALUES (?, ?, ?, ?, ?)").bind(userId, payload.username, password.hash, password.salt, createdAt),
-    c.env.DB.prepare("INSERT INTO notebooks (id, user_id, name, color, is_system, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, 1, 0, ?, ?)").bind(inboxId, userId, "收件箱", "#d96245", createdAt, createdAt),
-    c.env.DB.prepare("INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)").bind(noteId, userId, inboxId, "开始记录你的想法", welcomeMarkdown, createdAt, createdAt),
-    c.env.DB.prepare("INSERT INTO notes_fts (note_id, title, content) VALUES (?, ?, ?)").bind(noteId, "开始记录你的想法", welcomeMarkdown),
-  ]);
-
-  const session = createOpaqueToken();
-  await c.env.DB.prepare("INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)").bind(await digestHex(session), userId, createdAt, createdAt + SESSION_TTL).run();
-  setSessionCookie(c, session);
-  return c.json({ user: { id: userId, username: payload.username } }, 201);
-});
+api.post("/api/setup", async (c) => getAuthCredentials(c.env)
+  ? jsonError(c, 409, "AUTH_MANAGED_BY_ENV", "登录凭据由 Worker 环境变量管理，无需网页初始化")
+  : jsonError(c, 503, "AUTH_NOT_CONFIGURED", "请先配置 LUMEN_USERNAME 和 LUMEN_PASSWORD"));
 
 api.post("/api/auth/login", async (c) => {
   const payload = await readJson<{ username?: unknown; password?: unknown }>(c);
   if (!payload || typeof payload.username !== "string" || typeof payload.password !== "string") {
     return jsonError(c, 400, "INVALID_LOGIN", "请输入用户名和密码");
   }
-  const row = await c.env.DB.prepare("SELECT id, username, password_hash, password_salt FROM users WHERE username = ?").bind(payload.username).first<{ id: string; username: string; password_hash: string; password_salt: string }>();
-  if (!row || !constantTimeEqual(await derivePassword(payload.password, row.password_salt), row.password_hash)) {
+
+  const credentials = getAuthCredentials(c.env);
+  if (!credentials) return jsonError(c, 503, "AUTH_NOT_CONFIGURED", "请先配置 LUMEN_USERNAME 和 LUMEN_PASSWORD");
+
+  const usernameMatches = constantTimeEqual(payload.username, credentials.username);
+  const passwordMatches = constantTimeEqual(payload.password, credentials.password);
+  if (!usernameMatches || !passwordMatches) {
     return jsonError(c, 401, "INVALID_CREDENTIALS", "用户名或密码不正确");
   }
+
+  const user = await ensureEnvironmentUser(c.env, credentials);
   const session = createOpaqueToken();
   const createdAt = now();
-  await c.env.DB.prepare("INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)").bind(await digestHex(session), row.id, createdAt, createdAt + SESSION_TTL).run();
+  await c.env.DB.prepare("INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)").bind(await digestHex(session), user.id, createdAt, createdAt + SESSION_TTL).run();
   setSessionCookie(c, session);
-  return c.json({ user: { id: row.id, username: row.username } });
+  return c.json({ user });
 });
 
 api.post("/api/auth/logout", async (c) => {

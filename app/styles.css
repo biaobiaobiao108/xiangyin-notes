@@ -338,6 +338,13 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
 .form-hint, .form-error { margin: -7px 0 0; font-size: 0.76rem; line-height: 1.4; }
 .form-hint { color: var(--soft-muted); }
 .form-error { color: var(--accent-dark); }
+.config-panel { display: grid; justify-items: start; gap: 12px; }
+.config-panel-icon { display: grid; width: 40px; height: 40px; place-items: center; border-radius: 12px; background: var(--accent-soft); color: var(--accent-dark); }
+.config-panel h2 { margin: 0; color: var(--ink); font-size: 1rem; letter-spacing: -0.03em; }
+.config-panel p { margin: 0; color: var(--muted); font-size: 0.82rem; line-height: 1.5; }
+.config-variable-list { display: grid; width: 100%; gap: 8px; margin: 4px 0; }
+.config-variable-list code { display: block; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: #fcfaf7; color: var(--accent-dark); font: 600 0.76rem/1.2 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.config-panel .auth-submit { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 4px; }
 .auth-submit { width: 100%; margin-top: 4px; }
 .auth-footnote { margin: 20px 0 0; color: var(--soft-muted); font-size: 0.74rem; }
 

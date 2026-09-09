@@ -43,7 +43,7 @@ D1 使用 `migrations/0001_initial.sql` 创建以下表：
 
 | 表 | 用途 |
 | --- | --- |
-| `users` | 单一所有者账号和密码派生值 |
+| `users` | 由 Worker 环境变量映射的所有者身份和密码派生值 |
 | `sessions` | 30 天会话的哈希值和过期时间 |
 | `notebooks` | 系统收件箱和自定义笔记本 |
 | `notes` | 笔记标题、Markdown 正文、收藏、回收站状态和版本号 |
@@ -171,7 +171,14 @@ bun run dev
 http://127.0.0.1:8787/app
 ```
 
-首次访问时会进入初始化页。创建用户名和密码后即可登录。用户名只能使用 3–32 位字母、数字、下划线和短横线；密码长度必须为 12–128 位。
+首次访问前，先在项目根目录创建本地配置文件 `.dev.vars`：
+
+```dotenv
+LUMEN_USERNAME=lumen
+LUMEN_PASSWORD=请替换为至少12位的本地密码
+```
+
+然后运行 `bun run dev`。首次成功登录会自动在本地 D1 创建身份、收件箱和欢迎笔记；网页不再提供创建账号表单。用户名只能使用 3–32 位字母、数字、下划线和短横线；密码长度必须为 12–128 位。`.dev.vars` 已被 Git 忽略，不要把真实密码提交到仓库。
 
 按 `Ctrl + C` 可以同时停止三个开发进程。
 
@@ -185,6 +192,31 @@ bun run preview
 ```
 
 `bun run preview` 仍然使用本地 D1/KV，不会连接生产绑定。
+
+## 认证环境变量
+
+Lumen Notes 使用 Cloudflare Worker 的运行时 Secrets 管理唯一所有者凭据。登录时，Worker 只信任下面两个变量；D1 中的 `users.password_hash` 和 `users.password_salt` 仅用于满足现有数据结构并保留派生身份数据，不再作为登录密码来源：
+
+| Secret 名称 | 要求 |
+| --- | --- |
+| `LUMEN_USERNAME` | 3–32 位，只能包含字母、数字、下划线和短横线 |
+| `LUMEN_PASSWORD` | 12–128 位，建议使用密码管理器生成的长密码 |
+
+生产环境必须在 Cloudflare Dashboard 的目标 Worker 中添加这两个 **Secret**，不要添加为会暴露在构建日志或配置文件中的普通公开变量，也不要写入 `wrangler.jsonc`：
+
+1. 打开 **Workers & Pages**，进入目标 Worker。
+2. 打开 **Settings → Variables & Secrets**。
+3. 在生产环境添加 `LUMEN_USERNAME` 和 `LUMEN_PASSWORD`，类型选择 **Secret**。
+4. 保存后重新部署 Worker，使新的运行时配置生效。
+
+本地开发使用 `.dev.vars`，内容示例：
+
+```dotenv
+LUMEN_USERNAME=lumen
+LUMEN_PASSWORD=请替换为至少12位的本地密码
+```
+
+首次用这两个值登录时，如果 D1 还是空的，Worker 会自动创建唯一用户、收件箱和欢迎笔记。修改 Secret 中的用户名或密码后，旧会话会失效；已有笔记不会被删除。
 
 ## Cloudflare 生产部署
 
@@ -270,7 +302,18 @@ lumen-notes
 
 Cloudflare 官方绑定说明：[D1 Dashboard 绑定](https://developers.cloudflare.com/d1/best-practices/remote-development/)、[KV Dashboard 绑定](https://developers.cloudflare.com/kv/concepts/kv-namespaces/)。
 
-### 第六步：应用远程 D1 迁移
+### 第六步：配置生产认证 Secrets
+
+在目标 Worker 的 **Settings → Variables & Secrets** 中添加以下两个生产 Secret：
+
+```text
+LUMEN_USERNAME
+LUMEN_PASSWORD
+```
+
+用户名必须符合 3–32 位字母、数字、下划线和短横线的规则；密码必须为 12–128 位。请直接在 Cloudflare Dashboard 的 Secret 输入框填写真实值，不要把值写入仓库、`wrangler.jsonc`、README 或公开的构建变量中。保存后继续下面的迁移和部署步骤。
+
+### 第七步：应用远程 D1 迁移
 
 `db:migrate:remote` 不读取生产 `wrangler.jsonc` 中的 D1 ID，而是根据本机环境变量生成一次性的 `.wrangler.remote.jsonc`。该文件已加入 `.gitignore`，只用于迁移命令。
 
@@ -306,7 +349,7 @@ ORDER BY name;
 
 应该能看到 `users`、`sessions`、`notebooks`、`notes`、`shares`、`notes_fts` 等对象。
 
-### 第七步：本地构建和 dry-run
+### 第八步：本地构建和 dry-run
 
 提交或部署前执行完整检查：
 
@@ -324,7 +367,7 @@ Bun 构建会生成：
 
 `dist/` 已被忽略，不要提交构建产物。`wrangler deploy --dry-run` 只用于检查 Worker bundle 和 Assets，不会将版本发布到线上。
 
-### 第八步：部署
+### 第九步：部署
 
 通过项目脚本部署：
 
@@ -354,9 +397,9 @@ Cloudflare 建议把 Wrangler 配置作为配置事实来源；本项目因为�
 
 建议按照下面顺序做一次完整验收：
 
-1. 首次访问站点，确认进入初始化页。
-2. 创建一个用户名和至少 12 位的密码。
-3. 登录并确认进入三栏工作区。
+1. 在 Worker Secrets 配置 `LUMEN_USERNAME` 和 `LUMEN_PASSWORD`。
+2. 首次访问站点，确认进入登录页。
+3. 使用这两个值登录；首次成功登录会自动创建 D1 身份、收件箱和欢迎笔记。
 4. 新建笔记，输入 Markdown 内容并等待自动保存状态变为“已保存”。
 5. 刷新页面，确认笔记正文和标题仍然存在。
 6. 在搜索框输入标题或正文中的词，确认搜索结果正确。
@@ -374,8 +417,8 @@ Cloudflare 建议把 Wrangler 配置作为配置事实来源；本项目因为�
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| `GET` | `/api/bootstrap` | 判断空间是否完成初始化 |
-| `POST` | `/api/setup` | 首次创建所有者账号，只允许成功一次 |
+| `GET` | `/api/bootstrap` | 检查 Worker Secrets 是否已配置 |
+| `POST` | `/api/setup` | 已停用；认证由 Worker Secrets 管理 |
 | `POST` | `/api/auth/login` | 用户名密码登录 |
 | `POST` | `/api/auth/logout` | 注销当前会话 |
 | `GET` | `/api/me` | 获取当前登录用户 |
