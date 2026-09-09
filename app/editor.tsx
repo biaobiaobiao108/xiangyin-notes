@@ -8,15 +8,16 @@ import TaskItem from "@tiptap/extension-task-item";
 import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
 import { ChevronLeft, Link2, ListTree, Minus, Undo2 } from "lucide-react";
-import type { Note } from "../shared/types";
+import type { Note, Notebook } from "../shared/types";
 import { buildOutlineItems, countEditorText, isMarkdownHeadingMarker, parseMarkdownHeadingPrefix, type EditorStats, type OutlineItem } from "./editor-metrics";
 
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
 
-export function NoteEditor({ note, saveState, onChange, onShare, onToggleFavorite, onMoveToTrash, onRestore, onOpenList }: {
+export function NoteEditor({ note, notebooks = [], saveState, onChange, onShare, onToggleFavorite, onMoveToTrash, onRestore, onOpenList }: {
   note: Note;
+  notebooks?: Notebook[];
   saveState: "idle" | "saving" | "saved" | "conflict" | "error";
-  onChange: (patch: { title?: string; contentMarkdown?: string }) => void;
+  onChange: (patch: { title?: string; contentMarkdown?: string; notebookId?: string }) => void;
   onShare: () => void;
   onToggleFavorite: () => void;
   onMoveToTrash: () => void;
@@ -255,7 +256,35 @@ export function NoteEditor({ note, saveState, onChange, onShare, onToggleFavorit
       <header className="editor-header">
         <div className="editor-header-start">
           {onOpenList && <button className="icon-button mobile-only editor-back" type="button" aria-label="返回笔记列表" onClick={onOpenList}><ChevronLeft size={20} /></button>}
-          <div className="breadcrumbs"><span>{note.notebookName}</span><span aria-hidden="true">/</span><strong>{note.title || "未命名笔记"}</strong></div>
+          <div className="breadcrumbs">
+            {notebooks.length > 0 ? (
+              <label className="notebook-picker-label">
+                <span className="sr-only">选择所属笔记本</span>
+                <select
+                  className="notebook-select"
+                  value={note.notebookId}
+                  disabled={Boolean(note.deletedAt)}
+                  onChange={(event) => {
+                    const nextId = event.target.value;
+                    if (nextId && nextId !== note.notebookId) {
+                      onChange({ notebookId: nextId });
+                    }
+                  }}
+                  aria-label="所属笔记本"
+                >
+                  {notebooks.map((nb) => (
+                    <option key={nb.id} value={nb.id}>
+                      {nb.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <span>{note.notebookName}</span>
+            )}
+            <span aria-hidden="true">/</span>
+            <strong>{note.title || "未命名笔记"}</strong>
+          </div>
         </div>
         <div className="editor-actions">
           <span className={`save-status save-status--${saveState}`} aria-live="polite"><span className="save-dot" />{saveLabel}</span>

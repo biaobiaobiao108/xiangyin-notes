@@ -80,7 +80,20 @@ export function Workspace() {
     }, 800);
   }, []);
   persistRef.current = persist;
-  const onNoteChange = useCallback((patch: { title?: string; contentMarkdown?: string }) => { const current = selectedRef.current; if (!current) return; const next = { ...current, ...patch }; selectedRef.current = next; setSelectedNote(next); persist(next); }, [persist]);
+  const refreshNotebooks = useCallback(() => { void api.listNotebooks().then((result) => setNotebooks(result.notebooks)); }, []);
+  const onNoteChange = useCallback((patch: { title?: string; contentMarkdown?: string; notebookId?: string }) => {
+    const current = selectedRef.current;
+    if (!current) return;
+    const targetNotebook = patch.notebookId ? notebooks.find((nb) => nb.id === patch.notebookId) : undefined;
+    const next = { ...current, ...patch, ...(targetNotebook ? { notebookName: targetNotebook.name } : {}) };
+    selectedRef.current = next;
+    setSelectedNote(next);
+    persist(next);
+    if (patch.notebookId && patch.notebookId !== current.notebookId) {
+      refreshNotebooks();
+      setToast(targetNotebook ? `已移至“${targetNotebook.name}”` : "已变更所属笔记本");
+    }
+  }, [notebooks, persist, refreshNotebooks]);
   const revealCreatedNote = useCallback((note: Note, targetNotebookId: string | undefined, message: string) => {
     setView("all");
     setNotebookId(targetNotebookId);
@@ -93,7 +106,6 @@ export function Workspace() {
     setMobileListOpen(false);
     setToast(message);
   }, []);
-  const refreshNotebooks = useCallback(() => { void api.listNotebooks().then((result) => setNotebooks(result.notebooks)); }, []);
   const createNote = useCallback(async () => { try { const result = await api.createNote({ notebookId: notebooks.find((notebook) => notebook.isSystem)?.id }); revealCreatedNote(result.note, undefined, "已创建新笔记"); refreshNotebooks(); } catch { setToast("创建笔记失败"); } }, [notebooks, refreshNotebooks, revealCreatedNote]);
   const createNoteInNotebook = useCallback(async (commandToCreate: CreateNoteCommand) => { try { const result = await api.createNote({ notebookId: commandToCreate.notebookId, title: commandToCreate.title }); revealCreatedNote(result.note, commandToCreate.notebookId, `已在“${commandToCreate.notebookName}”中创建“${commandToCreate.title}”`); refreshNotebooks(); } catch (reason) { if (reason instanceof ApiError && reason.status === 401) navigate("/login", { replace: true }); setToast("创建笔记失败，请稍后重试"); } }, [navigate, refreshNotebooks, revealCreatedNote]);
   const createNotebook = useCallback(() => setNotebookOpen(true), []);
@@ -108,7 +120,7 @@ export function Workspace() {
     <Sidebar view={view} setView={(next) => { setView(next); setNotebookId(undefined); setMobileSidebarOpen(false); }} notebooks={notebooks} notebookId={notebookId} setNotebookId={(id) => { setNotebookId(id); setView("all"); setMobileSidebarOpen(false); }} query={query} setQuery={setQuery} searchRef={searchRef} onNewNote={() => void createNote()} onCreateNotebook={() => void createNotebook()} collapsed={sidebarCollapsed} onCollapse={() => setSidebarCollapsed((value) => !value)} mobileOpen={mobileSidebarOpen} onLogout={logout} />
     <NoteListPanel notes={notes} selectedId={selectedId} onSelect={(id) => { setSelectedId(id); setMobileListOpen(false); }} view={view} query={query} mobileOpen={mobileListOpen} onOpenSidebar={() => setMobileSidebarOpen(true)} />
     <main className="editor-region">
-      {selectedNote ? <NoteEditor key={selectedNote.id} note={selectedNote} saveState={saveState} onChange={onNoteChange} onShare={() => setShareOpen(true)} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onOpenList={() => setMobileListOpen(true)} /> : <EmptyEditor onNewNote={() => void createNote()} onOpenList={() => setMobileListOpen(true)} />}
+      {selectedNote ? <NoteEditor key={selectedNote.id} note={selectedNote} notebooks={notebooks} saveState={saveState} onChange={onNoteChange} onShare={() => setShareOpen(true)} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onOpenList={() => setMobileListOpen(true)} /> : <EmptyEditor onNewNote={() => void createNote()} onOpenList={() => setMobileListOpen(true)} />}
     </main>
     <CommandMenu open={commandOpen} onClose={() => setCommandOpen(false)} onCommand={command} onCreateNoteInNotebook={createNoteInNotebook} canRestore={Boolean(selectedNote?.deletedAt)} notebooks={notebooks} />
     {shareOpen && selectedNote && <ShareDialog note={selectedNote} onClose={() => setShareOpen(false)} onToast={setToast} />}
