@@ -7,13 +7,13 @@ import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
-import { Link2, ListTree, Minus, Undo2 } from "lucide-react";
+import { ChevronLeft, Link2, ListTree, Minus, Undo2 } from "lucide-react";
 import type { Note } from "../shared/types";
 import { buildOutlineItems, countEditorText, isMarkdownHeadingMarker, parseMarkdownHeadingPrefix, type EditorStats, type OutlineItem } from "./editor-metrics";
 
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
 
-export function NoteEditor({ note, saveState, onChange, onShare, onToggleFavorite, onMoveToTrash, onRestore }: {
+export function NoteEditor({ note, saveState, onChange, onShare, onToggleFavorite, onMoveToTrash, onRestore, onOpenList }: {
   note: Note;
   saveState: "idle" | "saving" | "saved" | "conflict" | "error";
   onChange: (patch: { title?: string; contentMarkdown?: string }) => void;
@@ -21,6 +21,7 @@ export function NoteEditor({ note, saveState, onChange, onShare, onToggleFavorit
   onToggleFavorite: () => void;
   onMoveToTrash: () => void;
   onRestore: () => void;
+  onOpenList?: () => void;
 }) {
   const editorScrollRef = useRef<HTMLDivElement>(null);
   const floatingToolsRef = useRef<HTMLDivElement>(null);
@@ -252,7 +253,10 @@ export function NoteEditor({ note, saveState, onChange, onShare, onToggleFavorit
   return (
     <section className="editor-panel" aria-label="笔记编辑器">
       <header className="editor-header">
-        <div className="breadcrumbs"><span>{note.notebookName}</span><span aria-hidden="true">/</span><strong>{note.title || "未命名笔记"}</strong></div>
+        <div className="editor-header-start">
+          {onOpenList && <button className="icon-button mobile-only editor-back" type="button" aria-label="返回笔记列表" onClick={onOpenList}><ChevronLeft size={20} /></button>}
+          <div className="breadcrumbs"><span>{note.notebookName}</span><span aria-hidden="true">/</span><strong>{note.title || "未命名笔记"}</strong></div>
+        </div>
         <div className="editor-actions">
           <span className={`save-status save-status--${saveState}`} aria-live="polite"><span className="save-dot" />{saveLabel}</span>
           <button className={`icon-button ${note.isFavorite ? "is-active" : ""}`} type="button" aria-label={note.isFavorite ? "取消收藏" : "收藏笔记"} title={note.isFavorite ? "取消收藏" : "收藏笔记"} onClick={onToggleFavorite}><span className="star-glyph">★</span></button>
