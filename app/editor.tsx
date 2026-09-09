@@ -266,7 +266,20 @@ export function NoteEditor({ note, saveState, onChange, onShare, onToggleFavorit
       </header>
       <div className="editor-scroll" ref={editorScrollRef}>
         <div className="editor-document">
-          <input className="note-title-input" value={note.title} onChange={(event) => onChange({ title: event.target.value })} aria-label="笔记标题" placeholder="未命名笔记" />
+          <input
+            className="note-title-input"
+            value={note.title}
+            maxLength={200}
+            onChange={(event) => onChange({ title: event.target.value })}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.nativeEvent.isComposing && event.keyCode !== 229) {
+                event.preventDefault();
+                editor?.commands.focus("start");
+              }
+            }}
+            aria-label="笔记标题"
+            placeholder="未命名笔记"
+          />
           <EditorContent editor={editor} />
         </div>
       </div>
