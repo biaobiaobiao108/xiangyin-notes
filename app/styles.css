@@ -347,6 +347,8 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
 
 .share-shell { min-height: 100dvh; background: var(--canvas); }
 .share-header { justify-content: space-between; min-height: 70px; padding: 0 max(24px, calc((100% - 940px) / 2)); border-bottom: 1px solid var(--border); }
+.share-header-actions { display: flex; align-items: center; gap: 12px; }
+.share-copy-button { min-height: 32px; padding: 0 11px; font-size: 0.76rem; font-weight: 500; }
 .share-readonly { color: var(--muted); font-size: 0.76rem; }
 .share-article { width: min(760px, calc(100% - 48px)); margin: 0 auto; padding: 78px 0 60px; }
 .share-kicker { display: flex; align-items: center; gap: 7px; margin: 0 0 22px; color: var(--muted); font-size: 0.75rem; }
