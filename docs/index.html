@@ -1,0 +1,1227 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f6f4ef" />
+    <meta name="description" content="象映笔记，一款安静、快速的本地 Markdown 笔记空间。" />
+    <title>象映笔记 · 让想法有地方落脚</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --canvas: #f6f4ef;
+        --surface: #ffffff;
+        --surface-muted: #f8f8f6;
+        --ink: #202621;
+        --muted: #718078;
+        --soft-muted: #a0aaa3;
+        --border: #dce1dc;
+        --border-strong: #ccd3cd;
+        --accent: #d96245;
+        --accent-dark: #b94e35;
+        --accent-soft: #faeee9;
+        --serif: "Source Serif 4", "Noto Serif SC", "Songti SC", Georgia, serif;
+        --sans: "DM Sans", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
+        --mono: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+        --shadow: 0 22px 50px rgba(39, 47, 41, 0.14), 0 3px 10px rgba(39, 47, 41, 0.06);
+        --radius-sm: 8px;
+        --radius-md: 12px;
+        --radius-lg: 18px;
+      }
+
+      html {
+        min-width: 320px;
+        scroll-behavior: smooth;
+      }
+
+      body {
+        min-width: 320px;
+        margin: 0;
+        background: var(--canvas);
+        color: var(--ink);
+        font-family: var(--sans);
+        font-synthesis: none;
+        text-rendering: optimizeLegibility;
+      }
+
+      .page-shell,
+      .page-shell * {
+        box-sizing: border-box;
+      }
+
+      .page-shell {
+        min-block-size: 100dvh;
+        overflow: clip;
+      }
+
+      a {
+        color: inherit;
+      }
+
+      a:focus-visible {
+        outline: 3px solid rgba(217, 98, 69, 0.42);
+        outline-offset: 4px;
+      }
+
+      .skip-link {
+        position: fixed;
+        inset-block-start: 12px;
+        inset-inline-start: 16px;
+        z-index: 10;
+        transform: translateY(-160%);
+        padding: 9px 13px;
+        border: 1px solid var(--accent);
+        border-radius: var(--radius-sm);
+        background: var(--surface);
+        color: var(--accent-dark);
+        font-size: 0.78rem;
+        font-weight: 700;
+        text-decoration: none;
+        transition: transform 160ms ease;
+      }
+
+      .skip-link:focus {
+        transform: translateY(0);
+      }
+
+      .site-header,
+      .hero,
+      .feature-strip,
+      .site-footer {
+        inline-size: min(1320px, calc(100% - 48px));
+        margin-inline: auto;
+      }
+
+      .site-header {
+        display: flex;
+        align-items: center;
+        gap: 28px;
+        min-block-size: 72px;
+        border-block-end: 1px solid var(--border-strong);
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        color: var(--ink);
+        font-size: 0.92rem;
+        font-weight: 700;
+        letter-spacing: -0.045em;
+        text-decoration: none;
+        white-space: nowrap;
+      }
+
+      .brand-mark {
+        display: grid;
+        inline-size: 26px;
+        block-size: 26px;
+        place-items: center;
+        border: 1px solid #e8ad9e;
+        border-radius: 8px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        transform: rotate(-7deg);
+      }
+
+      .brand-mark svg {
+        inline-size: 17px;
+        block-size: 17px;
+        transform: rotate(7deg);
+      }
+
+      .site-nav {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 24px;
+        margin-inline-start: auto;
+      }
+
+      .site-nav a {
+        color: var(--muted);
+        font-size: 0.76rem;
+        text-decoration: none;
+        transition: color 160ms ease;
+      }
+
+      .site-nav a:hover {
+        color: var(--ink);
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 9px;
+        min-block-size: 45px;
+        padding: 0 18px;
+        border: 1px solid var(--accent);
+        border-radius: 10px;
+        background: var(--accent);
+        box-shadow: 0 8px 18px rgba(217, 98, 69, 0.18);
+        color: #fff;
+        font-size: 0.82rem;
+        font-weight: 700;
+        text-decoration: none;
+        transition: background 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+      }
+
+      .button:hover {
+        background: var(--accent-dark);
+        box-shadow: 0 10px 22px rgba(185, 78, 53, 0.2);
+        transform: translateY(-1px);
+      }
+
+      .button:active {
+        transform: translateY(1px);
+      }
+
+      .button--small {
+        min-block-size: 34px;
+        padding-inline: 14px;
+        border-radius: 8px;
+        font-size: 0.74rem;
+      }
+
+      .button svg {
+        inline-size: 16px;
+        block-size: 16px;
+      }
+
+      .hero {
+        display: grid;
+        grid-template-columns: minmax(245px, 0.72fr) minmax(0, 1.28fr);
+        align-items: center;
+        gap: clamp(42px, 7vw, 108px);
+        min-block-size: min(720px, calc(100dvh - 72px));
+        padding-block: clamp(64px, 8vw, 112px) clamp(76px, 9vw, 124px);
+      }
+
+      .hero-copy {
+        max-inline-size: 430px;
+      }
+
+      .hero h1 {
+        max-inline-size: 440px;
+        margin: 0;
+        color: var(--ink);
+        font-family: var(--serif);
+        font-size: clamp(3.05rem, 6.1vw, 6.4rem);
+        font-weight: 600;
+        letter-spacing: -0.085em;
+        line-height: 0.99;
+        text-wrap: balance;
+      }
+
+      .hero h1 span {
+        display: block;
+        margin-inline-start: 0.43em;
+        font-size: 0.76em;
+        letter-spacing: -0.075em;
+      }
+
+      .hero-lede {
+        max-inline-size: 340px;
+        margin: 26px 0 26px;
+        color: var(--muted);
+        font-family: var(--serif);
+        font-size: clamp(1rem, 1.4vw, 1.25rem);
+        line-height: 1.65;
+        text-wrap: pretty;
+      }
+
+      .hero-note {
+        max-inline-size: 250px;
+        margin: clamp(54px, 8vw, 106px) 0 0;
+        padding-block-start: 17px;
+        border-block-start: 2px solid #b2bbb4;
+        color: var(--muted);
+        font-family: var(--serif);
+        font-size: 0.9rem;
+        line-height: 1.7;
+        text-wrap: pretty;
+      }
+
+      .product-stage {
+        min-inline-size: 0;
+        scroll-margin-block-start: 28px;
+      }
+
+      .product-window {
+        overflow: clip;
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius-lg);
+        background: var(--surface);
+        box-shadow: var(--shadow);
+      }
+
+      .window-chrome {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-block-size: 36px;
+        padding-inline: 14px;
+        border-block-end: 1px solid #edf0ed;
+        background: #fbfbfa;
+      }
+
+      .window-dot {
+        inline-size: 8px;
+        block-size: 8px;
+        border-radius: 50%;
+        background: #d9dfda;
+      }
+
+      .window-dot:first-child { background: #e8a18f; }
+      .window-dot:nth-child(2) { background: #e8c37d; }
+      .window-dot:nth-child(3) { background: #9cc19f; }
+
+      .window-title {
+        margin-inline: auto;
+        color: var(--soft-muted);
+        font-size: 0.63rem;
+        letter-spacing: 0.035em;
+      }
+
+      .workspace-preview {
+        display: grid;
+        grid-template-columns: minmax(142px, 0.27fr) minmax(176px, 0.3fr) minmax(0, 0.78fr);
+        min-block-size: 392px;
+      }
+
+      .preview-sidebar,
+      .preview-list,
+      .preview-editor {
+        min-inline-size: 0;
+      }
+
+      .preview-sidebar {
+        display: flex;
+        flex-direction: column;
+        gap: 13px;
+        padding: 17px 13px 14px;
+        border-inline-end: 1px solid var(--border);
+        background: #fcfcfb;
+      }
+
+      .preview-brand {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin: 0 3px 2px;
+        color: var(--ink);
+        font-size: 0.7rem;
+        font-weight: 700;
+        letter-spacing: -0.04em;
+      }
+
+      .preview-brand-mark {
+        display: inline-grid;
+        inline-size: 17px;
+        block-size: 17px;
+        place-items: center;
+        border-radius: 5px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-family: var(--serif);
+        font-size: 0.72rem;
+      }
+
+      .preview-action,
+      .preview-search,
+      .preview-nav-item,
+      .preview-notebook {
+        display: flex;
+        align-items: center;
+        min-inline-size: 0;
+        border: 0;
+        color: var(--muted);
+        font-size: 0.62rem;
+        line-height: 1.2;
+        white-space: nowrap;
+      }
+
+      .preview-action {
+        justify-content: center;
+        gap: 5px;
+        min-block-size: 27px;
+        border-radius: 6px;
+        background: var(--accent);
+        color: #fff;
+        font-weight: 700;
+      }
+
+      .preview-search {
+        gap: 6px;
+        min-block-size: 26px;
+        padding-inline: 7px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--surface);
+        color: var(--soft-muted);
+      }
+
+      .preview-search span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .preview-search svg,
+      .preview-action svg {
+        flex: none;
+        inline-size: 11px;
+        block-size: 11px;
+      }
+
+      .preview-nav {
+        display: grid;
+        gap: 4px;
+      }
+
+      .preview-nav-item {
+        gap: 7px;
+        min-block-size: 25px;
+        padding-inline: 7px;
+        border-radius: 6px;
+      }
+
+      .preview-nav-item.is-active {
+        background: var(--accent-soft);
+        color: var(--accent-dark);
+        font-weight: 700;
+      }
+
+      .preview-nav-item svg {
+        flex: none;
+        inline-size: 12px;
+        block-size: 12px;
+      }
+
+      .preview-section-label {
+        margin: 8px 5px 1px;
+        color: var(--soft-muted);
+        font-size: 0.55rem;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+      }
+
+      .preview-notebooks {
+        display: grid;
+        gap: 2px;
+      }
+
+      .preview-notebook {
+        justify-content: space-between;
+        gap: 5px;
+        min-block-size: 23px;
+        padding-inline: 7px;
+      }
+
+      .preview-notebook span:first-child {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        min-inline-size: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .preview-notebook em {
+        color: var(--soft-muted);
+        font-size: 0.54rem;
+        font-style: normal;
+      }
+
+      .notebook-dot {
+        inline-size: 6px;
+        block-size: 6px;
+        flex: none;
+        border-radius: 50%;
+        background: var(--accent);
+      }
+
+      .notebook-dot--green { background: #75927b; }
+      .notebook-dot--yellow { background: #c89b50; }
+      .notebook-dot--blue { background: #8097a1; }
+
+      .preview-sidebar-status {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-block-start: auto;
+        padding: 9px 7px 0;
+        border-block-start: 1px solid #edf0ed;
+        color: var(--soft-muted);
+        font-size: 0.52rem;
+        line-height: 1.4;
+      }
+
+      .status-pulse {
+        inline-size: 6px;
+        block-size: 6px;
+        flex: none;
+        border-radius: 50%;
+        background: #73a37a;
+      }
+
+      .preview-list {
+        border-inline-end: 1px solid var(--border);
+        background: var(--surface);
+      }
+
+      .preview-list-header {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 19px 14px 13px;
+        border-block-end: 1px solid #edf0ed;
+      }
+
+      .preview-list-header h3 {
+        margin: 0;
+        color: var(--ink);
+        font-size: 0.79rem;
+        letter-spacing: -0.04em;
+      }
+
+      .preview-list-header span {
+        color: var(--soft-muted);
+        font-size: 0.54rem;
+      }
+
+      .preview-note-row {
+        display: grid;
+        gap: 5px;
+        padding: 12px 14px;
+        border-block-end: 1px solid #edf0ed;
+      }
+
+      .preview-note-row.is-active {
+        background: #fff8f4;
+      }
+
+      .preview-note-title {
+        overflow: hidden;
+        color: var(--ink);
+        font-size: 0.64rem;
+        font-weight: 700;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .preview-note-copy {
+        display: -webkit-box;
+        overflow: clip;
+        color: var(--muted);
+        font-family: var(--serif);
+        font-size: 0.57rem;
+        line-height: 1.4;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+      }
+
+      .preview-note-meta {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        color: var(--soft-muted);
+        font-size: 0.5rem;
+      }
+
+      .preview-editor {
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        background: var(--surface);
+      }
+
+      .editor-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 13px;
+        min-block-size: 48px;
+        padding-inline: 17px;
+        border-block-end: 1px solid #edf0ed;
+        color: var(--muted);
+      }
+
+      .editor-toolbar span {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-inline-size: 16px;
+        color: currentColor;
+        font-size: 0.66rem;
+        font-weight: 700;
+      }
+
+      .editor-toolbar svg {
+        inline-size: 14px;
+        block-size: 14px;
+      }
+
+      .editor-toolbar .toolbar-spacer {
+        margin-inline-start: auto;
+      }
+
+      .editor-body {
+        max-inline-size: 540px;
+        padding: 42px clamp(22px, 4vw, 54px) 26px;
+      }
+
+      .editor-body h3 {
+        margin: 0 0 19px;
+        color: var(--ink);
+        font-family: var(--serif);
+        font-size: clamp(1.35rem, 2.3vw, 2rem);
+        letter-spacing: -0.06em;
+        line-height: 1.15;
+      }
+
+      .editor-body p,
+      .editor-body li,
+      .editor-body blockquote {
+        color: #58665d;
+        font-family: var(--serif);
+        font-size: clamp(0.72rem, 1.05vw, 0.92rem);
+        line-height: 1.75;
+      }
+
+      .editor-body p {
+        margin: 0 0 18px;
+      }
+
+      .editor-body h4 {
+        margin: 26px 0 8px;
+        color: var(--ink);
+        font-family: var(--serif);
+        font-size: clamp(0.82rem, 1.2vw, 1rem);
+        letter-spacing: -0.035em;
+      }
+
+      .editor-body ul {
+        margin: 0;
+        padding-inline-start: 1.3em;
+      }
+
+      .editor-body blockquote {
+        margin: 24px 0 0;
+        padding: 7px 0 7px 16px;
+        border-inline-start: 3px solid #c7d0c9;
+      }
+
+      .editor-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        min-block-size: 38px;
+        padding-inline: 17px;
+        border-block-start: 1px solid #edf0ed;
+        color: var(--soft-muted);
+        font-size: 0.53rem;
+      }
+
+      .editor-footer span {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+      }
+
+      .editor-footer .saved {
+        color: #6d9972;
+      }
+
+      .editor-footer svg {
+        inline-size: 11px;
+        block-size: 11px;
+      }
+
+      .feature-strip {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        border-block-start: 1px solid var(--border-strong);
+        border-block-end: 1px solid var(--border-strong);
+      }
+
+      .feature {
+        min-inline-size: 0;
+        padding: 39px clamp(20px, 3.2vw, 48px) 43px;
+      }
+
+      .feature + .feature {
+        border-inline-start: 1px solid var(--border-strong);
+      }
+
+      .feature-icon {
+        display: grid;
+        inline-size: 34px;
+        block-size: 34px;
+        place-items: center;
+        margin-block-end: 20px;
+        color: var(--ink);
+      }
+
+      .feature-icon svg {
+        inline-size: 28px;
+        block-size: 28px;
+        stroke-width: 1.55;
+      }
+
+      .feature h2 {
+        margin: 0;
+        color: var(--ink);
+        font-family: var(--serif);
+        font-size: clamp(1.05rem, 1.5vw, 1.35rem);
+        letter-spacing: -0.045em;
+        line-height: 1.25;
+        text-wrap: balance;
+      }
+
+      .feature p {
+        max-inline-size: 290px;
+        margin: 12px 0 0;
+        color: var(--muted);
+        font-family: var(--serif);
+        font-size: 0.84rem;
+        line-height: 1.75;
+        text-wrap: pretty;
+      }
+
+      .feature-preview {
+        display: grid;
+        gap: 7px;
+        min-block-size: 102px;
+        margin-block-start: 24px;
+        padding: 13px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--surface);
+      }
+
+      .mini-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding-block-end: 7px;
+        border-block-end: 1px solid #edf0ed;
+        color: var(--muted);
+        font-size: 0.56rem;
+        font-weight: 700;
+      }
+
+      .mini-toolbar span:last-child {
+        margin-inline-start: auto;
+      }
+
+      .mini-copy {
+        color: var(--muted);
+        font-family: var(--serif);
+        font-size: 0.63rem;
+        line-height: 1.7;
+      }
+
+      .mini-list {
+        display: grid;
+        gap: 4px;
+      }
+
+      .mini-list-row {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        min-block-size: 17px;
+        color: var(--muted);
+        font-size: 0.6rem;
+      }
+
+      .mini-list-row.is-highlighted {
+        padding-inline: 5px;
+        border-radius: 5px;
+        background: var(--accent-soft);
+        color: var(--accent-dark);
+      }
+
+      .mini-list-row svg {
+        flex: none;
+        inline-size: 12px;
+        block-size: 12px;
+      }
+
+      .mini-share-label {
+        color: var(--accent-dark);
+        font-size: 0.61rem;
+        font-weight: 700;
+      }
+
+      .mini-share-link {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        min-inline-size: 0;
+        min-block-size: 25px;
+        padding-inline: 8px;
+        border: 1px solid #ecd1c8;
+        border-radius: 6px;
+        background: #fff8f4;
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: 0.51rem;
+      }
+
+      .mini-share-link span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .mini-share-link b {
+        margin-inline-start: auto;
+        color: var(--accent-dark);
+        font-family: var(--sans);
+        font-size: 0.55rem;
+        white-space: nowrap;
+      }
+
+      .site-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 18px;
+        min-block-size: 74px;
+        color: var(--soft-muted);
+        font-size: 0.68rem;
+      }
+
+      .site-footer strong {
+        color: var(--muted);
+        font-weight: 700;
+      }
+
+      .site-footer a {
+        color: var(--muted);
+        text-underline-offset: 3px;
+      }
+
+      .sr-only {
+        position: absolute;
+        inline-size: 1px;
+        block-size: 1px;
+        padding: 0;
+        overflow: clip;
+        clip-path: inset(50%);
+        white-space: nowrap;
+        border: 0;
+      }
+
+      @media (max-width: 1080px) {
+        .hero {
+          gap: 46px;
+        }
+
+        .workspace-preview {
+          grid-template-columns: minmax(126px, 0.29fr) minmax(150px, 0.34fr) minmax(0, 0.7fr);
+        }
+
+        .preview-sidebar {
+          padding-inline: 10px;
+        }
+
+        .editor-toolbar {
+          gap: 9px;
+          padding-inline: 12px;
+        }
+      }
+
+      @media (max-width: 820px) {
+        .site-header,
+        .hero,
+        .feature-strip,
+        .site-footer {
+          inline-size: min(100% - 32px, 680px);
+        }
+
+        .site-header {
+          flex-wrap: wrap;
+          gap: 14px 20px;
+          padding-block: 13px;
+        }
+
+        .site-nav {
+          order: 3;
+          inline-size: 100%;
+          justify-content: center;
+          gap: 22px;
+          padding-block-start: 10px;
+          border-block-start: 1px solid #e7ebe7;
+        }
+
+        .site-header .button--small {
+          margin-inline-start: auto;
+        }
+
+        .hero {
+          grid-template-columns: 1fr;
+          gap: 48px;
+          min-block-size: auto;
+          padding-block: 76px 80px;
+        }
+
+        .hero-copy {
+          max-inline-size: 560px;
+        }
+
+        .hero h1 {
+          max-inline-size: 560px;
+          font-size: clamp(3.25rem, 13vw, 5.8rem);
+        }
+
+        .hero-note {
+          margin-block-start: 48px;
+        }
+
+        .feature-strip {
+          grid-template-columns: 1fr;
+        }
+
+        .feature + .feature {
+          border-block-start: 1px solid var(--border-strong);
+          border-inline-start: 0;
+        }
+
+        .feature {
+          display: grid;
+          grid-template-columns: 42px minmax(0, 1fr);
+          column-gap: 16px;
+          padding: 28px 24px 30px;
+        }
+
+        .feature-icon {
+          grid-row: 1 / span 3;
+          margin-block-end: 0;
+        }
+
+        .feature p,
+        .feature-preview {
+          grid-column: 2;
+        }
+      }
+
+      @media (max-width: 560px) {
+        .site-header,
+        .hero,
+        .feature-strip,
+        .site-footer {
+          inline-size: min(100% - 24px, 440px);
+        }
+
+        .site-header {
+          min-block-size: 64px;
+        }
+
+        .site-header .button--small {
+          min-block-size: 32px;
+          padding-inline: 11px;
+          font-size: 0.68rem;
+        }
+
+        .site-nav {
+          justify-content: space-between;
+          gap: 10px;
+        }
+
+        .hero {
+          gap: 37px;
+          padding-block: 58px 64px;
+        }
+
+        .hero h1 {
+          font-size: clamp(2.75rem, 15vw, 4.25rem);
+        }
+
+        .hero h1 span {
+          margin-inline-start: 0.25em;
+        }
+
+        .hero-lede {
+          margin-block: 20px 23px;
+          font-size: 0.98rem;
+        }
+
+        .hero-note {
+          margin-block-start: 45px;
+          font-size: 0.82rem;
+        }
+
+        .workspace-preview {
+          grid-template-columns: minmax(0, 1fr);
+          min-block-size: 0;
+        }
+
+        .preview-sidebar,
+        .preview-list {
+          display: none;
+        }
+
+        .preview-editor {
+          min-block-size: 360px;
+        }
+
+        .editor-toolbar {
+          gap: 7px;
+          min-block-size: 43px;
+          padding-inline: 12px;
+        }
+
+        .editor-toolbar span:nth-child(4),
+        .editor-toolbar span:nth-child(5) {
+          display: none;
+        }
+
+        .editor-body {
+          padding: 31px 22px 22px;
+        }
+
+        .editor-body h3 {
+          font-size: 1.65rem;
+        }
+
+        .editor-body p,
+        .editor-body li,
+        .editor-body blockquote {
+          font-size: 0.82rem;
+        }
+
+        .feature {
+          grid-template-columns: 36px minmax(0, 1fr);
+          column-gap: 11px;
+          padding-inline: 18px;
+        }
+
+        .feature-icon svg {
+          inline-size: 24px;
+          block-size: 24px;
+        }
+
+        .feature h2 {
+          font-size: 1.04rem;
+        }
+
+        .feature p {
+          font-size: 0.8rem;
+        }
+
+        .site-footer {
+          align-items: flex-start;
+          flex-wrap: wrap;
+          padding-block: 19px;
+        }
+
+        .site-footer a {
+          margin-inline-start: auto;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page-shell" id="top">
+      <a class="skip-link" href="#main">跳转到主要内容</a>
+
+      <header class="site-header">
+        <a class="brand" href="#top" aria-label="象映笔记首页">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M6.5 8.5c.4-2.2 2.2-3.7 5.1-3.7 3.4 0 5.3 2.1 5.3 5.2v3.4c0 2.5-1.8 4.2-4.4 4.2H9.2c-2 0-3.7-1.5-3.7-3.5V10" />
+              <path d="M6.1 11.5H4.8c-1.2 0-2.1.9-2.1 2.1v.6c0 1.2.9 2.1 2.1 2.1h1.5M15.4 9.5h.1M10.4 9.5h.1M15.9 17.1c1.2.2 2.1 1.1 2.1 2.3" />
+            </svg>
+          </span>
+          <span>象映笔记</span>
+        </a>
+
+        <nav class="site-nav" aria-label="主导航">
+          <a href="#product">产品</a>
+          <a href="#features">功能</a>
+          <a href="#privacy">隐私</a>
+        </nav>
+
+        <a class="button button--small" href="#product">
+          开始记录
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M5 12h13M13 6l6 6-6 6" />
+          </svg>
+        </a>
+      </header>
+
+      <main id="main">
+        <section class="hero" aria-labelledby="hero-title">
+          <div class="hero-copy">
+            <h1 id="hero-title">让想法有<span>地方落脚</span></h1>
+            <p class="hero-lede">一款安静、快速的本地 Markdown 笔记空间。</p>
+            <a class="button" href="#product">
+              开始记录
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M5 12h13M13 6l6 6-6 6" />
+              </svg>
+            </a>
+            <p class="hero-note">在纷杂的世界里，为自己的思考保留一片安静的角落。</p>
+          </div>
+
+          <div class="product-stage" id="product">
+            <h2 class="sr-only">象映笔记工作区预览</h2>
+            <div class="product-window">
+              <div class="window-chrome" aria-hidden="true">
+                <span class="window-dot"></span>
+                <span class="window-dot"></span>
+                <span class="window-dot"></span>
+                <span class="window-title">象映笔记</span>
+              </div>
+
+              <div class="workspace-preview">
+                <aside class="preview-sidebar" aria-label="笔记导航预览">
+                  <div class="preview-brand">
+                    <span class="preview-brand-mark" aria-hidden="true">象</span>
+                    <span>象映笔记</span>
+                  </div>
+                  <div class="preview-action">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+                    <span>新建笔记</span>
+                  </div>
+                  <div class="preview-search">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4.5 4.5" /></svg>
+                    <span>搜索笔记……</span>
+                  </div>
+                  <div class="preview-nav">
+                    <div class="preview-nav-item is-active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4.5h10l4 4v11H5z" /><path d="M14.5 4.5v4h4M8 13h8M8 16h6" /></svg><span>全部笔记</span></div>
+                    <div class="preview-nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 7.5h5l1.6 2h8.4v9.5h-15z" /><path d="M4.5 7.5V5h6l1.5 2.5" /></svg><span>收件箱</span></div>
+                    <div class="preview-nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 4.8 2.2 4.5 5 .7-3.6 3.5.9 5-4.5-2.3-4.5 2.3.9-5-3.6-3.5 5-.7z" /></svg><span>收藏</span></div>
+                  </div>
+                  <div class="preview-section-label">笔记本</div>
+                  <div class="preview-notebooks">
+                    <div class="preview-notebook"><span><i class="notebook-dot"></i>随笔</span><em>12</em></div>
+                    <div class="preview-notebook"><span><i class="notebook-dot notebook-dot--green"></i>工作</span><em>8</em></div>
+                    <div class="preview-notebook"><span><i class="notebook-dot notebook-dot--yellow"></i>生活</span><em>6</em></div>
+                    <div class="preview-notebook"><span><i class="notebook-dot notebook-dot--blue"></i>阅读</span><em>14</em></div>
+                  </div>
+                  <div class="preview-sidebar-status"><i class="status-pulse"></i><span>数据安全保存在你的空间</span></div>
+                </aside>
+
+                <section class="preview-list" aria-label="笔记列表预览">
+                  <div class="preview-list-header"><h3>全部笔记</h3><span>128 篇</span></div>
+                  <div class="preview-note-row is-active">
+                    <span class="preview-note-title">让想法有地方落脚</span>
+                    <span class="preview-note-copy">在快速变化的世界里，记录依然重要。</span>
+                    <span class="preview-note-meta"><span>随笔</span><time>今天 10:24</time></span>
+                  </div>
+                  <div class="preview-note-row">
+                    <span class="preview-note-title">周末的山与湖</span>
+                    <span class="preview-note-copy">山不言语，但总能让人安静下来。</span>
+                    <span class="preview-note-meta"><span>生活</span><time>昨天 18:20</time></span>
+                  </div>
+                  <div class="preview-note-row">
+                    <span class="preview-note-title">读《银河系漫游指南》</span>
+                    <span class="preview-note-copy">有些问题不需要答案，过程本身就是意义。</span>
+                    <span class="preview-note-meta"><span>阅读</span><time>10 月 12 日</time></span>
+                  </div>
+                  <div class="preview-note-row">
+                    <span class="preview-note-title">产品思考：更少，但更好</span>
+                    <span class="preview-note-copy">真正的效率，来自于减少不必要的选择。</span>
+                    <span class="preview-note-meta"><span>工作</span><time>10 月 10 日</time></span>
+                  </div>
+                  <div class="preview-note-row">
+                    <span class="preview-note-title">旅行清单</span>
+                    <span class="preview-note-copy">把想去的地方，变成会去的地方。</span>
+                    <span class="preview-note-meta"><span>生活</span><time>10 月 8 日</time></span>
+                  </div>
+                </section>
+
+                <article class="preview-editor" aria-label="Markdown 编辑器预览">
+                  <div class="editor-toolbar" aria-hidden="true">
+                    <span>H</span><span>B</span><span><em>I</em></span>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01" /></svg>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01" /></svg>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 12 3 3 5-6" /><path d="M4 7.5h3M4 12h3M4 16.5h3" /></svg>
+                    <span class="toolbar-spacer">···</span>
+                  </div>
+                  <div class="editor-body">
+                    <h3>让想法有地方落脚</h3>
+                    <p>在快速变化的世界里，记录依然重要。它让模糊的想法变得清晰，也让流动的情绪有了安放之处。</p>
+                    <h4>为什么选择写下来？</h4>
+                    <ul>
+                      <li>整理思路，看见更完整的自己</li>
+                      <li>让灵感不再轻易溜走</li>
+                      <li>在未来的某个时刻，与过去的自己相遇</li>
+                    </ul>
+                    <blockquote>好的记录，不只是为了想起，也是为了更好地出发。</blockquote>
+                  </div>
+                  <div class="editor-footer"><span>字数 68</span><span>Markdown</span><span class="saved"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg>已自动保存</span></div>
+                </article>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="feature-strip" id="features" aria-label="核心功能">
+          <article class="feature">
+            <div class="feature-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3.5h10l4 4v13H5z" /><path d="M14.5 3.5v4h4M8 12h8M8 15.5h6" /></svg>
+            </div>
+            <h2>Markdown 所见即所得</h2>
+            <p>专注于内容本身，支持 Markdown 语法，同时提供流畅的所见即所得编辑体验，让写作回归纯粹。</p>
+            <div class="feature-preview" aria-hidden="true">
+              <div class="mini-toolbar"><span>H</span><span>B</span><span><em>I</em></span><span>•</span><span>☷</span><span>↗</span></div>
+              <div class="mini-copy">用文字，整理生活的线索。<br />· 简单<br />· 专注<br />· 持久</div>
+            </div>
+          </article>
+
+          <article class="feature">
+            <div class="feature-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4.5 4.5" /></svg>
+            </div>
+            <h2>搜索、整理与分享</h2>
+            <p>快速搜索，轻松整理。用笔记本和标签管理思路，让每一条想法都能被找到、被连接、被继续。</p>
+            <div class="feature-preview" aria-hidden="true">
+              <div class="preview-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4.5 4.5" /></svg><span>搜索笔记……</span></div>
+              <div class="mini-list">
+                <div class="mini-list-row is-highlighted"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4.5h10l4 4v11H5z" /><path d="M14.5 4.5v4h4" /></svg><span>全部笔记</span><span>128</span></div>
+                <div class="mini-list-row"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 7.5h5l1.6 2h8.4v9.5h-15z" /></svg><span>工作</span><span>8</span></div>
+              </div>
+            </div>
+          </article>
+
+          <article class="feature" id="privacy">
+            <div class="feature-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7.5 8.5 12 4l4.5 4.5M5 14.5v4h14v-4" /></svg>
+            </div>
+            <h2>你的数据，留在自己的空间。</h2>
+            <p>所有笔记都保存于本地。你可以生成 7 天只读的分享链接，与他人分享思考，而无需交出更多控制权。</p>
+            <div class="feature-preview" aria-hidden="true">
+              <span class="mini-share-label">创建只读分享链接</span>
+              <div class="mini-share-link"><span>https://local.note/share/7d/3f9a…</span><b>复制链接</b></div>
+              <div class="mini-copy">该链接 7 天后将自动失效，仅可查看，无法编辑。</div>
+            </div>
+          </article>
+        </section>
+      </main>
+
+      <footer class="site-footer">
+        <span><strong>象映笔记</strong>　|　让想法有地方落脚</span>
+        <span>本地保存 · 安静记录</span>
+        <a href="#top">回到顶部</a>
+      </footer>
+    </div>
+  </body>
+</html>
