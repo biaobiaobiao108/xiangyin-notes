@@ -115,7 +115,7 @@ COOKIE_SECURE=false
 bun install
 ```
 
-执行数据库迁移。服务器启动时也会自动执行，所以首次开发可以省略这一步：
+执行数据库迁移。服务器启动时不会自动修改数据库，首次启动前必须显式执行：
 
 ```bash
 bun run db:migrate
@@ -166,6 +166,7 @@ bun build ./app/index.html \
 
 ```bash
 bun build ./server/index.ts \
+  ./server/migrate.ts \
   --outdir ./dist/server \
   --target bun \
   --format esm \
@@ -205,7 +206,7 @@ curl http://127.0.0.1:3000/api/health
 
 ## SQLite 迁移
 
-迁移器会在数据库中创建 `schema_migrations` 表，然后按文件名顺序执行尚未应用的 SQL 文件。每个迁移只会成功执行一次。
+迁移器会在数据库中创建 `schema_migrations` 表，然后按文件名顺序执行尚未应用的 SQL 文件。每个迁移只会成功执行一次。迁移只通过 `bun run db:migrate` 或容器中的迁移命令显式执行，服务器启动不会自动迁移。
 
 当前迁移：
 
@@ -218,7 +219,7 @@ curl http://127.0.0.1:3000/api/health
 bun run db:migrate
 ```
 
-服务器启动时也会自动执行迁移。迁移失败会阻止服务器启动，避免使用不完整的数据库结构。
+如果数据库尚未迁移，服务仍可以启动，但依赖数据表的 API 不可用；请先执行迁移，再启动或重启服务。迁移失败时命令会返回错误，不会继续运行。
 
 数据库文件默认位于：
 
@@ -263,6 +264,13 @@ docker build --pull -t lumen-notes:local .
 ```bash
 docker volume create lumen-notes-data
 
+# 首次部署或新增数据库迁移时，显式初始化/升级 SQLite 结构
+docker run --rm \
+  --env-file .env \
+  -v lumen-notes-data:/data \
+  lumen-notes:local \
+  bun dist/server/migrate.js
+
 docker run -d \
   --name lumen-notes \
   --restart unless-stopped \
@@ -288,12 +296,17 @@ curl http://127.0.0.1:3000/api/health
 
 ### 4. 升级镜像
 
-先构建新镜像，然后停止旧容器并用同一个 volume 启动：
+先构建新镜像，停止旧容器，在同一个 volume 上显式执行迁移，再启动新容器：
 
 ```bash
 docker build --pull -t lumen-notes:local .
 docker stop lumen-notes
 docker rm lumen-notes
+docker run --rm \
+  --env-file .env \
+  -v lumen-notes-data:/data \
+  lumen-notes:local \
+  bun dist/server/migrate.js
 docker run -d \
   --name lumen-notes \
   --restart unless-stopped \
@@ -445,7 +458,7 @@ CI 会从干净仓库检查前端、Bun Server、SQLite 测试和 Dockerfile。
 | `bun run build` | 完整构建 |
 | `bun run start` | 启动构建后的服务 |
 | `bun run preview` | 启动构建后的服务 |
-| `bun run db:migrate` | 执行 SQLite 迁移 |
+| `bun run db:migrate` | 显式执行 SQLite 迁移；服务器不会自动执行 |
 | `bun run typecheck` | TypeScript 类型检查 |
 | `bun test` | 运行测试 |
 

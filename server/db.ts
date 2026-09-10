@@ -17,14 +17,12 @@ export function databasePathFromEnv(env: Record<string, string | undefined> = Bu
 
 export async function openDatabase(
   databasePath = databasePathFromEnv(),
-  migrationsPath = Bun.env.MIGRATIONS_PATH?.trim() || DEFAULT_MIGRATIONS_PATH,
 ) {
   const resolvedPath = databasePath === ":memory:" ? databasePath : resolve(databasePath);
   if (resolvedPath !== ":memory:") await mkdir(dirname(resolvedPath), { recursive: true });
 
   const database = new Database(resolvedPath, { create: true });
   database.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;");
-  await applyMigrations(database, migrationsPath);
   return database;
 }
 

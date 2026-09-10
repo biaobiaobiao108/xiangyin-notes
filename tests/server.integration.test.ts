@@ -7,6 +7,7 @@ const environment: Record<string, string | undefined> = { LUMEN_USERNAME: "owner
 
 beforeEach(async () => {
   database = await openDatabase(":memory:");
+  await applyMigrations(database);
 });
 
 afterEach(() => database.close());
@@ -20,6 +21,13 @@ async function request(path: string, init: RequestInit = {}, cookie?: string, ta
 }
 
 describe("Bun Server API", () => {
+  test("does not run migrations while opening a database", async () => {
+    const uninitialized = await openDatabase(":memory:");
+    const migrationTable = uninitialized.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'").get() ?? null;
+    expect(migrationTable).toBeNull();
+    uninitialized.close();
+  });
+
   test("applies SQLite migrations idempotently and reports health", async () => {
     await applyMigrations(database);
     const migrations = database.query("SELECT name FROM schema_migrations ORDER BY name").all() as Array<{ name: string }>;

@@ -1,4 +1,4 @@
-import { applyMigrations, openDatabase } from "../server/db";
+import { applyMigrations, openDatabase } from "./db";
 
 const database = await openDatabase();
 await applyMigrations(database);
