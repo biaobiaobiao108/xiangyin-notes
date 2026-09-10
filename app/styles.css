@@ -91,7 +91,7 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .sidebar-collapsed .collapse-button { display: inline-grid; margin-left: 0; }
 .sidebar-collapsed .nav-item { justify-content: center; padding-inline: 0; }
 
-.list-header, .editor-header { height: 72px; min-height: 72px; }
+.list-header, .editor-header { height: 64px; min-height: 64px; }
 .list-header { justify-content: space-between; padding: 0 20px; border-bottom: 1px solid var(--border); }
 .list-header-main { min-width: 0; margin-right: auto; }
 .list-header h2 { margin: 0; font-size: 1.04rem; letter-spacing: -0.025em; }
@@ -382,7 +382,7 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
   .note-list-panel.is-mobile-open { display: flex; }
   .editor-region { min-height: 100dvh; }
   .mobile-only { display: inline-grid; }
-  .list-header, .editor-header { height: 62px; min-height: 62px; }
+  .list-header, .editor-header { height: 56px; min-height: 56px; }
   .list-header { padding: 0 17px; }
   .list-header-main { margin-left: 8px; }
   .list-header-controls { margin-left: 8px; }
