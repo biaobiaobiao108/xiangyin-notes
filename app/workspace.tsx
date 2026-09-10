@@ -27,6 +27,7 @@ export function Workspace() {
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
   const [notes, setNotes] = useState<NoteSummary[]>([]);
+  const [notesReloadToken, setNotesReloadToken] = useState(0);
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
@@ -56,7 +57,9 @@ export function Workspace() {
       setNotes(result.notes);
       setSelectedId((current) => current && result.notes.some((note) => note.id === current) ? current : result.notes[0]?.id ?? null);
     } catch (reason) { if (reason instanceof ApiError && reason.status === 401) navigate("/login", { replace: true }); }
-  }, [deferredQuery, navigate, notebookId, view]);
+  }, [deferredQuery, navigate, notebookId, notesReloadToken, view]);
+  const reloadNotes = useCallback(() => setNotesReloadToken((value) => value + 1), []);
+  const removeFromList = useCallback((noteId: string) => { setNotes((current) => current.filter((note) => note.id !== noteId)); }, []);
   const loadSelectedNote = useCallback(async (id: string) => {
     const requestId = ++noteLoadRequestRef.current;
     const previousNote = selectedRef.current;
@@ -234,9 +237,9 @@ export function Workspace() {
       setToast("删除笔记本失败");
     }
   }, [loadNotes, notebookId, refreshNotebooks]);
-  const toggleFavorite = useCallback(() => { const current = selectedRef.current; if (!current) return; const next = { ...current, isFavorite: !current.isFavorite }; selectedRef.current = next; setSelectedNote(next); persist(next); }, [persist]);
-  const moveToTrash = useCallback(() => { const current = selectedRef.current; if (!current) return; const next = { ...current, deletedAt: Math.floor(Date.now() / 1000) }; selectedRef.current = next; setSelectedNote(next); persist(next); setToast("已移入回收站"); }, [persist]);
-  const restoreFromTrash = useCallback(() => { const current = selectedRef.current; if (!current) return; const next = { ...current, deletedAt: null }; selectedRef.current = next; setSelectedNote(next); persist(next); setView("all"); setNotebookId(undefined); setToast("已恢复笔记"); }, [persist]);
+  const toggleFavorite = useCallback(() => { const current = selectedRef.current; if (!current) return; const next = { ...current, isFavorite: !current.isFavorite }; selectedRef.current = next; setSelectedNote(next); persist(next); if (view === "favorites" && !next.isFavorite) removeFromList(current.id); }, [persist, removeFromList, view]);
+  const moveToTrash = useCallback(() => { const current = selectedRef.current; if (!current) return; const next = { ...current, deletedAt: Math.floor(Date.now() / 1000) }; selectedRef.current = next; setSelectedNote(next); persist(next); removeFromList(current.id); refreshNotebooks(); setToast("已移入回收站"); }, [persist, refreshNotebooks, removeFromList]);
+  const restoreFromTrash = useCallback(() => { const current = selectedRef.current; if (!current) return; const next = { ...current, deletedAt: null }; selectedRef.current = next; setSelectedNote(next); persist(next); setView("all"); setNotebookId(undefined); refreshNotebooks(); reloadNotes(); setToast("已恢复笔记"); }, [persist, refreshNotebooks, reloadNotes]);
   const permanentDeleteNote = useCallback(async () => {
     const current = selectedRef.current;
     if (!current) return;
