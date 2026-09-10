@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { applyMigrations, openDatabase, type SqliteDatabase } from "../server/db";
 import { handleRequest } from "../server/index";
 
@@ -21,11 +24,23 @@ async function request(path: string, init: RequestInit = {}, cookie?: string, ta
 }
 
 describe("Bun Server API", () => {
-  test("does not run migrations while opening a database", async () => {
-    const uninitialized = await openDatabase(":memory:");
-    const migrationTable = uninitialized.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'").get() ?? null;
-    expect(migrationTable).toBeNull();
-    uninitialized.close();
+  test("automatically initializes a fresh database but not later migrations", async () => {
+    const fresh = await openDatabase(":memory:");
+    const migrations = fresh.query("SELECT name FROM schema_migrations ORDER BY name").all() as Array<{ name: string }>;
+    expect(migrations.map((item) => item.name)).toEqual(["0001_initial.sql", "0002_sqlite_share_snapshots.sql"]);
+    expect(fresh.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'users'").get()).toBeDefined();
+    fresh.close();
+
+    const databasePath = join(tmpdir(), `lumen-notes-migration-${crypto.randomUUID()}.sqlite`);
+    const initialized = await openDatabase(databasePath);
+    initialized.query("DELETE FROM schema_migrations WHERE name = ?").run("0002_sqlite_share_snapshots.sql");
+    initialized.close();
+
+    const reopened = await openDatabase(databasePath);
+    const laterMigration = reopened.query("SELECT name FROM schema_migrations WHERE name = ?").get("0002_sqlite_share_snapshots.sql") ?? null;
+    expect(laterMigration).toBeNull();
+    reopened.close();
+    await Promise.all([rm(databasePath, { force: true }), rm(`${databasePath}-wal`, { force: true }), rm(`${databasePath}-shm`, { force: true })]);
   });
 
   test("applies SQLite migrations idempotently and reports health", async () => {

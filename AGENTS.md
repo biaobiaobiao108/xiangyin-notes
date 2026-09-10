@@ -52,7 +52,7 @@ docker build --pull -t lumen-notes:check .
 ## 后端与数据要求
 
 - SQLite 查询一律使用 prepared statements，不拼接用户输入。
-- 数据库迁移只能通过 `bun run db:migrate` 或明确的容器迁移命令执行；服务器启动不得隐式修改数据库。迁移按文件名顺序执行，并通过 `schema_migrations` 保证幂等；不要修改已经应用的历史迁移。
+- 空数据库首次启动时允许自动执行当前迁移完成基础初始化；已有数据库启动不得自动执行后续迁移。新增迁移只能通过 `bun run db:migrate` 或明确的容器迁移命令执行，迁移按文件名顺序执行并通过 `schema_migrations` 保证幂等；不要修改已经应用的历史迁移。
 - 涉及笔记正文的创建、更新、删除必须在 SQLite transaction 中同步更新 `notes_fts`。
 - 更新笔记必须携带并校验 `version`，版本冲突返回 `409 VERSION_CONFLICT`。
 - 私有 API 必须校验当前会话和资源归属。

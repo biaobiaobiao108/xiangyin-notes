@@ -9,10 +9,19 @@ type MigrationRow = {
   name: string;
 };
 
+type TableCountRow = {
+  count: number;
+};
+
 export type SqliteDatabase = Database;
 
 export function databasePathFromEnv(env: Record<string, string | undefined> = Bun.env) {
   return env.DATABASE_PATH?.trim() || DEFAULT_DATABASE_PATH;
+}
+
+function isEmptyDatabase(database: SqliteDatabase) {
+  const row = database.query("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").get() as TableCountRow | null | undefined;
+  return Number(row?.count ?? 0) === 0;
 }
 
 export async function openDatabase(
@@ -23,6 +32,7 @@ export async function openDatabase(
 
   const database = new Database(resolvedPath, { create: true });
   database.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;");
+  if (isEmptyDatabase(database)) await applyMigrations(database);
   return database;
 }
 
