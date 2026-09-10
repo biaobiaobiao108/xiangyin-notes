@@ -390,11 +390,11 @@ async function handleApi(request: Request, options: ServerOptions) {
         params.push(`%${query}%`, `%${query}%`);
       } else {
         const ftsQuery = buildFtsQuery(query);
-        if (ftsQuery) {
-          from += " JOIN notes_fts ON notes_fts.note_id = n.id";
-          conditions.push("notes_fts MATCH ?");
-          params.push(ftsQuery);
-        }
+        // Without any searchable term the query must match nothing, not fall back to listing every note.
+        if (!ftsQuery) return json({ notes: [] });
+        from += " JOIN notes_fts ON notes_fts.note_id = n.id";
+        conditions.push("notes_fts MATCH ?");
+        params.push(ftsQuery);
       }
     }
     const rows = all<NoteRow>(database, `

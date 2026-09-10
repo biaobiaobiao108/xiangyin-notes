@@ -93,6 +93,25 @@ describe("Bun Server API", () => {
     expect(notebooks.body?.notebooks.find((item: { id: string }) => item.id === notebook.id).count).toBe(1);
   });
 
+  test("returns no notes when a search query has no searchable terms", async () => {
+    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
+    await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "第一篇", contentMarkdown: "alpha content" }) }, login.cookie);
+    await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "第二篇", contentMarkdown: "beta content" }) }, login.cookie);
+
+    const all = await request("/api/notes?view=all", {}, login.cookie);
+    expect(all.body?.notes.length).toBe(3);
+
+    const punctuationOnly = await request(`/api/notes?view=all&query=${encodeURIComponent("!!!")}`, {}, login.cookie);
+    expect(punctuationOnly.response.status).toBe(200);
+    expect(punctuationOnly.body?.notes).toEqual([]);
+
+    const underscores = await request(`/api/notes?view=all&query=${encodeURIComponent("(())")}`, {}, login.cookie);
+    expect(underscores.body?.notes).toEqual([]);
+
+    const real = await request("/api/notes?view=all&query=alpha", {}, login.cookie);
+    expect(real.body?.notes).toHaveLength(1);
+  });
+
   test("stores immutable SQLite snapshots and revokes or expires them", async () => {
     const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
     const created = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "Snapshot", contentMarkdown: "Original content" }) }, login.cookie);
