@@ -15,12 +15,13 @@ import { FloatingScrollbar } from "./floating-scrollbar";
 
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
 
-export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0, focusRequested = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList }: {
+export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList }: {
   note: Note;
   saveState: "idle" | "saving" | "saved" | "conflict" | "error";
   isLoading?: boolean;
   reloadToken?: number;
   focusRequested?: boolean;
+  trashBusy?: boolean;
   onFocusHandled?: () => void;
   onChange: (patch: { title?: string; contentMarkdown?: string; notebookId?: string }) => void;
   onSaveNow: () => void;
@@ -342,9 +343,9 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
           <button className={`icon-button ${note.isFavorite ? "is-active" : ""}`} type="button" aria-label={note.isFavorite ? "取消收藏" : "收藏笔记"} title={note.isFavorite ? "取消收藏" : "收藏笔记"} onClick={onToggleFavorite} disabled={isLoading}><span className="star-glyph">★</span></button>
           <button className="icon-button" type="button" aria-label="分享笔记" title="分享笔记" onClick={onShare} disabled={isLoading}><Link2 size={18} strokeWidth={1.8} /></button>
           {note.deletedAt ? <>
-            <button className="icon-button" type="button" aria-label="恢复笔记" title="恢复笔记" onClick={onRestore} disabled={isLoading}><Undo2 size={18} strokeWidth={1.8} /></button>
-            {onPermanentDelete && <button className="icon-button danger-button" type="button" aria-label="彻底删除" title="彻底删除" onClick={onPermanentDelete} disabled={isLoading}><Trash2 size={18} strokeWidth={1.8} /></button>}
-          </> : <button className="icon-button" type="button" aria-label="移入回收站" title="移入回收站" onClick={onMoveToTrash} disabled={isLoading}><Minus size={18} strokeWidth={1.8} className="trash-mark" /></button>}
+            <button className="icon-button" type="button" aria-label="恢复笔记" title="恢复笔记" onClick={onRestore} disabled={isLoading || trashBusy}><Undo2 size={18} strokeWidth={1.8} /></button>
+            {onPermanentDelete && <button className="icon-button danger-button" type="button" aria-label="彻底删除" title="彻底删除" onClick={onPermanentDelete} disabled={isLoading || trashBusy}><Trash2 size={18} strokeWidth={1.8} /></button>}
+          </> : <button className="icon-button" type="button" aria-label="移入回收站" title="移入回收站" onClick={onMoveToTrash} disabled={isLoading || trashBusy}><Minus size={18} strokeWidth={1.8} className="trash-mark" /></button>}
         </div>
       </header>
       <div className="editor-scroll-shell">
@@ -353,7 +354,7 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
             {note.deletedAt && (
               <div className="trashed-banner" role="status">
                 <span>此笔记已在回收站中，恢复后可继续编辑。</span>
-                <button className="text-button" type="button" onClick={onRestore} disabled={isLoading}>立即恢复</button>
+                <button className="text-button" type="button" onClick={onRestore} disabled={isLoading || trashBusy}>立即恢复</button>
               </div>
             )}
             <input
