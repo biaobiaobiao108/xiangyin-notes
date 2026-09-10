@@ -495,20 +495,38 @@ function EmptyEditor({ onNewNote, onOpenList }: { onNewNote: () => void; onOpenL
 
 function ShareDialog({ note, onClose, onToast }: { note: Note; onClose: () => void; onToast: (message: string) => void }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const shareUrlRef = useRef<HTMLInputElement>(null);
   const [shares, setShares] = useState<Share[]>([]);
   const [newUrl, setNewUrl] = useState("");
   const [busy, setBusy] = useState(false);
-  useEffect(() => { const dialog = dialogRef.current; if (!dialog) return; dialog.showModal(); void api.listShares(note.id).then((result) => setShares(result.shares)); return () => { if (dialog.open) dialog.close(); }; }, [note.id]);
+  useEffect(() => { const dialog = dialogRef.current; if (!dialog) return; dialog.showModal(); void api.listShares(note.id).then((result) => setShares(result.shares)).catch(() => onToast("加载分享记录失败")); return () => { if (dialog.open) dialog.close(); }; }, [note.id]);
   const create = async () => { setBusy(true); try { const result = await api.createShare(note.id); setShares((current) => [result.share, ...current]); setNewUrl(result.share.url ?? ""); onToast("分享链接已生成"); } catch { onToast("生成分享链接失败"); } finally { setBusy(false); } };
-  const copy = async (url: string) => { await navigator.clipboard?.writeText(url); onToast("链接已复制"); };
-  const revoke = async (id: string) => { await api.revokeShare(id).catch(() => undefined); setShares((current) => current.map((share) => share.id === id ? { ...share, revokedAt: Math.floor(Date.now() / 1000) } : share)); onToast("分享已撤销"); };
+  const copy = async (url: string) => {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("clipboard-unavailable");
+      await navigator.clipboard.writeText(url);
+      onToast("链接已复制");
+    } catch {
+      shareUrlRef.current?.select();
+      onToast("复制失败，请手动复制选中的链接");
+    }
+  };
+  const revoke = async (id: string) => {
+    try {
+      await api.revokeShare(id);
+      setShares((current) => current.map((share) => share.id === id ? { ...share, revokedAt: Math.floor(Date.now() / 1000) } : share));
+      onToast("分享已撤销");
+    } catch {
+      onToast("撤销分享失败，请重试");
+    }
+  };
   return <dialog ref={dialogRef} className="share-dialog" aria-labelledby="share-dialog-title" aria-describedby="share-dialog-description" onCancel={(event) => { event.preventDefault(); onClose(); }}>
     <div className="dialog-heading share-dialog-heading">
       <div><span className="dialog-eyebrow"><Share2 size={15} />只读快照</span><h2 id="share-dialog-title">分享这篇笔记</h2><p id="share-dialog-description">生成一个 7 天有效的公开阅读链接。</p></div>
       <button className="icon-button" type="button" aria-label="关闭分享窗口" onClick={onClose}><X size={18} /></button>
     </div>
     <div className="share-note-context"><span className="share-note-context-icon"><FileText size={18} /></span><div><strong>{note.title || "未命名笔记"}</strong><span>公开只读 · 快照有效 7 天</span></div></div>
-    {newUrl && <div className="share-result"><span className="share-result-icon"><Link2 size={18} /></span><div><strong>链接已准备好</strong><input value={newUrl} readOnly aria-label="分享链接" /></div><button className="secondary-button" type="button" onClick={() => void copy(newUrl)}>复制</button></div>}
+    {newUrl && <div className="share-result"><span className="share-result-icon"><Link2 size={18} /></span><div><strong>链接已准备好</strong><input ref={shareUrlRef} value={newUrl} readOnly aria-label="分享链接" /></div><button className="secondary-button" type="button" onClick={() => void copy(newUrl)}>复制</button></div>}
     <div className="share-dialog-actions"><button className="primary-button share-create-button" type="button" onClick={() => void create()} disabled={busy}><Plus size={18} />{busy ? "正在生成……" : "生成新链接"}</button><p>快照创建后保持不变，原笔记的后续修改不会影响分享内容。</p></div>
     {shares.length > 0 && <div className="share-history"><div className="share-history-heading"><h3>分享记录</h3><span>{shares.length}</span></div>{shares.map((share) => <div className="share-history-row" key={share.id}><span className={`share-status-dot ${share.revokedAt || share.expiresAt * 1000 < Date.now() ? "is-inactive" : ""}`} /><span>{share.revokedAt ? "已撤销" : share.expiresAt * 1000 < Date.now() ? "已过期" : `有效至 ${formatDate(share.expiresAt)}`}</span>{!share.revokedAt && share.expiresAt * 1000 >= Date.now() && <button className="text-button" type="button" onClick={() => void revoke(share.id)}>撤销</button>}</div>)}</div>}
   </dialog>;
