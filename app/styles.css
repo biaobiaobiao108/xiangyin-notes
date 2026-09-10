@@ -134,7 +134,25 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 }
 .sort-option:hover { background: var(--surface-muted); color: var(--ink); }
 .sort-option.is-active { background: var(--accent-soft); color: var(--accent-dark); font-weight: 600; }
-.note-list { min-height: 0; flex: 1; overflow: auto; overscroll-behavior: contain; }
+.note-list {
+  --scrollbar-thumb: rgba(160, 170, 163, 0.72);
+  --scrollbar-track: transparent;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+.note-list::-webkit-scrollbar { width: 9px; }
+.note-list::-webkit-scrollbar-track { background: var(--scrollbar-track); }
+.note-list::-webkit-scrollbar-thumb { border: 3px solid transparent; border-radius: 999px; background: var(--scrollbar-thumb); background-clip: padding-box; }
+.note-list:hover { --scrollbar-thumb: rgba(113, 128, 120, 0.82); }
+@supports not (scrollbar-color: auto) {
+  .note-list { scrollbar-width: auto; }
+}
 .note-row { display: grid; gap: 7px; width: 100%; padding: 17px 20px 15px; border: 0; border-bottom: 1px solid #edf0ed; background: transparent; text-align: left; cursor: pointer; transition: background-color 160ms ease, box-shadow 160ms ease; }
 .note-row:hover { background: #fbfbfa; }
 .note-row.is-selected { background: linear-gradient(90deg, var(--accent-soft), #fff9f6); box-shadow: inset 3px 0 0 var(--accent); }
