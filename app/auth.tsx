@@ -1,7 +1,8 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { ArrowRight, Eye, EyeOff, RefreshCw, Sparkles } from "lucide-react";
+import { ArrowRight, Eye, EyeOff, RefreshCw } from "lucide-react";
 import { useNavigate } from "react-router";
 import { ApiError, api } from "./api";
+import { BrandMark } from "./brand-mark";
 
 export function SetupPage() {
   const navigate = useNavigate();
@@ -22,7 +23,7 @@ export function SetupPage() {
 
   useEffect(() => { void checkConfiguration(); }, [checkConfiguration]);
 
-  return <AuthLayout title="配置你的安静空间" description="象映笔记使用本地 Bun 服务的环境变量管理唯一登录凭据。"><section className="config-panel" aria-live="polite"><span className="config-panel-icon"><Sparkles size={18} /></span><h2>{status === "checking" ? "正在检查服务配置" : status === "error" ? "暂时无法读取配置" : "等待配置登录凭据"}</h2><p>{status === "error" ? "请确认 Bun 服务正在运行并且已加载 .env，然后重新检查。" : "请在启动 Bun 服务时提供下面两个环境变量。"}</p><div className="config-variable-list"><code>XIANGYING_USERNAME</code><code>XIANGYING_PASSWORD</code></div>{status === "error" && <p className="form-error" role="alert">无法连接到 /api/bootstrap。</p>}<button className="secondary-button auth-submit" type="button" onClick={() => void checkConfiguration()} disabled={status === "checking"}><RefreshCw size={16} />重新检查配置</button></section></AuthLayout>;
+  return <AuthLayout title="配置你的安静空间" description="象映笔记使用本地 Bun 服务的环境变量管理唯一登录凭据。"><section className="config-panel" aria-live="polite"><BrandMark className="config-panel-icon" /><h2>{status === "checking" ? "正在检查服务配置" : status === "error" ? "暂时无法读取配置" : "等待配置登录凭据"}</h2><p>{status === "error" ? "请确认 Bun 服务正在运行并且已加载 .env，然后重新检查。" : "请在启动 Bun 服务时提供下面两个环境变量。"}</p><div className="config-variable-list"><code>XIANGYING_USERNAME</code><code>XIANGYING_PASSWORD</code></div>{status === "error" && <p className="form-error" role="alert">无法连接到 /api/bootstrap。</p>}<button className="secondary-button auth-submit" type="button" onClick={() => void checkConfiguration()} disabled={status === "checking"}><RefreshCw size={16} />重新检查配置</button></section></AuthLayout>;
 }
 
 export function LoginPage() {
@@ -54,5 +55,5 @@ function PasswordField({ label, value, onChange, show, onToggle, autoComplete = 
 }
 
 function AuthLayout({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
-  return <main className="auth-shell"><div className="auth-brand"><span className="brand-mark"><Sparkles size={21} /></span><span>象映笔记</span></div><div className="auth-card"><div className="auth-card-copy"><h1>{title}</h1><p>{description}</p></div>{children}</div><p className="auth-footnote">你的笔记，只属于你的空间。</p></main>;
+  return <main className="auth-shell"><div className="auth-brand"><BrandMark /><span>象映笔记</span></div><div className="auth-card"><div className="auth-card-copy"><h1>{title}</h1><p>{description}</p></div>{children}</div><p className="auth-footnote">你的笔记，只属于你的空间。</p></main>;
 }

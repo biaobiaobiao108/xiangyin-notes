@@ -9,6 +9,7 @@ import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
 import { ChevronLeft, Link2, ListTree, Minus, Trash2, Undo2 } from "lucide-react";
 import type { Note } from "../shared/types";
+import { BrandMark } from "./brand-mark";
 import { buildOutlineItems, countEditorText, isMarkdownHeadingMarker, parseMarkdownHeadingPrefix, shouldParseMarkdownPaste, type EditorStats, type OutlineItem } from "./editor-metrics";
 import { FloatingScrollbar } from "./floating-scrollbar";
 
@@ -366,7 +367,7 @@ export function NoteEditor({ note, saveState, isLoading = false, onChange, onSha
         </div>
         <FloatingScrollbar scrollTargetRef={editorScrollRef} controlsId="editor-scroll-region" ariaLabel="编辑器滚动条" placement="right" />
       </div>
-      {isLoading && <div className="editor-switch-overlay" role="status" aria-live="polite"><div className="editor-switch-card"><span className="editor-switch-mark">✦</span><div className="editor-switch-lines" aria-hidden="true"><span /><span /><span /></div><strong>正在打开笔记…</strong></div></div>}
+      {isLoading && <div className="editor-switch-overlay" role="status" aria-live="polite"><div className="editor-switch-card"><BrandMark className="editor-switch-mark" /><div className="editor-switch-lines" aria-hidden="true"><span /><span /><span /></div><strong>正在打开笔记…</strong></div></div>}
       <div className="editor-floating-tools" ref={floatingToolsRef}>
         <aside className="editor-outline" id="note-outline" aria-label="笔记大纲" hidden={!outlineOpen}>
           <div className="editor-outline-heading">
@@ -401,7 +402,7 @@ export function NoteEditor({ note, saveState, isLoading = false, onChange, onSha
 }
 
 export function NoteLoadingState() {
-  return <section className="editor-panel editor-loading-shell" aria-label="笔记编辑器" aria-busy="true"><div className="editor-switch-overlay editor-switch-overlay--visible" role="status" aria-live="polite"><div className="editor-switch-card"><span className="editor-switch-mark">✦</span><div className="editor-switch-lines" aria-hidden="true"><span /><span /><span /></div><strong>正在打开笔记…</strong></div></div></section>;
+  return <section className="editor-panel editor-loading-shell" aria-label="笔记编辑器" aria-busy="true"><div className="editor-switch-overlay editor-switch-overlay--visible" role="status" aria-live="polite"><div className="editor-switch-card"><BrandMark className="editor-switch-mark" /><div className="editor-switch-lines" aria-hidden="true"><span /><span /><span /></div><strong>正在打开笔记…</strong></div></div></section>;
 }
 
 export function ReadOnlyMarkdown({ markdown }: { markdown: string }) {

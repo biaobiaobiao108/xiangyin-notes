@@ -4,6 +4,7 @@ import { useNavigate } from "react-router";
 import { ApiError, api } from "./api";
 import { CommandId, CommandMenu } from "./command-menu";
 import type { CreateNoteCommand } from "./command-parser";
+import { BrandMark } from "./brand-mark";
 import { NoteEditor, NoteLoadingState } from "./editor";
 import { FloatingScrollbar } from "./floating-scrollbar";
 import type { Note, NoteSummary, NoteView, Notebook, Share } from "../shared/types";
@@ -278,7 +279,7 @@ function Sidebar({ view, setView, notebooks, notebookId, setNotebookId, query, s
   const notebookListRef = useRef<HTMLDivElement>(null);
 
   return <aside className={`sidebar ${mobileOpen ? "is-mobile-open" : ""}`} aria-label="主导航">
-    <div className="brand-row"><span className="brand-mark"><span className="brand-star">✦</span></span><span className="brand-name">象映笔记</span><button className="icon-button collapse-button" type="button" onClick={onCollapse} aria-label={collapsed ? "展开侧栏" : "收起侧栏"}><LayoutPanelLeft size={18} /></button></div>
+    <div className="brand-row"><BrandMark /><span className="brand-name">象映笔记</span><button className="icon-button collapse-button" type="button" onClick={onCollapse} aria-label={collapsed ? "展开侧栏" : "收起侧栏"}><LayoutPanelLeft size={18} /></button></div>
     <button className="primary-button new-note-button" type="button" onClick={onNewNote}><Plus size={18} />新建笔记</button>
     <label className="search-box"><Search size={17} /><input ref={searchRef} value={query} onChange={(event) => { setQuery(event.target.value); setView("all"); }} placeholder="搜索笔记……" aria-label="搜索笔记" /><kbd>Ctrl /</kbd></label>
     <nav className="main-nav"><ul>{navItems.map((item) => { const Icon = item.icon; return <li key={item.id}><button className={`nav-item ${view === item.id && !notebookId ? "is-active" : ""}`} type="button" onClick={() => setView(item.id)}><Icon size={18} /><span>{item.label}</span></button></li>; })}</ul></nav>
@@ -364,7 +365,7 @@ function NoteListPanel({ notes, selectedId, onSelect, view, query, currentNotebo
   </section>;
 }
 
-function EmptyEditor({ onNewNote, onOpenList }: { onNewNote: () => void; onOpenList: () => void }) { return <section className="empty-editor"><button className="icon-button mobile-only empty-back" type="button" aria-label="打开笔记列表" onClick={onOpenList}><ChevronLeft size={20} /></button><div className="empty-editor-mark"><span>✦</span></div><h1>让想法有地方落脚</h1><p>创建一篇笔记，记录此刻值得留下的东西。</p><button className="primary-button" type="button" onClick={onNewNote}><Plus size={18} />新建笔记</button><span className="empty-shortcut">或按 Ctrl / 打开命令菜单</span></section>; }
+function EmptyEditor({ onNewNote, onOpenList }: { onNewNote: () => void; onOpenList: () => void }) { return <section className="empty-editor"><button className="icon-button mobile-only empty-back" type="button" aria-label="打开笔记列表" onClick={onOpenList}><ChevronLeft size={20} /></button><BrandMark className="empty-editor-mark" /><h1>让想法有地方落脚</h1><p>创建一篇笔记，记录此刻值得留下的东西。</p><button className="primary-button" type="button" onClick={onNewNote}><Plus size={18} />新建笔记</button><span className="empty-shortcut">或按 Ctrl / 打开命令菜单</span></section>; }
 
 function ShareDialog({ note, onClose, onToast }: { note: Note; onClose: () => void; onToast: (message: string) => void }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
