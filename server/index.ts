@@ -303,7 +303,19 @@ async function handleApi(request: Request, options: ServerOptions) {
     return json({ status: "ok", database: "ok" });
   }
 
-  if (method === "GET" && url.pathname === "/api/bootstrap") return json({ configured: Boolean(getAuthCredentials(environment)) });
+  if (method === "GET" && url.pathname === "/api/bootstrap") {
+    const credentials = getAuthCredentials(environment);
+    if (credentials && environment.NODE_ENV === "development" && environment.LUMEN_DEV_AUTO_LOGIN === "true" && !await getCurrentUser(database, environment, request)) {
+      const user = await ensureEnvironmentUser(database, credentials);
+      const session = createOpaqueToken();
+      const createdAt = now();
+      database.query("INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)").run(await digestHex(session), user.id, createdAt, createdAt + SESSION_TTL);
+      const headers = new Headers();
+      setSessionCookie(headers, request, session, environment);
+      return json({ configured: true }, 200, headers);
+    }
+    return json({ configured: Boolean(credentials) });
+  }
 
   if (method === "POST" && url.pathname === "/api/setup") {
     return getAuthCredentials(environment)

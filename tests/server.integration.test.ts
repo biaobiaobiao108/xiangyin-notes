@@ -137,4 +137,16 @@ describe("Bun Server API", () => {
     expect(missing.response.status).toBe(503);
     expect(missing.body?.error.code).toBe("AUTH_NOT_CONFIGURED");
   });
+
+  test("automatically signs in with the development test account", async () => {
+    const devEnvironment = { ...environment, NODE_ENV: "development", LUMEN_DEV_AUTO_LOGIN: "true" };
+    const bootstrap = await request("/api/bootstrap", {}, undefined, devEnvironment);
+    expect(bootstrap.response.status).toBe(200);
+    expect(bootstrap.body?.configured).toBe(true);
+    expect(bootstrap.cookie).toMatch(/^lumen_session=/);
+
+    const me = await request("/api/me", {}, bootstrap.cookie, devEnvironment);
+    expect(me.response.status).toBe(200);
+    expect(me.body?.user.username).toBe("owner");
+  });
 });

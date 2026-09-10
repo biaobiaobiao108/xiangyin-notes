@@ -32,7 +32,7 @@ export function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  useEffect(() => { void api.bootstrap().then((result) => { if (!result.configured) navigate("/setup", { replace: true }); }).catch(() => undefined); }, [navigate]);
+  useEffect(() => { void api.bootstrap().then(async (result) => { if (!result.configured) { navigate("/setup", { replace: true }); return; } try { await api.me(); navigate("/app", { replace: true }); } catch { /* no existing session */ } }).catch(() => undefined); }, [navigate]);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setError("");
