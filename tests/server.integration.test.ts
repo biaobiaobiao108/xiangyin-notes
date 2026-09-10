@@ -68,9 +68,10 @@ describe("Bun Server API", () => {
     const unauthenticated = await request("/api/notes?view=all");
     expect(unauthenticated.response.status).toBe(401);
 
-    const notebookResponse = await request("/api/notebooks", { method: "POST", body: JSON.stringify({ name: "测试笔记本" }) }, login.cookie);
+    const notebookResponse = await request("/api/notebooks", { method: "POST", body: JSON.stringify({ name: "测试笔记本", color: "#5b7899" }) }, login.cookie);
     expect(notebookResponse.response.status).toBe(201);
     const notebook = notebookResponse.body?.notebook;
+    expect(notebook.color).toBe("#5b7899");
 
     const created = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "Searchable note", contentMarkdown: "A quiet integration test", notebookId: notebook.id }) }, login.cookie);
     expect(created.response.status).toBe(201);

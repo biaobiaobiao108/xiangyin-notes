@@ -130,6 +130,10 @@ function validText(value: unknown, maxLength: number): value is string {
   return typeof value === "string" && value.length <= maxLength;
 }
 
+function validColor(value: unknown): value is string {
+  return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value);
+}
+
 function getAuthCredentials(environment: RuntimeEnvironment): AuthCredentials | null {
   if (!validUsername(environment.LUMEN_USERNAME) || !validPassword(environment.LUMEN_PASSWORD)) return null;
   return { username: environment.LUMEN_USERNAME, password: environment.LUMEN_PASSWORD };
@@ -478,7 +482,8 @@ async function handleApi(request: Request, options: ServerOptions) {
     if (!payload || !validText(payload.name, 40) || !payload.name.trim()) return jsonError(400, "INVALID_NOTEBOOK", "请输入笔记本名称");
     const notebookId = crypto.randomUUID();
     const createdAt = now();
-    const color = typeof payload.color === "string" ? payload.color : "#718077";
+    const color = payload.color === undefined ? "#718077" : payload.color;
+    if (!validColor(color)) return jsonError(400, "INVALID_NOTEBOOK", "请输入有效的六位十六进制颜色");
     try {
       database.query("INSERT INTO notebooks (id, user_id, name, color, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, 10, ?, ?)").run(notebookId, user.id, payload.name.trim(), color, createdAt, createdAt);
     } catch {
@@ -493,7 +498,7 @@ async function handleApi(request: Request, options: ServerOptions) {
     const payload = await readJson<{ name?: unknown; color?: unknown }>(request);
     const name = payload?.name === undefined ? current.name : payload.name;
     const color = payload?.color === undefined ? current.color : payload.color;
-    if (!validText(name, 40) || !name.trim() || typeof color !== "string") return jsonError(400, "INVALID_NOTEBOOK", "笔记本名称无效");
+    if (!validText(name, 40) || !name.trim() || !validColor(color)) return jsonError(400, "INVALID_NOTEBOOK", "笔记本名称或颜色无效");
     try {
       database.query("UPDATE notebooks SET name = ?, color = ?, updated_at = ? WHERE id = ? AND user_id = ?").run(name.trim(), color, now(), current.id, user.id);
     } catch {
