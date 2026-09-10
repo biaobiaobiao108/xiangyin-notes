@@ -41,6 +41,7 @@ type ConfirmRequest = {
   description: string;
   confirmLabel: string;
   danger?: boolean;
+  returnFocus?: HTMLElement | null;
   onConfirm: () => void | Promise<void>;
 };
 
@@ -49,7 +50,18 @@ function ConfirmDialog({ request, onClose }: { request: ConfirmRequest; onClose:
   const submittingRef = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  useEffect(() => { const dialog = dialogRef.current; if (!dialog) return; dialog.showModal(); return () => { if (dialog.open) dialog.close(); }; }, []);
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    dialog.showModal();
+    return () => {
+      if (dialog.open) dialog.close();
+      const trigger = request.returnFocus;
+      const target = trigger?.isConnected && !trigger.matches(":disabled") ? trigger
+        : document.querySelector<HTMLElement>(".note-row.is-selected") ?? document.querySelector<HTMLElement>(".note-list-panel.is-mobile-open .list-header h2, .empty-editor h1");
+      target?.focus({ preventScroll: true });
+    };
+  }, [request]);
   const confirm = async () => {
     if (submittingRef.current) return;
     submittingRef.current = true;
@@ -90,6 +102,8 @@ export function Workspace() {
   const notebooksRequestRef = useRef(0);
   const trashOperationsRef = useRef(new Set<string>());
   const [pendingTrashCount, setPendingTrashCount] = useState(0);
+  const emptyingTrashRef = useRef(false);
+  const [emptyingTrash, setEmptyingTrash] = useState(false);
   const listScope = JSON.stringify([view, notebookId, query, deferredQuery]);
   const listScopeRef = useRef(listScope);
   listScopeRef.current = listScope;
@@ -122,7 +136,7 @@ export function Workspace() {
   const confirmIdRef = useRef(0);
   const requestConfirm = useCallback((request: Omit<ConfirmRequest, "id">) => {
     confirmIdRef.current += 1;
-    setConfirmRequest({ ...request, id: confirmIdRef.current });
+    setConfirmRequest({ ...request, id: confirmIdRef.current, returnFocus: document.activeElement instanceof HTMLElement ? document.activeElement : null });
   }, []);
 
   useEffect(() => { selectedRef.current = selectedNote; }, [selectedNote]);
@@ -134,14 +148,14 @@ export function Workspace() {
     const requestId = ++notebooksRequestRef.current;
     try {
       const result = await api.listNotebooks();
-      if (requestId === notebooksRequestRef.current && !trashOperationsRef.current.size) setNotebooks(result.notebooks);
+      if (requestId === notebooksRequestRef.current && !trashOperationsRef.current.size && !emptyingTrashRef.current) setNotebooks(result.notebooks);
     } catch { /* Keep the last known counts if refreshing fails. */ }
   }, []);
   const loadNotes = useCallback(async () => {
     const requestId = ++listRequestRef.current;
     try {
       const result = await api.listNotes({ view, query: deferredQuery, notebookId });
-      if (requestId !== listRequestRef.current || listScope !== listScopeRef.current || trashOperationsRef.current.size) return;
+      if (requestId !== listRequestRef.current || listScope !== listScopeRef.current || trashOperationsRef.current.size || emptyingTrashRef.current) return;
       replaceList(result.notes);
       setTotalNotes(result.total);
       setSelectedId((current) => current && result.notes.some((note) => note.id === current) ? current : result.notes[0]?.id ?? null);
@@ -400,7 +414,7 @@ export function Workspace() {
   }, [invalidateCollections, refreshNotebooks, reloadNotes]);
   const changeDeletedState = useCallback(async (deleted: boolean) => {
     const current = selectedRef.current;
-    if (!current || Boolean(current.deletedAt) === deleted || trashOperationsRef.current.has(current.id)) return;
+    if (!current || Boolean(current.deletedAt) === deleted || trashOperationsRef.current.has(current.id) || emptyingTrashRef.current) return;
     const scope = listScopeRef.current;
     const index = notesRef.current.findIndex((note) => note.id === current.id);
     const next = { ...current, deletedAt: deleted ? Math.floor(Date.now() / 1000) : null };
@@ -440,7 +454,7 @@ export function Workspace() {
     saveTimersRef.current.delete(noteId);
   }, []);
   const performPermanentDelete = useCallback(async (noteId: string) => {
-    if (trashOperationsRef.current.has(noteId)) throw new Error("笔记正在保存，请稍后重试");
+    if (trashOperationsRef.current.has(noteId) || emptyingTrashRef.current) throw new ApiError(409, "TRASH_BUSY", "回收站正在处理其他操作，请稍后重试");
     trashOperationsRef.current.add(noteId);
     setPendingTrashCount(trashOperationsRef.current.size);
     invalidateCollections();
@@ -464,6 +478,38 @@ export function Workspace() {
       onConfirm: () => performPermanentDelete(current.id),
     });
   }, [performPermanentDelete, requestConfirm]);
+  const performEmptyTrash = useCallback(async () => {
+    if (emptyingTrashRef.current || trashOperationsRef.current.size) throw new ApiError(409, "TRASH_BUSY", "回收站正在处理其他操作，请稍后重试");
+    const scope = listScopeRef.current;
+    emptyingTrashRef.current = true;
+    setEmptyingTrash(true);
+    invalidateCollections();
+    try {
+      const pendingTrash = [...pendingSavesRef.current.values()].filter((note) => note.deletedAt);
+      await Promise.all(pendingTrash.map((note) => runSave(note.id)));
+      const result = await api.emptyTrash();
+      for (const id of result.deletedIds) { removeFromList(id); discardNoteDraft(id); }
+      if (scope === listScopeRef.current) { replaceList([]); setTotalNotes(0); selectNote(null); }
+      setToast(`回收站已清空，已彻底删除 ${result.deletedCount} 篇笔记`);
+    } finally {
+      emptyingTrashRef.current = false;
+      setEmptyingTrash(false);
+      invalidateCollections();
+      void refreshNotebooks();
+      reloadNotes();
+    }
+  }, [discardNoteDraft, invalidateCollections, refreshNotebooks, reloadNotes, removeFromList, replaceList, runSave, selectNote]);
+  const emptyTrash = useCallback(() => {
+    if (!totalNotes || pendingTrashCount || emptyingTrashRef.current) return;
+    requestConfirm({
+      eyebrow: "不可撤销",
+      title: "清空回收站？",
+      description: `将永久删除回收站中的全部笔记（当前共 ${totalNotes} 篇），包括列表尚未显示的笔记。删除后无法恢复，相关分享链接也会同时失效。`,
+      confirmLabel: "清空回收站",
+      danger: true,
+      onConfirm: performEmptyTrash,
+    });
+  }, [pendingTrashCount, performEmptyTrash, requestConfirm, totalNotes]);
   const reloadSelectedNote = useCallback(async () => {
     const current = selectedRef.current;
     if (!current) return;
@@ -519,9 +565,9 @@ export function Workspace() {
   return <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
     <button className={`mobile-scrim ${mobileSidebarOpen || mobileListOpen ? "is-visible" : ""}`} type="button" aria-label="关闭导航" onClick={() => { setMobileSidebarOpen(false); setMobileListOpen(false); }} />
     <Sidebar view={view} setView={selectView} notebooks={notebooks} notebookId={notebookId} setNotebookId={selectNotebook} query={query} setQuery={changeQuery} searchRef={searchRef} onNewNote={() => void createNoteHere()} onCreateNotebook={() => void createNotebook()} onEditNotebook={(target) => setEditingNotebook(target)} collapsed={sidebarCollapsed} onCollapse={() => setSidebarCollapsed((value) => !value)} mobileOpen={mobileSidebarOpen} onLogout={logout} />
-    <NoteListPanel notes={notes} total={totalNotes} sort={noteSort} setSort={setNoteSort} selectedId={selectedId} onSelect={(id) => { selectNote(id); setMobileListOpen(false); }} view={view} query={query} currentNotebookName={currentNotebook?.name} onNewNote={currentNotebook ? () => void createNoteHere() : undefined} onClearQuery={() => changeQuery("")} mobileOpen={mobileListOpen} onOpenSidebar={() => setMobileSidebarOpen(true)} />
+    <NoteListPanel notes={notes} total={totalNotes} sort={noteSort} setSort={setNoteSort} selectedId={selectedId} onSelect={(id) => { selectNote(id); setMobileListOpen(false); }} view={view} query={query} currentNotebookName={currentNotebook?.name} onEmptyTrash={view === "trash" ? emptyTrash : undefined} trashBusy={pendingTrashCount > 0 || emptyingTrash} onNewNote={currentNotebook ? () => void createNoteHere() : undefined} onClearQuery={() => changeQuery("")} mobileOpen={mobileListOpen} onOpenSidebar={() => setMobileSidebarOpen(true)} />
     <main className="editor-region">
-      {selectedNote ? <NoteEditor note={selectedNote} saveState={saveState} isLoading={isNoteLoading} trashBusy={pendingTrashCount > 0 && trashOperationsRef.current.has(selectedNote.id)} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === selectedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onShare={() => setShareOpen(true)} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={() => setMobileListOpen(true)} /> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor onNewNote={() => void createNoteHere()} onOpenList={() => setMobileListOpen(true)} />}
+      {selectedNote ? <NoteEditor note={selectedNote} saveState={saveState} isLoading={isNoteLoading} trashBusy={emptyingTrash || (pendingTrashCount > 0 && trashOperationsRef.current.has(selectedNote.id))} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === selectedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onShare={() => setShareOpen(true)} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={() => setMobileListOpen(true)} /> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor isTrash={view === "trash"} onNewNote={() => void createNoteHere()} onOpenList={() => setMobileListOpen(true)} />}
     </main>
     <CommandMenu open={commandOpen} onClose={() => setCommandOpen(false)} onCommand={command} onCreateNoteInNotebook={createNoteInNotebook} canRestore={Boolean(selectedNote?.deletedAt)} notebooks={notebooks} />
     {shareOpen && selectedNote && <ShareDialog note={selectedNote} onClose={() => setShareOpen(false)} onToast={setToast} />}
@@ -552,7 +598,7 @@ function Sidebar({ view, setView, notebooks, notebookId, setNotebookId, query, s
   </aside>;
 }
 
-function NoteListPanel({ notes, total, sort, setSort, selectedId, onSelect, view, query, currentNotebookName, onNewNote, onClearQuery, mobileOpen, onOpenSidebar }: { notes: NoteSummary[]; total: number; sort: NoteSort; setSort: (sort: NoteSort) => void; selectedId: string | null; onSelect: (id: string) => void; view: NoteView; query: string; currentNotebookName?: string; onNewNote?: () => void; onClearQuery: () => void; mobileOpen: boolean; onOpenSidebar: () => void }) {
+function NoteListPanel({ notes, total, sort, setSort, selectedId, onSelect, view, query, currentNotebookName, onNewNote, onEmptyTrash, trashBusy, onClearQuery, mobileOpen, onOpenSidebar }: { notes: NoteSummary[]; total: number; sort: NoteSort; setSort: (sort: NoteSort) => void; selectedId: string | null; onSelect: (id: string) => void; view: NoteView; query: string; currentNotebookName?: string; onNewNote?: () => void; onEmptyTrash?: () => void; trashBusy: boolean; onClearQuery: () => void; mobileOpen: boolean; onOpenSidebar: () => void }) {
   const [sortOpen, setSortOpen] = useState(false);
   const sortRef = useRef<HTMLDivElement>(null);
   const noteListRef = useRef<HTMLDivElement>(null);
@@ -587,10 +633,11 @@ function NoteListPanel({ notes, total, sort, setSort, selectedId, onSelect, view
     <header className="list-header">
       <button className="icon-button mobile-only" type="button" aria-label="打开导航" onClick={onOpenSidebar}><Menu size={20} /></button>
       <div className="list-header-main">
-        <h2>{heading}</h2>
+        <h2 tabIndex={-1}>{heading}</h2>
         <p>{query ? `包含“${query}”的笔记` : `${truncated ? total : notes.length} 篇笔记`}{truncated && <> · 已显示最近 {notes.length} 篇</>}</p>
       </div>
       <div className="list-header-controls">
+        {onEmptyTrash && <button className="text-button text-danger empty-trash-button" type="button" onClick={onEmptyTrash} disabled={trashBusy || total === 0}><Trash2 size={15} aria-hidden="true" />清空回收站</button>}
         {onNewNote && <button className="icon-button list-new-note-button" type="button" aria-label={`在${currentNotebookName}中新建笔记`} title={`在${currentNotebookName}中新建笔记`} onClick={onNewNote}><Plus size={18} /></button>}
         <div className="sort-menu-wrap" ref={sortRef}>
           <button className="sort-button" type="button" aria-haspopup="listbox" aria-expanded={sortOpen} onClick={() => setSortOpen((open) => !open)}>
@@ -611,14 +658,14 @@ function NoteListPanel({ notes, total, sort, setSort, selectedId, onSelect, view
         <ul className="note-list-items" role="list">
           {sortedNotes.map((note) => <li key={note.id}><button type="button" className={`note-row ${selectedId === note.id ? "is-selected" : ""}`} onClick={() => onSelect(note.id)}><span className="note-row-title">{note.title || "未命名笔记"}{note.isFavorite && <Star size={13} fill="currentColor" />}</span><span className="note-row-preview">{note.preview || "还没有内容，开始写下第一句话。"}</span><span className="note-row-meta"><span>{note.notebookName}</span><time>{relativeDate(note.updatedAt)}</time></span></button></li>)}
         </ul>
-        {!sortedNotes.length && (query ? <div className="list-empty"><span className="empty-icon"><Search size={23} /></span><strong>没有找到匹配的笔记</strong><span>试试更短的关键词，或清空搜索查看全部内容。</span><button className="secondary-button" type="button" onClick={onClearQuery}>清空搜索</button></div> : <div className="list-empty"><span className="empty-icon"><Archive size={23} /></span><strong>这里还没有笔记</strong><span>按下“新建笔记”，让一个想法有地方落脚。</span></div>)}
+        {!sortedNotes.length && (query ? <div className="list-empty"><span className="empty-icon"><Search size={23} /></span><strong>没有找到匹配的笔记</strong><span>试试更短的关键词，或清空搜索查看全部内容。</span><button className="secondary-button" type="button" onClick={onClearQuery}>清空搜索</button></div> : <div className="list-empty"><span className="empty-icon"><Archive size={23} /></span><strong>{view === "trash" ? "回收站是空的" : "这里还没有笔记"}</strong><span>{view === "trash" ? "移入回收站的笔记会显示在这里。" : "按下“新建笔记”，让一个想法有地方落脚。"}</span></div>)}
       </div>
       <FloatingScrollbar scrollTargetRef={noteListRef} controlsId="note-list-scroll-region" ariaLabel="笔记列表滚动条" placement="left" />
     </div>
   </section>;
 }
 
-function EmptyEditor({ onNewNote, onOpenList }: { onNewNote: () => void; onOpenList: () => void }) { return <section className="empty-editor"><button className="icon-button mobile-only empty-back" type="button" aria-label="打开笔记列表" onClick={onOpenList}><ChevronLeft size={20} /></button><BrandMark className="empty-editor-mark" /><h1>让想法有地方落脚</h1><p>创建一篇笔记，记录此刻值得留下的东西。</p><button className="primary-button" type="button" onClick={onNewNote}><Plus size={18} />新建笔记</button><span className="empty-shortcut">或按 {modKey} / 打开命令菜单</span></section>; }
+function EmptyEditor({ isTrash, onNewNote, onOpenList }: { isTrash: boolean; onNewNote: () => void; onOpenList: () => void }) { return <section className="empty-editor"><button className="icon-button mobile-only empty-back" type="button" aria-label="打开笔记列表" onClick={onOpenList}><ChevronLeft size={20} /></button><BrandMark className="empty-editor-mark" /><h1 tabIndex={-1}>{isTrash ? "回收站是空的" : "让想法有地方落脚"}</h1><p>{isTrash ? "没有需要清理或恢复的笔记。" : "创建一篇笔记，记录此刻值得留下的东西。"}</p>{!isTrash && <><button className="primary-button" type="button" onClick={onNewNote}><Plus size={18} />新建笔记</button><span className="empty-shortcut">或按 {modKey} / 打开命令菜单</span></>}</section>; }
 
 function ShareDialog({ note, onClose, onToast }: { note: Note; onClose: () => void; onToast: (message: string) => void }) {
   const dialogRef = useRef<HTMLDialogElement>(null);

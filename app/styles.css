@@ -104,6 +104,7 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .list-header h2 { margin: 0; font-size: 1.04rem; letter-spacing: -0.025em; }
 .list-header p { margin: 5px 0 0; color: var(--soft-muted); font-size: 0.77rem; }
 .list-header-controls { display: flex; align-items: center; gap: 4px; margin-left: 12px; }
+.empty-trash-button { display: inline-flex; align-items: center; gap: 5px; padding: 5px 6px; white-space: nowrap; font-size: 0.75rem; }
 .list-new-note-button { color: var(--accent-dark); }
 .list-new-note-button:hover { border-color: #e9b9aa; background: var(--accent-soft); color: var(--accent-dark); }
 .sort-menu-wrap { position: relative; }

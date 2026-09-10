@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -132,6 +132,69 @@ describe("Bun Server API", () => {
     expect(list.response.status).toBe(200);
     expect(list.body?.notes).toHaveLength(100);
     expect(list.body?.total).toBe(106);
+  });
+
+  test("empties all owned trash beyond the list limit without deleting active or other users' notes", async () => {
+    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
+    const otherEnvironment: Record<string, string | undefined> = { ...environment, XIANGYING_USERNAME: "other" };
+    const otherLogin = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "other", password: otherEnvironment.XIANGYING_PASSWORD }) }, undefined, otherEnvironment);
+    const inbox = database.query("SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1").get(login.body?.user.id) as { id: string };
+    const deletedIds = Array.from({ length: 105 }, () => crypto.randomUUID());
+    const insertNote = database.query("INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, deleted_at, version, created_at, updated_at) VALUES (?, ?, ?, 'Trashed', 'trashneedle', 1, 1, 1, 1)");
+    const insertFts = database.query("INSERT INTO notes_fts (note_id, title, content) VALUES (?, 'Trashed', 'trashneedle')");
+    database.transaction(() => {
+      for (const id of deletedIds) { insertNote.run(id, login.body?.user.id, inbox.id); insertFts.run(id); }
+    })();
+    const active = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "Active", contentMarkdown: "activeneedle" }) }, login.cookie);
+    const other = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "Other trash", contentMarkdown: "otherneedle" }) }, otherLogin.cookie, otherEnvironment);
+    await request(`/api/notes/${other.body?.note.id}`, { method: "PATCH", body: JSON.stringify({ version: 1, deleted: true }) }, otherLogin.cookie, otherEnvironment);
+    const trashedShare = await request(`/api/notes/${deletedIds[0]}/shares`, { method: "POST" }, login.cookie);
+    const activeShare = await request(`/api/notes/${active.body?.note.id}/shares`, { method: "POST" }, login.cookie);
+    const otherShare = await request(`/api/notes/${other.body?.note.id}/shares`, { method: "POST" }, otherLogin.cookie, otherEnvironment);
+    const beforeCounts = await request("/api/notebooks", {}, login.cookie);
+    const list = await request("/api/notes?view=trash", {}, login.cookie);
+    expect(list.body?.notes).toHaveLength(100);
+    expect(list.body?.total).toBe(105);
+
+    const unauthorized = await request("/api/trash", { method: "DELETE" });
+    expect(unauthorized.response.status).toBe(401);
+    expect((await request("/api/notes?view=trash", {}, login.cookie)).body?.total).toBe(105);
+
+    const emptied = await request("/api/trash", { method: "DELETE" }, login.cookie);
+    expect(emptied.response.status).toBe(200);
+    expect(emptied.body?.ok).toBe(true);
+    expect(emptied.body?.deletedCount).toBe(105);
+    expect(new Set(emptied.body?.deletedIds)).toEqual(new Set(deletedIds));
+    expect((await request("/api/notes?view=trash", {}, login.cookie)).body).toEqual({ notes: [], total: 0 });
+    expect(database.query("SELECT note_id FROM notes_fts WHERE notes_fts MATCH ?").all("trashneedle")).toHaveLength(0);
+    expect((await request("/api/notebooks", {}, login.cookie)).body).toEqual(beforeCounts.body);
+    expect((await request(`/api/notes/${active.body?.note.id}`, {}, login.cookie)).response.status).toBe(200);
+    expect((await request("/api/notes?view=all&query=activeneedle", {}, login.cookie)).body?.total).toBe(1);
+    expect((await request("/api/notes?view=trash&query=otherneedle", {}, otherLogin.cookie, otherEnvironment)).body?.total).toBe(1);
+    for (const [share, expected] of [[trashedShare, 404], [activeShare, 200], [otherShare, 200]] as const) {
+      const token = new URL(share.body?.share.url).pathname.split("/").pop();
+      expect((await request(`/api/shares/${token}`)).response.status).toBe(expected);
+    }
+    expect((await request("/api/trash", { method: "DELETE" }, login.cookie)).body).toEqual({ ok: true, deletedCount: 0, deletedIds: [] });
+  });
+
+  test("rolls back notes, full-text entries and shares together when emptying trash fails", async () => {
+    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
+    const created = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "Rollback", contentMarkdown: "rollbackneedle" }) }, login.cookie);
+    const id = created.body?.note.id;
+    await request(`/api/notes/${id}`, { method: "PATCH", body: JSON.stringify({ version: 1, deleted: true }) }, login.cookie);
+    const share = await request(`/api/notes/${id}/shares`, { method: "POST" }, login.cookie);
+    database.exec("CREATE TEMP TRIGGER fail_trash_delete BEFORE DELETE ON notes BEGIN SELECT RAISE(ABORT, 'simulated delete failure'); END");
+    const log = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const emptied = await request("/api/trash", { method: "DELETE" }, login.cookie);
+      expect(emptied.response.status).toBe(500);
+      expect(emptied.body?.error.code).toBe("INTERNAL_ERROR");
+    } finally { log.mockRestore(); }
+    expect((await request(`/api/notes/${id}`, {}, login.cookie)).body?.note.deletedAt).not.toBeNull();
+    expect((await request("/api/notes?view=trash&query=rollbackneedle", {}, login.cookie)).body?.total).toBe(1);
+    const token = new URL(share.body?.share.url).pathname.split("/").pop();
+    expect((await request(`/api/shares/${token}`)).response.status).toBe(200);
   });
 
   test("rejects unknown list views and stores blank titles as empty", async () => {

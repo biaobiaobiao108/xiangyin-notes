@@ -371,6 +371,16 @@ async function handleApi(request: Request, options: ServerOptions) {
 
   if (method === "GET" && url.pathname === "/api/me") return json({ user });
 
+  if (method === "DELETE" && url.pathname === "/api/trash") {
+    const emptyTrash = database.transaction(() => {
+      const deletedIds = all<{ id: string }>(database, "SELECT id FROM notes WHERE user_id = ? AND deleted_at IS NOT NULL", user.id).map((note) => note.id);
+      database.query("DELETE FROM notes_fts WHERE note_id IN (SELECT id FROM notes WHERE user_id = ? AND deleted_at IS NOT NULL)").run(user.id);
+      database.query("DELETE FROM notes WHERE user_id = ? AND deleted_at IS NOT NULL").run(user.id);
+      return { ok: true, deletedCount: deletedIds.length, deletedIds };
+    });
+    return json(emptyTrash());
+  }
+
   if (resource === "notes" && !id && method === "GET") {
     const view = url.searchParams.get("view") ?? "all";
     if (!NOTE_VIEWS.includes(view as NoteView)) return jsonError(400, "INVALID_VIEW", "不支持的笔记视图");

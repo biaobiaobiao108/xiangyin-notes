@@ -41,6 +41,7 @@ export const api = {
   createNote: (payload: { title?: string; contentMarkdown?: string; notebookId?: string }) => request<{ note: Note }>("/api/notes", { method: "POST", body: JSON.stringify(payload) }),
   updateNote: (id: string, payload: { version: number; title?: string; contentMarkdown?: string; notebookId?: string; isFavorite?: boolean; deleted?: boolean }, options?: { keepalive?: boolean }) => request<{ note: Note }>(`/api/notes/${id}`, { method: "PATCH", body: JSON.stringify(payload), keepalive: options?.keepalive }),
   deleteNote: (id: string) => request<{ ok: true }>(`/api/notes/${id}`, { method: "DELETE" }),
+  emptyTrash: () => request<{ ok: true; deletedCount: number; deletedIds: string[] }>("/api/trash", { method: "DELETE" }),
   listNotebooks: () => request<{ notebooks: Notebook[] }>("/api/notebooks"),
   createNotebook: (payload: { name: string; color?: string }) => request<{ notebook: Notebook }>("/api/notebooks", { method: "POST", body: JSON.stringify(payload) }),
   updateNotebook: (id: string, payload: { name?: string; color?: string }) => request<{ notebook: Notebook }>(`/api/notebooks/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
