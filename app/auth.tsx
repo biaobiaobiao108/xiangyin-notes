@@ -22,7 +22,7 @@ export function SetupPage() {
 
   useEffect(() => { void checkConfiguration(); }, [checkConfiguration]);
 
-  return <AuthLayout title="配置你的安静空间" description="Lumen Notes 使用 Cloudflare Worker 环境变量管理唯一登录凭据。"><section className="config-panel" aria-live="polite"><span className="config-panel-icon"><Sparkles size={18} /></span><h2>{status === "checking" ? "正在检查 Worker 配置" : status === "error" ? "暂时无法读取配置" : "等待配置登录凭据"}</h2><p>{status === "error" ? "请确认 Worker 已经部署并绑定 D1，然后重新检查。" : "请在 Cloudflare Dashboard 的 Worker Secrets 中添加下面两个变量。"}</p><div className="config-variable-list"><code>LUMEN_USERNAME</code><code>LUMEN_PASSWORD</code></div>{status === "error" && <p className="form-error" role="alert">无法连接到 /api/bootstrap。</p>}<button className="secondary-button auth-submit" type="button" onClick={() => void checkConfiguration()} disabled={status === "checking"}><RefreshCw size={16} />重新检查配置</button></section></AuthLayout>;
+  return <AuthLayout title="配置你的安静空间" description="Lumen Notes 使用本地 Bun 服务的环境变量管理唯一登录凭据。"><section className="config-panel" aria-live="polite"><span className="config-panel-icon"><Sparkles size={18} /></span><h2>{status === "checking" ? "正在检查服务配置" : status === "error" ? "暂时无法读取配置" : "等待配置登录凭据"}</h2><p>{status === "error" ? "请确认 Bun 服务正在运行并且已加载 .env，然后重新检查。" : "请在启动 Bun 服务时提供下面两个环境变量。"}</p><div className="config-variable-list"><code>LUMEN_USERNAME</code><code>LUMEN_PASSWORD</code></div>{status === "error" && <p className="form-error" role="alert">无法连接到 /api/bootstrap。</p>}<button className="secondary-button auth-submit" type="button" onClick={() => void checkConfiguration()} disabled={status === "checking"}><RefreshCw size={16} />重新检查配置</button></section></AuthLayout>;
 }
 
 export function LoginPage() {

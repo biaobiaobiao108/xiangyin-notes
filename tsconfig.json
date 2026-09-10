@@ -15,7 +15,7 @@
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
-    "types": ["bun-types", "@cloudflare/workers-types"]
+    "types": ["bun"]
   },
-  "include": ["app", "worker", "shared", "scripts", "tests"]
+  "include": ["app", "server", "shared", "scripts", "tests"]
 }

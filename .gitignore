@@ -4,4 +4,10 @@ dist
 .wrangler.local.jsonc
 .wrangler.remote.jsonc
 .dev.vars*
+.env
+.env.*
+!.env.example
+data
+*.sqlite
+*.sqlite-*
 *.log

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildFtsQuery, constantTimeEqual, createOpaqueToken, derivePassword, formatPreview, hashPassword } from "../worker/index";
+import { buildFtsQuery, constantTimeEqual, createOpaqueToken, derivePassword, formatPreview, hashPassword } from "../server/index";
 
 describe("security helpers", () => {
   test("creates URL-safe opaque tokens", () => {
