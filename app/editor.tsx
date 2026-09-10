@@ -15,12 +15,14 @@ import { FloatingScrollbar } from "./floating-scrollbar";
 
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
 
-export function NoteEditor({ note, saveState, isLoading = false, onChange, onSaveNow, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList }: {
+export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0, onChange, onSaveNow, onReloadNote, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList }: {
   note: Note;
   saveState: "idle" | "saving" | "saved" | "conflict" | "error";
   isLoading?: boolean;
+  reloadToken?: number;
   onChange: (patch: { title?: string; contentMarkdown?: string; notebookId?: string }) => void;
   onSaveNow: () => void;
+  onReloadNote: () => void;
   onShare: () => void;
   onToggleFavorite: () => void;
   onMoveToTrash: () => void;
@@ -211,8 +213,12 @@ export function NoteEditor({ note, saveState, isLoading = false, onChange, onSav
     editor.setEditable(!note.deletedAt && !isLoading, false);
   }, [editor, isLoading, note.deletedAt]);
 
+  const appliedReloadTokenRef = useRef(reloadToken);
   useEffect(() => {
-    if (!editor || activeEditorNoteIdRef.current === note.id) return;
+    if (!editor) return;
+    const switchedNote = activeEditorNoteIdRef.current !== note.id;
+    if (!switchedNote && appliedReloadTokenRef.current === reloadToken) return;
+    appliedReloadTokenRef.current = reloadToken;
     activeEditorNoteIdRef.current = note.id;
     clearHeadingTimer();
     pendingHeadingRef.current = false;
@@ -224,7 +230,7 @@ export function NoteEditor({ note, saveState, isLoading = false, onChange, onSav
     editor.commands.setContent(note.contentMarkdown, { contentType: "markdown", emitUpdate: false });
     editorScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
     scheduleEditorSurfaceSync(editor);
-  }, [editor, note.id]);
+  }, [editor, note.id, reloadToken]);
 
   useEffect(() => {
     if (isLoading) setOutlineOpen(false);
@@ -302,7 +308,7 @@ export function NoteEditor({ note, saveState, isLoading = false, onChange, onSav
     setActiveOutlineId(id);
   };
 
-  const saveLabel = saveState === "saving" ? "保存中" : saveState === "conflict" ? "发生冲突" : "已保存";
+  const saveLabel = saveState === "saving" ? "保存中" : "已保存";
   return (
     <section className={`editor-panel ${isLoading ? "is-loading" : ""}`} aria-label="笔记编辑器" aria-busy={isLoading} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === "s") { event.preventDefault(); onSaveNow(); } }}>
       <header className="editor-header">
@@ -320,6 +326,8 @@ export function NoteEditor({ note, saveState, isLoading = false, onChange, onSav
         <div className="editor-actions">
           {saveState === "error" ? (
             <button className="save-status save-status--error save-status--action" type="button" onClick={onSaveNow}><span className="save-dot" />重试保存</button>
+          ) : saveState === "conflict" ? (
+            <button className="save-status save-status--conflict save-status--action" type="button" onClick={onReloadNote}><span className="save-dot" />重新载入</button>
           ) : saveState === "idle" ? null : (
             <span className={`save-status save-status--${saveState}`} aria-live="polite"><span className="save-dot" />{saveLabel}</span>
           )}

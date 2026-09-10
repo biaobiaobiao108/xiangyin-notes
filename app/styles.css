@@ -324,6 +324,11 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
 .share-status-dot { width: 7px; height: 7px; border-radius: 50%; background: #71a67a; }
 .share-status-dot.is-inactive { background: #b4bdb6; }
 .notebook-dialog { width: min(450px, calc(100% - 32px)); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow); animation: dialog-in 160ms ease both; }
+.confirm-dialog { width: min(430px, calc(100% - 32px)); border: 1px solid var(--border); border-radius: 16px; background: var(--surface); box-shadow: var(--shadow); animation: dialog-in 160ms ease both; }
+.confirm-dialog .dialog-heading p { max-width: 340px; line-height: 1.55; }
+.dialog-eyebrow.is-danger { color: #c34b35; }
+.primary-button.danger-primary { background: #c34b35; box-shadow: 0 6px 18px rgba(195, 75, 53, 0.22); }
+.primary-button.danger-primary:hover { background: #a63c28; }
 .notebook-color-field { display: grid; gap: 10px; margin: 0 24px 22px; padding: 0; border: 0; color: var(--ink); font-size: 0.78rem; font-weight: 600; }
 .notebook-color-field legend { padding: 0; }
 .notebook-color-options { display: flex; flex-wrap: wrap; gap: 8px; }

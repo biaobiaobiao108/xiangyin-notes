@@ -1,5 +1,5 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { Archive, ChevronDown, ChevronLeft, FileText, Folder, Inbox, LayoutPanelLeft, Link2, LogOut, Menu, Pencil, Plus, Search, Share2, Star, Trash2, UsersRound, X } from "lucide-react";
+import { AlertTriangle, Archive, ChevronDown, ChevronLeft, FileText, Folder, Inbox, LayoutPanelLeft, Link2, LogOut, Menu, Pencil, Plus, RefreshCw, Search, Share2, Star, Trash2, UsersRound, X } from "lucide-react";
 import { useNavigate } from "react-router";
 import { ApiError, api } from "./api";
 import { CommandId, CommandMenu } from "./command-menu";
@@ -22,6 +22,34 @@ const notebookColorOptions = ["#d96245", "#718077", "#5b7899", "#9c765f", "#aa6f
 
 function noteSavePayload(draft: Note) {
   return { version: draft.version, title: draft.title, contentMarkdown: draft.contentMarkdown, notebookId: draft.notebookId, isFavorite: draft.isFavorite, deleted: Boolean(draft.deletedAt) };
+}
+
+type ConfirmRequest = {
+  id: number;
+  eyebrow: string;
+  title: string;
+  description: string;
+  confirmLabel: string;
+  danger?: boolean;
+  onConfirm: () => void;
+};
+
+function ConfirmDialog({ request, onClose }: { request: ConfirmRequest; onClose: () => void }) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  useEffect(() => { const dialog = dialogRef.current; if (!dialog) return; dialog.showModal(); return () => { if (dialog.open) dialog.close(); }; }, []);
+  return <dialog ref={dialogRef} className="confirm-dialog" aria-labelledby="confirm-dialog-title" aria-describedby="confirm-dialog-description" onCancel={(event) => { event.preventDefault(); onClose(); }}>
+    <div className="dialog-heading">
+      <div>
+        <span className={`dialog-eyebrow ${request.danger ? "is-danger" : ""}`}>{request.danger ? <AlertTriangle size={15} /> : <RefreshCw size={15} />}{request.eyebrow}</span>
+        <h2 id="confirm-dialog-title">{request.title}</h2>
+        <p id="confirm-dialog-description">{request.description}</p>
+      </div>
+    </div>
+    <div className="dialog-actions">
+      <button className="secondary-button" type="button" onClick={onClose}>取消</button>
+      <button className={`primary-button ${request.danger ? "danger-primary" : ""}`} type="button" onClick={() => { request.onConfirm(); onClose(); }}>{request.confirmLabel}</button>
+    </div>
+  </dialog>;
 }
 
 export function Workspace() {
@@ -51,6 +79,13 @@ export function Workspace() {
   const [editingNotebook, setEditingNotebook] = useState<Notebook | null | undefined>(undefined);
   const [toast, setToast] = useState("");
   const [ready, setReady] = useState(false);
+  const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
+  const [noteReloadToken, setNoteReloadToken] = useState(0);
+  const confirmIdRef = useRef(0);
+  const requestConfirm = useCallback((request: Omit<ConfirmRequest, "id">) => {
+    confirmIdRef.current += 1;
+    setConfirmRequest({ ...request, id: confirmIdRef.current });
+  }, []);
 
   useEffect(() => { selectedRef.current = selectedNote; }, [selectedNote]);
   useEffect(() => { void api.bootstrap().then(async (status) => { if (!status.configured) { navigate("/setup", { replace: true }); return; } try { await api.me(); setReady(true); } catch { navigate("/login", { replace: true }); } }).catch(() => navigate("/login", { replace: true })); }, [navigate]);
@@ -286,27 +321,67 @@ export function Workspace() {
   const toggleFavorite = useCallback(() => { const current = selectedRef.current; if (!current) return; const next = { ...current, isFavorite: !current.isFavorite }; selectedRef.current = next; setSelectedNote(next); persist(next); if (view === "favorites" && !next.isFavorite) removeFromList(current.id); }, [persist, removeFromList, view]);
   const moveToTrash = useCallback(() => { const current = selectedRef.current; if (!current) return; const next = { ...current, deletedAt: Math.floor(Date.now() / 1000) }; selectedRef.current = next; setSelectedNote(next); persist(next); removeFromList(current.id); refreshNotebooks(); setToast("已移入回收站"); }, [persist, refreshNotebooks, removeFromList]);
   const restoreFromTrash = useCallback(() => { const current = selectedRef.current; if (!current) return; const next = { ...current, deletedAt: null }; selectedRef.current = next; setSelectedNote(next); persist(next); setView("all"); setNotebookId(undefined); refreshNotebooks(); reloadNotes(); setToast("已恢复笔记"); }, [persist, refreshNotebooks, reloadNotes]);
-  const permanentDeleteNote = useCallback(async () => {
-    const current = selectedRef.current;
-    if (!current) return;
-    if (!window.confirm(`确定要彻底删除笔记“${current.title || "未命名笔记"}”吗？此操作无法撤销。`)) return;
+  const performPermanentDelete = useCallback(async (noteId: string) => {
     try {
-      await api.deleteNote(current.id);
-      setNotes((prev) => prev.filter((note) => note.id !== current.id));
+      await api.deleteNote(noteId);
+      setNotes((prev) => prev.filter((note) => note.id !== noteId));
       setSelectedId(null);
       setSelectedNote(null);
       selectedRef.current = null;
       activeNoteIdRef.current = null;
-      pendingSavesRef.current.delete(current.id);
-      const timer = saveTimersRef.current.get(current.id);
+      pendingSavesRef.current.delete(noteId);
+      const timer = saveTimersRef.current.get(noteId);
       if (timer) clearTimeout(timer);
-      saveTimersRef.current.delete(current.id);
+      saveTimersRef.current.delete(noteId);
       setToast("已彻底删除笔记");
       refreshNotebooks();
     } catch {
       setToast("彻底删除笔记失败，请重试");
     }
   }, [refreshNotebooks]);
+  const permanentDeleteNote = useCallback(async () => {
+    const current = selectedRef.current;
+    if (!current) return;
+    requestConfirm({
+      eyebrow: "不可撤销",
+      title: `彻底删除“${current.title.trim() || "未命名笔记"}”？`,
+      description: "这篇笔记会从数据库中永久移除，回收站不再保留，已生成的分享链接也会同时失效。",
+      confirmLabel: "彻底删除",
+      danger: true,
+      onConfirm: () => void performPermanentDelete(current.id),
+    });
+  }, [performPermanentDelete, requestConfirm]);
+  const reloadSelectedNote = useCallback(async () => {
+    const current = selectedRef.current;
+    if (!current) return;
+    pendingSavesRef.current.delete(current.id);
+    const timer = saveTimersRef.current.get(current.id);
+    if (timer) clearTimeout(timer);
+    saveTimersRef.current.delete(current.id);
+    setIsNoteLoading(true);
+    try {
+      const result = await api.getNote(current.id);
+      if (selectedRef.current?.id !== result.note.id) return;
+      selectedRef.current = result.note;
+      setSelectedNote(result.note);
+      setNoteReloadToken((value) => value + 1);
+      setSaveState("idle");
+      setToast("已重新载入最新版本");
+    } catch {
+      setToast("重新载入失败，请重试");
+    } finally {
+      setIsNoteLoading(false);
+    }
+  }, []);
+  const requestConflictReload = useCallback(() => {
+    requestConfirm({
+      eyebrow: "版本冲突",
+      title: "重新载入最新版本？",
+      description: "这篇笔记已在别处更新。重新载入会使用服务器上的最新内容替换当前编辑，本地尚未保存的修改将丢失。",
+      confirmLabel: "重新载入",
+      onConfirm: () => void reloadSelectedNote(),
+    });
+  }, [reloadSelectedNote, requestConfirm]);
   const command = useCallback((id: CommandId) => { if (id === "new-note") void createNoteInInbox(); if (id === "search") { setView("all"); setMobileSidebarOpen(true); requestAnimationFrame(() => searchRef.current?.focus()); } if (id === "toggle-sidebar") setSidebarCollapsed((value) => !value); if (id === "share" && selectedNote) setShareOpen(true); if (id === "favorite") toggleFavorite(); if (id === "trash") moveToTrash(); if (id === "restore") restoreFromTrash(); }, [createNoteInInbox, moveToTrash, restoreFromTrash, selectedNote, toggleFavorite]);
   const logout = async () => { await flushPendingSaves("now"); await api.logout().catch(() => undefined); navigate("/login", { replace: true }); };
   if (!ready) return <main className="app-loading"><span className="loading-ring" /><span>正在进入你的空间……</span></main>;
@@ -316,11 +391,12 @@ export function Workspace() {
     <Sidebar view={view} setView={(next) => { setView(next); setNotebookId(undefined); setMobileSidebarOpen(false); }} notebooks={notebooks} notebookId={notebookId} setNotebookId={(id) => { setNotebookId(id); setView("all"); setMobileSidebarOpen(false); }} query={query} setQuery={setQuery} searchRef={searchRef} onNewNote={() => void createNoteInInbox()} onCreateNotebook={() => void createNotebook()} onEditNotebook={(target) => setEditingNotebook(target)} collapsed={sidebarCollapsed} onCollapse={() => setSidebarCollapsed((value) => !value)} mobileOpen={mobileSidebarOpen} onLogout={logout} />
     <NoteListPanel notes={notes} selectedId={selectedId} onSelect={(id) => { setSelectedId(id); setMobileListOpen(false); }} view={view} query={query} currentNotebookName={currentNotebook?.name} onNewNote={currentNotebook ? () => void createNoteInCurrentNotebook() : undefined} mobileOpen={mobileListOpen} onOpenSidebar={() => setMobileSidebarOpen(true)} />
     <main className="editor-region">
-      {selectedNote ? <NoteEditor note={selectedNote} saveState={saveState} isLoading={isNoteLoading} onChange={onNoteChange} onSaveNow={saveNoteNow} onShare={() => setShareOpen(true)} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={() => setMobileListOpen(true)} /> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor onNewNote={() => void createNoteInCurrentNotebook()} onOpenList={() => setMobileListOpen(true)} />}
+      {selectedNote ? <NoteEditor note={selectedNote} saveState={saveState} isLoading={isNoteLoading} reloadToken={noteReloadToken} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onShare={() => setShareOpen(true)} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={() => setMobileListOpen(true)} /> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor onNewNote={() => void createNoteInCurrentNotebook()} onOpenList={() => setMobileListOpen(true)} />}
     </main>
     <CommandMenu open={commandOpen} onClose={() => setCommandOpen(false)} onCommand={command} onCreateNoteInNotebook={createNoteInNotebook} canRestore={Boolean(selectedNote?.deletedAt)} notebooks={notebooks} />
     {shareOpen && selectedNote && <ShareDialog note={selectedNote} onClose={() => setShareOpen(false)} onToast={setToast} />}
-    {editingNotebook !== undefined && <NotebookDialog key={editingNotebook?.id ?? "new"} notebook={editingNotebook} onClose={() => setEditingNotebook(undefined)} onSaved={saveNotebook} onDeleted={deleteNotebook} onToast={setToast} />}
+    {editingNotebook !== undefined && <NotebookDialog key={editingNotebook?.id ?? "new"} notebook={editingNotebook} onClose={() => setEditingNotebook(undefined)} onSaved={saveNotebook} onRequestDelete={(target) => requestConfirm({ eyebrow: "整理上下文", title: `删除笔记本“${target.name}”？`, description: "笔记本中的笔记会自动移入收件箱，笔记内容不会被删除。", confirmLabel: "删除笔记本", danger: true, onConfirm: () => void deleteNotebook(target.id) })} onToast={setToast} />}
+    {confirmRequest && <ConfirmDialog key={confirmRequest.id} request={confirmRequest} onClose={() => setConfirmRequest(null)} />}
     {toast && <div className="toast" role="status">{toast}</div>}
   </div>;
 }
@@ -438,7 +514,7 @@ function ShareDialog({ note, onClose, onToast }: { note: Note; onClose: () => vo
   </dialog>;
 }
 
-function NotebookDialog({ notebook, onClose, onSaved, onDeleted, onToast }: { notebook?: Notebook | null; onClose: () => void; onSaved: (notebook: Notebook) => void; onDeleted?: (id: string) => void; onToast: (message: string) => void }) {
+function NotebookDialog({ notebook, onClose, onSaved, onRequestDelete, onToast }: { notebook?: Notebook | null; onClose: () => void; onSaved: (notebook: Notebook) => void; onRequestDelete?: (notebook: Notebook) => void; onToast: (message: string) => void }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState(notebook?.name ?? "");
@@ -472,11 +548,10 @@ function NotebookDialog({ notebook, onClose, onSaved, onDeleted, onToast }: { no
     } finally { setBusy(false); }
   };
   const handleDelete = () => {
-    if (!notebook || !onDeleted) return;
-    if (!window.confirm(`确定要删除笔记本“${notebook.name}”吗？其中的笔记将自动移入收件箱。`)) return;
-    onDeleted(notebook.id);
+    if (!notebook || !onRequestDelete) return;
+    onRequestDelete(notebook);
   };
-  return <dialog ref={dialogRef} className="notebook-dialog" onCancel={(event) => { event.preventDefault(); onClose(); }}><form onSubmit={(event) => void submit(event)}><div className="dialog-heading"><div><span className="dialog-eyebrow"><Folder size={15} />整理上下文</span><h2>{isEditing ? "编辑笔记本" : "新建笔记本"}</h2><p>{isEditing ? "修改笔记本名称或管理该分类。" : "给一组想法一个清晰的落点。"}</p></div><button className="icon-button" type="button" aria-label="关闭新建笔记本窗口" onClick={onClose}><X size={18} /></button></div><label className="dialog-field"><span>名称</span><input ref={inputRef} value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：项目资料" maxLength={40} autoComplete="off" /></label><fieldset className="notebook-color-field"><legend>颜色</legend><div className="notebook-color-options" role="radiogroup" aria-label="选择笔记本颜色">{notebookColorOptions.map((option) => <button key={option} className="notebook-color-option" type="button" role="radio" aria-checked={color.toLowerCase() === option} aria-label={`选择颜色 ${option}`} onClick={() => { setColor(option); setColorError(""); }}><span className="notebook-color-swatch" style={{ backgroundColor: option }} /></button>)}</div><label className="notebook-color-custom"><span>自定义色值</span><input value={color} onChange={(event) => { setColor(event.target.value); setColorError(""); }} placeholder="#718077" maxLength={7} inputMode="text" spellCheck={false} aria-invalid={Boolean(colorError)} aria-describedby={colorError ? "notebook-color-error" : undefined} /></label>{colorError && <span className="dialog-error" id="notebook-color-error" role="alert">{colorError}</span>}</fieldset><div className="dialog-actions">{isEditing && !notebook?.isSystem && onDeleted && <button className="text-button text-danger" type="button" onClick={handleDelete} disabled={busy} style={{ marginRight: "auto" }}>删除笔记本</button>}<button className="secondary-button" type="button" onClick={onClose}>取消</button><button className="primary-button" type="submit" disabled={busy || !name.trim()}>{busy ? "正在保存……" : isEditing ? "保存修改" : "创建笔记本"}</button></div></form></dialog>;
+  return <dialog ref={dialogRef} className="notebook-dialog" onCancel={(event) => { event.preventDefault(); onClose(); }}><form onSubmit={(event) => void submit(event)}><div className="dialog-heading"><div><span className="dialog-eyebrow"><Folder size={15} />整理上下文</span><h2>{isEditing ? "编辑笔记本" : "新建笔记本"}</h2><p>{isEditing ? "修改笔记本名称或管理该分类。" : "给一组想法一个清晰的落点。"}</p></div><button className="icon-button" type="button" aria-label="关闭新建笔记本窗口" onClick={onClose}><X size={18} /></button></div><label className="dialog-field"><span>名称</span><input ref={inputRef} value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：项目资料" maxLength={40} autoComplete="off" /></label><fieldset className="notebook-color-field"><legend>颜色</legend><div className="notebook-color-options" role="radiogroup" aria-label="选择笔记本颜色">{notebookColorOptions.map((option) => <button key={option} className="notebook-color-option" type="button" role="radio" aria-checked={color.toLowerCase() === option} aria-label={`选择颜色 ${option}`} onClick={() => { setColor(option); setColorError(""); }}><span className="notebook-color-swatch" style={{ backgroundColor: option }} /></button>)}</div><label className="notebook-color-custom"><span>自定义色值</span><input value={color} onChange={(event) => { setColor(event.target.value); setColorError(""); }} placeholder="#718077" maxLength={7} inputMode="text" spellCheck={false} aria-invalid={Boolean(colorError)} aria-describedby={colorError ? "notebook-color-error" : undefined} /></label>{colorError && <span className="dialog-error" id="notebook-color-error" role="alert">{colorError}</span>}</fieldset><div className="dialog-actions">{isEditing && !notebook?.isSystem && onRequestDelete && <button className="text-button text-danger" type="button" onClick={handleDelete} disabled={busy} style={{ marginRight: "auto" }}>删除笔记本</button>}<button className="secondary-button" type="button" onClick={onClose}>取消</button><button className="primary-button" type="submit" disabled={busy || !name.trim()}>{busy ? "正在保存……" : isEditing ? "保存修改" : "创建笔记本"}</button></div></form></dialog>;
 }
 
 function viewLabel(view: NoteView) { return ({ all: "全部笔记", inbox: "收件箱", favorites: "收藏", shared: "已分享", trash: "回收站" })[view]; }
