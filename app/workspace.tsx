@@ -166,9 +166,9 @@ export function Workspace() {
       setToast(targetNotebook ? `已移至“${targetNotebook.name}”` : "已变更所属笔记本");
     }
   }, [notebooks, persist, refreshNotebooks]);
-  const revealCreatedNote = useCallback((note: Note, targetNotebookId: string | undefined, message: string) => {
-    setView("all");
-    setNotebookId(targetNotebookId);
+  const revealCreatedNote = useCallback((note: Note, target: { view: NoteView; notebookId?: string }, message: string) => {
+    setView(target.view);
+    setNotebookId(target.notebookId);
     setQuery("");
     setNotes((current) => [note, ...current.filter((currentNote) => currentNote.id !== note.id)]);
     setSelectedNote(note);
@@ -179,16 +179,26 @@ export function Workspace() {
     setMobileListOpen(false);
     setToast(message);
   }, []);
-  const createNote = useCallback(async () => {
+  const createNoteInInbox = useCallback(async () => {
     try {
-      const currentNotebook = notebookId ? notebooks.find((notebook) => notebook.id === notebookId) : undefined;
-      const targetNotebookId = currentNotebook?.id ?? notebooks.find((notebook) => notebook.isSystem)?.id;
-      const result = await api.createNote({ notebookId: targetNotebookId });
-      revealCreatedNote(result.note, currentNotebook?.id, currentNotebook ? `已在“${currentNotebook.name}”中创建新笔记` : "已创建新笔记");
+      const result = await api.createNote({});
+      revealCreatedNote(result.note, { view: "inbox" }, "已在收件箱中创建新笔记");
       refreshNotebooks();
     } catch { setToast("创建笔记失败"); }
-  }, [notebookId, notebooks, refreshNotebooks, revealCreatedNote]);
-  const createNoteInNotebook = useCallback(async (commandToCreate: CreateNoteCommand) => { try { const result = await api.createNote({ notebookId: commandToCreate.notebookId, title: commandToCreate.title }); revealCreatedNote(result.note, commandToCreate.notebookId, `已在“${commandToCreate.notebookName}”中创建“${commandToCreate.title}”`); refreshNotebooks(); } catch (reason) { if (reason instanceof ApiError && reason.status === 401) navigate("/login", { replace: true }); setToast("创建笔记失败，请稍后重试"); } }, [navigate, refreshNotebooks, revealCreatedNote]);
+  }, [refreshNotebooks, revealCreatedNote]);
+  const createNoteInCurrentNotebook = useCallback(async () => {
+    const currentNotebook = notebookId ? notebooks.find((notebook) => notebook.id === notebookId) : undefined;
+    if (!currentNotebook) {
+      await createNoteInInbox();
+      return;
+    }
+    try {
+      const result = await api.createNote({ notebookId: currentNotebook.id });
+      revealCreatedNote(result.note, { view: "all", notebookId: currentNotebook.id }, `已在“${currentNotebook.name}”中创建新笔记`);
+      refreshNotebooks();
+    } catch { setToast("创建笔记失败"); }
+  }, [createNoteInInbox, notebookId, notebooks, refreshNotebooks, revealCreatedNote]);
+  const createNoteInNotebook = useCallback(async (commandToCreate: CreateNoteCommand) => { try { const result = await api.createNote({ notebookId: commandToCreate.notebookId, title: commandToCreate.title }); revealCreatedNote(result.note, { view: "all", notebookId: commandToCreate.notebookId }, `已在“${commandToCreate.notebookName}”中创建“${commandToCreate.title}”`); refreshNotebooks(); } catch (reason) { if (reason instanceof ApiError && reason.status === 401) navigate("/login", { replace: true }); setToast("创建笔记失败，请稍后重试"); } }, [navigate, refreshNotebooks, revealCreatedNote]);
   const createNotebook = useCallback(() => setEditingNotebook(null), []);
   const saveNotebook = useCallback((saved: Notebook) => {
     setNotebooks((current) => {
@@ -245,15 +255,16 @@ export function Workspace() {
       setToast("彻底删除笔记失败，请重试");
     }
   }, [refreshNotebooks]);
-  const command = useCallback((id: CommandId) => { if (id === "new-note") void createNote(); if (id === "search") { setView("all"); setMobileSidebarOpen(true); requestAnimationFrame(() => searchRef.current?.focus()); } if (id === "toggle-sidebar") setSidebarCollapsed((value) => !value); if (id === "share" && selectedNote) setShareOpen(true); if (id === "favorite") toggleFavorite(); if (id === "trash") moveToTrash(); if (id === "restore") restoreFromTrash(); }, [createNote, moveToTrash, restoreFromTrash, selectedNote, toggleFavorite]);
+  const command = useCallback((id: CommandId) => { if (id === "new-note") void createNoteInInbox(); if (id === "search") { setView("all"); setMobileSidebarOpen(true); requestAnimationFrame(() => searchRef.current?.focus()); } if (id === "toggle-sidebar") setSidebarCollapsed((value) => !value); if (id === "share" && selectedNote) setShareOpen(true); if (id === "favorite") toggleFavorite(); if (id === "trash") moveToTrash(); if (id === "restore") restoreFromTrash(); }, [createNoteInInbox, moveToTrash, restoreFromTrash, selectedNote, toggleFavorite]);
   const logout = async () => { await api.logout().catch(() => undefined); navigate("/login", { replace: true }); };
   if (!ready) return <main className="app-loading"><span className="loading-ring" /><span>正在进入你的空间……</span></main>;
+  const currentNotebook = notebookId ? notebooks.find((notebook) => notebook.id === notebookId) : undefined;
   return <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
     <button className={`mobile-scrim ${mobileSidebarOpen || mobileListOpen ? "is-visible" : ""}`} type="button" aria-label="关闭导航" onClick={() => { setMobileSidebarOpen(false); setMobileListOpen(false); }} />
-    <Sidebar view={view} setView={(next) => { setView(next); setNotebookId(undefined); setMobileSidebarOpen(false); }} notebooks={notebooks} notebookId={notebookId} setNotebookId={(id) => { setNotebookId(id); setView("all"); setMobileSidebarOpen(false); }} query={query} setQuery={setQuery} searchRef={searchRef} onNewNote={() => void createNote()} onCreateNotebook={() => void createNotebook()} onEditNotebook={(target) => setEditingNotebook(target)} collapsed={sidebarCollapsed} onCollapse={() => setSidebarCollapsed((value) => !value)} mobileOpen={mobileSidebarOpen} onLogout={logout} />
-    <NoteListPanel notes={notes} selectedId={selectedId} onSelect={(id) => { setSelectedId(id); setMobileListOpen(false); }} view={view} query={query} mobileOpen={mobileListOpen} onOpenSidebar={() => setMobileSidebarOpen(true)} />
+    <Sidebar view={view} setView={(next) => { setView(next); setNotebookId(undefined); setMobileSidebarOpen(false); }} notebooks={notebooks} notebookId={notebookId} setNotebookId={(id) => { setNotebookId(id); setView("all"); setMobileSidebarOpen(false); }} query={query} setQuery={setQuery} searchRef={searchRef} onNewNote={() => void createNoteInInbox()} onCreateNotebook={() => void createNotebook()} onEditNotebook={(target) => setEditingNotebook(target)} collapsed={sidebarCollapsed} onCollapse={() => setSidebarCollapsed((value) => !value)} mobileOpen={mobileSidebarOpen} onLogout={logout} />
+    <NoteListPanel notes={notes} selectedId={selectedId} onSelect={(id) => { setSelectedId(id); setMobileListOpen(false); }} view={view} query={query} currentNotebookName={currentNotebook?.name} onNewNote={currentNotebook ? () => void createNoteInCurrentNotebook() : undefined} mobileOpen={mobileListOpen} onOpenSidebar={() => setMobileSidebarOpen(true)} />
     <main className="editor-region">
-      {selectedNote ? <NoteEditor note={selectedNote} notebooks={notebooks} saveState={saveState} isLoading={isNoteLoading} onChange={onNoteChange} onShare={() => setShareOpen(true)} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={() => setMobileListOpen(true)} /> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor onNewNote={() => void createNote()} onOpenList={() => setMobileListOpen(true)} />}
+      {selectedNote ? <NoteEditor note={selectedNote} saveState={saveState} isLoading={isNoteLoading} onChange={onNoteChange} onShare={() => setShareOpen(true)} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={() => setMobileListOpen(true)} /> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor onNewNote={() => void createNoteInCurrentNotebook()} onOpenList={() => setMobileListOpen(true)} />}
     </main>
     <CommandMenu open={commandOpen} onClose={() => setCommandOpen(false)} onCommand={command} onCreateNoteInNotebook={createNoteInNotebook} canRestore={Boolean(selectedNote?.deletedAt)} notebooks={notebooks} />
     {shareOpen && selectedNote && <ShareDialog note={selectedNote} onClose={() => setShareOpen(false)} onToast={setToast} />}
@@ -266,7 +277,7 @@ function Sidebar({ view, setView, notebooks, notebookId, setNotebookId, query, s
   return <aside className={`sidebar ${mobileOpen ? "is-mobile-open" : ""}`} aria-label="主导航"><div className="brand-row"><span className="brand-mark"><span className="brand-star">✦</span></span><span className="brand-name">Lumen Notes</span><button className="icon-button collapse-button" type="button" onClick={onCollapse} aria-label={collapsed ? "展开侧栏" : "收起侧栏"}><LayoutPanelLeft size={18} /></button></div><button className="primary-button new-note-button" type="button" onClick={onNewNote}><Plus size={18} />新建笔记</button><label className="search-box"><Search size={17} /><input ref={searchRef} value={query} onChange={(event) => { setQuery(event.target.value); setView("all"); }} placeholder="搜索笔记……" aria-label="搜索笔记" /><kbd>Ctrl /</kbd></label><nav className="main-nav"><ul>{navItems.map((item) => { const Icon = item.icon; return <li key={item.id}><button className={`nav-item ${view === item.id && !notebookId ? "is-active" : ""}`} type="button" onClick={() => setView(item.id)}><Icon size={18} /><span>{item.label}</span></button></li>; })}</ul></nav><div className="notebook-section"><div className="section-heading"><span>笔记本</span><button className="icon-button tiny-button" type="button" aria-label="新建笔记本" title="新建笔记本" onClick={onCreateNotebook}><Plus size={16} /></button></div><ul>{notebooks.map((notebook) => <li key={notebook.id} className="notebook-row-item"><div className="notebook-row-wrap"><button className={`notebook-item ${notebook.id === notebookId ? "is-active" : ""}`} type="button" aria-label={`${notebook.name}，${notebook.count} 篇笔记`} onClick={() => setNotebookId(notebook.id)}><span className="notebook-dot" style={{ background: notebook.color }} /><span>{notebook.name}</span><em>{notebook.count}</em></button>{notebook.isSystem ? <span className="notebook-edit-spacer" aria-hidden="true" /> : <button className="icon-button tiny-button notebook-edit-button" type="button" aria-label={`管理笔记本“${notebook.name}”`} title="管理笔记本" onClick={(e) => { e.stopPropagation(); onEditNotebook(notebook); }}><Pencil size={12} /></button>}</div></li>)}</ul></div><div className="sidebar-bottom"><button className="nav-item" type="button" onClick={onLogout}><LogOut size={18} /><span>退出登录</span></button><div className="sidebar-hint"><span className="status-pulse" />数据安全保存在你的空间</div></div></aside>;
 }
 
-function NoteListPanel({ notes, selectedId, onSelect, view, query, mobileOpen, onOpenSidebar }: { notes: NoteSummary[]; selectedId: string | null; onSelect: (id: string) => void; view: NoteView; query: string; mobileOpen: boolean; onOpenSidebar: () => void }) {
+function NoteListPanel({ notes, selectedId, onSelect, view, query, currentNotebookName, onNewNote, mobileOpen, onOpenSidebar }: { notes: NoteSummary[]; selectedId: string | null; onSelect: (id: string) => void; view: NoteView; query: string; currentNotebookName?: string; onNewNote?: () => void; mobileOpen: boolean; onOpenSidebar: () => void }) {
   const [sort, setSort] = useState<"updated" | "created" | "title">("updated");
   const [sortOpen, setSortOpen] = useState(false);
   const sortRef = useRef<HTMLDivElement>(null);
@@ -300,24 +311,28 @@ function NoteListPanel({ notes, selectedId, onSelect, view, query, mobileOpen, o
     title: "标题排序",
   };
 
+  const heading = query ? "搜索结果" : currentNotebookName ?? viewLabel(view);
   return <section className={`note-list-panel ${mobileOpen ? "is-mobile-open" : ""}`} aria-label="笔记列表">
     <header className="list-header">
       <button className="icon-button mobile-only" type="button" aria-label="打开导航" onClick={onOpenSidebar}><Menu size={20} /></button>
-      <div>
-        <h2>{query ? "搜索结果" : viewLabel(view)}</h2>
+      <div className="list-header-main">
+        <h2>{heading}</h2>
         <p>{query ? `包含“${query}”的笔记` : `${notes.length} 篇笔记`}</p>
       </div>
-      <div className="sort-menu-wrap" ref={sortRef}>
-        <button className="sort-button" type="button" aria-haspopup="listbox" aria-expanded={sortOpen} onClick={() => setSortOpen((open) => !open)}>
-          {sortLabels[sort]} <ChevronDown size={15} />
-        </button>
-        {sortOpen && (
-          <div className="sort-dropdown" role="listbox" aria-label="笔记排序方式">
-            <button type="button" className={`sort-option ${sort === "updated" ? "is-active" : ""}`} onClick={() => { setSort("updated"); setSortOpen(false); }}>最近更新</button>
-            <button type="button" className={`sort-option ${sort === "created" ? "is-active" : ""}`} onClick={() => { setSort("created"); setSortOpen(false); }}>创建时间</button>
-            <button type="button" className={`sort-option ${sort === "title" ? "is-active" : ""}`} onClick={() => { setSort("title"); setSortOpen(false); }}>标题排序</button>
-          </div>
-        )}
+      <div className="list-header-controls">
+        {onNewNote && <button className="icon-button list-new-note-button" type="button" aria-label={`在${currentNotebookName}中新建笔记`} title={`在${currentNotebookName}中新建笔记`} onClick={onNewNote}><Plus size={18} /></button>}
+        <div className="sort-menu-wrap" ref={sortRef}>
+          <button className="sort-button" type="button" aria-haspopup="listbox" aria-expanded={sortOpen} onClick={() => setSortOpen((open) => !open)}>
+            {sortLabels[sort]} <ChevronDown size={15} />
+          </button>
+          {sortOpen && (
+            <div className="sort-dropdown" role="listbox" aria-label="笔记排序方式">
+              <button type="button" className={`sort-option ${sort === "updated" ? "is-active" : ""}`} onClick={() => { setSort("updated"); setSortOpen(false); }}>最近更新</button>
+              <button type="button" className={`sort-option ${sort === "created" ? "is-active" : ""}`} onClick={() => { setSort("created"); setSortOpen(false); }}>创建时间</button>
+              <button type="button" className={`sort-option ${sort === "title" ? "is-active" : ""}`} onClick={() => { setSort("title"); setSortOpen(false); }}>标题排序</button>
+            </div>
+          )}
+        </div>
       </div>
     </header>
     <div className="note-list" role="list">

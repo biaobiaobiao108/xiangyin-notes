@@ -8,14 +8,13 @@ import TaskItem from "@tiptap/extension-task-item";
 import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
 import { ChevronLeft, Link2, ListTree, Minus, Trash2, Undo2 } from "lucide-react";
-import type { Note, Notebook } from "../shared/types";
+import type { Note } from "../shared/types";
 import { buildOutlineItems, countEditorText, isMarkdownHeadingMarker, parseMarkdownHeadingPrefix, type EditorStats, type OutlineItem } from "./editor-metrics";
 
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
 
-export function NoteEditor({ note, notebooks = [], saveState, isLoading = false, onChange, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList }: {
+export function NoteEditor({ note, saveState, isLoading = false, onChange, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList }: {
   note: Note;
-  notebooks?: Notebook[];
   saveState: "idle" | "saving" | "saved" | "conflict" | "error";
   isLoading?: boolean;
   onChange: (patch: { title?: string; contentMarkdown?: string; notebookId?: string }) => void;
@@ -295,34 +294,10 @@ export function NoteEditor({ note, notebooks = [], saveState, isLoading = false,
       <header className="editor-header">
         <div className="editor-header-start">
           {onOpenList && <button className="icon-button mobile-only editor-back" type="button" aria-label="返回笔记列表" onClick={onOpenList} disabled={isLoading}><ChevronLeft size={20} /></button>}
-          <div className="breadcrumbs">
-            {notebooks.length > 0 ? (
-              <label className="notebook-picker-label">
-                <span className="sr-only">选择所属笔记本</span>
-                <select
-                  className="notebook-select"
-                  value={note.notebookId}
-                  disabled={Boolean(note.deletedAt) || isLoading}
-                  onChange={(event) => {
-                    const nextId = event.target.value;
-                    if (nextId && nextId !== note.notebookId) {
-                      onChange({ notebookId: nextId });
-                    }
-                  }}
-                  aria-label="所属笔记本"
-                >
-                  {notebooks.map((nb) => (
-                    <option key={nb.id} value={nb.id}>
-                      {nb.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : (
-              <span>{note.notebookName}</span>
-            )}
-            <span aria-hidden="true">/</span>
-            <strong>{note.title || "未命名笔记"}</strong>
+          <div className="editor-meta" aria-label={`最后编辑于${relativeDate(note.updatedAt)}，${editorStats.wordCount} 字`}>
+            <span>最后编辑于 {relativeDate(note.updatedAt)}</span>
+            <span aria-hidden="true">·</span>
+            <strong>{editorStats.wordCount} 字</strong>
           </div>
         </div>
         <div className="editor-actions">
@@ -414,4 +389,16 @@ export function ReadOnlyMarkdown({ markdown }: { markdown: string }) {
     editorProps: { attributes: { class: "note-prose share-prose" } },
   });
   return <EditorContent editor={editor} />;
+}
+
+function relativeDate(timestamp: number) {
+  const diff = Math.max(0, Date.now() - timestamp * 1000);
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return "刚刚";
+  if (minutes < 60) return `${minutes} 分钟前`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} 小时前`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days} 天前`;
+  return new Date(timestamp * 1000).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
 }
