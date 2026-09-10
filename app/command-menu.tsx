@@ -2,16 +2,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Archive, Bookmark, FilePlus2, Link2, PanelLeft, Search, Trash2, type LucideIcon } from "lucide-react";
 import type { Notebook } from "../shared/types";
 import { parseCreateNoteCommand, type CreateNoteCommand } from "./command-parser";
+import { modKey } from "./platform";
 
 export type CommandId = "new-note" | "search" | "toggle-sidebar" | "share" | "favorite" | "trash" | "restore";
-
-const isMac = typeof navigator !== "undefined" && /(Mac|iPhone|iPod|iPad)/i.test(navigator.platform || navigator.userAgent);
-const modKey = isMac ? "⌘" : "Ctrl";
 
 const COMMANDS: Array<{ id: CommandId; label: string; shortcut: string; icon: LucideIcon }> = [
   { id: "new-note", label: "新建笔记", shortcut: "↵", icon: FilePlus2 },
   { id: "search", label: "搜索笔记", shortcut: "↵", icon: Search },
-  { id: "toggle-sidebar", label: "切换侧栏", shortcut: `${modKey} B`, icon: PanelLeft },
+  { id: "toggle-sidebar", label: "切换侧栏", shortcut: `${modKey} \\`, icon: PanelLeft },
   { id: "share", label: "分享笔记", shortcut: "↵", icon: Link2 },
   { id: "favorite", label: "切换收藏", shortcut: "↵", icon: Bookmark },
   { id: "trash", label: "移入回收站", shortcut: "↵", icon: Trash2 },
@@ -107,7 +105,7 @@ export function CommandMenu({ open, onClose, onCommand, onCreateNoteInNotebook, 
           return <button key={command.key} type="button" className={`command-row ${selected === index ? "is-selected" : ""}`} role="option" aria-selected={selected === index} onMouseEnter={() => setSelected(index)} onClick={() => execute(command)}><Icon size={18} /><span className="command-row-label">{command.label}</span><kbd>{command.shortcut}</kbd></button>;
         }) : <div className="command-empty">没有匹配的命令</div>}
       </div>
-      <div className="command-footer"><span><Archive size={14} />使用 ↑ ↓ 选择</span><span>Ctrl / 打开</span></div>
+      <div className="command-footer"><span><Archive size={14} />使用 ↑ ↓ 选择</span><span>{modKey} / 打开</span></div>
     </dialog>
   );
 }
