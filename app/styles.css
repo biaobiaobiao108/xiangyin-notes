@@ -134,25 +134,25 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 }
 .sort-option:hover { background: var(--surface-muted); color: var(--ink); }
 .sort-option.is-active { background: var(--accent-soft); color: var(--accent-dark); font-weight: 600; }
+.note-list-scroll-shell { position: relative; flex: 1 1 0; min-height: 0; overflow: hidden; }
 .note-list {
-  --scrollbar-thumb: rgba(160, 170, 163, 0.72);
-  --scrollbar-track: transparent;
+  height: 100%;
   min-height: 0;
-  flex: 1 1 auto;
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
-  scrollbar-gutter: stable;
-  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  scrollbar-width: none;
 }
-.note-list::-webkit-scrollbar { width: 9px; }
-.note-list::-webkit-scrollbar-track { background: var(--scrollbar-track); }
-.note-list::-webkit-scrollbar-thumb { border: 3px solid transparent; border-radius: 999px; background: var(--scrollbar-thumb); background-clip: padding-box; }
-.note-list:hover { --scrollbar-thumb: rgba(113, 128, 120, 0.82); }
-@supports not (scrollbar-color: auto) {
-  .note-list { scrollbar-width: auto; }
-}
+.note-list::-webkit-scrollbar { display: none; width: 0; height: 0; }
+.note-list-scrollbar { position: absolute; inset: 8px auto 8px 5px; z-index: 3; width: 24px; opacity: 0; pointer-events: none; transform: translateX(-4px); transition: opacity 160ms ease, transform 160ms ease; }
+.note-list-scrollbar.is-visible { opacity: 1; transform: translateX(0); }
+.note-list-scrollbar-track { position: absolute; inset: 0; pointer-events: none; }
+.note-list-scrollbar-thumb { position: absolute; inset-inline-start: 8px; width: 8px; min-height: 30px; padding: 0; border: 1px solid rgba(113, 128, 120, 0.38); border-radius: 999px; background: rgba(113, 128, 120, 0.62); box-shadow: 0 2px 8px rgba(39, 47, 41, 0.12); cursor: grab; pointer-events: none; touch-action: none; transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease, width 160ms ease, inset-inline-start 160ms ease; }
+.note-list-scrollbar.is-visible .note-list-scrollbar-thumb { pointer-events: auto; }
+.note-list-scrollbar-thumb:hover, .note-list-scrollbar-thumb:focus-visible { inset-inline-start: 7px; width: 10px; border-color: rgba(113, 128, 120, 0.62); background: rgba(86, 105, 94, 0.8); box-shadow: 0 3px 10px rgba(39, 47, 41, 0.18); }
+.note-list-scrollbar-thumb:active, .note-list-scrollbar-thumb.is-dragging { cursor: grabbing; background: var(--accent); border-color: rgba(185, 78, 53, 0.54); box-shadow: 0 4px 12px rgba(185, 78, 53, 0.22); }
+.note-list-scrollbar-thumb:focus-visible { outline: 3px solid rgba(217, 98, 69, 0.3); outline-offset: 3px; }
 .note-row { display: grid; gap: 7px; width: 100%; padding: 17px 20px 15px; border: 0; border-bottom: 1px solid #edf0ed; background: transparent; text-align: left; cursor: pointer; transition: background-color 160ms ease, box-shadow 160ms ease; }
 .note-row:hover { background: #fbfbfa; }
 .note-row.is-selected { background: linear-gradient(90deg, var(--accent-soft), #fff9f6); box-shadow: inset 3px 0 0 var(--accent); }
