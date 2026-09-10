@@ -65,6 +65,7 @@ export function Workspace() {
   const [notes, setNotes] = useState<NoteSummary[]>([]);
   const [totalNotes, setTotalNotes] = useState(0);
   const [notesReloadToken, setNotesReloadToken] = useState(0);
+  const notesRef = useRef<NoteSummary[]>([]);
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
@@ -105,7 +106,13 @@ export function Workspace() {
     } catch (reason) { if (reason instanceof ApiError && reason.status === 401) navigate("/login", { replace: true }); }
   }, [deferredQuery, navigate, notebookId, notesReloadToken, view]);
   const reloadNotes = useCallback(() => setNotesReloadToken((value) => value + 1), []);
-  const removeFromList = useCallback((noteId: string) => { setNotes((current) => current.filter((note) => note.id !== noteId)); }, []);
+  const replaceList = useCallback((next: NoteSummary[]) => { notesRef.current = next; setNotes(next); }, []);
+  const removeFromList = useCallback((noteId: string) => {
+    if (!notesRef.current.some((note) => note.id === noteId)) return;
+    replaceList(notesRef.current.filter((note) => note.id !== noteId));
+    setTotalNotes((value) => Math.max(0, value - 1));
+  }, [replaceList]);
+  useEffect(() => { notesRef.current = notes; }, [notes]);
   const loadSelectedNote = useCallback(async (id: string) => {
     const requestId = ++noteLoadRequestRef.current;
     const previousNote = selectedRef.current;
@@ -265,7 +272,7 @@ export function Workspace() {
     setView(target.view);
     setNotebookId(target.notebookId);
     setQuery("");
-    setNotes((current) => [note, ...current.filter((currentNote) => currentNote.id !== note.id)]);
+    replaceList([note, ...notesRef.current.filter((currentNote) => currentNote.id !== note.id)]);
     setTotalNotes((value) => value + 1);
     setSelectedNote(note);
     selectedRef.current = note;
@@ -323,7 +330,7 @@ export function Workspace() {
   const performPermanentDelete = useCallback(async (noteId: string) => {
     try {
       await api.deleteNote(noteId);
-      setNotes((prev) => prev.filter((note) => note.id !== noteId));
+      removeFromList(noteId);
       setSelectedId(null);
       setSelectedNote(null);
       selectedRef.current = null;
@@ -337,7 +344,7 @@ export function Workspace() {
     } catch (reason) {
       setToast(errorMessage(reason, "彻底删除笔记失败，请重试"));
     }
-  }, [refreshNotebooks]);
+  }, [refreshNotebooks, removeFromList]);
   const permanentDeleteNote = useCallback(async () => {
     const current = selectedRef.current;
     if (!current) return;
