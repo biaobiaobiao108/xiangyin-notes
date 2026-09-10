@@ -128,6 +128,9 @@ export function Workspace() {
       selectedRef.current = nextNote;
       setSelectedNote(nextNote);
       setIsNoteLoading(false);
+      // A draft kept from an earlier failure or a note switch is retried instead of staying stuck on "saving".
+      const retryDraft = pendingSavesRef.current.get(id);
+      if (retryDraft) persistRef.current(retryDraft);
     } catch (reason) {
       if (requestId !== noteLoadRequestRef.current || activeNoteIdRef.current !== id) return;
       setIsNoteLoading(false);
