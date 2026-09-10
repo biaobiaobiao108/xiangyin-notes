@@ -24,6 +24,10 @@ function noteSavePayload(draft: Note) {
   return { version: draft.version, title: draft.title, contentMarkdown: draft.contentMarkdown, notebookId: draft.notebookId, isFavorite: draft.isFavorite, deleted: Boolean(draft.deletedAt) };
 }
 
+function errorMessage(reason: unknown, fallback: string) {
+  return reason instanceof ApiError && reason.message ? reason.message : fallback;
+}
+
 type ConfirmRequest = {
   id: number;
   eyebrow: string;
@@ -178,7 +182,7 @@ export function Workspace() {
         selectedRef.current = selectedRef.current?.id === draft.id ? { ...selectedRef.current, version: result.note.version } : selectedRef.current;
         persistRef.current(nextDraft);
       }
-    } catch (reason) { if (activeNoteIdRef.current !== draft.id) return; if (reason instanceof ApiError && reason.code === "VERSION_CONFLICT") { setSaveState("conflict"); setToast("这篇笔记已在别处更新，请重新载入"); } else { setSaveState("error"); setToast("保存失败，请检查网络后重试"); } }
+    } catch (reason) { if (activeNoteIdRef.current !== draft.id) return; if (reason instanceof ApiError && reason.code === "VERSION_CONFLICT") { setSaveState("conflict"); setToast("这篇笔记已在别处更新，请重新载入"); } else { setSaveState("error"); setToast(errorMessage(reason, "保存失败，请检查网络后重试")); } }
   }, []);
   const persist = useCallback((draft: Note) => {
     pendingSavesRef.current.set(draft.id, draft);
@@ -271,7 +275,7 @@ export function Workspace() {
       const result = await api.createNote({});
       revealCreatedNote(result.note, { view: "inbox" }, "已在收件箱中创建新笔记");
       refreshNotebooks();
-    } catch { setToast("创建笔记失败"); }
+    } catch (reason) { setToast(errorMessage(reason, "创建笔记失败")); }
   }, [refreshNotebooks, revealCreatedNote]);
   const createNoteInCurrentNotebook = useCallback(async () => {
     const currentNotebook = notebookId ? notebooks.find((notebook) => notebook.id === notebookId) : undefined;
@@ -283,9 +287,9 @@ export function Workspace() {
       const result = await api.createNote({ notebookId: currentNotebook.id });
       revealCreatedNote(result.note, { view: "all", notebookId: currentNotebook.id }, `已在“${currentNotebook.name}”中创建新笔记`);
       refreshNotebooks();
-    } catch { setToast("创建笔记失败"); }
+    } catch (reason) { setToast(errorMessage(reason, "创建笔记失败")); }
   }, [createNoteInInbox, notebookId, notebooks, refreshNotebooks, revealCreatedNote]);
-  const createNoteInNotebook = useCallback(async (commandToCreate: CreateNoteCommand) => { try { const result = await api.createNote({ notebookId: commandToCreate.notebookId, title: commandToCreate.title }); revealCreatedNote(result.note, { view: "all", notebookId: commandToCreate.notebookId }, `已在“${commandToCreate.notebookName}”中创建“${commandToCreate.title}”`); refreshNotebooks(); } catch (reason) { if (reason instanceof ApiError && reason.status === 401) navigate("/login", { replace: true }); setToast("创建笔记失败，请稍后重试"); } }, [navigate, refreshNotebooks, revealCreatedNote]);
+  const createNoteInNotebook = useCallback(async (commandToCreate: CreateNoteCommand) => { try { const result = await api.createNote({ notebookId: commandToCreate.notebookId, title: commandToCreate.title }); revealCreatedNote(result.note, { view: "all", notebookId: commandToCreate.notebookId }, `已在“${commandToCreate.notebookName}”中创建“${commandToCreate.title}”`); refreshNotebooks(); } catch (reason) { if (reason instanceof ApiError && reason.status === 401) navigate("/login", { replace: true }); setToast(errorMessage(reason, "创建笔记失败，请稍后重试")); } }, [navigate, refreshNotebooks, revealCreatedNote]);
   const createNotebook = useCallback(() => setEditingNotebook(null), []);
   const saveNotebook = useCallback((saved: Notebook) => {
     setNotebooks((current) => {
@@ -314,8 +318,8 @@ export function Workspace() {
       void loadNotes();
       setToast("已删除笔记本，原笔记已归入收件箱");
       setEditingNotebook(undefined);
-    } catch {
-      setToast("删除笔记本失败");
+    } catch (reason) {
+      setToast(errorMessage(reason, "删除笔记本失败"));
     }
   }, [loadNotes, notebookId, refreshNotebooks]);
   const toggleFavorite = useCallback(() => { const current = selectedRef.current; if (!current) return; const next = { ...current, isFavorite: !current.isFavorite }; selectedRef.current = next; setSelectedNote(next); persist(next); if (view === "favorites" && !next.isFavorite) removeFromList(current.id); }, [persist, removeFromList, view]);
@@ -335,8 +339,8 @@ export function Workspace() {
       saveTimersRef.current.delete(noteId);
       setToast("已彻底删除笔记");
       refreshNotebooks();
-    } catch {
-      setToast("彻底删除笔记失败，请重试");
+    } catch (reason) {
+      setToast(errorMessage(reason, "彻底删除笔记失败，请重试"));
     }
   }, [refreshNotebooks]);
   const permanentDeleteNote = useCallback(async () => {
@@ -561,8 +565,8 @@ function NotebookDialog({ notebook, onClose, onSaved, onRequestDelete, onToast }
         onSaved(result.notebook);
       }
       onClose();
-    } catch {
-      onToast(isEditing ? "更新笔记本失败" : "创建笔记本失败");
+    } catch (reason) {
+      onToast(errorMessage(reason, isEditing ? "更新笔记本失败" : "创建笔记本失败"));
     } finally { setBusy(false); }
   };
   const handleDelete = () => {
