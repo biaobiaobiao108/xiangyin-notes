@@ -69,9 +69,10 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .nav-item, .notebook-item { display: flex; align-items: center; gap: 11px; width: 100%; min-height: 38px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: #435048; text-align: left; cursor: pointer; transition: background-color 160ms ease, color 160ms ease, transform 160ms ease; }
 .nav-item:hover { background: rgba(255, 255, 255, 0.74); color: var(--ink); }
 .nav-item.is-active { background: var(--accent-soft); color: var(--accent-dark); font-weight: 600; }
-.notebook-section { display: flex; flex: 1 1 0; flex-direction: column; gap: 9px; min-height: 0; padding-top: 11px; border-top: 1px solid var(--border); overflow: hidden; }
+.notebook-section { display: flex; flex: 1 1 0; flex-direction: column; gap: 9px; min-height: 0; padding-top: 11px; border-top: 1px solid var(--border); overflow: visible; }
 .section-heading { display: flex; align-items: center; justify-content: space-between; padding: 0 10px; color: var(--muted); font-size: 0.78rem; font-weight: 600; letter-spacing: 0.02em; }
-.notebook-list-scroll-shell { position: relative; flex: 1 1 0; min-height: 0; overflow: hidden; }
+.notebook-list-scroll-shell { position: relative; flex: 1 1 0; min-height: 0; overflow: visible; }
+.notebook-list-scroll-shell > .floating-scrollbar--left { inset-inline-start: -10px; }
 .notebook-list-scroll { height: 100%; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
 .tiny-button { width: 26px; height: 26px; }
 .notebook-item { min-height: 36px; font-size: 0.87rem; }
@@ -151,13 +152,13 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .floating-scrollbar--right { inset-inline-end: 2px; transform: translateX(4px); }
 .floating-scrollbar.is-visible { opacity: 1; transform: translateX(0); }
 .floating-scrollbar-track { position: absolute; inset: 0; pointer-events: none; }
-.floating-scrollbar-thumb { position: absolute; width: 6px; min-height: 28px; padding: 0; border: 1px solid rgba(113, 128, 120, 0.38); border-radius: 999px; appearance: none; background: rgba(113, 128, 120, 0.58); box-shadow: 0 2px 8px rgba(39, 47, 41, 0.11); cursor: grab; pointer-events: none; touch-action: none; transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease, width 160ms ease, inset-inline-start 160ms ease, inset-inline-end 160ms ease; }
+.floating-scrollbar-thumb { position: absolute; width: 6px; min-height: 28px; padding: 0; border: 1px solid rgba(128, 145, 135, 0.24); border-radius: 999px; appearance: none; background: rgba(145, 160, 150, 0.42); box-shadow: 0 1px 5px rgba(39, 47, 41, 0.06); cursor: grab; pointer-events: none; touch-action: none; transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease, width 160ms ease, inset-inline-start 160ms ease, inset-inline-end 160ms ease; }
 .floating-scrollbar--left .floating-scrollbar-thumb { inset-inline-start: 3px; }
 .floating-scrollbar--right .floating-scrollbar-thumb { inset-inline-end: 3px; }
 .floating-scrollbar.is-visible .floating-scrollbar-thumb { pointer-events: auto; }
 .floating-scrollbar--left .floating-scrollbar-thumb:hover, .floating-scrollbar--left .floating-scrollbar-thumb:focus-visible { inset-inline-start: 2px; width: 8px; }
 .floating-scrollbar--right .floating-scrollbar-thumb:hover, .floating-scrollbar--right .floating-scrollbar-thumb:focus-visible { inset-inline-end: 2px; width: 8px; }
-.floating-scrollbar-thumb:hover, .floating-scrollbar-thumb:focus-visible { border-color: rgba(113, 128, 120, 0.62); background: rgba(86, 105, 94, 0.8); box-shadow: 0 3px 10px rgba(39, 47, 41, 0.18); }
+.floating-scrollbar-thumb:hover, .floating-scrollbar-thumb:focus-visible { border-color: rgba(112, 133, 120, 0.38); background: rgba(120, 140, 128, 0.62); box-shadow: 0 2px 7px rgba(39, 47, 41, 0.1); }
 .floating-scrollbar-thumb:active, .floating-scrollbar-thumb.is-dragging { cursor: grabbing; background: var(--accent); border-color: rgba(185, 78, 53, 0.54); box-shadow: 0 4px 12px rgba(185, 78, 53, 0.22); }
 .floating-scrollbar-thumb:focus-visible { outline: 3px solid rgba(217, 98, 69, 0.3); outline-offset: 3px; }
 .note-row { display: grid; gap: 7px; width: 100%; padding: 17px 20px 15px; border: 0; border-bottom: 1px solid #edf0ed; background: transparent; text-align: left; cursor: pointer; transition: background-color 160ms ease, box-shadow 160ms ease; }
