@@ -139,6 +139,14 @@ function getAuthCredentials(environment: RuntimeEnvironment): AuthCredentials | 
   return { username: environment.XIANGYING_USERNAME, password: environment.XIANGYING_PASSWORD };
 }
 
+function getPublicOrigin(requestUrl: URL, environment: RuntimeEnvironment) {
+  const configuredUrl = environment.PUBLIC_URL?.trim();
+  if (!configuredUrl) return requestUrl.origin;
+  const publicUrl = new URL(configuredUrl);
+  if (publicUrl.protocol !== "http:" && publicUrl.protocol !== "https:") throw new Error("PUBLIC_URL must use http or https");
+  return publicUrl.origin;
+}
+
 function json(data: unknown, status = 200, headers?: HeadersInit) {
   const responseHeaders = new Headers(headers);
   responseHeaders.set("Content-Type", "application/json; charset=utf-8");
@@ -426,7 +434,7 @@ async function handleApi(request: Request, options: ServerOptions) {
       database.query("INSERT INTO shares (id, note_id, user_id, token_hash, created_at, expires_at, snapshot_title, snapshot_content_markdown) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(shareId, note.id, user.id, tokenHash, createdAt, expiresAt, note.title, note.content_markdown);
     });
     transaction();
-    const share: Share = { id: shareId, noteId: note.id, expiresAt, revokedAt: null, createdAt, url: `${url.origin}/share/${token}` };
+    const share: Share = { id: shareId, noteId: note.id, expiresAt, revokedAt: null, createdAt, url: `${getPublicOrigin(url, environment)}/share/${token}` };
     return json({ share }, 201);
   }
 

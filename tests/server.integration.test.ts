@@ -126,6 +126,17 @@ describe("Bun Server API", () => {
     expect(expired.body?.error.code).toBe("SHARE_EXPIRED");
   });
 
+  test("uses PUBLIC_URL for generated share links", async () => {
+    const publicEnvironment = { ...environment, PUBLIC_URL: "https://notes.example.com/" };
+    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) }, undefined, publicEnvironment);
+    const created = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "Public URL", contentMarkdown: "Configured origin" }) }, login.cookie, publicEnvironment);
+    const note = created.body?.note;
+
+    const shared = await request(`/api/notes/${note.id}/shares`, { method: "POST", body: "{}" }, login.cookie, publicEnvironment);
+    expect(shared.response.status).toBe(201);
+    expect(shared.body?.share.url).toMatch(/^https:\/\/notes\.example\.com\/share\/[A-Za-z0-9_-]+$/);
+  });
+
   test("rejects invalid credentials and missing environment configuration", async () => {
     const wrong = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: "wrong passphrase 1234" }) });
     expect(wrong.response.status).toBe(401);

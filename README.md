@@ -91,6 +91,7 @@ XIANGYING_PASSWORD=请替换为至少12位的本地密码
 DATABASE_PATH=./data/xiangying-notes.sqlite
 HOST=0.0.0.0
 PORT=3000
+# PUBLIC_URL=https://notes.example.com
 COOKIE_SECURE=false
 ```
 
@@ -103,6 +104,7 @@ COOKIE_SECURE=false
 | `DATABASE_PATH` | 否 | SQLite 文件路径，默认 `./data/xiangying-notes.sqlite` |
 | `HOST` | 否 | 服务监听地址，默认 `0.0.0.0` |
 | `PORT` | 否 | 服务端口，默认 `3000` |
+| `PUBLIC_URL` | 否 | 分享链接使用的公网根地址，例如 `https://notes.example.com`；留空时使用当前请求来源 |
 | `COOKIE_SECURE` | 否 | HTTPS 反向代理部署时设为 `true` |
 
 `.env` 只用于本机或容器启动，已经被 Git 忽略。不要把真实用户名、密码或 SQLite 文件提交到仓库。
@@ -234,6 +236,7 @@ SQLite WAL 可能同时产生 `-wal` 和 `-shm` 文件，它们也已被 Git 忽
 ```dotenv
 XIANGYING_USERNAME=xiangying
 XIANGYING_PASSWORD=请替换为至少12位的生产密码
+PUBLIC_URL=https://notes.example.com
 COOKIE_SECURE=false
 ```
 
@@ -246,6 +249,8 @@ DATABASE_PATH=/data/xiangying-notes.sqlite
 ```
 
 如果前面有 HTTPS 反向代理并且浏览器通过 HTTPS 访问，将 `COOKIE_SECURE` 改为 `true`。
+
+如果前面有 HTTPS 反向代理，建议将 `PUBLIC_URL` 设置为用户实际访问的公网根地址，例如 `https://notes.example.com`。分享链接会固定使用该地址；不要在值末尾添加路径。
 
 ### 2. 构建镜像
 
