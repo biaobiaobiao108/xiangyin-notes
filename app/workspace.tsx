@@ -148,7 +148,7 @@ export function Workspace() {
     }
     void loadSelectedNote(selectedId);
   }, [loadSelectedNote, ready, selectedId]);
-  useEffect(() => { if (!ready) return; void api.listNotebooks().then((result) => setNotebooks(result.notebooks)); }, [ready]);
+  useEffect(() => { if (!ready) return; void api.listNotebooks().then((result) => setNotebooks(result.notebooks)).catch(() => undefined); }, [ready]);
   useEffect(() => { if (!ready) return; const timer = setTimeout(() => void loadNotes(), 180); return () => clearTimeout(timer); }, [loadNotes, ready]);
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -245,7 +245,7 @@ export function Workspace() {
     saveTimersRef.current.clear();
     pendingSavesRef.current.clear();
   }, [flushPendingSaves]);
-  const refreshNotebooks = useCallback(() => { void api.listNotebooks().then((result) => setNotebooks(result.notebooks)); }, []);
+  const refreshNotebooks = useCallback(() => { void api.listNotebooks().then((result) => setNotebooks(result.notebooks)).catch(() => undefined); }, []);
   const onNoteChange = useCallback((patch: { title?: string; contentMarkdown?: string; notebookId?: string }) => {
     const current = selectedRef.current;
     if (!current) return;
@@ -498,8 +498,10 @@ function NoteListPanel({ notes, total, selectedId, onSelect, view, query, curren
       </div>
     </header>
     <div className="note-list-scroll-shell">
-      <div id="note-list-scroll-region" className="note-list floating-scrollbar-target" ref={noteListRef} role="list">
-        {sortedNotes.map((note) => <button key={note.id} role="listitem" type="button" className={`note-row ${selectedId === note.id ? "is-selected" : ""}`} onClick={() => onSelect(note.id)}><span className="note-row-title">{note.title || "未命名笔记"}{note.isFavorite && <Star size={13} fill="currentColor" />}</span><span className="note-row-preview">{note.preview || "还没有内容，开始写下第一句话。"}</span><span className="note-row-meta"><span>{note.notebookName}</span><time>{relativeDate(note.updatedAt)}</time></span></button>)}
+      <div id="note-list-scroll-region" className="note-list floating-scrollbar-target" ref={noteListRef}>
+        <ul className="note-list-items" role="list">
+          {sortedNotes.map((note) => <li key={note.id}><button type="button" className={`note-row ${selectedId === note.id ? "is-selected" : ""}`} onClick={() => onSelect(note.id)}><span className="note-row-title">{note.title || "未命名笔记"}{note.isFavorite && <Star size={13} fill="currentColor" />}</span><span className="note-row-preview">{note.preview || "还没有内容，开始写下第一句话。"}</span><span className="note-row-meta"><span>{note.notebookName}</span><time>{relativeDate(note.updatedAt)}</time></span></button></li>)}
+        </ul>
         {!sortedNotes.length && (query ? <div className="list-empty"><span className="empty-icon"><Search size={23} /></span><strong>没有找到匹配的笔记</strong><span>试试更短的关键词，或清空搜索查看全部内容。</span><button className="secondary-button" type="button" onClick={onClearQuery}>清空搜索</button></div> : <div className="list-empty"><span className="empty-icon"><Archive size={23} /></span><strong>这里还没有笔记</strong><span>按下“新建笔记”，让一个想法有地方落脚。</span></div>)}
       </div>
       <FloatingScrollbar scrollTargetRef={noteListRef} controlsId="note-list-scroll-region" ariaLabel="笔记列表滚动条" placement="left" />
