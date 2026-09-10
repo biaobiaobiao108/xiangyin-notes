@@ -13,10 +13,11 @@ import { buildOutlineItems, countEditorText, isMarkdownHeadingMarker, parseMarkd
 
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
 
-export function NoteEditor({ note, notebooks = [], saveState, onChange, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList }: {
+export function NoteEditor({ note, notebooks = [], saveState, isLoading = false, onChange, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList }: {
   note: Note;
   notebooks?: Notebook[];
   saveState: "idle" | "saving" | "saved" | "conflict" | "error";
+  isLoading?: boolean;
   onChange: (patch: { title?: string; contentMarkdown?: string; notebookId?: string }) => void;
   onShare: () => void;
   onToggleFavorite: () => void;
@@ -33,6 +34,7 @@ export function NoteEditor({ note, notebooks = [], saveState, onChange, onShare,
   const composingRef = useRef(false);
   const pendingHeadingRef = useRef(false);
   const headingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeEditorNoteIdRef = useRef(note.id);
   const [editorStats, setEditorStats] = useState<EditorStats>(() => countEditorText(""));
   const [outlineItems, setOutlineItems] = useState<OutlineItem[]>([]);
   const [activeOutlineId, setActiveOutlineId] = useState<string | null>(null);
@@ -98,7 +100,7 @@ export function NoteEditor({ note, notebooks = [], saveState, onChange, onShare,
   };
 
   const editor = useEditor({
-    editable: !note.deletedAt,
+    editable: !note.deletedAt && !isLoading,
     extensions: [
       StarterKit.configure({ heading: { levels: [1, 2, 3] }, link: false }),
       Link.configure({ openOnClick: false, autolink: true, linkOnPaste: true }),
@@ -181,8 +183,27 @@ export function NoteEditor({ note, notebooks = [], saveState, onChange, onShare,
 
   useEffect(() => {
     if (!editor) return;
-    editor.setEditable(!note.deletedAt);
-  }, [editor, note.deletedAt]);
+    editor.setEditable(!note.deletedAt && !isLoading, false);
+  }, [editor, isLoading, note.deletedAt]);
+
+  useEffect(() => {
+    if (!editor || activeEditorNoteIdRef.current === note.id) return;
+    activeEditorNoteIdRef.current = note.id;
+    clearHeadingTimer();
+    pendingHeadingRef.current = false;
+    composingRef.current = false;
+    setOutlineOpen(false);
+    setActiveOutlineId(null);
+    setOutlineItems([]);
+    setEditorStats(countEditorText(""));
+    editor.commands.setContent(note.contentMarkdown, { contentType: "markdown", emitUpdate: false });
+    editorScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
+    scheduleEditorSurfaceSync(editor);
+  }, [editor, note.id]);
+
+  useEffect(() => {
+    if (isLoading) setOutlineOpen(false);
+  }, [isLoading]);
 
   useEffect(() => {
     if (!editor) return;
@@ -270,10 +291,10 @@ export function NoteEditor({ note, notebooks = [], saveState, onChange, onShare,
 
   const saveLabel = saveState === "saving" ? "保存中" : saveState === "conflict" ? "发生冲突" : saveState === "error" ? "保存失败" : "已保存";
   return (
-    <section className="editor-panel" aria-label="笔记编辑器">
+    <section className={`editor-panel ${isLoading ? "is-loading" : ""}`} aria-label="笔记编辑器" aria-busy={isLoading}>
       <header className="editor-header">
         <div className="editor-header-start">
-          {onOpenList && <button className="icon-button mobile-only editor-back" type="button" aria-label="返回笔记列表" onClick={onOpenList}><ChevronLeft size={20} /></button>}
+          {onOpenList && <button className="icon-button mobile-only editor-back" type="button" aria-label="返回笔记列表" onClick={onOpenList} disabled={isLoading}><ChevronLeft size={20} /></button>}
           <div className="breadcrumbs">
             {notebooks.length > 0 ? (
               <label className="notebook-picker-label">
@@ -281,7 +302,7 @@ export function NoteEditor({ note, notebooks = [], saveState, onChange, onShare,
                 <select
                   className="notebook-select"
                   value={note.notebookId}
-                  disabled={Boolean(note.deletedAt)}
+                  disabled={Boolean(note.deletedAt) || isLoading}
                   onChange={(event) => {
                     const nextId = event.target.value;
                     if (nextId && nextId !== note.notebookId) {
@@ -306,12 +327,12 @@ export function NoteEditor({ note, notebooks = [], saveState, onChange, onShare,
         </div>
         <div className="editor-actions">
           <span className={`save-status save-status--${saveState}`} aria-live="polite"><span className="save-dot" />{saveLabel}</span>
-          <button className={`icon-button ${note.isFavorite ? "is-active" : ""}`} type="button" aria-label={note.isFavorite ? "取消收藏" : "收藏笔记"} title={note.isFavorite ? "取消收藏" : "收藏笔记"} onClick={onToggleFavorite}><span className="star-glyph">★</span></button>
-          <button className="icon-button" type="button" aria-label="分享笔记" title="分享笔记" onClick={onShare}><Link2 size={18} strokeWidth={1.8} /></button>
+          <button className={`icon-button ${note.isFavorite ? "is-active" : ""}`} type="button" aria-label={note.isFavorite ? "取消收藏" : "收藏笔记"} title={note.isFavorite ? "取消收藏" : "收藏笔记"} onClick={onToggleFavorite} disabled={isLoading}><span className="star-glyph">★</span></button>
+          <button className="icon-button" type="button" aria-label="分享笔记" title="分享笔记" onClick={onShare} disabled={isLoading}><Link2 size={18} strokeWidth={1.8} /></button>
           {note.deletedAt ? <>
-            <button className="icon-button" type="button" aria-label="恢复笔记" title="恢复笔记" onClick={onRestore}><Undo2 size={18} strokeWidth={1.8} /></button>
-            {onPermanentDelete && <button className="icon-button danger-button" type="button" aria-label="彻底删除" title="彻底删除" onClick={onPermanentDelete}><Trash2 size={18} strokeWidth={1.8} /></button>}
-          </> : <button className="icon-button" type="button" aria-label="移入回收站" title="移入回收站" onClick={onMoveToTrash}><Minus size={18} strokeWidth={1.8} className="trash-mark" /></button>}
+            <button className="icon-button" type="button" aria-label="恢复笔记" title="恢复笔记" onClick={onRestore} disabled={isLoading}><Undo2 size={18} strokeWidth={1.8} /></button>
+            {onPermanentDelete && <button className="icon-button danger-button" type="button" aria-label="彻底删除" title="彻底删除" onClick={onPermanentDelete} disabled={isLoading}><Trash2 size={18} strokeWidth={1.8} /></button>}
+          </> : <button className="icon-button" type="button" aria-label="移入回收站" title="移入回收站" onClick={onMoveToTrash} disabled={isLoading}><Minus size={18} strokeWidth={1.8} className="trash-mark" /></button>}
         </div>
       </header>
       <div className="editor-scroll" ref={editorScrollRef}>
@@ -319,14 +340,14 @@ export function NoteEditor({ note, notebooks = [], saveState, onChange, onShare,
           {note.deletedAt && (
             <div className="trashed-banner" role="status">
               <span>此笔记已在回收站中，恢复后可继续编辑。</span>
-              <button className="text-button" type="button" onClick={onRestore}>立即恢复</button>
+              <button className="text-button" type="button" onClick={onRestore} disabled={isLoading}>立即恢复</button>
             </div>
           )}
           <input
             className="note-title-input"
             value={note.title}
             maxLength={200}
-            readOnly={Boolean(note.deletedAt)}
+            readOnly={Boolean(note.deletedAt) || isLoading}
             onChange={(event) => onChange({ title: event.target.value })}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.nativeEvent.isComposing && event.keyCode !== 229) {
@@ -340,6 +361,7 @@ export function NoteEditor({ note, notebooks = [], saveState, onChange, onShare,
           <EditorContent editor={editor} />
         </div>
       </div>
+      {isLoading && <div className="editor-switch-overlay" role="status" aria-live="polite"><div className="editor-switch-card"><span className="editor-switch-mark">✦</span><div className="editor-switch-lines" aria-hidden="true"><span /><span /><span /></div><strong>正在打开笔记…</strong></div></div>}
       <div className="editor-floating-tools" ref={floatingToolsRef}>
         <aside className="editor-outline" id="note-outline" aria-label="笔记大纲" hidden={!outlineOpen}>
           <div className="editor-outline-heading">
@@ -363,7 +385,7 @@ export function NoteEditor({ note, notebooks = [], saveState, onChange, onShare,
             <span className="editor-stat-divider" aria-hidden="true">·</span>
             <span className="editor-stat"><strong>{editorStats.characterCount}</strong><span>字符</span></span>
           </div>
-          <button className={`outline-trigger ${outlineOpen ? "is-active" : ""}`} ref={outlineTriggerRef} type="button" aria-expanded={outlineOpen} aria-controls="note-outline" aria-label={outlineOpen ? "关闭笔记大纲" : "打开笔记大纲"} onClick={() => setOutlineOpen((open) => !open)}>
+          <button className={`outline-trigger ${outlineOpen ? "is-active" : ""}`} ref={outlineTriggerRef} type="button" aria-expanded={outlineOpen} aria-controls="note-outline" aria-label={outlineOpen ? "关闭笔记大纲" : "打开笔记大纲"} onClick={() => setOutlineOpen((open) => !open)} disabled={isLoading}>
             <ListTree size={16} strokeWidth={1.9} />
             <span>大纲</span>
           </button>
@@ -371,6 +393,10 @@ export function NoteEditor({ note, notebooks = [], saveState, onChange, onShare,
       </div>
     </section>
   );
+}
+
+export function NoteLoadingState() {
+  return <section className="editor-panel editor-loading-shell" aria-label="笔记编辑器" aria-busy="true"><div className="editor-switch-overlay editor-switch-overlay--visible" role="status" aria-live="polite"><div className="editor-switch-card"><span className="editor-switch-mark">✦</span><div className="editor-switch-lines" aria-hidden="true"><span /><span /><span /></div><strong>正在打开笔记…</strong></div></div></section>;
 }
 
 export function ReadOnlyMarkdown({ markdown }: { markdown: string }) {
