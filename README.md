@@ -336,7 +336,7 @@ docker run -d \
 
 ## GHCR 镜像发布
 
-Docker workflow 位于 `.github/workflows/docker.yml`，只在 push Git tag 时触发。镜像推送成功后，workflow 会使用 GitHub CLI 创建同名 GitHub Release，并自动生成变更说明。
+Docker workflow 位于 `.github/workflows/docker.yml`，只在 push Git tag 时触发。镜像推送成功后，workflow 会使用 GitHub CLI 创建同名 GitHub Release。Release 会先列出版本号、对应镜像地址、完整 Docker 启动命令和健康检查方式，再附加自动生成的变更说明。
 
 仓库需要允许 Actions 使用 `GITHUB_TOKEN` 写入 Packages 和创建 Release。workflow 使用：
 
@@ -401,7 +401,7 @@ CI 会从干净仓库检查前端、Bun Server、SQLite 测试和 Dockerfile。
 
 ### Docker 发布
 
-`.github/workflows/docker.yml` 在任意 Git tag push 时触发，登录 GHCR，生成版本标签，并推送精简镜像；镜像推送成功后会创建同名 GitHub Release 并自动生成变更说明。镜像构建使用 Buildx GitHub Actions cache，不需要配置 Docker Hub 账号或额外密码。
+`.github/workflows/docker.yml` 在任意 Git tag push 时触发，登录 GHCR，生成版本标签，并推送精简镜像；镜像推送成功后会创建同名 GitHub Release，介绍本次版本号、镜像地址、凭据配置、数据卷、启动命令和健康检查，并附加自动生成的变更说明。镜像构建使用 Buildx GitHub Actions cache，不需要配置 Docker Hub 账号或额外密码。
 
 ## API 速查
 
