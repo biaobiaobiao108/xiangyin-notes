@@ -193,6 +193,8 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .save-status--saving .save-dot { background: var(--accent); animation: pulse 1s ease-in-out infinite; }
 .save-status--conflict, .save-status--error { color: var(--accent-dark); }
 .save-status--conflict .save-dot, .save-status--error .save-dot { background: var(--accent); }
+button.save-status { padding: 0; border: 0; background: transparent; cursor: pointer; }
+button.save-status:hover { text-decoration: underline; }
 @keyframes pulse { 50% { opacity: 0.4; transform: scale(0.8); } }
 .star-glyph { color: currentColor; font-size: 20px; line-height: 1; }
 .icon-button.is-active { color: var(--accent); }

@@ -15,11 +15,12 @@ import { FloatingScrollbar } from "./floating-scrollbar";
 
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
 
-export function NoteEditor({ note, saveState, isLoading = false, onChange, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList }: {
+export function NoteEditor({ note, saveState, isLoading = false, onChange, onSaveNow, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList }: {
   note: Note;
   saveState: "idle" | "saving" | "saved" | "conflict" | "error";
   isLoading?: boolean;
   onChange: (patch: { title?: string; contentMarkdown?: string; notebookId?: string }) => void;
+  onSaveNow: () => void;
   onShare: () => void;
   onToggleFavorite: () => void;
   onMoveToTrash: () => void;
@@ -230,18 +231,6 @@ export function NoteEditor({ note, saveState, isLoading = false, onChange, onSha
   }, [isLoading]);
 
   useEffect(() => {
-    if (!editor) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key === "s") {
-        event.preventDefault();
-        emitMarkdown(editor);
-      }
-    };
-    editor.view.dom.addEventListener("keydown", onKeyDown);
-    return () => editor.view.dom.removeEventListener("keydown", onKeyDown);
-  }, [editor]);
-
-  useEffect(() => {
     if (!outlineOpen) return;
     const handlePointerDown = (event: PointerEvent) => {
       if (event.target instanceof Node && !floatingToolsRef.current?.contains(event.target)) setOutlineOpen(false);
@@ -313,9 +302,9 @@ export function NoteEditor({ note, saveState, isLoading = false, onChange, onSha
     setActiveOutlineId(id);
   };
 
-  const saveLabel = saveState === "saving" ? "保存中" : saveState === "conflict" ? "发生冲突" : saveState === "error" ? "保存失败" : "已保存";
+  const saveLabel = saveState === "saving" ? "保存中" : saveState === "conflict" ? "发生冲突" : "已保存";
   return (
-    <section className={`editor-panel ${isLoading ? "is-loading" : ""}`} aria-label="笔记编辑器" aria-busy={isLoading}>
+    <section className={`editor-panel ${isLoading ? "is-loading" : ""}`} aria-label="笔记编辑器" aria-busy={isLoading} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === "s") { event.preventDefault(); onSaveNow(); } }}>
       <header className="editor-header">
         <div className="editor-header-start">
           {onOpenList && <button className="icon-button mobile-only editor-back" type="button" aria-label="返回笔记列表" onClick={onOpenList} disabled={isLoading}><ChevronLeft size={20} /></button>}
@@ -329,7 +318,11 @@ export function NoteEditor({ note, saveState, isLoading = false, onChange, onSha
           {note.title.trim() || "未命名笔记"}
         </div>
         <div className="editor-actions">
-          <span className={`save-status save-status--${saveState}`} aria-live="polite"><span className="save-dot" />{saveLabel}</span>
+          {saveState === "error" ? (
+            <button className="save-status save-status--error save-status--action" type="button" onClick={onSaveNow}><span className="save-dot" />重试保存</button>
+          ) : saveState === "idle" ? null : (
+            <span className={`save-status save-status--${saveState}`} aria-live="polite"><span className="save-dot" />{saveLabel}</span>
+          )}
           <button className={`icon-button ${note.isFavorite ? "is-active" : ""}`} type="button" aria-label={note.isFavorite ? "取消收藏" : "收藏笔记"} title={note.isFavorite ? "取消收藏" : "收藏笔记"} onClick={onToggleFavorite} disabled={isLoading}><span className="star-glyph">★</span></button>
           <button className="icon-button" type="button" aria-label="分享笔记" title="分享笔记" onClick={onShare} disabled={isLoading}><Link2 size={18} strokeWidth={1.8} /></button>
           {note.deletedAt ? <>
