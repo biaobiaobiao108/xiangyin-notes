@@ -183,10 +183,11 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .editor-switch-lines span:first-child { width: 68%; }
 .editor-switch-lines span:last-child { width: 84%; }
 .editor-switch-card strong { color: var(--ink); font-size: 0.84rem; font-weight: 600; }
-.editor-header { justify-content: space-between; padding: 0 34px; border-bottom: 1px solid #f0f1ef; }
+.editor-header { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, min(36vw, 360px)) minmax(0, 1fr); justify-content: normal; padding: 0 34px; border-bottom: 1px solid #f0f1ef; }
+.editor-header-title { min-width: 0; overflow: hidden; color: var(--muted); font-size: 0.84rem; font-weight: 600; letter-spacing: -0.025em; line-height: 1.2; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
 .editor-meta { display: flex; align-items: center; min-width: 0; gap: 8px; color: var(--soft-muted); font-size: 0.76rem; white-space: nowrap; }
 .editor-meta strong { color: var(--muted); font-weight: 500; }
-.editor-actions { gap: 4px; }
+.editor-actions { justify-content: flex-end; gap: 4px; min-width: 0; }
 .save-status { display: inline-flex; align-items: center; gap: 7px; margin-right: 10px; color: var(--soft-muted); font-size: 0.74rem; }
 .save-dot { width: 7px; height: 7px; border-radius: 50%; background: #93a39a; }
 .save-status--saving .save-dot { background: var(--accent); animation: pulse 1s ease-in-out infinite; }
@@ -415,9 +416,11 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
   .list-header { padding: 0 17px; }
   .list-header-main { margin-left: 8px; }
   .list-header-controls { margin-left: 8px; }
-  .editor-header { padding: 0 16px; }
+  .editor-header { grid-template-columns: minmax(0, 1fr) minmax(0, 42vw) minmax(0, 1fr); padding: 0 16px; }
   .editor-header-start { min-width: 0; gap: 8px; flex: 1; }
   .editor-back { flex: none; margin-left: -6px; }
+  .editor-header-start .editor-meta { display: none; }
+  .editor-header-title { font-size: 0.74rem; }
   .editor-meta { gap: 5px; font-size: 0.68rem; }
   .editor-actions { gap: 2px; }
   .save-status { display: inline-flex; margin-right: 6px; font-size: 0.68rem; gap: 5px; }

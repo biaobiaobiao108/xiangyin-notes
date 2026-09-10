@@ -324,6 +324,9 @@ export function NoteEditor({ note, saveState, isLoading = false, onChange, onSha
             <strong>{editorStats.wordCount} 字</strong>
           </div>
         </div>
+        <div className="editor-header-title" title={note.title.trim() || "未命名笔记"} aria-label={`当前文档：${note.title.trim() || "未命名笔记"}`}>
+          {note.title.trim() || "未命名笔记"}
+        </div>
         <div className="editor-actions">
           <span className={`save-status save-status--${saveState}`} aria-live="polite"><span className="save-dot" />{saveLabel}</span>
           <button className={`icon-button ${note.isFavorite ? "is-active" : ""}`} type="button" aria-label={note.isFavorite ? "取消收藏" : "收藏笔记"} title={note.isFavorite ? "取消收藏" : "收藏笔记"} onClick={onToggleFavorite} disabled={isLoading}><span className="star-glyph">★</span></button>
