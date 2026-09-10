@@ -272,25 +272,15 @@ export function Workspace() {
     setMobileListOpen(false);
     setToast(message);
   }, []);
-  const createNoteInInbox = useCallback(async () => {
-    try {
-      const result = await api.createNote({});
-      revealCreatedNote(result.note, { view: "inbox" }, "已在收件箱中创建新笔记");
-      refreshNotebooks();
-    } catch (reason) { setToast(errorMessage(reason, "创建笔记失败")); }
-  }, [refreshNotebooks, revealCreatedNote]);
-  const createNoteInCurrentNotebook = useCallback(async () => {
+  const createNoteHere = useCallback(async () => {
     const currentNotebook = notebookId ? notebooks.find((notebook) => notebook.id === notebookId) : undefined;
-    if (!currentNotebook) {
-      await createNoteInInbox();
-      return;
-    }
+    const staysInView = Boolean(currentNotebook) || view === "all" || view === "inbox";
     try {
-      const result = await api.createNote({ notebookId: currentNotebook.id });
-      revealCreatedNote(result.note, { view: "all", notebookId: currentNotebook.id }, `已在“${currentNotebook.name}”中创建新笔记`);
+      const result = await api.createNote(currentNotebook ? { notebookId: currentNotebook.id } : {});
+      revealCreatedNote(result.note, { view: currentNotebook || !staysInView ? "all" : view, notebookId: currentNotebook?.id }, currentNotebook ? `已在“${currentNotebook.name}”中创建新笔记` : "已在收件箱中创建新笔记");
       refreshNotebooks();
     } catch (reason) { setToast(errorMessage(reason, "创建笔记失败")); }
-  }, [createNoteInInbox, notebookId, notebooks, refreshNotebooks, revealCreatedNote]);
+  }, [notebookId, notebooks, refreshNotebooks, revealCreatedNote, view]);
   const createNoteInNotebook = useCallback(async (commandToCreate: CreateNoteCommand) => { try { const result = await api.createNote({ notebookId: commandToCreate.notebookId, title: commandToCreate.title }); revealCreatedNote(result.note, { view: "all", notebookId: commandToCreate.notebookId }, `已在“${commandToCreate.notebookName}”中创建“${commandToCreate.title}”`); refreshNotebooks(); } catch (reason) { if (reason instanceof ApiError && reason.status === 401) navigate("/login", { replace: true }); setToast(errorMessage(reason, "创建笔记失败，请稍后重试")); } }, [navigate, refreshNotebooks, revealCreatedNote]);
   const createNotebook = useCallback(() => setEditingNotebook(null), []);
   const saveNotebook = useCallback((saved: Notebook) => {
@@ -404,16 +394,16 @@ export function Workspace() {
     setView(origin?.view ?? "all");
     setNotebookId(origin?.notebookId);
   }, [notebookId, query, view]);
-  const command = useCallback((id: CommandId) => { if (id === "new-note") void createNoteInInbox(); if (id === "search") { setMobileSidebarOpen(true); requestAnimationFrame(() => searchRef.current?.focus()); } if (id === "toggle-sidebar") setSidebarCollapsed((value) => !value); if (id === "share" && selectedNote) setShareOpen(true); if (id === "favorite") toggleFavorite(); if (id === "trash") moveToTrash(); if (id === "restore") restoreFromTrash(); }, [createNoteInInbox, moveToTrash, restoreFromTrash, selectedNote, toggleFavorite]);
+  const command = useCallback((id: CommandId) => { if (id === "new-note") void createNoteHere(); if (id === "search") { setMobileSidebarOpen(true); requestAnimationFrame(() => searchRef.current?.focus()); } if (id === "toggle-sidebar") setSidebarCollapsed((value) => !value); if (id === "share" && selectedNote) setShareOpen(true); if (id === "favorite") toggleFavorite(); if (id === "trash") moveToTrash(); if (id === "restore") restoreFromTrash(); }, [createNoteHere, moveToTrash, restoreFromTrash, selectedNote, toggleFavorite]);
   const logout = async () => { await flushPendingSaves("now"); await api.logout().catch(() => undefined); navigate("/login", { replace: true }); };
   if (!ready) return <main className="app-loading"><span className="loading-ring" /><span>正在进入你的空间……</span></main>;
   const currentNotebook = notebookId ? notebooks.find((notebook) => notebook.id === notebookId) : undefined;
   return <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
     <button className={`mobile-scrim ${mobileSidebarOpen || mobileListOpen ? "is-visible" : ""}`} type="button" aria-label="关闭导航" onClick={() => { setMobileSidebarOpen(false); setMobileListOpen(false); }} />
-    <Sidebar view={view} setView={selectView} notebooks={notebooks} notebookId={notebookId} setNotebookId={selectNotebook} query={query} setQuery={changeQuery} searchRef={searchRef} onNewNote={() => void createNoteInInbox()} onCreateNotebook={() => void createNotebook()} onEditNotebook={(target) => setEditingNotebook(target)} collapsed={sidebarCollapsed} onCollapse={() => setSidebarCollapsed((value) => !value)} mobileOpen={mobileSidebarOpen} onLogout={logout} />
-    <NoteListPanel notes={notes} selectedId={selectedId} onSelect={(id) => { setSelectedId(id); setMobileListOpen(false); }} view={view} query={query} currentNotebookName={currentNotebook?.name} onNewNote={currentNotebook ? () => void createNoteInCurrentNotebook() : undefined} onClearQuery={() => changeQuery("")} mobileOpen={mobileListOpen} onOpenSidebar={() => setMobileSidebarOpen(true)} />
+    <Sidebar view={view} setView={selectView} notebooks={notebooks} notebookId={notebookId} setNotebookId={selectNotebook} query={query} setQuery={changeQuery} searchRef={searchRef} onNewNote={() => void createNoteHere()} onCreateNotebook={() => void createNotebook()} onEditNotebook={(target) => setEditingNotebook(target)} collapsed={sidebarCollapsed} onCollapse={() => setSidebarCollapsed((value) => !value)} mobileOpen={mobileSidebarOpen} onLogout={logout} />
+    <NoteListPanel notes={notes} selectedId={selectedId} onSelect={(id) => { setSelectedId(id); setMobileListOpen(false); }} view={view} query={query} currentNotebookName={currentNotebook?.name} onNewNote={currentNotebook ? () => void createNoteHere() : undefined} onClearQuery={() => changeQuery("")} mobileOpen={mobileListOpen} onOpenSidebar={() => setMobileSidebarOpen(true)} />
     <main className="editor-region">
-      {selectedNote ? <NoteEditor note={selectedNote} saveState={saveState} isLoading={isNoteLoading} reloadToken={noteReloadToken} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onShare={() => setShareOpen(true)} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={() => setMobileListOpen(true)} /> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor onNewNote={() => void createNoteInCurrentNotebook()} onOpenList={() => setMobileListOpen(true)} />}
+      {selectedNote ? <NoteEditor note={selectedNote} saveState={saveState} isLoading={isNoteLoading} reloadToken={noteReloadToken} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onShare={() => setShareOpen(true)} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={() => setMobileListOpen(true)} /> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor onNewNote={() => void createNoteHere()} onOpenList={() => setMobileListOpen(true)} />}
     </main>
     <CommandMenu open={commandOpen} onClose={() => setCommandOpen(false)} onCommand={command} onCreateNoteInNotebook={createNoteInNotebook} canRestore={Boolean(selectedNote?.deletedAt)} notebooks={notebooks} />
     {shareOpen && selectedNote && <ShareDialog note={selectedNote} onClose={() => setShareOpen(false)} onToast={setToast} />}
