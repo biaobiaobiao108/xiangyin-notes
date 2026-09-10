@@ -53,7 +53,7 @@ type AuthCredentials = {
   password: string;
 };
 
-const welcomeMarkdown = "## 欢迎来到 Lumen Notes\n\n这是你的第一个笔记。按下 **Ctrl /** 可以打开命令菜单，开始记录你的想法。\n\n- 写下值得保留的东西\n- 用笔记本整理上下文\n- 随时生成一个 7 天有效的只读分享\n";
+const welcomeMarkdown = "## 欢迎来到象映笔记\n\n这是你的第一个笔记。按下 **Ctrl /** 可以打开命令菜单，开始记录你的想法。\n\n- 写下值得保留的东西\n- 用笔记本整理上下文\n- 随时生成一个 7 天有效的只读分享\n";
 
 function now() {
   return Math.floor(Date.now() / 1000);
@@ -610,5 +610,5 @@ if (import.meta.main) {
       return jsonError(500, "INTERNAL_ERROR", "服务器暂时无法处理请求");
     },
   });
-  console.log(`Lumen Notes listening on ${server.url}`);
+  console.log(`象映笔记服务已启动：${server.url}`);
 }

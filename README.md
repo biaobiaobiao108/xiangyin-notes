@@ -1,6 +1,6 @@
-# Lumen Notes
+# 象映笔记
 
-Lumen Notes 是一款运行在本地 Bun 服务上的单用户 Markdown 笔记软件。前端使用 React、TypeScript 和 Tiptap，使用 Bun bundler 构建；后端使用原生 `Bun.serve`，数据保存到 Bun 原生 `bun:sqlite` 数据库。
+象映笔记是一款运行在本地 Bun 服务上的单用户 Markdown 笔记软件。前端使用 React、TypeScript 和 Tiptap，使用 Bun bundler 构建；后端使用原生 `Bun.serve`，数据保存到 Bun 原生 `bun:sqlite` 数据库。
 
 它保留了原有的三栏笔记界面、沉浸式 Markdown 编辑器、命令菜单、字数统计、悬浮大纲、笔记本、搜索、回收站和只读分享功能。分享快照保存于 SQLite，固定 7 天后失效。
 

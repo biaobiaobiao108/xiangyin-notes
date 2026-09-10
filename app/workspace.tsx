@@ -278,7 +278,7 @@ function Sidebar({ view, setView, notebooks, notebookId, setNotebookId, query, s
   const notebookListRef = useRef<HTMLDivElement>(null);
 
   return <aside className={`sidebar ${mobileOpen ? "is-mobile-open" : ""}`} aria-label="主导航">
-    <div className="brand-row"><span className="brand-mark"><span className="brand-star">✦</span></span><span className="brand-name">Lumen Notes</span><button className="icon-button collapse-button" type="button" onClick={onCollapse} aria-label={collapsed ? "展开侧栏" : "收起侧栏"}><LayoutPanelLeft size={18} /></button></div>
+    <div className="brand-row"><span className="brand-mark"><span className="brand-star">✦</span></span><span className="brand-name">象映笔记</span><button className="icon-button collapse-button" type="button" onClick={onCollapse} aria-label={collapsed ? "展开侧栏" : "收起侧栏"}><LayoutPanelLeft size={18} /></button></div>
     <button className="primary-button new-note-button" type="button" onClick={onNewNote}><Plus size={18} />新建笔记</button>
     <label className="search-box"><Search size={17} /><input ref={searchRef} value={query} onChange={(event) => { setQuery(event.target.value); setView("all"); }} placeholder="搜索笔记……" aria-label="搜索笔记" /><kbd>Ctrl /</kbd></label>
     <nav className="main-nav"><ul>{navItems.map((item) => { const Icon = item.icon; return <li key={item.id}><button className={`nav-item ${view === item.id && !notebookId ? "is-active" : ""}`} type="button" onClick={() => setView(item.id)}><Icon size={18} /><span>{item.label}</span></button></li>; })}</ul></nav>

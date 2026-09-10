@@ -3,7 +3,7 @@ import { buildOutlineItems, countEditorText, isMarkdownHeadingMarker, parseMarkd
 
 describe("editor metrics", () => {
   test("counts Chinese characters, word runs, emoji, and non-whitespace characters", () => {
-    expect(countEditorText("你好，Lumen Notes 2 ✨！")).toEqual({ wordCount: 6, characterCount: 16 });
+    expect(countEditorText("你好，象映笔记 2 ✨！")).toEqual({ wordCount: 8, characterCount: 10 });
   });
 
   test("ignores whitespace for both text statistics", () => {
