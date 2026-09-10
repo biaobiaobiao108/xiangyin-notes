@@ -138,6 +138,8 @@ http://127.0.0.1:3000/app
 
 首次使用 `.env` 中的用户名和密码登录。若数据库为空，成功登录会自动初始化唯一用户、收件箱和欢迎笔记。
 
+`bun run dev` 会由 `scripts/dev.ts` 注入开发账号 `dev`，并设置 `XIANGYING_DEV_AUTO_LOGIN=true`，因此在开发模式下访问 `/app` 会自动登录。该开关只在 `NODE_ENV=development` 时生效，生产部署不要设置这两个变量。
+
 按 `Ctrl + C` 可以停止开发服务器。
 
 ## 生产构建和启动
