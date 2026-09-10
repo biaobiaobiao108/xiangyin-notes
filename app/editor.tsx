@@ -108,7 +108,7 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
     editable: !note.deletedAt && !isLoading,
     extensions: [
       StarterKit.configure({ heading: { levels: [1, 2, 3] }, link: false }),
-      Link.configure({ openOnClick: false, autolink: true, linkOnPaste: true }),
+      Link.configure({ openOnClick: false, autolink: true, linkOnPaste: true, HTMLAttributes: { title: "按住 Ctrl 或 ⌘ 点击打开链接" } }),
       TaskList,
       TaskItem.configure({ nested: true }),
       Placeholder.configure({ placeholder: "从一句话开始……" }),
@@ -354,6 +354,7 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
               maxLength={200}
               readOnly={Boolean(note.deletedAt) || isLoading}
               onChange={(event) => onChange({ title: event.target.value })}
+              onBlur={() => { const trimmed = note.title.trim(); if (trimmed !== note.title) onChange({ title: trimmed }); }}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.nativeEvent.isComposing && event.keyCode !== 229) {
                   event.preventDefault();
@@ -411,7 +412,7 @@ export function ReadOnlyMarkdown({ markdown }: { markdown: string }) {
     editable: false,
     extensions: [
       StarterKit.configure({ heading: { levels: [1, 2, 3] }, link: false }),
-      Link.configure({ openOnClick: true, autolink: true }),
+      Link.configure({ openOnClick: true, autolink: true, HTMLAttributes: { rel: "noopener noreferrer", target: "_blank" } }),
       TaskList,
       TaskItem.configure({ nested: true }),
       Markdown,

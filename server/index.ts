@@ -1,5 +1,5 @@
 import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import type { ShareSnapshot, Note, NoteSummary, Share } from "../shared/types";
+import type { ShareSnapshot, Note, NoteSummary, NoteView, Share } from "../shared/types";
 import { openDatabase, type SqliteDatabase } from "./db";
 
 const SESSION_COOKIE = "xiangying_session";
@@ -7,6 +7,7 @@ const SESSION_TTL = 60 * 60 * 24 * 30;
 const SHARE_TTL = 60 * 60 * 24 * 7;
 const PASSWORD_ITERATIONS = 100_000;
 const NOTE_PAGE_SIZE = 100;
+const NOTE_VIEWS: NoteView[] = ["all", "inbox", "favorites", "shared", "trash"];
 const DEFAULT_CLIENT_ROOT = "./dist/client";
 const encoder = new TextEncoder();
 
@@ -133,6 +134,11 @@ function validText(value: unknown, maxLength: number): value is string {
 
 function validColor(value: unknown): value is string {
   return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value);
+}
+
+/** A title made of nothing but whitespace is stored as empty so the client can show its placeholder. */
+function normalizeNoteTitle(value: string) {
+  return value.trim() === "" ? "" : value;
 }
 
 function getAuthCredentials(environment: RuntimeEnvironment): AuthCredentials | null {
@@ -367,6 +373,7 @@ async function handleApi(request: Request, options: ServerOptions) {
 
   if (resource === "notes" && !id && method === "GET") {
     const view = url.searchParams.get("view") ?? "all";
+    if (!NOTE_VIEWS.includes(view as NoteView)) return jsonError(400, "INVALID_VIEW", "不支持的笔记视图");
     const query = url.searchParams.get("query")?.slice(0, 80) ?? "";
     const notebookId = url.searchParams.get("notebookId");
     const conditions = ["n.user_id = ?"];
@@ -410,9 +417,10 @@ async function handleApi(request: Request, options: ServerOptions) {
 
   if (resource === "notes" && !id && method === "POST") {
     const payload = await readJson<{ title?: unknown; contentMarkdown?: unknown; notebookId?: unknown }>(request);
-    const title = payload?.title === undefined ? "未命名笔记" : payload.title;
+    const rawTitle = payload?.title === undefined ? "未命名笔记" : payload.title;
     const contentMarkdown = payload?.contentMarkdown === undefined ? "" : payload.contentMarkdown;
-    if (!validText(title, 200) || !validText(contentMarkdown, 1_000_000)) return jsonError(413, "NOTE_TOO_LARGE", "笔记标题或正文超出长度限制");
+    if (!validText(rawTitle, 200) || !validText(contentMarkdown, 1_000_000)) return jsonError(413, "NOTE_TOO_LARGE", "笔记标题或正文超出长度限制");
+    const title = normalizeNoteTitle(rawTitle);
     const notebookId = typeof payload?.notebookId === "string" ? payload.notebookId : first<{ id: string }>(database, "SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1 LIMIT 1", user.id)?.id;
     if (!notebookId) return jsonError(400, "NO_NOTEBOOK", "没有可用的收件箱");
     if (!first(database, "SELECT id FROM notebooks WHERE id = ? AND user_id = ?", notebookId, user.id)) return jsonError(400, "INVALID_NOTEBOOK", "笔记本不存在");
@@ -452,12 +460,13 @@ async function handleApi(request: Request, options: ServerOptions) {
     const payload = await readJson<{ version?: unknown; title?: unknown; contentMarkdown?: unknown; notebookId?: unknown; isFavorite?: unknown; deleted?: unknown }>(request);
     if (!payload || !Number.isInteger(payload.version)) return jsonError(400, "VERSION_REQUIRED", "保存笔记必须携带版本号");
     if (payload.version !== current.version) return json({ error: { code: "VERSION_CONFLICT", message: "这篇笔记已在别处更新", current: toFullNote(current) } }, 409);
-    const title = payload.title === undefined ? current.title : payload.title;
+    const rawTitle = payload.title === undefined ? current.title : payload.title;
     const contentMarkdown = payload.contentMarkdown === undefined ? current.content_markdown : payload.contentMarkdown;
     const notebookId = payload.notebookId === undefined ? current.notebook_id : payload.notebookId;
     const isFavorite = payload.isFavorite === undefined ? current.is_favorite : payload.isFavorite ? 1 : 0;
     const deletedAt = payload.deleted === undefined ? current.deleted_at : payload.deleted ? now() : null;
-    if (!validText(title, 200) || !validText(contentMarkdown, 1_000_000) || typeof notebookId !== "string") return jsonError(413, "NOTE_TOO_LARGE", "笔记标题或正文超出长度限制");
+    if (!validText(rawTitle, 200) || !validText(contentMarkdown, 1_000_000) || typeof notebookId !== "string") return jsonError(413, "NOTE_TOO_LARGE", "笔记标题或正文超出长度限制");
+    const title = normalizeNoteTitle(rawTitle);
     if (!first(database, "SELECT id FROM notebooks WHERE id = ? AND user_id = ?", notebookId, user.id)) return jsonError(400, "INVALID_NOTEBOOK", "笔记本不存在");
     if (!updateNote(database, current, user.id, title, contentMarkdown, notebookId, isFavorite, deletedAt)) {
       const latest = getNote(database, user.id, current.id);

@@ -134,6 +134,25 @@ describe("Bun Server API", () => {
     expect(list.body?.total).toBe(106);
   });
 
+  test("rejects unknown list views and stores blank titles as empty", async () => {
+    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
+
+    const invalidView = await request("/api/notes?view=bogus", {}, login.cookie);
+    expect(invalidView.response.status).toBe(400);
+    expect(invalidView.body?.error.code).toBe("INVALID_VIEW");
+
+    const blank = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "   " }) }, login.cookie);
+    expect(blank.response.status).toBe(201);
+    expect(blank.body?.note.title).toBe("");
+
+    const padded = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "  保留空格  " }) }, login.cookie);
+    expect(padded.body?.note.title).toBe("  保留空格  ");
+
+    const renamed = await request(`/api/notes/${padded.body?.note.id}`, { method: "PATCH", body: JSON.stringify({ version: padded.body?.note.version, title: " \t " }) }, login.cookie);
+    expect(renamed.response.status).toBe(200);
+    expect(renamed.body?.note.title).toBe("");
+  });
+
   test("stores immutable SQLite snapshots and revokes or expires them", async () => {
     const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
     const created = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "Snapshot", contentMarkdown: "Original content" }) }, login.cookie);
