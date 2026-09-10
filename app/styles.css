@@ -33,14 +33,14 @@ button:disabled { cursor: not-allowed; opacity: 0.52; }
 
 .app-shell {
   display: grid;
-  grid-template-columns: 280px minmax(300px, 360px) minmax(0, 1fr);
+  grid-template-columns: 252px minmax(300px, 360px) minmax(0, 1fr);
   min-height: 100dvh;
   max-height: 100dvh;
   overflow: clip;
   background: var(--canvas);
   transition: grid-template-columns 220ms ease;
 }
-.app-shell.sidebar-collapsed { grid-template-columns: 76px minmax(300px, 360px) minmax(0, 1fr); }
+.app-shell.sidebar-collapsed { grid-template-columns: 72px minmax(300px, 360px) minmax(0, 1fr); }
 .sidebar, .note-list-panel, .editor-region { min-width: 0; min-height: 0; }
 .sidebar { grid-column: 1; display: flex; flex-direction: column; gap: 18px; padding: 22px 16px 18px; background: var(--canvas); border-right: 1px solid var(--border); overflow: hidden; }
 .note-list-panel { grid-column: 2; display: flex; flex-direction: column; background: var(--surface); border-right: 1px solid var(--border); overflow: hidden; }
@@ -367,8 +367,8 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
 .text-link { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 0.8rem; text-decoration: none; }
 
 @media (max-width: 1180px) {
-  .app-shell { grid-template-columns: 246px minmax(280px, 330px) minmax(0, 1fr); }
-  .app-shell.sidebar-collapsed { grid-template-columns: 72px minmax(280px, 330px) minmax(0, 1fr); }
+  .app-shell { grid-template-columns: 232px minmax(280px, 330px) minmax(0, 1fr); }
+  .app-shell.sidebar-collapsed { grid-template-columns: 68px minmax(280px, 330px) minmax(0, 1fr); }
   .editor-document { width: min(760px, calc(100% - 64px)); }
 }
 
