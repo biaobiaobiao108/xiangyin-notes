@@ -64,7 +64,7 @@ docker build --pull -t xiangying-notes:check .
 - 最终镜像基于最新 `oven/bun:alpine`，使用多阶段构建和非 root `bun` 用户。
 - 最终镜像只包含 `dist/client`、`dist/server` 和 `migrations`，不包含源码、测试、开发依赖、`.env` 或 SQLite 数据。
 - `.github/workflows/ci.yml` 在 push 时执行类型检查、测试、Bun 构建和 Docker 构建。
-- `.github/workflows/docker.yml` 只在 Git tag 推送时发布 GHCR 镜像；只有正式 SemVer tag 更新 `latest`。
+- `.github/workflows/docker.yml` 只在 Git tag 推送时发布 GHCR 镜像，并在镜像推送成功后创建同名 GitHub Release；只有正式 SemVer tag 更新 `latest` 镜像标签。
 
 ## 结束任务前检查
 

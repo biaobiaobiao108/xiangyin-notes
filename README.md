@@ -50,7 +50,7 @@ tests/                     Bun 单元测试和 API 集成测试
 Dockerfile                 多阶段 Bun Alpine 镜像
 .dockerignore              Docker 构建上下文排除规则
 .github/workflows/ci.yml   每次 push 的 CI
-.github/workflows/docker.yml  Git tag 镜像发布
+.github/workflows/docker.yml  Git tag 镜像和 GitHub Release 发布
 ```
 
 ## 环境要求
@@ -336,9 +336,9 @@ docker run -d \
 
 ## GHCR 镜像发布
 
-Docker workflow 位于 `.github/workflows/docker.yml`，只在 push Git tag 时触发。
+Docker workflow 位于 `.github/workflows/docker.yml`，只在 push Git tag 时触发。镜像推送成功后，workflow 会使用 GitHub CLI 创建同名 GitHub Release，并自动生成变更说明。
 
-仓库需要允许 Actions 使用 `GITHUB_TOKEN` 写入 Packages。workflow 使用：
+仓库需要允许 Actions 使用 `GITHUB_TOKEN` 写入 Packages 和创建 Release。workflow 使用：
 
 ```text
 ghcr.io/${{ github.repository }}
@@ -401,7 +401,7 @@ CI 会从干净仓库检查前端、Bun Server、SQLite 测试和 Dockerfile。
 
 ### Docker 发布
 
-`.github/workflows/docker.yml` 在任意 Git tag push 时触发，登录 GHCR，生成版本标签，并推送精简镜像。镜像构建使用 Buildx GitHub Actions cache，不需要配置 Docker Hub 账号或额外密码。
+`.github/workflows/docker.yml` 在任意 Git tag push 时触发，登录 GHCR，生成版本标签，并推送精简镜像；镜像推送成功后会创建同名 GitHub Release 并自动生成变更说明。镜像构建使用 Buildx GitHub Actions cache，不需要配置 Docker Hub 账号或额外密码。
 
 ## API 速查
 
