@@ -6,6 +6,7 @@ const SESSION_COOKIE = "xiangying_session";
 const SESSION_TTL = 60 * 60 * 24 * 30;
 const SHARE_TTL = 60 * 60 * 24 * 7;
 const PASSWORD_ITERATIONS = 100_000;
+const NOTE_PAGE_SIZE = 100;
 const DEFAULT_CLIENT_ROOT = "./dist/client";
 const encoder = new TextEncoder();
 
@@ -391,18 +392,20 @@ async function handleApi(request: Request, options: ServerOptions) {
       } else {
         const ftsQuery = buildFtsQuery(query);
         // Without any searchable term the query must match nothing, not fall back to listing every note.
-        if (!ftsQuery) return json({ notes: [] });
+        if (!ftsQuery) return json({ notes: [], total: 0 });
         from += " JOIN notes_fts ON notes_fts.note_id = n.id";
         conditions.push("notes_fts MATCH ?");
         params.push(ftsQuery);
       }
     }
+    const where = conditions.join(" AND ");
+    const totalRow = first<{ count: number }>(database, `SELECT COUNT(*) AS count FROM ${from} WHERE ${where}`, ...params);
     const rows = all<NoteRow>(database, `
       SELECT n.id, n.title, n.content_markdown, n.notebook_id, b.name AS notebook_name,
         b.color AS notebook_color, n.is_favorite, n.deleted_at, n.version, n.created_at, n.updated_at
-      FROM ${from} WHERE ${conditions.join(" AND ")} ORDER BY n.updated_at DESC LIMIT 100
+      FROM ${from} WHERE ${where} ORDER BY n.updated_at DESC LIMIT ${NOTE_PAGE_SIZE}
     `, ...params);
-    return json({ notes: rows.map(toNote) });
+    return json({ notes: rows.map(toNote), total: Number(totalRow?.count ?? 0) });
   }
 
   if (resource === "notes" && !id && method === "POST") {

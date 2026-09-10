@@ -112,6 +112,28 @@ describe("Bun Server API", () => {
     expect(real.body?.notes).toHaveLength(1);
   });
 
+  test("reports the full note count when the list is truncated", async () => {
+    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
+    const inbox = database.query("SELECT id FROM notebooks WHERE is_system = 1 LIMIT 1").get() as { id: string };
+    const owner = database.query("SELECT id FROM users WHERE username = ?").get("owner") as { id: string };
+    const insertNote = database.query("INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, version, created_at, updated_at) VALUES (?, ?, ?, ?, '', 1, ?, ?)");
+    const insertFts = database.query("INSERT INTO notes_fts (note_id, title, content) VALUES (?, ?, '')");
+    const createdAt = Math.floor(Date.now() / 1000);
+    const seed = database.transaction(() => {
+      for (let index = 0; index < 105; index += 1) {
+        const noteId = crypto.randomUUID();
+        insertNote.run(noteId, owner.id, inbox.id, `批量笔记 ${index}`, createdAt, createdAt + index);
+        insertFts.run(noteId, `批量笔记 ${index}`);
+      }
+    });
+    seed();
+
+    const list = await request("/api/notes?view=all", {}, login.cookie);
+    expect(list.response.status).toBe(200);
+    expect(list.body?.notes).toHaveLength(100);
+    expect(list.body?.total).toBe(106);
+  });
+
   test("stores immutable SQLite snapshots and revokes or expires them", async () => {
     const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
     const created = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "Snapshot", contentMarkdown: "Original content" }) }, login.cookie);

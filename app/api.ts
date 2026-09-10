@@ -35,7 +35,7 @@ export const api = {
     const search = new URLSearchParams({ view: params.view });
     if (params.query) search.set("query", params.query);
     if (params.notebookId) search.set("notebookId", params.notebookId);
-    return request<{ notes: NoteSummary[] }>(`/api/notes?${search.toString()}`);
+    return request<{ notes: NoteSummary[]; total: number }>(`/api/notes?${search.toString()}`);
   },
   getNote: (id: string) => request<{ note: Note }>(`/api/notes/${id}`),
   createNote: (payload: { title?: string; contentMarkdown?: string; notebookId?: string }) => request<{ note: Note }>("/api/notes", { method: "POST", body: JSON.stringify(payload) }),

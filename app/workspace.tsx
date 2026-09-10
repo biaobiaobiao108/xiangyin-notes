@@ -63,6 +63,7 @@ export function Workspace() {
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
   const [notes, setNotes] = useState<NoteSummary[]>([]);
+  const [totalNotes, setTotalNotes] = useState(0);
   const [notesReloadToken, setNotesReloadToken] = useState(0);
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -99,6 +100,7 @@ export function Workspace() {
     try {
       const result = await api.listNotes({ view, query: deferredQuery, notebookId });
       setNotes(result.notes);
+      setTotalNotes(result.total);
       setSelectedId((current) => current && result.notes.some((note) => note.id === current) ? current : result.notes[0]?.id ?? null);
     } catch (reason) { if (reason instanceof ApiError && reason.status === 401) navigate("/login", { replace: true }); }
   }, [deferredQuery, navigate, notebookId, notesReloadToken, view]);
@@ -264,6 +266,7 @@ export function Workspace() {
     setNotebookId(target.notebookId);
     setQuery("");
     setNotes((current) => [note, ...current.filter((currentNote) => currentNote.id !== note.id)]);
+    setTotalNotes((value) => value + 1);
     setSelectedNote(note);
     selectedRef.current = note;
     activeNoteIdRef.current = note.id;
@@ -401,7 +404,7 @@ export function Workspace() {
   return <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
     <button className={`mobile-scrim ${mobileSidebarOpen || mobileListOpen ? "is-visible" : ""}`} type="button" aria-label="关闭导航" onClick={() => { setMobileSidebarOpen(false); setMobileListOpen(false); }} />
     <Sidebar view={view} setView={selectView} notebooks={notebooks} notebookId={notebookId} setNotebookId={selectNotebook} query={query} setQuery={changeQuery} searchRef={searchRef} onNewNote={() => void createNoteHere()} onCreateNotebook={() => void createNotebook()} onEditNotebook={(target) => setEditingNotebook(target)} collapsed={sidebarCollapsed} onCollapse={() => setSidebarCollapsed((value) => !value)} mobileOpen={mobileSidebarOpen} onLogout={logout} />
-    <NoteListPanel notes={notes} selectedId={selectedId} onSelect={(id) => { setSelectedId(id); setMobileListOpen(false); }} view={view} query={query} currentNotebookName={currentNotebook?.name} onNewNote={currentNotebook ? () => void createNoteHere() : undefined} onClearQuery={() => changeQuery("")} mobileOpen={mobileListOpen} onOpenSidebar={() => setMobileSidebarOpen(true)} />
+    <NoteListPanel notes={notes} total={totalNotes} selectedId={selectedId} onSelect={(id) => { setSelectedId(id); setMobileListOpen(false); }} view={view} query={query} currentNotebookName={currentNotebook?.name} onNewNote={currentNotebook ? () => void createNoteHere() : undefined} onClearQuery={() => changeQuery("")} mobileOpen={mobileListOpen} onOpenSidebar={() => setMobileSidebarOpen(true)} />
     <main className="editor-region">
       {selectedNote ? <NoteEditor note={selectedNote} saveState={saveState} isLoading={isNoteLoading} reloadToken={noteReloadToken} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onShare={() => setShareOpen(true)} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={() => setMobileListOpen(true)} /> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor onNewNote={() => void createNoteHere()} onOpenList={() => setMobileListOpen(true)} />}
     </main>
@@ -434,7 +437,7 @@ function Sidebar({ view, setView, notebooks, notebookId, setNotebookId, query, s
   </aside>;
 }
 
-function NoteListPanel({ notes, selectedId, onSelect, view, query, currentNotebookName, onNewNote, onClearQuery, mobileOpen, onOpenSidebar }: { notes: NoteSummary[]; selectedId: string | null; onSelect: (id: string) => void; view: NoteView; query: string; currentNotebookName?: string; onNewNote?: () => void; onClearQuery: () => void; mobileOpen: boolean; onOpenSidebar: () => void }) {
+function NoteListPanel({ notes, total, selectedId, onSelect, view, query, currentNotebookName, onNewNote, onClearQuery, mobileOpen, onOpenSidebar }: { notes: NoteSummary[]; total: number; selectedId: string | null; onSelect: (id: string) => void; view: NoteView; query: string; currentNotebookName?: string; onNewNote?: () => void; onClearQuery: () => void; mobileOpen: boolean; onOpenSidebar: () => void }) {
   const [sort, setSort] = useState<"updated" | "created" | "title">("updated");
   const [sortOpen, setSortOpen] = useState(false);
   const sortRef = useRef<HTMLDivElement>(null);
@@ -470,12 +473,13 @@ function NoteListPanel({ notes, selectedId, onSelect, view, query, currentNotebo
   };
 
   const heading = query ? "搜索结果" : currentNotebookName ?? viewLabel(view);
+  const truncated = total > notes.length;
   return <section className={`note-list-panel ${mobileOpen ? "is-mobile-open" : ""}`} aria-label="笔记列表">
     <header className="list-header">
       <button className="icon-button mobile-only" type="button" aria-label="打开导航" onClick={onOpenSidebar}><Menu size={20} /></button>
       <div className="list-header-main">
         <h2>{heading}</h2>
-        <p>{query ? `包含“${query}”的笔记` : `${notes.length} 篇笔记`}</p>
+        <p>{query ? `包含“${query}”的笔记` : `${truncated ? total : notes.length} 篇笔记`}{truncated && <> · 已显示最近 {notes.length} 篇</>}</p>
       </div>
       <div className="list-header-controls">
         {onNewNote && <button className="icon-button list-new-note-button" type="button" aria-label={`在${currentNotebookName}中新建笔记`} title={`在${currentNotebookName}中新建笔记`} onClick={onNewNote}><Plus size={18} /></button>}
