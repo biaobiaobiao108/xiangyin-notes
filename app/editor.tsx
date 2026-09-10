@@ -15,11 +15,13 @@ import { FloatingScrollbar } from "./floating-scrollbar";
 
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
 
-export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0, onChange, onSaveNow, onReloadNote, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList }: {
+export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0, focusRequested = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList }: {
   note: Note;
   saveState: "idle" | "saving" | "saved" | "conflict" | "error";
   isLoading?: boolean;
   reloadToken?: number;
+  focusRequested?: boolean;
+  onFocusHandled?: () => void;
   onChange: (patch: { title?: string; contentMarkdown?: string; notebookId?: string }) => void;
   onSaveNow: () => void;
   onReloadNote: () => void;
@@ -231,6 +233,12 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
     editorScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
     scheduleEditorSurfaceSync(editor);
   }, [editor, note.id, reloadToken]);
+
+  useEffect(() => {
+    if (!editor || !focusRequested || isLoading || note.deletedAt) return;
+    // Apply focus after the new note's content and editable state are ready.
+    if (editor.commands.focus("start")) onFocusHandled?.();
+  }, [editor, focusRequested, isLoading, note.id, note.deletedAt, onFocusHandled]);
 
   useEffect(() => {
     if (isLoading) setOutlineOpen(false);

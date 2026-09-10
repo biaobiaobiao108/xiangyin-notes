@@ -69,6 +69,8 @@ export function Workspace() {
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
+  const [editorFocusNoteId, setEditorFocusNoteId] = useState<string | null>(null);
+  const handleEditorFocus = useCallback(() => setEditorFocusNoteId(null), []);
   const selectedRef = useRef<Note | null>(null);
   const activeNoteIdRef = useRef<string | null>(null);
   const noteLoadRequestRef = useRef(0);
@@ -114,6 +116,7 @@ export function Workspace() {
   }, [replaceList]);
   useEffect(() => { notesRef.current = notes; }, [notes]);
   const loadSelectedNote = useCallback(async (id: string) => {
+    setEditorFocusNoteId((current) => current === id ? current : null);
     const requestId = ++noteLoadRequestRef.current;
     const previousNote = selectedRef.current;
     const pendingNote = pendingSavesRef.current.get(id);
@@ -278,6 +281,7 @@ export function Workspace() {
     replaceList([note, ...notesRef.current.filter((currentNote) => currentNote.id !== note.id)]);
     setTotalNotes((value) => value + 1);
     setSelectedNote(note);
+    setIsNoteLoading(true);
     selectedRef.current = note;
     activeNoteIdRef.current = note.id;
     pendingSavesRef.current.delete(note.id);
@@ -294,7 +298,7 @@ export function Workspace() {
       refreshNotebooks();
     } catch (reason) { setToast(errorMessage(reason, "创建笔记失败")); }
   }, [notebookId, notebooks, refreshNotebooks, revealCreatedNote, view]);
-  const createNoteInNotebook = useCallback(async (commandToCreate: CreateNoteCommand) => { try { const result = await api.createNote({ notebookId: commandToCreate.notebookId, title: commandToCreate.title }); revealCreatedNote(result.note, { view: "all", notebookId: commandToCreate.notebookId }, `已在“${commandToCreate.notebookName}”中创建“${commandToCreate.title}”`); refreshNotebooks(); } catch (reason) { if (reason instanceof ApiError && reason.status === 401) navigate("/login", { replace: true }); setToast(errorMessage(reason, "创建笔记失败，请稍后重试")); } }, [navigate, refreshNotebooks, revealCreatedNote]);
+  const createNoteInNotebook = useCallback(async (commandToCreate: CreateNoteCommand) => { try { const result = await api.createNote({ notebookId: commandToCreate.notebookId, title: commandToCreate.title }); revealCreatedNote(result.note, { view: "all", notebookId: commandToCreate.notebookId }, `已在“${commandToCreate.notebookName}”中创建“${commandToCreate.title}”`); setEditorFocusNoteId(result.note.id); refreshNotebooks(); } catch (reason) { if (reason instanceof ApiError && reason.status === 401) navigate("/login", { replace: true }); setToast(errorMessage(reason, "创建笔记失败，请稍后重试")); } }, [navigate, refreshNotebooks, revealCreatedNote]);
   const createNotebook = useCallback(() => setEditingNotebook(null), []);
   const saveNotebook = useCallback((saved: Notebook) => {
     setNotebooks((current) => {
@@ -416,7 +420,7 @@ export function Workspace() {
     <Sidebar view={view} setView={selectView} notebooks={notebooks} notebookId={notebookId} setNotebookId={selectNotebook} query={query} setQuery={changeQuery} searchRef={searchRef} onNewNote={() => void createNoteHere()} onCreateNotebook={() => void createNotebook()} onEditNotebook={(target) => setEditingNotebook(target)} collapsed={sidebarCollapsed} onCollapse={() => setSidebarCollapsed((value) => !value)} mobileOpen={mobileSidebarOpen} onLogout={logout} />
     <NoteListPanel notes={notes} total={totalNotes} selectedId={selectedId} onSelect={(id) => { setSelectedId(id); setMobileListOpen(false); }} view={view} query={query} currentNotebookName={currentNotebook?.name} onNewNote={currentNotebook ? () => void createNoteHere() : undefined} onClearQuery={() => changeQuery("")} mobileOpen={mobileListOpen} onOpenSidebar={() => setMobileSidebarOpen(true)} />
     <main className="editor-region">
-      {selectedNote ? <NoteEditor note={selectedNote} saveState={saveState} isLoading={isNoteLoading} reloadToken={noteReloadToken} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onShare={() => setShareOpen(true)} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={() => setMobileListOpen(true)} /> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor onNewNote={() => void createNoteHere()} onOpenList={() => setMobileListOpen(true)} />}
+      {selectedNote ? <NoteEditor note={selectedNote} saveState={saveState} isLoading={isNoteLoading} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === selectedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onShare={() => setShareOpen(true)} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={() => setMobileListOpen(true)} /> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor onNewNote={() => void createNoteHere()} onOpenList={() => setMobileListOpen(true)} />}
     </main>
     <CommandMenu open={commandOpen} onClose={() => setCommandOpen(false)} onCommand={command} onCreateNoteInNotebook={createNoteInNotebook} canRestore={Boolean(selectedNote?.deletedAt)} notebooks={notebooks} />
     {shareOpen && selectedNote && <ShareDialog note={selectedNote} onClose={() => setShareOpen(false)} onToast={setToast} />}
