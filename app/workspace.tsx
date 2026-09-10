@@ -5,6 +5,7 @@ import { ApiError, api } from "./api";
 import { CommandId, CommandMenu } from "./command-menu";
 import type { CreateNoteCommand } from "./command-parser";
 import { NoteEditor, NoteLoadingState } from "./editor";
+import { FloatingScrollbar } from "./floating-scrollbar";
 import type { Note, NoteSummary, NoteView, Notebook, Share } from "../shared/types";
 
 const navItems: Array<{ id: NoteView; label: string; icon: typeof Inbox }> = [
@@ -16,14 +17,6 @@ const navItems: Array<{ id: NoteView; label: string; icon: typeof Inbox }> = [
 ];
 
 const notebookColorOptions = ["#d96245", "#718077", "#5b7899", "#9c765f", "#aa6f8e", "#8b7c54", "#6b72a8", "#6f7d83"];
-
-type NoteListScrollMetrics = {
-  scrollable: boolean;
-  thumbHeight: number;
-  thumbTop: number;
-  maxScroll: number;
-  scrollTop: number;
-};
 
 export function Workspace() {
   const navigate = useNavigate();
@@ -282,7 +275,24 @@ export function Workspace() {
 }
 
 function Sidebar({ view, setView, notebooks, notebookId, setNotebookId, query, setQuery, searchRef, onNewNote, onCreateNotebook, onEditNotebook, collapsed, onCollapse, mobileOpen, onLogout }: { view: NoteView; setView: (view: NoteView) => void; notebooks: Notebook[]; notebookId?: string; setNotebookId: (id: string) => void; query: string; setQuery: (query: string) => void; searchRef: React.RefObject<HTMLInputElement | null>; onNewNote: () => void; onCreateNotebook: () => void; onEditNotebook: (notebook: Notebook) => void; collapsed: boolean; onCollapse: () => void; mobileOpen: boolean; onLogout: () => void }) {
-  return <aside className={`sidebar ${mobileOpen ? "is-mobile-open" : ""}`} aria-label="主导航"><div className="brand-row"><span className="brand-mark"><span className="brand-star">✦</span></span><span className="brand-name">Lumen Notes</span><button className="icon-button collapse-button" type="button" onClick={onCollapse} aria-label={collapsed ? "展开侧栏" : "收起侧栏"}><LayoutPanelLeft size={18} /></button></div><button className="primary-button new-note-button" type="button" onClick={onNewNote}><Plus size={18} />新建笔记</button><label className="search-box"><Search size={17} /><input ref={searchRef} value={query} onChange={(event) => { setQuery(event.target.value); setView("all"); }} placeholder="搜索笔记……" aria-label="搜索笔记" /><kbd>Ctrl /</kbd></label><nav className="main-nav"><ul>{navItems.map((item) => { const Icon = item.icon; return <li key={item.id}><button className={`nav-item ${view === item.id && !notebookId ? "is-active" : ""}`} type="button" onClick={() => setView(item.id)}><Icon size={18} /><span>{item.label}</span></button></li>; })}</ul></nav><div className="notebook-section"><div className="section-heading"><span>笔记本</span><button className="icon-button tiny-button" type="button" aria-label="新建笔记本" title="新建笔记本" onClick={onCreateNotebook}><Plus size={16} /></button></div><ul>{notebooks.map((notebook) => <li key={notebook.id} className="notebook-row-item"><div className={`notebook-row-wrap ${notebook.id === notebookId ? "is-active" : ""}`}><button className="notebook-item" type="button" aria-label={`${notebook.name}，${notebook.count} 篇笔记`} onClick={() => setNotebookId(notebook.id)}><span className="notebook-dot" style={{ background: notebook.color }} /><span>{notebook.name}</span><em>{notebook.count}</em></button>{notebook.isSystem ? <span className="notebook-edit-spacer" aria-hidden="true" /> : <button className="icon-button tiny-button notebook-edit-button" type="button" aria-label={`管理笔记本“${notebook.name}”`} title="管理笔记本" onClick={(e) => { e.stopPropagation(); onEditNotebook(notebook); }}><Pencil size={12} /></button>}</div></li>)}</ul></div><div className="sidebar-bottom"><button className="nav-item" type="button" onClick={onLogout}><LogOut size={18} /><span>退出登录</span></button><div className="sidebar-hint"><span className="status-pulse" />数据安全保存在你的空间</div></div></aside>;
+  const notebookListRef = useRef<HTMLDivElement>(null);
+
+  return <aside className={`sidebar ${mobileOpen ? "is-mobile-open" : ""}`} aria-label="主导航">
+    <div className="brand-row"><span className="brand-mark"><span className="brand-star">✦</span></span><span className="brand-name">Lumen Notes</span><button className="icon-button collapse-button" type="button" onClick={onCollapse} aria-label={collapsed ? "展开侧栏" : "收起侧栏"}><LayoutPanelLeft size={18} /></button></div>
+    <button className="primary-button new-note-button" type="button" onClick={onNewNote}><Plus size={18} />新建笔记</button>
+    <label className="search-box"><Search size={17} /><input ref={searchRef} value={query} onChange={(event) => { setQuery(event.target.value); setView("all"); }} placeholder="搜索笔记……" aria-label="搜索笔记" /><kbd>Ctrl /</kbd></label>
+    <nav className="main-nav"><ul>{navItems.map((item) => { const Icon = item.icon; return <li key={item.id}><button className={`nav-item ${view === item.id && !notebookId ? "is-active" : ""}`} type="button" onClick={() => setView(item.id)}><Icon size={18} /><span>{item.label}</span></button></li>; })}</ul></nav>
+    <div className="notebook-section">
+      <div className="section-heading"><span>笔记本</span><button className="icon-button tiny-button" type="button" aria-label="新建笔记本" title="新建笔记本" onClick={onCreateNotebook}><Plus size={16} /></button></div>
+      <div className="notebook-list-scroll-shell">
+        <div id="notebook-list-scroll-region" className="notebook-list-scroll floating-scrollbar-target" ref={notebookListRef}>
+          <ul>{notebooks.map((notebook) => <li key={notebook.id} className="notebook-row-item"><div className={`notebook-row-wrap ${notebook.id === notebookId ? "is-active" : ""}`}><button className="notebook-item" type="button" aria-label={`${notebook.name}，${notebook.count} 篇笔记`} onClick={() => setNotebookId(notebook.id)}><span className="notebook-dot" style={{ background: notebook.color }} /><span>{notebook.name}</span><em>{notebook.count}</em></button>{notebook.isSystem ? <span className="notebook-edit-spacer" aria-hidden="true" /> : <button className="icon-button tiny-button notebook-edit-button" type="button" aria-label={`管理笔记本“${notebook.name}”`} title="管理笔记本" onClick={(e) => { e.stopPropagation(); onEditNotebook(notebook); }}><Pencil size={12} /></button>}</div></li>)}</ul>
+        </div>
+        <FloatingScrollbar scrollTargetRef={notebookListRef} controlsId="notebook-list-scroll-region" ariaLabel="笔记本列表滚动条" placement="right" />
+      </div>
+    </div>
+    <div className="sidebar-bottom"><button className="nav-item" type="button" onClick={onLogout}><LogOut size={18} /><span>退出登录</span></button><div className="sidebar-hint"><span className="status-pulse" />数据安全保存在你的空间</div></div>
+  </aside>;
 }
 
 function NoteListPanel({ notes, selectedId, onSelect, view, query, currentNotebookName, onNewNote, mobileOpen, onOpenSidebar }: { notes: NoteSummary[]; selectedId: string | null; onSelect: (id: string) => void; view: NoteView; query: string; currentNotebookName?: string; onNewNote?: () => void; mobileOpen: boolean; onOpenSidebar: () => void }) {
@@ -290,17 +300,6 @@ function NoteListPanel({ notes, selectedId, onSelect, view, query, currentNotebo
   const [sortOpen, setSortOpen] = useState(false);
   const sortRef = useRef<HTMLDivElement>(null);
   const noteListRef = useRef<HTMLDivElement>(null);
-  const noteListScrollShellRef = useRef<HTMLDivElement>(null);
-  const scrollbarTrackRef = useRef<HTMLDivElement>(null);
-  const scrollbarHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const scrollbarFrameRef = useRef<number | null>(null);
-  const scrollbarHoverRef = useRef(false);
-  const scrollbarFocusRef = useRef(false);
-  const scrollbarDragRef = useRef<{ pointerId: number; startY: number; startScrollTop: number } | null>(null);
-  const [scrollbarVisible, setScrollbarVisible] = useState(false);
-  const [scrollbarDragging, setScrollbarDragging] = useState(false);
-  const [scrollbarFocused, setScrollbarFocused] = useState(false);
-  const [scrollMetrics, setScrollMetrics] = useState<NoteListScrollMetrics>({ scrollable: false, thumbHeight: 0, thumbTop: 0, maxScroll: 0, scrollTop: 0 });
 
   useEffect(() => {
     if (!sortOpen) return;
@@ -332,137 +331,6 @@ function NoteListPanel({ notes, selectedId, onSelect, view, query, currentNotebo
   };
 
   const heading = query ? "搜索结果" : currentNotebookName ?? viewLabel(view);
-  const updateScrollMetrics = useCallback(() => {
-    const list = noteListRef.current;
-    const track = scrollbarTrackRef.current;
-    if (!list || !track) return;
-    const maxScroll = Math.max(0, list.scrollHeight - list.clientHeight);
-    const scrollable = maxScroll > 1;
-    const trackHeight = track.clientHeight;
-    const thumbHeight = scrollable ? Math.min(trackHeight, Math.max(30, Math.round(trackHeight * list.clientHeight / list.scrollHeight))) : 0;
-    const maxThumbTop = Math.max(0, trackHeight - thumbHeight);
-    const scrollTop = Math.min(maxScroll, Math.max(0, list.scrollTop));
-    const thumbTop = maxScroll > 0 && maxThumbTop > 0 ? Math.round(scrollTop / maxScroll * maxThumbTop) : 0;
-    const nextMetrics = { scrollable, thumbHeight, thumbTop, maxScroll: Math.round(maxScroll), scrollTop: Math.round(scrollTop) };
-    setScrollMetrics((current) => current.scrollable === nextMetrics.scrollable && current.thumbHeight === nextMetrics.thumbHeight && current.thumbTop === nextMetrics.thumbTop && current.maxScroll === nextMetrics.maxScroll && current.scrollTop === nextMetrics.scrollTop ? current : nextMetrics);
-  }, []);
-  const scheduleScrollMetrics = useCallback(() => {
-    if (scrollbarFrameRef.current !== null) return;
-    scrollbarFrameRef.current = requestAnimationFrame(() => {
-      scrollbarFrameRef.current = null;
-      updateScrollMetrics();
-    });
-  }, [updateScrollMetrics]);
-  const scheduleScrollbarHide = useCallback(() => {
-    if (scrollbarHideTimerRef.current !== null) clearTimeout(scrollbarHideTimerRef.current);
-    scrollbarHideTimerRef.current = setTimeout(() => {
-      scrollbarHideTimerRef.current = null;
-      if (!scrollbarHoverRef.current && !scrollbarFocusRef.current && !scrollbarDragRef.current) setScrollbarVisible(false);
-    }, 1000);
-  }, []);
-  const revealScrollbar = useCallback(() => {
-    setScrollbarVisible(true);
-    scheduleScrollbarHide();
-  }, [scheduleScrollbarHide]);
-  const handleNoteListScroll = useCallback(() => {
-    scheduleScrollMetrics();
-    revealScrollbar();
-  }, [revealScrollbar, scheduleScrollMetrics]);
-  const handleScrollbarFocus = useCallback(() => {
-    scrollbarFocusRef.current = true;
-    setScrollbarFocused(true);
-    revealScrollbar();
-  }, [revealScrollbar]);
-  const handleScrollbarBlur = useCallback((event: React.FocusEvent<HTMLDivElement>) => {
-    const relatedTarget = event.relatedTarget;
-    if (relatedTarget instanceof Node && event.currentTarget.contains(relatedTarget)) return;
-    scrollbarFocusRef.current = false;
-    setScrollbarFocused(false);
-    scheduleScrollbarHide();
-  }, [scheduleScrollbarHide]);
-  const handleScrollbarPointerEnter = useCallback(() => {
-    scrollbarHoverRef.current = true;
-    revealScrollbar();
-  }, [revealScrollbar]);
-  const handleScrollbarPointerLeave = useCallback(() => {
-    scrollbarHoverRef.current = false;
-    scheduleScrollbarHide();
-  }, [scheduleScrollbarHide]);
-  const handleScrollbarPointerDown = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
-    const list = noteListRef.current;
-    if (!list) return;
-    event.preventDefault();
-    event.stopPropagation();
-    scrollbarDragRef.current = { pointerId: event.pointerId, startY: event.clientY, startScrollTop: list.scrollTop };
-    setScrollbarDragging(true);
-    revealScrollbar();
-    event.currentTarget.setPointerCapture(event.pointerId);
-  }, [revealScrollbar]);
-  const handleScrollbarPointerMove = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
-    const drag = scrollbarDragRef.current;
-    const list = noteListRef.current;
-    const track = scrollbarTrackRef.current;
-    if (!drag || drag.pointerId !== event.pointerId || !list || !track) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const maxScroll = Math.max(0, list.scrollHeight - list.clientHeight);
-    const trackHeight = track.clientHeight;
-    const thumbHeight = Math.min(trackHeight, Math.max(30, Math.round(trackHeight * list.clientHeight / list.scrollHeight)));
-    const maxThumbTop = Math.max(0, trackHeight - thumbHeight);
-    if (maxScroll > 0 && maxThumbTop > 0) list.scrollTop = Math.min(maxScroll, Math.max(0, drag.startScrollTop + (event.clientY - drag.startY) / maxThumbTop * maxScroll));
-    scheduleScrollMetrics();
-    revealScrollbar();
-  }, [revealScrollbar, scheduleScrollMetrics]);
-  const finishScrollbarDrag = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
-    if (scrollbarDragRef.current?.pointerId !== event.pointerId) return;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-    scrollbarDragRef.current = null;
-    setScrollbarDragging(false);
-    scheduleScrollbarHide();
-  }, [scheduleScrollbarHide]);
-  const handleScrollbarKeyDown = useCallback((event: React.KeyboardEvent<HTMLButtonElement>) => {
-    const list = noteListRef.current;
-    if (!list) return;
-    const maxScroll = Math.max(0, list.scrollHeight - list.clientHeight);
-    let nextScrollTop: number | undefined;
-    if (event.key === "ArrowUp") nextScrollTop = list.scrollTop - 48;
-    if (event.key === "ArrowDown") nextScrollTop = list.scrollTop + 48;
-    if (event.key === "PageUp") nextScrollTop = list.scrollTop - list.clientHeight * 0.85;
-    if (event.key === "PageDown") nextScrollTop = list.scrollTop + list.clientHeight * 0.85;
-    if (event.key === "Home") nextScrollTop = 0;
-    if (event.key === "End") nextScrollTop = maxScroll;
-    if (nextScrollTop === undefined) return;
-    event.preventDefault();
-    list.scrollTop = Math.min(maxScroll, Math.max(0, nextScrollTop));
-    scheduleScrollMetrics();
-    revealScrollbar();
-  }, [revealScrollbar, scheduleScrollMetrics]);
-
-  useEffect(() => {
-    const list = noteListRef.current;
-    const shell = noteListScrollShellRef.current;
-    if (!list || !shell) return;
-    const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(scheduleScrollMetrics);
-    resizeObserver?.observe(shell);
-    resizeObserver?.observe(list);
-    const mutationObserver = typeof MutationObserver === "undefined" ? null : new MutationObserver(scheduleScrollMetrics);
-    mutationObserver?.observe(list, { childList: true, subtree: true, characterData: true });
-    window.addEventListener("resize", scheduleScrollMetrics);
-    scheduleScrollMetrics();
-    return () => {
-      resizeObserver?.disconnect();
-      mutationObserver?.disconnect();
-      window.removeEventListener("resize", scheduleScrollMetrics);
-      if (scrollbarFrameRef.current !== null) cancelAnimationFrame(scrollbarFrameRef.current);
-      scrollbarFrameRef.current = null;
-    };
-  }, [scheduleScrollMetrics, sortedNotes.length, sort]);
-
-  useEffect(() => () => {
-    if (scrollbarHideTimerRef.current !== null) clearTimeout(scrollbarHideTimerRef.current);
-    if (scrollbarFrameRef.current !== null) cancelAnimationFrame(scrollbarFrameRef.current);
-  }, []);
-
   return <section className={`note-list-panel ${mobileOpen ? "is-mobile-open" : ""}`} aria-label="笔记列表">
     <header className="list-header">
       <button className="icon-button mobile-only" type="button" aria-label="打开导航" onClick={onOpenSidebar}><Menu size={20} /></button>
@@ -486,15 +354,12 @@ function NoteListPanel({ notes, selectedId, onSelect, view, query, currentNotebo
         </div>
       </div>
     </header>
-    <div className="note-list-scroll-shell" ref={noteListScrollShellRef}>
-      <div id="note-list-scroll-region" className="note-list" ref={noteListRef} role="list" onScroll={handleNoteListScroll} onPointerEnter={revealScrollbar} onPointerMove={revealScrollbar} onWheel={revealScrollbar}>
+    <div className="note-list-scroll-shell">
+      <div id="note-list-scroll-region" className="note-list floating-scrollbar-target" ref={noteListRef} role="list">
         {sortedNotes.map((note) => <button key={note.id} role="listitem" type="button" className={`note-row ${selectedId === note.id ? "is-selected" : ""}`} onClick={() => onSelect(note.id)}><span className="note-row-title">{note.title || "未命名笔记"}{note.isFavorite && <Star size={13} fill="currentColor" />}</span><span className="note-row-preview">{note.preview || "还没有内容，开始写下第一句话。"}</span><span className="note-row-meta"><span>{note.notebookName}</span><time>{relativeDate(note.updatedAt)}</time></span></button>)}
         {!sortedNotes.length && <div className="list-empty"><span className="empty-icon"><Archive size={23} /></span><strong>这里还没有笔记</strong><span>按下“新建笔记”，让一个想法有地方落脚。</span></div>}
       </div>
-      <div className={`note-list-scrollbar ${scrollMetrics.scrollable && (scrollbarVisible || scrollbarDragging || scrollbarFocused) ? "is-visible" : ""}`} ref={scrollbarTrackRef} aria-hidden={!scrollMetrics.scrollable} onFocusCapture={handleScrollbarFocus} onBlurCapture={handleScrollbarBlur}>
-        <div className="note-list-scrollbar-track" aria-hidden="true" />
-        {scrollMetrics.scrollable && <button className={`note-list-scrollbar-thumb ${scrollbarDragging ? "is-dragging" : ""}`} type="button" role="scrollbar" aria-label="笔记列表滚动条" aria-controls="note-list-scroll-region" aria-valuemin={0} aria-valuemax={scrollMetrics.maxScroll} aria-valuenow={scrollMetrics.scrollTop} style={{ top: `${scrollMetrics.thumbTop}px`, height: `${scrollMetrics.thumbHeight}px` }} onPointerEnter={handleScrollbarPointerEnter} onPointerLeave={handleScrollbarPointerLeave} onPointerDown={handleScrollbarPointerDown} onPointerMove={handleScrollbarPointerMove} onPointerUp={finishScrollbarDrag} onPointerCancel={finishScrollbarDrag} onKeyDown={handleScrollbarKeyDown} />}
-      </div>
+      <FloatingScrollbar scrollTargetRef={noteListRef} controlsId="note-list-scroll-region" ariaLabel="笔记列表滚动条" placement="left" />
     </div>
   </section>;
 }

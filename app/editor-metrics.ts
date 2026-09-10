@@ -24,6 +24,14 @@ export function parseMarkdownHeadingPrefix(text: string): { level: MarkdownHeadi
   return { level: match[1].length as MarkdownHeadingLevel, length: match[0].length };
 }
 
+const MARKDOWN_PASTE_RE = /(?:^|\n)\s{0,3}(?:#{1,3}\s|[-+*]\s|\d+[.)]\s|>\s|```|~~~|-{3,}\s*$)|(?:\*\*[^*\n]+\*\*|__[^_\n]+__|~~[^~\n]+~~|`[^`\n]+`|\[[^\]\n]+\]\([^\)\n]+\))/u;
+
+export function shouldParseMarkdownPaste(text: string, hasHtml: boolean): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  return !hasHtml || MARKDOWN_PASTE_RE.test(text);
+}
+
 type Segment = {
   segment: string;
 };

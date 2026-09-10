@@ -9,7 +9,8 @@ import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
 import { ChevronLeft, Link2, ListTree, Minus, Trash2, Undo2 } from "lucide-react";
 import type { Note } from "../shared/types";
-import { buildOutlineItems, countEditorText, isMarkdownHeadingMarker, parseMarkdownHeadingPrefix, type EditorStats, type OutlineItem } from "./editor-metrics";
+import { buildOutlineItems, countEditorText, isMarkdownHeadingMarker, parseMarkdownHeadingPrefix, shouldParseMarkdownPaste, type EditorStats, type OutlineItem } from "./editor-metrics";
+import { FloatingScrollbar } from "./floating-scrollbar";
 
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
 
@@ -26,6 +27,7 @@ export function NoteEditor({ note, saveState, isLoading = false, onChange, onSha
   onOpenList?: () => void;
 }) {
   const editorScrollRef = useRef<HTMLDivElement>(null);
+  const editorInstanceRef = useRef<Editor | null>(null);
   const floatingToolsRef = useRef<HTMLDivElement>(null);
   const outlineTriggerRef = useRef<HTMLButtonElement>(null);
   const headingElementsRef = useRef(new Map<string, HTMLElement>());
@@ -123,6 +125,21 @@ export function NoteEditor({ note, saveState, isLoading = false, onChange, onSha
         }
         return false;
       },
+      handlePaste: (view, event) => {
+        const text = event.clipboardData?.getData("text/plain") ?? "";
+        const html = event.clipboardData?.getData("text/html") ?? "";
+        if (!shouldParseMarkdownPaste(text, Boolean(html))) return false;
+        const markdownManager = editorInstanceRef.current?.markdown;
+        if (!markdownManager) return false;
+        try {
+          const parsedDocument = view.state.schema.nodeFromJSON(markdownManager.parse(text));
+          const slice = parsedDocument.slice(0, parsedDocument.content.size);
+          view.dispatch(view.state.tr.replaceSelection(slice).scrollIntoView().setMeta("uiEvent", "paste"));
+          return true;
+        } catch {
+          return false;
+        }
+      },
       handleKeyDown: (_view, event) => {
         if (!pendingHeadingRef.current) return false;
         // Chromium reports the first key from many Windows IMEs as 229
@@ -167,6 +184,13 @@ export function NoteEditor({ note, saveState, isLoading = false, onChange, onSha
       scheduleEditorSurfaceSync(instance);
     },
   });
+
+  useEffect(() => {
+    editorInstanceRef.current = editor;
+    return () => {
+      if (editorInstanceRef.current === editor) editorInstanceRef.current = null;
+    };
+  }, [editor]);
 
   useEffect(() => {
     if (!editor) return;
@@ -310,31 +334,34 @@ export function NoteEditor({ note, saveState, isLoading = false, onChange, onSha
           </> : <button className="icon-button" type="button" aria-label="移入回收站" title="移入回收站" onClick={onMoveToTrash} disabled={isLoading}><Minus size={18} strokeWidth={1.8} className="trash-mark" /></button>}
         </div>
       </header>
-      <div className="editor-scroll" ref={editorScrollRef}>
-        <div className="editor-document">
-          {note.deletedAt && (
-            <div className="trashed-banner" role="status">
-              <span>此笔记已在回收站中，恢复后可继续编辑。</span>
-              <button className="text-button" type="button" onClick={onRestore} disabled={isLoading}>立即恢复</button>
-            </div>
-          )}
-          <input
-            className="note-title-input"
-            value={note.title}
-            maxLength={200}
-            readOnly={Boolean(note.deletedAt) || isLoading}
-            onChange={(event) => onChange({ title: event.target.value })}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.nativeEvent.isComposing && event.keyCode !== 229) {
-                event.preventDefault();
-                editor?.commands.focus("start");
-              }
-            }}
-            aria-label="笔记标题"
-            placeholder="未命名笔记"
-          />
-          <EditorContent editor={editor} />
+      <div className="editor-scroll-shell">
+        <div id="editor-scroll-region" className="editor-scroll floating-scrollbar-target" ref={editorScrollRef}>
+          <div className="editor-document">
+            {note.deletedAt && (
+              <div className="trashed-banner" role="status">
+                <span>此笔记已在回收站中，恢复后可继续编辑。</span>
+                <button className="text-button" type="button" onClick={onRestore} disabled={isLoading}>立即恢复</button>
+              </div>
+            )}
+            <input
+              className="note-title-input"
+              value={note.title}
+              maxLength={200}
+              readOnly={Boolean(note.deletedAt) || isLoading}
+              onChange={(event) => onChange({ title: event.target.value })}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.nativeEvent.isComposing && event.keyCode !== 229) {
+                  event.preventDefault();
+                  editor?.commands.focus("start");
+                }
+              }}
+              aria-label="笔记标题"
+              placeholder="未命名笔记"
+            />
+            <EditorContent editor={editor} />
+          </div>
         </div>
+        <FloatingScrollbar scrollTargetRef={editorScrollRef} controlsId="editor-scroll-region" ariaLabel="编辑器滚动条" placement="right" />
       </div>
       {isLoading && <div className="editor-switch-overlay" role="status" aria-live="polite"><div className="editor-switch-card"><span className="editor-switch-mark">✦</span><div className="editor-switch-lines" aria-hidden="true"><span /><span /><span /></div><strong>正在打开笔记…</strong></div></div>}
       <div className="editor-floating-tools" ref={floatingToolsRef}>
