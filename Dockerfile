@@ -20,7 +20,7 @@ WORKDIR /app
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=3000 \
-    DATABASE_PATH=/data/lumen-notes.sqlite
+    DATABASE_PATH=/data/xiangying-notes.sqlite
 
 RUN mkdir -p /data && chown -R bun:bun /data /app
 

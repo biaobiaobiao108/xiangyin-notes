@@ -21,9 +21,9 @@ describe("editor metrics", () => {
       { level: 3, title: "  " },
     ]);
     expect(items.map(({ id, level, title }) => ({ id, level, title }))).toEqual([
-      { id: "lumen-heading-1-开始", level: 1, title: "开始" },
-      { id: "lumen-heading-2-开始", level: 2, title: "开始" },
-      { id: "lumen-heading-3-section", level: 3, title: "  " },
+      { id: "xiangying-heading-1-开始", level: 1, title: "开始" },
+      { id: "xiangying-heading-2-开始", level: 2, title: "开始" },
+      { id: "xiangying-heading-3-section", level: 3, title: "  " },
     ]);
   });
 

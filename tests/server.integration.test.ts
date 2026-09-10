@@ -6,7 +6,7 @@ import { applyMigrations, openDatabase, type SqliteDatabase } from "../server/db
 import { handleRequest } from "../server/index";
 
 let database: SqliteDatabase;
-const environment: Record<string, string | undefined> = { LUMEN_USERNAME: "owner", LUMEN_PASSWORD: "a long passphrase 1234" };
+const environment: Record<string, string | undefined> = { XIANGYING_USERNAME: "owner", XIANGYING_PASSWORD: "a long passphrase 1234" };
 
 beforeEach(async () => {
   database = await openDatabase(":memory:");
@@ -18,7 +18,7 @@ afterEach(() => database.close());
 async function request(path: string, init: RequestInit = {}, cookie?: string, targetEnvironment = environment) {
   const headers = new Headers(init.headers);
   if (cookie) headers.set("Cookie", cookie);
-  const response = await handleRequest(new Request(`http://lumen.test${path}`, { ...init, headers }), { database, environment: targetEnvironment, clientRoot: "dist/client" });
+  const response = await handleRequest(new Request(`http://xiangying.test${path}`, { ...init, headers }), { database, environment: targetEnvironment, clientRoot: "dist/client" });
   const body = await response.json().catch(() => null) as Record<string, any> | null;
   return { response, body, cookie: response.headers.get("Set-Cookie")?.split(";", 1)[0] };
 }
@@ -31,7 +31,7 @@ describe("Bun Server API", () => {
     expect(fresh.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'users'").get()).toBeDefined();
     fresh.close();
 
-    const databasePath = join(tmpdir(), `lumen-notes-migration-${crypto.randomUUID()}.sqlite`);
+    const databasePath = join(tmpdir(), `xiangying-notes-migration-${crypto.randomUUID()}.sqlite`);
     const initialized = await openDatabase(databasePath);
     initialized.query("DELETE FROM schema_migrations WHERE name = ?").run("0002_sqlite_share_snapshots.sql");
     initialized.close();
@@ -61,9 +61,9 @@ describe("Bun Server API", () => {
     expect(setup.response.status).toBe(409);
     expect(setup.body?.error.code).toBe("AUTH_MANAGED_BY_ENV");
 
-    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.LUMEN_PASSWORD }) });
+    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
     expect(login.response.status).toBe(200);
-    expect(login.cookie).toMatch(/^lumen_session=/);
+    expect(login.cookie).toMatch(/^xiangying_session=/);
 
     const unauthenticated = await request("/api/notes?view=all");
     expect(unauthenticated.response.status).toBe(401);
@@ -94,7 +94,7 @@ describe("Bun Server API", () => {
   });
 
   test("stores immutable SQLite snapshots and revokes or expires them", async () => {
-    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.LUMEN_PASSWORD }) });
+    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
     const created = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "Snapshot", contentMarkdown: "Original content" }) }, login.cookie);
     const note = created.body?.note;
 
@@ -131,20 +131,20 @@ describe("Bun Server API", () => {
     expect(wrong.response.status).toBe(401);
     expect(wrong.body?.error.code).toBe("INVALID_CREDENTIALS");
 
-    const unconfigured = { LUMEN_USERNAME: undefined, LUMEN_PASSWORD: undefined };
+    const unconfigured = { XIANGYING_USERNAME: undefined, XIANGYING_PASSWORD: undefined };
     const bootstrap = await request("/api/bootstrap", {}, undefined, unconfigured);
     expect(bootstrap.body?.configured).toBe(false);
-    const missing = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.LUMEN_PASSWORD }) }, undefined, unconfigured);
+    const missing = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) }, undefined, unconfigured);
     expect(missing.response.status).toBe(503);
     expect(missing.body?.error.code).toBe("AUTH_NOT_CONFIGURED");
   });
 
   test("automatically signs in with the development test account", async () => {
-    const devEnvironment = { ...environment, NODE_ENV: "development", LUMEN_DEV_AUTO_LOGIN: "true" };
+    const devEnvironment = { ...environment, NODE_ENV: "development", XIANGYING_DEV_AUTO_LOGIN: "true" };
     const bootstrap = await request("/api/bootstrap", {}, undefined, devEnvironment);
     expect(bootstrap.response.status).toBe(200);
     expect(bootstrap.body?.configured).toBe(true);
-    expect(bootstrap.cookie).toMatch(/^lumen_session=/);
+    expect(bootstrap.cookie).toMatch(/^xiangying_session=/);
 
     const me = await request("/api/me", {}, bootstrap.cookie, devEnvironment);
     expect(me.response.status).toBe(200);

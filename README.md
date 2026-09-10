@@ -86,9 +86,9 @@ Copy-Item .env.example .env
 编辑 `.env`：
 
 ```dotenv
-LUMEN_USERNAME=lumen
-LUMEN_PASSWORD=请替换为至少12位的本地密码
-DATABASE_PATH=./data/lumen-notes.sqlite
+XIANGYING_USERNAME=xiangying
+XIANGYING_PASSWORD=请替换为至少12位的本地密码
+DATABASE_PATH=./data/xiangying-notes.sqlite
 HOST=0.0.0.0
 PORT=3000
 COOKIE_SECURE=false
@@ -98,9 +98,9 @@ COOKIE_SECURE=false
 
 | 变量 | 必需 | 说明 |
 | --- | --- | --- |
-| `LUMEN_USERNAME` | 是 | 3–32 位字母、数字、下划线或短横线 |
-| `LUMEN_PASSWORD` | 是 | 12–128 个字符 |
-| `DATABASE_PATH` | 否 | SQLite 文件路径，默认 `./data/lumen-notes.sqlite` |
+| `XIANGYING_USERNAME` | 是 | 3–32 位字母、数字、下划线或短横线 |
+| `XIANGYING_PASSWORD` | 是 | 12–128 个字符 |
+| `DATABASE_PATH` | 否 | SQLite 文件路径，默认 `./data/xiangying-notes.sqlite` |
 | `HOST` | 否 | 服务监听地址，默认 `0.0.0.0` |
 | `PORT` | 否 | 服务端口，默认 `3000` |
 | `COOKIE_SECURE` | 否 | HTTPS 反向代理部署时设为 `true` |
@@ -220,7 +220,7 @@ bun run db:migrate
 数据库文件默认位于：
 
 ```text
-data/lumen-notes.sqlite
+data/xiangying-notes.sqlite
 ```
 
 SQLite WAL 可能同时产生 `-wal` 和 `-shm` 文件，它们也已被 Git 忽略。不要在服务器运行时直接复制主数据库文件作为备份；备份前先停止容器或使用 SQLite 支持的备份方式。
@@ -232,8 +232,8 @@ SQLite WAL 可能同时产生 `-wal` 和 `-shm` 文件，它们也已被 Git 忽
 在仓库根目录创建 `.env`：
 
 ```dotenv
-LUMEN_USERNAME=lumen
-LUMEN_PASSWORD=请替换为至少12位的生产密码
+XIANGYING_USERNAME=xiangying
+XIANGYING_PASSWORD=请替换为至少12位的生产密码
 COOKIE_SECURE=false
 ```
 
@@ -242,7 +242,7 @@ Docker 会覆盖以下默认值，不需要写入 `.env`：
 ```text
 HOST=0.0.0.0
 PORT=3000
-DATABASE_PATH=/data/lumen-notes.sqlite
+DATABASE_PATH=/data/xiangying-notes.sqlite
 ```
 
 如果前面有 HTTPS 反向代理并且浏览器通过 HTTPS 访问，将 `COOKIE_SECURE` 改为 `true`。
@@ -250,7 +250,7 @@ DATABASE_PATH=/data/lumen-notes.sqlite
 ### 2. 构建镜像
 
 ```bash
-docker build --pull -t lumen-notes:local .
+docker build --pull -t xiangying-notes:local .
 ```
 
 `--pull` 会检查最新的 `oven/bun:alpine` 基础镜像。Dockerfile 使用多阶段构建，最终镜像只包含 Bun Alpine、前端产物、服务端产物和迁移文件，不包含源代码、开发依赖、测试和密钥。
@@ -258,15 +258,15 @@ docker build --pull -t lumen-notes:local .
 ### 3. 启动容器
 
 ```bash
-docker volume create lumen-notes-data
+docker volume create xiangying-notes-data
 
 docker run -d \
-  --name lumen-notes \
+  --name xiangying-notes \
   --restart unless-stopped \
   -p 3000:3000 \
   --env-file .env \
-  -v lumen-notes-data:/data \
-  lumen-notes:local
+  -v xiangying-notes-data:/data \
+  xiangying-notes:local
 ```
 
 打开：
@@ -279,7 +279,7 @@ http://127.0.0.1:3000/app
 
 ```bash
 docker ps
-docker logs --tail=100 lumen-notes
+docker logs --tail=100 xiangying-notes
 curl http://127.0.0.1:3000/api/health
 ```
 
@@ -288,22 +288,22 @@ curl http://127.0.0.1:3000/api/health
 先构建新镜像，停止旧容器。如果本次版本新增了数据库迁移，则在同一个 volume 上显式执行迁移，再启动新容器：
 
 ```bash
-docker build --pull -t lumen-notes:local .
-docker stop lumen-notes
-docker rm lumen-notes
+docker build --pull -t xiangying-notes:local .
+docker stop xiangying-notes
+docker rm xiangying-notes
 # 仅当本次版本新增 migrations/*.sql 时执行
 docker run --rm \
   --env-file .env \
-  -v lumen-notes-data:/data \
-  lumen-notes:local \
+  -v xiangying-notes-data:/data \
+  xiangying-notes:local \
   bun dist/server/migrate.js
 docker run -d \
-  --name lumen-notes \
+  --name xiangying-notes \
   --restart unless-stopped \
   -p 3000:3000 \
   --env-file .env \
-  -v lumen-notes-data:/data \
-  lumen-notes:local
+  -v xiangying-notes-data:/data \
+  xiangying-notes:local
 ```
 
 SQLite 文件在 volume 中，容器替换不会删除笔记。
@@ -313,23 +313,23 @@ SQLite 文件在 volume 中，容器替换不会删除笔记。
 停止容器后备份 SQLite 文件：
 
 ```bash
-docker stop lumen-notes
-docker cp lumen-notes:/data/lumen-notes.sqlite ./lumen-notes-backup.sqlite
-docker start lumen-notes
+docker stop xiangying-notes
+docker cp xiangying-notes:/data/xiangying-notes.sqlite ./xiangying-notes-backup.sqlite
+docker start xiangying-notes
 ```
 
-回滚时使用之前的固定镜像 tag，并保持同一个 `lumen-notes-data` volume：
+回滚时使用之前的固定镜像 tag，并保持同一个 `xiangying-notes-data` volume：
 
 ```bash
-docker stop lumen-notes
-docker rm lumen-notes
+docker stop xiangying-notes
+docker rm xiangying-notes
 docker run -d \
-  --name lumen-notes \
+  --name xiangying-notes \
   --restart unless-stopped \
   -p 3000:3000 \
   --env-file .env \
-  -v lumen-notes-data:/data \
-  ghcr.io/biaobiaobiao108/lumen-notes:1.0.0
+  -v xiangying-notes-data:/data \
+  ghcr.io/biaobiaobiao108/xiangying-notes:1.0.0
 ```
 
 不要把数据库文件复制回 Git，也不要把生产 `.env` 放进镜像构建上下文。
@@ -366,15 +366,15 @@ latest
 拉取并运行 GHCR 镜像：
 
 ```bash
-docker pull ghcr.io/biaobiaobiao108/lumen-notes:latest
-docker volume create lumen-notes-data
+docker pull ghcr.io/biaobiaobiao108/xiangying-notes:latest
+docker volume create xiangying-notes-data
 docker run -d \
-  --name lumen-notes \
+  --name xiangying-notes \
   --restart unless-stopped \
   -p 3000:3000 \
   --env-file .env \
-  -v lumen-notes-data:/data \
-  ghcr.io/biaobiaobiao108/lumen-notes:latest
+  -v xiangying-notes-data:/data \
+  ghcr.io/biaobiaobiao108/xiangying-notes:latest
 ```
 
 如果 GHCR package 是私有的，先登录：
@@ -405,7 +405,7 @@ CI 会从干净仓库检查前端、Bun Server、SQLite 测试和 Dockerfile。
 
 ## API 速查
 
-所有私有 API 使用 HttpOnly、SameSite=Lax 的 `lumen_session` Cookie。分享读取接口不需要登录。
+所有私有 API 使用 HttpOnly、SameSite=Lax 的 `xiangying_session` Cookie。分享读取接口不需要登录。
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
@@ -470,7 +470,7 @@ CI 会从干净仓库检查前端、Bun Server、SQLite 测试和 Dockerfile。
 bun run typecheck
 bun test
 bun run build
-docker build --pull -t lumen-notes:check .
+docker build --pull -t xiangying-notes:check .
 ```
 
 运行后检查：

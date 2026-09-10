@@ -17,8 +17,8 @@
 
 - 生产运行时是 Bun Server，不再使用 Cloudflare Worker、D1、KV、Hono 或 Wrangler。
 - 服务端使用标准 `Request` / `Response` 和 `Bun.serve`，不得依赖其他运行时专属 API。
-- SQLite 默认路径为 `./data/lumen-notes.sqlite`，Docker 中为 `/data/lumen-notes.sqlite`，通过 volume 持久化。
-- 登录凭据只通过运行时环境变量 `LUMEN_USERNAME` 和 `LUMEN_PASSWORD` 注入，不写入代码、镜像或日志。
+- SQLite 默认路径为 `./data/xiangying-notes.sqlite`，Docker 中为 `/data/xiangying-notes.sqlite`，通过 volume 持久化。
+- 登录凭据只通过运行时环境变量 `XIANGYING_USERNAME` 和 `XIANGYING_PASSWORD` 注入，不写入代码、镜像或日志。
 - `COOKIE_SECURE` 仅在 HTTPS 反向代理场景设为 `true`；本地 HTTP 默认使用 `false`。
 
 ## 开发、功能和 Bug 修复流程
@@ -29,7 +29,7 @@
 bun run typecheck
 bun test
 bun run build
-docker build --pull -t lumen-notes:check .
+docker build --pull -t xiangying-notes:check .
 ```
 
 ## 提交规范

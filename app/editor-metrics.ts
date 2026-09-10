@@ -110,6 +110,6 @@ function slugifyHeading(title: string): string {
 export function buildOutlineItems(headings: OutlineHeading[]): OutlineItem[] {
   return headings.map((heading, index) => ({
     ...heading,
-    id: `lumen-heading-${index + 1}-${slugifyHeading(heading.title)}`,
+    id: `xiangying-heading-${index + 1}-${slugifyHeading(heading.title)}`,
   }));
 }

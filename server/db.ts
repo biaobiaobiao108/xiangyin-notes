@@ -2,7 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { Database } from "bun:sqlite";
 
-const DEFAULT_DATABASE_PATH = "./data/lumen-notes.sqlite";
+const DEFAULT_DATABASE_PATH = "./data/xiangying-notes.sqlite";
 const DEFAULT_MIGRATIONS_PATH = "./migrations";
 
 type MigrationRow = {

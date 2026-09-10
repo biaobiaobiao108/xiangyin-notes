@@ -2,7 +2,7 @@ import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { ShareSnapshot, Note, NoteSummary, Share } from "../shared/types";
 import { openDatabase, type SqliteDatabase } from "./db";
 
-const SESSION_COOKIE = "lumen_session";
+const SESSION_COOKIE = "xiangying_session";
 const SESSION_TTL = 60 * 60 * 24 * 30;
 const SHARE_TTL = 60 * 60 * 24 * 7;
 const PASSWORD_ITERATIONS = 100_000;
@@ -135,8 +135,8 @@ function validColor(value: unknown): value is string {
 }
 
 function getAuthCredentials(environment: RuntimeEnvironment): AuthCredentials | null {
-  if (!validUsername(environment.LUMEN_USERNAME) || !validPassword(environment.LUMEN_PASSWORD)) return null;
-  return { username: environment.LUMEN_USERNAME, password: environment.LUMEN_PASSWORD };
+  if (!validUsername(environment.XIANGYING_USERNAME) || !validPassword(environment.XIANGYING_PASSWORD)) return null;
+  return { username: environment.XIANGYING_USERNAME, password: environment.XIANGYING_PASSWORD };
 }
 
 function json(data: unknown, status = 200, headers?: HeadersInit) {
@@ -309,7 +309,7 @@ async function handleApi(request: Request, options: ServerOptions) {
 
   if (method === "GET" && url.pathname === "/api/bootstrap") {
     const credentials = getAuthCredentials(environment);
-    if (credentials && environment.NODE_ENV === "development" && environment.LUMEN_DEV_AUTO_LOGIN === "true" && !await getCurrentUser(database, environment, request)) {
+    if (credentials && environment.NODE_ENV === "development" && environment.XIANGYING_DEV_AUTO_LOGIN === "true" && !await getCurrentUser(database, environment, request)) {
       const user = await ensureEnvironmentUser(database, credentials);
       const session = createOpaqueToken();
       const createdAt = now();
@@ -324,14 +324,14 @@ async function handleApi(request: Request, options: ServerOptions) {
   if (method === "POST" && url.pathname === "/api/setup") {
     return getAuthCredentials(environment)
       ? jsonError(409, "AUTH_MANAGED_BY_ENV", "登录凭据由环境变量管理，无需网页初始化")
-      : jsonError(503, "AUTH_NOT_CONFIGURED", "请先配置 LUMEN_USERNAME 和 LUMEN_PASSWORD");
+      : jsonError(503, "AUTH_NOT_CONFIGURED", "请先配置 XIANGYING_USERNAME 和 XIANGYING_PASSWORD");
   }
 
   if (method === "POST" && url.pathname === "/api/auth/login") {
     const payload = await readJson<{ username?: unknown; password?: unknown }>(request);
     if (!payload || typeof payload.username !== "string" || typeof payload.password !== "string") return jsonError(400, "INVALID_LOGIN", "请输入用户名和密码");
     const credentials = getAuthCredentials(environment);
-    if (!credentials) return jsonError(503, "AUTH_NOT_CONFIGURED", "请先配置 LUMEN_USERNAME 和 LUMEN_PASSWORD");
+    if (!credentials) return jsonError(503, "AUTH_NOT_CONFIGURED", "请先配置 XIANGYING_USERNAME 和 XIANGYING_PASSWORD");
     if (!constantTimeEqual(payload.username, credentials.username) || !constantTimeEqual(payload.password, credentials.password)) return jsonError(401, "INVALID_CREDENTIALS", "用户名或密码不正确");
 
     const user = await ensureEnvironmentUser(database, credentials);

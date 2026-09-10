@@ -1,10 +1,10 @@
 const serverEnvironment: Record<string, string> = {
   ...Bun.env,
-  LUMEN_USERNAME: "dev",
-  LUMEN_PASSWORD: "lumen-dev-password-1234",
-  LUMEN_DEV_AUTO_LOGIN: "true",
+  XIANGYING_USERNAME: "dev",
+  XIANGYING_PASSWORD: "xiangying-dev-password-1234",
+  XIANGYING_DEV_AUTO_LOGIN: "true",
   NODE_ENV: "development",
-  DATABASE_PATH: Bun.env.DEV_DATABASE_PATH?.trim() || "./data/lumen-notes-dev.sqlite",
+  DATABASE_PATH: Bun.env.DEV_DATABASE_PATH?.trim() || "./data/xiangying-notes-dev.sqlite",
   COOKIE_SECURE: "false",
 };
 
