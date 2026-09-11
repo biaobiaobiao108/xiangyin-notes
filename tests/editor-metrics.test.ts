@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildOutlineItems, countEditorText, isMarkdownHeadingMarker, parseMarkdownHeadingPrefix, shouldParseMarkdownPaste } from "../app/editor-metrics";
+import { buildOutlineItems, countEditorText, isMarkdownHeadingMarker, parseMarkdownBlockShortcut, parseMarkdownHeadingPrefix, shouldParseMarkdownPaste } from "../app/editor-metrics";
 
 describe("editor metrics", () => {
   test("counts Chinese characters, word runs, emoji, and non-whitespace characters", () => {
@@ -39,6 +39,22 @@ describe("editor metrics", () => {
     expect(parseMarkdownHeadingPrefix("## ")).toEqual({ level: 2, length: 3 });
     expect(parseMarkdownHeadingPrefix("### title")).toEqual({ level: 3, length: 4 });
     expect(parseMarkdownHeadingPrefix("#title")).toBeNull();
+  });
+
+  test("parses all supported block-level Markdown shortcut prefixes", () => {
+    expect(parseMarkdownBlockShortcut("# ")).toEqual({ type: "heading", level: 1, length: 2 });
+    expect(parseMarkdownBlockShortcut("## ")).toEqual({ type: "heading", level: 2, length: 3 });
+    expect(parseMarkdownBlockShortcut("### ")).toEqual({ type: "heading", level: 3, length: 4 });
+    expect(parseMarkdownBlockShortcut("#### ")).toBeNull();
+    expect(parseMarkdownBlockShortcut("- ")).toEqual({ type: "bulletList", length: 2 });
+    expect(parseMarkdownBlockShortcut("* ")).toEqual({ type: "bulletList", length: 2 });
+    expect(parseMarkdownBlockShortcut("+ ")).toEqual({ type: "bulletList", length: 2 });
+    expect(parseMarkdownBlockShortcut("1. ")).toEqual({ type: "orderedList", length: 3 });
+    expect(parseMarkdownBlockShortcut("2. ")).toBeNull();
+    expect(parseMarkdownBlockShortcut("> ")).toEqual({ type: "blockquote", length: 2 });
+    expect(parseMarkdownBlockShortcut("[] ")).toEqual({ type: "taskList", length: 3 });
+    expect(parseMarkdownBlockShortcut("[ ] ")).toEqual({ type: "taskList", length: 4 });
+    expect(parseMarkdownBlockShortcut("普通段落 ")).toBeNull();
   });
 
   test("detects Markdown clipboard text without overriding ordinary rich text", () => {

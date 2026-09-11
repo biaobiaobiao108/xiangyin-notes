@@ -24,6 +24,37 @@ export function parseMarkdownHeadingPrefix(text: string): { level: MarkdownHeadi
   return { level: match[1].length as MarkdownHeadingLevel, length: match[0].length };
 }
 
+export type MarkdownBlockShortcut =
+  | { type: "heading"; level: MarkdownHeadingLevel; length: number }
+  | { type: "bulletList"; length: number }
+  | { type: "orderedList"; length: number }
+  | { type: "blockquote"; length: number }
+  | { type: "taskList"; length: number };
+
+export function parseMarkdownBlockShortcut(text: string): MarkdownBlockShortcut | null {
+  const headingMatch = /^(#{1,3})\s/u.exec(text);
+  if (headingMatch) {
+    return { type: "heading", level: headingMatch[1].length as MarkdownHeadingLevel, length: headingMatch[0].length };
+  }
+  const taskMatch = /^\[(?: |)\]\s/u.exec(text);
+  if (taskMatch) {
+    return { type: "taskList", length: taskMatch[0].length };
+  }
+  const bulletMatch = /^[-+*]\s/u.exec(text);
+  if (bulletMatch) {
+    return { type: "bulletList", length: bulletMatch[0].length };
+  }
+  const orderedMatch = /^1\.\s/u.exec(text);
+  if (orderedMatch) {
+    return { type: "orderedList", length: orderedMatch[0].length };
+  }
+  const quoteMatch = /^>\s/u.exec(text);
+  if (quoteMatch) {
+    return { type: "blockquote", length: quoteMatch[0].length };
+  }
+  return null;
+}
+
 const MARKDOWN_PASTE_RE = /(?:^|\n)\s{0,3}(?:#{1,3}\s|[-+*]\s|\d+[.)]\s|>\s|```|~~~|-{3,}\s*$)|(?:\*\*[^*\n]+\*\*|__[^_\n]+__|~~[^~\n]+~~|`[^`\n]+`|\[[^\]\n]+\]\([^\)\n]+\))/u;
 
 export function shouldParseMarkdownPaste(text: string, hasHtml: boolean): boolean {

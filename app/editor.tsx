@@ -7,10 +7,11 @@ import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
+import { findWrapping } from "@tiptap/pm/transform";
 import { ChevronLeft, Link2, ListTree, Maximize2, Minimize2, Minus, Trash2, Undo2 } from "lucide-react";
 import type { Note } from "../shared/types";
 import { BrandMark } from "./brand-mark";
-import { buildOutlineItems, countEditorText, isMarkdownHeadingMarker, parseMarkdownHeadingPrefix, shouldParseMarkdownPaste, type EditorStats, type OutlineItem } from "./editor-metrics";
+import { buildOutlineItems, countEditorText, parseMarkdownBlockShortcut, shouldParseMarkdownPaste, type EditorStats, type MarkdownBlockShortcut, type OutlineItem } from "./editor-metrics";
 import { FloatingScrollbar } from "./floating-scrollbar";
 
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
@@ -42,8 +43,6 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
   const headingElementsRef = useRef(new Map<string, HTMLElement>());
   const syncFrameRef = useRef<number | null>(null);
   const composingRef = useRef(false);
-  const pendingHeadingRef = useRef(false);
-  const headingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeEditorNoteIdRef = useRef(note.id);
   const initialContentRef = useRef(note.contentMarkdown);
   const onChangeRef = useRef(onChange);
@@ -87,29 +86,61 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
     });
   };
 
-  const clearHeadingTimer = () => {
-    if (headingTimerRef.current !== null) clearTimeout(headingTimerRef.current);
-    headingTimerRef.current = null;
-  };
-  const convertPendingHeading = (view: Editor["view"]) => {
-    const { $from } = view.state.selection;
-    if ($from.parent.type.name !== "paragraph") return;
-    const textBefore = $from.parent.textBetween(0, $from.parentOffset, undefined, "\uFFFC");
-    const prefix = parseMarkdownHeadingPrefix(textBefore);
-    const heading = view.state.schema.nodes.heading;
-    if (!prefix || !heading) return;
+  const executeBlockShortcut = (view: Editor["view"], from: number, shortcut: MarkdownBlockShortcut): boolean => {
+    const $from = view.state.doc.resolve(from);
     const start = $from.start();
-    const end = start + prefix.length;
-    view.dispatch(view.state.tr.delete(start, end).setBlockType(start, start, heading, { level: prefix.level }));
-  };
-  const scheduleHeadingConversion = (view: Editor["view"], delay = 450) => {
-    clearHeadingTimer();
-    headingTimerRef.current = setTimeout(() => {
-      headingTimerRef.current = null;
-      if (composingRef.current || view.composing) return;
-      pendingHeadingRef.current = false;
-      convertPendingHeading(view);
-    }, delay);
+    const end = from;
+    const tr = view.state.tr.delete(start, end);
+
+    if (shortcut.type === "heading") {
+      const headingNode = view.state.schema.nodes.heading;
+      if (!headingNode) return false;
+      tr.setBlockType(start, start, headingNode, { level: shortcut.level });
+      view.dispatch(tr.scrollIntoView());
+      return true;
+    }
+
+    if (shortcut.type === "blockquote") {
+      const blockquoteNode = view.state.schema.nodes.blockquote;
+      const range = tr.doc.resolve(start).blockRange();
+      if (!blockquoteNode || !range) return false;
+      const wrapping = findWrapping(range, blockquoteNode);
+      if (!wrapping) return false;
+      view.dispatch(tr.wrap(range, wrapping).scrollIntoView());
+      return true;
+    }
+
+    if (shortcut.type === "bulletList") {
+      const bulletListNode = view.state.schema.nodes.bulletList;
+      const range = tr.doc.resolve(start).blockRange();
+      if (!bulletListNode || !range) return false;
+      const wrapping = findWrapping(range, bulletListNode);
+      if (!wrapping) return false;
+      view.dispatch(tr.wrap(range, wrapping).scrollIntoView());
+      return true;
+    }
+
+    if (shortcut.type === "orderedList") {
+      const orderedListNode = view.state.schema.nodes.orderedList;
+      const range = tr.doc.resolve(start).blockRange();
+      if (!orderedListNode || !range) return false;
+      const wrapping = findWrapping(range, orderedListNode);
+      if (!wrapping) return false;
+      view.dispatch(tr.wrap(range, wrapping).scrollIntoView());
+      return true;
+    }
+
+    if (shortcut.type === "taskList") {
+      const taskListNode = view.state.schema.nodes.taskList;
+      const range = tr.doc.resolve(start).blockRange();
+      if (!taskListNode || !range) return false;
+      const wrapping = findWrapping(range, taskListNode);
+      if (!wrapping) return false;
+      view.dispatch(tr.wrap(range, wrapping).scrollIntoView());
+      return true;
+    }
+
+    return false;
   };
 
   const extensions = useMemo(() => [
@@ -149,12 +180,8 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
       }
     },
     handleKeyDown: (_view: Editor["view"], event: KeyboardEvent) => {
-      if (!pendingHeadingRef.current) return false;
-      // Chromium reports the first key from many Windows IMEs as 229
-      // before compositionstart reaches the editor.
       if (event.isComposing || event.keyCode === 229) {
         composingRef.current = true;
-        clearHeadingTimer();
       }
       return false;
     },
@@ -163,26 +190,21 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
       const $from = view.state.doc.resolve(from);
       if ($from.parent.type.name !== "paragraph") return false;
       const textBefore = $from.parent.textBetween(0, $from.parentOffset, undefined, "\uFFFC");
-      if (!isMarkdownHeadingMarker(textBefore)) return false;
-      view.dispatch(view.state.tr.insertText(text, from, to));
-      pendingHeadingRef.current = true;
-      scheduleHeadingConversion(view);
-      return true;
+      const shortcut = parseMarkdownBlockShortcut(`${textBefore} `);
+      if (!shortcut) return false;
+      return executeBlockShortcut(view, from, shortcut);
     },
     handleDOMEvents: {
       compositionstart: () => {
         composingRef.current = true;
-        clearHeadingTimer();
         return false;
       },
-      compositionend: (view: Editor["view"]) => {
+      compositionend: () => {
         composingRef.current = false;
-        if (pendingHeadingRef.current) scheduleHeadingConversion(view, 0);
         return false;
       },
-      compositioncancel: (view: Editor["view"]) => {
+      compositioncancel: () => {
         composingRef.current = false;
-        if (pendingHeadingRef.current) scheduleHeadingConversion(view, 0);
         return false;
       },
     },
@@ -214,8 +236,6 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
     return () => {
       if (syncFrameRef.current !== null) cancelAnimationFrame(syncFrameRef.current);
       syncFrameRef.current = null;
-      clearHeadingTimer();
-      pendingHeadingRef.current = false;
       composingRef.current = false;
       headingElementsRef.current.clear();
     };
@@ -233,8 +253,6 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
     if (!switchedNote && appliedReloadTokenRef.current === reloadToken) return;
     appliedReloadTokenRef.current = reloadToken;
     activeEditorNoteIdRef.current = note.id;
-    clearHeadingTimer();
-    pendingHeadingRef.current = false;
     composingRef.current = false;
     headingElementsRef.current.clear();
     setOutlineOpen(false);
@@ -425,9 +443,14 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
           </div>
           {outlineItems.length > 0 ? <nav aria-label="笔记标题">
             <ol className="editor-outline-list">
-              {outlineItems.map((item) => <li className={`editor-outline-item editor-outline-item--level-${item.level}`} key={item.id}>
-                <button type="button" aria-current={activeOutlineId === item.id ? "true" : undefined} onClick={() => scrollToOutlineItem(item.id)}>{item.title}</button>
-              </li>)}
+              {outlineItems.map((item) => (
+                <li className={`editor-outline-item editor-outline-item--level-${item.level}`} key={item.id}>
+                  <button type="button" aria-current={activeOutlineId === item.id ? "true" : undefined} onClick={() => scrollToOutlineItem(item.id)}>
+                    <span className="outline-level-tag" aria-hidden="true">{`H${item.level}`}</span>
+                    <span className="outline-item-title">{item.title}</span>
+                  </button>
+                </li>
+              ))}
             </ol>
           </nav> : <p className="editor-outline-empty">用 <code>#</code> 标题为这篇笔记建立大纲。</p>}
         </aside>
