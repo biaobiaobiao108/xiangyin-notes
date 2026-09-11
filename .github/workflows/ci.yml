@@ -25,11 +25,11 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
-      - name: Test
-        run: bun test
-
       - name: Build application
         run: bun run build
+
+      - name: Test
+        run: bun test
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
