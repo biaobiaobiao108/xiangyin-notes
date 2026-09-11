@@ -49,6 +49,14 @@ docker build --pull -t xiangying-notes:check .
 - 编辑器涉及中文输入法时必须考虑 `compositionstart`、`compositionend`、`compositioncancel`、`event.isComposing` 和 Chromium/Windows 常见的 `keyCode === 229`。
 - 修改布局后检查桌面、平板和窄屏手机，不要让浮层遮挡编辑内容或产生横向溢出。
 
+## 内存与性能要求
+
+- 编辑器正文由 Tiptap 内部状态维护；不要在每次输入时把完整 Markdown 复制到多个 React state、历史快照或缓存。每篇笔记的保存队列只保留一份最新草稿，保存成功后立即释放。
+- Tiptap 扩展、编辑器配置和重型模块应稳定化或按需加载；切换、重新载入和卸载时清理定时器、动画帧、DOM 引用与编辑器实例，避免 detached DOM。
+- 统计、预览等处理应尽量单次遍历并限制中间字符串、数组的大小；服务端列表逐行处理正文，只返回摘要，预览生成有界，避免一次性保留多篇完整正文。
+- 保持现有列表数量上限和交互语义，不以自动丢弃未保存草稿、长期客户端缓存或多编辑器驻留换取内存下降；新增缓存必须有明确上限和释放条件。
+- 优化须用长正文、多篇笔记和频繁切换场景验证内存峰值、活动编辑器数量及 detached DOM，并运行类型检查、测试和构建。
+
 ## 后端与数据要求
 
 - SQLite 查询一律使用 prepared statements，不拼接用户输入。
