@@ -44,6 +44,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   onToggleFocusMode?: () => void;
 }) {
   const editorScrollRef = useRef<HTMLDivElement>(null);
+  const documentRef = useRef<HTMLDivElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const editorInstanceRef = useRef<Editor | null>(null);
   const floatingToolsRef = useRef<HTMLDivElement>(null);
@@ -61,6 +62,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   const [outlineItems, setOutlineItems] = useState<OutlineItem[]>([]);
   const [activeOutlineId, setActiveOutlineId] = useState<string | null>(null);
   const [outlineOpen, setOutlineOpen] = useState(false);
+  const [deferredLoading, setDeferredLoading] = useState(false);
   const [searchNavigation, setSearchNavigation] = useState({ activeIndex: 0, matchCount: 0 });
   const searchQueryRef = useRef(searchQuery);
   const searchNavigationRef = useRef(searchNavigation);
@@ -378,9 +380,20 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   }, [editor]);
 
   useEffect(() => {
+    if (!isLoading) {
+      setDeferredLoading(false);
+      return;
+    }
+    const timer = setTimeout(() => {
+      setDeferredLoading(true);
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [isLoading]);
+
+  useEffect(() => {
     if (!editor) return;
-    editor.setEditable(!note.deletedAt && !isLoading, false);
-  }, [editor, isLoading, note.deletedAt]);
+    editor.setEditable(!note.deletedAt && !deferredLoading, false);
+  }, [deferredLoading, editor, note.deletedAt]);
 
   const appliedReloadTokenRef = useRef(reloadToken);
   useEffect(() => {
@@ -400,6 +413,14 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     setEditorStats(countEditorText(""));
     editor.commands.setContent(note.contentMarkdown, { contentType: "markdown", emitUpdate: false });
     editorScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
+    if (switchedNote) {
+      const doc = documentRef.current;
+      if (doc) {
+        doc.classList.remove("editor-document--entering");
+        void doc.offsetWidth;
+        doc.classList.add("editor-document--entering");
+      }
+    }
     scheduleEditorSurfaceSync(editor);
   }, [editor, note.id, reloadToken]);
 
@@ -539,10 +560,10 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
 
   const saveLabel = saveState === "saving" ? "保存中" : saveState === "local" ? "已保存到本机" : "已保存";
   return (
-    <section className={`editor-panel ${isLoading ? "is-loading" : ""} ${focusMode ? "is-focus-mode" : ""}`} aria-label="笔记编辑器" aria-busy={isLoading} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === "s") { event.preventDefault(); onSaveNow(); } }}>
+    <section className={`editor-panel ${deferredLoading ? "is-loading" : ""} ${focusMode ? "is-focus-mode" : ""}`} aria-label="笔记编辑器" aria-busy={deferredLoading} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === "s") { event.preventDefault(); onSaveNow(); } }}>
       <header className="editor-header">
         <div className="editor-header-start">
-          {onOpenList && <button className="icon-button mobile-only editor-back" type="button" aria-label="返回笔记列表" onClick={onOpenList} disabled={isLoading}><ChevronLeft size={20} /></button>}
+          {onOpenList && <button className="icon-button mobile-only editor-back" type="button" aria-label="返回笔记列表" onClick={onOpenList} disabled={deferredLoading}><ChevronLeft size={20} /></button>}
           <div className="editor-meta" aria-label={`最后编辑于${relativeDate(note.updatedAt)}，${editorStats.wordCount} 字`}>
             <span>最后编辑于 {relativeDate(note.updatedAt)}</span>
             <span aria-hidden="true">·</span>
@@ -567,17 +588,17 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
               aria-label={focusMode ? "退出沉浸模式" : "沉浸编辑模式"}
               title={focusMode ? "退出沉浸模式 (Esc 或 ⌘/Ctrl+Shift+F)" : "沉浸编辑模式 (⌘/Ctrl+Shift+F)"}
               onClick={onToggleFocusMode}
-              disabled={isLoading}
+              disabled={deferredLoading}
             >
               {focusMode ? <Minimize2 size={18} strokeWidth={1.8} /> : <Maximize2 size={18} strokeWidth={1.8} />}
             </button>
           )}
-          <button className={`icon-button ${note.isFavorite ? "is-active" : ""}`} type="button" aria-label={note.isFavorite ? "取消收藏" : "收藏笔记"} title={note.isFavorite ? "取消收藏" : "收藏笔记"} onClick={onToggleFavorite} disabled={isLoading}><span className="star-glyph">★</span></button>
-          <button className="icon-button" type="button" aria-label="分享笔记" title="分享笔记" onClick={onShare} disabled={isLoading}><Link2 size={18} strokeWidth={1.8} /></button>
+          <button className={`icon-button ${note.isFavorite ? "is-active" : ""}`} type="button" aria-label={note.isFavorite ? "取消收藏" : "收藏笔记"} title={note.isFavorite ? "取消收藏" : "收藏笔记"} onClick={onToggleFavorite} disabled={deferredLoading}><span className="star-glyph">★</span></button>
+          <button className="icon-button" type="button" aria-label="分享笔记" title="分享笔记" onClick={onShare} disabled={deferredLoading}><Link2 size={18} strokeWidth={1.8} /></button>
           {note.deletedAt ? <>
-            <button className="icon-button" type="button" aria-label="恢复笔记" title="恢复笔记" onClick={onRestore} disabled={isLoading || trashBusy}><Undo2 size={18} strokeWidth={1.8} /></button>
-            {onPermanentDelete && <button className="icon-button danger-button" type="button" aria-label="彻底删除" title="彻底删除" onClick={onPermanentDelete} disabled={isLoading || trashBusy}><Trash2 size={18} strokeWidth={1.8} /></button>}
-          </> : <button className="icon-button" type="button" aria-label="移入回收站" title="移入回收站" onClick={onMoveToTrash} disabled={isLoading || trashBusy}><Minus size={18} strokeWidth={1.8} className="trash-mark" /></button>}
+            <button className="icon-button" type="button" aria-label="恢复笔记" title="恢复笔记" onClick={onRestore} disabled={deferredLoading || trashBusy}><Undo2 size={18} strokeWidth={1.8} /></button>
+            {onPermanentDelete && <button className="icon-button danger-button" type="button" aria-label="彻底删除" title="彻底删除" onClick={onPermanentDelete} disabled={deferredLoading || trashBusy}><Trash2 size={18} strokeWidth={1.8} /></button>}
+          </> : <button className="icon-button" type="button" aria-label="移入回收站" title="移入回收站" onClick={onMoveToTrash} disabled={deferredLoading || trashBusy}><Minus size={18} strokeWidth={1.8} className="trash-mark" /></button>}
         </div>
       </header>
       {focusMode && onToggleFocusMode && (
@@ -594,11 +615,11 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       )}
       <div className="editor-scroll-shell">
         <div id="editor-scroll-region" className="editor-scroll floating-scrollbar-target" ref={editorScrollRef}>
-          <div className="editor-document">
+          <div className="editor-document" ref={documentRef} onAnimationEnd={() => documentRef.current?.classList.remove("editor-document--entering")}>
             {note.deletedAt && (
               <div className="trashed-banner" role="status">
                 <span>此笔记已在回收站中，恢复后可继续编辑。</span>
-                <button className="text-button" type="button" onClick={onRestore} disabled={isLoading || trashBusy}>立即恢复</button>
+                <button className="text-button" type="button" onClick={onRestore} disabled={deferredLoading || trashBusy}>立即恢复</button>
               </div>
             )}
             <input
@@ -606,7 +627,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
               className="note-title-input"
               value={note.title}
               maxLength={200}
-              readOnly={Boolean(note.deletedAt) || isLoading}
+              readOnly={Boolean(note.deletedAt) || deferredLoading}
               onChange={(event) => onChange({ title: event.target.value })}
               onBlur={() => { const trimmed = note.title.trim(); if (trimmed !== note.title) onChange({ title: trimmed }); }}
               onKeyDown={(event) => {
@@ -623,7 +644,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
         </div>
         <FloatingScrollbar scrollTargetRef={editorScrollRef} controlsId="editor-scroll-region" ariaLabel="编辑器滚动条" placement="right" />
       </div>
-      {isLoading && <div className="editor-switch-overlay" role="status" aria-live="polite"><div className="editor-switch-card"><BrandMark className="editor-switch-mark" /><div className="editor-switch-lines" aria-hidden="true"><span /><span /><span /></div><strong>正在打开笔记…</strong></div></div>}
+      {deferredLoading && <div className="editor-switch-overlay editor-switch-overlay--visible" role="status" aria-live="polite"><div className="editor-switch-card"><BrandMark className="editor-switch-mark" /><div className="editor-switch-lines" aria-hidden="true"><span /><span /><span /></div><strong>正在打开笔记…</strong></div></div>}
       <div className="editor-floating-tools" ref={floatingToolsRef}>
         <aside className="editor-outline" id="note-outline" aria-label="笔记大纲" hidden={!outlineOpen}>
           <div className="editor-outline-heading">
@@ -648,16 +669,16 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
         </aside>
         <div className="editor-floating-row">
           {searchNavigation.matchCount > 0 && <div className="editor-search-nav" role="group" aria-label={`正文搜索结果，第 ${searchNavigation.activeIndex + 1} 个，共 ${searchNavigation.matchCount} 个`}>
-            <button className="editor-search-nav-button" type="button" aria-label="上一个搜索匹配" title="上一个搜索匹配 (Shift+F3)" onClick={() => moveSearchMatch(-1)} disabled={isLoading || searchNavigation.matchCount < 2}><ChevronUp size={16} strokeWidth={2} /></button>
+            <button className="editor-search-nav-button" type="button" aria-label="上一个搜索匹配" title="上一个搜索匹配 (Shift+F3)" onClick={() => moveSearchMatch(-1)} disabled={deferredLoading || searchNavigation.matchCount < 2}><ChevronUp size={16} strokeWidth={2} /></button>
             <span className="editor-search-nav-count" aria-live="polite">{searchNavigation.activeIndex + 1} / {searchNavigation.matchCount}</span>
-            <button className="editor-search-nav-button" type="button" aria-label="下一个搜索匹配" title="下一个搜索匹配 (F3)" onClick={() => moveSearchMatch(1)} disabled={isLoading || searchNavigation.matchCount < 2}><ChevronDown size={16} strokeWidth={2} /></button>
+            <button className="editor-search-nav-button" type="button" aria-label="下一个搜索匹配" title="下一个搜索匹配 (F3)" onClick={() => moveSearchMatch(1)} disabled={deferredLoading || searchNavigation.matchCount < 2}><ChevronDown size={16} strokeWidth={2} /></button>
           </div>}
           <div className="editor-stats-pill" aria-label={`字数 ${editorStats.wordCount}，字符数 ${editorStats.characterCount}`}>
             <span className="editor-stat"><strong>{editorStats.wordCount}</strong><span>字数</span></span>
             <span className="editor-stat-divider" aria-hidden="true">·</span>
             <span className="editor-stat"><strong>{editorStats.characterCount}</strong><span>字符</span></span>
           </div>
-          <button className={`outline-trigger ${outlineOpen ? "is-active" : ""}`} ref={outlineTriggerRef} type="button" aria-expanded={outlineOpen} aria-controls="note-outline" aria-label={outlineOpen ? "关闭笔记大纲" : "打开笔记大纲"} onClick={() => setOutlineOpen((open) => !open)} disabled={isLoading}>
+          <button className={`outline-trigger ${outlineOpen ? "is-active" : ""}`} ref={outlineTriggerRef} type="button" aria-expanded={outlineOpen} aria-controls="note-outline" aria-label={outlineOpen ? "关闭笔记大纲" : "打开笔记大纲"} onClick={() => setOutlineOpen((open) => !open)} disabled={deferredLoading}>
             <ListTree size={16} strokeWidth={1.9} />
             <span>大纲</span>
           </button>
