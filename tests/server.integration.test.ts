@@ -132,6 +132,7 @@ describe("Bun Server API", () => {
     expect(list.response.status).toBe(200);
     expect(list.body?.notes).toHaveLength(100);
     expect(list.body?.total).toBe(106);
+    expect(list.body?.notes[0]).not.toHaveProperty("contentMarkdown");
   });
 
   test("empties all owned trash beyond the list limit without deleting active or other users' notes", async () => {

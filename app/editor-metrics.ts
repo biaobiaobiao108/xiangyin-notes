@@ -52,49 +52,45 @@ const EMOJI_RE = /\p{Extended_Pictographic}/u;
 const IntlSegmenter = (Intl as unknown as { Segmenter?: SegmenterConstructor }).Segmenter;
 const graphemeSegmenter = IntlSegmenter ? new IntlSegmenter(undefined, { granularity: "grapheme" }) : null;
 
-function graphemes(text: string): string[] {
-  return graphemeSegmenter ? Array.from(graphemeSegmenter.segment(text), ({ segment }) => segment) : Array.from(text);
-}
-
-function countWords(text: string): number {
-  let count = 0;
+export function countEditorText(text: string): EditorStats {
+  let wordCount = 0;
+  let characterCount = 0;
   let hasWordRun = false;
 
   const flushWordRun = () => {
-    if (hasWordRun) count += 1;
+    if (hasWordRun) wordCount += 1;
     hasWordRun = false;
   };
 
-  for (const grapheme of graphemes(text)) {
+  const visit = (grapheme: string) => {
     if (/\s/u.test(grapheme)) {
       flushWordRun();
-      continue;
+      return;
     }
 
+    characterCount += 1;
     if (HAN_RE.test(grapheme) || EMOJI_RE.test(grapheme)) {
       flushWordRun();
-      count += 1;
-      continue;
+      wordCount += 1;
+      return;
     }
 
     if (LETTER_OR_NUMBER_RE.test(grapheme)) {
       hasWordRun = true;
-      continue;
+      return;
     }
 
     flushWordRun();
-  }
-
-  flushWordRun();
-  return count;
-}
-
-export function countEditorText(text: string): EditorStats {
-  const textGraphemes = graphemes(text);
-  return {
-    wordCount: countWords(text),
-    characterCount: textGraphemes.filter((grapheme) => !/\s/u.test(grapheme)).length,
   };
+
+  if (graphemeSegmenter) {
+    for (const { segment } of graphemeSegmenter.segment(text)) visit(segment);
+  } else {
+    for (const grapheme of text) visit(grapheme);
+  }
+  flushWordRun();
+
+  return { wordCount, characterCount };
 }
 
 function slugifyHeading(title: string): string {

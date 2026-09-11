@@ -14,6 +14,10 @@ describe("editor metrics", () => {
     expect(countEditorText("标题\n正文内容")).toEqual({ wordCount: 6, characterCount: 6 });
   });
 
+  test("counts long text without changing the result", () => {
+    expect(countEditorText("a".repeat(100_000))).toEqual({ wordCount: 1, characterCount: 100_000 });
+  });
+
   test("builds a hierarchical outline with unique ids", () => {
     const items = buildOutlineItems([
       { level: 1, title: "开始" },

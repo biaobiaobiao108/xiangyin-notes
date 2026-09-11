@@ -24,6 +24,11 @@ describe("markdown and search helpers", () => {
     expect(formatPreview("# Heading\n\nA **quiet** note with `code`.")) .toBe("Heading A quiet note with code.");
   });
 
+  test("keeps preview work bounded for long markdown bodies", () => {
+    expect(formatPreview(`${"x".repeat(1_000_000)} tail`)).toBe("x".repeat(180));
+    expect(formatPreview(`before\n\n\`\`\`ts\n${"code ".repeat(100_000)}\n\`\`\`\nafter`)).toBe("before after");
+  });
+
   test("quotes search terms for FTS", () => {
     expect(buildFtsQuery("quiet thinking")).toBe('"quiet" AND "thinking"');
   });

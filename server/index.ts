@@ -7,6 +7,8 @@ const SESSION_TTL = 60 * 60 * 24 * 30;
 const SHARE_TTL = 60 * 60 * 24 * 7;
 const PASSWORD_ITERATIONS = 100_000;
 const NOTE_PAGE_SIZE = 100;
+const NOTE_PREVIEW_LIMIT = 180;
+const NOTE_PREVIEW_SCAN_LIMIT = NOTE_PREVIEW_LIMIT + 64;
 const NOTE_VIEWS: NoteView[] = ["all", "inbox", "favorites", "shared", "trash"];
 const DEFAULT_CLIENT_ROOT = "./dist/client";
 const encoder = new TextEncoder();
@@ -56,6 +58,7 @@ type AuthCredentials = {
 };
 
 const welcomeMarkdown = "## 欢迎来到象映笔记\n\n这是你的第一个笔记。按下 **Ctrl /** 可以打开命令菜单，开始记录你的想法。\n\n- 写下值得保留的东西\n- 用笔记本整理上下文\n- 随时生成一个 7 天有效的只读分享\n";
+const PREVIEW_SYNTAX = new Set(["#", ">", "*", "_", "`", "~", "-", "[", "]", "(", ")"]);
 
 function now() {
   return Math.floor(Date.now() / 1000);
@@ -197,13 +200,39 @@ function toFullNote(row: NoteRow): Note {
 }
 
 export function formatPreview(markdown: string) {
-  return markdown
-    .replace(/```[\s\S]*?```/g, " ")
-    .replace(/[#>*_`~\-[\]()]/g, " ")
-    .replace(/\s+/g, " ")
+  const output: string[] = [];
+  let outputLength = 0;
+  let pendingWhitespace = false;
+
+  for (let index = 0; index < markdown.length && outputLength < NOTE_PREVIEW_SCAN_LIMIT; index += 1) {
+    if (markdown.startsWith("```", index)) {
+      const closingFence = markdown.indexOf("```", index + 3);
+      if (closingFence !== -1) {
+        index = closingFence + 2;
+        pendingWhitespace = true;
+        continue;
+      }
+    }
+
+    const character = markdown[index];
+    if (/\s/u.test(character) || PREVIEW_SYNTAX.has(character)) {
+      pendingWhitespace = true;
+      continue;
+    }
+
+    if (pendingWhitespace && output.length > 0) {
+      output.push(" ");
+      outputLength += 1;
+    }
+    output.push(character);
+    outputLength += character.length;
+    pendingWhitespace = false;
+  }
+
+  return output.join("")
     .trim()
     .replace(/\s+([,.;!?。！？、，；：])/g, "$1")
-    .slice(0, 180);
+    .slice(0, NOTE_PREVIEW_LIMIT);
 }
 
 export function buildFtsQuery(query: string) {
@@ -417,12 +446,14 @@ async function handleApi(request: Request, options: ServerOptions) {
     }
     const where = conditions.join(" AND ");
     const totalRow = first<{ count: number }>(database, `SELECT COUNT(*) AS count FROM ${from} WHERE ${where}`, ...params);
-    const rows = all<NoteRow>(database, `
+    const listStatement = database.query(`
       SELECT n.id, n.title, n.content_markdown, n.notebook_id, b.name AS notebook_name,
         b.color AS notebook_color, n.is_favorite, n.deleted_at, n.version, n.created_at, n.updated_at
       FROM ${from} WHERE ${where} ORDER BY n.updated_at DESC LIMIT ${NOTE_PAGE_SIZE}
-    `, ...params);
-    return json({ notes: rows.map(toNote), total: Number(totalRow?.count ?? 0) });
+    `);
+    const notes: NoteSummary[] = [];
+    for (const row of listStatement.iterate(...params) as Iterable<NoteRow>) notes.push(toNote(row));
+    return json({ notes, total: Number(totalRow?.count ?? 0) });
   }
 
   if (resource === "notes" && !id && method === "POST") {

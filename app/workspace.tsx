@@ -1,11 +1,10 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Archive, ChevronDown, ChevronLeft, FileText, Folder, Inbox, LayoutPanelLeft, Link2, LogOut, Menu, Pencil, Plus, RefreshCw, Search, Share2, Star, Trash2, UsersRound, X } from "lucide-react";
 import { useNavigate } from "react-router";
 import { ApiError, api } from "./api";
 import { CommandId, CommandMenu } from "./command-menu";
 import type { CreateNoteCommand } from "./command-parser";
 import { BrandMark } from "./brand-mark";
-import { NoteEditor, NoteLoadingState } from "./editor";
 import { FloatingScrollbar } from "./floating-scrollbar";
 import { modKey } from "./platform";
 import type { Note, NoteSummary, NoteView, Notebook, Share } from "../shared/types";
@@ -20,7 +19,23 @@ const navItems: Array<{ id: NoteView; label: string; icon: typeof Inbox }> = [
 
 const notebookColorOptions = ["#d96245", "#718077", "#5b7899", "#9c765f", "#aa6f8e", "#8b7c54", "#6b72a8", "#6f7d83"];
 
-function noteSavePayload(draft: Note) {
+const LazyNoteEditor = lazy(() => import("./editor").then(({ NoteEditor }) => ({ default: NoteEditor })));
+
+type NoteDraft = Pick<Note, "id" | "version" | "title" | "contentMarkdown" | "notebookId" | "isFavorite" | "deletedAt">;
+
+function toNoteDraft(note: Note | NoteDraft): NoteDraft {
+  return {
+    id: note.id,
+    version: note.version,
+    title: note.title,
+    contentMarkdown: note.contentMarkdown,
+    notebookId: note.notebookId,
+    isFavorite: note.isFavorite,
+    deletedAt: note.deletedAt,
+  };
+}
+
+function noteSavePayload(draft: NoteDraft) {
   return { version: draft.version, title: draft.title, contentMarkdown: draft.contentMarkdown, notebookId: draft.notebookId, isFavorite: draft.isFavorite, deleted: Boolean(draft.deletedAt) };
 }
 
@@ -87,6 +102,10 @@ function ConfirmDialog({ request, onClose }: { request: ConfirmRequest; onClose:
   </dialog>;
 }
 
+function NoteLoadingState() {
+  return <section className="editor-panel editor-loading-shell" aria-label="笔记编辑器" aria-busy="true"><div className="editor-switch-overlay editor-switch-overlay--visible" role="status" aria-live="polite"><div className="editor-switch-card"><BrandMark className="editor-switch-mark" /><div className="editor-switch-lines" aria-hidden="true"><span /><span /><span /></div><strong>正在打开笔记…</strong></div></div></section>;
+}
+
 export function Workspace() {
   const navigate = useNavigate();
   const [view, setView] = useState<NoteView>("all");
@@ -116,7 +135,7 @@ export function Workspace() {
   const activeNoteIdRef = useRef<string | null>(null);
   const noteLoadRequestRef = useRef(0);
   const saveTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
-  const pendingSavesRef = useRef(new Map<string, Note>());
+  const pendingSavesRef = useRef(new Map<string, NoteDraft>());
   const inFlightSavesRef = useRef(new Map<string, Promise<void>>());
   const failedSavesRef = useRef(new Map<string, unknown>());
   const searchRef = useRef<HTMLInputElement>(null);
@@ -139,7 +158,6 @@ export function Workspace() {
     setConfirmRequest({ ...request, id: confirmIdRef.current, returnFocus: document.activeElement instanceof HTMLElement ? document.activeElement : null });
   }, []);
 
-  useEffect(() => { selectedRef.current = selectedNote; }, [selectedNote]);
   useEffect(() => { void api.bootstrap().then(async (status) => { if (!status.configured) { navigate("/setup", { replace: true }); return; } try { await api.me(); setReady(true); } catch { navigate("/login", { replace: true }); } }).catch(() => navigate("/login", { replace: true })); }, [navigate]);
 
   const replaceList = useCallback((next: NoteSummary[]) => { notesRef.current = next; setNotes(next); }, []);
@@ -192,12 +210,13 @@ export function Workspace() {
     try {
       const result = await api.getNote(id);
       if (requestId !== noteLoadRequestRef.current || activeNoteIdRef.current !== id) return;
-      const nextNote = pendingSavesRef.current.get(id) ?? result.note;
+      const latestPendingNote = pendingSavesRef.current.get(id);
+      const nextNote = latestPendingNote ? { ...result.note, ...latestPendingNote } : result.note;
       selectedRef.current = nextNote;
       setSelectedNote(nextNote);
       setIsNoteLoading(false);
       // A draft kept from an earlier failure or a note switch is retried instead of staying stuck on "saving".
-      const retryDraft = pendingSavesRef.current.get(id);
+      const retryDraft = latestPendingNote;
       if (retryDraft && !failedSave && !trashOperationsRef.current.has(id)) persistRef.current(retryDraft);
     } catch (reason) {
       if (requestId !== noteLoadRequestRef.current || activeNoteIdRef.current !== id) return;
@@ -245,7 +264,7 @@ export function Workspace() {
   }, []);
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(""), 3000); return () => clearTimeout(timer); }, [toast]);
 
-  const persistRef = useRef<(draft: Note) => void>(() => undefined);
+  const persistRef = useRef<(draft: Note | NoteDraft) => void>(() => undefined);
   const runSave = useCallback(async (noteId: string, keepalive = false) => {
     const running = inFlightSavesRef.current.get(noteId);
     if (running) return running;
@@ -256,7 +275,7 @@ export function Workspace() {
           const draft = pendingSavesRef.current.get(noteId)!;
           const result = await api.updateNote(noteId, noteSavePayload(draft), { keepalive });
           const latest = pendingSavesRef.current.get(noteId);
-          const next = latest && latest !== draft ? { ...latest, version: result.note.version } : undefined;
+          const next = latest && latest !== draft ? { ...result.note, ...latest, version: result.note.version } : undefined;
           if (next) pendingSavesRef.current.set(noteId, next);
           else pendingSavesRef.current.delete(noteId);
           failedSavesRef.current.delete(noteId);
@@ -279,18 +298,19 @@ export function Workspace() {
     try { await task; }
     finally { if (inFlightSavesRef.current.get(noteId) === task) inFlightSavesRef.current.delete(noteId); }
   }, [replaceList]);
-  const persist = useCallback((draft: Note) => {
-    pendingSavesRef.current.set(draft.id, draft);
-    if (activeNoteIdRef.current === draft.id) setSaveState("saving");
-    const existingTimer = saveTimersRef.current.get(draft.id);
+  const persist = useCallback((draft: Note | NoteDraft) => {
+    const pendingDraft = toNoteDraft(draft);
+    pendingSavesRef.current.set(pendingDraft.id, pendingDraft);
+    if (activeNoteIdRef.current === pendingDraft.id) setSaveState("saving");
+    const existingTimer = saveTimersRef.current.get(pendingDraft.id);
     if (existingTimer) clearTimeout(existingTimer);
     const timer = setTimeout(() => {
-      saveTimersRef.current.delete(draft.id);
-      const requestDraft = pendingSavesRef.current.get(draft.id);
+      saveTimersRef.current.delete(pendingDraft.id);
+      const requestDraft = pendingSavesRef.current.get(pendingDraft.id);
       if (!requestDraft) return;
-      void runSave(draft.id).catch(() => undefined);
+      void runSave(pendingDraft.id).catch(() => undefined);
     }, 800);
-    saveTimersRef.current.set(draft.id, timer);
+    saveTimersRef.current.set(pendingDraft.id, timer);
   }, [runSave]);
   persistRef.current = persist;
   const saveNoteNow = useCallback(() => {
@@ -339,7 +359,8 @@ export function Workspace() {
     const targetNotebook = patch.notebookId ? notebooks.find((nb) => nb.id === patch.notebookId) : undefined;
     const next = { ...current, ...patch, ...(targetNotebook ? { notebookName: targetNotebook.name } : {}) };
     selectedRef.current = next;
-    setSelectedNote(next);
+    const contentOnlyChange = patch.contentMarkdown !== undefined && patch.title === undefined && patch.notebookId === undefined;
+    if (!contentOnlyChange) setSelectedNote(next);
     persist(next);
     if (patch.notebookId && patch.notebookId !== current.notebookId) {
       refreshNotebooks();
@@ -380,8 +401,11 @@ export function Workspace() {
       return exists ? current.map((nb) => nb.id === saved.id ? { ...nb, name: saved.name, color: saved.color } : nb) : [...current, saved];
     });
     if (editingNotebook) {
-      if (selectedNote?.notebookId === saved.id) {
-        setSelectedNote((prev) => prev ? { ...prev, notebookName: saved.name } : prev);
+      const current = selectedRef.current;
+      if (current?.notebookId === saved.id) {
+        const next = { ...current, notebookName: saved.name };
+        selectedRef.current = next;
+        setSelectedNote(next);
       }
       setToast(`已更新笔记本“${saved.name}”`);
     } else {
@@ -391,7 +415,7 @@ export function Workspace() {
       setToast(`已创建笔记本“${saved.name}”`);
     }
     setEditingNotebook(undefined);
-  }, [editingNotebook, selectedNote?.notebookId]);
+  }, [editingNotebook]);
   const deleteNotebook = useCallback(async (id: string) => {
     try {
       await api.deleteNotebook(id);
@@ -424,15 +448,15 @@ export function Workspace() {
     const timer = saveTimersRef.current.get(current.id);
     if (timer) clearTimeout(timer);
     saveTimersRef.current.delete(current.id);
-    pendingSavesRef.current.set(current.id, next);
+    pendingSavesRef.current.set(current.id, toNoteDraft(next));
     setNotebooks((items) => items.map((notebook) => notebook.id === current.notebookId ? { ...notebook, count: Math.max(0, notebook.count + (deleted ? -1 : 1)) } : notebook));
     removeFromList(current.id);
     try {
       await runSave(current.id);
       setToast(deleted ? "已移入回收站" : "已恢复笔记");
     } catch (reason) {
-      const restored = { ...(pendingSavesRef.current.get(current.id) ?? current), deletedAt: current.deletedAt };
-      pendingSavesRef.current.set(current.id, restored);
+      const restored = { ...current, ...(pendingSavesRef.current.get(current.id) ?? {}), deletedAt: current.deletedAt };
+      pendingSavesRef.current.set(current.id, toNoteDraft(restored));
       setNotebooks((items) => items.map((notebook) => notebook.id === current.notebookId ? { ...notebook, count: Math.max(0, notebook.count + (deleted ? 1 : -1)) } : notebook));
       if (scope === listScopeRef.current && index !== -1 && !notesRef.current.some((note) => note.id === current.id)) {
         const list = [...notesRef.current];
@@ -558,19 +582,20 @@ export function Workspace() {
     setView(origin?.view ?? "all");
     setNotebookId(origin?.notebookId);
   }, [notebookId, query, view]);
-  const command = useCallback((id: CommandId) => { if (id === "new-note") void createNoteHere(); if (id === "search") { setMobileSidebarOpen(true); requestAnimationFrame(() => searchRef.current?.focus()); } if (id === "toggle-sidebar") setSidebarCollapsed((value) => !value); if (id === "share" && selectedNote) setShareOpen(true); if (id === "favorite") toggleFavorite(); if (id === "trash") moveToTrash(); if (id === "restore") restoreFromTrash(); }, [createNoteHere, moveToTrash, restoreFromTrash, selectedNote, toggleFavorite]);
+  const command = useCallback((id: CommandId) => { if (id === "new-note") void createNoteHere(); if (id === "search") { setMobileSidebarOpen(true); requestAnimationFrame(() => searchRef.current?.focus()); } if (id === "toggle-sidebar") setSidebarCollapsed((value) => !value); if (id === "share" && selectedRef.current) setShareOpen(true); if (id === "favorite") toggleFavorite(); if (id === "trash") moveToTrash(); if (id === "restore") restoreFromTrash(); }, [createNoteHere, moveToTrash, restoreFromTrash, toggleFavorite]);
   const logout = async () => { await flushPendingSaves("now"); await api.logout().catch(() => undefined); navigate("/login", { replace: true }); };
   if (!ready) return <main className="app-loading"><span className="loading-ring" /><span>正在进入你的空间……</span></main>;
   const currentNotebook = notebookId ? notebooks.find((notebook) => notebook.id === notebookId) : undefined;
+  const renderedNote = selectedNote && selectedRef.current?.id === selectedNote.id ? selectedRef.current : selectedNote;
   return <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
     <button className={`mobile-scrim ${mobileSidebarOpen || mobileListOpen ? "is-visible" : ""}`} type="button" aria-label="关闭导航" onClick={() => { setMobileSidebarOpen(false); setMobileListOpen(false); }} />
     <Sidebar view={view} setView={selectView} notebooks={notebooks} notebookId={notebookId} setNotebookId={selectNotebook} query={query} setQuery={changeQuery} searchRef={searchRef} onNewNote={() => void createNoteHere()} onCreateNotebook={() => void createNotebook()} onEditNotebook={(target) => setEditingNotebook(target)} collapsed={sidebarCollapsed} onCollapse={() => setSidebarCollapsed((value) => !value)} mobileOpen={mobileSidebarOpen} onLogout={logout} />
     <NoteListPanel notes={notes} total={totalNotes} sort={noteSort} setSort={setNoteSort} selectedId={selectedId} onSelect={(id) => { selectNote(id); setMobileListOpen(false); }} view={view} query={query} currentNotebookName={currentNotebook?.name} onEmptyTrash={view === "trash" ? emptyTrash : undefined} trashBusy={pendingTrashCount > 0 || emptyingTrash} onNewNote={currentNotebook ? () => void createNoteHere() : undefined} onClearQuery={() => changeQuery("")} mobileOpen={mobileListOpen} onOpenSidebar={() => setMobileSidebarOpen(true)} />
     <main className="editor-region">
-      {selectedNote ? <NoteEditor note={selectedNote} saveState={saveState} isLoading={isNoteLoading} trashBusy={emptyingTrash || (pendingTrashCount > 0 && trashOperationsRef.current.has(selectedNote.id))} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === selectedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onShare={() => setShareOpen(true)} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={() => setMobileListOpen(true)} /> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor isTrash={view === "trash"} onNewNote={() => void createNoteHere()} onOpenList={() => setMobileListOpen(true)} />}
+      {renderedNote ? <Suspense fallback={<NoteLoadingState />}><LazyNoteEditor note={renderedNote} saveState={saveState} isLoading={isNoteLoading} trashBusy={emptyingTrash || (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onShare={() => setShareOpen(true)} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={() => setMobileListOpen(true)} /></Suspense> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor isTrash={view === "trash"} onNewNote={() => void createNoteHere()} onOpenList={() => setMobileListOpen(true)} />}
     </main>
-    <CommandMenu open={commandOpen} onClose={() => setCommandOpen(false)} onCommand={command} onCreateNoteInNotebook={createNoteInNotebook} canRestore={Boolean(selectedNote?.deletedAt)} notebooks={notebooks} />
-    {shareOpen && selectedNote && <ShareDialog note={selectedNote} onClose={() => setShareOpen(false)} onToast={setToast} />}
+    <CommandMenu open={commandOpen} onClose={() => setCommandOpen(false)} onCommand={command} onCreateNoteInNotebook={createNoteInNotebook} canRestore={Boolean(renderedNote?.deletedAt)} notebooks={notebooks} />
+    {shareOpen && renderedNote && <ShareDialog note={renderedNote} onClose={() => setShareOpen(false)} onToast={setToast} />}
     {editingNotebook !== undefined && <NotebookDialog key={editingNotebook?.id ?? "new"} notebook={editingNotebook} onClose={() => setEditingNotebook(undefined)} onSaved={saveNotebook} onRequestDelete={(target) => requestConfirm({ eyebrow: "整理上下文", title: `删除笔记本“${target.name}”？`, description: "笔记本中的笔记会自动移入收件箱，笔记内容不会被删除。", confirmLabel: "删除笔记本", danger: true, onConfirm: () => void deleteNotebook(target.id) })} onToast={setToast} />}
     {confirmRequest && <ConfirmDialog key={confirmRequest.id} request={confirmRequest} onClose={() => setConfirmRequest(null)} />}
     {toast && <div className="toast" role="status">{toast}</div>}

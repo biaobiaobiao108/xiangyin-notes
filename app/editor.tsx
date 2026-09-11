@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import type { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
@@ -43,12 +43,15 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
   const pendingHeadingRef = useRef(false);
   const headingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeEditorNoteIdRef = useRef(note.id);
+  const initialContentRef = useRef(note.contentMarkdown);
+  const onChangeRef = useRef(onChange);
+  const surfaceSyncRef = useRef<(instance: Editor) => void>(() => undefined);
   const [editorStats, setEditorStats] = useState<EditorStats>(() => countEditorText(""));
   const [outlineItems, setOutlineItems] = useState<OutlineItem[]>([]);
   const [activeOutlineId, setActiveOutlineId] = useState<string | null>(null);
   const [outlineOpen, setOutlineOpen] = useState(false);
+  onChangeRef.current = onChange;
 
-  const emitMarkdown = (instance: Editor) => onChange({ contentMarkdown: (instance as EditorWithMarkdown).getMarkdown() });
   const syncEditorSurface = (instance: Editor) => {
     const editorText = instance.getText({ blockSeparator: "\n" });
     const nextStats = countEditorText(editorText);
@@ -107,88 +110,92 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
     }, delay);
   };
 
-  const editor = useEditor({
-    editable: !note.deletedAt && !isLoading,
-    extensions: [
-      StarterKit.configure({ heading: { levels: [1, 2, 3] }, link: false }),
-      Link.configure({ openOnClick: false, autolink: true, linkOnPaste: true, HTMLAttributes: { title: "按住 Ctrl 或 ⌘ 点击打开链接" } }),
-      TaskList,
-      TaskItem.configure({ nested: true }),
-      Placeholder.configure({ placeholder: "从一句话开始……" }),
-      Markdown,
-    ],
-    content: note.contentMarkdown,
-    contentType: "markdown",
-    editorProps: {
-      attributes: { class: "note-prose" },
-      handleClick: (_view, _pos, event) => {
-        if (event.ctrlKey || event.metaKey) {
-          const target = event.target as HTMLElement | null;
-          const anchor = target?.closest("a");
-          if (anchor?.href) {
-            window.open(anchor.href, "_blank", "noopener,noreferrer");
-            return true;
-          }
-        }
-        return false;
-      },
-      handlePaste: (view, event) => {
-        const text = event.clipboardData?.getData("text/plain") ?? "";
-        const html = event.clipboardData?.getData("text/html") ?? "";
-        if (!shouldParseMarkdownPaste(text, Boolean(html))) return false;
-        const markdownManager = editorInstanceRef.current?.markdown;
-        if (!markdownManager) return false;
-        try {
-          const parsedDocument = view.state.schema.nodeFromJSON(markdownManager.parse(text));
-          const slice = parsedDocument.slice(0, parsedDocument.content.size);
-          view.dispatch(view.state.tr.replaceSelection(slice).scrollIntoView().setMeta("uiEvent", "paste"));
+  const extensions = useMemo(() => [
+    StarterKit.configure({ heading: { levels: [1, 2, 3] }, link: false }),
+    Link.configure({ openOnClick: false, autolink: true, linkOnPaste: true, HTMLAttributes: { title: "按住 Ctrl 或 ⌘ 点击打开链接" } }),
+    TaskList,
+    TaskItem.configure({ nested: true }),
+    Placeholder.configure({ placeholder: "从一句话开始……" }),
+    Markdown,
+  ], []);
+  const editorProps = useMemo(() => ({
+    attributes: { class: "note-prose" },
+    handleClick: (_view: Editor["view"], _pos: number, event: MouseEvent) => {
+      if (event.ctrlKey || event.metaKey) {
+        const target = event.target as HTMLElement | null;
+        const anchor = target?.closest("a");
+        if (anchor?.href) {
+          window.open(anchor.href, "_blank", "noopener,noreferrer");
           return true;
-        } catch {
-          return false;
         }
-      },
-      handleKeyDown: (_view, event) => {
-        if (!pendingHeadingRef.current) return false;
-        // Chromium reports the first key from many Windows IMEs as 229
-        // before compositionstart reaches the editor.
-        if (event.isComposing || event.keyCode === 229) {
-          composingRef.current = true;
-          clearHeadingTimer();
-        }
+      }
+      return false;
+    },
+    handlePaste: (view: Editor["view"], event: ClipboardEvent) => {
+      const text = event.clipboardData?.getData("text/plain") ?? "";
+      const html = event.clipboardData?.getData("text/html") ?? "";
+      if (!shouldParseMarkdownPaste(text, Boolean(html))) return false;
+      const markdownManager = editorInstanceRef.current?.markdown;
+      if (!markdownManager) return false;
+      try {
+        const parsedDocument = view.state.schema.nodeFromJSON(markdownManager.parse(text));
+        const slice = parsedDocument.slice(0, parsedDocument.content.size);
+        view.dispatch(view.state.tr.replaceSelection(slice).scrollIntoView().setMeta("uiEvent", "paste"));
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    handleKeyDown: (_view: Editor["view"], event: KeyboardEvent) => {
+      if (!pendingHeadingRef.current) return false;
+      // Chromium reports the first key from many Windows IMEs as 229
+      // before compositionstart reaches the editor.
+      if (event.isComposing || event.keyCode === 229) {
+        composingRef.current = true;
+        clearHeadingTimer();
+      }
+      return false;
+    },
+    handleTextInput: (view: Editor["view"], from: number, to: number, text: string) => {
+      if (text !== " " || from !== to || composingRef.current || view.composing) return false;
+      const $from = view.state.doc.resolve(from);
+      if ($from.parent.type.name !== "paragraph") return false;
+      const textBefore = $from.parent.textBetween(0, $from.parentOffset, undefined, "\uFFFC");
+      if (!isMarkdownHeadingMarker(textBefore)) return false;
+      view.dispatch(view.state.tr.insertText(text, from, to));
+      pendingHeadingRef.current = true;
+      scheduleHeadingConversion(view);
+      return true;
+    },
+    handleDOMEvents: {
+      compositionstart: () => {
+        composingRef.current = true;
+        clearHeadingTimer();
         return false;
       },
-      handleTextInput: (view, from, to, text) => {
-        if (text !== " " || from !== to || composingRef.current || view.composing) return false;
-        const $from = view.state.doc.resolve(from);
-        if ($from.parent.type.name !== "paragraph") return false;
-        const textBefore = $from.parent.textBetween(0, $from.parentOffset, undefined, "\uFFFC");
-        if (!isMarkdownHeadingMarker(textBefore)) return false;
-        view.dispatch(view.state.tr.insertText(text, from, to));
-        pendingHeadingRef.current = true;
-        scheduleHeadingConversion(view);
-        return true;
+      compositionend: (view: Editor["view"]) => {
+        composingRef.current = false;
+        if (pendingHeadingRef.current) scheduleHeadingConversion(view, 0);
+        return false;
       },
-      handleDOMEvents: {
-        compositionstart: () => {
-          composingRef.current = true;
-          clearHeadingTimer();
-          return false;
-        },
-        compositionend: (view) => {
-          composingRef.current = false;
-          if (pendingHeadingRef.current) scheduleHeadingConversion(view, 0);
-          return false;
-        },
-        compositioncancel: (view) => {
-          composingRef.current = false;
-          if (pendingHeadingRef.current) scheduleHeadingConversion(view, 0);
-          return false;
-        },
+      compositioncancel: (view: Editor["view"]) => {
+        composingRef.current = false;
+        if (pendingHeadingRef.current) scheduleHeadingConversion(view, 0);
+        return false;
       },
     },
+  }), []);
+  surfaceSyncRef.current = scheduleEditorSurfaceSync;
+
+  const editor = useEditor({
+    editable: !note.deletedAt && !isLoading,
+    extensions,
+    content: initialContentRef.current,
+    contentType: "markdown",
+    editorProps,
     onUpdate: ({ editor: instance }) => {
-      emitMarkdown(instance);
-      scheduleEditorSurfaceSync(instance);
+      onChangeRef.current({ contentMarkdown: (instance as EditorWithMarkdown).getMarkdown() });
+      surfaceSyncRef.current(instance);
     },
   });
 
@@ -208,6 +215,7 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
       clearHeadingTimer();
       pendingHeadingRef.current = false;
       composingRef.current = false;
+      headingElementsRef.current.clear();
     };
   }, [editor]);
 
@@ -226,6 +234,7 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
     clearHeadingTimer();
     pendingHeadingRef.current = false;
     composingRef.current = false;
+    headingElementsRef.current.clear();
     setOutlineOpen(false);
     setActiveOutlineId(null);
     setOutlineItems([]);
@@ -412,23 +421,22 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
   );
 }
 
-export function NoteLoadingState() {
-  return <section className="editor-panel editor-loading-shell" aria-label="笔记编辑器" aria-busy="true"><div className="editor-switch-overlay editor-switch-overlay--visible" role="status" aria-live="polite"><div className="editor-switch-card"><BrandMark className="editor-switch-mark" /><div className="editor-switch-lines" aria-hidden="true"><span /><span /><span /></div><strong>正在打开笔记…</strong></div></div></section>;
-}
-
 export function ReadOnlyMarkdown({ markdown }: { markdown: string }) {
+  const initialContentRef = useRef(markdown);
+  const extensions = useMemo(() => [
+    StarterKit.configure({ heading: { levels: [1, 2, 3] }, link: false }),
+    Link.configure({ openOnClick: true, autolink: true, HTMLAttributes: { rel: "noopener noreferrer", target: "_blank" } }),
+    TaskList,
+    TaskItem.configure({ nested: true }),
+    Markdown,
+  ], []);
+  const editorProps = useMemo(() => ({ attributes: { class: "note-prose share-prose" } }), []);
   const editor = useEditor({
     editable: false,
-    extensions: [
-      StarterKit.configure({ heading: { levels: [1, 2, 3] }, link: false }),
-      Link.configure({ openOnClick: true, autolink: true, HTMLAttributes: { rel: "noopener noreferrer", target: "_blank" } }),
-      TaskList,
-      TaskItem.configure({ nested: true }),
-      Markdown,
-    ],
-    content: markdown,
+    extensions,
+    content: initialContentRef.current,
     contentType: "markdown",
-    editorProps: { attributes: { class: "note-prose share-prose" } },
+    editorProps,
   });
   return <EditorContent editor={editor} />;
 }
