@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseCreateNoteCommand } from "../app/command-parser";
+import { parseCreateNoteCommand, parseSearchPrefixCommand } from "../app/command-parser";
 import type { Notebook } from "../shared/types";
 
 const notebook = (id: string, name: string): Notebook => ({ id, name, color: "#d96245", isSystem: false, count: 0, updatedAt: 0 });
@@ -40,3 +40,34 @@ describe("create note command parser", () => {
     expect(parseCreateNoteCommand("搜索 功能测试", [notebook("notebook-1", "测试")])).toBeNull();
   });
 });
+
+describe("search prefix parser", () => {
+  test("parses in-note search prefixes", () => {
+    expect(parseSearchPrefixCommand("搜索 关键词")).toEqual({ scope: "in-note", term: "关键词" });
+    expect(parseSearchPrefixCommand("查找:重点 内容")).toEqual({ scope: "in-note", term: "重点 内容" });
+    expect(parseSearchPrefixCommand("搜索：全角冒号")).toEqual({ scope: "in-note", term: "全角冒号" });
+    expect(parseSearchPrefixCommand("find  test term")).toEqual({ scope: "in-note", term: "test term" });
+    expect(parseSearchPrefixCommand("FIND uppercase")).toEqual({ scope: "in-note", term: "uppercase" });
+    expect(parseSearchPrefixCommand("   搜索  缩进文本  ")).toEqual({ scope: "in-note", term: "缩进文本" });
+    expect(parseSearchPrefixCommand("搜索 ")).toEqual({ scope: "in-note", term: "" });
+  });
+
+  test("parses global search prefixes", () => {
+    expect(parseSearchPrefixCommand("全局搜索 笔记")).toEqual({ scope: "global", term: "笔记" });
+    expect(parseSearchPrefixCommand("all:my note")).toEqual({ scope: "global", term: "my note" });
+    expect(parseSearchPrefixCommand("ALL uppercase")).toEqual({ scope: "global", term: "uppercase" });
+    expect(parseSearchPrefixCommand("全局 架构设计")).toEqual({ scope: "global", term: "架构设计" });
+    expect(parseSearchPrefixCommand("global something")).toEqual({ scope: "global", term: "something" });
+  });
+
+  test("returns null when no valid prefix delimiter is present", () => {
+    expect(parseSearchPrefixCommand("搜索")).toBeNull();
+    expect(parseSearchPrefixCommand("搜索笔记")).toBeNull();
+    expect(parseSearchPrefixCommand("全局搜索")).toBeNull();
+    expect(parseSearchPrefixCommand("全局搜索笔记")).toBeNull();
+    expect(parseSearchPrefixCommand("普通搜索文本")).toBeNull();
+    expect(parseSearchPrefixCommand("")).toBeNull();
+  });
+});
+
+

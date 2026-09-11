@@ -8,7 +8,7 @@ import TaskItem from "@tiptap/extension-task-item";
 import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
 import { findWrapping } from "@tiptap/pm/transform";
-import { ChevronDown, ChevronLeft, ChevronUp, Link2, ListTree, Maximize2, Minimize2, Minus, Trash2, Undo2 } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronUp, Link2, ListTree, Maximize2, Minimize2, Minus, Trash2, Undo2, X } from "lucide-react";
 import type { Note } from "../shared/types";
 import { BrandMark } from "./brand-mark";
 import { cycleSearchMatchIndex, findEditorSearchMatches, findTextMatches, searchHighlightPluginKey, SearchHighlightExtension } from "./editor-search";
@@ -22,7 +22,7 @@ const editorCoreExtensionOptions = {
   clipboardTextSerializer: { blockSeparator: "\n" },
 };
 
-export function NoteEditor({ note, searchQuery = "", saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList, focusMode = false, onToggleFocusMode }: {
+export function NoteEditor({ note, searchQuery = "", saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList, focusMode = false, onToggleFocusMode, onClearSearch }: {
   note: Note;
   searchQuery?: string;
   saveState: "idle" | "saving" | "saved" | "local" | "conflict" | "error";
@@ -42,7 +42,9 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   onOpenList?: () => void;
   focusMode?: boolean;
   onToggleFocusMode?: () => void;
+  onClearSearch?: () => void;
 }) {
+
   const editorScrollRef = useRef<HTMLDivElement>(null);
   const documentRef = useRef<HTMLDivElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
@@ -472,15 +474,23 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
 
   useEffect(() => {
     const handleSearchKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "F3" || event.isComposing || event.keyCode === 229 || event.defaultPrevented) return;
+      if (event.isComposing || event.keyCode === 229 || event.defaultPrevented) return;
       if (event.target instanceof Element && event.target.closest("dialog[open]")) return;
-      if (!searchQueryRef.current.trim() || searchNavigationRef.current.matchCount === 0) return;
-      event.preventDefault();
-      moveSearchMatch(event.shiftKey ? -1 : 1);
+      if (event.key === "F3") {
+        if (!searchQueryRef.current.trim() || searchNavigationRef.current.matchCount === 0) return;
+        event.preventDefault();
+        moveSearchMatch(event.shiftKey ? -1 : 1);
+      } else if (event.key === "Escape") {
+        if (searchQueryRef.current.trim() && searchNavigationRef.current.matchCount > 0 && onClearSearch) {
+          event.preventDefault();
+          onClearSearch();
+        }
+      }
     };
     window.addEventListener("keydown", handleSearchKeyDown);
     return () => window.removeEventListener("keydown", handleSearchKeyDown);
-  }, [moveSearchMatch]);
+  }, [moveSearchMatch, onClearSearch]);
+
 
   useEffect(() => {
     if (isLoading) setOutlineOpen(false);
@@ -672,8 +682,10 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
             <button className="editor-search-nav-button" type="button" aria-label="上一个搜索匹配" title="上一个搜索匹配 (Shift+F3)" onClick={() => moveSearchMatch(-1)} disabled={deferredLoading || searchNavigation.matchCount < 2}><ChevronUp size={16} strokeWidth={2} /></button>
             <span className="editor-search-nav-count" aria-live="polite">{searchNavigation.activeIndex + 1} / {searchNavigation.matchCount}</span>
             <button className="editor-search-nav-button" type="button" aria-label="下一个搜索匹配" title="下一个搜索匹配 (F3)" onClick={() => moveSearchMatch(1)} disabled={deferredLoading || searchNavigation.matchCount < 2}><ChevronDown size={16} strokeWidth={2} /></button>
+            {onClearSearch && <button className="editor-search-nav-button editor-search-nav-button--close" type="button" aria-label="退出搜索高亮" title="退出搜索高亮 (Esc)" onClick={onClearSearch}><X size={15} strokeWidth={2} /></button>}
           </div>}
           <div className="editor-stats-pill" aria-label={`字数 ${editorStats.wordCount}，字符数 ${editorStats.characterCount}`}>
+
             <span className="editor-stat"><strong>{editorStats.wordCount}</strong><span>字数</span></span>
             <span className="editor-stat-divider" aria-hidden="true">·</span>
             <span className="editor-stat"><strong>{editorStats.characterCount}</strong><span>字符</span></span>
