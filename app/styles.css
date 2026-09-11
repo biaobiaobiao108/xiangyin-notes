@@ -289,7 +289,7 @@ button.save-status:hover { text-decoration: underline; }
 .note-title-input { width: 100%; padding: 0; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: clamp(2rem, 3.5vw, 3.05rem); font-weight: 700; letter-spacing: -0.065em; line-height: 1.08; }
 .note-title-input::placeholder { color: #bec5bf; }
 .editor-document { padding-top: 72px; }
-.note-prose { margin-top: 32px; color: #29322d; font-size: 1.08rem; line-height: 1.72; }
+.note-prose { margin-top: 32px; color: #29322d; font-size: 1.08rem; line-height: 1.6; }
 .note-prose:focus { outline: 0; }
 .note-prose > *:first-child { margin-top: 0; }
 .note-prose h1, .note-prose h2, .note-prose h3 { margin: 1.65em 0 0.55em; letter-spacing: -0.045em; line-height: 1.2; scroll-margin-block-start: 24px; }
@@ -569,7 +569,7 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
 .share-article { width: min(760px, calc(100% - 48px)); margin: 0 auto; padding: 78px 0 60px; }
 .share-kicker { display: flex; align-items: center; gap: 7px; margin: 0 0 22px; color: var(--muted); font-size: 0.75rem; }
 .share-article h1 { margin: 0 0 36px; color: var(--ink); font-size: clamp(2.2rem, 5vw, 3.5rem); letter-spacing: -0.07em; line-height: 1.05; }
-.share-prose { font-size: 1.08rem; }
+.share-prose { font-size: 1.08rem; line-height: 1.72; }
 .share-footer { width: min(760px, calc(100% - 48px)); margin: 0 auto; padding: 18px 0 34px; border-top: 1px solid var(--border); color: var(--soft-muted); font-size: 0.74rem; }
 .share-error { display: grid; align-content: start; justify-items: center; }
 .share-error .share-brand { width: min(940px, calc(100% - 48px)); padding-top: 24px; }

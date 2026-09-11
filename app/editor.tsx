@@ -17,6 +17,10 @@ import { ImeMarkdownSafeExtension, imeMarkdownSafePluginKey } from "./ime-markdo
 
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
 
+const editorCoreExtensionOptions = {
+  clipboardTextSerializer: { blockSeparator: "\n" },
+};
+
 export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList, focusMode = false, onToggleFocusMode }: {
   note: Note;
   saveState: "idle" | "saving" | "saved" | "conflict" | "error";
@@ -318,6 +322,7 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
   const editor = useEditor({
     editable: !note.deletedAt && !isLoading,
     extensions,
+    coreExtensionOptions: editorCoreExtensionOptions,
     content: initialContentRef.current,
     contentType: "markdown",
     editorProps,
@@ -594,6 +599,7 @@ export function ReadOnlyMarkdown({ markdown }: { markdown: string }) {
   const editor = useEditor({
     editable: false,
     extensions,
+    coreExtensionOptions: editorCoreExtensionOptions,
     content: initialContentRef.current,
     contentType: "markdown",
     editorProps,
