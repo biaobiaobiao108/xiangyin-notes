@@ -47,7 +47,9 @@ docker build --pull -t xiangying-notes:check .
 - 优先使用语义化 HTML、可见焦点状态和 ARIA 属性；核心操作不要依赖浏览器原生菜单。
 - 动画只使用 `transform` 和 `opacity`，并支持 `prefers-reduced-motion`。
 - 编辑器涉及中文输入法时必须考虑 `compositionstart`、`compositionend`、`compositioncancel`、`event.isComposing` 和 Chromium/Windows 常见的 `keyCode === 229`。
+- 页面所有需要滚动条的局部滚动容器（如侧栏列表、笔记正文、弹窗与命令菜单等）必须使用项目专属的 `FloatingScrollbar` 组件，并通过 `.floating-scrollbar-target` 隐藏浏览器原生滚动条，保持精致一致的浮动微交互。
 - 修改布局后检查桌面、平板和窄屏手机，不要让浮层遮挡编辑内容或产生横向溢出。
+
 
 ## 内存与性能要求
 
