@@ -8,6 +8,7 @@ RUN bun install --frozen-lockfile
 COPY app ./app
 COPY server ./server
 COPY shared ./shared
+COPY scripts ./scripts
 COPY migrations ./migrations
 COPY tsconfig.json ./tsconfig.json
 

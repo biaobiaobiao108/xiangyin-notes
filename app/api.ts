@@ -1,4 +1,5 @@
 import type { ApiErrorPayload, Note, NoteSummary, NoteView, Notebook, Share, User } from "../shared/types";
+import type { SyncMutation, SyncPullResponse, SyncPushResponse } from "../shared/sync";
 
 export class ApiError extends Error {
   status: number;
@@ -38,7 +39,7 @@ export const api = {
     return request<{ notes: NoteSummary[]; total: number }>(`/api/notes?${search.toString()}`);
   },
   getNote: (id: string) => request<{ note: Note }>(`/api/notes/${id}`),
-  createNote: (payload: { title?: string; contentMarkdown?: string; notebookId?: string }) => request<{ note: Note }>("/api/notes", { method: "POST", body: JSON.stringify(payload) }),
+  createNote: (payload: { id?: string; title?: string; contentMarkdown?: string; notebookId?: string }) => request<{ note: Note }>("/api/notes", { method: "POST", body: JSON.stringify(payload) }),
   updateNote: (id: string, payload: { version: number; title?: string; contentMarkdown?: string; notebookId?: string; isFavorite?: boolean; deleted?: boolean }, options?: { keepalive?: boolean }) => request<{ note: Note }>(`/api/notes/${id}`, { method: "PATCH", body: JSON.stringify(payload), keepalive: options?.keepalive }),
   deleteNote: (id: string) => request<{ ok: true }>(`/api/notes/${id}`, { method: "DELETE" }),
   emptyTrash: () => request<{ ok: true; deletedCount: number; deletedIds: string[] }>("/api/trash", { method: "DELETE" }),
@@ -50,4 +51,13 @@ export const api = {
   createShare: (noteId: string) => request<{ share: Share }>(`/api/notes/${noteId}/shares`, { method: "POST", body: JSON.stringify({}) }),
   revokeShare: (shareId: string) => request<{ ok: true }>(`/api/shares/${shareId}`, { method: "DELETE" }),
   getPublicShare: (token: string) => request<{ snapshot: { schemaVersion: 1; title: string; contentMarkdown: string; createdAt: number; expiresAt: number } }>(`/api/shares/${token}`),
+  syncPull: (params: { cursor?: number; offset?: number; snapshotCursor?: number; limit?: number } = {}) => {
+    const search = new URLSearchParams();
+    search.set("cursor", String(params.cursor ?? 0));
+    if (params.offset !== undefined) search.set("offset", String(params.offset));
+    if (params.snapshotCursor !== undefined) search.set("snapshotCursor", String(params.snapshotCursor));
+    if (params.limit !== undefined) search.set("limit", String(params.limit));
+    return request<SyncPullResponse>(`/api/sync/pull?${search.toString()}`);
+  },
+  syncPush: (mutations: SyncMutation[]) => request<SyncPushResponse>("/api/sync/push", { method: "POST", body: JSON.stringify({ mutations }) }),
 };

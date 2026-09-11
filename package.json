@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "bun run scripts/dev.ts",
     "dev:client": "bun build ./app/index.html --outdir ./dist/client --target browser --format esm --splitting --watch",
-    "build:client": "bun build ./app/index.html --outdir ./dist/client --target browser --format esm --splitting --production --minify",
+    "build:client": "bun run scripts/build-client.ts",
     "build:server": "bun build ./server/index.ts ./server/migrate.ts --outdir ./dist/server --target bun --format esm --production --minify",
     "build": "bun run build:client && bun run build:server",
     "start": "bun dist/server/index.js",

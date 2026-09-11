@@ -3,6 +3,7 @@ import { ArrowRight, Eye, EyeOff, RefreshCw } from "lucide-react";
 import { useNavigate } from "react-router";
 import { ApiError, api } from "./api";
 import { BrandMark } from "./brand-mark";
+import { offlineSync } from "./offline-sync";
 
 export function SetupPage() {
   const navigate = useNavigate();
@@ -33,12 +34,12 @@ export function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  useEffect(() => { void api.bootstrap().then(async (result) => { if (!result.configured) { navigate("/setup", { replace: true }); return; } try { await api.me(); navigate("/app", { replace: true }); } catch { /* no existing session */ } }).catch(() => undefined); }, [navigate]);
+  useEffect(() => { void api.bootstrap().then(async (result) => { if (!result.configured) { navigate("/setup", { replace: true }); return; } try { await api.me(); navigate("/app", { replace: true }); } catch { /* no existing session */ } }).catch(async () => { if (await offlineSync.getLocalUser()) navigate("/app", { replace: true }); }); }, [navigate]);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setError("");
     setBusy(true);
-    try { await api.login({ username, password }); navigate("/app", { replace: true }); }
+    try { const result = await api.login({ username, password }); await offlineSync.activate(result.user); navigate("/app", { replace: true }); }
     catch (reason) { setError(reason instanceof ApiError ? reason.message : "登录失败，请稍后重试"); }
     finally { setBusy(false); }
   };

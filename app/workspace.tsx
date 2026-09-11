@@ -6,7 +6,10 @@ import { CommandId, CommandMenu } from "./command-menu";
 import type { CreateNoteCommand } from "./command-parser";
 import { BrandMark } from "./brand-mark";
 import { FloatingScrollbar } from "./floating-scrollbar";
+import { offlineSync, type OfflineSyncState } from "./offline-sync";
+import { getOfflineConflicts, type OfflineConflict } from "./offline-store";
 import { modKey } from "./platform";
+import { applyPwaUpdate, installPwa, subscribePwa, type PwaState } from "./pwa";
 import type { Note, NoteSummary, NoteView, Notebook, Share } from "../shared/types";
 
 const navItems: Array<{ id: NoteView; label: string; icon: typeof Inbox }> = [
@@ -35,10 +38,6 @@ function toNoteDraft(note: Note | NoteDraft): NoteDraft {
   };
 }
 
-function noteSavePayload(draft: NoteDraft) {
-  return { version: draft.version, title: draft.title, contentMarkdown: draft.contentMarkdown, notebookId: draft.notebookId, isFavorite: draft.isFavorite, deleted: Boolean(draft.deletedAt) };
-}
-
 function errorMessage(reason: unknown, fallback: string) {
   return reason instanceof ApiError && reason.message ? reason.message : fallback;
 }
@@ -47,6 +46,20 @@ type NoteSort = "updated" | "created" | "title";
 
 function sortNotes(notes: NoteSummary[], sort: NoteSort) {
   return [...notes].sort((a, b) => sort === "created" ? b.createdAt - a.createdAt : sort === "title" ? (a.title || "未命名笔记").localeCompare(b.title || "未命名笔记", "zh-CN") : b.updatedAt - a.updatedAt);
+}
+
+function filterOfflineNotes(notes: Note[], notebooks: Notebook[], view: NoteView, query: string, notebookId?: string) {
+  if (view === "shared") return [];
+  const notebookMap = new Map(notebooks.map((notebook) => [notebook.id, notebook]));
+  const normalizedQuery = query.trim().toLocaleLowerCase("zh-CN");
+  return notes.filter((note) => {
+    if (view === "trash" ? note.deletedAt === null : note.deletedAt !== null) return false;
+    if (view === "favorites" && !note.isFavorite) return false;
+    if (view === "inbox" && !notebookMap.get(note.notebookId)?.isSystem) return false;
+    if (notebookId && note.notebookId !== notebookId) return false;
+    if (normalizedQuery && !`${note.title}\n${note.contentMarkdown}`.toLocaleLowerCase("zh-CN").includes(normalizedQuery)) return false;
+    return true;
+  });
 }
 
 type ConfirmRequest = {
@@ -106,6 +119,24 @@ function NoteLoadingState() {
   return <section className="editor-panel editor-loading-shell" aria-label="笔记编辑器" aria-busy="true"><div className="editor-switch-overlay editor-switch-overlay--visible" role="status" aria-live="polite"><div className="editor-switch-card"><BrandMark className="editor-switch-mark" /><div className="editor-switch-lines" aria-hidden="true"><span /><span /><span /></div><strong>正在打开笔记…</strong></div></div></section>;
 }
 
+function SyncStatus({ state, pwa, onInstall, onUpdate, onConflicts }: { state: OfflineSyncState; pwa: PwaState; onInstall: () => void; onUpdate: () => void; onConflicts: () => void }) {
+  const label = state.status === "offline" ? "离线工作" : state.status === "syncing" ? "正在同步" : state.status === "conflict" ? `有 ${state.conflictCount} 个冲突` : state.status === "error" ? "同步需要重试" : state.pendingCount ? `等待同步 ${state.pendingCount} 项` : "已同步";
+  return <div className="sidebar-sync" aria-live="polite"><span className={`status-pulse status-pulse--${state.status}`} /><span>{label}</span>{state.status === "error" && <button className="text-button sidebar-sync-action" type="button" onClick={() => void offlineSync.sync()}>重试</button>}{state.conflictCount > 0 && <button className="text-button sidebar-sync-action" type="button" onClick={onConflicts}>查看冲突</button>}{pwa.canInstall && <button className="text-button sidebar-sync-action" type="button" onClick={() => void onInstall()}>安装应用</button>}{pwa.showIosInstallHint && !pwa.standalone && <span className="sidebar-sync-hint">分享 → 添加到主屏幕</span>}{pwa.updateAvailable && <button className="text-button sidebar-sync-action" type="button" onClick={onUpdate}>更新</button>}</div>;
+}
+
+function ConflictDialog({ conflict, onClose, onResolved }: { conflict: OfflineConflict; onClose: () => void; onResolved: () => void }) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const [content, setContent] = useState(conflict.local.contentMarkdown);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { const dialog = dialogRef.current; if (!dialog) return; dialog.showModal(); return () => { if (dialog.open) dialog.close(); }; }, []);
+  const resolve = async (resolution: "server" | "local") => {
+    setBusy(true);
+    try { await offlineSync.resolveConflict(conflict.id, resolution, resolution === "local" ? { ...conflict.local, contentMarkdown: content, preview: content.slice(0, 180) } : undefined); onResolved(); onClose(); }
+    finally { setBusy(false); }
+  };
+  return <dialog ref={dialogRef} className="conflict-dialog" aria-labelledby="conflict-dialog-title"><div className="dialog-heading"><div><span className="dialog-eyebrow is-danger"><AlertTriangle size={15} />同步冲突</span><h2 id="conflict-dialog-title">这篇笔记在其他地方被修改了</h2><p>本地内容已经保留。请检查两个版本后决定使用哪一个。</p></div><button className="icon-button" type="button" aria-label="关闭冲突窗口" onClick={onClose}><X size={18} /></button></div><div className="conflict-grid"><label><span>服务器版本</span><textarea value={conflict.server.contentMarkdown} readOnly /></label><label><span>本地版本（可编辑）</span><textarea value={content} onChange={(event) => setContent(event.target.value)} disabled={busy} /></label></div><div className="dialog-actions"><button className="secondary-button" type="button" onClick={onClose} disabled={busy}>稍后处理</button><button className="secondary-button" type="button" onClick={() => void resolve("server")} disabled={busy}>采用服务器版本</button><button className="primary-button" type="button" onClick={() => void resolve("local")} disabled={busy}>合并后保存</button></div></dialog>;
+}
+
 export function Workspace() {
   const navigate = useNavigate();
   const [view, setView] = useState<NoteView>("all");
@@ -140,7 +171,7 @@ export function Workspace() {
   const failedSavesRef = useRef(new Map<string, unknown>());
   const searchRef = useRef<HTMLInputElement>(null);
   const searchOriginRef = useRef<{ view: NoteView; notebookId?: string } | null>(null);
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "conflict" | "error">("idle");
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "local" | "conflict" | "error">("idle");
   const [isNoteLoading, setIsNoteLoading] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [focusMode, setFocusMode] = useState(() => {
@@ -174,13 +205,47 @@ export function Workspace() {
   const [ready, setReady] = useState(false);
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
   const [noteReloadToken, setNoteReloadToken] = useState(0);
+  const [syncState, setSyncState] = useState<OfflineSyncState>(offlineSync.getState());
+  const [pwaState, setPwaState] = useState<PwaState>({ standalone: false, canInstall: false, showIosInstallHint: false, updateAvailable: false });
+  const [conflicts, setConflicts] = useState<OfflineConflict[]>([]);
+  const [conflictOpen, setConflictOpen] = useState(false);
+  const shortcutHandledRef = useRef(false);
   const confirmIdRef = useRef(0);
   const requestConfirm = useCallback((request: Omit<ConfirmRequest, "id">) => {
     confirmIdRef.current += 1;
     setConfirmRequest({ ...request, id: confirmIdRef.current, returnFocus: document.activeElement instanceof HTMLElement ? document.activeElement : null });
   }, []);
 
-  useEffect(() => { void api.bootstrap().then(async (status) => { if (!status.configured) { navigate("/setup", { replace: true }); return; } try { await api.me(); setReady(true); } catch { navigate("/login", { replace: true }); } }).catch(() => navigate("/login", { replace: true })); }, [navigate]);
+  useEffect(() => subscribePwa(setPwaState), []);
+  useEffect(() => offlineSync.subscribe(setSyncState), []);
+  useEffect(() => { if (syncState.conflictCount > 0) void getOfflineConflicts().then(setConflicts); }, [syncState.conflictCount]);
+  useEffect(() => {
+    let disposed = false;
+    const enter = async (user: { id: string; username: string }) => {
+      const local = await offlineSync.activate(user);
+      if (disposed) return;
+      if (local.notebooks.length) setNotebooks(local.notebooks);
+      if (local.notes.length) {
+        const localNotes = filterOfflineNotes(local.notes, local.notebooks, view, query, notebookId);
+        notesRef.current = localNotes;
+        setNotes(localNotes);
+        setTotalNotes(localNotes.length);
+        setSelectedId((current) => current && localNotes.some((note) => note.id === current) ? current : localNotes[0]?.id ?? null);
+      }
+      setReady(true);
+    };
+    const enterLocalIfAvailable = async () => {
+      const localUser = await offlineSync.getLocalUser();
+      if (localUser) await enter(localUser);
+      else if (!disposed) navigate("/login", { replace: true });
+    };
+    void api.bootstrap().then(async (status) => {
+      if (!status.configured) { navigate("/setup", { replace: true }); return; }
+      try { const result = await api.me(); await enter(result.user); }
+      catch { await enterLocalIfAvailable(); }
+    }).catch(() => { void enterLocalIfAvailable(); });
+    return () => { disposed = true; };
+  }, [navigate]);
 
   const replaceList = useCallback((next: NoteSummary[]) => { notesRef.current = next; setNotes(next); }, []);
   const invalidateCollections = useCallback(() => { listRequestRef.current += 1; notebooksRequestRef.current += 1; }, []);
@@ -188,8 +253,14 @@ export function Workspace() {
     const requestId = ++notebooksRequestRef.current;
     try {
       const result = await api.listNotebooks();
-      if (requestId === notebooksRequestRef.current && !trashOperationsRef.current.size && !emptyingTrashRef.current) setNotebooks(result.notebooks);
-    } catch { /* Keep the last known counts if refreshing fails. */ }
+      if (requestId === notebooksRequestRef.current && !trashOperationsRef.current.size && !emptyingTrashRef.current) {
+        setNotebooks(result.notebooks);
+        await Promise.all(result.notebooks.map((notebook) => offlineSync.cacheNotebook(notebook)));
+      }
+    } catch {
+      const local = await offlineSync.getLocalSnapshot();
+      if (requestId === notebooksRequestRef.current && local.notebooks.length) setNotebooks(local.notebooks);
+    }
   }, []);
   const loadNotes = useCallback(async () => {
     const requestId = ++listRequestRef.current;
@@ -199,9 +270,22 @@ export function Workspace() {
       replaceList(result.notes);
       setTotalNotes(result.total);
       setSelectedId((current) => current && result.notes.some((note) => note.id === current) ? current : result.notes[0]?.id ?? null);
-    } catch (reason) { if (reason instanceof ApiError && reason.status === 401) navigate("/login", { replace: true }); }
+    } catch (reason) {
+      if (reason instanceof ApiError && reason.status === 401 && !offlineSync.getState().pendingCount) navigate("/login", { replace: true });
+      const local = await offlineSync.getLocalSnapshot();
+      if (requestId !== listRequestRef.current || listScope !== listScopeRef.current) return;
+      const localNotes = filterOfflineNotes(local.notes, local.notebooks, view, deferredQuery, notebookId);
+      replaceList(localNotes);
+      setTotalNotes(localNotes.length);
+      setSelectedId((current) => current && localNotes.some((note) => note.id === current) ? current : localNotes[0]?.id ?? null);
+    }
   }, [deferredQuery, listScope, navigate, notebookId, notesReloadToken, replaceList, view]);
   const reloadNotes = useCallback(() => setNotesReloadToken((value) => value + 1), []);
+  useEffect(() => {
+    if (!ready || syncState.status !== "synced") return;
+    void refreshNotebooks();
+    reloadNotes();
+  }, [ready, refreshNotebooks, reloadNotes, syncState.status]);
   const selectNote = useCallback((id: string | null) => {
     if (activeNoteIdRef.current === id) return;
     noteLoadRequestRef.current += 1;
@@ -234,6 +318,7 @@ export function Workspace() {
       if (requestId !== noteLoadRequestRef.current || activeNoteIdRef.current !== id) return;
       const latestPendingNote = pendingSavesRef.current.get(id);
       const nextNote = latestPendingNote ? { ...result.note, ...latestPendingNote } : result.note;
+      await offlineSync.cacheNote(result.note);
       selectedRef.current = nextNote;
       setSelectedNote(nextNote);
       setIsNoteLoading(false);
@@ -254,8 +339,14 @@ export function Workspace() {
         setSelectedId(null);
         setSelectedNote(null);
       }
-      if (reason instanceof ApiError && reason.status === 401) navigate("/login", { replace: true });
-      else setToast("无法打开这篇笔记");
+      if (reason instanceof ApiError && reason.status === 401 && !offlineSync.getState().pendingCount) navigate("/login", { replace: true });
+      const local = await offlineSync.getLocalSnapshot();
+      const cached = local.notes.find((note) => note.id === id);
+      if (cached) {
+        selectedRef.current = cached;
+        setSelectedNote(cached);
+        setIsNoteLoading(false);
+      } else setToast("无法打开这篇笔记");
     }
   }, [navigate]);
   useEffect(() => {
@@ -273,7 +364,7 @@ export function Workspace() {
   const focusModeRef = useRef(focusMode);
   focusModeRef.current = focusMode;
   const hasModalOpenRef = useRef(false);
-  hasModalOpenRef.current = Boolean(commandOpen || shareOpen || editingNotebook !== undefined || confirmRequest);
+  hasModalOpenRef.current = Boolean(commandOpen || shareOpen || conflictOpen || editingNotebook !== undefined || confirmRequest);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -307,7 +398,9 @@ export function Workspace() {
         // Drain this note's latest draft in order, including edits made while a request was in flight.
         while (pendingSavesRef.current.has(noteId)) {
           const draft = pendingSavesRef.current.get(noteId)!;
-          const result = await api.updateNote(noteId, noteSavePayload(draft), { keepalive });
+          const base = selectedRef.current?.id === noteId ? selectedRef.current : notesRef.current.find((note) => note.id === noteId);
+          if (!base) throw new Error("note-not-loaded");
+          const result = await offlineSync.saveNote({ ...base, ...draft, preview: base.preview, notebookName: base.notebookName, createdAt: base.createdAt, updatedAt: base.updatedAt }, { keepalive });
           const latest = pendingSavesRef.current.get(noteId);
           const next = latest && latest !== draft ? { ...result.note, ...latest, version: result.note.version } : undefined;
           if (next) pendingSavesRef.current.set(noteId, next);
@@ -317,7 +410,7 @@ export function Workspace() {
           if (activeNoteIdRef.current === noteId) {
             selectedRef.current = next ?? result.note;
             setSelectedNote(selectedRef.current);
-            setSaveState(next ? "saving" : "saved");
+            setSaveState(next ? "saving" : result.offline ? "local" : "saved");
           }
         }
       } catch (reason) {
@@ -420,14 +513,23 @@ export function Workspace() {
   }, []);
   const createNoteHere = useCallback(async () => {
     const currentNotebook = notebookId ? notebooks.find((notebook) => notebook.id === notebookId) : undefined;
+    const inbox = notebooks.find((notebook) => notebook.isSystem);
     const staysInView = Boolean(currentNotebook) || view === "all" || view === "inbox";
     try {
-      const result = await api.createNote(currentNotebook ? { notebookId: currentNotebook.id } : {});
-      revealCreatedNote(result.note, { view: currentNotebook || !staysInView ? "all" : view, notebookId: currentNotebook?.id }, currentNotebook ? `已在“${currentNotebook.name}”中创建新笔记` : "已在收件箱中创建新笔记");
+      const result = await offlineSync.createNote(currentNotebook ? { notebookId: currentNotebook.id } : { notebookId: inbox?.id }, currentNotebook ?? inbox);
+      revealCreatedNote(result.note, { view: currentNotebook || !staysInView ? "all" : view, notebookId: currentNotebook?.id }, result.offline ? "已在本机创建笔记，联网后自动同步" : currentNotebook ? `已在“${currentNotebook.name}”中创建新笔记` : "已在收件箱中创建新笔记");
       refreshNotebooks();
     } catch (reason) { setToast(errorMessage(reason, "创建笔记失败")); }
   }, [notebookId, notebooks, refreshNotebooks, revealCreatedNote, view]);
-  const createNoteInNotebook = useCallback(async (commandToCreate: CreateNoteCommand) => { try { const result = await api.createNote({ notebookId: commandToCreate.notebookId, title: commandToCreate.title }); revealCreatedNote(result.note, { view: "all", notebookId: commandToCreate.notebookId }, `已在“${commandToCreate.notebookName}”中创建“${commandToCreate.title}”`); setEditorFocusNoteId(result.note.id); refreshNotebooks(); } catch (reason) { if (reason instanceof ApiError && reason.status === 401) navigate("/login", { replace: true }); setToast(errorMessage(reason, "创建笔记失败，请稍后重试")); } }, [navigate, refreshNotebooks, revealCreatedNote]);
+  const createNoteInNotebook = useCallback(async (commandToCreate: CreateNoteCommand) => {
+    try {
+      const notebook = notebooks.find((item) => item.id === commandToCreate.notebookId);
+      const result = await offlineSync.createNote({ notebookId: commandToCreate.notebookId, title: commandToCreate.title }, notebook);
+      revealCreatedNote(result.note, { view: "all", notebookId: commandToCreate.notebookId }, result.offline ? "已在本机创建笔记，联网后自动同步" : `已在“${commandToCreate.notebookName}”中创建“${commandToCreate.title}”`);
+      setEditorFocusNoteId(result.note.id);
+      refreshNotebooks();
+    } catch (reason) { if (reason instanceof ApiError && reason.status === 401 && !offlineSync.getState().pendingCount) navigate("/login", { replace: true }); setToast(errorMessage(reason, "创建笔记失败，请稍后重试")); }
+  }, [navigate, notebooks, refreshNotebooks, revealCreatedNote]);
   const createNotebook = useCallback(() => setEditingNotebook(null), []);
   const saveNotebook = useCallback((saved: Notebook) => {
     setNotebooks((current) => {
@@ -450,19 +552,32 @@ export function Workspace() {
     }
     setEditingNotebook(undefined);
   }, [editingNotebook]);
+  const saveNotebookDraft = useCallback(async (draft: { name: string; color: string }) => {
+    const existing = editingNotebook ?? undefined;
+    const timestamp = Math.floor(Date.now() / 1000);
+    const notebook: Notebook = existing
+      ? { ...existing, name: draft.name, color: draft.color }
+      : { id: crypto.randomUUID(), name: draft.name, color: draft.color, isSystem: false, count: 0, updatedAt: timestamp };
+    const result = await offlineSync.saveNotebook(notebook, !existing);
+    if (result.offline) setToast("已保存到本机，联网后自动同步");
+    return result.notebook;
+  }, [editingNotebook]);
   const deleteNotebook = useCallback(async (id: string) => {
     try {
-      await api.deleteNotebook(id);
+      const target = notebooks.find((notebook) => notebook.id === id);
+      const inbox = notebooks.find((notebook) => notebook.isSystem);
+      if (!target || !inbox) throw new Error("notebook-not-found");
+      const result = await offlineSync.deleteNotebook(target, inbox);
       setNotebooks((current) => current.filter((nb) => nb.id !== id));
       if (notebookId === id) setNotebookId(undefined);
       refreshNotebooks();
       void loadNotes();
-      setToast("已删除笔记本，原笔记已归入收件箱");
+      setToast(result.offline ? "已在本机删除笔记本，联网后自动同步" : "已删除笔记本，原笔记已归入收件箱");
       setEditingNotebook(undefined);
     } catch (reason) {
       setToast(errorMessage(reason, "删除笔记本失败"));
     }
-  }, [loadNotes, notebookId, refreshNotebooks]);
+  }, [loadNotes, notebookId, notebooks, refreshNotebooks]);
   const toggleFavorite = useCallback(() => { const current = selectedRef.current; if (!current) return; const next = { ...current, isFavorite: !current.isFavorite }; selectedRef.current = next; setSelectedNote(next); persist(next); if (view === "favorites" && !next.isFavorite) removeFromList(current.id); }, [persist, removeFromList, view]);
   const finishTrashOperation = useCallback((noteId: string) => {
     trashOperationsRef.current.delete(noteId);
@@ -518,10 +633,12 @@ export function Workspace() {
     invalidateCollections();
     try {
       await runSave(noteId);
-      await api.deleteNote(noteId);
+      const note = selectedRef.current?.id === noteId ? selectedRef.current : (await offlineSync.getLocalSnapshot()).notes.find((item) => item.id === noteId);
+      if (!note) throw new Error("note-not-found");
+      const result = await offlineSync.permanentlyDeleteNote(note);
       removeFromList(noteId);
       discardNoteDraft(noteId);
-      setToast("已彻底删除笔记");
+      setToast(result.offline ? "已在本机彻底删除，联网后自动同步" : "已彻底删除笔记");
     } finally { finishTrashOperation(noteId); }
   }, [discardNoteDraft, finishTrashOperation, invalidateCollections, removeFromList, runSave]);
   const permanentDeleteNote = useCallback(async () => {
@@ -617,26 +734,44 @@ export function Workspace() {
     setNotebookId(origin?.notebookId);
   }, [notebookId, query, view]);
   const command = useCallback((id: CommandId) => { if (id === "new-note") void createNoteHere(); if (id === "search") { setMobileSidebarOpen(true); requestAnimationFrame(() => searchRef.current?.focus()); } if (id === "toggle-sidebar") setSidebarCollapsed((value) => !value); if (id === "toggle-focus-mode") toggleFocusMode(); if (id === "share" && selectedRef.current) setShareOpen(true); if (id === "favorite") toggleFavorite(); if (id === "trash") moveToTrash(); if (id === "restore") restoreFromTrash(); }, [createNoteHere, moveToTrash, restoreFromTrash, toggleFavorite, toggleFocusMode]);
-  const logout = async () => { await flushPendingSaves("now"); await api.logout().catch(() => undefined); navigate("/login", { replace: true }); };
+  useEffect(() => {
+    if (!ready || shortcutHandledRef.current) return;
+    const action = new URLSearchParams(window.location.search).get("action");
+    if (action === "new-note") void createNoteHere();
+    if (action === "search") { setMobileSidebarOpen(true); requestAnimationFrame(() => searchRef.current?.focus()); }
+    shortcutHandledRef.current = true;
+    if (action) window.history.replaceState(null, "", `${window.location.pathname}${window.location.hash}`);
+  }, [createNoteHere, ready]);
+  const logout = async () => { await flushPendingSaves("now"); await api.logout().catch(() => undefined); await offlineSync.clear(); navigate("/login", { replace: true }); };
+  const updatePwa = useCallback(async () => {
+    await flushPendingSaves("now");
+    if (pendingSavesRef.current.size > 0 || failedSavesRef.current.size > 0) { setToast("仍有编辑内容未保存，更新已暂缓"); return; }
+    await offlineSync.sync();
+    const sync = offlineSync.getState();
+    if (sync.pendingCount > 0) { setToast("仍有内容等待联网同步，更新已暂缓"); return; }
+    if (sync.conflictCount > 0) { setToast("请先处理同步冲突，再更新应用"); setConflictOpen(true); return; }
+    applyPwaUpdate();
+  }, [flushPendingSaves]);
   if (!ready) return <main className="app-loading"><span className="loading-ring" /><span>正在进入你的空间……</span></main>;
   const currentNotebook = notebookId ? notebooks.find((notebook) => notebook.id === notebookId) : undefined;
   const renderedNote = selectedNote && selectedRef.current?.id === selectedNote.id ? selectedRef.current : selectedNote;
   return <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${focusMode ? "is-focus-mode" : ""}`}>
     <button className={`mobile-scrim ${mobileSidebarOpen || mobileListOpen ? "is-visible" : ""}`} type="button" aria-label="关闭导航" onClick={() => { setMobileSidebarOpen(false); setMobileListOpen(false); }} />
-    <Sidebar view={view} setView={selectView} notebooks={notebooks} notebookId={notebookId} setNotebookId={selectNotebook} query={query} setQuery={changeQuery} searchRef={searchRef} onNewNote={() => void createNoteHere()} onCreateNotebook={() => void createNotebook()} onEditNotebook={(target) => setEditingNotebook(target)} collapsed={sidebarCollapsed} onCollapse={() => setSidebarCollapsed((value) => !value)} mobileOpen={mobileSidebarOpen} onLogout={logout} />
+    <Sidebar view={view} setView={selectView} notebooks={notebooks} notebookId={notebookId} setNotebookId={selectNotebook} query={query} setQuery={changeQuery} searchRef={searchRef} onNewNote={() => void createNoteHere()} onCreateNotebook={() => void createNotebook()} onEditNotebook={(target) => setEditingNotebook(target)} collapsed={sidebarCollapsed} onCollapse={() => setSidebarCollapsed((value) => !value)} mobileOpen={mobileSidebarOpen} onLogout={logout} syncState={syncState} pwaState={pwaState} onInstall={() => void installPwa()} onUpdate={() => void updatePwa()} onConflicts={() => setConflictOpen(true)} />
     <NoteListPanel notes={notes} total={totalNotes} sort={noteSort} setSort={setNoteSort} selectedId={selectedId} onSelect={(id) => { selectNote(id); setMobileListOpen(false); }} view={view} query={query} currentNotebookName={currentNotebook?.name} onEmptyTrash={view === "trash" ? emptyTrash : undefined} trashBusy={pendingTrashCount > 0 || emptyingTrash} onNewNote={currentNotebook ? () => void createNoteHere() : undefined} onClearQuery={() => changeQuery("")} mobileOpen={mobileListOpen} onOpenSidebar={() => setMobileSidebarOpen(true)} />
     <main className="editor-region">
       {renderedNote ? <Suspense fallback={<NoteLoadingState />}><LazyNoteEditor note={renderedNote} saveState={saveState} isLoading={isNoteLoading} trashBusy={emptyingTrash || (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onShare={() => setShareOpen(true)} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={() => setMobileListOpen(true)} focusMode={focusMode} onToggleFocusMode={toggleFocusMode} /></Suspense> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor isTrash={view === "trash"} onNewNote={() => void createNoteHere()} onOpenList={() => setMobileListOpen(true)} />}
     </main>
     <CommandMenu open={commandOpen} onClose={() => setCommandOpen(false)} onCommand={command} onCreateNoteInNotebook={createNoteInNotebook} canRestore={Boolean(renderedNote?.deletedAt)} notebooks={notebooks} focusMode={focusMode} />
     {shareOpen && renderedNote && <ShareDialog note={renderedNote} onClose={() => setShareOpen(false)} onToast={setToast} />}
-    {editingNotebook !== undefined && <NotebookDialog key={editingNotebook?.id ?? "new"} notebook={editingNotebook} onClose={() => setEditingNotebook(undefined)} onSaved={saveNotebook} onRequestDelete={(target) => requestConfirm({ eyebrow: "整理上下文", title: `删除笔记本“${target.name}”？`, description: "笔记本中的笔记会自动移入收件箱，笔记内容不会被删除。", confirmLabel: "删除笔记本", danger: true, onConfirm: () => void deleteNotebook(target.id) })} onToast={setToast} />}
+    {editingNotebook !== undefined && <NotebookDialog key={editingNotebook?.id ?? "new"} notebook={editingNotebook} onClose={() => setEditingNotebook(undefined)} onSave={saveNotebookDraft} onSaved={saveNotebook} onRequestDelete={(target) => requestConfirm({ eyebrow: "整理上下文", title: `删除笔记本“${target.name}”？`, description: "笔记本中的笔记会自动移入收件箱，笔记内容不会被删除。", confirmLabel: "删除笔记本", danger: true, onConfirm: () => void deleteNotebook(target.id) })} onToast={setToast} />}
+    {conflictOpen && conflicts[0] && <ConflictDialog conflict={conflicts[0]} onClose={() => setConflictOpen(false)} onResolved={() => { setConflicts((current) => current.slice(1)); if (selectedRef.current?.id === conflicts[0]?.noteId) setNoteReloadToken((value) => value + 1); }} />}
     {confirmRequest && <ConfirmDialog key={confirmRequest.id} request={confirmRequest} onClose={() => setConfirmRequest(null)} />}
     {toast && <div className="toast" role="status">{toast}</div>}
   </div>;
 }
 
-function Sidebar({ view, setView, notebooks, notebookId, setNotebookId, query, setQuery, searchRef, onNewNote, onCreateNotebook, onEditNotebook, collapsed, onCollapse, mobileOpen, onLogout }: { view: NoteView; setView: (view: NoteView) => void; notebooks: Notebook[]; notebookId?: string; setNotebookId: (id: string) => void; query: string; setQuery: (query: string) => void; searchRef: React.RefObject<HTMLInputElement | null>; onNewNote: () => void; onCreateNotebook: () => void; onEditNotebook: (notebook: Notebook) => void; collapsed: boolean; onCollapse: () => void; mobileOpen: boolean; onLogout: () => void }) {
+function Sidebar({ view, setView, notebooks, notebookId, setNotebookId, query, setQuery, searchRef, onNewNote, onCreateNotebook, onEditNotebook, collapsed, onCollapse, mobileOpen, onLogout, syncState, pwaState, onInstall, onUpdate, onConflicts }: { view: NoteView; setView: (view: NoteView) => void; notebooks: Notebook[]; notebookId?: string; setNotebookId: (id: string) => void; query: string; setQuery: (query: string) => void; searchRef: React.RefObject<HTMLInputElement | null>; onNewNote: () => void; onCreateNotebook: () => void; onEditNotebook: (notebook: Notebook) => void; collapsed: boolean; onCollapse: () => void; mobileOpen: boolean; onLogout: () => void; syncState: OfflineSyncState; pwaState: PwaState; onInstall: () => void; onUpdate: () => void; onConflicts: () => void }) {
   const notebookListRef = useRef<HTMLDivElement>(null);
 
   return <aside className={`sidebar ${mobileOpen ? "is-mobile-open" : ""}`} aria-label="主导航">
@@ -653,7 +788,7 @@ function Sidebar({ view, setView, notebooks, notebookId, setNotebookId, query, s
         <FloatingScrollbar scrollTargetRef={notebookListRef} controlsId="notebook-list-scroll-region" ariaLabel="笔记本列表滚动条" placement="left" />
       </div>
     </div>
-    <div className="sidebar-bottom"><button className="nav-item" type="button" onClick={onLogout}><LogOut size={18} /><span>退出登录</span></button><div className="sidebar-hint"><span className="status-pulse" />数据安全保存在你的空间</div></div>
+    <div className="sidebar-bottom"><button className="nav-item" type="button" onClick={onLogout}><LogOut size={18} /><span>退出登录</span></button><SyncStatus state={syncState} pwa={pwaState} onInstall={onInstall} onUpdate={onUpdate} onConflicts={onConflicts} /><div className="sidebar-hint"><span className="status-pulse" />数据安全保存在你的空间</div></div>
   </aside>;
 }
 
@@ -765,7 +900,7 @@ function ShareDialog({ note, onClose, onToast }: { note: Note; onClose: () => vo
   </dialog>;
 }
 
-function NotebookDialog({ notebook, onClose, onSaved, onRequestDelete, onToast }: { notebook?: Notebook | null; onClose: () => void; onSaved: (notebook: Notebook) => void; onRequestDelete?: (notebook: Notebook) => void; onToast: (message: string) => void }) {
+function NotebookDialog({ notebook, onClose, onSave, onSaved, onRequestDelete, onToast }: { notebook?: Notebook | null; onClose: () => void; onSave: (draft: { name: string; color: string }) => Promise<Notebook>; onSaved: (notebook: Notebook) => void; onRequestDelete?: (notebook: Notebook) => void; onToast: (message: string) => void }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState(notebook?.name ?? "");
@@ -786,13 +921,8 @@ function NotebookDialog({ notebook, onClose, onSaved, onRequestDelete, onToast }
     setColorError("");
     setBusy(true);
     try {
-      if (isEditing && notebook) {
-        const result = await api.updateNotebook(notebook.id, { name: trimmed, color: normalizedColor });
-        onSaved(result.notebook);
-      } else {
-        const result = await api.createNotebook({ name: trimmed, color: normalizedColor });
-        onSaved(result.notebook);
-      }
+      const saved = await onSave({ name: trimmed, color: normalizedColor });
+      onSaved(saved);
       onClose();
     } catch (reason) {
       onToast(errorMessage(reason, isEditing ? "更新笔记本失败" : "创建笔记本失败"));

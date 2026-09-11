@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { parseCreateNoteCommand } from "../app/command-parser";
 import type { Notebook } from "../shared/types";
 
-const notebook = (id: string, name: string): Notebook => ({ id, name, color: "#d96245", isSystem: false, count: 0 });
+const notebook = (id: string, name: string): Notebook => ({ id, name, color: "#d96245", isSystem: false, count: 0, updatedAt: 0 });
 
 describe("create note command parser", () => {
   test("parses a named note in a notebook", () => {

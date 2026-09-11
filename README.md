@@ -153,14 +153,10 @@ bun run build
 前端构建命令：
 
 ```bash
-bun build ./app/index.html \
-  --outdir ./dist/client \
-  --target browser \
-  --format esm \
-  --splitting \
-  --production \
-  --minify
+bun run build:client
 ```
+
+该命令同时输出带哈希的前端资源、`sw.js`、`manifest.webmanifest` 和 192/512 像素应用图标。
 
 后端构建命令：
 
@@ -204,6 +200,14 @@ curl http://127.0.0.1:3000/api/health
 {"status":"ok","database":"ok"}
 ```
 
+## PWA 与离线使用
+
+生产环境请通过 HTTPS 提供服务（本机开发时的 `localhost` 也可安装）。在 Chrome/Edge 中打开 `/app` 后，使用地址栏或应用内的“安装应用”入口安装；iOS/iPadOS Safari 使用“分享 → 添加到主屏幕”。安装后会以独立窗口启动。
+
+应用壳由 Service Worker 缓存，笔记副本和待同步操作保存在浏览器 IndexedDB 中。断网时可以继续查看、搜索、新建、编辑、收藏、移动和回收笔记；恢复联网后会自动同步。同步冲突会保留本地版本，并在侧栏提供服务器版本、本地版本和合并入口。分享链接仍需要联网创建，退出登录会清除当前用户的本地笔记副本、队列和冲突记录。
+
+已有数据库升级到包含同步功能的版本后，必须显式执行 `bun run db:migrate`，再启动服务。
+
 ## SQLite 迁移
 
 空数据库首次启动时，服务器会按文件名顺序自动执行当前已有迁移，并在 `schema_migrations` 中记录结果。数据库完成初始化后，服务器启动不会自动执行后续新增迁移；新增迁移必须通过 `bun run db:migrate` 或容器中的迁移命令显式执行。
@@ -212,6 +216,7 @@ curl http://127.0.0.1:3000/api/health
 
 - `0001_initial.sql`：用户、会话、笔记本、笔记、分享和 FTS5 表。
 - `0002_sqlite_share_snapshots.sql`：分享快照标题和 Markdown 字段。
+- `0003_pwa_sync.sql`：同步变更日志和操作幂等记录，删除变更同时作为防止旧客户端重建数据的 tombstone。
 
 手动执行：
 

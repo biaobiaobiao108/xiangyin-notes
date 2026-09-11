@@ -23,7 +23,7 @@ const editorCoreExtensionOptions = {
 
 export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList, focusMode = false, onToggleFocusMode }: {
   note: Note;
-  saveState: "idle" | "saving" | "saved" | "conflict" | "error";
+  saveState: "idle" | "saving" | "saved" | "local" | "conflict" | "error";
   isLoading?: boolean;
   reloadToken?: number;
   focusRequested?: boolean;
@@ -462,7 +462,7 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
     setActiveOutlineId(id);
   };
 
-  const saveLabel = saveState === "saving" ? "保存中" : "已保存";
+  const saveLabel = saveState === "saving" ? "保存中" : saveState === "local" ? "已保存到本机" : "已保存";
   return (
     <section className={`editor-panel ${isLoading ? "is-loading" : ""} ${focusMode ? "is-focus-mode" : ""}`} aria-label="笔记编辑器" aria-busy={isLoading} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === "s") { event.preventDefault(); onSaveNow(); } }}>
       <header className="editor-header">

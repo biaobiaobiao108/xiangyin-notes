@@ -11,6 +11,7 @@ export type Notebook = {
   color: string;
   isSystem: boolean;
   count: number;
+  updatedAt: number;
 };
 
 export type NoteSummary = {
