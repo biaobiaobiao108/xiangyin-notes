@@ -466,14 +466,15 @@ button.save-status:hover { text-decoration: underline; }
 
 dialog { padding: 0; color: var(--ink); }
 dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px); }
-.command-dialog { width: min(500px, calc(100% - 32px)); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow); animation: dialog-in 160ms ease both; }
+.command-dialog { display: flex; flex-direction: column; width: min(500px, calc(100% - 32px)); height: min(480px, calc(100vh - 64px)); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow); animation: dialog-in 160ms ease both; overflow: hidden; }
 .command-dialog:not([open]) { display: none; }
 @keyframes dialog-in { from { opacity: 0; transform: translateY(-6px) scale(0.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
-.command-dialog-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 20px 14px; }
+.command-dialog-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 20px 14px; flex-shrink: 0; }
 .command-dialog h2, .share-dialog h2 { margin: 0; font-size: 1.05rem; letter-spacing: -0.035em; }
-.command-search-wrap { display: flex; align-items: center; gap: 10px; margin: 0 18px 13px; padding: 0 12px; min-height: 45px; border: 1px solid var(--accent); border-radius: 8px; color: var(--muted); }
+.command-search-wrap { display: flex; align-items: center; gap: 10px; margin: 0 18px 13px; padding: 0 12px; min-height: 45px; border: 1px solid var(--accent); border-radius: 8px; color: var(--muted); flex-shrink: 0; }
 .command-search-wrap input { min-width: 0; flex: 1; border: 0; outline: 0; color: var(--ink); background: transparent; }
-.command-list { display: grid; gap: 2px; padding: 0 10px 12px; }
+.command-list-wrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.command-list { flex: 1; min-height: 0; overflow-y: auto; display: grid; grid-auto-rows: max-content; gap: 2px; padding: 0 10px 12px; }
 .command-section-label { padding: 6px 10px 3px; color: var(--soft-muted); font-size: 0.66rem; font-weight: 700; letter-spacing: 0.08em; }
 .command-row { display: grid; grid-template-columns: 24px minmax(0,1fr) auto; align-items: center; gap: 9px; min-height: 46px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
 .command-row:hover, .command-row.is-selected { background: #f3f5f2; }
@@ -490,7 +491,8 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
 .command-empty { padding: 18px 10px; color: var(--muted); text-align: center; font-size: 0.84rem; }
 .command-feedback { margin: 0 10px 12px; padding: 11px 12px; border: 1px solid #ecd1c8; border-radius: 9px; background: #fff8f4; color: var(--accent-dark); font-size: 0.78rem; line-height: 1.45; }
 .command-search-status { padding: 7px 10px 1px; color: var(--soft-muted); font-size: 0.72rem; }
-.command-footer { display: flex; justify-content: space-between; padding: 12px 20px; border-top: 1px solid var(--border); color: var(--soft-muted); font-size: 0.71rem; }
+.command-footer { display: flex; justify-content: space-between; padding: 12px 20px; border-top: 1px solid var(--border); color: var(--soft-muted); font-size: 0.71rem; flex-shrink: 0; }
+
 .command-footer span { display: inline-flex; align-items: center; gap: 6px; }
 
 .share-dialog { width: min(500px, calc(100% - 32px)); border: 1px solid var(--border); border-radius: 20px; background: var(--surface); box-shadow: var(--shadow); animation: dialog-in 160ms ease both; }

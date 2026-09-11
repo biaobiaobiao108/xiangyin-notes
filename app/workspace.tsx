@@ -799,13 +799,6 @@ export function Workspace() {
     if (!normalized) return;
     setInNoteSearchQuery(normalized);
   }, []);
-  const handleGlobalSearch = useCallback((term: string) => {
-    const normalized = term.trim();
-    if (!normalized) return;
-    setInNoteSearchQuery("");
-    changeQuery(normalized);
-    setMobileSidebarOpen(false);
-  }, [changeQuery]);
   const handleClearSearch = useCallback(() => {
     setInNoteSearchQuery("");
     if (query) {
@@ -813,6 +806,7 @@ export function Workspace() {
     }
   }, [changeQuery, query]);
   const openCommandSearchResult = useCallback((noteId: string, searchQuery: string) => {
+
     const normalizedQuery = searchQuery.trim();
     if (!normalizedQuery) return;
     setInNoteSearchQuery("");
@@ -867,7 +861,8 @@ export function Workspace() {
     <main className="editor-region">
       {renderedNote ? <Suspense fallback={<NoteLoadingState />}><LazyNoteEditor note={renderedNote} searchQuery={activeSearchQuery} onClearSearch={activeSearchQuery ? handleClearSearch : undefined} saveState={saveState} isLoading={isNoteLoading} trashBusy={emptyingTrash || (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onShare={() => setShareOpen(true)} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={() => setMobileListOpen(true)} focusMode={focusMode} onToggleFocusMode={toggleFocusMode} /></Suspense> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor isTrash={view === "trash"} onNewNote={() => void createNoteHere()} onOpenList={() => setMobileListOpen(true)} />}
     </main>
-    <CommandMenu open={commandOpen} onClose={closeCommandMenu} onCommand={command} onCreateNoteInNotebook={createNoteInNotebook} canRestore={Boolean(renderedNote?.deletedAt)} notebooks={notebooks} focusMode={focusMode} canInstallApp={pwaState.canInstall} showIosInstallHint={pwaState.showIosInstallHint} standalone={pwaState.standalone} noteResults={commandNoteResults} noteSearchLoading={commandNoteSearchLoading} onSearchQueryChange={handleCommandNoteQueryChange} onOpenSearchResult={openCommandSearchResult} hasActiveNote={Boolean(renderedNote && !renderedNote.deletedAt)} onSearchInCurrentNote={handleSearchInCurrentNote} onGlobalSearch={handleGlobalSearch} initialQuery={commandInitialQuery} />
+    <CommandMenu open={commandOpen} onClose={closeCommandMenu} onCommand={command} onCreateNoteInNotebook={createNoteInNotebook} canRestore={Boolean(renderedNote?.deletedAt)} notebooks={notebooks} focusMode={focusMode} canInstallApp={pwaState.canInstall} showIosInstallHint={pwaState.showIosInstallHint} standalone={pwaState.standalone} noteResults={commandNoteResults} noteSearchLoading={commandNoteSearchLoading} onSearchQueryChange={handleCommandNoteQueryChange} onOpenSearchResult={openCommandSearchResult} hasActiveNote={Boolean(renderedNote && !renderedNote.deletedAt)} onSearchInCurrentNote={handleSearchInCurrentNote} initialQuery={commandInitialQuery} />
+
 
     {shareOpen && renderedNote && <ShareDialog note={renderedNote} onClose={() => setShareOpen(false)} onToast={setToast} />}
     {editingNotebook !== undefined && <NotebookDialog key={editingNotebook?.id ?? "new"} notebook={editingNotebook} onClose={() => setEditingNotebook(undefined)} onSave={saveNotebookDraft} onSaved={saveNotebook} onRequestDelete={(target) => requestConfirm({ eyebrow: "整理上下文", title: `删除笔记本“${target.name}”？`, description: "笔记本中的笔记会自动移入收件箱，笔记内容不会被删除。", confirmLabel: "删除笔记本", danger: true, onConfirm: () => void deleteNotebook(target.id) })} onToast={setToast} />}

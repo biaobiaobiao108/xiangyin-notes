@@ -1,7 +1,8 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { Archive, Bookmark, Download, FilePlus2, FileSearch, FileText, Globe, Link2, Maximize2, PanelLeft, Search, Trash2, type LucideIcon } from "lucide-react";
+import { Archive, Bookmark, Download, FilePlus2, FileSearch, FileText, Link2, Maximize2, PanelLeft, Search, Trash2, type LucideIcon } from "lucide-react";
 import type { NoteSummary, Notebook } from "../shared/types";
 import { parseCreateNoteCommand, parseSearchPrefixCommand, type CreateNoteCommand } from "./command-parser";
+import { FloatingScrollbar } from "./floating-scrollbar";
 import { modKey } from "./platform";
 
 export type CommandId = "new-note" | "search" | "find-in-note" | "toggle-sidebar" | "toggle-focus-mode" | "share" | "favorite" | "trash" | "restore" | "install-app";
@@ -11,7 +12,7 @@ type CommandOption = {
   label: string;
   shortcut: string;
   icon: LucideIcon;
-  kind: "command" | "create-note" | "note" | "in-note-search" | "global-search";
+  kind: "command" | "create-note" | "note" | "in-note-search";
   id?: CommandId;
   createNote?: CreateNoteCommand;
   noteId?: string;
@@ -36,7 +37,6 @@ type CommandMenuProps = {
   onOpenSearchResult: (noteId: string, query: string) => void;
   hasActiveNote?: boolean;
   onSearchInCurrentNote?: (term: string) => void;
-  onGlobalSearch?: (term: string) => void;
   initialQuery?: string;
 };
 
@@ -57,11 +57,11 @@ export function CommandMenu({
   onOpenSearchResult,
   hasActiveNote = false,
   onSearchInCurrentNote,
-  onGlobalSearch,
   initialQuery = "",
 }: CommandMenuProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
 
@@ -126,50 +126,12 @@ export function CommandMenu({
       detail: "在当前笔记中高亮并定位匹配项",
     } : null;
 
-    const globalOption: CommandOption = {
-      key: "action:global-search",
-      label: `全局搜索“${effectiveSearchTerm}”`,
-      shortcut: "↵",
-      icon: Globe,
-      kind: "global-search",
-      searchTerm: effectiveSearchTerm,
-      detail: "在全部笔记中检索并过滤列表",
-    };
-
-    if (parsedSearchPrefix?.scope === "global") {
-      return [
-        globalOption,
-        ...(inNoteOption ? [inNoteOption] : []),
-        ...filteredCommands,
-        ...noteOptions,
-      ];
-    }
-
-    if (parsedSearchPrefix?.scope === "in-note") {
-      return [
-        ...(inNoteOption ? [inNoteOption] : []),
-        globalOption,
-        ...filteredCommands,
-        ...noteOptions,
-      ];
-    }
-
-    // Default search action priority when query is typed without prefix
-    if (hasActiveNote && inNoteOption) {
-      return [
-        inNoteOption,
-        globalOption,
-        ...filteredCommands,
-        ...noteOptions,
-      ];
-    }
-
     return [
-      globalOption,
+      ...(inNoteOption ? [inNoteOption] : []),
       ...filteredCommands,
       ...noteOptions,
     ];
-  }, [createNoteResult, effectiveSearchTerm, filteredCommands, hasActiveNote, noteOptions, parsedSearchPrefix?.scope]);
+  }, [createNoteResult, effectiveSearchTerm, filteredCommands, hasActiveNote, noteOptions]);
 
   const createNoteError = createNoteResult?.kind === "error" ? createNoteResult.message : "";
 
@@ -209,13 +171,20 @@ export function CommandMenu({
     setSelected((current) => Math.min(current, Math.max(options.length - 1, 0)));
   }, [options.length]);
 
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const selectedElement = list.querySelector<HTMLElement>(".command-row.is-selected");
+    if (selectedElement) {
+      selectedElement.scrollIntoView({ block: "nearest" });
+    }
+  }, [selected]);
+
   const execute = (option: CommandOption) => {
     if (option.createNote) {
       onCreateNoteInNotebook(option.createNote);
     } else if (option.kind === "in-note-search" && option.searchTerm) {
       onSearchInCurrentNote?.(option.searchTerm);
-    } else if (option.kind === "global-search" && option.searchTerm) {
-      onGlobalSearch?.(option.searchTerm);
     } else if (option.noteId) {
       onOpenSearchResult(option.noteId, option.searchTerm || query.trim());
     } else if (option.id === "find-in-note") {
@@ -267,39 +236,54 @@ export function CommandMenu({
           aria-label="搜索命令或笔记"
         />
       </div>
-      <div className="command-list" role="listbox" aria-label="命令和笔记搜索结果">
-        {createNoteError ? <div className="command-feedback" role="status">{createNoteError}</div> : options.length ? options.map((command, index) => {
-          const Icon = command.icon;
-          const section = command.kind === "note" ? "笔记" : command.kind === "create-note" ? "操作" : (command.kind === "in-note-search" || command.kind === "global-search") ? "搜索" : "命令";
-          const heading = section !== previousSection ? <div className="command-section-label" key={`${command.key}-section`}>{section}</div> : null;
-          const note = command.noteId ? noteResults.find((item) => item.id === command.noteId) : undefined;
-          const noteDetail = note ? [note.preview, note.notebookName].filter(Boolean).join(" · ") : command.detail || "";
-          previousSection = section;
-          return (
-            <Fragment key={command.key}>
-              {heading}
-              <button
-                type="button"
-                className={`command-row ${command.kind === "note" ? "command-row--note" : ""} ${command.kind === "in-note-search" || command.kind === "global-search" ? "command-row--search" : ""} ${selected === index ? "is-selected" : ""}`}
-                role="option"
-                aria-selected={selected === index}
-                onMouseEnter={() => setSelected(index)}
-                onClick={() => execute(command)}
-              >
-                <Icon size={18} />
-                <span className="command-row-content">
-                  <span className="command-row-label">{command.label}</span>
-                  {noteDetail && <span className="command-row-detail">{noteDetail}</span>}
-                </span>
-                <kbd>{command.shortcut}</kbd>
-              </button>
-            </Fragment>
-          );
-        }) : query.trim() && noteSearchLoading ? <div className="command-search-status" role="status">正在搜索笔记……</div> : <div className="command-empty">{query.trim() ? "没有匹配的命令或笔记" : "没有可用的命令"}</div>}
-        {query.trim() && noteSearchLoading && options.length > 0 && <div className="command-search-status" role="status">正在搜索笔记……</div>}
+      <div className="command-list-wrap">
+        <div
+          id="command-list-scroll-region"
+          ref={listRef}
+          className="command-list floating-scrollbar-target"
+          role="listbox"
+          aria-label="命令和笔记搜索结果"
+        >
+          {createNoteError ? <div className="command-feedback" role="status">{createNoteError}</div> : options.length ? options.map((command, index) => {
+            const Icon = command.icon;
+            const section = command.kind === "note" ? "笔记" : command.kind === "create-note" ? "操作" : command.kind === "in-note-search" ? "搜索" : "命令";
+            const heading = section !== previousSection ? <div className="command-section-label" key={`${command.key}-section`}>{section}</div> : null;
+            const note = command.noteId ? noteResults.find((item) => item.id === command.noteId) : undefined;
+            const noteDetail = note ? [note.preview, note.notebookName].filter(Boolean).join(" · ") : command.detail || "";
+            previousSection = section;
+            return (
+              <Fragment key={command.key}>
+                {heading}
+                <button
+                  type="button"
+                  className={`command-row ${command.kind === "note" ? "command-row--note" : ""} ${command.kind === "in-note-search" ? "command-row--search" : ""} ${selected === index ? "is-selected" : ""}`}
+                  role="option"
+                  aria-selected={selected === index}
+                  onMouseEnter={() => setSelected(index)}
+                  onClick={() => execute(command)}
+                >
+                  <Icon size={18} />
+                  <span className="command-row-content">
+                    <span className="command-row-label">{command.label}</span>
+                    {noteDetail && <span className="command-row-detail">{noteDetail}</span>}
+                  </span>
+                  <kbd>{command.shortcut}</kbd>
+                </button>
+              </Fragment>
+            );
+          }) : query.trim() && noteSearchLoading ? <div className="command-search-status" role="status">正在搜索笔记……</div> : <div className="command-empty">{query.trim() ? "没有匹配的命令或笔记" : "没有可用的命令"}</div>}
+          {query.trim() && noteSearchLoading && options.length > 0 && <div className="command-search-status" role="status">正在搜索笔记……</div>}
+        </div>
+        <FloatingScrollbar
+          scrollTargetRef={listRef}
+          controlsId="command-list-scroll-region"
+          ariaLabel="命令列表滚动条"
+          placement="right"
+        />
       </div>
       <div className="command-footer"><span><Archive size={14} />使用 ↑ ↓ 选择</span><span>Enter 打开 · F3 查找下一处</span></div>
     </dialog>
   );
 }
+
 
