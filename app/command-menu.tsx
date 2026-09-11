@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Archive, Bookmark, FilePlus2, Link2, Maximize2, PanelLeft, Search, Trash2, type LucideIcon } from "lucide-react";
+import { Archive, Bookmark, Download, FilePlus2, Link2, Maximize2, PanelLeft, Search, Trash2, type LucideIcon } from "lucide-react";
 import type { Notebook } from "../shared/types";
 import { parseCreateNoteCommand, type CreateNoteCommand } from "./command-parser";
 import { modKey } from "./platform";
 
-export type CommandId = "new-note" | "search" | "toggle-sidebar" | "toggle-focus-mode" | "share" | "favorite" | "trash" | "restore";
+export type CommandId = "new-note" | "search" | "toggle-sidebar" | "toggle-focus-mode" | "share" | "favorite" | "trash" | "restore" | "install-app";
 
 type CommandOption = {
   key: string;
@@ -23,9 +23,12 @@ type CommandMenuProps = {
   canRestore: boolean;
   notebooks: Notebook[];
   focusMode?: boolean;
+  canInstallApp: boolean;
+  showIosInstallHint: boolean;
+  standalone: boolean;
 };
 
-export function CommandMenu({ open, onClose, onCommand, onCreateNoteInNotebook, canRestore, notebooks, focusMode = false }: CommandMenuProps) {
+export function CommandMenu({ open, onClose, onCommand, onCreateNoteInNotebook, canRestore, notebooks, focusMode = false, canInstallApp, showIosInstallHint, standalone }: CommandMenuProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
@@ -39,7 +42,8 @@ export function CommandMenu({ open, onClose, onCommand, onCreateNoteInNotebook, 
     { id: "favorite", label: "切换收藏", shortcut: "↵", icon: Bookmark },
     { id: "trash", label: "移入回收站", shortcut: "↵", icon: Trash2 },
     { id: "restore", label: "恢复笔记", shortcut: "↵", icon: Archive },
-  ], [focusMode]);
+    ...(!standalone && (canInstallApp || showIosInstallHint) ? [{ id: "install-app" as const, label: "安装象映笔记", shortcut: "↵", icon: Download }] : []),
+  ], [canInstallApp, focusMode, showIosInstallHint, standalone]);
   const createNoteResult = useMemo(() => parseCreateNoteCommand(query, notebooks), [notebooks, query]);
   const filtered = useMemo(() => commands
     .filter((command) => (command.id !== "restore" || canRestore) && (command.label.includes(query.trim()) || command.id.includes(query.trim().toLowerCase())))

@@ -119,9 +119,20 @@ function NoteLoadingState() {
   return <section className="editor-panel editor-loading-shell" aria-label="笔记编辑器" aria-busy="true"><div className="editor-switch-overlay editor-switch-overlay--visible" role="status" aria-live="polite"><div className="editor-switch-card"><BrandMark className="editor-switch-mark" /><div className="editor-switch-lines" aria-hidden="true"><span /><span /><span /></div><strong>正在打开笔记…</strong></div></div></section>;
 }
 
-function SyncStatus({ state, pwa, onInstall, onUpdate, onConflicts }: { state: OfflineSyncState; pwa: PwaState; onInstall: () => void; onUpdate: () => void; onConflicts: () => void }) {
-  const label = state.status === "offline" ? "离线工作" : state.status === "syncing" ? "正在同步" : state.status === "conflict" ? `有 ${state.conflictCount} 个冲突` : state.status === "error" ? "同步需要重试" : state.pendingCount ? `等待同步 ${state.pendingCount} 项` : "已同步";
-  return <div className="sidebar-sync" aria-live="polite"><span className={`status-pulse status-pulse--${state.status}`} /><span>{label}</span>{state.status === "error" && <button className="text-button sidebar-sync-action" type="button" onClick={() => void offlineSync.sync()}>重试</button>}{state.conflictCount > 0 && <button className="text-button sidebar-sync-action" type="button" onClick={onConflicts}>查看冲突</button>}{pwa.canInstall && <button className="text-button sidebar-sync-action" type="button" onClick={() => void onInstall()}>安装应用</button>}{pwa.showIosInstallHint && !pwa.standalone && <span className="sidebar-sync-hint">分享 → 添加到主屏幕</span>}{pwa.updateAvailable && <button className="text-button sidebar-sync-action" type="button" onClick={onUpdate}>更新</button>}</div>;
+function SyncNotice({ state, pwa, onRetry, onUpdate, onConflicts }: { state: OfflineSyncState; pwa: PwaState; onRetry: () => void; onUpdate: () => void; onConflicts: () => void }) {
+  if (state.conflictCount > 0) {
+    return <div className="sync-notice sync-notice--danger" role="alert" aria-labelledby="sync-notice-title"><div className="sync-notice-header"><AlertTriangle size={18} aria-hidden="true" /><div><strong id="sync-notice-title">有 {state.conflictCount} 个同步冲突</strong><p>本地内容已经保留，请处理冲突后继续同步。</p></div></div><div className="sync-notice-actions"><button className="text-button sync-notice-action" type="button" onClick={onConflicts}>查看冲突</button></div></div>;
+  }
+  if (state.status === "error") {
+    return <div className="sync-notice sync-notice--danger" role="alert" aria-labelledby="sync-notice-title"><div className="sync-notice-header"><AlertTriangle size={18} aria-hidden="true" /><div><strong id="sync-notice-title">同步失败</strong><p>{state.lastError || "请重试同步，确认本地修改已经保存。"}</p></div></div><div className="sync-notice-actions"><button className="text-button sync-notice-action" type="button" onClick={onRetry}>重试</button></div></div>;
+  }
+  if (state.status === "offline" && state.pendingCount > 0) {
+    return <div className="sync-notice sync-notice--offline" role="status" aria-live="polite" aria-labelledby="sync-notice-title"><div className="sync-notice-header"><RefreshCw size={18} aria-hidden="true" /><div><strong id="sync-notice-title">已离线，等待同步 {state.pendingCount} 项</strong><p>恢复联网后会自动继续同步。</p></div></div><div className="sync-notice-actions"><button className="text-button sync-notice-action" type="button" onClick={onRetry}>重试</button></div></div>;
+  }
+  if (pwa.updateAvailable) {
+    return <div className="sync-notice sync-notice--update" role="status" aria-live="polite" aria-labelledby="sync-notice-title"><div className="sync-notice-header"><RefreshCw size={18} aria-hidden="true" /><div><strong id="sync-notice-title">发现新版本</strong><p>完成待同步内容后即可更新应用。</p></div></div><div className="sync-notice-actions"><button className="text-button sync-notice-action" type="button" onClick={onUpdate}>更新</button></div></div>;
+  }
+  return null;
 }
 
 function ConflictDialog({ conflict, onClose, onResolved }: { conflict: OfflineConflict; onClose: () => void; onResolved: () => void }) {
@@ -733,7 +744,7 @@ export function Workspace() {
     setView(origin?.view ?? "all");
     setNotebookId(origin?.notebookId);
   }, [notebookId, query, view]);
-  const command = useCallback((id: CommandId) => { if (id === "new-note") void createNoteHere(); if (id === "search") { setMobileSidebarOpen(true); requestAnimationFrame(() => searchRef.current?.focus()); } if (id === "toggle-sidebar") setSidebarCollapsed((value) => !value); if (id === "toggle-focus-mode") toggleFocusMode(); if (id === "share" && selectedRef.current) setShareOpen(true); if (id === "favorite") toggleFavorite(); if (id === "trash") moveToTrash(); if (id === "restore") restoreFromTrash(); }, [createNoteHere, moveToTrash, restoreFromTrash, toggleFavorite, toggleFocusMode]);
+  const command = useCallback((id: CommandId) => { if (id === "new-note") void createNoteHere(); if (id === "search") { setMobileSidebarOpen(true); requestAnimationFrame(() => searchRef.current?.focus()); } if (id === "toggle-sidebar") setSidebarCollapsed((value) => !value); if (id === "toggle-focus-mode") toggleFocusMode(); if (id === "share" && selectedRef.current) setShareOpen(true); if (id === "favorite") toggleFavorite(); if (id === "trash") moveToTrash(); if (id === "restore") restoreFromTrash(); if (id === "install-app") { if (pwaState.canInstall) void installPwa(); else if (pwaState.showIosInstallHint && !pwaState.standalone) setToast("请在 Safari 中点击分享，再选择“添加到主屏幕”"); } }, [createNoteHere, moveToTrash, pwaState, restoreFromTrash, toggleFavorite, toggleFocusMode]);
   useEffect(() => {
     if (!ready || shortcutHandledRef.current) return;
     const action = new URLSearchParams(window.location.search).get("action");
@@ -752,26 +763,27 @@ export function Workspace() {
     if (sync.conflictCount > 0) { setToast("请先处理同步冲突，再更新应用"); setConflictOpen(true); return; }
     applyPwaUpdate();
   }, [flushPendingSaves]);
+  const retrySync = useCallback(() => { void offlineSync.sync(); }, []);
   if (!ready) return <main className="app-loading"><span className="loading-ring" /><span>正在进入你的空间……</span></main>;
   const currentNotebook = notebookId ? notebooks.find((notebook) => notebook.id === notebookId) : undefined;
   const renderedNote = selectedNote && selectedRef.current?.id === selectedNote.id ? selectedRef.current : selectedNote;
   return <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${focusMode ? "is-focus-mode" : ""}`}>
     <button className={`mobile-scrim ${mobileSidebarOpen || mobileListOpen ? "is-visible" : ""}`} type="button" aria-label="关闭导航" onClick={() => { setMobileSidebarOpen(false); setMobileListOpen(false); }} />
-    <Sidebar view={view} setView={selectView} notebooks={notebooks} notebookId={notebookId} setNotebookId={selectNotebook} query={query} setQuery={changeQuery} searchRef={searchRef} onNewNote={() => void createNoteHere()} onCreateNotebook={() => void createNotebook()} onEditNotebook={(target) => setEditingNotebook(target)} collapsed={sidebarCollapsed} onCollapse={() => setSidebarCollapsed((value) => !value)} mobileOpen={mobileSidebarOpen} onLogout={logout} syncState={syncState} pwaState={pwaState} onInstall={() => void installPwa()} onUpdate={() => void updatePwa()} onConflicts={() => setConflictOpen(true)} />
+    <Sidebar view={view} setView={selectView} notebooks={notebooks} notebookId={notebookId} setNotebookId={selectNotebook} query={query} setQuery={changeQuery} searchRef={searchRef} onNewNote={() => void createNoteHere()} onCreateNotebook={() => void createNotebook()} onEditNotebook={(target) => setEditingNotebook(target)} collapsed={sidebarCollapsed} onCollapse={() => setSidebarCollapsed((value) => !value)} mobileOpen={mobileSidebarOpen} onLogout={logout} />
     <NoteListPanel notes={notes} total={totalNotes} sort={noteSort} setSort={setNoteSort} selectedId={selectedId} onSelect={(id) => { selectNote(id); setMobileListOpen(false); }} view={view} query={query} currentNotebookName={currentNotebook?.name} onEmptyTrash={view === "trash" ? emptyTrash : undefined} trashBusy={pendingTrashCount > 0 || emptyingTrash} onNewNote={currentNotebook ? () => void createNoteHere() : undefined} onClearQuery={() => changeQuery("")} mobileOpen={mobileListOpen} onOpenSidebar={() => setMobileSidebarOpen(true)} />
     <main className="editor-region">
       {renderedNote ? <Suspense fallback={<NoteLoadingState />}><LazyNoteEditor note={renderedNote} saveState={saveState} isLoading={isNoteLoading} trashBusy={emptyingTrash || (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onShare={() => setShareOpen(true)} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={() => setMobileListOpen(true)} focusMode={focusMode} onToggleFocusMode={toggleFocusMode} /></Suspense> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor isTrash={view === "trash"} onNewNote={() => void createNoteHere()} onOpenList={() => setMobileListOpen(true)} />}
     </main>
-    <CommandMenu open={commandOpen} onClose={() => setCommandOpen(false)} onCommand={command} onCreateNoteInNotebook={createNoteInNotebook} canRestore={Boolean(renderedNote?.deletedAt)} notebooks={notebooks} focusMode={focusMode} />
+    <CommandMenu open={commandOpen} onClose={() => setCommandOpen(false)} onCommand={command} onCreateNoteInNotebook={createNoteInNotebook} canRestore={Boolean(renderedNote?.deletedAt)} notebooks={notebooks} focusMode={focusMode} canInstallApp={pwaState.canInstall} showIosInstallHint={pwaState.showIosInstallHint} standalone={pwaState.standalone} />
     {shareOpen && renderedNote && <ShareDialog note={renderedNote} onClose={() => setShareOpen(false)} onToast={setToast} />}
     {editingNotebook !== undefined && <NotebookDialog key={editingNotebook?.id ?? "new"} notebook={editingNotebook} onClose={() => setEditingNotebook(undefined)} onSave={saveNotebookDraft} onSaved={saveNotebook} onRequestDelete={(target) => requestConfirm({ eyebrow: "整理上下文", title: `删除笔记本“${target.name}”？`, description: "笔记本中的笔记会自动移入收件箱，笔记内容不会被删除。", confirmLabel: "删除笔记本", danger: true, onConfirm: () => void deleteNotebook(target.id) })} onToast={setToast} />}
     {conflictOpen && conflicts[0] && <ConflictDialog conflict={conflicts[0]} onClose={() => setConflictOpen(false)} onResolved={() => { setConflicts((current) => current.slice(1)); if (selectedRef.current?.id === conflicts[0]?.noteId) setNoteReloadToken((value) => value + 1); }} />}
     {confirmRequest && <ConfirmDialog key={confirmRequest.id} request={confirmRequest} onClose={() => setConfirmRequest(null)} />}
-    {toast && <div className="toast" role="status">{toast}</div>}
+    <div className="system-notices"><SyncNotice state={syncState} pwa={pwaState} onRetry={retrySync} onUpdate={() => void updatePwa()} onConflicts={() => setConflictOpen(true)} />{toast && <div className="toast" role="status">{toast}</div>}</div>
   </div>;
 }
 
-function Sidebar({ view, setView, notebooks, notebookId, setNotebookId, query, setQuery, searchRef, onNewNote, onCreateNotebook, onEditNotebook, collapsed, onCollapse, mobileOpen, onLogout, syncState, pwaState, onInstall, onUpdate, onConflicts }: { view: NoteView; setView: (view: NoteView) => void; notebooks: Notebook[]; notebookId?: string; setNotebookId: (id: string) => void; query: string; setQuery: (query: string) => void; searchRef: React.RefObject<HTMLInputElement | null>; onNewNote: () => void; onCreateNotebook: () => void; onEditNotebook: (notebook: Notebook) => void; collapsed: boolean; onCollapse: () => void; mobileOpen: boolean; onLogout: () => void; syncState: OfflineSyncState; pwaState: PwaState; onInstall: () => void; onUpdate: () => void; onConflicts: () => void }) {
+function Sidebar({ view, setView, notebooks, notebookId, setNotebookId, query, setQuery, searchRef, onNewNote, onCreateNotebook, onEditNotebook, collapsed, onCollapse, mobileOpen, onLogout }: { view: NoteView; setView: (view: NoteView) => void; notebooks: Notebook[]; notebookId?: string; setNotebookId: (id: string) => void; query: string; setQuery: (query: string) => void; searchRef: React.RefObject<HTMLInputElement | null>; onNewNote: () => void; onCreateNotebook: () => void; onEditNotebook: (notebook: Notebook) => void; collapsed: boolean; onCollapse: () => void; mobileOpen: boolean; onLogout: () => void }) {
   const notebookListRef = useRef<HTMLDivElement>(null);
 
   return <aside className={`sidebar ${mobileOpen ? "is-mobile-open" : ""}`} aria-label="主导航">
@@ -788,7 +800,7 @@ function Sidebar({ view, setView, notebooks, notebookId, setNotebookId, query, s
         <FloatingScrollbar scrollTargetRef={notebookListRef} controlsId="notebook-list-scroll-region" ariaLabel="笔记本列表滚动条" placement="left" />
       </div>
     </div>
-    <div className="sidebar-bottom"><SyncStatus state={syncState} pwa={pwaState} onInstall={onInstall} onUpdate={onUpdate} onConflicts={onConflicts} /><div className="sidebar-hint"><span className="status-pulse" />数据安全保存在你的空间</div><button className="nav-item" type="button" aria-label="退出登录" onClick={onLogout}><LogOut size={18} /><span>退出登录</span></button></div>
+    <div className="sidebar-bottom"><button className="nav-item" type="button" aria-label="退出登录" onClick={onLogout}><LogOut size={18} /><span>退出登录</span></button></div>
   </aside>;
 }
 
