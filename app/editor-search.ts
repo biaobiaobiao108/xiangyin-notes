@@ -16,8 +16,13 @@ export type EditorSearchMatch = {
 export type SearchHighlightState = {
   query: string;
   matches: EditorSearchMatch[];
+  activeIndex: number;
   decorations: DecorationSet;
 };
+
+export type SearchHighlightMeta =
+  | { type: "query"; query: string; activeIndex?: number }
+  | { type: "activeIndex"; index: number };
 
 export const searchHighlightPluginKey = new PluginKey<SearchHighlightState>("editorSearchHighlight");
 
@@ -76,14 +81,24 @@ export function findEditorSearchMatches(doc: ProseMirrorNode, query: string): Ed
   return matches;
 }
 
-function createSearchHighlightState(doc: ProseMirrorNode, query: string): SearchHighlightState {
+export function normalizeSearchMatchIndex(index: number, count: number): number {
+  if (count <= 0) return 0;
+  return ((index % count) + count) % count;
+}
+
+export function cycleSearchMatchIndex(currentIndex: number, count: number, direction: -1 | 1): number {
+  return normalizeSearchMatchIndex(currentIndex + direction, count);
+}
+
+function createSearchHighlightState(doc: ProseMirrorNode, query: string, requestedIndex = 0): SearchHighlightState {
   const matches = findEditorSearchMatches(doc, query);
+  const activeIndex = normalizeSearchMatchIndex(requestedIndex, matches.length);
   const decorations = DecorationSet.create(doc, matches.map((match, index) => Decoration.inline(
     match.from,
     match.to,
-    { class: index === 0 ? "editor-search-match editor-search-match--active" : "editor-search-match" },
+    { class: index === activeIndex ? "editor-search-match editor-search-match--active" : "editor-search-match" },
   )));
-  return { query, matches, decorations };
+  return { query, matches, activeIndex, decorations };
 }
 
 export const SearchHighlightExtension = Extension.create({
@@ -94,11 +109,12 @@ export const SearchHighlightExtension = Extension.create({
       new Plugin<SearchHighlightState>({
         key: searchHighlightPluginKey,
         state: {
-          init: () => ({ query: "", matches: [], decorations: DecorationSet.empty }),
+          init: () => ({ query: "", matches: [], activeIndex: 0, decorations: DecorationSet.empty }),
           apply: (transaction, previous) => {
-            const nextQuery = transaction.getMeta(searchHighlightPluginKey);
-            if (typeof nextQuery === "string") return createSearchHighlightState(transaction.doc, nextQuery);
-            if (transaction.docChanged && previous.query) return createSearchHighlightState(transaction.doc, previous.query);
+            const meta = transaction.getMeta(searchHighlightPluginKey) as SearchHighlightMeta | undefined;
+            if (meta?.type === "query") return createSearchHighlightState(transaction.doc, meta.query, meta.activeIndex);
+            if (meta?.type === "activeIndex") return createSearchHighlightState(transaction.doc, previous.query, meta.index);
+            if (transaction.docChanged && previous.query) return createSearchHighlightState(transaction.doc, previous.query, previous.activeIndex);
             return previous;
           },
         },

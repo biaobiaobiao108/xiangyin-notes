@@ -210,6 +210,10 @@ export function Workspace() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [mobileListOpen, setMobileListOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
+  const [commandNoteQuery, setCommandNoteQuery] = useState("");
+  const [commandNoteResults, setCommandNoteResults] = useState<NoteSummary[]>([]);
+  const [commandNoteSearchLoading, setCommandNoteSearchLoading] = useState(false);
+  const commandNoteRequestRef = useRef(0);
   const [shareOpen, setShareOpen] = useState(false);
   const [editingNotebook, setEditingNotebook] = useState<Notebook | null | undefined>(undefined);
   const [toast, setToast] = useState("");
@@ -372,6 +376,31 @@ export function Workspace() {
   }, [loadSelectedNote, ready, selectedId]);
   useEffect(() => { if (ready) void refreshNotebooks(); return () => { notebooksRequestRef.current += 1; }; }, [ready, refreshNotebooks]);
   useEffect(() => { if (!ready) return; const timer = setTimeout(() => void loadNotes(), 180); return () => { clearTimeout(timer); listRequestRef.current += 1; }; }, [loadNotes, ready]);
+  useEffect(() => {
+    const requestId = ++commandNoteRequestRef.current;
+    const normalizedQuery = commandNoteQuery.trim();
+    if (!normalizedQuery) {
+      setCommandNoteResults([]);
+      setCommandNoteSearchLoading(false);
+      return;
+    }
+
+    setCommandNoteSearchLoading(true);
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const result = await api.listNotes({ view: "all", query: normalizedQuery });
+          if (requestId === commandNoteRequestRef.current) setCommandNoteResults(result.notes);
+        } catch {
+          const local = await offlineSync.getLocalSnapshot();
+          if (requestId === commandNoteRequestRef.current) setCommandNoteResults(filterOfflineNotes(local.notes, local.notebooks, "all", normalizedQuery));
+        } finally {
+          if (requestId === commandNoteRequestRef.current) setCommandNoteSearchLoading(false);
+        }
+      })();
+    }, 160);
+    return () => clearTimeout(timer);
+  }, [commandNoteQuery]);
   const focusModeRef = useRef(focusMode);
   focusModeRef.current = focusMode;
   const hasModalOpenRef = useRef(false);
@@ -744,6 +773,20 @@ export function Workspace() {
     setView(origin?.view ?? "all");
     setNotebookId(origin?.notebookId);
   }, [notebookId, query, view]);
+  const closeCommandMenu = useCallback(() => {
+    setCommandOpen(false);
+    setCommandNoteQuery("");
+  }, []);
+  const handleCommandNoteQueryChange = useCallback((next: string) => {
+    setCommandNoteQuery(next);
+  }, []);
+  const openCommandSearchResult = useCallback((noteId: string, searchQuery: string) => {
+    const normalizedQuery = searchQuery.trim();
+    if (!normalizedQuery) return;
+    changeQuery(normalizedQuery);
+    selectNote(noteId);
+    setMobileSidebarOpen(false);
+  }, [changeQuery, selectNote]);
   const command = useCallback((id: CommandId) => { if (id === "new-note") void createNoteHere(); if (id === "search") { setMobileSidebarOpen(true); requestAnimationFrame(() => searchRef.current?.focus()); } if (id === "toggle-sidebar") setSidebarCollapsed((value) => !value); if (id === "toggle-focus-mode") toggleFocusMode(); if (id === "share" && selectedRef.current) setShareOpen(true); if (id === "favorite") toggleFavorite(); if (id === "trash") moveToTrash(); if (id === "restore") restoreFromTrash(); if (id === "install-app") { if (pwaState.canInstall) void installPwa(); else if (pwaState.showIosInstallHint && !pwaState.standalone) setToast("请在 Safari 中点击分享，再选择“添加到主屏幕”"); } }, [createNoteHere, moveToTrash, pwaState, restoreFromTrash, toggleFavorite, toggleFocusMode]);
   useEffect(() => {
     if (!ready || shortcutHandledRef.current) return;
@@ -774,7 +817,7 @@ export function Workspace() {
     <main className="editor-region">
       {renderedNote ? <Suspense fallback={<NoteLoadingState />}><LazyNoteEditor note={renderedNote} searchQuery={query} saveState={saveState} isLoading={isNoteLoading} trashBusy={emptyingTrash || (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onShare={() => setShareOpen(true)} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={() => setMobileListOpen(true)} focusMode={focusMode} onToggleFocusMode={toggleFocusMode} /></Suspense> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor isTrash={view === "trash"} onNewNote={() => void createNoteHere()} onOpenList={() => setMobileListOpen(true)} />}
     </main>
-    <CommandMenu open={commandOpen} onClose={() => setCommandOpen(false)} onCommand={command} onCreateNoteInNotebook={createNoteInNotebook} canRestore={Boolean(renderedNote?.deletedAt)} notebooks={notebooks} focusMode={focusMode} canInstallApp={pwaState.canInstall} showIosInstallHint={pwaState.showIosInstallHint} standalone={pwaState.standalone} />
+    <CommandMenu open={commandOpen} onClose={closeCommandMenu} onCommand={command} onCreateNoteInNotebook={createNoteInNotebook} canRestore={Boolean(renderedNote?.deletedAt)} notebooks={notebooks} focusMode={focusMode} canInstallApp={pwaState.canInstall} showIosInstallHint={pwaState.showIosInstallHint} standalone={pwaState.standalone} noteResults={commandNoteResults} noteSearchLoading={commandNoteSearchLoading} onSearchQueryChange={handleCommandNoteQueryChange} onOpenSearchResult={openCommandSearchResult} />
     {shareOpen && renderedNote && <ShareDialog note={renderedNote} onClose={() => setShareOpen(false)} onToast={setToast} />}
     {editingNotebook !== undefined && <NotebookDialog key={editingNotebook?.id ?? "new"} notebook={editingNotebook} onClose={() => setEditingNotebook(undefined)} onSave={saveNotebookDraft} onSaved={saveNotebook} onRequestDelete={(target) => requestConfirm({ eyebrow: "整理上下文", title: `删除笔记本“${target.name}”？`, description: "笔记本中的笔记会自动移入收件箱，笔记内容不会被删除。", confirmLabel: "删除笔记本", danger: true, onConfirm: () => void deleteNotebook(target.id) })} onToast={setToast} />}
     {conflictOpen && conflicts[0] && <ConflictDialog conflict={conflicts[0]} onClose={() => setConflictOpen(false)} onResolved={() => { setConflicts((current) => current.slice(1)); if (selectedRef.current?.id === conflicts[0]?.noteId) setNoteReloadToken((value) => value + 1); }} />}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import type { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
@@ -8,10 +8,10 @@ import TaskItem from "@tiptap/extension-task-item";
 import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
 import { findWrapping } from "@tiptap/pm/transform";
-import { ChevronLeft, Link2, ListTree, Maximize2, Minimize2, Minus, Trash2, Undo2 } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronUp, Link2, ListTree, Maximize2, Minimize2, Minus, Trash2, Undo2 } from "lucide-react";
 import type { Note } from "../shared/types";
 import { BrandMark } from "./brand-mark";
-import { findEditorSearchMatches, findTextMatches, searchHighlightPluginKey, SearchHighlightExtension } from "./editor-search";
+import { cycleSearchMatchIndex, findEditorSearchMatches, findTextMatches, searchHighlightPluginKey, SearchHighlightExtension } from "./editor-search";
 import { buildOutlineItems, countEditorText, detectLeakedImePrefix, parseMarkdownBlockShortcut, shouldParseMarkdownPaste, type EditorStats, type MarkdownBlockShortcut, type OutlineItem } from "./editor-metrics";
 import { FloatingScrollbar } from "./floating-scrollbar";
 import { ImeMarkdownSafeExtension, imeMarkdownSafePluginKey } from "./ime-markdown-safe-extension";
@@ -61,6 +61,11 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   const [outlineItems, setOutlineItems] = useState<OutlineItem[]>([]);
   const [activeOutlineId, setActiveOutlineId] = useState<string | null>(null);
   const [outlineOpen, setOutlineOpen] = useState(false);
+  const [searchNavigation, setSearchNavigation] = useState({ activeIndex: 0, matchCount: 0 });
+  const searchQueryRef = useRef(searchQuery);
+  const searchNavigationRef = useRef(searchNavigation);
+  searchQueryRef.current = searchQuery;
+  searchNavigationRef.current = searchNavigation;
   onChangeRef.current = onChange;
 
   const syncEditorSurface = (instance: Editor) => {
@@ -337,12 +342,26 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     },
   });
 
+  const syncSearchNavigation = useCallback((instance: Editor) => {
+    const state = searchHighlightPluginKey.getState(instance.state);
+    const next = { activeIndex: state?.activeIndex ?? 0, matchCount: state?.matches.length ?? 0 };
+    setSearchNavigation((current) => current.activeIndex === next.activeIndex && current.matchCount === next.matchCount ? current : next);
+  }, []);
+
   useEffect(() => {
     editorInstanceRef.current = editor;
     return () => {
       if (editorInstanceRef.current === editor) editorInstanceRef.current = null;
     };
   }, [editor]);
+
+  useEffect(() => {
+    if (!editor) return;
+    const handleTransaction = ({ editor: instance }: { editor: Editor }) => syncSearchNavigation(instance);
+    editor.on("transaction", handleTransaction);
+    syncSearchNavigation(editor);
+    return () => { editor.off("transaction", handleTransaction); };
+  }, [editor, syncSearchNavigation]);
 
   useEffect(() => {
     if (!editor) return;
@@ -390,11 +409,27 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     if (editor.commands.focus("start")) onFocusHandled?.();
   }, [editor, focusRequested, isLoading, note.id, note.deletedAt, onFocusHandled]);
 
+  const scrollToActiveSearchMatch = useCallback(() => {
+    if (!editor || editor.isDestroyed) return;
+    const behavior: ScrollBehavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+    editor.view.dom.querySelector<HTMLElement>(".editor-search-match--active")?.scrollIntoView({ behavior, block: "center", inline: "nearest" });
+  }, [editor]);
+
+  const moveSearchMatch = useCallback((direction: -1 | 1) => {
+    if (!editor || isLoading || !searchQueryRef.current.trim()) return;
+    const state = searchHighlightPluginKey.getState(editor.state);
+    if (!state?.matches.length) return;
+    const nextIndex = cycleSearchMatchIndex(state.activeIndex, state.matches.length, direction);
+    editor.view.dispatch(editor.state.tr.setMeta(searchHighlightPluginKey, { type: "activeIndex", index: nextIndex }));
+    requestAnimationFrame(scrollToActiveSearchMatch);
+  }, [editor, isLoading, scrollToActiveSearchMatch]);
+
   useEffect(() => {
     if (!editor || isLoading) return;
     const titleMatches = findTextMatches(note.title, searchQuery);
     const bodyMatches = findEditorSearchMatches(editor.state.doc, searchQuery);
-    editor.view.dispatch(editor.state.tr.setMeta(searchHighlightPluginKey, searchQuery));
+    editor.view.dispatch(editor.state.tr.setMeta(searchHighlightPluginKey, { type: "query", query: searchQuery, activeIndex: 0 }));
+    syncSearchNavigation(editor);
 
     const frame = requestAnimationFrame(() => {
       if (editor.isDestroyed) return;
@@ -412,7 +447,19 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       editor.view.dom.querySelector<HTMLElement>(".editor-search-match--active")?.scrollIntoView({ behavior, block: "center", inline: "nearest" });
     });
     return () => cancelAnimationFrame(frame);
-  }, [editor, isLoading, note.id, searchQuery]);
+  }, [editor, isLoading, note.id, searchQuery, syncSearchNavigation]);
+
+  useEffect(() => {
+    const handleSearchKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "F3" || event.isComposing || event.keyCode === 229 || event.defaultPrevented) return;
+      if (event.target instanceof Element && event.target.closest("dialog[open]")) return;
+      if (!searchQueryRef.current.trim() || searchNavigationRef.current.matchCount === 0) return;
+      event.preventDefault();
+      moveSearchMatch(event.shiftKey ? -1 : 1);
+    };
+    window.addEventListener("keydown", handleSearchKeyDown);
+    return () => window.removeEventListener("keydown", handleSearchKeyDown);
+  }, [moveSearchMatch]);
 
   useEffect(() => {
     if (isLoading) setOutlineOpen(false);
@@ -600,6 +647,11 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
           </nav> : <p className="editor-outline-empty">用 <code>#</code> 标题为这篇笔记建立大纲。</p>}
         </aside>
         <div className="editor-floating-row">
+          {searchNavigation.matchCount > 0 && <div className="editor-search-nav" role="group" aria-label={`正文搜索结果，第 ${searchNavigation.activeIndex + 1} 个，共 ${searchNavigation.matchCount} 个`}>
+            <button className="editor-search-nav-button" type="button" aria-label="上一个搜索匹配" title="上一个搜索匹配 (Shift+F3)" onClick={() => moveSearchMatch(-1)} disabled={isLoading || searchNavigation.matchCount < 2}><ChevronUp size={16} strokeWidth={2} /></button>
+            <span className="editor-search-nav-count" aria-live="polite">{searchNavigation.activeIndex + 1} / {searchNavigation.matchCount}</span>
+            <button className="editor-search-nav-button" type="button" aria-label="下一个搜索匹配" title="下一个搜索匹配 (F3)" onClick={() => moveSearchMatch(1)} disabled={isLoading || searchNavigation.matchCount < 2}><ChevronDown size={16} strokeWidth={2} /></button>
+          </div>}
           <div className="editor-stats-pill" aria-label={`字数 ${editorStats.wordCount}，字符数 ${editorStats.characterCount}`}>
             <span className="editor-stat"><strong>{editorStats.wordCount}</strong><span>字数</span></span>
             <span className="editor-stat-divider" aria-hidden="true">·</span>

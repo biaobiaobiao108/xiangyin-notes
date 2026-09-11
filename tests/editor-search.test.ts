@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { findTextMatches, getSearchTerms } from "../app/editor-search";
+import { cycleSearchMatchIndex, findTextMatches, getSearchTerms, normalizeSearchMatchIndex } from "../app/editor-search";
 
 describe("editor search", () => {
   test("finds every Chinese match in document order", () => {
@@ -36,5 +36,15 @@ describe("editor search", () => {
   test("returns no match for an empty or punctuation-only query", () => {
     expect(findTextMatches("anything", "")).toEqual([]);
     expect(findTextMatches("anything", "!!!")).toEqual([]);
+  });
+
+  test("normalizes and cycles match indexes with wraparound", () => {
+    expect(normalizeSearchMatchIndex(0, 3)).toBe(0);
+    expect(normalizeSearchMatchIndex(-1, 3)).toBe(2);
+    expect(normalizeSearchMatchIndex(4, 3)).toBe(1);
+    expect(normalizeSearchMatchIndex(4, 0)).toBe(0);
+    expect(cycleSearchMatchIndex(0, 3, -1)).toBe(2);
+    expect(cycleSearchMatchIndex(2, 3, 1)).toBe(0);
+    expect(cycleSearchMatchIndex(1, 1, 1)).toBe(0);
   });
 });
