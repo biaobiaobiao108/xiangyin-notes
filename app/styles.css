@@ -288,11 +288,11 @@ button.save-status:hover { text-decoration: underline; }
 .note-title-input { width: 100%; padding: 0; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: clamp(2rem, 3.5vw, 3.05rem); font-weight: 700; letter-spacing: -0.065em; line-height: 1.08; }
 .note-title-input::placeholder { color: #bec5bf; }
 .editor-document { padding-top: 72px; }
-.note-prose { margin-top: 32px; color: #29322d; font-size: 1.08rem; line-height: 1.6; }
+.note-prose { margin-top: 32px; color: #29322d; font-size: 1.08rem; line-height: 1.55; }
 .note-prose:focus { outline: 0; }
 .note-prose > *:first-child { margin-top: 0; }
 .note-prose h1, .note-prose h2, .note-prose h3 { margin-block: 1.15em 0.4em; letter-spacing: -0.045em; line-height: 1.2; scroll-margin-block-start: 24px; }
-.note-prose h1 { font-size: 1.85rem; color: var(--h1-color); font-weight: 700; }
+.note-prose h1 { font-size: 1.85rem; color: var(--h1-color); font-weight: 700; line-height: 1.15; }
 .note-prose h2 { font-size: 1.45rem; color: var(--h2-color); font-weight: 650; }
 .note-prose h3 { font-size: 1.18rem; color: var(--h3-color); font-weight: 600; }
 .note-prose p { margin-block: 0 0.75em; }
@@ -300,9 +300,10 @@ button.save-status:hover { text-decoration: underline; }
 .note-prose a { color: var(--accent-dark); text-decoration-thickness: 1px; text-underline-offset: 3px; cursor: pointer; }
 .note-prose ul, .note-prose ol { margin-block: 0 0.75em; padding-left: 1.45em; line-height: inherit; }
 .note-prose li { margin-block: 0.28em; padding-left: 0.18em; }
-.note-prose li > p:last-child { margin-block-end: 0; }
-.note-prose blockquote { margin-block: 1.05em; padding: 0.15em 0 0.15em 1.2em; border-left: 3px solid #9da9a1; color: var(--muted); font-family: "Source Serif 4", Georgia, serif; font-size: 1.18em; font-style: italic; }
-.note-prose pre { overflow: auto; margin-block: 1em; padding: 18px 20px; border: 1px solid #e4e9e4; border-radius: 10px; background: #f6f8f5; color: #315d45; font: 0.85rem/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.note-prose li > p:last-child,
+.note-prose li > div > p:last-child { margin-block-end: 0; }
+.note-prose blockquote { margin-block: 1.05em; padding: 0.15em 0 0.15em 1.2em; border-left: 3px solid #9da9a1; color: var(--muted); font-family: "Source Serif 4", Georgia, serif; font-size: 1.18em; line-height: 1.5; font-style: italic; }
+.note-prose pre { overflow: auto; margin-block: 1em; padding: 18px 20px; border: 1px solid #e4e9e4; border-radius: 10px; background: #f6f8f5; color: #315d45; font: 0.85rem/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
 .note-prose code { padding: 0.13em 0.34em; border-radius: 4px; background: #eff2ee; color: #8d4b37; font: 0.86em ui-monospace, SFMono-Regular, Consolas, monospace; }
 .note-prose pre code { padding: 0; background: transparent; color: inherit; }
 .note-prose hr { margin-block: 1.4em; border: 0; border-top: 1px solid var(--border); }
@@ -583,7 +584,7 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
 .share-article { width: min(760px, calc(100% - 48px)); margin: 0 auto; padding: 78px 0 60px; }
 .share-kicker { display: flex; align-items: center; gap: 7px; margin: 0 0 22px; color: var(--muted); font-size: 0.75rem; }
 .share-article h1 { margin: 0 0 36px; color: var(--ink); font-size: clamp(2.2rem, 5vw, 3.5rem); letter-spacing: -0.07em; line-height: 1.05; }
-.share-prose { font-size: 1.08rem; line-height: 1.72; }
+.share-prose { font-size: 1.08rem; line-height: 1.6; }
 .share-footer { width: min(760px, calc(100% - 48px)); margin: 0 auto; padding: 18px 0 34px; border-top: 1px solid var(--border); color: var(--soft-muted); font-size: 0.74rem; }
 .share-error { display: grid; align-content: start; justify-items: center; }
 .share-error .share-brand { width: min(940px, calc(100% - 48px)); padding-top: 24px; }
