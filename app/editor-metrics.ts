@@ -15,11 +15,11 @@ export type OutlineItem = OutlineHeading & {
 export type MarkdownHeadingLevel = 1 | 2 | 3;
 
 export function isMarkdownHeadingMarker(text: string): boolean {
-  return /^#{1,3}$/u.test(text);
+  return /^[#＃]{1,3}$/u.test(text);
 }
 
 export function parseMarkdownHeadingPrefix(text: string): { level: MarkdownHeadingLevel; length: number } | null {
-  const match = /^(#{1,3})\s/u.exec(text);
+  const match = /^([#＃]{1,3})[ \t\u3000]/u.exec(text);
   if (!match) return null;
   return { level: match[1].length as MarkdownHeadingLevel, length: match[0].length };
 }
@@ -29,26 +29,31 @@ export type MarkdownBlockShortcut =
   | { type: "bulletList"; length: number }
   | { type: "orderedList"; length: number }
   | { type: "blockquote"; length: number }
-  | { type: "taskList"; length: number };
+  | { type: "taskList"; length: number }
+  | { type: "codeBlock"; length: number };
 
 export function parseMarkdownBlockShortcut(text: string): MarkdownBlockShortcut | null {
-  const headingMatch = /^(#{1,3})\s/u.exec(text);
+  const headingMatch = /^([#＃]{1,3})[ \t\u3000]/u.exec(text);
   if (headingMatch) {
     return { type: "heading", level: headingMatch[1].length as MarkdownHeadingLevel, length: headingMatch[0].length };
   }
-  const taskMatch = /^\[(?: |)\]\s/u.exec(text);
+  const codeBlockMatch = /^(?:```|｀｀｀)[ \t\u3000\n]/u.exec(text);
+  if (codeBlockMatch) {
+    return { type: "codeBlock", length: codeBlockMatch[0].length };
+  }
+  const taskMatch = /^(?:\[(?: |)\]|【(?: |)】)[ \t\u3000]/u.exec(text);
   if (taskMatch) {
     return { type: "taskList", length: taskMatch[0].length };
   }
-  const bulletMatch = /^[-+*]\s/u.exec(text);
+  const bulletMatch = /^[-+*][ \t\u3000]/u.exec(text);
   if (bulletMatch) {
     return { type: "bulletList", length: bulletMatch[0].length };
   }
-  const orderedMatch = /^1\.\s/u.exec(text);
+  const orderedMatch = /^(?:1\.|１\.|1、)[ \t\u3000]/u.exec(text);
   if (orderedMatch) {
     return { type: "orderedList", length: orderedMatch[0].length };
   }
-  const quoteMatch = /^>\s/u.exec(text);
+  const quoteMatch = /^[>＞][ \t\u3000]/u.exec(text);
   if (quoteMatch) {
     return { type: "blockquote", length: quoteMatch[0].length };
   }

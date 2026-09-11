@@ -13,6 +13,7 @@ import type { Note } from "../shared/types";
 import { BrandMark } from "./brand-mark";
 import { buildOutlineItems, countEditorText, detectLeakedImePrefix, parseMarkdownBlockShortcut, shouldParseMarkdownPaste, type EditorStats, type MarkdownBlockShortcut, type OutlineItem } from "./editor-metrics";
 import { FloatingScrollbar } from "./floating-scrollbar";
+import { ImeMarkdownSafeExtension, imeMarkdownSafePluginKey } from "./ime-markdown-safe-extension";
 
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
 
@@ -98,6 +99,7 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
       const headingNode = view.state.schema.nodes.heading;
       if (!headingNode) return false;
       tr.setBlockType(start, start, headingNode, { level: shortcut.level });
+      tr.setMeta(imeMarkdownSafePluginKey, { type: "blockConverted", pos: start });
       view.dispatch(tr.scrollIntoView());
       return true;
     }
@@ -108,7 +110,9 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
       if (!blockquoteNode || !range) return false;
       const wrapping = findWrapping(range, blockquoteNode);
       if (!wrapping) return false;
-      view.dispatch(tr.wrap(range, wrapping).scrollIntoView());
+      tr.wrap(range, wrapping);
+      tr.setMeta(imeMarkdownSafePluginKey, { type: "blockConverted", pos: start });
+      view.dispatch(tr.scrollIntoView());
       return true;
     }
 
@@ -118,7 +122,9 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
       if (!bulletListNode || !range) return false;
       const wrapping = findWrapping(range, bulletListNode);
       if (!wrapping) return false;
-      view.dispatch(tr.wrap(range, wrapping).scrollIntoView());
+      tr.wrap(range, wrapping);
+      tr.setMeta(imeMarkdownSafePluginKey, { type: "blockConverted", pos: start });
+      view.dispatch(tr.scrollIntoView());
       return true;
     }
 
@@ -128,7 +134,9 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
       if (!orderedListNode || !range) return false;
       const wrapping = findWrapping(range, orderedListNode);
       if (!wrapping) return false;
-      view.dispatch(tr.wrap(range, wrapping).scrollIntoView());
+      tr.wrap(range, wrapping);
+      tr.setMeta(imeMarkdownSafePluginKey, { type: "blockConverted", pos: start });
+      view.dispatch(tr.scrollIntoView());
       return true;
     }
 
@@ -138,7 +146,18 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
       if (!taskListNode || !range) return false;
       const wrapping = findWrapping(range, taskListNode);
       if (!wrapping) return false;
-      view.dispatch(tr.wrap(range, wrapping).scrollIntoView());
+      tr.wrap(range, wrapping);
+      tr.setMeta(imeMarkdownSafePluginKey, { type: "blockConverted", pos: start });
+      view.dispatch(tr.scrollIntoView());
+      return true;
+    }
+
+    if (shortcut.type === "codeBlock") {
+      const codeBlockNode = view.state.schema.nodes.codeBlock;
+      if (!codeBlockNode) return false;
+      tr.setBlockType(start, start, codeBlockNode);
+      tr.setMeta(imeMarkdownSafePluginKey, { type: "blockConverted", pos: start });
+      view.dispatch(tr.scrollIntoView());
       return true;
     }
 
@@ -152,6 +171,7 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
     TaskItem.configure({ nested: true }),
     Placeholder.configure({ placeholder: "从一句话开始……" }),
     Markdown,
+    ImeMarkdownSafeExtension,
   ], []);
   const editorProps = useMemo(() => ({
     attributes: { class: "note-prose" },
@@ -206,7 +226,7 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
       return false;
     },
     handleTextInput: (view: Editor["view"], from: number, to: number, text: string) => {
-      if (text !== " " || from !== to || composingRef.current || view.composing) return false;
+      if ((text !== " " && text !== "\u3000") || from !== to || composingRef.current || view.composing) return false;
       const $from = view.state.doc.resolve(from);
       if ($from.parent.type.name !== "paragraph") return false;
       const textBefore = $from.parent.textBetween(0, $from.parentOffset, undefined, "\uFFFC");
@@ -274,6 +294,9 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
         } else {
           leakedCandidateRef.current = null;
         }
+        if (editorInstanceRef.current) {
+          surfaceSyncRef.current(editorInstanceRef.current);
+        }
         return false;
       },
       compositioncancel: () => {
@@ -282,6 +305,9 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
         if (imeCleanupTimerRef.current !== null) {
           clearTimeout(imeCleanupTimerRef.current);
           imeCleanupTimerRef.current = null;
+        }
+        if (editorInstanceRef.current) {
+          surfaceSyncRef.current(editorInstanceRef.current);
         }
         return false;
       },
@@ -297,6 +323,7 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
     editorProps,
     onUpdate: ({ editor: instance }) => {
       onChangeRef.current({ contentMarkdown: (instance as EditorWithMarkdown).getMarkdown() });
+      if (instance.view.composing || composingRef.current) return;
       surfaceSyncRef.current(instance);
     },
   });

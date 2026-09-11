@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { buildOutlineItems, countEditorText, detectLeakedImePrefix, isMarkdownHeadingMarker, parseMarkdownBlockShortcut, parseMarkdownHeadingPrefix, shouldParseMarkdownPaste } from "../app/editor-metrics";
+import { healLeakedImePrefix } from "../app/ime-markdown-safe-extension";
 
 describe("editor metrics", () => {
   test("counts Chinese characters, word runs, emoji, and non-whitespace characters", () => {
@@ -41,19 +42,33 @@ describe("editor metrics", () => {
     expect(parseMarkdownHeadingPrefix("#title")).toBeNull();
   });
 
-  test("parses all supported block-level Markdown shortcut prefixes", () => {
+  test("parses all supported block-level Markdown shortcut prefixes including full-width punctuation", () => {
     expect(parseMarkdownBlockShortcut("# ")).toEqual({ type: "heading", level: 1, length: 2 });
     expect(parseMarkdownBlockShortcut("## ")).toEqual({ type: "heading", level: 2, length: 3 });
     expect(parseMarkdownBlockShortcut("### ")).toEqual({ type: "heading", level: 3, length: 4 });
     expect(parseMarkdownBlockShortcut("#### ")).toBeNull();
+    // Full-width hash and full-width space
+    expect(parseMarkdownBlockShortcut("＃ ")).toEqual({ type: "heading", level: 1, length: 2 });
+    expect(parseMarkdownBlockShortcut("＃＃ ")).toEqual({ type: "heading", level: 2, length: 3 });
+    expect(parseMarkdownBlockShortcut("##\u3000")).toEqual({ type: "heading", level: 2, length: 3 });
+    expect(parseMarkdownBlockShortcut("＃＃\u3000")).toEqual({ type: "heading", level: 2, length: 3 });
+
     expect(parseMarkdownBlockShortcut("- ")).toEqual({ type: "bulletList", length: 2 });
     expect(parseMarkdownBlockShortcut("* ")).toEqual({ type: "bulletList", length: 2 });
     expect(parseMarkdownBlockShortcut("+ ")).toEqual({ type: "bulletList", length: 2 });
     expect(parseMarkdownBlockShortcut("1. ")).toEqual({ type: "orderedList", length: 3 });
+    expect(parseMarkdownBlockShortcut("１. ")).toEqual({ type: "orderedList", length: 3 });
+    expect(parseMarkdownBlockShortcut("1、 ")).toEqual({ type: "orderedList", length: 3 });
     expect(parseMarkdownBlockShortcut("2. ")).toBeNull();
     expect(parseMarkdownBlockShortcut("> ")).toEqual({ type: "blockquote", length: 2 });
+    expect(parseMarkdownBlockShortcut("＞ ")).toEqual({ type: "blockquote", length: 2 });
+    expect(parseMarkdownBlockShortcut("＞\u3000")).toEqual({ type: "blockquote", length: 2 });
     expect(parseMarkdownBlockShortcut("[] ")).toEqual({ type: "taskList", length: 3 });
     expect(parseMarkdownBlockShortcut("[ ] ")).toEqual({ type: "taskList", length: 4 });
+    expect(parseMarkdownBlockShortcut("【】 ")).toEqual({ type: "taskList", length: 3 });
+    expect(parseMarkdownBlockShortcut("【 】 ")).toEqual({ type: "taskList", length: 4 });
+    expect(parseMarkdownBlockShortcut("``` ")).toEqual({ type: "codeBlock", length: 4 });
+    expect(parseMarkdownBlockShortcut("｀｀｀ ")).toEqual({ type: "codeBlock", length: 4 });
     expect(parseMarkdownBlockShortcut("普通段落 ")).toBeNull();
   });
 
@@ -102,5 +117,31 @@ describe("editor metrics", () => {
     // Empty or single character without remainder
     expect(detectLeakedImePrefix("", "b", "标题")).toBeNull();
     expect(detectLeakedImePrefix("b", "b", "")).toBeNull();
+  });
+
+  test("heals leaked IME prefix while strictly preserving normal words and uppercase terms", () => {
+    // Leaked lowercase pinyin letter preceding Han characters
+    expect(healLeakedImePrefix("b标题")).toEqual({ leaked: "b", healed: "标题" });
+    expect(healLeakedImePrefix("x项目")).toEqual({ leaked: "x", healed: "项目" });
+    expect(healLeakedImePrefix("c测试")).toEqual({ leaked: "c", healed: "测试" });
+    expect(healLeakedImePrefix("a计划")).toEqual({ leaked: "a", healed: "计划" });
+
+    // Uppercase terms (protected, e.g. B站, C语言)
+    expect(healLeakedImePrefix("B站")).toBeNull();
+    expect(healLeakedImePrefix("C语言")).toBeNull();
+    expect(healLeakedImePrefix("H5页面")).toBeNull();
+
+    // Pure English words (protected, e.g. app, book)
+    expect(healLeakedImePrefix("app")).toBeNull();
+    expect(healLeakedImePrefix("book")).toBeNull();
+
+    // English letter followed by space then Han (protected, e.g. a 计划)
+    expect(healLeakedImePrefix("a 计划")).toBeNull();
+    expect(healLeakedImePrefix("b 标题")).toBeNull();
+
+    // Pure Han characters or numbers
+    expect(healLeakedImePrefix("标题")).toBeNull();
+    expect(healLeakedImePrefix("1. 标题")).toBeNull();
+    expect(healLeakedImePrefix("")).toBeNull();
   });
 });
