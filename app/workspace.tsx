@@ -631,7 +631,27 @@ export function Workspace() {
       setToast(errorMessage(reason, "删除笔记本失败"));
     }
   }, [loadNotes, notebookId, notebooks, refreshNotebooks]);
-  const toggleFavorite = useCallback(() => { const current = selectedRef.current; if (!current) return; const next = { ...current, isFavorite: !current.isFavorite }; selectedRef.current = next; setSelectedNote(next); persist(next); if (view === "favorites" && !next.isFavorite) removeFromList(current.id); }, [persist, removeFromList, view]);
+  const toggleFavorite = useCallback(() => {
+    const current = selectedRef.current;
+    if (!current) return;
+    const next = { ...current, isFavorite: !current.isFavorite };
+    selectedRef.current = next;
+    setSelectedNote(next);
+    if (view !== "favorites" || next.isFavorite) {
+      persist(next);
+      return;
+    }
+
+    const timer = saveTimersRef.current.get(current.id);
+    if (timer) clearTimeout(timer);
+    saveTimersRef.current.delete(current.id);
+    pendingSavesRef.current.set(current.id, toNoteDraft(next));
+    setSaveState("saving");
+    const scope = listScopeRef.current;
+    void runSave(current.id).then(() => {
+      if (scope === listScopeRef.current) removeFromList(current.id);
+    }).catch(() => undefined);
+  }, [persist, removeFromList, runSave, view]);
   const finishTrashOperation = useCallback((noteId: string) => {
     trashOperationsRef.current.delete(noteId);
     setPendingTrashCount(trashOperationsRef.current.size);
@@ -642,7 +662,6 @@ export function Workspace() {
     const current = selectedRef.current;
     if (!current || Boolean(current.deletedAt) === deleted || trashOperationsRef.current.has(current.id) || emptyingTrashRef.current) return;
     const scope = listScopeRef.current;
-    const index = notesRef.current.findIndex((note) => note.id === current.id);
     const next = { ...current, deletedAt: deleted ? Math.floor(Date.now() / 1000) : null };
     trashOperationsRef.current.add(current.id);
     setPendingTrashCount(trashOperationsRef.current.size);
@@ -652,24 +671,16 @@ export function Workspace() {
     saveTimersRef.current.delete(current.id);
     pendingSavesRef.current.set(current.id, toNoteDraft(next));
     setNotebooks((items) => items.map((notebook) => notebook.id === current.notebookId ? { ...notebook, count: Math.max(0, notebook.count + (deleted ? -1 : 1)) } : notebook));
-    removeFromList(current.id);
     try {
       await runSave(current.id);
+      if (scope === listScopeRef.current) removeFromList(current.id);
       setToast(deleted ? "已移入回收站" : "已恢复笔记");
     } catch (reason) {
-      const restored = { ...current, ...(pendingSavesRef.current.get(current.id) ?? {}), deletedAt: current.deletedAt };
-      pendingSavesRef.current.set(current.id, toNoteDraft(restored));
+      pendingSavesRef.current.set(current.id, toNoteDraft(current));
       setNotebooks((items) => items.map((notebook) => notebook.id === current.notebookId ? { ...notebook, count: Math.max(0, notebook.count + (deleted ? 1 : -1)) } : notebook));
-      if (scope === listScopeRef.current && index !== -1 && !notesRef.current.some((note) => note.id === current.id)) {
-        const list = [...notesRef.current];
-        list.splice(index, 0, restored);
-        replaceList(list);
-        setTotalNotes((total) => total + 1);
-        if (!activeNoteIdRef.current) selectNote(current.id);
-      }
       setToast(reason instanceof ApiError && reason.code === "VERSION_CONFLICT" ? "这篇笔记已在别处更新，操作未完成，本地草稿已保留" : errorMessage(reason, deleted ? "移入回收站失败，请重试" : "恢复笔记失败，请重试"));
     } finally { finishTrashOperation(current.id); }
-  }, [finishTrashOperation, invalidateCollections, removeFromList, replaceList, runSave, selectNote]);
+  }, [finishTrashOperation, invalidateCollections, removeFromList, runSave]);
   const moveToTrash = useCallback(() => { void changeDeletedState(true); }, [changeDeletedState]);
   const restoreFromTrash = useCallback(() => { void changeDeletedState(false); }, [changeDeletedState]);
   const discardNoteDraft = useCallback((noteId: string) => {
@@ -853,6 +864,7 @@ export function Workspace() {
   if (!ready) return <main className="app-loading"><span className="loading-ring" /><span>正在进入你的空间……</span></main>;
   const currentNotebook = notebookId ? notebooks.find((notebook) => notebook.id === notebookId) : undefined;
   const renderedNote = selectedNote && selectedRef.current?.id === selectedNote.id ? selectedRef.current : selectedNote;
+  const commandNoteReady = Boolean(renderedNote && selectedRef.current?.id === renderedNote.id && !isNoteLoading);
   const activeSearchQuery = inNoteSearchQuery || query;
   return <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${focusMode ? "is-focus-mode" : ""}`}>
     <button className={`mobile-scrim ${mobileSidebarOpen || mobileListOpen ? "is-visible" : ""}`} type="button" aria-label="关闭导航" onClick={() => { setMobileSidebarOpen(false); setMobileListOpen(false); }} />
@@ -861,7 +873,7 @@ export function Workspace() {
     <main className="editor-region">
       {renderedNote ? <Suspense fallback={<NoteLoadingState />}><LazyNoteEditor note={renderedNote} searchQuery={activeSearchQuery} onClearSearch={activeSearchQuery ? handleClearSearch : undefined} saveState={saveState} isLoading={isNoteLoading} trashBusy={emptyingTrash || (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onShare={() => setShareOpen(true)} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={() => setMobileListOpen(true)} focusMode={focusMode} onToggleFocusMode={toggleFocusMode} /></Suspense> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor isTrash={view === "trash"} onNewNote={() => void createNoteHere()} onOpenList={() => setMobileListOpen(true)} />}
     </main>
-    <CommandMenu open={commandOpen} onClose={closeCommandMenu} onCommand={command} onCreateNoteInNotebook={createNoteInNotebook} canRestore={Boolean(renderedNote?.deletedAt)} notebooks={notebooks} focusMode={focusMode} canInstallApp={pwaState.canInstall} showIosInstallHint={pwaState.showIosInstallHint} standalone={pwaState.standalone} noteResults={commandNoteResults} noteSearchLoading={commandNoteSearchLoading} onSearchQueryChange={handleCommandNoteQueryChange} onOpenSearchResult={openCommandSearchResult} hasActiveNote={Boolean(renderedNote && !renderedNote.deletedAt)} onSearchInCurrentNote={handleSearchInCurrentNote} initialQuery={commandInitialQuery} />
+    <CommandMenu open={commandOpen} onClose={closeCommandMenu} onCommand={command} onCreateNoteInNotebook={createNoteInNotebook} canRestore={Boolean(commandNoteReady && renderedNote?.deletedAt)} canMoveToTrash={Boolean(commandNoteReady && renderedNote && !renderedNote.deletedAt)} notebooks={notebooks} focusMode={focusMode} canInstallApp={pwaState.canInstall} showIosInstallHint={pwaState.showIosInstallHint} standalone={pwaState.standalone} noteResults={commandNoteResults} noteSearchLoading={commandNoteSearchLoading} onSearchQueryChange={handleCommandNoteQueryChange} onOpenSearchResult={openCommandSearchResult} hasSelectedNote={commandNoteReady} onSearchInCurrentNote={handleSearchInCurrentNote} initialQuery={commandInitialQuery} />
 
 
     {shareOpen && renderedNote && <ShareDialog note={renderedNote} onClose={() => setShareOpen(false)} onToast={setToast} />}

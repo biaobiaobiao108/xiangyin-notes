@@ -26,6 +26,7 @@ type CommandMenuProps = {
   onCommand: (id: CommandId) => void;
   onCreateNoteInNotebook: (command: CreateNoteCommand) => void;
   canRestore: boolean;
+  canMoveToTrash: boolean;
   notebooks: Notebook[];
   focusMode?: boolean;
   canInstallApp: boolean;
@@ -35,7 +36,7 @@ type CommandMenuProps = {
   noteSearchLoading: boolean;
   onSearchQueryChange: (query: string) => void;
   onOpenSearchResult: (noteId: string, query: string) => void;
-  hasActiveNote?: boolean;
+  hasSelectedNote?: boolean;
   onSearchInCurrentNote?: (term: string) => void;
   initialQuery?: string;
 };
@@ -46,6 +47,7 @@ export function CommandMenu({
   onCommand,
   onCreateNoteInNotebook,
   canRestore,
+  canMoveToTrash,
   notebooks,
   focusMode = false,
   canInstallApp,
@@ -55,7 +57,7 @@ export function CommandMenu({
   noteSearchLoading,
   onSearchQueryChange,
   onOpenSearchResult,
-  hasActiveNote = false,
+  hasSelectedNote = false,
   onSearchInCurrentNote,
   initialQuery = "",
 }: CommandMenuProps) {
@@ -67,16 +69,16 @@ export function CommandMenu({
 
   const commands = useMemo<Array<{ id: CommandId; label: string; shortcut: string; icon: LucideIcon }>>(() => [
     { id: "new-note", label: "新建笔记", shortcut: "↵", icon: FilePlus2 },
-    ...(hasActiveNote ? [{ id: "find-in-note" as const, label: "在当前笔记中查找", shortcut: `${modKey} F`, icon: FileSearch }] : []),
+    ...(hasSelectedNote ? [{ id: "find-in-note" as const, label: "在当前笔记中查找", shortcut: `${modKey} F`, icon: FileSearch }] : []),
     { id: "search", label: "全局搜索笔记", shortcut: `${modKey} /`, icon: Search },
     { id: "toggle-sidebar", label: "切换侧栏", shortcut: `${modKey} \\`, icon: PanelLeft },
     { id: "toggle-focus-mode", label: focusMode ? "退出沉浸模式" : "进入沉浸模式", shortcut: `${modKey} ⇧ F`, icon: Maximize2 },
-    { id: "share", label: "分享笔记", shortcut: "↵", icon: Link2 },
-    { id: "favorite", label: "切换收藏", shortcut: "↵", icon: Bookmark },
-    { id: "trash", label: "移入回收站", shortcut: "↵", icon: Trash2 },
-    { id: "restore", label: "恢复笔记", shortcut: "↵", icon: Archive },
+    ...(hasSelectedNote ? [{ id: "share" as const, label: "分享笔记", shortcut: "↵", icon: Link2 }] : []),
+    ...(hasSelectedNote ? [{ id: "favorite" as const, label: "切换收藏", shortcut: "↵", icon: Bookmark }] : []),
+    ...(canMoveToTrash ? [{ id: "trash" as const, label: "移入回收站", shortcut: "↵", icon: Trash2 }] : []),
+    ...(canRestore ? [{ id: "restore" as const, label: "恢复笔记", shortcut: "↵", icon: Archive }] : []),
     ...(!standalone && (canInstallApp || showIosInstallHint) ? [{ id: "install-app" as const, label: "安装象映笔记", shortcut: "↵", icon: Download }] : []),
-  ], [canInstallApp, focusMode, hasActiveNote, showIosInstallHint, standalone]);
+  ], [canInstallApp, canMoveToTrash, canRestore, focusMode, hasSelectedNote, showIosInstallHint, standalone]);
 
   const createNoteResult = useMemo(() => parseCreateNoteCommand(query, notebooks), [notebooks, query]);
   const parsedSearchPrefix = useMemo(() => parseSearchPrefixCommand(query), [query]);
@@ -84,9 +86,9 @@ export function CommandMenu({
   const filteredCommands = useMemo(() => {
     if (parsedSearchPrefix) return [];
     return commands
-      .filter((command) => (command.id !== "restore" || canRestore) && (command.label.includes(query.trim()) || command.id.includes(query.trim().toLowerCase())))
+      .filter((command) => command.label.includes(query.trim()) || command.id.includes(query.trim().toLowerCase()))
       .map((command) => ({ ...command, key: command.id, kind: "command" as const }));
-  }, [canRestore, commands, parsedSearchPrefix, query]);
+  }, [commands, parsedSearchPrefix, query]);
 
   const effectiveSearchTerm = parsedSearchPrefix ? parsedSearchPrefix.term : query.trim();
 
@@ -116,7 +118,7 @@ export function CommandMenu({
       return filteredCommands;
     }
 
-    const inNoteOption: CommandOption | null = hasActiveNote ? {
+    const inNoteOption: CommandOption | null = hasSelectedNote ? {
       key: "action:in-note-search",
       label: `在当前笔记中查找“${effectiveSearchTerm}”`,
       shortcut: "↵",
@@ -131,7 +133,7 @@ export function CommandMenu({
       ...filteredCommands,
       ...noteOptions,
     ];
-  }, [createNoteResult, effectiveSearchTerm, filteredCommands, hasActiveNote, noteOptions]);
+  }, [createNoteResult, effectiveSearchTerm, filteredCommands, hasSelectedNote, noteOptions]);
 
   const createNoteError = createNoteResult?.kind === "error" ? createNoteResult.message : "";
 
@@ -232,7 +234,7 @@ export function CommandMenu({
           ref={searchRef}
           value={query}
           onChange={(event) => updateQuery(event.target.value)}
-          placeholder={hasActiveNote ? "输入命令、关键词或在当前笔记中查找……" : "输入命令或搜索笔记……"}
+          placeholder={hasSelectedNote ? "输入命令、关键词或在当前笔记中查找……" : "输入命令或搜索笔记……"}
           aria-label="搜索命令或笔记"
         />
       </div>
@@ -285,5 +287,4 @@ export function CommandMenu({
     </dialog>
   );
 }
-
 

@@ -549,9 +549,9 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
 .text-danger { color: #c34b35 !important; }
 .text-danger:hover { color: #9c3622 !important; text-decoration: underline; }
 
-.system-notices { position: fixed; right: 24px; bottom: 24px; z-index: 10; display: grid; gap: 10px; width: min(380px, calc(100% - 48px)); pointer-events: none; }
+.system-notices { position: fixed; top: 80px; right: 24px; z-index: 10; display: grid; gap: 10px; width: min(380px, calc(100% - 48px)); pointer-events: none; }
 .system-notices > * { pointer-events: auto; }
-.sync-notice { display: grid; gap: 10px; padding: 13px 14px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.97); box-shadow: var(--shadow); color: var(--ink); font-size: 0.8rem; animation: toast-in 180ms ease both; }
+.sync-notice { display: grid; gap: 10px; padding: 13px 14px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.97); box-shadow: var(--shadow); color: var(--ink); font-size: 0.8rem; animation: toast-in-top 180ms ease both; }
 .sync-notice--danger { border-color: #efb9aa; background: #fffaf8; }
 .sync-notice--offline { border-color: #d9c6a8; background: #fffdf8; }
 .sync-notice--update { border-color: #c6d8cd; background: #f9fcfa; }
@@ -563,7 +563,7 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
 .sync-notice-header p { margin: 4px 0 0; color: var(--muted); font-size: 0.74rem; line-height: 1.45; }
 .sync-notice-actions { display: flex; justify-content: flex-end; }
 .sync-notice-action { margin-left: 0; font-size: 0.76rem; }
-.toast { max-width: none; padding: 11px 14px; border: 1px solid var(--border); border-radius: 9px; background: rgba(255,255,255,0.96); box-shadow: var(--shadow); color: var(--ink); font-size: 0.8rem; animation: toast-in 180ms ease both; }
+.toast { max-width: none; padding: 11px 14px; border: 1px solid var(--border); border-radius: 9px; background: rgba(255,255,255,0.96); box-shadow: var(--shadow); color: var(--ink); font-size: 0.8rem; animation: toast-in-top 180ms ease both; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes toast-in-top { from { opacity: 0; transform: translateY(-7px); } to { opacity: 1; transform: translateY(0); } }
 .app-loading, .share-loading { display: grid; place-items: center; gap: 13px; min-height: 100dvh; color: var(--muted); font-size: 0.86rem; }
@@ -677,8 +677,8 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
   .share-article { padding-top: 54px; }
   .share-article h1 { font-size: 2.35rem; }
   .auth-card { padding: 28px 22px; }
-  .system-notices { top: max(12px, env(safe-area-inset-top)); right: 16px; bottom: auto; left: 16px; width: auto; }
-  .toast { animation-name: toast-in-top; }
+  .system-notices { top: auto; right: 16px; bottom: max(72px, calc(60px + env(safe-area-inset-bottom))); left: 16px; width: auto; }
+  .sync-notice, .toast { animation-name: toast-in; }
   .conflict-grid { grid-template-columns: 1fr; }
   .conflict-dialog { padding: 20px; }
 }
