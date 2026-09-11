@@ -287,9 +287,12 @@ button.save-status:hover { text-decoration: underline; }
 .editor-document { width: min(820px, calc(100% - 96px)); margin: 0 auto; padding: 60px 0 128px; }
 .note-title-input { width: 100%; padding: 0; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: clamp(2rem, 3.5vw, 3.05rem); font-weight: 700; letter-spacing: -0.065em; line-height: 1.08; }
 .note-title-input::placeholder { color: #bec5bf; }
+.note-title-input::selection { background: var(--accent); color: #fff; }
 .editor-document { padding-top: 72px; }
 .note-prose { margin-top: 32px; color: #29322d; font-size: 1.08rem; line-height: 1.55; }
 .note-prose:focus { outline: 0; }
+.note-prose .editor-search-match { border-radius: 0.22em; background: rgba(217, 98, 69, 0.2); color: inherit; box-shadow: 0 0.08em 0 rgba(217, 98, 69, 0.3); }
+.note-prose .editor-search-match--active { background: var(--accent); color: #fff; box-shadow: 0 0 0 2px rgba(217, 98, 69, 0.18); }
 .note-prose > *:first-child { margin-top: 0; }
 .note-prose h1, .note-prose h2, .note-prose h3 { margin-block: 1.15em 0.4em; letter-spacing: -0.045em; line-height: 1.2; scroll-margin-block-start: 24px; }
 .note-prose h1 { font-size: 1.85rem; color: var(--h1-color); font-weight: 700; line-height: 1.15; }

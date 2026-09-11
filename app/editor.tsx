@@ -11,6 +11,7 @@ import { findWrapping } from "@tiptap/pm/transform";
 import { ChevronLeft, Link2, ListTree, Maximize2, Minimize2, Minus, Trash2, Undo2 } from "lucide-react";
 import type { Note } from "../shared/types";
 import { BrandMark } from "./brand-mark";
+import { findEditorSearchMatches, findTextMatches, searchHighlightPluginKey, SearchHighlightExtension } from "./editor-search";
 import { buildOutlineItems, countEditorText, detectLeakedImePrefix, parseMarkdownBlockShortcut, shouldParseMarkdownPaste, type EditorStats, type MarkdownBlockShortcut, type OutlineItem } from "./editor-metrics";
 import { FloatingScrollbar } from "./floating-scrollbar";
 import { ImeMarkdownSafeExtension, imeMarkdownSafePluginKey } from "./ime-markdown-safe-extension";
@@ -21,8 +22,9 @@ const editorCoreExtensionOptions = {
   clipboardTextSerializer: { blockSeparator: "\n" },
 };
 
-export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList, focusMode = false, onToggleFocusMode }: {
+export function NoteEditor({ note, searchQuery = "", saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList, focusMode = false, onToggleFocusMode }: {
   note: Note;
+  searchQuery?: string;
   saveState: "idle" | "saving" | "saved" | "local" | "conflict" | "error";
   isLoading?: boolean;
   reloadToken?: number;
@@ -42,6 +44,7 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
   onToggleFocusMode?: () => void;
 }) {
   const editorScrollRef = useRef<HTMLDivElement>(null);
+  const titleInputRef = useRef<HTMLInputElement>(null);
   const editorInstanceRef = useRef<Editor | null>(null);
   const floatingToolsRef = useRef<HTMLDivElement>(null);
   const outlineTriggerRef = useRef<HTMLButtonElement>(null);
@@ -176,6 +179,7 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
     Placeholder.configure({ placeholder: "从一句话开始……" }),
     Markdown,
     ImeMarkdownSafeExtension,
+    SearchHighlightExtension,
   ], []);
   const editorProps = useMemo(() => ({
     attributes: { class: "note-prose" },
@@ -387,6 +391,30 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
   }, [editor, focusRequested, isLoading, note.id, note.deletedAt, onFocusHandled]);
 
   useEffect(() => {
+    if (!editor || isLoading) return;
+    const titleMatches = findTextMatches(note.title, searchQuery);
+    const bodyMatches = findEditorSearchMatches(editor.state.doc, searchQuery);
+    editor.view.dispatch(editor.state.tr.setMeta(searchHighlightPluginKey, searchQuery));
+
+    const frame = requestAnimationFrame(() => {
+      if (editor.isDestroyed) return;
+      const behavior: ScrollBehavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+      if (titleMatches.length > 0) {
+        editorScrollRef.current?.scrollTo({ top: 0, behavior });
+        const titleInput = titleInputRef.current;
+        if (titleInput) {
+          titleInput.focus({ preventScroll: true });
+          titleInput.setSelectionRange(titleMatches[0].start, titleMatches[0].end);
+        }
+        return;
+      }
+      if (!bodyMatches.length) return;
+      editor.view.dom.querySelector<HTMLElement>(".editor-search-match--active")?.scrollIntoView({ behavior, block: "center", inline: "nearest" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [editor, isLoading, note.id, searchQuery]);
+
+  useEffect(() => {
     if (isLoading) setOutlineOpen(false);
   }, [isLoading]);
 
@@ -527,6 +555,7 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
               </div>
             )}
             <input
+              ref={titleInputRef}
               className="note-title-input"
               value={note.title}
               maxLength={200}
