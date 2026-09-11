@@ -1,284 +1,131 @@
 # 象映笔记
 
-象映笔记是一款运行在本地 Bun 服务上的单用户 Markdown 笔记软件。前端使用 React、TypeScript 和 Tiptap，使用 Bun bundler 构建；后端使用原生 `Bun.serve`，数据保存到 Bun 原生 `bun:sqlite` 数据库。
+> 把零散的想法，安静地放在一个属于自己的地方。
 
-它保留了原有的三栏笔记界面、沉浸式 Markdown 编辑器、命令菜单、字数统计、悬浮大纲、笔记本、搜索、回收站和只读分享功能。分享快照保存于 SQLite，固定 7 天后失效。
+象映笔记是一款面向个人使用的本地优先 Markdown 笔记应用。它有清晰的三栏界面、轻量的编辑体验和完整的笔记整理能力，适合记录灵感、工作资料、复盘、清单以及任何值得留下的内容。
 
-## 技术栈
+你可以把它部署在自己的电脑或服务器上。笔记保存在自己的 SQLite 数据库中，不依赖第三方云笔记服务；即使暂时断网，也可以继续记录，网络恢复后自动同步。
 
-- 运行时：最新版 Bun
-- 前端：React、React Router、TypeScript、Tiptap、Lucide
-- 构建：Bun bundler，HTML 入口，ESM，代码分割，生产压缩
-- 后端：原生 `Bun.serve`、Fetch API、Web Crypto
-- 数据库：Bun `bun:sqlite`、SQLite WAL、FTS5
-- 容器：多阶段 `oven/bun:alpine` 镜像
-- 镜像仓库：GitHub Container Registry（GHCR）
-- CI：GitHub Actions
+## 适合怎样的你
 
-Bun 官方文档：[HTTP Server](https://bun.sh/docs/runtime/http/server)、[SQLite](https://bun.sh/docs/runtime/sqlite)、[Docker](https://bun.sh/guides/ecosystem/docker)。
+- 想要一个简洁、专注、不被复杂功能打扰的笔记空间。
+- 希望笔记数据掌握在自己手里，可以自己部署和备份。
+- 习惯 Markdown，但又希望拥有所见即所得的编辑体验。
+- 需要在电脑、平板和手机上都能顺手使用。
+- 偶尔需要把一篇笔记分享给别人，但不想开放整个笔记库。
 
-## 功能
+象映笔记目前是单用户应用，登录账号通过部署时的环境变量配置，不提供公开注册和多人协作账号体系。
 
-- 单用户环境变量登录
-- 首次成功登录时自动创建用户、收件箱和欢迎笔记
-- Markdown 所见即所得编辑
-- 段落、H1-H3、粗体、斜体、删除线、行内代码、列表、任务列表、引用、代码块、链接和分隔线
-- 编辑后自动保存，并使用版本号防止多标签页覆盖
-- Inbox、All Notes、Favorites、Shared、Trash 和自定义笔记本
-- SQLite FTS5 搜索
-- `Ctrl + /` 打开命令菜单
-- 命令菜单支持 `新建 <笔记本名> <标题>`
-- 右下角字数/字符数统计胶囊
-- 右下角悬浮大纲，支持 H1-H3 跳转和当前标题高亮
-- 生成 7 天有效的只读分享快照
-- 分享快照不受原笔记后续修改影响
-- 撤销分享后立即失效
-- 响应式三栏界面，支持平板和手机抽屉布局
-- 浏览器标签页 favicon
+## 核心功能
 
-## 目录结构
+### 写下来：专注的 Markdown 编辑器
 
-```text
-app/                       React 前端源码和样式
-server/index.ts            Bun HTTP Server、API 和静态资源服务
-server/db.ts               SQLite 打开、迁移和数据库初始化
-shared/types.ts            前后端共享类型
-migrations/                SQLite 迁移文件
-scripts/dev.ts             前端 watch + Bun 热更新服务器
-scripts/migrate.ts         手动执行 SQLite 迁移
-tests/                     Bun 单元测试和 API 集成测试
-Dockerfile                 多阶段 Bun Alpine 镜像
-.dockerignore              Docker 构建上下文排除规则
-.github/workflows/ci.yml   每次 push 的 CI
-.github/workflows/docker.yml  Git tag 镜像和 GitHub Release 发布
-```
+- 支持标题、粗体、斜体、删除线、行内代码、列表、任务列表、引用、代码块、链接和分隔线。
+- 编辑内容会自动保存，不需要频繁寻找“保存”按钮。
+- 中文输入法场景经过专门处理，减少输入法组合文字被误识别的问题。
+- 编辑器底部提供字数和字符数统计，适合写作、复盘和整理长文。
+- 可以切换沉浸模式，把注意力留给当前正在写的内容。
 
-## 环境要求
+### 理清楚：让笔记有自己的位置
 
-- Bun 最新稳定版
-- Git
-- Docker 20.10+（仅 Docker 部署需要）
-- GitHub Actions 使用的 Ubuntu runner 自带 Docker
+- 收件箱：先放进来，再慢慢整理。
+- 全部笔记：查看完整笔记库。
+- 收藏：把经常使用或需要重点关注的笔记放在一起。
+- 自定义笔记本：按项目、主题、阶段或任何你喜欢的方式分类。
+- 回收站：误删的笔记可以恢复，也可以确认后永久删除。
+- 已分享：集中查看已经生成过分享链接的笔记。
 
-检查 Bun：
+### 找回来：搜索和命令菜单
 
-```bash
-bun --version
-bun --revision
-```
+- 全局搜索笔记标题和正文，支持中文搜索。
+- 在当前笔记中查找并高亮匹配内容，可以用 `F3` / `Shift + F3` 在匹配项之间移动。
+- 按 `Ctrl + /` 或 `Ctrl + K`（macOS 使用 `⌘`）打开命令菜单。
+- 命令菜单可以完成新建、搜索、收藏、分享、回收站、侧栏和沉浸模式等操作。
+- 支持使用 `新建 <笔记本名> <标题>` 快速创建指定笔记本中的笔记，例如：
 
-Windows PowerShell、macOS 和 Linux 都使用同一套 Bun 命令，不需要 npm、yarn 或 pnpm。
+  ```text
+  新建 项目资料 周五复盘
+  ```
 
-## 配置环境变量
+### 看清结构：悬浮大纲
 
-复制示例配置：
+正文中包含 H1-H3 标题时，编辑器右下角会显示悬浮大纲。点击标题即可跳转，滚动正文时当前所在标题会自动高亮。
 
-```bash
-cp .env.example .env
-```
+### 分享出去：只读快照
 
-PowerShell：
+- 为笔记生成一个公开只读链接。
+- 分享内容是创建时的固定快照，原笔记后续修改不会影响已经发出的内容。
+- 每个分享链接固定有效 7 天。
+- 可以随时撤销尚未过期的分享链接。
 
-```powershell
-Copy-Item .env.example .env
-```
+分享链接适合发送会议纪要、阶段总结、项目说明或临时资料。请注意：任何拿到链接的人都可以在有效期内阅读对应快照。
 
-编辑 `.env`：
+### 断网也能写：离线优先
 
-```dotenv
-XIANGYING_USERNAME=xiangying
-XIANGYING_PASSWORD=请替换为至少12位的本地密码
-DATABASE_PATH=./data/xiangying-notes.sqlite
-HOST=0.0.0.0
-PORT=3000
-# PUBLIC_URL=https://notes.example.com
-COOKIE_SECURE=false
-```
+在支持 PWA 的浏览器中，应用可以安装为独立应用窗口。断网时仍然可以查看、搜索、新建、编辑、收藏、移动和回收笔记；恢复联网后，修改会自动同步。
 
-变量说明：
+如果同一篇笔记在不同地方发生修改，应用会保留本地内容，并提供服务器版本、本地版本和合并入口，避免内容被静默覆盖。
 
-| 变量 | 必需 | 说明 |
-| --- | --- | --- |
-| `XIANGYING_USERNAME` | 是 | 3–32 位字母、数字、下划线或短横线 |
-| `XIANGYING_PASSWORD` | 是 | 12–128 个字符 |
-| `DATABASE_PATH` | 否 | SQLite 文件路径，默认 `./data/xiangying-notes.sqlite` |
-| `HOST` | 否 | 服务监听地址，默认 `0.0.0.0` |
-| `PORT` | 否 | 服务端口，默认 `3000` |
-| `PUBLIC_URL` | 否 | 分享链接使用的公网根地址，例如 `https://notes.example.com`；留空时使用当前请求来源 |
-| `COOKIE_SECURE` | 否 | HTTPS 反向代理部署时设为 `true` |
+## 快捷键
 
-`.env` 只用于本机或容器启动，已经被 Git 忽略。不要把真实用户名、密码或 SQLite 文件提交到仓库。
+| 快捷键 | 用途 |
+| --- | --- |
+| `Ctrl + /` 或 `Ctrl + K` | 打开命令菜单 |
+| `Ctrl + F` | 打开命令菜单，并尝试使用当前选中的文字作为搜索内容 |
+| `Ctrl + S` | 立即保存当前笔记 |
+| `Ctrl + \\` | 收起或展开侧栏 |
+| `Ctrl + Shift + F` | 进入或退出沉浸模式 |
+| `F3` | 查找下一处匹配 |
+| `Shift + F3` | 查找上一处匹配 |
+| `Esc` | 关闭当前弹窗、清除查找，或退出沉浸模式 |
 
-## 本地开发
+macOS 用户将 `Ctrl` 替换为 `⌘` 即可。正在使用中文输入法组合文字时，命令菜单不会误触发确认操作。
 
-安装依赖：
+## 开始使用
+
+### 方式一：本机运行
+
+环境要求：
+
+- [Bun](https://bun.sh/) 最新稳定版
+- Git（仅用于获取项目代码）
+
+进入项目目录后安装依赖：
 
 ```bash
 bun install
 ```
 
-首次启动空数据库时，服务器会自动执行当前已有迁移完成基础初始化；以后新增的迁移不会在启动时自动执行，需要再使用 `bun run db:migrate` 显式应用。
+复制配置文件：
 
-启动开发服务器：
-
-```bash
-bun run dev
-```
-
-开发模式会同时运行：
-
-1. `bun build ./app/index.html ... --watch`，监听前端 TSX、CSS 和资源。
-2. `bun --hot server/index.ts`，监听 Bun Server 和 SQLite API 代码。
-
-访问：
-
-```text
-http://127.0.0.1:3000/app
-```
-
-首次使用 `.env` 中的用户名和密码登录。若数据库为空，成功登录会自动初始化唯一用户、收件箱和欢迎笔记。
-
-`bun run dev` 会由 `scripts/dev.ts` 注入开发账号 `dev`，并设置 `XIANGYING_DEV_AUTO_LOGIN=true`，因此在开发模式下访问 `/app` 会自动登录。该开关只在 `NODE_ENV=development` 时生效，生产部署不要设置这两个变量。
-
-按 `Ctrl + C` 可以停止开发服务器。
-
-## 生产构建和启动
-
-完整构建：
+macOS / Linux：
 
 ```bash
-bun run build
+cp .env.example .env
 ```
 
-前端构建命令：
+Windows PowerShell：
 
-```bash
-bun run build:client
+```powershell
+Copy-Item .env.example .env
 ```
 
-该命令同时输出带哈希的前端资源、`sw.js`、`manifest.webmanifest` 和 192/512 像素应用图标。
-
-后端构建命令：
-
-```bash
-bun build ./server/index.ts \
-  ./server/migrate.ts \
-  --outdir ./dist/server \
-  --target bun \
-  --format esm \
-  --production \
-  --minify
-```
-
-启动已构建产物：
-
-```bash
-bun run start
-```
-
-等价于：
-
-```bash
-bun dist/server/index.js
-```
-
-生产服务默认监听 `0.0.0.0:3000`，直接打开：
-
-```text
-http://127.0.0.1:3000/app
-```
-
-健康检查：
-
-```bash
-curl http://127.0.0.1:3000/api/health
-```
-
-预期返回：
-
-```json
-{"status":"ok","database":"ok"}
-```
-
-## PWA 与离线使用
-
-生产环境请通过 HTTPS 提供服务（本机开发时的 `localhost` 也可安装）。在 Chrome/Edge 中打开 `/app` 后，使用地址栏或应用内的“安装应用”入口安装；iOS/iPadOS Safari 使用“分享 → 添加到主屏幕”。安装后会以独立窗口启动。
-
-应用壳由 Service Worker 缓存，笔记副本和待同步操作保存在浏览器 IndexedDB 中。断网时可以继续查看、搜索、新建、编辑、收藏、移动和回收笔记；恢复联网后会自动同步。同步冲突会保留本地版本，并在侧栏提供服务器版本、本地版本和合并入口。分享链接仍需要联网创建，退出登录会清除当前用户的本地笔记副本、队列和冲突记录。
-
-已有数据库升级到包含同步功能的版本后，必须显式执行 `bun run db:migrate`，再启动服务。
-
-## SQLite 迁移
-
-空数据库首次启动时，服务器会按文件名顺序自动执行当前已有迁移，并在 `schema_migrations` 中记录结果。数据库完成初始化后，服务器启动不会自动执行后续新增迁移；新增迁移必须通过 `bun run db:migrate` 或容器中的迁移命令显式执行。
-
-当前迁移：
-
-- `0001_initial.sql`：用户、会话、笔记本、笔记、分享和 FTS5 表。
-- `0002_sqlite_share_snapshots.sql`：分享快照标题和 Markdown 字段。
-- `0003_pwa_sync.sql`：同步变更日志和操作幂等记录，删除变更同时作为防止旧客户端重建数据的 tombstone。
-
-手动执行：
-
-```bash
-bun run db:migrate
-```
-
-如果迁移命令失败，命令会返回错误，不会继续运行。由于当前空数据库会在首次启动时自动初始化，正常首次部署无需额外执行迁移命令。
-
-数据库文件默认位于：
-
-```text
-data/xiangying-notes.sqlite
-```
-
-SQLite WAL 可能同时产生 `-wal` 和 `-shm` 文件，它们也已被 Git 忽略。不要在服务器运行时直接复制主数据库文件作为备份；备份前先停止容器或使用 SQLite 支持的备份方式。
-
-## Docker 部署
-
-### 1. 准备配置
-
-在仓库根目录创建 `.env`：
+编辑 `.env`，至少设置登录用户名和密码：
 
 ```dotenv
 XIANGYING_USERNAME=xiangying
-XIANGYING_PASSWORD=请替换为至少12位的生产密码
-PUBLIC_URL=https://notes.example.com
+XIANGYING_PASSWORD=请替换为至少12位的密码
+DATABASE_PATH=./data/xiangying-notes.sqlite
+HOST=0.0.0.0
+PORT=3000
 COOKIE_SECURE=false
 ```
 
-Docker 会覆盖以下默认值，不需要写入 `.env`：
-
-```text
-HOST=0.0.0.0
-PORT=3000
-DATABASE_PATH=/data/xiangying-notes.sqlite
-```
-
-如果前面有 HTTPS 反向代理并且浏览器通过 HTTPS 访问，将 `COOKIE_SECURE` 改为 `true`。
-
-如果前面有 HTTPS 反向代理，建议将 `PUBLIC_URL` 设置为用户实际访问的公网根地址，例如 `https://notes.example.com`。分享链接会固定使用该地址；不要在值末尾添加路径。
-
-### 2. 构建镜像
+构建并启动：
 
 ```bash
-docker build --pull -t xiangying-notes:local .
-```
-
-`--pull` 会检查最新的 `oven/bun:alpine` 基础镜像。Dockerfile 使用多阶段构建，最终镜像只包含 Bun Alpine、前端产物、服务端产物和迁移文件，不包含源代码、开发依赖、测试和密钥。
-
-### 3. 启动容器
-
-```bash
-docker volume create xiangying-notes-data
-
-docker run -d \
-  --name xiangying-notes \
-  --restart unless-stopped \
-  -p 3000:3000 \
-  --env-file .env \
-  -v xiangying-notes-data:/data \
-  xiangying-notes:local
+bun run build
+bun run start
 ```
 
 打开：
@@ -287,28 +134,47 @@ docker run -d \
 http://127.0.0.1:3000/app
 ```
 
-检查容器和服务：
+数据库为空时，第一次成功登录会自动创建收件箱和一篇欢迎笔记。
+
+### 开发模式
+
+如果你要修改代码并实时查看效果：
 
 ```bash
-docker ps
-docker logs --tail=100 xiangying-notes
-curl http://127.0.0.1:3000/api/health
+bun run dev
 ```
 
-### 4. 升级镜像
+开发模式会启动前端监听构建和 Bun 热更新服务，访问地址仍然是：
 
-先构建新镜像，停止旧容器。如果本次版本新增了数据库迁移，则在同一个 volume 上显式执行迁移，再启动新容器：
+```text
+http://127.0.0.1:3000/app
+```
+
+开发脚本会使用本地开发账号自动登录；这是为了方便开发调试，生产环境请使用自己的 `.env` 配置并运行构建产物。
+
+## 方式二：Docker 部署
+
+Docker 部署适合长期运行在家用服务器、NAS 或云主机上。
+
+先在项目根目录准备 `.env`：
+
+```dotenv
+XIANGYING_USERNAME=xiangying
+XIANGYING_PASSWORD=请替换为至少12位的生产密码
+PUBLIC_URL=https://notes.example.com
+COOKIE_SECURE=true
+```
+
+构建镜像并创建数据卷：
 
 ```bash
 docker build --pull -t xiangying-notes:local .
-docker stop xiangying-notes
-docker rm xiangying-notes
-# 仅当本次版本新增 migrations/*.sql 时执行
-docker run --rm \
-  --env-file .env \
-  -v xiangying-notes-data:/data \
-  xiangying-notes:local \
-  bun dist/server/migrate.js
+docker volume create xiangying-notes-data
+```
+
+启动容器：
+
+```bash
 docker run -d \
   --name xiangying-notes \
   --restart unless-stopped \
@@ -318,183 +184,128 @@ docker run -d \
   xiangying-notes:local
 ```
 
-SQLite 文件在 volume 中，容器替换不会删除笔记。
-
-### 5. 备份和回滚
-
-停止容器后备份 SQLite 文件：
-
-```bash
-docker stop xiangying-notes
-docker cp xiangying-notes:/data/xiangying-notes.sqlite ./xiangying-notes-backup.sqlite
-docker start xiangying-notes
-```
-
-回滚时使用之前的固定镜像 tag，并保持同一个 `xiangying-notes-data` volume：
-
-```bash
-docker stop xiangying-notes
-docker rm xiangying-notes
-docker run -d \
-  --name xiangying-notes \
-  --restart unless-stopped \
-  -p 3000:3000 \
-  --env-file .env \
-  -v xiangying-notes-data:/data \
-  ghcr.io/biaobiaobiao108/xiangying-notes:1.0.0
-```
-
-不要把数据库文件复制回 Git，也不要把生产 `.env` 放进镜像构建上下文。
-
-## GHCR 镜像发布
-
-Docker workflow 位于 `.github/workflows/docker.yml`，只在 push Git tag 时触发。镜像使用 Buildx 同时构建 `linux/amd64` 和 `linux/arm64`，推送同一个多架构镜像 tag 后 Docker 会自动选择当前设备架构。镜像推送成功后，workflow 会使用 GitHub CLI 创建同名 GitHub Release。Release 会先列出版本号、对应镜像地址、支持架构、完整 Docker 启动命令和健康检查方式，再附加自动生成的变更说明。
-
-仓库需要允许 Actions 使用 `GITHUB_TOKEN` 写入 Packages 和创建 Release。workflow 使用：
+然后访问：
 
 ```text
-ghcr.io/${{ github.repository }}
+http://127.0.0.1:3000/app
 ```
 
-创建并推送正式版本：
+容器中的数据库位于 `/data/xiangying-notes.sqlite`，数据卷不会因为容器更新而消失。生产环境建议在反向代理后使用 HTTPS，并将 `COOKIE_SECURE` 设置为 `true`。
 
-```bash
-git tag v1.0.0
-git push origin v1.0.0
-```
+## 配置项
 
-正式 SemVer tag 会生成：
-
-```text
-v1.0.0
-1.0.0
-1.0
-1
-latest
-```
-
-非正式 tag，例如 `beta` 或 `nightly`，只生成对应 tag，不覆盖 `latest`。
-
-拉取并运行 GHCR 镜像：
-
-```bash
-docker pull ghcr.io/biaobiaobiao108/xiangying-notes:latest
-docker volume create xiangying-notes-data
-docker run -d \
-  --name xiangying-notes \
-  --restart unless-stopped \
-  -p 3000:3000 \
-  --env-file .env \
-  -v xiangying-notes-data:/data \
-  ghcr.io/biaobiaobiao108/xiangying-notes:latest
-```
-
-如果 GHCR package 是私有的，先登录：
-
-```bash
-echo "$GITHUB_TOKEN" | docker login ghcr.io -u YOUR_GITHUB_USERNAME --password-stdin
-```
-
-## GitHub Actions
-
-### CI
-
-`.github/workflows/ci.yml` 在每次 push 和 Pull Request 触发，执行：
-
-```text
-bun install --frozen-lockfile
-bun run typecheck
-bun test
-bun run build
-Docker build（不推送）
-```
-
-CI 会从干净仓库检查前端、Bun Server、SQLite 测试和 Dockerfile。
-
-### Docker 发布
-
-`.github/workflows/docker.yml` 在任意 Git tag push 时触发，登录 GHCR，使用 QEMU + Buildx 构建并推送支持 `linux/amd64`、`linux/arm64` 的精简多架构镜像；镜像推送成功后会创建同名 GitHub Release，介绍本次版本号、镜像地址、支持架构、凭据配置、数据卷、启动命令和健康检查，并附加自动生成的变更说明。镜像构建使用 Buildx GitHub Actions cache，不需要配置 Docker Hub 账号或额外密码。
-
-## API 速查
-
-所有私有 API 使用 HttpOnly、SameSite=Lax 的 `xiangying_session` Cookie。分享读取接口不需要登录。
-
-| 方法 | 路径 | 说明 |
+| 配置项 | 必需 | 说明 |
 | --- | --- | --- |
-| `GET` | `/api/health` | 健康检查 |
-| `GET` | `/api/bootstrap` | 检查环境变量认证是否已配置 |
-| `POST` | `/api/setup` | 已停用，认证由环境变量管理 |
-| `POST` | `/api/auth/login` | 用户名密码登录 |
-| `POST` | `/api/auth/logout` | 注销会话 |
-| `GET` | `/api/me` | 当前用户 |
-| `GET` | `/api/notes` | 查询笔记、搜索和筛选 |
-| `POST` | `/api/notes` | 新建笔记 |
-| `GET` | `/api/notes/:id` | 获取完整笔记 |
-| `PATCH` | `/api/notes/:id` | 携带 `version` 更新笔记 |
-| `DELETE` | `/api/notes/:id` | 永久删除回收站笔记 |
-| `GET` | `/api/notebooks` | 获取笔记本 |
-| `POST` | `/api/notebooks` | 新建笔记本 |
-| `PATCH` | `/api/notebooks/:id` | 更新笔记本 |
-| `DELETE` | `/api/notebooks/:id` | 删除笔记本并移动笔记到收件箱 |
-| `POST` | `/api/notes/:id/shares` | 创建 7 天快照 |
-| `GET` | `/api/notes/:id/shares` | 获取分享记录 |
-| `DELETE` | `/api/shares/:id` | 撤销分享 |
-| `GET` | `/api/shares/:token` | 读取公开快照 |
+| `XIANGYING_USERNAME` | 是 | 登录用户名，长度为 3–32 个字符 |
+| `XIANGYING_PASSWORD` | 是 | 登录密码，长度为 12–128 个字符 |
+| `DATABASE_PATH` | 否 | SQLite 数据库路径，默认 `./data/xiangying-notes.sqlite`；Docker 中默认 `/data/xiangying-notes.sqlite` |
+| `HOST` | 否 | 服务监听地址，默认 `0.0.0.0` |
+| `PORT` | 否 | 服务端口，默认 `3000` |
+| `PUBLIC_URL` | 否 | 分享链接使用的公网根地址，例如 `https://notes.example.com` |
+| `COOKIE_SECURE` | 否 | HTTPS 部署时设置为 `true`；本机 HTTP 使用 `false` |
 
-常见状态：
+`PUBLIC_URL` 只填写公网根地址，不要在末尾添加 `/app` 或其他路径。`.env`、SQLite 数据库和分享 token 都不应提交到 Git 仓库。
 
-- `401 UNAUTHENTICATED`：缺少或失效的会话。
-- `409 VERSION_CONFLICT`：笔记版本不是最新版本。
-- `410 SHARE_REVOKED`：分享已撤销。
-- `410 SHARE_EXPIRED`：分享已过期。
-- `503 AUTH_NOT_CONFIGURED`：缺少有效的登录环境变量。
+## 数据、隐私与安全
 
-## 常用命令
+- 象映笔记是单用户应用，账号凭据只通过运行时环境变量注入。
+- 服务端笔记保存在 SQLite 中，默认位置为 `data/xiangying-notes.sqlite`；Docker 部署时保存在 `/data` 数据卷。
+- 离线副本和待同步操作保存在当前浏览器的 IndexedDB 中。
+- 分享链接是公开链接，拿到链接的人可以阅读对应的只读快照，直到链接过期或被撤销。
+- 生产部署建议使用 HTTPS，并设置 `COOKIE_SECURE=true`。
+- 备份时请同时考虑 SQLite 的 `-wal` 和 `-shm` 文件；应用运行期间不要直接复制正在使用的数据库文件。
+- 当前版本不提供多人实时协作、公开注册或多租户隔离能力。
+
+## 数据库迁移
+
+空数据库首次启动时，会自动按顺序执行已有迁移完成初始化。
+
+已经存在的数据库不会在服务启动时自动应用后续新增迁移。升级版本如果包含新的 `migrations/*.sql` 文件，请显式执行：
+
+本机：
+
+```bash
+bun run db:migrate
+```
+
+Docker：
+
+```bash
+docker run --rm \
+  --env-file .env \
+  -v xiangying-notes-data:/data \
+  xiangying-notes:local \
+  bun dist/server/migrate.js
+```
+
+迁移完成后再启动新版本服务。不要修改已经应用过的历史迁移文件。
+
+## 常见问题
+
+### 我在哪里能找到笔记数据？
+
+本机默认在 `data/xiangying-notes.sqlite`。可以通过 `DATABASE_PATH` 修改。Docker 部署时数据在 `xiangying-notes-data` 卷中。
+
+### 断网后写的内容会丢吗？
+
+正常情况下不会。浏览器会保存本地副本和待同步操作，恢复联网后自动同步。如果出现版本冲突，本地内容会被保留，并在应用中提示处理。
+
+### 分享链接为什么打不开？
+
+请检查链接是否已经超过 7 天、是否被撤销，以及 `PUBLIC_URL` 是否配置成了用户实际访问的公网地址。分享读取本身不要求登录，但创建和管理分享需要登录。
+
+### 如何彻底删除笔记？
+
+先将笔记移入回收站，再在回收站中选择永久删除。清空回收站和永久删除都不可恢复。
+
+### 如何确认服务正常？
+
+访问健康检查地址：
+
+```text
+http://127.0.0.1:3000/api/health
+```
+
+正常时会返回：
+
+```json
+{"status":"ok","database":"ok"}
+```
+
+## 开发者信息
+
+项目使用 Bun + TypeScript + React 构建：
+
+- 前端：React、React Router、Tiptap、Lucide
+- 服务端：原生 `Bun.serve`、Fetch API、Web Crypto
+- 数据库：Bun `bun:sqlite`、SQLite WAL、FTS5
+- 构建：Bun bundler，生产环境使用代码分割和压缩
+
+常用命令：
 
 | 命令 | 用途 |
 | --- | --- |
-| `bun install` | 按 `bun.lock` 安装依赖 |
-| `bun run dev` | 前端 watch + Bun 热更新服务 |
-| `bun run build:client` | 构建浏览器前端 |
-| `bun run build:server` | 构建 Bun Server |
-| `bun run build` | 完整构建 |
+| `bun install` | 安装依赖 |
+| `bun run dev` | 启动开发服务 |
+| `bun run build` | 构建前端和服务端 |
 | `bun run start` | 启动构建后的服务 |
 | `bun run preview` | 启动构建后的服务 |
-| `bun run db:migrate` | 为已有数据库显式执行新增 SQLite 迁移 |
+| `bun run db:migrate` | 显式执行数据库迁移 |
 | `bun run typecheck` | TypeScript 类型检查 |
 | `bun test` | 运行测试 |
 
-## 安全注意事项
+主要目录：
 
-- 不要提交 `.env`、密码、SQLite 文件、会话 Cookie 或分享 token。
-- 不要把登录凭据写入 Dockerfile、镜像层、GitHub workflow 或构建参数。
-- Docker volume 是应用数据的实际存储位置，部署前要规划备份。
-- 分享链接是公开只读链接，拿到 token 的人可以在 7 天内读取快照。
-- 生产环境建议在反向代理层启用 HTTPS，并设置 `COOKIE_SECURE=true`。
-- 不要在服务端日志记录请求正文、密码或 Cookie。
-- 修改数据库结构时新增迁移文件，不要删除已经应用的迁移。
-
-## 完整验收
-
-提交前执行：
-
-```bash
-bun run typecheck
-bun test
-bun run build
-docker build --pull -t xiangying-notes:check .
+```text
+app/                 React 前端、编辑器和样式
+server/              Bun Server、API 和数据库访问
+shared/              前后端共享类型
+migrations/          SQLite 数据库迁移
+tests/               单元测试和 API 集成测试
+scripts/              开发、构建和迁移脚本
+Dockerfile           多阶段生产镜像
 ```
 
-运行后检查：
+## 许可证
 
-1. `/api/health` 返回正常。
-2. 使用环境变量登录，首次登录自动初始化数据。
-3. 新建、编辑、搜索和删除笔记。
-4. 创建笔记本并在指定笔记本中新建命名笔记。
-5. 使用 `Ctrl + /` 打开命令菜单。
-6. 编辑器右下角统计和大纲功能正常。
-7. 创建分享并在未登录状态打开分享页。
-8. 修改原笔记后，分享快照保持不变。
-9. 撤销分享后链接立即失效。
-10. 重启容器后笔记仍然存在。
-11. 浏览器刷新 `/app`、`/login` 和 `/share/:token` 不返回 404。
+当前仓库未声明独立开源许可证。若要公开分发或二次开发，请先根据项目实际发布方式补充许可证说明。
