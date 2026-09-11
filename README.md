@@ -154,7 +154,13 @@ http://127.0.0.1:3000/app
 
 ## 方式二：Docker 部署
 
-Docker 部署适合长期运行在家用服务器、NAS 或云主机上。
+Docker 部署适合长期运行在家用服务器、NAS 或云主机上。项目已经发布了支持 `linux/amd64` 和 `linux/arm64` 的镜像，直接拉取即可，不需要自己构建镜像，也不需要在主机上安装 Bun。
+
+镜像地址：
+
+```text
+ghcr.io/biaobiaobiao108/xiangyin-notes
+```
 
 先在项目根目录准备 `.env`：
 
@@ -165,10 +171,10 @@ PUBLIC_URL=https://notes.example.com
 COOKIE_SECURE=true
 ```
 
-构建镜像并创建数据卷：
+拉取已发布镜像并创建数据卷：
 
 ```bash
-docker build --pull -t xiangying-notes:local .
+docker pull ghcr.io/biaobiaobiao108/xiangyin-notes:latest
 docker volume create xiangying-notes-data
 ```
 
@@ -181,7 +187,7 @@ docker run -d \
   -p 3000:3000 \
   --env-file .env \
   -v xiangying-notes-data:/data \
-  xiangying-notes:local
+  ghcr.io/biaobiaobiao108/xiangyin-notes:latest
 ```
 
 然后访问：
@@ -191,6 +197,41 @@ http://127.0.0.1:3000/app
 ```
 
 容器中的数据库位于 `/data/xiangying-notes.sqlite`，数据卷不会因为容器更新而消失。生产环境建议在反向代理后使用 HTTPS，并将 `COOKIE_SECURE` 设置为 `true`。
+
+如果 GHCR 镜像是私有的，先登录 GitHub Container Registry：
+
+```bash
+echo "$GITHUB_TOKEN" | docker login ghcr.io -u YOUR_GITHUB_USERNAME --password-stdin
+```
+
+### 升级或回滚
+
+升级时拉取新镜像，继续使用原来的数据卷即可：
+
+```bash
+docker pull ghcr.io/biaobiaobiao108/xiangyin-notes:latest
+docker stop xiangying-notes
+docker rm xiangying-notes
+docker run -d \
+  --name xiangying-notes \
+  --restart unless-stopped \
+  -p 3000:3000 \
+  --env-file .env \
+  -v xiangying-notes-data:/data \
+  ghcr.io/biaobiaobiao108/xiangyin-notes:latest
+```
+
+如果新版本包含数据库迁移，先执行一次迁移，再启动新容器：
+
+```bash
+docker run --rm \
+  --env-file .env \
+  -v xiangying-notes-data:/data \
+  ghcr.io/biaobiaobiao108/xiangyin-notes:latest \
+  bun dist/server/migrate.js
+```
+
+回滚时把 `latest` 替换为需要的版本 tag，并继续使用同一个 `xiangying-notes-data` 数据卷。
 
 ## 配置项
 
@@ -234,7 +275,7 @@ Docker：
 docker run --rm \
   --env-file .env \
   -v xiangying-notes-data:/data \
-  xiangying-notes:local \
+  ghcr.io/biaobiaobiao108/xiangyin-notes:latest \
   bun dist/server/migrate.js
 ```
 
