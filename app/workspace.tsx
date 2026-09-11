@@ -788,7 +788,7 @@ function Sidebar({ view, setView, notebooks, notebookId, setNotebookId, query, s
         <FloatingScrollbar scrollTargetRef={notebookListRef} controlsId="notebook-list-scroll-region" ariaLabel="笔记本列表滚动条" placement="left" />
       </div>
     </div>
-    <div className="sidebar-bottom"><button className="nav-item" type="button" onClick={onLogout}><LogOut size={18} /><span>退出登录</span></button><SyncStatus state={syncState} pwa={pwaState} onInstall={onInstall} onUpdate={onUpdate} onConflicts={onConflicts} /><div className="sidebar-hint"><span className="status-pulse" />数据安全保存在你的空间</div></div>
+    <div className="sidebar-bottom"><SyncStatus state={syncState} pwa={pwaState} onInstall={onInstall} onUpdate={onUpdate} onConflicts={onConflicts} /><div className="sidebar-hint"><span className="status-pulse" />数据安全保存在你的空间</div><button className="nav-item" type="button" aria-label="退出登录" onClick={onLogout}><LogOut size={18} /><span>退出登录</span></button></div>
   </aside>;
 }
 
