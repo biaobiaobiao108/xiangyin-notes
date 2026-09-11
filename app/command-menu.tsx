@@ -1,20 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Archive, Bookmark, FilePlus2, Link2, PanelLeft, Search, Trash2, type LucideIcon } from "lucide-react";
+import { Archive, Bookmark, FilePlus2, Link2, Maximize2, PanelLeft, Search, Trash2, type LucideIcon } from "lucide-react";
 import type { Notebook } from "../shared/types";
 import { parseCreateNoteCommand, type CreateNoteCommand } from "./command-parser";
 import { modKey } from "./platform";
 
-export type CommandId = "new-note" | "search" | "toggle-sidebar" | "share" | "favorite" | "trash" | "restore";
-
-const COMMANDS: Array<{ id: CommandId; label: string; shortcut: string; icon: LucideIcon }> = [
-  { id: "new-note", label: "新建笔记", shortcut: "↵", icon: FilePlus2 },
-  { id: "search", label: "搜索笔记", shortcut: "↵", icon: Search },
-  { id: "toggle-sidebar", label: "切换侧栏", shortcut: `${modKey} \\`, icon: PanelLeft },
-  { id: "share", label: "分享笔记", shortcut: "↵", icon: Link2 },
-  { id: "favorite", label: "切换收藏", shortcut: "↵", icon: Bookmark },
-  { id: "trash", label: "移入回收站", shortcut: "↵", icon: Trash2 },
-  { id: "restore", label: "恢复笔记", shortcut: "↵", icon: Archive },
-];
+export type CommandId = "new-note" | "search" | "toggle-sidebar" | "toggle-focus-mode" | "share" | "favorite" | "trash" | "restore";
 
 type CommandOption = {
   key: string;
@@ -32,17 +22,28 @@ type CommandMenuProps = {
   onCreateNoteInNotebook: (command: CreateNoteCommand) => void;
   canRestore: boolean;
   notebooks: Notebook[];
+  focusMode?: boolean;
 };
 
-export function CommandMenu({ open, onClose, onCommand, onCreateNoteInNotebook, canRestore, notebooks }: CommandMenuProps) {
+export function CommandMenu({ open, onClose, onCommand, onCreateNoteInNotebook, canRestore, notebooks, focusMode = false }: CommandMenuProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
+  const commands = useMemo<Array<{ id: CommandId; label: string; shortcut: string; icon: LucideIcon }>>(() => [
+    { id: "new-note", label: "新建笔记", shortcut: "↵", icon: FilePlus2 },
+    { id: "search", label: "搜索笔记", shortcut: "↵", icon: Search },
+    { id: "toggle-sidebar", label: "切换侧栏", shortcut: `${modKey} \\`, icon: PanelLeft },
+    { id: "toggle-focus-mode", label: focusMode ? "退出沉浸模式" : "进入沉浸模式", shortcut: `${modKey} ⇧ F`, icon: Maximize2 },
+    { id: "share", label: "分享笔记", shortcut: "↵", icon: Link2 },
+    { id: "favorite", label: "切换收藏", shortcut: "↵", icon: Bookmark },
+    { id: "trash", label: "移入回收站", shortcut: "↵", icon: Trash2 },
+    { id: "restore", label: "恢复笔记", shortcut: "↵", icon: Archive },
+  ], [focusMode]);
   const createNoteResult = useMemo(() => parseCreateNoteCommand(query, notebooks), [notebooks, query]);
-  const filtered = useMemo(() => COMMANDS
+  const filtered = useMemo(() => commands
     .filter((command) => (command.id !== "restore" || canRestore) && (command.label.includes(query.trim()) || command.id.includes(query.trim().toLowerCase())))
-    .map((command) => ({ ...command, key: command.id })), [canRestore, query]);
+    .map((command) => ({ ...command, key: command.id })), [canRestore, commands, query]);
   const options = useMemo<CommandOption[]>(() => createNoteResult?.kind === "match"
     ? [{ key: "create-note-in-notebook", label: `在“${createNoteResult.command.notebookName}”中新建“${createNoteResult.command.title}”`, shortcut: "Enter", icon: FilePlus2, createNote: createNoteResult.command }]
     : filtered, [createNoteResult, filtered]);

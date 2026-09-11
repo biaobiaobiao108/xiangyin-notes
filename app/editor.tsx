@@ -7,7 +7,7 @@ import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
-import { ChevronLeft, Link2, ListTree, Minus, Trash2, Undo2 } from "lucide-react";
+import { ChevronLeft, Link2, ListTree, Maximize2, Minimize2, Minus, Trash2, Undo2 } from "lucide-react";
 import type { Note } from "../shared/types";
 import { BrandMark } from "./brand-mark";
 import { buildOutlineItems, countEditorText, isMarkdownHeadingMarker, parseMarkdownHeadingPrefix, shouldParseMarkdownPaste, type EditorStats, type OutlineItem } from "./editor-metrics";
@@ -15,7 +15,7 @@ import { FloatingScrollbar } from "./floating-scrollbar";
 
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
 
-export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList }: {
+export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList, focusMode = false, onToggleFocusMode }: {
   note: Note;
   saveState: "idle" | "saving" | "saved" | "conflict" | "error";
   isLoading?: boolean;
@@ -32,6 +32,8 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
   onRestore: () => void;
   onPermanentDelete?: () => void;
   onOpenList?: () => void;
+  focusMode?: boolean;
+  onToggleFocusMode?: () => void;
 }) {
   const editorScrollRef = useRef<HTMLDivElement>(null);
   const editorInstanceRef = useRef<Editor | null>(null);
@@ -328,7 +330,7 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
 
   const saveLabel = saveState === "saving" ? "保存中" : "已保存";
   return (
-    <section className={`editor-panel ${isLoading ? "is-loading" : ""}`} aria-label="笔记编辑器" aria-busy={isLoading} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === "s") { event.preventDefault(); onSaveNow(); } }}>
+    <section className={`editor-panel ${isLoading ? "is-loading" : ""} ${focusMode ? "is-focus-mode" : ""}`} aria-label="笔记编辑器" aria-busy={isLoading} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === "s") { event.preventDefault(); onSaveNow(); } }}>
       <header className="editor-header">
         <div className="editor-header-start">
           {onOpenList && <button className="icon-button mobile-only editor-back" type="button" aria-label="返回笔记列表" onClick={onOpenList} disabled={isLoading}><ChevronLeft size={20} /></button>}
@@ -349,6 +351,18 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
           ) : saveState === "idle" ? null : (
             <span className={`save-status save-status--${saveState}`} aria-live="polite"><span className="save-dot" />{saveLabel}</span>
           )}
+          {onToggleFocusMode && (
+            <button
+              className={`icon-button ${focusMode ? "is-active" : ""}`}
+              type="button"
+              aria-label={focusMode ? "退出沉浸模式" : "沉浸编辑模式"}
+              title={focusMode ? "退出沉浸模式 (Esc 或 ⌘/Ctrl+Shift+F)" : "沉浸编辑模式 (⌘/Ctrl+Shift+F)"}
+              onClick={onToggleFocusMode}
+              disabled={isLoading}
+            >
+              {focusMode ? <Minimize2 size={18} strokeWidth={1.8} /> : <Maximize2 size={18} strokeWidth={1.8} />}
+            </button>
+          )}
           <button className={`icon-button ${note.isFavorite ? "is-active" : ""}`} type="button" aria-label={note.isFavorite ? "取消收藏" : "收藏笔记"} title={note.isFavorite ? "取消收藏" : "收藏笔记"} onClick={onToggleFavorite} disabled={isLoading}><span className="star-glyph">★</span></button>
           <button className="icon-button" type="button" aria-label="分享笔记" title="分享笔记" onClick={onShare} disabled={isLoading}><Link2 size={18} strokeWidth={1.8} /></button>
           {note.deletedAt ? <>
@@ -357,6 +371,18 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
           </> : <button className="icon-button" type="button" aria-label="移入回收站" title="移入回收站" onClick={onMoveToTrash} disabled={isLoading || trashBusy}><Minus size={18} strokeWidth={1.8} className="trash-mark" /></button>}
         </div>
       </header>
+      {focusMode && onToggleFocusMode && (
+        <button
+          className="focus-mode-floating-exit"
+          type="button"
+          aria-label="退出沉浸模式"
+          title="退出沉浸模式 (Esc)"
+          onClick={onToggleFocusMode}
+        >
+          <Minimize2 size={14} strokeWidth={2} />
+          <span>退出沉浸</span>
+        </button>
+      )}
       <div className="editor-scroll-shell">
         <div id="editor-scroll-region" className="editor-scroll floating-scrollbar-target" ref={editorScrollRef}>
           <div className="editor-document">
