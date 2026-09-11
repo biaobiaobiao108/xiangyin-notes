@@ -76,7 +76,46 @@ type SegmenterConstructor = new (
   options?: { granularity: "grapheme" },
 ) => Segmenter;
 
-const HAN_RE = /\p{Script=Han}/u;
+export const HAN_RE = /\p{Script=Han}/u;
+
+export function detectLeakedImePrefix(
+  blockText: string,
+  candidateKey?: string | null,
+  committedText?: string | null,
+): number | null {
+  if (!blockText) return null;
+
+  if (candidateKey && candidateKey.length > 0) {
+    const key = candidateKey.startsWith("Key")
+      ? candidateKey.slice(3).toLowerCase()
+      : candidateKey.startsWith("Digit")
+        ? candidateKey.slice(5)
+        : candidateKey.toLowerCase();
+    const keyLen = key.length;
+    if (blockText.length > keyLen && blockText.slice(0, keyLen).toLowerCase() === key) {
+      const remainder = blockText.slice(keyLen);
+      if (committedText && committedText.length > 0) {
+        if (remainder.startsWith(committedText)) {
+          return keyLen;
+        }
+      } else if (HAN_RE.test(remainder[0])) {
+        return keyLen;
+      }
+    }
+  }
+
+  if (committedText && committedText.length > 0 && HAN_RE.test(committedText)) {
+    if (blockText.length > committedText.length && blockText.endsWith(committedText)) {
+      const prefixLen = blockText.length - committedText.length;
+      const prefix = blockText.slice(0, prefixLen);
+      if (/^[a-zA-Z]$/.test(prefix)) {
+        return prefixLen;
+      }
+    }
+  }
+
+  return null;
+}
 const LETTER_OR_NUMBER_RE = /[\p{Letter}\p{Number}]/u;
 const EMOJI_RE = /\p{Extended_Pictographic}/u;
 

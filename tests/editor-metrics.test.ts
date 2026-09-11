@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildOutlineItems, countEditorText, isMarkdownHeadingMarker, parseMarkdownBlockShortcut, parseMarkdownHeadingPrefix, shouldParseMarkdownPaste } from "../app/editor-metrics";
+import { buildOutlineItems, countEditorText, detectLeakedImePrefix, isMarkdownHeadingMarker, parseMarkdownBlockShortcut, parseMarkdownHeadingPrefix, shouldParseMarkdownPaste } from "../app/editor-metrics";
 
 describe("editor metrics", () => {
   test("counts Chinese characters, word runs, emoji, and non-whitespace characters", () => {
@@ -63,5 +63,44 @@ describe("editor metrics", () => {
     expect(shouldParseMarkdownPaste("> 引用\n\n```ts\nconst answer = 42\n```", true)).toBe(true);
     expect(shouldParseMarkdownPaste("网页复制的普通富文本", true)).toBe(false);
     expect(shouldParseMarkdownPaste("   ", false)).toBe(false);
+  });
+
+  test("detects and removes leaked IME first-letter prefix accurately", () => {
+    // Leaked letter with committed Chinese text
+    expect(detectLeakedImePrefix("b标题", "b", "标题")).toBe(1);
+    expect(detectLeakedImePrefix("b标题", "KeyB", "标题")).toBe(1);
+    expect(detectLeakedImePrefix("B标题", "b", "标题")).toBe(1);
+    expect(detectLeakedImePrefix("x项目", "x", "项目")).toBe(1);
+    expect(detectLeakedImePrefix("c测试", "c", "测试")).toBe(1);
+    expect(detectLeakedImePrefix("1一个", "Digit1", "一个")).toBe(1);
+
+    // Leaked letter without committedText (Han character following prefix)
+    expect(detectLeakedImePrefix("b标题", "b", undefined)).toBe(1);
+    expect(detectLeakedImePrefix("x项目", "x")).toBe(1);
+
+    // Fallback when candidateKey is missing/null, but committedText is Chinese
+    expect(detectLeakedImePrefix("b标题", null, "标题")).toBe(1);
+    expect(detectLeakedImePrefix("s说明", undefined, "说明")).toBe(1);
+
+    // Leaked letter when committing pinyin text directly with Enter
+    expect(detectLeakedImePrefix("aapple", "a", "apple")).toBe(1);
+    expect(detectLeakedImePrefix("bbiaoti", "b", "biaoti")).toBe(1);
+
+    // Normal typing with NO leak
+    expect(detectLeakedImePrefix("标题", "b", "标题")).toBeNull();
+    expect(detectLeakedImePrefix("标题", null, "标题")).toBeNull();
+    expect(detectLeakedImePrefix("项目", "x", "项目")).toBeNull();
+
+    // English word without leak
+    expect(detectLeakedImePrefix("apple", "a", "apple")).toBeNull();
+    expect(detectLeakedImePrefix("banana", "b", "banana")).toBeNull();
+
+    // Intentional prefix that does not match committed text
+    expect(detectLeakedImePrefix("A级", null, "A级")).toBeNull();
+    expect(detectLeakedImePrefix("A级", "a", "A级")).toBeNull();
+
+    // Empty or single character without remainder
+    expect(detectLeakedImePrefix("", "b", "标题")).toBeNull();
+    expect(detectLeakedImePrefix("b", "b", "")).toBeNull();
   });
 });

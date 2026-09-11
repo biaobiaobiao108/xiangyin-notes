@@ -11,7 +11,7 @@ import { findWrapping } from "@tiptap/pm/transform";
 import { ChevronLeft, Link2, ListTree, Maximize2, Minimize2, Minus, Trash2, Undo2 } from "lucide-react";
 import type { Note } from "../shared/types";
 import { BrandMark } from "./brand-mark";
-import { buildOutlineItems, countEditorText, parseMarkdownBlockShortcut, shouldParseMarkdownPaste, type EditorStats, type MarkdownBlockShortcut, type OutlineItem } from "./editor-metrics";
+import { buildOutlineItems, countEditorText, detectLeakedImePrefix, parseMarkdownBlockShortcut, shouldParseMarkdownPaste, type EditorStats, type MarkdownBlockShortcut, type OutlineItem } from "./editor-metrics";
 import { FloatingScrollbar } from "./floating-scrollbar";
 
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
@@ -43,6 +43,8 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
   const headingElementsRef = useRef(new Map<string, HTMLElement>());
   const syncFrameRef = useRef<number | null>(null);
   const composingRef = useRef(false);
+  const leakedCandidateRef = useRef<{ key: string; blockStartPos: number; emptyAtStart: boolean } | null>(null);
+  const imeCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeEditorNoteIdRef = useRef(note.id);
   const initialContentRef = useRef(note.contentMarkdown);
   const onChangeRef = useRef(onChange);
@@ -179,9 +181,27 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
         return false;
       }
     },
-    handleKeyDown: (_view: Editor["view"], event: KeyboardEvent) => {
-      if (event.isComposing || event.keyCode === 229) {
+    handleKeyDown: (view: Editor["view"], event: KeyboardEvent) => {
+      if (event.isComposing || event.keyCode === 229 || event.key === "Process") {
         composingRef.current = true;
+        if (!leakedCandidateRef.current) {
+          const { $from } = view.state.selection;
+          if ($from.parent.content.size === 0 || ($from.parentOffset === 0 && $from.parent.textContent.length === 0)) {
+            let key = "";
+            if (event.code && event.code.startsWith("Key")) {
+              key = event.code.slice(3).toLowerCase();
+            } else if (event.code && event.code.startsWith("Digit")) {
+              key = event.code.slice(5);
+            } else if (event.key && event.key.length === 1 && event.key !== "Process") {
+              key = event.key.toLowerCase();
+            }
+            leakedCandidateRef.current = {
+              key,
+              blockStartPos: $from.start(),
+              emptyAtStart: true,
+            };
+          }
+        }
       }
       return false;
     },
@@ -195,16 +215,74 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
       return executeBlockShortcut(view, from, shortcut);
     },
     handleDOMEvents: {
-      compositionstart: () => {
+      compositionstart: (view: Editor["view"]) => {
         composingRef.current = true;
+        if (imeCleanupTimerRef.current !== null) {
+          clearTimeout(imeCleanupTimerRef.current);
+          imeCleanupTimerRef.current = null;
+        }
+        const { $from } = view.state.selection;
+        const text = $from.parent.textContent;
+        if (!leakedCandidateRef.current) {
+          if ($from.parent.content.size === 0 || ($from.parentOffset === 0 && text.length === 0)) {
+            leakedCandidateRef.current = {
+              key: "",
+              blockStartPos: $from.start(),
+              emptyAtStart: true,
+            };
+          } else if (text.length === 1 && /^[a-zA-Z0-9]$/.test(text) && $from.parentOffset <= 1) {
+            leakedCandidateRef.current = {
+              key: text.toLowerCase(),
+              blockStartPos: $from.start(),
+              emptyAtStart: true,
+            };
+          }
+        }
         return false;
       },
-      compositionend: () => {
+      compositionend: (view: Editor["view"], event: Event) => {
         composingRef.current = false;
+        const candidate = leakedCandidateRef.current;
+        const committedText = (event as CompositionEvent).data;
+        if (imeCleanupTimerRef.current !== null) {
+          clearTimeout(imeCleanupTimerRef.current);
+          imeCleanupTimerRef.current = null;
+        }
+        if (candidate && candidate.emptyAtStart) {
+          imeCleanupTimerRef.current = setTimeout(() => {
+            imeCleanupTimerRef.current = null;
+            try {
+              if (!view || view.isDestroyed) return;
+              const { state, dispatch } = view;
+              const resolvedPos = Math.min(candidate.blockStartPos, state.doc.content.size);
+              const $pos = state.doc.resolve(resolvedPos);
+              const block = $pos.parent;
+              const blockStart = $pos.start();
+              const blockText = block.textContent;
+
+              const leakedLen = detectLeakedImePrefix(blockText, candidate.key || null, committedText);
+              if (leakedLen && leakedLen > 0) {
+                const deleteFrom = blockStart;
+                const deleteTo = blockStart + leakedLen;
+                const tr = state.tr.delete(deleteFrom, deleteTo);
+                dispatch(tr.scrollIntoView());
+              }
+            } finally {
+              leakedCandidateRef.current = null;
+            }
+          }, 30);
+        } else {
+          leakedCandidateRef.current = null;
+        }
         return false;
       },
       compositioncancel: () => {
         composingRef.current = false;
+        leakedCandidateRef.current = null;
+        if (imeCleanupTimerRef.current !== null) {
+          clearTimeout(imeCleanupTimerRef.current);
+          imeCleanupTimerRef.current = null;
+        }
         return false;
       },
     },
@@ -236,6 +314,9 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
     return () => {
       if (syncFrameRef.current !== null) cancelAnimationFrame(syncFrameRef.current);
       syncFrameRef.current = null;
+      if (imeCleanupTimerRef.current !== null) clearTimeout(imeCleanupTimerRef.current);
+      imeCleanupTimerRef.current = null;
+      leakedCandidateRef.current = null;
       composingRef.current = false;
       headingElementsRef.current.clear();
     };
@@ -253,6 +334,9 @@ export function NoteEditor({ note, saveState, isLoading = false, reloadToken = 0
     if (!switchedNote && appliedReloadTokenRef.current === reloadToken) return;
     appliedReloadTokenRef.current = reloadToken;
     activeEditorNoteIdRef.current = note.id;
+    if (imeCleanupTimerRef.current !== null) clearTimeout(imeCleanupTimerRef.current);
+    imeCleanupTimerRef.current = null;
+    leakedCandidateRef.current = null;
     composingRef.current = false;
     headingElementsRef.current.clear();
     setOutlineOpen(false);
