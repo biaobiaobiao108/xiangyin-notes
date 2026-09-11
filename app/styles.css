@@ -289,7 +289,7 @@ button.save-status:hover { text-decoration: underline; }
 .note-title-input { width: 100%; padding: 0; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: clamp(2rem, 3.5vw, 3.05rem); font-weight: 700; letter-spacing: -0.065em; line-height: 1.08; }
 .note-title-input::placeholder { color: #bec5bf; }
 .editor-document { padding-top: 72px; }
-.note-prose { margin-top: 32px; color: #29322d; font-size: 1.08rem; line-height: 1.72; }
+.note-prose { margin-top: 32px; color: #29322d; font-size: 1.08rem; line-height: 1.6; }
 .note-prose:focus { outline: 0; }
 .note-prose > *:first-child { margin-top: 0; }
 .note-prose h1, .note-prose h2, .note-prose h3 { margin: 1.65em 0 0.55em; letter-spacing: -0.045em; line-height: 1.2; scroll-margin-block-start: 24px; }
