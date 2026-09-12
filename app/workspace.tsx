@@ -22,6 +22,9 @@ export function Workspace() {
   const [noteSort, setNoteSort] = useState<NoteSort>("updated");
   const [totalNotes, setTotalNotes] = useState(0);
   const [notesReloadToken, setNotesReloadToken] = useState(0);
+  const [listTransitionToken, setListTransitionToken] = useState(0);
+  const listTransitionIntentRef = useRef(0);
+  const listTransitionConsumedRef = useRef(0);
   const notesRef = useRef<NoteSummary[]>([]);
   const listRequestRef = useRef(0);
   const notebooksRequestRef = useRef(0);
@@ -140,6 +143,17 @@ export function Workspace() {
   }, [navigate]);
 
   const replaceList = useCallback((next: NoteSummary[]) => { notesRef.current = next; setNotes(next); }, []);
+  const requestListTransition = useCallback(() => {
+    listTransitionIntentRef.current += 1;
+  }, []);
+  const playListTransition = useCallback(() => {
+    listTransitionConsumedRef.current = listTransitionIntentRef.current;
+    setListTransitionToken((value) => value + 1);
+  }, []);
+  const playPendingListTransition = useCallback(() => {
+    if (listTransitionIntentRef.current === listTransitionConsumedRef.current) return;
+    playListTransition();
+  }, [playListTransition]);
   const invalidateCollections = useCallback(() => { listRequestRef.current += 1; notebooksRequestRef.current += 1; }, []);
   const refreshNotebooks = useCallback(async () => {
     const requestId = ++notebooksRequestRef.current;
@@ -162,6 +176,7 @@ export function Workspace() {
       replaceList(result.notes);
       setTotalNotes(result.total);
       setSelectedId((current) => current && result.notes.some((note) => note.id === current) ? current : result.notes[0]?.id ?? null);
+      playPendingListTransition();
     } catch (reason) {
       if (reason instanceof ApiError && reason.status === 401 && !offlineSync.getState().pendingCount) navigate("/login", { replace: true });
       const local = await offlineSync.getLocalSnapshot();
@@ -170,8 +185,9 @@ export function Workspace() {
       replaceList(localNotes);
       setTotalNotes(localNotes.length);
       setSelectedId((current) => current && localNotes.some((note) => note.id === current) ? current : localNotes[0]?.id ?? null);
+      playPendingListTransition();
     }
-  }, [deferredQuery, listScope, navigate, notebookId, notesReloadToken, replaceList, view]);
+  }, [deferredQuery, listScope, navigate, notebookId, notesReloadToken, playPendingListTransition, replaceList, view]);
   const reloadNotes = useCallback(() => setNotesReloadToken((value) => value + 1), []);
   useEffect(() => {
     if (!ready || syncState.status !== "synced") return;
@@ -429,6 +445,7 @@ export function Workspace() {
     setQuery("");
     replaceList([note, ...notesRef.current.filter((currentNote) => currentNote.id !== note.id)]);
     setTotalNotes((value) => value + 1);
+    playListTransition();
     setSelectedNote(note);
     setIsNoteLoading(true);
     selectedRef.current = note;
@@ -438,7 +455,7 @@ export function Workspace() {
     setMobileSidebarOpen(false);
     setMobileListOpen(false);
     setToast(message);
-  }, []);
+  }, [playListTransition]);
   const createNoteHere = useCallback(async () => {
     const currentNotebook = notebookId ? notebooks.find((notebook) => notebook.id === notebookId) : undefined;
     const inbox = notebooks.find((notebook) => notebook.isSystem);
@@ -656,22 +673,42 @@ export function Workspace() {
       onConfirm: () => void reloadSelectedNote(),
     });
   }, [reloadSelectedNote, requestConfirm]);
-  const selectView = useCallback((next: NoteView) => { searchOriginRef.current = null; setQuery(""); setView(next); setNotebookId(undefined); setMobileSidebarOpen(false); setMobileListOpen(false); }, []);
-  const selectNotebook = useCallback((notebookIdToSelect: string) => { searchOriginRef.current = null; setQuery(""); setNotebookId(notebookIdToSelect); setView("all"); setMobileSidebarOpen(false); setMobileListOpen(false); }, []);
+  const selectView = useCallback((next: NoteView) => {
+    if (view !== next || notebookId || query) requestListTransition();
+    searchOriginRef.current = null;
+    setQuery("");
+    setView(next);
+    setNotebookId(undefined);
+    setMobileSidebarOpen(false);
+    setMobileListOpen(false);
+  }, [notebookId, query, requestListTransition, view]);
+  const selectNotebook = useCallback((notebookIdToSelect: string) => {
+    if (notebookId !== notebookIdToSelect || view !== "all" || query) requestListTransition();
+    searchOriginRef.current = null;
+    setQuery("");
+    setNotebookId(notebookIdToSelect);
+    setView("all");
+    setMobileSidebarOpen(false);
+    setMobileListOpen(false);
+  }, [notebookId, query, requestListTransition, view]);
   const changeQuery = useCallback((next: string) => {
     if (next) {
-      if (!query) searchOriginRef.current = { view, notebookId };
+      if (!query) {
+        requestListTransition();
+        searchOriginRef.current = { view, notebookId };
+      }
       setQuery(next);
       setView("all");
       setNotebookId(undefined);
       return;
     }
+    if (query) requestListTransition();
     const origin = searchOriginRef.current;
     searchOriginRef.current = null;
     setQuery("");
     setView(origin?.view ?? "all");
     setNotebookId(origin?.notebookId);
-  }, [notebookId, query, view]);
+  }, [notebookId, query, requestListTransition, view]);
   const closeCommandMenu = useCallback(() => {
     setCommandOpen(false);
     setCommandNoteQuery("");
@@ -756,9 +793,9 @@ export function Workspace() {
   return <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${focusMode ? "is-focus-mode" : ""}`}>
     {mobileNavigationOpen && <button className="mobile-scrim is-visible" type="button" aria-label="关闭导航" onClick={() => { setMobileSidebarOpen(false); setMobileListOpen(false); }} />}
     <Sidebar view={view} setView={selectView} notebooks={notebooks} notebookId={notebookId} setNotebookId={selectNotebook} query={query} setQuery={changeQuery} searchRef={searchRef} onNewNote={() => void createNoteHere()} onCreateNotebook={() => void createNotebook()} onEditNotebook={(target) => setEditingNotebook(target)} collapsed={sidebarCollapsed} onCollapse={() => setSidebarCollapsed((value) => !value)} mobileOpen={mobileSidebarOpen} onLogout={logout} />
-    <NoteListPanel notes={notes} total={totalNotes} sort={noteSort} setSort={setNoteSort} selectedId={selectedId} onSelect={(id) => { selectNote(id); setMobileSidebarOpen(false); setMobileListOpen(false); }} view={view} query={query} currentNotebookName={currentNotebook?.name} onEmptyTrash={view === "trash" ? emptyTrash : undefined} trashBusy={pendingTrashCount > 0 || emptyingTrash} onNewNote={currentNotebook ? () => void createNoteHere() : undefined} onClearQuery={() => changeQuery("")} mobileOpen={mobileListOpen} onOpenSidebar={() => { setMobileSidebarOpen(true); setMobileListOpen(false); }} />
+    <NoteListPanel notes={notes} total={totalNotes} sort={noteSort} setSort={setNoteSort} selectedId={selectedId} onSelect={(id) => { selectNote(id); setMobileSidebarOpen(false); setMobileListOpen(false); }} view={view} query={query} currentNotebookName={currentNotebook?.name} onEmptyTrash={view === "trash" ? emptyTrash : undefined} trashBusy={pendingTrashCount > 0 || emptyingTrash} onNewNote={currentNotebook ? () => void createNoteHere() : undefined} onClearQuery={() => changeQuery("")} mobileOpen={mobileListOpen} onOpenSidebar={() => { setMobileSidebarOpen(true); setMobileListOpen(false); }} transitionToken={listTransitionToken} />
     <main className="editor-region">
-      {renderedNote ? <Suspense fallback={<NoteLoadingState />}><LazyNoteEditor note={renderedNote} searchQuery={activeSearchQuery} onClearSearch={activeSearchQuery ? handleClearSearch : undefined} saveState={saveState} isLoading={isNoteLoading} trashBusy={emptyingTrash || (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onShare={() => setShareOpen(true)} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={() => { setMobileListOpen(true); setMobileSidebarOpen(false); }} focusMode={focusMode} onToggleFocusMode={toggleFocusMode} /></Suspense> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor isTrash={view === "trash"} onNewNote={() => void createNoteHere()} onOpenList={() => { setMobileListOpen(true); setMobileSidebarOpen(false); }} />}
+      {renderedNote ? <Suspense fallback={<NoteLoadingState />}><LazyNoteEditor note={renderedNote} searchQuery={activeSearchQuery} onClearSearch={activeSearchQuery ? handleClearSearch : undefined} saveState={saveState} isLoading={isNoteLoading} trashBusy={emptyingTrash || (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onShare={() => setShareOpen(true)} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={() => { setMobileListOpen(true); setMobileSidebarOpen(false); }} focusMode={focusMode} onToggleFocusMode={toggleFocusMode} /></Suspense> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor isTrash={view === "trash"} onNewNote={() => void createNoteHere()} onOpenList={() => { setMobileListOpen(true); setMobileSidebarOpen(false); }} transitionToken={listTransitionToken} />}
     </main>
     <CommandMenu open={commandOpen} onClose={closeCommandMenu} onCommand={command} onCreateNoteInNotebook={createNoteInNotebook} canRestore={Boolean(commandNoteReady && renderedNote?.deletedAt)} canMoveToTrash={Boolean(commandNoteReady && renderedNote && !renderedNote.deletedAt)} notebooks={notebooks} focusMode={focusMode} canInstallApp={pwaState.canInstall} showIosInstallHint={pwaState.showIosInstallHint} standalone={pwaState.standalone} noteResults={commandNoteResults} noteSearchLoading={commandNoteSearchLoading} onSearchQueryChange={handleCommandNoteQueryChange} onOpenSearchResult={openCommandSearchResult} hasSelectedNote={commandNoteReady} onSearchInCurrentNote={handleSearchInCurrentNote} initialQuery={commandInitialQuery} />
 
