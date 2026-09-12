@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { AlertTriangle, FileText, Folder, Link2, Plus, RefreshCw, Share2, X } from "lucide-react";
 import { ApiError, api } from "../api";
 import type { OfflineConflict } from "../offline-store";
@@ -47,12 +47,21 @@ export function ConflictDialog({ conflict, onClose, onResolved }: { conflict: Of
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [content, setContent] = useState(conflict.local.contentMarkdown);
   const [busy, setBusy] = useState(false);
-  useEffect(() => { const dialog = dialogRef.current; if (!dialog) return; dialog.showModal(); return () => { if (dialog.open) dialog.close(); }; }, []);
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    dialog.showModal();
+    return () => {
+      if (dialog.open) dialog.close();
+      if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
+    };
+  }, []);
   const resolve = async (resolution: "server" | "local") => {
     setBusy(true);
     try { await offlineSync.resolveConflict(conflict.id, resolution, resolution === "local" ? { ...conflict.local, contentMarkdown: content, preview: content.slice(0, 180) } : undefined); onResolved(); onClose(); } finally { setBusy(false); }
   };
-  return <dialog ref={dialogRef} className="conflict-dialog" aria-labelledby="conflict-dialog-title"><div className="dialog-heading"><div><span className="dialog-eyebrow is-danger"><AlertTriangle size={15} />同步冲突</span><h2 id="conflict-dialog-title">这篇笔记在其他地方被修改了</h2><p>本地内容已经保留。请检查两个版本后决定使用哪一个。</p></div><button className="icon-button" type="button" aria-label="关闭冲突窗口" onClick={onClose}><X size={18} /></button></div><div className="conflict-grid"><label><span>服务器版本</span><textarea value={conflict.server.contentMarkdown} readOnly /></label><label><span>本地版本（可编辑）</span><textarea value={content} onChange={(event) => setContent(event.target.value)} disabled={busy} /></label></div><div className="dialog-actions"><button className="secondary-button" type="button" onClick={onClose} disabled={busy}>稍后处理</button><button className="secondary-button" type="button" onClick={() => void resolve("server")} disabled={busy}>采用服务器版本</button><button className="primary-button" type="button" onClick={() => void resolve("local")} disabled={busy}>合并后保存</button></div></dialog>;
+  return <dialog ref={dialogRef} className="conflict-dialog" aria-labelledby="conflict-dialog-title" aria-describedby="conflict-dialog-description" onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }}><div className="dialog-heading"><div><span className="dialog-eyebrow is-danger"><AlertTriangle size={15} />同步冲突</span><h2 id="conflict-dialog-title">这篇笔记在其他地方被修改了</h2><p id="conflict-dialog-description">本地内容已经保留。请检查两个版本后决定使用哪一个。</p></div><button className="icon-button" type="button" aria-label="关闭冲突窗口" onClick={onClose}><X size={18} /></button></div><div className="conflict-grid"><label><span>{conflict.server ? "服务器版本" : "服务器版本（已删除）"}</span>{conflict.server ? <textarea value={conflict.server.contentMarkdown} readOnly aria-label="服务器版本内容" /> : <div className="conflict-deleted" role="status">服务器已经删除这篇笔记。你可以采用服务器删除结果，或恢复本地版本。</div>}</label><label><span>本地版本（可编辑）</span><textarea value={content} onChange={(event) => setContent(event.target.value)} disabled={busy} aria-label="本地版本内容" /></label></div><div className="dialog-actions"><button className="secondary-button" type="button" onClick={onClose} disabled={busy}>稍后处理</button><button className="secondary-button" type="button" onClick={() => void resolve("server")} disabled={busy}>采用服务器版本</button><button className="primary-button" type="button" onClick={() => void resolve("local")} disabled={busy}>合并后保存</button></div></dialog>;
 }
 
 export function ShareDialog({ note, onClose, onToast }: { note: Note; onClose: () => void; onToast: (message: string) => void }) {
@@ -61,7 +70,7 @@ export function ShareDialog({ note, onClose, onToast }: { note: Note; onClose: (
   const [shares, setShares] = useState<Share[]>([]);
   const [newUrl, setNewUrl] = useState("");
   const [busy, setBusy] = useState(false);
-  useEffect(() => { const dialog = dialogRef.current; if (!dialog) return; dialog.showModal(); void api.listShares(note.id).then((result) => setShares(result.shares)).catch(() => onToast("加载分享记录失败")); return () => { if (dialog.open) dialog.close(); }; }, [note.id]);
+  useEffect(() => { const dialog = dialogRef.current; if (!dialog) return; const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null; dialog.showModal(); void api.listShares(note.id).then((result) => setShares(result.shares)).catch(() => onToast("加载分享记录失败")); return () => { if (dialog.open) dialog.close(); if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true }); }; }, [note.id]);
   const create = async () => { setBusy(true); try { const result = await api.createShare(note.id); setShares((current) => [result.share, ...current]); setNewUrl(result.share.url ?? ""); onToast("分享链接已生成"); } catch { onToast("生成分享链接失败"); } finally { setBusy(false); } };
   const copy = async (url: string) => { try { if (!navigator.clipboard?.writeText) throw new Error("clipboard-unavailable"); await navigator.clipboard.writeText(url); onToast("链接已复制"); } catch { shareUrlRef.current?.select(); onToast("复制失败，请手动复制选中的链接"); } };
   const revoke = async (id: string) => { try { await api.revokeShare(id); setShares((current) => current.map((share) => share.id === id ? { ...share, revokedAt: Math.floor(Date.now() / 1000) } : share)); onToast("分享已撤销"); } catch { onToast("撤销分享失败，请重试"); } };
@@ -76,7 +85,7 @@ export function NotebookDialog({ notebook, onClose, onSave, onSaved, onRequestDe
   const [colorError, setColorError] = useState("");
   const [busy, setBusy] = useState(false);
   const isEditing = Boolean(notebook);
-  useEffect(() => { const dialog = dialogRef.current; if (!dialog) return; dialog.showModal(); requestAnimationFrame(() => inputRef.current?.focus()); return () => { if (dialog.open) dialog.close(); }; }, []);
+  useEffect(() => { const dialog = dialogRef.current; if (!dialog) return; const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null; dialog.showModal(); requestAnimationFrame(() => inputRef.current?.focus()); return () => { if (dialog.open) dialog.close(); if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true }); }; }, []);
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const trimmed = name.trim();
@@ -88,5 +97,16 @@ export function NotebookDialog({ notebook, onClose, onSave, onSaved, onRequestDe
     try { const saved = await onSave({ name: trimmed, color: normalizedColor }); onSaved(saved); onClose(); } catch (reason) { onToast(errorMessage(reason, isEditing ? "更新笔记本失败" : "创建笔记本失败")); } finally { setBusy(false); }
   };
   const handleDelete = () => { if (notebook && onRequestDelete) onRequestDelete(notebook); };
-  return <dialog ref={dialogRef} className="notebook-dialog" onCancel={(event) => { event.preventDefault(); onClose(); }}><form onSubmit={(event) => void submit(event)}><div className="dialog-heading"><div><span className="dialog-eyebrow"><Folder size={15} />整理上下文</span><h2>{isEditing ? "编辑笔记本" : "新建笔记本"}</h2><p>{isEditing ? "修改笔记本名称或管理该分类。" : "给一组想法一个清晰的落点。"}</p></div><button className="icon-button" type="button" aria-label="关闭新建笔记本窗口" onClick={onClose}><X size={18} /></button></div><label className="dialog-field"><span>名称</span><input ref={inputRef} value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：项目资料" maxLength={40} autoComplete="off" /></label><fieldset className="notebook-color-field"><legend>颜色</legend><div className="notebook-color-options" role="radiogroup" aria-label="选择笔记本颜色">{notebookColorOptions.map((option) => <button key={option} className="notebook-color-option" type="button" role="radio" aria-checked={color.toLowerCase() === option} aria-label={`选择颜色 ${option}`} onClick={() => { setColor(option); setColorError(""); }}><span className="notebook-color-swatch" style={{ backgroundColor: option }} /></button>)}</div><label className="notebook-color-custom"><span>自定义色值</span><input value={color} onChange={(event) => { setColor(event.target.value); setColorError(""); }} placeholder="#718077" maxLength={7} inputMode="text" spellCheck={false} aria-invalid={Boolean(colorError)} aria-describedby={colorError ? "notebook-color-error" : undefined} /></label>{colorError && <span className="dialog-error" id="notebook-color-error" role="alert">{colorError}</span>}</fieldset><div className="dialog-actions">{isEditing && !notebook?.isSystem && onRequestDelete && <button className="text-button text-danger" type="button" onClick={handleDelete} disabled={busy} style={{ marginRight: "auto" }}>删除笔记本</button>}<button className="secondary-button" type="button" onClick={onClose}>取消</button><button className="primary-button" type="submit" disabled={busy || !name.trim()}>{busy ? "正在保存……" : isEditing ? "保存修改" : "创建笔记本"}</button></div></form></dialog>;
+  const handleColorKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, index: number) => {
+    const direction = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key as "ArrowRight" | "ArrowDown" | "ArrowLeft" | "ArrowUp"];
+    if (!direction) return;
+    event.preventDefault();
+    const nextIndex = (index + direction + notebookColorOptions.length) % notebookColorOptions.length;
+    const nextOption = notebookColorOptions[nextIndex];
+    setColor(nextOption);
+    setColorError("");
+    const nextButton = event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="radio"]')[nextIndex];
+    nextButton?.focus();
+  };
+  return <dialog ref={dialogRef} className="notebook-dialog" aria-labelledby="notebook-dialog-title" aria-describedby="notebook-dialog-description" onCancel={(event) => { event.preventDefault(); onClose(); }}><form onSubmit={(event) => void submit(event)}><div className="dialog-heading"><div><span className="dialog-eyebrow"><Folder size={15} />整理上下文</span><h2 id="notebook-dialog-title">{isEditing ? "编辑笔记本" : "新建笔记本"}</h2><p id="notebook-dialog-description">{isEditing ? "修改笔记本名称或管理该分类。" : "给一组想法一个清晰的落点。"}</p></div><button className="icon-button" type="button" aria-label="关闭新建笔记本窗口" onClick={onClose}><X size={18} /></button></div><label className="dialog-field"><span>名称</span><input ref={inputRef} value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：项目资料" maxLength={40} autoComplete="off" /></label><fieldset className="notebook-color-field"><legend>颜色</legend><div className="notebook-color-options" role="radiogroup" aria-label="选择笔记本颜色">{notebookColorOptions.map((option, index) => <button key={option} className="notebook-color-option" type="button" role="radio" tabIndex={color.toLowerCase() === option ? 0 : -1} aria-checked={color.toLowerCase() === option} aria-label={`选择颜色 ${option}`} onKeyDown={(event) => handleColorKeyDown(event, index)} onClick={() => { setColor(option); setColorError(""); }}><span className="notebook-color-swatch" style={{ backgroundColor: option }} /></button>)}</div><label className="notebook-color-custom"><span>自定义色值</span><input value={color} onChange={(event) => { setColor(event.target.value); setColorError(""); }} placeholder="#718077" maxLength={7} inputMode="text" spellCheck={false} aria-invalid={Boolean(colorError)} aria-describedby={colorError ? "notebook-color-error" : undefined} /></label>{colorError && <span className="dialog-error" id="notebook-color-error" role="alert">{colorError}</span>}</fieldset><div className="dialog-actions">{isEditing && !notebook?.isSystem && onRequestDelete && <button className="text-button text-danger" type="button" onClick={handleDelete} disabled={busy} style={{ marginRight: "auto" }}>删除笔记本</button>}<button className="secondary-button" type="button" onClick={onClose}>取消</button><button className="primary-button" type="submit" disabled={busy || !name.trim()}>{busy ? "正在保存……" : isEditing ? "保存修改" : "创建笔记本"}</button></div></form></dialog>;
 }

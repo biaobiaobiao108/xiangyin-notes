@@ -1,3 +1,8 @@
+import { rm } from "node:fs/promises";
+
+await rm("./dist/client", { recursive: true, force: true });
+await rm("./dist/worker", { recursive: true, force: true });
+
 const clientBuild = await Bun.build({
   entrypoints: ["./app/index.html"],
   outdir: "./dist/client",
@@ -24,7 +29,9 @@ const workerBuild = await Bun.build({
 });
 if (!workerBuild.success) throw new AggregateError(workerBuild.logs, "Service worker build failed");
 if (workerBuild.outputs.length !== 1) throw new Error("Service worker build did not produce exactly one output");
-await Bun.write("./dist/client/sw.js", await workerBuild.outputs[0].arrayBuffer());
+const workerSource = await workerBuild.outputs[0].text();
+const cacheName = `xiangying-notes-shell-${Date.now().toString(36)}`;
+await Bun.write("./dist/client/sw.js", workerSource.replaceAll("__XIANGYING_CACHE_NAME__", cacheName));
 
 for (const file of ["manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-maskable-512.png"]) {
   await Bun.write(`./dist/client/${file}`, Bun.file(`./app/${file}`));

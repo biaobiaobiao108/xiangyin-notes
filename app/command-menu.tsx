@@ -64,6 +64,7 @@ export function CommandMenu({
   const dialogRef = useRef<HTMLDialogElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
 
@@ -149,6 +150,7 @@ export function CommandMenu({
     const dialog = dialogRef.current;
     if (!dialog) return;
     if (open && !dialog.open) {
+      returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       dialog.showModal();
       const nextQuery = initialQuery ?? "";
       setQuery(nextQuery);
@@ -166,6 +168,9 @@ export function CommandMenu({
     if (!open && dialog.open) {
       dialog.close();
       onSearchQueryChange("");
+      const target = returnFocusRef.current;
+      returnFocusRef.current = null;
+      if (target?.isConnected) target.focus({ preventScroll: true });
     }
   }, [initialQuery, onSearchQueryChange, open]);
 
@@ -287,4 +292,3 @@ export function CommandMenu({
     </dialog>
   );
 }
-

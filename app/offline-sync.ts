@@ -1,5 +1,5 @@
 import { api, ApiError } from "./api";
-import { clearOfflineData, deleteConflict, deleteLocalNote, deleteLocalNotebook, deleteMutation, getLocalSnapshot, getOfflineConflicts, getOfflineUser, getPendingMutations, getSyncCursor, putConflict, putLocalNote, putLocalNotebook, putMutation, setOfflineUser, setSyncCursor } from "./offline-store";
+import { clearCachedData, clearOfflineData, deleteConflict, deleteLocalNote, deleteLocalNotebook, deleteMutation, getLocalSnapshot, getOfflineConflicts, getOfflineUser, getPendingMutations, getSyncCursor, putConflict, putLocalNote, putLocalNotebook, putMutation, setOfflineUser, setSyncCursor } from "./offline-store";
 import type { SyncChange, SyncMutation, SyncPushResult } from "../shared/sync";
 import type { Note, Notebook, User } from "../shared/types";
 
@@ -32,12 +32,13 @@ function operationIdFor(mutations: SyncMutation[], entity: "note" | "notebook", 
   return mutations.find((mutation) => mutation.entity === entity && mutation.entityId === entityId)?.operationId ?? crypto.randomUUID();
 }
 
-function noteMutation(note: Note, operationId: string): SyncMutation {
+function noteMutation(note: Note, operationId: string, options?: { allowRecreate?: boolean }): SyncMutation {
   return {
     operationId,
     entity: "note",
     action: "upsert",
     entityId: note.id,
+    ...(options?.allowRecreate ? { allowRecreate: true } : {}),
     baseVersion: note.version,
     note: {
       title: note.title,
@@ -63,6 +64,9 @@ function notebookMutation(notebook: Notebook, operationId: string): SyncMutation
 class OfflineSyncController {
   private user: User | null = null;
   private syncing = false;
+  private sessionGeneration = 0;
+  private syncToken = 0;
+  private syncAbortController: AbortController | null = null;
   private listeners = new Set<Listener>();
   private state: OfflineSyncState = { status: "idle", pendingCount: 0, conflictCount: 0, lastError: null };
   private listenersInstalled = false;
@@ -83,6 +87,18 @@ class OfflineSyncController {
     for (const listener of this.listeners) listener(this.state);
   }
 
+  private isCurrentSession(generation: number, userId: string) {
+    return this.sessionGeneration === generation && this.user?.id === userId;
+  }
+
+  private invalidateSession() {
+    this.sessionGeneration += 1;
+    this.syncToken += 1;
+    this.syncAbortController?.abort();
+    this.syncAbortController = null;
+    this.syncing = false;
+  }
+
   private installListeners() {
     if (this.listenersInstalled || typeof window === "undefined") return;
     this.listenersInstalled = true;
@@ -92,10 +108,13 @@ class OfflineSyncController {
   }
 
   async activate(user: User) {
+    if (this.user?.id !== user.id) this.invalidateSession();
     this.user = user;
+    const generation = this.sessionGeneration;
     await setOfflineUser(user);
     const local = await getLocalSnapshot();
-    await this.refreshCounts();
+    if (!this.isCurrentSession(generation, user.id)) return local;
+    await this.refreshCounts(generation);
     if (networkAvailable()) void this.sync();
     else this.emit({ status: "offline" });
     return local;
@@ -118,23 +137,35 @@ class OfflineSyncController {
   }
 
   async clear() {
+    this.invalidateSession();
     this.user = null;
     await clearOfflineData();
     this.emit({ status: "idle", pendingCount: 0, conflictCount: 0, lastError: null });
   }
 
-  private async refreshCounts() {
+  private async refreshCounts(generation = this.sessionGeneration) {
     const [mutations, conflicts] = await Promise.all([getPendingMutations(), getOfflineConflicts()]);
+    if (generation !== this.sessionGeneration) return;
     this.emit({ pendingCount: mutations.length, conflictCount: conflicts.length, status: conflicts.length ? "conflict" : this.state.status });
   }
 
   private async queue(mutation: SyncMutation) {
+    const generation = this.sessionGeneration;
+    const userId = this.user?.id;
+    if (!userId) return;
     const current = await getPendingMutations();
+    if (!this.isCurrentSession(generation, userId)) return;
     for (const existing of current) {
-      if (existing.entity === mutation.entity && existing.entityId === mutation.entityId) await deleteMutation(existing.operationId);
+      if (existing.entity === mutation.entity && existing.entityId === mutation.entityId) {
+        if (!this.isCurrentSession(generation, userId)) return;
+        await deleteMutation(existing.operationId);
+      }
     }
+    if (!this.isCurrentSession(generation, userId)) return;
     await putMutation(mutation);
-    await this.refreshCounts();
+    if (!this.isCurrentSession(generation, userId)) return;
+    await this.refreshCounts(generation);
+    if (!this.isCurrentSession(generation, userId)) return;
     if (networkAvailable()) void this.sync();
   }
 
@@ -150,7 +181,18 @@ class OfflineSyncController {
       await putLocalNote(result.note);
       return { note: result.note, offline: false };
     } catch (reason) {
-      if (!isNetworkFailure(reason)) throw reason;
+      if (!isNetworkFailure(reason)) {
+        if (reason instanceof ApiError && reason.code === "VERSION_CONFLICT") {
+          await putLocalNote(localNote);
+          const current = reason.details?.error && typeof reason.details.error === "object" && "current" in reason.details.error
+            ? reason.details.error.current
+            : null;
+          const server = current && typeof current === "object" && "contentMarkdown" in current ? current as Note : null;
+          const conflicts = await getOfflineConflicts();
+          if (!conflicts.some((conflict) => conflict.noteId === note.id)) await putConflict({ id: crypto.randomUUID(), noteId: note.id, local: localNote, server, createdAt: now() });
+        }
+        throw reason;
+      }
       await putLocalNote(localNote);
       await this.queue(noteMutation(localNote, operationIdFor(await getPendingMutations(), "note", localNote.id)));
       return { note: localNote, offline: true };
@@ -248,9 +290,11 @@ class OfflineSyncController {
     return { offline: true };
   }
 
-  private async applyChange(change: SyncChange) {
+  private async applyChange(change: SyncChange, generation = this.sessionGeneration, userId = this.user?.id) {
+    if (!userId || !this.isCurrentSession(generation, userId)) return;
     if (change.entity === "note") {
       if ((await getOfflineConflicts()).some((conflict) => conflict.noteId === change.entityId)) return;
+      if (!this.isCurrentSession(generation, userId)) return;
       if (change.operation === "delete") await deleteLocalNote(change.entityId);
       else if (change.payload && "contentMarkdown" in change.payload) await putLocalNote(change.payload);
     } else if (change.operation === "delete") {
@@ -260,20 +304,26 @@ class OfflineSyncController {
     }
   }
 
-  private async handlePushResult(result: SyncPushResult, mutation: SyncMutation) {
+  private async handlePushResult(result: SyncPushResult, mutation: SyncMutation, generation: number, userId: string) {
+    if (!this.isCurrentSession(generation, userId)) return;
     if (result.status === "applied") {
       await deleteMutation(mutation.operationId);
+      if (!this.isCurrentSession(generation, userId)) return;
       if (result.note) await putLocalNote(result.note);
       else if (result.notebook) await putLocalNotebook(result.notebook);
       else if (mutation.entity === "note") await deleteLocalNote(mutation.entityId);
       else await deleteLocalNotebook(mutation.entityId);
-    } else if (result.status === "conflict" && result.current && mutation.entity === "note" && "contentMarkdown" in result.current && mutation.note) {
+    } else if (result.status === "conflict" && mutation.entity === "note" && mutation.note) {
       const local = await getLocalSnapshot();
+      if (!this.isCurrentSession(generation, userId)) return;
       const localNote = local.notes.find((note) => note.id === mutation.entityId);
-      if (localNote) await putConflict({ id: crypto.randomUUID(), noteId: mutation.entityId, local: localNote, server: result.current, createdAt: now() });
+      const serverNote = result.current && "contentMarkdown" in result.current ? result.current : null;
+      if (localNote) await putConflict({ id: crypto.randomUUID(), noteId: mutation.entityId, local: localNote, server: serverNote, createdAt: now() });
+      if (!this.isCurrentSession(generation, userId)) return;
       await deleteMutation(mutation.operationId);
     } else {
       await deleteMutation(mutation.operationId);
+      if (!this.isCurrentSession(generation, userId)) return;
       this.emit({ lastError: result.message ?? "同步操作被拒绝" });
     }
   }
@@ -281,55 +331,85 @@ class OfflineSyncController {
   async sync() {
     if (this.syncing || !this.user) return;
     if (!networkAvailable()) { this.emit({ status: "offline" }); return; }
+    const userId = this.user.id;
+    const generation = this.sessionGeneration;
+    const token = ++this.syncToken;
+    const abortController = new AbortController();
+    this.syncAbortController = abortController;
     this.syncing = true;
     this.emit({ status: "syncing", lastError: null });
     try {
       let mutations = await getPendingMutations();
       while (mutations.length) {
+        if (!this.isCurrentSession(generation, userId) || token !== this.syncToken) return;
         const batch = mutations.slice(0, 25);
-        const response = await api.syncPush(batch);
+        const response = await api.syncPush(batch, { signal: abortController.signal });
+        if (!this.isCurrentSession(generation, userId) || token !== this.syncToken) return;
         for (const result of response.results) {
           const mutation = batch.find((item) => item.operationId === result.operationId);
-          if (mutation) await this.handlePushResult(result, mutation);
+          if (mutation) await this.handlePushResult(result, mutation, generation, userId);
         }
         mutations = await getPendingMutations();
       }
 
       let cursor = await getSyncCursor();
-      if (cursor === 0) {
+      const firstPage = await api.syncPull({ cursor, limit: 100 }, { signal: abortController.signal });
+      if (!this.isCurrentSession(generation, userId) || token !== this.syncToken) return;
+      if (firstPage.mode === "snapshot") {
+        await clearCachedData();
         let offset = 0;
-        let snapshotCursor = 0;
+        let page = firstPage;
+        const snapshotCursor = page.snapshotCursor ?? page.cursor;
         let more = true;
         while (more) {
-          const page = await api.syncPull({ cursor: 0, offset, snapshotCursor: snapshotCursor || undefined, limit: 100 });
-          snapshotCursor = page.snapshotCursor ?? page.cursor;
+          if (!this.isCurrentSession(generation, userId) || token !== this.syncToken) return;
           const conflicts = await getOfflineConflicts();
           for (const note of page.notes) {
+            if (!this.isCurrentSession(generation, userId) || token !== this.syncToken) return;
             if (!conflicts.some((conflict) => conflict.noteId === note.id)) await putLocalNote(note);
           }
-          for (const notebook of page.notebooks) await putLocalNotebook(notebook);
+          for (const notebook of page.notebooks) {
+            if (!this.isCurrentSession(generation, userId) || token !== this.syncToken) return;
+            await putLocalNotebook(notebook);
+          }
           offset += page.notes.length;
           more = page.hasMore;
+          if (more) {
+            page = await api.syncPull({ cursor: 0, offset, snapshotCursor, limit: 100 }, { signal: abortController.signal });
+            if (!this.isCurrentSession(generation, userId) || token !== this.syncToken) return;
+          }
         }
         cursor = snapshotCursor;
         await setSyncCursor(cursor);
+        if (!this.isCurrentSession(generation, userId) || token !== this.syncToken) return;
       }
       let moreChanges = true;
+      let changePage = firstPage.mode === "changes" ? firstPage : null;
       while (moreChanges) {
-        const page = await api.syncPull({ cursor, limit: 100 });
-        for (const change of page.changes) await this.applyChange(change);
+        if (!this.isCurrentSession(generation, userId) || token !== this.syncToken) return;
+        const page = changePage ?? await api.syncPull({ cursor, limit: 100 }, { signal: abortController.signal });
+        if (!this.isCurrentSession(generation, userId) || token !== this.syncToken) return;
+        for (const change of page.changes) await this.applyChange(change, generation, userId);
+        if (!this.isCurrentSession(generation, userId) || token !== this.syncToken) return;
         cursor = page.cursor;
         await setSyncCursor(cursor);
+        if (!this.isCurrentSession(generation, userId) || token !== this.syncToken) return;
         moreChanges = page.hasMore && page.changes.length > 0;
+        changePage = null;
       }
-      await this.refreshCounts();
+      await this.refreshCounts(generation);
+      if (!this.isCurrentSession(generation, userId) || token !== this.syncToken) return;
       this.emit({ status: this.state.conflictCount ? "conflict" : "synced" });
     } catch (reason) {
+      if (!this.isCurrentSession(generation, userId) || token !== this.syncToken || (reason instanceof DOMException && reason.name === "AbortError")) return;
       if (reason instanceof ApiError && reason.status === 401) this.emit({ status: "error", lastError: "登录状态已过期" });
       else if (!networkAvailable() || isNetworkFailure(reason)) this.emit({ status: "offline" });
       else this.emit({ status: "error", lastError: reason instanceof Error ? reason.message : "同步失败" });
     } finally {
-      this.syncing = false;
+      if (token === this.syncToken) {
+        this.syncing = false;
+        if (this.syncAbortController === abortController) this.syncAbortController = null;
+      }
     }
   }
 
@@ -337,10 +417,14 @@ class OfflineSyncController {
     const conflicts = await getOfflineConflicts();
     const conflict = conflicts.find((item) => item.id === conflictId);
     if (!conflict) return;
-    if (resolution === "server") await putLocalNote(conflict.server);
+    if (resolution === "server") {
+      if (conflict.server) await putLocalNote(conflict.server);
+      else await deleteLocalNote(conflict.noteId);
+    }
     else if (local) {
-      await putLocalNote({ ...local, version: conflict.server.version });
-      await this.queue(noteMutation({ ...local, version: conflict.server.version }, crypto.randomUUID()));
+      const baseVersion = conflict.server?.version ?? local.version;
+      await putLocalNote({ ...local, version: baseVersion });
+      await this.queue(noteMutation({ ...local, version: baseVersion }, crypto.randomUUID(), { allowRecreate: !conflict.server }));
     }
     await deleteConflict(conflictId);
     await this.refreshCounts();

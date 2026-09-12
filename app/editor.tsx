@@ -63,6 +63,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   const [activeOutlineId, setActiveOutlineId] = useState<string | null>(null);
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [deferredLoading, setDeferredLoading] = useState(false);
+  const editorLocked = isLoading || deferredLoading;
   const [searchNavigation, setSearchNavigation] = useState({ activeIndex: 0, matchCount: 0 });
   const searchQueryRef = useRef(searchQuery);
   const searchNavigationRef = useRef(searchNavigation);
@@ -392,8 +393,8 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
 
   useEffect(() => {
     if (!editor) return;
-    editor.setEditable(!note.deletedAt && !deferredLoading, false);
-  }, [deferredLoading, editor, note.deletedAt]);
+    editor.setEditable(!note.deletedAt && !editorLocked, false);
+  }, [editor, editorLocked, note.deletedAt]);
 
   const appliedReloadTokenRef = useRef(reloadToken);
   useEffect(() => {
@@ -562,16 +563,17 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   const scrollToOutlineItem = (id: string) => {
     const element = headingElementsRef.current.get(id);
     if (!element) return;
-    element.scrollIntoView({ behavior: "smooth", block: "start" });
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    element.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
     setActiveOutlineId(id);
   };
 
   const saveLabel = saveState === "saving" ? "保存中" : saveState === "local" ? "已保存到本机" : "已保存";
   return (
-    <section className={`editor-panel ${deferredLoading ? "is-loading" : ""} ${focusMode ? "is-focus-mode" : ""}`} aria-label="笔记编辑器" aria-busy={deferredLoading} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === "s") { event.preventDefault(); onSaveNow(); } }}>
+    <section className={`editor-panel ${deferredLoading ? "is-loading" : ""} ${focusMode ? "is-focus-mode" : ""}`} aria-label="笔记编辑器" aria-busy={editorLocked} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === "s") { event.preventDefault(); onSaveNow(); } }}>
       <header className="editor-header">
         <div className="editor-header-start">
-          {onOpenList && <button className="icon-button mobile-only editor-back" type="button" aria-label="返回笔记列表" onClick={onOpenList} disabled={deferredLoading}><ChevronLeft size={20} /></button>}
+          {onOpenList && <button className="icon-button mobile-only editor-back" type="button" aria-label="返回笔记列表" onClick={onOpenList} disabled={editorLocked}><ChevronLeft size={20} /></button>}
           <div className="editor-meta" aria-label={`最后编辑于${relativeDate(note.updatedAt)}，${editorStats.wordCount} 字`}>
             <span>最后编辑于 {relativeDate(note.updatedAt)}</span>
             <span aria-hidden="true">·</span>
@@ -596,17 +598,17 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
               aria-label={focusMode ? "退出沉浸模式" : "沉浸编辑模式"}
               title={focusMode ? "退出沉浸模式 (Esc 或 ⌘/Ctrl+Shift+F)" : "沉浸编辑模式 (⌘/Ctrl+Shift+F)"}
               onClick={onToggleFocusMode}
-              disabled={deferredLoading}
+              disabled={editorLocked}
             >
               {focusMode ? <Minimize2 size={18} strokeWidth={1.8} /> : <Maximize2 size={18} strokeWidth={1.8} />}
             </button>
           )}
-          <button className={`icon-button ${note.isFavorite ? "is-active" : ""}`} type="button" aria-label={note.isFavorite ? "取消收藏" : "收藏笔记"} title={note.isFavorite ? "取消收藏" : "收藏笔记"} onClick={onToggleFavorite} disabled={deferredLoading}><span className="star-glyph">★</span></button>
-          <button className="icon-button" type="button" aria-label="分享笔记" title="分享笔记" onClick={onShare} disabled={deferredLoading}><Link2 size={18} strokeWidth={1.8} /></button>
+          <button className={`icon-button ${note.isFavorite ? "is-active" : ""}`} type="button" aria-label={note.isFavorite ? "取消收藏" : "收藏笔记"} title={note.isFavorite ? "取消收藏" : "收藏笔记"} onClick={onToggleFavorite} disabled={editorLocked}><span className="star-glyph">★</span></button>
+          <button className="icon-button" type="button" aria-label="分享笔记" title="分享笔记" onClick={onShare} disabled={editorLocked}><Link2 size={18} strokeWidth={1.8} /></button>
           {note.deletedAt ? <>
-            <button className="icon-button" type="button" aria-label="恢复笔记" title="恢复笔记" onClick={onRestore} disabled={deferredLoading || trashBusy}><Undo2 size={18} strokeWidth={1.8} /></button>
-            {onPermanentDelete && <button className="icon-button danger-button" type="button" aria-label="彻底删除" title="彻底删除" onClick={onPermanentDelete} disabled={deferredLoading || trashBusy}><Trash2 size={18} strokeWidth={1.8} /></button>}
-          </> : <button className="icon-button" type="button" aria-label="移入回收站" title="移入回收站" onClick={onMoveToTrash} disabled={deferredLoading || trashBusy}><Minus size={18} strokeWidth={1.8} className="trash-mark" /></button>}
+            <button className="icon-button" type="button" aria-label="恢复笔记" title="恢复笔记" onClick={onRestore} disabled={editorLocked || trashBusy}><Undo2 size={18} strokeWidth={1.8} /></button>
+            {onPermanentDelete && <button className="icon-button danger-button" type="button" aria-label="彻底删除" title="彻底删除" onClick={onPermanentDelete} disabled={editorLocked || trashBusy}><Trash2 size={18} strokeWidth={1.8} /></button>}
+          </> : <button className="icon-button" type="button" aria-label="移入回收站" title="移入回收站" onClick={onMoveToTrash} disabled={editorLocked || trashBusy}><Minus size={18} strokeWidth={1.8} className="trash-mark" /></button>}
         </div>
       </header>
       {focusMode && onToggleFocusMode && (
@@ -627,7 +629,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
             {note.deletedAt && (
               <div className="trashed-banner" role="status">
                 <span>此笔记已在回收站中，恢复后可继续编辑。</span>
-                <button className="text-button" type="button" onClick={onRestore} disabled={deferredLoading || trashBusy}>立即恢复</button>
+                <button className="text-button" type="button" onClick={onRestore} disabled={editorLocked || trashBusy}>立即恢复</button>
               </div>
             )}
             <input
@@ -635,7 +637,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
               className="note-title-input"
               value={note.title}
               maxLength={200}
-              readOnly={Boolean(note.deletedAt) || deferredLoading}
+              readOnly={Boolean(note.deletedAt) || editorLocked}
               onChange={(event) => onChange({ title: event.target.value })}
               onBlur={() => { const trimmed = note.title.trim(); if (trimmed !== note.title) onChange({ title: trimmed }); }}
               onKeyDown={(event) => {
@@ -663,7 +665,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
         onToggleOutline={() => setOutlineOpen((open) => !open)}
         onScrollToOutlineItem={scrollToOutlineItem}
         searchNavigation={searchNavigation}
-        deferredLoading={deferredLoading}
+        deferredLoading={editorLocked}
         onMoveSearchMatch={moveSearchMatch}
         onClearSearch={onClearSearch}
       />

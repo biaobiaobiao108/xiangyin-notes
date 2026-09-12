@@ -16,6 +16,8 @@ export type SyncMutation = {
   entity: SyncEntity;
   action: "upsert" | "delete";
   entityId: string;
+  /** Only set when the user explicitly resolves a delete-vs-edit conflict by restoring the note. */
+  allowRecreate?: boolean;
   baseVersion?: number;
   baseUpdatedAt?: number;
   note?: {

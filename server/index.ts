@@ -10,6 +10,14 @@ const PASSWORD_ITERATIONS = 100_000;
 const NOTE_PAGE_SIZE = 100;
 const NOTE_PREVIEW_LIMIT = 180;
 const NOTE_PREVIEW_SCAN_LIMIT = NOTE_PREVIEW_LIMIT + 64;
+const NOTE_BODY_MAX_BYTES = 4_500_000;
+const SYNC_BODY_MAX_BYTES = 32 * 1024 * 1024;
+const LOGIN_WINDOW_SECONDS = 15 * 60;
+const LOGIN_MAX_FAILURES = 8;
+const LOGIN_BLOCK_SECONDS = 15 * 60;
+const SYNC_CHANGE_MAX_PER_USER = 5_000;
+const SYNC_CHANGE_RETENTION_SECONDS = 90 * 24 * 60 * 60;
+const SYNC_MUTATION_RETENTION_SECONDS = 30 * 24 * 60 * 60;
 const NOTE_VIEWS: NoteView[] = ["all", "inbox", "favorites", "shared", "trash"];
 const DEFAULT_CLIENT_ROOT = "./dist/client";
 const encoder = new TextEncoder();
@@ -75,8 +83,15 @@ type AuthCredentials = {
   password: string;
 };
 
+type LoginAttempt = {
+  windowStartedAt: number;
+  failures: number;
+  blockedUntil: number;
+};
+
 const welcomeMarkdown = "## 欢迎来到象映笔记\n\n这是你的第一个笔记。按下 **Ctrl /** 可以打开命令菜单，开始记录你的想法。\n\n- 写下值得保留的东西\n- 用笔记本整理上下文\n- 随时生成一个 7 天有效的只读分享\n";
 const PREVIEW_SYNTAX = new Set(["#", ">", "*", "_", "`", "~", "-", "[", "]", "(", ")"]);
+const loginAttempts = new Map<string, LoginAttempt>();
 
 function now() {
   return Math.floor(Date.now() / 1000);
@@ -138,7 +153,8 @@ export function constantTimeEqual(left: string, right: string) {
 
 function cookieValue(header: string | null, name: string) {
   const value = header?.split(";").map((part) => part.trim()).find((part) => part.startsWith(`${name}=`));
-  return value ? decodeURIComponent(value.slice(name.length + 1)) : null;
+  if (!value) return null;
+  try { return decodeURIComponent(value.slice(name.length + 1)); } catch { return null; }
 }
 
 function validUsername(value: unknown): value is string {
@@ -182,16 +198,85 @@ function json(data: unknown, status = 200, headers?: HeadersInit) {
   return new Response(JSON.stringify(data), { status, headers: responseHeaders });
 }
 
-function jsonError(status: number, code: string, message: string, fields?: Record<string, string>) {
-  return json({ error: { code, message, ...(fields ? { fields } : {}) } }, status);
+function jsonError(status: number, code: string, message: string, fields?: Record<string, string>, headers?: HeadersInit) {
+  return json({ error: { code, message, ...(fields ? { fields } : {}) } }, status, headers);
 }
 
-async function readJson<T>(request: Request) {
+async function readJson<T>(request: Request, maxBytes = 64 * 1024) {
   try {
-    return await request.json() as T;
+    const declaredLength = Number(request.headers.get("Content-Length"));
+    if (Number.isFinite(declaredLength) && declaredLength > maxBytes) return null;
+    if (!request.body) return null;
+    const reader = request.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    while (true) {
+      const result = await reader.read();
+      if (result.done) break;
+      total += result.value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel();
+        return null;
+      }
+      chunks.push(result.value);
+    }
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+    return JSON.parse(new TextDecoder().decode(bytes)) as T;
   } catch {
     return null;
   }
+}
+
+function cleanupExpiredSessions(database: SqliteDatabase) {
+  database.query("DELETE FROM sessions WHERE expires_at <= ?").run(now());
+}
+
+function loginClientKey(request: Request, username: string) {
+  const forwarded = request.headers.get("X-Forwarded-For")?.split(",", 1)[0]?.trim();
+  const address = forwarded || request.headers.get("X-Real-IP")?.trim() || "unknown";
+  return `${address}:${username}`;
+}
+
+function getLoginAttempt(key: string, timestamp: number) {
+  for (const [existingKey, attempt] of loginAttempts) {
+    if (attempt.blockedUntil <= timestamp && timestamp - attempt.windowStartedAt > LOGIN_WINDOW_SECONDS) loginAttempts.delete(existingKey);
+  }
+  const current = loginAttempts.get(key);
+  if (!current || timestamp - current.windowStartedAt > LOGIN_WINDOW_SECONDS) {
+    const next = { windowStartedAt: timestamp, failures: 0, blockedUntil: 0 };
+    loginAttempts.set(key, next);
+    return next;
+  }
+  return current;
+}
+
+function recordFailedLogin(key: string, timestamp: number) {
+  const attempt = getLoginAttempt(key, timestamp);
+  attempt.failures += 1;
+  if (attempt.failures >= LOGIN_MAX_FAILURES) attempt.blockedUntil = timestamp + LOGIN_BLOCK_SECONDS;
+}
+
+function resetLoginAttempt(key: string) {
+  loginAttempts.delete(key);
+}
+
+const SECURITY_HEADERS: Record<string, string> = {
+  "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "Permissions-Policy": "camera=(), geolocation=(), microphone=()",
+  "Cross-Origin-Resource-Policy": "same-origin",
+  "Cross-Origin-Opener-Policy": "same-origin-allow-popups",
+};
+
+function withSecurityHeaders(response: Response, environment: RuntimeEnvironment) {
+  const headers = new Headers(response.headers);
+  for (const [name, value] of Object.entries(SECURITY_HEADERS)) headers.set(name, value);
+  if (environment.COOKIE_SECURE === "true") headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
 function setSessionCookie(headers: Headers, request: Request, token: string, environment: RuntimeEnvironment, maxAge = SESSION_TTL) {
@@ -231,11 +316,24 @@ function getNotebook(database: SqliteDatabase, userId: string, notebookId: strin
 }
 
 function recordSyncChange(database: SqliteDatabase, userId: string, entityType: "note" | "notebook", entityId: string, operation: "upsert" | "delete", payload: Note | Notebook | null) {
-  database.query("INSERT INTO sync_changes (user_id, entity_type, entity_id, operation, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(userId, entityType, entityId, operation, payload ? JSON.stringify(payload) : null, now());
+  const result = database.query("INSERT INTO sync_changes (user_id, entity_type, entity_id, operation, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(userId, entityType, entityId, operation, payload ? JSON.stringify(payload) : null, now());
+  if (operation === "delete") database.query("INSERT INTO sync_tombstones (user_id, entity_type, entity_id, deleted_at) VALUES (?, ?, ?, ?) ON CONFLICT(user_id, entity_type, entity_id) DO UPDATE SET deleted_at = excluded.deleted_at").run(userId, entityType, entityId, now());
+  const sequence = Number(result.lastInsertRowid);
+  if (sequence % 100 === 0) {
+    const cutoff = now() - SYNC_CHANGE_RETENTION_SECONDS;
+    database.query(`DELETE FROM sync_changes
+      WHERE user_id = ? AND (created_at < ? OR sequence IN (
+        SELECT sequence FROM (
+          SELECT sequence, ROW_NUMBER() OVER (ORDER BY sequence DESC) AS row_number
+          FROM sync_changes WHERE user_id = ?
+        ) WHERE row_number > ?
+      ))`).run(userId, cutoff, userId, SYNC_CHANGE_MAX_PER_USER);
+    database.query("DELETE FROM sync_mutations WHERE user_id = ? AND created_at < ?").run(userId, now() - SYNC_MUTATION_RETENTION_SECONDS);
+  }
 }
 
 function hasSyncTombstone(database: SqliteDatabase, userId: string, entityType: "note" | "notebook", entityId: string) {
-  return Boolean(first<{ entity_id: string }>(database, "SELECT entity_id FROM sync_changes WHERE user_id = ? AND entity_type = ? AND entity_id = ? AND operation = 'delete' LIMIT 1", userId, entityType, entityId));
+  return Boolean(first<{ entity_id: string }>(database, "SELECT entity_id FROM sync_tombstones WHERE user_id = ? AND entity_type = ? AND entity_id = ? LIMIT 1", userId, entityType, entityId));
 }
 
 export function formatPreview(markdown: string) {
@@ -398,10 +496,16 @@ async function handleApi(request: Request, options: ServerOptions) {
   const { database, environment } = options;
   const url = new URL(request.url);
   const method = request.method.toUpperCase();
-  const segments = url.pathname.split("/").filter(Boolean).slice(1).map((segment) => decodeURIComponent(segment));
+  let segments: string[];
+  try {
+    segments = url.pathname.split("/").filter(Boolean).slice(1).map((segment) => decodeURIComponent(segment));
+  } catch {
+    return jsonError(400, "INVALID_PATH", "请求路径无效");
+  }
   const resource = segments[0] ?? "";
   const id = segments[1] ?? "";
   const subresource = segments[2] ?? "";
+  cleanupExpiredSessions(database);
 
   if (method === "GET" && url.pathname === "/api/health") {
     first(database, "SELECT 1 AS ok");
@@ -429,11 +533,19 @@ async function handleApi(request: Request, options: ServerOptions) {
   }
 
   if (method === "POST" && url.pathname === "/api/auth/login") {
-    const payload = await readJson<{ username?: unknown; password?: unknown }>(request);
+    const payload = await readJson<{ username?: unknown; password?: unknown }>(request, 64 * 1024);
     if (!payload || typeof payload.username !== "string" || typeof payload.password !== "string") return jsonError(400, "INVALID_LOGIN", "请输入用户名和密码");
     const credentials = getAuthCredentials(environment);
     if (!credentials) return jsonError(503, "AUTH_NOT_CONFIGURED", "请先配置 XIANGYING_USERNAME 和 XIANGYING_PASSWORD");
-    if (!constantTimeEqual(payload.username, credentials.username) || !constantTimeEqual(payload.password, credentials.password)) return jsonError(401, "INVALID_CREDENTIALS", "用户名或密码不正确");
+    const attemptKey = loginClientKey(request, payload.username);
+    const timestamp = now();
+    const attempt = getLoginAttempt(attemptKey, timestamp);
+    if (attempt.blockedUntil > timestamp) return jsonError(429, "TOO_MANY_LOGIN_ATTEMPTS", "登录尝试过于频繁，请稍后再试", undefined, { "Retry-After": String(attempt.blockedUntil - timestamp) });
+    if (!constantTimeEqual(payload.username, credentials.username) || !constantTimeEqual(payload.password, credentials.password)) {
+      recordFailedLogin(attemptKey, timestamp);
+      return jsonError(401, "INVALID_CREDENTIALS", "用户名或密码不正确");
+    }
+    resetLoginAttempt(attemptKey);
 
     const user = await ensureEnvironmentUser(database, credentials);
     const session = createOpaqueToken();
@@ -449,6 +561,7 @@ async function handleApi(request: Request, options: ServerOptions) {
     if (session) database.query("DELETE FROM sessions WHERE token_hash = ?").run(await digestHex(session));
     const headers = new Headers();
     setSessionCookie(headers, request, "", environment, 0);
+    headers.set("Clear-Site-Data", '"cookies"');
     return json({ ok: true }, 200, headers);
   }
 
@@ -508,7 +621,7 @@ async function handleApi(request: Request, options: ServerOptions) {
     const where = conditions.join(" AND ");
     const totalRow = first<{ count: number }>(database, `SELECT COUNT(*) AS count FROM ${from} WHERE ${where}`, ...params);
     const listStatement = database.query(`
-      SELECT n.id, n.title, n.content_markdown, n.notebook_id, b.name AS notebook_name,
+      SELECT n.id, n.title, substr(n.content_markdown, 1, ${NOTE_PREVIEW_SCAN_LIMIT}) AS content_markdown, n.notebook_id, b.name AS notebook_name,
         b.color AS notebook_color, n.is_favorite, n.deleted_at, n.version, n.created_at, n.updated_at
       FROM ${from} WHERE ${where} ORDER BY n.updated_at DESC LIMIT ${NOTE_PAGE_SIZE}
     `);
@@ -518,7 +631,8 @@ async function handleApi(request: Request, options: ServerOptions) {
   }
 
   if (resource === "notes" && !id && method === "POST") {
-    const payload = await readJson<{ id?: unknown; title?: unknown; contentMarkdown?: unknown; notebookId?: unknown }>(request);
+    const payload = await readJson<{ id?: unknown; title?: unknown; contentMarkdown?: unknown; notebookId?: unknown }>(request, NOTE_BODY_MAX_BYTES);
+    if (!payload) return jsonError(400, "INVALID_JSON", "请求体无效或超出大小限制");
     const rawTitle = payload?.title === undefined ? "未命名笔记" : payload.title;
     const contentMarkdown = payload?.contentMarkdown === undefined ? "" : payload.contentMarkdown;
     if (!validText(rawTitle, 200) || !validText(contentMarkdown, 1_000_000)) return jsonError(413, "NOTE_TOO_LARGE", "笔记标题或正文超出长度限制");
@@ -559,12 +673,14 @@ async function handleApi(request: Request, options: ServerOptions) {
   if (resource === "notes" && id && method === "PATCH") {
     const current = getNote(database, user.id, id);
     if (!current) return jsonError(404, "NOTE_NOT_FOUND", "笔记不存在");
-    const payload = await readJson<{ version?: unknown; title?: unknown; contentMarkdown?: unknown; notebookId?: unknown; isFavorite?: unknown; deleted?: unknown }>(request);
+    const payload = await readJson<{ version?: unknown; title?: unknown; contentMarkdown?: unknown; notebookId?: unknown; isFavorite?: unknown; deleted?: unknown }>(request, NOTE_BODY_MAX_BYTES);
     if (!payload || !Number.isInteger(payload.version)) return jsonError(400, "VERSION_REQUIRED", "保存笔记必须携带版本号");
     if (payload.version !== current.version) return json({ error: { code: "VERSION_CONFLICT", message: "这篇笔记已在别处更新", current: toFullNote(current) } }, 409);
     const rawTitle = payload.title === undefined ? current.title : payload.title;
     const contentMarkdown = payload.contentMarkdown === undefined ? current.content_markdown : payload.contentMarkdown;
     const notebookId = payload.notebookId === undefined ? current.notebook_id : payload.notebookId;
+    if (payload.isFavorite !== undefined && typeof payload.isFavorite !== "boolean") return jsonError(400, "INVALID_NOTE", "收藏状态无效");
+    if (payload.deleted !== undefined && typeof payload.deleted !== "boolean") return jsonError(400, "INVALID_NOTE", "回收站状态无效");
     const isFavorite = payload.isFavorite === undefined ? current.is_favorite : payload.isFavorite ? 1 : 0;
     const deletedAt = payload.deleted === undefined ? current.deleted_at : payload.deleted ? now() : null;
     if (!validText(rawTitle, 200) || !validText(contentMarkdown, 1_000_000) || typeof notebookId !== "string") return jsonError(413, "NOTE_TOO_LARGE", "笔记标题或正文超出长度限制");
@@ -688,7 +804,9 @@ async function handleSyncPull(request: Request, database: SqliteDatabase, user: 
   const limit = Math.min(250, Math.max(1, Number.parseInt(url.searchParams.get("limit") ?? "100", 10) || 100));
   if (!Number.isInteger(cursor) || cursor < 0) return jsonError(400, "INVALID_SYNC_CURSOR", "同步游标无效");
 
-  if (cursor === 0) {
+  const oldestRetainedChange = first<{ sequence: number }>(database, "SELECT MIN(sequence) AS sequence FROM sync_changes WHERE user_id = ?", user.id);
+  const cursorBehindCompaction = cursor > 0 && oldestRetainedChange && cursor < Number(oldestRetainedChange.sequence) - 1;
+  if (cursor === 0 || cursorBehindCompaction) {
     const offset = Math.max(0, Number.parseInt(url.searchParams.get("offset") ?? "0", 10) || 0);
     const snapshotCursorParam = Number.parseInt(url.searchParams.get("snapshotCursor") ?? "", 10);
     const snapshotCursor = Number.isInteger(snapshotCursorParam) && snapshotCursorParam >= 0
@@ -744,7 +862,8 @@ function validSyncMutation(value: unknown): value is SyncMutation {
   return typeof mutation.operationId === "string" && mutation.operationId.length >= 8 && mutation.operationId.length <= 120
     && (mutation.entity === "note" || mutation.entity === "notebook")
     && (mutation.action === "upsert" || mutation.action === "delete")
-    && typeof mutation.entityId === "string" && mutation.entityId.length >= 8 && mutation.entityId.length <= 120;
+    && typeof mutation.entityId === "string" && mutation.entityId.length >= 8 && mutation.entityId.length <= 120
+    && (mutation.allowRecreate === undefined || typeof mutation.allowRecreate === "boolean");
 }
 
 function applySyncMutation(database: SqliteDatabase, user: UserRow, mutation: SyncMutation): SyncPushResult {
@@ -768,7 +887,7 @@ function applySyncMutation(database: SqliteDatabase, user: UserRow, mutation: Sy
           const updated = updateNoteInTransaction(database, current, user.id, normalizeNoteTitle(payload.title), payload.contentMarkdown, payload.notebookId, payload.isFavorite ? 1 : 0, payload.deletedAt);
           const next = getNote(database, user.id, mutation.entityId);
           response = updated && next ? { operationId: mutation.operationId, status: "applied", note: toFullNote(next) } : { operationId: mutation.operationId, status: "conflict", current: next ? toFullNote(next) : null, message: "笔记更新失败" };
-        } else if (hasSyncTombstone(database, user.id, "note", mutation.entityId)) {
+        } else if (hasSyncTombstone(database, user.id, "note", mutation.entityId) && !mutation.allowRecreate) {
           response = { operationId: mutation.operationId, status: "rejected", message: "笔记已永久删除，不能重新创建" };
         } else {
           try {
@@ -860,7 +979,7 @@ function applySyncMutation(database: SqliteDatabase, user: UserRow, mutation: Sy
 }
 
 async function handleSyncPush(request: Request, database: SqliteDatabase, user: UserRow) {
-  const payload = await readJson<{ mutations?: unknown }>(request);
+  const payload = await readJson<{ mutations?: unknown }>(request, SYNC_BODY_MAX_BYTES);
   if (!payload || !Array.isArray(payload.mutations) || payload.mutations.length > 50 || !payload.mutations.every(validSyncMutation)) return jsonError(400, "INVALID_SYNC_MUTATIONS", "同步操作无效");
   const body: SyncPushResponse = { results: payload.mutations.map((mutation) => applySyncMutation(database, user, mutation)) };
   return json(body);
@@ -911,17 +1030,22 @@ async function serveStatic(request: Request, clientRoot: string) {
 export async function handleRequest(request: Request, options: ServerOptions) {
   try {
     const url = new URL(request.url);
+    let response: Response;
     if (url.pathname === "/api/shares/" || url.pathname.startsWith("/api/shares/")) {
       const segments = url.pathname.split("/").filter(Boolean);
-      if (request.method === "GET" && segments.length === 3) return await handlePublicShare(request, options.database);
+      if (request.method === "GET" && segments.length === 3) response = await handlePublicShare(request, options.database);
+      else response = url.pathname.startsWith("/api/") ? await handleApi(request, options) : await serveStatic(request, options.clientRoot ?? DEFAULT_CLIENT_ROOT);
+    } else if (url.pathname.startsWith("/api/")) {
+      response = await handleApi(request, options);
+    } else {
+      response = await serveStatic(request, options.clientRoot ?? DEFAULT_CLIENT_ROOT);
     }
-    if (url.pathname.startsWith("/api/")) return await handleApi(request, options);
-    return await serveStatic(request, options.clientRoot ?? DEFAULT_CLIENT_ROOT);
+    return withSecurityHeaders(response, options.environment);
   } catch (error) {
     const url = new URL(request.url);
     console.error(`[request] ${request.method} ${url.pathname}`, error);
-    if (url.pathname.startsWith("/api/")) return jsonError(500, "INTERNAL_ERROR", "服务器暂时无法处理请求");
-    return new Response("Internal Server Error", { status: 500 });
+    if (url.pathname.startsWith("/api/")) return withSecurityHeaders(jsonError(500, "INTERNAL_ERROR", "服务器暂时无法处理请求"), options.environment);
+    return withSecurityHeaders(new Response("Internal Server Error", { status: 500 }), options.environment);
   }
 }
 
@@ -937,7 +1061,7 @@ if (import.meta.main) {
     },
     error(error) {
       console.error("[server] uncaught error", error);
-      return jsonError(500, "INTERNAL_ERROR", "服务器暂时无法处理请求");
+      return withSecurityHeaders(jsonError(500, "INTERNAL_ERROR", "服务器暂时无法处理请求"), Bun.env);
     },
   });
   console.log(`象映笔记服务已启动：${server.url}`);

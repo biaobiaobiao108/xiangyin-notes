@@ -1,4 +1,4 @@
-const CACHE_NAME = "xiangying-notes-shell-v1";
+const CACHE_NAME = "__XIANGYING_CACHE_NAME__";
 const PRECACHE_URLS = ["/", "/app", "/manifest.webmanifest"];
 
 type Extendable = { waitUntil(promise: Promise<unknown>): void };

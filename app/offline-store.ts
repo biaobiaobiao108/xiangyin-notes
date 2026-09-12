@@ -8,7 +8,7 @@ export type OfflineConflict = {
   id: string;
   noteId: string;
   local: Note;
-  server: Note;
+  server: Note | null;
   createdAt: number;
 };
 
@@ -178,5 +178,16 @@ export async function clearOfflineData() {
   if (!database) return;
   const transaction = database.transaction(["notes", "notebooks", "mutations", "conflicts", "meta"], "readwrite");
   for (const storeName of ["notes", "notebooks", "mutations", "conflicts", "meta"]) transaction.objectStore(storeName).clear();
+  await transactionDone(transaction);
+}
+
+/** Clear the cached server snapshot while retaining pending work and conflict records. */
+export async function clearCachedData() {
+  const database = await openDatabase();
+  if (!database) return;
+  const transaction = database.transaction(["notes", "notebooks", "meta"], "readwrite");
+  transaction.objectStore("notes").clear();
+  transaction.objectStore("notebooks").clear();
+  transaction.objectStore("meta").delete("cursor");
   await transactionDone(transaction);
 }

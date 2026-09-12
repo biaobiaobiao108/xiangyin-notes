@@ -27,7 +27,7 @@ describe("Bun Server API", () => {
   test("automatically initializes a fresh database but not later migrations", async () => {
     const fresh = await openDatabase(":memory:");
     const migrations = fresh.query("SELECT name FROM schema_migrations ORDER BY name").all() as Array<{ name: string }>;
-    expect(migrations.map((item) => item.name)).toEqual(["0001_initial.sql", "0002_sqlite_share_snapshots.sql", "0003_pwa_sync.sql"]);
+    expect(migrations.map((item) => item.name)).toEqual(["0001_initial.sql", "0002_sqlite_share_snapshots.sql", "0003_pwa_sync.sql", "0004_sync_tombstones.sql"]);
     expect(fresh.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'users'").get()).toBeDefined();
     fresh.close();
 
@@ -46,7 +46,7 @@ describe("Bun Server API", () => {
   test("applies SQLite migrations idempotently and reports health", async () => {
     await applyMigrations(database);
     const migrations = database.query("SELECT name FROM schema_migrations ORDER BY name").all() as Array<{ name: string }>;
-    expect(migrations.map((item) => item.name)).toEqual(["0001_initial.sql", "0002_sqlite_share_snapshots.sql", "0003_pwa_sync.sql"]);
+    expect(migrations.map((item) => item.name)).toEqual(["0001_initial.sql", "0002_sqlite_share_snapshots.sql", "0003_pwa_sync.sql", "0004_sync_tombstones.sql"]);
 
     const health = await request("/api/health");
     expect(health.response.status).toBe(200);
@@ -88,6 +88,14 @@ describe("Bun Server API", () => {
     const updated = await request(`/api/notes/${note.id}`, { method: "PATCH", body: JSON.stringify({ version: note.version, title: "Updated", contentMarkdown: "Changed content", notebookId: notebook.id }) }, login.cookie);
     expect(updated.response.status).toBe(200);
     expect(updated.body?.note.title).toBe("Updated");
+
+    const invalidBoolean = await request(`/api/notes/${note.id}`, { method: "PATCH", body: JSON.stringify({ version: updated.body?.note.version, isFavorite: "false" }) }, login.cookie);
+    expect(invalidBoolean.response.status).toBe(400);
+    expect(invalidBoolean.body?.error.code).toBe("INVALID_NOTE");
+
+    const invalidCreate = await request("/api/notes", { method: "POST", body: "not-json" }, login.cookie);
+    expect(invalidCreate.response.status).toBe(400);
+    expect(invalidCreate.body?.error.code).toBe("INVALID_JSON");
 
     const notebooks = await request("/api/notebooks", {}, login.cookie);
     expect(notebooks.body?.notebooks.find((item: { id: string }) => item.id === notebook.id).count).toBe(1);
@@ -134,6 +142,8 @@ describe("Bun Server API", () => {
     expect(manifest.response.status).toBe(200);
     expect(manifest.response.headers.get("Content-Type")).toContain("application/manifest+json");
     expect(manifest.response.headers.get("Cache-Control")).toBe("no-cache");
+    expect(manifest.response.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(manifest.response.headers.get("Content-Security-Policy")).toContain("default-src 'self'");
     expect(manifest.body?.display).toBe("standalone");
 
     const worker = await request("/sw.js");
@@ -321,6 +331,17 @@ describe("Bun Server API", () => {
     const missing = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) }, undefined, unconfigured);
     expect(missing.response.status).toBe(503);
     expect(missing.body?.error.code).toBe("AUTH_NOT_CONFIGURED");
+  });
+
+  test("rate limits repeated login failures", async () => {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const failed = await request("/api/auth/login", { method: "POST", headers: { "X-Forwarded-For": "198.51.100.23" }, body: JSON.stringify({ username: "owner", password: "wrong passphrase 1234" }) });
+      expect(failed.response.status).toBe(401);
+    }
+    const blocked = await request("/api/auth/login", { method: "POST", headers: { "X-Forwarded-For": "198.51.100.23" }, body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
+    expect(blocked.response.status).toBe(429);
+    expect(blocked.body?.error.code).toBe("TOO_MANY_LOGIN_ATTEMPTS");
+    expect(blocked.response.headers.get("Retry-After")).toBeTruthy();
   });
 
   test("automatically signs in with the development test account", async () => {

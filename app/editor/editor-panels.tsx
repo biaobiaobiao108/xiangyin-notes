@@ -1,6 +1,7 @@
-import type { RefObject } from "react";
+import { useRef, type RefObject } from "react";
 import { ChevronDown, ChevronUp, ListTree, X } from "lucide-react";
 import type { EditorStats, OutlineItem } from "../editor-metrics";
+import { FloatingScrollbar } from "../floating-scrollbar";
 
 type SearchNavigation = {
   activeIndex: number;
@@ -21,6 +22,7 @@ export function EditorFloatingTools({ floatingToolsRef, outlineTriggerRef, outli
   onMoveSearchMatch: (direction: -1 | 1) => void;
   onClearSearch?: () => void;
 }) {
+  const outlineScrollRef = useRef<HTMLDivElement>(null);
   return <div className="editor-floating-tools" ref={floatingToolsRef}>
     <aside className="editor-outline" id="note-outline" aria-label="笔记大纲" hidden={!outlineOpen}>
       <div className="editor-outline-heading">
@@ -30,11 +32,16 @@ export function EditorFloatingTools({ floatingToolsRef, outlineTriggerRef, outli
         </div>
         <span className="editor-outline-count">{outlineItems.length}</span>
       </div>
-      {outlineItems.length > 0 ? <nav aria-label="笔记标题">
-        <ol className="editor-outline-list">
-          {outlineItems.map((item) => <li className={`editor-outline-item editor-outline-item--level-${item.level}`} key={item.id}><button type="button" aria-current={activeOutlineId === item.id ? "true" : undefined} onClick={() => onScrollToOutlineItem(item.id)}><span className="outline-level-tag" aria-hidden="true">{`H${item.level}`}</span><span className="outline-item-title">{item.title}</span></button></li>)}
-        </ol>
-      </nav> : <p className="editor-outline-empty">用 <code>#</code> 标题为这篇笔记建立大纲。</p>}
+      <div className="editor-outline-scroll-shell">
+        <div id="note-outline-scroll-region" className="editor-outline-scroll floating-scrollbar-target" ref={outlineScrollRef}>
+          {outlineItems.length > 0 ? <nav aria-label="笔记标题">
+            <ol className="editor-outline-list">
+              {outlineItems.map((item) => <li className={`editor-outline-item editor-outline-item--level-${item.level}`} key={item.id}><button type="button" aria-current={activeOutlineId === item.id ? "true" : undefined} onClick={() => onScrollToOutlineItem(item.id)}><span className="outline-level-tag" aria-hidden="true">{`H${item.level}`}</span><span className="outline-item-title">{item.title}</span></button></li>)}
+            </ol>
+          </nav> : <p className="editor-outline-empty">用 <code>#</code> 标题为这篇笔记建立大纲。</p>}
+        </div>
+        <FloatingScrollbar scrollTargetRef={outlineScrollRef} controlsId="note-outline-scroll-region" ariaLabel="笔记大纲滚动条" placement="right" enabled={outlineOpen} />
+      </div>
     </aside>
     <div className="editor-floating-row">
       {searchNavigation.matchCount > 0 && <div className="editor-search-nav" role="group" aria-label={`正文搜索结果，第 ${searchNavigation.activeIndex + 1} 个，共 ${searchNavigation.matchCount} 个`}>

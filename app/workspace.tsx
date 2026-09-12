@@ -93,6 +93,7 @@ export function Workspace() {
   const [conflictOpen, setConflictOpen] = useState(false);
   const shortcutHandledRef = useRef(false);
   const confirmIdRef = useRef(0);
+  const hasUnsavedWork = useCallback(() => pendingSavesRef.current.size > 0 || failedSavesRef.current.size > 0 || offlineSync.getState().pendingCount > 0 || offlineSync.getState().conflictCount > 0, []);
   const requestConfirm = useCallback((request: Omit<ConfirmRequest, "id">) => {
     confirmIdRef.current += 1;
     setConfirmRequest({ ...request, id: confirmIdRef.current, returnFocus: document.activeElement instanceof HTMLElement ? document.activeElement : null });
@@ -100,6 +101,15 @@ export function Workspace() {
 
   useEffect(() => subscribePwa(setPwaState), []);
   useEffect(() => offlineSync.subscribe(setSyncState), []);
+  useEffect(() => {
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!hasUnsavedWork()) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warnBeforeUnload);
+    return () => window.removeEventListener("beforeunload", warnBeforeUnload);
+  }, [hasUnsavedWork]);
   useEffect(() => { if (syncState.conflictCount > 0) void getOfflineConflicts().then(setConflicts); }, [syncState.conflictCount]);
   useEffect(() => {
     let disposed = false;
@@ -714,7 +724,17 @@ export function Workspace() {
     shortcutHandledRef.current = true;
     if (action) window.history.replaceState(null, "", `${window.location.pathname}${window.location.hash}`);
   }, [createNoteHere, ready]);
-  const logout = async () => { await flushPendingSaves("now"); await api.logout().catch(() => undefined); await offlineSync.clear(); navigate("/login", { replace: true }); };
+  const logout = async () => {
+    await flushPendingSaves("now");
+    if (hasUnsavedWork()) {
+      setToast("仍有内容未保存或存在同步冲突，请联网同步并处理后再退出");
+      if (offlineSync.getState().conflictCount > 0) setConflictOpen(true);
+      return;
+    }
+    await api.logout().catch(() => undefined);
+    await offlineSync.clear();
+    navigate("/login", { replace: true });
+  };
   const updatePwa = useCallback(async () => {
     await flushPendingSaves("now");
     if (pendingSavesRef.current.size > 0 || failedSavesRef.current.size > 0) { setToast("仍有编辑内容未保存，更新已暂缓"); return; }
@@ -730,8 +750,9 @@ export function Workspace() {
   const renderedNote = selectedNote && selectedRef.current?.id === selectedNote.id ? selectedRef.current : selectedNote;
   const commandNoteReady = Boolean(renderedNote && selectedRef.current?.id === renderedNote.id && !isNoteLoading);
   const activeSearchQuery = inNoteSearchQuery || query;
+  const mobileNavigationOpen = mobileSidebarOpen || mobileListOpen;
   return <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${focusMode ? "is-focus-mode" : ""}`}>
-    <button className={`mobile-scrim ${mobileSidebarOpen || mobileListOpen ? "is-visible" : ""}`} type="button" aria-label="关闭导航" onClick={() => { setMobileSidebarOpen(false); setMobileListOpen(false); }} />
+    {mobileNavigationOpen && <button className="mobile-scrim is-visible" type="button" aria-label="关闭导航" onClick={() => { setMobileSidebarOpen(false); setMobileListOpen(false); }} />}
     <Sidebar view={view} setView={selectView} notebooks={notebooks} notebookId={notebookId} setNotebookId={selectNotebook} query={query} setQuery={changeQuery} searchRef={searchRef} onNewNote={() => void createNoteHere()} onCreateNotebook={() => void createNotebook()} onEditNotebook={(target) => setEditingNotebook(target)} collapsed={sidebarCollapsed} onCollapse={() => setSidebarCollapsed((value) => !value)} mobileOpen={mobileSidebarOpen} onLogout={logout} />
     <NoteListPanel notes={notes} total={totalNotes} sort={noteSort} setSort={setNoteSort} selectedId={selectedId} onSelect={(id) => { selectNote(id); setMobileListOpen(false); }} view={view} query={query} currentNotebookName={currentNotebook?.name} onEmptyTrash={view === "trash" ? emptyTrash : undefined} trashBusy={pendingTrashCount > 0 || emptyingTrash} onNewNote={currentNotebook ? () => void createNoteHere() : undefined} onClearQuery={() => changeQuery("")} mobileOpen={mobileListOpen} onOpenSidebar={() => setMobileSidebarOpen(true)} />
     <main className="editor-region">

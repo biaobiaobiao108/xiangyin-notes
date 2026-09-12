@@ -159,7 +159,7 @@ Docker 部署适合长期运行在家用服务器、NAS 或云主机上。项目
 镜像地址：
 
 ```text
-ghcr.io/biaobiaobiao108/xiangyin-notes
+ghcr.io/biaobiaobiao108/xiangying-notes
 ```
 
 先在项目根目录准备 `.env`：
@@ -174,7 +174,7 @@ COOKIE_SECURE=true
 拉取已发布镜像并创建数据卷：
 
 ```bash
-docker pull ghcr.io/biaobiaobiao108/xiangyin-notes:latest
+docker pull ghcr.io/biaobiaobiao108/xiangying-notes:latest
 docker volume create xiangying-notes-data
 ```
 
@@ -187,7 +187,7 @@ docker run -d \
   -p 3000:3000 \
   --env-file .env \
   -v xiangying-notes-data:/data \
-  ghcr.io/biaobiaobiao108/xiangyin-notes:latest
+  ghcr.io/biaobiaobiao108/xiangying-notes:latest
 ```
 
 然后访问：
@@ -209,7 +209,7 @@ echo "$GITHUB_TOKEN" | docker login ghcr.io -u YOUR_GITHUB_USERNAME --password-s
 升级时拉取新镜像，继续使用原来的数据卷即可：
 
 ```bash
-docker pull ghcr.io/biaobiaobiao108/xiangyin-notes:latest
+docker pull ghcr.io/biaobiaobiao108/xiangying-notes:latest
 docker stop xiangying-notes
 docker rm xiangying-notes
 docker run -d \
@@ -218,7 +218,7 @@ docker run -d \
   -p 3000:3000 \
   --env-file .env \
   -v xiangying-notes-data:/data \
-  ghcr.io/biaobiaobiao108/xiangyin-notes:latest
+  ghcr.io/biaobiaobiao108/xiangying-notes:latest
 ```
 
 如果新版本包含数据库迁移，先执行一次迁移，再启动新容器：
@@ -227,7 +227,7 @@ docker run -d \
 docker run --rm \
   --env-file .env \
   -v xiangying-notes-data:/data \
-  ghcr.io/biaobiaobiao108/xiangyin-notes:latest \
+  ghcr.io/biaobiaobiao108/xiangying-notes:latest \
   bun dist/server/migrate.js
 ```
 
@@ -275,7 +275,7 @@ Docker：
 docker run --rm \
   --env-file .env \
   -v xiangying-notes-data:/data \
-  ghcr.io/biaobiaobiao108/xiangyin-notes:latest \
+  ghcr.io/biaobiaobiao108/xiangying-notes:latest \
   bun dist/server/migrate.js
 ```
 
