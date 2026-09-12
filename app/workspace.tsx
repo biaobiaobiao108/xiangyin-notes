@@ -435,6 +435,7 @@ export function Workspace() {
     activeNoteIdRef.current = note.id;
     pendingSavesRef.current.delete(note.id);
     setSelectedId(note.id);
+    setMobileSidebarOpen(false);
     setMobileListOpen(false);
     setToast(message);
   }, []);
@@ -655,8 +656,8 @@ export function Workspace() {
       onConfirm: () => void reloadSelectedNote(),
     });
   }, [reloadSelectedNote, requestConfirm]);
-  const selectView = useCallback((next: NoteView) => { searchOriginRef.current = null; setQuery(""); setView(next); setNotebookId(undefined); setMobileSidebarOpen(false); }, []);
-  const selectNotebook = useCallback((notebookIdToSelect: string) => { searchOriginRef.current = null; setQuery(""); setNotebookId(notebookIdToSelect); setView("all"); setMobileSidebarOpen(false); }, []);
+  const selectView = useCallback((next: NoteView) => { searchOriginRef.current = null; setQuery(""); setView(next); setNotebookId(undefined); setMobileSidebarOpen(false); setMobileListOpen(false); }, []);
+  const selectNotebook = useCallback((notebookIdToSelect: string) => { searchOriginRef.current = null; setQuery(""); setNotebookId(notebookIdToSelect); setView("all"); setMobileSidebarOpen(false); setMobileListOpen(false); }, []);
   const changeQuery = useCallback((next: string) => {
     if (next) {
       if (!query) searchOriginRef.current = { view, notebookId };
@@ -698,6 +699,7 @@ export function Workspace() {
     changeQuery(normalizedQuery);
     selectNote(noteId);
     setMobileSidebarOpen(false);
+    setMobileListOpen(false);
   }, [changeQuery, selectNote]);
   const command = useCallback((id: CommandId) => {
     if (id === "new-note") void createNoteHere();
@@ -707,7 +709,7 @@ export function Workspace() {
       setCommandInitialQuery(initial);
       setCommandOpen(true);
     }
-    if (id === "search") { setMobileSidebarOpen(true); requestAnimationFrame(() => searchRef.current?.focus()); }
+    if (id === "search") { setMobileSidebarOpen(true); setMobileListOpen(false); requestAnimationFrame(() => searchRef.current?.focus()); }
     if (id === "toggle-sidebar") setSidebarCollapsed((value) => !value);
     if (id === "toggle-focus-mode") toggleFocusMode();
     if (id === "share" && selectedRef.current) setShareOpen(true);
@@ -720,7 +722,7 @@ export function Workspace() {
     if (!ready || shortcutHandledRef.current) return;
     const action = new URLSearchParams(window.location.search).get("action");
     if (action === "new-note") void createNoteHere();
-    if (action === "search") { setMobileSidebarOpen(true); requestAnimationFrame(() => searchRef.current?.focus()); }
+    if (action === "search") { setMobileSidebarOpen(true); setMobileListOpen(false); requestAnimationFrame(() => searchRef.current?.focus()); }
     shortcutHandledRef.current = true;
     if (action) window.history.replaceState(null, "", `${window.location.pathname}${window.location.hash}`);
   }, [createNoteHere, ready]);
@@ -754,9 +756,9 @@ export function Workspace() {
   return <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${focusMode ? "is-focus-mode" : ""}`}>
     {mobileNavigationOpen && <button className="mobile-scrim is-visible" type="button" aria-label="关闭导航" onClick={() => { setMobileSidebarOpen(false); setMobileListOpen(false); }} />}
     <Sidebar view={view} setView={selectView} notebooks={notebooks} notebookId={notebookId} setNotebookId={selectNotebook} query={query} setQuery={changeQuery} searchRef={searchRef} onNewNote={() => void createNoteHere()} onCreateNotebook={() => void createNotebook()} onEditNotebook={(target) => setEditingNotebook(target)} collapsed={sidebarCollapsed} onCollapse={() => setSidebarCollapsed((value) => !value)} mobileOpen={mobileSidebarOpen} onLogout={logout} />
-    <NoteListPanel notes={notes} total={totalNotes} sort={noteSort} setSort={setNoteSort} selectedId={selectedId} onSelect={(id) => { selectNote(id); setMobileListOpen(false); }} view={view} query={query} currentNotebookName={currentNotebook?.name} onEmptyTrash={view === "trash" ? emptyTrash : undefined} trashBusy={pendingTrashCount > 0 || emptyingTrash} onNewNote={currentNotebook ? () => void createNoteHere() : undefined} onClearQuery={() => changeQuery("")} mobileOpen={mobileListOpen} onOpenSidebar={() => setMobileSidebarOpen(true)} />
+    <NoteListPanel notes={notes} total={totalNotes} sort={noteSort} setSort={setNoteSort} selectedId={selectedId} onSelect={(id) => { selectNote(id); setMobileSidebarOpen(false); setMobileListOpen(false); }} view={view} query={query} currentNotebookName={currentNotebook?.name} onEmptyTrash={view === "trash" ? emptyTrash : undefined} trashBusy={pendingTrashCount > 0 || emptyingTrash} onNewNote={currentNotebook ? () => void createNoteHere() : undefined} onClearQuery={() => changeQuery("")} mobileOpen={mobileListOpen} onOpenSidebar={() => { setMobileSidebarOpen(true); setMobileListOpen(false); }} />
     <main className="editor-region">
-      {renderedNote ? <Suspense fallback={<NoteLoadingState />}><LazyNoteEditor note={renderedNote} searchQuery={activeSearchQuery} onClearSearch={activeSearchQuery ? handleClearSearch : undefined} saveState={saveState} isLoading={isNoteLoading} trashBusy={emptyingTrash || (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onShare={() => setShareOpen(true)} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={() => setMobileListOpen(true)} focusMode={focusMode} onToggleFocusMode={toggleFocusMode} /></Suspense> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor isTrash={view === "trash"} onNewNote={() => void createNoteHere()} onOpenList={() => setMobileListOpen(true)} />}
+      {renderedNote ? <Suspense fallback={<NoteLoadingState />}><LazyNoteEditor note={renderedNote} searchQuery={activeSearchQuery} onClearSearch={activeSearchQuery ? handleClearSearch : undefined} saveState={saveState} isLoading={isNoteLoading} trashBusy={emptyingTrash || (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onShare={() => setShareOpen(true)} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={() => { setMobileListOpen(true); setMobileSidebarOpen(false); }} focusMode={focusMode} onToggleFocusMode={toggleFocusMode} /></Suspense> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor isTrash={view === "trash"} onNewNote={() => void createNoteHere()} onOpenList={() => { setMobileListOpen(true); setMobileSidebarOpen(false); }} />}
     </main>
     <CommandMenu open={commandOpen} onClose={closeCommandMenu} onCommand={command} onCreateNoteInNotebook={createNoteInNotebook} canRestore={Boolean(commandNoteReady && renderedNote?.deletedAt)} canMoveToTrash={Boolean(commandNoteReady && renderedNote && !renderedNote.deletedAt)} notebooks={notebooks} focusMode={focusMode} canInstallApp={pwaState.canInstall} showIosInstallHint={pwaState.showIosInstallHint} standalone={pwaState.standalone} noteResults={commandNoteResults} noteSearchLoading={commandNoteSearchLoading} onSearchQueryChange={handleCommandNoteQueryChange} onOpenSearchResult={openCommandSearchResult} hasSelectedNote={commandNoteReady} onSearchInCurrentNote={handleSearchInCurrentNote} initialQuery={commandInitialQuery} />
 

@@ -76,14 +76,9 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     setEditorStats((current) => current.wordCount === nextStats.wordCount && current.characterCount === nextStats.characterCount ? current : nextStats);
 
     const headings = Array.from(instance.view.dom.querySelectorAll<HTMLElement>("h1, h2, h3"))
-      .map((element) => ({ level: Number(element.tagName.slice(1)) as 1 | 2 | 3, title: element.textContent?.trim() ?? "", element }))
+      .map((element) => ({ level: Number(element.tagName.slice(1)) as 1 | 2 | 3, title: element.textContent?.trim() ?? "" }))
       .filter((heading) => heading.title.length > 0);
-    const nextItems = buildOutlineItems(headings.map(({ level, title }) => ({ level, title })));
-    headings.forEach((heading, index) => {
-      const item = nextItems[index];
-      if (!item) return;
-      heading.element.id = item.id;
-    });
+    const nextItems = buildOutlineItems(headings);
     setOutlineItems((current) => {
       const unchanged = current.length === nextItems.length && current.every((item, index) => {
         const next = nextItems[index];
@@ -516,15 +511,21 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     }
 
     let activeFrame: number | null = null;
-    const currentHeadings = Array.from(root.querySelectorAll<HTMLElement>("h1, h2, h3")).filter((heading) => heading.textContent?.trim());
+    const getCurrentHeadings = () => Array.from(root.querySelectorAll<HTMLElement>("h1, h2, h3")).filter((heading) => heading.textContent?.trim());
     const updateActiveHeading = () => {
+      const currentHeadings = getCurrentHeadings();
       const rootTop = root.getBoundingClientRect().top;
-      const activationLine = rootTop + Math.min(root.clientHeight * 0.24, 180);
+      const activationLine = rootTop + 32;
       let currentId: string | null = null;
-      for (const [index, item] of outlineItems.entries()) {
-        const element = currentHeadings[index];
-        if (element && element.getBoundingClientRect().top <= activationLine) currentId = item.id;
-        else if (currentId) break;
+      const maxScrollTop = Math.max(0, root.scrollHeight - root.clientHeight);
+      if (root.scrollTop >= maxScrollTop - 1) {
+        currentId = outlineItems[outlineItems.length - 1]?.id ?? null;
+      } else {
+        for (const [index, item] of outlineItems.entries()) {
+          const element = currentHeadings[index];
+          if (element && element.getBoundingClientRect().top <= activationLine) currentId = item.id;
+          else if (currentId) break;
+        }
       }
       const nextId = currentId ?? outlineItems[0]?.id ?? null;
       setActiveOutlineId((current) => current === nextId ? current : nextId);
@@ -542,9 +543,9 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       rootMargin: "-12% 0px -68% 0px",
       threshold: [0, 1],
     });
-    for (const [index] of outlineItems.entries()) {
-      const element = currentHeadings[index];
-      if (element) observer?.observe(element);
+    for (const [index, element] of getCurrentHeadings().entries()) {
+      if (index >= outlineItems.length) break;
+      observer?.observe(element);
     }
     root.addEventListener("scroll", scheduleActiveHeading, { passive: true });
     scheduleActiveHeading();
@@ -561,7 +562,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     const currentHeadings = scrollRoot
       ? Array.from(scrollRoot.querySelectorAll<HTMLElement>("h1, h2, h3")).filter((heading) => heading.textContent?.trim())
       : [];
-    const element = itemIndex >= 0 ? currentHeadings?.[itemIndex] : undefined;
+    const element = itemIndex >= 0 ? currentHeadings[itemIndex] : undefined;
     if (!element || !scrollRoot) return;
     const rootRect = scrollRoot.getBoundingClientRect();
     const elementRect = element.getBoundingClientRect();
