@@ -344,6 +344,7 @@ button.save-status:hover { text-decoration: underline; }
 .outline-trigger:hover, .outline-trigger.is-active { border-color: #e9b9aa; background: var(--accent-soft); color: var(--accent-dark); }
 .outline-trigger:active { transform: translateY(1px); }
 .editor-outline { display: grid; grid-template-rows: auto minmax(0, 1fr); width: min(288px, calc(100vw - 32px)); max-width: 100%; max-height: min(420px, 55dvh); overflow: visible; padding: 15px; border: 1px solid rgba(204, 211, 205, 0.96); border-radius: 18px; background: rgba(255, 255, 255, 0.97); box-shadow: var(--shadow); transform-origin: bottom right; animation: editor-outline-in 180ms ease both; pointer-events: auto; }
+.editor-outline[hidden] { display: none; }
 .editor-outline-scroll-shell { position: relative; min-height: 0; max-height: min(348px, calc(55dvh - 72px)); overflow: hidden; }
 .editor-outline-scroll { height: 100%; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .editor-outline-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 1px 2px 12px; border-bottom: 1px solid #edf0ed; }

@@ -49,7 +49,6 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   const editorInstanceRef = useRef<Editor | null>(null);
   const floatingToolsRef = useRef<HTMLDivElement>(null);
   const outlineTriggerRef = useRef<HTMLButtonElement>(null);
-  const headingElementsRef = useRef(new Map<string, HTMLElement>());
   const syncFrameRef = useRef<number | null>(null);
   const composingRef = useRef(false);
   const leakedCandidateRef = useRef<{ key: string; blockStartPos: number; emptyAtStart: boolean } | null>(null);
@@ -80,14 +79,11 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       .map((element) => ({ level: Number(element.tagName.slice(1)) as 1 | 2 | 3, title: element.textContent?.trim() ?? "", element }))
       .filter((heading) => heading.title.length > 0);
     const nextItems = buildOutlineItems(headings.map(({ level, title }) => ({ level, title })));
-    const nextElements = new Map<string, HTMLElement>();
     headings.forEach((heading, index) => {
       const item = nextItems[index];
       if (!item) return;
       heading.element.id = item.id;
-      nextElements.set(item.id, heading.element);
     });
-    headingElementsRef.current = nextElements;
     setOutlineItems((current) => {
       const unchanged = current.length === nextItems.length && current.every((item, index) => {
         const next = nextItems[index];
@@ -376,7 +372,6 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       imeCleanupTimerRef.current = null;
       leakedCandidateRef.current = null;
       composingRef.current = false;
-      headingElementsRef.current.clear();
     };
   }, [editor]);
 
@@ -407,7 +402,6 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     imeCleanupTimerRef.current = null;
     leakedCandidateRef.current = null;
     composingRef.current = false;
-    headingElementsRef.current.clear();
     setOutlineOpen(false);
     setActiveOutlineId(null);
     setOutlineItems([]);
@@ -522,12 +516,13 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     }
 
     let activeFrame: number | null = null;
+    const currentHeadings = Array.from(root.querySelectorAll<HTMLElement>("h1, h2, h3")).filter((heading) => heading.textContent?.trim());
     const updateActiveHeading = () => {
       const rootTop = root.getBoundingClientRect().top;
       const activationLine = rootTop + Math.min(root.clientHeight * 0.24, 180);
       let currentId: string | null = null;
-      for (const item of outlineItems) {
-        const element = headingElementsRef.current.get(item.id);
+      for (const [index, item] of outlineItems.entries()) {
+        const element = currentHeadings[index];
         if (element && element.getBoundingClientRect().top <= activationLine) currentId = item.id;
         else if (currentId) break;
       }
@@ -547,8 +542,8 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       rootMargin: "-12% 0px -68% 0px",
       threshold: [0, 1],
     });
-    for (const item of outlineItems) {
-      const element = headingElementsRef.current.get(item.id);
+    for (const [index] of outlineItems.entries()) {
+      const element = currentHeadings[index];
       if (element) observer?.observe(element);
     }
     root.addEventListener("scroll", scheduleActiveHeading, { passive: true });
@@ -561,10 +556,18 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   }, [outlineItems]);
 
   const scrollToOutlineItem = (id: string) => {
-    const element = headingElementsRef.current.get(id);
-    if (!element) return;
-    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    element.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+    const scrollRoot = editorScrollRef.current;
+    const itemIndex = outlineItems.findIndex((item) => item.id === id);
+    const currentHeadings = scrollRoot
+      ? Array.from(scrollRoot.querySelectorAll<HTMLElement>("h1, h2, h3")).filter((heading) => heading.textContent?.trim())
+      : [];
+    const element = itemIndex >= 0 ? currentHeadings?.[itemIndex] : undefined;
+    if (!element || !scrollRoot) return;
+    const rootRect = scrollRoot.getBoundingClientRect();
+    const elementRect = element.getBoundingClientRect();
+    const maxScrollTop = Math.max(0, scrollRoot.scrollHeight - scrollRoot.clientHeight);
+    const targetTop = Math.min(maxScrollTop, Math.max(0, scrollRoot.scrollTop + elementRect.top - rootRect.top - 24));
+    scrollRoot.scrollTo({ top: targetTop, behavior: "auto" });
     setActiveOutlineId(id);
   };
 
