@@ -941,4 +941,37 @@ if (import.meta.main) {
     },
   });
   console.log(`象映笔记服务已启动：${server.url}`);
+
+  let shutdownPromise: Promise<void> | null = null;
+  const shutdown = (signal: string) => {
+    if (shutdownPromise) return shutdownPromise;
+
+    shutdownPromise = (async () => {
+      console.log(`[server] 收到 ${signal}，开始关闭服务`);
+
+      let forceShutdownTimer: ReturnType<typeof setTimeout> | null = null;
+      const forceShutdown = new Promise<"forced">((resolveForceShutdown) => {
+        forceShutdownTimer = setTimeout(() => {
+          console.warn("[server] 优雅关闭超时，强制关闭活动连接");
+          void server.stop(true).then(() => resolveForceShutdown("forced"), (error) => {
+            console.error("[server] 强制关闭服务失败", error);
+            resolveForceShutdown("forced");
+          });
+        }, 5_000);
+      });
+
+      try {
+        await Promise.race([server.stop(), forceShutdown]);
+      } finally {
+        if (forceShutdownTimer) clearTimeout(forceShutdownTimer);
+        database.close();
+        console.log("[server] 服务已关闭");
+      }
+    })();
+
+    return shutdownPromise;
+  };
+
+  process.once("SIGTERM", () => void shutdown("SIGTERM"));
+  process.once("SIGINT", () => void shutdown("SIGINT"));
 }
