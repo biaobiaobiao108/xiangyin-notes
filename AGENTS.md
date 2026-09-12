@@ -45,7 +45,17 @@ docker build --pull -t xiangying-notes:check .
 - 持久化内容以 Markdown 为准；只用于显示的大纲、统计或标题 ID 不写入数据库。
 - 保持暖白画布、白色表面、石墨文字和朱砂橙色强调色的视觉系统。
 - 优先使用语义化 HTML、可见焦点状态和 ARIA 属性；核心操作不要依赖浏览器原生菜单。
-- 动画只使用 `transform` 和 `opacity`，并支持 `prefers-reduced-motion`。
+- 动画遵循下方“动画规范”，仅使用 `transform` 和 `opacity` 作为主要动画属性，并支持 `prefers-reduced-motion`。
+
+### 动画规范
+
+- 风格：保持克制、连续、可预测；页面或筛选切换使用约 180–220ms 的淡入上移，位移控制在 6px 内。
+- 节奏：动画时长和缓动优先使用现有 `--motion-*` 变量，笔记切换、弹窗、提示和移动端面板保持统一节奏。
+- 属性：只动画 `transform` 与 `opacity`；避免动画布局、尺寸、位置和滚动相关属性，不长期使用 `will-change`。
+- 触发：列表切换只在目标数据成功加载或本地回退渲染后播放一次；后台同步、重复点击和搜索逐字输入不得重复播放。
+- 实现：优先使用 CSS `transition` 或 `@keyframes`，不为简单状态切换引入动画库；动画状态变化必须可清理，且不影响焦点、滚动和交互。
+- 无障碍：在 `prefers-reduced-motion: reduce` 下关闭位移、淡入和持续动画，但保留正常布局、功能和状态提示。
+- 响应式：桌面、平板和窄屏手机均需检查；移动端浮层或抽屉动画不得遮挡编辑内容、产生横向溢出或阻断焦点。
 - 编辑器涉及中文输入法时必须考虑 `compositionstart`、`compositionend`、`compositioncancel`、`event.isComposing` 和 Chromium/Windows 常见的 `keyCode === 229`。
 - 页面所有需要滚动条的局部滚动容器（如侧栏列表、笔记正文、弹窗与命令菜单等）必须使用项目专属的 `FloatingScrollbar` 组件，并通过 `.floating-scrollbar-target` 隐藏浏览器原生滚动条，保持精致一致的浮动微交互。
 - 修改布局后检查桌面、平板和窄屏手机，不要让浮层遮挡编辑内容或产生横向溢出。
