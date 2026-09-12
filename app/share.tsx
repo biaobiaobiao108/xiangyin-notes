@@ -4,7 +4,7 @@ import { Link, useParams } from "react-router";
 import { ApiError, api } from "./api";
 import { BrandMark } from "./brand-mark";
 
-const LazyReadOnlyMarkdown = lazy(() => import("./editor").then(({ ReadOnlyMarkdown }) => ({ default: ReadOnlyMarkdown })));
+const LazyReadOnlyMarkdown = lazy(() => import("./editor/read-only-markdown").then(({ ReadOnlyMarkdown }) => ({ default: ReadOnlyMarkdown })));
 
 export function SharePage() {
   const { token = "" } = useParams();
