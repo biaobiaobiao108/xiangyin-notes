@@ -55,6 +55,8 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   const imeCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeEditorNoteIdRef = useRef(note.id);
   const initialContentRef = useRef(note.contentMarkdown);
+  const isPastingRef = useRef(false);
+  const smoothScrollToHeadRef = useRef<(view: Editor["view"]) => void>(() => undefined);
   const onChangeRef = useRef(onChange);
   const surfaceSyncRef = useRef<(instance: Editor) => void>(() => undefined);
   const [editorStats, setEditorStats] = useState<EditorStats>(() => countEditorText(""));
@@ -180,6 +182,52 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     ImeMarkdownSafeExtension,
     SearchHighlightExtension,
   ], []);
+
+  const smoothScrollToHead = useCallback((view: Editor["view"]) => {
+    requestAnimationFrame(() => {
+      const scrollContainer = editorScrollRef.current;
+      if (!scrollContainer) return;
+      try {
+        const head = view.state.selection.head;
+        const coords = view.coordsAtPos(head);
+        const containerRect = scrollContainer.getBoundingClientRect();
+        const paddingBottom = 64;
+        const isBelow = coords.bottom > containerRect.bottom - paddingBottom;
+        const isAbove = coords.top < containerRect.top + 24;
+
+        if (isBelow) {
+          const diff = coords.bottom - (containerRect.bottom - paddingBottom);
+          const maxScroll = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
+          const targetScrollTop = Math.min(maxScroll, scrollContainer.scrollTop + diff);
+          const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+          if (prefersReducedMotion) {
+            scrollContainer.scrollTop = targetScrollTop;
+          } else {
+            scrollContainer.scrollTo({
+              top: targetScrollTop,
+              behavior: "smooth",
+            });
+          }
+        } else if (isAbove) {
+          const diff = (containerRect.top + 24) - coords.top;
+          const targetScrollTop = Math.max(0, scrollContainer.scrollTop - diff);
+          const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+          if (prefersReducedMotion) {
+            scrollContainer.scrollTop = targetScrollTop;
+          } else {
+            scrollContainer.scrollTo({
+              top: targetScrollTop,
+              behavior: "smooth",
+            });
+          }
+        }
+      } catch {
+        // coordsAtPos may throw if editor position is not yet rendered
+      }
+    });
+  }, []);
+  smoothScrollToHeadRef.current = smoothScrollToHead;
+
   const editorProps = useMemo(() => ({
     attributes: { class: "note-prose" },
     handleClick: (_view: Editor["view"], _pos: number, event: MouseEvent) => {
@@ -194,6 +242,10 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       return false;
     },
     handlePaste: (view: Editor["view"], event: ClipboardEvent) => {
+      isPastingRef.current = true;
+      window.setTimeout(() => {
+        isPastingRef.current = false;
+      }, 200);
       const text = event.clipboardData?.getData("text/plain") ?? "";
       const html = event.clipboardData?.getData("text/html") ?? "";
       if (!shouldParseMarkdownPaste(text, Boolean(html))) return false;
@@ -202,11 +254,21 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       try {
         const parsedDocument = view.state.schema.nodeFromJSON(markdownManager.parse(text));
         const slice = parsedDocument.slice(0, parsedDocument.content.size);
-        view.dispatch(view.state.tr.replaceSelection(slice).scrollIntoView().setMeta("uiEvent", "paste"));
+        view.dispatch(view.state.tr.replaceSelection(slice).setMeta("uiEvent", "paste"));
+        isPastingRef.current = false;
+        smoothScrollToHeadRef.current(view);
         return true;
       } catch {
         return false;
       }
+    },
+    handleScrollToSelection: (view: Editor["view"]) => {
+      if (isPastingRef.current) {
+        isPastingRef.current = false;
+        smoothScrollToHeadRef.current(view);
+        return true;
+      }
+      return false;
     },
     handleKeyDown: (view: Editor["view"], event: KeyboardEvent) => {
       if (event.isComposing || event.keyCode === 229 || event.key === "Process") {
