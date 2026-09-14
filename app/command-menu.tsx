@@ -1,23 +1,24 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { Archive, Bookmark, Download, FilePlus2, FileSearch, FileText, Link2, Maximize2, PanelLeft, Search, Trash2, type LucideIcon } from "lucide-react";
+import { Archive, Bookmark, Download, FilePlus2, FileSearch, FileText, FolderInput, Link2, Maximize2, PanelLeft, Search, Trash2, type LucideIcon } from "lucide-react";
 import type { NoteSummary, Notebook } from "../shared/types";
-import { parseCreateNoteCommand, parseSearchPrefixCommand, type CreateNoteCommand } from "./command-parser";
+import { parseCreateNoteCommand, parseMoveNoteCommand, parseSearchPrefixCommand, type CreateNoteCommand } from "./command-parser";
 import { FloatingScrollbar } from "./floating-scrollbar";
 import { modKey } from "./platform";
 
-export type CommandId = "new-note" | "search" | "find-in-note" | "toggle-sidebar" | "toggle-focus-mode" | "share" | "favorite" | "trash" | "restore" | "install-app";
+export type CommandId = "new-note" | "search" | "find-in-note" | "toggle-sidebar" | "toggle-focus-mode" | "share" | "favorite" | "trash" | "restore" | "install-app" | "move-to-notebook";
 
 type CommandOption = {
   key: string;
   label: string;
   shortcut: string;
   icon: LucideIcon;
-  kind: "command" | "create-note" | "note" | "in-note-search";
+  kind: "command" | "create-note" | "note" | "in-note-search" | "move-note";
   id?: CommandId;
   createNote?: CreateNoteCommand;
   noteId?: string;
   searchTerm?: string;
   detail?: string;
+  notebook?: Notebook;
 };
 
 type CommandMenuProps = {
@@ -28,6 +29,8 @@ type CommandMenuProps = {
   canRestore: boolean;
   canMoveToTrash: boolean;
   notebooks: Notebook[];
+  currentNotebookId?: string;
+  onMoveNoteToNotebook?: (notebookId: string) => void;
   focusMode?: boolean;
   canInstallApp: boolean;
   showIosInstallHint: boolean;
@@ -49,6 +52,8 @@ export function CommandMenu({
   canRestore,
   canMoveToTrash,
   notebooks,
+  currentNotebookId,
+  onMoveNoteToNotebook,
   focusMode = false,
   canInstallApp,
   showIosInstallHint,
@@ -70,6 +75,7 @@ export function CommandMenu({
 
   const commands = useMemo<Array<{ id: CommandId; label: string; shortcut: string; icon: LucideIcon }>>(() => [
     { id: "new-note", label: "新建笔记", shortcut: "↵", icon: FilePlus2 },
+    ...(hasSelectedNote && canMoveToTrash ? [{ id: "move-to-notebook" as const, label: "移动到笔记本", shortcut: "↵", icon: FolderInput }] : []),
     ...(hasSelectedNote ? [{ id: "find-in-note" as const, label: "在当前笔记中查找", shortcut: `${modKey} F`, icon: FileSearch }] : []),
     { id: "search", label: "全局搜索笔记", shortcut: `${modKey} /`, icon: Search },
     { id: "toggle-sidebar", label: "切换侧栏", shortcut: `${modKey} \\`, icon: PanelLeft },
@@ -83,13 +89,14 @@ export function CommandMenu({
 
   const createNoteResult = useMemo(() => parseCreateNoteCommand(query, notebooks), [notebooks, query]);
   const parsedSearchPrefix = useMemo(() => parseSearchPrefixCommand(query), [query]);
+  const moveNoteResult = useMemo(() => hasSelectedNote && canMoveToTrash ? parseMoveNoteCommand(query, notebooks) : null, [canMoveToTrash, hasSelectedNote, notebooks, query]);
 
   const filteredCommands = useMemo(() => {
-    if (parsedSearchPrefix) return [];
+    if (parsedSearchPrefix || moveNoteResult?.kind === "list") return [];
     return commands
       .filter((command) => command.label.includes(query.trim()) || command.id.includes(query.trim().toLowerCase()))
       .map((command) => ({ ...command, key: command.id, kind: "command" as const }));
-  }, [commands, parsedSearchPrefix, query]);
+  }, [commands, moveNoteResult, parsedSearchPrefix, query]);
 
   const effectiveSearchTerm = parsedSearchPrefix ? parsedSearchPrefix.term : query.trim();
 
@@ -104,6 +111,21 @@ export function CommandMenu({
   })) : [], [effectiveSearchTerm, noteResults]);
 
   const options = useMemo<CommandOption[]>(() => {
+    if (moveNoteResult?.kind === "list") {
+      return moveNoteResult.matches.map((notebook) => {
+        const isCurrent = notebook.id === currentNotebookId;
+        return {
+          key: `move-notebook:${notebook.id}`,
+          label: `移动至“${notebook.name}”`,
+          shortcut: "↵",
+          icon: FolderInput,
+          kind: "move-note" as const,
+          notebook,
+          detail: isCurrent ? "当前所在笔记本" : notebook.isSystem ? "系统内置" : "",
+        };
+      });
+    }
+
     if (createNoteResult?.kind === "match") {
       return [{
         key: "create-note-in-notebook",
@@ -134,14 +156,22 @@ export function CommandMenu({
       ...filteredCommands,
       ...noteOptions,
     ];
-  }, [createNoteResult, effectiveSearchTerm, filteredCommands, hasSelectedNote, noteOptions]);
+  }, [createNoteResult, currentNotebookId, effectiveSearchTerm, filteredCommands, hasSelectedNote, moveNoteResult, noteOptions]);
 
   const createNoteError = createNoteResult?.kind === "error" ? createNoteResult.message : "";
+  const moveNoteError = moveNoteResult?.kind === "error" ? moveNoteResult.message : "";
+  const feedbackMessage = createNoteError || moveNoteError;
 
   const updateQuery = (next: string) => {
     setQuery(next);
     setSelected(0);
     const prefix = parseSearchPrefixCommand(next);
+    const move = hasSelectedNote && canMoveToTrash ? parseMoveNoteCommand(next, notebooks) : null;
+    const create = parseCreateNoteCommand(next, notebooks);
+    if (move || create) {
+      onSearchQueryChange("");
+      return;
+    }
     const term = prefix ? prefix.term : next.trim();
     onSearchQueryChange(term);
   };
@@ -190,12 +220,20 @@ export function CommandMenu({
   const execute = (option: CommandOption) => {
     if (option.createNote) {
       onCreateNoteInNotebook(option.createNote);
+    } else if (option.kind === "move-note" && option.notebook) {
+      onMoveNoteToNotebook?.(option.notebook.id);
     } else if (option.kind === "in-note-search" && option.searchTerm) {
       onSearchInCurrentNote?.(option.searchTerm);
     } else if (option.noteId) {
       onOpenSearchResult(option.noteId, option.searchTerm || query.trim());
     } else if (option.id === "find-in-note") {
       setQuery("搜索 ");
+      setSelected(0);
+      onSearchQueryChange("");
+      searchRef.current?.focus();
+      return;
+    } else if (option.id === "move-to-notebook") {
+      setQuery("移动至 ");
       setSelected(0);
       onSearchQueryChange("");
       searchRef.current?.focus();
@@ -251,9 +289,9 @@ export function CommandMenu({
           role="listbox"
           aria-label="命令和笔记搜索结果"
         >
-          {createNoteError ? <div className="command-feedback" role="status">{createNoteError}</div> : options.length ? options.map((command, index) => {
+          {feedbackMessage ? <div className="command-feedback" role="status">{feedbackMessage}</div> : options.length ? options.map((command, index) => {
             const Icon = command.icon;
-            const section = command.kind === "note" ? "笔记" : command.kind === "create-note" ? "操作" : command.kind === "in-note-search" ? "搜索" : "命令";
+            const section = command.kind === "note" ? "笔记" : command.kind === "create-note" ? "操作" : command.kind === "in-note-search" ? "搜索" : command.kind === "move-note" ? "移动笔记" : "命令";
             const heading = section !== previousSection ? <div className="command-section-label" key={`${command.key}-section`}>{section}</div> : null;
             const note = command.noteId ? noteResults.find((item) => item.id === command.noteId) : undefined;
             const noteDetail = note ? [note.preview, note.notebookName].filter(Boolean).join(" · ") : command.detail || "";
@@ -269,7 +307,11 @@ export function CommandMenu({
                   onMouseEnter={() => setSelected(index)}
                   onClick={() => execute(command)}
                 >
-                  <Icon size={18} />
+                  {command.kind === "move-note" && command.notebook ? (
+                    <span className="notebook-dot" style={{ background: command.notebook.color, width: 10, height: 10, marginInline: 4 }} />
+                  ) : (
+                    <Icon size={18} />
+                  )}
                   <span className="command-row-content">
                     <span className="command-row-label">{command.label}</span>
                     {noteDetail && <span className="command-row-detail">{noteDetail}</span>}

@@ -343,7 +343,9 @@ export function Workspace() {
           const draft = pendingSavesRef.current.get(noteId)!;
           const base = selectedRef.current?.id === noteId ? selectedRef.current : notesRef.current.find((note) => note.id === noteId);
           if (!base) throw new Error("note-not-loaded");
-          const result = await offlineSync.saveNote({ ...base, ...draft, preview: base.preview, notebookName: base.notebookName, createdAt: base.createdAt, updatedAt: base.updatedAt }, { keepalive });
+          const targetNotebook = draft.notebookId ? notebooks.find((nb) => nb.id === draft.notebookId) : undefined;
+          const notebookName = targetNotebook?.name ?? (draft as Partial<Note>).notebookName ?? base.notebookName;
+          const result = await offlineSync.saveNote({ ...base, ...draft, preview: base.preview, notebookName, createdAt: base.createdAt, updatedAt: base.updatedAt }, { keepalive });
           const latest = pendingSavesRef.current.get(noteId);
           const next = latest && latest !== draft ? { ...result.note, ...latest, version: result.note.version } : undefined;
           if (next) pendingSavesRef.current.set(noteId, next);
@@ -430,7 +432,10 @@ export function Workspace() {
     const next = { ...current, ...patch, ...(targetNotebook ? { notebookName: targetNotebook.name } : {}) };
     selectedRef.current = next;
     const contentOnlyChange = patch.contentMarkdown !== undefined && patch.title === undefined && patch.notebookId === undefined;
-    if (!contentOnlyChange) setSelectedNote(next);
+    if (!contentOnlyChange) {
+      setSelectedNote(next);
+      replaceList(notesRef.current.map((note) => note.id === current.id ? { ...note, ...next } : note));
+    }
     persist(next);
     if (patch.notebookId && patch.notebookId !== current.notebookId) {
       refreshNotebooks();
@@ -797,7 +802,7 @@ export function Workspace() {
     <main className="editor-region">
       {renderedNote ? <Suspense fallback={<NoteLoadingState />}><LazyNoteEditor note={renderedNote} searchQuery={activeSearchQuery} onClearSearch={activeSearchQuery ? handleClearSearch : undefined} saveState={saveState} isLoading={isNoteLoading} trashBusy={emptyingTrash || (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onShare={() => setShareOpen(true)} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={() => { setMobileListOpen(true); setMobileSidebarOpen(false); }} focusMode={focusMode} onToggleFocusMode={toggleFocusMode} /></Suspense> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor isTrash={view === "trash"} onNewNote={() => void createNoteHere()} onOpenList={() => { setMobileListOpen(true); setMobileSidebarOpen(false); }} transitionToken={listTransitionToken} />}
     </main>
-    <CommandMenu open={commandOpen} onClose={closeCommandMenu} onCommand={command} onCreateNoteInNotebook={createNoteInNotebook} canRestore={Boolean(commandNoteReady && renderedNote?.deletedAt)} canMoveToTrash={Boolean(commandNoteReady && renderedNote && !renderedNote.deletedAt)} notebooks={notebooks} focusMode={focusMode} canInstallApp={pwaState.canInstall} showIosInstallHint={pwaState.showIosInstallHint} standalone={pwaState.standalone} noteResults={commandNoteResults} noteSearchLoading={commandNoteSearchLoading} onSearchQueryChange={handleCommandNoteQueryChange} onOpenSearchResult={openCommandSearchResult} hasSelectedNote={commandNoteReady} onSearchInCurrentNote={handleSearchInCurrentNote} initialQuery={commandInitialQuery} />
+    <CommandMenu open={commandOpen} onClose={closeCommandMenu} onCommand={command} onCreateNoteInNotebook={createNoteInNotebook} canRestore={Boolean(commandNoteReady && renderedNote?.deletedAt)} canMoveToTrash={Boolean(commandNoteReady && renderedNote && !renderedNote.deletedAt)} notebooks={notebooks} currentNotebookId={renderedNote?.notebookId} onMoveNoteToNotebook={(targetNotebookId) => onNoteChange({ notebookId: targetNotebookId })} focusMode={focusMode} canInstallApp={pwaState.canInstall} showIosInstallHint={pwaState.showIosInstallHint} standalone={pwaState.standalone} noteResults={commandNoteResults} noteSearchLoading={commandNoteSearchLoading} onSearchQueryChange={handleCommandNoteQueryChange} onOpenSearchResult={openCommandSearchResult} hasSelectedNote={commandNoteReady} onSearchInCurrentNote={handleSearchInCurrentNote} initialQuery={commandInitialQuery} />
 
 
     {shareOpen && renderedNote && <ShareDialog note={renderedNote} onClose={() => setShareOpen(false)} onToast={setToast} />}

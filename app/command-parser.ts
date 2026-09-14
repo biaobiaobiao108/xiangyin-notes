@@ -72,3 +72,62 @@ export function parseSearchPrefixCommand(query: string): ParsedSearchCommand | n
   return null;
 }
 
+export type MoveNoteCommandResult =
+  | { kind: "list"; queryText: string; matches: Notebook[] }
+  | { kind: "error"; message: string }
+  | null;
+
+const MOVE_NOTE_FULL_PREFIXES = ["移动至", "移动到", "move to"];
+const MOVE_NOTE_SPACE_PREFIXES = ["移动", "move"];
+
+function filterMatchingNotebooks(queryText: string, notebooks: Notebook[]): MoveNoteCommandResult {
+  if (!queryText) {
+    return { kind: "list", queryText: "", matches: notebooks };
+  }
+  const lower = queryText.toLowerCase();
+  const matches = notebooks
+    .filter((candidate) => candidate.name.toLowerCase().includes(lower))
+    .sort((a, b) => {
+      const aExact = a.name.toLowerCase() === lower;
+      const bExact = b.name.toLowerCase() === lower;
+      if (aExact && !bExact) return -1;
+      if (!aExact && bExact) return 1;
+      const aStarts = a.name.toLowerCase().startsWith(lower);
+      const bStarts = b.name.toLowerCase().startsWith(lower);
+      if (aStarts && !bStarts) return -1;
+      if (!aStarts && bStarts) return 1;
+      return a.name.localeCompare(b.name);
+    });
+  if (matches.length === 0) {
+    return { kind: "error", message: `找不到名称包含“${queryText}”的笔记本` };
+  }
+  return { kind: "list", queryText, matches };
+}
+
+export function parseMoveNoteCommand(query: string, notebooks: Notebook[]): MoveNoteCommandResult {
+  const trimmed = query.trimStart();
+  if (!trimmed) return null;
+
+  for (const prefix of MOVE_NOTE_FULL_PREFIXES) {
+    if (trimmed.toLowerCase().startsWith(prefix.toLowerCase())) {
+      const rest = trimmed.slice(prefix.length);
+      if (rest.length === 0 || /^[\s:：]/.test(rest)) {
+        const queryText = rest.replace(/^[\s:：]+/u, "").trim();
+        return filterMatchingNotebooks(queryText, notebooks);
+      }
+    }
+  }
+
+  for (const prefix of MOVE_NOTE_SPACE_PREFIXES) {
+    if (trimmed.toLowerCase().startsWith(prefix.toLowerCase())) {
+      const rest = trimmed.slice(prefix.length);
+      if (/^[\s:：]/.test(rest)) {
+        const queryText = rest.replace(/^[\s:：]+/u, "").trim();
+        return filterMatchingNotebooks(queryText, notebooks);
+      }
+    }
+  }
+
+  return null;
+}
+

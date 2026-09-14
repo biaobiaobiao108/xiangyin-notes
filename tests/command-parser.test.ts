@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseCreateNoteCommand, parseSearchPrefixCommand } from "../app/command-parser";
+import { parseCreateNoteCommand, parseMoveNoteCommand, parseSearchPrefixCommand } from "../app/command-parser";
 import type { Notebook } from "../shared/types";
 
 const notebook = (id: string, name: string): Notebook => ({ id, name, color: "#d96245", isSystem: false, count: 0, updatedAt: 0 });
@@ -69,5 +69,75 @@ describe("search prefix parser", () => {
     expect(parseSearchPrefixCommand("")).toBeNull();
   });
 });
+
+describe("move note command parser", () => {
+  const books = [
+    notebook("nb-1", "收件箱"),
+    notebook("nb-2", "日记"),
+    notebook("nb-3", "工作日记"),
+    notebook("nb-4", "生活"),
+  ];
+
+  test("lists all notebooks when prefix has no remainder", () => {
+    expect(parseMoveNoteCommand("移动至", books)).toEqual({
+      kind: "list",
+      queryText: "",
+      matches: books,
+    });
+    expect(parseMoveNoteCommand("移动至 ", books)).toEqual({
+      kind: "list",
+      queryText: "",
+      matches: books,
+    });
+    expect(parseMoveNoteCommand("移动到", books)).toEqual({
+      kind: "list",
+      queryText: "",
+      matches: books,
+    });
+    expect(parseMoveNoteCommand("move to", books)).toEqual({
+      kind: "list",
+      queryText: "",
+      matches: books,
+    });
+  });
+
+  test("filters matching notebooks with exact match first", () => {
+    const res = parseMoveNoteCommand("移动至 日记", books);
+    expect(res?.kind).toBe("list");
+    if (res?.kind === "list") {
+      expect(res.queryText).toBe("日记");
+      expect(res.matches.map((m) => m.name)).toEqual(["日记", "工作日记"]);
+    }
+  });
+
+  test("supports '移动' and colon delimiters", () => {
+    const res = parseMoveNoteCommand("移动:生活", books);
+    expect(res?.kind).toBe("list");
+    if (res?.kind === "list") {
+      expect(res.queryText).toBe("生活");
+      expect(res.matches.map((m) => m.name)).toEqual(["生活"]);
+    }
+
+    const res2 = parseMoveNoteCommand("移动 工作", books);
+    expect(res2?.kind).toBe("list");
+    if (res2?.kind === "list") {
+      expect(res2.matches.map((m) => m.name)).toEqual(["工作日记"]);
+    }
+  });
+
+  test("reports error when no matching notebook exists", () => {
+    expect(parseMoveNoteCommand("移动至 不存在", books)).toEqual({
+      kind: "error",
+      message: "找不到名称包含“不存在”的笔记本",
+    });
+  });
+
+  test("returns null for non-move queries and lone '移动' without space", () => {
+    expect(parseMoveNoteCommand("移动", books)).toBeNull();
+    expect(parseMoveNoteCommand("新建笔记", books)).toBeNull();
+    expect(parseMoveNoteCommand("普通搜索", books)).toBeNull();
+  });
+});
+
 
 
