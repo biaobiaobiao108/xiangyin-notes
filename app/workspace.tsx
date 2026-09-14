@@ -508,6 +508,7 @@ export function Workspace() {
     selectedRef.current = note;
     activeNoteIdRef.current = note.id;
     pendingSavesRef.current.delete(note.id);
+    setEditorFocusNoteId(note.id);
     setSelectedId(note.id);
     setMobileSidebarOpen(false);
     setMobileListOpen(false);
@@ -528,7 +529,6 @@ export function Workspace() {
       const notebook = notebooks.find((item) => item.id === commandToCreate.notebookId);
       const result = await offlineSync.createNote({ notebookId: commandToCreate.notebookId, title: commandToCreate.title }, notebook);
       revealCreatedNote(result.note, { view: "all", notebookId: commandToCreate.notebookId }, result.offline ? "已在本机创建笔记，联网后自动同步" : `已在“${commandToCreate.notebookName}”中创建“${commandToCreate.title}”`);
-      setEditorFocusNoteId(result.note.id);
       refreshNotebooks();
     } catch (reason) { if (reason instanceof ApiError && reason.status === 401 && !offlineSync.getState().pendingCount) navigate("/login", { replace: true }); setToast(errorMessage(reason, "创建笔记失败，请稍后重试")); }
   }, [navigate, notebooks, refreshNotebooks, revealCreatedNote]);
