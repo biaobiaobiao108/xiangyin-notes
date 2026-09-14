@@ -49,7 +49,7 @@ async function imageDimensions(file: File) {
   }
 }
 
-export function NoteEditor({ note, searchQuery = "", saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList, onUploadImage, focusMode = false, onToggleFocusMode, onClearSearch }: {
+export function NoteEditor({ note, searchQuery = "", saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList, onUploadImage, focusMode = false, onToggleFocusMode, onClearSearch, typewriterMode = false }: {
   note: Note;
   searchQuery?: string;
   saveState: "idle" | "saving" | "saved" | "local" | "conflict" | "error";
@@ -71,6 +71,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   focusMode?: boolean;
   onToggleFocusMode?: () => void;
   onClearSearch?: () => void;
+  typewriterMode?: boolean;
 }) {
 
   const editorScrollRef = useRef<HTMLDivElement>(null);
@@ -116,6 +117,10 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   searchNavigationRef.current = searchNavigation;
   onChangeRef.current = onChange;
   onUploadImageRef.current = onUploadImage;
+  const typewriterModeRef = useRef(typewriterMode);
+  typewriterModeRef.current = typewriterMode;
+  const typewriterAnimRef = useRef<number | null>(null);
+  const typewriterTargetRef = useRef<number | null>(null);
 
   const uploadImageFiles = useCallback(async (files: File[]) => {
     const editorInstance = editorInstanceRef.current;
@@ -303,6 +308,82 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   }, []);
   smoothScrollToHeadRef.current = smoothScrollToHead;
 
+  const alignTypewriter = useCallback((target: Editor | Editor["view"], immediate = false) => {
+    if (!typewriterModeRef.current) return;
+    const view = "view" in target ? target.view : target;
+    if (!view || view.isDestroyed || !view.hasFocus()) return;
+
+    requestAnimationFrame(() => {
+      const scrollContainer = editorScrollRef.current;
+      if (!scrollContainer || !view || view.isDestroyed || !view.hasFocus()) return;
+
+      try {
+        const head = view.state.selection.head;
+        const coords = view.coordsAtPos(head);
+        const containerRect = scrollContainer.getBoundingClientRect();
+        const cursorCenterY = (coords.top + coords.bottom) / 2;
+        const targetY = containerRect.top + containerRect.height * 0.6;
+        const delta = cursorCenterY - targetY;
+        const maxScroll = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
+        const targetScrollTop = Math.min(maxScroll, Math.max(0, Math.round(scrollContainer.scrollTop + delta)));
+
+        // Negligible distance: prevent jitter on same-line typing
+        if (Math.abs(scrollContainer.scrollTop - targetScrollTop) < 2) {
+          return;
+        }
+
+        // Already animating to this target position: do not restart
+        if (typewriterTargetRef.current !== null && Math.abs(typewriterTargetRef.current - targetScrollTop) < 2) {
+          return;
+        }
+
+        const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        if (prefersReducedMotion || immediate) {
+          if (typewriterAnimRef.current !== null) {
+            cancelAnimationFrame(typewriterAnimRef.current);
+            typewriterAnimRef.current = null;
+          }
+          scrollContainer.scrollTop = targetScrollTop;
+          typewriterTargetRef.current = null;
+          return;
+        }
+
+        if (typewriterAnimRef.current !== null) {
+          cancelAnimationFrame(typewriterAnimRef.current);
+          typewriterAnimRef.current = null;
+        }
+
+        const startTop = scrollContainer.scrollTop;
+        const distance = targetScrollTop - startTop;
+        const duration = 160;
+        const startTime = performance.now();
+        const easeOutQuart = (t: number) => 1 - Math.pow(1 - t, 4);
+
+        const step = (now: number) => {
+          const elapsed = now - startTime;
+          const progress = Math.min(1, elapsed / duration);
+          const eased = easeOutQuart(progress);
+          scrollContainer.scrollTop = Math.round(startTop + distance * eased);
+
+          if (progress < 1) {
+            typewriterAnimRef.current = requestAnimationFrame(step);
+          } else {
+            scrollContainer.scrollTop = targetScrollTop;
+            typewriterAnimRef.current = null;
+            typewriterTargetRef.current = null;
+          }
+        };
+
+        typewriterTargetRef.current = targetScrollTop;
+        typewriterAnimRef.current = requestAnimationFrame(step);
+      } catch {
+        // coordsAtPos may throw if selection position is not yet rendered
+      }
+    });
+  }, []);
+  const alignTypewriterRef = useRef(alignTypewriter);
+  alignTypewriterRef.current = alignTypewriter;
+
   const editorProps = useMemo(() => ({
     attributes: { class: "note-prose" },
     handleClick: (_view: Editor["view"], _pos: number, event: MouseEvent) => {
@@ -355,6 +436,10 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       if (isPastingRef.current) {
         isPastingRef.current = false;
         smoothScrollToHeadRef.current(view);
+        return true;
+      }
+      if (typewriterModeRef.current) {
+        alignTypewriterRef.current(view);
         return true;
       }
       return false;
@@ -454,6 +539,9 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
         }
         if (editorInstanceRef.current) {
           surfaceSyncRef.current(editorInstanceRef.current);
+          if (typewriterModeRef.current) {
+            alignTypewriterRef.current(editorInstanceRef.current);
+          }
         }
         return false;
       },
@@ -482,6 +570,9 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     editorProps,
     onUpdate: ({ editor: instance }) => {
       onChangeRef.current({ contentMarkdown: (instance as EditorWithMarkdown).getMarkdown() });
+      if (typewriterModeRef.current && !instance.view.composing && !composingRef.current) {
+        alignTypewriterRef.current(instance);
+      }
       if (instance.view.composing || composingRef.current) return;
       surfaceSyncRef.current(instance);
     },
@@ -503,10 +594,65 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   useEffect(() => {
     if (!editor) return;
     const handleTransaction = ({ editor: instance }: { editor: Editor }) => syncSearchNavigation(instance);
+    const handleSelection = ({ editor: instance }: { editor: Editor }) => {
+      if (typewriterModeRef.current) {
+        alignTypewriterRef.current(instance);
+      }
+    };
     editor.on("transaction", handleTransaction);
+    editor.on("selectionUpdate", handleSelection);
     syncSearchNavigation(editor);
-    return () => { editor.off("transaction", handleTransaction); };
+    return () => {
+      editor.off("transaction", handleTransaction);
+      editor.off("selectionUpdate", handleSelection);
+    };
   }, [editor, syncSearchNavigation]);
+
+  useEffect(() => {
+    if (typewriterMode && editorInstanceRef.current?.view.hasFocus()) {
+      alignTypewriterRef.current(editorInstanceRef.current);
+    } else if (!typewriterMode) {
+      if (typewriterAnimRef.current !== null) {
+        cancelAnimationFrame(typewriterAnimRef.current);
+        typewriterAnimRef.current = null;
+        typewriterTargetRef.current = null;
+      }
+    }
+  }, [typewriterMode]);
+
+  useEffect(() => {
+    const scrollContainer = editorScrollRef.current;
+    if (!scrollContainer) return;
+    const onManualScroll = () => {
+      if (typewriterAnimRef.current !== null) {
+        cancelAnimationFrame(typewriterAnimRef.current);
+        typewriterAnimRef.current = null;
+        typewriterTargetRef.current = null;
+      }
+    };
+    scrollContainer.addEventListener("wheel", onManualScroll, { passive: true });
+    scrollContainer.addEventListener("touchmove", onManualScroll, { passive: true });
+    return () => {
+      scrollContainer.removeEventListener("wheel", onManualScroll);
+      scrollContainer.removeEventListener("touchmove", onManualScroll);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typewriterAnimRef.current !== null) {
+      cancelAnimationFrame(typewriterAnimRef.current);
+      typewriterAnimRef.current = null;
+      typewriterTargetRef.current = null;
+    }
+  }, [note.id]);
+
+  useEffect(() => () => {
+    if (typewriterAnimRef.current !== null) {
+      cancelAnimationFrame(typewriterAnimRef.current);
+      typewriterAnimRef.current = null;
+      typewriterTargetRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     if (!editor) return;
@@ -835,7 +981,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
         </button>
       )}
       <div className="editor-scroll-shell">
-        <div id="editor-scroll-region" className="editor-scroll floating-scrollbar-target" ref={editorScrollRef}>
+        <div id="editor-scroll-region" className={`editor-scroll floating-scrollbar-target ${typewriterMode ? "is-typewriter-mode" : ""}`} ref={editorScrollRef}>
           <div className="editor-document" ref={documentRef} onAnimationEnd={() => documentRef.current?.classList.remove("editor-document--entering")}>
             {note.deletedAt && (
               <div className="trashed-banner" role="status">

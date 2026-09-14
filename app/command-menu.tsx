@@ -1,11 +1,11 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { Archive, Bookmark, Download, FilePlus2, FileSearch, FileText, FolderInput, Link2, Maximize2, PanelLeft, Search, Trash2, type LucideIcon } from "lucide-react";
+import { AlignVerticalSpaceAround, Archive, Bookmark, Download, FilePlus2, FileSearch, FileText, FolderInput, Link2, Maximize2, PanelLeft, Search, Trash2, type LucideIcon } from "lucide-react";
 import type { NoteSummary, Notebook } from "../shared/types";
 import { parseCreateNoteCommand, parseMoveNoteCommand, parseSearchPrefixCommand, type CreateNoteCommand } from "./command-parser";
 import { FloatingScrollbar } from "./floating-scrollbar";
-import { modKey } from "./platform";
+import { altKey, modKey } from "./platform";
 
-export type CommandId = "new-note" | "search" | "find-in-note" | "toggle-sidebar" | "toggle-focus-mode" | "share" | "favorite" | "trash" | "restore" | "install-app" | "move-to-notebook";
+export type CommandId = "new-note" | "search" | "find-in-note" | "toggle-sidebar" | "toggle-focus-mode" | "toggle-typewriter-mode" | "share" | "favorite" | "trash" | "restore" | "install-app" | "move-to-notebook";
 
 type CommandOption = {
   key: string;
@@ -32,6 +32,7 @@ type CommandMenuProps = {
   currentNotebookId?: string;
   onMoveNoteToNotebook?: (notebookId: string) => void;
   focusMode?: boolean;
+  typewriterMode?: boolean;
   canInstallApp: boolean;
   showIosInstallHint: boolean;
   standalone: boolean;
@@ -55,6 +56,7 @@ export function CommandMenu({
   currentNotebookId,
   onMoveNoteToNotebook,
   focusMode = false,
+  typewriterMode = false,
   canInstallApp,
   showIosInstallHint,
   standalone,
@@ -80,12 +82,13 @@ export function CommandMenu({
     { id: "search", label: "全局搜索笔记", shortcut: `${modKey} /`, icon: Search },
     { id: "toggle-sidebar", label: "切换侧栏", shortcut: `${modKey} \\`, icon: PanelLeft },
     { id: "toggle-focus-mode", label: focusMode ? "退出沉浸模式" : "进入沉浸模式", shortcut: `${modKey} ⇧ F`, icon: Maximize2 },
+    { id: "toggle-typewriter-mode", label: typewriterMode ? "退出打字机模式" : "开启打字机模式", shortcut: `${altKey} ⇧ T`, icon: AlignVerticalSpaceAround },
     ...(hasSelectedNote ? [{ id: "share" as const, label: "分享笔记", shortcut: "↵", icon: Link2 }] : []),
     ...(hasSelectedNote ? [{ id: "favorite" as const, label: "切换收藏", shortcut: "↵", icon: Bookmark }] : []),
     ...(canMoveToTrash ? [{ id: "trash" as const, label: "移入回收站", shortcut: "↵", icon: Trash2 }] : []),
     ...(canRestore ? [{ id: "restore" as const, label: "恢复笔记", shortcut: "↵", icon: Archive }] : []),
     ...(!standalone && (canInstallApp || showIosInstallHint) ? [{ id: "install-app" as const, label: "安装象映笔记", shortcut: "↵", icon: Download }] : []),
-  ], [canInstallApp, canMoveToTrash, canRestore, focusMode, hasSelectedNote, showIosInstallHint, standalone]);
+  ], [canInstallApp, canMoveToTrash, canRestore, focusMode, hasSelectedNote, showIosInstallHint, standalone, typewriterMode]);
 
   const createNoteResult = useMemo(() => parseCreateNoteCommand(query, notebooks), [notebooks, query]);
   const parsedSearchPrefix = useMemo(() => parseSearchPrefixCommand(query), [query]);

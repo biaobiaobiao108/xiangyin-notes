@@ -2,3 +2,4 @@ const applePlatform = typeof navigator !== "undefined" && /(Mac|iPhone|iPod|iPad
 
 /** Primary modifier label for the current platform, used in shortcut hints. */
 export const modKey = applePlatform ? "⌘" : "Ctrl";
+export const altKey = applePlatform ? "⌥" : "Alt";

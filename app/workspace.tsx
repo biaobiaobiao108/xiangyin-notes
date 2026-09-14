@@ -68,6 +68,22 @@ export function Workspace() {
       return next;
     });
   }, []);
+  const [typewriterMode, setTypewriterMode] = useState(() => {
+    try {
+      return localStorage.getItem("xiangying_typewriter_mode") === "true";
+    } catch {
+      return false;
+    }
+  });
+  const toggleTypewriterMode = useCallback(() => {
+    setTypewriterMode((current) => {
+      const next = !current;
+      try {
+        localStorage.setItem("xiangying_typewriter_mode", String(next));
+      } catch {}
+      return next;
+    });
+  }, []);
   const exitFocusMode = useCallback(() => {
     setFocusMode(false);
     try {
@@ -331,6 +347,9 @@ export function Workspace() {
       } else if (isMod && event.shiftKey && (event.key === "f" || event.key === "F")) {
         event.preventDefault();
         toggleFocusMode();
+      } else if (event.altKey && event.shiftKey && (event.key === "t" || event.key === "T")) {
+        event.preventDefault();
+        toggleTypewriterMode();
       } else if (event.key === "Escape") {
         if (focusModeRef.current && !hasModalOpenRef.current) {
           exitFocusMode();
@@ -340,7 +359,7 @@ export function Workspace() {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [exitFocusMode, toggleFocusMode]);
+  }, [exitFocusMode, toggleFocusMode, toggleTypewriterMode]);
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(""), 3000); return () => clearTimeout(timer); }, [toast]);
 
   const persistRef = useRef<(draft: Note | NoteDraft) => void>(() => undefined);
@@ -787,12 +806,13 @@ export function Workspace() {
     if (id === "search") { setMobileSidebarOpen(true); setMobileListOpen(false); requestAnimationFrame(() => searchRef.current?.focus()); }
     if (id === "toggle-sidebar") setSidebarCollapsed((value) => !value);
     if (id === "toggle-focus-mode") toggleFocusMode();
+    if (id === "toggle-typewriter-mode") toggleTypewriterMode();
     if (id === "share" && selectedRef.current) setShareOpen(true);
     if (id === "favorite") toggleFavorite();
     if (id === "trash") moveToTrash();
     if (id === "restore") restoreFromTrash();
     if (id === "install-app") { if (pwaState.canInstall) void installPwa(); else if (pwaState.showIosInstallHint && !pwaState.standalone) setToast("请在 Safari 中点击分享，再选择“添加到主屏幕”"); }
-  }, [createNoteHere, moveToTrash, pwaState, restoreFromTrash, toggleFavorite, toggleFocusMode]);
+  }, [createNoteHere, moveToTrash, pwaState, restoreFromTrash, toggleFavorite, toggleFocusMode, toggleTypewriterMode]);
   useEffect(() => {
     if (!ready || shortcutHandledRef.current) return;
     const action = new URLSearchParams(window.location.search).get("action");
@@ -833,9 +853,9 @@ export function Workspace() {
     <Sidebar view={view} setView={selectView} notebooks={notebooks} notebookId={notebookId} setNotebookId={selectNotebook} query={query} setQuery={changeQuery} searchRef={searchRef} onNewNote={() => void createNoteHere()} onCreateNotebook={() => void createNotebook()} onEditNotebook={(target) => setEditingNotebook(target)} collapsed={sidebarCollapsed} onCollapse={() => setSidebarCollapsed((value) => !value)} mobileOpen={mobileSidebarOpen} onLogout={logout} />
     <NoteListPanel notes={notes} total={totalNotes} sort={noteSort} setSort={setNoteSort} selectedId={selectedId} onSelect={(id) => { selectNote(id); setMobileSidebarOpen(false); setMobileListOpen(false); }} view={view} query={query} currentNotebookName={currentNotebook?.name} onEmptyTrash={view === "trash" ? emptyTrash : undefined} trashBusy={pendingTrashCount > 0 || emptyingTrash} onNewNote={currentNotebook ? () => void createNoteHere() : undefined} onClearQuery={() => changeQuery("")} mobileOpen={mobileListOpen} onOpenSidebar={() => { setMobileSidebarOpen(true); setMobileListOpen(false); }} transitionToken={listTransitionToken} />
     <main className="editor-region">
-      {renderedNote ? <Suspense fallback={<NoteLoadingState />}><LazyNoteEditor note={renderedNote} searchQuery={activeSearchQuery} onClearSearch={activeSearchQuery ? handleClearSearch : undefined} saveState={saveState} isLoading={isNoteLoading} trashBusy={emptyingTrash || (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onShare={() => setShareOpen(true)} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={() => { setMobileListOpen(true); setMobileSidebarOpen(false); }} onUploadImage={(file, dimensions) => offlineSync.uploadImage(file, renderedNote.id, dimensions)} focusMode={focusMode} onToggleFocusMode={toggleFocusMode} /></Suspense> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor isTrash={view === "trash"} onNewNote={() => void createNoteHere()} onOpenList={() => { setMobileListOpen(true); setMobileSidebarOpen(false); }} transitionToken={listTransitionToken} />}
+      {renderedNote ? <Suspense fallback={<NoteLoadingState />}><LazyNoteEditor note={renderedNote} searchQuery={activeSearchQuery} onClearSearch={activeSearchQuery ? handleClearSearch : undefined} saveState={saveState} isLoading={isNoteLoading} trashBusy={emptyingTrash || (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onShare={() => setShareOpen(true)} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={() => { setMobileListOpen(true); setMobileSidebarOpen(false); }} onUploadImage={(file, dimensions) => offlineSync.uploadImage(file, renderedNote.id, dimensions)} focusMode={focusMode} onToggleFocusMode={toggleFocusMode} typewriterMode={typewriterMode} /></Suspense> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor isTrash={view === "trash"} onNewNote={() => void createNoteHere()} onOpenList={() => { setMobileListOpen(true); setMobileSidebarOpen(false); }} transitionToken={listTransitionToken} />}
     </main>
-    <CommandMenu open={commandOpen} onClose={closeCommandMenu} onCommand={command} onCreateNoteInNotebook={createNoteInNotebook} canRestore={Boolean(commandNoteReady && renderedNote?.deletedAt)} canMoveToTrash={Boolean(commandNoteReady && renderedNote && !renderedNote.deletedAt)} notebooks={notebooks} currentNotebookId={renderedNote?.notebookId} onMoveNoteToNotebook={(targetNotebookId) => onNoteChange({ notebookId: targetNotebookId })} focusMode={focusMode} canInstallApp={pwaState.canInstall} showIosInstallHint={pwaState.showIosInstallHint} standalone={pwaState.standalone} noteResults={commandNoteResults} noteSearchLoading={commandNoteSearchLoading} onSearchQueryChange={handleCommandNoteQueryChange} onOpenSearchResult={openCommandSearchResult} hasSelectedNote={commandNoteReady} onSearchInCurrentNote={handleSearchInCurrentNote} initialQuery={commandInitialQuery} />
+    <CommandMenu open={commandOpen} onClose={closeCommandMenu} onCommand={command} onCreateNoteInNotebook={createNoteInNotebook} canRestore={Boolean(commandNoteReady && renderedNote?.deletedAt)} canMoveToTrash={Boolean(commandNoteReady && renderedNote && !renderedNote.deletedAt)} notebooks={notebooks} currentNotebookId={renderedNote?.notebookId} onMoveNoteToNotebook={(targetNotebookId) => onNoteChange({ notebookId: targetNotebookId })} focusMode={focusMode} typewriterMode={typewriterMode} canInstallApp={pwaState.canInstall} showIosInstallHint={pwaState.showIosInstallHint} standalone={pwaState.standalone} noteResults={commandNoteResults} noteSearchLoading={commandNoteSearchLoading} onSearchQueryChange={handleCommandNoteQueryChange} onOpenSearchResult={openCommandSearchResult} hasSelectedNote={commandNoteReady} onSearchInCurrentNote={handleSearchInCurrentNote} initialQuery={commandInitialQuery} />
 
 
     {shareOpen && renderedNote && <ShareDialog note={renderedNote} onClose={() => setShareOpen(false)} onToast={setToast} />}

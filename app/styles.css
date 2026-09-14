@@ -298,6 +298,7 @@ button.save-status:hover { text-decoration: underline; }
 .editor-scroll-shell { position: relative; flex: 1 1 0; min-height: 0; overflow: hidden; }
 .editor-scroll { height: 100%; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
 .editor-document { width: min(820px, calc(100% - 96px)); margin: 0 auto; padding: 72px 0 128px; }
+.editor-scroll.is-typewriter-mode .editor-document { padding-bottom: max(50vh, 260px); }
 .editor-document--entering { animation: note-fade-in var(--motion-content) var(--motion-ease-out) both; }
 @keyframes page-content-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes note-fade-in { from { opacity: 0.82; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
