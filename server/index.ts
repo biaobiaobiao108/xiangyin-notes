@@ -7,6 +7,8 @@ import { IMAGE_ALLOWED_MIME_TYPES, IMAGE_MAX_BYTES, extensionForMimeType, inspec
 
 const SESSION_COOKIE = "xiangying_session";
 const SESSION_TTL = 60 * 60 * 24 * 30;
+const SESSION_COOKIE_TTL = 60 * 60 * 24 * 400;
+const SESSION_REFRESH_WINDOW = 60 * 60 * 24 * 7;
 const SHARE_TTL = 60 * 60 * 24 * 7;
 const PASSWORD_ITERATIONS = 100_000;
 const NOTE_PAGE_SIZE = 100;
@@ -383,7 +385,7 @@ function withSecurityHeaders(response: Response, environment: RuntimeEnvironment
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
-function setSessionCookie(headers: Headers, request: Request, token: string, environment: RuntimeEnvironment, maxAge = SESSION_TTL) {
+function setSessionCookie(headers: Headers, request: Request, token: string, environment: RuntimeEnvironment, maxAge = SESSION_COOKIE_TTL) {
   const secure = environment.COOKIE_SECURE === "true";
   headers.set("Set-Cookie", `${SESSION_COOKIE}=${encodeURIComponent(token)}; Max-Age=${maxAge}; Path=/; HttpOnly; SameSite=Lax${secure ? "; Secure" : ""}`);
 }
@@ -546,11 +548,17 @@ async function getCurrentUser(database: SqliteDatabase, environment: RuntimeEnvi
   const session = cookieValue(request.headers.get("Cookie"), SESSION_COOKIE);
   if (!session) return null;
   const tokenHash = await digestHex(session);
-  return first<UserRow>(database, `
-    SELECT users.id, users.username
+  const timestamp = now();
+  const current = first<UserRow & { session_expires_at: number }>(database, `
+    SELECT users.id, users.username, sessions.expires_at AS session_expires_at
     FROM sessions JOIN users ON users.id = sessions.user_id
     WHERE sessions.token_hash = ? AND sessions.expires_at > ? AND users.username = ?
-  `, tokenHash, now(), credentials.username);
+  `, tokenHash, timestamp, credentials.username);
+  if (!current) return null;
+  if (current.session_expires_at <= timestamp + SESSION_REFRESH_WINDOW) {
+    database.query("UPDATE sessions SET expires_at = ? WHERE token_hash = ?").run(timestamp + SESSION_TTL, tokenHash);
+  }
+  return { id: current.id, username: current.username };
 }
 
 async function requireUser(database: SqliteDatabase, environment: RuntimeEnvironment, request: Request) {
@@ -812,7 +820,12 @@ async function handleApi(request: Request, options: ServerOptions) {
   const user = await requireUser(database, environment, request);
   if (isResponse(user)) return user;
 
-  if (method === "GET" && url.pathname === "/api/me") return json({ user });
+  if (method === "GET" && url.pathname === "/api/me") {
+    const headers = new Headers();
+    const session = cookieValue(request.headers.get("Cookie"), SESSION_COOKIE);
+    if (session) setSessionCookie(headers, request, session, environment);
+    return json({ user }, 200, headers);
+  }
 
   if (method === "GET" && url.pathname === "/api/sync/pull") return await handleSyncPull(request, database, user);
   if (method === "POST" && url.pathname === "/api/sync/push") return await handleSyncPush(request, database, user, assetRoot);

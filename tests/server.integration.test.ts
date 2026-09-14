@@ -423,6 +423,24 @@ describe("Bun Server API", () => {
     expect(shared.body?.share.url).toMatch(/^https:\/\/notes\.example\.com\/share\/[A-Za-z0-9_-]+$/);
   });
 
+  test("keeps active sessions alive while still expiring inactive sessions", async () => {
+    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
+    expect(login.response.status).toBe(200);
+    expect(login.response.headers.get("Set-Cookie")).toContain("Max-Age=34560000");
+
+    const nearExpiry = Math.floor(Date.now() / 1000) + 60;
+    database.query("UPDATE sessions SET expires_at = ?").run(nearExpiry);
+    const active = await request("/api/me", {}, login.cookie);
+    const refreshed = database.query("SELECT expires_at FROM sessions").get() as { expires_at: number } | null;
+    expect(active.response.status).toBe(200);
+    expect(active.response.headers.get("Set-Cookie")).toContain("Max-Age=34560000");
+    expect(refreshed?.expires_at ?? 0).toBeGreaterThan(nearExpiry + 60 * 60 * 24 * 20);
+
+    database.query("UPDATE sessions SET expires_at = 0").run();
+    const expired = await request("/api/me", {}, login.cookie);
+    expect(expired.response.status).toBe(401);
+  });
+
   test("rejects invalid credentials and missing environment configuration", async () => {
     const wrong = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: "wrong passphrase 1234" }) });
     expect(wrong.response.status).toBe(401);
