@@ -1,13 +1,15 @@
 import { api, ApiError } from "./api";
-import { clearCachedData, clearOfflineData, deleteConflict, deleteLocalNote, deleteLocalNotebook, deleteMutation, getLocalSnapshot, getOfflineConflicts, getOfflineUser, getPendingMutations, getSyncCursor, putConflict, putLocalNote, putLocalNotebook, putMutation, setOfflineUser, setSyncCursor } from "./offline-store";
+import { clearCachedData, clearOfflineData, deleteConflict, deleteLocalImageAsset, deleteLocalNote, deleteLocalNotebook, deleteMutation, getLocalImageAsset, getLocalImageAssets, getLocalSnapshot, getOfflineConflicts, getOfflineUser, getPendingMutations, getSyncCursor, putConflict, putLocalImageAsset, putLocalNote, putLocalNotebook, putMutation, setOfflineUser, setSyncCursor, type OfflineImageAsset } from "./offline-store";
 import type { SyncChange, SyncMutation, SyncPushResult } from "../shared/sync";
-import type { Note, Notebook, User } from "../shared/types";
+import type { ImageAssetSummary, Note, Notebook, User } from "../shared/types";
+import { firstImageSource, localImageId, replaceLocalImageReferences } from "./image-markdown";
 
 export type OfflineSyncState = {
   status: "idle" | "offline" | "syncing" | "synced" | "error" | "conflict";
   pendingCount: number;
   conflictCount: number;
   lastError: string | null;
+  noteRefreshIds: string[];
 };
 
 type Listener = (state: OfflineSyncState) => void;
@@ -16,8 +18,12 @@ function now() {
   return Math.floor(Date.now() / 1000);
 }
 
+function imageSummary(asset: OfflineImageAsset): ImageAssetSummary {
+  return { id: asset.id, url: asset.uploadedAsset?.url ?? asset.url, originalName: asset.originalName, mimeType: asset.mimeType, byteSize: asset.byteSize, width: asset.width, height: asset.height, createdAt: asset.createdAt };
+}
+
 function localPreview(markdown: string) {
-  return markdown.replace(/[`*_#[\]()>~-]/g, " ").replace(/\s+/g, " ").trim().slice(0, 180);
+  return markdown.replace(/!\[[^\]]*\]\([^)]*\)/gu, " ").replace(/[`*_#[\]()>~-]/g, " ").replace(/\s+/g, " ").trim().slice(0, 180);
 }
 
 function networkAvailable() {
@@ -68,7 +74,7 @@ class OfflineSyncController {
   private syncToken = 0;
   private syncAbortController: AbortController | null = null;
   private listeners = new Set<Listener>();
-  private state: OfflineSyncState = { status: "idle", pendingCount: 0, conflictCount: 0, lastError: null };
+  private state: OfflineSyncState = { status: "idle", pendingCount: 0, conflictCount: 0, lastError: null, noteRefreshIds: [] };
   private listenersInstalled = false;
 
   subscribe(listener: Listener) {
@@ -114,6 +120,7 @@ class OfflineSyncController {
     await setOfflineUser(user);
     const local = await getLocalSnapshot();
     if (!this.isCurrentSession(generation, user.id)) return local;
+    await this.cleanupReleasedImageAssets(local);
     await this.refreshCounts(generation);
     if (networkAvailable()) void this.sync();
     else this.emit({ status: "offline" });
@@ -136,11 +143,37 @@ class OfflineSyncController {
     await putLocalNotebook(notebook);
   }
 
+  async uploadImage(file: File, noteId: string, dimensions: { width: number; height: number }) {
+    if (networkAvailable()) {
+      try {
+        const result = await api.uploadAsset(file);
+        return { asset: result.asset, offline: false };
+      } catch (reason) {
+        if (!isNetworkFailure(reason)) throw reason;
+      }
+    }
+    const id = crypto.randomUUID();
+    const asset: OfflineImageAsset = {
+      id,
+      url: `offline-image://${id}`,
+      noteId,
+      originalName: file.name || "image",
+      mimeType: file.type || "application/octet-stream",
+      byteSize: file.size,
+      width: Math.max(1, Math.round(dimensions.width)),
+      height: Math.max(1, Math.round(dimensions.height)),
+      createdAt: now(),
+      blob: file,
+    };
+    await putLocalImageAsset(asset);
+    return { asset: { id: asset.id, url: asset.url, originalName: asset.originalName, mimeType: asset.mimeType, byteSize: asset.byteSize, width: asset.width, height: asset.height, createdAt: asset.createdAt }, offline: true };
+  }
+
   async clear() {
     this.invalidateSession();
     this.user = null;
     await clearOfflineData();
-    this.emit({ status: "idle", pendingCount: 0, conflictCount: 0, lastError: null });
+    this.emit({ status: "idle", pendingCount: 0, conflictCount: 0, lastError: null, noteRefreshIds: [] });
   }
 
   private async refreshCounts(generation = this.sessionGeneration) {
@@ -170,7 +203,7 @@ class OfflineSyncController {
   }
 
   async saveNote(note: Note, options?: { keepalive?: boolean }) {
-    const localNote = { ...note, preview: localPreview(note.contentMarkdown), updatedAt: now() };
+    const localNote = { ...note, preview: localPreview(note.contentMarkdown), thumbnail: await this.localThumbnail(note), updatedAt: now() };
     if (!networkAvailable()) {
       await putLocalNote(localNote);
       await this.queue(noteMutation(localNote, operationIdFor(await getPendingMutations(), "note", localNote.id)));
@@ -199,6 +232,23 @@ class OfflineSyncController {
     }
   }
 
+  private async localThumbnail(note: Note) {
+    const source = firstImageSource(note.contentMarkdown);
+    const localId = source ? localImageId(source) : null;
+    if (!localId) return note.thumbnail;
+    const localAsset = await getLocalImageAsset(localId);
+    return localAsset ? imageSummary(localAsset) : note.thumbnail;
+  }
+
+  private async cleanupReleasedImageAssets(local?: Awaited<ReturnType<typeof getLocalSnapshot>>) {
+    const snapshot = local ?? await getLocalSnapshot();
+    const references = [...snapshot.notes.map((note) => note.contentMarkdown), ...snapshot.mutations.map((mutation) => mutation.note?.contentMarkdown ?? "")];
+    for (const asset of snapshot.assets) {
+      if (!asset.uploadedAsset || references.some((content) => content.includes(asset.url))) continue;
+      await deleteLocalImageAsset(asset.id);
+    }
+  }
+
   async createNote(payload: { id?: string; title?: string; contentMarkdown?: string; notebookId?: string }, notebook?: Notebook) {
     const clientId = payload.id ?? crypto.randomUUID();
     const requestPayload = { ...payload, id: clientId };
@@ -218,6 +268,7 @@ class OfflineSyncController {
       title: payload.title ?? "未命名笔记",
       contentMarkdown: payload.contentMarkdown ?? "",
       preview: localPreview(payload.contentMarkdown ?? ""),
+      thumbnail: null,
       notebookId: payload.notebookId ?? notebook!.id,
       notebookName: notebook?.name ?? "收件箱",
       isFavorite: false,
@@ -328,6 +379,38 @@ class OfflineSyncController {
     }
   }
 
+  private async preparePendingImageAssets() {
+    const [assets, mutations] = await Promise.all([getLocalImageAssets(), getPendingMutations()]);
+    const replacements = new Map<string, string>();
+    const rewrittenNoteIds = new Set<string>();
+    for (const asset of assets) {
+      if (!mutations.some((mutation) => mutation.note?.contentMarkdown.includes(asset.url))) continue;
+      const uploaded = asset.uploadedAsset ?? (await api.uploadAsset(new File([asset.blob], asset.originalName, { type: asset.mimeType }))).asset;
+      replacements.set(asset.id.toLowerCase(), uploaded.url);
+      if (!asset.uploadedAsset) await putLocalImageAsset({ ...asset, uploadedAsset: uploaded });
+    }
+    if (!replacements.size) return [];
+
+    for (const mutation of mutations) {
+      if (!mutation.note) continue;
+      const contentMarkdown = replaceLocalImageReferences(mutation.note.contentMarkdown, replacements);
+      if (contentMarkdown !== mutation.note.contentMarkdown) {
+        rewrittenNoteIds.add(mutation.entityId);
+        await putMutation({ ...mutation, note: { ...mutation.note, contentMarkdown } });
+      }
+    }
+    const local = await getLocalSnapshot();
+    for (const note of local.notes) {
+      const contentMarkdown = replaceLocalImageReferences(note.contentMarkdown, replacements);
+      if (contentMarkdown !== note.contentMarkdown) {
+        rewrittenNoteIds.add(note.id);
+        const thumbnail = note.thumbnail?.url.startsWith("offline-image://") ? assets.find((asset) => asset.id === note.thumbnail?.id)?.uploadedAsset ?? note.thumbnail : note.thumbnail;
+        await putLocalNote({ ...note, contentMarkdown, preview: localPreview(contentMarkdown), thumbnail });
+      }
+    }
+    return [...rewrittenNoteIds];
+  }
+
   async sync() {
     if (this.syncing || !this.user) return;
     if (!networkAvailable()) { this.emit({ status: "offline" }); return; }
@@ -337,8 +420,9 @@ class OfflineSyncController {
     const abortController = new AbortController();
     this.syncAbortController = abortController;
     this.syncing = true;
-    this.emit({ status: "syncing", lastError: null });
+    this.emit({ status: "syncing", lastError: null, noteRefreshIds: [] });
     try {
+      const noteRefreshIds = await this.preparePendingImageAssets();
       let mutations = await getPendingMutations();
       while (mutations.length) {
         if (!this.isCurrentSession(generation, userId) || token !== this.syncToken) return;
@@ -399,7 +483,7 @@ class OfflineSyncController {
       }
       await this.refreshCounts(generation);
       if (!this.isCurrentSession(generation, userId) || token !== this.syncToken) return;
-      this.emit({ status: this.state.conflictCount ? "conflict" : "synced" });
+      this.emit({ status: this.state.conflictCount ? "conflict" : "synced", noteRefreshIds });
     } catch (reason) {
       if (!this.isCurrentSession(generation, userId) || token !== this.syncToken || (reason instanceof DOMException && reason.name === "AbortError")) return;
       if (reason instanceof ApiError && reason.status === 401) this.emit({ status: "error", lastError: "登录状态已过期" });

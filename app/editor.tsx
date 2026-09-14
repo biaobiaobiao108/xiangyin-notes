@@ -8,8 +8,8 @@ import TaskItem from "@tiptap/extension-task-item";
 import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
 import { findWrapping } from "@tiptap/pm/transform";
-import { ChevronLeft, Link2, Maximize2, Minimize2, Trash2, Undo2 } from "lucide-react";
-import type { Note } from "../shared/types";
+import { ChevronLeft, ImagePlus, Link2, Maximize2, Minimize2, Trash2, Undo2 } from "lucide-react";
+import type { ImageAssetSummary, Note } from "../shared/types";
 import { BrandMark } from "./brand-mark";
 import { cycleSearchMatchIndex, findEditorSearchMatches, findTextMatches, searchHighlightPluginKey, SearchHighlightExtension } from "./editor-search";
 import { buildOutlineItems, countEditorText, detectLeakedImePrefix, parseMarkdownBlockShortcut, shouldParseMarkdownPaste, type EditorStats, type MarkdownBlockShortcut, type OutlineItem } from "./editor-metrics";
@@ -17,10 +17,39 @@ import { FloatingScrollbar } from "./floating-scrollbar";
 import { ImeMarkdownSafeExtension, imeMarkdownSafePluginKey } from "./ime-markdown-safe-extension";
 import { editorCoreExtensionOptions } from "./editor/editor-config";
 import { EditorFloatingTools } from "./editor/editor-panels";
+import { ImageNode } from "./editor/image-node";
 
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
 
-export function NoteEditor({ note, searchQuery = "", saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList, focusMode = false, onToggleFocusMode, onClearSearch }: {
+const MAX_IMAGE_FILES_PER_ACTION = 10;
+
+function isImageFile(file: File) {
+  return /^image\/(?:jpeg|png|webp|gif)$/u.test(file.type) || /\.(?:jpe?g|png|webp|gif)$/iu.test(file.name);
+}
+
+async function imageDimensions(file: File) {
+  if (typeof createImageBitmap === "function") {
+    try {
+      const bitmap = await createImageBitmap(file);
+      const dimensions = { width: bitmap.width, height: bitmap.height };
+      bitmap.close();
+      return dimensions;
+    } catch {
+      // Fall through to the HTMLImageElement path for browsers that cannot decode this file type with ImageBitmap.
+    }
+  }
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = new Image();
+    image.src = objectUrl;
+    await image.decode();
+    return { width: image.naturalWidth, height: image.naturalHeight };
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+export function NoteEditor({ note, searchQuery = "", saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList, onUploadImage, focusMode = false, onToggleFocusMode, onClearSearch }: {
   note: Note;
   searchQuery?: string;
   saveState: "idle" | "saving" | "saved" | "local" | "conflict" | "error";
@@ -38,6 +67,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   onRestore: () => void;
   onPermanentDelete?: () => void;
   onOpenList?: () => void;
+  onUploadImage?: (file: File, dimensions: { width: number; height: number }) => Promise<{ asset: ImageAssetSummary; offline: boolean }>;
   focusMode?: boolean;
   onToggleFocusMode?: () => void;
   onClearSearch?: () => void;
@@ -58,6 +88,10 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   const isPastingRef = useRef(false);
   const smoothScrollToHeadRef = useRef<(view: Editor["view"]) => void>(() => undefined);
   const outlineScrollAnimRef = useRef<number | null>(null);
+  const imageFileInputRef = useRef<HTMLInputElement>(null);
+  const imageUploadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const uploadImageFilesRef = useRef<(files: File[]) => void>(() => undefined);
+  const onUploadImageRef = useRef(onUploadImage);
   const programmaticOutlineScrollIdRef = useRef<string | null>(null);
   const cancelOutlineSmoothScroll = useCallback(() => {
     if (outlineScrollAnimRef.current !== null) {
@@ -73,6 +107,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   const [activeOutlineId, setActiveOutlineId] = useState<string | null>(null);
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [deferredLoading, setDeferredLoading] = useState(false);
+  const [imageUploadState, setImageUploadState] = useState<"idle" | "uploading" | "error">("idle");
   const editorLocked = isLoading || deferredLoading;
   const [searchNavigation, setSearchNavigation] = useState({ activeIndex: 0, matchCount: 0 });
   const searchQueryRef = useRef(searchQuery);
@@ -80,6 +115,36 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   searchQueryRef.current = searchQuery;
   searchNavigationRef.current = searchNavigation;
   onChangeRef.current = onChange;
+  onUploadImageRef.current = onUploadImage;
+
+  const uploadImageFiles = useCallback(async (files: File[]) => {
+    const editorInstance = editorInstanceRef.current;
+    const uploadImage = onUploadImageRef.current;
+    if (!editorInstance || !uploadImage || editorLocked || note.deletedAt) return;
+    const imageFiles = files.filter(isImageFile).slice(0, MAX_IMAGE_FILES_PER_ACTION);
+    if (!imageFiles.length) return;
+    setImageUploadState("uploading");
+    if (imageUploadTimerRef.current !== null) clearTimeout(imageUploadTimerRef.current);
+    try {
+      for (const file of imageFiles) {
+        const dimensions = await imageDimensions(file);
+        const result = await uploadImage(file, dimensions);
+        const maxWidth = Math.max(1, editorInstance.view.dom.closest(".note-prose")?.getBoundingClientRect().width ?? 820);
+        const width = Math.min(maxWidth, Math.max(1, dimensions.width));
+        const height = Math.max(1, Math.round(width * dimensions.height / Math.max(1, dimensions.width)));
+        editorInstance.chain().focus().insertContent({ type: "image", attrs: { assetId: result.asset.id, src: result.asset.url, alt: result.asset.originalName.replace(/\.[^.]+$/u, "") || "图片", width, height } }).run();
+      }
+      setImageUploadState("idle");
+    } catch {
+      setImageUploadState("error");
+      imageUploadTimerRef.current = setTimeout(() => { imageUploadTimerRef.current = null; setImageUploadState("idle"); }, 3000);
+    }
+  }, [editorLocked, note.deletedAt]);
+  uploadImageFilesRef.current = (files) => { void uploadImageFiles(files); };
+
+  useEffect(() => () => {
+    if (imageUploadTimerRef.current !== null) clearTimeout(imageUploadTimerRef.current);
+  }, []);
 
   const syncEditorSurface = (instance: Editor) => {
     const editorText = instance.getText({ blockSeparator: "\n" });
@@ -188,6 +253,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     TaskItem.configure({ nested: true }),
     Placeholder.configure({ placeholder: "从一句话开始……" }),
     Markdown,
+    ImageNode,
     ImeMarkdownSafeExtension,
     SearchHighlightExtension,
   ], []);
@@ -251,6 +317,12 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       return false;
     },
     handlePaste: (view: Editor["view"], event: ClipboardEvent) => {
+      const imageFiles = Array.from(event.clipboardData?.files ?? []).filter(isImageFile);
+      if (imageFiles.length) {
+        event.preventDefault();
+        uploadImageFilesRef.current(imageFiles);
+        return true;
+      }
       isPastingRef.current = true;
       window.setTimeout(() => {
         isPastingRef.current = false;
@@ -270,6 +342,14 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       } catch {
         return false;
       }
+    },
+    handleDrop: (_view: Editor["view"], event: DragEvent, _slice: unknown, moved: boolean) => {
+      if (moved) return false;
+      const imageFiles = Array.from(event.dataTransfer?.files ?? []).filter(isImageFile);
+      if (!imageFiles.length) return false;
+      event.preventDefault();
+      uploadImageFilesRef.current(imageFiles);
+      return true;
     },
     handleScrollToSelection: (view: Editor["view"]) => {
       if (isPastingRef.current) {
@@ -716,6 +796,12 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
           ) : saveState === "idle" ? null : (
             <span className={`save-status save-status--${saveState}`} aria-live="polite"><span className="save-dot" />{saveLabel}</span>
           )}
+          {onUploadImage && !note.deletedAt && <>
+            <input ref={imageFileInputRef} className="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple tabIndex={-1} aria-label="选择要上传的图片文件" onChange={(event) => { uploadImageFilesRef.current(Array.from(event.target.files ?? [])); event.target.value = ""; }} />
+            <button className={`icon-button ${imageUploadState === "uploading" ? "is-active" : ""}`} type="button" aria-label="上传图片" title={imageUploadState === "uploading" ? "正在上传图片" : "上传图片"} onClick={() => imageFileInputRef.current?.click()} disabled={editorLocked || imageUploadState === "uploading"}><ImagePlus size={18} strokeWidth={1.8} /></button>
+          </>}
+          {imageUploadState === "uploading" && <span className="save-status save-status--saving" role="status" aria-live="polite"><span className="save-dot" />上传中</span>}
+          {imageUploadState === "error" && <span className="save-status save-status--error" role="alert">图片上传失败</span>}
           {onToggleFocusMode && (
             <button
               className={`icon-button ${focusMode ? "is-active" : ""}`}

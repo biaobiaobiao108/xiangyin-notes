@@ -1,7 +1,9 @@
-import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import type { ShareSnapshot, Note, NoteSummary, NoteView, Share, Notebook } from "../shared/types";
+import { mkdir, rename, unlink } from "node:fs/promises";
+import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import type { ImageAssetSummary, ShareSnapshot, Note, NoteSummary, NoteView, Share, Notebook } from "../shared/types";
 import type { SyncChange, SyncMutation, SyncPullResponse, SyncPushResult, SyncPushResponse } from "../shared/sync";
-import { openDatabase, type SqliteDatabase } from "./db";
+import { databasePathFromEnv, openDatabase, type SqliteDatabase } from "./db";
+import { IMAGE_ALLOWED_MIME_TYPES, IMAGE_MAX_BYTES, extensionForMimeType, inspectImage } from "./images";
 
 const SESSION_COOKIE = "xiangying_session";
 const SESSION_TTL = 60 * 60 * 24 * 30;
@@ -30,6 +32,7 @@ export type ServerOptions = {
   database: SqliteDatabase;
   environment: RuntimeEnvironment;
   clientRoot?: string;
+  assetRoot?: string;
 };
 
 type UserRow = {
@@ -49,6 +52,28 @@ type NoteRow = {
   version: number;
   created_at: number;
   updated_at: number;
+  thumbnail_asset_id: string | null;
+  thumbnail_storage_path: string | null;
+  thumbnail_original_name: string | null;
+  thumbnail_mime_type: string | null;
+  thumbnail_byte_size: number | null;
+  thumbnail_width: number | null;
+  thumbnail_height: number | null;
+  thumbnail_created_at: number | null;
+};
+
+type ImageAssetRow = {
+  id: string;
+  user_id: string;
+  note_id: string | null;
+  storage_path: string;
+  original_name: string;
+  mime_type: string;
+  byte_size: number;
+  width: number;
+  height: number;
+  document_order: number | null;
+  created_at: number;
 };
 
 type ShareRow = {
@@ -92,6 +117,9 @@ type LoginAttempt = {
 const welcomeMarkdown = "## 欢迎来到象映笔记\n\n这是你的第一个笔记。按下 **Ctrl /** 可以打开命令菜单，开始记录你的想法。\n\n- 写下值得保留的东西\n- 用笔记本整理上下文\n- 随时生成一个 7 天有效的只读分享\n";
 const PREVIEW_SYNTAX = new Set(["#", ">", "*", "_", "`", "~", "-", "[", "]", "(", ")"]);
 const loginAttempts = new Map<string, LoginAttempt>();
+const ASSET_REFERENCE_PATTERN = /\/api\/assets\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})(?=[?#)\s]|$)/giu;
+const MARKDOWN_IMAGE_SOURCE_PATTERN = /!\[[^\]]*\]\(([^)\s]+)(?:\s+[^)]*)?\)/gu;
+const PRIVATE_ASSET_SOURCE_PATTERN = /^\/api\/assets\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?=[?#]|$)/iu;
 
 function now() {
   return Math.floor(Date.now() / 1000);
@@ -181,6 +209,82 @@ function normalizeNoteTitle(value: string) {
 function getAuthCredentials(environment: RuntimeEnvironment): AuthCredentials | null {
   if (!validUsername(environment.XIANGYING_USERNAME) || !validPassword(environment.XIANGYING_PASSWORD)) return null;
   return { username: environment.XIANGYING_USERNAME, password: environment.XIANGYING_PASSWORD };
+}
+
+function assetRootFromEnv(environment: RuntimeEnvironment) {
+  const configured = environment.ASSETS_PATH?.trim();
+  if (configured) return resolve(configured);
+  const databasePath = databasePathFromEnv(environment);
+  return databasePath === ":memory:" ? resolve("./data/attachments") : join(dirname(resolve(databasePath)), "attachments");
+}
+
+function assetFilePath(assetRoot: string, storagePath: string) {
+  const root = resolve(assetRoot);
+  const requested = resolve(root, storagePath);
+  const pathFromRoot = relative(root, requested);
+  if (isAbsolute(pathFromRoot) || pathFromRoot === ".." || pathFromRoot.startsWith(`..${sep}`) || pathFromRoot.startsWith(sep)) return null;
+  return requested;
+}
+
+function assetUrl(id: string) {
+  return `/api/assets/${encodeURIComponent(id)}`;
+}
+
+function toImageAsset(row: Pick<ImageAssetRow, "id" | "original_name" | "mime_type" | "byte_size" | "width" | "height" | "created_at">): ImageAssetSummary {
+  return {
+    id: row.id,
+    url: assetUrl(row.id),
+    originalName: row.original_name,
+    mimeType: row.mime_type,
+    byteSize: Number(row.byte_size),
+    width: Number(row.width),
+    height: Number(row.height),
+    createdAt: Number(row.created_at),
+  };
+}
+
+function noteAssetIds(markdown: string) {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  ASSET_REFERENCE_PATTERN.lastIndex = 0;
+  for (const match of markdown.matchAll(ASSET_REFERENCE_PATTERN)) {
+    const id = match[1].toLowerCase();
+    if (!seen.has(id)) {
+      seen.add(id);
+      ids.push(id);
+    }
+  }
+  return ids;
+}
+
+function noteImageSources(markdown: string) {
+  const sources: string[] = [];
+  MARKDOWN_IMAGE_SOURCE_PATTERN.lastIndex = 0;
+  for (const match of markdown.matchAll(MARKDOWN_IMAGE_SOURCE_PATTERN)) sources.push(match[1]);
+  return sources;
+}
+
+function rewriteAssetUrlsForShare(markdown: string, token: string) {
+  ASSET_REFERENCE_PATTERN.lastIndex = 0;
+  return markdown.replace(ASSET_REFERENCE_PATTERN, (_match, id: string) => `/api/share-assets/${token}/${id}`);
+}
+
+function safeOriginalName(value: string) {
+  const normalized = value.replace(/[\\/\0]/g, "_").trim();
+  return (normalized || "image").slice(0, 200);
+}
+
+function thumbnailFromNoteRow(row: NoteRow): ImageAssetSummary | null {
+  if (!row.thumbnail_asset_id || !row.thumbnail_original_name || !row.thumbnail_mime_type || row.thumbnail_byte_size === null || row.thumbnail_width === null || row.thumbnail_height === null || row.thumbnail_created_at === null) return null;
+  return toImageAsset({
+    id: row.thumbnail_asset_id,
+    original_name: row.thumbnail_original_name,
+    mime_type: row.thumbnail_mime_type,
+    byte_size: row.thumbnail_byte_size,
+    width: row.thumbnail_width,
+    height: row.thumbnail_height,
+    created_at: row.thumbnail_created_at,
+  });
 }
 
 function getPublicOrigin(requestUrl: URL, environment: RuntimeEnvironment) {
@@ -289,6 +393,7 @@ function toNote(row: NoteRow): NoteSummary {
     id: row.id,
     title: row.title,
     preview: formatPreview(row.content_markdown),
+    thumbnail: thumbnailFromNoteRow(row),
     notebookId: row.notebook_id,
     notebookName: row.notebook_name,
     isFavorite: Boolean(row.is_favorite),
@@ -342,6 +447,12 @@ export function formatPreview(markdown: string) {
   let pendingWhitespace = false;
 
   for (let index = 0; index < markdown.length && outputLength < NOTE_PREVIEW_SCAN_LIMIT; index += 1) {
+    const image = markdown.slice(index).match(/^!\[[^\]]*\]\([^)]*\)/u);
+    if (image) {
+      index += image[0].length - 1;
+      pendingWhitespace = true;
+      continue;
+    }
     if (markdown.startsWith("```", index)) {
       const closingFence = markdown.indexOf("```", index + 3);
       if (closingFence !== -1) {
@@ -385,7 +496,15 @@ export function buildFtsQuery(query: string) {
 function getNote(database: SqliteDatabase, userId: string, noteId: string) {
   return first<NoteRow>(database, `
     SELECT n.id, n.title, n.content_markdown, n.notebook_id, b.name AS notebook_name,
-      b.color AS notebook_color, n.is_favorite, n.deleted_at, n.version, n.created_at, n.updated_at
+      b.color AS notebook_color, n.is_favorite, n.deleted_at, n.version, n.created_at, n.updated_at,
+      (SELECT a.id FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_asset_id,
+      (SELECT a.storage_path FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_storage_path,
+      (SELECT a.original_name FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_original_name,
+      (SELECT a.mime_type FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_mime_type,
+      (SELECT a.byte_size FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_byte_size,
+      (SELECT a.width FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_width,
+      (SELECT a.height FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_height,
+      (SELECT a.created_at FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_created_at
     FROM notes n JOIN notebooks b ON b.id = n.notebook_id
     WHERE n.id = ? AND n.user_id = ?
   `, noteId, userId);
@@ -442,11 +561,62 @@ function isResponse(value: UserRow | Response): value is Response {
   return value instanceof Response;
 }
 
+function validNoteAssetReferences(database: SqliteDatabase, userId: string, noteId: string | null, contentMarkdown: string) {
+  if (noteImageSources(contentMarkdown).some((source) => !PRIVATE_ASSET_SOURCE_PATTERN.test(source))) return false;
+  const ids = noteAssetIds(contentMarkdown);
+  if (!ids.length) return true;
+  const assets = all<Pick<ImageAssetRow, "id" | "note_id">>(database, `SELECT id, note_id FROM image_assets WHERE user_id = ? AND id IN (${ids.map(() => "?").join(",")})`, userId, ...ids);
+  const assetsById = new Map(assets.map((asset) => [asset.id.toLowerCase(), asset]));
+  return assets.length === ids.length && ids.every((id) => {
+    const asset = assetsById.get(id);
+    return Boolean(asset) && (asset?.note_id === null || asset?.note_id === noteId);
+  });
+}
+
+function syncNoteAssetReferences(database: SqliteDatabase, userId: string, noteId: string, contentMarkdown: string) {
+  const ids = noteAssetIds(contentMarkdown);
+  const assets = ids.length
+    ? all<ImageAssetRow>(database, `SELECT id, user_id, note_id, storage_path, original_name, mime_type, byte_size, width, height, document_order, created_at FROM image_assets WHERE user_id = ? AND id IN (${ids.map(() => "?").join(",")})`, userId, ...ids)
+    : [];
+  const assetsById = new Map(assets.map((asset) => [asset.id.toLowerCase(), asset]));
+  if (assets.length !== ids.length || ids.some((id) => {
+    const asset = assetsById.get(id);
+    return !asset || (asset.note_id !== null && asset.note_id !== noteId);
+  })) return false;
+
+  database.query("UPDATE image_assets SET document_order = NULL WHERE note_id = ?").run(noteId);
+  for (const [documentOrder, id] of ids.entries()) {
+    database.query("UPDATE image_assets SET note_id = ?, document_order = ? WHERE id = ? AND user_id = ?").run(noteId, documentOrder, id, userId);
+  }
+  return true;
+}
+
+function assetPathsForNotes(database: SqliteDatabase, userId: string, noteIds: string[]) {
+  if (!noteIds.length) return [] as string[];
+  return all<{ storage_path: string }>(database, `SELECT storage_path FROM image_assets WHERE user_id = ? AND note_id IN (${noteIds.map(() => "?").join(",")})`, userId, ...noteIds).map((asset) => asset.storage_path);
+}
+
+async function removeAssetFiles(assetRoot: string, storagePaths: string[]) {
+  for (const storagePath of storagePaths) {
+    const filePath = assetFilePath(assetRoot, storagePath);
+    if (!filePath) {
+      console.warn("[assets] refused to delete an unsafe storage path", storagePath);
+      continue;
+    }
+    try {
+      await unlink(filePath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") console.warn("[assets] failed to delete asset file", filePath, error);
+    }
+  }
+}
+
 function createNote(database: SqliteDatabase, userId: string, notebookId: string, title: string, contentMarkdown: string, requestedId?: string) {
   const id = requestedId ?? crypto.randomUUID();
   const createdAt = now();
   const transaction = database.transaction(() => {
     database.query("INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)").run(id, userId, notebookId, title, contentMarkdown, createdAt, createdAt);
+    if (!syncNoteAssetReferences(database, userId, id, contentMarkdown)) throw new Error("invalid-note-assets");
     database.query("INSERT INTO notes_fts (note_id, title, content) VALUES (?, ?, ?)").run(id, title, contentMarkdown);
     const note = getNote(database, userId, id);
     if (note) recordSyncChange(database, userId, "note", id, "upsert", toFullNote(note));
@@ -468,6 +638,7 @@ function updateNoteInTransaction(
   const updatedAt = now();
   const result = database.query("UPDATE notes SET title = ?, content_markdown = ?, notebook_id = ?, is_favorite = ?, deleted_at = ?, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ? AND version = ?").run(title, contentMarkdown, notebookId, isFavorite, deletedAt, updatedAt, current.id, userId, current.version);
   if (result.changes !== 1) return false;
+  if (!syncNoteAssetReferences(database, userId, current.id, contentMarkdown)) return false;
   database.query("DELETE FROM notes_fts WHERE note_id = ?").run(current.id);
   database.query("INSERT INTO notes_fts (note_id, title, content) VALUES (?, ?, ?)").run(current.id, title, contentMarkdown);
   const next = getNote(database, userId, current.id);
@@ -488,12 +659,85 @@ function updateNote(
   return database.transaction(() => updateNoteInTransaction(database, current, userId, title, contentMarkdown, notebookId, isFavorite, deletedAt))();
 }
 
+async function uploadImageAsset(request: Request, database: SqliteDatabase, user: UserRow, assetRoot: string) {
+  const declaredLength = Number(request.headers.get("Content-Length"));
+  if (Number.isFinite(declaredLength) && declaredLength > IMAGE_MAX_BYTES + 256 * 1024) return jsonError(413, "IMAGE_TOO_LARGE", "图片超过 10 MiB 大小限制");
+
+  let formData: FormData;
+  try {
+    formData = await request.formData();
+  } catch {
+    return jsonError(400, "INVALID_IMAGE_UPLOAD", "图片上传数据无效");
+  }
+  const entry = formData.get("file");
+  if (!(entry instanceof File)) return jsonError(400, "INVALID_IMAGE_UPLOAD", "请选择图片文件");
+  if (entry.size <= 0 || entry.size > IMAGE_MAX_BYTES) return jsonError(413, "IMAGE_TOO_LARGE", "图片超过 10 MiB 大小限制");
+
+  const bytes = new Uint8Array(await entry.arrayBuffer());
+  const inspection = inspectImage(bytes);
+  if (!inspection || !IMAGE_ALLOWED_MIME_TYPES.has(inspection.mimeType)) return jsonError(415, "UNSUPPORTED_IMAGE", "只支持 JPEG、PNG、WebP 和 GIF 图片");
+
+  const id = crypto.randomUUID();
+  const storagePath = `${user.id}/${id}${extensionForMimeType(inspection.mimeType)}`;
+  const filePath = assetFilePath(assetRoot, storagePath);
+  if (!filePath) return jsonError(500, "ASSET_STORAGE_ERROR", "图片存储路径无效");
+  await mkdir(dirname(filePath), { recursive: true });
+  const temporaryPath = `${filePath}.uploading-${crypto.randomUUID()}`;
+  try {
+    await Bun.write(temporaryPath, bytes);
+    await rename(temporaryPath, filePath);
+    database.query("INSERT INTO image_assets (id, user_id, storage_path, original_name, mime_type, byte_size, width, height, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").run(id, user.id, storagePath, safeOriginalName(entry.name), inspection.mimeType, bytes.byteLength, inspection.width, inspection.height, now());
+  } catch (error) {
+    await unlink(temporaryPath).catch(() => undefined);
+    await unlink(filePath).catch(() => undefined);
+    throw error;
+  }
+
+  const asset = first<ImageAssetRow>(database, "SELECT id, user_id, note_id, storage_path, original_name, mime_type, byte_size, width, height, document_order, created_at FROM image_assets WHERE id = ? AND user_id = ?", id, user.id);
+  return asset ? json({ asset: toImageAsset(asset) }, 201) : jsonError(500, "ASSET_STORAGE_ERROR", "图片保存失败");
+}
+
+async function serveImageAsset(request: Request, database: SqliteDatabase, userId: string, assetId: string, assetRoot: string, cacheControl = "private, max-age=3600") {
+  const asset = first<ImageAssetRow>(database, "SELECT id, user_id, note_id, storage_path, original_name, mime_type, byte_size, width, height, document_order, created_at FROM image_assets WHERE id = ? AND user_id = ?", assetId, userId);
+  if (!asset) return jsonError(404, "ASSET_NOT_FOUND", "图片不存在");
+  const filePath = assetFilePath(assetRoot, asset.storage_path);
+  if (!filePath) return jsonError(404, "ASSET_NOT_FOUND", "图片不存在");
+  const file = Bun.file(filePath);
+  if (!(await file.exists())) return jsonError(404, "ASSET_NOT_FOUND", "图片不存在");
+  const headers = new Headers({
+    "Content-Type": asset.mime_type,
+    "Content-Length": String(asset.byte_size),
+    "Content-Disposition": "inline",
+    "Cache-Control": cacheControl,
+  });
+  return new Response(request.method === "HEAD" ? null : file, { headers });
+}
+
+async function servePublicShareAsset(request: Request, database: SqliteDatabase, assetRoot: string) {
+  if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
+  const segments = new URL(request.url).pathname.split("/").filter(Boolean);
+  const token = segments[2] ?? "";
+  const assetId = segments[3] ?? "";
+  const share = first<{ note_id: string; expires_at: number; revoked_at: number | null }>(database, "SELECT note_id, expires_at, revoked_at FROM shares WHERE token_hash = ?", await digestHex(token));
+  if (!share) return jsonError(404, "SHARE_NOT_FOUND", "分享链接不存在");
+  if (share.revoked_at) return jsonError(410, "SHARE_REVOKED", "分享链接已撤销");
+  if (share.expires_at <= now()) return jsonError(410, "SHARE_EXPIRED", "分享链接已过期");
+  const asset = first<ImageAssetRow>(database, "SELECT id, user_id, note_id, storage_path, original_name, mime_type, byte_size, width, height, document_order, created_at FROM image_assets WHERE id = ? AND note_id = ?", assetId, share.note_id);
+  if (!asset) return jsonError(404, "ASSET_NOT_FOUND", "图片不存在");
+  const filePath = assetFilePath(assetRoot, asset.storage_path);
+  if (!filePath) return jsonError(404, "ASSET_NOT_FOUND", "图片不存在");
+  const file = Bun.file(filePath);
+  if (!(await file.exists())) return jsonError(404, "ASSET_NOT_FOUND", "图片不存在");
+  return new Response(request.method === "HEAD" ? null : file, { headers: { "Content-Type": asset.mime_type, "Content-Length": String(asset.byte_size), "Content-Disposition": "inline", "Cache-Control": "no-store" } });
+}
+
 function toShare(row: { id: string; note_id: string; created_at: number; expires_at: number; revoked_at: number | null }): Share {
   return { id: row.id, noteId: row.note_id, createdAt: row.created_at, expiresAt: row.expires_at, revokedAt: row.revoked_at };
 }
 
 async function handleApi(request: Request, options: ServerOptions) {
   const { database, environment } = options;
+  const assetRoot = resolve(options.assetRoot ?? assetRootFromEnv(environment));
   const url = new URL(request.url);
   const method = request.method.toUpperCase();
   let segments: string[];
@@ -571,17 +815,23 @@ async function handleApi(request: Request, options: ServerOptions) {
   if (method === "GET" && url.pathname === "/api/me") return json({ user });
 
   if (method === "GET" && url.pathname === "/api/sync/pull") return await handleSyncPull(request, database, user);
-  if (method === "POST" && url.pathname === "/api/sync/push") return await handleSyncPush(request, database, user);
+  if (method === "POST" && url.pathname === "/api/sync/push") return await handleSyncPush(request, database, user, assetRoot);
+
+  if (resource === "assets" && !id && method === "POST") return await uploadImageAsset(request, database, user, assetRoot);
+  if (resource === "assets" && id && (method === "GET" || method === "HEAD")) return await serveImageAsset(request, database, user.id, id, assetRoot);
 
   if (method === "DELETE" && url.pathname === "/api/trash") {
     const emptyTrash = database.transaction(() => {
       const deletedIds = all<{ id: string }>(database, "SELECT id FROM notes WHERE user_id = ? AND deleted_at IS NOT NULL", user.id).map((note) => note.id);
+      const assetPaths = assetPathsForNotes(database, user.id, deletedIds);
       database.query("DELETE FROM notes_fts WHERE note_id IN (SELECT id FROM notes WHERE user_id = ? AND deleted_at IS NOT NULL)").run(user.id);
       database.query("DELETE FROM notes WHERE user_id = ? AND deleted_at IS NOT NULL").run(user.id);
       for (const id of deletedIds) recordSyncChange(database, user.id, "note", id, "delete", null);
-      return { ok: true, deletedCount: deletedIds.length, deletedIds };
+      return { ok: true, deletedCount: deletedIds.length, deletedIds, assetPaths };
     });
-    return json(emptyTrash());
+    const emptiedTrash = emptyTrash();
+    await removeAssetFiles(assetRoot, emptiedTrash.assetPaths);
+    return json({ ok: emptiedTrash.ok, deletedCount: emptiedTrash.deletedCount, deletedIds: emptiedTrash.deletedIds });
   }
 
   if (resource === "notes" && !id && method === "GET") {
@@ -622,7 +872,15 @@ async function handleApi(request: Request, options: ServerOptions) {
     const totalRow = first<{ count: number }>(database, `SELECT COUNT(*) AS count FROM ${from} WHERE ${where}`, ...params);
     const listStatement = database.query(`
       SELECT n.id, n.title, substr(n.content_markdown, 1, ${NOTE_PREVIEW_SCAN_LIMIT}) AS content_markdown, n.notebook_id, b.name AS notebook_name,
-        b.color AS notebook_color, n.is_favorite, n.deleted_at, n.version, n.created_at, n.updated_at
+        b.color AS notebook_color, n.is_favorite, n.deleted_at, n.version, n.created_at, n.updated_at,
+        (SELECT a.id FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_asset_id,
+        (SELECT a.storage_path FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_storage_path,
+        (SELECT a.original_name FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_original_name,
+        (SELECT a.mime_type FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_mime_type,
+        (SELECT a.byte_size FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_byte_size,
+        (SELECT a.width FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_width,
+        (SELECT a.height FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_height,
+        (SELECT a.created_at FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_created_at
       FROM ${from} WHERE ${where} ORDER BY n.updated_at DESC LIMIT ${NOTE_PAGE_SIZE}
     `);
     const notes: NoteSummary[] = [];
@@ -640,6 +898,7 @@ async function handleApi(request: Request, options: ServerOptions) {
     const notebookId = typeof payload?.notebookId === "string" ? payload.notebookId : first<{ id: string }>(database, "SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1 LIMIT 1", user.id)?.id;
     if (!notebookId) return jsonError(400, "NO_NOTEBOOK", "没有可用的收件箱");
     if (!first(database, "SELECT id FROM notebooks WHERE id = ? AND user_id = ?", notebookId, user.id)) return jsonError(400, "INVALID_NOTEBOOK", "笔记本不存在");
+    if (!validNoteAssetReferences(database, user.id, null, contentMarkdown)) return jsonError(400, "INVALID_ASSET", "笔记引用了无权访问的图片");
     const noteId = createNote(database, user.id, notebookId, title, contentMarkdown, typeof payload?.id === "string" ? payload.id : undefined);
     const note = getNote(database, user.id, noteId);
     return json({ note: note ? toFullNote(note) : null }, 201);
@@ -658,7 +917,7 @@ async function handleApi(request: Request, options: ServerOptions) {
     const token = createOpaqueToken();
     const tokenHash = await digestHex(token);
     const transaction = database.transaction(() => {
-      database.query("INSERT INTO shares (id, note_id, user_id, token_hash, created_at, expires_at, snapshot_title, snapshot_content_markdown) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(shareId, note.id, user.id, tokenHash, createdAt, expiresAt, note.title, note.content_markdown);
+      database.query("INSERT INTO shares (id, note_id, user_id, token_hash, created_at, expires_at, snapshot_title, snapshot_content_markdown) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(shareId, note.id, user.id, tokenHash, createdAt, expiresAt, note.title, rewriteAssetUrlsForShare(note.content_markdown, token));
     });
     transaction();
     const share: Share = { id: shareId, noteId: note.id, expiresAt, revokedAt: null, createdAt, url: `${getPublicOrigin(url, environment)}/share/${token}` };
@@ -686,6 +945,7 @@ async function handleApi(request: Request, options: ServerOptions) {
     if (!validText(rawTitle, 200) || !validText(contentMarkdown, 1_000_000) || typeof notebookId !== "string") return jsonError(413, "NOTE_TOO_LARGE", "笔记标题或正文超出长度限制");
     const title = normalizeNoteTitle(rawTitle);
     if (!first(database, "SELECT id FROM notebooks WHERE id = ? AND user_id = ?", notebookId, user.id)) return jsonError(400, "INVALID_NOTEBOOK", "笔记本不存在");
+    if (!validNoteAssetReferences(database, user.id, current.id, contentMarkdown)) return jsonError(400, "INVALID_ASSET", "笔记引用了无权访问的图片");
     if (!updateNote(database, current, user.id, title, contentMarkdown, notebookId, isFavorite, deletedAt)) {
       const latest = getNote(database, user.id, current.id);
       return json({ error: { code: "VERSION_CONFLICT", message: "这篇笔记已在别处更新", current: latest ? toFullNote(latest) : null } }, 409);
@@ -698,12 +958,14 @@ async function handleApi(request: Request, options: ServerOptions) {
     const note = getNote(database, user.id, id);
     if (!note) return jsonError(404, "NOTE_NOT_FOUND", "笔记不存在");
     if (!note.deleted_at) return jsonError(400, "NOTE_NOT_TRASHED", "只能永久删除回收站中的笔记");
+    const assetPaths = assetPathsForNotes(database, user.id, [note.id]);
     const transaction = database.transaction(() => {
       database.query("DELETE FROM notes_fts WHERE note_id = ?").run(note.id);
       database.query("DELETE FROM notes WHERE id = ? AND user_id = ?").run(note.id, user.id);
       recordSyncChange(database, user.id, "note", note.id, "delete", null);
     });
     transaction();
+    await removeAssetFiles(assetRoot, assetPaths);
     return json({ ok: true });
   }
 
@@ -814,7 +1076,15 @@ async function handleSyncPull(request: Request, database: SqliteDatabase, user: 
       : Number(first<{ sequence: number }>(database, "SELECT COALESCE(MAX(sequence), 0) AS sequence FROM sync_changes WHERE user_id = ?", user.id)?.sequence ?? 0);
     const noteRows = all<NoteRow>(database, `
       SELECT n.id, n.title, n.content_markdown, n.notebook_id, b.name AS notebook_name,
-        b.color AS notebook_color, n.is_favorite, n.deleted_at, n.version, n.created_at, n.updated_at
+        b.color AS notebook_color, n.is_favorite, n.deleted_at, n.version, n.created_at, n.updated_at,
+        (SELECT a.id FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_asset_id,
+        (SELECT a.storage_path FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_storage_path,
+        (SELECT a.original_name FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_original_name,
+        (SELECT a.mime_type FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_mime_type,
+        (SELECT a.byte_size FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_byte_size,
+        (SELECT a.width FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_width,
+        (SELECT a.height FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_height,
+        (SELECT a.created_at FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_created_at
       FROM notes n JOIN notebooks b ON b.id = n.notebook_id
       WHERE n.user_id = ? ORDER BY n.updated_at DESC, n.id LIMIT ? OFFSET ?
     `, user.id, limit, offset);
@@ -881,6 +1151,8 @@ function applySyncMutation(database: SqliteDatabase, user: UserRow, mutation: Sy
           response = { operationId: mutation.operationId, status: "rejected", message: "笔记数据无效" };
         } else if (!first(database, "SELECT id FROM notebooks WHERE id = ? AND user_id = ?", payload.notebookId, user.id)) {
           response = { operationId: mutation.operationId, status: "rejected", message: "笔记本不存在" };
+        } else if (!validNoteAssetReferences(database, user.id, current?.id ?? null, payload.contentMarkdown)) {
+          response = { operationId: mutation.operationId, status: "rejected", message: "笔记引用了无权访问的图片" };
         } else if (current && mutation.baseVersion !== current.version) {
           response = { operationId: mutation.operationId, status: "conflict", current: toFullNote(current), message: "服务器上的笔记已更新" };
         } else if (current) {
@@ -893,6 +1165,7 @@ function applySyncMutation(database: SqliteDatabase, user: UserRow, mutation: Sy
           try {
             const createdAt = now();
             database.query("INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, is_favorite, deleted_at, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)").run(mutation.entityId, user.id, payload.notebookId, normalizeNoteTitle(payload.title), payload.contentMarkdown, payload.isFavorite ? 1 : 0, payload.deletedAt, createdAt, createdAt);
+            if (!syncNoteAssetReferences(database, user.id, mutation.entityId, payload.contentMarkdown)) throw new Error("invalid-note-assets");
             database.query("INSERT INTO notes_fts (note_id, title, content) VALUES (?, ?, ?)").run(mutation.entityId, normalizeNoteTitle(payload.title), payload.contentMarkdown);
             const created = getNote(database, user.id, mutation.entityId);
             if (!created) throw new Error("note-create-missing");
@@ -978,10 +1251,21 @@ function applySyncMutation(database: SqliteDatabase, user: UserRow, mutation: Sy
   return result;
 }
 
-async function handleSyncPush(request: Request, database: SqliteDatabase, user: UserRow) {
+async function handleSyncPush(request: Request, database: SqliteDatabase, user: UserRow, assetRoot: string) {
   const payload = await readJson<{ mutations?: unknown }>(request, SYNC_BODY_MAX_BYTES);
   if (!payload || !Array.isArray(payload.mutations) || payload.mutations.length > 50 || !payload.mutations.every(validSyncMutation)) return jsonError(400, "INVALID_SYNC_MUTATIONS", "同步操作无效");
-  const body: SyncPushResponse = { results: payload.mutations.map((mutation) => applySyncMutation(database, user, mutation)) };
+  const mutations = payload.mutations as SyncMutation[];
+  const assetPathsByOperation = new Map<string, string[]>();
+  for (const mutation of mutations) {
+    if (mutation.entity !== "note" || mutation.action !== "delete") continue;
+    const current = first<{ id: string }>(database, "SELECT id FROM notes WHERE id = ? AND user_id = ?", mutation.entityId, user.id);
+    if (current) assetPathsByOperation.set(mutation.operationId, assetPathsForNotes(database, user.id, [current.id]));
+  }
+  const results = mutations.map((mutation) => applySyncMutation(database, user, mutation));
+  for (const result of results) {
+    if (result.status === "applied") await removeAssetFiles(assetRoot, assetPathsByOperation.get(result.operationId) ?? []);
+  }
+  const body: SyncPushResponse = { results };
   return json(body);
 }
 
@@ -1031,7 +1315,9 @@ export async function handleRequest(request: Request, options: ServerOptions) {
   try {
     const url = new URL(request.url);
     let response: Response;
-    if (url.pathname === "/api/shares/" || url.pathname.startsWith("/api/shares/")) {
+    if (url.pathname === "/api/share-assets/" || url.pathname.startsWith("/api/share-assets/")) {
+      response = await servePublicShareAsset(request, options.database, resolve(options.assetRoot ?? assetRootFromEnv(options.environment)));
+    } else if (url.pathname === "/api/shares/" || url.pathname.startsWith("/api/shares/")) {
       const segments = url.pathname.split("/").filter(Boolean);
       if (request.method === "GET" && segments.length === 3) response = await handlePublicShare(request, options.database);
       else response = url.pathname.startsWith("/api/") ? await handleApi(request, options) : await serveStatic(request, options.clientRoot ?? DEFAULT_CLIENT_ROOT);

@@ -25,6 +25,7 @@
 - 中文输入法场景经过专门处理，减少输入法组合文字被误识别的问题。
 - 编辑器底部提供字数和字符数统计，适合写作、复盘和整理长文。
 - 可以切换沉浸模式，把注意力留给当前正在写的内容。
+- 支持通过按钮、剪贴板粘贴或拖拽上传 JPEG、PNG、WebP、GIF 图片；点击图片后可拖拽右下角按比例调整大小。
 
 ### 理清楚：让笔记有自己的位置
 
@@ -62,7 +63,7 @@
 
 ### 断网也能写：离线优先
 
-在支持 PWA 的浏览器中，应用可以安装为独立应用窗口。断网时仍然可以查看、搜索、新建、编辑、收藏、移动和回收笔记；恢复联网后，修改会自动同步。
+在支持 PWA 的浏览器中，应用可以安装为独立应用窗口。断网时仍然可以查看、搜索、新建、编辑、收藏、移动和回收笔记，也可以先保存图片；恢复联网后，图片会先补传，再自动同步笔记。
 
 如果同一篇笔记在不同地方发生修改，应用会保留本地内容，并提供服务器版本、本地版本和合并入口，避免内容被静默覆盖。
 
@@ -116,6 +117,7 @@ Copy-Item .env.example .env
 XIANGYING_USERNAME=xiangying
 XIANGYING_PASSWORD=请替换为至少12位的密码
 DATABASE_PATH=./data/xiangying-notes.sqlite
+ASSETS_PATH=./data/attachments
 HOST=0.0.0.0
 PORT=3000
 COOKIE_SECURE=false
@@ -196,7 +198,7 @@ docker run -d \
 http://127.0.0.1:3000/app
 ```
 
-容器中的数据库位于 `/data/xiangying-notes.sqlite`，数据卷不会因为容器更新而消失。生产环境建议在反向代理后使用 HTTPS，并将 `COOKIE_SECURE` 设置为 `true`。
+容器中的数据库位于 `/data/xiangying-notes.sqlite`，图片附件位于 `/data/attachments`，数据卷不会因为容器更新而消失。生产环境建议在反向代理后使用 HTTPS，并将 `COOKIE_SECURE` 设置为 `true`。
 
 如果 GHCR 镜像是私有的，先登录 GitHub Container Registry：
 
@@ -240,6 +242,7 @@ docker run --rm \
 | `XIANGYING_USERNAME` | 是 | 登录用户名，长度为 3–32 个字符 |
 | `XIANGYING_PASSWORD` | 是 | 登录密码，长度为 12–128 个字符 |
 | `DATABASE_PATH` | 否 | SQLite 数据库路径，默认 `./data/xiangying-notes.sqlite`；Docker 中默认 `/data/xiangying-notes.sqlite` |
+| `ASSETS_PATH` | 否 | 图片附件目录，未设置时使用数据库所在目录旁的 `attachments`；Docker 中默认 `/data/attachments` |
 | `HOST` | 否 | 服务监听地址，默认 `0.0.0.0` |
 | `PORT` | 否 | 服务端口，默认 `3000` |
 | `PUBLIC_URL` | 否 | 分享链接使用的公网根地址，例如 `https://notes.example.com` |
@@ -250,11 +253,11 @@ docker run --rm \
 ## 数据、隐私与安全
 
 - 象映笔记是单用户应用，账号凭据只通过运行时环境变量注入。
-- 服务端笔记保存在 SQLite 中，默认位置为 `data/xiangying-notes.sqlite`；Docker 部署时保存在 `/data` 数据卷。
+- 服务端笔记正文和图片元数据保存在 SQLite 中，图片二进制保存在附件目录；默认分别为 `data/xiangying-notes.sqlite` 和 `data/attachments`，Docker 部署时都保存在 `/data` 数据卷。
 - 离线副本和待同步操作保存在当前浏览器的 IndexedDB 中。
 - 分享链接是公开链接，拿到链接的人可以阅读对应的只读快照，直到链接过期或被撤销。
 - 生产部署建议使用 HTTPS，并设置 `COOKIE_SECURE=true`。
-- 备份时请同时考虑 SQLite 的 `-wal` 和 `-shm` 文件；应用运行期间不要直接复制正在使用的数据库文件。
+- 备份时请同时考虑 SQLite 的 `-wal` 和 `-shm` 文件以及整个附件目录；应用运行期间不要直接复制正在使用的数据库文件，建议先停服或使用 SQLite 在线备份方式。
 - 当前版本不提供多人实时协作、公开注册或多租户隔离能力。
 
 ## 数据库迁移
@@ -285,7 +288,7 @@ docker run --rm \
 
 ### 我在哪里能找到笔记数据？
 
-本机默认在 `data/xiangying-notes.sqlite`。可以通过 `DATABASE_PATH` 修改。Docker 部署时数据在 `xiangying-notes-data` 卷中。
+本机默认在 `data/xiangying-notes.sqlite`，图片在 `data/attachments`。可以分别通过 `DATABASE_PATH` 和 `ASSETS_PATH` 修改。Docker 部署时两者都在 `xiangying-notes-data` 卷中。
 
 ### 断网后写的内容会丢吗？
 

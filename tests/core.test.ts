@@ -29,6 +29,10 @@ describe("markdown and search helpers", () => {
     expect(formatPreview(`before\n\n\`\`\`ts\n${"code ".repeat(100_000)}\n\`\`\`\nafter`)).toBe("before after");
   });
 
+  test("does not expose image URLs in note previews", () => {
+    expect(formatPreview("![示例](/api/assets/11111111-1111-4111-8111-111111111111?w=640&h=360)\n\n正文说明")).toBe("正文说明");
+  });
+
   test("quotes search terms for FTS", () => {
     expect(buildFtsQuery("quiet thinking")).toBe('"quiet" AND "thinking"');
   });

@@ -1,4 +1,4 @@
-import type { ApiErrorPayload, Note, NoteSummary, NoteView, Notebook, Share, User } from "../shared/types";
+import type { ApiErrorPayload, ImageAssetSummary, Note, NoteSummary, NoteView, Notebook, Share, User } from "../shared/types";
 import type { SyncMutation, SyncPullResponse, SyncPushResponse } from "../shared/sync";
 
 export class ApiError extends Error {
@@ -19,7 +19,7 @@ type RequestOptions = Pick<RequestInit, "keepalive" | "signal">;
 
 async function request<T>(path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers);
-  if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  if (init.body && !(init.body instanceof FormData) && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   const response = await fetch(path, { ...init, headers, credentials: "include" });
   const payload = (await response.json().catch(() => null)) as (ApiErrorPayload & Record<string, unknown>) | null;
   if (!response.ok) {
@@ -41,6 +41,7 @@ export const api = {
     return request<{ notes: NoteSummary[]; total: number }>(`/api/notes?${search.toString()}`);
   },
   getNote: (id: string) => request<{ note: Note }>(`/api/notes/${id}`),
+  uploadAsset: (file: File) => request<{ asset: ImageAssetSummary }>("/api/assets", { method: "POST", body: (() => { const formData = new FormData(); formData.append("file", file, file.name); return formData; })() }),
   createNote: (payload: { id?: string; title?: string; contentMarkdown?: string; notebookId?: string }) => request<{ note: Note }>("/api/notes", { method: "POST", body: JSON.stringify(payload) }),
   updateNote: (id: string, payload: { version: number; title?: string; contentMarkdown?: string; notebookId?: string; isFavorite?: boolean; deleted?: boolean }, options?: RequestOptions) => request<{ note: Note }>(`/api/notes/${id}`, { method: "PATCH", body: JSON.stringify(payload), ...options }),
   deleteNote: (id: string) => request<{ ok: true }>(`/api/notes/${id}`, { method: "DELETE" }),

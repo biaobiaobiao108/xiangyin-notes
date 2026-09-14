@@ -3,6 +3,8 @@ import { Archive, ChevronDown, ChevronLeft, LayoutPanelLeft, LogOut, Menu, Penci
 import type { NoteSummary, NoteView, Notebook } from "../../shared/types";
 import { BrandMark } from "../brand-mark";
 import { FloatingScrollbar } from "../floating-scrollbar";
+import { getLocalImageAsset } from "../offline-store";
+import { isLocalImageSource } from "../image-markdown";
 import { modKey } from "../platform";
 import type { OfflineSyncState } from "../offline-sync";
 import { type PwaState } from "../pwa";
@@ -47,6 +49,41 @@ export function Sidebar({ view, setView, notebooks, notebookId, setNotebookId, q
     </div>
     <div className="sidebar-bottom"><button className="nav-item" type="button" aria-label="退出登录" onClick={onLogout}><LogOut size={18} /><span>退出登录</span></button></div>
   </aside>;
+}
+
+function NoteThumbnail({ note }: { note: NoteSummary }) {
+  const thumbnail = note.thumbnail;
+  const [src, setSrc] = useState(() => thumbnail && !isLocalImageSource(thumbnail.url) ? thumbnail.url : "");
+
+  useEffect(() => {
+    let active = true;
+    let objectUrl: string | null = null;
+    if (!thumbnail) {
+      setSrc("");
+      return () => { active = false; };
+    }
+    if (!isLocalImageSource(thumbnail.url)) {
+      setSrc(thumbnail.url);
+      return () => { active = false; };
+    }
+    setSrc("");
+    void getLocalImageAsset(thumbnail.id).then((asset) => {
+      if (!asset || !active) return;
+      if (asset.uploadedAsset) {
+        setSrc(asset.uploadedAsset.url);
+        return;
+      }
+      objectUrl = URL.createObjectURL(asset.blob);
+      setSrc(objectUrl);
+    });
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [thumbnail?.id, thumbnail?.url]);
+
+  if (!thumbnail || !src) return <span className="note-row-thumbnail note-row-thumbnail--empty" aria-hidden="true" />;
+  return <span className="note-row-thumbnail" aria-hidden="true"><img src={src} alt="" width={56} height={56} loading="lazy" decoding="async" /></span>;
 }
 
 export function NoteListPanel({ notes, total, sort, setSort, selectedId, onSelect, view, query, currentNotebookName, onNewNote, onEmptyTrash, trashBusy, onClearQuery, mobileOpen, onOpenSidebar, transitionToken }: { notes: NoteSummary[]; total: number; sort: NoteSort; setSort: (sort: NoteSort) => void; selectedId: string | null; onSelect: (id: string) => void; view: NoteView; query: string; currentNotebookName?: string; onNewNote?: () => void; onEmptyTrash?: () => void; trashBusy: boolean; onClearQuery: () => void; mobileOpen: boolean; onOpenSidebar: () => void; transitionToken: number }) {
@@ -97,7 +134,7 @@ export function NoteListPanel({ notes, total, sort, setSort, selectedId, onSelec
           </div>
         </div>
       </header>
-      <div className="note-list-scroll-shell"><div id="note-list-scroll-region" className="note-list floating-scrollbar-target" ref={noteListRef}><ul className="note-list-items" role="list">{sortedNotes.map((note) => <li key={note.id}><button type="button" className={`note-row ${selectedId === note.id ? "is-selected" : ""}`} onClick={() => onSelect(note.id)}><span className="note-row-title">{note.title || "未命名笔记"}{note.isFavorite && <Star size={13} fill="currentColor" />}</span><span className="note-row-preview">{note.preview || "还没有内容，开始写下第一句话。"}</span><span className="note-row-meta"><span>{note.notebookName}</span><time>{relativeDate(note.updatedAt)}</time></span></button></li>)}</ul>{!sortedNotes.length && (query ? <div className="list-empty"><span className="empty-icon"><Search size={23} /></span><strong>没有找到匹配的笔记</strong><span>试试更短的关键词，或清空搜索查看全部内容。</span><button className="secondary-button" type="button" onClick={onClearQuery}>清空搜索</button></div> : <div className="list-empty"><span className="empty-icon"><Archive size={23} /></span><strong>{view === "trash" ? "回收站是空的" : "这里还没有笔记"}</strong><span>{view === "trash" ? "移入回收站的笔记会显示在这里。" : "按下“新建笔记”，让一个想法有地方落脚。"}</span></div>)}</div><FloatingScrollbar scrollTargetRef={noteListRef} controlsId="note-list-scroll-region" ariaLabel="笔记列表滚动条" placement="left" /></div>
+      <div className="note-list-scroll-shell"><div id="note-list-scroll-region" className="note-list floating-scrollbar-target" ref={noteListRef}><ul className="note-list-items" role="list">{sortedNotes.map((note) => <li key={note.id}><button type="button" className={`note-row ${selectedId === note.id ? "is-selected" : ""}`} onClick={() => onSelect(note.id)}><NoteThumbnail note={note} /><span className="note-row-main"><span className="note-row-title">{note.title || "未命名笔记"}{note.isFavorite && <Star size={13} fill="currentColor" />}</span><span className="note-row-preview">{note.preview || "还没有内容，开始写下第一句话。"}</span><span className="note-row-meta"><span>{note.notebookName}</span><time>{relativeDate(note.updatedAt)}</time></span></span></button></li>)}</ul>{!sortedNotes.length && (query ? <div className="list-empty"><span className="empty-icon"><Search size={23} /></span><strong>没有找到匹配的笔记</strong><span>试试更短的关键词，或清空搜索查看全部内容。</span><button className="secondary-button" type="button" onClick={onClearQuery}>清空搜索</button></div> : <div className="list-empty"><span className="empty-icon"><Archive size={23} /></span><strong>{view === "trash" ? "回收站是空的" : "这里还没有笔记"}</strong><span>{view === "trash" ? "移入回收站的笔记会显示在这里。" : "按下“新建笔记”，让一个想法有地方落脚。"}</span></div>)}</div><FloatingScrollbar scrollTargetRef={noteListRef} controlsId="note-list-scroll-region" ariaLabel="笔记列表滚动条" placement="left" /></div>
     </div>
   </section>;
 }

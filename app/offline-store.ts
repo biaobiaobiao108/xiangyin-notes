@@ -1,8 +1,14 @@
-import type { Note, Notebook, User } from "../shared/types";
+import type { ImageAssetSummary, Note, Notebook, User } from "../shared/types";
 import type { SyncMutation } from "../shared/sync";
 
 const DATABASE_NAME = "xiangying-notes-offline";
-const DATABASE_VERSION = 1;
+const DATABASE_VERSION = 2;
+
+export type OfflineImageAsset = ImageAssetSummary & {
+  noteId?: string;
+  blob: Blob;
+  uploadedAsset?: ImageAssetSummary;
+};
 
 export type OfflineConflict = {
   id: string;
@@ -58,6 +64,7 @@ function openDatabase() {
         store.createIndex("noteId", "noteId", { unique: false });
       }
       if (!database.objectStoreNames.contains("meta")) database.createObjectStore("meta", { keyPath: "key" });
+      if (!database.objectStoreNames.contains("assets")) database.createObjectStore("assets", { keyPath: "id" });
     };
     request.onsuccess = () => {
       const database = request.result;
@@ -130,7 +137,8 @@ export async function getLocalSnapshot() {
     readAll<SyncMutation>("mutations"),
     readAll<OfflineConflict>("conflicts"),
   ]);
-  return { notes, notebooks, mutations, conflicts };
+  const assets = await readAll<OfflineImageAsset>("assets");
+  return { notes, notebooks, mutations, conflicts, assets };
 }
 
 export async function putLocalNote(note: Note) {
@@ -139,6 +147,28 @@ export async function putLocalNote(note: Note) {
 
 export async function putLocalNotebook(notebook: Notebook) {
   await putValue("notebooks", notebook);
+}
+
+export async function putLocalImageAsset(asset: OfflineImageAsset) {
+  await putValue("assets", asset);
+}
+
+export async function getLocalImageAsset(assetId: string) {
+  const database = await openDatabase();
+  if (!database) return null;
+  const transaction = database.transaction("assets", "readonly");
+  const completed = transactionDone(transaction);
+  const result = await requestResult(transaction.objectStore("assets").get(assetId) as IDBRequest<OfflineImageAsset | undefined>);
+  await completed;
+  return result ?? null;
+}
+
+export async function getLocalImageAssets() {
+  return await readAll<OfflineImageAsset>("assets");
+}
+
+export async function deleteLocalImageAsset(assetId: string) {
+  await deleteValue("assets", assetId);
 }
 
 export async function deleteLocalNote(noteId: string) {
@@ -176,8 +206,8 @@ export async function deleteConflict(conflictId: string) {
 export async function clearOfflineData() {
   const database = await openDatabase();
   if (!database) return;
-  const transaction = database.transaction(["notes", "notebooks", "mutations", "conflicts", "meta"], "readwrite");
-  for (const storeName of ["notes", "notebooks", "mutations", "conflicts", "meta"]) transaction.objectStore(storeName).clear();
+  const transaction = database.transaction(["notes", "notebooks", "mutations", "conflicts", "meta", "assets"], "readwrite");
+  for (const storeName of ["notes", "notebooks", "mutations", "conflicts", "meta", "assets"]) transaction.objectStore(storeName).clear();
   await transactionDone(transaction);
 }
 

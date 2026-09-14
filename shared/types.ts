@@ -1,5 +1,16 @@
 export type NoteView = "all" | "inbox" | "favorites" | "shared" | "trash";
 
+export type ImageAssetSummary = {
+  id: string;
+  url: string;
+  originalName: string;
+  mimeType: string;
+  byteSize: number;
+  width: number;
+  height: number;
+  createdAt: number;
+};
+
 export type User = {
   id: string;
   username: string;
@@ -18,6 +29,7 @@ export type NoteSummary = {
   id: string;
   title: string;
   preview: string;
+  thumbnail: ImageAssetSummary | null;
   notebookId: string;
   notebookName: string;
   isFavorite: boolean;

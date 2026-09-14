@@ -6,19 +6,31 @@ import { applyMigrations, openDatabase, type SqliteDatabase } from "../server/db
 import { handleRequest } from "../server/index";
 
 let database: SqliteDatabase;
+let assetRoot: string;
 const environment: Record<string, string | undefined> = { XIANGYING_USERNAME: "owner", XIANGYING_PASSWORD: "a long passphrase 1234" };
+const ONE_PIXEL_PNG = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="), (character) => character.charCodeAt(0));
+
+function imageForm(name = "cat.png", bytes = ONE_PIXEL_PNG, mimeType = "image/png") {
+  const formData = new FormData();
+  formData.append("file", new File([bytes], name, { type: mimeType }));
+  return formData;
+}
 
 beforeEach(async () => {
   database = await openDatabase(":memory:");
   await applyMigrations(database);
+  assetRoot = join(tmpdir(), `xiangying-notes-assets-${crypto.randomUUID()}`);
 });
 
-afterEach(() => database.close());
+afterEach(async () => {
+  database.close();
+  await rm(assetRoot, { recursive: true, force: true });
+});
 
 async function request(path: string, init: RequestInit = {}, cookie?: string, targetEnvironment = environment) {
   const headers = new Headers(init.headers);
   if (cookie) headers.set("Cookie", cookie);
-  const response = await handleRequest(new Request(`http://xiangying.test${path}`, { ...init, headers }), { database, environment: targetEnvironment, clientRoot: "dist/client" });
+  const response = await handleRequest(new Request(`http://xiangying.test${path}`, { ...init, headers }), { database, environment: targetEnvironment, clientRoot: "dist/client", assetRoot });
   const body = await response.json().catch(() => null) as Record<string, any> | null;
   return { response, body, cookie: response.headers.get("Set-Cookie")?.split(";", 1)[0] };
 }
@@ -27,7 +39,7 @@ describe("Bun Server API", () => {
   test("automatically initializes a fresh database but not later migrations", async () => {
     const fresh = await openDatabase(":memory:");
     const migrations = fresh.query("SELECT name FROM schema_migrations ORDER BY name").all() as Array<{ name: string }>;
-    expect(migrations.map((item) => item.name)).toEqual(["0001_initial.sql", "0002_sqlite_share_snapshots.sql", "0003_pwa_sync.sql", "0004_sync_tombstones.sql"]);
+    expect(migrations.map((item) => item.name)).toEqual(["0001_initial.sql", "0002_sqlite_share_snapshots.sql", "0003_pwa_sync.sql", "0004_sync_tombstones.sql", "0005_image_assets.sql"]);
     expect(fresh.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'users'").get()).toBeDefined();
     fresh.close();
 
@@ -46,7 +58,7 @@ describe("Bun Server API", () => {
   test("applies SQLite migrations idempotently and reports health", async () => {
     await applyMigrations(database);
     const migrations = database.query("SELECT name FROM schema_migrations ORDER BY name").all() as Array<{ name: string }>;
-    expect(migrations.map((item) => item.name)).toEqual(["0001_initial.sql", "0002_sqlite_share_snapshots.sql", "0003_pwa_sync.sql", "0004_sync_tombstones.sql"]);
+    expect(migrations.map((item) => item.name)).toEqual(["0001_initial.sql", "0002_sqlite_share_snapshots.sql", "0003_pwa_sync.sql", "0004_sync_tombstones.sql", "0005_image_assets.sql"]);
 
     const health = await request("/api/health");
     expect(health.response.status).toBe(200);
@@ -99,6 +111,97 @@ describe("Bun Server API", () => {
 
     const notebooks = await request("/api/notebooks", {}, login.cookie);
     expect(notebooks.body?.notebooks.find((item: { id: string }) => item.id === notebook.id).count).toBe(1);
+  });
+
+  test("uploads isolated image assets, returns thumbnails, and cleans files on permanent deletion", async () => {
+    const unauthenticated = await request("/api/assets", { method: "POST", body: imageForm() });
+    expect(unauthenticated.response.status).toBe(401);
+
+    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
+    const uploaded = await request("/api/assets", { method: "POST", body: imageForm("猫.png") }, login.cookie);
+    expect(uploaded.response.status).toBe(201);
+    const asset = uploaded.body?.asset;
+    expect(asset).toMatchObject({ originalName: "猫.png", mimeType: "image/png", byteSize: ONE_PIXEL_PNG.byteLength, width: 1, height: 1 });
+
+    const columns = database.query("PRAGMA table_info(image_assets)").all() as Array<{ name: string; type: string }>;
+    expect(columns.some((column) => /blob|data|content/iu.test(column.name) || /blob/iu.test(column.type))).toBe(false);
+    const stored = database.query("SELECT storage_path FROM image_assets WHERE id = ?").get(asset.id) as { storage_path: string };
+    expect(stored.storage_path).toMatch(/^.+\/[0-9a-f-]+\.png$/u);
+    expect(await Bun.file(join(assetRoot, stored.storage_path)).exists()).toBe(true);
+
+    const noteContent = `![猫](${asset.url}?w=320&h=240)`;
+    const created = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "带图片", contentMarkdown: noteContent }) }, login.cookie);
+    expect(created.response.status).toBe(201);
+    expect(created.body?.note.thumbnail).toMatchObject({ id: asset.id, url: asset.url, width: 1, height: 1 });
+    const list = await request("/api/notes?view=all", {}, login.cookie);
+    expect(list.body?.notes.find((item: { id: string }) => item.id === created.body?.note.id).thumbnail.id).toBe(asset.id);
+
+    const imageResponse = await handleRequest(new Request(`http://xiangying.test${asset.url}`, { headers: { Cookie: login.cookie! } }), { database, environment, clientRoot: "dist/client", assetRoot });
+    expect(imageResponse.status).toBe(200);
+    expect(new Uint8Array(await imageResponse.arrayBuffer())).toEqual(ONE_PIXEL_PNG);
+
+    const unsafe = database.query("UPDATE image_assets SET storage_path = ? WHERE id = ?").run("../outside.png", asset.id);
+    expect(unsafe.changes).toBe(1);
+    const isolated = await request(asset.url, {}, login.cookie);
+    expect(isolated.response.status).toBe(404);
+  });
+
+  test("rejects unsupported image bytes and cross-user note references, and protects shared images", async () => {
+    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
+    const unsupported = await request("/api/assets", { method: "POST", body: imageForm("vector.svg", new TextEncoder().encode("<svg></svg>"), "image/svg+xml") }, login.cookie);
+    expect(unsupported.response.status).toBe(415);
+    expect(unsupported.body?.error.code).toBe("UNSUPPORTED_IMAGE");
+    const oversized = await request("/api/assets", { method: "POST", body: imageForm("large.png", new Uint8Array(10 * 1024 * 1024 + 1)) }, login.cookie);
+    expect(oversized.response.status).toBe(413);
+    expect(oversized.body?.error.code).toBe("IMAGE_TOO_LARGE");
+    const remoteImage = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "远程图片", contentMarkdown: "![remote](https://example.com/image.png)" }) }, login.cookie);
+    expect(remoteImage.response.status).toBe(400);
+    expect(remoteImage.body?.error.code).toBe("INVALID_ASSET");
+
+    const uploaded = await request("/api/assets", { method: "POST", body: imageForm() }, login.cookie);
+    const asset = uploaded.body?.asset;
+    const otherEnvironment = { ...environment, XIANGYING_USERNAME: "other" };
+    const otherLogin = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "other", password: environment.XIANGYING_PASSWORD }) }, undefined, otherEnvironment);
+    const crossUser = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "越权图片", contentMarkdown: `![x](${asset.url})` }) }, otherLogin.cookie, otherEnvironment);
+    expect(crossUser.response.status).toBe(400);
+    expect(crossUser.body?.error.code).toBe("INVALID_ASSET");
+
+    const created = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "分享图片", contentMarkdown: `![x](${asset.url}?w=400&h=300)` }) }, login.cookie);
+    const share = await request(`/api/notes/${created.body?.note.id}/shares`, { method: "POST", body: "{}" }, login.cookie);
+    const token = String(share.body?.share.url).split("/share/")[1];
+    const snapshot = await request(`/api/shares/${token}`);
+    expect(snapshot.body?.snapshot.contentMarkdown).toContain(`/api/share-assets/${token}/${asset.id}`);
+    const publicImage = await handleRequest(new Request(`http://xiangying.test/api/share-assets/${token}/${asset.id}`), { database, environment, clientRoot: "dist/client", assetRoot });
+    expect(publicImage.status).toBe(200);
+    expect(publicImage.headers.get("Cache-Control")).toBe("no-store");
+
+    const revoked = await request(`/api/shares/${share.body?.share.id}`, { method: "DELETE" }, login.cookie);
+    expect(revoked.response.status).toBe(200);
+    const unavailable = await handleRequest(new Request(`http://xiangying.test/api/share-assets/${token}/${asset.id}`), { database, environment, clientRoot: "dist/client", assetRoot });
+    expect(unavailable.status).toBe(410);
+    expect((await unavailable.json()).error.code).toBe("SHARE_REVOKED");
+
+    const expiring = await request(`/api/notes/${created.body?.note.id}/shares`, { method: "POST", body: "{}" }, login.cookie);
+    const expiringToken = String(expiring.body?.share.url).split("/share/")[1];
+    database.query("UPDATE shares SET expires_at = 0 WHERE id = ?").run(expiring.body?.share.id);
+    const expiredImage = await handleRequest(new Request(`http://xiangying.test/api/share-assets/${expiringToken}/${asset.id}`), { database, environment, clientRoot: "dist/client", assetRoot });
+    expect(expiredImage.status).toBe(410);
+    expect((await expiredImage.json()).error.code).toBe("SHARE_EXPIRED");
+  });
+
+  test("deletes image assets and files with permanently deleted notes", async () => {
+    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
+    const uploaded = await request("/api/assets", { method: "POST", body: imageForm("delete-me.png") }, login.cookie);
+    const asset = uploaded.body?.asset;
+    const created = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "待清理图片", contentMarkdown: `![x](${asset.url})` }) }, login.cookie);
+    const stored = database.query("SELECT storage_path FROM image_assets WHERE id = ?").get(asset.id) as { storage_path: string };
+    expect(await Bun.file(join(assetRoot, stored.storage_path)).exists()).toBe(true);
+    const trashed = await request(`/api/notes/${created.body?.note.id}`, { method: "PATCH", body: JSON.stringify({ version: created.body?.note.version, deleted: true }) }, login.cookie);
+    expect(trashed.response.status).toBe(200);
+    const deleted = await request(`/api/notes/${created.body?.note.id}`, { method: "DELETE" }, login.cookie);
+    expect(deleted.response.status).toBe(200);
+    expect(database.query("SELECT id FROM image_assets WHERE id = ?").get(asset.id)).toBeNull();
+    expect(await Bun.file(join(assetRoot, stored.storage_path)).exists()).toBe(false);
   });
 
   test("supports incremental sync, idempotent mutations and explicit conflicts", async () => {
