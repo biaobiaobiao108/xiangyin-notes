@@ -1,4 +1,4 @@
-import { mkdir, rename, unlink } from "node:fs/promises";
+import { mkdir, rename } from "node:fs/promises";
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { ImageAssetSummary, ShareSnapshot, Note, NoteSummary, NoteView, Share, Notebook } from "../shared/types";
 import type { SyncChange, SyncMutation, SyncPullResponse, SyncPushResult, SyncPushResponse } from "../shared/sync";
@@ -604,7 +604,7 @@ async function removeAssetFiles(assetRoot: string, storagePaths: string[]) {
       continue;
     }
     try {
-      await unlink(filePath);
+      await Bun.file(filePath).unlink();
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") console.warn("[assets] failed to delete asset file", filePath, error);
     }
@@ -688,8 +688,8 @@ async function uploadImageAsset(request: Request, database: SqliteDatabase, user
     await rename(temporaryPath, filePath);
     database.query("INSERT INTO image_assets (id, user_id, storage_path, original_name, mime_type, byte_size, width, height, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").run(id, user.id, storagePath, safeOriginalName(entry.name), inspection.mimeType, bytes.byteLength, inspection.width, inspection.height, now());
   } catch (error) {
-    await unlink(temporaryPath).catch(() => undefined);
-    await unlink(filePath).catch(() => undefined);
+    await Bun.file(temporaryPath).unlink().catch(() => undefined);
+    await Bun.file(filePath).unlink().catch(() => undefined);
     throw error;
   }
 
