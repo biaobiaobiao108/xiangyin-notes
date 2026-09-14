@@ -173,9 +173,14 @@ export function Workspace() {
     try {
       const result = await api.listNotes({ view, query: deferredQuery, notebookId });
       if (requestId !== listRequestRef.current || listScope !== listScopeRef.current || trashOperationsRef.current.size || emptyingTrashRef.current) return;
-      replaceList(result.notes);
-      setTotalNotes(result.total);
-      setSelectedId((current) => current && result.notes.some((note) => note.id === current) ? current : result.notes[0]?.id ?? null);
+      const active = selectedRef.current;
+      const notesToDisplay = active && !result.notes.some((note) => note.id === active.id) &&
+        (notebookId ? active.notebookId === notebookId : view === "inbox" ? !notebooks.find((b) => b.id === active.notebookId && !b.isSystem) : view === "all" ? !active.deletedAt : true)
+        ? [active, ...result.notes]
+        : result.notes;
+      replaceList(notesToDisplay);
+      setTotalNotes(Math.max(result.total, notesToDisplay.length));
+      setSelectedId((current) => current && notesToDisplay.some((note) => note.id === current) ? current : notesToDisplay[0]?.id ?? null);
       playPendingListTransition();
     } catch (reason) {
       if (reason instanceof ApiError && reason.status === 401 && !offlineSync.getState().pendingCount) navigate("/login", { replace: true });
@@ -187,7 +192,7 @@ export function Workspace() {
       setSelectedId((current) => current && localNotes.some((note) => note.id === current) ? current : localNotes[0]?.id ?? null);
       playPendingListTransition();
     }
-  }, [deferredQuery, listScope, navigate, notebookId, notesReloadToken, playPendingListTransition, replaceList, view]);
+  }, [deferredQuery, listScope, navigate, notebookId, notebooks, notesReloadToken, playPendingListTransition, replaceList, view]);
   const reloadNotes = useCallback(() => setNotesReloadToken((value) => value + 1), []);
   useEffect(() => {
     if (!ready || syncState.status !== "synced") return;
@@ -436,12 +441,34 @@ export function Workspace() {
       setSelectedNote(next);
       replaceList(notesRef.current.map((note) => note.id === current.id ? { ...note, ...next } : note));
     }
-    persist(next);
+
     if (patch.notebookId && patch.notebookId !== current.notebookId) {
+      const timer = saveTimersRef.current.get(current.id);
+      if (timer) clearTimeout(timer);
+      saveTimersRef.current.delete(current.id);
+      pendingSavesRef.current.set(current.id, toNoteDraft(next));
+      setSaveState("saving");
+      void runSave(current.id);
+
+      if (targetNotebook) {
+        invalidateCollections();
+        searchOriginRef.current = null;
+        setQuery("");
+        const targetView: NoteView = targetNotebook.isSystem ? "inbox" : "all";
+        const targetNotebookId = targetNotebook.isSystem ? undefined : targetNotebook.id;
+        requestListTransition();
+        setView(targetView);
+        setNotebookId(targetNotebookId);
+        replaceList([next]);
+        setMobileSidebarOpen(false);
+        setMobileListOpen(false);
+      }
       refreshNotebooks();
       setToast(targetNotebook ? `已移至“${targetNotebook.name}”` : "已变更所属笔记本");
+    } else {
+      persist(next);
     }
-  }, [notebooks, persist, refreshNotebooks]);
+  }, [invalidateCollections, notebooks, persist, refreshNotebooks, replaceList, requestListTransition, runSave]);
   const revealCreatedNote = useCallback((note: Note, target: { view: NoteView; notebookId?: string }, message: string) => {
     invalidateCollections();
     searchOriginRef.current = null;
