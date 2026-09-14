@@ -9,7 +9,7 @@ import { applyPwaUpdate, installPwa, subscribePwa, type PwaState } from "./pwa";
 import type { Note, NoteSummary, NoteView, Notebook } from "../shared/types";
 import { ConfirmDialog, ConflictDialog, NotebookDialog, ShareDialog, type ConfirmRequest } from "./workspace/dialogs";
 import { EmptyEditor, NoteListPanel, NoteLoadingState, Sidebar, SyncNotice } from "./workspace/panels";
-import { filterOfflineNotes, errorMessage, sortNotes, toNoteDraft, type NoteDraft, type NoteSort } from "./workspace/helpers";
+import { filterOfflineNotes, errorMessage, shouldKeepActiveNoteInList, sortNotes, toNoteDraft, type NoteDraft, type NoteSort } from "./workspace/helpers";
 
 const LazyNoteEditor = lazy(() => import("./editor").then(({ NoteEditor }) => ({ default: NoteEditor })));
 export function Workspace() {
@@ -191,7 +191,7 @@ export function Workspace() {
       if (requestId !== listRequestRef.current || listScope !== listScopeRef.current || trashOperationsRef.current.size || emptyingTrashRef.current) return;
       const active = selectedRef.current;
       const notesToDisplay = active && !result.notes.some((note) => note.id === active.id) &&
-        (notebookId ? active.notebookId === notebookId : view === "inbox" ? !notebooks.find((b) => b.id === active.notebookId && !b.isSystem) : view === "all" ? !active.deletedAt : true)
+        shouldKeepActiveNoteInList(active, notebooks, view, deferredQuery, notebookId)
         ? [active, ...result.notes]
         : result.notes;
       replaceList(notesToDisplay);
@@ -399,7 +399,7 @@ export function Workspace() {
     inFlightSavesRef.current.set(noteId, task);
     try { await task; }
     finally { if (inFlightSavesRef.current.get(noteId) === task) inFlightSavesRef.current.delete(noteId); }
-  }, [replaceList]);
+  }, [notebooks, replaceList]);
   const persist = useCallback((draft: Note | NoteDraft) => {
     const pendingDraft = toNoteDraft(draft);
     pendingSavesRef.current.set(pendingDraft.id, pendingDraft);
@@ -473,8 +473,6 @@ export function Workspace() {
       saveTimersRef.current.delete(current.id);
       pendingSavesRef.current.set(current.id, toNoteDraft(next));
       setSaveState("saving");
-      void runSave(current.id);
-
       if (targetNotebook) {
         invalidateCollections();
         searchOriginRef.current = null;
@@ -485,15 +483,27 @@ export function Workspace() {
         setView(targetView);
         setNotebookId(targetNotebookId);
         replaceList([next]);
+        setTotalNotes(Math.max(1, targetNotebook.count + 1));
+        setNotebooks((items) => items.map((notebook) => {
+          if (notebook.id === current.notebookId) return { ...notebook, count: Math.max(0, notebook.count - 1) };
+          if (notebook.id === targetNotebook.id) return { ...notebook, count: notebook.count + 1 };
+          return notebook;
+        }));
         setMobileSidebarOpen(false);
         setMobileListOpen(false);
       }
-      refreshNotebooks();
+      void runSave(current.id).then(() => {
+        refreshNotebooks();
+        reloadNotes();
+      }).catch(() => {
+        refreshNotebooks();
+        reloadNotes();
+      });
       setToast(targetNotebook ? `已移至“${targetNotebook.name}”` : "已变更所属笔记本");
     } else {
       persist(next);
     }
-  }, [invalidateCollections, notebooks, persist, refreshNotebooks, replaceList, requestListTransition, runSave]);
+  }, [invalidateCollections, notebooks, persist, refreshNotebooks, reloadNotes, replaceList, requestListTransition, runSave]);
   const revealCreatedNote = useCallback((note: Note, target: { view: NoteView; notebookId?: string }, message: string) => {
     invalidateCollections();
     searchOriginRef.current = null;

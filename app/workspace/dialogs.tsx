@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { AlertTriangle, FileText, Folder, Link2, Plus, RefreshCw, Share2, X } from "lucide-react";
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
+import { AlertTriangle, Check, Clock3, Copy, FileText, Folder, Link2, Plus, RefreshCw, Share2, ShieldCheck, X } from "lucide-react";
 import { ApiError, api } from "../api";
+import { FloatingScrollbar } from "../floating-scrollbar";
 import type { OfflineConflict } from "../offline-store";
 import { offlineSync } from "../offline-sync";
 import type { Note, Notebook, Share } from "../../shared/types";
@@ -66,15 +67,112 @@ export function ConflictDialog({ conflict, onClose, onResolved }: { conflict: Of
 
 export function ShareDialog({ note, onClose, onToast }: { note: Note; onClose: () => void; onToast: (message: string) => void }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
   const shareUrlRef = useRef<HTMLInputElement>(null);
   const [shares, setShares] = useState<Share[]>([]);
   const [newUrl, setNewUrl] = useState("");
   const [busy, setBusy] = useState(false);
-  useEffect(() => { const dialog = dialogRef.current; if (!dialog) return; const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null; dialog.showModal(); void api.listShares(note.id).then((result) => setShares(result.shares)).catch(() => onToast("加载分享记录失败")); return () => { if (dialog.open) dialog.close(); if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true }); }; }, [note.id]);
-  const create = async () => { setBusy(true); try { const result = await api.createShare(note.id); setShares((current) => [result.share, ...current]); setNewUrl(result.share.url ?? ""); onToast("分享链接已生成"); } catch { onToast("生成分享链接失败"); } finally { setBusy(false); } };
-  const copy = async (url: string) => { try { if (!navigator.clipboard?.writeText) throw new Error("clipboard-unavailable"); await navigator.clipboard.writeText(url); onToast("链接已复制"); } catch { shareUrlRef.current?.select(); onToast("复制失败，请手动复制选中的链接"); } };
+  const [loadingShares, setLoadingShares] = useState(true);
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const handleNativeClose = () => onClose();
+    dialog.setAttribute("closedby", "any");
+    dialog.addEventListener("close", handleNativeClose);
+    dialog.showModal();
+    void api.listShares(note.id)
+      .then((result) => setShares(result.shares))
+      .catch(() => onToast("加载分享记录失败"))
+      .finally(() => setLoadingShares(false));
+    return () => {
+      dialog.removeEventListener("close", handleNativeClose);
+      if (dialog.open) dialog.close();
+      if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
+    };
+  }, [note.id]);
+  const create = async () => {
+    setBusy(true);
+    setCopied(false);
+    try {
+      const result = await api.createShare(note.id);
+      setShares((current) => [result.share, ...current]);
+      setNewUrl(result.share.url ?? "");
+      requestAnimationFrame(() => shareUrlRef.current?.select());
+      onToast("分享链接已生成");
+    } catch {
+      onToast("生成分享链接失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const copy = async (url: string) => {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("clipboard-unavailable");
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      onToast("链接已复制");
+    } catch {
+      shareUrlRef.current?.select();
+      onToast("复制失败，请手动复制选中的链接");
+    }
+  };
   const revoke = async (id: string) => { try { await api.revokeShare(id); setShares((current) => current.map((share) => share.id === id ? { ...share, revokedAt: Math.floor(Date.now() / 1000) } : share)); onToast("分享已撤销"); } catch { onToast("撤销分享失败，请重试"); } };
-  return <dialog ref={dialogRef} className="share-dialog" aria-labelledby="share-dialog-title" aria-describedby="share-dialog-description" onCancel={(event) => { event.preventDefault(); onClose(); }}><div className="dialog-heading share-dialog-heading"><div><span className="dialog-eyebrow"><Share2 size={15} />只读快照</span><h2 id="share-dialog-title">分享这篇笔记</h2><p id="share-dialog-description">生成一个 7 天有效的公开阅读链接。</p></div><button className="icon-button" type="button" aria-label="关闭分享窗口" onClick={onClose}><X size={18} /></button></div><div className="share-note-context"><span className="share-note-context-icon"><FileText size={18} /></span><div><strong>{note.title || "未命名笔记"}</strong><span>公开只读 · 快照有效 7 天</span></div></div>{newUrl && <div className="share-result"><span className="share-result-icon"><Link2 size={18} /></span><div><strong>链接已准备好</strong><input ref={shareUrlRef} value={newUrl} readOnly aria-label="分享链接" /></div><button className="secondary-button" type="button" onClick={() => void copy(newUrl)}>复制</button></div>}<div className="share-dialog-actions"><button className="primary-button share-create-button" type="button" onClick={() => void create()} disabled={busy}><Plus size={18} />{busy ? "正在生成……" : "生成新链接"}</button><p>快照创建后保持不变，原笔记的后续修改不会影响分享内容。</p></div>{shares.length > 0 && <div className="share-history"><div className="share-history-heading"><h3>分享记录</h3><span>{shares.length}</span></div>{shares.map((share) => <div className="share-history-row" key={share.id}><span className={`share-status-dot ${share.revokedAt || share.expiresAt * 1000 < Date.now() ? "is-inactive" : ""}`} /><span>{share.revokedAt ? "已撤销" : share.expiresAt * 1000 < Date.now() ? "已过期" : `有效至 ${formatDate(share.expiresAt)}`}</span>{!share.revokedAt && share.expiresAt * 1000 >= Date.now() && <button className="text-button" type="button" onClick={() => void revoke(share.id)}>撤销</button>}</div>)}</div>}</dialog>;
+  const handleBackdropClick = (event: ReactMouseEvent<HTMLDialogElement>) => {
+    if (event.target !== event.currentTarget) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const inside = event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom;
+    if (!inside) onClose();
+  };
+  return <dialog ref={dialogRef} className="share-dialog" aria-labelledby="share-dialog-title" aria-describedby="share-dialog-description" onClick={handleBackdropClick} onCancel={(event) => { event.preventDefault(); onClose(); }}>
+    <header className="share-dialog-heading">
+      <span className="share-dialog-mark" aria-hidden="true"><Share2 size={21} /></span>
+      <div>
+        <span className="dialog-eyebrow">公开分享</span>
+        <h2 id="share-dialog-title">分享这篇笔记</h2>
+        <p id="share-dialog-description">为当前内容创建一份独立、只读的公开快照。</p>
+      </div>
+      <button className="icon-button share-dialog-close" type="button" aria-label="关闭分享窗口" onClick={onClose}><X size={18} /></button>
+    </header>
+    <div className="share-dialog-body-shell">
+      <div id="share-dialog-scroll-region" ref={bodyRef} className="share-dialog-body floating-scrollbar-target">
+        <div className="share-note-context">
+          <span className="share-note-context-icon" aria-hidden="true"><FileText size={18} /></span>
+          <div><strong>{note.title || "未命名笔记"}</strong><span>{note.notebookName}</span></div>
+          <span className="share-note-badge">只读</span>
+        </div>
+        <section className="share-create-panel" aria-labelledby="share-create-title">
+          <div className="share-create-copy">
+            <h3 id="share-create-title">创建新的阅读链接</h3>
+            <p>每次生成都会保存此刻的内容，适合放心发送给他人。</p>
+          </div>
+          <div className="share-policy-list" aria-label="分享规则">
+            <span><Clock3 size={15} aria-hidden="true" />7 天后自动失效</span>
+            <span><ShieldCheck size={15} aria-hidden="true" />原文更新不影响快照</span>
+          </div>
+          <button className="primary-button share-create-button" type="button" onClick={() => void create()} disabled={busy}><Plus size={18} />{busy ? "正在生成……" : "生成分享链接"}</button>
+        </section>
+        {newUrl && <div className="share-result" role="status">
+          <span className="share-result-icon" aria-hidden="true"><Link2 size={18} /></span>
+          <label><span>链接已准备好</span><input ref={shareUrlRef} value={newUrl} readOnly aria-label="分享链接" onFocus={(event) => event.currentTarget.select()} /></label>
+          <button className={`secondary-button share-copy-button ${copied ? "is-copied" : ""}`} type="button" onClick={() => void copy(newUrl)}>{copied ? <Check size={16} /> : <Copy size={16} />}{copied ? "已复制" : "复制"}</button>
+        </div>}
+        <section className="share-history" aria-labelledby="share-history-title">
+          <div className="share-history-heading"><h3 id="share-history-title">分享记录</h3>{shares.length > 0 && <span>{shares.length}</span>}</div>
+          {loadingShares ? <p className="share-history-empty" role="status">正在加载分享记录……</p> : shares.length === 0 ? <p className="share-history-empty">还没有生成过分享链接</p> : shares.map((share) => {
+            const inactive = Boolean(share.revokedAt || share.expiresAt * 1000 < Date.now());
+            return <div className="share-history-row" key={share.id}>
+              <span className={`share-status-icon ${inactive ? "is-inactive" : ""}`} aria-hidden="true"><Link2 size={14} /></span>
+              <span className="share-history-meta"><strong>{share.revokedAt ? "已撤销" : share.expiresAt * 1000 < Date.now() ? "已过期" : "链接有效"}</strong><span>{share.revokedAt ? `创建于 ${formatDate(share.createdAt)}` : `有效至 ${formatDate(share.expiresAt)}`}</span></span>
+              {!inactive && <button className="text-button" type="button" onClick={() => void revoke(share.id)}>撤销</button>}
+            </div>;
+          })}
+        </section>
+      </div>
+      <FloatingScrollbar scrollTargetRef={bodyRef} controlsId="share-dialog-scroll-region" ariaLabel="分享窗口滚动条" placement="right" />
+    </div>
+  </dialog>;
 }
 
 export function NotebookDialog({ notebook, onClose, onSave, onSaved, onRequestDelete, onToast }: { notebook?: Notebook | null; onClose: () => void; onSave: (draft: { name: string; color: string }) => Promise<Notebook>; onSaved: (notebook: Notebook) => void; onRequestDelete?: (notebook: Notebook) => void; onToast: (message: string) => void }) {

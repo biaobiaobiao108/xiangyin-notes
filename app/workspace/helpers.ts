@@ -50,6 +50,18 @@ export function filterOfflineNotes(notes: Note[], notebooks: Notebook[], view: N
   });
 }
 
+export function shouldKeepActiveNoteInList(note: Note, notebooks: Notebook[], view: NoteView, query: string, notebookId?: string) {
+  // Search and shared membership are server-derived. Re-inserting the active note
+  // there would make an unrelated note look like a search result or active share.
+  if (query.trim() || view === "shared") return false;
+  if (view === "trash") return note.deletedAt !== null;
+  if (note.deletedAt !== null) return false;
+  if (notebookId) return note.notebookId === notebookId;
+  if (view === "favorites") return note.isFavorite;
+  if (view === "inbox") return Boolean(notebooks.find((notebook) => notebook.id === note.notebookId)?.isSystem);
+  return view === "all";
+}
+
 export function viewLabel(view: NoteView) {
   return ({ all: "全部笔记", inbox: "收件箱", favorites: "收藏", shared: "已分享", trash: "回收站" })[view];
 }
