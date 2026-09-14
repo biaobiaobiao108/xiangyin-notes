@@ -41,6 +41,7 @@
 html, body, #root { min-height: 100%; margin: 0; }
 body { min-width: 320px; background: var(--canvas); }
 body { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+html:has(.app-shell), body:has(.app-shell) { overflow: hidden; }
 button, input { font: inherit; }
 button { color: inherit; }
 button:disabled { cursor: not-allowed; opacity: 0.52; }
