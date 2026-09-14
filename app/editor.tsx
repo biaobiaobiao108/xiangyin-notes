@@ -57,6 +57,15 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   const initialContentRef = useRef(note.contentMarkdown);
   const isPastingRef = useRef(false);
   const smoothScrollToHeadRef = useRef<(view: Editor["view"]) => void>(() => undefined);
+  const outlineScrollAnimRef = useRef<number | null>(null);
+  const programmaticOutlineScrollIdRef = useRef<string | null>(null);
+  const cancelOutlineSmoothScroll = useCallback(() => {
+    if (outlineScrollAnimRef.current !== null) {
+      cancelAnimationFrame(outlineScrollAnimRef.current);
+      outlineScrollAnimRef.current = null;
+    }
+    programmaticOutlineScrollIdRef.current = null;
+  }, []);
   const onChangeRef = useRef(onChange);
   const surfaceSyncRef = useRef<(instance: Editor) => void>(() => undefined);
   const [editorStats, setEditorStats] = useState<EditorStats>(() => countEditorText(""));
@@ -459,6 +468,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     imeCleanupTimerRef.current = null;
     leakedCandidateRef.current = null;
     composingRef.current = false;
+    cancelOutlineSmoothScroll();
     setOutlineOpen(false);
     setActiveOutlineId(null);
     setOutlineItems([]);
@@ -575,19 +585,19 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     let activeFrame: number | null = null;
     const getCurrentHeadings = () => Array.from(root.querySelectorAll<HTMLElement>("h1, h2, h3")).filter((heading) => heading.textContent?.trim());
     const updateActiveHeading = () => {
+      if (programmaticOutlineScrollIdRef.current) return;
       const currentHeadings = getCurrentHeadings();
       const rootTop = root.getBoundingClientRect().top;
       const activationLine = rootTop + 32;
       let currentId: string | null = null;
       const maxScrollTop = Math.max(0, root.scrollHeight - root.clientHeight);
-      if (root.scrollTop >= maxScrollTop - 1) {
+      for (const [index, item] of outlineItems.entries()) {
+        const element = currentHeadings[index];
+        if (element && element.getBoundingClientRect().top <= activationLine) currentId = item.id;
+        else if (currentId) break;
+      }
+      if (!currentId && root.scrollTop >= maxScrollTop - 1) {
         currentId = outlineItems[outlineItems.length - 1]?.id ?? null;
-      } else {
-        for (const [index, item] of outlineItems.entries()) {
-          const element = currentHeadings[index];
-          if (element && element.getBoundingClientRect().top <= activationLine) currentId = item.id;
-          else if (currentId) break;
-        }
       }
       const nextId = currentId ?? outlineItems[0]?.id ?? null;
       setActiveOutlineId((current) => current === nextId ? current : nextId);
@@ -600,6 +610,11 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       });
     };
 
+    const handleUserScroll = () => {
+      cancelOutlineSmoothScroll();
+      scheduleActiveHeading();
+    };
+
     const observer = typeof IntersectionObserver === "undefined" ? null : new IntersectionObserver(scheduleActiveHeading, {
       root,
       rootMargin: "-12% 0px -68% 0px",
@@ -610,29 +625,73 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       observer?.observe(element);
     }
     root.addEventListener("scroll", scheduleActiveHeading, { passive: true });
+    root.addEventListener("wheel", handleUserScroll, { passive: true });
+    root.addEventListener("touchstart", handleUserScroll, { passive: true });
+    root.addEventListener("pointerdown", handleUserScroll, { passive: true });
     scheduleActiveHeading();
     return () => {
       observer?.disconnect();
       root.removeEventListener("scroll", scheduleActiveHeading);
+      root.removeEventListener("wheel", handleUserScroll);
+      root.removeEventListener("touchstart", handleUserScroll);
+      root.removeEventListener("pointerdown", handleUserScroll);
       if (activeFrame !== null) cancelAnimationFrame(activeFrame);
+      cancelOutlineSmoothScroll();
     };
-  }, [outlineItems]);
+  }, [cancelOutlineSmoothScroll, outlineItems]);
 
-  const scrollToOutlineItem = (id: string) => {
+  const scrollToOutlineItem = useCallback((id: string) => {
     const scrollRoot = editorScrollRef.current;
+    if (!scrollRoot) return;
+
     const itemIndex = outlineItems.findIndex((item) => item.id === id);
-    const currentHeadings = scrollRoot
-      ? Array.from(scrollRoot.querySelectorAll<HTMLElement>("h1, h2, h3")).filter((heading) => heading.textContent?.trim())
-      : [];
+    const currentHeadings = Array.from(scrollRoot.querySelectorAll<HTMLElement>("h1, h2, h3")).filter((heading) => heading.textContent?.trim());
     const element = itemIndex >= 0 ? currentHeadings[itemIndex] : undefined;
-    if (!element || !scrollRoot) return;
+    if (!element) return;
+
+    cancelOutlineSmoothScroll();
+
     const rootRect = scrollRoot.getBoundingClientRect();
     const elementRect = element.getBoundingClientRect();
     const maxScrollTop = Math.max(0, scrollRoot.scrollHeight - scrollRoot.clientHeight);
     const targetTop = Math.min(maxScrollTop, Math.max(0, scrollRoot.scrollTop + elementRect.top - rootRect.top - 24));
-    scrollRoot.scrollTo({ top: targetTop, behavior: "auto" });
+
     setActiveOutlineId(id);
-  };
+    programmaticOutlineScrollIdRef.current = id;
+
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const startTop = scrollRoot.scrollTop;
+    const distance = targetTop - startTop;
+
+    if (prefersReducedMotion || Math.abs(distance) < 2) {
+      scrollRoot.scrollTop = targetTop;
+      programmaticOutlineScrollIdRef.current = null;
+      return;
+    }
+
+    // 参照搜索导航的平滑过渡动画，并针对大纲跳转场景进行速度加快与敏捷调校（160ms ~ 240ms），
+    // 配合 quartic ease-out 缓动曲线，比浏览器原生固定约 400~600ms 的平滑滚动更加轻快且视觉连贯。
+    const duration = Math.min(240, Math.max(160, Math.round(Math.abs(distance) * 0.08 + 140)));
+    const startTime = performance.now();
+    const easeOutQuart = (t: number) => 1 - Math.pow(1 - t, 4);
+
+    const step = (now: number) => {
+      const elapsed = now - startTime;
+      const progress = Math.min(1, elapsed / duration);
+      const eased = easeOutQuart(progress);
+      scrollRoot.scrollTop = Math.round(startTop + distance * eased);
+
+      if (progress < 1) {
+        outlineScrollAnimRef.current = requestAnimationFrame(step);
+      } else {
+        scrollRoot.scrollTop = targetTop;
+        outlineScrollAnimRef.current = null;
+        programmaticOutlineScrollIdRef.current = null;
+      }
+    };
+
+    outlineScrollAnimRef.current = requestAnimationFrame(step);
+  }, [cancelOutlineSmoothScroll, outlineItems]);
 
   const saveLabel = saveState === "saving" ? "保存中" : saveState === "local" ? "已保存到本机" : "已保存";
   return (
