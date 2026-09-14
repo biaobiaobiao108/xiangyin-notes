@@ -273,7 +273,6 @@ button.save-status:hover { text-decoration: underline; }
 @keyframes pulse { 50% { opacity: 0.4; transform: scale(0.8); } }
 .star-glyph { color: currentColor; font-size: 20px; line-height: 1; }
 .icon-button.is-active { color: var(--accent); }
-.trash-mark { transform: rotate(45deg); }
 .danger-button:hover { color: var(--accent-dark); background: var(--accent-soft); border-color: #f2c2b4; }
 .trashed-banner {
   display: flex;

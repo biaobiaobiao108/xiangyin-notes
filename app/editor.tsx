@@ -8,7 +8,7 @@ import TaskItem from "@tiptap/extension-task-item";
 import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
 import { findWrapping } from "@tiptap/pm/transform";
-import { ChevronLeft, Link2, Maximize2, Minimize2, Minus, Trash2, Undo2 } from "lucide-react";
+import { ChevronLeft, Link2, Maximize2, Minimize2, Trash2, Undo2 } from "lucide-react";
 import type { Note } from "../shared/types";
 import { BrandMark } from "./brand-mark";
 import { cycleSearchMatchIndex, findEditorSearchMatches, findTextMatches, searchHighlightPluginKey, SearchHighlightExtension } from "./editor-search";
@@ -612,7 +612,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
           {note.deletedAt ? <>
             <button className="icon-button" type="button" aria-label="恢复笔记" title="恢复笔记" onClick={onRestore} disabled={editorLocked || trashBusy}><Undo2 size={18} strokeWidth={1.8} /></button>
             {onPermanentDelete && <button className="icon-button danger-button" type="button" aria-label="彻底删除" title="彻底删除" onClick={onPermanentDelete} disabled={editorLocked || trashBusy}><Trash2 size={18} strokeWidth={1.8} /></button>}
-          </> : <button className="icon-button" type="button" aria-label="移入回收站" title="移入回收站" onClick={onMoveToTrash} disabled={editorLocked || trashBusy}><Minus size={18} strokeWidth={1.8} className="trash-mark" /></button>}
+          </> : <button className="icon-button" type="button" aria-label="移入回收站" title="移入回收站" onClick={onMoveToTrash} disabled={editorLocked || trashBusy}><Trash2 size={18} strokeWidth={1.8} /></button>}
         </div>
       </header>
       {focusMode && onToggleFocusMode && (
