@@ -35,10 +35,15 @@ function tagCharacterAt(markdown: string, index: number) {
   return codePoint === undefined ? "" : String.fromCodePoint(codePoint);
 }
 
-/** Extracts unique body hashtags in first-seen order, excluding fenced code blocks. */
-export function extractTags(markdown: string) {
-  const tags: string[] = [];
-  const seen = new Set<string>();
+export type TagRange = {
+  start: number;
+  end: number;
+  tag: string;
+};
+
+/** Finds body hashtag ranges in first-seen order, excluding fenced code blocks. */
+export function findTagRanges(markdown: string) {
+  const ranges: TagRange[] = [];
   let fence: Fence | null = null;
   let lineStart = 0;
 
@@ -63,12 +68,7 @@ export function extractTags(markdown: string) {
           if (!TAG_CHARACTER_PATTERN.test(character)) break;
           tagEnd += character.length;
         }
-        const tag = markdown.slice(tagStart, tagEnd);
-        const normalized = normalizeTag(tag);
-        if (!seen.has(normalized)) {
-          seen.add(normalized);
-          tags.push(tag);
-        }
+        ranges.push({ start: index, end: tagEnd, tag: markdown.slice(tagStart, tagEnd) });
         index = tagEnd - 1;
       }
     }
@@ -77,6 +77,19 @@ export function extractTags(markdown: string) {
     lineStart = lineBreak + 1;
   }
 
+  return ranges;
+}
+
+/** Extracts unique body hashtags in first-seen order, excluding fenced code blocks. */
+export function extractTags(markdown: string) {
+  const tags: string[] = [];
+  const seen = new Set<string>();
+  for (const range of findTagRanges(markdown)) {
+    const normalized = normalizeTag(range.tag);
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    tags.push(range.tag);
+  }
   return tags;
 }
 

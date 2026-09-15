@@ -7,6 +7,7 @@ import TaskItem from "@tiptap/extension-task-item";
 import Link from "@tiptap/extension-link";
 import { editorCoreExtensionOptions } from "./editor-config";
 import { ImageNode } from "./image-node";
+import { TagDecorationExtension } from "./tag-decoration";
 
 export function ReadOnlyMarkdown({ markdown }: { markdown: string }) {
   const initialContentRef = useRef(markdown);
@@ -17,6 +18,7 @@ export function ReadOnlyMarkdown({ markdown }: { markdown: string }) {
     TaskItem.configure({ nested: true }),
     Markdown,
     ImageNode,
+    TagDecorationExtension,
   ], []);
   const editorProps = useMemo(() => ({ attributes: { class: "note-prose share-prose" } }), []);
   const editor = useEditor({ editable: false, extensions, coreExtensionOptions: editorCoreExtensionOptions, content: initialContentRef.current, contentType: "markdown", editorProps });

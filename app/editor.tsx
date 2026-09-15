@@ -18,6 +18,7 @@ import { ImeMarkdownSafeExtension, imeMarkdownSafePluginKey } from "./ime-markdo
 import { editorCoreExtensionOptions } from "./editor/editor-config";
 import { EditorFloatingTools } from "./editor/editor-panels";
 import { ImageNode } from "./editor/image-node";
+import { TagDecorationExtension } from "./editor/tag-decoration";
 
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
 
@@ -260,6 +261,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     Markdown,
     ImageNode,
     ImeMarkdownSafeExtension,
+    TagDecorationExtension,
     SearchHighlightExtension,
   ], []);
 

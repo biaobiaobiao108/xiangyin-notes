@@ -1,9 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import { extractTags, hasTag, normalizeTag, parseTagQuery } from "../shared/tags";
+import { extractTags, findTagRanges, hasTag, normalizeTag, parseTagQuery } from "../shared/tags";
 
 describe("note tags", () => {
   test("extracts unique tags in first-seen order", () => {
     expect(extractTags("中文#项目 #Tag #项目-资料 #Tag_2 #tag")).toEqual(["项目", "Tag", "项目-资料", "Tag_2"]);
+  });
+
+  test("returns exact ranges for visual decorations", () => {
+    const markdown = "前#项目，后 #Tag";
+    expect(findTagRanges(markdown)).toEqual([
+      { start: 1, end: 4, tag: "项目" },
+      { start: 7, end: 11, tag: "Tag" },
+    ]);
   });
 
   test("ignores headings, malformed markers, and fenced code blocks", () => {
