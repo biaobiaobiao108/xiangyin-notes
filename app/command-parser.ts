@@ -38,26 +38,15 @@ export function parseCreateNoteCommand(query: string, notebooks: Notebook[]): Cr
 }
 
 export type ParsedSearchCommand = {
-  scope: "in-note" | "global";
+  scope: "in-note";
   term: string;
 };
 
-const GLOBAL_SEARCH_PREFIXES = ["全局搜索", "global", "all", "全局"];
 const IN_NOTE_SEARCH_PREFIXES = ["搜索", "查找", "find"];
 
 export function parseSearchPrefixCommand(query: string): ParsedSearchCommand | null {
   const trimmed = query.trimStart();
   if (!trimmed) return null;
-
-  for (const prefix of GLOBAL_SEARCH_PREFIXES) {
-    if (trimmed.toLowerCase().startsWith(prefix.toLowerCase())) {
-      const rest = trimmed.slice(prefix.length);
-      if (/^[\s:：]/.test(rest)) {
-        const term = rest.replace(/^[\s:：]+/u, "").trim();
-        return { scope: "global", term };
-      }
-    }
-  }
 
   for (const prefix of IN_NOTE_SEARCH_PREFIXES) {
     if (trimmed.toLowerCase().startsWith(prefix.toLowerCase())) {
@@ -130,4 +119,3 @@ export function parseMoveNoteCommand(query: string, notebooks: Notebook[]): Move
 
   return null;
 }
-

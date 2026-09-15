@@ -52,13 +52,13 @@ describe("search prefix parser", () => {
     expect(parseSearchPrefixCommand("搜索 ")).toEqual({ scope: "in-note", term: "" });
   });
 
-  test("parses global search prefixes", () => {
-    expect(parseSearchPrefixCommand("全局搜索 笔记")).toEqual({ scope: "global", term: "笔记" });
-    expect(parseSearchPrefixCommand("all:my note")).toEqual({ scope: "global", term: "my note" });
-    expect(parseSearchPrefixCommand("ALL uppercase")).toEqual({ scope: "global", term: "uppercase" });
-    expect(parseSearchPrefixCommand("全局 架构设计")).toEqual({ scope: "global", term: "架构设计" });
-    expect(parseSearchPrefixCommand("global something")).toEqual({ scope: "global", term: "something" });
-    expect(parseSearchPrefixCommand("全局搜索 #Tag")).toEqual({ scope: "global", term: "#Tag" });
+  test("rejects removed global search prefixes", () => {
+    expect(parseSearchPrefixCommand("全局搜索 笔记")).toBeNull();
+    expect(parseSearchPrefixCommand("all:my note")).toBeNull();
+    expect(parseSearchPrefixCommand("ALL uppercase")).toBeNull();
+    expect(parseSearchPrefixCommand("全局 架构设计")).toBeNull();
+    expect(parseSearchPrefixCommand("global something")).toBeNull();
+    expect(parseSearchPrefixCommand("全局搜索 #Tag")).toBeNull();
   });
 
   test("returns null when no valid prefix delimiter is present", () => {
@@ -139,5 +139,4 @@ describe("move note command parser", () => {
     expect(parseMoveNoteCommand("普通搜索", books)).toBeNull();
   });
 });
-
 

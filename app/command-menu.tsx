@@ -1,21 +1,20 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { AlignVerticalSpaceAround, Archive, Bookmark, Download, FilePlus2, FileSearch, FileText, FolderInput, Link2, Maximize2, PanelLeft, Search, Trash2, type LucideIcon } from "lucide-react";
-import type { NoteSummary, Notebook } from "../shared/types";
+import { AlignVerticalSpaceAround, Archive, Bookmark, Download, FilePlus2, FileSearch, FolderInput, Link2, Maximize2, PanelLeft, Search, Trash2, type LucideIcon } from "lucide-react";
+import type { Notebook } from "../shared/types";
 import { parseCreateNoteCommand, parseMoveNoteCommand, parseSearchPrefixCommand, type CreateNoteCommand } from "./command-parser";
 import { FloatingScrollbar } from "./floating-scrollbar";
 import { altKey, modKey } from "./platform";
 
-export type CommandId = "new-note" | "search" | "find-in-note" | "toggle-sidebar" | "toggle-focus-mode" | "toggle-typewriter-mode" | "share" | "favorite" | "trash" | "restore" | "install-app" | "move-to-notebook";
+export type CommandId = "new-note" | "find-in-note" | "toggle-sidebar" | "toggle-focus-mode" | "toggle-typewriter-mode" | "share" | "favorite" | "trash" | "restore" | "install-app" | "move-to-notebook";
 
 type CommandOption = {
   key: string;
   label: string;
   shortcut: string;
   icon: LucideIcon;
-  kind: "command" | "create-note" | "note" | "in-note-search" | "move-note";
+  kind: "command" | "create-note" | "in-note-search" | "move-note";
   id?: CommandId;
   createNote?: CreateNoteCommand;
-  noteId?: string;
   searchTerm?: string;
   detail?: string;
   notebook?: Notebook;
@@ -36,10 +35,6 @@ type CommandMenuProps = {
   canInstallApp: boolean;
   showIosInstallHint: boolean;
   standalone: boolean;
-  noteResults: NoteSummary[];
-  noteSearchLoading: boolean;
-  onSearchQueryChange: (query: string) => void;
-  onOpenSearchResult: (noteId: string, query: string) => void;
   hasSelectedNote?: boolean;
   onSearchInCurrentNote?: (term: string) => void;
   initialQuery?: string;
@@ -60,10 +55,6 @@ export function CommandMenu({
   canInstallApp,
   showIosInstallHint,
   standalone,
-  noteResults,
-  noteSearchLoading,
-  onSearchQueryChange,
-  onOpenSearchResult,
   hasSelectedNote = false,
   onSearchInCurrentNote,
   initialQuery = "",
@@ -79,7 +70,6 @@ export function CommandMenu({
     { id: "new-note", label: "新建笔记", shortcut: "↵", icon: FilePlus2 },
     ...(hasSelectedNote && canMoveToTrash ? [{ id: "move-to-notebook" as const, label: "移动到笔记本", shortcut: "↵", icon: FolderInput }] : []),
     ...(hasSelectedNote ? [{ id: "find-in-note" as const, label: "在当前笔记中查找", shortcut: `${modKey} F`, icon: FileSearch }] : []),
-    { id: "search", label: "全局搜索笔记", shortcut: `${modKey} /`, icon: Search },
     { id: "toggle-sidebar", label: "切换侧栏", shortcut: `${modKey} \\`, icon: PanelLeft },
     { id: "toggle-focus-mode", label: focusMode ? "退出沉浸模式" : "进入沉浸模式", shortcut: `${modKey} ⇧ F`, icon: Maximize2 },
     { id: "toggle-typewriter-mode", label: typewriterMode ? "退出打字机模式" : "开启打字机模式", shortcut: `${altKey} ⇧ T`, icon: AlignVerticalSpaceAround },
@@ -102,16 +92,6 @@ export function CommandMenu({
   }, [commands, moveNoteResult, parsedSearchPrefix, query]);
 
   const effectiveSearchTerm = parsedSearchPrefix ? parsedSearchPrefix.term : query.trim();
-
-  const noteOptions = useMemo<CommandOption[]>(() => effectiveSearchTerm ? noteResults.map((note) => ({
-    key: `note:${note.id}`,
-    label: note.title || "未命名笔记",
-    shortcut: "↵",
-    icon: FileText,
-    kind: "note",
-    noteId: note.id,
-    searchTerm: effectiveSearchTerm,
-  })) : [], [effectiveSearchTerm, noteResults]);
 
   const options = useMemo<CommandOption[]>(() => {
     if (moveNoteResult?.kind === "list") {
@@ -157,9 +137,8 @@ export function CommandMenu({
     return [
       ...(inNoteOption ? [inNoteOption] : []),
       ...filteredCommands,
-      ...noteOptions,
     ];
-  }, [createNoteResult, currentNotebookId, effectiveSearchTerm, filteredCommands, hasSelectedNote, moveNoteResult, noteOptions]);
+  }, [createNoteResult, currentNotebookId, effectiveSearchTerm, filteredCommands, hasSelectedNote, moveNoteResult]);
 
   const createNoteError = createNoteResult?.kind === "error" ? createNoteResult.message : "";
   const moveNoteError = moveNoteResult?.kind === "error" ? moveNoteResult.message : "";
@@ -168,15 +147,6 @@ export function CommandMenu({
   const updateQuery = (next: string) => {
     setQuery(next);
     setSelected(0);
-    const prefix = parseSearchPrefixCommand(next);
-    const move = hasSelectedNote && canMoveToTrash ? parseMoveNoteCommand(next, notebooks) : null;
-    const create = parseCreateNoteCommand(next, notebooks);
-    if (move || create) {
-      onSearchQueryChange("");
-      return;
-    }
-    const term = prefix ? prefix.term : next.trim();
-    onSearchQueryChange(term);
   };
 
   useEffect(() => {
@@ -188,9 +158,6 @@ export function CommandMenu({
       const nextQuery = initialQuery ?? "";
       setQuery(nextQuery);
       setSelected(0);
-      const prefix = parseSearchPrefixCommand(nextQuery);
-      const term = prefix ? prefix.term : nextQuery.trim();
-      onSearchQueryChange(term);
       requestAnimationFrame(() => {
         searchRef.current?.focus();
         if (nextQuery) {
@@ -200,12 +167,11 @@ export function CommandMenu({
     }
     if (!open && dialog.open) {
       dialog.close();
-      onSearchQueryChange("");
       const target = returnFocusRef.current;
       returnFocusRef.current = null;
       if (target?.isConnected) target.focus({ preventScroll: true });
     }
-  }, [initialQuery, onSearchQueryChange, open]);
+  }, [initialQuery, open]);
 
   useEffect(() => {
     setSelected((current) => Math.min(current, Math.max(options.length - 1, 0)));
@@ -227,18 +193,14 @@ export function CommandMenu({
       onMoveNoteToNotebook?.(option.notebook.id);
     } else if (option.kind === "in-note-search" && option.searchTerm) {
       onSearchInCurrentNote?.(option.searchTerm);
-    } else if (option.noteId) {
-      onOpenSearchResult(option.noteId, option.searchTerm || query.trim());
     } else if (option.id === "find-in-note") {
       setQuery("搜索 ");
       setSelected(0);
-      onSearchQueryChange("");
       searchRef.current?.focus();
       return;
     } else if (option.id === "move-to-notebook") {
       setQuery("移动至 ");
       setSelected(0);
-      onSearchQueryChange("");
       searchRef.current?.focus();
       return;
     } else if (option.id) {
@@ -280,8 +242,8 @@ export function CommandMenu({
           ref={searchRef}
           value={query}
           onChange={(event) => updateQuery(event.target.value)}
-          placeholder={hasSelectedNote ? "输入命令、关键词、#标签或在当前笔记中查找……" : "输入命令、关键词或 #标签……"}
-          aria-label="搜索命令或笔记"
+          placeholder={hasSelectedNote ? "输入命令或在当前笔记中查找……" : "输入命令……"}
+          aria-label="搜索命令或当前笔记"
         />
       </div>
       <div className="command-list-wrap">
@@ -290,21 +252,20 @@ export function CommandMenu({
           ref={listRef}
           className="command-list floating-scrollbar-target"
           role="listbox"
-          aria-label="命令和笔记搜索结果"
+          aria-label="命令和当前笔记搜索结果"
         >
           {feedbackMessage ? <div className="command-feedback" role="status">{feedbackMessage}</div> : options.length ? options.map((command, index) => {
             const Icon = command.icon;
-            const section = command.kind === "note" ? "笔记" : command.kind === "create-note" ? "操作" : command.kind === "in-note-search" ? "搜索" : command.kind === "move-note" ? "移动笔记" : "命令";
+            const section = command.kind === "create-note" ? "操作" : command.kind === "in-note-search" ? "搜索" : command.kind === "move-note" ? "移动笔记" : "命令";
             const heading = section !== previousSection ? <div className="command-section-label" key={`${command.key}-section`}>{section}</div> : null;
-            const note = command.noteId ? noteResults.find((item) => item.id === command.noteId) : undefined;
-            const noteDetail = note ? [note.preview, note.notebookName].filter(Boolean).join(" · ") : command.detail || "";
+            const noteDetail = command.detail || "";
             previousSection = section;
             return (
               <Fragment key={command.key}>
                 {heading}
                 <button
                   type="button"
-                  className={`command-row ${command.kind === "note" ? "command-row--note" : ""} ${command.kind === "in-note-search" ? "command-row--search" : ""} ${selected === index ? "is-selected" : ""}`}
+                  className={`command-row ${command.kind === "in-note-search" ? "command-row--search" : ""} ${selected === index ? "is-selected" : ""}`}
                   role="option"
                   aria-selected={selected === index}
                   onMouseEnter={() => setSelected(index)}
@@ -323,8 +284,7 @@ export function CommandMenu({
                 </button>
               </Fragment>
             );
-          }) : query.trim() && noteSearchLoading ? <div className="command-search-status" role="status">正在搜索笔记……</div> : <div className="command-empty">{query.trim() ? "没有匹配的命令或笔记" : "没有可用的命令"}</div>}
-          {query.trim() && noteSearchLoading && options.length > 0 && <div className="command-search-status" role="status">正在搜索笔记……</div>}
+          }) : <div className="command-empty">{query.trim() ? "没有匹配的命令" : "没有可用的命令"}</div>}
         </div>
         <FloatingScrollbar
           scrollTargetRef={listRef}

@@ -95,11 +95,6 @@ export function Workspace() {
   const [commandOpen, setCommandOpen] = useState(false);
   const [commandInitialQuery, setCommandInitialQuery] = useState("");
   const [inNoteSearchQuery, setInNoteSearchQuery] = useState("");
-  const [commandNoteQuery, setCommandNoteQuery] = useState("");
-  const [commandNoteResults, setCommandNoteResults] = useState<NoteSummary[]>([]);
-  const [commandNoteSearchLoading, setCommandNoteSearchLoading] = useState(false);
-
-  const commandNoteRequestRef = useRef(0);
   const [shareOpen, setShareOpen] = useState(false);
   const [editingNotebook, setEditingNotebook] = useState<Notebook | null | undefined>(undefined);
   const [toast, setToast] = useState("");
@@ -298,31 +293,6 @@ export function Workspace() {
   }, [loadSelectedNote, ready, syncState.noteRefreshIds, syncState.status]);
   useEffect(() => { if (ready) void refreshNotebooks(); return () => { notebooksRequestRef.current += 1; }; }, [ready, refreshNotebooks]);
   useEffect(() => { if (!ready) return; const timer = setTimeout(() => void loadNotes(), 180); return () => { clearTimeout(timer); listRequestRef.current += 1; }; }, [loadNotes, ready]);
-  useEffect(() => {
-    const requestId = ++commandNoteRequestRef.current;
-    const normalizedQuery = commandNoteQuery.trim();
-    if (!normalizedQuery) {
-      setCommandNoteResults([]);
-      setCommandNoteSearchLoading(false);
-      return;
-    }
-
-    setCommandNoteSearchLoading(true);
-    const timer = setTimeout(() => {
-      void (async () => {
-        try {
-          const result = await api.listNotes({ view: "all", query: normalizedQuery });
-          if (requestId === commandNoteRequestRef.current) setCommandNoteResults(result.notes);
-        } catch {
-          const local = await offlineSync.getLocalSnapshot();
-          if (requestId === commandNoteRequestRef.current) setCommandNoteResults(filterOfflineNotes(local.notes, local.notebooks, "all", normalizedQuery));
-        } finally {
-          if (requestId === commandNoteRequestRef.current) setCommandNoteSearchLoading(false);
-        }
-      })();
-    }, 160);
-    return () => clearTimeout(timer);
-  }, [commandNoteQuery]);
   const focusModeRef = useRef(focusMode);
   focusModeRef.current = focusMode;
   const hasModalOpenRef = useRef(false);
@@ -778,11 +748,7 @@ export function Workspace() {
   }, [notebookId, query, requestListTransition, view]);
   const closeCommandMenu = useCallback(() => {
     setCommandOpen(false);
-    setCommandNoteQuery("");
     setCommandInitialQuery("");
-  }, []);
-  const handleCommandNoteQueryChange = useCallback((next: string) => {
-    setCommandNoteQuery(next);
   }, []);
   const handleSearchInCurrentNote = useCallback((term: string) => {
     const normalized = term.trim();
@@ -795,16 +761,6 @@ export function Workspace() {
       changeQuery("");
     }
   }, [changeQuery, query]);
-  const openCommandSearchResult = useCallback((noteId: string, searchQuery: string) => {
-
-    const normalizedQuery = searchQuery.trim();
-    if (!normalizedQuery) return;
-    setInNoteSearchQuery("");
-    changeQuery(normalizedQuery);
-    selectNote(noteId);
-    setMobileSidebarOpen(false);
-    setMobileListOpen(false);
-  }, [changeQuery, selectNote]);
   const command = useCallback((id: CommandId) => {
     if (id === "new-note") void createNoteHere();
     if (id === "find-in-note") {
@@ -813,7 +769,6 @@ export function Workspace() {
       setCommandInitialQuery(initial);
       setCommandOpen(true);
     }
-    if (id === "search") { setMobileSidebarOpen(true); setMobileListOpen(false); requestAnimationFrame(() => searchRef.current?.focus()); }
     if (id === "toggle-sidebar") setSidebarCollapsed((value) => !value);
     if (id === "toggle-focus-mode") toggleFocusMode();
     if (id === "toggle-typewriter-mode") toggleTypewriterMode();
@@ -865,7 +820,7 @@ export function Workspace() {
     <main className="editor-region">
       {renderedNote ? <Suspense fallback={<NoteLoadingState />}><LazyNoteEditor note={renderedNote} searchQuery={activeSearchQuery} onClearSearch={activeSearchQuery ? handleClearSearch : undefined} saveState={saveState} isLoading={isNoteLoading} trashBusy={emptyingTrash || (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onShare={() => setShareOpen(true)} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={() => { setMobileListOpen(true); setMobileSidebarOpen(false); }} onUploadImage={(file, dimensions) => offlineSync.uploadImage(file, renderedNote.id, dimensions)} focusMode={focusMode} onToggleFocusMode={toggleFocusMode} typewriterMode={typewriterMode} /></Suspense> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor isTrash={view === "trash"} onNewNote={() => void createNoteHere()} onOpenList={() => { setMobileListOpen(true); setMobileSidebarOpen(false); }} transitionToken={listTransitionToken} />}
     </main>
-    <CommandMenu open={commandOpen} onClose={closeCommandMenu} onCommand={command} onCreateNoteInNotebook={createNoteInNotebook} canRestore={Boolean(commandNoteReady && renderedNote?.deletedAt)} canMoveToTrash={Boolean(commandNoteReady && renderedNote && !renderedNote.deletedAt)} notebooks={notebooks} currentNotebookId={renderedNote?.notebookId} onMoveNoteToNotebook={(targetNotebookId) => onNoteChange({ notebookId: targetNotebookId })} focusMode={focusMode} typewriterMode={typewriterMode} canInstallApp={pwaState.canInstall} showIosInstallHint={pwaState.showIosInstallHint} standalone={pwaState.standalone} noteResults={commandNoteResults} noteSearchLoading={commandNoteSearchLoading} onSearchQueryChange={handleCommandNoteQueryChange} onOpenSearchResult={openCommandSearchResult} hasSelectedNote={commandNoteReady} onSearchInCurrentNote={handleSearchInCurrentNote} initialQuery={commandInitialQuery} />
+    <CommandMenu open={commandOpen} onClose={closeCommandMenu} onCommand={command} onCreateNoteInNotebook={createNoteInNotebook} canRestore={Boolean(commandNoteReady && renderedNote?.deletedAt)} canMoveToTrash={Boolean(commandNoteReady && renderedNote && !renderedNote.deletedAt)} notebooks={notebooks} currentNotebookId={renderedNote?.notebookId} onMoveNoteToNotebook={(targetNotebookId) => onNoteChange({ notebookId: targetNotebookId })} focusMode={focusMode} typewriterMode={typewriterMode} canInstallApp={pwaState.canInstall} showIosInstallHint={pwaState.showIosInstallHint} standalone={pwaState.standalone} hasSelectedNote={commandNoteReady} onSearchInCurrentNote={handleSearchInCurrentNote} initialQuery={commandInitialQuery} />
 
 
     {shareOpen && renderedNote && <ShareDialog note={renderedNote} onClose={() => setShareOpen(false)} onToast={setToast} />}
