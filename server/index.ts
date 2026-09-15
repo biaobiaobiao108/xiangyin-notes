@@ -25,6 +25,23 @@ const SYNC_CHANGE_RETENTION_SECONDS = 90 * 24 * 60 * 60;
 const SYNC_MUTATION_RETENTION_SECONDS = 30 * 24 * 60 * 60;
 const NOTE_VIEWS: NoteView[] = ["all", "inbox", "favorites", "shared", "trash"];
 const DEFAULT_CLIENT_ROOT = "./dist/client";
+const DEV_SERVICE_WORKER_SOURCE = `
+self.addEventListener("install", (event) => {
+  event.waitUntil(self.skipWaiting());
+});
+self.addEventListener("activate", (event) => {
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys.filter((key) => key.startsWith("xiangying-notes-")).map((key) => caches.delete(key)));
+    await self.clients.claim();
+    const clients = await self.clients.matchAll({ type: "window" });
+    await Promise.all(clients.map((client) => client.navigate(client.url)));
+  })());
+});
+self.addEventListener("fetch", (event) => {
+  if (event.request.method === "GET") event.respondWith(fetch(event.request));
+});
+`;
 const encoder = new TextEncoder();
 
 type SqlValue = string | number | null | Uint8Array | bigint;
@@ -1323,7 +1340,7 @@ const MIME_TYPES: Record<string, string> = {
   ".ico": "image/x-icon",
 };
 
-async function serveStatic(request: Request, clientRoot: string) {
+async function serveStatic(request: Request, clientRoot: string, environment: RuntimeEnvironment) {
   if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
   const url = new URL(request.url);
   let pathname: string;
@@ -1333,6 +1350,15 @@ async function serveStatic(request: Request, clientRoot: string) {
     return new Response("Bad Request", { status: 400 });
   }
   if (pathname.includes("\0") || pathname.split(/[\\/]/).includes("..")) return new Response("Forbidden", { status: 403 });
+
+  if (pathname === "/sw.js" && environment.NODE_ENV === "development") {
+    return new Response(request.method === "HEAD" ? null : DEV_SERVICE_WORKER_SOURCE, {
+      headers: {
+        "Cache-Control": "no-cache",
+        "Content-Type": "text/javascript; charset=utf-8",
+      },
+    });
+  }
 
   const relativePath = pathname.replace(/^[/\\]+/, "");
   const hasExtension = extname(relativePath) !== "";
@@ -1360,11 +1386,11 @@ export async function handleRequest(request: Request, options: ServerOptions) {
     } else if (url.pathname === "/api/shares/" || url.pathname.startsWith("/api/shares/")) {
       const segments = url.pathname.split("/").filter(Boolean);
       if (request.method === "GET" && segments.length === 3) response = await handlePublicShare(request, options.database);
-      else response = url.pathname.startsWith("/api/") ? await handleApi(request, options) : await serveStatic(request, options.clientRoot ?? DEFAULT_CLIENT_ROOT);
+      else response = url.pathname.startsWith("/api/") ? await handleApi(request, options) : await serveStatic(request, options.clientRoot ?? DEFAULT_CLIENT_ROOT, options.environment);
     } else if (url.pathname.startsWith("/api/")) {
       response = await handleApi(request, options);
     } else {
-      response = await serveStatic(request, options.clientRoot ?? DEFAULT_CLIENT_ROOT);
+      response = await serveStatic(request, options.clientRoot ?? DEFAULT_CLIENT_ROOT, options.environment);
     }
     return withSecurityHeaders(response, options.environment);
   } catch (error) {

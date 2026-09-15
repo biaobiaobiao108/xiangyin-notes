@@ -36,6 +36,16 @@ async function request(path: string, init: RequestInit = {}, cookie?: string, ta
 }
 
 describe("Bun Server API", () => {
+  test("serves a cache-bypassing service worker in development", async () => {
+    const devEnvironment = { ...environment, NODE_ENV: "development" };
+    const response = await handleRequest(new Request("http://xiangying.test/sw.js"), { database, environment: devEnvironment, clientRoot: "dist/client", assetRoot });
+    const source = await response.text();
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-cache");
+    expect(source).toContain("await self.clients.claim()");
+    expect(source).toContain("event.respondWith(fetch(event.request))");
+  });
+
   test("automatically initializes a fresh database but not later migrations", async () => {
     const fresh = await openDatabase(":memory:");
     const migrations = fresh.query("SELECT name FROM schema_migrations ORDER BY name").all() as Array<{ name: string }>;
