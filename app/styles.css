@@ -207,6 +207,13 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .note-row-title svg { flex: none; color: var(--accent); }
 .note-row-preview { display: -webkit-box; overflow: clip; color: var(--muted); font-size: 0.79rem; line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
 .note-row-meta { display: flex; justify-content: space-between; gap: 10px; color: var(--soft-muted); font-size: 0.7rem; }
+.note-row-meta-leading { display: flex; align-items: center; min-width: 0; gap: 5px; overflow: clip; }
+.note-row-notebook { min-width: 0; overflow: clip; text-overflow: ellipsis; white-space: nowrap; }
+.note-row-meta-divider { flex: none; }
+.note-row-tags { display: flex; min-width: 0; gap: 4px; overflow: clip; }
+.note-row-tag { min-width: 0; max-width: 10em; overflow: clip; text-overflow: ellipsis; white-space: nowrap; }
+.note-row-tag--overflow { flex: none; max-width: none; }
+.note-row-meta time { flex: none; white-space: nowrap; }
 .list-empty { display: grid; justify-items: center; gap: 8px; padding: 86px 26px; color: var(--muted); text-align: center; }
 .list-empty strong { color: var(--ink); font-size: 0.92rem; }
 .list-empty > span:last-child { max-width: 220px; font-size: 0.78rem; line-height: 1.5; }

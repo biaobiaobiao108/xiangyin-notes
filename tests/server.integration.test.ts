@@ -113,6 +113,52 @@ describe("Bun Server API", () => {
     expect(notebooks.body?.notebooks.find((item: { id: string }) => item.id === notebook.id).count).toBe(1);
   });
 
+  test("returns and searches exact body tags without matching headings or code", async () => {
+    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
+    const tagged = await request("/api/notes", { method: "POST", body: JSON.stringify({
+      title: "标签笔记",
+      contentMarkdown: "正文#Project #项目-资料 #Project\n# 标题\n\n```md\n#hidden\n```",
+    }) }, login.cookie);
+    const similar = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "相似标签", contentMarkdown: "正文 #Projector" }) }, login.cookie);
+    const titleOnly = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "#Project", contentMarkdown: "没有正文标签" }) }, login.cookie);
+
+    expect(tagged.body?.note.tags).toEqual(["Project", "项目-资料"]);
+    expect((await request(`/api/notes/${tagged.body?.note.id}`, {}, login.cookie)).body?.note.tags).toEqual(["Project", "项目-资料"]);
+
+    const projectSearch = await request(`/api/notes?view=all&query=${encodeURIComponent("#project")}`, {}, login.cookie);
+    expect(projectSearch.body?.total).toBe(1);
+    expect(projectSearch.body?.notes.map((item: { id: string }) => item.id)).toEqual([tagged.body?.note.id]);
+    expect(projectSearch.body?.notes[0].tags).toEqual(["Project", "项目-资料"]);
+
+    const projectorSearch = await request(`/api/notes?view=all&query=${encodeURIComponent("#Projector")}`, {}, login.cookie);
+    expect(projectorSearch.body?.total).toBe(1);
+    expect(projectorSearch.body?.notes.map((item: { id: string }) => item.id)).toEqual([similar.body?.note.id]);
+
+    const hiddenSearch = await request(`/api/notes?view=all&query=${encodeURIComponent("#hidden")}`, {}, login.cookie);
+    expect(hiddenSearch.body).toEqual({ notes: [], total: 0 });
+
+    const titleSearch = await request(`/api/notes?view=all&query=${encodeURIComponent("#Project")}`, {}, login.cookie);
+    expect(titleSearch.body?.notes.map((item: { id: string }) => item.id)).not.toContain(titleOnly.body?.note.id);
+
+    const filteredNotebookResponse = await request("/api/notebooks", { method: "POST", body: JSON.stringify({ name: "标签筛选", color: "#5b7899" }) }, login.cookie);
+    const filteredNotebook = filteredNotebookResponse.body?.notebook;
+    const favorite = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "收藏标签", contentMarkdown: "正文 #筛选", notebookId: filteredNotebook.id }) }, login.cookie);
+    await request(`/api/notes/${favorite.body?.note.id}`, { method: "PATCH", body: JSON.stringify({ version: favorite.body?.note.version, isFavorite: true }) }, login.cookie);
+    const trashed = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "回收站标签", contentMarkdown: "正文 #筛选" }) }, login.cookie);
+    await request(`/api/notes/${trashed.body?.note.id}`, { method: "PATCH", body: JSON.stringify({ version: trashed.body?.note.version, deleted: true }) }, login.cookie);
+    const notebookNote = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "笔记本标签", contentMarkdown: "正文 #筛选", notebookId: filteredNotebook.id }) }, login.cookie);
+
+    const favoriteSearch = await request(`/api/notes?view=favorites&query=${encodeURIComponent("#筛选")}`, {}, login.cookie);
+    expect(favoriteSearch.body?.total).toBe(1);
+    expect(favoriteSearch.body?.notes.map((item: { id: string }) => item.id)).toEqual([favorite.body?.note.id]);
+    const trashSearch = await request(`/api/notes?view=trash&query=${encodeURIComponent("#筛选")}`, {}, login.cookie);
+    expect(trashSearch.body?.total).toBe(1);
+    expect(trashSearch.body?.notes.map((item: { id: string }) => item.id)).toEqual([trashed.body?.note.id]);
+    const notebookSearch = await request(`/api/notes?view=all&notebookId=${filteredNotebook.id}&query=${encodeURIComponent("#筛选")}`, {}, login.cookie);
+    expect(notebookSearch.body?.total).toBe(2);
+    expect(notebookSearch.body?.notes.map((item: { id: string }) => item.id)).toEqual(expect.arrayContaining([favorite.body?.note.id, notebookNote.body?.note.id]));
+  });
+
   test("uploads isolated image assets, returns thumbnails, and cleans files on permanent deletion", async () => {
     const unauthenticated = await request("/api/assets", { method: "POST", body: imageForm() });
     expect(unauthenticated.response.status).toBe(401);

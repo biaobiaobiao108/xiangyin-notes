@@ -58,6 +58,7 @@ describe("search prefix parser", () => {
     expect(parseSearchPrefixCommand("ALL uppercase")).toEqual({ scope: "global", term: "uppercase" });
     expect(parseSearchPrefixCommand("全局 架构设计")).toEqual({ scope: "global", term: "架构设计" });
     expect(parseSearchPrefixCommand("global something")).toEqual({ scope: "global", term: "something" });
+    expect(parseSearchPrefixCommand("全局搜索 #Tag")).toEqual({ scope: "global", term: "#Tag" });
   });
 
   test("returns null when no valid prefix delimiter is present", () => {
@@ -138,6 +139,5 @@ describe("move note command parser", () => {
     expect(parseMoveNoteCommand("普通搜索", books)).toBeNull();
   });
 });
-
 
 

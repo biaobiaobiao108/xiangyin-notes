@@ -8,7 +8,7 @@ import { isLocalImageSource } from "../image-markdown";
 import { modKey } from "../platform";
 import type { OfflineSyncState } from "../offline-sync";
 import { type PwaState } from "../pwa";
-import { navItems, relativeDate, sortNotes, type NoteSort, viewLabel } from "./helpers";
+import { getNoteTags, navItems, relativeDate, sortNotes, type NoteSort, viewLabel } from "./helpers";
 
 export function NoteLoadingState() {
   return <section className="editor-panel editor-loading-shell" aria-label="笔记编辑器" aria-busy="true"><div className="editor-switch-overlay editor-switch-overlay--visible" role="status" aria-live="polite"><div className="editor-switch-card"><BrandMark className="editor-switch-mark" /><div className="editor-switch-lines" aria-hidden="true"><span /><span /><span /></div><strong>正在打开笔记…</strong></div></div></section>;
@@ -36,7 +36,7 @@ export function Sidebar({ view, setView, notebooks, notebookId, setNotebookId, q
   return <aside className={`sidebar ${mobileOpen ? "is-mobile-open" : ""}`} aria-label="主导航">
     <div className="brand-row"><BrandMark /><span className="brand-name">象映笔记</span><button className="icon-button collapse-button" type="button" onClick={onCollapse} aria-label={collapsed ? "展开侧栏" : "收起侧栏"}><LayoutPanelLeft size={18} /></button></div>
     <button className="primary-button new-note-button" type="button" onClick={onNewNote}><Plus size={18} />新建笔记</button>
-    <label className="search-box"><Search size={17} /><input ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索笔记……" aria-label="搜索笔记" />{query ? <button className="search-clear" type="button" aria-label="清空搜索" title="清空搜索" onClick={() => setQuery("")}><X size={15} /></button> : <kbd>{modKey} /</kbd>}</label>
+    <label className="search-box"><Search size={17} /><input ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索笔记或 #标签……" aria-label="搜索笔记或标签" />{query ? <button className="search-clear" type="button" aria-label="清空搜索" title="清空搜索" onClick={() => setQuery("")}><X size={15} /></button> : <kbd>{modKey} /</kbd>}</label>
     <nav className="main-nav"><ul>{navItems.map((item) => { const Icon = item.icon; return <li key={item.id}><button className={`nav-item ${view === item.id && !notebookId ? "is-active" : ""}`} type="button" onClick={() => setView(item.id)}><Icon size={18} /><span>{item.label}</span></button></li>; })}</ul></nav>
     <div className="notebook-section">
       <div className="section-heading"><span>笔记本</span><button className="icon-button tiny-button" type="button" aria-label="新建笔记本" title="新建笔记本" onClick={onCreateNotebook}><Plus size={16} /></button></div>
@@ -84,6 +84,26 @@ function NoteThumbnail({ note }: { note: NoteSummary }) {
   if (!thumbnail) return null;
   if (!src) return <span className="note-row-thumbnail note-row-thumbnail--empty" aria-hidden="true" />;
   return <span className="note-row-thumbnail" aria-hidden="true"><img src={src} alt="" width={56} height={56} loading="lazy" decoding="async" /></span>;
+}
+
+const NOTE_TAG_DISPLAY_LIMIT = 3;
+
+function NoteRowMeta({ note }: { note: NoteSummary }) {
+  const tags = getNoteTags(note);
+  const visibleTags = tags.slice(0, NOTE_TAG_DISPLAY_LIMIT);
+  return <span className="note-row-meta">
+    <span className="note-row-meta-leading">
+      <span className="note-row-notebook">{note.notebookName}</span>
+      {visibleTags.length > 0 && <>
+        <span className="note-row-meta-divider" aria-hidden="true">·</span>
+        <span className="note-row-tags" aria-label={`标签：${tags.map((tag) => `#${tag}`).join("、")}`}>
+          {visibleTags.map((tag) => <span className="note-row-tag" key={tag}>#{tag}</span>)}
+          {tags.length > visibleTags.length && <span className="note-row-tag note-row-tag--overflow">+{tags.length - visibleTags.length}</span>}
+        </span>
+      </>}
+    </span>
+    <time>{relativeDate(note.updatedAt)}</time>
+  </span>;
 }
 
 export function NoteListPanel({ notes, total, sort, setSort, selectedId, onSelect, view, query, currentNotebookName, onNewNote, onEmptyTrash, trashBusy, onClearQuery, mobileOpen, onOpenSidebar, transitionToken }: { notes: NoteSummary[]; total: number; sort: NoteSort; setSort: (sort: NoteSort) => void; selectedId: string | null; onSelect: (id: string) => void; view: NoteView; query: string; currentNotebookName?: string; onNewNote?: () => void; onEmptyTrash?: () => void; trashBusy: boolean; onClearQuery: () => void; mobileOpen: boolean; onOpenSidebar: () => void; transitionToken: number }) {
@@ -134,7 +154,7 @@ export function NoteListPanel({ notes, total, sort, setSort, selectedId, onSelec
           </div>
         </div>
       </header>
-      <div className="note-list-scroll-shell"><div id="note-list-scroll-region" className="note-list floating-scrollbar-target" ref={noteListRef}><ul className="note-list-items" role="list">{sortedNotes.map((note) => <li key={note.id}><button type="button" className={`note-row ${note.thumbnail ? "has-thumbnail" : ""} ${selectedId === note.id ? "is-selected" : ""}`} onClick={() => onSelect(note.id)}><NoteThumbnail note={note} /><span className="note-row-main"><span className="note-row-title">{note.title || "未命名笔记"}{note.isFavorite && <Star size={13} fill="currentColor" />}</span><span className="note-row-preview">{note.preview || "还没有内容，开始写下第一句话。"}</span><span className="note-row-meta"><span>{note.notebookName}</span><time>{relativeDate(note.updatedAt)}</time></span></span></button></li>)}</ul>{!sortedNotes.length && (query ? <div className="list-empty"><span className="empty-icon"><Search size={23} /></span><strong>没有找到匹配的笔记</strong><span>试试更短的关键词，或清空搜索查看全部内容。</span><button className="secondary-button" type="button" onClick={onClearQuery}>清空搜索</button></div> : <div className="list-empty"><span className="empty-icon"><Archive size={23} /></span><strong>{view === "trash" ? "回收站是空的" : "这里还没有笔记"}</strong><span>{view === "trash" ? "移入回收站的笔记会显示在这里。" : "按下“新建笔记”，让一个想法有地方落脚。"}</span></div>)}</div><FloatingScrollbar scrollTargetRef={noteListRef} controlsId="note-list-scroll-region" ariaLabel="笔记列表滚动条" placement="left" /></div>
+      <div className="note-list-scroll-shell"><div id="note-list-scroll-region" className="note-list floating-scrollbar-target" ref={noteListRef}><ul className="note-list-items" role="list">{sortedNotes.map((note) => <li key={note.id}><button type="button" className={`note-row ${note.thumbnail ? "has-thumbnail" : ""} ${selectedId === note.id ? "is-selected" : ""}`} onClick={() => onSelect(note.id)}><NoteThumbnail note={note} /><span className="note-row-main"><span className="note-row-title">{note.title || "未命名笔记"}{note.isFavorite && <Star size={13} fill="currentColor" />}</span><span className="note-row-preview">{note.preview || "还没有内容，开始写下第一句话。"}</span><NoteRowMeta note={note} /></span></button></li>)}</ul>{!sortedNotes.length && (query ? <div className="list-empty"><span className="empty-icon"><Search size={23} /></span><strong>没有找到匹配的笔记</strong><span>试试更短的关键词，或清空搜索查看全部内容。</span><button className="secondary-button" type="button" onClick={onClearQuery}>清空搜索</button></div> : <div className="list-empty"><span className="empty-icon"><Archive size={23} /></span><strong>{view === "trash" ? "回收站是空的" : "这里还没有笔记"}</strong><span>{view === "trash" ? "移入回收站的笔记会显示在这里。" : "按下“新建笔记”，让一个想法有地方落脚。"}</span></div>)}</div><FloatingScrollbar scrollTargetRef={noteListRef} controlsId="note-list-scroll-region" ariaLabel="笔记列表滚动条" placement="left" /></div>
     </div>
   </section>;
 }

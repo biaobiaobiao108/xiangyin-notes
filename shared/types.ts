@@ -29,6 +29,7 @@ export type NoteSummary = {
   id: string;
   title: string;
   preview: string;
+  tags: string[];
   thumbnail: ImageAssetSummary | null;
   notebookId: string;
   notebookName: string;

@@ -1,6 +1,7 @@
 import { FileText, Inbox, Star, Trash2, UsersRound } from "lucide-react";
 import { ApiError } from "../api";
 import type { Note, NoteSummary, NoteView, Notebook } from "../../shared/types";
+import { extractTags, hasTag, parseTagQuery } from "../../shared/tags";
 
 export const navItems: Array<{ id: NoteView; label: string; icon: typeof Inbox }> = [
   { id: "inbox", label: "收件箱", icon: Inbox },
@@ -30,6 +31,10 @@ export function errorMessage(reason: unknown, fallback: string) {
   return reason instanceof ApiError && reason.message ? reason.message : fallback;
 }
 
+export function getNoteTags(note: { tags?: string[]; contentMarkdown?: string }) {
+  return Array.isArray(note.tags) ? note.tags : note.contentMarkdown ? extractTags(note.contentMarkdown) : [];
+}
+
 export type NoteSort = "updated" | "created" | "title";
 
 export function sortNotes(notes: NoteSummary[], sort: NoteSort) {
@@ -40,12 +45,16 @@ export function filterOfflineNotes(notes: Note[], notebooks: Notebook[], view: N
   if (view === "shared") return [];
   const notebookMap = new Map(notebooks.map((notebook) => [notebook.id, notebook]));
   const normalizedQuery = query.trim().toLocaleLowerCase("zh-CN");
+  const tagQuery = parseTagQuery(query);
   return notes.filter((note) => {
     if (view === "trash" ? note.deletedAt === null : note.deletedAt !== null) return false;
     if (view === "favorites" && !note.isFavorite) return false;
     if (view === "inbox" && !notebookMap.get(note.notebookId)?.isSystem) return false;
     if (notebookId && note.notebookId !== notebookId) return false;
-    if (normalizedQuery && !`${note.title}\n${note.contentMarkdown}`.toLocaleLowerCase("zh-CN").includes(normalizedQuery)) return false;
+    const matchesQuery = tagQuery
+      ? hasTag(note.contentMarkdown, tagQuery)
+      : !normalizedQuery || `${note.title}\n${note.contentMarkdown}`.toLocaleLowerCase("zh-CN").includes(normalizedQuery);
+    if (!matchesQuery) return false;
     return true;
   });
 }

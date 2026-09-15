@@ -5,6 +5,7 @@ import { FloatingScrollbar } from "../floating-scrollbar";
 import type { OfflineConflict } from "../offline-store";
 import { offlineSync } from "../offline-sync";
 import type { Note, Notebook, Share } from "../../shared/types";
+import { extractTags } from "../../shared/tags";
 import { errorMessage, formatDate, notebookColorOptions } from "./helpers";
 
 export type ConfirmRequest = {
@@ -60,7 +61,7 @@ export function ConflictDialog({ conflict, onClose, onResolved }: { conflict: Of
   }, []);
   const resolve = async (resolution: "server" | "local") => {
     setBusy(true);
-    try { await offlineSync.resolveConflict(conflict.id, resolution, resolution === "local" ? { ...conflict.local, contentMarkdown: content, preview: content.slice(0, 180) } : undefined); onResolved(); onClose(); } finally { setBusy(false); }
+    try { await offlineSync.resolveConflict(conflict.id, resolution, resolution === "local" ? { ...conflict.local, contentMarkdown: content, preview: content.slice(0, 180), tags: extractTags(content) } : undefined); onResolved(); onClose(); } finally { setBusy(false); }
   };
   return <dialog ref={dialogRef} className="conflict-dialog" aria-labelledby="conflict-dialog-title" aria-describedby="conflict-dialog-description" onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }}><div className="dialog-heading"><div><span className="dialog-eyebrow is-danger"><AlertTriangle size={15} />同步冲突</span><h2 id="conflict-dialog-title">这篇笔记在其他地方被修改了</h2><p id="conflict-dialog-description">本地内容已经保留。请检查两个版本后决定使用哪一个。</p></div><button className="icon-button" type="button" aria-label="关闭冲突窗口" onClick={onClose}><X size={18} /></button></div><div className="conflict-grid"><label><span>{conflict.server ? "服务器版本" : "服务器版本（已删除）"}</span>{conflict.server ? <textarea value={conflict.server.contentMarkdown} readOnly aria-label="服务器版本内容" /> : <div className="conflict-deleted" role="status">服务器已经删除这篇笔记。你可以采用服务器删除结果，或恢复本地版本。</div>}</label><label><span>本地版本（可编辑）</span><textarea value={content} onChange={(event) => setContent(event.target.value)} disabled={busy} aria-label="本地版本内容" /></label></div><div className="dialog-actions"><button className="secondary-button" type="button" onClick={onClose} disabled={busy}>稍后处理</button><button className="secondary-button" type="button" onClick={() => void resolve("server")} disabled={busy}>采用服务器版本</button><button className="primary-button" type="button" onClick={() => void resolve("local")} disabled={busy}>合并后保存</button></div></dialog>;
 }

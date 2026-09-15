@@ -2,6 +2,7 @@ import { mkdir, rename } from "node:fs/promises";
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { ImageAssetSummary, ShareSnapshot, Note, NoteSummary, NoteView, Share, Notebook } from "../shared/types";
 import type { SyncChange, SyncMutation, SyncPullResponse, SyncPushResult, SyncPushResponse } from "../shared/sync";
+import { extractTags, normalizeTag, parseTagQuery } from "../shared/tags";
 import { databasePathFromEnv, openDatabase, type SqliteDatabase } from "./db";
 import { IMAGE_ALLOWED_MIME_TYPES, IMAGE_MAX_BYTES, extensionForMimeType, inspectImage } from "./images";
 
@@ -390,11 +391,12 @@ function setSessionCookie(headers: Headers, request: Request, token: string, env
   headers.set("Set-Cookie", `${SESSION_COOKIE}=${encodeURIComponent(token)}; Max-Age=${maxAge}; Path=/; HttpOnly; SameSite=Lax${secure ? "; Secure" : ""}`);
 }
 
-function toNote(row: NoteRow): NoteSummary {
+function toNote(row: NoteRow, tags = extractTags(row.content_markdown)): NoteSummary {
   return {
     id: row.id,
     title: row.title,
     preview: formatPreview(row.content_markdown),
+    tags,
     thumbnail: thumbnailFromNoteRow(row),
     notebookId: row.notebook_id,
     notebookName: row.notebook_name,
@@ -868,7 +870,8 @@ async function handleApi(request: Request, options: ServerOptions) {
       conditions.push("n.notebook_id = ?");
       params.push(notebookId);
     }
-    if (query) {
+    const tagQuery = parseTagQuery(query);
+    if (query && !tagQuery) {
       if (/[\u3400-\u9fff]/u.test(query)) {
         conditions.push("(n.title LIKE ? OR n.content_markdown LIKE ?)");
         params.push(`%${query}%`, `%${query}%`);
@@ -882,9 +885,33 @@ async function handleApi(request: Request, options: ServerOptions) {
       }
     }
     const where = conditions.join(" AND ");
+    if (tagQuery) {
+      const tagListStatement = database.query(`
+        SELECT n.id, n.title, n.content_markdown, n.notebook_id, b.name AS notebook_name,
+          b.color AS notebook_color, n.is_favorite, n.deleted_at, n.version, n.created_at, n.updated_at,
+          (SELECT a.id FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_asset_id,
+          (SELECT a.storage_path FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_storage_path,
+          (SELECT a.original_name FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_original_name,
+          (SELECT a.mime_type FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_mime_type,
+          (SELECT a.byte_size FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_byte_size,
+          (SELECT a.width FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_width,
+          (SELECT a.height FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_height,
+          (SELECT a.created_at FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_created_at
+        FROM ${from} WHERE ${where} ORDER BY n.updated_at DESC
+      `);
+      const notes: NoteSummary[] = [];
+      let total = 0;
+      for (const row of tagListStatement.iterate(...params) as Iterable<NoteRow>) {
+        const tags = extractTags(row.content_markdown);
+        if (!tags.some((tag) => normalizeTag(tag) === tagQuery)) continue;
+        total += 1;
+        if (notes.length < NOTE_PAGE_SIZE) notes.push(toNote(row, tags));
+      }
+      return json({ notes, total });
+    }
     const totalRow = first<{ count: number }>(database, `SELECT COUNT(*) AS count FROM ${from} WHERE ${where}`, ...params);
     const listStatement = database.query(`
-      SELECT n.id, n.title, substr(n.content_markdown, 1, ${NOTE_PREVIEW_SCAN_LIMIT}) AS content_markdown, n.notebook_id, b.name AS notebook_name,
+      SELECT n.id, n.title, n.content_markdown, n.notebook_id, b.name AS notebook_name,
         b.color AS notebook_color, n.is_favorite, n.deleted_at, n.version, n.created_at, n.updated_at,
         (SELECT a.id FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_asset_id,
         (SELECT a.storage_path FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_storage_path,

@@ -1,0 +1,21 @@
+import { describe, expect, test } from "bun:test";
+import { extractTags, hasTag, normalizeTag, parseTagQuery } from "../shared/tags";
+
+describe("note tags", () => {
+  test("extracts unique tags in first-seen order", () => {
+    expect(extractTags("中文#项目 #Tag #项目-资料 #Tag_2 #tag")).toEqual(["项目", "Tag", "项目-资料", "Tag_2"]);
+  });
+
+  test("ignores headings, malformed markers, and fenced code blocks", () => {
+    expect(extractTags("# 标题\n##tagger\n###tag\n#tag\n\n```ts\n#hidden\n```\n~~~\n#also-hidden\n~~~")).toEqual(["tag"]);
+  });
+
+  test("parses exact tag queries and compares Latin letters case-insensitively", () => {
+    expect(parseTagQuery("  #项目-资料 ")).toBe("项目-资料");
+    expect(parseTagQuery("#Tag")).toBe("tag");
+    expect(parseTagQuery("#tag other")).toBeNull();
+    expect(normalizeTag("ＴＡＧ")).toBe("tag");
+    expect(hasTag("正文 #Tagger", "tag")).toBe(false);
+    expect(hasTag("正文 #Tagger #Tag", "tag")).toBe(true);
+  });
+});

@@ -3,6 +3,7 @@ import { clearCachedData, clearOfflineData, deleteConflict, deleteLocalImageAsse
 import type { SyncChange, SyncMutation, SyncPushResult } from "../shared/sync";
 import type { ImageAssetSummary, Note, Notebook, User } from "../shared/types";
 import { firstImageSource, localImageId, replaceLocalImageReferences } from "./image-markdown";
+import { extractTags } from "../shared/tags";
 
 export type OfflineSyncState = {
   status: "idle" | "offline" | "syncing" | "synced" | "error" | "conflict";
@@ -203,7 +204,7 @@ class OfflineSyncController {
   }
 
   async saveNote(note: Note, options?: { keepalive?: boolean }) {
-    const localNote = { ...note, preview: localPreview(note.contentMarkdown), thumbnail: await this.localThumbnail(note), updatedAt: now() };
+    const localNote = { ...note, preview: localPreview(note.contentMarkdown), tags: extractTags(note.contentMarkdown), thumbnail: await this.localThumbnail(note), updatedAt: now() };
     if (!networkAvailable()) {
       await putLocalNote(localNote);
       await this.queue(noteMutation(localNote, operationIdFor(await getPendingMutations(), "note", localNote.id)));
@@ -268,6 +269,7 @@ class OfflineSyncController {
       title: payload.title ?? "未命名笔记",
       contentMarkdown: payload.contentMarkdown ?? "",
       preview: localPreview(payload.contentMarkdown ?? ""),
+      tags: extractTags(payload.contentMarkdown ?? ""),
       thumbnail: null,
       notebookId: payload.notebookId ?? notebook!.id,
       notebookName: notebook?.name ?? "收件箱",
@@ -405,7 +407,7 @@ class OfflineSyncController {
       if (contentMarkdown !== note.contentMarkdown) {
         rewrittenNoteIds.add(note.id);
         const thumbnail = note.thumbnail?.url.startsWith("offline-image://") ? assets.find((asset) => asset.id === note.thumbnail?.id)?.uploadedAsset ?? note.thumbnail : note.thumbnail;
-        await putLocalNote({ ...note, contentMarkdown, preview: localPreview(contentMarkdown), thumbnail });
+        await putLocalNote({ ...note, contentMarkdown, preview: localPreview(contentMarkdown), tags: extractTags(contentMarkdown), thumbnail });
       }
     }
     return [...rewrittenNoteIds];
