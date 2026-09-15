@@ -38,10 +38,11 @@
 }
 
 @font-face {
-  font-family: "Xiangying Editor Local";
+  font-family: XiangyingEditorLocal;
   src:
-    local("LXGWWenKai-Medium"),
-    local("LXGW WenKai Medium");
+    local("LXGWWenKai-Regular"),
+    local("LXGW WenKai"),
+    local("霞鹜文楷");
   font-style: normal;
   font-weight: 400;
   font-display: swap;
@@ -321,7 +322,7 @@ button.save-status:hover { text-decoration: underline; }
 @keyframes note-fade-in { from { opacity: 0.82; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 .editor-panel .note-title-input,
 .editor-panel .note-prose {
-  font-family: "Xiangying Editor Local", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
+  font-family: XiangyingEditorLocal, "LXGW WenKai", "霞鹜文楷", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
   font-synthesis: weight;
   font-size-adjust: from-font;
 }
