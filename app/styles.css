@@ -37,17 +37,6 @@
   --h3-border: #ccdce7;
 }
 
-@font-face {
-  font-family: XiangyingEditorLocal;
-  src:
-    local("LXGWWenKai-Regular"),
-    local("LXGW WenKai"),
-    local("霞鹜文楷");
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-}
-
 * { box-sizing: border-box; }
 html, body, #root { min-height: 100%; margin: 0; }
 body { min-width: 320px; background: var(--canvas); }
@@ -321,8 +310,9 @@ button.save-status:hover { text-decoration: underline; }
 @keyframes page-content-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes note-fade-in { from { opacity: 0.82; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 .editor-panel .note-title-input,
-.editor-panel .note-prose {
-  font-family: XiangyingEditorLocal, "LXGW WenKai", "霞鹜文楷", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
+.editor-panel .note-prose,
+.share-prose {
+  font-family: "霞鹜文楷", "LXGW WenKai", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
   font-synthesis: weight;
   font-size-adjust: from-font;
 }
