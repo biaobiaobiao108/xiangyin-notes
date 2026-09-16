@@ -979,18 +979,6 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
           </> : <button className="icon-button" type="button" aria-label="移入回收站" title="移入回收站" onClick={onMoveToTrash} disabled={editorLocked || trashBusy}><Trash2 size={18} strokeWidth={1.8} /></button>}
         </div>
       </header>
-      {focusMode && onToggleFocusMode && (
-        <button
-          className="focus-mode-floating-exit"
-          type="button"
-          aria-label="退出沉浸模式"
-          title="退出沉浸模式 (Esc)"
-          onClick={onToggleFocusMode}
-        >
-          <Minimize2 size={14} strokeWidth={2} />
-          <span>退出沉浸</span>
-        </button>
-      )}
       <div className="editor-scroll-shell">
         <div id="editor-scroll-region" className={`editor-scroll floating-scrollbar-target ${typewriterMode ? "is-typewriter-mode" : ""}`} ref={editorScrollRef}>
           <div className="editor-document" ref={documentRef} onAnimationEnd={() => documentRef.current?.classList.remove("editor-document--entering")}>
