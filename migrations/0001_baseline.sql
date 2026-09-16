@@ -55,7 +55,9 @@ CREATE TABLE IF NOT EXISTS shares (
   token_hash TEXT NOT NULL UNIQUE,
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL,
-  revoked_at INTEGER
+  revoked_at INTEGER,
+  snapshot_title TEXT NOT NULL DEFAULT '',
+  snapshot_content_markdown TEXT NOT NULL DEFAULT ''
 );
 
 CREATE INDEX IF NOT EXISTS idx_shares_note ON shares(note_id, created_at DESC);
@@ -66,3 +68,49 @@ CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
   title,
   content
 );
+
+CREATE TABLE IF NOT EXISTS sync_changes (
+  sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  entity_type TEXT NOT NULL CHECK (entity_type IN ('note', 'notebook')),
+  entity_id TEXT NOT NULL,
+  operation TEXT NOT NULL CHECK (operation IN ('upsert', 'delete')),
+  payload_json TEXT,
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_sync_changes_user_sequence ON sync_changes(user_id, sequence);
+
+CREATE TABLE IF NOT EXISTS sync_mutations (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  operation_id TEXT NOT NULL,
+  request_hash TEXT NOT NULL DEFAULT '',
+  result_json TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, operation_id)
+);
+
+CREATE TABLE IF NOT EXISTS sync_tombstones (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  entity_type TEXT NOT NULL CHECK (entity_type IN ('note', 'notebook')),
+  entity_id TEXT NOT NULL,
+  deleted_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, entity_type, entity_id)
+);
+
+CREATE TABLE IF NOT EXISTS image_assets (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  note_id TEXT REFERENCES notes(id) ON DELETE CASCADE,
+  storage_path TEXT NOT NULL UNIQUE,
+  original_name TEXT NOT NULL,
+  mime_type TEXT NOT NULL,
+  byte_size INTEGER NOT NULL,
+  width INTEGER NOT NULL,
+  height INTEGER NOT NULL,
+  document_order INTEGER,
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_image_assets_note_order ON image_assets(note_id, document_order, created_at);
+CREATE INDEX IF NOT EXISTS idx_image_assets_user ON image_assets(user_id, created_at DESC);

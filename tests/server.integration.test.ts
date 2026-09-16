@@ -48,21 +48,20 @@ describe("Bun Server API", () => {
     expect(source).toContain("event.respondWith(fetch(event.request))");
   });
 
-  test("automatically initializes a fresh database but not later migrations", async () => {
+  test("automatically initializes a fresh database and does not rerun the baseline", async () => {
     const fresh = await openDatabase(":memory:");
     const migrations = fresh.query("SELECT name FROM schema_migrations ORDER BY name").all() as Array<{ name: string }>;
-    expect(migrations.map((item) => item.name)).toEqual(["0001_initial.sql", "0002_sqlite_share_snapshots.sql", "0003_pwa_sync.sql", "0004_sync_tombstones.sql", "0005_image_assets.sql", "0006_sync_hardening.sql", "0007_sync_change_limit.sql"]);
+    expect(migrations.map((item) => item.name)).toEqual(["0001_baseline.sql"]);
     expect(fresh.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'users'").get()).toBeDefined();
     fresh.close();
 
     const databasePath = join(tmpdir(), `xiangying-notes-migration-${crypto.randomUUID()}.sqlite`);
     const initialized = await openDatabase(databasePath);
-    initialized.query("DELETE FROM schema_migrations WHERE name = ?").run("0002_sqlite_share_snapshots.sql");
     initialized.close();
 
     const reopened = await openDatabase(databasePath);
-    const laterMigration = reopened.query("SELECT name FROM schema_migrations WHERE name = ?").get("0002_sqlite_share_snapshots.sql") ?? null;
-    expect(laterMigration).toBeNull();
+    const appliedMigrations = reopened.query("SELECT name FROM schema_migrations ORDER BY name").all() as Array<{ name: string }>;
+    expect(appliedMigrations.map((item) => item.name)).toEqual(["0001_baseline.sql"]);
     reopened.close();
     await Promise.all([rm(databasePath, { force: true }), rm(`${databasePath}-wal`, { force: true }), rm(`${databasePath}-shm`, { force: true })]);
   });
@@ -70,7 +69,7 @@ describe("Bun Server API", () => {
   test("applies SQLite migrations idempotently and reports health", async () => {
     await applyMigrations(database);
     const migrations = database.query("SELECT name FROM schema_migrations ORDER BY name").all() as Array<{ name: string }>;
-    expect(migrations.map((item) => item.name)).toEqual(["0001_initial.sql", "0002_sqlite_share_snapshots.sql", "0003_pwa_sync.sql", "0004_sync_tombstones.sql", "0005_image_assets.sql", "0006_sync_hardening.sql", "0007_sync_change_limit.sql"]);
+    expect(migrations.map((item) => item.name)).toEqual(["0001_baseline.sql"]);
 
     const health = await request("/api/health");
     expect(health.response.status).toBe(200);
