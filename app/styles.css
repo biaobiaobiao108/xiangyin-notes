@@ -1245,10 +1245,9 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
   font-size: 12.5px;
   line-height: 1.65;
   color: var(--ink);
-  padding: 8px 12px 8px 14px;
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  border-left: 2.5px solid var(--accent);
-  background: rgba(0, 0, 0, 0.025);
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--canvas);
   word-break: break-word;
 }
 
