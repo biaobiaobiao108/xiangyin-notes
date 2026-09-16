@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { ArrowLeftRight, ExternalLink, Link2, Loader2, Sparkles, X } from "lucide-react";
-import { api } from "../api";
+import { ApiError, api } from "../api";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import type { NoteBacklinksResponse } from "../../shared/types";
 
@@ -97,6 +97,7 @@ export type BacklinkUnifiedItem =
       snippet: string;
       matchIndex: number;
       matchText: string;
+      sourceVersion: number;
     };
 
 export interface BacklinksDialogProps {
@@ -121,16 +122,18 @@ export function BacklinksDialog({
   const [data, setData] = useState<NoteBacklinksResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [linkingKey, setLinkingKey] = useState<string | null>(null);
+  const [error, setError] = useState("");
 
   const fetchBacklinks = async () => {
     try {
       setLoading(true);
+      setError("");
       const res = await api.getBacklinks(noteId);
       setData(res);
       const totalCount = (res.linkedReferences?.length ?? 0) + (res.unlinkedMentions?.length ?? 0);
       onBacklinkCountChange?.(totalCount);
     } catch {
-      // Offline fallback or error ignored gracefully
+      setError("反向链接加载失败，请稍后重试");
     } finally {
       setLoading(false);
     }
@@ -177,18 +180,26 @@ export function BacklinksDialog({
 
   const handleLinkMention = async (
     sourceNoteId: string,
+    sourceVersion: number,
     matchStart: number,
-    matchTextLength: number,
+    matchText: string,
     key: string,
   ) => {
     try {
       setLinkingKey(key);
+      setError("");
       await api.linkMention(noteId, {
         sourceNoteId,
+        sourceVersion,
         matchStart,
-        matchEnd: matchStart + matchTextLength,
+        matchEnd: matchStart + matchText.length,
+        matchText,
       });
       await fetchBacklinks();
+    } catch (reason) {
+      const message = reason instanceof ApiError && reason.code === "MENTION_STALE" ? reason.message : "添加链接失败，请重试";
+      await fetchBacklinks();
+      setError(message);
     } finally {
       setLinkingKey(null);
     }
@@ -215,6 +226,7 @@ export function BacklinksDialog({
       snippet: item.snippet,
       matchIndex: item.matchIndex,
       matchText: item.matchText,
+      sourceVersion: item.sourceVersion,
     }));
     return [...linked, ...unlinked].sort((a, b) => b.updatedAt - a.updatedAt);
   }, [data]);
@@ -261,6 +273,7 @@ export function BacklinksDialog({
           ref={bodyRef}
           className="backlinks-dialog-body floating-scrollbar-target"
         >
+          {error && <p className="backlinks-error" role="alert">{error}</p>}
           {loading && !data ? (
             <div className="backlinks-loading-state">
               <Loader2 size={18} className="spin-icon" />
@@ -324,8 +337,9 @@ export function BacklinksDialog({
                           onClick={() =>
                             handleLinkMention(
                               item.sourceNoteId,
+                              item.sourceVersion,
                               item.matchIndex,
-                              item.matchText.length,
+                              item.matchText,
                               item.id,
                             )
                           }
@@ -363,6 +377,7 @@ export function BacklinksDialog({
               })}
             </ul>
           )}
+          {data?.truncated && <p className="backlinks-truncated-hint" role="status">结果较多，仅显示最近的部分引用。</p>}
         </div>
         <FloatingScrollbar
           scrollTargetRef={bodyRef}

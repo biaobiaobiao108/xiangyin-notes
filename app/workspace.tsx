@@ -869,38 +869,17 @@ export function Workspace() {
       const cleanTitle = title.replace(/^(?:\[\[|【【)\s*|\s*(?:\]\]|】】)$/g, "").trim();
       const normalized = normalizeLinkTitle(cleanTitle);
       if (!normalized) return null;
-
-      // 1. 检查实时 notesRef.current，防止陈旧状态
-      const existing = notesRef.current.find(
-        (n) => !n.deletedAt && normalizeLinkTitle(n.title) === normalized,
-      );
-      if (existing) return existing;
-
-      // 2. 检查是否有同名笔记正在并发创建中，如果有则复用已发起的创建 Promise
       const inFlight = pendingWikiCreationsRef.current.get(normalized);
       if (inFlight) {
         return await inFlight;
       }
-
-      // 3. 确定目标笔记本
       const defaultNotebook = notebookId
         ? notebooks.find((n) => n.id === notebookId)
         : notebooks.find((n) => n.isSystem) ?? notebooks[0];
       if (!defaultNotebook) return null;
-
-      // 4. 创建新笔记并使用 Promise 锁住该标题
       const creationPromise = (async () => {
-        const newId = crypto.randomUUID();
         try {
-          const result = await offlineSync.createNote(
-            {
-              id: newId,
-              title: cleanTitle || "未命名笔记",
-              contentMarkdown: "",
-              notebookId: defaultNotebook.id,
-            },
-            defaultNotebook,
-          );
+          const result = await offlineSync.ensureWikiNote(cleanTitle, defaultNotebook);
 
           const summary: NoteSummary = {
             id: result.note.id,
@@ -917,10 +896,11 @@ export function Workspace() {
             updatedAt: result.note.updatedAt,
           };
 
-          // 立即更新本地实时列表和总数，并刷新笔记本计数
           replaceList([summary, ...notesRef.current.filter((n) => n.id !== summary.id)]);
-          setTotalNotes((prev) => prev + 1);
-          void refreshNotebooks();
+          if (result.created) {
+            setTotalNotes((prev) => prev + 1);
+            void refreshNotebooks();
+          }
 
           return summary;
         } catch {

@@ -87,11 +87,12 @@ export type UnlinkedMention = {
   snippet: string;
   matchIndex: number;
   matchText: string;
+  sourceVersion: number;
   updatedAt: number;
 };
 
 export type NoteBacklinksResponse = {
   linkedReferences: NoteLinkSummary[];
   unlinkedMentions: UnlinkedMention[];
+  truncated: boolean;
 };
-

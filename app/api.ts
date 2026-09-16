@@ -41,6 +41,7 @@ export const api = {
     return request<{ notes: NoteSummary[]; total: number }>(`/api/notes?${search.toString()}`);
   },
   getNote: (id: string) => request<{ note: Note }>(`/api/notes/${id}`),
+  ensureWikiNote: (payload: { title: string; notebookId: string }) => request<{ note: Note; created: boolean }>("/api/wiki-notes/ensure", { method: "POST", body: JSON.stringify(payload) }),
   uploadAsset: (file: File) => request<{ asset: ImageAssetSummary }>("/api/assets", { method: "POST", body: (() => { const formData = new FormData(); formData.append("file", file, file.name); return formData; })() }),
   createNote: (payload: { id?: string; title?: string; contentMarkdown?: string; notebookId?: string }) => request<{ note: Note }>("/api/notes", { method: "POST", body: JSON.stringify(payload) }),
   updateNote: (id: string, payload: { version: number; title?: string; contentMarkdown?: string; notebookId?: string; isFavorite?: boolean; deleted?: boolean }, options?: RequestOptions) => request<{ note: Note }>(`/api/notes/${id}`, { method: "PATCH", body: JSON.stringify(payload), ...options }),
@@ -64,5 +65,5 @@ export const api = {
   },
   syncPush: (mutations: SyncMutation[], options?: RequestOptions) => request<SyncPushResponse>("/api/sync/push", { method: "POST", body: JSON.stringify({ mutations }), ...options }),
   getBacklinks: (noteId: string) => request<NoteBacklinksResponse>(`/api/notes/${noteId}/backlinks`),
-  linkMention: (targetNoteId: string, payload: { sourceNoteId: string; matchStart: number; matchEnd: number }) => request<{ ok: true }>(`/api/notes/${targetNoteId}/link-mention`, { method: "POST", body: JSON.stringify(payload) }),
+  linkMention: (targetNoteId: string, payload: { sourceNoteId: string; sourceVersion: number; matchStart: number; matchEnd: number; matchText: string }) => request<{ ok: true }>(`/api/notes/${targetNoteId}/link-mention`, { method: "POST", body: JSON.stringify(payload) }),
 };

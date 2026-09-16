@@ -178,18 +178,17 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       return;
     }
     let active = true;
+    setBacklinkCount(0);
     void api
       .getBacklinks(note.id)
-      .then((res) => {
-        if (active) {
-          setBacklinkCount((res.linkedReferences?.length ?? 0) + (res.unlinkedMentions?.length ?? 0));
-        }
+      .then((response) => {
+        if (active) setBacklinkCount(response.linkedReferences.length + response.unlinkedMentions.length);
       })
       .catch(() => {});
     return () => {
       active = false;
     };
-  }, [note.id, note.title, note.deletedAt]);
+  }, [note.id, note.deletedAt]);
 
   const uploadImageFiles = useCallback(async (files: File[]) => {
     const editorInstance = editorInstanceRef.current;

@@ -1459,6 +1459,19 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
   font-size: 0.88rem;
 }
 
+.backlinks-error,
+.backlinks-truncated-hint {
+  margin: 8px 4px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.backlinks-error {
+  color: #c34b35;
+}
+
 .backlinks-empty-state {
   flex: 1 1 auto;
   display: flex;

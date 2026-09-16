@@ -7,6 +7,7 @@ import { extractTags, normalizeTag, parseTagQuery } from "../shared/tags";
 import { extractContextSnippet, extractWikiLinks, findUnlinkedMentionsInMarkdown, linkMentionInMarkdown, normalizeLinkTitle, replaceWikiLinkTarget } from "../shared/wiki-links";
 import { databasePathFromEnv, openDatabase, type SqliteDatabase } from "./db";
 import { IMAGE_ALLOWED_MIME_TYPES, IMAGE_MAX_BYTES, extensionForMimeType, inspectImage } from "./images";
+import { findActiveNoteIdByTitle, resolveNoteLinksForTarget, resolveNoteLinksForUser, sourceNoteIdsReferencingTarget, syncNoteLinks } from "./note-links";
 
 const SESSION_COOKIE = "xiangying_session";
 const SESSION_TTL = 60 * 60 * 24 * 30;
@@ -15,6 +16,9 @@ const SESSION_REFRESH_WINDOW = 60 * 60 * 24 * 7;
 const SHARE_TTL = 60 * 60 * 24 * 7;
 const PASSWORD_ITERATIONS = 100_000;
 const NOTE_PAGE_SIZE = 100;
+const BACKLINK_REFERENCE_LIMIT = 100;
+const BACKLINK_MENTION_LIMIT = 100;
+const BACKLINK_CANDIDATE_LIMIT = 100;
 const NOTE_PREVIEW_LIMIT = 180;
 const NOTE_PREVIEW_SCAN_LIMIT = NOTE_PREVIEW_LIMIT + 64;
 const NOTE_BODY_MAX_BYTES = 4_500_000;
@@ -224,6 +228,10 @@ function validText(value: unknown, maxLength: number): value is string {
 
 function validColor(value: unknown): value is string {
   return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value);
+}
+
+function escapeLikePattern(value: string) {
+  return value.replaceAll("!", "!!").replaceAll("%", "!%").replaceAll("_", "!_");
 }
 
 /** A title made of nothing but whitespace is stored as empty so the client can show its placeholder. */
@@ -655,30 +663,6 @@ async function removeAssetFiles(assetRoot: string, storagePaths: string[]) {
   }
 }
 
-function syncNoteLinks(database: SqliteDatabase, userId: string, sourceNoteId: string, contentMarkdown: string) {
-  const links = extractWikiLinks(contentMarkdown);
-  database.query("DELETE FROM note_links WHERE user_id = ? AND source_note_id = ?").run(userId, sourceNoteId);
-  if (!links.length) return;
-
-  const seen = new Set<string>();
-  const createdAt = now();
-  for (const link of links) {
-    const key = normalizeLinkTitle(link.target);
-    if (seen.has(key)) continue;
-    seen.add(key);
-
-    const targetRow = first<{ id: string }>(database, "SELECT id FROM notes WHERE user_id = ? AND TRIM(title) = TRIM(?) COLLATE NOCASE AND deleted_at IS NULL LIMIT 1", userId, link.target);
-    database.query("INSERT INTO note_links (id, user_id, source_note_id, target_title, target_note_id, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(
-      crypto.randomUUID(),
-      userId,
-      sourceNoteId,
-      link.target,
-      targetRow?.id ?? null,
-      createdAt,
-    );
-  }
-}
-
 function createNote(database: SqliteDatabase, userId: string, notebookId: string, title: string, contentMarkdown: string, requestedId?: string) {
   const id = requestedId ?? crypto.randomUUID();
   const createdAt = now();
@@ -686,10 +670,8 @@ function createNote(database: SqliteDatabase, userId: string, notebookId: string
     database.query("INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)").run(id, userId, notebookId, title, contentMarkdown, createdAt, createdAt);
     if (!syncNoteAssetReferences(database, userId, id, contentMarkdown)) throw new Error("invalid-note-assets");
     database.query("INSERT INTO notes_fts (note_id, title, content) VALUES (?, ?, ?)").run(id, title, contentMarkdown);
-    syncNoteLinks(database, userId, id, contentMarkdown);
-    if (title.trim()) {
-      database.query("UPDATE note_links SET target_note_id = ? WHERE user_id = ? AND TRIM(target_title) = TRIM(?) COLLATE NOCASE").run(id, userId, title);
-    }
+    syncNoteLinks(database, userId, id, contentMarkdown, createdAt);
+    resolveNoteLinksForTarget(database, userId, title, id);
     const note = getNote(database, userId, id);
     if (note) recordSyncChange(database, userId, "note", id, "upsert");
   });
@@ -716,31 +698,24 @@ function updateNoteInTransaction(
   if (!syncNoteAssetReferences(database, userId, current.id, contentMarkdown)) return false;
   database.query("DELETE FROM notes_fts WHERE note_id = ?").run(current.id);
   database.query("INSERT INTO notes_fts (note_id, title, content) VALUES (?, ?, ?)").run(current.id, title, contentMarkdown);
-  syncNoteLinks(database, userId, current.id, contentMarkdown);
+  syncNoteLinks(database, userId, current.id, contentMarkdown, updatedAt);
 
   if (titleChanged && oldTitle.trim() && title.trim()) {
-    const referencingRows = all<{ source_note_id: string }>(
-      database,
-      "SELECT DISTINCT source_note_id FROM note_links WHERE user_id = ? AND target_title = ? AND source_note_id != ?",
-      userId,
-      oldTitle,
-      current.id,
-    );
-    for (const row of referencingRows) {
-      const refNote = getNote(database, userId, row.source_note_id);
+    const referencingSourceNoteIds = sourceNoteIdsReferencingTarget(database, userId, current.id, oldTitle);
+    for (const sourceNoteId of referencingSourceNoteIds) {
+      const refNote = getNote(database, userId, sourceNoteId);
       if (!refNote) continue;
       const { content: replacedContent, count } = replaceWikiLinkTarget(refNote.content_markdown, oldTitle, title);
       if (count > 0) {
         database.query("UPDATE notes SET content_markdown = ?, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ?").run(replacedContent, updatedAt, refNote.id, userId);
         database.query("DELETE FROM notes_fts WHERE note_id = ?").run(refNote.id);
         database.query("INSERT INTO notes_fts (note_id, title, content) VALUES (?, ?, ?)").run(refNote.id, refNote.title, replacedContent);
-        syncNoteLinks(database, userId, refNote.id, replacedContent);
+        syncNoteLinks(database, userId, refNote.id, replacedContent, updatedAt);
         recordSyncChange(database, userId, "note", refNote.id, "upsert");
       }
     }
-    database.query("UPDATE note_links SET target_note_id = ? WHERE user_id = ? AND TRIM(target_title) = TRIM(?) COLLATE NOCASE").run(current.id, userId, title);
-    database.query("UPDATE note_links SET target_note_id = NULL WHERE user_id = ? AND TRIM(target_title) = TRIM(?) COLLATE NOCASE AND target_note_id = ?").run(userId, oldTitle, current.id);
   }
+  if (titleChanged) resolveNoteLinksForUser(database, userId);
 
   const next = getNote(database, userId, current.id);
   if (next) recordSyncChange(database, userId, "note", current.id, "upsert");
@@ -941,6 +916,25 @@ async function handleApi(request: Request, options: ServerOptions) {
     return json({ ok: emptiedTrash.ok, deletedCount: emptiedTrash.deletedCount, deletedIds: emptiedTrash.deletedIds });
   }
 
+  if (resource === "wiki-notes" && id === "ensure" && method === "POST") {
+    const payload = await readJson<{ title?: unknown; notebookId?: unknown }>(request, 64 * 1024);
+    if (!payload || !validText(payload.title, 200) || !payload.title.trim() || typeof payload.notebookId !== "string") {
+      return jsonError(400, "INVALID_WIKI_TARGET", "双向链接目标无效");
+    }
+    const title = payload.title.trim();
+    const existingId = findActiveNoteIdByTitle(database, user.id, title);
+    if (existingId) {
+      const existing = getNote(database, user.id, existingId);
+      if (existing) return json({ note: toFullNote(existing), created: false });
+    }
+    if (!first(database, "SELECT id FROM notebooks WHERE id = ? AND user_id = ?", payload.notebookId, user.id)) {
+      return jsonError(400, "INVALID_NOTEBOOK", "笔记本不存在");
+    }
+    const noteId = createNote(database, user.id, payload.notebookId, title, "");
+    const note = getNote(database, user.id, noteId);
+    return note ? json({ note: toFullNote(note), created: true }, 201) : jsonError(500, "NOTE_CREATE_FAILED", "笔记创建失败");
+  }
+
   if (resource === "notes" && !id && method === "GET") {
     const view = url.searchParams.get("view") ?? "all";
     if (!NOTE_VIEWS.includes(view as NoteView)) return jsonError(400, "INVALID_VIEW", "不支持的笔记视图");
@@ -1060,7 +1054,7 @@ async function handleApi(request: Request, options: ServerOptions) {
     const note = getNote(database, user.id, id);
     if (!note) return jsonError(404, "NOTE_NOT_FOUND", "笔记不存在");
 
-    const rows = all<{
+    const linkedRows = all<{
       link_id: string;
       source_note_id: string;
       source_title: string;
@@ -1076,7 +1070,10 @@ async function handleApi(request: Request, options: ServerOptions) {
       JOIN notebooks nb ON n.notebook_id = nb.id
       WHERE nl.user_id = ? AND (nl.target_note_id = ? OR nl.target_title = ?) AND nl.source_note_id != ? AND n.deleted_at IS NULL
       ORDER BY n.updated_at DESC
-    `, user.id, note.id, note.title, note.id);
+      LIMIT ?
+    `, user.id, note.id, note.title, note.id, BACKLINK_REFERENCE_LIMIT + 1);
+    let truncated = linkedRows.length > BACKLINK_REFERENCE_LIMIT;
+    const rows = linkedRows.slice(0, BACKLINK_REFERENCE_LIMIT);
 
     const linkedReferences: NoteLinkSummary[] = rows.map((row) => {
       const links = extractWikiLinks(row.source_content);
@@ -1101,18 +1098,25 @@ async function handleApi(request: Request, options: ServerOptions) {
         title: string;
         content_markdown: string;
         notebook_name: string;
+        version: number;
         updated_at: number;
       }>(database, `
-        SELECT n.id, n.title, n.content_markdown, nb.name AS notebook_name, n.updated_at
+        SELECT n.id, n.title, n.content_markdown, nb.name AS notebook_name, n.version, n.updated_at
         FROM notes n
         JOIN notebooks nb ON n.notebook_id = nb.id
-        WHERE n.user_id = ? AND n.deleted_at IS NULL AND n.id != ? AND n.content_markdown LIKE ?
+        WHERE n.user_id = ? AND n.deleted_at IS NULL AND n.id != ? AND n.content_markdown LIKE ? ESCAPE '!'
         ORDER BY n.updated_at DESC
-      `, user.id, note.id, `%${note.title}%`);
+        LIMIT ?
+      `, user.id, note.id, `%${escapeLikePattern(note.title)}%`, BACKLINK_CANDIDATE_LIMIT + 1);
+      if (candidates.length > BACKLINK_CANDIDATE_LIMIT) truncated = true;
 
-      for (const candidate of candidates) {
+      mentionLoop: for (const candidate of candidates.slice(0, BACKLINK_CANDIDATE_LIMIT)) {
         const mentions = findUnlinkedMentionsInMarkdown(candidate.content_markdown, note.title);
         for (const m of mentions) {
+          if (unlinkedMentions.length >= BACKLINK_MENTION_LIMIT) {
+            truncated = true;
+            break mentionLoop;
+          }
           unlinkedMentions.push({
             sourceNoteId: candidate.id,
             sourceNoteTitle: candidate.title,
@@ -1120,13 +1124,14 @@ async function handleApi(request: Request, options: ServerOptions) {
             snippet: m.snippet,
             matchIndex: m.start,
             matchText: m.matchText,
+            sourceVersion: candidate.version,
             updatedAt: candidate.updated_at,
           });
         }
       }
     }
 
-    const payload: NoteBacklinksResponse = { linkedReferences, unlinkedMentions };
+    const payload: NoteBacklinksResponse = { linkedReferences, unlinkedMentions, truncated };
     return json(payload);
   }
 
@@ -1134,19 +1139,25 @@ async function handleApi(request: Request, options: ServerOptions) {
     const targetNote = getNote(database, user.id, id);
     if (!targetNote) return jsonError(404, "NOTE_NOT_FOUND", "目标笔记不存在");
 
-    const payload = await readJson<{ sourceNoteId?: unknown; matchStart?: unknown; matchEnd?: unknown }>(request, 10_000);
-    if (!payload || typeof payload.sourceNoteId !== "string" || !Number.isInteger(payload.matchStart) || !Number.isInteger(payload.matchEnd)) {
+    const payload = await readJson<{ sourceNoteId?: unknown; sourceVersion?: unknown; matchStart?: unknown; matchEnd?: unknown; matchText?: unknown }>(request, 10_000);
+    if (!payload || typeof payload.sourceNoteId !== "string" || !Number.isInteger(payload.sourceVersion) || !Number.isInteger(payload.matchStart) || !Number.isInteger(payload.matchEnd) || !validText(payload.matchText, 200) || !payload.matchText) {
       return jsonError(400, "INVALID_MENTION_PAYLOAD", "提及参数无效");
     }
 
     const sourceNote = getNote(database, user.id, payload.sourceNoteId);
     if (!sourceNote) return jsonError(404, "SOURCE_NOTE_NOT_FOUND", "来源笔记不存在");
+    if (sourceNote.version !== payload.sourceVersion) return jsonError(409, "MENTION_STALE", "来源笔记已更新，请重新选择提及");
 
     const matchStart = payload.matchStart as number;
     const matchEnd = payload.matchEnd as number;
     if (matchStart < 0 || matchEnd > sourceNote.content_markdown.length || matchStart >= matchEnd) {
       return jsonError(400, "INVALID_MENTION_RANGE", "提及范围无效");
     }
+    const currentMatch = sourceNote.content_markdown.slice(matchStart, matchEnd);
+    const isCurrentMention = currentMatch === payload.matchText
+      && normalizeLinkTitle(currentMatch) === normalizeLinkTitle(targetNote.title)
+      && findUnlinkedMentionsInMarkdown(sourceNote.content_markdown, targetNote.title).some((mention) => mention.start === matchStart && mention.end === matchEnd);
+    if (!isCurrentMention) return jsonError(409, "MENTION_STALE", "提及位置已变化，请重新选择");
 
     const newContent = linkMentionInMarkdown(sourceNote.content_markdown, matchStart, matchEnd, targetNote.title);
     if (!updateNote(database, sourceNote, user.id, sourceNote.title, newContent, sourceNote.notebook_id, sourceNote.is_favorite, sourceNote.deleted_at)) {
@@ -1416,6 +1427,8 @@ function applySyncMutation(database: SqliteDatabase, user: UserRow, mutation: Sy
             database.query("INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, is_favorite, deleted_at, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)").run(mutation.entityId, user.id, payload.notebookId, normalizeNoteTitle(payload.title), payload.contentMarkdown, payload.isFavorite ? 1 : 0, payload.deletedAt, createdAt, createdAt);
             if (!syncNoteAssetReferences(database, user.id, mutation.entityId, payload.contentMarkdown)) throw new Error("invalid-note-assets");
             database.query("INSERT INTO notes_fts (note_id, title, content) VALUES (?, ?, ?)").run(mutation.entityId, normalizeNoteTitle(payload.title), payload.contentMarkdown);
+            syncNoteLinks(database, user.id, mutation.entityId, payload.contentMarkdown, createdAt);
+            resolveNoteLinksForTarget(database, user.id, normalizeNoteTitle(payload.title), mutation.entityId);
             const created = getNote(database, user.id, mutation.entityId);
             if (!created) throw new Error("note-create-missing");
             recordSyncChange(database, user.id, "note", mutation.entityId, "upsert");

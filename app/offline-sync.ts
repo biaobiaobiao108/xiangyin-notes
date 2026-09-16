@@ -4,6 +4,7 @@ import type { SyncChange, SyncMutation, SyncPushResult } from "../shared/sync";
 import type { ImageAssetSummary, Note, Notebook, User } from "../shared/types";
 import { firstImageSource, localImageId, replaceLocalImageReferences } from "./image-markdown";
 import { extractTags } from "../shared/tags";
+import { normalizeLinkTitle } from "../shared/wiki-links";
 
 export type OfflineSyncState = {
   status: "idle" | "offline" | "syncing" | "synced" | "error" | "conflict";
@@ -287,6 +288,26 @@ class OfflineSyncController {
     await putLocalNote(note);
     await this.queue(noteMutation(note, crypto.randomUUID()));
     return { note, offline: true };
+  }
+
+  async ensureWikiNote(title: string, notebook: Notebook) {
+    const normalized = normalizeLinkTitle(title);
+    if (!normalized) throw new Error("invalid-wiki-title");
+    if (networkAvailable()) {
+      try {
+        const result = await api.ensureWikiNote({ title, notebookId: notebook.id });
+        await putLocalNote(result.note);
+        return { note: result.note, created: result.created, offline: false };
+      } catch (reason) {
+        if (!isNetworkFailure(reason)) throw reason;
+      }
+    }
+
+    const local = await getLocalSnapshot();
+    const existing = local.notes.find((note) => !note.deletedAt && normalizeLinkTitle(note.title) === normalized);
+    if (existing) return { note: existing, created: false, offline: true };
+    const created = await this.createNote({ title, contentMarkdown: "", notebookId: notebook.id }, notebook);
+    return { ...created, created: true };
   }
 
   async saveNotebook(notebook: Notebook, isNew: boolean) {
