@@ -45,7 +45,8 @@ describe("Bun Server API", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("Cache-Control")).toBe("no-cache");
     expect(source).toContain("await self.clients.claim()");
-    expect(source).toContain("event.respondWith(fetch(event.request))");
+    expect(source).toContain("new URL(request.url).origin !== self.location.origin");
+    expect(source).toContain("event.respondWith(fetch(request))");
   });
 
   test("automatically initializes a fresh database and does not rerun the baseline", async () => {
