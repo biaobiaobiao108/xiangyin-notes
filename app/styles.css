@@ -278,7 +278,7 @@ button.save-status:hover { text-decoration: underline; }
 .editor-panel .note-title-input,
 .editor-panel .note-prose,
 .share-prose {
-  font-family: "霞鹜文楷", "LXGW WenKai", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
+  font-family: "霞鹜文楷", "LXGW WenKai", system-ui;
   font-synthesis: weight;
   font-size-adjust: from-font;
 }
@@ -311,9 +311,9 @@ button.save-status:hover { text-decoration: underline; }
 .note-prose li { margin-block: 0.28em; padding-left: 0.18em; }
 .note-prose li > p:last-child,
 .note-prose li > div > p:last-child { margin-block-end: 0; }
-.note-prose blockquote { margin-block: 1.05em; padding: 0.15em 0 0.15em 1.2em; border-left: 3px solid #9da9a1; color: var(--muted); font-family: Georgia, "Times New Roman", serif; font-size: 1.08em; line-height: 1.5; font-style: italic; }
+.note-prose blockquote { margin-block: 1.05em; padding: 0.15em 0 0.15em 1.2em; border-left: 3px solid #9da9a1; color: var(--muted); font-family: inherit; font-size: 1.08em; line-height: 1.5; font-style: italic; }
 .note-prose pre { overflow: clip; overflow-wrap: anywhere; white-space: pre-wrap; margin-block: 1em; padding: 18px 20px; border: 1px solid #e4e9e4; border-radius: 10px; background: #f6f8f5; color: #315d45; font: 0.85rem/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
-.note-prose code { padding: 0.13em 0.34em; border-radius: 4px; background: #eff2ee; color: #8d4b37; font: 0.86em ui-monospace, SFMono-Regular, Consolas, monospace; }
+.note-prose code { padding: 0.13em 0.34em; border-radius: 4px; background: #eff2ee; color: #8d4b37; font-family: inherit; font-size: 0.86em; }
 .note-prose pre code { padding: 0; background: transparent; color: inherit; }
 .note-prose hr { margin-block: 1.4em; border: 0; border-top: 1px solid var(--border); }
 .note-prose ul[data-type="taskList"] { padding-left: 0; list-style: none; }
