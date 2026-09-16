@@ -25,11 +25,12 @@
 
 每次新增一个功能，或者修复一个 bug，都执行一次 `git commit`。提交前至少运行：
 
+本项目本地开发不需要执行 Docker 构建测试，Docker 构建由 CI 流程负责。
+
 ```text
 bun run typecheck
 bun test
 bun run build
-docker build --pull -t xiangying-notes:check .
 ```
 
 ## 提交规范
