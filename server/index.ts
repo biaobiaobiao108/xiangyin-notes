@@ -23,7 +23,7 @@ const LOGIN_MAX_FAILURES = 8;
 const LOGIN_BLOCK_SECONDS = 15 * 60;
 const LOGIN_ATTEMPT_MAX_ENTRIES = 2_000;
 const LOGIN_ATTEMPT_CLEANUP_INTERVAL_SECONDS = 60;
-const SYNC_CHANGE_MAX_PER_USER = 5_000;
+const SYNC_CHANGE_MAX_PER_USER = 100;
 const SYNC_CHANGE_RETENTION_SECONDS = 90 * 24 * 60 * 60;
 const SYNC_MUTATION_RETENTION_SECONDS = 30 * 24 * 60 * 60;
 const NOTE_VIEWS: NoteView[] = ["all", "inbox", "favorites", "shared", "trash"];
@@ -460,15 +460,16 @@ function recordSyncChange(database: SqliteDatabase, userId: string, entityType: 
   if (operation === "delete") database.query("INSERT INTO sync_tombstones (user_id, entity_type, entity_id, deleted_at) VALUES (?, ?, ?, ?) ON CONFLICT(user_id, entity_type, entity_id) DO UPDATE SET deleted_at = excluded.deleted_at").run(userId, entityType, entityId, now());
   const sequence = Number(result.lastInsertRowid);
   database.query("DELETE FROM sync_changes WHERE user_id = ? AND entity_type = ? AND entity_id = ? AND sequence <> ?").run(userId, entityType, entityId, sequence);
+  database.query(`DELETE FROM sync_changes
+    WHERE user_id = ? AND sequence IN (
+      SELECT sequence FROM (
+        SELECT sequence, ROW_NUMBER() OVER (ORDER BY sequence DESC) AS row_number
+        FROM sync_changes WHERE user_id = ?
+      ) WHERE row_number > ?
+    )`).run(userId, userId, SYNC_CHANGE_MAX_PER_USER);
   if (sequence % 100 === 0) {
     const cutoff = now() - SYNC_CHANGE_RETENTION_SECONDS;
-    database.query(`DELETE FROM sync_changes
-      WHERE user_id = ? AND (created_at < ? OR sequence IN (
-        SELECT sequence FROM (
-          SELECT sequence, ROW_NUMBER() OVER (ORDER BY sequence DESC) AS row_number
-          FROM sync_changes WHERE user_id = ?
-        ) WHERE row_number > ?
-      ))`).run(userId, cutoff, userId, SYNC_CHANGE_MAX_PER_USER);
+    database.query("DELETE FROM sync_changes WHERE user_id = ? AND created_at < ?").run(userId, cutoff);
     database.query("DELETE FROM sync_mutations WHERE user_id = ? AND created_at < ?").run(userId, now() - SYNC_MUTATION_RETENTION_SECONDS);
   }
 }

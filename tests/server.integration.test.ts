@@ -51,7 +51,7 @@ describe("Bun Server API", () => {
   test("automatically initializes a fresh database but not later migrations", async () => {
     const fresh = await openDatabase(":memory:");
     const migrations = fresh.query("SELECT name FROM schema_migrations ORDER BY name").all() as Array<{ name: string }>;
-    expect(migrations.map((item) => item.name)).toEqual(["0001_initial.sql", "0002_sqlite_share_snapshots.sql", "0003_pwa_sync.sql", "0004_sync_tombstones.sql", "0005_image_assets.sql", "0006_sync_hardening.sql"]);
+    expect(migrations.map((item) => item.name)).toEqual(["0001_initial.sql", "0002_sqlite_share_snapshots.sql", "0003_pwa_sync.sql", "0004_sync_tombstones.sql", "0005_image_assets.sql", "0006_sync_hardening.sql", "0007_sync_change_limit.sql"]);
     expect(fresh.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'users'").get()).toBeDefined();
     fresh.close();
 
@@ -70,7 +70,7 @@ describe("Bun Server API", () => {
   test("applies SQLite migrations idempotently and reports health", async () => {
     await applyMigrations(database);
     const migrations = database.query("SELECT name FROM schema_migrations ORDER BY name").all() as Array<{ name: string }>;
-    expect(migrations.map((item) => item.name)).toEqual(["0001_initial.sql", "0002_sqlite_share_snapshots.sql", "0003_pwa_sync.sql", "0004_sync_tombstones.sql", "0005_image_assets.sql", "0006_sync_hardening.sql"]);
+    expect(migrations.map((item) => item.name)).toEqual(["0001_initial.sql", "0002_sqlite_share_snapshots.sql", "0003_pwa_sync.sql", "0004_sync_tombstones.sql", "0005_image_assets.sql", "0006_sync_hardening.sql", "0007_sync_change_limit.sql"]);
 
     const health = await request("/api/health");
     expect(health.response.status).toBe(200);
@@ -301,6 +301,17 @@ describe("Bun Server API", () => {
     expect(deleted.response.status).toBe(200);
     const staleRecreate = await request("/api/sync/push", { method: "POST", body: JSON.stringify({ mutations: [{ operationId: crypto.randomUUID(), entity: "note", action: "upsert", entityId: trashedNote.id, baseVersion: trashedNote.version, note: { title: "旧客户端重建", contentMarkdown: "不应出现", notebookId: note.notebookId, isFavorite: false, deletedAt: null } }] }) }, login.cookie);
     expect(staleRecreate.body?.results[0].status).toBe("rejected");
+  });
+
+  test("keeps at most 100 sync changes per user", async () => {
+    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
+    for (let index = 0; index < 101; index += 1) {
+      const created = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: `日志上限-${index}` }) }, login.cookie);
+      expect(created.response.status).toBe(201);
+    }
+
+    const count = database.query("SELECT COUNT(*) AS count FROM sync_changes WHERE user_id = ?").get(login.body?.user.id) as { count: number };
+    expect(Number(count.count)).toBe(100);
   });
 
   test("serves installable PWA assets with update-safe cache headers", async () => {
