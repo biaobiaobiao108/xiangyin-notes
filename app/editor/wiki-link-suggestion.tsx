@@ -40,9 +40,22 @@ export const WikiLinkSuggestionList = forwardRef<WikiLinkSuggestionListRef, Wiki
     }
   }, [selectedIndex]);
 
+  const isExecutingRef = useRef(false);
+
+  useEffect(() => {
+    isExecutingRef.current = false;
+  }, [items]);
+
+  const handleSelect = (item: WikiLinkSuggestionItem) => {
+    if (isExecutingRef.current) return;
+    isExecutingRef.current = true;
+    props.command(item);
+  };
+
   useImperativeHandle(ref, () => ({
     onKeyDown: ({ event }) => {
       if (!items.length) return false;
+      if (event.isComposing || (event as any).keyCode === 229) return false;
 
       if (event.key === "ArrowUp") {
         event.preventDefault();
@@ -60,7 +73,7 @@ export const WikiLinkSuggestionList = forwardRef<WikiLinkSuggestionListRef, Wiki
         event.preventDefault();
         const selected = items[selectedIndex];
         if (selected) {
-          props.command(selected);
+          handleSelect(selected);
         }
         return true;
       }
@@ -87,7 +100,12 @@ export const WikiLinkSuggestionList = forwardRef<WikiLinkSuggestionListRef, Wiki
               className={`wiki-link-item ${isSelected ? "is-selected" : ""} ${item.isCreate ? "is-create" : ""}`}
               onPointerDown={(e) => {
                 e.preventDefault();
-                props.command(item);
+                e.stopPropagation();
+                handleSelect(item);
+              }}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
               }}
               onMouseEnter={() => setSelectedIndex(index)}
               role="option"
@@ -231,6 +249,15 @@ export const WikiLinkSuggestionExtension = Extension.create<WikiLinkSuggestionOp
 
           return {
             onStart: (props) => {
+              if (popupEl) {
+                popupEl.remove();
+                popupEl = null;
+              }
+              if (component) {
+                component.destroy();
+                component = null;
+              }
+
               popupEl = document.createElement("div");
               popupEl.className = "wiki-link-suggestion-container";
               document.body.appendChild(popupEl);

@@ -477,6 +477,8 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
         const target = event.target as HTMLElement | null;
         const wikiLinkEl = target?.closest(".editor-wiki-link");
         if (wikiLinkEl) {
+          event.preventDefault();
+          event.stopPropagation();
           const targetTitle = wikiLinkEl.getAttribute("data-wiki-link");
           if (targetTitle && onNavigateWikiLinkRef.current) {
             onNavigateWikiLinkRef.current(targetTitle);
@@ -485,6 +487,8 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
         }
         const anchor = target?.closest("a");
         if (anchor?.href) {
+          event.preventDefault();
+          event.stopPropagation();
           window.open(anchor.href, "_blank", "noopener,noreferrer");
           return true;
         }

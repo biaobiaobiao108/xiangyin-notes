@@ -144,4 +144,37 @@ describe("Note links, backlinks, and renaming cascade", () => {
     expect(backlinksB3.body?.linkedReferences).toHaveLength(1);
     expect(backlinksB3.body?.linkedReferences[0].sourceNoteId).toBe(noteC.id);
   });
+
+  test("matches links with case and space tolerance and links to newly created target note", async () => {
+    const auth = await request("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "owner", password: "a long passphrase 1234" }),
+    });
+    const cookie = auth.cookie!;
+
+    // 1. Create a note referencing an uncreated note with whitespace and uppercase
+    const createRes1 = await request("/api/notes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "文章一", contentMarkdown: "请阅读 [[ TypeScript 教程 ]] 深入了解。" }),
+    }, cookie);
+    expect(createRes1.response.status).toBe(201);
+    const note1 = createRes1.body?.note as Note;
+
+    // 2. Now create the target note with normalized title
+    const createRes2 = await request("/api/notes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "typescript 教程", contentMarkdown: "这是内容。" }),
+    }, cookie);
+    expect(createRes2.response.status).toBe(201);
+    const note2 = createRes2.body?.note as Note;
+
+    // 3. Query backlinks for note2, it should link to note1 despite case/whitespace differences
+    const backlinks2 = await request(`/api/notes/${note2.id}/backlinks`, { method: "GET" }, cookie);
+    expect(backlinks2.body?.linkedReferences).toHaveLength(1);
+    expect(backlinks2.body?.linkedReferences[0].sourceNoteId).toBe(note1.id);
+  });
 });
+

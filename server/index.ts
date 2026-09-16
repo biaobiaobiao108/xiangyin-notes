@@ -667,7 +667,7 @@ function syncNoteLinks(database: SqliteDatabase, userId: string, sourceNoteId: s
     if (seen.has(key)) continue;
     seen.add(key);
 
-    const targetRow = first<{ id: string }>(database, "SELECT id FROM notes WHERE user_id = ? AND title = ? AND deleted_at IS NULL LIMIT 1", userId, link.target);
+    const targetRow = first<{ id: string }>(database, "SELECT id FROM notes WHERE user_id = ? AND TRIM(title) = TRIM(?) COLLATE NOCASE AND deleted_at IS NULL LIMIT 1", userId, link.target);
     database.query("INSERT INTO note_links (id, user_id, source_note_id, target_title, target_note_id, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(
       crypto.randomUUID(),
       userId,
@@ -688,7 +688,7 @@ function createNote(database: SqliteDatabase, userId: string, notebookId: string
     database.query("INSERT INTO notes_fts (note_id, title, content) VALUES (?, ?, ?)").run(id, title, contentMarkdown);
     syncNoteLinks(database, userId, id, contentMarkdown);
     if (title.trim()) {
-      database.query("UPDATE note_links SET target_note_id = ? WHERE user_id = ? AND target_title = ?").run(id, userId, title);
+      database.query("UPDATE note_links SET target_note_id = ? WHERE user_id = ? AND TRIM(target_title) = TRIM(?) COLLATE NOCASE").run(id, userId, title);
     }
     const note = getNote(database, userId, id);
     if (note) recordSyncChange(database, userId, "note", id, "upsert");
@@ -738,8 +738,8 @@ function updateNoteInTransaction(
         recordSyncChange(database, userId, "note", refNote.id, "upsert");
       }
     }
-    database.query("UPDATE note_links SET target_note_id = ? WHERE user_id = ? AND target_title = ?").run(current.id, userId, title);
-    database.query("UPDATE note_links SET target_note_id = NULL WHERE user_id = ? AND target_title = ? AND target_note_id = ?").run(userId, oldTitle, current.id);
+    database.query("UPDATE note_links SET target_note_id = ? WHERE user_id = ? AND TRIM(target_title) = TRIM(?) COLLATE NOCASE").run(current.id, userId, title);
+    database.query("UPDATE note_links SET target_note_id = NULL WHERE user_id = ? AND TRIM(target_title) = TRIM(?) COLLATE NOCASE AND target_note_id = ?").run(userId, oldTitle, current.id);
   }
 
   const next = getNote(database, userId, current.id);
