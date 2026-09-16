@@ -11,7 +11,19 @@ export const navItems: Array<{ id: NoteView; label: string; icon: typeof Inbox }
   { id: "trash", label: "回收站", icon: Trash2 },
 ];
 
-export const notebookColorOptions = ["#d96245", "#718077", "#5b7899", "#9c765f", "#aa6f8e", "#8b7c54", "#6b72a8", "#6f7d83"];
+export const notebookColorOptions = [
+  "#d96245",
+  "#718077",
+  "#5b7899",
+  "#9c765f",
+  "#aa6f8e",
+  "#8b7c54",
+  "#6b72a8",
+  "#6f7d83",
+  "#4f8a78",
+  "#c18a3d",
+  "#c45b73",
+];
 
 export type NoteDraft = Pick<Note, "id" | "version" | "title" | "contentMarkdown" | "notebookId" | "isFavorite" | "deletedAt">;
 

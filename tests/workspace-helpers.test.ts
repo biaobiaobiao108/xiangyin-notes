@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Note, Notebook } from "../shared/types";
-import { filterOfflineNotes, shouldKeepActiveNoteInList } from "../app/workspace/helpers";
+import { filterOfflineNotes, notebookColorOptions, shouldKeepActiveNoteInList } from "../app/workspace/helpers";
 
 const notebooks: Notebook[] = [
   { id: "inbox", name: "收件箱", color: "#718077", isSystem: true, count: 1, updatedAt: 1 },
@@ -40,6 +40,14 @@ describe("active note list membership", () => {
     expect(shouldKeepActiveNoteInList(note, notebooks, "all", "", "work")).toBe(true);
     expect(shouldKeepActiveNoteInList(note, notebooks, "all", "", "inbox")).toBe(false);
     expect(shouldKeepActiveNoteInList({ ...note, notebookId: "inbox" }, notebooks, "inbox", "")).toBe(true);
+  });
+});
+
+describe("notebook color options", () => {
+  test("offers eleven unique preset colors", () => {
+    expect(notebookColorOptions).toHaveLength(11);
+    expect(new Set(notebookColorOptions).size).toBe(11);
+    expect(notebookColorOptions.slice(-3)).toEqual(["#4f8a78", "#c18a3d", "#c45b73"]);
   });
 });
 
