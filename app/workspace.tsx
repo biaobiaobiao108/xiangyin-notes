@@ -28,6 +28,7 @@ export function Workspace() {
   const listTransitionConsumedRef = useRef(0);
   const notesRef = useRef<NoteSummary[]>([]);
   const pendingWikiCreationsRef = useRef<Map<string, Promise<NoteSummary | null>>>(new Map());
+  const inboxNoteCreationRef = useRef(false);
   const listRequestRef = useRef(0);
   const listAbortRef = useRef<AbortController | null>(null);
   const notebooksRequestRef = useRef(0);
@@ -535,6 +536,20 @@ export function Workspace() {
       void refreshNotebooks();
     } catch (reason) { setToast(errorMessage(reason, "创建笔记失败")); }
   }, [notebookId, notebooks, refreshNotebooks, revealCreatedNote, view]);
+  const createNoteInInbox = useCallback(async () => {
+    if (inboxNoteCreationRef.current) return;
+    const inbox = notebooks.find((notebook) => notebook.isSystem);
+    inboxNoteCreationRef.current = true;
+    try {
+      const result = await api.createNote(inbox ? { notebookId: inbox.id } : {});
+      revealCreatedNote(result.note, { view: "inbox", notebookId: result.note.notebookId }, "已在收件箱中创建新笔记");
+      void refreshNotebooks();
+    } catch (reason) {
+      setToast(errorMessage(reason, "创建笔记失败"));
+    } finally {
+      inboxNoteCreationRef.current = false;
+    }
+  }, [notebooks, refreshNotebooks, revealCreatedNote]);
   const createNoteInNotebook = useCallback(async (commandToCreate: CreateNoteCommand) => {
     try {
       const result = await api.createNote({ notebookId: commandToCreate.notebookId, title: commandToCreate.title });
@@ -902,6 +917,7 @@ export function Workspace() {
   );
 
   const handleNewNote = useCallback(() => { void createNoteHere(); }, [createNoteHere]);
+  const handleNewInboxNote = useCallback(() => { void createNoteInInbox(); }, [createNoteInInbox]);
   const handleCreateNotebook = useCallback(() => { createNotebook(); }, [createNotebook]);
   const handleEditNotebook = useCallback((target: Notebook) => setEditingNotebook(target), []);
   const handleCollapseSidebar = useCallback(() => setSidebarCollapsed((value) => !value), []);
@@ -932,7 +948,7 @@ export function Workspace() {
   const mobileNavigationOpen = mobileSidebarOpen || mobileListOpen;
   return <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${focusMode ? "is-focus-mode" : ""}`}>
     {mobileNavigationOpen && <button className="mobile-scrim is-visible" type="button" aria-label="关闭导航" onClick={() => { setMobileSidebarOpen(false); setMobileListOpen(false); closeOutline(); }} />}
-    <Sidebar view={view} setView={selectView} notebooks={notebooks} notebookId={notebookId} setNotebookId={selectNotebook} query={query} setQuery={changeQuery} searchRef={searchRef} onNewNote={handleNewNote} onCreateNotebook={handleCreateNotebook} onEditNotebook={handleEditNotebook} collapsed={sidebarCollapsed} onCollapse={handleCollapseSidebar} mobileOpen={mobileSidebarOpen} onLogout={logout} />
+    <Sidebar view={view} setView={selectView} notebooks={notebooks} notebookId={notebookId} setNotebookId={selectNotebook} query={query} setQuery={changeQuery} searchRef={searchRef} onNewInboxNote={handleNewInboxNote} onCreateNotebook={handleCreateNotebook} onEditNotebook={handleEditNotebook} collapsed={sidebarCollapsed} onCollapse={handleCollapseSidebar} mobileOpen={mobileSidebarOpen} onLogout={logout} />
     <NoteListPanel notes={notes} total={totalNotes} sort={noteSort} setSort={setNoteSort} selectedId={selectedId} onSelect={handleSelectListNote} view={view} query={query} currentNotebookName={currentNotebook?.name} onEmptyTrash={view === "trash" ? emptyTrash : undefined} trashBusy={pendingTrashCount > 0 || emptyingTrash} onNewNote={listNewNote} onClearQuery={handleClearQuery} mobileOpen={mobileListOpen} onOpenSidebar={handleOpenSidebar} transitionToken={listTransitionToken} outlineOpen={outlineOpen} outlineItems={outlineItems} activeOutlineId={activeOutlineId} onScrollToOutlineItem={handleScrollToOutlineItem} onCloseOutline={closeOutline} />
     <main className="editor-region">
       {renderedNote ? <Suspense fallback={<NoteLoadingState />}><LazyNoteEditor note={renderedNote} availableNotes={notes} onNavigateWikiLink={handleNavigateWikiLink} onCreateAndLinkNote={handleCreateAndLinkNote} onNavigateToNote={selectNote} searchQuery={activeSearchQuery} onClearSearch={activeSearchQuery ? handleClearSearch : undefined} saveState={saveState} isLoading={isNoteLoading} trashBusy={emptyingTrash || (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onShare={handleShare} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={handleOpenList} onUploadImage={handleUploadImage} focusMode={focusMode} onToggleFocusMode={toggleFocusMode} typewriterMode={typewriterMode} outlineOpen={outlineOpen} outlineItems={outlineItems} onToggleOutline={toggleOutline} onCloseOutline={closeOutline} onOutlineItemsChange={handleOutlineItemsChange} onOutlineActiveChange={handleOutlineActiveChange} onOutlineNavigationReady={handleOutlineNavigationReady} /></Suspense> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor isTrash={view === "trash"} onNewNote={handleNewNote} onOpenList={handleOpenList} transitionToken={listTransitionToken} />}
