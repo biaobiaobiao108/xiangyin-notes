@@ -6,7 +6,7 @@ import {
   linkMentionInMarkdown,
   replaceWikiLinkTarget,
 } from "../shared/wiki-links";
-import { cleanDisplayTitle } from "../app/editor/backlinks-panel";
+import { cleanDisplayTitle, cleanSnippetForDisplay } from "../app/editor/backlinks-panel";
 
 describe("wiki-links utility", () => {
   test("extracts basic and aliased wiki-links", () => {
@@ -88,5 +88,15 @@ const code = "[[代码中的伪链接]]";
     expect(cleanDisplayTitle("正常笔记")).toBe("正常笔记");
     expect(cleanDisplayTitle("")).toBe("未命名笔记");
     expect(cleanDisplayTitle(null)).toBe("未命名笔记");
+  });
+
+  test("cleanSnippetForDisplay removes double brackets and normalizes aliases", () => {
+    expect(cleanSnippetForDisplay("[[ 这就是一种自信 ]], 你信不i想你")).toBe("这就是一种自信, 你信不i想你");
+    expect(cleanSnippetForDisplay("[[ 这就是一种自信 ]]你这么纠缠有意思么?")).toBe("这就是一种自信你这么纠缠有意思么?");
+    expect(cleanSnippetForDisplay("【【全角笔记】】测试")).toBe("全角笔记测试");
+    expect(cleanSnippetForDisplay("参考 [[这就是一种自信|自信心]] 详细介绍")).toBe("参考 自信心 详细介绍");
+    expect(cleanSnippetForDisplay("参考 【【这就是一种自信｜自信心】】 详细介绍")).toBe("参考 自信心 详细介绍");
+    expect(cleanSnippetForDisplay("### [[这就是一种自信]]")).toBe("这就是一种自信");
+    expect(cleanSnippetForDisplay("")).toBe("");
   });
 });

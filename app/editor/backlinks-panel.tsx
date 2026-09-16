@@ -22,11 +22,45 @@ export function cleanDisplayTitle(title: string | null | undefined): string {
   return stripped || "未命名笔记";
 }
 
+export function cleanSnippetForDisplay(snippet: string): string {
+  if (!snippet) return "";
+  return snippet
+    // Replace [[target|alias]] or 【【target｜alias】】 with alias or target
+    .replace(/(?:\[\[|【【)([^\]】\r\n|｜]+)(?:[|｜]([^\]】\r\n]+))?(?:\]\]|】】)/g, (_, target, alias) => {
+      return (alias || target).trim();
+    })
+    // Also remove any stray double brackets if any
+    .replace(/\[\[|\]\]|【【|】】/g, "")
+    // Remove leading markdown heading markers
+    .replace(/^#{1,6}\s+/, "");
+}
+
 function HighlightSnippet({ snippet, highlight }: { snippet: string; highlight: string }) {
-  if (!highlight.trim()) return <span>{snippet}</span>;
-  const escaped = highlight.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const regex = new RegExp(`(${escaped})`, "gi");
-  const parts = snippet.split(regex);
+  const cleanHighlight = cleanDisplayTitle(highlight).trim();
+  const candidates = new Set<string>();
+  if (cleanHighlight) {
+    candidates.add(cleanHighlight);
+  }
+
+  // If there are aliases for this target in the snippet, add them to candidate highlights
+  const linkRegex = /(?:\[\[|【【)([^\]】\r\n|｜]+)(?:[|｜]([^\]】\r\n]+))?(?:\]\]|】】)/g;
+  let match: RegExpExecArray | null;
+  while ((match = linkRegex.exec(snippet)) !== null) {
+    const target = match[1]?.trim();
+    const alias = match[2]?.trim();
+    if (target && cleanHighlight && target.toLowerCase() === cleanHighlight.toLowerCase() && alias) {
+      candidates.add(alias);
+    }
+  }
+
+  const cleaned = cleanSnippetForDisplay(snippet);
+  const sortedCandidates = Array.from(candidates).filter(Boolean).sort((a, b) => b.length - a.length);
+
+  if (!sortedCandidates.length) return <span>{cleaned}</span>;
+
+  const pattern = sortedCandidates.map((c) => c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+  const regex = new RegExp(`(${pattern})`, "gi");
+  const parts = cleaned.split(regex);
 
   return (
     <span className="backlink-snippet-text">
