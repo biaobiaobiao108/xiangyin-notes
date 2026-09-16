@@ -8,7 +8,7 @@ import TaskItem from "@tiptap/extension-task-item";
 import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
 import { findWrapping } from "@tiptap/pm/transform";
-import { ChevronLeft, ImagePlus, Link2, Maximize2, Minimize2, Trash2, Undo2 } from "lucide-react";
+import { CheckCircle, ChevronLeft, CircleAlert, HardDrive, ImagePlus, Link2, LoaderCircle, Maximize2, Minimize2, RefreshCw, Trash2, Undo2 } from "lucide-react";
 import type { ImageAssetSummary, Note } from "../shared/types";
 import { BrandMark } from "./brand-mark";
 import { cycleSearchMatchIndex, findEditorSearchMatches, findTextMatches, searchHighlightPluginKey, SearchHighlightExtension } from "./editor-search";
@@ -21,9 +21,27 @@ import { ImageNode } from "./editor/image-node";
 import { TagDecorationExtension } from "./editor/tag-decoration";
 
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
+type SaveState = "idle" | "saving" | "saved" | "local" | "conflict" | "error";
 
 const MAX_IMAGE_FILES_PER_ACTION = 10;
 const OUTLINE_HEADING_SELECTOR = "h1, h2, h3";
+
+function SaveStatusIcon({ state }: { state: Exclude<SaveState, "idle"> }) {
+  const iconProps = { className: "save-status-icon", size: 16, strokeWidth: 1.9, "aria-hidden": true } as const;
+  switch (state) {
+    case "saving":
+      return <LoaderCircle {...iconProps} />;
+    case "local":
+      return <HardDrive {...iconProps} />;
+    case "conflict":
+      return <RefreshCw {...iconProps} />;
+    case "error":
+      return <CircleAlert {...iconProps} />;
+    case "saved":
+    default:
+      return <CheckCircle {...iconProps} />;
+  }
+}
 
 function getOutlineHeadingElements(root: HTMLElement): HTMLElement[] {
   return Array.from(root.querySelectorAll<HTMLElement>(OUTLINE_HEADING_SELECTOR)).filter((element) => Boolean(element.textContent?.trim()));
@@ -58,7 +76,7 @@ async function imageDimensions(file: File) {
 export function NoteEditor({ note, searchQuery = "", saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList, onUploadImage, focusMode = false, onToggleFocusMode, onClearSearch, typewriterMode = false, outlineOpen, outlineItems, onToggleOutline, onCloseOutline, onOutlineItemsChange, onOutlineActiveChange, onOutlineNavigationReady }: {
   note: Note;
   searchQuery?: string;
-  saveState: "idle" | "saving" | "saved" | "local" | "conflict" | "error";
+  saveState: SaveState;
   isLoading?: boolean;
   reloadToken?: number;
   focusRequested?: boolean;
@@ -995,7 +1013,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     return () => onOutlineNavigationReady(null);
   }, [onOutlineNavigationReady, scrollToOutlineItem]);
 
-  const saveLabel = saveState === "saving" ? "保存中" : saveState === "local" ? "已保存到本机" : "已保存";
+  const saveLabel = saveState === "saving" ? "保存中" : saveState === "local" ? "已保存到本机" : saveState === "conflict" ? "检测到版本冲突，点击重新载入" : saveState === "error" ? "保存失败，点击重试" : "已保存";
   return (
     <section className={`editor-panel ${deferredLoading ? "is-loading" : ""} ${focusMode ? "is-focus-mode" : ""}`} aria-label="笔记编辑器" aria-busy={editorLocked} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === "s") { event.preventDefault(); onSaveNow(); } }}>
       <header className="editor-header">
@@ -1012,11 +1030,11 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
         </div>
         <div className="editor-actions">
           {saveState === "error" ? (
-            <button className="save-status save-status--error save-status--action" type="button" onClick={onSaveNow}><span className="save-dot" />重试保存</button>
+            <button className="save-status save-status--error save-status--action save-status--icon" type="button" aria-label="重试保存" title="保存失败，点击重试" onClick={onSaveNow}><SaveStatusIcon state="error" /></button>
           ) : saveState === "conflict" ? (
-            <button className="save-status save-status--conflict save-status--action" type="button" onClick={onReloadNote}><span className="save-dot" />重新载入</button>
+            <button className="save-status save-status--conflict save-status--action save-status--icon" type="button" aria-label="重新载入最新版本" title="检测到版本冲突，点击重新载入" onClick={onReloadNote}><SaveStatusIcon state="conflict" /></button>
           ) : saveState === "idle" ? null : (
-            <span className={`save-status save-status--${saveState}`} aria-live="polite"><span className="save-dot" />{saveLabel}</span>
+            <span className={`save-status save-status--${saveState} save-status--icon`} role="status" aria-label={saveLabel} aria-live="polite"><SaveStatusIcon state={saveState} /></span>
           )}
           {onUploadImage && !note.deletedAt && <>
             <input ref={imageFileInputRef} className="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple tabIndex={-1} aria-label="选择要上传的图片文件" onChange={(event) => { uploadImageFilesRef.current(Array.from(event.target.files ?? [])); event.target.value = ""; }} />
