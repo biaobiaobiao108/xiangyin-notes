@@ -6,6 +6,7 @@ const serverEnvironment: Record<string, string> = {
   NODE_ENV: "development",
   DATABASE_PATH: Bun.env.DEV_DATABASE_PATH?.trim() || "./data/xiangying-notes-dev.sqlite",
   COOKIE_SECURE: "false",
+  CLIENT_ROOT: "./dist/dev-client",
 };
 
 const processes = [

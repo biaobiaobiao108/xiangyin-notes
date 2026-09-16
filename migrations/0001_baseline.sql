@@ -44,9 +44,8 @@ CREATE TABLE IF NOT EXISTS notes (
   updated_at INTEGER NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_notes_user_updated ON notes(user_id, updated_at DESC);
-CREATE INDEX IF NOT EXISTS idx_notes_user_deleted ON notes(user_id, deleted_at);
-CREATE INDEX IF NOT EXISTS idx_notes_user_notebook ON notes(user_id, notebook_id);
+CREATE INDEX IF NOT EXISTS idx_notes_user_deleted_updated ON notes(user_id, deleted_at, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notes_user_notebook_deleted_updated ON notes(user_id, notebook_id, deleted_at, updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS shares (
   id TEXT PRIMARY KEY,
@@ -85,6 +84,7 @@ CREATE TABLE IF NOT EXISTS image_assets (
 
 CREATE INDEX IF NOT EXISTS idx_image_assets_note_order ON image_assets(note_id, document_order, created_at);
 CREATE INDEX IF NOT EXISTS idx_image_assets_user ON image_assets(user_id, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_image_assets_note_thumbnail ON image_assets(note_id) WHERE note_id IS NOT NULL AND document_order = 0;
 
 CREATE TABLE IF NOT EXISTS note_links (
   id TEXT PRIMARY KEY,
@@ -97,3 +97,4 @@ CREATE TABLE IF NOT EXISTS note_links (
 
 CREATE INDEX IF NOT EXISTS idx_note_links_source ON note_links(user_id, source_note_id);
 CREATE INDEX IF NOT EXISTS idx_note_links_target ON note_links(user_id, target_note_id);
+CREATE INDEX IF NOT EXISTS idx_note_links_target_title ON note_links(user_id, target_title);

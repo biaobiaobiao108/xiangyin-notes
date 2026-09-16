@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useRef, useState } from "react";
+import { lazy, memo, Suspense, useCallback, useDeferredValue, useEffect, useRef, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { useNavigate } from "react-router";
 import { ApiError, api } from "./api";
@@ -12,7 +12,7 @@ import { EmptyEditor, NoteListPanel, NoteLoadingState, Sidebar } from "./workspa
 import { errorMessage, shouldKeepActiveNoteInList, sortNotes, toNoteDraft, type NoteDraft, type NoteSort } from "./workspace/helpers";
 import { normalizeLinkTitle } from "../shared/wiki-links";
 
-const LazyNoteEditor = lazy(() => import("./editor").then(({ NoteEditor }) => ({ default: NoteEditor })));
+const LazyNoteEditor = lazy(() => import("./editor").then(({ NoteEditor }) => ({ default: memo(NoteEditor) })));
 export function Workspace() {
   const navigate = useNavigate();
   const [view, setView] = useState<NoteView>("all");
@@ -29,6 +29,7 @@ export function Workspace() {
   const notesRef = useRef<NoteSummary[]>([]);
   const pendingWikiCreationsRef = useRef<Map<string, Promise<NoteSummary | null>>>(new Map());
   const listRequestRef = useRef(0);
+  const listAbortRef = useRef<AbortController | null>(null);
   const notebooksRequestRef = useRef(0);
   const trashOperationsRef = useRef(new Set<string>());
   const [pendingTrashCount, setPendingTrashCount] = useState(0);
@@ -49,6 +50,7 @@ export function Workspace() {
   const selectedRef = useRef<Note | null>(null);
   const activeNoteIdRef = useRef<string | null>(null);
   const noteLoadRequestRef = useRef(0);
+  const noteAbortRef = useRef<AbortController | null>(null);
   const saveTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const pendingSavesRef = useRef(new Map<string, NoteDraft>());
   const inFlightSavesRef = useRef(new Map<string, Promise<void>>());
@@ -187,8 +189,11 @@ export function Workspace() {
   }, []);
   const loadNotes = useCallback(async () => {
     const requestId = ++listRequestRef.current;
+    listAbortRef.current?.abort();
+    const controller = new AbortController();
+    listAbortRef.current = controller;
     try {
-      const result = await api.listNotes({ view, query: deferredQuery, notebookId });
+      const result = await api.listNotes({ view, query: deferredQuery, notebookId }, { signal: controller.signal });
       if (requestId !== listRequestRef.current || listScope !== listScopeRef.current || trashOperationsRef.current.size || emptyingTrashRef.current) return;
       const active = selectedRef.current;
       const notesToDisplay = active && !result.notes.some((note) => note.id === active.id) &&
@@ -200,7 +205,10 @@ export function Workspace() {
       setSelectedId((current) => current && notesToDisplay.some((note) => note.id === current) ? current : notesToDisplay[0]?.id ?? null);
       playPendingListTransition();
     } catch (reason) {
+      if (reason instanceof Error && reason.name === "AbortError") return;
       if (reason instanceof ApiError && reason.status === 401) navigate("/login", { replace: true });
+    } finally {
+      if (listAbortRef.current === controller) listAbortRef.current = null;
     }
   }, [deferredQuery, listScope, navigate, notebookId, notebooks, notesReloadToken, playPendingListTransition, replaceList, view]);
   const reloadNotes = useCallback(() => setNotesReloadToken((value) => value + 1), []);
@@ -241,6 +249,9 @@ export function Workspace() {
     if (activeNoteIdRef.current === noteId) selectNote(ordered[index + 1]?.id ?? ordered[index - 1]?.id ?? null);
   }, [noteSort, replaceList, selectNote]);
   const loadSelectedNote = useCallback(async (id: string) => {
+    noteAbortRef.current?.abort();
+    const controller = new AbortController();
+    noteAbortRef.current = controller;
     setEditorFocusNoteId((current) => current === id ? current : null);
     const requestId = ++noteLoadRequestRef.current;
     const previousNote = selectedRef.current;
@@ -251,7 +262,7 @@ export function Workspace() {
     setIsNoteLoading(true);
     setSaveState(failedSave ? failedSave instanceof ApiError && failedSave.code === "VERSION_CONFLICT" ? "conflict" : "error" : pendingNote ? "saving" : "idle");
     try {
-      const result = await api.getNote(id);
+      const result = await api.getNote(id, { signal: controller.signal });
       if (requestId !== noteLoadRequestRef.current || activeNoteIdRef.current !== id) return;
       const latestPendingNote = pendingSavesRef.current.get(id);
       const nextNote = latestPendingNote ? { ...result.note, ...latestPendingNote } : result.note;
@@ -263,6 +274,7 @@ export function Workspace() {
       if (retryDraft && !failedSave && !trashOperationsRef.current.has(id)) persistRef.current(retryDraft);
     } catch (reason) {
       if (requestId !== noteLoadRequestRef.current || activeNoteIdRef.current !== id) return;
+      if (reason instanceof Error && reason.name === "AbortError") return;
       setIsNoteLoading(false);
       if (reason instanceof ApiError && reason.status === 401) {
         navigate("/login", { replace: true });
@@ -280,10 +292,13 @@ export function Workspace() {
         setSelectedNote(null);
       }
       setToast("无法打开这篇笔记");
+    } finally {
+      if (noteAbortRef.current === controller) noteAbortRef.current = null;
     }
   }, [navigate]);
   useEffect(() => {
     if (!ready || !selectedId) {
+      noteAbortRef.current?.abort();
       activeNoteIdRef.current = null;
       selectedRef.current = null;
       setIsNoteLoading(false);
@@ -294,6 +309,10 @@ export function Workspace() {
   }, [loadSelectedNote, ready, selectedId]);
   useEffect(() => { if (ready) void refreshNotebooks(); return () => { notebooksRequestRef.current += 1; }; }, [ready, refreshNotebooks]);
   useEffect(() => { if (!ready) return; const timer = setTimeout(() => void loadNotes(), 180); return () => { clearTimeout(timer); listRequestRef.current += 1; }; }, [loadNotes, ready]);
+  useEffect(() => () => {
+    listAbortRef.current?.abort();
+    noteAbortRef.current?.abort();
+  }, []);
   const focusModeRef = useRef(focusMode);
   focusModeRef.current = focusMode;
   const hasModalOpenRef = useRef(false);
@@ -409,6 +428,13 @@ export function Workspace() {
       await runSave(id, mode === "keepalive").catch(() => undefined);
     }));
   }, [runSave]);
+  const retryFailedSaves = useCallback(async () => {
+    const ids = [...failedSavesRef.current.entries()]
+      .filter(([, reason]) => !(reason instanceof ApiError && reason.code === "VERSION_CONFLICT"))
+      .map(([id]) => id)
+      .filter((id) => pendingSavesRef.current.has(id));
+    await Promise.all(ids.map((id) => runSave(id).catch(() => undefined)));
+  }, [runSave]);
   useEffect(() => {
     const flushWhenHidden = () => { if (document.visibilityState === "hidden") void flushPendingSaves("now"); };
     const flushWhenUnloading = () => { void flushPendingSaves("keepalive"); };
@@ -419,6 +445,11 @@ export function Workspace() {
       window.removeEventListener("pagehide", flushWhenUnloading);
     };
   }, [flushPendingSaves]);
+  useEffect(() => {
+    const retryWhenOnline = () => { void retryFailedSaves(); };
+    window.addEventListener("online", retryWhenOnline);
+    return () => window.removeEventListener("online", retryWhenOnline);
+  }, [retryFailedSaves]);
   useEffect(() => () => {
     void flushPendingSaves("keepalive");
     for (const timer of saveTimersRef.current.values()) clearTimeout(timer);
@@ -784,7 +815,7 @@ export function Workspace() {
     shortcutHandledRef.current = true;
     if (action) window.history.replaceState(null, "", `${window.location.pathname}${window.location.hash}`);
   }, [createNoteHere, ready]);
-  const logout = async () => {
+  const logout = useCallback(async () => {
     await flushPendingSaves("now");
     if (hasUnsavedWork()) {
       setToast("仍有内容未保存，请稍后再退出");
@@ -792,7 +823,7 @@ export function Workspace() {
     }
     await api.logout().catch(() => undefined);
     navigate("/login", { replace: true });
-  };
+  }, [flushPendingSaves, navigate]);
   const updatePwa = useCallback(async () => {
     await flushPendingSaves("now");
     if (pendingSavesRef.current.size > 0 || failedSavesRef.current.size > 0) { setToast("仍有编辑内容未保存，更新已暂缓"); return; }
@@ -870,18 +901,41 @@ export function Workspace() {
     [ensureWikiNoteExists],
   );
 
+  const handleNewNote = useCallback(() => { void createNoteHere(); }, [createNoteHere]);
+  const handleCreateNotebook = useCallback(() => { createNotebook(); }, [createNotebook]);
+  const handleEditNotebook = useCallback((target: Notebook) => setEditingNotebook(target), []);
+  const handleCollapseSidebar = useCallback(() => setSidebarCollapsed((value) => !value), []);
+  const handleSelectListNote = useCallback((id: string) => {
+    selectNote(id);
+    setMobileSidebarOpen(false);
+    setMobileListOpen(false);
+  }, [selectNote]);
+  const handleOpenSidebar = useCallback(() => {
+    setMobileSidebarOpen(true);
+    setMobileListOpen(false);
+  }, []);
+  const handleOpenList = useCallback(() => {
+    setMobileListOpen(true);
+    setMobileSidebarOpen(false);
+  }, []);
+  const handleShare = useCallback(() => setShareOpen(true), []);
+  const handleUploadImage = useCallback((file: File) => api.uploadAsset(file), []);
+  const handleScrollToOutlineItem = useCallback((id: string) => outlineNavigateRef.current?.(id), []);
+  const handleClearQuery = useCallback(() => changeQuery(""), [changeQuery]);
+
   if (!ready) return <main className="app-loading"><span className="loading-ring" /><span>正在进入你的空间……</span></main>;
   const currentNotebook = notebookId ? notebooks.find((notebook) => notebook.id === notebookId) : undefined;
+  const listNewNote = currentNotebook ? handleNewNote : undefined;
   const renderedNote = selectedNote && selectedRef.current?.id === selectedNote.id ? selectedRef.current : selectedNote;
   const commandNoteReady = Boolean(renderedNote && selectedRef.current?.id === renderedNote.id && !isNoteLoading);
   const activeSearchQuery = inNoteSearchQuery || query;
   const mobileNavigationOpen = mobileSidebarOpen || mobileListOpen;
   return <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${focusMode ? "is-focus-mode" : ""}`}>
     {mobileNavigationOpen && <button className="mobile-scrim is-visible" type="button" aria-label="关闭导航" onClick={() => { setMobileSidebarOpen(false); setMobileListOpen(false); closeOutline(); }} />}
-    <Sidebar view={view} setView={selectView} notebooks={notebooks} notebookId={notebookId} setNotebookId={selectNotebook} query={query} setQuery={changeQuery} searchRef={searchRef} onNewNote={() => void createNoteHere()} onCreateNotebook={() => void createNotebook()} onEditNotebook={(target) => setEditingNotebook(target)} collapsed={sidebarCollapsed} onCollapse={() => setSidebarCollapsed((value) => !value)} mobileOpen={mobileSidebarOpen} onLogout={logout} />
-    <NoteListPanel notes={notes} total={totalNotes} sort={noteSort} setSort={setNoteSort} selectedId={selectedId} onSelect={(id) => { selectNote(id); setMobileSidebarOpen(false); setMobileListOpen(false); }} view={view} query={query} currentNotebookName={currentNotebook?.name} onEmptyTrash={view === "trash" ? emptyTrash : undefined} trashBusy={pendingTrashCount > 0 || emptyingTrash} onNewNote={currentNotebook ? () => void createNoteHere() : undefined} onClearQuery={() => changeQuery("")} mobileOpen={mobileListOpen} onOpenSidebar={() => { setMobileSidebarOpen(true); setMobileListOpen(false); }} transitionToken={listTransitionToken} outlineOpen={outlineOpen} outlineItems={outlineItems} activeOutlineId={activeOutlineId} onScrollToOutlineItem={(id) => outlineNavigateRef.current?.(id)} onCloseOutline={closeOutline} />
+    <Sidebar view={view} setView={selectView} notebooks={notebooks} notebookId={notebookId} setNotebookId={selectNotebook} query={query} setQuery={changeQuery} searchRef={searchRef} onNewNote={handleNewNote} onCreateNotebook={handleCreateNotebook} onEditNotebook={handleEditNotebook} collapsed={sidebarCollapsed} onCollapse={handleCollapseSidebar} mobileOpen={mobileSidebarOpen} onLogout={logout} />
+    <NoteListPanel notes={notes} total={totalNotes} sort={noteSort} setSort={setNoteSort} selectedId={selectedId} onSelect={handleSelectListNote} view={view} query={query} currentNotebookName={currentNotebook?.name} onEmptyTrash={view === "trash" ? emptyTrash : undefined} trashBusy={pendingTrashCount > 0 || emptyingTrash} onNewNote={listNewNote} onClearQuery={handleClearQuery} mobileOpen={mobileListOpen} onOpenSidebar={handleOpenSidebar} transitionToken={listTransitionToken} outlineOpen={outlineOpen} outlineItems={outlineItems} activeOutlineId={activeOutlineId} onScrollToOutlineItem={handleScrollToOutlineItem} onCloseOutline={closeOutline} />
     <main className="editor-region">
-      {renderedNote ? <Suspense fallback={<NoteLoadingState />}><LazyNoteEditor note={renderedNote} availableNotes={notes} onNavigateWikiLink={handleNavigateWikiLink} onCreateAndLinkNote={handleCreateAndLinkNote} onNavigateToNote={selectNote} searchQuery={activeSearchQuery} onClearSearch={activeSearchQuery ? handleClearSearch : undefined} saveState={saveState} isLoading={isNoteLoading} trashBusy={emptyingTrash || (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onShare={() => setShareOpen(true)} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={() => { setMobileListOpen(true); setMobileSidebarOpen(false); }} onUploadImage={(file) => api.uploadAsset(file)} focusMode={focusMode} onToggleFocusMode={toggleFocusMode} typewriterMode={typewriterMode} outlineOpen={outlineOpen} outlineItems={outlineItems} onToggleOutline={toggleOutline} onCloseOutline={closeOutline} onOutlineItemsChange={handleOutlineItemsChange} onOutlineActiveChange={handleOutlineActiveChange} onOutlineNavigationReady={handleOutlineNavigationReady} /></Suspense> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor isTrash={view === "trash"} onNewNote={() => void createNoteHere()} onOpenList={() => { setMobileListOpen(true); setMobileSidebarOpen(false); }} transitionToken={listTransitionToken} />}
+      {renderedNote ? <Suspense fallback={<NoteLoadingState />}><LazyNoteEditor note={renderedNote} availableNotes={notes} onNavigateWikiLink={handleNavigateWikiLink} onCreateAndLinkNote={handleCreateAndLinkNote} onNavigateToNote={selectNote} searchQuery={activeSearchQuery} onClearSearch={activeSearchQuery ? handleClearSearch : undefined} saveState={saveState} isLoading={isNoteLoading} trashBusy={emptyingTrash || (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onShare={handleShare} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={handleOpenList} onUploadImage={handleUploadImage} focusMode={focusMode} onToggleFocusMode={toggleFocusMode} typewriterMode={typewriterMode} outlineOpen={outlineOpen} outlineItems={outlineItems} onToggleOutline={toggleOutline} onCloseOutline={closeOutline} onOutlineItemsChange={handleOutlineItemsChange} onOutlineActiveChange={handleOutlineActiveChange} onOutlineNavigationReady={handleOutlineNavigationReady} /></Suspense> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor isTrash={view === "trash"} onNewNote={handleNewNote} onOpenList={handleOpenList} transitionToken={listTransitionToken} />}
     </main>
     <CommandMenu open={commandOpen} onClose={closeCommandMenu} onCommand={command} onCreateNoteInNotebook={createNoteInNotebook} canRestore={Boolean(commandNoteReady && renderedNote?.deletedAt)} canMoveToTrash={Boolean(commandNoteReady && renderedNote && !renderedNote.deletedAt)} notebooks={notebooks} currentNotebookId={renderedNote?.notebookId} onMoveNoteToNotebook={(targetNotebookId) => onNoteChange({ notebookId: targetNotebookId })} focusMode={focusMode} typewriterMode={typewriterMode} canInstallApp={pwaState.canInstall} showIosInstallHint={pwaState.showIosInstallHint} standalone={pwaState.standalone} hasSelectedNote={commandNoteReady} onSearchInCurrentNote={handleSearchInCurrentNote} initialQuery={commandInitialQuery} />
 

@@ -33,13 +33,13 @@ export const api = {
   login: (payload: { username: string; password: string }) => request<{ user: User }>("/api/auth/login", { method: "POST", body: JSON.stringify(payload) }),
   logout: () => request<{ ok: true }>("/api/auth/logout", { method: "POST" }),
   me: () => request<{ user: User }>("/api/me"),
-  listNotes: (params: { view: NoteView; query?: string; notebookId?: string }) => {
+  listNotes: (params: { view: NoteView; query?: string; notebookId?: string }, options?: RequestOptions) => {
     const search = new URLSearchParams({ view: params.view });
     if (params.query) search.set("query", params.query);
     if (params.notebookId) search.set("notebookId", params.notebookId);
-    return request<{ notes: NoteSummary[]; total: number }>(`/api/notes?${search.toString()}`);
+    return request<{ notes: NoteSummary[]; total: number }>(`/api/notes?${search.toString()}`, options);
   },
-  getNote: (id: string) => request<{ note: Note }>(`/api/notes/${id}`),
+  getNote: (id: string, options?: RequestOptions) => request<{ note: Note }>(`/api/notes/${id}`, options),
   ensureWikiNote: (payload: { title: string; notebookId: string }) => request<{ note: Note; created: boolean }>("/api/wiki-notes/ensure", { method: "POST", body: JSON.stringify(payload) }),
   uploadAsset: (file: File) => request<{ asset: ImageAssetSummary }>("/api/assets", { method: "POST", body: (() => { const formData = new FormData(); formData.append("file", file, file.name); return formData; })() }),
   createNote: (payload: { id?: string; title?: string; contentMarkdown?: string; notebookId?: string }) => request<{ note: Note }>("/api/notes", { method: "POST", body: JSON.stringify(payload) }),
@@ -54,6 +54,6 @@ export const api = {
   createShare: (noteId: string) => request<{ share: Share }>(`/api/notes/${noteId}/shares`, { method: "POST", body: JSON.stringify({}) }),
   revokeShare: (shareId: string) => request<{ ok: true }>(`/api/shares/${shareId}`, { method: "DELETE" }),
   getPublicShare: (token: string) => request<{ snapshot: { schemaVersion: 1; title: string; contentMarkdown: string; createdAt: number; expiresAt: number } }>(`/api/shares/${token}`),
-  getBacklinks: (noteId: string) => request<NoteBacklinksResponse>(`/api/notes/${noteId}/backlinks`),
+  getBacklinks: (noteId: string, options?: RequestOptions) => request<NoteBacklinksResponse>(`/api/notes/${noteId}/backlinks`, options),
   linkMention: (targetNoteId: string, payload: { sourceNoteId: string; sourceVersion: number; matchStart: number; matchEnd: number; matchText: string }) => request<{ ok: true }>(`/api/notes/${targetNoteId}/link-mention`, { method: "POST", body: JSON.stringify(payload) }),
 };

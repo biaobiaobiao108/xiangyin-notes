@@ -176,15 +176,19 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       return;
     }
     let active = true;
+    const controller = new AbortController();
     setBacklinkCount(0);
     void api
-      .getBacklinks(note.id)
+      .getBacklinks(note.id, { signal: controller.signal })
       .then((response) => {
         if (active) setBacklinkCount(response.linkedReferences.length + response.unlinkedMentions.length);
       })
-      .catch(() => {});
+      .catch((reason) => {
+        if (reason instanceof Error && reason.name === "AbortError") return;
+      });
     return () => {
       active = false;
+      controller.abort();
     };
   }, [note.id, note.deletedAt]);
 

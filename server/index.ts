@@ -17,6 +17,7 @@ const NOTE_PAGE_SIZE = 100;
 const BACKLINK_REFERENCE_LIMIT = 100;
 const BACKLINK_MENTION_LIMIT = 100;
 const BACKLINK_CANDIDATE_LIMIT = 100;
+const BACKLINK_SCAN_CHAR_LIMIT = 8 * 1024 * 1024;
 const NOTE_PREVIEW_LIMIT = 180;
 const NOTE_PREVIEW_SCAN_LIMIT = NOTE_PREVIEW_LIMIT + 64;
 const NOTE_BODY_MAX_BYTES = 4_500_000;
@@ -25,6 +26,9 @@ const LOGIN_MAX_FAILURES = 8;
 const LOGIN_BLOCK_SECONDS = 15 * 60;
 const LOGIN_ATTEMPT_MAX_ENTRIES = 2_000;
 const LOGIN_ATTEMPT_CLEANUP_INTERVAL_SECONDS = 60;
+const SESSION_CLEANUP_INTERVAL_SECONDS = 60;
+const ORPHAN_ASSET_TTL_SECONDS = 24 * 60 * 60;
+const ORPHAN_ASSET_CLEANUP_INTERVAL_SECONDS = 60;
 const NOTE_VIEWS: NoteView[] = ["all", "inbox", "favorites", "shared", "trash"];
 const DEFAULT_CLIENT_ROOT = "./dist/client";
 const DEV_SERVICE_WORKER_SOURCE = `
@@ -118,6 +122,21 @@ type NotebookRow = {
   updated_at: number;
 };
 
+const NOTE_SELECT = `
+  n.id, n.title, n.content_markdown, n.notebook_id, b.name AS notebook_name,
+  b.color AS notebook_color, n.is_favorite, n.deleted_at, n.version, n.created_at, n.updated_at,
+  a.id AS thumbnail_asset_id, a.storage_path AS thumbnail_storage_path,
+  a.original_name AS thumbnail_original_name, a.mime_type AS thumbnail_mime_type,
+  a.byte_size AS thumbnail_byte_size, a.width AS thumbnail_width,
+  a.height AS thumbnail_height, a.created_at AS thumbnail_created_at
+`;
+
+const NOTE_FROM = `
+  notes n
+  JOIN notebooks b ON b.id = n.notebook_id
+  LEFT JOIN image_assets a ON a.note_id = n.id AND a.document_order = 0
+`;
+
 type AuthCredentials = {
   username: string;
   password: string;
@@ -129,10 +148,19 @@ type LoginAttempt = {
   blockedUntil: number;
 };
 
+class InvalidNoteAssetsError extends Error {
+  constructor() {
+    super("invalid-note-assets");
+    this.name = "InvalidNoteAssetsError";
+  }
+}
+
 const welcomeMarkdown = "## 欢迎来到象映笔记\n\n这是你的第一个笔记。按下 **Ctrl /** 可以打开命令菜单，开始记录你的想法。\n\n- 写下值得保留的东西\n- 用笔记本整理上下文\n- 随时生成一个 7 天有效的只读分享\n";
 const PREVIEW_SYNTAX = new Set(["#", ">", "*", "_", "`", "~", "-", "[", "]", "(", ")"]);
 const loginAttempts = new Map<string, LoginAttempt>();
 let nextLoginAttemptCleanupAt = 0;
+let nextSessionCleanupAt = 0;
+let nextOrphanAssetCleanupAt = 0;
 const ASSET_REFERENCE_PATTERN = /\/api\/assets\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})(?=[?#)\s]|$)/giu;
 const MARKDOWN_IMAGE_SOURCE_PATTERN = /!\[[^\]]*\]\(([^)\s]+)(?:\s+[^)]*)?\)/gu;
 const PRIVATE_ASSET_SOURCE_PATTERN = /^\/api\/assets\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?=[?#]|$)/iu;
@@ -354,7 +382,10 @@ async function readJson<T>(request: Request, maxBytes = 64 * 1024) {
 }
 
 function cleanupExpiredSessions(database: SqliteDatabase) {
-  database.query("DELETE FROM sessions WHERE expires_at <= ?").run(now());
+  const timestamp = now();
+  if (timestamp < nextSessionCleanupAt) return;
+  nextSessionCleanupAt = timestamp + SESSION_CLEANUP_INTERVAL_SECONDS;
+  database.query("DELETE FROM sessions WHERE expires_at <= ?").run(timestamp);
 }
 
 function loginClientKey(request: Request, environment: RuntimeEnvironment, clientAddress: string | undefined, username: string) {
@@ -505,17 +536,8 @@ export function buildFtsQuery(query: string) {
 
 function getNote(database: SqliteDatabase, userId: string, noteId: string) {
   return first<NoteRow>(database, `
-    SELECT n.id, n.title, n.content_markdown, n.notebook_id, b.name AS notebook_name,
-      b.color AS notebook_color, n.is_favorite, n.deleted_at, n.version, n.created_at, n.updated_at,
-      (SELECT a.id FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_asset_id,
-      (SELECT a.storage_path FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_storage_path,
-      (SELECT a.original_name FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_original_name,
-      (SELECT a.mime_type FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_mime_type,
-      (SELECT a.byte_size FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_byte_size,
-      (SELECT a.width FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_width,
-      (SELECT a.height FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_height,
-      (SELECT a.created_at FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_created_at
-    FROM notes n JOIN notebooks b ON b.id = n.notebook_id
+    SELECT ${NOTE_SELECT}
+    FROM ${NOTE_FROM}
     WHERE n.id = ? AND n.user_id = ?
   `, noteId, userId);
 }
@@ -536,8 +558,6 @@ async function ensureEnvironmentUser(database: SqliteDatabase, credentials: Auth
       database.query("INSERT INTO notebooks (id, user_id, name, color, is_system, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, 1, 0, ?, ?)").run(inboxId, userId, "收件箱", "#d96245", createdAt, createdAt);
       database.query("INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)").run(noteId, userId, inboxId, "开始记录你的想法", welcomeMarkdown, createdAt, createdAt);
       database.query("INSERT INTO notes_fts (note_id, title, content) VALUES (?, ?, ?)").run(noteId, "开始记录你的想法", welcomeMarkdown);
-      const notebook = getNotebook(database, userId, inboxId);
-      const note = getNote(database, userId, noteId);
     });
     seed();
     return { id: userId, username: credentials.username };
@@ -625,6 +645,20 @@ async function removeAssetFiles(assetRoot: string, storagePaths: string[]) {
   }
 }
 
+async function cleanupOrphanAssets(database: SqliteDatabase, assetRoot: string) {
+  const timestamp = now();
+  if (timestamp < nextOrphanAssetCleanupAt) return;
+  nextOrphanAssetCleanupAt = timestamp + ORPHAN_ASSET_CLEANUP_INTERVAL_SECONDS;
+  const staleAssets = all<{ id: string; storage_path: string }>(database, "SELECT id, storage_path FROM image_assets WHERE note_id IS NULL AND created_at <= ? LIMIT 100", timestamp - ORPHAN_ASSET_TTL_SECONDS);
+  if (!staleAssets.length) return;
+  const deleteStaleAssets = database.transaction(() => {
+    const statement = database.query("DELETE FROM image_assets WHERE id = ? AND note_id IS NULL");
+    for (const asset of staleAssets) statement.run(asset.id);
+  });
+  deleteStaleAssets();
+  await removeAssetFiles(assetRoot, staleAssets.map((asset) => asset.storage_path));
+}
+
 function createNote(database: SqliteDatabase, userId: string, notebookId: string, title: string, contentMarkdown: string, requestedId?: string) {
   const id = requestedId ?? crypto.randomUUID();
   const createdAt = now();
@@ -634,7 +668,6 @@ function createNote(database: SqliteDatabase, userId: string, notebookId: string
     database.query("INSERT INTO notes_fts (note_id, title, content) VALUES (?, ?, ?)").run(id, title, contentMarkdown);
     syncNoteLinks(database, userId, id, contentMarkdown, createdAt);
     resolveNoteLinksForTarget(database, userId, title, id);
-    const note = getNote(database, userId, id);
   });
   transaction();
   return id;
@@ -654,9 +687,9 @@ function updateNoteInTransaction(
   const titleChanged = current.title !== title;
   const oldTitle = current.title;
 
-  const result = database.query("UPDATE notes SET title = ?, content_markdown = ?, notebook_id = ?, is_favorite = ?, deleted_at = ?, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ? AND version = ?").run(title, contentMarkdown, notebookId, isFavorite, deletedAt, updatedAt, current.id, userId, current.version);
-  if (result.changes !== 1) return false;
-  if (!syncNoteAssetReferences(database, userId, current.id, contentMarkdown)) return false;
+  const updated = database.query("UPDATE notes SET title = ?, content_markdown = ?, notebook_id = ?, is_favorite = ?, deleted_at = ?, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ? AND version = ? RETURNING id").get(title, contentMarkdown, notebookId, isFavorite, deletedAt, updatedAt, current.id, userId, current.version) as { id: string } | null;
+  if (!updated) return false;
+  if (!syncNoteAssetReferences(database, userId, current.id, contentMarkdown)) throw new InvalidNoteAssetsError();
   database.query("DELETE FROM notes_fts WHERE note_id = ?").run(current.id);
   database.query("INSERT INTO notes_fts (note_id, title, content) VALUES (?, ?, ?)").run(current.id, title, contentMarkdown);
   syncNoteLinks(database, userId, current.id, contentMarkdown, updatedAt);
@@ -677,7 +710,6 @@ function updateNoteInTransaction(
   }
   if (titleChanged) resolveNoteLinksForUser(database, userId);
 
-  const next = getNote(database, userId, current.id);
   return true;
 }
 
@@ -785,6 +817,7 @@ async function handleApi(request: Request, options: ServerOptions) {
   const id = segments[1] ?? "";
   const subresource = segments[2] ?? "";
   cleanupExpiredSessions(database);
+  void cleanupOrphanAssets(database, assetRoot).catch((error) => console.warn("[assets] orphan cleanup failed", error));
 
   if (method === "GET" && url.pathname === "/api/health") {
     first(database, "SELECT 1 AS ok");
@@ -897,7 +930,7 @@ async function handleApi(request: Request, options: ServerOptions) {
     const notebookId = url.searchParams.get("notebookId");
     const conditions = ["n.user_id = ?"];
     const params: SqlValue[] = [user.id];
-    let from = "notes n JOIN notebooks b ON b.id = n.notebook_id";
+    let from = NOTE_FROM;
 
     if (view === "trash") conditions.push("n.deleted_at IS NOT NULL");
     else conditions.push("n.deleted_at IS NULL");
@@ -928,16 +961,7 @@ async function handleApi(request: Request, options: ServerOptions) {
     const where = conditions.join(" AND ");
     if (tagQuery) {
       const tagListStatement = database.query(`
-        SELECT n.id, n.title, n.content_markdown, n.notebook_id, b.name AS notebook_name,
-          b.color AS notebook_color, n.is_favorite, n.deleted_at, n.version, n.created_at, n.updated_at,
-          (SELECT a.id FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_asset_id,
-          (SELECT a.storage_path FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_storage_path,
-          (SELECT a.original_name FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_original_name,
-          (SELECT a.mime_type FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_mime_type,
-          (SELECT a.byte_size FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_byte_size,
-          (SELECT a.width FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_width,
-          (SELECT a.height FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_height,
-          (SELECT a.created_at FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_created_at
+        SELECT ${NOTE_SELECT}
         FROM ${from} WHERE ${where} ORDER BY n.updated_at DESC
       `);
       const notes: NoteSummary[] = [];
@@ -952,16 +976,7 @@ async function handleApi(request: Request, options: ServerOptions) {
     }
     const totalRow = first<{ count: number }>(database, `SELECT COUNT(*) AS count FROM ${from} WHERE ${where}`, ...params);
     const listStatement = database.query(`
-      SELECT n.id, n.title, n.content_markdown, n.notebook_id, b.name AS notebook_name,
-        b.color AS notebook_color, n.is_favorite, n.deleted_at, n.version, n.created_at, n.updated_at,
-        (SELECT a.id FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_asset_id,
-        (SELECT a.storage_path FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_storage_path,
-        (SELECT a.original_name FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_original_name,
-        (SELECT a.mime_type FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_mime_type,
-        (SELECT a.byte_size FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_byte_size,
-        (SELECT a.width FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_width,
-        (SELECT a.height FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_height,
-        (SELECT a.created_at FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_created_at
+      SELECT ${NOTE_SELECT}
       FROM ${from} WHERE ${where} ORDER BY n.updated_at DESC LIMIT ${NOTE_PAGE_SIZE}
     `);
     const notes: NoteSummary[] = [];
@@ -1009,7 +1024,25 @@ async function handleApi(request: Request, options: ServerOptions) {
     const note = getNote(database, user.id, id);
     if (!note) return jsonError(404, "NOTE_NOT_FOUND", "笔记不存在");
 
-    const linkedRows = all<{
+    const linkedRows = database.query(`
+      SELECT nl.id AS link_id, nl.source_note_id, n.title AS source_title, n.content_markdown AS source_content, n.updated_at AS source_updated_at, nb.name AS notebook_name, nl.target_title, nl.target_note_id
+      FROM note_links nl
+      JOIN notes n ON nl.source_note_id = n.id AND n.user_id = nl.user_id
+      JOIN notebooks nb ON n.notebook_id = nb.id
+      WHERE nl.user_id = ? AND (nl.target_note_id = ? OR nl.target_title = ?) AND nl.source_note_id != ? AND n.deleted_at IS NULL
+      ORDER BY n.updated_at DESC
+      LIMIT ?
+    `);
+    const linkedReferences: NoteLinkSummary[] = [];
+    let truncated = false;
+    let scannedChars = 0;
+    for (const row of linkedRows.iterate(
+      user.id,
+      note.id,
+      note.title,
+      note.id,
+      BACKLINK_REFERENCE_LIMIT + 1,
+    ) as Iterable<{
       link_id: string;
       source_note_id: string;
       source_title: string;
@@ -1018,23 +1051,20 @@ async function handleApi(request: Request, options: ServerOptions) {
       notebook_name: string;
       target_title: string;
       target_note_id: string | null;
-    }>(database, `
-      SELECT nl.id AS link_id, nl.source_note_id, n.title AS source_title, n.content_markdown AS source_content, n.updated_at AS source_updated_at, nb.name AS notebook_name, nl.target_title, nl.target_note_id
-      FROM note_links nl
-      JOIN notes n ON nl.source_note_id = n.id AND n.user_id = nl.user_id
-      JOIN notebooks nb ON n.notebook_id = nb.id
-      WHERE nl.user_id = ? AND (nl.target_note_id = ? OR nl.target_title = ?) AND nl.source_note_id != ? AND n.deleted_at IS NULL
-      ORDER BY n.updated_at DESC
-      LIMIT ?
-    `, user.id, note.id, note.title, note.id, BACKLINK_REFERENCE_LIMIT + 1);
-    let truncated = linkedRows.length > BACKLINK_REFERENCE_LIMIT;
-    const rows = linkedRows.slice(0, BACKLINK_REFERENCE_LIMIT);
-
-    const linkedReferences: NoteLinkSummary[] = rows.map((row) => {
+    }>) {
+      if (linkedReferences.length >= BACKLINK_REFERENCE_LIMIT) {
+        truncated = true;
+        break;
+      }
+      scannedChars += row.source_content.length;
+      if (scannedChars > BACKLINK_SCAN_CHAR_LIMIT) {
+        truncated = true;
+        break;
+      }
       const links = extractWikiLinks(row.source_content);
       const matched = links.find((l) => normalizeLinkTitle(l.target) === normalizeLinkTitle(row.target_title) || normalizeLinkTitle(l.target) === normalizeLinkTitle(note.title));
       const snippet = matched ? extractContextSnippet(row.source_content, matched.start, matched.end) : row.source_content.slice(0, 100);
-      return {
+      linkedReferences.push({
         id: row.link_id,
         sourceNoteId: row.source_note_id,
         sourceNoteTitle: row.source_title,
@@ -1043,29 +1073,43 @@ async function handleApi(request: Request, options: ServerOptions) {
         targetNoteId: row.target_note_id,
         snippet,
         updatedAt: row.source_updated_at,
-      };
-    });
+      });
+    }
 
     const unlinkedMentions: UnlinkedMention[] = [];
     if (note.title.trim().length >= 2) {
-      const candidates = all<{
-        id: string;
-        title: string;
-        content_markdown: string;
-        notebook_name: string;
-        version: number;
-        updated_at: number;
-      }>(database, `
+      const candidates = database.query(`
         SELECT n.id, n.title, n.content_markdown, nb.name AS notebook_name, n.version, n.updated_at
         FROM notes n
         JOIN notebooks nb ON n.notebook_id = nb.id
         WHERE n.user_id = ? AND n.deleted_at IS NULL AND n.id != ? AND n.content_markdown LIKE ? ESCAPE '!'
         ORDER BY n.updated_at DESC
         LIMIT ?
-      `, user.id, note.id, `%${escapeLikePattern(note.title)}%`, BACKLINK_CANDIDATE_LIMIT + 1);
-      if (candidates.length > BACKLINK_CANDIDATE_LIMIT) truncated = true;
-
-      mentionLoop: for (const candidate of candidates.slice(0, BACKLINK_CANDIDATE_LIMIT)) {
+      `);
+      let candidateCount = 0;
+      mentionLoop: for (const candidate of candidates.iterate(
+        user.id,
+        note.id,
+        `%${escapeLikePattern(note.title)}%`,
+        BACKLINK_CANDIDATE_LIMIT + 1,
+      ) as Iterable<{
+        id: string;
+        title: string;
+        content_markdown: string;
+        notebook_name: string;
+        version: number;
+        updated_at: number;
+      }>) {
+        candidateCount += 1;
+        if (candidateCount > BACKLINK_CANDIDATE_LIMIT) {
+          truncated = true;
+          break;
+        }
+        scannedChars += candidate.content_markdown.length;
+        if (scannedChars > BACKLINK_SCAN_CHAR_LIMIT) {
+          truncated = true;
+          break;
+        }
         const mentions = findUnlinkedMentionsInMarkdown(candidate.content_markdown, note.title);
         for (const m of mentions) {
           if (unlinkedMentions.length >= BACKLINK_MENTION_LIMIT) {
@@ -1144,7 +1188,14 @@ async function handleApi(request: Request, options: ServerOptions) {
     const title = normalizeNoteTitle(rawTitle);
     if (!first(database, "SELECT id FROM notebooks WHERE id = ? AND user_id = ?", notebookId, user.id)) return jsonError(400, "INVALID_NOTEBOOK", "笔记本不存在");
     if (!validNoteAssetReferences(database, user.id, current.id, contentMarkdown)) return jsonError(400, "INVALID_ASSET", "笔记引用了无权访问的图片");
-    if (!updateNote(database, current, user.id, title, contentMarkdown, notebookId, isFavorite, deletedAt)) {
+    let updated: boolean;
+    try {
+      updated = updateNote(database, current, user.id, title, contentMarkdown, notebookId, isFavorite, deletedAt);
+    } catch (error) {
+      if (error instanceof InvalidNoteAssetsError) return jsonError(400, "INVALID_ASSET", "笔记引用了无权访问的图片");
+      throw error;
+    }
+    if (!updated) {
       const latest = getNote(database, user.id, current.id);
       return json({ error: { code: "VERSION_CONFLICT", message: "这篇笔记已在别处更新", current: latest ? toFullNote(latest) : null } }, 409);
     }
@@ -1185,7 +1236,6 @@ async function handleApi(request: Request, options: ServerOptions) {
     if (!validColor(color)) return jsonError(400, "INVALID_NOTEBOOK", "请输入有效的六位十六进制颜色");
     try {
       database.query("INSERT INTO notebooks (id, user_id, name, color, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, 10, ?, ?)").run(notebookId, user.id, payload.name.trim(), color, createdAt, createdAt);
-      const created = getNotebook(database, user.id, notebookId);
     } catch {
       return jsonError(409, "NOTEBOOK_EXISTS", "已经有同名笔记本");
     }
@@ -1202,7 +1252,6 @@ async function handleApi(request: Request, options: ServerOptions) {
     if (!validText(name, 40) || !name.trim() || !validColor(color)) return jsonError(400, "INVALID_NOTEBOOK", "笔记本名称或颜色无效");
     try {
       database.query("UPDATE notebooks SET name = ?, color = ?, updated_at = ? WHERE id = ? AND user_id = ?").run(name.trim(), color, now(), current.id, user.id);
-      const updated = getNotebook(database, user.id, current.id);
     } catch {
       return jsonError(409, "NOTEBOOK_EXISTS", "已经有同名笔记本");
     }
@@ -1220,7 +1269,6 @@ async function handleApi(request: Request, options: ServerOptions) {
       const movedNotes = all<{ id: string }>(database, "SELECT id FROM notes WHERE notebook_id = ? AND user_id = ?", current.id, user.id);
       for (const note of movedNotes) {
         database.query("UPDATE notes SET notebook_id = ?, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ?").run(inbox.id, now(), note.id, user.id);
-        const moved = getNote(database, user.id, note.id);
       }
       database.query("DELETE FROM notebooks WHERE id = ? AND user_id = ?").run(current.id, user.id);
     });
@@ -1325,11 +1373,12 @@ if (import.meta.main) {
   const database = await openDatabase();
   const port = Number.parseInt(Bun.env.PORT ?? "3000", 10) || 3000;
   const hostname = Bun.env.HOST?.trim() || "0.0.0.0";
+  const clientRoot = Bun.env.CLIENT_ROOT?.trim() || DEFAULT_CLIENT_ROOT;
   const server = Bun.serve({
     hostname,
     port,
     fetch(request, server) {
-      return handleRequest(request, { database, environment: Bun.env, clientAddress: server.requestIP(request)?.address });
+      return handleRequest(request, { database, environment: Bun.env, clientRoot, clientAddress: server.requestIP(request)?.address });
     },
     error(error) {
       console.error("[server] uncaught error", error);

@@ -210,6 +210,31 @@ describe("Bun Server API", () => {
     expect(isolated.response.status).toBe(404);
   });
 
+  test("rolls back note updates when asset references become invalid during the transaction", async () => {
+    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
+    const created = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "事务一致性", contentMarkdown: "原始内容" }) }, login.cookie);
+    const note = created.body?.note;
+    const uploaded = await request("/api/assets", { method: "POST", body: imageForm("race.png") }, login.cookie);
+    const asset = uploaded.body?.asset;
+    database.exec(`
+      CREATE TRIGGER invalidate_asset_before_note_update
+      AFTER UPDATE OF content_markdown ON notes
+      WHEN NEW.id = '${note.id}'
+      BEGIN
+        DELETE FROM image_assets WHERE id = '${asset.id}';
+      END;
+    `);
+
+    const response = await request(`/api/notes/${note.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ version: note.version, contentMarkdown: `![race](${asset.url})` }),
+    }, login.cookie);
+    expect(response.response.status).toBe(400);
+    expect(response.body?.error.code).toBe("INVALID_ASSET");
+    expect(database.query("SELECT version, content_markdown FROM notes WHERE id = ?").get(note.id)).toEqual({ version: note.version, content_markdown: "原始内容" });
+    expect(database.query("SELECT id FROM image_assets WHERE id = ?").get(asset.id)).toBeDefined();
+  });
+
   test("rejects unsupported image bytes and cross-user note references, and protects shared images", async () => {
     const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
     const unsupported = await request("/api/assets", { method: "POST", body: imageForm("vector.svg", new TextEncoder().encode("<svg></svg>"), "image/svg+xml") }, login.cookie);
