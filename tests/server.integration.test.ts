@@ -7,6 +7,7 @@ import { handleRequest } from "../server/index";
 
 let database: SqliteDatabase;
 let assetRoot: string;
+let clientAddress: string;
 const environment: Record<string, string | undefined> = { XIANGYING_USERNAME: "owner", XIANGYING_PASSWORD: "a long passphrase 1234" };
 const ONE_PIXEL_PNG = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="), (character) => character.charCodeAt(0));
 
@@ -20,6 +21,7 @@ beforeEach(async () => {
   database = await openDatabase(":memory:");
   await applyMigrations(database);
   assetRoot = join(tmpdir(), `xiangying-notes-assets-${crypto.randomUUID()}`);
+  clientAddress = `test-${crypto.randomUUID()}`;
 });
 
 afterEach(async () => {
@@ -30,7 +32,7 @@ afterEach(async () => {
 async function request(path: string, init: RequestInit = {}, cookie?: string, targetEnvironment = environment) {
   const headers = new Headers(init.headers);
   if (cookie) headers.set("Cookie", cookie);
-  const response = await handleRequest(new Request(`http://xiangying.test${path}`, { ...init, headers }), { database, environment: targetEnvironment, clientRoot: "dist/client", assetRoot });
+  const response = await handleRequest(new Request(`http://xiangying.test${path}`, { ...init, headers }), { database, environment: targetEnvironment, clientRoot: "dist/client", assetRoot, clientAddress });
   const body = await response.json().catch(() => null) as Record<string, any> | null;
   return { response, body, cookie: response.headers.get("Set-Cookie")?.split(";", 1)[0] };
 }
@@ -49,7 +51,7 @@ describe("Bun Server API", () => {
   test("automatically initializes a fresh database but not later migrations", async () => {
     const fresh = await openDatabase(":memory:");
     const migrations = fresh.query("SELECT name FROM schema_migrations ORDER BY name").all() as Array<{ name: string }>;
-    expect(migrations.map((item) => item.name)).toEqual(["0001_initial.sql", "0002_sqlite_share_snapshots.sql", "0003_pwa_sync.sql", "0004_sync_tombstones.sql", "0005_image_assets.sql"]);
+    expect(migrations.map((item) => item.name)).toEqual(["0001_initial.sql", "0002_sqlite_share_snapshots.sql", "0003_pwa_sync.sql", "0004_sync_tombstones.sql", "0005_image_assets.sql", "0006_sync_hardening.sql"]);
     expect(fresh.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'users'").get()).toBeDefined();
     fresh.close();
 
@@ -68,7 +70,7 @@ describe("Bun Server API", () => {
   test("applies SQLite migrations idempotently and reports health", async () => {
     await applyMigrations(database);
     const migrations = database.query("SELECT name FROM schema_migrations ORDER BY name").all() as Array<{ name: string }>;
-    expect(migrations.map((item) => item.name)).toEqual(["0001_initial.sql", "0002_sqlite_share_snapshots.sql", "0003_pwa_sync.sql", "0004_sync_tombstones.sql", "0005_image_assets.sql"]);
+    expect(migrations.map((item) => item.name)).toEqual(["0001_initial.sql", "0002_sqlite_share_snapshots.sql", "0003_pwa_sync.sql", "0004_sync_tombstones.sql", "0005_image_assets.sql", "0006_sync_hardening.sql"]);
 
     const health = await request("/api/health");
     expect(health.response.status).toBe(200);
@@ -280,12 +282,17 @@ describe("Bun Server API", () => {
     expect(pushed.body?.results[0].status).toBe("applied");
     const repeated = await request("/api/sync/push", { method: "POST", body: JSON.stringify({ mutations: [mutation] }) }, login.cookie);
     expect(repeated.body?.results[0]).toEqual(pushed.body?.results[0]);
+    const reusedWithDifferentContent = await request("/api/sync/push", { method: "POST", body: JSON.stringify({ mutations: [{ ...mutation, note: { ...mutation.note, title: "不应覆盖的新内容" } }] }) }, login.cookie);
+    expect(reusedWithDifferentContent.body?.results[0].status).toBe("rejected");
+    expect((await request(`/api/notes/${note.id}`, {}, login.cookie)).body?.note.title).toBe("离线修改");
 
     const conflict = await request("/api/sync/push", { method: "POST", body: JSON.stringify({ mutations: [{ ...mutation, operationId: crypto.randomUUID(), baseVersion: note.version, note: { ...mutation.note, title: "过期本地版本" } }] }) }, login.cookie);
     expect(conflict.body?.results[0].status).toBe("conflict");
 
     const changes = await request(`/api/sync/pull?cursor=${initial.body?.snapshotCursor}&limit=100`, {}, login.cookie);
     expect(changes.body?.changes.some((change: { entityId: string; payload?: { title?: string } }) => change.entityId === note.id && change.payload?.title === "离线修改")).toBe(true);
+    const compactedRows = database.query("SELECT payload_json FROM sync_changes WHERE user_id = ? AND entity_type = 'note' AND entity_id = ?").all(login.body?.user.id, note.id) as Array<{ payload_json: string | null }>;
+    expect(compactedRows).toEqual([{ payload_json: null }]);
 
     const trashed = await request("/api/notes", { method: "POST", body: JSON.stringify({ id: crypto.randomUUID(), title: "待删除" }) }, login.cookie);
     const trashedNote = trashed.body?.note;
@@ -510,12 +517,12 @@ describe("Bun Server API", () => {
     expect(missing.body?.error.code).toBe("AUTH_NOT_CONFIGURED");
   });
 
-  test("rate limits repeated login failures", async () => {
+  test("rate limits repeated login failures without trusting spoofed proxy headers", async () => {
     for (let attempt = 0; attempt < 8; attempt += 1) {
-      const failed = await request("/api/auth/login", { method: "POST", headers: { "X-Forwarded-For": "198.51.100.23" }, body: JSON.stringify({ username: "owner", password: "wrong passphrase 1234" }) });
+      const failed = await request("/api/auth/login", { method: "POST", headers: { "X-Forwarded-For": `198.51.100.${attempt + 1}` }, body: JSON.stringify({ username: "owner", password: "wrong passphrase 1234" }) });
       expect(failed.response.status).toBe(401);
     }
-    const blocked = await request("/api/auth/login", { method: "POST", headers: { "X-Forwarded-For": "198.51.100.23" }, body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
+    const blocked = await request("/api/auth/login", { method: "POST", headers: { "X-Forwarded-For": "203.0.113.99" }, body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
     expect(blocked.response.status).toBe(429);
     expect(blocked.body?.error.code).toBe("TOO_MANY_LOGIN_ATTEMPTS");
     expect(blocked.response.headers.get("Retry-After")).toBeTruthy();

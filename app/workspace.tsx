@@ -254,6 +254,22 @@ export function Workspace() {
     } catch (reason) {
       if (requestId !== noteLoadRequestRef.current || activeNoteIdRef.current !== id) return;
       setIsNoteLoading(false);
+      if (reason instanceof ApiError && reason.status === 401 && !offlineSync.getState().pendingCount) {
+        navigate("/login", { replace: true });
+        return;
+      }
+      const local = await offlineSync.getLocalSnapshot();
+      if (requestId !== noteLoadRequestRef.current || activeNoteIdRef.current !== id) return;
+      const cached = local.notes.find((note) => note.id === id);
+      if (cached) {
+        const latestPendingNote = pendingSavesRef.current.get(id);
+        const nextNote = latestPendingNote ? { ...cached, ...latestPendingNote } : cached;
+        activeNoteIdRef.current = id;
+        selectedRef.current = nextNote;
+        setSelectedId(id);
+        setSelectedNote(nextNote);
+        return;
+      }
       if (previousNote) {
         activeNoteIdRef.current = previousNote.id;
         selectedRef.current = previousNote;
@@ -265,14 +281,7 @@ export function Workspace() {
         setSelectedId(null);
         setSelectedNote(null);
       }
-      if (reason instanceof ApiError && reason.status === 401 && !offlineSync.getState().pendingCount) navigate("/login", { replace: true });
-      const local = await offlineSync.getLocalSnapshot();
-      const cached = local.notes.find((note) => note.id === id);
-      if (cached) {
-        selectedRef.current = cached;
-        setSelectedNote(cached);
-        setIsNoteLoading(false);
-      } else setToast("无法打开这篇笔记");
+      setToast("无法打开这篇笔记");
     }
   }, [navigate]);
   useEffect(() => {

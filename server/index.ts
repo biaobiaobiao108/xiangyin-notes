@@ -1,5 +1,6 @@
 import { mkdir, rename } from "node:fs/promises";
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { createHash } from "node:crypto";
 import type { ImageAssetSummary, ShareSnapshot, Note, NoteSummary, NoteView, Share, Notebook } from "../shared/types";
 import type { SyncChange, SyncMutation, SyncPullResponse, SyncPushResult, SyncPushResponse } from "../shared/sync";
 import { extractTags, normalizeTag, parseTagQuery } from "../shared/tags";
@@ -20,6 +21,8 @@ const SYNC_BODY_MAX_BYTES = 32 * 1024 * 1024;
 const LOGIN_WINDOW_SECONDS = 15 * 60;
 const LOGIN_MAX_FAILURES = 8;
 const LOGIN_BLOCK_SECONDS = 15 * 60;
+const LOGIN_ATTEMPT_MAX_ENTRIES = 2_000;
+const LOGIN_ATTEMPT_CLEANUP_INTERVAL_SECONDS = 60;
 const SYNC_CHANGE_MAX_PER_USER = 5_000;
 const SYNC_CHANGE_RETENTION_SECONDS = 90 * 24 * 60 * 60;
 const SYNC_MUTATION_RETENTION_SECONDS = 30 * 24 * 60 * 60;
@@ -53,6 +56,7 @@ export type ServerOptions = {
   environment: RuntimeEnvironment;
   clientRoot?: string;
   assetRoot?: string;
+  clientAddress?: string;
 };
 
 type UserRow = {
@@ -120,7 +124,6 @@ type SyncChangeRow = {
   entity_type: "note" | "notebook";
   entity_id: string;
   operation: "upsert" | "delete";
-  payload_json: string | null;
 };
 
 type AuthCredentials = {
@@ -137,6 +140,7 @@ type LoginAttempt = {
 const welcomeMarkdown = "## 欢迎来到象映笔记\n\n这是你的第一个笔记。按下 **Ctrl /** 可以打开命令菜单，开始记录你的想法。\n\n- 写下值得保留的东西\n- 用笔记本整理上下文\n- 随时生成一个 7 天有效的只读分享\n";
 const PREVIEW_SYNTAX = new Set(["#", ">", "*", "_", "`", "~", "-", "[", "]", "(", ")"]);
 const loginAttempts = new Map<string, LoginAttempt>();
+let nextLoginAttemptCleanupAt = 0;
 const ASSET_REFERENCE_PATTERN = /\/api\/assets\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})(?=[?#)\s]|$)/giu;
 const MARKDOWN_IMAGE_SOURCE_PATTERN = /!\[[^\]]*\]\(([^)\s]+)(?:\s+[^)]*)?\)/gu;
 const PRIVATE_ASSET_SOURCE_PATTERN = /^\/api\/assets\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?=[?#]|$)/iu;
@@ -357,18 +361,28 @@ function cleanupExpiredSessions(database: SqliteDatabase) {
   database.query("DELETE FROM sessions WHERE expires_at <= ?").run(now());
 }
 
-function loginClientKey(request: Request, username: string) {
-  const forwarded = request.headers.get("X-Forwarded-For")?.split(",", 1)[0]?.trim();
-  const address = forwarded || request.headers.get("X-Real-IP")?.trim() || "unknown";
-  return `${address}:${username}`;
+function loginClientKey(request: Request, environment: RuntimeEnvironment, clientAddress: string | undefined, username: string) {
+  let address = clientAddress?.trim() || "unknown";
+  if (environment.TRUST_PROXY === "true") {
+    const forwarded = request.headers.get("X-Forwarded-For")?.split(",", 1)[0]?.trim();
+    address = forwarded || request.headers.get("X-Real-IP")?.trim() || address;
+  }
+  return `${address.slice(0, 128)}:${username.slice(0, 32)}`;
 }
 
 function getLoginAttempt(key: string, timestamp: number) {
-  for (const [existingKey, attempt] of loginAttempts) {
-    if (attempt.blockedUntil <= timestamp && timestamp - attempt.windowStartedAt > LOGIN_WINDOW_SECONDS) loginAttempts.delete(existingKey);
+  if (timestamp >= nextLoginAttemptCleanupAt) {
+    for (const [existingKey, attempt] of loginAttempts) {
+      if (attempt.blockedUntil <= timestamp && timestamp - attempt.windowStartedAt > LOGIN_WINDOW_SECONDS) loginAttempts.delete(existingKey);
+    }
+    nextLoginAttemptCleanupAt = timestamp + LOGIN_ATTEMPT_CLEANUP_INTERVAL_SECONDS;
   }
   const current = loginAttempts.get(key);
   if (!current || timestamp - current.windowStartedAt > LOGIN_WINDOW_SECONDS) {
+    if (!current && loginAttempts.size >= LOGIN_ATTEMPT_MAX_ENTRIES) {
+      const oldestKey = loginAttempts.keys().next().value as string | undefined;
+      if (oldestKey) loginAttempts.delete(oldestKey);
+    }
     const next = { windowStartedAt: timestamp, failures: 0, blockedUntil: 0 };
     loginAttempts.set(key, next);
     return next;
@@ -441,10 +455,11 @@ function getNotebook(database: SqliteDatabase, userId: string, notebookId: strin
   `, notebookId, userId);
 }
 
-function recordSyncChange(database: SqliteDatabase, userId: string, entityType: "note" | "notebook", entityId: string, operation: "upsert" | "delete", payload: Note | Notebook | null) {
-  const result = database.query("INSERT INTO sync_changes (user_id, entity_type, entity_id, operation, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(userId, entityType, entityId, operation, payload ? JSON.stringify(payload) : null, now());
+function recordSyncChange(database: SqliteDatabase, userId: string, entityType: "note" | "notebook", entityId: string, operation: "upsert" | "delete") {
+  const result = database.query("INSERT INTO sync_changes (user_id, entity_type, entity_id, operation, payload_json, created_at) VALUES (?, ?, ?, ?, NULL, ?)").run(userId, entityType, entityId, operation, now());
   if (operation === "delete") database.query("INSERT INTO sync_tombstones (user_id, entity_type, entity_id, deleted_at) VALUES (?, ?, ?, ?) ON CONFLICT(user_id, entity_type, entity_id) DO UPDATE SET deleted_at = excluded.deleted_at").run(userId, entityType, entityId, now());
   const sequence = Number(result.lastInsertRowid);
+  database.query("DELETE FROM sync_changes WHERE user_id = ? AND entity_type = ? AND entity_id = ? AND sequence <> ?").run(userId, entityType, entityId, sequence);
   if (sequence % 100 === 0) {
     const cutoff = now() - SYNC_CHANGE_RETENTION_SECONDS;
     database.query(`DELETE FROM sync_changes
@@ -549,8 +564,8 @@ async function ensureEnvironmentUser(database: SqliteDatabase, credentials: Auth
       database.query("INSERT INTO notes_fts (note_id, title, content) VALUES (?, ?, ?)").run(noteId, "开始记录你的想法", welcomeMarkdown);
       const notebook = getNotebook(database, userId, inboxId);
       const note = getNote(database, userId, noteId);
-      if (notebook) recordSyncChange(database, userId, "notebook", notebook.id, "upsert", toNotebook(notebook));
-      if (note) recordSyncChange(database, userId, "note", note.id, "upsert", toFullNote(note));
+      if (notebook) recordSyncChange(database, userId, "notebook", notebook.id, "upsert");
+      if (note) recordSyncChange(database, userId, "note", note.id, "upsert");
     });
     seed();
     return { id: userId, username: credentials.username };
@@ -646,7 +661,7 @@ function createNote(database: SqliteDatabase, userId: string, notebookId: string
     if (!syncNoteAssetReferences(database, userId, id, contentMarkdown)) throw new Error("invalid-note-assets");
     database.query("INSERT INTO notes_fts (note_id, title, content) VALUES (?, ?, ?)").run(id, title, contentMarkdown);
     const note = getNote(database, userId, id);
-    if (note) recordSyncChange(database, userId, "note", id, "upsert", toFullNote(note));
+    if (note) recordSyncChange(database, userId, "note", id, "upsert");
   });
   transaction();
   return id;
@@ -669,7 +684,7 @@ function updateNoteInTransaction(
   database.query("DELETE FROM notes_fts WHERE note_id = ?").run(current.id);
   database.query("INSERT INTO notes_fts (note_id, title, content) VALUES (?, ?, ?)").run(current.id, title, contentMarkdown);
   const next = getNote(database, userId, current.id);
-  if (next) recordSyncChange(database, userId, "note", current.id, "upsert", toFullNote(next));
+  if (next) recordSyncChange(database, userId, "note", current.id, "upsert");
   return true;
 }
 
@@ -763,7 +778,7 @@ function toShare(row: { id: string; note_id: string; created_at: number; expires
 }
 
 async function handleApi(request: Request, options: ServerOptions) {
-  const { database, environment } = options;
+  const { database, environment, clientAddress } = options;
   const assetRoot = resolve(options.assetRoot ?? assetRootFromEnv(environment));
   const url = new URL(request.url);
   const method = request.method.toUpperCase();
@@ -806,9 +821,10 @@ async function handleApi(request: Request, options: ServerOptions) {
   if (method === "POST" && url.pathname === "/api/auth/login") {
     const payload = await readJson<{ username?: unknown; password?: unknown }>(request, 64 * 1024);
     if (!payload || typeof payload.username !== "string" || typeof payload.password !== "string") return jsonError(400, "INVALID_LOGIN", "请输入用户名和密码");
+    if (payload.username.length > 128 || payload.password.length > 256) return jsonError(400, "INVALID_LOGIN", "用户名或密码格式无效");
     const credentials = getAuthCredentials(environment);
     if (!credentials) return jsonError(503, "AUTH_NOT_CONFIGURED", "请先配置 XIANGYING_USERNAME 和 XIANGYING_PASSWORD");
-    const attemptKey = loginClientKey(request, payload.username);
+    const attemptKey = loginClientKey(request, environment, clientAddress, payload.username);
     const timestamp = now();
     const attempt = getLoginAttempt(attemptKey, timestamp);
     if (attempt.blockedUntil > timestamp) return jsonError(429, "TOO_MANY_LOGIN_ATTEMPTS", "登录尝试过于频繁，请稍后再试", undefined, { "Retry-After": String(attempt.blockedUntil - timestamp) });
@@ -858,7 +874,7 @@ async function handleApi(request: Request, options: ServerOptions) {
       const assetPaths = assetPathsForNotes(database, user.id, deletedIds);
       database.query("DELETE FROM notes_fts WHERE note_id IN (SELECT id FROM notes WHERE user_id = ? AND deleted_at IS NOT NULL)").run(user.id);
       database.query("DELETE FROM notes WHERE user_id = ? AND deleted_at IS NOT NULL").run(user.id);
-      for (const id of deletedIds) recordSyncChange(database, user.id, "note", id, "delete", null);
+      for (const id of deletedIds) recordSyncChange(database, user.id, "note", id, "delete");
       return { ok: true, deletedCount: deletedIds.length, deletedIds, assetPaths };
     });
     const emptiedTrash = emptyTrash();
@@ -1019,7 +1035,7 @@ async function handleApi(request: Request, options: ServerOptions) {
     const transaction = database.transaction(() => {
       database.query("DELETE FROM notes_fts WHERE note_id = ?").run(note.id);
       database.query("DELETE FROM notes WHERE id = ? AND user_id = ?").run(note.id, user.id);
-      recordSyncChange(database, user.id, "note", note.id, "delete", null);
+      recordSyncChange(database, user.id, "note", note.id, "delete");
     });
     transaction();
     await removeAssetFiles(assetRoot, assetPaths);
@@ -1045,7 +1061,7 @@ async function handleApi(request: Request, options: ServerOptions) {
     try {
       database.query("INSERT INTO notebooks (id, user_id, name, color, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, 10, ?, ?)").run(notebookId, user.id, payload.name.trim(), color, createdAt, createdAt);
       const created = getNotebook(database, user.id, notebookId);
-      if (created) recordSyncChange(database, user.id, "notebook", notebookId, "upsert", toNotebook(created));
+      if (created) recordSyncChange(database, user.id, "notebook", notebookId, "upsert");
     } catch {
       return jsonError(409, "NOTEBOOK_EXISTS", "已经有同名笔记本");
     }
@@ -1063,7 +1079,7 @@ async function handleApi(request: Request, options: ServerOptions) {
     try {
       database.query("UPDATE notebooks SET name = ?, color = ?, updated_at = ? WHERE id = ? AND user_id = ?").run(name.trim(), color, now(), current.id, user.id);
       const updated = getNotebook(database, user.id, current.id);
-      if (updated) recordSyncChange(database, user.id, "notebook", current.id, "upsert", toNotebook(updated));
+      if (updated) recordSyncChange(database, user.id, "notebook", current.id, "upsert");
     } catch {
       return jsonError(409, "NOTEBOOK_EXISTS", "已经有同名笔记本");
     }
@@ -1082,10 +1098,10 @@ async function handleApi(request: Request, options: ServerOptions) {
       for (const note of movedNotes) {
         database.query("UPDATE notes SET notebook_id = ?, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ?").run(inbox.id, now(), note.id, user.id);
         const moved = getNote(database, user.id, note.id);
-        if (moved) recordSyncChange(database, user.id, "note", note.id, "upsert", toFullNote(moved));
+        if (moved) recordSyncChange(database, user.id, "note", note.id, "upsert");
       }
       database.query("DELETE FROM notebooks WHERE id = ? AND user_id = ?").run(current.id, user.id);
-      recordSyncChange(database, user.id, "notebook", current.id, "delete", null);
+      recordSyncChange(database, user.id, "notebook", current.id, "delete");
     });
     transaction();
     return json({ ok: true });
@@ -1109,10 +1125,18 @@ async function handlePublicShare(request: Request, database: SqliteDatabase) {
   return json({ snapshot });
 }
 
-function decodeSyncChange(row: SyncChangeRow): SyncChange {
+function decodeSyncChange(database: SqliteDatabase, userId: string, row: SyncChangeRow): SyncChange {
   let payload: SyncChange["payload"] = null;
-  if (row.payload_json) {
-    try { payload = JSON.parse(row.payload_json) as SyncChange["payload"]; } catch { payload = null; }
+  if (row.operation === "upsert") {
+    if (row.entity_type === "note") {
+      const note = getNote(database, userId, row.entity_id);
+      if (!note) throw new Error(`Missing note for sync change ${row.sequence}`);
+      payload = toFullNote(note);
+    } else {
+      const notebook = getNotebook(database, userId, row.entity_id);
+      if (!notebook) throw new Error(`Missing notebook for sync change ${row.sequence}`);
+      payload = toNotebook(notebook);
+    }
   }
   return { sequence: Number(row.sequence), entity: row.entity_type, entityId: row.entity_id, operation: row.operation, payload };
 }
@@ -1167,10 +1191,10 @@ async function handleSyncPull(request: Request, database: SqliteDatabase, user: 
   }
 
   const rows = all<SyncChangeRow>(database, `
-    SELECT sequence, entity_type, entity_id, operation, payload_json
+    SELECT sequence, entity_type, entity_id, operation
     FROM sync_changes WHERE user_id = ? AND sequence > ? ORDER BY sequence LIMIT ?
   `, user.id, cursor, limit);
-  const changes = rows.map(decodeSyncChange);
+  const changes = rows.map((row) => decodeSyncChange(database, user.id, row));
   const nextCursor = changes.at(-1)?.sequence ?? cursor;
   const body: SyncPullResponse = {
     mode: "changes",
@@ -1193,9 +1217,17 @@ function validSyncMutation(value: unknown): value is SyncMutation {
     && (mutation.allowRecreate === undefined || typeof mutation.allowRecreate === "boolean");
 }
 
+function syncMutationHash(mutation: SyncMutation) {
+  return createHash("sha256").update(JSON.stringify(mutation)).digest("hex");
+}
+
 function applySyncMutation(database: SqliteDatabase, user: UserRow, mutation: SyncMutation): SyncPushResult {
-  const cached = first<{ result_json: string }>(database, "SELECT result_json FROM sync_mutations WHERE user_id = ? AND operation_id = ?", user.id, mutation.operationId);
-  if (cached) return JSON.parse(cached.result_json) as SyncPushResult;
+  const requestHash = syncMutationHash(mutation);
+  const cached = first<{ request_hash: string; result_json: string }>(database, "SELECT request_hash, result_json FROM sync_mutations WHERE user_id = ? AND operation_id = ?", user.id, mutation.operationId);
+  if (cached) {
+    if (cached.request_hash && cached.request_hash !== requestHash) return { operationId: mutation.operationId, status: "rejected", message: "同步操作标识已被其他内容使用" };
+    return JSON.parse(cached.result_json) as SyncPushResult;
+  }
 
   const result = database.transaction(() => {
     let response: SyncPushResult;
@@ -1226,7 +1258,7 @@ function applySyncMutation(database: SqliteDatabase, user: UserRow, mutation: Sy
             database.query("INSERT INTO notes_fts (note_id, title, content) VALUES (?, ?, ?)").run(mutation.entityId, normalizeNoteTitle(payload.title), payload.contentMarkdown);
             const created = getNote(database, user.id, mutation.entityId);
             if (!created) throw new Error("note-create-missing");
-            recordSyncChange(database, user.id, "note", mutation.entityId, "upsert", toFullNote(created));
+            recordSyncChange(database, user.id, "note", mutation.entityId, "upsert");
             response = { operationId: mutation.operationId, status: "applied", note: toFullNote(created) };
           } catch {
             response = { operationId: mutation.operationId, status: "rejected", message: "笔记创建失败" };
@@ -1241,7 +1273,7 @@ function applySyncMutation(database: SqliteDatabase, user: UserRow, mutation: Sy
       } else {
         database.query("DELETE FROM notes_fts WHERE note_id = ?").run(current.id);
         database.query("DELETE FROM notes WHERE id = ? AND user_id = ?").run(current.id, user.id);
-        recordSyncChange(database, user.id, "note", current.id, "delete", null);
+        recordSyncChange(database, user.id, "note", current.id, "delete");
         response = { operationId: mutation.operationId, status: "applied", current: null };
       }
     } else {
@@ -1257,7 +1289,7 @@ function applySyncMutation(database: SqliteDatabase, user: UserRow, mutation: Sy
             database.query("UPDATE notebooks SET name = ?, color = ?, updated_at = ? WHERE id = ? AND user_id = ?").run(payload.name.trim(), payload.color, now(), current.id, user.id);
             const next = getNotebook(database, user.id, current.id);
             if (!next) throw new Error("notebook-update-missing");
-            recordSyncChange(database, user.id, "notebook", current.id, "upsert", toNotebook(next));
+            recordSyncChange(database, user.id, "notebook", current.id, "upsert");
             response = { operationId: mutation.operationId, status: "applied", notebook: toNotebook(next) };
           } catch {
             response = { operationId: mutation.operationId, status: "rejected", message: "笔记本名称已经存在" };
@@ -1270,7 +1302,7 @@ function applySyncMutation(database: SqliteDatabase, user: UserRow, mutation: Sy
             database.query("INSERT INTO notebooks (id, user_id, name, color, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, 10, ?, ?)").run(mutation.entityId, user.id, payload.name.trim(), payload.color, createdAt, createdAt);
             const created = getNotebook(database, user.id, mutation.entityId);
             if (!created) throw new Error("notebook-create-missing");
-            recordSyncChange(database, user.id, "notebook", mutation.entityId, "upsert", toNotebook(created));
+            recordSyncChange(database, user.id, "notebook", mutation.entityId, "upsert");
             response = { operationId: mutation.operationId, status: "applied", notebook: toNotebook(created) };
           } catch {
             response = { operationId: mutation.operationId, status: "rejected", message: "笔记本名称已经存在" };
@@ -1293,16 +1325,16 @@ function applySyncMutation(database: SqliteDatabase, user: UserRow, mutation: Sy
             if (!existing) continue;
             database.query("UPDATE notes SET notebook_id = ?, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ?").run(inbox.id, now(), note.id, user.id);
             const moved = getNote(database, user.id, note.id);
-            if (moved) recordSyncChange(database, user.id, "note", note.id, "upsert", toFullNote(moved));
+            if (moved) recordSyncChange(database, user.id, "note", note.id, "upsert");
           }
           database.query("DELETE FROM notebooks WHERE id = ? AND user_id = ?").run(current.id, user.id);
-          recordSyncChange(database, user.id, "notebook", current.id, "delete", null);
+          recordSyncChange(database, user.id, "notebook", current.id, "delete");
           response = { operationId: mutation.operationId, status: "applied", current: null };
         }
       }
     }
 
-    database.query("INSERT INTO sync_mutations (user_id, operation_id, result_json, created_at) VALUES (?, ?, ?, ?)").run(user.id, mutation.operationId, JSON.stringify(response), now());
+    database.query("INSERT INTO sync_mutations (user_id, operation_id, request_hash, result_json, created_at) VALUES (?, ?, ?, ?, ?)").run(user.id, mutation.operationId, requestHash, JSON.stringify(response), now());
     return response;
   })();
   return result;
@@ -1408,8 +1440,8 @@ if (import.meta.main) {
   const server = Bun.serve({
     hostname,
     port,
-    fetch(request) {
-      return handleRequest(request, { database, environment: Bun.env });
+    fetch(request, server) {
+      return handleRequest(request, { database, environment: Bun.env, clientAddress: server.requestIP(request)?.address });
     },
     error(error) {
       console.error("[server] uncaught error", error);

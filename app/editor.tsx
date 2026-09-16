@@ -94,6 +94,10 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   const imageUploadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const uploadImageFilesRef = useRef<(files: File[]) => void>(() => undefined);
   const onUploadImageRef = useRef(onUploadImage);
+  const imageUploadContextRef = useRef({ noteId: note.id, generation: 0 });
+  if (imageUploadContextRef.current.noteId !== note.id) {
+    imageUploadContextRef.current = { noteId: note.id, generation: imageUploadContextRef.current.generation + 1 };
+  }
   const programmaticOutlineScrollIdRef = useRef<string | null>(null);
   const cancelOutlineSmoothScroll = useCallback(() => {
     if (outlineScrollAnimRef.current !== null) {
@@ -126,6 +130,8 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   const uploadImageFiles = useCallback(async (files: File[]) => {
     const editorInstance = editorInstanceRef.current;
     const uploadImage = onUploadImageRef.current;
+    const uploadContext = imageUploadContextRef.current;
+    const isCurrentUpload = () => imageUploadContextRef.current === uploadContext && editorInstanceRef.current === editorInstance && !editorInstance?.isDestroyed;
     if (!editorInstance || !uploadImage || editorLocked || note.deletedAt) return;
     const imageFiles = files.filter(isImageFile).slice(0, MAX_IMAGE_FILES_PER_ACTION);
     if (!imageFiles.length) return;
@@ -134,7 +140,9 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     try {
       for (const file of imageFiles) {
         const dimensions = await imageDimensions(file);
+        if (!isCurrentUpload()) return;
         const result = await uploadImage(file, dimensions);
+        if (!isCurrentUpload()) return;
         const maxWidth = Math.max(1, editorInstance.view.dom.closest(".note-prose")?.getBoundingClientRect().width ?? 820);
         const width = Math.min(maxWidth, Math.max(1, dimensions.width));
         const height = Math.max(1, Math.round(width * dimensions.height / Math.max(1, dimensions.width)));
@@ -142,6 +150,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       }
       setImageUploadState("idle");
     } catch {
+      if (!isCurrentUpload()) return;
       setImageUploadState("error");
       imageUploadTimerRef.current = setTimeout(() => { imageUploadTimerRef.current = null; setImageUploadState("idle"); }, 3000);
     }

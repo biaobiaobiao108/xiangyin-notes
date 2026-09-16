@@ -35,10 +35,6 @@ function isNetworkFailure(reason: unknown) {
   return !(reason instanceof ApiError) || reason.status === 408 || reason.status >= 500;
 }
 
-function operationIdFor(mutations: SyncMutation[], entity: "note" | "notebook", entityId: string) {
-  return mutations.find((mutation) => mutation.entity === entity && mutation.entityId === entityId)?.operationId ?? crypto.randomUUID();
-}
-
 function noteMutation(note: Note, operationId: string, options?: { allowRecreate?: boolean }): SyncMutation {
   return {
     operationId,
@@ -66,6 +62,15 @@ function notebookMutation(notebook: Notebook, operationId: string): SyncMutation
     baseUpdatedAt: notebook.updatedAt,
     notebook: { name: notebook.name, color: notebook.color },
   };
+}
+
+export function orderSyncMutations(mutations: SyncMutation[]) {
+  const rank = (mutation: SyncMutation) => {
+    if (mutation.entity === "notebook" && mutation.action === "upsert") return 0;
+    if (mutation.entity === "note") return 1;
+    return 2;
+  };
+  return [...mutations].sort((left, right) => rank(left) - rank(right));
 }
 
 class OfflineSyncController {
@@ -207,7 +212,7 @@ class OfflineSyncController {
     const localNote = { ...note, preview: localPreview(note.contentMarkdown), tags: extractTags(note.contentMarkdown), thumbnail: await this.localThumbnail(note), updatedAt: now() };
     if (!networkAvailable()) {
       await putLocalNote(localNote);
-      await this.queue(noteMutation(localNote, operationIdFor(await getPendingMutations(), "note", localNote.id)));
+      await this.queue(noteMutation(localNote, crypto.randomUUID()));
       return { note: localNote, offline: true };
     }
     try {
@@ -228,7 +233,7 @@ class OfflineSyncController {
         throw reason;
       }
       await putLocalNote(localNote);
-      await this.queue(noteMutation(localNote, operationIdFor(await getPendingMutations(), "note", localNote.id)));
+      await this.queue(noteMutation(localNote, crypto.randomUUID()));
       return { note: localNote, offline: true };
     }
   }
@@ -280,7 +285,7 @@ class OfflineSyncController {
       updatedAt: timestamp,
     };
     await putLocalNote(note);
-    await this.queue(noteMutation(note, operationIdFor(await getPendingMutations(), "note", note.id)));
+    await this.queue(noteMutation(note, crypto.randomUUID()));
     return { note, offline: true };
   }
 
@@ -288,7 +293,7 @@ class OfflineSyncController {
     const localNotebook = isNew ? notebook : { ...notebook, updatedAt: now() };
     if (!networkAvailable()) {
       await putLocalNotebook(localNotebook);
-      await this.queue(notebookMutation(notebook, operationIdFor(await getPendingMutations(), "notebook", notebook.id)));
+      await this.queue(notebookMutation(notebook, crypto.randomUUID()));
       return { notebook: localNotebook, offline: true };
     }
     try {
@@ -301,7 +306,7 @@ class OfflineSyncController {
     } catch (reason) {
       if (!isNetworkFailure(reason)) throw reason;
       await putLocalNotebook(localNotebook);
-      await this.queue(notebookMutation(notebook, operationIdFor(await getPendingMutations(), "notebook", notebook.id)));
+      await this.queue(notebookMutation(notebook, crypto.randomUUID()));
       return { notebook: localNotebook, offline: true };
     }
   }
@@ -320,10 +325,11 @@ class OfflineSyncController {
     for (const note of local.notes.filter((item) => item.notebookId === notebook.id)) {
       const moved = { ...note, notebookId: inbox.id, notebookName: inbox.name, updatedAt: now(), version: note.version };
       await putLocalNote(moved);
-      await this.queue(noteMutation(moved, operationIdFor(local.mutations, "note", moved.id)));
+      await this.queue(noteMutation(moved, crypto.randomUUID()));
     }
     await deleteLocalNotebook(notebook.id);
-    await this.queue({ operationId: operationIdFor(local.mutations, "notebook", notebook.id), entity: "notebook", action: "delete", entityId: notebook.id, baseUpdatedAt: notebook.updatedAt });
+    // The server moves every child note and increments its version atomically with this deletion.
+    await this.queue({ operationId: crypto.randomUUID(), entity: "notebook", action: "delete", entityId: notebook.id, baseUpdatedAt: notebook.updatedAt });
     return { offline: true };
   }
 
@@ -338,8 +344,7 @@ class OfflineSyncController {
       }
     }
     await deleteLocalNote(note.id);
-    const current = await getPendingMutations();
-    await this.queue({ operationId: operationIdFor(current, "note", note.id), entity: "note", action: "delete", entityId: note.id, baseVersion: note.version });
+    await this.queue({ operationId: crypto.randomUUID(), entity: "note", action: "delete", entityId: note.id, baseVersion: note.version });
     return { offline: true };
   }
 
@@ -425,7 +430,7 @@ class OfflineSyncController {
     this.emit({ status: "syncing", lastError: null, noteRefreshIds: [] });
     try {
       const noteRefreshIds = await this.preparePendingImageAssets();
-      let mutations = await getPendingMutations();
+      let mutations = orderSyncMutations(await getPendingMutations());
       while (mutations.length) {
         if (!this.isCurrentSession(generation, userId) || token !== this.syncToken) return;
         const batch = mutations.slice(0, 25);
@@ -435,7 +440,7 @@ class OfflineSyncController {
           const mutation = batch.find((item) => item.operationId === result.operationId);
           if (mutation) await this.handlePushResult(result, mutation, generation, userId);
         }
-        mutations = await getPendingMutations();
+        mutations = orderSyncMutations(await getPendingMutations());
       }
 
       let cursor = await getSyncCursor();

@@ -170,6 +170,7 @@ ghcr.io/biaobiaobiao108/xiangying-notes
 XIANGYING_USERNAME=xiangying
 XIANGYING_PASSWORD=请替换为至少12位的生产密码
 PUBLIC_URL=https://notes.example.com
+TRUST_PROXY=true
 COOKIE_SECURE=true
 ```
 
@@ -246,9 +247,10 @@ docker run --rm \
 | `HOST` | 否 | 服务监听地址，默认 `0.0.0.0` |
 | `PORT` | 否 | 服务端口，默认 `3000` |
 | `PUBLIC_URL` | 否 | 分享链接使用的公网根地址，例如 `https://notes.example.com` |
+| `TRUST_PROXY` | 否 | 仅在服务位于可信反向代理后时设为 `true`，用于读取代理写入的客户端 IP 转发头 |
 | `COOKIE_SECURE` | 否 | HTTPS 部署时设置为 `true`；本机 HTTP 使用 `false` |
 
-`PUBLIC_URL` 只填写公网根地址，不要在末尾添加 `/app` 或其他路径。`.env`、SQLite 数据库和分享 token 都不应提交到 Git 仓库。
+`PUBLIC_URL` 只填写公网根地址，不要在末尾添加 `/app` 或其他路径。不要在服务直接暴露公网时启用 `TRUST_PROXY`；启用后应由可信代理覆盖 `X-Forwarded-For` 或 `X-Real-IP`。`.env`、SQLite 数据库和分享 token 都不应提交到 Git 仓库。
 
 ## 数据、隐私与安全
 
