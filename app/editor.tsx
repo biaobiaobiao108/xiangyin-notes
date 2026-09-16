@@ -50,7 +50,7 @@ async function imageDimensions(file: File) {
   }
 }
 
-export function NoteEditor({ note, searchQuery = "", saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList, onUploadImage, focusMode = false, onToggleFocusMode, onClearSearch, typewriterMode = false }: {
+export function NoteEditor({ note, searchQuery = "", saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList, onUploadImage, focusMode = false, onToggleFocusMode, onClearSearch, typewriterMode = false, outlineOpen, outlineItems, onToggleOutline, onCloseOutline, onOutlineItemsChange, onOutlineActiveChange, onOutlineNavigationReady }: {
   note: Note;
   searchQuery?: string;
   saveState: "idle" | "saving" | "saved" | "local" | "conflict" | "error";
@@ -73,13 +73,19 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   onToggleFocusMode?: () => void;
   onClearSearch?: () => void;
   typewriterMode?: boolean;
+  outlineOpen: boolean;
+  outlineItems: OutlineItem[];
+  onToggleOutline: () => void;
+  onCloseOutline: () => void;
+  onOutlineItemsChange: (items: OutlineItem[]) => void;
+  onOutlineActiveChange: (id: string | null) => void;
+  onOutlineNavigationReady: (navigate: ((id: string) => void) | null) => void;
 }) {
 
   const editorScrollRef = useRef<HTMLDivElement>(null);
   const documentRef = useRef<HTMLDivElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const editorInstanceRef = useRef<Editor | null>(null);
-  const floatingToolsRef = useRef<HTMLDivElement>(null);
   const outlineTriggerRef = useRef<HTMLButtonElement>(null);
   const syncFrameRef = useRef<number | null>(null);
   const composingRef = useRef(false);
@@ -109,9 +115,6 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   const onChangeRef = useRef(onChange);
   const surfaceSyncRef = useRef<(instance: Editor) => void>(() => undefined);
   const [editorStats, setEditorStats] = useState<EditorStats>(() => countEditorText(""));
-  const [outlineItems, setOutlineItems] = useState<OutlineItem[]>([]);
-  const [activeOutlineId, setActiveOutlineId] = useState<string | null>(null);
-  const [outlineOpen, setOutlineOpen] = useState(false);
   const [deferredLoading, setDeferredLoading] = useState(false);
   const [imageUploadState, setImageUploadState] = useState<"idle" | "uploading" | "error">("idle");
   const editorLocked = isLoading || deferredLoading;
@@ -170,13 +173,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       .map((element) => ({ level: Number(element.tagName.slice(1)) as 1 | 2 | 3, title: element.textContent?.trim() ?? "" }))
       .filter((heading) => heading.title.length > 0);
     const nextItems = buildOutlineItems(headings);
-    setOutlineItems((current) => {
-      const unchanged = current.length === nextItems.length && current.every((item, index) => {
-        const next = nextItems[index];
-        return next && item.id === next.id && item.level === next.level && item.title === next.title;
-      });
-      return unchanged ? current : nextItems;
-    });
+    onOutlineItemsChange(nextItems);
   };
   const scheduleEditorSurfaceSync = (instance: Editor) => {
     if (syncFrameRef.current !== null) cancelAnimationFrame(syncFrameRef.current);
@@ -706,9 +703,10 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     leakedCandidateRef.current = null;
     composingRef.current = false;
     cancelOutlineSmoothScroll();
-    setOutlineOpen(false);
-    setActiveOutlineId(null);
-    setOutlineItems([]);
+    onCloseOutline();
+    onOutlineItemsChange([]);
+    onOutlineActiveChange(null);
+    onOutlineNavigationReady(null);
     setEditorStats(countEditorText(""));
     editor.commands.setContent(note.contentMarkdown, { contentType: "markdown", emitUpdate: false });
     editorScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
@@ -721,7 +719,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       }
     }
     scheduleEditorSurfaceSync(editor);
-  }, [editor, note.id, reloadToken]);
+  }, [cancelOutlineSmoothScroll, editor, note.id, onCloseOutline, onOutlineActiveChange, onOutlineItemsChange, onOutlineNavigationReady, reloadToken]);
 
   useEffect(() => {
     if (!editor || !focusRequested || isLoading || note.deletedAt) return;
@@ -790,32 +788,27 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
 
 
   useEffect(() => {
-    if (isLoading) setOutlineOpen(false);
-  }, [isLoading]);
+    if (isLoading) onCloseOutline();
+  }, [isLoading, onCloseOutline]);
 
   useEffect(() => {
     if (!outlineOpen) return;
-    const handlePointerDown = (event: PointerEvent) => {
-      if (event.target instanceof Node && !floatingToolsRef.current?.contains(event.target)) setOutlineOpen(false);
-    };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
-      setOutlineOpen(false);
-      outlineTriggerRef.current?.focus();
+      onCloseOutline();
+      requestAnimationFrame(() => outlineTriggerRef.current?.focus());
     };
-    document.addEventListener("pointerdown", handlePointerDown, true);
     document.addEventListener("keydown", handleKeyDown);
     return () => {
-      document.removeEventListener("pointerdown", handlePointerDown, true);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [outlineOpen]);
+  }, [onCloseOutline, outlineOpen]);
 
   useEffect(() => {
     const root = editorScrollRef.current;
     if (!root || outlineItems.length === 0) {
-      setActiveOutlineId(null);
+      onOutlineActiveChange(null);
       return;
     }
 
@@ -837,7 +830,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
         currentId = outlineItems[outlineItems.length - 1]?.id ?? null;
       }
       const nextId = currentId ?? outlineItems[0]?.id ?? null;
-      setActiveOutlineId((current) => current === nextId ? current : nextId);
+      onOutlineActiveChange(nextId);
     };
     const scheduleActiveHeading = () => {
       if (activeFrame !== null) return;
@@ -875,7 +868,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       if (activeFrame !== null) cancelAnimationFrame(activeFrame);
       cancelOutlineSmoothScroll();
     };
-  }, [cancelOutlineSmoothScroll, outlineItems]);
+  }, [cancelOutlineSmoothScroll, onOutlineActiveChange, outlineItems]);
 
   const scrollToOutlineItem = useCallback((id: string) => {
     const scrollRoot = editorScrollRef.current;
@@ -893,7 +886,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     const maxScrollTop = Math.max(0, scrollRoot.scrollHeight - scrollRoot.clientHeight);
     const targetTop = Math.min(maxScrollTop, Math.max(0, scrollRoot.scrollTop + elementRect.top - rootRect.top - 24));
 
-    setActiveOutlineId(id);
+    onOutlineActiveChange(id);
     programmaticOutlineScrollIdRef.current = id;
 
     const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -928,7 +921,12 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     };
 
     outlineScrollAnimRef.current = requestAnimationFrame(step);
-  }, [cancelOutlineSmoothScroll, outlineItems]);
+  }, [cancelOutlineSmoothScroll, onOutlineActiveChange, outlineItems]);
+
+  useEffect(() => {
+    onOutlineNavigationReady(scrollToOutlineItem);
+    return () => onOutlineNavigationReady(null);
+  }, [onOutlineNavigationReady, scrollToOutlineItem]);
 
   const saveLabel = saveState === "saving" ? "保存中" : saveState === "local" ? "已保存到本机" : "已保存";
   return (
@@ -1012,14 +1010,12 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       </div>
       {deferredLoading && <div className="editor-switch-overlay editor-switch-overlay--visible" role="status" aria-live="polite"><div className="editor-switch-card"><BrandMark className="editor-switch-mark" /><div className="editor-switch-lines" aria-hidden="true"><span /><span /><span /></div><strong>正在打开笔记…</strong></div></div>}
       <EditorFloatingTools
-        floatingToolsRef={floatingToolsRef}
         outlineTriggerRef={outlineTriggerRef}
         outlineOpen={outlineOpen}
-        outlineItems={outlineItems}
-        activeOutlineId={activeOutlineId}
         editorStats={editorStats}
-        onToggleOutline={() => setOutlineOpen((open) => !open)}
-        onScrollToOutlineItem={scrollToOutlineItem}
+        onToggleOutline={onToggleOutline}
+        outlineDisabled={focusMode}
+        outlineDisabledTitle={focusMode ? "退出沉浸模式后才能打开大纲" : undefined}
         searchNavigation={searchNavigation}
         deferredLoading={editorLocked}
         onMoveSearchMatch={moveSearchMatch}

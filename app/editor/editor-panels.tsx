@@ -1,48 +1,25 @@
-import { useRef, type RefObject } from "react";
+import type { RefObject } from "react";
 import { ChevronDown, ChevronUp, ListTree, X } from "lucide-react";
-import type { EditorStats, OutlineItem } from "../editor-metrics";
-import { FloatingScrollbar } from "../floating-scrollbar";
+import type { EditorStats } from "../editor-metrics";
 
 type SearchNavigation = {
   activeIndex: number;
   matchCount: number;
 };
 
-export function EditorFloatingTools({ floatingToolsRef, outlineTriggerRef, outlineOpen, outlineItems, activeOutlineId, editorStats, onToggleOutline, onScrollToOutlineItem, searchNavigation, deferredLoading, onMoveSearchMatch, onClearSearch }: {
-  floatingToolsRef: RefObject<HTMLDivElement | null>;
+export function EditorFloatingTools({ outlineTriggerRef, outlineOpen, editorStats, onToggleOutline, outlineDisabled = false, outlineDisabledTitle, searchNavigation, deferredLoading, onMoveSearchMatch, onClearSearch }: {
   outlineTriggerRef: RefObject<HTMLButtonElement | null>;
   outlineOpen: boolean;
-  outlineItems: OutlineItem[];
-  activeOutlineId: string | null;
   editorStats: EditorStats;
   onToggleOutline: () => void;
-  onScrollToOutlineItem: (id: string) => void;
+  outlineDisabled?: boolean;
+  outlineDisabledTitle?: string;
   searchNavigation: SearchNavigation;
   deferredLoading: boolean;
   onMoveSearchMatch: (direction: -1 | 1) => void;
   onClearSearch?: () => void;
 }) {
-  const outlineScrollRef = useRef<HTMLDivElement>(null);
-  return <div className="editor-floating-tools" ref={floatingToolsRef}>
-    <aside className="editor-outline" id="note-outline" aria-label="笔记大纲" hidden={!outlineOpen}>
-      <div className="editor-outline-heading">
-        <div>
-          <span className="editor-outline-eyebrow">NAVIGATION</span>
-          <h2>笔记大纲</h2>
-        </div>
-        <span className="editor-outline-count">{outlineItems.length}</span>
-      </div>
-      <div className="editor-outline-scroll-shell">
-        <div id="note-outline-scroll-region" className="editor-outline-scroll floating-scrollbar-target" ref={outlineScrollRef}>
-          {outlineItems.length > 0 ? <nav aria-label="笔记标题">
-            <ol className="editor-outline-list">
-              {outlineItems.map((item) => <li className={`editor-outline-item editor-outline-item--level-${item.level}`} key={item.id}><button type="button" aria-current={activeOutlineId === item.id ? "true" : undefined} onClick={() => onScrollToOutlineItem(item.id)}><span className="outline-level-tag" aria-hidden="true">{`H${item.level}`}</span><span className="outline-item-title">{item.title}</span></button></li>)}
-            </ol>
-          </nav> : <p className="editor-outline-empty">用 <code>#</code> 标题为这篇笔记建立大纲。</p>}
-        </div>
-        <FloatingScrollbar scrollTargetRef={outlineScrollRef} controlsId="note-outline-scroll-region" ariaLabel="笔记大纲滚动条" placement="right" enabled={outlineOpen} />
-      </div>
-    </aside>
+  return <div className="editor-floating-tools">
     <div className="editor-floating-row">
       {searchNavigation.matchCount > 0 && <div className="editor-search-nav" role="group" aria-label={`正文搜索结果，第 ${searchNavigation.activeIndex + 1} 个，共 ${searchNavigation.matchCount} 个`}>
         <button className="editor-search-nav-button" type="button" aria-label="上一个搜索匹配" title="上一个搜索匹配 (Shift+F3)" onClick={() => onMoveSearchMatch(-1)} disabled={deferredLoading || searchNavigation.matchCount < 2}><ChevronUp size={16} strokeWidth={2} /></button>
@@ -51,7 +28,7 @@ export function EditorFloatingTools({ floatingToolsRef, outlineTriggerRef, outli
         {onClearSearch && <button className="editor-search-nav-button editor-search-nav-button--close" type="button" aria-label="退出搜索高亮" title="退出搜索高亮" onClick={onClearSearch}><X size={15} strokeWidth={2} /></button>}
       </div>}
       <EditorStatsPill stats={editorStats} />
-      <button className={`outline-trigger ${outlineOpen ? "is-active" : ""}`} ref={outlineTriggerRef} type="button" aria-expanded={outlineOpen} aria-controls="note-outline" aria-label={outlineOpen ? "关闭笔记大纲" : "打开笔记大纲"} onClick={onToggleOutline} disabled={deferredLoading}><ListTree size={16} strokeWidth={1.9} /><span>大纲</span></button>
+      <button className={`outline-trigger ${outlineOpen ? "is-active" : ""}`} ref={outlineTriggerRef} type="button" aria-expanded={outlineOpen} aria-controls={outlineOpen ? "note-outline" : undefined} aria-label={outlineOpen ? "关闭笔记大纲" : "打开笔记大纲"} title={outlineDisabledTitle ?? (outlineOpen ? "关闭笔记大纲" : "打开笔记大纲")} onClick={onToggleOutline} disabled={deferredLoading || outlineDisabled}><ListTree size={16} strokeWidth={1.9} /><span>大纲</span></button>
     </div>
   </div>;
 }

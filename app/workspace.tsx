@@ -7,6 +7,7 @@ import { offlineSync, type OfflineSyncState } from "./offline-sync";
 import { getOfflineConflicts, type OfflineConflict } from "./offline-store";
 import { applyPwaUpdate, installPwa, subscribePwa, type PwaState } from "./pwa";
 import type { Note, NoteSummary, NoteView, Notebook } from "../shared/types";
+import type { OutlineItem } from "./editor-metrics";
 import { ConfirmDialog, ConflictDialog, NotebookDialog, ShareDialog, type ConfirmRequest } from "./workspace/dialogs";
 import { EmptyEditor, NoteListPanel, NoteLoadingState, Sidebar, SyncNotice } from "./workspace/panels";
 import { filterOfflineNotes, errorMessage, shouldKeepActiveNoteInList, sortNotes, toNoteDraft, type NoteDraft, type NoteSort } from "./workspace/helpers";
@@ -38,6 +39,10 @@ export function Workspace() {
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
+  const [outlineOpen, setOutlineOpen] = useState(false);
+  const [outlineItems, setOutlineItems] = useState<OutlineItem[]>([]);
+  const [activeOutlineId, setActiveOutlineId] = useState<string | null>(null);
+  const outlineNavigateRef = useRef<((id: string) => void) | null>(null);
   const [editorFocusNoteId, setEditorFocusNoteId] = useState<string | null>(null);
   const handleEditorFocus = useCallback(() => setEditorFocusNoteId(null), []);
   const selectedRef = useRef<Note | null>(null);
@@ -92,6 +97,33 @@ export function Workspace() {
   }, []);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [mobileListOpen, setMobileListOpen] = useState(false);
+  const toggleOutline = useCallback(() => {
+    if (focusMode) return;
+    setOutlineOpen((current) => {
+      const next = !current;
+      if (next) {
+        setMobileListOpen(true);
+        setMobileSidebarOpen(false);
+      }
+      return next;
+    });
+  }, [focusMode]);
+  const closeOutline = useCallback(() => setOutlineOpen(false), []);
+  const handleOutlineItemsChange = useCallback((nextItems: OutlineItem[]) => {
+    setOutlineItems((current) => {
+      const unchanged = current.length === nextItems.length && current.every((item, index) => {
+        const next = nextItems[index];
+        return next && item.id === next.id && item.level === next.level && item.title === next.title;
+      });
+      return unchanged ? current : nextItems;
+    });
+  }, []);
+  const handleOutlineActiveChange = useCallback((nextId: string | null) => {
+    setActiveOutlineId((current) => current === nextId ? current : nextId);
+  }, []);
+  const handleOutlineNavigationReady = useCallback((navigate: ((id: string) => void) | null) => {
+    outlineNavigateRef.current = navigate;
+  }, []);
   const [commandOpen, setCommandOpen] = useState(false);
   const [commandInitialQuery, setCommandInitialQuery] = useState("");
   const [inNoteSearchQuery, setInNoteSearchQuery] = useState("");
@@ -221,6 +253,18 @@ export function Workspace() {
     setIsNoteLoading(Boolean(id));
     if (!id) setSelectedNote(null);
   }, []);
+  useEffect(() => {
+    setOutlineOpen(false);
+    setOutlineItems([]);
+    setActiveOutlineId(null);
+    outlineNavigateRef.current = null;
+  }, [selectedId]);
+  useEffect(() => {
+    if (focusMode) {
+      setOutlineOpen(false);
+      setMobileListOpen(false);
+    }
+  }, [focusMode]);
   const removeFromList = useCallback((noteId: string) => {
     const ordered = sortNotes(notesRef.current, noteSort);
     const index = ordered.findIndex((note) => note.id === noteId);
@@ -309,6 +353,7 @@ export function Workspace() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
       const isMod = event.ctrlKey || event.metaKey;
       if (isMod && (event.key === "/" || event.key === "k" || event.key === "K")) {
         event.preventDefault();
@@ -823,11 +868,11 @@ export function Workspace() {
   const activeSearchQuery = inNoteSearchQuery || query;
   const mobileNavigationOpen = mobileSidebarOpen || mobileListOpen;
   return <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${focusMode ? "is-focus-mode" : ""}`}>
-    {mobileNavigationOpen && <button className="mobile-scrim is-visible" type="button" aria-label="关闭导航" onClick={() => { setMobileSidebarOpen(false); setMobileListOpen(false); }} />}
+    {mobileNavigationOpen && <button className="mobile-scrim is-visible" type="button" aria-label="关闭导航" onClick={() => { setMobileSidebarOpen(false); setMobileListOpen(false); closeOutline(); }} />}
     <Sidebar view={view} setView={selectView} notebooks={notebooks} notebookId={notebookId} setNotebookId={selectNotebook} query={query} setQuery={changeQuery} searchRef={searchRef} onNewNote={() => void createNoteHere()} onCreateNotebook={() => void createNotebook()} onEditNotebook={(target) => setEditingNotebook(target)} collapsed={sidebarCollapsed} onCollapse={() => setSidebarCollapsed((value) => !value)} mobileOpen={mobileSidebarOpen} onLogout={logout} />
-    <NoteListPanel notes={notes} total={totalNotes} sort={noteSort} setSort={setNoteSort} selectedId={selectedId} onSelect={(id) => { selectNote(id); setMobileSidebarOpen(false); setMobileListOpen(false); }} view={view} query={query} currentNotebookName={currentNotebook?.name} onEmptyTrash={view === "trash" ? emptyTrash : undefined} trashBusy={pendingTrashCount > 0 || emptyingTrash} onNewNote={currentNotebook ? () => void createNoteHere() : undefined} onClearQuery={() => changeQuery("")} mobileOpen={mobileListOpen} onOpenSidebar={() => { setMobileSidebarOpen(true); setMobileListOpen(false); }} transitionToken={listTransitionToken} />
+    <NoteListPanel notes={notes} total={totalNotes} sort={noteSort} setSort={setNoteSort} selectedId={selectedId} onSelect={(id) => { selectNote(id); setMobileSidebarOpen(false); setMobileListOpen(false); }} view={view} query={query} currentNotebookName={currentNotebook?.name} onEmptyTrash={view === "trash" ? emptyTrash : undefined} trashBusy={pendingTrashCount > 0 || emptyingTrash} onNewNote={currentNotebook ? () => void createNoteHere() : undefined} onClearQuery={() => changeQuery("")} mobileOpen={mobileListOpen} onOpenSidebar={() => { setMobileSidebarOpen(true); setMobileListOpen(false); }} transitionToken={listTransitionToken} outlineOpen={outlineOpen} outlineItems={outlineItems} activeOutlineId={activeOutlineId} onScrollToOutlineItem={(id) => outlineNavigateRef.current?.(id)} onCloseOutline={closeOutline} />
     <main className="editor-region">
-      {renderedNote ? <Suspense fallback={<NoteLoadingState />}><LazyNoteEditor note={renderedNote} searchQuery={activeSearchQuery} onClearSearch={activeSearchQuery ? handleClearSearch : undefined} saveState={saveState} isLoading={isNoteLoading} trashBusy={emptyingTrash || (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onShare={() => setShareOpen(true)} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={() => { setMobileListOpen(true); setMobileSidebarOpen(false); }} onUploadImage={(file, dimensions) => offlineSync.uploadImage(file, renderedNote.id, dimensions)} focusMode={focusMode} onToggleFocusMode={toggleFocusMode} typewriterMode={typewriterMode} /></Suspense> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor isTrash={view === "trash"} onNewNote={() => void createNoteHere()} onOpenList={() => { setMobileListOpen(true); setMobileSidebarOpen(false); }} transitionToken={listTransitionToken} />}
+      {renderedNote ? <Suspense fallback={<NoteLoadingState />}><LazyNoteEditor note={renderedNote} searchQuery={activeSearchQuery} onClearSearch={activeSearchQuery ? handleClearSearch : undefined} saveState={saveState} isLoading={isNoteLoading} trashBusy={emptyingTrash || (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onShare={() => setShareOpen(true)} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={() => { setMobileListOpen(true); setMobileSidebarOpen(false); }} onUploadImage={(file, dimensions) => offlineSync.uploadImage(file, renderedNote.id, dimensions)} focusMode={focusMode} onToggleFocusMode={toggleFocusMode} typewriterMode={typewriterMode} outlineOpen={outlineOpen} outlineItems={outlineItems} onToggleOutline={toggleOutline} onCloseOutline={closeOutline} onOutlineItemsChange={handleOutlineItemsChange} onOutlineActiveChange={handleOutlineActiveChange} onOutlineNavigationReady={handleOutlineNavigationReady} /></Suspense> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor isTrash={view === "trash"} onNewNote={() => void createNoteHere()} onOpenList={() => { setMobileListOpen(true); setMobileSidebarOpen(false); }} transitionToken={listTransitionToken} />}
     </main>
     <CommandMenu open={commandOpen} onClose={closeCommandMenu} onCommand={command} onCreateNoteInNotebook={createNoteInNotebook} canRestore={Boolean(commandNoteReady && renderedNote?.deletedAt)} canMoveToTrash={Boolean(commandNoteReady && renderedNote && !renderedNote.deletedAt)} notebooks={notebooks} currentNotebookId={renderedNote?.notebookId} onMoveNoteToNotebook={(targetNotebookId) => onNoteChange({ notebookId: targetNotebookId })} focusMode={focusMode} typewriterMode={typewriterMode} canInstallApp={pwaState.canInstall} showIosInstallHint={pwaState.showIosInstallHint} standalone={pwaState.standalone} hasSelectedNote={commandNoteReady} onSearchInCurrentNote={handleSearchInCurrentNote} initialQuery={commandInitialQuery} />
 

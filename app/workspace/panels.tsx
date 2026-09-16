@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject }
 import { Archive, ChevronDown, ChevronLeft, LayoutPanelLeft, LogOut, Menu, Pencil, Plus, RefreshCw, Search, Star, Trash2, X, AlertTriangle } from "lucide-react";
 import type { NoteSummary, NoteView, Notebook } from "../../shared/types";
 import { BrandMark } from "../brand-mark";
+import type { OutlineItem } from "../editor-metrics";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { getLocalImageAsset } from "../offline-store";
 import { isLocalImageSource } from "../image-markdown";
@@ -106,7 +107,27 @@ function NoteRowMeta({ note }: { note: NoteSummary }) {
   </span>;
 }
 
-export function NoteListPanel({ notes, total, sort, setSort, selectedId, onSelect, view, query, currentNotebookName, onNewNote, onEmptyTrash, trashBusy, onClearQuery, mobileOpen, onOpenSidebar, transitionToken }: { notes: NoteSummary[]; total: number; sort: NoteSort; setSort: (sort: NoteSort) => void; selectedId: string | null; onSelect: (id: string) => void; view: NoteView; query: string; currentNotebookName?: string; onNewNote?: () => void; onEmptyTrash?: () => void; trashBusy: boolean; onClearQuery: () => void; mobileOpen: boolean; onOpenSidebar: () => void; transitionToken: number }) {
+export function NoteOutlinePanel({ outlineItems, activeOutlineId, onScrollToOutlineItem, onCloseOutline }: { outlineItems: OutlineItem[]; activeOutlineId: string | null; onScrollToOutlineItem: (id: string) => void; onCloseOutline: () => void }) {
+  const outlineScrollRef = useRef<HTMLDivElement>(null);
+  return <aside className="note-outline-panel" id="note-outline" aria-labelledby="note-outline-title">
+    <header className="list-header note-outline-header">
+      <div className="list-header-main"><span className="note-outline-eyebrow">NAVIGATION</span><h2 id="note-outline-title">笔记大纲</h2><p>{outlineItems.length > 0 ? `${outlineItems.length} 个标题` : "当前笔记暂无标题"}</p></div>
+      <button className="text-button outline-back-button" type="button" onClick={onCloseOutline}><ChevronLeft size={15} aria-hidden="true" /><span>返回笔记列表</span></button>
+    </header>
+    <div className="note-outline-scroll-shell">
+      <div id="note-outline-scroll-region" className="note-outline-scroll floating-scrollbar-target" ref={outlineScrollRef}>
+        {outlineItems.length > 0 ? <nav aria-label="笔记标题">
+          <ol className="editor-outline-list">
+            {outlineItems.map((item) => <li className={`editor-outline-item editor-outline-item--level-${item.level}`} key={item.id}><button type="button" aria-current={activeOutlineId === item.id ? "true" : undefined} onClick={() => onScrollToOutlineItem(item.id)}><span className="outline-level-tag" aria-hidden="true">{`H${item.level}`}</span><span className="outline-item-title">{item.title}</span></button></li>)}
+          </ol>
+        </nav> : <p className="editor-outline-empty">用 <code>#</code> 标题为这篇笔记建立大纲。</p>}
+      </div>
+      <FloatingScrollbar scrollTargetRef={outlineScrollRef} controlsId="note-outline-scroll-region" ariaLabel="笔记大纲滚动条" placement="right" enabled />
+    </div>
+  </aside>;
+}
+
+export function NoteListPanel({ notes, total, sort, setSort, selectedId, onSelect, view, query, currentNotebookName, onNewNote, onEmptyTrash, trashBusy, onClearQuery, mobileOpen, onOpenSidebar, transitionToken, outlineOpen, outlineItems, activeOutlineId, onScrollToOutlineItem, onCloseOutline }: { notes: NoteSummary[]; total: number; sort: NoteSort; setSort: (sort: NoteSort) => void; selectedId: string | null; onSelect: (id: string) => void; view: NoteView; query: string; currentNotebookName?: string; onNewNote?: () => void; onEmptyTrash?: () => void; trashBusy: boolean; onClearQuery: () => void; onOpenSidebar: () => void; transitionToken: number; mobileOpen: boolean; outlineOpen: boolean; outlineItems: OutlineItem[]; activeOutlineId: string | null; onScrollToOutlineItem: (id: string) => void; onCloseOutline: () => void }) {
   const [sortOpen, setSortOpen] = useState(false);
   const sortRef = useRef<HTMLDivElement>(null);
   const noteListRef = useRef<HTMLDivElement>(null);
@@ -140,8 +161,9 @@ export function NoteListPanel({ notes, total, sort, setSort, selectedId, onSelec
   const sortLabels: Record<NoteSort, string> = { updated: "最近更新", created: "创建时间", title: "标题排序" };
   const heading = query ? "搜索结果" : currentNotebookName ?? viewLabel(view);
   const truncated = total > notes.length;
-  return <section ref={panelRef} className={`note-list-panel ${mobileOpen ? "is-mobile-open" : ""}`} aria-label="笔记列表">
+  return <section ref={panelRef} className={`note-list-panel ${mobileOpen ? "is-mobile-open" : ""} ${outlineOpen ? "is-outline-open" : ""}`} aria-label={outlineOpen ? "笔记大纲" : "笔记列表"}>
     <div className="note-list-content">
+      {outlineOpen ? <NoteOutlinePanel outlineItems={outlineItems} activeOutlineId={activeOutlineId} onScrollToOutlineItem={onScrollToOutlineItem} onCloseOutline={onCloseOutline} /> : <>
       <header className="list-header">
         <button className="icon-button mobile-only" type="button" aria-label="打开导航" onClick={onOpenSidebar}><Menu size={20} /></button>
         <div className="list-header-main"><h2 tabIndex={-1}>{heading}</h2><p>{query ? `包含“${query}”的笔记` : `${truncated ? total : notes.length} 篇笔记`}{truncated && <> · 已显示最近 {notes.length} 篇</>}</p></div>
@@ -155,6 +177,7 @@ export function NoteListPanel({ notes, total, sort, setSort, selectedId, onSelec
         </div>
       </header>
       <div className="note-list-scroll-shell"><div id="note-list-scroll-region" className="note-list floating-scrollbar-target" ref={noteListRef}><ul className="note-list-items" role="list">{sortedNotes.map((note) => <li key={note.id}><button type="button" className={`note-row ${note.thumbnail ? "has-thumbnail" : ""} ${selectedId === note.id ? "is-selected" : ""}`} onClick={() => onSelect(note.id)}><NoteThumbnail note={note} /><span className="note-row-main"><span className="note-row-title">{note.title || "未命名笔记"}{note.isFavorite && <Star size={13} fill="currentColor" />}</span><span className="note-row-preview">{note.preview || "还没有内容，开始写下第一句话。"}</span><NoteRowMeta note={note} /></span></button></li>)}</ul>{!sortedNotes.length && (query ? <div className="list-empty"><span className="empty-icon"><Search size={23} /></span><strong>没有找到匹配的笔记</strong><span>试试更短的关键词，或清空搜索查看全部内容。</span><button className="secondary-button" type="button" onClick={onClearQuery}>清空搜索</button></div> : <div className="list-empty"><span className="empty-icon"><Archive size={23} /></span><strong>{view === "trash" ? "回收站是空的" : "这里还没有笔记"}</strong><span>{view === "trash" ? "移入回收站的笔记会显示在这里。" : "按下“新建笔记”，让一个想法有地方落脚。"}</span></div>)}</div><FloatingScrollbar scrollTargetRef={noteListRef} controlsId="note-list-scroll-region" ariaLabel="笔记列表滚动条" placement="left" /></div>
+      </>}
     </div>
   </section>;
 }
