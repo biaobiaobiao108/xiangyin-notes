@@ -18,8 +18,6 @@ export const notebookColorOptions = [
   "#9c765f",
   "#aa6f8e",
   "#8b7c54",
-  "#6b72a8",
-  "#6f7d83",
   "#4f8a78",
   "#c18a3d",
   "#c45b73",

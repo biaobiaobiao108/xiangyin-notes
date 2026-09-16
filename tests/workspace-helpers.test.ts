@@ -44,10 +44,10 @@ describe("active note list membership", () => {
 });
 
 describe("notebook color options", () => {
-  test("offers eleven unique preset colors", () => {
-    expect(notebookColorOptions).toHaveLength(11);
-    expect(new Set(notebookColorOptions).size).toBe(11);
-    expect(notebookColorOptions.slice(-3)).toEqual(["#4f8a78", "#c18a3d", "#c45b73"]);
+  test("offers nine unique preset colors", () => {
+    expect(notebookColorOptions).toHaveLength(9);
+    expect(new Set(notebookColorOptions).size).toBe(9);
+    expect(notebookColorOptions).toEqual(["#d96245", "#718077", "#5b7899", "#9c765f", "#aa6f8e", "#8b7c54", "#4f8a78", "#c18a3d", "#c45b73"]);
   });
 });
 
