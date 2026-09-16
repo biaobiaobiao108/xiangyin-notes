@@ -133,6 +133,13 @@ export function BacklinksDialog({
     }
   };
 
+  const switchTab = (tab: "linked" | "unlinked") => {
+    setActiveTab(tab);
+    if (bodyRef.current) {
+      bodyRef.current.scrollTop = 0;
+    }
+  };
+
   if (!open) return null;
 
   const linkedCount = data?.linkedReferences?.length ?? 0;
@@ -144,24 +151,44 @@ export function BacklinksDialog({
       ref={dialogRef}
       className="backlinks-dialog"
       aria-labelledby="backlinks-dialog-title"
-      aria-describedby="backlinks-dialog-description"
       onClick={handleBackdropClick}
       onCancel={(event) => {
         event.preventDefault();
         onClose();
       }}
     >
-      <header className="backlinks-dialog-heading">
-        <span className="backlinks-dialog-mark" aria-hidden="true">
-          <ArrowLeftRight size={20} strokeWidth={2} />
-        </span>
-        <div className="backlinks-dialog-heading-text">
-          <span className="dialog-eyebrow">双向链接与引用</span>
-          <h2 id="backlinks-dialog-title">反向链接</h2>
-          <p id="backlinks-dialog-description">
-            引用了「{noteTitle.trim() || "未命名笔记"}」的关联笔记与提及
-          </p>
+      <header className="backlinks-dialog-header">
+        <div className="backlinks-dialog-header-start">
+          <span className="backlinks-dialog-header-icon" aria-hidden="true">
+            <ArrowLeftRight size={17} strokeWidth={2} />
+          </span>
+          <h2 id="backlinks-dialog-title" className="backlinks-dialog-title">
+            反向链接
+          </h2>
         </div>
+
+        <div className="note-backlinks-tabs backlinks-dialog-tabs" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "linked"}
+            className={`backlinks-tab ${activeTab === "linked" ? "is-active" : ""}`}
+            onClick={() => switchTab("linked")}
+          >
+            已链接 ({linkedCount})
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "unlinked"}
+            className={`backlinks-tab ${activeTab === "unlinked" ? "is-active" : ""}`}
+            onClick={() => switchTab("unlinked")}
+          >
+            <Sparkles size={12} aria-hidden="true" />
+            未链接 ({unlinkedCount})
+          </button>
+        </div>
+
         <button
           className="icon-button backlinks-dialog-close"
           type="button"
@@ -171,30 +198,6 @@ export function BacklinksDialog({
           <X size={18} />
         </button>
       </header>
-
-      <div className="backlinks-dialog-tabs-bar">
-        <div className="note-backlinks-tabs" role="tablist">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "linked"}
-            className={`backlinks-tab ${activeTab === "linked" ? "is-active" : ""}`}
-            onClick={() => setActiveTab("linked")}
-          >
-            已链接引用 ({linkedCount})
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "unlinked"}
-            className={`backlinks-tab ${activeTab === "unlinked" ? "is-active" : ""}`}
-            onClick={() => setActiveTab("unlinked")}
-          >
-            <Sparkles size={13} aria-hidden="true" />
-            未链接提及 ({unlinkedCount})
-          </button>
-        </div>
-      </div>
 
       <div className="backlinks-dialog-body-shell">
         <div
