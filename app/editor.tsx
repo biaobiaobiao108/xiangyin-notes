@@ -8,8 +8,9 @@ import TaskItem from "@tiptap/extension-task-item";
 import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
 import { findWrapping } from "@tiptap/pm/transform";
-import { CheckCircle, ChevronLeft, CircleAlert, HardDrive, ImagePlus, Link2, LoaderCircle, Maximize2, Minimize2, RefreshCw, Trash2, Undo2 } from "lucide-react";
+import { ArrowLeftRight, CheckCircle, ChevronLeft, CircleAlert, HardDrive, ImagePlus, Link2, LoaderCircle, Maximize2, Minimize2, RefreshCw, Trash2, Undo2 } from "lucide-react";
 import type { ImageAssetSummary, Note, NoteSummary } from "../shared/types";
+import { api } from "./api";
 import { BrandMark } from "./brand-mark";
 import { cycleSearchMatchIndex, findEditorSearchMatches, findTextMatches, searchHighlightPluginKey, SearchHighlightExtension } from "./editor-search";
 import { buildOutlineItems, countEditorText, detectLeakedImePrefix, parseMarkdownBlockShortcut, shouldParseMarkdownPaste, type EditorStats, type MarkdownBlockShortcut, type OutlineItem } from "./editor-metrics";
@@ -19,7 +20,7 @@ import { editorCoreExtensionOptions } from "./editor/editor-config";
 import { EditorFloatingTools } from "./editor/editor-panels";
 import { ImageNode } from "./editor/image-node";
 import { TagDecorationExtension } from "./editor/tag-decoration";
-import { NoteBacklinksPanel } from "./editor/backlinks-panel";
+import { BacklinksDialog } from "./editor/backlinks-panel";
 import { WikiLinkNode } from "./editor/wiki-link-node";
 import { WikiLinkSuggestionExtension } from "./editor/wiki-link-suggestion";
 
@@ -169,13 +170,26 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   const onCreateAndLinkNoteRef = useRef(onCreateAndLinkNote);
   onCreateAndLinkNoteRef.current = onCreateAndLinkNote;
   const [backlinkCount, setBacklinkCount] = useState(0);
+  const [backlinksOpen, setBacklinksOpen] = useState(false);
 
-  const scrollToBacklinks = useCallback(() => {
-    const section = document.getElementById("note-backlinks-section");
-    if (!section) return;
-    const behavior: ScrollBehavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
-    section.scrollIntoView({ behavior, block: "start" });
-  }, []);
+  useEffect(() => {
+    if (note.deletedAt || !note.id) {
+      setBacklinkCount(0);
+      return;
+    }
+    let active = true;
+    void api
+      .getBacklinks(note.id)
+      .then((res) => {
+        if (active) {
+          setBacklinkCount((res.linkedReferences?.length ?? 0) + (res.unlinkedMentions?.length ?? 0));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [note.id, note.title, note.deletedAt]);
 
   const uploadImageFiles = useCallback(async (files: File[]) => {
     const editorInstance = editorInstanceRef.current;
@@ -1077,6 +1091,19 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
           </>}
           {imageUploadState === "uploading" && <span className="save-status save-status--saving" role="status" aria-live="polite"><span className="save-dot" />上传中</span>}
           {imageUploadState === "error" && <span className="save-status save-status--error" role="alert">图片上传失败</span>}
+          {!note.deletedAt && onNavigateToNote && (
+            <button
+              className={`icon-button ${backlinksOpen ? "is-active" : ""}`}
+              type="button"
+              aria-label={`反向链接${backlinkCount > 0 ? ` (${backlinkCount})` : ""}`}
+              title={`反向链接与引用${backlinkCount > 0 ? ` (${backlinkCount})` : ""}`}
+              onClick={() => setBacklinksOpen(true)}
+              disabled={editorLocked}
+            >
+              <ArrowLeftRight size={18} strokeWidth={1.8} />
+              {backlinkCount > 0 && <span className="icon-badge">{backlinkCount}</span>}
+            </button>
+          )}
           {onToggleFocusMode && (
             <button
               className={`icon-button ${focusMode ? "is-active" : ""}`}
@@ -1124,14 +1151,6 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
               placeholder="未命名笔记"
             />
             <EditorContent editor={editor} />
-            {!note.deletedAt && onNavigateToNote && (
-              <NoteBacklinksPanel
-                noteId={note.id}
-                noteTitle={note.title}
-                onNavigateToNote={onNavigateToNote}
-                onBacklinkCountChange={setBacklinkCount}
-              />
-            )}
           </div>
         </div>
         <FloatingScrollbar scrollTargetRef={editorScrollRef} controlsId="editor-scroll-region" ariaLabel="编辑器滚动条" placement="right" />
@@ -1148,9 +1167,17 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
         deferredLoading={editorLocked}
         onMoveSearchMatch={moveSearchMatch}
         onClearSearch={onClearSearch}
-        backlinkCount={backlinkCount}
-        onScrollToBacklinks={scrollToBacklinks}
       />
+      {!note.deletedAt && onNavigateToNote && (
+        <BacklinksDialog
+          open={backlinksOpen}
+          onClose={() => setBacklinksOpen(false)}
+          noteId={note.id}
+          noteTitle={note.title}
+          onNavigateToNote={onNavigateToNote}
+          onBacklinkCountChange={setBacklinkCount}
+        />
+      )}
     </section>
   );
 }

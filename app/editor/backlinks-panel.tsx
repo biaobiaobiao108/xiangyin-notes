@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
-import { ChevronDown, ChevronRight, ExternalLink, Link2, Loader2, Sparkles } from "lucide-react";
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { ArrowLeftRight, ExternalLink, Link2, Loader2, Sparkles, X } from "lucide-react";
 import { api } from "../api";
+import { FloatingScrollbar } from "../floating-scrollbar";
 import type { NoteBacklinksResponse } from "../../shared/types";
 
 function relativeDate(timestamp: number) {
@@ -36,20 +37,27 @@ function HighlightSnippet({ snippet, highlight }: { snippet: string; highlight: 
   );
 }
 
-export function NoteBacklinksPanel({
-  noteId,
-  noteTitle,
-  onNavigateToNote,
-  onBacklinkCountChange,
-}: {
+export interface BacklinksDialogProps {
+  open: boolean;
+  onClose: () => void;
   noteId: string;
   noteTitle: string;
   onNavigateToNote: (id: string) => void;
   onBacklinkCountChange?: (count: number) => void;
-}) {
+}
+
+export function BacklinksDialog({
+  open,
+  onClose,
+  noteId,
+  noteTitle,
+  onNavigateToNote,
+  onBacklinkCountChange,
+}: BacklinksDialogProps) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
   const [data, setData] = useState<NoteBacklinksResponse | null>(null);
   const [loading, setLoading] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
   const [activeTab, setActiveTab] = useState<"linked" | "unlinked">("linked");
   const [linkingKey, setLinkingKey] = useState<string | null>(null);
 
@@ -68,10 +76,50 @@ export function NoteBacklinksPanel({
   };
 
   useEffect(() => {
-    void fetchBacklinks();
-  }, [noteId, noteTitle]);
+    const dialog = dialogRef.current;
+    if (!dialog) return;
 
-  const handleLinkMention = async (sourceNoteId: string, matchStart: number, matchTextLength: number, key: string) => {
+    if (open) {
+      const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      const handleNativeClose = () => onClose();
+      dialog.setAttribute("closedby", "any");
+      dialog.addEventListener("close", handleNativeClose);
+      if (!dialog.open) {
+        dialog.showModal();
+      }
+      void fetchBacklinks();
+      return () => {
+        dialog.removeEventListener("close", handleNativeClose);
+        if (dialog.open) dialog.close();
+        if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
+      };
+    } else {
+      if (dialog.open) dialog.close();
+    }
+  }, [open, noteId]);
+
+  const handleBackdropClick = (event: ReactMouseEvent<HTMLDialogElement>) => {
+    if (event.target !== event.currentTarget) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const inside =
+      event.clientX >= rect.left &&
+      event.clientX <= rect.right &&
+      event.clientY >= rect.top &&
+      event.clientY <= rect.bottom;
+    if (!inside) onClose();
+  };
+
+  const handleNavigate = (sourceNoteId: string) => {
+    onNavigateToNote(sourceNoteId);
+    onClose();
+  };
+
+  const handleLinkMention = async (
+    sourceNoteId: string,
+    matchStart: number,
+    matchTextLength: number,
+    key: string,
+  ) => {
     try {
       setLinkingKey(key);
       await api.linkMention(noteId, {
@@ -85,70 +133,94 @@ export function NoteBacklinksPanel({
     }
   };
 
+  if (!open) return null;
+
   const linkedCount = data?.linkedReferences?.length ?? 0;
   const unlinkedCount = data?.unlinkedMentions?.length ?? 0;
   const totalCount = linkedCount + unlinkedCount;
 
-  if (totalCount === 0 && !loading) {
-    return (
-      <section className="note-backlinks-panel is-empty" aria-label="反向链接">
-        <div className="note-backlinks-header is-empty-header">
-          <div className="note-backlinks-title">
-            <Link2 size={16} aria-hidden="true" />
-            <span>反向链接与引用</span>
-            <span className="backlinks-count-pill">0</span>
-          </div>
-          <span className="backlinks-empty-hint">暂无其他笔记引用当前文档</span>
-        </div>
-      </section>
-    );
-  }
-
   return (
-    <section className={`note-backlinks-panel ${collapsed ? "is-collapsed" : ""}`} id="note-backlinks-section" aria-label="反向链接与引用">
-      <header className="note-backlinks-header">
+    <dialog
+      ref={dialogRef}
+      className="backlinks-dialog"
+      aria-labelledby="backlinks-dialog-title"
+      aria-describedby="backlinks-dialog-description"
+      onClick={handleBackdropClick}
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
+    >
+      <header className="backlinks-dialog-heading">
+        <span className="backlinks-dialog-mark" aria-hidden="true">
+          <ArrowLeftRight size={20} strokeWidth={2} />
+        </span>
+        <div className="backlinks-dialog-heading-text">
+          <span className="dialog-eyebrow">双向链接与引用</span>
+          <h2 id="backlinks-dialog-title">反向链接</h2>
+          <p id="backlinks-dialog-description">
+            引用了「{noteTitle.trim() || "未命名笔记"}」的关联笔记与提及
+          </p>
+        </div>
         <button
+          className="icon-button backlinks-dialog-close"
           type="button"
-          className="note-backlinks-toggle"
-          onClick={() => setCollapsed((v) => !v)}
-          aria-expanded={!collapsed}
-          aria-controls="note-backlinks-body"
+          aria-label="关闭反向链接窗口"
+          onClick={onClose}
         >
-          {collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
-          <span className="note-backlinks-title-text">反向链接与引用</span>
-          <span className="backlinks-count-pill">{totalCount}</span>
+          <X size={18} />
         </button>
-
-        {!collapsed && (
-          <div className="note-backlinks-tabs" role="tablist">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === "linked"}
-              className={`backlinks-tab ${activeTab === "linked" ? "is-active" : ""}`}
-              onClick={() => setActiveTab("linked")}
-            >
-              已链接引用 ({linkedCount})
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === "unlinked"}
-              className={`backlinks-tab ${activeTab === "unlinked" ? "is-active" : ""}`}
-              onClick={() => setActiveTab("unlinked")}
-            >
-              <Sparkles size={13} aria-hidden="true" />
-              未链接提及 ({unlinkedCount})
-            </button>
-          </div>
-        )}
       </header>
 
-      {!collapsed && (
-        <div id="note-backlinks-body" className="note-backlinks-body" role="tabpanel">
-          {activeTab === "linked" ? (
+      <div className="backlinks-dialog-tabs-bar">
+        <div className="note-backlinks-tabs" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "linked"}
+            className={`backlinks-tab ${activeTab === "linked" ? "is-active" : ""}`}
+            onClick={() => setActiveTab("linked")}
+          >
+            已链接引用 ({linkedCount})
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "unlinked"}
+            className={`backlinks-tab ${activeTab === "unlinked" ? "is-active" : ""}`}
+            onClick={() => setActiveTab("unlinked")}
+          >
+            <Sparkles size={13} aria-hidden="true" />
+            未链接提及 ({unlinkedCount})
+          </button>
+        </div>
+      </div>
+
+      <div className="backlinks-dialog-body-shell">
+        <div
+          id="backlinks-dialog-scroll-region"
+          ref={bodyRef}
+          className="backlinks-dialog-body floating-scrollbar-target"
+          role="tabpanel"
+        >
+          {loading && !data ? (
+            <div className="backlinks-loading-state">
+              <Loader2 size={18} className="spin-icon" />
+              <span>正在加载反向链接…</span>
+            </div>
+          ) : totalCount === 0 ? (
+            <div className="backlinks-empty-state">
+              <p>暂无其他笔记引用当前文档</p>
+              <small>
+                在其他笔记中输入 <code>[[{noteTitle.trim() || "当前笔记"}]]</code> 即可建立反向链接
+              </small>
+            </div>
+          ) : activeTab === "linked" ? (
             linkedCount === 0 ? (
-              <p className="backlinks-body-empty">暂无显式反向链接</p>
+              <div className="backlinks-empty-state">
+                <p>暂无显式反向链接</p>
+                <small>在其他笔记中使用 <code>[[{noteTitle.trim() || "当前笔记"}]]</code> 即可引用此笔记</small>
+              </div>
             ) : (
               <ul className="backlinks-list" role="list">
                 {data?.linkedReferences.map((item) => (
@@ -156,11 +228,13 @@ export function NoteBacklinksPanel({
                     <button
                       type="button"
                       className="backlink-card-header"
-                      onClick={() => onNavigateToNote(item.sourceNoteId)}
+                      onClick={() => handleNavigate(item.sourceNoteId)}
                       title={`打开笔记「${item.sourceNoteTitle}」`}
                     >
                       <span className="backlink-card-title">{item.sourceNoteTitle || "未命名笔记"}</span>
-                      <span className="backlink-card-notebook">{item.sourceNotebookName}</span>
+                      {item.sourceNotebookName && (
+                        <span className="backlink-card-notebook">{item.sourceNotebookName}</span>
+                      )}
                       <time className="backlink-card-time">{relativeDate(item.updatedAt)}</time>
                       <ExternalLink size={13} className="backlink-card-open-icon" aria-hidden="true" />
                     </button>
@@ -174,10 +248,13 @@ export function NoteBacklinksPanel({
               </ul>
             )
           ) : unlinkedCount === 0 ? (
-            <p className="backlinks-body-empty">没有发现未链接提及</p>
+            <div className="backlinks-empty-state">
+              <p>没有发现未链接提及</p>
+              <small>当其他笔记包含与本笔记相同的标题文字时，可一键将其转为双向链接</small>
+            </div>
           ) : (
             <ul className="backlinks-list" role="list">
-              {data?.unlinkedMentions.map((item, index) => {
+              {data?.unlinkedMentions.map((item) => {
                 const key = `${item.sourceNoteId}-${item.matchIndex}`;
                 const isLinking = linkingKey === key;
                 return (
@@ -186,18 +263,22 @@ export function NoteBacklinksPanel({
                       <button
                         type="button"
                         className="backlink-card-title-button"
-                        onClick={() => onNavigateToNote(item.sourceNoteId)}
+                        onClick={() => handleNavigate(item.sourceNoteId)}
                         title={`打开笔记「${item.sourceNoteTitle}」`}
                       >
                         <span className="backlink-card-title">{item.sourceNoteTitle || "未命名笔记"}</span>
-                        <span className="backlink-card-notebook">{item.sourceNotebookName}</span>
+                        {item.sourceNotebookName && (
+                          <span className="backlink-card-notebook">{item.sourceNotebookName}</span>
+                        )}
                         <time className="backlink-card-time">{relativeDate(item.updatedAt)}</time>
                       </button>
                       <button
                         type="button"
                         className="secondary-button backlink-link-button"
                         disabled={isLinking}
-                        onClick={() => handleLinkMention(item.sourceNoteId, item.matchIndex, item.matchText.length, key)}
+                        onClick={() =>
+                          handleLinkMention(item.sourceNoteId, item.matchIndex, item.matchText.length, key)
+                        }
                       >
                         {isLinking ? <Loader2 size={13} className="spin-icon" /> : <Link2 size={13} />}
                         <span>添加链接</span>
@@ -214,7 +295,16 @@ export function NoteBacklinksPanel({
             </ul>
           )}
         </div>
-      )}
-    </section>
+        <FloatingScrollbar
+          scrollTargetRef={bodyRef}
+          controlsId="backlinks-dialog-scroll-region"
+          ariaLabel="反向链接窗口滚动条"
+          placement="right"
+        />
+      </div>
+    </dialog>
   );
 }
+
+// 兼容导出
+export const NoteBacklinksPanel = BacklinksDialog;
