@@ -616,18 +616,27 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     if (!root || outlineItems.length === 0) return false;
 
     const { $from } = instance.state.selection;
+    let previousHeadingElement: HTMLElement | null = null;
     for (let depth = $from.depth; depth > 0; depth -= 1) {
       if ($from.node(depth).type.name !== "heading") continue;
       const headingDom = instance.view.nodeDOM($from.before(depth));
       const headingElement = headingDom instanceof HTMLElement ? headingDom.closest<HTMLElement>(OUTLINE_HEADING_SELECTOR) : null;
-      if (!headingElement || !root.contains(headingElement)) return false;
-      const item = outlineItems.find((candidate) => outlineHeadingElementsRef.current.get(candidate.id) === headingElement)
-        ?? outlineItems[getOutlineHeadingElements(root).indexOf(headingElement)];
-      if (!item) return false;
-      onOutlineActiveChange(item.id);
-      return true;
+      if (headingElement?.textContent?.trim()) previousHeadingElement = headingElement;
+      break;
     }
-    return false;
+    if (!previousHeadingElement) {
+      instance.state.doc.nodesBetween(0, $from.pos, (node, position) => {
+        if (node.type.name !== "heading" || !node.textContent?.trim()) return;
+        const headingDom = instance.view.nodeDOM(position);
+        if (headingDom instanceof HTMLElement) previousHeadingElement = headingDom.closest<HTMLElement>(OUTLINE_HEADING_SELECTOR);
+      });
+    }
+    if (!previousHeadingElement || !root.contains(previousHeadingElement)) return false;
+    const item = outlineItems.find((candidate) => outlineHeadingElementsRef.current.get(candidate.id) === previousHeadingElement)
+      ?? outlineItems[getOutlineHeadingElements(root).indexOf(previousHeadingElement)];
+    if (!item) return false;
+    onOutlineActiveChange(item.id);
+    return true;
   }, [onOutlineActiveChange, outlineItems]);
 
   useEffect(() => {
