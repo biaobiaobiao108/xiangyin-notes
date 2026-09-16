@@ -8,6 +8,7 @@ import Link from "@tiptap/extension-link";
 import { editorCoreExtensionOptions } from "./editor-config";
 import { ImageNode } from "./image-node";
 import { TagDecorationExtension } from "./tag-decoration";
+import { WikiLinkNode } from "./wiki-link-node";
 
 export function ReadOnlyMarkdown({ markdown }: { markdown: string }) {
   const initialContentRef = useRef(markdown);
@@ -18,6 +19,7 @@ export function ReadOnlyMarkdown({ markdown }: { markdown: string }) {
     TaskItem.configure({ nested: true }),
     Markdown,
     ImageNode,
+    WikiLinkNode,
     TagDecorationExtension,
   ], []);
   const editorProps = useMemo(() => ({ attributes: { class: "note-prose share-prose" } }), []);

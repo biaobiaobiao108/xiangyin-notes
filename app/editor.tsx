@@ -9,7 +9,7 @@ import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
 import { findWrapping } from "@tiptap/pm/transform";
 import { CheckCircle, ChevronLeft, CircleAlert, HardDrive, ImagePlus, Link2, LoaderCircle, Maximize2, Minimize2, RefreshCw, Trash2, Undo2 } from "lucide-react";
-import type { ImageAssetSummary, Note } from "../shared/types";
+import type { ImageAssetSummary, Note, NoteSummary } from "../shared/types";
 import { BrandMark } from "./brand-mark";
 import { cycleSearchMatchIndex, findEditorSearchMatches, findTextMatches, searchHighlightPluginKey, SearchHighlightExtension } from "./editor-search";
 import { buildOutlineItems, countEditorText, detectLeakedImePrefix, parseMarkdownBlockShortcut, shouldParseMarkdownPaste, type EditorStats, type MarkdownBlockShortcut, type OutlineItem } from "./editor-metrics";
@@ -19,6 +19,9 @@ import { editorCoreExtensionOptions } from "./editor/editor-config";
 import { EditorFloatingTools } from "./editor/editor-panels";
 import { ImageNode } from "./editor/image-node";
 import { TagDecorationExtension } from "./editor/tag-decoration";
+import { NoteBacklinksPanel } from "./editor/backlinks-panel";
+import { WikiLinkNode } from "./editor/wiki-link-node";
+import { WikiLinkSuggestionExtension } from "./editor/wiki-link-suggestion";
 
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
 type SaveState = "idle" | "saving" | "saved" | "local" | "conflict" | "error";
@@ -73,7 +76,7 @@ async function imageDimensions(file: File) {
   }
 }
 
-export function NoteEditor({ note, searchQuery = "", saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList, onUploadImage, focusMode = false, onToggleFocusMode, onClearSearch, typewriterMode = false, outlineOpen, outlineItems, onToggleOutline, onCloseOutline, onOutlineItemsChange, onOutlineActiveChange, onOutlineNavigationReady }: {
+export function NoteEditor({ note, searchQuery = "", saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList, onUploadImage, focusMode = false, onToggleFocusMode, onClearSearch, typewriterMode = false, outlineOpen, outlineItems, onToggleOutline, onCloseOutline, onOutlineItemsChange, onOutlineActiveChange, onOutlineNavigationReady, availableNotes = [], onNavigateWikiLink, onCreateAndLinkNote, onNavigateToNote }: {
   note: Note;
   searchQuery?: string;
   saveState: SaveState;
@@ -103,6 +106,10 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   onOutlineItemsChange: (items: OutlineItem[]) => void;
   onOutlineActiveChange: (id: string | null) => void;
   onOutlineNavigationReady: (navigate: ((id: string) => void) | null) => void;
+  availableNotes?: NoteSummary[];
+  onNavigateWikiLink?: (targetTitle: string) => void;
+  onCreateAndLinkNote?: (title: string) => void;
+  onNavigateToNote?: (id: string) => void;
 }) {
 
   const editorScrollRef = useRef<HTMLDivElement>(null);
@@ -154,6 +161,21 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   const typewriterTargetRef = useRef<number | null>(null);
   const outlineFallbackSyncRef = useRef<(() => void) | null>(null);
   const outlineHeadingElementsRef = useRef(new Map<string, HTMLElement>());
+
+  const availableNotesRef = useRef(availableNotes);
+  availableNotesRef.current = availableNotes;
+  const onNavigateWikiLinkRef = useRef(onNavigateWikiLink);
+  onNavigateWikiLinkRef.current = onNavigateWikiLink;
+  const onCreateAndLinkNoteRef = useRef(onCreateAndLinkNote);
+  onCreateAndLinkNoteRef.current = onCreateAndLinkNote;
+  const [backlinkCount, setBacklinkCount] = useState(0);
+
+  const scrollToBacklinks = useCallback(() => {
+    const section = document.getElementById("note-backlinks-section");
+    if (!section) return;
+    const behavior: ScrollBehavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+    section.scrollIntoView({ behavior, block: "start" });
+  }, []);
 
   const uploadImageFiles = useCallback(async (files: File[]) => {
     const editorInstance = editorInstanceRef.current;
@@ -303,6 +325,11 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     Placeholder.configure({ placeholder: "从一句话开始……" }),
     Markdown,
     ImageNode,
+    WikiLinkNode,
+    WikiLinkSuggestionExtension.configure({
+      getNotes: () => availableNotesRef.current,
+      onCreateNote: (title) => onCreateAndLinkNoteRef.current?.(title),
+    }),
     ImeMarkdownSafeExtension,
     TagDecorationExtension,
     SearchHighlightExtension,
@@ -434,6 +461,14 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     handleClick: (_view: Editor["view"], _pos: number, event: MouseEvent) => {
       if (event.ctrlKey || event.metaKey) {
         const target = event.target as HTMLElement | null;
+        const wikiLinkEl = target?.closest(".editor-wiki-link");
+        if (wikiLinkEl) {
+          const targetTitle = wikiLinkEl.getAttribute("data-wiki-link");
+          if (targetTitle && onNavigateWikiLinkRef.current) {
+            onNavigateWikiLinkRef.current(targetTitle);
+            return true;
+          }
+        }
         const anchor = target?.closest("a");
         if (anchor?.href) {
           window.open(anchor.href, "_blank", "noopener,noreferrer");
@@ -1089,6 +1124,14 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
               placeholder="未命名笔记"
             />
             <EditorContent editor={editor} />
+            {!note.deletedAt && onNavigateToNote && (
+              <NoteBacklinksPanel
+                noteId={note.id}
+                noteTitle={note.title}
+                onNavigateToNote={onNavigateToNote}
+                onBacklinkCountChange={setBacklinkCount}
+              />
+            )}
           </div>
         </div>
         <FloatingScrollbar scrollTargetRef={editorScrollRef} controlsId="editor-scroll-region" ariaLabel="编辑器滚动条" placement="right" />
@@ -1105,6 +1148,8 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
         deferredLoading={editorLocked}
         onMoveSearchMatch={moveSearchMatch}
         onClearSearch={onClearSearch}
+        backlinkCount={backlinkCount}
+        onScrollToBacklinks={scrollToBacklinks}
       />
     </section>
   );

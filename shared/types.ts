@@ -68,3 +68,30 @@ export type ApiErrorPayload = {
     fields?: Record<string, string>;
   };
 };
+
+export type NoteLinkSummary = {
+  id: string;
+  sourceNoteId: string;
+  sourceNoteTitle: string;
+  sourceNotebookName: string;
+  targetTitle: string;
+  targetNoteId: string | null;
+  snippet: string;
+  updatedAt: number;
+};
+
+export type UnlinkedMention = {
+  sourceNoteId: string;
+  sourceNoteTitle: string;
+  sourceNotebookName: string;
+  snippet: string;
+  matchIndex: number;
+  matchText: string;
+  updatedAt: number;
+};
+
+export type NoteBacklinksResponse = {
+  linkedReferences: NoteLinkSummary[];
+  unlinkedMentions: UnlinkedMention[];
+};
+

@@ -1,5 +1,5 @@
 import type { RefObject } from "react";
-import { ChevronDown, ChevronUp, ListTree, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Link2, ListTree, X } from "lucide-react";
 import type { EditorStats } from "../editor-metrics";
 
 type SearchNavigation = {
@@ -7,7 +7,7 @@ type SearchNavigation = {
   matchCount: number;
 };
 
-export function EditorFloatingTools({ outlineTriggerRef, outlineOpen, editorStats, onToggleOutline, outlineDisabled = false, outlineDisabledTitle, searchNavigation, deferredLoading, onMoveSearchMatch, onClearSearch }: {
+export function EditorFloatingTools({ outlineTriggerRef, outlineOpen, editorStats, onToggleOutline, outlineDisabled = false, outlineDisabledTitle, searchNavigation, deferredLoading, onMoveSearchMatch, onClearSearch, backlinkCount = 0, onScrollToBacklinks }: {
   outlineTriggerRef: RefObject<HTMLButtonElement | null>;
   outlineOpen: boolean;
   editorStats: EditorStats;
@@ -18,6 +18,8 @@ export function EditorFloatingTools({ outlineTriggerRef, outlineOpen, editorStat
   deferredLoading: boolean;
   onMoveSearchMatch: (direction: -1 | 1) => void;
   onClearSearch?: () => void;
+  backlinkCount?: number;
+  onScrollToBacklinks?: () => void;
 }) {
   return <div className="editor-floating-tools">
     <div className="editor-floating-row">
@@ -28,6 +30,13 @@ export function EditorFloatingTools({ outlineTriggerRef, outlineOpen, editorStat
         {onClearSearch && <button className="editor-search-nav-button editor-search-nav-button--close" type="button" aria-label="退出搜索高亮" title="退出搜索高亮" onClick={onClearSearch}><X size={15} strokeWidth={2} /></button>}
       </div>}
       <EditorStatsPill stats={editorStats} />
+      {backlinkCount > 0 && onScrollToBacklinks && (
+        <button className="backlinks-trigger" type="button" aria-label={`查看 ${backlinkCount} 条反向链接`} title="平滑滚动至正文底部反向链接" onClick={onScrollToBacklinks} disabled={deferredLoading}>
+          <Link2 size={15} strokeWidth={1.9} />
+          <span>反链</span>
+          <em className="backlinks-trigger-badge">{backlinkCount}</em>
+        </button>
+      )}
       <button className={`outline-trigger ${outlineOpen ? "is-active" : ""}`} ref={outlineTriggerRef} type="button" aria-expanded={outlineOpen} aria-controls={outlineOpen ? "note-outline" : undefined} aria-label={outlineOpen ? "关闭笔记大纲" : "打开笔记大纲"} title={outlineDisabledTitle ?? (outlineOpen ? "关闭笔记大纲" : "打开笔记大纲")} onClick={onToggleOutline} disabled={deferredLoading || outlineDisabled}><ListTree size={16} strokeWidth={1.9} /><span>大纲</span></button>
     </div>
   </div>;

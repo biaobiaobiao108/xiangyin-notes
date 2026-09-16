@@ -1,4 +1,4 @@
-import type { ApiErrorPayload, ImageAssetSummary, Note, NoteSummary, NoteView, Notebook, Share, User } from "../shared/types";
+import type { ApiErrorPayload, ImageAssetSummary, Note, NoteSummary, NoteView, Notebook, Share, User, NoteBacklinksResponse } from "../shared/types";
 import type { SyncMutation, SyncPullResponse, SyncPushResponse } from "../shared/sync";
 
 export class ApiError extends Error {
@@ -63,4 +63,6 @@ export const api = {
     return request<SyncPullResponse>(`/api/sync/pull?${search.toString()}`, options);
   },
   syncPush: (mutations: SyncMutation[], options?: RequestOptions) => request<SyncPushResponse>("/api/sync/push", { method: "POST", body: JSON.stringify({ mutations }), ...options }),
+  getBacklinks: (noteId: string) => request<NoteBacklinksResponse>(`/api/notes/${noteId}/backlinks`),
+  linkMention: (targetNoteId: string, payload: { sourceNoteId: string; matchStart: number; matchEnd: number }) => request<{ ok: true }>(`/api/notes/${targetNoteId}/link-mention`, { method: "POST", body: JSON.stringify(payload) }),
 };
