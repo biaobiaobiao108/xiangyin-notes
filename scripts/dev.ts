@@ -7,6 +7,7 @@ const serverEnvironment: Record<string, string> = {
   DATABASE_PATH: Bun.env.DEV_DATABASE_PATH?.trim() || "./data/xiangying-notes-dev.sqlite",
   COOKIE_SECURE: "false",
   CLIENT_ROOT: "./dist/dev-client",
+  HOST: "localhost",
 };
 
 const processes = [
@@ -14,16 +15,27 @@ const processes = [
   Bun.spawn(["bun", "--hot", "server/index.ts"], { env: serverEnvironment, stdout: "inherit", stderr: "inherit" }),
 ];
 
-let shuttingDown = false;
+let shutdownPromise: Promise<void> | null = null;
 const terminate = () => {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  for (const child of processes) child.kill();
+  if (shutdownPromise) return shutdownPromise;
+  shutdownPromise = Promise.all(processes.map(async (child) => {
+    if (child.exitCode !== null) return;
+    child.kill("SIGTERM");
+    const forceKillTimer = setTimeout(() => {
+      if (child.exitCode === null) child.kill("SIGKILL");
+    }, 1_000);
+    try {
+      await child.exited;
+    } finally {
+      clearTimeout(forceKillTimer);
+    }
+  })).then(() => undefined);
+  return shutdownPromise;
 };
 
-process.on("SIGINT", terminate);
-process.on("SIGTERM", terminate);
+process.once("SIGINT", () => { void terminate(); });
+process.once("SIGTERM", () => { void terminate(); });
 await Promise.race(processes.map((process) => process.exited));
-terminate();
+await terminate();
 
 export {};
