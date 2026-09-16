@@ -116,32 +116,3 @@ export function sourceNoteIdsReferencingTarget(database: SqliteDatabase, userId:
     .filter((row) => row.target_note_id === targetNoteId || normalizeLinkTitle(row.target_title) === normalizedOldTitle)
     .map((row) => row.source_note_id))];
 }
-
-export function rebuildNoteLinks(database: SqliteDatabase) {
-  const notes = all<ActiveNoteTitleRow & { content_markdown: string; created_at: number }>(database, `
-    SELECT id, user_id, title, content_markdown, created_at
-    FROM notes
-    ORDER BY user_id, updated_at DESC, id
-  `);
-  const activeNotes = all<ActiveNoteTitleRow>(database, `
-    SELECT id, user_id, title
-    FROM notes
-    WHERE deleted_at IS NULL
-    ORDER BY user_id, updated_at DESC, id
-  `);
-  const targetsByUser = new Map<string, Map<string, string>>();
-  for (const row of activeNotes) {
-    let targets = targetsByUser.get(row.user_id);
-    if (!targets) {
-      targets = new Map<string, string>();
-      targetsByUser.set(row.user_id, targets);
-    }
-    const key = normalizeLinkTitle(row.title);
-    if (key && !targets.has(key)) targets.set(key, row.id);
-  }
-
-  database.query("DELETE FROM note_links").run();
-  for (const note of notes) {
-    insertNoteLinks(database, note.user_id, note.id, note.content_markdown, targetsByUser.get(note.user_id) ?? new Map(), note.created_at);
-  }
-}

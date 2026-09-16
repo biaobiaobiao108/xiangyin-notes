@@ -69,35 +69,6 @@ CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
   content
 );
 
-CREATE TABLE IF NOT EXISTS sync_changes (
-  sequence INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  entity_type TEXT NOT NULL CHECK (entity_type IN ('note', 'notebook')),
-  entity_id TEXT NOT NULL,
-  operation TEXT NOT NULL CHECK (operation IN ('upsert', 'delete')),
-  payload_json TEXT,
-  created_at INTEGER NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_sync_changes_user_sequence ON sync_changes(user_id, sequence);
-
-CREATE TABLE IF NOT EXISTS sync_mutations (
-  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  operation_id TEXT NOT NULL,
-  request_hash TEXT NOT NULL DEFAULT '',
-  result_json TEXT NOT NULL,
-  created_at INTEGER NOT NULL,
-  PRIMARY KEY (user_id, operation_id)
-);
-
-CREATE TABLE IF NOT EXISTS sync_tombstones (
-  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  entity_type TEXT NOT NULL CHECK (entity_type IN ('note', 'notebook')),
-  entity_id TEXT NOT NULL,
-  deleted_at INTEGER NOT NULL,
-  PRIMARY KEY (user_id, entity_type, entity_id)
-);
-
 CREATE TABLE IF NOT EXISTS image_assets (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -114,3 +85,15 @@ CREATE TABLE IF NOT EXISTS image_assets (
 
 CREATE INDEX IF NOT EXISTS idx_image_assets_note_order ON image_assets(note_id, document_order, created_at);
 CREATE INDEX IF NOT EXISTS idx_image_assets_user ON image_assets(user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS note_links (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  source_note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  target_title TEXT NOT NULL,
+  target_note_id TEXT REFERENCES notes(id) ON DELETE SET NULL,
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_note_links_source ON note_links(user_id, source_note_id);
+CREATE INDEX IF NOT EXISTS idx_note_links_target ON note_links(user_id, target_note_id);

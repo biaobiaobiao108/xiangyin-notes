@@ -262,34 +262,6 @@ describe("Note links, backlinks, and renaming cascade", () => {
     expect(latest.body?.note.contentMarkdown).toBe("前缀变化，这里提到目标笔记。");
   });
 
-  test("rebuilds link rows for existing notes when the data migration runs", async () => {
-    const auth = await request("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: "owner", password: "a long passphrase 1234" }),
-    });
-    const cookie = auth.cookie!;
-    const targetResponse = await request("/api/notes", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: "迁移目标", contentMarkdown: "" }),
-    }, cookie);
-    const target = targetResponse.body?.note as Note;
-    const sourceResponse = await request("/api/notes", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: "旧笔记", contentMarkdown: "已有链接 [[迁移目标]]" }),
-    }, cookie);
-    const source = sourceResponse.body?.note as Note;
-
-    database.query("DELETE FROM note_links").run();
-    database.query("DELETE FROM schema_migrations WHERE name = ?").run("0003_rebuild_note_links.sql");
-    await applyMigrations(database);
-
-    const backlinks = await request(`/api/notes/${target.id}/backlinks`, { method: "GET" }, cookie);
-    expect(backlinks.body?.linkedReferences.map((item: { sourceNoteId: string }) => item.sourceNoteId)).toEqual([source.id]);
-  });
-
   test("bounds large unlinked-mention responses and reports truncation", async () => {
     const auth = await request("/api/auth/login", {
       method: "POST",

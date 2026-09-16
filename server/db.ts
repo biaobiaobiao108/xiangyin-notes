@@ -1,7 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { Database } from "bun:sqlite";
-import { rebuildNoteLinks } from "./note-links";
 
 const DEFAULT_DATABASE_PATH = "./data/xiangying-notes.sqlite";
 const DEFAULT_MIGRATIONS_PATH = "./migrations";
@@ -57,7 +56,6 @@ export async function applyMigrations(database: SqliteDatabase, migrationsPath =
     const sql = await Bun.file(join(migrationsPath, file)).text();
     const applyMigration = database.transaction(() => {
       database.exec(sql);
-      if (name === "0003_rebuild_note_links.sql") rebuildNoteLinks(database);
       database.query("INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)").run(name, Date.now());
     });
     applyMigration();
