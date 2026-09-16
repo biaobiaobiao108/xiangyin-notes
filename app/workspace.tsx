@@ -806,7 +806,7 @@ export function Workspace() {
     }
   }, [changeQuery, query]);
   const command = useCallback((id: CommandId) => {
-    if (id === "new-note") void createNoteHere();
+    if (id === "new-note") void createNoteInInbox();
     if (id === "find-in-note") {
       const selectedText = window.getSelection()?.toString().trim() ?? "";
       const initial = selectedText && selectedText.length <= 50 ? selectedText : "";
@@ -821,15 +821,15 @@ export function Workspace() {
     if (id === "trash") moveToTrash();
     if (id === "restore") restoreFromTrash();
     if (id === "install-app") { if (pwaState.canInstall) void installPwa(); else if (pwaState.showIosInstallHint && !pwaState.standalone) setToast("请在 Safari 中点击分享，再选择“添加到主屏幕”"); }
-  }, [createNoteHere, moveToTrash, pwaState, restoreFromTrash, toggleFavorite, toggleFocusMode, toggleTypewriterMode]);
+  }, [createNoteInInbox, moveToTrash, pwaState, restoreFromTrash, toggleFavorite, toggleFocusMode, toggleTypewriterMode]);
   useEffect(() => {
     if (!ready || shortcutHandledRef.current) return;
     const action = new URLSearchParams(window.location.search).get("action");
-    if (action === "new-note") void createNoteHere();
+    if (action === "new-note") void createNoteInInbox();
     if (action === "search") { setMobileSidebarOpen(true); setMobileListOpen(false); requestAnimationFrame(() => searchRef.current?.focus()); }
     shortcutHandledRef.current = true;
     if (action) window.history.replaceState(null, "", `${window.location.pathname}${window.location.hash}`);
-  }, [createNoteHere, ready]);
+  }, [createNoteInInbox, ready]);
   const logout = useCallback(async () => {
     await flushPendingSaves("now");
     if (hasUnsavedWork()) {
