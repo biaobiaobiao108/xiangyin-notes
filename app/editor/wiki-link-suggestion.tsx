@@ -1,10 +1,44 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { Extension } from "@tiptap/core";
 import { ReactRenderer } from "@tiptap/react";
-import Suggestion, { type SuggestionKeyDownProps, type SuggestionOptions } from "@tiptap/suggestion";
+import Suggestion, { type SuggestionKeyDownProps, type SuggestionMatch, type SuggestionOptions } from "@tiptap/suggestion";
 import { FilePlus2, FileText } from "lucide-react";
 import type { NoteSummary } from "../../shared/types";
 import { normalizeLinkTitle } from "../../shared/wiki-links";
+
+export function findWikiLinkSuggestionMatch(config: {
+  $position: any;
+  allowedPrefixes?: string[] | null;
+  startOfLine?: boolean;
+}): SuggestionMatch {
+  const { allowedPrefixes, startOfLine, $position } = config;
+  const prefix = startOfLine ? "^" : "";
+  const regexp = new RegExp(`${prefix}(?:\\[\\[|【【)[^\\[\\]【】\\r\\n]*$`, "gm");
+  const text = $position.nodeBefore?.isText && $position.nodeBefore.text;
+  if (!text) return null;
+
+  const textFrom = $position.pos - text.length;
+  const match = Array.from(text.matchAll(regexp)).pop() as RegExpMatchArray | undefined;
+  if (!match || match.input === undefined || match.index === undefined) return null;
+
+  const matchPrefix = match.input.slice(Math.max(0, match.index - 1), match.index);
+  const matchPrefixIsAllowed = new RegExp(`^[${allowedPrefixes?.join("") || ""}\0]?$`).test(matchPrefix);
+  if (allowedPrefixes !== null && allowedPrefixes !== undefined && !matchPrefixIsAllowed) return null;
+
+  const from = textFrom + match.index;
+  const to = from + match[0].length;
+
+  if (from < $position.pos && to >= $position.pos) {
+    const matchedText = match[0];
+    const triggerLen = 2; // both "[[" and "【【" have length 2
+    return {
+      range: { from, to },
+      query: matchedText.slice(triggerLen),
+      text: matchedText,
+    };
+  }
+  return null;
+}
 
 export type WikiLinkSuggestionItem = {
   title: string;
@@ -155,6 +189,7 @@ export const WikiLinkSuggestionExtension = Extension.create<WikiLinkSuggestionOp
         char: "[[",
         allowSpaces: true,
         allowedPrefixes: null,
+        findSuggestionMatch: findWikiLinkSuggestionMatch,
         command: ({ editor, range, props: item }) => {
           editor
             .chain()
@@ -177,11 +212,11 @@ export const WikiLinkSuggestionExtension = Extension.create<WikiLinkSuggestionOp
         },
         items: ({ query }: { query: string }) => {
           const allNotes = (getNotes?.() ?? []).filter((n) => !n.deletedAt);
-          const trimmed = query.trim();
-          const normalized = normalizeLinkTitle(trimmed);
+          const cleanQuery = query.replace(/^(?:\[\[|【【)\s*|\s*(?:\]\]|】】)$/g, "").trim();
+          const normalized = normalizeLinkTitle(cleanQuery);
 
           let filtered: NoteSummary[];
-          if (!trimmed) {
+          if (!cleanQuery) {
             // Show recent notes
             filtered = allNotes.slice(0, 7);
           } else {
@@ -209,9 +244,9 @@ export const WikiLinkSuggestionExtension = Extension.create<WikiLinkSuggestionOp
           }));
 
           // If query is typed and no note strictly matches the exact title, add create option
-          if (trimmed && !allNotes.some((n) => normalizeLinkTitle(n.title) === normalized)) {
+          if (cleanQuery && !allNotes.some((n) => normalizeLinkTitle(n.title) === normalized)) {
             result.push({
-              title: trimmed,
+              title: cleanQuery,
               isCreate: true,
             });
           }

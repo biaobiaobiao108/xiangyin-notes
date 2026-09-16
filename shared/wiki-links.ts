@@ -75,7 +75,7 @@ export type WikiLinkMatch = {
   end: number;
 };
 
-export const WIKI_LINK_PATTERN = /\[\[([^\]\r\n|]+)(?:\|([^\]\r\n]+))?\]\]/g;
+export const WIKI_LINK_PATTERN = /(?:\[\[|【【)([^\]】\r\n|｜]+)(?:[|｜]([^\]】\r\n]+))?(?:\]\]|】】)/g;
 
 export function normalizeLinkTitle(title: string) {
   return title.trim().normalize("NFKC").toLocaleLowerCase("zh-CN");
@@ -85,7 +85,7 @@ export function normalizeLinkTitle(title: string) {
  * Extracts all Wiki-link matches in Markdown outside code fences and inline code.
  */
 export function extractWikiLinks(markdown: string): WikiLinkMatch[] {
-  if (!markdown || !markdown.includes("[[")) return [];
+  if (!markdown || (!markdown.includes("[[") && !markdown.includes("【【"))) return [];
 
   const codeFences = findCodeFenceIntervals(markdown);
   const inlineCodes = findInlineCodeIntervals(markdown);
@@ -256,8 +256,9 @@ export function findUnlinkedMentionsInMarkdown(markdown: string, targetTitle: st
  */
 export function linkMentionInMarkdown(markdown: string, start: number, end: number, targetTitle: string): string {
   const text = markdown.slice(start, end);
-  const replacement = text.trim() === targetTitle.trim()
-    ? `[[${targetTitle.trim()}]]`
-    : `[[${targetTitle.trim()}|${text}]]`;
+  const cleanTarget = targetTitle.replace(/^(?:\[\[|【【)\s*|\s*(?:\]\]|】】)$/g, "").trim();
+  const replacement = text.trim() === cleanTarget
+    ? `[[${cleanTarget}]]`
+    : `[[${cleanTarget}|${text}]]`;
   return markdown.slice(0, start) + replacement + markdown.slice(end);
 }

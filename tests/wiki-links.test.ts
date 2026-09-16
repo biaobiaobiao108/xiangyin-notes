@@ -6,6 +6,7 @@ import {
   linkMentionInMarkdown,
   replaceWikiLinkTarget,
 } from "../shared/wiki-links";
+import { cleanDisplayTitle } from "../app/editor/backlinks-panel";
 
 describe("wiki-links utility", () => {
   test("extracts basic and aliased wiki-links", () => {
@@ -65,5 +66,27 @@ const code = "[[代码中的伪链接]]";
 
     const converted = linkMentionInMarkdown(md, mentions[0].start, mentions[0].end, target);
     expect(converted).toBe("我们来讨论 [[象映笔记]] 的新功能。");
+  });
+
+  test("extracts Chinese full-width bracket wiki-links and aliases", () => {
+    const md = "这是关于 【【全角笔记】】 的记录，也可以看看 【【技术架构｜架构设计】】。";
+    const links = extractWikiLinks(md);
+    expect(links).toHaveLength(2);
+    expect(links[0].target).toBe("全角笔记");
+    expect(links[0].alias).toBeUndefined();
+    expect(links[1].target).toBe("技术架构");
+    expect(links[1].alias).toBe("架构设计");
+
+    const targets = extractWikiLinkTargets(md);
+    expect(targets).toEqual(["全角笔记", "技术架构"]);
+  });
+
+  test("cleanDisplayTitle strips outer brackets and provides fallback", () => {
+    expect(cleanDisplayTitle("[[某个笔记]]")).toBe("某个笔记");
+    expect(cleanDisplayTitle("【【某个笔记】】")).toBe("某个笔记");
+    expect(cleanDisplayTitle("[[ 内部有空格的笔记 ]]")).toBe("内部有空格的笔记");
+    expect(cleanDisplayTitle("正常笔记")).toBe("正常笔记");
+    expect(cleanDisplayTitle("")).toBe("未命名笔记");
+    expect(cleanDisplayTitle(null)).toBe("未命名笔记");
   });
 });

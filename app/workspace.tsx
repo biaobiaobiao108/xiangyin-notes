@@ -866,7 +866,7 @@ export function Workspace() {
 
   const ensureWikiNoteExists = useCallback(
     async (title: string): Promise<NoteSummary | null> => {
-      const cleanTitle = title.trim();
+      const cleanTitle = title.replace(/^(?:\[\[|【【)\s*|\s*(?:\]\]|】】)$/g, "").trim();
       const normalized = normalizeLinkTitle(cleanTitle);
       if (!normalized) return null;
 

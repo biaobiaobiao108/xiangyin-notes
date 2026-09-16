@@ -45,15 +45,15 @@ export function parseMarkdownBlockShortcut(text: string): MarkdownBlockShortcut 
   if (taskMatch) {
     return { type: "taskList", length: taskMatch[0].length };
   }
-  const bulletMatch = /^[-+*][ \t\u3000]/u.exec(text);
+  const bulletMatch = /^[-+*－][ \t\u3000]/u.exec(text);
   if (bulletMatch) {
     return { type: "bulletList", length: bulletMatch[0].length };
   }
-  const orderedMatch = /^(?:1\.|１\.|1、)[ \t\u3000]/u.exec(text);
+  const orderedMatch = /^(?:1\.|１\.|1、|１、|1。|１。)[ \t\u3000]/u.exec(text);
   if (orderedMatch) {
     return { type: "orderedList", length: orderedMatch[0].length };
   }
-  const quoteMatch = /^[>＞][ \t\u3000]/u.exec(text);
+  const quoteMatch = /^[>＞》〉][ \t\u3000]/u.exec(text);
   if (quoteMatch) {
     return { type: "blockquote", length: quoteMatch[0].length };
   }

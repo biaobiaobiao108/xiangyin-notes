@@ -16,6 +16,12 @@ function relativeDate(timestamp: number) {
   return new Date(timestamp * 1000).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
 }
 
+export function cleanDisplayTitle(title: string | null | undefined): string {
+  if (!title) return "未命名笔记";
+  const stripped = title.replace(/^(?:\[\[|【【)\s*|\s*(?:\]\]|】】)$/g, "").trim();
+  return stripped || "未命名笔记";
+}
+
 function HighlightSnippet({ snippet, highlight }: { snippet: string; highlight: string }) {
   if (!highlight.trim()) return <span>{snippet}</span>;
   const escaped = highlight.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -230,7 +236,7 @@ export function BacklinksDialog({
             <div className="backlinks-empty-state">
               <p>暂无其他笔记引用当前文档</p>
               <small>
-                在其他笔记中输入 <code>[[{noteTitle.trim() || "当前笔记"}]]</code> 即可建立反向链接
+                在其他笔记中输入 <code>[[{cleanDisplayTitle(noteTitle)}]]</code> 即可建立反向链接
               </small>
             </div>
           ) : (
@@ -238,6 +244,7 @@ export function BacklinksDialog({
               {unifiedItems.map((item) => {
                 const isUnlinked = item.kind === "unlinked";
                 const isLinking = isUnlinked && linkingKey === item.id;
+                const displayTitle = cleanDisplayTitle(item.sourceNoteTitle);
                 return (
                   <li key={item.id} className="backlink-card">
                     <div className="backlink-card-header">
@@ -245,10 +252,10 @@ export function BacklinksDialog({
                         type="button"
                         className="backlink-card-title-button"
                         onClick={() => handleNavigate(item.sourceNoteId)}
-                        title={`打开笔记「${item.sourceNoteTitle}」`}
+                        title={`打开笔记「${displayTitle}」`}
                       >
                         <span className="backlink-card-title">
-                          {item.sourceNoteTitle || "未命名笔记"}
+                          {displayTitle}
                         </span>
                         {item.sourceNotebookName && (
                           <span className="backlink-card-notebook">
@@ -278,7 +285,7 @@ export function BacklinksDialog({
                       {isUnlinked ? (
                         <button
                           type="button"
-                          className="secondary-button backlink-link-button"
+                          className="backlink-link-button"
                           disabled={isLinking}
                           onClick={() =>
                             handleLinkMention(
@@ -301,7 +308,7 @@ export function BacklinksDialog({
                           type="button"
                           className="backlink-card-open-btn"
                           onClick={() => handleNavigate(item.sourceNoteId)}
-                          aria-label={`打开笔记「${item.sourceNoteTitle}」`}
+                          aria-label={`打开笔记「${displayTitle}」`}
                           title="打开笔记"
                         >
                           <ExternalLink size={13} aria-hidden="true" />
@@ -313,7 +320,7 @@ export function BacklinksDialog({
                       <div className="backlink-card-snippet">
                         <HighlightSnippet
                           snippet={item.snippet}
-                          highlight={isUnlinked ? item.matchText : noteTitle}
+                          highlight={isUnlinked ? item.matchText : cleanDisplayTitle(noteTitle)}
                         />
                       </div>
                     )}

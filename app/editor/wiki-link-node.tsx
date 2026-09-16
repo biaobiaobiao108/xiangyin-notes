@@ -1,4 +1,4 @@
-import { Node, mergeAttributes } from "@tiptap/core";
+import { InputRule, Node, mergeAttributes } from "@tiptap/core";
 
 export type WikiLinkNodeAttrs = {
   target: string;
@@ -19,6 +19,25 @@ export const WikiLinkNode = Node.create({
       target: { default: "" },
       alias: { default: null },
     };
+  },
+
+  addInputRules() {
+    return [
+      new InputRule({
+        find: /(?:\[\[|【【)([^\[\]【】\r\n|｜]+)(?:[|｜]([^\[\]【】\r\n]+))?(?:\]\]|】】)$/,
+        handler: ({ state, range, match }) => {
+          const target = match[1]?.trim();
+          if (!target) return null;
+          const alias = match[2]?.trim() || null;
+          const { tr } = state;
+          tr.replaceWith(
+            range.from,
+            range.to,
+            this.type.create({ target, alias })
+          );
+        },
+      }),
+    ];
   },
 
   parseHTML() {
@@ -56,10 +75,14 @@ export const WikiLinkNode = Node.create({
     name: "wikiLink",
     level: "inline",
     start(src: string) {
-      return src.indexOf("[[");
+      const idx1 = src.indexOf("[[");
+      const idx2 = src.indexOf("【【");
+      if (idx1 === -1) return idx2;
+      if (idx2 === -1) return idx1;
+      return Math.min(idx1, idx2);
     },
     tokenize(src: string) {
-      const match = /^\[\[([^\]\r\n|]+)(?:\|([^\]\r\n]+))?\]\]/.exec(src);
+      const match = /^(?:\[\[|【【)([^\]】\r\n|｜]+)(?:[|｜]([^\]】\r\n]+))?(?:\]\]|】】)/.exec(src);
       if (match) {
         return {
           type: "wikiLink",
