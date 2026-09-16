@@ -357,50 +357,182 @@ button.save-status:hover { text-decoration: underline; }
 .outline-trigger { display: inline-flex; align-items: center; gap: 7px; padding: 0 13px; color: var(--muted); font-size: 0.75rem; cursor: pointer; transition: transform var(--motion-fast) ease, opacity var(--motion-fast) ease; }
 .outline-trigger:hover, .outline-trigger.is-active { border-color: #bad3c5; background: var(--accent-soft); color: var(--accent-dark); }
 .outline-trigger:active { transform: translateY(1px); }
-.note-outline-panel { display: flex; flex: 1 1 0; flex-direction: column; min-height: 0; background: var(--surface); }
-.note-outline-header { flex: none; gap: 10px; }
-.outline-back-button { flex: none; gap: 5px; margin-left: 12px; white-space: nowrap; }
-.note-outline-scroll-shell { position: relative; flex: 1 1 0; min-height: 0; overflow: hidden; }
-.note-outline-scroll { height: 100%; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 16px 18px 28px; }
-.note-outline-panel nav, .editor-outline-list, .editor-outline-item { min-width: 0; max-width: 100%; overflow-x: hidden; }
-.editor-outline-list { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
+.note-outline-panel {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--surface);
+}
+
+.note-outline-header {
+  flex: none;
+  gap: 10px;
+}
+
+.outline-back-button {
+  flex: none;
+  gap: 5px;
+  margin-left: 12px;
+  white-space: nowrap;
+  transition: color var(--motion-fast) var(--motion-ease-out), transform var(--motion-fast) var(--motion-ease-out);
+}
+
+.outline-back-button:hover {
+  color: var(--accent-dark);
+  transform: translateX(-2px);
+}
+
+.note-outline-scroll-shell {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.note-outline-scroll {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 16px 16px 28px;
+}
+
+.note-outline-panel nav,
+.editor-outline-list,
+.editor-outline-item {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.editor-outline-list {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.editor-outline-item {
+  position: relative;
+}
+
+/* 树状层级纵向引导线 */
+.editor-outline-item--level-2::before {
+  content: "";
+  position: absolute;
+  left: 13px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(32, 38, 33, 0.08);
+}
+
+.editor-outline-item--level-3::before {
+  content: "";
+  position: absolute;
+  left: 13px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(32, 38, 33, 0.08);
+}
+
+.editor-outline-item--level-3::after {
+  content: "";
+  position: absolute;
+  left: 26px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(32, 38, 33, 0.08);
+}
+
 .editor-outline-item button {
   display: flex;
   align-items: flex-start;
-  gap: 7px;
+  gap: 9px;
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  min-height: 42px;
-  padding: 8px 11px;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--muted);
-  font-size: 0.86rem;
-  line-height: 1.4;
   text-align: left;
   cursor: pointer;
-   transition: background-color var(--motion-fast) ease, border-color var(--motion-fast) ease, color var(--motion-fast) ease, transform var(--motion-fast) ease;
+  transition: background-color var(--motion-fast) var(--motion-ease-out),
+              border-color var(--motion-fast) var(--motion-ease-out),
+              color var(--motion-fast) var(--motion-ease-out),
+              transform var(--motion-fast) var(--motion-ease-out);
 }
-.editor-outline-item--level-1 button { padding-left: 9px; color: var(--h1-color); }
-.editor-outline-item--level-2 button { padding-left: 19px; color: var(--h2-color); }
-.editor-outline-item--level-3 button { padding-left: 29px; color: var(--h3-color); }
 
+/* 递进字阶与呼吸感缩进 */
+.editor-outline-item--level-1 button {
+  min-height: 38px;
+  padding: 7px 10px 7px 9px;
+  color: var(--h1-color);
+  font-size: 0.88rem;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+
+.editor-outline-item--level-2 button {
+  min-height: 35px;
+  padding: 6px 10px 6px 24px;
+  color: var(--h2-color);
+  font-size: 0.84rem;
+  font-weight: 550;
+  letter-spacing: -0.01em;
+}
+
+.editor-outline-item--level-3 button {
+  min-height: 33px;
+  padding: 5px 10px 5px 38px;
+  color: var(--h3-color);
+  font-size: 0.81rem;
+  font-weight: 450;
+}
+
+/* 精致微节点 (Marker) */
 .outline-level-marker {
   flex: none;
   display: inline-block;
+  border-radius: 50%;
+  transition: transform var(--motion-fast) var(--motion-ease-out),
+              box-shadow var(--motion-fast) var(--motion-ease-out),
+              background-color var(--motion-fast) var(--motion-ease-out);
+}
+
+/* Level 1: 实心朱印节点 */
+.outline-level-marker--1 {
   width: 8px;
   height: 8px;
-  margin-top: 0.52em;
-  border: 1.5px solid currentColor;
-  border-radius: 50%;
-  background: transparent;
-  transition: background-color var(--motion-fast) ease, border-color var(--motion-fast) ease, transform var(--motion-fast) ease;
+  margin-top: 0.46em;
+  background: currentColor;
 }
-.outline-level-marker--1 { width: 10px; height: 10px; border-color: currentColor; background: currentColor; }
-.outline-level-marker--2 { width: 9px; height: 9px; }
-.outline-level-marker--3 { width: 6px; height: 6px; margin-inline: 2px; border: 0; background: currentColor; }
+
+/* Level 2: 润玉空心环 */
+.outline-level-marker--2 {
+  width: 7px;
+  height: 7px;
+  margin-top: 0.48em;
+  border: 1.5px solid currentColor;
+  background: transparent;
+}
+
+/* Level 3: 灵巧微星点 */
+.outline-level-marker--3 {
+  width: 5px;
+  height: 5px;
+  margin-top: 0.52em;
+  margin-inline: 1px;
+  background: currentColor;
+  opacity: 0.85;
+}
+
 .outline-item-title {
   flex: 1;
   min-width: 0;
@@ -410,45 +542,72 @@ button.save-status:hover { text-decoration: underline; }
   -webkit-line-clamp: 2;
   overflow-wrap: anywhere;
   word-break: break-all;
+  line-height: 1.45;
 }
 
-/* Level 1: 朱砂暖调 */
+/* Level 1: 朱砂暖调 hover 与 active 节点点亮 */
 .editor-outline-item--level-1 button:hover {
   background: #fdf8f6;
   color: var(--h1-color);
 }
 .editor-outline-item--level-1 button[aria-current="true"] {
-  border-color: transparent;
-  background: rgba(185, 78, 53, 0.07);
+  background: rgba(185, 78, 53, 0.08);
   color: var(--h1-color);
-  font-weight: 600;
+}
+.editor-outline-item--level-1 button[aria-current="true"] .outline-level-marker--1 {
+  transform: scale(1.35);
+  box-shadow: 0 0 0 3px rgba(185, 78, 53, 0.16);
 }
 
-/* Level 2: 苍松墨绿 */
+/* Level 2: 苍松墨绿 hover 与 active 节点点亮 */
 .editor-outline-item--level-2 button:hover {
   background: #f7faf8;
   color: var(--h2-color);
 }
 .editor-outline-item--level-2 button[aria-current="true"] {
-  border-color: transparent;
-  background: rgba(45, 92, 72, 0.07);
+  background: rgba(45, 92, 72, 0.08);
   color: var(--h2-color);
-  font-weight: 600;
+}
+.editor-outline-item--level-2 button[aria-current="true"] .outline-level-marker--2 {
+  transform: scale(1.35);
+  background: currentColor;
+  box-shadow: 0 0 0 3px rgba(45, 92, 72, 0.16);
 }
 
-/* Level 3: 沉静黛蓝 */
+/* Level 3: 沉静黛蓝 hover 与 active 节点点亮 */
 .editor-outline-item--level-3 button:hover {
   background: #f6f9fc;
   color: var(--h3-color);
 }
 .editor-outline-item--level-3 button[aria-current="true"] {
-  border-color: transparent;
-  background: rgba(53, 86, 107, 0.07);
+  background: rgba(53, 86, 107, 0.08);
   color: var(--h3-color);
-  font-weight: 600;
 }
-.editor-outline-empty { margin: 22px 2px 3px; color: var(--muted); font-size: 0.86rem; line-height: 1.6; }
-.editor-outline-empty code { padding: 1px 4px; border-radius: 4px; background: #f0f2ef; color: var(--accent-dark); font: 0.9em ui-monospace, SFMono-Regular, Consolas, monospace; }
+.editor-outline-item--level-3 button[aria-current="true"] .outline-level-marker--3 {
+  transform: scale(1.4);
+  opacity: 1;
+  box-shadow: 0 0 0 3px rgba(53, 86, 107, 0.16);
+}
+
+.editor-outline-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 48px 16px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.6;
+}
+.editor-outline-empty code {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #f0f2ef;
+  color: var(--accent-dark);
+  font: 0.9em ui-monospace, SFMono-Regular, Consolas, monospace;
+}
 .note-outline-scroll.floating-scrollbar-target { scrollbar-width: none; }
 .note-outline-scroll.floating-scrollbar-target::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .empty-editor { position: relative; display: grid; align-content: center; justify-items: center; height: 100%; padding: 32px; text-align: center; animation: page-content-in var(--motion-content) var(--motion-ease-out) both; }
