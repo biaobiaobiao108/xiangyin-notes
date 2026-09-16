@@ -129,6 +129,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   typewriterModeRef.current = typewriterMode;
   const typewriterAnimRef = useRef<number | null>(null);
   const typewriterTargetRef = useRef<number | null>(null);
+  const outlineFallbackSyncRef = useRef<(() => void) | null>(null);
 
   const uploadImageFiles = useCallback(async (files: File[]) => {
     const editorInstance = editorInstanceRef.current;
@@ -592,6 +593,24 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     setSearchNavigation((current) => current.activeIndex === next.activeIndex && current.matchCount === next.matchCount ? current : next);
   }, []);
 
+  const syncActiveOutlineFromSelection = useCallback((instance: Editor) => {
+    const root = editorScrollRef.current;
+    if (!root || outlineItems.length === 0) return false;
+
+    const { $from } = instance.state.selection;
+    const currentHeadings = Array.from(root.querySelectorAll<HTMLElement>("h1, h2, h3")).filter((heading) => heading.textContent?.trim());
+    for (let depth = $from.depth; depth > 0; depth -= 1) {
+      if ($from.node(depth).type.name !== "heading") continue;
+      const headingDom = instance.view.nodeDOM($from.before(depth));
+      if (!(headingDom instanceof HTMLElement)) return false;
+      const item = outlineItems[currentHeadings.indexOf(headingDom)];
+      if (!item) return false;
+      onOutlineActiveChange(item.id);
+      return true;
+    }
+    return false;
+  }, [onOutlineActiveChange, outlineItems]);
+
   useEffect(() => {
     editorInstanceRef.current = editor;
     return () => {
@@ -603,6 +622,9 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     if (!editor) return;
     const handleTransaction = ({ editor: instance }: { editor: Editor }) => syncSearchNavigation(instance);
     const handleSelection = ({ editor: instance }: { editor: Editor }) => {
+      if (!syncActiveOutlineFromSelection(instance)) {
+        outlineFallbackSyncRef.current?.();
+      }
       if (typewriterModeRef.current) {
         alignTypewriterRef.current(instance);
       }
@@ -614,7 +636,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       editor.off("transaction", handleTransaction);
       editor.off("selectionUpdate", handleSelection);
     };
-  }, [editor, syncSearchNavigation]);
+  }, [editor, syncActiveOutlineFromSelection, syncSearchNavigation]);
 
   useEffect(() => {
     if (typewriterMode && editorInstanceRef.current?.view.hasFocus()) {
@@ -807,6 +829,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
 
   useEffect(() => {
     const root = editorScrollRef.current;
+    outlineFallbackSyncRef.current = null;
     if (!root || outlineItems.length === 0) {
       onOutlineActiveChange(null);
       return;
@@ -839,6 +862,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
         updateActiveHeading();
       });
     };
+    outlineFallbackSyncRef.current = scheduleActiveHeading;
 
     const handleUserScroll = () => {
       cancelOutlineSmoothScroll();
@@ -866,6 +890,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       root.removeEventListener("touchstart", handleUserScroll);
       root.removeEventListener("pointerdown", handleUserScroll);
       if (activeFrame !== null) cancelAnimationFrame(activeFrame);
+      if (outlineFallbackSyncRef.current === scheduleActiveHeading) outlineFallbackSyncRef.current = null;
       cancelOutlineSmoothScroll();
     };
   }, [cancelOutlineSmoothScroll, onOutlineActiveChange, outlineItems]);
