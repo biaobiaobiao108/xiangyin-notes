@@ -299,7 +299,10 @@ describe("Bun Server API", () => {
     expect(manifest.response.headers.get("Content-Type")).toContain("application/manifest+json");
     expect(manifest.response.headers.get("Cache-Control")).toBe("no-cache");
     expect(manifest.response.headers.get("X-Content-Type-Options")).toBe("nosniff");
-    expect(manifest.response.headers.get("Content-Security-Policy")).toContain("default-src 'self'");
+    const contentSecurityPolicy = manifest.response.headers.get("Content-Security-Policy");
+    expect(contentSecurityPolicy).toContain("default-src 'self'");
+    expect(contentSecurityPolicy).toContain("style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net");
+    expect(contentSecurityPolicy).toContain("font-src 'self' https://cdn.jsdelivr.net");
     expect(manifest.body?.display).toBe("standalone");
 
     const worker = await request("/sw.js");
