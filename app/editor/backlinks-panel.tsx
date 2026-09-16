@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { ArrowLeftRight, ExternalLink, Link2, Loader2, Sparkles, X } from "lucide-react";
 import { api } from "../api";
 import { FloatingScrollbar } from "../floating-scrollbar";
@@ -37,6 +37,28 @@ function HighlightSnippet({ snippet, highlight }: { snippet: string; highlight: 
   );
 }
 
+export type BacklinkUnifiedItem =
+  | {
+      kind: "linked";
+      id: string;
+      sourceNoteId: string;
+      sourceNoteTitle: string;
+      sourceNotebookName: string;
+      updatedAt: number;
+      snippet: string;
+    }
+  | {
+      kind: "unlinked";
+      id: string;
+      sourceNoteId: string;
+      sourceNoteTitle: string;
+      sourceNotebookName: string;
+      updatedAt: number;
+      snippet: string;
+      matchIndex: number;
+      matchText: string;
+    };
+
 export interface BacklinksDialogProps {
   open: boolean;
   onClose: () => void;
@@ -58,7 +80,6 @@ export function BacklinksDialog({
   const bodyRef = useRef<HTMLDivElement>(null);
   const [data, setData] = useState<NoteBacklinksResponse | null>(null);
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<"linked" | "unlinked">("linked");
   const [linkingKey, setLinkingKey] = useState<string | null>(null);
 
   const fetchBacklinks = async () => {
@@ -133,18 +154,34 @@ export function BacklinksDialog({
     }
   };
 
-  const switchTab = (tab: "linked" | "unlinked") => {
-    setActiveTab(tab);
-    if (bodyRef.current) {
-      bodyRef.current.scrollTop = 0;
-    }
-  };
+  const unifiedItems: BacklinkUnifiedItem[] = useMemo(() => {
+    if (!data) return [];
+    const linked: BacklinkUnifiedItem[] = (data.linkedReferences || []).map((item) => ({
+      kind: "linked",
+      id: item.id,
+      sourceNoteId: item.sourceNoteId,
+      sourceNoteTitle: item.sourceNoteTitle,
+      sourceNotebookName: item.sourceNotebookName,
+      updatedAt: item.updatedAt,
+      snippet: item.snippet,
+    }));
+    const unlinked: BacklinkUnifiedItem[] = (data.unlinkedMentions || []).map((item) => ({
+      kind: "unlinked",
+      id: `${item.sourceNoteId}-${item.matchIndex}`,
+      sourceNoteId: item.sourceNoteId,
+      sourceNoteTitle: item.sourceNoteTitle,
+      sourceNotebookName: item.sourceNotebookName,
+      updatedAt: item.updatedAt,
+      snippet: item.snippet,
+      matchIndex: item.matchIndex,
+      matchText: item.matchText,
+    }));
+    return [...linked, ...unlinked].sort((a, b) => b.updatedAt - a.updatedAt);
+  }, [data]);
 
   if (!open) return null;
 
-  const linkedCount = data?.linkedReferences?.length ?? 0;
-  const unlinkedCount = data?.unlinkedMentions?.length ?? 0;
-  const totalCount = linkedCount + unlinkedCount;
+  const totalCount = unifiedItems.length;
 
   return (
     <dialog
@@ -165,28 +202,7 @@ export function BacklinksDialog({
           <h2 id="backlinks-dialog-title" className="backlinks-dialog-title">
             反向链接
           </h2>
-        </div>
-
-        <div className="note-backlinks-tabs backlinks-dialog-tabs" role="tablist">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "linked"}
-            className={`backlinks-tab ${activeTab === "linked" ? "is-active" : ""}`}
-            onClick={() => switchTab("linked")}
-          >
-            已链接 ({linkedCount})
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "unlinked"}
-            className={`backlinks-tab ${activeTab === "unlinked" ? "is-active" : ""}`}
-            onClick={() => switchTab("unlinked")}
-          >
-            <Sparkles size={12} aria-hidden="true" />
-            未链接 ({unlinkedCount})
-          </button>
+          {totalCount > 0 && <span className="backlinks-count-pill">{totalCount}</span>}
         </div>
 
         <button
@@ -204,7 +220,6 @@ export function BacklinksDialog({
           id="backlinks-dialog-scroll-region"
           ref={bodyRef}
           className="backlinks-dialog-body floating-scrollbar-target"
-          role="tabpanel"
         >
           {loading && !data ? (
             <div className="backlinks-loading-state">
@@ -218,50 +233,13 @@ export function BacklinksDialog({
                 在其他笔记中输入 <code>[[{noteTitle.trim() || "当前笔记"}]]</code> 即可建立反向链接
               </small>
             </div>
-          ) : activeTab === "linked" ? (
-            linkedCount === 0 ? (
-              <div className="backlinks-empty-state">
-                <p>暂无显式反向链接</p>
-                <small>在其他笔记中使用 <code>[[{noteTitle.trim() || "当前笔记"}]]</code> 即可引用此笔记</small>
-              </div>
-            ) : (
-              <ul className="backlinks-list" role="list">
-                {data?.linkedReferences.map((item) => (
-                  <li key={item.id} className="backlink-card">
-                    <button
-                      type="button"
-                      className="backlink-card-header"
-                      onClick={() => handleNavigate(item.sourceNoteId)}
-                      title={`打开笔记「${item.sourceNoteTitle}」`}
-                    >
-                      <span className="backlink-card-title">{item.sourceNoteTitle || "未命名笔记"}</span>
-                      {item.sourceNotebookName && (
-                        <span className="backlink-card-notebook">{item.sourceNotebookName}</span>
-                      )}
-                      <time className="backlink-card-time">{relativeDate(item.updatedAt)}</time>
-                      <ExternalLink size={13} className="backlink-card-open-icon" aria-hidden="true" />
-                    </button>
-                    {item.snippet && (
-                      <div className="backlink-card-snippet">
-                        <HighlightSnippet snippet={item.snippet} highlight={noteTitle} />
-                      </div>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )
-          ) : unlinkedCount === 0 ? (
-            <div className="backlinks-empty-state">
-              <p>没有发现未链接提及</p>
-              <small>当其他笔记包含与本笔记相同的标题文字时，可一键将其转为双向链接</small>
-            </div>
           ) : (
             <ul className="backlinks-list" role="list">
-              {data?.unlinkedMentions.map((item) => {
-                const key = `${item.sourceNoteId}-${item.matchIndex}`;
-                const isLinking = linkingKey === key;
+              {unifiedItems.map((item) => {
+                const isUnlinked = item.kind === "unlinked";
+                const isLinking = isUnlinked && linkingKey === item.id;
                 return (
-                  <li key={key} className="backlink-card">
+                  <li key={item.id} className="backlink-card">
                     <div className="backlink-card-header">
                       <button
                         type="button"
@@ -269,27 +247,74 @@ export function BacklinksDialog({
                         onClick={() => handleNavigate(item.sourceNoteId)}
                         title={`打开笔记「${item.sourceNoteTitle}」`}
                       >
-                        <span className="backlink-card-title">{item.sourceNoteTitle || "未命名笔记"}</span>
+                        <span className="backlink-card-title">
+                          {item.sourceNoteTitle || "未命名笔记"}
+                        </span>
                         {item.sourceNotebookName && (
-                          <span className="backlink-card-notebook">{item.sourceNotebookName}</span>
+                          <span className="backlink-card-notebook">
+                            {item.sourceNotebookName}
+                          </span>
                         )}
+                        <span
+                          className={`backlink-kind-badge ${
+                            isUnlinked ? "is-unlinked" : "is-linked"
+                          }`}
+                        >
+                          {isUnlinked ? (
+                            <>
+                              <Sparkles size={11} aria-hidden="true" />
+                              <span>提及</span>
+                            </>
+                          ) : (
+                            <>
+                              <Link2 size={11} aria-hidden="true" />
+                              <span>已链接</span>
+                            </>
+                          )}
+                        </span>
                         <time className="backlink-card-time">{relativeDate(item.updatedAt)}</time>
                       </button>
-                      <button
-                        type="button"
-                        className="secondary-button backlink-link-button"
-                        disabled={isLinking}
-                        onClick={() =>
-                          handleLinkMention(item.sourceNoteId, item.matchIndex, item.matchText.length, key)
-                        }
-                      >
-                        {isLinking ? <Loader2 size={13} className="spin-icon" /> : <Link2 size={13} />}
-                        <span>添加链接</span>
-                      </button>
+
+                      {isUnlinked ? (
+                        <button
+                          type="button"
+                          className="secondary-button backlink-link-button"
+                          disabled={isLinking}
+                          onClick={() =>
+                            handleLinkMention(
+                              item.sourceNoteId,
+                              item.matchIndex,
+                              item.matchText.length,
+                              item.id,
+                            )
+                          }
+                        >
+                          {isLinking ? (
+                            <Loader2 size={12} className="spin-icon" />
+                          ) : (
+                            <Link2 size={12} />
+                          )}
+                          <span>添加链接</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="backlink-card-open-btn"
+                          onClick={() => handleNavigate(item.sourceNoteId)}
+                          aria-label={`打开笔记「${item.sourceNoteTitle}」`}
+                          title="打开笔记"
+                        >
+                          <ExternalLink size={13} aria-hidden="true" />
+                        </button>
+                      )}
                     </div>
+
                     {item.snippet && (
                       <div className="backlink-card-snippet">
-                        <HighlightSnippet snippet={item.snippet} highlight={item.matchText} />
+                        <HighlightSnippet
+                          snippet={item.snippet}
+                          highlight={isUnlinked ? item.matchText : noteTitle}
+                        />
                       </div>
                     )}
                   </li>
