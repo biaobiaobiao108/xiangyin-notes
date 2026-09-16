@@ -1,34 +1,15 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { Archive, ChevronDown, ChevronLeft, LayoutPanelLeft, LogOut, Menu, Pencil, Plus, RefreshCw, Search, Star, Trash2, X, AlertTriangle } from "lucide-react";
+import { Archive, ChevronDown, ChevronLeft, LayoutPanelLeft, LogOut, Menu, Pencil, Plus, Search, Star, Trash2, X } from "lucide-react";
 import type { NoteSummary, NoteView, Notebook } from "../../shared/types";
 import { BrandMark } from "../brand-mark";
 import type { OutlineItem } from "../editor-metrics";
 import { FloatingScrollbar } from "../floating-scrollbar";
-import { getLocalImageAsset } from "../offline-store";
-import { isLocalImageSource } from "../image-markdown";
 import { modKey } from "../platform";
-import type { OfflineSyncState } from "../offline-sync";
 import { type PwaState } from "../pwa";
 import { getNoteTags, navItems, relativeDate, sortNotes, type NoteSort, viewLabel } from "./helpers";
 
 export function NoteLoadingState() {
   return <section className="editor-panel editor-loading-shell" aria-label="笔记编辑器" aria-busy="true"><div className="editor-switch-overlay editor-switch-overlay--visible" role="status" aria-live="polite"><div className="editor-switch-card"><BrandMark className="editor-switch-mark" /><div className="editor-switch-lines" aria-hidden="true"><span /><span /><span /></div><strong>正在打开笔记…</strong></div></div></section>;
-}
-
-export function SyncNotice({ state, pwa, onRetry, onUpdate, onConflicts }: { state: OfflineSyncState; pwa: PwaState; onRetry: () => void; onUpdate: () => void; onConflicts: () => void }) {
-  if (state.conflictCount > 0) {
-    return <div className="sync-notice sync-notice--danger" role="alert" aria-labelledby="sync-notice-title"><div className="sync-notice-header"><AlertTriangle size={18} aria-hidden="true" /><div><strong id="sync-notice-title">有 {state.conflictCount} 个同步冲突</strong><p>本地内容已经保留，请处理冲突后继续同步。</p></div></div><div className="sync-notice-actions"><button className="text-button sync-notice-action" type="button" onClick={onConflicts}>查看冲突</button></div></div>;
-  }
-  if (state.status === "error") {
-    return <div className="sync-notice sync-notice--danger" role="alert" aria-labelledby="sync-notice-title"><div className="sync-notice-header"><AlertTriangle size={18} aria-hidden="true" /><div><strong id="sync-notice-title">同步失败</strong><p>{state.lastError || "请重试同步，确认本地修改已经保存。"}</p></div></div><div className="sync-notice-actions"><button className="text-button sync-notice-action" type="button" onClick={onRetry}>重试</button></div></div>;
-  }
-  if (state.status === "offline" && state.pendingCount > 0) {
-    return <div className="sync-notice sync-notice--offline" role="status" aria-live="polite" aria-labelledby="sync-notice-title"><div className="sync-notice-header"><RefreshCw size={18} aria-hidden="true" /><div><strong id="sync-notice-title">已离线，等待同步 {state.pendingCount} 项</strong><p>恢复联网后会自动继续同步。</p></div></div><div className="sync-notice-actions"><button className="text-button sync-notice-action" type="button" onClick={onRetry}>重试</button></div></div>;
-  }
-  if (pwa.updateAvailable) {
-    return <div className="sync-notice sync-notice--update" role="status" aria-live="polite" aria-labelledby="sync-notice-title"><div className="sync-notice-header"><RefreshCw size={18} aria-hidden="true" /><div><strong id="sync-notice-title">发现新版本</strong><p>完成待同步内容后即可更新应用。</p></div></div><div className="sync-notice-actions"><button className="text-button sync-notice-action" type="button" onClick={onUpdate}>更新</button></div></div>;
-  }
-  return null;
 }
 
 export function Sidebar({ view, setView, notebooks, notebookId, setNotebookId, query, setQuery, searchRef, onNewNote, onCreateNotebook, onEditNotebook, collapsed, onCollapse, mobileOpen, onLogout }: { view: NoteView; setView: (view: NoteView) => void; notebooks: Notebook[]; notebookId?: string; setNotebookId: (id: string) => void; query: string; setQuery: (query: string) => void; searchRef: RefObject<HTMLInputElement | null>; onNewNote: () => void; onCreateNotebook: () => void; onEditNotebook: (notebook: Notebook) => void; collapsed: boolean; onCollapse: () => void; mobileOpen: boolean; onLogout: () => void }) {
@@ -54,37 +35,8 @@ export function Sidebar({ view, setView, notebooks, notebookId, setNotebookId, q
 
 function NoteThumbnail({ note }: { note: NoteSummary }) {
   const thumbnail = note.thumbnail;
-  const [src, setSrc] = useState(() => thumbnail && !isLocalImageSource(thumbnail.url) ? thumbnail.url : "");
-
-  useEffect(() => {
-    let active = true;
-    let objectUrl: string | null = null;
-    if (!thumbnail) {
-      return () => { active = false; };
-    }
-    if (!isLocalImageSource(thumbnail.url)) {
-      setSrc(thumbnail.url);
-      return () => { active = false; };
-    }
-    setSrc("");
-    void getLocalImageAsset(thumbnail.id).then((asset) => {
-      if (!asset || !active) return;
-      if (asset.uploadedAsset) {
-        setSrc(asset.uploadedAsset.url);
-        return;
-      }
-      objectUrl = URL.createObjectURL(asset.blob);
-      setSrc(objectUrl);
-    });
-    return () => {
-      active = false;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [thumbnail?.id, thumbnail?.url]);
-
-  if (!thumbnail) return null;
-  if (!src) return <span className="note-row-thumbnail note-row-thumbnail--empty" aria-hidden="true" />;
-  return <span className="note-row-thumbnail" aria-hidden="true"><img src={src} alt="" width={56} height={56} loading="lazy" decoding="async" /></span>;
+  if (!thumbnail?.url) return null;
+  return <span className="note-row-thumbnail" aria-hidden="true"><img src={thumbnail.url} alt="" width={56} height={56} loading="lazy" decoding="async" /></span>;
 }
 
 const NOTE_TAG_DISPLAY_LIMIT = 3;

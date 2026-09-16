@@ -290,46 +290,6 @@ describe("Note links, backlinks, and renaming cascade", () => {
     expect(backlinks.body?.linkedReferences.map((item: { sourceNoteId: string }) => item.sourceNoteId)).toEqual([source.id]);
   });
 
-  test("indexes links and resolves targets for notes created through offline sync", async () => {
-    const auth = await request("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: "owner", password: "a long passphrase 1234" }),
-    });
-    const cookie = auth.cookie!;
-    const targetResponse = await request("/api/notes", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: "同步目标", contentMarkdown: "" }),
-    }, cookie);
-    const target = targetResponse.body?.note as Note;
-    const sourceId = crypto.randomUUID();
-    const syncResponse = await request("/api/sync/push", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        mutations: [{
-          operationId: crypto.randomUUID(),
-          entity: "note",
-          action: "upsert",
-          entityId: sourceId,
-          baseVersion: 1,
-          note: {
-            title: "离线来源",
-            contentMarkdown: "离线创建时链接 [[同步目标]]",
-            notebookId: target.notebookId,
-            isFavorite: false,
-            deletedAt: null,
-          },
-        }],
-      }),
-    }, cookie);
-    expect(syncResponse.body?.results[0].status).toBe("applied");
-
-    const backlinks = await request(`/api/notes/${target.id}/backlinks`, { method: "GET" }, cookie);
-    expect(backlinks.body?.linkedReferences.map((item: { sourceNoteId: string }) => item.sourceNoteId)).toEqual([sourceId]);
-  });
-
   test("bounds large unlinked-mention responses and reports truncation", async () => {
     const auth = await request("/api/auth/login", {
       method: "POST",

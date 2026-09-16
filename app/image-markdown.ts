@@ -1,5 +1,3 @@
-export const LOCAL_IMAGE_SCHEME = "offline-image://";
-
 export type ParsedImageSource = {
   src: string;
   width: number | null;
@@ -41,24 +39,6 @@ export function serializeImageSource(source: string, width: number | null | unde
   params.set("w", String(Math.max(1, Math.round(width))));
   params.set("h", String(Math.max(1, Math.round(height))));
   return `${base}?${params.toString()}${hash}`;
-}
-
-export function isLocalImageSource(source: string) {
-  return source.startsWith(LOCAL_IMAGE_SCHEME);
-}
-
-export function localImageId(source: string) {
-  return isLocalImageSource(source) ? parseImageSource(source).src.slice(LOCAL_IMAGE_SCHEME.length) : null;
-}
-
-export function replaceLocalImageReferences(markdown: string, replacements: ReadonlyMap<string, string>) {
-  if (!replacements.size) return markdown;
-  return markdown.replace(/offline-image:\/\/([0-9a-f-]{36})/giu, (match, id: string) => replacements.get(id.toLowerCase()) ?? match);
-}
-
-export function firstImageSource(markdown: string) {
-  const match = markdown.match(/!\[[^\]]*\]\(([^)\s]+)(?:\s+[^)]*)?\)/u);
-  return match?.[1] ?? null;
 }
 
 export function escapeImageAlt(value: string) {

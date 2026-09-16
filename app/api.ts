@@ -1,5 +1,4 @@
 import type { ApiErrorPayload, ImageAssetSummary, Note, NoteSummary, NoteView, Notebook, Share, User, NoteBacklinksResponse } from "../shared/types";
-import type { SyncMutation, SyncPullResponse, SyncPushResponse } from "../shared/sync";
 
 export class ApiError extends Error {
   status: number;
@@ -55,15 +54,6 @@ export const api = {
   createShare: (noteId: string) => request<{ share: Share }>(`/api/notes/${noteId}/shares`, { method: "POST", body: JSON.stringify({}) }),
   revokeShare: (shareId: string) => request<{ ok: true }>(`/api/shares/${shareId}`, { method: "DELETE" }),
   getPublicShare: (token: string) => request<{ snapshot: { schemaVersion: 1; title: string; contentMarkdown: string; createdAt: number; expiresAt: number } }>(`/api/shares/${token}`),
-  syncPull: (params: { cursor?: number; offset?: number; snapshotCursor?: number; limit?: number } = {}, options?: RequestOptions) => {
-    const search = new URLSearchParams();
-    search.set("cursor", String(params.cursor ?? 0));
-    if (params.offset !== undefined) search.set("offset", String(params.offset));
-    if (params.snapshotCursor !== undefined) search.set("snapshotCursor", String(params.snapshotCursor));
-    if (params.limit !== undefined) search.set("limit", String(params.limit));
-    return request<SyncPullResponse>(`/api/sync/pull?${search.toString()}`, options);
-  },
-  syncPush: (mutations: SyncMutation[], options?: RequestOptions) => request<SyncPushResponse>("/api/sync/push", { method: "POST", body: JSON.stringify({ mutations }), ...options }),
   getBacklinks: (noteId: string) => request<NoteBacklinksResponse>(`/api/notes/${noteId}/backlinks`),
   linkMention: (targetNoteId: string, payload: { sourceNoteId: string; sourceVersion: number; matchStart: number; matchEnd: number; matchText: string }) => request<{ ok: true }>(`/api/notes/${targetNoteId}/link-mention`, { method: "POST", body: JSON.stringify(payload) }),
 };

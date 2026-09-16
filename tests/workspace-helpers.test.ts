@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Note, Notebook } from "../shared/types";
-import { filterOfflineNotes, notebookColorOptions, shouldKeepActiveNoteInList } from "../app/workspace/helpers";
+import { notebookColorOptions, shouldKeepActiveNoteInList } from "../app/workspace/helpers";
 
 const notebooks: Notebook[] = [
   { id: "inbox", name: "收件箱", color: "#718077", isSystem: true, count: 1, updatedAt: 1 },
@@ -48,20 +48,5 @@ describe("notebook color options", () => {
     expect(notebookColorOptions).toHaveLength(9);
     expect(new Set(notebookColorOptions).size).toBe(9);
     expect(notebookColorOptions).toEqual(["#d96245", "#718077", "#5b7899", "#9c765f", "#aa6f8e", "#8b7c54", "#4f8a78", "#c18a3d", "#c45b73"]);
-  });
-});
-
-describe("offline note filtering", () => {
-  test("matches exact tags from cached note content", () => {
-    const tagged = { ...note, id: "tagged", contentMarkdown: "正文 #项目", tags: ["项目"] };
-    const similar = { ...note, id: "similar", contentMarkdown: "正文 #项目组", tags: ["项目组"] };
-    const result = filterOfflineNotes([tagged, similar], notebooks, "all", "#项目");
-    expect(result.map((item) => item.id)).toEqual(["tagged"]);
-  });
-
-  test("recovers tags from legacy cached notes without a tags field", () => {
-    const legacy = { ...note, id: "legacy", contentMarkdown: "正文 #旧标签" } as Note & { tags?: string[] };
-    const result = filterOfflineNotes([legacy], notebooks, "all", "#旧标签");
-    expect(result.map((item) => item.id)).toEqual(["legacy"]);
   });
 });

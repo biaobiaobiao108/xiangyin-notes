@@ -8,7 +8,7 @@ import TaskItem from "@tiptap/extension-task-item";
 import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
 import { findWrapping } from "@tiptap/pm/transform";
-import { ArrowLeftRight, CheckCircle, ChevronLeft, CircleAlert, HardDrive, ImagePlus, Link2, LoaderCircle, Maximize2, Minimize2, RefreshCw, Trash2, Undo2 } from "lucide-react";
+import { ArrowLeftRight, CheckCircle, ChevronLeft, CircleAlert, ImagePlus, Link2, LoaderCircle, Maximize2, Minimize2, RefreshCw, Trash2, Undo2 } from "lucide-react";
 import type { ImageAssetSummary, Note, NoteSummary } from "../shared/types";
 import { api } from "./api";
 import { BrandMark } from "./brand-mark";
@@ -25,7 +25,7 @@ import { WikiLinkNode } from "./editor/wiki-link-node";
 import { WikiLinkSuggestionExtension } from "./editor/wiki-link-suggestion";
 
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
-type SaveState = "idle" | "saving" | "saved" | "local" | "conflict" | "error";
+type SaveState = "idle" | "saving" | "saved" | "conflict" | "error";
 
 const MAX_IMAGE_FILES_PER_ACTION = 10;
 const OUTLINE_HEADING_SELECTOR = "h1, h2, h3";
@@ -35,8 +35,6 @@ function SaveStatusIcon({ state }: { state: Exclude<SaveState, "idle"> }) {
   switch (state) {
     case "saving":
       return <LoaderCircle {...iconProps} />;
-    case "local":
-      return <HardDrive {...iconProps} />;
     case "conflict":
       return <RefreshCw {...iconProps} />;
     case "error":
@@ -95,7 +93,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   onRestore: () => void;
   onPermanentDelete?: () => void;
   onOpenList?: () => void;
-  onUploadImage?: (file: File, dimensions: { width: number; height: number }) => Promise<{ asset: ImageAssetSummary; offline: boolean }>;
+  onUploadImage?: (file: File, dimensions: { width: number; height: number }) => Promise<{ asset: ImageAssetSummary }>;
   focusMode?: boolean;
   onToggleFocusMode?: () => void;
   onClearSearch?: () => void;
@@ -1065,7 +1063,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     return () => onOutlineNavigationReady(null);
   }, [onOutlineNavigationReady, scrollToOutlineItem]);
 
-  const saveLabel = saveState === "saving" ? "保存中" : saveState === "local" ? "已保存到本机" : saveState === "conflict" ? "检测到版本冲突，点击重新载入" : saveState === "error" ? "保存失败，点击重试" : "已保存";
+  const saveLabel = saveState === "saving" ? "保存中" : saveState === "conflict" ? "检测到版本冲突，点击重新载入" : saveState === "error" ? "保存失败，点击重试" : "已保存";
   return (
     <section className={`editor-panel ${deferredLoading ? "is-loading" : ""} ${focusMode ? "is-focus-mode" : ""}`} aria-label="笔记编辑器" aria-busy={editorLocked} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === "s") { event.preventDefault(); onSaveNow(); } }}>
       <header className="editor-header">

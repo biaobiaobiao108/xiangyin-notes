@@ -51,7 +51,7 @@ describe("Bun Server API", () => {
   test("automatically initializes a fresh database and does not rerun the baseline", async () => {
     const fresh = await openDatabase(":memory:");
     const migrations = fresh.query("SELECT name FROM schema_migrations ORDER BY name").all() as Array<{ name: string }>;
-    expect(migrations.map((item) => item.name)).toEqual(["0001_baseline.sql", "0002_note_links.sql", "0003_rebuild_note_links.sql"]);
+    expect(migrations.map((item) => item.name)).toEqual(["0001_baseline.sql", "0002_note_links.sql", "0003_rebuild_note_links.sql", "0004_remove_offline_sync.sql"]);
     expect(fresh.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'users'").get()).toBeDefined();
     fresh.close();
 
@@ -61,7 +61,7 @@ describe("Bun Server API", () => {
 
     const reopened = await openDatabase(databasePath);
     const appliedMigrations = reopened.query("SELECT name FROM schema_migrations ORDER BY name").all() as Array<{ name: string }>;
-    expect(appliedMigrations.map((item) => item.name)).toEqual(["0001_baseline.sql", "0002_note_links.sql", "0003_rebuild_note_links.sql"]);
+    expect(appliedMigrations.map((item) => item.name)).toEqual(["0001_baseline.sql", "0002_note_links.sql", "0003_rebuild_note_links.sql", "0004_remove_offline_sync.sql"]);
     reopened.close();
     await Promise.all([rm(databasePath, { force: true }), rm(`${databasePath}-wal`, { force: true }), rm(`${databasePath}-shm`, { force: true })]);
   });
@@ -69,11 +69,18 @@ describe("Bun Server API", () => {
   test("applies SQLite migrations idempotently and reports health", async () => {
     await applyMigrations(database);
     const migrations = database.query("SELECT name FROM schema_migrations ORDER BY name").all() as Array<{ name: string }>;
-    expect(migrations.map((item) => item.name)).toEqual(["0001_baseline.sql", "0002_note_links.sql", "0003_rebuild_note_links.sql"]);
+    expect(migrations.map((item) => item.name)).toEqual(["0001_baseline.sql", "0002_note_links.sql", "0003_rebuild_note_links.sql", "0004_remove_offline_sync.sql"]);
+    expect(database.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'sync_%'").all()).toEqual([]);
 
     const health = await request("/api/health");
     expect(health.response.status).toBe(200);
     expect(health.body).toEqual({ status: "ok", database: "ok" });
+  });
+
+  test("does not expose removed offline sync endpoints", async () => {
+    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
+    expect((await request("/api/sync/pull?cursor=0", {}, login.cookie)).response.status).toBe(404);
+    expect((await request("/api/sync/push", { method: "POST", body: JSON.stringify({ mutations: [] }) }, login.cookie)).response.status).toBe(404);
   });
 
   test("creates the owner, manages notes, search, notebooks and versions", async () => {
@@ -259,58 +266,6 @@ describe("Bun Server API", () => {
     expect(deleted.response.status).toBe(200);
     expect(database.query("SELECT id FROM image_assets WHERE id = ?").get(asset.id)).toBeNull();
     expect(await Bun.file(join(assetRoot, stored.storage_path)).exists()).toBe(false);
-  });
-
-  test("supports incremental sync, idempotent mutations and explicit conflicts", async () => {
-    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
-    const initial = await request("/api/sync/pull?cursor=0&limit=100", {}, login.cookie);
-    expect(initial.response.status).toBe(200);
-    const note = initial.body?.notes[0];
-    const operationId = crypto.randomUUID();
-    const mutation = {
-      operationId,
-      entity: "note",
-      action: "upsert",
-      entityId: note.id,
-      baseVersion: note.version,
-      note: { title: "离线修改", contentMarkdown: "来自同步队列", notebookId: note.notebookId, isFavorite: note.isFavorite, deletedAt: note.deletedAt },
-    };
-
-    const pushed = await request("/api/sync/push", { method: "POST", body: JSON.stringify({ mutations: [mutation] }) }, login.cookie);
-    expect(pushed.response.status).toBe(200);
-    expect(pushed.body?.results[0].status).toBe("applied");
-    const repeated = await request("/api/sync/push", { method: "POST", body: JSON.stringify({ mutations: [mutation] }) }, login.cookie);
-    expect(repeated.body?.results[0]).toEqual(pushed.body?.results[0]);
-    const reusedWithDifferentContent = await request("/api/sync/push", { method: "POST", body: JSON.stringify({ mutations: [{ ...mutation, note: { ...mutation.note, title: "不应覆盖的新内容" } }] }) }, login.cookie);
-    expect(reusedWithDifferentContent.body?.results[0].status).toBe("rejected");
-    expect((await request(`/api/notes/${note.id}`, {}, login.cookie)).body?.note.title).toBe("离线修改");
-
-    const conflict = await request("/api/sync/push", { method: "POST", body: JSON.stringify({ mutations: [{ ...mutation, operationId: crypto.randomUUID(), baseVersion: note.version, note: { ...mutation.note, title: "过期本地版本" } }] }) }, login.cookie);
-    expect(conflict.body?.results[0].status).toBe("conflict");
-
-    const changes = await request(`/api/sync/pull?cursor=${initial.body?.snapshotCursor}&limit=100`, {}, login.cookie);
-    expect(changes.body?.changes.some((change: { entityId: string; payload?: { title?: string } }) => change.entityId === note.id && change.payload?.title === "离线修改")).toBe(true);
-    const compactedRows = database.query("SELECT payload_json FROM sync_changes WHERE user_id = ? AND entity_type = 'note' AND entity_id = ?").all(login.body?.user.id, note.id) as Array<{ payload_json: string | null }>;
-    expect(compactedRows).toEqual([{ payload_json: null }]);
-
-    const trashed = await request("/api/notes", { method: "POST", body: JSON.stringify({ id: crypto.randomUUID(), title: "待删除" }) }, login.cookie);
-    const trashedNote = trashed.body?.note;
-    await request(`/api/notes/${trashedNote.id}`, { method: "PATCH", body: JSON.stringify({ version: trashedNote.version, deleted: true }) }, login.cookie);
-    const deleted = await request(`/api/notes/${trashedNote.id}`, { method: "DELETE" }, login.cookie);
-    expect(deleted.response.status).toBe(200);
-    const staleRecreate = await request("/api/sync/push", { method: "POST", body: JSON.stringify({ mutations: [{ operationId: crypto.randomUUID(), entity: "note", action: "upsert", entityId: trashedNote.id, baseVersion: trashedNote.version, note: { title: "旧客户端重建", contentMarkdown: "不应出现", notebookId: note.notebookId, isFavorite: false, deletedAt: null } }] }) }, login.cookie);
-    expect(staleRecreate.body?.results[0].status).toBe("rejected");
-  });
-
-  test("keeps at most 500 sync changes per user", async () => {
-    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
-    for (let index = 0; index < 501; index += 1) {
-      const created = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: `日志上限-${index}` }) }, login.cookie);
-      expect(created.response.status).toBe(201);
-    }
-
-    const count = database.query("SELECT COUNT(*) AS count FROM sync_changes WHERE user_id = ?").get(login.body?.user.id) as { count: number };
-    expect(Number(count.count)).toBe(500);
   });
 
   test("serves installable PWA assets with update-safe cache headers", async () => {

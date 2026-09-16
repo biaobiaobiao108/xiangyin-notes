@@ -1,8 +1,7 @@
-import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useEffect, useRef, type CSSProperties, type PointerEvent as ReactPointerEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Node, mergeAttributes } from "@tiptap/core";
 import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
-import { getLocalImageAsset } from "../offline-store";
-import { escapeImageAlt, isLocalImageSource, localImageId, parseImageSource, serializeImageSource } from "../image-markdown";
+import { escapeImageAlt, parseImageSource, serializeImageSource } from "../image-markdown";
 
 type ImageNodeAttrs = {
   assetId: string | null;
@@ -28,31 +27,6 @@ function ResizableImageView({ node, selected, editor, updateAttributes }: NodeVi
   const { width, height } = imageDimensions(node);
   const frameRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ startX: number; startWidth: number; ratio: number; currentWidth: number; maxWidth: number; animationFrame: number | null; pointerId: number } | null>(null);
-  const [resolvedSrc, setResolvedSrc] = useState(() => isLocalImageSource(source.src) ? "" : source.src);
-
-  useEffect(() => {
-    let active = true;
-    let objectUrl: string | null = null;
-    const id = localImageId(source.src);
-    if (!id) {
-      setResolvedSrc(source.src);
-      return () => { active = false; };
-    }
-    setResolvedSrc("");
-    void getLocalImageAsset(id).then((asset) => {
-      if (!asset || !active) return;
-      if (asset.uploadedAsset) {
-        setResolvedSrc(asset.uploadedAsset.url);
-        return;
-      }
-      objectUrl = URL.createObjectURL(asset.blob);
-      setResolvedSrc(objectUrl);
-    });
-    return () => {
-      active = false;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [source.src]);
 
   const setFrameWidth = (nextWidth: number) => {
     frameRef.current?.style.setProperty("--image-display-width", `${Math.round(nextWidth)}px`);
@@ -126,7 +100,7 @@ function ResizableImageView({ node, selected, editor, updateAttributes }: NodeVi
   const frameStyle = { "--image-display-width": `${Math.round(width)}px` } as CSSProperties;
   return <NodeViewWrapper className={`note-image-node ${selected ? "is-selected" : ""}`}>
     <span ref={frameRef} className="note-image-frame" style={frameStyle}>
-      {resolvedSrc ? <img className="note-image" src={resolvedSrc} alt={attrs.alt} title={attrs.title ?? undefined} width={Math.round(width)} height={Math.round(height)} draggable={false} decoding="async" /> : <span className="note-image-loading" role="status">正在载入图片…</span>}
+      <img className="note-image" src={source.src} alt={attrs.alt} title={attrs.title ?? undefined} width={Math.round(width)} height={Math.round(height)} draggable={false} decoding="async" />
       {editor.isEditable && selected && <button className="note-image-resize-handle" type="button" aria-label="调整图片大小" title="拖拽调整图片大小" onPointerDown={startResize} onKeyDown={adjustByKeyboard} />}
     </span>
   </NodeViewWrapper>;

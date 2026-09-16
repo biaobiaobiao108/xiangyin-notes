@@ -1,8 +1,6 @@
 import { mkdir, rename } from "node:fs/promises";
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { createHash } from "node:crypto";
 import type { ImageAssetSummary, ShareSnapshot, Note, NoteSummary, NoteView, Share, Notebook, NoteLinkSummary, UnlinkedMention, NoteBacklinksResponse } from "../shared/types";
-import type { SyncChange, SyncMutation, SyncPullResponse, SyncPushResult, SyncPushResponse } from "../shared/sync";
 import { extractTags, normalizeTag, parseTagQuery } from "../shared/tags";
 import { extractContextSnippet, extractWikiLinks, findUnlinkedMentionsInMarkdown, linkMentionInMarkdown, normalizeLinkTitle, replaceWikiLinkTarget } from "../shared/wiki-links";
 import { databasePathFromEnv, openDatabase, type SqliteDatabase } from "./db";
@@ -22,15 +20,11 @@ const BACKLINK_CANDIDATE_LIMIT = 100;
 const NOTE_PREVIEW_LIMIT = 180;
 const NOTE_PREVIEW_SCAN_LIMIT = NOTE_PREVIEW_LIMIT + 64;
 const NOTE_BODY_MAX_BYTES = 4_500_000;
-const SYNC_BODY_MAX_BYTES = 32 * 1024 * 1024;
 const LOGIN_WINDOW_SECONDS = 15 * 60;
 const LOGIN_MAX_FAILURES = 8;
 const LOGIN_BLOCK_SECONDS = 15 * 60;
 const LOGIN_ATTEMPT_MAX_ENTRIES = 2_000;
 const LOGIN_ATTEMPT_CLEANUP_INTERVAL_SECONDS = 60;
-const SYNC_CHANGE_MAX_PER_USER = 500;
-const SYNC_CHANGE_RETENTION_SECONDS = 90 * 24 * 60 * 60;
-const SYNC_MUTATION_RETENTION_SECONDS = 30 * 24 * 60 * 60;
 const NOTE_VIEWS: NoteView[] = ["all", "inbox", "favorites", "shared", "trash"];
 const DEFAULT_CLIENT_ROOT = "./dist/client";
 const DEV_SERVICE_WORKER_SOURCE = `
@@ -122,13 +116,6 @@ type NotebookRow = {
   is_system: number;
   count: number;
   updated_at: number;
-};
-
-type SyncChangeRow = {
-  sequence: number;
-  entity_type: "note" | "notebook";
-  entity_id: string;
-  operation: "upsert" | "delete";
 };
 
 type AuthCredentials = {
@@ -464,29 +451,6 @@ function getNotebook(database: SqliteDatabase, userId: string, notebookId: strin
   `, notebookId, userId);
 }
 
-function recordSyncChange(database: SqliteDatabase, userId: string, entityType: "note" | "notebook", entityId: string, operation: "upsert" | "delete") {
-  const result = database.query("INSERT INTO sync_changes (user_id, entity_type, entity_id, operation, payload_json, created_at) VALUES (?, ?, ?, ?, NULL, ?)").run(userId, entityType, entityId, operation, now());
-  if (operation === "delete") database.query("INSERT INTO sync_tombstones (user_id, entity_type, entity_id, deleted_at) VALUES (?, ?, ?, ?) ON CONFLICT(user_id, entity_type, entity_id) DO UPDATE SET deleted_at = excluded.deleted_at").run(userId, entityType, entityId, now());
-  const sequence = Number(result.lastInsertRowid);
-  database.query("DELETE FROM sync_changes WHERE user_id = ? AND entity_type = ? AND entity_id = ? AND sequence <> ?").run(userId, entityType, entityId, sequence);
-  database.query(`DELETE FROM sync_changes
-    WHERE user_id = ? AND sequence IN (
-      SELECT sequence FROM (
-        SELECT sequence, ROW_NUMBER() OVER (ORDER BY sequence DESC) AS row_number
-        FROM sync_changes WHERE user_id = ?
-      ) WHERE row_number > ?
-    )`).run(userId, userId, SYNC_CHANGE_MAX_PER_USER);
-  if (sequence % 100 === 0) {
-    const cutoff = now() - SYNC_CHANGE_RETENTION_SECONDS;
-    database.query("DELETE FROM sync_changes WHERE user_id = ? AND created_at < ?").run(userId, cutoff);
-    database.query("DELETE FROM sync_mutations WHERE user_id = ? AND created_at < ?").run(userId, now() - SYNC_MUTATION_RETENTION_SECONDS);
-  }
-}
-
-function hasSyncTombstone(database: SqliteDatabase, userId: string, entityType: "note" | "notebook", entityId: string) {
-  return Boolean(first<{ entity_id: string }>(database, "SELECT entity_id FROM sync_tombstones WHERE user_id = ? AND entity_type = ? AND entity_id = ? LIMIT 1", userId, entityType, entityId));
-}
-
 export function formatPreview(markdown: string) {
   const output: string[] = [];
   let outputLength = 0;
@@ -574,8 +538,6 @@ async function ensureEnvironmentUser(database: SqliteDatabase, credentials: Auth
       database.query("INSERT INTO notes_fts (note_id, title, content) VALUES (?, ?, ?)").run(noteId, "开始记录你的想法", welcomeMarkdown);
       const notebook = getNotebook(database, userId, inboxId);
       const note = getNote(database, userId, noteId);
-      if (notebook) recordSyncChange(database, userId, "notebook", notebook.id, "upsert");
-      if (note) recordSyncChange(database, userId, "note", note.id, "upsert");
     });
     seed();
     return { id: userId, username: credentials.username };
@@ -673,7 +635,6 @@ function createNote(database: SqliteDatabase, userId: string, notebookId: string
     syncNoteLinks(database, userId, id, contentMarkdown, createdAt);
     resolveNoteLinksForTarget(database, userId, title, id);
     const note = getNote(database, userId, id);
-    if (note) recordSyncChange(database, userId, "note", id, "upsert");
   });
   transaction();
   return id;
@@ -711,14 +672,12 @@ function updateNoteInTransaction(
         database.query("DELETE FROM notes_fts WHERE note_id = ?").run(refNote.id);
         database.query("INSERT INTO notes_fts (note_id, title, content) VALUES (?, ?, ?)").run(refNote.id, refNote.title, replacedContent);
         syncNoteLinks(database, userId, refNote.id, replacedContent, updatedAt);
-        recordSyncChange(database, userId, "note", refNote.id, "upsert");
       }
     }
   }
   if (titleChanged) resolveNoteLinksForUser(database, userId);
 
   const next = getNote(database, userId, current.id);
-  if (next) recordSyncChange(database, userId, "note", current.id, "upsert");
   return true;
 }
 
@@ -896,9 +855,6 @@ async function handleApi(request: Request, options: ServerOptions) {
     return json({ user }, 200, headers);
   }
 
-  if (method === "GET" && url.pathname === "/api/sync/pull") return await handleSyncPull(request, database, user);
-  if (method === "POST" && url.pathname === "/api/sync/push") return await handleSyncPush(request, database, user, assetRoot);
-
   if (resource === "assets" && !id && method === "POST") return await uploadImageAsset(request, database, user, assetRoot);
   if (resource === "assets" && id && (method === "GET" || method === "HEAD")) return await serveImageAsset(request, database, user.id, id, assetRoot);
 
@@ -908,7 +864,6 @@ async function handleApi(request: Request, options: ServerOptions) {
       const assetPaths = assetPathsForNotes(database, user.id, deletedIds);
       database.query("DELETE FROM notes_fts WHERE note_id IN (SELECT id FROM notes WHERE user_id = ? AND deleted_at IS NOT NULL)").run(user.id);
       database.query("DELETE FROM notes WHERE user_id = ? AND deleted_at IS NOT NULL").run(user.id);
-      for (const id of deletedIds) recordSyncChange(database, user.id, "note", id, "delete");
       return { ok: true, deletedCount: deletedIds.length, deletedIds, assetPaths };
     });
     const emptiedTrash = emptyTrash();
@@ -1206,7 +1161,6 @@ async function handleApi(request: Request, options: ServerOptions) {
       database.query("DELETE FROM note_links WHERE user_id = ? AND source_note_id = ?").run(user.id, note.id);
       database.query("DELETE FROM notes_fts WHERE note_id = ?").run(note.id);
       database.query("DELETE FROM notes WHERE id = ? AND user_id = ?").run(note.id, user.id);
-      recordSyncChange(database, user.id, "note", note.id, "delete");
     });
     transaction();
     await removeAssetFiles(assetRoot, assetPaths);
@@ -1232,7 +1186,6 @@ async function handleApi(request: Request, options: ServerOptions) {
     try {
       database.query("INSERT INTO notebooks (id, user_id, name, color, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, 10, ?, ?)").run(notebookId, user.id, payload.name.trim(), color, createdAt, createdAt);
       const created = getNotebook(database, user.id, notebookId);
-      if (created) recordSyncChange(database, user.id, "notebook", notebookId, "upsert");
     } catch {
       return jsonError(409, "NOTEBOOK_EXISTS", "已经有同名笔记本");
     }
@@ -1250,7 +1203,6 @@ async function handleApi(request: Request, options: ServerOptions) {
     try {
       database.query("UPDATE notebooks SET name = ?, color = ?, updated_at = ? WHERE id = ? AND user_id = ?").run(name.trim(), color, now(), current.id, user.id);
       const updated = getNotebook(database, user.id, current.id);
-      if (updated) recordSyncChange(database, user.id, "notebook", current.id, "upsert");
     } catch {
       return jsonError(409, "NOTEBOOK_EXISTS", "已经有同名笔记本");
     }
@@ -1269,10 +1221,8 @@ async function handleApi(request: Request, options: ServerOptions) {
       for (const note of movedNotes) {
         database.query("UPDATE notes SET notebook_id = ?, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ?").run(inbox.id, now(), note.id, user.id);
         const moved = getNote(database, user.id, note.id);
-        if (moved) recordSyncChange(database, user.id, "note", note.id, "upsert");
       }
       database.query("DELETE FROM notebooks WHERE id = ? AND user_id = ?").run(current.id, user.id);
-      recordSyncChange(database, user.id, "notebook", current.id, "delete");
     });
     transaction();
     return json({ ok: true });
@@ -1294,241 +1244,6 @@ async function handlePublicShare(request: Request, database: SqliteDatabase) {
   if (row.expires_at <= now()) return jsonError(410, "SHARE_EXPIRED", "分享链接已过期");
   const snapshot: ShareSnapshot = { schemaVersion: 1, title: row.snapshot_title, contentMarkdown: row.snapshot_content_markdown, createdAt: row.created_at, expiresAt: row.expires_at };
   return json({ snapshot });
-}
-
-function decodeSyncChange(database: SqliteDatabase, userId: string, row: SyncChangeRow): SyncChange {
-  let payload: SyncChange["payload"] = null;
-  if (row.operation === "upsert") {
-    if (row.entity_type === "note") {
-      const note = getNote(database, userId, row.entity_id);
-      if (!note) throw new Error(`Missing note for sync change ${row.sequence}`);
-      payload = toFullNote(note);
-    } else {
-      const notebook = getNotebook(database, userId, row.entity_id);
-      if (!notebook) throw new Error(`Missing notebook for sync change ${row.sequence}`);
-      payload = toNotebook(notebook);
-    }
-  }
-  return { sequence: Number(row.sequence), entity: row.entity_type, entityId: row.entity_id, operation: row.operation, payload };
-}
-
-async function handleSyncPull(request: Request, database: SqliteDatabase, user: UserRow) {
-  const url = new URL(request.url);
-  const cursor = Number.parseInt(url.searchParams.get("cursor") ?? "0", 10);
-  const limit = Math.min(250, Math.max(1, Number.parseInt(url.searchParams.get("limit") ?? "100", 10) || 100));
-  if (!Number.isInteger(cursor) || cursor < 0) return jsonError(400, "INVALID_SYNC_CURSOR", "同步游标无效");
-
-  const oldestRetainedChange = first<{ sequence: number }>(database, "SELECT MIN(sequence) AS sequence FROM sync_changes WHERE user_id = ?", user.id);
-  const cursorBehindCompaction = cursor > 0 && oldestRetainedChange && cursor < Number(oldestRetainedChange.sequence) - 1;
-  if (cursor === 0 || cursorBehindCompaction) {
-    const offset = Math.max(0, Number.parseInt(url.searchParams.get("offset") ?? "0", 10) || 0);
-    const snapshotCursorParam = Number.parseInt(url.searchParams.get("snapshotCursor") ?? "", 10);
-    const snapshotCursor = Number.isInteger(snapshotCursorParam) && snapshotCursorParam >= 0
-      ? snapshotCursorParam
-      : Number(first<{ sequence: number }>(database, "SELECT COALESCE(MAX(sequence), 0) AS sequence FROM sync_changes WHERE user_id = ?", user.id)?.sequence ?? 0);
-    const noteRows = all<NoteRow>(database, `
-      SELECT n.id, n.title, n.content_markdown, n.notebook_id, b.name AS notebook_name,
-        b.color AS notebook_color, n.is_favorite, n.deleted_at, n.version, n.created_at, n.updated_at,
-        (SELECT a.id FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_asset_id,
-        (SELECT a.storage_path FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_storage_path,
-        (SELECT a.original_name FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_original_name,
-        (SELECT a.mime_type FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_mime_type,
-        (SELECT a.byte_size FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_byte_size,
-        (SELECT a.width FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_width,
-        (SELECT a.height FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_height,
-        (SELECT a.created_at FROM image_assets a WHERE a.note_id = n.id AND a.document_order = 0 LIMIT 1) AS thumbnail_created_at
-      FROM notes n JOIN notebooks b ON b.id = n.notebook_id
-      WHERE n.user_id = ? ORDER BY n.updated_at DESC, n.id LIMIT ? OFFSET ?
-    `, user.id, limit, offset);
-    const total = Number(first<{ count: number }>(database, "SELECT COUNT(*) AS count FROM notes WHERE user_id = ?", user.id)?.count ?? 0);
-    const notebooks = offset === 0
-      ? all<NotebookRow>(database, `
-          SELECT b.id, b.name, b.color, b.is_system, b.updated_at,
-            (SELECT COUNT(*) FROM notes n WHERE n.notebook_id = b.id AND n.deleted_at IS NULL) AS count
-          FROM notebooks b WHERE b.user_id = ? ORDER BY b.sort_order, b.name
-        `, user.id).map(toNotebook)
-      : [];
-    const body: SyncPullResponse = {
-      mode: "snapshot",
-      cursor: 0,
-      snapshotCursor,
-      offset,
-      hasMore: offset + noteRows.length < total,
-      notes: noteRows.map(toFullNote),
-      notebooks,
-      changes: [],
-    };
-    return json(body);
-  }
-
-  const rows = all<SyncChangeRow>(database, `
-    SELECT sequence, entity_type, entity_id, operation
-    FROM sync_changes WHERE user_id = ? AND sequence > ? ORDER BY sequence LIMIT ?
-  `, user.id, cursor, limit);
-  const changes = rows.map((row) => decodeSyncChange(database, user.id, row));
-  const nextCursor = changes.at(-1)?.sequence ?? cursor;
-  const body: SyncPullResponse = {
-    mode: "changes",
-    cursor: nextCursor,
-    hasMore: rows.length === limit,
-    notes: [],
-    notebooks: [],
-    changes,
-  };
-  return json(body);
-}
-
-function validSyncMutation(value: unknown): value is SyncMutation {
-  if (!value || typeof value !== "object") return false;
-  const mutation = value as Partial<SyncMutation>;
-  return typeof mutation.operationId === "string" && mutation.operationId.length >= 8 && mutation.operationId.length <= 120
-    && (mutation.entity === "note" || mutation.entity === "notebook")
-    && (mutation.action === "upsert" || mutation.action === "delete")
-    && typeof mutation.entityId === "string" && mutation.entityId.length >= 8 && mutation.entityId.length <= 120
-    && (mutation.allowRecreate === undefined || typeof mutation.allowRecreate === "boolean");
-}
-
-function syncMutationHash(mutation: SyncMutation) {
-  return createHash("sha256").update(JSON.stringify(mutation)).digest("hex");
-}
-
-function applySyncMutation(database: SqliteDatabase, user: UserRow, mutation: SyncMutation): SyncPushResult {
-  const requestHash = syncMutationHash(mutation);
-  const cached = first<{ request_hash: string; result_json: string }>(database, "SELECT request_hash, result_json FROM sync_mutations WHERE user_id = ? AND operation_id = ?", user.id, mutation.operationId);
-  if (cached) {
-    if (cached.request_hash && cached.request_hash !== requestHash) return { operationId: mutation.operationId, status: "rejected", message: "同步操作标识已被其他内容使用" };
-    return JSON.parse(cached.result_json) as SyncPushResult;
-  }
-
-  const result = database.transaction(() => {
-    let response: SyncPushResult;
-
-    if (mutation.entity === "note") {
-      const payload = mutation.note;
-      const current = getNote(database, user.id, mutation.entityId);
-      if (mutation.action === "upsert") {
-        if (!payload || !validText(payload.title, 200) || !validText(payload.contentMarkdown, 1_000_000) || typeof payload.notebookId !== "string" || typeof payload.isFavorite !== "boolean" || (payload.deletedAt !== null && !Number.isInteger(payload.deletedAt))) {
-          response = { operationId: mutation.operationId, status: "rejected", message: "笔记数据无效" };
-        } else if (!first(database, "SELECT id FROM notebooks WHERE id = ? AND user_id = ?", payload.notebookId, user.id)) {
-          response = { operationId: mutation.operationId, status: "rejected", message: "笔记本不存在" };
-        } else if (!validNoteAssetReferences(database, user.id, current?.id ?? null, payload.contentMarkdown)) {
-          response = { operationId: mutation.operationId, status: "rejected", message: "笔记引用了无权访问的图片" };
-        } else if (current && mutation.baseVersion !== current.version) {
-          response = { operationId: mutation.operationId, status: "conflict", current: toFullNote(current), message: "服务器上的笔记已更新" };
-        } else if (current) {
-          const updated = updateNoteInTransaction(database, current, user.id, normalizeNoteTitle(payload.title), payload.contentMarkdown, payload.notebookId, payload.isFavorite ? 1 : 0, payload.deletedAt);
-          const next = getNote(database, user.id, mutation.entityId);
-          response = updated && next ? { operationId: mutation.operationId, status: "applied", note: toFullNote(next) } : { operationId: mutation.operationId, status: "conflict", current: next ? toFullNote(next) : null, message: "笔记更新失败" };
-        } else if (hasSyncTombstone(database, user.id, "note", mutation.entityId) && !mutation.allowRecreate) {
-          response = { operationId: mutation.operationId, status: "rejected", message: "笔记已永久删除，不能重新创建" };
-        } else {
-          try {
-            const createdAt = now();
-            database.query("INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, is_favorite, deleted_at, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)").run(mutation.entityId, user.id, payload.notebookId, normalizeNoteTitle(payload.title), payload.contentMarkdown, payload.isFavorite ? 1 : 0, payload.deletedAt, createdAt, createdAt);
-            if (!syncNoteAssetReferences(database, user.id, mutation.entityId, payload.contentMarkdown)) throw new Error("invalid-note-assets");
-            database.query("INSERT INTO notes_fts (note_id, title, content) VALUES (?, ?, ?)").run(mutation.entityId, normalizeNoteTitle(payload.title), payload.contentMarkdown);
-            syncNoteLinks(database, user.id, mutation.entityId, payload.contentMarkdown, createdAt);
-            resolveNoteLinksForTarget(database, user.id, normalizeNoteTitle(payload.title), mutation.entityId);
-            const created = getNote(database, user.id, mutation.entityId);
-            if (!created) throw new Error("note-create-missing");
-            recordSyncChange(database, user.id, "note", mutation.entityId, "upsert");
-            response = { operationId: mutation.operationId, status: "applied", note: toFullNote(created) };
-          } catch {
-            response = { operationId: mutation.operationId, status: "rejected", message: "笔记创建失败" };
-          }
-        }
-      } else if (!current) {
-        response = { operationId: mutation.operationId, status: "applied", current: null };
-      } else if (mutation.baseVersion !== current.version) {
-        response = { operationId: mutation.operationId, status: "conflict", current: toFullNote(current), message: "服务器上的笔记已更新" };
-      } else if (!current.deleted_at) {
-        response = { operationId: mutation.operationId, status: "rejected", message: "只能永久删除回收站中的笔记" };
-      } else {
-        database.query("DELETE FROM notes_fts WHERE note_id = ?").run(current.id);
-        database.query("DELETE FROM notes WHERE id = ? AND user_id = ?").run(current.id, user.id);
-        recordSyncChange(database, user.id, "note", current.id, "delete");
-        response = { operationId: mutation.operationId, status: "applied", current: null };
-      }
-    } else {
-      const payload = mutation.notebook;
-      const current = getNotebook(database, user.id, mutation.entityId);
-      if (mutation.action === "upsert") {
-        if (!payload || !validText(payload.name, 40) || !payload.name.trim() || !validColor(payload.color)) {
-          response = { operationId: mutation.operationId, status: "rejected", message: "笔记本数据无效" };
-        } else if (current && mutation.baseUpdatedAt !== current.updated_at) {
-          response = { operationId: mutation.operationId, status: "conflict", current: toNotebook(current), message: "服务器上的笔记本已更新" };
-        } else if (current) {
-          try {
-            database.query("UPDATE notebooks SET name = ?, color = ?, updated_at = ? WHERE id = ? AND user_id = ?").run(payload.name.trim(), payload.color, now(), current.id, user.id);
-            const next = getNotebook(database, user.id, current.id);
-            if (!next) throw new Error("notebook-update-missing");
-            recordSyncChange(database, user.id, "notebook", current.id, "upsert");
-            response = { operationId: mutation.operationId, status: "applied", notebook: toNotebook(next) };
-          } catch {
-            response = { operationId: mutation.operationId, status: "rejected", message: "笔记本名称已经存在" };
-          }
-        } else if (hasSyncTombstone(database, user.id, "notebook", mutation.entityId)) {
-          response = { operationId: mutation.operationId, status: "rejected", message: "笔记本已删除，不能重新创建" };
-        } else {
-          const createdAt = now();
-          try {
-            database.query("INSERT INTO notebooks (id, user_id, name, color, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, 10, ?, ?)").run(mutation.entityId, user.id, payload.name.trim(), payload.color, createdAt, createdAt);
-            const created = getNotebook(database, user.id, mutation.entityId);
-            if (!created) throw new Error("notebook-create-missing");
-            recordSyncChange(database, user.id, "notebook", mutation.entityId, "upsert");
-            response = { operationId: mutation.operationId, status: "applied", notebook: toNotebook(created) };
-          } catch {
-            response = { operationId: mutation.operationId, status: "rejected", message: "笔记本名称已经存在" };
-          }
-        }
-      } else if (!current) {
-        response = { operationId: mutation.operationId, status: "applied", current: null };
-      } else if (mutation.baseUpdatedAt !== current.updated_at) {
-        response = { operationId: mutation.operationId, status: "conflict", current: toNotebook(current), message: "服务器上的笔记本已更新" };
-      } else if (current.is_system) {
-        response = { operationId: mutation.operationId, status: "rejected", message: "收件箱不能删除" };
-      } else {
-        const inbox = first<{ id: string }>(database, "SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1 LIMIT 1", user.id);
-        if (!inbox) {
-          response = { operationId: mutation.operationId, status: "rejected", message: "找不到收件箱" };
-        } else {
-          const movedNotes = all<{ id: string }>(database, "SELECT id FROM notes WHERE notebook_id = ? AND user_id = ?", current.id, user.id);
-          for (const note of movedNotes) {
-            const existing = getNote(database, user.id, note.id);
-            if (!existing) continue;
-            database.query("UPDATE notes SET notebook_id = ?, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ?").run(inbox.id, now(), note.id, user.id);
-            const moved = getNote(database, user.id, note.id);
-            if (moved) recordSyncChange(database, user.id, "note", note.id, "upsert");
-          }
-          database.query("DELETE FROM notebooks WHERE id = ? AND user_id = ?").run(current.id, user.id);
-          recordSyncChange(database, user.id, "notebook", current.id, "delete");
-          response = { operationId: mutation.operationId, status: "applied", current: null };
-        }
-      }
-    }
-
-    database.query("INSERT INTO sync_mutations (user_id, operation_id, request_hash, result_json, created_at) VALUES (?, ?, ?, ?, ?)").run(user.id, mutation.operationId, requestHash, JSON.stringify(response), now());
-    return response;
-  })();
-  return result;
-}
-
-async function handleSyncPush(request: Request, database: SqliteDatabase, user: UserRow, assetRoot: string) {
-  const payload = await readJson<{ mutations?: unknown }>(request, SYNC_BODY_MAX_BYTES);
-  if (!payload || !Array.isArray(payload.mutations) || payload.mutations.length > 50 || !payload.mutations.every(validSyncMutation)) return jsonError(400, "INVALID_SYNC_MUTATIONS", "同步操作无效");
-  const mutations = payload.mutations as SyncMutation[];
-  const assetPathsByOperation = new Map<string, string[]>();
-  for (const mutation of mutations) {
-    if (mutation.entity !== "note" || mutation.action !== "delete") continue;
-    const current = first<{ id: string }>(database, "SELECT id FROM notes WHERE id = ? AND user_id = ?", mutation.entityId, user.id);
-    if (current) assetPathsByOperation.set(mutation.operationId, assetPathsForNotes(database, user.id, [current.id]));
-  }
-  const results = mutations.map((mutation) => applySyncMutation(database, user, mutation));
-  for (const result of results) {
-    if (result.status === "applied") await removeAssetFiles(assetRoot, assetPathsByOperation.get(result.operationId) ?? []);
-  }
-  const body: SyncPushResponse = { results };
-  return json(body);
 }
 
 const MIME_TYPES: Record<string, string> = {
