@@ -303,15 +303,15 @@ describe("Bun Server API", () => {
     expect(staleRecreate.body?.results[0].status).toBe("rejected");
   });
 
-  test("keeps at most 100 sync changes per user", async () => {
+  test("keeps at most 500 sync changes per user", async () => {
     const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
-    for (let index = 0; index < 101; index += 1) {
+    for (let index = 0; index < 501; index += 1) {
       const created = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: `日志上限-${index}` }) }, login.cookie);
       expect(created.response.status).toBe(201);
     }
 
     const count = database.query("SELECT COUNT(*) AS count FROM sync_changes WHERE user_id = ?").get(login.body?.user.id) as { count: number };
-    expect(Number(count.count)).toBe(100);
+    expect(Number(count.count)).toBe(500);
   });
 
   test("serves installable PWA assets with update-safe cache headers", async () => {
