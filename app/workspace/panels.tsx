@@ -109,6 +109,25 @@ function NoteRowMeta({ note }: { note: NoteSummary }) {
 
 export function NoteOutlinePanel({ outlineItems, activeOutlineId, onScrollToOutlineItem, onCloseOutline }: { outlineItems: OutlineItem[]; activeOutlineId: string | null; onScrollToOutlineItem: (id: string) => void; onCloseOutline: () => void }) {
   const outlineScrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const scrollRoot = outlineScrollRef.current;
+    if (!scrollRoot || !activeOutlineId) return;
+    const activeButton = Array.from(scrollRoot.querySelectorAll<HTMLButtonElement>(".editor-outline-item button")).find((button) => button.dataset.outlineId === activeOutlineId);
+    if (!activeButton) return;
+    const scrollRect = scrollRoot.getBoundingClientRect();
+    const buttonRect = activeButton.getBoundingClientRect();
+    const edgePadding = 8;
+    const visibleTop = scrollRect.top + edgePadding;
+    const visibleBottom = scrollRect.bottom - edgePadding;
+    let delta = 0;
+    if (buttonRect.top < visibleTop) delta = buttonRect.top - visibleTop;
+    else if (buttonRect.bottom > visibleBottom) delta = buttonRect.bottom - visibleBottom;
+    if (delta === 0) return;
+    const behavior: ScrollBehavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+    const maxScrollTop = Math.max(0, scrollRoot.scrollHeight - scrollRoot.clientHeight);
+    scrollRoot.scrollTo({ top: Math.min(maxScrollTop, Math.max(0, scrollRoot.scrollTop + delta)), behavior });
+  }, [activeOutlineId, outlineItems]);
+
   return <aside className="note-outline-panel" id="note-outline" aria-labelledby="note-outline-title">
     <header className="list-header note-outline-header">
       <div className="list-header-main"><h2 id="note-outline-title">笔记大纲</h2><p>{outlineItems.length > 0 ? `${outlineItems.length} 个标题` : "当前笔记暂无标题"}</p></div>
@@ -118,7 +137,7 @@ export function NoteOutlinePanel({ outlineItems, activeOutlineId, onScrollToOutl
       <div id="note-outline-scroll-region" className="note-outline-scroll floating-scrollbar-target" ref={outlineScrollRef}>
         {outlineItems.length > 0 ? <nav aria-label="笔记标题">
           <ol className="editor-outline-list">
-            {outlineItems.map((item) => <li className={`editor-outline-item editor-outline-item--level-${item.level}`} key={item.id}><button type="button" aria-current={activeOutlineId === item.id ? "true" : undefined} onClick={() => onScrollToOutlineItem(item.id)}><span className={`outline-level-marker outline-level-marker--${item.level}`} aria-hidden="true" /><span className="outline-item-title">{item.title}</span></button></li>)}
+            {outlineItems.map((item) => <li className={`editor-outline-item editor-outline-item--level-${item.level}`} key={item.id}><button type="button" data-outline-id={item.id} aria-current={activeOutlineId === item.id ? "true" : undefined} onClick={() => onScrollToOutlineItem(item.id)}><span className={`outline-level-marker outline-level-marker--${item.level}`} aria-hidden="true" /><span className="outline-item-title">{item.title}</span></button></li>)}
           </ol>
         </nav> : <p className="editor-outline-empty">用 <code>#</code> 标题为这篇笔记建立大纲。</p>}
       </div>

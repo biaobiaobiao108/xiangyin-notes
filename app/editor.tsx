@@ -23,6 +23,11 @@ import { TagDecorationExtension } from "./editor/tag-decoration";
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
 
 const MAX_IMAGE_FILES_PER_ACTION = 10;
+const OUTLINE_HEADING_SELECTOR = "h1, h2, h3";
+
+function getOutlineHeadingElements(root: HTMLElement): HTMLElement[] {
+  return Array.from(root.querySelectorAll<HTMLElement>(OUTLINE_HEADING_SELECTOR)).filter((element) => Boolean(element.textContent?.trim()));
+}
 
 function isImageFile(file: File) {
   return /^image\/(?:jpeg|png|webp|gif)$/u.test(file.type) || /\.(?:jpe?g|png|webp|gif)$/iu.test(file.name);
@@ -130,6 +135,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   const typewriterAnimRef = useRef<number | null>(null);
   const typewriterTargetRef = useRef<number | null>(null);
   const outlineFallbackSyncRef = useRef<(() => void) | null>(null);
+  const outlineHeadingElementsRef = useRef(new Map<string, HTMLElement>());
 
   const uploadImageFiles = useCallback(async (files: File[]) => {
     const editorInstance = editorInstanceRef.current;
@@ -170,10 +176,22 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     const nextStats = countEditorText(editorText);
     setEditorStats((current) => current.wordCount === nextStats.wordCount && current.characterCount === nextStats.characterCount ? current : nextStats);
 
-    const headings = Array.from(instance.view.dom.querySelectorAll<HTMLElement>("h1, h2, h3"))
-      .map((element) => ({ level: Number(element.tagName.slice(1)) as 1 | 2 | 3, title: element.textContent?.trim() ?? "" }))
-      .filter((heading) => heading.title.length > 0);
-    const nextItems = buildOutlineItems(headings);
+    const headingElements = Array.from(instance.view.dom.querySelectorAll<HTMLElement>(OUTLINE_HEADING_SELECTOR));
+    const outlineHeadingElements = headingElements.filter((element) => Boolean(element.textContent?.trim()));
+    const generatedItems = buildOutlineItems(outlineHeadingElements.map((element) => ({ level: Number(element.tagName.slice(1)) as 1 | 2 | 3, title: element.textContent?.trim() ?? "" })));
+    const previousIds = new Map<HTMLElement, string>();
+    for (const [id, element] of outlineHeadingElementsRef.current) previousIds.set(element, id);
+    const usedIds = new Set<string>();
+    const nextItems = generatedItems.map((item, index) => {
+      const previousId = previousIds.get(outlineHeadingElements[index]);
+      const baseId = previousId ?? item.id;
+      let id = baseId;
+      let suffix = 2;
+      while (usedIds.has(id)) id = `${baseId}-${suffix++}`;
+      usedIds.add(id);
+      return id === item.id ? item : { ...item, id };
+    });
+    outlineHeadingElementsRef.current = new Map(nextItems.map((item, index) => [item.id, outlineHeadingElements[index]] as const));
     onOutlineItemsChange(nextItems);
   };
   const scheduleEditorSurfaceSync = (instance: Editor) => {
@@ -598,12 +616,13 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     if (!root || outlineItems.length === 0) return false;
 
     const { $from } = instance.state.selection;
-    const currentHeadings = Array.from(root.querySelectorAll<HTMLElement>("h1, h2, h3")).filter((heading) => heading.textContent?.trim());
     for (let depth = $from.depth; depth > 0; depth -= 1) {
       if ($from.node(depth).type.name !== "heading") continue;
       const headingDom = instance.view.nodeDOM($from.before(depth));
-      if (!(headingDom instanceof HTMLElement)) return false;
-      const item = outlineItems[currentHeadings.indexOf(headingDom)];
+      const headingElement = headingDom instanceof HTMLElement ? headingDom.closest<HTMLElement>(OUTLINE_HEADING_SELECTOR) : null;
+      if (!headingElement || !root.contains(headingElement)) return false;
+      const item = outlineItems.find((candidate) => outlineHeadingElementsRef.current.get(candidate.id) === headingElement)
+        ?? outlineItems[getOutlineHeadingElements(root).indexOf(headingElement)];
       if (!item) return false;
       onOutlineActiveChange(item.id);
       return true;
@@ -729,6 +748,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     onOutlineItemsChange([]);
     onOutlineActiveChange(null);
     onOutlineNavigationReady(null);
+    outlineHeadingElementsRef.current.clear();
     setEditorStats(countEditorText(""));
     editor.commands.setContent(note.contentMarkdown, { contentType: "markdown", emitUpdate: false });
     editorScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
@@ -836,7 +856,19 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     }
 
     let activeFrame: number | null = null;
-    const getCurrentHeadings = () => Array.from(root.querySelectorAll<HTMLElement>("h1, h2, h3")).filter((heading) => heading.textContent?.trim());
+    const getCurrentHeadings = () => {
+      const domHeadings = getOutlineHeadingElements(root);
+      const headings = new Map<string, HTMLElement>();
+      for (const [index, item] of outlineItems.entries()) {
+        const mappedElement = outlineHeadingElementsRef.current.get(item.id);
+        const element = mappedElement && root.contains(mappedElement) ? mappedElement : domHeadings[index];
+        if (element) {
+          headings.set(item.id, element);
+          if (mappedElement !== element) outlineHeadingElementsRef.current.set(item.id, element);
+        }
+      }
+      return headings;
+    };
     const updateActiveHeading = () => {
       if (programmaticOutlineScrollIdRef.current) return;
       const currentHeadings = getCurrentHeadings();
@@ -844,8 +876,8 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       const activationLine = rootTop + 32;
       let currentId: string | null = null;
       const maxScrollTop = Math.max(0, root.scrollHeight - root.clientHeight);
-      for (const [index, item] of outlineItems.entries()) {
-        const element = currentHeadings[index];
+      for (const item of outlineItems) {
+        const element = currentHeadings.get(item.id);
         if (element && element.getBoundingClientRect().top <= activationLine) currentId = item.id;
         else if (currentId) break;
       }
@@ -864,8 +896,9 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     };
     outlineFallbackSyncRef.current = scheduleActiveHeading;
 
-    const handleUserScroll = () => {
+    const handleUserScroll = (event?: Event) => {
       cancelOutlineSmoothScroll();
+      if (event?.type === "pointerdown" && event.target instanceof Element && event.target.closest("h1, h2, h3")) return;
       scheduleActiveHeading();
     };
 
@@ -874,8 +907,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       rootMargin: "-12% 0px -68% 0px",
       threshold: [0, 1],
     });
-    for (const [index, element] of getCurrentHeadings().entries()) {
-      if (index >= outlineItems.length) break;
+    for (const element of getCurrentHeadings().values()) {
       observer?.observe(element);
     }
     root.addEventListener("scroll", scheduleActiveHeading, { passive: true });
@@ -899,9 +931,10 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     const scrollRoot = editorScrollRef.current;
     if (!scrollRoot) return;
 
-    const itemIndex = outlineItems.findIndex((item) => item.id === id);
-    const currentHeadings = Array.from(scrollRoot.querySelectorAll<HTMLElement>("h1, h2, h3")).filter((heading) => heading.textContent?.trim());
-    const element = itemIndex >= 0 ? currentHeadings[itemIndex] : undefined;
+    const mappedElement = outlineHeadingElementsRef.current.get(id);
+    const element = mappedElement && scrollRoot.contains(mappedElement)
+      ? mappedElement
+      : getOutlineHeadingElements(scrollRoot)[outlineItems.findIndex((item) => item.id === id)];
     if (!element) return;
 
     cancelOutlineSmoothScroll();
