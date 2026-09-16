@@ -1,3 +1,5 @@
+@import url("https://cdn.jsdelivr.net/npm/@callmebill/lxgw-wenkai-web@latest/style.css");
+
 :root {
   color: #202621;
   background: #f6f4ef;
@@ -284,7 +286,7 @@ button.save-status:hover { text-decoration: underline; }
 .editor-panel .note-title-input,
 .editor-panel .note-prose,
 .share-prose {
-  font-family: "霞鹜文楷", "LXGW WenKai", system-ui;
+  font-family: "LXGW WenKai", system-ui, sans-serif;
   font-synthesis: weight;
   font-size-adjust: from-font;
 }
