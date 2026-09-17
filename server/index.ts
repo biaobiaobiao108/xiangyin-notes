@@ -697,7 +697,7 @@ function updateNoteInTransaction(
   syncNoteLinks(database, userId, current.id, contentMarkdown, updatedAt);
 
   if (titleChanged && oldTitle.trim() && title.trim()) {
-    const referencingSourceNoteIds = sourceNoteIdsReferencingTarget(database, userId, current.id, oldTitle);
+    const referencingSourceNoteIds = sourceNoteIdsReferencingTarget(database, userId, current.id);
     for (const sourceNoteId of referencingSourceNoteIds) {
       const refNote = getNote(database, userId, sourceNoteId);
       if (!refNote) continue;
@@ -949,8 +949,9 @@ async function handleApi(request: Request, options: ServerOptions) {
     const tagQuery = parseTagQuery(query);
     if (query && !tagQuery) {
       if (/[\u3400-\u9fff]/u.test(query)) {
-        conditions.push("(n.title LIKE ? OR n.content_markdown LIKE ?)");
-        params.push(`%${query}%`, `%${query}%`);
+        const escapedQuery = escapeLikePattern(query);
+        conditions.push("(n.title LIKE ? ESCAPE '!' OR n.content_markdown LIKE ? ESCAPE '!')");
+        params.push(`%${escapedQuery}%`, `%${escapedQuery}%`);
       } else {
         const ftsQuery = buildFtsQuery(query);
         // Without any searchable term the query must match nothing, not fall back to listing every note.
@@ -1009,6 +1010,7 @@ async function handleApi(request: Request, options: ServerOptions) {
       const rows = all<{ id: string; note_id: string; created_at: number; expires_at: number; revoked_at: number | null }>(database, "SELECT id, note_id, created_at, expires_at, revoked_at FROM shares WHERE note_id = ? AND user_id = ? ORDER BY created_at DESC", note.id, user.id);
       return json({ shares: rows.map(toShare) });
     }
+    const publicOrigin = getPublicOrigin(url, environment);
     const createdAt = now();
     const expiresAt = createdAt + SHARE_TTL;
     const shareId = crypto.randomUUID();
@@ -1018,7 +1020,7 @@ async function handleApi(request: Request, options: ServerOptions) {
       database.query("INSERT INTO shares (id, note_id, user_id, token_hash, created_at, expires_at, snapshot_title, snapshot_content_markdown) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(shareId, note.id, user.id, tokenHash, createdAt, expiresAt, note.title, rewriteAssetUrlsForShare(note.content_markdown, token));
     });
     transaction();
-    const share: Share = { id: shareId, noteId: note.id, expiresAt, revokedAt: null, createdAt, url: `${getPublicOrigin(url, environment)}/share/${token}` };
+    const share: Share = { id: shareId, noteId: note.id, expiresAt, revokedAt: null, createdAt, url: `${publicOrigin}/share/${token}` };
     return json({ share }, 201);
   }
 
@@ -1031,7 +1033,7 @@ async function handleApi(request: Request, options: ServerOptions) {
       FROM note_links nl
       JOIN notes n ON nl.source_note_id = n.id AND n.user_id = nl.user_id
       JOIN notebooks nb ON n.notebook_id = nb.id
-      WHERE nl.user_id = ? AND (nl.target_note_id = ? OR nl.target_title = ?) AND nl.source_note_id != ? AND n.deleted_at IS NULL
+      WHERE nl.user_id = ? AND nl.target_note_id = ? AND nl.source_note_id != ? AND n.deleted_at IS NULL
       ORDER BY n.updated_at DESC
       LIMIT ?
     `);
@@ -1041,7 +1043,6 @@ async function handleApi(request: Request, options: ServerOptions) {
     for (const row of linkedRows.iterate(
       user.id,
       note.id,
-      note.title,
       note.id,
       BACKLINK_REFERENCE_LIMIT + 1,
     ) as Iterable<{

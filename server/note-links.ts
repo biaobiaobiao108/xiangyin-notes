@@ -104,15 +104,13 @@ export function resolveNoteLinksForTarget(database: SqliteDatabase, userId: stri
   }
 }
 
-export function sourceNoteIdsReferencingTarget(database: SqliteDatabase, userId: string, targetNoteId: string, oldTitle: string) {
-  const normalizedOldTitle = normalizeLinkTitle(oldTitle);
+export function sourceNoteIdsReferencingTarget(database: SqliteDatabase, userId: string, targetNoteId: string) {
   const rows = all<Pick<NoteLinkRow, "source_note_id" | "target_title" | "target_note_id">>(
     database,
-    "SELECT source_note_id, target_title, target_note_id FROM note_links WHERE user_id = ? AND source_note_id != ?",
+    "SELECT source_note_id, target_title, target_note_id FROM note_links WHERE user_id = ? AND target_note_id = ? AND source_note_id != ?",
     userId,
     targetNoteId,
+    targetNoteId,
   );
-  return [...new Set(rows
-    .filter((row) => row.target_note_id === targetNoteId || normalizeLinkTitle(row.target_title) === normalizedOldTitle)
-    .map((row) => row.source_note_id))];
+  return [...new Set(rows.map((row) => row.source_note_id))];
 }

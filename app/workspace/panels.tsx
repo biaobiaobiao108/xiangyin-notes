@@ -98,9 +98,17 @@ export function NoteOutlinePanel({ outlineItems, activeOutlineId, onScrollToOutl
   </aside>;
 }
 
+const SORT_OPTIONS: Array<{ value: NoteSort; label: string }> = [
+  { value: "updated", label: "最近更新" },
+  { value: "created", label: "创建时间" },
+  { value: "title", label: "标题排序" },
+];
+
 export const NoteListPanel = memo(function NoteListPanel({ notes, total, sort, setSort, selectedId, onSelect, view, query, currentNotebookName, onNewNote, onEmptyTrash, trashBusy, onClearQuery, mobileOpen, onOpenSidebar, transitionToken, outlineOpen, outlineItems, activeOutlineId, onScrollToOutlineItem, onCloseOutline }: { notes: NoteSummary[]; total: number; sort: NoteSort; setSort: (sort: NoteSort) => void; selectedId: string | null; onSelect: (id: string) => void; view: NoteView; query: string; currentNotebookName?: string; onNewNote?: () => void; onEmptyTrash?: () => void; trashBusy: boolean; onClearQuery: () => void; onOpenSidebar: () => void; transitionToken: number; mobileOpen: boolean; outlineOpen: boolean; outlineItems: OutlineItem[]; activeOutlineId: string | null; onScrollToOutlineItem: (id: string) => void; onCloseOutline: () => void }) {
   const [sortOpen, setSortOpen] = useState(false);
   const sortRef = useRef<HTMLDivElement>(null);
+  const sortTriggerRef = useRef<HTMLButtonElement>(null);
+  const sortOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const noteListRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLElement>(null);
 
@@ -114,22 +122,54 @@ export const NoteListPanel = memo(function NoteListPanel({ notes, total, sort, s
 
   useEffect(() => {
     if (!sortOpen) return;
+    const selectedOptionIndex = Math.max(0, SORT_OPTIONS.findIndex((option) => option.value === sort));
+    const focusFrame = requestAnimationFrame(() => sortOptionRefs.current[selectedOptionIndex]?.focus());
+    const closeSortMenu = () => {
+      setSortOpen(false);
+      requestAnimationFrame(() => sortTriggerRef.current?.focus());
+    };
     const onPointerDown = (event: PointerEvent) => {
-      if (event.target instanceof Node && !sortRef.current?.contains(event.target)) setSortOpen(false);
+      if (event.target instanceof Node && !sortRef.current?.contains(event.target)) closeSortMenu();
     };
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setSortOpen(false);
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeSortMenu();
+      }
     };
     document.addEventListener("pointerdown", onPointerDown, true);
     document.addEventListener("keydown", onKeyDown);
     return () => {
+      cancelAnimationFrame(focusFrame);
       document.removeEventListener("pointerdown", onPointerDown, true);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [sortOpen]);
+  }, [sort, sortOpen]);
+
+  const closeSortMenu = () => {
+    setSortOpen(false);
+    requestAnimationFrame(() => sortTriggerRef.current?.focus());
+  };
+  const handleSortOptionKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowRight") {
+      event.preventDefault();
+      sortOptionRefs.current[(index + 1) % SORT_OPTIONS.length]?.focus();
+    } else if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
+      event.preventDefault();
+      sortOptionRefs.current[(index + SORT_OPTIONS.length - 1) % SORT_OPTIONS.length]?.focus();
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      sortOptionRefs.current[0]?.focus();
+    } else if (event.key === "End") {
+      event.preventDefault();
+      sortOptionRefs.current[SORT_OPTIONS.length - 1]?.focus();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      closeSortMenu();
+    }
+  };
 
   const sortedNotes = useMemo(() => sortNotes(notes, sort), [notes, sort]);
-  const sortLabels: Record<NoteSort, string> = { updated: "最近更新", created: "创建时间", title: "标题排序" };
   const heading = query ? "搜索结果" : currentNotebookName ?? viewLabel(view);
   const truncated = total > notes.length;
   return <section ref={panelRef} className={`note-list-panel ${mobileOpen ? "is-mobile-open" : ""} ${outlineOpen ? "is-outline-open" : ""}`} aria-label={outlineOpen ? "笔记大纲" : "笔记列表"}>
@@ -142,8 +182,13 @@ export const NoteListPanel = memo(function NoteListPanel({ notes, total, sort, s
           {onEmptyTrash && <button className="text-button text-danger empty-trash-button" type="button" onClick={onEmptyTrash} disabled={trashBusy || total === 0}><Trash2 size={15} aria-hidden="true" />清空回收站</button>}
           {onNewNote && <button className="icon-button list-new-note-button" type="button" aria-label={`在${currentNotebookName}中新建笔记`} title={`在${currentNotebookName}中新建笔记`} onClick={onNewNote}><Plus size={18} /></button>}
           <div className="sort-menu-wrap" ref={sortRef}>
-            <button className="sort-button" type="button" aria-haspopup="listbox" aria-expanded={sortOpen} onClick={() => setSortOpen((open) => !open)}>{sortLabels[sort]} <ChevronDown size={15} /></button>
-            {sortOpen && <div className="sort-dropdown" role="listbox" aria-label="笔记排序方式"><button type="button" className={`sort-option ${sort === "updated" ? "is-active" : ""}`} onClick={() => { setSort("updated"); setSortOpen(false); }}>最近更新</button><button type="button" className={`sort-option ${sort === "created" ? "is-active" : ""}`} onClick={() => { setSort("created"); setSortOpen(false); }}>创建时间</button><button type="button" className={`sort-option ${sort === "title" ? "is-active" : ""}`} onClick={() => { setSort("title"); setSortOpen(false); }}>标题排序</button></div>}
+            <button ref={sortTriggerRef} id="note-sort-trigger" className="sort-button" type="button" aria-haspopup="listbox" aria-controls="note-sort-options" aria-expanded={sortOpen} onClick={() => setSortOpen((open) => !open)}>{SORT_OPTIONS.find((option) => option.value === sort)?.label} <ChevronDown size={15} /></button>
+            {sortOpen && <div id="note-sort-options" className="sort-dropdown" role="listbox" aria-label="笔记排序方式">
+              {SORT_OPTIONS.map((option, index) => {
+                const isSelected = sort === option.value;
+                return <button ref={(element) => { sortOptionRefs.current[index] = element; }} id={`note-sort-option-${option.value}`} key={option.value} type="button" className={`sort-option ${isSelected ? "is-active" : ""}`} role="option" aria-selected={isSelected} tabIndex={isSelected ? 0 : -1} onClick={() => { setSort(option.value); closeSortMenu(); }} onKeyDown={(event) => handleSortOptionKeyDown(event, index)}>{option.label}</button>;
+              })}
+            </div>}
           </div>
         </div>
       </header>

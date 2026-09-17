@@ -147,6 +147,50 @@ describe("Note links, backlinks, and renaming cascade", () => {
     expect(backlinksB3.body?.linkedReferences[0].sourceNoteId).toBe(noteC.id);
   });
 
+  test("keeps duplicate-title links bound to their original target during a rename", async () => {
+    const auth = await request("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "owner", password: "a long passphrase 1234" }),
+    });
+    const cookie = auth.cookie!;
+
+    const firstResponse = await request("/api/notes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "重复标题", contentMarkdown: "原始目标" }),
+    }, cookie);
+    const first = firstResponse.body?.note as Note;
+    const sourceResponse = await request("/api/notes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "链接来源", contentMarkdown: "请查看 [[重复标题]]。" }),
+    }, cookie);
+    const source = sourceResponse.body?.note as Note;
+    const duplicateResponse = await request("/api/notes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "重复标题", contentMarkdown: "第二个目标" }),
+    }, cookie);
+    const duplicate = duplicateResponse.body?.note as Note;
+
+    expect(database.query("SELECT target_note_id FROM note_links WHERE source_note_id = ?").get(source.id)).toEqual({ target_note_id: first.id });
+
+    const renamed = await request(`/api/notes/${duplicate.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ version: duplicate.version, title: "重复标题二" }),
+    }, cookie);
+    expect(renamed.response.status).toBe(200);
+
+    const unchangedSource = await request(`/api/notes/${source.id}`, { method: "GET" }, cookie);
+    expect(unchangedSource.body?.note.contentMarkdown).toBe("请查看 [[重复标题]]。");
+    expect(database.query("SELECT target_note_id, target_title FROM note_links WHERE source_note_id = ?").get(source.id)).toEqual({ target_note_id: first.id, target_title: "重复标题" });
+
+    const duplicateBacklinks = await request(`/api/notes/${duplicate.id}/backlinks`, { method: "GET" }, cookie);
+    expect(duplicateBacklinks.body?.linkedReferences).toHaveLength(0);
+  });
+
   test("matches links with case and space tolerance and links to newly created target note", async () => {
     const auth = await request("/api/auth/login", {
       method: "POST",

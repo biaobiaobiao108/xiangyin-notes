@@ -112,6 +112,12 @@ describe("Bun Server API", () => {
     expect(search.response.status).toBe(200);
     expect(search.body?.notes.map((item: { id: string }) => item.id)).toContain(note.id);
 
+    const wildcardNote = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "检索前缀命中", contentMarkdown: "仅用于验证搜索通配符" }) }, login.cookie);
+    expect(wildcardNote.response.status).toBe(201);
+    const wildcardSearch = await request(`/api/notes?view=all&query=${encodeURIComponent("检索前缀%")}`, {}, login.cookie);
+    expect(wildcardSearch.response.status).toBe(200);
+    expect(wildcardSearch.body).toEqual({ notes: [], total: 0 });
+
     const conflict = await request(`/api/notes/${note.id}`, { method: "PATCH", body: JSON.stringify({ version: 99, title: "stale" }) }, login.cookie);
     expect(conflict.response.status).toBe(409);
     expect(conflict.body?.error.code).toBe("VERSION_CONFLICT");
@@ -478,6 +484,19 @@ describe("Bun Server API", () => {
     const shared = await request(`/api/notes/${note.id}/shares`, { method: "POST", body: "{}" }, login.cookie, publicEnvironment);
     expect(shared.response.status).toBe(201);
     expect(shared.body?.share.url).toMatch(/^https:\/\/notes\.example\.com\/share\/[A-Za-z0-9_-]+$/);
+  });
+
+  test("validates PUBLIC_URL before persisting a share", async () => {
+    const invalidEnvironment = { ...environment, PUBLIC_URL: "not a url" };
+    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) }, undefined, invalidEnvironment);
+    const created = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "Invalid public URL", contentMarkdown: "" }) }, login.cookie, invalidEnvironment);
+    const log = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const shared = await request(`/api/notes/${created.body?.note.id}/shares`, { method: "POST", body: "{}" }, login.cookie, invalidEnvironment);
+      expect(shared.response.status).toBe(500);
+      expect(shared.body?.error.code).toBe("INTERNAL_ERROR");
+    } finally { log.mockRestore(); }
+    expect(database.query("SELECT COUNT(*) AS count FROM shares").get()).toEqual({ count: 0 });
   });
 
   test("keeps active sessions alive while still expiring inactive sessions", async () => {

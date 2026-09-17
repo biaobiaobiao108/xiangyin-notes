@@ -1,10 +1,11 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { forwardRef, useEffect, useId, useImperativeHandle, useRef, useState } from "react";
 import { Extension } from "@tiptap/core";
 import { ReactRenderer } from "@tiptap/react";
 import Suggestion, { type SuggestionKeyDownProps, type SuggestionMatch, type SuggestionOptions } from "@tiptap/suggestion";
 import { FilePlus2, FileText } from "lucide-react";
 import type { NoteSummary } from "../../shared/types";
 import { normalizeLinkTitle } from "../../shared/wiki-links";
+import { FloatingScrollbar } from "../floating-scrollbar";
 
 export function findWikiLinkSuggestionMatch(config: {
   $position: any;
@@ -59,6 +60,7 @@ type WikiLinkSuggestionListProps = {
 export const WikiLinkSuggestionList = forwardRef<WikiLinkSuggestionListRef, WikiLinkSuggestionListProps>((props, ref) => {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const items = props.items;
+  const listboxId = `wiki-link-suggestion-listbox-${useId().replaceAll(":", "")}`;
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -73,6 +75,33 @@ export const WikiLinkSuggestionList = forwardRef<WikiLinkSuggestionListRef, Wiki
       activeItem.scrollIntoView({ block: "nearest" });
     }
   }, [selectedIndex]);
+
+  const activeItemId = items[selectedIndex] ? `${listboxId}-option-${selectedIndex}` : undefined;
+  useEffect(() => {
+    const editorElement = props.editor?.view?.dom as HTMLElement | undefined;
+    if (!editorElement || !items.length) return;
+    const previousAttributes = {
+      activeDescendant: editorElement.getAttribute("aria-activedescendant"),
+      autocomplete: editorElement.getAttribute("aria-autocomplete"),
+      controls: editorElement.getAttribute("aria-controls"),
+      hasPopup: editorElement.getAttribute("aria-haspopup"),
+    };
+    if (activeItemId) editorElement.setAttribute("aria-activedescendant", activeItemId);
+    else editorElement.removeAttribute("aria-activedescendant");
+    editorElement.setAttribute("aria-autocomplete", "list");
+    editorElement.setAttribute("aria-controls", listboxId);
+    editorElement.setAttribute("aria-haspopup", "listbox");
+    return () => {
+      const restore = (attribute: string, value: string | null) => {
+        if (value === null) editorElement.removeAttribute(attribute);
+        else editorElement.setAttribute(attribute, value);
+      };
+      if (editorElement.getAttribute("aria-activedescendant") === activeItemId) restore("aria-activedescendant", previousAttributes.activeDescendant);
+      if (editorElement.getAttribute("aria-autocomplete") === "list") restore("aria-autocomplete", previousAttributes.autocomplete);
+      if (editorElement.getAttribute("aria-controls") === listboxId) restore("aria-controls", previousAttributes.controls);
+      if (editorElement.getAttribute("aria-haspopup") === "listbox") restore("aria-haspopup", previousAttributes.hasPopup);
+    };
+  }, [activeItemId, items.length, listboxId, props.editor]);
 
   const isExecutingRef = useRef(false);
 
@@ -119,46 +148,50 @@ export const WikiLinkSuggestionList = forwardRef<WikiLinkSuggestionListRef, Wiki
   if (!items.length) return null;
 
   return (
-    <div className="wiki-link-suggestion-dropdown" ref={listRef} role="listbox" aria-label="双向链接推荐笔记">
+    <div id={listboxId} className="wiki-link-suggestion-dropdown" role="listbox" aria-label="双向链接推荐笔记" aria-activedescendant={activeItemId}>
       <div className="wiki-link-suggestion-header">
         <span>双向链接至笔记</span>
         <kbd>↵ 确认</kbd>
       </div>
-      <div className="wiki-link-suggestion-list">
-        {items.map((item, index) => {
-          const isSelected = index === selectedIndex;
-          return (
-            <button
-              key={item.isCreate ? `create-${item.title}` : `note-${item.title}`}
-              type="button"
-              className={`wiki-link-item ${isSelected ? "is-selected" : ""} ${item.isCreate ? "is-create" : ""}`}
-              onPointerDown={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                handleSelect(item);
-              }}
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-              }}
-              onMouseEnter={() => setSelectedIndex(index)}
-              role="option"
-              aria-selected={isSelected}
-            >
-              {item.isCreate ? (
-                <FilePlus2 className="wiki-link-item-icon" size={15} />
-              ) : (
-                <FileText className="wiki-link-item-icon" size={15} />
-              )}
-              <span className="wiki-link-item-title">
-                {item.isCreate ? `新建笔记并链接为「${item.title}」` : item.title}
-              </span>
-              {item.notebookName && (
-                <span className="wiki-link-item-meta">{item.notebookName}</span>
-              )}
-            </button>
-          );
-        })}
+      <div className="wiki-link-suggestion-list-shell">
+        <div id={`${listboxId}-scroll-region`} className="wiki-link-suggestion-list floating-scrollbar-target" ref={listRef}>
+          {items.map((item, index) => {
+            const isSelected = index === selectedIndex;
+            return (
+              <button
+                key={item.isCreate ? `create-${item.title}` : `note-${item.title}`}
+                id={`${listboxId}-option-${index}`}
+                type="button"
+                className={`wiki-link-item ${isSelected ? "is-selected" : ""} ${item.isCreate ? "is-create" : ""}`}
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleSelect(item);
+                }}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onMouseEnter={() => setSelectedIndex(index)}
+                role="option"
+                aria-selected={isSelected}
+              >
+                {item.isCreate ? (
+                  <FilePlus2 className="wiki-link-item-icon" size={15} />
+                ) : (
+                  <FileText className="wiki-link-item-icon" size={15} />
+                )}
+                <span className="wiki-link-item-title">
+                  {item.isCreate ? `新建笔记并链接为「${item.title}」` : item.title}
+                </span>
+                {item.notebookName && (
+                  <span className="wiki-link-item-meta">{item.notebookName}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+        <FloatingScrollbar scrollTargetRef={listRef} controlsId={`${listboxId}-scroll-region`} ariaLabel="双向链接推荐笔记滚动条" placement="right" />
       </div>
     </div>
   );
@@ -256,6 +289,13 @@ export const WikiLinkSuggestionExtension = Extension.create<WikiLinkSuggestionOp
         render: () => {
           let component: ReactRenderer<WikiLinkSuggestionListRef> | null = null;
           let popupEl: HTMLDivElement | null = null;
+          let activeClientRect: (() => DOMRect | null) | undefined;
+
+          const updatePositionOnViewportChange = () => updatePosition(activeClientRect);
+          const removeViewportListeners = () => {
+            window.removeEventListener("resize", updatePositionOnViewportChange);
+            window.removeEventListener("scroll", updatePositionOnViewportChange, true);
+          };
 
           const updatePosition = (clientRect: (() => DOMRect | null) | undefined) => {
             if (!popupEl || !clientRect) return;
@@ -282,16 +322,20 @@ export const WikiLinkSuggestionExtension = Extension.create<WikiLinkSuggestionOp
             popupEl.style.top = `${Math.round(top)}px`;
           };
 
+          const destroy = () => {
+            removeViewportListeners();
+            activeClientRect = undefined;
+            if (popupEl) {
+              popupEl.remove();
+              popupEl = null;
+            }
+            component?.destroy();
+            component = null;
+          };
+
           return {
             onStart: (props) => {
-              if (popupEl) {
-                popupEl.remove();
-                popupEl = null;
-              }
-              if (component) {
-                component.destroy();
-                component = null;
-              }
+              destroy();
 
               popupEl = document.createElement("div");
               popupEl.className = "wiki-link-suggestion-container";
@@ -303,30 +347,24 @@ export const WikiLinkSuggestionExtension = Extension.create<WikiLinkSuggestionOp
               });
 
               popupEl.appendChild(component.element);
-              updatePosition(props.clientRect as any);
+              activeClientRect = props.clientRect as any;
+              window.addEventListener("resize", updatePositionOnViewportChange);
+              window.addEventListener("scroll", updatePositionOnViewportChange, true);
+              updatePosition(activeClientRect);
             },
             onUpdate: (props) => {
               component?.updateProps(props);
-              updatePosition(props.clientRect as any);
+              activeClientRect = props.clientRect as any;
+              updatePosition(activeClientRect);
             },
             onKeyDown: (props) => {
               if (props.event.key === "Escape") {
-                popupEl?.remove();
-                popupEl = null;
-                component?.destroy();
-                component = null;
+                destroy();
                 return true;
               }
               return component?.ref?.onKeyDown(props) ?? false;
             },
-            onExit: () => {
-              if (popupEl) {
-                popupEl.remove();
-                popupEl = null;
-              }
-              component?.destroy();
-              component = null;
-            },
+            onExit: destroy,
           };
         },
       }),

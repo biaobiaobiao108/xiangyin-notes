@@ -8,11 +8,13 @@ import { applyPwaUpdate, installPwa, subscribePwa, type PwaState } from "./pwa";
 import type { Note, NoteSummary, NoteView, Notebook } from "../shared/types";
 import type { OutlineItem } from "./editor-metrics";
 import { ConfirmDialog, NotebookDialog, ShareDialog, type ConfirmRequest } from "./workspace/dialogs";
+import { clearAllDraftRecoveries, clearDraftRecovery, readDraftRecovery, writeDraftRecovery } from "./workspace/draft-recovery";
 import { EmptyEditor, NoteListPanel, NoteLoadingState, Sidebar } from "./workspace/panels";
 import { errorMessage, shouldKeepActiveNoteInList, sortNotes, toNoteDraft, type NoteDraft, type NoteSort } from "./workspace/helpers";
 import { normalizeLinkTitle } from "../shared/wiki-links";
 
 const LazyNoteEditor = lazy(() => import("./editor").then(({ NoteEditor }) => ({ default: memo(NoteEditor) })));
+const KEEPALIVE_BODY_MAX_BYTES = 48 * 1024;
 export function Workspace() {
   const navigate = useNavigate();
   const [view, setView] = useState<NoteView>("all");
@@ -53,6 +55,7 @@ export function Workspace() {
   const noteLoadRequestRef = useRef(0);
   const noteAbortRef = useRef<AbortController | null>(null);
   const saveTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const draftRecoveryTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const pendingSavesRef = useRef(new Map<string, NoteDraft>());
   const inFlightSavesRef = useRef(new Map<string, Promise<void>>());
   const failedSavesRef = useRef(new Map<string, unknown>());
@@ -265,6 +268,15 @@ export function Workspace() {
     try {
       const result = await api.getNote(id, { signal: controller.signal });
       if (requestId !== noteLoadRequestRef.current || activeNoteIdRef.current !== id) return;
+      if (!pendingSavesRef.current.has(id)) {
+        const recoveredDraft = readDraftRecovery(id);
+        if (recoveredDraft?.version === result.note.version) {
+          pendingSavesRef.current.set(id, recoveredDraft);
+          setToast("已恢复一份未保存草稿");
+        } else if (recoveredDraft) {
+          clearDraftRecovery(id);
+        }
+      }
       const latestPendingNote = pendingSavesRef.current.get(id);
       const nextNote = latestPendingNote ? { ...result.note, ...latestPendingNote } : result.note;
       selectedRef.current = nextNote;
@@ -365,11 +377,18 @@ export function Workspace() {
           const draft = pendingSavesRef.current.get(noteId)!;
           const base = selectedRef.current?.id === noteId ? selectedRef.current : notesRef.current.find((note) => note.id === noteId);
           if (!base) throw new Error("note-not-loaded");
-          const result = await api.updateNote(noteId, { version: base.version, title: draft.title, contentMarkdown: draft.contentMarkdown, notebookId: draft.notebookId, isFavorite: draft.isFavorite, deleted: Boolean(draft.deletedAt) }, { keepalive });
+          const payload = { version: base.version, title: draft.title, contentMarkdown: draft.contentMarkdown, notebookId: draft.notebookId, isFavorite: draft.isFavorite, deleted: Boolean(draft.deletedAt) };
+          const keepaliveRequest = keepalive && new TextEncoder().encode(JSON.stringify(payload)).byteLength <= KEEPALIVE_BODY_MAX_BYTES;
+          const result = await api.updateNote(noteId, payload, { keepalive: keepaliveRequest });
           const latest = pendingSavesRef.current.get(noteId);
           const next = latest && latest !== draft ? { ...result.note, ...latest, version: result.note.version } : undefined;
           if (next) pendingSavesRef.current.set(noteId, next);
           else pendingSavesRef.current.delete(noteId);
+          const recoveryTimer = draftRecoveryTimersRef.current.get(noteId);
+          if (recoveryTimer) clearTimeout(recoveryTimer);
+          draftRecoveryTimersRef.current.delete(noteId);
+          if (next) writeDraftRecovery(next);
+          else clearDraftRecovery(noteId);
           failedSavesRef.current.delete(noteId);
           replaceList(notesRef.current.map((note) => note.id === noteId ? { ...note, ...result.note, ...next } : note));
           if (activeNoteIdRef.current === noteId) {
@@ -394,6 +413,14 @@ export function Workspace() {
     const pendingDraft = toNoteDraft(draft);
     pendingSavesRef.current.set(pendingDraft.id, pendingDraft);
     if (activeNoteIdRef.current === pendingDraft.id) setSaveState("saving");
+    const existingRecoveryTimer = draftRecoveryTimersRef.current.get(pendingDraft.id);
+    if (existingRecoveryTimer) clearTimeout(existingRecoveryTimer);
+    const recoveryTimer = setTimeout(() => {
+      draftRecoveryTimersRef.current.delete(pendingDraft.id);
+      const latestDraft = pendingSavesRef.current.get(pendingDraft.id);
+      if (latestDraft) writeDraftRecovery(latestDraft);
+    }, 1200);
+    draftRecoveryTimersRef.current.set(pendingDraft.id, recoveryTimer);
     const existingTimer = saveTimersRef.current.get(pendingDraft.id);
     if (existingTimer) clearTimeout(existingTimer);
     const timer = setTimeout(() => {
@@ -417,6 +444,9 @@ export function Workspace() {
   }, [runSave]);
   // Keeps in-flight edits from being lost when the page is hidden or unloaded.
   const flushPendingSaves = useCallback(async (mode: "now" | "keepalive") => {
+    if (mode === "keepalive") {
+      for (const draft of pendingSavesRef.current.values()) writeDraftRecovery(draft);
+    }
     const ids = [...pendingSavesRef.current.keys()];
     if (!ids.length) return;
     await Promise.all(ids.map(async (id) => {
@@ -437,7 +467,7 @@ export function Workspace() {
     await Promise.all(ids.map((id) => runSave(id).catch(() => undefined)));
   }, [runSave]);
   useEffect(() => {
-    const flushWhenHidden = () => { if (document.visibilityState === "hidden") void flushPendingSaves("now"); };
+    const flushWhenHidden = () => { if (document.visibilityState === "hidden") void flushPendingSaves("keepalive"); };
     const flushWhenUnloading = () => { void flushPendingSaves("keepalive"); };
     document.addEventListener("visibilitychange", flushWhenHidden);
     window.addEventListener("pagehide", flushWhenUnloading);
@@ -452,9 +482,12 @@ export function Workspace() {
     return () => window.removeEventListener("online", retryWhenOnline);
   }, [retryFailedSaves]);
   useEffect(() => () => {
+    for (const draft of pendingSavesRef.current.values()) writeDraftRecovery(draft);
     void flushPendingSaves("keepalive");
     for (const timer of saveTimersRef.current.values()) clearTimeout(timer);
     saveTimersRef.current.clear();
+    for (const timer of draftRecoveryTimersRef.current.values()) clearTimeout(timer);
+    draftRecoveryTimersRef.current.clear();
   }, [flushPendingSaves]);
   const onNoteChange = useCallback((patch: { title?: string; contentMarkdown?: string; notebookId?: string }) => {
     const current = selectedRef.current;
@@ -520,6 +553,7 @@ export function Workspace() {
     selectedRef.current = note;
     activeNoteIdRef.current = note.id;
     pendingSavesRef.current.delete(note.id);
+    clearDraftRecovery(note.id);
     setEditorFocusNoteId(note.id);
     setSelectedId(note.id);
     setMobileSidebarOpen(false);
@@ -664,6 +698,10 @@ export function Workspace() {
     const timer = saveTimersRef.current.get(noteId);
     if (timer) clearTimeout(timer);
     saveTimersRef.current.delete(noteId);
+    const recoveryTimer = draftRecoveryTimersRef.current.get(noteId);
+    if (recoveryTimer) clearTimeout(recoveryTimer);
+    draftRecoveryTimersRef.current.delete(noteId);
+    clearDraftRecovery(noteId);
   }, []);
   const performPermanentDelete = useCallback(async (noteId: string) => {
     if (trashOperationsRef.current.has(noteId) || emptyingTrashRef.current) throw new ApiError(409, "TRASH_BUSY", "回收站正在处理其他操作，请稍后重试");
@@ -837,6 +875,7 @@ export function Workspace() {
       return;
     }
     await api.logout().catch(() => undefined);
+    clearAllDraftRecoveries();
     navigate("/login", { replace: true });
   }, [flushPendingSaves, navigate]);
   const updatePwa = useCallback(async () => {
