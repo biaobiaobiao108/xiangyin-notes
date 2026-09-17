@@ -110,6 +110,8 @@ Copy-Item .env.example .env
 ```dotenv
 XIANGYING_USERNAME=xiangying
 XIANGYING_PASSWORD=请替换为至少12位的密码
+# 如果要使用快捷指令导入，再设置一个随机 Token
+XIANGYING_API_TOKEN=请替换为随机的API Token
 DATABASE_PATH=./data/xiangying-notes.sqlite
 ASSETS_PATH=./data/attachments
 HOST=0.0.0.0
@@ -163,6 +165,7 @@ ghcr.io/biaobiaobiao108/xiangying-notes
 ```dotenv
 XIANGYING_USERNAME=xiangying
 XIANGYING_PASSWORD=请替换为至少12位的生产密码
+XIANGYING_API_TOKEN=请替换为随机的API Token
 PUBLIC_URL=https://notes.example.com
 TRUST_PROXY=true
 COOKIE_SECURE=true
@@ -230,12 +233,45 @@ docker run --rm \
 
 回滚时把 `latest` 替换为需要的版本 tag，并继续使用同一个 `xiangying-notes-data` 数据卷。
 
+## 快捷指令 API 导入
+
+配置 `XIANGYING_API_TOKEN` 后，可以通过公网反向代理后的域名调用：
+
+```text
+POST https://notes.example.com/api/import
+Authorization: Bearer <XIANGYING_API_TOKEN>
+Content-Type: text/markdown
+```
+
+请求正文可以直接是 Markdown：
+
+```markdown
+# 今日记录
+
+这是从 iPhone 或 Mac 快捷指令导入的内容。
+```
+
+也可以发送 JSON：
+
+```json
+{"contentMarkdown":"# 今日记录\n\n这是导入的内容。"}
+```
+
+快捷指令中的“获取 URL 内容”建议设置为：方法 `POST`，请求头包含 `Authorization` 和 `Content-Type: text/markdown`，请求体选择快捷指令输入。`text/plain` 也会按 Markdown 正文处理。
+
+每次导入都会在“收件箱”中新建一篇笔记，标题由服务端生成，格式为 `快捷导入 YYYY-MM-DD HH:mm:ss`（上海时间）。接口返回 `201` 和新笔记摘要。当前不提供幂等键，网络重试可能产生重复笔记。
+
+反向代理需要保留 `Authorization` 请求头和请求体，并将请求体大小限制设置为至少 5 MB。应直接使用 HTTPS 公网地址调用，不要把 Token 放到 URL 查询参数中；服务部署在域名根路径，接口路径固定为 `/api/import`。
+
+Markdown 中允许使用 `https://` 外部图片地址和应用内部附件地址。服务端不会下载或代理外部图片，图片由打开笔记的浏览器直接请求；外部图片可能失效，也可能向第三方泄露访问者的网络信息。
+
 ## 配置项
 
 | 配置项 | 必需 | 说明 |
 | --- | --- | --- |
 | `XIANGYING_USERNAME` | 是 | 登录用户名，长度为 3–32 个字符 |
 | `XIANGYING_PASSWORD` | 是 | 登录密码，长度为 12–128 个字符 |
+| `XIANGYING_API_TOKEN` | 否 | 快捷指令导入 API 的 Bearer Token；建议使用 `openssl rand -hex 32` 生成 |
 | `DATABASE_PATH` | 否 | SQLite 数据库路径，默认 `./data/xiangying-notes.sqlite`；Docker 中默认 `/data/xiangying-notes.sqlite` |
 | `ASSETS_PATH` | 否 | 图片附件目录，未设置时使用数据库所在目录旁的 `attachments`；Docker 中默认 `/data/attachments` |
 | `HOST` | 否 | 服务监听地址，默认 `0.0.0.0` |
@@ -244,13 +280,15 @@ docker run --rm \
 | `TRUST_PROXY` | 否 | 仅在服务位于可信反向代理后时设为 `true`，用于读取代理写入的客户端 IP 转发头 |
 | `COOKIE_SECURE` | 否 | HTTPS 部署时设置为 `true`；本机 HTTP 使用 `false` |
 
-`PUBLIC_URL` 只填写公网根地址，不要在末尾添加 `/app` 或其他路径。不要在服务直接暴露公网时启用 `TRUST_PROXY`；启用后应由可信代理覆盖 `X-Forwarded-For` 或 `X-Real-IP`。`.env`、SQLite 数据库和分享 token 都不应提交到 Git 仓库。
+`PUBLIC_URL` 只填写公网根地址，不要在末尾添加 `/app` 或其他路径。不要在服务直接暴露公网时启用 `TRUST_PROXY`；启用后应由可信代理覆盖 `X-Forwarded-For` 或 `X-Real-IP`。`.env`、SQLite 数据库、API Token 和分享 token 都不应提交到 Git 仓库。修改 API Token 后需要重启或重新创建容器。
 
 ## 数据、隐私与安全
 
 - 象映笔记是单用户应用，账号凭据只通过运行时环境变量注入。
 - 服务端笔记正文和图片元数据保存在 SQLite 中，图片二进制保存在附件目录；默认分别为 `data/xiangying-notes.sqlite` 和 `data/attachments`，Docker 部署时都保存在 `/data` 数据卷。
 - 分享链接是公开链接，拿到链接的人可以阅读对应的只读快照，直到链接过期或被撤销。
+- 快捷指令 API 只接受 `Authorization: Bearer ...`，不会使用网页 Cookie 认证；API Token 缺失时导入接口处于未配置状态。
+- 外部图片仅允许 HTTPS，图片请求由访问者浏览器直接发出，分享页面也会遵循这一规则。
 - 生产部署建议使用 HTTPS，并设置 `COOKIE_SECURE=true`。
 - 备份时请同时考虑 SQLite 的 `-wal` 和 `-shm` 文件以及整个附件目录；应用运行期间不要直接复制正在使用的数据库文件，建议先停服或使用 SQLite 在线备份方式。
 - 当前版本不提供多人实时协作、公开注册或多租户隔离能力。

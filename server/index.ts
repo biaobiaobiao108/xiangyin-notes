@@ -21,6 +21,8 @@ const BACKLINK_SCAN_CHAR_LIMIT = 8 * 1024 * 1024;
 const NOTE_PREVIEW_LIMIT = 180;
 const NOTE_PREVIEW_SCAN_LIMIT = NOTE_PREVIEW_LIMIT + 64;
 const NOTE_BODY_MAX_BYTES = 4_500_000;
+const NOTE_CONTENT_MAX_LENGTH = 1_000_000;
+const IMPORT_API_PATH = "/api/import";
 const LOGIN_WINDOW_SECONDS = 15 * 60;
 const LOGIN_MAX_FAILURES = 8;
 const LOGIN_BLOCK_SECONDS = 15 * 60;
@@ -261,6 +263,46 @@ function getAuthCredentials(environment: RuntimeEnvironment): AuthCredentials | 
   return { username: environment.XIANGYING_USERNAME, password: environment.XIANGYING_PASSWORD };
 }
 
+function getApiToken(environment: RuntimeEnvironment) {
+  const token = environment.XIANGYING_API_TOKEN?.trim();
+  return token || null;
+}
+
+function bearerToken(request: Request) {
+  const header = request.headers.get("Authorization")?.trim();
+  if (!header) return null;
+  const match = /^Bearer\s+(\S+)$/iu.exec(header);
+  return match?.[1] ?? null;
+}
+
+function requireApiToken(request: Request, environment: RuntimeEnvironment) {
+  const expectedToken = getApiToken(environment);
+  if (!expectedToken) return jsonError(503, "API_AUTH_NOT_CONFIGURED", "请先配置 XIANGYING_API_TOKEN");
+
+  const suppliedToken = bearerToken(request);
+  if (!suppliedToken || !constantTimeEqual(suppliedToken, expectedToken)) {
+    return jsonError(401, "INVALID_API_TOKEN", "API Token 无效或缺失", undefined, {
+      "WWW-Authenticate": 'Bearer realm="xiangying-import"',
+    });
+  }
+  return null;
+}
+
+function formatImportTitle(timestamp: number) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(timestamp * 1000));
+  const value = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+  return `快捷导入 ${value("year")}-${value("month")}-${value("day")} ${value("hour")}:${value("minute")}:${value("second")}`;
+}
+
 function assetRootFromEnv(environment: RuntimeEnvironment) {
   const configured = environment.ASSETS_PATH?.trim();
   if (configured) return resolve(configured);
@@ -312,6 +354,16 @@ function noteImageSources(markdown: string) {
   MARKDOWN_IMAGE_SOURCE_PATTERN.lastIndex = 0;
   for (const match of markdown.matchAll(MARKDOWN_IMAGE_SOURCE_PATTERN)) sources.push(match[1]);
   return sources;
+}
+
+function validNoteImageSource(source: string) {
+  if (PRIVATE_ASSET_SOURCE_PATTERN.test(source)) return true;
+  try {
+    const url = new URL(source);
+    return url.protocol === "https:" && !url.username && !url.password;
+  } catch {
+    return false;
+  }
 }
 
 function rewriteAssetUrlsForShare(markdown: string, token: string) {
@@ -383,6 +435,42 @@ async function readJson<T>(request: Request, maxBytes = 64 * 1024) {
   }
 }
 
+type ReadTextBodyResult =
+  | { ok: true; text: string }
+  | { ok: false; reason: "invalid" | "too-large" };
+
+async function readTextBody(request: Request, maxBytes: number): Promise<ReadTextBodyResult> {
+  try {
+    const declaredLength = Number(request.headers.get("Content-Length"));
+    if (Number.isFinite(declaredLength) && declaredLength > maxBytes) return { ok: false, reason: "too-large" };
+    if (!request.body) return { ok: true, text: "" };
+
+    const reader = request.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    while (true) {
+      const result = await reader.read();
+      if (result.done) break;
+      total += result.value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel();
+        return { ok: false, reason: "too-large" };
+      }
+      chunks.push(result.value);
+    }
+
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return { ok: true, text: new TextDecoder("utf-8", { fatal: true }).decode(bytes) };
+  } catch {
+    return { ok: false, reason: "invalid" };
+  }
+}
+
 function cleanupExpiredSessions(database: SqliteDatabase) {
   const timestamp = now();
   if (timestamp < nextSessionCleanupAt) return;
@@ -430,7 +518,7 @@ function resetLoginAttempt(key: string) {
 }
 
 const SECURITY_HEADERS: Record<string, string> = {
-  "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+  "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net; img-src 'self' data: blob: https:; connect-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
   "X-Content-Type-Options": "nosniff",
   "X-Frame-Options": "DENY",
   "Referrer-Policy": "strict-origin-when-cross-origin",
@@ -598,7 +686,7 @@ function isResponse(value: UserRow | Response): value is Response {
 }
 
 function validNoteAssetReferences(database: SqliteDatabase, userId: string, noteId: string | null, contentMarkdown: string) {
-  if (noteImageSources(contentMarkdown).some((source) => !PRIVATE_ASSET_SOURCE_PATTERN.test(source))) return false;
+  if (noteImageSources(contentMarkdown).some((source) => !validNoteImageSource(source))) return false;
   const ids = noteAssetIds(contentMarkdown);
   if (!ids.length) return true;
   const assets = all<Pick<ImageAssetRow, "id" | "note_id">>(database, `SELECT id, note_id FROM image_assets WHERE user_id = ? AND id IN (${ids.map(() => "?").join(",")})`, userId, ...ids);
@@ -804,6 +892,62 @@ function toShare(row: { id: string; note_id: string; created_at: number; expires
   return { id: row.id, noteId: row.note_id, createdAt: row.created_at, expiresAt: row.expires_at, revokedAt: row.revoked_at };
 }
 
+async function importMarkdownNote(request: Request, database: SqliteDatabase, environment: RuntimeEnvironment) {
+  const tokenError = requireApiToken(request, environment);
+  if (tokenError) return tokenError;
+
+  const credentials = getAuthCredentials(environment);
+  if (!credentials) return jsonError(503, "AUTH_NOT_CONFIGURED", "请先配置 XIANGYING_USERNAME 和 XIANGYING_PASSWORD");
+
+  const mediaType = (request.headers.get("Content-Type") ?? "").split(";", 1)[0].trim().toLowerCase();
+  const isJson = mediaType === "application/json";
+  const isMarkdown = mediaType === "text/markdown" || mediaType === "text/plain" || mediaType === "";
+  if (!isJson && !isMarkdown) return jsonError(415, "UNSUPPORTED_MEDIA_TYPE", "只支持 application/json、text/markdown 或 text/plain");
+
+  const body = await readTextBody(request, NOTE_BODY_MAX_BYTES);
+  if (!body.ok) {
+    return body.reason === "too-large"
+      ? jsonError(413, "NOTE_TOO_LARGE", "笔记正文超过大小限制")
+      : jsonError(400, "INVALID_REQUEST_BODY", "请求体不是有效的 UTF-8 文本");
+  }
+
+  let contentMarkdown: string;
+  if (isJson) {
+    try {
+      const payload = JSON.parse(body.text) as { contentMarkdown?: unknown } | null;
+      if (!payload || typeof payload !== "object" || typeof payload.contentMarkdown !== "string") {
+        return jsonError(400, "INVALID_IMPORT_PAYLOAD", "请求体必须包含字符串字段 contentMarkdown");
+      }
+      contentMarkdown = payload.contentMarkdown;
+    } catch {
+      return jsonError(400, "INVALID_JSON", "请求体不是有效的 JSON");
+    }
+  } else {
+    contentMarkdown = body.text;
+  }
+
+  if (!validText(contentMarkdown, NOTE_CONTENT_MAX_LENGTH)) return jsonError(413, "NOTE_TOO_LARGE", "笔记正文超过 1000000 个字符限制");
+  if (!contentMarkdown.trim()) return jsonError(400, "EMPTY_NOTE", "笔记正文不能为空");
+
+  const user = await ensureEnvironmentUser(database, credentials);
+  const inbox = first<{ id: string }>(database, "SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1 LIMIT 1", user.id);
+  if (!inbox) return jsonError(500, "NO_INBOX", "找不到收件箱");
+  if (!validNoteAssetReferences(database, user.id, null, contentMarkdown)) return jsonError(400, "INVALID_ASSET", "笔记包含不支持的图片地址或无权访问的图片");
+
+  const title = formatImportTitle(now());
+  let noteId: string;
+  try {
+    noteId = createNote(database, user.id, inbox.id, title, contentMarkdown);
+  } catch (error) {
+    if (error instanceof InvalidNoteAssetsError || (error instanceof Error && error.message === "invalid-note-assets")) {
+      return jsonError(400, "INVALID_ASSET", "笔记包含不支持的图片地址或无权访问的图片");
+    }
+    throw error;
+  }
+  const note = getNote(database, user.id, noteId);
+  return note ? json({ ok: true, note: toNote(note) }, 201) : jsonError(500, "NOTE_CREATE_FAILED", "笔记创建失败");
+}
+
 async function handleApi(request: Request, options: ServerOptions) {
   const { database, environment, clientAddress } = options;
   const assetRoot = resolve(options.assetRoot ?? assetRootFromEnv(environment));
@@ -878,6 +1022,11 @@ async function handleApi(request: Request, options: ServerOptions) {
     setSessionCookie(headers, request, "", environment, 0);
     headers.set("Clear-Site-Data", '"cookies"');
     return json({ ok: true }, 200, headers);
+  }
+
+  if (url.pathname === IMPORT_API_PATH) {
+    if (method !== "POST") return jsonError(405, "METHOD_NOT_ALLOWED", "导入接口只支持 POST", undefined, { Allow: "POST" });
+    return await importMarkdownNote(request, database, environment);
   }
 
   const user = await requireUser(database, environment, request);
