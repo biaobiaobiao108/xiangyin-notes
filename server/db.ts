@@ -31,7 +31,14 @@ export async function openDatabase(
   if (resolvedPath !== ":memory:") await mkdir(dirname(resolvedPath), { recursive: true });
 
   const database = new Database(resolvedPath, { create: true });
-  database.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;");
+  database.exec(`
+    PRAGMA foreign_keys = ON;
+    PRAGMA journal_mode = WAL;
+    PRAGMA synchronous = NORMAL;
+    PRAGMA busy_timeout = 5000;
+    PRAGMA cache_size = -20000;
+    PRAGMA temp_store = MEMORY;
+  `);
   if (isEmptyDatabase(database)) await applyMigrations(database);
   return database;
 }
