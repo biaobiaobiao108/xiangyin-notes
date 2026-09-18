@@ -250,11 +250,21 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     onOutlineItemsChange(nextItems);
   };
   const scheduleEditorSurfaceSync = (instance: Editor) => {
-    if (syncFrameRef.current !== null) cancelAnimationFrame(syncFrameRef.current);
-    syncFrameRef.current = requestAnimationFrame(() => {
+    const idleWindow = window as Window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    if (syncFrameRef.current !== null) {
+      idleWindow.cancelIdleCallback?.(syncFrameRef.current);
+      window.clearTimeout(syncFrameRef.current);
+    }
+    const run = () => {
       syncFrameRef.current = null;
       syncEditorSurface(instance);
-    });
+    };
+    syncFrameRef.current = idleWindow.requestIdleCallback
+      ? idleWindow.requestIdleCallback(run, { timeout: 120 })
+      : window.setTimeout(run, 80);
   };
 
   const executeBlockShortcut = (view: Editor["view"], from: number, shortcut: MarkdownBlockShortcut): boolean => {
@@ -788,7 +798,11 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     if (!editor) return;
     scheduleEditorSurfaceSync(editor);
     return () => {
-      if (syncFrameRef.current !== null) cancelAnimationFrame(syncFrameRef.current);
+      const idleWindow = window as Window & { cancelIdleCallback?: (handle: number) => void };
+      if (syncFrameRef.current !== null) {
+        idleWindow.cancelIdleCallback?.(syncFrameRef.current);
+        window.clearTimeout(syncFrameRef.current);
+      }
       syncFrameRef.current = null;
       if (imeCleanupTimerRef.current !== null) clearTimeout(imeCleanupTimerRef.current);
       imeCleanupTimerRef.current = null;

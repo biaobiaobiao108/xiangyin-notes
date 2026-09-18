@@ -14,6 +14,7 @@ import {
   type RouteContext,
   SESSION_COOKIE,
   SESSION_TTL,
+  syncNoteTags,
   type SqliteDatabase,
   type UserRow,
   welcomeMarkdown,
@@ -114,6 +115,7 @@ export async function ensureEnvironmentUser(database: SqliteDatabase, credential
       database.query("INSERT INTO users (id, username, password_hash, password_salt, created_at) VALUES (?, ?, ?, ?, ?)").run(userId, credentials.username, password.hash, password.salt, createdAt);
       database.query("INSERT INTO notebooks (id, user_id, name, color, is_system, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, 1, 0, ?, ?)").run(inboxId, userId, "收件箱", "#d96245", createdAt, createdAt);
       database.query("INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)").run(noteId, userId, inboxId, "开始记录你的想法", welcomeMarkdown, createdAt, createdAt);
+      syncNoteTags(database, userId, noteId, welcomeMarkdown);
       database.query("INSERT INTO notes_fts (note_id, title, content) VALUES (?, ?, ?)").run(noteId, "开始记录你的想法", welcomeMarkdown);
     });
     seed();

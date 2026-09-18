@@ -52,7 +52,7 @@ describe("Bun Server API", () => {
   test("automatically initializes a fresh database and does not rerun the baseline", async () => {
     const fresh = await openDatabase(":memory:");
     const migrations = fresh.query("SELECT name FROM schema_migrations ORDER BY name").all() as Array<{ name: string }>;
-    expect(migrations.map((item) => item.name)).toEqual(["0001_baseline.sql"]);
+    expect(migrations.map((item) => item.name)).toEqual(["0001_baseline.sql", "0002_note_tags.sql"]);
     expect(fresh.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'users'").get()).toBeDefined();
     fresh.close();
 
@@ -62,7 +62,7 @@ describe("Bun Server API", () => {
 
     const reopened = await openDatabase(databasePath);
     const appliedMigrations = reopened.query("SELECT name FROM schema_migrations ORDER BY name").all() as Array<{ name: string }>;
-    expect(appliedMigrations.map((item) => item.name)).toEqual(["0001_baseline.sql"]);
+    expect(appliedMigrations.map((item) => item.name)).toEqual(["0001_baseline.sql", "0002_note_tags.sql"]);
     reopened.close();
     await Promise.all([rm(databasePath, { force: true }), rm(`${databasePath}-wal`, { force: true }), rm(`${databasePath}-shm`, { force: true })]);
   });
@@ -70,11 +70,12 @@ describe("Bun Server API", () => {
   test("applies SQLite migrations idempotently and reports health", async () => {
     await applyMigrations(database);
     const migrations = database.query("SELECT name FROM schema_migrations ORDER BY name").all() as Array<{ name: string }>;
-    expect(migrations.map((item) => item.name)).toEqual(["0001_baseline.sql"]);
+    expect(migrations.map((item) => item.name)).toEqual(["0001_baseline.sql", "0002_note_tags.sql"]);
     expect(database.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'sync_%'").all()).toEqual([]);
 
     const health = await request("/api/health");
     expect(health.response.status).toBe(200);
+    expect(health.response.headers.get("Cache-Control")).toBe("no-store");
     expect(health.body).toEqual({ status: "ok", database: "ok" });
   });
 
@@ -312,6 +313,31 @@ describe("Bun Server API", () => {
     expect(await Bun.file(join(assetRoot, stored.storage_path)).exists()).toBe(false);
   });
 
+  test("detaches removed image references without breaking active share snapshots", async () => {
+    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
+    const uploaded = await request("/api/assets", { method: "POST", body: imageForm("shared-remove.png") }, login.cookie);
+    const asset = uploaded.body?.asset;
+    const created = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "可解绑图片", contentMarkdown: `![x](${asset.url})` }) }, login.cookie);
+    const share = await request(`/api/notes/${created.body?.note.id}/shares`, { method: "POST", body: "{}" }, login.cookie);
+    const token = String(share.body?.share.url).split("/share/")[1];
+
+    const removed = await request(`/api/notes/${created.body?.note.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ version: created.body?.note.version, contentMarkdown: "图片已移除" }),
+    }, login.cookie);
+    expect(removed.response.status).toBe(200);
+    expect(database.query("SELECT note_id FROM image_assets WHERE id = ?").get(asset.id)).toEqual({ note_id: created.body?.note.id });
+    expect((await handleRequest(new Request(`http://xiangying.test/api/share-assets/${token}/${asset.id}`), { database, environment, clientRoot: "dist/client", assetRoot })).status).toBe(200);
+
+    await request(`/api/shares/${share.body?.share.id}`, { method: "DELETE" }, login.cookie);
+    const released = await request(`/api/notes/${created.body?.note.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ version: removed.body?.note.version, contentMarkdown: "图片仍已移除" }),
+    }, login.cookie);
+    expect(released.response.status).toBe(200);
+    expect(database.query("SELECT note_id FROM image_assets WHERE id = ?").get(asset.id)).toEqual({ note_id: null });
+  });
+
   test("serves installable PWA assets with update-safe cache headers", async () => {
     const manifest = await request("/manifest.webmanifest");
     expect(manifest.response.status).toBe(200);
@@ -470,6 +496,7 @@ describe("Bun Server API", () => {
 
     const original = await request(`/api/shares/${token}`);
     expect(original.response.status).toBe(200);
+    expect(original.response.headers.get("Cache-Control")).toBe("no-store");
     expect(original.body?.snapshot.contentMarkdown).toBe("Original content");
 
     const updated = await request(`/api/notes/${note.id}`, { method: "PATCH", body: JSON.stringify({ version: note.version, contentMarkdown: "Changed later" }) }, login.cookie);

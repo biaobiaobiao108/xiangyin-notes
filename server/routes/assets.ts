@@ -66,14 +66,63 @@ export async function cleanupOrphanAssets(database: SqliteDatabase, assetRoot: s
   const timestamp = now();
   if (timestamp < nextOrphanAssetCleanupAt) return;
   nextOrphanAssetCleanupAt = timestamp + ORPHAN_ASSET_CLEANUP_INTERVAL_SECONDS;
-  const staleAssets = all<{ id: string; storage_path: string }>(database, "SELECT id, storage_path FROM image_assets WHERE note_id IS NULL AND created_at <= ? LIMIT 100", timestamp - ORPHAN_ASSET_TTL_SECONDS);
+  const staleAssets = all<{ id: string; storage_path: string }>(database, `
+    SELECT a.id, a.storage_path
+    FROM image_assets a
+    WHERE a.created_at <= ?
+      AND (
+        a.note_id IS NULL
+        OR (
+          NOT EXISTS (
+            SELECT 1
+            FROM notes n
+            WHERE n.id = a.note_id
+              AND instr(n.content_markdown, '/api/assets/' || a.id) > 0
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM shares s
+            WHERE s.note_id = a.note_id
+              AND s.revoked_at IS NULL
+              AND s.expires_at > ?
+              AND instr(s.snapshot_content_markdown, a.id) > 0
+          )
+        )
+      )
+    LIMIT 100
+  `, timestamp - ORPHAN_ASSET_TTL_SECONDS, timestamp);
   if (!staleAssets.length) return;
   const deleteStaleAssets = database.transaction(() => {
-    const statement = database.query("DELETE FROM image_assets WHERE id = ? AND note_id IS NULL");
-    for (const asset of staleAssets) statement.run(asset.id);
+    const deletedPaths: string[] = [];
+    const statement = database.query(`
+      DELETE FROM image_assets
+      WHERE id = ?
+        AND (
+          note_id IS NULL
+          OR (
+            NOT EXISTS (
+              SELECT 1
+              FROM notes n
+              WHERE n.id = image_assets.note_id
+                AND instr(n.content_markdown, '/api/assets/' || image_assets.id) > 0
+            )
+            AND NOT EXISTS (
+              SELECT 1
+              FROM shares s
+              WHERE s.note_id = image_assets.note_id
+                AND s.revoked_at IS NULL
+                AND s.expires_at > ?
+                AND instr(s.snapshot_content_markdown, image_assets.id) > 0
+            )
+          )
+        )
+    `);
+    for (const asset of staleAssets) {
+      if (statement.run(asset.id, timestamp).changes) deletedPaths.push(asset.storage_path);
+    }
+    return deletedPaths;
   });
-  deleteStaleAssets();
-  await removeAssetFiles(assetRoot, staleAssets.map((asset) => asset.storage_path));
+  await removeAssetFiles(assetRoot, deleteStaleAssets());
 }
 
 export async function uploadImageAsset(request: Request, database: SqliteDatabase, user: UserRow, assetRoot: string) {

@@ -1,6 +1,6 @@
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import { extractTags } from "../shared/tags";
+import { extractTags, normalizeTag } from "../shared/tags";
 import type { ImageAssetSummary, Note, NoteSummary, NoteView, Share } from "../shared/types";
 import type { SqliteDatabase } from "./db";
 
@@ -264,6 +264,7 @@ export function getPublicOrigin(requestUrl: URL, environment: Record<string, str
 export function json(payload: unknown, status = 200, headers: HeadersInit = {}) {
   const responseHeaders = new Headers(headers);
   responseHeaders.set("Content-Type", "application/json; charset=utf-8");
+  if (!responseHeaders.has("Cache-Control")) responseHeaders.set("Cache-Control", "no-store");
   return new Response(JSON.stringify(payload), { status, headers: responseHeaders });
 }
 
@@ -272,11 +273,36 @@ export function jsonError(status: number, code: string, message: string, headers
 }
 
 export async function readJson<T>(request: Request, maxBytes: number): Promise<T | null> {
-  const contentLength = Number(request.headers.get("Content-Length") ?? "0");
-  if (contentLength > maxBytes) return null;
+  const contentLengthHeader = request.headers.get("Content-Length");
+  if (contentLengthHeader !== null) {
+    const contentLength = Number(contentLengthHeader);
+    if (!Number.isInteger(contentLength) || contentLength < 0 || contentLength > maxBytes) return null;
+  }
 
-  const raw = await request.text();
-  if (raw.length > maxBytes) return null;
+  const reader = request.body?.getReader();
+  if (!reader) return null;
+  const decoder = new TextDecoder();
+  const parts: string[] = [];
+  let byteLength = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      byteLength += value.byteLength;
+      if (byteLength > maxBytes) {
+        await reader.cancel();
+        return null;
+      }
+      parts.push(decoder.decode(value, { stream: true }));
+    }
+    parts.push(decoder.decode());
+  } catch {
+    return null;
+  } finally {
+    reader.releaseLock();
+  }
+
+  const raw = parts.join("");
 
   try {
     return JSON.parse(raw) as T;
@@ -455,6 +481,16 @@ export const NOTE_SELECT = `
   a.height AS thumbnail_height, a.created_at AS thumbnail_created_at
 `;
 
+export const NOTE_LIST_SELECT = `
+  n.id, n.title, substr(n.content_markdown, 1, ${NOTE_PREVIEW_SCAN_LIMIT}) AS content_markdown, n.notebook_id, b.name AS notebook_name,
+  b.color AS notebook_color, n.is_favorite, n.deleted_at, n.version, n.created_at, n.updated_at,
+  COALESCE((SELECT json_group_array(tag) FROM (SELECT tag FROM note_tags WHERE note_id = n.id ORDER BY position)), '[]') AS tags_json,
+  a.id AS thumbnail_asset_id, a.storage_path AS thumbnail_storage_path,
+  a.original_name AS thumbnail_original_name, a.mime_type AS thumbnail_mime_type,
+  a.byte_size AS thumbnail_byte_size, a.width AS thumbnail_width,
+  a.height AS thumbnail_height, a.created_at AS thumbnail_created_at
+`;
+
 export const NOTE_FROM = `
   notes n
   JOIN notebooks b ON b.id = n.notebook_id
@@ -482,6 +518,15 @@ export function toFullNote(row: NoteRow): Note {
   return { ...toNote(row), contentMarkdown: row.content_markdown };
 }
 
+export function parseIndexedTags(value: string) {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((tag): tag is string => typeof tag === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
 export function toShare(row: { id: string; note_id: string; created_at: number; expires_at: number; revoked_at: number | null }): Share {
   return {
     id: row.id,
@@ -495,6 +540,19 @@ export function toShare(row: { id: string; note_id: string; created_at: number; 
 export class InvalidNoteAssetsError extends Error {
   constructor() {
     super("invalid-note-assets");
+  }
+}
+
+export function syncNoteTags(database: SqliteDatabase, userId: string, noteId: string, contentMarkdown: string) {
+  database.query("DELETE FROM note_tags WHERE note_id = ? AND user_id = ?").run(noteId, userId);
+  const insert = database.query("INSERT INTO note_tags (note_id, user_id, tag_normalized, tag, position) VALUES (?, ?, ?, ?, ?)");
+  const seen = new Set<string>();
+  let position = 0;
+  for (const tag of extractTags(contentMarkdown)) {
+    const normalized = normalizeTag(tag);
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    insert.run(noteId, userId, normalized, tag, position++);
   }
 }
 
@@ -547,6 +605,21 @@ export function syncNoteAssetReferences(
   contentMarkdown: string,
 ) {
   const ids = noteAssetIds(contentMarkdown);
+  const detachedAssetCondition = ids.length ? `id NOT IN (${ids.map(() => "?").join(",")})` : "1 = 1";
+  database.query(`
+    UPDATE image_assets
+    SET note_id = NULL, document_order = NULL
+    WHERE note_id = ?
+      AND ${detachedAssetCondition}
+      AND NOT EXISTS (
+        SELECT 1
+        FROM shares s
+        WHERE s.note_id = image_assets.note_id
+          AND s.revoked_at IS NULL
+          AND s.expires_at > ?
+          AND instr(s.snapshot_content_markdown, image_assets.id) > 0
+      )
+  `).run(noteId, ...ids, now());
   const assets = ids.length
     ? all<ImageAssetRow>(
         database,

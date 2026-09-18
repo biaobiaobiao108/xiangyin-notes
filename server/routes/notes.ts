@@ -1,4 +1,4 @@
-import { extractTags, normalizeTag, parseTagQuery } from "../../shared/tags";
+import { parseTagQuery } from "../../shared/tags";
 import type { NoteBacklinksResponse, NoteLinkSummary, NoteSummary, NoteView, UnlinkedMention } from "../../shared/types";
 import {
   extractContextSnippet,
@@ -22,8 +22,8 @@ import {
   jsonError,
   NOTE_BODY_MAX_BYTES,
   NOTE_FROM,
+  NOTE_LIST_SELECT,
   NOTE_PAGE_SIZE,
-  NOTE_SELECT,
   NOTE_VIEWS,
   type NoteRow,
   normalizeNoteTitle,
@@ -34,6 +34,8 @@ import {
   type SqliteDatabase,
   type SqlValue,
   syncNoteAssetReferences,
+  syncNoteTags,
+  parseIndexedTags,
   toFullNote,
   toNote,
   type UserRow,
@@ -63,6 +65,7 @@ export function createNote(
   const transaction = database.transaction(() => {
     database.query("INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)").run(id, userId, notebookId, title, contentMarkdown, createdAt, createdAt);
     if (!syncNoteAssetReferences(database, userId, id, contentMarkdown)) throw new Error("invalid-note-assets");
+    syncNoteTags(database, userId, id, contentMarkdown);
     database.query("INSERT INTO notes_fts (note_id, title, content) VALUES (?, ?, ?)").run(id, title, contentMarkdown);
     syncNoteLinks(database, userId, id, contentMarkdown, createdAt);
     resolveNoteLinksForTarget(database, userId, title, id);
@@ -88,6 +91,7 @@ export function updateNoteInTransaction(
   const updated = database.query("UPDATE notes SET title = ?, content_markdown = ?, notebook_id = ?, is_favorite = ?, deleted_at = ?, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ? AND version = ? RETURNING id").get(title, contentMarkdown, notebookId, isFavorite, deletedAt, updatedAt, current.id, userId, current.version) as { id: string } | null;
   if (!updated) return false;
   if (!syncNoteAssetReferences(database, userId, current.id, contentMarkdown)) throw new InvalidNoteAssetsError();
+  syncNoteTags(database, userId, current.id, contentMarkdown);
   database.query("DELETE FROM notes_fts WHERE note_id = ?").run(current.id);
   database.query("INSERT INTO notes_fts (note_id, title, content) VALUES (?, ?, ?)").run(current.id, title, contentMarkdown);
   syncNoteLinks(database, userId, current.id, contentMarkdown, updatedAt);
@@ -102,6 +106,7 @@ export function updateNoteInTransaction(
         database.query("UPDATE notes SET content_markdown = ?, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ?").run(replacedContent, updatedAt, refNote.id, userId);
         database.query("DELETE FROM notes_fts WHERE note_id = ?").run(refNote.id);
         database.query("INSERT INTO notes_fts (note_id, title, content) VALUES (?, ?, ?)").run(refNote.id, refNote.title, replacedContent);
+        syncNoteTags(database, userId, refNote.id, replacedContent);
         syncNoteLinks(database, userId, refNote.id, replacedContent, updatedAt);
       }
     }
@@ -210,29 +215,18 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
       }
     }
     const offset = Math.max(0, Number.parseInt(url.searchParams.get("offset") ?? "0", 10) || 0);
-    const where = conditions.join(" AND ");
     if (tagQuery) {
-      const tagListStatement = database.query(`
-        SELECT ${NOTE_SELECT}
-        FROM ${from} WHERE ${where} ORDER BY n.updated_at DESC
-      `);
-      const notes: NoteSummary[] = [];
-      let total = 0;
-      for (const row of tagListStatement.iterate(...params) as Iterable<NoteRow>) {
-        const tags = extractTags(row.content_markdown);
-        if (!tags.some((tag) => normalizeTag(tag) === tagQuery)) continue;
-        if (total >= offset && notes.length < NOTE_PAGE_SIZE) notes.push(toNote(row, tags));
-        total += 1;
-      }
-      return json({ notes, total });
+      conditions.push("EXISTS (SELECT 1 FROM note_tags t WHERE t.note_id = n.id AND t.user_id = n.user_id AND t.tag_normalized = ?)");
+      params.push(tagQuery);
     }
+    const where = conditions.join(" AND ");
     const totalRow = first<{ count: number }>(database, `SELECT COUNT(*) AS count FROM ${from} WHERE ${where}`, ...params);
     const listStatement = database.query(`
-      SELECT ${NOTE_SELECT}
+      SELECT ${NOTE_LIST_SELECT}
       FROM ${from} WHERE ${where} ORDER BY n.updated_at DESC LIMIT ${NOTE_PAGE_SIZE} OFFSET ${offset}
     `);
     const notes: NoteSummary[] = [];
-    for (const row of listStatement.iterate(...params) as Iterable<NoteRow>) notes.push(toNote(row));
+    for (const row of listStatement.iterate(...params) as Iterable<NoteRow & { tags_json: string }>) notes.push(toNote(row, parseIndexedTags(row.tags_json)));
     return json({ notes, total: Number(totalRow?.count ?? 0) });
   }
 

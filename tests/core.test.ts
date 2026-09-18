@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildFtsQuery, constantTimeEqual, createOpaqueToken, derivePassword, formatPreview, hashPassword } from "../server/index";
+import { buildFtsQuery, constantTimeEqual, createOpaqueToken, derivePassword, formatPreview, hashPassword, readJson } from "../server/core";
 
 describe("security helpers", () => {
   test("creates URL-safe opaque tokens", () => {
@@ -35,5 +35,20 @@ describe("markdown and search helpers", () => {
 
   test("quotes search terms for FTS", () => {
     expect(buildFtsQuery("quiet thinking")).toBe('"quiet" AND "thinking"');
+  });
+
+  test("limits JSON request bodies by encoded byte length", async () => {
+    const valid = await readJson<{ text: string }>(new Request("http://xiangying.test", {
+      method: "POST",
+      body: JSON.stringify({ text: "你好" }),
+    }), 32);
+    expect(valid).toEqual({ text: "你好" });
+
+    const oversized = await readJson(new Request("http://xiangying.test", {
+      method: "POST",
+      body: JSON.stringify({ text: "你好" }),
+      headers: { "Content-Length": "10" },
+    }), 10);
+    expect(oversized).toBeNull();
   });
 });
