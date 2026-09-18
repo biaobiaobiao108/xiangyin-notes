@@ -1,7 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { Database } from "bun:sqlite";
-import { extractTags, normalizeTag } from "../shared/tags";
 
 const DEFAULT_DATABASE_PATH = "./data/xiangying-notes.sqlite";
 const DEFAULT_MIGRATIONS_PATH = "./migrations";
@@ -15,25 +14,6 @@ type TableCountRow = {
 };
 
 export type SqliteDatabase = Database;
-
-function rebuildNoteTags(database: SqliteDatabase) {
-  const notes = database.query("SELECT id, user_id, content_markdown FROM notes").all() as Array<{ id: string; user_id: string; content_markdown: string }>;
-  const rebuild = database.transaction(() => {
-    database.query("DELETE FROM note_tags").run();
-    const insert = database.query("INSERT INTO note_tags (note_id, user_id, tag_normalized, tag, position) VALUES (?, ?, ?, ?, ?)");
-    for (const note of notes) {
-      const seen = new Set<string>();
-      let position = 0;
-      for (const tag of extractTags(note.content_markdown)) {
-        const normalized = normalizeTag(tag);
-        if (seen.has(normalized)) continue;
-        seen.add(normalized);
-        insert.run(note.id, note.user_id, normalized, tag, position++);
-      }
-    }
-  });
-  rebuild();
-}
 
 export function databasePathFromEnv(env: Record<string, string | undefined> = Bun.env) {
   return env.DATABASE_PATH?.trim() || DEFAULT_DATABASE_PATH;
@@ -86,6 +66,5 @@ export async function applyMigrations(database: SqliteDatabase, migrationsPath =
       database.query("INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)").run(name, Date.now());
     });
     applyMigration();
-    if (name === "0002_note_tags.sql") rebuildNoteTags(database);
   }
 }
