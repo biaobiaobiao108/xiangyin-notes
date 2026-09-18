@@ -8,6 +8,7 @@ import { openDatabase } from "./db";
 import { assetRootFromEnv, cleanupOrphanAssets, handleAssetsRoute } from "./routes/assets";
 import { cleanupExpiredSessions, handleAuthRoute, isResponse, requireUser } from "./routes/auth";
 import { handleExportRoute } from "./routes/export";
+import { handleImportRoute } from "./routes/import";
 import { handleNotebooksRoute } from "./routes/notebooks";
 import { handleNotesRoute } from "./routes/notes";
 import { handlePublicShare, handleSharesRoute, servePublicShareAsset } from "./routes/shares";
@@ -47,7 +48,7 @@ self.addEventListener("fetch", (event) => {
 `;
 
 const SECURITY_HEADERS: Record<string, string> = {
-  "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+  "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net; img-src 'self' data: blob: https:; connect-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
   "X-Content-Type-Options": "nosniff",
   "X-Frame-Options": "DENY",
   "Referrer-Policy": "strict-origin-when-cross-origin",
@@ -137,6 +138,9 @@ async function handleApi(request: Request, options: ServerOptions) {
 
   const publicShareResponse = await handleSharesRoute(ctx, null);
   if (publicShareResponse) return publicShareResponse;
+
+  const importResponse = await handleImportRoute(ctx);
+  if (importResponse) return importResponse;
 
   // 2. Authenticated barrier
   const user = await requireUser(database, environment, request);

@@ -121,6 +121,7 @@ export const BACKLINK_SCAN_CHAR_LIMIT = 8 * 1024 * 1024;
 export const NOTE_PREVIEW_LIMIT = 180;
 export const NOTE_PREVIEW_SCAN_LIMIT = NOTE_PREVIEW_LIMIT + 64;
 export const NOTE_BODY_MAX_BYTES = 4_500_000;
+export const NOTE_CONTENT_MAX_LENGTH = 1_000_000;
 export const LOGIN_WINDOW_SECONDS = 15 * 60;
 export const LOGIN_MAX_FAILURES = 8;
 export const LOGIN_BLOCK_SECONDS = 15 * 60;
@@ -576,13 +577,23 @@ export function noteAssetIds(markdown: string) {
   return [...ids];
 }
 
+export function validNoteImageSource(source: string) {
+  if (PRIVATE_ASSET_SOURCE_PATTERN.test(source)) return true;
+  try {
+    const url = new URL(source);
+    return url.protocol === "https:" && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}
+
 export function validNoteAssetReferences(
   database: SqliteDatabase,
   userId: string,
   noteId: string | null,
   contentMarkdown: string,
 ) {
-  if (noteImageSources(contentMarkdown).some((source) => !PRIVATE_ASSET_SOURCE_PATTERN.test(source))) return false;
+  if (noteImageSources(contentMarkdown).some((source) => !validNoteImageSource(source))) return false;
   const ids = noteAssetIds(contentMarkdown);
   if (!ids.length) return true;
   const assets = all<Pick<ImageAssetRow, "id" | "note_id">>(

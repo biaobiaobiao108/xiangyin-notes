@@ -29,10 +29,10 @@ afterEach(async () => {
   await rm(assetRoot, { recursive: true, force: true });
 });
 
-async function request(path: string, init: RequestInit = {}, cookie?: string, targetEnvironment = environment) {
+async function request(path: string, init: RequestInit = {}, cookie?: string, targetEnvironment = environment, origin = "http://xiangying.test") {
   const headers = new Headers(init.headers);
   if (cookie) headers.set("Cookie", cookie);
-  const response = await handleRequest(new Request(`http://xiangying.test${path}`, { ...init, headers }), { database, environment: targetEnvironment, clientRoot: "dist/client", assetRoot, clientAddress });
+  const response = await handleRequest(new Request(`${origin}${path}`, { ...init, headers }), { database, environment: targetEnvironment, clientRoot: "dist/client", assetRoot, clientAddress });
   const body = await response.json().catch(() => null) as Record<string, any> | null;
   return { response, body, cookie: response.headers.get("Set-Cookie")?.split(";", 1)[0] };
 }
@@ -83,6 +83,94 @@ describe("Bun Server API", () => {
     const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
     expect((await request("/api/sync/pull?cursor=0", {}, login.cookie)).response.status).toBe(404);
     expect((await request("/api/sync/push", { method: "POST", body: JSON.stringify({ mutations: [] }) }, login.cookie)).response.status).toBe(404);
+  });
+
+  test("imports JSON and raw Markdown through a Bearer token into the inbox", async () => {
+    const apiToken = "shortcut-api-token-1234567890";
+    const apiEnvironment = { ...environment, XIANGYING_API_TOKEN: apiToken };
+
+    const unconfigured = await request("/api/import", { method: "POST", body: "内容" });
+    expect(unconfigured.response.status).toBe(503);
+    expect(unconfigured.body?.error.code).toBe("API_AUTH_NOT_CONFIGURED");
+
+    const invalidToken = await request("/api/import", {
+      method: "POST",
+      headers: { Authorization: "Bearer wrong-token", "Content-Type": "text/markdown" },
+      body: "内容",
+    }, undefined, apiEnvironment);
+    expect(invalidToken.response.status).toBe(401);
+    expect(invalidToken.body?.error.code).toBe("INVALID_API_TOKEN");
+    expect(invalidToken.response.headers.get("WWW-Authenticate")).toContain("Bearer");
+
+    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) }, undefined, apiEnvironment);
+    const cookieOnly = await request("/api/import", { method: "POST", body: "内容" }, login.cookie, apiEnvironment);
+    expect(cookieOnly.response.status).toBe(401);
+
+    const markdown = "# 今日记录\n\n正文 #快捷导入\n\n[链接](https://example.com)";
+    const imported = await request("/api/import", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiToken}`, "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify({ contentMarkdown: markdown }),
+    }, undefined, apiEnvironment, "https://notes.example.com");
+    expect(imported.response.status).toBe(201);
+    expect(imported.body?.ok).toBe(true);
+    expect(imported.body?.note).not.toHaveProperty("contentMarkdown");
+    expect(imported.body?.note.title).toMatch(/^快捷导入 \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/u);
+    expect(imported.body?.note.notebookName).toBe("收件箱");
+
+    const importedNote = database.query("SELECT id, title, content_markdown, notebook_id FROM notes WHERE id = ?").get(imported.body?.note.id) as { id: string; title: string; content_markdown: string; notebook_id: string };
+    const inbox = database.query("SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1").get(login.body?.user?.id ?? "") as { id: string } | null;
+    expect(importedNote.content_markdown).toBe(markdown);
+    expect(importedNote.notebook_id).toBe(inbox?.id ?? "");
+
+    const rawMarkdown = "![远程图片](https://example.com/image.png)\n\n来自原始 Markdown";
+    const raw = await request("/api/import", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiToken}`, "Content-Type": "text/markdown" },
+      body: rawMarkdown,
+    }, undefined, apiEnvironment, "https://notes.example.com");
+    expect(raw.response.status).toBe(201);
+    expect(database.query("SELECT content_markdown FROM notes WHERE id = ?").get(raw.body?.note.id)).toEqual({ content_markdown: rawMarkdown });
+
+    const plain = await request("/api/import", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiToken}`, "Content-Type": "text/plain" },
+      body: "纯文本也按 Markdown 导入",
+    }, undefined, apiEnvironment);
+    expect(plain.response.status).toBe(201);
+
+    const duplicate = await request("/api/import", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiToken}`, "Content-Type": "text/markdown" },
+      body: rawMarkdown,
+    }, undefined, apiEnvironment);
+    expect(duplicate.response.status).toBe(201);
+    expect(duplicate.body?.note.id).not.toBe(raw.body?.note.id);
+  });
+
+  test("validates imported Markdown request bodies", async () => {
+    const apiEnvironment = { ...environment, XIANGYING_API_TOKEN: "shortcut-api-token-1234567890" };
+    const headers = { Authorization: `Bearer ${apiEnvironment.XIANGYING_API_TOKEN}` };
+
+    const invalidJson = await request("/api/import", { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: "not-json" }, undefined, apiEnvironment);
+    expect(invalidJson.response.status).toBe(400);
+    expect(invalidJson.body?.error.code).toBe("INVALID_JSON");
+
+    const invalidPayload = await request("/api/import", { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ title: "没有正文" }) }, undefined, apiEnvironment);
+    expect(invalidPayload.response.status).toBe(400);
+    expect(invalidPayload.body?.error.code).toBe("INVALID_IMPORT_PAYLOAD");
+
+    const unsupported = await request("/api/import", { method: "POST", headers: { ...headers, "Content-Type": "application/xml" }, body: "<note />" }, undefined, apiEnvironment);
+    expect(unsupported.response.status).toBe(415);
+    expect(unsupported.body?.error.code).toBe("UNSUPPORTED_MEDIA_TYPE");
+
+    const empty = await request("/api/import", { method: "POST", headers: { ...headers, "Content-Type": "text/markdown" }, body: " \n\t" }, undefined, apiEnvironment);
+    expect(empty.response.status).toBe(400);
+    expect(empty.body?.error.code).toBe("EMPTY_NOTE");
+
+    const oversized = await request("/api/import", { method: "POST", headers: { ...headers, "Content-Type": "text/markdown" }, body: "字".repeat(1_000_001) }, undefined, apiEnvironment);
+    expect(oversized.response.status).toBe(413);
+    expect(oversized.body?.error.code).toBe("NOTE_TOO_LARGE");
   });
 
   test("creates the owner, manages notes, search, notebooks and versions", async () => {
@@ -264,8 +352,13 @@ describe("Bun Server API", () => {
     expect(oversized.response.status).toBe(413);
     expect(oversized.body?.error.code).toBe("IMAGE_TOO_LARGE");
     const remoteImage = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "远程图片", contentMarkdown: "![remote](https://example.com/image.png)" }) }, login.cookie);
-    expect(remoteImage.response.status).toBe(400);
-    expect(remoteImage.body?.error.code).toBe("INVALID_ASSET");
+    expect(remoteImage.response.status).toBe(201);
+    const insecureRemoteImage = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "不安全远程图片", contentMarkdown: "![remote](http://example.com/image.png)" }) }, login.cookie);
+    expect(insecureRemoteImage.response.status).toBe(400);
+    expect(insecureRemoteImage.body?.error.code).toBe("INVALID_ASSET");
+    const dataImage = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "内联图片", contentMarkdown: "![remote](data:image/png;base64,AAAA)" }) }, login.cookie);
+    expect(dataImage.response.status).toBe(400);
+    expect(dataImage.body?.error.code).toBe("INVALID_ASSET");
 
     const uploaded = await request("/api/assets", { method: "POST", body: imageForm() }, login.cookie);
     const asset = uploaded.body?.asset;
@@ -348,6 +441,7 @@ describe("Bun Server API", () => {
     expect(contentSecurityPolicy).toContain("default-src 'self'");
     expect(contentSecurityPolicy).toContain("style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net");
     expect(contentSecurityPolicy).toContain("font-src 'self' https://cdn.jsdelivr.net");
+    expect(contentSecurityPolicy).toContain("img-src 'self' data: blob: https:");
     expect(manifest.body?.display).toBe("standalone");
 
     const worker = await request("/sw.js");
