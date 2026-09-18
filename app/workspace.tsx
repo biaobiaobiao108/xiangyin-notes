@@ -862,6 +862,25 @@ export function Workspace() {
       changeQuery("");
     }
   }, [changeQuery, query]);
+  const handleExportNotes = useCallback(async () => {
+    setToast("正在生成笔记压缩包……");
+    try {
+      const response = await fetch("/api/export", { credentials: "include" });
+      if (!response.ok) throw new Error("export-failed");
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `xiangying-notes-${new Date().toISOString().slice(0, 10)}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setToast("笔记压缩包已下载");
+    } catch {
+      setToast("导出失败，请检查网络后重试");
+    }
+  }, []);
   const command = useCallback((id: CommandId) => {
     if (id === "new-note") void createNoteInInbox();
     if (id === "find-in-note") {
@@ -877,8 +896,9 @@ export function Workspace() {
     if (id === "favorite") toggleFavorite();
     if (id === "trash") moveToTrash();
     if (id === "restore") restoreFromTrash();
+    if (id === "export-notes") void handleExportNotes();
     if (id === "install-app") { if (pwaState.canInstall) void installPwa(); else if (pwaState.showIosInstallHint && !pwaState.standalone) setToast("请在 Safari 中点击分享，再选择“添加到主屏幕”"); }
-  }, [createNoteInInbox, moveToTrash, pwaState, restoreFromTrash, toggleFavorite, toggleFocusMode, toggleTypewriterMode]);
+  }, [createNoteInInbox, handleExportNotes, moveToTrash, pwaState, restoreFromTrash, toggleFavorite, toggleFocusMode, toggleTypewriterMode]);
   useEffect(() => {
     if (!ready || shortcutHandledRef.current) return;
     const action = new URLSearchParams(window.location.search).get("action");

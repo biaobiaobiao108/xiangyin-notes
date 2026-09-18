@@ -557,4 +557,22 @@ describe("Bun Server API", () => {
     expect(me.response.status).toBe(200);
     expect(me.body?.user.username).toBe("owner");
   });
+
+  test("exports all user notes and attachments as a standard zip archive", async () => {
+    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
+    const exportResponse = await handleRequest(new Request("http://xiangying.test/api/export", {
+      headers: { Cookie: login.cookie! },
+    }), { database, environment, clientRoot: "dist/client", assetRoot });
+
+    expect(exportResponse.status).toBe(200);
+    expect(exportResponse.headers.get("Content-Type")).toBe("application/zip");
+    expect(exportResponse.headers.get("Content-Disposition")).toContain("attachment; filename=");
+    const zipBytes = new Uint8Array(await exportResponse.arrayBuffer());
+    expect(zipBytes.length).toBeGreaterThan(50);
+    // Standard ZIP local file header signature: PK\x03\x04
+    expect(zipBytes[0]).toBe(0x50);
+    expect(zipBytes[1]).toBe(0x4b);
+    expect(zipBytes[2]).toBe(0x03);
+    expect(zipBytes[3]).toBe(0x04);
+  });
 });
