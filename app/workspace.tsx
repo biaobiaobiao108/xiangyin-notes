@@ -8,13 +8,14 @@ import { applyPwaUpdate, installPwa, subscribePwa, type PwaState } from "./pwa";
 import type { Note, NoteSummary, NoteView, Notebook } from "../shared/types";
 import type { OutlineItem } from "./editor-metrics";
 import { ConfirmDialog, NotebookDialog, ShareDialog, type ConfirmRequest } from "./workspace/dialogs";
-import { clearAllDraftRecoveries, clearDraftRecovery, readDraftRecovery, writeDraftRecovery } from "./workspace/draft-recovery";
+import { clearAllDraftRecoveries, clearDraftRecovery, readDraftRecovery } from "./workspace/draft-recovery";
 import { EmptyEditor, NoteListPanel, NoteLoadingState, Sidebar } from "./workspace/panels";
 import { errorMessage, shouldKeepActiveNoteInList, sortNotes, toNoteDraft, type NoteDraft, type NoteSort } from "./workspace/helpers";
 import { normalizeLinkTitle } from "../shared/wiki-links";
+import { useNoteSaveQueue } from "./workspace/use-note-save-queue";
+import { useWorkspaceShortcuts } from "./workspace/use-workspace-shortcuts";
 
 const LazyNoteEditor = lazy(() => import("./editor").then(({ NoteEditor }) => ({ default: memo(NoteEditor) })));
-const KEEPALIVE_BODY_MAX_BYTES = 48 * 1024;
 export function Workspace() {
   const navigate = useNavigate();
   const [view, setView] = useState<NoteView>("all");
@@ -54,14 +55,8 @@ export function Workspace() {
   const activeNoteIdRef = useRef<string | null>(null);
   const noteLoadRequestRef = useRef(0);
   const noteAbortRef = useRef<AbortController | null>(null);
-  const saveTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
-  const draftRecoveryTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
-  const pendingSavesRef = useRef(new Map<string, NoteDraft>());
-  const inFlightSavesRef = useRef(new Map<string, Promise<void>>());
-  const failedSavesRef = useRef(new Map<string, unknown>());
   const searchRef = useRef<HTMLInputElement>(null);
   const searchOriginRef = useRef<{ view: NoteView; notebookId?: string } | null>(null);
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "conflict" | "error">("idle");
   const [isNoteLoading, setIsNoteLoading] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [focusMode, setFocusMode] = useState(() => {
@@ -143,22 +138,37 @@ export function Workspace() {
   const [pwaState, setPwaState] = useState<PwaState>({ standalone: false, canInstall: false, showIosInstallHint: false, updateAvailable: false });
   const shortcutHandledRef = useRef(false);
   const confirmIdRef = useRef(0);
-  const hasUnsavedWork = useCallback(() => pendingSavesRef.current.size > 0 || failedSavesRef.current.size > 0, []);
+  const replaceList = useCallback((next: NoteSummary[]) => { notesRef.current = next; setNotes(next); }, []);
+  const {
+    saveState,
+    setSaveState,
+    pendingSavesRef,
+    failedSavesRef,
+    persist,
+    runSave,
+    saveImmediately,
+    saveNoteNow,
+    flushPendingSaves,
+    hasUnsavedWork,
+    clearPendingForNote,
+  } = useNoteSaveQueue({
+    selectedRef,
+    notesRef,
+    activeNoteIdRef,
+    trashOperationsRef,
+    replaceList,
+    setSelectedNote,
+    setToast,
+  });
+  const persistRef = useRef(persist);
+  persistRef.current = persist;
+
   const requestConfirm = useCallback((request: Omit<ConfirmRequest, "id">) => {
     confirmIdRef.current += 1;
     setConfirmRequest({ ...request, id: confirmIdRef.current, returnFocus: document.activeElement instanceof HTMLElement ? document.activeElement : null });
   }, []);
 
   useEffect(() => subscribePwa(setPwaState), []);
-  useEffect(() => {
-    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (!hasUnsavedWork()) return;
-      event.preventDefault();
-      event.returnValue = "";
-    };
-    window.addEventListener("beforeunload", warnBeforeUnload);
-    return () => window.removeEventListener("beforeunload", warnBeforeUnload);
-  }, [hasUnsavedWork]);
   useEffect(() => {
     let disposed = false;
     void api.bootstrap().then(async (status) => {
@@ -168,8 +178,6 @@ export function Workspace() {
     }).catch(() => { if (!disposed) navigate("/login", { replace: true }); });
     return () => { disposed = true; };
   }, [navigate]);
-
-  const replaceList = useCallback((next: NoteSummary[]) => { notesRef.current = next; setNotes(next); }, []);
   const requestListTransition = useCallback(() => {
     listTransitionIntentRef.current += 1;
   }, []);
@@ -345,169 +353,21 @@ export function Workspace() {
     listAbortRef.current?.abort();
     noteAbortRef.current?.abort();
   }, []);
-  const focusModeRef = useRef(focusMode);
-  focusModeRef.current = focusMode;
-  const hasModalOpenRef = useRef(false);
-  hasModalOpenRef.current = Boolean(commandOpen || shareOpen || editingNotebook !== undefined || confirmRequest);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
-      const isMod = event.ctrlKey || event.metaKey;
-      if (isMod && (event.key === "/" || event.key === "k" || event.key === "K")) {
-        event.preventDefault();
-        setCommandInitialQuery("");
-        setCommandOpen(true);
-      } else if (isMod && (event.key === "f" || event.key === "F") && !event.shiftKey) {
-        event.preventDefault();
-        const selectedText = window.getSelection()?.toString().trim() ?? "";
-        const initial = selectedText && selectedText.length <= 50 ? selectedText : "";
-        setCommandInitialQuery(initial);
-        setCommandOpen(true);
-      } else if (isMod && event.key === "\\") {
-        event.preventDefault();
-        setSidebarCollapsed((value) => !value);
-      } else if (isMod && event.shiftKey && (event.key === "f" || event.key === "F")) {
-        event.preventDefault();
-        toggleFocusMode();
-      } else if (event.altKey && event.shiftKey && (event.key === "t" || event.key === "T")) {
-        event.preventDefault();
-        toggleTypewriterMode();
-      } else if (event.key === "Escape") {
-        if (focusModeRef.current && !hasModalOpenRef.current) {
-          exitFocusMode();
-        }
-      }
-    };
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [exitFocusMode, toggleFocusMode, toggleTypewriterMode]);
+  useWorkspaceShortcuts({
+    focusMode,
+    hasModalOpen: Boolean(commandOpen || shareOpen || editingNotebook !== undefined || confirmRequest),
+    toggleSidebar: () => setSidebarCollapsed((value) => !value),
+    toggleFocusMode,
+    toggleTypewriterMode,
+    exitFocusMode,
+    openCommandMenu: (initialQuery = "") => {
+      setCommandInitialQuery(initialQuery);
+      setCommandOpen(true);
+    },
+  });
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(""), 3000); return () => clearTimeout(timer); }, [toast]);
 
-  const persistRef = useRef<(draft: Note | NoteDraft) => void>(() => undefined);
-  const runSave = useCallback(async (noteId: string, keepalive = false) => {
-    const running = inFlightSavesRef.current.get(noteId);
-    if (running) return running;
-    const task = (async () => {
-      try {
-        // Drain this note's latest draft in order, including edits made while a request was in flight.
-        while (pendingSavesRef.current.has(noteId)) {
-          const draft = pendingSavesRef.current.get(noteId)!;
-          const base = selectedRef.current?.id === noteId ? selectedRef.current : notesRef.current.find((note) => note.id === noteId);
-          if (!base) throw new Error("note-not-loaded");
-          const payload = { version: base.version, title: draft.title, contentMarkdown: draft.contentMarkdown, notebookId: draft.notebookId, isFavorite: draft.isFavorite, deleted: Boolean(draft.deletedAt) };
-          const keepaliveRequest = keepalive && new TextEncoder().encode(JSON.stringify(payload)).byteLength <= KEEPALIVE_BODY_MAX_BYTES;
-          const result = await api.updateNote(noteId, payload, { keepalive: keepaliveRequest });
-          const latest = pendingSavesRef.current.get(noteId);
-          const next = latest && latest !== draft ? { ...result.note, ...latest, version: result.note.version } : undefined;
-          if (next) pendingSavesRef.current.set(noteId, next);
-          else pendingSavesRef.current.delete(noteId);
-          const recoveryTimer = draftRecoveryTimersRef.current.get(noteId);
-          if (recoveryTimer) clearTimeout(recoveryTimer);
-          draftRecoveryTimersRef.current.delete(noteId);
-          if (next) writeDraftRecovery(next);
-          else clearDraftRecovery(noteId);
-          failedSavesRef.current.delete(noteId);
-          replaceList(notesRef.current.map((note) => note.id === noteId ? { ...note, ...result.note, ...next } : note));
-          if (activeNoteIdRef.current === noteId) {
-            selectedRef.current = next ?? result.note;
-            setSelectedNote(selectedRef.current);
-            setSaveState(next ? "saving" : "saved");
-          }
-        }
-      } catch (reason) {
-        failedSavesRef.current.set(noteId, reason);
-        const conflict = reason instanceof ApiError && reason.code === "VERSION_CONFLICT";
-        if (activeNoteIdRef.current === noteId) setSaveState(conflict ? "conflict" : "error");
-        if (!trashOperationsRef.current.has(noteId)) setToast(conflict ? "这篇笔记已在别处更新，请重新载入" : errorMessage(reason, "保存失败，请检查网络后重试"));
-        throw reason;
-      }
-    })();
-    inFlightSavesRef.current.set(noteId, task);
-    try { await task; }
-    finally { if (inFlightSavesRef.current.get(noteId) === task) inFlightSavesRef.current.delete(noteId); }
-  }, [replaceList]);
-  const persist = useCallback((draft: Note | NoteDraft) => {
-    const pendingDraft = toNoteDraft(draft);
-    pendingSavesRef.current.set(pendingDraft.id, pendingDraft);
-    if (activeNoteIdRef.current === pendingDraft.id) setSaveState("saving");
-    const existingRecoveryTimer = draftRecoveryTimersRef.current.get(pendingDraft.id);
-    if (existingRecoveryTimer) clearTimeout(existingRecoveryTimer);
-    const recoveryTimer = setTimeout(() => {
-      draftRecoveryTimersRef.current.delete(pendingDraft.id);
-      const latestDraft = pendingSavesRef.current.get(pendingDraft.id);
-      if (latestDraft) writeDraftRecovery(latestDraft);
-    }, 1200);
-    draftRecoveryTimersRef.current.set(pendingDraft.id, recoveryTimer);
-    const existingTimer = saveTimersRef.current.get(pendingDraft.id);
-    if (existingTimer) clearTimeout(existingTimer);
-    const timer = setTimeout(() => {
-      saveTimersRef.current.delete(pendingDraft.id);
-      const requestDraft = pendingSavesRef.current.get(pendingDraft.id);
-      if (!requestDraft) return;
-      void runSave(pendingDraft.id).catch(() => undefined);
-    }, 800);
-    saveTimersRef.current.set(pendingDraft.id, timer);
-  }, [runSave]);
-  persistRef.current = persist;
-  const saveNoteNow = useCallback(() => {
-    const current = selectedRef.current;
-    const pending = current ? pendingSavesRef.current.get(current.id) : undefined;
-    if (!current || !pending) return;
-    const timer = saveTimersRef.current.get(current.id);
-    if (timer) clearTimeout(timer);
-    saveTimersRef.current.delete(current.id);
-    setSaveState("saving");
-    void runSave(current.id).catch(() => undefined);
-  }, [runSave]);
-  // Keeps in-flight edits from being lost when the page is hidden or unloaded.
-  const flushPendingSaves = useCallback(async (mode: "now" | "keepalive") => {
-    if (mode === "keepalive") {
-      for (const draft of pendingSavesRef.current.values()) writeDraftRecovery(draft);
-    }
-    const ids = [...pendingSavesRef.current.keys()];
-    if (!ids.length) return;
-    await Promise.all(ids.map(async (id) => {
-      const timer = saveTimersRef.current.get(id);
-      if (timer) clearTimeout(timer);
-      saveTimersRef.current.delete(id);
-      const draft = pendingSavesRef.current.get(id);
-      if (!draft) return;
-      if (failedSavesRef.current.has(id)) return;
-      await runSave(id, mode === "keepalive").catch(() => undefined);
-    }));
-  }, [runSave]);
-  const retryFailedSaves = useCallback(async () => {
-    const ids = [...failedSavesRef.current.entries()]
-      .filter(([, reason]) => !(reason instanceof ApiError && reason.code === "VERSION_CONFLICT"))
-      .map(([id]) => id)
-      .filter((id) => pendingSavesRef.current.has(id));
-    await Promise.all(ids.map((id) => runSave(id).catch(() => undefined)));
-  }, [runSave]);
-  useEffect(() => {
-    const flushWhenHidden = () => { if (document.visibilityState === "hidden") void flushPendingSaves("keepalive"); };
-    const flushWhenUnloading = () => { void flushPendingSaves("keepalive"); };
-    document.addEventListener("visibilitychange", flushWhenHidden);
-    window.addEventListener("pagehide", flushWhenUnloading);
-    return () => {
-      document.removeEventListener("visibilitychange", flushWhenHidden);
-      window.removeEventListener("pagehide", flushWhenUnloading);
-    };
-  }, [flushPendingSaves]);
-  useEffect(() => {
-    const retryWhenOnline = () => { void retryFailedSaves(); };
-    window.addEventListener("online", retryWhenOnline);
-    return () => window.removeEventListener("online", retryWhenOnline);
-  }, [retryFailedSaves]);
-  useEffect(() => () => {
-    for (const draft of pendingSavesRef.current.values()) writeDraftRecovery(draft);
-    void flushPendingSaves("keepalive");
-    for (const timer of saveTimersRef.current.values()) clearTimeout(timer);
-    saveTimersRef.current.clear();
-    for (const timer of draftRecoveryTimersRef.current.values()) clearTimeout(timer);
-    draftRecoveryTimersRef.current.clear();
-  }, [flushPendingSaves]);
+
   const onNoteChange = useCallback((patch: { title?: string; contentMarkdown?: string; notebookId?: string }) => {
     const current = selectedRef.current;
     if (!current || trashOperationsRef.current.has(current.id)) return;
@@ -522,11 +382,6 @@ export function Workspace() {
     }
 
     if (patch.notebookId && patch.notebookId !== current.notebookId) {
-      const timer = saveTimersRef.current.get(current.id);
-      if (timer) clearTimeout(timer);
-      saveTimersRef.current.delete(current.id);
-      pendingSavesRef.current.set(current.id, toNoteDraft(next));
-      setSaveState("saving");
       if (targetNotebook) {
         invalidateCollections();
         searchOriginRef.current = null;
@@ -546,7 +401,7 @@ export function Workspace() {
         setMobileSidebarOpen(false);
         setMobileListOpen(false);
       }
-      void runSave(current.id).then(() => {
+      void saveImmediately(next).then(() => {
         refreshNotebooks();
         reloadNotes();
       }).catch(() => {
@@ -557,7 +412,7 @@ export function Workspace() {
     } else {
       persist(next);
     }
-  }, [invalidateCollections, notebooks, persist, refreshNotebooks, reloadNotes, replaceList, requestListTransition, runSave]);
+  }, [invalidateCollections, notebooks, persist, refreshNotebooks, reloadNotes, replaceList, requestListTransition, saveImmediately]);
   const revealCreatedNote = useCallback((note: Note, target: { view: NoteView; notebookId?: string }, message: string) => {
     invalidateCollections();
     searchOriginRef.current = null;
@@ -571,8 +426,7 @@ export function Workspace() {
     setIsNoteLoading(true);
     selectedRef.current = note;
     activeNoteIdRef.current = note.id;
-    pendingSavesRef.current.delete(note.id);
-    clearDraftRecovery(note.id);
+    clearPendingForNote(note.id);
     setEditorFocusNoteId(note.id);
     setSelectedId(note.id);
     setMobileSidebarOpen(false);
@@ -670,16 +524,11 @@ export function Workspace() {
       return;
     }
 
-    const timer = saveTimersRef.current.get(current.id);
-    if (timer) clearTimeout(timer);
-    saveTimersRef.current.delete(current.id);
-    pendingSavesRef.current.set(current.id, toNoteDraft(next));
-    setSaveState("saving");
     const scope = listScopeRef.current;
-    void runSave(current.id).then(() => {
+    void saveImmediately(next).then(() => {
       if (scope === listScopeRef.current) removeFromList(current.id);
     }).catch(() => undefined);
-  }, [persist, removeFromList, runSave, view]);
+  }, [persist, removeFromList, saveImmediately, view]);
   const finishTrashOperation = useCallback((noteId: string) => {
     trashOperationsRef.current.delete(noteId);
     setPendingTrashCount(trashOperationsRef.current.size);
@@ -694,13 +543,9 @@ export function Workspace() {
     trashOperationsRef.current.add(current.id);
     setPendingTrashCount(trashOperationsRef.current.size);
     invalidateCollections();
-    const timer = saveTimersRef.current.get(current.id);
-    if (timer) clearTimeout(timer);
-    saveTimersRef.current.delete(current.id);
-    pendingSavesRef.current.set(current.id, toNoteDraft(next));
     setNotebooks((items) => items.map((notebook) => notebook.id === current.notebookId ? { ...notebook, count: Math.max(0, notebook.count + (deleted ? -1 : 1)) } : notebook));
     try {
-      await runSave(current.id);
+      await saveImmediately(next);
       if (scope === listScopeRef.current) removeFromList(current.id);
       setToast(deleted ? "已移入回收站" : "已恢复笔记");
     } catch (reason) {
@@ -708,20 +553,12 @@ export function Workspace() {
       setNotebooks((items) => items.map((notebook) => notebook.id === current.notebookId ? { ...notebook, count: Math.max(0, notebook.count + (deleted ? 1 : -1)) } : notebook));
       setToast(reason instanceof ApiError && reason.code === "VERSION_CONFLICT" ? "这篇笔记已在别处更新，操作未完成，本地草稿已保留" : errorMessage(reason, deleted ? "移入回收站失败，请重试" : "恢复笔记失败，请重试"));
     } finally { finishTrashOperation(current.id); }
-  }, [finishTrashOperation, invalidateCollections, removeFromList, runSave]);
+  }, [finishTrashOperation, invalidateCollections, pendingSavesRef, removeFromList, saveImmediately]);
   const moveToTrash = useCallback(() => { void changeDeletedState(true); }, [changeDeletedState]);
   const restoreFromTrash = useCallback(() => { void changeDeletedState(false); }, [changeDeletedState]);
   const discardNoteDraft = useCallback((noteId: string) => {
-    pendingSavesRef.current.delete(noteId);
-    failedSavesRef.current.delete(noteId);
-    const timer = saveTimersRef.current.get(noteId);
-    if (timer) clearTimeout(timer);
-    saveTimersRef.current.delete(noteId);
-    const recoveryTimer = draftRecoveryTimersRef.current.get(noteId);
-    if (recoveryTimer) clearTimeout(recoveryTimer);
-    draftRecoveryTimersRef.current.delete(noteId);
-    clearDraftRecovery(noteId);
-  }, []);
+    clearPendingForNote(noteId);
+  }, [clearPendingForNote]);
   const performPermanentDelete = useCallback(async (noteId: string) => {
     if (trashOperationsRef.current.has(noteId) || emptyingTrashRef.current) throw new ApiError(409, "TRASH_BUSY", "回收站正在处理其他操作，请稍后重试");
     trashOperationsRef.current.add(noteId);
@@ -782,10 +619,7 @@ export function Workspace() {
   const reloadSelectedNote = useCallback(async () => {
     const current = selectedRef.current;
     if (!current) return;
-    pendingSavesRef.current.delete(current.id);
-    const timer = saveTimersRef.current.get(current.id);
-    if (timer) clearTimeout(timer);
-    saveTimersRef.current.delete(current.id);
+    clearPendingForNote(current.id);
     setIsNoteLoading(true);
     try {
       const result = await api.getNote(current.id);
@@ -794,14 +628,13 @@ export function Workspace() {
       setSelectedNote(result.note);
       setNoteReloadToken((value) => value + 1);
       setSaveState("idle");
-      failedSavesRef.current.delete(current.id);
       setToast("已重新载入最新版本");
     } catch {
       setToast("重新载入失败，请重试");
     } finally {
       setIsNoteLoading(false);
     }
-  }, []);
+  }, [clearPendingForNote, setSaveState]);
   const requestConflictReload = useCallback(() => {
     requestConfirm({
       eyebrow: "版本冲突",
@@ -919,9 +752,9 @@ export function Workspace() {
   }, [flushPendingSaves, navigate]);
   const updatePwa = useCallback(async () => {
     await flushPendingSaves("now");
-    if (pendingSavesRef.current.size > 0 || failedSavesRef.current.size > 0) { setToast("仍有编辑内容未保存，更新已暂缓"); return; }
+    if (hasUnsavedWork()) { setToast("仍有编辑内容未保存，更新已暂缓"); return; }
     applyPwaUpdate();
-  }, [flushPendingSaves]);
+  }, [flushPendingSaves, hasUnsavedWork]);
 
   const ensureWikiNoteExists = useCallback(
     async (title: string): Promise<NoteSummary | null> => {
