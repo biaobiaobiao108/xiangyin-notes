@@ -11,6 +11,7 @@ import {
   type UserRow,
   validText,
 } from "../core";
+import { publishWorkspaceChange } from "../realtime";
 
 type NotebookRowWithCount = {
   id: string;
@@ -77,6 +78,7 @@ export async function handleNotebooksRoute(ctx: RouteContext, user: UserRow): Pr
       return jsonError(409, "NOTEBOOK_EXISTS", "已经有同名笔记本");
     }
     const created = getNotebook(database, user.id, notebookId);
+    publishWorkspaceChange(options, user.id, { resource: "notebooks" }, request);
     return json({ notebook: created ? toNotebook(created) : null }, 201);
   }
 
@@ -95,6 +97,7 @@ export async function handleNotebooksRoute(ctx: RouteContext, user: UserRow): Pr
       return jsonError(409, "NOTEBOOK_EXISTS", "已经有同名笔记本");
     }
     const updated = getNotebook(database, user.id, current.id);
+    publishWorkspaceChange(options, user.id, { resource: "notebooks" }, request);
     return json({ notebook: updated ? toNotebook(updated) : null });
   }
 
@@ -112,6 +115,7 @@ export async function handleNotebooksRoute(ctx: RouteContext, user: UserRow): Pr
       database.query("DELETE FROM notebooks WHERE id = ? AND user_id = ?").run(current.id, user.id);
     });
     transaction();
+    publishWorkspaceChange(options, user.id, { resource: "notebooks" }, request);
     return json({ ok: true });
   }
 

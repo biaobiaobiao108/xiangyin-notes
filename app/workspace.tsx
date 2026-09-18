@@ -5,6 +5,7 @@ import { ApiError, api } from "./api";
 import { CommandId, CommandMenu } from "./command-menu";
 import type { CreateNoteCommand } from "./command-parser";
 import { applyPwaUpdate, installPwa, subscribePwa, type PwaState } from "./pwa";
+import type { WorkspaceChangeMessage } from "../shared/realtime";
 import type { Note, NoteSummary, NoteView, Notebook } from "../shared/types";
 import type { OutlineItem } from "./editor-metrics";
 import { ConfirmDialog, NotebookDialog, ShareDialog, type ConfirmRequest } from "./workspace/dialogs";
@@ -13,6 +14,7 @@ import { EmptyEditor, NoteListPanel, NoteLoadingState, Sidebar } from "./workspa
 import { errorMessage, shouldKeepActiveNoteInList, sortNotes, toNoteDraft, type NoteDraft, type NoteSort } from "./workspace/helpers";
 import { normalizeLinkTitle } from "../shared/wiki-links";
 import { useNoteSaveQueue } from "./workspace/use-note-save-queue";
+import { useWorkspaceRealtime } from "./workspace/use-realtime";
 import { useWorkspaceShortcuts } from "./workspace/use-workspace-shortcuts";
 
 const LazyNoteEditor = lazy(() => import("./editor").then(({ NoteEditor }) => ({ default: memo(NoteEditor) })));
@@ -635,6 +637,51 @@ export function Workspace() {
       setIsNoteLoading(false);
     }
   }, [clearPendingForNote, setSaveState]);
+  const refreshSelectedNoteFromRemote = useCallback(async (noteId: string) => {
+    const current = selectedRef.current;
+    if (!current || current.id !== noteId) return;
+    if (pendingSavesRef.current.has(noteId) || failedSavesRef.current.has(noteId)) {
+      setSaveState("conflict");
+      setToast("当前笔记已在其他设备更新，请先保存或重新载入");
+      return;
+    }
+
+    noteAbortRef.current?.abort();
+    const controller = new AbortController();
+    noteAbortRef.current = controller;
+    const requestId = ++noteLoadRequestRef.current;
+    setIsNoteLoading(true);
+    try {
+      const result = await api.getNote(noteId, { signal: controller.signal });
+      if (requestId !== noteLoadRequestRef.current || activeNoteIdRef.current !== noteId || selectedRef.current?.id !== noteId) return;
+      if (pendingSavesRef.current.has(noteId) || failedSavesRef.current.has(noteId)) {
+        setSaveState("conflict");
+        setToast("当前笔记已在其他设备更新，请先保存或重新载入");
+        return;
+      }
+      selectedRef.current = result.note;
+      setSelectedNote(result.note);
+      setNoteReloadToken((value) => value + 1);
+      setSaveState("idle");
+    } catch (reason) {
+      if (reason instanceof Error && reason.name === "AbortError") return;
+      if (reason instanceof ApiError && reason.status === 401) {
+        navigate("/login", { replace: true });
+        return;
+      }
+      if (reason instanceof ApiError && reason.status === 404 && activeNoteIdRef.current === noteId) {
+        activeNoteIdRef.current = null;
+        selectedRef.current = null;
+        setSelectedNote(null);
+        setSelectedId(null);
+        return;
+      }
+      setToast("同步当前笔记失败，请稍后重试");
+    } finally {
+      if (noteAbortRef.current === controller) noteAbortRef.current = null;
+      if (requestId === noteLoadRequestRef.current) setIsNoteLoading(false);
+    }
+  }, [failedSavesRef, navigate, pendingSavesRef, setSaveState]);
   const requestConflictReload = useCallback(() => {
     requestConfirm({
       eyebrow: "版本冲突",
@@ -644,6 +691,14 @@ export function Workspace() {
       onConfirm: () => void reloadSelectedNote(),
     });
   }, [reloadSelectedNote, requestConfirm]);
+  const handleRealtimeChange = useCallback((message?: WorkspaceChangeMessage) => {
+    void refreshNotebooks();
+    reloadNotes();
+    if (message?.resource === "notes" && message.noteId && message.noteId === activeNoteIdRef.current) {
+      void refreshSelectedNoteFromRemote(message.noteId);
+    }
+  }, [refreshNotebooks, refreshSelectedNoteFromRemote, reloadNotes]);
+  useWorkspaceRealtime({ ready, onChange: handleRealtimeChange });
   const selectView = useCallback((next: NoteView) => {
     if (view !== next || notebookId || query) requestListTransition();
     searchOriginRef.current = null;

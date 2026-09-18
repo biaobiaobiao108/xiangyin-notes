@@ -52,6 +52,7 @@ import {
 import { assetPathsForNotes, removeAssetFiles } from "./assets";
 import { canIndexShortSearchTerm, syncNoteShortSearchTerms } from "../note-search";
 import { handleNoteShares } from "./shares";
+import { publishWorkspaceChange } from "../realtime";
 
 export function createNote(
   database: SqliteDatabase,
@@ -152,6 +153,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
       return { ok: true, deletedCount: deletedIds.length, deletedIds, assetPaths };
     });
     const emptiedTrash = emptyTrash();
+    publishWorkspaceChange(options, user.id, { resource: "notes" }, request);
     await removeAssetFiles(assetRoot, emptiedTrash.assetPaths);
     return json({ ok: emptiedTrash.ok, deletedCount: emptiedTrash.deletedCount, deletedIds: emptiedTrash.deletedIds });
   }
@@ -173,6 +175,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     }
     const noteId = createNote(database, user.id, payload.notebookId as string, title, "");
     const note = getNote(database, user.id, noteId);
+    publishWorkspaceChange(options, user.id, { resource: "notes", noteId }, request);
     return note ? json({ note: toFullNote(note), created: true }, 201) : jsonError(500, "NOTE_CREATE_FAILED", "笔记创建失败");
   }
 
@@ -253,12 +256,13 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     if (!validNoteAssetReferences(database, user.id, null, contentMarkdown as string)) return jsonError(400, "INVALID_ASSET", "笔记引用了无权访问的图片");
     const noteId = createNote(database, user.id, notebookId, title, contentMarkdown as string, typeof payload?.id === "string" ? payload.id : undefined);
     const note = getNote(database, user.id, noteId);
+    publishWorkspaceChange(options, user.id, { resource: "notes", noteId }, request);
     return json({ note: note ? toFullNote(note) : null }, 201);
   }
 
   // Note shares
   if (id && subresource === "shares" && (method === "GET" || method === "POST")) {
-    return await handleNoteShares(database, user, id, method, url, environment);
+    return await handleNoteShares(database, user, id, method, url, environment, { request, options });
   }
 
   // Backlinks
@@ -456,6 +460,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
       return json({ error: { code: "VERSION_CONFLICT", message: "这篇笔记已在别处更新", current: latest ? toFullNote(latest) : null } }, 409);
     }
     const note = getNote(database, user.id, current.id);
+    publishWorkspaceChange(options, user.id, { resource: "notes", noteId: current.id }, request);
     return json({ note: note ? toFullNote(note) : null });
   }
 
@@ -471,6 +476,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
       database.query("DELETE FROM notes WHERE id = ? AND user_id = ?").run(note.id, user.id);
     });
     transaction();
+    publishWorkspaceChange(options, user.id, { resource: "notes", noteId: note.id }, request);
     await removeAssetFiles(assetRoot, assetPaths);
     return json({ ok: true });
   }

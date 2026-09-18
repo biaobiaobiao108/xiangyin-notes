@@ -2,6 +2,7 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { extractTags, normalizeTag } from "../shared/tags";
 import type { ImageAssetSummary, Note, NoteSummary, NoteView, Share } from "../shared/types";
+import type { RealtimeHub } from "./realtime";
 import type { SqliteDatabase } from "./db";
 
 export type { SqliteDatabase };
@@ -18,6 +19,7 @@ export type ServerOptions = {
   clientRoot?: string;
   assetRoot?: string;
   clientAddress?: string;
+  realtime?: RealtimeHub;
 };
 
 export type AuthCredentials = {

@@ -12,6 +12,7 @@ import { handleImportRoute } from "./routes/import";
 import { handleNotebooksRoute } from "./routes/notebooks";
 import { handleNotesRoute } from "./routes/notes";
 import { handlePublicShare, handleSharesRoute, servePublicShareAsset } from "./routes/shares";
+import { REALTIME_PATH, RealtimeHub, upgradeRealtimeRequest, type RealtimeSocketData } from "./realtime";
 
 // Re-exports for backward compatibility and test runners
 export {
@@ -192,20 +193,40 @@ export async function handleRequest(request: Request, options: ServerOptions) {
 
 if (import.meta.main) {
   const database = await openDatabase();
+  const realtime = new RealtimeHub();
   const port = Number.parseInt(Bun.env.PORT ?? "3000", 10) || 3000;
   const hostname = Bun.env.HOST?.trim() || "0.0.0.0";
   const clientRoot = Bun.env.CLIENT_ROOT?.trim() || DEFAULT_CLIENT_ROOT;
   const server = Bun.serve({
     hostname,
     port,
-    fetch(request, server) {
-      return handleRequest(request, { database, environment: Bun.env, clientRoot, clientAddress: server.requestIP(request)?.address });
+    async fetch(request, server) {
+      const options: ServerOptions = { database, environment: Bun.env, clientRoot, realtime, clientAddress: server.requestIP(request)?.address };
+      if (new URL(request.url).pathname === REALTIME_PATH) {
+        const realtimeResponse = await upgradeRealtimeRequest(request, server, options);
+        if (realtimeResponse) return withSecurityHeaders(realtimeResponse, Bun.env);
+        return undefined;
+      }
+      return handleRequest(request, options);
+    },
+    websocket: {
+      data: {} as RealtimeSocketData,
+      open(socket) {
+        realtime.add(socket);
+      },
+      close(socket) {
+        realtime.remove(socket);
+      },
+      message() {
+        // The realtime channel is intentionally server-to-client only.
+      },
     },
     error(error) {
       console.error("[server] uncaught error", error);
       return withSecurityHeaders(jsonError(500, "INTERNAL_ERROR", "服务器暂时无法处理请求"), Bun.env);
     },
   });
+  realtime.startHeartbeat();
   console.log(`象映笔记服务已启动：${server.url}`);
 
   let shutdownPromise: Promise<void> | null = null;
@@ -227,6 +248,7 @@ if (import.meta.main) {
       });
 
       try {
+        realtime.stop();
         await Promise.race([server.stop(), forceShutdown]);
       } finally {
         if (forceShutdownTimer) clearTimeout(forceShutdownTimer);

@@ -16,8 +16,11 @@ export class ApiError extends Error {
 
 type RequestOptions = Pick<RequestInit, "keepalive" | "signal">;
 
+export const realtimeClientId = crypto.randomUUID();
+
 async function request<T>(path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers);
+  headers.set("X-Xiangying-Client-Id", realtimeClientId);
   if (init.body && !(init.body instanceof FormData) && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   const response = await fetch(path, { ...init, headers, credentials: "include" });
   const payload = (await response.json().catch(() => null)) as (ApiErrorPayload & Record<string, unknown>) | null;

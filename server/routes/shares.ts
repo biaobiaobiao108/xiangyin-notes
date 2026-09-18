@@ -19,6 +19,9 @@ import {
   type UserRow,
 } from "../core";
 import { assetFilePath } from "./assets";
+import { publishWorkspaceChange } from "../realtime";
+
+type ShareRouteContext = Pick<RouteContext, "request" | "options">;
 
 export async function handlePublicShare(request: Request, database: SqliteDatabase) {
   const token = new URL(request.url).pathname.split("/").filter(Boolean)[2] ?? "";
@@ -68,6 +71,7 @@ export async function handleNoteShares(
   method: string,
   url: URL,
   environment: Record<string, string | undefined> = {},
+  context?: ShareRouteContext,
 ): Promise<Response> {
   const note = getNote(database, user.id, noteId);
   if (!note) return jsonError(404, "NOTE_NOT_FOUND", "笔记不存在");
@@ -102,6 +106,7 @@ export async function handleNoteShares(
       );
     });
     transaction();
+    if (context) publishWorkspaceChange(context.options, user.id, { resource: "shares", noteId: note.id }, context.request);
     const share: Share = {
       id: shareId,
       noteId: note.id,
@@ -129,6 +134,7 @@ export async function handleSharesRoute(ctx: RouteContext, user?: UserRow | null
   if (resource === "shares" && id && method === "DELETE") {
     if (!user) return null;
     const result = database.query("UPDATE shares SET revoked_at = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL").run(now(), id, user.id);
+    if (result.changes) publishWorkspaceChange(options, user.id, { resource: "shares" }, request);
     return result.changes ? json({ ok: true }) : jsonError(404, "SHARE_NOT_FOUND", "分享链接不存在");
   }
 

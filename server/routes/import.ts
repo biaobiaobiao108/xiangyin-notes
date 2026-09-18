@@ -16,6 +16,7 @@ import {
 } from "../core";
 import { getAuthCredentials, ensureEnvironmentUser } from "./auth";
 import { createNote } from "./notes";
+import { publishWorkspaceChange } from "../realtime";
 
 const IMPORT_API_PATH = "/api/import";
 export const IMPORT_RATE_LIMIT_WINDOW_SECONDS = 60;
@@ -204,5 +205,6 @@ export async function handleImportRoute(ctx: RouteContext): Promise<Response | n
     throw error;
   }
   const note = getNote(options.database, user.id, noteId);
+  publishWorkspaceChange(options, user.id, { resource: "notes", noteId }, request);
   return json({ ok: true, note: note ? toNote(note) : null }, 201);
 }
