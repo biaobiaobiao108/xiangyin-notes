@@ -90,6 +90,26 @@ export function resolveNoteLinksForUser(database: SqliteDatabase, userId: string
   }
 }
 
+export function resolveNoteLinksForTitles(database: SqliteDatabase, userId: string, titles: string[]) {
+  const normalizedTargets = new Set(titles.map((t) => normalizeLinkTitle(t)).filter(Boolean));
+  if (normalizedTargets.size === 0) return;
+
+  const targets = activeTitleMap(activeTitlesForUser(database, userId));
+  const links = all<Pick<NoteLinkRow, "id" | "target_title" | "target_note_id">>(
+    database,
+    "SELECT id, target_title, target_note_id FROM note_links WHERE user_id = ?",
+    userId,
+  );
+  const update = database.query("UPDATE note_links SET target_note_id = ? WHERE id = ? AND user_id = ?");
+  for (const link of links) {
+    const key = normalizeLinkTitle(link.target_title);
+    if (normalizedTargets.has(key)) {
+      const targetNoteId = targets.get(key) ?? null;
+      if (targetNoteId !== link.target_note_id) update.run(targetNoteId, link.id, userId);
+    }
+  }
+}
+
 export function resolveNoteLinksForTarget(database: SqliteDatabase, userId: string, title: string, targetNoteId: string) {
   const normalized = normalizeLinkTitle(title);
   if (!normalized) return;

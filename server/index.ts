@@ -5,7 +5,14 @@ import { extractTags, normalizeTag, parseTagQuery } from "../shared/tags";
 import { extractContextSnippet, extractWikiLinks, findUnlinkedMentionsInMarkdown, linkMentionInMarkdown, normalizeLinkTitle, replaceWikiLinkTarget } from "../shared/wiki-links";
 import { databasePathFromEnv, openDatabase, type SqliteDatabase } from "./db";
 import { IMAGE_ALLOWED_MIME_TYPES, IMAGE_MAX_BYTES, extensionForMimeType, inspectImage } from "./images";
-import { findActiveNoteIdByTitle, resolveNoteLinksForTarget, resolveNoteLinksForUser, sourceNoteIdsReferencingTarget, syncNoteLinks } from "./note-links";
+import {
+  findActiveNoteIdByTitle,
+  resolveNoteLinksForTarget,
+  resolveNoteLinksForTitles,
+  resolveNoteLinksForUser,
+  sourceNoteIdsReferencingTarget,
+  syncNoteLinks,
+} from "./note-links";
 import { createZip, type ZipEntry } from "./zip";
 
 const SESSION_COOKIE = "xiangying_session";
@@ -527,6 +534,26 @@ export function formatPreview(markdown: string) {
     .slice(0, NOTE_PREVIEW_LIMIT);
 }
 
+export function parseSearchTerms(query: string) {
+  const parts = query.trim().split(/\s+/).filter(Boolean);
+  const tokens: string[] = [];
+  const ftsTokens: string[] = [];
+  const shortTokens: string[] = [];
+
+  for (const part of parts) {
+    const cleaned = part.replaceAll('"', "").trim();
+    if (!cleaned) continue;
+    tokens.push(cleaned);
+    if (cleaned.length >= 3) {
+      ftsTokens.push(cleaned);
+    } else {
+      shortTokens.push(cleaned);
+    }
+  }
+
+  return { tokens, ftsTokens, shortTokens };
+}
+
 export function buildFtsQuery(query: string) {
   return query
     .trim()
@@ -711,7 +738,9 @@ function updateNoteInTransaction(
       }
     }
   }
-  if (titleChanged) resolveNoteLinksForUser(database, userId);
+  if (titleChanged || deletedAt !== current.deleted_at) {
+    resolveNoteLinksForTitles(database, userId, [oldTitle, title]);
+  }
 
   return true;
 }
@@ -1021,17 +1050,21 @@ async function handleApi(request: Request, options: ServerOptions) {
     }
     const tagQuery = parseTagQuery(query);
     if (query && !tagQuery) {
-      if (/[\u3400-\u9fff]/u.test(query)) {
-        const escapedQuery = escapeLikePattern(query);
-        conditions.push("(n.title LIKE ? ESCAPE '!' OR n.content_markdown LIKE ? ESCAPE '!')");
-        params.push(`%${escapedQuery}%`, `%${escapedQuery}%`);
-      } else {
-        const ftsQuery = buildFtsQuery(query);
-        // Without any searchable term the query must match nothing, not fall back to listing every note.
-        if (!ftsQuery) return json({ notes: [], total: 0 });
+      const { tokens, ftsTokens, shortTokens } = parseSearchTerms(query);
+      // Without any searchable term the query must match nothing, not fall back to listing every note.
+      if (tokens.length === 0) return json({ notes: [], total: 0 });
+
+      if (ftsTokens.length > 0) {
+        const ftsQuery = ftsTokens.map((part) => `"${part.replaceAll('"', '""')}"`).join(" AND ");
         from += " JOIN notes_fts ON notes_fts.note_id = n.id";
         conditions.push("notes_fts MATCH ?");
         params.push(ftsQuery);
+      }
+
+      for (const short of shortTokens) {
+        const escapedQuery = escapeLikePattern(short);
+        conditions.push("(n.title LIKE ? ESCAPE '!' OR n.content_markdown LIKE ? ESCAPE '!')");
+        params.push(`%${escapedQuery}%`, `%${escapedQuery}%`);
       }
     }
     const offset = Math.max(0, Number.parseInt(url.searchParams.get("offset") ?? "0", 10) || 0);
@@ -1154,22 +1187,34 @@ async function handleApi(request: Request, options: ServerOptions) {
     }
 
     const unlinkedMentions: UnlinkedMention[] = [];
-    if (note.title.trim().length >= 2) {
-      const candidates = database.query(`
+    const trimmedTitle = note.title.trim();
+    if (trimmedTitle.length >= 2) {
+      const { ftsTokens } = parseSearchTerms(trimmedTitle);
+      const useFts = trimmedTitle.length >= 3 && ftsTokens.length > 0;
+      let candidateFrom = "notes n JOIN notebooks nb ON n.notebook_id = nb.id";
+      const candidateConditions = ["n.user_id = ?", "n.deleted_at IS NULL", "n.id != ?"];
+      const candidateParams: SqlValue[] = [user.id, note.id];
+
+      if (useFts) {
+        candidateFrom += " JOIN notes_fts ON notes_fts.note_id = n.id";
+        candidateConditions.push("notes_fts MATCH ?");
+        candidateParams.push(ftsTokens.map((p) => `"${p.replaceAll('"', '""')}"`).join(" AND "));
+      } else {
+        candidateConditions.push("n.content_markdown LIKE ? ESCAPE '!'");
+        candidateParams.push(`%${escapeLikePattern(trimmedTitle)}%`);
+      }
+
+      const candidateSql = `
         SELECT n.id, n.title, n.content_markdown, nb.name AS notebook_name, n.version, n.updated_at
-        FROM notes n
-        JOIN notebooks nb ON n.notebook_id = nb.id
-        WHERE n.user_id = ? AND n.deleted_at IS NULL AND n.id != ? AND n.content_markdown LIKE ? ESCAPE '!'
+        FROM ${candidateFrom}
+        WHERE ${candidateConditions.join(" AND ")}
         ORDER BY n.updated_at DESC
         LIMIT ?
-      `);
+      `;
+      candidateParams.push(BACKLINK_CANDIDATE_LIMIT + 1);
+      const candidates = database.query(candidateSql);
       let candidateCount = 0;
-      mentionLoop: for (const candidate of candidates.iterate(
-        user.id,
-        note.id,
-        `%${escapeLikePattern(note.title)}%`,
-        BACKLINK_CANDIDATE_LIMIT + 1,
-      ) as Iterable<{
+      mentionLoop: for (const candidate of candidates.iterate(...candidateParams) as Iterable<{
         id: string;
         title: string;
         content_markdown: string;

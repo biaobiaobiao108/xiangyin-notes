@@ -52,7 +52,7 @@ describe("Bun Server API", () => {
   test("automatically initializes a fresh database and does not rerun the baseline", async () => {
     const fresh = await openDatabase(":memory:");
     const migrations = fresh.query("SELECT name FROM schema_migrations ORDER BY name").all() as Array<{ name: string }>;
-    expect(migrations.map((item) => item.name)).toEqual(["0001_baseline.sql"]);
+    expect(migrations.map((item) => item.name)).toEqual(["0001_baseline.sql", "0002_fts_trigram.sql"]);
     expect(fresh.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'users'").get()).toBeDefined();
     fresh.close();
 
@@ -62,7 +62,7 @@ describe("Bun Server API", () => {
 
     const reopened = await openDatabase(databasePath);
     const appliedMigrations = reopened.query("SELECT name FROM schema_migrations ORDER BY name").all() as Array<{ name: string }>;
-    expect(appliedMigrations.map((item) => item.name)).toEqual(["0001_baseline.sql"]);
+    expect(appliedMigrations.map((item) => item.name)).toEqual(["0001_baseline.sql", "0002_fts_trigram.sql"]);
     reopened.close();
     await Promise.all([rm(databasePath, { force: true }), rm(`${databasePath}-wal`, { force: true }), rm(`${databasePath}-shm`, { force: true })]);
   });
@@ -70,7 +70,7 @@ describe("Bun Server API", () => {
   test("applies SQLite migrations idempotently and reports health", async () => {
     await applyMigrations(database);
     const migrations = database.query("SELECT name FROM schema_migrations ORDER BY name").all() as Array<{ name: string }>;
-    expect(migrations.map((item) => item.name)).toEqual(["0001_baseline.sql"]);
+    expect(migrations.map((item) => item.name)).toEqual(["0001_baseline.sql", "0002_fts_trigram.sql"]);
     expect(database.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'sync_%'").all()).toEqual([]);
 
     const health = await request("/api/health");
@@ -117,6 +117,18 @@ describe("Bun Server API", () => {
     const wildcardSearch = await request(`/api/notes?view=all&query=${encodeURIComponent("检索前缀%")}`, {}, login.cookie);
     expect(wildcardSearch.response.status).toBe(200);
     expect(wildcardSearch.body).toEqual({ notes: [], total: 0 });
+
+    const cjkFtsSearch = await request(`/api/notes?view=all&query=${encodeURIComponent("检索前缀")}`, {}, login.cookie);
+    expect(cjkFtsSearch.response.status).toBe(200);
+    expect(cjkFtsSearch.body?.notes.map((item: { id: string }) => item.id)).toContain(wildcardNote.body?.note.id);
+
+    const cjkShortSearch = await request(`/api/notes?view=all&query=${encodeURIComponent("前缀")}`, {}, login.cookie);
+    expect(cjkShortSearch.response.status).toBe(200);
+    expect(cjkShortSearch.body?.notes.map((item: { id: string }) => item.id)).toContain(wildcardNote.body?.note.id);
+
+    const cjkMixedSearch = await request(`/api/notes?view=all&query=${encodeURIComponent("验证 检索前缀")}`, {}, login.cookie);
+    expect(cjkMixedSearch.response.status).toBe(200);
+    expect(cjkMixedSearch.body?.notes.map((item: { id: string }) => item.id)).toContain(wildcardNote.body?.note.id);
 
     const conflict = await request(`/api/notes/${note.id}`, { method: "PATCH", body: JSON.stringify({ version: 99, title: "stale" }) }, login.cookie);
     expect(conflict.response.status).toBe(409);
