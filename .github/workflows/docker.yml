@@ -79,6 +79,8 @@ jobs:
 
               XIANGYING_USERNAME=你的用户名
               XIANGYING_PASSWORD=你的密码
+              # 使用快捷指令导入时再配置
+              XIANGYING_API_TOKEN=随机生成的 API Token
 
           2. 创建持久化数据卷：
 

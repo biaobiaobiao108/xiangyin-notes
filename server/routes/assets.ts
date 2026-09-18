@@ -8,6 +8,7 @@ import {
   json,
   jsonError,
   now,
+  readBodyBytes,
   type RouteContext,
   type SqliteDatabase,
   toImageAsset,
@@ -20,6 +21,7 @@ type RuntimeEnvironment = Record<string, string | undefined>;
 
 export const ORPHAN_ASSET_TTL_SECONDS = 24 * 60 * 60;
 export const ORPHAN_ASSET_CLEANUP_INTERVAL_SECONDS = 60 * 60;
+export const IMAGE_UPLOAD_MAX_BODY_BYTES = IMAGE_MAX_BYTES + 256 * 1024;
 let nextOrphanAssetCleanupAt = 0;
 
 export function assetRootFromEnv(environment: RuntimeEnvironment = Bun.env) {
@@ -126,12 +128,23 @@ export async function cleanupOrphanAssets(database: SqliteDatabase, assetRoot: s
 }
 
 export async function uploadImageAsset(request: Request, database: SqliteDatabase, user: UserRow, assetRoot: string) {
-  const declaredLength = Number(request.headers.get("Content-Length"));
-  if (Number.isFinite(declaredLength) && declaredLength > IMAGE_MAX_BYTES + 256 * 1024) return jsonError(413, "IMAGE_TOO_LARGE", "图片超过 10 MiB 大小限制");
+  const body = await readBodyBytes(request, IMAGE_UPLOAD_MAX_BODY_BYTES);
+  if (!body.ok) {
+    return body.reason === "too-large"
+      ? jsonError(413, "IMAGE_TOO_LARGE", "图片超过 10 MiB 大小限制")
+      : jsonError(400, "INVALID_IMAGE_UPLOAD", "图片上传数据无效");
+  }
 
   let formData: FormData;
   try {
-    formData = await request.formData();
+    const formHeaders = new Headers();
+    const contentType = request.headers.get("Content-Type");
+    if (contentType) formHeaders.set("Content-Type", contentType);
+    formData = await new Request(request.url, {
+      method: request.method,
+      headers: formHeaders,
+      body: body.bytes.buffer as ArrayBuffer,
+    }).formData();
   } catch {
     return jsonError(400, "INVALID_IMAGE_UPLOAD", "图片上传数据无效");
   }

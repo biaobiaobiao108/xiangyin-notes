@@ -19,6 +19,7 @@ import {
   type UserRow,
   welcomeMarkdown,
 } from "../core";
+import { syncNoteShortSearchTerms } from "../note-search";
 
 type RuntimeEnvironment = Record<string, string | undefined>;
 
@@ -116,6 +117,7 @@ export async function ensureEnvironmentUser(database: SqliteDatabase, credential
       database.query("INSERT INTO notebooks (id, user_id, name, color, is_system, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, 1, 0, ?, ?)").run(inboxId, userId, "收件箱", "#d96245", createdAt, createdAt);
       database.query("INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)").run(noteId, userId, inboxId, "开始记录你的想法", welcomeMarkdown, createdAt, createdAt);
       syncNoteTags(database, userId, noteId, welcomeMarkdown);
+      syncNoteShortSearchTerms(database, userId, noteId, "开始记录你的想法", welcomeMarkdown);
       database.query("INSERT INTO notes_fts (note_id, title, content) VALUES (?, ?, ?)").run(noteId, "开始记录你的想法", welcomeMarkdown);
     });
     seed();

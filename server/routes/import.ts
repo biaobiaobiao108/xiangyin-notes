@@ -1,11 +1,14 @@
 import {
   constantTimeEqual,
+  digestHex,
   first,
   getNote,
   json,
   jsonError,
   NOTE_BODY_MAX_BYTES,
   NOTE_CONTENT_MAX_LENGTH,
+  now,
+  readBodyBytes,
   type RouteContext,
   toNote,
   validNoteAssetReferences,
@@ -15,6 +18,17 @@ import { getAuthCredentials, ensureEnvironmentUser } from "./auth";
 import { createNote } from "./notes";
 
 const IMPORT_API_PATH = "/api/import";
+export const IMPORT_RATE_LIMIT_WINDOW_SECONDS = 60;
+export const IMPORT_RATE_LIMIT_MAX_REQUESTS = 30;
+const IMPORT_RATE_LIMIT_MAX_ENTRIES = 2_000;
+
+type ImportRateLimitEntry = {
+  windowStartedAt: number;
+  requests: number;
+};
+
+const importRateLimits = new Map<string, ImportRateLimitEntry>();
+let nextImportRateLimitCleanupAt = 0;
 
 function getApiToken(environment: Record<string, string | undefined>) {
   const token = environment.XIANGYING_API_TOKEN?.trim();
@@ -41,44 +55,66 @@ function requireApiToken(request: Request, environment: Record<string, string | 
   return null;
 }
 
+function importClientKey(request: Request, environment: Record<string, string | undefined>, clientAddress: string | undefined) {
+  let address = clientAddress?.trim() || "unknown";
+  if (environment.TRUST_PROXY === "true") {
+    const forwarded = request.headers.get("X-Forwarded-For")?.split(",", 1)[0]?.trim();
+    address = forwarded || request.headers.get("X-Real-IP")?.trim() || address;
+  }
+  return address.slice(0, 128) || "unknown";
+}
+
+function checkImportRateLimit(request: Request, environment: Record<string, string | undefined>, clientAddress: string | undefined) {
+  const timestamp = now();
+  if (timestamp >= nextImportRateLimitCleanupAt) {
+    for (const [key, entry] of importRateLimits) {
+      if (timestamp - entry.windowStartedAt >= IMPORT_RATE_LIMIT_WINDOW_SECONDS) importRateLimits.delete(key);
+    }
+    nextImportRateLimitCleanupAt = timestamp + IMPORT_RATE_LIMIT_WINDOW_SECONDS;
+  }
+
+  const key = importClientKey(request, environment, clientAddress);
+  let entry = importRateLimits.get(key);
+  if (!entry || timestamp - entry.windowStartedAt >= IMPORT_RATE_LIMIT_WINDOW_SECONDS) {
+    if (!entry && importRateLimits.size >= IMPORT_RATE_LIMIT_MAX_ENTRIES) {
+      const oldestKey = importRateLimits.keys().next().value as string | undefined;
+      if (oldestKey) importRateLimits.delete(oldestKey);
+    }
+    entry = { windowStartedAt: timestamp, requests: 0 };
+    importRateLimits.set(key, entry);
+  }
+
+  if (entry.requests >= IMPORT_RATE_LIMIT_MAX_REQUESTS) {
+    const retryAfter = Math.max(1, entry.windowStartedAt + IMPORT_RATE_LIMIT_WINDOW_SECONDS - timestamp);
+    return jsonError(429, "TOO_MANY_IMPORTS", "导入请求过于频繁，请稍后再试", { "Retry-After": String(retryAfter) });
+  }
+  entry.requests += 1;
+  return null;
+}
+
 type ReadTextBodyResult =
   | { ok: true; text: string }
   | { ok: false; reason: "invalid" | "too-large" };
 
 async function readTextBody(request: Request, maxBytes: number): Promise<ReadTextBodyResult> {
-  const contentLengthHeader = request.headers.get("Content-Length");
-  if (contentLengthHeader !== null) {
-    const contentLength = Number(contentLengthHeader);
-    if (!Number.isInteger(contentLength) || contentLength < 0 || contentLength > maxBytes) return { ok: false, reason: "too-large" };
-  }
-
-  if (!request.body) return { ok: true, text: "" };
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
+  const body = await readBodyBytes(request, maxBytes);
+  if (!body.ok) return body;
   try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      total += value.byteLength;
-      if (total > maxBytes) {
-        await reader.cancel();
-        return { ok: false, reason: "too-large" };
-      }
-      chunks.push(value);
-    }
-    const bytes = new Uint8Array(total);
-    let offset = 0;
-    for (const chunk of chunks) {
-      bytes.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
-    return { ok: true, text: new TextDecoder("utf-8", { fatal: true }).decode(bytes) };
+    return { ok: true, text: new TextDecoder("utf-8", { fatal: true }).decode(body.bytes) };
   } catch {
     return { ok: false, reason: "invalid" };
-  } finally {
-    reader.releaseLock();
   }
+}
+
+async function deterministicImportNoteId(userId: string, idempotencyKey: string) {
+  return `import-${await digestHex(`xiangying-import:${userId}:${idempotencyKey}`)}`;
+}
+
+function replayIdempotentImport(database: RouteContext["options"]["database"], userId: string, noteId: string, contentMarkdown: string) {
+  const existing = getNote(database, userId, noteId);
+  if (!existing) return null;
+  if (existing.content_markdown !== contentMarkdown) return jsonError(409, "IDEMPOTENCY_CONFLICT", "Idempotency-Key 已用于其他笔记内容");
+  return json({ ok: true, note: toNote(existing) }, 200, { "Idempotent-Replayed": "true" });
 }
 
 function formatImportTitle(timestamp: number) {
@@ -104,6 +140,8 @@ export async function handleImportRoute(ctx: RouteContext): Promise<Response | n
   const environment = options.environment ?? {};
   const tokenError = requireApiToken(request, environment);
   if (tokenError) return tokenError;
+  const rateLimitError = checkImportRateLimit(request, environment, options.clientAddress);
+  if (rateLimitError) return rateLimitError;
 
   const credentials = getAuthCredentials(environment);
   if (!credentials) return jsonError(503, "AUTH_NOT_CONFIGURED", "请先配置 XIANGYING_USERNAME 和 XIANGYING_PASSWORD");
@@ -112,6 +150,11 @@ export async function handleImportRoute(ctx: RouteContext): Promise<Response | n
   const isJson = mediaType === "application/json";
   const isMarkdown = mediaType === "text/markdown" || mediaType === "text/plain" || mediaType === "";
   if (!isJson && !isMarkdown) return jsonError(415, "UNSUPPORTED_MEDIA_TYPE", "只支持 application/json、text/markdown 或 text/plain");
+
+  const idempotencyKey = request.headers.get("Idempotency-Key")?.trim() || null;
+  if (idempotencyKey && (idempotencyKey.length > 128 || !/^[\x21-\x7E]+$/u.test(idempotencyKey))) {
+    return jsonError(400, "INVALID_IDEMPOTENCY_KEY", "Idempotency-Key 只能包含 128 个以内的可见 ASCII 字符");
+  }
 
   const body = await readTextBody(request, NOTE_BODY_MAX_BYTES);
   if (!body.ok) {
@@ -143,10 +186,20 @@ export async function handleImportRoute(ctx: RouteContext): Promise<Response | n
   if (!inbox) return jsonError(500, "NO_INBOX", "找不到收件箱");
   if (!validNoteAssetReferences(options.database, user.id, null, contentMarkdown)) return jsonError(400, "INVALID_ASSET", "笔记包含不支持的图片地址或无权访问的图片");
 
+  const requestedId = idempotencyKey ? await deterministicImportNoteId(user.id, idempotencyKey) : undefined;
+  if (requestedId) {
+    const replay = replayIdempotentImport(options.database, user.id, requestedId, contentMarkdown);
+    if (replay) return replay;
+  }
+
   let noteId: string;
   try {
-    noteId = createNote(options.database, user.id, inbox.id, formatImportTitle(Math.floor(Date.now() / 1000)), contentMarkdown);
+    noteId = createNote(options.database, user.id, inbox.id, formatImportTitle(Math.floor(Date.now() / 1000)), contentMarkdown, requestedId);
   } catch (error) {
+    if (requestedId) {
+      const replay = replayIdempotentImport(options.database, user.id, requestedId, contentMarkdown);
+      if (replay) return replay;
+    }
     if (error instanceof Error && error.message === "invalid-note-assets") return jsonError(400, "INVALID_ASSET", "笔记包含不支持的图片地址或无权访问的图片");
     throw error;
   }

@@ -273,40 +273,58 @@ export function jsonError(status: number, code: string, message: string, headers
   return json({ error: { code, message } }, status, headers);
 }
 
-export async function readJson<T>(request: Request, maxBytes: number): Promise<T | null> {
+export type ReadBodyResult =
+  | { ok: true; bytes: Uint8Array }
+  | { ok: false; reason: "invalid" | "too-large" };
+
+export async function readBodyBytes(request: Request, maxBytes: number): Promise<ReadBodyResult> {
   const contentLengthHeader = request.headers.get("Content-Length");
   if (contentLengthHeader !== null) {
     const contentLength = Number(contentLengthHeader);
-    if (!Number.isInteger(contentLength) || contentLength < 0 || contentLength > maxBytes) return null;
+    if (!Number.isInteger(contentLength) || contentLength < 0) return { ok: false, reason: "invalid" };
+    if (contentLength > maxBytes) return { ok: false, reason: "too-large" };
   }
 
   const reader = request.body?.getReader();
-  if (!reader) return null;
-  const decoder = new TextDecoder();
-  const parts: string[] = [];
-  let byteLength = 0;
+  if (!reader) return { ok: true, bytes: new Uint8Array() };
+  const chunks: Uint8Array[] = [];
+  let total = 0;
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      byteLength += value.byteLength;
-      if (byteLength > maxBytes) {
-        await reader.cancel();
-        return null;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        try {
+          await reader.cancel();
+        } catch {
+          // The request is already being rejected; cancellation failure is not actionable here.
+        }
+        return { ok: false, reason: "too-large" };
       }
-      parts.push(decoder.decode(value, { stream: true }));
+      chunks.push(value);
     }
-    parts.push(decoder.decode());
+
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return { ok: true, bytes };
   } catch {
-    return null;
+    return { ok: false, reason: "invalid" };
   } finally {
     reader.releaseLock();
   }
+}
 
-  const raw = parts.join("");
+export async function readJson<T>(request: Request, maxBytes: number): Promise<T | null> {
+  const body = await readBodyBytes(request, maxBytes);
+  if (!body.ok) return null;
 
   try {
-    return JSON.parse(raw) as T;
+    return JSON.parse(new TextDecoder().decode(body.bytes)) as T;
   } catch {
     return null;
   }
@@ -423,7 +441,7 @@ export function parseSearchTerms(query: string) {
     const cleaned = part.replaceAll('"', "").trim();
     if (!cleaned) continue;
     tokens.push(cleaned);
-    if (cleaned.length >= 3) {
+    if (Array.from(cleaned).length >= 3) {
       ftsTokens.push(cleaned);
     } else {
       shortTokens.push(cleaned);

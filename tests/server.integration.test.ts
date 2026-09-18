@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyMigrations, openDatabase, type SqliteDatabase } from "../server/db";
 import { handleRequest } from "../server/index";
+import { IMAGE_UPLOAD_MAX_BODY_BYTES } from "../server/routes/assets";
+import { IMPORT_RATE_LIMIT_MAX_REQUESTS } from "../server/routes/import";
 
 let database: SqliteDatabase;
 let assetRoot: string;
@@ -126,7 +128,7 @@ describe("Bun Server API", () => {
     const rawMarkdown = "![远程图片](https://example.com/image.png)\n\n来自原始 Markdown";
     const raw = await request("/api/import", {
       method: "POST",
-      headers: { Authorization: `Bearer ${apiToken}`, "Content-Type": "text/markdown" },
+      headers: { Authorization: `Bearer ${apiToken}`, "Content-Type": "text/markdown", "Idempotency-Key": "shortcut-retry-1" },
       body: rawMarkdown,
     }, undefined, apiEnvironment, "https://notes.example.com");
     expect(raw.response.status).toBe(201);
@@ -141,11 +143,20 @@ describe("Bun Server API", () => {
 
     const duplicate = await request("/api/import", {
       method: "POST",
-      headers: { Authorization: `Bearer ${apiToken}`, "Content-Type": "text/markdown" },
+      headers: { Authorization: `Bearer ${apiToken}`, "Content-Type": "text/markdown", "Idempotency-Key": "shortcut-retry-1" },
       body: rawMarkdown,
     }, undefined, apiEnvironment);
-    expect(duplicate.response.status).toBe(201);
-    expect(duplicate.body?.note.id).not.toBe(raw.body?.note.id);
+    expect(duplicate.response.status).toBe(200);
+    expect(duplicate.response.headers.get("Idempotent-Replayed")).toBe("true");
+    expect(duplicate.body?.note.id).toBe(raw.body?.note.id);
+
+    const conflict = await request("/api/import", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiToken}`, "Content-Type": "text/markdown", "Idempotency-Key": "shortcut-retry-1" },
+      body: "同一个 Key 不允许写入另一篇笔记",
+    }, undefined, apiEnvironment);
+    expect(conflict.response.status).toBe(409);
+    expect(conflict.body?.error.code).toBe("IDEMPOTENCY_CONFLICT");
   });
 
   test("validates imported Markdown request bodies", async () => {
@@ -171,6 +182,21 @@ describe("Bun Server API", () => {
     const oversized = await request("/api/import", { method: "POST", headers: { ...headers, "Content-Type": "text/markdown" }, body: "字".repeat(1_000_001) }, undefined, apiEnvironment);
     expect(oversized.response.status).toBe(413);
     expect(oversized.body?.error.code).toBe("NOTE_TOO_LARGE");
+  });
+
+  test("rate limits authenticated API imports by client address", async () => {
+    const apiToken = "shortcut-api-token-1234567890";
+    const apiEnvironment = { ...environment, XIANGYING_API_TOKEN: apiToken };
+    const headers = { Authorization: `Bearer ${apiToken}`, "Content-Type": "text/markdown" };
+
+    for (let index = 0; index < IMPORT_RATE_LIMIT_MAX_REQUESTS; index += 1) {
+      const response = await request("/api/import", { method: "POST", headers, body: `限流测试 ${index}` }, undefined, apiEnvironment);
+      expect(response.response.status).toBe(201);
+    }
+    const limited = await request("/api/import", { method: "POST", headers, body: "超过限流" }, undefined, apiEnvironment);
+    expect(limited.response.status).toBe(429);
+    expect(limited.response.headers.get("Retry-After")).toMatch(/^\d+$/u);
+    expect(limited.body?.error.code).toBe("TOO_MANY_IMPORTS");
   });
 
   test("creates the owner, manages notes, search, notebooks and versions", async () => {
@@ -316,6 +342,23 @@ describe("Bun Server API", () => {
     expect(unsafe.changes).toBe(1);
     const isolated = await request(asset.url, {}, login.cookie);
     expect(isolated.response.status).toBe(404);
+  });
+
+  test("rejects oversized chunked image uploads before multipart parsing", async () => {
+    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
+    const oversizedBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(IMAGE_UPLOAD_MAX_BODY_BYTES + 1));
+        controller.close();
+      },
+    });
+    const response = await request("/api/assets", {
+      method: "POST",
+      headers: { "Content-Type": "multipart/form-data; boundary=oversized" },
+      body: oversizedBody,
+    }, login.cookie);
+    expect(response.response.status).toBe(413);
+    expect(response.body?.error.code).toBe("IMAGE_TOO_LARGE");
   });
 
   test("rolls back note updates when asset references become invalid during the transaction", async () => {

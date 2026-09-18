@@ -111,3 +111,12 @@ CREATE TABLE IF NOT EXISTS note_tags (
 );
 
 CREATE INDEX IF NOT EXISTS idx_note_tags_tag_user ON note_tags(tag_normalized, user_id, note_id);
+
+CREATE TABLE IF NOT EXISTS note_short_terms (
+  note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  term TEXT NOT NULL,
+  PRIMARY KEY(note_id, term)
+);
+
+CREATE INDEX IF NOT EXISTS idx_note_short_terms_user_term ON note_short_terms(user_id, term, note_id);

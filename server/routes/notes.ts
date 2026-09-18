@@ -50,6 +50,7 @@ import {
   syncNoteLinks,
 } from "../note-links";
 import { assetPathsForNotes, removeAssetFiles } from "./assets";
+import { canIndexShortSearchTerm, syncNoteShortSearchTerms } from "../note-search";
 import { handleNoteShares } from "./shares";
 
 export function createNote(
@@ -66,6 +67,7 @@ export function createNote(
     database.query("INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)").run(id, userId, notebookId, title, contentMarkdown, createdAt, createdAt);
     if (!syncNoteAssetReferences(database, userId, id, contentMarkdown)) throw new Error("invalid-note-assets");
     syncNoteTags(database, userId, id, contentMarkdown);
+    syncNoteShortSearchTerms(database, userId, id, title, contentMarkdown);
     database.query("INSERT INTO notes_fts (note_id, title, content) VALUES (?, ?, ?)").run(id, title, contentMarkdown);
     syncNoteLinks(database, userId, id, contentMarkdown, createdAt);
     resolveNoteLinksForTarget(database, userId, title, id);
@@ -92,6 +94,7 @@ export function updateNoteInTransaction(
   if (!updated) return false;
   if (!syncNoteAssetReferences(database, userId, current.id, contentMarkdown)) throw new InvalidNoteAssetsError();
   syncNoteTags(database, userId, current.id, contentMarkdown);
+  syncNoteShortSearchTerms(database, userId, current.id, title, contentMarkdown);
   database.query("DELETE FROM notes_fts WHERE note_id = ?").run(current.id);
   database.query("INSERT INTO notes_fts (note_id, title, content) VALUES (?, ?, ?)").run(current.id, title, contentMarkdown);
   syncNoteLinks(database, userId, current.id, contentMarkdown, updatedAt);
@@ -107,6 +110,7 @@ export function updateNoteInTransaction(
         database.query("DELETE FROM notes_fts WHERE note_id = ?").run(refNote.id);
         database.query("INSERT INTO notes_fts (note_id, title, content) VALUES (?, ?, ?)").run(refNote.id, refNote.title, replacedContent);
         syncNoteTags(database, userId, refNote.id, replacedContent);
+        syncNoteShortSearchTerms(database, userId, refNote.id, refNote.title, replacedContent);
         syncNoteLinks(database, userId, refNote.id, replacedContent, updatedAt);
       }
     }
@@ -208,7 +212,12 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
         params.push(ftsQuery);
       }
 
-      for (const short of shortTokens) {
+      for (const short of shortTokens.filter(canIndexShortSearchTerm)) {
+        conditions.push("EXISTS (SELECT 1 FROM note_short_terms st WHERE st.note_id = n.id AND st.user_id = n.user_id AND st.term = ?)");
+        params.push(short);
+      }
+
+      for (const short of shortTokens.filter((term) => !canIndexShortSearchTerm(term))) {
         const escapedQuery = escapeLikePattern(short);
         conditions.push("(n.title LIKE ? ESCAPE '!' OR n.content_markdown LIKE ? ESCAPE '!')");
         params.push(`%${escapedQuery}%`, `%${escapedQuery}%`);
