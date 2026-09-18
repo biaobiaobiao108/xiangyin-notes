@@ -358,6 +358,11 @@ describe("Bun Server API", () => {
     expect(list.body?.notes).toHaveLength(100);
     expect(list.body?.total).toBe(106);
     expect(list.body?.notes[0]).not.toHaveProperty("contentMarkdown");
+
+    const page2 = await request("/api/notes?view=all&offset=100", {}, login.cookie);
+    expect(page2.response.status).toBe(200);
+    expect(page2.body?.notes).toHaveLength(6);
+    expect(page2.body?.total).toBe(106);
   });
 
   test("empties all owned trash beyond the list limit without deleting active or other users' notes", async () => {

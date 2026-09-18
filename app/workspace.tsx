@@ -215,6 +215,25 @@ export function Workspace() {
       if (listAbortRef.current === controller) listAbortRef.current = null;
     }
   }, [deferredQuery, listScope, navigate, notebookId, notebooks, notesReloadToken, playPendingListTransition, replaceList, view]);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const loadMoreNotes = useCallback(async () => {
+    if (isLoadingMore || notesRef.current.length >= totalNotes) return;
+    setIsLoadingMore(true);
+    try {
+      const result = await api.listNotes({ view, query: deferredQuery, notebookId, offset: notesRef.current.length });
+      if (trashOperationsRef.current.size || emptyingTrashRef.current) return;
+      const currentList = notesRef.current;
+      const existingIds = new Set(currentList.map((note) => note.id));
+      const nextNotes = result.notes.filter((note) => !existingIds.has(note.id));
+      const merged = [...currentList, ...nextNotes];
+      replaceList(merged);
+      setTotalNotes(Math.max(result.total, merged.length));
+    } catch {
+      setToast("加载更多笔记失败，请重试");
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [deferredQuery, isLoadingMore, notebookId, replaceList, totalNotes, view]);
   const reloadNotes = useCallback(() => setNotesReloadToken((value) => value + 1), []);
   useEffect(() => {
     if (!ready) return;
@@ -988,7 +1007,7 @@ export function Workspace() {
   return <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${focusMode ? "is-focus-mode" : ""}`}>
     {mobileNavigationOpen && <button className="mobile-scrim is-visible" type="button" aria-label="关闭导航" onClick={() => { setMobileSidebarOpen(false); setMobileListOpen(false); closeOutline(); }} />}
     <Sidebar view={view} setView={selectView} notebooks={notebooks} notebookId={notebookId} setNotebookId={selectNotebook} query={query} setQuery={changeQuery} searchRef={searchRef} onNewInboxNote={handleNewInboxNote} onCreateNotebook={handleCreateNotebook} onEditNotebook={handleEditNotebook} collapsed={sidebarCollapsed} onCollapse={handleCollapseSidebar} mobileOpen={mobileSidebarOpen} onLogout={logout} />
-    <NoteListPanel notes={notes} total={totalNotes} sort={noteSort} setSort={setNoteSort} selectedId={selectedId} onSelect={handleSelectListNote} view={view} query={query} currentNotebookName={currentNotebook?.name} onEmptyTrash={view === "trash" ? emptyTrash : undefined} trashBusy={pendingTrashCount > 0 || emptyingTrash} onNewNote={listNewNote} onClearQuery={handleClearQuery} mobileOpen={mobileListOpen} onOpenSidebar={handleOpenSidebar} transitionToken={listTransitionToken} outlineOpen={outlineOpen} outlineItems={outlineItems} activeOutlineId={activeOutlineId} onScrollToOutlineItem={handleScrollToOutlineItem} onCloseOutline={closeOutline} />
+    <NoteListPanel notes={notes} total={totalNotes} sort={noteSort} setSort={setNoteSort} selectedId={selectedId} onSelect={handleSelectListNote} view={view} query={query} currentNotebookName={currentNotebook?.name} onEmptyTrash={view === "trash" ? emptyTrash : undefined} trashBusy={pendingTrashCount > 0 || emptyingTrash} onNewNote={listNewNote} onClearQuery={handleClearQuery} mobileOpen={mobileListOpen} onOpenSidebar={handleOpenSidebar} transitionToken={listTransitionToken} outlineOpen={outlineOpen} outlineItems={outlineItems} activeOutlineId={activeOutlineId} onScrollToOutlineItem={handleScrollToOutlineItem} onCloseOutline={closeOutline} onLoadMore={loadMoreNotes} isLoadingMore={isLoadingMore} />
     <main className="editor-region">
       {renderedNote ? <Suspense fallback={<NoteLoadingState />}><LazyNoteEditor note={renderedNote} availableNotes={notes} onNavigateWikiLink={handleNavigateWikiLink} onCreateAndLinkNote={handleCreateAndLinkNote} onNavigateToNote={selectNote} searchQuery={activeSearchQuery} onClearSearch={activeSearchQuery ? handleClearSearch : undefined} saveState={saveState} isLoading={isNoteLoading} trashBusy={emptyingTrash || (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onShare={handleShare} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={handleOpenList} onUploadImage={handleUploadImage} focusMode={focusMode} onToggleFocusMode={toggleFocusMode} typewriterMode={typewriterMode} outlineOpen={outlineOpen} outlineItems={outlineItems} onToggleOutline={toggleOutline} onCloseOutline={closeOutline} onOutlineItemsChange={handleOutlineItemsChange} onOutlineActiveChange={handleOutlineActiveChange} onOutlineNavigationReady={handleOutlineNavigationReady} /></Suspense> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor isTrash={view === "trash"} onNewNote={handleNewNote} onOpenList={handleOpenList} transitionToken={listTransitionToken} />}
     </main>

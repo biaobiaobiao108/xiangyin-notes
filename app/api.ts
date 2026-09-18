@@ -33,10 +33,11 @@ export const api = {
   login: (payload: { username: string; password: string }) => request<{ user: User }>("/api/auth/login", { method: "POST", body: JSON.stringify(payload) }),
   logout: () => request<{ ok: true }>("/api/auth/logout", { method: "POST" }),
   me: () => request<{ user: User }>("/api/me"),
-  listNotes: (params: { view: NoteView; query?: string; notebookId?: string }, options?: RequestOptions) => {
+  listNotes: (params: { view: NoteView; query?: string; notebookId?: string; offset?: number }, options?: RequestOptions) => {
     const search = new URLSearchParams({ view: params.view });
     if (params.query) search.set("query", params.query);
     if (params.notebookId) search.set("notebookId", params.notebookId);
+    if (params.offset !== undefined && params.offset > 0) search.set("offset", String(params.offset));
     return request<{ notes: NoteSummary[]; total: number }>(`/api/notes?${search.toString()}`, options);
   },
   getNote: (id: string, options?: RequestOptions) => request<{ note: Note }>(`/api/notes/${id}`, options),

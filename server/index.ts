@@ -961,6 +961,7 @@ async function handleApi(request: Request, options: ServerOptions) {
         params.push(ftsQuery);
       }
     }
+    const offset = Math.max(0, Number.parseInt(url.searchParams.get("offset") ?? "0", 10) || 0);
     const where = conditions.join(" AND ");
     if (tagQuery) {
       const tagListStatement = database.query(`
@@ -972,15 +973,15 @@ async function handleApi(request: Request, options: ServerOptions) {
       for (const row of tagListStatement.iterate(...params) as Iterable<NoteRow>) {
         const tags = extractTags(row.content_markdown);
         if (!tags.some((tag) => normalizeTag(tag) === tagQuery)) continue;
+        if (total >= offset && notes.length < NOTE_PAGE_SIZE) notes.push(toNote(row, tags));
         total += 1;
-        if (notes.length < NOTE_PAGE_SIZE) notes.push(toNote(row, tags));
       }
       return json({ notes, total });
     }
     const totalRow = first<{ count: number }>(database, `SELECT COUNT(*) AS count FROM ${from} WHERE ${where}`, ...params);
     const listStatement = database.query(`
       SELECT ${NOTE_SELECT}
-      FROM ${from} WHERE ${where} ORDER BY n.updated_at DESC LIMIT ${NOTE_PAGE_SIZE}
+      FROM ${from} WHERE ${where} ORDER BY n.updated_at DESC LIMIT ${NOTE_PAGE_SIZE} OFFSET ${offset}
     `);
     const notes: NoteSummary[] = [];
     for (const row of listStatement.iterate(...params) as Iterable<NoteRow>) notes.push(toNote(row));
