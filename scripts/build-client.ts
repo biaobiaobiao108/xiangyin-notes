@@ -1,7 +1,8 @@
 import { rm } from "node:fs/promises";
+import { resolve } from "node:path";
 
-await rm("./dist/client", { recursive: true, force: true });
-await rm("./dist/worker", { recursive: true, force: true });
+await rm(resolve("./dist/client"), { recursive: true, force: true });
+await rm(resolve("./dist/worker"), { recursive: true, force: true });
 
 const clientBuild = await Bun.build({
   entrypoints: ["./app/index.html"],
