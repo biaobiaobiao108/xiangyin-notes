@@ -3,7 +3,6 @@ import { realtimeClientId } from "../api";
 import type { WorkspaceChangeMessage, WorkspaceChangeResource } from "../../shared/realtime";
 
 const REALTIME_PATH = "/api/realtime";
-const RECONCILE_DEBOUNCE_MS = 100;
 const LIFECYCLE_RECONCILE_COOLDOWN_MS = 1_000;
 const FALLBACK_RECONCILE_MS = 30_000;
 const RECONNECT_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 16_000, 30_000];
@@ -46,7 +45,6 @@ export function useWorkspaceRealtime({ ready, onChange }: UseWorkspaceRealtimeOp
     let socket: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
-    let reconcileTimer: ReturnType<typeof setTimeout> | null = null;
     let lastLifecycleReconcileAt = 0;
 
     const clearReconnectTimer = () => {
@@ -61,25 +59,12 @@ export function useWorkspaceRealtime({ ready, onChange }: UseWorkspaceRealtimeOp
       fallbackTimer = null;
     };
 
-    const clearReconcileTimer = () => {
-      if (!reconcileTimer) return;
-      clearTimeout(reconcileTimer);
-      reconcileTimer = null;
-    };
-
-    const reconcile = (message?: WorkspaceChangeMessage, lifecycle = false) => {
+    const triggerLifecycleSync = () => {
       if (disposed) return;
-      if (lifecycle) {
-        const now = Date.now();
-        if (now - lastLifecycleReconcileAt < LIFECYCLE_RECONCILE_COOLDOWN_MS) return;
-        lastLifecycleReconcileAt = now;
-      }
-      if (reconcileTimer) return;
-      const delay = lifecycle ? 0 : RECONCILE_DEBOUNCE_MS;
-      reconcileTimer = setTimeout(() => {
-        reconcileTimer = null;
-        if (!disposed) onChangeRef.current(message);
-      }, delay);
+      const now = Date.now();
+      if (now - lastLifecycleReconcileAt < LIFECYCLE_RECONCILE_COOLDOWN_MS) return;
+      lastLifecycleReconcileAt = now;
+      onChangeRef.current(undefined);
     };
 
     const scheduleFallbackReconcile = () => {
@@ -87,7 +72,7 @@ export function useWorkspaceRealtime({ ready, onChange }: UseWorkspaceRealtimeOp
       fallbackTimer = setTimeout(() => {
         fallbackTimer = null;
         if (disposed || !isOnlineAndVisible()) return;
-        if (!socket || socket.readyState !== WebSocket.OPEN) reconcile(undefined, true);
+        if (!socket || socket.readyState !== WebSocket.OPEN) triggerLifecycleSync();
         scheduleFallbackReconcile();
       }, FALLBACK_RECONCILE_MS);
     };
@@ -131,14 +116,14 @@ export function useWorkspaceRealtime({ ready, onChange }: UseWorkspaceRealtimeOp
         reconnectAttempt = 0;
         clearReconnectTimer();
         clearFallbackTimer();
-        reconcile(undefined, true);
+        triggerLifecycleSync();
       });
 
       nextSocket.addEventListener("message", (event) => {
         if (socket !== nextSocket) return;
         try {
           const payload: unknown = JSON.parse(typeof event.data === "string" ? event.data : "");
-          if (isWorkspaceChangeMessage(payload)) reconcile(payload);
+          if (isWorkspaceChangeMessage(payload)) onChangeRef.current(payload);
         } catch {
           // Ignore malformed or future event types so the connection remains usable.
         }
@@ -159,7 +144,7 @@ export function useWorkspaceRealtime({ ready, onChange }: UseWorkspaceRealtimeOp
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        reconcile(undefined, true);
+        triggerLifecycleSync();
         scheduleReconnect(true);
         scheduleFallbackReconcile();
         return;
@@ -170,12 +155,12 @@ export function useWorkspaceRealtime({ ready, onChange }: UseWorkspaceRealtimeOp
     };
     const handleFocus = () => {
       if (!isOnlineAndVisible()) return;
-      reconcile(undefined, true);
+      triggerLifecycleSync();
       scheduleReconnect(true);
     };
     const handleOnline = () => {
       reconnectAttempt = 0;
-      reconcile(undefined, true);
+      triggerLifecycleSync();
       scheduleReconnect(true);
       scheduleFallbackReconcile();
     };
@@ -191,7 +176,6 @@ export function useWorkspaceRealtime({ ready, onChange }: UseWorkspaceRealtimeOp
       disposed = true;
       clearReconnectTimer();
       clearFallbackTimer();
-      clearReconcileTimer();
       closeSocket(1000, "workspace closed");
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("focus", handleFocus);

@@ -420,6 +420,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     if (!updateNote(database, sourceNote, user.id, sourceNote.title, newContent, sourceNote.notebook_id, sourceNote.is_favorite, sourceNote.deleted_at)) {
       return jsonError(409, "VERSION_CONFLICT", "来源笔记已被更新，请重试");
     }
+    publishWorkspaceChange(options, user.id, { resource: "notes", noteId: sourceNote.id }, request);
 
     return json({ ok: true });
   }

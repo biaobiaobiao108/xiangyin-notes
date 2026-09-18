@@ -117,6 +117,33 @@ describe("RealtimeHub", () => {
     expect(otherUser.closed).toBe(true);
     expect(hub.getConnectionCount()).toBe(0);
   });
+
+  test("bounds connections per user by evicting the oldest socket and cleans up faulty sockets", () => {
+    const hub = new RealtimeHub();
+    const sockets: FakeSocket[] = [];
+    for (let i = 0; i < 33; i++) {
+      const s = fakeSocket("user-limit", `client-${i}`);
+      sockets.push(s);
+      hub.add(s.socket);
+    }
+    expect(hub.getConnectionCount("user-limit")).toBe(32);
+    expect(sockets[0]!.closed).toBe(true);
+    expect(sockets[32]!.closed).toBe(false);
+
+    // Test faulty socket in publish
+    const brokenSocket = {
+      data: { userId: "faulty-user", clientId: "broken" },
+      sendText() {
+        throw new Error("broken pipe");
+      },
+      close() {},
+    } as unknown as Bun.ServerWebSocket<RealtimeSocketData>;
+    hub.add(brokenSocket);
+    expect(hub.getConnectionCount("faulty-user")).toBe(1);
+    expect(() => hub.publish("faulty-user", { resource: "notes" })).not.toThrow();
+    expect(hub.getConnectionCount("faulty-user")).toBe(0);
+    hub.stop();
+  });
 });
 
 describe("Realtime HTTP integration", () => {
@@ -141,7 +168,50 @@ describe("Realtime HTTP integration", () => {
     hub.stop();
   });
 
-  test("authenticates the upgrade and emits import events without emitting idempotent replays", async () => {
+  test("rejects cross-site websocket hijacking with 403 when origin does not match", async () => {
+    const hub = new RealtimeHub();
+    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
+    expect(login.cookie).toBeTruthy();
+
+    const server = {
+      upgrade() {
+        return true;
+      },
+    } as unknown as Bun.Server<RealtimeSocketData>;
+
+    // Foreign origin attempt
+    const hijacked = await upgradeRealtimeRequest(
+      new Request("http://xiangying.test/api/realtime", {
+        headers: {
+          Upgrade: "websocket",
+          Cookie: login.cookie!,
+          Origin: "https://evil-attacker.example.com",
+        },
+      }),
+      server,
+      { database, environment, realtime: hub },
+    );
+    expect(hijacked?.status).toBe(403);
+    const body = await hijacked?.json();
+    expect(body?.error?.code).toBe("FORBIDDEN_ORIGIN");
+
+    // Same-origin attempt succeeds
+    const legitimate = await upgradeRealtimeRequest(
+      new Request("http://xiangying.test/api/realtime", {
+        headers: {
+          Upgrade: "websocket",
+          Cookie: login.cookie!,
+          Origin: "http://xiangying.test",
+        },
+      }),
+      server,
+      { database, environment, realtime: hub },
+    );
+    expect(legitimate).toBeNull();
+    hub.stop();
+  });
+
+  test("authenticates the upgrade and emits import and link-mention events", async () => {
     const hub = new RealtimeHub();
     const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
     expect(login.cookie).toBeTruthy();
@@ -197,6 +267,40 @@ describe("Realtime HTTP integration", () => {
     }, { realtime: hub, clientId: "browser-1" });
     expect(sourceSuppressed.response.status).toBe(201);
     expect(socket.messages).toHaveLength(1);
+
+    // Link mention event test
+    const targetNote = await request("/api/notes", {
+      method: "POST",
+      body: JSON.stringify({ title: "提及目标" }),
+    }, { cookie: login.cookie, realtime: hub });
+    const targetId = targetNote.body?.note?.id as string;
+
+    const sourceNote = await request("/api/notes", {
+      method: "POST",
+      body: JSON.stringify({ title: "来源笔记", contentMarkdown: "这里包含提及目标的正文" }),
+    }, { cookie: login.cookie, realtime: hub });
+    const sourceId = sourceNote.body?.note?.id as string;
+    const sourceVersion = sourceNote.body?.note?.version as number;
+
+    const linkMentionRes = await request(`/api/notes/${targetId}/link-mention`, {
+      method: "POST",
+      body: JSON.stringify({
+        sourceNoteId: sourceId,
+        sourceVersion,
+        matchStart: 4,
+        matchEnd: 8,
+        matchText: "提及目标",
+      }),
+    }, { cookie: login.cookie, realtime: hub, clientId: "other-client" });
+    expect(linkMentionRes.response.status).toBe(200);
+
+    const lastMessage = JSON.parse(socket.messages[socket.messages.length - 1]!);
+    expect(lastMessage).toMatchObject({
+      type: "workspace.changed",
+      resource: "notes",
+      noteId: sourceId,
+    });
+
     hub.stop();
   });
 });

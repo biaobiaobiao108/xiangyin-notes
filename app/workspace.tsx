@@ -640,20 +640,16 @@ export function Workspace() {
   const refreshSelectedNoteFromRemote = useCallback(async (noteId: string) => {
     const current = selectedRef.current;
     if (!current || current.id !== noteId) return;
-    if (pendingSavesRef.current.has(noteId) || failedSavesRef.current.has(noteId)) {
-      setSaveState("conflict");
-      setToast("当前笔记已在其他设备更新，请先保存或重新载入");
-      return;
-    }
 
     noteAbortRef.current?.abort();
     const controller = new AbortController();
     noteAbortRef.current = controller;
     const requestId = ++noteLoadRequestRef.current;
-    setIsNoteLoading(true);
     try {
       const result = await api.getNote(noteId, { signal: controller.signal });
       if (requestId !== noteLoadRequestRef.current || activeNoteIdRef.current !== noteId || selectedRef.current?.id !== noteId) return;
+      if (result.note.version === current.version) return;
+
       if (pendingSavesRef.current.has(noteId) || failedSavesRef.current.has(noteId)) {
         setSaveState("conflict");
         setToast("当前笔记已在其他设备更新，请先保存或重新载入");
@@ -661,6 +657,7 @@ export function Workspace() {
       }
       selectedRef.current = result.note;
       setSelectedNote(result.note);
+      replaceList(notesRef.current.map((n) => (n.id === noteId ? { ...n, ...result.note } : n)));
       setNoteReloadToken((value) => value + 1);
       setSaveState("idle");
     } catch (reason) {
@@ -670,18 +667,14 @@ export function Workspace() {
         return;
       }
       if (reason instanceof ApiError && reason.status === 404 && activeNoteIdRef.current === noteId) {
-        activeNoteIdRef.current = null;
-        selectedRef.current = null;
-        setSelectedNote(null);
-        setSelectedId(null);
+        removeFromList(noteId);
         return;
       }
       setToast("同步当前笔记失败，请稍后重试");
     } finally {
       if (noteAbortRef.current === controller) noteAbortRef.current = null;
-      if (requestId === noteLoadRequestRef.current) setIsNoteLoading(false);
     }
-  }, [failedSavesRef, navigate, pendingSavesRef, setSaveState]);
+  }, [failedSavesRef, navigate, pendingSavesRef, removeFromList, replaceList, setSaveState]);
   const requestConflictReload = useCallback(() => {
     requestConfirm({
       eyebrow: "版本冲突",
@@ -694,8 +687,11 @@ export function Workspace() {
   const handleRealtimeChange = useCallback((message?: WorkspaceChangeMessage) => {
     void refreshNotebooks();
     reloadNotes();
-    if (message?.resource === "notes" && message.noteId && message.noteId === activeNoteIdRef.current) {
-      void refreshSelectedNoteFromRemote(message.noteId);
+    const activeId = activeNoteIdRef.current;
+    if (activeId && (!message || message.resource === "notes")) {
+      if (!message || !message.noteId || message.noteId === activeId) {
+        void refreshSelectedNoteFromRemote(activeId);
+      }
     }
   }, [refreshNotebooks, refreshSelectedNoteFromRemote, reloadNotes]);
   useWorkspaceRealtime({ ready, onChange: handleRealtimeChange });

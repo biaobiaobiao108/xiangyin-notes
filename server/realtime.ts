@@ -1,10 +1,11 @@
 import type { WorkspaceChangeMessage, WorkspaceChangeResource } from "../shared/realtime";
-import { jsonError, type ServerOptions } from "./core";
+import { getPublicOrigin, jsonError, type ServerOptions } from "./core";
 import { cleanupExpiredSessions, isResponse, requireUser } from "./routes/auth";
 
 export const REALTIME_PATH = "/api/realtime";
 export const REALTIME_CLIENT_ID_HEADER = "X-Xiangying-Client-Id";
 export const REALTIME_HEARTBEAT_MS = 25_000;
+export const MAX_CONNECTIONS_PER_USER = 32;
 
 const CLIENT_ID_PATTERN = /^[\x21-\x7E]{1,128}$/u;
 
@@ -32,16 +33,29 @@ export class RealtimeHub {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   add(socket: Bun.ServerWebSocket<RealtimeSocketData>) {
-    const userConnections = this.connections.get(socket.data.userId) ?? new Set<Bun.ServerWebSocket<RealtimeSocketData>>();
+    const userId = socket.data?.userId;
+    if (!userId) return;
+    const userConnections = this.connections.get(userId) ?? new Set<Bun.ServerWebSocket<RealtimeSocketData>>();
+    if (userConnections.size >= MAX_CONNECTIONS_PER_USER) {
+      const oldest = userConnections.values().next().value;
+      if (oldest) {
+        userConnections.delete(oldest);
+        try {
+          oldest.close(1008, "connection limit exceeded");
+        } catch {}
+      }
+    }
     userConnections.add(socket);
-    this.connections.set(socket.data.userId, userConnections);
+    this.connections.set(userId, userConnections);
   }
 
   remove(socket: Bun.ServerWebSocket<RealtimeSocketData>) {
-    const userConnections = this.connections.get(socket.data.userId);
+    const userId = socket.data?.userId;
+    if (!userId) return;
+    const userConnections = this.connections.get(userId);
     if (!userConnections) return;
     userConnections.delete(socket);
-    if (!userConnections.size) this.connections.delete(socket.data.userId);
+    if (!userConnections.size) this.connections.delete(userId);
   }
 
   publish(userId: string, change: { resource: WorkspaceChangeResource; noteId?: string }, sourceClientId: string | null = null) {
@@ -55,17 +69,41 @@ export class RealtimeHub {
       ...(change.noteId ? { noteId: change.noteId } : {}),
     };
     const serialized = JSON.stringify(message);
+    const deadSockets: Bun.ServerWebSocket<RealtimeSocketData>[] = [];
     for (const socket of userConnections) {
-      if (sourceClientId && socket.data.clientId === sourceClientId) continue;
-      socket.sendText(serialized);
+      if (sourceClientId && socket.data?.clientId === sourceClientId) continue;
+      try {
+        socket.sendText(serialized);
+      } catch {
+        deadSockets.push(socket);
+      }
+    }
+    for (const socket of deadSockets) {
+      this.remove(socket);
+      try {
+        socket.close(1006, "send failed");
+      } catch {}
     }
   }
 
   startHeartbeat() {
     if (this.heartbeatTimer) return;
     this.heartbeatTimer = setInterval(() => {
+      const deadSockets: Bun.ServerWebSocket<RealtimeSocketData>[] = [];
       for (const userConnections of this.connections.values()) {
-        for (const socket of userConnections) socket.ping();
+        for (const socket of userConnections) {
+          try {
+            socket.ping();
+          } catch {
+            deadSockets.push(socket);
+          }
+        }
+      }
+      for (const socket of deadSockets) {
+        this.remove(socket);
+        try {
+          socket.close(1006, "heartbeat failed");
+        } catch {}
       }
     }, REALTIME_HEARTBEAT_MS);
   }
@@ -76,7 +114,11 @@ export class RealtimeHub {
       this.heartbeatTimer = null;
     }
     for (const userConnections of this.connections.values()) {
-      for (const socket of userConnections) socket.close(1001, "server shutting down");
+      for (const socket of userConnections) {
+        try {
+          socket.close(1001, "server shutting down");
+        } catch {}
+      }
     }
     this.connections.clear();
   }
@@ -106,6 +148,18 @@ export async function upgradeRealtimeRequest(
   if (request.method !== "GET") return jsonError(405, "METHOD_NOT_ALLOWED", "实时连接只支持 GET", { Allow: "GET" });
   if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") return jsonError(426, "UPGRADE_REQUIRED", "需要使用 WebSocket 连接");
   if (!options.realtime) return jsonError(503, "REALTIME_NOT_CONFIGURED", "实时连接暂不可用");
+
+  const origin = request.headers.get("Origin");
+  if (origin) {
+    const requestUrl = new URL(request.url);
+    const allowedOrigins = new Set([requestUrl.origin]);
+    try {
+      allowedOrigins.add(getPublicOrigin(requestUrl, options.environment));
+    } catch {}
+    if (!allowedOrigins.has(origin)) {
+      return jsonError(403, "FORBIDDEN_ORIGIN", "非法的实时连接来源");
+    }
+  }
 
   cleanupExpiredSessions(options.database);
   const user = await requireUser(options.database, options.environment ?? {}, request);
