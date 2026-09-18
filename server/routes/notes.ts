@@ -53,7 +53,6 @@ import { assetPathsForNotes, removeAssetFiles } from "./assets";
 import { canIndexShortSearchTerm, syncNoteShortSearchTerms } from "../note-search";
 import { handleNoteShares } from "./shares";
 import { publishWorkspaceChange } from "../realtime";
-import { reclaimDatabaseSpace } from "../db";
 
 export function createNote(
   database: SqliteDatabase,
@@ -150,7 +149,6 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     const emptiedTrash = emptyTrash();
     publishWorkspaceChange(options, user.id, { resource: "notes" }, request);
     await removeAssetFiles(assetRoot, emptiedTrash.assetPaths);
-    reclaimDatabaseSpace(database);
     return json({ ok: emptiedTrash.ok, deletedCount: emptiedTrash.deletedCount, deletedIds: emptiedTrash.deletedIds });
   }
 
@@ -474,7 +472,6 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     transaction();
     publishWorkspaceChange(options, user.id, { resource: "notes", noteId: note.id }, request);
     await removeAssetFiles(assetRoot, assetPaths);
-    reclaimDatabaseSpace(database);
     return json({ ok: true });
   }
 

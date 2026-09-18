@@ -93,7 +93,7 @@ bun run build
 - 空数据库首次启动时允许自动执行当前迁移完成基础初始化；已有数据库启动不得自动执行后续迁移。新增迁移只能通过 `bun run db:migrate` 或明确的容器迁移命令执行，迁移按文件名顺序执行并通过 `schema_migrations` 保证幂等；不要修改已经应用的历史迁移。
 - `notes_fts` 配置为外部内容表（`content='notes', content_rowid='rowid'`），由 SQLite 触发器在正文或标题变更时自动同步维护，搜索联查使用 `notes_fts.rowid = n.rowid`；不额外存储正文副本。
 - 数据库打开时必须确保 `PRAGMA auto_vacuum = INCREMENTAL;`，已有数据库如未启用需通过 `VACUUM;` 自动升级。
-- 物理删除笔记或清空废纸篓后，必须调用 `reclaimDatabaseSpace` 执行 FTS 压缩合并、增量空间回收与 WAL 截断，物理释放磁盘空间。
+- 物理删除笔记与清空废纸篓遵循数据库空闲页复用机制（freelist reuse），释放页保留在数据库中供后续写入直接复用，不在删除请求中强行截断，避免 I/O 抖动与磁盘磨损；深度整理工具函数 `reclaimDatabaseSpace` 仅按需维护使用。
 - 更新笔记必须携带并校验 `version`，版本冲突返回 `409 VERSION_CONFLICT`。
 - 私有 API 必须校验当前会话和资源归属。
 - 分享公开读取只使用 SQLite 中保存的不可变快照；验证撤销状态和过期时间后再返回，固定有效期 7 天。撤销分享立即清空正文快照，并定期清理过期 30 天以上的快照记录。
