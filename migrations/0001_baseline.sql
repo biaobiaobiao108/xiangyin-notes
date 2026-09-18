@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS notes (
 
 CREATE INDEX IF NOT EXISTS idx_notes_user_deleted_updated ON notes(user_id, deleted_at, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_notes_user_notebook_deleted_updated ON notes(user_id, notebook_id, deleted_at, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notes_user_deleted_title ON notes(user_id, deleted_at, title);
 
 CREATE TABLE IF NOT EXISTS shares (
   id TEXT PRIMARY KEY,
@@ -65,7 +66,8 @@ CREATE INDEX IF NOT EXISTS idx_shares_expiry ON shares(expires_at);
 CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
   note_id UNINDEXED,
   title,
-  content
+  content,
+  tokenize = 'trigram'
 );
 
 CREATE TABLE IF NOT EXISTS image_assets (
