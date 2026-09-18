@@ -24,6 +24,21 @@ function isEmptyDatabase(database: SqliteDatabase) {
   return Number(row?.count ?? 0) === 0;
 }
 
+export function reclaimDatabaseSpace(database: SqliteDatabase) {
+  try {
+    database.exec(`
+      INSERT INTO notes_fts(notes_fts) VALUES('optimize');
+      PRAGMA incremental_vacuum;
+      PRAGMA wal_checkpoint(TRUNCATE);
+    `);
+  } catch {
+    database.exec(`
+      PRAGMA incremental_vacuum;
+      PRAGMA wal_checkpoint(TRUNCATE);
+    `);
+  }
+}
+
 export async function openDatabase(
   databasePath = databasePathFromEnv(),
 ) {
@@ -31,6 +46,11 @@ export async function openDatabase(
   if (resolvedPath !== ":memory:") await mkdir(dirname(resolvedPath), { recursive: true });
 
   const database = new Database(resolvedPath, { create: true });
+  const autoVacuumRow = database.query("PRAGMA auto_vacuum;").get() as { auto_vacuum: number } | null | undefined;
+  if (Number(autoVacuumRow?.auto_vacuum ?? 0) !== 2) {
+    database.exec("PRAGMA auto_vacuum = INCREMENTAL;");
+    database.exec("VACUUM;");
+  }
   database.exec(`
     PRAGMA foreign_keys = ON;
     PRAGMA journal_mode = WAL;
@@ -40,7 +60,6 @@ export async function openDatabase(
     PRAGMA temp_store = MEMORY;
   `);
   if (isEmptyDatabase(database)) {
-    database.exec("PRAGMA auto_vacuum = INCREMENTAL;");
     await applyMigrations(database);
   }
   return database;

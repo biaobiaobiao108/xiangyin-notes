@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyMigrations, openDatabase, type SqliteDatabase } from "../server/db";
+import { applyMigrations, openDatabase, reclaimDatabaseSpace, type SqliteDatabase } from "../server/db";
 import { handleRequest } from "../server/index";
 import { MAX_SHORT_TERM_CONTENT_CHARS, MAX_SHORT_TERMS_PER_NOTE } from "../server/note-search";
 import { IMAGE_UPLOAD_MAX_BODY_BYTES } from "../server/routes/assets";
@@ -823,5 +823,52 @@ describe("Bun Server API", () => {
 
     const beyondTerms = database.query("SELECT term FROM note_short_terms WHERE note_id = ? AND term = ?").get(noteBeyond.body?.note.id, "超限") as { term: string } | null;
     expect(beyondTerms).toBeNull();
+  });
+
+  test("reclaims physical SQLite file size on disk after permanently deleting notes", async () => {
+    const tempDbPath = join(tmpdir(), `xiangying-test-${crypto.randomUUID()}.sqlite`);
+    const fileDb = await openDatabase(tempDbPath);
+    await applyMigrations(fileDb);
+
+    try {
+      expect((fileDb.query("PRAGMA auto_vacuum;").get() as { auto_vacuum: number }).auto_vacuum).toBe(2);
+
+      fileDb.query("INSERT INTO users (id, username, password_hash, password_salt, created_at) VALUES ('test-user', 'test', 'hash', 'salt', 1)").run();
+      fileDb.query("INSERT INTO notebooks (id, user_id, name, is_system, created_at, updated_at) VALUES ('test-nb', 'test-user', 'Inbox', 1, 1, 1)").run();
+      const insert = fileDb.query("INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, version, created_at, updated_at) VALUES (?, 'test-user', 'test-nb', ?, ?, 1, 1, 1)");
+
+      const bigContent = "磁盘回收测试内容数据，包含大量文本用于撑大物理文件。".repeat(200);
+      const insertedIds: string[] = [];
+      fileDb.transaction(() => {
+        for (let i = 0; i < 50; i++) {
+          const id = crypto.randomUUID();
+          insertedIds.push(id);
+          insert.run(id, `批量笔记 ${i}`, bigContent);
+        }
+      })();
+
+      fileDb.exec("PRAGMA wal_checkpoint(TRUNCATE);");
+      const populatedSize = (await Bun.file(tempDbPath).stat()).size;
+      expect(populatedSize).toBeGreaterThan(100 * 1024);
+
+      // Soft delete: file size should NOT shrink
+      fileDb.query("UPDATE notes SET deleted_at = 1 WHERE id IN (" + insertedIds.map(() => "?").join(",") + ")").run(...insertedIds);
+      fileDb.exec("PRAGMA wal_checkpoint(TRUNCATE);");
+      const softDeletedSize = (await Bun.file(tempDbPath).stat()).size;
+      expect(softDeletedSize).toBe(populatedSize);
+
+      // Permanently delete and reclaim space
+      fileDb.query("DELETE FROM notes WHERE deleted_at IS NOT NULL").run();
+      reclaimDatabaseSpace(fileDb);
+
+      const reclaimedSize = (await Bun.file(tempDbPath).stat()).size;
+      expect(reclaimedSize).toBeLessThan(populatedSize);
+      expect((fileDb.query("PRAGMA freelist_count;").get() as { freelist_count: number }).freelist_count).toBe(0);
+    } finally {
+      fileDb.close();
+      await rm(tempDbPath, { force: true });
+      await rm(`${tempDbPath}-wal`, { force: true });
+      await rm(`${tempDbPath}-shm`, { force: true });
+    }
   });
 });
