@@ -11,31 +11,48 @@ export function canIndexShortSearchTerm(term: string) {
   return characters.length > 0 && characters.length <= 2 && characters.every(isIndexableCharacter);
 }
 
-export function extractShortSearchTerms(value: string) {
+export const MAX_SHORT_TERMS_PER_NOTE = 500;
+export const MAX_SHORT_TERM_CONTENT_CHARS = 4000;
+
+export function extractShortSearchTerms(titleOrValue: string, contentMarkdown = "") {
   const terms = new Set<string>();
-  let previous: string | null = null;
-  for (const current of value) {
-    if (!isIndexableCharacter(current)) {
-      previous = null;
-      continue;
+
+  const addTermsFromText = (text: string) => {
+    let previous: string | null = null;
+    for (const current of text) {
+      if (!isIndexableCharacter(current)) {
+        previous = null;
+        continue;
+      }
+      terms.add(current);
+      if (previous) terms.add(previous + current);
+      previous = current;
+      if (terms.size >= MAX_SHORT_TERMS_PER_NOTE) break;
     }
-    terms.add(current);
-    if (previous) terms.add(previous + current);
-    previous = current;
+  };
+
+  addTermsFromText(titleOrValue);
+  if (terms.size < MAX_SHORT_TERMS_PER_NOTE && contentMarkdown) {
+    addTermsFromText(contentMarkdown.slice(0, MAX_SHORT_TERM_CONTENT_CHARS));
   }
   return terms;
 }
 
 export function syncNoteShortSearchTerms(database: SqliteDatabase, userId: string, noteId: string, title: string, contentMarkdown: string) {
   database.query("DELETE FROM note_short_terms WHERE note_id = ? AND user_id = ?").run(noteId, userId);
-  const insert = database.query("INSERT INTO note_short_terms (note_id, user_id, term) VALUES (?, ?, ?)");
-  const seen = new Set<string>();
-  for (const value of [title, contentMarkdown]) {
-    for (const term of extractShortSearchTerms(value)) {
-      if (seen.has(term)) continue;
-      seen.add(term);
-      insert.run(noteId, userId, term);
+  const terms = extractShortSearchTerms(title, contentMarkdown);
+  if (terms.size === 0) return;
+
+  const termList = Array.from(terms);
+  const BATCH_SIZE = 50;
+  for (let i = 0; i < termList.length; i += BATCH_SIZE) {
+    const chunk = termList.slice(i, i + BATCH_SIZE);
+    const placeholders = chunk.map(() => "(?, ?, ?)").join(",");
+    const params: string[] = [];
+    for (const term of chunk) {
+      params.push(noteId, userId, term);
     }
+    database.query(`INSERT INTO note_short_terms (note_id, user_id, term) VALUES ${placeholders}`).run(...params);
   }
 }
 

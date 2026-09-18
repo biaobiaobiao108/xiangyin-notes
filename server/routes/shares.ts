@@ -133,10 +133,23 @@ export async function handleSharesRoute(ctx: RouteContext, user?: UserRow | null
 
   if (resource === "shares" && id && method === "DELETE") {
     if (!user) return null;
-    const result = database.query("UPDATE shares SET revoked_at = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL").run(now(), id, user.id);
+    const result = database.query("UPDATE shares SET revoked_at = ?, snapshot_content_markdown = '' WHERE id = ? AND user_id = ? AND revoked_at IS NULL").run(now(), id, user.id);
     if (result.changes) publishWorkspaceChange(options, user.id, { resource: "shares" }, request);
     return result.changes ? json({ ok: true }) : jsonError(404, "SHARE_NOT_FOUND", "分享链接不存在");
   }
 
   return null;
+}
+
+export const EXPIRED_SHARE_PURGE_SECONDS = 30 * 24 * 60 * 60;
+let nextExpiredSharesCleanupAt = 0;
+
+export function cleanupExpiredShares(database: SqliteDatabase, force = false) {
+  const timestamp = now();
+  if (!force && timestamp < nextExpiredSharesCleanupAt) return;
+  nextExpiredSharesCleanupAt = timestamp + 3600;
+
+  database.query("UPDATE shares SET snapshot_content_markdown = '' WHERE (expires_at <= ? OR revoked_at IS NOT NULL) AND snapshot_content_markdown != ''").run(timestamp);
+  const purgeBefore = timestamp - EXPIRED_SHARE_PURGE_SECONDS;
+  database.query("DELETE FROM shares WHERE expires_at <= ? OR (revoked_at IS NOT NULL AND revoked_at <= ?)").run(purgeBefore, purgeBefore);
 }

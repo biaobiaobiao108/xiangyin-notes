@@ -4,8 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyMigrations, openDatabase, type SqliteDatabase } from "../server/db";
 import { handleRequest } from "../server/index";
+import { MAX_SHORT_TERM_CONTENT_CHARS, MAX_SHORT_TERMS_PER_NOTE } from "../server/note-search";
 import { IMAGE_UPLOAD_MAX_BODY_BYTES } from "../server/routes/assets";
 import { IMPORT_RATE_LIMIT_MAX_REQUESTS } from "../server/routes/import";
+import { cleanupExpiredShares, EXPIRED_SHARE_PURGE_SECONDS } from "../server/routes/shares";
 
 let database: SqliteDatabase;
 let assetRoot: string;
@@ -517,13 +519,11 @@ describe("Bun Server API", () => {
     const inbox = database.query("SELECT id FROM notebooks WHERE is_system = 1 LIMIT 1").get() as { id: string };
     const owner = database.query("SELECT id FROM users WHERE username = ?").get("owner") as { id: string };
     const insertNote = database.query("INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, version, created_at, updated_at) VALUES (?, ?, ?, ?, '', 1, ?, ?)");
-    const insertFts = database.query("INSERT INTO notes_fts (note_id, title, content) VALUES (?, ?, '')");
     const createdAt = Math.floor(Date.now() / 1000);
     const seed = database.transaction(() => {
       for (let index = 0; index < 105; index += 1) {
         const noteId = crypto.randomUUID();
         insertNote.run(noteId, owner.id, inbox.id, `批量笔记 ${index}`, createdAt, createdAt + index);
-        insertFts.run(noteId, `批量笔记 ${index}`);
       }
     });
     seed();
@@ -547,9 +547,8 @@ describe("Bun Server API", () => {
     const inbox = database.query("SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1").get(login.body?.user.id) as { id: string };
     const deletedIds = Array.from({ length: 105 }, () => crypto.randomUUID());
     const insertNote = database.query("INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, deleted_at, version, created_at, updated_at) VALUES (?, ?, ?, 'Trashed', 'trashneedle', 1, 1, 1, 1)");
-    const insertFts = database.query("INSERT INTO notes_fts (note_id, title, content) VALUES (?, 'Trashed', 'trashneedle')");
     database.transaction(() => {
-      for (const id of deletedIds) { insertNote.run(id, login.body?.user.id, inbox.id); insertFts.run(id); }
+      for (const id of deletedIds) { insertNote.run(id, login.body?.user.id, inbox.id); }
     })();
     const active = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "Active", contentMarkdown: "activeneedle" }) }, login.cookie);
     const other = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "Other trash", contentMarkdown: "otherneedle" }) }, otherLogin.cookie, otherEnvironment);
@@ -572,7 +571,7 @@ describe("Bun Server API", () => {
     expect(emptied.body?.deletedCount).toBe(105);
     expect(new Set(emptied.body?.deletedIds)).toEqual(new Set(deletedIds));
     expect((await request("/api/notes?view=trash", {}, login.cookie)).body).toEqual({ notes: [], total: 0 });
-    expect(database.query("SELECT note_id FROM notes_fts WHERE notes_fts MATCH ?").all("trashneedle")).toHaveLength(0);
+    expect(database.query("SELECT rowid FROM notes_fts WHERE notes_fts MATCH ?").all("trashneedle")).toHaveLength(0);
     expect((await request("/api/notebooks", {}, login.cookie)).body).toEqual(beforeCounts.body);
     expect((await request(`/api/notes/${active.body?.note.id}`, {}, login.cookie)).response.status).toBe(200);
     expect((await request("/api/notes?view=all&query=activeneedle", {}, login.cookie)).body?.total).toBe(1);
@@ -647,6 +646,7 @@ describe("Bun Server API", () => {
     const unavailable = await request(`/api/shares/${token}`);
     expect(unavailable.response.status).toBe(410);
     expect(unavailable.body?.error.code).toBe("SHARE_REVOKED");
+    expect(database.query("SELECT snapshot_content_markdown FROM shares WHERE id = ?").get(shareId)).toEqual({ snapshot_content_markdown: "" });
 
     const second = await request(`/api/notes/${note.id}/shares`, { method: "POST", body: "{}" }, login.cookie);
     const secondToken = String(second.body?.share.url).split("/share/")[1];
@@ -750,5 +750,78 @@ describe("Bun Server API", () => {
     expect(zipBytes[1]).toBe(0x4b);
     expect(zipBytes[2]).toBe(0x03);
     expect(zipBytes[3]).toBe(0x04);
+  });
+
+  test("cleans up expired share snapshots and purges old revoked/expired shares", async () => {
+    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
+    const created = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "Share Cleanup", contentMarkdown: "Some markdown text" }) }, login.cookie);
+    const noteId = created.body?.note.id;
+
+    // Active share
+    const activeShare = await request(`/api/notes/${noteId}/shares`, { method: "POST", body: "{}" }, login.cookie);
+    const activeId = activeShare.body?.share.id;
+
+    // Expired share (expired 10 seconds ago)
+    const expiredShare = await request(`/api/notes/${noteId}/shares`, { method: "POST", body: "{}" }, login.cookie);
+    const expiredId = expiredShare.body?.share.id;
+    const nowSec = Math.floor(Date.now() / 1000);
+    database.query("UPDATE shares SET expires_at = ? WHERE id = ?").run(nowSec - 10, expiredId);
+
+    // Old expired share (expired > 30 days ago)
+    const ancientShare = await request(`/api/notes/${noteId}/shares`, { method: "POST", body: "{}" }, login.cookie);
+    const ancientId = ancientShare.body?.share.id;
+    database.query("UPDATE shares SET expires_at = ? WHERE id = ?").run(nowSec - EXPIRED_SHARE_PURGE_SECONDS - 100, ancientId);
+
+    // Old revoked share (revoked > 30 days ago)
+    const ancientRevoked = await request(`/api/notes/${noteId}/shares`, { method: "POST", body: "{}" }, login.cookie);
+    const ancientRevokedId = ancientRevoked.body?.share.id;
+    database.query("UPDATE shares SET revoked_at = ? WHERE id = ?").run(nowSec - EXPIRED_SHARE_PURGE_SECONDS - 100, ancientRevokedId);
+
+    cleanupExpiredShares(database, true);
+
+    // Active share snapshot still intact
+    const activeRow = database.query("SELECT snapshot_content_markdown FROM shares WHERE id = ?").get(activeId) as { snapshot_content_markdown: string };
+    expect(activeRow.snapshot_content_markdown).toBe("Some markdown text");
+
+    // Recently expired share snapshot cleared to empty string
+    const expiredRow = database.query("SELECT snapshot_content_markdown FROM shares WHERE id = ?").get(expiredId) as { snapshot_content_markdown: string };
+    expect(expiredRow.snapshot_content_markdown).toBe("");
+
+    // Ancient shares purged completely
+    expect(database.query("SELECT id FROM shares WHERE id = ?").get(ancientId)).toBeNull();
+    expect(database.query("SELECT id FROM shares WHERE id = ?").get(ancientRevokedId)).toBeNull();
+  });
+
+  test("limits note_short_terms per note and bounds scanned content length", async () => {
+    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
+
+    // Generate 600 distinct 2-char CJK phrases
+    const phrases: string[] = [];
+    for (let i = 0; i < 600; i++) {
+      phrases.push(String.fromCharCode(0x4e00 + (i * 2)) + String.fromCharCode(0x4e00 + (i * 2 + 1)));
+    }
+    const longContent = phrases.join(" ");
+    const created = await request("/api/notes", {
+      method: "POST",
+      body: JSON.stringify({ title: "大量索引测试", contentMarkdown: longContent }),
+    }, login.cookie);
+
+    expect(created.response.status).toBe(201);
+    const noteId = created.body?.note.id;
+
+    const termsCount = database.query("SELECT COUNT(*) AS count FROM note_short_terms WHERE note_id = ?").get(noteId) as { count: number };
+    expect(termsCount.count).toBe(MAX_SHORT_TERMS_PER_NOTE);
+
+    // Also test that characters beyond 4000 are not scanned for short terms
+    const padding = "一".repeat(MAX_SHORT_TERM_CONTENT_CHARS + 50);
+    const beyondTerm = "超限词汇";
+    const noteBeyond = await request("/api/notes", {
+      method: "POST",
+      body: JSON.stringify({ title: "超长笔记", contentMarkdown: `${padding} ${beyondTerm}` }),
+    }, login.cookie);
+    expect(noteBeyond.response.status).toBe(201);
+
+    const beyondTerms = database.query("SELECT term FROM note_short_terms WHERE note_id = ? AND term = ?").get(noteBeyond.body?.note.id, "超限") as { term: string } | null;
+    expect(beyondTerms).toBeNull();
   });
 });

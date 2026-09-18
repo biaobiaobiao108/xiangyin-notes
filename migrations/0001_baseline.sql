@@ -64,11 +64,25 @@ CREATE INDEX IF NOT EXISTS idx_shares_note ON shares(note_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_shares_expiry ON shares(expires_at);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
-  note_id UNINDEXED,
   title,
-  content,
+  content_markdown,
+  content='notes',
+  content_rowid='rowid',
   tokenize = 'trigram'
 );
+
+CREATE TRIGGER IF NOT EXISTS notes_ai AFTER INSERT ON notes BEGIN
+  INSERT INTO notes_fts(rowid, title, content_markdown) VALUES (new.rowid, new.title, new.content_markdown);
+END;
+
+CREATE TRIGGER IF NOT EXISTS notes_ad AFTER DELETE ON notes BEGIN
+  INSERT INTO notes_fts(notes_fts, rowid, title, content_markdown) VALUES('delete', old.rowid, old.title, old.content_markdown);
+END;
+
+CREATE TRIGGER IF NOT EXISTS notes_au AFTER UPDATE OF title, content_markdown ON notes BEGIN
+  INSERT INTO notes_fts(notes_fts, rowid, title, content_markdown) VALUES('delete', old.rowid, old.title, old.content_markdown);
+  INSERT INTO notes_fts(rowid, title, content_markdown) VALUES (new.rowid, new.title, new.content_markdown);
+END;
 
 CREATE TABLE IF NOT EXISTS image_assets (
   id TEXT PRIMARY KEY,

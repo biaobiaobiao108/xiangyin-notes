@@ -118,7 +118,6 @@ export async function ensureEnvironmentUser(database: SqliteDatabase, credential
       database.query("INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)").run(noteId, userId, inboxId, "开始记录你的想法", welcomeMarkdown, createdAt, createdAt);
       syncNoteTags(database, userId, noteId, welcomeMarkdown);
       syncNoteShortSearchTerms(database, userId, noteId, "开始记录你的想法", welcomeMarkdown);
-      database.query("INSERT INTO notes_fts (note_id, title, content) VALUES (?, ?, ?)").run(noteId, "开始记录你的想法", welcomeMarkdown);
     });
     seed();
     return { id: userId, username: credentials.username };

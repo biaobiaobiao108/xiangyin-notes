@@ -11,7 +11,7 @@ import { handleExportRoute } from "./routes/export";
 import { handleImportRoute } from "./routes/import";
 import { handleNotebooksRoute } from "./routes/notebooks";
 import { handleNotesRoute } from "./routes/notes";
-import { handlePublicShare, handleSharesRoute, servePublicShareAsset } from "./routes/shares";
+import { cleanupExpiredShares, handlePublicShare, handleSharesRoute, servePublicShareAsset } from "./routes/shares";
 import { REALTIME_PATH, RealtimeHub, upgradeRealtimeRequest, type RealtimeSocketData } from "./realtime";
 
 // Re-exports for backward compatibility and test runners
@@ -129,6 +129,7 @@ async function handleApi(request: Request, options: ServerOptions) {
   }
 
   cleanupExpiredSessions(database);
+  cleanupExpiredShares(database);
   void cleanupOrphanAssets(database, assetRoot).catch((error) => console.warn("[assets] orphan cleanup failed", error));
 
   const ctx: RouteContext = { request, url, method, segments, options };

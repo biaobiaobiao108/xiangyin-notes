@@ -69,7 +69,6 @@ export function createNote(
     if (!syncNoteAssetReferences(database, userId, id, contentMarkdown)) throw new Error("invalid-note-assets");
     syncNoteTags(database, userId, id, contentMarkdown);
     syncNoteShortSearchTerms(database, userId, id, title, contentMarkdown);
-    database.query("INSERT INTO notes_fts (note_id, title, content) VALUES (?, ?, ?)").run(id, title, contentMarkdown);
     syncNoteLinks(database, userId, id, contentMarkdown, createdAt);
     resolveNoteLinksForTarget(database, userId, title, id);
   });
@@ -96,8 +95,6 @@ export function updateNoteInTransaction(
   if (!syncNoteAssetReferences(database, userId, current.id, contentMarkdown)) throw new InvalidNoteAssetsError();
   syncNoteTags(database, userId, current.id, contentMarkdown);
   syncNoteShortSearchTerms(database, userId, current.id, title, contentMarkdown);
-  database.query("DELETE FROM notes_fts WHERE note_id = ?").run(current.id);
-  database.query("INSERT INTO notes_fts (note_id, title, content) VALUES (?, ?, ?)").run(current.id, title, contentMarkdown);
   syncNoteLinks(database, userId, current.id, contentMarkdown, updatedAt);
 
   if (titleChanged && oldTitle.trim() && title.trim()) {
@@ -108,8 +105,6 @@ export function updateNoteInTransaction(
       const { content: replacedContent, count } = replaceWikiLinkTarget(refNote.content_markdown, oldTitle, title);
       if (count > 0) {
         database.query("UPDATE notes SET content_markdown = ?, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ?").run(replacedContent, updatedAt, refNote.id, userId);
-        database.query("DELETE FROM notes_fts WHERE note_id = ?").run(refNote.id);
-        database.query("INSERT INTO notes_fts (note_id, title, content) VALUES (?, ?, ?)").run(refNote.id, refNote.title, replacedContent);
         syncNoteTags(database, userId, refNote.id, replacedContent);
         syncNoteShortSearchTerms(database, userId, refNote.id, refNote.title, replacedContent);
         syncNoteLinks(database, userId, refNote.id, replacedContent, updatedAt);
@@ -148,13 +143,13 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     const emptyTrash = database.transaction(() => {
       const deletedIds = all<{ id: string }>(database, "SELECT id FROM notes WHERE user_id = ? AND deleted_at IS NOT NULL", user.id).map((note) => note.id);
       const assetPaths = assetPathsForNotes(database, user.id, deletedIds);
-      database.query("DELETE FROM notes_fts WHERE note_id IN (SELECT id FROM notes WHERE user_id = ? AND deleted_at IS NOT NULL)").run(user.id);
       database.query("DELETE FROM notes WHERE user_id = ? AND deleted_at IS NOT NULL").run(user.id);
       return { ok: true, deletedCount: deletedIds.length, deletedIds, assetPaths };
     });
     const emptiedTrash = emptyTrash();
     publishWorkspaceChange(options, user.id, { resource: "notes" }, request);
     await removeAssetFiles(assetRoot, emptiedTrash.assetPaths);
+    database.exec("PRAGMA incremental_vacuum;");
     return json({ ok: emptiedTrash.ok, deletedCount: emptiedTrash.deletedCount, deletedIds: emptiedTrash.deletedIds });
   }
 
@@ -210,7 +205,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
 
       if (ftsTokens.length > 0) {
         const ftsQuery = ftsTokens.map((part) => `"${part.replaceAll('"', '""')}"`).join(" AND ");
-        from += " JOIN notes_fts ON notes_fts.note_id = n.id";
+        from += " JOIN notes_fts ON notes_fts.rowid = n.rowid";
         conditions.push("notes_fts MATCH ?");
         params.push(ftsQuery);
       }
@@ -331,7 +326,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
       const candidateParams: SqlValue[] = [user.id, note.id];
 
       if (useFts) {
-        candidateFrom += " JOIN notes_fts ON notes_fts.note_id = n.id";
+        candidateFrom += " JOIN notes_fts ON notes_fts.rowid = n.rowid";
         candidateConditions.push("notes_fts MATCH ?");
         candidateParams.push(ftsTokens.map((p) => `"${p.replaceAll('"', '""')}"`).join(" AND "));
       } else {
@@ -473,12 +468,12 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     const assetPaths = assetPathsForNotes(database, user.id, [note.id]);
     const transaction = database.transaction(() => {
       database.query("DELETE FROM note_links WHERE user_id = ? AND source_note_id = ?").run(user.id, note.id);
-      database.query("DELETE FROM notes_fts WHERE note_id = ?").run(note.id);
       database.query("DELETE FROM notes WHERE id = ? AND user_id = ?").run(note.id, user.id);
     });
     transaction();
     publishWorkspaceChange(options, user.id, { resource: "notes", noteId: note.id }, request);
     await removeAssetFiles(assetRoot, assetPaths);
+    database.exec("PRAGMA incremental_vacuum;");
     return json({ ok: true });
   }
 

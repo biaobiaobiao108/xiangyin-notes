@@ -39,7 +39,10 @@ export async function openDatabase(
     PRAGMA cache_size = -20000;
     PRAGMA temp_store = MEMORY;
   `);
-  if (isEmptyDatabase(database)) await applyMigrations(database);
+  if (isEmptyDatabase(database)) {
+    database.exec("PRAGMA auto_vacuum = INCREMENTAL;");
+    await applyMigrations(database);
+  }
   return database;
 }
 
