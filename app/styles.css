@@ -100,7 +100,8 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .tiny-button { width: 26px; height: 26px; }
 .notebook-item { min-height: 36px; font-size: 0.87rem; }
 .notebook-dot { width: 10px; height: 10px; border-radius: 3px; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.12); }
-.notebook-item em { margin-left: auto; color: var(--soft-muted); font-size: 0.74rem; font-style: normal; }
+.notebook-item > span:not(.notebook-dot) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notebook-item em { flex: none; margin-left: auto; color: var(--soft-muted); font-size: 0.74rem; font-style: normal; }
 .notebook-row-item { list-style: none; }
 .notebook-row-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 28px; align-items: center; gap: 6px; width: 100%; min-height: 36px; position: relative; border-radius: 8px; color: #435048; transition: background-color var(--motion-fast) ease, color var(--motion-fast) ease, transform var(--motion-fast) ease; }
 .notebook-row-wrap:hover, .notebook-row-wrap:focus-within { background: rgba(255, 255, 255, 0.74); color: var(--ink); }
@@ -120,7 +121,7 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .list-header, .editor-header { height: 64px; min-height: 64px; }
 .list-header { justify-content: space-between; padding: 0 20px; border-bottom: 1px solid var(--border); }
 .list-header-main { min-width: 0; margin-right: auto; }
-.list-header h2 { margin: 0; font-size: 1.04rem; letter-spacing: -0.025em; }
+.list-header h2 { min-width: 0; margin: 0; overflow: hidden; font-size: 1.04rem; letter-spacing: -0.025em; text-overflow: ellipsis; white-space: nowrap; }
 .list-header p { margin: 5px 0 0; color: var(--soft-muted); font-size: 0.77rem; }
 .list-header-controls { display: flex; align-items: center; gap: 4px; margin-left: 12px; }
 .empty-trash-button { display: inline-flex; align-items: center; gap: 5px; padding: 5px 6px; white-space: nowrap; font-size: 0.75rem; }
@@ -195,9 +196,10 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .note-row-thumbnail--empty { border-color: transparent; background: transparent; }
 .note-row-main { display: grid; min-width: 0; gap: 7px; }
 .note-row-title { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--ink); font-size: 0.94rem; font-weight: 600; letter-spacing: -0.015em; }
+.note-row-title-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .note-row-title svg { flex: none; color: var(--accent); }
-.note-row-preview { display: -webkit-box; overflow: clip; color: var(--muted); font-size: 0.79rem; line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
-.note-row-meta { display: flex; justify-content: space-between; gap: 10px; color: var(--soft-muted); font-size: 0.7rem; }
+.note-row-preview { display: -webkit-box; min-width: 0; overflow: clip; overflow-wrap: anywhere; color: var(--muted); font-size: 0.79rem; line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
+.note-row-meta { display: flex; min-width: 0; justify-content: space-between; gap: 10px; color: var(--soft-muted); font-size: 0.7rem; }
 .note-row-meta-leading { display: flex; align-items: center; min-width: 0; gap: 5px; overflow: clip; }
 .note-row-notebook { min-width: 0; overflow: clip; text-overflow: ellipsis; white-space: nowrap; }
 .note-row-meta-divider { flex: none; }
@@ -293,7 +295,7 @@ button.save-status:hover { text-decoration: underline; }
 .note-title-input { width: 100%; height: 1.2em; padding: 0; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: clamp(2rem, 3.5vw, 3.05rem); font-weight: 700; letter-spacing: -0.065em; line-height: 1.08; }
 .note-title-input::placeholder { color: #bec5bf; }
 .note-title-input::selection { background: var(--accent); color: #fff; }
-.note-prose { margin-top: 32px; color: #29322d; font-size: 1.08rem; line-height: 1.55; }
+.note-prose { margin-top: 32px; color: #29322d; font-size: 1.08rem; line-height: 1.55; overflow-wrap: anywhere; }
 .note-prose:focus { outline: 0; }
 .note-image-node { display: block; width: 100%; margin: 1.05em 0; }
 .note-image-frame { position: relative; display: block; width: min(var(--image-display-width), 100%); max-width: 100%; }
@@ -694,6 +696,7 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 
 .share-dialog-badge {
@@ -709,11 +712,16 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
 }
 
 .share-dialog h2 {
+  min-width: 0;
+  overflow: hidden;
   margin: 0;
   color: var(--ink);
   font-size: 1.12rem;
   font-weight: 600;
   letter-spacing: -0.025em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 auto;
 }
 
 .share-dialog-subtitle {
@@ -1100,8 +1108,8 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
 .share-readonly { color: var(--muted); font-size: 0.76rem; }
 .share-article { width: min(760px, calc(100% - 48px)); margin: 0 auto; padding: 78px 0 60px; }
 .share-kicker { display: flex; align-items: center; gap: 7px; margin: 0 0 22px; color: var(--muted); font-size: 0.75rem; }
-.share-article h1 { margin: 0 0 36px; color: var(--ink); font-size: clamp(2.2rem, 5vw, 3.5rem); letter-spacing: -0.07em; line-height: 1.05; }
-.share-prose { font-size: 1.08rem; line-height: 1.6; }
+.share-article h1 { margin: 0 0 36px; color: var(--ink); font-size: clamp(2.2rem, 5vw, 3.5rem); letter-spacing: -0.07em; line-height: 1.05; overflow-wrap: anywhere; }
+.share-prose { font-size: 1.08rem; line-height: 1.6; overflow-wrap: anywhere; }
 .share-footer { width: min(760px, calc(100% - 48px)); margin: 0 auto; padding: 18px 0 34px; border-top: 1px solid var(--border); color: var(--soft-muted); font-size: 0.74rem; }
 .share-error { display: grid; align-content: start; justify-items: center; }
 .share-error .share-brand { width: min(940px, calc(100% - 48px)); padding-top: 24px; }
@@ -1647,6 +1655,7 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
   align-items: center;
   gap: 8px;
   width: 100%;
+  min-width: 0;
   background: transparent;
   border: none;
   padding: 0;
@@ -1658,6 +1667,7 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
   background: transparent;
   border: none;
   padding: 0;
@@ -1667,9 +1677,14 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
 }
 
 .backlink-card-title {
+  min-width: 0;
+  overflow: hidden;
   font-size: 13.5px;
   font-weight: 600;
   color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 auto;
   transition: color var(--motion-fast) var(--motion-ease-out);
 }
 
@@ -1678,11 +1693,16 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
 }
 
 .backlink-card-notebook {
+  max-width: 12em;
+  overflow: hidden;
   font-size: 11px;
   color: var(--soft-muted);
   background: rgba(0, 0, 0, 0.035);
   padding: 1.5px 6px;
   border-radius: 4px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: none;
 }
 
 .backlink-kind-badge {
