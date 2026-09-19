@@ -572,6 +572,17 @@ describe("Bun Server API", () => {
     expect(worker.response.headers.get("Cache-Control")).toBe("no-cache");
   });
 
+  test("serves source PWA asset aliases in development", async () => {
+    const devEnvironment = { ...environment, NODE_ENV: "development" };
+    const manifest = await request("/manifest.webmanifest", {}, undefined, devEnvironment, "http://xiangying.test", "dist/dev-client");
+    expect(manifest.response.status).toBe(200);
+    expect(manifest.body?.short_name).toBe("象映笔记");
+
+    const icon = await request("/icon-192.png", {}, undefined, devEnvironment, "http://xiangying.test", "dist/dev-client");
+    expect(icon.response.status).toBe(200);
+    expect(icon.response.headers.get("Content-Type")).toContain("image/png");
+  });
+
   test("returns no notes when a search query has no searchable terms", async () => {
     const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
     await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "第一篇", contentMarkdown: "alpha content" }) }, login.cookie);

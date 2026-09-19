@@ -79,6 +79,8 @@ const MIME_TYPES: Record<string, string> = {
   ".ico": "image/x-icon",
 };
 
+const DEV_PWA_ASSETS = new Set(["manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-maskable-512.png"]);
+
 async function serveStatic(request: Request, clientRoot: string, environment: Record<string, string | undefined> = {}) {
   if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
   const url = new URL(request.url);
@@ -102,10 +104,13 @@ async function serveStatic(request: Request, clientRoot: string, environment: Re
   const relativePath = pathname.replace(/^[/\\]+/, "");
   const hasExtension = extname(relativePath) !== "";
   const rootPath = resolve(clientRoot);
-  const requestedPath = hasExtension ? resolve(rootPath, relativePath) : join(rootPath, "index.html");
+  let requestedPath = hasExtension ? resolve(rootPath, relativePath) : join(rootPath, "index.html");
   const pathFromRoot = relative(rootPath, requestedPath);
   if (isAbsolute(pathFromRoot) || pathFromRoot === ".." || pathFromRoot.startsWith(`..${sep}`) || pathFromRoot.startsWith(sep)) return new Response("Forbidden", { status: 403 });
-  const file = Bun.file(requestedPath);
+  let file = Bun.file(requestedPath);
+  if (!(await file.exists()) && environment.NODE_ENV === "development" && DEV_PWA_ASSETS.has(relativePath.toLowerCase())) {
+    file = Bun.file(resolve("app", relativePath));
+  }
   if (!(await file.exists())) return new Response("Not Found", { status: 404 });
 
   const headers = new Headers();
