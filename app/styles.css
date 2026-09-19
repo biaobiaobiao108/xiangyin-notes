@@ -286,10 +286,10 @@ button.save-status:hover { text-decoration: underline; }
 .editor-panel .note-prose,
 .share-prose {
   font-family: "LXGW WenKai", system-ui, sans-serif;
-  font-synthesis: weight;
+  font-synthesis: none;
   font-size-adjust: from-font;
 }
-.note-title-input { width: 100%; height: 1.2em; padding: 0; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: clamp(2rem, 3.5vw, 3.05rem); font-weight: 700; letter-spacing: -0.065em; line-height: 1.08; }
+.editor-panel .note-title-input { width: 100%; height: 1.2em; padding: 0; border: 0; outline: 0; background: transparent; color: var(--ink); font-family: "LXGW WenKai Medium", "LXGW WenKai", system-ui, sans-serif; font-size: clamp(2rem, 3.5vw, 3.05rem); font-weight: 500; letter-spacing: -0.065em; line-height: 1.08; }
 .note-title-input::placeholder { color: #bec5bf; }
 .note-title-input::selection { background: var(--accent); color: #fff; }
 .note-prose { margin-top: 32px; color: #29322d; font-size: 1.08rem; line-height: 1.55; overflow-wrap: anywhere; }
@@ -304,15 +304,16 @@ button.save-status:hover { text-decoration: underline; }
 .note-image-loading { display: grid; width: min(var(--image-display-width), 100%); min-height: 120px; place-items: center; border: 1px dashed var(--border-strong); border-radius: 10px; background: var(--surface-muted); color: var(--muted); font-size: 0.78rem; }
 .note-prose .editor-search-match { border-radius: 0.22em; background: rgba(54, 94, 78, 0.2); color: inherit; box-shadow: 0 0.08em 0 rgba(54, 94, 78, 0.3); }
 .note-prose .editor-search-match--active { background: var(--accent); color: #fff; box-shadow: 0 0 0 2px rgba(54, 94, 78, 0.18); }
-.note-prose .editor-tag { display: inline; padding: 0.08em 0.22em; border-radius: 0.28em; background: var(--h2-soft); color: var(--h2-color); font-weight: 600; box-shadow: inset 0 -1px 0 var(--h2-border); box-decoration-break: clone; -webkit-box-decoration-break: clone; overflow-wrap: anywhere; }
+.note-prose .editor-tag { display: inline; padding: 0.08em 0.22em; border-radius: 0.28em; background: var(--h2-soft); color: var(--h2-color); font-family: "LXGW WenKai Medium", "LXGW WenKai", system-ui, sans-serif; font-weight: 500; font-synthesis: none; box-shadow: inset 0 -1px 0 var(--h2-border); box-decoration-break: clone; -webkit-box-decoration-break: clone; overflow-wrap: anywhere; }
 .note-prose .editor-tag.editor-search-match--active { background: var(--accent); color: #fff; box-shadow: 0 0 0 2px rgba(54, 94, 78, 0.18); }
 .note-prose > *:first-child { margin-top: 0; }
 .note-prose h1, .note-prose h2, .note-prose h3 { margin-block: 1.15em 0.4em; letter-spacing: -0.045em; line-height: 1.2; scroll-margin-block-start: 24px; }
-.note-prose h1 { font-size: 1.85rem; color: var(--h1-color); font-weight: 700; line-height: 1.15; }
-.note-prose h2 { font-size: 1.45rem; color: var(--h2-color); font-weight: 650; }
-.note-prose h3 { font-size: 1.18rem; color: var(--h3-color); font-weight: 600; }
+.note-prose h1, .note-prose h2, .note-prose h3 { font-family: "LXGW WenKai Medium", "LXGW WenKai", system-ui, sans-serif; font-weight: 500; font-synthesis: none; }
+.note-prose h1 { font-size: 1.85rem; color: var(--h1-color); line-height: 1.15; }
+.note-prose h2 { font-size: 1.45rem; color: var(--h2-color); }
+.note-prose h3 { font-size: 1.18rem; color: var(--h3-color); }
 .note-prose p { margin-block: 0 0.75em; }
-.note-prose strong { color: var(--ink); font-weight: 700; }
+.note-prose strong, .note-prose b, .share-prose strong, .share-prose b { color: var(--ink); font-family: "LXGW WenKai Medium", "LXGW WenKai", system-ui, sans-serif; font-weight: 500; font-synthesis: none; }
 .note-prose a { color: var(--accent-dark); text-decoration-thickness: 1px; text-underline-offset: 3px; cursor: pointer; }
 .note-prose ul, .note-prose ol { margin-block: 0 0.75em; padding-left: 1.45em; line-height: inherit; }
 .note-prose li { margin-block: 0.28em; padding-left: 0.18em; }
