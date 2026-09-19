@@ -163,6 +163,7 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .note-list-content { display: flex; flex: 1 1 0; flex-direction: column; min-height: 0; }
 .note-list-panel.is-view-transitioning .note-list-content { animation: page-content-in var(--motion-content) var(--motion-ease-out) both; }
 .note-list-scroll-shell { position: relative; flex: 1 1 0; min-height: 0; overflow: hidden; }
+.note-list-scroll-shell > .floating-scrollbar--left { inset-inline-start: 0; }
 .floating-scrollbar-target { scrollbar-color: transparent transparent; scrollbar-width: none; }
 .floating-scrollbar-target::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .note-list {
