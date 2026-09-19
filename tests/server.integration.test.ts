@@ -33,10 +33,10 @@ afterEach(async () => {
   await rm(assetRoot, { recursive: true, force: true });
 });
 
-async function request(path: string, init: RequestInit = {}, cookie?: string, targetEnvironment = environment, origin = "http://xiangying.test") {
+async function request(path: string, init: RequestInit = {}, cookie?: string, targetEnvironment = environment, origin = "http://xiangying.test", targetClientRoot = "dist/client") {
   const headers = new Headers(init.headers);
   if (cookie) headers.set("Cookie", cookie);
-  const response = await handleRequest(new Request(`${origin}${path}`, { ...init, headers }), { database, environment: targetEnvironment, clientRoot: "dist/client", assetRoot, clientAddress });
+  const response = await handleRequest(new Request(`${origin}${path}`, { ...init, headers }), { database, environment: targetEnvironment, clientRoot: targetClientRoot, assetRoot, clientAddress });
   const body = await response.json().catch(() => null) as Record<string, any> | null;
   return { response, body, cookie: response.headers.get("Set-Cookie")?.split(";", 1)[0] };
 }
@@ -477,7 +477,7 @@ describe("Bun Server API", () => {
   });
 
   test("serves installable PWA assets with update-safe cache headers", async () => {
-    const manifest = await request("/manifest.webmanifest");
+    const manifest = await request("/manifest.webmanifest", {}, undefined, environment, "http://xiangying.test", "app");
     expect(manifest.response.status).toBe(200);
     expect(manifest.response.headers.get("Content-Type")).toContain("application/manifest+json");
     expect(manifest.response.headers.get("Cache-Control")).toBe("no-cache");
