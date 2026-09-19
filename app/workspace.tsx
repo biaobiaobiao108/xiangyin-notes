@@ -1,4 +1,4 @@
-import { lazy, memo, Suspense, useCallback, useDeferredValue, useEffect, useRef, useState } from "react";
+import { lazy, memo, Suspense, useCallback, useDeferredValue, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { RefreshCw } from "lucide-react";
 import { useNavigate } from "react-router";
 import { ApiError, api } from "./api";
@@ -12,6 +12,7 @@ import { ConfirmDialog, NotebookDialog, ShareDialog, type ConfirmRequest } from 
 import { clearAllDraftRecoveries, clearDraftRecovery, readDraftRecovery } from "./workspace/draft-recovery";
 import { EmptyEditor, NoteListPanel, NoteLoadingState, Sidebar } from "./workspace/panels";
 import { errorMessage, shouldKeepActiveNoteInList, sortNotes, toNoteDraft, type NoteDraft, type NoteSort } from "./workspace/helpers";
+import { applyNoteSelectionClick, pruneNoteSelection, type NoteSelectionState } from "./workspace/note-list-selection";
 import { normalizeLinkTitle } from "../shared/wiki-links";
 import { useNoteSaveQueue } from "./workspace/use-note-save-queue";
 import { useWorkspaceRealtime } from "./workspace/use-realtime";
@@ -46,6 +47,10 @@ export function Workspace() {
   listScopeRef.current = listScope;
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selectedIdRef = useRef<string | null>(null);
+  selectedIdRef.current = selectedId;
+  const [selectedNoteIds, setSelectedNoteIds] = useState<ReadonlySet<string>>(() => new Set());
+  const noteSelectionRef = useRef<NoteSelectionState>({ ids: new Set(), anchorId: null });
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [outlineItems, setOutlineItems] = useState<OutlineItem[]>([]);
@@ -169,6 +174,20 @@ export function Workspace() {
     confirmIdRef.current += 1;
     setConfirmRequest({ ...request, id: confirmIdRef.current, returnFocus: document.activeElement instanceof HTMLElement ? document.activeElement : null });
   }, []);
+  const updateNoteSelection = useCallback((next: NoteSelectionState) => {
+    const normalized = { ids: new Set(next.ids), anchorId: next.anchorId };
+    noteSelectionRef.current = normalized;
+    setSelectedNoteIds(normalized.ids);
+  }, []);
+  const clearNoteSelection = useCallback(() => {
+    updateNoteSelection({ ids: new Set(), anchorId: null });
+  }, [updateNoteSelection]);
+  const previousListScopeRef = useRef(listScope);
+  useEffect(() => {
+    if (previousListScopeRef.current === listScope) return;
+    previousListScopeRef.current = listScope;
+    clearNoteSelection();
+  }, [clearNoteSelection, listScope]);
 
   useEffect(() => subscribePwa(setPwaState), []);
   useEffect(() => {
@@ -216,7 +235,10 @@ export function Workspace() {
         : result.notes;
       replaceList(notesToDisplay);
       setTotalNotes(Math.max(result.total, notesToDisplay.length));
-      setSelectedId((current) => current && notesToDisplay.some((note) => note.id === current) ? current : notesToDisplay[0]?.id ?? null);
+      const currentSelectedId = selectedIdRef.current;
+      const nextSelectedId = currentSelectedId && notesToDisplay.some((note) => note.id === currentSelectedId) ? currentSelectedId : notesToDisplay[0]?.id ?? null;
+      setSelectedId(nextSelectedId);
+      updateNoteSelection(pruneNoteSelection(noteSelectionRef.current, sortNotes(notesToDisplay, noteSort).map((note) => note.id)));
       playPendingListTransition();
     } catch (reason) {
       if (reason instanceof Error && reason.name === "AbortError") return;
@@ -224,7 +246,7 @@ export function Workspace() {
     } finally {
       if (listAbortRef.current === controller) listAbortRef.current = null;
     }
-  }, [deferredQuery, listScope, navigate, notebookId, notebooks, notesReloadToken, playPendingListTransition, replaceList, view]);
+  }, [deferredQuery, listScope, navigate, noteSort, notebookId, notebooks, notesReloadToken, playPendingListTransition, replaceList, updateNoteSelection, view]);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const loadMoreNotes = useCallback(async () => {
     if (isLoadingMore || notesRef.current.length >= totalNotes) return;
@@ -252,6 +274,7 @@ export function Workspace() {
   }, [ready, refreshNotebooks, reloadNotes]);
   const selectNote = useCallback((id: string | null) => {
     setInNoteSearchQuery("");
+    clearNoteSelection();
     if (activeNoteIdRef.current === id) return;
     noteLoadRequestRef.current += 1;
 
@@ -260,7 +283,7 @@ export function Workspace() {
     setSelectedId(id);
     setIsNoteLoading(Boolean(id));
     if (!id) setSelectedNote(null);
-  }, []);
+  }, [clearNoteSelection]);
   useEffect(() => {
     setOutlineOpen(false);
     setOutlineItems([]);
@@ -281,6 +304,25 @@ export function Workspace() {
     setTotalNotes((value) => Math.max(0, value - 1));
     if (activeNoteIdRef.current === noteId) selectNote(ordered[index + 1]?.id ?? ordered[index - 1]?.id ?? null);
   }, [noteSort, replaceList, selectNote]);
+  const removeManyFromList = useCallback((noteIds: string[]) => {
+    const deletedIds = new Set(noteIds);
+    const currentList = notesRef.current;
+    const ordered = sortNotes(currentList, noteSort);
+    const visibleDeletedCount = currentList.filter((note) => deletedIds.has(note.id)).length;
+    const activeId = activeNoteIdRef.current;
+    const activeIndex = activeId ? ordered.findIndex((note) => note.id === activeId) : -1;
+    const activeWasDeleted = Boolean(activeId && deletedIds.has(activeId));
+    const nextActiveId = activeWasDeleted && activeIndex >= 0
+      ? ordered.slice(activeIndex + 1).find((note) => !deletedIds.has(note.id))?.id
+        ?? ordered.slice(0, activeIndex).reverse().find((note) => !deletedIds.has(note.id))?.id
+        ?? null
+      : null;
+
+    replaceList(currentList.filter((note) => !deletedIds.has(note.id)));
+    setTotalNotes((value) => Math.max(0, value - visibleDeletedCount));
+    clearNoteSelection();
+    if (activeWasDeleted) selectNote(nextActiveId);
+  }, [clearNoteSelection, noteSort, replaceList, selectNote]);
   const loadSelectedNote = useCallback(async (id: string) => {
     noteAbortRef.current?.abort();
     const controller = new AbortController();
@@ -561,6 +603,55 @@ export function Workspace() {
   const discardNoteDraft = useCallback((noteId: string) => {
     clearPendingForNote(noteId);
   }, [clearPendingForNote]);
+  const getBatchEntries = useCallback((noteIds: string[]) => {
+    const selected = new Set(noteIds);
+    return sortNotes(notesRef.current, noteSort)
+      .filter((note) => selected.has(note.id))
+      .map((note) => ({ id: note.id, version: note.version }));
+  }, [noteSort]);
+  const performBatchDelete = useCallback(async (noteIds: string[], permanent: boolean) => {
+    const ids = [...new Set(noteIds)];
+    if (!ids.length) return;
+    if (emptyingTrashRef.current || trashOperationsRef.current.size) throw new ApiError(409, "TRASH_BUSY", "回收站正在处理其他操作，请稍后重试");
+
+    ids.forEach((id) => trashOperationsRef.current.add(id));
+    setPendingTrashCount(trashOperationsRef.current.size);
+    invalidateCollections();
+    try {
+      await Promise.all(ids.map((id) => runSave(id)));
+      const entries = getBatchEntries(ids);
+      if (entries.length !== ids.length) throw new ApiError(409, "NOTE_SELECTION_STALE", "选中的笔记已不在当前列表，请重新选择");
+      const result = permanent ? await api.deleteNotes(entries) : await api.moveNotesToTrash(entries);
+      for (const id of result.deletedIds) discardNoteDraft(id);
+      removeManyFromList(result.deletedIds);
+      setToast(permanent ? `已彻底删除 ${result.deletedIds.length} 篇笔记` : `已移入回收站 ${result.deletedIds.length} 篇笔记`);
+    } finally {
+      ids.forEach((id) => trashOperationsRef.current.delete(id));
+      setPendingTrashCount(trashOperationsRef.current.size);
+      invalidateCollections();
+      void refreshNotebooks();
+      reloadNotes();
+    }
+  }, [discardNoteDraft, getBatchEntries, invalidateCollections, refreshNotebooks, reloadNotes, removeManyFromList, runSave]);
+  const showBatchDeleteError = useCallback((reason: unknown) => {
+    setToast(reason instanceof ApiError && reason.code === "BATCH_VERSION_CONFLICT" ? "选中的笔记已发生变化，请重新选择后重试" : errorMessage(reason, "批量删除失败，请重试"));
+  }, []);
+  const deleteSelectedNotes = useCallback(() => {
+    const ids = [...noteSelectionRef.current.ids];
+    if (!ids.length || pendingTrashCount > 0 || emptyingTrashRef.current) return;
+    if (view === "trash") {
+      requestConfirm({
+        eyebrow: "不可撤销",
+        title: `彻底删除 ${ids.length} 篇笔记？`,
+        description: "这些笔记会从数据库永久移除，回收站不再保留，相关分享链接也会同时失效。",
+        confirmLabel: "彻底删除",
+        danger: true,
+        onConfirm: () => performBatchDelete(ids, true),
+      });
+      return;
+    }
+    void performBatchDelete(ids, false).catch(showBatchDeleteError);
+  }, [emptyingTrashRef, pendingTrashCount, performBatchDelete, requestConfirm, showBatchDeleteError, view]);
   const performPermanentDelete = useCallback(async (noteId: string) => {
     if (trashOperationsRef.current.has(noteId) || emptyingTrashRef.current) throw new ApiError(409, "TRASH_BUSY", "回收站正在处理其他操作，请稍后重试");
     trashOperationsRef.current.add(noteId);
@@ -883,11 +974,24 @@ export function Workspace() {
   const handleCreateNotebook = useCallback(() => { createNotebook(); }, [createNotebook]);
   const handleEditNotebook = useCallback((target: Notebook) => setEditingNotebook(target), []);
   const handleCollapseSidebar = useCallback(() => setSidebarCollapsed((value) => !value), []);
-  const handleSelectListNote = useCallback((id: string) => {
-    selectNote(id);
+  const handleSelectListNote = useCallback((id: string, event: ReactMouseEvent<HTMLButtonElement>) => {
+    const nextSelection = applyNoteSelectionClick(noteSelectionRef.current, sortNotes(notesRef.current, noteSort).map((note) => note.id), {
+      id,
+      metaKey: event.metaKey,
+      ctrlKey: event.ctrlKey,
+      shiftKey: event.shiftKey,
+    });
+    const isModifierSelection = event.metaKey || event.ctrlKey || event.shiftKey;
+    if (!isModifierSelection) selectNote(id);
+    updateNoteSelection(nextSelection);
+    if (isModifierSelection) return;
     setMobileSidebarOpen(false);
     setMobileListOpen(false);
-  }, [selectNote]);
+  }, [noteSort, selectNote, updateNoteSelection]);
+  const handleNoteSort = useCallback((nextSort: NoteSort) => {
+    clearNoteSelection();
+    setNoteSort(nextSort);
+  }, [clearNoteSelection]);
   const handleOpenSidebar = useCallback(() => {
     setMobileSidebarOpen(true);
     setMobileListOpen(false);
@@ -911,7 +1015,7 @@ export function Workspace() {
   return <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${focusMode ? "is-focus-mode" : ""}`}>
     {mobileNavigationOpen && <button className="mobile-scrim is-visible" type="button" aria-label="关闭导航" onClick={() => { setMobileSidebarOpen(false); setMobileListOpen(false); closeOutline(); }} />}
     <Sidebar view={view} setView={selectView} notebooks={notebooks} notebookId={notebookId} setNotebookId={selectNotebook} query={query} setQuery={changeQuery} searchRef={searchRef} onNewInboxNote={handleNewInboxNote} onCreateNotebook={handleCreateNotebook} onEditNotebook={handleEditNotebook} collapsed={sidebarCollapsed} onCollapse={handleCollapseSidebar} mobileOpen={mobileSidebarOpen} onLogout={logout} />
-    <NoteListPanel notes={notes} total={totalNotes} sort={noteSort} setSort={setNoteSort} selectedId={selectedId} onSelect={handleSelectListNote} view={view} query={query} currentNotebookName={currentNotebook?.name} onEmptyTrash={view === "trash" ? emptyTrash : undefined} trashBusy={pendingTrashCount > 0 || emptyingTrash} onNewNote={listNewNote} onClearQuery={handleClearQuery} mobileOpen={mobileListOpen} onOpenSidebar={handleOpenSidebar} transitionToken={listTransitionToken} outlineOpen={outlineOpen} outlineItems={outlineItems} activeOutlineId={activeOutlineId} onScrollToOutlineItem={handleScrollToOutlineItem} onCloseOutline={closeOutline} onLoadMore={loadMoreNotes} isLoadingMore={isLoadingMore} />
+    <NoteListPanel notes={notes} total={totalNotes} sort={noteSort} setSort={handleNoteSort} selectedId={selectedId} selectedIds={selectedNoteIds} onSelect={handleSelectListNote} onDeleteSelected={deleteSelectedNotes} view={view} query={query} currentNotebookName={currentNotebook?.name} onEmptyTrash={view === "trash" ? emptyTrash : undefined} trashBusy={pendingTrashCount > 0 || emptyingTrash} onNewNote={listNewNote} onClearQuery={handleClearQuery} mobileOpen={mobileListOpen} onOpenSidebar={handleOpenSidebar} transitionToken={listTransitionToken} outlineOpen={outlineOpen} outlineItems={outlineItems} activeOutlineId={activeOutlineId} onScrollToOutlineItem={handleScrollToOutlineItem} onCloseOutline={closeOutline} onLoadMore={loadMoreNotes} isLoadingMore={isLoadingMore} />
     <main className="editor-region">
       {renderedNote ? <Suspense fallback={<NoteLoadingState />}><LazyNoteEditor note={renderedNote} availableNotes={notes} onNavigateWikiLink={handleNavigateWikiLink} onCreateAndLinkNote={handleCreateAndLinkNote} onNavigateToNote={selectNote} searchQuery={activeSearchQuery} onClearSearch={activeSearchQuery ? handleClearSearch : undefined} saveState={saveState} isLoading={isNoteLoading} trashBusy={emptyingTrash || (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onShare={handleShare} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={handleOpenList} onUploadImage={handleUploadImage} focusMode={focusMode} onToggleFocusMode={toggleFocusMode} typewriterMode={typewriterMode} outlineOpen={outlineOpen} outlineItems={outlineItems} onToggleOutline={toggleOutline} onCloseOutline={closeOutline} onOutlineItemsChange={handleOutlineItemsChange} onOutlineActiveChange={handleOutlineActiveChange} onOutlineNavigationReady={handleOutlineNavigationReady} /></Suspense> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor isTrash={view === "trash"} onNewNote={handleNewNote} onOpenList={handleOpenList} transitionToken={listTransitionToken} />}
     </main>

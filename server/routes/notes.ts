@@ -54,6 +54,65 @@ import { canIndexShortSearchTerm, syncNoteShortSearchTerms } from "../note-searc
 import { handleNoteShares } from "./shares";
 import { publishWorkspaceChange } from "../realtime";
 
+const NOTE_BATCH_LIMIT = 500;
+const NOTE_BATCH_BODY_MAX_BYTES = 64 * 1024;
+
+type BatchNoteEntry = {
+  id: string;
+  version: number;
+};
+
+type BatchNoteState = {
+  id: string;
+  deleted_at: number | null;
+  version: number;
+};
+
+class BatchNoteConflictError extends Error {
+  constructor(readonly conflictIds: string[]) {
+    super("batch-note-conflict");
+    this.name = "BatchNoteConflictError";
+  }
+}
+
+function parseBatchNoteEntries(payload: unknown): BatchNoteEntry[] | null {
+  if (!payload || typeof payload !== "object" || !Array.isArray((payload as { notes?: unknown }).notes)) return null;
+  const rawNotes = (payload as { notes: unknown[] }).notes;
+  if (rawNotes.length === 0 || rawNotes.length > NOTE_BATCH_LIMIT) return null;
+
+  const entries: BatchNoteEntry[] = [];
+  const seen = new Set<string>();
+  for (const rawNote of rawNotes) {
+    if (!rawNote || typeof rawNote !== "object") return null;
+    const id = (rawNote as { id?: unknown }).id;
+    const version = (rawNote as { version?: unknown }).version;
+    if (typeof id !== "string" || !id || seen.has(id) || !Number.isSafeInteger(version) || (version as number) < 1) return null;
+    seen.add(id);
+    entries.push({ id, version: version as number });
+  }
+  return entries;
+}
+
+function getBatchNoteStates(database: SqliteDatabase, userId: string, entries: BatchNoteEntry[]) {
+  const placeholders = entries.map(() => "?").join(",");
+  return all<BatchNoteState>(database, `SELECT id, deleted_at, version FROM notes WHERE user_id = ? AND id IN (${placeholders})`, userId, ...entries.map((entry) => entry.id));
+}
+
+function assertBatchNoteStates(rows: BatchNoteState[], entries: BatchNoteEntry[], mode: "trash" | "permanent") {
+  const states = new Map(rows.map((row) => [row.id, row]));
+  const conflictIds = entries
+    .filter((entry) => {
+      const row = states.get(entry.id);
+      return !row || row.version !== entry.version || (mode === "trash" ? row.deleted_at !== null : row.deleted_at === null);
+    })
+    .map((entry) => entry.id);
+  if (conflictIds.length) throw new BatchNoteConflictError(conflictIds);
+}
+
+function batchConflictResponse(error: BatchNoteConflictError) {
+  return json({ error: { code: "BATCH_VERSION_CONFLICT", message: "选中的笔记已发生变化，请重新选择后重试", conflictIds: error.conflictIds } }, 409);
+}
+
 export function createNote(
   database: SqliteDatabase,
   userId: string,
@@ -174,6 +233,54 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
   }
 
   if (resource !== "notes") return null;
+
+  // Batch move to trash or permanent deletion. Both operations validate every
+  // selected note in one transaction so a stale selection cannot partially apply.
+  if (id === "batch" && (method === "PATCH" || method === "DELETE")) {
+    const payload = await readJson<{ notes?: unknown }>(request, NOTE_BATCH_BODY_MAX_BYTES);
+    const entries = parseBatchNoteEntries(payload);
+    if (!entries) return jsonError(400, "INVALID_BATCH_NOTES", "批量操作的笔记参数无效");
+
+    if (method === "PATCH") {
+      let moved: { deletedIds: string[] };
+      try {
+        moved = database.transaction(() => {
+          const rows = getBatchNoteStates(database, user.id, entries);
+          assertBatchNoteStates(rows, entries, "trash");
+          const deletedAt = now();
+          const update = database.query("UPDATE notes SET deleted_at = ?, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ? AND version = ? AND deleted_at IS NULL");
+          for (const entry of entries) update.run(deletedAt, deletedAt, entry.id, user.id, entry.version);
+          return { deletedIds: entries.map((entry) => entry.id) };
+        })();
+      } catch (error) {
+        if (error instanceof BatchNoteConflictError) return batchConflictResponse(error);
+        throw error;
+      }
+      publishWorkspaceChange(options, user.id, { resource: "notes" }, request);
+      return json({ ok: true, deletedIds: moved.deletedIds });
+    }
+
+    let deleted: { deletedIds: string[]; assetPaths: string[] };
+    try {
+      deleted = database.transaction(() => {
+        const rows = getBatchNoteStates(database, user.id, entries);
+        assertBatchNoteStates(rows, entries, "permanent");
+        const deletedIds = entries.map((entry) => entry.id);
+        const assetPaths = assetPathsForNotes(database, user.id, deletedIds);
+        const deleteLinks = database.query("DELETE FROM note_links WHERE user_id = ? AND source_note_id = ?");
+        for (const noteId of deletedIds) deleteLinks.run(user.id, noteId);
+        const placeholders = deletedIds.map(() => "?").join(",");
+        database.query(`DELETE FROM notes WHERE user_id = ? AND id IN (${placeholders})`).run(user.id, ...deletedIds);
+        return { deletedIds, assetPaths };
+      })();
+    } catch (error) {
+      if (error instanceof BatchNoteConflictError) return batchConflictResponse(error);
+      throw error;
+    }
+    publishWorkspaceChange(options, user.id, { resource: "notes" }, request);
+    await removeAssetFiles(assetRoot, deleted.assetPaths);
+    return json({ ok: true, deletedIds: deleted.deletedIds });
+  }
 
   // List notes
   if (!id && method === "GET") {

@@ -476,6 +476,83 @@ describe("Bun Server API", () => {
     expect(database.query("SELECT note_id FROM image_assets WHERE id = ?").get(asset.id)).toEqual({ note_id: null });
   });
 
+  test("moves a batch of notes to trash atomically with version checks", async () => {
+    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
+    const first = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "批量移入一" }) }, login.cookie);
+    const second = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "批量移入二" }) }, login.cookie);
+    const third = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "批量移入三" }) }, login.cookie);
+
+    const moved = await request("/api/notes/batch", {
+      method: "PATCH",
+      body: JSON.stringify({ notes: [
+        { id: first.body?.note.id, version: first.body?.note.version },
+        { id: second.body?.note.id, version: second.body?.note.version },
+      ] }),
+    }, login.cookie);
+    expect(moved.response.status).toBe(200);
+    expect(new Set(moved.body?.deletedIds)).toEqual(new Set([first.body?.note.id, second.body?.note.id]));
+    expect((await request(`/api/notes/${first.body?.note.id}`, {}, login.cookie)).body?.note.deletedAt).not.toBeNull();
+    expect((await request(`/api/notes/${first.body?.note.id}`, {}, login.cookie)).body?.note.version).toBe(2);
+    expect((await request(`/api/notes/${third.body?.note.id}`, {}, login.cookie)).body?.note.deletedAt).toBeNull();
+
+    const changed = await request(`/api/notes/${second.body?.note.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ version: 2, title: "批量移入二（更新）" }),
+    }, login.cookie);
+    expect(changed.response.status).toBe(200);
+    const conflict = await request("/api/notes/batch", {
+      method: "PATCH",
+      body: JSON.stringify({ notes: [
+        { id: third.body?.note.id, version: third.body?.note.version },
+        { id: second.body?.note.id, version: 2 },
+      ] }),
+    }, login.cookie);
+    expect(conflict.response.status).toBe(409);
+    expect(conflict.body?.error.code).toBe("BATCH_VERSION_CONFLICT");
+    expect((await request(`/api/notes/${third.body?.note.id}`, {}, login.cookie)).body?.note.deletedAt).toBeNull();
+    expect((await request(`/api/notes/${second.body?.note.id}`, {}, login.cookie)).body?.note.deletedAt).not.toBeNull();
+  });
+
+  test("permanently deletes a batch of trashed notes without touching other users", async () => {
+    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
+    const otherEnvironment = { ...environment, XIANGYING_USERNAME: "other" };
+    const otherLogin = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "other", password: environment.XIANGYING_PASSWORD }) }, undefined, otherEnvironment);
+    const first = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "批量彻底一" }) }, login.cookie);
+    const second = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "批量彻底二" }) }, login.cookie);
+    const other = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "其他用户笔记" }) }, otherLogin.cookie, otherEnvironment);
+
+    const trashed = await request("/api/notes/batch", {
+      method: "PATCH",
+      body: JSON.stringify({ notes: [
+        { id: first.body?.note.id, version: first.body?.note.version },
+        { id: second.body?.note.id, version: second.body?.note.version },
+      ] }),
+    }, login.cookie);
+    expect(trashed.response.status).toBe(200);
+    const firstCurrent = await request(`/api/notes/${first.body?.note.id}`, {}, login.cookie);
+    const secondCurrent = await request(`/api/notes/${second.body?.note.id}`, {}, login.cookie);
+
+    const unauthorizedBatch = await request("/api/notes/batch", {
+      method: "DELETE",
+      body: JSON.stringify({ notes: [{ id: other.body?.note.id, version: other.body?.note.version }] }),
+    }, login.cookie);
+    expect(unauthorizedBatch.response.status).toBe(409);
+    expect(unauthorizedBatch.body?.error.code).toBe("BATCH_VERSION_CONFLICT");
+
+    const deleted = await request("/api/notes/batch", {
+      method: "DELETE",
+      body: JSON.stringify({ notes: [
+        { id: first.body?.note.id, version: firstCurrent.body?.note.version },
+        { id: second.body?.note.id, version: secondCurrent.body?.note.version },
+      ] }),
+    }, login.cookie);
+    expect(deleted.response.status).toBe(200);
+    expect(new Set(deleted.body?.deletedIds)).toEqual(new Set([first.body?.note.id, second.body?.note.id]));
+    expect((await request(`/api/notes/${first.body?.note.id}`, {}, login.cookie)).response.status).toBe(404);
+    expect((await request(`/api/notes/${second.body?.note.id}`, {}, login.cookie)).response.status).toBe(404);
+    expect((await request(`/api/notes/${other.body?.note.id}`, {}, otherLogin.cookie, otherEnvironment)).response.status).toBe(200);
+  });
+
   test("serves installable PWA assets with update-safe cache headers", async () => {
     const manifest = await request("/manifest.webmanifest", {}, undefined, environment, "http://xiangying.test", "app");
     expect(manifest.response.status).toBe(200);

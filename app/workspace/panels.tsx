@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type RefObject } from "react";
 import { Archive, ChevronDown, ChevronLeft, LayoutPanelLeft, LogOut, Menu, Pencil, Plus, Search, Star, Trash2, X } from "lucide-react";
 import type { NoteSummary, NoteView, Notebook } from "../../shared/types";
 import { BrandMark } from "../brand-mark";
@@ -104,7 +104,35 @@ const SORT_OPTIONS: Array<{ value: NoteSort; label: string }> = [
   { value: "title", label: "标题排序" },
 ];
 
-export const NoteListPanel = memo(function NoteListPanel({ notes, total, sort, setSort, selectedId, onSelect, view, query, currentNotebookName, onNewNote, onEmptyTrash, trashBusy, onClearQuery, mobileOpen, onOpenSidebar, transitionToken, outlineOpen, outlineItems, activeOutlineId, onScrollToOutlineItem, onCloseOutline, onLoadMore, isLoadingMore = false }: { notes: NoteSummary[]; total: number; sort: NoteSort; setSort: (sort: NoteSort) => void; selectedId: string | null; onSelect: (id: string) => void; view: NoteView; query: string; currentNotebookName?: string; onNewNote?: () => void; onEmptyTrash?: () => void; trashBusy: boolean; onClearQuery: () => void; onOpenSidebar: () => void; transitionToken: number; mobileOpen: boolean; outlineOpen: boolean; outlineItems: OutlineItem[]; activeOutlineId: string | null; onScrollToOutlineItem: (id: string) => void; onCloseOutline: () => void; onLoadMore?: () => void; isLoadingMore?: boolean }) {
+type NoteListPanelProps = {
+  notes: NoteSummary[];
+  total: number;
+  sort: NoteSort;
+  setSort: (sort: NoteSort) => void;
+  selectedId: string | null;
+  selectedIds: ReadonlySet<string>;
+  onSelect: (id: string, event: ReactMouseEvent<HTMLButtonElement>) => void;
+  onDeleteSelected: () => void;
+  view: NoteView;
+  query: string;
+  currentNotebookName?: string;
+  onNewNote?: () => void;
+  onEmptyTrash?: () => void;
+  trashBusy: boolean;
+  onClearQuery: () => void;
+  onOpenSidebar: () => void;
+  transitionToken: number;
+  mobileOpen: boolean;
+  outlineOpen: boolean;
+  outlineItems: OutlineItem[];
+  activeOutlineId: string | null;
+  onScrollToOutlineItem: (id: string) => void;
+  onCloseOutline: () => void;
+  onLoadMore?: () => void;
+  isLoadingMore?: boolean;
+};
+
+export const NoteListPanel = memo(function NoteListPanel({ notes, total, sort, setSort, selectedId, selectedIds, onSelect, onDeleteSelected, view, query, currentNotebookName, onNewNote, onEmptyTrash, trashBusy, onClearQuery, mobileOpen, onOpenSidebar, transitionToken, outlineOpen, outlineItems, activeOutlineId, onScrollToOutlineItem, onCloseOutline, onLoadMore, isLoadingMore = false }: NoteListPanelProps) {
   const [sortOpen, setSortOpen] = useState(false);
   const sortRef = useRef<HTMLDivElement>(null);
   const sortTriggerRef = useRef<HTMLButtonElement>(null);
@@ -150,7 +178,7 @@ export const NoteListPanel = memo(function NoteListPanel({ notes, total, sort, s
     setSortOpen(false);
     requestAnimationFrame(() => sortTriggerRef.current?.focus());
   };
-  const handleSortOptionKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+  const handleSortOptionKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, index: number) => {
     if (event.key === "ArrowDown" || event.key === "ArrowRight") {
       event.preventDefault();
       sortOptionRefs.current[(index + 1) % SORT_OPTIONS.length]?.focus();
@@ -170,6 +198,15 @@ export const NoteListPanel = memo(function NoteListPanel({ notes, total, sort, s
   };
 
   const sortedNotes = useMemo(() => sortNotes(notes, sort), [notes, sort]);
+  const handleNoteListKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.defaultPrevented || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+    const target = event.target;
+    if (target instanceof HTMLElement && (target.isContentEditable || target.matches("input, textarea, select"))) return;
+    if ((event.key === "Delete" || event.key === "Backspace") && selectedIds.size > 0) {
+      event.preventDefault();
+      onDeleteSelected();
+    }
+  };
   const heading = query ? "搜索结果" : currentNotebookName ?? viewLabel(view);
   const truncated = total > notes.length;
   return <section ref={panelRef} className={`note-list-panel ${mobileOpen ? "is-mobile-open" : ""} ${outlineOpen ? "is-outline-open" : ""}`} aria-label={outlineOpen ? "笔记大纲" : "笔记列表"}>
@@ -192,7 +229,7 @@ export const NoteListPanel = memo(function NoteListPanel({ notes, total, sort, s
           </div>
         </div>
       </header>
-      <div className="note-list-scroll-shell"><div id="note-list-scroll-region" className="note-list floating-scrollbar-target" ref={noteListRef}><ul className="note-list-items" role="list">{sortedNotes.map((note) => <li key={note.id}><button type="button" className={`note-row ${note.thumbnail ? "has-thumbnail" : ""} ${selectedId === note.id ? "is-selected" : ""}`} onClick={() => onSelect(note.id)}><NoteThumbnail note={note} /><span className="note-row-main"><span className="note-row-title"><span className="note-row-title-text">{note.title || "未命名笔记"}</span>{note.isFavorite && <Star size={13} fill="currentColor" />}</span><span className="note-row-preview">{note.preview || "还没有内容，开始写下第一句话。"}</span><NoteRowMeta note={note} /></span></button></li>)}{truncated && onLoadMore && <li className="note-list-load-more-item"><button className="secondary-button note-list-load-more-button" type="button" onClick={onLoadMore} disabled={isLoadingMore}>{isLoadingMore ? "正在加载……" : `加载更多（已显示 ${notes.length} / ${total}）`}</button></li>}</ul>{!sortedNotes.length && (query ? <div className="list-empty"><span className="empty-icon"><Search size={23} /></span><strong>没有找到匹配的笔记</strong><span>试试更短的关键词，或清空搜索查看全部内容。</span><button className="secondary-button" type="button" onClick={onClearQuery}>清空搜索</button></div> : <div className="list-empty"><span className="empty-icon"><Archive size={23} /></span><strong>{view === "trash" ? "回收站是空的" : "这里还没有笔记"}</strong><span>{view === "trash" ? "移入回收站的笔记会显示在这里。" : "按下“新建笔记”，让一个想法有地方落脚。"}</span></div>)}</div><FloatingScrollbar scrollTargetRef={noteListRef} controlsId="note-list-scroll-region" ariaLabel="笔记列表滚动条" placement="left" /></div>
+      <div className="note-list-scroll-shell"><div id="note-list-scroll-region" className="note-list floating-scrollbar-target" ref={noteListRef} onKeyDown={handleNoteListKeyDown}><ul className="note-list-items" role="list">{sortedNotes.map((note) => { const isSelected = selectedIds.has(note.id); const isActive = selectedId === note.id; return <li key={note.id}><button type="button" className={`note-row ${note.thumbnail ? "has-thumbnail" : ""} ${isSelected ? "is-selected" : ""} ${isActive ? "is-active" : ""}`} aria-pressed={isSelected} onClick={(event) => onSelect(note.id, event)}><NoteThumbnail note={note} /><span className="note-row-main"><span className="note-row-title"><span className="note-row-title-text">{note.title || "未命名笔记"}</span>{note.isFavorite && <Star size={13} fill="currentColor" />}</span><span className="note-row-preview">{note.preview || "还没有内容，开始写下第一句话。"}</span><NoteRowMeta note={note} /></span></button></li>; })}{truncated && onLoadMore && <li className="note-list-load-more-item"><button className="secondary-button note-list-load-more-button" type="button" onClick={onLoadMore} disabled={isLoadingMore}>{isLoadingMore ? "正在加载……" : `加载更多（已显示 ${notes.length} / ${total}）`}</button></li>}</ul>{!sortedNotes.length && (query ? <div className="list-empty"><span className="empty-icon"><Search size={23} /></span><strong>没有找到匹配的笔记</strong><span>试试更短的关键词，或清空搜索查看全部内容。</span><button className="secondary-button" type="button" onClick={onClearQuery}>清空搜索</button></div> : <div className="list-empty"><span className="empty-icon"><Archive size={23} /></span><strong>{view === "trash" ? "回收站是空的" : "这里还没有笔记"}</strong><span>{view === "trash" ? "移入回收站的笔记会显示在这里。" : "按下“新建笔记”，让一个想法有地方落脚。"}</span></div>)}</div><FloatingScrollbar scrollTargetRef={noteListRef} controlsId="note-list-scroll-region" ariaLabel="笔记列表滚动条" placement="left" /></div>
       </>}
     </div>
   </section>;
