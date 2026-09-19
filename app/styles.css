@@ -260,10 +260,6 @@ button.save-status:hover { text-decoration: underline; }
 .save-status--icon:hover { border-color: var(--border); background: var(--surface-muted); text-decoration: none; }
 @keyframes pulse { 50% { opacity: 0.4; transform: scale(0.8); } }
 .icon-button.is-active { color: var(--accent); }
-.favorite-toggle { color: var(--soft-muted); }
-.favorite-toggle:hover { color: var(--h1-color); background: var(--h1-soft); border-color: var(--h1-border); }
-.favorite-toggle.is-active { color: var(--h1-color); background: var(--h1-soft); border-color: var(--h1-border); }
-.favorite-toggle.is-active:hover { color: #9f402b; background: #f8e3dc; border-color: #e6b8ad; }
 .danger-button:hover { color: var(--accent-dark); background: var(--accent-soft); border-color: #bad3c5; }
 .trashed-banner {
   display: flex;
