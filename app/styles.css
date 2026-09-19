@@ -187,10 +187,10 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .floating-scrollbar-thumb:active, .floating-scrollbar-thumb.is-dragging { cursor: grabbing; background: var(--accent); border-color: rgba(39, 71, 58, 0.54); box-shadow: 0 4px 12px rgba(39, 71, 58, 0.22); }
 .floating-scrollbar-thumb:focus-visible { outline: 3px solid rgba(54, 94, 78, 0.3); outline-offset: 3px; }
 .note-list-items { margin: 0; padding: 0; list-style: none; }
-.note-row { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; gap: 12px; width: 100%; padding: 14px 20px; border: 0; border-bottom: 1px solid #edf0ed; background: transparent; text-align: left; cursor: pointer; transition: background-color var(--motion-fast) ease, box-shadow var(--motion-fast) ease; }
+.note-row { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; gap: 12px; width: 100%; padding: 14px 20px; border: 0; border-bottom: 1px solid #edf0ed; background: transparent; text-align: left; cursor: pointer; transition: background-color var(--motion-fast) ease; }
 .note-row:has(.note-row-thumbnail), .note-row.has-thumbnail { grid-template-columns: 56px minmax(0, 1fr); }
 .note-row:hover { background: #fbfbfa; }
-.note-row.is-selected { background: linear-gradient(90deg, var(--accent-soft), #f7faf8); box-shadow: inset 3px 0 0 var(--accent); }
+.note-row.is-selected { background: linear-gradient(90deg, var(--accent-soft), #f7faf8); }
 .note-row-thumbnail { display: block; width: 56px; height: 56px; overflow: hidden; border: 1px solid #e4e9e4; border-radius: 9px; background: #f2f4f0; }
 .note-row-thumbnail img { display: block; width: 56px; height: 56px; object-fit: cover; }
 .note-row-thumbnail--empty { border-color: transparent; background: transparent; }
