@@ -8,7 +8,7 @@ import TaskItem from "@tiptap/extension-task-item";
 import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
 import { findWrapping } from "@tiptap/pm/transform";
-import { ArrowLeftRight, CheckCircle, ChevronLeft, CircleAlert, ImagePlus, Link2, LoaderCircle, Maximize2, Minimize2, RefreshCw, Trash2, Undo2 } from "lucide-react";
+import { ArrowLeftRight, CheckCircle, ChevronLeft, CircleAlert, ImagePlus, Link2, LoaderCircle, Maximize2, Minimize2, RefreshCw, Star, Trash2, Undo2 } from "lucide-react";
 import type { ImageAssetSummary, Note, NoteSummary } from "../shared/types";
 import { api } from "./api";
 import { BrandMark } from "./brand-mark";
@@ -1102,14 +1102,14 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
           ) : saveState === "conflict" ? (
             <button className="save-status save-status--conflict save-status--action save-status--icon" type="button" aria-label="重新载入最新版本" title="检测到版本冲突，点击重新载入" onClick={onReloadNote}><SaveStatusIcon state="conflict" /></button>
           ) : saveState === "idle" ? null : (
-            <span className={`save-status save-status--${saveState} save-status--icon`} role="status" aria-label={saveLabel} aria-live="polite"><SaveStatusIcon state={saveState} /></span>
+            <span className={`save-status save-status--${saveState} save-status--icon`} role="status" aria-label={saveLabel} title={saveLabel} aria-live="polite"><SaveStatusIcon state={saveState} /></span>
           )}
           {onUploadImage && !note.deletedAt && <>
             <input ref={imageFileInputRef} className="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple tabIndex={-1} aria-label="选择要上传的图片文件" onChange={(event) => { uploadImageFilesRef.current(Array.from(event.target.files ?? [])); event.target.value = ""; }} />
             <button className={`icon-button ${imageUploadState === "uploading" ? "is-active" : ""}`} type="button" aria-label="上传图片" title={imageUploadState === "uploading" ? "正在上传图片" : "上传图片"} onClick={() => imageFileInputRef.current?.click()} disabled={editorLocked || imageUploadState === "uploading"}><ImagePlus size={18} strokeWidth={1.8} /></button>
           </>}
-          {imageUploadState === "uploading" && <span className="save-status save-status--saving" role="status" aria-live="polite"><span className="save-dot" />上传中</span>}
-          {imageUploadState === "error" && <span className="save-status save-status--error" role="alert">图片上传失败</span>}
+          {imageUploadState === "uploading" && <span className="save-status save-status--saving save-status--icon" role="status" aria-label="正在上传图片" title="正在上传图片" aria-live="polite"><SaveStatusIcon state="saving" /></span>}
+          {imageUploadState === "error" && <span className="save-status save-status--error save-status--icon" role="alert" aria-label="图片上传失败" title="图片上传失败"><SaveStatusIcon state="error" /></span>}
           {!note.deletedAt && onNavigateToNote && (
             <button
               className={`icon-button ${backlinksOpen ? "is-active" : ""}`}
@@ -1135,7 +1135,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
               {focusMode ? <Minimize2 size={18} strokeWidth={1.8} /> : <Maximize2 size={18} strokeWidth={1.8} />}
             </button>
           )}
-          <button className={`icon-button ${note.isFavorite ? "is-active" : ""}`} type="button" aria-label={note.isFavorite ? "取消收藏" : "收藏笔记"} title={note.isFavorite ? "取消收藏" : "收藏笔记"} onClick={onToggleFavorite} disabled={editorLocked}><span className="star-glyph">★</span></button>
+          <button className={`icon-button favorite-toggle ${note.isFavorite ? "is-active" : ""}`} type="button" aria-label={note.isFavorite ? "取消收藏" : "收藏笔记"} aria-pressed={note.isFavorite} title={note.isFavorite ? "取消收藏" : "收藏笔记"} onClick={onToggleFavorite} disabled={editorLocked}><Star size={19} strokeWidth={1.8} fill={note.isFavorite ? "currentColor" : "none"} aria-hidden="true" /></button>
           <button className="icon-button" type="button" aria-label="分享笔记" title="分享笔记" onClick={onShare} disabled={editorLocked}><Link2 size={18} strokeWidth={1.8} /></button>
           {note.deletedAt ? <>
             <button className="icon-button" type="button" aria-label="恢复笔记" title="恢复笔记" onClick={onRestore} disabled={editorLocked || trashBusy}><Undo2 size={18} strokeWidth={1.8} /></button>
