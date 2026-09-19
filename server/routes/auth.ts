@@ -187,7 +187,7 @@ export async function handleAuthRoute(ctx: RouteContext): Promise<Response | nul
   if (method === "POST" && url.pathname === "/api/auth/login") {
     const payload = await readJson<{ username?: unknown; password?: unknown }>(request, 64 * 1024);
     if (!payload || typeof payload.username !== "string" || typeof payload.password !== "string") return jsonError(400, "INVALID_LOGIN", "请输入用户名和密码");
-    if (payload.username.length > 128 || payload.password.length > 256) return jsonError(400, "INVALID_LOGIN", "用户名或密码格式无效");
+    if (payload.username.length > 128) return jsonError(400, "INVALID_LOGIN", "用户名或密码格式无效");
     const credentials = getAuthCredentials(environment);
     if (!credentials) return jsonError(503, "AUTH_NOT_CONFIGURED", "请先配置 XIANGYING_USERNAME 和 XIANGYING_PASSWORD");
     const attemptKey = loginClientKey(request, environment, clientAddress, payload.username);

@@ -711,6 +711,18 @@ describe("Bun Server API", () => {
     expect(missing.body?.error.code).toBe("AUTH_NOT_CONFIGURED");
   });
 
+  test("accepts passwords longer than the legacy login limit", async () => {
+    const longPassword = "long-password-".repeat(30);
+    const longPasswordEnvironment = { ...environment, XIANGYING_PASSWORD: longPassword };
+    const login = await request("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "owner", password: longPassword }),
+    }, undefined, longPasswordEnvironment);
+
+    expect(login.response.status).toBe(200);
+    expect(login.body?.user.username).toBe("owner");
+  });
+
   test("rate limits repeated login failures without trusting spoofed proxy headers", async () => {
     for (let attempt = 0; attempt < 8; attempt += 1) {
       const failed = await request("/api/auth/login", { method: "POST", headers: { "X-Forwarded-For": `198.51.100.${attempt + 1}` }, body: JSON.stringify({ username: "owner", password: "wrong passphrase 1234" }) });

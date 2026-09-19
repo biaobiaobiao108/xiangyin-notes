@@ -294,7 +294,7 @@ Markdown 中允许使用 `https://` 外部图片地址和应用内部附件地�
 | 配置项 | 必需 | 说明 |
 | --- | --- | --- |
 | `XIANGYING_USERNAME` | 是 | 登录用户名，长度为 3–32 个字符 |
-| `XIANGYING_PASSWORD` | 是 | 登录密码，长度为 12–128 个字符 |
+| `XIANGYING_PASSWORD` | 是 | 登录密码，非空字符串；建议至少使用 12 个字符 |
 | `XIANGYING_API_TOKEN` | 否 | 快捷指令导入 API 的 Bearer Token；建议使用 `openssl rand -hex 32` 生成 |
 | `DATABASE_PATH` | 否 | SQLite 数据库路径，默认 `./data/xiangying-notes.sqlite`；Docker 中默认 `/data/xiangying-notes.sqlite` |
 | `ASSETS_PATH` | 否 | 图片附件目录，未设置时使用数据库所在目录旁的 `attachments`；Docker 中默认 `/data/attachments` |
