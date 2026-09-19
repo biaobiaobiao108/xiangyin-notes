@@ -194,7 +194,8 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .note-row:has(.note-row-thumbnail), .note-row.has-thumbnail { grid-template-columns: 56px minmax(0, 1fr); }
 .note-row:hover { background: #fbfbfa; }
 .note-row.is-selected, .note-row.is-active { background: linear-gradient(90deg, var(--accent-soft), #f7faf8); }
-.note-row:focus-visible { outline-offset: -3px; }
+.note-row:focus-visible { outline: none; }
+.note-row:focus-visible .note-row-title-text { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }
 .note-row-thumbnail { display: block; width: 56px; height: 56px; overflow: hidden; border: 1px solid #e4e9e4; border-radius: 9px; background: #f2f4f0; }
 .note-row-thumbnail img { display: block; width: 56px; height: 56px; object-fit: cover; }
 .note-row-thumbnail--empty { border-color: transparent; background: transparent; }
