@@ -1,7 +1,7 @@
 :root {
   color: #202621;
   background: #f6f4ef;
-  font-family: "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
+  font-family: system-ui;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   --canvas: #f6f4ef;
@@ -285,7 +285,7 @@ button.save-status:hover { text-decoration: underline; }
 .editor-panel .note-title-input,
 .editor-panel .note-prose,
 .share-prose {
-  font-family: "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
+  font-family: system-ui;
 }
 .editor-panel .note-title-input { width: 100%; height: 1.2em; padding: 0; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: clamp(2rem, 3.5vw, 3.05rem); font-weight: 700; letter-spacing: -0.065em; line-height: 1.08; }
 .note-title-input::placeholder { color: #bec5bf; }
