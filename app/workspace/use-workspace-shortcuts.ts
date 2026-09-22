@@ -25,11 +25,14 @@ export function useWorkspaceShortcuts(options: UseWorkspaceShortcutsOptions) {
   focusModeRef.current = focusMode;
   const hasModalOpenRef = useRef(hasModalOpen);
   hasModalOpenRef.current = hasModalOpen;
+  const handlersRef = useRef({ toggleSidebar, toggleFocusMode, toggleTypewriterMode, exitFocusMode, openCommandMenu });
+  handlersRef.current = { toggleSidebar, toggleFocusMode, toggleTypewriterMode, exitFocusMode, openCommandMenu };
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
       const isMod = event.ctrlKey || event.metaKey;
+      const { toggleSidebar, toggleFocusMode, toggleTypewriterMode, exitFocusMode, openCommandMenu } = handlersRef.current;
 
       if (isMod && (event.key === "/" || event.key === "k" || event.key === "K")) {
         event.preventDefault();
@@ -57,5 +60,5 @@ export function useWorkspaceShortcuts(options: UseWorkspaceShortcutsOptions) {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [exitFocusMode, openCommandMenu, toggleFocusMode, toggleSidebar, toggleTypewriterMode]);
+  }, []);
 }

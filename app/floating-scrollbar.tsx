@@ -18,8 +18,9 @@ type DragState = {
 const HIDE_DELAY = 1000;
 const MIN_THUMB_HEIGHT = 28;
 
-export function FloatingScrollbar({ scrollTargetRef, controlsId, ariaLabel, placement, enabled = true }: {
+export function FloatingScrollbar({ scrollTargetRef, contentRef, controlsId, ariaLabel, placement, enabled = true }: {
   scrollTargetRef: RefObject<HTMLElement | null>;
+  contentRef?: RefObject<HTMLElement | null>;
   controlsId: string;
   ariaLabel: string;
   placement: "left" | "right";
@@ -84,7 +85,9 @@ export function FloatingScrollbar({ scrollTargetRef, controlsId, ariaLabel, plac
     const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(scheduleMetrics);
     resizeObserver?.observe(target);
     resizeObserver?.observe(scrollbar);
-    const mutationObserver = typeof MutationObserver === "undefined" ? null : new MutationObserver(scheduleMetrics);
+    const content = contentRef?.current;
+    if (content && content !== target) resizeObserver?.observe(content);
+    const mutationObserver = content || typeof MutationObserver === "undefined" ? null : new MutationObserver(scheduleMetrics);
     mutationObserver?.observe(target, { childList: true, subtree: true, characterData: true });
     target.addEventListener("scroll", handleTargetActivity, { passive: true });
     target.addEventListener("pointerenter", handleTargetActivity);
@@ -103,7 +106,7 @@ export function FloatingScrollbar({ scrollTargetRef, controlsId, ariaLabel, plac
       if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
       frameRef.current = null;
     };
-  }, [handleTargetActivity, scheduleMetrics, scrollTargetRef]);
+  }, [contentRef, handleTargetActivity, scheduleMetrics, scrollTargetRef]);
 
   useEffect(() => {
     if (enabled) {

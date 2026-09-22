@@ -11,7 +11,7 @@ import type { OutlineItem } from "./editor-metrics";
 import { ConfirmDialog, NotebookDialog, ShareDialog, type ConfirmRequest } from "./workspace/dialogs";
 import { clearAllDraftRecoveries, clearDraftRecovery, readDraftRecovery } from "./workspace/draft-recovery";
 import { EmptyEditor, NoteListPanel, NoteLoadingState, Sidebar } from "./workspace/panels";
-import { errorMessage, shouldKeepActiveNoteInList, sortNotes, toNoteDraft, type NoteDraft, type NoteSort } from "./workspace/helpers";
+import { errorMessage, shouldKeepActiveNoteInList, sortNotes, toNoteDraft, toNoteSummary, type NoteDraft, type NoteSort } from "./workspace/helpers";
 import { applyNoteSelectionClick, pruneNoteSelection, type NoteSelectionState } from "./workspace/note-list-selection";
 import { normalizeLinkTitle } from "../shared/wiki-links";
 import { useNoteSaveQueue } from "./workspace/use-note-save-queue";
@@ -28,6 +28,7 @@ export function Workspace() {
   const [notes, setNotes] = useState<NoteSummary[]>([]);
   const [noteSort, setNoteSort] = useState<NoteSort>("updated");
   const [totalNotes, setTotalNotes] = useState(0);
+  const [hasMoreNotes, setHasMoreNotes] = useState(false);
   const [notesReloadToken, setNotesReloadToken] = useState(0);
   const [listTransitionToken, setListTransitionToken] = useState(0);
   const listTransitionIntentRef = useRef(0);
@@ -37,13 +38,15 @@ export function Workspace() {
   const inboxNoteCreationRef = useRef(false);
   const listRequestRef = useRef(0);
   const listAbortRef = useRef<AbortController | null>(null);
+  const nextNotesCursorRef = useRef<string | null>(null);
   const notebooksRequestRef = useRef(0);
   const trashOperationsRef = useRef(new Set<string>());
   const [pendingTrashCount, setPendingTrashCount] = useState(0);
   const emptyingTrashRef = useRef(false);
   const [emptyingTrash, setEmptyingTrash] = useState(false);
-  const listScope = JSON.stringify([view, notebookId, query, deferredQuery]);
+  const listScope = JSON.stringify([view, notebookId, deferredQuery, noteSort]);
   const listScopeRef = useRef(listScope);
+  if (listScopeRef.current !== listScope) nextNotesCursorRef.current = null;
   listScopeRef.current = listScope;
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -143,6 +146,8 @@ export function Workspace() {
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
   const [noteReloadToken, setNoteReloadToken] = useState(0);
   const [pwaState, setPwaState] = useState<PwaState>({ standalone: false, canInstall: false, showIosInstallHint: false, updateAvailable: false });
+  const realtimeRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingRealtimeRefreshRef = useRef({ notebooks: false, notes: false, selected: false, noteIds: new Set<string>() });
   const shortcutHandledRef = useRef(false);
   const confirmIdRef = useRef(0);
   const replaceList = useCallback((next: NoteSummary[]) => { notesRef.current = next; setNotes(next); }, []);
@@ -221,20 +226,24 @@ export function Workspace() {
     } catch { /* Keep the current list visible until the next request succeeds. */ }
   }, []);
   const loadNotes = useCallback(async () => {
+    nextNotesCursorRef.current = null;
+    setHasMoreNotes(false);
     const requestId = ++listRequestRef.current;
     listAbortRef.current?.abort();
     const controller = new AbortController();
     listAbortRef.current = controller;
     try {
-      const result = await api.listNotes({ view, query: deferredQuery, notebookId }, { signal: controller.signal });
+      const result = await api.listNotes({ view, query: deferredQuery, notebookId, sort: noteSort }, { signal: controller.signal });
       if (requestId !== listRequestRef.current || listScope !== listScopeRef.current || trashOperationsRef.current.size || emptyingTrashRef.current) return;
       const active = selectedRef.current;
       const notesToDisplay = active && !result.notes.some((note) => note.id === active.id) &&
         shouldKeepActiveNoteInList(active, notebooks, view, deferredQuery, notebookId)
-        ? [active, ...result.notes]
+        ? [toNoteSummary(active), ...result.notes]
         : result.notes;
       replaceList(notesToDisplay);
-      setTotalNotes(Math.max(result.total, notesToDisplay.length));
+      setTotalNotes(Math.max(result.total ?? 0, notesToDisplay.length));
+      setHasMoreNotes(Boolean(result.hasMore));
+      nextNotesCursorRef.current = result.nextCursor ?? null;
       const currentSelectedId = selectedIdRef.current;
       const nextSelectedId = currentSelectedId && notesToDisplay.some((note) => note.id === currentSelectedId) ? currentSelectedId : notesToDisplay[0]?.id ?? null;
       setSelectedId(nextSelectedId);
@@ -249,23 +258,28 @@ export function Workspace() {
   }, [deferredQuery, listScope, navigate, noteSort, notebookId, notebooks, notesReloadToken, playPendingListTransition, replaceList, updateNoteSelection, view]);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const loadMoreNotes = useCallback(async () => {
-    if (isLoadingMore || notesRef.current.length >= totalNotes) return;
+    const cursor = nextNotesCursorRef.current;
+    if (isLoadingMore || !cursor) return;
+    const requestId = listRequestRef.current;
+    const scope = listScopeRef.current;
     setIsLoadingMore(true);
     try {
-      const result = await api.listNotes({ view, query: deferredQuery, notebookId, offset: notesRef.current.length });
-      if (trashOperationsRef.current.size || emptyingTrashRef.current) return;
+      const result = await api.listNotes({ view, query: deferredQuery, notebookId, sort: noteSort, cursor, includeTotal: false });
+      if (requestId !== listRequestRef.current || scope !== listScopeRef.current || trashOperationsRef.current.size || emptyingTrashRef.current) return;
       const currentList = notesRef.current;
       const existingIds = new Set(currentList.map((note) => note.id));
       const nextNotes = result.notes.filter((note) => !existingIds.has(note.id));
       const merged = [...currentList, ...nextNotes];
       replaceList(merged);
-      setTotalNotes(Math.max(result.total, merged.length));
+      if (result.total !== undefined) setTotalNotes(Math.max(result.total, merged.length));
+      setHasMoreNotes(Boolean(result.hasMore));
+      nextNotesCursorRef.current = result.nextCursor ?? null;
     } catch {
       setToast("加载更多笔记失败，请重试");
     } finally {
       setIsLoadingMore(false);
     }
-  }, [deferredQuery, isLoadingMore, notebookId, replaceList, totalNotes, view]);
+  }, [deferredQuery, isLoadingMore, noteSort, notebookId, replaceList, view]);
   const reloadNotes = useCallback(() => setNotesReloadToken((value) => value + 1), []);
   useEffect(() => {
     if (!ready) return;
@@ -340,7 +354,8 @@ export function Workspace() {
       const result = await api.getNote(id, { signal: controller.signal });
       if (requestId !== noteLoadRequestRef.current || activeNoteIdRef.current !== id) return;
       if (!pendingSavesRef.current.has(id)) {
-        const recoveredDraft = readDraftRecovery(id);
+        const recoveredDraft = await readDraftRecovery(id);
+        if (requestId !== noteLoadRequestRef.current || activeNoteIdRef.current !== id) return;
         if (recoveredDraft?.version === result.note.version) {
           pendingSavesRef.current.set(id, recoveredDraft);
           setToast("已恢复一份未保存草稿");
@@ -391,11 +406,18 @@ export function Workspace() {
     }
     void loadSelectedNote(selectedId);
   }, [loadSelectedNote, ready, selectedId]);
-  useEffect(() => { if (ready) void refreshNotebooks(); return () => { notebooksRequestRef.current += 1; }; }, [ready, refreshNotebooks]);
-  useEffect(() => { if (!ready) return; const timer = setTimeout(() => void loadNotes(), 180); return () => { clearTimeout(timer); listRequestRef.current += 1; }; }, [loadNotes, ready]);
+  useEffect(() => () => { notebooksRequestRef.current += 1; }, []);
+  useEffect(() => {
+    if (!ready) return;
+    nextNotesCursorRef.current = null;
+    setHasMoreNotes(false);
+    const timer = setTimeout(() => void loadNotes(), 180);
+    return () => { clearTimeout(timer); listRequestRef.current += 1; };
+  }, [loadNotes, ready]);
   useEffect(() => () => {
     listAbortRef.current?.abort();
     noteAbortRef.current?.abort();
+    if (realtimeRefreshTimerRef.current !== null) clearTimeout(realtimeRefreshTimerRef.current);
   }, []);
   useWorkspaceShortcuts({
     focusMode,
@@ -422,7 +444,12 @@ export function Workspace() {
     const contentOnlyChange = patch.contentMarkdown !== undefined && patch.title === undefined && patch.notebookId === undefined;
     if (!contentOnlyChange) {
       setSelectedNote(next);
-      replaceList(notesRef.current.map((note) => note.id === current.id ? { ...note, ...next } : note));
+      const summaryPatch: Partial<NoteSummary> = {
+        ...(patch.title !== undefined ? { title: patch.title } : {}),
+        ...(patch.notebookId !== undefined ? { notebookId: patch.notebookId } : {}),
+        ...(targetNotebook ? { notebookName: targetNotebook.name } : {}),
+      };
+      replaceList(notesRef.current.map((note) => note.id === current.id ? { ...note, ...summaryPatch } : note));
     }
 
     if (patch.notebookId && patch.notebookId !== current.notebookId) {
@@ -435,7 +462,7 @@ export function Workspace() {
         requestListTransition();
         setView(targetView);
         setNotebookId(targetNotebookId);
-        replaceList([next]);
+        replaceList([toNoteSummary(next)]);
         setTotalNotes(Math.max(1, targetNotebook.count + 1));
         setNotebooks((items) => items.map((notebook) => {
           if (notebook.id === current.notebookId) return { ...notebook, count: Math.max(0, notebook.count - 1) };
@@ -445,7 +472,7 @@ export function Workspace() {
         setMobileSidebarOpen(false);
         setMobileListOpen(false);
       }
-      void saveImmediately(next).then(() => {
+      void saveImmediately(next, false, ["notebookId"]).then(() => {
         refreshNotebooks();
         reloadNotes();
       }).catch(() => {
@@ -454,7 +481,7 @@ export function Workspace() {
       });
       setToast(targetNotebook ? `已移至“${targetNotebook.name}”` : "已变更所属笔记本");
     } else {
-      persist(next);
+      persist(next, Object.keys(patch) as Array<"title" | "contentMarkdown" | "notebookId">);
     }
   }, [invalidateCollections, notebooks, persist, refreshNotebooks, reloadNotes, replaceList, requestListTransition, saveImmediately]);
   const revealCreatedNote = useCallback((note: Note, target: { view: NoteView; notebookId?: string }, message: string) => {
@@ -463,7 +490,7 @@ export function Workspace() {
     setView(target.view);
     setNotebookId(target.notebookId);
     setQuery("");
-    replaceList([note, ...notesRef.current.filter((currentNote) => currentNote.id !== note.id)]);
+    replaceList([toNoteSummary(note), ...notesRef.current.filter((currentNote) => currentNote.id !== note.id)]);
     setTotalNotes((value) => value + 1);
     playListTransition();
     setSelectedNote(note);
@@ -569,7 +596,7 @@ export function Workspace() {
     }
 
     const scope = listScopeRef.current;
-    void saveImmediately(next).then(() => {
+    void saveImmediately(next, false, ["isFavorite"]).then(() => {
       if (scope === listScopeRef.current) removeFromList(current.id);
     }).catch(() => undefined);
   }, [persist, removeFromList, saveImmediately, view]);
@@ -589,7 +616,7 @@ export function Workspace() {
     invalidateCollections();
     setNotebooks((items) => items.map((notebook) => notebook.id === current.notebookId ? { ...notebook, count: Math.max(0, notebook.count + (deleted ? -1 : 1)) } : notebook));
     try {
-      await saveImmediately(next);
+      await saveImmediately(next, false, ["deleted"]);
       if (scope === listScopeRef.current) removeFromList(current.id);
       setToast(deleted ? "已移入回收站" : "已恢复笔记");
     } catch (reason) {
@@ -748,7 +775,7 @@ export function Workspace() {
       }
       selectedRef.current = result.note;
       setSelectedNote(result.note);
-      replaceList(notesRef.current.map((n) => (n.id === noteId ? { ...n, ...result.note } : n)));
+      replaceList(notesRef.current.map((n) => (n.id === noteId ? { ...n, ...toNoteSummary(result.note) } : n)));
       setNoteReloadToken((value) => value + 1);
       setSaveState("idle");
     } catch (reason) {
@@ -776,15 +803,25 @@ export function Workspace() {
     });
   }, [reloadSelectedNote, requestConfirm]);
   const handleRealtimeChange = useCallback((message?: WorkspaceChangeMessage) => {
-    void refreshNotebooks();
-    reloadNotes();
-    const activeId = activeNoteIdRef.current;
-    if (activeId && (!message || message.resource === "notes")) {
-      if (!message || !message.noteId || message.noteId === activeId) {
-        void refreshSelectedNoteFromRemote(activeId);
-      }
+    const pending = pendingRealtimeRefreshRef.current;
+    const resource = message?.resource;
+    if (!message || resource === "notes" || resource === "notebooks") pending.notebooks = true;
+    if (!message || resource === "notes" || resource === "notebooks" || (resource === "shares" && view === "shared")) pending.notes = true;
+    if (!message || resource === "notes") {
+      if (!message?.noteId) pending.selected = true;
+      else pending.noteIds.add(message.noteId);
     }
-  }, [refreshNotebooks, refreshSelectedNoteFromRemote, reloadNotes]);
+    if (realtimeRefreshTimerRef.current !== null) return;
+    realtimeRefreshTimerRef.current = setTimeout(() => {
+      realtimeRefreshTimerRef.current = null;
+      const next = pendingRealtimeRefreshRef.current;
+      pendingRealtimeRefreshRef.current = { notebooks: false, notes: false, selected: false, noteIds: new Set() };
+      if (next.notebooks) void refreshNotebooks();
+      if (next.notes) reloadNotes();
+      const activeId = activeNoteIdRef.current;
+      if (activeId && (next.selected || next.noteIds.has(activeId))) void refreshSelectedNoteFromRemote(activeId);
+    }, 50);
+  }, [refreshNotebooks, refreshSelectedNoteFromRemote, reloadNotes, view]);
   useWorkspaceRealtime({ ready, onChange: handleRealtimeChange });
   const selectView = useCallback((next: NoteView) => {
     if (view !== next || notebookId || query) requestListTransition();
@@ -1015,7 +1052,7 @@ export function Workspace() {
   return <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${focusMode ? "is-focus-mode" : ""}`}>
     {mobileNavigationOpen && <button className="mobile-scrim is-visible" type="button" aria-label="关闭导航" onClick={() => { setMobileSidebarOpen(false); setMobileListOpen(false); closeOutline(); }} />}
     <Sidebar view={view} setView={selectView} notebooks={notebooks} notebookId={notebookId} setNotebookId={selectNotebook} query={query} setQuery={changeQuery} searchRef={searchRef} onNewInboxNote={handleNewInboxNote} onCreateNotebook={handleCreateNotebook} onEditNotebook={handleEditNotebook} collapsed={sidebarCollapsed} onCollapse={handleCollapseSidebar} mobileOpen={mobileSidebarOpen} onLogout={logout} />
-    <NoteListPanel notes={notes} total={totalNotes} sort={noteSort} setSort={handleNoteSort} selectedId={selectedId} selectedIds={selectedNoteIds} onSelect={handleSelectListNote} onDeleteSelected={deleteSelectedNotes} view={view} query={query} currentNotebookName={currentNotebook?.name} onEmptyTrash={view === "trash" ? emptyTrash : undefined} trashBusy={pendingTrashCount > 0 || emptyingTrash} onNewNote={listNewNote} onClearQuery={handleClearQuery} mobileOpen={mobileListOpen} onOpenSidebar={handleOpenSidebar} transitionToken={listTransitionToken} outlineOpen={outlineOpen} outlineItems={outlineItems} activeOutlineId={activeOutlineId} onScrollToOutlineItem={handleScrollToOutlineItem} onCloseOutline={closeOutline} onLoadMore={loadMoreNotes} isLoadingMore={isLoadingMore} />
+    <NoteListPanel notes={notes} total={totalNotes} hasMore={hasMoreNotes} sort={noteSort} setSort={handleNoteSort} selectedId={selectedId} selectedIds={selectedNoteIds} onSelect={handleSelectListNote} onDeleteSelected={deleteSelectedNotes} view={view} query={query} currentNotebookName={currentNotebook?.name} onEmptyTrash={view === "trash" ? emptyTrash : undefined} trashBusy={pendingTrashCount > 0 || emptyingTrash} onNewNote={listNewNote} onClearQuery={handleClearQuery} mobileOpen={mobileListOpen} onOpenSidebar={handleOpenSidebar} transitionToken={listTransitionToken} outlineOpen={outlineOpen} outlineItems={outlineItems} activeOutlineId={activeOutlineId} onScrollToOutlineItem={handleScrollToOutlineItem} onCloseOutline={closeOutline} onLoadMore={loadMoreNotes} isLoadingMore={isLoadingMore} />
     <main className="editor-region">
       {renderedNote ? <Suspense fallback={<NoteLoadingState />}><LazyNoteEditor note={renderedNote} availableNotes={notes} onNavigateWikiLink={handleNavigateWikiLink} onCreateAndLinkNote={handleCreateAndLinkNote} onNavigateToNote={selectNote} searchQuery={activeSearchQuery} onClearSearch={activeSearchQuery ? handleClearSearch : undefined} saveState={saveState} isLoading={isNoteLoading} trashBusy={emptyingTrash || (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onShare={handleShare} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={handleOpenList} onUploadImage={handleUploadImage} focusMode={focusMode} onToggleFocusMode={toggleFocusMode} typewriterMode={typewriterMode} outlineOpen={outlineOpen} outlineItems={outlineItems} onToggleOutline={toggleOutline} onCloseOutline={closeOutline} onOutlineItemsChange={handleOutlineItemsChange} onOutlineActiveChange={handleOutlineActiveChange} onOutlineNavigationReady={handleOutlineNavigationReady} /></Suspense> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor isTrash={view === "trash"} onNewNote={handleNewNote} onOpenList={handleOpenList} transitionToken={listTransitionToken} />}
     </main>

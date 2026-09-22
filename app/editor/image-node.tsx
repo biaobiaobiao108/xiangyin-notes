@@ -100,7 +100,7 @@ function ResizableImageView({ node, selected, editor, updateAttributes }: NodeVi
   const frameStyle = { "--image-display-width": `${Math.round(width)}px` } as CSSProperties;
   return <NodeViewWrapper className={`note-image-node ${selected ? "is-selected" : ""}`}>
     <span ref={frameRef} className="note-image-frame" style={frameStyle}>
-      <img className="note-image" src={source.src} alt={attrs.alt} title={attrs.title ?? undefined} width={Math.round(width)} height={Math.round(height)} draggable={false} decoding="async" />
+      <img className="note-image" src={source.src} alt={attrs.alt} title={attrs.title ?? undefined} width={Math.round(width)} height={Math.round(height)} draggable={false} decoding="async" loading={editor.isEditable ? "eager" : "lazy"} />
       {editor.isEditable && selected && <button className="note-image-resize-handle" type="button" aria-label="调整图片大小" title="拖拽调整图片大小" onPointerDown={startResize} onKeyDown={adjustByKeyboard} />}
     </span>
   </NodeViewWrapper>;
@@ -141,7 +141,7 @@ export const ImageNode = Node.create({
 
   renderHTML({ HTMLAttributes }) {
     const parsed = parseImageSource(String(HTMLAttributes.src ?? ""));
-    return ["img", mergeAttributes(HTMLAttributes, { src: parsed.src, alt: HTMLAttributes.alt ?? "", width: parsed.width ?? HTMLAttributes.width ?? undefined, height: parsed.height ?? HTMLAttributes.height ?? undefined, decoding: "async" })];
+    return ["img", mergeAttributes(HTMLAttributes, { src: parsed.src, alt: HTMLAttributes.alt ?? "", width: parsed.width ?? HTMLAttributes.width ?? undefined, height: parsed.height ?? HTMLAttributes.height ?? undefined, decoding: "async", loading: "lazy" })];
   },
 
   addNodeView() {

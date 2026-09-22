@@ -13,6 +13,7 @@ import {
   readJson,
   type RouteContext,
   SESSION_COOKIE,
+  SESSION_CLEANUP_INTERVAL_SECONDS,
   SESSION_TTL,
   syncNoteTags,
   type SqliteDatabase,
@@ -20,6 +21,7 @@ import {
   welcomeMarkdown,
 } from "../core";
 import { syncNoteShortSearchTerms } from "../note-search";
+import { syncStoredNoteTitleKey } from "../note-links";
 
 type RuntimeEnvironment = Record<string, string | undefined>;
 
@@ -97,8 +99,13 @@ export function setSessionCookie(headers: Headers, request: Request, token: stri
   headers.set("Set-Cookie", `${SESSION_COOKIE}=${encodeURIComponent(token)}; Max-Age=${maxAge}; Path=/; HttpOnly; SameSite=Lax${secure ? "; Secure" : ""}`);
 }
 
-export function cleanupExpiredSessions(database: SqliteDatabase) {
-  database.query("DELETE FROM sessions WHERE expires_at <= ?").run(now());
+const nextSessionCleanupAt = new WeakMap<SqliteDatabase, number>();
+
+export function cleanupExpiredSessions(database: SqliteDatabase, force = false) {
+  const timestamp = now();
+  if (!force && timestamp < (nextSessionCleanupAt.get(database) ?? 0)) return;
+  nextSessionCleanupAt.set(database, timestamp + SESSION_CLEANUP_INTERVAL_SECONDS);
+  database.query("DELETE FROM sessions WHERE expires_at <= ?").run(timestamp);
 }
 
 export async function ensureEnvironmentUser(database: SqliteDatabase, credentials: AuthCredentials): Promise<UserRow> {
@@ -116,6 +123,7 @@ export async function ensureEnvironmentUser(database: SqliteDatabase, credential
       database.query("INSERT INTO users (id, username, password_hash, password_salt, created_at) VALUES (?, ?, ?, ?, ?)").run(userId, credentials.username, password.hash, password.salt, createdAt);
       database.query("INSERT INTO notebooks (id, user_id, name, color, is_system, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, 1, 0, ?, ?)").run(inboxId, userId, "收件箱", "#d96245", createdAt, createdAt);
       database.query("INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)").run(noteId, userId, inboxId, "开始记录你的想法", welcomeMarkdown, createdAt, createdAt);
+      syncStoredNoteTitleKey(database, noteId, "开始记录你的想法");
       syncNoteTags(database, userId, noteId, welcomeMarkdown);
       syncNoteShortSearchTerms(database, userId, noteId, "开始记录你的想法", welcomeMarkdown);
     });

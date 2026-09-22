@@ -188,6 +188,7 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .floating-scrollbar-thumb:active, .floating-scrollbar-thumb.is-dragging { cursor: grabbing; background: var(--accent); border-color: rgba(39, 71, 58, 0.54); box-shadow: 0 4px 12px rgba(39, 71, 58, 0.22); }
 .floating-scrollbar-thumb:focus-visible { outline: 3px solid rgba(54, 94, 78, 0.3); outline-offset: 3px; }
 .note-list-items { margin: 0; padding: 0; list-style: none; }
+.note-list-item { content-visibility: auto; contain-intrinsic-size: auto 116px; }
 .note-row { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; gap: 12px; width: 100%; padding: 14px 20px; border: 0; background: transparent; text-align: left; cursor: pointer; transition: background-color var(--motion-fast) ease; }
 .note-list-items > li:has(.note-row) + li:has(.note-row) { border-top: 1px solid #edf0ed; }
 .note-list-items > li:has(.note-row.is-selected) + li:has(.note-row.is-selected) { border-top-color: transparent; }

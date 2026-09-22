@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import type { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
@@ -117,6 +117,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   const editorInstanceRef = useRef<Editor | null>(null);
   const outlineTriggerRef = useRef<HTMLButtonElement>(null);
   const syncFrameRef = useRef<number | null>(null);
+  const markdownSyncFrameRef = useRef<number | null>(null);
   const composingRef = useRef(false);
   const leakedCandidateRef = useRef<{ key: string; blockStartPos: number; emptyAtStart: boolean } | null>(null);
   const imeCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -229,7 +230,9 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   const syncEditorSurface = (instance: Editor) => {
     const editorText = instance.getText({ blockSeparator: "\n" });
     const nextStats = countEditorText(editorText);
-    setEditorStats((current) => current.wordCount === nextStats.wordCount && current.characterCount === nextStats.characterCount ? current : nextStats);
+    startTransition(() => {
+      setEditorStats((current) => current.wordCount === nextStats.wordCount && current.characterCount === nextStats.characterCount ? current : nextStats);
+    });
 
     const headingElements = Array.from(instance.view.dom.querySelectorAll<HTMLElement>(OUTLINE_HEADING_SELECTOR));
     const outlineHeadingElements = headingElements.filter((element) => Boolean(element.textContent?.trim()));
@@ -247,7 +250,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       return id === item.id ? item : { ...item, id };
     });
     outlineHeadingElementsRef.current = new Map(nextItems.map((item, index) => [item.id, outlineHeadingElements[index]] as const));
-    onOutlineItemsChange(nextItems);
+    startTransition(() => onOutlineItemsChange(nextItems));
   };
   const scheduleEditorSurfaceSync = (instance: Editor) => {
     const idleWindow = window as Window & {
@@ -670,6 +673,25 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   }), []);
   surfaceSyncRef.current = scheduleEditorSurfaceSync;
 
+  const flushMarkdownChange = useCallback(() => {
+    if (markdownSyncFrameRef.current !== null) {
+      cancelAnimationFrame(markdownSyncFrameRef.current);
+      markdownSyncFrameRef.current = null;
+    }
+    const instance = editorInstanceRef.current as EditorWithMarkdown | null;
+    if (!instance || instance.isDestroyed) return;
+    onChangeRef.current({ contentMarkdown: instance.getMarkdown() });
+  }, []);
+
+  const scheduleMarkdownChange = useCallback((instance: Editor) => {
+    if (markdownSyncFrameRef.current !== null) return;
+    markdownSyncFrameRef.current = requestAnimationFrame(() => {
+      markdownSyncFrameRef.current = null;
+      if (instance.isDestroyed) return;
+      onChangeRef.current({ contentMarkdown: (instance as EditorWithMarkdown).getMarkdown() });
+    });
+  }, []);
+
   const editor = useEditor({
     editable: !note.deletedAt && !isLoading,
     extensions,
@@ -678,7 +700,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     contentType: "markdown",
     editorProps,
     onUpdate: ({ editor: instance }) => {
-      onChangeRef.current({ contentMarkdown: (instance as EditorWithMarkdown).getMarkdown() });
+      scheduleMarkdownChange(instance);
       if (typewriterModeRef.current && !instance.view.composing && !composingRef.current) {
         alignTypewriterRef.current(instance);
       }
@@ -686,6 +708,11 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       surfaceSyncRef.current(instance);
     },
   });
+
+  const handleSaveNow = useCallback(() => {
+    flushMarkdownChange();
+    onSaveNow();
+  }, [flushMarkdownChange, onSaveNow]);
 
   const syncSearchNavigation = useCallback((instance: Editor) => {
     const state = searchHighlightPluginKey.getState(instance.state);
@@ -804,6 +831,8 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
         window.clearTimeout(syncFrameRef.current);
       }
       syncFrameRef.current = null;
+      if (markdownSyncFrameRef.current !== null) cancelAnimationFrame(markdownSyncFrameRef.current);
+      markdownSyncFrameRef.current = null;
       if (imeCleanupTimerRef.current !== null) clearTimeout(imeCleanupTimerRef.current);
       imeCleanupTimerRef.current = null;
       leakedCandidateRef.current = null;
@@ -845,6 +874,8 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     onOutlineNavigationReady(null);
     outlineHeadingElementsRef.current.clear();
     setEditorStats(countEditorText(""));
+    if (markdownSyncFrameRef.current !== null) cancelAnimationFrame(markdownSyncFrameRef.current);
+    markdownSyncFrameRef.current = null;
     editor.commands.setContent(note.contentMarkdown, { contentType: "markdown", emitUpdate: false });
     editorScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
     if (switchedNote) {
@@ -1083,7 +1114,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
 
   const saveLabel = saveState === "saving" ? "保存中" : saveState === "conflict" ? "检测到版本冲突，点击重新载入" : saveState === "error" ? "保存失败，点击重试" : "已保存";
   return (
-    <section className={`editor-panel ${deferredLoading ? "is-loading" : ""} ${focusMode ? "is-focus-mode" : ""}`} aria-label="笔记编辑器" aria-busy={editorLocked} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === "s") { event.preventDefault(); onSaveNow(); } }}>
+    <section className={`editor-panel ${deferredLoading ? "is-loading" : ""} ${focusMode ? "is-focus-mode" : ""}`} aria-label="笔记编辑器" aria-busy={editorLocked} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === "s") { event.preventDefault(); handleSaveNow(); } }}>
       <header className="editor-header">
         <div className="editor-header-start">
           {onOpenList && <button className="icon-button mobile-only editor-back" type="button" aria-label="返回笔记列表" onClick={onOpenList} disabled={editorLocked}><ChevronLeft size={20} /></button>}
@@ -1098,7 +1129,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
         </div>
         <div className="editor-actions">
           {saveState === "error" ? (
-            <button className="save-status save-status--error save-status--action save-status--icon" type="button" aria-label="重试保存" title="保存失败，点击重试" onClick={onSaveNow}><SaveStatusIcon state="error" /></button>
+            <button className="save-status save-status--error save-status--action save-status--icon" type="button" aria-label="重试保存" title="保存失败，点击重试" onClick={handleSaveNow}><SaveStatusIcon state="error" /></button>
           ) : saveState === "conflict" ? (
             <button className="save-status save-status--conflict save-status--action save-status--icon" type="button" aria-label="重新载入最新版本" title="检测到版本冲突，点击重新载入" onClick={onReloadNote}><SaveStatusIcon state="conflict" /></button>
           ) : saveState === "idle" ? null : (
@@ -1172,7 +1203,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
             <EditorContent editor={editor} />
           </div>
         </div>
-        <FloatingScrollbar scrollTargetRef={editorScrollRef} controlsId="editor-scroll-region" ariaLabel="编辑器滚动条" placement="right" />
+        <FloatingScrollbar scrollTargetRef={editorScrollRef} contentRef={documentRef} controlsId="editor-scroll-region" ariaLabel="编辑器滚动条" placement="right" />
       </div>
       {deferredLoading && <div className="editor-switch-overlay editor-switch-overlay--visible" role="status" aria-live="polite"><div className="editor-switch-card"><BrandMark className="editor-switch-mark" /><div className="editor-switch-lines" aria-hidden="true"><span /><span /><span /></div><strong>正在打开笔记…</strong></div></div>}
       <EditorFloatingTools

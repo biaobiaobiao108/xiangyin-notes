@@ -108,13 +108,28 @@ async function serveStatic(request: Request, clientRoot: string, environment: Re
   const pathFromRoot = relative(rootPath, requestedPath);
   if (isAbsolute(pathFromRoot) || pathFromRoot === ".." || pathFromRoot.startsWith(`..${sep}`) || pathFromRoot.startsWith(sep)) return new Response("Forbidden", { status: 403 });
   let file = Bun.file(requestedPath);
+  let contentEncoding: string | null = null;
+  const acceptsGzip = /(?:^|,)\s*gzip(?:\s*;|\s|,|$)/iu.test(request.headers.get("Accept-Encoding") ?? "");
+  if (acceptsGzip && /\.(?:css|html|js|json|webmanifest)$/iu.test(extname(requestedPath))) {
+    const compressedFile = Bun.file(`${requestedPath}.gz`);
+    if (await compressedFile.exists()) {
+      file = compressedFile;
+      contentEncoding = "gzip";
+    }
+  }
   if (!(await file.exists()) && environment.NODE_ENV === "development" && DEV_PWA_ASSETS.has(relativePath.toLowerCase())) {
     file = Bun.file(resolve("app", relativePath));
+    contentEncoding = null;
   }
   if (!(await file.exists())) return new Response("Not Found", { status: 404 });
 
   const headers = new Headers();
   headers.set("Content-Type", MIME_TYPES[extname(requestedPath).toLowerCase()] ?? file.type ?? "application/octet-stream");
+  const compressible = /\.(?:css|html|js|json|webmanifest)$/iu.test(extname(requestedPath));
+  if (compressible) headers.set("Vary", "Accept-Encoding");
+  if (contentEncoding) {
+    headers.set("Content-Encoding", contentEncoding);
+  }
   const basename = relativePath.toLowerCase();
   const mutablePwaAsset = basename === "sw.js" || basename === "manifest.webmanifest";
   headers.set("Cache-Control", hasExtension && relativePath !== "index.html" && !mutablePwaAsset ? "public, max-age=31536000, immutable" : "no-cache");

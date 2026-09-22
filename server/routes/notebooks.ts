@@ -41,7 +41,7 @@ export function toNotebook(row: NotebookRowWithCount): Notebook {
 export function getNotebook(database: SqliteDatabase, userId: string, notebookId: string) {
   return first<NotebookRowWithCount>(database, `
     SELECT b.id, b.name, b.color, b.is_system, b.updated_at,
-      (SELECT COUNT(*) FROM notes n WHERE n.notebook_id = b.id AND n.deleted_at IS NULL) AS count
+      (SELECT COUNT(*) FROM notes n WHERE n.notebook_id = b.id AND n.user_id = b.user_id AND n.deleted_at IS NULL) AS count
     FROM notebooks b WHERE b.id = ? AND b.user_id = ?
   `, notebookId, userId);
 }
@@ -57,7 +57,7 @@ export async function handleNotebooksRoute(ctx: RouteContext, user: UserRow): Pr
   if (!id && method === "GET") {
     const rows = all<NotebookRowWithCount>(database, `
       SELECT b.id, b.name, b.color, b.is_system, b.updated_at,
-        (SELECT COUNT(*) FROM notes n WHERE n.notebook_id = b.id AND n.deleted_at IS NULL) AS count
+        (SELECT COUNT(*) FROM notes n WHERE n.notebook_id = b.id AND n.user_id = b.user_id AND n.deleted_at IS NULL) AS count
       FROM notebooks b WHERE b.user_id = ? ORDER BY b.sort_order, b.name
     `, user.id);
     return json({ notebooks: rows.map(toNotebook) });

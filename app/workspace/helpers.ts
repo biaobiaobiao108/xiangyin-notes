@@ -1,6 +1,6 @@
 import { FileText, Inbox, Star, Trash2, UsersRound } from "lucide-react";
 import { ApiError } from "../api";
-import type { Note, NoteSummary, NoteView, Notebook } from "../../shared/types";
+import type { Note, NoteSort, NoteSummary, NoteView, Notebook } from "../../shared/types";
 import { extractTags } from "../../shared/tags";
 
 export const navItems: Array<{ id: NoteView; label: string; icon: typeof Inbox }> = [
@@ -37,6 +37,11 @@ export function toNoteDraft(note: Note | NoteDraft): NoteDraft {
   };
 }
 
+export function toNoteSummary(note: Note): NoteSummary {
+  const { contentMarkdown: _contentMarkdown, ...summary } = note;
+  return summary;
+}
+
 export function errorMessage(reason: unknown, fallback: string) {
   return reason instanceof ApiError && reason.message ? reason.message : fallback;
 }
@@ -45,7 +50,7 @@ export function getNoteTags(note: { tags?: string[]; contentMarkdown?: string })
   return Array.isArray(note.tags) ? note.tags : note.contentMarkdown ? extractTags(note.contentMarkdown) : [];
 }
 
-export type NoteSort = "updated" | "created" | "title";
+export type { NoteSort } from "../../shared/types";
 
 export function sortNotes(notes: NoteSummary[], sort: NoteSort) {
   return [...notes].sort((a, b) => sort === "created" ? b.createdAt - a.createdAt : sort === "title" ? (a.title || "未命名笔记").localeCompare(b.title || "未命名笔记", "zh-CN") : b.updatedAt - a.updatedAt);

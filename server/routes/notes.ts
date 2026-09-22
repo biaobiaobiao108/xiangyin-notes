@@ -1,5 +1,5 @@
 import { parseTagQuery } from "../../shared/tags";
-import type { NoteBacklinksResponse, NoteLinkSummary, NoteSummary, NoteView, UnlinkedMention } from "../../shared/types";
+import type { NoteBacklinksResponse, NoteLinkSummary, NoteSort, NoteSummary, NoteView, UnlinkedMention } from "../../shared/types";
 import {
   extractContextSnippet,
   extractWikiLinks,
@@ -44,6 +44,7 @@ import {
 } from "../core";
 import {
   findActiveNoteIdByTitle,
+  syncStoredNoteTitleKey,
   resolveNoteLinksForTarget,
   resolveNoteLinksForTitles,
   sourceNoteIdsReferencingTarget,
@@ -56,6 +57,35 @@ import { publishWorkspaceChange } from "../realtime";
 
 const NOTE_BATCH_LIMIT = 500;
 const NOTE_BATCH_BODY_MAX_BYTES = 64 * 1024;
+const NOTE_SORTS: NoteSort[] = ["updated", "created", "title"];
+
+type NoteListCursor = {
+  sort: NoteSort;
+  value: number | string;
+  id: string;
+};
+
+function encodeNoteListCursor(cursor: NoteListCursor) {
+  return Buffer.from(JSON.stringify(cursor)).toString("base64url");
+}
+
+function decodeNoteListCursor(value: string | null, sort: NoteSort) {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as Partial<NoteListCursor>;
+    if (parsed.sort !== sort || typeof parsed.id !== "string" || !parsed.id) return null;
+    if (typeof parsed.value !== "number" && typeof parsed.value !== "string") return null;
+    return parsed as NoteListCursor;
+  } catch {
+    return null;
+  }
+}
+
+function noteListOrder(sort: NoteSort) {
+  if (sort === "created") return "n.created_at DESC, n.id DESC";
+  if (sort === "title") return "n.title COLLATE NOCASE ASC, n.id ASC";
+  return "n.updated_at DESC, n.id DESC";
+}
 
 type BatchNoteEntry = {
   id: string;
@@ -125,6 +155,7 @@ export function createNote(
   const createdAt = now();
   const transaction = database.transaction(() => {
     database.query("INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)").run(id, userId, notebookId, title, contentMarkdown, createdAt, createdAt);
+    syncStoredNoteTitleKey(database, id, title);
     if (!syncNoteAssetReferences(database, userId, id, contentMarkdown)) throw new Error("invalid-note-assets");
     syncNoteTags(database, userId, id, contentMarkdown);
     syncNoteShortSearchTerms(database, userId, id, title, contentMarkdown);
@@ -147,14 +178,19 @@ export function updateNoteInTransaction(
 ) {
   const updatedAt = now();
   const titleChanged = current.title !== title;
+  const contentChanged = current.content_markdown !== contentMarkdown;
+  const deletedChanged = current.deleted_at !== deletedAt;
   const oldTitle = current.title;
 
   const updated = database.query("UPDATE notes SET title = ?, content_markdown = ?, notebook_id = ?, is_favorite = ?, deleted_at = ?, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ? AND version = ? RETURNING id").get(title, contentMarkdown, notebookId, isFavorite, deletedAt, updatedAt, current.id, userId, current.version) as { id: string } | null;
   if (!updated) return false;
-  if (!syncNoteAssetReferences(database, userId, current.id, contentMarkdown)) throw new InvalidNoteAssetsError();
-  syncNoteTags(database, userId, current.id, contentMarkdown);
-  syncNoteShortSearchTerms(database, userId, current.id, title, contentMarkdown);
-  syncNoteLinks(database, userId, current.id, contentMarkdown, updatedAt);
+  if (titleChanged) syncStoredNoteTitleKey(database, current.id, title);
+  if (contentChanged && !syncNoteAssetReferences(database, userId, current.id, contentMarkdown)) throw new InvalidNoteAssetsError();
+  if (contentChanged || titleChanged) syncNoteShortSearchTerms(database, userId, current.id, title, contentMarkdown);
+  if (contentChanged) {
+    syncNoteTags(database, userId, current.id, contentMarkdown);
+    syncNoteLinks(database, userId, current.id, contentMarkdown, updatedAt);
+  }
 
   if (titleChanged && oldTitle.trim() && title.trim()) {
     const referencingSourceNoteIds = sourceNoteIdsReferencingTarget(database, userId, current.id);
@@ -170,7 +206,7 @@ export function updateNoteInTransaction(
       }
     }
   }
-  if (titleChanged || deletedAt !== current.deleted_at) {
+  if (titleChanged || deletedChanged) {
     resolveNoteLinksForTitles(database, userId, [oldTitle, title]);
   }
 
@@ -327,20 +363,46 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
         params.push(`%${escapedQuery}%`, `%${escapedQuery}%`);
       }
     }
-    const offset = Math.max(0, Number.parseInt(url.searchParams.get("offset") ?? "0", 10) || 0);
+    const rawSort = url.searchParams.get("sort") ?? "updated";
+    if (!NOTE_SORTS.includes(rawSort as NoteSort)) return jsonError(400, "INVALID_SORT", "不支持的笔记排序方式");
+    const sort = rawSort as NoteSort;
+    const cursor = decodeNoteListCursor(url.searchParams.get("cursor"), sort);
+    if (url.searchParams.get("cursor") && !cursor) return jsonError(400, "INVALID_CURSOR", "笔记列表游标无效");
+    const offset = cursor ? 0 : Math.max(0, Number.parseInt(url.searchParams.get("offset") ?? "0", 10) || 0);
     if (tagQuery) {
       conditions.push("EXISTS (SELECT 1 FROM note_tags t WHERE t.note_id = n.id AND t.user_id = n.user_id AND t.tag_normalized = ?)");
       params.push(tagQuery);
     }
+    const totalWhere = conditions.join(" AND ");
+    const totalParams = [...params];
+    if (cursor) {
+      if (sort === "title") {
+        if (typeof cursor.value !== "string") return jsonError(400, "INVALID_CURSOR", "笔记列表游标无效");
+        conditions.push("(n.title COLLATE NOCASE > ? OR (n.title COLLATE NOCASE = ? AND n.id > ?))");
+        params.push(cursor.value, cursor.value, cursor.id);
+      } else {
+        if (typeof cursor.value !== "number" || !Number.isSafeInteger(cursor.value)) return jsonError(400, "INVALID_CURSOR", "笔记列表游标无效");
+        const column = sort === "created" ? "n.created_at" : "n.updated_at";
+        conditions.push(`(${column} < ? OR (${column} = ? AND n.id < ?))`);
+        params.push(cursor.value, cursor.value, cursor.id);
+      }
+    }
     const where = conditions.join(" AND ");
-    const totalRow = first<{ count: number }>(database, `SELECT COUNT(*) AS count FROM ${from} WHERE ${where}`, ...params);
+    const includeTotal = url.searchParams.get("includeTotal") !== "0";
+    const totalRow = includeTotal ? first<{ count: number }>(database, `SELECT COUNT(*) AS count FROM ${from} WHERE ${totalWhere}`, ...totalParams) : null;
     const listStatement = database.query(`
       SELECT ${NOTE_LIST_SELECT}
-      FROM ${from} WHERE ${where} ORDER BY n.updated_at DESC LIMIT ${NOTE_PAGE_SIZE} OFFSET ${offset}
+      FROM ${from} WHERE ${where} ORDER BY ${noteListOrder(sort)} LIMIT ${NOTE_PAGE_SIZE + 1} OFFSET ${offset}
     `);
-    const notes: NoteSummary[] = [];
-    for (const row of listStatement.iterate(...params) as Iterable<NoteRow & { tags_json: string }>) notes.push(toNote(row, parseIndexedTags(row.tags_json)));
-    return json({ notes, total: Number(totalRow?.count ?? 0) });
+    const rows = [...listStatement.iterate(...params) as Iterable<NoteRow & { tags_json: string }>];
+    const hasMore = rows.length > NOTE_PAGE_SIZE;
+    const pageRows = hasMore ? rows.slice(0, NOTE_PAGE_SIZE) : rows;
+    const notes: NoteSummary[] = pageRows.map((row) => toNote(row, parseIndexedTags(row.tags_json)));
+    const lastRow = pageRows[pageRows.length - 1];
+    const nextCursor = hasMore && lastRow
+      ? encodeNoteListCursor({ sort, value: sort === "title" ? lastRow.title : sort === "created" ? lastRow.created_at : lastRow.updated_at, id: lastRow.id })
+      : undefined;
+    return json({ notes, ...(includeTotal ? { total: Number(totalRow?.count ?? 0) } : {}), ...(hasMore ? { hasMore: true, nextCursor } : {}) });
   }
 
   // Create note
@@ -549,7 +611,8 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     if (!validText(rawTitle, 200) || !validText(contentMarkdown, 1_000_000) || typeof notebookId !== "string") return jsonError(413, "NOTE_TOO_LARGE", "笔记标题或正文超出长度限制");
     const title = normalizeNoteTitle(rawTitle as string);
     if (!first(database, "SELECT id FROM notebooks WHERE id = ? AND user_id = ?", notebookId, user.id)) return jsonError(400, "INVALID_NOTEBOOK", "笔记本不存在");
-    if (!validNoteAssetReferences(database, user.id, current.id, contentMarkdown as string)) return jsonError(400, "INVALID_ASSET", "笔记引用了无权访问的图片");
+    const contentChanged = current.content_markdown !== contentMarkdown;
+    if (contentChanged && !validNoteAssetReferences(database, user.id, current.id, contentMarkdown as string)) return jsonError(400, "INVALID_ASSET", "笔记引用了无权访问的图片");
     let updated: boolean;
     try {
       updated = updateNote(database, current, user.id, title, contentMarkdown as string, notebookId, isFavorite, deletedAt);
@@ -563,7 +626,8 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     }
     const note = getNote(database, user.id, current.id);
     publishWorkspaceChange(options, user.id, { resource: "notes", noteId: current.id }, request);
-    return json({ note: note ? toFullNote(note) : null });
+    const summaryResponse = url.searchParams.get("response") === "summary";
+    return json({ note: note ? summaryResponse ? toNote(note) : toFullNote(note) : null });
   }
 
   // Delete note permanently

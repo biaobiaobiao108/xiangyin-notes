@@ -38,4 +38,19 @@ for (const file of ["manifest.webmanifest", "icon-192.png", "icon-512.png", "ico
   await Bun.write(`./dist/client/${file}`, Bun.file(`./app/${file}`));
 }
 
+const clientRoot = resolve("./dist/client");
+for await (const generatedFile of new Bun.Glob("icon-192-*.png").scan({ cwd: clientRoot, onlyFiles: true })) {
+  await rm(resolve(clientRoot, generatedFile), { force: true });
+}
+for await (const generatedFile of new Bun.Glob("manifest-*.webmanifest").scan({ cwd: clientRoot, onlyFiles: true })) {
+  await rm(resolve(clientRoot, generatedFile), { force: true });
+}
+
+for await (const file of new Bun.Glob("**/*").scan({ cwd: clientRoot, onlyFiles: true })) {
+  if (!/\.(?:css|html|js|json|webmanifest)$/u.test(file) || file.endsWith(".gz")) continue;
+  const sourcePath = resolve(clientRoot, file);
+  const compressed = Bun.gzipSync(new Uint8Array(await Bun.file(sourcePath).arrayBuffer()));
+  await Bun.write(`${sourcePath}.gz`, compressed);
+}
+
 export {};

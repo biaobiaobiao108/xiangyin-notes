@@ -56,7 +56,7 @@ describe("Bun Server API", () => {
   test("automatically initializes a fresh database and does not rerun the baseline", async () => {
     const fresh = await openDatabase(":memory:");
     const migrations = fresh.query("SELECT name FROM schema_migrations ORDER BY name").all() as Array<{ name: string }>;
-    expect(migrations.map((item) => item.name)).toEqual(["0001_baseline.sql"]);
+    expect(migrations.map((item) => item.name)).toEqual(["0001_baseline.sql", "0002_performance_indexes.sql"]);
     expect(fresh.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'users'").get()).toBeDefined();
     fresh.close();
 
@@ -66,7 +66,7 @@ describe("Bun Server API", () => {
 
     const reopened = await openDatabase(databasePath);
     const appliedMigrations = reopened.query("SELECT name FROM schema_migrations ORDER BY name").all() as Array<{ name: string }>;
-    expect(appliedMigrations.map((item) => item.name)).toEqual(["0001_baseline.sql"]);
+    expect(appliedMigrations.map((item) => item.name)).toEqual(["0001_baseline.sql", "0002_performance_indexes.sql"]);
     reopened.close();
     await Promise.all([rm(databasePath, { force: true }), rm(`${databasePath}-wal`, { force: true }), rm(`${databasePath}-shm`, { force: true })]);
   });
@@ -74,7 +74,7 @@ describe("Bun Server API", () => {
   test("applies SQLite migrations idempotently and reports health", async () => {
     await applyMigrations(database);
     const migrations = database.query("SELECT name FROM schema_migrations ORDER BY name").all() as Array<{ name: string }>;
-    expect(migrations.map((item) => item.name)).toEqual(["0001_baseline.sql"]);
+    expect(migrations.map((item) => item.name)).toEqual(["0001_baseline.sql", "0002_performance_indexes.sql"]);
     expect(database.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'sync_%'").all()).toEqual([]);
 
     const health = await request("/api/health");
@@ -258,6 +258,11 @@ describe("Bun Server API", () => {
     const invalidBoolean = await request(`/api/notes/${note.id}`, { method: "PATCH", body: JSON.stringify({ version: updated.body?.note.version, isFavorite: "false" }) }, login.cookie);
     expect(invalidBoolean.response.status).toBe(400);
     expect(invalidBoolean.body?.error.code).toBe("INVALID_NOTE");
+
+    const summaryUpdate = await request(`/api/notes/${note.id}?response=summary`, { method: "PATCH", body: JSON.stringify({ version: updated.body?.note.version, isFavorite: true }) }, login.cookie);
+    expect(summaryUpdate.response.status).toBe(200);
+    expect(summaryUpdate.body?.note).not.toHaveProperty("contentMarkdown");
+    expect(summaryUpdate.body?.note.isFavorite).toBe(true);
 
     const invalidCreate = await request("/api/notes", { method: "POST", body: "not-json" }, login.cookie);
     expect(invalidCreate.response.status).toBe(400);
@@ -621,11 +626,20 @@ describe("Bun Server API", () => {
     expect(list.body?.notes).toHaveLength(100);
     expect(list.body?.total).toBe(106);
     expect(list.body?.notes[0]).not.toHaveProperty("contentMarkdown");
+    expect(list.body?.hasMore).toBe(true);
+    expect(list.body?.nextCursor).toEqual(expect.any(String));
 
     const page2 = await request("/api/notes?view=all&offset=100", {}, login.cookie);
     expect(page2.response.status).toBe(200);
     expect(page2.body?.notes).toHaveLength(6);
     expect(page2.body?.total).toBe(106);
+
+    const cursorPage2 = await request(`/api/notes?view=all&cursor=${encodeURIComponent(list.body?.nextCursor)}&includeTotal=0`, {}, login.cookie);
+    expect(cursorPage2.response.status).toBe(200);
+    expect(cursorPage2.body?.notes).toHaveLength(6);
+    expect(cursorPage2.body).not.toHaveProperty("total");
+    expect(cursorPage2.body?.hasMore).toBeUndefined();
+    expect(cursorPage2.body?.notes.map((item: { id: string }) => item.id)).toEqual(page2.body?.notes.map((item: { id: string }) => item.id));
   });
 
   test("empties all owned trash beyond the list limit without deleting active or other users' notes", async () => {

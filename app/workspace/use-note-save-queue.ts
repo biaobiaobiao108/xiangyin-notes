@@ -2,9 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api } from "../api";
 import type { Note, NoteSummary } from "../../shared/types";
 import { clearDraftRecovery, writeDraftRecovery } from "./draft-recovery";
-import { errorMessage, toNoteDraft, type NoteDraft } from "./helpers";
+import { errorMessage, toNoteDraft, toNoteSummary, type NoteDraft } from "./helpers";
 
 const KEEPALIVE_BODY_MAX_BYTES = 48 * 1024;
+const ALL_SAVE_FIELDS = ["title", "contentMarkdown", "notebookId", "isFavorite", "deleted"] as const;
+type SaveField = typeof ALL_SAVE_FIELDS[number];
 
 export type SaveState = "idle" | "saving" | "saved" | "conflict" | "error";
 
@@ -33,6 +35,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
   const saveTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const draftRecoveryTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const pendingSavesRef = useRef(new Map<string, NoteDraft>());
+  const pendingFieldsRef = useRef(new Map<string, Set<SaveField>>());
   const inFlightSavesRef = useRef(new Map<string, Promise<void>>());
   const failedSavesRef = useRef(new Map<string, unknown>());
 
@@ -45,6 +48,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
     if (running) return running;
 
     const task = (async () => {
+      let fieldsForRequest: Set<SaveField> | null = null;
       try {
         while (pendingSavesRef.current.has(noteId)) {
           const draft = pendingSavesRef.current.get(noteId)!;
@@ -53,20 +57,27 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
             : notesRef.current.find((note) => note.id === noteId);
           if (!base) throw new Error("note-not-loaded");
 
-          const payload = {
+          const fields = pendingFieldsRef.current.get(noteId) ?? new Set<SaveField>(ALL_SAVE_FIELDS);
+          pendingFieldsRef.current.delete(noteId);
+          fieldsForRequest = fields;
+          const payload: { version: number; title?: string; contentMarkdown?: string; notebookId?: string; isFavorite?: boolean; deleted?: boolean } = {
             version: base.version,
-            title: draft.title,
-            contentMarkdown: draft.contentMarkdown,
-            notebookId: draft.notebookId,
-            isFavorite: draft.isFavorite,
-            deleted: Boolean(draft.deletedAt),
           };
+          if (fields.has("title")) payload.title = draft.title;
+          if (fields.has("contentMarkdown")) payload.contentMarkdown = draft.contentMarkdown;
+          if (fields.has("notebookId")) payload.notebookId = draft.notebookId;
+          if (fields.has("isFavorite")) payload.isFavorite = draft.isFavorite;
+          if (fields.has("deleted")) payload.deleted = Boolean(draft.deletedAt);
 
           const keepaliveRequest = keepalive && new TextEncoder().encode(JSON.stringify(payload)).byteLength <= KEEPALIVE_BODY_MAX_BYTES;
-          const result = await api.updateNote(noteId, payload, { keepalive: keepaliveRequest });
+          const result = await api.updateNote(noteId, payload, { keepalive: keepaliveRequest, response: "summary" });
+          const savedNote: Note = "contentMarkdown" in result.note
+            ? result.note
+            : { ...base, ...result.note, contentMarkdown: draft.contentMarkdown };
+          const savedSummary = toNoteSummary(savedNote);
 
           const latest = pendingSavesRef.current.get(noteId);
-          const next = latest && latest !== draft ? { ...result.note, ...latest, version: result.note.version } : undefined;
+          const next = latest && latest !== draft ? { ...savedNote, ...latest, version: savedNote.version } : undefined;
 
           if (next) pendingSavesRef.current.set(noteId, next);
           else pendingSavesRef.current.delete(noteId);
@@ -79,15 +90,21 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
           else clearDraftRecovery(noteId);
 
           failedSavesRef.current.delete(noteId);
-          replaceList(notesRef.current.map((note) => (note.id === noteId ? { ...note, ...result.note, ...next } : note)));
+          const nextSummary = next ? toNoteSummary(next) : undefined;
+          replaceList(notesRef.current.map((note) => (note.id === noteId ? { ...note, ...savedSummary, ...nextSummary } : note)));
 
           if (activeNoteIdRef.current === noteId) {
-            selectedRef.current = next ?? result.note;
+            selectedRef.current = next ?? savedNote;
             setSelectedNote(selectedRef.current);
             setSaveState(next ? "saving" : "saved");
           }
         }
       } catch (reason) {
+        if (fieldsForRequest) {
+          const pendingFields = pendingFieldsRef.current.get(noteId) ?? new Set<SaveField>();
+          for (const field of fieldsForRequest) pendingFields.add(field);
+          pendingFieldsRef.current.set(noteId, pendingFields);
+        }
         failedSavesRef.current.set(noteId, reason);
         const conflict = reason instanceof ApiError && reason.code === "VERSION_CONFLICT";
         if (activeNoteIdRef.current === noteId) setSaveState(conflict ? "conflict" : "error");
@@ -106,9 +123,12 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
     }
   }, [activeNoteIdRef, notesRef, replaceList, selectedRef, setSelectedNote, setToast, trashOperationsRef]);
 
-  const persist = useCallback((draft: Note | NoteDraft) => {
+  const persist = useCallback((draft: Note | NoteDraft, changedFields?: SaveField[]) => {
     const pendingDraft = toNoteDraft(draft);
     pendingSavesRef.current.set(pendingDraft.id, pendingDraft);
+    const fields = pendingFieldsRef.current.get(pendingDraft.id) ?? new Set<SaveField>();
+    for (const field of changedFields ?? ALL_SAVE_FIELDS) fields.add(field);
+    pendingFieldsRef.current.set(pendingDraft.id, fields);
     if (activeNoteIdRef.current === pendingDraft.id) setSaveState("saving");
 
     const existingRecoveryTimer = draftRecoveryTimersRef.current.get(pendingDraft.id);
@@ -179,6 +199,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
     draftRecoveryTimersRef.current.delete(noteId);
 
     pendingSavesRef.current.delete(noteId);
+    pendingFieldsRef.current.delete(noteId);
     failedSavesRef.current.delete(noteId);
     clearDraftRecovery(noteId);
   }, []);
@@ -189,10 +210,13 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
     saveTimersRef.current.delete(noteId);
   }, []);
 
-  const saveImmediately = useCallback(async (draft: Note | NoteDraft, keepalive = false) => {
+  const saveImmediately = useCallback(async (draft: Note | NoteDraft, keepalive = false, changedFields?: SaveField[]) => {
     const pendingDraft = toNoteDraft(draft);
     cancelSaveTimer(pendingDraft.id);
     pendingSavesRef.current.set(pendingDraft.id, pendingDraft);
+    const fields = pendingFieldsRef.current.get(pendingDraft.id) ?? new Set<SaveField>();
+    for (const field of changedFields ?? ALL_SAVE_FIELDS) fields.add(field);
+    pendingFieldsRef.current.set(pendingDraft.id, fields);
     if (activeNoteIdRef.current === pendingDraft.id) setSaveState("saving");
     return runSave(pendingDraft.id, keepalive);
   }, [activeNoteIdRef, cancelSaveTimer, runSave]);

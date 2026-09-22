@@ -1,5 +1,7 @@
 export type NoteView = "all" | "inbox" | "favorites" | "shared" | "trash";
 
+export type NoteSort = "updated" | "created" | "title";
+
 export type ImageAssetSummary = {
   id: string;
   url: string;
