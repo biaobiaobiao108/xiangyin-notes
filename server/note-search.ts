@@ -55,16 +55,3 @@ export function syncNoteShortSearchTerms(database: SqliteDatabase, userId: strin
     database.query(`INSERT INTO note_short_terms (note_id, user_id, term) VALUES ${placeholders}`).run(...params);
   }
 }
-
-export function backfillNoteShortSearchTerms(database: SqliteDatabase) {
-  const notes = database.query("SELECT id, user_id, title, content_markdown FROM notes").iterate() as Iterable<{
-    id: string;
-    user_id: string;
-    title: string;
-    content_markdown: string;
-  }>;
-  const transaction = database.transaction(() => {
-    for (const note of notes) syncNoteShortSearchTerms(database, note.user_id, note.id, note.title, note.content_markdown);
-  });
-  transaction();
-}

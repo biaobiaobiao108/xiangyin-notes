@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS notes (
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   notebook_id TEXT NOT NULL REFERENCES notebooks(id) ON DELETE RESTRICT,
   title TEXT NOT NULL DEFAULT '未命名笔记',
+  title_normalized TEXT NOT NULL DEFAULT '',
   content_markdown TEXT NOT NULL DEFAULT '',
   is_favorite INTEGER NOT NULL DEFAULT 0,
   deleted_at INTEGER,
@@ -47,6 +48,10 @@ CREATE TABLE IF NOT EXISTS notes (
 CREATE INDEX IF NOT EXISTS idx_notes_user_deleted_updated ON notes(user_id, deleted_at, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_notes_user_notebook_deleted_updated ON notes(user_id, notebook_id, deleted_at, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_notes_user_deleted_title ON notes(user_id, deleted_at, title);
+CREATE INDEX IF NOT EXISTS idx_notes_notebook_deleted ON notes(notebook_id, deleted_at);
+CREATE INDEX IF NOT EXISTS idx_notes_user_deleted_created ON notes(user_id, deleted_at, created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_notes_user_deleted_title_nocase ON notes(user_id, deleted_at, title COLLATE NOCASE, id);
+CREATE INDEX IF NOT EXISTS idx_notes_user_deleted_title_normalized ON notes(user_id, deleted_at, title_normalized, updated_at DESC, id);
 
 CREATE TABLE IF NOT EXISTS shares (
   id TEXT PRIMARY KEY,
@@ -107,6 +112,7 @@ CREATE TABLE IF NOT EXISTS note_links (
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   source_note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
   target_title TEXT NOT NULL,
+  target_title_normalized TEXT NOT NULL DEFAULT '',
   target_note_id TEXT REFERENCES notes(id) ON DELETE SET NULL,
   created_at INTEGER NOT NULL
 );
@@ -114,6 +120,7 @@ CREATE TABLE IF NOT EXISTS note_links (
 CREATE INDEX IF NOT EXISTS idx_note_links_source ON note_links(user_id, source_note_id);
 CREATE INDEX IF NOT EXISTS idx_note_links_target ON note_links(user_id, target_note_id);
 CREATE INDEX IF NOT EXISTS idx_note_links_target_title ON note_links(user_id, target_title);
+CREATE INDEX IF NOT EXISTS idx_note_links_target_title_normalized ON note_links(user_id, target_title_normalized);
 
 CREATE TABLE IF NOT EXISTS note_tags (
   note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
