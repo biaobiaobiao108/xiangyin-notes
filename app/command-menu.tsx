@@ -5,14 +5,14 @@ import { parseCreateNoteCommand, parseMoveNoteCommand, parseSearchPrefixCommand,
 import { FloatingScrollbar } from "./floating-scrollbar";
 import { altKey, modKey } from "./platform";
 
-export type CommandId = "new-note" | "find-in-note" | "toggle-sidebar" | "toggle-view-layout" | "toggle-focus-mode" | "toggle-typewriter-mode" | "share" | "favorite" | "trash" | "restore" | "install-app" | "move-to-notebook" | "export-notes";
+export type CommandId = "new-note" | "search-notes" | "find-in-note" | "toggle-sidebar" | "toggle-view-layout" | "toggle-focus-mode" | "toggle-typewriter-mode" | "share" | "favorite" | "trash" | "restore" | "install-app" | "move-to-notebook" | "export-notes";
 
 type CommandOption = {
   key: string;
   label: string;
   shortcut: string;
   icon: LucideIcon;
-  kind: "command" | "create-note" | "in-note-search" | "move-note";
+  kind: "command" | "create-note" | "in-note-search" | "global-search" | "move-note";
   id?: CommandId;
   createNote?: CreateNoteCommand;
   searchTerm?: string;
@@ -38,6 +38,8 @@ type CommandMenuProps = {
   standalone: boolean;
   hasSelectedNote?: boolean;
   onSearchInCurrentNote?: (term: string) => void;
+  onSearchGlobal?: (term: string) => void;
+  onFocusGlobalSearch?: () => void;
   initialQuery?: string;
 };
 
@@ -59,6 +61,8 @@ export function CommandMenu({
   standalone,
   hasSelectedNote = false,
   onSearchInCurrentNote,
+  onSearchGlobal,
+  onFocusGlobalSearch,
   initialQuery = "",
 }: CommandMenuProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -70,6 +74,7 @@ export function CommandMenu({
 
   const commands = useMemo<Array<{ id: CommandId; label: string; shortcut: string; icon: LucideIcon }>>(() => [
     { id: "new-note", label: "新建笔记", shortcut: "↵", icon: FilePlus2 },
+    { id: "search-notes" as const, label: "全局搜索笔记", shortcut: "↵", icon: Search },
     ...(hasSelectedNote && canMoveToTrash ? [{ id: "move-to-notebook" as const, label: "移动到笔记本", shortcut: "↵", icon: FolderInput }] : []),
     ...(hasSelectedNote ? [{ id: "find-in-note" as const, label: "在当前笔记中查找", shortcut: `${modKey} F`, icon: FileSearch }] : []),
     { id: "toggle-sidebar", label: "切换侧栏", shortcut: `${modKey} \\`, icon: PanelLeft },
@@ -138,11 +143,30 @@ export function CommandMenu({
       detail: "在当前笔记中高亮并定位匹配项",
     } : null;
 
+    const globalOption: CommandOption = {
+      key: "action:global-search",
+      label: `在全部笔记中搜索“${effectiveSearchTerm}”`,
+      shortcut: "↵",
+      icon: Search,
+      kind: "global-search",
+      searchTerm: effectiveSearchTerm,
+      detail: "在全部笔记中全文检索并列出结果",
+    };
+
+    let searchOptions: CommandOption[] = [];
+    if (parsedSearchPrefix?.scope === "global") {
+      searchOptions = [globalOption];
+    } else if (parsedSearchPrefix?.scope === "in-note") {
+      searchOptions = inNoteOption ? [inNoteOption] : [globalOption];
+    } else {
+      searchOptions = inNoteOption ? [inNoteOption, globalOption] : [globalOption];
+    }
+
     return [
       ...filteredCommands,
-      ...(inNoteOption ? [inNoteOption] : []),
+      ...searchOptions,
     ];
-  }, [createNoteResult, currentNotebookId, effectiveSearchTerm, filteredCommands, hasSelectedNote, moveNoteResult]);
+  }, [createNoteResult, currentNotebookId, effectiveSearchTerm, filteredCommands, hasSelectedNote, moveNoteResult, parsedSearchPrefix]);
 
   const createNoteError = createNoteResult?.kind === "error" ? createNoteResult.message : "";
   const moveNoteError = moveNoteResult?.kind === "error" ? moveNoteResult.message : "";
@@ -197,6 +221,12 @@ export function CommandMenu({
       onMoveNoteToNotebook?.(option.notebook.id);
     } else if (option.kind === "in-note-search" && option.searchTerm) {
       onSearchInCurrentNote?.(option.searchTerm);
+    } else if (option.kind === "global-search" && option.searchTerm) {
+      onSearchGlobal?.(option.searchTerm);
+    } else if (option.id === "search-notes") {
+      onFocusGlobalSearch?.();
+      onClose();
+      return;
     } else if (option.id === "find-in-note") {
       setQuery("搜索 ");
       setSelected(0);
@@ -247,8 +277,8 @@ export function CommandMenu({
           ref={searchRef}
           value={query}
           onChange={(event) => updateQuery(event.target.value)}
-          placeholder={hasSelectedNote ? "输入命令或在当前笔记中查找……" : "输入命令……"}
-          aria-label="搜索命令或当前笔记"
+          placeholder={hasSelectedNote ? "输入命令、查找当前笔记或全库搜索……" : "输入命令或搜索全部笔记……"}
+          aria-label="搜索命令或笔记内容"
         />
       </div>
       <div className="command-list-wrap">
@@ -257,11 +287,14 @@ export function CommandMenu({
           ref={listRef}
           className="command-list floating-scrollbar-target"
           role="listbox"
-          aria-label="命令和当前笔记搜索结果"
+          aria-label="命令和笔记搜索结果"
         >
           {feedbackMessage ? <div className="command-feedback" role="status">{feedbackMessage}</div> : options.length ? options.map((command, index) => {
             const Icon = command.icon;
-            const section = command.kind === "create-note" ? "操作" : command.kind === "in-note-search" ? "搜索" : command.kind === "move-note" ? "移动笔记" : "命令";
+            const section = command.kind === "create-note" ? "操作"
+              : (command.kind === "in-note-search" || command.kind === "global-search") ? "搜索"
+              : command.kind === "move-note" ? "移动笔记"
+              : "命令";
             const heading = section !== previousSection ? <div className="command-section-label" key={`${command.key}-section`}>{section}</div> : null;
             const noteDetail = command.detail || "";
             previousSection = section;
@@ -270,7 +303,7 @@ export function CommandMenu({
                 {heading}
                 <button
                   type="button"
-                  className={`command-row ${command.kind === "in-note-search" ? "command-row--search" : ""} ${selected === index ? "is-selected" : ""}`}
+                  className={`command-row ${command.kind === "in-note-search" || command.kind === "global-search" ? "command-row--search" : ""} ${selected === index ? "is-selected" : ""}`}
                   role="option"
                   aria-selected={selected === index}
                   onMouseEnter={() => setSelected(index)}

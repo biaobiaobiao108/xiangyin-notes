@@ -38,25 +38,37 @@ export function parseCreateNoteCommand(query: string, notebooks: Notebook[]): Cr
 }
 
 export type ParsedSearchCommand = {
-  scope: "in-note";
+  scope: "in-note" | "global";
   term: string;
 };
 
-const IN_NOTE_SEARCH_PREFIXES = ["搜索", "查找", "find"];
+const GLOBAL_SEARCH_PREFIXES = ["全局搜索", "全库搜索", "全库", "全部笔记", "全局", "global", "all"];
+const IN_NOTE_SEARCH_PREFIXES = ["单篇搜索", "当前笔记", "当前", "搜索", "查找", "find"];
 
 export function parseSearchPrefixCommand(query: string): ParsedSearchCommand | null {
   const trimmed = query.trimStart();
   if (!trimmed) return null;
 
-  for (const prefix of IN_NOTE_SEARCH_PREFIXES) {
-    if (trimmed.toLowerCase().startsWith(prefix.toLowerCase())) {
-      const rest = trimmed.slice(prefix.length);
-      if (/^[\s:：]/.test(rest)) {
-        const term = rest.replace(/^[\s:：]+/u, "").trim();
-        return { scope: "in-note", term };
+  const checkPrefixes = (prefixes: string[], scope: "in-note" | "global") => {
+    // Sort by prefix length descending to match longest prefix first
+    const sorted = [...prefixes].sort((a, b) => b.length - a.length);
+    for (const prefix of sorted) {
+      if (trimmed.toLowerCase().startsWith(prefix.toLowerCase())) {
+        const rest = trimmed.slice(prefix.length);
+        if (/^[\s:：]/.test(rest)) {
+          const term = rest.replace(/^[\s:：]+/u, "").trim();
+          return { scope, term };
+        }
       }
     }
-  }
+    return null;
+  };
+
+  const globalMatch = checkPrefixes(GLOBAL_SEARCH_PREFIXES, "global");
+  if (globalMatch) return globalMatch;
+
+  const inNoteMatch = checkPrefixes(IN_NOTE_SEARCH_PREFIXES, "in-note");
+  if (inNoteMatch) return inNoteMatch;
 
   return null;
 }
