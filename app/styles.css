@@ -1977,6 +1977,8 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
   transition: transform var(--motion-fast) var(--motion-ease-out), box-shadow var(--motion-fast) ease, border-color var(--motion-fast) ease, background-color var(--motion-fast) ease;
   text-align: left;
   user-select: none;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 240px;
 }
 
 .note-card:hover {

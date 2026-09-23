@@ -194,6 +194,7 @@ export const NoteListPanel = memo(function NoteListPanel({ notes, total, hasMore
   const sortTriggerRef = useRef<HTMLButtonElement>(null);
   const sortOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const noteListRef = useRef<HTMLDivElement>(null);
+  const loadMoreSentinelRef = useRef<HTMLLIElement>(null);
   const panelRef = useRef<HTMLElement>(null);
 
   useLayoutEffect(() => {
@@ -203,6 +204,29 @@ export const NoteListPanel = memo(function NoteListPanel({ notes, total, hasMore
     void panel.offsetWidth;
     panel.classList.add("is-view-transitioning");
   }, [transitionToken]);
+
+  useEffect(() => {
+    const sentinel = loadMoreSentinelRef.current;
+    const container = noteListRef.current;
+    if (!sentinel || !container || !hasMore || !onLoadMore || isLoadingMore) return;
+    if (typeof IntersectionObserver === "undefined") return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (entry?.isIntersecting) {
+          onLoadMore();
+        }
+      },
+      {
+        root: container,
+        rootMargin: "240px",
+      }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, onLoadMore, isLoadingMore]);
 
   useEffect(() => {
     if (!sortOpen) return;
@@ -285,7 +309,7 @@ export const NoteListPanel = memo(function NoteListPanel({ notes, total, hasMore
           </div>
         </div>
       </header>
-      <div className="note-list-scroll-shell"><div id="note-list-scroll-region" className="note-list floating-scrollbar-target" ref={noteListRef} onKeyDown={handleNoteListKeyDown}><ul className="note-list-items" role="list">{sortedNotes.map((note) => <NoteListRow key={note.id} note={note} isSelected={selectedIds.has(note.id)} isActive={selectedId === note.id} showNotebook={!currentNotebookName && view !== "inbox"} onSelect={onSelect} />)}{truncated && onLoadMore && <li className="note-list-load-more-item"><button className="secondary-button note-list-load-more-button" type="button" onClick={onLoadMore} disabled={isLoadingMore}>{isLoadingMore ? "正在加载……" : `加载更多（已显示 ${notes.length} / ${total}）`}</button></li>}</ul>{!sortedNotes.length && (query ? <div className="list-empty"><span className="empty-icon"><Search size={23} /></span><strong>没有找到匹配的笔记</strong><span>试试更短的关键词，或清空搜索查看全部内容。</span><button className="secondary-button" type="button" onClick={onClearQuery}>清空搜索</button></div> : <div className="list-empty"><span className="empty-icon"><Archive size={23} /></span><strong>{view === "trash" ? "回收站是空的" : "这里还没有笔记"}</strong><span>{view === "trash" ? "移入回收站的笔记会显示在这里。" : "按下“新建笔记”，让一个想法有地方落脚。"}</span></div>)}</div><FloatingScrollbar scrollTargetRef={noteListRef} controlsId="note-list-scroll-region" ariaLabel="笔记列表滚动条" placement="left" /></div>
+      <div className="note-list-scroll-shell"><div id="note-list-scroll-region" className="note-list floating-scrollbar-target" ref={noteListRef} onKeyDown={handleNoteListKeyDown}><ul className="note-list-items" role="list">{sortedNotes.map((note) => <NoteListRow key={note.id} note={note} isSelected={selectedIds.has(note.id)} isActive={selectedId === note.id} showNotebook={!currentNotebookName && view !== "inbox"} onSelect={onSelect} />)}{truncated && onLoadMore && <li ref={loadMoreSentinelRef} className="note-list-load-more-item"><button className="secondary-button note-list-load-more-button" type="button" onClick={onLoadMore} disabled={isLoadingMore}>{isLoadingMore ? "正在加载……" : `加载更多（已显示 ${notes.length} / ${total}）`}</button></li>}</ul>{!sortedNotes.length && (query ? <div className="list-empty"><span className="empty-icon"><Search size={23} /></span><strong>没有找到匹配的笔记</strong><span>试试更短的关键词，或清空搜索查看全部内容。</span><button className="secondary-button" type="button" onClick={onClearQuery}>清空搜索</button></div> : <div className="list-empty"><span className="empty-icon"><Archive size={23} /></span><strong>{view === "trash" ? "回收站是空的" : "这里还没有笔记"}</strong><span>{view === "trash" ? "移入回收站的笔记会显示在这里。" : "按下“新建笔记”，让一个想法有地方落脚。"}</span></div>)}</div><FloatingScrollbar scrollTargetRef={noteListRef} controlsId="note-list-scroll-region" ariaLabel="笔记列表滚动条" placement="left" /></div>
       </>}
     </div>
   </section>;

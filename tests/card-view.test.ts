@@ -109,4 +109,13 @@ describe("card view & layout", () => {
     const withoutThumb = sampleNotes.find((n) => !n.thumbnail);
     expect(withoutThumb?.preview).toContain("文人笔墨");
   });
+
+  test("virtual rendering rules are configured for both list items and card grid", async () => {
+    const cssContent = await Bun.file("app/styles.css").text();
+    expect(cssContent).toContain(".note-card {");
+    expect(cssContent).toMatch(/\.note-card\s*\{[^}]*content-visibility:\s*auto/);
+    expect(cssContent).toMatch(/\.note-card\s*\{[^}]*contain-intrinsic-size:\s*auto\s*240px/);
+    expect(cssContent).toMatch(/\.note-list-item\s*\{[^}]*content-visibility:\s*auto/);
+  });
 });
+

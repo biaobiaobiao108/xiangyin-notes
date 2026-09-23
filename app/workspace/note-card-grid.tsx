@@ -1,5 +1,6 @@
 import {
   memo,
+  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -59,6 +60,7 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
 }: NoteCardGridPanelProps) {
   const panelRef = useRef<HTMLElement>(null);
   const gridScrollRef = useRef<HTMLDivElement>(null);
+  const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
   const sortedNotes = useMemo(() => sortNotes(notes, sort), [notes, sort]);
   const isTrashView = view === "trash";
   const showNotebook = !currentNotebookName && view !== "inbox";
@@ -70,6 +72,29 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
     void panel.offsetWidth;
     panel.classList.add("is-view-transitioning");
   }, [transitionToken]);
+
+  useEffect(() => {
+    const sentinel = loadMoreSentinelRef.current;
+    const container = gridScrollRef.current;
+    if (!sentinel || !container || !hasMore || !onLoadMore || isLoadingMore) return;
+    if (typeof IntersectionObserver === "undefined") return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (entry?.isIntersecting) {
+          onLoadMore();
+        }
+      },
+      {
+        root: container,
+        rootMargin: "280px",
+      }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, onLoadMore, isLoadingMore]);
 
   return (
     <section
@@ -138,7 +163,7 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
           )}
 
           {hasMore && onLoadMore && (
-            <div className="card-grid-load-more">
+            <div ref={loadMoreSentinelRef} className="card-grid-load-more">
               <button
                 type="button"
                 className="secondary-button"
@@ -226,6 +251,7 @@ const NoteCardItem = memo(function NoteCardItem({
             src={`/api/assets/${encodeURIComponent(note.thumbnail!.id)}`}
             alt=""
             loading="lazy"
+            decoding="async"
             className="note-card-cover-image"
           />
         </div>
