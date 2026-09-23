@@ -1919,6 +1919,25 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
   grid-column: 2;
 }
 
+.app-shell.layout-cards .editor-panel {
+  animation: card-editor-in var(--motion-content) var(--motion-ease-out) both;
+}
+
+.app-shell.layout-cards .editor-panel .editor-document--entering {
+  animation: none;
+}
+
+@keyframes card-editor-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .note-card-grid-panel {
   grid-column: 2;
   display: flex;
@@ -1990,6 +2009,11 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
   transform: translateY(-3px);
   box-shadow: 0 6px 18px rgba(32, 38, 33, 0.08), 0 12px 28px rgba(32, 38, 33, 0.06);
   border-color: var(--border-strong);
+}
+
+.note-card:active {
+  transform: translateY(-1px) scale(0.988);
+  transition-duration: 80ms;
 }
 
 .note-card.is-selected {
@@ -2275,6 +2299,7 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
   .note-list-panel.is-view-transitioning .note-list-content,
   .note-card-grid-panel.is-view-transitioning .card-masonry,
   .note-card-grid-panel.is-view-transitioning .card-grid-empty,
+  .app-shell.layout-cards .editor-panel,
   .editor-document--entering,
   .empty-editor,
   .note-outline-panel,
