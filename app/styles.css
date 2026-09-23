@@ -2116,6 +2116,7 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
   line-height: 1.68;
   color: var(--muted);
   letter-spacing: 0.005em;
+  white-space: pre-line;
   display: -webkit-box;
   -webkit-line-clamp: 10;
   -webkit-box-orient: vertical;

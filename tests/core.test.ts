@@ -21,12 +21,22 @@ describe("security helpers", () => {
 
 describe("markdown and search helpers", () => {
   test("removes markdown syntax from note previews", () => {
-    expect(formatPreview("# Heading\n\nA **quiet** note with `code`.")) .toBe("Heading A quiet note with code.");
+    expect(formatPreview("# Heading\n\nA **quiet** note with `code`.")) .toBe("Heading\nA quiet note with code.");
+  });
+
+  test("preserves paragraph, heading, and list item boundaries in previews", () => {
+    expect(formatPreview("# Heading\n\nFirst paragraph\ncontinues.\n\nSecond paragraph.\n- first item\n- second item\n3. ordered item\n## Next heading\nFinal paragraph"))
+      .toBe("Heading\nFirst paragraph continues.\nSecond paragraph.\nfirst item\nsecond item\nordered item\nNext heading\nFinal paragraph");
+  });
+
+  test("skips Markdown horizontal rules in note previews", () => {
+    expect(formatPreview("Before rule.\n\n---\n\n* * *\n___\n\nAfter rule."))
+      .toBe("Before rule.\nAfter rule.");
   });
 
   test("keeps preview work bounded for long markdown bodies", () => {
     expect(formatPreview(`${"x".repeat(1_000_000)} tail`)).toBe("x".repeat(180));
-    expect(formatPreview(`before\n\n\`\`\`ts\n${"code ".repeat(100_000)}\n\`\`\`\nafter`)).toBe("before after");
+    expect(formatPreview(`before\n\n\`\`\`ts\n${"code ".repeat(100_000)}\n\`\`\`\nafter`)).toBe("before\nafter");
   });
 
   test("does not expose image URLs in note previews", () => {

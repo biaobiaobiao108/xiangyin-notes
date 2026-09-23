@@ -368,69 +368,229 @@ export async function authenticateRequest(
 export function formatPreview(markdown: string) {
   const output: string[] = [];
   let outputLength = 0;
+  const paragraph: string[] = [];
+  let paragraphLength = 0;
   let inCodeFence = false;
-  let pendingWhitespace = false;
+  let stopped = false;
 
-  for (let index = 0; index < markdown.length && outputLength < NOTE_PREVIEW_LIMIT; index += 1) {
-    if (
-      (index === 0 || markdown[index - 1] === "\n") &&
-      markdown.startsWith("```", index)
-    ) {
-      inCodeFence = !inCodeFence;
-      const nextLine = markdown.indexOf("\n", index);
-      index = nextLine === -1 ? markdown.length : nextLine;
-      pendingWhitespace = true;
-      continue;
+  const appendLine = (text: string) => {
+    const content = text.trim();
+    if (!content) return true;
+
+    const separatorLength = output.length > 0 ? 1 : 0;
+    const availableLength = NOTE_PREVIEW_LIMIT - outputLength - separatorLength;
+    if (availableLength <= 0) {
+      stopped = true;
+      return false;
     }
 
-    if (inCodeFence) continue;
+    const clippedContent = content.slice(0, availableLength);
+    if (!clippedContent) return true;
 
-    if (markdown.startsWith("![", index)) {
-      const closeBracket = markdown.indexOf("]", index + 2);
-      if (closeBracket !== -1 && markdown[closeBracket + 1] === "(") {
-        const closeParen = markdown.indexOf(")", closeBracket + 2);
-        if (closeParen !== -1) {
-          index = closeParen;
-          pendingWhitespace = true;
-          continue;
+    output.push(clippedContent);
+    outputLength += separatorLength + clippedContent.length;
+    if (clippedContent.length < content.length) {
+      stopped = true;
+      return false;
+    }
+    return true;
+  };
+
+  const flushParagraph = () => {
+    if (paragraphLength === 0) return true;
+    const text = paragraph.join("");
+    paragraph.length = 0;
+    paragraphLength = 0;
+    return appendLine(text);
+  };
+
+  const readPlainText = (start: number, end: number, maximumLength: number) => {
+    const text: string[] = [];
+    let textLength = 0;
+    let pendingWhitespace = false;
+
+    for (let index = start; index < end && textLength < maximumLength; index += 1) {
+      if (markdown.startsWith("![", index)) {
+        const closeBracket = markdown.indexOf("]", index + 2);
+        if (closeBracket !== -1 && closeBracket < end && markdown[closeBracket + 1] === "(") {
+          const closeParen = markdown.indexOf(")", closeBracket + 2);
+          if (closeParen !== -1 && closeParen < end) {
+            index = closeParen;
+            pendingWhitespace = textLength > 0;
+            continue;
+          }
+        }
+      }
+
+      const character = markdown[index];
+      if (character === "\r" || character === "\n" || character === "\t" || character === " ") {
+        pendingWhitespace = textLength > 0;
+        continue;
+      }
+
+      if (
+        character === "#" ||
+        character === "*" ||
+        character === "_" ||
+        character === "`" ||
+        character === "~" ||
+        character === ">" ||
+        character === "[" ||
+        character === "]"
+      ) {
+        continue;
+      }
+
+      if (pendingWhitespace) {
+        if (!/[,.;!?。！？、，；：]/.test(character)) {
+          text.push(" ");
+          textLength += 1;
+          if (textLength >= maximumLength) break;
+        }
+      }
+
+      text.push(character);
+      textLength += character.length;
+      pendingWhitespace = false;
+    }
+
+    return text.join("").trim();
+  };
+
+  const isHorizontalRule = (start: number, end: number) => {
+    const marker = markdown[start];
+    if (marker !== "-" && marker !== "*" && marker !== "_") return false;
+
+    let markerCount = 0;
+    for (let index = start; index < end; index += 1) {
+      if (markdown[index] === marker) {
+        markerCount += 1;
+      } else if (markdown[index] !== " " && markdown[index] !== "\t") {
+        return false;
+      }
+    }
+    return markerCount >= 3;
+  };
+
+  let cursor = 0;
+  while (cursor < markdown.length && !stopped) {
+    let newlineIndex = -1;
+    let lineEnd: number;
+    let lineTruncated = false;
+    if (inCodeFence) {
+      newlineIndex = markdown.indexOf("\n", cursor);
+      lineEnd = newlineIndex === -1 ? markdown.length : newlineIndex;
+    } else {
+      const scanEnd = Math.min(markdown.length, cursor + NOTE_PREVIEW_SCAN_LIMIT);
+      for (let index = cursor; index < scanEnd; index += 1) {
+        if (markdown[index] === "\n") {
+          newlineIndex = index;
+          break;
+        }
+      }
+      lineEnd = newlineIndex === -1 ? scanEnd : newlineIndex;
+      lineTruncated = newlineIndex === -1 && scanEnd < markdown.length;
+    }
+    const contentEnd = lineEnd > cursor && markdown[lineEnd - 1] === "\r" ? lineEnd - 1 : lineEnd;
+    let contentStart = cursor;
+
+    while (contentStart < contentEnd && (markdown[contentStart] === " " || markdown[contentStart] === "\t")) {
+      contentStart += 1;
+    }
+
+    const isCodeFence = markdown.startsWith("```", contentStart);
+    if (inCodeFence) {
+      if (isCodeFence) inCodeFence = false;
+    } else if (isCodeFence) {
+      flushParagraph();
+      inCodeFence = true;
+    } else if (contentStart === contentEnd) {
+      flushParagraph();
+    } else if (isHorizontalRule(contentStart, contentEnd)) {
+      flushParagraph();
+    } else {
+      let bodyStart = contentStart;
+      let isBlock = false;
+
+      let headingEnd = contentStart;
+      while (headingEnd < contentEnd && markdown[headingEnd] === "#" && headingEnd - contentStart < 6) {
+        headingEnd += 1;
+      }
+      if (
+        headingEnd > contentStart &&
+        (headingEnd === contentEnd || markdown[headingEnd] === " " || markdown[headingEnd] === "\t")
+      ) {
+        bodyStart = headingEnd;
+        while (bodyStart < contentEnd && (markdown[bodyStart] === " " || markdown[bodyStart] === "\t")) {
+          bodyStart += 1;
+        }
+        isBlock = true;
+      } else if (
+        (markdown[contentStart] === "-" || markdown[contentStart] === "+" || markdown[contentStart] === "*") &&
+        (markdown[contentStart + 1] === " " || markdown[contentStart + 1] === "\t")
+      ) {
+        bodyStart = contentStart + 2;
+        while (bodyStart < contentEnd && (markdown[bodyStart] === " " || markdown[bodyStart] === "\t")) {
+          bodyStart += 1;
+        }
+        isBlock = true;
+      } else {
+        let markerEnd = contentStart;
+        while (markerEnd < contentEnd && markdown[markerEnd] >= "0" && markdown[markerEnd] <= "9") {
+          markerEnd += 1;
+        }
+        if (
+          markerEnd > contentStart &&
+          (markdown[markerEnd] === "." || markdown[markerEnd] === ")") &&
+          (markdown[markerEnd + 1] === " " || markdown[markerEnd + 1] === "\t")
+        ) {
+          bodyStart = markerEnd + 2;
+          while (bodyStart < contentEnd && (markdown[bodyStart] === " " || markdown[bodyStart] === "\t")) {
+            bodyStart += 1;
+          }
+          isBlock = true;
+        } else if (markdown[contentStart] === ">") {
+          bodyStart = contentStart + 1;
+          while (bodyStart < contentEnd && (markdown[bodyStart] === " " || markdown[bodyStart] === "\t")) {
+            bodyStart += 1;
+          }
+          isBlock = true;
+        }
+      }
+
+      if (isBlock) {
+        flushParagraph();
+        const availableLength = NOTE_PREVIEW_LIMIT - outputLength - (output.length > 0 ? 1 : 0);
+        if (availableLength <= 0) {
+          stopped = true;
+        } else {
+          appendLine(readPlainText(bodyStart, contentEnd, availableLength));
+        }
+      } else {
+        const separatorLength = paragraphLength > 0 ? 1 : 0;
+        const availableLength = NOTE_PREVIEW_LIMIT - outputLength - (output.length > 0 ? 1 : 0) - paragraphLength - separatorLength;
+        if (availableLength <= 0) {
+          stopped = true;
+        } else {
+          const text = readPlainText(contentStart, contentEnd, availableLength);
+          if (text) {
+            if (separatorLength > 0) {
+              paragraph.push(" ");
+              paragraphLength += 1;
+            }
+            paragraph.push(text);
+            paragraphLength += text.length;
+            if (paragraphLength >= availableLength + (separatorLength > 0 ? 1 : 0)) stopped = true;
+          }
         }
       }
     }
 
-    const character = markdown[index];
-    if (character === "\r" || character === "\n" || character === "\t" || character === " ") {
-      pendingWhitespace = outputLength > 0;
-      continue;
-    }
-
-    if (
-      character === "#" ||
-      character === "*" ||
-      character === "_" ||
-      character === "`" ||
-      character === "~" ||
-      character === ">" ||
-      character === "[" ||
-      character === "]"
-    ) {
-      continue;
-    }
-
-    if (pendingWhitespace) {
-      output.push(" ");
-      outputLength += 1;
-      if (outputLength >= NOTE_PREVIEW_LIMIT) break;
-    }
-
-    output.push(character);
-    outputLength += character.length;
-    pendingWhitespace = false;
+    cursor = lineTruncated ? markdown.length : newlineIndex === -1 ? markdown.length : newlineIndex + 1;
   }
 
-  return output.join("")
-    .trim()
-    .replace(/\s+([,.;!?。！？、，；：])/g, "$1")
-    .slice(0, NOTE_PREVIEW_LIMIT);
+  flushParagraph();
+  return output.join("\n").slice(0, NOTE_PREVIEW_LIMIT);
 }
 
 export function parseSearchTerms(query: string) {
