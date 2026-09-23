@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { Note, Notebook } from "../shared/types";
-import { notebookColorOptions, shouldKeepActiveNoteInList } from "../app/workspace/helpers";
+import { getNotebookIconComponent, notebookColorOptions, notebookIconOptions, shouldKeepActiveNoteInList } from "../app/workspace/helpers";
 
 const notebooks: Notebook[] = [
-  { id: "inbox", name: "收件箱", color: "#718077", isSystem: true, count: 1, updatedAt: 1 },
-  { id: "work", name: "工作", color: "#d96245", isSystem: false, count: 1, updatedAt: 1 },
+  { id: "inbox", name: "收件箱", color: "#718077", icon: "folder", isSystem: true, count: 1, updatedAt: 1 },
+  { id: "work", name: "工作", color: "#d96245", icon: "folder", isSystem: false, count: 1, updatedAt: 1 },
 ];
 
 const note: Note = {
@@ -48,5 +48,17 @@ describe("notebook color options", () => {
     expect(notebookColorOptions).toHaveLength(9);
     expect(new Set(notebookColorOptions).size).toBe(9);
     expect(notebookColorOptions).toEqual(["#d96245", "#718077", "#5b7899", "#9c765f", "#aa6f8e", "#8b7c54", "#4f8a78", "#c18a3d", "#c45b73"]);
+  });
+});
+
+describe("notebook icon options", () => {
+  test("offers 16 unique preset icons arranged in two rows of eight", () => {
+    expect(notebookIconOptions).toHaveLength(16);
+    expect(new Set(notebookIconOptions.map((opt) => opt.id)).size).toBe(16);
+  });
+
+  test("resolves icon components and falls back to folder", () => {
+    expect(getNotebookIconComponent("book")).toBeDefined();
+    expect(getNotebookIconComponent("unknown-id")).toBe(getNotebookIconComponent("folder"));
   });
 });

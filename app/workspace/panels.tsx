@@ -1,12 +1,12 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type RefObject } from "react";
-import { Archive, ChevronDown, ChevronLeft, LayoutPanelLeft, LogOut, Menu, Pencil, Plus, Search, Star, Trash2, X } from "lucide-react";
+import { Archive, ChevronDown, ChevronLeft, LayoutPanelLeft, ListTree, LogOut, Menu, Pencil, Plus, Search, Star, Trash2, X } from "lucide-react";
 import type { NoteSummary, NoteView, Notebook } from "../../shared/types";
 import { BrandMark } from "../brand-mark";
 import type { OutlineItem } from "../editor-metrics";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { modKey } from "../platform";
 import { type PwaState } from "../pwa";
-import { getNoteTags, navItems, relativeDate, sortNotes, type NoteSort, viewLabel } from "./helpers";
+import { getNoteTags, getNotebookIconComponent, navItems, relativeDate, sortNotes, type NoteSort, viewLabel } from "./helpers";
 
 export function NoteLoadingState() {
   return <section className="editor-panel editor-loading-shell" aria-label="笔记编辑器" aria-busy="true"><div className="editor-switch-overlay editor-switch-overlay--visible" role="status" aria-live="polite"><div className="editor-switch-card"><BrandMark className="editor-switch-mark" /><div className="editor-switch-lines" aria-hidden="true"><span /><span /><span /></div><strong>正在打开笔记…</strong></div></div></section>;
@@ -14,17 +14,53 @@ export function NoteLoadingState() {
 
 export const Sidebar = memo(function Sidebar({ view, setView, notebooks, notebookId, setNotebookId, query, setQuery, searchRef, onNewInboxNote, onCreateNotebook, onEditNotebook, collapsed, onCollapse, mobileOpen, onLogout }: { view: NoteView; setView: (view: NoteView) => void; notebooks: Notebook[]; notebookId?: string; setNotebookId: (id: string) => void; query: string; setQuery: (query: string) => void; searchRef: RefObject<HTMLInputElement | null>; onNewInboxNote: () => void; onCreateNotebook: () => void; onEditNotebook: (notebook: Notebook) => void; collapsed: boolean; onCollapse: () => void; mobileOpen: boolean; onLogout: () => void }) {
   const notebookListRef = useRef<HTMLDivElement>(null);
+  const customNotebooks = useMemo(() => notebooks.filter((notebook) => !notebook.isSystem), [notebooks]);
 
   return <aside className={`sidebar ${mobileOpen ? "is-mobile-open" : ""}`} aria-label="主导航">
     <div className="brand-row"><BrandMark /><span className="brand-name">象映笔记</span><button className="icon-button collapse-button" type="button" onClick={onCollapse} aria-label={collapsed ? "展开侧栏" : "收起侧栏"}><LayoutPanelLeft size={18} /></button></div>
     <button className="primary-button new-note-button" type="button" aria-label="在收件箱中新建笔记" title="在收件箱中新建笔记" onClick={onNewInboxNote}><Plus size={18} />新建笔记</button>
     <label className="search-box"><Search size={17} /><input ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索笔记或 #标签……" aria-label="搜索笔记或标签" />{query ? <button className="search-clear" type="button" aria-label="清空搜索" title="清空搜索" onClick={() => setQuery("")}><X size={15} /></button> : <kbd>{modKey} /</kbd>}</label>
     <nav className="main-nav"><ul>{navItems.map((item) => { const Icon = item.icon; return <li key={item.id}><button className={`nav-item ${view === item.id && !notebookId ? "is-active" : ""}`} type="button" onClick={() => setView(item.id)}><Icon size={18} /><span>{item.label}</span></button></li>; })}</ul></nav>
+    <div className="collapsed-notebook-list" role="toolbar" aria-label="笔记本快捷切换">
+      {customNotebooks.length > 0 && <div className="collapsed-notebook-divider" aria-hidden="true" />}
+      {customNotebooks.map((notebook) => {
+        const NotebookIcon = getNotebookIconComponent(notebook.icon);
+        const isActive = notebook.id === notebookId;
+        return (
+          <button
+            key={notebook.id}
+            type="button"
+            className={`nav-item collapsed-notebook-item ${isActive ? "is-active" : ""}`}
+            onClick={() => setNotebookId(notebook.id)}
+            aria-label={`${notebook.name}，${notebook.count} 篇笔记`}
+            title={`${notebook.name} (${notebook.count})`}
+          >
+            <NotebookIcon size={18} style={{ color: notebook.color }} />
+          </button>
+        );
+      })}
+    </div>
     <div className="notebook-section">
       <div className="section-heading"><span>笔记本</span><button className="icon-button tiny-button" type="button" aria-label="新建笔记本" title="新建笔记本" onClick={onCreateNotebook}><Plus size={16} /></button></div>
       <div className="notebook-list-scroll-shell">
         <div id="notebook-list-scroll-region" className="notebook-list-scroll floating-scrollbar-target" ref={notebookListRef}>
-          <ul>{notebooks.filter((notebook) => !notebook.isSystem).map((notebook) => <li key={notebook.id} className="notebook-row-item"><div className={`notebook-row-wrap ${notebook.id === notebookId ? "is-active" : ""}`}><button className="notebook-item" type="button" aria-label={`${notebook.name}，${notebook.count} 篇笔记`} onClick={() => setNotebookId(notebook.id)}><span className="notebook-dot" style={{ background: notebook.color }} /><span>{notebook.name}</span><em>{notebook.count}</em></button><button className="icon-button tiny-button notebook-edit-button" type="button" aria-label={`管理笔记本“${notebook.name}”`} title="管理笔记本" onClick={(e) => { e.stopPropagation(); onEditNotebook(notebook); }}><Pencil size={12} /></button></div></li>)}</ul>
+          <ul>{customNotebooks.map((notebook) => {
+            const NotebookIcon = getNotebookIconComponent(notebook.icon);
+            return (
+              <li key={notebook.id} className="notebook-row-item">
+                <div className={`notebook-row-wrap ${notebook.id === notebookId ? "is-active" : ""}`}>
+                  <button className="notebook-item" type="button" aria-label={`${notebook.name}，${notebook.count} 篇笔记`} onClick={() => setNotebookId(notebook.id)}>
+                    <NotebookIcon size={16} className="notebook-custom-icon" style={{ color: notebook.color, flexShrink: 0 }} />
+                    <span>{notebook.name}</span>
+                    <em>{notebook.count}</em>
+                  </button>
+                  <button className="icon-button tiny-button notebook-edit-button" type="button" aria-label={`管理笔记本“${notebook.name}”`} title="管理笔记本" onClick={(e) => { e.stopPropagation(); onEditNotebook(notebook); }}>
+                    <Pencil size={12} />
+                  </button>
+                </div>
+              </li>
+            );
+          })}</ul>
         </div>
         <FloatingScrollbar scrollTargetRef={notebookListRef} controlsId="notebook-list-scroll-region" ariaLabel="笔记本列表滚动条" placement="left" />
       </div>
@@ -41,29 +77,31 @@ function NoteThumbnail({ note }: { note: NoteSummary }) {
 
 const NOTE_TAG_DISPLAY_LIMIT = 3;
 
-function NoteRowMeta({ note }: { note: NoteSummary }) {
+function NoteRowMeta({ note, showNotebook }: { note: NoteSummary; showNotebook: boolean }) {
   const tags = getNoteTags(note);
   const visibleTags = tags.slice(0, NOTE_TAG_DISPLAY_LIMIT);
   return <span className="note-row-meta">
     <span className="note-row-meta-leading">
-      <span className="note-row-notebook">{note.notebookName}</span>
-      {visibleTags.length > 0 && <>
+      {showNotebook && note.notebookName && <span className="note-row-notebook">{note.notebookName}</span>}
+      {showNotebook && note.notebookName && visibleTags.length > 0 && <>
         <span className="note-row-meta-divider" aria-hidden="true">·</span>
+      </>}
+      {visibleTags.length > 0 && (
         <span className="note-row-tags" aria-label={`标签：${tags.map((tag) => `#${tag}`).join("、")}`}>
           {visibleTags.map((tag) => <span className="note-row-tag" key={tag}>#{tag}</span>)}
           {tags.length > visibleTags.length && <span className="note-row-tag note-row-tag--overflow">+{tags.length - visibleTags.length}</span>}
         </span>
-      </>}
+      )}
     </span>
     <time>{relativeDate(note.updatedAt)}</time>
   </span>;
 }
 
-const NoteListRow = memo(function NoteListRow({ note, isSelected, isActive, onSelect }: { note: NoteSummary; isSelected: boolean; isActive: boolean; onSelect: (id: string, event: ReactMouseEvent<HTMLButtonElement>) => void }) {
-  return <li className="note-list-item"><button type="button" className={`note-row ${note.thumbnail ? "has-thumbnail" : ""} ${isSelected ? "is-selected" : ""} ${isActive ? "is-active" : ""}`} aria-current={isActive ? "page" : undefined} aria-pressed={isSelected} onClick={(event) => onSelect(note.id, event)}><NoteThumbnail note={note} /><span className="note-row-main"><span className="note-row-title"><span className="note-row-title-text">{note.title || "未命名笔记"}</span>{note.isFavorite && <Star size={13} fill="currentColor" />}</span><span className="note-row-preview">{note.preview || "还没有内容，开始写下第一句话。"}</span><NoteRowMeta note={note} /></span></button></li>;
+const NoteListRow = memo(function NoteListRow({ note, isSelected, isActive, showNotebook, onSelect }: { note: NoteSummary; isSelected: boolean; isActive: boolean; showNotebook: boolean; onSelect: (id: string, event: ReactMouseEvent<HTMLButtonElement>) => void }) {
+  return <li className="note-list-item"><button type="button" className={`note-row ${note.thumbnail ? "has-thumbnail" : ""} ${isSelected ? "is-selected" : ""} ${isActive ? "is-active" : ""}`} aria-current={isActive ? "page" : undefined} aria-pressed={isSelected} onClick={(event) => onSelect(note.id, event)}><NoteThumbnail note={note} /><span className="note-row-main"><span className="note-row-title"><span className="note-row-title-text">{note.title || "未命名笔记"}</span>{note.isFavorite && <Star size={13} fill="currentColor" />}</span><span className="note-row-preview">{note.preview || "还没有内容，开始写下第一句话。"}</span><NoteRowMeta note={note} showNotebook={showNotebook} /></span></button></li>;
 });
 
-export function NoteOutlinePanel({ outlineItems, activeOutlineId, onScrollToOutlineItem, onCloseOutline }: { outlineItems: OutlineItem[]; activeOutlineId: string | null; onScrollToOutlineItem: (id: string) => void; onCloseOutline: () => void }) {
+export function NoteOutlinePanel({ outlineItems, activeOutlineId, onScrollToOutlineItem, onCloseOutline, isFloating = false }: { outlineItems: OutlineItem[]; activeOutlineId: string | null; onScrollToOutlineItem: (id: string) => void; onCloseOutline: () => void; isFloating?: boolean }) {
   const outlineScrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const scrollRoot = outlineScrollRef.current;
@@ -84,11 +122,24 @@ export function NoteOutlinePanel({ outlineItems, activeOutlineId, onScrollToOutl
     scrollRoot.scrollTo({ top: Math.min(maxScrollTop, Math.max(0, scrollRoot.scrollTop + delta)), behavior });
   }, [activeOutlineId, outlineItems]);
 
-  return <aside className="note-outline-panel" id="note-outline" aria-labelledby="note-outline-title">
-    <header className="list-header note-outline-header">
-      <div className="list-header-main"><h2 id="note-outline-title">笔记大纲</h2><p>{outlineItems.length > 0 ? `${outlineItems.length} 个标题` : "当前笔记暂无标题"}</p></div>
-      <button className="text-button outline-back-button" type="button" onClick={onCloseOutline}><ChevronLeft size={15} aria-hidden="true" /><span>返回笔记列表</span></button>
-    </header>
+  return <aside className={`note-outline-panel ${isFloating ? "is-floating" : ""}`} id="note-outline" aria-labelledby="note-outline-title">
+    {isFloating ? (
+      <header className="floating-outline-header">
+        <div className="floating-outline-title">
+          <ListTree size={16} />
+          <span id="note-outline-title">笔记大纲</span>
+          {outlineItems.length > 0 && <span className="floating-outline-count">{outlineItems.length}</span>}
+        </div>
+        <button className="icon-button tiny-button" type="button" onClick={onCloseOutline} aria-label="关闭笔记大纲" title="关闭大纲 (Esc)">
+          <X size={15} />
+        </button>
+      </header>
+    ) : (
+      <header className="list-header note-outline-header">
+        <div className="list-header-main"><h2 id="note-outline-title">笔记大纲</h2><p>{outlineItems.length > 0 ? `${outlineItems.length} 个标题` : "当前笔记暂无标题"}</p></div>
+        <button className="text-button outline-back-button" type="button" onClick={onCloseOutline}><ChevronLeft size={15} aria-hidden="true" /><span>返回笔记列表</span></button>
+      </header>
+    )}
     <div className="note-outline-scroll-shell">
       <div id="note-outline-scroll-region" className="note-outline-scroll floating-scrollbar-target" ref={outlineScrollRef}>
         {outlineItems.length > 0 ? <nav aria-label="笔记标题">
@@ -234,7 +285,7 @@ export const NoteListPanel = memo(function NoteListPanel({ notes, total, hasMore
           </div>
         </div>
       </header>
-      <div className="note-list-scroll-shell"><div id="note-list-scroll-region" className="note-list floating-scrollbar-target" ref={noteListRef} onKeyDown={handleNoteListKeyDown}><ul className="note-list-items" role="list">{sortedNotes.map((note) => <NoteListRow key={note.id} note={note} isSelected={selectedIds.has(note.id)} isActive={selectedId === note.id} onSelect={onSelect} />)}{truncated && onLoadMore && <li className="note-list-load-more-item"><button className="secondary-button note-list-load-more-button" type="button" onClick={onLoadMore} disabled={isLoadingMore}>{isLoadingMore ? "正在加载……" : `加载更多（已显示 ${notes.length} / ${total}）`}</button></li>}</ul>{!sortedNotes.length && (query ? <div className="list-empty"><span className="empty-icon"><Search size={23} /></span><strong>没有找到匹配的笔记</strong><span>试试更短的关键词，或清空搜索查看全部内容。</span><button className="secondary-button" type="button" onClick={onClearQuery}>清空搜索</button></div> : <div className="list-empty"><span className="empty-icon"><Archive size={23} /></span><strong>{view === "trash" ? "回收站是空的" : "这里还没有笔记"}</strong><span>{view === "trash" ? "移入回收站的笔记会显示在这里。" : "按下“新建笔记”，让一个想法有地方落脚。"}</span></div>)}</div><FloatingScrollbar scrollTargetRef={noteListRef} controlsId="note-list-scroll-region" ariaLabel="笔记列表滚动条" placement="left" /></div>
+      <div className="note-list-scroll-shell"><div id="note-list-scroll-region" className="note-list floating-scrollbar-target" ref={noteListRef} onKeyDown={handleNoteListKeyDown}><ul className="note-list-items" role="list">{sortedNotes.map((note) => <NoteListRow key={note.id} note={note} isSelected={selectedIds.has(note.id)} isActive={selectedId === note.id} showNotebook={!currentNotebookName && view !== "inbox"} onSelect={onSelect} />)}{truncated && onLoadMore && <li className="note-list-load-more-item"><button className="secondary-button note-list-load-more-button" type="button" onClick={onLoadMore} disabled={isLoadingMore}>{isLoadingMore ? "正在加载……" : `加载更多（已显示 ${notes.length} / ${total}）`}</button></li>}</ul>{!sortedNotes.length && (query ? <div className="list-empty"><span className="empty-icon"><Search size={23} /></span><strong>没有找到匹配的笔记</strong><span>试试更短的关键词，或清空搜索查看全部内容。</span><button className="secondary-button" type="button" onClick={onClearQuery}>清空搜索</button></div> : <div className="list-empty"><span className="empty-icon"><Archive size={23} /></span><strong>{view === "trash" ? "回收站是空的" : "这里还没有笔记"}</strong><span>{view === "trash" ? "移入回收站的笔记会显示在这里。" : "按下“新建笔记”，让一个想法有地方落脚。"}</span></div>)}</div><FloatingScrollbar scrollTargetRef={noteListRef} controlsId="note-list-scroll-region" ariaLabel="笔记列表滚动条" placement="left" /></div>
       </>}
     </div>
   </section>;

@@ -22,6 +22,7 @@ export type Notebook = {
   id: string;
   name: string;
   color: string;
+  icon: string;
   isSystem: boolean;
   count: number;
   updatedAt: number;

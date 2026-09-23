@@ -1,4 +1,24 @@
-import { FileText, Inbox, Star, Trash2, UsersRound } from "lucide-react";
+import {
+  Book,
+  Bookmark,
+  Briefcase,
+  Code,
+  Compass,
+  FileText,
+  Folder,
+  GraduationCap,
+  Heart,
+  Inbox,
+  Lightbulb,
+  Palette,
+  Smile,
+  Sparkles,
+  Star,
+  Tag,
+  Terminal,
+  Trash2,
+  UsersRound,
+} from "lucide-react";
 import { ApiError } from "../api";
 import type { Note, NoteSort, NoteSummary, NoteView, Notebook } from "../../shared/types";
 import { extractTags } from "../../shared/tags";
@@ -22,6 +42,32 @@ export const notebookColorOptions = [
   "#c18a3d",
   "#c45b73",
 ];
+
+export const notebookIconOptions = [
+  { id: "folder", label: "文件夹", icon: Folder },
+  { id: "book", label: "书本", icon: Book },
+  { id: "bookmark", label: "书签", icon: Bookmark },
+  { id: "file-text", label: "文档", icon: FileText },
+  { id: "tag", label: "标签", icon: Tag },
+  { id: "star", label: "星标", icon: Star },
+  { id: "heart", label: "红心", icon: Heart },
+  { id: "sparkles", label: "火花", icon: Sparkles },
+  { id: "lightbulb", label: "灵感", icon: Lightbulb },
+  { id: "compass", label: "探索", icon: Compass },
+  { id: "code", label: "代码", icon: Code },
+  { id: "terminal", label: "终端", icon: Terminal },
+  { id: "briefcase", label: "工作", icon: Briefcase },
+  { id: "graduation-cap", label: "学业", icon: GraduationCap },
+  { id: "palette", label: "艺术", icon: Palette },
+  { id: "smile", label: "生活", icon: Smile },
+] as const;
+
+export type NotebookIconId = (typeof notebookIconOptions)[number]["id"];
+
+export function getNotebookIconComponent(iconId?: string) {
+  const matched = notebookIconOptions.find((opt) => opt.id === iconId);
+  return matched ? matched.icon : Folder;
+}
 
 export type NoteDraft = Pick<Note, "id" | "version" | "title" | "contentMarkdown" | "notebookId" | "isFavorite" | "deletedAt">;
 

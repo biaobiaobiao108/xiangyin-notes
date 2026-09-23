@@ -581,15 +581,15 @@ export function Workspace() {
     }
     setEditingNotebook(undefined);
   }, [editingNotebook]);
-  const saveNotebookDraft = useCallback(async (draft: { name: string; color: string }) => {
+  const saveNotebookDraft = useCallback(async (draft: { name: string; color: string; icon: string }) => {
     const existing = editingNotebook ?? undefined;
     const timestamp = Math.floor(Date.now() / 1000);
     const notebook: Notebook = existing
-      ? { ...existing, name: draft.name, color: draft.color }
-      : { id: crypto.randomUUID(), name: draft.name, color: draft.color, isSystem: false, count: 0, updatedAt: timestamp };
+      ? { ...existing, name: draft.name, color: draft.color, icon: draft.icon }
+      : { id: crypto.randomUUID(), name: draft.name, color: draft.color, icon: draft.icon, isSystem: false, count: 0, updatedAt: timestamp };
     const result = existing
-      ? await api.updateNotebook(notebook.id, { name: notebook.name, color: notebook.color })
-      : await api.createNotebook({ name: notebook.name, color: notebook.color });
+      ? await api.updateNotebook(notebook.id, { name: notebook.name, color: notebook.color, icon: notebook.icon })
+      : await api.createNotebook({ name: notebook.name, color: notebook.color, icon: notebook.icon });
     return result.notebook;
   }, [editingNotebook]);
   const deleteNotebook = useCallback(async (id: string) => {
@@ -1182,19 +1182,17 @@ export function Workspace() {
           updateNoteSelection(nextSelection);
         }}
         view={view}
+        currentNotebookName={currentNotebook?.name}
         query={query}
         onClearQuery={handleClearQuery}
         notebooks={notebooks}
         onToggleFavoriteNote={handleToggleFavoriteCardNote}
-        onMoveNoteToTrash={handleMoveCardNoteToTrash}
-        onRestoreNote={handleRestoreCardNote}
-        onPermanentDeleteNote={handlePermanentDeleteCardNote}
         onLoadMore={loadMoreNotes}
         isLoadingMore={isLoadingMore}
       />
     ) : (
       <main className="editor-region">
-        {renderedNote ? <Suspense fallback={<NoteLoadingState />}><LazyNoteEditor note={renderedNote} availableNotes={notes} onNavigateWikiLink={handleNavigateWikiLink} onCreateAndLinkNote={handleCreateAndLinkNote} onNavigateToNote={selectNote} searchQuery={activeSearchQuery} onClearSearch={activeSearchQuery ? handleClearSearch : undefined} saveState={saveState} isLoading={isNoteLoading} trashBusy={emptyingTrash || (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onShare={handleShare} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={handleOpenList} onBackToCards={isCardsLayout ? () => setCardEditingNoteId(null) : undefined} onUploadImage={handleUploadImage} focusMode={focusMode} onToggleFocusMode={toggleFocusMode} typewriterMode={typewriterMode} outlineOpen={outlineOpen} outlineItems={outlineItems} onToggleOutline={toggleOutline} onCloseOutline={closeOutline} onOutlineItemsChange={handleOutlineItemsChange} onOutlineActiveChange={handleOutlineActiveChange} onOutlineNavigationReady={handleOutlineNavigationReady} /></Suspense> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor isTrash={view === "trash"} onNewNote={handleNewNote} onOpenList={handleOpenList} transitionToken={listTransitionToken} />}
+        {renderedNote ? <Suspense fallback={<NoteLoadingState />}><LazyNoteEditor note={renderedNote} availableNotes={notes} onNavigateWikiLink={handleNavigateWikiLink} onCreateAndLinkNote={handleCreateAndLinkNote} onNavigateToNote={selectNote} searchQuery={activeSearchQuery} onClearSearch={activeSearchQuery ? handleClearSearch : undefined} saveState={saveState} isLoading={isNoteLoading} trashBusy={emptyingTrash || (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onShare={handleShare} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={handleOpenList} onBackToCards={isCardsLayout ? () => setCardEditingNoteId(null) : undefined} onUploadImage={handleUploadImage} focusMode={focusMode} onToggleFocusMode={toggleFocusMode} typewriterMode={typewriterMode} outlineOpen={outlineOpen} outlineItems={outlineItems} activeOutlineId={activeOutlineId} onToggleOutline={toggleOutline} onCloseOutline={closeOutline} onOutlineItemsChange={handleOutlineItemsChange} onOutlineActiveChange={handleOutlineActiveChange} onOutlineNavigationReady={handleOutlineNavigationReady} /></Suspense> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor isTrash={view === "trash"} onNewNote={handleNewNote} onOpenList={handleOpenList} transitionToken={listTransitionToken} />}
       </main>
     )}
     <CommandMenu open={commandOpen} onClose={closeCommandMenu} onCommand={command} onCreateNoteInNotebook={createNoteInNotebook} canRestore={Boolean(commandNoteReady && renderedNote?.deletedAt)} canMoveToTrash={Boolean(commandNoteReady && renderedNote && !renderedNote.deletedAt)} notebooks={notebooks} currentNotebookId={renderedNote?.notebookId} onMoveNoteToNotebook={(targetNotebookId) => onNoteChange({ notebookId: targetNotebookId })} focusMode={focusMode} typewriterMode={typewriterMode} viewLayout={viewLayout} canInstallApp={pwaState.canInstall} showIosInstallHint={pwaState.showIosInstallHint} standalone={pwaState.standalone} hasSelectedNote={commandNoteReady} onSearchInCurrentNote={handleSearchInCurrentNote} initialQuery={commandInitialQuery} />

@@ -23,6 +23,7 @@ import { TagDecorationExtension } from "./editor/tag-decoration";
 import { BacklinksDialog } from "./editor/backlinks-panel";
 import { WikiLinkNode } from "./editor/wiki-link-node";
 import { WikiLinkSuggestionExtension } from "./editor/wiki-link-suggestion";
+import { NoteOutlinePanel } from "./workspace/panels";
 
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
 type SaveState = "idle" | "saving" | "saved" | "conflict" | "error";
@@ -75,7 +76,7 @@ async function imageDimensions(file: File) {
   }
 }
 
-export function NoteEditor({ note, searchQuery = "", saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList, onBackToCards, onUploadImage, focusMode = false, onToggleFocusMode, onClearSearch, typewriterMode = false, outlineOpen, outlineItems, onToggleOutline, onCloseOutline, onOutlineItemsChange, onOutlineActiveChange, onOutlineNavigationReady, availableNotes = [], onNavigateWikiLink, onCreateAndLinkNote, onNavigateToNote }: {
+export function NoteEditor({ note, searchQuery = "", saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList, onBackToCards, onUploadImage, focusMode = false, onToggleFocusMode, onClearSearch, typewriterMode = false, outlineOpen, outlineItems, activeOutlineId, onToggleOutline, onCloseOutline, onOutlineItemsChange, onOutlineActiveChange, onOutlineNavigationReady, availableNotes = [], onNavigateWikiLink, onCreateAndLinkNote, onNavigateToNote }: {
   note: Note;
   searchQuery?: string;
   saveState: SaveState;
@@ -101,6 +102,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   typewriterMode?: boolean;
   outlineOpen: boolean;
   outlineItems: OutlineItem[];
+  activeOutlineId?: string | null;
   onToggleOutline: () => void;
   onCloseOutline: () => void;
   onOutlineItemsChange: (items: OutlineItem[]) => void;
@@ -1240,6 +1242,17 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
           onNavigateToNote={onNavigateToNote}
           onBacklinkCountChange={setBacklinkCount}
         />
+      )}
+      {onBackToCards && outlineOpen && (
+        <aside className="editor-floating-outline" aria-label="悬浮笔记大纲">
+          <NoteOutlinePanel
+            outlineItems={outlineItems}
+            activeOutlineId={activeOutlineId ?? null}
+            onScrollToOutlineItem={scrollToOutlineItem}
+            onCloseOutline={onCloseOutline}
+            isFloating
+          />
+        </aside>
       )}
     </section>
   );

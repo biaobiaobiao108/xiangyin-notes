@@ -3,7 +3,7 @@ import { AlertTriangle, Check, Clock3, Copy, FileText, Folder, Link2, Plus, Refr
 import { ApiError, api } from "../api";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import type { Note, Notebook, Share } from "../../shared/types";
-import { errorMessage, formatDate, notebookColorOptions } from "./helpers";
+import { errorMessage, formatDate, getNotebookIconComponent, notebookColorOptions, notebookIconOptions } from "./helpers";
 
 export type ConfirmRequest = {
   id: number;
@@ -233,11 +233,12 @@ export function ShareDialog({ note, onClose, onToast }: { note: Note; onClose: (
   );
 }
 
-export function NotebookDialog({ notebook, onClose, onSave, onSaved, onRequestDelete, onToast }: { notebook?: Notebook | null; onClose: () => void; onSave: (draft: { name: string; color: string }) => Promise<Notebook>; onSaved: (notebook: Notebook) => void; onRequestDelete?: (notebook: Notebook) => void; onToast: (message: string) => void }) {
+export function NotebookDialog({ notebook, onClose, onSave, onSaved, onRequestDelete, onToast }: { notebook?: Notebook | null; onClose: () => void; onSave: (draft: { name: string; color: string; icon: string }) => Promise<Notebook>; onSaved: (notebook: Notebook) => void; onRequestDelete?: (notebook: Notebook) => void; onToast: (message: string) => void }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState(notebook?.name ?? "");
   const [color, setColor] = useState(notebook?.color ?? "#718077");
+  const [icon, setIcon] = useState(notebook?.icon ?? "folder");
   const [busy, setBusy] = useState(false);
   const isEditing = Boolean(notebook);
   useEffect(() => { const dialog = dialogRef.current; if (!dialog) return; const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null; dialog.showModal(); requestAnimationFrame(() => inputRef.current?.focus()); return () => { if (dialog.open) dialog.close(); if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true }); }; }, []);
@@ -247,7 +248,7 @@ export function NotebookDialog({ notebook, onClose, onSave, onSaved, onRequestDe
     const normalizedColor = color.trim().toLowerCase();
     if (!trimmed) return;
     setBusy(true);
-    try { const saved = await onSave({ name: trimmed, color: normalizedColor }); onSaved(saved); onClose(); } catch (reason) { onToast(errorMessage(reason, isEditing ? "更新笔记本失败" : "创建笔记本失败")); } finally { setBusy(false); }
+    try { const saved = await onSave({ name: trimmed, color: normalizedColor, icon }); onSaved(saved); onClose(); } catch (reason) { onToast(errorMessage(reason, isEditing ? "更新笔记本失败" : "创建笔记本失败")); } finally { setBusy(false); }
   };
   const handleDelete = () => { if (notebook && onRequestDelete) onRequestDelete(notebook); };
   const handleColorKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, index: number) => {
@@ -260,7 +261,19 @@ export function NotebookDialog({ notebook, onClose, onSave, onSaved, onRequestDe
     const nextButton = event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="radio"]')[nextIndex];
     nextButton?.focus();
   };
+  const handleIconKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, index: number) => {
+    const direction = { ArrowRight: 1, ArrowDown: 8, ArrowLeft: -1, ArrowUp: -8 }[event.key as "ArrowRight" | "ArrowDown" | "ArrowLeft" | "ArrowUp"];
+    if (!direction) return;
+    event.preventDefault();
+    const nextIndex = (index + direction + notebookIconOptions.length) % notebookIconOptions.length;
+    const nextOption = notebookIconOptions[nextIndex];
+    setIcon(nextOption.id);
+    const nextButton = event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="radio"]')[nextIndex];
+    nextButton?.focus();
+  };
   const selectedColor = color.toLowerCase();
   const hasPresetColor = notebookColorOptions.includes(selectedColor);
-  return <dialog ref={dialogRef} className="notebook-dialog" aria-labelledby="notebook-dialog-title" aria-describedby="notebook-dialog-description" onCancel={(event) => { event.preventDefault(); onClose(); }}><form onSubmit={(event) => void submit(event)}><div className="dialog-heading"><div><span className="dialog-eyebrow"><Folder size={15} />整理上下文</span><h2 id="notebook-dialog-title">{isEditing ? "编辑笔记本" : "新建笔记本"}</h2><p id="notebook-dialog-description">{isEditing ? "修改笔记本名称或管理该分类。" : "给一组想法一个清晰的落点。"}</p></div><button className="icon-button" type="button" aria-label="关闭新建笔记本窗口" onClick={onClose}><X size={18} /></button></div><label className="dialog-field"><span>名称</span><input ref={inputRef} value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：项目资料" maxLength={40} autoComplete="off" /></label><fieldset className="notebook-color-field"><legend>颜色</legend><div className="notebook-color-options" role="radiogroup" aria-label="选择笔记本颜色">{notebookColorOptions.map((option, index) => <button key={option} className="notebook-color-option" type="button" role="radio" tabIndex={selectedColor === option || (!hasPresetColor && index === 0) ? 0 : -1} aria-checked={selectedColor === option} aria-label={`选择颜色 ${option}`} onKeyDown={(event) => handleColorKeyDown(event, index)} onClick={() => setColor(option)}><span className="notebook-color-swatch" style={{ backgroundColor: option }} /></button>)}</div></fieldset><div className="dialog-actions">{isEditing && !notebook?.isSystem && onRequestDelete && <button className="text-button text-danger" type="button" onClick={handleDelete} disabled={busy} style={{ marginRight: "auto" }}>删除笔记本</button>}<button className="secondary-button" type="button" onClick={onClose}>取消</button><button className="primary-button" type="submit" disabled={busy || !name.trim()}>{busy ? "正在保存……" : isEditing ? "保存修改" : "创建笔记本"}</button></div></form></dialog>;
+  const SelectedIcon = getNotebookIconComponent(icon);
+
+  return <dialog ref={dialogRef} className="notebook-dialog" aria-labelledby="notebook-dialog-title" aria-describedby="notebook-dialog-description" onCancel={(event) => { event.preventDefault(); onClose(); }}><form onSubmit={(event) => void submit(event)}><div className="dialog-heading"><div><span className="dialog-eyebrow"><SelectedIcon size={15} style={{ color: selectedColor }} />整理上下文</span><h2 id="notebook-dialog-title">{isEditing ? "编辑笔记本" : "新建笔记本"}</h2><p id="notebook-dialog-description">{isEditing ? "修改笔记本名称、图标与颜色。" : "给一组想法一个清晰的落点。"}</p></div><button className="icon-button" type="button" aria-label="关闭新建笔记本窗口" onClick={onClose}><X size={18} /></button></div><label className="dialog-field"><span>名称</span><input ref={inputRef} value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：项目资料" maxLength={40} autoComplete="off" /></label><fieldset className="notebook-icon-field"><legend>图标</legend><div className="notebook-icon-options" role="radiogroup" aria-label="选择笔记本图标">{notebookIconOptions.map((option, index) => { const IconComponent = option.icon; const isSelected = icon === option.id; return <button key={option.id} className={`notebook-icon-option ${isSelected ? "is-selected" : ""}`} type="button" role="radio" tabIndex={isSelected ? 0 : -1} aria-checked={isSelected} aria-label={`选择图标 ${option.label}`} onKeyDown={(event) => handleIconKeyDown(event, index)} onClick={() => setIcon(option.id)}><IconComponent size={18} style={isSelected ? { color: selectedColor } : undefined} /></button>; })}</div></fieldset><fieldset className="notebook-color-field"><legend>颜色</legend><div className="notebook-color-options" role="radiogroup" aria-label="选择笔记本颜色">{notebookColorOptions.map((option, index) => <button key={option} className="notebook-color-option" type="button" role="radio" tabIndex={selectedColor === option || (!hasPresetColor && index === 0) ? 0 : -1} aria-checked={selectedColor === option} aria-label={`选择颜色 ${option}`} onKeyDown={(event) => handleColorKeyDown(event, index)} onClick={() => setColor(option)}><span className="notebook-color-swatch" style={{ backgroundColor: option }} /></button>)}</div></fieldset><div className="dialog-actions">{isEditing && !notebook?.isSystem && onRequestDelete && <button className="text-button text-danger" type="button" onClick={handleDelete} disabled={busy} style={{ marginRight: "auto" }}>删除笔记本</button>}<button className="secondary-button" type="button" onClick={onClose}>取消</button><button className="primary-button" type="submit" disabled={busy || !name.trim()}>{busy ? "正在保存……" : isEditing ? "保存修改" : "创建笔记本"}</button></div></form></dialog>;
 }

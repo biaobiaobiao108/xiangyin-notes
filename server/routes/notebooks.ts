@@ -18,10 +18,20 @@ type NotebookRowWithCount = {
   user_id: string;
   name: string;
   color: string;
+  icon?: string | null;
   is_system: number;
   updated_at: number;
   count: number;
 };
+
+export const VALID_NOTEBOOK_ICONS = [
+  "folder", "book", "bookmark", "file-text", "tag", "star", "heart", "sparkles",
+  "lightbulb", "compass", "code", "terminal", "briefcase", "graduation-cap", "palette", "smile"
+] as const;
+
+export function validNotebookIcon(value: unknown): value is string {
+  return typeof value === "string" && (VALID_NOTEBOOK_ICONS as readonly string[]).includes(value);
+}
 
 export function validColor(value: unknown) {
   return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value);
@@ -32,6 +42,7 @@ export function toNotebook(row: NotebookRowWithCount): Notebook {
     id: row.id,
     name: row.name,
     color: row.color,
+    icon: row.icon || "folder",
     isSystem: Boolean(row.is_system),
     count: Number(row.count),
     updatedAt: row.updated_at,
@@ -40,7 +51,7 @@ export function toNotebook(row: NotebookRowWithCount): Notebook {
 
 export function getNotebook(database: SqliteDatabase, userId: string, notebookId: string) {
   return first<NotebookRowWithCount>(database, `
-    SELECT b.id, b.name, b.color, b.is_system, b.updated_at,
+    SELECT b.id, b.name, b.color, b.icon, b.is_system, b.updated_at,
       (SELECT COUNT(*) FROM notes n WHERE n.notebook_id = b.id AND n.user_id = b.user_id AND n.deleted_at IS NULL) AS count
     FROM notebooks b WHERE b.id = ? AND b.user_id = ?
   `, notebookId, userId);
@@ -56,7 +67,7 @@ export async function handleNotebooksRoute(ctx: RouteContext, user: UserRow): Pr
 
   if (!id && method === "GET") {
     const rows = all<NotebookRowWithCount>(database, `
-      SELECT b.id, b.name, b.color, b.is_system, b.updated_at,
+      SELECT b.id, b.name, b.color, b.icon, b.is_system, b.updated_at,
         (SELECT COUNT(*) FROM notes n WHERE n.notebook_id = b.id AND n.user_id = b.user_id AND n.deleted_at IS NULL) AS count
       FROM notebooks b WHERE b.user_id = ? ORDER BY b.sort_order, b.name
     `, user.id);
@@ -64,7 +75,7 @@ export async function handleNotebooksRoute(ctx: RouteContext, user: UserRow): Pr
   }
 
   if (!id && method === "POST") {
-    const payload = await readJson<{ name?: unknown; color?: unknown }>(request, 64 * 1024);
+    const payload = await readJson<{ name?: unknown; color?: unknown; icon?: unknown }>(request, 64 * 1024);
     if (!payload || !validText(payload.name, 40) || !(payload.name as string).trim()) {
       return jsonError(400, "INVALID_NOTEBOOK", "请输入笔记本名称");
     }
@@ -72,8 +83,10 @@ export async function handleNotebooksRoute(ctx: RouteContext, user: UserRow): Pr
     const createdAt = now();
     const color = payload.color === undefined ? "#718077" : payload.color;
     if (!validColor(color)) return jsonError(400, "INVALID_NOTEBOOK", "请输入有效的六位十六进制颜色");
+    const icon = payload.icon === undefined ? "folder" : payload.icon;
+    if (!validNotebookIcon(icon)) return jsonError(400, "INVALID_NOTEBOOK", "请输入有效的笔记本图标");
     try {
-      database.query("INSERT INTO notebooks (id, user_id, name, color, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, 10, ?, ?)").run(notebookId, user.id, (payload.name as string).trim(), color as string, createdAt, createdAt);
+      database.query("INSERT INTO notebooks (id, user_id, name, color, icon, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 10, ?, ?)").run(notebookId, user.id, (payload.name as string).trim(), color as string, icon as string, createdAt, createdAt);
     } catch {
       return jsonError(409, "NOTEBOOK_EXISTS", "已经有同名笔记本");
     }
@@ -85,14 +98,15 @@ export async function handleNotebooksRoute(ctx: RouteContext, user: UserRow): Pr
   if (id && method === "PATCH") {
     const current = getNotebook(database, user.id, id);
     if (!current) return jsonError(404, "NOTEBOOK_NOT_FOUND", "笔记本不存在");
-    const payload = await readJson<{ name?: unknown; color?: unknown }>(request, 64 * 1024);
+    const payload = await readJson<{ name?: unknown; color?: unknown; icon?: unknown }>(request, 64 * 1024);
     const name = payload?.name === undefined ? current.name : payload.name;
     const color = payload?.color === undefined ? current.color : payload.color;
-    if (!validText(name, 40) || !(name as string).trim() || !validColor(color)) {
-      return jsonError(400, "INVALID_NOTEBOOK", "笔记本名称或颜色无效");
+    const icon = payload?.icon === undefined ? (current.icon || "folder") : payload.icon;
+    if (!validText(name, 40) || !(name as string).trim() || !validColor(color) || !validNotebookIcon(icon)) {
+      return jsonError(400, "INVALID_NOTEBOOK", "笔记本名称、颜色或图标无效");
     }
     try {
-      database.query("UPDATE notebooks SET name = ?, color = ?, updated_at = ? WHERE id = ? AND user_id = ?").run((name as string).trim(), color as string, now(), current.id, user.id);
+      database.query("UPDATE notebooks SET name = ?, color = ?, icon = ?, updated_at = ? WHERE id = ? AND user_id = ?").run((name as string).trim(), color as string, icon as string, now(), current.id, user.id);
     } catch {
       return jsonError(409, "NOTEBOOK_EXISTS", "已经有同名笔记本");
     }

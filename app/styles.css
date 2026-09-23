@@ -117,6 +117,12 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .sidebar-collapsed .brand-row { flex-direction: column; justify-content: center; gap: 10px; }
 .sidebar-collapsed .collapse-button { display: inline-grid; margin-left: 0; }
 .sidebar-collapsed .nav-item { justify-content: center; padding-inline: 0; }
+.collapsed-notebook-list { display: none; }
+.sidebar-collapsed .collapsed-notebook-list { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; overflow-y: auto; max-height: calc(100dvh - 340px); }
+.collapsed-notebook-divider { width: 24px; height: 1px; background: var(--border-strong); margin: 6px 0; opacity: 0.6; }
+.collapsed-notebook-item { width: 38px; height: 38px; border-radius: 9px; position: relative; display: inline-grid; place-items: center; }
+.collapsed-notebook-item.is-active { background: var(--surface); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08); }
+.notebook-custom-icon { flex: none; }
 
 .list-header, .editor-header { height: 64px; min-height: 64px; }
 .list-header { justify-content: space-between; padding: 0 20px; border-bottom: 1px solid var(--border); }
@@ -1037,6 +1043,12 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
 .dialog-eyebrow.is-danger { color: #c34b35; }
 .primary-button.danger-primary { background: #c34b35; box-shadow: 0 6px 18px rgba(195, 75, 53, 0.22); }
 .primary-button.danger-primary:hover { background: #a63c28; }
+.notebook-icon-field { display: grid; gap: 10px; margin: 0 24px 18px; padding: 0; border: 0; color: var(--ink); font-size: 0.78rem; font-weight: 600; }
+.notebook-icon-field legend { padding: 0; }
+.notebook-icon-options { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 6px; width: 100%; }
+.notebook-icon-option { display: grid; width: 100%; max-width: 36px; aspect-ratio: 1; place-items: center; justify-self: center; min-width: 0; padding: 0; border: 1px solid transparent; border-radius: 9px; background: transparent; color: var(--muted); cursor: pointer; transition: all var(--motion-fast) ease; }
+.notebook-icon-option:hover { background: var(--surface-muted); color: var(--ink); }
+.notebook-icon-option[aria-checked="true"] { border-color: #bad3c5; background: var(--accent-soft); box-shadow: 0 0 0 2px rgba(54, 94, 78, 0.08); }
 .notebook-color-field { display: grid; gap: 10px; margin: 0 24px 22px; padding: 0; border: 0; color: var(--ink); font-size: 0.78rem; font-weight: 600; }
 .notebook-color-field legend { padding: 0; }
 .notebook-color-options { display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 8px; width: 100%; }
@@ -1816,6 +1828,16 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
 .app-shell.layout-cards.sidebar-collapsed {
   grid-template-columns: 72px minmax(0, 1fr);
 }
+.app-shell.layout-cards.is-focus-mode {
+  grid-template-columns: 0px minmax(0, 1fr);
+}
+.app-shell.layout-cards.is-focus-mode .sidebar {
+  transform: translateX(-36px);
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  border-right-color: transparent;
+}
 .app-shell.layout-cards .editor-region {
   grid-column: 2;
 }
@@ -1826,7 +1848,7 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
   flex-direction: column;
   min-height: 0;
   height: 100dvh;
-  background: var(--canvas);
+  background: var(--surface);
   overflow: hidden;
 }
 
@@ -1968,6 +1990,7 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
 .note-card-footer {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
   margin-top: 4px;
   padding-top: 8px;
@@ -1976,89 +1999,141 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
   border-top: 1px dashed var(--border);
 }
 
-.note-card-date {
-  white-space: nowrap;
+.note-card-footer-leading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .note-card-notebook-badge {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 2px 7px;
-  border-radius: 6px;
-  background: var(--surface-muted);
   color: var(--ink);
-  font-size: 0.72rem;
-  max-width: 100px;
-  overflow: hidden;
+  font-size: 0.74rem;
+  font-weight: 500;
   white-space: nowrap;
-  text-overflow: ellipsis;
-  margin-left: auto;
+  flex: none;
 }
 
-.note-card-menu-wrap {
-  position: relative;
-  margin-left: auto;
+.note-card-footer-divider {
+  color: var(--border-strong);
+  font-size: 0.72rem;
+  opacity: 0.7;
+  flex: none;
 }
 
-.note-card-menu-trigger {
-  border: none;
-  background: transparent;
-  padding: 2px;
-  color: var(--soft-muted);
-  border-radius: 4px;
-  cursor: pointer;
-  display: inline-flex;
-  transition: color var(--motion-fast) ease, background-color var(--motion-fast) ease;
-}
-
-.note-card-menu-trigger:hover {
-  color: var(--ink);
-  background: var(--surface-muted);
-}
-
-.note-card-dropdown {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 4px);
-  z-index: 10;
-  min-width: 120px;
-  padding: 4px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow);
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.note-card-dropdown-item {
+.note-card-tags {
   display: flex;
   align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 6px 8px;
-  border: none;
-  background: transparent;
-  border-radius: 4px;
-  font-size: 0.78rem;
-  color: var(--ink);
-  cursor: pointer;
-  text-align: left;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
 }
 
-.note-card-dropdown-item:hover {
+.note-card-tag {
+  color: var(--accent);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.note-card-tag--overflow {
+  color: var(--muted);
+  font-size: 0.68rem;
   background: var(--surface-muted);
+  padding: 0 4px;
+  border-radius: 4px;
 }
 
-.note-card-dropdown-item.text-danger:hover {
-  background: #faeee9;
-  color: var(--h1-color);
+.note-card-date {
+  white-space: nowrap;
+  margin-left: auto;
+  flex: none;
 }
 
 .editor-back-cards {
   margin-right: 4px;
+}
+
+/* Floating outline for card layout */
+.editor-floating-outline {
+  position: absolute;
+  top: 68px;
+  left: 20px;
+  bottom: 24px;
+  width: 250px;
+  max-width: calc(100vw - 40px);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: none;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08), 0 1px 4px rgba(0, 0, 0, 0.04);
+  overflow: hidden;
+  animation: outlineFadeIn var(--motion-fast) ease-out;
+}
+
+.editor-floating-outline .note-outline-panel {
+  background: transparent;
+  border: none;
+  height: 100%;
+}
+
+.editor-floating-outline .floating-outline-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 46px;
+  min-height: 46px;
+  padding: 0 12px 0 16px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.editor-floating-outline .floating-outline-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.editor-floating-outline .floating-outline-count {
+  font-size: 0.72rem;
+  color: var(--soft-muted);
+  font-weight: 400;
+}
+
+.editor-floating-outline .note-outline-scroll {
+  padding: 12px 14px 20px;
+}
+
+@keyframes outlineFadeIn {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@media (max-width: 768px) {
+  .editor-floating-outline {
+    top: 56px;
+    left: 12px;
+    right: 12px;
+    width: auto;
+    max-width: none;
+    bottom: 20px;
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.16);
+  }
 }
 
 .card-grid-empty {

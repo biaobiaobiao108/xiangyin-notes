@@ -1,22 +1,20 @@
 import {
   memo,
-  useEffect,
   useMemo,
   useRef,
-  useState,
   type MouseEvent as ReactMouseEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import {
   Archive,
-  MoreHorizontal,
   Search,
   Star,
-  Trash2,
 } from "lucide-react";
 import type { NoteSort, NoteSummary, NoteView, Notebook } from "../../shared/types";
 import { FloatingScrollbar } from "../floating-scrollbar";
-import { relativeDate, sortNotes } from "./helpers";
+import { getNoteTags, relativeDate, sortNotes } from "./helpers";
+
+const NOTE_TAG_DISPLAY_LIMIT = 3;
 
 export type NoteCardGridPanelProps = {
   notes: NoteSummary[];
@@ -27,13 +25,11 @@ export type NoteCardGridPanelProps = {
   onOpenNote: (id: string) => void;
   onToggleSelectNote: (id: string, event: ReactMouseEvent) => void;
   view: NoteView;
+  currentNotebookName?: string;
   query: string;
   onClearQuery: () => void;
   notebooks: Notebook[];
   onToggleFavoriteNote: (note: NoteSummary) => void;
-  onMoveNoteToTrash: (note: NoteSummary) => void;
-  onRestoreNote: (note: NoteSummary) => void;
-  onPermanentDeleteNote: (note: NoteSummary) => void;
   onLoadMore?: () => void;
   isLoadingMore?: boolean;
 };
@@ -47,19 +43,18 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
   onOpenNote,
   onToggleSelectNote,
   view,
+  currentNotebookName,
   query,
   onClearQuery,
   notebooks,
   onToggleFavoriteNote,
-  onMoveNoteToTrash,
-  onRestoreNote,
-  onPermanentDeleteNote,
   onLoadMore,
   isLoadingMore = false,
 }: NoteCardGridPanelProps) {
   const gridScrollRef = useRef<HTMLDivElement>(null);
   const sortedNotes = useMemo(() => sortNotes(notes, sort), [notes, sort]);
   const isTrashView = view === "trash";
+  const showNotebook = !currentNotebookName && view !== "inbox";
 
   return (
     <section className="note-card-grid-panel" aria-label="笔记卡片网格">
@@ -79,12 +74,10 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
                   note={note}
                   isSelected={selectedIds.has(note.id)}
                   hasSelectionActive={selectedIds.size > 0}
+                  showNotebook={showNotebook}
                   onOpen={() => onOpenNote(note.id)}
                   onToggleSelect={(e) => onToggleSelectNote(note.id, e)}
                   onToggleFavorite={() => onToggleFavoriteNote(note)}
-                  onMoveToTrash={() => onMoveNoteToTrash(note)}
-                  onRestore={() => onRestoreNote(note)}
-                  onPermanentDelete={() => onPermanentDeleteNote(note)}
                   notebooks={notebooks}
                   isTrashView={isTrashView}
                 />
@@ -143,12 +136,10 @@ type NoteCardItemProps = {
   note: NoteSummary;
   isSelected: boolean;
   hasSelectionActive: boolean;
+  showNotebook: boolean;
   onOpen: () => void;
   onToggleSelect: (event: ReactMouseEvent) => void;
   onToggleFavorite: () => void;
-  onMoveToTrash: () => void;
-  onRestore: () => void;
-  onPermanentDelete: () => void;
   notebooks: Notebook[];
   isTrashView: boolean;
 };
@@ -157,29 +148,13 @@ const NoteCardItem = memo(function NoteCardItem({
   note,
   isSelected,
   hasSelectionActive,
+  showNotebook,
   onOpen,
   onToggleSelect,
   onToggleFavorite,
-  onMoveToTrash,
-  onRestore,
-  onPermanentDelete,
   notebooks,
   isTrashView,
 }: NoteCardItemProps) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onPointerDown = (event: PointerEvent) => {
-      if (event.target instanceof Node && !menuRef.current?.contains(event.target)) {
-        setMenuOpen(false);
-      }
-    };
-    document.addEventListener("pointerdown", onPointerDown, true);
-    return () => document.removeEventListener("pointerdown", onPointerDown, true);
-  }, [menuOpen]);
-
   const handleCardClick = (event: ReactMouseEvent) => {
     if (event.metaKey || event.ctrlKey || hasSelectionActive) {
       event.preventDefault();
@@ -194,14 +169,11 @@ const NoteCardItem = memo(function NoteCardItem({
     onToggleFavorite();
   };
 
-  const handleMenuClick = (event: ReactMouseEvent) => {
-    event.stopPropagation();
-    setMenuOpen((open) => !open);
-  };
-
   const displayTitle = note.title.trim() || "未命名笔记";
   const hasThumbnail = Boolean(note.thumbnail?.id);
   const displayNotebook = notebooks.find((nb) => nb.id === note.notebookId);
+  const tags = getNoteTags(note);
+  const visibleTags = tags.slice(0, NOTE_TAG_DISPLAY_LIMIT);
 
   return (
     <article
@@ -257,97 +229,35 @@ const NoteCardItem = memo(function NoteCardItem({
           <p className="note-card-preview-empty">无正文内容</p>
         )}
 
-        {/* 卡片底部元信息栏 */}
+        {/* 卡片底部元信息栏：与列表视图保持统一 */}
         <div className="note-card-footer">
-          <span className="note-card-date">{relativeDate(note.updatedAt)}</span>
-
-          {displayNotebook && (
-            <span className="note-card-notebook-badge">
-              <span
-                className="notebook-color-dot"
-                style={{ backgroundColor: displayNotebook.color }}
-                aria-hidden="true"
-              />
-              <span className="notebook-badge-name">{displayNotebook.name}</span>
-            </span>
-          )}
-
-          {/* 快捷操作菜单 */}
-          <div className="note-card-menu-wrap" ref={menuRef}>
-            <button
-              type="button"
-              className="note-card-menu-trigger"
-              onClick={handleMenuClick}
-              aria-label="更多操作"
-              aria-expanded={menuOpen}
-            >
-              <MoreHorizontal size={15} />
-            </button>
-
-            {menuOpen && (
-              <div className="note-card-dropdown" role="menu">
-                {!isTrashView ? (
-                  <>
-                    <button
-                      type="button"
-                      className="note-card-dropdown-item"
-                      role="menuitem"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setMenuOpen(false);
-                        onToggleFavorite();
-                      }}
-                    >
-                      <Star size={14} fill={note.isFavorite ? "currentColor" : "none"} />
-                      <span>{note.isFavorite ? "取消收藏" : "收藏笔记"}</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="note-card-dropdown-item text-danger"
-                      role="menuitem"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setMenuOpen(false);
-                        onMoveToTrash();
-                      }}
-                    >
-                      <Trash2 size={14} />
-                      <span>移入回收站</span>
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      className="note-card-dropdown-item"
-                      role="menuitem"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setMenuOpen(false);
-                        onRestore();
-                      }}
-                    >
-                      <Archive size={14} />
-                      <span>恢复笔记</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="note-card-dropdown-item text-danger"
-                      role="menuitem"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setMenuOpen(false);
-                        onPermanentDelete();
-                      }}
-                    >
-                      <Trash2 size={14} />
-                      <span>彻底删除</span>
-                    </button>
-                  </>
+          <div className="note-card-footer-leading">
+            {showNotebook && displayNotebook && (
+              <span className="note-card-notebook-badge">
+                <span
+                  className="notebook-color-dot"
+                  style={{ backgroundColor: displayNotebook.color }}
+                  aria-hidden="true"
+                />
+                <span className="notebook-badge-name">{displayNotebook.name}</span>
+              </span>
+            )}
+            {showNotebook && displayNotebook && visibleTags.length > 0 && (
+              <span className="note-card-footer-divider" aria-hidden="true">·</span>
+            )}
+            {visibleTags.length > 0 && (
+              <span className="note-card-tags" aria-label={`标签：${tags.map((tag) => `#${tag}`).join("、")}`}>
+                {visibleTags.map((tag) => (
+                  <span className="note-card-tag" key={tag}>#{tag}</span>
+                ))}
+                {tags.length > visibleTags.length && (
+                  <span className="note-card-tag note-card-tag--overflow">+{tags.length - visibleTags.length}</span>
                 )}
-              </div>
+              </span>
             )}
           </div>
+
+          <time className="note-card-date">{relativeDate(note.updatedAt)}</time>
         </div>
       </div>
     </article>

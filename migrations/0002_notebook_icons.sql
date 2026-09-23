@@ -1,0 +1,1 @@
+ALTER TABLE notebooks ADD COLUMN icon TEXT NOT NULL DEFAULT 'folder';
