@@ -1133,10 +1133,8 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
             </button>
           )}
           {onOpenList && <button className="icon-button mobile-only editor-back" type="button" aria-label="返回笔记列表" onClick={onOpenList} disabled={editorLocked}><ChevronLeft size={20} /></button>}
-          <div className="editor-meta" aria-label={`最后编辑于${relativeDate(note.updatedAt)}，${editorStats.wordCount} 字`}>
+          <div className="editor-meta" aria-label={`最后编辑于${relativeDate(note.updatedAt)}`}>
             <span>最后编辑于 {relativeDate(note.updatedAt)}</span>
-            <span aria-hidden="true">·</span>
-            <strong>{editorStats.wordCount} 字</strong>
           </div>
         </div>
         <div className="editor-header-title" title={note.title.trim() || "未命名笔记"} aria-label={`当前文档：${note.title.trim() || "未命名笔记"}`}>
