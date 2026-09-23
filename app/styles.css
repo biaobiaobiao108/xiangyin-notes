@@ -56,15 +56,60 @@ button:disabled { cursor: not-allowed; opacity: 0.52; }
   max-height: 100dvh;
   overflow: clip;
   background: var(--canvas);
+  transition: grid-template-columns var(--motion-layout) var(--motion-ease-out);
 }
 .app-shell.sidebar-collapsed { grid-template-columns: 72px minmax(300px, 360px) minmax(0, 1fr); }
-.app-shell.is-focus-mode { grid-template-columns: 0px 0px minmax(0, 1fr); }
+.app-shell.is-focus-mode { grid-template-columns: 0px minmax(0px, 0px) minmax(0, 1fr); }
 .sidebar, .note-list-panel, .editor-region { min-width: 0; min-height: 0; }
-.sidebar { grid-column: 1; display: flex; flex-direction: column; gap: 18px; padding: 22px 16px 18px; background: var(--canvas); border-right: 1px solid var(--border); overflow: hidden; transition: transform var(--motion-layout) var(--motion-ease-out), opacity var(--motion-panel) ease; }
-.note-list-panel { grid-column: 2; display: flex; flex-direction: column; background: var(--surface); border-right: 1px solid var(--border); overflow: hidden; transition: transform var(--motion-layout) var(--motion-ease-out), opacity var(--motion-panel) ease; }
+.sidebar {
+  grid-column: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 22px 16px 18px;
+  background: var(--canvas);
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+  transition: transform var(--motion-layout) var(--motion-ease-out),
+              opacity var(--motion-panel) ease,
+              border-color var(--motion-panel) ease,
+              visibility 0s linear 0s;
+}
+.note-list-panel {
+  grid-column: 2;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+  transition: transform var(--motion-layout) var(--motion-ease-out),
+              opacity var(--motion-panel) ease,
+              border-color var(--motion-panel) ease,
+              visibility 0s linear 0s;
+}
 .editor-region { grid-column: 3; min-height: 0; overflow: hidden; background: var(--surface); }
-.app-shell.is-focus-mode .sidebar { transform: translateX(-36px); opacity: 0; pointer-events: none; visibility: hidden; border-right-color: transparent; }
-.app-shell.is-focus-mode .note-list-panel { transform: translateX(-48px); opacity: 0; pointer-events: none; visibility: hidden; border-right-color: transparent; }
+.app-shell.is-focus-mode .sidebar {
+  transform: translateX(-24px);
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  border-right-color: transparent;
+  transition: transform var(--motion-layout) var(--motion-ease-out),
+              opacity var(--motion-panel) ease,
+              border-color var(--motion-panel) ease,
+              visibility 0s linear var(--motion-layout);
+}
+.app-shell.is-focus-mode .note-list-panel {
+  transform: translateX(-32px);
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  border-right-color: transparent;
+  transition: transform var(--motion-layout) var(--motion-ease-out),
+              opacity var(--motion-panel) ease,
+              border-color var(--motion-panel) ease,
+              visibility 0s linear var(--motion-layout);
+}
 
 .brand-row, .editor-header, .editor-header-start, .editor-actions, .list-header, .dialog-heading, .share-header { display: flex; align-items: center; }
 .brand-row { min-height: 36px; gap: 10px; }
@@ -289,7 +334,13 @@ button.save-status:hover { text-decoration: underline; }
 .trashed-banner button { font-weight: 600; text-decoration: underline; }
 .editor-scroll-shell { position: relative; flex: 1 1 0; min-height: 0; overflow: hidden; }
 .editor-scroll { height: 100%; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
-.editor-document { width: min(820px, calc(100% - 96px)); margin: 0 auto; padding: 72px 0 128px; }
+.editor-document {
+  width: min(820px, calc(100% - 96px));
+  margin: 0 auto;
+  padding: 72px 0 128px;
+  transition: width var(--motion-layout) var(--motion-ease-out),
+              padding var(--motion-layout) var(--motion-ease-out);
+}
 .editor-scroll.is-typewriter-mode .editor-document { padding-bottom: max(50vh, 260px); }
 .editor-document--entering { animation: note-fade-in var(--motion-content) var(--motion-ease-out) both; }
 @keyframes page-content-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
@@ -1134,7 +1185,7 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
 @media (max-width: 1180px) {
   .app-shell { grid-template-columns: 232px minmax(280px, 330px) minmax(0, 1fr); }
   .app-shell.sidebar-collapsed { grid-template-columns: 68px minmax(280px, 330px) minmax(0, 1fr); }
-  .app-shell.is-focus-mode { grid-template-columns: 0px 0px minmax(0, 1fr); }
+  .app-shell.is-focus-mode { grid-template-columns: 0px minmax(0px, 0px) minmax(0, 1fr); }
   .editor-header { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 8px; padding-inline: 20px; }
   .editor-header-start .editor-meta { display: none; }
   .editor-actions { gap: 0; }
@@ -1832,11 +1883,15 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
   grid-template-columns: 0px minmax(0, 1fr);
 }
 .app-shell.layout-cards.is-focus-mode .sidebar {
-  transform: translateX(-36px);
+  transform: translateX(-24px);
   opacity: 0;
   pointer-events: none;
   visibility: hidden;
   border-right-color: transparent;
+  transition: transform var(--motion-layout) var(--motion-ease-out),
+              opacity var(--motion-panel) ease,
+              border-color var(--motion-panel) ease,
+              visibility 0s linear var(--motion-layout);
 }
 .app-shell.layout-cards .editor-region {
   grid-column: 2;
