@@ -13,7 +13,7 @@ import { clearAllDraftRecoveries, clearDraftRecovery, readDraftRecovery } from "
 import { EmptyEditor, NoteListPanel, NoteLoadingState, Sidebar } from "./workspace/panels";
 import { NoteCardGridPanel } from "./workspace/note-card-grid";
 import { errorMessage, shouldKeepActiveNoteInList, sortNotes, toNoteDraft, toNoteSummary, type NoteDraft, type NoteSort } from "./workspace/helpers";
-import { applyNoteSelectionClick, pruneNoteSelection, type NoteSelectionState } from "./workspace/note-list-selection";
+import { applyNoteSelectionClick, isNoteSelectionModifierClick, pruneNoteSelection, type NoteSelectionState } from "./workspace/note-list-selection";
 import { normalizeLinkTitle } from "../shared/wiki-links";
 import { useNoteSaveQueue } from "./workspace/use-note-save-queue";
 import { useWorkspaceRealtime } from "./workspace/use-realtime";
@@ -127,6 +127,7 @@ export function Workspace() {
     });
   }, []);
   const [cardEditingNoteId, setCardEditingNoteId] = useState<string | null>(null);
+  const cardGridScrollPositionRef = useRef<{ scope: string; top: number }>({ scope: "", top: 0 });
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [mobileListOpen, setMobileListOpen] = useState(false);
   const toggleOutline = useCallback(() => {
@@ -797,17 +798,26 @@ export function Workspace() {
   }, [clearNoteSelection, loadNotes, notebooks, refreshNotebooks, setToast]);
 
   const handleToggleFavoriteCardNote = useCallback(async (target: NoteSummary) => {
+    const isFavorite = !target.isFavorite;
     try {
-      await api.updateNote(target.id, { version: target.version, isFavorite: !target.isFavorite }, { response: "summary" });
-      replaceList(notesRef.current.map((n) => n.id === target.id ? { ...n, isFavorite: !target.isFavorite } : n));
+      const result = await api.updateNote(target.id, { version: target.version, isFavorite }, { response: "summary" });
+      const patch = {
+        isFavorite: result.note.isFavorite,
+        version: result.note.version,
+        updatedAt: result.note.updatedAt,
+      };
+      replaceList(notesRef.current.map((note) => note.id === target.id ? { ...note, ...patch } : note));
       if (selectedRef.current?.id === target.id) {
-        setSelectedNote({ ...selectedRef.current, isFavorite: !target.isFavorite });
+        const selected = { ...selectedRef.current, ...patch };
+        selectedRef.current = selected;
+        setSelectedNote(selected);
       }
-      setToast(!target.isFavorite ? "已加入收藏" : "已取消收藏");
+      if (view === "favorites" && !patch.isFavorite) removeFromList(target.id);
+      setToast(patch.isFavorite ? "已加入收藏" : "已取消收藏");
     } catch (reason) {
       setToast(errorMessage(reason, "操作失败"));
     }
-  }, [replaceList, setToast]);
+  }, [removeFromList, replaceList, setToast, view]);
 
   const handleMoveCardNoteToTrash = useCallback(async (target: NoteSummary) => {
     try {
@@ -1160,13 +1170,29 @@ export function Workspace() {
       ctrlKey: event.ctrlKey,
       shiftKey: event.shiftKey,
     });
-    const isModifierSelection = event.metaKey || event.ctrlKey || event.shiftKey;
+    const isModifierSelection = isNoteSelectionModifierClick(event);
     if (!isModifierSelection) selectNote(id);
     updateNoteSelection(nextSelection);
     if (isModifierSelection) return;
     setMobileSidebarOpen(false);
     setMobileListOpen(false);
   }, [noteSort, selectNote, updateNoteSelection]);
+  const handleOpenCardNote = useCallback((id: string) => {
+    selectNote(id);
+    setCardEditingNoteId(id);
+  }, [selectNote]);
+  const handleToggleCardSelection = useCallback((id: string, event: ReactMouseEvent) => {
+    const nextSelection = applyNoteSelectionClick(noteSelectionRef.current, sortNotes(notesRef.current, noteSort).map((note) => note.id), {
+      id,
+      metaKey: event.metaKey,
+      ctrlKey: event.ctrlKey,
+      shiftKey: event.shiftKey,
+    });
+    updateNoteSelection(nextSelection);
+  }, [noteSort, updateNoteSelection]);
+  const handleCardGridScrollPositionChange = useCallback((scope: string, top: number) => {
+    cardGridScrollPositionRef.current = { scope, top };
+  }, []);
   const handleNoteSort = useCallback((nextSort: NoteSort) => {
     clearNoteSelection();
     setNoteSort(nextSort);
@@ -1207,29 +1233,24 @@ export function Workspace() {
         hasMore={hasMoreNotes}
         sort={noteSort}
         selectedIds={selectedNoteIds}
-        onOpenNote={(id) => {
-          selectNote(id);
-          setCardEditingNoteId(id);
-        }}
-        onToggleSelectNote={(id, event) => {
-          const nextSelection = applyNoteSelectionClick(noteSelectionRef.current, sortNotes(notesRef.current, noteSort).map((n) => n.id), {
-            id,
-            metaKey: event.metaKey,
-            ctrlKey: event.ctrlKey,
-            shiftKey: event.shiftKey,
-          });
-          updateNoteSelection(nextSelection);
-        }}
+        onOpenNote={handleOpenCardNote}
+        onToggleSelectNote={handleToggleCardSelection}
+        onDeleteSelected={deleteSelectedNotes}
         view={view}
         currentNotebookName={currentNotebook?.name}
         query={query}
         onClearQuery={handleClearQuery}
         notebooks={notebooks}
         onToggleFavoriteNote={handleToggleFavoriteCardNote}
+        onEmptyTrash={view === "trash" ? emptyTrash : undefined}
+        trashBusy={pendingTrashCount > 0 || emptyingTrash}
         transitionToken={listTransitionToken}
         onOpenSidebar={handleOpenSidebar}
         onLoadMore={loadMoreNotes}
         isLoadingMore={isLoadingMore}
+        scrollScope={listScope}
+        initialScrollTop={cardGridScrollPositionRef.current.scope === listScope ? cardGridScrollPositionRef.current.top : 0}
+        onScrollPositionChange={handleCardGridScrollPositionChange}
       />
     ) : (
       <main className="editor-region">

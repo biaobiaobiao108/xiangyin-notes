@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { sortNotes, type NoteSort } from "../app/workspace/helpers";
 import type { NoteSummary } from "../shared/types";
-import { applyNoteSelectionClick } from "../app/workspace/note-list-selection";
+import { applyNoteSelectionClick, isNoteSelectionModifierClick } from "../app/workspace/note-list-selection";
 
 describe("card view & layout", () => {
   const sampleNotes: NoteSummary[] = [
@@ -76,7 +76,7 @@ describe("card view & layout", () => {
     ]);
   });
 
-  test("card selection with modifier keys supports multi-select and batch actions", () => {
+  test("card selection with modifier keys supports multi-select", () => {
     const noteIds = sampleNotes.map((n) => n.id);
     // Click note-1 with Cmd/Ctrl
     const state1 = applyNoteSelectionClick({ ids: new Set(), anchorId: null }, noteIds, {
@@ -102,6 +102,18 @@ describe("card view & layout", () => {
     expect([...state3.ids]).toEqual(["note-2"]);
   });
 
+  test("shift-click is a selection modifier and starts a range when no anchor exists", () => {
+    expect(isNoteSelectionModifierClick({ shiftKey: true })).toBe(true);
+
+    const state = applyNoteSelectionClick({ ids: new Set(), anchorId: null }, sampleNotes.map((note) => note.id), {
+      id: "note-2",
+      shiftKey: true,
+    });
+
+    expect([...state.ids]).toEqual(["note-2"]);
+    expect(state.anchorId).toBe("note-2");
+  });
+
   test("card thumbnail and snippet extraction", () => {
     const withThumb = sampleNotes.find((n) => n.thumbnail);
     expect(withThumb?.thumbnail?.id).toBe("thumb-1");
@@ -117,6 +129,7 @@ describe("card view & layout", () => {
     expect(cssContent).toMatch(/\.note-card\s*\{[^}]*contain-intrinsic-size:\s*auto\s*240px/);
     expect(cssContent).toMatch(/\.note-list-item\s*\{[^}]*content-visibility:\s*auto/);
     expect(cssContent).toMatch(/\.card-masonry\s*\{[^}]*columns:\s*3\s+280px/);
+    const responsiveCardGridRule = cssContent.slice(cssContent.lastIndexOf("@media (max-width: 900px)"));
+    expect(responsiveCardGridRule).toMatch(/\.card-masonry\s*\{[^}]*columns:\s*1\s*[;}]/);
   });
 });
-

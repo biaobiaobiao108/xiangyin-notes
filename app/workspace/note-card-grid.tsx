@@ -12,9 +12,11 @@ import {
   Menu,
   Search,
   Star,
+  Trash2,
 } from "lucide-react";
 import type { NoteSort, NoteSummary, NoteView, Notebook } from "../../shared/types";
 import { FloatingScrollbar } from "../floating-scrollbar";
+import { isNoteSelectionModifierClick } from "./note-list-selection";
 import { getNoteTags, relativeDate, sortNotes } from "./helpers";
 
 const NOTE_TAG_DISPLAY_LIMIT = 3;
@@ -27,16 +29,22 @@ export type NoteCardGridPanelProps = {
   selectedIds: ReadonlySet<string>;
   onOpenNote: (id: string) => void;
   onToggleSelectNote: (id: string, event: ReactMouseEvent) => void;
+  onDeleteSelected: () => void;
   view: NoteView;
   currentNotebookName?: string;
   query: string;
   onClearQuery: () => void;
   notebooks: Notebook[];
   onToggleFavoriteNote: (note: NoteSummary) => void;
+  onEmptyTrash?: () => void;
+  trashBusy?: boolean;
   transitionToken?: number;
   onOpenSidebar?: () => void;
   onLoadMore?: () => void;
   isLoadingMore?: boolean;
+  scrollScope: string;
+  initialScrollTop: number;
+  onScrollPositionChange: (scope: string, scrollTop: number) => void;
 };
 
 export const NoteCardGridPanel = memo(function NoteCardGridPanel({
@@ -47,16 +55,22 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
   selectedIds,
   onOpenNote,
   onToggleSelectNote,
+  onDeleteSelected,
   view,
   currentNotebookName,
   query,
   onClearQuery,
   notebooks,
   onToggleFavoriteNote,
+  onEmptyTrash,
+  trashBusy = false,
   transitionToken,
   onOpenSidebar,
   onLoadMore,
   isLoadingMore = false,
+  scrollScope,
+  initialScrollTop,
+  onScrollPositionChange,
 }: NoteCardGridPanelProps) {
   const panelRef = useRef<HTMLElement>(null);
   const gridScrollRef = useRef<HTMLDivElement>(null);
@@ -72,6 +86,20 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
     void panel.offsetWidth;
     panel.classList.add("is-view-transitioning");
   }, [transitionToken]);
+
+  useLayoutEffect(() => {
+    if (gridScrollRef.current) gridScrollRef.current.scrollTop = initialScrollTop;
+  }, [initialScrollTop, scrollScope]);
+
+  const handleGridKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.defaultPrevented || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+    const target = event.target;
+    if (target instanceof HTMLElement && (target.isContentEditable || target.matches("input, textarea, select"))) return;
+    if ((event.key === "Delete" || event.key === "Backspace") && selectedIds.size > 0) {
+      event.preventDefault();
+      onDeleteSelected();
+    }
+  };
 
   useEffect(() => {
     const sentinel = loadMoreSentinelRef.current;
@@ -116,11 +144,24 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
             <Menu size={20} />
           </button>
         )}
+        {onEmptyTrash && (
+          <button
+            className="text-button text-danger card-grid-empty-trash"
+            type="button"
+            onClick={onEmptyTrash}
+            disabled={trashBusy || total === 0}
+          >
+            <Trash2 size={15} aria-hidden="true" />
+            清空回收站
+          </button>
+        )}
         <div
           id="card-grid-scroll-region"
           ref={gridScrollRef}
-          className="card-grid-container floating-scrollbar-target"
+          className={`card-grid-container floating-scrollbar-target ${onEmptyTrash ? "has-trash-action" : ""}`}
           tabIndex={0}
+          onKeyDown={handleGridKeyDown}
+          onScroll={(event) => onScrollPositionChange(scrollScope, event.currentTarget.scrollTop)}
         >
           {sortedNotes.length > 0 ? (
             <div className="card-masonry" role="list">
@@ -131,9 +172,9 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
                   isSelected={selectedIds.has(note.id)}
                   hasSelectionActive={selectedIds.size > 0}
                   showNotebook={showNotebook}
-                  onOpen={() => onOpenNote(note.id)}
-                  onToggleSelect={(e) => onToggleSelectNote(note.id, e)}
-                  onToggleFavorite={() => onToggleFavoriteNote(note)}
+                  onOpen={onOpenNote}
+                  onToggleSelect={onToggleSelectNote}
+                  onToggleFavorite={onToggleFavoriteNote}
                   notebooks={notebooks}
                   isTrashView={isTrashView}
                 />
@@ -193,9 +234,9 @@ type NoteCardItemProps = {
   isSelected: boolean;
   hasSelectionActive: boolean;
   showNotebook: boolean;
-  onOpen: () => void;
-  onToggleSelect: (event: ReactMouseEvent) => void;
-  onToggleFavorite: () => void;
+  onOpen: (id: string) => void;
+  onToggleSelect: (id: string, event: ReactMouseEvent) => void;
+  onToggleFavorite: (note: NoteSummary) => void;
   notebooks: Notebook[];
   isTrashView: boolean;
 };
@@ -212,17 +253,17 @@ const NoteCardItem = memo(function NoteCardItem({
   isTrashView,
 }: NoteCardItemProps) {
   const handleCardClick = (event: ReactMouseEvent) => {
-    if (event.metaKey || event.ctrlKey || hasSelectionActive) {
+    if (isNoteSelectionModifierClick(event) || hasSelectionActive) {
       event.preventDefault();
-      onToggleSelect(event);
+      onToggleSelect(note.id, event);
       return;
     }
-    onOpen();
+    onOpen(note.id);
   };
 
   const handleStarClick = (event: ReactMouseEvent) => {
     event.stopPropagation();
-    onToggleFavorite();
+    onToggleFavorite(note);
   };
 
   const displayTitle = note.title.trim() || "未命名笔记";
@@ -238,9 +279,10 @@ const NoteCardItem = memo(function NoteCardItem({
       role="listitem"
       tabIndex={0}
       onKeyDown={(event: ReactKeyboardEvent) => {
-        if (event.key === "Enter") {
+        if (event.target !== event.currentTarget) return;
+        if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
-          onOpen();
+          onOpen(note.id);
         }
       }}
     >

@@ -1251,7 +1251,6 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
   .empty-editor { min-height: 82dvh; }
   .empty-back { position: absolute; top: 16px; left: 16px; }
   .card-grid-container { padding: max(56px, calc(env(safe-area-inset-top) + 48px)) 16px 48px; }
-  .card-masonry { columns: 1 100%; }
   .share-header { padding: 0 18px; }
   .share-article, .share-footer { width: calc(100% - 36px); }
   .share-article { padding-top: 54px; }
@@ -1972,10 +1971,30 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
+.card-grid-empty-trash {
+  position: absolute;
+  top: max(14px, env(safe-area-inset-top));
+  right: 24px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.92);
+  white-space: nowrap;
+}
+
 .card-grid-container {
   height: 100%;
   overflow-y: auto;
   padding: 28px 32px 56px;
+}
+
+.card-grid-container.has-trash-action {
+  padding-top: 58px;
 }
 
 .card-masonry {
@@ -2260,6 +2279,16 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
   }
 }
 
+@media (max-width: 900px) {
+  .card-masonry {
+    columns: 1;
+  }
+
+  .card-grid-container.has-trash-action {
+    padding-top: max(72px, calc(env(safe-area-inset-top) + 64px));
+  }
+}
+
 .card-grid-empty {
   display: flex;
   flex-direction: column;
@@ -2313,6 +2342,16 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
   .update-notice,
   .toast {
     animation: none !important;
+  }
+
+  .note-card:hover,
+  .note-card:active {
+    transform: none;
+    transition-duration: 0ms;
+  }
+
+  .note-card:hover .note-card-cover-image {
+    transform: none;
   }
 
   .save-status--saving .save-status-icon,

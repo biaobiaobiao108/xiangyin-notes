@@ -10,6 +10,10 @@ export type NoteSelectionClick = {
   shiftKey?: boolean;
 };
 
+export function isNoteSelectionModifierClick(click: Pick<NoteSelectionClick, "metaKey" | "ctrlKey" | "shiftKey">) {
+  return Boolean(click.metaKey || click.ctrlKey || click.shiftKey);
+}
+
 export function applyNoteSelectionClick(
   state: NoteSelectionState,
   orderedIds: readonly string[],

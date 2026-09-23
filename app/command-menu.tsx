@@ -100,8 +100,6 @@ export function CommandMenu({
       .map((command) => ({ ...command, key: command.id, kind: "command" as const }));
   }, [commands, moveNoteResult, parsedSearchPrefix, query]);
 
-  const effectiveSearchTerm = parsedSearchPrefix ? parsedSearchPrefix.term : query.trim();
-
   const options = useMemo<CommandOption[]>(() => {
     if (moveNoteResult?.kind === "list") {
       return moveNoteResult.matches.map((notebook) => {
@@ -131,6 +129,7 @@ export function CommandMenu({
 
     if (parsedSearchPrefix) {
       const term = parsedSearchPrefix.term;
+      if (!term) return [];
       if (parsedSearchPrefix.scope === "in-note") {
         return [{
           key: "action:in-note-search",
@@ -161,6 +160,7 @@ export function CommandMenu({
   const createNoteError = createNoteResult?.kind === "error" ? createNoteResult.message : "";
   const moveNoteError = moveNoteResult?.kind === "error" ? moveNoteResult.message : "";
   const feedbackMessage = createNoteError || moveNoteError;
+  const emptySearchPrefix = Boolean(parsedSearchPrefix && !parsedSearchPrefix.term);
 
   const updateQuery = (next: string) => {
     setQuery(next);
@@ -312,7 +312,7 @@ export function CommandMenu({
                 </button>
               </Fragment>
             );
-          }) : <div className="command-empty">{query.trim() ? "没有匹配的命令" : "没有可用的命令"}</div>}
+          }) : <div className="command-empty">{emptySearchPrefix ? "请输入搜索关键词" : query.trim() ? "没有匹配的命令" : "没有可用的命令"}</div>}
         </div>
         <FloatingScrollbar
           scrollTargetRef={listRef}
