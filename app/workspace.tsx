@@ -316,7 +316,10 @@ export function Workspace() {
     selectedRef.current = null;
     setSelectedId(id);
     setIsNoteLoading(Boolean(id));
-    if (!id) setSelectedNote(null);
+    if (!id) {
+      setSelectedNote(null);
+      setCardEditingNoteId(null);
+    }
   }, [clearNoteSelection]);
   useEffect(() => {
     setOutlineOpen(false);
@@ -336,7 +339,11 @@ export function Workspace() {
     if (index === -1) return;
     replaceList(notesRef.current.filter((note) => note.id !== noteId));
     setTotalNotes((value) => Math.max(0, value - 1));
-    if (activeNoteIdRef.current === noteId) selectNote(ordered[index + 1]?.id ?? ordered[index - 1]?.id ?? null);
+    if (activeNoteIdRef.current === noteId) {
+      const nextId = ordered[index + 1]?.id ?? ordered[index - 1]?.id ?? null;
+      selectNote(nextId);
+      setCardEditingNoteId((current) => current === noteId ? nextId : current);
+    }
   }, [noteSort, replaceList, selectNote]);
   const removeManyFromList = useCallback((noteIds: string[]) => {
     const deletedIds = new Set(noteIds);
@@ -355,7 +362,10 @@ export function Workspace() {
     replaceList(currentList.filter((note) => !deletedIds.has(note.id)));
     setTotalNotes((value) => Math.max(0, value - visibleDeletedCount));
     clearNoteSelection();
-    if (activeWasDeleted) selectNote(nextActiveId);
+    if (activeWasDeleted) {
+      selectNote(nextActiveId);
+      setCardEditingNoteId((current) => current && deletedIds.has(current) ? nextActiveId : current);
+    }
   }, [clearNoteSelection, noteSort, replaceList, selectNote]);
   const loadSelectedNote = useCallback(async (id: string) => {
     noteAbortRef.current?.abort();
@@ -453,6 +463,10 @@ export function Workspace() {
     toggleViewLayout,
     isCardEditing: viewLayout === "cards" && cardEditingNoteId !== null,
     onExitCardEditing: () => setCardEditingNoteId(null),
+    hasSelection: selectedNoteIds.size > 0,
+    clearSelection: clearNoteSelection,
+    outlineOpen,
+    closeOutline,
   });
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(""), 3000); return () => clearTimeout(timer); }, [toast]);
 
@@ -1188,6 +1202,7 @@ export function Workspace() {
         notebooks={notebooks}
         onToggleFavoriteNote={handleToggleFavoriteCardNote}
         transitionToken={listTransitionToken}
+        onOpenSidebar={handleOpenSidebar}
         onLoadMore={loadMoreNotes}
         isLoadingMore={isLoadingMore}
       />

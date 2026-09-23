@@ -11,6 +11,10 @@ export type UseWorkspaceShortcutsOptions = {
   toggleViewLayout?: () => void;
   isCardEditing?: boolean;
   onExitCardEditing?: () => void;
+  hasSelection?: boolean;
+  clearSelection?: () => void;
+  outlineOpen?: boolean;
+  closeOutline?: () => void;
 };
 
 export function useWorkspaceShortcuts(options: UseWorkspaceShortcutsOptions) {
@@ -25,6 +29,10 @@ export function useWorkspaceShortcuts(options: UseWorkspaceShortcutsOptions) {
     toggleViewLayout,
     isCardEditing = false,
     onExitCardEditing,
+    hasSelection = false,
+    clearSelection,
+    outlineOpen = false,
+    closeOutline,
   } = options;
 
   const focusModeRef = useRef(focusMode);
@@ -33,14 +41,18 @@ export function useWorkspaceShortcuts(options: UseWorkspaceShortcutsOptions) {
   isCardEditingRef.current = isCardEditing;
   const hasModalOpenRef = useRef(hasModalOpen);
   hasModalOpenRef.current = hasModalOpen;
-  const handlersRef = useRef({ toggleSidebar, toggleFocusMode, toggleTypewriterMode, exitFocusMode, openCommandMenu, toggleViewLayout, onExitCardEditing });
-  handlersRef.current = { toggleSidebar, toggleFocusMode, toggleTypewriterMode, exitFocusMode, openCommandMenu, toggleViewLayout, onExitCardEditing };
+  const hasSelectionRef = useRef(hasSelection);
+  hasSelectionRef.current = hasSelection;
+  const outlineOpenRef = useRef(outlineOpen);
+  outlineOpenRef.current = outlineOpen;
+  const handlersRef = useRef({ toggleSidebar, toggleFocusMode, toggleTypewriterMode, exitFocusMode, openCommandMenu, toggleViewLayout, onExitCardEditing, clearSelection, closeOutline });
+  handlersRef.current = { toggleSidebar, toggleFocusMode, toggleTypewriterMode, exitFocusMode, openCommandMenu, toggleViewLayout, onExitCardEditing, clearSelection, closeOutline };
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
       const isMod = event.ctrlKey || event.metaKey;
-      const { toggleSidebar, toggleFocusMode, toggleTypewriterMode, exitFocusMode, openCommandMenu, toggleViewLayout, onExitCardEditing } = handlersRef.current;
+      const { toggleSidebar, toggleFocusMode, toggleTypewriterMode, exitFocusMode, openCommandMenu, toggleViewLayout, onExitCardEditing, clearSelection, closeOutline } = handlersRef.current;
 
       if (isMod && (event.key === "/" || event.key === "k" || event.key === "K")) {
         event.preventDefault();
@@ -64,11 +76,17 @@ export function useWorkspaceShortcuts(options: UseWorkspaceShortcutsOptions) {
         toggleViewLayout?.();
       } else if (event.key === "Escape") {
         if (!hasModalOpenRef.current) {
-          if (isCardEditingRef.current && onExitCardEditing) {
+          if (hasSelectionRef.current && clearSelection) {
             event.preventDefault();
-            onExitCardEditing();
+            clearSelection();
+          } else if (outlineOpenRef.current && closeOutline) {
+            event.preventDefault();
+            closeOutline();
           } else if (focusModeRef.current) {
             exitFocusMode();
+          } else if (isCardEditingRef.current && onExitCardEditing) {
+            event.preventDefault();
+            onExitCardEditing();
           }
         }
       }

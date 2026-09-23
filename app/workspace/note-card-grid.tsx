@@ -8,6 +8,7 @@ import {
 } from "react";
 import {
   Archive,
+  Menu,
   Search,
   Star,
 } from "lucide-react";
@@ -32,6 +33,7 @@ export type NoteCardGridPanelProps = {
   notebooks: Notebook[];
   onToggleFavoriteNote: (note: NoteSummary) => void;
   transitionToken?: number;
+  onOpenSidebar?: () => void;
   onLoadMore?: () => void;
   isLoadingMore?: boolean;
 };
@@ -51,6 +53,7 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
   notebooks,
   onToggleFavoriteNote,
   transitionToken,
+  onOpenSidebar,
   onLoadMore,
   isLoadingMore = false,
 }: NoteCardGridPanelProps) {
@@ -77,6 +80,17 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
     >
       {/* 沉浸式瀑布流滚动区域（无多余顶栏） */}
       <div className="card-grid-scroll-shell">
+        {onOpenSidebar && (
+          <button
+            className="icon-button card-grid-mobile-menu mobile-only"
+            type="button"
+            aria-label="打开导航"
+            title="打开导航"
+            onClick={onOpenSidebar}
+          >
+            <Menu size={20} />
+          </button>
+        )}
         <div
           id="card-grid-scroll-region"
           ref={gridScrollRef}

@@ -220,6 +220,14 @@ describe("Bun Server API", () => {
     expect(notebookResponse.response.status).toBe(201);
     const notebook = notebookResponse.body?.notebook;
     expect(notebook.color).toBe("#5b7899");
+    expect(notebook.icon).toBe("folder");
+
+    const customIconNb = await request("/api/notebooks", { method: "POST", body: JSON.stringify({ name: "灵感笔记", color: "#5b7899", icon: "lightbulb" }) }, login.cookie);
+    expect(customIconNb.response.status).toBe(201);
+    expect(customIconNb.body?.notebook.icon).toBe("lightbulb");
+
+    const invalidIconNb = await request("/api/notebooks", { method: "POST", body: JSON.stringify({ name: "非法图标", color: "#5b7899", icon: "invalid-icon-name" }) }, login.cookie);
+    expect(invalidIconNb.response.status).toBe(400);
 
     const created = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "Searchable note", contentMarkdown: "A quiet integration test", notebookId: notebook.id }) }, login.cookie);
     expect(created.response.status).toBe(201);
