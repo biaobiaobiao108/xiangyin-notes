@@ -1,11 +1,11 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { AlignVerticalSpaceAround, Archive, Bookmark, Download, FilePlus2, FileSearch, FolderInput, Link2, Maximize2, PanelLeft, Search, Trash2, type LucideIcon } from "lucide-react";
+import { AlignVerticalSpaceAround, Archive, Bookmark, Download, FilePlus2, FileSearch, FolderInput, LayoutGrid, Link2, Maximize2, PanelLeft, Search, Trash2, type LucideIcon } from "lucide-react";
 import type { Notebook } from "../shared/types";
 import { parseCreateNoteCommand, parseMoveNoteCommand, parseSearchPrefixCommand, type CreateNoteCommand } from "./command-parser";
 import { FloatingScrollbar } from "./floating-scrollbar";
 import { altKey, modKey } from "./platform";
 
-export type CommandId = "new-note" | "find-in-note" | "toggle-sidebar" | "toggle-focus-mode" | "toggle-typewriter-mode" | "share" | "favorite" | "trash" | "restore" | "install-app" | "move-to-notebook" | "export-notes";
+export type CommandId = "new-note" | "find-in-note" | "toggle-sidebar" | "toggle-view-layout" | "toggle-focus-mode" | "toggle-typewriter-mode" | "share" | "favorite" | "trash" | "restore" | "install-app" | "move-to-notebook" | "export-notes";
 
 type CommandOption = {
   key: string;
@@ -32,6 +32,7 @@ type CommandMenuProps = {
   onMoveNoteToNotebook?: (notebookId: string) => void;
   focusMode?: boolean;
   typewriterMode?: boolean;
+  viewLayout?: "three-column" | "cards";
   canInstallApp: boolean;
   showIosInstallHint: boolean;
   standalone: boolean;
@@ -52,6 +53,7 @@ export function CommandMenu({
   onMoveNoteToNotebook,
   focusMode = false,
   typewriterMode = false,
+  viewLayout = "three-column",
   canInstallApp,
   showIosInstallHint,
   standalone,
@@ -71,6 +73,7 @@ export function CommandMenu({
     ...(hasSelectedNote && canMoveToTrash ? [{ id: "move-to-notebook" as const, label: "移动到笔记本", shortcut: "↵", icon: FolderInput }] : []),
     ...(hasSelectedNote ? [{ id: "find-in-note" as const, label: "在当前笔记中查找", shortcut: `${modKey} F`, icon: FileSearch }] : []),
     { id: "toggle-sidebar", label: "切换侧栏", shortcut: `${modKey} \\`, icon: PanelLeft },
+    { id: "toggle-view-layout" as const, label: viewLayout === "cards" ? "切换到三栏列表视图" : "切换到卡片网格视图", shortcut: `${altKey} V`, icon: LayoutGrid },
     { id: "toggle-focus-mode", label: focusMode ? "退出沉浸模式" : "进入沉浸模式", shortcut: `${modKey} ⇧ F`, icon: Maximize2 },
     { id: "toggle-typewriter-mode", label: typewriterMode ? "退出打字机模式" : "开启打字机模式", shortcut: `${altKey} ⇧ T`, icon: AlignVerticalSpaceAround },
     ...(hasSelectedNote ? [{ id: "share" as const, label: "分享笔记", shortcut: "↵", icon: Link2 }] : []),
@@ -79,7 +82,7 @@ export function CommandMenu({
     ...(canRestore ? [{ id: "restore" as const, label: "恢复笔记", shortcut: "↵", icon: Archive }] : []),
     { id: "export-notes" as const, label: "导出全部笔记 (ZIP)", shortcut: "↵", icon: Download },
     ...(!standalone && (canInstallApp || showIosInstallHint) ? [{ id: "install-app" as const, label: "安装象映笔记", shortcut: "↵", icon: Download }] : []),
-  ], [canInstallApp, canMoveToTrash, canRestore, focusMode, hasSelectedNote, showIosInstallHint, standalone, typewriterMode]);
+  ], [canInstallApp, canMoveToTrash, canRestore, focusMode, hasSelectedNote, showIosInstallHint, standalone, typewriterMode, viewLayout]);
 
   const createNoteResult = useMemo(() => parseCreateNoteCommand(query, notebooks), [notebooks, query]);
   const parsedSearchPrefix = useMemo(() => parseSearchPrefixCommand(query), [query]);

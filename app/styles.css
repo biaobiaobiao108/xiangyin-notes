@@ -1809,6 +1809,557 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
   animation: spin var(--motion-spin) linear infinite;
 }
 
+/* Card Grid Layout & Apple Notes style cards */
+.app-shell.layout-cards {
+  grid-template-columns: 252px minmax(0, 1fr);
+}
+.app-shell.layout-cards.sidebar-collapsed {
+  grid-template-columns: 72px minmax(0, 1fr);
+}
+.app-shell.layout-cards .editor-region {
+  grid-column: 2;
+}
+
+.note-card-grid-panel {
+  grid-column: 2;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100dvh;
+  background: var(--canvas);
+  overflow: hidden;
+}
+
+.card-grid-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 24px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  min-height: 54px;
+  flex: none;
+}
+
+.card-grid-header-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.card-grid-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card-grid-title-group h2 {
+  margin: 0;
+  font-size: 1.12rem;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.card-grid-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: var(--surface-muted);
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+
+.card-grid-search-hint {
+  font-size: 0.82rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card-grid-header-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+}
+
+.card-grid-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.card-grid-search-icon {
+  position: absolute;
+  left: 10px;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.card-grid-search-input {
+  height: 34px;
+  width: 180px;
+  padding: 0 28px 0 32px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--canvas);
+  color: var(--ink);
+  font-size: 0.84rem;
+  transition: width var(--motion-fast) ease, border-color var(--motion-fast) ease, background-color var(--motion-fast) ease;
+}
+
+.card-grid-search-input:focus {
+  width: 230px;
+  border-color: var(--accent);
+  background: var(--surface);
+  outline: none;
+}
+
+.card-grid-search-clear {
+  position: absolute;
+  right: 8px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 2px;
+  display: inline-flex;
+  border-radius: 4px;
+}
+
+.card-grid-search-clear:hover {
+  color: var(--ink);
+}
+
+.card-grid-new-note-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+
+/* Batch Selection Toolbar */
+.card-grid-batch-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 24px;
+  background: var(--accent-soft);
+  border-bottom: 1px solid rgba(54, 94, 78, 0.2);
+  animation: page-content-in var(--motion-content) var(--motion-ease-out) both;
+  flex: none;
+}
+
+.card-grid-batch-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.86rem;
+  color: var(--accent-dark);
+  font-weight: 600;
+}
+
+.card-grid-batch-select-all {
+  font-size: 0.82rem;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-decoration: underline;
+}
+
+.card-grid-batch-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.batch-move-dropdown-wrap {
+  position: relative;
+}
+
+.batch-move-dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 20;
+  min-width: 160px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.batch-move-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  font-size: 0.82rem;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+}
+
+.batch-move-option:hover {
+  background: var(--surface-muted);
+}
+
+.card-grid-batch-close {
+  width: 30px;
+  height: 30px;
+}
+
+/* Scroll Shell & Grid */
+.card-grid-scroll-shell {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.card-grid-container {
+  height: 100%;
+  overflow-y: auto;
+  padding: 24px 28px 48px;
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 16px;
+}
+
+/* Individual Card */
+.note-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform var(--motion-fast) var(--motion-ease-out), box-shadow var(--motion-fast) ease, border-color var(--motion-fast) ease;
+  text-align: left;
+  user-select: none;
+}
+
+.note-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 22px rgba(32, 38, 33, 0.08);
+  border-color: var(--border-strong);
+}
+
+.note-card.is-selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 2px rgba(54, 94, 78, 0.28);
+}
+
+.note-card-checkbox {
+  position: absolute;
+  top: 9px;
+  left: 9px;
+  z-index: 2;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 1.5px solid var(--border-strong);
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(4px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--motion-fast) ease, background-color var(--motion-fast) ease;
+}
+
+.note-card:hover .note-card-checkbox,
+.note-card-checkbox.is-checked {
+  opacity: 1;
+}
+
+.note-card-checkbox.is-checked {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.note-card-cover {
+  height: 125px;
+  width: 100%;
+  overflow: hidden;
+  background: #eef1ee;
+  border-bottom: 1px solid var(--border);
+}
+
+.note-card-cover-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform var(--motion-fast) ease;
+}
+
+.note-card:hover .note-card-cover-image {
+  transform: scale(1.02);
+}
+
+.note-card-preview-area {
+  height: 90px;
+  padding: 12px 14px 0;
+  background: var(--canvas);
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.note-card-preview-text {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.note-card-body {
+  padding: 12px 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1 1 auto;
+}
+
+.note-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.note-card-title {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1.35;
+  flex: 1;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.note-card-star-btn {
+  border: none;
+  background: transparent;
+  padding: 2px;
+  color: var(--soft-muted);
+  cursor: pointer;
+  border-radius: 4px;
+  display: inline-flex;
+  flex: none;
+  transition: color var(--motion-fast) ease;
+}
+
+.note-card-star-btn:hover {
+  color: var(--ink);
+}
+
+.note-card-star-btn.is-favorite {
+  color: var(--accent);
+}
+
+.note-card-sub-preview {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.note-card-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 4px;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.note-card-date {
+  white-space: nowrap;
+}
+
+.note-card-notebook-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: var(--surface-muted);
+  color: var(--ink);
+  font-size: 0.7rem;
+  max-width: 95px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  margin-left: auto;
+}
+
+.note-card-menu-wrap {
+  position: relative;
+  margin-left: auto;
+}
+
+.note-card-menu-trigger {
+  border: none;
+  background: transparent;
+  padding: 2px;
+  color: var(--soft-muted);
+  border-radius: 4px;
+  cursor: pointer;
+  display: inline-flex;
+  transition: color var(--motion-fast) ease, background-color var(--motion-fast) ease;
+}
+
+.note-card-menu-trigger:hover {
+  color: var(--ink);
+  background: var(--surface-muted);
+}
+
+.note-card-dropdown {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 4px);
+  z-index: 10;
+  min-width: 120px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.note-card-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+}
+
+.note-card-dropdown-item:hover {
+  background: var(--surface-muted);
+}
+
+.note-card-dropdown-item.text-danger:hover {
+  background: #faeee9;
+  color: var(--h1-color);
+}
+
+/* Back to Cards Button in Editor Header */
+.editor-back-cards {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+  padding: 0 10px 0 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color var(--motion-fast) ease, border-color var(--motion-fast) ease, color var(--motion-fast) ease;
+  margin-right: 8px;
+  flex: none;
+}
+
+.editor-back-cards:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-dark);
+}
+
+.editor-back-cards-text {
+  font-size: 0.8rem;
+}
+
+.card-grid-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 64px 20px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.card-grid-empty strong {
+  color: var(--ink);
+  font-size: 1.05rem;
+}
+
+.card-grid-empty span {
+  font-size: 0.85rem;
+  max-width: 320px;
+  line-height: 1.5;
+}
+
+.card-grid-load-more {
+  display: flex;
+  justify-content: center;
+  padding: 20px 0 10px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   :root {
     --motion-fast: 0ms;

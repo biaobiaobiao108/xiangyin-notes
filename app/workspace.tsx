@@ -11,12 +11,15 @@ import type { OutlineItem } from "./editor-metrics";
 import { ConfirmDialog, NotebookDialog, ShareDialog, type ConfirmRequest } from "./workspace/dialogs";
 import { clearAllDraftRecoveries, clearDraftRecovery, readDraftRecovery } from "./workspace/draft-recovery";
 import { EmptyEditor, NoteListPanel, NoteLoadingState, Sidebar } from "./workspace/panels";
+import { NoteCardGridPanel } from "./workspace/note-card-grid";
 import { errorMessage, shouldKeepActiveNoteInList, sortNotes, toNoteDraft, toNoteSummary, type NoteDraft, type NoteSort } from "./workspace/helpers";
 import { applyNoteSelectionClick, pruneNoteSelection, type NoteSelectionState } from "./workspace/note-list-selection";
 import { normalizeLinkTitle } from "../shared/wiki-links";
 import { useNoteSaveQueue } from "./workspace/use-note-save-queue";
 import { useWorkspaceRealtime } from "./workspace/use-realtime";
 import { useWorkspaceShortcuts } from "./workspace/use-workspace-shortcuts";
+
+export type ViewLayout = "three-column" | "cards";
 
 const LazyNoteEditor = lazy(() => import("./editor").then(({ NoteEditor }) => ({ default: memo(NoteEditor) })));
 export function Workspace() {
@@ -107,6 +110,23 @@ export function Workspace() {
       localStorage.setItem("xiangying_focus_mode", "false");
     } catch {}
   }, []);
+  const [viewLayout, setViewLayout] = useState<ViewLayout>(() => {
+    try {
+      return (localStorage.getItem("xiangying_view_layout") as ViewLayout) || "three-column";
+    } catch {
+      return "three-column";
+    }
+  });
+  const toggleViewLayout = useCallback(() => {
+    setViewLayout((current) => {
+      const next = current === "cards" ? "three-column" : "cards";
+      try {
+        localStorage.setItem("xiangying_view_layout", next);
+      } catch {}
+      return next;
+    });
+  }, []);
+  const [cardEditingNoteId, setCardEditingNoteId] = useState<string | null>(null);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [mobileListOpen, setMobileListOpen] = useState(false);
   const toggleOutline = useCallback(() => {
@@ -430,6 +450,9 @@ export function Workspace() {
       setCommandInitialQuery(initialQuery);
       setCommandOpen(true);
     },
+    toggleViewLayout,
+    isCardEditing: viewLayout === "cards" && cardEditingNoteId !== null,
+    onExitCardEditing: () => setCardEditingNoteId(null),
   });
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(""), 3000); return () => clearTimeout(timer); }, [toast]);
 
@@ -500,6 +523,7 @@ export function Workspace() {
     clearPendingForNote(note.id);
     setEditorFocusNoteId(note.id);
     setSelectedId(note.id);
+    setCardEditingNoteId(note.id);
     setMobileSidebarOpen(false);
     setMobileListOpen(false);
     setToast(message);
@@ -736,6 +760,82 @@ export function Workspace() {
       onConfirm: performEmptyTrash,
     });
   }, [pendingTrashCount, performEmptyTrash, requestConfirm, totalNotes]);
+
+  const handleMoveSelectedToNotebook = useCallback(async (targetNotebookId: string) => {
+    const ids = [...noteSelectionRef.current.ids];
+    if (!ids.length) return;
+    const targetNotebook = notebooks.find((nb) => nb.id === targetNotebookId);
+    try {
+      await Promise.all(
+        ids.map(async (id) => {
+          const note = notesRef.current.find((n) => n.id === id);
+          if (!note) return;
+          return api.updateNote(id, { version: note.version, notebookId: targetNotebookId }, { response: "summary" });
+        })
+      );
+      clearNoteSelection();
+      void loadNotes();
+      void refreshNotebooks();
+      setToast(`已将 ${ids.length} 篇笔记移动到“${targetNotebook?.name ?? "笔记本"}”`);
+    } catch (reason) {
+      setToast(errorMessage(reason, "移动笔记失败"));
+    }
+  }, [clearNoteSelection, loadNotes, notebooks, refreshNotebooks, setToast]);
+
+  const handleToggleFavoriteCardNote = useCallback(async (target: NoteSummary) => {
+    try {
+      await api.updateNote(target.id, { version: target.version, isFavorite: !target.isFavorite }, { response: "summary" });
+      replaceList(notesRef.current.map((n) => n.id === target.id ? { ...n, isFavorite: !target.isFavorite } : n));
+      if (selectedRef.current?.id === target.id) {
+        setSelectedNote({ ...selectedRef.current, isFavorite: !target.isFavorite });
+      }
+      setToast(!target.isFavorite ? "已加入收藏" : "已取消收藏");
+    } catch (reason) {
+      setToast(errorMessage(reason, "操作失败"));
+    }
+  }, [replaceList, setToast]);
+
+  const handleMoveCardNoteToTrash = useCallback(async (target: NoteSummary) => {
+    try {
+      await api.moveNotesToTrash([{ id: target.id, version: target.version }]);
+      clearPendingForNote(target.id);
+      removeFromList(target.id);
+      setToast("已移入回收站");
+    } catch (reason) {
+      setToast(errorMessage(reason, "移入回收站失败"));
+    }
+  }, [clearPendingForNote, removeFromList, setToast]);
+
+  const handleRestoreCardNote = useCallback(async (target: NoteSummary) => {
+    try {
+      await api.updateNote(target.id, { version: target.version, deleted: false }, { response: "summary" });
+      clearPendingForNote(target.id);
+      removeFromList(target.id);
+      setToast("已从回收站恢复");
+    } catch (reason) {
+      setToast(errorMessage(reason, "恢复笔记失败"));
+    }
+  }, [clearPendingForNote, removeFromList, setToast]);
+
+  const handlePermanentDeleteCardNote = useCallback((target: NoteSummary) => {
+    requestConfirm({
+      eyebrow: "不可撤销",
+      title: `彻底删除“${target.title.trim() || "未命名笔记"}”？`,
+      description: "这篇笔记会从数据库中永久移除，回收站不再保留，已生成的分享链接也会同时失效。",
+      confirmLabel: "彻底删除",
+      danger: true,
+      onConfirm: async () => {
+        try {
+          await api.deleteNotes([{ id: target.id, version: target.version }]);
+          clearPendingForNote(target.id);
+          removeFromList(target.id);
+          setToast("已彻底删除笔记");
+        } catch (reason) {
+          setToast(errorMessage(reason, "删除笔记失败"));
+        }
+      },
+    });
+  }, [clearPendingForNote, removeFromList, requestConfirm, setToast]);
   const reloadSelectedNote = useCallback(async () => {
     const current = selectedRef.current;
     if (!current) return;
@@ -829,6 +929,7 @@ export function Workspace() {
     setQuery("");
     setView(next);
     setNotebookId(undefined);
+    setCardEditingNoteId(null);
     setMobileSidebarOpen(false);
     setMobileListOpen(false);
   }, [notebookId, query, requestListTransition, view]);
@@ -838,6 +939,7 @@ export function Workspace() {
     setQuery("");
     setNotebookId(notebookIdToSelect);
     setView("all");
+    setCardEditingNoteId(null);
     setMobileSidebarOpen(false);
     setMobileListOpen(false);
   }, [notebookId, query, requestListTransition, view]);
@@ -902,6 +1004,7 @@ export function Workspace() {
       setCommandOpen(true);
     }
     if (id === "toggle-sidebar") setSidebarCollapsed((value) => !value);
+    if (id === "toggle-view-layout") toggleViewLayout();
     if (id === "toggle-focus-mode") toggleFocusMode();
     if (id === "toggle-typewriter-mode") toggleTypewriterMode();
     if (id === "share" && selectedRef.current) setShareOpen(true);
@@ -910,7 +1013,7 @@ export function Workspace() {
     if (id === "restore") restoreFromTrash();
     if (id === "export-notes") void handleExportNotes();
     if (id === "install-app") { if (pwaState.canInstall) void installPwa(); else if (pwaState.showIosInstallHint && !pwaState.standalone) setToast("请在 Safari 中点击分享，再选择“添加到主屏幕”"); }
-  }, [createNoteInInbox, handleExportNotes, moveToTrash, pwaState, restoreFromTrash, toggleFavorite, toggleFocusMode, toggleTypewriterMode]);
+  }, [createNoteInInbox, handleExportNotes, moveToTrash, pwaState, restoreFromTrash, toggleFavorite, toggleFocusMode, toggleTypewriterMode, toggleViewLayout]);
   useEffect(() => {
     if (!ready || shortcutHandledRef.current) return;
     const action = new URLSearchParams(window.location.search).get("action");
@@ -1049,14 +1152,68 @@ export function Workspace() {
   const commandNoteReady = Boolean(renderedNote && selectedRef.current?.id === renderedNote.id && !isNoteLoading);
   const activeSearchQuery = inNoteSearchQuery || query;
   const mobileNavigationOpen = mobileSidebarOpen || mobileListOpen;
-  return <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${focusMode ? "is-focus-mode" : ""}`}>
+  const isCardsLayout = viewLayout === "cards";
+  const showCardsGrid = isCardsLayout && cardEditingNoteId === null;
+
+  return <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${focusMode ? "is-focus-mode" : ""} ${isCardsLayout ? "layout-cards" : ""}`}>
     {mobileNavigationOpen && <button className="mobile-scrim is-visible" type="button" aria-label="关闭导航" onClick={() => { setMobileSidebarOpen(false); setMobileListOpen(false); closeOutline(); }} />}
     <Sidebar view={view} setView={selectView} notebooks={notebooks} notebookId={notebookId} setNotebookId={selectNotebook} query={query} setQuery={changeQuery} searchRef={searchRef} onNewInboxNote={handleNewInboxNote} onCreateNotebook={handleCreateNotebook} onEditNotebook={handleEditNotebook} collapsed={sidebarCollapsed} onCollapse={handleCollapseSidebar} mobileOpen={mobileSidebarOpen} onLogout={logout} />
-    <NoteListPanel notes={notes} total={totalNotes} hasMore={hasMoreNotes} sort={noteSort} setSort={handleNoteSort} selectedId={selectedId} selectedIds={selectedNoteIds} onSelect={handleSelectListNote} onDeleteSelected={deleteSelectedNotes} view={view} query={query} currentNotebookName={currentNotebook?.name} onEmptyTrash={view === "trash" ? emptyTrash : undefined} trashBusy={pendingTrashCount > 0 || emptyingTrash} onNewNote={listNewNote} onClearQuery={handleClearQuery} mobileOpen={mobileListOpen} onOpenSidebar={handleOpenSidebar} transitionToken={listTransitionToken} outlineOpen={outlineOpen} outlineItems={outlineItems} activeOutlineId={activeOutlineId} onScrollToOutlineItem={handleScrollToOutlineItem} onCloseOutline={closeOutline} onLoadMore={loadMoreNotes} isLoadingMore={isLoadingMore} />
-    <main className="editor-region">
-      {renderedNote ? <Suspense fallback={<NoteLoadingState />}><LazyNoteEditor note={renderedNote} availableNotes={notes} onNavigateWikiLink={handleNavigateWikiLink} onCreateAndLinkNote={handleCreateAndLinkNote} onNavigateToNote={selectNote} searchQuery={activeSearchQuery} onClearSearch={activeSearchQuery ? handleClearSearch : undefined} saveState={saveState} isLoading={isNoteLoading} trashBusy={emptyingTrash || (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onShare={handleShare} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={handleOpenList} onUploadImage={handleUploadImage} focusMode={focusMode} onToggleFocusMode={toggleFocusMode} typewriterMode={typewriterMode} outlineOpen={outlineOpen} outlineItems={outlineItems} onToggleOutline={toggleOutline} onCloseOutline={closeOutline} onOutlineItemsChange={handleOutlineItemsChange} onOutlineActiveChange={handleOutlineActiveChange} onOutlineNavigationReady={handleOutlineNavigationReady} /></Suspense> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor isTrash={view === "trash"} onNewNote={handleNewNote} onOpenList={handleOpenList} transitionToken={listTransitionToken} />}
-    </main>
-    <CommandMenu open={commandOpen} onClose={closeCommandMenu} onCommand={command} onCreateNoteInNotebook={createNoteInNotebook} canRestore={Boolean(commandNoteReady && renderedNote?.deletedAt)} canMoveToTrash={Boolean(commandNoteReady && renderedNote && !renderedNote.deletedAt)} notebooks={notebooks} currentNotebookId={renderedNote?.notebookId} onMoveNoteToNotebook={(targetNotebookId) => onNoteChange({ notebookId: targetNotebookId })} focusMode={focusMode} typewriterMode={typewriterMode} canInstallApp={pwaState.canInstall} showIosInstallHint={pwaState.showIosInstallHint} standalone={pwaState.standalone} hasSelectedNote={commandNoteReady} onSearchInCurrentNote={handleSearchInCurrentNote} initialQuery={commandInitialQuery} />
+    {!isCardsLayout && (
+      <NoteListPanel notes={notes} total={totalNotes} hasMore={hasMoreNotes} sort={noteSort} setSort={handleNoteSort} selectedId={selectedId} selectedIds={selectedNoteIds} onSelect={handleSelectListNote} onDeleteSelected={deleteSelectedNotes} view={view} query={query} currentNotebookName={currentNotebook?.name} onEmptyTrash={view === "trash" ? emptyTrash : undefined} trashBusy={pendingTrashCount > 0 || emptyingTrash} onNewNote={listNewNote} onClearQuery={handleClearQuery} mobileOpen={mobileListOpen} onOpenSidebar={handleOpenSidebar} transitionToken={listTransitionToken} outlineOpen={outlineOpen} outlineItems={outlineItems} activeOutlineId={activeOutlineId} onScrollToOutlineItem={handleScrollToOutlineItem} onCloseOutline={closeOutline} onLoadMore={loadMoreNotes} isLoadingMore={isLoadingMore} />
+    )}
+    {showCardsGrid ? (
+      <NoteCardGridPanel
+        notes={notes}
+        total={totalNotes}
+        hasMore={hasMoreNotes}
+        sort={noteSort}
+        setSort={handleNoteSort}
+        selectedIds={selectedNoteIds}
+        onOpenNote={(id) => {
+          selectNote(id);
+          setCardEditingNoteId(id);
+        }}
+        onToggleSelectNote={(id, event) => {
+          const nextSelection = applyNoteSelectionClick(noteSelectionRef.current, sortNotes(notesRef.current, noteSort).map((n) => n.id), {
+            id,
+            metaKey: event.metaKey,
+            ctrlKey: event.ctrlKey,
+            shiftKey: event.shiftKey,
+          });
+          updateNoteSelection(nextSelection);
+        }}
+        onSelectAllNotes={() => {
+          const allIds = sortNotes(notesRef.current, noteSort).map((n) => n.id);
+          updateNoteSelection({
+            ids: new Set(allIds),
+            anchorId: allIds[0] ?? null,
+          });
+        }}
+        onClearSelection={clearNoteSelection}
+        onDeleteSelected={deleteSelectedNotes}
+        view={view}
+        query={query}
+        onQueryChange={changeQuery}
+        onClearQuery={handleClearQuery}
+        currentNotebookName={currentNotebook?.name}
+        notebooks={notebooks}
+        onMoveSelectedToNotebook={handleMoveSelectedToNotebook}
+        onToggleFavoriteNote={handleToggleFavoriteCardNote}
+        onMoveNoteToTrash={handleMoveCardNoteToTrash}
+        onRestoreNote={handleRestoreCardNote}
+        onPermanentDeleteNote={handlePermanentDeleteCardNote}
+        onNewNote={listNewNote}
+        onEmptyTrash={view === "trash" ? emptyTrash : undefined}
+        trashBusy={pendingTrashCount > 0 || emptyingTrash}
+        onLoadMore={loadMoreNotes}
+        isLoadingMore={isLoadingMore}
+      />
+    ) : (
+      <main className="editor-region">
+        {renderedNote ? <Suspense fallback={<NoteLoadingState />}><LazyNoteEditor note={renderedNote} availableNotes={notes} onNavigateWikiLink={handleNavigateWikiLink} onCreateAndLinkNote={handleCreateAndLinkNote} onNavigateToNote={selectNote} searchQuery={activeSearchQuery} onClearSearch={activeSearchQuery ? handleClearSearch : undefined} saveState={saveState} isLoading={isNoteLoading} trashBusy={emptyingTrash || (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onShare={handleShare} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={handleOpenList} onBackToCards={isCardsLayout ? () => setCardEditingNoteId(null) : undefined} onUploadImage={handleUploadImage} focusMode={focusMode} onToggleFocusMode={toggleFocusMode} typewriterMode={typewriterMode} outlineOpen={outlineOpen} outlineItems={outlineItems} onToggleOutline={toggleOutline} onCloseOutline={closeOutline} onOutlineItemsChange={handleOutlineItemsChange} onOutlineActiveChange={handleOutlineActiveChange} onOutlineNavigationReady={handleOutlineNavigationReady} /></Suspense> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor isTrash={view === "trash"} onNewNote={handleNewNote} onOpenList={handleOpenList} transitionToken={listTransitionToken} />}
+      </main>
+    )}
+    <CommandMenu open={commandOpen} onClose={closeCommandMenu} onCommand={command} onCreateNoteInNotebook={createNoteInNotebook} canRestore={Boolean(commandNoteReady && renderedNote?.deletedAt)} canMoveToTrash={Boolean(commandNoteReady && renderedNote && !renderedNote.deletedAt)} notebooks={notebooks} currentNotebookId={renderedNote?.notebookId} onMoveNoteToNotebook={(targetNotebookId) => onNoteChange({ notebookId: targetNotebookId })} focusMode={focusMode} typewriterMode={typewriterMode} viewLayout={viewLayout} canInstallApp={pwaState.canInstall} showIosInstallHint={pwaState.showIosInstallHint} standalone={pwaState.standalone} hasSelectedNote={commandNoteReady} onSearchInCurrentNote={handleSearchInCurrentNote} initialQuery={commandInitialQuery} />
 
 
     {shareOpen && renderedNote && <ShareDialog note={renderedNote} onClose={() => setShareOpen(false)} onToast={setToast} />}

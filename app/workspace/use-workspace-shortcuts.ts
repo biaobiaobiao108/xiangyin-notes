@@ -8,6 +8,9 @@ export type UseWorkspaceShortcutsOptions = {
   toggleTypewriterMode: () => void;
   exitFocusMode: () => void;
   openCommandMenu: (initialQuery?: string) => void;
+  toggleViewLayout?: () => void;
+  isCardEditing?: boolean;
+  onExitCardEditing?: () => void;
 };
 
 export function useWorkspaceShortcuts(options: UseWorkspaceShortcutsOptions) {
@@ -19,20 +22,25 @@ export function useWorkspaceShortcuts(options: UseWorkspaceShortcutsOptions) {
     toggleTypewriterMode,
     exitFocusMode,
     openCommandMenu,
+    toggleViewLayout,
+    isCardEditing = false,
+    onExitCardEditing,
   } = options;
 
   const focusModeRef = useRef(focusMode);
   focusModeRef.current = focusMode;
+  const isCardEditingRef = useRef(isCardEditing);
+  isCardEditingRef.current = isCardEditing;
   const hasModalOpenRef = useRef(hasModalOpen);
   hasModalOpenRef.current = hasModalOpen;
-  const handlersRef = useRef({ toggleSidebar, toggleFocusMode, toggleTypewriterMode, exitFocusMode, openCommandMenu });
-  handlersRef.current = { toggleSidebar, toggleFocusMode, toggleTypewriterMode, exitFocusMode, openCommandMenu };
+  const handlersRef = useRef({ toggleSidebar, toggleFocusMode, toggleTypewriterMode, exitFocusMode, openCommandMenu, toggleViewLayout, onExitCardEditing });
+  handlersRef.current = { toggleSidebar, toggleFocusMode, toggleTypewriterMode, exitFocusMode, openCommandMenu, toggleViewLayout, onExitCardEditing };
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
       const isMod = event.ctrlKey || event.metaKey;
-      const { toggleSidebar, toggleFocusMode, toggleTypewriterMode, exitFocusMode, openCommandMenu } = handlersRef.current;
+      const { toggleSidebar, toggleFocusMode, toggleTypewriterMode, exitFocusMode, openCommandMenu, toggleViewLayout, onExitCardEditing } = handlersRef.current;
 
       if (isMod && (event.key === "/" || event.key === "k" || event.key === "K")) {
         event.preventDefault();
@@ -51,9 +59,17 @@ export function useWorkspaceShortcuts(options: UseWorkspaceShortcutsOptions) {
       } else if (event.altKey && event.shiftKey && (event.key === "t" || event.key === "T")) {
         event.preventDefault();
         toggleTypewriterMode();
+      } else if (event.altKey && !event.shiftKey && !event.ctrlKey && !event.metaKey && (event.key === "v" || event.key === "V")) {
+        event.preventDefault();
+        toggleViewLayout?.();
       } else if (event.key === "Escape") {
-        if (focusModeRef.current && !hasModalOpenRef.current) {
-          exitFocusMode();
+        if (!hasModalOpenRef.current) {
+          if (isCardEditingRef.current && onExitCardEditing) {
+            event.preventDefault();
+            onExitCardEditing();
+          } else if (focusModeRef.current) {
+            exitFocusMode();
+          }
         }
       }
     };

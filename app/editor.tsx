@@ -8,7 +8,7 @@ import TaskItem from "@tiptap/extension-task-item";
 import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
 import { findWrapping } from "@tiptap/pm/transform";
-import { ArrowLeftRight, CheckCircle, ChevronLeft, CircleAlert, ImagePlus, Link2, LoaderCircle, Maximize2, Minimize2, RefreshCw, Star, Trash2, Undo2 } from "lucide-react";
+import { ArrowLeft, ArrowLeftRight, CheckCircle, ChevronLeft, CircleAlert, ImagePlus, Link2, LoaderCircle, Maximize2, Minimize2, RefreshCw, Star, Trash2, Undo2 } from "lucide-react";
 import type { ImageAssetSummary, Note, NoteSummary } from "../shared/types";
 import { api } from "./api";
 import { BrandMark } from "./brand-mark";
@@ -75,7 +75,7 @@ async function imageDimensions(file: File) {
   }
 }
 
-export function NoteEditor({ note, searchQuery = "", saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList, onUploadImage, focusMode = false, onToggleFocusMode, onClearSearch, typewriterMode = false, outlineOpen, outlineItems, onToggleOutline, onCloseOutline, onOutlineItemsChange, onOutlineActiveChange, onOutlineNavigationReady, availableNotes = [], onNavigateWikiLink, onCreateAndLinkNote, onNavigateToNote }: {
+export function NoteEditor({ note, searchQuery = "", saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList, onBackToCards, onUploadImage, focusMode = false, onToggleFocusMode, onClearSearch, typewriterMode = false, outlineOpen, outlineItems, onToggleOutline, onCloseOutline, onOutlineItemsChange, onOutlineActiveChange, onOutlineNavigationReady, availableNotes = [], onNavigateWikiLink, onCreateAndLinkNote, onNavigateToNote }: {
   note: Note;
   searchQuery?: string;
   saveState: SaveState;
@@ -93,6 +93,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   onRestore: () => void;
   onPermanentDelete?: () => void;
   onOpenList?: () => void;
+  onBackToCards?: () => void;
   onUploadImage?: (file: File, dimensions: { width: number; height: number }) => Promise<{ asset: ImageAssetSummary }>;
   focusMode?: boolean;
   onToggleFocusMode?: () => void;
@@ -1117,6 +1118,19 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     <section className={`editor-panel ${deferredLoading ? "is-loading" : ""} ${focusMode ? "is-focus-mode" : ""}`} aria-label="笔记编辑器" aria-busy={editorLocked} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === "s") { event.preventDefault(); handleSaveNow(); } }}>
       <header className="editor-header">
         <div className="editor-header-start">
+          {onBackToCards && (
+            <button
+              className="icon-button editor-back-cards"
+              type="button"
+              aria-label="返回卡片网格"
+              title="返回卡片网格 (Esc)"
+              onClick={onBackToCards}
+              disabled={editorLocked}
+            >
+              <ArrowLeft size={18} strokeWidth={2} />
+              <span className="editor-back-cards-text">卡片</span>
+            </button>
+          )}
           {onOpenList && <button className="icon-button mobile-only editor-back" type="button" aria-label="返回笔记列表" onClick={onOpenList} disabled={editorLocked}><ChevronLeft size={20} /></button>}
           <div className="editor-meta" aria-label={`最后编辑于${relativeDate(note.updatedAt)}，${editorStats.wordCount} 字`}>
             <span>最后编辑于 {relativeDate(note.updatedAt)}</span>
