@@ -62,6 +62,7 @@ export async function handleNotebooksRoute(ctx: RouteContext, user: UserRow): Pr
   const { database } = options;
   const resource = segments[0] ?? "";
   const id = segments[1] ?? "";
+  const subresource = segments[2] ?? "";
 
   if (resource !== "notebooks") return null;
 
@@ -95,7 +96,7 @@ export async function handleNotebooksRoute(ctx: RouteContext, user: UserRow): Pr
     return json({ notebook: created ? toNotebook(created) : null }, 201);
   }
 
-  if (id && method === "PATCH") {
+  if (id && !subresource && method === "PATCH") {
     const current = getNotebook(database, user.id, id);
     if (!current) return jsonError(404, "NOTEBOOK_NOT_FOUND", "笔记本不存在");
     const payload = await readJson<{ name?: unknown; color?: unknown; icon?: unknown }>(request, 64 * 1024);
@@ -115,7 +116,7 @@ export async function handleNotebooksRoute(ctx: RouteContext, user: UserRow): Pr
     return json({ notebook: updated ? toNotebook(updated) : null });
   }
 
-  if (id && method === "DELETE") {
+  if (id && !subresource && method === "DELETE") {
     const current = first<{ id: string; is_system: number }>(database, "SELECT id, is_system FROM notebooks WHERE id = ? AND user_id = ?", id, user.id);
     if (!current) return jsonError(404, "NOTEBOOK_NOT_FOUND", "笔记本不存在");
     if (current.is_system) return jsonError(400, "SYSTEM_NOTEBOOK", "收件箱不能删除");

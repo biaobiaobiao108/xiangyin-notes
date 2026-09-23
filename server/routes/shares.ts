@@ -126,12 +126,11 @@ export async function handleSharesRoute(ctx: RouteContext, user?: UserRow | null
   const { database } = options;
   const resource = segments[0] ?? "";
   const id = segments[1] ?? "";
+  const subresource = segments[2] ?? "";
 
-  if (resource === "shares" && id === "public") {
-    return await handlePublicShare(request, database);
-  }
+  if (resource !== "shares") return null;
 
-  if (resource === "shares" && id && method === "DELETE") {
+  if (id && !subresource && method === "DELETE") {
     if (!user) return null;
     const result = database.query("UPDATE shares SET revoked_at = ?, snapshot_content_markdown = '' WHERE id = ? AND user_id = ? AND revoked_at IS NULL").run(now(), id, user.id);
     if (result.changes) publishWorkspaceChange(options, user.id, { resource: "shares" }, request);

@@ -197,6 +197,7 @@ export async function handleAssetsRoute(ctx: RouteContext, user: UserRow, assetR
   const { database } = options;
   const resource = segments[0] ?? "";
   const id = segments[1] ?? "";
+  const subresource = segments[2] ?? "";
 
   if (resource !== "assets") return null;
 
@@ -204,7 +205,7 @@ export async function handleAssetsRoute(ctx: RouteContext, user: UserRow, assetR
     return await uploadImageAsset(request, database, user, assetRoot);
   }
 
-  if (id && (method === "GET" || method === "HEAD")) {
+  if (id && !subresource && (method === "GET" || method === "HEAD")) {
     return await serveImageAsset(request, database, user.id, id, assetRoot);
   }
 

@@ -589,13 +589,13 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
   }
 
   // Get single note
-  if (id && method === "GET") {
+  if (id && !subresource && method === "GET") {
     const note = getNote(database, user.id, id);
     return note ? json({ note: toFullNote(note) }) : jsonError(404, "NOTE_NOT_FOUND", "笔记不存在");
   }
 
   // Patch note
-  if (id && method === "PATCH") {
+  if (id && !subresource && method === "PATCH") {
     const current = getNote(database, user.id, id);
     if (!current) return jsonError(404, "NOTE_NOT_FOUND", "笔记不存在");
     const payload = await readJson<{ version?: unknown; title?: unknown; contentMarkdown?: unknown; notebookId?: unknown; isFavorite?: unknown; deleted?: unknown }>(request, NOTE_BODY_MAX_BYTES);
@@ -631,7 +631,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
   }
 
   // Delete note permanently
-  if (id && method === "DELETE") {
+  if (id && !subresource && method === "DELETE") {
     const note = getNote(database, user.id, id);
     if (!note) return jsonError(404, "NOTE_NOT_FOUND", "笔记不存在");
     if (!note.deleted_at) return jsonError(400, "NOTE_NOT_TRASHED", "只能永久删除回收站中的笔记");

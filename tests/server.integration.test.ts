@@ -278,6 +278,18 @@ describe("Bun Server API", () => {
 
     const notebooks = await request("/api/notebooks", {}, login.cookie);
     expect(notebooks.body?.notebooks.find((item: { id: string }) => item.id === notebook.id).count).toBe(1);
+
+    const unknownNoteSubresource = await request(`/api/notes/${note.id}/unknown-route`, {}, login.cookie);
+    expect(unknownNoteSubresource.response.status).toBe(404);
+
+    const unknownDeleteSubresource = await request(`/api/notes/${note.id}/unknown-route`, { method: "DELETE" }, login.cookie);
+    expect(unknownDeleteSubresource.response.status).toBe(404);
+
+    const noteStillExists = await request(`/api/notes/${note.id}`, {}, login.cookie);
+    expect(noteStillExists.response.status).toBe(200);
+
+    const unknownNotebookSubresource = await request(`/api/notebooks/${notebook.id}/unknown-route`, { method: "PATCH" }, login.cookie);
+    expect(unknownNotebookSubresource.response.status).toBe(404);
   });
 
   test("returns and searches exact body tags without matching headings or code", async () => {

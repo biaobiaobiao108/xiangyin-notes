@@ -577,7 +577,7 @@ export function Workspace() {
   const saveNotebook = useCallback((saved: Notebook) => {
     setNotebooks((current) => {
       const exists = current.some((nb) => nb.id === saved.id);
-      return exists ? current.map((nb) => nb.id === saved.id ? { ...nb, name: saved.name, color: saved.color } : nb) : [...current, saved];
+      return exists ? current.map((nb) => nb.id === saved.id ? { ...nb, ...saved } : nb) : [...current, saved];
     });
     if (editingNotebook) {
       const current = selectedRef.current;

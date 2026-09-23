@@ -1242,7 +1242,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
         />
       )}
       {onBackToCards && outlineOpen && (
-        <aside className="editor-floating-outline" aria-label="悬浮笔记大纲">
+        <div className="editor-floating-outline">
           <NoteOutlinePanel
             outlineItems={outlineItems}
             activeOutlineId={activeOutlineId ?? null}
@@ -1250,7 +1250,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
             onCloseOutline={onCloseOutline}
             isFloating
           />
-        </aside>
+        </div>
       )}
     </section>
   );
