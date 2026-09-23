@@ -136,7 +136,12 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .main-nav ul, .notebook-section ul { display: grid; gap: 3px; margin: 0; padding: 0; list-style: none; }
 .nav-item, .notebook-item { display: flex; align-items: center; gap: 11px; width: 100%; min-height: 38px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: #435048; text-align: left; cursor: pointer; transition: background-color var(--motion-fast) ease, color var(--motion-fast) ease, transform var(--motion-fast) ease; }
 .nav-item:hover { background: rgba(255, 255, 255, 0.74); color: var(--ink); }
-.nav-item.is-active { background: var(--accent-soft); color: var(--accent-dark); font-weight: 600; }
+.nav-item.is-active {
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
 .notebook-section { display: flex; flex: 1 1 0; flex-direction: column; gap: 9px; min-height: 0; padding-top: 11px; border-top: 1px solid var(--border); overflow: visible; }
 .section-heading { display: flex; align-items: center; justify-content: space-between; padding: 0 10px; color: var(--muted); font-size: 0.78rem; font-weight: 600; letter-spacing: 0.02em; }
 .notebook-list-scroll-shell { position: relative; flex: 1 1 0; min-height: 0; overflow: visible; }
@@ -150,7 +155,12 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .notebook-row-item { list-style: none; }
 .notebook-row-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 28px; align-items: center; gap: 6px; width: 100%; min-height: 36px; position: relative; border-radius: 8px; color: #435048; transition: background-color var(--motion-fast) ease, color var(--motion-fast) ease, transform var(--motion-fast) ease; }
 .notebook-row-wrap:hover, .notebook-row-wrap:focus-within { background: rgba(255, 255, 255, 0.74); color: var(--ink); }
-.notebook-row-wrap.is-active { background: var(--accent-soft); color: var(--accent-dark); font-weight: 600; }
+.notebook-row-wrap.is-active {
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
 .notebook-row-wrap .notebook-item { width: 100%; min-width: 0; color: inherit; background: transparent; }
 .notebook-edit-button, .notebook-edit-spacer { width: 28px; height: 28px; }
 .notebook-edit-button { opacity: 0; visibility: hidden; transition: opacity var(--motion-fast) ease, visibility 0s linear, background-color var(--motion-fast) ease; color: var(--soft-muted); }
@@ -161,7 +171,15 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .sidebar-collapsed .sidebar { align-items: center; padding-inline: 10px; }
 .sidebar-collapsed .brand-row { flex-direction: column; justify-content: center; gap: 10px; }
 .sidebar-collapsed .collapse-button { display: inline-grid; margin-left: 0; }
-.sidebar-collapsed .nav-item { justify-content: center; padding-inline: 0; }
+.sidebar-collapsed .nav-item {
+  justify-content: center;
+  padding-inline: 0;
+  width: 38px;
+  height: 38px;
+  min-height: 38px;
+  margin: 0 auto;
+  border-radius: 9px;
+}
 .collapsed-notebook-list { display: none; }
 .sidebar-collapsed .collapsed-notebook-list { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; overflow-y: auto; max-height: calc(100dvh - 340px); }
 .collapsed-notebook-divider { width: 24px; height: 1px; background: var(--border-strong); margin: 6px 0; opacity: 0.6; }
@@ -1095,13 +1113,13 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
 .primary-button.danger-primary { background: #c34b35; box-shadow: 0 6px 18px rgba(195, 75, 53, 0.22); }
 .primary-button.danger-primary:hover { background: #a63c28; }
 .notebook-icon-field { display: grid; gap: 10px; margin: 0 24px 18px; padding: 0; border: 0; color: var(--ink); font-size: 0.78rem; font-weight: 600; }
-.notebook-icon-field legend { padding: 0; }
+.notebook-icon-field legend { padding: 0; margin-bottom: 8px; }
 .notebook-icon-options { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 6px; width: 100%; }
 .notebook-icon-option { display: grid; width: 100%; max-width: 36px; aspect-ratio: 1; place-items: center; justify-self: center; min-width: 0; padding: 0; border: 1px solid transparent; border-radius: 9px; background: transparent; color: var(--muted); cursor: pointer; transition: all var(--motion-fast) ease; }
 .notebook-icon-option:hover { background: var(--surface-muted); color: var(--ink); }
 .notebook-icon-option[aria-checked="true"] { border-color: #bad3c5; background: var(--accent-soft); box-shadow: 0 0 0 2px rgba(54, 94, 78, 0.08); }
 .notebook-color-field { display: grid; gap: 10px; margin: 0 24px 22px; padding: 0; border: 0; color: var(--ink); font-size: 0.78rem; font-weight: 600; }
-.notebook-color-field legend { padding: 0; }
+.notebook-color-field legend { padding: 0; margin-bottom: 8px; }
 .notebook-color-options { display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 8px; width: 100%; }
 .notebook-color-option { display: grid; width: 100%; max-width: 34px; aspect-ratio: 1; place-items: center; justify-self: center; min-width: 0; padding: 0; border: 1px solid transparent; border-radius: 10px; background: transparent; cursor: pointer; }
 .notebook-color-option:hover { background: var(--surface-muted); }
@@ -1906,6 +1924,10 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
   background: var(--surface);
   overflow: hidden;
 }
+.note-card-grid-panel.is-view-transitioning .card-masonry,
+.note-card-grid-panel.is-view-transitioning .card-grid-empty {
+  animation: page-content-in var(--motion-content) var(--motion-ease-out) both;
+}
 
 /* Scroll Shell & Masonry Flow */
 .card-grid-scroll-shell {
@@ -2228,6 +2250,8 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
   }
 
   .note-list-panel.is-view-transitioning .note-list-content,
+  .note-card-grid-panel.is-view-transitioning .card-masonry,
+  .note-card-grid-panel.is-view-transitioning .card-grid-empty,
   .editor-document--entering,
   .empty-editor,
   .note-outline-panel,

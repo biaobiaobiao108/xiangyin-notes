@@ -1191,7 +1191,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       </header>
       <div className="editor-scroll-shell">
         <div id="editor-scroll-region" className={`editor-scroll floating-scrollbar-target ${typewriterMode ? "is-typewriter-mode" : ""}`} ref={editorScrollRef}>
-          <div className="editor-document" ref={documentRef} onAnimationEnd={() => documentRef.current?.classList.remove("editor-document--entering")}>
+          <div className="editor-document editor-document--entering" ref={documentRef} onAnimationEnd={() => documentRef.current?.classList.remove("editor-document--entering")}>
             {note.deletedAt && (
               <div className="trashed-banner" role="status">
                 <span>此笔记已在回收站中，恢复后可继续编辑。</span>

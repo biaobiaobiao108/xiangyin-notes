@@ -1187,6 +1187,7 @@ export function Workspace() {
         onClearQuery={handleClearQuery}
         notebooks={notebooks}
         onToggleFavoriteNote={handleToggleFavoriteCardNote}
+        transitionToken={listTransitionToken}
         onLoadMore={loadMoreNotes}
         isLoadingMore={isLoadingMore}
       />

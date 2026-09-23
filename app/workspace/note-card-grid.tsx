@@ -1,5 +1,6 @@
 import {
   memo,
+  useLayoutEffect,
   useMemo,
   useRef,
   type MouseEvent as ReactMouseEvent,
@@ -30,6 +31,7 @@ export type NoteCardGridPanelProps = {
   onClearQuery: () => void;
   notebooks: Notebook[];
   onToggleFavoriteNote: (note: NoteSummary) => void;
+  transitionToken?: number;
   onLoadMore?: () => void;
   isLoadingMore?: boolean;
 };
@@ -48,16 +50,31 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
   onClearQuery,
   notebooks,
   onToggleFavoriteNote,
+  transitionToken,
   onLoadMore,
   isLoadingMore = false,
 }: NoteCardGridPanelProps) {
+  const panelRef = useRef<HTMLElement>(null);
   const gridScrollRef = useRef<HTMLDivElement>(null);
   const sortedNotes = useMemo(() => sortNotes(notes, sort), [notes, sort]);
   const isTrashView = view === "trash";
   const showNotebook = !currentNotebookName && view !== "inbox";
 
+  useLayoutEffect(() => {
+    if (!panelRef.current) return;
+    const panel = panelRef.current;
+    panel.classList.remove("is-view-transitioning");
+    void panel.offsetWidth;
+    panel.classList.add("is-view-transitioning");
+  }, [transitionToken]);
+
   return (
-    <section className="note-card-grid-panel" aria-label="笔记卡片网格">
+    <section
+      ref={panelRef}
+      className="note-card-grid-panel"
+      aria-label="笔记卡片网格"
+      onAnimationEnd={() => panelRef.current?.classList.remove("is-view-transitioning")}
+    >
       {/* 沉浸式瀑布流滚动区域（无多余顶栏） */}
       <div className="card-grid-scroll-shell">
         <div
