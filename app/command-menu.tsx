@@ -139,8 +139,8 @@ export function CommandMenu({
     } : null;
 
     return [
-      ...(inNoteOption ? [inNoteOption] : []),
       ...filteredCommands,
+      ...(inNoteOption ? [inNoteOption] : []),
     ];
   }, [createNoteResult, currentNotebookId, effectiveSearchTerm, filteredCommands, hasSelectedNote, moveNoteResult]);
 

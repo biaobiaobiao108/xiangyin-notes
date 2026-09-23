@@ -8,7 +8,7 @@ import TaskItem from "@tiptap/extension-task-item";
 import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
 import { findWrapping } from "@tiptap/pm/transform";
-import { ArrowLeft, ArrowLeftRight, CheckCircle, ChevronLeft, CircleAlert, ImagePlus, Link2, LoaderCircle, Maximize2, Minimize2, RefreshCw, Star, Trash2, Undo2 } from "lucide-react";
+import { ArrowLeft, ArrowLeftRight, CheckCircle, ChevronLeft, CircleAlert, ImagePlus, LayoutGrid, Link2, LoaderCircle, Maximize2, Minimize2, RefreshCw, Star, Trash2, Undo2 } from "lucide-react";
 import type { ImageAssetSummary, Note, NoteSummary } from "../shared/types";
 import { api } from "./api";
 import { BrandMark } from "./brand-mark";
@@ -1122,13 +1122,12 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
             <button
               className="icon-button editor-back-cards"
               type="button"
-              aria-label="返回卡片网格"
-              title="返回卡片网格 (Esc)"
+              aria-label="返回卡片视图"
+              title="返回卡片视图 (Esc)"
               onClick={onBackToCards}
               disabled={editorLocked}
             >
-              <ArrowLeft size={18} strokeWidth={2} />
-              <span className="editor-back-cards-text">卡片</span>
+              <LayoutGrid size={18} strokeWidth={1.8} />
             </button>
           )}
           {onOpenList && <button className="icon-button mobile-only editor-back" type="button" aria-label="返回笔记列表" onClick={onOpenList} disabled={editorLocked}><ChevronLeft size={20} /></button>}

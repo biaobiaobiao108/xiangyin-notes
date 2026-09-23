@@ -1167,7 +1167,6 @@ export function Workspace() {
         total={totalNotes}
         hasMore={hasMoreNotes}
         sort={noteSort}
-        setSort={handleNoteSort}
         selectedIds={selectedNoteIds}
         onOpenNote={(id) => {
           selectNote(id);
@@ -1182,29 +1181,14 @@ export function Workspace() {
           });
           updateNoteSelection(nextSelection);
         }}
-        onSelectAllNotes={() => {
-          const allIds = sortNotes(notesRef.current, noteSort).map((n) => n.id);
-          updateNoteSelection({
-            ids: new Set(allIds),
-            anchorId: allIds[0] ?? null,
-          });
-        }}
-        onClearSelection={clearNoteSelection}
-        onDeleteSelected={deleteSelectedNotes}
         view={view}
         query={query}
-        onQueryChange={changeQuery}
         onClearQuery={handleClearQuery}
-        currentNotebookName={currentNotebook?.name}
         notebooks={notebooks}
-        onMoveSelectedToNotebook={handleMoveSelectedToNotebook}
         onToggleFavoriteNote={handleToggleFavoriteCardNote}
         onMoveNoteToTrash={handleMoveCardNoteToTrash}
         onRestoreNote={handleRestoreCardNote}
         onPermanentDeleteNote={handlePermanentDeleteCardNote}
-        onNewNote={listNewNote}
-        onEmptyTrash={view === "trash" ? emptyTrash : undefined}
-        trashBusy={pendingTrashCount > 0 || emptyingTrash}
         onLoadMore={loadMoreNotes}
         isLoadingMore={isLoadingMore}
       />

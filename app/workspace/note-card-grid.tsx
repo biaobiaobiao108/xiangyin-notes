@@ -1,6 +1,5 @@
 import {
   memo,
-  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -10,52 +9,31 @@ import {
 } from "react";
 import {
   Archive,
-  Check,
-  ChevronDown,
-  FolderInput,
   MoreHorizontal,
-  Plus,
   Search,
   Star,
   Trash2,
-  X,
 } from "lucide-react";
 import type { NoteSort, NoteSummary, NoteView, Notebook } from "../../shared/types";
 import { FloatingScrollbar } from "../floating-scrollbar";
-import { relativeDate, sortNotes, viewLabel } from "./helpers";
-
-const SORT_OPTIONS: Array<{ value: NoteSort; label: string }> = [
-  { value: "updated", label: "最后修改" },
-  { value: "created", label: "创建时间" },
-  { value: "title", label: "标题" },
-];
+import { relativeDate, sortNotes } from "./helpers";
 
 export type NoteCardGridPanelProps = {
   notes: NoteSummary[];
   total: number;
   hasMore: boolean;
   sort: NoteSort;
-  setSort: (sort: NoteSort) => void;
   selectedIds: ReadonlySet<string>;
   onOpenNote: (id: string) => void;
   onToggleSelectNote: (id: string, event: ReactMouseEvent) => void;
-  onSelectAllNotes: () => void;
-  onClearSelection: () => void;
-  onDeleteSelected: () => void;
   view: NoteView;
   query: string;
-  onQueryChange: (query: string) => void;
   onClearQuery: () => void;
-  currentNotebookName?: string;
   notebooks: Notebook[];
-  onMoveSelectedToNotebook: (notebookId: string) => void;
   onToggleFavoriteNote: (note: NoteSummary) => void;
   onMoveNoteToTrash: (note: NoteSummary) => void;
   onRestoreNote: (note: NoteSummary) => void;
   onPermanentDeleteNote: (note: NoteSummary) => void;
-  onNewNote?: () => void;
-  onEmptyTrash?: () => void;
-  trashBusy?: boolean;
   onLoadMore?: () => void;
   isLoadingMore?: boolean;
 };
@@ -65,261 +43,27 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
   total,
   hasMore,
   sort,
-  setSort,
   selectedIds,
   onOpenNote,
   onToggleSelectNote,
-  onSelectAllNotes,
-  onClearSelection,
-  onDeleteSelected,
   view,
   query,
-  onQueryChange,
   onClearQuery,
-  currentNotebookName,
   notebooks,
-  onMoveSelectedToNotebook,
   onToggleFavoriteNote,
   onMoveNoteToTrash,
   onRestoreNote,
   onPermanentDeleteNote,
-  onNewNote,
-  onEmptyTrash,
-  trashBusy = false,
   onLoadMore,
   isLoadingMore = false,
 }: NoteCardGridPanelProps) {
-  const [sortOpen, setSortOpen] = useState(false);
-  const [batchMoveOpen, setBatchMoveOpen] = useState(false);
-  const sortRef = useRef<HTMLDivElement>(null);
-  const sortTriggerRef = useRef<HTMLButtonElement>(null);
-  const sortOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const batchMoveRef = useRef<HTMLDivElement>(null);
   const gridScrollRef = useRef<HTMLDivElement>(null);
-
-  // Close sort menu on outside click or escape
-  useEffect(() => {
-    if (!sortOpen) return;
-    const onPointerDown = (event: PointerEvent) => {
-      if (event.target instanceof Node && !sortRef.current?.contains(event.target)) {
-        setSortOpen(false);
-      }
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        setSortOpen(false);
-        sortTriggerRef.current?.focus();
-      }
-    };
-    document.addEventListener("pointerdown", onPointerDown, true);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown, true);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [sortOpen]);
-
-  // Close batch move menu on outside click
-  useEffect(() => {
-    if (!batchMoveOpen) return;
-    const onPointerDown = (event: PointerEvent) => {
-      if (event.target instanceof Node && !batchMoveRef.current?.contains(event.target)) {
-        setBatchMoveOpen(false);
-      }
-    };
-    document.addEventListener("pointerdown", onPointerDown, true);
-    return () => document.removeEventListener("pointerdown", onPointerDown, true);
-  }, [batchMoveOpen]);
-
   const sortedNotes = useMemo(() => sortNotes(notes, sort), [notes, sort]);
-  const heading = query ? "搜索结果" : currentNotebookName ?? viewLabel(view);
   const isTrashView = view === "trash";
 
   return (
     <section className="note-card-grid-panel" aria-label="笔记卡片网格">
-      {/* 顶栏操作区 */}
-      <header className="card-grid-header">
-        <div className="card-grid-header-main">
-          <div className="card-grid-title-group">
-            <h2>{heading}</h2>
-            <span className="card-grid-count-badge" aria-label={`共 ${total} 篇笔记`}>
-              {total}
-            </span>
-          </div>
-          {query && (
-            <span className="card-grid-search-hint">包含“{query}”的笔记</span>
-          )}
-        </div>
-
-        <div className="card-grid-header-tools">
-          {/* 内嵌搜索框 */}
-          <div className="card-grid-search-wrap">
-            <Search className="card-grid-search-icon" size={15} aria-hidden="true" />
-            <input
-              type="search"
-              className="card-grid-search-input"
-              placeholder="快速搜索笔记…"
-              value={query}
-              onChange={(e) => onQueryChange(e.target.value)}
-              aria-label="快速搜索笔记"
-            />
-            {query && (
-              <button
-                type="button"
-                className="card-grid-search-clear"
-                onClick={onClearQuery}
-                aria-label="清空搜索"
-              >
-                <X size={14} />
-              </button>
-            )}
-          </div>
-
-          {/* 排序菜单 */}
-          <div className="sort-menu-wrap" ref={sortRef}>
-            <button
-              ref={sortTriggerRef}
-              id="card-grid-sort-trigger"
-              className="sort-button"
-              type="button"
-              aria-haspopup="listbox"
-              aria-expanded={sortOpen}
-              onClick={() => setSortOpen((open) => !open)}
-            >
-              <span>{SORT_OPTIONS.find((option) => option.value === sort)?.label}</span>
-              <ChevronDown size={14} />
-            </button>
-            {sortOpen && (
-              <div className="sort-dropdown" role="listbox" aria-label="笔记排序方式">
-                {SORT_OPTIONS.map((option, index) => {
-                  const isSelected = sort === option.value;
-                  return (
-                    <button
-                      ref={(el) => { sortOptionRefs.current[index] = el; }}
-                      key={option.value}
-                      type="button"
-                      className={`sort-option ${isSelected ? "is-active" : ""}`}
-                      role="option"
-                      aria-selected={isSelected}
-                      onClick={() => {
-                        setSort(option.value);
-                        setSortOpen(false);
-                      }}
-                    >
-                      {option.label}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* 清空回收站按钮 */}
-          {onEmptyTrash && isTrashView && (
-            <button
-              className="text-button text-danger empty-trash-button"
-              type="button"
-              onClick={onEmptyTrash}
-              disabled={trashBusy || total === 0}
-            >
-              <Trash2 size={15} aria-hidden="true" />
-              清空回收站
-            </button>
-          )}
-
-          {/* 新建笔记按钮 */}
-          {onNewNote && !isTrashView && (
-            <button
-              className="primary-button card-grid-new-note-btn"
-              type="button"
-              onClick={onNewNote}
-              aria-label="新建笔记"
-            >
-              <Plus size={16} strokeWidth={2.2} />
-              <span>新建笔记</span>
-            </button>
-          )}
-        </div>
-      </header>
-
-      {/* 批量操作浮动工具栏 */}
-      {selectedIds.size > 0 && (
-        <aside className="card-grid-batch-bar" role="toolbar" aria-label="批量操作">
-          <div className="card-grid-batch-info">
-            <span className="card-grid-batch-count">已选 {selectedIds.size} 篇</span>
-            <button
-              type="button"
-              className="text-button card-grid-batch-select-all"
-              onClick={onSelectAllNotes}
-            >
-              全选 ({sortedNotes.length})
-            </button>
-          </div>
-
-          <div className="card-grid-batch-actions">
-            {!isTrashView && notebooks.length > 0 && (
-              <div className="batch-move-dropdown-wrap" ref={batchMoveRef}>
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={() => setBatchMoveOpen((open) => !open)}
-                  aria-expanded={batchMoveOpen}
-                >
-                  <FolderInput size={15} />
-                  <span>移至笔记本</span>
-                  <ChevronDown size={14} />
-                </button>
-                {batchMoveOpen && (
-                  <div className="batch-move-dropdown" role="menu">
-                    {notebooks.map((nb) => (
-                      <button
-                        key={nb.id}
-                        type="button"
-                        className="batch-move-option"
-                        role="menuitem"
-                        onClick={() => {
-                          onMoveSelectedToNotebook(nb.id);
-                          setBatchMoveOpen(false);
-                        }}
-                      >
-                        <span
-                          className="notebook-color-dot"
-                          style={{ backgroundColor: nb.color }}
-                          aria-hidden="true"
-                        />
-                        <span>{nb.name}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            <button
-              type="button"
-              className="secondary-button text-danger"
-              onClick={onDeleteSelected}
-              disabled={trashBusy}
-            >
-              <Trash2 size={15} />
-              <span>{isTrashView ? "永久删除" : "移入回收站"}</span>
-            </button>
-
-            <button
-              type="button"
-              className="icon-button card-grid-batch-close"
-              onClick={onClearSelection}
-              aria-label="取消选择"
-              title="取消选择"
-            >
-              <X size={16} />
-            </button>
-          </div>
-        </aside>
-      )}
-
-      {/* 卡片滚动网格区域 */}
+      {/* 沉浸式瀑布流滚动区域（无多余顶栏） */}
       <div className="card-grid-scroll-shell">
         <div
           id="card-grid-scroll-region"
@@ -328,7 +72,7 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
           tabIndex={0}
         >
           {sortedNotes.length > 0 ? (
-            <div className="card-grid" role="list">
+            <div className="card-masonry" role="list">
               {sortedNotes.map((note) => (
                 <NoteCardItem
                   key={note.id}
@@ -342,7 +86,6 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
                   onRestore={() => onRestoreNote(note)}
                   onPermanentDelete={() => onPermanentDeleteNote(note)}
                   notebooks={notebooks}
-                  onMoveToNotebook={(targetId) => onMoveSelectedToNotebook(targetId)}
                   isTrashView={isTrashView}
                 />
               ))}
@@ -352,13 +95,15 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
               <span className="empty-icon">
                 {query ? <Search size={28} /> : <Archive size={28} />}
               </span>
-              <strong>{query ? "没有找到匹配的笔记" : isTrashView ? "回收站是空的" : "这里还没有笔记"}</strong>
+              <strong>
+                {query ? "没有找到匹配的笔记" : isTrashView ? "回收站是空的" : "这里还没有笔记"}
+              </strong>
               <span>
                 {query
                   ? "试试更短的关键词，或清空搜索查看全部内容。"
                   : isTrashView
                   ? "移入回收站的笔记会显示在这里。"
-                  : "点击右上角“新建笔记”，让一个想法有地方落脚。"}
+                  : "从侧栏新建笔记，让一个想法有地方落脚。"}
               </span>
               {query && (
                 <button className="secondary-button" type="button" onClick={onClearQuery}>
@@ -393,7 +138,7 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
   );
 });
 
-// 单张卡片组件
+// 单张便笺卡片组件
 type NoteCardItemProps = {
   note: NoteSummary;
   isSelected: boolean;
@@ -405,7 +150,6 @@ type NoteCardItemProps = {
   onRestore: () => void;
   onPermanentDelete: () => void;
   notebooks: Notebook[];
-  onMoveToNotebook: (notebookId: string) => void;
   isTrashView: boolean;
 };
 
@@ -420,13 +164,11 @@ const NoteCardItem = memo(function NoteCardItem({
   onRestore,
   onPermanentDelete,
   notebooks,
-  onMoveToNotebook,
   isTrashView,
 }: NoteCardItemProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // Close card menu on outside click
   useEffect(() => {
     if (!menuOpen) return;
     const onPointerDown = (event: PointerEvent) => {
@@ -452,11 +194,6 @@ const NoteCardItem = memo(function NoteCardItem({
     onToggleFavorite();
   };
 
-  const handleCheckboxClick = (event: ReactMouseEvent) => {
-    event.stopPropagation();
-    onToggleSelect(event);
-  };
-
   const handleMenuClick = (event: ReactMouseEvent) => {
     event.stopPropagation();
     setMenuOpen((open) => !open);
@@ -479,18 +216,8 @@ const NoteCardItem = memo(function NoteCardItem({
         }
       }}
     >
-      {/* 勾选框（悬浮或多选激活时明显展示） */}
-      <button
-        type="button"
-        className={`note-card-checkbox ${isSelected ? "is-checked" : ""}`}
-        onClick={handleCheckboxClick}
-        aria-label={isSelected ? `取消选择笔记 ${displayTitle}` : `选择笔记 ${displayTitle}`}
-      >
-        {isSelected && <Check size={12} strokeWidth={3} />}
-      </button>
-
-      {/* 缩略图封面或纯文本摘录 */}
-      {hasThumbnail ? (
+      {/* 缩略图封面（若有） */}
+      {hasThumbnail && (
         <div className="note-card-cover">
           <img
             src={`/api/assets/${encodeURIComponent(note.thumbnail!.id)}`}
@@ -499,16 +226,11 @@ const NoteCardItem = memo(function NoteCardItem({
             className="note-card-cover-image"
           />
         </div>
-      ) : (
-        <div className="note-card-preview-area">
-          <p className="note-card-preview-text">
-            {note.preview ? note.preview.slice(0, 160) : "无正文摘录"}
-          </p>
-        </div>
       )}
 
-      {/* 卡片主体内容 */}
+      {/* 卡片主体：统一纯白底色便笺排版 */}
       <div className="note-card-body">
+        {/* 顶部标题与收藏星标 */}
         <div className="note-card-header">
           <h3 className="note-card-title" title={displayTitle}>
             {displayTitle}
@@ -526,9 +248,13 @@ const NoteCardItem = memo(function NoteCardItem({
           )}
         </div>
 
-        {/* 若有缩略图，在正文下方展示一小段文字摘要 */}
-        {hasThumbnail && note.preview && (
-          <p className="note-card-sub-preview">{note.preview.slice(0, 70)}</p>
+        {/* 正文摘要：自上而下流畅展示，更高高度 */}
+        {note.preview ? (
+          <p className="note-card-preview-text">
+            {note.preview}
+          </p>
+        ) : (
+          <p className="note-card-preview-empty">无正文内容</p>
         )}
 
         {/* 卡片底部元信息栏 */}
@@ -546,7 +272,7 @@ const NoteCardItem = memo(function NoteCardItem({
             </span>
           )}
 
-          {/* 快捷菜单 */}
+          {/* 快捷操作菜单 */}
           <div className="note-card-menu-wrap" ref={menuRef}>
             <button
               type="button"
