@@ -359,6 +359,7 @@ export const WikiLinkSuggestionExtension = Extension.create<WikiLinkSuggestionOp
             },
             onKeyDown: (props) => {
               if (props.event.key === "Escape") {
+                props.event.stopPropagation();
                 destroy();
                 return true;
               }

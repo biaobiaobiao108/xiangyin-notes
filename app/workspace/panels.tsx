@@ -242,6 +242,7 @@ export const NoteListPanel = memo(function NoteListPanel({ notes, total, hasMore
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
+        event.stopPropagation();
         closeSortMenu();
       }
     };

@@ -940,15 +940,17 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
 
   useEffect(() => {
     const handleSearchKeyDown = (event: KeyboardEvent) => {
-      if (event.isComposing || event.keyCode === 229 || event.defaultPrevented) return;
+      if (event.isComposing || event.keyCode === 229) return;
       if (event.target instanceof Element && event.target.closest("dialog[open]")) return;
       if (event.key === "F3") {
+        if (event.defaultPrevented) return;
         if (!searchQueryRef.current.trim() || searchNavigationRef.current.matchCount === 0) return;
         event.preventDefault();
         moveSearchMatch(event.shiftKey ? -1 : 1);
       } else if (event.key === "Escape") {
         if (searchQueryRef.current.trim() && searchNavigationRef.current.matchCount > 0 && onClearSearch) {
           event.preventDefault();
+          event.stopPropagation();
           onClearSearch();
         }
       }
@@ -967,6 +969,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
+      event.stopPropagation();
       onCloseOutline();
       requestAnimationFrame(() => outlineTriggerRef.current?.focus());
     };

@@ -219,6 +219,7 @@ export function CommandMenu({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
+        event.stopPropagation();
         onClose();
       } else if (event.key === "ArrowDown") {
         event.preventDefault();
