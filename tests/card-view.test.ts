@@ -116,6 +116,7 @@ describe("card view & layout", () => {
     expect(cssContent).toMatch(/\.note-card\s*\{[^}]*content-visibility:\s*auto/);
     expect(cssContent).toMatch(/\.note-card\s*\{[^}]*contain-intrinsic-size:\s*auto\s*240px/);
     expect(cssContent).toMatch(/\.note-list-item\s*\{[^}]*content-visibility:\s*auto/);
+    expect(cssContent).toMatch(/\.card-masonry\s*\{[^}]*columns:\s*3\s+280px/);
   });
 });
 

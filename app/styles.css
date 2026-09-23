@@ -1958,9 +1958,11 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
 }
 
 .card-masonry {
-  columns: 260px auto;
+  columns: 3 280px;
   column-gap: 18px;
   width: 100%;
+  max-width: 1240px;
+  margin: 0 auto;
 }
 
 /* Individual Note Card */
