@@ -18,7 +18,7 @@ type NotebookRowWithCount = {
   user_id: string;
   name: string;
   color: string;
-  icon?: string | null;
+  icon: string;
   is_system: number;
   updated_at: number;
   count: number;
@@ -42,7 +42,7 @@ export function toNotebook(row: NotebookRowWithCount): Notebook {
     id: row.id,
     name: row.name,
     color: row.color,
-    icon: row.icon || "folder",
+    icon: row.icon,
     isSystem: Boolean(row.is_system),
     count: Number(row.count),
     updatedAt: row.updated_at,
