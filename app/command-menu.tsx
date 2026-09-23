@@ -129,44 +129,34 @@ export function CommandMenu({
       }];
     }
 
-    if (!effectiveSearchTerm) {
-      return filteredCommands;
+    if (parsedSearchPrefix) {
+      const term = parsedSearchPrefix.term;
+      if (parsedSearchPrefix.scope === "in-note") {
+        return [{
+          key: "action:in-note-search",
+          label: `在当前笔记中查找“${term}”`,
+          shortcut: "↵",
+          icon: FileSearch,
+          kind: "in-note-search",
+          searchTerm: term,
+          detail: hasSelectedNote ? "在当前笔记中高亮并定位匹配项" : "当前未打开笔记",
+        }];
+      }
+      if (parsedSearchPrefix.scope === "global") {
+        return [{
+          key: "action:global-search",
+          label: `在全部笔记中搜索“${term}”`,
+          shortcut: "↵",
+          icon: Search,
+          kind: "global-search",
+          searchTerm: term,
+          detail: "在全部笔记中全文检索并列出结果",
+        }];
+      }
     }
 
-    const inNoteOption: CommandOption | null = hasSelectedNote ? {
-      key: "action:in-note-search",
-      label: `在当前笔记中查找“${effectiveSearchTerm}”`,
-      shortcut: "↵",
-      icon: FileSearch,
-      kind: "in-note-search",
-      searchTerm: effectiveSearchTerm,
-      detail: "在当前笔记中高亮并定位匹配项",
-    } : null;
-
-    const globalOption: CommandOption = {
-      key: "action:global-search",
-      label: `在全部笔记中搜索“${effectiveSearchTerm}”`,
-      shortcut: "↵",
-      icon: Search,
-      kind: "global-search",
-      searchTerm: effectiveSearchTerm,
-      detail: "在全部笔记中全文检索并列出结果",
-    };
-
-    let searchOptions: CommandOption[] = [];
-    if (parsedSearchPrefix?.scope === "global") {
-      searchOptions = [globalOption];
-    } else if (parsedSearchPrefix?.scope === "in-note") {
-      searchOptions = inNoteOption ? [inNoteOption] : [globalOption];
-    } else {
-      searchOptions = inNoteOption ? [inNoteOption, globalOption] : [globalOption];
-    }
-
-    return [
-      ...filteredCommands,
-      ...searchOptions,
-    ];
-  }, [createNoteResult, currentNotebookId, effectiveSearchTerm, filteredCommands, hasSelectedNote, moveNoteResult, parsedSearchPrefix]);
+    return filteredCommands;
+  }, [createNoteResult, currentNotebookId, filteredCommands, hasSelectedNote, moveNoteResult, parsedSearchPrefix]);
 
   const createNoteError = createNoteResult?.kind === "error" ? createNoteResult.message : "";
   const moveNoteError = moveNoteResult?.kind === "error" ? moveNoteResult.message : "";
@@ -224,8 +214,9 @@ export function CommandMenu({
     } else if (option.kind === "global-search" && option.searchTerm) {
       onSearchGlobal?.(option.searchTerm);
     } else if (option.id === "search-notes") {
-      onFocusGlobalSearch?.();
-      onClose();
+      setQuery("全局搜索 ");
+      setSelected(0);
+      searchRef.current?.focus();
       return;
     } else if (option.id === "find-in-note") {
       setQuery("搜索 ");
@@ -277,7 +268,7 @@ export function CommandMenu({
           ref={searchRef}
           value={query}
           onChange={(event) => updateQuery(event.target.value)}
-          placeholder={hasSelectedNote ? "输入命令、查找当前笔记或全库搜索……" : "输入命令或搜索全部笔记……"}
+          placeholder={hasSelectedNote ? "输入命令，或输入“搜索/全局搜索 关键字”……" : "输入命令，或输入“全局搜索 关键字”……"}
           aria-label="搜索命令或笔记内容"
         />
       </div>
@@ -306,7 +297,6 @@ export function CommandMenu({
                   className={`command-row ${command.kind === "in-note-search" || command.kind === "global-search" ? "command-row--search" : ""} ${selected === index ? "is-selected" : ""}`}
                   role="option"
                   aria-selected={selected === index}
-                  onMouseEnter={() => setSelected(index)}
                   onClick={() => execute(command)}
                 >
                   {command.kind === "move-note" && command.notebook ? (
@@ -331,7 +321,7 @@ export function CommandMenu({
           placement="right"
         />
       </div>
-      <div className="command-footer"><span><Archive size={14} />使用 ↑ ↓ 选择</span><span>Enter 打开 · F3 查找下一处</span></div>
+      <div className="command-footer"><span><Archive size={14} />使用 ↑ ↓ 键选择</span><span>Enter 打开 · F3 查找下一处</span></div>
     </dialog>
   );
 }

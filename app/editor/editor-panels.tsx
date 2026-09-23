@@ -7,7 +7,7 @@ type SearchNavigation = {
   matchCount: number;
 };
 
-export function EditorFloatingTools({ outlineTriggerRef, outlineOpen, editorStats, onToggleOutline, outlineDisabled = false, outlineDisabledTitle, searchNavigation, deferredLoading, onMoveSearchMatch, onClearSearch }: {
+export function EditorFloatingTools({ outlineTriggerRef, outlineOpen, editorStats, onToggleOutline, outlineDisabled = false, outlineDisabledTitle, searchNavigation, searchQuery, deferredLoading, onMoveSearchMatch, onClearSearch }: {
   outlineTriggerRef: RefObject<HTMLButtonElement | null>;
   outlineOpen: boolean;
   editorStats: EditorStats;
@@ -15,16 +15,24 @@ export function EditorFloatingTools({ outlineTriggerRef, outlineOpen, editorStat
   outlineDisabled?: boolean;
   outlineDisabledTitle?: string;
   searchNavigation: SearchNavigation;
+  searchQuery?: string;
   deferredLoading: boolean;
   onMoveSearchMatch: (direction: -1 | 1) => void;
   onClearSearch?: () => void;
 }) {
+  const hasActiveSearch = Boolean(searchQuery?.trim());
   return <div className="editor-floating-tools">
     <div className="editor-floating-row">
-      {searchNavigation.matchCount > 0 && <div className="editor-search-nav" role="group" aria-label={`正文搜索结果，第 ${searchNavigation.activeIndex + 1} 个，共 ${searchNavigation.matchCount} 个`}>
-        <button className="editor-search-nav-button" type="button" aria-label="上一个搜索匹配" title="上一个搜索匹配 (Shift+F3)" onClick={() => onMoveSearchMatch(-1)} disabled={deferredLoading || searchNavigation.matchCount < 2}><ChevronUp size={16} strokeWidth={2} /></button>
-        <span className="editor-search-nav-count" aria-live="polite">{searchNavigation.activeIndex + 1} / {searchNavigation.matchCount}</span>
-        <button className="editor-search-nav-button" type="button" aria-label="下一个搜索匹配" title="下一个搜索匹配 (F3)" onClick={() => onMoveSearchMatch(1)} disabled={deferredLoading || searchNavigation.matchCount < 2}><ChevronDown size={16} strokeWidth={2} /></button>
+      {hasActiveSearch && <div className="editor-search-nav" role="group" aria-label={searchNavigation.matchCount > 0 ? `正文搜索结果，第 ${searchNavigation.activeIndex + 1} 个，共 ${searchNavigation.matchCount} 个` : `当前笔记中未找到“${searchQuery?.trim()}”`}>
+        {searchNavigation.matchCount > 0 ? (
+          <>
+            <button className="editor-search-nav-button" type="button" aria-label="上一个搜索匹配" title="上一个搜索匹配 (Shift+F3)" onClick={() => onMoveSearchMatch(-1)} disabled={deferredLoading || searchNavigation.matchCount < 2}><ChevronUp size={16} strokeWidth={2} /></button>
+            <span className="editor-search-nav-count" aria-live="polite">{searchNavigation.activeIndex + 1} / {searchNavigation.matchCount}</span>
+            <button className="editor-search-nav-button" type="button" aria-label="下一个搜索匹配" title="下一个搜索匹配 (F3)" onClick={() => onMoveSearchMatch(1)} disabled={deferredLoading || searchNavigation.matchCount < 2}><ChevronDown size={16} strokeWidth={2} /></button>
+          </>
+        ) : (
+          <span className="editor-search-nav-count editor-search-nav-count--empty">无匹配</span>
+        )}
         {onClearSearch && <button className="editor-search-nav-button editor-search-nav-button--close" type="button" aria-label="退出搜索高亮" title="退出搜索高亮" onClick={onClearSearch}><X size={15} strokeWidth={2} /></button>}
       </div>}
       <EditorStatsPill stats={editorStats} />

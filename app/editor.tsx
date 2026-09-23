@@ -76,7 +76,7 @@ async function imageDimensions(file: File) {
   }
 }
 
-export function NoteEditor({ note, searchQuery = "", saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList, onBackToCards, onUploadImage, focusMode = false, onToggleFocusMode, onClearSearch, typewriterMode = false, outlineOpen, outlineItems, activeOutlineId, onToggleOutline, onCloseOutline, onOutlineItemsChange, onOutlineActiveChange, onOutlineNavigationReady, availableNotes = [], onNavigateWikiLink, onCreateAndLinkNote, onNavigateToNote }: {
+export function NoteEditor({ note, searchQuery = "", saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList, onBackToCards, onUploadImage, focusMode = false, onToggleFocusMode, onClearSearch, typewriterMode = false, outlineOpen, outlineItems, activeOutlineId, onToggleOutline, onCloseOutline, onOutlineItemsChange, onOutlineActiveChange, onOutlineNavigationReady, availableNotes = [], onNavigateWikiLink, onCreateAndLinkNote, onNavigateToNote, onToast }: {
   note: Note;
   searchQuery?: string;
   saveState: SaveState;
@@ -112,6 +112,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   onNavigateWikiLink?: (targetTitle: string) => void;
   onCreateAndLinkNote?: (title: string) => void;
   onNavigateToNote?: (id: string) => void;
+  onToast?: (message: string) => void;
 }) {
 
   const editorScrollRef = useRef<HTMLDivElement>(null);
@@ -154,6 +155,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   const [searchNavigation, setSearchNavigation] = useState({ activeIndex: 0, matchCount: 0 });
   const searchQueryRef = useRef(searchQuery);
   const searchNavigationRef = useRef(searchNavigation);
+  const lastNotifiedEmptySearchRef = useRef("");
   searchQueryRef.current = searchQuery;
   searchNavigationRef.current = searchNavigation;
   onChangeRef.current = onChange;
@@ -915,10 +917,20 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
 
   useEffect(() => {
     if (!editor || isLoading) return;
-    const titleMatches = findTextMatches(note.title, searchQuery);
-    const bodyMatches = findEditorSearchMatches(editor.state.doc, searchQuery);
-    editor.view.dispatch(editor.state.tr.setMeta(searchHighlightPluginKey, { type: "query", query: searchQuery, activeIndex: 0 }));
+    const trimmedQuery = searchQuery.trim();
+    const titleMatches = findTextMatches(note.title, trimmedQuery);
+    const bodyMatches = findEditorSearchMatches(editor.state.doc, trimmedQuery);
+    editor.view.dispatch(editor.state.tr.setMeta(searchHighlightPluginKey, { type: "query", query: trimmedQuery, activeIndex: 0 }));
     syncSearchNavigation(editor);
+
+    if (trimmedQuery && titleMatches.length === 0 && bodyMatches.length === 0) {
+      if (lastNotifiedEmptySearchRef.current !== trimmedQuery) {
+        lastNotifiedEmptySearchRef.current = trimmedQuery;
+        onToast?.(`当前笔记中未找到“${trimmedQuery}”`);
+      }
+    } else {
+      lastNotifiedEmptySearchRef.current = "";
+    }
 
     const frame = requestAnimationFrame(() => {
       if (editor.isDestroyed) return;
@@ -936,7 +948,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       editor.view.dom.querySelector<HTMLElement>(".editor-search-match--active")?.scrollIntoView({ behavior, block: "center", inline: "nearest" });
     });
     return () => cancelAnimationFrame(frame);
-  }, [editor, isLoading, note.id, searchQuery, syncSearchNavigation]);
+  }, [editor, isLoading, note.id, onToast, searchQuery, syncSearchNavigation]);
 
   useEffect(() => {
     const handleSearchKeyDown = (event: KeyboardEvent) => {
@@ -1230,6 +1242,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
         outlineDisabled={focusMode}
         outlineDisabledTitle={focusMode ? "退出沉浸模式后才能打开大纲" : undefined}
         searchNavigation={searchNavigation}
+        searchQuery={searchQuery}
         deferredLoading={editorLocked}
         onMoveSearchMatch={moveSearchMatch}
         onClearSearch={onClearSearch}
