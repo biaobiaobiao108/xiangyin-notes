@@ -329,4 +329,35 @@ describe("Note links, backlinks, and renaming cascade", () => {
     expect(backlinks.body?.unlinkedMentions).toHaveLength(100);
     expect(backlinks.body?.truncated).toBe(true);
   });
+
+  test("handles concurrent backlink queries safely without statement misuse", async () => {
+    const auth = await request("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "owner", password: "a long passphrase 1234" }),
+    });
+    const cookie = auth.cookie!;
+    const target = (await request("/api/notes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "未带", contentMarkdown: "短标题笔记" }),
+    }, cookie)).body?.note as Note;
+
+    await request("/api/notes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "引用来源", contentMarkdown: "这里提到了未带的内容" }),
+    }, cookie);
+
+    const responses = await Promise.all([
+      request(`/api/notes/${target.id}/backlinks`, { method: "GET" }, cookie),
+      request(`/api/notes/${target.id}/backlinks`, { method: "GET" }, cookie),
+      request(`/api/notes/${target.id}/backlinks`, { method: "GET" }, cookie),
+    ]);
+
+    for (const res of responses) {
+      expect(res.response.status).toBe(200);
+      expect(res.body?.unlinkedMentions).toHaveLength(1);
+    }
+  });
 });

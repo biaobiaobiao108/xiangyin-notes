@@ -394,7 +394,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
       SELECT ${NOTE_LIST_SELECT}
       FROM ${from} WHERE ${where} ORDER BY ${noteListOrder(sort)} LIMIT ${NOTE_PAGE_SIZE + 1} OFFSET ${offset}
     `);
-    const rows = [...listStatement.iterate(...params) as Iterable<NoteRow & { tags_json: string }>];
+    const rows = listStatement.all(...params) as (NoteRow & { tags_json: string })[];
     const hasMore = rows.length > NOTE_PAGE_SIZE;
     const pageRows = hasMore ? rows.slice(0, NOTE_PAGE_SIZE) : rows;
     const notes: NoteSummary[] = pageRows.map((row) => toNote(row, parseIndexedTags(row.tags_json)));
@@ -441,16 +441,12 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
       WHERE nl.user_id = ? AND nl.target_note_id = ? AND nl.source_note_id != ? AND n.deleted_at IS NULL
       ORDER BY n.updated_at DESC
       LIMIT ?
-    `);
-    const linkedReferences: NoteLinkSummary[] = [];
-    let truncated = false;
-    let scannedChars = 0;
-    for (const row of linkedRows.iterate(
+    `).all(
       user.id,
       note.id,
       note.id,
       BACKLINK_REFERENCE_LIMIT + 1,
-    ) as Iterable<{
+    ) as {
       link_id: string;
       source_note_id: string;
       source_title: string;
@@ -459,7 +455,11 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
       notebook_name: string;
       target_title: string;
       target_note_id: string | null;
-    }>) {
+    }[];
+    const linkedReferences: NoteLinkSummary[] = [];
+    let truncated = false;
+    let scannedChars = 0;
+    for (const row of linkedRows) {
       if (linkedReferences.length >= BACKLINK_REFERENCE_LIMIT) {
         truncated = true;
         break;
@@ -510,16 +510,16 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
         LIMIT ?
       `;
       candidateParams.push(BACKLINK_CANDIDATE_LIMIT + 1);
-      const candidates = database.query(candidateSql);
-      let candidateCount = 0;
-      mentionLoop: for (const candidate of candidates.iterate(...candidateParams) as Iterable<{
+      const candidateRows = database.query(candidateSql).all(...candidateParams) as {
         id: string;
         title: string;
         content_markdown: string;
         notebook_name: string;
         version: number;
         updated_at: number;
-      }>) {
+      }[];
+      let candidateCount = 0;
+      mentionLoop: for (const candidate of candidateRows) {
         candidateCount += 1;
         if (candidateCount > BACKLINK_CANDIDATE_LIMIT) {
           truncated = true;
