@@ -78,8 +78,9 @@ bun run build
 - 节奏：动画时长和缓动优先使用现有 `--motion-*` 变量，笔记切换、弹窗、提示和移动端面板保持统一节奏。
 - 属性：只动画 `transform` 与 `opacity`；避免动画布局、尺寸、位置和滚动相关属性，不长期使用 `will-change`。
 - 触发：列表切换只在目标数据成功加载或本地回退渲染后播放一次；后台同步、重复点击和搜索逐字输入不得重复播放。
-- 视图与笔记切换一致性：三栏列表与卡片网格在切换页面、笔记本时，统一由 `transitionToken` 驱动 `.is-view-transitioning`（淡入上移 6px，`page-content-in`）；点击卡片打开编辑器与三栏切换笔记统一使用 `.editor-document--entering`（淡入上移 4px，`note-fade-in`）；从编辑器退回卡片网格保持同节奏淡入入场，确保全局动效连贯可预测。
-- 实现：优先使用 CSS `transition` 或 `@keyframes`，不为简单状态切换引入动画库；动画状态变化必须可清理，且不影响焦点、滚动和交互。
+- 视图与笔记切换一致性：三栏列表与卡片网格在目标内容就绪后，由 `transitionToken` 各触发一次 `page-content-in`（淡入上移 6px）；编辑器切换笔记时播放 `note-fade-in`（淡入上移 4px），初次进入编辑器由 `.editor-document--entering` 保持相同节奏；从编辑器退回卡片网格也保持连贯的淡入入场。
+- 实现：简单、声明式状态切换优先使用 CSS `transition` 或 `@keyframes`；需要可靠重播或程序化控制时可使用原生 Web Animations API（`Element.animate()`），并优先核对 Safari 支持。动画仅作渐进增强；API 不可用时应平稳退化，不影响页面状态和操作。不得为简单状态切换引入动画库。
+- 生命周期与性能：动画结束、被新动画替代或目标卸载时，及时取消并清理动画效果；不得通过读取 `offsetWidth`、`getBoundingClientRect()` 等方式强制同步布局来重启动画；不影响焦点、滚动和交互。
 - 无障碍：在 `prefers-reduced-motion: reduce` 下关闭位移、淡入和持续动画，但保留正常布局、功能和状态提示。
 - 响应式：桌面、平板和窄屏手机均需检查；移动端浮层或抽屉动画不得遮挡编辑内容、产生横向溢出或阻断焦点。
 - 编辑器涉及中文输入法时必须考虑 `compositionstart`、`compositionend`、`compositioncancel`、`event.isComposing` 和 Chromium/Windows 常见的 `keyCode === 229`。
