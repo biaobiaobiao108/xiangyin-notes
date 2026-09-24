@@ -23,6 +23,7 @@ import { TagDecorationExtension } from "./editor/tag-decoration";
 import { BacklinksDialog } from "./editor/backlinks-panel";
 import { WikiLinkNode } from "./editor/wiki-link-node";
 import { WikiLinkSuggestionExtension } from "./editor/wiki-link-suggestion";
+import { playEntranceAnimation } from "./animation";
 import { NoteOutlinePanel } from "./workspace/panels";
 
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
@@ -866,6 +867,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     if (!editor) return;
     const switchedNote = activeEditorNoteIdRef.current !== note.id;
     if (!switchedNote && appliedReloadTokenRef.current === reloadToken) return;
+    let enteringAnimation: Animation | null = null;
     appliedReloadTokenRef.current = reloadToken;
     activeEditorNoteIdRef.current = note.id;
     if (imeCleanupTimerRef.current !== null) clearTimeout(imeCleanupTimerRef.current);
@@ -885,13 +887,10 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     editorScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
     if (switchedNote) {
       const doc = documentRef.current;
-      if (doc) {
-        doc.classList.remove("editor-document--entering");
-        void doc.offsetWidth;
-        doc.classList.add("editor-document--entering");
-      }
+      if (doc && !doc.closest(".app-shell.layout-cards")) enteringAnimation = playEntranceAnimation(doc, "note-fade-in");
     }
     scheduleEditorSurfaceSync(editor);
+    return () => enteringAnimation?.cancel();
   }, [cancelOutlineSmoothScroll, editor, note.id, onCloseOutline, onOutlineActiveChange, onOutlineItemsChange, onOutlineNavigationReady, reloadToken]);
 
   useEffect(() => {

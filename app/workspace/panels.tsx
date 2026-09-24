@@ -1,6 +1,7 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type RefObject } from "react";
 import { Archive, ChevronDown, ChevronLeft, LayoutPanelLeft, ListTree, LogOut, Menu, Pencil, Plus, Search, Star, Trash2, X } from "lucide-react";
 import type { NoteSummary, NoteView, Notebook } from "../../shared/types";
+import { playEntranceAnimation } from "../animation";
 import { BrandMark } from "../brand-mark";
 import type { OutlineItem } from "../editor-metrics";
 import { FloatingScrollbar } from "../floating-scrollbar";
@@ -200,9 +201,10 @@ export const NoteListPanel = memo(function NoteListPanel({ notes, total, hasMore
   useLayoutEffect(() => {
     if (transitionToken === 0 || !panelRef.current) return;
     const panel = panelRef.current;
-    panel.classList.remove("is-view-transitioning");
-    void panel.offsetWidth;
-    panel.classList.add("is-view-transitioning");
+    const content = panel.querySelector<HTMLElement>(".note-list-content");
+    if (!content) return;
+    const animation = playEntranceAnimation(content, "page-content-in");
+    return () => animation?.cancel();
   }, [transitionToken]);
 
   useEffect(() => {

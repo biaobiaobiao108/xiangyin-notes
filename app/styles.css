@@ -60,7 +60,6 @@ button:disabled { cursor: not-allowed; opacity: 0.52; }
   overflow: hidden;
   overflow: clip;
   background: var(--canvas);
-  transition: grid-template-columns var(--motion-layout) var(--motion-ease-out);
 }
 .app-shell.sidebar-collapsed { grid-template-columns: 72px minmax(300px, 360px) minmax(0, 1fr); }
 .app-shell.is-focus-mode { grid-template-columns: 0px minmax(0px, 0px) minmax(0, 1fr); }
@@ -234,7 +233,6 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .sort-option:hover { background: var(--surface-muted); color: var(--ink); }
 .sort-option.is-active { background: var(--accent-soft); color: var(--accent-dark); font-weight: 600; }
 .note-list-content { display: flex; flex: 1 1 0; flex-direction: column; min-height: 0; }
-.note-list-panel.is-view-transitioning .note-list-content { animation: page-content-in var(--motion-content) var(--motion-ease-out) both; }
 .note-list-scroll-shell { position: relative; flex: 1 1 0; min-height: 0; overflow: hidden; }
 .note-list-scroll-shell > .floating-scrollbar--left { inset-inline-start: 0; }
 .floating-scrollbar-target { scrollbar-color: transparent transparent; scrollbar-width: none; }
@@ -360,11 +358,9 @@ button.save-status:hover { text-decoration: underline; }
   width: min(820px, calc(100% - 96px));
   margin: 0 auto;
   padding: 72px 0 128px;
-  transition: width var(--motion-layout) var(--motion-ease-out),
-              padding var(--motion-layout) var(--motion-ease-out);
 }
 .editor-scroll.is-typewriter-mode .editor-document { padding-bottom: max(50vh, 260px); }
-.editor-document--entering { animation: note-fade-in var(--motion-content) var(--motion-ease-out) both; }
+.editor-document--entering { animation: note-fade-in var(--motion-content) var(--motion-ease-out); }
 @keyframes page-content-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes note-fade-in { from { opacity: 0.82; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 .editor-panel .note-title-input,
@@ -1950,11 +1946,6 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); -webkit-backdrop-filter: 
   background: var(--surface);
   overflow: hidden;
 }
-.note-card-grid-panel.is-view-transitioning .card-masonry,
-.note-card-grid-panel.is-view-transitioning .card-grid-empty {
-  animation: page-content-in var(--motion-content) var(--motion-ease-out) both;
-}
-
 /* Scroll Shell & Masonry Flow */
 .card-grid-scroll-shell {
   position: relative;
@@ -2359,9 +2350,6 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); -webkit-backdrop-filter: 
     scale: 1;
   }
 
-  .note-list-panel.is-view-transitioning .note-list-content,
-  .note-card-grid-panel.is-view-transitioning .card-masonry,
-  .note-card-grid-panel.is-view-transitioning .card-grid-empty,
   .app-shell.layout-cards .editor-panel,
   .editor-document--entering,
   .empty-editor,

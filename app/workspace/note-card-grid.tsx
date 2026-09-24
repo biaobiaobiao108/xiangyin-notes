@@ -15,6 +15,7 @@ import {
   Trash2,
 } from "lucide-react";
 import type { NoteSort, NoteSummary, NoteView, Notebook } from "../../shared/types";
+import { playEntranceAnimation } from "../animation";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { isNoteSelectionModifierClick } from "./note-list-selection";
 import { getNoteTags, relativeDate, sortNotes } from "./helpers";
@@ -80,11 +81,14 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
   const showNotebook = !currentNotebookName && view !== "inbox";
 
   useLayoutEffect(() => {
-    if (!panelRef.current) return;
     const panel = panelRef.current;
-    panel.classList.remove("is-view-transitioning");
-    void panel.offsetWidth;
-    panel.classList.add("is-view-transitioning");
+    if (!panel) return;
+
+    const targets = panel.querySelectorAll<HTMLElement>(".card-masonry, .card-grid-empty");
+    const animations = [...targets]
+      .map((target) => playEntranceAnimation(target, "page-content-in"))
+      .filter((animation): animation is Animation => animation !== null);
+    return () => animations.forEach((animation) => animation.cancel());
   }, [transitionToken]);
 
   useLayoutEffect(() => {
@@ -129,7 +133,6 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
       ref={panelRef}
       className="note-card-grid-panel"
       aria-label="笔记卡片网格"
-      onAnimationEnd={() => panelRef.current?.classList.remove("is-view-transitioning")}
     >
       {/* 沉浸式瀑布流滚动区域（无多余顶栏） */}
       <div className="card-grid-scroll-shell">
