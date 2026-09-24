@@ -1,8 +1,8 @@
 const serverEnvironment: Record<string, string> = {
   ...Bun.env,
-  XIANGYING_USERNAME: "dev",
-  XIANGYING_PASSWORD: "xiangying-dev-password-1234",
-  XIANGYING_DEV_AUTO_LOGIN: "true",
+  XIANGYING_USERNAME: Bun.env.XIANGYING_USERNAME?.trim() || "dev",
+  XIANGYING_PASSWORD: Bun.env.XIANGYING_PASSWORD?.trim() || "xiangying-dev-password-1234",
+  XIANGYING_DEV_AUTO_LOGIN: Bun.env.XIANGYING_DEV_AUTO_LOGIN?.trim() || "true",
   NODE_ENV: "development",
   DATABASE_PATH: Bun.env.DEV_DATABASE_PATH?.trim() || "./data/xiangying-notes-dev.sqlite",
   COOKIE_SECURE: "false",
