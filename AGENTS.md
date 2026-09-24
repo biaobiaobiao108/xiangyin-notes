@@ -43,6 +43,7 @@ bun run build
 ## 前端实现要求
 
 - 使用 `bun build` 构建 `app/index.html`，使用 React + TypeScript；不要重新引入 Vite。
+- Safari 优先：前端以 macOS 当前稳定版 Safari 为首要适配目标；新增或修改能力前核对 Safari 支持，必要时提供渐进增强或回退，并在 Safari 验证关键交互。
 - 持久化内容以 Markdown 为准；只用于显示的大纲、统计或标题 ID 不写入数据库。
 - 保持暖白画布、白色表面、石墨文字，以复古松柏军绿为主强调色、辅以沉敛朱砂印章点睛的视觉系统。
 - 优先使用语义化 HTML、可见焦点状态和 ARIA 属性；核心操作不要依赖浏览器原生菜单。

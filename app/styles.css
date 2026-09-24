@@ -2013,7 +2013,8 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); -webkit-backdrop-filter: 
   .card-masonry {
     display: grid-lanes;
     columns: unset;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    /* Keep a useful card width while deriving the lane count from no more than three tracks. */
+    grid-template-columns: repeat(auto-fill, minmax(max(280px, calc((100% - 36px) / 3)), 1fr));
     gap: 18px;
   }
 

@@ -145,7 +145,7 @@ describe("card view & layout", () => {
     expect(cssContent).toMatch(/\.card-masonry\s*\{[^}]*columns:\s*3\s+280px/);
     const gridLanesRule = cssContent.match(/@supports \(display: grid-lanes\)\s*\{\s*\.card-masonry\s*\{([^}]*)\}/)?.[1] ?? "";
     expect(gridLanesRule).toMatch(/display:\s*grid-lanes/);
-    expect(gridLanesRule).toMatch(/grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/);
+    expect(gridLanesRule).toContain("grid-template-columns: repeat(auto-fill, minmax(max(280px, calc((100% - 36px) / 3)), 1fr));");
     expect(gridLanesRule).toMatch(/columns:\s*unset/);
     expect(cssContent).toMatch(/\.card-masonry > \.note-card\s*\{\s*margin-block-end:\s*0;/);
     const responsiveCardGridRule = cssContent.slice(cssContent.lastIndexOf("@media (max-width: 900px)"));
