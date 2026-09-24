@@ -135,9 +135,9 @@ describe("card view & layout", () => {
     expect(cssContent).toMatch(/\.note-card:hover\s*\{[^}]*box-shadow:\s*0 1px 5px/);
     expect(cssContent).toMatch(/\.note-card\.is-selected\s*\{[^}]*box-shadow:.*0 1px 5px/);
     expect(cssContent).toMatch(/\.card-masonry\s*\{[^}]*columns:\s*3\s+280px/);
-    const gridLanesRule = cssContent.match(/@supports \(grid-template-rows: masonry\)\s*\{\s*\.card-masonry\s*\{([^}]*)\}/)?.[1] ?? "";
-    expect(gridLanesRule).toMatch(/display:\s*grid/);
-    expect(gridLanesRule).toMatch(/grid-template-rows:\s*masonry/);
+    const gridLanesRule = cssContent.match(/@supports \(display: grid-lanes\)\s*\{\s*\.card-masonry\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(gridLanesRule).toMatch(/display:\s*grid-lanes/);
+    expect(gridLanesRule).toMatch(/grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/);
     expect(gridLanesRule).toMatch(/columns:\s*unset/);
     expect(cssContent).toMatch(/\.card-masonry > \.note-card\s*\{\s*margin-block-end:\s*0;/);
     const responsiveCardGridRule = cssContent.slice(cssContent.lastIndexOf("@media (max-width: 900px)"));

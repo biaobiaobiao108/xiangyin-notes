@@ -2009,12 +2009,11 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); -webkit-backdrop-filter: 
   margin: 0 auto;
 }
 
-@supports (grid-template-rows: masonry) {
+@supports (display: grid-lanes) {
   .card-masonry {
-    display: grid;
+    display: grid-lanes;
     columns: unset;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    grid-template-rows: masonry;
     gap: 18px;
   }
 
@@ -2303,7 +2302,6 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); -webkit-backdrop-filter: 
   .card-masonry {
     columns: 1;
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto;
   }
 
   .card-grid-container.has-trash-action {
