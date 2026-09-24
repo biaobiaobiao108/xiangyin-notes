@@ -14,6 +14,10 @@
 
 ![象映笔记浅色模式下的三栏工作区：左侧是笔记入口和笔记本，中间是笔记列表，右侧是正在编辑的笔记。](docs/assets/screenshots/workspace-light.jpg)
 
+**卡片视图：** 多篇笔记并排显示，浏览时可以一起看到标题、摘要、标签和更新时间。
+
+![象映笔记浅色模式卡片视图：五张虚构笔记以网格排列，展示标题、正文摘要、标签和更新时间。](docs/assets/screenshots/card-view-light.jpg)
+
 **反向链接：** 查看哪些笔记引用了当前内容，也能发现还没有建立链接的同名提及。
 
 ![象映笔记浅色模式下的反向链接窗口，列出引用当前笔记的内容和可以补成链接的同名提及。](docs/assets/screenshots/backlinks-light.jpg)
