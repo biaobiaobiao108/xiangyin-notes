@@ -1,11 +1,12 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { AlignVerticalSpaceAround, Archive, Bookmark, Download, FilePlus2, FileSearch, FolderInput, LayoutGrid, Link2, Maximize2, PanelLeft, Search, Trash2, type LucideIcon } from "lucide-react";
+import { AlignVerticalSpaceAround, Archive, Bookmark, Download, FilePlus2, FileSearch, FolderInput, LayoutGrid, Link2, Maximize2, Monitor, Moon, PanelLeft, Search, Sun, Trash2, type LucideIcon } from "lucide-react";
 import type { Notebook } from "../shared/types";
 import { parseCreateNoteCommand, parseMoveNoteCommand, parseSearchPrefixCommand, type CreateNoteCommand } from "./command-parser";
 import { FloatingScrollbar } from "./floating-scrollbar";
 import { altKey, modKey } from "./platform";
+import type { ThemePreference } from "./theme";
 
-export type CommandId = "new-note" | "search-notes" | "find-in-note" | "toggle-sidebar" | "toggle-view-layout" | "toggle-focus-mode" | "toggle-typewriter-mode" | "share" | "favorite" | "trash" | "restore" | "install-app" | "move-to-notebook" | "export-notes";
+export type CommandId = "new-note" | "search-notes" | "find-in-note" | "toggle-sidebar" | "toggle-view-layout" | "toggle-focus-mode" | "toggle-typewriter-mode" | "set-theme-light" | "set-theme-dark" | "set-theme-system" | "share" | "favorite" | "trash" | "restore" | "install-app" | "move-to-notebook" | "export-notes";
 
 type CommandOption = {
   key: string;
@@ -41,6 +42,7 @@ type CommandMenuProps = {
   onSearchGlobal?: (term: string) => void;
   onFocusGlobalSearch?: () => void;
   initialQuery?: string;
+  themePreference: ThemePreference;
 };
 
 export function CommandMenu({
@@ -64,6 +66,7 @@ export function CommandMenu({
   onSearchGlobal,
   onFocusGlobalSearch,
   initialQuery = "",
+  themePreference,
 }: CommandMenuProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -72,7 +75,7 @@ export function CommandMenu({
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
 
-  const commands = useMemo<Array<{ id: CommandId; label: string; shortcut: string; icon: LucideIcon }>>(() => [
+  const commands = useMemo<Array<{ id: CommandId; label: string; shortcut: string; icon: LucideIcon; detail?: string; keywords?: string }>>(() => [
     { id: "new-note", label: "新建笔记", shortcut: "↵", icon: FilePlus2 },
     { id: "search-notes" as const, label: "全局搜索笔记", shortcut: "↵", icon: Search },
     ...(hasSelectedNote && canMoveToTrash ? [{ id: "move-to-notebook" as const, label: "移动到笔记本", shortcut: "↵", icon: FolderInput }] : []),
@@ -81,13 +84,16 @@ export function CommandMenu({
     { id: "toggle-view-layout" as const, label: viewLayout === "cards" ? "切换到三栏列表视图" : "切换到卡片网格视图", shortcut: `${altKey} V`, icon: LayoutGrid },
     { id: "toggle-focus-mode", label: focusMode ? "退出沉浸模式" : "进入沉浸模式", shortcut: `${modKey} ⇧ F`, icon: Maximize2 },
     { id: "toggle-typewriter-mode", label: typewriterMode ? "退出打字机模式" : "开启打字机模式", shortcut: `${altKey} ⇧ T`, icon: AlignVerticalSpaceAround },
+    { id: "set-theme-light", label: "浅色模式", shortcut: "↵", icon: Sun, detail: themePreference === "light" ? "当前设置" : "", keywords: "主题 外观" },
+    { id: "set-theme-dark", label: "深色模式", shortcut: "↵", icon: Moon, detail: themePreference === "dark" ? "当前设置" : "", keywords: "主题 外观 tokyo night" },
+    { id: "set-theme-system", label: "跟随系统", shortcut: "↵", icon: Monitor, detail: themePreference === "system" ? "当前设置" : "", keywords: "主题 外观 系统" },
     ...(hasSelectedNote ? [{ id: "share" as const, label: "分享笔记", shortcut: "↵", icon: Link2 }] : []),
     ...(hasSelectedNote ? [{ id: "favorite" as const, label: "切换收藏", shortcut: "↵", icon: Bookmark }] : []),
     ...(canMoveToTrash ? [{ id: "trash" as const, label: "移入回收站", shortcut: "↵", icon: Trash2 }] : []),
     ...(canRestore ? [{ id: "restore" as const, label: "恢复笔记", shortcut: "↵", icon: Archive }] : []),
     { id: "export-notes" as const, label: "导出全部笔记 (ZIP)", shortcut: "↵", icon: Download },
     ...(!standalone && (canInstallApp || showIosInstallHint) ? [{ id: "install-app" as const, label: "安装象映笔记", shortcut: "↵", icon: Download }] : []),
-  ], [canInstallApp, canMoveToTrash, canRestore, focusMode, hasSelectedNote, showIosInstallHint, standalone, typewriterMode, viewLayout]);
+  ], [canInstallApp, canMoveToTrash, canRestore, focusMode, hasSelectedNote, showIosInstallHint, standalone, themePreference, typewriterMode, viewLayout]);
 
   const createNoteResult = useMemo(() => parseCreateNoteCommand(query, notebooks), [notebooks, query]);
   const parsedSearchPrefix = useMemo(() => parseSearchPrefixCommand(query), [query]);
@@ -95,8 +101,9 @@ export function CommandMenu({
 
   const filteredCommands = useMemo(() => {
     if (parsedSearchPrefix || moveNoteResult?.kind === "list") return [];
+    const term = query.trim();
     return commands
-      .filter((command) => command.label.includes(query.trim()) || command.id.includes(query.trim().toLowerCase()))
+      .filter((command) => command.label.includes(term) || command.id.includes(term.toLowerCase()) || command.keywords?.includes(term))
       .map((command) => ({ ...command, key: command.id, kind: "command" as const }));
   }, [commands, moveNoteResult, parsedSearchPrefix, query]);
 
