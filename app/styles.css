@@ -2019,6 +2019,15 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); -webkit-backdrop-filter: 
 
   .card-masonry > .note-card {
     margin-block-end: 0;
+    scale: 1;
+    transition: scale var(--motion-fast) var(--motion-ease-out), box-shadow var(--motion-fast) ease, border-color var(--motion-fast) ease, background-color var(--motion-fast) ease;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .card-masonry > .note-card:hover {
+      scale: 1.015;
+      z-index: 1;
+    }
   }
 }
 
@@ -2053,8 +2062,8 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); -webkit-backdrop-filter: 
 
 @media (hover: hover) and (pointer: fine) {
   .note-card:hover {
-    box-shadow: 0 1px 5px rgba(32, 38, 33, 0.09);
-    border-color: var(--border-strong);
+    box-shadow: 0 4px 12px rgba(32, 38, 33, 0.12), 0 1px 3px rgba(32, 38, 33, 0.06);
+    border-color: var(--accent);
   }
 }
 
@@ -2343,6 +2352,10 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); -webkit-backdrop-filter: 
     --motion-content: 0ms;
     --motion-panel: 0ms;
     --motion-layout: 0ms;
+  }
+
+  .card-masonry > .note-card:hover {
+    scale: 1;
   }
 
   .note-list-panel.is-view-transitioning .note-list-content,

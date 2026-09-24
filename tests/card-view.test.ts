@@ -132,7 +132,9 @@ describe("card view & layout", () => {
     expect(cssContent).not.toMatch(/\.note-list-item\s*\{[^}]*content-visibility/);
     expect(cardRule).not.toContain("transform");
     expect(cssContent).toContain("@media (hover: hover) and (pointer: fine)");
-    expect(cssContent).toMatch(/\.note-card:hover\s*\{[^}]*box-shadow:\s*0 1px 5px/);
+    expect(cssContent).toMatch(/\.note-card:hover\s*\{[^}]*box-shadow:\s*0 4px 12px/);
+    expect(cssContent).toMatch(/\.card-masonry > \.note-card:hover\s*\{[^}]*scale:\s*1\.015;[^}]*z-index:\s*1;/);
+    expect(cssContent).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.card-masonry > \.note-card:hover\s*\{\s*scale:\s*1;/);
     expect(cssContent).toMatch(/\.note-card\.is-selected\s*\{[^}]*box-shadow:.*0 1px 5px/);
     expect(cssContent).toMatch(/\.card-masonry\s*\{[^}]*columns:\s*3\s+280px/);
     const gridLanesRule = cssContent.match(/@supports \(display: grid-lanes\)\s*\{\s*\.card-masonry\s*\{([^}]*)\}/)?.[1] ?? "";
