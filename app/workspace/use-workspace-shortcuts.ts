@@ -1,5 +1,9 @@
 import { useEffect, useRef } from "react";
 
+function matchesShortcutLetter(event: KeyboardEvent, letter: string) {
+  return event.key.toLowerCase() === letter || event.code === `Key${letter.toUpperCase()}`;
+}
+
 export type UseWorkspaceShortcutsOptions = {
   focusMode: boolean;
   hasModalOpen: boolean;
@@ -94,10 +98,10 @@ export function handleWorkspaceKeyDown(event: KeyboardEvent, ctx: WorkspaceKeybo
   } else if (isMod && event.shiftKey && (event.key === "f" || event.key === "F")) {
     event.preventDefault();
     toggleFocusMode();
-  } else if (event.altKey && event.shiftKey && (event.key === "t" || event.key === "T")) {
+  } else if (event.altKey && event.shiftKey && matchesShortcutLetter(event, "t")) {
     event.preventDefault();
     toggleTypewriterMode();
-  } else if (event.altKey && !event.shiftKey && !event.ctrlKey && !event.metaKey && (event.key === "v" || event.key === "V")) {
+  } else if (event.altKey && !event.shiftKey && !event.ctrlKey && !event.metaKey && matchesShortcutLetter(event, "v")) {
     event.preventDefault();
     toggleViewLayout?.();
   }

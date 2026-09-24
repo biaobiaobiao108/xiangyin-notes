@@ -53,8 +53,11 @@ button:disabled { cursor: not-allowed; opacity: 0.52; }
 .app-shell {
   display: grid;
   grid-template-columns: 252px minmax(300px, 360px) minmax(0, 1fr);
+  min-height: 100vh;
+  max-height: 100vh;
   min-height: 100dvh;
   max-height: 100dvh;
+  overflow: hidden;
   overflow: clip;
   background: var(--canvas);
   transition: grid-template-columns var(--motion-layout) var(--motion-ease-out);
@@ -258,7 +261,7 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .floating-scrollbar-thumb:active, .floating-scrollbar-thumb.is-dragging { cursor: grabbing; background: var(--accent); border-color: rgba(39, 71, 58, 0.54); box-shadow: 0 4px 12px rgba(39, 71, 58, 0.22); }
 .floating-scrollbar-thumb:focus-visible { outline: 3px solid rgba(54, 94, 78, 0.3); outline-offset: 3px; }
 .note-list-items { margin: 0; padding: 0; list-style: none; }
-.note-list-item { content-visibility: auto; contain-intrinsic-size: auto 116px; }
+/* Keep rows fully painted; WebKit can retain skipped subtrees as blank after scroll reveal. */
 .note-row { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; gap: 12px; width: 100%; padding: 14px 20px; border: 0; background: transparent; text-align: left; cursor: pointer; transition: background-color var(--motion-fast) ease; }
 .note-list-items > li:has(.note-row) + li:has(.note-row) { border-top: 1px solid #edf0ed; }
 .note-list-items > li:has(.note-row.is-selected) + li:has(.note-row.is-selected) { border-top-color: transparent; }
@@ -698,7 +701,7 @@ button.save-status:hover { text-decoration: underline; }
 .empty-shortcut { margin-top: 16px; color: var(--soft-muted); font-size: 0.76rem; }
 
 dialog { padding: 0; color: var(--ink); }
-dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px); }
+dialog::backdrop { background: rgba(32, 38, 33, 0.24); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
 .command-dialog { display: flex; flex-direction: column; width: min(500px, calc(100% - 32px)); height: min(480px, calc(100vh - 64px)); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow); animation: dialog-in var(--motion-fast) ease both; overflow: hidden; }
 .command-dialog:not([open]) { display: none; }
 @keyframes dialog-in { from { opacity: 0; transform: translateY(-6px) scale(0.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
@@ -1214,7 +1217,7 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
 }
 
 @media (max-width: 900px) {
-  .app-shell, .app-shell.sidebar-collapsed, .app-shell.is-focus-mode { display: block; position: relative; min-height: 100dvh; max-height: none; overflow: clip; }
+  .app-shell, .app-shell.sidebar-collapsed, .app-shell.is-focus-mode { display: block; position: relative; min-height: 100vh; min-height: 100dvh; max-height: none; overflow: hidden; overflow: clip; }
   .editor-panel.is-focus-mode .editor-header { height: 50px; min-height: 50px; }
   .editor-panel.is-focus-mode .editor-document { padding-top: max(36px, env(safe-area-inset-top)); }
   .sidebar { position: fixed; inset: 0 auto 0 0; z-index: 8; width: min(300px, 86vw); transform: translateX(-102%); opacity: 0; visibility: hidden; transition: transform var(--motion-panel) var(--motion-ease-out), opacity var(--motion-panel) ease, visibility 0s linear var(--motion-panel); box-shadow: var(--shadow); }
@@ -1223,7 +1226,7 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
   .mobile-scrim.is-visible { opacity: 1; pointer-events: auto; }
   .note-list-panel { position: fixed; inset: 0 0 0 auto; z-index: 6; width: min(390px, 100%); opacity: 0; visibility: hidden; pointer-events: none; transform: translateX(12px); transition: transform var(--motion-panel) var(--motion-ease-out), opacity var(--motion-panel) ease, visibility 0s linear var(--motion-panel); box-shadow: var(--shadow); }
   .note-list-panel.is-mobile-open { opacity: 1; visibility: visible; pointer-events: auto; transform: translateX(0); transition-delay: 0s; }
-  .editor-region { height: 100dvh; min-height: 100dvh; }
+  .editor-region { height: 100vh; min-height: 100vh; height: 100dvh; min-height: 100dvh; }
   .mobile-only { display: inline-grid; }
   .list-header, .editor-header { height: 56px; min-height: 56px; }
   .list-header { padding: 0 17px; }
@@ -1942,6 +1945,7 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
   display: flex;
   flex-direction: column;
   min-height: 0;
+  height: 100vh;
   height: 100dvh;
   background: var(--surface);
   overflow: hidden;
@@ -2017,22 +2021,26 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
   box-shadow: 0 1px 3px rgba(32, 38, 33, 0.05), 0 4px 12px rgba(32, 38, 33, 0.03);
   overflow: hidden;
   cursor: pointer;
-  transition: transform var(--motion-fast) var(--motion-ease-out), box-shadow var(--motion-fast) ease, border-color var(--motion-fast) ease, background-color var(--motion-fast) ease;
+  transition: box-shadow var(--motion-fast) ease, border-color var(--motion-fast) ease, background-color var(--motion-fast) ease;
   text-align: left;
   user-select: none;
-  content-visibility: auto;
-  contain-intrinsic-size: auto 240px;
 }
 
-.note-card:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 6px 18px rgba(32, 38, 33, 0.08), 0 12px 28px rgba(32, 38, 33, 0.06);
-  border-color: var(--border-strong);
+.note-card:focus-visible {
+  outline: 3px solid rgba(54, 94, 78, 0.38);
+  outline-offset: 3px;
 }
 
 .note-card:active {
-  transform: translateY(-1px) scale(0.988);
+  background-color: var(--surface-muted);
   transition-duration: 80ms;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .note-card:hover {
+    box-shadow: 0 6px 18px rgba(32, 38, 33, 0.08), 0 12px 28px rgba(32, 38, 33, 0.06);
+    border-color: var(--border-strong);
+  }
 }
 
 .note-card.is-selected {
@@ -2053,11 +2061,6 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transition: transform var(--motion-fast) ease;
-}
-
-.note-card:hover .note-card-cover-image {
-  transform: scale(1.02);
 }
 
 .note-card-body {
@@ -2343,16 +2346,6 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); backdrop-filter: blur(3px
   .update-notice,
   .toast {
     animation: none !important;
-  }
-
-  .note-card:hover,
-  .note-card:active {
-    transform: none;
-    transition-duration: 0ms;
-  }
-
-  .note-card:hover .note-card-cover-image {
-    transform: none;
   }
 
   .save-status--saving .save-status-icon,

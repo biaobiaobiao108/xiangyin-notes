@@ -122,12 +122,14 @@ describe("card view & layout", () => {
     expect(withoutThumb?.preview).toContain("文人笔墨");
   });
 
-  test("virtual rendering rules are configured for both list items and card grid", async () => {
+  test("card and list content remains painted reliably while scrolling in Safari", async () => {
     const cssContent = await Bun.file("app/styles.css").text();
     expect(cssContent).toContain(".note-card {");
-    expect(cssContent).toMatch(/\.note-card\s*\{[^}]*content-visibility:\s*auto/);
-    expect(cssContent).toMatch(/\.note-card\s*\{[^}]*contain-intrinsic-size:\s*auto\s*240px/);
-    expect(cssContent).toMatch(/\.note-list-item\s*\{[^}]*content-visibility:\s*auto/);
+    const cardRule = cssContent.match(/\.note-card\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(cardRule).not.toMatch(/content-visibility|contain-intrinsic-size/);
+    expect(cssContent).not.toMatch(/\.note-list-item\s*\{[^}]*content-visibility/);
+    expect(cardRule).not.toContain("transform");
+    expect(cssContent).toContain("@media (hover: hover) and (pointer: fine)");
     expect(cssContent).toMatch(/\.card-masonry\s*\{[^}]*columns:\s*3\s+280px/);
     const responsiveCardGridRule = cssContent.slice(cssContent.lastIndexOf("@media (max-width: 900px)"));
     expect(responsiveCardGridRule).toMatch(/\.card-masonry\s*\{[^}]*columns:\s*1\s*[;}]/);

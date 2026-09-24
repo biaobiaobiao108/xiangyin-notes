@@ -169,3 +169,66 @@ describe("workspace shortcuts Escape handling", () => {
     expect(focusExited).toBe(false);
   });
 });
+
+describe("workspace shortcuts on macOS keyboard layouts", () => {
+  test("recognizes Option+V by physical key when Safari reports an alternate character", () => {
+    let layoutToggled = false;
+    let defaultPrevented = false;
+    const event = {
+      key: "√",
+      code: "KeyV",
+      altKey: true,
+      shiftKey: false,
+      ctrlKey: false,
+      metaKey: false,
+      defaultPrevented: false,
+      preventDefault() { defaultPrevented = true; },
+    } as any;
+
+    handleWorkspaceKeyDown(event, {
+      focusMode: false,
+      hasModalOpen: false,
+      handlers: {
+        toggleSidebar() {},
+        toggleFocusMode() {},
+        toggleTypewriterMode() {},
+        exitFocusMode() {},
+        openCommandMenu() {},
+        toggleViewLayout() { layoutToggled = true; },
+      },
+    });
+
+    expect(layoutToggled).toBe(true);
+    expect(defaultPrevented).toBe(true);
+  });
+
+  test("recognizes Option+Shift+T by physical key when Safari reports an alternate character", () => {
+    let typewriterToggled = false;
+    let defaultPrevented = false;
+    const event = {
+      key: "™",
+      code: "KeyT",
+      altKey: true,
+      shiftKey: true,
+      ctrlKey: false,
+      metaKey: false,
+      defaultPrevented: false,
+      preventDefault() { defaultPrevented = true; },
+    } as any;
+
+    handleWorkspaceKeyDown(event, {
+      focusMode: false,
+      hasModalOpen: false,
+      handlers: {
+        toggleSidebar() {},
+        toggleFocusMode() {},
+        toggleTypewriterMode() { typewriterToggled = true; },
+        exitFocusMode() {},
+        openCommandMenu() {},
+      },
+    });
+
+    expect(typewriterToggled).toBe(true);
+    expect(defaultPrevented).toBe(true);
+  });
+});
