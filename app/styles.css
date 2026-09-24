@@ -7,7 +7,6 @@
   text-rendering: optimizeLegibility;
   --canvas: light-dark(#f6f4ef, #1a1b26);
   --surface: light-dark(#ffffff, #24283b);
-  --cards-page-background: light-dark(var(--surface), var(--canvas));
   --surface-muted: light-dark(#f8f8f6, #292e42);
   --surface-command-selected: light-dark(#f3f5f2, #292e42);
   --surface-hover: light-dark(#fbfbfa, #292e42);
@@ -106,10 +105,8 @@
   --h3-border: light-dark(#ccdce7, rgba(125, 207, 255, 0.38));
   --shadow: 0 18px 48px rgba(39, 47, 41, 0.14), 0 2px 8px rgba(39, 47, 41, 0.06);
   --note-card-shadow: light-dark(0 1px 4px rgba(32, 38, 33, 0.06), 0 2px 8px rgba(0, 0, 0, 0.28));
-  --note-card-hover-shadow: light-dark(0 4px 12px rgba(32, 38, 33, 0.12), 0 10px 24px rgba(10, 11, 18, 0.44));
-  --note-card-hover-detail-shadow: light-dark(0 1px 3px rgba(32, 38, 33, 0.06), 0 0 0 0 rgba(0, 0, 0, 0));
-  --note-card-hover-border: light-dark(var(--border-strong), rgba(122, 162, 247, 0.72));
-  --note-card-focus-ring: light-dark(rgba(54, 94, 78, 0.48), rgba(122, 162, 247, 0.78));
+  --note-card-hover-shadow: light-dark(0 4px 12px rgba(32, 38, 33, 0.12), 0 8px 22px rgba(192, 202, 245, 0.18));
+  --note-card-hover-detail-shadow: light-dark(0 1px 3px rgba(32, 38, 33, 0.06), 0 2px 6px rgba(192, 202, 245, 0.1));
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 18px;
@@ -1983,9 +1980,6 @@ dialog::backdrop { background: var(--backdrop); -webkit-backdrop-filter: blur(3p
 .app-shell.layout-cards {
   grid-template-columns: 252px minmax(0, 1fr);
 }
-.app-shell.layout-cards .sidebar {
-  border-right-color: transparent;
-}
 .app-shell.layout-cards.sidebar-collapsed {
   grid-template-columns: 72px minmax(0, 1fr);
 }
@@ -2005,7 +1999,6 @@ dialog::backdrop { background: var(--backdrop); -webkit-backdrop-filter: blur(3p
 }
 .app-shell.layout-cards .editor-region {
   grid-column: 2;
-  background: var(--cards-page-background);
 }
 
 .app-shell.layout-cards .editor-panel {
@@ -2034,7 +2027,7 @@ dialog::backdrop { background: var(--backdrop); -webkit-backdrop-filter: blur(3p
   min-height: 0;
   height: 100vh;
   height: 100dvh;
-  background: var(--cards-page-background);
+  background: var(--surface);
   overflow: hidden;
 }
 /* Scroll Shell & Masonry Flow */
@@ -2134,9 +2127,7 @@ dialog::backdrop { background: var(--backdrop); -webkit-backdrop-filter: blur(3p
 }
 
 .note-card:focus-visible {
-  outline: 2px solid var(--note-card-focus-ring);
-  outline-offset: 2px;
-  border-color: var(--note-card-hover-border);
+  outline: none;
   box-shadow: var(--note-card-hover-shadow), var(--note-card-hover-detail-shadow);
 }
 
@@ -2148,7 +2139,6 @@ dialog::backdrop { background: var(--backdrop); -webkit-backdrop-filter: blur(3p
 @media (hover: hover) and (pointer: fine) {
   .note-card:hover {
     box-shadow: var(--note-card-hover-shadow), var(--note-card-hover-detail-shadow);
-    border-color: var(--note-card-hover-border);
   }
 }
 
@@ -2159,7 +2149,8 @@ dialog::backdrop { background: var(--backdrop); -webkit-backdrop-filter: blur(3p
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .note-card.is-selected:hover {
+  .note-card.is-selected:hover,
+  .note-card.is-selected:focus-visible {
     box-shadow: 0 0 0 2px var(--selection-ring), var(--note-card-hover-shadow), var(--note-card-hover-detail-shadow);
   }
 }

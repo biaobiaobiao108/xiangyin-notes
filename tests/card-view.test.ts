@@ -134,12 +134,14 @@ describe("card view & layout", () => {
     expect(cssContent).not.toMatch(/\.note-list-item\s*\{[^}]*content-visibility/);
     expect(cardRule).not.toContain("transform");
     const focusCardRule = cssContent.match(/\.note-card:focus-visible\s*\{([^}]*)\}/)?.[1] ?? "";
-    expect(focusCardRule).toMatch(/outline:\s*2px solid var\(--note-card-focus-ring\)/);
+    expect(focusCardRule).toMatch(/outline:\s*none/);
     expect(focusCardRule).toMatch(/box-shadow:\s*var\(--note-card-hover-shadow\)/);
+    expect(focusCardRule).not.toContain("border-color");
     expect(cssContent).toContain("@media (hover: hover) and (pointer: fine)");
     expect(cssContent).toMatch(/\.note-card:hover\s*\{[^}]*box-shadow:\s*var\(--note-card-hover-shadow\)/);
-    expect(cssContent).toMatch(/\.note-card:hover\s*\{[^}]*border-color:\s*var\(--note-card-hover-border\)/);
-    expect(cssContent).toMatch(/\.app-shell\.layout-cards \.sidebar\s*\{\s*border-right-color:\s*transparent/);
+    expect(cssContent).not.toMatch(/\.note-card:hover\s*\{[^}]*border-color:/);
+    expect(cssContent).toContain("--note-card-hover-shadow: light-dark(0 4px 12px rgba(32, 38, 33, 0.12), 0 8px 22px rgba(192, 202, 245, 0.18))");
+    expect(cssContent).toMatch(/\.sidebar\s*\{[^}]*border-right:\s*1px solid var\(--border\)/);
     expect(cssContent).toMatch(/\.card-masonry > \.note-card:hover\s*\{[^}]*scale:\s*1\.015;[^}]*z-index:\s*1;/);
     expect(cssContent).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.card-masonry > \.note-card:hover\s*\{\s*scale:\s*1;/);
     expect(cssContent).toMatch(/\.note-card\.is-selected\s*\{[^}]*box-shadow:.*0 1px 5px/);
