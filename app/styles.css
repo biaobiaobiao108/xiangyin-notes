@@ -104,7 +104,7 @@
   --h3-ring: light-dark(rgba(53, 86, 107, 0.16), rgba(125, 207, 255, 0.3));
   --h3-border: light-dark(#ccdce7, rgba(125, 207, 255, 0.38));
   --shadow: 0 18px 48px rgba(39, 47, 41, 0.14), 0 2px 8px rgba(39, 47, 41, 0.06);
-  --note-card-shadow: light-dark(0 1px 4px rgba(32, 38, 33, 0.06), 0 2px 8px rgba(0, 0, 0, 0.28));
+  --note-card-shadow: light-dark(0 1px 4px rgba(32, 38, 33, 0.06), 0 2px 8px rgba(192, 202, 245, 0.08));
   --note-card-hover-shadow: light-dark(0 4px 12px rgba(32, 38, 33, 0.12), 0 8px 22px rgba(192, 202, 245, 0.18));
   --note-card-hover-detail-shadow: light-dark(0 1px 3px rgba(32, 38, 33, 0.06), 0 2px 6px rgba(192, 202, 245, 0.1));
   --radius-sm: 8px;

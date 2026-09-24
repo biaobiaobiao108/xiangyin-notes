@@ -130,6 +130,7 @@ describe("card view & layout", () => {
     expect(cardRule).toMatch(/border:\s*1px solid var\(--border\)/);
     expect(cardRule).toMatch(/box-shadow:\s*var\(--note-card-shadow\)/);
     expect(cssContent).toContain("--note-card-shadow: light-dark(0 1px 4px");
+    expect(cssContent).toContain("0 2px 8px rgba(192, 202, 245, 0.08)");
     expect(cardRule).toMatch(/-webkit-column-break-inside:\s*avoid/);
     expect(cssContent).not.toMatch(/\.note-list-item\s*\{[^}]*content-visibility/);
     expect(cardRule).not.toContain("transform");
