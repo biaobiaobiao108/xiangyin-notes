@@ -122,14 +122,17 @@ describe("card view & layout", () => {
     expect(withoutThumb?.preview).toContain("文人笔墨");
   });
 
-  test("card and list content remains painted reliably while scrolling in Safari", async () => {
+  test("Safari scrolling keeps card content painted and shadows clear of viewport edges", async () => {
     const cssContent = await Bun.file("app/styles.css").text();
     expect(cssContent).toContain(".note-card {");
     const cardRule = cssContent.match(/\.note-card\s*\{([^}]*)\}/)?.[1] ?? "";
     expect(cardRule).not.toMatch(/content-visibility|contain-intrinsic-size/);
+    expect(cardRule).toMatch(/box-shadow:\s*0 1px 4px/);
     expect(cssContent).not.toMatch(/\.note-list-item\s*\{[^}]*content-visibility/);
     expect(cardRule).not.toContain("transform");
     expect(cssContent).toContain("@media (hover: hover) and (pointer: fine)");
+    expect(cssContent).toMatch(/\.note-card:hover\s*\{[^}]*box-shadow:\s*0 1px 5px/);
+    expect(cssContent).toMatch(/\.note-card\.is-selected\s*\{[^}]*box-shadow:.*0 1px 5px/);
     expect(cssContent).toMatch(/\.card-masonry\s*\{[^}]*columns:\s*3\s+280px/);
     const responsiveCardGridRule = cssContent.slice(cssContent.lastIndexOf("@media (max-width: 900px)"));
     expect(responsiveCardGridRule).toMatch(/\.card-masonry\s*\{[^}]*columns:\s*1\s*[;}]/);
