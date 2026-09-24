@@ -2039,7 +2039,7 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); -webkit-backdrop-filter: 
   display: flex;
   flex-direction: column;
   background: var(--surface);
-  border: 1px solid transparent;
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
   /* Compact vertical bleed stays visible near the scrollport edge in Safari. */
   box-shadow: 0 1px 4px rgba(32, 38, 33, 0.06);
@@ -2051,8 +2051,8 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); -webkit-backdrop-filter: 
 }
 
 .note-card:focus-visible {
-  outline: 3px solid rgba(54, 94, 78, 0.38);
-  outline-offset: 3px;
+  outline: none;
+  box-shadow: 0 4px 12px rgba(32, 38, 33, 0.12), 0 1px 3px rgba(32, 38, 33, 0.06);
 }
 
 .note-card:active {
@@ -2063,10 +2063,12 @@ dialog::backdrop { background: rgba(32, 38, 33, 0.24); -webkit-backdrop-filter: 
 @media (hover: hover) and (pointer: fine) {
   .note-card:hover {
     box-shadow: 0 4px 12px rgba(32, 38, 33, 0.12), 0 1px 3px rgba(32, 38, 33, 0.06);
+    border-color: var(--border-strong);
   }
 }
 
 .note-card.is-selected {
+  border-color: var(--accent);
   background: var(--accent-soft);
   box-shadow: 0 0 0 2px rgba(54, 94, 78, 0.28), 0 1px 5px rgba(32, 38, 33, 0.06);
 }
