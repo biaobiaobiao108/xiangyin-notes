@@ -86,7 +86,7 @@ export function CommandMenu({
     { id: "toggle-typewriter-mode", label: typewriterMode ? "退出打字机模式" : "开启打字机模式", shortcut: `${altKey} ⇧ T`, icon: AlignVerticalSpaceAround },
     { id: "set-theme-light", label: "浅色模式", shortcut: "↵", icon: Sun, detail: themePreference === "light" ? "当前设置" : "", keywords: "主题 外观" },
     { id: "set-theme-dark", label: "深色模式", shortcut: "↵", icon: Moon, detail: themePreference === "dark" ? "当前设置" : "", keywords: "主题 外观 tokyo night" },
-    { id: "set-theme-system", label: "跟随系统", shortcut: "↵", icon: Monitor, detail: themePreference === "system" ? "当前设置" : "", keywords: "主题 外观 系统" },
+    { id: "set-theme-system", label: "外观跟随系统", shortcut: "↵", icon: Monitor, detail: themePreference === "system" ? "当前设置" : "", keywords: "主题 外观 系统 跟随系统" },
     ...(hasSelectedNote ? [{ id: "share" as const, label: "分享笔记", shortcut: "↵", icon: Link2 }] : []),
     ...(hasSelectedNote ? [{ id: "favorite" as const, label: "切换收藏", shortcut: "↵", icon: Bookmark }] : []),
     ...(canMoveToTrash ? [{ id: "trash" as const, label: "移入回收站", shortcut: "↵", icon: Trash2 }] : []),
