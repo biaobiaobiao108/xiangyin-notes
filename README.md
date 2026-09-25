@@ -135,6 +135,8 @@ PUBLIC_URL=https://notes.example.com
 
 反向代理需要将 `/mcp` 转发到应用容器，保留 `Authorization`、MCP 协议请求头和 POST 请求体，并允许 `text/event-stream` 响应及时传递。使用 Nginx 时应为该路径关闭响应缓冲（例如设置 `proxy_buffering off`）；其他代理使用对应的流式响应设置。不要把令牌放入 URL 查询参数。MCP 提供的工具包括：列出笔记本、搜索与分页、读取笔记、创建笔记，以及携带版本号更新笔记。发生版本冲突时，工具会返回当前笔记供 agent 合并后重试。
 
+MCP 只传输文字和 Markdown，不提供图片内容或缩略图。正文中的图片引用会原样保留，方便后续编辑时保留这些引用；MCP 令牌不能用于读取 `/api/assets/` 下的图片。工具结果只通过 MCP 文本 `content` 返回一次 JSON，不另附重复的结构化结果。
+
 ### 本机运行
 
 在安装了 Bun 的电脑上运行：

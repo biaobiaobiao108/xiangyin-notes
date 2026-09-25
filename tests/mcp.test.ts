@@ -75,6 +75,13 @@ function resultOf(responseBody: Record<string, any>) {
   return responseBody.result as Record<string, any>;
 }
 
+function toolData(responseBody: Record<string, any>) {
+  const result = resultOf(responseBody);
+  expect(result.structuredContent).toBeUndefined();
+  expect(result.content).toHaveLength(1);
+  return JSON.parse(result.content[0].text) as Record<string, any>;
+}
+
 describe("remote MCP endpoint", () => {
   test("requires its own configured Bearer token and ignores cookies and the import token", async () => {
     const unconfigured = await request(MCP_PATH, { method: "POST" });
@@ -126,23 +133,23 @@ describe("remote MCP endpoint", () => {
     const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
     const notebooks = await callTool("list_notebooks", {}, 1, environment);
     expect(notebooks.response.status).toBe(200);
-    const inbox = resultOf(notebooks.body!).structuredContent.notebooks[0];
+    const inbox = toolData(notebooks.body!).notebooks[0];
     expect(inbox.name).toBe("收件箱");
 
     const created = await callTool("create_note", {
       title: "MCP 测试记录",
       contentMarkdown: "这里是 MCP 可搜索正文 #mcp-test",
     }, 2, environment);
-    const createdNote = resultOf(created.body!).structuredContent.note;
+    const createdNote = toolData(created.body!).note;
     expect(createdNote.title).toBe("MCP 测试记录");
     expect(createdNote.notebookId).toBe(inbox.id);
     expect(createdNote.version).toBe(1);
 
     const search = await callTool("search_notes", { query: "mcp-test" }, 3, environment);
-    expect(resultOf(search.body!).structuredContent.notes.map((note: { id: string }) => note.id)).toContain(createdNote.id);
+    expect(toolData(search.body!).notes.map((note: { id: string }) => note.id)).toContain(createdNote.id);
 
     const fetched = await callTool("get_note", { noteId: createdNote.id }, 4, environment);
-    const fetchedNote = resultOf(fetched.body!).structuredContent.note;
+    const fetchedNote = toolData(fetched.body!).note;
     expect(fetchedNote.contentMarkdown).toContain("可搜索正文");
     expect(fetchedNote.version).toBe(1);
 
@@ -152,7 +159,7 @@ describe("remote MCP endpoint", () => {
       title: "MCP 更新记录",
       contentMarkdown: "更新后的正文 #mcp-updated",
     }, 5, environment);
-    const updatedNote = resultOf(updated.body!).structuredContent.note;
+    const updatedNote = toolData(updated.body!).note;
     expect(updatedNote.title).toBe("MCP 更新记录");
     expect(updatedNote.version).toBe(2);
 
@@ -163,11 +170,45 @@ describe("remote MCP endpoint", () => {
     }, 6, environment);
     const staleResult = resultOf(staleUpdate.body!);
     expect(staleResult.isError).toBe(true);
-    expect(staleResult.structuredContent.error.code).toBe("VERSION_CONFLICT");
-    expect(staleResult.structuredContent.error.current.version).toBe(2);
+    expect(toolData(staleUpdate.body!).error.code).toBe("VERSION_CONFLICT");
+    expect(toolData(staleUpdate.body!).error.current.version).toBe(2);
 
     const reread = await callTool("get_note", { noteId: createdNote.id }, 7, environment);
-    expect(resultOf(reread.body!).structuredContent.note.contentMarkdown).toContain("更新后的正文");
+    expect(toolData(reread.body!).note.contentMarkdown).toContain("更新后的正文");
+  });
+
+  test("keeps Markdown image references without exposing thumbnails or image bytes", async () => {
+    const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
+    await callTool("list_notebooks", {}, 1, environment);
+    const user = database.query("SELECT id FROM users WHERE username = ?").get(credentials.XIANGYING_USERNAME) as { id: string };
+    const assetId = crypto.randomUUID();
+    const assetUrl = `/api/assets/${assetId}`;
+    database.query("INSERT INTO image_assets (id, user_id, storage_path, original_name, mime_type, byte_size, width, height, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(assetId, user.id, `${user.id}/${assetId}.png`, "图片.png", "image/png", 42, 1, 1, Math.floor(Date.now() / 1000));
+
+    const markdown = `正文\n\n![图片](${assetUrl})`;
+    const created = await callTool("create_note", { title: "图片引用笔记", contentMarkdown: markdown }, 2, environment);
+    const createdNote = toolData(created.body!).note;
+    expect(createdNote.contentMarkdown).toBe(markdown);
+    expect(createdNote.thumbnail).toBeUndefined();
+
+    const searched = await callTool("search_notes", { query: "图片引用笔记" }, 3, environment);
+    const summary = toolData(searched.body!).notes.find((note: { id: string }) => note.id === createdNote.id);
+    expect(summary?.thumbnail).toBeUndefined();
+
+    const fetched = await callTool("get_note", { noteId: createdNote.id }, 4, environment);
+    expect(toolData(fetched.body!).note.contentMarkdown).toBe(markdown);
+    expect(toolData(fetched.body!).note.thumbnail).toBeUndefined();
+
+    const imageRequest = await request(assetUrl, { headers: { Authorization: `Bearer ${token}` } }, environment);
+    expect(imageRequest.response.status).toBe(401);
+
+    const updated = await callTool("update_note", { noteId: createdNote.id, version: createdNote.version, contentMarkdown: `${markdown}\n补充` }, 5, environment);
+    expect(toolData(updated.body!).note.contentMarkdown).toContain(assetUrl);
+    expect(toolData(updated.body!).note.thumbnail).toBeUndefined();
+
+    const conflict = await callTool("update_note", { noteId: createdNote.id, version: createdNote.version, title: "过期标题" }, 6, environment);
+    expect(toolData(conflict.body!).error.current.thumbnail).toBeUndefined();
   });
 
   test("search returns a cursor and loads a non-overlapping next page", async () => {
@@ -180,12 +221,12 @@ describe("remote MCP endpoint", () => {
     }
 
     const firstPage = await callTool("search_notes", { query: "pagination" }, 2, environment);
-    const firstPageData = resultOf(firstPage.body!).structuredContent;
+    const firstPageData = toolData(firstPage.body!);
     expect(firstPageData.notes).toHaveLength(100);
     expect(typeof firstPageData.nextCursor).toBe("string");
 
     const secondPage = await callTool("search_notes", { query: "pagination", cursor: firstPageData.nextCursor }, 3, environment);
-    const secondPageData = resultOf(secondPage.body!).structuredContent;
+    const secondPageData = toolData(secondPage.body!);
     expect(secondPageData.notes.length).toBeGreaterThan(0);
     const firstIds = new Set(firstPageData.notes.map((note: { id: string }) => note.id));
     expect(secondPageData.notes.every((note: { id: string }) => !firstIds.has(note.id))).toBe(true);
@@ -194,10 +235,10 @@ describe("remote MCP endpoint", () => {
   test("rejects empty updates and missing notes as MCP tool errors", async () => {
     const emptyUpdate = await callTool("update_note", { noteId: "missing", version: 1 });
     expect(resultOf(emptyUpdate.body!).isError).toBe(true);
-    expect(resultOf(emptyUpdate.body!).structuredContent.error.code).toBe("EMPTY_UPDATE");
+    expect(toolData(emptyUpdate.body!).error.code).toBe("EMPTY_UPDATE");
 
     const missingNote = await callTool("get_note", { noteId: "missing" }, 2);
     expect(resultOf(missingNote.body!).isError).toBe(true);
-    expect(resultOf(missingNote.body!).structuredContent.error.code).toBe("NOTE_NOT_FOUND");
+    expect(toolData(missingNote.body!).error.code).toBe("NOTE_NOT_FOUND");
   });
 });

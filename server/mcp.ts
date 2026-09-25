@@ -33,9 +33,25 @@ function asUser(value: unknown): UserRow | null {
 
 function responseValue(value: Record<string, unknown>, isError = false) {
   return {
-    content: [{ type: "text" as const, text: JSON.stringify(value) }],
-    structuredContent: value,
+    content: [{ type: "text" as const, text: JSON.stringify(withoutThumbnailMetadata(value)) }],
     ...(isError ? { isError: true } : {}),
+  };
+}
+
+function withoutThumbnailMetadata(value: Record<string, unknown>) {
+  const omitThumbnail = (note: unknown) => {
+    if (!note || typeof note !== "object" || Array.isArray(note)) return note;
+    const { thumbnail: _thumbnail, ...rest } = note as Record<string, unknown>;
+    return rest;
+  };
+  const { note, notes, error, ...rest } = value;
+  return {
+    ...rest,
+    ...(note === undefined ? {} : { note: omitThumbnail(note) }),
+    ...(Array.isArray(notes) ? { notes: notes.map(omitThumbnail) } : notes === undefined ? {} : { notes }),
+    ...(error && typeof error === "object" && "current" in error
+      ? { error: { ...error, current: omitThumbnail(error.current) } }
+      : error === undefined ? {} : { error }),
   };
 }
 
@@ -94,7 +110,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("search_notes", {
     title: "搜索笔记",
-    description: "按标题、正文或标签搜索笔记。省略 query 可列出最近更新的笔记；使用 nextCursor 继续读取下一页。",
+    description: "按标题、正文或标签搜索笔记。省略 query 可列出最近更新的笔记；使用 nextCursor 继续读取下一页。结果不包含图片或缩略图。",
     inputSchema: z.object({
       query: z.string().max(80).optional().describe("搜索词；省略或留空时列出最近笔记"),
       notebookId: z.string().min(1).max(200).optional().describe("仅搜索指定笔记本"),
@@ -112,7 +128,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("get_note", {
     title: "读取笔记",
-    description: "按笔记 ID 读取完整笔记内容和 version。更新前先读取笔记，并在 update_note 中带回 version。",
+    description: "按笔记 ID 读取 Markdown 正文和 version。保留正文中的图片引用，但不提供图片内容或缩略图。更新前先读取笔记，并在 update_note 中带回 version。",
     inputSchema: z.object({ noteId: z.string().min(1).max(200) }),
   }, async ({ noteId }) => {
     if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
@@ -141,7 +157,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("update_note", {
     title: "更新笔记",
-    description: "更新笔记标题、Markdown 正文或所属笔记本。必须提供 get_note 返回的 version；遇到版本冲突时先读取当前内容并合并后再重试。",
+    description: "更新笔记标题、Markdown 正文或所属笔记本。替换正文时保留需要的图片引用。必须提供 get_note 返回的 version；遇到版本冲突时先读取当前内容并合并后再重试。",
     inputSchema: z.object({
       noteId: z.string().min(1).max(200),
       version: z.number().int().positive(),
