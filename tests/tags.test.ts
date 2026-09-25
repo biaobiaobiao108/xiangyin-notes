@@ -25,6 +25,8 @@ describe("note tags", () => {
 
   test("removes matching visible tag markers while preserving code examples", () => {
     expect(removeTagsFromMarkdown("前文 #移除 `#移除` #保留\n#移除", ["移除"])).toBe("前文  `#移除` #保留\n");
+    expect(removeTagsFromMarkdown("第一行\n#单独标签行\n第三行", ["单独标签行"])).toBe("第一行\n第三行");
+    expect(removeTagsFromMarkdown("第一行\n普通文字 #移除\n第三行", ["移除"])).toBe("第一行\n普通文字 \n第三行");
     expect(removeTagsFromMarkdown("#保留", [])).toBe("#保留");
   });
 

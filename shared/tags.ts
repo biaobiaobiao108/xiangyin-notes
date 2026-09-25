@@ -161,12 +161,43 @@ export function removeTagsFromMarkdown(markdown: string, tags: string[]) {
   const ranges = findTagRanges(markdown).filter((range) => targets.has(normalizeTag(range.tag)));
   if (ranges.length === 0) return markdown;
   let result = "";
-  let cursor = 0;
-  for (const range of ranges) {
-    result += markdown.slice(cursor, range.start);
-    cursor = range.end;
+  let lineStart = 0;
+  let rangeIndex = 0;
+
+  while (lineStart <= markdown.length) {
+    const nextLf = markdown.indexOf("\n", lineStart);
+    const nextCr = markdown.indexOf("\r", lineStart);
+    const lineBreak = nextLf === -1 ? nextCr : nextCr === -1 ? nextLf : Math.min(nextLf, nextCr);
+    const lineEnd = lineBreak === -1 ? markdown.length : lineBreak;
+    const lineBreakEnd = lineBreak === -1
+      ? markdown.length
+      : lineBreak + (markdown[lineBreak] === "\r" && markdown[lineBreak + 1] === "\n" ? 2 : 1);
+
+    while (rangeIndex < ranges.length && ranges[rangeIndex].end <= lineStart) rangeIndex += 1;
+    let lineCursor = lineStart;
+    let lineHasRemovedTag = false;
+    let nextRangeIndex = rangeIndex;
+    let remainingLine = "";
+    while (nextRangeIndex < ranges.length && ranges[nextRangeIndex].start < lineEnd) {
+      const range = ranges[nextRangeIndex];
+      remainingLine += markdown.slice(lineCursor, range.start);
+      lineCursor = range.end;
+      lineHasRemovedTag = true;
+      nextRangeIndex += 1;
+    }
+
+    if (lineHasRemovedTag) {
+      remainingLine += markdown.slice(lineCursor, lineEnd);
+      if (remainingLine.trim().length > 0) result += remainingLine + markdown.slice(lineEnd, lineBreakEnd);
+    } else {
+      result += markdown.slice(lineStart, lineBreakEnd);
+    }
+
+    rangeIndex = nextRangeIndex;
+    if (lineBreak === -1) break;
+    lineStart = lineBreakEnd;
   }
-  return result + markdown.slice(cursor);
+  return result;
 }
 
 export function parseTagQuery(query: string) {

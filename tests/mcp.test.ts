@@ -251,19 +251,19 @@ describe("remote MCP endpoint", () => {
     const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
     const created = await callTool("create_note", {
       title: "标签清理与代码示例",
-      contentMarkdown: "正文 #保留 #移除\n示例 `#代码标签` 和 #移除",
+      contentMarkdown: "正文 #保留 #移除\n示例 `#代码标签` 和 #移除\n#单独一行标签\n后续内容",
     }, 1, environment);
     const note = toolData(created.body!).note;
-    expect(note.tags).toEqual(["保留", "移除"]);
+    expect(note.tags).toEqual(["保留", "移除", "单独一行标签"]);
 
     const removed = await callTool("update_note", {
       noteId: note.id,
       version: note.version,
-      removeTags: ["移除"],
+      removeTags: ["移除", "单独一行标签"],
     }, 2, environment);
     expect(toolData(removed.body!).note.tags).toEqual(["保留"]);
     const read = toolData((await callTool("get_note", { noteId: note.id }, 3, environment)).body!).note;
-    expect(read.contentMarkdown).toBe("正文 #保留 \n示例 `#代码标签` 和 ");
+    expect(read.contentMarkdown).toBe("正文 #保留 \n示例 `#代码标签` 和 \n后续内容");
     expect(read.tags).toEqual(["保留"]);
 
     // Simulate an index created by the earlier parser, which treated code as a tag.
