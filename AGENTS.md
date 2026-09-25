@@ -2,7 +2,7 @@
 
 ## 项目定位
 
-象映笔记是一个使用 Bun + TypeScript + React 构建的本地全栈 Markdown 笔记软件。前端由 Bun bundler 打包，后端使用原生 `Bun.serve`，数据使用 `bun:sqlite` 保存，分享快照也保存在 SQLite 中。
+象映笔记是一个使用 Bun + TypeScript + React 构建的本地全栈 Markdown 笔记软件。前端由 Bun bundler 打包，后端使用原生 `Bun.serve`，数据使用 `bun:sqlite` 保存；分享链接实时读取笔记，SQLite 只保存分享令牌元数据。
 
 ## 基本原则
 
