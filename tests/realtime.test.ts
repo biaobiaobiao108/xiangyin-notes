@@ -301,6 +301,17 @@ describe("Realtime HTTP integration", () => {
       noteId: sourceId,
     });
 
+    const renamed = await request(`/api/notes/${targetId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ version: targetNote.body?.note?.version, title: "新提及目标" }),
+    }, { cookie: login.cookie, realtime: hub, clientId: "other-client" });
+    expect(renamed.response.status).toBe(200);
+    const renameMessage = JSON.parse(socket.messages[socket.messages.length - 1]!);
+    expect(renameMessage).toMatchObject({ type: "workspace.changed", resource: "notes" });
+    expect(renameMessage).not.toHaveProperty("noteId");
+    const updatedSource = await request(`/api/notes/${sourceId}`, {}, { cookie: login.cookie });
+    expect(updatedSource.body?.note?.contentMarkdown).toContain("[[新提及目标]]");
+
     hub.stop();
   });
 });

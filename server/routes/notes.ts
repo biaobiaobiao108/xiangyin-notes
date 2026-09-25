@@ -657,7 +657,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
       return json({ error: { code: "VERSION_CONFLICT", message: "这篇笔记已在别处更新", current: latest ? toFullNote(latest) : null } }, 409);
     }
     const note = getNote(database, user.id, current.id);
-    publishWorkspaceChange(options, user.id, { resource: "notes", noteId: current.id }, request);
+    publishWorkspaceChange(options, user.id, { resource: "notes", ...(current.title === title ? { noteId: current.id } : {}) }, request);
     const summaryResponse = url.searchParams.get("response") === "summary";
     return json({ note: note ? summaryResponse ? toNote(note) : toFullNote(note) : null });
   }
