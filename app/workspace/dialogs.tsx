@@ -145,10 +145,10 @@ export function ShareDialog({ note, onClose, onToast }: { note: Note; onClose: (
         <div id="share-dialog-scroll-region" ref={bodyRef} className="share-dialog-body floating-scrollbar-target">
           <section className="share-create-panel" aria-label="创建公开分享">
             <div className="share-create-desc">
-              <p className="share-create-summary">为当前内容创建一份独立、只读的公开快照。</p>
+              <p className="share-create-summary">通过链接只读分享这篇笔记，后续修改也会显示在链接中。</p>
               <div className="share-policy-tags">
                 <span className="share-policy-tag"><Clock3 size={13} aria-hidden="true" /><span>7 天有效</span></span>
-                <span className="share-policy-tag"><ShieldCheck size={13} aria-hidden="true" /><span>只读快照</span></span>
+                <span className="share-policy-tag"><ShieldCheck size={13} aria-hidden="true" /><span>实时内容</span></span>
               </div>
             </div>
             <div className="share-action-row">

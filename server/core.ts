@@ -75,11 +75,10 @@ export type NoteRow = {
 export type ShareRow = {
   id: string;
   note_id: string;
+  user_id: string;
   created_at: number;
   expires_at: number;
   revoked_at: number | null;
-  snapshot_title: string;
-  snapshot_content_markdown: string;
 };
 
 export type ImageAssetRow = {
@@ -802,15 +801,7 @@ export function syncNoteAssetReferences(
     SET note_id = NULL, document_order = NULL
     WHERE note_id = ?
       AND ${detachedAssetCondition}
-      AND NOT EXISTS (
-        SELECT 1
-        FROM shares s
-        WHERE s.note_id = image_assets.note_id
-          AND s.revoked_at IS NULL
-          AND s.expires_at > ?
-          AND instr(s.snapshot_content_markdown, image_assets.id) > 0
-      )
-  `).run(noteId, ...ids, now());
+  `).run(noteId, ...ids);
   const assets = ids.length
     ? all<ImageAssetRow>(
         database,

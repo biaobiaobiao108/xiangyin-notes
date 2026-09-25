@@ -56,7 +56,7 @@ describe("Bun Server API", () => {
   test("automatically initializes a fresh database and does not rerun the baseline", async () => {
     const fresh = await openDatabase(":memory:");
     const migrations = fresh.query("SELECT name FROM schema_migrations ORDER BY name").all() as Array<{ name: string }>;
-    expect(migrations.map((item) => item.name)).toEqual(["0001_baseline.sql"]);
+    expect(migrations.map((item) => item.name)).toEqual(["0001_baseline.sql", "0002_live_shares.sql"]);
     expect(fresh.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'users'").get()).toBeDefined();
     fresh.close();
 
@@ -66,7 +66,7 @@ describe("Bun Server API", () => {
 
     const reopened = await openDatabase(databasePath);
     const appliedMigrations = reopened.query("SELECT name FROM schema_migrations ORDER BY name").all() as Array<{ name: string }>;
-    expect(appliedMigrations.map((item) => item.name)).toEqual(["0001_baseline.sql"]);
+    expect(appliedMigrations.map((item) => item.name)).toEqual(["0001_baseline.sql", "0002_live_shares.sql"]);
     reopened.close();
     await Promise.all([rm(databasePath, { force: true }), rm(`${databasePath}-wal`, { force: true }), rm(`${databasePath}-shm`, { force: true })]);
   });
@@ -74,7 +74,8 @@ describe("Bun Server API", () => {
   test("applies SQLite migrations idempotently and reports health", async () => {
     await applyMigrations(database);
     const migrations = database.query("SELECT name FROM schema_migrations ORDER BY name").all() as Array<{ name: string }>;
-    expect(migrations.map((item) => item.name)).toEqual(["0001_baseline.sql"]);
+    expect(migrations.map((item) => item.name)).toEqual(["0001_baseline.sql", "0002_live_shares.sql"]);
+    expect((database.query("PRAGMA table_info(shares)").all() as Array<{ name: string }>).some((column) => column.name.startsWith("snapshot_"))).toBe(false);
     expect(database.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'sync_%'").all()).toEqual([]);
 
     const health = await request("/api/health");
@@ -441,8 +442,8 @@ describe("Bun Server API", () => {
     const created = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "分享图片", contentMarkdown: `![x](${asset.url}?w=400&h=300)` }) }, login.cookie);
     const share = await request(`/api/notes/${created.body?.note.id}/shares`, { method: "POST", body: "{}" }, login.cookie);
     const token = String(share.body?.share.url).split("/share/")[1];
-    const snapshot = await request(`/api/shares/${token}`);
-    expect(snapshot.body?.snapshot.contentMarkdown).toContain(`/api/share-assets/${token}/${asset.id}`);
+    const sharedNote = await request(`/api/shares/${token}`);
+    expect(sharedNote.body?.note.contentMarkdown).toContain(`/api/share-assets/${token}/${asset.id}`);
     const publicImage = await handleRequest(new Request(`http://xiangying.test/api/share-assets/${token}/${asset.id}`), { database, environment, clientRoot: "dist/client", assetRoot });
     expect(publicImage.status).toBe(200);
     expect(publicImage.headers.get("Cache-Control")).toBe("no-store");
@@ -476,21 +477,31 @@ describe("Bun Server API", () => {
     expect(await Bun.file(join(assetRoot, stored.storage_path)).exists()).toBe(false);
   });
 
-  test("detaches removed image references without breaking active share snapshots", async () => {
+  test("only shares images still referenced by the current note", async () => {
     const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
     const uploaded = await request("/api/assets", { method: "POST", body: imageForm("shared-remove.png") }, login.cookie);
     const asset = uploaded.body?.asset;
     const created = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "可解绑图片", contentMarkdown: `![x](${asset.url})` }) }, login.cookie);
     const share = await request(`/api/notes/${created.body?.note.id}/shares`, { method: "POST", body: "{}" }, login.cookie);
     const token = String(share.body?.share.url).split("/share/")[1];
+    const laterUpload = await request("/api/assets", { method: "POST", body: imageForm("later.png") }, login.cookie);
+    const laterAsset = laterUpload.body?.asset;
+    expect((await handleRequest(new Request(`http://xiangying.test/api/share-assets/${token}/${laterAsset.id}`), { database, environment, clientRoot: "dist/client", assetRoot })).status).toBe(404);
+
+    const withLaterImage = await request(`/api/notes/${created.body?.note.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ version: created.body?.note.version, contentMarkdown: `![x](${asset.url})\n![later](${laterAsset.url})` }),
+    }, login.cookie);
+    expect(withLaterImage.response.status).toBe(200);
+    expect((await handleRequest(new Request(`http://xiangying.test/api/share-assets/${token}/${laterAsset.id}`), { database, environment, clientRoot: "dist/client", assetRoot })).status).toBe(200);
 
     const removed = await request(`/api/notes/${created.body?.note.id}`, {
       method: "PATCH",
-      body: JSON.stringify({ version: created.body?.note.version, contentMarkdown: "图片已移除" }),
+      body: JSON.stringify({ version: withLaterImage.body?.note.version, contentMarkdown: "图片已移除" }),
     }, login.cookie);
     expect(removed.response.status).toBe(200);
-    expect(database.query("SELECT note_id FROM image_assets WHERE id = ?").get(asset.id)).toEqual({ note_id: created.body?.note.id });
-    expect((await handleRequest(new Request(`http://xiangying.test/api/share-assets/${token}/${asset.id}`), { database, environment, clientRoot: "dist/client", assetRoot })).status).toBe(200);
+    expect(database.query("SELECT note_id FROM image_assets WHERE id = ?").get(asset.id)).toEqual({ note_id: null });
+    expect((await handleRequest(new Request(`http://xiangying.test/api/share-assets/${token}/${asset.id}`), { database, environment, clientRoot: "dist/client", assetRoot })).status).toBe(404);
 
     await request(`/api/shares/${share.body?.share.id}`, { method: "DELETE" }, login.cookie);
     const released = await request(`/api/notes/${created.body?.note.id}`, {
@@ -698,7 +709,7 @@ describe("Bun Server API", () => {
     expect((await request(`/api/notes/${active.body?.note.id}`, {}, login.cookie)).response.status).toBe(200);
     expect((await request("/api/notes?view=all&query=activeneedle", {}, login.cookie)).body?.total).toBe(1);
     expect((await request("/api/notes?view=trash&query=otherneedle", {}, otherLogin.cookie, otherEnvironment)).body?.total).toBe(1);
-    for (const [share, expected] of [[trashedShare, 404], [activeShare, 200], [otherShare, 200]] as const) {
+    for (const [share, expected] of [[trashedShare, 404], [activeShare, 200], [otherShare, 404]] as const) {
       const token = new URL(share.body?.share.url).pathname.split("/").pop();
       expect((await request(`/api/shares/${token}`)).response.status).toBe(expected);
     }
@@ -721,7 +732,8 @@ describe("Bun Server API", () => {
     expect((await request(`/api/notes/${id}`, {}, login.cookie)).body?.note.deletedAt).not.toBeNull();
     expect((await request("/api/notes?view=trash&query=rollbackneedle", {}, login.cookie)).body?.total).toBe(1);
     const token = new URL(share.body?.share.url).pathname.split("/").pop();
-    expect((await request(`/api/shares/${token}`)).response.status).toBe(200);
+    expect((await request(`/api/shares/${token}`)).response.status).toBe(404);
+    expect(database.query("SELECT id FROM shares WHERE id = ?").get(share.body?.share.id)).toEqual({ id: share.body?.share.id });
   });
 
   test("rejects unknown list views and stores blank titles as empty", async () => {
@@ -743,9 +755,9 @@ describe("Bun Server API", () => {
     expect(renamed.body?.note.title).toBe("");
   });
 
-  test("stores immutable SQLite snapshots and revokes or expires them", async () => {
+  test("reads current note content through existing links and honors deletion, revocation and expiry", async () => {
     const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
-    const created = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "Snapshot", contentMarkdown: "Original content" }) }, login.cookie);
+    const created = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "Live share", contentMarkdown: "Original content" }) }, login.cookie);
     const note = created.body?.note;
 
     const shared = await request(`/api/notes/${note.id}/shares`, { method: "POST", body: "{}" }, login.cookie);
@@ -755,12 +767,20 @@ describe("Bun Server API", () => {
     const original = await request(`/api/shares/${token}`);
     expect(original.response.status).toBe(200);
     expect(original.response.headers.get("Cache-Control")).toBe("no-store");
-    expect(original.body?.snapshot.contentMarkdown).toBe("Original content");
+    expect(original.body?.note.contentMarkdown).toBe("Original content");
 
-    const updated = await request(`/api/notes/${note.id}`, { method: "PATCH", body: JSON.stringify({ version: note.version, contentMarkdown: "Changed later" }) }, login.cookie);
+    const updated = await request(`/api/notes/${note.id}`, { method: "PATCH", body: JSON.stringify({ version: note.version, title: "Updated title", contentMarkdown: "Changed later" }) }, login.cookie);
     expect(updated.response.status).toBe(200);
-    const unchangedSnapshot = await request(`/api/shares/${token}`);
-    expect(unchangedSnapshot.body?.snapshot.contentMarkdown).toBe("Original content");
+    const currentNote = await request(`/api/shares/${token}`);
+    expect(currentNote.body?.note.title).toBe("Updated title");
+    expect(currentNote.body?.note.contentMarkdown).toBe("Changed later");
+
+    const trashed = await request(`/api/notes/${note.id}`, { method: "PATCH", body: JSON.stringify({ version: updated.body?.note.version, deleted: true }) }, login.cookie);
+    expect(trashed.response.status).toBe(200);
+    expect((await request(`/api/shares/${token}`)).response.status).toBe(404);
+    const restored = await request(`/api/notes/${note.id}`, { method: "PATCH", body: JSON.stringify({ version: trashed.body?.note.version, deleted: false }) }, login.cookie);
+    expect(restored.response.status).toBe(200);
+    expect((await request(`/api/shares/${token}`)).body?.note.contentMarkdown).toBe("Changed later");
 
     const shareId = shared.body?.share.id;
     const revoked = await request(`/api/shares/${shareId}`, { method: "DELETE" }, login.cookie);
@@ -768,7 +788,7 @@ describe("Bun Server API", () => {
     const unavailable = await request(`/api/shares/${token}`);
     expect(unavailable.response.status).toBe(410);
     expect(unavailable.body?.error.code).toBe("SHARE_REVOKED");
-    expect(database.query("SELECT snapshot_content_markdown FROM shares WHERE id = ?").get(shareId)).toEqual({ snapshot_content_markdown: "" });
+    expect(database.query("SELECT revoked_at FROM shares WHERE id = ?").get(shareId)).toEqual({ revoked_at: expect.any(Number) });
 
     const second = await request(`/api/notes/${note.id}/shares`, { method: "POST", body: "{}" }, login.cookie);
     const secondToken = String(second.body?.share.url).split("/share/")[1];
@@ -886,7 +906,7 @@ describe("Bun Server API", () => {
     expect(zipBytes[3]).toBe(0x04);
   });
 
-  test("cleans up expired share snapshots and purges old revoked/expired shares", async () => {
+  test("purges old revoked and expired share links", async () => {
     const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
     const created = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "Share Cleanup", contentMarkdown: "Some markdown text" }) }, login.cookie);
     const noteId = created.body?.note.id;
@@ -913,13 +933,8 @@ describe("Bun Server API", () => {
 
     cleanupExpiredShares(database, true);
 
-    // Active share snapshot still intact
-    const activeRow = database.query("SELECT snapshot_content_markdown FROM shares WHERE id = ?").get(activeId) as { snapshot_content_markdown: string };
-    expect(activeRow.snapshot_content_markdown).toBe("Some markdown text");
-
-    // Recently expired share snapshot cleared to empty string
-    const expiredRow = database.query("SELECT snapshot_content_markdown FROM shares WHERE id = ?").get(expiredId) as { snapshot_content_markdown: string };
-    expect(expiredRow.snapshot_content_markdown).toBe("");
+    expect(database.query("SELECT id FROM shares WHERE id = ?").get(activeId)).toEqual({ id: activeId });
+    expect(database.query("SELECT id FROM shares WHERE id = ?").get(expiredId)).toEqual({ id: expiredId });
 
     // Ancient shares purged completely
     expect(database.query("SELECT id FROM shares WHERE id = ?").get(ancientId)).toBeNull();

@@ -56,8 +56,7 @@ export type Share = {
   url?: string;
 };
 
-export type ShareSnapshot = {
-  schemaVersion: 1;
+export type SharedNote = {
   title: string;
   contentMarkdown: string;
   createdAt: number;

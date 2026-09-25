@@ -1,4 +1,4 @@
-import type { ApiErrorPayload, ImageAssetSummary, Note, NoteSort, NoteSummary, NoteView, Notebook, Share, User, NoteBacklinksResponse } from "../shared/types";
+import type { ApiErrorPayload, ImageAssetSummary, Note, NoteSort, NoteSummary, NoteView, Notebook, Share, SharedNote, User, NoteBacklinksResponse } from "../shared/types";
 
 export class ApiError extends Error {
   status: number;
@@ -67,7 +67,7 @@ export const api = {
   listShares: (noteId: string) => request<{ shares: Share[] }>(`/api/notes/${noteId}/shares`),
   createShare: (noteId: string) => request<{ share: Share }>(`/api/notes/${noteId}/shares`, { method: "POST", body: JSON.stringify({}) }),
   revokeShare: (shareId: string) => request<{ ok: true }>(`/api/shares/${shareId}`, { method: "DELETE" }),
-  getPublicShare: (token: string) => request<{ snapshot: { schemaVersion: 1; title: string; contentMarkdown: string; createdAt: number; expiresAt: number } }>(`/api/shares/${token}`),
+  getPublicShare: (token: string, options?: RequestOptions) => request<{ note: SharedNote }>(`/api/shares/${token}`, options),
   getBacklinks: (noteId: string, options?: RequestOptions) => request<NoteBacklinksResponse>(`/api/notes/${noteId}/backlinks`, options),
   linkMention: (targetNoteId: string, payload: { sourceNoteId: string; sourceVersion: number; matchStart: number; matchEnd: number; matchText: string }) => request<{ ok: true }>(`/api/notes/${targetNoteId}/link-mention`, { method: "POST", body: JSON.stringify(payload) }),
 };

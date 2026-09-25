@@ -1,4 +1,4 @@
-import type { Share, ShareSnapshot } from "../../shared/types";
+import type { Share, SharedNote } from "../../shared/types";
 import {
   all,
   createOpaqueToken,
@@ -9,6 +9,7 @@ import {
   type ImageAssetRow,
   json,
   jsonError,
+  noteAssetIds,
   now,
   rewriteAssetUrlsForShare,
   type RouteContext,
@@ -25,18 +26,19 @@ type ShareRouteContext = Pick<RouteContext, "request" | "options">;
 
 export async function handlePublicShare(request: Request, database: SqliteDatabase) {
   const token = new URL(request.url).pathname.split("/").filter(Boolean)[2] ?? "";
-  const row = first<ShareRow>(database, "SELECT id, note_id, created_at, expires_at, revoked_at, snapshot_title, snapshot_content_markdown FROM shares WHERE token_hash = ?", await digestHex(token));
+  const row = first<ShareRow>(database, "SELECT id, note_id, user_id, created_at, expires_at, revoked_at FROM shares WHERE token_hash = ?", await digestHex(token));
   if (!row) return jsonError(404, "SHARE_NOT_FOUND", "分享链接不存在");
   if (row.revoked_at) return jsonError(410, "SHARE_REVOKED", "分享链接已撤销");
   if (row.expires_at <= now()) return jsonError(410, "SHARE_EXPIRED", "分享链接已过期");
-  const snapshot: ShareSnapshot = {
-    schemaVersion: 1,
-    title: row.snapshot_title,
-    contentMarkdown: row.snapshot_content_markdown,
+  const note = first<{ title: string; content_markdown: string }>(database, "SELECT title, content_markdown FROM notes WHERE id = ? AND user_id = ? AND deleted_at IS NULL", row.note_id, row.user_id);
+  if (!note) return jsonError(404, "NOTE_NOT_FOUND", "笔记不存在或已移入回收站");
+  const sharedNote: SharedNote = {
+    title: note.title,
+    contentMarkdown: rewriteAssetUrlsForShare(note.content_markdown, token),
     createdAt: row.created_at,
     expiresAt: row.expires_at,
   };
-  return json({ snapshot });
+  return json({ note: sharedNote });
 }
 
 export async function servePublicShareAsset(request: Request, database: SqliteDatabase, assetRoot: string) {
@@ -44,10 +46,13 @@ export async function servePublicShareAsset(request: Request, database: SqliteDa
   const segments = new URL(request.url).pathname.split("/").filter(Boolean);
   const token = segments[2] ?? "";
   const assetId = segments[3] ?? "";
-  const share = first<{ note_id: string; expires_at: number; revoked_at: number | null }>(database, "SELECT note_id, expires_at, revoked_at FROM shares WHERE token_hash = ?", await digestHex(token));
+  const share = first<{ note_id: string; user_id: string; expires_at: number; revoked_at: number | null }>(database, "SELECT note_id, user_id, expires_at, revoked_at FROM shares WHERE token_hash = ?", await digestHex(token));
   if (!share) return jsonError(404, "SHARE_NOT_FOUND", "分享链接不存在");
   if (share.revoked_at) return jsonError(410, "SHARE_REVOKED", "分享链接已撤销");
   if (share.expires_at <= now()) return jsonError(410, "SHARE_EXPIRED", "分享链接已过期");
+  const note = first<{ content_markdown: string }>(database, "SELECT content_markdown FROM notes WHERE id = ? AND user_id = ? AND deleted_at IS NULL", share.note_id, share.user_id);
+  if (!note) return jsonError(404, "NOTE_NOT_FOUND", "笔记不存在或已移入回收站");
+  if (!noteAssetIds(note.content_markdown).includes(assetId.toLowerCase())) return jsonError(404, "ASSET_NOT_FOUND", "图片不存在");
   const asset = first<ImageAssetRow>(database, "SELECT id, user_id, note_id, storage_path, original_name, mime_type, byte_size, width, height, document_order, created_at FROM image_assets WHERE id = ? AND note_id = ?", assetId, share.note_id);
   if (!asset) return jsonError(404, "ASSET_NOT_FOUND", "图片不存在");
   const filePath = assetFilePath(assetRoot, asset.storage_path);
@@ -93,19 +98,7 @@ export async function handleNoteShares(
     const shareId = crypto.randomUUID();
     const token = createOpaqueToken();
     const tokenHash = await digestHex(token);
-    const transaction = database.transaction(() => {
-      database.query("INSERT INTO shares (id, note_id, user_id, token_hash, created_at, expires_at, snapshot_title, snapshot_content_markdown) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(
-        shareId,
-        note.id,
-        user.id,
-        tokenHash,
-        createdAt,
-        expiresAt,
-        note.title,
-        rewriteAssetUrlsForShare(note.content_markdown, token),
-      );
-    });
-    transaction();
+    database.query("INSERT INTO shares (id, note_id, user_id, token_hash, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)").run(shareId, note.id, user.id, tokenHash, createdAt, expiresAt);
     if (context) publishWorkspaceChange(context.options, user.id, { resource: "shares", noteId: note.id }, context.request);
     const share: Share = {
       id: shareId,
@@ -132,7 +125,7 @@ export async function handleSharesRoute(ctx: RouteContext, user?: UserRow | null
 
   if (id && !subresource && method === "DELETE") {
     if (!user) return null;
-    const result = database.query("UPDATE shares SET revoked_at = ?, snapshot_content_markdown = '' WHERE id = ? AND user_id = ? AND revoked_at IS NULL").run(now(), id, user.id);
+    const result = database.query("UPDATE shares SET revoked_at = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL").run(now(), id, user.id);
     if (result.changes) publishWorkspaceChange(options, user.id, { resource: "shares" }, request);
     return result.changes ? json({ ok: true }) : jsonError(404, "SHARE_NOT_FOUND", "分享链接不存在");
   }
@@ -148,7 +141,6 @@ export function cleanupExpiredShares(database: SqliteDatabase, force = false) {
   if (!force && timestamp < nextExpiredSharesCleanupAt) return;
   nextExpiredSharesCleanupAt = timestamp + 3600;
 
-  database.query("UPDATE shares SET snapshot_content_markdown = '' WHERE (expires_at <= ? OR revoked_at IS NOT NULL) AND snapshot_content_markdown != ''").run(timestamp);
   const purgeBefore = timestamp - EXPIRED_SHARE_PURGE_SECONDS;
   database.query("DELETE FROM shares WHERE expires_at <= ? OR (revoked_at IS NOT NULL AND revoked_at <= ?)").run(purgeBefore, purgeBefore);
 }
