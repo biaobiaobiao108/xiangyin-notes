@@ -21,7 +21,7 @@ import { extractTags, normalizeTag, removeTagsFromMarkdown } from "../shared/tag
 export const MCP_PATH = "/mcp";
 const MCP_SERVER_INSTRUCTIONS = [
   "象映笔记：用于搜索、读取、新建、追加、锚点插入、更新和软删除笔记；可列出回收站并恢复笔记，也可以管理笔记本。",
-  "参数以 JSON 传递。字符串中的控制字符须按 JSON 规范转义（换行写作 \\n）；通过 MCP 结构化参数传多行正文即可，服务端解码后会原样保留换行。",
+  "工具参数必须是 JSON 对象。客户端会先校验参数；手写原始 JSON 时，字符串中的控制字符须按 JSON 规范转义（换行写作 \\n）。多行 Markdown 请通过客户端的结构化工具参数传入，JSON 解析后的正文会保留换行。",
   "需要分类时先调用 list_notebooks 获取笔记本 ID；可用 create_notebook 创建笔记本，再把 ID 传给 create_note。创建笔记时省略 notebookId 会放入收件箱。标签由正文中非代码区域的 #标签 标记；create_note 和 update_note 的 tags 参数会追加标签，update_note 与 batch_update_notes 的 removeTags 参数可移除标签；search_notes 可按标签筛选。",
   "查找内容时使用 search_notes，省略 query 可浏览最近更新的笔记；已删除笔记用 list_trash 查找，再用 update_note 设置 deleted=false 恢复。需要正文时调用 get_note，可按 ID 或标题读取。修改前先读取最新版本，并将 version 传给 update_note、append_to_note、insert_into_note 或 delete_note。遇到 VERSION_CONFLICT 时查看 error.current，合并后使用最新 version 重试。",
   "MCP 只传输文字和 Markdown，不提供图片数据或缩略图；保留正文中的图片引用。",
@@ -84,8 +84,10 @@ function appendMarkdownTags(markdown: string, tags: string[]) {
     additions.push(`#${tag}`);
   }
   if (additions.length === 0) return markdown;
-  const separator = markdown.length > 0 && !markdown.endsWith("\n") ? "\n" : "";
-  return `${markdown}${separator}${additions.join(" ")}`;
+  const body = markdown.replace(/(\r\n|\n|\r)[\t ]+$/u, "$1");
+  const endsWithLineBreak = /(?:\r\n|\n|\r)$/u.test(body);
+  const separator = body.length > 0 && !endsWithLineBreak ? "\n" : "";
+  return `${body}${separator}${additions.join(" ")}`;
 }
 
 function previewAtLength(value: unknown, previewLength: number) {

@@ -141,6 +141,8 @@ describe("remote MCP endpoint", () => {
     expect(resultOf(discovered.body!).instructions).toContain("修改前先读取最新版本");
     expect(resultOf(discovered.body!).instructions).toContain("create_notebook");
     expect(resultOf(discovered.body!).instructions).toContain("换行写作 \\n");
+    expect(resultOf(discovered.body!).instructions).toContain("工具参数必须是 JSON 对象");
+    expect(resultOf(discovered.body!).instructions).toContain("客户端会先校验参数");
     expect(resultOf(discovered.body!).instructions).toContain("list_trash");
     expect(resultOf(discovered.body!).instructions).toContain("insert_into_note");
   });
@@ -166,6 +168,25 @@ describe("remote MCP endpoint", () => {
     const note = await callTool("create_note", { title: "项目会议", notebookId: notebook.id }, 2, environment);
     expect(toolData(note.body!).note.notebookId).toBe(notebook.id);
     expect(toolData(note.body!).note.contentMarkdown).toBeUndefined();
+  });
+
+  test("adds requested tags on a clean line after trailing newlines", async () => {
+    const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
+    const trailingNewline = await callTool("create_note", {
+      title: "标签换行格式",
+      contentMarkdown: "正文末行\n",
+      tags: ["格式标签"],
+      includeContent: true,
+    }, 1, environment);
+    expect(toolData(trailingNewline.body!).note.contentMarkdown).toBe("正文末行\n#格式标签");
+
+    const trailingWhitespace = await callTool("create_note", {
+      title: "标签尾随空白格式",
+      contentMarkdown: "正文末行\n  \t",
+      tags: ["格式标签"],
+      includeContent: true,
+    }, 2, environment);
+    expect(toolData(trailingWhitespace.body!).note.contentMarkdown).toBe("正文末行\n#格式标签");
   });
 
   test("appends, inserts by unique anchor, lists trash, and restores soft-deleted notes", async () => {
