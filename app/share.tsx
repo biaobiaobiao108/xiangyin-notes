@@ -22,7 +22,9 @@ export function SharePage() {
     setCopied(false);
     setCopyFailed(false);
     void api.getPublicShare(token, { signal: controller.signal })
-      .then((result) => setLoaded({ token, note: result.note }))
+      .then((result) => {
+        if (!controller.signal.aborted) setLoaded({ token, note: result.note });
+      })
       .catch((reason) => {
         if (!controller.signal.aborted) setError({ token, message: reason instanceof ApiError ? reason.message : "分享链接不可用" });
       });
