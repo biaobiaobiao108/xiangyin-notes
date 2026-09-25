@@ -3,6 +3,7 @@ import {
   constantTimeEqual,
   cookieHeader,
   createOpaqueToken,
+  derivePassword,
   digestHex,
   first,
   hashPassword,
@@ -41,6 +42,39 @@ const LOGIN_ATTEMPT_CLEANUP_INTERVAL_SECONDS = 60;
 let nextLoginAttemptCleanupAt = 0;
 
 const loginAttempts = new Map<string, LoginAttempt>();
+const credentialChecks = new WeakMap<SqliteDatabase, { signature: string; task: Promise<void> }>();
+
+async function syncEnvironmentPassword(database: SqliteDatabase, credentials: AuthCredentials) {
+  const signature = await digestHex(`${credentials.username}\0${credentials.password}`);
+  const previous = credentialChecks.get(database);
+  if (previous?.signature === signature) return previous.task;
+
+  const task = (async () => {
+    await previous?.task;
+    const existing = first<UserRow & { password_hash: string; password_salt: string }>(
+      database,
+      "SELECT id, username, password_hash, password_salt FROM users WHERE username = ?",
+      credentials.username,
+    );
+    if (!existing) return;
+    const derived = await derivePassword(credentials.password, existing.password_salt);
+    if (constantTimeEqual(derived, existing.password_hash)) return;
+
+    const replacement = await hashPassword(credentials.password);
+    database.transaction(() => {
+      const updated = database.query("UPDATE users SET password_hash = ?, password_salt = ? WHERE id = ? AND password_hash = ? AND password_salt = ?")
+        .run(replacement.hash, replacement.salt, existing.id, existing.password_hash, existing.password_salt);
+      if (updated.changes) database.query("DELETE FROM sessions WHERE user_id = ?").run(existing.id);
+    })();
+  })();
+  credentialChecks.set(database, { signature, task });
+  try {
+    await task;
+  } catch (error) {
+    if (credentialChecks.get(database)?.task === task) credentialChecks.delete(database);
+    throw error;
+  }
+}
 
 export function getAuthCredentials(environment: RuntimeEnvironment = Bun.env): AuthCredentials | null {
   const username = environment.XIANGYING_USERNAME?.trim();
@@ -109,6 +143,7 @@ export function cleanupExpiredSessions(database: SqliteDatabase, force = false) 
 }
 
 export async function ensureEnvironmentUser(database: SqliteDatabase, credentials: AuthCredentials): Promise<UserRow> {
+  await syncEnvironmentPassword(database, credentials);
   const existing = first<UserRow>(database, "SELECT id, username FROM users WHERE username = ?", credentials.username);
   if (existing) return existing;
 
@@ -141,6 +176,7 @@ export async function getCurrentUser(database: SqliteDatabase, environment: Runt
   if (!credentials) return null;
   const session = cookieValue(request.headers.get("Cookie"), SESSION_COOKIE);
   if (!session) return null;
+  await syncEnvironmentPassword(database, credentials);
   const tokenHash = await digestHex(session);
   const timestamp = now();
   const current = first<UserRow & { session_expires_at: number }>(database, `

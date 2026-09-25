@@ -840,6 +840,23 @@ describe("Bun Server API", () => {
     expect(expired.response.status).toBe(401);
   });
 
+  test("revokes existing sessions when the environment password changes", async () => {
+    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
+    expect(login.response.status).toBe(200);
+
+    const rotatedEnvironment = { ...environment, XIANGYING_PASSWORD: "a replacement passphrase 5678" };
+    const oldSession = await request("/api/me", {}, login.cookie, rotatedEnvironment);
+    expect(oldSession.response.status).toBe(401);
+    expect(database.query("SELECT COUNT(*) AS count FROM sessions").get()).toEqual({ count: 0 });
+
+    const newLogin = await request("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "owner", password: rotatedEnvironment.XIANGYING_PASSWORD }),
+    }, undefined, rotatedEnvironment);
+    expect(newLogin.response.status).toBe(200);
+    expect((await request("/api/me", {}, newLogin.cookie, rotatedEnvironment)).response.status).toBe(200);
+  });
+
   test("rejects invalid credentials and missing environment configuration", async () => {
     const wrong = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: "wrong passphrase 1234" }) });
     expect(wrong.response.status).toBe(401);
