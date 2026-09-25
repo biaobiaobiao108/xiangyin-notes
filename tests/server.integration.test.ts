@@ -906,6 +906,19 @@ describe("Bun Server API", () => {
     expect(zipBytes[3]).toBe(0x04);
   });
 
+  test("keeps ZIP entries inside the archive when a notebook is named dot dot", async () => {
+    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
+    const notebook = await request("/api/notebooks", { method: "POST", body: JSON.stringify({ name: ".." }) }, login.cookie);
+    expect(notebook.response.status).toBe(201);
+    const created = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "note", notebookId: notebook.body?.notebook.id, contentMarkdown: "content" }) }, login.cookie);
+    expect(created.response.status).toBe(201);
+    const response = await handleRequest(new Request("http://xiangying.test/api/export", { headers: { Cookie: login.cookie ?? "" } }), { database, environment, clientRoot: "dist/client", assetRoot });
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    const archive = new TextDecoder().decode(bytes);
+    expect(archive).toContain("收件箱/note.md");
+    expect(archive).not.toContain("../note.md");
+  });
+
   test("purges old revoked and expired share links", async () => {
     const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
     const created = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "Share Cleanup", contentMarkdown: "Some markdown text" }) }, login.cookie);

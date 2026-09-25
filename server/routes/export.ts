@@ -1,5 +1,5 @@
 import { all, jsonError, type RouteContext, type UserRow } from "../core";
-import { createZipStream, type ZipStreamEntry } from "../zip";
+import { createZipReadableStream, type ZipStreamEntry } from "../zip";
 import { assetFilePath } from "./assets";
 
 const ASSET_REFERENCE_PATTERN = /\/api\/assets\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})(?=[?#)\s]|$)/giu;
@@ -21,7 +21,8 @@ type ExportAssetRow = {
 };
 
 function safeArchiveName(value: string, fallback: string, maxLength: number) {
-  return (value.trim() || fallback).replace(/[\\/:*?"<>|\0\r\n]/g, "_").slice(0, maxLength) || fallback;
+  const name = (value.trim() || fallback).replace(/[\\/:*?"<>|\0\r\n]/g, "_").slice(0, maxLength);
+  return !name || /^\.+$/u.test(name) ? fallback : name;
 }
 
 async function* oneChunk(bytes: Uint8Array) {
@@ -104,16 +105,7 @@ export async function handleExportRoute(ctx: RouteContext, user: UserRow, assetR
     }
   };
 
-  const body = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      try {
-        for await (const chunk of createZipStream(entries())) controller.enqueue(chunk);
-        controller.close();
-      } catch (error) {
-        controller.error(error);
-      }
-    },
-  });
+  const body = createZipReadableStream(entries());
   const dateStr = new Date().toISOString().slice(0, 10);
   const headers = new Headers({
     "Content-Type": "application/zip",

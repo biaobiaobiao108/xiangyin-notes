@@ -59,13 +59,18 @@ function dosDateTime(date: Date) {
 
 async function* readableStreamChunks(stream: ReadableStream<Uint8Array>) {
   const reader = stream.getReader();
+  let completed = false;
   try {
     while (true) {
       const { done, value } = await reader.read();
-      if (done) return;
+      if (done) {
+        completed = true;
+        return;
+      }
       if (value) yield value;
     }
   } finally {
+    if (!completed) await reader.cancel().catch(() => undefined);
     reader.releaseLock();
   }
 }
@@ -176,6 +181,24 @@ export async function* createZipStream(entries: AsyncIterable<ZipStreamEntry>): 
 
   for (const centralHeader of centralChunks) yield centralHeader;
   yield eocd;
+}
+
+export function createZipReadableStream(entries: AsyncIterable<ZipStreamEntry>) {
+  const iterator = createZipStream(entries);
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const next = await iterator.next();
+        if (next.done) controller.close();
+        else controller.enqueue(next.value);
+      } catch (error) {
+        controller.error(error);
+      }
+    },
+    async cancel() {
+      await iterator.return(undefined);
+    },
+  }, { highWaterMark: 0 });
 }
 
 /**
