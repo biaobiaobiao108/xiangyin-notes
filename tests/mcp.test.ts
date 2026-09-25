@@ -120,13 +120,42 @@ describe("remote MCP endpoint", () => {
     const noOrigin = await callMcp(modernMcpRequest("tools/list", 1), environment);
     expect(noOrigin.response.status).toBe(200);
     expect(resultOf(noOrigin.body!).tools.map((tool: { name: string }) => tool.name)).toEqual([
-      "list_notebooks", "search_notes", "get_note", "create_note", "update_note",
+      "list_notebooks", "create_notebook", "search_notes", "get_note", "create_note", "update_note",
     ]);
 
     const validOriginRequest = modernMcpRequest("tools/list", 2);
     validOriginRequest.headers.set("Origin", "https://notes.example.com");
     const validOrigin = await callMcp(validOriginRequest, environment);
     expect(validOrigin.response.status).toBe(200);
+  });
+
+  test("provides server-level usage instructions during discovery", async () => {
+    const discovered = await callMcp(modernMcpRequest("server/discover", 1), { ...credentials, XIANGYING_MCP_TOKEN: token });
+    expect(discovered.response.status).toBe(200);
+    expect(resultOf(discovered.body!).instructions).toContain("修改笔记前必须先读取最新版本");
+    expect(resultOf(discovered.body!).instructions).toContain("create_notebook");
+  });
+
+  test("creates a notebook that can be used when creating a note", async () => {
+    const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
+    const created = await callTool("create_notebook", {
+      name: "MCP 项目资料",
+      color: "#52675b",
+      icon: "briefcase",
+    }, 1, environment);
+    expect(created.response.status).toBe(200);
+    const notebook = toolData(created.body!).notebook;
+    expect(notebook).toMatchObject({
+      name: "MCP 项目资料",
+      color: "#52675b",
+      icon: "briefcase",
+      isSystem: false,
+      count: 0,
+    });
+    expect(typeof notebook.id).toBe("string");
+
+    const note = await callTool("create_note", { title: "项目会议", notebookId: notebook.id }, 2, environment);
+    expect(toolData(note.body!).note.notebookId).toBe(notebook.id);
   });
 
   test("lists notebooks, creates, searches, reads, and updates notes with version checks", async () => {

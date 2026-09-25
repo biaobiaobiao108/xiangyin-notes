@@ -11,10 +11,17 @@ import {
 } from "./core";
 import { ensureEnvironmentUser, getAuthCredentials } from "./routes/auth";
 import { assetRootFromEnv } from "./routes/assets";
-import { handleNotebooksRoute } from "./routes/notebooks";
+import { handleNotebooksRoute, VALID_NOTEBOOK_ICONS } from "./routes/notebooks";
 import { handleNotesRoute } from "./routes/notes";
 
 export const MCP_PATH = "/mcp";
+const MCP_SERVER_INSTRUCTIONS = [
+  "象映笔记 MCP 用于搜索、阅读和维护当前账号的笔记与笔记本。",
+  "需要分类时先调用 list_notebooks 获取现有笔记本 ID；可以用 create_notebook 创建笔记本，再把它的 ID 传给 create_note。创建笔记时省略 notebookId 会放入收件箱。",
+  "查找内容时使用 search_notes，省略 query 可浏览最近更新的笔记；需要正文时再调用 get_note。",
+  "修改笔记前必须先读取最新版本，并将返回的 version 传给 update_note。遇到 VERSION_CONFLICT 时检查 error.current，将对方的新内容与修改合并后用最新 version 重试。",
+  "保留 Markdown 格式和正文中的图片引用；MCP 只读写文字，不提供图片数据或缩略图。",
+].join(" ");
 
 type RouteResult = {
   status: number;
@@ -85,8 +92,8 @@ async function notesRoute(options: ServerOptions, user: UserRow, method: string,
   return routeResult(await handleNotesRoute(context, user, assetRoot));
 }
 
-async function notebooksRoute(options: ServerOptions, user: UserRow) {
-  const context = createRouteContext(options, "GET", "/api/notebooks", ["notebooks"]);
+async function notebooksRoute(options: ServerOptions, user: UserRow, method: "GET" | "POST" = "GET", payload?: unknown) {
+  const context = createRouteContext(options, method, "/api/notebooks", ["notebooks"], payload);
   return routeResult(await handleNotebooksRoute(context, user));
 }
 
@@ -95,7 +102,9 @@ function mcpUser(context: McpRequestContext) {
 }
 
 function createNoteMcpServer(options: ServerOptions, context: McpRequestContext) {
-  const server = new McpServer({ name: "xiangying-notes", version: "0.1.0" });
+  const server = new McpServer({ name: "xiangying-notes", version: "0.1.0" }, {
+    instructions: MCP_SERVER_INSTRUCTIONS,
+  });
   const user = mcpUser(context);
 
   server.registerTool("list_notebooks", {
@@ -106,6 +115,25 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
     if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
     const result = await notebooksRoute(options, user);
     return result.status === 200 ? responseValue(result.body) : routeError(result);
+  });
+
+  server.registerTool("create_notebook", {
+    title: "创建笔记本",
+    description: "创建一个用于分类笔记的新笔记本。返回新笔记本的 ID、名称、图标和颜色；省略颜色或图标时使用默认值。",
+    inputSchema: z.object({
+      name: z.string().trim().min(1).max(40).describe("笔记本名称，最多 40 个字符"),
+      color: z.string().regex(/^#[0-9a-f]{6}$/iu).optional().describe("六位十六进制颜色，例如 #718077"),
+      icon: z.enum(VALID_NOTEBOOK_ICONS).optional().describe("笔记本图标标识，例如 folder、book 或 bookmark"),
+    }),
+  }, async ({ name, color, icon }) => {
+    if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
+    const payload = {
+      name,
+      ...(color === undefined ? {} : { color }),
+      ...(icon === undefined ? {} : { icon }),
+    };
+    const result = await notebooksRoute(options, user, "POST", payload);
+    return result.status === 201 ? responseValue(result.body) : routeError(result);
   });
 
   server.registerTool("search_notes", {
