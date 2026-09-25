@@ -9,7 +9,7 @@ import type { WorkspaceChangeMessage } from "../shared/realtime";
 import type { Note, NoteSummary, NoteView, Notebook } from "../shared/types";
 import type { OutlineItem } from "./editor-metrics";
 import { ConfirmDialog, NotebookDialog, ShareDialog, type ConfirmRequest } from "./workspace/dialogs";
-import { clearAllDraftRecoveries, clearDraftRecovery, readDraftRecovery } from "./workspace/draft-recovery";
+import { clearAllDraftRecoveries, readDraftRecovery } from "./workspace/draft-recovery";
 import { EmptyEditor, NoteListPanel, NoteLoadingState, Sidebar } from "./workspace/panels";
 import { NoteCardGridPanel } from "./workspace/note-card-grid";
 import { errorMessage, shouldKeepActiveNoteInList, sortNotes, toNoteDraft, toNoteSummary, type NoteDraft, type NoteSort } from "./workspace/helpers";
@@ -389,11 +389,15 @@ export function Workspace() {
       if (!pendingSavesRef.current.has(id)) {
         const recoveredDraft = await readDraftRecovery(id);
         if (requestId !== noteLoadRequestRef.current || activeNoteIdRef.current !== id) return;
-        if (recoveredDraft?.version === result.note.version) {
+        if (recoveredDraft && !pendingSavesRef.current.has(id)) {
           pendingSavesRef.current.set(id, recoveredDraft);
-          setToast("已恢复一份未保存草稿");
-        } else if (recoveredDraft) {
-          clearDraftRecovery(id);
+          if (recoveredDraft.version === result.note.version) {
+            setToast("已恢复一份未保存草稿");
+          } else {
+            failedSavesRef.current.set(id, new ApiError(409, "VERSION_CONFLICT", "恢复的草稿与服务器版本不同"));
+            setSaveState("conflict");
+            setToast("已保留未保存草稿；服务器版本已变化，请先复制需要的修改再重新载入");
+          }
         }
       }
       const latestPendingNote = pendingSavesRef.current.get(id);
@@ -403,7 +407,7 @@ export function Workspace() {
       setIsNoteLoading(false);
       // A draft kept from an earlier failure or a note switch is retried instead of staying stuck on "saving".
       const retryDraft = latestPendingNote;
-      if (retryDraft && !failedSave && !trashOperationsRef.current.has(id)) persistRef.current(retryDraft);
+      if (retryDraft && !failedSavesRef.current.has(id) && !trashOperationsRef.current.has(id)) persistRef.current(retryDraft);
     } catch (reason) {
       if (requestId !== noteLoadRequestRef.current || activeNoteIdRef.current !== id) return;
       if (reason instanceof Error && reason.name === "AbortError") return;
@@ -427,7 +431,7 @@ export function Workspace() {
     } finally {
       if (noteAbortRef.current === controller) noteAbortRef.current = null;
     }
-  }, [navigate]);
+  }, [failedSavesRef, navigate]);
   useEffect(() => {
     if (!ready || !selectedId) {
       noteAbortRef.current?.abort();
@@ -865,11 +869,11 @@ export function Workspace() {
   const reloadSelectedNote = useCallback(async () => {
     const current = selectedRef.current;
     if (!current) return;
-    clearPendingForNote(current.id);
     setIsNoteLoading(true);
     try {
       const result = await api.getNote(current.id);
       if (selectedRef.current?.id !== result.note.id) return;
+      clearPendingForNote(current.id);
       selectedRef.current = result.note;
       setSelectedNote(result.note);
       setNoteReloadToken((value) => value + 1);
