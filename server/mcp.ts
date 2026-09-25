@@ -16,13 +16,13 @@ import { ensureEnvironmentUser, getAuthCredentials } from "./routes/auth";
 import { assetRootFromEnv } from "./routes/assets";
 import { handleNotebooksRoute, VALID_NOTEBOOK_ICONS } from "./routes/notebooks";
 import { handleNotesRoute } from "./routes/notes";
-import { extractTags, normalizeTag, removeTagsFromMarkdown } from "../shared/tags";
+import { extractTags, findTrailingTagFooterStart, normalizeTag, removeTagsFromMarkdown } from "../shared/tags";
 
 export const MCP_PATH = "/mcp";
 const MCP_SERVER_INSTRUCTIONS = [
   "象映笔记：用于搜索、读取、新建、追加、锚点插入、更新和软删除笔记；可列出回收站并恢复笔记，也可以管理笔记本。",
   "工具参数必须是 JSON 对象。客户端会先校验参数；手写原始 JSON 时，字符串中的控制字符须按 JSON 规范转义（换行写作 \\n）。多行 Markdown 请通过客户端的结构化工具参数传入，JSON 解析后的正文会保留换行。",
-  "需要分类时先调用 list_notebooks 获取笔记本 ID；可用 create_notebook 创建笔记本，再把 ID 传给 create_note。创建笔记时省略 notebookId 会放入收件箱。标签由正文中非代码区域的 #标签 标记；create_note 和 update_note 的 tags 参数会追加标签，update_note 与 batch_update_notes 的 removeTags 参数可移除标签；search_notes 可按标签筛选。",
+  "需要分类时先调用 list_notebooks 获取笔记本 ID；可用 create_notebook 创建笔记本，update_notebook 可重命名或修改图标、颜色，delete_notebook 删除笔记本并将其中笔记移入收件箱。再把 ID 传给 create_note；省略 notebookId 会放入收件箱。标签由正文中非代码区域的 #标签 标记；create_note 和 update_note 的 tags 参数会追加标签，update_note 与 batch_update_notes 的 removeTags 参数可移除标签；search_notes 可按标签筛选。",
   "查找内容时使用 search_notes，省略 query 可浏览最近更新的笔记；已删除笔记用 list_trash 查找，再用 update_note 设置 deleted=false 恢复。需要正文时调用 get_note，可按 ID 或标题读取。修改前先读取最新版本，并将 version 传给 update_note、append_to_note、insert_into_note 或 delete_note。遇到 VERSION_CONFLICT 时查看 error.current，合并后使用最新 version 重试。",
   "MCP 只传输文字和 Markdown，不提供图片数据或缩略图；保留正文中的图片引用。",
 ].join(" ");
@@ -149,9 +149,31 @@ async function notesRoute(options: ServerOptions, user: UserRow, method: string,
   return routeResult(await handleNotesRoute(context, user, assetRoot));
 }
 
-async function notebooksRoute(options: ServerOptions, user: UserRow, method: "GET" | "POST" = "GET", payload?: unknown) {
-  const context = createRouteContext(options, method, "/api/notebooks", ["notebooks"], payload);
+async function notebooksRoute(
+  options: ServerOptions,
+  user: UserRow,
+  method: "GET" | "POST" | "PATCH" | "DELETE" = "GET",
+  payload?: unknown,
+  notebookId?: string,
+) {
+  const encodedId = notebookId === undefined ? undefined : encodeURIComponent(notebookId);
+  const path = encodedId === undefined ? "/api/notebooks" : `/api/notebooks/${encodedId}`;
+  const segments = notebookId === undefined ? ["notebooks"] : ["notebooks", notebookId];
+  const context = createRouteContext(options, method, path, segments, payload);
   return routeResult(await handleNotebooksRoute(context, user));
+}
+
+function appendToMarkdown(markdown: string, addition: string) {
+  const footerStart = findTrailingTagFooterStart(markdown);
+  if (footerStart === null) return `${markdown}${addition}`;
+
+  const prefix = markdown.slice(0, footerStart);
+  const footer = markdown.slice(footerStart);
+  const inserted = `${prefix}${addition}`;
+  if (/(?:\r\n|\n|\r)$/u.test(inserted)) return `${inserted}${footer}`;
+
+  const lineBreak = markdown.match(/\r\n|\n|\r/u)?.[0] ?? "\n";
+  return `${inserted}${lineBreak}${footer}`;
 }
 
 type NoteUpdateInput = {
@@ -255,6 +277,39 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
     };
     const result = await notebooksRoute(options, user, "POST", payload);
     return result.status === 201 ? responseValue(result.body) : routeError(result);
+  });
+
+  server.registerTool("update_notebook", {
+    title: "更新笔记本",
+    description: "修改笔记本名称、图标或颜色；修改 name 即可重命名。笔记本中的笔记和内容保持不变。",
+    inputSchema: z.object({
+      notebookId: z.string().min(1).max(200),
+      name: z.string().trim().min(1).max(40).optional().describe("新名称，最多 40 个字符；用于重命名"),
+      color: z.string().regex(/^#[0-9a-f]{6}$/iu).optional().describe("六位十六进制颜色，例如 #718077"),
+      icon: z.enum(VALID_NOTEBOOK_ICONS).optional().describe("笔记本图标标识，例如 folder、book 或 bookmark"),
+    }),
+  }, async ({ notebookId, name, color, icon }) => {
+    if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
+    if (name === undefined && color === undefined && icon === undefined) {
+      return responseValue({ error: { code: "EMPTY_UPDATE", message: "请至少提供一个要更新的字段" } }, true);
+    }
+    const payload = {
+      ...(name === undefined ? {} : { name }),
+      ...(color === undefined ? {} : { color }),
+      ...(icon === undefined ? {} : { icon }),
+    };
+    const result = await notebooksRoute(options, user, "PATCH", payload, notebookId);
+    return result.status === 200 ? responseValue(result.body) : routeError(result);
+  });
+
+  server.registerTool("delete_notebook", {
+    title: "删除笔记本",
+    description: "删除指定笔记本，并将其中所有笔记（包括回收站中的笔记）移入收件箱。系统收件箱不能删除。",
+    inputSchema: z.object({ notebookId: z.string().min(1).max(200) }),
+  }, async ({ notebookId }) => {
+    if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
+    const result = await notebooksRoute(options, user, "DELETE", undefined, notebookId);
+    return result.status === 200 ? responseValue(result.body) : routeError(result);
   });
 
   server.registerTool("search_notes", {
@@ -370,7 +425,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("append_to_note", {
     title: "追加到笔记",
-    description: "将 contentMarkdown 精确追加到现有正文末尾，避免重新发送长正文。必须提供 get_note 返回的 version；若需要换行，请在追加文本中包含换行。内容按 JSON 传输，多行正文在结构化参数中直接传入；原始 JSON 文本中的控制字符必须转义。默认不回传完整正文。",
+    description: "将 contentMarkdown 追加到现有正文，避免重新发送长正文。末尾若有独立标签行，会把新内容插到标签行之前并保留标签；没有标签行时按原样追加。必须提供 get_note 返回的 version；需要换行时请在追加文本中包含换行。内容按 JSON 传输，多行正文在结构化参数中直接传入；原始 JSON 文本中的控制字符必须转义。默认不回传完整正文。",
     inputSchema: z.object({
       noteId: z.string().min(1).max(200),
       version: z.number().int().positive(),
@@ -386,7 +441,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
     const result = await updateNoteRoute(options, user, {
       noteId,
       version,
-      contentMarkdown: `${note.contentMarkdown}${contentMarkdown}`,
+      contentMarkdown: appendToMarkdown(note.contentMarkdown, contentMarkdown),
       includeContent,
     });
     return result.status === 200 ? responseValue(result.body, false, { writeResult: true, includeContent }) : routeError(result);

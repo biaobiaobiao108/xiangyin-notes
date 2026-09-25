@@ -1,5 +1,6 @@
 const TAG_CHARACTER_PATTERN = /[\p{L}\p{N}_-]/u;
 const TAG_QUERY_PATTERN = /^#([\p{L}\p{N}_-]+)$/u;
+const WHITESPACE_CHARACTER_PATTERN = /\s/u;
 
 type Fence = {
   marker: "`" | "~";
@@ -40,6 +41,17 @@ export type TagRange = {
   end: number;
   tag: string;
 };
+
+function lineBounds(markdown: string, start: number) {
+  const nextLf = markdown.indexOf("\n", start);
+  const nextCr = markdown.indexOf("\r", start);
+  const lineBreak = nextLf === -1 ? nextCr : nextCr === -1 ? nextLf : Math.min(nextLf, nextCr);
+  const end = lineBreak === -1 ? markdown.length : lineBreak;
+  const next = lineBreak === -1
+    ? markdown.length
+    : lineBreak + (markdown[lineBreak] === "\r" && markdown[lineBreak + 1] === "\n" ? 2 : 1);
+  return { end, next, hasBreak: lineBreak !== -1 };
+}
 
 type MarkdownSegment = { start: number; end: number };
 type BacktickRun = { start: number; end: number; length: number; indexForLength: number };
@@ -140,6 +152,67 @@ export function findTagRanges(markdown: string) {
   return ranges;
 }
 
+/** Returns the first line of trailing tag-only lines, if the note has a tag footer. */
+export function findTrailingTagFooterStart(markdown: string) {
+  const ranges = findTagRanges(markdown);
+  if (ranges.length === 0) return null;
+
+  const isWhitespace = (start: number, end: number) => {
+    for (let index = start; index < end; index += 1) {
+      if (!WHITESPACE_CHARACTER_PATTERN.test(markdown[index])) return false;
+    }
+    return true;
+  };
+  const previousLineBreak = (end: number) => {
+    const lineFeed = markdown.lastIndexOf("\n", end - 1);
+    const carriageReturn = markdown.lastIndexOf("\r", end - 1);
+    const start = Math.max(lineFeed, carriageReturn);
+    if (start < 0) return null;
+    const isCrLf = markdown[start] === "\n" && markdown[start - 1] === "\r";
+    return {
+      start: isCrLf ? start - 1 : start,
+      length: isCrLf ? 2 : 1,
+    };
+  };
+
+  let lineEnd = markdown.length;
+  while (lineEnd > 0 && (markdown[lineEnd - 1] === "\n" || markdown[lineEnd - 1] === "\r")) {
+    lineEnd -= markdown[lineEnd - 1] === "\n" && markdown[lineEnd - 2] === "\r" ? 2 : 1;
+  }
+
+  let rangeIndex = ranges.length - 1;
+  let footerStart: number | null = null;
+  while (lineEnd >= 0) {
+    const lineBreak = previousLineBreak(lineEnd);
+    const lineStart = lineBreak ? lineBreak.start + lineBreak.length : 0;
+    while (rangeIndex >= 0 && ranges[rangeIndex].start >= lineEnd) rangeIndex -= 1;
+
+    let hasTag = false;
+    let onlyTags = true;
+    let cursor = lineEnd;
+    while (rangeIndex >= 0 && ranges[rangeIndex].start >= lineStart) {
+      const range = ranges[rangeIndex];
+      hasTag = true;
+      if (!isWhitespace(range.end, cursor)) onlyTags = false;
+      cursor = range.start;
+      rangeIndex -= 1;
+    }
+    if (!isWhitespace(lineStart, cursor)) onlyTags = false;
+
+    if (isWhitespace(lineStart, lineEnd)) {
+      // Ignore blank lines before or after a tag footer.
+    } else if (!hasTag || !onlyTags) {
+      return footerStart;
+    } else {
+      footerStart = lineStart;
+    }
+
+    if (!lineBreak) break;
+    lineEnd = lineBreak.start;
+  }
+  return footerStart;
+}
+
 /** Extracts unique body hashtags in first-seen order, excluding fenced and inline code. */
 export function extractTags(markdown: string) {
   const tags: string[] = [];
@@ -165,37 +238,42 @@ export function removeTagsFromMarkdown(markdown: string, tags: string[]) {
   let rangeIndex = 0;
 
   while (lineStart <= markdown.length) {
-    const nextLf = markdown.indexOf("\n", lineStart);
-    const nextCr = markdown.indexOf("\r", lineStart);
-    const lineBreak = nextLf === -1 ? nextCr : nextCr === -1 ? nextLf : Math.min(nextLf, nextCr);
-    const lineEnd = lineBreak === -1 ? markdown.length : lineBreak;
-    const lineBreakEnd = lineBreak === -1
-      ? markdown.length
-      : lineBreak + (markdown[lineBreak] === "\r" && markdown[lineBreak + 1] === "\n" ? 2 : 1);
+    const { end: lineEnd, next: lineNext, hasBreak } = lineBounds(markdown, lineStart);
 
     while (rangeIndex < ranges.length && ranges[rangeIndex].end <= lineStart) rangeIndex += 1;
     let lineCursor = lineStart;
     let lineHasRemovedTag = false;
     let nextRangeIndex = rangeIndex;
-    let remainingLine = "";
+    const removalRanges: { start: number; end: number }[] = [];
     while (nextRangeIndex < ranges.length && ranges[nextRangeIndex].start < lineEnd) {
       const range = ranges[nextRangeIndex];
-      remainingLine += markdown.slice(lineCursor, range.start);
-      lineCursor = range.end;
+      let start = range.start;
+      let end = range.end;
+      while (end < lineEnd && (markdown[end] === " " || markdown[end] === "\t")) end += 1;
+      if (end === range.end) {
+        while (start > lineStart && (markdown[start - 1] === " " || markdown[start - 1] === "\t")) start -= 1;
+      }
+      removalRanges.push({ start, end });
       lineHasRemovedTag = true;
       nextRangeIndex += 1;
     }
 
     if (lineHasRemovedTag) {
+      let remainingLine = "";
+      for (const range of removalRanges) {
+        if (range.end <= lineCursor) continue;
+        remainingLine += markdown.slice(lineCursor, Math.max(lineCursor, range.start));
+        lineCursor = Math.max(lineCursor, range.end);
+      }
       remainingLine += markdown.slice(lineCursor, lineEnd);
-      if (remainingLine.trim().length > 0) result += remainingLine + markdown.slice(lineEnd, lineBreakEnd);
+      if (remainingLine.trim().length > 0) result += remainingLine + markdown.slice(lineEnd, lineNext);
     } else {
-      result += markdown.slice(lineStart, lineBreakEnd);
+      result += markdown.slice(lineStart, lineNext);
     }
 
     rangeIndex = nextRangeIndex;
-    if (lineBreak === -1) break;
-    lineStart = lineBreakEnd;
+    if (!hasBreak) break;
+    lineStart = lineNext;
   }
   return result;
 }

@@ -126,7 +126,7 @@ describe("remote MCP endpoint", () => {
     const noOrigin = await callMcp(modernMcpRequest("tools/list", 1), environment);
     expect(noOrigin.response.status).toBe(200);
     expect(resultOf(noOrigin.body!).tools.map((tool: { name: string }) => tool.name)).toEqual([
-      "list_notebooks", "create_notebook", "search_notes", "list_trash", "get_note", "create_note", "update_note", "append_to_note", "insert_into_note", "delete_note", "batch_update_notes",
+      "list_notebooks", "create_notebook", "update_notebook", "delete_notebook", "search_notes", "list_trash", "get_note", "create_note", "update_note", "append_to_note", "insert_into_note", "delete_note", "batch_update_notes",
     ]);
 
     const validOriginRequest = modernMcpRequest("tools/list", 2);
@@ -145,9 +145,11 @@ describe("remote MCP endpoint", () => {
     expect(resultOf(discovered.body!).instructions).toContain("客户端会先校验参数");
     expect(resultOf(discovered.body!).instructions).toContain("list_trash");
     expect(resultOf(discovered.body!).instructions).toContain("insert_into_note");
+    expect(resultOf(discovered.body!).instructions).toContain("update_notebook");
+    expect(resultOf(discovered.body!).instructions).toContain("delete_notebook");
   });
 
-  test("creates a notebook that can be used when creating a note", async () => {
+  test("creates, renames, and deletes a notebook while preserving its notes", async () => {
     const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
     const created = await callTool("create_notebook", {
       name: "MCP 项目资料",
@@ -166,8 +168,33 @@ describe("remote MCP endpoint", () => {
     expect(typeof notebook.id).toBe("string");
 
     const note = await callTool("create_note", { title: "项目会议", notebookId: notebook.id }, 2, environment);
-    expect(toolData(note.body!).note.notebookId).toBe(notebook.id);
+    const createdNote = toolData(note.body!).note;
+    expect(createdNote.notebookId).toBe(notebook.id);
     expect(toolData(note.body!).note.contentMarkdown).toBeUndefined();
+
+    const renamed = await callTool("update_notebook", {
+      notebookId: notebook.id,
+      name: "MCP 项目资料（已重命名）",
+      color: "#62776a",
+    }, 3, environment);
+    expect(toolData(renamed.body!).notebook).toMatchObject({
+      id: notebook.id,
+      name: "MCP 项目资料（已重命名）",
+      color: "#62776a",
+    });
+
+    const deleted = await callTool("delete_notebook", { notebookId: notebook.id }, 4, environment);
+    expect(toolData(deleted.body!)).toEqual({ ok: true });
+    const preservedNote = toolData((await callTool("get_note", { noteId: createdNote.id }, 5, environment)).body!).note;
+    expect(preservedNote.notebookId).not.toBe(notebook.id);
+    expect(preservedNote.notebookName).toBe("收件箱");
+    const inboxes = toolData((await callTool("list_notebooks", {}, 6, environment)).body!).notebooks;
+    expect(inboxes.some((entry: { id: string }) => entry.id === notebook.id)).toBe(false);
+
+    const systemNotebook = inboxes.find((entry: { isSystem: boolean }) => entry.isSystem);
+    const rejectedDeletion = await callTool("delete_notebook", { notebookId: systemNotebook.id }, 7, environment);
+    expect(resultOf(rejectedDeletion.body!).isError).toBe(true);
+    expect(toolData(rejectedDeletion.body!).error.code).toBe("SYSTEM_NOTEBOOK");
   });
 
   test("adds requested tags on a clean line after trailing newlines", async () => {
@@ -247,6 +274,28 @@ describe("remote MCP endpoint", () => {
     expect(toolData(restored.body!).note.deletedAt).toBeNull();
   });
 
+  test("appends before trailing tags to preserve the tag footer", async () => {
+    const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
+    const created = await callTool("create_note", {
+      title: "标签行末尾追加",
+      contentMarkdown: "第一行\n第二行",
+      tags: ["乙标签"],
+      includeContent: true,
+    }, 1, environment);
+    const note = toolData(created.body!).note;
+    expect(note.contentMarkdown).toBe("第一行\n第二行\n#乙标签");
+
+    const appended = await callTool("append_to_note", {
+      noteId: note.id,
+      version: note.version,
+      contentMarkdown: "第三行（追加）",
+      includeContent: true,
+    }, 2, environment);
+    const updated = toolData(appended.body!).note;
+    expect(updated.contentMarkdown).toBe("第一行\n第二行\n第三行（追加）\n#乙标签");
+    expect(updated.tags).toEqual(["乙标签"]);
+  });
+
   test("removes tags without replacing the body and ignores stale inline-code tag indexes", async () => {
     const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
     const created = await callTool("create_note", {
@@ -263,7 +312,7 @@ describe("remote MCP endpoint", () => {
     }, 2, environment);
     expect(toolData(removed.body!).note.tags).toEqual(["保留"]);
     const read = toolData((await callTool("get_note", { noteId: note.id }, 3, environment)).body!).note;
-    expect(read.contentMarkdown).toBe("正文 #保留 \n示例 `#代码标签` 和 \n后续内容");
+    expect(read.contentMarkdown).toBe("正文 #保留\n示例 `#代码标签` 和\n后续内容");
     expect(read.tags).toEqual(["保留"]);
 
     // Simulate an index created by the earlier parser, which treated code as a tag.

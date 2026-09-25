@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { extractTags, findTagRanges, hasTag, normalizeTag, parseTagQuery, removeTagsFromMarkdown } from "../shared/tags";
+import { extractTags, findTagRanges, findTrailingTagFooterStart, hasTag, normalizeTag, parseTagQuery, removeTagsFromMarkdown } from "../shared/tags";
 
 describe("note tags", () => {
   test("extracts unique tags in first-seen order", () => {
@@ -14,6 +14,13 @@ describe("note tags", () => {
     ]);
   });
 
+  test("finds a trailing standalone tag footer, including surrounding blank lines", () => {
+    expect(findTrailingTagFooterStart("正文\n#标签")).toBe(3);
+    expect(findTrailingTagFooterStart("正文\r\n#标签\r\n\r\n")).toBe(4);
+    expect(findTrailingTagFooterStart("正文 #行内标签")).toBeNull();
+    expect(findTrailingTagFooterStart("正文\n#标签\n普通正文")).toBeNull();
+  });
+
   test("ignores headings, malformed markers, and fenced code blocks", () => {
     expect(extractTags("# 标题\n##tagger\n###tag\n#tag\n\n```ts\n#hidden\n```\n~~~\n#also-hidden\n~~~")).toEqual(["tag"]);
   });
@@ -24,9 +31,9 @@ describe("note tags", () => {
   });
 
   test("removes matching visible tag markers while preserving code examples", () => {
-    expect(removeTagsFromMarkdown("前文 #移除 `#移除` #保留\n#移除", ["移除"])).toBe("前文  `#移除` #保留\n");
+    expect(removeTagsFromMarkdown("前文 #移除 `#移除` #保留\n#移除", ["移除"])).toBe("前文 `#移除` #保留\n");
     expect(removeTagsFromMarkdown("第一行\n#单独标签行\n第三行", ["单独标签行"])).toBe("第一行\n第三行");
-    expect(removeTagsFromMarkdown("第一行\n普通文字 #移除\n第三行", ["移除"])).toBe("第一行\n普通文字 \n第三行");
+    expect(removeTagsFromMarkdown("第一行\n普通文字 #移除\n第三行", ["移除"])).toBe("第一行\n普通文字\n第三行");
     expect(removeTagsFromMarkdown("#保留", [])).toBe("#保留");
   });
 
