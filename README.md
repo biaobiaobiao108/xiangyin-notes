@@ -96,6 +96,8 @@ XIANGYING_USERNAME=xiangying
 XIANGYING_PASSWORD=请换成仅你自己知道的长密码
 # 使用快捷指令导入时再设置：
 # XIANGYING_API_TOKEN=请填写随机生成的令牌
+# 使用远程 MCP 时另行设置，不要与上面的导入令牌共用：
+# XIANGYING_MCP_TOKEN=请用 openssl rand -hex 32 生成
 ```
 
 创建持久化数据卷并启动：
@@ -115,6 +117,23 @@ docker run -d \
 启动后打开 `http://127.0.0.1:3000/app` 并使用 `.env` 中的账号登录。数据库和图片附件都会保存在 `xiangying-notes-data` 数据卷中，更新容器时继续使用同一个数据卷即可。
 
 如果通过 HTTPS 反向代理从公网访问，请把 `PUBLIC_URL` 设置为实际访问的 HTTPS 根地址，并根据代理情况启用 `TRUST_PROXY=true` 和 `COOKIE_SECURE=true`。仅在本机或局域网使用 HTTP 时，`COOKIE_SECURE` 保持默认的 `false`。
+
+### Agent 接入（MCP）
+
+MCP 服务直接运行在象映笔记容器内，不需要另起一个服务。生成独立的访问令牌并写入容器环境：
+
+```bash
+openssl rand -hex 32
+```
+
+```dotenv
+XIANGYING_MCP_TOKEN=上一步生成的随机令牌
+PUBLIC_URL=https://notes.example.com
+```
+
+在 MCP 客户端中填写服务地址 `https://notes.example.com/mcp`，认证方式选择自定义 HTTP Bearer Token。首版使用静态令牌，不提供 OAuth 自动授权；客户端需要支持发送 `Authorization: Bearer <令牌>` 请求头。令牌拥有整个笔记库的搜索、读取、创建和更新权限，请只配置给可信客户端。修改令牌后需要重新创建容器，令牌不会因单纯重启容器而从 `.env` 重新读取。
+
+反向代理需要将 `/mcp` 转发到应用容器，保留 `Authorization`、MCP 协议请求头和 POST 请求体，并允许 `text/event-stream` 响应及时传递。使用 Nginx 时应为该路径关闭响应缓冲（例如设置 `proxy_buffering off`）；其他代理使用对应的流式响应设置。不要把令牌放入 URL 查询参数。MCP 提供的工具包括：列出笔记本、搜索与分页、读取笔记、创建笔记，以及携带版本号更新笔记。发生版本冲突时，工具会返回当前笔记供 agent 合并后重试。
 
 ### 本机运行
 

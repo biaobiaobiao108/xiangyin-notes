@@ -1,0 +1,203 @@
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { applyMigrations, openDatabase, type SqliteDatabase } from "../server/db";
+import { handleRequest } from "../server/index";
+import { MCP_PATH } from "../server/mcp";
+import { createNote } from "../server/routes/notes";
+
+let database: SqliteDatabase;
+let assetRoot: string;
+const token = "mcp-test-token-with-enough-randomness-1234567890";
+const credentials = { XIANGYING_USERNAME: "owner", XIANGYING_PASSWORD: "a long passphrase 1234" };
+
+beforeEach(async () => {
+  database = await openDatabase(":memory:");
+  await applyMigrations(database);
+  assetRoot = join(tmpdir(), `xiangying-notes-mcp-${crypto.randomUUID()}`);
+});
+
+afterEach(async () => {
+  database.close();
+  await rm(assetRoot, { recursive: true, force: true });
+});
+
+async function request(path: string, init: RequestInit = {}, environment: Record<string, string | undefined> = credentials, origin = "http://xiangying.test") {
+  const response = await handleRequest(new Request(`${origin}${path}`, init), { database, environment, assetRoot });
+  const body = await response.json().catch(() => null) as Record<string, any> | null;
+  return { response, body };
+}
+
+function modernMcpRequest(method: string, id: number, params: Record<string, unknown> = {}, name?: string) {
+  const protocolVersion = "2026-07-28";
+  return new Request(`http://xiangying.test${MCP_PATH}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json, text/event-stream",
+      "Content-Type": "application/json",
+      "MCP-Protocol-Version": protocolVersion,
+      "Mcp-Method": method,
+      ...(name ? { "Mcp-Name": name } : {}),
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id,
+      method,
+      params: {
+        ...params,
+        _meta: {
+          "io.modelcontextprotocol/protocolVersion": protocolVersion,
+          "io.modelcontextprotocol/clientInfo": { name: "xiangying-notes-test", version: "1.0.0" },
+          "io.modelcontextprotocol/clientCapabilities": {},
+        },
+      },
+    }),
+  });
+}
+
+async function callMcp(requestValue: Request, environment: Record<string, string | undefined> = { ...credentials, XIANGYING_MCP_TOKEN: token }) {
+  const response = await handleRequest(requestValue, { database, environment, assetRoot });
+  const text = await response.text();
+  if (response.headers.get("Content-Type")?.toLowerCase().includes("text/event-stream")) {
+    const data = text.split("\n").find((line) => line.startsWith("data: "))?.slice(6);
+    return { response, body: data ? JSON.parse(data) as Record<string, any> : null };
+  }
+  return { response, body: JSON.parse(text) as Record<string, any> };
+}
+
+async function callTool(name: string, argumentsValue: Record<string, unknown>, id = 1, environment?: Record<string, string | undefined>) {
+  return callMcp(modernMcpRequest("tools/call", id, { name, arguments: argumentsValue }, name), environment);
+}
+
+function resultOf(responseBody: Record<string, any>) {
+  return responseBody.result as Record<string, any>;
+}
+
+describe("remote MCP endpoint", () => {
+  test("requires its own configured Bearer token and ignores cookies and the import token", async () => {
+    const unconfigured = await request(MCP_PATH, { method: "POST" });
+    expect(unconfigured.response.status).toBe(503);
+    expect(unconfigured.body?.error.code).toBe("MCP_AUTH_NOT_CONFIGURED");
+
+    const configuredEnvironment = { ...credentials, XIANGYING_MCP_TOKEN: token, XIANGYING_API_TOKEN: "shortcut-import-token-1234567890" };
+    const invalid = await request(MCP_PATH, { method: "POST", headers: { Authorization: "Bearer wrong-token" } }, configuredEnvironment);
+    expect(invalid.response.status).toBe(401);
+    expect(invalid.response.headers.get("WWW-Authenticate")).toContain("Bearer");
+
+    const apiToken = await request(MCP_PATH, { method: "POST", headers: { Authorization: "Bearer shortcut-import-token-1234567890" } }, configuredEnvironment);
+    expect(apiToken.response.status).toBe(401);
+
+    const loginResponse = await handleRequest(new Request("http://xiangying.test/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: credentials.XIANGYING_USERNAME, password: credentials.XIANGYING_PASSWORD }),
+    }), { database, environment: configuredEnvironment, assetRoot });
+    const cookie = loginResponse.headers.get("Set-Cookie")?.split(";", 1)[0];
+    const cookieOnly = await request(MCP_PATH, { method: "POST", headers: cookie ? { Cookie: cookie } : {} }, configuredEnvironment);
+    expect(cookieOnly.response.status).toBe(401);
+  });
+
+  test("validates Origin when present and accepts native clients without Origin", async () => {
+    const environment = { ...credentials, XIANGYING_MCP_TOKEN: token, PUBLIC_URL: "https://notes.example.com" };
+    const invalidOrigin = await handleRequest(new Request("https://notes.example.com/mcp", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Origin: "https://attacker.example",
+      },
+    }), { database, environment, assetRoot });
+    expect(invalidOrigin.status).toBe(403);
+
+    const noOrigin = await callMcp(modernMcpRequest("tools/list", 1), environment);
+    expect(noOrigin.response.status).toBe(200);
+    expect(resultOf(noOrigin.body!).tools.map((tool: { name: string }) => tool.name)).toEqual([
+      "list_notebooks", "search_notes", "get_note", "create_note", "update_note",
+    ]);
+
+    const validOriginRequest = modernMcpRequest("tools/list", 2);
+    validOriginRequest.headers.set("Origin", "https://notes.example.com");
+    const validOrigin = await callMcp(validOriginRequest, environment);
+    expect(validOrigin.response.status).toBe(200);
+  });
+
+  test("lists notebooks, creates, searches, reads, and updates notes with version checks", async () => {
+    const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
+    const notebooks = await callTool("list_notebooks", {}, 1, environment);
+    expect(notebooks.response.status).toBe(200);
+    const inbox = resultOf(notebooks.body!).structuredContent.notebooks[0];
+    expect(inbox.name).toBe("收件箱");
+
+    const created = await callTool("create_note", {
+      title: "MCP 测试记录",
+      contentMarkdown: "这里是 MCP 可搜索正文 #mcp-test",
+    }, 2, environment);
+    const createdNote = resultOf(created.body!).structuredContent.note;
+    expect(createdNote.title).toBe("MCP 测试记录");
+    expect(createdNote.notebookId).toBe(inbox.id);
+    expect(createdNote.version).toBe(1);
+
+    const search = await callTool("search_notes", { query: "mcp-test" }, 3, environment);
+    expect(resultOf(search.body!).structuredContent.notes.map((note: { id: string }) => note.id)).toContain(createdNote.id);
+
+    const fetched = await callTool("get_note", { noteId: createdNote.id }, 4, environment);
+    const fetchedNote = resultOf(fetched.body!).structuredContent.note;
+    expect(fetchedNote.contentMarkdown).toContain("可搜索正文");
+    expect(fetchedNote.version).toBe(1);
+
+    const updated = await callTool("update_note", {
+      noteId: createdNote.id,
+      version: fetchedNote.version,
+      title: "MCP 更新记录",
+      contentMarkdown: "更新后的正文 #mcp-updated",
+    }, 5, environment);
+    const updatedNote = resultOf(updated.body!).structuredContent.note;
+    expect(updatedNote.title).toBe("MCP 更新记录");
+    expect(updatedNote.version).toBe(2);
+
+    const staleUpdate = await callTool("update_note", {
+      noteId: createdNote.id,
+      version: fetchedNote.version,
+      contentMarkdown: "这次不应覆盖当前正文",
+    }, 6, environment);
+    const staleResult = resultOf(staleUpdate.body!);
+    expect(staleResult.isError).toBe(true);
+    expect(staleResult.structuredContent.error.code).toBe("VERSION_CONFLICT");
+    expect(staleResult.structuredContent.error.current.version).toBe(2);
+
+    const reread = await callTool("get_note", { noteId: createdNote.id }, 7, environment);
+    expect(resultOf(reread.body!).structuredContent.note.contentMarkdown).toContain("更新后的正文");
+  });
+
+  test("search returns a cursor and loads a non-overlapping next page", async () => {
+    const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
+    await callTool("list_notebooks", {}, 1, environment);
+    const user = database.query("SELECT id FROM users WHERE username = ?").get(credentials.XIANGYING_USERNAME) as { id: string };
+    const inbox = database.query("SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1").get(user.id) as { id: string };
+    for (let index = 0; index < 101; index += 1) {
+      createNote(database, user.id, inbox.id, `MCP pagination ${index}`, "pagination marker");
+    }
+
+    const firstPage = await callTool("search_notes", { query: "pagination" }, 2, environment);
+    const firstPageData = resultOf(firstPage.body!).structuredContent;
+    expect(firstPageData.notes).toHaveLength(100);
+    expect(typeof firstPageData.nextCursor).toBe("string");
+
+    const secondPage = await callTool("search_notes", { query: "pagination", cursor: firstPageData.nextCursor }, 3, environment);
+    const secondPageData = resultOf(secondPage.body!).structuredContent;
+    expect(secondPageData.notes.length).toBeGreaterThan(0);
+    const firstIds = new Set(firstPageData.notes.map((note: { id: string }) => note.id));
+    expect(secondPageData.notes.every((note: { id: string }) => !firstIds.has(note.id))).toBe(true);
+  });
+
+  test("rejects empty updates and missing notes as MCP tool errors", async () => {
+    const emptyUpdate = await callTool("update_note", { noteId: "missing", version: 1 });
+    expect(resultOf(emptyUpdate.body!).isError).toBe(true);
+    expect(resultOf(emptyUpdate.body!).structuredContent.error.code).toBe("EMPTY_UPDATE");
+
+    const missingNote = await callTool("get_note", { noteId: "missing" }, 2);
+    expect(resultOf(missingNote.body!).isError).toBe(true);
+    expect(resultOf(missingNote.body!).structuredContent.error.code).toBe("NOTE_NOT_FOUND");
+  });
+});

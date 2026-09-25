@@ -9,6 +9,7 @@ import { assetRootFromEnv, cleanupOrphanAssets, handleAssetsRoute } from "./rout
 import { cleanupExpiredSessions, handleAuthRoute, isResponse, requireUser } from "./routes/auth";
 import { handleExportRoute } from "./routes/export";
 import { handleImportRoute } from "./routes/import";
+import { handleMcpRequest, MCP_PATH } from "./mcp";
 import { handleNotebooksRoute } from "./routes/notebooks";
 import { handleNotesRoute } from "./routes/notes";
 import { cleanupExpiredShares, handlePublicShare, handleSharesRoute, servePublicShareAsset } from "./routes/shares";
@@ -192,7 +193,9 @@ export async function handleRequest(request: Request, options: ServerOptions) {
     const url = new URL(request.url);
     const environment = options.environment ?? {};
     let response: Response;
-    if (url.pathname === "/api/share-assets/" || url.pathname.startsWith("/api/share-assets/")) {
+    if (url.pathname === MCP_PATH) {
+      response = await handleMcpRequest(request, options);
+    } else if (url.pathname === "/api/share-assets/" || url.pathname.startsWith("/api/share-assets/")) {
       response = await servePublicShareAsset(request, options.database, resolve(options.assetRoot ?? assetRootFromEnv(environment)));
     } else if (url.pathname === "/api/shares/" || url.pathname.startsWith("/api/shares/")) {
       const segments = url.pathname.split("/").filter(Boolean);
@@ -207,7 +210,7 @@ export async function handleRequest(request: Request, options: ServerOptions) {
   } catch (error) {
     const url = new URL(request.url);
     console.error(`[request] ${request.method} ${url.pathname}`, error);
-    if (url.pathname.startsWith("/api/")) return withSecurityHeaders(jsonError(500, "INTERNAL_ERROR", "服务器暂时无法处理请求"), options.environment);
+    if (url.pathname.startsWith("/api/") || url.pathname === MCP_PATH) return withSecurityHeaders(jsonError(500, "INTERNAL_ERROR", "服务器暂时无法处理请求"), options.environment);
     return withSecurityHeaders(new Response("Internal Server Error", { status: 500 }), options.environment);
   }
 }
