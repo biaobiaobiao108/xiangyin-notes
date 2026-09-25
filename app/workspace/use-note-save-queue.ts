@@ -52,16 +52,11 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
       try {
         while (pendingSavesRef.current.has(noteId)) {
           const draft = pendingSavesRef.current.get(noteId)!;
-          const base = selectedRef.current?.id === noteId
-            ? selectedRef.current
-            : notesRef.current.find((note) => note.id === noteId);
-          if (!base) throw new Error("note-not-loaded");
-
           const fields = pendingFieldsRef.current.get(noteId) ?? new Set<SaveField>(ALL_SAVE_FIELDS);
           pendingFieldsRef.current.delete(noteId);
           fieldsForRequest = fields;
           const payload: { version: number; title?: string; contentMarkdown?: string; notebookId?: string; isFavorite?: boolean; deleted?: boolean } = {
-            version: base.version,
+            version: draft.version,
           };
           if (fields.has("title")) payload.title = draft.title;
           if (fields.has("contentMarkdown")) payload.contentMarkdown = draft.contentMarkdown;
@@ -73,7 +68,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
           const result = await api.updateNote(noteId, payload, { keepalive: keepaliveRequest, response: "summary" });
           const savedNote: Note = "contentMarkdown" in result.note
             ? result.note
-            : { ...base, ...result.note, contentMarkdown: draft.contentMarkdown };
+            : { ...result.note, contentMarkdown: draft.contentMarkdown };
           const savedSummary = toNoteSummary(savedNote);
 
           const latest = pendingSavesRef.current.get(noteId);
