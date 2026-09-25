@@ -312,8 +312,8 @@ export function CommandMenu({
                     <Icon size={18} />
                   )}
                   <span className="command-row-content">
-                    <span className="command-row-label">{command.label}</span>
-                    {noteDetail && <span className="command-row-detail">{noteDetail}</span>}
+                    <span className="command-row-label" title={command.label}>{command.label}</span>
+                    {noteDetail && <span className="command-row-detail" title={noteDetail}>{noteDetail}</span>}
                   </span>
                   <kbd>{command.shortcut}</kbd>
                 </button>

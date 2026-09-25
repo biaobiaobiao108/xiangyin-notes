@@ -356,9 +356,9 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .note-row-thumbnail img { display: block; width: 56px; height: 56px; object-fit: cover; }
 .note-row-thumbnail--empty { border-color: transparent; background: transparent; }
 .note-row-main { display: grid; min-width: 0; gap: 7px; }
-.note-row-title { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--ink); font-size: 0.94rem; font-weight: 600; letter-spacing: 0; }
-.note-row-title-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.note-row-title svg { flex: none; color: var(--accent); }
+.note-row-title { display: flex; align-items: flex-start; gap: 6px; min-width: 0; color: var(--ink); font-size: 0.94rem; font-weight: 600; letter-spacing: 0; }
+.note-row-title-text { display: -webkit-box; min-width: 0; overflow: clip; overflow-wrap: anywhere; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
+.note-row-title svg { flex: none; margin-top: 0.15em; color: var(--accent); }
 .note-row-preview { display: -webkit-box; min-width: 0; overflow: clip; overflow-wrap: anywhere; color: var(--muted); font-size: 0.79rem; line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
 .note-row-meta { display: flex; min-width: 0; justify-content: space-between; gap: 10px; color: var(--soft-muted); font-size: 0.7rem; }
 .note-row-meta-leading { display: flex; align-items: center; min-width: 0; gap: 5px; overflow: clip; }
@@ -405,7 +405,7 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 5px; bac
   opacity: 1;
   transform: translateY(0);
 }
-.editor-header-title { min-width: 0; overflow: hidden; color: var(--muted); font-size: 0.84rem; font-weight: 600; letter-spacing: 0; line-height: 1.2; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
+.editor-header-title { display: -webkit-box; min-width: 0; overflow: clip; overflow-wrap: anywhere; color: var(--muted); font-size: 0.84rem; font-weight: 600; letter-spacing: 0; line-height: 1.2; text-align: center; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
 .editor-meta { display: flex; align-items: center; min-width: 0; gap: 8px; color: var(--soft-muted); font-size: 0.76rem; white-space: nowrap; }
 .editor-meta strong { color: var(--muted); font-weight: 500; }
 .editor-actions { justify-content: flex-end; gap: 4px; min-width: 0; }
@@ -452,7 +452,8 @@ button.save-status:hover { text-decoration: underline; }
 .share-prose {
   font-family: system-ui;
 }
-.editor-panel .note-title-input { width: 100%; min-height: 1.25em; height: auto; padding: 0; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: clamp(2rem, 3.5vw, 3.05rem); font-weight: 700; letter-spacing: 0.005em; line-height: 1.18; }
+.editor-panel .note-title-input { display: block; width: 100%; min-height: 1.25em; height: auto; padding: 0; border: 0; outline: 0; resize: none; overflow: hidden; overflow-wrap: anywhere; background: transparent; color: var(--ink); font-size: clamp(2rem, 3.5vw, 3.05rem); font-weight: 700; letter-spacing: 0.005em; line-height: 1.18; }
+.editor-panel .note-title-input:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 6px; border-radius: 3px; }
 .note-title-input::placeholder { color: var(--prose-placeholder); }
 .note-title-input::selection { background: var(--accent); color: var(--accent-contrast); }
 .note-prose { margin-top: 32px; color: var(--ink-soft); font-size: 1.08rem; line-height: 1.55; letter-spacing: 0.01em; overflow-wrap: anywhere; }
@@ -700,12 +701,12 @@ button.save-status:hover { text-decoration: underline; }
 .outline-item-title {
   flex: 1;
   min-width: 0;
-  overflow: hidden;
+  overflow: clip;
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
   overflow-wrap: anywhere;
-  word-break: break-all;
   line-height: 1.45;
 }
 
@@ -2193,10 +2194,11 @@ dialog::backdrop { background: var(--backdrop); -webkit-backdrop-filter: blur(3p
   letter-spacing: 0;
   flex: 1;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
   -webkit-box-orient: vertical;
-  overflow: hidden;
-  word-break: break-word;
+  overflow: clip;
+  overflow-wrap: anywhere;
 }
 
 .note-card-star-btn {

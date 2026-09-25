@@ -1,4 +1,4 @@
-import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import type { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
@@ -31,6 +31,12 @@ type SaveState = "idle" | "saving" | "saved" | "conflict" | "error";
 
 const MAX_IMAGE_FILES_PER_ACTION = 10;
 const OUTLINE_HEADING_SELECTOR = "h1, h2, h3";
+
+function resizeTitleField(field: HTMLTextAreaElement | null) {
+  if (!field) return;
+  field.style.height = "auto";
+  field.style.height = `${field.scrollHeight}px`;
+}
 
 function SaveStatusIcon({ state }: { state: Exclude<SaveState, "idle"> }) {
   const iconProps = { className: "save-status-icon", size: 16, strokeWidth: 1.9, "aria-hidden": true } as const;
@@ -118,7 +124,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
 
   const editorScrollRef = useRef<HTMLDivElement>(null);
   const documentRef = useRef<HTMLDivElement>(null);
-  const titleInputRef = useRef<HTMLInputElement>(null);
+  const titleInputRef = useRef<HTMLTextAreaElement>(null);
   const editorInstanceRef = useRef<Editor | null>(null);
   const outlineTriggerRef = useRef<HTMLButtonElement>(null);
   const syncFrameRef = useRef<number | null>(null);
@@ -167,6 +173,24 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   const typewriterTargetRef = useRef<number | null>(null);
   const outlineFallbackSyncRef = useRef<(() => void) | null>(null);
   const outlineHeadingElementsRef = useRef(new Map<string, HTMLElement>());
+
+  useLayoutEffect(() => {
+    resizeTitleField(titleInputRef.current);
+  }, [note.id, note.title]);
+
+  useEffect(() => {
+    const field = titleInputRef.current;
+    if (!field) return;
+    let width: number | undefined;
+    const observer = new ResizeObserver((entries) => {
+      const nextWidth = entries[0]?.contentRect.width;
+      if (nextWidth === undefined || nextWidth === width) return;
+      width = nextWidth;
+      resizeTitleField(field);
+    });
+    observer.observe(field);
+    return () => observer.disconnect();
+  }, [note.id]);
 
   const availableNotesRef = useRef(availableNotes);
   availableNotesRef.current = availableNotes;
@@ -1210,9 +1234,10 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
                 <button className="text-button" type="button" onClick={onRestore} disabled={editorLocked || trashBusy}>立即恢复</button>
               </div>
             )}
-            <input
+            <textarea
               ref={titleInputRef}
               className="note-title-input"
+              rows={1}
               value={note.title}
               maxLength={200}
               readOnly={Boolean(note.deletedAt) || editorLocked}

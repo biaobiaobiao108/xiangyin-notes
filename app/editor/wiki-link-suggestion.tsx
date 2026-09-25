@@ -181,7 +181,7 @@ export const WikiLinkSuggestionList = forwardRef<WikiLinkSuggestionListRef, Wiki
                 ) : (
                   <FileText className="wiki-link-item-icon" size={15} />
                 )}
-                <span className="wiki-link-item-title">
+                <span className="wiki-link-item-title" title={item.isCreate ? `新建笔记并链接为「${item.title}」` : item.title}>
                   {item.isCreate ? `新建笔记并链接为「${item.title}」` : item.title}
                 </span>
                 {item.notebookName && (
