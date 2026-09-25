@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { extractTags, findTagRanges, hasTag, normalizeTag, parseTagQuery } from "../shared/tags";
+import { extractTags, findTagRanges, hasTag, normalizeTag, parseTagQuery, removeTagsFromMarkdown } from "../shared/tags";
 
 describe("note tags", () => {
   test("extracts unique tags in first-seen order", () => {
@@ -16,6 +16,16 @@ describe("note tags", () => {
 
   test("ignores headings, malformed markers, and fenced code blocks", () => {
     expect(extractTags("# 标题\n##tagger\n###tag\n#tag\n\n```ts\n#hidden\n```\n~~~\n#also-hidden\n~~~")).toEqual(["tag"]);
+  });
+
+  test("ignores inline code spans, including multiline and mixed backtick runs", () => {
+    const markdown = "正文 `#inline` #visible\n``code `#nested` `` #also-visible\n`跨行\n#hidden`\n#shown\n```ts\n#fenced\n```";
+    expect(extractTags(markdown)).toEqual(["visible", "also-visible", "shown"]);
+  });
+
+  test("removes matching visible tag markers while preserving code examples", () => {
+    expect(removeTagsFromMarkdown("前文 #移除 `#移除` #保留\n#移除", ["移除"])).toBe("前文  `#移除` #保留\n");
+    expect(removeTagsFromMarkdown("#保留", [])).toBe("#保留");
   });
 
   test("parses exact tag queries and compares Latin letters case-insensitively", () => {

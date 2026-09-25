@@ -1,4 +1,4 @@
-import { normalizeTag, parseTagQuery } from "../../shared/tags";
+import { extractTags, normalizeTag, parseTagQuery } from "../../shared/tags";
 import type { NoteBacklinksResponse, NoteLinkSummary, NoteSort, NoteSummary, NoteView, UnlinkedMention } from "../../shared/types";
 import {
   extractContextSnippet,
@@ -329,6 +329,31 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     if (rawTag && !explicitTagQuery) return jsonError(400, "INVALID_TAG_FILTER", "标签筛选格式无效");
     const tagQuery = parseTagQuery(query);
     const tagFilters = [...new Set([tagQuery, explicitTagQuery].filter((tag): tag is string => Boolean(tag)))];
+    // Tag rows are derived from Markdown and may have been indexed by an older
+    // parser. Reconcile candidates before filtering so old code-span hashtags
+    // stop matching and the returned tag metadata is corrected as well.
+    for (const tagFilter of tagFilters) {
+      const candidates = all<{ id: string }>(database, `
+        SELECT n.id
+        FROM notes n
+        WHERE n.user_id = ? AND EXISTS (
+          SELECT 1 FROM note_tags t WHERE t.note_id = n.id AND t.user_id = n.user_id AND t.tag_normalized = ?
+        )
+      `, user.id, normalizeTag(tagFilter));
+      for (const { id } of candidates) {
+        const candidate = first<{ id: string; content_markdown: string; tags_json: string }>(database, `
+          SELECT n.id, n.content_markdown,
+            COALESCE((SELECT json_group_array(tag) FROM (SELECT tag FROM note_tags WHERE note_id = n.id ORDER BY position)), '[]') AS tags_json
+          FROM notes n WHERE n.user_id = ? AND n.id = ?
+        `, user.id, id);
+        if (!candidate) continue;
+        const storedTags = parseIndexedTags(candidate.tags_json);
+        const parsedTags = extractTags(candidate.content_markdown);
+        if (storedTags.length !== parsedTags.length || storedTags.some((tag, index) => tag !== parsedTags[index])) {
+          syncNoteTags(database, user.id, candidate.id, candidate.content_markdown);
+        }
+      }
+    }
     const conditions = ["n.user_id = ?"];
     const params: SqlValue[] = [user.id];
     let from = NOTE_FROM;

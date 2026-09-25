@@ -126,7 +126,7 @@ describe("remote MCP endpoint", () => {
     const noOrigin = await callMcp(modernMcpRequest("tools/list", 1), environment);
     expect(noOrigin.response.status).toBe(200);
     expect(resultOf(noOrigin.body!).tools.map((tool: { name: string }) => tool.name)).toEqual([
-      "list_notebooks", "create_notebook", "search_notes", "get_note", "create_note", "update_note", "append_to_note", "delete_note", "batch_update_notes",
+      "list_notebooks", "create_notebook", "search_notes", "list_trash", "get_note", "create_note", "update_note", "append_to_note", "insert_into_note", "delete_note", "batch_update_notes",
     ]);
 
     const validOriginRequest = modernMcpRequest("tools/list", 2);
@@ -141,6 +141,8 @@ describe("remote MCP endpoint", () => {
     expect(resultOf(discovered.body!).instructions).toContain("修改前先读取最新版本");
     expect(resultOf(discovered.body!).instructions).toContain("create_notebook");
     expect(resultOf(discovered.body!).instructions).toContain("换行写作 \\n");
+    expect(resultOf(discovered.body!).instructions).toContain("list_trash");
+    expect(resultOf(discovered.body!).instructions).toContain("insert_into_note");
   });
 
   test("creates a notebook that can be used when creating a note", async () => {
@@ -166,7 +168,7 @@ describe("remote MCP endpoint", () => {
     expect(toolData(note.body!).note.contentMarkdown).toBeUndefined();
   });
 
-  test("appends content and soft-deletes notes with version checks", async () => {
+  test("appends, inserts by unique anchor, lists trash, and restores soft-deleted notes", async () => {
     const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
     const created = await callTool("create_note", { title: "追加与删除测试", contentMarkdown: "原有正文" }, 1, environment);
     const note = toolData(created.body!).note;
@@ -182,14 +184,74 @@ describe("remote MCP endpoint", () => {
     expect(appendResult.contentMarkdown).toBeUndefined();
     expect(toolData((await callTool("get_note", { noteId: note.id }, 3, environment)).body!).note.contentMarkdown).toBe("原有正文\n追加内容");
 
-    const deleted = await callTool("delete_note", { noteId: note.id, version: appendResult.version }, 4, environment);
+    const inserted = await callTool("insert_into_note", {
+      noteId: note.id,
+      version: appendResult.version,
+      anchor: "原有正文",
+      contentMarkdown: "\n锚点插入",
+      position: "after",
+    }, 4, environment);
+    const insertedNote = toolData(inserted.body!).note;
+    expect(insertedNote.version).toBe(3);
+    expect(toolData((await callTool("get_note", { noteId: note.id }, 5, environment)).body!).note.contentMarkdown).toBe("原有正文\n锚点插入\n追加内容");
+
+    const duplicateAnchor = await callTool("insert_into_note", {
+      noteId: note.id,
+      version: insertedNote.version,
+      anchor: "\n",
+      contentMarkdown: "不应插入",
+    }, 6, environment);
+    expect(resultOf(duplicateAnchor.body!).isError).toBe(true);
+    expect(toolData(duplicateAnchor.body!).error.code).toBe("AMBIGUOUS_ANCHOR");
+
+    const staleInsert = await callTool("insert_into_note", {
+      noteId: note.id,
+      version: appendResult.version,
+      anchor: "当前正文中不存在",
+      contentMarkdown: "不应插入",
+    }, 7, environment);
+    expect(toolData(staleInsert.body!).error.code).toBe("VERSION_CONFLICT");
+
+    const deleted = await callTool("delete_note", { noteId: note.id, version: insertedNote.version }, 8, environment);
     const deletedNote = toolData(deleted.body!).note;
     expect(deletedNote.deletedAt).not.toBeNull();
-    expect(deletedNote.version).toBe(3);
-    const reread = await callTool("get_note", { noteId: note.id }, 5, environment);
+    expect(deletedNote.version).toBe(4);
+    const trash = await callTool("list_trash", { limit: 5, previewLength: 20 }, 9, environment);
+    const trashedNote = toolData(trash.body!).notes.find((entry: { id: string }) => entry.id === note.id);
+    expect(trashedNote).toMatchObject({ id: note.id, deletedAt: deletedNote.deletedAt, version: deletedNote.version });
+    expect(Array.from(trashedNote.preview).length).toBeLessThanOrEqual(20);
+    const reread = await callTool("get_note", { noteId: note.id }, 10, environment);
     expect(toolData(reread.body!).note.deletedAt).not.toBeNull();
-    const restored = await callTool("update_note", { noteId: note.id, version: deletedNote.version, deleted: false }, 6, environment);
+    const restored = await callTool("update_note", { noteId: note.id, version: deletedNote.version, deleted: false }, 11, environment);
     expect(toolData(restored.body!).note.deletedAt).toBeNull();
+  });
+
+  test("removes tags without replacing the body and ignores stale inline-code tag indexes", async () => {
+    const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
+    const created = await callTool("create_note", {
+      title: "标签清理与代码示例",
+      contentMarkdown: "正文 #保留 #移除\n示例 `#代码标签` 和 #移除",
+    }, 1, environment);
+    const note = toolData(created.body!).note;
+    expect(note.tags).toEqual(["保留", "移除"]);
+
+    const removed = await callTool("update_note", {
+      noteId: note.id,
+      version: note.version,
+      removeTags: ["移除"],
+    }, 2, environment);
+    expect(toolData(removed.body!).note.tags).toEqual(["保留"]);
+    const read = toolData((await callTool("get_note", { noteId: note.id }, 3, environment)).body!).note;
+    expect(read.contentMarkdown).toBe("正文 #保留 \n示例 `#代码标签` 和 ");
+    expect(read.tags).toEqual(["保留"]);
+
+    // Simulate an index created by the earlier parser, which treated code as a tag.
+    const user = database.query("SELECT id FROM users WHERE username = ?").get(credentials.XIANGYING_USERNAME) as { id: string };
+    database.query("INSERT INTO note_tags (note_id, user_id, tag_normalized, tag, position) VALUES (?, ?, ?, ?, ?)")
+      .run(note.id, user.id, "代码标签", "代码标签", 1);
+    const codeTagSearch = await callTool("search_notes", { tag: "代码标签" }, 4, environment);
+    expect(toolData(codeTagSearch.body!).notes.some((entry: { id: string }) => entry.id === note.id)).toBe(false);
+    expect(database.query("SELECT 1 FROM note_tags WHERE note_id = ? AND tag_normalized = ?").get(note.id, "代码标签")).toBeNull();
   });
 
   test("reads a unique title match and reports ambiguous title matches", async () => {
@@ -227,6 +289,14 @@ describe("remote MCP endpoint", () => {
     expect(Array.from(searchData.notes[0].preview).length).toBeLessThanOrEqual(6);
     expect(typeof searchData.nextCursor).toBe("string");
     expect(searchData.total).toBe(2);
+
+    const removal = await callTool("batch_update_notes", {
+      notes: batchData.results.map((entry: { noteId: string; note: { version: number } }) => ({ noteId: entry.noteId, version: entry.note.version })),
+      removeTags: ["batch-tag"],
+    }, 6, environment);
+    expect(toolData(removal.body!).updatedCount).toBe(2);
+    const removedSearch = await callTool("search_notes", { tag: "batch-tag" }, 7, environment);
+    expect(toolData(removedSearch.body!).notes).toHaveLength(0);
   });
 
   test("normalizes unescaped control characters and rejects truncated nested JSON", async () => {
