@@ -1,4 +1,4 @@
-import { parseTagQuery } from "../../shared/tags";
+import { normalizeTag, parseTagQuery } from "../../shared/tags";
 import type { NoteBacklinksResponse, NoteLinkSummary, NoteSort, NoteSummary, NoteView, UnlinkedMention } from "../../shared/types";
 import {
   extractContextSnippet,
@@ -324,6 +324,11 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     if (!NOTE_VIEWS.includes(view as NoteView)) return jsonError(400, "INVALID_VIEW", "不支持的笔记视图");
     const query = url.searchParams.get("query")?.slice(0, 80) ?? "";
     const notebookId = url.searchParams.get("notebookId");
+    const rawTag = url.searchParams.get("tag")?.trim() ?? "";
+    const explicitTagQuery = rawTag ? parseTagQuery(rawTag.startsWith("#") ? rawTag : `#${rawTag}`) : null;
+    if (rawTag && !explicitTagQuery) return jsonError(400, "INVALID_TAG_FILTER", "标签筛选格式无效");
+    const tagQuery = parseTagQuery(query);
+    const tagFilters = [...new Set([tagQuery, explicitTagQuery].filter((tag): tag is string => Boolean(tag)))];
     const conditions = ["n.user_id = ?"];
     const params: SqlValue[] = [user.id];
     let from = NOTE_FROM;
@@ -340,7 +345,6 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
       conditions.push("n.notebook_id = ?");
       params.push(notebookId);
     }
-    const tagQuery = parseTagQuery(query);
     if (query && !tagQuery) {
       const { tokens, ftsTokens, shortTokens } = parseSearchTerms(query);
       if (tokens.length === 0) return json({ notes: [], total: 0 });
@@ -369,9 +373,12 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     const cursor = decodeNoteListCursor(url.searchParams.get("cursor"), sort);
     if (url.searchParams.get("cursor") && !cursor) return jsonError(400, "INVALID_CURSOR", "笔记列表游标无效");
     const offset = cursor ? 0 : Math.max(0, Number.parseInt(url.searchParams.get("offset") ?? "0", 10) || 0);
-    if (tagQuery) {
+    const rawLimit = url.searchParams.get("limit");
+    const pageLimit = rawLimit === null ? NOTE_PAGE_SIZE : Number(rawLimit);
+    if (!Number.isSafeInteger(pageLimit) || pageLimit < 1 || pageLimit > NOTE_PAGE_SIZE) return jsonError(400, "INVALID_LIMIT", `每页数量必须介于 1 和 ${NOTE_PAGE_SIZE} 之间`);
+    for (const tagFilter of tagFilters) {
       conditions.push("EXISTS (SELECT 1 FROM note_tags t WHERE t.note_id = n.id AND t.user_id = n.user_id AND t.tag_normalized = ?)");
-      params.push(tagQuery);
+      params.push(normalizeTag(tagFilter));
     }
     const totalWhere = conditions.join(" AND ");
     const totalParams = [...params];
@@ -392,11 +399,11 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     const totalRow = includeTotal ? first<{ count: number }>(database, `SELECT COUNT(*) AS count FROM ${from} WHERE ${totalWhere}`, ...totalParams) : null;
     const listStatement = database.query(`
       SELECT ${NOTE_LIST_SELECT}
-      FROM ${from} WHERE ${where} ORDER BY ${noteListOrder(sort)} LIMIT ${NOTE_PAGE_SIZE + 1} OFFSET ${offset}
+      FROM ${from} WHERE ${where} ORDER BY ${noteListOrder(sort)} LIMIT ? OFFSET ?
     `);
-    const rows = listStatement.all(...params) as (NoteRow & { tags_json: string })[];
-    const hasMore = rows.length > NOTE_PAGE_SIZE;
-    const pageRows = hasMore ? rows.slice(0, NOTE_PAGE_SIZE) : rows;
+    const rows = listStatement.all(...params, pageLimit + 1, offset) as (NoteRow & { tags_json: string })[];
+    const hasMore = rows.length > pageLimit;
+    const pageRows = hasMore ? rows.slice(0, pageLimit) : rows;
     const notes: NoteSummary[] = pageRows.map((row) => toNote(row, parseIndexedTags(row.tags_json)));
     const lastRow = pageRows[pageRows.length - 1];
     const nextCursor = hasMore && lastRow
