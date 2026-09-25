@@ -1,6 +1,7 @@
 import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   jsonError,
+  getPublicOrigin,
   type RouteContext,
   type ServerOptions,
 } from "./core";
@@ -82,6 +83,19 @@ const MIME_TYPES: Record<string, string> = {
 
 const DEV_PWA_ASSETS = new Set(["manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-maskable-512.png"]);
 
+function invalidCookieMutationOrigin(request: Request, environment: Record<string, string | undefined>) {
+  if (request.method === "GET" || request.method === "HEAD" || request.method === "OPTIONS") return false;
+  const pathname = new URL(request.url).pathname;
+  if (pathname === "/api/import" || pathname === "/api/auth/login" || pathname === "/api/setup") return false;
+
+  const fetchSite = request.headers.get("Sec-Fetch-Site");
+  if (fetchSite === "same-site" || fetchSite === "cross-site") return true;
+  const origin = request.headers.get("Origin");
+  if (!origin) return false;
+  const requestUrl = new URL(request.url);
+  return origin !== requestUrl.origin && origin !== getPublicOrigin(requestUrl, environment);
+}
+
 async function serveStatic(request: Request, clientRoot: string, environment: Record<string, string | undefined> = {}) {
   if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
   const url = new URL(request.url);
@@ -139,6 +153,7 @@ async function serveStatic(request: Request, clientRoot: string, environment: Re
 
 async function handleApi(request: Request, options: ServerOptions) {
   const { database, environment = {} } = options;
+  if (invalidCookieMutationOrigin(request, environment)) return jsonError(403, "FORBIDDEN_ORIGIN", "请求来源无效");
   const assetRoot = resolve(options.assetRoot ?? assetRootFromEnv(environment));
   const url = new URL(request.url);
   const method = request.method.toUpperCase();

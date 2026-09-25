@@ -857,6 +857,41 @@ describe("Bun Server API", () => {
     expect((await request("/api/me", {}, newLogin.cookie, rotatedEnvironment)).response.status).toBe(200);
   });
 
+  test("rejects cookie-authenticated writes from another origin on the same site", async () => {
+    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) }, undefined, environment, "https://notes.example.com");
+    expect(login.response.status).toBe(200);
+
+    const body = JSON.stringify({ title: "cross-origin-created" });
+    const blocked = await request("/api/notes", {
+      method: "POST",
+      headers: { Origin: "https://evil.example.com", "Content-Type": "text/plain" },
+      body,
+    }, login.cookie, environment, "https://notes.example.com");
+    expect(blocked.response.status).toBe(403);
+    expect(blocked.body?.error.code).toBe("FORBIDDEN_ORIGIN");
+    expect(database.query("SELECT COUNT(*) AS count FROM notes").get()).toEqual({ count: 1 });
+
+    const withoutOrigin = await request("/api/notes", {
+      method: "POST",
+      headers: { "Sec-Fetch-Site": "same-site", "Content-Type": "text/plain" },
+      body,
+    }, login.cookie, environment, "https://notes.example.com");
+    expect(withoutOrigin.response.status).toBe(403);
+
+    const blockedLogout = await request("/api/auth/logout", {
+      method: "POST",
+      headers: { Origin: "https://evil.example.com" },
+    }, login.cookie, environment, "https://notes.example.com");
+    expect(blockedLogout.response.status).toBe(403);
+
+    const allowed = await request("/api/notes", {
+      method: "POST",
+      headers: { Origin: "https://notes.example.com", "Content-Type": "application/json" },
+      body,
+    }, login.cookie, environment, "https://notes.example.com");
+    expect(allowed.response.status).toBe(201);
+  });
+
   test("rejects invalid credentials and missing environment configuration", async () => {
     const wrong = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: "wrong passphrase 1234" }) });
     expect(wrong.response.status).toBe(401);
