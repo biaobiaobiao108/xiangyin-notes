@@ -108,7 +108,7 @@ bun run build
 ## 后端与数据要求
 
 - SQLite 查询一律使用 prepared statements，不拼接用户输入。
-- 空数据库首次启动时允许自动执行当前迁移完成基础初始化；已有数据库启动不得自动执行后续迁移。新增迁移只能通过 `bun run db:migrate` 或明确的容器迁移命令执行，迁移按文件名顺序执行并通过 `schema_migrations` 保证幂等；不要修改已经应用的历史迁移。
+- 空数据库首次启动时允许自动执行当前迁移完成基础初始化；已有数据库启动不得自动执行后续迁移。新增迁移只能通过 `bun run db:migrate` 或明确的容器迁移命令执行，迁移按文件名顺序执行并通过 `schema_migrations` 保证幂等。正式部署前可以把迁移折叠进 `0001_baseline.sql`；正式部署后不要修改已经应用的历史迁移。
 - `notes_fts` 配置为外部内容表（`content='notes', content_rowid='rowid'`），由 SQLite 触发器在正文或标题变更时自动同步维护，搜索联查使用 `notes_fts.rowid = n.rowid`；不额外存储正文副本。
 - 数据库打开时必须确保 `PRAGMA auto_vacuum = INCREMENTAL;`，已有数据库如未启用需通过 `VACUUM;` 自动升级。
 - 物理删除笔记与清空废纸篓遵循数据库空闲页复用机制（freelist reuse），释放页保留在数据库中供后续写入直接复用，不在删除请求中强行截断，避免 I/O 抖动与磁盘磨损；深度整理工具函数 `reclaimDatabaseSpace` 仅按需维护使用。

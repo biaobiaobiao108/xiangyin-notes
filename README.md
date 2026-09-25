@@ -116,8 +116,6 @@ docker run -d \
 
 启动后打开 `http://127.0.0.1:3000/app` 并使用 `.env` 中的账号登录。数据库和图片附件都会保存在 `xiangying-notes-data` 数据卷中，更新容器时继续使用同一个数据卷即可。
 
-从旧版升级后，运行 `docker exec xiangying-notes bun dist/server/migrate.js`，移除数据库中不再使用的分享快照列。本地运行则执行 `bun run db:migrate`。升级前建议备份数据库和附件；已有数据库不会在服务启动时自动执行新迁移。
-
 如果通过 HTTPS 反向代理从公网访问，请把 `PUBLIC_URL` 设置为实际访问的 HTTPS 根地址，并根据代理情况启用 `TRUST_PROXY=true` 和 `COOKIE_SECURE=true`。仅在本机或局域网使用 HTTP 时，`COOKIE_SECURE` 保持默认的 `false`。
 
 ### Agent 接入（MCP）

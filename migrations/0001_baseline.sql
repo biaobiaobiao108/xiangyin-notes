@@ -61,9 +61,7 @@ CREATE TABLE IF NOT EXISTS shares (
   token_hash TEXT NOT NULL UNIQUE,
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL,
-  revoked_at INTEGER,
-  snapshot_title TEXT NOT NULL DEFAULT '',
-  snapshot_content_markdown TEXT NOT NULL DEFAULT ''
+  revoked_at INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_shares_note ON shares(note_id, created_at DESC);
