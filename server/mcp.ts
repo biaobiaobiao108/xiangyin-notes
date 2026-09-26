@@ -20,10 +20,10 @@ import { extractTags, findTrailingTagFooterStart, normalizeTag, removeTagsFromMa
 
 export const MCP_PATH = "/mcp";
 const MCP_SERVER_INSTRUCTIONS = [
-  "象映笔记：用于搜索、读取、新建、追加、锚点插入、更新和软删除笔记；可列出回收站并恢复笔记，也可以管理笔记本。",
+  "象映笔记：用于搜索、批量读取、新建、追加、锚点插入和更新笔记；可管理笔记本、收藏、标签与回收站。",
   "工具参数必须是 JSON 对象。客户端会先校验参数；手写原始 JSON 时，字符串中的控制字符须按 JSON 规范转义（换行写作 \\n）。多行 Markdown 请通过客户端的结构化工具参数传入，JSON 解析后的正文会保留换行。",
-  "需要分类时先调用 list_notebooks 获取笔记本 ID；可用 create_notebook 创建笔记本，update_notebook 可重命名或修改图标、颜色，delete_notebook 删除笔记本并将其中笔记移入收件箱。再把 ID 传给 create_note；省略 notebookId 会放入收件箱。标签由正文中非代码区域的 #标签 标记；create_note 和 update_note 的 tags 参数会追加标签，update_note 与 batch_update_notes 的 removeTags 参数可移除标签；search_notes 可按标签筛选。",
-  "查找内容时使用 search_notes，省略 query 可浏览最近更新的笔记；已删除笔记用 list_trash 查找，再用 update_note 设置 deleted=false 恢复。需要正文时调用 get_note，可按 ID 或标题读取。修改前先读取最新版本，并将 version 传给 update_note、append_to_note、insert_into_note 或 delete_note。遇到 VERSION_CONFLICT 时查看 error.current，合并后使用最新 version 重试。",
+  "需要分类时先调用 list_notebooks 获取 ID；create_notebook 创建，update_notebook 重命名或改图标、颜色，delete_notebook 删除并将其中笔记移入收件箱。创建笔记时可省略 notebookId 以使用收件箱；标题、正文或所属笔记本用 update_note 更新，move_note 可单独移动。标签是正文非代码区域的 #标签 标记；create_note.tags 可在创建时追加，set_tags 替换标签集合，batch_update_notes 可批量追加或移除。",
+  "查找笔记用 search_notes；需完整正文时可用 get_note 或 get_notes_batch，批量读取默认最多 20 篇、最多 50 篇。insert_into_note 可按唯一锚点插入正文。已删除笔记用 list_trash 查找，再用 restore_note 恢复。toggle_favorite 切换收藏，move_note 移动笔记；delete_note 将笔记移入回收站。修改前先读取最新 version，并传给相应写工具；VERSION_CONFLICT 时查看 error.current，合并后使用最新 version 重试。",
   "MCP 只传输文字和 Markdown，不提供图片数据或缩略图；保留正文中的图片引用。",
 ].join(" ");
 
@@ -46,9 +46,20 @@ function asUser(value: unknown): UserRow | null {
 
 function responseValue(value: Record<string, unknown>, isError = false, options: { writeResult?: boolean; includeContent?: boolean } = {}) {
   return {
-    content: [{ type: "text" as const, text: JSON.stringify(withoutThumbnailMetadata(value, options)) }],
+    content: [{ type: "text" as const, text: JSON.stringify(withUpdatedAtISO(withoutThumbnailMetadata(value, options))) }],
     ...(isError ? { isError: true } : {}),
   };
+}
+
+function withUpdatedAtISO(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withUpdatedAtISO);
+  if (!value || typeof value !== "object") return value;
+  const result = Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, withUpdatedAtISO(entry)]));
+  if (typeof result.updatedAt === "number" && Number.isFinite(result.updatedAt)) {
+    const date = new Date(result.updatedAt * 1000);
+    if (Number.isFinite(date.getTime())) result.updatedAtISO = date.toISOString();
+  }
+  return result;
 }
 
 function withoutThumbnailMetadata(value: Record<string, unknown>, options: { writeResult?: boolean; includeContent?: boolean }) {
@@ -186,12 +197,13 @@ type NoteUpdateInput = {
   deleted?: boolean;
   tags?: string[];
   removeTags?: string[];
+  replaceTags?: string[];
   includeContent?: boolean;
 };
 
 async function updateNoteRoute(options: ServerOptions, user: UserRow, input: NoteUpdateInput) {
   let contentMarkdown = input.contentMarkdown;
-  if (input.tags?.length || input.removeTags?.length) {
+  if (input.replaceTags !== undefined || input.tags?.length || input.removeTags?.length) {
     if (contentMarkdown === undefined) {
       const current = await notesRoute(options, user, "GET", ["notes", input.noteId], `/api/notes/${encodeURIComponent(input.noteId)}`);
       if (current.status !== 200) return current;
@@ -199,8 +211,11 @@ async function updateNoteRoute(options: ServerOptions, user: UserRow, input: Not
       if (typeof note?.contentMarkdown !== "string") return { status: 500, body: { error: { code: "NOTE_READ_FAILED", message: "读取笔记正文失败" } } };
       contentMarkdown = note.contentMarkdown;
     }
-    contentMarkdown = removeTagsFromMarkdown(contentMarkdown, input.removeTags ?? []);
-    contentMarkdown = appendMarkdownTags(contentMarkdown, input.tags ?? []);
+    const tagsToRemove = input.replaceTags === undefined
+      ? input.removeTags ?? []
+      : [...extractTags(contentMarkdown), ...(input.removeTags ?? [])];
+    contentMarkdown = removeTagsFromMarkdown(contentMarkdown, tagsToRemove);
+    contentMarkdown = appendMarkdownTags(contentMarkdown, input.replaceTags ?? input.tags ?? []);
   }
   const payload = {
     version: input.version,
@@ -252,8 +267,8 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("list_notebooks", {
     title: "列出笔记本",
-    description: "列出象映笔记中的笔记本，返回 ID、名称和笔记数量。",
-    inputSchema: z.object({}),
+    description: "列出笔记本的 ID、名称、笔记数量和可读的 updatedAtISO 时间。",
+    inputSchema: z.object({}).strict(),
   }, async () => {
     if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
     const result = await notebooksRoute(options, user);
@@ -265,9 +280,9 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
     description: "创建一个用于分类笔记的新笔记本。返回新笔记本的 ID、名称、图标和颜色；省略颜色或图标时使用默认值。",
     inputSchema: z.object({
       name: z.string().trim().min(1).max(40).describe("笔记本名称，最多 40 个字符"),
-      color: z.string().regex(/^#[0-9a-f]{6}$/iu).optional().describe("六位十六进制颜色，例如 #718077"),
+      color: z.string().regex(/^#[0-9a-f]{6}$/iu).optional().describe("六位十六进制颜色；预设示例：#718077 松柏绿、#d96245 朱砂、#5b7899 蓝灰、#9c765f 木棕"),
       icon: z.enum(VALID_NOTEBOOK_ICONS).optional().describe("笔记本图标标识，例如 folder、book 或 bookmark"),
-    }),
+    }).strict(),
   }, async ({ name, color, icon }) => {
     if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
     const payload = {
@@ -285,9 +300,9 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
     inputSchema: z.object({
       notebookId: z.string().min(1).max(200),
       name: z.string().trim().min(1).max(40).optional().describe("新名称，最多 40 个字符；用于重命名"),
-      color: z.string().regex(/^#[0-9a-f]{6}$/iu).optional().describe("六位十六进制颜色，例如 #718077"),
+      color: z.string().regex(/^#[0-9a-f]{6}$/iu).optional().describe("六位十六进制颜色；预设示例：#718077 松柏绿、#d96245 朱砂、#5b7899 蓝灰、#9c765f 木棕"),
       icon: z.enum(VALID_NOTEBOOK_ICONS).optional().describe("笔记本图标标识，例如 folder、book 或 bookmark"),
-    }),
+    }).strict(),
   }, async ({ notebookId, name, color, icon }) => {
     if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
     if (name === undefined && color === undefined && icon === undefined) {
@@ -305,7 +320,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
   server.registerTool("delete_notebook", {
     title: "删除笔记本",
     description: "删除指定笔记本，并将其中所有笔记（包括回收站中的笔记）移入收件箱。系统收件箱不能删除。",
-    inputSchema: z.object({ notebookId: z.string().min(1).max(200) }),
+    inputSchema: z.object({ notebookId: z.string().min(1).max(200) }).strict(),
   }, async ({ notebookId }) => {
     if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
     const result = await notebooksRoute(options, user, "DELETE", undefined, notebookId);
@@ -314,7 +329,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("search_notes", {
     title: "搜索笔记",
-    description: "按标题或正文搜索笔记，可用 tag 精确筛选正文标签。省略 query 可列出最近更新的笔记；使用 nextCursor 读取下一页。默认每页 20 篇，preview 默认最多 120 个 Unicode 字符。结果不包含图片或缩略图。",
+    description: "按标题或正文搜索笔记，可用 tag 精确筛选正文标签。省略 query 可列出最近更新的笔记；使用 nextCursor 读取下一页。默认每页 20 篇，preview 默认最多 120 个 Unicode 字符；结果含可读的 updatedAtISO，不含正文、图片或缩略图。",
     inputSchema: z.object({
       query: z.string().max(80).optional().describe("搜索词；省略或留空时列出最近笔记"),
       tag: z.string().trim().min(1).max(40).regex(/^[#]?[\p{L}\p{N}_-]+$/u).optional().describe("按正文中的标签精确筛选，可带或不带 #"),
@@ -322,7 +337,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
       cursor: z.string().max(2048).optional().describe("上一次搜索结果返回的 nextCursor"),
       limit: z.number().int().min(1).max(100).optional().describe("每页数量，默认 20，最大 100"),
       previewLength: z.number().int().min(0).max(NOTE_PREVIEW_LIMIT).optional().describe(`每篇笔记的摘要长度，默认 120，最大 ${NOTE_PREVIEW_LIMIT} 个 Unicode 字符`),
-    }),
+    }).strict(),
   }, async ({ query, tag, notebookId, cursor, limit = 20, previewLength = 120 }) => {
     if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
     const url = new URL("/api/notes", "http://xiangying-notes.internal");
@@ -339,12 +354,12 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("list_trash", {
     title: "列出回收站",
-    description: "分页列出已移入回收站的笔记。返回的 noteId 与 version 可用于 update_note 设置 deleted=false 恢复笔记。每页默认 20 篇，摘要默认最多 120 个 Unicode 字符。",
+    description: "分页列出回收站笔记。返回的 noteId 与 version 可用于 restore_note；结果含可读的 updatedAtISO。每页默认 20 篇，摘要默认最多 120 个 Unicode 字符。",
     inputSchema: z.object({
       cursor: z.string().max(2048).optional().describe("上一页返回的 nextCursor"),
       limit: z.number().int().min(1).max(100).optional().describe("每页数量，默认 20，最大 100"),
       previewLength: z.number().int().min(0).max(NOTE_PREVIEW_LIMIT).optional().describe(`每篇笔记的摘要长度，默认 120，最大 ${NOTE_PREVIEW_LIMIT} 个 Unicode 字符`),
-    }),
+    }).strict(),
   }, async ({ cursor, limit = 20, previewLength = 120 }) => {
     if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
     const url = new URL("/api/notes", "http://xiangying-notes.internal");
@@ -359,11 +374,11 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("get_note", {
     title: "读取笔记",
-    description: "按 noteId 读取，或按 title 进行标题子串匹配读取。title 匹配唯一时返回笔记；匹配多篇时返回候选 ID，请缩小标题或使用 noteId。保留 Markdown 图片引用，但不提供图片内容或缩略图。更新前先读取 version。",
+    description: "按 noteId 读取，或按 title 进行标题子串匹配读取。title 匹配唯一时返回笔记；匹配多篇时返回候选 ID，请缩小标题或使用 noteId。结果含可读的 updatedAtISO；保留 Markdown 图片引用，但不提供图片内容或缩略图。更新前先读取 version。",
     inputSchema: z.object({
       noteId: z.string().min(1).max(200).optional(),
       title: z.string().trim().min(1).max(200).optional(),
-    }),
+    }).strict(),
   }, async ({ noteId, title }) => {
     if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
     if (Boolean(noteId) === Boolean(title)) {
@@ -378,6 +393,37 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
     return result.status === 200 ? responseValue(result.body) : routeError(result);
   });
 
+  server.registerTool("get_notes_batch", {
+    title: "批量读取笔记",
+    description: "按 ID 一次读取多篇完整 Markdown 笔记。最多输入 50 个 ID；limit 默认 20、最大 50，限制本次返回全文的笔记数。无权访问或不存在的 ID 列入 notFoundIds，超出 limit 的 ID 列入 remainingIds。",
+    inputSchema: z.object({
+      noteIds: z.array(z.string().min(1).max(200)).min(1).max(50).describe("要读取的笔记 ID，最多 50 个且不能重复"),
+      limit: z.number().int().min(1).max(50).optional().describe("本次最多返回的笔记数，默认 20，最大 50"),
+    }).strict(),
+  }, async ({ noteIds, limit = 20 }) => {
+    if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
+    if (new Set(noteIds).size !== noteIds.length) {
+      return responseValue({ error: { code: "DUPLICATE_NOTE_ID", message: "noteIds 中不能重复出现同一篇笔记" } }, true);
+    }
+    const selectedIds = noteIds.slice(0, limit);
+    const notes: Record<string, unknown>[] = [];
+    const notFoundIds: string[] = [];
+    for (const noteId of selectedIds) {
+      const result = await notesRoute(options, user, "GET", ["notes", noteId], `/api/notes/${encodeURIComponent(noteId)}`);
+      if (result.status === 404) {
+        notFoundIds.push(noteId);
+        continue;
+      }
+      if (result.status !== 200) return routeError(result);
+      const note = result.body.note;
+      if (!note || typeof note !== "object" || Array.isArray(note)) {
+        return responseValue({ error: { code: "NOTE_READ_FAILED", message: "读取笔记失败" } }, true);
+      }
+      notes.push(note as Record<string, unknown>);
+    }
+    return responseValue({ notes, notFoundIds, remainingIds: noteIds.slice(limit), returnedCount: notes.length });
+  });
+
   server.registerTool("create_note", {
     title: "创建笔记",
     description: "创建一篇 Markdown 笔记。contentMarkdown 支持多行 Markdown 文本，直接传入即可；若手写原始 JSON，其中的换行、制表符等控制字符必须转义。tags 会以 #标签 形式追加到正文。省略 notebookId 时放入收件箱。默认不回传正文；需要时设 includeContent=true。",
@@ -387,7 +433,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
       notebookId: z.string().min(1).max(200).optional(),
       tags: noteTagsSchema.optional().describe("要追加到正文的标签名，不带 #"),
       includeContent: z.boolean().optional().describe("是否在成功结果中回传完整正文，默认 false"),
-    }),
+    }).strict(),
   }, async ({ title, contentMarkdown = "", notebookId, tags = [], includeContent = false }) => {
     if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
     const payload = {
@@ -401,26 +447,64 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("update_note", {
     title: "更新笔记",
-    description: "更新笔记标题、Markdown 正文、所属笔记本、收藏或回收站状态。contentMarkdown 支持多行文本，直接传入即可；若手写原始 JSON，其中的换行、制表符等控制字符必须转义。tags 会以 #标签 形式追加到正文，removeTags 会从正文中移除匹配的标签标记。必须提供 get_note 返回的 version；遇到版本冲突时先读取当前内容并合并后再重试。传 deleted=false 可恢复笔记。默认不回传正文；需要时设 includeContent=true。",
+    description: "更新标题、Markdown 正文或所属笔记本。contentMarkdown 支持多行 Markdown；结构化参数直接传入，手写原始 JSON 时换行、制表符须转义。必须使用最新 version；遇冲突先读取、合并再重试。默认不回传正文；设 includeContent=true 可返回。",
     inputSchema: z.object({
       noteId: z.string().min(1).max(200),
       version: z.number().int().positive(),
       title: z.string().max(200).optional(),
       contentMarkdown: z.string().max(1_000_000).optional(),
       notebookId: z.string().min(1).max(200).optional(),
-      isFavorite: z.boolean().optional(),
-      deleted: z.boolean().optional().describe("true 将笔记移入回收站，false 恢复笔记"),
-      tags: noteTagsSchema.optional().describe("要追加到正文的标签名，不带 #"),
-      removeTags: noteTagsSchema.optional().describe("要从正文中移除的标签名，不带 #；会移除非代码区域中所有匹配标记"),
       includeContent: z.boolean().optional().describe("是否在成功结果中回传完整正文，默认 false"),
-    }),
-  }, async ({ noteId, version, title, contentMarkdown, notebookId, isFavorite, deleted, tags, removeTags, includeContent = false }) => {
+    }).strict(),
+  }, async ({ noteId, version, title, contentMarkdown, notebookId, includeContent = false }) => {
     if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
-    if (title === undefined && contentMarkdown === undefined && notebookId === undefined && isFavorite === undefined && deleted === undefined && !tags?.length && !removeTags?.length) {
+    if (title === undefined && contentMarkdown === undefined && notebookId === undefined) {
       return responseValue({ error: { code: "EMPTY_UPDATE", message: "请至少提供一个要更新的字段" } }, true);
     }
-    const result = await updateNoteRoute(options, user, { noteId, version, title, contentMarkdown, notebookId, isFavorite, deleted, tags, removeTags, includeContent });
+    const result = await updateNoteRoute(options, user, { noteId, version, title, contentMarkdown, notebookId, includeContent });
     return result.status === 200 ? responseValue(result.body, false, { writeResult: true, includeContent }) : routeError(result);
+  });
+
+  server.registerTool("toggle_favorite", {
+    title: "切换收藏",
+    description: "反转笔记当前的收藏状态。必须提供最新 version；每次调用都会切换一次。",
+    inputSchema: z.object({ noteId: z.string().min(1).max(200), version: z.number().int().positive() }).strict(),
+  }, async ({ noteId, version }) => {
+    if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
+    const current = await notesRoute(options, user, "GET", ["notes", noteId], `/api/notes/${encodeURIComponent(noteId)}`);
+    if (current.status !== 200) return routeError(current);
+    const note = current.body.note as Record<string, unknown> | undefined;
+    if (typeof note?.isFavorite !== "boolean") return responseValue({ error: { code: "NOTE_READ_FAILED", message: "读取笔记收藏状态失败" } }, true);
+    const result = await updateNoteRoute(options, user, { noteId, version, isFavorite: !note.isFavorite });
+    return result.status === 200 ? responseValue(result.body, false, { writeResult: true }) : routeError(result);
+  });
+
+  server.registerTool("move_note", {
+    title: "移动笔记",
+    description: "将笔记移动到指定笔记本。目标 ID 来自 list_notebooks；必须提供最新 version。",
+    inputSchema: z.object({
+      noteId: z.string().min(1).max(200),
+      version: z.number().int().positive(),
+      notebookId: z.string().min(1).max(200),
+    }).strict(),
+  }, async ({ noteId, version, notebookId }) => {
+    if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
+    const result = await updateNoteRoute(options, user, { noteId, version, notebookId });
+    return result.status === 200 ? responseValue(result.body, false, { writeResult: true }) : routeError(result);
+  });
+
+  server.registerTool("set_tags", {
+    title: "设置标签",
+    description: "将笔记标签替换为 tags 中的集合；空数组会清除标签。正文普通文字和代码中的标签示例会保留。必须提供最新 version。",
+    inputSchema: z.object({
+      noteId: z.string().min(1).max(200),
+      version: z.number().int().positive(),
+      tags: noteTagsSchema.describe("要保留的标签集合，不带 #；传空数组以清空"),
+    }).strict(),
+  }, async ({ noteId, version, tags }) => {
+    if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
+    const result = await updateNoteRoute(options, user, { noteId, version, replaceTags: tags });
+    return result.status === 200 ? responseValue(result.body, false, { writeResult: true }) : routeError(result);
   });
 
   server.registerTool("append_to_note", {
@@ -431,7 +515,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
       version: z.number().int().positive(),
       contentMarkdown: z.string().min(1).max(1_000_000),
       includeContent: z.boolean().optional().describe("是否在成功结果中回传完整正文，默认 false"),
-    }),
+    }).strict(),
   }, async ({ noteId, version, contentMarkdown, includeContent = false }) => {
     if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
     const current = await notesRoute(options, user, "GET", ["notes", noteId], `/api/notes/${encodeURIComponent(noteId)}`);
@@ -457,7 +541,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
       contentMarkdown: z.string().min(1).max(1_000_000).describe("要插入的 Markdown 内容"),
       position: z.enum(["before", "after"]).optional().describe("插入位置，默认 after"),
       includeContent: z.boolean().optional().describe("是否在成功结果中回传完整正文，默认 false"),
-    }),
+    }).strict(),
   }, async ({ noteId, version, anchor, contentMarkdown, position = "after", includeContent = false }) => {
     if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
     const current = await notesRoute(options, user, "GET", ["notes", noteId], `/api/notes/${encodeURIComponent(noteId)}`);
@@ -485,11 +569,21 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("delete_note", {
     title: "移入回收站",
-    description: "将笔记软删除并移入回收站，不会永久删除。必须提供 get_note 返回的 version；可在客户端恢复，或用 update_note 设置 deleted=false。",
-    inputSchema: z.object({ noteId: z.string().min(1).max(200), version: z.number().int().positive() }),
+    description: "将笔记软删除并移入回收站，不会永久删除。必须提供 get_note 返回的 version；恢复请使用 restore_note。",
+    inputSchema: z.object({ noteId: z.string().min(1).max(200), version: z.number().int().positive() }).strict(),
   }, async ({ noteId, version }) => {
     if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
     const result = await updateNoteRoute(options, user, { noteId, version, deleted: true });
+    return result.status === 200 ? responseValue(result.body, false, { writeResult: true }) : routeError(result);
+  });
+
+  server.registerTool("restore_note", {
+    title: "恢复笔记",
+    description: "将回收站中的笔记恢复到原笔记本。可使用 list_trash 返回的 noteId 和 version。",
+    inputSchema: z.object({ noteId: z.string().min(1).max(200), version: z.number().int().positive() }).strict(),
+  }, async ({ noteId, version }) => {
+    if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
+    const result = await updateNoteRoute(options, user, { noteId, version, deleted: false });
     return result.status === 200 ? responseValue(result.body, false, { writeResult: true }) : routeError(result);
   });
 
@@ -497,13 +591,13 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
     title: "批量更新笔记",
     description: "批量移动笔记本、添加或移除正文标签、切换收藏或移入/恢复回收站。每篇笔记都必须带上读取时的 version；逐条执行并返回每条结果，冲突不会覆盖，失败项可单独重试。一次最多 50 篇。",
     inputSchema: z.object({
-      notes: z.array(z.object({ noteId: z.string().min(1).max(200), version: z.number().int().positive() })).min(1).max(50),
+      notes: z.array(z.object({ noteId: z.string().min(1).max(200), version: z.number().int().positive() }).strict()).min(1).max(50),
       notebookId: z.string().min(1).max(200).optional(),
       isFavorite: z.boolean().optional(),
       deleted: z.boolean().optional(),
       tags: noteTagsSchema.optional().describe("追加到每篇笔记正文的标签名，不带 #"),
       removeTags: noteTagsSchema.optional().describe("从每篇笔记正文移除的标签名，不带 #"),
-    }),
+    }).strict(),
   }, async ({ notes, notebookId, isFavorite, deleted, tags, removeTags }) => {
     if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
     if (notebookId === undefined && isFavorite === undefined && deleted === undefined && !tags?.length && !removeTags?.length) {

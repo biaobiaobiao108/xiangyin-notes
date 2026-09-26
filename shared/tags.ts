@@ -266,6 +266,10 @@ export function removeTagsFromMarkdown(markdown: string, tags: string[]) {
         lineCursor = Math.max(lineCursor, range.end);
       }
       remainingLine += markdown.slice(lineCursor, lineEnd);
+      const lastRemoval = removalRanges[removalRanges.length - 1];
+      if (lastRemoval && /^[\t ]*$/u.test(markdown.slice(lastRemoval.end, lineEnd))) {
+        remainingLine = remainingLine.replace(/[\t ]+$/u, "");
+      }
       if (remainingLine.trim().length > 0) result += remainingLine + markdown.slice(lineEnd, lineNext);
     } else {
       result += markdown.slice(lineStart, lineNext);
@@ -275,6 +279,7 @@ export function removeTagsFromMarkdown(markdown: string, tags: string[]) {
     if (!hasBreak) break;
     lineStart = lineNext;
   }
+  if (!/(?:\r\n|\n|\r)$/u.test(markdown)) result = result.replace(/(?:\r\n|\n|\r)$/u, "");
   return result;
 }
 

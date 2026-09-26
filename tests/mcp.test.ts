@@ -125,9 +125,21 @@ describe("remote MCP endpoint", () => {
 
     const noOrigin = await callMcp(modernMcpRequest("tools/list", 1), environment);
     expect(noOrigin.response.status).toBe(200);
-    expect(resultOf(noOrigin.body!).tools.map((tool: { name: string }) => tool.name)).toEqual([
-      "list_notebooks", "create_notebook", "update_notebook", "delete_notebook", "search_notes", "list_trash", "get_note", "create_note", "update_note", "append_to_note", "insert_into_note", "delete_note", "batch_update_notes",
+    const tools = resultOf(noOrigin.body!).tools;
+    expect(tools.map((tool: { name: string }) => tool.name)).toEqual([
+      "list_notebooks", "create_notebook", "update_notebook", "delete_notebook", "search_notes", "list_trash", "get_note", "get_notes_batch", "create_note", "update_note", "toggle_favorite", "move_note", "set_tags", "append_to_note", "insert_into_note", "delete_note", "restore_note", "batch_update_notes",
     ]);
+    const assertClosedSchemas = (schema: Record<string, any>) => {
+      if (schema.type === "object" || schema.properties) expect(schema.additionalProperties).toBe(false);
+      for (const property of Object.values(schema.properties ?? {})) {
+        if (property && typeof property === "object") assertClosedSchemas(property as Record<string, any>);
+      }
+      if (schema.items && typeof schema.items === "object") assertClosedSchemas(schema.items as Record<string, any>);
+    };
+    for (const tool of tools) assertClosedSchemas(tool.inputSchema);
+    const updateSchema = tools.find((tool: { name: string }) => tool.name === "update_note").inputSchema;
+    expect(Object.keys(updateSchema.properties)).toEqual(["noteId", "version", "title", "contentMarkdown", "notebookId", "includeContent"]);
+    expect(updateSchema.additionalProperties).toBe(false);
 
     const validOriginRequest = modernMcpRequest("tools/list", 2);
     validOriginRequest.headers.set("Origin", "https://notes.example.com");
@@ -138,7 +150,7 @@ describe("remote MCP endpoint", () => {
   test("provides server-level usage instructions during discovery", async () => {
     const discovered = await callMcp(modernMcpRequest("server/discover", 1), { ...credentials, XIANGYING_MCP_TOKEN: token });
     expect(discovered.response.status).toBe(200);
-    expect(resultOf(discovered.body!).instructions).toContain("修改前先读取最新版本");
+    expect(resultOf(discovered.body!).instructions).toContain("修改前先读取最新 version");
     expect(resultOf(discovered.body!).instructions).toContain("create_notebook");
     expect(resultOf(discovered.body!).instructions).toContain("换行写作 \\n");
     expect(resultOf(discovered.body!).instructions).toContain("工具参数必须是 JSON 对象");
@@ -147,6 +159,10 @@ describe("remote MCP endpoint", () => {
     expect(resultOf(discovered.body!).instructions).toContain("insert_into_note");
     expect(resultOf(discovered.body!).instructions).toContain("update_notebook");
     expect(resultOf(discovered.body!).instructions).toContain("delete_notebook");
+    expect(resultOf(discovered.body!).instructions).toContain("get_notes_batch");
+    expect(resultOf(discovered.body!).instructions).toContain("restore_note");
+    expect(resultOf(discovered.body!).instructions).toContain("toggle_favorite");
+    expect(resultOf(discovered.body!).instructions).toContain("set_tags");
   });
 
   test("creates, renames, and deletes a notebook while preserving its notes", async () => {
@@ -190,6 +206,7 @@ describe("remote MCP endpoint", () => {
     expect(preservedNote.notebookName).toBe("收件箱");
     const inboxes = toolData((await callTool("list_notebooks", {}, 6, environment)).body!).notebooks;
     expect(inboxes.some((entry: { id: string }) => entry.id === notebook.id)).toBe(false);
+    expect(inboxes[0].updatedAtISO).toBe(new Date(inboxes[0].updatedAt * 1000).toISOString());
 
     const systemNotebook = inboxes.find((entry: { isSystem: boolean }) => entry.isSystem);
     const rejectedDeletion = await callTool("delete_notebook", { notebookId: systemNotebook.id }, 7, environment);
@@ -267,11 +284,66 @@ describe("remote MCP endpoint", () => {
     const trash = await callTool("list_trash", { limit: 5, previewLength: 20 }, 9, environment);
     const trashedNote = toolData(trash.body!).notes.find((entry: { id: string }) => entry.id === note.id);
     expect(trashedNote).toMatchObject({ id: note.id, deletedAt: deletedNote.deletedAt, version: deletedNote.version });
+    expect(trashedNote.updatedAtISO).toBe(new Date(trashedNote.updatedAt * 1000).toISOString());
     expect(Array.from(trashedNote.preview).length).toBeLessThanOrEqual(20);
     const reread = await callTool("get_note", { noteId: note.id }, 10, environment);
     expect(toolData(reread.body!).note.deletedAt).not.toBeNull();
-    const restored = await callTool("update_note", { noteId: note.id, version: deletedNote.version, deleted: false }, 11, environment);
+    const restored = await callTool("restore_note", { noteId: note.id, version: deletedNote.version }, 11, environment);
     expect(toolData(restored.body!).note.deletedAt).toBeNull();
+  });
+
+  test("splits favorite, move, and tag operations into narrow tools", async () => {
+    const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
+    const notebook = toolData((await callTool("create_notebook", { name: "专用工具目标" }, 1, environment)).body!).notebook;
+    const created = await callTool("create_note", {
+      title: "专用操作样本",
+      contentMarkdown: "正文 #旧标签\n代码示例 `#代码标签`",
+    }, 2, environment);
+    let note = toolData(created.body!).note;
+
+    const tagged = await callTool("set_tags", { noteId: note.id, version: note.version, tags: ["新标签"] }, 3, environment);
+    note = toolData(tagged.body!).note;
+    expect(note.tags).toEqual(["新标签"]);
+    expect(note.contentMarkdown).toBeUndefined();
+    let fullNote = toolData((await callTool("get_note", { noteId: note.id }, 4, environment)).body!).note;
+    expect(fullNote.contentMarkdown).toBe("正文\n代码示例 `#代码标签`\n#新标签");
+    expect(fullNote.updatedAtISO).toBe(new Date(fullNote.updatedAt * 1000).toISOString());
+
+    const favorited = await callTool("toggle_favorite", { noteId: note.id, version: note.version }, 5, environment);
+    note = toolData(favorited.body!).note;
+    expect(note.isFavorite).toBe(true);
+    const staleToggle = await callTool("toggle_favorite", { noteId: note.id, version: fullNote.version }, 6, environment);
+    expect(toolData(staleToggle.body!).error.code).toBe("VERSION_CONFLICT");
+
+    const moved = await callTool("move_note", { noteId: note.id, version: note.version, notebookId: notebook.id }, 7, environment);
+    note = toolData(moved.body!).note;
+    expect(note.notebookId).toBe(notebook.id);
+    expect(note.isFavorite).toBe(true);
+
+    const cleared = await callTool("set_tags", { noteId: note.id, version: note.version, tags: [] }, 8, environment);
+    note = toolData(cleared.body!).note;
+    expect(note.tags).toEqual([]);
+    fullNote = toolData((await callTool("get_note", { noteId: note.id }, 9, environment)).body!).note;
+    expect(fullNote.contentMarkdown).toBe("正文\n代码示例 `#代码标签`");
+  });
+
+  test("batch reads full notes with a bounded result count and reports missing IDs", async () => {
+    const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
+    const first = toolData((await callTool("create_note", { title: "批量读取甲", contentMarkdown: "甲正文\n完整内容" }, 1, environment)).body!).note;
+    const second = toolData((await callTool("create_note", { title: "批量读取乙", contentMarkdown: "乙正文完整内容" }, 2, environment)).body!).note;
+    const third = toolData((await callTool("create_note", { title: "批量读取丙", contentMarkdown: "丙正文完整内容" }, 3, environment)).body!).note;
+
+    const limited = await callTool("get_notes_batch", { noteIds: [first.id, second.id, third.id], limit: 2 }, 4, environment);
+    const limitedData = toolData(limited.body!);
+    expect(limitedData.notes).toHaveLength(2);
+    expect(limitedData.notes[0].contentMarkdown).toBe("甲正文\n完整内容");
+    expect(limitedData.notes[1].contentMarkdown).toBe("乙正文完整内容");
+    expect(limitedData.notes[0].updatedAtISO).toBe(new Date(limitedData.notes[0].updatedAt * 1000).toISOString());
+    expect(limitedData.remainingIds).toEqual([third.id]);
+
+    const remainder = await callTool("get_notes_batch", { noteIds: [third.id, "missing-note-id"], limit: 2 }, 5, environment);
+    expect(toolData(remainder.body!).notes[0].contentMarkdown).toBe("丙正文完整内容");
+    expect(toolData(remainder.body!).notFoundIds).toEqual(["missing-note-id"]);
   });
 
   test("appends before trailing tags to preserve the tag footer", async () => {
@@ -305,14 +377,14 @@ describe("remote MCP endpoint", () => {
     const note = toolData(created.body!).note;
     expect(note.tags).toEqual(["保留", "移除", "单独一行标签"]);
 
-    const removed = await callTool("update_note", {
+    const removed = await callTool("set_tags", {
       noteId: note.id,
       version: note.version,
-      removeTags: ["移除", "单独一行标签"],
+      tags: ["保留"],
     }, 2, environment);
     expect(toolData(removed.body!).note.tags).toEqual(["保留"]);
     const read = toolData((await callTool("get_note", { noteId: note.id }, 3, environment)).body!).note;
-    expect(read.contentMarkdown).toBe("正文 #保留\n示例 `#代码标签` 和\n后续内容");
+    expect(read.contentMarkdown).toBe("正文\n示例 `#代码标签` 和\n后续内容\n#保留");
     expect(read.tags).toEqual(["保留"]);
 
     // Simulate an index created by the earlier parser, which treated code as a tag.
@@ -435,13 +507,12 @@ describe("remote MCP endpoint", () => {
       version: fetchedNote.version,
       title: "MCP 更新记录",
       contentMarkdown: "更新后的正文",
-      tags: ["mcp-updated"],
     }, 6, environment);
     const updatedNote = toolData(updated.body!).note;
     expect(updatedNote.title).toBe("MCP 更新记录");
     expect(updatedNote.version).toBe(2);
     expect(updatedNote.contentMarkdown).toBeUndefined();
-    expect(updatedNote.tags).toContain("mcp-updated");
+    expect(updatedNote.tags).toEqual([]);
 
     const staleUpdate = await callTool("update_note", {
       noteId: createdNote.id,
@@ -504,6 +575,7 @@ describe("remote MCP endpoint", () => {
     const defaultPageData = toolData(defaultPage.body!);
     expect(defaultPageData.notes).toHaveLength(20);
     expect(Array.from(defaultPageData.notes[0].preview).length).toBeLessThanOrEqual(120);
+    expect(defaultPageData.notes[0].updatedAtISO).toBe(new Date(defaultPageData.notes[0].updatedAt * 1000).toISOString());
 
     const firstPage = await callTool("search_notes", { query: "pagination", limit: 100 }, 2, environment);
     const firstPageData = toolData(firstPage.body!);
