@@ -271,7 +271,7 @@ const SlashCommandList = forwardRef<SlashCommandListRef, SlashCommandListProps>(
       onClick={() => select(index)}
     >
       <span className="slash-command-icon"><Icon size={16} aria-hidden="true" /></span>
-      <span className="slash-command-copy"><strong>{item.label}</strong></span>
+      <span className="slash-command-copy">{item.label}</span>
     </button>;
   };
 

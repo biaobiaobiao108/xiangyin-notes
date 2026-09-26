@@ -29,19 +29,8 @@ export function getTableEdgeDragDelta(distance: number, currentSize: number, ste
   return requested < 0 ? -Math.min(steps, currentSize - 1) : steps;
 }
 
-export function getActiveTableContext(editor: Editor): ActiveTableContext | null {
-  const { $from } = editor.state.selection;
-  let tableDepth = -1;
-  for (let depth = $from.depth; depth > 0; depth -= 1) {
-    if ($from.node(depth).type.name === "table") {
-      tableDepth = depth;
-      break;
-    }
-  }
-  if (tableDepth < 0) return null;
-
-  const node = $from.node(tableDepth);
-  const position = $from.before(tableDepth);
+function createTableContext(node: ProseMirrorNode, position: number): ActiveTableContext | null {
+  if (node.type.name !== "table" || node.childCount === 0) return null;
   const lastRowIndex = node.childCount - 1;
   let lastCellTextPosition = position + node.nodeSize - 2;
   node.forEach((row, rowOffset, rowIndex) => {
@@ -62,8 +51,23 @@ export function getActiveTableContext(editor: Editor): ActiveTableContext | null
   };
 }
 
-export function getActiveTableSnapshot(editor: Editor): TableEdgeSnapshot | null {
-  const context = getActiveTableContext(editor);
+export function getActiveTableContext(editor: Editor, tablePosition?: number): ActiveTableContext | null {
+  if (tablePosition !== undefined) {
+    const node = editor.state.doc.nodeAt(tablePosition);
+    return node ? createTableContext(node, tablePosition) : null;
+  }
+
+  const { $from } = editor.state.selection;
+  for (let depth = $from.depth; depth > 0; depth -= 1) {
+    if ($from.node(depth).type.name === "table") {
+      return createTableContext($from.node(depth), $from.before(depth));
+    }
+  }
+  return null;
+}
+
+export function getActiveTableSnapshot(editor: Editor, tablePosition?: number): TableEdgeSnapshot | null {
+  const context = getActiveTableContext(editor, tablePosition);
   if (!context) return null;
   return {
     node: context.node,
@@ -73,7 +77,7 @@ export function getActiveTableSnapshot(editor: Editor): TableEdgeSnapshot | null
 }
 
 export function restoreActiveTableSnapshot(editor: Editor, snapshot: TableEdgeSnapshot, options: TableEdgeTransactionOptions = {}) {
-  const context = getActiveTableContext(editor);
+  const context = getActiveTableContext(editor, snapshot.position);
   if (!context) return false;
 
   return editor.chain().command(({ tr }) => {
@@ -86,8 +90,8 @@ export function restoreActiveTableSnapshot(editor: Editor, snapshot: TableEdgeSn
   }).run();
 }
 
-export function adjustActiveTableSize(editor: Editor, axis: TableEdgeAxis, delta: number, options: TableEdgeTransactionOptions = {}) {
-  const context = getActiveTableContext(editor);
+export function adjustActiveTableSize(editor: Editor, axis: TableEdgeAxis, delta: number, options: TableEdgeTransactionOptions = {}, tablePosition?: number) {
+  const context = getActiveTableContext(editor, tablePosition);
   const amount = Math.trunc(delta);
   if (!context || !amount) return false;
 

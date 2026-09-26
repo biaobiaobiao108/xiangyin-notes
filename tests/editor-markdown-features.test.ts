@@ -172,6 +172,30 @@ describe("table edge controls", () => {
       editor.destroy();
     }
   });
+
+  test("edge adjustments target a hovered table when the editor selection is elsewhere", () => {
+    const editor = createMarkdownEditor("前置正文\n\n| A | B |\n| --- | --- |\n| x | y |");
+    try {
+      let tablePosition = -1;
+      editor.state.doc.descendants((node, position) => {
+        if (node.type.name === "table") tablePosition = position;
+      });
+      expect(tablePosition).toBeGreaterThanOrEqual(0);
+
+      editor.commands.setTextSelection(2);
+      expect(getActiveTableContext(editor)).toBeNull();
+      expect(getActiveTableContext(editor, tablePosition)?.columns).toBe(2);
+      const snapshot = getActiveTableSnapshot(editor, tablePosition);
+      expect(snapshot).not.toBeNull();
+
+      expect(adjustActiveTableSize(editor, "columns", 1, {}, tablePosition)).toBe(true);
+      expect(getActiveTableContext(editor, tablePosition)?.columns).toBe(3);
+      expect(restoreActiveTableSnapshot(editor, snapshot!, { addToHistory: false, emitUpdate: false })).toBe(true);
+      expect(getActiveTableContext(editor, tablePosition)?.columns).toBe(2);
+    } finally {
+      editor.destroy();
+    }
+  });
 });
 
 describe("code block double Enter behavior", () => {

@@ -9,9 +9,8 @@ type SearchNavigation = {
   matchCount: number;
 };
 
-export function EditorFloatingTools({ editor, tableActive = false, outlineTriggerRef, outlineOpen, editorStats, onToggleOutline, outlineDisabled = false, outlineDisabledTitle, searchNavigation, searchQuery, deferredLoading, onMoveSearchMatch, onClearSearch }: {
+export function EditorFloatingTools({ editor, outlineTriggerRef, outlineOpen, editorStats, onToggleOutline, outlineDisabled = false, outlineDisabledTitle, searchNavigation, searchQuery, deferredLoading, onMoveSearchMatch, onClearSearch }: {
   editor: Editor | null;
-  tableActive?: boolean;
   outlineTriggerRef: RefObject<HTMLButtonElement | null>;
   outlineOpen: boolean;
   editorStats: EditorStats;
@@ -26,7 +25,7 @@ export function EditorFloatingTools({ editor, tableActive = false, outlineTrigge
 }) {
   const hasActiveSearch = Boolean(searchQuery?.trim());
   return <div className="editor-floating-tools">
-    {tableActive && editor && <TableEdgeControls editor={editor} deferredLoading={deferredLoading} />}
+    {editor?.isEditable && <TableEdgeControls editor={editor} deferredLoading={deferredLoading} />}
     <div className="editor-floating-row">
       {hasActiveSearch && <div className="editor-search-nav" role="group" aria-label={searchNavigation.matchCount > 0 ? `正文搜索结果，第 ${searchNavigation.activeIndex + 1} 个，共 ${searchNavigation.matchCount} 个` : `当前笔记中未找到“${searchQuery?.trim()}”`}>
         {searchNavigation.matchCount > 0 ? (

@@ -37,14 +37,6 @@ type SaveState = "idle" | "saving" | "saved" | "conflict" | "error";
 const MAX_IMAGE_FILES_PER_ACTION = 10;
 const OUTLINE_HEADING_SELECTOR = "h1, h2, h3, h4";
 
-function isSelectionInsideTable(editor: Editor) {
-  const { $from } = editor.state.selection;
-  for (let depth = $from.depth; depth > 0; depth -= 1) {
-    if ($from.node(depth).type.name === "table") return true;
-  }
-  return false;
-}
-
 function resizeTitleField(field: HTMLTextAreaElement | null) {
   if (!field) return;
   field.style.height = "auto";
@@ -171,7 +163,6 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   const [editorStats, setEditorStats] = useState<EditorStats>(() => countEditorText(""));
   const [deferredLoading, setDeferredLoading] = useState(false);
   const [imageUploadState, setImageUploadState] = useState<"idle" | "uploading" | "error">("idle");
-  const [tableActive, setTableActive] = useState(false);
   const editorLocked = isLoading || deferredLoading;
   const [searchNavigation, setSearchNavigation] = useState({ activeIndex: 0, matchCount: 0 });
   const searchQueryRef = useRef(searchQuery);
@@ -805,16 +796,10 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
 
   useEffect(() => {
     if (!editor) return;
-    const syncTableActive = (instance: Editor) => {
-      const nextTableActive = isSelectionInsideTable(instance);
-      setTableActive((current) => current === nextTableActive ? current : nextTableActive);
-    };
     const handleTransaction = ({ editor: instance }: { editor: Editor }) => {
       syncSearchNavigation(instance);
-      syncTableActive(instance);
     };
     const handleSelection = ({ editor: instance }: { editor: Editor }) => {
-      syncTableActive(instance);
       if (!syncActiveOutlineFromSelection(instance)) {
         outlineFallbackSyncRef.current?.();
       }
@@ -825,7 +810,6 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     editor.on("transaction", handleTransaction);
     editor.on("selectionUpdate", handleSelection);
     syncSearchNavigation(editor);
-    syncTableActive(editor);
     return () => {
       editor.off("transaction", handleTransaction);
       editor.off("selectionUpdate", handleSelection);
@@ -1288,7 +1272,6 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       {deferredLoading && <div className="editor-switch-overlay editor-switch-overlay--visible" role="status" aria-live="polite"><div className="editor-switch-card"><BrandMark className="editor-switch-mark" /><div className="editor-switch-lines" aria-hidden="true"><span /><span /><span /></div><strong>正在打开笔记…</strong></div></div>}
       <EditorFloatingTools
         editor={editor}
-        tableActive={tableActive && !note.deletedAt && Boolean(editor?.isEditable)}
         outlineTriggerRef={outlineTriggerRef}
         outlineOpen={outlineOpen}
         editorStats={editorStats}
