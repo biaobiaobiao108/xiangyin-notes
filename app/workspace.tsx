@@ -182,6 +182,7 @@ export function Workspace() {
     persist,
     runSave,
     saveImmediately,
+    saveFavorite,
     saveNoteNow,
     flushPendingSaves,
     hasUnsavedWork,
@@ -806,24 +807,13 @@ export function Workspace() {
   const handleToggleFavoriteCardNote = useCallback(async (target: NoteSummary) => {
     const isFavorite = !target.isFavorite;
     try {
-      const result = await api.updateNote(target.id, { version: target.version, isFavorite }, { response: "summary" });
-      const patch = {
-        isFavorite: result.note.isFavorite,
-        version: result.note.version,
-        updatedAt: result.note.updatedAt,
-      };
-      replaceList(notesRef.current.map((note) => note.id === target.id ? { ...note, ...patch } : note));
-      if (selectedRef.current?.id === target.id) {
-        const selected = { ...selectedRef.current, ...patch };
-        selectedRef.current = selected;
-        setSelectedNote(selected);
-      }
-      if (view === "favorites" && !patch.isFavorite) removeFromList(target.id);
-      setToast(patch.isFavorite ? "已加入收藏" : "已取消收藏");
+      await saveFavorite(target.id, isFavorite);
+      if (view === "favorites" && !isFavorite) removeFromList(target.id);
+      setToast(isFavorite ? "已加入收藏" : "已取消收藏");
     } catch (reason) {
       setToast(errorMessage(reason, "操作失败"));
     }
-  }, [removeFromList, replaceList, setToast, view]);
+  }, [removeFromList, saveFavorite, setToast, view]);
 
   const handleMoveCardNoteToTrash = useCallback(async (target: NoteSummary) => {
     try {

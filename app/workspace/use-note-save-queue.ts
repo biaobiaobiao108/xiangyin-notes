@@ -216,6 +216,18 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
     return runSave(pendingDraft.id, keepalive);
   }, [activeNoteIdRef, cancelSaveTimer, runSave]);
 
+  const saveFavorite = useCallback(async (noteId: string, isFavorite: boolean) => {
+    const localDraft = () => pendingSavesRef.current.get(noteId)
+      ?? (selectedRef.current?.id === noteId ? selectedRef.current : undefined);
+    let draft = localDraft();
+    if (!draft) {
+      const result = await api.getNote(noteId);
+      // Edits or another save may have arrived while the note was loading.
+      draft = localDraft() ?? result.note;
+    }
+    await saveImmediately({ ...draft, isFavorite }, false, ["isFavorite"]);
+  }, [saveImmediately, selectedRef]);
+
   // Listen for beforeunload warning
   useEffect(() => {
     const warnBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -270,6 +282,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
     persist,
     runSave,
     saveImmediately,
+    saveFavorite,
     saveNoteNow,
     cancelSaveTimer,
     flushPendingSaves,
