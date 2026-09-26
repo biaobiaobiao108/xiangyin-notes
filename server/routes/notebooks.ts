@@ -128,9 +128,11 @@ export async function handleNotebooksRoute(ctx: RouteContext, user: UserRow): Pr
         database.query("UPDATE notes SET notebook_id = ?, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ?").run(inbox.id, now(), note.id, user.id);
       }
       database.query("DELETE FROM notebooks WHERE id = ? AND user_id = ?").run(current.id, user.id);
+      return movedNotes.length;
     });
-    transaction();
+    const movedCount = transaction();
     publishWorkspaceChange(options, user.id, { resource: "notebooks" }, request);
+    if (movedCount) publishWorkspaceChange(options, user.id, { resource: "notes" }, request);
     return json({ ok: true });
   }
 

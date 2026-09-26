@@ -120,3 +120,25 @@ describe("favorite operations and the save queue", () => {
     expect(queue.hasUnsavedWork()).toBe(true);
   });
 });
+
+describe("notebook draft flushing", () => {
+  test("saves all drafts in a notebook without dropping drafts from other notebooks", async () => {
+    queue.persist({ ...original, contentMarkdown: "删除笔记本前的编辑" }, ["contentMarkdown"]);
+    queue.persist({ ...original, id: "note-2", notebookId: "other", contentMarkdown: "其他草稿" }, ["contentMarkdown"]);
+
+    await queue.flushNotebookSaves("work");
+
+    expect(stored.contentMarkdown).toBe("删除笔记本前的编辑");
+    expect(queue.pendingSavesRef.current.has(original.id)).toBe(false);
+    expect(queue.pendingSavesRef.current.get("note-2")?.contentMarkdown).toBe("其他草稿");
+    expect(update).toHaveBeenCalledTimes(1);
+  });
+
+  test("rejects notebook deletion preparation if a draft could not be saved", async () => {
+    queue.persist({ ...original, contentMarkdown: "不能丢失的草稿" }, ["contentMarkdown"]);
+    update.mockRejectedValueOnce(new Error("offline"));
+
+    await expect(queue.flushNotebookSaves("work")).rejects.toThrow("offline");
+    expect(queue.pendingSavesRef.current.get(original.id)?.contentMarkdown).toBe("不能丢失的草稿");
+  });
+});

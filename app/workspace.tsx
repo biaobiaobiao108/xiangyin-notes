@@ -183,6 +183,7 @@ export function Workspace() {
     runSave,
     saveImmediately,
     saveFavorite,
+    flushNotebookSaves,
     saveNoteNow,
     flushPendingSaves,
     hasUnsavedWork,
@@ -614,12 +615,53 @@ export function Workspace() {
       : await api.createNotebook({ name: notebook.name, color: notebook.color, icon: notebook.icon });
     return result.notebook;
   }, [editingNotebook]);
+  const refreshSelectedNoteFromRemote = useCallback(async (noteId: string) => {
+    const current = selectedRef.current;
+    if (!current || current.id !== noteId) return;
+
+    noteAbortRef.current?.abort();
+    const controller = new AbortController();
+    noteAbortRef.current = controller;
+    const requestId = ++noteLoadRequestRef.current;
+    try {
+      const result = await api.getNote(noteId, { signal: controller.signal });
+      if (requestId !== noteLoadRequestRef.current || activeNoteIdRef.current !== noteId || selectedRef.current?.id !== noteId) return;
+      if (result.note.version === current.version) return;
+
+      if (pendingSavesRef.current.has(noteId) || failedSavesRef.current.has(noteId)) {
+        setSaveState("conflict");
+        setToast("当前笔记已在其他设备更新，请先保存或重新载入");
+        return;
+      }
+      selectedRef.current = result.note;
+      setSelectedNote(result.note);
+      replaceList(notesRef.current.map((n) => (n.id === noteId ? { ...n, ...toNoteSummary(result.note) } : n)));
+      setNoteReloadToken((value) => value + 1);
+      setSaveState("idle");
+    } catch (reason) {
+      if (reason instanceof Error && reason.name === "AbortError") return;
+      if (reason instanceof ApiError && reason.status === 401) {
+        navigate("/login", { replace: true });
+        return;
+      }
+      if (reason instanceof ApiError && reason.status === 404 && activeNoteIdRef.current === noteId) {
+        removeFromList(noteId);
+        return;
+      }
+      setToast("同步当前笔记失败，请稍后重试");
+    } finally {
+      if (noteAbortRef.current === controller) noteAbortRef.current = null;
+    }
+  }, [failedSavesRef, navigate, pendingSavesRef, removeFromList, replaceList, setSaveState]);
   const deleteNotebook = useCallback(async (id: string) => {
     try {
       const target = notebooks.find((notebook) => notebook.id === id);
       const inbox = notebooks.find((notebook) => notebook.isSystem);
       if (!target || !inbox) throw new Error("notebook-not-found");
+      await flushNotebookSaves(target.id);
       await api.deleteNotebook(target.id);
+      const activeNote = selectedRef.current;
+      if (activeNote?.notebookId === target.id) await refreshSelectedNoteFromRemote(activeNote.id);
       setNotebooks((current) => current.filter((nb) => nb.id !== id));
       if (notebookId === id) setNotebookId(undefined);
       refreshNotebooks();
@@ -629,7 +671,7 @@ export function Workspace() {
     } catch (reason) {
       setToast(errorMessage(reason, "删除笔记本失败"));
     }
-  }, [loadNotes, notebookId, notebooks, refreshNotebooks]);
+  }, [flushNotebookSaves, loadNotes, notebookId, notebooks, refreshNotebooks, refreshSelectedNoteFromRemote]);
   const toggleFavorite = useCallback(() => {
     const current = selectedRef.current;
     if (!current) return;
@@ -875,44 +917,6 @@ export function Workspace() {
       setIsNoteLoading(false);
     }
   }, [clearPendingForNote, setSaveState]);
-  const refreshSelectedNoteFromRemote = useCallback(async (noteId: string) => {
-    const current = selectedRef.current;
-    if (!current || current.id !== noteId) return;
-
-    noteAbortRef.current?.abort();
-    const controller = new AbortController();
-    noteAbortRef.current = controller;
-    const requestId = ++noteLoadRequestRef.current;
-    try {
-      const result = await api.getNote(noteId, { signal: controller.signal });
-      if (requestId !== noteLoadRequestRef.current || activeNoteIdRef.current !== noteId || selectedRef.current?.id !== noteId) return;
-      if (result.note.version === current.version) return;
-
-      if (pendingSavesRef.current.has(noteId) || failedSavesRef.current.has(noteId)) {
-        setSaveState("conflict");
-        setToast("当前笔记已在其他设备更新，请先保存或重新载入");
-        return;
-      }
-      selectedRef.current = result.note;
-      setSelectedNote(result.note);
-      replaceList(notesRef.current.map((n) => (n.id === noteId ? { ...n, ...toNoteSummary(result.note) } : n)));
-      setNoteReloadToken((value) => value + 1);
-      setSaveState("idle");
-    } catch (reason) {
-      if (reason instanceof Error && reason.name === "AbortError") return;
-      if (reason instanceof ApiError && reason.status === 401) {
-        navigate("/login", { replace: true });
-        return;
-      }
-      if (reason instanceof ApiError && reason.status === 404 && activeNoteIdRef.current === noteId) {
-        removeFromList(noteId);
-        return;
-      }
-      setToast("同步当前笔记失败，请稍后重试");
-    } finally {
-      if (noteAbortRef.current === controller) noteAbortRef.current = null;
-    }
-  }, [failedSavesRef, navigate, pendingSavesRef, removeFromList, replaceList, setSaveState]);
   const requestConflictReload = useCallback(() => {
     requestConfirm({
       eyebrow: "版本冲突",
@@ -1260,7 +1264,7 @@ export function Workspace() {
 
 
     {shareOpen && renderedNote && <ShareDialog note={renderedNote} onClose={() => setShareOpen(false)} onToast={setToast} />}
-    {editingNotebook !== undefined && <NotebookDialog key={editingNotebook?.id ?? "new"} notebook={editingNotebook} onClose={() => setEditingNotebook(undefined)} onSave={saveNotebookDraft} onSaved={saveNotebook} onRequestDelete={(target) => requestConfirm({ eyebrow: "整理上下文", title: `删除笔记本“${target.name}”？`, description: "笔记本中的笔记会自动移入收件箱，笔记内容不会被删除。", confirmLabel: "删除笔记本", danger: true, onConfirm: () => void deleteNotebook(target.id) })} onToast={setToast} />}
+    {editingNotebook !== undefined && <NotebookDialog key={editingNotebook?.id ?? "new"} notebook={editingNotebook} onClose={() => setEditingNotebook(undefined)} onSave={saveNotebookDraft} onSaved={saveNotebook} onRequestDelete={(target) => requestConfirm({ eyebrow: "整理上下文", title: `删除笔记本“${target.name}”？`, description: "笔记本中的笔记会自动移入收件箱，笔记内容不会被删除。", confirmLabel: "删除笔记本", danger: true, onConfirm: () => deleteNotebook(target.id) })} onToast={setToast} />}
     {confirmRequest && <ConfirmDialog key={confirmRequest.id} request={confirmRequest} onClose={() => setConfirmRequest(null)} />}
     <div className="system-notices">{pwaState.updateAvailable && <div className="update-notice" role="status" aria-live="polite" aria-labelledby="update-notice-title"><div className="update-notice-header"><RefreshCw size={18} aria-hidden="true" /><div><strong id="update-notice-title">发现新版本</strong><p>保存当前编辑后即可更新应用。</p></div></div><div className="update-notice-actions"><button className="text-button update-notice-action" type="button" onClick={() => void updatePwa()}>更新</button></div></div>}{toast && <div className="toast" role="status">{toast}</div>}</div>
   </div>;

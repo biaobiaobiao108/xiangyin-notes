@@ -147,6 +147,40 @@ describe("RealtimeHub", () => {
 });
 
 describe("Realtime HTTP integration", () => {
+  test("notifies other clients of note version changes when deleting a notebook", async () => {
+    const hub = new RealtimeHub();
+    const login = await request("/api/auth/login", {
+      method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
+    });
+    const cookie = login.cookie!;
+    const notebook = (await request("/api/notebooks", {
+      method: "POST", body: JSON.stringify({ name: "待删除笔记本" }),
+    }, { cookie })).body?.notebook;
+    const note = (await request("/api/notes", {
+      method: "POST", body: JSON.stringify({ title: "仍在编辑", notebookId: notebook.id, contentMarkdown: "已保存草稿" }),
+    }, { cookie })).body?.note;
+    const owner = fakeSocket(login.body?.user.id, "browser-1");
+    const other = fakeSocket(login.body?.user.id, "browser-2");
+    hub.add(owner.socket);
+    hub.add(other.socket);
+
+    const deletion = await request(`/api/notebooks/${notebook.id}`, { method: "DELETE" }, {
+      cookie, realtime: hub, clientId: "browser-1",
+    });
+    expect(deletion.response.status).toBe(200);
+    expect(owner.messages).toHaveLength(0);
+    expect(other.messages.map((message) => JSON.parse(message).resource)).toEqual(["notebooks", "notes"]);
+    const current = (await request(`/api/notes/${note.id}`, {}, { cookie })).body?.note;
+    expect(current.version).toBe(note.version + 1);
+    expect(current.notebookId).not.toBe(notebook.id);
+    const save = await request(`/api/notes/${note.id}`, {
+      method: "PATCH", body: JSON.stringify({ version: current.version, contentMarkdown: "继续编辑" }),
+    }, { cookie });
+    expect(save.response.status).toBe(200);
+    expect(save.body?.note.contentMarkdown).toBe("继续编辑");
+    hub.stop();
+  });
+
   test("requires the existing session before upgrading the WebSocket", async () => {
     const hub = new RealtimeHub();
     let upgradeCalls = 0;

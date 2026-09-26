@@ -228,6 +228,13 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
     await saveImmediately({ ...draft, isFavorite }, false, ["isFavorite"]);
   }, [saveImmediately, selectedRef]);
 
+  const flushNotebookSaves = useCallback(async (notebookId: string) => {
+    const ids = [...pendingSavesRef.current.values()]
+      .filter((draft) => draft.notebookId === notebookId)
+      .map((draft) => draft.id);
+    await Promise.all(ids.map((id) => runSave(id)));
+  }, [runSave]);
+
   // Listen for beforeunload warning
   useEffect(() => {
     const warnBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -283,6 +290,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
     runSave,
     saveImmediately,
     saveFavorite,
+    flushNotebookSaves,
     saveNoteNow,
     cancelSaveTimer,
     flushPendingSaves,
