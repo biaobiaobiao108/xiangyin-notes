@@ -24,6 +24,7 @@ import { BacklinksDialog } from "./editor/backlinks-panel";
 import { WikiLinkNode } from "./editor/wiki-link-node";
 import { WikiLinkSuggestionExtension } from "./editor/wiki-link-suggestion";
 import { CalloutNode } from "./editor/callout-node";
+import { CodeBlockDoubleEnter } from "./editor/code-block-enter";
 import { SlashCommandExtension } from "./editor/slash-command-menu";
 import { TableScrollbars } from "./editor/table-scrollbars";
 import { createTableExtensions } from "./editor/table-extensions";
@@ -389,7 +390,8 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   };
 
   const extensions = useMemo(() => [
-    StarterKit.configure({ heading: { levels: [1, 2, 3, 4] }, link: false }),
+    StarterKit.configure({ heading: { levels: [1, 2, 3, 4] }, link: false, codeBlock: { exitOnTripleEnter: false } }),
+    CodeBlockDoubleEnter,
     ...createTableExtensions(),
     Link.configure({ openOnClick: false, autolink: true, linkOnPaste: true, HTMLAttributes: { title: "按住 Ctrl 或 ⌘ 点击打开链接" } }),
     TaskList,

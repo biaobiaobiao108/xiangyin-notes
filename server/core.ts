@@ -369,7 +369,7 @@ export function formatPreview(markdown: string) {
   let outputLength = 0;
   const paragraph: string[] = [];
   let paragraphLength = 0;
-  let inCodeFence = false;
+  let codeFence: { marker: "`" | "~"; length: number } | null = null;
   let stopped = false;
 
   const appendLine = (text: string) => {
@@ -471,42 +471,114 @@ export function formatPreview(markdown: string) {
     return markerCount >= 3;
   };
 
+  const readLine = (start: number, bounded = true) => {
+    const newlineIndex = markdown.indexOf("\n", start);
+    const fullEnd = newlineIndex === -1 ? markdown.length : newlineIndex;
+    const end = bounded ? Math.min(fullEnd, start + NOTE_PREVIEW_SCAN_LIMIT) : fullEnd;
+    const contentEnd = end > start && markdown[end - 1] === "\r" ? end - 1 : end;
+    return {
+      start,
+      end: contentEnd,
+      next: newlineIndex === -1 ? markdown.length : newlineIndex + 1,
+      truncated: end < fullEnd,
+    };
+  };
+
+  const leadingWhitespaceEnd = (line: { start: number; end: number }) => {
+    let index = line.start;
+    while (index < line.end && (markdown[index] === " " || markdown[index] === "\t")) index += 1;
+    return index;
+  };
+
+  const getFence = (line: { start: number; end: number }) => {
+    let index = line.start;
+    let indentation = 0;
+    while (index < line.end && markdown[index] === " " && indentation < 4) {
+      indentation += 1;
+      index += 1;
+    }
+    if (indentation > 3 || (markdown[index] !== "`" && markdown[index] !== "~")) return null;
+
+    const marker = markdown[index] as "`" | "~";
+    const markerStart = index;
+    while (index < line.end && markdown[index] === marker) index += 1;
+    const length = index - markerStart;
+    return length >= 3 ? { marker, length, remainderStart: index } : null;
+  };
+
+  const isFenceClose = (line: { start: number; end: number }, fence: { marker: "`" | "~"; length: number }) => {
+    const candidate = getFence(line);
+    if (!candidate || candidate.marker !== fence.marker || candidate.length < fence.length) return false;
+    for (let index = candidate.remainderStart; index < line.end; index += 1) {
+      if (markdown[index] !== " " && markdown[index] !== "\t") return false;
+    }
+    return true;
+  };
+
+  const isPipeTableRow = (line: { start: number; end: number }) => {
+    for (let index = line.start; index < line.end; index += 1) {
+      if (markdown[index] === "|") return true;
+    }
+    return false;
+  };
+
+  const isTableDelimiter = (line: { start: number; end: number }) => {
+    const text = markdown.slice(line.start, line.end);
+    if (!text.includes("|") || text.length >= NOTE_PREVIEW_SCAN_LIMIT) return false;
+    const cells = text.trim().replace(/^\||\|$/gu, "").split("|");
+    return cells.length > 0 && cells.every((cell) => /^\s*:?-{1,}:?\s*$/u.test(cell));
+  };
+
+  const isPipeTableStart = (line: { start: number; end: number; next: number }) => {
+    if (!isPipeTableRow(line) || line.next >= markdown.length) return false;
+    return isTableDelimiter(readLine(line.next));
+  };
+
+  const isBlockQuoteLine = (line: { start: number; end: number }) => {
+    let index = line.start;
+    let indentation = 0;
+    while (index < line.end && markdown[index] === " " && indentation < 4) {
+      indentation += 1;
+      index += 1;
+    }
+    return indentation <= 3 && markdown[index] === ">";
+  };
+
+  const isKnownCalloutMarker = (line: { start: number; end: number }, contentStart: number) => {
+    if (markdown[contentStart] !== ">") return false;
+    let bodyStart = contentStart + 1;
+    while (bodyStart < line.end && (markdown[bodyStart] === " " || markdown[bodyStart] === "\t")) bodyStart += 1;
+    return /^\[!(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*$/iu.test(markdown.slice(bodyStart, line.end));
+  };
+
   let cursor = 0;
   while (cursor < markdown.length && !stopped) {
-    let newlineIndex = -1;
-    let lineEnd: number;
-    let lineTruncated = false;
-    if (inCodeFence) {
-      newlineIndex = markdown.indexOf("\n", cursor);
-      lineEnd = newlineIndex === -1 ? markdown.length : newlineIndex;
-    } else {
-      const scanEnd = Math.min(markdown.length, cursor + NOTE_PREVIEW_SCAN_LIMIT);
-      for (let index = cursor; index < scanEnd; index += 1) {
-        if (markdown[index] === "\n") {
-          newlineIndex = index;
-          break;
-        }
-      }
-      lineEnd = newlineIndex === -1 ? scanEnd : newlineIndex;
-      lineTruncated = newlineIndex === -1 && scanEnd < markdown.length;
-    }
-    const contentEnd = lineEnd > cursor && markdown[lineEnd - 1] === "\r" ? lineEnd - 1 : lineEnd;
-    let contentStart = cursor;
+    const line = readLine(cursor, !codeFence);
+    const contentEnd = line.end;
+    const contentStart = leadingWhitespaceEnd(line);
+    const fence = getFence(line);
 
-    while (contentStart < contentEnd && (markdown[contentStart] === " " || markdown[contentStart] === "\t")) {
-      contentStart += 1;
-    }
-
-    const isCodeFence = markdown.startsWith("```", contentStart);
-    if (inCodeFence) {
-      if (isCodeFence) inCodeFence = false;
-    } else if (isCodeFence) {
+    if (codeFence) {
+      if (isFenceClose(line, codeFence)) codeFence = null;
+    } else if (fence) {
       flushParagraph();
-      inCodeFence = true;
+      codeFence = { marker: fence.marker, length: fence.length };
     } else if (contentStart === contentEnd) {
       flushParagraph();
     } else if (isHorizontalRule(contentStart, contentEnd)) {
       flushParagraph();
+    } else if (contentStart - cursor >= 4 || markdown[cursor] === "\t") {
+      flushParagraph();
+    } else if (isPipeTableStart(line)) {
+      const delimiter = readLine(line.next);
+      flushParagraph();
+      cursor = delimiter.next;
+      while (cursor < markdown.length) {
+        const row = readLine(cursor, false);
+        if (!isPipeTableRow(row)) break;
+        cursor = row.next;
+      }
+      continue;
     } else {
       let bodyStart = contentStart;
       let isBlock = false;
@@ -558,6 +630,16 @@ export function formatPreview(markdown: string) {
       }
 
       if (isBlock) {
+        if (isKnownCalloutMarker(line, contentStart)) {
+          flushParagraph();
+          cursor = line.next;
+          while (cursor < markdown.length) {
+            const quotedLine = readLine(cursor, false);
+            if (!isBlockQuoteLine(quotedLine)) break;
+            cursor = quotedLine.next;
+          }
+          continue;
+        }
         flushParagraph();
         const availableLength = NOTE_PREVIEW_LIMIT - outputLength - (output.length > 0 ? 1 : 0);
         if (availableLength <= 0) {
@@ -585,7 +667,7 @@ export function formatPreview(markdown: string) {
       }
     }
 
-    cursor = lineTruncated ? markdown.length : newlineIndex === -1 ? markdown.length : newlineIndex + 1;
+    cursor = line.truncated ? markdown.length : line.next;
   }
 
   flushParagraph();

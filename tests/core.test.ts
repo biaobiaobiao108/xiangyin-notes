@@ -39,6 +39,36 @@ describe("markdown and search helpers", () => {
     expect(formatPreview(`before\n\n\`\`\`ts\n${"code ".repeat(100_000)}\n\`\`\`\nafter`)).toBe("before\nafter");
   });
 
+  test("omits GFM tables, fenced code, indented code, and supported callouts", () => {
+    const callouts = ["NOTE", "TIP", "IMPORTANT", "WARNING", "CAUTION"]
+      .map((type) => `> [!${type}]\n> hidden ${type}\n> second line`)
+      .join("\n\n");
+    const markdown = `Visible before.\n\n| Name | State |\n| :--- | ---: |\n| Table content | hidden |\n\nVisible after table.\n\n\`\`\`ts\nhidden fenced code\n\`\`\`\n\n~~~txt\nhidden tilde code\n~~~\n\n    hidden indented code\n\nVisible before callouts.\n\n${callouts}\n\nVisible after callouts.`;
+
+    const preview = formatPreview(markdown);
+    expect(preview).toContain("Visible before.");
+    expect(preview).toContain("Visible after table.");
+    expect(preview).toContain("Visible before callouts.");
+    expect(preview).toContain("Visible after callouts.");
+    expect(preview).not.toContain("Table content");
+    expect(preview).not.toContain("hidden fenced code");
+    expect(preview).not.toContain("hidden tilde code");
+    expect(preview).not.toContain("hidden indented code");
+    for (const type of ["NOTE", "TIP", "IMPORTANT", "WARNING", "CAUTION"]) {
+      expect(preview).not.toContain(`hidden ${type}`);
+    }
+  });
+
+  test("keeps ordinary quotes and unknown callout markers in previews", () => {
+    expect(formatPreview("> A normal quote.\n> Still quoted.\n\n> [!CUSTOM]\n> Unknown content."))
+      .toBe("A normal quote.\nStill quoted.\n!CUSTOM\nUnknown content.");
+  });
+
+  test("does not treat ordinary pipe text as a table", () => {
+    expect(formatPreview("A | B is just prose.\n\n| A | B |\n| --- | --- |\n| hidden | row |\n\nAfter the table."))
+      .toBe("A | B is just prose.\nAfter the table.");
+  });
+
   test("does not expose image URLs in note previews", () => {
     expect(formatPreview("![示例](/api/assets/11111111-1111-4111-8111-111111111111?w=640&h=360)\n\n正文说明")).toBe("正文说明");
   });
