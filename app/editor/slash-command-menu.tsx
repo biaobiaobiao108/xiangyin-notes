@@ -3,7 +3,7 @@ import { Extension } from "@tiptap/core";
 import type { Editor } from "@tiptap/core";
 import { ReactRenderer } from "@tiptap/react";
 import Suggestion, { type SuggestionKeyDownProps, type SuggestionMatch } from "@tiptap/suggestion";
-import { Code2, Heading1, Heading2, Heading3, ImagePlus, Info, Link2, List, ListOrdered, ListTodo, Minus, Pilcrow, Quote, Table2, type LucideIcon } from "lucide-react";
+import { Bookmark, Code2, Heading1, Heading2, Heading3, Heading4, ImagePlus, Info, Lightbulb, Link2, List, ListOrdered, ListTodo, Minus, Pilcrow, Quote, ShieldAlert, Table2, TriangleAlert, type LucideIcon } from "lucide-react";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import type { CalloutType } from "./callout-node";
 import { FloatingScrollbar } from "../floating-scrollbar";
@@ -17,7 +17,7 @@ export type SlashCommandItem = {
   keywords: string[];
   icon: LucideIcon;
   action: SlashAction;
-  headingLevel?: 1 | 2 | 3;
+  headingLevel?: 1 | 2 | 3 | 4;
   calloutType?: CalloutType;
 };
 
@@ -25,6 +25,7 @@ const slashCommands: SlashCommandItem[] = [
   { id: "heading-1", label: "一级标题", description: "将当前段落设为 H1", keywords: ["h1", "heading 1", "title", "标题 1"], icon: Heading1, action: "heading", headingLevel: 1 },
   { id: "heading-2", label: "二级标题", description: "将当前段落设为 H2", keywords: ["h2", "heading 2", "subtitle", "标题 2"], icon: Heading2, action: "heading", headingLevel: 2 },
   { id: "heading-3", label: "三级标题", description: "将当前段落设为 H3", keywords: ["h3", "heading 3", "标题 3"], icon: Heading3, action: "heading", headingLevel: 3 },
+  { id: "heading-4", label: "四级标题", description: "将当前段落设为 H4", keywords: ["h4", "heading 4", "标题 4"], icon: Heading4, action: "heading", headingLevel: 4 },
   { id: "paragraph", label: "正文段落", description: "转换为普通段落", keywords: ["paragraph", "text", "正文"], icon: Pilcrow, action: "paragraph" },
   { id: "bullet-list", label: "无序列表", description: "插入项目符号列表", keywords: ["bullet", "list", "unordered", "列表"], icon: List, action: "bulletList" },
   { id: "ordered-list", label: "有序列表", description: "插入编号列表", keywords: ["ordered", "numbered", "list", "编号"], icon: ListOrdered, action: "orderedList" },
@@ -32,10 +33,10 @@ const slashCommands: SlashCommandItem[] = [
   { id: "blockquote", label: "引用", description: "将当前段落设为引用块", keywords: ["quote", "blockquote", "引用"], icon: Quote, action: "blockquote" },
   { id: "code-block", label: "代码块", description: "插入代码围栏", keywords: ["code", "fence", "代码"], icon: Code2, action: "codeBlock" },
   { id: "callout-note", label: "提示块 · 说明", description: "插入 NOTE 提示块", keywords: ["callout", "note", "提示", "说明"], icon: Info, action: "callout", calloutType: "NOTE" },
-  { id: "callout-tip", label: "提示块 · 建议", description: "插入 TIP 提示块", keywords: ["callout", "tip", "建议"], icon: Info, action: "callout", calloutType: "TIP" },
-  { id: "callout-important", label: "提示块 · 重要", description: "插入 IMPORTANT 提示块", keywords: ["callout", "important", "重要"], icon: Info, action: "callout", calloutType: "IMPORTANT" },
-  { id: "callout-warning", label: "提示块 · 警告", description: "插入 WARNING 提示块", keywords: ["callout", "warning", "警告"], icon: Info, action: "callout", calloutType: "WARNING" },
-  { id: "callout-caution", label: "提示块 · 注意", description: "插入 CAUTION 提示块", keywords: ["callout", "caution", "注意"], icon: Info, action: "callout", calloutType: "CAUTION" },
+  { id: "callout-tip", label: "提示块 · 建议", description: "插入 TIP 提示块", keywords: ["callout", "tip", "建议"], icon: Lightbulb, action: "callout", calloutType: "TIP" },
+  { id: "callout-important", label: "提示块 · 重要", description: "插入 IMPORTANT 提示块", keywords: ["callout", "important", "重要"], icon: Bookmark, action: "callout", calloutType: "IMPORTANT" },
+  { id: "callout-warning", label: "提示块 · 警告", description: "插入 WARNING 提示块", keywords: ["callout", "warning", "警告"], icon: TriangleAlert, action: "callout", calloutType: "WARNING" },
+  { id: "callout-caution", label: "提示块 · 注意", description: "插入 CAUTION 提示块", keywords: ["callout", "caution", "注意"], icon: ShieldAlert, action: "callout", calloutType: "CAUTION" },
   { id: "table", label: "表格", description: "插入 3 × 3 表格", keywords: ["table", "grid", "表格"], icon: Table2, action: "table" },
   { id: "image", label: "图片", description: "选择图片并上传", keywords: ["image", "picture", "photo", "图片"], icon: ImagePlus, action: "image" },
   { id: "wiki-link", label: "双向链接", description: "搜索或创建关联笔记", keywords: ["link", "wiki", "note", "双链", "笔记链接"], icon: Link2, action: "wikiLink" },
@@ -43,6 +44,34 @@ const slashCommands: SlashCommandItem[] = [
 ];
 
 const slashSuggestionKey = new PluginKey("slashCommandSuggestion");
+
+export function filterSlashCommandItems(query: string): SlashCommandItem[] {
+  const normalized = query.trim().toLocaleLowerCase();
+  if (!normalized) return slashCommands;
+  return slashCommands.filter((item) => `${item.label} ${item.keywords.join(" ")}`.toLocaleLowerCase().includes(normalized));
+}
+
+export function getNextSlashCommandIndex(current: number, key: string, itemCount: number, columns = 3): number {
+  if (itemCount < 1 || columns < 1) return 0;
+  const index = Math.max(0, Math.min(current, itemCount - 1));
+  const row = Math.floor(index / columns);
+  const column = index % columns;
+  const rowStart = row * columns;
+  const rowEnd = Math.min(rowStart + columns, itemCount) - 1;
+  const rowCount = Math.ceil(itemCount / columns);
+
+  if (key === "ArrowLeft") return column > 0 ? index - 1 : rowEnd;
+  if (key === "ArrowRight") return index < rowEnd ? index + 1 : rowStart;
+  if (key === "ArrowUp") {
+    const targetRow = (row - 1 + rowCount) % rowCount;
+    return Math.min(targetRow * columns + column, Math.min((targetRow + 1) * columns, itemCount) - 1);
+  }
+  if (key === "ArrowDown") {
+    const targetRow = (row + 1) % rowCount;
+    return Math.min(targetRow * columns + column, Math.min((targetRow + 1) * columns, itemCount) - 1);
+  }
+  return index;
+}
 
 export function findSlashCommandMatch(config: { $position: { pos: number; parentOffset?: number; parent?: { textBetween?: (from: number, to: number) => string }; nodeBefore?: { isText?: boolean; text?: string | null } | null } }): SuggestionMatch {
   const { $position } = config;
@@ -83,9 +112,15 @@ type SlashCommandListProps = {
 
 const SlashCommandList = forwardRef<SlashCommandListRef, SlashCommandListProps>((props, ref) => {
   const selectedIndexRef = useRef(0);
+  const itemsRef = useRef(props.items);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const listboxId = `slash-command-listbox-${useId().replaceAll(":", "")}`;
   const listRef = useRef<HTMLDivElement>(null);
+
+  if (itemsRef.current !== props.items) {
+    itemsRef.current = props.items;
+    selectedIndexRef.current = 0;
+  }
 
   useEffect(() => {
     selectedIndexRef.current = 0;
@@ -134,19 +169,10 @@ const SlashCommandList = forwardRef<SlashCommandListRef, SlashCommandListProps>(
   useImperativeHandle(ref, () => ({
     onKeyDown: ({ event }: SuggestionKeyDownProps) => {
       if (isSlashCommandImeEvent(event)) return false;
-      if (event.key === "ArrowDown") {
+      if (["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight"].includes(event.key)) {
         event.preventDefault();
         if (props.items.length) {
-          const next = (selectedIndexRef.current + 1) % props.items.length;
-          selectedIndexRef.current = next;
-          setSelectedIndex(next);
-        }
-        return true;
-      }
-      if (event.key === "ArrowUp") {
-        event.preventDefault();
-        if (props.items.length) {
-          const next = (selectedIndexRef.current + props.items.length - 1) % props.items.length;
+          const next = getNextSlashCommandIndex(selectedIndexRef.current, event.key, props.items.length);
           selectedIndexRef.current = next;
           setSelectedIndex(next);
         }
@@ -154,7 +180,7 @@ const SlashCommandList = forwardRef<SlashCommandListRef, SlashCommandListProps>(
       }
       if ((event.key === "Enter" || event.key === "Tab") && props.items.length) {
         event.preventDefault();
-        select(selectedIndexRef.current);
+        select(Math.min(selectedIndexRef.current, props.items.length - 1));
         return true;
       }
       return false;
@@ -162,7 +188,6 @@ const SlashCommandList = forwardRef<SlashCommandListRef, SlashCommandListProps>(
   }), [props.items, props.command]);
 
   return <div className="slash-command-menu" role="listbox" id={listboxId} aria-label="Markdown 插入命令">
-    <div className="slash-command-menu-heading">插入 Markdown 内容</div>
     <div className="slash-command-menu-list-shell">
       <div className="slash-command-menu-list floating-scrollbar-target" id={`${listboxId}-scroll-region`} ref={listRef}>
         {props.items.length ? props.items.map((item, index) => {
@@ -174,18 +199,19 @@ const SlashCommandList = forwardRef<SlashCommandListRef, SlashCommandListProps>(
             role="option"
             aria-selected={index === selectedIndex}
             key={item.id}
+            aria-label={`${item.label}，${item.description}`}
+            title={item.description}
             onMouseDown={(event) => event.preventDefault()}
             onMouseEnter={() => { selectedIndexRef.current = index; setSelectedIndex(index); }}
             onClick={() => select(index)}
           >
             <span className="slash-command-icon"><Icon size={16} aria-hidden="true" /></span>
-            <span className="slash-command-copy"><strong>{item.label}</strong><small>{item.description}</small></span>
+            <span className="slash-command-copy"><strong>{item.label}</strong></span>
           </button>;
         }) : <div className="slash-command-empty" role="status">没有匹配的命令</div>}
       </div>
       <FloatingScrollbar scrollTargetRef={listRef} controlsId={`${listboxId}-scroll-region`} ariaLabel="插入命令列表滚动条" placement="right" enabled={props.items.length > 5} />
     </div>
-    <div className="slash-command-menu-footer"><span>↑ ↓ 选择</span><span>Enter 插入 · Esc 关闭</span></div>
   </div>;
 });
 SlashCommandList.displayName = "SlashCommandList";
@@ -272,9 +298,7 @@ export const SlashCommandExtension = Extension.create<SlashCommandOptions>({
         return true;
       },
       items: ({ query }) => {
-        const normalized = query.trim().toLocaleLowerCase();
-        if (!normalized) return slashCommands;
-        return slashCommands.filter((item) => `${item.label} ${item.keywords.join(" ")}`.toLocaleLowerCase().includes(normalized));
+        return filterSlashCommandItems(query);
       },
       command: ({ editor, range, props }) => insertSlashCommand(editor, range, props, this.options.onPickImage),
       render: () => {
@@ -287,16 +311,20 @@ export const SlashCommandExtension = Extension.create<SlashCommandOptions>({
           const rect = activeClientRect();
           if (!rect) return;
           const viewportPadding = 12;
-          const width = Math.min(340, window.innerWidth - viewportPadding * 2);
+          const width = Math.min(360, window.innerWidth - viewportPadding * 2);
           const height = Math.min(380, window.innerHeight - viewportPadding * 2);
-          const left = Math.max(viewportPadding, Math.min(rect.left, window.innerWidth - width - viewportPadding));
+          const preferredLeft = rect.right + 8;
+          const flippedLeft = rect.right - width - 8;
+          const left = preferredLeft + width <= window.innerWidth - viewportPadding
+            ? preferredLeft
+            : flippedLeft;
           const below = rect.bottom + 6;
           const top = below + height <= window.innerHeight - viewportPadding || rect.top < height + viewportPadding
             ? Math.min(below, window.innerHeight - height - viewportPadding)
             : rect.top - height - 6;
           popupEl.style.width = `${width}px`;
           popupEl.style.maxHeight = `${height}px`;
-          popupEl.style.left = `${Math.round(left)}px`;
+          popupEl.style.left = `${Math.round(Math.max(viewportPadding, Math.min(left, window.innerWidth - width - viewportPadding)))}px`;
           popupEl.style.top = `${Math.round(Math.max(viewportPadding, top))}px`;
         };
 

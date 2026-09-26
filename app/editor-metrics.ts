@@ -4,7 +4,7 @@ export type EditorStats = {
 };
 
 export type OutlineHeading = {
-  level: 1 | 2 | 3;
+  level: 1 | 2 | 3 | 4;
   title: string;
 };
 
@@ -12,14 +12,14 @@ export type OutlineItem = OutlineHeading & {
   id: string;
 };
 
-export type MarkdownHeadingLevel = 1 | 2 | 3;
+export type MarkdownHeadingLevel = 1 | 2 | 3 | 4;
 
 export function isMarkdownHeadingMarker(text: string): boolean {
-  return /^[#＃]{1,3}$/u.test(text);
+  return /^[#＃]{1,4}$/u.test(text);
 }
 
 export function parseMarkdownHeadingPrefix(text: string): { level: MarkdownHeadingLevel; length: number } | null {
-  const match = /^([#＃]{1,3})[ \t\u3000]/u.exec(text);
+  const match = /^([#＃]{1,4})[ \t\u3000]/u.exec(text);
   if (!match) return null;
   return { level: match[1].length as MarkdownHeadingLevel, length: match[0].length };
 }
@@ -33,7 +33,7 @@ export type MarkdownBlockShortcut =
   | { type: "codeBlock"; length: number };
 
 export function parseMarkdownBlockShortcut(text: string): MarkdownBlockShortcut | null {
-  const headingMatch = /^([#＃]{1,3})[ \t\u3000]/u.exec(text);
+  const headingMatch = /^([#＃]{1,4})[ \t\u3000]/u.exec(text);
   if (headingMatch) {
     return { type: "heading", level: headingMatch[1].length as MarkdownHeadingLevel, length: headingMatch[0].length };
   }
@@ -60,7 +60,7 @@ export function parseMarkdownBlockShortcut(text: string): MarkdownBlockShortcut 
   return null;
 }
 
-const MARKDOWN_PASTE_RE = /(?:^|\n)\s{0,3}(?:#{1,3}\s|[-+*]\s|\d+[.)]\s|>\s|```|~~~|-{3,}\s*$)|(?:\*\*[^*\n]+\*\*|__[^_\n]+__|~~[^~\n]+~~|`[^`\n]+`|\[[^\]\n]+\]\([^\)\n]+\))/u;
+const MARKDOWN_PASTE_RE = /(?:^|\n)\s{0,3}(?:#{1,4}\s|[-+*]\s|\d+[.)]\s|>\s|```|~~~|-{3,}\s*$)|(?:\*\*[^*\n]+\*\*|__[^_\n]+__|~~[^~\n]+~~|`[^`\n]+`|\[[^\]\n]+\]\([^\)\n]+\))/u;
 
 export function shouldParseMarkdownPaste(text: string, hasHtml: boolean): boolean {
   const trimmed = text.trim();

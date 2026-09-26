@@ -34,7 +34,15 @@ type EditorWithMarkdown = Editor & { getMarkdown: () => string };
 type SaveState = "idle" | "saving" | "saved" | "conflict" | "error";
 
 const MAX_IMAGE_FILES_PER_ACTION = 10;
-const OUTLINE_HEADING_SELECTOR = "h1, h2, h3";
+const OUTLINE_HEADING_SELECTOR = "h1, h2, h3, h4";
+
+function isSelectionInsideTable(editor: Editor) {
+  const { $from } = editor.state.selection;
+  for (let depth = $from.depth; depth > 0; depth -= 1) {
+    if ($from.node(depth).type.name === "table") return true;
+  }
+  return false;
+}
 
 function resizeTitleField(field: HTMLTextAreaElement | null) {
   if (!field) return;
@@ -271,7 +279,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
 
     const headingElements = Array.from(instance.view.dom.querySelectorAll<HTMLElement>(OUTLINE_HEADING_SELECTOR));
     const outlineHeadingElements = headingElements.filter((element) => Boolean(element.textContent?.trim()));
-    const generatedItems = buildOutlineItems(outlineHeadingElements.map((element) => ({ level: Number(element.tagName.slice(1)) as 1 | 2 | 3, title: element.textContent?.trim() ?? "" })));
+    const generatedItems = buildOutlineItems(outlineHeadingElements.map((element) => ({ level: Number(element.tagName.slice(1)) as 1 | 2 | 3 | 4, title: element.textContent?.trim() ?? "" })));
     const previousIds = new Map<HTMLElement, string>();
     for (const [id, element] of outlineHeadingElementsRef.current) previousIds.set(element, id);
     const usedIds = new Set<string>();
@@ -381,7 +389,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   };
 
   const extensions = useMemo(() => [
-    StarterKit.configure({ heading: { levels: [1, 2, 3] }, link: false }),
+    StarterKit.configure({ heading: { levels: [1, 2, 3, 4] }, link: false }),
     ...createTableExtensions(),
     Link.configure({ openOnClick: false, autolink: true, linkOnPaste: true, HTMLAttributes: { title: "按住 Ctrl 或 ⌘ 点击打开链接" } }),
     TaskList,
@@ -795,10 +803,16 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
 
   useEffect(() => {
     if (!editor) return;
-    const handleTransaction = ({ editor: instance }: { editor: Editor }) => syncSearchNavigation(instance);
-    const handleSelection = ({ editor: instance }: { editor: Editor }) => {
-      const nextTableActive = instance.isActive("table");
+    const syncTableActive = (instance: Editor) => {
+      const nextTableActive = isSelectionInsideTable(instance);
       setTableActive((current) => current === nextTableActive ? current : nextTableActive);
+    };
+    const handleTransaction = ({ editor: instance }: { editor: Editor }) => {
+      syncSearchNavigation(instance);
+      syncTableActive(instance);
+    };
+    const handleSelection = ({ editor: instance }: { editor: Editor }) => {
+      syncTableActive(instance);
       if (!syncActiveOutlineFromSelection(instance)) {
         outlineFallbackSyncRef.current?.();
       }
@@ -809,7 +823,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     editor.on("transaction", handleTransaction);
     editor.on("selectionUpdate", handleSelection);
     syncSearchNavigation(editor);
-    setTableActive(editor.isActive("table"));
+    syncTableActive(editor);
     return () => {
       editor.off("transaction", handleTransaction);
       editor.off("selectionUpdate", handleSelection);
@@ -1076,7 +1090,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
 
     const handleUserScroll = (event?: Event) => {
       cancelOutlineSmoothScroll();
-      if (event?.type === "pointerdown" && event.target instanceof Element && event.target.closest("h1, h2, h3")) return;
+      if (event?.type === "pointerdown" && event.target instanceof Element && event.target.closest("h1, h2, h3, h4")) return;
       scheduleActiveHeading();
     };
 

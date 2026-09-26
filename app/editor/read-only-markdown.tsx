@@ -17,7 +17,7 @@ export function ReadOnlyMarkdown({ markdown }: { markdown: string }) {
   const initialContentRef = useRef(markdown);
   const rootRef = useRef<HTMLDivElement>(null);
   const extensions = useMemo(() => [
-    StarterKit.configure({ heading: { levels: [1, 2, 3] }, link: false }),
+    StarterKit.configure({ heading: { levels: [1, 2, 3, 4] }, link: false }),
     ...createTableExtensions(),
     Link.configure({ openOnClick: true, autolink: true, HTMLAttributes: { rel: "noopener noreferrer", target: "_blank" } }),
     TaskList,

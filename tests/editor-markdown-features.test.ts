@@ -3,14 +3,14 @@ import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { Markdown } from "@tiptap/markdown";
 import { Info, Table2 } from "lucide-react";
-import { CalloutNode, CALLOUT_TYPES } from "../app/editor/callout-node";
-import { findSlashCommandMatch, insertSlashCommand, isSlashCommandImeEscape, isSlashCommandImeEvent } from "../app/editor/slash-command-menu";
+import { CalloutNode, CALLOUT_TYPES, shouldExitCalloutOnEnter } from "../app/editor/callout-node";
+import { filterSlashCommandItems, findSlashCommandMatch, getNextSlashCommandIndex, insertSlashCommand, isSlashCommandImeEscape, isSlashCommandImeEvent } from "../app/editor/slash-command-menu";
 import { createTableExtensions } from "../app/editor/table-extensions";
 
 function createMarkdownEditor(content: string) {
   return new Editor({
     extensions: [
-      StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
+      StarterKit.configure({ heading: { levels: [1, 2, 3, 4] } }),
       ...createTableExtensions(),
       Markdown,
       CalloutNode,
@@ -54,7 +54,7 @@ describe("GFM table markdown integration", () => {
   test("table commands insert a header table and mutate rows and columns", () => {
     const editor = new Editor({
       extensions: [
-        StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
+        StarterKit.configure({ heading: { levels: [1, 2, 3, 4] } }),
         ...createTableExtensions(),
         Markdown,
         CalloutNode,
@@ -68,6 +68,11 @@ describe("GFM table markdown integration", () => {
       expect(editor.state.doc.firstChild?.childCount).toBe(3);
       expect(editor.commands.addColumnAfter()).toBe(true);
       expect(editor.state.doc.firstChild?.firstChild?.childCount).toBe(3);
+      const beforeNextCell = editor.state.selection.$from.pos;
+      expect(editor.commands.goToNextCell()).toBe(true);
+      expect(editor.state.selection.$from.pos).not.toBe(beforeNextCell);
+      expect(editor.commands.goToPreviousCell()).toBe(true);
+      expect(editor.state.selection.$from.pos).toBe(beforeNextCell);
     } finally {
       editor.destroy();
     }
@@ -88,6 +93,17 @@ describe("GFM table markdown integration", () => {
       editor.destroy();
     }
   });
+
+  test("parses and serializes H4 headings", () => {
+    const editor = createMarkdownEditor("#### 四级标题");
+    try {
+      expect(editor.state.doc.firstChild?.type.name).toBe("heading");
+      expect(editor.state.doc.firstChild?.attrs.level).toBe(4);
+      expect((editor as Editor & { getMarkdown: () => string }).getMarkdown()).toBe("#### 四级标题");
+    } finally {
+      editor.destroy();
+    }
+  });
 });
 
 describe("callout markdown integration", () => {
@@ -99,6 +115,12 @@ describe("callout markdown integration", () => {
         expect(editor.state.doc.firstChild?.attrs.type).toBe(type);
         const markdown = (editor as Editor & { getMarkdown: () => string }).getMarkdown();
         expect(markdown).toBe(`> [!${type}]\n> 说明正文`);
+        const labels: Record<(typeof CALLOUT_TYPES)[number], string> = { NOTE: "说明", TIP: "建议", IMPORTANT: "重要", WARNING: "警告", CAUTION: "注意" };
+        const htmlSpec = editor.schema.nodes.callout.spec.toDOM?.(editor.state.doc.firstChild!);
+        const htmlSpecText = JSON.stringify(htmlSpec);
+        expect(htmlSpecText).toContain("note-callout-icon");
+        expect(htmlSpecText).toContain('aria-label":"' + labels[type] + '提示块"');
+        expect(htmlSpecText).not.toContain("note-callout-label");
 
         const roundTrip = createMarkdownEditor(markdown);
         try {
@@ -111,6 +133,45 @@ describe("callout markdown integration", () => {
       } finally {
         editor.destroy();
       }
+    }
+  });
+
+  test("preserves multiple callout paragraphs and soft line breaks when saving Markdown", () => {
+    const source = "> [!TIP]\n> 第一段\n> 第二行\n>\n> 第二段";
+    const editor = createMarkdownEditor(source);
+    try {
+      const callout = editor.state.doc.firstChild;
+      expect(callout?.type.name).toBe("callout");
+      expect(callout?.childCount).toBe(2);
+      const markdown = (editor as Editor & { getMarkdown: () => string }).getMarkdown();
+      expect(markdown).toBe(source);
+
+      const roundTrip = createMarkdownEditor(markdown);
+      try {
+        expect(roundTrip.state.doc.firstChild?.childCount).toBe(2);
+        expect(roundTrip.state.doc.firstChild?.textContent).toContain("第一段");
+        expect(roundTrip.state.doc.firstChild?.textContent).toContain("第二行");
+        expect(roundTrip.state.doc.firstChild?.textContent).toContain("第二段");
+      } finally {
+        roundTrip.destroy();
+      }
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  test("a second Enter in the final empty callout paragraph lifts it outside the callout", () => {
+    const editor = createMarkdownEditor("> [!NOTE]\n> 内容");
+    try {
+      editor.commands.setTextSelection(5);
+      expect(editor.commands.splitBlock()).toBe(true);
+      expect(shouldExitCalloutOnEnter(editor.state)).toBe(true);
+      expect(editor.commands.liftEmptyBlock()).toBe(true);
+      expect(editor.state.doc.childCount).toBe(2);
+      expect(editor.state.doc.firstChild?.type.name).toBe("callout");
+      expect(editor.state.doc.lastChild?.type.name).toBe("paragraph");
+    } finally {
+      editor.destroy();
     }
   });
 
@@ -176,6 +237,30 @@ describe("slash command matching", () => {
   test("matches a slash command at paragraph start and after whitespace", () => {
     expect(findSlashCommandMatch({ $position: positionAfter("/表格") })).toEqual({ range: { from: 0, to: 3 }, query: "表格", text: "/表格" });
     expect(findSlashCommandMatch({ $position: positionAfter("正文 /任务 清单") })).toEqual({ range: { from: 3, to: 9 }, query: "任务 清单", text: "/任务 清单" });
+  });
+
+  test("typing /一级 and pressing Enter applies the exact H1 suggestion directly", () => {
+    const editor = createMarkdownEditor("/一级");
+    try {
+      const matches = filterSlashCommandItems("一级");
+      expect(matches.map((item) => item.id)).toEqual(["heading-1"]);
+      editor.commands.setTextSelection(4);
+      insertSlashCommand(editor, { from: 1, to: 4 }, matches[0]);
+      expect(editor.state.doc.firstChild?.type.name).toBe("heading");
+      expect(editor.state.doc.firstChild?.attrs.level).toBe(1);
+      expect(editor.state.selection.$from.parent.type.name).toBe("heading");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  test("slash command arrow keys follow the three-column grid", () => {
+    expect(getNextSlashCommandIndex(0, "ArrowRight", 8)).toBe(1);
+    expect(getNextSlashCommandIndex(2, "ArrowRight", 8)).toBe(0);
+    expect(getNextSlashCommandIndex(1, "ArrowDown", 8)).toBe(4);
+    expect(getNextSlashCommandIndex(4, "ArrowUp", 8)).toBe(1);
+    expect(getNextSlashCommandIndex(5, "ArrowDown", 8)).toBe(7);
+    expect(getNextSlashCommandIndex(0, "ArrowUp", 8)).toBe(6);
   });
 
   test("does not match slash inside a word or an escaped slash", () => {

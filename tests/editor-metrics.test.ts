@@ -24,21 +24,25 @@ describe("editor metrics", () => {
       { level: 1, title: "开始" },
       { level: 2, title: "开始" },
       { level: 3, title: "  " },
+      { level: 4, title: "细节" },
     ]);
     expect(items.map(({ id, level, title }) => ({ id, level, title }))).toEqual([
       { id: "xiangying-heading-1-开始", level: 1, title: "开始" },
       { id: "xiangying-heading-2-开始", level: 2, title: "开始" },
       { id: "xiangying-heading-3-section", level: 3, title: "  " },
+      { id: "xiangying-heading-4-细节", level: 4, title: "细节" },
     ]);
   });
 
   test("recognizes only supported Markdown heading markers", () => {
     expect(isMarkdownHeadingMarker("#")).toBe(true);
     expect(isMarkdownHeadingMarker("###")).toBe(true);
-    expect(isMarkdownHeadingMarker("####")).toBe(false);
+    expect(isMarkdownHeadingMarker("####")).toBe(true);
+    expect(isMarkdownHeadingMarker("#####")).toBe(false);
     expect(isMarkdownHeadingMarker("## title")).toBe(false);
     expect(parseMarkdownHeadingPrefix("## ")).toEqual({ level: 2, length: 3 });
     expect(parseMarkdownHeadingPrefix("### title")).toEqual({ level: 3, length: 4 });
+    expect(parseMarkdownHeadingPrefix("#### ")).toEqual({ level: 4, length: 5 });
     expect(parseMarkdownHeadingPrefix("#title")).toBeNull();
   });
 
@@ -46,7 +50,8 @@ describe("editor metrics", () => {
     expect(parseMarkdownBlockShortcut("# ")).toEqual({ type: "heading", level: 1, length: 2 });
     expect(parseMarkdownBlockShortcut("## ")).toEqual({ type: "heading", level: 2, length: 3 });
     expect(parseMarkdownBlockShortcut("### ")).toEqual({ type: "heading", level: 3, length: 4 });
-    expect(parseMarkdownBlockShortcut("#### ")).toBeNull();
+    expect(parseMarkdownBlockShortcut("#### ")).toEqual({ type: "heading", level: 4, length: 5 });
+    expect(parseMarkdownBlockShortcut("##### ")).toBeNull();
     // Full-width hash and full-width space
     expect(parseMarkdownBlockShortcut("＃ ")).toEqual({ type: "heading", level: 1, length: 2 });
     expect(parseMarkdownBlockShortcut("＃＃ ")).toEqual({ type: "heading", level: 2, length: 3 });
