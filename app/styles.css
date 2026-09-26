@@ -502,7 +502,25 @@ button.save-status:hover { text-decoration: underline; }
 .note-prose .table-scroll-shell th, .note-prose .table-scroll-shell td { position: relative; min-width: 8rem; padding: 9px 12px; border-inline-end: 1px solid var(--border-soft); border-block-end: 1px solid var(--border-soft); overflow-wrap: anywhere; text-align: start; vertical-align: top; }
 .note-prose .table-scroll-shell tr > :first-child { border-inline-start: 1px solid var(--border-soft); }
 .note-prose .table-scroll-shell tbody tr:first-child > th, .note-prose .table-scroll-shell tbody tr:first-child > td { border-block-start: 1px solid var(--border-soft); background: var(--surface-subtle); color: var(--ink); font-weight: 650; }
-.note-prose .table-scroll-shell tr > .selectedCell { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent-border); }
+.note-prose .table-scroll-shell tr > .selectedCell {
+  --table-selection-top: transparent;
+  --table-selection-right: transparent;
+  --table-selection-bottom: transparent;
+  --table-selection-left: transparent;
+  background: var(--accent-soft);
+  box-shadow:
+    inset 0 1px 0 var(--table-selection-top),
+    inset -1px 0 0 var(--table-selection-right),
+    inset 0 -1px 0 var(--table-selection-bottom),
+    inset 1px 0 0 var(--table-selection-left);
+}
+.note-prose .table-scroll-shell .selectedCell::after { display: none; }
+.note-prose .table-scroll-shell tr:first-child:has(> .selectedCell) > .selectedCell,
+.note-prose .table-scroll-shell tr:not(:has(> .selectedCell)) + tr:has(> .selectedCell) > .selectedCell { --table-selection-top: var(--accent-border); }
+.note-prose .table-scroll-shell tr:has(> .selectedCell):not(:has(+ tr > .selectedCell)) > .selectedCell { --table-selection-bottom: var(--accent-border); }
+.note-prose .table-scroll-shell tr > .selectedCell:first-child,
+.note-prose .table-scroll-shell tr > :not(.selectedCell) + .selectedCell { --table-selection-left: var(--accent-border); }
+.note-prose .table-scroll-shell tr > .selectedCell:not(:has(+ .selectedCell)) { --table-selection-right: var(--accent-border); }
 .note-prose .table-scroll-shell th p, .note-prose .table-scroll-shell td p { margin: 0; }
 .note-prose .table-scroll-shell th code, .note-prose .table-scroll-shell td code { overflow-wrap: anywhere; }
 .note-prose .note-callout { display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: start; gap: 12px; margin-block: 1em; padding: 14px 16px; border: 1px solid var(--border-soft); border-radius: 12px; background: var(--surface-notice); color: var(--ink-soft); font-size: 0.96em; }

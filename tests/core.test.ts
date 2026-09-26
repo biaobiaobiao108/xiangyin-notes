@@ -64,6 +64,12 @@ describe("markdown and search helpers", () => {
       .toBe("A normal quote.\nStill quoted.\n!CUSTOM\nUnknown content.");
   });
 
+  test("skips supported callouts when the marker line also contains text", () => {
+    for (const type of ["NOTE", "TIP", "IMPORTANT", "WARNING", "CAUTION"]) {
+      expect(formatPreview(`Before.\n\n> [!${type}] 警示正文\n> 第二行\n\nAfter.`)).toBe("Before.\nAfter.");
+    }
+  });
+
   test("does not treat ordinary pipe text as a table", () => {
     expect(formatPreview("A | B is just prose.\n\n| A | B |\n| --- | --- |\n| hidden | row |\n\nAfter the table."))
       .toBe("A | B is just prose.\nAfter the table.");

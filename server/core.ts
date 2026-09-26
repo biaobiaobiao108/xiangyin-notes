@@ -548,7 +548,7 @@ export function formatPreview(markdown: string) {
     if (markdown[contentStart] !== ">") return false;
     let bodyStart = contentStart + 1;
     while (bodyStart < line.end && (markdown[bodyStart] === " " || markdown[bodyStart] === "\t")) bodyStart += 1;
-    return /^\[!(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*$/iu.test(markdown.slice(bodyStart, line.end));
+    return /^\[!(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION)\](?:[ \t]+.*)?$/iu.test(markdown.slice(bodyStart, line.end));
   };
 
   let cursor = 0;

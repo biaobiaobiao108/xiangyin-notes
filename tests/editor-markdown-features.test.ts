@@ -292,13 +292,15 @@ describe("callout markdown integration", () => {
   });
 
   test("omits serialized callout and code blocks from note previews", () => {
-    const source = "前言。\n\n> [!TIP]\n> 第一段提示。\n>\n> 第二段提示。\n\n```ts\nconst hidden = true;\n```\n\n后文。";
-    const editor = createMarkdownEditor(source);
-    try {
-      const markdown = (editor as Editor & { getMarkdown: () => string }).getMarkdown();
-      expect(formatPreview(markdown)).toBe("前言。\n后文。");
-    } finally {
-      editor.destroy();
+    for (const type of CALLOUT_TYPES) {
+      const source = `前言。\n\n> [!${type}]\n> 第一段提示。\n>\n> 第二段提示。\n\n\`\`\`ts\nconst hidden = true;\n\`\`\`\n\n后文。`;
+      const editor = createMarkdownEditor(source);
+      try {
+        const markdown = (editor as Editor & { getMarkdown: () => string }).getMarkdown();
+        expect(formatPreview(markdown)).toBe("前言。\n后文。");
+      } finally {
+        editor.destroy();
+      }
     }
   });
 

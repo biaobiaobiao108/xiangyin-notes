@@ -124,8 +124,6 @@ function TableEdgeRail({ editor, axis, size, tablePosition, shell, position, dis
   const [dragDistance, setDragDistance] = useState(0);
   const isColumnRail = axis === "columns";
   const noun = isColumnRail ? "列" : "行";
-  const inward = isColumnRail ? "向左" : "向上";
-  const outward = isColumnRail ? "向右" : "向下";
 
   const clearDrag = (pointerId?: number) => {
     const drag = dragRef.current;
@@ -255,8 +253,7 @@ function TableEdgeRail({ editor, axis, size, tablePosition, shell, position, dis
     <button
       className="table-edge-drag-handle"
       type="button"
-      aria-label={`点击增加一${noun}，或${inward}拖动删除、${outward}拖动增加${noun}`}
-      title={`点击增加一${noun}；${inward}删除，${outward}增加`}
+      aria-label={`增加一${noun}`}
       disabled={disabled}
       onPointerDown={handlePointerDown}
       onPointerUp={finishDrag}
