@@ -1,5 +1,6 @@
 import type { Editor } from "@tiptap/core";
 import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { closeHistory } from "@tiptap/pm/history";
 import { TextSelection } from "@tiptap/pm/state";
 
 export type TableEdgeAxis = "columns" | "rows";
@@ -10,6 +11,14 @@ export type ActiveTableContext = {
   rows: number;
   columns: number;
   lastCellTextPosition: number;
+};
+
+export type TableEdgeSnapshot = Pick<ActiveTableContext, "node" | "position" | "lastCellTextPosition">;
+
+export type TableEdgeTransactionOptions = {
+  addToHistory?: boolean;
+  emitUpdate?: boolean;
+  closeHistory?: boolean;
 };
 
 export function getTableEdgeDragDelta(distance: number, currentSize: number, step = 28) {
@@ -53,7 +62,31 @@ export function getActiveTableContext(editor: Editor): ActiveTableContext | null
   };
 }
 
-export function adjustActiveTableSize(editor: Editor, axis: TableEdgeAxis, delta: number) {
+export function getActiveTableSnapshot(editor: Editor): TableEdgeSnapshot | null {
+  const context = getActiveTableContext(editor);
+  if (!context) return null;
+  return {
+    node: context.node,
+    position: context.position,
+    lastCellTextPosition: context.lastCellTextPosition,
+  };
+}
+
+export function restoreActiveTableSnapshot(editor: Editor, snapshot: TableEdgeSnapshot, options: TableEdgeTransactionOptions = {}) {
+  const context = getActiveTableContext(editor);
+  if (!context) return false;
+
+  return editor.chain().command(({ tr }) => {
+    tr.replaceWith(context.position, context.position + context.node.nodeSize, snapshot.node);
+    tr.setSelection(TextSelection.near(tr.doc.resolve(snapshot.lastCellTextPosition), 1));
+    if (options.addToHistory === false) tr.setMeta("addToHistory", false);
+    if (options.emitUpdate === false) tr.setMeta("preventUpdate", true);
+    if (options.closeHistory) closeHistory(tr);
+    return true;
+  }).run();
+}
+
+export function adjustActiveTableSize(editor: Editor, axis: TableEdgeAxis, delta: number, options: TableEdgeTransactionOptions = {}) {
   const context = getActiveTableContext(editor);
   const amount = Math.trunc(delta);
   if (!context || !amount) return false;
@@ -76,6 +109,9 @@ export function adjustActiveTableSize(editor: Editor, axis: TableEdgeAxis, delta
   return editor.chain().command(({ tr }) => {
     tr.replaceWith(context.position, context.position + context.node.nodeSize, nextTable);
     tr.setSelection(TextSelection.near(tr.doc.resolve(lastCellPosition), 1));
+    if (options.addToHistory === false) tr.setMeta("addToHistory", false);
+    if (options.emitUpdate === false) tr.setMeta("preventUpdate", true);
+    if (options.closeHistory) closeHistory(tr);
     return true;
   }).run();
 }

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import { createPortal } from "react-dom";
 import { GripHorizontal, GripVertical, Minus, MoreHorizontal, Plus, Trash2 } from "lucide-react";
 import type { Editor } from "@tiptap/core";
-import { adjustActiveTableSize, getActiveTableContext, getTableEdgeDragDelta, type TableEdgeAxis } from "./table-edge-commands";
+import { adjustActiveTableSize, getActiveTableContext, getActiveTableSnapshot, getTableEdgeDragDelta, restoreActiveTableSnapshot, type TableEdgeAxis, type TableEdgeSnapshot } from "./table-edge-commands";
 
 type TableControlsPosition = {
   columns: { top: number; left: number; height: number };
@@ -18,6 +18,12 @@ type DragSession = {
   startY: number;
   distance: number;
   delta: number;
+  initialSize: number;
+  step: number;
+  snapshot: TableEdgeSnapshot;
+  startPosition: { top: number; left: number; width?: number; height?: number };
+  targetSize: number;
+  completed: boolean;
 };
 
 function getSelectedTableShell(editor: Editor): HTMLElement | null {
@@ -37,23 +43,51 @@ function clamp(value: number, minimum: number, maximum: number) {
   return Math.max(minimum, Math.min(value, maximum));
 }
 
-function TableEdgeRail({ axis, size, position, disabled, onAdjust }: {
+function getTableEdgeDragStep(editor: Editor, axis: TableEdgeAxis, fallbackSize: number) {
+  const table = getSelectedTableShell(editor)?.querySelector("table");
+  if (!table) return 28;
+
+  if (axis === "columns") {
+    const cells = Array.from(table.querySelector("tr")?.children ?? []);
+    const widths = cells.map((cell) => cell.getBoundingClientRect().width).filter((width) => width > 0);
+    const measuredWidth = widths.length ? widths.reduce((total, width) => total + width, 0) / widths.length : table.getBoundingClientRect().width / Math.max(1, fallbackSize);
+    return Math.max(20, measuredWidth);
+  }
+
+  const rows = Array.from(table.querySelectorAll("tr"));
+  const heights = rows.map((row) => row.getBoundingClientRect().height).filter((height) => height > 0);
+  const measuredHeight = heights.length ? heights.reduce((total, height) => total + height, 0) / heights.length : table.getBoundingClientRect().height / Math.max(1, fallbackSize);
+  return Math.max(20, measuredHeight);
+}
+
+function TableEdgeRail({ editor, axis, size, position, disabled, onAdjust }: {
+  editor: Editor;
   axis: TableEdgeAxis;
   size: number;
   position: { top: number; left: number; width?: number; height?: number };
   disabled: boolean;
-  onAdjust: (delta: number) => void;
+  onAdjust: (delta: number) => boolean;
 }) {
   const dragRef = useRef<DragSession | null>(null);
   const suppressClickRef = useRef(false);
   const [previewDelta, setPreviewDelta] = useState(0);
+  const [dragDistance, setDragDistance] = useState(0);
   const isColumnRail = axis === "columns";
   const noun = isColumnRail ? "列" : "行";
   const inward = isColumnRail ? "向左" : "向上";
   const outward = isColumnRail ? "向右" : "向下";
 
+  useEffect(() => {
+    const drag = dragRef.current;
+    if (!drag?.completed || size !== drag.targetSize) return;
+    dragRef.current = null;
+    setDragDistance(0);
+  }, [size]);
+
   const handlePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (disabled || !event.isPrimary || event.button !== 0) return;
+    const snapshot = getActiveTableSnapshot(editor);
+    if (!snapshot) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     dragRef.current = {
@@ -62,17 +96,26 @@ function TableEdgeRail({ axis, size, position, disabled, onAdjust }: {
       startY: event.clientY,
       distance: 0,
       delta: 0,
+      initialSize: size,
+      step: getTableEdgeDragStep(editor, axis, size),
+      snapshot,
+      startPosition: { ...position },
+      targetSize: size,
+      completed: false,
     };
+    setDragDistance(0);
   };
 
   const handlePointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
     const distance = isColumnRail ? event.clientX - drag.startX : event.clientY - drag.startY;
-    const step = isColumnRail && window.innerWidth <= 480 ? 20 : 28;
-    const delta = getTableEdgeDragDelta(distance, size, step);
+    const delta = getTableEdgeDragDelta(distance, drag.initialSize, drag.step);
     drag.distance = distance;
+    setDragDistance(distance);
     if (drag.delta !== delta) {
+      restoreActiveTableSnapshot(editor, drag.snapshot, { addToHistory: false, emitUpdate: false });
+      if (delta) adjustActiveTableSize(editor, axis, delta, { addToHistory: false, emitUpdate: false });
       drag.delta = delta;
       setPreviewDelta(delta);
     }
@@ -82,18 +125,30 @@ function TableEdgeRail({ axis, size, position, disabled, onAdjust }: {
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
     event.preventDefault();
-    dragRef.current = null;
     if (Math.abs(drag.distance) >= 6) {
       suppressClickRef.current = true;
-      if (drag.delta) onAdjust(drag.delta);
+      restoreActiveTableSnapshot(editor, drag.snapshot, { addToHistory: false, emitUpdate: false, closeHistory: true });
+      if (drag.delta) {
+        drag.targetSize = Math.max(1, drag.initialSize + drag.delta);
+        drag.completed = onAdjust(drag.delta);
+        if (!drag.completed) dragRef.current = null;
+      } else {
+        dragRef.current = null;
+      }
+    } else {
+      dragRef.current = null;
     }
+    if (!dragRef.current) setDragDistance(0);
     setPreviewDelta(0);
   };
 
   const handlePointerCancel = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (dragRef.current?.pointerId !== event.pointerId) return;
+    const drag = dragRef.current;
+    if (drag?.pointerId !== event.pointerId || drag.completed) return;
+    restoreActiveTableSnapshot(editor, drag.snapshot, { addToHistory: false, emitUpdate: false, closeHistory: true });
     dragRef.current = null;
     suppressClickRef.current = false;
+    setDragDistance(0);
     setPreviewDelta(0);
   };
 
@@ -105,9 +160,19 @@ function TableEdgeRail({ axis, size, position, disabled, onAdjust }: {
     onAdjust(1);
   };
 
+  const activeDrag = dragRef.current;
+  const railPosition = activeDrag
+    ? {
+      top: activeDrag.startPosition.top + (isColumnRail ? 0 : dragDistance),
+      left: activeDrag.startPosition.left + (isColumnRail ? dragDistance : 0),
+      width: activeDrag.startPosition.width,
+      height: activeDrag.startPosition.height,
+    }
+    : position;
+
   return <div
     className={`table-edge-rail table-edge-rail--${axis}`}
-    style={{ top: position.top, left: position.left, width: position.width, height: position.height }}
+    style={{ top: railPosition.top, left: railPosition.left, width: railPosition.width, height: railPosition.height }}
     role="group"
     aria-label={`调整表格${noun}数`}
   >
@@ -262,6 +327,7 @@ export function TableEdgeControls({ editor, deferredLoading }: { editor: Editor;
   if (typeof document === "undefined" || !position) return null;
   return createPortal(<div className="table-edge-controls-overlay" aria-label="表格边缘操作">
     <TableEdgeRail
+      editor={editor}
       axis="columns"
       size={position.columnCount}
       position={position.columns}
@@ -269,6 +335,7 @@ export function TableEdgeControls({ editor, deferredLoading }: { editor: Editor;
       onAdjust={(delta) => adjustActiveTableSize(editor, "columns", delta)}
     />
     <TableEdgeRail
+      editor={editor}
       axis="rows"
       size={position.rowCount}
       position={position.rows}

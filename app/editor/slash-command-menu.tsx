@@ -11,11 +11,10 @@ import { FloatingScrollbar } from "../floating-scrollbar";
 type SlashAction = "paragraph" | "heading" | "bulletList" | "orderedList" | "taskList" | "blockquote" | "codeBlock" | "horizontalRule" | "callout" | "table" | "image" | "wikiLink";
 type SlashCommandGroupId = "text" | "lists" | "callouts" | "insert";
 
-const slashCommandGroups: { id: SlashCommandGroupId; label: string }[] = [
-  { id: "text", label: "文本" },
-  { id: "lists", label: "列表与表格" },
-  { id: "callouts", label: "提示块" },
-  { id: "insert", label: "插入内容" },
+const slashCommandGroups: { id: SlashCommandGroupId; label: string; itemGroups: SlashCommandGroupId[] }[] = [
+  { id: "text", label: "文本", itemGroups: ["text"] },
+  { id: "lists", label: "列表与表格", itemGroups: ["lists"] },
+  { id: "callouts", label: "提示块与插入内容", itemGroups: ["callouts", "insert"] },
 ];
 
 export type SlashCommandItem = {
@@ -63,11 +62,11 @@ export function filterSlashCommandItems(query: string): SlashCommandItem[] {
 export function groupSlashCommandItems(items: SlashCommandItem[]) {
   return slashCommandGroups.map((group) => ({
     ...group,
-    items: items.filter((item) => item.group === group.id),
+    items: items.filter((item) => group.itemGroups.includes(item.group)),
   })).filter((group) => group.items.length > 0);
 }
 
-export function getNextGroupedSlashCommandIndex(current: number, key: string, groups: SlashCommandItem[][], columns = 4): number {
+export function getNextGroupedSlashCommandIndex(current: number, key: string, groups: SlashCommandItem[][], columns = 3): number {
   const safeGroups = groups.filter((group) => group.length > 0);
   const flatItems = safeGroups.flat();
   if (!flatItems.length) return 0;
@@ -86,7 +85,7 @@ export function getNextGroupedSlashCommandIndex(current: number, key: string, gr
   if (key === "ArrowDown" && localIndex < group.length - 1) return currentOffset + localIndex + 1;
   if ((key === "ArrowUp" || key === "ArrowDown") && rowCount > 1) {
     const targetRow = (Math.floor(groupIndex / columns) + (key === "ArrowUp" ? -1 : 1) + rowCount) % rowCount;
-    const targetGroupIndex = targetRow * columns + (groupIndex % columns);
+    const targetGroupIndex = Math.min(targetRow * columns + (groupIndex % columns), safeGroups.length - 1);
     if (safeGroups[targetGroupIndex]) {
       const targetOffset = safeGroups.slice(0, targetGroupIndex).reduce((sum, target) => sum + target.length, 0);
       const targetItems = safeGroups[targetGroupIndex];
@@ -238,7 +237,7 @@ const SlashCommandList = forwardRef<SlashCommandListRef, SlashCommandListProps>(
       if (["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight"].includes(event.key)) {
         event.preventDefault();
         if (props.items.length) {
-          const columns = window.innerWidth <= 720 ? 2 : 4;
+          const columns = window.innerWidth <= 720 ? 2 : 3;
           const next = isDirectory
             ? getNextGroupedSlashCommandIndex(selectedIndexRef.current, event.key, groups.map((group) => group.items), columns)
             : getNextSlashCommandIndex(selectedIndexRef.current, event.key, props.items.length, 1);
@@ -359,6 +358,24 @@ export const SlashCommandExtension = Extension.create<SlashCommandOptions>({
           },
         },
       },
+      view: (view) => {
+        let refreshFrame: number | null = null;
+        const refreshSuggestionAfterComposition = () => {
+          if (refreshFrame !== null) window.cancelAnimationFrame(refreshFrame);
+          refreshFrame = window.requestAnimationFrame(() => {
+            refreshFrame = null;
+            if (view.isDestroyed) return;
+            view.dispatch(view.state.tr.setMeta("addToHistory", false).setMeta("preventUpdate", true));
+          });
+        };
+        view.dom.addEventListener("compositionend", refreshSuggestionAfterComposition);
+        return {
+          destroy() {
+            view.dom.removeEventListener("compositionend", refreshSuggestionAfterComposition);
+            if (refreshFrame !== null) window.cancelAnimationFrame(refreshFrame);
+          },
+        };
+      },
     });
 
     return [imeEscapeGuard, Suggestion<SlashCommandItem>({
@@ -392,8 +409,8 @@ export const SlashCommandExtension = Extension.create<SlashCommandOptions>({
           if (!rect) return;
           const viewportPadding = 12;
           const directory = popupEl.dataset.query?.trim().length === 0;
-          const width = Math.min(directory ? 1180 : 440, window.innerWidth - viewportPadding * 2);
-          const maxHeight = Math.min(directory ? 560 : 380, window.innerHeight - viewportPadding * 2);
+          const width = Math.min(directory ? 1040 : 400, window.innerWidth - viewportPadding * 2);
+          const maxHeight = Math.min(directory ? 500 : 340, window.innerHeight - viewportPadding * 2);
           popupEl.style.width = `${width}px`;
           popupEl.style.maxHeight = `${maxHeight}px`;
           const measuredHeight = popupEl.getBoundingClientRect().height;
@@ -442,11 +459,11 @@ export const SlashCommandExtension = Extension.create<SlashCommandOptions>({
             component = new ReactRenderer(SlashCommandList, { props, editor: props.editor });
             popupEl.appendChild(component.element);
             activeClientRect = props.clientRect as (() => DOMRect | null) | undefined;
-          window.addEventListener("resize", updatePosition);
-          window.addEventListener("scroll", updatePosition, true);
-          updatePosition();
-          schedulePosition();
-        },
+            window.addEventListener("resize", updatePosition);
+            window.addEventListener("scroll", updatePosition, true);
+            updatePosition();
+            schedulePosition();
+          },
           onUpdate: (props) => {
             component?.updateProps(props);
             if (popupEl) popupEl.dataset.query = props.query;

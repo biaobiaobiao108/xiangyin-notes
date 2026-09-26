@@ -3,9 +3,10 @@ import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { Markdown } from "@tiptap/markdown";
 import { Info, Table2 } from "lucide-react";
+import { formatPreview } from "../server/core";
 import { CalloutNode, CALLOUT_TYPES, shouldExitCalloutOnEnter } from "../app/editor/callout-node";
 import { CodeBlockDoubleEnter, handleCodeBlockDoubleEnter, shouldExitCodeBlockOnEnter } from "../app/editor/code-block-enter";
-import { adjustActiveTableSize, getActiveTableContext, getTableEdgeDragDelta } from "../app/editor/table-edge-commands";
+import { adjustActiveTableSize, getActiveTableContext, getActiveTableSnapshot, getTableEdgeDragDelta, restoreActiveTableSnapshot } from "../app/editor/table-edge-commands";
 import { filterSlashCommandItems, findSlashCommandMatch, getNextGroupedSlashCommandIndex, getNextSlashCommandIndex, groupSlashCommandItems, insertSlashCommand, isSlashCommandImeEscape, isSlashCommandImeEvent } from "../app/editor/slash-command-menu";
 import { createTableExtensions } from "../app/editor/table-extensions";
 
@@ -120,6 +121,13 @@ describe("table edge controls", () => {
     expect(getTableEdgeDragDelta(-140, 3)).toBe(-2);
   });
 
+  test("maps drag distance to actual row or column size", () => {
+    expect(getTableEdgeDragDelta(119, 3, 120)).toBe(0);
+    expect(getTableEdgeDragDelta(120, 3, 120)).toBe(1);
+    expect(getTableEdgeDragDelta(-239, 3, 120)).toBe(-1);
+    expect(getTableEdgeDragDelta(-240, 3, 120)).toBe(-2);
+  });
+
   test("adjusts the far edge in a single transaction and preserves one row and column", () => {
     const editor = new Editor({
       extensions: [StarterKit.configure({ heading: { levels: [1, 2, 3, 4] } }), ...createTableExtensions(), Markdown],
@@ -132,6 +140,13 @@ describe("table edge controls", () => {
       expect(context?.rows).toBe(2);
       expect(context?.columns).toBe(2);
       expect(editor.state.doc.resolve(context!.lastCellTextPosition).parent.type.name).toBe("paragraph");
+
+      const snapshot = getActiveTableSnapshot(editor);
+      expect(snapshot).not.toBeNull();
+      expect(adjustActiveTableSize(editor, "columns", 2, { addToHistory: false, emitUpdate: false })).toBe(true);
+      expect(getActiveTableContext(editor)?.columns).toBe(4);
+      expect(restoreActiveTableSnapshot(editor, snapshot!, { addToHistory: false, emitUpdate: false, closeHistory: true })).toBe(true);
+      expect(getActiveTableContext(editor)?.columns).toBe(2);
 
       let transactionCount = 0;
       const countTransaction = () => { transactionCount += 1; };
@@ -252,6 +267,17 @@ describe("callout markdown integration", () => {
     }
   });
 
+  test("omits serialized callout and code blocks from note previews", () => {
+    const source = "前言。\n\n> [!TIP]\n> 第一段提示。\n>\n> 第二段提示。\n\n```ts\nconst hidden = true;\n```\n\n后文。";
+    const editor = createMarkdownEditor(source);
+    try {
+      const markdown = (editor as Editor & { getMarkdown: () => string }).getMarkdown();
+      expect(formatPreview(markdown)).toBe("前言。\n后文。");
+    } finally {
+      editor.destroy();
+    }
+  });
+
   test("a second Enter in the final empty callout paragraph lifts it outside the callout", () => {
     const editor = createMarkdownEditor("> [!NOTE]\n> 内容");
     try {
@@ -348,25 +374,37 @@ describe("slash command matching", () => {
     }
   });
 
-  test("bare slash opens four command groups and uses two/four-column spatial navigation", () => {
+  test("bare slash opens a three-column menu and uses two/three-column spatial navigation", () => {
     const groups = groupSlashCommandItems(filterSlashCommandItems(""));
-    expect(groups.map((group) => group.id)).toEqual(["text", "lists", "callouts", "insert"]);
-    expect(groups.map((group) => group.items.length)).toEqual([8, 4, 5, 2]);
+    expect(groups.map((group) => group.id)).toEqual(["text", "lists", "callouts"]);
+    expect(groups.map((group) => group.items.length)).toEqual([8, 4, 7]);
     expect(groups.flatMap((group) => group.items).some((item) => item.id === "table")).toBe(true);
 
     const itemGroups = groups.map((group) => group.items);
-    expect(getNextGroupedSlashCommandIndex(0, "ArrowDown", itemGroups, 4)).toBe(1);
-    expect(getNextGroupedSlashCommandIndex(0, "ArrowRight", itemGroups, 4)).toBe(8);
-    expect(getNextGroupedSlashCommandIndex(8, "ArrowRight", itemGroups, 4)).toBe(12);
+    expect(getNextGroupedSlashCommandIndex(0, "ArrowRight", itemGroups, 3)).toBe(8);
+    expect(getNextGroupedSlashCommandIndex(8, "ArrowRight", itemGroups, 3)).toBe(12);
+    expect(getNextGroupedSlashCommandIndex(12, "ArrowRight", itemGroups, 3)).toBe(0);
     expect(getNextGroupedSlashCommandIndex(0, "ArrowRight", itemGroups, 2)).toBe(8);
-    expect(getNextGroupedSlashCommandIndex(8, "ArrowDown", itemGroups, 2)).toBe(9);
-    expect(getNextGroupedSlashCommandIndex(11, "ArrowDown", itemGroups, 2)).toBe(17);
+    expect(getNextGroupedSlashCommandIndex(7, "ArrowDown", itemGroups, 2)).toBe(12);
+    expect(getNextGroupedSlashCommandIndex(11, "ArrowDown", itemGroups, 2)).toBe(12);
   });
 
   test("suggestion mode keyboard movement is a compact single column", () => {
     expect(getNextSlashCommandIndex(0, "ArrowDown", 3, 1)).toBe(1);
     expect(getNextSlashCommandIndex(2, "ArrowDown", 3, 1)).toBe(0);
     expect(getNextSlashCommandIndex(1, "ArrowUp", 3, 1)).toBe(0);
+  });
+
+  test("shows the exact heading suggestion while the full Chinese command is typed", () => {
+    expect(filterSlashCommandItems("一级标题").map((item) => item.id)).toEqual(["heading-1"]);
+    const match = findSlashCommandMatch({
+      $position: {
+        pos: 5,
+        parentOffset: 5,
+        parent: { textBetween: () => "/一级标题" },
+      },
+    });
+    expect(match?.query).toBe("一级标题");
   });
 
   test("does not match slash inside a word or an escaped slash", () => {
