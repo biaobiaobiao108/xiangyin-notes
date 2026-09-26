@@ -55,6 +55,39 @@ describe("GFM table markdown integration", () => {
     }
   });
 
+  test("sizes columns from cell content and preserves resized widths in Markdown", () => {
+    const tableExtension = createTableExtensions().find((extension) => extension.name === "table") as { options: { resizable: boolean; handleWidth: number } } | undefined;
+    expect(tableExtension?.options.resizable).toBe(true);
+    expect(tableExtension?.options.handleWidth).toBe(8);
+
+    const editor = createMarkdownEditor("| 项目 | 状态 |\n| --- | --- |\n| 一个较长的项目名称 | 已修 |\n| 短项 | 进行中 |\n");
+    try {
+      let headerCellPosition: number | null = null;
+      editor.state.doc.descendants((node, position) => {
+        if (headerCellPosition === null && node.type.name === "tableHeader") headerCellPosition = position;
+      });
+      expect(headerCellPosition).not.toBeNull();
+      const headerCell = editor.state.doc.nodeAt(headerCellPosition!)!;
+      editor.view.dispatch(editor.state.tr.setNodeMarkup(headerCellPosition!, undefined, { ...headerCell.attrs, colwidth: [360] }));
+
+      const markdown = (editor as Editor & { getMarkdown: () => string }).getMarkdown();
+      const separatorCells = markdown.trim().split("\n")[1].split("|").slice(1, -1).map((cell) => cell.replaceAll(":", "").trim());
+      expect(separatorCells[0].length).toBe(35);
+      expect(separatorCells.every((cell) => cell.length >= 20)).toBe(true);
+
+      const roundTrip = createMarkdownEditor(markdown);
+      try {
+        const firstRow = roundTrip.state.doc.firstChild?.firstChild;
+        expect(firstRow?.firstChild?.attrs.colwidth).toEqual([360]);
+        expect(firstRow?.lastChild?.attrs.colwidth?.[0]).toBeGreaterThanOrEqual(128);
+      } finally {
+        roundTrip.destroy();
+      }
+    } finally {
+      editor.destroy();
+    }
+  });
+
   test("table commands insert a header table and mutate rows and columns", () => {
     const editor = new Editor({
       extensions: [
