@@ -536,7 +536,8 @@ button.save-status:hover { text-decoration: underline; }
 }
 .editor-floating-row { display: flex; align-items: center; justify-content: flex-end; gap: 8px; max-width: calc(100vw - 32px); pointer-events: auto; }
 .table-edge-controls-overlay { position: fixed; inset: 0; z-index: 1100; pointer-events: none; }
-.table-edge-rail { position: absolute; display: flex; align-items: center; justify-content: center; gap: 2px; padding: 2px; border: 1px solid var(--border-soft); border-radius: 999px; background: var(--surface-glass); box-shadow: 0 3px 10px rgba(39, 47, 41, 0.08); pointer-events: auto; touch-action: none; user-select: none; }
+.table-edge-rail { position: absolute; display: flex; align-items: center; justify-content: center; gap: 2px; padding: 2px; border: 1px solid var(--border-soft); border-radius: 999px; background: var(--surface-glass); box-shadow: 0 3px 10px rgba(39, 47, 41, 0.08); opacity: 0; pointer-events: none; touch-action: none; user-select: none; transition: opacity var(--motion-fast) ease-out; }
+.table-edge-rail.is-visible, .table-edge-rail:focus-within { opacity: 1; pointer-events: auto; }
 .table-edge-rail--columns { flex-direction: column; }
 .table-edge-rail--rows { flex-direction: row; }
 .table-edge-step, .table-edge-drag-handle { display: grid; flex: 0 0 auto; place-items: center; padding: 0; border: 0; border-radius: 999px; background: transparent; color: var(--muted); cursor: pointer; touch-action: none; }

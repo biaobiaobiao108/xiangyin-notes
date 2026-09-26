@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { GripHorizontal, GripVertical, Minus, MoreHorizontal, Plus, Trash2 } from "lucide-react";
 import type { Editor } from "@tiptap/core";
@@ -22,8 +22,6 @@ type DragSession = {
   step: number;
   snapshot: TableEdgeSnapshot;
   startPosition: { top: number; left: number; width?: number; height?: number };
-  targetSize: number;
-  completed: boolean;
 };
 
 function getSelectedTableShell(editor: Editor): HTMLElement | null {
@@ -60,16 +58,20 @@ function getTableEdgeDragStep(editor: Editor, axis: TableEdgeAxis, fallbackSize:
   return Math.max(20, measuredHeight);
 }
 
-function TableEdgeRail({ editor, axis, size, position, disabled, onAdjust }: {
+function TableEdgeRail({ editor, axis, size, position, disabled, visible, onAdjust }: {
   editor: Editor;
   axis: TableEdgeAxis;
   size: number;
   position: { top: number; left: number; width?: number; height?: number };
   disabled: boolean;
+  visible: boolean;
   onAdjust: (delta: number) => boolean;
 }) {
   const dragRef = useRef<DragSession | null>(null);
   const suppressClickRef = useRef(false);
+  const removeWindowListenersRef = useRef<(() => void) | null>(null);
+  const onAdjustRef = useRef(onAdjust);
+  onAdjustRef.current = onAdjust;
   const [previewDelta, setPreviewDelta] = useState(0);
   const [dragDistance, setDragDistance] = useState(0);
   const isColumnRail = axis === "columns";
@@ -77,36 +79,44 @@ function TableEdgeRail({ editor, axis, size, position, disabled, onAdjust }: {
   const inward = isColumnRail ? "向左" : "向上";
   const outward = isColumnRail ? "向右" : "向下";
 
-  useEffect(() => {
+  const clearDrag = (pointerId?: number) => {
     const drag = dragRef.current;
-    if (!drag?.completed || size !== drag.targetSize) return;
+    if (!drag || (pointerId !== undefined && drag.pointerId !== pointerId)) return null;
     dragRef.current = null;
-    setDragDistance(0);
-  }, [size]);
-
-  const handlePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (disabled || !event.isPrimary || event.button !== 0) return;
-    const snapshot = getActiveTableSnapshot(editor);
-    if (!snapshot) return;
-    event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    dragRef.current = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      distance: 0,
-      delta: 0,
-      initialSize: size,
-      step: getTableEdgeDragStep(editor, axis, size),
-      snapshot,
-      startPosition: { ...position },
-      targetSize: size,
-      completed: false,
-    };
-    setDragDistance(0);
+    removeWindowListenersRef.current?.();
+    removeWindowListenersRef.current = null;
+    return drag;
   };
 
-  const handlePointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
+  const cancelDrag = (pointerId?: number) => {
+    const drag = clearDrag(pointerId);
+    if (!drag) return;
+    restoreActiveTableSnapshot(editor, drag.snapshot, { addToHistory: false, emitUpdate: false, closeHistory: true });
+    suppressClickRef.current = false;
+    setDragDistance(0);
+    setPreviewDelta(0);
+  };
+
+  const finishDrag = (event: { pointerId: number; clientX: number; clientY: number; preventDefault: () => void }) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const distance = isColumnRail ? event.clientX - drag.startX : event.clientY - drag.startY;
+    const delta = getTableEdgeDragDelta(distance, drag.initialSize, drag.step);
+    clearDrag(event.pointerId);
+
+    if (Math.abs(distance) >= 6) {
+      event.preventDefault();
+      suppressClickRef.current = true;
+      restoreActiveTableSnapshot(editor, drag.snapshot, { addToHistory: false, emitUpdate: false, closeHistory: true });
+      if (delta) onAdjustRef.current(delta);
+    } else {
+      suppressClickRef.current = false;
+    }
+    setDragDistance(0);
+    setPreviewDelta(0);
+  };
+
+  const moveDrag = (event: { pointerId: number; clientX: number; clientY: number }) => {
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
     const distance = isColumnRail ? event.clientX - drag.startX : event.clientY - drag.startY;
@@ -121,43 +131,58 @@ function TableEdgeRail({ editor, axis, size, position, disabled, onAdjust }: {
     }
   };
 
-  const handlePointerUp = (event: ReactPointerEvent<HTMLButtonElement>) => {
+  useEffect(() => () => {
+    removeWindowListenersRef.current?.();
+    removeWindowListenersRef.current = null;
     const drag = dragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    event.preventDefault();
-    if (Math.abs(drag.distance) >= 6) {
-      suppressClickRef.current = true;
-      restoreActiveTableSnapshot(editor, drag.snapshot, { addToHistory: false, emitUpdate: false, closeHistory: true });
-      if (drag.delta) {
-        drag.targetSize = Math.max(1, drag.initialSize + drag.delta);
-        drag.completed = onAdjust(drag.delta);
-        if (!drag.completed) dragRef.current = null;
-      } else {
-        dragRef.current = null;
-      }
-    } else {
-      dragRef.current = null;
-    }
-    if (!dragRef.current) setDragDistance(0);
-    setPreviewDelta(0);
-  };
-
-  const handlePointerCancel = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    const drag = dragRef.current;
-    if (drag?.pointerId !== event.pointerId || drag.completed) return;
-    restoreActiveTableSnapshot(editor, drag.snapshot, { addToHistory: false, emitUpdate: false, closeHistory: true });
     dragRef.current = null;
+    if (drag && !editor.isDestroyed) {
+      restoreActiveTableSnapshot(editor, drag.snapshot, { addToHistory: false, emitUpdate: false, closeHistory: true });
+    }
+  }, [editor]);
+
+  const handlePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (disabled || !event.isPrimary || event.button !== 0) return;
     suppressClickRef.current = false;
+    const snapshot = getActiveTableSnapshot(editor);
+    if (!snapshot) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      distance: 0,
+      delta: 0,
+      initialSize: size,
+      step: getTableEdgeDragStep(editor, axis, size),
+      snapshot,
+      startPosition: { ...position },
+    };
+    const handleWindowPointerMove = (pointerEvent: PointerEvent) => moveDrag(pointerEvent);
+    const handleWindowPointerUp = (pointerEvent: PointerEvent) => finishDrag(pointerEvent);
+    const handleWindowPointerCancel = (pointerEvent: PointerEvent) => cancelDrag(pointerEvent.pointerId);
+    const handleWindowBlur = () => cancelDrag();
+    window.addEventListener("pointermove", handleWindowPointerMove, true);
+    window.addEventListener("pointerup", handleWindowPointerUp, true);
+    window.addEventListener("pointercancel", handleWindowPointerCancel, true);
+    window.addEventListener("blur", handleWindowBlur);
+    removeWindowListenersRef.current = () => {
+      window.removeEventListener("pointermove", handleWindowPointerMove, true);
+      window.removeEventListener("pointerup", handleWindowPointerUp, true);
+      window.removeEventListener("pointercancel", handleWindowPointerCancel, true);
+      window.removeEventListener("blur", handleWindowBlur);
+    };
     setDragDistance(0);
-    setPreviewDelta(0);
   };
 
-  const handleDragHandleClick = () => {
-    if (suppressClickRef.current) {
+  const handleDragHandleClick = (event: ReactMouseEvent<HTMLButtonElement>) => {
+    if (suppressClickRef.current && event.detail > 0) {
       suppressClickRef.current = false;
+      event.preventDefault();
       return;
     }
-    onAdjust(1);
+    onAdjustRef.current(1);
   };
 
   const activeDrag = dragRef.current;
@@ -171,7 +196,7 @@ function TableEdgeRail({ editor, axis, size, position, disabled, onAdjust }: {
     : position;
 
   return <div
-    className={`table-edge-rail table-edge-rail--${axis}`}
+    className={`table-edge-rail table-edge-rail--${axis}${visible || activeDrag ? " is-visible" : ""}`}
     style={{ top: railPosition.top, left: railPosition.left, width: railPosition.width, height: railPosition.height }}
     role="group"
     aria-label={`调整表格${noun}数`}
@@ -192,10 +217,9 @@ function TableEdgeRail({ editor, axis, size, position, disabled, onAdjust }: {
       title={`点击增加一${noun}；${inward}删除，${outward}增加`}
       disabled={disabled}
       onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerCancel={handlePointerCancel}
-      onLostPointerCapture={handlePointerCancel}
+      onPointerUp={finishDrag}
+      onPointerCancel={(event) => cancelDrag(event.pointerId)}
+      onLostPointerCapture={(event) => cancelDrag(event.pointerId)}
       onClick={handleDragHandleClick}
     >{isColumnRail ? <GripVertical size={15} aria-hidden="true" /> : <GripHorizontal size={15} aria-hidden="true" />}</button>
     <button
@@ -215,7 +239,9 @@ function TableEdgeRail({ editor, axis, size, position, disabled, onAdjust }: {
 
 export function TableEdgeControls({ editor, deferredLoading }: { editor: Editor; deferredLoading: boolean }) {
   const [position, setPosition] = useState<TableControlsPosition | null>(null);
+  const [visibleRails, setVisibleRails] = useState({ columns: false, rows: false });
   const menuRef = useRef<HTMLDetailsElement>(null);
+  const pointerPositionRef = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     let frame: number | null = null;
@@ -228,6 +254,7 @@ export function TableEdgeControls({ editor, deferredLoading }: { editor: Editor;
         frame = null;
         if (editor.isDestroyed || !editor.isEditable) {
           setPosition(null);
+          setVisibleRails((current) => current.columns || current.rows ? { columns: false, rows: false } : current);
           return;
         }
 
@@ -240,6 +267,7 @@ export function TableEdgeControls({ editor, deferredLoading }: { editor: Editor;
         const context = getActiveTableContext(editor);
         if (!shell || !context) {
           setPosition(null);
+          setVisibleRails((current) => current.columns || current.rows ? { columns: false, rows: false } : current);
           return;
         }
 
@@ -247,6 +275,7 @@ export function TableEdgeControls({ editor, deferredLoading }: { editor: Editor;
         const tableRect = shell.querySelector("table")?.getBoundingClientRect() ?? shellRect;
         if (shellRect.bottom < 0 || shellRect.top > window.innerHeight || shellRect.right < 0 || shellRect.left > window.innerWidth) {
           setPosition(null);
+          setVisibleRails((current) => current.columns || current.rows ? { columns: false, rows: false } : current);
           return;
         }
 
@@ -269,6 +298,27 @@ export function TableEdgeControls({ editor, deferredLoading }: { editor: Editor;
           rowCount: context.rows,
           columnCount: context.columns,
         };
+        const pointer = pointerPositionRef.current;
+        if (!pointer) {
+          setVisibleRails((current) => current.columns || current.rows ? { columns: false, rows: false } : current);
+        } else {
+          const inBand = (left: number, top: number, width: number, height: number, padding = 8) =>
+            pointer.x >= left - padding && pointer.x <= left + width + padding &&
+            pointer.y >= top - padding && pointer.y <= top + height + padding;
+          const visibleTableTop = Math.max(shellRect.top, tableRect.top);
+          const visibleTableBottom = Math.min(shellRect.bottom, tableRect.bottom);
+          const inColumnEdgeBand = pointer.x >= visibleTableRight - 10 && pointer.x <= next.columns.left + 38 &&
+            pointer.y >= visibleTableTop - 8 && pointer.y <= visibleTableBottom + 8;
+          const inRowEdgeBand = pointer.x >= visibleTableLeft - 8 && pointer.x <= visibleTableRight + 8 &&
+            pointer.y >= tableRect.bottom - 10 && pointer.y <= next.rows.top + 38;
+          const inColumnRail = inBand(next.columns.left, next.columns.top, 30, next.columns.height);
+          const inRowRail = inBand(next.rows.left, next.rows.top, next.rows.width, 30);
+          setVisibleRails((current) => {
+            const columns = inColumnEdgeBand || inColumnRail;
+            const rows = inRowEdgeBand || inRowRail;
+            return current.columns === columns && current.rows === rows ? current : { columns, rows };
+          });
+        }
         setPosition((current) => current &&
           Math.abs(current.columns.top - next.columns.top) < 1 &&
           Math.abs(current.columns.left - next.columns.left) < 1 &&
@@ -287,16 +337,31 @@ export function TableEdgeControls({ editor, deferredLoading }: { editor: Editor;
 
     resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updatePosition);
 
+    const handlePointerMove = (event: PointerEvent) => {
+      if (event.pointerType !== "mouse" && event.pointerType !== "pen") return;
+      pointerPositionRef.current = { x: event.clientX, y: event.clientY };
+      updatePosition();
+    };
+    const handlePointerOut = (event: PointerEvent) => {
+      if (event.relatedTarget !== null) return;
+      pointerPositionRef.current = null;
+      updatePosition();
+    };
+
     editor.on("selectionUpdate", updatePosition);
     editor.on("transaction", updatePosition);
     window.addEventListener("resize", updatePosition);
     window.addEventListener("scroll", updatePosition, true);
+    window.addEventListener("pointermove", handlePointerMove, { passive: true });
+    window.addEventListener("pointerout", handlePointerOut);
     updatePosition();
     return () => {
       editor.off("selectionUpdate", updatePosition);
       editor.off("transaction", updatePosition);
       window.removeEventListener("resize", updatePosition);
       window.removeEventListener("scroll", updatePosition, true);
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerout", handlePointerOut);
       resizeObserver?.disconnect();
       if (frame !== null) window.cancelAnimationFrame(frame);
     };
@@ -332,6 +397,7 @@ export function TableEdgeControls({ editor, deferredLoading }: { editor: Editor;
       size={position.columnCount}
       position={position.columns}
       disabled={deferredLoading}
+      visible={visibleRails.columns}
       onAdjust={(delta) => adjustActiveTableSize(editor, "columns", delta)}
     />
     <TableEdgeRail
@@ -340,6 +406,7 @@ export function TableEdgeControls({ editor, deferredLoading }: { editor: Editor;
       size={position.rowCount}
       position={position.rows}
       disabled={deferredLoading}
+      visible={visibleRails.rows}
       onAdjust={(delta) => adjustActiveTableSize(editor, "rows", delta)}
     />
     <details className="table-edge-menu" ref={menuRef} style={{ top: position.menu.top, left: position.menu.left }}>

@@ -409,7 +409,7 @@ export const SlashCommandExtension = Extension.create<SlashCommandOptions>({
           if (!rect) return;
           const viewportPadding = 12;
           const directory = popupEl.dataset.query?.trim().length === 0;
-          const width = Math.min(directory ? 1040 : 400, window.innerWidth - viewportPadding * 2);
+          const width = Math.min(directory ? 660 : 400, window.innerWidth - viewportPadding * 2);
           const maxHeight = Math.min(directory ? 500 : 340, window.innerHeight - viewportPadding * 2);
           popupEl.style.width = `${width}px`;
           popupEl.style.maxHeight = `${maxHeight}px`;
