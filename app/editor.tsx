@@ -8,7 +8,7 @@ import TaskItem from "@tiptap/extension-task-item";
 import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
 import { findWrapping } from "@tiptap/pm/transform";
-import { ArrowLeft, ArrowLeftRight, CheckCircle, ChevronLeft, CircleAlert, ImagePlus, LayoutGrid, Link2, LoaderCircle, Maximize2, Minimize2, RefreshCw, Star, Trash2, Undo2 } from "lucide-react";
+import { ArrowLeft, ArrowLeftRight, CheckCircle, ChevronLeft, CircleAlert, LayoutGrid, Link2, LoaderCircle, RefreshCw, Star, Trash2, Undo2 } from "lucide-react";
 import type { ImageAssetSummary, Note, NoteSummary } from "../shared/types";
 import { api } from "./api";
 import { BrandMark } from "./brand-mark";
@@ -88,7 +88,7 @@ async function imageDimensions(file: File) {
   }
 }
 
-export function NoteEditor({ note, searchQuery = "", saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList, onBackToCards, onUploadImage, focusMode = false, onToggleFocusMode, onClearSearch, typewriterMode = false, outlineOpen, outlineItems, activeOutlineId, onToggleOutline, onCloseOutline, onOutlineItemsChange, onOutlineActiveChange, onOutlineNavigationReady, availableNotes = [], onNavigateWikiLink, onCreateAndLinkNote, onNavigateToNote, onToast }: {
+export function NoteEditor({ note, searchQuery = "", saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList, onBackToCards, onUploadImage, focusMode = false, onClearSearch, typewriterMode = false, outlineOpen, outlineItems, activeOutlineId, onToggleOutline, onCloseOutline, onOutlineItemsChange, onOutlineActiveChange, onOutlineNavigationReady, availableNotes = [], onNavigateWikiLink, onCreateAndLinkNote, onNavigateToNote, onToast }: {
   note: Note;
   searchQuery?: string;
   saveState: SaveState;
@@ -109,7 +109,6 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   onBackToCards?: () => void;
   onUploadImage?: (file: File, dimensions: { width: number; height: number }) => Promise<{ asset: ImageAssetSummary }>;
   focusMode?: boolean;
-  onToggleFocusMode?: () => void;
   onClearSearch?: () => void;
   typewriterMode?: boolean;
   outlineOpen: boolean;
@@ -1197,10 +1196,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
           ) : saveState === "idle" ? null : (
             <span className={`save-status save-status--${saveState} save-status--icon`} role="status" aria-label={saveLabel} title={saveLabel} aria-live="polite"><SaveStatusIcon state={saveState} /></span>
           )}
-          {onUploadImage && !note.deletedAt && <>
-            <input ref={imageFileInputRef} className="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple tabIndex={-1} aria-label="选择要上传的图片文件" onChange={(event) => { uploadImageFilesRef.current(Array.from(event.target.files ?? [])); event.target.value = ""; }} />
-            <button className={`icon-button ${imageUploadState === "uploading" ? "is-active" : ""}`} type="button" aria-label="上传图片" title={imageUploadState === "uploading" ? "正在上传图片" : "上传图片"} onClick={() => imageFileInputRef.current?.click()} disabled={editorLocked || imageUploadState === "uploading"}><ImagePlus size={18} strokeWidth={1.8} /></button>
-          </>}
+          {onUploadImage && !note.deletedAt && <input ref={imageFileInputRef} className="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple tabIndex={-1} aria-label="选择要上传的图片文件" onChange={(event) => { uploadImageFilesRef.current(Array.from(event.target.files ?? [])); event.target.value = ""; }} />}
           {imageUploadState === "uploading" && <span className="save-status save-status--saving save-status--icon" role="status" aria-label="正在上传图片" title="正在上传图片" aria-live="polite"><SaveStatusIcon state="saving" /></span>}
           {imageUploadState === "error" && <span className="save-status save-status--error save-status--icon" role="alert" aria-label="图片上传失败" title="图片上传失败"><SaveStatusIcon state="error" /></span>}
           {!note.deletedAt && onNavigateToNote && (
@@ -1214,18 +1210,6 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
             >
               <ArrowLeftRight size={18} strokeWidth={1.8} />
               {backlinkCount > 0 && <span className="icon-badge">{backlinkCount}</span>}
-            </button>
-          )}
-          {onToggleFocusMode && (
-            <button
-              className={`icon-button ${focusMode ? "is-active" : ""}`}
-              type="button"
-              aria-label={focusMode ? "退出沉浸模式" : "沉浸编辑模式"}
-              title={focusMode ? "退出沉浸模式 (Esc 或 ⌘/Ctrl+Shift+F)" : "沉浸编辑模式 (⌘/Ctrl+Shift+F)"}
-              onClick={onToggleFocusMode}
-              disabled={editorLocked}
-            >
-              {focusMode ? <Minimize2 size={18} strokeWidth={1.8} /> : <Maximize2 size={18} strokeWidth={1.8} />}
             </button>
           )}
           <button className={`icon-button favorite-toggle ${note.isFavorite ? "is-active" : ""}`} type="button" aria-label={note.isFavorite ? "取消收藏" : "收藏笔记"} aria-pressed={note.isFavorite} title={note.isFavorite ? "取消收藏" : "收藏笔记"} onClick={onToggleFavorite} disabled={editorLocked}><Star size={19} strokeWidth={1.8} fill={note.isFavorite ? "currentColor" : "none"} aria-hidden="true" /></button>
