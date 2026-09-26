@@ -23,6 +23,10 @@ import { TagDecorationExtension } from "./editor/tag-decoration";
 import { BacklinksDialog } from "./editor/backlinks-panel";
 import { WikiLinkNode } from "./editor/wiki-link-node";
 import { WikiLinkSuggestionExtension } from "./editor/wiki-link-suggestion";
+import { CalloutNode } from "./editor/callout-node";
+import { SlashCommandExtension } from "./editor/slash-command-menu";
+import { TableScrollbars } from "./editor/table-scrollbars";
+import { createTableExtensions } from "./editor/table-extensions";
 import { playEntranceAnimation } from "./animation";
 import { NoteOutlinePanel } from "./workspace/panels";
 
@@ -158,6 +162,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   const [editorStats, setEditorStats] = useState<EditorStats>(() => countEditorText(""));
   const [deferredLoading, setDeferredLoading] = useState(false);
   const [imageUploadState, setImageUploadState] = useState<"idle" | "uploading" | "error">("idle");
+  const [tableActive, setTableActive] = useState(false);
   const editorLocked = isLoading || deferredLoading;
   const [searchNavigation, setSearchNavigation] = useState({ activeIndex: 0, matchCount: 0 });
   const searchQueryRef = useRef(searchQuery);
@@ -377,13 +382,16 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
 
   const extensions = useMemo(() => [
     StarterKit.configure({ heading: { levels: [1, 2, 3] }, link: false }),
+    ...createTableExtensions(),
     Link.configure({ openOnClick: false, autolink: true, linkOnPaste: true, HTMLAttributes: { title: "按住 Ctrl 或 ⌘ 点击打开链接" } }),
     TaskList,
     TaskItem.configure({ nested: true }),
     Placeholder.configure({ placeholder: "从一句话开始……" }),
     Markdown,
+    CalloutNode,
     ImageNode,
     WikiLinkNode,
+    SlashCommandExtension.configure({ onPickImage: () => imageFileInputRef.current?.click() }),
     WikiLinkSuggestionExtension.configure({
       getNotes: () => availableNotesRef.current,
       onCreateNote: (title) => onCreateAndLinkNoteRef.current?.(title),
@@ -789,6 +797,8 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     if (!editor) return;
     const handleTransaction = ({ editor: instance }: { editor: Editor }) => syncSearchNavigation(instance);
     const handleSelection = ({ editor: instance }: { editor: Editor }) => {
+      const nextTableActive = instance.isActive("table");
+      setTableActive((current) => current === nextTableActive ? current : nextTableActive);
       if (!syncActiveOutlineFromSelection(instance)) {
         outlineFallbackSyncRef.current?.();
       }
@@ -799,6 +809,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     editor.on("transaction", handleTransaction);
     editor.on("selectionUpdate", handleSelection);
     syncSearchNavigation(editor);
+    setTableActive(editor.isActive("table"));
     return () => {
       editor.off("transaction", handleTransaction);
       editor.off("selectionUpdate", handleSelection);
@@ -1253,12 +1264,15 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
               placeholder="未命名笔记"
             />
             <EditorContent editor={editor} />
+            <TableScrollbars rootRef={documentRef} />
           </div>
         </div>
         <FloatingScrollbar scrollTargetRef={editorScrollRef} contentRef={documentRef} controlsId="editor-scroll-region" ariaLabel="编辑器滚动条" placement="right" />
       </div>
       {deferredLoading && <div className="editor-switch-overlay editor-switch-overlay--visible" role="status" aria-live="polite"><div className="editor-switch-card"><BrandMark className="editor-switch-mark" /><div className="editor-switch-lines" aria-hidden="true"><span /><span /><span /></div><strong>正在打开笔记…</strong></div></div>}
       <EditorFloatingTools
+        editor={editor}
+        tableActive={tableActive && !note.deletedAt && Boolean(editor?.isEditable)}
         outlineTriggerRef={outlineTriggerRef}
         outlineOpen={outlineOpen}
         editorStats={editorStats}

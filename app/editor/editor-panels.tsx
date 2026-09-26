@@ -1,5 +1,6 @@
 import type { RefObject } from "react";
-import { ChevronDown, ChevronUp, ListTree, X } from "lucide-react";
+import { ChevronDown, ChevronUp, ListTree, Minus, Plus, Trash2, X } from "lucide-react";
+import type { Editor } from "@tiptap/core";
 import type { EditorStats } from "../editor-metrics";
 
 type SearchNavigation = {
@@ -7,7 +8,9 @@ type SearchNavigation = {
   matchCount: number;
 };
 
-export function EditorFloatingTools({ outlineTriggerRef, outlineOpen, editorStats, onToggleOutline, outlineDisabled = false, outlineDisabledTitle, searchNavigation, searchQuery, deferredLoading, onMoveSearchMatch, onClearSearch }: {
+export function EditorFloatingTools({ editor, tableActive = false, outlineTriggerRef, outlineOpen, editorStats, onToggleOutline, outlineDisabled = false, outlineDisabledTitle, searchNavigation, searchQuery, deferredLoading, onMoveSearchMatch, onClearSearch }: {
+  editor: Editor | null;
+  tableActive?: boolean;
   outlineTriggerRef: RefObject<HTMLButtonElement | null>;
   outlineOpen: boolean;
   editorStats: EditorStats;
@@ -22,6 +25,15 @@ export function EditorFloatingTools({ outlineTriggerRef, outlineOpen, editorStat
 }) {
   const hasActiveSearch = Boolean(searchQuery?.trim());
   return <div className="editor-floating-tools">
+    {tableActive && editor && <div className="table-floating-toolbar" role="group" aria-label="表格操作">
+      <button className="table-floating-button" type="button" aria-label="在下方插入行" title="在下方插入行" disabled={deferredLoading} onMouseDown={(event) => event.preventDefault()} onClick={() => editor.chain().focus().addRowAfter().run()}><Plus size={14} aria-hidden="true" /><span className="table-action-caption">行</span></button>
+      <button className="table-floating-button" type="button" aria-label="删除当前行" title="删除当前行" disabled={deferredLoading || !editor.can().deleteRow()} onMouseDown={(event) => event.preventDefault()} onClick={() => editor.chain().focus().deleteRow().run()}><Minus size={14} aria-hidden="true" /><span className="table-action-caption">行</span></button>
+      <span className="table-floating-divider" aria-hidden="true" />
+      <button className="table-floating-button" type="button" aria-label="在右侧插入列" title="在右侧插入列" disabled={deferredLoading} onMouseDown={(event) => event.preventDefault()} onClick={() => editor.chain().focus().addColumnAfter().run()}><Plus size={14} aria-hidden="true" /><span className="table-action-caption">列</span></button>
+      <button className="table-floating-button" type="button" aria-label="删除当前列" title="删除当前列" disabled={deferredLoading || !editor.can().deleteColumn()} onMouseDown={(event) => event.preventDefault()} onClick={() => editor.chain().focus().deleteColumn().run()}><Minus size={14} aria-hidden="true" /><span className="table-action-caption">列</span></button>
+      <span className="table-floating-divider" aria-hidden="true" />
+      <button className="table-floating-button table-floating-button--danger" type="button" aria-label="删除整个表格" title="删除整个表格" disabled={deferredLoading || !editor.can().deleteTable()} onMouseDown={(event) => event.preventDefault()} onClick={() => editor.chain().focus().deleteTable().run()}><Trash2 size={14} aria-hidden="true" /></button>
+    </div>}
     <div className="editor-floating-row">
       {hasActiveSearch && <div className="editor-search-nav" role="group" aria-label={searchNavigation.matchCount > 0 ? `正文搜索结果，第 ${searchNavigation.activeIndex + 1} 个，共 ${searchNavigation.matchCount} 个` : `当前笔记中未找到“${searchQuery?.trim()}”`}>
         {searchNavigation.matchCount > 0 ? (
