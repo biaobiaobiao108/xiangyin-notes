@@ -127,7 +127,7 @@ describe("remote MCP endpoint", () => {
     expect(noOrigin.response.status).toBe(200);
     const tools = resultOf(noOrigin.body!).tools;
     expect(tools.map((tool: { name: string }) => tool.name)).toEqual([
-      "list_notebooks", "create_notebook", "update_notebook", "delete_notebook", "search_notes", "list_trash", "get_note", "get_notes_batch", "create_note", "update_note", "toggle_favorite", "move_note", "set_tags", "append_to_note", "insert_into_note", "delete_note", "restore_note", "batch_update_notes",
+      "list_notebooks", "create_notebook", "update_notebook", "delete_notebook", "search_notes", "list_trash", "empty_trash", "get_note", "get_notes_batch", "create_note", "update_note", "toggle_favorite", "move_note", "set_tags", "append_to_note", "insert_into_note", "delete_note", "restore_note", "batch_update_notes",
     ]);
     const assertClosedSchemas = (schema: Record<string, any>) => {
       if (schema.type === "object" || schema.properties) expect(schema.additionalProperties).toBe(false);
@@ -160,6 +160,7 @@ describe("remote MCP endpoint", () => {
     expect(resultOf(discovered.body!).instructions).toContain("update_notebook");
     expect(resultOf(discovered.body!).instructions).toContain("delete_notebook");
     expect(resultOf(discovered.body!).instructions).toContain("get_notes_batch");
+    expect(resultOf(discovered.body!).instructions).toContain("empty_trash");
     expect(resultOf(discovered.body!).instructions).toContain("restore_note");
     expect(resultOf(discovered.body!).instructions).toContain("toggle_favorite");
     expect(resultOf(discovered.body!).instructions).toContain("set_tags");
@@ -338,12 +339,49 @@ describe("remote MCP endpoint", () => {
     expect(limitedData.notes).toHaveLength(2);
     expect(limitedData.notes[0].contentMarkdown).toBe("甲正文\n完整内容");
     expect(limitedData.notes[1].contentMarkdown).toBe("乙正文完整内容");
+    expect(limitedData.notes[0].preview).toBeUndefined();
+    expect(limitedData.totalContentCharacters).toBe(Array.from("甲正文\n完整内容乙正文完整内容").length);
+    expect(limitedData.stoppedForCharacterLimit).toBe(false);
     expect(limitedData.notes[0].updatedAtISO).toBe(new Date(limitedData.notes[0].updatedAt * 1000).toISOString());
     expect(limitedData.remainingIds).toEqual([third.id]);
 
-    const remainder = await callTool("get_notes_batch", { noteIds: [third.id, "missing-note-id"], limit: 2 }, 5, environment);
+    const characterLimited = await callTool("get_notes_batch", {
+      noteIds: [first.id, second.id, third.id],
+      limit: 3,
+      maxTotalCharacters: Array.from("甲正文\n完整内容").length,
+    }, 5, environment);
+    const characterLimitedData = toolData(characterLimited.body!);
+    expect(characterLimitedData.notes).toHaveLength(1);
+    expect(characterLimitedData.totalContentCharacters).toBe(Array.from("甲正文\n完整内容").length);
+    expect(characterLimitedData.remainingIds).toEqual([second.id, third.id]);
+    expect(characterLimitedData.stoppedForCharacterLimit).toBe(true);
+
+    const remainder = await callTool("get_notes_batch", { noteIds: [third.id, "missing-note-id"], limit: 2 }, 6, environment);
     expect(toolData(remainder.body!).notes[0].contentMarkdown).toBe("丙正文完整内容");
     expect(toolData(remainder.body!).notFoundIds).toEqual(["missing-note-id"]);
+  });
+
+  test("permanently empties only the trash after explicit confirmation", async () => {
+    const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
+    const active = toolData((await callTool("create_note", { title: "保留的活动笔记", contentMarkdown: "正文" }, 1, environment)).body!).note;
+    const trashed = [] as Array<{ id: string; version: number }>;
+    for (const [index, title] of ["待清理甲", "待清理乙"].entries()) {
+      const created = toolData((await callTool("create_note", { title, contentMarkdown: "回收站正文" }, index + 2, environment)).body!).note;
+      const deleted = await callTool("delete_note", { noteId: created.id, version: created.version }, index + 4, environment);
+      trashed.push(toolData(deleted.body!).note);
+    }
+
+    const emptied = await callTool("empty_trash", { confirm: true }, 6, environment);
+    expect(emptied.response.status).toBe(200);
+    expect(toolData(emptied.body!)).toEqual({ ok: true, deletedCount: 2 });
+    const trash = await callTool("list_trash", {}, 7, environment);
+    expect(toolData(trash.body!).notes).toHaveLength(0);
+    expect(toolData((await callTool("get_note", { noteId: active.id }, 8, environment)).body!).note.title).toBe("保留的活动笔记");
+
+    for (const note of trashed) {
+      const missing = await callTool("get_note", { noteId: note.id }, 8 + trashed.indexOf(note), environment);
+      expect(toolData(missing.body!).error.code).toBe("NOTE_NOT_FOUND");
+    }
   });
 
   test("appends before trailing tags to preserve the tag footer", async () => {

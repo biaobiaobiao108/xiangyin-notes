@@ -23,11 +23,17 @@ const MCP_SERVER_INSTRUCTIONS = [
   "象映笔记：用于搜索、批量读取、新建、追加、锚点插入和更新笔记；可管理笔记本、收藏、标签与回收站。",
   "工具参数必须是 JSON 对象。客户端会先校验参数；手写原始 JSON 时，字符串中的控制字符须按 JSON 规范转义（换行写作 \\n）。多行 Markdown 请通过客户端的结构化工具参数传入，JSON 解析后的正文会保留换行。",
   "需要分类时先调用 list_notebooks 获取 ID；create_notebook 创建，update_notebook 重命名或改图标、颜色，delete_notebook 删除并将其中笔记移入收件箱。创建笔记时可省略 notebookId 以使用收件箱；标题、正文或所属笔记本用 update_note 更新，move_note 可单独移动。标签是正文非代码区域的 #标签 标记；create_note.tags 可在创建时追加，set_tags 替换标签集合，batch_update_notes 可批量追加或移除。",
-  "查找笔记用 search_notes；需完整正文时可用 get_note 或 get_notes_batch，批量读取默认最多 20 篇、最多 50 篇。insert_into_note 可按唯一锚点插入正文。已删除笔记用 list_trash 查找，再用 restore_note 恢复。toggle_favorite 切换收藏，move_note 移动笔记；delete_note 将笔记移入回收站。修改前先读取最新 version，并传给相应写工具；VERSION_CONFLICT 时查看 error.current，合并后使用最新 version 重试。",
+  "查找笔记用 search_notes；需完整正文时可用 get_note 或 get_notes_batch，批量读取默认最多 20 篇、最多 50 篇且受正文字符预算限制。insert_into_note 可按唯一锚点插入正文。已删除笔记用 list_trash 查找，再用 restore_note 恢复；empty_trash 会永久删除全部回收站笔记，仅在用户明确要求并传 confirm=true 时调用。toggle_favorite 切换收藏，move_note 移动笔记；delete_note 将笔记移入回收站。修改前先读取最新 version，并传给相应写工具；VERSION_CONFLICT 时查看 error.current，合并后使用最新 version 重试。",
   "MCP 只传输文字和 Markdown，不提供图片数据或缩略图；保留正文中的图片引用。",
 ].join(" ");
 
 const noteTagsSchema = z.array(z.string().trim().min(1).max(40).regex(/^[\p{L}\p{N}_-]+$/u)).max(50);
+
+function countUnicodeCharacters(value: string) {
+  let count = 0;
+  for (const _character of value) count += 1;
+  return count;
+}
 
 type RouteResult = {
   status: number;
@@ -372,6 +378,18 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
     return responseValue({ ...result.body, notes: withPreviewLimit(notes, previewLength) });
   });
 
+  server.registerTool("empty_trash", {
+    title: "清空回收站",
+    description: "永久删除回收站中的全部笔记，无法恢复；仅在用户明确要求清空时调用，并必须传 confirm=true。",
+    inputSchema: z.object({ confirm: z.literal(true).describe("确认永久删除回收站中的全部笔记") }).strict(),
+  }, async ({ confirm }) => {
+    if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
+    if (confirm !== true) return responseValue({ error: { code: "CONFIRMATION_REQUIRED", message: "清空回收站前必须明确确认" } }, true);
+    const result = await notesRoute(options, user, "DELETE", ["trash"], "/api/trash");
+    if (result.status !== 200) return routeError(result);
+    return responseValue({ ok: result.body.ok === true, deletedCount: result.body.deletedCount ?? 0 });
+  });
+
   server.registerTool("get_note", {
     title: "读取笔记",
     description: "按 noteId 读取，或按 title 进行标题子串匹配读取。title 匹配唯一时返回笔记；匹配多篇时返回候选 ID，请缩小标题或使用 noteId。结果含可读的 updatedAtISO；保留 Markdown 图片引用，但不提供图片内容或缩略图。更新前先读取 version。",
@@ -395,12 +413,13 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("get_notes_batch", {
     title: "批量读取笔记",
-    description: "按 ID 一次读取多篇完整 Markdown 笔记。最多输入 50 个 ID；limit 默认 20、最大 50，限制本次返回全文的笔记数。无权访问或不存在的 ID 列入 notFoundIds，超出 limit 的 ID 列入 remainingIds。",
+    description: "按 ID 一次读取多篇完整 Markdown 笔记，不重复返回 preview。最多输入 50 个 ID；limit 默认 20、最大 50；正文总 Unicode 字符预算 maxTotalCharacters 默认 20,000、最大 100,000。下一篇完整正文超预算时停止并将该篇及后续 ID 放入 remainingIds。无权访问或不存在的 ID 列入 notFoundIds。",
     inputSchema: z.object({
       noteIds: z.array(z.string().min(1).max(200)).min(1).max(50).describe("要读取的笔记 ID，最多 50 个且不能重复"),
       limit: z.number().int().min(1).max(50).optional().describe("本次最多返回的笔记数，默认 20，最大 50"),
+      maxTotalCharacters: z.number().int().min(1).max(100_000).optional().describe("正文总 Unicode 字符预算，默认 20,000，最大 100,000"),
     }).strict(),
-  }, async ({ noteIds, limit = 20 }) => {
+  }, async ({ noteIds, limit = 20, maxTotalCharacters = 20_000 }) => {
     if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
     if (new Set(noteIds).size !== noteIds.length) {
       return responseValue({ error: { code: "DUPLICATE_NOTE_ID", message: "noteIds 中不能重复出现同一篇笔记" } }, true);
@@ -408,7 +427,11 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
     const selectedIds = noteIds.slice(0, limit);
     const notes: Record<string, unknown>[] = [];
     const notFoundIds: string[] = [];
-    for (const noteId of selectedIds) {
+    let remainingIds = noteIds.slice(limit);
+    let totalContentCharacters = 0;
+    let stoppedForCharacterLimit = false;
+    for (let index = 0; index < selectedIds.length; index += 1) {
+      const noteId = selectedIds[index];
       const result = await notesRoute(options, user, "GET", ["notes", noteId], `/api/notes/${encodeURIComponent(noteId)}`);
       if (result.status === 404) {
         notFoundIds.push(noteId);
@@ -419,9 +442,22 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
       if (!note || typeof note !== "object" || Array.isArray(note)) {
         return responseValue({ error: { code: "NOTE_READ_FAILED", message: "读取笔记失败" } }, true);
       }
-      notes.push(note as Record<string, unknown>);
+      const fullNote = note as Record<string, unknown>;
+      if (typeof fullNote.contentMarkdown !== "string") {
+        return responseValue({ error: { code: "NOTE_READ_FAILED", message: "读取笔记正文失败" } }, true);
+      }
+      const contentCharacters = countUnicodeCharacters(fullNote.contentMarkdown);
+      if (totalContentCharacters + contentCharacters > maxTotalCharacters) {
+        remainingIds = [...selectedIds.slice(index), ...noteIds.slice(limit)];
+        stoppedForCharacterLimit = true;
+        break;
+      }
+      const withoutPreview = { ...fullNote };
+      delete withoutPreview.preview;
+      notes.push(withoutPreview);
+      totalContentCharacters += contentCharacters;
     }
-    return responseValue({ notes, notFoundIds, remainingIds: noteIds.slice(limit), returnedCount: notes.length });
+    return responseValue({ notes, notFoundIds, remainingIds, returnedCount: notes.length, totalContentCharacters, maxTotalCharacters, stoppedForCharacterLimit });
   });
 
   server.registerTool("create_note", {
