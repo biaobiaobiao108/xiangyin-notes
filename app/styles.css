@@ -498,8 +498,8 @@ button.save-status:hover { text-decoration: underline; }
 .note-prose code { padding: 0.13em 0.34em; border-radius: 4px; background: var(--surface-code-inline); color: var(--code-inline-ink); font-family: inherit; font-size: 0.86em; }
 .note-prose pre code { padding: 0; background: transparent; color: inherit; }
 .note-prose .table-scroll-shell { position: relative; display: block; max-width: 100%; margin-block: 1.05em; padding-block-end: 18px; overflow-x: auto; overflow-y: hidden; overscroll-behavior-inline: contain; }
-.note-prose .table-scroll-shell table { width: max-content; max-width: none; border-collapse: separate; border-spacing: 0; table-layout: auto; color: var(--ink-soft); font-size: 0.9rem; line-height: 1.45; }
-.note-prose .table-scroll-shell th, .note-prose .table-scroll-shell td { position: relative; min-width: 8rem; padding: 9px 12px; border-inline-end: 1px solid var(--border-soft); border-block-end: 1px solid var(--border-soft); overflow-wrap: anywhere; text-align: start; vertical-align: top; }
+.note-prose .table-scroll-shell table { width: 100%; min-width: 100%; max-width: none; border-collapse: separate; border-spacing: 0; table-layout: fixed; color: var(--ink-soft); font-size: 0.9rem; line-height: 1.45; }
+.note-prose .table-scroll-shell th, .note-prose .table-scroll-shell td { position: relative; min-width: 8rem; padding: 9px 12px; border-inline-end: 1px solid var(--border-soft); border-block-end: 1px solid var(--border-soft); overflow-wrap: anywhere; white-space: normal; text-align: start; vertical-align: top; }
 .note-prose .table-scroll-shell tr > :first-child { border-inline-start: 1px solid var(--border-soft); }
 .note-prose .table-scroll-shell tbody tr:first-child > th, .note-prose .table-scroll-shell tbody tr:first-child > td { border-block-start: 1px solid var(--border-soft); background: var(--surface-subtle); color: var(--ink); font-weight: 650; }
 .note-prose .table-scroll-shell tr > .selectedCell {
@@ -522,7 +522,7 @@ button.save-status:hover { text-decoration: underline; }
 .note-prose .table-scroll-shell tr > :not(.selectedCell) + .selectedCell { --table-selection-left: var(--accent-border); }
 .note-prose .table-scroll-shell tr > .selectedCell:not(:has(+ .selectedCell)) { --table-selection-right: var(--accent-border); }
 .note-prose .table-scroll-shell th p, .note-prose .table-scroll-shell td p { margin: 0; }
-.note-prose .table-scroll-shell th code, .note-prose .table-scroll-shell td code { overflow-wrap: anywhere; }
+.note-prose .table-scroll-shell th code, .note-prose .table-scroll-shell td code { overflow-wrap: anywhere; white-space: normal; }
 .note-prose .note-callout { display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: start; gap: 12px; margin-block: 1em; padding: 14px 16px; border: 1px solid var(--border-soft); border-radius: 12px; background: var(--surface-notice); color: var(--ink-soft); font-size: 0.96em; }
 .note-prose .note-callout-icon { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 9px; background: var(--accent-soft); color: var(--accent-dark); }
 .note-prose .note-callout-icon svg { display: block; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
