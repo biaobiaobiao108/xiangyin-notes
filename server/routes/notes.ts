@@ -94,6 +94,7 @@ type BatchNoteEntry = {
 
 type BatchNoteState = {
   id: string;
+  title: string;
   deleted_at: number | null;
   version: number;
 };
@@ -125,7 +126,7 @@ function parseBatchNoteEntries(payload: unknown): BatchNoteEntry[] | null {
 
 function getBatchNoteStates(database: SqliteDatabase, userId: string, entries: BatchNoteEntry[]) {
   const placeholders = entries.map(() => "?").join(",");
-  return all<BatchNoteState>(database, `SELECT id, deleted_at, version FROM notes WHERE user_id = ? AND id IN (${placeholders})`, userId, ...entries.map((entry) => entry.id));
+  return all<BatchNoteState>(database, `SELECT id, title, deleted_at, version FROM notes WHERE user_id = ? AND id IN (${placeholders})`, userId, ...entries.map((entry) => entry.id));
 }
 
 function assertBatchNoteStates(rows: BatchNoteState[], entries: BatchNoteEntry[], mode: "trash" | "permanent") {
@@ -286,6 +287,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
           const deletedAt = now();
           const update = database.query("UPDATE notes SET deleted_at = ?, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ? AND version = ? AND deleted_at IS NULL");
           for (const entry of entries) update.run(deletedAt, deletedAt, entry.id, user.id, entry.version);
+          resolveNoteLinksForTitles(database, user.id, rows.map((row) => row.title));
           return { deletedIds: entries.map((entry) => entry.id) };
         })();
       } catch (error) {

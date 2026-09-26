@@ -38,6 +38,39 @@ async function request(path: string, init: RequestInit = {}, cookie?: string) {
 }
 
 describe("Note links, backlinks, and renaming cascade", () => {
+  test("batch trash releases link targets and reconnects them to a new note with the same title", async () => {
+    const auth = await request("/api/auth/login", {
+      method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
+    });
+    const cookie = auth.cookie!;
+    const target = (await request("/api/notes", {
+      method: "POST", body: JSON.stringify({ title: "批量删除目标" }),
+    }, cookie)).body?.note as Note;
+    const source = (await request("/api/notes", {
+      method: "POST", body: JSON.stringify({ title: "引用来源", contentMarkdown: "参考 [[批量删除目标]]" }),
+    }, cookie)).body?.note as Note;
+
+    const trash = await request("/api/notes/batch", {
+      method: "PATCH", body: JSON.stringify({ notes: [{ id: target.id, version: target.version }] }),
+    }, cookie);
+    expect(trash.response.status).toBe(200);
+    const link = database.query("SELECT target_note_id FROM note_links WHERE source_note_id = ?").get(source.id) as { target_note_id: string | null };
+    expect(link.target_note_id).toBeNull();
+
+    const renamed = await request(`/api/notes/${target.id}`, {
+      method: "PATCH", body: JSON.stringify({ version: target.version + 1, title: "回收站里的新标题" }),
+    }, cookie);
+    expect(renamed.response.status).toBe(200);
+    expect((await request(`/api/notes/${source.id}`, {}, cookie)).body?.note.contentMarkdown).toBe(source.contentMarkdown);
+
+    const replacement = (await request("/api/notes", {
+      method: "POST", body: JSON.stringify({ title: target.title }),
+    }, cookie)).body?.note as Note;
+    const backlinks = await request(`/api/notes/${replacement.id}/backlinks`, {}, cookie);
+    expect(backlinks.response.status).toBe(200);
+    expect(backlinks.body?.linkedReferences.map((link: { sourceNoteId: string }) => link.sourceNoteId)).toContain(source.id);
+  });
+
   test("creates links, queries backlinks and unlinked mentions, and cascades title updates", async () => {
     // 1. Authenticate
     const auth = await request("/api/auth/login", {
