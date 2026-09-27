@@ -502,7 +502,7 @@ button.save-status:hover { text-decoration: underline; }
 .note-prose .table-scroll-shell table:has(> colgroup > col[style^="width:"]) { width: 100% !important; table-layout: fixed; }
 .note-prose .table-scroll-shell th, .note-prose .table-scroll-shell td { position: relative; min-width: 8rem; padding: 9px 12px; border-inline-end: 1px solid var(--border-soft); border-block-end: 1px solid var(--border-soft); overflow-wrap: anywhere; white-space: normal; text-align: start; vertical-align: top; }
 .note-prose .table-scroll-shell .column-resize-handle { position: absolute; z-index: 4; top: 0; right: -4px; bottom: 0; width: 8px; background: transparent; pointer-events: none; }
-.note-prose .table-scroll-shell .column-resize-handle::after { position: absolute; top: 5px; bottom: 5px; left: 3px; width: 1px; border-radius: 1px; background: var(--accent-border); content: ""; opacity: 0; }
+.note-prose .table-scroll-shell .column-resize-handle::after { position: absolute; top: -1px; bottom: -1px; left: 3px; width: 2px; border-radius: 0; background: var(--accent-border); content: ""; opacity: 0; }
 .note-prose.resize-cursor { cursor: col-resize; }
 .note-prose.resize-cursor .table-scroll-shell .column-resize-handle::after { opacity: 1; }
 .note-prose .table-scroll-shell .column-resize-dragging { background: var(--accent-soft); }
