@@ -3,12 +3,12 @@ import { Extension } from "@tiptap/core";
 import type { Editor } from "@tiptap/core";
 import { ReactRenderer } from "@tiptap/react";
 import Suggestion, { type SuggestionKeyDownProps, type SuggestionMatch } from "@tiptap/suggestion";
-import { Bookmark, Code2, Heading1, Heading2, Heading3, Heading4, ImagePlus, Info, Lightbulb, Link2, List, ListOrdered, ListTodo, Minus, Pilcrow, Quote, ShieldAlert, Table2, TriangleAlert, type LucideIcon } from "lucide-react";
+import { Bold, Bookmark, Code, Code2, Heading1, Heading2, Heading3, Heading4, Heading5, Heading6, ImagePlus, Info, Italic, Lightbulb, Link2, List, ListOrdered, ListTodo, Minus, Pilcrow, Quote, ShieldAlert, Strikethrough, Table2, TriangleAlert, Underline, type LucideIcon } from "lucide-react";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import type { CalloutType } from "./callout-node";
 import { FloatingScrollbar } from "../floating-scrollbar";
 
-type SlashAction = "paragraph" | "heading" | "bulletList" | "orderedList" | "taskList" | "blockquote" | "codeBlock" | "horizontalRule" | "callout" | "table" | "image" | "wikiLink";
+type SlashAction = "paragraph" | "heading" | "bulletList" | "orderedList" | "taskList" | "blockquote" | "codeBlock" | "horizontalRule" | "callout" | "table" | "image" | "wikiLink" | "bold" | "italic" | "strike" | "underline" | "inlineCode";
 type SlashCommandGroupId = "text" | "lists" | "callouts" | "insert";
 
 const slashCommandGroups: { id: SlashCommandGroupId; label: string; itemGroups: SlashCommandGroupId[] }[] = [
@@ -25,7 +25,7 @@ export type SlashCommandItem = {
   icon: LucideIcon;
   action: SlashAction;
   group: SlashCommandGroupId;
-  headingLevel?: 1 | 2 | 3 | 4;
+  headingLevel?: 1 | 2 | 3 | 4 | 5 | 6;
   calloutType?: CalloutType;
 };
 
@@ -34,6 +34,13 @@ const slashCommands: SlashCommandItem[] = [
   { id: "heading-2", label: "二级标题", description: "将当前段落设为 H2", keywords: ["h2", "heading 2", "subtitle", "标题 2"], icon: Heading2, action: "heading", group: "text", headingLevel: 2 },
   { id: "heading-3", label: "三级标题", description: "将当前段落设为 H3", keywords: ["h3", "heading 3", "标题 3"], icon: Heading3, action: "heading", group: "text", headingLevel: 3 },
   { id: "heading-4", label: "四级标题", description: "将当前段落设为 H4", keywords: ["h4", "heading 4", "标题 4"], icon: Heading4, action: "heading", group: "text", headingLevel: 4 },
+  { id: "heading-5", label: "五级标题", description: "将当前段落设为 H5", keywords: ["h5", "heading 5", "标题 5"], icon: Heading5, action: "heading", group: "text", headingLevel: 5 },
+  { id: "heading-6", label: "六级标题", description: "将当前段落设为 H6", keywords: ["h6", "heading 6", "标题 6"], icon: Heading6, action: "heading", group: "text", headingLevel: 6 },
+  { id: "bold", label: "加粗", description: "从光标处开始加粗", keywords: ["bold", "strong", "加粗", "粗体"], icon: Bold, action: "bold", group: "text" },
+  { id: "italic", label: "斜体", description: "从光标处开始使用斜体", keywords: ["italic", "emphasis", "斜体"], icon: Italic, action: "italic", group: "text" },
+  { id: "strike", label: "删除线", description: "从光标处开始添加删除线", keywords: ["strike", "strikethrough", "删除线"], icon: Strikethrough, action: "strike", group: "text" },
+  { id: "underline", label: "下划线", description: "从光标处开始添加下划线", keywords: ["underline", "下划线"], icon: Underline, action: "underline", group: "text" },
+  { id: "inline-code", label: "行内代码", description: "从光标处开始使用行内代码", keywords: ["inline code", "code", "行内代码"], icon: Code, action: "inlineCode", group: "text" },
   { id: "paragraph", label: "正文段落", description: "转换为普通段落", keywords: ["paragraph", "text", "正文"], icon: Pilcrow, action: "paragraph", group: "text" },
   { id: "blockquote", label: "引用", description: "将当前段落设为引用块", keywords: ["quote", "blockquote", "引用"], icon: Quote, action: "blockquote", group: "text" },
   { id: "code-block", label: "代码块", description: "插入代码围栏", keywords: ["code", "fence", "代码"], icon: Code2, action: "codeBlock", group: "text" },
@@ -336,6 +343,11 @@ export function insertSlashCommand(editor: Editor, range: { from: number; to: nu
     case "blockquote": chain.toggleBlockquote(); break;
     case "codeBlock": chain.toggleCodeBlock(); break;
     case "horizontalRule": chain.setHorizontalRule(); break;
+    case "bold": chain.toggleBold(); break;
+    case "italic": chain.toggleItalic(); break;
+    case "strike": chain.toggleStrike(); break;
+    case "underline": chain.toggleUnderline(); break;
+    case "inlineCode": chain.toggleCode(); break;
   }
   chain.run();
 }

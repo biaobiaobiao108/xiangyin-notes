@@ -6,6 +6,7 @@ import { Info, Table2 } from "lucide-react";
 import { formatPreview } from "../server/core";
 import { CalloutNode, CALLOUT_TYPES, shouldExitCalloutOnEnter } from "../app/editor/callout-node";
 import { CodeBlockDoubleEnter, handleCodeBlockDoubleEnter, shouldExitCodeBlockOnEnter } from "../app/editor/code-block-enter";
+import { createCodeBlockLowlightExtension } from "../app/editor/code-block-lowlight";
 import { adjustActiveTableSize, getActiveTableContext, getActiveTableSnapshot, getTableEdgeDragDelta, restoreActiveTableSnapshot, snapTableEdgeDrag } from "../app/editor/table-edge-commands";
 import { filterSlashCommandItems, findSlashCommandMatch, getNextGroupedSlashCommandIndex, getNextSlashCommandIndex, groupSlashCommandItems, insertSlashCommand, isSlashCommandImeEscape, isSlashCommandImeEvent } from "../app/editor/slash-command-menu";
 import { createTableExtensions } from "../app/editor/table-extensions";
@@ -13,7 +14,8 @@ import { createTableExtensions } from "../app/editor/table-extensions";
 function createMarkdownEditor(content: string) {
   return new Editor({
     extensions: [
-      StarterKit.configure({ heading: { levels: [1, 2, 3, 4] }, codeBlock: { exitOnTripleEnter: false } }),
+      StarterKit.configure({ heading: { levels: [1, 2, 3, 4, 5, 6] }, codeBlock: false }),
+      createCodeBlockLowlightExtension(),
       CodeBlockDoubleEnter,
       ...createTableExtensions(),
       Markdown,
@@ -103,7 +105,7 @@ describe("GFM table markdown integration", () => {
   test("table commands insert a header table and mutate rows and columns", () => {
     const editor = new Editor({
       extensions: [
-        StarterKit.configure({ heading: { levels: [1, 2, 3, 4] } }),
+        StarterKit.configure({ heading: { levels: [1, 2, 3, 4, 5, 6] } }),
         ...createTableExtensions(),
         Markdown,
         CalloutNode,
@@ -143,14 +145,51 @@ describe("GFM table markdown integration", () => {
     }
   });
 
-  test("parses and serializes H4 headings", () => {
-    const editor = createMarkdownEditor("#### 四级标题");
+  test.each([
+    [4, "#### 四级标题"],
+    [5, "##### 五级标题"],
+    [6, "###### 六级标题"],
+  ] as const)("parses and serializes H%i headings", (level, source) => {
+    const editor = createMarkdownEditor(source);
     try {
       expect(editor.state.doc.firstChild?.type.name).toBe("heading");
-      expect(editor.state.doc.firstChild?.attrs.level).toBe(4);
-      expect((editor as Editor & { getMarkdown: () => string }).getMarkdown()).toBe("#### 四级标题");
+      expect(editor.state.doc.firstChild?.attrs.level).toBe(level);
+      expect((editor as Editor & { getMarkdown: () => string }).getMarkdown()).toBe(source);
     } finally {
       editor.destroy();
+    }
+  });
+
+  test("highlights common code languages and preserves fenced Markdown", () => {
+    const source = "```ts\nconst answer: number = 42;\n```";
+    const editor = createMarkdownEditor(source);
+    try {
+      const codeBlock = editor.state.doc.firstChild;
+      expect(codeBlock?.type.name).toBe("codeBlock");
+      expect(codeBlock?.attrs.language).toBe("ts");
+      expect((editor as Editor & { getMarkdown: () => string }).getMarkdown()).toBe(source);
+      const lowlight = createCodeBlockLowlightExtension().options.lowlight as { highlight: (language: string, code: string) => unknown };
+      expect(JSON.stringify(lowlight.highlight("ts", "const answer: number = 42;"))).toContain("hljs-keyword");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  test("keeps unlabelled and unknown-language code blocks plain", () => {
+    for (const source of ["```\nconst answer = 42;\n```", "```unknown-language\nconst answer = 42;\n```"]) {
+      const editor = createMarkdownEditor(source);
+      try {
+        const lowlight = createCodeBlockLowlightExtension().options.lowlight as {
+          highlight: (language: string, code: string) => unknown;
+          highlightAuto: (code: string) => unknown;
+        };
+        const code = "const answer = 42;";
+        expect(JSON.stringify(lowlight.highlight("unknown-language", code))).not.toContain("hljs-");
+        expect(JSON.stringify(lowlight.highlightAuto(code))).not.toContain("hljs-");
+        expect((editor as Editor & { getMarkdown: () => string }).getMarkdown()).toContain("const answer = 42;");
+      } finally {
+        editor.destroy();
+      }
     }
   });
 });
@@ -464,19 +503,37 @@ describe("slash command matching", () => {
     }
   });
 
+  test.each([
+    [5, "五级标题", "heading-5"],
+    [6, "六级标题", "heading-6"],
+  ] as const)("inserts H%i through its slash suggestion", (level, label, id) => {
+    const query = `/${label}`;
+    const editor = createMarkdownEditor(query);
+    try {
+      const item = filterSlashCommandItems(label).find((candidate) => candidate.id === id);
+      expect(item).toBeDefined();
+      editor.commands.setTextSelection(query.length + 1);
+      insertSlashCommand(editor, { from: 1, to: query.length + 1 }, item!);
+      expect(editor.state.doc.firstChild?.type.name).toBe("heading");
+      expect(editor.state.doc.firstChild?.attrs.level).toBe(level);
+    } finally {
+      editor.destroy();
+    }
+  });
+
   test("bare slash opens a three-column menu and uses two/three-column spatial navigation", () => {
     const groups = groupSlashCommandItems(filterSlashCommandItems(""));
     expect(groups.map((group) => group.id)).toEqual(["text", "lists", "callouts"]);
-    expect(groups.map((group) => group.items.length)).toEqual([8, 4, 7]);
+    expect(groups.map((group) => group.items.length)).toEqual([15, 4, 7]);
     expect(groups.flatMap((group) => group.items).some((item) => item.id === "table")).toBe(true);
 
     const itemGroups = groups.map((group) => group.items);
-    expect(getNextGroupedSlashCommandIndex(0, "ArrowRight", itemGroups, 3)).toBe(8);
-    expect(getNextGroupedSlashCommandIndex(8, "ArrowRight", itemGroups, 3)).toBe(12);
-    expect(getNextGroupedSlashCommandIndex(12, "ArrowRight", itemGroups, 3)).toBe(0);
-    expect(getNextGroupedSlashCommandIndex(0, "ArrowRight", itemGroups, 2)).toBe(8);
-    expect(getNextGroupedSlashCommandIndex(7, "ArrowDown", itemGroups, 2)).toBe(12);
-    expect(getNextGroupedSlashCommandIndex(11, "ArrowDown", itemGroups, 2)).toBe(12);
+    expect(getNextGroupedSlashCommandIndex(0, "ArrowRight", itemGroups, 3)).toBe(15);
+    expect(getNextGroupedSlashCommandIndex(15, "ArrowRight", itemGroups, 3)).toBe(19);
+    expect(getNextGroupedSlashCommandIndex(19, "ArrowRight", itemGroups, 3)).toBe(0);
+    expect(getNextGroupedSlashCommandIndex(0, "ArrowRight", itemGroups, 2)).toBe(15);
+    expect(getNextGroupedSlashCommandIndex(14, "ArrowDown", itemGroups, 2)).toBe(19);
+    expect(getNextGroupedSlashCommandIndex(25, "ArrowDown", itemGroups, 2)).toBe(0);
   });
 
   test("suggestion mode keyboard movement is a compact single column", () => {
@@ -487,6 +544,8 @@ describe("slash command matching", () => {
 
   test("shows the exact heading suggestion while the full Chinese command is typed", () => {
     expect(filterSlashCommandItems("一级标题").map((item) => item.id)).toEqual(["heading-1"]);
+    expect(filterSlashCommandItems("五级标题").map((item) => item.id)).toEqual(["heading-5"]);
+    expect(filterSlashCommandItems("六级标题").map((item) => item.id)).toEqual(["heading-6"]);
     const match = findSlashCommandMatch({
       $position: {
         pos: 5,
@@ -495,6 +554,41 @@ describe("slash command matching", () => {
       },
     });
     expect(match?.query).toBe("一级标题");
+  });
+
+  test.each([
+    ["加粗", "bold"],
+    ["斜体", "italic"],
+    ["删除线", "strike"],
+    ["下划线", "underline"],
+    ["行内代码", "inline-code"],
+  ])("applies the %s formatting slash command at the cursor", (label, id) => {
+    const query = `/${label}`;
+    const editor = createMarkdownEditor(query);
+    try {
+      const item = filterSlashCommandItems(label).find((candidate) => candidate.id === id);
+      expect(item).toBeDefined();
+      editor.commands.setTextSelection(query.length + 1);
+      insertSlashCommand(editor, { from: 1, to: query.length + 1 }, item!);
+      expect(editor.state.storedMarks?.some((mark) => mark.type.name === ({ bold: "bold", italic: "italic", strike: "strike", underline: "underline", "inline-code": "code" } as const)[id])).toBe(true);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  test.each([
+    "**加粗**",
+    "*斜体*",
+    "~~删除线~~",
+    "++下划线++",
+    "`行内代码`",
+  ])("round-trips Markdown inline formatting %s", (source) => {
+    const editor = createMarkdownEditor(source);
+    try {
+      expect((editor as Editor & { getMarkdown: () => string }).getMarkdown()).toBe(source);
+    } finally {
+      editor.destroy();
+    }
   });
 
   test("does not match slash inside a word or an escaped slash", () => {

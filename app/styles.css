@@ -85,6 +85,13 @@
   --prose-placeholder: light-dark(#bec5bf, #737aa2);
   --code-ink: light-dark(#315d45, #9ece6a);
   --code-inline-ink: light-dark(#8d4b37, #bb9af7);
+  --code-syntax-comment: light-dark(#78816f, #737aa2);
+  --code-syntax-keyword: light-dark(#805b8e, #bb9af7);
+  --code-syntax-string: light-dark(#477453, #9ece6a);
+  --code-syntax-number: light-dark(#a05d3a, #ff9e64);
+  --code-syntax-title: light-dark(#315f7a, #7dcfff);
+  --code-syntax-attribute: light-dark(#8d4b37, #e0af68);
+  --code-syntax-meta: light-dark(#5e6b4d, #c3e88d);
   --blockquote-border: light-dark(#9da9a1, #565f89);
   --outline-tree-line: light-dark(rgba(32, 38, 33, 0.08), rgba(192, 202, 245, 0.14));
   --danger-contrast: light-dark(#ffffff, #1a1b26);
@@ -481,11 +488,13 @@ button.save-status:hover { text-decoration: underline; }
 .note-prose .editor-tag { display: inline; padding: 0.08em 0.22em; border-radius: 0.28em; background: var(--h2-soft); color: var(--h2-color); font-weight: 600; box-shadow: inset 0 -1px 0 var(--h2-border); box-decoration-break: clone; -webkit-box-decoration-break: clone; overflow-wrap: anywhere; }
 .note-prose .editor-tag.editor-search-match--active { background: var(--accent); color: var(--accent-contrast); box-shadow: 0 0 0 2px var(--focus-soft); }
 .note-prose > *:first-child { margin-top: 0; }
-.note-prose h1, .note-prose h2, .note-prose h3, .note-prose h4 { margin-block: 1.15em 0.4em; letter-spacing: 0; line-height: 1.25; scroll-margin-block-start: 24px; }
+.note-prose h1, .note-prose h2, .note-prose h3, .note-prose h4, .note-prose h5, .note-prose h6 { margin-block: 1.15em 0.4em; letter-spacing: 0; line-height: 1.25; scroll-margin-block-start: 24px; }
 .note-prose h1 { font-size: 1.85rem; color: var(--h1-color); font-weight: 700; line-height: 1.15; }
 .note-prose h2 { font-size: 1.45rem; color: var(--h2-color); font-weight: 650; }
 .note-prose h3 { font-size: 1.18rem; color: var(--h3-color); font-weight: 600; }
 .note-prose h4 { font-size: 1.04rem; color: var(--h4-color); font-weight: 600; }
+.note-prose h5 { font-size: 0.98rem; color: var(--muted); font-weight: 600; }
+.note-prose h6 { font-size: 0.92rem; color: var(--quiet-ink); font-weight: 600; }
 .note-prose p { margin-block: 0 0.75em; }
 .note-prose strong, .note-prose b, .share-prose strong, .share-prose b { color: var(--ink); font-weight: 700; }
 .note-prose a { color: var(--accent-dark); text-decoration-thickness: 1px; text-underline-offset: 3px; cursor: pointer; }
@@ -497,6 +506,13 @@ button.save-status:hover { text-decoration: underline; }
 .note-prose pre { overflow: clip; overflow-wrap: anywhere; white-space: pre-wrap; margin-block: 1em; padding: 18px 20px; border: 1px solid var(--border-soft); border-radius: 10px; background: var(--surface-code); color: var(--code-ink); font: 0.85rem/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
 .note-prose code { padding: 0.13em 0.34em; border-radius: 4px; background: var(--surface-code-inline); color: var(--code-inline-ink); font-family: inherit; font-size: 0.86em; }
 .note-prose pre code { padding: 0; background: transparent; color: inherit; }
+.note-prose pre .hljs-comment, .note-prose pre .hljs-quote { color: var(--code-syntax-comment); font-style: italic; }
+.note-prose pre .hljs-keyword, .note-prose pre .hljs-selector-tag, .note-prose pre .hljs-literal, .note-prose pre .hljs-type { color: var(--code-syntax-keyword); }
+.note-prose pre .hljs-string, .note-prose pre .hljs-regexp, .note-prose pre .hljs-addition, .note-prose pre .hljs-template-tag { color: var(--code-syntax-string); }
+.note-prose pre .hljs-number, .note-prose pre .hljs-symbol, .note-prose pre .hljs-bullet, .note-prose pre .hljs-variable, .note-prose pre .hljs-template-variable { color: var(--code-syntax-number); }
+.note-prose pre .hljs-title, .note-prose pre .hljs-section, .note-prose pre .hljs-title.function_, .note-prose pre .hljs-title.class_ { color: var(--code-syntax-title); }
+.note-prose pre .hljs-attr, .note-prose pre .hljs-attribute, .note-prose pre .hljs-property, .note-prose pre .hljs-selector-attr, .note-prose pre .hljs-selector-class { color: var(--code-syntax-attribute); }
+.note-prose pre .hljs-meta, .note-prose pre .hljs-built_in, .note-prose pre .hljs-name, .note-prose pre .hljs-tag { color: var(--code-syntax-meta); }
 .note-prose .table-scroll-shell { position: relative; display: block; max-width: 100%; margin-block: 1.05em; padding-block-end: 18px; overflow-x: auto; overflow-y: hidden; overscroll-behavior-inline: contain; }
 .note-prose .table-scroll-shell table { width: fit-content; min-width: 0; max-width: none; border-collapse: separate; border-spacing: 0; table-layout: auto; color: var(--ink-soft); font-size: 0.9rem; line-height: 1.45; }
 .note-prose .table-scroll-shell table:has(> colgroup > col[style^="width:"]) { width: auto; min-width: 0; table-layout: fixed; }
@@ -689,7 +705,9 @@ button.save-status:hover { text-decoration: underline; }
   background: var(--outline-tree-line);
 }
 
-.editor-outline-item--level-4::before {
+.editor-outline-item--level-4::before,
+.editor-outline-item--level-5::before,
+.editor-outline-item--level-6::before {
   content: "";
   position: absolute;
   left: 13px;
@@ -699,7 +717,9 @@ button.save-status:hover { text-decoration: underline; }
   background: var(--outline-tree-line);
 }
 
-.editor-outline-item--level-4::after {
+.editor-outline-item--level-4::after,
+.editor-outline-item--level-5::after,
+.editor-outline-item--level-6::after {
   content: "";
   position: absolute;
   left: 26px;
@@ -708,6 +728,14 @@ button.save-status:hover { text-decoration: underline; }
   width: 1px;
   background: var(--outline-tree-line);
   box-shadow: 13px 0 0 var(--outline-tree-line);
+}
+
+.editor-outline-item--level-5::after {
+  box-shadow: 13px 0 0 var(--outline-tree-line), 26px 0 0 var(--outline-tree-line);
+}
+
+.editor-outline-item--level-6::after {
+  box-shadow: 13px 0 0 var(--outline-tree-line), 26px 0 0 var(--outline-tree-line), 39px 0 0 var(--outline-tree-line);
 }
 
 .editor-outline-item button {
@@ -763,6 +791,22 @@ button.save-status:hover { text-decoration: underline; }
   font-weight: 450;
 }
 
+.editor-outline-item--level-5 button {
+  min-height: 30px;
+  padding: 4px 10px 4px 66px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 400;
+}
+
+.editor-outline-item--level-6 button {
+  min-height: 29px;
+  padding: 3px 10px 3px 80px;
+  color: var(--soft-muted);
+  font-size: 0.74rem;
+  font-weight: 400;
+}
+
 /* 精致微节点 (Marker) */
 .outline-level-marker {
   flex: none;
@@ -807,6 +851,16 @@ button.save-status:hover { text-decoration: underline; }
   margin-inline: 1px;
   border: 1px solid currentColor;
   background: transparent;
+}
+
+.outline-level-marker--5,
+.outline-level-marker--6 {
+  width: 3px;
+  height: 3px;
+  margin-top: 0.6em;
+  margin-inline: 1px;
+  background: currentColor;
+  opacity: 0.72;
 }
 
 .outline-item-title {
@@ -866,12 +920,21 @@ button.save-status:hover { text-decoration: underline; }
 }
 
 .editor-outline-item--level-4 button:hover,
-.editor-outline-item--level-4 button[aria-current="true"] {
+.editor-outline-item--level-4 button[aria-current="true"],
+.editor-outline-item--level-5 button:hover,
+.editor-outline-item--level-5 button[aria-current="true"],
+.editor-outline-item--level-6 button:hover,
+.editor-outline-item--level-6 button[aria-current="true"] {
   background: var(--surface-muted);
   color: var(--h4-color);
 }
 .editor-outline-item--level-4 button[aria-current="true"] .outline-level-marker--4 {
   background: currentColor;
+  box-shadow: 0 0 0 3px var(--focus-soft-subtle);
+}
+.editor-outline-item--level-5 button[aria-current="true"] .outline-level-marker--5,
+.editor-outline-item--level-6 button[aria-current="true"] .outline-level-marker--6 {
+  opacity: 1;
   box-shadow: 0 0 0 3px var(--focus-soft-subtle);
 }
 

@@ -12,12 +12,14 @@ import { WikiLinkNode } from "./wiki-link-node";
 import { CalloutNode } from "./callout-node";
 import { TableScrollbars } from "./table-scrollbars";
 import { createTableExtensions } from "./table-extensions";
+import { createCodeBlockLowlightExtension } from "./code-block-lowlight";
 
 export function ReadOnlyMarkdown({ markdown }: { markdown: string }) {
   const initialContentRef = useRef(markdown);
   const rootRef = useRef<HTMLDivElement>(null);
   const extensions = useMemo(() => [
-    StarterKit.configure({ heading: { levels: [1, 2, 3, 4] }, link: false }),
+    StarterKit.configure({ heading: { levels: [1, 2, 3, 4, 5, 6] }, link: false, codeBlock: false }),
+    createCodeBlockLowlightExtension(),
     ...createTableExtensions(),
     Link.configure({ openOnClick: true, autolink: true, HTMLAttributes: { rel: "noopener noreferrer", target: "_blank" } }),
     TaskList,

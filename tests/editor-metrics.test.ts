@@ -25,12 +25,16 @@ describe("editor metrics", () => {
       { level: 2, title: "开始" },
       { level: 3, title: "  " },
       { level: 4, title: "细节" },
+      { level: 5, title: "更深一层" },
+      { level: 6, title: "最深一层" },
     ]);
     expect(items.map(({ id, level, title }) => ({ id, level, title }))).toEqual([
       { id: "xiangying-heading-1-开始", level: 1, title: "开始" },
       { id: "xiangying-heading-2-开始", level: 2, title: "开始" },
       { id: "xiangying-heading-3-section", level: 3, title: "  " },
       { id: "xiangying-heading-4-细节", level: 4, title: "细节" },
+      { id: "xiangying-heading-5-更深一层", level: 5, title: "更深一层" },
+      { id: "xiangying-heading-6-最深一层", level: 6, title: "最深一层" },
     ]);
   });
 
@@ -38,11 +42,15 @@ describe("editor metrics", () => {
     expect(isMarkdownHeadingMarker("#")).toBe(true);
     expect(isMarkdownHeadingMarker("###")).toBe(true);
     expect(isMarkdownHeadingMarker("####")).toBe(true);
-    expect(isMarkdownHeadingMarker("#####")).toBe(false);
+    expect(isMarkdownHeadingMarker("#####")).toBe(true);
+    expect(isMarkdownHeadingMarker("######")).toBe(true);
+    expect(isMarkdownHeadingMarker("#######")).toBe(false);
     expect(isMarkdownHeadingMarker("## title")).toBe(false);
     expect(parseMarkdownHeadingPrefix("## ")).toEqual({ level: 2, length: 3 });
     expect(parseMarkdownHeadingPrefix("### title")).toEqual({ level: 3, length: 4 });
     expect(parseMarkdownHeadingPrefix("#### ")).toEqual({ level: 4, length: 5 });
+    expect(parseMarkdownHeadingPrefix("##### ")).toEqual({ level: 5, length: 6 });
+    expect(parseMarkdownHeadingPrefix("###### ")).toEqual({ level: 6, length: 7 });
     expect(parseMarkdownHeadingPrefix("#title")).toBeNull();
   });
 
@@ -51,7 +59,9 @@ describe("editor metrics", () => {
     expect(parseMarkdownBlockShortcut("## ")).toEqual({ type: "heading", level: 2, length: 3 });
     expect(parseMarkdownBlockShortcut("### ")).toEqual({ type: "heading", level: 3, length: 4 });
     expect(parseMarkdownBlockShortcut("#### ")).toEqual({ type: "heading", level: 4, length: 5 });
-    expect(parseMarkdownBlockShortcut("##### ")).toBeNull();
+    expect(parseMarkdownBlockShortcut("##### ")).toEqual({ type: "heading", level: 5, length: 6 });
+    expect(parseMarkdownBlockShortcut("###### ")).toEqual({ type: "heading", level: 6, length: 7 });
+    expect(parseMarkdownBlockShortcut("####### ")).toBeNull();
     // Full-width hash and full-width space
     expect(parseMarkdownBlockShortcut("＃ ")).toEqual({ type: "heading", level: 1, length: 2 });
     expect(parseMarkdownBlockShortcut("＃＃ ")).toEqual({ type: "heading", level: 2, length: 3 });
@@ -87,6 +97,7 @@ describe("editor metrics", () => {
   test("detects Markdown clipboard text without overriding ordinary rich text", () => {
     expect(shouldParseMarkdownPaste("普通文本\n下一行", false)).toBe(true);
     expect(shouldParseMarkdownPaste("# 一级标题\n\n- 列表项", true)).toBe(true);
+    expect(shouldParseMarkdownPaste("###### 六级标题", true)).toBe(true);
     expect(shouldParseMarkdownPaste("> 引用\n\n```ts\nconst answer = 42\n```", true)).toBe(true);
     expect(shouldParseMarkdownPaste("网页复制的普通富文本", true)).toBe(false);
     expect(shouldParseMarkdownPaste("   ", false)).toBe(false);

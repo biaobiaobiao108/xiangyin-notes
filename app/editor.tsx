@@ -25,6 +25,7 @@ import { WikiLinkNode } from "./editor/wiki-link-node";
 import { WikiLinkSuggestionExtension } from "./editor/wiki-link-suggestion";
 import { CalloutNode } from "./editor/callout-node";
 import { CodeBlockDoubleEnter } from "./editor/code-block-enter";
+import { createCodeBlockLowlightExtension } from "./editor/code-block-lowlight";
 import { SlashCommandExtension } from "./editor/slash-command-menu";
 import { TableScrollbars } from "./editor/table-scrollbars";
 import { createTableExtensions } from "./editor/table-extensions";
@@ -35,7 +36,7 @@ type EditorWithMarkdown = Editor & { getMarkdown: () => string };
 type SaveState = "idle" | "saving" | "saved" | "conflict" | "error";
 
 const MAX_IMAGE_FILES_PER_ACTION = 10;
-const OUTLINE_HEADING_SELECTOR = "h1, h2, h3, h4";
+const OUTLINE_HEADING_SELECTOR = "h1, h2, h3, h4, h5, h6";
 
 function resizeTitleField(field: HTMLTextAreaElement | null) {
   if (!field) return;
@@ -271,7 +272,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
 
     const headingElements = Array.from(instance.view.dom.querySelectorAll<HTMLElement>(OUTLINE_HEADING_SELECTOR));
     const outlineHeadingElements = headingElements.filter((element) => Boolean(element.textContent?.trim()));
-    const generatedItems = buildOutlineItems(outlineHeadingElements.map((element) => ({ level: Number(element.tagName.slice(1)) as 1 | 2 | 3 | 4, title: element.textContent?.trim() ?? "" })));
+    const generatedItems = buildOutlineItems(outlineHeadingElements.map((element) => ({ level: Number(element.tagName.slice(1)) as 1 | 2 | 3 | 4 | 5 | 6, title: element.textContent?.trim() ?? "" })));
     const previousIds = new Map<HTMLElement, string>();
     for (const [id, element] of outlineHeadingElementsRef.current) previousIds.set(element, id);
     const usedIds = new Set<string>();
@@ -381,7 +382,8 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   };
 
   const extensions = useMemo(() => [
-    StarterKit.configure({ heading: { levels: [1, 2, 3, 4] }, link: false, codeBlock: { exitOnTripleEnter: false } }),
+    StarterKit.configure({ heading: { levels: [1, 2, 3, 4, 5, 6] }, link: false, codeBlock: false }),
+    createCodeBlockLowlightExtension(),
     CodeBlockDoubleEnter,
     ...createTableExtensions(),
     Link.configure({ openOnClick: false, autolink: true, linkOnPaste: true, HTMLAttributes: { title: "按住 Ctrl 或 ⌘ 点击打开链接" } }),
@@ -1083,7 +1085,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
 
     const handleUserScroll = (event?: Event) => {
       cancelOutlineSmoothScroll();
-      if (event?.type === "pointerdown" && event.target instanceof Element && event.target.closest("h1, h2, h3, h4")) return;
+      if (event?.type === "pointerdown" && event.target instanceof Element && event.target.closest("h1, h2, h3, h4, h5, h6")) return;
       scheduleActiveHeading();
     };
 
