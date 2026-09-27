@@ -137,6 +137,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   const outlineTriggerRef = useRef<HTMLButtonElement>(null);
   const syncFrameRef = useRef<number | null>(null);
   const markdownSyncFrameRef = useRef<number | null>(null);
+  const markdownDirtyRef = useRef(false);
   const composingRef = useRef(false);
   const leakedCandidateRef = useRef<{ key: string; blockStartPos: number; emptyAtStart: boolean } | null>(null);
   const imeCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -724,16 +725,20 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       cancelAnimationFrame(markdownSyncFrameRef.current);
       markdownSyncFrameRef.current = null;
     }
+    if (!markdownDirtyRef.current) return;
     const instance = (source ?? editorInstanceRef.current) as EditorWithMarkdown | null;
     if (!instance || instance.isDestroyed) return;
+    markdownDirtyRef.current = false;
     onChangeRef.current({ contentMarkdown: instance.getMarkdown() });
   }, []);
 
   const scheduleMarkdownChange = useCallback((instance: Editor) => {
+    markdownDirtyRef.current = true;
     if (markdownSyncFrameRef.current !== null) return;
     markdownSyncFrameRef.current = requestAnimationFrame(() => {
       markdownSyncFrameRef.current = null;
-      if (instance.isDestroyed) return;
+      if (instance.isDestroyed || !markdownDirtyRef.current) return;
+      markdownDirtyRef.current = false;
       onChangeRef.current({ contentMarkdown: (instance as EditorWithMarkdown).getMarkdown() });
     });
   }, []);
@@ -820,7 +825,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
 
   useEffect(() => {
     if (!editor) return;
-    const readCurrentMarkdown = () => editor.isDestroyed ? null : (editor as EditorWithMarkdown).getMarkdown();
+    const readCurrentMarkdown = () => editor.isDestroyed || !markdownDirtyRef.current ? null : (editor as EditorWithMarkdown).getMarkdown();
     onMarkdownReaderChange?.(readCurrentMarkdown);
     return () => onMarkdownReaderChange?.(null);
   }, [editor, onMarkdownReaderChange]);
@@ -951,6 +956,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     outlineHeadingElementsRef.current.clear();
     outlineSelectionSynchronizedRef.current = false;
     setEditorStats(countEditorText(""));
+    markdownDirtyRef.current = false;
     if (markdownSyncFrameRef.current !== null) cancelAnimationFrame(markdownSyncFrameRef.current);
     markdownSyncFrameRef.current = null;
     editor.commands.setContent(note.contentMarkdown, { contentType: "markdown", emitUpdate: false });

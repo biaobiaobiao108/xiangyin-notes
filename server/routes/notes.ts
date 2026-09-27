@@ -649,12 +649,22 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     if (payload.isFavorite !== undefined && typeof payload.isFavorite !== "boolean") return jsonError(400, "INVALID_NOTE", "收藏状态无效");
     if (payload.deleted !== undefined && typeof payload.deleted !== "boolean") return jsonError(400, "INVALID_NOTE", "回收站状态无效");
     const isFavorite = payload.isFavorite === undefined ? current.is_favorite : payload.isFavorite ? 1 : 0;
-    const deletedAt = payload.deleted === undefined ? current.deleted_at : payload.deleted ? now() : null;
+    const isDeleted = current.deleted_at !== null;
+    const deletedAt = payload.deleted === undefined || payload.deleted === isDeleted
+      ? current.deleted_at
+      : payload.deleted ? now() : null;
     if (!validText(rawTitle, 200) || !validText(contentMarkdown, 1_000_000) || typeof notebookId !== "string") return jsonError(413, "NOTE_TOO_LARGE", "笔记标题或正文超出长度限制");
     const title = normalizeNoteTitle(rawTitle as string);
     if (!first(database, "SELECT id FROM notebooks WHERE id = ? AND user_id = ?", notebookId, user.id)) return jsonError(400, "INVALID_NOTEBOOK", "笔记本不存在");
     const contentChanged = current.content_markdown !== contentMarkdown;
     if (contentChanged && !validNoteAssetReferences(database, user.id, current.id, contentMarkdown as string)) return jsonError(400, "INVALID_ASSET", "笔记引用了无权访问的图片");
+    const summaryResponse = url.searchParams.get("response") === "summary";
+    const hasChanges = current.title !== title
+      || contentChanged
+      || current.notebook_id !== notebookId
+      || current.is_favorite !== isFavorite
+      || current.deleted_at !== deletedAt;
+    if (!hasChanges) return json({ note: summaryResponse ? toNote(current) : toFullNote(current) });
     let updated: boolean;
     try {
       updated = updateNote(database, current, user.id, title, contentMarkdown as string, notebookId, isFavorite, deletedAt);
@@ -669,7 +679,6 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     }
     const note = getNote(database, user.id, current.id);
     publishWorkspaceChange(options, user.id, { resource: "notes", ...(current.title === title ? { noteId: current.id } : {}) }, request);
-    const summaryResponse = url.searchParams.get("response") === "summary";
     return json({ note: note ? summaryResponse ? toNote(note) : toFullNote(note) : null });
   }
 
