@@ -21,6 +21,7 @@ import {
   json,
   jsonError,
   NOTE_BODY_MAX_BYTES,
+  NOTE_CONTENT_MAX_LENGTH,
   NOTE_FROM,
   NOTE_LIST_SELECT,
   NOTE_PAGE_SIZE,
@@ -58,6 +59,12 @@ import { publishWorkspaceChange } from "../realtime";
 const NOTE_BATCH_LIMIT = 500;
 const NOTE_BATCH_BODY_MAX_BYTES = 64 * 1024;
 const NOTE_SORTS: NoteSort[] = ["updated", "created", "title"];
+
+class NoteRenameContentTooLargeError extends Error {
+  constructor() {
+    super("note-rename-content-too-large");
+  }
+}
 
 type NoteListCursor = {
   sort: NoteSort;
@@ -200,6 +207,7 @@ export function updateNoteInTransaction(
       if (!refNote) continue;
       const { content: replacedContent, count } = replaceWikiLinkTarget(refNote.content_markdown, oldTitle, title);
       if (count > 0) {
+        if (replacedContent.length > NOTE_CONTENT_MAX_LENGTH) throw new NoteRenameContentTooLargeError();
         database.query("UPDATE notes SET content_markdown = ?, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ?").run(replacedContent, updatedAt, refNote.id, userId);
         syncNoteTags(database, userId, refNote.id, replacedContent);
         syncNoteShortSearchTerms(database, userId, refNote.id, refNote.title, replacedContent);
@@ -652,6 +660,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
       updated = updateNote(database, current, user.id, title, contentMarkdown as string, notebookId, isFavorite, deletedAt);
     } catch (error) {
       if (error instanceof InvalidNoteAssetsError) return jsonError(400, "INVALID_ASSET", "笔记引用了无权访问的图片");
+      if (error instanceof NoteRenameContentTooLargeError) return jsonError(413, "NOTE_TOO_LARGE", "重命名会使引用这篇笔记的正文超出长度限制，请缩短标题或减少双向链接后重试");
       throw error;
     }
     if (!updated) {
