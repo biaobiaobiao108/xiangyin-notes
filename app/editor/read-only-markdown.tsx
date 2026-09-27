@@ -10,6 +10,7 @@ import { TagDecorationExtension } from "./tag-decoration";
 import { WikiLinkNode } from "./wiki-link-node";
 import { CalloutNode } from "./callout-node";
 import { NoteLink } from "./note-link";
+import { CodeBlockWithCopy } from "./code-block-copy";
 import { TableScrollbars } from "./table-scrollbars";
 import { createTableExtensions } from "./table-extensions";
 
@@ -17,7 +18,8 @@ export function ReadOnlyMarkdown({ markdown }: { markdown: string }) {
   const initialContentRef = useRef(markdown);
   const rootRef = useRef<HTMLDivElement>(null);
   const extensions = useMemo(() => [
-    StarterKit.configure({ heading: { levels: [1, 2, 3, 4, 5, 6] }, link: false }),
+    StarterKit.configure({ heading: { levels: [1, 2, 3, 4, 5, 6] }, link: false, codeBlock: false }),
+    CodeBlockWithCopy.configure({ exitOnTripleEnter: false }),
     ...createTableExtensions(),
     NoteLink.configure({ openOnClick: true, autolink: true, HTMLAttributes: { rel: "noopener noreferrer", target: "_blank" } }),
     TaskList,

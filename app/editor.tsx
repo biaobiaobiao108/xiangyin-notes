@@ -24,6 +24,7 @@ import { WikiLinkNode } from "./editor/wiki-link-node";
 import { WikiLinkSuggestionExtension } from "./editor/wiki-link-suggestion";
 import { CalloutNode } from "./editor/callout-node";
 import { NoteLink } from "./editor/note-link";
+import { CodeBlockWithCopy } from "./editor/code-block-copy";
 import { CodeBlockDoubleEnter } from "./editor/code-block-enter";
 import { pastePlainTextIntoCodeBlock } from "./editor/code-block-paste";
 import { SlashCommandExtension } from "./editor/slash-command-menu";
@@ -382,7 +383,8 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   };
 
   const extensions = useMemo(() => [
-    StarterKit.configure({ heading: { levels: [1, 2, 3, 4, 5, 6] }, link: false, codeBlock: { exitOnTripleEnter: false } }),
+    StarterKit.configure({ heading: { levels: [1, 2, 3, 4, 5, 6] }, link: false, codeBlock: false }),
+    CodeBlockWithCopy.configure({ exitOnTripleEnter: false }),
     CodeBlockDoubleEnter,
     ...createTableExtensions(),
     NoteLink.configure({ openOnClick: false, autolink: true, linkOnPaste: true }),

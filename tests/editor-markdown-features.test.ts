@@ -8,6 +8,7 @@ import { CalloutNode, CALLOUT_TYPES, shouldExitCalloutOnEnter } from "../app/edi
 import { CodeBlockDoubleEnter, handleCodeBlockDoubleEnter, shouldExitCodeBlockOnEnter } from "../app/editor/code-block-enter";
 import { ImageNode } from "../app/editor/image-node";
 import { NoteLink } from "../app/editor/note-link";
+import { copyCodeBlockText } from "../app/editor/code-block-copy";
 import { pastePlainTextIntoCodeBlock } from "../app/editor/code-block-paste";
 import { adjustActiveTableSize, getActiveTableContext, getActiveTableSnapshot, getTableEdgeDragDelta, restoreActiveTableSnapshot, snapTableEdgeDrag } from "../app/editor/table-edge-commands";
 import { filterSlashCommandItems, findSlashCommandMatch, getNextGroupedSlashCommandIndex, getNextSlashCommandIndex, groupSlashCommandItems, insertSlashCommand, isSlashCommandImeEscape, isSlashCommandImeEvent } from "../app/editor/slash-command-menu";
@@ -220,6 +221,16 @@ describe("code block paste behavior", () => {
     } finally {
       editor.destroy();
     }
+  });
+});
+
+describe("code block copy", () => {
+  test("copies the exact code text including line breaks", async () => {
+    let copiedText = "";
+    await copyCodeBlockText("first line\nsecond line\n", {
+      writeText: async (text) => { copiedText = text; },
+    });
+    expect(copiedText).toBe("first line\nsecond line\n");
   });
 });
 

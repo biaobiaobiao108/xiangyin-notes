@@ -7,6 +7,7 @@
       "dependencies": {
         "@modelcontextprotocol/server": "^2.1.0",
         "@tiptap/core": "^3.31.3",
+        "@tiptap/extension-code-block": "^3.31.3",
         "@tiptap/extension-link": "^3.31.3",
         "@tiptap/extension-placeholder": "^3.31.3",
         "@tiptap/extension-table": "^3.31.3",
