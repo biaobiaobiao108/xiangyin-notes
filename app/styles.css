@@ -818,13 +818,6 @@ button.save-status:hover { text-decoration: underline; }
 }
 
 /* Level 1: 实心朱印节点 */
-.outline-level-marker--1 {
-  width: 8px;
-  height: 8px;
-  margin-top: 0.46em;
-  background: currentColor;
-}
-
 /* Level 2: 润玉空心环 */
 .outline-level-marker--2 {
   width: 7px;
@@ -884,11 +877,6 @@ button.save-status:hover { text-decoration: underline; }
   background: var(--h1-active);
   color: var(--h1-color);
 }
-.editor-outline-item--level-1 button[aria-current="true"] .outline-level-marker--1 {
-  transform: scale(1.35);
-  box-shadow: 0 0 0 3px var(--h1-ring);
-}
-
 /* Level 2: 苍松墨绿 hover 与 active 节点点亮 */
 .editor-outline-item--level-2 button:hover {
   background: var(--surface-success);
@@ -1651,12 +1639,11 @@ dialog::backdrop { background: var(--backdrop); -webkit-backdrop-filter: blur(3p
 .slash-command-menu-list--suggestions { display: flex; flex-direction: column; gap: 1px; max-height: min(340px, calc(100dvh - 24px)); padding: 4px; }
 .slash-command-group { min-width: 0; padding: 0 8px 6px; }
 .slash-command-group + .slash-command-group { border-inline-start: 1px solid var(--line); }
-.slash-command-group-heading { margin: 1px 5px 5px; color: var(--soft-muted); font-size: 0.64rem; font-weight: 650; letter-spacing: 0.035em; line-height: 1.3; }
 .slash-command-group-items { display: flex; min-width: 0; flex-direction: column; gap: 1px; }
 .slash-command-item { display: flex; min-width: 0; align-items: center; gap: 7px; padding: 3px 6px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--ink); text-align: start; cursor: pointer; }
 .slash-command-item--directory { min-height: 34px; }
 .slash-command-item--suggestion { min-height: 38px; }
-.slash-command-item:hover, .slash-command-item.is-selected { border-color: var(--accent-border-soft); background: var(--accent-soft); color: var(--accent-dark); }
+.slash-command-item.is-selected { border-color: var(--accent-border-soft); background: var(--accent-soft); color: var(--accent-dark); }
 .slash-command-item:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .slash-command-icon { display: grid; flex: 0 0 26px; width: 26px; height: 26px; place-items: center; border: 1px solid var(--border-soft); border-radius: 7px; background: var(--surface); color: var(--muted); }
 .slash-command-item.is-selected .slash-command-icon { border-color: var(--accent-border); color: var(--accent-dark); }

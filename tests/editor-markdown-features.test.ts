@@ -523,16 +523,17 @@ describe("slash command matching", () => {
 
   test("bare slash opens a three-column menu and uses two/three-column spatial navigation", () => {
     const groups = groupSlashCommandItems(filterSlashCommandItems(""));
-    expect(groups.map((group) => group.id)).toEqual(["text", "lists", "callouts"]);
-    expect(groups.map((group) => group.items.length)).toEqual([15, 4, 7]);
+    expect(groups.map((group) => group.id)).toEqual(["column-1", "column-2", "column-3"]);
+    expect(groups.map((group) => group.items.length)).toEqual([9, 9, 8]);
+    expect(groups.flatMap((group) => group.items).map((item) => item.id)).toEqual(filterSlashCommandItems("").map((item) => item.id));
     expect(groups.flatMap((group) => group.items).some((item) => item.id === "table")).toBe(true);
 
     const itemGroups = groups.map((group) => group.items);
-    expect(getNextGroupedSlashCommandIndex(0, "ArrowRight", itemGroups, 3)).toBe(15);
-    expect(getNextGroupedSlashCommandIndex(15, "ArrowRight", itemGroups, 3)).toBe(19);
-    expect(getNextGroupedSlashCommandIndex(19, "ArrowRight", itemGroups, 3)).toBe(0);
-    expect(getNextGroupedSlashCommandIndex(0, "ArrowRight", itemGroups, 2)).toBe(15);
-    expect(getNextGroupedSlashCommandIndex(14, "ArrowDown", itemGroups, 2)).toBe(19);
+    expect(getNextGroupedSlashCommandIndex(0, "ArrowRight", itemGroups, 3)).toBe(9);
+    expect(getNextGroupedSlashCommandIndex(9, "ArrowRight", itemGroups, 3)).toBe(18);
+    expect(getNextGroupedSlashCommandIndex(18, "ArrowRight", itemGroups, 3)).toBe(0);
+    expect(getNextGroupedSlashCommandIndex(0, "ArrowRight", itemGroups, 2)).toBe(9);
+    expect(getNextGroupedSlashCommandIndex(8, "ArrowDown", itemGroups, 2)).toBe(18);
     expect(getNextGroupedSlashCommandIndex(25, "ArrowDown", itemGroups, 2)).toBe(0);
   });
 

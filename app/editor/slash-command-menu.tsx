@@ -10,12 +10,7 @@ import { FloatingScrollbar } from "../floating-scrollbar";
 
 type SlashAction = "paragraph" | "heading" | "bulletList" | "orderedList" | "taskList" | "blockquote" | "codeBlock" | "horizontalRule" | "callout" | "table" | "image" | "wikiLink" | "bold" | "italic" | "strike" | "underline" | "inlineCode";
 type SlashCommandGroupId = "text" | "lists" | "callouts" | "insert";
-
-const slashCommandGroups: { id: SlashCommandGroupId; label: string; itemGroups: SlashCommandGroupId[] }[] = [
-  { id: "text", label: "文本", itemGroups: ["text"] },
-  { id: "lists", label: "列表与表格", itemGroups: ["lists"] },
-  { id: "callouts", label: "提示块与插入内容", itemGroups: ["callouts", "insert"] },
-];
+const SLASH_COMMAND_COLUMN_COUNT = 3;
 
 export type SlashCommandItem = {
   id: string;
@@ -67,10 +62,23 @@ export function filterSlashCommandItems(query: string): SlashCommandItem[] {
 }
 
 export function groupSlashCommandItems(items: SlashCommandItem[]) {
-  return slashCommandGroups.map((group) => ({
-    ...group,
-    items: items.filter((item) => group.itemGroups.includes(item.group)),
-  })).filter((group) => group.items.length > 0);
+  const columnCount = Math.min(SLASH_COMMAND_COLUMN_COUNT, items.length);
+  if (!columnCount) return [];
+
+  const baseCount = Math.floor(items.length / columnCount);
+  const remainder = items.length % columnCount;
+  let offset = 0;
+
+  return Array.from({ length: columnCount }, (_, index) => {
+    const count = baseCount + (index < remainder ? 1 : 0);
+    const column = {
+      id: `column-${index + 1}`,
+      label: `命令第 ${index + 1} 列`,
+      items: items.slice(offset, offset + count),
+    };
+    offset += count;
+    return column;
+  });
 }
 
 export function getNextGroupedSlashCommandIndex(current: number, key: string, groups: SlashCommandItem[][], columns = 3): number {
@@ -274,7 +282,6 @@ const SlashCommandList = forwardRef<SlashCommandListRef, SlashCommandListProps>(
       aria-label={`${item.label}，${item.description}`}
       title={item.description}
       onMouseDown={(event) => event.preventDefault()}
-      onMouseEnter={() => { selectedIndexRef.current = index; setSelectedIndex(index); }}
       onClick={() => select(index)}
     >
       <span className="slash-command-icon"><Icon size={16} aria-hidden="true" /></span>
@@ -288,7 +295,6 @@ const SlashCommandList = forwardRef<SlashCommandListRef, SlashCommandListProps>(
         {props.items.length ? isDirectory ? groups.map((group) => {
           const firstIndex = props.items.findIndex((item) => item.group === group.id);
           return <section className="slash-command-group" role="group" aria-label={group.label} key={group.id}>
-            <h3 className="slash-command-group-heading">{group.label}</h3>
             <div className="slash-command-group-items">
               {group.items.map((item, localIndex) => renderItem(item, firstIndex + localIndex))}
             </div>
