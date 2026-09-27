@@ -12,6 +12,14 @@ export type OutlineItem = OutlineHeading & {
   id: string;
 };
 
+export function getOutlineStructureKey(items: readonly OutlineItem[]): string {
+  return JSON.stringify(items.map(({ id, level }) => [id, level]));
+}
+
+export function shouldUpdateActiveOutlineFromViewport(editorFocused: boolean, selectionSynchronized: boolean): boolean {
+  return !editorFocused || !selectionSynchronized;
+}
+
 export type MarkdownHeadingLevel = 1 | 2 | 3 | 4 | 5 | 6;
 
 export function isMarkdownHeadingMarker(text: string): boolean {

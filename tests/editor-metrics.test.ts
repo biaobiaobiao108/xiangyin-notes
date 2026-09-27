@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildOutlineItems, countEditorText, detectLeakedImePrefix, isMarkdownHeadingMarker, parseMarkdownBlockShortcut, parseMarkdownHeadingPrefix, shouldParseMarkdownPaste } from "../app/editor-metrics";
+import { buildOutlineItems, countEditorText, detectLeakedImePrefix, getOutlineStructureKey, isMarkdownHeadingMarker, parseMarkdownBlockShortcut, parseMarkdownHeadingPrefix, shouldParseMarkdownPaste, shouldUpdateActiveOutlineFromViewport } from "../app/editor-metrics";
 import { healLeakedImePrefix } from "../app/ime-markdown-safe-extension";
 
 describe("editor metrics", () => {
@@ -36,6 +36,21 @@ describe("editor metrics", () => {
       { id: "xiangying-heading-5-更深一层", level: 5, title: "更深一层" },
       { id: "xiangying-heading-6-最深一层", level: 6, title: "最深一层" },
     ]);
+  });
+
+  test("keeps outline tracking structure stable while a heading title changes", () => {
+    const before = [{ id: "heading-1", level: 1 as const, title: "原题" }];
+    const after = [{ id: "heading-1", level: 1 as const, title: "新题" }];
+    const withAnotherHeading = [...after, { id: "heading-2", level: 2 as const, title: "小节" }];
+
+    expect(getOutlineStructureKey(before)).toBe(getOutlineStructureKey(after));
+    expect(getOutlineStructureKey(after)).not.toBe(getOutlineStructureKey(withAnotherHeading));
+  });
+
+  test("keeps cursor-driven outline state while the editor is focused", () => {
+    expect(shouldUpdateActiveOutlineFromViewport(true, true)).toBe(false);
+    expect(shouldUpdateActiveOutlineFromViewport(true, false)).toBe(true);
+    expect(shouldUpdateActiveOutlineFromViewport(false, true)).toBe(true);
   });
 
   test("recognizes only supported Markdown heading markers", () => {

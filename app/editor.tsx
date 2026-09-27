@@ -12,7 +12,7 @@ import type { ImageAssetSummary, Note, NoteSummary } from "../shared/types";
 import { api } from "./api";
 import { BrandMark } from "./brand-mark";
 import { cycleSearchMatchIndex, findEditorSearchMatches, findTextMatches, searchHighlightPluginKey, SearchHighlightExtension } from "./editor-search";
-import { buildOutlineItems, countEditorText, detectLeakedImePrefix, parseMarkdownBlockShortcut, shouldParseMarkdownPaste, type EditorStats, type MarkdownBlockShortcut, type OutlineItem } from "./editor-metrics";
+import { buildOutlineItems, countEditorText, detectLeakedImePrefix, getOutlineStructureKey, parseMarkdownBlockShortcut, shouldParseMarkdownPaste, shouldUpdateActiveOutlineFromViewport, type EditorStats, type MarkdownBlockShortcut, type OutlineItem } from "./editor-metrics";
 import { FloatingScrollbar } from "./floating-scrollbar";
 import { ImeMarkdownSafeExtension, imeMarkdownSafePluginKey } from "./ime-markdown-safe-extension";
 import { editorCoreExtensionOptions } from "./editor/editor-config";
@@ -181,6 +181,10 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   const typewriterTargetRef = useRef<number | null>(null);
   const outlineFallbackSyncRef = useRef<(() => void) | null>(null);
   const outlineHeadingElementsRef = useRef(new Map<string, HTMLElement>());
+  const outlineItemsRef = useRef(outlineItems);
+  const outlineSelectionSynchronizedRef = useRef(false);
+  outlineItemsRef.current = outlineItems;
+  const outlineStructureKey = getOutlineStructureKey(outlineItems);
 
   useLayoutEffect(() => {
     resizeTitleField(titleInputRef.current);
@@ -764,7 +768,8 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
 
   const syncActiveOutlineFromSelection = useCallback((instance: Editor) => {
     const root = editorScrollRef.current;
-    if (!root || outlineItems.length === 0) return false;
+    const items = outlineItemsRef.current;
+    if (!root || items.length === 0) return false;
 
     const { $from } = instance.state.selection;
     let previousHeadingElement: HTMLElement | null = null;
@@ -778,11 +783,11 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     }
     if (!previousHeadingElement) {
       let low = 0;
-      let high = outlineItems.length - 1;
+      let high = items.length - 1;
       try {
         while (low <= high) {
           const middle = Math.floor((low + high) / 2);
-          const element = outlineHeadingElementsRef.current.get(outlineItems[middle].id);
+          const element = outlineHeadingElementsRef.current.get(items[middle].id);
           if (!element || !root.contains(element)) return false;
           if (instance.view.posAtDOM(element, 0) <= $from.pos) {
             previousHeadingElement = element;
@@ -798,13 +803,13 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     }
     if (!previousHeadingElement || !root.contains(previousHeadingElement)) return false;
     const item = previousHeadingIndex >= 0
-      ? outlineItems[previousHeadingIndex]
-      : outlineItems.find((candidate) => outlineHeadingElementsRef.current.get(candidate.id) === previousHeadingElement)
-        ?? outlineItems[getOutlineHeadingElements(root).indexOf(previousHeadingElement)];
+      ? items[previousHeadingIndex]
+      : items.find((candidate) => outlineHeadingElementsRef.current.get(candidate.id) === previousHeadingElement)
+        ?? items[getOutlineHeadingElements(root).indexOf(previousHeadingElement)];
     if (!item) return false;
     onOutlineActiveChange(item.id);
     return true;
-  }, [onOutlineActiveChange, outlineItems]);
+  }, [onOutlineActiveChange]);
 
   useEffect(() => {
     editorInstanceRef.current = editor;
@@ -826,7 +831,9 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       syncSearchNavigation(instance);
     };
     const handleSelection = ({ editor: instance }: { editor: Editor }) => {
-      if (!syncActiveOutlineFromSelection(instance)) {
+      const selectionSynchronized = syncActiveOutlineFromSelection(instance);
+      outlineSelectionSynchronizedRef.current = selectionSynchronized;
+      if (!selectionSynchronized) {
         outlineFallbackSyncRef.current?.();
       }
       if (typewriterModeRef.current) {
@@ -942,6 +949,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     onOutlineActiveChange(null);
     onOutlineNavigationReady(null);
     outlineHeadingElementsRef.current.clear();
+    outlineSelectionSynchronizedRef.current = false;
     setEditorStats(countEditorText(""));
     if (markdownSyncFrameRef.current !== null) cancelAnimationFrame(markdownSyncFrameRef.current);
     markdownSyncFrameRef.current = null;
@@ -1040,7 +1048,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   useEffect(() => {
     const root = editorScrollRef.current;
     outlineFallbackSyncRef.current = null;
-    if (!root || outlineItems.length === 0) {
+    if (!root || outlineItemsRef.current.length === 0) {
       onOutlineActiveChange(null);
       return;
     }
@@ -1049,7 +1057,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     const getCurrentHeadings = () => {
       const domHeadings = getOutlineHeadingElements(root);
       const headings = new Map<string, HTMLElement>();
-      for (const [index, item] of outlineItems.entries()) {
+      for (const [index, item] of outlineItemsRef.current.entries()) {
         const mappedElement = outlineHeadingElementsRef.current.get(item.id);
         const element = mappedElement && root.contains(mappedElement) ? mappedElement : domHeadings[index];
         if (element) {
@@ -1061,20 +1069,23 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     };
     const updateActiveHeading = () => {
       if (programmaticOutlineScrollIdRef.current) return;
+      const editorFocused = Boolean(editor && !editor.isDestroyed && editor.view.hasFocus());
+      if (!shouldUpdateActiveOutlineFromViewport(editorFocused, outlineSelectionSynchronizedRef.current)) return;
       const currentHeadings = getCurrentHeadings();
       const rootTop = root.getBoundingClientRect().top;
       const activationLine = rootTop + 32;
       let currentId: string | null = null;
       const maxScrollTop = Math.max(0, root.scrollHeight - root.clientHeight);
-      for (const item of outlineItems) {
+      const items = outlineItemsRef.current;
+      for (const item of items) {
         const element = currentHeadings.get(item.id);
         if (element && element.getBoundingClientRect().top <= activationLine) currentId = item.id;
         else if (currentId) break;
       }
       if (!currentId && root.scrollTop >= maxScrollTop - 1) {
-        currentId = outlineItems[outlineItems.length - 1]?.id ?? null;
+        currentId = items[items.length - 1]?.id ?? null;
       }
-      const nextId = currentId ?? outlineItems[0]?.id ?? null;
+      const nextId = currentId ?? items[0]?.id ?? null;
       onOutlineActiveChange(nextId);
     };
     const scheduleActiveHeading = () => {
@@ -1089,6 +1100,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     const handleUserScroll = (event?: Event) => {
       cancelOutlineSmoothScroll();
       if (event?.type === "pointerdown" && event.target instanceof Element && event.target.closest("h1, h2, h3, h4, h5, h6")) return;
+      outlineSelectionSynchronizedRef.current = false;
       scheduleActiveHeading();
     };
 
@@ -1115,7 +1127,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       if (outlineFallbackSyncRef.current === scheduleActiveHeading) outlineFallbackSyncRef.current = null;
       cancelOutlineSmoothScroll();
     };
-  }, [cancelOutlineSmoothScroll, onOutlineActiveChange, outlineItems]);
+  }, [cancelOutlineSmoothScroll, editor, onOutlineActiveChange, outlineStructureKey]);
 
   const scrollToOutlineItem = useCallback((id: string) => {
     const scrollRoot = editorScrollRef.current;
