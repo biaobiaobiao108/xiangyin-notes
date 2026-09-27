@@ -106,6 +106,7 @@ export function getLoginAttempt(key: string, timestamp: number) {
     nextLoginAttemptCleanupAt = timestamp + LOGIN_ATTEMPT_CLEANUP_INTERVAL_SECONDS;
   }
   const current = loginAttempts.get(key);
+  if (current && current.blockedUntil > timestamp) return current;
   if (!current || timestamp - current.windowStartedAt > LOGIN_WINDOW_SECONDS) {
     if (!current && loginAttempts.size >= LOGIN_ATTEMPT_MAX_ENTRIES) {
       const oldestKey = loginAttempts.keys().next().value as string | undefined;
