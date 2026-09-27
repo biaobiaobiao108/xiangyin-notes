@@ -24,6 +24,11 @@ describe("markdown and search helpers", () => {
     expect(formatPreview("# Heading\n\nA **quiet** note with `code`.")) .toBe("Heading\nA quiet note with code.");
   });
 
+  test("treats trailing nonbreaking spaces and their HTML entities as whitespace", () => {
+    expect(formatPreview("fdasfsad &nbsp; &nbsp; &nbsp;\n\n")).toBe("fdasfsad");
+    expect(formatPreview("前&nbsp;文 &#160;中 &#xA0;后\u00a0结束")).toBe("前 文 中 后 结束");
+  });
+
   test("preserves paragraph, heading, and list item boundaries in previews", () => {
     expect(formatPreview("# Heading\n\nFirst paragraph\ncontinues.\n\nSecond paragraph.\n- first item\n- second item\n3. ordered item\n## Next heading\nFinal paragraph"))
       .toBe("Heading\nFirst paragraph continues.\nSecond paragraph.\nfirst item\nsecond item\nordered item\nNext heading\nFinal paragraph");

@@ -364,6 +364,8 @@ export async function authenticateRequest(
   return user;
 }
 
+const NON_BREAKING_SPACE_ENTITY_RE = /^(?:&nbsp;|&#0*160;|&#x0*a0;)/iu;
+
 export function formatPreview(markdown: string) {
   const output: string[] = [];
   let outputLength = 0;
@@ -422,7 +424,16 @@ export function formatPreview(markdown: string) {
       }
 
       const character = markdown[index];
-      if (character === "\r" || character === "\n" || character === "\t" || character === " ") {
+      const spaceEntity = character === "&"
+        ? NON_BREAKING_SPACE_ENTITY_RE.exec(markdown.slice(index, Math.min(end, index + 16)))
+        : null;
+      if (spaceEntity) {
+        pendingWhitespace = textLength > 0;
+        index += spaceEntity[0].length - 1;
+        continue;
+      }
+
+      if (character === "\r" || character === "\n" || character === "\t" || character === " " || character === "\u00a0") {
         pendingWhitespace = textLength > 0;
         continue;
       }
