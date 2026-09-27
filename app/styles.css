@@ -85,13 +85,6 @@
   --prose-placeholder: light-dark(#bec5bf, #737aa2);
   --code-ink: light-dark(#315d45, #9ece6a);
   --code-inline-ink: light-dark(#8d4b37, #bb9af7);
-  --code-syntax-comment: light-dark(#78816f, #737aa2);
-  --code-syntax-keyword: light-dark(#805b8e, #bb9af7);
-  --code-syntax-string: light-dark(#477453, #9ece6a);
-  --code-syntax-number: light-dark(#a05d3a, #ff9e64);
-  --code-syntax-title: light-dark(#315f7a, #7dcfff);
-  --code-syntax-attribute: light-dark(#8d4b37, #e0af68);
-  --code-syntax-meta: light-dark(#5e6b4d, #c3e88d);
   --blockquote-border: light-dark(#9da9a1, #565f89);
   --danger-contrast: light-dark(#ffffff, #1a1b26);
   --h1-color: light-dark(#b94e35, #f7768e);
@@ -505,16 +498,6 @@ button.save-status:hover { text-decoration: underline; }
 .note-prose pre { overflow: clip; overflow-wrap: anywhere; white-space: pre-wrap; margin-block: 1em; padding: 18px 20px; border: 1px solid var(--border-soft); border-radius: 10px; background: var(--surface-code); color: var(--code-ink); font: 0.85rem/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
 .note-prose code { padding: 0.13em 0.34em; border-radius: 4px; background: var(--surface-code-inline); color: var(--code-inline-ink); font-family: inherit; font-size: 0.86em; }
 .note-prose pre code { padding: 0; background: transparent; color: inherit; }
-.code-block-language-control { position: fixed; z-index: 1101; display: flex; min-height: 27px; align-items: center; gap: 5px; padding: 3px 7px; border: 1px solid var(--border-soft); border-radius: 7px; background: var(--surface-glass); box-shadow: var(--note-card-shadow); color: var(--muted); font-size: 0.7rem; line-height: 1.2; }
-.code-block-language-control:focus-within { border-color: var(--accent-border-soft); }
-.code-block-language-control select { max-width: 96px; min-width: 0; padding: 0; border: 0; background: transparent; color: var(--ink); font: inherit; cursor: pointer; }
-.note-prose pre .hljs-comment, .note-prose pre .hljs-quote { color: var(--code-syntax-comment); font-style: italic; }
-.note-prose pre .hljs-keyword, .note-prose pre .hljs-selector-tag, .note-prose pre .hljs-literal, .note-prose pre .hljs-type { color: var(--code-syntax-keyword); }
-.note-prose pre .hljs-string, .note-prose pre .hljs-regexp, .note-prose pre .hljs-addition, .note-prose pre .hljs-template-tag { color: var(--code-syntax-string); }
-.note-prose pre .hljs-number, .note-prose pre .hljs-symbol, .note-prose pre .hljs-bullet, .note-prose pre .hljs-variable, .note-prose pre .hljs-template-variable { color: var(--code-syntax-number); }
-.note-prose pre .hljs-title, .note-prose pre .hljs-section, .note-prose pre .hljs-title.function_, .note-prose pre .hljs-title.class_ { color: var(--code-syntax-title); }
-.note-prose pre .hljs-attr, .note-prose pre .hljs-attribute, .note-prose pre .hljs-property, .note-prose pre .hljs-selector-attr, .note-prose pre .hljs-selector-class { color: var(--code-syntax-attribute); }
-.note-prose pre .hljs-meta, .note-prose pre .hljs-built_in, .note-prose pre .hljs-name, .note-prose pre .hljs-tag { color: var(--code-syntax-meta); }
 .note-prose .table-scroll-shell { position: relative; display: block; max-width: 100%; margin-block: 1.05em; padding-block-end: 18px; overflow-x: auto; overflow-y: hidden; overscroll-behavior-inline: contain; }
 .note-prose .table-scroll-shell table { width: fit-content; min-width: 0; max-width: none; border-collapse: separate; border-spacing: 0; table-layout: auto; color: var(--ink-soft); font-size: 0.9rem; line-height: 1.45; }
 .note-prose .table-scroll-shell table:has(> colgroup > col[style^="width:"]) { width: auto; min-width: 0; table-layout: fixed; }

@@ -6,7 +6,6 @@ import { Info, Table2 } from "lucide-react";
 import { formatPreview } from "../server/core";
 import { CalloutNode, CALLOUT_TYPES, shouldExitCalloutOnEnter } from "../app/editor/callout-node";
 import { CodeBlockDoubleEnter, handleCodeBlockDoubleEnter, shouldExitCodeBlockOnEnter } from "../app/editor/code-block-enter";
-import { codeBlockLanguageOptions, createCodeBlockLowlightExtension, setCodeBlockLanguage } from "../app/editor/code-block-lowlight";
 import { pastePlainTextIntoCodeBlock } from "../app/editor/code-block-paste";
 import { adjustActiveTableSize, getActiveTableContext, getActiveTableSnapshot, getTableEdgeDragDelta, restoreActiveTableSnapshot, snapTableEdgeDrag } from "../app/editor/table-edge-commands";
 import { filterSlashCommandItems, findSlashCommandMatch, getNextGroupedSlashCommandIndex, getNextSlashCommandIndex, groupSlashCommandItems, insertSlashCommand, isSlashCommandImeEscape, isSlashCommandImeEvent } from "../app/editor/slash-command-menu";
@@ -15,8 +14,7 @@ import { createTableExtensions } from "../app/editor/table-extensions";
 function createMarkdownEditor(content: string) {
   return new Editor({
     extensions: [
-      StarterKit.configure({ heading: { levels: [1, 2, 3, 4, 5, 6] }, codeBlock: false }),
-      createCodeBlockLowlightExtension(),
+      StarterKit.configure({ heading: { levels: [1, 2, 3, 4, 5, 6] }, codeBlock: { exitOnTripleEnter: false } }),
       CodeBlockDoubleEnter,
       ...createTableExtensions(),
       Markdown,
@@ -161,7 +159,7 @@ describe("GFM table markdown integration", () => {
     }
   });
 
-  test("highlights common code languages and preserves fenced Markdown", () => {
+  test("preserves code blocks and Markdown language labels as plain text", () => {
     const source = "```ts\nconst answer: number = 42;\n```";
     const editor = createMarkdownEditor(source);
     try {
@@ -169,41 +167,6 @@ describe("GFM table markdown integration", () => {
       expect(codeBlock?.type.name).toBe("codeBlock");
       expect(codeBlock?.attrs.language).toBe("ts");
       expect((editor as Editor & { getMarkdown: () => string }).getMarkdown()).toBe(source);
-      const lowlight = createCodeBlockLowlightExtension().options.lowlight as { highlight: (language: string, code: string) => unknown };
-      expect(JSON.stringify(lowlight.highlight("ts", "const answer: number = 42;"))).toContain("hljs-keyword");
-    } finally {
-      editor.destroy();
-    }
-  });
-
-  test("keeps unlabelled and unknown-language code blocks plain", () => {
-    for (const source of ["```\nconst answer = 42;\n```", "```unknown-language\nconst answer = 42;\n```"]) {
-      const editor = createMarkdownEditor(source);
-      try {
-        const lowlight = createCodeBlockLowlightExtension().options.lowlight as {
-          highlight: (language: string, code: string) => unknown;
-          highlightAuto: (code: string) => unknown;
-        };
-        const code = "const answer = 42;";
-        expect(JSON.stringify(lowlight.highlight("unknown-language", code))).not.toContain("hljs-");
-        expect(JSON.stringify(lowlight.highlightAuto(code))).not.toContain("hljs-");
-        expect((editor as Editor & { getMarkdown: () => string }).getMarkdown()).toContain("const answer = 42;");
-      } finally {
-        editor.destroy();
-      }
-    }
-  });
-
-  test("lets the active code block choose a supported language and preserves it in Markdown", () => {
-    const editor = createMarkdownEditor("```\nconst answer = 42;\n```");
-    try {
-      editor.commands.setTextSelection(2);
-      expect(codeBlockLanguageOptions.some((option) => option.value === "typescript")).toBe(true);
-      expect(setCodeBlockLanguage(editor, "typescript")).toBe(true);
-      expect(editor.state.doc.firstChild?.attrs.language).toBe("typescript");
-      expect((editor as Editor & { getMarkdown: () => string }).getMarkdown()).toContain("```typescript");
-      const lowlight = createCodeBlockLowlightExtension().options.lowlight as { highlight: (language: string, code: string) => unknown };
-      expect(JSON.stringify(lowlight.highlight("typescript", "const answer: number = 42;"))).toContain("hljs-keyword");
     } finally {
       editor.destroy();
     }

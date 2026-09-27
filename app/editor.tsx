@@ -25,7 +25,6 @@ import { WikiLinkNode } from "./editor/wiki-link-node";
 import { WikiLinkSuggestionExtension } from "./editor/wiki-link-suggestion";
 import { CalloutNode } from "./editor/callout-node";
 import { CodeBlockDoubleEnter } from "./editor/code-block-enter";
-import { createCodeBlockLowlightExtension } from "./editor/code-block-lowlight";
 import { pastePlainTextIntoCodeBlock } from "./editor/code-block-paste";
 import { SlashCommandExtension } from "./editor/slash-command-menu";
 import { TableScrollbars } from "./editor/table-scrollbars";
@@ -383,8 +382,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   };
 
   const extensions = useMemo(() => [
-    StarterKit.configure({ heading: { levels: [1, 2, 3, 4, 5, 6] }, link: false, codeBlock: false }),
-    createCodeBlockLowlightExtension(),
+    StarterKit.configure({ heading: { levels: [1, 2, 3, 4, 5, 6] }, link: false, codeBlock: { exitOnTripleEnter: false } }),
     CodeBlockDoubleEnter,
     ...createTableExtensions(),
     Link.configure({ openOnClick: false, autolink: true, linkOnPaste: true, HTMLAttributes: { title: "按住 Ctrl 或 ⌘ 点击打开链接" } }),
