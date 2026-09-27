@@ -142,7 +142,7 @@ function addTrailingColumn(table: ProseMirrorNode, schema: Editor["state"]["sche
     const lastCell = cells[cells.length - 1];
     const isHeader = lastCell?.type.spec.tableRole === "header_cell";
     const cellType = schema.nodes[isHeader ? "tableHeader" : "tableCell"];
-    const newCell = cellType?.createAndFill(lastCell?.attrs ?? {});
+    const newCell = cellType?.createAndFill({ ...lastCell?.attrs, colwidth: null });
     if (!newCell) valid = false;
     else cells.push(newCell);
     rows.push(row.copy(Fragment.fromArray(cells)));

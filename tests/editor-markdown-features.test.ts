@@ -55,10 +55,11 @@ describe("GFM table markdown integration", () => {
     }
   });
 
-  test("sizes columns from cell content and preserves resized widths in Markdown", () => {
-    const tableExtension = createTableExtensions().find((extension) => extension.name === "table") as { options: { resizable: boolean; handleWidth: number } } | undefined;
+  test("uses compact default columns and preserves resized widths in Markdown", () => {
+    const tableExtension = createTableExtensions().find((extension) => extension.name === "table") as { options: { resizable: boolean; handleWidth: number; cellMinWidth: number } } | undefined;
     expect(tableExtension?.options.resizable).toBe(true);
     expect(tableExtension?.options.handleWidth).toBe(8);
+    expect(tableExtension?.options.cellMinWidth).toBe(96);
 
     const editor = createMarkdownEditor("| 项目 | 状态 |\n| --- | --- |\n| 一个较长的项目名称 | 已修 |\n| 短项 | 进行中 |\n");
     try {
@@ -73,16 +74,27 @@ describe("GFM table markdown integration", () => {
       const markdown = (editor as Editor & { getMarkdown: () => string }).getMarkdown();
       const separatorCells = markdown.trim().split("\n")[1].split("|").slice(1, -1).map((cell) => cell.replaceAll(":", "").trim());
       expect(separatorCells[0].length).toBe(35);
-      expect(separatorCells.every((cell) => cell.length >= 20)).toBe(true);
+      expect(separatorCells[1].length).toBe(13);
 
       const roundTrip = createMarkdownEditor(markdown);
       try {
         const firstRow = roundTrip.state.doc.firstChild?.firstChild;
         expect(firstRow?.firstChild?.attrs.colwidth).toEqual([360]);
-        expect(firstRow?.lastChild?.attrs.colwidth?.[0]).toBeGreaterThanOrEqual(128);
+        expect(firstRow?.lastChild?.attrs.colwidth).toEqual([96]);
       } finally {
         roundTrip.destroy();
       }
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  test("keeps previously saved long separator widths when loading Markdown", () => {
+    const editor = createMarkdownEditor("| 项目 | 状态 |\n| ----------------------------------- | -------------------- |\n| 内容 | 空 |\n");
+    try {
+      const firstRow = editor.state.doc.firstChild?.firstChild;
+      expect(firstRow?.firstChild?.attrs.colwidth).toEqual([360]);
+      expect(firstRow?.lastChild?.attrs.colwidth).toEqual([180]);
     } finally {
       editor.destroy();
     }
@@ -188,6 +200,16 @@ describe("table edge controls", () => {
       expect(restoreActiveTableSnapshot(editor, snapshot!, { addToHistory: false, emitUpdate: false, closeHistory: true })).toBe(true);
       expect(getActiveTableContext(editor)?.columns).toBe(2);
 
+      const table = editor.state.doc.firstChild!;
+      const setLastColumnWidth = editor.state.tr;
+      table.forEach((row, rowOffset) => {
+        const lastCell = row.lastChild!;
+        const lastCellOffset = row.content.size - lastCell.nodeSize;
+        const position = 2 + rowOffset + lastCellOffset;
+        setLastColumnWidth.setNodeMarkup(position, undefined, { ...lastCell.attrs, colwidth: [192] });
+      });
+      editor.view.dispatch(setLastColumnWidth);
+
       let transactionCount = 0;
       const countTransaction = () => { transactionCount += 1; };
       editor.on("transaction", countTransaction);
@@ -197,6 +219,8 @@ describe("table edge controls", () => {
       expect(tableAfterAdd.childCount).toBe(2);
       expect(tableAfterAdd.firstChild?.childCount).toBe(5);
       expect(tableAfterAdd.lastChild?.childCount).toBe(5);
+      expect(tableAfterAdd.firstChild?.lastChild?.attrs.colwidth).toBeNull();
+      expect(tableAfterAdd.lastChild?.lastChild?.attrs.colwidth).toBeNull();
       expect(transactionCount).toBe(1);
 
       expect(adjustActiveTableSize(editor, "columns", -20)).toBe(true);

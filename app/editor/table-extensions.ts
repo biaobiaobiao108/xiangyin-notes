@@ -2,7 +2,8 @@ import { renderTableToMarkdown, Table, TableCell, TableHeader, TableRow } from "
 import type { JSONContent, MarkdownRendererHelpers, MarkdownToken } from "@tiptap/core";
 
 const WIDTH_DASH_OFFSET = 5;
-const MIN_WIDTH_DASHES = 20;
+const MIN_WIDTH_DASHES = 13;
+const MIN_COLUMN_WIDTH = 96;
 const PIXELS_PER_WIDTH_DASH = 12;
 
 // GFM accepts any delimiter length. Long runs preserve editable column widths
@@ -15,7 +16,7 @@ function readColumnWidthsFromDelimiter(markdown: string) {
   const dashCounts = cells.map((cell) => (cell.match(/-/gu) ?? []).length);
   if (dashCounts.length === 0 || dashCounts.some((count) => count < MIN_WIDTH_DASHES)) return null;
 
-  return dashCounts.map((count) => Math.max(128, (count - WIDTH_DASH_OFFSET) * PIXELS_PER_WIDTH_DASH));
+  return dashCounts.map((count) => Math.max(MIN_COLUMN_WIDTH, (count - WIDTH_DASH_OFFSET) * PIXELS_PER_WIDTH_DASH));
 }
 
 function renderTableMarkdownWithWidths(node: JSONContent, helpers: MarkdownRendererHelpers) {
@@ -40,7 +41,7 @@ function renderTableMarkdownWithWidths(node: JSONContent, helpers: MarkdownRende
     const hasLeadingAlignment = /^\s*:/u.test(source);
     const hasTrailingAlignment = /:\s*$/u.test(source);
     const sourceWidth = (source.match(/-/gu) ?? []).length * PIXELS_PER_WIDTH_DASH;
-    const effectiveWidth = width ?? Math.max(128, sourceWidth);
+    const effectiveWidth = width ?? Math.max(MIN_COLUMN_WIDTH, sourceWidth);
     const dashCount = Math.max(MIN_WIDTH_DASHES, Math.round(effectiveWidth / PIXELS_PER_WIDTH_DASH) + WIDTH_DASH_OFFSET);
     return `${hasLeadingAlignment ? ":" : ""}${"-".repeat(dashCount)}${hasTrailingAlignment ? ":" : ""}`;
   });
@@ -78,7 +79,7 @@ const ResizableTable = Table.extend({
  */
 export function createTableExtensions() {
   return [
-    ResizableTable.configure({ resizable: true, renderWrapper: true, cellMinWidth: 128, handleWidth: 8 }),
+    ResizableTable.configure({ resizable: true, renderWrapper: true, cellMinWidth: MIN_COLUMN_WIDTH, handleWidth: 8 }),
     TableRow,
     TableCell.extend({ content: "paragraph" }),
     TableHeader.extend({ content: "paragraph" }),

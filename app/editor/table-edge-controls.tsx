@@ -93,7 +93,7 @@ function getTableEdgeDragStep(shell: HTMLElement | null, axis: TableEdgeAxis, fa
   if (axis === "columns") {
     const edgeCell = table.querySelector("tr")?.lastElementChild;
     const measuredWidth = edgeCell?.getBoundingClientRect().width || table.getBoundingClientRect().width / Math.max(1, fallbackSize);
-    return Math.max(20, measuredWidth);
+    return Math.max(20, Math.min(96, measuredWidth));
   }
 
   const rows = Array.from(table.querySelectorAll("tr"));
