@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import { ChevronDown, ChevronUp, ListTree, X } from "lucide-react";
 import type { Editor } from "@tiptap/core";
 import type { EditorStats } from "../editor-metrics";
+import { CodeBlockLanguageControl } from "./code-block-language-control";
 import { TableEdgeControls } from "./table-edge-controls";
 
 type SearchNavigation = {
@@ -25,7 +26,10 @@ export function EditorFloatingTools({ editor, outlineTriggerRef, outlineOpen, ed
 }) {
   const hasActiveSearch = Boolean(searchQuery?.trim());
   return <div className="editor-floating-tools">
-    {editor?.isEditable && <TableEdgeControls editor={editor} deferredLoading={deferredLoading} />}
+    {editor?.isEditable && <>
+      <TableEdgeControls editor={editor} deferredLoading={deferredLoading} />
+      <CodeBlockLanguageControl editor={editor} disabled={deferredLoading} />
+    </>}
     <div className="editor-floating-row">
       {hasActiveSearch && <div className="editor-search-nav" role="group" aria-label={searchNavigation.matchCount > 0 ? `正文搜索结果，第 ${searchNavigation.activeIndex + 1} 个，共 ${searchNavigation.matchCount} 个` : `当前笔记中未找到“${searchQuery?.trim()}”`}>
         {searchNavigation.matchCount > 0 ? (

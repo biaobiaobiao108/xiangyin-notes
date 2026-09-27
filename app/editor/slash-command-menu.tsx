@@ -74,6 +74,7 @@ export function groupSlashCommandItems(items: SlashCommandItem[]) {
     const column = {
       id: `column-${index + 1}`,
       label: `命令第 ${index + 1} 列`,
+      startIndex: offset,
       items: items.slice(offset, offset + count),
     };
     offset += count;
@@ -293,10 +294,9 @@ const SlashCommandList = forwardRef<SlashCommandListRef, SlashCommandListProps>(
     <div className="slash-command-menu-list-shell">
       <div className={`slash-command-menu-list slash-command-menu-list--${isDirectory ? "directory" : "suggestions"} floating-scrollbar-target`} id={`${listboxId}-scroll-region`} ref={listRef}>
         {props.items.length ? isDirectory ? groups.map((group) => {
-          const firstIndex = props.items.findIndex((item) => item.group === group.id);
           return <section className="slash-command-group" role="group" aria-label={group.label} key={group.id}>
             <div className="slash-command-group-items">
-              {group.items.map((item, localIndex) => renderItem(item, firstIndex + localIndex))}
+              {group.items.map((item, localIndex) => renderItem(item, group.startIndex + localIndex))}
             </div>
           </section>;
         }) : props.items.map(renderItem) : <div className="slash-command-empty" role="status">没有匹配的命令</div>}

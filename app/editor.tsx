@@ -26,6 +26,7 @@ import { WikiLinkSuggestionExtension } from "./editor/wiki-link-suggestion";
 import { CalloutNode } from "./editor/callout-node";
 import { CodeBlockDoubleEnter } from "./editor/code-block-enter";
 import { createCodeBlockLowlightExtension } from "./editor/code-block-lowlight";
+import { pastePlainTextIntoCodeBlock } from "./editor/code-block-paste";
 import { SlashCommandExtension } from "./editor/slash-command-menu";
 import { TableScrollbars } from "./editor/table-scrollbars";
 import { createTableExtensions } from "./editor/table-extensions";
@@ -557,11 +558,15 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
         uploadImageFilesRef.current(imageFiles);
         return true;
       }
+      const text = event.clipboardData?.getData("text/plain") ?? "";
+      if (pastePlainTextIntoCodeBlock(view, text)) {
+        event.preventDefault();
+        return true;
+      }
       isPastingRef.current = true;
       window.setTimeout(() => {
         isPastingRef.current = false;
       }, 200);
-      const text = event.clipboardData?.getData("text/plain") ?? "";
       const html = event.clipboardData?.getData("text/html") ?? "";
       if (!shouldParseMarkdownPaste(text, Boolean(html))) return false;
       const markdownManager = editorInstanceRef.current?.markdown;

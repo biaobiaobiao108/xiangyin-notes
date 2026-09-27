@@ -505,6 +505,9 @@ button.save-status:hover { text-decoration: underline; }
 .note-prose pre { overflow: clip; overflow-wrap: anywhere; white-space: pre-wrap; margin-block: 1em; padding: 18px 20px; border: 1px solid var(--border-soft); border-radius: 10px; background: var(--surface-code); color: var(--code-ink); font: 0.85rem/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
 .note-prose code { padding: 0.13em 0.34em; border-radius: 4px; background: var(--surface-code-inline); color: var(--code-inline-ink); font-family: inherit; font-size: 0.86em; }
 .note-prose pre code { padding: 0; background: transparent; color: inherit; }
+.code-block-language-control { position: fixed; z-index: 1101; display: flex; min-height: 27px; align-items: center; gap: 5px; padding: 3px 7px; border: 1px solid var(--border-soft); border-radius: 7px; background: var(--surface-glass); box-shadow: var(--note-card-shadow); color: var(--muted); font-size: 0.7rem; line-height: 1.2; }
+.code-block-language-control:focus-within { border-color: var(--accent-border-soft); }
+.code-block-language-control select { max-width: 96px; min-width: 0; padding: 0; border: 0; background: transparent; color: var(--ink); font: inherit; cursor: pointer; }
 .note-prose pre .hljs-comment, .note-prose pre .hljs-quote { color: var(--code-syntax-comment); font-style: italic; }
 .note-prose pre .hljs-keyword, .note-prose pre .hljs-selector-tag, .note-prose pre .hljs-literal, .note-prose pre .hljs-type { color: var(--code-syntax-keyword); }
 .note-prose pre .hljs-string, .note-prose pre .hljs-regexp, .note-prose pre .hljs-addition, .note-prose pre .hljs-template-tag { color: var(--code-syntax-string); }

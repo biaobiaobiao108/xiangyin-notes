@@ -6,7 +6,8 @@ import { Info, Table2 } from "lucide-react";
 import { formatPreview } from "../server/core";
 import { CalloutNode, CALLOUT_TYPES, shouldExitCalloutOnEnter } from "../app/editor/callout-node";
 import { CodeBlockDoubleEnter, handleCodeBlockDoubleEnter, shouldExitCodeBlockOnEnter } from "../app/editor/code-block-enter";
-import { createCodeBlockLowlightExtension } from "../app/editor/code-block-lowlight";
+import { codeBlockLanguageOptions, createCodeBlockLowlightExtension, setCodeBlockLanguage } from "../app/editor/code-block-lowlight";
+import { pastePlainTextIntoCodeBlock } from "../app/editor/code-block-paste";
 import { adjustActiveTableSize, getActiveTableContext, getActiveTableSnapshot, getTableEdgeDragDelta, restoreActiveTableSnapshot, snapTableEdgeDrag } from "../app/editor/table-edge-commands";
 import { filterSlashCommandItems, findSlashCommandMatch, getNextGroupedSlashCommandIndex, getNextSlashCommandIndex, groupSlashCommandItems, insertSlashCommand, isSlashCommandImeEscape, isSlashCommandImeEvent } from "../app/editor/slash-command-menu";
 import { createTableExtensions } from "../app/editor/table-extensions";
@@ -190,6 +191,48 @@ describe("GFM table markdown integration", () => {
       } finally {
         editor.destroy();
       }
+    }
+  });
+
+  test("lets the active code block choose a supported language and preserves it in Markdown", () => {
+    const editor = createMarkdownEditor("```\nconst answer = 42;\n```");
+    try {
+      editor.commands.setTextSelection(2);
+      expect(codeBlockLanguageOptions.some((option) => option.value === "typescript")).toBe(true);
+      expect(setCodeBlockLanguage(editor, "typescript")).toBe(true);
+      expect(editor.state.doc.firstChild?.attrs.language).toBe("typescript");
+      expect((editor as Editor & { getMarkdown: () => string }).getMarkdown()).toContain("```typescript");
+      const lowlight = createCodeBlockLowlightExtension().options.lowlight as { highlight: (language: string, code: string) => unknown };
+      expect(JSON.stringify(lowlight.highlight("typescript", "const answer: number = 42;"))).toContain("hljs-keyword");
+    } finally {
+      editor.destroy();
+    }
+  });
+});
+
+describe("code block paste behavior", () => {
+  test("pastes Markdown-looking text literally inside a code block", () => {
+    const editor = createMarkdownEditor("```ts\noriginal\n```");
+    try {
+      const codeBlock = editor.state.doc.firstChild!;
+      editor.commands.setTextSelection(1 + codeBlock.content.size);
+      expect(pastePlainTextIntoCodeBlock(editor.view, "\n# heading\n> quote\n```")).toBe(true);
+      expect(editor.state.doc.childCount).toBe(1);
+      expect(editor.state.doc.firstChild?.type.name).toBe("codeBlock");
+      expect(editor.state.doc.firstChild?.textContent).toBe("original\n# heading\n> quote\n```");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  test("does not intercept text pasted outside a code block", () => {
+    const editor = createMarkdownEditor("ordinary paragraph");
+    try {
+      editor.commands.setTextSelection(5);
+      expect(pastePlainTextIntoCodeBlock(editor.view, "literal text")).toBe(false);
+      expect(editor.state.doc.firstChild?.textContent).toBe("ordinary paragraph");
+    } finally {
+      editor.destroy();
     }
   });
 });
@@ -525,6 +568,7 @@ describe("slash command matching", () => {
     const groups = groupSlashCommandItems(filterSlashCommandItems(""));
     expect(groups.map((group) => group.id)).toEqual(["column-1", "column-2", "column-3"]);
     expect(groups.map((group) => group.items.length)).toEqual([9, 9, 8]);
+    expect(groups.map((group) => group.startIndex)).toEqual([0, 9, 18]);
     expect(groups.flatMap((group) => group.items).map((item) => item.id)).toEqual(filterSlashCommandItems("").map((item) => item.id));
     expect(groups.flatMap((group) => group.items).some((item) => item.id === "table")).toBe(true);
 
