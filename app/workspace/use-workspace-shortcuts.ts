@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { matchesCommandMenuShortcut } from "../platform";
 
 function matchesShortcutLetter(event: KeyboardEvent, letter: string) {
   return event.key.toLowerCase() === letter || event.code === `Key${letter.toUpperCase()}`;
@@ -84,7 +85,10 @@ export function handleWorkspaceKeyDown(event: KeyboardEvent, ctx: WorkspaceKeybo
   if (event.defaultPrevented) return;
   const isMod = event.ctrlKey || event.metaKey;
 
-  if (isMod && (event.key === "/" || event.key === "k" || event.key === "K")) {
+  if (matchesCommandMenuShortcut(event)) {
+    event.preventDefault();
+    openCommandMenu("");
+  } else if (isMod && (event.key === "k" || event.key === "K")) {
     event.preventDefault();
     openCommandMenu("");
   } else if (isMod && (event.key === "f" || event.key === "F") && !event.shiftKey) {

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { getCommandMenuShortcutLabel, isApplePlatform, matchesCommandMenuShortcut } from "../app/platform";
 import { handleWorkspaceKeyDown } from "../app/workspace/use-workspace-shortcuts";
 
 describe("workspace shortcuts Escape handling", () => {
@@ -259,5 +260,49 @@ describe("workspace shortcuts on macOS keyboard layouts", () => {
 
     expect(typewriterToggled).toBe(true);
     expect(defaultPrevented).toBe(true);
+  });
+});
+
+describe("command menu shortcut", () => {
+  test("shows Command+/ on Apple platforms and Alt+/ elsewhere", () => {
+    expect(getCommandMenuShortcutLabel(true)).toBe("⌘/");
+    expect(getCommandMenuShortcutLabel(false)).toBe("Alt+/");
+  });
+
+  test("uses the platform-specific modifier for the slash shortcut", () => {
+    const base = { key: "/", code: "Slash", shiftKey: false, altKey: false, ctrlKey: false, metaKey: false };
+
+    expect(matchesCommandMenuShortcut({ ...base, metaKey: true }, true)).toBe(true);
+    expect(matchesCommandMenuShortcut({ ...base, altKey: true }, true)).toBe(false);
+    expect(matchesCommandMenuShortcut({ ...base, altKey: true }, false)).toBe(true);
+    expect(matchesCommandMenuShortcut({ ...base, ctrlKey: true }, false)).toBe(false);
+  });
+
+  test("recognizes the physical slash key when Safari reports an alternate symbol", () => {
+    const event = { key: "÷", code: "Slash", shiftKey: false, altKey: true, ctrlKey: false, metaKey: false };
+    expect(matchesCommandMenuShortcut(event, false)).toBe(true);
+  });
+
+  test("opens the menu from the current platform's primary chord", () => {
+    let opened = false;
+    let prevented = false;
+    const event = {
+      key: "/", code: "Slash", shiftKey: false,
+      altKey: !isApplePlatform, ctrlKey: false, metaKey: isApplePlatform,
+      defaultPrevented: false,
+      preventDefault() { prevented = true; },
+    } as KeyboardEvent;
+
+    handleWorkspaceKeyDown(event, {
+      focusMode: false,
+      hasModalOpen: false,
+      handlers: {
+        toggleSidebar() {}, toggleFocusMode() {}, toggleTypewriterMode() {}, exitFocusMode() {},
+        openCommandMenu() { opened = true; },
+      },
+    });
+
+    expect(opened).toBe(true);
+    expect(prevented).toBe(true);
   });
 });

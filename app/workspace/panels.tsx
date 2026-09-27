@@ -5,7 +5,7 @@ import { playEntranceAnimation } from "../animation";
 import { BrandMark } from "../brand-mark";
 import type { OutlineItem } from "../editor-metrics";
 import { FloatingScrollbar } from "../floating-scrollbar";
-import { modKey } from "../platform";
+import { commandMenuShortcutLabel } from "../platform";
 import { type PwaState } from "../pwa";
 import { getNoteTags, getNotebookIconComponent, navItems, relativeDate, sortNotes, type NoteSort, viewLabel } from "./helpers";
 
@@ -20,7 +20,7 @@ export const Sidebar = memo(function Sidebar({ view, setView, notebooks, noteboo
   return <aside className={`sidebar ${mobileOpen ? "is-mobile-open" : ""}`} aria-label="主导航">
     <div className="brand-row"><BrandMark /><span className="brand-name">象映笔记</span><button className="icon-button collapse-button" type="button" onClick={onCollapse} aria-label={collapsed ? "展开侧栏" : "收起侧栏"}><LayoutPanelLeft size={18} /></button></div>
     <button className="primary-button new-note-button" type="button" aria-label="在收件箱中新建笔记" onClick={onNewInboxNote}><Plus size={18} />新建笔记</button>
-    <label className="search-box"><Search size={17} /><input ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索笔记或 #标签……" aria-label="搜索笔记或标签" />{query ? <button className="search-clear" type="button" aria-label="清空搜索" onClick={() => setQuery("")}><X size={15} /></button> : <kbd>{modKey} /</kbd>}</label>
+    <label className="search-box"><Search size={17} /><input ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索笔记或 #标签……" aria-label="搜索笔记或标签" />{query ? <button className="search-clear" type="button" aria-label="清空搜索" onClick={() => setQuery("")}><X size={15} /></button> : <kbd>{commandMenuShortcutLabel}</kbd>}</label>
     <nav className="main-nav"><ul>{navItems.map((item) => { const Icon = item.icon; return <li key={item.id}><button className={`nav-item ${view === item.id && !notebookId ? "is-active" : ""}`} type="button" onClick={() => setView(item.id)}><Icon size={18} /><span>{item.label}</span></button></li>; })}</ul></nav>
     <div className="collapsed-notebook-list" role="toolbar" aria-label="笔记本快捷切换">
       {customNotebooks.length > 0 && <div className="collapsed-notebook-divider" aria-hidden="true" />}
@@ -318,5 +318,5 @@ export const NoteListPanel = memo(function NoteListPanel({ notes, total, hasMore
 });
 
 export function EmptyEditor({ isTrash, onNewNote, onOpenList, transitionToken }: { isTrash: boolean; onNewNote: () => void; onOpenList: () => void; transitionToken: number }) {
-  return <section key={transitionToken} className="empty-editor"><button className="icon-button mobile-only empty-back" type="button" aria-label="打开笔记列表" onClick={onOpenList}><ChevronLeft size={20} /></button><BrandMark className="empty-editor-mark" /><h1 tabIndex={-1}>{isTrash ? "回收站是空的" : "让想法有地方落脚"}</h1><p>{isTrash ? "没有需要清理或恢复的笔记。" : "创建一篇笔记，记录此刻值得留下的东西。"}</p>{!isTrash && <><button className="primary-button" type="button" onClick={onNewNote}><Plus size={18} />新建笔记</button><span className="empty-shortcut">或按 {modKey} / 打开命令菜单</span></>}</section>;
+  return <section key={transitionToken} className="empty-editor"><button className="icon-button mobile-only empty-back" type="button" aria-label="打开笔记列表" onClick={onOpenList}><ChevronLeft size={20} /></button><BrandMark className="empty-editor-mark" /><h1 tabIndex={-1}>{isTrash ? "回收站是空的" : "让想法有地方落脚"}</h1><p>{isTrash ? "没有需要清理或恢复的笔记。" : "创建一篇笔记，记录此刻值得留下的东西。"}</p>{!isTrash && <><button className="primary-button" type="button" onClick={onNewNote}><Plus size={18} />新建笔记</button><span className="empty-shortcut">或按 {commandMenuShortcutLabel} 打开命令菜单</span></>}</section>;
 }
