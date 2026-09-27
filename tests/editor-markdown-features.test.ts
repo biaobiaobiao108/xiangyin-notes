@@ -6,7 +6,7 @@ import { Info, Table2 } from "lucide-react";
 import { formatPreview } from "../server/core";
 import { CalloutNode, CALLOUT_TYPES, shouldExitCalloutOnEnter } from "../app/editor/callout-node";
 import { CodeBlockDoubleEnter, handleCodeBlockDoubleEnter, shouldExitCodeBlockOnEnter } from "../app/editor/code-block-enter";
-import { adjustActiveTableSize, getActiveTableContext, getActiveTableSnapshot, getTableEdgeDragDelta, restoreActiveTableSnapshot } from "../app/editor/table-edge-commands";
+import { adjustActiveTableSize, getActiveTableContext, getActiveTableSnapshot, getTableEdgeDragDelta, restoreActiveTableSnapshot, snapTableEdgeDrag } from "../app/editor/table-edge-commands";
 import { filterSlashCommandItems, findSlashCommandMatch, getNextGroupedSlashCommandIndex, getNextSlashCommandIndex, groupSlashCommandItems, insertSlashCommand, isSlashCommandImeEscape, isSlashCommandImeEvent } from "../app/editor/slash-command-menu";
 import { createTableExtensions } from "../app/editor/table-extensions";
 
@@ -159,6 +159,13 @@ describe("table edge controls", () => {
     expect(getTableEdgeDragDelta(120, 3, 120)).toBe(1);
     expect(getTableEdgeDragDelta(-239, 3, 120)).toBe(-1);
     expect(getTableEdgeDragDelta(-240, 3, 120)).toBe(-2);
+  });
+
+  test("snaps the edge handle to whole row or column steps", () => {
+    expect(snapTableEdgeDrag(119, 3, 120)).toEqual({ delta: 0, snappedDistance: 0 });
+    expect(snapTableEdgeDrag(239, 3, 120)).toEqual({ delta: 1, snappedDistance: 120 });
+    expect(snapTableEdgeDrag(240, 3, 120)).toEqual({ delta: 2, snappedDistance: 240 });
+    expect(snapTableEdgeDrag(-240, 2, 120)).toEqual({ delta: -1, snappedDistance: -120 });
   });
 
   test("adjusts the far edge in a single transaction and preserves one row and column", () => {

@@ -29,6 +29,11 @@ export function getTableEdgeDragDelta(distance: number, currentSize: number, ste
   return requested < 0 ? -Math.min(steps, currentSize - 1) : steps;
 }
 
+export function snapTableEdgeDrag(distance: number, currentSize: number, step = 28) {
+  const delta = getTableEdgeDragDelta(distance, currentSize, step);
+  return { delta, snappedDistance: delta * step };
+}
+
 function createTableContext(node: ProseMirrorNode, position: number): ActiveTableContext | null {
   if (node.type.name !== "table" || node.childCount === 0) return null;
   const lastRowIndex = node.childCount - 1;

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouse
 import { createPortal } from "react-dom";
 import type { Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { adjustActiveTableSize, getActiveTableContext, getActiveTableSnapshot, getTableEdgeDragDelta, restoreActiveTableSnapshot, type TableEdgeAxis, type TableEdgeSnapshot } from "./table-edge-commands";
+import { adjustActiveTableSize, getActiveTableContext, getActiveTableSnapshot, restoreActiveTableSnapshot, snapTableEdgeDrag, type TableEdgeAxis, type TableEdgeSnapshot } from "./table-edge-commands";
 
 type TableControlsPosition = {
   columns: { top: number; left: number; height: number };
@@ -16,8 +16,8 @@ type DragSession = {
   pointerId: number;
   startX: number;
   startY: number;
-  distance: number;
   delta: number;
+  snappedDistance: number;
   initialSize: number;
   step: number;
   snapshot: TableEdgeSnapshot;
@@ -91,15 +91,13 @@ function getTableEdgeDragStep(shell: HTMLElement | null, axis: TableEdgeAxis, fa
   if (!table) return 28;
 
   if (axis === "columns") {
-    const cells = Array.from(table.querySelector("tr")?.children ?? []);
-    const widths = cells.map((cell) => cell.getBoundingClientRect().width).filter((width) => width > 0);
-    const measuredWidth = widths.length ? widths.reduce((total, width) => total + width, 0) / widths.length : table.getBoundingClientRect().width / Math.max(1, fallbackSize);
+    const edgeCell = table.querySelector("tr")?.lastElementChild;
+    const measuredWidth = edgeCell?.getBoundingClientRect().width || table.getBoundingClientRect().width / Math.max(1, fallbackSize);
     return Math.max(20, measuredWidth);
   }
 
   const rows = Array.from(table.querySelectorAll("tr"));
-  const heights = rows.map((row) => row.getBoundingClientRect().height).filter((height) => height > 0);
-  const measuredHeight = heights.length ? heights.reduce((total, height) => total + height, 0) / heights.length : table.getBoundingClientRect().height / Math.max(1, fallbackSize);
+  const measuredHeight = rows.at(-1)?.getBoundingClientRect().height || table.getBoundingClientRect().height / Math.max(1, fallbackSize);
   return Math.max(20, measuredHeight);
 }
 
@@ -121,7 +119,6 @@ function TableEdgeRail({ editor, axis, size, tablePosition, shell, position, dis
   const onAdjustRef = useRef(onAdjust);
   onAdjustRef.current = onAdjust;
   const [previewDelta, setPreviewDelta] = useState(0);
-  const [dragDistance, setDragDistance] = useState(0);
   const isColumnRail = axis === "columns";
   const noun = isColumnRail ? "列" : "行";
 
@@ -140,7 +137,6 @@ function TableEdgeRail({ editor, axis, size, tablePosition, shell, position, dis
     if (!drag) return;
     restoreActiveTableSnapshot(editor, drag.snapshot, { addToHistory: false, emitUpdate: false, closeHistory: true });
     suppressClickRef.current = false;
-    setDragDistance(0);
     setPreviewDelta(0);
   };
 
@@ -148,7 +144,7 @@ function TableEdgeRail({ editor, axis, size, tablePosition, shell, position, dis
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
     const distance = isColumnRail ? event.clientX - drag.startX : event.clientY - drag.startY;
-    const delta = getTableEdgeDragDelta(distance, drag.initialSize, drag.step);
+    const { delta } = snapTableEdgeDrag(distance, drag.initialSize, drag.step);
     clearDrag(event.pointerId);
 
     if (Math.abs(distance) >= 6) {
@@ -159,7 +155,6 @@ function TableEdgeRail({ editor, axis, size, tablePosition, shell, position, dis
     } else {
       suppressClickRef.current = false;
     }
-    setDragDistance(0);
     setPreviewDelta(0);
   };
 
@@ -167,15 +162,14 @@ function TableEdgeRail({ editor, axis, size, tablePosition, shell, position, dis
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
     const distance = isColumnRail ? event.clientX - drag.startX : event.clientY - drag.startY;
-    const delta = getTableEdgeDragDelta(distance, drag.initialSize, drag.step);
-    drag.distance = distance;
-    setDragDistance(distance);
+    const { delta, snappedDistance } = snapTableEdgeDrag(distance, drag.initialSize, drag.step);
     if (drag.delta !== delta) {
       restoreActiveTableSnapshot(editor, drag.snapshot, { addToHistory: false, emitUpdate: false });
       if (delta) adjustActiveTableSize(editor, axis, delta, { addToHistory: false, emitUpdate: false }, drag.snapshot.position);
       drag.delta = delta;
       setPreviewDelta(delta);
     }
+    drag.snappedDistance = snappedDistance;
   };
 
   useEffect(() => () => {
@@ -201,8 +195,8 @@ function TableEdgeRail({ editor, axis, size, tablePosition, shell, position, dis
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
-      distance: 0,
       delta: 0,
+      snappedDistance: 0,
       initialSize: size,
       step: getTableEdgeDragStep(shell, axis, size),
       snapshot,
@@ -222,7 +216,6 @@ function TableEdgeRail({ editor, axis, size, tablePosition, shell, position, dis
       window.removeEventListener("pointercancel", handleWindowPointerCancel, true);
       window.removeEventListener("blur", handleWindowBlur);
     };
-    setDragDistance(0);
   };
 
   const handleDragHandleClick = (event: ReactMouseEvent<HTMLButtonElement>) => {
@@ -237,8 +230,8 @@ function TableEdgeRail({ editor, axis, size, tablePosition, shell, position, dis
   const activeDrag = dragRef.current;
   const railPosition = activeDrag
     ? {
-      top: activeDrag.startPosition.top + (isColumnRail ? 0 : dragDistance),
-      left: activeDrag.startPosition.left + (isColumnRail ? dragDistance : 0),
+      top: activeDrag.startPosition.top + (isColumnRail ? 0 : activeDrag.snappedDistance),
+      left: activeDrag.startPosition.left + (isColumnRail ? activeDrag.snappedDistance : 0),
       width: activeDrag.startPosition.width,
       height: activeDrag.startPosition.height,
     }
