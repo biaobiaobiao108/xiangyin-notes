@@ -17,6 +17,7 @@ import { applyNoteSelectionClick, isNoteSelectionModifierClick, pruneNoteSelecti
 import { normalizeLinkTitle } from "../shared/wiki-links";
 import { useNoteSaveQueue } from "./workspace/use-note-save-queue";
 import { useWorkspaceRealtime } from "./workspace/use-realtime";
+import { refreshSelectedNote } from "./workspace/selected-note-sync";
 import { useWorkspaceShortcuts } from "./workspace/use-workspace-shortcuts";
 import { useThemePreference } from "./theme";
 
@@ -619,44 +620,26 @@ export function Workspace() {
       : await api.createNotebook({ name: notebook.name, color: notebook.color, icon: notebook.icon });
     return result.notebook;
   }, [editingNotebook]);
-  const refreshSelectedNoteFromRemote = useCallback(async (noteId: string) => {
-    const current = selectedRef.current;
-    if (!current || current.id !== noteId) return;
-
-    noteAbortRef.current?.abort();
-    const controller = new AbortController();
-    noteAbortRef.current = controller;
-    const requestId = ++noteLoadRequestRef.current;
-    try {
-      const result = await api.getNote(noteId, { signal: controller.signal });
-      if (requestId !== noteLoadRequestRef.current || activeNoteIdRef.current !== noteId || selectedRef.current?.id !== noteId) return;
-      if (result.note.version === current.version) return;
-
-      if (pendingSavesRef.current.has(noteId) || failedSavesRef.current.has(noteId)) {
-        setSaveState("conflict");
-        setToast("当前笔记已在其他设备更新，请先保存或重新载入");
-        return;
-      }
-      selectedRef.current = result.note;
-      setSelectedNote(result.note);
-      replaceList(notesRef.current.map((n) => (n.id === noteId ? { ...n, ...toNoteSummary(result.note) } : n)));
+  const refreshSelectedNoteFromRemote = useCallback((noteId: string) => refreshSelectedNote(noteId, {
+    selectedRef,
+    activeNoteIdRef,
+    noteAbortRef,
+    noteLoadRequestRef,
+    hasPendingWork: (id) => pendingSavesRef.current.has(id) || failedSavesRef.current.has(id),
+    onConflict: () => {
+      setSaveState("conflict");
+      setToast("当前笔记已在其他设备更新，请先保存或重新载入");
+    },
+    onUpdated: (note) => {
+      setSelectedNote(note);
+      replaceList(notesRef.current.map((n) => (n.id === noteId ? { ...n, ...toNoteSummary(note) } : n)));
       setNoteReloadToken((value) => value + 1);
       setSaveState("idle");
-    } catch (reason) {
-      if (reason instanceof Error && reason.name === "AbortError") return;
-      if (reason instanceof ApiError && reason.status === 401) {
-        navigate("/login", { replace: true });
-        return;
-      }
-      if (reason instanceof ApiError && reason.status === 404 && activeNoteIdRef.current === noteId) {
-        removeFromList(noteId);
-        return;
-      }
-      setToast("同步当前笔记失败，请稍后重试");
-    } finally {
-      if (noteAbortRef.current === controller) noteAbortRef.current = null;
-    }
-  }, [failedSavesRef, navigate, pendingSavesRef, removeFromList, replaceList, setSaveState]);
+    },
+    onUnauthorized: () => navigate("/login", { replace: true }),
+    onNotFound: removeFromList,
+    onError: () => setToast("同步当前笔记失败，请稍后重试"),
+  }), [failedSavesRef, navigate, pendingSavesRef, removeFromList, replaceList, setSaveState]);
   const deleteNotebook = useCallback(async (id: string) => {
     try {
       const target = notebooks.find((notebook) => notebook.id === id);
