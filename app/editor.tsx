@@ -649,12 +649,6 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
               blockStartPos: $from.start(),
               emptyAtStart: true,
             };
-          } else if (text.length === 1 && /^[a-zA-Z0-9]$/.test(text) && $from.parentOffset <= 1) {
-            leakedCandidateRef.current = {
-              key: text.toLowerCase(),
-              blockStartPos: $from.start(),
-              emptyAtStart: true,
-            };
           }
         }
         return false;

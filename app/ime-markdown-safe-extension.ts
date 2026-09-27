@@ -15,6 +15,7 @@ export function healLeakedImePrefix(text: string): { healed: string; leaked: str
 export interface ImeSafeState {
   trackedBlockPos: number | null;
   isComposing: boolean;
+  committedText: string | null;
 }
 
 export const imeMarkdownSafePluginKey = new PluginKey<ImeSafeState>("imeMarkdownSafe");
@@ -28,19 +29,25 @@ export const ImeMarkdownSafeExtension = Extension.create({
         key: imeMarkdownSafePluginKey,
         state: {
           init() {
-            return { trackedBlockPos: null, isComposing: false };
+            return { trackedBlockPos: null, isComposing: false, committedText: null };
           },
           apply(tr, prev) {
-            let { trackedBlockPos, isComposing } = prev;
-            const meta = tr.getMeta(imeMarkdownSafePluginKey) as { type: string; pos?: number } | undefined;
+            let { trackedBlockPos, isComposing, committedText } = prev;
+            const meta = tr.getMeta(imeMarkdownSafePluginKey) as { type: string; pos?: number; text?: string } | undefined;
             if (meta) {
               if (meta.type === "blockConverted") {
                 trackedBlockPos = meta.pos ?? null;
               } else if (meta.type === "compositionStart") {
                 isComposing = true;
-                if (meta.pos !== undefined) trackedBlockPos = meta.pos;
+                trackedBlockPos = meta.pos ?? null;
+                committedText = null;
               } else if (meta.type === "compositionEnd") {
                 isComposing = false;
+                committedText = meta.text || null;
+              } else if (meta.type === "compositionCancel") {
+                isComposing = false;
+                trackedBlockPos = null;
+                committedText = null;
               } else if (meta.type === "healed" || meta.type === "clear") {
                 trackedBlockPos = null;
               }
@@ -50,7 +57,7 @@ export const ImeMarkdownSafeExtension = Extension.create({
               trackedBlockPos = tr.mapping.map(trackedBlockPos);
             }
 
-            return { trackedBlockPos, isComposing };
+            return { trackedBlockPos, isComposing, committedText };
           },
         },
         appendTransaction(transactions, _oldState, newState) {
@@ -59,7 +66,7 @@ export const ImeMarkdownSafeExtension = Extension.create({
           }
 
           const pluginState = imeMarkdownSafePluginKey.getState(newState);
-          if (!pluginState || pluginState.trackedBlockPos === null) {
+          if (!pluginState || pluginState.trackedBlockPos === null || pluginState.isComposing) {
             return null;
           }
 
@@ -70,7 +77,7 @@ export const ImeMarkdownSafeExtension = Extension.create({
           const blockText = block.textContent;
 
           const healedResult = healLeakedImePrefix(blockText);
-          if (healedResult) {
+          if (healedResult && (!pluginState.committedText || healedResult.healed.startsWith(pluginState.committedText))) {
             const startOfBlock = $pos.start();
             const tr = newState.tr.delete(startOfBlock, startOfBlock + healedResult.leaked.length);
             tr.setMeta(imeMarkdownSafePluginKey, { type: "healed" });
@@ -90,7 +97,8 @@ export const ImeMarkdownSafeExtension = Extension.create({
             compositionstart(view) {
               const { $from } = view.state.selection;
               const blockStart = $from.start();
-              const isTargetBlock = $from.parent.content.size === 0 || ($from.parentOffset === 0 && $from.parent.textContent.length <= 1);
+              // An existing Latin letter is user content, not evidence of an IME leak.
+              const isTargetBlock = $from.parent.content.size === 0;
               const tr = view.state.tr.setMeta(imeMarkdownSafePluginKey, {
                 type: "compositionStart",
                 pos: isTargetBlock ? blockStart : undefined,
@@ -98,21 +106,13 @@ export const ImeMarkdownSafeExtension = Extension.create({
               view.dispatch(tr);
               return false;
             },
-            compositionend(view) {
-              const tr = view.state.tr.setMeta(imeMarkdownSafePluginKey, { type: "compositionEnd" });
+            compositionend(view, event) {
+              const tr = view.state.tr.setMeta(imeMarkdownSafePluginKey, { type: "compositionEnd", text: (event as CompositionEvent).data });
               view.dispatch(tr);
-
-              setTimeout(() => {
-                if (!view || view.isDestroyed) return;
-                const { state, dispatch } = view;
-                const { $from } = state.selection;
-                const block = $from.parent;
-                const healedResult = healLeakedImePrefix(block.textContent);
-                if (healedResult) {
-                  const startOfBlock = $from.start();
-                  dispatch(state.tr.delete(startOfBlock, startOfBlock + healedResult.leaked.length).scrollIntoView());
-                }
-              }, 20);
+              return false;
+            },
+            compositioncancel(view) {
+              view.dispatch(view.state.tr.setMeta(imeMarkdownSafePluginKey, { type: "compositionCancel" }));
               return false;
             },
           },
