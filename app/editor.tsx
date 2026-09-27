@@ -88,7 +88,7 @@ async function imageDimensions(file: File) {
   }
 }
 
-export function NoteEditor({ note, searchQuery = "", saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList, onBackToCards, onUploadImage, focusMode = false, onClearSearch, typewriterMode = false, outlineOpen, outlineItems, activeOutlineId, onToggleOutline, onCloseOutline, onOutlineItemsChange, onOutlineActiveChange, onOutlineNavigationReady, availableNotes = [], onNavigateWikiLink, onCreateAndLinkNote, onNavigateToNote, onToast }: {
+export function NoteEditor({ note, searchQuery = "", saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList, onBackToCards, onUploadImage, focusMode = false, onClearSearch, typewriterMode = false, outlineOpen, outlineItems, activeOutlineId, onToggleOutline, onCloseOutline, onOutlineItemsChange, onOutlineActiveChange, onOutlineNavigationReady, availableNotes = [], onNavigateWikiLink, onCreateAndLinkNote, onNavigateToNote, onToast, onMarkdownReaderChange }: {
   note: Note;
   searchQuery?: string;
   saveState: SaveState;
@@ -124,6 +124,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   onCreateAndLinkNote?: (title: string) => void;
   onNavigateToNote?: (id: string) => void;
   onToast?: (message: string) => void;
+  onMarkdownReaderChange?: (reader: (() => string | null) | null) => void;
 }) {
 
   const editorScrollRef = useRef<HTMLDivElement>(null);
@@ -792,6 +793,13 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       if (editorInstanceRef.current === editor) editorInstanceRef.current = null;
     };
   }, [editor]);
+
+  useEffect(() => {
+    if (!editor) return;
+    const readCurrentMarkdown = () => editor.isDestroyed ? null : (editor as EditorWithMarkdown).getMarkdown();
+    onMarkdownReaderChange?.(readCurrentMarkdown);
+    return () => onMarkdownReaderChange?.(null);
+  }, [editor, onMarkdownReaderChange]);
 
   useEffect(() => {
     if (!editor) return;

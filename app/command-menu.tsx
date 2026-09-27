@@ -1,12 +1,12 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { AlignVerticalSpaceAround, Archive, Bookmark, Download, FilePlus2, FileSearch, FolderInput, LayoutGrid, Link2, Maximize2, Monitor, Moon, PanelLeft, Search, Sun, Trash2, type LucideIcon } from "lucide-react";
+import { AlignVerticalSpaceAround, Archive, Bookmark, Copy, Download, FilePlus2, FileSearch, FolderInput, LayoutGrid, Link2, Maximize2, Monitor, Moon, PanelLeft, Search, Sun, Trash2, type LucideIcon } from "lucide-react";
 import type { Notebook } from "../shared/types";
 import { parseCreateNoteCommand, parseMoveNoteCommand, parseSearchPrefixCommand, type CreateNoteCommand } from "./command-parser";
 import { FloatingScrollbar } from "./floating-scrollbar";
 import { altKey, modKey } from "./platform";
 import type { ThemePreference } from "./theme";
 
-export type CommandId = "new-note" | "search-notes" | "find-in-note" | "toggle-sidebar" | "toggle-view-layout" | "toggle-focus-mode" | "toggle-typewriter-mode" | "set-theme-light" | "set-theme-dark" | "set-theme-system" | "share" | "favorite" | "trash" | "restore" | "install-app" | "move-to-notebook" | "export-notes";
+export type CommandId = "new-note" | "search-notes" | "find-in-note" | "toggle-sidebar" | "toggle-view-layout" | "toggle-focus-mode" | "toggle-typewriter-mode" | "set-theme-light" | "set-theme-dark" | "set-theme-system" | "share" | "copy-note-markdown" | "favorite" | "trash" | "restore" | "install-app" | "move-to-notebook" | "export-notes";
 
 type CommandOption = {
   key: string;
@@ -88,6 +88,7 @@ export function CommandMenu({
     { id: "set-theme-dark", label: "深色模式", shortcut: "↵", icon: Moon, detail: themePreference === "dark" ? "当前设置" : "", keywords: "主题 外观 tokyo night" },
     { id: "set-theme-system", label: "外观跟随系统", shortcut: "↵", icon: Monitor, detail: themePreference === "system" ? "当前设置" : "", keywords: "主题 外观 系统 跟随系统" },
     ...(hasSelectedNote ? [{ id: "share" as const, label: "分享笔记", shortcut: "↵", icon: Link2 }] : []),
+    ...(hasSelectedNote ? [{ id: "copy-note-markdown" as const, label: "复制当前笔记 Markdown", shortcut: "↵", icon: Copy, keywords: "复制 正文 全文 markdown" }] : []),
     ...(hasSelectedNote ? [{ id: "favorite" as const, label: "切换收藏", shortcut: "↵", icon: Bookmark }] : []),
     ...(canMoveToTrash ? [{ id: "trash" as const, label: "移入回收站", shortcut: "↵", icon: Trash2 }] : []),
     ...(canRestore ? [{ id: "restore" as const, label: "恢复笔记", shortcut: "↵", icon: Archive }] : []),
