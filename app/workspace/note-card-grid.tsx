@@ -17,7 +17,7 @@ import {
 import type { NoteSort, NoteSummary, NoteView, Notebook } from "../../shared/types";
 import { playEntranceAnimation } from "../animation";
 import { FloatingScrollbar } from "../floating-scrollbar";
-import { isNoteSelectionModifierClick } from "./note-list-selection";
+import { isNoteSelectionModifierClick, type NoteSelectionClick } from "./note-list-selection";
 import { getNoteTags, relativeDate, sortNotes } from "./helpers";
 
 const NOTE_TAG_DISPLAY_LIMIT = 3;
@@ -29,7 +29,7 @@ export type NoteCardGridPanelProps = {
   sort: NoteSort;
   selectedIds: ReadonlySet<string>;
   onOpenNote: (id: string) => void;
-  onToggleSelectNote: (id: string, event: ReactMouseEvent) => void;
+  onToggleSelectNote: (id: string, modifiers: Pick<NoteSelectionClick, "metaKey" | "ctrlKey" | "shiftKey">) => void;
   onDeleteSelected: () => void;
   view: NoteView;
   currentNotebookName?: string;
@@ -237,7 +237,7 @@ type NoteCardItemProps = {
   hasSelectionActive: boolean;
   showNotebook: boolean;
   onOpen: (id: string) => void;
-  onToggleSelect: (id: string, event: ReactMouseEvent) => void;
+  onToggleSelect: (id: string, modifiers: Pick<NoteSelectionClick, "metaKey" | "ctrlKey" | "shiftKey">) => void;
   onToggleFavorite: (note: NoteSummary) => void;
   notebooks: Notebook[];
   isTrashView: boolean;
@@ -279,10 +279,18 @@ const NoteCardItem = memo(function NoteCardItem({
       className={`note-card ${isSelected ? "is-selected" : ""} ${hasThumbnail ? "has-thumbnail" : ""}`}
       onClick={handleCardClick}
       role="listitem"
+      aria-label={`${displayTitle}，${isSelected ? "已选择" : "未选择"}；空格键切换选择，回车打开笔记`}
       tabIndex={0}
       onKeyDown={(event: ReactKeyboardEvent) => {
         if (event.target !== event.currentTarget) return;
-        if (event.key === "Enter" || event.key === " ") {
+        if (event.key === " ") {
+          event.preventDefault();
+          onToggleSelect(note.id, {
+            metaKey: event.metaKey,
+            ctrlKey: event.ctrlKey || (!event.shiftKey && !event.metaKey),
+            shiftKey: event.shiftKey,
+          });
+        } else if (event.key === "Enter") {
           event.preventDefault();
           onOpen(note.id);
         }

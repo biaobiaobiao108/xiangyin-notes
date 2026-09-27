@@ -1,4 +1,5 @@
 import type { Notebook } from "../../shared/types";
+import { SQLiteError } from "bun:sqlite";
 import {
   all,
   first,
@@ -35,6 +36,10 @@ export function validNotebookIcon(value: unknown): value is string {
 
 export function validColor(value: unknown) {
   return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value);
+}
+
+function isNotebookNameConflict(error: unknown): error is SQLiteError {
+  return error instanceof SQLiteError && error.code === "SQLITE_CONSTRAINT_UNIQUE";
 }
 
 export function toNotebook(row: NotebookRowWithCount): Notebook {
@@ -88,8 +93,9 @@ export async function handleNotebooksRoute(ctx: RouteContext, user: UserRow): Pr
     if (!validNotebookIcon(icon)) return jsonError(400, "INVALID_NOTEBOOK", "请输入有效的笔记本图标");
     try {
       database.query("INSERT INTO notebooks (id, user_id, name, color, icon, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 10, ?, ?)").run(notebookId, user.id, (payload.name as string).trim(), color as string, icon as string, createdAt, createdAt);
-    } catch {
-      return jsonError(409, "NOTEBOOK_EXISTS", "已经有同名笔记本");
+    } catch (error) {
+      if (isNotebookNameConflict(error)) return jsonError(409, "NOTEBOOK_EXISTS", "已经有同名笔记本");
+      throw error;
     }
     const created = getNotebook(database, user.id, notebookId);
     publishWorkspaceChange(options, user.id, { resource: "notebooks" }, request);
@@ -108,8 +114,9 @@ export async function handleNotebooksRoute(ctx: RouteContext, user: UserRow): Pr
     }
     try {
       database.query("UPDATE notebooks SET name = ?, color = ?, icon = ?, updated_at = ? WHERE id = ? AND user_id = ?").run((name as string).trim(), color as string, icon as string, now(), current.id, user.id);
-    } catch {
-      return jsonError(409, "NOTEBOOK_EXISTS", "已经有同名笔记本");
+    } catch (error) {
+      if (isNotebookNameConflict(error)) return jsonError(409, "NOTEBOOK_EXISTS", "已经有同名笔记本");
+      throw error;
     }
     const updated = getNotebook(database, user.id, current.id);
     publishWorkspaceChange(options, user.id, { resource: "notebooks" }, request);

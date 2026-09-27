@@ -51,7 +51,8 @@ self.addEventListener("fetch", (event) => {
 `;
 
 const SECURITY_HEADERS: Record<string, string> = {
-  "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net; img-src 'self' data: blob: https:; connect-src 'self' ws: wss:; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+  // SHA-256 of the inline theme bootstrap in app/index.html.
+  "Content-Security-Policy": "default-src 'self'; script-src 'self' 'sha256-CTW2ndcNC8/ZHOwYB0GdVTGVxtKJtKgBPxnJikeVUA0='; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net; img-src 'self' data: blob: https:; connect-src 'self' ws: wss:; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
   "X-Content-Type-Options": "nosniff",
   "X-Frame-Options": "DENY",
   "Referrer-Policy": "strict-origin-when-cross-origin",
@@ -65,6 +66,16 @@ function withSecurityHeaders(response: Response, environment: Record<string, str
   for (const [name, value] of Object.entries(SECURITY_HEADERS)) headers.set(name, value);
   if (environment.COOKIE_SECURE === "true") headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
+function redactSensitivePath(pathname: string) {
+  const segments = pathname.split("/");
+  if (segments[1] === "api" && (segments[2] === "shares" || segments[2] === "share-assets")) {
+    segments[3] = "[REDACTED]";
+  } else if (segments[1] === "share") {
+    segments[2] = "[REDACTED]";
+  }
+  return segments.join("/");
 }
 
 const MIME_TYPES: Record<string, string> = {
@@ -224,7 +235,7 @@ export async function handleRequest(request: Request, options: ServerOptions) {
     return withSecurityHeaders(response, environment);
   } catch (error) {
     const url = new URL(request.url);
-    console.error(`[request] ${request.method} ${url.pathname}`, error);
+    console.error(`[request] ${request.method} ${redactSensitivePath(url.pathname)}`, error);
     if (url.pathname.startsWith("/api/") || url.pathname === MCP_PATH) return withSecurityHeaders(jsonError(500, "INTERNAL_ERROR", "服务器暂时无法处理请求"), options.environment);
     return withSecurityHeaders(new Response("Internal Server Error", { status: 500 }), options.environment);
   }

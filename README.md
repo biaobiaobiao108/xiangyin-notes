@@ -92,13 +92,15 @@
 最简单的长期使用方式是用 Docker 在自己的服务器或 NAS 上运行。先在项目目录创建 `.env`：
 
 ```dotenv
-XIANGYING_USERNAME=xiangying
-XIANGYING_PASSWORD=请换成仅你自己知道的长密码
+XIANGYING_USERNAME=
+XIANGYING_PASSWORD=
 # 使用快捷指令导入时再设置：
-# XIANGYING_API_TOKEN=请填写随机生成的令牌
+# XIANGYING_API_TOKEN=
 # 使用远程 MCP 时另行设置，不要与上面的导入令牌共用：
-# XIANGYING_MCP_TOKEN=请用 openssl rand -hex 32 生成
+# XIANGYING_MCP_TOKEN=
 ```
+
+复制为 `.env` 后，必须先为 `XIANGYING_USERNAME` 和 `XIANGYING_PASSWORD` 填入自己的登录凭据。快捷指令导入与远程 MCP 是可选功能；启用时分别生成独立随机令牌并填写对应变量。
 
 创建持久化数据卷并启动：
 
@@ -111,7 +113,7 @@ docker run -d \
   -p 3000:3000 \
   --env-file .env \
   -v xiangying-notes-data:/data \
-  ghcr.io/biaobiaobiao108/xiangying-notes:latest
+  ghcr.io/biaobiaobiao108/xiangyin-notes:latest
 ```
 
 启动后打开 `http://127.0.0.1:3000/app` 并使用 `.env` 中的账号登录。数据库和图片附件都会保存在 `xiangying-notes-data` 数据卷中，更新容器时继续使用同一个数据卷即可。

@@ -358,6 +358,7 @@ export const WikiLinkSuggestionExtension = Extension.create<WikiLinkSuggestionOp
               updatePosition(activeClientRect);
             },
             onKeyDown: (props) => {
+              if (props.event.isComposing || (props.event as KeyboardEvent).keyCode === 229) return false;
               if (props.event.key === "Escape") {
                 props.event.stopPropagation();
                 destroy();

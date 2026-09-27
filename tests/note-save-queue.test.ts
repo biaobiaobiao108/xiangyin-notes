@@ -41,6 +41,7 @@ beforeEach(() => {
     queue = useNoteSaveQueue({
       selectedRef, notesRef, activeNoteIdRef: { current: original.id },
       trashOperationsRef: { current: new Set() },
+      flushEditorDraftRef: { current: () => undefined },
       replaceList: (notes) => { notesRef.current = notes; },
       setSelectedNote: () => {}, setToast: () => {},
     });

@@ -13,7 +13,7 @@ import { clearAllDraftRecoveries, readDraftRecovery } from "./workspace/draft-re
 import { EmptyEditor, NoteListPanel, NoteLoadingState, Sidebar } from "./workspace/panels";
 import { NoteCardGridPanel } from "./workspace/note-card-grid";
 import { errorMessage, shouldKeepActiveNoteInList, sortNotes, toNoteDraft, toNoteSummary, type NoteDraft, type NoteSort } from "./workspace/helpers";
-import { applyNoteSelectionClick, isNoteSelectionModifierClick, pruneNoteSelection, type NoteSelectionState } from "./workspace/note-list-selection";
+import { applyNoteSelectionClick, isNoteSelectionModifierClick, pruneNoteSelection, type NoteSelectionClick, type NoteSelectionState } from "./workspace/note-list-selection";
 import { normalizeLinkTitle } from "../shared/wiki-links";
 import { useNoteSaveQueue } from "./workspace/use-note-save-queue";
 import { useWorkspaceRealtime } from "./workspace/use-realtime";
@@ -40,6 +40,7 @@ export function Workspace() {
   const listTransitionIntentRef = useRef(0);
   const listTransitionConsumedRef = useRef(0);
   const editorMarkdownReaderRef = useRef<(() => string | null) | null>(null);
+  const flushEditorDraftRef = useRef<() => void>(() => undefined);
   const notesRef = useRef<NoteSummary[]>([]);
   const pendingWikiCreationsRef = useRef<Map<string, Promise<NoteSummary | null>>>(new Map());
   const inboxNoteCreationRef = useRef(false);
@@ -195,6 +196,7 @@ export function Workspace() {
     notesRef,
     activeNoteIdRef,
     trashOperationsRef,
+    flushEditorDraftRef,
     replaceList,
     setSelectedNote,
     setToast,
@@ -317,13 +319,14 @@ export function Workspace() {
     setInNoteSearchQuery("");
     clearNoteSelection();
     if (activeNoteIdRef.current === id) return;
+    flushEditorDraftRef.current();
     noteLoadRequestRef.current += 1;
 
     activeNoteIdRef.current = id;
-    selectedRef.current = null;
     setSelectedId(id);
     setIsNoteLoading(Boolean(id));
     if (!id) {
+      selectedRef.current = null;
       setSelectedNote(null);
       setCardEditingNoteId(null);
     }
@@ -380,11 +383,14 @@ export function Workspace() {
     noteAbortRef.current = controller;
     setEditorFocusNoteId((current) => current === id ? current : null);
     const requestId = ++noteLoadRequestRef.current;
-    const previousNote = selectedRef.current;
+    let previousNote = selectedRef.current;
+    if (previousNote?.id !== id) {
+      flushEditorDraftRef.current();
+      previousNote = selectedRef.current;
+    }
     const pendingNote = pendingSavesRef.current.get(id);
     const failedSave = failedSavesRef.current.get(id);
     activeNoteIdRef.current = id;
-    selectedRef.current = null;
     setIsNoteLoading(true);
     setSaveState(failedSave ? failedSave instanceof ApiError && failedSave.code === "VERSION_CONFLICT" ? "conflict" : "error" : pendingNote ? "saving" : "idle");
     try {
@@ -421,10 +427,16 @@ export function Workspace() {
         return;
       }
       if (previousNote) {
-        activeNoteIdRef.current = previousNote.id;
-        selectedRef.current = previousNote;
-        setSelectedId(previousNote.id);
-        setSelectedNote(previousNote);
+        const restoredNote = previousNote;
+        const previousFailure = failedSavesRef.current.get(restoredNote.id);
+        setSaveState(previousFailure
+          ? previousFailure instanceof ApiError && previousFailure.code === "VERSION_CONFLICT" ? "conflict" : "error"
+          : pendingSavesRef.current.has(restoredNote.id) ? "saving" : "idle");
+        activeNoteIdRef.current = restoredNote.id;
+        selectedRef.current = restoredNote;
+        setSelectedId(restoredNote.id);
+        setSelectedNote(restoredNote);
+        setCardEditingNoteId((current) => current === id ? restoredNote.id : current);
       } else {
         activeNoteIdRef.current = null;
         selectedRef.current = null;
@@ -438,6 +450,7 @@ export function Workspace() {
   }, [failedSavesRef, navigate]);
   useEffect(() => {
     if (!ready || !selectedId) {
+      flushEditorDraftRef.current();
       noteAbortRef.current?.abort();
       activeNoteIdRef.current = null;
       selectedRef.current = null;
@@ -535,7 +548,18 @@ export function Workspace() {
   const registerEditorMarkdownReader = useCallback((reader: (() => string | null) | null) => {
     editorMarkdownReaderRef.current = reader;
   }, []);
+  const flushActiveEditorDraft = useCallback(() => {
+    const current = selectedRef.current;
+    if (!current || trashOperationsRef.current.has(current.id)) return;
+    const markdown = editorMarkdownReaderRef.current?.();
+    if (markdown == null || markdown === current.contentMarkdown) return;
+    const next = { ...current, contentMarkdown: markdown };
+    selectedRef.current = next;
+    persistRef.current(next, ["contentMarkdown"]);
+  }, []);
+  flushEditorDraftRef.current = flushActiveEditorDraft;
   const revealCreatedNote = useCallback((note: Note, target: { view: NoteView; notebookId?: string }, message: string) => {
+    flushEditorDraftRef.current();
     invalidateCollections();
     searchOriginRef.current = null;
     setView(target.view);
@@ -682,6 +706,7 @@ export function Workspace() {
     if (!trashOperationsRef.current.size) { void refreshNotebooks(); reloadNotes(); }
   }, [invalidateCollections, refreshNotebooks, reloadNotes]);
   const changeDeletedState = useCallback(async (deleted: boolean) => {
+    flushEditorDraftRef.current();
     const current = selectedRef.current;
     if (!current || Boolean(current.deletedAt) === deleted || trashOperationsRef.current.has(current.id) || emptyingTrashRef.current) return;
     const scope = listScopeRef.current;
@@ -712,6 +737,7 @@ export function Workspace() {
       .map((note) => ({ id: note.id, version: note.version }));
   }, [noteSort]);
   const performBatchDelete = useCallback(async (noteIds: string[], permanent: boolean) => {
+    flushEditorDraftRef.current();
     const ids = [...new Set(noteIds)];
     if (!ids.length) return;
     if (emptyingTrashRef.current || trashOperationsRef.current.size) throw new ApiError(409, "TRASH_BUSY", "回收站正在处理其他操作，请稍后重试");
@@ -756,6 +782,7 @@ export function Workspace() {
   }, [emptyingTrashRef, pendingTrashCount, performBatchDelete, requestConfirm, showBatchDeleteError, view]);
   const performPermanentDelete = useCallback(async (noteId: string) => {
     if (trashOperationsRef.current.has(noteId) || emptyingTrashRef.current) throw new ApiError(409, "TRASH_BUSY", "回收站正在处理其他操作，请稍后重试");
+    flushEditorDraftRef.current();
     trashOperationsRef.current.add(noteId);
     setPendingTrashCount(trashOperationsRef.current.size);
     invalidateCollections();
@@ -768,6 +795,7 @@ export function Workspace() {
     } finally { finishTrashOperation(noteId); }
   }, [discardNoteDraft, finishTrashOperation, invalidateCollections, removeFromList, runSave]);
   const permanentDeleteNote = useCallback(async () => {
+    flushEditorDraftRef.current();
     const current = selectedRef.current;
     if (!current) return;
     requestConfirm({
@@ -781,6 +809,7 @@ export function Workspace() {
   }, [performPermanentDelete, requestConfirm]);
   const performEmptyTrash = useCallback(async () => {
     if (emptyingTrashRef.current || trashOperationsRef.current.size) throw new ApiError(409, "TRASH_BUSY", "回收站正在处理其他操作，请稍后重试");
+    flushEditorDraftRef.current();
     const scope = listScopeRef.current;
     emptyingTrashRef.current = true;
     setEmptyingTrash(true);
@@ -1184,12 +1213,12 @@ export function Workspace() {
     selectNote(id);
     setCardEditingNoteId(id);
   }, [selectNote]);
-  const handleToggleCardSelection = useCallback((id: string, event: ReactMouseEvent) => {
+  const handleToggleCardSelection = useCallback((id: string, modifiers: Pick<NoteSelectionClick, "metaKey" | "ctrlKey" | "shiftKey">) => {
     const nextSelection = applyNoteSelectionClick(noteSelectionRef.current, sortNotes(notesRef.current, noteSort).map((note) => note.id), {
       id,
-      metaKey: event.metaKey,
-      ctrlKey: event.ctrlKey,
-      shiftKey: event.shiftKey,
+      metaKey: modifiers.metaKey,
+      ctrlKey: modifiers.ctrlKey,
+      shiftKey: modifiers.shiftKey,
     });
     updateNoteSelection(nextSelection);
   }, [noteSort, updateNoteSelection]);

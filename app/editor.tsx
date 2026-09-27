@@ -711,12 +711,12 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   }), []);
   surfaceSyncRef.current = scheduleEditorSurfaceSync;
 
-  const flushMarkdownChange = useCallback(() => {
+  const flushMarkdownChange = useCallback((source?: Editor) => {
     if (markdownSyncFrameRef.current !== null) {
       cancelAnimationFrame(markdownSyncFrameRef.current);
       markdownSyncFrameRef.current = null;
     }
-    const instance = editorInstanceRef.current as EditorWithMarkdown | null;
+    const instance = (source ?? editorInstanceRef.current) as EditorWithMarkdown | null;
     if (!instance || instance.isDestroyed) return;
     onChangeRef.current({ contentMarkdown: instance.getMarkdown() });
   }, []);
@@ -764,6 +764,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
 
     const { $from } = instance.state.selection;
     let previousHeadingElement: HTMLElement | null = null;
+    let previousHeadingIndex = -1;
     for (let depth = $from.depth; depth > 0; depth -= 1) {
       if ($from.node(depth).type.name !== "heading") continue;
       const headingDom = instance.view.nodeDOM($from.before(depth));
@@ -772,15 +773,30 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       break;
     }
     if (!previousHeadingElement) {
-      instance.state.doc.nodesBetween(0, $from.pos, (node, position) => {
-        if (node.type.name !== "heading" || !node.textContent?.trim()) return;
-        const headingDom = instance.view.nodeDOM(position);
-        if (headingDom instanceof HTMLElement) previousHeadingElement = headingDom.closest<HTMLElement>(OUTLINE_HEADING_SELECTOR);
-      });
+      let low = 0;
+      let high = outlineItems.length - 1;
+      try {
+        while (low <= high) {
+          const middle = Math.floor((low + high) / 2);
+          const element = outlineHeadingElementsRef.current.get(outlineItems[middle].id);
+          if (!element || !root.contains(element)) return false;
+          if (instance.view.posAtDOM(element, 0) <= $from.pos) {
+            previousHeadingElement = element;
+            previousHeadingIndex = middle;
+            low = middle + 1;
+          } else {
+            high = middle - 1;
+          }
+        }
+      } catch {
+        return false;
+      }
     }
     if (!previousHeadingElement || !root.contains(previousHeadingElement)) return false;
-    const item = outlineItems.find((candidate) => outlineHeadingElementsRef.current.get(candidate.id) === previousHeadingElement)
-      ?? outlineItems[getOutlineHeadingElements(root).indexOf(previousHeadingElement)];
+    const item = previousHeadingIndex >= 0
+      ? outlineItems[previousHeadingIndex]
+      : outlineItems.find((candidate) => outlineHeadingElementsRef.current.get(candidate.id) === previousHeadingElement)
+        ?? outlineItems[getOutlineHeadingElements(root).indexOf(previousHeadingElement)];
     if (!item) return false;
     onOutlineActiveChange(item.id);
     return true;
@@ -872,6 +888,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     if (!editor) return;
     scheduleEditorSurfaceSync(editor);
     return () => {
+      flushMarkdownChange(editor);
       const idleWindow = window as Window & { cancelIdleCallback?: (handle: number) => void };
       if (syncFrameRef.current !== null) {
         idleWindow.cancelIdleCallback?.(syncFrameRef.current);
@@ -885,7 +902,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       leakedCandidateRef.current = null;
       composingRef.current = false;
     };
-  }, [editor]);
+  }, [editor, flushMarkdownChange]);
 
   useEffect(() => {
     if (!isLoading) {

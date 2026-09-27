@@ -15,6 +15,7 @@ export type UseNoteSaveQueueOptions = {
   notesRef: React.MutableRefObject<NoteSummary[]>;
   activeNoteIdRef: React.MutableRefObject<string | null>;
   trashOperationsRef: React.MutableRefObject<Set<string>>;
+  flushEditorDraftRef: React.MutableRefObject<() => void>;
   replaceList: (notes: NoteSummary[]) => void;
   setSelectedNote: React.Dispatch<React.SetStateAction<Note | null>>;
   setToast: (toast: string) => void;
@@ -26,6 +27,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
     notesRef,
     activeNoteIdRef,
     trashOperationsRef,
+    flushEditorDraftRef,
     replaceList,
     setSelectedNote,
     setToast,
@@ -40,8 +42,9 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
   const failedSavesRef = useRef(new Map<string, unknown>());
 
   const hasUnsavedWork = useCallback(() => {
+    flushEditorDraftRef.current();
     return pendingSavesRef.current.size > 0 || failedSavesRef.current.size > 0;
-  }, []);
+  }, [flushEditorDraftRef]);
 
   const runSave = useCallback(async (noteId: string, keepalive = false) => {
     const running = inFlightSavesRef.current.get(noteId);
@@ -158,6 +161,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
   }, [runSave, selectedRef]);
 
   const flushPendingSaves = useCallback(async (mode: "now" | "keepalive") => {
+    flushEditorDraftRef.current();
     if (mode === "keepalive") {
       for (const draft of pendingSavesRef.current.values()) writeDraftRecovery(draft);
     }
@@ -174,7 +178,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
         await runSave(id, mode === "keepalive").catch(() => undefined);
       }),
     );
-  }, [runSave]);
+  }, [flushEditorDraftRef, runSave]);
 
   const retryFailedSaves = useCallback(async () => {
     const ids = [...failedSavesRef.current.entries()]
@@ -229,11 +233,12 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
   }, [saveImmediately, selectedRef]);
 
   const flushNotebookSaves = useCallback(async (notebookId: string) => {
+    flushEditorDraftRef.current();
     const ids = [...pendingSavesRef.current.values()]
       .filter((draft) => draft.notebookId === notebookId)
       .map((draft) => draft.id);
     await Promise.all(ids.map((id) => runSave(id)));
-  }, [runSave]);
+  }, [flushEditorDraftRef, runSave]);
 
   // Listen for beforeunload warning
   useEffect(() => {

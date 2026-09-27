@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type SyntheticEvent } from "react";
 import { AlignVerticalSpaceAround, Archive, Bookmark, Copy, Download, FilePlus2, FileSearch, FolderInput, LayoutGrid, Link2, Maximize2, Monitor, Moon, PanelLeft, Search, Sun, Trash2, type LucideIcon } from "lucide-react";
 import type { Notebook } from "../shared/types";
 import { parseCreateNoteCommand, parseMoveNoteCommand, parseSearchPrefixCommand, type CreateNoteCommand } from "./command-parser";
@@ -69,6 +69,8 @@ export function CommandMenu({
   themePreference,
 }: CommandMenuProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const ignoreNextCancelRef = useRef(false);
+  const ignoreNextCancelTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
@@ -246,6 +248,16 @@ export function CommandMenu({
     const dialog = dialogRef.current;
     if (!dialog) return;
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && (event.isComposing || event.keyCode === 229)) {
+        ignoreNextCancelRef.current = true;
+        if (ignoreNextCancelTimerRef.current !== null) clearTimeout(ignoreNextCancelTimerRef.current);
+        ignoreNextCancelTimerRef.current = setTimeout(() => {
+          ignoreNextCancelRef.current = false;
+          ignoreNextCancelTimerRef.current = null;
+        }, 0);
+        return;
+      }
+      if (event.isComposing || event.keyCode === 229) return;
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
@@ -262,13 +274,29 @@ export function CommandMenu({
       }
     };
     dialog.addEventListener("keydown", onKeyDown);
-    return () => dialog.removeEventListener("keydown", onKeyDown);
+    return () => {
+      dialog.removeEventListener("keydown", onKeyDown);
+      if (ignoreNextCancelTimerRef.current !== null) clearTimeout(ignoreNextCancelTimerRef.current);
+      ignoreNextCancelTimerRef.current = null;
+      ignoreNextCancelRef.current = false;
+    };
   }, [execute, onClose, options, selected]);
+
+  const handleCancel = (event: SyntheticEvent<HTMLDialogElement>) => {
+    event.preventDefault();
+    if (ignoreNextCancelRef.current) {
+      ignoreNextCancelRef.current = false;
+      if (ignoreNextCancelTimerRef.current !== null) clearTimeout(ignoreNextCancelTimerRef.current);
+      ignoreNextCancelTimerRef.current = null;
+      return;
+    }
+    onClose();
+  };
 
   let previousSection = "";
 
   return (
-    <dialog ref={dialogRef} className="command-dialog" aria-labelledby="command-menu-title" onCancel={(event) => { event.preventDefault(); onClose(); }}>
+    <dialog ref={dialogRef} className="command-dialog" aria-labelledby="command-menu-title" onCancel={handleCancel}>
       <div className="command-dialog-header"><h2 id="command-menu-title">命令菜单</h2><kbd>Esc</kbd></div>
       <div className="command-search-wrap">
         <Search size={18} aria-hidden="true" />
