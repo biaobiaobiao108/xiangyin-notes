@@ -2,6 +2,35 @@ import { describe, expect, test } from "bun:test";
 import { handleWorkspaceKeyDown } from "../app/workspace/use-workspace-shortcuts";
 
 describe("workspace shortcuts Escape handling", () => {
+  test("an open outline respects IME, modal and focus-mode precedence", () => {
+    const actions: string[] = [];
+    const context = {
+      focusMode: false,
+      hasModalOpen: false,
+      outlineOpen: true,
+      handlers: {
+        toggleSidebar() {}, toggleFocusMode() {}, toggleTypewriterMode() {}, openCommandMenu() {},
+        exitFocusMode() { actions.push("focus"); },
+        closeOutline() { actions.push("outline"); },
+      },
+    };
+    const event = {
+      key: "Escape", defaultPrevented: true, isComposing: false, keyCode: 27,
+      preventDefault() { actions.push("prevent"); },
+    } as KeyboardEvent;
+
+    handleWorkspaceKeyDown({ ...event, isComposing: true } as KeyboardEvent, context);
+    handleWorkspaceKeyDown({ ...event, keyCode: 229 } as KeyboardEvent, context);
+    handleWorkspaceKeyDown(event, { ...context, hasModalOpen: true });
+    expect(actions).toEqual([]);
+
+    handleWorkspaceKeyDown(event, { ...context, focusMode: true });
+    expect(actions).toEqual(["prevent", "focus"]);
+    actions.length = 0;
+    handleWorkspaceKeyDown(event, context);
+    expect(actions).toEqual(["prevent", "outline"]);
+  });
+
   test("exits focus mode even when defaultPrevented is true (e.g. from ProseMirror in note body)", () => {
     let focusExited = false;
     let defaultPreventedCalled = false;

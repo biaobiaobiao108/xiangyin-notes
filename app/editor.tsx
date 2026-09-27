@@ -1017,21 +1017,6 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   }, [isLoading, onCloseOutline]);
 
   useEffect(() => {
-    if (!outlineOpen) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      event.stopPropagation();
-      onCloseOutline();
-      requestAnimationFrame(() => outlineTriggerRef.current?.focus());
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [onCloseOutline, outlineOpen]);
-
-  useEffect(() => {
     const root = editorScrollRef.current;
     outlineFallbackSyncRef.current = null;
     if (!root || outlineItems.length === 0) {
