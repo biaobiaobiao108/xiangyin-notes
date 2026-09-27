@@ -6,6 +6,7 @@ import { Info, Table2 } from "lucide-react";
 import { formatPreview } from "../server/core";
 import { CalloutNode, CALLOUT_TYPES, shouldExitCalloutOnEnter } from "../app/editor/callout-node";
 import { CodeBlockDoubleEnter, handleCodeBlockDoubleEnter, shouldExitCodeBlockOnEnter } from "../app/editor/code-block-enter";
+import { handleInlineMarkExitOnEnter, InlineMarkExitOnEnter } from "../app/editor/inline-mark-exit";
 import { ImageNode } from "../app/editor/image-node";
 import { NoteLink } from "../app/editor/note-link";
 import { copyCodeBlockText } from "../app/editor/code-block-copy";
@@ -19,6 +20,7 @@ function createMarkdownEditor(content: string) {
     extensions: [
       StarterKit.configure({ heading: { levels: [1, 2, 3, 4, 5, 6] }, codeBlock: { exitOnTripleEnter: false } }),
       CodeBlockDoubleEnter,
+      InlineMarkExitOnEnter,
       ...createTableExtensions(),
       Markdown,
       CalloutNode,
@@ -27,6 +29,74 @@ function createMarkdownEditor(content: string) {
     contentType: "markdown",
   });
 }
+
+describe("slash command inline formatting", () => {
+  test.each([
+    ["bold", "bold"],
+    ["italic", "italic"],
+    ["strike", "strike"],
+    ["underline", "underline"],
+    ["inlineCode", "code"],
+  ] as const)("exits %s input mode after Enter", (action, markName) => {
+    const editor = createMarkdownEditor("/");
+    try {
+      const item = filterSlashCommandItems("").find((candidate) => candidate.action === action)!;
+      editor.commands.setTextSelection(2);
+      insertSlashCommand(editor, { from: 1, to: 2 }, item);
+
+      expect(editor.isActive(markName)).toBe(true);
+      editor.view.dispatch(editor.state.tr.insertText("formatted text"));
+      expect(editor.state.doc.firstChild?.firstChild?.marks.some((mark) => mark.type.name === markName)).toBe(true);
+
+      expect(handleInlineMarkExitOnEnter(editor, { key: "Enter", keyCode: 13 } as KeyboardEvent)).toBe(true);
+      expect(editor.state.doc.childCount).toBe(2);
+      expect(editor.state.storedMarks).toBeNull();
+      expect(editor.isActive(markName)).toBe(false);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  test("does not intercept Enter while an IME is composing", () => {
+    const editor = createMarkdownEditor("/");
+    try {
+      const item = filterSlashCommandItems("").find((candidate) => candidate.action === "bold")!;
+      editor.commands.setTextSelection(2);
+      insertSlashCommand(editor, { from: 1, to: 2 }, item);
+
+      expect(handleInlineMarkExitOnEnter(editor, { key: "Enter", keyCode: 13, isComposing: true } as KeyboardEvent)).toBe(false);
+      expect(editor.state.doc.childCount).toBe(1);
+      expect(editor.isActive("bold")).toBe(true);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  test("keeps list structure while exiting inline formatting on Enter", () => {
+    const editor = createMarkdownEditor("- /");
+    try {
+      let slashPosition = -1;
+      editor.state.doc.descendants((node, position) => {
+        if (slashPosition < 0 && node.isText && node.text === "/") slashPosition = position;
+      });
+      expect(slashPosition).toBeGreaterThan(0);
+
+      const item = filterSlashCommandItems("").find((candidate) => candidate.action === "bold")!;
+      editor.commands.setTextSelection(slashPosition + 1);
+      insertSlashCommand(editor, { from: slashPosition, to: slashPosition + 1 }, item);
+      editor.view.dispatch(editor.state.tr.insertText("formatted text"));
+
+      expect(handleInlineMarkExitOnEnter(editor, { key: "Enter", keyCode: 13 } as KeyboardEvent)).toBe(true);
+      expect(editor.state.doc.firstChild?.type.name).toBe("bulletList");
+      expect(editor.state.doc.firstChild?.childCount).toBe(2);
+      expect(editor.state.doc.firstChild?.firstChild?.textContent).toBe("formatted text");
+      expect(editor.state.doc.firstChild?.lastChild?.textContent).toBe("");
+      expect(editor.isActive("bold")).toBe(false);
+    } finally {
+      editor.destroy();
+    }
+  });
+});
 
 describe("GFM table markdown integration", () => {
   test("does not render Markdown link or image titles as hover tooltips", () => {
