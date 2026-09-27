@@ -561,18 +561,19 @@ button.save-status:hover { text-decoration: underline; }
 }
 .editor-floating-row { display: flex; align-items: center; justify-content: flex-end; gap: 8px; max-width: calc(100vw - 32px); pointer-events: auto; }
 .table-edge-controls-overlay { position: fixed; inset: 0; z-index: 1100; pointer-events: none; }
-.table-edge-rail { position: absolute; display: flex; align-items: center; justify-content: center; padding: 1px; border: 1px solid var(--border-soft); border-radius: 999px; background: var(--surface-glass); opacity: 0; pointer-events: none; touch-action: none; user-select: none; transition: opacity var(--motion-fast) ease-out; }
+.table-edge-rail { position: absolute; display: flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 999px; background: transparent; opacity: 0; pointer-events: none; touch-action: none; user-select: none; transition: opacity var(--motion-fast) ease-out; }
 .table-edge-rail.is-visible, .table-edge-rail:focus-within { opacity: 1; pointer-events: auto; }
 .table-edge-rail--columns { width: 14px; flex-direction: column; }
 .table-edge-rail--rows { height: 14px; flex-direction: row; }
-.table-edge-drag-handle { position: relative; display: grid; flex: 1 1 auto; min-width: 0; min-height: 0; place-items: center; padding: 0; border: 0; border-radius: inherit; background: transparent; cursor: grab; touch-action: none; }
+.table-edge-drag-handle { position: relative; display: grid; flex: 1 1 auto; min-inline-size: 24px; min-block-size: 24px; place-items: center; padding: 0; border: 0; border-radius: inherit; background: transparent; cursor: grab; touch-action: none; }
 .table-edge-rail--columns .table-edge-drag-handle { width: 100%; height: 100%; }
 .table-edge-rail--rows .table-edge-drag-handle { width: 100%; height: 100%; }
-.table-edge-grip { display: block; border-radius: 999px; background: var(--soft-muted); pointer-events: none; }
-.table-edge-rail--columns .table-edge-grip { width: 4px; height: 22px; }
-.table-edge-rail--rows .table-edge-grip { width: 22px; height: 4px; }
-.table-edge-drag-handle:hover:not(:disabled) .table-edge-grip, .table-edge-drag-handle:focus-visible .table-edge-grip { background: var(--accent-dark); }
+.table-edge-grip { --table-edge-mark: var(--soft-muted); display: block; border: 1px solid var(--border-soft); border-radius: 999px; background-color: var(--surface-glass); box-shadow: 0 1px 4px rgba(39, 47, 41, 0.12); pointer-events: none; transition: background-color var(--motion-fast) ease, border-color var(--motion-fast) ease, box-shadow var(--motion-fast) ease, transform var(--motion-fast) ease; }
+.table-edge-rail--columns .table-edge-grip { width: 8px; height: 28px; background-image: linear-gradient(var(--table-edge-mark), var(--table-edge-mark)), linear-gradient(var(--table-edge-mark), var(--table-edge-mark)), linear-gradient(var(--table-edge-mark), var(--table-edge-mark)); background-position: center 7px, center 13px, center 19px; background-repeat: no-repeat; background-size: 4px 1px; }
+.table-edge-rail--rows .table-edge-grip { width: 28px; height: 8px; background-image: linear-gradient(var(--table-edge-mark), var(--table-edge-mark)), linear-gradient(var(--table-edge-mark), var(--table-edge-mark)), linear-gradient(var(--table-edge-mark), var(--table-edge-mark)); background-position: 7px center, 13px center, 19px center; background-repeat: no-repeat; background-size: 1px 4px; }
+.table-edge-drag-handle:hover:not(:disabled) .table-edge-grip, .table-edge-drag-handle:focus-visible .table-edge-grip { --table-edge-mark: var(--accent-dark); border-color: var(--accent-border); background-color: var(--accent-soft); box-shadow: 0 2px 7px rgba(39, 71, 58, 0.16); transform: scale(1.06); }
 .table-edge-drag-handle:active:not(:disabled) { cursor: grabbing; }
+.table-edge-drag-handle:active:not(:disabled) .table-edge-grip { transform: scale(0.96); }
 .table-edge-drag-handle:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .table-edge-drag-handle:disabled { opacity: 0.4; cursor: not-allowed; }
 .table-edge-preview { position: absolute; z-index: 1; top: 50%; left: calc(100% + 6px); padding: 4px 7px; border-radius: 7px; background: var(--ink); color: var(--surface); font-size: 0.7rem; font-weight: 600; white-space: nowrap; transform: translateY(-50%); }
