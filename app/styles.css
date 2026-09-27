@@ -673,12 +673,12 @@ button.save-status:hover { text-decoration: underline; }
   position: relative;
 }
 
-.editor-outline-item--level-1 { --outline-level-color: var(--h1-color); }
-.editor-outline-item--level-2 { --outline-level-color: var(--h2-color); }
-.editor-outline-item--level-3 { --outline-level-color: var(--h3-color); }
-.editor-outline-item--level-4 { --outline-level-color: var(--h4-color); }
-.editor-outline-item--level-5 { --outline-level-color: var(--muted); }
-.editor-outline-item--level-6 { --outline-level-color: var(--quiet-ink); }
+.editor-outline-item--level-1 { --outline-level-color: var(--h1-color); --outline-marker-fill: light-dark(#efb8b5, #74434c); }
+.editor-outline-item--level-2 { --outline-level-color: var(--h2-color); --outline-marker-fill: light-dark(#c9bbd3, #5b4d6c); }
+.editor-outline-item--level-3 { --outline-level-color: var(--h3-color); --outline-marker-fill: light-dark(#a8cbd5, #3d6573); }
+.editor-outline-item--level-4 { --outline-level-color: var(--h4-color); --outline-marker-fill: light-dark(#b6ccbe, #426249); }
+.editor-outline-item--level-5 { --outline-level-color: var(--muted); --outline-marker-fill: light-dark(#d3c5a8, #695a38); }
+.editor-outline-item--level-6 { --outline-level-color: var(--soft-muted); --outline-marker-fill: light-dark(#c1c8c2, #4d5952); }
 
 .editor-outline-item button {
   display: flex;
@@ -753,15 +753,15 @@ button.save-status:hover { text-decoration: underline; }
 .outline-level-marker {
   display: grid;
   place-items: center;
-  flex: 0 0 22px;
-  width: 22px;
-  height: 22px;
-  margin-top: 1px;
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
   border-radius: 50%;
-  background: var(--outline-level-color);
-  color: var(--surface);
-  font-size: 0.68rem;
-  font-weight: 700;
+  background: var(--outline-marker-fill);
+  color: light-dark(#46504a, #f3f4f8);
+  font-size: 0.62rem;
+  font-weight: 650;
   line-height: 1;
   font-variant-numeric: tabular-nums;
   transition: transform var(--motion-fast) var(--motion-ease-out),
@@ -808,11 +808,6 @@ button.save-status:hover { text-decoration: underline; }
 .editor-outline-item--level-6 button[aria-current="true"] {
   background: var(--surface-muted);
 }
-.editor-outline-item button[aria-current="true"] .outline-level-marker {
-  transform: scale(1.08);
-  box-shadow: 0 0 0 3px var(--focus-soft-subtle);
-}
-
 .editor-outline-empty {
   display: flex;
   flex-direction: column;
