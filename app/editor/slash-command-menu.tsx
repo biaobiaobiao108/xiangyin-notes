@@ -281,7 +281,6 @@ const SlashCommandList = forwardRef<SlashCommandListRef, SlashCommandListProps>(
       aria-selected={index === selectedIndex}
       key={item.id}
       aria-label={`${item.label}，${item.description}`}
-      title={item.description}
       onMouseDown={(event) => event.preventDefault()}
       onClick={() => select(index)}
     >

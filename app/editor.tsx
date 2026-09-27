@@ -6,7 +6,6 @@ import { Markdown } from "@tiptap/markdown";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import Placeholder from "@tiptap/extension-placeholder";
-import Link from "@tiptap/extension-link";
 import { findWrapping } from "@tiptap/pm/transform";
 import { ArrowLeft, ArrowLeftRight, CheckCircle, ChevronLeft, CircleAlert, LayoutGrid, Link2, LoaderCircle, RefreshCw, Star, Trash2, Undo2 } from "lucide-react";
 import type { ImageAssetSummary, Note, NoteSummary } from "../shared/types";
@@ -24,6 +23,7 @@ import { BacklinksDialog } from "./editor/backlinks-panel";
 import { WikiLinkNode } from "./editor/wiki-link-node";
 import { WikiLinkSuggestionExtension } from "./editor/wiki-link-suggestion";
 import { CalloutNode } from "./editor/callout-node";
+import { NoteLink } from "./editor/note-link";
 import { CodeBlockDoubleEnter } from "./editor/code-block-enter";
 import { pastePlainTextIntoCodeBlock } from "./editor/code-block-paste";
 import { SlashCommandExtension } from "./editor/slash-command-menu";
@@ -385,7 +385,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     StarterKit.configure({ heading: { levels: [1, 2, 3, 4, 5, 6] }, link: false, codeBlock: { exitOnTripleEnter: false } }),
     CodeBlockDoubleEnter,
     ...createTableExtensions(),
-    Link.configure({ openOnClick: false, autolink: true, linkOnPaste: true, HTMLAttributes: { title: "按住 Ctrl 或 ⌘ 点击打开链接" } }),
+    NoteLink.configure({ openOnClick: false, autolink: true, linkOnPaste: true }),
     TaskList,
     TaskItem.configure({ nested: true }),
     Placeholder.configure({ placeholder: "从一句话开始……" }),
@@ -1186,7 +1186,6 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
               className="icon-button editor-back-cards"
               type="button"
               aria-label="返回卡片视图"
-              title="返回卡片视图 (Esc)"
               onClick={onBackToCards}
               disabled={editorLocked}
             >
@@ -1198,26 +1197,25 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
             <span>最后编辑于 {relativeDate(note.updatedAt)}</span>
           </div>
         </div>
-        <div className="editor-header-title" title={note.title.trim() || "未命名笔记"} aria-label={`当前文档：${note.title.trim() || "未命名笔记"}`}>
+        <div className="editor-header-title" aria-label={`当前文档：${note.title.trim() || "未命名笔记"}`}>
           {note.title.trim() || "未命名笔记"}
         </div>
         <div className="editor-actions">
           {saveState === "error" ? (
-            <button className="save-status save-status--error save-status--action save-status--icon" type="button" aria-label="重试保存" title="保存失败，点击重试" onClick={handleSaveNow}><SaveStatusIcon state="error" /></button>
+            <button className="save-status save-status--error save-status--action save-status--icon" type="button" aria-label="重试保存" onClick={handleSaveNow}><SaveStatusIcon state="error" /></button>
           ) : saveState === "conflict" ? (
-            <button className="save-status save-status--conflict save-status--action save-status--icon" type="button" aria-label="重新载入最新版本" title="检测到版本冲突，点击重新载入" onClick={onReloadNote}><SaveStatusIcon state="conflict" /></button>
+            <button className="save-status save-status--conflict save-status--action save-status--icon" type="button" aria-label="重新载入最新版本" onClick={onReloadNote}><SaveStatusIcon state="conflict" /></button>
           ) : saveState === "idle" ? null : (
-            <span className={`save-status save-status--${saveState} save-status--icon`} role="status" aria-label={saveLabel} title={saveLabel} aria-live="polite"><SaveStatusIcon state={saveState} /></span>
+            <span className={`save-status save-status--${saveState} save-status--icon`} role="status" aria-label={saveLabel} aria-live="polite"><SaveStatusIcon state={saveState} /></span>
           )}
           {onUploadImage && !note.deletedAt && <input ref={imageFileInputRef} className="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple tabIndex={-1} aria-label="选择要上传的图片文件" onChange={(event) => { uploadImageFilesRef.current(Array.from(event.target.files ?? [])); event.target.value = ""; }} />}
-          {imageUploadState === "uploading" && <span className="save-status save-status--saving save-status--icon" role="status" aria-label="正在上传图片" title="正在上传图片" aria-live="polite"><SaveStatusIcon state="saving" /></span>}
-          {imageUploadState === "error" && <span className="save-status save-status--error save-status--icon" role="alert" aria-label="图片上传失败" title="图片上传失败"><SaveStatusIcon state="error" /></span>}
+          {imageUploadState === "uploading" && <span className="save-status save-status--saving save-status--icon" role="status" aria-label="正在上传图片" aria-live="polite"><SaveStatusIcon state="saving" /></span>}
+          {imageUploadState === "error" && <span className="save-status save-status--error save-status--icon" role="alert" aria-label="图片上传失败"><SaveStatusIcon state="error" /></span>}
           {!note.deletedAt && onNavigateToNote && (
             <button
               className={`icon-button ${backlinksOpen ? "is-active" : ""}`}
               type="button"
               aria-label={`反向链接${backlinkCount > 0 ? ` (${backlinkCount})` : ""}`}
-              title={`反向链接与引用${backlinkCount > 0 ? ` (${backlinkCount})` : ""}`}
               onClick={() => setBacklinksOpen(true)}
               disabled={editorLocked}
             >
@@ -1225,12 +1223,12 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
               {backlinkCount > 0 && <span className="icon-badge">{backlinkCount}</span>}
             </button>
           )}
-          <button className={`icon-button favorite-toggle ${note.isFavorite ? "is-active" : ""}`} type="button" aria-label={note.isFavorite ? "取消收藏" : "收藏笔记"} aria-pressed={note.isFavorite} title={note.isFavorite ? "取消收藏" : "收藏笔记"} onClick={onToggleFavorite} disabled={editorLocked}><Star size={19} strokeWidth={1.8} fill={note.isFavorite ? "currentColor" : "none"} aria-hidden="true" /></button>
-          <button className="icon-button" type="button" aria-label="分享笔记" title="分享笔记" onClick={onShare} disabled={editorLocked}><Link2 size={18} strokeWidth={1.8} /></button>
+          <button className={`icon-button favorite-toggle ${note.isFavorite ? "is-active" : ""}`} type="button" aria-label={note.isFavorite ? "取消收藏" : "收藏笔记"} aria-pressed={note.isFavorite} onClick={onToggleFavorite} disabled={editorLocked}><Star size={19} strokeWidth={1.8} fill={note.isFavorite ? "currentColor" : "none"} aria-hidden="true" /></button>
+          <button className="icon-button" type="button" aria-label="分享笔记" onClick={onShare} disabled={editorLocked}><Link2 size={18} strokeWidth={1.8} /></button>
           {note.deletedAt ? <>
-            <button className="icon-button" type="button" aria-label="恢复笔记" title="恢复笔记" onClick={onRestore} disabled={editorLocked || trashBusy}><Undo2 size={18} strokeWidth={1.8} /></button>
-            {onPermanentDelete && <button className="icon-button danger-button" type="button" aria-label="彻底删除" title="彻底删除" onClick={onPermanentDelete} disabled={editorLocked || trashBusy}><Trash2 size={18} strokeWidth={1.8} /></button>}
-          </> : <button className="icon-button" type="button" aria-label="移入回收站" title="移入回收站" onClick={onMoveToTrash} disabled={editorLocked || trashBusy}><Trash2 size={18} strokeWidth={1.8} /></button>}
+            <button className="icon-button" type="button" aria-label="恢复笔记" onClick={onRestore} disabled={editorLocked || trashBusy}><Undo2 size={18} strokeWidth={1.8} /></button>
+            {onPermanentDelete && <button className="icon-button danger-button" type="button" aria-label="彻底删除" onClick={onPermanentDelete} disabled={editorLocked || trashBusy}><Trash2 size={18} strokeWidth={1.8} /></button>}
+          </> : <button className="icon-button" type="button" aria-label="移入回收站" onClick={onMoveToTrash} disabled={editorLocked || trashBusy}><Trash2 size={18} strokeWidth={1.8} /></button>}
         </div>
       </header>
       <div className="editor-scroll-shell">
@@ -1274,7 +1272,6 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
         editorStats={editorStats}
         onToggleOutline={onToggleOutline}
         outlineDisabled={focusMode}
-        outlineDisabledTitle={focusMode ? "退出沉浸模式后才能打开大纲" : undefined}
         searchNavigation={searchNavigation}
         searchQuery={searchQuery}
         deferredLoading={editorLocked}

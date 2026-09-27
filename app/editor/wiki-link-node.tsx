@@ -65,7 +65,6 @@ export const WikiLinkNode = Node.create({
         "data-wiki-link": target,
         "data-alias": alias || undefined,
         class: "editor-wiki-link",
-        title: `按住 Ctrl 或 ⌘ 点击跳转至「${target}」`,
       }),
       displayText,
     ];

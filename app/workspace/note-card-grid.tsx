@@ -141,7 +141,6 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
             className="icon-button card-grid-mobile-menu mobile-only"
             type="button"
             aria-label="打开导航"
-            title="打开导航"
             onClick={onOpenSidebar}
           >
             <Menu size={20} />
@@ -306,7 +305,7 @@ const NoteCardItem = memo(function NoteCardItem({
       <div className="note-card-body">
         {/* 顶部标题与收藏星标 */}
         <div className="note-card-header">
-          <h3 className="note-card-title" title={displayTitle}>
+          <h3 className="note-card-title">
             {displayTitle}
           </h3>
           {!isTrashView && (

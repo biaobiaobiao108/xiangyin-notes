@@ -299,7 +299,6 @@ export function BacklinksDialog({
                         type="button"
                         className="backlink-card-title-button"
                         onClick={() => handleNavigate(item.sourceNoteId)}
-                        title={`打开笔记「${displayTitle}」`}
                       >
                         <span className="backlink-card-title">
                           {displayTitle}
@@ -357,7 +356,6 @@ export function BacklinksDialog({
                           className="backlink-card-open-btn"
                           onClick={() => handleNavigate(item.sourceNoteId)}
                           aria-label={`打开笔记「${displayTitle}」`}
-                          title="打开笔记"
                         >
                           <ExternalLink size={13} aria-hidden="true" />
                         </button>

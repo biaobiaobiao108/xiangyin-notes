@@ -6,6 +6,8 @@ import { Info, Table2 } from "lucide-react";
 import { formatPreview } from "../server/core";
 import { CalloutNode, CALLOUT_TYPES, shouldExitCalloutOnEnter } from "../app/editor/callout-node";
 import { CodeBlockDoubleEnter, handleCodeBlockDoubleEnter, shouldExitCodeBlockOnEnter } from "../app/editor/code-block-enter";
+import { ImageNode } from "../app/editor/image-node";
+import { NoteLink } from "../app/editor/note-link";
 import { pastePlainTextIntoCodeBlock } from "../app/editor/code-block-paste";
 import { adjustActiveTableSize, getActiveTableContext, getActiveTableSnapshot, getTableEdgeDragDelta, restoreActiveTableSnapshot, snapTableEdgeDrag } from "../app/editor/table-edge-commands";
 import { filterSlashCommandItems, findSlashCommandMatch, getNextGroupedSlashCommandIndex, getNextSlashCommandIndex, groupSlashCommandItems, insertSlashCommand, isSlashCommandImeEscape, isSlashCommandImeEvent } from "../app/editor/slash-command-menu";
@@ -26,6 +28,27 @@ function createMarkdownEditor(content: string) {
 }
 
 describe("GFM table markdown integration", () => {
+  test("does not render Markdown link or image titles as hover tooltips", () => {
+    const source = "[链接](https://example.com \"链接说明\")\n\n![图片](https://example.com/image.png \"图片说明\")";
+    const editor = new Editor({
+      extensions: [StarterKit.configure({ link: false }), NoteLink.configure({ openOnClick: false }), Markdown, ImageNode],
+      content: source,
+      contentType: "markdown",
+    });
+    try {
+      const linkTitle = editor.extensionManager.attributes.find((attribute) => attribute.type === "link" && attribute.name === "title");
+      expect(linkTitle?.attribute.rendered).toBe(false);
+      const renderImageHTML = ImageNode.config.renderHTML as (props: { HTMLAttributes: Record<string, unknown> }) => unknown;
+      const imageHTML = renderImageHTML({ HTMLAttributes: { src: "https://example.com/image.png", alt: "图片", title: "图片说明" } });
+      expect(JSON.stringify(imageHTML)).not.toContain("title");
+      const markdown = (editor as Editor & { getMarkdown: () => string }).getMarkdown();
+      expect(markdown).toContain('[链接](https://example.com "链接说明")');
+      expect(markdown).toContain('![图片](https://example.com/image.png "图片说明")');
+    } finally {
+      editor.destroy();
+    }
+  });
+
   test("parses and serializes table headers, cells, inline formatting, and alignment", () => {
     const source = "| 名称 | 状态 |\n| :--- | ---: |\n| **阅读** | 待办 |";
     const editor = createMarkdownEditor(source);

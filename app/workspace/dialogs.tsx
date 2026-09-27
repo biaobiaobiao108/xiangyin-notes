@@ -135,7 +135,7 @@ export function ShareDialog({ note, onClose, onToast }: { note: Note; onClose: (
             <h2 id="share-dialog-title">分享笔记</h2>
           </div>
           <div className="share-dialog-subtitle">
-            <span className="share-note-title" title={note.title || "未命名笔记"}>{note.title || "未命名笔记"}</span>
+            <span className="share-note-title">{note.title || "未命名笔记"}</span>
             {note.notebookName && <span className="share-notebook-tag">{note.notebookName}</span>}
           </div>
         </div>
@@ -206,7 +206,6 @@ export function ShareDialog({ note, onClose, onToast }: { note: Note; onClose: (
                           <button
                             className={`share-item-btn ${isThisCopied ? "is-copied" : ""}`}
                             type="button"
-                            title="复制此链接"
                             aria-label="复制此链接"
                             onClick={() => void copy(share.url!, share.id)}
                           >

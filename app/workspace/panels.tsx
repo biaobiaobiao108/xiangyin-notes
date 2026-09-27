@@ -19,8 +19,8 @@ export const Sidebar = memo(function Sidebar({ view, setView, notebooks, noteboo
 
   return <aside className={`sidebar ${mobileOpen ? "is-mobile-open" : ""}`} aria-label="主导航">
     <div className="brand-row"><BrandMark /><span className="brand-name">象映笔记</span><button className="icon-button collapse-button" type="button" onClick={onCollapse} aria-label={collapsed ? "展开侧栏" : "收起侧栏"}><LayoutPanelLeft size={18} /></button></div>
-    <button className="primary-button new-note-button" type="button" aria-label="在收件箱中新建笔记" title="在收件箱中新建笔记" onClick={onNewInboxNote}><Plus size={18} />新建笔记</button>
-    <label className="search-box"><Search size={17} /><input ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索笔记或 #标签……" aria-label="搜索笔记或标签" />{query ? <button className="search-clear" type="button" aria-label="清空搜索" title="清空搜索" onClick={() => setQuery("")}><X size={15} /></button> : <kbd>{modKey} /</kbd>}</label>
+    <button className="primary-button new-note-button" type="button" aria-label="在收件箱中新建笔记" onClick={onNewInboxNote}><Plus size={18} />新建笔记</button>
+    <label className="search-box"><Search size={17} /><input ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索笔记或 #标签……" aria-label="搜索笔记或标签" />{query ? <button className="search-clear" type="button" aria-label="清空搜索" onClick={() => setQuery("")}><X size={15} /></button> : <kbd>{modKey} /</kbd>}</label>
     <nav className="main-nav"><ul>{navItems.map((item) => { const Icon = item.icon; return <li key={item.id}><button className={`nav-item ${view === item.id && !notebookId ? "is-active" : ""}`} type="button" onClick={() => setView(item.id)}><Icon size={18} /><span>{item.label}</span></button></li>; })}</ul></nav>
     <div className="collapsed-notebook-list" role="toolbar" aria-label="笔记本快捷切换">
       {customNotebooks.length > 0 && <div className="collapsed-notebook-divider" aria-hidden="true" />}
@@ -34,7 +34,6 @@ export const Sidebar = memo(function Sidebar({ view, setView, notebooks, noteboo
             className={`nav-item collapsed-notebook-item ${isActive ? "is-active" : ""}`}
             onClick={() => setNotebookId(notebook.id)}
             aria-label={`${notebook.name}，${notebook.count} 篇笔记`}
-            title={`${notebook.name} (${notebook.count})`}
           >
             <NotebookIcon size={18} style={{ color: notebook.color }} />
           </button>
@@ -42,7 +41,7 @@ export const Sidebar = memo(function Sidebar({ view, setView, notebooks, noteboo
       })}
     </div>
     <div className="notebook-section">
-      <div className="section-heading"><span>笔记本</span><button className="icon-button tiny-button" type="button" aria-label="新建笔记本" title="新建笔记本" onClick={onCreateNotebook}><Plus size={16} /></button></div>
+      <div className="section-heading"><span>笔记本</span><button className="icon-button tiny-button" type="button" aria-label="新建笔记本" onClick={onCreateNotebook}><Plus size={16} /></button></div>
       <div className="notebook-list-scroll-shell">
         <div id="notebook-list-scroll-region" className="notebook-list-scroll floating-scrollbar-target" ref={notebookListRef}>
           <ul>{customNotebooks.map((notebook) => {
@@ -50,12 +49,12 @@ export const Sidebar = memo(function Sidebar({ view, setView, notebooks, noteboo
             return (
               <li key={notebook.id} className="notebook-row-item">
                 <div className={`notebook-row-wrap ${notebook.id === notebookId ? "is-active" : ""}`}>
-                  <button className="notebook-item" type="button" aria-label={`${notebook.name}，${notebook.count} 篇笔记`} title={notebook.name} onClick={() => setNotebookId(notebook.id)}>
+                  <button className="notebook-item" type="button" aria-label={`${notebook.name}，${notebook.count} 篇笔记`} onClick={() => setNotebookId(notebook.id)}>
                     <NotebookIcon size={16} className="notebook-custom-icon" style={{ color: notebook.color, flexShrink: 0 }} />
                     <span>{notebook.name}</span>
                     <em>{notebook.count}</em>
                   </button>
-                  <button className="icon-button tiny-button notebook-edit-button" type="button" aria-label={`管理笔记本“${notebook.name}”`} title="管理笔记本" onClick={(e) => { e.stopPropagation(); onEditNotebook(notebook); }}>
+                  <button className="icon-button tiny-button notebook-edit-button" type="button" aria-label={`管理笔记本“${notebook.name}”`} onClick={(e) => { e.stopPropagation(); onEditNotebook(notebook); }}>
                     <Pencil size={12} />
                   </button>
                 </div>
@@ -99,7 +98,7 @@ function NoteRowMeta({ note, showNotebook }: { note: NoteSummary; showNotebook: 
 }
 
 const NoteListRow = memo(function NoteListRow({ note, isSelected, isActive, showNotebook, onSelect }: { note: NoteSummary; isSelected: boolean; isActive: boolean; showNotebook: boolean; onSelect: (id: string, event: ReactMouseEvent<HTMLButtonElement>) => void }) {
-  return <li className="note-list-item"><button type="button" className={`note-row ${note.thumbnail ? "has-thumbnail" : ""} ${isSelected ? "is-selected" : ""} ${isActive ? "is-active" : ""}`} aria-current={isActive ? "page" : undefined} aria-pressed={isSelected} title={note.title || "未命名笔记"} onClick={(event) => onSelect(note.id, event)}><NoteThumbnail note={note} /><span className="note-row-main"><span className="note-row-title"><span className="note-row-title-text">{note.title || "未命名笔记"}</span>{note.isFavorite && <Star size={13} fill="currentColor" />}</span><span className="note-row-preview">{note.preview || "还没有内容，开始写下第一句话。"}</span><NoteRowMeta note={note} showNotebook={showNotebook} /></span></button></li>;
+  return <li className="note-list-item"><button type="button" className={`note-row ${note.thumbnail ? "has-thumbnail" : ""} ${isSelected ? "is-selected" : ""} ${isActive ? "is-active" : ""}`} aria-current={isActive ? "page" : undefined} aria-pressed={isSelected} onClick={(event) => onSelect(note.id, event)}><NoteThumbnail note={note} /><span className="note-row-main"><span className="note-row-title"><span className="note-row-title-text">{note.title || "未命名笔记"}</span>{note.isFavorite && <Star size={13} fill="currentColor" />}</span><span className="note-row-preview">{note.preview || "还没有内容，开始写下第一句话。"}</span><NoteRowMeta note={note} showNotebook={showNotebook} /></span></button></li>;
 });
 
 export function NoteOutlinePanel({ outlineItems, activeOutlineId, onScrollToOutlineItem, onCloseOutline, isFloating = false }: { outlineItems: OutlineItem[]; activeOutlineId: string | null; onScrollToOutlineItem: (id: string) => void; onCloseOutline: () => void; isFloating?: boolean }) {
@@ -131,7 +130,7 @@ export function NoteOutlinePanel({ outlineItems, activeOutlineId, onScrollToOutl
           <span id="note-outline-title">笔记大纲</span>
           {outlineItems.length > 0 && <span className="floating-outline-count">{outlineItems.length}</span>}
         </div>
-        <button className="icon-button tiny-button" type="button" onClick={onCloseOutline} aria-label="关闭笔记大纲" title="关闭大纲 (Esc)">
+        <button className="icon-button tiny-button" type="button" onClick={onCloseOutline} aria-label="关闭笔记大纲">
           <X size={15} />
         </button>
       </header>
@@ -145,7 +144,7 @@ export function NoteOutlinePanel({ outlineItems, activeOutlineId, onScrollToOutl
       <div id="note-outline-scroll-region" className="note-outline-scroll floating-scrollbar-target" ref={outlineScrollRef}>
         {outlineItems.length > 0 ? <nav aria-label="笔记标题">
           <ol className="editor-outline-list">
-            {outlineItems.map((item) => <li className={`editor-outline-item editor-outline-item--level-${item.level}`} key={item.id}><button type="button" data-outline-id={item.id} title={item.title} aria-current={activeOutlineId === item.id ? "true" : undefined} onClick={() => onScrollToOutlineItem(item.id)}><span className={`outline-level-marker outline-level-marker--${item.level}`} aria-hidden="true">{item.level}</span><span className="outline-item-title">{item.title}</span></button></li>)}
+            {outlineItems.map((item) => <li className={`editor-outline-item editor-outline-item--level-${item.level}`} key={item.id}><button type="button" data-outline-id={item.id} aria-current={activeOutlineId === item.id ? "true" : undefined} onClick={() => onScrollToOutlineItem(item.id)}><span className={`outline-level-marker outline-level-marker--${item.level}`} aria-hidden="true">{item.level}</span><span className="outline-item-title">{item.title}</span></button></li>)}
           </ol>
         </nav> : <p className="editor-outline-empty">用 <code>#</code> 标题为这篇笔记建立大纲。</p>}
       </div>
@@ -297,10 +296,10 @@ export const NoteListPanel = memo(function NoteListPanel({ notes, total, hasMore
       {outlineOpen ? <NoteOutlinePanel outlineItems={outlineItems} activeOutlineId={activeOutlineId} onScrollToOutlineItem={onScrollToOutlineItem} onCloseOutline={onCloseOutline} /> : <>
       <header className="list-header">
         <button className="icon-button mobile-only" type="button" aria-label="打开导航" onClick={onOpenSidebar}><Menu size={20} /></button>
-        <div className="list-header-main"><h2 tabIndex={-1} title={heading}>{heading}</h2><p>{query ? `包含“${query}”的笔记` : `${truncated ? total : notes.length} 篇笔记`}{truncated && <> · 已显示最近 {notes.length} 篇</>}</p></div>
+        <div className="list-header-main"><h2 tabIndex={-1}>{heading}</h2><p>{query ? `包含“${query}”的笔记` : `${truncated ? total : notes.length} 篇笔记`}{truncated && <> · 已显示最近 {notes.length} 篇</>}</p></div>
         <div className="list-header-controls">
           {onEmptyTrash && <button className="text-button text-danger empty-trash-button" type="button" onClick={onEmptyTrash} disabled={trashBusy || total === 0}><Trash2 size={15} aria-hidden="true" />清空回收站</button>}
-          {onNewNote && <button className="icon-button list-new-note-button" type="button" aria-label={`在${currentNotebookName}中新建笔记`} title={`在${currentNotebookName}中新建笔记`} onClick={onNewNote}><Plus size={18} /></button>}
+          {onNewNote && <button className="icon-button list-new-note-button" type="button" aria-label={`在${currentNotebookName}中新建笔记`} onClick={onNewNote}><Plus size={18} /></button>}
           <div className="sort-menu-wrap" ref={sortRef}>
             <button ref={sortTriggerRef} id="note-sort-trigger" className="sort-button" type="button" aria-haspopup="listbox" aria-controls="note-sort-options" aria-expanded={sortOpen} onClick={() => setSortOpen((open) => !open)}>{SORT_OPTIONS.find((option) => option.value === sort)?.label} <ChevronDown size={15} /></button>
             {sortOpen && <div id="note-sort-options" className="sort-dropdown" role="listbox" aria-label="笔记排序方式">
