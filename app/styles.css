@@ -93,7 +93,6 @@
   --code-syntax-attribute: light-dark(#8d4b37, #e0af68);
   --code-syntax-meta: light-dark(#5e6b4d, #c3e88d);
   --blockquote-border: light-dark(#9da9a1, #565f89);
-  --outline-tree-line: light-dark(rgba(32, 38, 33, 0.08), rgba(192, 202, 245, 0.14));
   --danger-contrast: light-dark(#ffffff, #1a1b26);
   --h1-color: light-dark(#b94e35, #f7768e);
   --h1-soft: light-dark(#faeee9, rgba(247, 118, 142, 0.12));
@@ -674,74 +673,17 @@ button.save-status:hover { text-decoration: underline; }
   position: relative;
 }
 
-/* 树状层级纵向引导线 */
-.editor-outline-item--level-2::before {
-  content: "";
-  position: absolute;
-  left: 13px;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background: var(--outline-tree-line);
-}
-
-.editor-outline-item--level-3::before {
-  content: "";
-  position: absolute;
-  left: 13px;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background: var(--outline-tree-line);
-}
-
-.editor-outline-item--level-3::after {
-  content: "";
-  position: absolute;
-  left: 26px;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background: var(--outline-tree-line);
-}
-
-.editor-outline-item--level-4::before,
-.editor-outline-item--level-5::before,
-.editor-outline-item--level-6::before {
-  content: "";
-  position: absolute;
-  left: 13px;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background: var(--outline-tree-line);
-}
-
-.editor-outline-item--level-4::after,
-.editor-outline-item--level-5::after,
-.editor-outline-item--level-6::after {
-  content: "";
-  position: absolute;
-  left: 26px;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background: var(--outline-tree-line);
-  box-shadow: 13px 0 0 var(--outline-tree-line);
-}
-
-.editor-outline-item--level-5::after {
-  box-shadow: 13px 0 0 var(--outline-tree-line), 26px 0 0 var(--outline-tree-line);
-}
-
-.editor-outline-item--level-6::after {
-  box-shadow: 13px 0 0 var(--outline-tree-line), 26px 0 0 var(--outline-tree-line), 39px 0 0 var(--outline-tree-line);
-}
+.editor-outline-item--level-1 { --outline-level-color: var(--h1-color); }
+.editor-outline-item--level-2 { --outline-level-color: var(--h2-color); }
+.editor-outline-item--level-3 { --outline-level-color: var(--h3-color); }
+.editor-outline-item--level-4 { --outline-level-color: var(--h4-color); }
+.editor-outline-item--level-5 { --outline-level-color: var(--muted); }
+.editor-outline-item--level-6 { --outline-level-color: var(--quiet-ink); }
 
 .editor-outline-item button {
   display: flex;
   align-items: flex-start;
-  gap: 9px;
+  gap: 8px;
   width: 100%;
   max-width: 100%;
   min-width: 0;
@@ -760,7 +702,7 @@ button.save-status:hover { text-decoration: underline; }
 .editor-outline-item--level-1 button {
   min-height: 38px;
   padding: 7px 10px 7px 9px;
-  color: var(--h1-color);
+  color: var(--outline-level-color);
   font-size: 0.88rem;
   font-weight: 650;
   letter-spacing: 0;
@@ -769,7 +711,7 @@ button.save-status:hover { text-decoration: underline; }
 .editor-outline-item--level-2 button {
   min-height: 35px;
   padding: 6px 10px 6px 24px;
-  color: var(--h2-color);
+  color: var(--outline-level-color);
   font-size: 0.84rem;
   font-weight: 550;
   letter-spacing: 0;
@@ -778,7 +720,7 @@ button.save-status:hover { text-decoration: underline; }
 .editor-outline-item--level-3 button {
   min-height: 33px;
   padding: 5px 10px 5px 38px;
-  color: var(--h3-color);
+  color: var(--outline-level-color);
   font-size: 0.81rem;
   font-weight: 450;
 }
@@ -786,7 +728,7 @@ button.save-status:hover { text-decoration: underline; }
 .editor-outline-item--level-4 button {
   min-height: 31px;
   padding: 4px 10px 4px 52px;
-  color: var(--h4-color);
+  color: var(--outline-level-color);
   font-size: 0.78rem;
   font-weight: 450;
 }
@@ -794,7 +736,7 @@ button.save-status:hover { text-decoration: underline; }
 .editor-outline-item--level-5 button {
   min-height: 30px;
   padding: 4px 10px 4px 66px;
-  color: var(--muted);
+  color: var(--outline-level-color);
   font-size: 0.76rem;
   font-weight: 400;
 }
@@ -802,58 +744,28 @@ button.save-status:hover { text-decoration: underline; }
 .editor-outline-item--level-6 button {
   min-height: 29px;
   padding: 3px 10px 3px 80px;
-  color: var(--soft-muted);
+  color: var(--outline-level-color);
   font-size: 0.74rem;
   font-weight: 400;
 }
 
-/* 精致微节点 (Marker) */
+/* 圆形级数标记 */
 .outline-level-marker {
-  flex: none;
-  display: inline-block;
+  display: grid;
+  place-items: center;
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  margin-top: 1px;
   border-radius: 50%;
+  background: var(--outline-level-color);
+  color: var(--surface);
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
   transition: transform var(--motion-fast) var(--motion-ease-out),
-              box-shadow var(--motion-fast) var(--motion-ease-out),
-              background-color var(--motion-fast) var(--motion-ease-out);
-}
-
-/* Level 1: 实心朱印节点 */
-/* Level 2: 润玉空心环 */
-.outline-level-marker--2 {
-  width: 7px;
-  height: 7px;
-  margin-top: 0.48em;
-  border: 1.5px solid currentColor;
-  background: transparent;
-}
-
-/* Level 3: 灵巧微星点 */
-.outline-level-marker--3 {
-  width: 5px;
-  height: 5px;
-  margin-top: 0.52em;
-  margin-inline: 1px;
-  background: currentColor;
-  opacity: 0.85;
-}
-
-.outline-level-marker--4 {
-  width: 4px;
-  height: 4px;
-  margin-top: 0.56em;
-  margin-inline: 1px;
-  border: 1px solid currentColor;
-  background: transparent;
-}
-
-.outline-level-marker--5,
-.outline-level-marker--6 {
-  width: 3px;
-  height: 3px;
-  margin-top: 0.6em;
-  margin-inline: 1px;
-  background: currentColor;
-  opacity: 0.72;
+              box-shadow var(--motion-fast) var(--motion-ease-out);
 }
 
 .outline-item-title {
@@ -868,43 +780,24 @@ button.save-status:hover { text-decoration: underline; }
   line-height: 1.45;
 }
 
-/* Level 1: 朱砂暖调 hover 与 active 节点点亮 */
 .editor-outline-item--level-1 button:hover {
   background: var(--surface-danger);
-  color: var(--h1-color);
 }
 .editor-outline-item--level-1 button[aria-current="true"] {
   background: var(--h1-active);
-  color: var(--h1-color);
 }
-/* Level 2: 苍松墨绿 hover 与 active 节点点亮 */
 .editor-outline-item--level-2 button:hover {
   background: var(--surface-success);
-  color: var(--h2-color);
 }
 .editor-outline-item--level-2 button[aria-current="true"] {
   background: var(--h2-active);
-  color: var(--h2-color);
-}
-.editor-outline-item--level-2 button[aria-current="true"] .outline-level-marker--2 {
-  transform: scale(1.35);
-  background: currentColor;
-  box-shadow: 0 0 0 3px var(--h2-ring);
 }
 
-/* Level 3: 沉静黛蓝 hover 与 active 节点点亮 */
 .editor-outline-item--level-3 button:hover {
   background: var(--surface-warning);
-  color: var(--h3-color);
 }
 .editor-outline-item--level-3 button[aria-current="true"] {
   background: var(--h3-active);
-  color: var(--h3-color);
-}
-.editor-outline-item--level-3 button[aria-current="true"] .outline-level-marker--3 {
-  transform: scale(1.4);
-  opacity: 1;
-  box-shadow: 0 0 0 3px var(--h3-ring);
 }
 
 .editor-outline-item--level-4 button:hover,
@@ -914,15 +807,9 @@ button.save-status:hover { text-decoration: underline; }
 .editor-outline-item--level-6 button:hover,
 .editor-outline-item--level-6 button[aria-current="true"] {
   background: var(--surface-muted);
-  color: var(--h4-color);
 }
-.editor-outline-item--level-4 button[aria-current="true"] .outline-level-marker--4 {
-  background: currentColor;
-  box-shadow: 0 0 0 3px var(--focus-soft-subtle);
-}
-.editor-outline-item--level-5 button[aria-current="true"] .outline-level-marker--5,
-.editor-outline-item--level-6 button[aria-current="true"] .outline-level-marker--6 {
-  opacity: 1;
+.editor-outline-item button[aria-current="true"] .outline-level-marker {
+  transform: scale(1.08);
   box-shadow: 0 0 0 3px var(--focus-soft-subtle);
 }
 

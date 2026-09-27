@@ -145,7 +145,7 @@ export function NoteOutlinePanel({ outlineItems, activeOutlineId, onScrollToOutl
       <div id="note-outline-scroll-region" className="note-outline-scroll floating-scrollbar-target" ref={outlineScrollRef}>
         {outlineItems.length > 0 ? <nav aria-label="笔记标题">
           <ol className="editor-outline-list">
-            {outlineItems.map((item) => <li className={`editor-outline-item editor-outline-item--level-${item.level}`} key={item.id}><button type="button" data-outline-id={item.id} title={item.title} aria-current={activeOutlineId === item.id ? "true" : undefined} onClick={() => onScrollToOutlineItem(item.id)}>{item.level !== 1 && <span className={`outline-level-marker outline-level-marker--${item.level}`} aria-hidden="true" />}<span className="outline-item-title">{item.title}</span></button></li>)}
+            {outlineItems.map((item) => <li className={`editor-outline-item editor-outline-item--level-${item.level}`} key={item.id}><button type="button" data-outline-id={item.id} title={item.title} aria-current={activeOutlineId === item.id ? "true" : undefined} onClick={() => onScrollToOutlineItem(item.id)}><span className={`outline-level-marker outline-level-marker--${item.level}`} aria-hidden="true">{item.level}</span><span className="outline-item-title">{item.title}</span></button></li>)}
           </ol>
         </nav> : <p className="editor-outline-empty">用 <code>#</code> 标题为这篇笔记建立大纲。</p>}
       </div>
