@@ -1133,9 +1133,9 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
         event.preventDefault();
         moveSearchMatch(event.shiftKey ? -1 : 1);
       } else if (event.key === "Escape") {
-        if (searchQueryRef.current.trim() && searchNavigationRef.current.matchCount > 0 && onClearSearch) {
+        if (searchQueryRef.current.trim() && onClearSearch) {
           event.preventDefault();
-          event.stopPropagation();
+          event.stopImmediatePropagation();
           onClearSearch();
         }
       }

@@ -247,9 +247,11 @@ export const NoteListPanel = memo(function NoteListPanel({ notes, total, hasMore
       if (event.target instanceof Node && !sortRef.current?.contains(event.target)) closeSortMenu();
     };
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.isComposing || event.keyCode === 229) return;
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
+        event.stopImmediatePropagation();
         closeSortMenu();
       }
     };
