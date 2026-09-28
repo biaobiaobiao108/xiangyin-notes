@@ -17,12 +17,27 @@ type ExportAssetRow = {
   id: string;
   storage_path: string;
   original_name: string;
+  mime_type: string;
   byte_size: number;
+};
+
+const ARCHIVE_ASSET_EXTENSIONS: Record<string, string> = {
+  "image/gif": ".gif",
+  "image/jpeg": ".jpg",
+  "image/png": ".png",
+  "image/webp": ".webp",
 };
 
 function safeArchiveName(value: string, fallback: string, maxLength: number) {
   const name = (value.trim() || fallback).replace(/[\\/:*?"<>|\0\r\n]/g, "_").slice(0, maxLength);
   return !name || /^\.+$/u.test(name) ? fallback : name;
+}
+
+function safeArchiveAssetStem(value: string) {
+  const safeName = safeArchiveName(value, "image", 64);
+  const extensionStart = safeName.lastIndexOf(".");
+  const stem = extensionStart > 0 ? safeName.slice(0, extensionStart) : safeName;
+  return stem.slice(0, 64) || "image";
 }
 
 async function* oneChunk(bytes: Uint8Array) {
@@ -50,7 +65,7 @@ export async function handleExportRoute(ctx: RouteContext, user: UserRow, assetR
 
   const assetRows = all<ExportAssetRow>(
     database,
-    "SELECT id, storage_path, original_name, byte_size FROM image_assets WHERE user_id = ?",
+    "SELECT id, storage_path, original_name, mime_type, byte_size FROM image_assets WHERE user_id = ?",
     user.id,
   );
 
@@ -61,8 +76,8 @@ export async function handleExportRoute(ctx: RouteContext, user: UserRow, assetR
     if (!filePath) continue;
     const file = Bun.file(filePath);
     if (!(await file.exists())) continue;
-    const safeName = safeArchiveName(asset.original_name, "image", 80);
-    const name = `attachments/${asset.id.slice(0, 8)}_${safeName}`;
+    const extension = ARCHIVE_ASSET_EXTENSIONS[asset.mime_type] ?? ".bin";
+    const name = `attachments/${asset.id}_${safeArchiveAssetStem(asset.original_name)}${extension}`;
     exportAssets.push({ ...asset, file, name });
     assetFileNameMap.set(asset.id.toLowerCase(), name);
   }

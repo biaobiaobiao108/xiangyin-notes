@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { rm } from "node:fs/promises";
+import { mkdir, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyMigrations, openDatabase, reclaimDatabaseSpace, type SqliteDatabase } from "../server/db";
 import { handleRequest } from "../server/index";
 import { MAX_SHORT_TERM_CONTENT_CHARS, MAX_SHORT_TERMS_PER_NOTE } from "../server/note-search";
-import { IMAGE_UPLOAD_MAX_BODY_BYTES } from "../server/routes/assets";
+import { IMAGE_UPLOAD_MAX_BODY_BYTES, removeAssetFiles, retryPendingAssetDeletions } from "../server/routes/assets";
 import { IMPORT_RATE_LIMIT_MAX_REQUESTS } from "../server/routes/import";
 import { cleanupExpiredShares, EXPIRED_SHARE_PURGE_SECONDS } from "../server/routes/shares";
 
@@ -42,6 +42,30 @@ async function request(path: string, init: RequestInit = {}, cookie?: string, ta
 }
 
 describe("Bun Server API", () => {
+  test("retries asset file deletions that failed after their database rows were removed", async () => {
+    const warningSpy = spyOn(console, "warn").mockImplementation(() => undefined);
+    const storagePath = "blocked/retry.png";
+    const targetPath = join(assetRoot, storagePath);
+    await mkdir(assetRoot, { recursive: true });
+    await mkdir(targetPath, { recursive: true });
+    await Bun.write(join(targetPath, "nested"), "keep directory non-empty");
+
+    try {
+      await removeAssetFiles(assetRoot, [storagePath]);
+      const queueRoot = join(assetRoot, ".pending-delete");
+      expect((await readdir(queueRoot)).length).toBe(1);
+
+      await rm(targetPath, { recursive: true });
+      await Bun.write(targetPath, "retry me");
+      await retryPendingAssetDeletions(assetRoot);
+
+      expect(await Bun.file(targetPath).exists()).toBe(false);
+      expect(await readdir(queueRoot)).toEqual([]);
+    } finally {
+      warningSpy.mockRestore();
+    }
+  });
+
   test("serves a cache-bypassing service worker in development", async () => {
     const devEnvironment = { ...environment, NODE_ENV: "development" };
     const response = await handleRequest(new Request("http://xiangying.test/sw.js"), { database, environment: devEnvironment, clientRoot: "dist/client", assetRoot });
@@ -956,6 +980,28 @@ describe("Bun Server API", () => {
     expect(zipBytes[1]).toBe(0x4b);
     expect(zipBytes[2]).toBe(0x03);
     expect(zipBytes[3]).toBe(0x04);
+  });
+
+  test("uses bounded attachment names for exported Markdown image references", async () => {
+    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
+    const originalName = `${"图片".repeat(120)}.png`;
+    const boundedName = `${"图片".repeat(32)}.png`;
+    const uploaded = await request("/api/assets", { method: "POST", body: imageForm(originalName) }, login.cookie);
+    const asset = uploaded.body?.asset;
+    expect(uploaded.response.status).toBe(201);
+
+    const created = await request("/api/notes", {
+      method: "POST",
+      body: JSON.stringify({ title: "export image", contentMarkdown: `![image](${asset.url})\n\n![same image again](${asset.url})` }),
+    }, login.cookie);
+    expect(created.response.status).toBe(201);
+
+    const response = await handleRequest(new Request("http://xiangying.test/api/export", { headers: { Cookie: login.cookie ?? "" } }), { database, environment, clientRoot: "dist/client", assetRoot });
+    expect(response.status).toBe(200);
+    const archive = new TextDecoder().decode(new Uint8Array(await response.arrayBuffer()));
+    expect(archive).toContain(`attachments/${asset.id}_${boundedName}`);
+    expect(archive.match(new RegExp(`\\.\\./attachments/${asset.id}_${boundedName}`, "gu"))).toHaveLength(2);
+    expect(archive).not.toContain(originalName);
   });
 
   test("keeps ZIP entries inside the archive when a notebook is named dot dot", async () => {

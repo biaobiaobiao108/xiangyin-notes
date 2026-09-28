@@ -1,4 +1,5 @@
-import { mkdir, rename } from "node:fs/promises";
+import type { Dirent } from "node:fs";
+import { mkdir, open, readdir, rename, unlink } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { ImageAssetSummary } from "../../shared/types";
 import {
@@ -22,6 +23,8 @@ type RuntimeEnvironment = Record<string, string | undefined>;
 export const ORPHAN_ASSET_TTL_SECONDS = 24 * 60 * 60;
 export const ORPHAN_ASSET_CLEANUP_INTERVAL_SECONDS = 60 * 60;
 export const IMAGE_UPLOAD_MAX_BODY_BYTES = IMAGE_MAX_BYTES + 256 * 1024;
+const PENDING_ASSET_DELETE_DIRECTORY = ".pending-delete";
+const PENDING_ASSET_DELETE_BATCH_SIZE = 100;
 let nextOrphanAssetCleanupAt = 0;
 
 export function assetRootFromEnv(environment: RuntimeEnvironment = Bun.env) {
@@ -49,6 +52,29 @@ export function assetPathsForNotes(database: SqliteDatabase, userId: string, not
   return all<{ storage_path: string }>(database, `SELECT storage_path FROM image_assets WHERE user_id = ? AND note_id IN (${noteIds.map(() => "?").join(",")})`, userId, ...noteIds).map((asset) => asset.storage_path);
 }
 
+function pendingAssetDeletePath(assetRoot: string, storagePath: string) {
+  const marker = Buffer.from(storagePath, "utf8").toString("base64url");
+  return join(resolve(assetRoot), PENDING_ASSET_DELETE_DIRECTORY, marker);
+}
+
+async function queueAssetDelete(assetRoot: string, storagePath: string) {
+  const markerPath = pendingAssetDeletePath(assetRoot, storagePath);
+  await mkdir(dirname(markerPath), { recursive: true });
+  const marker = await open(markerPath, "a");
+  await marker.close();
+  return markerPath;
+}
+
+async function unlinkAssetAndMarker(filePath: string, markerPath: string) {
+  try {
+    await Bun.file(filePath).unlink();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") return false;
+  }
+  await unlink(markerPath).catch(() => undefined);
+  return true;
+}
+
 export async function removeAssetFiles(assetRoot: string, storagePaths: string[]) {
   for (const storagePath of storagePaths) {
     const filePath = assetFilePath(assetRoot, storagePath);
@@ -56,10 +82,55 @@ export async function removeAssetFiles(assetRoot: string, storagePaths: string[]
       console.warn("[assets] refused to delete an unsafe storage path", storagePath);
       continue;
     }
+    let markerPath: string | null = null;
+    try {
+      markerPath = await queueAssetDelete(assetRoot, storagePath);
+    } catch (error) {
+      console.warn("[assets] failed to queue asset deletion", filePath, error);
+    }
     try {
       await Bun.file(filePath).unlink();
+      if (markerPath) await unlink(markerPath).catch(() => undefined);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") console.warn("[assets] failed to delete asset file", filePath, error);
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        if (markerPath) await unlink(markerPath).catch(() => undefined);
+      } else {
+        console.warn("[assets] failed to delete asset file", filePath, error);
+      }
+    }
+  }
+}
+
+export async function retryPendingAssetDeletions(assetRoot: string, limit = PENDING_ASSET_DELETE_BATCH_SIZE) {
+  const queueRoot = join(resolve(assetRoot), PENDING_ASSET_DELETE_DIRECTORY);
+  let markers: Dirent[];
+  try {
+    markers = await readdir(queueRoot, { withFileTypes: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") console.warn("[assets] failed to read pending deletion queue", queueRoot, error);
+    return;
+  }
+
+  let processed = 0;
+  const maxProcessed = Number.isSafeInteger(limit) ? Math.max(0, Math.min(limit, PENDING_ASSET_DELETE_BATCH_SIZE)) : PENDING_ASSET_DELETE_BATCH_SIZE;
+  for (const marker of markers) {
+    if (processed >= maxProcessed) break;
+    if (!marker.isFile() || !/^[A-Za-z0-9_-]+$/u.test(marker.name)) continue;
+    processed += 1;
+    const storagePath = Buffer.from(marker.name, "base64url").toString("utf8");
+    if (!storagePath || Buffer.from(storagePath, "utf8").toString("base64url") !== marker.name) {
+      await unlink(join(queueRoot, marker.name)).catch(() => undefined);
+      continue;
+    }
+    const filePath = assetFilePath(assetRoot, storagePath);
+    const markerPath = join(queueRoot, marker.name);
+    if (!filePath) {
+      console.warn("[assets] removed an unsafe path from the pending deletion queue", marker.name);
+      await unlink(markerPath).catch(() => undefined);
+      continue;
+    }
+    if (!(await unlinkAssetAndMarker(filePath, markerPath))) {
+      console.warn("[assets] pending asset deletion will be retried", filePath);
     }
   }
 }
@@ -68,6 +139,7 @@ export async function cleanupOrphanAssets(database: SqliteDatabase, assetRoot: s
   const timestamp = now();
   if (timestamp < nextOrphanAssetCleanupAt) return;
   nextOrphanAssetCleanupAt = timestamp + ORPHAN_ASSET_CLEANUP_INTERVAL_SECONDS;
+  await retryPendingAssetDeletions(assetRoot);
   const staleAssets = all<{ id: string; storage_path: string }>(database, `
     SELECT a.id, a.storage_path
     FROM image_assets a
