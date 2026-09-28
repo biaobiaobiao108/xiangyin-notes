@@ -55,6 +55,7 @@ function lineBounds(markdown: string, start: number) {
 
 type MarkdownSegment = { start: number; end: number };
 type BacktickRun = { start: number; end: number; length: number; indexForLength: number };
+type EscapedTagRange = { start: number; end: number; hashIndex: number; backslashCount: number };
 
 function collectVisibleSegments(markdown: string) {
   const segments: MarkdownSegment[] = [];
@@ -105,7 +106,7 @@ function collectBacktickRuns(markdown: string, segment: MarkdownSegment) {
   return { runs, byLength };
 }
 
-function collectTagsOutsideCode(markdown: string, start: number, end: number, ranges: TagRange[]) {
+function collectTagsOutsideCode(markdown: string, start: number, end: number, ranges: TagRange[], escapedRanges?: EscapedTagRange[]) {
   for (let index = start; index < end; index += 1) {
     if (markdown[index] !== "#" || markdown[index - 1] === "#") continue;
     const tagStart = index + 1;
@@ -117,19 +118,25 @@ function collectTagsOutsideCode(markdown: string, start: number, end: number, ra
       if (!TAG_CHARACTER_PATTERN.test(character)) break;
       tagEnd += character.length;
     }
-    ranges.push({ start: index, end: tagEnd, tag: markdown.slice(tagStart, tagEnd) });
+    let backslashCount = 0;
+    while (index - backslashCount - 1 >= start && markdown[index - backslashCount - 1] === "\\") backslashCount += 1;
+    if (backslashCount % 2 === 1) {
+      escapedRanges?.push({ start: index - backslashCount, end: tagEnd, hashIndex: index, backslashCount });
+    } else {
+      ranges.push({ start: index, end: tagEnd, tag: markdown.slice(tagStart, tagEnd) });
+    }
     index = tagEnd - 1;
   }
 }
 
-function collectSegmentTagRanges(markdown: string, segment: MarkdownSegment, ranges: TagRange[]) {
+function collectSegmentTagRanges(markdown: string, segment: MarkdownSegment, ranges: TagRange[], escapedRanges?: EscapedTagRange[]) {
   const { runs, byLength } = collectBacktickRuns(markdown, segment);
   let cursor = segment.start;
   let runIndex = 0;
 
   while (runIndex < runs.length) {
     const run = runs[runIndex];
-    if (run.start > cursor) collectTagsOutsideCode(markdown, cursor, run.start, ranges);
+    if (run.start > cursor) collectTagsOutsideCode(markdown, cursor, run.start, ranges, escapedRanges);
 
     const sameLengthRuns = byLength.get(run.length) ?? [];
     const closingRun = sameLengthRuns[run.indexForLength + 1];
@@ -142,14 +149,33 @@ function collectSegmentTagRanges(markdown: string, segment: MarkdownSegment, ran
     }
   }
 
-  if (cursor < segment.end) collectTagsOutsideCode(markdown, cursor, segment.end, ranges);
+  if (cursor < segment.end) collectTagsOutsideCode(markdown, cursor, segment.end, ranges, escapedRanges);
 }
 
-/** Finds body hashtag ranges, excluding fenced and inline code. */
+/** Finds unescaped body hashtag ranges, excluding fenced and inline code. */
 export function findTagRanges(markdown: string) {
   const ranges: TagRange[] = [];
   for (const segment of collectVisibleSegments(markdown)) collectSegmentTagRanges(markdown, segment, ranges);
   return ranges;
+}
+
+/** Preserves escaped hashtag semantics when Markdown is parsed and serialized by the rich-text editor. */
+export function preserveEscapedHashtagsForEditor(markdown: string) {
+  if (!markdown.includes("\\#")) return markdown;
+  const escapedRanges: EscapedTagRange[] = [];
+  const ignoredRanges: TagRange[] = [];
+  for (const segment of collectVisibleSegments(markdown)) collectSegmentTagRanges(markdown, segment, ignoredRanges, escapedRanges);
+  if (escapedRanges.length === 0) return markdown;
+
+  const parts: string[] = [];
+  let cursor = 0;
+  for (const range of escapedRanges) {
+    parts.push(markdown.slice(cursor, range.start));
+    parts.push(`${"\\".repeat(range.backslashCount - 1)}#\u2060${markdown.slice(range.hashIndex + 1, range.end)}`);
+    cursor = range.end;
+  }
+  parts.push(markdown.slice(cursor));
+  return parts.join("");
 }
 
 /** Returns the first line of trailing tag-only lines, if the note has a tag footer. */

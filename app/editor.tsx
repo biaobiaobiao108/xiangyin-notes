@@ -11,6 +11,7 @@ import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { Transaction } from "@tiptap/pm/state";
 import { ArrowLeft, ArrowLeftRight, CheckCircle, ChevronLeft, CircleAlert, LayoutGrid, Link2, LoaderCircle, RefreshCw, Star, Trash2, Undo2 } from "lucide-react";
 import type { ImageAssetSummary, Note, NoteSummary } from "../shared/types";
+import { preserveEscapedHashtagsForEditor } from "../shared/tags";
 import { api } from "./api";
 import { BrandMark } from "./brand-mark";
 import { cycleSearchMatchIndex, findEditorSearchMatches, findTextMatches, searchHighlightPluginKey, SearchHighlightExtension } from "./editor-search";
@@ -224,7 +225,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   const leakedCandidateRef = useRef<{ key: string; blockStartPos: number; emptyAtStart: boolean } | null>(null);
   const imeCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeEditorNoteIdRef = useRef(note.id);
-  const initialContentRef = useRef(note.contentMarkdown);
+  const initialContentRef = useRef(preserveEscapedHashtagsForEditor(note.contentMarkdown));
   const isPastingRef = useRef(false);
   const smoothScrollToHeadRef = useRef<(view: Editor["view"]) => void>(() => undefined);
   const outlineScrollAnimRef = useRef<number | null>(null);
@@ -1056,7 +1057,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     if (markdownSyncFrameRef.current !== null) window.clearTimeout(markdownSyncFrameRef.current);
     markdownSyncFrameRef.current = null;
     markdownSyncStartedAtRef.current = null;
-    editor.commands.setContent(note.contentMarkdown, { contentType: "markdown", emitUpdate: false });
+    editor.commands.setContent(preserveEscapedHashtagsForEditor(note.contentMarkdown), { contentType: "markdown", emitUpdate: false });
     editorScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
     if (switchedNote) {
       const doc = documentRef.current;

@@ -127,7 +127,7 @@ describe("remote MCP endpoint", () => {
     expect(noOrigin.response.status).toBe(200);
     const tools = resultOf(noOrigin.body!).tools;
     expect(tools.map((tool: { name: string }) => tool.name)).toEqual([
-      "list_notebooks", "create_notebook", "update_notebook", "delete_notebook", "search_notes", "list_trash", "empty_trash", "get_note", "get_notes_batch", "create_note", "update_note", "toggle_favorite", "move_note", "set_tags", "append_to_note", "insert_into_note", "delete_note", "restore_note", "batch_update_notes",
+      "list_notebooks", "create_notebook", "update_notebook", "delete_notebook", "search_notes", "list_trash", "empty_trash", "get_note", "get_notes_batch", "create_note", "update_note", "replace_in_note", "toggle_favorite", "move_note", "set_tags", "append_to_note", "insert_into_note", "delete_note", "restore_note", "batch_update_notes",
     ]);
     const assertClosedSchemas = (schema: Record<string, any>) => {
       if (schema.type === "object" || schema.properties) expect(schema.additionalProperties).toBe(false);
@@ -150,7 +150,7 @@ describe("remote MCP endpoint", () => {
   test("provides server-level usage instructions during discovery", async () => {
     const discovered = await callMcp(modernMcpRequest("server/discover", 1), { ...credentials, XIANGYING_MCP_TOKEN: token });
     expect(discovered.response.status).toBe(200);
-    expect(resultOf(discovered.body!).instructions).toContain("修改前先读取最新 version");
+    expect(resultOf(discovered.body!).instructions).toContain("单篇笔记写操作前先调用 get_note 获取最新 version");
     expect(resultOf(discovered.body!).instructions).toContain("create_notebook");
     expect(resultOf(discovered.body!).instructions).toContain("换行写作 \\n");
     expect(resultOf(discovered.body!).instructions).toContain("工具参数必须是 JSON 对象");
@@ -164,6 +164,9 @@ describe("remote MCP endpoint", () => {
     expect(resultOf(discovered.body!).instructions).toContain("restore_note");
     expect(resultOf(discovered.body!).instructions).toContain("toggle_favorite");
     expect(resultOf(discovered.body!).instructions).toContain("set_tags");
+    expect(resultOf(discovered.body!).instructions).toContain("8,000 个 Unicode 字符");
+    expect(resultOf(discovered.body!).instructions).toContain("字面井号词");
+    expect(resultOf(discovered.body!).instructions).toContain("batch_update_notes 可将最多 50 篇");
   });
 
   test("creates, renames, and deletes a notebook while preserving its notes", async () => {
@@ -479,6 +482,78 @@ describe("remote MCP endpoint", () => {
     expect(toolData(removedSearch.body!).notes).toHaveLength(0);
   });
 
+  test("treats escaped hashtag text as literal content while keeping real tags searchable", async () => {
+    const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
+    const created = await callTool("create_note", {
+      title: "井号字面量和标签",
+      contentMarkdown: "C\\#Sharp 与话题 \\#技术；实际标签 #可检索",
+    }, 1, environment);
+    const note = toolData(created.body!).note;
+    expect(note.tags).toEqual(["可检索"]);
+
+    expect(toolData((await callTool("search_notes", { tag: "CSharp" }, 2, environment)).body!).notes).toHaveLength(0);
+    expect(toolData((await callTool("search_notes", { tag: "技术" }, 3, environment)).body!).notes).toHaveLength(0);
+    expect(toolData((await callTool("search_notes", { tag: "可检索" }, 4, environment)).body!).notes.map((entry: { id: string }) => entry.id)).toEqual([note.id]);
+  });
+
+  test("replaces one exact text span without returning or resending the full body", async () => {
+    const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
+    const originalBody = "报告中的占位符：待修正；其余正文保持原样";
+    const created = await callTool("create_note", { title: "局部替换", contentMarkdown: originalBody }, 1, environment);
+    const note = toolData(created.body!).note;
+    expect(note.contentMarkdown).toBeUndefined();
+    expect(note.contentLength).toBe(Array.from(originalBody).length);
+
+    const replaced = await callTool("replace_in_note", {
+      noteId: note.id,
+      oldText: "待修正",
+      newText: "已修正",
+    }, 2, environment);
+    const replacedNote = toolData(replaced.body!).note;
+    expect(replacedNote.version).toBe(2);
+    expect(replacedNote.contentMarkdown).toBeUndefined();
+    expect(replacedNote.contentLength).toBe(Array.from("报告中的占位符：已修正；其余正文保持原样").length);
+    expect(toolData((await callTool("get_note", { noteId: note.id }, 3, environment)).body!).note.contentMarkdown).toBe("报告中的占位符：已修正；其余正文保持原样");
+
+    const stale = await callTool("replace_in_note", {
+      noteId: note.id,
+      version: note.version,
+      oldText: "已修正",
+      newText: "再次修正",
+    }, 4, environment);
+    expect(toolData(stale.body!).error.code).toBe("VERSION_CONFLICT");
+    expect(toolData(stale.body!).error.current.contentMarkdown).toBe("报告中的占位符：已修正；其余正文保持原样");
+
+    const forced = await callTool("replace_in_note", {
+      noteId: note.id,
+      version: note.version,
+      force: true,
+      oldText: "已修正",
+      newText: "最终修正",
+    }, 5, environment);
+    expect(toolData(forced.body!).note.version).toBe(3);
+    expect(toolData((await callTool("get_note", { noteId: note.id }, 6, environment)).body!).note.contentMarkdown).toBe("报告中的占位符：最终修正；其余正文保持原样");
+  });
+
+  test("supports official chunked writing with a length receipt and returned versions", async () => {
+    const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
+    const created = await callTool("create_note", { title: "分段长文骨架" }, 1, environment);
+    let note = toolData(created.body!).note;
+    expect(note.contentLength).toBe(0);
+
+    const chunks = ["第一段长文内容", "第二段长文内容\n末尾"];
+    for (const [index, contentMarkdown] of chunks.entries()) {
+      const appended = await callTool("append_to_note", {
+        noteId: note.id,
+        version: note.version,
+        contentMarkdown,
+      }, index + 2, environment);
+      note = toolData(appended.body!).note;
+      expect(note.contentLength).toBe(Array.from(chunks.slice(0, index + 1).join("")).length);
+    }
+    expect(toolData((await callTool("get_note", { noteId: note.id }, 4, environment)).body!).note.contentMarkdown).toBe(chunks.join(""));
+  });
+
   test("normalizes unescaped control characters and rejects truncated nested JSON", async () => {
     const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
     const valid = modernMcpRequest("tools/call", 1, {
@@ -508,6 +583,14 @@ describe("remote MCP endpoint", () => {
     expect(rejected.response.status).toBe(400);
     expect(rejected.body?.error.message).toContain("字符串中存在未转义的控制字符");
     expect(rejected.body?.error.message).toContain("完整 JSON 对象");
+
+    const oversized = await callMcp(modernMcpRequest("tools/call", 6, {
+      name: "create_note",
+      arguments: { title: "超长正文", contentMarkdown: "a".repeat(1_000_001) },
+    }, "create_note"), environment);
+    expect(oversized.response.status).toBe(400);
+    expect(oversized.body?.error.message).toContain("超过单篇 1,000,000 字符上限");
+    expect(oversized.body?.error.message).toContain("append_to_note 分段写入");
   });
 
   test("lists notebooks, creates, searches, reads, and updates notes with version checks", async () => {
@@ -529,6 +612,7 @@ describe("remote MCP endpoint", () => {
     expect(createdNote.version).toBe(1);
     expect(createdNote.contentMarkdown).toContain("#mcp-explicit-tag");
     expect(createdNote.tags).toContain("mcp-explicit-tag");
+    expect(createdNote.contentLength).toBe(Array.from(createdNote.contentMarkdown).length);
 
     const search = await callTool("search_notes", { query: "mcp-test" }, 3, environment);
     expect(toolData(search.body!).notes.map((note: { id: string }) => note.id)).toContain(createdNote.id);

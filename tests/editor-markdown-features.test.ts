@@ -4,6 +4,7 @@ import StarterKit from "@tiptap/starter-kit";
 import { Markdown } from "@tiptap/markdown";
 import { Info, Table2 } from "lucide-react";
 import { formatPreview } from "../server/core";
+import { extractTags, preserveEscapedHashtagsForEditor } from "../shared/tags";
 import { CalloutNode, CALLOUT_TYPES, shouldExitCalloutOnEnter } from "../app/editor/callout-node";
 import { CodeBlockDoubleEnter, handleCodeBlockDoubleEnter, shouldExitCodeBlockOnEnter } from "../app/editor/code-block-enter";
 import { handleInlineMarkExitOnEnter, InlineMarkExitOnEnter } from "../app/editor/inline-mark-exit";
@@ -29,6 +30,21 @@ function createMarkdownEditor(content: string) {
     contentType: "markdown",
   });
 }
+
+describe("escaped hashtag Markdown", () => {
+  test("keeps escaped hashtags out of tag metadata after editor round-tripping", () => {
+    const source = "C\\#Sharp，话题 \\#技术，标签 #真实标签";
+    const editor = createMarkdownEditor(preserveEscapedHashtagsForEditor(source));
+    try {
+      const serialized = (editor as Editor & { getMarkdown: () => string }).getMarkdown();
+      expect(serialized).toContain(`#\u2060Sharp`);
+      expect(serialized).toContain(`#\u2060技术`);
+      expect(extractTags(serialized)).toEqual(["真实标签"]);
+    } finally {
+      editor.destroy();
+    }
+  });
+});
 
 describe("slash command inline formatting", () => {
   test.each([

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { extractTags, findTagRanges, findTrailingTagFooterStart, hasTag, normalizeTag, parseTagQuery, removeTagsFromMarkdown } from "../shared/tags";
+import { extractTags, findTagRanges, findTrailingTagFooterStart, hasTag, normalizeTag, parseTagQuery, preserveEscapedHashtagsForEditor, removeTagsFromMarkdown } from "../shared/tags";
 
 describe("note tags", () => {
   test("extracts unique tags in first-seen order", () => {
@@ -28,6 +28,20 @@ describe("note tags", () => {
   test("ignores inline code spans, including multiline and mixed backtick runs", () => {
     const markdown = "正文 `#inline` #visible\n``code `#nested` `` #also-visible\n`跨行\n#hidden`\n#shown\n```ts\n#fenced\n```";
     expect(extractTags(markdown)).toEqual(["visible", "also-visible", "shown"]);
+  });
+
+  test("ignores escaped hashtags and preserves their meaning through editor Markdown parsing", () => {
+    const markdown = "C\\#Sharp，话题 \\#技术，标签 #真实标签，\\#仍是标签";
+    expect(extractTags(markdown)).toEqual(["真实标签"]);
+    const doubleSlash = "双反斜杠 \\\\#字面量";
+    expect(extractTags(doubleSlash)).toEqual(["字面量"]);
+    expect(preserveEscapedHashtagsForEditor(doubleSlash)).toBe(doubleSlash);
+    expect(removeTagsFromMarkdown(markdown, ["Sharp", "技术", "真实标签"])).toBe("C\\#Sharp，话题 \\#技术，标签，\\#仍是标签");
+
+    const editorMarkdown = preserveEscapedHashtagsForEditor(markdown);
+    expect(editorMarkdown).toContain(`#\u2060Sharp`);
+    expect(editorMarkdown).toContain(`#\u2060技术`);
+    expect(extractTags(editorMarkdown)).toEqual(["真实标签"]);
   });
 
   test("removes matching visible tag markers while preserving code examples", () => {
