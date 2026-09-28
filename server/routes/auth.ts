@@ -145,7 +145,7 @@ export function resetLoginAttempt(database: SqliteDatabase, key: string) {
 }
 
 export function setSessionCookie(headers: Headers, request: Request, token: string, environment: RuntimeEnvironment, maxAge = SESSION_COOKIE_TTL) {
-  const secure = environment.COOKIE_SECURE === "true";
+  const secure = isSecureRequest(request, environment);
   headers.set("Set-Cookie", `${SESSION_COOKIE}=${encodeURIComponent(token)}; Max-Age=${maxAge}; Path=/; HttpOnly; SameSite=Lax${secure ? "; Secure" : ""}`);
 }
 

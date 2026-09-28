@@ -37,6 +37,28 @@ describe("security helpers", () => {
       TRUSTED_PROXY_ADDRESSES: "127.0.0.1",
     }, "127.0.0.1")).toBe("127.0.0.1");
   });
+
+  test("sets secure cookie flag based on protocol and environment", async () => {
+    const { setSessionCookie } = await import("../server/routes/auth");
+    const httpsReq = new Request("https://notes.example.com/api/auth/login");
+    const httpReq = new Request("http://localhost:3000/api/auth/login");
+
+    const headers1 = new Headers();
+    setSessionCookie(headers1, httpsReq, "token123", {});
+    expect(headers1.get("Set-Cookie")).toContain("; Secure");
+
+    const headers2 = new Headers();
+    setSessionCookie(headers2, httpReq, "token123", {});
+    expect(headers2.get("Set-Cookie")).not.toContain("; Secure");
+
+    const headers3 = new Headers();
+    setSessionCookie(headers3, httpReq, "token123", { COOKIE_SECURE: "true" });
+    expect(headers3.get("Set-Cookie")).toContain("; Secure");
+
+    const headers4 = new Headers();
+    setSessionCookie(headers4, httpsReq, "token123", { COOKIE_SECURE: "false" });
+    expect(headers4.get("Set-Cookie")).not.toContain("; Secure");
+  });
 });
 
 describe("markdown and search helpers", () => {
