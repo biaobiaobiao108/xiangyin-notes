@@ -136,8 +136,6 @@ export const NOTE_VIEWS: NoteView[] = ["all", "inbox", "favorites", "shared", "t
 
 export const welcomeMarkdown = "## 欢迎来到象映笔记\n\n这是你的第一个笔记。按下 **Ctrl /** 可以打开命令菜单，开始记录你的想法。\n\n- 写下值得保留的东西\n- 用笔记本整理上下文\n- 随时生成一个 7 天有效的只读分享\n";
 
-export const loginAttempts = new Map<string, RateLimitEntry>();
-
 export function now() {
   return Math.floor(Date.now() / 1000);
 }
@@ -240,18 +238,6 @@ export function rateLimitClientAddress(
   const forwarded = request.headers.get("X-Forwarded-For")?.split(",", 1)[0]?.trim();
   const realIp = request.headers.get("X-Real-IP")?.trim();
   return normalizedIp(forwarded) ?? normalizedIp(realIp) ?? directAddress;
-}
-
-export function consumeRateLimit(key: string, limit: number, windowMs: number) {
-  const currentTime = Date.now();
-  const entry = loginAttempts.get(key);
-  if (!entry || entry.resetAt <= currentTime) {
-    loginAttempts.set(key, { count: 1, resetAt: currentTime + windowMs });
-    return true;
-  }
-  if (entry.count >= limit) return false;
-  entry.count += 1;
-  return true;
 }
 
 export function isSecureRequest(request: Request, environment: Record<string, string | undefined> = {}) {

@@ -113,6 +113,7 @@ CREATE TABLE IF NOT EXISTS note_links (
   target_title TEXT NOT NULL,
   target_title_normalized TEXT NOT NULL DEFAULT '',
   target_note_id TEXT REFERENCES notes(id) ON DELETE SET NULL,
+  snippet TEXT NOT NULL DEFAULT '',
   created_at INTEGER NOT NULL
 );
 
@@ -140,3 +141,16 @@ CREATE TABLE IF NOT EXISTS note_short_terms (
 );
 
 CREATE INDEX IF NOT EXISTS idx_note_short_terms_user_term ON note_short_terms(user_id, term, note_id);
+
+CREATE TABLE IF NOT EXISTS rate_limits (
+  action TEXT NOT NULL,
+  key TEXT NOT NULL,
+  points INTEGER NOT NULL DEFAULT 0,
+  window_started_at INTEGER NOT NULL,
+  blocked_until INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY(action, key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_rate_limits_action_expiry ON rate_limits(action, blocked_until, window_started_at);
+

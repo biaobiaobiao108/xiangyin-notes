@@ -11,6 +11,7 @@ import {
   readBodyBytes,
   rateLimitClientAddress,
   type RouteContext,
+  type SqliteDatabase,
   toNote,
   validNoteAssetReferences,
   validText,
@@ -22,15 +23,6 @@ import { publishWorkspaceChange } from "../realtime";
 const IMPORT_API_PATH = "/api/import";
 export const IMPORT_RATE_LIMIT_WINDOW_SECONDS = 60;
 export const IMPORT_RATE_LIMIT_MAX_REQUESTS = 30;
-const IMPORT_RATE_LIMIT_MAX_ENTRIES = 2_000;
-
-type ImportRateLimitEntry = {
-  windowStartedAt: number;
-  requests: number;
-};
-
-const importRateLimits = new Map<string, ImportRateLimitEntry>();
-let nextImportRateLimitCleanupAt = 0;
 
 function getApiToken(environment: Record<string, string | undefined>) {
   const token = environment.XIANGYING_API_TOKEN?.trim();
@@ -62,31 +54,45 @@ function importClientKey(request: Request, environment: Record<string, string | 
   return address.slice(0, 128) || "unknown";
 }
 
-function checkImportRateLimit(request: Request, environment: Record<string, string | undefined>, clientAddress: string | undefined) {
-  const timestamp = now();
-  if (timestamp >= nextImportRateLimitCleanupAt) {
-    for (const [key, entry] of importRateLimits) {
-      if (timestamp - entry.windowStartedAt >= IMPORT_RATE_LIMIT_WINDOW_SECONDS) importRateLimits.delete(key);
-    }
-    nextImportRateLimitCleanupAt = timestamp + IMPORT_RATE_LIMIT_WINDOW_SECONDS;
-  }
-
+export function checkImportRateLimit(
+  database: SqliteDatabase,
+  request: Request,
+  environment: Record<string, string | undefined>,
+  clientAddress: string | undefined,
+) {
   const key = importClientKey(request, environment, clientAddress);
-  let entry = importRateLimits.get(key);
-  if (!entry || timestamp - entry.windowStartedAt >= IMPORT_RATE_LIMIT_WINDOW_SECONDS) {
-    if (!entry && importRateLimits.size >= IMPORT_RATE_LIMIT_MAX_ENTRIES) {
-      const oldestKey = importRateLimits.keys().next().value as string | undefined;
-      if (oldestKey) importRateLimits.delete(oldestKey);
-    }
-    entry = { windowStartedAt: timestamp, requests: 0 };
-    importRateLimits.set(key, entry);
-  }
+  const timestamp = now();
 
-  if (entry.requests >= IMPORT_RATE_LIMIT_MAX_REQUESTS) {
-    const retryAfter = Math.max(1, entry.windowStartedAt + IMPORT_RATE_LIMIT_WINDOW_SECONDS - timestamp);
-    return jsonError(429, "TOO_MANY_IMPORTS", "导入请求过于频繁，请稍后再试", { "Retry-After": String(retryAfter) });
+  const blocked = database.transaction((): { retryAfter: number } | null => {
+    const row = database.query("SELECT points, window_started_at FROM rate_limits WHERE action = 'import' AND key = ?")
+      .get(key) as { points: number; window_started_at: number } | null | undefined;
+
+    if (!row || timestamp - row.window_started_at >= IMPORT_RATE_LIMIT_WINDOW_SECONDS) {
+      database.query(`
+        INSERT INTO rate_limits (action, key, points, window_started_at, blocked_until, updated_at)
+        VALUES ('import', ?, 1, ?, 0, ?)
+        ON CONFLICT(action, key) DO UPDATE SET
+          points = 1,
+          window_started_at = excluded.window_started_at,
+          blocked_until = 0,
+          updated_at = excluded.updated_at
+      `).run(key, timestamp, timestamp);
+      return null;
+    }
+
+    if (row.points >= IMPORT_RATE_LIMIT_MAX_REQUESTS) {
+      const retryAfter = Math.max(1, row.window_started_at + IMPORT_RATE_LIMIT_WINDOW_SECONDS - timestamp);
+      return { retryAfter };
+    }
+
+    database.query("UPDATE rate_limits SET points = points + 1, updated_at = ? WHERE action = 'import' AND key = ?")
+      .run(timestamp, key);
+    return null;
+  })();
+
+  if (blocked) {
+    return jsonError(429, "TOO_MANY_IMPORTS", "导入请求过于频繁，请稍后再试", { "Retry-After": String(blocked.retryAfter) });
   }
-  entry.requests += 1;
   return null;
 }
 
@@ -138,7 +144,7 @@ export async function handleImportRoute(ctx: RouteContext): Promise<Response | n
   const environment = options.environment ?? {};
   const tokenError = requireApiToken(request, environment);
   if (tokenError) return tokenError;
-  const rateLimitError = checkImportRateLimit(request, environment, options.clientAddress);
+  const rateLimitError = checkImportRateLimit(options.database, request, environment, options.clientAddress);
   if (rateLimitError) return rateLimitError;
 
   const credentials = getAuthCredentials(environment);
