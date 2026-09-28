@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { isIP } from "node:net";
 import { join } from "node:path";
@@ -196,10 +197,9 @@ export async function hashPassword(password: string) {
 }
 
 export function constantTimeEqual(a: string, b: string) {
-  const bufferA = Buffer.from(a);
-  const bufferB = Buffer.from(b);
-  if (bufferA.length !== bufferB.length) return false;
-  return crypto.timingSafeEqual(bufferA, bufferB);
+  const hashA = createHash("sha256").update(a).digest();
+  const hashB = createHash("sha256").update(b).digest();
+  return crypto.timingSafeEqual(hashA, hashB);
 }
 
 export function clientIdentifier(request: Request, clientAddress?: string) {

@@ -16,6 +16,10 @@ describe("security helpers", () => {
     expect(await derivePassword("wrong passphrase", first.salt)).not.toBe(first.hash);
     expect(constantTimeEqual(first.hash, first.hash)).toBe(true);
     expect(constantTimeEqual(first.hash, second.hash)).toBe(false);
+    expect(constantTimeEqual("short", "longer_string")).toBe(false);
+    expect(constantTimeEqual("", "non_empty")).toBe(false);
+    expect(constantTimeEqual("", "")).toBe(true);
+    expect(constantTimeEqual("same_secret_token", "same_secret_token")).toBe(true);
   });
 
   test("only trusts forwarded client IPs from explicitly trusted proxy peers", () => {
