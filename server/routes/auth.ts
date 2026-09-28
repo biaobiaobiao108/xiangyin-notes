@@ -1,7 +1,6 @@
 import {
   type AuthCredentials,
   constantTimeEqual,
-  cookieHeader,
   createOpaqueToken,
   derivePassword,
   digestHex,

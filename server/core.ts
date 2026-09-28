@@ -34,13 +34,6 @@ export type UserRow = {
   username: string;
 };
 
-export type SessionRow = {
-  token_hash: string;
-  user_id: string;
-  created_at: number;
-  expires_at: number;
-};
-
 export type NotebookRow = {
   id: string;
   user_id: string;
@@ -202,15 +195,6 @@ export function constantTimeEqual(a: string, b: string) {
   return crypto.timingSafeEqual(hashA, hashB);
 }
 
-export function clientIdentifier(request: Request, clientAddress?: string) {
-  if (clientAddress?.trim()) return clientAddress.trim();
-  const cfConnectingIp = request.headers.get("cf-connecting-ip")?.trim();
-  if (cfConnectingIp) return cfConnectingIp;
-  const xRealIp = request.headers.get("x-real-ip")?.trim();
-  if (xRealIp) return xRealIp;
-  return "local-client";
-}
-
 function normalizedIp(value: string | undefined) {
   const address = value?.trim().toLowerCase() ?? "";
   if (address.startsWith("::ffff:") && isIP(address.slice(7)) === 4) return address.slice(7);
@@ -245,30 +229,6 @@ export function isSecureRequest(request: Request, environment: Record<string, st
   if (configured === "true") return true;
   if (configured === "false") return false;
   return new URL(request.url).protocol === "https:";
-}
-
-export function cookieHeader(token: string, isSecure: boolean) {
-  const parts = [
-    `${SESSION_COOKIE}=${token}`,
-    "Path=/",
-    "HttpOnly",
-    "SameSite=Lax",
-    `Max-Age=${SESSION_TTL}`,
-  ];
-  if (isSecure) parts.push("Secure");
-  return parts.join("; ");
-}
-
-export function clearCookieHeader(isSecure: boolean) {
-  const parts = [
-    `${SESSION_COOKIE}=`,
-    "Path=/",
-    "HttpOnly",
-    "SameSite=Lax",
-    "Max-Age=0",
-  ];
-  if (isSecure) parts.push("Secure");
-  return parts.join("; ");
 }
 
 export function getPublicOrigin(requestUrl: URL, environment: Record<string, string | undefined> = {}) {
@@ -345,39 +305,6 @@ export async function readJson<T>(request: Request, maxBytes: number): Promise<T
   } catch {
     return null;
   }
-}
-
-export async function authenticateRequest(
-  request: Request,
-  database: SqliteDatabase,
-  environment: Record<string, string | undefined> = {},
-  clientAddress?: string,
-): Promise<UserRow | null> {
-  const cookie = request.headers.get("Cookie");
-  if (!cookie) return null;
-
-  const sessionMatch = cookie.match(new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([^;]+)`));
-  const token = sessionMatch?.[1];
-  if (!token) return null;
-
-  const tokenHash = await digestHex(token);
-  const currentTime = now();
-  const session = first<SessionRow>(
-    database,
-    "SELECT user_id, expires_at FROM sessions WHERE token_hash = ? AND expires_at > ?",
-    tokenHash,
-    currentTime,
-  );
-  if (!session) return null;
-
-  const user = first<UserRow>(database, "SELECT id, username FROM users WHERE id = ?", session.user_id);
-  if (!user) return null;
-
-  if (session.expires_at - currentTime < SESSION_TTL / 2) {
-    database.query("UPDATE sessions SET expires_at = ? WHERE token_hash = ?").run(currentTime + SESSION_TTL, tokenHash);
-  }
-
-  return user;
 }
 
 const NON_BREAKING_SPACE_ENTITY_RE = /^(?:&nbsp;|&#0*160;|&#x0*a0;)/iu;
