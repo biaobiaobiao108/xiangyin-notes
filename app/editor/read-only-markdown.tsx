@@ -1,4 +1,4 @@
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { Markdown } from "@tiptap/markdown";
@@ -32,5 +32,16 @@ export function ReadOnlyMarkdown({ markdown }: { markdown: string }) {
   ], []);
   const editorProps = useMemo(() => ({ attributes: { class: "note-prose share-prose" } }), []);
   const editor = useEditor({ editable: false, extensions, coreExtensionOptions: editorCoreExtensionOptions, content: initialContentRef.current, contentType: "markdown", editorProps });
+
+  const previousMarkdownRef = useRef(markdown);
+
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    if (previousMarkdownRef.current !== markdown) {
+      previousMarkdownRef.current = markdown;
+      editor.commands.setContent(markdown, { contentType: "markdown", emitUpdate: false });
+    }
+  }, [editor, markdown]);
+
   return <div ref={rootRef} className="markdown-render-shell"><EditorContent editor={editor} /><TableScrollbars rootRef={rootRef} /></div>;
 }
