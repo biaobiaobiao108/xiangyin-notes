@@ -1,0 +1,1 @@
+ALTER TABLE note_links ADD COLUMN snippet TEXT NOT NULL DEFAULT '';

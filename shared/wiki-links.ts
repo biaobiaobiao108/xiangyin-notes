@@ -203,6 +203,25 @@ export function findUnlinkedMentionsInMarkdown(markdown: string, targetTitle: st
   const trimmed = targetTitle.trim();
   if (!trimmed || trimmed.length < 2) return [];
 
+  const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // For words composed of letters/digits, use word boundary; for Chinese, direct regex match
+  const isLatinWord = /^[a-zA-Z0-9_-]+$/.test(trimmed);
+  const regex = new RegExp(isLatinWord ? `\\b${escaped}\\b` : escaped, "gi");
+
+  // Fast-path: quickly collect raw matches. If there are no candidate matches at all,
+  // skip all expensive AST / interval parsing completely.
+  const rawMatches: Array<{ start: number; end: number; matchText: string }> = [];
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(markdown)) !== null) {
+    rawMatches.push({
+      start: match.index,
+      end: match.index + match[0].length,
+      matchText: match[0],
+    });
+  }
+
+  if (rawMatches.length === 0) return [];
+
   // Intervals to exclude: code fences, inline codes, wiki links, markdown links/images
   const excludedIntervals: { start: number; end: number }[] = [
     ...findCodeFenceIntervals(markdown),
@@ -223,28 +242,27 @@ export function findUnlinkedMentionsInMarkdown(markdown: string, targetTitle: st
     excludedIntervals.push({ start: mdMatch.index, end: mdMatch.index + mdMatch[0].length });
   }
 
+  // Sort intervals by start for fast pruning
+  excludedIntervals.sort((a, b) => a.start - b.start);
+
   // Check if range overlaps with excluded
   const isExcluded = (start: number, end: number) => {
-    return excludedIntervals.some((interval) => (start < interval.end && end > interval.start));
+    for (const interval of excludedIntervals) {
+      if (interval.start >= end) break;
+      if (start < interval.end && end > interval.start) return true;
+    }
+    return false;
   };
 
   const results: UnlinkedMentionMatch[] = [];
-  const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  // For words composed of letters/digits, use word boundary; for Chinese, direct regex match
-  const isLatinWord = /^[a-zA-Z0-9_-]+$/.test(trimmed);
-  const regex = new RegExp(isLatinWord ? `\\b${escaped}\\b` : escaped, "gi");
-
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(markdown)) !== null) {
-    const start = match.index;
-    const end = start + match[0].length;
-    if (isExcluded(start, end)) continue;
+  for (const raw of rawMatches) {
+    if (isExcluded(raw.start, raw.end)) continue;
 
     results.push({
-      start,
-      end,
-      matchText: match[0],
-      snippet: extractContextSnippet(markdown, start, end),
+      start: raw.start,
+      end: raw.end,
+      matchText: raw.matchText,
+      snippet: extractContextSnippet(markdown, raw.start, raw.end),
     });
   }
 

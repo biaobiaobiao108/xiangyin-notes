@@ -1,5 +1,5 @@
 import type { SqliteDatabase } from "./db";
-import { extractWikiLinks, normalizeLinkTitle } from "../shared/wiki-links";
+import { extractContextSnippet, extractWikiLinks, normalizeLinkTitle } from "../shared/wiki-links";
 
 type SqlValue = string | number | null | Uint8Array | bigint;
 
@@ -12,6 +12,7 @@ type NoteLinkRow = {
   source_note_id: string;
   target_title: string;
   target_note_id: string | null;
+  snippet?: string;
 };
 
 function all<T>(database: SqliteDatabase, sql: string, ...values: SqlValue[]) {
@@ -53,13 +54,14 @@ function insertNoteLinks(
   targets: Map<string, string>,
   createdAt: number,
 ) {
-  const insert = database.query("INSERT INTO note_links (id, user_id, source_note_id, target_title, target_title_normalized, target_note_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)");
+  const insert = database.query("INSERT INTO note_links (id, user_id, source_note_id, target_title, target_title_normalized, target_note_id, snippet, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
   const seen = new Set<string>();
   for (const link of extractWikiLinks(contentMarkdown)) {
     const key = normalizeLinkTitle(link.target);
     if (!key || seen.has(key)) continue;
     seen.add(key);
-    insert.run(crypto.randomUUID(), userId, sourceNoteId, link.target, key, targets.get(key) ?? null, createdAt);
+    const snippet = extractContextSnippet(contentMarkdown, link.start, link.end);
+    insert.run(crypto.randomUUID(), userId, sourceNoteId, link.target, key, targets.get(key) ?? null, snippet, createdAt);
   }
 }
 

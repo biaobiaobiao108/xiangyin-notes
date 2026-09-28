@@ -393,4 +393,80 @@ describe("Note links, backlinks, and renaming cascade", () => {
       expect(res.body?.unlinkedMentions).toHaveLength(1);
     }
   });
+
+  test("persists snippet in note_links and reads it directly, with fallback for empty legacy snippet", async () => {
+    const auth = await request("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "owner", password: "a long passphrase 1234" }),
+    });
+    const cookie = auth.cookie!;
+
+    // Create target note
+    const targetRes = await request("/api/notes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "性能目标", contentMarkdown: "性能优化的核心文档" }),
+    }, cookie);
+    const target = targetRes.body?.note as Note;
+
+    // Create source note with wiki link
+    const sourceRes = await request("/api/notes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "来源一", contentMarkdown: "我们在项目中强烈推荐 [[性能目标]]。" }),
+    }, cookie);
+    const source = sourceRes.body?.note as Note;
+
+    // Verify snippet is stored in note_links
+    const storedLink = database.query("SELECT snippet FROM note_links WHERE source_note_id = ?").get(source.id) as { snippet: string };
+    expect(storedLink).toBeDefined();
+    expect(storedLink.snippet).toContain("[[性能目标]]");
+
+    // Query backlinks and verify snippet
+    const backlinks = await request(`/api/notes/${target.id}/backlinks`, { method: "GET" }, cookie);
+    expect(backlinks.response.status).toBe(200);
+    expect(backlinks.body?.linkedReferences).toHaveLength(1);
+    expect(backlinks.body?.linkedReferences[0].snippet).toBe(storedLink.snippet);
+
+    // Simulate legacy data by clearing snippet in database
+    database.query("UPDATE note_links SET snippet = '' WHERE source_note_id = ?").run(source.id);
+    const legacyBacklinks = await request(`/api/notes/${target.id}/backlinks`, { method: "GET" }, cookie);
+    expect(legacyBacklinks.body?.linkedReferences).toHaveLength(1);
+    expect(legacyBacklinks.body?.linkedReferences[0].snippet).toContain("[[性能目标]]");
+  });
+
+  test("indexes 2-character short titles via note_short_terms for unlinked mentions", async () => {
+    const auth = await request("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "owner", password: "a long passphrase 1234" }),
+    });
+    const cookie = auth.cookie!;
+
+    // Target note with 2-character title
+    const targetRes = await request("/api/notes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "规范", contentMarkdown: "各种编码与设计规范" }),
+    }, cookie);
+    const target = targetRes.body?.note as Note;
+
+    // Source note containing unlinked mention of "规范"
+    await request("/api/notes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "开发指南", contentMarkdown: "所有团队成员都必须严格遵守 规范 开展工作。" }),
+    }, cookie);
+
+    // Verify "规范" was indexed in note_short_terms
+    const shortTermRow = database.query("SELECT 1 FROM note_short_terms WHERE term = ?").get("规范");
+    expect(shortTermRow).toBeDefined();
+
+    // Query backlinks and verify unlinked mention is discovered via short term index
+    const backlinks = await request(`/api/notes/${target.id}/backlinks`, { method: "GET" }, cookie);
+    expect(backlinks.body?.unlinkedMentions).toHaveLength(1);
+    expect(backlinks.body?.unlinkedMentions[0].sourceNoteTitle).toBe("开发指南");
+    expect(backlinks.body?.unlinkedMentions[0].snippet).toContain("规范");
+  });
 });

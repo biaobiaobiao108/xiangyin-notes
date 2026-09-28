@@ -512,6 +512,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
 
     const linkedRows = database.query(`
       SELECT nl.id AS link_id, nl.source_note_id, n.title AS source_title,
+        nl.snippet AS link_snippet,
         length(n.content_markdown) AS source_content_char_count,
         n.updated_at AS source_updated_at, nb.name AS notebook_name, nl.target_title, nl.target_note_id
       FROM note_links nl
@@ -529,13 +530,14 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
       link_id: string;
       source_note_id: string;
       source_title: string;
+      link_snippet: string | null;
       source_content_char_count: number;
       source_updated_at: number;
       notebook_name: string;
       target_title: string;
       target_note_id: string | null;
     }>;
-    const linkedContentStatement = database.query("SELECT content_markdown FROM notes WHERE id = ? AND user_id = ?");
+    let linkedContentStatement: ReturnType<SqliteDatabase["query"]> | null = null;
     const linkedReferences: NoteLinkSummary[] = [];
     let truncated = false;
     let scanBudgetExhausted = false;
@@ -545,24 +547,29 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
         truncated = true;
         break;
       }
-      // SQLite's character count is a lower bound for JavaScript's UTF-16
-      // length. It lets us reject an over-budget note before loading its body.
-      if (row.source_content_char_count > BACKLINK_SCAN_CHAR_LIMIT - scannedChars) {
-        truncated = true;
-        scanBudgetExhausted = true;
-        break;
+      let snippet = row.link_snippet?.trim() || "";
+      if (!snippet) {
+        // Fallback for legacy records without stored snippet
+        if (row.source_content_char_count > BACKLINK_SCAN_CHAR_LIMIT - scannedChars) {
+          truncated = true;
+          scanBudgetExhausted = true;
+          break;
+        }
+        if (!linkedContentStatement) {
+          linkedContentStatement = database.query("SELECT content_markdown FROM notes WHERE id = ? AND user_id = ?");
+        }
+        const source = linkedContentStatement.get(row.source_note_id, user.id) as { content_markdown: string } | null;
+        if (!source) continue;
+        scannedChars += source.content_markdown.length;
+        if (scannedChars > BACKLINK_SCAN_CHAR_LIMIT) {
+          truncated = true;
+          scanBudgetExhausted = true;
+          break;
+        }
+        const links = extractWikiLinks(source.content_markdown);
+        const matched = links.find((l) => normalizeLinkTitle(l.target) === normalizeLinkTitle(row.target_title) || normalizeLinkTitle(l.target) === normalizeLinkTitle(note.title));
+        snippet = matched ? extractContextSnippet(source.content_markdown, matched.start, matched.end) : source.content_markdown.slice(0, 100);
       }
-      const source = linkedContentStatement.get(row.source_note_id, user.id) as { content_markdown: string } | null;
-      if (!source) continue;
-      scannedChars += source.content_markdown.length;
-      if (scannedChars > BACKLINK_SCAN_CHAR_LIMIT) {
-        truncated = true;
-        scanBudgetExhausted = true;
-        break;
-      }
-      const links = extractWikiLinks(source.content_markdown);
-      const matched = links.find((l) => normalizeLinkTitle(l.target) === normalizeLinkTitle(row.target_title) || normalizeLinkTitle(l.target) === normalizeLinkTitle(note.title));
-      const snippet = matched ? extractContextSnippet(source.content_markdown, matched.start, matched.end) : source.content_markdown.slice(0, 100);
       linkedReferences.push({
         id: row.link_id,
         sourceNoteId: row.source_note_id,
@@ -588,6 +595,9 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
         candidateFrom += " JOIN notes_fts ON notes_fts.rowid = n.rowid";
         candidateConditions.push("notes_fts MATCH ?");
         candidateParams.push(ftsTokens.map((p) => `"${p.replaceAll('"', '""')}"`).join(" AND "));
+      } else if (canIndexShortSearchTerm(trimmedTitle)) {
+        candidateConditions.push("EXISTS (SELECT 1 FROM note_short_terms st WHERE st.note_id = n.id AND st.user_id = n.user_id AND st.term = ?)");
+        candidateParams.push(trimmedTitle);
       } else {
         candidateConditions.push("n.content_markdown LIKE ? ESCAPE '!'");
         candidateParams.push(`%${escapeLikePattern(trimmedTitle)}%`);
