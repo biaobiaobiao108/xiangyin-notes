@@ -23,7 +23,7 @@ export const Sidebar = memo(function Sidebar({ view, setView, notebooks, noteboo
     <button className="primary-button new-note-button" type="button" aria-label="在收件箱中新建笔记" onClick={onNewInboxNote}><Plus size={18} />新建笔记</button>
     <label className="search-box"><Search size={17} /><input ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索笔记或 #标签……" aria-label="搜索笔记或标签" />{query ? <button className="search-clear" type="button" aria-label="清空搜索" onClick={() => setQuery("")}><X size={15} /></button> : <kbd>{commandMenuShortcutLabel}</kbd>}</label>
     <nav className="main-nav"><ul>{navItems.map((item) => { const Icon = item.icon; return <li key={item.id}><button className={`nav-item ${view === item.id && !notebookId ? "is-active" : ""}`} type="button" onClick={() => setView(item.id)}><Icon size={18} /><span>{item.label}</span></button></li>; })}</ul></nav>
-    <div className="collapsed-notebook-list" role="toolbar" aria-label="笔记本快捷切换">
+    <div className="collapsed-notebook-list floating-scrollbar-target" role="toolbar" aria-label="笔记本快捷切换">
       {customNotebooks.length > 0 && <div className="collapsed-notebook-divider" aria-hidden="true" />}
       {customNotebooks.map((notebook) => {
         const NotebookIcon = getNotebookIconComponent(notebook.icon);

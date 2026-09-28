@@ -268,7 +268,8 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 5px; bac
   border-radius: 9px;
 }
 .collapsed-notebook-list { display: none; }
-.sidebar-collapsed .collapsed-notebook-list { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; overflow-y: auto; max-height: calc(100dvh - 340px); }
+.sidebar-collapsed .collapsed-notebook-list { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; overflow-y: auto; max-height: calc(100dvh - 340px); scrollbar-width: none; }
+.sidebar-collapsed .collapsed-notebook-list::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .collapsed-notebook-divider { width: 24px; height: 1px; background: var(--border-strong); margin: 6px 0; opacity: 0.6; }
 .collapsed-notebook-item { width: 38px; height: 38px; border-radius: 9px; position: relative; display: inline-grid; place-items: center; }
 .collapsed-notebook-item.is-active { background: var(--surface); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08); }
