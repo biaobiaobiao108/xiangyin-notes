@@ -70,6 +70,10 @@ describe("markdown and search helpers", () => {
     expect(formatPreview("第一行普通正文\n第二行普通正文\n\n第三行段落")).toBe("第一行普通正文\n第二行普通正文\n第三行段落");
   });
 
+  test("omits tag-only lines while retaining inline and escaped hash text", () => {
+    expect(formatPreview("正文 #行内标签\n\n#标签一 #标签二\n\n\\#字面井号词")).toBe("正文 #行内标签\n#字面井号词");
+  });
+
   test("treats trailing nonbreaking spaces and their HTML entities as whitespace", () => {
     expect(formatPreview("fdasfsad &nbsp; &nbsp; &nbsp;\n\n")).toBe("fdasfsad");
     expect(formatPreview("前&nbsp;文 &#160;中 &#xA0;后\u00a0结束")).toBe("前 文 中 后 结束");

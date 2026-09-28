@@ -140,6 +140,8 @@ describe("remote MCP endpoint", () => {
     const updateSchema = tools.find((tool: { name: string }) => tool.name === "update_note").inputSchema;
     expect(Object.keys(updateSchema.properties)).toEqual(["noteId", "version", "title", "contentMarkdown", "notebookId", "includeContent"]);
     expect(updateSchema.additionalProperties).toBe(false);
+    const replaceSchema = tools.find((tool: { name: string }) => tool.name === "replace_in_note").inputSchema;
+    expect(Object.keys(replaceSchema.properties)).toEqual(["noteId", "oldText", "newText", "occurrence", "version", "force", "includeContent"]);
 
     const validOriginRequest = modernMcpRequest("tools/list", 2);
     validOriginRequest.headers.set("Origin", "https://notes.example.com");
@@ -150,7 +152,7 @@ describe("remote MCP endpoint", () => {
   test("provides server-level usage instructions during discovery", async () => {
     const discovered = await callMcp(modernMcpRequest("server/discover", 1), { ...credentials, XIANGYING_MCP_TOKEN: token });
     expect(discovered.response.status).toBe(200);
-    expect(resultOf(discovered.body!).instructions).toContain("单篇笔记写操作前先调用 get_note 获取最新 version");
+    expect(resultOf(discovered.body!).instructions).toContain("append_to_note、insert_into_note、replace_in_note 可省略 version");
     expect(resultOf(discovered.body!).instructions).toContain("create_notebook");
     expect(resultOf(discovered.body!).instructions).toContain("换行写作 \\n");
     expect(resultOf(discovered.body!).instructions).toContain("工具参数必须是 JSON 对象");
@@ -167,6 +169,8 @@ describe("remote MCP endpoint", () => {
     expect(resultOf(discovered.body!).instructions).toContain("8,000 个 Unicode 字符");
     expect(resultOf(discovered.body!).instructions).toContain("字面井号词");
     expect(resultOf(discovered.body!).instructions).toContain("batch_update_notes 可将最多 50 篇");
+    expect(resultOf(discovered.body!).instructions).toContain("remainingIds 表示因 limit 或字符预算尚未处理的 ID");
+    expect(resultOf(discovered.body!).instructions).toContain("insert_into_note 在行边界插入时会自动补换行");
   });
 
   test("creates, renames, and deletes a notebook while preserving its notes", async () => {
@@ -216,6 +220,16 @@ describe("remote MCP endpoint", () => {
     const rejectedDeletion = await callTool("delete_notebook", { notebookId: systemNotebook.id }, 7, environment);
     expect(resultOf(rejectedDeletion.body!).isError).toBe(true);
     expect(toolData(rejectedDeletion.body!).error.code).toBe("SYSTEM_NOTEBOOK");
+
+    const missingNotebookCreate = await callTool("create_note", { title: "缺失笔记本", notebookId: "missing-notebook-id" }, 8, environment);
+    expect(toolData(missingNotebookCreate.body!).error.code).toBe("NOTEBOOK_NOT_FOUND");
+    const existingNote = toolData((await callTool("create_note", { title: "笔记本错误码一致性" }, 9, environment)).body!).note;
+    const missingNotebookUpdate = await callTool("update_note", {
+      noteId: existingNote.id,
+      version: existingNote.version,
+      notebookId: "missing-notebook-id",
+    }, 10, environment);
+    expect(toolData(missingNotebookUpdate.body!).error.code).toBe("NOTEBOOK_NOT_FOUND");
   });
 
   test("adds requested tags on a clean line after trailing newlines", async () => {
@@ -242,6 +256,7 @@ describe("remote MCP endpoint", () => {
     const created = await callTool("create_note", { title: "追加与删除测试", contentMarkdown: "原有正文" }, 1, environment);
     const note = toolData(created.body!).note;
     expect(note.contentMarkdown).toBeUndefined();
+    expect(note.isDeleted).toBe(false);
 
     const appended = await callTool("append_to_note", {
       noteId: note.id,
@@ -272,6 +287,8 @@ describe("remote MCP endpoint", () => {
     }, 6, environment);
     expect(resultOf(duplicateAnchor.body!).isError).toBe(true);
     expect(toolData(duplicateAnchor.body!).error.code).toBe("AMBIGUOUS_ANCHOR");
+    expect(toolData(duplicateAnchor.body!).error.matchCount).toBe(2);
+    expect(toolData(duplicateAnchor.body!).error.matches).toHaveLength(2);
 
     const staleInsert = await callTool("insert_into_note", {
       noteId: note.id,
@@ -292,8 +309,51 @@ describe("remote MCP endpoint", () => {
     expect(Array.from(trashedNote.preview).length).toBeLessThanOrEqual(20);
     const reread = await callTool("get_note", { noteId: note.id }, 10, environment);
     expect(toolData(reread.body!).note.deletedAt).not.toBeNull();
+    expect(toolData(reread.body!).note.isDeleted).toBe(true);
     const restored = await callTool("restore_note", { noteId: note.id, version: deletedNote.version }, 11, environment);
-    expect(toolData(restored.body!).note.deletedAt).toBeNull();
+    const restoredNote = toolData(restored.body!).note;
+    expect(restoredNote.deletedAt).toBeNull();
+    expect(restoredNote.isDeleted).toBe(false);
+    const alreadyRestored = await callTool("restore_note", { noteId: note.id, version: restoredNote.version }, 12, environment);
+    expect(toolData(alreadyRestored.body!).noop).toBe(true);
+    expect(toolData(alreadyRestored.body!).note.version).toBe(restoredNote.version);
+  });
+
+  test("inserts separate lines at line boundaries and supports selecting an occurrence", async () => {
+    const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
+    const created = await callTool("create_note", {
+      title: "按行插入",
+      contentMarkdown: "开头\n锚点\n结尾\n行内锚点后缀",
+    }, 1, environment);
+    const note = toolData(created.body!).note;
+
+    const before = await callTool("insert_into_note", {
+      noteId: note.id,
+      anchor: "锚点",
+      occurrence: 1,
+      contentMarkdown: "插入前",
+      position: "before",
+    }, 2, environment);
+    expect(toolData(before.body!).note.version).toBe(2);
+
+    const after = await callTool("insert_into_note", {
+      noteId: note.id,
+      anchor: "锚点",
+      occurrence: 1,
+      contentMarkdown: "插入后",
+      position: "after",
+    }, 3, environment);
+    expect(toolData(after.body!).note.version).toBe(3);
+
+    const inline = await callTool("insert_into_note", {
+      noteId: note.id,
+      anchor: "锚点",
+      occurrence: 2,
+      contentMarkdown: "-行内-",
+      position: "after",
+      includeContent: true,
+    }, 4, environment);
+    expect(toolData(inline.body!).note.contentMarkdown).toBe("开头\n插入前\n锚点\n插入后\n结尾\n行内锚点-行内-后缀");
   });
 
   test("splits favorite, move, and tag operations into narrow tools", async () => {
@@ -347,6 +407,10 @@ describe("remote MCP endpoint", () => {
     expect(limitedData.stoppedForCharacterLimit).toBe(false);
     expect(limitedData.notes[0].updatedAtISO).toBe(new Date(limitedData.notes[0].updatedAt * 1000).toISOString());
     expect(limitedData.remainingIds).toEqual([third.id]);
+
+    const notYetChecked = await callTool("get_notes_batch", { noteIds: [first.id, "missing-but-not-checked"], limit: 1 }, 7, environment);
+    expect(toolData(notYetChecked.body!).remainingIds).toEqual(["missing-but-not-checked"]);
+    expect(toolData(notYetChecked.body!).notFoundIds).toEqual([]);
 
     const characterLimited = await callTool("get_notes_batch", {
       noteIds: [first.id, second.id, third.id],
@@ -482,6 +546,22 @@ describe("remote MCP endpoint", () => {
     expect(toolData(removedSearch.body!).notes).toHaveLength(0);
   });
 
+  test("includes the current full note for per-item batch version conflicts", async () => {
+    const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
+    const created = toolData((await callTool("create_note", { title: "批量冲突回执", contentMarkdown: "旧正文" }, 1, environment)).body!).note;
+    await callTool("update_note", { noteId: created.id, version: created.version, contentMarkdown: "新正文" }, 2, environment);
+
+    const conflict = await callTool("batch_update_notes", {
+      notes: [{ noteId: created.id, version: created.version }],
+      isFavorite: true,
+    }, 3, environment);
+    const data = toolData(conflict.body!);
+    expect(data.failedCount).toBe(1);
+    expect(data.results[0].error.code).toBe("VERSION_CONFLICT");
+    expect(data.results[0].error.current.contentMarkdown).toBe("新正文");
+    expect(data.results[0].error.current.version).toBe(2);
+  });
+
   test("treats escaped hashtag text as literal content while keeping real tags searchable", async () => {
     const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
     const created = await callTool("create_note", {
@@ -533,6 +613,44 @@ describe("remote MCP endpoint", () => {
     }, 5, environment);
     expect(toolData(forced.body!).note.version).toBe(3);
     expect(toolData((await callTool("get_note", { noteId: note.id }, 6, environment)).body!).note.contentMarkdown).toBe("报告中的占位符：最终修正；其余正文保持原样");
+  });
+
+  test("reports bounded match contexts and replaces a requested occurrence", async () => {
+    const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
+    const body = "前文 目标 后文\n再前 目标 再后";
+    const created = toolData((await callTool("create_note", { title: "重复片段消歧", contentMarkdown: body }, 1, environment)).body!).note;
+
+    const ambiguous = await callTool("replace_in_note", {
+      noteId: created.id,
+      oldText: "目标",
+      newText: "替换",
+    }, 2, environment);
+    const ambiguousError = toolData(ambiguous.body!).error;
+    expect(ambiguousError.code).toBe("AMBIGUOUS_TEXT_MATCH");
+    expect(ambiguousError.matchCount).toBe(2);
+    expect(ambiguousError.matches).toHaveLength(2);
+    expect(ambiguousError.matches[0].before).toContain("前文");
+    expect(ambiguousError.matches[1].after).toContain("再后");
+    expect(ambiguousError.truncated).toBe(false);
+
+    const replaced = await callTool("replace_in_note", {
+      noteId: created.id,
+      occurrence: 2,
+      oldText: "目标",
+      newText: "替换",
+      includeContent: true,
+    }, 3, environment);
+    expect(toolData(replaced.body!).note.contentMarkdown).toBe("前文 目标 后文\n再前 替换 再后");
+    expect(toolData(replaced.body!).note.contentLength).toBe(Array.from("前文 目标 后文\n再前 替换 再后").length);
+
+    const missingOccurrence = await callTool("replace_in_note", {
+      noteId: created.id,
+      occurrence: 3,
+      oldText: "目标",
+      newText: "不应写入",
+    }, 4, environment);
+    expect(toolData(missingOccurrence.body!).error.code).toBe("OCCURRENCE_NOT_FOUND");
+    expect(toolData(missingOccurrence.body!).error.matchCount).toBe(1);
   });
 
   test("supports official chunked writing with a length receipt and returned versions", async () => {

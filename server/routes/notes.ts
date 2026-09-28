@@ -301,7 +301,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
       if (existing) return json({ note: toFullNote(existing), created: false });
     }
     if (!first(database, "SELECT id FROM notebooks WHERE id = ? AND user_id = ?", payload.notebookId, user.id)) {
-      return jsonError(400, "INVALID_NOTEBOOK", "笔记本不存在");
+      return jsonError(404, "NOTEBOOK_NOT_FOUND", "笔记本不存在");
     }
     const noteId = createNote(database, user.id, payload.notebookId as string, title, "");
     const note = getNote(database, user.id, noteId);
@@ -492,7 +492,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     const title = normalizeNoteTitle(rawTitle as string);
     const notebookId = typeof payload?.notebookId === "string" ? payload.notebookId : first<{ id: string }>(database, "SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1 LIMIT 1", user.id)?.id;
     if (!notebookId) return jsonError(400, "NO_NOTEBOOK", "没有可用的收件箱");
-    if (!first(database, "SELECT id FROM notebooks WHERE id = ? AND user_id = ?", notebookId, user.id)) return jsonError(400, "INVALID_NOTEBOOK", "笔记本不存在");
+    if (!first(database, "SELECT id FROM notebooks WHERE id = ? AND user_id = ?", notebookId, user.id)) return jsonError(404, "NOTEBOOK_NOT_FOUND", "笔记本不存在");
     if (!validNoteAssetReferences(database, user.id, null, contentMarkdown as string)) return jsonError(400, "INVALID_ASSET", "笔记引用了无权访问的图片");
     const noteId = createNote(database, user.id, notebookId, title, contentMarkdown as string, typeof payload?.id === "string" ? payload.id : undefined);
     const note = getNote(database, user.id, noteId);
@@ -712,7 +712,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
       : payload.deleted ? now() : null;
     if (!validText(rawTitle, 200) || !validText(contentMarkdown, 1_000_000) || typeof notebookId !== "string") return jsonError(413, "NOTE_TOO_LARGE", "笔记标题或正文超出长度限制");
     const title = normalizeNoteTitle(rawTitle as string);
-    if (!first(database, "SELECT id FROM notebooks WHERE id = ? AND user_id = ?", notebookId, user.id)) return jsonError(400, "INVALID_NOTEBOOK", "笔记本不存在");
+    if (!first(database, "SELECT id FROM notebooks WHERE id = ? AND user_id = ?", notebookId, user.id)) return jsonError(404, "NOTEBOOK_NOT_FOUND", "笔记本不存在");
     const contentChanged = current.content_markdown !== contentMarkdown;
     if (contentChanged && !validNoteAssetReferences(database, user.id, current.id, contentMarkdown as string)) return jsonError(400, "INVALID_ASSET", "笔记引用了无权访问的图片");
     const summaryResponse = url.searchParams.get("response") === "summary";

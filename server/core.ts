@@ -593,6 +593,9 @@ export function formatPreview(markdown: string) {
     return markerCount >= 3;
   };
 
+  const isTagOnlyLine = (start: number, end: number) =>
+    /^#[\p{L}\p{N}_-]+(?:[\t ]+#[\p{L}\p{N}_-]+)*$/u.test(markdown.slice(start, end).trim());
+
   const readLine = (start: number, bounded = true) => {
     const newlineIndex = markdown.indexOf("\n", start);
     const fullEnd = newlineIndex === -1 ? markdown.length : newlineIndex;
@@ -685,7 +688,7 @@ export function formatPreview(markdown: string) {
     } else if (fence) {
       flushParagraph();
       codeFence = { marker: fence.marker, length: fence.length };
-    } else if (contentStart === contentEnd) {
+    } else if (contentStart === contentEnd || isTagOnlyLine(contentStart, contentEnd)) {
       flushParagraph();
     } else if (isHorizontalRule(contentStart, contentEnd)) {
       flushParagraph();

@@ -20,6 +20,8 @@ import { extractTags, findTrailingTagFooterStart, normalizeTag, removeTagsFromMa
 
 export const MCP_PATH = "/mcp";
 const NOTE_CONTENT_MAX_LENGTH = 1_000_000;
+const MATCH_CONTEXT_LENGTH = 30;
+const MATCH_CONTEXT_LIMIT = 10;
 const MCP_CONTENT_FIELDS = new Map([
   ["create_note", "contentMarkdown"],
   ["update_note", "contentMarkdown"],
@@ -32,7 +34,7 @@ const MCP_SERVER_INSTRUCTIONS = [
   "工具参数必须是 JSON 对象。客户端会先校验参数；手写原始 JSON 时，字符串中的控制字符须按 JSON 规范转义（换行写作 \\n）。多行 Markdown 请通过客户端的结构化工具参数传入，JSON 解析后的正文会保留换行。",
   "单次正文写入建议不超过 8,000 个 Unicode 字符；超长新内容先用 create_note 创建标题和笔记本骨架，再分段调用 append_to_note，并沿用每次写入返回的 version。创建笔记及传入正文的写操作会回传 contentLength 作为长度回执。",
   "需要分类时先调用 list_notebooks 获取 ID；create_notebook 创建，update_notebook 重命名或改图标、颜色，delete_notebook 删除并将其中笔记移入收件箱。创建笔记时可省略 notebookId 以使用收件箱；标题、正文或所属笔记本用 update_note 更新，move_note 可单独移动。标签是正文非代码区域未转义的 #标签 标记；需要展示字面井号词而不建立标签时，在井号前加反斜杠，例如 \\#CSharp。create_note.tags 可在创建时追加，set_tags 替换标签集合，batch_update_notes 可批量追加或移除。",
-  "查找笔记用 search_notes；可用 tag 和 nextCursor 分页取回某标签下的笔记。需完整正文时可用 get_note 或 get_notes_batch，批量读取默认最多 20 篇、最多 50 篇且受正文字符预算限制。replace_in_note 可替换唯一匹配的正文片段；insert_into_note 可按唯一锚点插入正文。已删除笔记用 list_trash 查找，再用 restore_note 恢复；empty_trash 会永久删除全部回收站笔记，仅在用户明确要求并传 confirm=true 时调用。toggle_favorite 切换收藏，move_note 移动笔记；delete_note 将笔记移入回收站。除 restore_note 使用 list_trash 返回的 version 外，单篇笔记写操作前先调用 get_note 获取最新 version；replace_in_note 可省略 version，由服务端读取最新版本并继续执行乐观锁校验。VERSION_CONFLICT 时 error.current 包含完整当前笔记，可据此合并后使用最新 version 重试。batch_update_notes 可将最多 50 篇笔记批量移入同一 notebookId。",
+  "查找笔记用 search_notes；可用 tag 和 nextCursor 分页取回某标签下的笔记。需完整正文时可用 get_note 或 get_notes_batch，批量读取默认最多 20 篇、最多 50 篇且受正文字符预算限制；remainingIds 表示因 limit 或字符预算尚未处理的 ID，未处理项不代表存在或不存在。replace_in_note 可替换正文片段，insert_into_note 可按锚点插入；歧义错误会返回匹配次数与上下文，可用 occurrence 指定第几个匹配。已删除笔记用 list_trash 查找，再用 restore_note 恢复；empty_trash 会永久删除全部回收站笔记，仅在用户明确要求并传 confirm=true 时调用。toggle_favorite 切换收藏，move_note 移动笔记；delete_note 将笔记移入回收站。update_note 等整篇更新先调用 get_note 获取最新 version；append_to_note、insert_into_note、replace_in_note 可省略 version，由服务端读取最新正文并以乐观锁保存，传入 version 时仍校验是否过期。VERSION_CONFLICT 时 error.current 包含完整当前笔记，可据此合并后使用最新 version 重试。insert_into_note 在行边界插入时会自动补换行；行内插入保持精确拼接。batch_update_notes 可将最多 50 篇笔记批量移入同一 notebookId。",
   "MCP 只传输文字和 Markdown，不提供图片数据或缩略图；保留正文中的图片引用。",
 ].join(" ");
 
@@ -42,6 +44,55 @@ function countUnicodeCharacters(value: string) {
   let count = 0;
   for (const _character of value) count += 1;
   return count;
+}
+
+function codePointBoundaryBefore(value: string, index: number, maximumCharacters: number) {
+  let start = index;
+  let count = 0;
+  while (start > 0 && count < maximumCharacters) {
+    const previous = value.charCodeAt(start - 1);
+    const isLowSurrogate = previous >= 0xdc00 && previous <= 0xdfff;
+    const hasHighSurrogate = start > 1 && value.charCodeAt(start - 2) >= 0xd800 && value.charCodeAt(start - 2) <= 0xdbff;
+    start -= isLowSurrogate && hasHighSurrogate ? 2 : 1;
+    count += 1;
+  }
+  return start;
+}
+
+function codePointBoundaryAfter(value: string, index: number, maximumCharacters: number) {
+  let end = index;
+  let count = 0;
+  while (end < value.length && count < maximumCharacters) {
+    const current = value.charCodeAt(end);
+    const isHighSurrogate = current >= 0xd800 && current <= 0xdbff;
+    const hasLowSurrogate = end + 1 < value.length && value.charCodeAt(end + 1) >= 0xdc00 && value.charCodeAt(end + 1) <= 0xdfff;
+    end += isHighSurrogate && hasLowSurrogate ? 2 : 1;
+    count += 1;
+  }
+  return end;
+}
+
+function findTextMatches(value: string, searchText: string, options: { overlapping?: boolean; occurrence?: number } = {}) {
+  const matches: Array<{ offset: number; before: string; after: string }> = [];
+  let matchCount = 0;
+  let selectedOffset: number | null = null;
+  let searchFrom = 0;
+  while (searchFrom <= value.length) {
+    const offset = value.indexOf(searchText, searchFrom);
+    if (offset === -1) break;
+    matchCount += 1;
+    if (matchCount === options.occurrence) selectedOffset = offset;
+    if (matches.length < MATCH_CONTEXT_LIMIT) {
+      const matchEnd = offset + searchText.length;
+      matches.push({
+        offset,
+        before: value.slice(codePointBoundaryBefore(value, offset, MATCH_CONTEXT_LENGTH), offset),
+        after: value.slice(matchEnd, codePointBoundaryAfter(value, matchEnd, MATCH_CONTEXT_LENGTH)),
+      });
+    }
+    searchFrom = offset + (options.overlapping ? 1 : searchText.length);
+  }
+  return { matchCount, matches, truncated: matchCount > matches.length, selectedOffset };
 }
 
 type RouteResult = {
@@ -61,19 +112,20 @@ function asUser(value: unknown): UserRow | null {
 
 function responseValue(value: Record<string, unknown>, isError = false, options: { writeResult?: boolean; includeContent?: boolean; contentLength?: number } = {}) {
   return {
-    content: [{ type: "text" as const, text: JSON.stringify(withUpdatedAtISO(withoutThumbnailMetadata(value, options))) }],
+    content: [{ type: "text" as const, text: JSON.stringify(withMcpMetadata(withoutThumbnailMetadata(value, options))) }],
     ...(isError ? { isError: true } : {}),
   };
 }
 
-function withUpdatedAtISO(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(withUpdatedAtISO);
+function withMcpMetadata(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withMcpMetadata);
   if (!value || typeof value !== "object") return value;
-  const result = Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, withUpdatedAtISO(entry)]));
+  const result = Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, withMcpMetadata(entry)]));
   if (typeof result.updatedAt === "number" && Number.isFinite(result.updatedAt)) {
     const date = new Date(result.updatedAt * 1000);
     if (Number.isFinite(date.getTime())) result.updatedAtISO = date.toISOString();
   }
+  if (Object.prototype.hasOwnProperty.call(result, "deletedAt")) result.isDeleted = result.deletedAt !== null;
   return result;
 }
 
@@ -110,6 +162,14 @@ function withoutNotePreview(value: Record<string, unknown>) {
     result.note = noteWithoutPreview;
   }
   return result;
+}
+
+function withoutNotePresentationMetadata(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const note = { ...(value as Record<string, unknown>) };
+  delete note.preview;
+  delete note.thumbnail;
+  return note;
 }
 
 function appendMarkdownTags(markdown: string, tags: string[]) {
@@ -459,7 +519,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("get_notes_batch", {
     title: "批量读取笔记",
-    description: "按 ID 一次读取多篇完整 Markdown 笔记，不重复返回 preview。最多输入 50 个 ID；limit 默认 20、最大 50；正文总 Unicode 字符预算 maxTotalCharacters 默认 20,000、最大 100,000。下一篇完整正文超预算时停止并将该篇及后续 ID 放入 remainingIds。无权访问或不存在的 ID 列入 notFoundIds。",
+    description: "按 ID 一次读取多篇完整 Markdown 笔记，不重复返回 preview。最多输入 50 个 ID；limit 默认 20、最大 50；正文总 Unicode 字符预算 maxTotalCharacters 默认 20,000、最大 100,000。因 limit 或正文预算未处理的 ID 放入 remainingIds，这些 ID 尚未检查是否存在；只有实际查询且确认无权访问或不存在的 ID 才列入 notFoundIds。",
     inputSchema: z.object({
       noteIds: z.array(z.string().min(1).max(200)).min(1).max(50).describe("要读取的笔记 ID，最多 50 个且不能重复"),
       limit: z.number().int().min(1).max(50).optional().describe("本次最多返回的笔记数，默认 20，最大 50"),
@@ -551,41 +611,61 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("replace_in_note", {
     title: "替换笔记片段",
-    description: "在正文中把唯一匹配的 oldText 替换为 newText，不需要把全文传给模型。服务端先读取当前正文和 version，再以该 version 乐观锁保存；可选传 version 校验你手中的版本，版本过期时返回 VERSION_CONFLICT，error.current 含完整当前笔记。force=true 会忽略传入 version 并把替换应用到刚读取的最新正文，但保存仍受 version 乐观锁保护。oldText 不存在或出现多次时不会修改；成功结果含 contentLength 回执。",
+    description: "在正文中替换 oldText，不需要把全文传给模型。默认只接受唯一匹配；多处匹配时返回 matchCount 和最多 10 条前后各 30 字上下文，可据此调整文本，或传 occurrence（从 1 开始）指定第几个匹配。服务端读取当前正文和 version 后以乐观锁保存；可选传 version 校验你手中的版本。force=true 会忽略传入的旧 version 并把替换应用到刚读取的最新正文，但保存仍受乐观锁保护。可用 includeContent=true 在成功结果中回传正文，默认 false。",
     inputSchema: z.object({
       noteId: z.string().min(1).max(200),
-      oldText: z.string().min(1).max(NOTE_CONTENT_MAX_LENGTH).describe("正文中精确且唯一的旧文本"),
+      oldText: z.string().min(1).max(NOTE_CONTENT_MAX_LENGTH).describe("正文中要查找的精确文本"),
       newText: z.string().max(NOTE_CONTENT_MAX_LENGTH).describe("替换后的文本；支持多行 Markdown"),
+      occurrence: z.number().int().min(1).optional().describe("可选的匹配序号，从 1 开始；不传时要求 oldText 只出现一次"),
       version: z.number().int().positive().optional().describe("可选的预期版本；传入时默认必须与当前版本一致"),
       force: z.boolean().optional().describe("显式设为 true 时忽略调用方传入的旧 version，并基于服务端刚读取的正文重试替换"),
+      includeContent: z.boolean().optional().describe("是否在成功结果中回传完整正文，默认 false"),
     }).strict(),
-  }, async ({ noteId, oldText, newText, version, force = false }) => {
-    if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
-    const current = await notesRoute(options, user, "GET", ["notes", noteId], `/api/notes/${encodeURIComponent(noteId)}`);
-    if (current.status !== 200) return routeError(current);
-    const note = current.body.note as Record<string, unknown> | undefined;
-    if (typeof note?.contentMarkdown !== "string" || typeof note.version !== "number") {
-      return responseValue({ error: { code: "NOTE_READ_FAILED", message: "读取笔记正文或版本失败" } }, true);
+  }, async ({ noteId, oldText, newText, occurrence, version, force = false, includeContent = false }) => {
+    try {
+      if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
+      const current = await notesRoute(options, user, "GET", ["notes", noteId], `/api/notes/${encodeURIComponent(noteId)}`);
+      if (current.status !== 200) return routeError(current);
+      const note = current.body.note as Record<string, unknown> | undefined;
+      if (typeof note?.contentMarkdown !== "string" || typeof note.version !== "number") {
+        return responseValue({ error: { code: "NOTE_READ_FAILED", message: "读取笔记正文或版本失败" } }, true);
+      }
+      if (version !== undefined && version !== note.version && !force) {
+        return responseValue({
+          error: {
+            code: "VERSION_CONFLICT",
+            message: "这篇笔记已在别处更新；请基于 error.current 合并后重试，或显式设置 force=true 将替换应用到最新正文",
+            current: note,
+          },
+        }, true);
+      }
+      const body = note.contentMarkdown;
+      const search = findTextMatches(body, oldText, { occurrence });
+      if (search.matchCount === 0) return responseValue({ error: { code: "TEXT_NOT_FOUND", message: "正文中找不到 oldText，笔记未修改" } }, true);
+      if (occurrence !== undefined && search.selectedOffset === null) {
+        return responseValue({ error: { code: "OCCURRENCE_NOT_FOUND", message: `occurrence=${occurrence} 超出匹配数量 ${search.matchCount}，笔记未修改`, matchCount: search.matchCount, matches: search.matches, truncated: search.truncated } }, true);
+      }
+      if (occurrence === undefined && search.matchCount > 1) {
+        return responseValue({
+          error: {
+            code: "AMBIGUOUS_TEXT_MATCH",
+            message: `oldText 在正文中出现 ${search.matchCount} 次；请提供更长的片段或设置 occurrence 指定目标。`,
+            matchCount: search.matchCount,
+            matches: search.matches,
+            truncated: search.truncated,
+          },
+        }, true);
+      }
+      const firstMatch = occurrence === undefined ? search.matches[0].offset : search.selectedOffset!;
+      const updatedBody = `${body.slice(0, firstMatch)}${newText}${body.slice(firstMatch + oldText.length)}`;
+      const result = await updateNoteRoute(options, user, { noteId, version: note.version, contentMarkdown: updatedBody, includeContent });
+      return result.status === 200
+        ? responseValue(result.body, false, { writeResult: true, includeContent, contentLength: countUnicodeCharacters(updatedBody) })
+        : noteWriteError(result);
+    } catch (error) {
+      console.error("[MCP] replace_in_note failed", error);
+      return responseValue({ error: { code: "MCP_INTERNAL_ERROR", message: "片段替换遇到内部错误；请读取笔记确认当前内容后再决定是否重试。" } }, true);
     }
-    if (version !== undefined && version !== note.version && !force) {
-      return responseValue({
-        error: {
-          code: "VERSION_CONFLICT",
-          message: "这篇笔记已在别处更新；请基于 error.current 合并后重试，或显式设置 force=true 将替换应用到最新正文",
-          current: note,
-        },
-      }, true);
-    }
-    const firstMatch = note.contentMarkdown.indexOf(oldText);
-    if (firstMatch < 0) return responseValue({ error: { code: "TEXT_NOT_FOUND", message: "正文中找不到 oldText，笔记未修改" } }, true);
-    if (note.contentMarkdown.indexOf(oldText, firstMatch + oldText.length) >= 0) {
-      return responseValue({ error: { code: "AMBIGUOUS_TEXT_MATCH", message: "oldText 在正文中出现多次，请提供更长且唯一的文本片段" } }, true);
-    }
-    const updatedBody = `${note.contentMarkdown.slice(0, firstMatch)}${newText}${note.contentMarkdown.slice(firstMatch + oldText.length)}`;
-    const result = await updateNoteRoute(options, user, { noteId, version: note.version, contentMarkdown: updatedBody });
-    return result.status === 200
-      ? responseValue(result.body, false, { writeResult: true, contentLength: countUnicodeCharacters(updatedBody) })
-      : noteWriteError(result);
   });
 
   server.registerTool("toggle_favorite", {
@@ -632,10 +712,10 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("append_to_note", {
     title: "追加到笔记",
-    description: "将 contentMarkdown 追加到现有正文，避免重新发送长正文。超长内容请分段追加，每段建议不超过 8,000 个 Unicode 字符；沿用上一次写入返回的 version，无需每段重新读取。末尾若有独立标签行，会把新内容插到标签行之前并保留标签；否则追加到正文末尾。首次修改前先 get_note 获取 version；遇 VERSION_CONFLICT 时 error.current 含完整当前笔记，可合并后用最新 version 重试。需要换行时请在追加文本中包含换行。多行正文通过结构化参数直接传入；手写原始 JSON 时控制字符必须转义。默认不回传正文，结果含 contentLength 回执。",
+    description: "将 contentMarkdown 追加到现有正文，避免重新发送长正文。超长内容请分段追加，每段建议不超过 8,000 个 Unicode 字符；沿用上一次写入返回的 version，或省略 version 让服务端读取最新正文并执行乐观锁保存。传入 version 时仍会校验版本。末尾若有独立标签行，会把新内容插到标签行之前并保留标签；否则按原样追加。遇 VERSION_CONFLICT 时 error.current 含完整当前笔记。需要换行时请在追加文本中包含换行。多行正文通过结构化参数直接传入；手写原始 JSON 时控制字符必须转义。默认不回传正文，结果含 contentLength 回执。",
     inputSchema: z.object({
       noteId: z.string().min(1).max(200),
-      version: z.number().int().positive(),
+      version: z.number().int().positive().optional().describe("可选的预期版本；省略时服务端读取当前版本"),
       contentMarkdown: z.string().min(1).max(NOTE_CONTENT_MAX_LENGTH).describe("要追加的一段 Markdown；建议每段不超过 8,000 个 Unicode 字符"),
       includeContent: z.boolean().optional().describe("是否在成功结果中回传完整正文，默认 false"),
     }).strict(),
@@ -644,11 +724,14 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
     const current = await notesRoute(options, user, "GET", ["notes", noteId], `/api/notes/${encodeURIComponent(noteId)}`);
     if (current.status !== 200) return routeError(current);
     const note = current.body.note as Record<string, unknown> | undefined;
-    if (typeof note?.contentMarkdown !== "string") return responseValue({ error: { code: "NOTE_READ_FAILED", message: "读取笔记正文失败" } }, true);
+    if (typeof note?.contentMarkdown !== "string" || typeof note.version !== "number") return responseValue({ error: { code: "NOTE_READ_FAILED", message: "读取笔记正文或版本失败" } }, true);
+    if (version !== undefined && version !== note.version) {
+      return responseValue({ error: { code: "VERSION_CONFLICT", message: "这篇笔记已在别处更新", current: note } }, true);
+    }
     const updatedBody = appendToMarkdown(note.contentMarkdown, contentMarkdown);
     const result = await updateNoteRoute(options, user, {
       noteId,
-      version,
+      version: version ?? note.version,
       contentMarkdown: updatedBody,
       includeContent,
     });
@@ -659,22 +742,23 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("insert_into_note", {
     title: "按锚点插入正文",
-    description: "在正文中唯一匹配的 anchor 前或后插入 Markdown，不必重传整篇笔记。单次正文建议不超过 8,000 个 Unicode 字符。anchor 按原文精确匹配；找不到或出现多次时会报错，不会修改笔记。修改前先 get_note 获取 version；遇 VERSION_CONFLICT 时 error.current 含完整当前笔记。默认插入到锚点后；成功结果含 contentLength 回执。",
+    description: "在正文中匹配的 anchor 前或后插入 Markdown，不必重传整篇笔记。单次正文建议不超过 8,000 个 Unicode 字符。默认要求 anchor 唯一；歧义时返回 matchCount 和最多 10 条前后各 30 字上下文，也可传 occurrence（从 1 开始）指定第几个匹配。插入点位于行首或行尾时会自动补换行，行内锚点保持精确拼接。version 可省略以使用服务端读取的当前版本；传入时会校验，冲突时 error.current 含完整当前笔记。默认插入到锚点后；成功结果含 contentLength 回执。",
     inputSchema: z.object({
       noteId: z.string().min(1).max(200),
-      version: z.number().int().positive(),
-      anchor: z.string().min(1).max(2000).describe("正文中精确且唯一的原文片段"),
+      version: z.number().int().positive().optional().describe("可选的预期版本；省略时服务端读取当前版本"),
+      anchor: z.string().min(1).max(2000).describe("正文中精确的原文片段"),
       contentMarkdown: z.string().min(1).max(NOTE_CONTENT_MAX_LENGTH).describe("要插入的 Markdown 内容，单次建议不超过 8,000 个 Unicode 字符"),
+      occurrence: z.number().int().min(1).optional().describe("可选的匹配序号，从 1 开始；不传时要求 anchor 只出现一次"),
       position: z.enum(["before", "after"]).optional().describe("插入位置，默认 after"),
       includeContent: z.boolean().optional().describe("是否在成功结果中回传完整正文，默认 false"),
     }).strict(),
-  }, async ({ noteId, version, anchor, contentMarkdown, position = "after", includeContent = false }) => {
+  }, async ({ noteId, version, anchor, contentMarkdown, occurrence, position = "after", includeContent = false }) => {
     if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
     const current = await notesRoute(options, user, "GET", ["notes", noteId], `/api/notes/${encodeURIComponent(noteId)}`);
     if (current.status !== 200) return routeError(current);
     const note = current.body.note as Record<string, unknown> | undefined;
-    if (typeof note?.contentMarkdown !== "string") return responseValue({ error: { code: "NOTE_READ_FAILED", message: "读取笔记正文失败" } }, true);
-    if (typeof note.version === "number" && note.version !== version) {
+    if (typeof note?.contentMarkdown !== "string" || typeof note.version !== "number") return responseValue({ error: { code: "NOTE_READ_FAILED", message: "读取笔记正文或版本失败" } }, true);
+    if (version !== undefined && note.version !== version) {
       return responseValue({
         error: {
           code: "VERSION_CONFLICT",
@@ -684,12 +768,34 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
       }, true);
     }
     const body = note.contentMarkdown;
-    const firstMatch = body.indexOf(anchor);
-    if (firstMatch === -1) return responseValue({ error: { code: "ANCHOR_NOT_FOUND", message: "正文中找不到指定 anchor" } }, true);
-    if (body.indexOf(anchor, firstMatch + 1) !== -1) return responseValue({ error: { code: "AMBIGUOUS_ANCHOR", message: "anchor 在正文中出现多次，请提供更长且唯一的片段" } }, true);
+    const search = findTextMatches(body, anchor, { overlapping: true, occurrence });
+    if (search.matchCount === 0) return responseValue({ error: { code: "ANCHOR_NOT_FOUND", message: "正文中找不到指定 anchor" } }, true);
+    if (occurrence !== undefined && search.selectedOffset === null) {
+      return responseValue({ error: { code: "OCCURRENCE_NOT_FOUND", message: `occurrence=${occurrence} 超出匹配数量 ${search.matchCount}，笔记未修改`, matchCount: search.matchCount, matches: search.matches, truncated: search.truncated } }, true);
+    }
+    if (occurrence === undefined && search.matchCount > 1) {
+      return responseValue({
+        error: {
+          code: "AMBIGUOUS_ANCHOR",
+          message: `anchor 在正文中出现 ${search.matchCount} 次；请提供更长的片段或设置 occurrence 指定目标。`,
+          matchCount: search.matchCount,
+          matches: search.matches,
+          truncated: search.truncated,
+        },
+      }, true);
+    }
+    const firstMatch = occurrence === undefined ? search.matches[0].offset : search.selectedOffset!;
     const insertionPoint = position === "before" ? firstMatch : firstMatch + anchor.length;
-    const updatedBody = `${body.slice(0, insertionPoint)}${contentMarkdown}${body.slice(insertionPoint)}`;
-    const result = await updateNoteRoute(options, user, { noteId, version, contentMarkdown: updatedBody, includeContent });
+    const lineEnding = body.includes("\r\n") ? "\r\n" : body.includes("\r") ? "\r" : "\n";
+    let insertion = contentMarkdown;
+    if (position === "before" && (insertionPoint === 0 || body[insertionPoint - 1] === "\n" || body[insertionPoint - 1] === "\r") && !/(?:\r\n|\r|\n)$/u.test(insertion)) {
+      insertion += lineEnding;
+    }
+    if (position === "after" && (insertionPoint === body.length || body[insertionPoint] === "\n" || body[insertionPoint] === "\r") && !/^(?:\r\n|\r|\n)/u.test(insertion)) {
+      insertion = `${lineEnding}${insertion}`;
+    }
+    const updatedBody = `${body.slice(0, insertionPoint)}${insertion}${body.slice(insertionPoint)}`;
+    const result = await updateNoteRoute(options, user, { noteId, version: version ?? note.version, contentMarkdown: updatedBody, includeContent });
     return result.status === 200
       ? responseValue(result.body, false, { writeResult: true, includeContent, contentLength: countUnicodeCharacters(updatedBody) })
       : noteWriteError(result);
@@ -707,12 +813,15 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("restore_note", {
     title: "恢复笔记",
-    description: "将回收站中的笔记恢复到原笔记本。可使用 list_trash 返回的 noteId 和 version。",
+    description: "将回收站中的笔记恢复到原笔记本。可使用 list_trash 返回的 noteId 和 version；若笔记已恢复且 version 匹配，会返回 noop=true，不增加版本。",
     inputSchema: z.object({ noteId: z.string().min(1).max(200), version: z.number().int().positive() }).strict(),
   }, async ({ noteId, version }) => {
     if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
     const result = await updateNoteRoute(options, user, { noteId, version, deleted: false });
-    return result.status === 200 ? responseValue(result.body, false, { writeResult: true }) : routeError(result);
+    if (result.status !== 200) return routeError(result);
+    const note = result.body.note as Record<string, unknown> | undefined;
+    const noop = note?.deletedAt === null && note.version === version;
+    return responseValue({ ...result.body, ...(noop ? { noop: true } : {}) }, false, { writeResult: true });
   });
 
   server.registerTool("batch_update_notes", {
@@ -743,7 +852,15 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
         const error = result.body.error && typeof result.body.error === "object"
           ? result.body.error as Record<string, unknown>
           : { code: "MCP_OPERATION_FAILED", message: "笔记更新失败" };
-        results.push({ noteId: note.noteId, ok: false, error: { code: error.code, message: error.message } });
+        results.push({
+          noteId: note.noteId,
+          ok: false,
+          error: {
+            code: error.code,
+            message: error.message,
+            ...(Object.prototype.hasOwnProperty.call(error, "current") ? { current: withoutNotePresentationMetadata(error.current) } : {}),
+          },
+        });
       }
     }
     const failedCount = results.filter((result) => result.ok === false).length;
