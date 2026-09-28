@@ -101,6 +101,17 @@ function withoutThumbnailMetadata(value: Record<string, unknown>, options: { wri
   };
 }
 
+function withoutNotePreview(value: Record<string, unknown>) {
+  const result = { ...value };
+  const note = result.note;
+  if (note && typeof note === "object" && !Array.isArray(note)) {
+    const noteWithoutPreview = { ...(note as Record<string, unknown>) };
+    delete noteWithoutPreview.preview;
+    result.note = noteWithoutPreview;
+  }
+  return result;
+}
+
 function appendMarkdownTags(markdown: string, tags: string[]) {
   const seen = new Set(extractTags(markdown).map(normalizeTag));
   const additions: string[] = [];
@@ -443,7 +454,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
       noteId = match.noteId;
     }
     const result = await notesRoute(options, user, "GET", ["notes", noteId as string], `/api/notes/${encodeURIComponent(noteId as string)}`);
-    return result.status === 200 ? responseValue(result.body) : routeError(result);
+    return result.status === 200 ? responseValue(withoutNotePreview(result.body)) : routeError(result);
   });
 
   server.registerTool("get_notes_batch", {
