@@ -778,7 +778,7 @@ export function formatPreview(markdown: string) {
           const text = readPlainText(contentStart, contentEnd, availableLength);
           if (text) {
             if (separatorLength > 0) {
-              paragraph.push(" ");
+              paragraph.push("\n");
               paragraphLength += 1;
             }
             paragraph.push(text);

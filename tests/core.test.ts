@@ -66,6 +66,10 @@ describe("markdown and search helpers", () => {
     expect(formatPreview("`_snake_case_` and __emphasis__")).toBe("_snake_case_ and emphasis");
   });
 
+  test("preserves source line breaks inside plain text paragraphs", () => {
+    expect(formatPreview("第一行普通正文\n第二行普通正文\n\n第三行段落")).toBe("第一行普通正文\n第二行普通正文\n第三行段落");
+  });
+
   test("treats trailing nonbreaking spaces and their HTML entities as whitespace", () => {
     expect(formatPreview("fdasfsad &nbsp; &nbsp; &nbsp;\n\n")).toBe("fdasfsad");
     expect(formatPreview("前&nbsp;文 &#160;中 &#xA0;后\u00a0结束")).toBe("前 文 中 后 结束");
@@ -73,7 +77,7 @@ describe("markdown and search helpers", () => {
 
   test("preserves paragraph, heading, and list item boundaries in previews", () => {
     expect(formatPreview("# Heading\n\nFirst paragraph\ncontinues.\n\nSecond paragraph.\n- first item\n- second item\n3. ordered item\n## Next heading\nFinal paragraph"))
-      .toBe("Heading\nFirst paragraph continues.\nSecond paragraph.\nfirst item\nsecond item\nordered item\nNext heading\nFinal paragraph");
+      .toBe("Heading\nFirst paragraph\ncontinues.\nSecond paragraph.\nfirst item\nsecond item\nordered item\nNext heading\nFinal paragraph");
   });
 
   test("skips Markdown horizontal rules in note previews", () => {
