@@ -59,6 +59,38 @@ import { publishWorkspaceChange } from "../realtime";
 const NOTE_BATCH_LIMIT = 500;
 const NOTE_BATCH_BODY_MAX_BYTES = 64 * 1024;
 const NOTE_SORTS: NoteSort[] = ["updated", "created", "title"];
+const TAG_RECONCILE_CACHE_LIMIT = 512;
+const TAG_RECONCILE_CACHE_MAX_TAG_LENGTH = 256;
+// Notes created or changed by this server synchronously rebuild note_tags,
+// so a successfully verified user/tag pair remains valid for this DB handle.
+const verifiedTagFiltersByDatabase = new WeakMap<SqliteDatabase, Map<string, true>>();
+
+function tagReconcileCacheKey(userId: string, normalizedTag: string) {
+  return `${userId}\0${normalizedTag}`;
+}
+
+function isTagFilterVerified(database: SqliteDatabase, userId: string, normalizedTag: string) {
+  if (normalizedTag.length > TAG_RECONCILE_CACHE_MAX_TAG_LENGTH) return false;
+  const cache = verifiedTagFiltersByDatabase.get(database);
+  const key = tagReconcileCacheKey(userId, normalizedTag);
+  if (!cache?.has(key)) return false;
+  cache.delete(key);
+  cache.set(key, true);
+  return true;
+}
+
+function markTagFilterVerified(database: SqliteDatabase, userId: string, normalizedTag: string) {
+  if (normalizedTag.length > TAG_RECONCILE_CACHE_MAX_TAG_LENGTH) return;
+  const cache = verifiedTagFiltersByDatabase.get(database) ?? new Map<string, true>();
+  const key = tagReconcileCacheKey(userId, normalizedTag);
+  cache.delete(key);
+  cache.set(key, true);
+  if (cache.size > TAG_RECONCILE_CACHE_LIMIT) {
+    const oldestKey = cache.keys().next().value;
+    if (oldestKey !== undefined) cache.delete(oldestKey);
+  }
+  verifiedTagFiltersByDatabase.set(database, cache);
+}
 
 class NoteRenameContentTooLargeError extends Error {
   constructor() {
@@ -339,17 +371,19 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     if (rawTag && !explicitTagQuery) return jsonError(400, "INVALID_TAG_FILTER", "标签筛选格式无效");
     const tagQuery = parseTagQuery(query);
     const tagFilters = [...new Set([tagQuery, explicitTagQuery].filter((tag): tag is string => Boolean(tag)))];
+    const normalizedTagFilters = [...new Set(tagFilters.map(normalizeTag))];
     // Tag rows are derived from Markdown and may have been indexed by an older
     // parser. Reconcile candidates before filtering so old code-span hashtags
     // stop matching and the returned tag metadata is corrected as well.
-    for (const tagFilter of tagFilters) {
+    for (const tagFilter of normalizedTagFilters) {
+      if (isTagFilterVerified(database, user.id, tagFilter)) continue;
       const candidates = all<{ id: string }>(database, `
         SELECT n.id
         FROM notes n
         WHERE n.user_id = ? AND EXISTS (
           SELECT 1 FROM note_tags t WHERE t.note_id = n.id AND t.user_id = n.user_id AND t.tag_normalized = ?
         )
-      `, user.id, normalizeTag(tagFilter));
+      `, user.id, tagFilter);
       for (const { id } of candidates) {
         const candidate = first<{ id: string; content_markdown: string; tags_json: string }>(database, `
           SELECT n.id, n.content_markdown,
@@ -363,6 +397,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
           syncNoteTags(database, user.id, candidate.id, candidate.content_markdown);
         }
       }
+      markTagFilterVerified(database, user.id, tagFilter);
     }
     const conditions = ["n.user_id = ?"];
     const params: SqlValue[] = [user.id];
@@ -411,9 +446,9 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     const rawLimit = url.searchParams.get("limit");
     const pageLimit = rawLimit === null ? NOTE_PAGE_SIZE : Number(rawLimit);
     if (!Number.isSafeInteger(pageLimit) || pageLimit < 1 || pageLimit > NOTE_PAGE_SIZE) return jsonError(400, "INVALID_LIMIT", `每页数量必须介于 1 和 ${NOTE_PAGE_SIZE} 之间`);
-    for (const tagFilter of tagFilters) {
+    for (const tagFilter of normalizedTagFilters) {
       conditions.push("EXISTS (SELECT 1 FROM note_tags t WHERE t.note_id = n.id AND t.user_id = n.user_id AND t.tag_normalized = ?)");
-      params.push(normalizeTag(tagFilter));
+      params.push(tagFilter);
     }
     const totalWhere = conditions.join(" AND ");
     const totalParams = [...params];
@@ -476,44 +511,58 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     if (!note) return jsonError(404, "NOTE_NOT_FOUND", "笔记不存在");
 
     const linkedRows = database.query(`
-      SELECT nl.id AS link_id, nl.source_note_id, n.title AS source_title, n.content_markdown AS source_content, n.updated_at AS source_updated_at, nb.name AS notebook_name, nl.target_title, nl.target_note_id
+      SELECT nl.id AS link_id, nl.source_note_id, n.title AS source_title,
+        length(n.content_markdown) AS source_content_char_count,
+        n.updated_at AS source_updated_at, nb.name AS notebook_name, nl.target_title, nl.target_note_id
       FROM note_links nl
       JOIN notes n ON nl.source_note_id = n.id AND n.user_id = nl.user_id
       JOIN notebooks nb ON n.notebook_id = nb.id
       WHERE nl.user_id = ? AND nl.target_note_id = ? AND nl.source_note_id != ? AND n.deleted_at IS NULL
       ORDER BY n.updated_at DESC
       LIMIT ?
-    `).all(
+    `).iterate(
       user.id,
       note.id,
       note.id,
       BACKLINK_REFERENCE_LIMIT + 1,
-    ) as {
+    ) as IterableIterator<{
       link_id: string;
       source_note_id: string;
       source_title: string;
-      source_content: string;
+      source_content_char_count: number;
       source_updated_at: number;
       notebook_name: string;
       target_title: string;
       target_note_id: string | null;
-    }[];
+    }>;
+    const linkedContentStatement = database.query("SELECT content_markdown FROM notes WHERE id = ? AND user_id = ?");
     const linkedReferences: NoteLinkSummary[] = [];
     let truncated = false;
+    let scanBudgetExhausted = false;
     let scannedChars = 0;
     for (const row of linkedRows) {
       if (linkedReferences.length >= BACKLINK_REFERENCE_LIMIT) {
         truncated = true;
         break;
       }
-      scannedChars += row.source_content.length;
-      if (scannedChars > BACKLINK_SCAN_CHAR_LIMIT) {
+      // SQLite's character count is a lower bound for JavaScript's UTF-16
+      // length. It lets us reject an over-budget note before loading its body.
+      if (row.source_content_char_count > BACKLINK_SCAN_CHAR_LIMIT - scannedChars) {
         truncated = true;
+        scanBudgetExhausted = true;
         break;
       }
-      const links = extractWikiLinks(row.source_content);
+      const source = linkedContentStatement.get(row.source_note_id, user.id) as { content_markdown: string } | null;
+      if (!source) continue;
+      scannedChars += source.content_markdown.length;
+      if (scannedChars > BACKLINK_SCAN_CHAR_LIMIT) {
+        truncated = true;
+        scanBudgetExhausted = true;
+        break;
+      }
+      const links = extractWikiLinks(source.content_markdown);
       const matched = links.find((l) => normalizeLinkTitle(l.target) === normalizeLinkTitle(row.target_title) || normalizeLinkTitle(l.target) === normalizeLinkTitle(note.title));
-      const snippet = matched ? extractContextSnippet(row.source_content, matched.start, matched.end) : row.source_content.slice(0, 100);
+      const snippet = matched ? extractContextSnippet(source.content_markdown, matched.start, matched.end) : source.content_markdown.slice(0, 100);
       linkedReferences.push({
         id: row.link_id,
         sourceNoteId: row.source_note_id,
@@ -528,7 +577,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
 
     const unlinkedMentions: UnlinkedMention[] = [];
     const trimmedTitle = note.title.trim();
-    if (trimmedTitle.length >= 2) {
+    if (trimmedTitle.length >= 2 && !scanBudgetExhausted) {
       const { ftsTokens } = parseSearchTerms(trimmedTitle);
       const useFts = trimmedTitle.length >= 3 && ftsTokens.length > 0;
       let candidateFrom = "notes n JOIN notebooks nb ON n.notebook_id = nb.id";
@@ -545,21 +594,23 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
       }
 
       const candidateSql = `
-        SELECT n.id, n.title, n.content_markdown, nb.name AS notebook_name, n.version, n.updated_at
+        SELECT n.id, n.title, length(n.content_markdown) AS content_char_count,
+          nb.name AS notebook_name, n.version, n.updated_at
         FROM ${candidateFrom}
         WHERE ${candidateConditions.join(" AND ")}
         ORDER BY n.updated_at DESC
         LIMIT ?
       `;
       candidateParams.push(BACKLINK_CANDIDATE_LIMIT + 1);
-      const candidateRows = database.query(candidateSql).all(...candidateParams) as {
+      const candidateRows = database.query(candidateSql).iterate(...candidateParams) as IterableIterator<{
         id: string;
         title: string;
-        content_markdown: string;
+        content_char_count: number;
         notebook_name: string;
         version: number;
         updated_at: number;
-      }[];
+      }>;
+      const candidateContentStatement = database.query("SELECT content_markdown FROM notes WHERE id = ? AND user_id = ?");
       let candidateCount = 0;
       mentionLoop: for (const candidate of candidateRows) {
         candidateCount += 1;
@@ -567,12 +618,18 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
           truncated = true;
           break;
         }
-        scannedChars += candidate.content_markdown.length;
+        if (candidate.content_char_count > BACKLINK_SCAN_CHAR_LIMIT - scannedChars) {
+          truncated = true;
+          break;
+        }
+        const source = candidateContentStatement.get(candidate.id, user.id) as { content_markdown: string } | null;
+        if (!source) continue;
+        scannedChars += source.content_markdown.length;
         if (scannedChars > BACKLINK_SCAN_CHAR_LIMIT) {
           truncated = true;
           break;
         }
-        const mentions = findUnlinkedMentionsInMarkdown(candidate.content_markdown, note.title);
+        const mentions = findUnlinkedMentionsInMarkdown(source.content_markdown, note.title);
         for (const m of mentions) {
           if (unlinkedMentions.length >= BACKLINK_MENTION_LIMIT) {
             truncated = true;
