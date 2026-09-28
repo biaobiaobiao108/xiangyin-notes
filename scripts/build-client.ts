@@ -21,6 +21,18 @@ indexHtml = indexHtml
   .replace(/href="[^"]*icon-192(?:-[^"]+)?\.png"/, 'href="/icon-192.png"');
 await Bun.write(indexPath, indexHtml);
 
+for (const file of ["manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-maskable-512.png"]) {
+  await Bun.write(`./dist/client/${file}`, Bun.file(`./app/${file}`));
+}
+
+const clientRoot = resolve("./dist/client");
+const precacheUrls = new Set(["/", "/app", "/index.html", "/manifest.webmanifest"]);
+for await (const file of new Bun.Glob("**/*").scan({ cwd: clientRoot, onlyFiles: true })) {
+  if (/\.(?:js|css)$/u.test(file) && file !== "sw.js") {
+    precacheUrls.add(`/${file.replaceAll("\\", "/")}`);
+  }
+}
+
 const workerBuild = await Bun.build({
   entrypoints: ["./app/sw.ts"],
   outdir: "./dist/client",
@@ -32,13 +44,13 @@ if (!workerBuild.success) throw new AggregateError(workerBuild.logs, "Service wo
 if (workerBuild.outputs.length !== 1) throw new Error("Service worker build did not produce exactly one output");
 const workerSource = await workerBuild.outputs[0].text();
 const cacheName = `xiangying-notes-shell-${Date.now().toString(36)}`;
-await Bun.write("./dist/client/sw.js", workerSource.replaceAll("__XIANGYING_CACHE_NAME__", cacheName));
+const precachePlaceholder = JSON.stringify("__XIANGYING_PRECACHE_URLS_JSON__");
+if (!workerSource.includes(precachePlaceholder)) throw new Error("Service worker precache placeholder was not found");
+const workerWithPrecache = workerSource
+  .replaceAll("__XIANGYING_CACHE_NAME__", cacheName)
+  .replace(precachePlaceholder, JSON.stringify(JSON.stringify([...precacheUrls])));
+await Bun.write("./dist/client/sw.js", workerWithPrecache);
 
-for (const file of ["manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-maskable-512.png"]) {
-  await Bun.write(`./dist/client/${file}`, Bun.file(`./app/${file}`));
-}
-
-const clientRoot = resolve("./dist/client");
 for await (const generatedFile of new Bun.Glob("icon-192-*.png").scan({ cwd: clientRoot, onlyFiles: true })) {
   await rm(resolve(clientRoot, generatedFile), { force: true });
 }

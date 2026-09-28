@@ -1,5 +1,5 @@
 const CACHE_NAME = "__XIANGYING_CACHE_NAME__";
-const PRECACHE_URLS = ["/", "/app", "/manifest.webmanifest"];
+const PRECACHE_URLS = JSON.parse("__XIANGYING_PRECACHE_URLS_JSON__") as string[];
 
 type Extendable = { waitUntil(promise: Promise<unknown>): void };
 type FetchEventLike = Extendable & { request: Request; respondWith(response: Promise<Response> | Response): void };
@@ -34,23 +34,50 @@ worker.addEventListener("fetch", (event) => {
   if (request.method !== "GET" || url.origin !== location.origin || url.pathname.startsWith("/api/") || url.pathname === "/sw.js" || url.pathname === "/manifest.webmanifest") return;
 
   if (request.mode === "navigate") {
+    let finishCacheWrite!: () => void;
+    const cacheWrite = new Promise<void>((resolve) => { finishCacheWrite = resolve; });
+    fetchEvent.waitUntil(cacheWrite);
     fetchEvent.respondWith(fetch(request).then((response) => {
       if (response.ok) {
         const copy = response.clone();
-        void caches.open(CACHE_NAME).then((cache) => cache.put("/index.html", copy));
-      }
+        void caches.open(CACHE_NAME)
+          .then((cache) => cache.put("/index.html", copy))
+          .catch(() => undefined)
+          .finally(finishCacheWrite);
+      } else finishCacheWrite();
       return response;
-    }).catch(async () => await caches.match(request) ?? await caches.match("/index.html") ?? await caches.match("/") ?? new Response("离线时暂时无法打开应用", { status: 503 })));
+    }).catch(async () => {
+      finishCacheWrite();
+      return await caches.match(request) ?? await caches.match("/index.html") ?? await caches.match("/") ?? new Response("离线时暂时无法打开应用", { status: 503 });
+    }));
     return;
   }
 
   const cacheable = ["script", "style", "image", "font"].includes(request.destination) || /\.(?:css|js|png|jpg|jpeg|svg|webp|ico|woff2?)$/i.test(url.pathname);
   if (!cacheable) return;
-  fetchEvent.respondWith(caches.match(request).then((cached) => cached ?? fetch(request).then((response) => {
-    if (response.ok) {
-      const copy = response.clone();
-      void caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+  let finishCacheWrite!: () => void;
+  const cacheWrite = new Promise<void>((resolve) => { finishCacheWrite = resolve; });
+  fetchEvent.waitUntil(cacheWrite);
+  fetchEvent.respondWith(caches.match(request).then((cached) => {
+    if (cached) {
+      finishCacheWrite();
+      return cached;
     }
-    return response;
-  })));
+    return fetch(request).then((response) => {
+      if (response.ok) {
+        const copy = response.clone();
+        void caches.open(CACHE_NAME)
+          .then((cache) => cache.put(request, copy))
+          .catch(() => undefined)
+          .finally(finishCacheWrite);
+      } else finishCacheWrite();
+      return response;
+    }).catch((error) => {
+      finishCacheWrite();
+      throw error;
+    });
+  }).catch((error) => {
+    finishCacheWrite();
+    throw error;
+  }));
 });

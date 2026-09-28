@@ -157,7 +157,9 @@ async function serveStatic(request: Request, clientRoot: string, environment: Re
     headers.set("Content-Encoding", contentEncoding);
   }
   const basename = relativePath.toLowerCase();
-  const mutablePwaAsset = basename === "sw.js" || basename === "manifest.webmanifest";
+  const mutablePwaAsset = basename === "sw.js"
+    || basename === "manifest.webmanifest"
+    || /^(?:favicon\.png|icon-(?:192|512|maskable-512)\.png)$/u.test(basename);
   headers.set("Cache-Control", hasExtension && relativePath !== "index.html" && !mutablePwaAsset ? "public, max-age=31536000, immutable" : "no-cache");
   return new Response(request.method === "HEAD" ? null : file, { headers });
 }
