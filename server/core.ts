@@ -439,6 +439,84 @@ export function formatPreview(markdown: string) {
     const text: string[] = [];
     let textLength = 0;
     let pendingWhitespace = false;
+    const inlineCodeRanges: Array<{ start: number; end: number }> = [];
+    const pairedUnderscoreMarkers = new Set<number>();
+
+    for (let index = start; index < end;) {
+      if (markdown[index] !== "`") {
+        index += 1;
+        continue;
+      }
+
+      const markerStart = index;
+      while (index < end && markdown[index] === "`") index += 1;
+      const markerLength = index - markerStart;
+      let searchIndex = index;
+      let closingStart = -1;
+      while (searchIndex < end) {
+        const nextMarker = markdown.indexOf("`", searchIndex);
+        if (nextMarker === -1 || nextMarker >= end) break;
+        let nextEnd = nextMarker;
+        while (nextEnd < end && markdown[nextEnd] === "`") nextEnd += 1;
+        if (nextEnd - nextMarker === markerLength) {
+          closingStart = nextMarker;
+          break;
+        }
+        searchIndex = nextEnd;
+      }
+
+      inlineCodeRanges.push({ start: index, end: closingStart === -1 ? end : closingStart });
+      index = closingStart === -1 ? end : closingStart + markerLength;
+    }
+
+    const isWordCharacter = (character: string | undefined) => character !== undefined && /[\p{L}\p{N}]/u.test(character);
+    const isWhitespaceCharacter = (character: string | undefined) => character !== undefined && /\s/u.test(character);
+    const isEscaped = (index: number) => {
+      let backslashes = 0;
+      for (let cursor = index - 1; cursor >= start && markdown[cursor] === "\\"; cursor -= 1) backslashes += 1;
+      return backslashes % 2 === 1;
+    };
+    let inlineCodeRangeIndex = 0;
+    const openingUnderscores = new Map<number, number[]>();
+
+    for (let index = start; index < end;) {
+      while (inlineCodeRangeIndex < inlineCodeRanges.length && inlineCodeRanges[inlineCodeRangeIndex].end <= index) {
+        inlineCodeRangeIndex += 1;
+      }
+      const inlineCodeRange = inlineCodeRanges[inlineCodeRangeIndex];
+      if (inlineCodeRange && index >= inlineCodeRange.start && index < inlineCodeRange.end) {
+        index = inlineCodeRange.end;
+        continue;
+      }
+      if (markdown[index] !== "_" || isEscaped(index)) {
+        index += 1;
+        continue;
+      }
+
+      const markerStart = index;
+      while (index < end && markdown[index] === "_") index += 1;
+      const markerLength = index - markerStart;
+      if (markerLength !== 1 && markerLength !== 2) continue;
+
+      const previousCharacter = markdown[markerStart - 1];
+      const nextCharacter = markdown[index];
+      const canOpen = !isWhitespaceCharacter(nextCharacter) && !isWordCharacter(previousCharacter);
+      const canClose = !isWhitespaceCharacter(previousCharacter) && !isWordCharacter(nextCharacter);
+      const openings = openingUnderscores.get(markerLength) ?? [];
+
+      if (canClose && openings.length > 0) {
+        const openingStart = openings.pop()!;
+        if (markerStart > openingStart + markerLength) {
+          for (let offset = 0; offset < markerLength; offset += 1) {
+            pairedUnderscoreMarkers.add(openingStart + offset);
+            pairedUnderscoreMarkers.add(markerStart + offset);
+          }
+        }
+      }
+      if (canOpen) openings.push(markerStart);
+      if (openings.length > 0) openingUnderscores.set(markerLength, openings);
+      else openingUnderscores.delete(markerLength);
+    }
 
     for (let index = start; index < end && textLength < maximumLength; index += 1) {
       if (markdown.startsWith("![", index)) {
@@ -453,7 +531,11 @@ export function formatPreview(markdown: string) {
         }
       }
 
-      const character = markdown[index];
+      let character = markdown[index];
+      if (character === "\\" && markdown[index + 1] === "#") {
+        character = "#";
+        index += 1;
+      }
       const spaceEntity = character === "&"
         ? NON_BREAKING_SPACE_ENTITY_RE.exec(markdown.slice(index, Math.min(end, index + 16)))
         : null;
@@ -469,9 +551,8 @@ export function formatPreview(markdown: string) {
       }
 
       if (
-        character === "#" ||
         character === "*" ||
-        character === "_" ||
+        (character === "_" && pairedUnderscoreMarkers.has(index)) ||
         character === "`" ||
         character === "~" ||
         character === ">" ||

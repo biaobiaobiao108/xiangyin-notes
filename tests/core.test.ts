@@ -40,6 +40,32 @@ describe("markdown and search helpers", () => {
     expect(formatPreview("# Heading\n\nA **quiet** note with `code`.")) .toBe("Heading\nA quiet note with code.");
   });
 
+  test("preserves identifier underscores and escaped hash characters in previews", () => {
+    expect(formatPreview([
+      "行A `snake_case_identifier`",
+      "行B __双下划线粗体__",
+      "行C _单下划线斜体_",
+      "行D **星号粗体**",
+      "行E a_b_c",
+      "行F \\#转义井号标签词",
+      "行H get_note_id",
+      "行I 中文之间_的下划线",
+    ].join("\n\n"))).toBe([
+      "行A snake_case_identifier",
+      "行B 双下划线粗体",
+      "行C 单下划线斜体",
+      "行D 星号粗体",
+      "行E a_b_c",
+      "行F #转义井号标签词",
+      "行H get_note_id",
+      "行I 中文之间_的下划线",
+    ].join("\n"));
+  });
+
+  test("keeps underscore characters literal inside inline code spans", () => {
+    expect(formatPreview("`_snake_case_` and __emphasis__")).toBe("_snake_case_ and emphasis");
+  });
+
   test("treats trailing nonbreaking spaces and their HTML entities as whitespace", () => {
     expect(formatPreview("fdasfsad &nbsp; &nbsp; &nbsp;\n\n")).toBe("fdasfsad");
     expect(formatPreview("前&nbsp;文 &#160;中 &#xA0;后\u00a0结束")).toBe("前 文 中 后 结束");
