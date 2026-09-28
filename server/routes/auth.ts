@@ -11,6 +11,7 @@ import {
   json,
   jsonError,
   now,
+  rateLimitClientAddress,
   readJson,
   type RouteContext,
   SESSION_COOKIE,
@@ -90,11 +91,7 @@ export function cookieValue(cookieHeader: string | null, name: string) {
 }
 
 export function loginClientKey(request: Request, environment: RuntimeEnvironment, clientAddress: string | undefined, username: string) {
-  let address = clientAddress?.trim() || "unknown";
-  if (environment.TRUST_PROXY === "true") {
-    const forwarded = request.headers.get("X-Forwarded-For")?.split(",", 1)[0]?.trim();
-    address = forwarded || request.headers.get("X-Real-IP")?.trim() || address;
-  }
+  const address = rateLimitClientAddress(request, environment, clientAddress);
   return `${address.slice(0, 128)}:${username.slice(0, 32)}`;
 }
 

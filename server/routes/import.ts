@@ -9,6 +9,7 @@ import {
   NOTE_CONTENT_MAX_LENGTH,
   now,
   readBodyBytes,
+  rateLimitClientAddress,
   type RouteContext,
   toNote,
   validNoteAssetReferences,
@@ -57,11 +58,7 @@ function requireApiToken(request: Request, environment: Record<string, string | 
 }
 
 function importClientKey(request: Request, environment: Record<string, string | undefined>, clientAddress: string | undefined) {
-  let address = clientAddress?.trim() || "unknown";
-  if (environment.TRUST_PROXY === "true") {
-    const forwarded = request.headers.get("X-Forwarded-For")?.split(",", 1)[0]?.trim();
-    address = forwarded || request.headers.get("X-Real-IP")?.trim() || address;
-  }
+  const address = rateLimitClientAddress(request, environment, clientAddress);
   return address.slice(0, 128) || "unknown";
 }
 

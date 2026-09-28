@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildFtsQuery, constantTimeEqual, createOpaqueToken, derivePassword, formatPreview, hashPassword, readJson } from "../server/core";
+import { buildFtsQuery, constantTimeEqual, createOpaqueToken, derivePassword, formatPreview, hashPassword, rateLimitClientAddress, readJson } from "../server/core";
 
 describe("security helpers", () => {
   test("creates URL-safe opaque tokens", () => {
@@ -16,6 +16,22 @@ describe("security helpers", () => {
     expect(await derivePassword("wrong passphrase", first.salt)).not.toBe(first.hash);
     expect(constantTimeEqual(first.hash, first.hash)).toBe(true);
     expect(constantTimeEqual(first.hash, second.hash)).toBe(false);
+  });
+
+  test("only trusts forwarded client IPs from explicitly trusted proxy peers", () => {
+    const spoofedRequest = new Request("http://example.test", { headers: { "X-Forwarded-For": "198.51.100.9" } });
+    expect(rateLimitClientAddress(spoofedRequest, { TRUST_PROXY: "true" }, "203.0.113.8")).toBe("203.0.113.8");
+
+    const forwardedRequest = new Request("http://example.test", { headers: { "X-Forwarded-For": "198.51.100.9, 127.0.0.1" } });
+    expect(rateLimitClientAddress(forwardedRequest, {
+      TRUST_PROXY: "true",
+      TRUSTED_PROXY_ADDRESSES: "127.0.0.1, ::1",
+    }, "::ffff:127.0.0.1")).toBe("198.51.100.9");
+    const invalidForwardedRequest = new Request("http://example.test", { headers: { "X-Forwarded-For": "not-an-ip" } });
+    expect(rateLimitClientAddress(invalidForwardedRequest, {
+      TRUST_PROXY: "true",
+      TRUSTED_PROXY_ADDRESSES: "127.0.0.1",
+    }, "127.0.0.1")).toBe("127.0.0.1");
   });
 });
 

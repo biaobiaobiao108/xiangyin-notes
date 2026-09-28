@@ -1,4 +1,5 @@
 import { rm } from "node:fs/promises";
+import { isIP } from "node:net";
 import { join } from "node:path";
 import { extractTags, normalizeTag } from "../shared/tags";
 import type { ImageAssetSummary, Note, NoteSummary, NoteView, Share } from "../shared/types";
@@ -210,6 +211,35 @@ export function clientIdentifier(request: Request, clientAddress?: string) {
   const xRealIp = request.headers.get("x-real-ip")?.trim();
   if (xRealIp) return xRealIp;
   return "local-client";
+}
+
+function normalizedIp(value: string | undefined) {
+  const address = value?.trim().toLowerCase() ?? "";
+  if (address.startsWith("::ffff:") && isIP(address.slice(7)) === 4) return address.slice(7);
+  return isIP(address) ? address : null;
+}
+
+export function rateLimitClientAddress(
+  request: Request,
+  environment: Record<string, string | undefined>,
+  clientAddress: string | undefined,
+) {
+  const directAddress = clientAddress?.trim() || "unknown";
+  if (environment.TRUST_PROXY !== "true") return directAddress;
+
+  const peerAddress = normalizedIp(clientAddress);
+  if (!peerAddress) return directAddress;
+  const trustedProxies = new Set(
+    (environment.TRUSTED_PROXY_ADDRESSES ?? "")
+      .split(",")
+      .map((value) => normalizedIp(value) ?? "")
+      .filter(Boolean),
+  );
+  if (!trustedProxies.has(peerAddress)) return directAddress;
+
+  const forwarded = request.headers.get("X-Forwarded-For")?.split(",", 1)[0]?.trim();
+  const realIp = request.headers.get("X-Real-IP")?.trim();
+  return normalizedIp(forwarded) ?? normalizedIp(realIp) ?? directAddress;
 }
 
 export function consumeRateLimit(key: string, limit: number, windowMs: number) {
