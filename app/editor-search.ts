@@ -98,12 +98,41 @@ function createSearchHighlightState(doc: ProseMirrorNode, query: string, request
 
 function createSearchHighlightStateFromMatches(doc: ProseMirrorNode, query: string, matches: EditorSearchMatch[], requestedIndex = 0): SearchHighlightState {
   const activeIndex = normalizeSearchMatchIndex(requestedIndex, matches.length);
-  const decorations = DecorationSet.create(doc, matches.map((match, index) => Decoration.inline(
+  const decorations = DecorationSet.create(doc, matches.map((match, index) => createSearchMatchDecoration(match, index === activeIndex)));
+  return { query, matches, activeIndex, decorations };
+}
+
+function createSearchMatchDecoration(match: EditorSearchMatch, active: boolean) {
+  return Decoration.inline(
     match.from,
     match.to,
-    { class: index === activeIndex ? "editor-search-match editor-search-match--active" : "editor-search-match" },
-  )));
-  return { query, matches, activeIndex, decorations };
+    { class: active ? "editor-search-match editor-search-match--active" : "editor-search-match" },
+  );
+}
+
+function updateActiveSearchMatch(doc: ProseMirrorNode, previous: SearchHighlightState, requestedIndex: number): SearchHighlightState {
+  const activeIndex = normalizeSearchMatchIndex(requestedIndex, previous.matches.length);
+  if (activeIndex === previous.activeIndex) return previous;
+
+  const previousMatch = previous.matches[previous.activeIndex];
+  const nextMatch = previous.matches[activeIndex];
+  const remove: Decoration[] = [];
+  const add: Decoration[] = [];
+  if (previousMatch) {
+    remove.push(createSearchMatchDecoration(previousMatch, true));
+    add.push(createSearchMatchDecoration(previousMatch, false));
+  }
+  if (nextMatch) {
+    remove.push(createSearchMatchDecoration(nextMatch, false));
+    add.push(createSearchMatchDecoration(nextMatch, true));
+  }
+
+  return {
+    query: previous.query,
+    matches: previous.matches,
+    activeIndex,
+    decorations: previous.decorations.remove(remove).add(doc, add),
+  };
 }
 
 function searchPadding(query: string) {
@@ -168,7 +197,7 @@ export const SearchHighlightExtension = Extension.create({
           apply: (transaction, previous) => {
             const meta = transaction.getMeta(searchHighlightPluginKey) as SearchHighlightMeta | undefined;
             if (meta?.type === "query") return createSearchHighlightState(transaction.doc, meta.query, meta.activeIndex);
-            if (meta?.type === "activeIndex") return createSearchHighlightState(transaction.doc, previous.query, meta.index);
+            if (meta?.type === "activeIndex") return updateActiveSearchMatch(transaction.doc, previous, meta.index);
             if (transaction.docChanged && previous.query) return updateSearchHighlightState(transaction, previous);
             return previous;
           },

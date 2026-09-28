@@ -1,18 +1,21 @@
 import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
-import type { Editor } from "@tiptap/core";
+import type { Editor, TextSerializer } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { Markdown } from "@tiptap/markdown";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import Placeholder from "@tiptap/extension-placeholder";
 import { findWrapping } from "@tiptap/pm/transform";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import type { Transaction } from "@tiptap/pm/state";
 import { ArrowLeft, ArrowLeftRight, CheckCircle, ChevronLeft, CircleAlert, LayoutGrid, Link2, LoaderCircle, RefreshCw, Star, Trash2, Undo2 } from "lucide-react";
 import type { ImageAssetSummary, Note, NoteSummary } from "../shared/types";
 import { api } from "./api";
 import { BrandMark } from "./brand-mark";
 import { cycleSearchMatchIndex, findEditorSearchMatches, findTextMatches, searchHighlightPluginKey, SearchHighlightExtension } from "./editor-search";
 import { buildOutlineItems, countEditorText, detectLeakedImePrefix, getOutlineStructureKey, parseMarkdownBlockShortcut, shouldParseMarkdownPaste, shouldUpdateActiveOutlineFromViewport, type EditorStats, type MarkdownBlockShortcut, type OutlineItem } from "./editor-metrics";
+import { changedDocumentRange } from "./editor/changed-range";
 import { FloatingScrollbar } from "./floating-scrollbar";
 import { ImeMarkdownSafeExtension, imeMarkdownSafePluginKey } from "./ime-markdown-safe-extension";
 import { editorCoreExtensionOptions } from "./editor/editor-config";
@@ -39,6 +42,78 @@ type SaveState = "idle" | "saving" | "saved" | "conflict" | "error";
 
 const MAX_IMAGE_FILES_PER_ACTION = 10;
 const OUTLINE_HEADING_SELECTOR = "h1, h2, h3, h4, h5, h6";
+const EDITOR_SYNC_DEBOUNCE_MS = 180;
+const EDITOR_SYNC_MAX_WAIT_MS = 720;
+
+function getEditorTextBlockContent(node: ProseMirrorNode): string {
+  let text = "";
+  const range = { from: 0, to: node.content.size };
+  node.descendants((child, pos, parent, index) => {
+    const serializer = child.type.spec.toText as TextSerializer | undefined;
+    if (serializer) {
+      if (parent) text += serializer({ node: child, pos, parent, index, range });
+      return false;
+    }
+    if (child.isText) text += child.text ?? "";
+  });
+  return text;
+}
+
+function countEditorDocumentText(doc: ProseMirrorNode, cache: WeakMap<ProseMirrorNode, EditorStats>): EditorStats {
+  let wordCount = 0;
+  let characterCount = 0;
+  doc.descendants((node) => {
+    if (!node.isTextblock) return;
+    let stats = cache.get(node);
+    if (!stats) {
+      stats = countEditorText(getEditorTextBlockContent(node));
+      cache.set(node, stats);
+    }
+    wordCount += stats.wordCount;
+    characterCount += stats.characterCount;
+  });
+  return { wordCount, characterCount };
+}
+
+function rangeTouchesHeading(doc: ProseMirrorNode, from: number, to: number): boolean {
+  const start = Math.max(0, Math.min(from, doc.content.size));
+  const end = Math.max(start, Math.min(to, doc.content.size));
+  const $start = doc.resolve(start);
+  for (let depth = $start.depth; depth > 0; depth -= 1) {
+    if ($start.node(depth).type.name === "heading") return true;
+  }
+  if ($start.nodeAfter?.type.name === "heading" || $start.nodeBefore?.type.name === "heading") return true;
+
+  let touchesHeading = false;
+  if (end > start) {
+    doc.nodesBetween(start, end, (node) => {
+      if (node.type.name === "heading") {
+        touchesHeading = true;
+        return false;
+      }
+      return !touchesHeading;
+    });
+  }
+  return touchesHeading;
+}
+
+function transactionMayChangeOutline(transaction: Transaction): boolean {
+  if (!transaction.docChanged) return false;
+  const range = changedDocumentRange(transaction);
+  if (range && rangeTouchesHeading(transaction.doc, range.from, range.to)) return true;
+
+  for (const map of transaction.mapping.maps) {
+    let touchesHeading = false;
+    map.forEach((oldStart, oldEnd, newStart, newEnd) => {
+      if (rangeTouchesHeading(transaction.before, oldStart, oldEnd)
+        || rangeTouchesHeading(transaction.doc, newStart, newEnd)) {
+        touchesHeading = true;
+      }
+    });
+    if (touchesHeading) return true;
+  }
+  return false;
+}
 
 function resizeTitleField(field: HTMLTextAreaElement | null) {
   if (!field) return;
@@ -136,8 +211,15 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   const editorInstanceRef = useRef<Editor | null>(null);
   const outlineTriggerRef = useRef<HTMLButtonElement>(null);
   const syncFrameRef = useRef<number | null>(null);
+  const syncStartedAtRef = useRef<number | null>(null);
+  const syncOutlineDirtyRef = useRef(false);
   const markdownSyncFrameRef = useRef<number | null>(null);
+  const markdownSyncStartedAtRef = useRef<number | null>(null);
   const markdownDirtyRef = useRef(false);
+  const editorTextBlockStatsRef = useRef(new WeakMap<ProseMirrorNode, EditorStats>());
+  const markdownOwnerRef = useRef({ noteId: note.id, reloadToken });
+  markdownOwnerRef.current.noteId = note.id;
+  markdownOwnerRef.current.reloadToken = reloadToken;
   const composingRef = useRef(false);
   const leakedCandidateRef = useRef<{ key: string; blockStartPos: number; emptyAtStart: boolean } | null>(null);
   const imeCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -163,7 +245,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     programmaticOutlineScrollIdRef.current = null;
   }, []);
   const onChangeRef = useRef(onChange);
-  const surfaceSyncRef = useRef<(instance: Editor) => void>(() => undefined);
+  const surfaceSyncRef = useRef<(instance: Editor, outlineMayHaveChanged?: boolean) => void>(() => undefined);
   const [editorStats, setEditorStats] = useState<EditorStats>(() => countEditorText(""));
   const [deferredLoading, setDeferredLoading] = useState(false);
   const [imageUploadState, setImageUploadState] = useState<"idle" | "uploading" | "error">("idle");
@@ -270,13 +352,13 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     if (imageUploadTimerRef.current !== null) clearTimeout(imageUploadTimerRef.current);
   }, []);
 
-  const syncEditorSurface = (instance: Editor) => {
-    const editorText = instance.getText({ blockSeparator: "\n" });
-    const nextStats = countEditorText(editorText);
+  const syncEditorSurface = (instance: Editor, syncOutline: boolean) => {
+    const nextStats = countEditorDocumentText(instance.state.doc, editorTextBlockStatsRef.current);
     startTransition(() => {
       setEditorStats((current) => current.wordCount === nextStats.wordCount && current.characterCount === nextStats.characterCount ? current : nextStats);
     });
 
+    if (!syncOutline) return;
     const headingElements = Array.from(instance.view.dom.querySelectorAll<HTMLElement>(OUTLINE_HEADING_SELECTOR));
     const outlineHeadingElements = headingElements.filter((element) => Boolean(element.textContent?.trim()));
     const generatedItems = buildOutlineItems(outlineHeadingElements.map((element) => ({ level: Number(element.tagName.slice(1)) as 1 | 2 | 3 | 4 | 5 | 6, title: element.textContent?.trim() ?? "" })));
@@ -295,22 +377,24 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     outlineHeadingElementsRef.current = new Map(nextItems.map((item, index) => [item.id, outlineHeadingElements[index]] as const));
     startTransition(() => onOutlineItemsChange(nextItems));
   };
-  const scheduleEditorSurfaceSync = (instance: Editor) => {
-    const idleWindow = window as Window & {
-      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
-      cancelIdleCallback?: (handle: number) => void;
-    };
+  const scheduleEditorSurfaceSync = (instance: Editor, outlineMayHaveChanged = true) => {
+    syncOutlineDirtyRef.current ||= outlineMayHaveChanged;
     if (syncFrameRef.current !== null) {
-      idleWindow.cancelIdleCallback?.(syncFrameRef.current);
       window.clearTimeout(syncFrameRef.current);
     }
+    const now = performance.now();
+    const startedAt = syncStartedAtRef.current ?? now;
+    syncStartedAtRef.current = startedAt;
+    const wait = Math.min(EDITOR_SYNC_DEBOUNCE_MS, Math.max(0, startedAt + EDITOR_SYNC_MAX_WAIT_MS - now));
     const run = () => {
       syncFrameRef.current = null;
-      syncEditorSurface(instance);
+      syncStartedAtRef.current = null;
+      if (instance.isDestroyed || instance.view.composing || composingRef.current) return;
+      const syncOutline = syncOutlineDirtyRef.current;
+      syncOutlineDirtyRef.current = false;
+      syncEditorSurface(instance, syncOutline);
     };
-    syncFrameRef.current = idleWindow.requestIdleCallback
-      ? idleWindow.requestIdleCallback(run, { timeout: 120 })
-      : window.setTimeout(run, 80);
+    syncFrameRef.current = window.setTimeout(run, wait);
   };
 
   const executeBlockShortcut = (view: Editor["view"], from: number, shortcut: MarkdownBlockShortcut): boolean => {
@@ -722,9 +806,10 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
 
   const flushMarkdownChange = useCallback((source?: Editor) => {
     if (markdownSyncFrameRef.current !== null) {
-      cancelAnimationFrame(markdownSyncFrameRef.current);
+      window.clearTimeout(markdownSyncFrameRef.current);
       markdownSyncFrameRef.current = null;
     }
+    markdownSyncStartedAtRef.current = null;
     if (!markdownDirtyRef.current) return;
     const instance = (source ?? editorInstanceRef.current) as EditorWithMarkdown | null;
     if (!instance || instance.isDestroyed) return;
@@ -734,14 +819,24 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
 
   const scheduleMarkdownChange = useCallback((instance: Editor) => {
     markdownDirtyRef.current = true;
-    if (markdownSyncFrameRef.current !== null) return;
-    markdownSyncFrameRef.current = requestAnimationFrame(() => {
+    const noteId = markdownOwnerRef.current.noteId;
+    const currentReloadToken = markdownOwnerRef.current.reloadToken;
+    const now = performance.now();
+    const startedAt = markdownSyncStartedAtRef.current ?? now;
+    markdownSyncStartedAtRef.current = startedAt;
+    if (markdownSyncFrameRef.current !== null) window.clearTimeout(markdownSyncFrameRef.current);
+    const wait = Math.min(EDITOR_SYNC_DEBOUNCE_MS, Math.max(0, startedAt + EDITOR_SYNC_MAX_WAIT_MS - now));
+    markdownSyncFrameRef.current = window.setTimeout(() => {
       markdownSyncFrameRef.current = null;
+      markdownSyncStartedAtRef.current = null;
       if (instance.isDestroyed || !markdownDirtyRef.current) return;
-      markdownDirtyRef.current = false;
-      onChangeRef.current({ contentMarkdown: (instance as EditorWithMarkdown).getMarkdown() });
-    });
-  }, []);
+      if (noteId !== markdownOwnerRef.current.noteId || currentReloadToken !== markdownOwnerRef.current.reloadToken) {
+        markdownDirtyRef.current = false;
+        return;
+      }
+      flushMarkdownChange(instance);
+    }, wait);
+  }, [flushMarkdownChange]);
 
   const editor = useEditor({
     editable: !note.deletedAt && !isLoading,
@@ -750,13 +845,13 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     content: initialContentRef.current,
     contentType: "markdown",
     editorProps,
-    onUpdate: ({ editor: instance }) => {
+    onUpdate: ({ editor: instance, transaction }) => {
       scheduleMarkdownChange(instance);
       if (typewriterModeRef.current && !instance.view.composing && !composingRef.current) {
         alignTypewriterRef.current(instance);
       }
       if (instance.view.composing || composingRef.current) return;
-      surfaceSyncRef.current(instance);
+      surfaceSyncRef.current(instance, transactionMayChangeOutline(transaction));
     },
   });
 
@@ -905,14 +1000,15 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     scheduleEditorSurfaceSync(editor);
     return () => {
       flushMarkdownChange(editor);
-      const idleWindow = window as Window & { cancelIdleCallback?: (handle: number) => void };
       if (syncFrameRef.current !== null) {
-        idleWindow.cancelIdleCallback?.(syncFrameRef.current);
         window.clearTimeout(syncFrameRef.current);
       }
       syncFrameRef.current = null;
-      if (markdownSyncFrameRef.current !== null) cancelAnimationFrame(markdownSyncFrameRef.current);
+      syncStartedAtRef.current = null;
+      syncOutlineDirtyRef.current = false;
+      if (markdownSyncFrameRef.current !== null) window.clearTimeout(markdownSyncFrameRef.current);
       markdownSyncFrameRef.current = null;
+      markdownSyncStartedAtRef.current = null;
       if (imeCleanupTimerRef.current !== null) clearTimeout(imeCleanupTimerRef.current);
       imeCleanupTimerRef.current = null;
       leakedCandidateRef.current = null;
@@ -957,8 +1053,9 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     outlineSelectionSynchronizedRef.current = false;
     setEditorStats(countEditorText(""));
     markdownDirtyRef.current = false;
-    if (markdownSyncFrameRef.current !== null) cancelAnimationFrame(markdownSyncFrameRef.current);
+    if (markdownSyncFrameRef.current !== null) window.clearTimeout(markdownSyncFrameRef.current);
     markdownSyncFrameRef.current = null;
+    markdownSyncStartedAtRef.current = null;
     editor.commands.setContent(note.contentMarkdown, { contentType: "markdown", emitUpdate: false });
     editorScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
     if (switchedNote) {

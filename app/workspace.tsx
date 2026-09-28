@@ -19,6 +19,7 @@ import { useNoteSaveQueue } from "./workspace/use-note-save-queue";
 import { useWorkspaceRealtime } from "./workspace/use-realtime";
 import { refreshSelectedNote } from "./workspace/selected-note-sync";
 import { useWorkspaceShortcuts } from "./workspace/use-workspace-shortcuts";
+import { useMobileDrawer, type MobileDrawer } from "./workspace/use-mobile-drawer";
 import { useThemePreference } from "./theme";
 
 export type ViewLayout = "three-column" | "cards";
@@ -133,20 +134,33 @@ export function Workspace() {
   }, []);
   const [cardEditingNoteId, setCardEditingNoteId] = useState<string | null>(null);
   const cardGridScrollPositionRef = useRef<{ scope: string; top: number }>({ scope: "", top: 0 });
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const [mobileListOpen, setMobileListOpen] = useState(false);
+  const [mobileDrawer, setMobileDrawer] = useState<MobileDrawer>(null);
+  const sidebarRef = useRef<HTMLElement | null>(null);
+  const listPanelRef = useRef<HTMLElement | null>(null);
+  const editorRegionRef = useRef<HTMLElement | null>(null);
+  const { isMobileViewport, activeDrawer, openDrawer, closeDrawer } = useMobileDrawer({
+    drawer: mobileDrawer,
+    setDrawer: setMobileDrawer,
+    sidebarRef,
+    listRef: listPanelRef,
+    sidebarInitialFocusRef: searchRef,
+    fallbackFocusRef: editorRegionRef,
+  });
   const toggleOutline = useCallback(() => {
     if (focusMode) return;
     setOutlineOpen((current) => {
       const next = !current;
-      if (next) {
-        setMobileListOpen(true);
-        setMobileSidebarOpen(false);
+      if (next && viewLayout !== "cards") {
+        openDrawer("list");
       }
       return next;
     });
-  }, [focusMode]);
+  }, [focusMode, openDrawer, viewLayout]);
   const closeOutline = useCallback(() => setOutlineOpen(false), []);
+  const closeMobileNavigation = useCallback(() => {
+    closeDrawer();
+    closeOutline();
+  }, [closeDrawer, closeOutline]);
   const handleOutlineItemsChange = useCallback((nextItems: OutlineItem[]) => {
     setOutlineItems((current) => {
       const unchanged = current.length === nextItems.length && current.every((item, index) => {
@@ -340,9 +354,9 @@ export function Workspace() {
   useEffect(() => {
     if (focusMode) {
       setOutlineOpen(false);
-      setMobileListOpen(false);
+      closeDrawer();
     }
-  }, [focusMode]);
+  }, [closeDrawer, focusMode]);
   const removeFromList = useCallback((noteId: string) => {
     const ordered = sortNotes(notesRef.current, noteSort);
     const index = ordered.findIndex((note) => note.id === noteId);
@@ -475,7 +489,7 @@ export function Workspace() {
   }, []);
   useWorkspaceShortcuts({
     focusMode,
-    hasModalOpen: Boolean(commandOpen || shareOpen || editingNotebook !== undefined || confirmRequest),
+    hasModalOpen: Boolean(commandOpen || shareOpen || editingNotebook !== undefined || confirmRequest || activeDrawer),
     toggleSidebar: () => setSidebarCollapsed((value) => !value),
     toggleFocusMode,
     toggleTypewriterMode,
@@ -530,8 +544,7 @@ export function Workspace() {
           if (notebook.id === targetNotebook.id) return { ...notebook, count: notebook.count + 1 };
           return notebook;
         }));
-        setMobileSidebarOpen(false);
-        setMobileListOpen(false);
+        closeDrawer();
       }
       void saveImmediately(next, false, ["notebookId"]).then(() => {
         refreshNotebooks();
@@ -544,7 +557,7 @@ export function Workspace() {
     } else {
       persist(next, Object.keys(patch) as Array<"title" | "contentMarkdown" | "notebookId">);
     }
-  }, [invalidateCollections, notebooks, persist, refreshNotebooks, reloadNotes, replaceList, requestListTransition, saveImmediately]);
+  }, [closeDrawer, invalidateCollections, notebooks, persist, refreshNotebooks, reloadNotes, replaceList, requestListTransition, saveImmediately]);
   const registerEditorMarkdownReader = useCallback((reader: (() => string | null) | null) => {
     editorMarkdownReaderRef.current = reader;
   }, []);
@@ -576,10 +589,9 @@ export function Workspace() {
     setEditorFocusNoteId(note.id);
     setSelectedId(note.id);
     setCardEditingNoteId(note.id);
-    setMobileSidebarOpen(false);
-    setMobileListOpen(false);
+    closeDrawer();
     setToast(message);
-  }, [playListTransition]);
+  }, [closeDrawer, playListTransition]);
   const createNoteHere = useCallback(async () => {
     const currentNotebook = notebookId ? notebooks.find((notebook) => notebook.id === notebookId) : undefined;
     const inbox = notebooks.find((notebook) => notebook.isSystem);
@@ -628,11 +640,11 @@ export function Workspace() {
     } else {
       setNotebookId(saved.id);
       setView("all");
-      setMobileSidebarOpen(false);
+      closeDrawer();
       setToast(`已创建笔记本“${saved.name}”`);
     }
     setEditingNotebook(undefined);
-  }, [editingNotebook]);
+  }, [closeDrawer, editingNotebook]);
   const saveNotebookDraft = useCallback(async (draft: { name: string; color: string; icon: string }) => {
     const existing = editingNotebook ?? undefined;
     const timestamp = Math.floor(Date.now() / 1000);
@@ -970,9 +982,8 @@ export function Workspace() {
     setView(next);
     setNotebookId(undefined);
     setCardEditingNoteId(null);
-    setMobileSidebarOpen(false);
-    setMobileListOpen(false);
-  }, [notebookId, query, requestListTransition, view]);
+    closeDrawer();
+  }, [closeDrawer, notebookId, query, requestListTransition, view]);
   const selectNotebook = useCallback((notebookIdToSelect: string) => {
     if (notebookId !== notebookIdToSelect || view !== "all" || query) requestListTransition();
     searchOriginRef.current = null;
@@ -980,9 +991,8 @@ export function Workspace() {
     setNotebookId(notebookIdToSelect);
     setView("all");
     setCardEditingNoteId(null);
-    setMobileSidebarOpen(false);
-    setMobileListOpen(false);
-  }, [notebookId, query, requestListTransition, view]);
+    closeDrawer();
+  }, [closeDrawer, notebookId, query, requestListTransition, view]);
   const changeQuery = useCallback((next: string) => {
     if (next) {
       if (!query) {
@@ -1020,21 +1030,19 @@ export function Workspace() {
     changeQuery(normalized);
     setSidebarCollapsed(false);
     setCardEditingNoteId(null);
-    setMobileSidebarOpen(true);
-    setMobileListOpen(false);
+    openDrawer("sidebar");
     closeCommandMenu();
-  }, [changeQuery, closeCommandMenu]);
+  }, [changeQuery, closeCommandMenu, openDrawer]);
   const handleFocusGlobalSearch = useCallback(() => {
     setSidebarCollapsed(false);
     setCardEditingNoteId(null);
-    setMobileSidebarOpen(true);
-    setMobileListOpen(false);
+    openDrawer("sidebar");
     closeCommandMenu();
     requestAnimationFrame(() => {
       searchRef.current?.focus();
       searchRef.current?.select();
     });
-  }, [closeCommandMenu]);
+  }, [closeCommandMenu, openDrawer]);
   const handleClearSearch = useCallback(() => {
     setInNoteSearchQuery("");
     if (query) {
@@ -1099,10 +1107,10 @@ export function Workspace() {
     if (!ready || shortcutHandledRef.current) return;
     const action = new URLSearchParams(window.location.search).get("action");
     if (action === "new-note") void createNoteInInbox();
-    if (action === "search") { setMobileSidebarOpen(true); setMobileListOpen(false); requestAnimationFrame(() => searchRef.current?.focus()); }
+    if (action === "search") { openDrawer("sidebar"); requestAnimationFrame(() => searchRef.current?.focus()); }
     shortcutHandledRef.current = true;
     if (action) window.history.replaceState(null, "", `${window.location.pathname}${window.location.hash}`);
-  }, [createNoteInInbox, ready]);
+  }, [createNoteInInbox, openDrawer, ready]);
   const logout = useCallback(async () => {
     await flushPendingSaves("now");
     if (hasUnsavedWork()) {
@@ -1206,9 +1214,8 @@ export function Workspace() {
     if (!isModifierSelection) selectNote(id);
     updateNoteSelection(nextSelection);
     if (isModifierSelection) return;
-    setMobileSidebarOpen(false);
-    setMobileListOpen(false);
-  }, [noteSort, selectNote, updateNoteSelection]);
+    closeDrawer();
+  }, [closeDrawer, noteSort, selectNote, updateNoteSelection]);
   const handleOpenCardNote = useCallback((id: string) => {
     selectNote(id);
     setCardEditingNoteId(id);
@@ -1230,13 +1237,15 @@ export function Workspace() {
     setNoteSort(nextSort);
   }, [clearNoteSelection]);
   const handleOpenSidebar = useCallback(() => {
-    setMobileSidebarOpen(true);
-    setMobileListOpen(false);
-  }, []);
+    openDrawer("sidebar");
+  }, [openDrawer]);
   const handleOpenList = useCallback(() => {
-    setMobileListOpen(true);
-    setMobileSidebarOpen(false);
-  }, []);
+    if (viewLayout === "cards") {
+      setCardEditingNoteId(null);
+      return;
+    }
+    openDrawer("list");
+  }, [openDrawer, viewLayout]);
   const handleShare = useCallback(() => setShareOpen(true), []);
   const handleUploadImage = useCallback((file: File) => api.uploadAsset(file), []);
   const handleScrollToOutlineItem = useCallback((id: string) => outlineNavigateRef.current?.(id), []);
@@ -1248,15 +1257,16 @@ export function Workspace() {
   const renderedNote = selectedNote && selectedRef.current?.id === selectedNote.id ? selectedRef.current : selectedNote;
   const commandNoteReady = Boolean(renderedNote && selectedRef.current?.id === renderedNote.id && !isNoteLoading);
   const activeSearchQuery = inNoteSearchQuery || query;
-  const mobileNavigationOpen = mobileSidebarOpen || mobileListOpen;
+  const mobileNavigationOpen = activeDrawer !== null;
   const isCardsLayout = viewLayout === "cards";
   const showCardsGrid = isCardsLayout && cardEditingNoteId === null;
+  const editorContentInert = Boolean(activeDrawer);
 
   return <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${focusMode ? "is-focus-mode" : ""} ${isCardsLayout ? "layout-cards" : ""}`}>
-    {mobileNavigationOpen && <button className="mobile-scrim is-visible" type="button" aria-label="关闭导航" onClick={() => { setMobileSidebarOpen(false); setMobileListOpen(false); closeOutline(); }} />}
-    <Sidebar view={view} setView={selectView} notebooks={notebooks} notebookId={notebookId} setNotebookId={selectNotebook} query={query} setQuery={changeQuery} searchRef={searchRef} onNewInboxNote={handleNewInboxNote} onCreateNotebook={handleCreateNotebook} onEditNotebook={handleEditNotebook} collapsed={sidebarCollapsed} onCollapse={handleCollapseSidebar} mobileOpen={mobileSidebarOpen} onLogout={logout} />
+    {mobileNavigationOpen && <button className="mobile-scrim is-visible" type="button" aria-hidden="true" tabIndex={-1} onClick={closeMobileNavigation} />}
+    <Sidebar view={view} setView={selectView} notebooks={notebooks} notebookId={notebookId} setNotebookId={selectNotebook} query={query} setQuery={changeQuery} searchRef={searchRef} onNewInboxNote={handleNewInboxNote} onCreateNotebook={handleCreateNotebook} onEditNotebook={handleEditNotebook} collapsed={sidebarCollapsed} onCollapse={handleCollapseSidebar} mobileOpen={mobileDrawer === "sidebar"} onLogout={logout} drawerRef={sidebarRef} modal={activeDrawer === "sidebar"} inert={isMobileViewport && activeDrawer !== "sidebar"} onCloseMobile={closeMobileNavigation} />
     {!isCardsLayout && (
-      <NoteListPanel notes={notes} total={totalNotes} hasMore={hasMoreNotes} sort={noteSort} setSort={handleNoteSort} selectedId={selectedId} selectedIds={selectedNoteIds} onSelect={handleSelectListNote} onDeleteSelected={deleteSelectedNotes} view={view} query={query} currentNotebookName={currentNotebook?.name} onEmptyTrash={view === "trash" ? emptyTrash : undefined} trashBusy={pendingTrashCount > 0 || emptyingTrash} onNewNote={listNewNote} onClearQuery={handleClearQuery} mobileOpen={mobileListOpen} onOpenSidebar={handleOpenSidebar} transitionToken={listTransitionToken} outlineOpen={outlineOpen} outlineItems={outlineItems} activeOutlineId={activeOutlineId} onScrollToOutlineItem={handleScrollToOutlineItem} onCloseOutline={closeOutline} onLoadMore={loadMoreNotes} isLoadingMore={isLoadingMore} />
+      <NoteListPanel notes={notes} total={totalNotes} hasMore={hasMoreNotes} sort={noteSort} setSort={handleNoteSort} selectedId={selectedId} selectedIds={selectedNoteIds} onSelect={handleSelectListNote} onDeleteSelected={deleteSelectedNotes} view={view} query={query} currentNotebookName={currentNotebook?.name} onEmptyTrash={view === "trash" ? emptyTrash : undefined} trashBusy={pendingTrashCount > 0 || emptyingTrash} onNewNote={listNewNote} onClearQuery={handleClearQuery} mobileOpen={mobileDrawer === "list"} onOpenSidebar={handleOpenSidebar} transitionToken={listTransitionToken} outlineOpen={outlineOpen} outlineItems={outlineItems} activeOutlineId={activeOutlineId} onScrollToOutlineItem={handleScrollToOutlineItem} onCloseOutline={closeOutline} onLoadMore={loadMoreNotes} isLoadingMore={isLoadingMore} virtualizationScope={listScope} drawerRef={listPanelRef} modal={activeDrawer === "list"} inert={isMobileViewport && activeDrawer !== "list"} onCloseMobile={closeMobileNavigation} />
     )}
     {showCardsGrid ? (
       <NoteCardGridPanel
@@ -1283,9 +1293,10 @@ export function Workspace() {
         scrollScope={listScope}
         initialScrollTop={cardGridScrollPositionRef.current.scope === listScope ? cardGridScrollPositionRef.current.top : 0}
         onScrollPositionChange={handleCardGridScrollPositionChange}
+        inert={editorContentInert}
       />
     ) : (
-      <main className="editor-region">
+      <main ref={editorRegionRef} className="editor-region" tabIndex={-1} aria-hidden={editorContentInert || undefined} inert={editorContentInert}>
         {renderedNote ? <Suspense fallback={<NoteLoadingState />}><LazyNoteEditor note={renderedNote} availableNotes={notes} onNavigateWikiLink={handleNavigateWikiLink} onCreateAndLinkNote={handleCreateAndLinkNote} onNavigateToNote={selectNote} searchQuery={activeSearchQuery} onClearSearch={activeSearchQuery ? handleClearSearch : undefined} onToast={setToast} onMarkdownReaderChange={registerEditorMarkdownReader} saveState={saveState} isLoading={isNoteLoading} trashBusy={emptyingTrash || (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onShare={handleShare} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={handleOpenList} onBackToCards={isCardsLayout ? () => setCardEditingNoteId(null) : undefined} onUploadImage={handleUploadImage} focusMode={focusMode} typewriterMode={typewriterMode} outlineOpen={outlineOpen} outlineItems={outlineItems} activeOutlineId={activeOutlineId} onToggleOutline={toggleOutline} onCloseOutline={closeOutline} onOutlineItemsChange={handleOutlineItemsChange} onOutlineActiveChange={handleOutlineActiveChange} onOutlineNavigationReady={handleOutlineNavigationReady} /></Suspense> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor isTrash={view === "trash"} onNewNote={handleNewNote} onOpenList={handleOpenList} transitionToken={listTransitionToken} />}
       </main>
     )}

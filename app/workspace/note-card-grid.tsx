@@ -46,6 +46,7 @@ export type NoteCardGridPanelProps = {
   scrollScope: string;
   initialScrollTop: number;
   onScrollPositionChange: (scope: string, scrollTop: number) => void;
+  inert?: boolean;
 };
 
 export const NoteCardGridPanel = memo(function NoteCardGridPanel({
@@ -72,11 +73,13 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
   scrollScope,
   initialScrollTop,
   onScrollPositionChange,
+  inert = false,
 }: NoteCardGridPanelProps) {
   const panelRef = useRef<HTMLElement>(null);
   const gridScrollRef = useRef<HTMLDivElement>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
   const sortedNotes = useMemo(() => sortNotes(notes, sort), [notes, sort]);
+  const notebooksById = useMemo(() => new Map(notebooks.map((notebook) => [notebook.id, notebook])), [notebooks]);
   const isTrashView = view === "trash";
   const showNotebook = !currentNotebookName && view !== "inbox";
 
@@ -133,6 +136,8 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
       ref={panelRef}
       className="note-card-grid-panel"
       aria-label="笔记卡片网格"
+      aria-hidden={inert || undefined}
+      inert={inert}
     >
       {/* 沉浸式瀑布流滚动区域（无多余顶栏） */}
       <div className="card-grid-scroll-shell">
@@ -177,7 +182,7 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
                   onOpen={onOpenNote}
                   onToggleSelect={onToggleSelectNote}
                   onToggleFavorite={onToggleFavoriteNote}
-                  notebooks={notebooks}
+                  notebook={notebooksById.get(note.notebookId)}
                   isTrashView={isTrashView}
                 />
               ))}
@@ -239,7 +244,7 @@ type NoteCardItemProps = {
   onOpen: (id: string) => void;
   onToggleSelect: (id: string, modifiers: Pick<NoteSelectionClick, "metaKey" | "ctrlKey" | "shiftKey">) => void;
   onToggleFavorite: (note: NoteSummary) => void;
-  notebooks: Notebook[];
+  notebook?: Notebook;
   isTrashView: boolean;
 };
 
@@ -251,7 +256,7 @@ const NoteCardItem = memo(function NoteCardItem({
   onOpen,
   onToggleSelect,
   onToggleFavorite,
-  notebooks,
+  notebook,
   isTrashView,
 }: NoteCardItemProps) {
   const handleCardClick = (event: ReactMouseEvent) => {
@@ -270,7 +275,7 @@ const NoteCardItem = memo(function NoteCardItem({
 
   const displayTitle = note.title.trim() || "未命名笔记";
   const hasThumbnail = Boolean(note.thumbnail?.id);
-  const displayNotebook = notebooks.find((nb) => nb.id === note.notebookId);
+  const displayNotebook = notebook;
   const tags = getNoteTags(note);
   const visibleTags = tags.slice(0, NOTE_TAG_DISPLAY_LIMIT);
 

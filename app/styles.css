@@ -461,8 +461,8 @@ button.save-status:hover { text-decoration: underline; }
   font-family: system-ui;
 }
 .editor-panel .note-title-input { display: block; width: 100%; min-height: 1.25em; height: auto; padding: 0; border: 0; outline: 0; resize: none; overflow: hidden; overflow-wrap: anywhere; background: transparent; color: var(--ink); font-size: clamp(2rem, 3.5vw, 3.05rem); font-weight: 700; letter-spacing: 0.005em; line-height: 1.18; }
-.editor-panel .note-title-input:focus,
-.editor-panel .note-title-input:focus-visible { outline: none; box-shadow: none; }
+.editor-panel .note-title-input:focus { outline: none; box-shadow: none; }
+.editor-panel .note-title-input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 5px; border-radius: var(--radius-sm); }
 .note-title-input::placeholder { color: var(--prose-placeholder); }
 .note-title-input::selection { background: var(--accent); color: var(--accent-contrast); }
 .note-prose { margin-top: 32px; color: var(--ink-soft); font-size: 1.08rem; line-height: 1.55; letter-spacing: 0.01em; overflow-wrap: anywhere; }
