@@ -1,5 +1,6 @@
 node_modules
 dist
+.workbuddy
 .wrangler
 .wrangler.local.jsonc
 .wrangler.remote.jsonc

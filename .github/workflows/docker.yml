@@ -3,7 +3,7 @@ name: Publish Docker image
 on:
   push:
     tags:
-      - "**"
+      - "v*.*.*"
 
 permissions:
   contents: write
@@ -100,7 +100,7 @@ jobs:
 
           即使该版本没有待执行的迁移，迁移命令也可安全重复运行。升级或回滚时继续使用同一个数据卷；回滚前应确认目标旧版本兼容当前数据库 schema。
 
-          4. 打开 http://localhost:3000，并使用 .env 中的凭据登录。
+          4. 打开 http://127.0.0.1:3000/app，并使用 .env 中的凭据登录。
 
           ### 健康检查
 
