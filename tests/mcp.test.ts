@@ -169,7 +169,7 @@ describe("remote MCP endpoint", () => {
     expect(resultOf(discovered.body!).instructions).toContain("8,000 个 Unicode 字符");
     expect(resultOf(discovered.body!).instructions).toContain("字面井号词");
     expect(resultOf(discovered.body!).instructions).toContain("batch_update_notes 可将最多 50 篇");
-    expect(resultOf(discovered.body!).instructions).toContain("checkedCount 表示已检查存在性的数量");
+    expect(resultOf(discovered.body!).instructions).toContain("oversizedIds 标明因剩余字符预算不足而跳过的笔记");
     expect(resultOf(discovered.body!).instructions).toContain("insert_into_note 在行边界插入时会自动补换行");
   });
 
@@ -445,8 +445,30 @@ describe("remote MCP endpoint", () => {
       tags: ["不应写入"],
     }, 13, environment);
     expect(toolData(batchRejected.body!).results[0].error.code).toBe("NOTE_IN_TRASH");
-    const unchanged = toolData((await callTool("get_note", { noteId: note.id }, 14, environment)).body!).note;
+    const updateRejected = await callTool("update_note", {
+      noteId: note.id,
+      version: trashedNote.version,
+      title: "不应改标题",
+      contentMarkdown: "不应改正文",
+    }, 14, environment);
+    expect(toolData(updateRejected.body!).error.code).toBe("NOTE_IN_TRASH");
+    const appendRejected = await callTool("append_to_note", { noteId: note.id, version: trashedNote.version, contentMarkdown: "不应追加" }, 15, environment);
+    expect(toolData(appendRejected.body!).error.code).toBe("NOTE_IN_TRASH");
+    const replaceRejected = await callTool("replace_in_note", { noteId: note.id, version: trashedNote.version, oldText: "不存在的正文片段", newText: "不应替换" }, 16, environment);
+    expect(toolData(replaceRejected.body!).error.code).toBe("NOTE_IN_TRASH");
+    const insertRejected = await callTool("insert_into_note", { noteId: note.id, version: trashedNote.version, anchor: "不存在的锚点", contentMarkdown: "不应插入" }, 17, environment);
+    expect(toolData(insertRejected.body!).error.code).toBe("NOTE_IN_TRASH");
+    const moveRejected = await callTool("move_note", { noteId: note.id, version: trashedNote.version, notebookId: "another-notebook" }, 18, environment);
+    expect(toolData(moveRejected.body!).error.code).toBe("NOTE_IN_TRASH");
+    const batchMoveRejected = await callTool("batch_update_notes", {
+      notes: [{ noteId: note.id, version: trashedNote.version }],
+      notebookId: "another-notebook",
+    }, 19, environment);
+    expect(toolData(batchMoveRejected.body!).results[0].error.code).toBe("NOTE_IN_TRASH");
+    const unchanged = toolData((await callTool("get_note", { noteId: note.id }, 20, environment)).body!).note;
     expect(unchanged).toMatchObject({ isDeleted: true, version: trashedNote.version, isFavorite: true, tags: [] });
+    const restored = toolData((await callTool("restore_note", { noteId: note.id, version: trashedNote.version }, 21, environment)).body!).note;
+    expect(restored.isDeleted).toBe(false);
   });
 
   test("batch reads full notes with a bounded result count and reports missing IDs", async () => {
@@ -454,6 +476,7 @@ describe("remote MCP endpoint", () => {
     const first = toolData((await callTool("create_note", { title: "批量读取甲", contentMarkdown: "甲正文\n完整内容" }, 1, environment)).body!).note;
     const second = toolData((await callTool("create_note", { title: "批量读取乙", contentMarkdown: "乙正文完整内容" }, 2, environment)).body!).note;
     const third = toolData((await callTool("create_note", { title: "批量读取丙", contentMarkdown: "丙正文完整内容" }, 3, environment)).body!).note;
+    const small = toolData((await callTool("create_note", { title: "短正文笔记", contentMarkdown: "小" }, 4, environment)).body!).note;
 
     const limited = await callTool("get_notes_batch", { noteIds: [first.id, second.id, third.id], limit: 2 }, 4, environment);
     const limitedData = toolData(limited.body!);
@@ -473,18 +496,29 @@ describe("remote MCP endpoint", () => {
     expect(toolData(notYetChecked.body!)).toMatchObject({ checkedCount: 1, uncheckedCount: 1 });
 
     const characterLimited = await callTool("get_notes_batch", {
-      noteIds: [first.id, second.id, third.id],
+      noteIds: [first.id, second.id, small.id],
       limit: 3,
-      maxTotalCharacters: Array.from("甲正文\n完整内容").length,
-    }, 5, environment);
+      maxTotalCharacters: Array.from("甲正文\n完整内容小").length,
+    }, 8, environment);
     const characterLimitedData = toolData(characterLimited.body!);
-    expect(characterLimitedData.notes).toHaveLength(1);
-    expect(characterLimitedData.totalContentCharacters).toBe(Array.from("甲正文\n完整内容").length);
-    expect(characterLimitedData.remainingIds).toEqual([second.id, third.id]);
+    expect(characterLimitedData.notes.map((note: { id: string }) => note.id)).toEqual([first.id, small.id]);
+    expect(characterLimitedData.totalContentCharacters).toBe(Array.from("甲正文\n完整内容小").length);
+    expect(characterLimitedData.remainingIds).toEqual([second.id]);
+    expect(characterLimitedData.oversizedIds).toEqual([second.id]);
     expect(characterLimitedData.stoppedForCharacterLimit).toBe(true);
-    expect(characterLimitedData).toMatchObject({ checkedCount: 2, uncheckedCount: 1 });
+    expect(characterLimitedData).toMatchObject({ checkedCount: 3, uncheckedCount: 0, skippedForCharacterLimit: true });
 
-    const remainder = await callTool("get_notes_batch", { noteIds: [third.id, "missing-note-id"], limit: 2 }, 6, environment);
+    const firstExceedsBudget = await callTool("get_notes_batch", {
+      noteIds: [first.id, small.id],
+      maxTotalCharacters: 1,
+    }, 9, environment);
+    const firstExceedsBudgetData = toolData(firstExceedsBudget.body!);
+    expect(firstExceedsBudgetData.notes.map((note: { id: string }) => note.id)).toEqual([small.id]);
+    expect(firstExceedsBudgetData.oversizedIds).toEqual([first.id]);
+    expect(firstExceedsBudgetData.remainingIds).toEqual([first.id]);
+    expect(firstExceedsBudgetData).toMatchObject({ returnedCount: 1, checkedCount: 2, uncheckedCount: 0, totalContentCharacters: 1 });
+
+    const remainder = await callTool("get_notes_batch", { noteIds: [third.id, "missing-note-id"], limit: 2 }, 10, environment);
     expect(toolData(remainder.body!).notes[0].contentMarkdown).toBe("丙正文完整内容");
     expect(toolData(remainder.body!).notFoundIds).toEqual(["missing-note-id"]);
     expect(toolData(remainder.body!)).toMatchObject({ checkedCount: 2, uncheckedCount: 0 });

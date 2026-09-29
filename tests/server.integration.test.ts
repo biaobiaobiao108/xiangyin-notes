@@ -555,15 +555,21 @@ describe("Bun Server API", () => {
     expect((await request(`/api/notes/${first.body?.note.id}`, {}, login.cookie)).body?.note.version).toBe(2);
     expect((await request(`/api/notes/${third.body?.note.id}`, {}, login.cookie)).body?.note.deletedAt).toBeNull();
 
-    const changed = await request(`/api/notes/${second.body?.note.id}`, {
+    const rejectedChange = await request(`/api/notes/${second.body?.note.id}`, {
       method: "PATCH",
       body: JSON.stringify({ version: 2, title: "批量移入二（更新）" }),
+    }, login.cookie);
+    expect(rejectedChange.response.status).toBe(409);
+    expect(rejectedChange.body?.error.code).toBe("NOTE_IN_TRASH");
+    const changed = await request(`/api/notes/${third.body?.note.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ version: 1, title: "仍在收件箱的笔记（更新）" }),
     }, login.cookie);
     expect(changed.response.status).toBe(200);
     const conflict = await request("/api/notes/batch", {
       method: "PATCH",
       body: JSON.stringify({ notes: [
-        { id: third.body?.note.id, version: third.body?.note.version },
+        { id: third.body?.note.id, version: 1 },
         { id: second.body?.note.id, version: 2 },
       ] }),
     }, login.cookie);

@@ -60,7 +60,8 @@ describe("Note links, backlinks, and renaming cascade", () => {
     const renamed = await request(`/api/notes/${target.id}`, {
       method: "PATCH", body: JSON.stringify({ version: target.version + 1, title: "回收站里的新标题" }),
     }, cookie);
-    expect(renamed.response.status).toBe(200);
+    expect(renamed.response.status).toBe(409);
+    expect(renamed.body?.error.code).toBe("NOTE_IN_TRASH");
     expect((await request(`/api/notes/${source.id}`, {}, cookie)).body?.note.contentMarkdown).toBe(source.contentMarkdown);
 
     const replacement = (await request("/api/notes", {

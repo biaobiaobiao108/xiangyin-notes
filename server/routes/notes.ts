@@ -733,6 +733,17 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     const payload = await readJson<{ version?: unknown; title?: unknown; contentMarkdown?: unknown; notebookId?: unknown; isFavorite?: unknown; deleted?: unknown }>(request, NOTE_BODY_MAX_BYTES);
     if (!payload || !Number.isInteger(payload.version)) return jsonError(400, "VERSION_REQUIRED", "保存笔记必须携带版本号");
     if (payload.version !== current.version) return json({ error: { code: "VERSION_CONFLICT", message: "这篇笔记已在别处更新", current: toFullNote(current) } }, 409);
+    if (current.deleted_at !== null) {
+      const hasOtherChanges = payload.title !== undefined
+        || payload.contentMarkdown !== undefined
+        || payload.notebookId !== undefined
+        || payload.isFavorite !== undefined;
+      const isRestoreOnly = payload.deleted === false && !hasOtherChanges;
+      const isRepeatedDeleteOnly = payload.deleted === true && !hasOtherChanges;
+      if (!isRestoreOnly && !isRepeatedDeleteOnly) {
+        return jsonError(409, "NOTE_IN_TRASH", "回收站中的笔记只读，请先恢复笔记后再修改");
+      }
+    }
     const rawTitle = payload.title === undefined ? current.title : payload.title;
     const contentMarkdown = payload.contentMarkdown === undefined ? current.content_markdown : payload.contentMarkdown;
     const notebookId = payload.notebookId === undefined ? current.notebook_id : payload.notebookId;
