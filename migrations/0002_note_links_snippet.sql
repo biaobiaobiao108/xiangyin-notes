@@ -23,3 +23,16 @@ CREATE INDEX IF NOT EXISTS idx_note_links_source ON note_links(user_id, source_n
 CREATE INDEX IF NOT EXISTS idx_note_links_target ON note_links(user_id, target_note_id);
 CREATE INDEX IF NOT EXISTS idx_note_links_target_title ON note_links(user_id, target_title);
 CREATE INDEX IF NOT EXISTS idx_note_links_target_title_normalized ON note_links(user_id, target_title_normalized);
+
+-- 同一原因：rate_limits 表也是后来才进 baseline 的，旧库没有它，登录与导入限流会直接报 no such table。
+CREATE TABLE IF NOT EXISTS rate_limits (
+  action TEXT NOT NULL,
+  key TEXT NOT NULL,
+  points INTEGER NOT NULL DEFAULT 0,
+  window_started_at INTEGER NOT NULL,
+  blocked_until INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY(action, key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_rate_limits_action_expiry ON rate_limits(action, blocked_until, window_started_at);
