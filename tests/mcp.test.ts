@@ -207,8 +207,14 @@ describe("remote MCP endpoint", () => {
       color: "#62776a",
     });
 
-    const deleted = await callTool("delete_notebook", { notebookId: notebook.id }, 4, environment);
-    expect(toolData(deleted.body!)).toEqual({ ok: true });
+    const withoutConfirmation = await callTool("delete_notebook", { notebookId: notebook.id }, 4, environment);
+    expect(resultOf(withoutConfirmation.body!).isError).toBe(true);
+
+    const wrongCount = await callTool("delete_notebook", { notebookId: notebook.id, confirm: true, expectedNoteCount: 99 }, 4, environment);
+    expect(toolData(wrongCount.body!).error.code).toBe("NOTEBOOK_COUNT_MISMATCH");
+
+    const deleted = await callTool("delete_notebook", { notebookId: notebook.id, confirm: true }, 4, environment);
+    expect(toolData(deleted.body!)).toMatchObject({ ok: true, movedCount: 1, versionsInvalidated: true });
     const preservedNote = toolData((await callTool("get_note", { noteId: createdNote.id }, 5, environment)).body!).note;
     expect(preservedNote.notebookId).not.toBe(notebook.id);
     expect(preservedNote.notebookName).toBe("收件箱");
@@ -217,7 +223,7 @@ describe("remote MCP endpoint", () => {
     expect(inboxes[0].updatedAtISO).toBe(new Date(inboxes[0].updatedAt * 1000).toISOString());
 
     const systemNotebook = inboxes.find((entry: { isSystem: boolean }) => entry.isSystem);
-    const rejectedDeletion = await callTool("delete_notebook", { notebookId: systemNotebook.id }, 7, environment);
+    const rejectedDeletion = await callTool("delete_notebook", { notebookId: systemNotebook.id, confirm: true }, 7, environment);
     expect(resultOf(rejectedDeletion.body!).isError).toBe(true);
     expect(toolData(rejectedDeletion.body!).error.code).toBe("SYSTEM_NOTEBOOK");
 
@@ -286,7 +292,8 @@ describe("remote MCP endpoint", () => {
       contentMarkdown: "不应插入",
     }, 6, environment);
     expect(resultOf(duplicateAnchor.body!).isError).toBe(true);
-    expect(toolData(duplicateAnchor.body!).error.code).toBe("AMBIGUOUS_ANCHOR");
+    expect(toolData(duplicateAnchor.body!).error.code).toBe("AMBIGUOUS_MATCH");
+    expect(toolData(duplicateAnchor.body!).error.target).toBe("anchor");
     expect(toolData(duplicateAnchor.body!).error.matchCount).toBe(2);
     expect(toolData(duplicateAnchor.body!).error.matches).toHaveLength(2);
 
@@ -511,7 +518,8 @@ describe("remote MCP endpoint", () => {
     expect(toolData(byTitle.body!).note.id).toBe(toolData(exact.body!).note.id);
     const ambiguous = await callTool("get_note", { title: "季度计划" }, 5, environment);
     expect(resultOf(ambiguous.body!).isError).toBe(true);
-    expect(toolData(ambiguous.body!).error.code).toBe("AMBIGUOUS_TITLE");
+    expect(toolData(ambiguous.body!).error.code).toBe("AMBIGUOUS_MATCH");
+    expect(toolData(ambiguous.body!).error.target).toBe("title");
     expect(toolData(ambiguous.body!).error.matches).toHaveLength(2);
   });
 
@@ -626,7 +634,8 @@ describe("remote MCP endpoint", () => {
       newText: "替换",
     }, 2, environment);
     const ambiguousError = toolData(ambiguous.body!).error;
-    expect(ambiguousError.code).toBe("AMBIGUOUS_TEXT_MATCH");
+    expect(ambiguousError.code).toBe("AMBIGUOUS_MATCH");
+    expect(ambiguousError.target).toBe("text");
     expect(ambiguousError.matchCount).toBe(2);
     expect(ambiguousError.matches).toHaveLength(2);
     expect(ambiguousError.matches[0].before).toContain("前文");
@@ -649,8 +658,17 @@ describe("remote MCP endpoint", () => {
       oldText: "目标",
       newText: "不应写入",
     }, 4, environment);
-    expect(toolData(missingOccurrence.body!).error.code).toBe("OCCURRENCE_NOT_FOUND");
+    expect(toolData(missingOccurrence.body!).error.code).toBe("NOT_FOUND");
+    expect(toolData(missingOccurrence.body!).error.target).toBe("occurrence");
     expect(toolData(missingOccurrence.body!).error.matchCount).toBe(1);
+
+    const missingText = await callTool("replace_in_note", {
+      noteId: created.id,
+      oldText: "正文中不存在的片段",
+      newText: "不应写入",
+    }, 5, environment);
+    expect(toolData(missingText.body!).error.code).toBe("NOT_FOUND");
+    expect(toolData(missingText.body!).error.target).toBe("text");
   });
 
   test("supports official chunked writing with a length receipt and returned versions", async () => {
@@ -837,5 +855,101 @@ describe("remote MCP endpoint", () => {
     const missingNote = await callTool("get_note", { noteId: "missing" }, 2);
     expect(resultOf(missingNote.body!).isError).toBe(true);
     expect(toolData(missingNote.body!).error.code).toBe("NOTE_NOT_FOUND");
+  });
+
+  test("requires explicit confirmation before emptying the trash", async () => {
+    const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
+    const created = toolData((await callTool("create_note", { title: "待清空笔记" }, 1, environment)).body!).note;
+    await callTool("delete_note", { noteId: created.id, version: created.version }, 2, environment);
+
+    const unconfirmed = await callTool("empty_trash", { confirm: false }, 3, environment);
+    expect(resultOf(unconfirmed.body!).isError).toBe(true);
+    expect(toolData(unconfirmed.body!).error.code).toBe("CONFIRMATION_REQUIRED");
+
+    const dryRun = await callTool("empty_trash", { confirm: true, dryRun: true }, 4, environment);
+    expect(toolData(dryRun.body!)).toMatchObject({ dryRun: true, wouldDeleteCount: 1 });
+
+    const stillThere = toolData((await callTool("list_trash", {}, 5, environment)).body!).notes;
+    expect(stillThere).toHaveLength(1);
+
+    const emptied = await callTool("empty_trash", { confirm: true }, 6, environment);
+    expect(toolData(emptied.body!).deletedCount).toBe(1);
+  });
+
+  test("searches the trash by query through list_trash and search_notes", async () => {
+    const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
+    const kept = toolData((await callTool("create_note", { title: "留存笔记", contentMarkdown: "正文关键词" }, 1, environment)).body!).note;
+    const trashed = toolData((await callTool("create_note", { title: "待恢复的会议记录", contentMarkdown: "关键词在回收站" }, 2, environment)).body!).note;
+    await callTool("delete_note", { noteId: trashed.id, version: trashed.version }, 3, environment);
+
+    const trashQuery = toolData((await callTool("list_trash", { query: "会议记录" }, 4, environment)).body!).notes;
+    expect(trashQuery.map((note: { id: string }) => note.id)).toEqual([trashed.id]);
+
+    const trashSearch = toolData((await callTool("search_notes", { query: "关键词", view: "trash" }, 5, environment)).body!).notes;
+    expect(trashSearch.map((note: { id: string }) => note.id)).toEqual([trashed.id]);
+
+    const allSearch = toolData((await callTool("search_notes", { query: "关键词" }, 6, environment)).body!).notes;
+    expect(allSearch.map((note: { id: string }) => note.id)).toEqual([kept.id]);
+
+    const restoredByTitle = toolData((await callTool("get_note", { title: "待恢复的会议记录", includeDeleted: true }, 7, environment)).body!).note;
+    expect(restoredByTitle.id).toBe(trashed.id);
+    expect(restoredByTitle.isDeleted).toBe(true);
+
+    const hiddenByDefault = await callTool("get_note", { title: "待恢复的会议记录" }, 8, environment);
+    expect(resultOf(hiddenByDefault.body!).isError).toBe(true);
+    expect(toolData(hiddenByDefault.body!).error.code).toBe("NOT_FOUND");
+  });
+
+  test("keeps existing tags when set_tags uses add or remove mode", async () => {
+    const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
+    const created = toolData((await callTool("create_note", { title: "标签语义", contentMarkdown: "正文", tags: ["甲"] }, 1, environment)).body!).note;
+
+    const added = await callTool("set_tags", { noteId: created.id, version: created.version, tags: ["乙"], mode: "add" }, 2, environment);
+    expect(toolData(added.body!).mode).toBe("add");
+    const afterAdd = toolData((await callTool("get_note", { noteId: created.id }, 3, environment)).body!).note;
+    expect(afterAdd.tags).toEqual(["甲", "乙"]);
+
+    const removed = await callTool("set_tags", { noteId: afterAdd.id, version: afterAdd.version, tags: ["甲"], mode: "remove" }, 4, environment);
+    const afterRemove = toolData((await callTool("get_note", { noteId: created.id }, 5, environment)).body!).note;
+    expect(afterRemove.tags).toEqual(["乙"]);
+    expect(removed.response.status).toBe(200);
+
+    const replaced = await callTool("set_tags", { noteId: created.id, version: afterRemove.version, tags: ["丙"] }, 6, environment);
+    expect(toolData(replaced.body!).mode).toBe("replace");
+    const afterReplace = toolData((await callTool("get_note", { noteId: created.id }, 7, environment)).body!).note;
+    expect(afterReplace.tags).toEqual(["丙"]);
+  });
+
+  test("omits note content on request and exposes ISO timestamps", async () => {
+    const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
+    const created = toolData((await callTool("create_note", { title: "精简读取", contentMarkdown: "很长的一段正文" }, 1, environment)).body!).note;
+
+    const summary = await callTool("get_note", { noteId: created.id, includeContent: false }, 2, environment);
+    const summaryNote = toolData(summary.body!).note;
+    expect(summaryNote.contentMarkdown).toBeUndefined();
+    expect(summaryNote.version).toBe(created.version);
+    expect(summaryNote.createdAtISO).toBe(new Date(summaryNote.createdAt * 1000).toISOString());
+
+    const full = toolData((await callTool("get_note", { noteId: created.id }, 3, environment)).body!).note;
+    expect(full.contentMarkdown).toBe("很长的一段正文");
+  });
+
+  test("reports partial batch failures without failing the whole call", async () => {
+    const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
+    const first = toolData((await callTool("create_note", { title: "批量一" }, 1, environment)).body!).note;
+    const second = toolData((await callTool("create_note", { title: "批量二" }, 2, environment)).body!).note;
+
+    const partial = await callTool("batch_update_notes", {
+      notes: [
+        { noteId: first.id, version: first.version },
+        { noteId: second.id, version: 99 },
+      ],
+      isFavorite: true,
+    }, 3, environment);
+    const partialData = toolData(partial.body!);
+    expect(resultOf(partial.body!).isError).toBeUndefined();
+    expect(partialData).toMatchObject({ updatedCount: 1, failedCount: 1, partial: true });
+    expect(partialData.results[0].ok).toBe(true);
+    expect(partialData.results[1].error.code).toBe("VERSION_CONFLICT");
   });
 });

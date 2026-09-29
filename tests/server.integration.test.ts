@@ -568,7 +568,7 @@ describe("Bun Server API", () => {
       ] }),
     }, login.cookie);
     expect(conflict.response.status).toBe(409);
-    expect(conflict.body?.error.code).toBe("BATCH_VERSION_CONFLICT");
+    expect(conflict.body?.error.code).toBe("VERSION_CONFLICT");
     expect((await request(`/api/notes/${third.body?.note.id}`, {}, login.cookie)).body?.note.deletedAt).toBeNull();
     expect((await request(`/api/notes/${second.body?.note.id}`, {}, login.cookie)).body?.note.deletedAt).not.toBeNull();
   });
@@ -597,7 +597,7 @@ describe("Bun Server API", () => {
       body: JSON.stringify({ notes: [{ id: other.body?.note.id, version: other.body?.note.version }] }),
     }, login.cookie);
     expect(unauthorizedBatch.response.status).toBe(409);
-    expect(unauthorizedBatch.body?.error.code).toBe("BATCH_VERSION_CONFLICT");
+    expect(unauthorizedBatch.body?.error.code).toBe("VERSION_CONFLICT");
 
     const deleted = await request("/api/notes/batch", {
       method: "DELETE",
