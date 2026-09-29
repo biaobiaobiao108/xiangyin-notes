@@ -140,6 +140,8 @@ export async function cleanupOrphanAssets(database: SqliteDatabase, assetRoot: s
   if (timestamp < nextOrphanAssetCleanupAt) return;
   nextOrphanAssetCleanupAt = timestamp + ORPHAN_ASSET_CLEANUP_INTERVAL_SECONDS;
   await retryPendingAssetDeletions(assetRoot);
+  // Asset ids are UUIDs and references in Markdown are matched case-insensitively elsewhere,
+  // so the orphan check must lowercase both sides or referenced images would be deleted.
   const staleAssets = all<{ id: string; storage_path: string }>(database, `
     SELECT a.id, a.storage_path
     FROM image_assets a
@@ -147,7 +149,7 @@ export async function cleanupOrphanAssets(database: SqliteDatabase, assetRoot: s
       AND (a.note_id IS NULL OR NOT EXISTS (
         SELECT 1 FROM notes n
         WHERE n.id = a.note_id
-          AND instr(n.content_markdown, '/api/assets/' || a.id) > 0
+          AND instr(lower(n.content_markdown), '/api/assets/' || lower(a.id)) > 0
       ))
     LIMIT 100
   `, timestamp - ORPHAN_ASSET_TTL_SECONDS);
@@ -160,7 +162,7 @@ export async function cleanupOrphanAssets(database: SqliteDatabase, assetRoot: s
         AND (note_id IS NULL OR NOT EXISTS (
           SELECT 1 FROM notes n
           WHERE n.id = image_assets.note_id
-            AND instr(n.content_markdown, '/api/assets/' || image_assets.id) > 0
+            AND instr(lower(n.content_markdown), '/api/assets/' || lower(image_assets.id)) > 0
         ))
     `);
     for (const asset of staleAssets) {
@@ -229,7 +231,8 @@ export async function serveImageAsset(request: Request, database: SqliteDatabase
   if (!(await file.exists())) return jsonError(404, "ASSET_NOT_FOUND", "图片不存在");
   const headers = new Headers({
     "Content-Type": asset.mime_type,
-    "Content-Length": String(asset.byte_size),
+    // Use the real file size so a truncated or externally modified file cannot hang the response.
+    "Content-Length": String(file.size),
     "Content-Disposition": "inline",
     "Cache-Control": cacheControl,
   });
