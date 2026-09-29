@@ -186,6 +186,7 @@ export function CommandMenu({
       lastMousePositionRef.current = null;
       returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       dialog.showModal();
+      if (listRef.current) listRef.current.scrollTop = 0;
       const nextQuery = initialQuery ?? "";
       setQuery(nextQuery);
       setSelected(0);
@@ -212,26 +213,37 @@ export function CommandMenu({
   useEffect(() => {
     const list = listRef.current;
     if (!list) return;
-    const selectedElement = list.querySelector<HTMLElement>(".command-row.is-selected");
-    if (!selectedElement) return;
 
-    // Scroll only the command list. scrollIntoView may also scroll the page or
-    // dialog ancestors, which makes the whole menu appear to shift vertically.
-    const listRect = list.getBoundingClientRect();
-    const listTop = listRect.top + list.clientTop;
-    const listBottom = listTop + list.clientHeight;
-    const selectedRect = selectedElement.getBoundingClientRect();
-    const scrollStyles = getComputedStyle(list);
-    const startInset = Number.parseFloat(scrollStyles.scrollPaddingBlockStart) || 0;
-    const endInset = Number.parseFloat(scrollStyles.scrollPaddingBlockEnd) || 0;
-    const visibleTop = listTop + startInset;
-    const visibleBottom = listBottom - endInset;
+    const alignSelectedRow = () => {
+      const selectedElement = list.querySelector<HTMLElement>(".command-row.is-selected");
+      if (!selectedElement) return;
 
-    if (selectedRect.top < visibleTop) {
-      list.scrollTop -= visibleTop - selectedRect.top;
-    } else if (selectedRect.bottom > visibleBottom) {
-      list.scrollTop += selectedRect.bottom - visibleBottom;
-    }
+      // Measure in layout coordinates so dialog animations and browser-specific
+      // subpixel rounding cannot change the command list's scroll alignment.
+      const selectedTop = selectedElement.offsetTop - list.offsetTop;
+      const selectedBottom = selectedTop + selectedElement.offsetHeight;
+      const endInset = Number.parseFloat(getComputedStyle(list).getPropertyValue("--command-list-bottom-inset")) || 0;
+      const startInset = 0;
+      const visibleTop = list.scrollTop + list.clientTop + startInset;
+      const visibleBottom = list.scrollTop + list.clientHeight - endInset;
+      const initialVisibleBottom = list.clientHeight - endInset;
+
+      if (selectedBottom >= initialVisibleBottom) {
+        // Keep the sixth and later rows anchored to the same bottom inset, even
+        // when moving back from a later row that has already scrolled the list.
+        list.scrollTop = Math.max(0, selectedBottom + endInset - list.clientHeight);
+      } else if (selectedTop < visibleTop) {
+        list.scrollTop = Math.max(0, selectedTop - list.clientTop - startInset);
+      } else if (selectedBottom > visibleBottom) {
+        list.scrollTop = selectedBottom + endInset - list.clientHeight;
+      }
+    };
+
+    alignSelectedRow();
+    if (typeof ResizeObserver === "undefined") return;
+    const resizeObserver = new ResizeObserver(alignSelectedRow);
+    resizeObserver.observe(list);
+    return () => resizeObserver.disconnect();
   }, [selected]);
 
   const execute = (option: CommandOption) => {

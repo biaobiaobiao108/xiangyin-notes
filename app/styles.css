@@ -832,16 +832,16 @@ button.save-status:hover { text-decoration: underline; }
 
 dialog { padding: 0; color: var(--ink); }
 dialog::backdrop { background: var(--backdrop); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
-/* Fit six 46px command rows, five 2px gaps, and the list's 8px scroll inset. */
-.command-dialog { display: flex; flex-direction: column; width: min(500px, calc(100% - 32px)); height: min(411.5px, calc(100dvh - 32px)); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow); animation: dialog-in var(--motion-fast) ease both; overflow: hidden; }
+/* The list owns the six-row viewport so font metrics cannot change its bottom inset. */
+.command-dialog { display: flex; flex-direction: column; width: min(500px, calc(100% - 32px)); height: fit-content; max-height: calc(100dvh - 32px); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow); animation: dialog-in var(--motion-fast) ease both; overflow: hidden; }
 .command-dialog:not([open]) { display: none; }
 @keyframes dialog-in { from { opacity: 0; transform: translateY(-6px) scale(0.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
 .command-dialog-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 20px 14px; flex-shrink: 0; }
 .command-dialog h2 { margin: 0; font-size: 1.05rem; letter-spacing: 0; }
 .command-search-wrap { display: flex; align-items: center; gap: 10px; margin: 0 18px 13px; padding: 0 12px; min-height: 45px; border: 1px solid var(--accent); border-radius: 8px; color: var(--muted); flex-shrink: 0; }
 .command-search-wrap input { min-width: 0; flex: 1; border: 0; outline: 0; color: var(--ink); background: transparent; }
-.command-list-wrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.command-list { flex: 1; min-height: 0; overflow-y: auto; display: grid; grid-auto-rows: max-content; gap: 2px; padding: 0 10px 12px; scroll-padding-block-end: 8px; }
+.command-list-wrap { position: relative; flex: 0 1 294px; min-height: 0; display: flex; flex-direction: column; }
+.command-list { --command-list-bottom-inset: 8px; flex: 1; min-height: 0; overflow-y: auto; display: grid; grid-auto-rows: max-content; gap: 2px; padding: 0 10px 12px; scroll-padding-block-end: var(--command-list-bottom-inset); }
 .command-section-label { padding: 6px 10px 3px; color: var(--soft-muted); font-size: 0.66rem; font-weight: 700; letter-spacing: 0.08em; }
 .command-row { display: grid; grid-template-columns: 24px minmax(0,1fr) auto; align-items: center; gap: 9px; min-height: 46px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: var(--ink); text-align: left; cursor: default; }
 .command-row.is-selected { background: var(--surface-command-selected); }
