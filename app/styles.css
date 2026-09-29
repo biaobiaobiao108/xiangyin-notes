@@ -840,7 +840,7 @@ dialog::backdrop { background: var(--backdrop); -webkit-backdrop-filter: blur(3p
 .command-search-wrap { display: flex; align-items: center; gap: 10px; margin: 0 18px 13px; padding: 0 12px; min-height: 45px; border: 1px solid var(--accent); border-radius: 8px; color: var(--muted); flex-shrink: 0; }
 .command-search-wrap input { min-width: 0; flex: 1; border: 0; outline: 0; color: var(--ink); background: transparent; }
 .command-list-wrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.command-list { flex: 1; min-height: 0; overflow-y: auto; display: grid; grid-auto-rows: max-content; gap: 2px; padding: 0 10px 12px; }
+.command-list { flex: 1; min-height: 0; overflow-y: auto; display: grid; grid-auto-rows: max-content; gap: 2px; padding: 0 10px 12px; scroll-padding-block-end: 8px; }
 .command-section-label { padding: 6px 10px 3px; color: var(--soft-muted); font-size: 0.66rem; font-weight: 700; letter-spacing: 0.08em; }
 .command-row { display: grid; grid-template-columns: 24px minmax(0,1fr) auto; align-items: center; gap: 9px; min-height: 46px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: var(--ink); text-align: left; cursor: default; }
 .command-row.is-selected { background: var(--surface-command-selected); }
