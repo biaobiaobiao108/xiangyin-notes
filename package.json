@@ -12,12 +12,13 @@
     "start": "bun dist/server/index.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "bun test",
-    "preview": "bun run start",
+    "preview": "bun run scripts/preview.ts",
     "db:migrate": "bun run scripts/migrate.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "^2.1.0",
     "@tiptap/core": "^3.31.3",
+    "@tiptap/pm": "^3.31.3",
     "@tiptap/extension-code-block": "^3.31.3",
     "@tiptap/extension-link": "^3.31.3",
     "@tiptap/extension-placeholder": "^3.31.3",
@@ -29,6 +30,7 @@
     "@tiptap/starter-kit": "^3.31.3",
     "@tiptap/suggestion": "^3.31.3",
     "lucide-react": "^1.43.0",
+    "marked": "^17.0.6",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-router": "^8.3.1",
