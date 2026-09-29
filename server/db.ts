@@ -24,6 +24,28 @@ function isEmptyDatabase(database: SqliteDatabase) {
   return Number(row?.count ?? 0) === 0;
 }
 
+async function countMigrationFiles(migrationsPath: string) {
+  const glob = new Bun.Glob("*.sql");
+  let count = 0;
+  try {
+    for await (const file of glob.scan({ cwd: migrationsPath, onlyFiles: true })) {
+      if (file) count += 1;
+    }
+  } catch {
+    return 0;
+  }
+  return count;
+}
+
+function appliedMigrationCount(database: SqliteDatabase) {
+  try {
+    const row = database.query("SELECT COUNT(*) AS count FROM schema_migrations").get() as TableCountRow | null | undefined;
+    return Number(row?.count ?? 0);
+  } catch {
+    return 0;
+  }
+}
+
 export function reclaimDatabaseSpace(database: SqliteDatabase) {
   try {
     database.exec(`
@@ -48,6 +70,7 @@ export async function openDatabase(
   const database = new Database(resolvedPath, { create: true });
   const autoVacuumRow = database.query("PRAGMA auto_vacuum;").get() as { auto_vacuum: number } | null | undefined;
   if (Number(autoVacuumRow?.auto_vacuum ?? 0) !== 2) {
+    if (resolvedPath !== ":memory:") console.warn("[db] 正在启用 auto_vacuum=INCREMENTAL，首次整理可能需要一些时间");
     database.exec("PRAGMA auto_vacuum = INCREMENTAL;");
     database.exec("VACUUM;");
   }
@@ -61,6 +84,10 @@ export async function openDatabase(
   `);
   if (isEmptyDatabase(database)) {
     await applyMigrations(database);
+  } else {
+    // Existing databases are never migrated automatically; warn instead of failing later at runtime.
+    const pending = (await countMigrationFiles(DEFAULT_MIGRATIONS_PATH)) - appliedMigrationCount(database);
+    if (pending > 0) console.warn(`[db] 检测到 ${pending} 个未应用的迁移，请执行 bun run db:migrate`);
   }
   return database;
 }
