@@ -7,7 +7,7 @@ import type { OutlineItem } from "../editor-metrics";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { commandMenuShortcutLabel } from "../platform";
 import { type PwaState } from "../pwa";
-import { getNoteTags, getNotebookIconComponent, navItems, relativeDate, sortNotes, type NoteSort, viewLabel } from "./helpers";
+import { getNoteTags, getNotebookIconComponent, navItems, NOTE_TAG_DISPLAY_LIMIT, relativeDate, sortNotes, type NoteSort, viewLabel } from "./helpers";
 import { useVirtualNoteList } from "./use-virtual-note-list";
 
 export function NoteLoadingState() {
@@ -16,6 +16,7 @@ export function NoteLoadingState() {
 
 export const Sidebar = memo(function Sidebar({ view, setView, notebooks, notebookId, setNotebookId, query, setQuery, searchRef, onNewInboxNote, onCreateNotebook, onEditNotebook, collapsed, onCollapse, mobileOpen, onLogout, drawerRef, modal = false, inert = false, onCloseMobile }: { view: NoteView; setView: (view: NoteView) => void; notebooks: Notebook[]; notebookId?: string; setNotebookId: (id: string) => void; query: string; setQuery: (query: string) => void; searchRef: RefObject<HTMLInputElement | null>; onNewInboxNote: () => void; onCreateNotebook: () => void; onEditNotebook: (notebook: Notebook) => void; collapsed: boolean; onCollapse: () => void; mobileOpen: boolean; onLogout: () => void; drawerRef?: RefObject<HTMLElement | null>; modal?: boolean; inert?: boolean; onCloseMobile?: () => void }) {
   const notebookListRef = useRef<HTMLDivElement>(null);
+  const collapsedNotebookListRef = useRef<HTMLDivElement>(null);
   const customNotebooks = useMemo(() => notebooks.filter((notebook) => !notebook.isSystem), [notebooks]);
 
   return <aside ref={drawerRef} className={`sidebar ${mobileOpen ? "is-mobile-open" : ""}`} aria-label="主导航" role={modal ? "dialog" : undefined} aria-modal={modal || undefined} aria-hidden={inert || undefined} inert={inert} tabIndex={modal ? -1 : undefined}>
@@ -23,23 +24,26 @@ export const Sidebar = memo(function Sidebar({ view, setView, notebooks, noteboo
     <button className="primary-button new-note-button" type="button" aria-label="在收件箱中新建笔记" onClick={onNewInboxNote}><Plus size={18} />新建笔记</button>
     <label className="search-box"><Search size={17} /><input ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索笔记或 #标签……" aria-label="搜索笔记或标签" />{query ? <button className="search-clear" type="button" aria-label="清空搜索" onClick={() => setQuery("")}><X size={15} /></button> : <kbd>{commandMenuShortcutLabel}</kbd>}</label>
     <nav className="main-nav"><ul>{navItems.map((item) => { const Icon = item.icon; return <li key={item.id}><button className={`nav-item ${view === item.id && !notebookId ? "is-active" : ""}`} type="button" onClick={() => setView(item.id)}><Icon size={18} /><span>{item.label}</span></button></li>; })}</ul></nav>
-    <div className="collapsed-notebook-list floating-scrollbar-target" role="toolbar" aria-label="笔记本快捷切换">
-      {customNotebooks.length > 0 && <div className="collapsed-notebook-divider" aria-hidden="true" />}
-      {customNotebooks.map((notebook) => {
-        const NotebookIcon = getNotebookIconComponent(notebook.icon);
-        const isActive = notebook.id === notebookId;
-        return (
-          <button
-            key={notebook.id}
-            type="button"
-            className={`nav-item collapsed-notebook-item ${isActive ? "is-active" : ""}`}
-            onClick={() => setNotebookId(notebook.id)}
-            aria-label={`${notebook.name}，${notebook.count} 篇笔记`}
-          >
-            <NotebookIcon size={18} style={{ color: notebook.color }} />
-          </button>
-        );
-      })}
+    <div className="collapsed-notebook-shell">
+      <div id="collapsed-notebook-scroll-region" ref={collapsedNotebookListRef} className="collapsed-notebook-list floating-scrollbar-target" role="toolbar" aria-label="笔记本快捷切换">
+        {customNotebooks.length > 0 && <div className="collapsed-notebook-divider" aria-hidden="true" />}
+        {customNotebooks.map((notebook) => {
+          const NotebookIcon = getNotebookIconComponent(notebook.icon);
+          const isActive = notebook.id === notebookId;
+          return (
+            <button
+              key={notebook.id}
+              type="button"
+              className={`nav-item collapsed-notebook-item ${isActive ? "is-active" : ""}`}
+              onClick={() => setNotebookId(notebook.id)}
+              aria-label={`${notebook.name}，${notebook.count} 篇笔记`}
+            >
+              <NotebookIcon size={18} style={{ color: notebook.color }} />
+            </button>
+          );
+        })}
+      </div>
+      <FloatingScrollbar scrollTargetRef={collapsedNotebookListRef} controlsId="collapsed-notebook-scroll-region" ariaLabel="笔记本快捷切换滚动条" placement="left" />
     </div>
     <div className="notebook-section">
       <div className="section-heading"><span>笔记本</span><button className="icon-button tiny-button" type="button" aria-label="新建笔记本" onClick={onCreateNotebook}><Plus size={16} /></button></div>
@@ -75,8 +79,6 @@ function NoteThumbnail({ note }: { note: NoteSummary }) {
   if (!thumbnail?.url) return null;
   return <span className="note-row-thumbnail" aria-hidden="true"><img src={thumbnail.url} alt="" width={56} height={56} loading="lazy" decoding="async" /></span>;
 }
-
-const NOTE_TAG_DISPLAY_LIMIT = 3;
 
 function NoteRowMeta({ note, showNotebook }: { note: NoteSummary; showNotebook: boolean }) {
   const tags = getNoteTags(note);

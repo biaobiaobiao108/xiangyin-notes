@@ -289,7 +289,10 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
   margin: 0 auto;
   border-radius: var(--radius-sm);
 }
+.collapsed-notebook-shell { display: none; }
 .collapsed-notebook-list { display: none; }
+.sidebar-collapsed .collapsed-notebook-shell { position: relative; display: flex; flex-direction: column; align-items: center; width: 100%; }
+.sidebar-collapsed .collapsed-notebook-shell > .floating-scrollbar--left { inset-inline-start: -10px; }
 .sidebar-collapsed .collapsed-notebook-list { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; overflow-y: auto; max-height: calc(100dvh - 340px); scrollbar-width: none; }
 .sidebar-collapsed .collapsed-notebook-list::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .collapsed-notebook-divider { width: 24px; height: 1px; background: var(--line); margin: 6px 0; }
@@ -2730,6 +2733,8 @@ dialog::backdrop {
   .note-outline-panel,
   .editor-floating-outline,
   .sort-dropdown,
+  .slash-command-menu,
+  .wiki-link-suggestion-dropdown,
   .command-dialog,
   .share-dialog,
   .notebook-dialog,

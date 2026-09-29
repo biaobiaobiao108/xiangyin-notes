@@ -118,13 +118,9 @@ export function viewLabel(view: NoteView) {
   return ({ all: "全部笔记", inbox: "收件箱", favorites: "收藏", shared: "已分享", trash: "回收站" })[view];
 }
 
-export function relativeDate(timestamp: number) {
-  const delta = Math.floor(Date.now() / 1000) - timestamp;
-  if (delta < 60) return "刚刚";
-  if (delta < 3600) return `${Math.floor(delta / 60)} 分钟前`;
-  if (delta < 86400) return `${Math.floor(delta / 3600)} 小时前`;
-  return new Intl.DateTimeFormat("zh-CN", { month: "short", day: "numeric" }).format(new Date(timestamp * 1000));
-}
+export { relativeDate } from "../format";
+// 列表与卡片统一的最多展示标签数。
+export const NOTE_TAG_DISPLAY_LIMIT = 3;
 
 export function formatDate(timestamp: number) {
   return new Intl.DateTimeFormat("zh-CN", { month: "short", day: "numeric" }).format(new Date(timestamp * 1000));

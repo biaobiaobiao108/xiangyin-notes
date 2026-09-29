@@ -18,9 +18,7 @@ import type { NoteSort, NoteSummary, NoteView, Notebook } from "../../shared/typ
 import { playEntranceAnimation } from "../animation";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { isNoteSelectionModifierClick, type NoteSelectionClick } from "./note-list-selection";
-import { getNoteTags, relativeDate, sortNotes } from "./helpers";
-
-const NOTE_TAG_DISPLAY_LIMIT = 3;
+import { getNoteTags, NOTE_TAG_DISPLAY_LIMIT, relativeDate, sortNotes } from "./helpers";
 
 export type NoteCardGridPanelProps = {
   notes: NoteSummary[];

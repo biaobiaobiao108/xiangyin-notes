@@ -488,9 +488,13 @@ export function Workspace() {
     noteAbortRef.current?.abort();
     if (realtimeRefreshTimerRef.current !== null) clearTimeout(realtimeRefreshTimerRef.current);
   }, []);
+  const activeSearchQuery = inNoteSearchQuery || query;
   useWorkspaceShortcuts({
     focusMode,
     hasModalOpen: Boolean(commandOpen || shareOpen || editingNotebook !== undefined || confirmRequest || activeDrawer),
+    // Escape 第 1 层：正文搜索高亮清除优先于退出沉浸模式。
+    hasSearchHighlight: Boolean(activeSearchQuery.trim()),
+    clearSearchHighlight: () => handleClearSearch(),
     toggleSidebar: () => setSidebarCollapsed((value) => !value),
     toggleFocusMode,
     toggleTypewriterMode,
@@ -779,7 +783,7 @@ export function Workspace() {
     }
   }, [discardNoteDraft, getBatchEntries, invalidateCollections, refreshNotebooks, reloadNotes, removeManyFromList, runSave]);
   const showBatchDeleteError = useCallback((reason: unknown) => {
-    setToast(reason instanceof ApiError && reason.code === "BATCH_VERSION_CONFLICT" ? "选中的笔记已发生变化，请重新选择后重试" : errorMessage(reason, "批量删除失败，请重试"));
+    setToast(reason instanceof ApiError && reason.code === "VERSION_CONFLICT" ? "选中的笔记已发生变化，请重新选择后重试" : errorMessage(reason, "批量删除失败，请重试"));
   }, []);
   const deleteSelectedNotes = useCallback(() => {
     const ids = [...noteSelectionRef.current.ids];
@@ -1259,16 +1263,17 @@ export function Workspace() {
   if (!ready) return <main className="app-loading"><span className="loading-ring" /><span>正在进入你的空间……</span></main>;
   const currentNotebook = notebookId ? notebooks.find((notebook) => notebook.id === notebookId) : undefined;
   const listNewNote = currentNotebook ? handleNewNote : undefined;
-  const renderedNote = selectedNote && selectedRef.current?.id === selectedNote.id ? selectedRef.current : selectedNote;
+  // 以 selectedNote 为准：纯正文变更只更新 selectedRef，避免每次防抖同步都给 memo(NoteEditor) 新引用。
+  // id 变化或尚未同步到 state 时（切换笔记、外部同步、草稿恢复）才回退到 selectedRef。
+  const renderedNote = selectedNote && selectedRef.current?.id === selectedNote.id ? selectedNote : selectedRef.current ?? selectedNote;
   const commandNoteReady = Boolean(renderedNote && selectedRef.current?.id === renderedNote.id && !isNoteLoading);
-  const activeSearchQuery = inNoteSearchQuery || query;
   const mobileNavigationOpen = activeDrawer !== null;
   const isCardsLayout = viewLayout === "cards";
   const showCardsGrid = isCardsLayout && cardEditingNoteId === null;
   const editorContentInert = Boolean(activeDrawer);
 
   return <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${focusMode ? "is-focus-mode" : ""} ${isCardsLayout ? "layout-cards" : ""}`}>
-    {mobileNavigationOpen && <button className="mobile-scrim is-visible" type="button" aria-hidden="true" tabIndex={-1} onClick={closeMobileNavigation} />}
+    {mobileNavigationOpen && <button className="mobile-scrim is-visible" type="button" aria-label="关闭导航" onClick={closeMobileNavigation} />}
     <Sidebar view={view} setView={selectView} notebooks={notebooks} notebookId={notebookId} setNotebookId={selectNotebook} query={query} setQuery={changeQuery} searchRef={searchRef} onNewInboxNote={handleNewInboxNote} onCreateNotebook={handleCreateNotebook} onEditNotebook={handleEditNotebook} collapsed={sidebarCollapsed} onCollapse={handleCollapseSidebar} mobileOpen={mobileDrawer === "sidebar"} onLogout={logout} drawerRef={sidebarRef} modal={activeDrawer === "sidebar"} inert={isMobileViewport && activeDrawer !== "sidebar"} onCloseMobile={closeMobileNavigation} />
     {!isCardsLayout && (
       <NoteListPanel notes={notes} total={totalNotes} hasMore={hasMoreNotes} sort={noteSort} setSort={handleNoteSort} selectedId={selectedId} selectedIds={selectedNoteIds} onSelect={handleSelectListNote} onDeleteSelected={deleteSelectedNotes} view={view} query={query} currentNotebookName={currentNotebook?.name} onEmptyTrash={view === "trash" ? emptyTrash : undefined} trashBusy={pendingTrashCount > 0 || emptyingTrash} onNewNote={listNewNote} onClearQuery={handleClearQuery} mobileOpen={mobileDrawer === "list"} onOpenSidebar={handleOpenSidebar} transitionToken={listTransitionToken} outlineOpen={outlineOpen} outlineItems={outlineItems} activeOutlineId={activeOutlineId} onScrollToOutlineItem={handleScrollToOutlineItem} onCloseOutline={closeOutline} onLoadMore={loadMoreNotes} isLoadingMore={isLoadingMore} virtualizationScope={listScope} drawerRef={listPanelRef} modal={activeDrawer === "list"} inert={isMobileViewport && activeDrawer !== "list"} onCloseMobile={closeMobileNavigation} />

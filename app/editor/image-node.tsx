@@ -85,6 +85,8 @@ function ResizableImageView({ node, selected, editor, updateAttributes }: NodeVi
   };
 
   const adjustByKeyboard = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    // 输入法候选态下的 Escape 只取消候选，不得触发缩放退出。
+    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
     if (!editor.isEditable || !["ArrowLeft", "ArrowRight", "Escape"].includes(event.key)) return;
     event.preventDefault();
     event.stopPropagation();

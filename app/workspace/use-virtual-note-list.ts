@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type FocusEvent as ReactFocusEvent, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FocusEvent as ReactFocusEvent, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from "react";
 import type { NoteSummary } from "../../shared/types";
 
 const VIRTUALIZE_AFTER = 140;
@@ -40,6 +40,7 @@ export function useVirtualNoteList(
   const observerRef = useRef<ResizeObserver | null>(null);
   const rowElementsRef = useRef(new Map<string, HTMLLIElement>());
   const rowRefCallbacksRef = useRef(new Map<string, (element: HTMLLIElement | null) => void>());
+  const rowStylesRef = useRef(new Map<number, CSSProperties>());
   const pendingFocusIdRef = useRef<string | null>(null);
   const indexById = useMemo(() => new Map(rows.map((row, index) => [row.id, index])), [rows]);
   const indexByIdRef = useRef(indexById);
@@ -52,8 +53,24 @@ export function useVirtualNoteList(
   useLayoutEffect(() => {
     heightsRef.current.clear();
     rowRefCallbacksRef.current.clear();
+    rowStylesRef.current.clear();
     setMeasurementRevision((revision) => revision + 1);
   }, [scope]);
+
+  // 同一 scope 内删除或移出笔记后，及时裁掉已不存在的测量值与 ref 回调，避免长期滞留。
+  useLayoutEffect(() => {
+    const rowsRef = rowElementsRef.current;
+    for (const noteId of heightsRef.current.keys()) {
+      if (!indexById.has(noteId)) heightsRef.current.delete(noteId);
+    }
+    for (const noteId of rowRefCallbacksRef.current.keys()) {
+      if (indexById.has(noteId)) continue;
+      const element = rowsRef.get(noteId);
+      if (element) observerRef.current?.unobserve(element);
+      rowsRef.delete(noteId);
+      rowRefCallbacksRef.current.delete(noteId);
+    }
+  }, [indexById]);
 
   useLayoutEffect(() => {
     const container = scrollRef.current;
@@ -161,12 +178,17 @@ export function useVirtualNoteList(
     return callback;
   }, []);
 
-  const rowStyle = useCallback((top: number) => isVirtualized ? {
-    position: "absolute" as const,
-    insetInline: 0,
-    top: 0,
-    transform: `translateY(${top}px)`,
-  } : undefined, [isVirtualized]);
+  // 按 top 缓存样式对象：同一偏移复用同一引用，memo(NoteListRow) 的 rowStyle prop 才不会每次渲染都失效。
+  const rowStyle = useCallback((top: number) => {
+    if (!isVirtualized) return undefined;
+    const cache = rowStylesRef.current;
+    const cached = cache.get(top);
+    if (cached) return cached;
+    const style = { position: "absolute", insetInline: 0, top: 0, transform: `translateY(${top}px)` } as CSSProperties;
+    if (cache.size > 512) cache.clear();
+    cache.set(top, style);
+    return style;
+  }, [isVirtualized]);
 
   const onFocusCapture = useCallback((event: ReactFocusEvent<HTMLDivElement>) => {
     const noteId = (event.target as HTMLElement).closest<HTMLElement>("[data-note-id]")?.dataset.noteId;

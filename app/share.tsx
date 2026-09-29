@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { ArrowLeft, Check, Clock3, Copy } from "lucide-react";
 import { Link, useParams } from "react-router";
 import { ApiError, api } from "./api";
@@ -13,6 +13,10 @@ export function SharePage() {
   const [error, setError] = useState<{ token: string; message: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
+  const copyResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (copyResetTimerRef.current !== null) clearTimeout(copyResetTimerRef.current);
+  }, []);
 
   useEffect(() => {
     if (!token) return;
@@ -38,11 +42,15 @@ export function SharePage() {
     try {
       if (!navigator.clipboard?.writeText) throw new Error("clipboard-unavailable");
       await navigator.clipboard.writeText(note.contentMarkdown);
+      if (copyResetTimerRef.current !== null) clearTimeout(copyResetTimerRef.current);
+      setCopyFailed(false);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      copyResetTimerRef.current = setTimeout(() => setCopied(false), 2000);
     } catch {
+      if (copyResetTimerRef.current !== null) clearTimeout(copyResetTimerRef.current);
+      setCopied(false);
       setCopyFailed(true);
-      setTimeout(() => setCopyFailed(false), 3000);
+      copyResetTimerRef.current = setTimeout(() => setCopyFailed(false), 3000);
     }
   };
 

@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type SyntheticEvent } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type SyntheticEvent } from "react";
 import { AlignVerticalSpaceAround, Archive, Bookmark, Check, Copy, Download, FilePlus2, FileSearch, FolderInput, LayoutGrid, Link2, Maximize2, Monitor, Moon, PanelLeft, Search, Sun, Trash2, type LucideIcon } from "lucide-react";
 import type { Notebook } from "../shared/types";
 import { parseCreateNoteCommand, parseMoveNoteCommand, parseSearchPrefixCommand, type CreateNoteCommand } from "./command-parser";
@@ -241,7 +241,7 @@ export function CommandMenu({
     return () => resizeObserver.disconnect();
   }, [selected]);
 
-  const execute = (option: CommandOption) => {
+  const execute = useCallback((option: CommandOption) => {
     if (option.createNote) {
       onCreateNoteInNotebook(option.createNote);
     } else if (option.kind === "move-note" && option.notebook) {
@@ -269,7 +269,7 @@ export function CommandMenu({
       onCommand(option.id);
     }
     onClose();
-  };
+  }, [onClose, onCommand, onCreateNoteInNotebook, onMoveNoteToNotebook, onSearchInCurrentNote, onSearchGlobal]);
 
   useEffect(() => {
     const dialog = dialogRef.current;

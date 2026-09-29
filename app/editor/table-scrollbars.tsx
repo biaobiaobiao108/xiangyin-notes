@@ -62,6 +62,11 @@ export function TableScrollbars({ rootRef }: { rootRef: RefObject<HTMLElement | 
 
     const syncTargets = () => {
       const nextTargets = Array.from(root.querySelectorAll<HTMLElement>(".tableWrapper"));
+      // 没有表格时提前短路，避免为每帧输入做额外的 class 与 id 写入。
+      if (nextTargets.length === 0) {
+        setTargets((current) => current.length === 0 ? current : []);
+        return;
+      }
       nextTargets.forEach((target, index) => {
         target.classList.add("table-scroll-shell", "floating-scrollbar-target");
         if (!target.id) target.id = `table-scroll-${instanceId}-${index + 1}`;
@@ -69,10 +74,23 @@ export function TableScrollbars({ rootRef }: { rootRef: RefObject<HTMLElement | 
       setTargets((current) => current.length === nextTargets.length && current.every((target, index) => target === nextTargets[index]) ? current : nextTargets);
     };
 
+    // MutationObserver 观察整篇文档，用 rAF 合并同步，避免每次回车/粘贴都立即重扫全文。
+    let frame: number | null = null;
+    const scheduleSync = () => {
+      if (frame !== null) return;
+      frame = requestAnimationFrame(() => {
+        frame = null;
+        syncTargets();
+      });
+    };
+
     syncTargets();
-    const observer = new MutationObserver(syncTargets);
+    const observer = new MutationObserver(scheduleSync);
     observer.observe(root, { childList: true, subtree: true });
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (frame !== null) cancelAnimationFrame(frame);
+    };
   }, [instanceId, rootRef]);
 
   const root = rootRef.current;

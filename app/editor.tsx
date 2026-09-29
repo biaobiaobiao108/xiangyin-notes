@@ -18,6 +18,7 @@ import { cycleSearchMatchIndex, findEditorSearchMatches, findTextMatches, search
 import { buildOutlineItems, countEditorText, detectLeakedImePrefix, getOutlineStructureKey, parseMarkdownBlockShortcut, shouldParseMarkdownPaste, shouldUpdateActiveOutlineFromViewport, type EditorStats, type MarkdownBlockShortcut, type OutlineItem } from "./editor-metrics";
 import { changedDocumentRange } from "./editor/changed-range";
 import { FloatingScrollbar } from "./floating-scrollbar";
+import { relativeDate } from "./format";
 import { ImeMarkdownSafeExtension, imeMarkdownSafePluginKey } from "./ime-markdown-safe-extension";
 import { editorCoreExtensionOptions } from "./editor/editor-config";
 import { EditorFloatingTools } from "./editor/editor-panels";
@@ -220,8 +221,6 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   const markdownDirtyRef = useRef(false);
   const editorTextBlockStatsRef = useRef(new WeakMap<ProseMirrorNode, EditorStats>());
   const markdownOwnerRef = useRef({ noteId: note.id, reloadToken });
-  markdownOwnerRef.current.noteId = note.id;
-  markdownOwnerRef.current.reloadToken = reloadToken;
   const composingRef = useRef(false);
   const leakedCandidateRef = useRef<{ key: string; blockStartPos: number; emptyAtStart: boolean } | null>(null);
   const imeCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -257,20 +256,13 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   const searchQueryRef = useRef(searchQuery);
   const searchNavigationRef = useRef(searchNavigation);
   const lastNotifiedEmptySearchRef = useRef("");
-  searchQueryRef.current = searchQuery;
-  searchNavigationRef.current = searchNavigation;
-  onChangeRef.current = onChange;
-  onMarkdownDirtyChangeRef.current = onMarkdownDirtyChange;
-  onUploadImageRef.current = onUploadImage;
   const typewriterModeRef = useRef(typewriterMode);
-  typewriterModeRef.current = typewriterMode;
   const typewriterAnimRef = useRef<number | null>(null);
   const typewriterTargetRef = useRef<number | null>(null);
   const outlineFallbackSyncRef = useRef<(() => void) | null>(null);
   const outlineHeadingElementsRef = useRef(new Map<string, HTMLElement>());
   const outlineItemsRef = useRef(outlineItems);
   const outlineSelectionSynchronizedRef = useRef(false);
-  outlineItemsRef.current = outlineItems;
   const outlineStructureKey = getOutlineStructureKey(outlineItems);
 
   useLayoutEffect(() => {
@@ -292,11 +284,25 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   }, [note.id]);
 
   const availableNotesRef = useRef(availableNotes);
-  availableNotesRef.current = availableNotes;
   const onNavigateWikiLinkRef = useRef(onNavigateWikiLink);
-  onNavigateWikiLinkRef.current = onNavigateWikiLink;
   const onCreateAndLinkNoteRef = useRef(onCreateAndLinkNote);
-  onCreateAndLinkNoteRef.current = onCreateAndLinkNote;
+
+  // 最新值与回调统一在 effect 中写入 ref，避免渲染阶段直接赋值在并发渲染下产生非幂等副作用。
+  useEffect(() => {
+    markdownOwnerRef.current.noteId = note.id;
+    markdownOwnerRef.current.reloadToken = reloadToken;
+    searchQueryRef.current = searchQuery;
+    searchNavigationRef.current = searchNavigation;
+    onChangeRef.current = onChange;
+    onMarkdownDirtyChangeRef.current = onMarkdownDirtyChange;
+    onUploadImageRef.current = onUploadImage;
+    typewriterModeRef.current = typewriterMode;
+    outlineItemsRef.current = outlineItems;
+    availableNotesRef.current = availableNotes;
+    onNavigateWikiLinkRef.current = onNavigateWikiLink;
+    onCreateAndLinkNoteRef.current = onCreateAndLinkNote;
+  });
+
   const [backlinkCount, setBacklinkCount] = useState(0);
   const [backlinksOpen, setBacklinksOpen] = useState(false);
 
@@ -1145,6 +1151,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
         event.preventDefault();
         moveSearchMatch(event.shiftKey ? -1 : 1);
       } else if (event.key === "Escape") {
+        // 搜索高亮清除作为 Escape 第 1 层由工作区统一处理，这里保留同规则兜底。
         if (searchQueryRef.current.trim() && onClearSearch) {
           event.preventDefault();
           event.stopImmediatePropagation();
@@ -1432,14 +1439,3 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
 }
 
 
-function relativeDate(timestamp: number) {
-  const diff = Math.max(0, Date.now() - timestamp * 1000);
-  const minutes = Math.floor(diff / 60000);
-  if (minutes < 1) return "刚刚";
-  if (minutes < 60) return `${minutes} 分钟前`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} 小时前`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days} 天前`;
-  return new Date(timestamp * 1000).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
-}

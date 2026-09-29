@@ -5,9 +5,17 @@ function matchesShortcutLetter(event: KeyboardEvent, letter: string) {
   return event.key.toLowerCase() === letter || event.code === `Key${letter.toUpperCase()}`;
 }
 
+// Escape 命中某一优先级后立刻阻断后续监听器：编辑器层的搜索高亮处理同样挂在 window 冒泡阶段，
+// 不阻断会出现一次 Escape 同时清除高亮又退出沉浸模式的叠层退出。
+function stopEscapePropagation(event: KeyboardEvent) {
+  event.stopImmediatePropagation?.();
+}
+
 export type UseWorkspaceShortcutsOptions = {
   focusMode: boolean;
   hasModalOpen: boolean;
+  hasSearchHighlight?: boolean;
+  clearSearchHighlight?: () => void;
   toggleSidebar: () => void;
   toggleFocusMode: () => void;
   toggleTypewriterMode: () => void;
@@ -25,6 +33,8 @@ export type UseWorkspaceShortcutsOptions = {
 export type WorkspaceKeyboardContext = {
   focusMode: boolean;
   hasModalOpen: boolean;
+  hasSearchHighlight?: boolean;
+  clearSearchHighlight?: () => void;
   outlineOpen?: boolean;
   isCardEditing?: boolean;
   hasSelection?: boolean;
@@ -38,43 +48,56 @@ export type WorkspaceKeyboardContext = {
     onExitCardEditing?: () => void;
     clearSelection?: () => void;
     closeOutline?: () => void;
+    clearSearchHighlight?: () => void;
   };
 };
 
 export function handleWorkspaceKeyDown(event: KeyboardEvent, ctx: WorkspaceKeyboardContext) {
   if (event.isComposing || event.keyCode === 229) return;
-  const { handlers, focusMode, hasModalOpen, outlineOpen = false, isCardEditing = false, hasSelection = false } = ctx;
-  const { toggleSidebar, toggleFocusMode, toggleTypewriterMode, exitFocusMode, openCommandMenu, toggleViewLayout, onExitCardEditing, clearSelection, closeOutline } = handlers;
+  const { handlers, focusMode, hasModalOpen, hasSearchHighlight = false, outlineOpen = false, isCardEditing = false, hasSelection = false } = ctx;
+  const { toggleSidebar, toggleFocusMode, toggleTypewriterMode, exitFocusMode, openCommandMenu, toggleViewLayout, onExitCardEditing, clearSelection, closeOutline, clearSearchHighlight } = handlers;
 
   if (event.key === "Escape") {
     if (hasModalOpen) return;
     const target = event.target;
     if (typeof Element !== "undefined" && target instanceof Element && target.closest("dialog[open], [role='dialog']")) return;
 
-    // 优先级 1: 如果处于沉浸模式，优先退出沉浸模式（不受正文 ProseMirror preventDefault 影响）
+    // 优先级 1: 子级浮层——先清除正文搜索高亮（不受正文 ProseMirror preventDefault 影响）
+    if (hasSearchHighlight && clearSearchHighlight) {
+      event.preventDefault();
+      stopEscapePropagation(event);
+      clearSearchHighlight();
+      return;
+    }
+
+    // 优先级 2: 如果处于沉浸模式，退出沉浸模式（不受正文 ProseMirror preventDefault 影响）
     if (focusMode) {
       event.preventDefault();
+      stopEscapePropagation(event);
       exitFocusMode();
       return;
     }
 
-    // 优先级 2: 如果大纲打开，关闭大纲
+    // 优先级 3: 如果大纲打开，关闭大纲
     if (outlineOpen && closeOutline) {
       event.preventDefault();
+      stopEscapePropagation(event);
       closeOutline();
       return;
     }
 
-    // 优先级 3: 如果在卡片视图编辑笔记，退出卡片编辑返回网格
+    // 优先级 4: 如果在卡片视图编辑笔记，退出卡片编辑返回网格
     if (isCardEditing && onExitCardEditing) {
       event.preventDefault();
+      stopEscapePropagation(event);
       onExitCardEditing();
       return;
     }
 
-    // 优先级 4: 如果有多选状态，取消选择
+    // 优先级 5: 如果有多选状态，取消选择
     if (hasSelection && clearSelection) {
       event.preventDefault();
+      stopEscapePropagation(event);
       clearSelection();
       return;
     }
@@ -115,6 +138,8 @@ export function useWorkspaceShortcuts(options: UseWorkspaceShortcutsOptions) {
   const {
     focusMode,
     hasModalOpen,
+    hasSearchHighlight = false,
+    clearSearchHighlight,
     toggleSidebar,
     toggleFocusMode,
     toggleTypewriterMode,
@@ -135,18 +160,21 @@ export function useWorkspaceShortcuts(options: UseWorkspaceShortcutsOptions) {
   isCardEditingRef.current = isCardEditing;
   const hasModalOpenRef = useRef(hasModalOpen);
   hasModalOpenRef.current = hasModalOpen;
+  const hasSearchHighlightRef = useRef(hasSearchHighlight);
+  hasSearchHighlightRef.current = hasSearchHighlight;
   const hasSelectionRef = useRef(hasSelection);
   hasSelectionRef.current = hasSelection;
   const outlineOpenRef = useRef(outlineOpen);
   outlineOpenRef.current = outlineOpen;
-  const handlersRef = useRef({ toggleSidebar, toggleFocusMode, toggleTypewriterMode, exitFocusMode, openCommandMenu, toggleViewLayout, onExitCardEditing, clearSelection, closeOutline });
-  handlersRef.current = { toggleSidebar, toggleFocusMode, toggleTypewriterMode, exitFocusMode, openCommandMenu, toggleViewLayout, onExitCardEditing, clearSelection, closeOutline };
+  const handlersRef = useRef({ toggleSidebar, toggleFocusMode, toggleTypewriterMode, exitFocusMode, openCommandMenu, toggleViewLayout, onExitCardEditing, clearSelection, closeOutline, clearSearchHighlight });
+  handlersRef.current = { toggleSidebar, toggleFocusMode, toggleTypewriterMode, exitFocusMode, openCommandMenu, toggleViewLayout, onExitCardEditing, clearSelection, closeOutline, clearSearchHighlight };
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       handleWorkspaceKeyDown(event, {
         focusMode: focusModeRef.current,
         hasModalOpen: hasModalOpenRef.current,
+        hasSearchHighlight: hasSearchHighlightRef.current,
         outlineOpen: outlineOpenRef.current,
         isCardEditing: isCardEditingRef.current,
         hasSelection: hasSelectionRef.current,

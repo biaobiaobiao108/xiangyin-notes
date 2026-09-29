@@ -4,18 +4,7 @@ import { ApiError, api } from "../api";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import type { NoteBacklinksResponse } from "../../shared/types";
 import { decodeWikiLinkComponent, WIKI_LINK_PATTERN } from "../../shared/wiki-links";
-
-function relativeDate(timestamp: number) {
-  const diff = Math.max(0, Date.now() - timestamp * 1000);
-  const minutes = Math.floor(diff / 60000);
-  if (minutes < 1) return "刚刚";
-  if (minutes < 60) return `${minutes} 分钟前`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} 小时前`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days} 天前`;
-  return new Date(timestamp * 1000).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
-}
+import { relativeDate } from "../format";
 
 export function cleanDisplayTitle(title: string | null | undefined): string {
   if (!title) return "未命名笔记";
@@ -145,7 +134,7 @@ export function BacklinksDialog({
     if (open) {
       const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       const handleNativeClose = () => onClose();
-      dialog.setAttribute("closedby", "any");
+      // 不使用 closedby="any"：早期 Safari 稳定版不支持，遮罩关闭统一走 handleBackdropClick。
       dialog.addEventListener("close", handleNativeClose);
       if (!dialog.open) {
         dialog.showModal();

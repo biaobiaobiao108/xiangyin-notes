@@ -52,12 +52,16 @@ export function ShareDialog({ note, onClose, onToast }: { note: Note; onClose: (
   const [loadingShares, setLoadingShares] = useState(true);
   const [copied, setCopied] = useState(false);
   const [copiedShareId, setCopiedShareId] = useState<string | null>(null);
+  const copyResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (copyResetTimerRef.current !== null) clearTimeout(copyResetTimerRef.current);
+  }, []);
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
     const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const handleNativeClose = () => onClose();
-    dialog.setAttribute("closedby", "any");
+    // 不使用 closedby="any"：早期 Safari 稳定版不支持，遮罩关闭统一走 handleBackdropClick。
     dialog.addEventListener("close", handleNativeClose);
     dialog.showModal();
     void api.listShares(note.id)
@@ -89,12 +93,15 @@ export function ShareDialog({ note, onClose, onToast }: { note: Note; onClose: (
     try {
       if (!navigator.clipboard?.writeText) throw new Error("clipboard-unavailable");
       await navigator.clipboard.writeText(url);
+      if (copyResetTimerRef.current !== null) clearTimeout(copyResetTimerRef.current);
       if (shareId) {
+        setCopied(false);
         setCopiedShareId(shareId);
-        setTimeout(() => setCopiedShareId(null), 2000);
+        copyResetTimerRef.current = setTimeout(() => setCopiedShareId(null), 2000);
       } else {
+        setCopiedShareId(null);
         setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
+        copyResetTimerRef.current = setTimeout(() => setCopied(false), 2000);
       }
       onToast("链接已复制");
     } catch {
