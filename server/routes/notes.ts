@@ -59,6 +59,8 @@ import { publishWorkspaceChange } from "../realtime";
 const NOTE_BATCH_LIMIT = 500;
 const NOTE_BATCH_BODY_MAX_BYTES = 64 * 1024;
 const NOTE_SORTS: NoteSort[] = ["updated", "created", "title"];
+const NOTE_LIST_MAX_OFFSET = 1_000_000;
+const NOTE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 const TAG_RECONCILE_CACHE_LIMIT = 512;
 const TAG_RECONCILE_CACHE_MAX_TAG_LENGTH = 256;
 // Notes created or changed by this server synchronously rebuild note_tags,
@@ -180,7 +182,8 @@ function assertBatchNoteStates(rows: BatchNoteState[], entries: BatchNoteEntry[]
 }
 
 function batchConflictResponse(error: BatchNoteConflictError) {
-  return json({ error: { code: "BATCH_VERSION_CONFLICT", message: "选中的笔记已发生变化，请重新选择后重试", conflictIds: error.conflictIds } }, 409);
+  // AGENTS.md requires every version conflict to surface as 409 VERSION_CONFLICT.
+  return json({ error: { code: "VERSION_CONFLICT", message: "选中的笔记已发生变化，请重新选择后重试", conflictIds: error.conflictIds } }, 409);
 }
 
 export function createNote(
@@ -295,18 +298,25 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
       return jsonError(400, "INVALID_WIKI_TARGET", "双向链接目标无效");
     }
     const title = (payload.title as string).trim();
-    const existingId = findActiveNoteIdByTitle(database, user.id, title);
-    if (existingId) {
-      const existing = getNote(database, user.id, existingId);
-      if (existing) return json({ note: toFullNote(existing), created: false });
-    }
     if (!first(database, "SELECT id FROM notebooks WHERE id = ? AND user_id = ?", payload.notebookId, user.id)) {
       return jsonError(404, "NOTEBOOK_NOT_FOUND", "笔记本不存在");
     }
-    const noteId = createNote(database, user.id, payload.notebookId as string, title, "");
-    const note = getNote(database, user.id, noteId);
-    publishWorkspaceChange(options, user.id, { resource: "notes", noteId }, request);
-    return note ? json({ note: toFullNote(note), created: true }, 201) : jsonError(500, "NOTE_CREATE_FAILED", "笔记创建失败");
+    // The lookup and the insert must share one immediate transaction, otherwise two
+    // concurrent requests could both miss and create duplicate notes with the same title.
+    const ensureNote = database.transaction(() => {
+      const existingId = findActiveNoteIdByTitle(database, user.id, title);
+      if (existingId) {
+        const existing = getNote(database, user.id, existingId);
+        if (existing) return { note: toFullNote(existing), created: false as const };
+      }
+      const noteId = createNote(database, user.id, payload.notebookId as string, title, "");
+      const note = getNote(database, user.id, noteId);
+      return note ? { note: toFullNote(note), created: true as const, noteId } : null;
+    });
+    const ensured = ensureNote.immediate();
+    if (!ensured) return jsonError(500, "NOTE_CREATE_FAILED", "笔记创建失败");
+    if (ensured.created) publishWorkspaceChange(options, user.id, { resource: "notes", noteId: ensured.noteId }, request);
+    return ensured.created ? json({ note: ensured.note, created: true }, 201) : json({ note: ensured.note, created: false });
   }
 
   if (resource !== "notes") return null;
@@ -377,20 +387,16 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     // stop matching and the returned tag metadata is corrected as well.
     for (const tagFilter of normalizedTagFilters) {
       if (isTagFilterVerified(database, user.id, tagFilter)) continue;
-      const candidates = all<{ id: string }>(database, `
-        SELECT n.id
+      // Fetch every candidate in one query instead of one query per note.
+      const candidates = all<{ id: string; content_markdown: string; tags_json: string }>(database, `
+        SELECT n.id, n.content_markdown,
+          COALESCE((SELECT json_group_array(tag) FROM (SELECT tag FROM note_tags WHERE note_id = n.id ORDER BY position)), '[]') AS tags_json
         FROM notes n
         WHERE n.user_id = ? AND EXISTS (
           SELECT 1 FROM note_tags t WHERE t.note_id = n.id AND t.user_id = n.user_id AND t.tag_normalized = ?
         )
       `, user.id, tagFilter);
-      for (const { id } of candidates) {
-        const candidate = first<{ id: string; content_markdown: string; tags_json: string }>(database, `
-          SELECT n.id, n.content_markdown,
-            COALESCE((SELECT json_group_array(tag) FROM (SELECT tag FROM note_tags WHERE note_id = n.id ORDER BY position)), '[]') AS tags_json
-          FROM notes n WHERE n.user_id = ? AND n.id = ?
-        `, user.id, id);
-        if (!candidate) continue;
+      for (const candidate of candidates) {
         const storedTags = parseIndexedTags(candidate.tags_json);
         const parsedTags = extractTags(candidate.content_markdown);
         if (storedTags.length !== parsedTags.length || storedTags.some((tag, index) => tag !== parsedTags[index])) {
@@ -452,7 +458,9 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     const sort = rawSort as NoteSort;
     const cursor = decodeNoteListCursor(url.searchParams.get("cursor"), sort);
     if (url.searchParams.get("cursor") && !cursor) return jsonError(400, "INVALID_CURSOR", "笔记列表游标无效");
-    const offset = cursor ? 0 : Math.max(0, Number.parseInt(url.searchParams.get("offset") ?? "0", 10) || 0);
+    const requestedOffset = Math.max(0, Number.parseInt(url.searchParams.get("offset") ?? "0", 10) || 0);
+    if (requestedOffset > NOTE_LIST_MAX_OFFSET) return jsonError(400, "INVALID_OFFSET", `分页偏移量不能超过 ${NOTE_LIST_MAX_OFFSET}`);
+    const offset = cursor ? 0 : requestedOffset;
     const rawLimit = url.searchParams.get("limit");
     const pageLimit = rawLimit === null ? NOTE_PAGE_SIZE : Number(rawLimit);
     if (!Number.isSafeInteger(pageLimit) || pageLimit < 1 || pageLimit > NOTE_PAGE_SIZE) return jsonError(400, "INVALID_LIMIT", `每页数量必须介于 1 和 ${NOTE_PAGE_SIZE} 之间`);
@@ -498,13 +506,18 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     if (!payload) return jsonError(400, "INVALID_JSON", "请求体无效或超出大小限制");
     const rawTitle = payload?.title === undefined ? "未命名笔记" : payload.title;
     const contentMarkdown = payload?.contentMarkdown === undefined ? "" : payload.contentMarkdown;
+    if (typeof rawTitle !== "string" || typeof contentMarkdown !== "string") return jsonError(400, "INVALID_NOTE", "笔记标题或正文格式无效");
     if (!validText(rawTitle, 200) || !validText(contentMarkdown, 1_000_000)) return jsonError(413, "NOTE_TOO_LARGE", "笔记标题或正文超出长度限制");
     const title = normalizeNoteTitle(rawTitle as string);
     const notebookId = typeof payload?.notebookId === "string" ? payload.notebookId : first<{ id: string }>(database, "SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1 LIMIT 1", user.id)?.id;
     if (!notebookId) return jsonError(400, "NO_NOTEBOOK", "没有可用的收件箱");
     if (!first(database, "SELECT id FROM notebooks WHERE id = ? AND user_id = ?", notebookId, user.id)) return jsonError(404, "NOTEBOOK_NOT_FOUND", "笔记本不存在");
     if (!validNoteAssetReferences(database, user.id, null, contentMarkdown as string)) return jsonError(400, "INVALID_ASSET", "笔记引用了无权访问的图片");
-    const noteId = createNote(database, user.id, notebookId, title, contentMarkdown as string, typeof payload?.id === "string" ? payload.id : undefined);
+    const requestedId = payload?.id === undefined ? undefined : payload.id;
+    if (requestedId !== undefined && (typeof requestedId !== "string" || !NOTE_ID_PATTERN.test(requestedId))) {
+      return jsonError(400, "INVALID_NOTE", "笔记 ID 必须是 UUID");
+    }
+    const noteId = createNote(database, user.id, notebookId, title, contentMarkdown as string, requestedId);
     const note = getNote(database, user.id, noteId);
     publishWorkspaceChange(options, user.id, { resource: "notes", noteId }, request);
     return json({ note: note ? toFullNote(note) : null }, 201);
@@ -730,7 +743,8 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     const deletedAt = payload.deleted === undefined || payload.deleted === isDeleted
       ? current.deleted_at
       : payload.deleted ? now() : null;
-    if (!validText(rawTitle, 200) || !validText(contentMarkdown, 1_000_000) || typeof notebookId !== "string") return jsonError(413, "NOTE_TOO_LARGE", "笔记标题或正文超出长度限制");
+    if (typeof rawTitle !== "string" || typeof contentMarkdown !== "string" || typeof notebookId !== "string") return jsonError(400, "INVALID_NOTE", "笔记标题、正文或笔记本格式无效");
+    if (!validText(rawTitle, 200) || !validText(contentMarkdown, 1_000_000)) return jsonError(413, "NOTE_TOO_LARGE", "笔记标题或正文超出长度限制");
     const title = normalizeNoteTitle(rawTitle as string);
     if (!first(database, "SELECT id FROM notebooks WHERE id = ? AND user_id = ?", notebookId, user.id)) return jsonError(404, "NOTEBOOK_NOT_FOUND", "笔记本不存在");
     const contentChanged = current.content_markdown !== contentMarkdown;
