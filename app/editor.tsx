@@ -2,7 +2,7 @@ import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useR
 import { EditorContent, useEditor } from "@tiptap/react";
 import type { Editor, TextSerializer } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
-import { Markdown } from "@tiptap/markdown";
+import { createMarkdownExtension } from "./editor/markdown-config";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -486,7 +486,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     TaskList,
     TaskItem.configure({ nested: true }),
     Placeholder.configure({ placeholder: "从一句话开始……" }),
-    Markdown,
+    createMarkdownExtension(),
     CalloutNode,
     ImageNode,
     WikiLinkNode,

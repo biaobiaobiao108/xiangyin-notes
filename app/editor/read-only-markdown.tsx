@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { Markdown } from "@tiptap/markdown";
+import { createMarkdownExtension } from "./markdown-config";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import { editorCoreExtensionOptions } from "./editor-config";
@@ -24,7 +24,7 @@ export function ReadOnlyMarkdown({ markdown }: { markdown: string }) {
     NoteLink.configure({ openOnClick: true, autolink: true, HTMLAttributes: { rel: "noopener noreferrer", target: "_blank" } }),
     TaskList,
     TaskItem.configure({ nested: true }),
-    Markdown,
+    createMarkdownExtension(),
     CalloutNode,
     ImageNode,
     WikiLinkNode,

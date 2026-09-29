@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { Markdown } from "@tiptap/markdown";
+import { createMarkdownExtension } from "../app/editor/markdown-config";
 import { Info, Table2 } from "lucide-react";
 import { formatPreview } from "../server/core";
 import { extractTags, preserveEscapedHashtagsForEditor } from "../shared/tags";
@@ -23,7 +24,7 @@ function createMarkdownEditor(content: string) {
       CodeBlockDoubleEnter,
       InlineMarkExitOnEnter,
       ...createTableExtensions(),
-      Markdown,
+      createMarkdownExtension(),
       CalloutNode,
     ],
     content,
@@ -759,4 +760,69 @@ describe("slash command matching", () => {
     expect(isSlashCommandImeEscape({ isComposing: true, key: "Escape" })).toBe(true);
     expect(isSlashCommandImeEscape({ isComposing: false, keyCode: 27, key: "Escape" })).toBe(false);
   });
+
+  test("correctly parses CJK bold ending with punctuation directly preceding text", () => {
+    const editor = createMarkdownEditor("**判断：**已知人物检索可以搜到报道");
+    try {
+      const paragraph = editor.state.doc.firstChild;
+      expect(paragraph).toBeDefined();
+      expect(paragraph?.childCount).toBe(2);
+
+      const boldNode = paragraph?.child(0);
+      expect(boldNode?.text).toBe("判断：");
+      expect(boldNode?.marks.some((m) => m.type.name === "bold")).toBe(true);
+
+      const textNode = paragraph?.child(1);
+      expect(textNode?.text).toBe("已知人物检索可以搜到报道");
+      expect(textNode?.marks.length).toBe(0);
+
+      const serialized = (editor as Editor & { getMarkdown: () => string }).getMarkdown();
+      expect(serialized).toBe("**判断：**已知人物检索可以搜到报道");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  test("correctly parses multiple CJK bold markers and various punctuation boundaries", () => {
+    const editor = createMarkdownEditor("**主线：**技术操作 **支线：**日常 **提示！**注意 **Key:**value");
+    try {
+      const serialized = (editor as Editor & { getMarkdown: () => string }).getMarkdown();
+      expect(serialized).toBe("**主线：**技术操作 **支线：**日常 **提示！**注意 **Key:**value");
+
+      const boldTexts: string[] = [];
+      editor.state.doc.descendants((node) => {
+        if (node.isText && node.marks.some((m) => m.type.name === "bold")) {
+          boldTexts.push(node.text ?? "");
+        }
+      });
+      expect(boldTexts).toEqual(["主线：", "支线：", "提示！", "Key:"]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  test("preserves standard markdown bold, italic combinations and escaped asterisks", () => {
+    const editor = createMarkdownEditor("**bold** normal ***bold italic*** \\*\\*escaped\\*\\*");
+    try {
+      const boldTexts: string[] = [];
+      editor.state.doc.descendants((node) => {
+        if (node.isText && node.marks.some((m) => m.type.name === "bold")) {
+          boldTexts.push(node.text ?? "");
+        }
+      });
+      expect(boldTexts).toContain("bold");
+      expect(boldTexts).toContain("bold italic");
+
+      const plainTexts: string[] = [];
+      editor.state.doc.descendants((node) => {
+        if (node.isText && node.marks.length === 0) {
+          plainTexts.push(node.text ?? "");
+        }
+      });
+      expect(plainTexts.join(" ")).toContain("**escaped**");
+    } finally {
+      editor.destroy();
+    }
+  });
 });
+
