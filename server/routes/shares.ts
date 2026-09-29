@@ -5,12 +5,12 @@ import {
   digestHex,
   first,
   getNote,
-  getPublicOrigin,
   type ImageAssetRow,
   json,
   jsonError,
   noteAssetIds,
   now,
+  publicOriginForShare,
   rewriteAssetUrlsForShare,
   type RouteContext,
   SHARE_TTL,
@@ -92,7 +92,7 @@ export async function handleNoteShares(
   }
 
   if (method === "POST") {
-    const publicOrigin = getPublicOrigin(url, environment);
+    const publicOrigin = publicOriginForShare(url, environment);
     const createdAt = now();
     const expiresAt = createdAt + SHARE_TTL;
     const shareId = crypto.randomUUID();

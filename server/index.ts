@@ -2,6 +2,7 @@ import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   jsonError,
   getPublicOrigin,
+  isSecureRequest,
   type RouteContext,
   type ServerOptions,
 } from "./core";
@@ -61,10 +62,10 @@ const SECURITY_HEADERS: Record<string, string> = {
   "Cross-Origin-Opener-Policy": "same-origin-allow-popups",
 };
 
-function withSecurityHeaders(response: Response, environment: Record<string, string | undefined> = {}) {
+function withSecurityHeaders(response: Response, environment: Record<string, string | undefined> = {}, request?: Request) {
   const headers = new Headers(response.headers);
   for (const [name, value] of Object.entries(SECURITY_HEADERS)) headers.set(name, value);
-  if (environment.COOKIE_SECURE === "true") headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  if (request && isSecureRequest(request, environment)) headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
@@ -234,12 +235,12 @@ export async function handleRequest(request: Request, options: ServerOptions) {
     } else {
       response = await serveStatic(request, options.clientRoot ?? DEFAULT_CLIENT_ROOT, environment);
     }
-    return withSecurityHeaders(response, environment);
+    return withSecurityHeaders(response, environment, request);
   } catch (error) {
     const url = new URL(request.url);
     console.error(`[request] ${request.method} ${redactSensitivePath(url.pathname)}`, error);
-    if (url.pathname.startsWith("/api/") || url.pathname === MCP_PATH) return withSecurityHeaders(jsonError(500, "INTERNAL_ERROR", "服务器暂时无法处理请求"), options.environment);
-    return withSecurityHeaders(new Response("Internal Server Error", { status: 500 }), options.environment);
+    if (url.pathname.startsWith("/api/") || url.pathname === MCP_PATH) return withSecurityHeaders(jsonError(500, "INTERNAL_ERROR", "服务器暂时无法处理请求"), options.environment, request);
+    return withSecurityHeaders(new Response("Internal Server Error", { status: 500 }), options.environment, request);
   }
 }
 
@@ -256,7 +257,7 @@ if (import.meta.main) {
       const options: ServerOptions = { database, environment: Bun.env, clientRoot, realtime, clientAddress: server.requestIP(request)?.address };
       if (new URL(request.url).pathname === REALTIME_PATH) {
         const realtimeResponse = await upgradeRealtimeRequest(request, server, options);
-        if (realtimeResponse) return withSecurityHeaders(realtimeResponse, Bun.env);
+        if (realtimeResponse) return withSecurityHeaders(realtimeResponse, Bun.env, request);
         return undefined;
       }
       return handleRequest(request, options);

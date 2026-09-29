@@ -124,8 +124,6 @@ export const LOGIN_BLOCK_SECONDS = 15 * 60;
 export const LOGIN_ATTEMPT_MAX_ENTRIES = 2_000;
 export const LOGIN_ATTEMPT_CLEANUP_INTERVAL_SECONDS = 60;
 export const SESSION_CLEANUP_INTERVAL_SECONDS = 60;
-export const ORPHAN_ASSET_TTL_SECONDS = 24 * 60 * 60;
-export const ORPHAN_ASSET_CLEANUP_INTERVAL_SECONDS = 60;
 export const NOTE_VIEWS: NoteView[] = ["all", "inbox", "favorites", "shared", "trash"];
 
 export const welcomeMarkdown = "## 欢迎来到象映笔记\n\n这是你的第一个笔记。按下 **Ctrl /** 可以打开命令菜单，开始记录你的想法。\n\n- 写下值得保留的东西\n- 用笔记本整理上下文\n- 随时生成一个 7 天有效的只读分享\n";
@@ -173,7 +171,7 @@ export async function derivePassword(password: string, saltHex: string) {
     {
       name: "PBKDF2",
       salt,
-      iterations: 100_000,
+      iterations: PASSWORD_ITERATIONS,
       hash: "SHA-256",
     },
     passwordKey,
@@ -228,15 +226,40 @@ export function isSecureRequest(request: Request, environment: Record<string, st
   const configured = environment.COOKIE_SECURE?.trim().toLowerCase();
   if (configured === "true") return true;
   if (configured === "false") return false;
-  return new URL(request.url).protocol === "https:";
+  if (new URL(request.url).protocol === "https:") return true;
+  // TLS terminated by a reverse proxy: honour X-Forwarded-Proto only when the proxy is trusted.
+  if (environment.TRUST_PROXY === "true") {
+    return request.headers.get("X-Forwarded-Proto")?.split(",")[0]?.trim().toLowerCase() === "https";
+  }
+  return false;
 }
 
-export function getPublicOrigin(requestUrl: URL, environment: Record<string, string | undefined> = {}) {
+// Generating a share link must fail loudly: a wrong PUBLIC_URL would publish unusable links.
+export function publicOriginForShare(requestUrl: URL, environment: Record<string, string | undefined> = {}) {
   const configuredUrl = environment.PUBLIC_URL?.trim();
   if (!configuredUrl) return requestUrl.origin;
   const publicUrl = new URL(configuredUrl);
   if (publicUrl.protocol !== "http:" && publicUrl.protocol !== "https:") throw new Error("PUBLIC_URL must use http or https");
   return publicUrl.origin;
+}
+
+let publicOriginWarningShown = false;
+
+export function getPublicOrigin(requestUrl: URL, environment: Record<string, string | undefined> = {}) {
+  const configuredUrl = environment.PUBLIC_URL?.trim();
+  if (!configuredUrl) return requestUrl.origin;
+  try {
+    const publicUrl = new URL(configuredUrl);
+    if (publicUrl.protocol !== "http:" && publicUrl.protocol !== "https:") throw new Error("PUBLIC_URL must use http or https");
+    return publicUrl.origin;
+  } catch (error) {
+    // A malformed PUBLIC_URL must not turn every write request into a 500.
+    if (!publicOriginWarningShown) {
+      publicOriginWarningShown = true;
+      console.warn("[config] PUBLIC_URL 无效，已回退为请求 origin", error);
+    }
+    return requestUrl.origin;
+  }
 }
 
 export function json(payload: unknown, status = 200, headers: HeadersInit = {}) {
@@ -296,7 +319,13 @@ export async function readBodyBytes(request: Request, maxBytes: number): Promise
   }
 }
 
+const JSON_CONTENT_TYPE_RE = /^application\/(?:[\w.+-]+\+)?json\s*(?:;.*)?$/iu;
+
 export async function readJson<T>(request: Request, maxBytes: number): Promise<T | null> {
+  // Reject non-JSON bodies (defence in depth against cross-site form posts).
+  // A missing Content-Type is still accepted so existing clients keep working.
+  const contentType = request.headers.get("Content-Type")?.trim();
+  if (contentType && !JSON_CONTENT_TYPE_RE.test(contentType)) return null;
   const body = await readBodyBytes(request, maxBytes);
   if (!body.ok) return null;
 
@@ -959,4 +988,27 @@ export function getNote(database: SqliteDatabase, userId: string, noteId: string
     FROM ${NOTE_FROM}
     WHERE n.id = ? AND n.user_id = ?
   `, noteId, userId);
+}
+
+export type TitleMatchRow = {
+  id: string;
+  title: string;
+  version: number;
+  notebook_name: string;
+};
+
+// Shared title lookup so the REST and MCP layers cannot drift apart.
+export function findNotesByTitlePattern(
+  database: SqliteDatabase,
+  userId: string,
+  title: string,
+  includeDeleted = false,
+) {
+  return all<TitleMatchRow>(database, `
+    SELECT n.id, n.title, n.version, b.name AS notebook_name
+    FROM notes n JOIN notebooks b ON b.id = n.notebook_id
+    WHERE n.user_id = ? ${includeDeleted ? "" : "AND n.deleted_at IS NULL "}AND n.title LIKE ? ESCAPE '!'
+    ORDER BY CASE WHEN n.title = ? COLLATE NOCASE THEN 0 ELSE 1 END, n.updated_at DESC, n.id DESC
+    LIMIT 6
+  `, userId, `%${escapeLikePattern(title)}%`, title);
 }
