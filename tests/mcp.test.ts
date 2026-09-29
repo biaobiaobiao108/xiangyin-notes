@@ -142,6 +142,8 @@ describe("remote MCP endpoint", () => {
     expect(updateSchema.additionalProperties).toBe(false);
     const replaceSchema = tools.find((tool: { name: string }) => tool.name === "replace_in_note").inputSchema;
     expect(Object.keys(replaceSchema.properties)).toEqual(["noteId", "oldText", "newText", "occurrence", "version", "force", "includeContent"]);
+    const batchUpdateTool = tools.find((tool: { name: string }) => tool.name === "batch_update_notes");
+    expect(batchUpdateTool.description).toContain("仅当本次只传 deleted:false 时可批量恢复");
 
     const validOriginRequest = modernMcpRequest("tools/list", 2);
     validOriginRequest.headers.set("Origin", "https://notes.example.com");
@@ -169,6 +171,7 @@ describe("remote MCP endpoint", () => {
     expect(resultOf(discovered.body!).instructions).toContain("8,000 个 Unicode 字符");
     expect(resultOf(discovered.body!).instructions).toContain("字面井号词");
     expect(resultOf(discovered.body!).instructions).toContain("batch_update_notes 可将最多 50 篇");
+    expect(resultOf(discovered.body!).instructions).toContain("batch_update_notes 单独设置 deleted:false 恢复");
     expect(resultOf(discovered.body!).instructions).toContain("oversizedIds 标明因剩余字符预算不足而跳过的笔记");
     expect(resultOf(discovered.body!).instructions).toContain("insert_into_note 在行边界插入时会自动补换行");
   });
@@ -362,6 +365,27 @@ describe("remote MCP endpoint", () => {
     expect(toolData(alreadyRestored.body!).note.version).toBe(restoredNote.version);
   });
 
+  test("batch restore supports deleted:false and marks repeated batch deletes as no-op", async () => {
+    const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
+    const first = toolData((await callTool("create_note", { title: "批量恢复甲" }, 1, environment)).body!).note;
+    const second = toolData((await callTool("create_note", { title: "批量恢复乙" }, 2, environment)).body!).note;
+    const trashedFirst = toolData((await callTool("delete_note", { noteId: first.id, version: first.version }, 3, environment)).body!).note;
+    const trashedSecond = toolData((await callTool("delete_note", { noteId: second.id, version: second.version }, 4, environment)).body!).note;
+    const notes = [trashedFirst, trashedSecond].map((note) => ({ noteId: note.id, version: note.version }));
+
+    const repeatedDelete = await callTool("batch_update_notes", { notes, deleted: true }, 5, environment);
+    const repeatedDeleteData = toolData(repeatedDelete.body!);
+    expect(repeatedDeleteData.updatedCount).toBe(2);
+    expect(repeatedDeleteData.results.map((result: Record<string, any>) => result.noop)).toEqual([true, true]);
+    expect(repeatedDeleteData.results.map((result: Record<string, any>) => result.note.version)).toEqual([trashedFirst.version, trashedSecond.version]);
+
+    const restored = await callTool("batch_update_notes", { notes, deleted: false }, 6, environment);
+    const restoredData = toolData(restored.body!);
+    expect(restoredData).toMatchObject({ updatedCount: 2, failedCount: 0 });
+    expect(restoredData.results.map((result: Record<string, any>) => result.note.deletedAt)).toEqual([null, null]);
+    expect(restoredData.results.map((result: Record<string, any>) => result.note.version)).toEqual([trashedFirst.version + 1, trashedSecond.version + 1]);
+  });
+
   test("inserts separate lines at line boundaries and supports selecting an occurrence", async () => {
     const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
     const created = await callTool("create_note", {
@@ -485,8 +509,8 @@ describe("remote MCP endpoint", () => {
     expect(limitedData.notes[1].contentMarkdown).toBe("乙正文完整内容");
     expect(limitedData.notes[0].preview).toBeUndefined();
     expect(limitedData.totalContentCharacters).toBe(Array.from("甲正文\n完整内容乙正文完整内容").length);
-    expect(limitedData.stoppedForCharacterLimit).toBe(false);
-    expect(limitedData).toMatchObject({ checkedCount: 2, uncheckedCount: 1 });
+    expect(limitedData).toMatchObject({ checkedCount: 2, uncheckedCount: 1, skippedForCharacterLimit: false });
+    expect(limitedData).not.toHaveProperty("stoppedForCharacterLimit");
     expect(limitedData.notes[0].updatedAtISO).toBe(new Date(limitedData.notes[0].updatedAt * 1000).toISOString());
     expect(limitedData.remainingIds).toEqual([third.id]);
 
@@ -505,8 +529,8 @@ describe("remote MCP endpoint", () => {
     expect(characterLimitedData.totalContentCharacters).toBe(Array.from("甲正文\n完整内容小").length);
     expect(characterLimitedData.remainingIds).toEqual([second.id]);
     expect(characterLimitedData.oversizedIds).toEqual([second.id]);
-    expect(characterLimitedData.stoppedForCharacterLimit).toBe(true);
     expect(characterLimitedData).toMatchObject({ checkedCount: 3, uncheckedCount: 0, skippedForCharacterLimit: true });
+    expect(characterLimitedData).not.toHaveProperty("stoppedForCharacterLimit");
 
     const firstExceedsBudget = await callTool("get_notes_batch", {
       noteIds: [first.id, small.id],

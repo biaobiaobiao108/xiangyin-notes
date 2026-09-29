@@ -34,7 +34,7 @@ const MCP_SERVER_INSTRUCTIONS = [
   "象映笔记：用于搜索、批量读取、新建、追加、片段替换、锚点插入和更新笔记；可管理笔记本、收藏、标签与回收站。",
   "工具参数必须是 JSON 对象。客户端会先校验参数；手写原始 JSON 时，字符串中的控制字符须按 JSON 规范转义（换行写作 \\n）。多行 Markdown 请通过客户端的结构化工具参数传入，JSON 解析后的正文会保留换行。",
   "单次正文写入建议不超过 8,000 个 Unicode 字符；超长新内容先用 create_note 创建标题和笔记本骨架，再分段调用 append_to_note，并沿用每次写入返回的 version。创建笔记及传入正文的写操作会回传 contentLength 作为长度回执。",
-  "需要分类时先调用 list_notebooks 获取 ID；create_notebook 创建，update_notebook 重命名或改图标、颜色，delete_notebook 必须传 confirm=true（建议用 totalCount 传 expectedNoteCount 二次确认；count 不含回收站）才会删除，其中笔记会被移入收件箱且 version 全部失效。创建笔记时可省略 notebookId 以使用收件箱；标题、正文或所属笔记本用 update_note 更新，标签用 set_tags，收藏用 toggle_favorite，移动用 move_note。标签是正文非代码区域未转义的 #标签 标记；需要展示字面井号词而不建立标签时，在井号前加反斜杠，例如 \\#CSharp。注意 tags 的三种语义：create_note.tags 与 batch_update_notes.tags 是追加，set_tags 默认整体替换（未列出的标签会被清除），回收站笔记只读，所有修改均返回 NOTE_IN_TRASH，须先 restore_note（恢复与重复删除除外），只想追加或移除时给 set_tags 传 mode=add 或 mode=remove。",
+  "需要分类时先调用 list_notebooks 获取 ID；create_notebook 创建，update_notebook 重命名或改图标、颜色，delete_notebook 必须传 confirm=true（建议用 totalCount 传 expectedNoteCount 二次确认；count 不含回收站）才会删除，其中笔记会被移入收件箱且 version 全部失效。创建笔记时可省略 notebookId 以使用收件箱；标题、正文或所属笔记本用 update_note 更新，标签用 set_tags，收藏用 toggle_favorite，移动用 move_note。标签是正文非代码区域未转义的 #标签 标记；需要展示字面井号词而不建立标签时，在井号前加反斜杠，例如 \\#CSharp。注意 tags 的三种语义：create_note.tags 与 batch_update_notes.tags 是追加，set_tags 默认整体替换（未列出的标签会被清除），回收站笔记只读；可用 restore_note 或 batch_update_notes 单独设置 deleted:false 恢复，其他修改均返回 NOTE_IN_TRASH，重复删除为 no-op。只想追加或移除时给 set_tags 传 mode=add 或 mode=remove。",
   "查找笔记用 search_notes；可用 tag 和 nextCursor 分页取回某标签下的笔记，传 view=trash 可搜索回收站。已删除笔记也可用 list_trash 列出并用 query 过滤，再用 restore_note 恢复；MCP 不提供永久删除或清空回收站的工具。需完整正文时用 get_note 或 get_notes_batch；批量读取的 limit 默认取 min(noteIds.length, 50)，并受正文字符预算限制；remainingIds 表示未完整返回的 ID；oversizedIds 标明因剩余字符预算不足而跳过的笔记，工具会继续处理后续 ID；checkedCount 和 uncheckedCount 分别表示已检查与未检查存在性的数量；超出总预算的长笔记可单独用 get_note 读取。replace_in_note 可替换正文片段，insert_into_note 可按锚点插入；两处匹配都按非重叠计数。找不到目标统一返回 NOT_FOUND 并带 target（note、notebook、text、anchor 或 occurrence）；legacyCode 保留 NOTE_NOT_FOUND 或 NOTEBOOK_NOT_FOUND 兼容旧调用方，多处匹配返回 AMBIGUOUS_MATCH 并带 target 与 matchCount，可用 occurrence 指定第几个匹配。toggle_favorite 切换收藏，move_note 移动笔记；delete_note 只是将笔记移入回收站，可恢复；重复删除返回 noop=true。写操作需要的 version 可直接从 search_notes、list_trash 的结果中取，或调用 get_note 并传 includeContent=false，无需读取整篇正文；append_to_note、insert_into_note、replace_in_note 可省略 version，由服务端读取最新正文并以乐观锁保存，传入 version 时仍校验是否过期。VERSION_CONFLICT 时 error.current 包含完整当前笔记，可据此合并后使用最新 version 重试。insert_into_note 在行边界插入时会自动补换行；行内插入保持精确拼接。batch_update_notes 可将最多 50 篇笔记批量移入同一 notebookId，部分失败时返回 partial=true 与每条结果，只需重试失败项。",
   "MCP 只传输文字和 Markdown，不提供图片数据或缩略图；保留正文中的图片引用。",
 ].join(" ");
@@ -543,7 +543,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("get_notes_batch", {
     title: "批量读取笔记",
-    description: "按 ID 一次读取多篇完整 Markdown 笔记，不重复返回 preview。最多输入 50 个 ID；limit 默认取 min(noteIds.length, 50)、最大 50；正文总 Unicode 字符预算 maxTotalCharacters 默认 20,000、最大 100,000。单篇正文放不进剩余预算时，该 ID 会列入 oversizedIds 和 remainingIds，工具仍会继续读取后续 ID；超过本次总预算的长笔记可改用 get_note 单篇读取。checkedCount 表示已查询存在性的 ID 数，uncheckedCount 表示尚未查询存在性的 ID 数。只有已检查且不存在的 ID 才列入 notFoundIds。stoppedForCharacterLimit 是兼容字段，表示至少有一篇因预算被跳过，不代表停止处理后续 ID。",
+    description: "按 ID 一次读取多篇完整 Markdown 笔记，不重复返回 preview。最多输入 50 个 ID；limit 默认取 min(noteIds.length, 50)、最大 50；正文总 Unicode 字符预算 maxTotalCharacters 默认 20,000、最大 100,000。单篇正文放不进剩余预算时，该 ID 会列入 oversizedIds 和 remainingIds，工具仍会继续读取后续 ID；超过本次总预算的长笔记可改用 get_note 单篇读取。checkedCount 表示已查询存在性的 ID 数，uncheckedCount 表示尚未查询存在性的 ID 数。只有已检查且不存在的 ID 才列入 notFoundIds。skippedForCharacterLimit 表示至少有一篇因预算被跳过。",
     inputSchema: z.object({
       noteIds: z.array(z.string().min(1).max(200)).min(1).max(50).describe("要读取的笔记 ID，最多 50 个且不能重复"),
       limit: z.number().int().min(1).max(50).optional().describe("本次最多返回的笔记数；省略时取 min(noteIds.length, 50)，最大 50"),
@@ -562,7 +562,6 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
     const oversizedIds: string[] = [];
     let checkedCount = 0;
     let totalContentCharacters = 0;
-    let stoppedForCharacterLimit = false;
     for (let index = 0; index < selectedIds.length; index += 1) {
       const noteId = selectedIds[index];
       const result = await notesRoute(options, user, "GET", ["notes", noteId], `/api/notes/${encodeURIComponent(noteId)}`);
@@ -583,7 +582,6 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
       const contentCharacters = countUnicodeCharacters(fullNote.contentMarkdown);
       if (totalContentCharacters + contentCharacters > maxTotalCharacters) {
         oversizedIds.push(noteId);
-        stoppedForCharacterLimit = true;
         continue;
       }
       const withoutPreview = { ...fullNote };
@@ -592,7 +590,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
       totalContentCharacters += contentCharacters;
     }
     const remainingIds = [...oversizedIds, ...noteIds.slice(effectiveLimit)];
-    return responseValue({ notes, notFoundIds, oversizedIds, remainingIds, checkedCount, uncheckedCount: noteIds.length - checkedCount, returnedCount: notes.length, totalContentCharacters, maxTotalCharacters, skippedForCharacterLimit: oversizedIds.length > 0, stoppedForCharacterLimit });
+    return responseValue({ notes, notFoundIds, oversizedIds, remainingIds, checkedCount, uncheckedCount: noteIds.length - checkedCount, returnedCount: notes.length, totalContentCharacters, maxTotalCharacters, skippedForCharacterLimit: oversizedIds.length > 0 });
   });
 
   server.registerTool("create_note", {
@@ -871,7 +869,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("batch_update_notes", {
     title: "批量更新笔记",
-    description: "批量移动笔记本、添加或移除正文标签、切换收藏或移入/恢复回收站。回收站笔记只读，所有修改都会返回 NOTE_IN_TRASH；请先单独调用 restore_note 恢复，再进行其他修改。把最多 50 篇笔记的 noteId 和 version 放入 notes，并传同一个 notebookId 即可批量移入该笔记本。每篇笔记都必须带上读取时的 version；逐条执行并返回每条结果，冲突不会覆盖，失败项可单独重试。",
+    description: "批量移动笔记本、添加或移除正文标签、切换收藏或移入/恢复回收站。回收站笔记只读；仅当本次只传 deleted:false 时可批量恢复，其他修改都会返回 NOTE_IN_TRASH，恢复后再进行其他编辑。重复 deleted:true 会在对应结果中标记 noop:true。把最多 50 篇笔记的 noteId 和 version 放入 notes，并传同一个 notebookId 即可批量移入该笔记本。每篇笔记都必须带上读取时的 version；逐条执行并返回每条结果，冲突不会覆盖，失败项可单独重试。",
     inputSchema: z.object({
       notes: z.array(z.object({ noteId: z.string().min(1).max(200), version: z.number().int().positive() }).strict()).min(1).max(50),
       notebookId: z.string().min(1).max(200).optional(),
@@ -892,7 +890,9 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
     for (const note of notes) {
       const result = await updateNoteRoute(options, user, { ...note, notebookId, isFavorite, deleted, tags, removeTags });
       if (result.status === 200) {
-        results.push({ noteId: note.noteId, ok: true, note: conciseWriteNote(result.body.note) });
+        const updatedNote = result.body.note as Record<string, unknown> | undefined;
+        const noop = deleted === true && updatedNote !== undefined && isDeletedNote(updatedNote) && updatedNote.version === note.version;
+        results.push({ noteId: note.noteId, ok: true, note: conciseWriteNote(updatedNote), ...(noop ? { noop: true } : {}) });
       } else {
         const rawError = result.body.error && typeof result.body.error === "object"
           ? result.body.error as Record<string, unknown>
