@@ -382,7 +382,6 @@ export function CommandMenu({
           placement="right"
         />
       </div>
-      <div className="command-footer"><span><Archive size={14} />使用 ↑ ↓ 键选择</span><span>Enter 打开 · F3 查找下一处</span></div>
     </dialog>
   );
 }

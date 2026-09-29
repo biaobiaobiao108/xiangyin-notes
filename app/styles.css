@@ -857,10 +857,6 @@ dialog::backdrop { background: var(--backdrop); -webkit-backdrop-filter: blur(3p
 .command-empty { padding: 18px 10px; color: var(--muted); text-align: center; font-size: 0.84rem; }
 .command-feedback { margin: 0 10px 12px; padding: 11px 12px; border: 1px solid var(--feedback-border); border-radius: 9px; background: var(--surface-success); color: var(--accent-dark); font-size: 0.78rem; line-height: 1.45; }
 .command-search-status { padding: 7px 10px 1px; color: var(--soft-muted); font-size: 0.72rem; }
-.command-footer { display: flex; justify-content: space-between; padding: 12px 20px; border-top: 1px solid var(--border); color: var(--soft-muted); font-size: 0.71rem; flex-shrink: 0; }
-
-.command-footer span { display: inline-flex; align-items: center; gap: 6px; }
-
 .dialog-heading { justify-content: space-between; align-items: flex-start; padding: 24px 24px 18px; }
 .dialog-heading p { margin: 7px 0 0; color: var(--muted); font-size: 0.82rem; }
 .dialog-eyebrow { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; color: var(--accent-dark); font-size: 0.72rem; font-weight: 600; }
