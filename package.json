@@ -13,7 +13,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "bun test",
     "preview": "bun run scripts/preview.ts",
-    "db:migrate": "bun run scripts/migrate.ts"
+    "db:migrate": "bun run scripts/migrate.ts",
+    "db:check": "bun run scripts/check-schema-drift.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "^2.1.0",
