@@ -846,15 +846,14 @@ dialog::backdrop { background: var(--backdrop); -webkit-backdrop-filter: blur(3p
 .command-row { display: grid; grid-template-columns: 24px minmax(0,1fr) auto; align-items: center; gap: 9px; min-height: 46px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: var(--ink); text-align: left; cursor: default; }
 .command-row.is-selected { background: var(--surface-command-selected); }
 .command-row svg { color: var(--muted); }
-.command-row--note { min-height: 58px; }
-.command-row--note svg { color: var(--accent); }
-.command-row--search { min-height: 52px; }
 .command-row--search svg { color: var(--accent); }
 
-.command-row-content { display: grid; min-width: 0; gap: 3px; }
-.command-row-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.command-row-detail { overflow: hidden; color: var(--muted); font-size: 0.72rem; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
-.command-row kbd { justify-self: end; }
+.command-row-content { display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; white-space: nowrap; }
+.command-row-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.command-row-detail { flex: 0 1 40%; min-width: 0; overflow: hidden; color: var(--muted); font-size: 0.72rem; text-overflow: ellipsis; white-space: nowrap; }
+.command-row-trailing { display: inline-flex; align-items: center; justify-self: end; gap: 8px; white-space: nowrap; }
+.command-row-current { display: inline-flex; flex: none; align-items: center; color: var(--accent-dark); }
+.command-row-current svg { color: var(--accent-dark); }
 .command-empty { padding: 18px 10px; color: var(--muted); text-align: center; font-size: 0.84rem; }
 .command-feedback { margin: 0 10px 12px; padding: 11px 12px; border: 1px solid var(--feedback-border); border-radius: 9px; background: var(--surface-success); color: var(--accent-dark); font-size: 0.78rem; line-height: 1.45; }
 .command-search-status { padding: 7px 10px 1px; color: var(--soft-muted); font-size: 0.72rem; }

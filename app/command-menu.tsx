@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type SyntheticEvent } from "react";
-import { AlignVerticalSpaceAround, Archive, Bookmark, Copy, Download, FilePlus2, FileSearch, FolderInput, LayoutGrid, Link2, Maximize2, Monitor, Moon, PanelLeft, Search, Sun, Trash2, type LucideIcon } from "lucide-react";
+import { AlignVerticalSpaceAround, Archive, Bookmark, Check, Copy, Download, FilePlus2, FileSearch, FolderInput, LayoutGrid, Link2, Maximize2, Monitor, Moon, PanelLeft, Search, Sun, Trash2, type LucideIcon } from "lucide-react";
 import type { Notebook } from "../shared/types";
 import { parseCreateNoteCommand, parseMoveNoteCommand, parseSearchPrefixCommand, type CreateNoteCommand } from "./command-parser";
 import { FloatingScrollbar } from "./floating-scrollbar";
@@ -18,6 +18,7 @@ type CommandOption = {
   createNote?: CreateNoteCommand;
   searchTerm?: string;
   detail?: string;
+  isCurrent?: boolean;
   notebook?: Notebook;
 };
 
@@ -78,7 +79,7 @@ export function CommandMenu({
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
 
-  const commands = useMemo<Array<{ id: CommandId; label: string; shortcut: string; icon: LucideIcon; detail?: string; keywords?: string }>>(() => [
+  const commands = useMemo<Array<{ id: CommandId; label: string; shortcut: string; icon: LucideIcon; detail?: string; isCurrent?: boolean; keywords?: string }>>(() => [
     { id: "new-note", label: "新建笔记", shortcut: "↵", icon: FilePlus2 },
     { id: "search-notes" as const, label: "全局搜索笔记", shortcut: "↵", icon: Search },
     ...(hasSelectedNote && canMoveToTrash ? [{ id: "move-to-notebook" as const, label: "移动到笔记本", shortcut: "↵", icon: FolderInput }] : []),
@@ -87,9 +88,9 @@ export function CommandMenu({
     { id: "toggle-view-layout" as const, label: viewLayout === "cards" ? "切换到三栏列表视图" : "切换到卡片网格视图", shortcut: `${altKey} V`, icon: LayoutGrid },
     { id: "toggle-focus-mode", label: focusMode ? "退出沉浸模式" : "进入沉浸模式", shortcut: `${modKey} ⇧ F`, icon: Maximize2 },
     { id: "toggle-typewriter-mode", label: typewriterMode ? "退出打字机模式" : "开启打字机模式", shortcut: `${altKey} ⇧ T`, icon: AlignVerticalSpaceAround },
-    { id: "set-theme-light", label: "浅色模式", shortcut: "↵", icon: Sun, detail: themePreference === "light" ? "当前设置" : "", keywords: "主题 外观" },
-    { id: "set-theme-dark", label: "深色模式", shortcut: "↵", icon: Moon, detail: themePreference === "dark" ? "当前设置" : "", keywords: "主题 外观 tokyo night" },
-    { id: "set-theme-system", label: "外观跟随系统", shortcut: "↵", icon: Monitor, detail: themePreference === "system" ? "当前设置" : "", keywords: "主题 外观 系统 跟随系统" },
+    { id: "set-theme-light", label: "浅色模式", shortcut: "↵", icon: Sun, isCurrent: themePreference === "light", keywords: "主题 外观" },
+    { id: "set-theme-dark", label: "深色模式", shortcut: "↵", icon: Moon, isCurrent: themePreference === "dark", keywords: "主题 外观 tokyo night" },
+    { id: "set-theme-system", label: "外观跟随系统", shortcut: "↵", icon: Monitor, isCurrent: themePreference === "system", keywords: "主题 外观 系统 跟随系统" },
     ...(hasSelectedNote ? [{ id: "share" as const, label: "分享笔记", shortcut: "↵", icon: Link2 }] : []),
     ...(hasSelectedNote ? [{ id: "copy-note-markdown" as const, label: "复制当前笔记 Markdown", shortcut: "↵", icon: Copy, keywords: "复制 正文 全文 markdown" }] : []),
     ...(hasSelectedNote ? [{ id: "favorite" as const, label: "切换收藏", shortcut: "↵", icon: Bookmark }] : []),
@@ -368,7 +369,7 @@ export function CommandMenu({
               : command.kind === "move-note" ? "移动笔记"
               : "命令";
             const heading = section !== previousSection && section !== "命令" ? <div className="command-section-label" key={`${command.key}-section`}>{section}</div> : null;
-            const noteDetail = command.detail || "";
+            const commandDetail = command.detail || "";
             previousSection = section;
             return (
               <Fragment key={command.key}>
@@ -389,9 +390,12 @@ export function CommandMenu({
                   )}
                   <span className="command-row-content">
                     <span className="command-row-label">{command.label}</span>
-                    {noteDetail && <span className="command-row-detail">{noteDetail}</span>}
+                    {commandDetail && <span className="command-row-detail">{commandDetail}</span>}
                   </span>
-                  <kbd>{command.shortcut}</kbd>
+                  <span className="command-row-trailing">
+                    {command.isCurrent && <span className="command-row-current" role="img" aria-label="当前主题"><Check size={16} aria-hidden="true" /></span>}
+                    <kbd>{command.shortcut}</kbd>
+                  </span>
                 </button>
               </Fragment>
             );
