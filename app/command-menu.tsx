@@ -223,17 +223,11 @@ export function CommandMenu({
       const selectedTop = selectedElement.offsetTop - list.offsetTop;
       const selectedBottom = selectedTop + selectedElement.offsetHeight;
       const endInset = Number.parseFloat(getComputedStyle(list).getPropertyValue("--command-list-bottom-inset")) || 0;
-      const startInset = 0;
-      const visibleTop = list.scrollTop + list.clientTop + startInset;
+      const visibleTop = list.scrollTop + list.clientTop;
       const visibleBottom = list.scrollTop + list.clientHeight - endInset;
-      const initialVisibleBottom = list.clientHeight - endInset;
 
-      if (selectedBottom >= initialVisibleBottom) {
-        // Keep the sixth and later rows anchored to the same bottom inset, even
-        // when moving back from a later row that has already scrolled the list.
-        list.scrollTop = Math.max(0, selectedBottom + endInset - list.clientHeight);
-      } else if (selectedTop < visibleTop) {
-        list.scrollTop = Math.max(0, selectedTop - list.clientTop - startInset);
+      if (selectedTop < visibleTop) {
+        list.scrollTop = Math.max(0, selectedTop - list.clientTop);
       } else if (selectedBottom > visibleBottom) {
         list.scrollTop = selectedBottom + endInset - list.clientHeight;
       }
