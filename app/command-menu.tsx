@@ -213,8 +213,24 @@ export function CommandMenu({
     const list = listRef.current;
     if (!list) return;
     const selectedElement = list.querySelector<HTMLElement>(".command-row.is-selected");
-    if (selectedElement) {
-      selectedElement.scrollIntoView({ block: "nearest" });
+    if (!selectedElement) return;
+
+    // Scroll only the command list. scrollIntoView may also scroll the page or
+    // dialog ancestors, which makes the whole menu appear to shift vertically.
+    const listRect = list.getBoundingClientRect();
+    const listTop = listRect.top + list.clientTop;
+    const listBottom = listTop + list.clientHeight;
+    const selectedRect = selectedElement.getBoundingClientRect();
+    const scrollStyles = getComputedStyle(list);
+    const startInset = Number.parseFloat(scrollStyles.scrollPaddingBlockStart) || 0;
+    const endInset = Number.parseFloat(scrollStyles.scrollPaddingBlockEnd) || 0;
+    const visibleTop = listTop + startInset;
+    const visibleBottom = listBottom - endInset;
+
+    if (selectedRect.top < visibleTop) {
+      list.scrollTop -= visibleTop - selectedRect.top;
+    } else if (selectedRect.bottom > visibleBottom) {
+      list.scrollTop += selectedRect.bottom - visibleBottom;
     }
   }, [selected]);
 
