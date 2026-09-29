@@ -832,7 +832,7 @@ button.save-status:hover { text-decoration: underline; }
 
 dialog { padding: 0; color: var(--ink); }
 dialog::backdrop { background: var(--backdrop); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
-.command-dialog { display: flex; flex-direction: column; width: min(500px, calc(100% - 32px)); height: min(480px, calc(100vh - 64px)); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow); animation: dialog-in var(--motion-fast) ease both; overflow: hidden; }
+.command-dialog { display: flex; flex-direction: column; width: min(500px, calc(100% - 32px)); height: min(600px, calc(100dvh - 32px)); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow); animation: dialog-in var(--motion-fast) ease both; overflow: hidden; }
 .command-dialog:not([open]) { display: none; }
 @keyframes dialog-in { from { opacity: 0; transform: translateY(-6px) scale(0.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
 .command-dialog-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 20px 14px; flex-shrink: 0; }
@@ -849,6 +849,15 @@ dialog::backdrop { background: var(--backdrop); -webkit-backdrop-filter: blur(3p
 .command-row--note svg { color: var(--accent); }
 .command-row--search { min-height: 52px; }
 .command-row--search svg { color: var(--accent); }
+
+@media (max-height: 640px) {
+  .command-dialog-header { padding: 14px 20px 8px; }
+  .command-search-wrap { min-height: 40px; margin-bottom: 8px; }
+  .command-section-label { padding: 4px 10px 2px; }
+  .command-row { min-height: 40px; }
+  .command-row--note { min-height: 52px; }
+  .command-row--search { min-height: 48px; }
+}
 
 .command-row-content { display: grid; min-width: 0; gap: 3px; }
 .command-row-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

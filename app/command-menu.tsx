@@ -345,7 +345,7 @@ export function CommandMenu({
               : (command.kind === "in-note-search" || command.kind === "global-search") ? "搜索"
               : command.kind === "move-note" ? "移动笔记"
               : "命令";
-            const heading = section !== previousSection ? <div className="command-section-label" key={`${command.key}-section`}>{section}</div> : null;
+            const heading = section !== previousSection && section !== "命令" ? <div className="command-section-label" key={`${command.key}-section`}>{section}</div> : null;
             const noteDetail = command.detail || "";
             previousSection = section;
             return (
