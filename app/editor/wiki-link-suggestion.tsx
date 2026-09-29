@@ -62,8 +62,10 @@ export const WikiLinkSuggestionList = forwardRef<WikiLinkSuggestionListRef, Wiki
   const items = props.items;
   const listboxId = `wiki-link-suggestion-listbox-${useId().replaceAll(":", "")}`;
   const listRef = useRef<HTMLDivElement>(null);
+  const lastMousePositionRef = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
+    lastMousePositionRef.current = null;
     setSelectedIndex(0);
   }, [items]);
 
@@ -122,12 +124,14 @@ export const WikiLinkSuggestionList = forwardRef<WikiLinkSuggestionListRef, Wiki
 
       if (event.key === "ArrowUp") {
         event.preventDefault();
+        lastMousePositionRef.current = null;
         setSelectedIndex((current) => (current + items.length - 1) % items.length);
         return true;
       }
 
       if (event.key === "ArrowDown") {
         event.preventDefault();
+        lastMousePositionRef.current = null;
         setSelectedIndex((current) => (current + 1) % items.length);
         return true;
       }
@@ -144,6 +148,21 @@ export const WikiLinkSuggestionList = forwardRef<WikiLinkSuggestionListRef, Wiki
       return false;
     },
   }));
+
+  const handleItemMouseMove = (index: number, event: React.MouseEvent) => {
+    if (!lastMousePositionRef.current) {
+      lastMousePositionRef.current = { x: event.clientX, y: event.clientY };
+      return;
+    }
+    const deltaX = Math.abs(event.clientX - lastMousePositionRef.current.x);
+    const deltaY = Math.abs(event.clientY - lastMousePositionRef.current.y);
+    if (deltaX + deltaY >= 4) {
+      lastMousePositionRef.current = { x: event.clientX, y: event.clientY };
+      if (selectedIndex !== index) {
+        setSelectedIndex(index);
+      }
+    }
+  };
 
   if (!items.length) return null;
 
@@ -172,7 +191,7 @@ export const WikiLinkSuggestionList = forwardRef<WikiLinkSuggestionListRef, Wiki
                   e.preventDefault();
                   e.stopPropagation();
                 }}
-                onMouseEnter={() => setSelectedIndex(index)}
+                onMouseMove={(e) => handleItemMouseMove(index, e)}
                 role="option"
                 aria-selected={isSelected}
               >

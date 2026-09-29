@@ -197,14 +197,17 @@ const SlashCommandList = forwardRef<SlashCommandListRef, SlashCommandListProps>(
   const [selectedIndex, setSelectedIndex] = useState(0);
   const listboxId = `slash-command-listbox-${useId().replaceAll(":", "")}`;
   const listRef = useRef<HTMLDivElement>(null);
+  const lastMousePositionRef = useRef<{ x: number; y: number } | null>(null);
 
   if (itemsRef.current !== props.items) {
     itemsRef.current = props.items;
     selectedIndexRef.current = 0;
+    lastMousePositionRef.current = null;
   }
 
   useEffect(() => {
     selectedIndexRef.current = 0;
+    lastMousePositionRef.current = null;
     setSelectedIndex(0);
   }, [props.items]);
 
@@ -252,6 +255,7 @@ const SlashCommandList = forwardRef<SlashCommandListRef, SlashCommandListProps>(
       if (isSlashCommandImeEvent(event)) return false;
       if (["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight"].includes(event.key)) {
         event.preventDefault();
+        lastMousePositionRef.current = null;
         if (props.items.length) {
           const columns = window.innerWidth <= 720 ? 2 : 3;
           const next = isDirectory
@@ -271,6 +275,22 @@ const SlashCommandList = forwardRef<SlashCommandListRef, SlashCommandListProps>(
     },
   }), [groups, isDirectory, props.items, props.command]);
 
+  const handleItemMouseMove = (index: number, event: React.MouseEvent) => {
+    if (!lastMousePositionRef.current) {
+      lastMousePositionRef.current = { x: event.clientX, y: event.clientY };
+      return;
+    }
+    const deltaX = Math.abs(event.clientX - lastMousePositionRef.current.x);
+    const deltaY = Math.abs(event.clientY - lastMousePositionRef.current.y);
+    if (deltaX + deltaY >= 4) {
+      lastMousePositionRef.current = { x: event.clientX, y: event.clientY };
+      if (selectedIndexRef.current !== index) {
+        selectedIndexRef.current = index;
+        setSelectedIndex(index);
+      }
+    }
+  };
+
   const renderItem = (item: SlashCommandItem, index: number) => {
     const Icon = item.icon;
     return <button
@@ -281,7 +301,12 @@ const SlashCommandList = forwardRef<SlashCommandListRef, SlashCommandListProps>(
       aria-selected={index === selectedIndex}
       key={item.id}
       aria-label={`${item.label}，${item.description}`}
-      onMouseDown={(event) => event.preventDefault()}
+      onMouseDown={(event) => {
+        event.preventDefault();
+        selectedIndexRef.current = index;
+        setSelectedIndex(index);
+      }}
+      onMouseMove={(event) => handleItemMouseMove(index, event)}
       onClick={() => select(index)}
     >
       <span className="slash-command-icon"><Icon size={16} aria-hidden="true" /></span>

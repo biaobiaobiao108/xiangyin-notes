@@ -74,6 +74,7 @@ export function CommandMenu({
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
+  const lastMousePositionRef = useRef<{ x: number; y: number } | null>(null);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
 
@@ -173,6 +174,7 @@ export function CommandMenu({
   const emptySearchPrefix = Boolean(parsedSearchPrefix && !parsedSearchPrefix.term);
 
   const updateQuery = (next: string) => {
+    lastMousePositionRef.current = null;
     setQuery(next);
     setSelected(0);
   };
@@ -181,6 +183,7 @@ export function CommandMenu({
     const dialog = dialogRef.current;
     if (!dialog) return;
     if (open && !dialog.open) {
+      lastMousePositionRef.current = null;
       returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       dialog.showModal();
       const nextQuery = initialQuery ?? "";
@@ -194,6 +197,7 @@ export function CommandMenu({
       });
     }
     if (!open && dialog.open) {
+      lastMousePositionRef.current = null;
       dialog.close();
       const target = returnFocusRef.current;
       returnFocusRef.current = null;
@@ -264,9 +268,11 @@ export function CommandMenu({
         onClose();
       } else if (event.key === "ArrowDown") {
         event.preventDefault();
+        lastMousePositionRef.current = null;
         setSelected((current) => Math.min(current + 1, Math.max(options.length - 1, 0)));
       } else if (event.key === "ArrowUp") {
         event.preventDefault();
+        lastMousePositionRef.current = null;
         setSelected((current) => Math.max(current - 1, 0));
       } else if (event.key === "Enter" && !event.isComposing && event.keyCode !== 229 && options[selected]) {
         event.preventDefault();
@@ -281,6 +287,23 @@ export function CommandMenu({
       ignoreNextCancelRef.current = false;
     };
   }, [execute, onClose, options, selected]);
+
+  const handleRowMouseMove = (index: number, event: React.MouseEvent) => {
+    if (!lastMousePositionRef.current) {
+      // 记录初始指针坐标，不视为有效物理位移（防止打开瞬间直接命中鼠标下方命令）
+      lastMousePositionRef.current = { x: event.clientX, y: event.clientY };
+      return;
+    }
+    const deltaX = Math.abs(event.clientX - lastMousePositionRef.current.x);
+    const deltaY = Math.abs(event.clientY - lastMousePositionRef.current.y);
+    // 只有当指针在视口中真正发生物理位移（阈值 >= 4px）时，才视为用户主动使用鼠标浏览选择
+    if (deltaX + deltaY >= 4) {
+      lastMousePositionRef.current = { x: event.clientX, y: event.clientY };
+      if (selected !== index) {
+        setSelected(index);
+      }
+    }
+  };
 
   const handleCancel = (event: SyntheticEvent<HTMLDialogElement>) => {
     event.preventDefault();
@@ -333,6 +356,8 @@ export function CommandMenu({
                   className={`command-row ${command.kind === "in-note-search" || command.kind === "global-search" ? "command-row--search" : ""} ${selected === index ? "is-selected" : ""}`}
                   role="option"
                   aria-selected={selected === index}
+                  onPointerDown={() => setSelected(index)}
+                  onMouseMove={(event) => handleRowMouseMove(index, event)}
                   onClick={() => execute(command)}
                 >
                   {command.kind === "move-note" && command.notebook ? (
