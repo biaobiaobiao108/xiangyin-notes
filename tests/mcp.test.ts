@@ -127,7 +127,7 @@ describe("remote MCP endpoint", () => {
     expect(noOrigin.response.status).toBe(200);
     const tools = resultOf(noOrigin.body!).tools;
     expect(tools.map((tool: { name: string }) => tool.name)).toEqual([
-      "list_notebooks", "create_notebook", "update_notebook", "delete_notebook", "search_notes", "list_trash", "empty_trash", "get_note", "get_notes_batch", "create_note", "update_note", "replace_in_note", "toggle_favorite", "move_note", "set_tags", "append_to_note", "insert_into_note", "delete_note", "restore_note", "batch_update_notes",
+      "list_notebooks", "create_notebook", "update_notebook", "delete_notebook", "search_notes", "list_trash", "get_note", "get_notes_batch", "create_note", "update_note", "replace_in_note", "toggle_favorite", "move_note", "set_tags", "append_to_note", "insert_into_note", "delete_note", "restore_note", "batch_update_notes",
     ]);
     const assertClosedSchemas = (schema: Record<string, any>) => {
       if (schema.type === "object" || schema.properties) expect(schema.additionalProperties).toBe(false);
@@ -162,14 +162,14 @@ describe("remote MCP endpoint", () => {
     expect(resultOf(discovered.body!).instructions).toContain("update_notebook");
     expect(resultOf(discovered.body!).instructions).toContain("delete_notebook");
     expect(resultOf(discovered.body!).instructions).toContain("get_notes_batch");
-    expect(resultOf(discovered.body!).instructions).toContain("empty_trash");
+    expect(resultOf(discovered.body!).instructions).toContain("MCP 不提供永久删除或清空回收站的工具");
     expect(resultOf(discovered.body!).instructions).toContain("restore_note");
     expect(resultOf(discovered.body!).instructions).toContain("toggle_favorite");
     expect(resultOf(discovered.body!).instructions).toContain("set_tags");
     expect(resultOf(discovered.body!).instructions).toContain("8,000 个 Unicode 字符");
     expect(resultOf(discovered.body!).instructions).toContain("字面井号词");
     expect(resultOf(discovered.body!).instructions).toContain("batch_update_notes 可将最多 50 篇");
-    expect(resultOf(discovered.body!).instructions).toContain("remainingIds 表示因 limit 或字符预算尚未处理的 ID");
+    expect(resultOf(discovered.body!).instructions).toContain("checkedCount 表示已检查存在性的数量");
     expect(resultOf(discovered.body!).instructions).toContain("insert_into_note 在行边界插入时会自动补换行");
   });
 
@@ -228,14 +228,48 @@ describe("remote MCP endpoint", () => {
     expect(toolData(rejectedDeletion.body!).error.code).toBe("SYSTEM_NOTEBOOK");
 
     const missingNotebookCreate = await callTool("create_note", { title: "缺失笔记本", notebookId: "missing-notebook-id" }, 8, environment);
-    expect(toolData(missingNotebookCreate.body!).error.code).toBe("NOTEBOOK_NOT_FOUND");
+    expect(toolData(missingNotebookCreate.body!).error).toMatchObject({ code: "NOT_FOUND", target: "notebook", legacyCode: "NOTEBOOK_NOT_FOUND" });
     const existingNote = toolData((await callTool("create_note", { title: "笔记本错误码一致性" }, 9, environment)).body!).note;
     const missingNotebookUpdate = await callTool("update_note", {
       noteId: existingNote.id,
       version: existingNote.version,
       notebookId: "missing-notebook-id",
     }, 10, environment);
-    expect(toolData(missingNotebookUpdate.body!).error.code).toBe("NOTEBOOK_NOT_FOUND");
+    expect(toolData(missingNotebookUpdate.body!).error).toMatchObject({ code: "NOT_FOUND", target: "notebook", legacyCode: "NOTEBOOK_NOT_FOUND" });
+  });
+
+  test("confirms notebook deletion against totalCount including trashed notes", async () => {
+    const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
+    const notebook = toolData((await callTool("create_notebook", { name: "含回收站笔记的笔记本" }, 1, environment)).body!).notebook;
+    const created = toolData((await callTool("create_note", { title: "已删除的笔记", notebookId: notebook.id }, 2, environment)).body!).note;
+    const deleted = await callTool("delete_note", { noteId: created.id, version: created.version }, 3, environment);
+    const trashed = toolData(deleted.body!).note;
+
+    const listed = toolData((await callTool("list_notebooks", {}, 4, environment)).body!).notebooks;
+    const listedNotebook = listed.find((item: { id: string }) => item.id === notebook.id);
+    expect(listedNotebook).toMatchObject({ count: 0, totalCount: 1 });
+
+    const wrongCount = await callTool("delete_notebook", {
+      notebookId: notebook.id,
+      confirm: true,
+      expectedNoteCount: listedNotebook.count,
+    }, 5, environment);
+    expect(toolData(wrongCount.body!).error).toMatchObject({
+      code: "NOTEBOOK_COUNT_MISMATCH",
+      actualCount: 1,
+      expectedNoteCount: 0,
+    });
+    expect(toolData((await callTool("list_notebooks", {}, 6, environment)).body!).notebooks.some((item: { id: string }) => item.id === notebook.id)).toBe(true);
+
+    const deletedNotebook = await callTool("delete_notebook", {
+      notebookId: notebook.id,
+      confirm: true,
+      expectedNoteCount: listedNotebook.totalCount,
+    }, 7, environment);
+    expect(toolData(deletedNotebook.body!)).toMatchObject({ ok: true, movedCount: 1 });
+    const movedNote = toolData((await callTool("get_note", { noteId: trashed.id }, 8, environment)).body!).note;
+    expect(movedNote.notebookId).not.toBe(notebook.id);
+    expect(movedNote.isDeleted).toBe(true);
   });
 
   test("adds requested tags on a clean line after trailing newlines", async () => {
@@ -309,19 +343,21 @@ describe("remote MCP endpoint", () => {
     const deletedNote = toolData(deleted.body!).note;
     expect(deletedNote.deletedAt).not.toBeNull();
     expect(deletedNote.version).toBe(4);
-    const trash = await callTool("list_trash", { limit: 5, previewLength: 20 }, 9, environment);
+    const deletedAgain = await callTool("delete_note", { noteId: note.id, version: deletedNote.version }, 9, environment);
+    expect(toolData(deletedAgain.body!)).toMatchObject({ noop: true, note: { version: deletedNote.version, deletedAt: deletedNote.deletedAt } });
+    const trash = await callTool("list_trash", { limit: 5, previewLength: 20 }, 10, environment);
     const trashedNote = toolData(trash.body!).notes.find((entry: { id: string }) => entry.id === note.id);
     expect(trashedNote).toMatchObject({ id: note.id, deletedAt: deletedNote.deletedAt, version: deletedNote.version });
     expect(trashedNote.updatedAtISO).toBe(new Date(trashedNote.updatedAt * 1000).toISOString());
     expect(Array.from(trashedNote.preview).length).toBeLessThanOrEqual(20);
-    const reread = await callTool("get_note", { noteId: note.id }, 10, environment);
+    const reread = await callTool("get_note", { noteId: note.id }, 11, environment);
     expect(toolData(reread.body!).note.deletedAt).not.toBeNull();
     expect(toolData(reread.body!).note.isDeleted).toBe(true);
-    const restored = await callTool("restore_note", { noteId: note.id, version: deletedNote.version }, 11, environment);
+    const restored = await callTool("restore_note", { noteId: note.id, version: deletedNote.version }, 12, environment);
     const restoredNote = toolData(restored.body!).note;
     expect(restoredNote.deletedAt).toBeNull();
     expect(restoredNote.isDeleted).toBe(false);
-    const alreadyRestored = await callTool("restore_note", { noteId: note.id, version: restoredNote.version }, 12, environment);
+    const alreadyRestored = await callTool("restore_note", { noteId: note.id, version: restoredNote.version }, 13, environment);
     expect(toolData(alreadyRestored.body!).noop).toBe(true);
     expect(toolData(alreadyRestored.body!).note.version).toBe(restoredNote.version);
   });
@@ -396,6 +432,21 @@ describe("remote MCP endpoint", () => {
     expect(note.tags).toEqual([]);
     fullNote = toolData((await callTool("get_note", { noteId: note.id }, 9, environment)).body!).note;
     expect(fullNote.contentMarkdown).toBe("正文\n代码示例 `#代码标签`");
+
+    const trashedResult = await callTool("delete_note", { noteId: note.id, version: fullNote.version }, 10, environment);
+    const trashedNote = toolData(trashedResult.body!).note;
+    const favoriteRejected = await callTool("toggle_favorite", { noteId: note.id, version: trashedNote.version }, 11, environment);
+    expect(toolData(favoriteRejected.body!).error.code).toBe("NOTE_IN_TRASH");
+    const tagsRejected = await callTool("set_tags", { noteId: note.id, version: trashedNote.version, tags: ["不应写入"] }, 12, environment);
+    expect(toolData(tagsRejected.body!).error.code).toBe("NOTE_IN_TRASH");
+    const batchRejected = await callTool("batch_update_notes", {
+      notes: [{ noteId: note.id, version: trashedNote.version }],
+      isFavorite: false,
+      tags: ["不应写入"],
+    }, 13, environment);
+    expect(toolData(batchRejected.body!).results[0].error.code).toBe("NOTE_IN_TRASH");
+    const unchanged = toolData((await callTool("get_note", { noteId: note.id }, 14, environment)).body!).note;
+    expect(unchanged).toMatchObject({ isDeleted: true, version: trashedNote.version, isFavorite: true, tags: [] });
   });
 
   test("batch reads full notes with a bounded result count and reports missing IDs", async () => {
@@ -412,12 +463,14 @@ describe("remote MCP endpoint", () => {
     expect(limitedData.notes[0].preview).toBeUndefined();
     expect(limitedData.totalContentCharacters).toBe(Array.from("甲正文\n完整内容乙正文完整内容").length);
     expect(limitedData.stoppedForCharacterLimit).toBe(false);
+    expect(limitedData).toMatchObject({ checkedCount: 2, uncheckedCount: 1 });
     expect(limitedData.notes[0].updatedAtISO).toBe(new Date(limitedData.notes[0].updatedAt * 1000).toISOString());
     expect(limitedData.remainingIds).toEqual([third.id]);
 
     const notYetChecked = await callTool("get_notes_batch", { noteIds: [first.id, "missing-but-not-checked"], limit: 1 }, 7, environment);
     expect(toolData(notYetChecked.body!).remainingIds).toEqual(["missing-but-not-checked"]);
     expect(toolData(notYetChecked.body!).notFoundIds).toEqual([]);
+    expect(toolData(notYetChecked.body!)).toMatchObject({ checkedCount: 1, uncheckedCount: 1 });
 
     const characterLimited = await callTool("get_notes_batch", {
       noteIds: [first.id, second.id, third.id],
@@ -429,33 +482,12 @@ describe("remote MCP endpoint", () => {
     expect(characterLimitedData.totalContentCharacters).toBe(Array.from("甲正文\n完整内容").length);
     expect(characterLimitedData.remainingIds).toEqual([second.id, third.id]);
     expect(characterLimitedData.stoppedForCharacterLimit).toBe(true);
+    expect(characterLimitedData).toMatchObject({ checkedCount: 2, uncheckedCount: 1 });
 
     const remainder = await callTool("get_notes_batch", { noteIds: [third.id, "missing-note-id"], limit: 2 }, 6, environment);
     expect(toolData(remainder.body!).notes[0].contentMarkdown).toBe("丙正文完整内容");
     expect(toolData(remainder.body!).notFoundIds).toEqual(["missing-note-id"]);
-  });
-
-  test("permanently empties only the trash after explicit confirmation", async () => {
-    const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
-    const active = toolData((await callTool("create_note", { title: "保留的活动笔记", contentMarkdown: "正文" }, 1, environment)).body!).note;
-    const trashed = [] as Array<{ id: string; version: number }>;
-    for (const [index, title] of ["待清理甲", "待清理乙"].entries()) {
-      const created = toolData((await callTool("create_note", { title, contentMarkdown: "回收站正文" }, index + 2, environment)).body!).note;
-      const deleted = await callTool("delete_note", { noteId: created.id, version: created.version }, index + 4, environment);
-      trashed.push(toolData(deleted.body!).note);
-    }
-
-    const emptied = await callTool("empty_trash", { confirm: true }, 6, environment);
-    expect(emptied.response.status).toBe(200);
-    expect(toolData(emptied.body!)).toEqual({ ok: true, deletedCount: 2 });
-    const trash = await callTool("list_trash", {}, 7, environment);
-    expect(toolData(trash.body!).notes).toHaveLength(0);
-    expect(toolData((await callTool("get_note", { noteId: active.id }, 8, environment)).body!).note.title).toBe("保留的活动笔记");
-
-    for (const note of trashed) {
-      const missing = await callTool("get_note", { noteId: note.id }, 8 + trashed.indexOf(note), environment);
-      expect(toolData(missing.body!).error.code).toBe("NOTE_NOT_FOUND");
-    }
+    expect(toolData(remainder.body!)).toMatchObject({ checkedCount: 2, uncheckedCount: 0 });
   });
 
   test("appends before trailing tags to preserve the tag footer", async () => {
@@ -854,26 +886,7 @@ describe("remote MCP endpoint", () => {
 
     const missingNote = await callTool("get_note", { noteId: "missing" }, 2);
     expect(resultOf(missingNote.body!).isError).toBe(true);
-    expect(toolData(missingNote.body!).error.code).toBe("NOTE_NOT_FOUND");
-  });
-
-  test("requires explicit confirmation before emptying the trash", async () => {
-    const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
-    const created = toolData((await callTool("create_note", { title: "待清空笔记" }, 1, environment)).body!).note;
-    await callTool("delete_note", { noteId: created.id, version: created.version }, 2, environment);
-
-    const unconfirmed = await callTool("empty_trash", { confirm: false }, 3, environment);
-    expect(resultOf(unconfirmed.body!).isError).toBe(true);
-    expect(toolData(unconfirmed.body!).error.code).toBe("CONFIRMATION_REQUIRED");
-
-    const dryRun = await callTool("empty_trash", { confirm: true, dryRun: true }, 4, environment);
-    expect(toolData(dryRun.body!)).toMatchObject({ dryRun: true, wouldDeleteCount: 1 });
-
-    const stillThere = toolData((await callTool("list_trash", {}, 5, environment)).body!).notes;
-    expect(stillThere).toHaveLength(1);
-
-    const emptied = await callTool("empty_trash", { confirm: true }, 6, environment);
-    expect(toolData(emptied.body!).deletedCount).toBe(1);
+    expect(toolData(missingNote.body!).error).toMatchObject({ code: "NOT_FOUND", target: "note", legacyCode: "NOTE_NOT_FOUND" });
   });
 
   test("searches the trash by query through list_trash and search_notes", async () => {

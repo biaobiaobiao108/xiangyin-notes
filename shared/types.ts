@@ -25,6 +25,7 @@ export type Notebook = {
   icon: string;
   isSystem: boolean;
   count: number;
+  totalCount?: number;
   updatedAt: number;
 };
 

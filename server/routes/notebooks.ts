@@ -23,6 +23,7 @@ type NotebookRowWithCount = {
   is_system: number;
   updated_at: number;
   count: number;
+  total_count: number;
 };
 
 export const VALID_NOTEBOOK_ICONS = [
@@ -50,6 +51,7 @@ export function toNotebook(row: NotebookRowWithCount): Notebook {
     icon: row.icon,
     isSystem: Boolean(row.is_system),
     count: Number(row.count),
+    totalCount: Number(row.total_count),
     updatedAt: row.updated_at,
   };
 }
@@ -57,7 +59,8 @@ export function toNotebook(row: NotebookRowWithCount): Notebook {
 export function getNotebook(database: SqliteDatabase, userId: string, notebookId: string) {
   return first<NotebookRowWithCount>(database, `
     SELECT b.id, b.name, b.color, b.icon, b.is_system, b.updated_at,
-      (SELECT COUNT(*) FROM notes n WHERE n.notebook_id = b.id AND n.user_id = b.user_id AND n.deleted_at IS NULL) AS count
+      (SELECT COUNT(*) FROM notes n WHERE n.notebook_id = b.id AND n.user_id = b.user_id AND n.deleted_at IS NULL) AS count,
+      (SELECT COUNT(*) FROM notes n WHERE n.notebook_id = b.id AND n.user_id = b.user_id) AS total_count
     FROM notebooks b WHERE b.id = ? AND b.user_id = ?
   `, notebookId, userId);
 }
@@ -74,7 +77,8 @@ export async function handleNotebooksRoute(ctx: RouteContext, user: UserRow): Pr
   if (!id && method === "GET") {
     const rows = all<NotebookRowWithCount>(database, `
       SELECT b.id, b.name, b.color, b.icon, b.is_system, b.updated_at,
-        (SELECT COUNT(*) FROM notes n WHERE n.notebook_id = b.id AND n.user_id = b.user_id AND n.deleted_at IS NULL) AS count
+        (SELECT COUNT(*) FROM notes n WHERE n.notebook_id = b.id AND n.user_id = b.user_id AND n.deleted_at IS NULL) AS count,
+        (SELECT COUNT(*) FROM notes n WHERE n.notebook_id = b.id AND n.user_id = b.user_id) AS total_count
       FROM notebooks b WHERE b.user_id = ? ORDER BY b.sort_order, b.name
     `, user.id);
     return json({ notebooks: rows.map(toNotebook) });
@@ -129,14 +133,34 @@ export async function handleNotebooksRoute(ctx: RouteContext, user: UserRow): Pr
     if (current.is_system) return jsonError(400, "SYSTEM_NOTEBOOK", "收件箱不能删除");
     const inbox = first<{ id: string }>(database, "SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1 LIMIT 1", user.id);
     if (!inbox) return jsonError(500, "NO_INBOX", "找不到收件箱");
+    const payload = request.body ? await readJson<{ expectedNoteCount?: unknown }>(request, 64 * 1024) : null;
+    const expectedNoteCount = payload?.expectedNoteCount;
+    if (expectedNoteCount !== undefined && (!Number.isInteger(expectedNoteCount) || (expectedNoteCount as number) < 0)) {
+      return jsonError(400, "INVALID_NOTEBOOK_COUNT", "预期笔记数量无效");
+    }
     const transaction = database.transaction(() => {
+      const actualCount = Number(first<{ count: number }>(database, "SELECT COUNT(*) AS count FROM notes WHERE notebook_id = ? AND user_id = ?", current.id, user.id)?.count ?? 0);
+      if (expectedNoteCount !== undefined && actualCount !== expectedNoteCount) {
+        return { movedCount: 0, actualCount, expectedNoteCount, mismatch: true as const };
+      }
       const movedNotes = all<{ id: string }>(database, "SELECT id FROM notes WHERE notebook_id = ? AND user_id = ?", current.id, user.id);
       const updateNote = database.query("UPDATE notes SET notebook_id = ?, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ?");
       for (const note of movedNotes) updateNote.run(inbox.id, now(), note.id, user.id);
       database.query("DELETE FROM notebooks WHERE id = ? AND user_id = ?").run(current.id, user.id);
-      return movedNotes.length;
+      return { movedCount: movedNotes.length, mismatch: false as const };
     });
-    const movedCount = transaction();
+    const outcome = transaction();
+    if (outcome.mismatch) {
+      return json({
+        error: {
+          code: "NOTEBOOK_COUNT_MISMATCH",
+          message: `笔记本当前有 ${outcome.actualCount} 篇笔记，与 expectedNoteCount=${String(outcome.expectedNoteCount)} 不一致，已取消删除`,
+          actualCount: outcome.actualCount,
+          expectedNoteCount: outcome.expectedNoteCount,
+        },
+      }, 409);
+    }
+    const movedCount = outcome.movedCount;
     publishWorkspaceChange(options, user.id, { resource: "notebooks" }, request);
     // Moving notes bumps their version, so clients must refresh before saving again.
     if (movedCount) publishWorkspaceChange(options, user.id, { resource: "notes" }, request);

@@ -729,7 +729,13 @@ describe("Bun Server API", () => {
     expect(new Set(emptied.body?.deletedIds)).toEqual(new Set(deletedIds));
     expect((await request("/api/notes?view=trash", {}, login.cookie)).body).toEqual({ notes: [], total: 0 });
     expect(database.query("SELECT rowid FROM notes_fts WHERE notes_fts MATCH ?").all("trashneedle")).toHaveLength(0);
-    expect((await request("/api/notebooks", {}, login.cookie)).body).toEqual(beforeCounts.body);
+    const afterCounts = (await request("/api/notebooks", {}, login.cookie)).body?.notebooks as Array<{ id: string; count: number; totalCount: number }>;
+    const beforeNotebooks = beforeCounts.body?.notebooks as Array<{ id: string; count: number; totalCount: number }>;
+    expect(afterCounts.map(({ id, count }) => ({ id, count }))).toEqual(beforeNotebooks.map(({ id, count }) => ({ id, count })));
+    for (const notebook of afterCounts) {
+      const before = beforeNotebooks.find((candidate) => candidate.id === notebook.id)!;
+      expect(notebook.totalCount).toBe(before.totalCount - deletedIds.length);
+    }
     expect((await request(`/api/notes/${active.body?.note.id}`, {}, login.cookie)).response.status).toBe(200);
     expect((await request("/api/notes?view=all&query=activeneedle", {}, login.cookie)).body?.total).toBe(1);
     expect((await request("/api/notes?view=trash&query=otherneedle", {}, otherLogin.cookie, otherEnvironment)).body?.total).toBe(1);
