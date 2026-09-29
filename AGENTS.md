@@ -93,20 +93,34 @@ bun run build
 - 输入法保护：中文输入法候选态（`event.isComposing` 或 `keyCode === 229`）按 Escape 仅取消当前拼音候选，不得触发任何全局退出逻辑。
 
 
-### 动画规范
+### 动画与动效规范 (Motion Design & Fluid Interactions)
 
-- 风格：保持克制、连续、可预测；页面或筛选切换使用约 180–220ms 的淡入上移，位移控制在 6px 内。
-- 节奏：动画时长和缓动优先使用现有 `--motion-*` 变量，笔记切换、弹窗、提示和移动端面板保持统一节奏。
-- 属性：只动画 `transform` 与 `opacity`；避免动画布局、尺寸、位置和滚动相关属性，不长期使用 `will-change`。
-- 触发：列表切换只在目标数据成功加载或本地回退渲染后播放一次；后台同步、重复点击和搜索逐字输入不得重复播放。
-- 视图与笔记切换一致性：三栏列表与卡片网格在目标内容就绪后，由 `transitionToken` 各触发一次 `page-content-in`（淡入上移 6px）；编辑器切换笔记时播放 `note-fade-in`（淡入上移 4px），初次进入编辑器由 `.editor-document--entering` 保持相同节奏；从编辑器退回卡片网格也保持连贯的淡入入场。
-- 实现：简单、声明式状态切换优先使用 CSS `transition` 或 `@keyframes`；需要可靠重播或程序化控制时可使用原生 Web Animations API（`Element.animate()`），并优先核对 Safari 支持。动画仅作渐进增强；API 不可用时应平稳退化，不影响页面状态和操作。不得为简单状态切换引入动画库。
-- 生命周期与性能：动画结束、被新动画替代或目标卸载时，及时取消并清理动画效果；不得通过读取 `offsetWidth`、`getBoundingClientRect()` 等方式强制同步布局来重启动画；不影响焦点、滚动和交互。
-- 无障碍：在 `prefers-reduced-motion: reduce` 下关闭位移、淡入和持续动画，但保留正常布局、功能和状态提示。
-- 响应式：桌面、平板和窄屏手机均需检查；移动端浮层或抽屉动画不得遮挡编辑内容、产生横向溢出或阻断焦点。
-- 编辑器涉及中文输入法时必须考虑 `compositionstart`、`compositionend`、`compositioncancel`、`event.isComposing` 和 Chromium/Windows 常见的 `keyCode === 229`。
-- 页面所有需要滚动条的局部滚动容器（如侧栏列表、笔记正文、弹窗与命令菜单等）必须使用项目专属的 `FloatingScrollbar` 组件，并通过 `.floating-scrollbar-target` 隐藏浏览器原生滚动条，保持精致一致的浮动微交互。
-- 修改布局后检查桌面、平板和窄屏手机，不要让浮层遮挡编辑内容或产生横向溢出。
+- **风格基调**：保持文人笔记的内敛、克制、轻柔与可预测性。杜绝炫目夸张的花哨动效，以自然呼吸感与微物理手感为导向。
+- **动效时长与缓动体系**：
+  - 缓动函数统一规范为现代高阶缓动 `--motion-ease-out`（`cubic-bezier(0.16, 1, 0.3, 1)`），杜绝浏览器生硬机械的默认 `ease`；微交互反馈可辅以 `--motion-spring`；
+  - 建立明确的时间阶梯：
+    - `--motion-micro: 120ms`：触觉按压、小图标微缩放跟手反馈；
+    - `--motion-fast: 160ms`：悬停背景、边框高亮、微投影展开；
+    - `--motion-content: 180ms`：正文内容、行内格式淡入入场；
+    - `--motion-panel: 220ms`：弹窗浮层、侧边抽屉、Toast 通知优雅滑入；
+    - `--motion-layout: 280ms`：侧栏折叠/展开、工作区视口大结构切换。
+- **弹窗与浮层入场体系**：
+  - 全站模态弹窗（`<dialog>`、命令面板、分享面板、笔记本设置、确认弹窗等）统一采用 `dialog-in` 配合 `var(--motion-panel) var(--motion-ease-out)`，起始态带有细腻微位移与微缩放（`translateY(-10px) scale(0.975)`），呈现轻盈浮现质感；
+  - 侧边与浮动大纲抽屉（`.editor-floating-outline`）采用 `outlineFadeIn`（`translateX(-10px) scale(0.98)` 到正常），配合半透明毛玻璃柔和展开。
+- **系统通知与 Toast**：
+  - Toast 与更新通知采用 `toast-in-top`（带有 `scale(0.97)` 微缩放），如浮动轻手记卡片自然滑落悬浮，避免生硬下冲。
+- **触觉微手感反馈 (Micro-haptic Feedback)**：
+  - 主按钮（`.primary-button`）、次按钮（`.secondary-button`）、图标按钮（`.icon-button`）与列表行（`.note-row`）在 `:active` 点击态下均具备细腻的轻微缩放响应（`scale(0.94)` ~ `scale(0.992)`），模拟原生桌面级物理按压手感。
+- **视图与笔记切换一致性**：
+  - 三栏列表与卡片网格在目标内容就绪后，由 `transitionToken` 各触发一次 `page-content-in`（淡入上移 6px）；
+  - 编辑器切换笔记时播放 `note-fade-in`（淡入上移 4px），初次进入编辑器由 `.editor-document--entering` 保持相同节奏；从编辑器退回卡片网格也保持连贯淡入。
+- **属性与性能约束**：
+  - 只动画 `transform` 与 `opacity`；绝对避免动画布局、尺寸（width/height）、内边距和网格轨道路径（禁止 transition `grid-template-columns`）；
+  - 列表切换只在目标数据成功加载或本地回退渲染后播放一次；后台同步、重复点击和搜索逐字输入不得重复触发。
+- **Safari 优先与防分片阴影规范**：
+  - 卡片多栏与 CSS 瀑布流布局下严禁随意声明全局 `transform`，以杜绝 Safari 分片阴影（fragmented shadow）渲染异常；优先在支持网格车道的环境下使用 `scale: 1.015`。
+- **无障碍降级保障**：
+  - 在 `prefers-reduced-motion: reduce` 下，所有 `--motion-*` 时间变量均强制归零，所有弹窗、通知、卡片与正文动画统一应用 `animation: none !important;`，但完整保留页面功能与静态状态提示。
 
 ## 前端模块化规范
 
