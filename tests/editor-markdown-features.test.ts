@@ -732,6 +732,26 @@ describe("slash command matching", () => {
     })).toBeNull();
   });
 
+  test("does not match slash followed by whitespace or non-command text", () => {
+    // 普通标点用法（如 "A / B"、分类分隔符）斜杠后紧跟空格，不触发斜杠命令状态
+    expect(findSlashCommandMatch({ $position: positionAfter("选题类型： 互联网人物 / 网红塌房 / 荒诞事件") })).toBeNull();
+    expect(findSlashCommandMatch({ $position: positionAfter("正文 / ") })).toBeNull();
+    expect(findSlashCommandMatch({ $position: positionAfter("正文 /\t") })).toBeNull();
+    expect(findSlashCommandMatch({ $position: positionAfter("正文 /\u3000") })).toBeNull();
+
+    // 输入的内容不是任何已知斜杠命令或其关键字前缀时立即退出，避免整行卡在搜索状态
+    expect(findSlashCommandMatch({ $position: positionAfter("正文 /网红塌房") })).toBeNull();
+    expect(findSlashCommandMatch({ $position: positionAfter("正文 /荒诞事件") })).toBeNull();
+    expect(findSlashCommandMatch({ $position: positionAfter("正文 /2026-07-22") })).toBeNull();
+    expect(findSlashCommandMatch({ $position: positionAfter("正文 /notacommand") })).toBeNull();
+    expect(findSlashCommandMatch({ $position: positionAfter("正文 /path/to") })).toBeNull();
+
+    // 刚输入单独斜杠或有匹配命令时正常触发
+    expect(findSlashCommandMatch({ $position: positionAfter("正文 /") })).toEqual({ range: { from: 3, to: 4 }, query: "", text: "/" });
+    expect(findSlashCommandMatch({ $position: positionAfter("正文 /h1") })).toEqual({ range: { from: 3, to: 6 }, query: "h1", text: "/h1" });
+    expect(findSlashCommandMatch({ $position: positionAfter("正文 /引用") })).toEqual({ range: { from: 3, to: 6 }, query: "引用", text: "/引用" });
+  });
+
   test("does not intercept Chinese input method candidate keys", () => {
     expect(isSlashCommandImeEvent({ isComposing: true, keyCode: 27 })).toBe(true);
     expect(isSlashCommandImeEvent({ isComposing: false, keyCode: 229 })).toBe(true);

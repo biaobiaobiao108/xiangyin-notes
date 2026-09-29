@@ -65,7 +65,7 @@ bun run build
 - **出版物阅读排版与正文呼吸感**：
   - 正文排版严格遵循出版物黄金阅读行高（黄金阅读行高 `1.74`，字符间距 `0.012em`），段落间距舒展透气（`margin-block: 0 0.88em`）；
   - 标题输入区与正文之间保持充分的呼吸过渡（`margin-bottom: 20px`），输入状态严禁添加生硬外框或抖动；
-  - 引用块（Blockquote）统一采用复古松柏单立引线（`border-left: 3px solid var(--accent)`）搭配松柏温润微底（`background: var(--accent-soft)`），呈现现代出版物的手记层次。
+  - 引用块（Blockquote）统一采用四周全圆角（`var(--radius-md)`）、柔和微边框（`var(--accent-border-soft)`）与内嵌圆角胶囊引线（`::before`），搭配松柏温润微底（`background: var(--accent-soft)`），彻底杜绝生硬棱角直角，呈现现代出版物的手记层次。
 - **通透磨砂顶栏与轻盈毛玻璃弹窗**：
   - 列表顶栏与编辑器顶栏高度统一规范（`62px`），注入半透明微磨砂底色（`backdrop-filter: blur(14px)`）与极细淡线底边，页面滚动穿透柔和轻盈；
   - 弹窗遮罩升级为现代背景景深虚化（`backdrop-filter: blur(8px)`），弹窗外框圆角采用 `18-20px` 并搭配 `--shadow-float`；搜索框采用饱满微圆角与松柏聚焦环，选项行胶囊化。

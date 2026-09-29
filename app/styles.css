@@ -565,16 +565,49 @@ button.save-status:hover { text-decoration: underline; }
 .note-prose li > p:last-child,
 .note-prose li > div > p:last-child { margin-block-end: 0; }
 .note-prose blockquote {
-  margin-block: 1.2em;
-  padding: 0.5em 1.1em;
-  border-left: 3px solid var(--accent);
+  position: relative;
+  margin-block: 1.15em;
+  padding: 12px 18px 12px 26px;
+  border: 1px solid var(--accent-border-soft);
+  border-radius: var(--radius-md);
   background: var(--accent-soft);
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  color: var(--muted);
+  color: var(--ink-soft);
   font-family: inherit;
-  font-size: 1.04em;
-  line-height: 1.68;
+  font-size: 1.02em;
+  line-height: 1.74;
+  letter-spacing: 0.012em;
   font-style: normal;
+}
+.note-prose blockquote::before {
+  content: "";
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: 10px;
+  width: 3.5px;
+  border-radius: 999px;
+  background: var(--accent);
+  opacity: 0.88;
+}
+.note-prose blockquote > :first-child {
+  margin-top: 0;
+}
+.note-prose blockquote > :last-child {
+  margin-bottom: 0;
+}
+.note-prose blockquote p {
+  margin-block: 0 0.5em;
+}
+.note-prose blockquote p:last-child {
+  margin-bottom: 0;
+}
+.note-prose blockquote blockquote {
+  margin-block: 0.75em 0.25em;
+  background: var(--surface-glass-soft);
+  border-color: var(--border-soft);
+}
+.note-prose blockquote blockquote::before {
+  opacity: 0.65;
 }
 .note-prose pre { position: relative; overflow: clip; overflow-wrap: anywhere; white-space: pre-wrap; margin-block: 1em; padding: 16px 20px 18px; border: 1px solid var(--border-soft); border-radius: 10px; background: var(--surface-code); color: var(--code-ink); font: 1rem/1.65 ui-monospace, SFMono-Regular, Consolas, monospace; }
 .note-prose code { padding: 0.13em 0.34em; border-radius: 4px; background: var(--surface-code-inline); color: var(--code-inline-ink); font-family: inherit; font-size: 0.86em; }

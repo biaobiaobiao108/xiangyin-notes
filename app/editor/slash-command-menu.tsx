@@ -58,7 +58,12 @@ const slashSuggestionKey = new PluginKey("slashCommandSuggestion");
 export function filterSlashCommandItems(query: string): SlashCommandItem[] {
   const normalized = query.trim().toLocaleLowerCase();
   if (!normalized) return slashCommands;
-  return slashCommands.filter((item) => `${item.label} ${item.keywords.join(" ")}`.toLocaleLowerCase().includes(normalized));
+  const words = normalized.split(/\s+/).filter(Boolean);
+  if (!words.length) return slashCommands;
+  return slashCommands.filter((item) => {
+    const text = `${item.label} ${item.keywords.join(" ")}`.toLocaleLowerCase();
+    return words.every((word) => text.includes(word));
+  });
 }
 
 export function groupSlashCommandItems(items: SlashCommandItem[]) {
@@ -162,12 +167,22 @@ export function findSlashCommandMatch(config: { $position: { pos: number; parent
   const match = /(?:^|[ \t\u3000])\/([^\n]*)$/u.exec(text);
   if (!match || match.index === undefined) return null;
 
+  const rawQuery = match[1];
+  // 1. 斜杠后紧跟空格或全角空格，属于普通标点用法（如 "A / B"），不触发斜杠命令
+  if (/^[ \t\u3000]/.test(rawQuery)) return null;
+
+  // 2. 包含后续斜杠（如文件路径或 URL），或长度超过命令关键词上限，不触发斜杠命令
+  if (rawQuery.includes("/") || rawQuery.length > 30) return null;
+
+  // 3. 当已输入搜索词但无任何匹配命令时立即退出，避免将整行置于搜索状态并显示空白浮层
+  if (rawQuery.length > 0 && filterSlashCommandItems(rawQuery).length === 0) return null;
+
   const slashOffset = match.index + match[0].lastIndexOf("/");
   const from = $position.pos - (hasParentText ? $position.parentOffset! : text.length) + slashOffset;
   const to = $position.pos;
   if (from >= to) return null;
 
-  return { range: { from, to }, query: match[1], text: match[0].slice(match[0].lastIndexOf("/")) };
+  return { range: { from, to }, query: rawQuery, text: match[0].slice(match[0].lastIndexOf("/")) };
 }
 
 export function isSlashCommandImeEvent(event: { isComposing?: boolean; keyCode?: number }) {
@@ -323,7 +338,7 @@ const SlashCommandList = forwardRef<SlashCommandListRef, SlashCommandListProps>(
               {group.items.map((item, localIndex) => renderItem(item, group.startIndex + localIndex))}
             </div>
           </section>;
-        }) : props.items.map(renderItem) : <div className="slash-command-empty" role="status">没有匹配的命令</div>}
+        }) : props.items.map(renderItem) : null}
       </div>
       <FloatingScrollbar scrollTargetRef={listRef} controlsId={`${listboxId}-scroll-region`} ariaLabel="插入命令列表滚动条" placement="right" enabled={props.items.length > 5} />
     </div>
@@ -494,6 +509,7 @@ export const SlashCommandExtension = Extension.create<SlashCommandOptions>({
         return {
           onStart: (props) => {
             destroy();
+            if (!props.items.length) return;
             popupEl = document.createElement("div");
             popupEl.className = "slash-command-menu-container";
             popupEl.dataset.query = props.query;
@@ -507,8 +523,22 @@ export const SlashCommandExtension = Extension.create<SlashCommandOptions>({
             schedulePosition();
           },
           onUpdate: (props) => {
-            component?.updateProps(props);
-            if (popupEl) popupEl.dataset.query = props.query;
+            if (!props.items.length) {
+              destroy();
+              return;
+            }
+            if (!popupEl) {
+              popupEl = document.createElement("div");
+              popupEl.className = "slash-command-menu-container";
+              document.body.appendChild(popupEl);
+              component = new ReactRenderer(SlashCommandList, { props, editor: props.editor });
+              popupEl.appendChild(component.element);
+              window.addEventListener("resize", updatePosition);
+              window.addEventListener("scroll", updatePosition, true);
+            } else {
+              component?.updateProps(props);
+            }
+            popupEl.dataset.query = props.query;
             activeClientRect = props.clientRect as (() => DOMRect | null) | undefined;
             updatePosition();
             schedulePosition();
