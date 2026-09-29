@@ -131,16 +131,16 @@ export async function handleNotebooksRoute(ctx: RouteContext, user: UserRow): Pr
     if (!inbox) return jsonError(500, "NO_INBOX", "找不到收件箱");
     const transaction = database.transaction(() => {
       const movedNotes = all<{ id: string }>(database, "SELECT id FROM notes WHERE notebook_id = ? AND user_id = ?", current.id, user.id);
-      for (const note of movedNotes) {
-        database.query("UPDATE notes SET notebook_id = ?, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ?").run(inbox.id, now(), note.id, user.id);
-      }
+      const updateNote = database.query("UPDATE notes SET notebook_id = ?, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ?");
+      for (const note of movedNotes) updateNote.run(inbox.id, now(), note.id, user.id);
       database.query("DELETE FROM notebooks WHERE id = ? AND user_id = ?").run(current.id, user.id);
       return movedNotes.length;
     });
     const movedCount = transaction();
     publishWorkspaceChange(options, user.id, { resource: "notebooks" }, request);
+    // Moving notes bumps their version, so clients must refresh before saving again.
     if (movedCount) publishWorkspaceChange(options, user.id, { resource: "notes" }, request);
-    return json({ ok: true });
+    return json({ ok: true, movedCount, versionsInvalidated: movedCount > 0 });
   }
 
   return null;
