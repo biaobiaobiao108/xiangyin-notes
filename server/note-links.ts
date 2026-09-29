@@ -1,7 +1,6 @@
 import type { SqliteDatabase } from "./db";
+import { all, type SqlValue } from "./core";
 import { extractContextSnippet, extractWikiLinks, normalizeLinkTitle } from "../shared/wiki-links";
-
-type SqlValue = string | number | null | Uint8Array | bigint;
 
 type ActiveNoteTitleRow = {
   id: string;
@@ -14,10 +13,6 @@ type NoteLinkRow = {
   target_note_id: string | null;
   snippet?: string;
 };
-
-function all<T>(database: SqliteDatabase, sql: string, ...values: SqlValue[]) {
-  return database.query(sql).all(...values) as T[];
-}
 
 export function syncStoredNoteTitleKey(database: SqliteDatabase, noteId: string, title: string) {
   database.query("UPDATE notes SET title_normalized = ? WHERE id = ?").run(normalizeLinkTitle(title), noteId);

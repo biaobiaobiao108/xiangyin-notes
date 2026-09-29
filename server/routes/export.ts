@@ -1,8 +1,7 @@
-import { all, jsonError, type RouteContext, type UserRow } from "../core";
+import { all, ASSET_REFERENCE_PATTERN, jsonError, type RouteContext, type UserRow } from "../core";
 import { createZipReadableStream, type ZipStreamEntry } from "../zip";
 import { assetFilePath } from "./assets";
 
-const ASSET_REFERENCE_PATTERN = /\/api\/assets\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})(?=[?#)\s]|$)/giu;
 export const EXPORT_MAX_BYTES = 512 * 1024 * 1024;
 
 type ExportNoteRow = {

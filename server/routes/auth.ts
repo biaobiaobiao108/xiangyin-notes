@@ -9,13 +9,19 @@ import {
   isSecureRequest,
   json,
   jsonError,
+  LOGIN_ATTEMPT_CLEANUP_INTERVAL_SECONDS,
   LOGIN_ATTEMPT_MAX_ENTRIES,
+  LOGIN_BLOCK_SECONDS,
+  LOGIN_MAX_FAILURES,
+  LOGIN_WINDOW_SECONDS,
   now,
   rateLimitClientAddress,
   readJson,
   type RouteContext,
   SESSION_COOKIE,
   SESSION_CLEANUP_INTERVAL_SECONDS,
+  SESSION_COOKIE_TTL,
+  SESSION_REFRESH_WINDOW,
   SESSION_TTL,
   syncNoteTags,
   type SqliteDatabase,
@@ -33,12 +39,6 @@ type LoginAttempt = {
   blockedUntil: number;
 };
 
-const SESSION_COOKIE_TTL = 60 * 60 * 24 * 400;
-const SESSION_REFRESH_WINDOW = 60 * 60 * 24 * 7;
-const LOGIN_WINDOW_SECONDS = 15 * 60;
-const LOGIN_MAX_FAILURES = 8;
-const LOGIN_BLOCK_SECONDS = 15 * 60;
-const LOGIN_ATTEMPT_CLEANUP_INTERVAL_SECONDS = 60;
 
 const credentialChecks = new WeakMap<SqliteDatabase, { signature: string; task: Promise<void> }>();
 
