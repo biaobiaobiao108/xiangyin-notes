@@ -320,7 +320,10 @@ export const NoteListPanel = memo(function NoteListPanel({ notes, total, hasMore
           {onNewNote && <button className="icon-button list-new-note-button" type="button" aria-label={`在${currentNotebookName}中新建笔记`} onClick={onNewNote}><Plus size={18} /></button>}
           {mobileOpen && <button className="icon-button mobile-only" type="button" aria-label="关闭笔记列表" onClick={onCloseMobile}><X size={17} /></button>}
           <div className="sort-menu-wrap" ref={sortRef}>
-            <button ref={sortTriggerRef} id="note-sort-trigger" className="sort-button" type="button" aria-haspopup="listbox" aria-controls="note-sort-options" aria-expanded={sortOpen} onClick={() => setSortOpen((open) => !open)}>{SORT_OPTIONS.find((option) => option.value === sort)?.label} <ChevronDown size={15} /></button>
+            <button ref={sortTriggerRef} id="note-sort-trigger" className="sort-button" type="button" aria-haspopup="listbox" aria-controls="note-sort-options" aria-expanded={sortOpen} onClick={() => setSortOpen((open) => !open)}>
+              <span className="sort-button-label">{SORT_OPTIONS.find((option) => option.value === sort)?.label}</span>
+              <ChevronDown size={14} className="sort-button-arrow" />
+            </button>
             {sortOpen && <div id="note-sort-options" className="sort-dropdown" role="listbox" aria-label="笔记排序方式">
               {SORT_OPTIONS.map((option, index) => {
                 const isSelected = sort === option.value;
