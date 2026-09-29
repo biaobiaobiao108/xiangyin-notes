@@ -86,10 +86,19 @@ jobs:
 
               docker volume create xiangying-notes-data
 
-          3. 拉取并启动此版本：
+          3. 首次安装时拉取并启动此版本：
 
               docker pull $IMAGE:$VERSION
               docker run -d --name xiangying-notes --restart unless-stopped -p 3000:3000 --env-file .env -v xiangying-notes-data:/data $IMAGE:$VERSION
+
+          首次启动的空数据库会自动初始化。升级已有安装时，先拉取目标镜像并停止旧容器，再用目标版本显式执行迁移；完成后删除旧容器并按上面的命令启动新版本：
+
+              docker pull $IMAGE:$VERSION
+              docker stop xiangying-notes
+              docker run --rm --env-file .env -v xiangying-notes-data:/data --entrypoint bun $IMAGE:$VERSION dist/server/migrate.js
+              docker rm xiangying-notes
+
+          即使该版本没有待执行的迁移，迁移命令也可安全重复运行。升级或回滚时继续使用同一个数据卷；回滚前应确认目标旧版本兼容当前数据库 schema。
 
           4. 打开 http://localhost:3000，并使用 .env 中的凭据登录。
 
@@ -97,7 +106,7 @@ jobs:
 
               curl http://localhost:3000/api/health
 
-          数据保存在 xiangying-notes-data volume 中。升级或回滚时只需更换镜像 tag，并继续使用同一个数据卷。
+          数据保存在 xiangying-notes-data volume 中。
           EOF
 
           gh release create "$VERSION" --verify-tag --generate-notes --title "$VERSION" --notes-file release-notes.md

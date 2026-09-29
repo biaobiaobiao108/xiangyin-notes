@@ -167,7 +167,7 @@ async function imageDimensions(file: File) {
   }
 }
 
-export function NoteEditor({ note, searchQuery = "", saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList, onBackToCards, onUploadImage, focusMode = false, onClearSearch, typewriterMode = false, outlineOpen, outlineItems, activeOutlineId, onToggleOutline, onCloseOutline, onOutlineItemsChange, onOutlineActiveChange, onOutlineNavigationReady, availableNotes = [], onNavigateWikiLink, onCreateAndLinkNote, onNavigateToNote, onToast, onMarkdownReaderChange }: {
+export function NoteEditor({ note, searchQuery = "", saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList, onBackToCards, onUploadImage, focusMode = false, onClearSearch, typewriterMode = false, outlineOpen, outlineItems, activeOutlineId, onToggleOutline, onCloseOutline, onOutlineItemsChange, onOutlineActiveChange, onOutlineNavigationReady, availableNotes = [], onNavigateWikiLink, onCreateAndLinkNote, onNavigateToNote, onToast, onMarkdownReaderChange, onMarkdownDirtyChange }: {
   note: Note;
   searchQuery?: string;
   saveState: SaveState;
@@ -204,6 +204,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   onNavigateToNote?: (id: string) => void;
   onToast?: (message: string) => void;
   onMarkdownReaderChange?: (reader: (() => string | null) | null) => void;
+  onMarkdownDirtyChange?: (noteId: string, isDirty: boolean) => void;
 }) {
 
   const editorScrollRef = useRef<HTMLDivElement>(null);
@@ -246,11 +247,12 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     programmaticOutlineScrollIdRef.current = null;
   }, []);
   const onChangeRef = useRef(onChange);
+  const onMarkdownDirtyChangeRef = useRef(onMarkdownDirtyChange);
   const surfaceSyncRef = useRef<(instance: Editor, outlineMayHaveChanged?: boolean) => void>(() => undefined);
   const [editorStats, setEditorStats] = useState<EditorStats>(() => countEditorText(""));
   const [deferredLoading, setDeferredLoading] = useState(false);
   const [imageUploadState, setImageUploadState] = useState<"idle" | "uploading" | "error">("idle");
-  const editorLocked = isLoading || deferredLoading;
+  const editorLocked = isLoading || deferredLoading || trashBusy;
   const [searchNavigation, setSearchNavigation] = useState({ activeIndex: 0, matchCount: 0 });
   const searchQueryRef = useRef(searchQuery);
   const searchNavigationRef = useRef(searchNavigation);
@@ -258,6 +260,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   searchQueryRef.current = searchQuery;
   searchNavigationRef.current = searchNavigation;
   onChangeRef.current = onChange;
+  onMarkdownDirtyChangeRef.current = onMarkdownDirtyChange;
   onUploadImageRef.current = onUploadImage;
   const typewriterModeRef = useRef(typewriterMode);
   typewriterModeRef.current = typewriterMode;
@@ -815,12 +818,15 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     const instance = (source ?? editorInstanceRef.current) as EditorWithMarkdown | null;
     if (!instance || instance.isDestroyed) return;
     markdownDirtyRef.current = false;
+    onMarkdownDirtyChangeRef.current?.(markdownOwnerRef.current.noteId, false);
     onChangeRef.current({ contentMarkdown: instance.getMarkdown() });
   }, []);
 
   const scheduleMarkdownChange = useCallback((instance: Editor) => {
+    const wasDirty = markdownDirtyRef.current;
     markdownDirtyRef.current = true;
     const noteId = markdownOwnerRef.current.noteId;
+    if (!wasDirty) onMarkdownDirtyChangeRef.current?.(noteId, true);
     const currentReloadToken = markdownOwnerRef.current.reloadToken;
     const now = performance.now();
     const startedAt = markdownSyncStartedAtRef.current ?? now;
@@ -833,6 +839,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       if (instance.isDestroyed || !markdownDirtyRef.current) return;
       if (noteId !== markdownOwnerRef.current.noteId || currentReloadToken !== markdownOwnerRef.current.reloadToken) {
         markdownDirtyRef.current = false;
+        onMarkdownDirtyChangeRef.current?.(noteId, false);
         return;
       }
       flushMarkdownChange(instance);
@@ -840,7 +847,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   }, [flushMarkdownChange]);
 
   const editor = useEditor({
-    editable: !note.deletedAt && !isLoading,
+    editable: !note.deletedAt && !isLoading && !trashBusy,
     extensions,
     coreExtensionOptions: editorCoreExtensionOptions,
     content: initialContentRef.current,
@@ -1039,8 +1046,10 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     const switchedNote = activeEditorNoteIdRef.current !== note.id;
     if (!switchedNote && appliedReloadTokenRef.current === reloadToken) return;
     let enteringAnimation: Animation | null = null;
+    onMarkdownDirtyChangeRef.current?.(activeEditorNoteIdRef.current, false);
     appliedReloadTokenRef.current = reloadToken;
     activeEditorNoteIdRef.current = note.id;
+    onMarkdownDirtyChangeRef.current?.(note.id, false);
     if (imeCleanupTimerRef.current !== null) clearTimeout(imeCleanupTimerRef.current);
     imeCleanupTimerRef.current = null;
     leakedCandidateRef.current = null;
@@ -1064,7 +1073,10 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       if (doc && !doc.closest(".app-shell.layout-cards")) enteringAnimation = playEntranceAnimation(doc, "note-fade-in");
     }
     scheduleEditorSurfaceSync(editor);
-    return () => enteringAnimation?.cancel();
+    return () => {
+      onMarkdownDirtyChangeRef.current?.(note.id, false);
+      enteringAnimation?.cancel();
+    };
   }, [cancelOutlineSmoothScroll, editor, note.id, onCloseOutline, onOutlineActiveChange, onOutlineItemsChange, onOutlineNavigationReady, reloadToken]);
 
   useEffect(() => {

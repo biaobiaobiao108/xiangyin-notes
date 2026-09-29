@@ -75,7 +75,37 @@ export type WikiLinkMatch = {
   end: number;
 };
 
-export const WIKI_LINK_PATTERN = /(?:\[\[|【【)([^\]】\r\n|｜]+)(?:[|｜]([^\]】\r\n]+))?(?:\]\]|】】)/g;
+/**
+ * Components containing a structural delimiter use a `\]` marker followed
+ * by a URI-encoded JSON string. The marker cannot begin a valid legacy target,
+ * which lets the parser keep interpreting every existing link as before.
+ */
+export const WIKI_LINK_PATTERN = /(?:\[\[|【【)(\\\][^\]】\r\n|｜]+|[^\]】\r\n|｜]+)(?:[|｜](\\\][^\]】\r\n|｜]+|[^\]】\r\n]+))?(?:\]\]|】】)/g;
+
+export type WikiLinkComponentKind = "target" | "alias";
+
+function isEscapableWikiLinkDelimiter(character: string, kind: WikiLinkComponentKind) {
+  return character === "]" || character === "】" || character === "\r" || character === "\n"
+    || (kind === "target" && (character === "|" || character === "｜"));
+}
+
+/** Encodes a target or alias so it can be written inside a wiki-link. */
+export function encodeWikiLinkComponent(value: string, kind: WikiLinkComponentKind = "target") {
+  const hasDelimiter = [...value].some((character) => isEscapableWikiLinkDelimiter(character, kind));
+  if (!hasDelimiter) return value;
+  return `\\]${encodeURIComponent(JSON.stringify(value))}`;
+}
+
+/** Decodes a target or alias captured from wiki-link Markdown. */
+export function decodeWikiLinkComponent(value: string) {
+  if (!value.startsWith("\\]")) return value;
+  try {
+    const decoded: unknown = JSON.parse(decodeURIComponent(value.slice(2)));
+    return typeof decoded === "string" ? decoded : value;
+  } catch {
+    return value;
+  }
+}
 
 export function normalizeLinkTitle(title: string) {
   return title.trim().normalize("NFKC").toLocaleLowerCase("zh-CN");
@@ -100,8 +130,8 @@ export function extractWikiLinks(markdown: string): WikiLinkMatch[] {
 
   while ((match = regex.exec(markdown)) !== null) {
     const raw = match[0];
-    const target = match[1]?.trim() ?? "";
-    const alias = match[2]?.trim();
+    const target = decodeWikiLinkComponent(match[1] ?? "").trim();
+    const alias = match[2] ? decodeWikiLinkComponent(match[2]).trim() : undefined;
     const start = match.index;
     const end = start + raw.length;
 
@@ -181,7 +211,10 @@ export function replaceWikiLinkTarget(markdown: string, oldTitle: string, newTit
   let result = markdown;
   for (let i = matchedLinks.length - 1; i >= 0; i--) {
     const link = matchedLinks[i];
-    const replacement = link.alias ? `[[${newTitle}|${link.alias}]]` : `[[${newTitle}]]`;
+    const encodedTitle = encodeWikiLinkComponent(newTitle, "target");
+    const replacement = link.alias
+      ? `[[${encodedTitle}|${encodeWikiLinkComponent(link.alias, "alias")}]]`
+      : `[[${encodedTitle}]]`;
     result = result.slice(0, link.start) + replacement + result.slice(link.end);
   }
 
@@ -275,8 +308,9 @@ export function findUnlinkedMentionsInMarkdown(markdown: string, targetTitle: st
 export function linkMentionInMarkdown(markdown: string, start: number, end: number, targetTitle: string): string {
   const text = markdown.slice(start, end);
   const cleanTarget = targetTitle.replace(/^(?:\[\[|【【)\s*|\s*(?:\]\]|】】)$/g, "").trim();
+  const encodedTarget = encodeWikiLinkComponent(cleanTarget, "target");
   const replacement = text.trim() === cleanTarget
-    ? `[[${cleanTarget}]]`
-    : `[[${cleanTarget}|${text}]]`;
+    ? `[[${encodedTarget}]]`
+    : `[[${encodedTarget}|${encodeWikiLinkComponent(text, "alias")}]]`;
   return markdown.slice(0, start) + replacement + markdown.slice(end);
 }

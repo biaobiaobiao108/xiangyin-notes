@@ -9,6 +9,7 @@ import {
   isSecureRequest,
   json,
   jsonError,
+  LOGIN_ATTEMPT_MAX_ENTRIES,
   now,
   rateLimitClientAddress,
   readJson,
@@ -86,9 +87,9 @@ export function cookieValue(cookieHeader: string | null, name: string) {
   return match ? match[1] : null;
 }
 
-export function loginClientKey(request: Request, environment: RuntimeEnvironment, clientAddress: string | undefined, username: string) {
+export function loginClientKey(request: Request, environment: RuntimeEnvironment, clientAddress: string | undefined) {
   const address = rateLimitClientAddress(request, environment, clientAddress);
-  return `${address.slice(0, 128)}:${username.slice(0, 32)}`;
+  return address.slice(0, 128);
 }
 
 const nextRateLimitCleanupAt = new WeakMap<SqliteDatabase, number>();
@@ -98,6 +99,20 @@ export function cleanupExpiredRateLimits(database: SqliteDatabase, timestamp: nu
   if (timestamp < nextAt) return;
   nextRateLimitCleanupAt.set(database, timestamp + LOGIN_ATTEMPT_CLEANUP_INTERVAL_SECONDS);
   database.query("DELETE FROM rate_limits WHERE blocked_until <= ? AND updated_at < ?").run(timestamp, timestamp - 3600);
+  pruneLoginRateLimits(database, LOGIN_ATTEMPT_MAX_ENTRIES);
+}
+
+function pruneLoginRateLimits(database: SqliteDatabase, maxEntries: number) {
+  const row = database.query("SELECT COUNT(*) AS count FROM rate_limits WHERE action = 'login'").get() as { count: number };
+  const excess = Number(row.count) - maxEntries;
+  if (excess <= 0) return;
+  database.query(`
+    DELETE FROM rate_limits
+    WHERE action = 'login' AND key IN (
+      SELECT key FROM rate_limits WHERE action = 'login'
+      ORDER BY updated_at ASC, key ASC LIMIT ?
+    )
+  `).run(excess);
 }
 
 export function getLoginAttempt(database: SqliteDatabase, key: string, timestamp: number): LoginAttempt {
@@ -123,6 +138,8 @@ export function getLoginAttempt(database: SqliteDatabase, key: string, timestamp
 export function recordFailedLogin(database: SqliteDatabase, key: string, timestamp: number) {
   database.transaction(() => {
     const current = getLoginAttempt(database, key, timestamp);
+    const existing = database.query("SELECT 1 AS found FROM rate_limits WHERE action = 'login' AND key = ?").get(key);
+    if (!existing) pruneLoginRateLimits(database, LOGIN_ATTEMPT_MAX_ENTRIES - 1);
     const failures = current.failures + 1;
     const windowStartedAt = current.failures === 0 ? timestamp : current.windowStartedAt;
     const blockedUntil = failures >= LOGIN_MAX_FAILURES ? timestamp + LOGIN_BLOCK_SECONDS : 0;
@@ -249,7 +266,7 @@ export async function handleAuthRoute(ctx: RouteContext): Promise<Response | nul
     if (payload.username.length > 128) return jsonError(400, "INVALID_LOGIN", "用户名或密码格式无效");
     const credentials = getAuthCredentials(environment);
     if (!credentials) return jsonError(503, "AUTH_NOT_CONFIGURED", "请先配置 XIANGYING_USERNAME 和 XIANGYING_PASSWORD");
-    const attemptKey = loginClientKey(request, environment, clientAddress, payload.username);
+    const attemptKey = loginClientKey(request, environment, clientAddress);
     const timestamp = now();
     const attempt = getLoginAttempt(database, attemptKey, timestamp);
     if (attempt.blockedUntil > timestamp) return jsonError(429, "TOO_MANY_LOGIN_ATTEMPTS", "登录尝试过于频繁，请稍后再试", { "Retry-After": String(attempt.blockedUntil - timestamp) });

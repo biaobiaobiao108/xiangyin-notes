@@ -52,7 +52,7 @@ import {
   syncNoteLinks,
 } from "../note-links";
 import { assetPathsForNotes, removeAssetFiles } from "./assets";
-import { canIndexShortSearchTerm, syncNoteShortSearchTerms } from "../note-search";
+import { canIndexShortSearchTerm, MAX_SHORT_TERM_CONTENT_CHARS, MAX_SHORT_TERMS_PER_NOTE, syncNoteShortSearchTerms } from "../note-search";
 import { handleNoteShares } from "./shares";
 import { publishWorkspaceChange } from "../realtime";
 
@@ -427,8 +427,18 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
       }
 
       for (const short of shortTokens.filter(canIndexShortSearchTerm)) {
-        conditions.push("EXISTS (SELECT 1 FROM note_short_terms st WHERE st.note_id = n.id AND st.user_id = n.user_id AND st.term = ?)");
-        params.push(short);
+        const escapedQuery = escapeLikePattern(short);
+        conditions.push(`(
+          EXISTS (SELECT 1 FROM note_short_terms st WHERE st.note_id = n.id AND st.user_id = n.user_id AND st.term = ?)
+          OR (
+            (
+              length(n.content_markdown) >= ?
+              OR (SELECT COUNT(*) FROM note_short_terms bounded_terms WHERE bounded_terms.note_id = n.id AND bounded_terms.user_id = n.user_id) >= ?
+            )
+            AND (n.title LIKE ? ESCAPE '!' OR n.content_markdown LIKE ? ESCAPE '!')
+          )
+        )`);
+        params.push(short, MAX_SHORT_TERM_CONTENT_CHARS, MAX_SHORT_TERMS_PER_NOTE, `%${escapedQuery}%`, `%${escapedQuery}%`);
       }
 
       for (const short of shortTokens.filter((term) => !canIndexShortSearchTerm(term))) {

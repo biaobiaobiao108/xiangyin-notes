@@ -1,4 +1,5 @@
 import { InputRule, Node, mergeAttributes } from "@tiptap/core";
+import { decodeWikiLinkComponent, encodeWikiLinkComponent, WIKI_LINK_PATTERN } from "../../shared/wiki-links";
 
 export type WikiLinkNodeAttrs = {
   target: string;
@@ -24,11 +25,11 @@ export const WikiLinkNode = Node.create({
   addInputRules() {
     return [
       new InputRule({
-        find: /(?:\[\[|【【)([^\[\]【】\r\n|｜]+)(?:[|｜]([^\[\]【】\r\n]+))?(?:\]\]|】】)$/,
+        find: new RegExp(`${WIKI_LINK_PATTERN.source}$`),
         handler: ({ state, range, match }) => {
-          const target = match[1]?.trim();
+          const target = decodeWikiLinkComponent(match[1]?.trim() ?? "");
           if (!target) return null;
-          const alias = match[2]?.trim() || null;
+          const alias = match[2] ? decodeWikiLinkComponent(match[2].trim()) || null : null;
           const { tr } = state;
           tr.replaceWith(
             range.from,
@@ -81,13 +82,13 @@ export const WikiLinkNode = Node.create({
       return Math.min(idx1, idx2);
     },
     tokenize(src: string) {
-      const match = /^(?:\[\[|【【)([^\]】\r\n|｜]+)(?:[|｜]([^\]】\r\n]+))?(?:\]\]|】】)/.exec(src);
+      const match = new RegExp(`^(?:${WIKI_LINK_PATTERN.source})`).exec(src);
       if (match) {
         return {
           type: "wikiLink",
           raw: match[0],
-          target: match[1].trim(),
-          alias: match[2]?.trim(),
+          target: decodeWikiLinkComponent(match[1].trim()),
+          alias: match[2] ? decodeWikiLinkComponent(match[2].trim()) : undefined,
         };
       }
       return undefined;
@@ -101,6 +102,9 @@ export const WikiLinkNode = Node.create({
 
   renderMarkdown(node) {
     const attrs = node.attrs as { target: string; alias?: string | null };
-    return attrs.alias ? `[[${attrs.target}|${attrs.alias}]]` : `[[${attrs.target}]]`;
+    const target = encodeWikiLinkComponent(attrs.target, "target");
+    return attrs.alias
+      ? `[[${target}|${encodeWikiLinkComponent(attrs.alias, "alias")}]]`
+      : `[[${target}]]`;
   },
 });

@@ -3,6 +3,7 @@ import { ArrowLeftRight, ExternalLink, Link2, Loader2, Sparkles, X } from "lucid
 import { ApiError, api } from "../api";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import type { NoteBacklinksResponse } from "../../shared/types";
+import { decodeWikiLinkComponent, WIKI_LINK_PATTERN } from "../../shared/wiki-links";
 
 function relativeDate(timestamp: number) {
   const diff = Math.max(0, Date.now() - timestamp * 1000);
@@ -24,11 +25,9 @@ export function cleanDisplayTitle(title: string | null | undefined): string {
 
 export function cleanSnippetForDisplay(snippet: string): string {
   if (!snippet) return "";
-  return snippet
-    // Replace [[target|alias]] or 【【target｜alias】】 with alias or target
-    .replace(/(?:\[\[|【【)([^\]】\r\n|｜]+)(?:[|｜]([^\]】\r\n]+))?(?:\]\]|】】)/g, (_, target, alias) => {
-      return (alias || target).trim();
-    })
+  return snippet.replace(new RegExp(WIKI_LINK_PATTERN.source, "g"), (_match, target: string, alias?: string) => {
+    return (alias ? decodeWikiLinkComponent(alias) : decodeWikiLinkComponent(target)).trim();
+  })
     // Also remove any stray double brackets if any
     .replace(/\[\[|\]\]|【【|】】/g, "")
     // Remove leading markdown heading markers
@@ -43,11 +42,11 @@ function HighlightSnippet({ snippet, highlight }: { snippet: string; highlight: 
   }
 
   // If there are aliases for this target in the snippet, add them to candidate highlights
-  const linkRegex = /(?:\[\[|【【)([^\]】\r\n|｜]+)(?:[|｜]([^\]】\r\n]+))?(?:\]\]|】】)/g;
-  let match: RegExpExecArray | null;
-  while ((match = linkRegex.exec(snippet)) !== null) {
-    const target = match[1]?.trim();
-    const alias = match[2]?.trim();
+  const linkPattern = new RegExp(WIKI_LINK_PATTERN.source, "g");
+  let linkMatch: RegExpExecArray | null;
+  while ((linkMatch = linkPattern.exec(snippet)) !== null) {
+    const target = decodeWikiLinkComponent(linkMatch[1] ?? "").trim();
+    const alias = linkMatch[2] ? decodeWikiLinkComponent(linkMatch[2]).trim() : "";
     if (target && cleanHighlight && target.toLowerCase() === cleanHighlight.toLowerCase() && alias) {
       candidates.add(alias);
     }

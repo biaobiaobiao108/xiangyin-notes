@@ -118,7 +118,16 @@ docker run -d \
   ghcr.io/biaobiaobiao108/xiangyin-notes:latest
 ```
 
-启动后打开 `http://127.0.0.1:3000/app` 并使用 `.env` 中的账号登录。数据库和图片附件都会保存在 `xiangying-notes-data` 数据卷中，更新容器时继续使用同一个数据卷即可。
+启动后打开 `http://127.0.0.1:3000/app` 并使用 `.env` 中的账号登录。数据库和图片附件都会保存在 `xiangying-notes-data` 数据卷中。首次启动的空数据库会自动初始化；升级已有安装时，拉取新镜像并停止旧容器后，显式执行迁移，再启动新版本：
+
+```bash
+docker pull ghcr.io/biaobiaobiao108/xiangyin-notes:latest
+docker stop xiangying-notes
+docker run --rm --env-file .env -v xiangying-notes-data:/data --entrypoint bun ghcr.io/biaobiaobiao108/xiangyin-notes:latest dist/server/migrate.js
+docker rm xiangying-notes
+```
+
+迁移完成后，按上面的启动命令重新创建容器，并继续使用原数据卷。即使该版本没有待执行的迁移，迁移命令也可安全重复运行。
 
 如果通过 HTTPS 反向代理从公网访问，请把 `PUBLIC_URL` 设置为实际访问的 HTTPS 根地址，并根据代理情况启用 `TRUST_PROXY=true` 和 `COOKIE_SECURE=true`。启用 `TRUST_PROXY` 时还要通过 `TRUSTED_PROXY_ADDRESSES` 配置应用实际看到的反向代理 IP（逗号分隔）；应用只信任这些代理转发的客户端 IP。反向代理应覆盖 `X-Forwarded-For` / `X-Real-IP`，并阻止公网绕过代理直连应用。仅在本机或局域网使用 HTTP 时，`COOKIE_SECURE` 保持默认的 `false`。
 
