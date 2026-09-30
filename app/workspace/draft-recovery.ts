@@ -7,6 +7,19 @@ const DRAFT_DATABASE_NAME = "xiangying-notes-drafts";
 const DRAFT_STORE_NAME = "drafts";
 
 let draftDatabasePromise: Promise<IDBDatabase | null> | null = null;
+// Only pending operations are retained; tokens do not retain draft contents.
+const pendingOperations = new Map<string, symbol>();
+
+function beginDraftOperation(noteId: string) {
+  const token = Symbol();
+  pendingOperations.set(noteId, token);
+  return {
+    isCurrent: () => pendingOperations.get(noteId) === token,
+    finish: () => {
+      if (pendingOperations.get(noteId) === token) pendingOperations.delete(noteId);
+    },
+  };
+}
 
 export function draftRecoveryStorageKey(noteId: string) {
   return `${DRAFT_RECOVERY_KEY_PREFIX}${noteId}`;
@@ -49,9 +62,9 @@ function openDraftDatabase() {
   return draftDatabasePromise;
 }
 
-async function writeIndexedDraft(noteId: string, serialized: string) {
+async function writeIndexedDraft(noteId: string, serialized: string, isCurrent: () => boolean) {
   const database = await openDraftDatabase();
-  if (!database) return false;
+  if (!database || !isCurrent()) return false;
   return await new Promise<boolean>((resolve) => {
     try {
       const transaction = database.transaction(DRAFT_STORE_NAME, "readwrite");
@@ -79,11 +92,10 @@ async function readIndexedDraft(noteId: string) {
   });
 }
 
-function deleteIndexedDraft(noteId: string) {
-  void openDraftDatabase().then((database) => {
-    if (!database) return;
-    try { database.transaction(DRAFT_STORE_NAME, "readwrite").objectStore(DRAFT_STORE_NAME).delete(noteId); } catch {}
-  });
+async function deleteIndexedDraft(noteId: string, isCurrent: () => boolean) {
+  const database = await openDraftDatabase();
+  if (!database || !isCurrent()) return;
+  try { database.transaction(DRAFT_STORE_NAME, "readwrite").objectStore(DRAFT_STORE_NAME).delete(noteId); } catch {}
 }
 
 export function parseDraftRecovery(serialized: string, noteId: string): NoteDraft | null {
@@ -111,22 +123,24 @@ export function writeDraftRecovery(draft: NoteDraft) {
   if (typeof window === "undefined") return;
   const serialized = serializeDraftRecovery(draft);
   if (!serialized) return;
+  const operation = beginDraftOperation(draft.id);
   const byteSize = new TextEncoder().encode(serialized).byteLength;
   if (byteSize > LOCAL_STORAGE_DRAFT_MAX_BYTES && canUseIndexedDb()) {
-    void writeIndexedDraft(draft.id, serialized).then((written) => {
+    void writeIndexedDraft(draft.id, serialized, operation.isCurrent).then((written) => {
+      if (!operation.isCurrent()) return;
       if (written) {
         try { window.localStorage.removeItem(draftRecoveryStorageKey(draft.id)); } catch {}
         return;
       }
       try { window.localStorage.setItem(draftRecoveryStorageKey(draft.id), serialized); } catch {}
-    });
+    }).finally(operation.finish);
     return;
   }
   try {
     window.localStorage.setItem(draftRecoveryStorageKey(draft.id), serialized);
-    deleteIndexedDraft(draft.id);
+    void deleteIndexedDraft(draft.id, operation.isCurrent).finally(operation.finish);
   } catch {
-    void writeIndexedDraft(draft.id, serialized);
+    void writeIndexedDraft(draft.id, serialized, operation.isCurrent).finally(operation.finish);
   }
 }
 
@@ -145,14 +159,16 @@ export async function readDraftRecovery(noteId: string) {
 
 export function clearDraftRecovery(noteId: string) {
   if (typeof window === "undefined") return;
+  const operation = beginDraftOperation(noteId);
   try {
     window.localStorage.removeItem(draftRecoveryStorageKey(noteId));
   } catch {}
-  deleteIndexedDraft(noteId);
+  void deleteIndexedDraft(noteId, operation.isCurrent).finally(operation.finish);
 }
 
 export function clearAllDraftRecoveries() {
   if (typeof window === "undefined") return;
+  pendingOperations.clear();
   try {
     const keys: string[] = [];
     for (let index = 0; index < window.localStorage.length; index += 1) {
