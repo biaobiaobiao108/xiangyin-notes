@@ -690,6 +690,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
   if (id && subresource === "link-mention" && method === "POST") {
     const targetNote = getNote(database, user.id, id);
     if (!targetNote) return jsonError(404, "NOTE_NOT_FOUND", "目标笔记不存在");
+    if (targetNote.deleted_at !== null) return jsonError(409, "NOTE_IN_TRASH", "回收站中的笔记只读，请先恢复笔记后再修改");
 
     const payload = await readJson<{ sourceNoteId?: unknown; sourceVersion?: unknown; matchStart?: unknown; matchEnd?: unknown; matchText?: unknown }>(request, 10_000);
     if (!payload || typeof payload.sourceNoteId !== "string" || !Number.isInteger(payload.sourceVersion) || !Number.isInteger(payload.matchStart) || !Number.isInteger(payload.matchEnd) || !validText(payload.matchText, 200) || !payload.matchText) {
@@ -698,6 +699,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
 
     const sourceNote = getNote(database, user.id, payload.sourceNoteId);
     if (!sourceNote) return jsonError(404, "SOURCE_NOTE_NOT_FOUND", "来源笔记不存在");
+    if (sourceNote.deleted_at !== null) return jsonError(409, "NOTE_IN_TRASH", "回收站中的笔记只读，请先恢复笔记后再修改");
     if (sourceNote.version !== payload.sourceVersion) return jsonError(409, "MENTION_STALE", "来源笔记已更新，请重新选择提及");
 
     const matchStart = payload.matchStart as number;
