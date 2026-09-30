@@ -619,8 +619,17 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
         candidateConditions.push("notes_fts MATCH ?");
         candidateParams.push(ftsTokens.map((p) => `"${p.replaceAll('"', '""')}"`).join(" AND "));
       } else if (canIndexShortSearchTerm(trimmedTitle)) {
-        candidateConditions.push("EXISTS (SELECT 1 FROM note_short_terms st WHERE st.note_id = n.id AND st.user_id = n.user_id AND st.term = ?)");
-        candidateParams.push(trimmedTitle);
+        candidateConditions.push(`(
+          EXISTS (SELECT 1 FROM note_short_terms st WHERE st.note_id = n.id AND st.user_id = n.user_id AND st.term = ?)
+          OR (
+            (
+              length(n.content_markdown) >= ?
+              OR (SELECT COUNT(*) FROM note_short_terms bounded_terms WHERE bounded_terms.note_id = n.id AND bounded_terms.user_id = n.user_id) >= ?
+            )
+            AND n.content_markdown LIKE ? ESCAPE '!'
+          )
+        )`);
+        candidateParams.push(trimmedTitle, MAX_SHORT_TERM_CONTENT_CHARS, MAX_SHORT_TERMS_PER_NOTE, `%${escapeLikePattern(trimmedTitle)}%`);
       } else {
         candidateConditions.push("n.content_markdown LIKE ? ESCAPE '!'");
         candidateParams.push(`%${escapeLikePattern(trimmedTitle)}%`);
