@@ -223,7 +223,7 @@ export async function uploadImageAsset(request: Request, database: SqliteDatabas
 }
 
 export async function serveImageAsset(request: Request, database: SqliteDatabase, userId: string, assetId: string, assetRoot: string, cacheControl = "private, max-age=3600") {
-  const asset = first<ImageAssetRow>(database, "SELECT id, user_id, note_id, storage_path, original_name, mime_type, byte_size, width, height, document_order, created_at FROM image_assets WHERE id = ? AND user_id = ?", assetId, userId);
+  const asset = first<ImageAssetRow>(database, "SELECT id, user_id, note_id, storage_path, original_name, mime_type, byte_size, width, height, document_order, created_at FROM image_assets WHERE id = ? AND user_id = ?", assetId.toLowerCase(), userId);
   if (!asset) return jsonError(404, "ASSET_NOT_FOUND", "图片不存在");
   const filePath = assetFilePath(assetRoot, asset.storage_path);
   if (!filePath) return jsonError(404, "ASSET_NOT_FOUND", "图片不存在");

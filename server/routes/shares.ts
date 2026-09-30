@@ -45,14 +45,14 @@ export async function servePublicShareAsset(request: Request, database: SqliteDa
   if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
   const segments = new URL(request.url).pathname.split("/").filter(Boolean);
   const token = segments[2] ?? "";
-  const assetId = segments[3] ?? "";
+  const assetId = (segments[3] ?? "").toLowerCase();
   const share = first<{ note_id: string; user_id: string; expires_at: number; revoked_at: number | null }>(database, "SELECT note_id, user_id, expires_at, revoked_at FROM shares WHERE token_hash = ?", await digestHex(token));
   if (!share) return jsonError(404, "SHARE_NOT_FOUND", "分享链接不存在");
   if (share.revoked_at) return jsonError(410, "SHARE_REVOKED", "分享链接已撤销");
   if (share.expires_at <= now()) return jsonError(410, "SHARE_EXPIRED", "分享链接已过期");
   const note = first<{ content_markdown: string }>(database, "SELECT content_markdown FROM notes WHERE id = ? AND user_id = ? AND deleted_at IS NULL", share.note_id, share.user_id);
   if (!note) return jsonError(404, "NOTE_NOT_FOUND", "笔记不存在或已移入回收站");
-  if (!noteAssetIds(note.content_markdown).includes(assetId.toLowerCase())) return jsonError(404, "ASSET_NOT_FOUND", "图片不存在");
+  if (!noteAssetIds(note.content_markdown).includes(assetId)) return jsonError(404, "ASSET_NOT_FOUND", "图片不存在");
   const asset = first<ImageAssetRow>(database, "SELECT id, user_id, note_id, storage_path, original_name, mime_type, byte_size, width, height, document_order, created_at FROM image_assets WHERE id = ? AND note_id = ?", assetId, share.note_id);
   if (!asset) return jsonError(404, "ASSET_NOT_FOUND", "图片不存在");
   const filePath = assetFilePath(assetRoot, asset.storage_path);

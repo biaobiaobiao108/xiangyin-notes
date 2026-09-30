@@ -487,6 +487,34 @@ describe("Bun Server API", () => {
     expect((await expiredImage.json()).error.code).toBe("SHARE_EXPIRED");
   });
 
+  test("reads uppercase asset UUIDs in private notes and public shares", async () => {
+    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
+    const uploaded = await request("/api/assets", { method: "POST", body: imageForm() }, login.cookie);
+    expect(uploaded.response.status).toBe(201);
+    const id = String(uploaded.body?.asset.id).toUpperCase();
+    const assetUrl = `/api/assets/${id}`;
+    const created = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "uppercase image", contentMarkdown: `![image](${assetUrl})` }) }, login.cookie);
+    expect(created.response.status).toBe(201);
+    const share = await request(`/api/notes/${created.body?.note.id}/shares`, { method: "POST", body: "{}" }, login.cookie);
+    expect(share.response.status).toBe(201);
+    const token = String(share.body?.share.url).split("/share/")[1];
+    const sharedNote = await request(`/api/shares/${token}`);
+    expect(sharedNote.body?.note.contentMarkdown).toContain(`/api/share-assets/${token}/${id}`);
+    for (const method of ["GET", "HEAD"]) {
+      for (const path of [assetUrl, `/api/share-assets/${token}/${id}`]) {
+        const response = await handleRequest(new Request(`http://xiangying.test${path}`, { method, headers: { Cookie: login.cookie! } }), { database, environment, clientRoot: "dist/client", assetRoot });
+        expect(response.status).toBe(200);
+        expect(response.headers.get("Content-Type")).toBe("image/png");
+        expect(new Uint8Array(await response.arrayBuffer())).toEqual(method === "GET" ? ONE_PIXEL_PNG : new Uint8Array());
+      }
+    }
+    const otherEnvironment = { ...environment, XIANGYING_USERNAME: "other" };
+    const otherLogin = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "other", password: environment.XIANGYING_PASSWORD }) }, undefined, otherEnvironment);
+    expect((await request(assetUrl, {}, otherLogin.cookie, otherEnvironment)).response.status).toBe(404);
+    const unrelated = await request("/api/assets", { method: "POST", body: imageForm() }, login.cookie);
+    expect((await request(`/api/share-assets/${token}/${String(unrelated.body?.asset.id).toUpperCase()}`)).response.status).toBe(404);
+  });
+
   test("deletes image assets and files with permanently deleted notes", async () => {
     const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
     const uploaded = await request("/api/assets", { method: "POST", body: imageForm("delete-me.png") }, login.cookie);
