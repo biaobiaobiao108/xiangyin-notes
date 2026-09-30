@@ -17,7 +17,7 @@ import { applyNoteSelectionClick, isNoteSelectionModifierClick, pruneNoteSelecti
 import { normalizeLinkTitle } from "../shared/wiki-links";
 import { useNoteSaveQueue } from "./workspace/use-note-save-queue";
 import { useWorkspaceRealtime } from "./workspace/use-realtime";
-import { refreshSelectedNote } from "./workspace/selected-note-sync";
+import { latestSelectedNoteSnapshot, refreshSelectedNote } from "./workspace/selected-note-sync";
 import { useWorkspaceShortcuts } from "./workspace/use-workspace-shortcuts";
 import { useMobileDrawer, type MobileDrawer } from "./workspace/use-mobile-drawer";
 import { useThemePreference } from "./theme";
@@ -411,12 +411,16 @@ export function Workspace() {
     try {
       const result = await api.getNote(id, { signal: controller.signal });
       if (requestId !== noteLoadRequestRef.current || activeNoteIdRef.current !== id) return;
-      if (!pendingSavesRef.current.has(id)) {
+      let loadedNote = latestSelectedNoteSnapshot(result.note, selectedRef.current);
+      // The load can outlive a queued save; do not recover the same draft after
+      // that save has already succeeded and started clearing its recovery copy.
+      if (!pendingNote && !pendingSavesRef.current.has(id)) {
         const recoveredDraft = await readDraftRecovery(id);
         if (requestId !== noteLoadRequestRef.current || activeNoteIdRef.current !== id) return;
+        loadedNote = latestSelectedNoteSnapshot(loadedNote, selectedRef.current);
         if (recoveredDraft && !pendingSavesRef.current.has(id)) {
           pendingSavesRef.current.set(id, recoveredDraft);
-          if (recoveredDraft.version === result.note.version) {
+          if (recoveredDraft.version === loadedNote.version) {
             setToast("已恢复一份未保存草稿");
           } else {
             failedSavesRef.current.set(id, new ApiError(409, "VERSION_CONFLICT", "恢复的草稿与服务器版本不同"));
@@ -426,7 +430,8 @@ export function Workspace() {
         }
       }
       const latestPendingNote = pendingSavesRef.current.get(id);
-      const nextNote = latestPendingNote ? { ...result.note, ...latestPendingNote } : result.note;
+      loadedNote = latestSelectedNoteSnapshot(loadedNote, selectedRef.current);
+      const nextNote = latestPendingNote ? { ...loadedNote, ...latestPendingNote } : loadedNote;
       selectedRef.current = nextNote;
       setSelectedNote(nextNote);
       setIsNoteLoading(false);

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { api } from "../app/api";
-import { refreshSelectedNote, type SelectedNoteSyncOptions } from "../app/workspace/selected-note-sync";
+import { latestSelectedNoteSnapshot, refreshSelectedNote, type SelectedNoteSyncOptions } from "../app/workspace/selected-note-sync";
 import type { Note } from "../shared/types";
 
 const original: Note = {
@@ -96,5 +96,51 @@ describe("selected note remote synchronization", () => {
     expect(options.selectedRef.current).toBe(other);
     expect(options.onUpdated).not.toHaveBeenCalled();
     expect(options.onConflict).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("selected note load snapshot selection", () => {
+  test("keeps a completed save when the earlier GET arrives after switching back", async () => {
+    const loading = (async () => {
+      const response = await api.getNote(original.id);
+      return latestSelectedNoteSnapshot(response.note, options.selectedRef.current);
+    })();
+    const saved = { ...original, version: 2, contentMarkdown: "切换期间已保存的正文" };
+    options.selectedRef.current = saved;
+    resolveResponse({ note: original });
+
+    expect(await loading).toBe(saved);
+  });
+
+  test("checks again when a save completes during asynchronous draft recovery", async () => {
+    let finishRecovery!: () => void;
+    const recovery = new Promise<void>((resolve) => { finishRecovery = resolve; });
+    let startedRecovery!: () => void;
+    const recoveryStarted = new Promise<void>((resolve) => { startedRecovery = resolve; });
+    const loading = (async () => {
+      const response = await api.getNote(original.id);
+      let snapshot = latestSelectedNoteSnapshot(response.note, options.selectedRef.current);
+      startedRecovery();
+      await recovery;
+      snapshot = latestSelectedNoteSnapshot(snapshot, options.selectedRef.current);
+      return snapshot;
+    })();
+    resolveResponse({ note: original });
+    await recoveryStarted;
+    const saved = { ...original, version: 2, contentMarkdown: "读取恢复副本期间已保存的正文" };
+    options.selectedRef.current = saved;
+    finishRecovery();
+
+    expect(await loading).toBe(saved);
+  });
+
+  test("only keeps a local snapshot for the same note at an equal or newer version", () => {
+    const remote = { ...original, version: 2 };
+    expect(latestSelectedNoteSnapshot(remote, original)).toBe(remote);
+    expect(latestSelectedNoteSnapshot(remote, { ...remote, id: "another-note", version: 3 })).toBe(remote);
+    expect(latestSelectedNoteSnapshot(remote, null)).toBe(remote);
+    const local = { ...remote, contentMarkdown: "同版本的本地状态" };
+    expect(latestSelectedNoteSnapshot(remote, local)).toBe(local);
   });
 });
