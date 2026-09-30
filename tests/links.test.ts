@@ -38,6 +38,32 @@ async function request(path: string, init: RequestInit = {}, cookie?: string) {
 }
 
 describe("Note links, backlinks, and renaming cascade", () => {
+  test("renaming a target preserves code examples while updating its real backlinks", async () => {
+    const auth = await request("/api/auth/login", {
+      method: "POST", body: JSON.stringify({ username: "owner", password: "a long passphrase 1234" }),
+    });
+    const cookie = auth.cookie!;
+    const target = (await request("/api/notes", {
+      method: "POST", body: JSON.stringify({ title: "Alpha", contentMarkdown: "" }),
+    }, cookie)).body?.note as Note;
+    const examples = ["    [[Alpha]]", "```md\n[[Alpha]]\n```not-closing\n[[Alpha]]\n```"];
+    const sources = [];
+    for (const example of examples) {
+      const source = (await request("/api/notes", {
+        method: "POST", body: JSON.stringify({ title: "Example", contentMarkdown: `${example}\n\n[[Alpha]]` }),
+      }, cookie)).body?.note as Note;
+      sources.push({ source, example });
+    }
+    const renamed = await request(`/api/notes/${target.id}`, {
+      method: "PATCH", body: JSON.stringify({ version: target.version, title: "Beta" }),
+    }, cookie);
+    expect(renamed.response.status).toBe(200);
+    for (const { source, example } of sources) {
+      const latest = (await request(`/api/notes/${source.id}`, { method: "GET" }, cookie)).body?.note as Note;
+      expect(latest.contentMarkdown).toBe(`${example}\n\n[[Beta]]`);
+    }
+  });
+
   test("batch trash releases link targets and reconnects them to a new note with the same title", async () => {
     const auth = await request("/api/auth/login", {
       method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),

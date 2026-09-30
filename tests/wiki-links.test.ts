@@ -35,6 +35,33 @@ const code = "[[代码中的伪链接]]";
     expect(links.map((l) => l.target)).toEqual(["真实链接", "有效链接"]);
   });
 
+  test("does not rewrite indented code or prematurely close a fenced code block", () => {
+    const examples = [
+      "    [[Alpha]]\n\n[[Alpha]]",
+      "\t[[Alpha]]\n\n[[Alpha]]",
+      "```md\n[[Alpha]]\n```not-closing\n[[Alpha]]\n```\n\n[[Alpha]]",
+      "~~~md\n[[Alpha]]\n~~~not-closing\n[[Alpha]]\n~~~\n\n[[Alpha]]",
+      "    [[Alpha]]\r\n\r\n[[Alpha]]",
+      "```md\r\n[[Alpha]]\r\n```not-closing\r\n[[Alpha]]\r\n```\r\n\r\n[[Alpha]]",
+    ];
+    for (const markdown of examples) {
+      const links = extractWikiLinks(markdown);
+      expect(links).toHaveLength(1);
+      expect(links[0].start).toBe(markdown.lastIndexOf("[[Alpha]]"));
+      expect(replaceWikiLinkTarget(markdown, "Alpha", "Beta")).toEqual({
+        content: markdown.slice(0, markdown.lastIndexOf("[[Alpha]]")) + "[[Beta]]", count: 1,
+      });
+    }
+    expect(findUnlinkedMentionsInMarkdown("    Alpha\n\nAlpha", "Alpha")).toHaveLength(1);
+    expect(extractWikiLinks("paragraph\n    [[Alpha]]")).toHaveLength(1);
+  });
+
+  test("preserves inline code with a shorter backtick run in its contents", () => {
+    const markdown = "``example ` [[Alpha]]`` and [[Alpha]]";
+    expect(extractWikiLinks(markdown)).toHaveLength(1);
+    expect(replaceWikiLinkTarget(markdown, "Alpha", "Beta").content).toBe("``example ` [[Alpha]]`` and [[Beta]]");
+  });
+
   test("replaces wiki link target correctly and preserves aliases", () => {
     const md = "参考 [[旧标题]] 和 [[旧标题|展示别名]]，以及无关的 [[其他标题]]。";
     const { content, count } = replaceWikiLinkTarget(md, "旧标题", "新标题");

@@ -1,68 +1,52 @@
-type Fence = {
-  marker: "`" | "~";
-  length: number;
-};
+import { Lexer } from "marked";
 
-function lineFence(markdown: string, lineStart: number, lineEnd: number): Fence | null {
-  let cursor = lineStart;
-  let indentation = 0;
-  while (cursor < lineEnd && indentation < 4 && (markdown[cursor] === " " || markdown[cursor] === "\t")) {
-    cursor += 1;
-    indentation += 1;
-  }
-  if (indentation > 3) return null;
+type MarkdownInterval = { start: number; end: number };
 
-  const marker = markdown[cursor];
-  if (marker !== "`" && marker !== "~") return null;
-  let length = 0;
-  while (cursor + length < lineEnd && markdown[cursor + length] === marker) length += 1;
-  return length >= 3 ? { marker, length } : null;
-}
-
-function isClosingFence(fence: Fence, candidate: Fence | null) {
-  return Boolean(candidate && candidate.marker === fence.marker && candidate.length >= fence.length);
-}
-
-/** Finds all line-level code fence intervals [start, end) */
-export function findCodeFenceIntervals(markdown: string): { start: number; end: number }[] {
-  const intervals: { start: number; end: number }[] = [];
-  let fence: Fence | null = null;
-  let fenceStart = 0;
-  let lineStart = 0;
-
-  while (lineStart <= markdown.length) {
-    const lineBreak = markdown.indexOf("\n", lineStart);
-    const lineEnd = lineBreak === -1 ? markdown.length : lineBreak;
-    const candidateFence = lineFence(markdown, lineStart, lineEnd);
-
-    if (fence) {
-      if (isClosingFence(fence, candidateFence)) {
-        intervals.push({ start: fenceStart, end: lineEnd });
-        fence = null;
-      }
-    } else if (candidateFence) {
-      fence = candidateFence;
-      fenceStart = lineStart;
+/** Finds fenced and indented block code using the same Markdown grammar as the editor. */
+export function findCodeFenceIntervals(markdown: string): MarkdownInterval[] {
+  if (!/^[ \t]*(?:`{3}|~{3})|^(?: {4}| {0,3}\t)/m.test(markdown)) return [];
+  // Marked normalizes line endings. Keep only the removed CR offsets so ranges
+  // continue to address the original Markdown, without a per-character map.
+  const removedOffsets: number[] = [];
+  const normalized = markdown.replace(/\r\n|\r/g, (lineEnding, offset: number) => {
+    if (lineEnding.length === 2) removedOffsets.push(offset - removedOffsets.length);
+    return "\n";
+  });
+  const originalOffset = (offset: number) => {
+    let low = 0;
+    let high = removedOffsets.length;
+    while (low < high) {
+      const middle = (low + high) >>> 1;
+      if (removedOffsets[middle] < offset) low = middle + 1;
+      else high = middle;
     }
-
-    if (lineBreak === -1) break;
-    lineStart = lineBreak + 1;
+    return offset + low;
+  };
+  const intervals: MarkdownInterval[] = [];
+  let offset = 0;
+  // Block tokenization suffices here; avoid building an inline AST for the body.
+  for (const token of new Lexer().blockTokens(normalized)) {
+    const end = offset + token.raw.length;
+    if (token.type === "code") intervals.push({ start: originalOffset(offset), end: originalOffset(end) });
+    offset = end;
   }
-
-  if (fence) {
-    intervals.push({ start: fenceStart, end: markdown.length });
-  }
-
   return intervals;
 }
 
-/** Finds inline code intervals `...` on a single line */
-export function findInlineCodeIntervals(markdown: string): { start: number; end: number }[] {
-  const intervals: { start: number; end: number }[] = [];
-  const regex = /(`+)([\s\S]*?)\1/g;
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(markdown)) !== null) {
-    intervals.push({ start: match.index, end: match.index + match[0].length });
+/** Finds inline code outside block code, with matching complete backtick runs. */
+export function findInlineCodeIntervals(markdown: string, blocks = findCodeFenceIntervals(markdown)): MarkdownInterval[] {
+  const intervals: MarkdownInterval[] = [];
+  const regex = /(?<!`)(`+)(?!`)([\s\S]*?)(?<!`)\1(?!`)/g;
+  let start = 0;
+  for (let index = 0; index <= blocks.length; index += 1) {
+    const end = blocks[index]?.start ?? markdown.length;
+    const segment = markdown.slice(start, end);
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(segment)) !== null) {
+      intervals.push({ start: start + match.index, end: start + match.index + match[0].length });
+    }
+    start = blocks[index]?.end ?? markdown.length;
+    regex.lastIndex = 0;
   }
   return intervals;
 }
@@ -118,7 +102,7 @@ export function extractWikiLinks(markdown: string): WikiLinkMatch[] {
   if (!markdown || (!markdown.includes("[[") && !markdown.includes("【【"))) return [];
 
   const codeFences = findCodeFenceIntervals(markdown);
-  const inlineCodes = findInlineCodeIntervals(markdown);
+  const inlineCodes = findInlineCodeIntervals(markdown, codeFences);
   const isInsideCode = (start: number, end: number) => {
     return codeFences.some((f) => start >= f.start && end <= f.end) ||
       inlineCodes.some((c) => start >= c.start && end <= c.end);
@@ -256,9 +240,10 @@ export function findUnlinkedMentionsInMarkdown(markdown: string, targetTitle: st
   if (rawMatches.length === 0) return [];
 
   // Intervals to exclude: code fences, inline codes, wiki links, markdown links/images
-  const excludedIntervals: { start: number; end: number }[] = [
-    ...findCodeFenceIntervals(markdown),
-    ...findInlineCodeIntervals(markdown),
+  const codeBlocks = findCodeFenceIntervals(markdown);
+  const excludedIntervals: MarkdownInterval[] = [
+    ...codeBlocks,
+    ...findInlineCodeIntervals(markdown, codeBlocks),
   ];
 
   // Exclude existing wiki-links
