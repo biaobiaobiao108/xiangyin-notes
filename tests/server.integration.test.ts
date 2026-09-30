@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdir, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { marked } from "marked";
 import { applyMigrations, openDatabase, reclaimDatabaseSpace, type SqliteDatabase } from "../server/db";
 import { handleRequest } from "../server/index";
 import { MAX_SHORT_TERM_CONTENT_CHARS, MAX_SHORT_TERMS_PER_NOTE } from "../server/note-search";
@@ -1012,8 +1013,40 @@ describe("Bun Server API", () => {
     expect(response.status).toBe(200);
     const archive = new TextDecoder().decode(new Uint8Array(await response.arrayBuffer()));
     expect(archive).toContain(`attachments/${asset.id}_${boundedName}`);
-    expect(archive.match(new RegExp(`\\.\\./attachments/${asset.id}_${boundedName}`, "gu"))).toHaveLength(2);
+    expect(archive.split(`../attachments/${asset.id}_${encodeURIComponent(boundedName)}`)).toHaveLength(3);
     expect(archive).not.toContain(originalName);
+  });
+
+  test("exports Markdown image URLs that resolve filenames with spaces and URL syntax", async () => {
+    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
+    const names = ["Screen Shot.png", "figure#1%.png", "figure(unbalanced.png", "中文 图片).png"];
+    const assets: Array<{ id: string; url: string; name: string }> = [];
+    for (const name of names) {
+      const uploaded = await request("/api/assets", { method: "POST", body: imageForm(name) }, login.cookie);
+      expect(uploaded.response.status).toBe(201);
+      assets.push({ ...uploaded.body?.asset, name });
+    }
+    const created = await request("/api/notes", {
+      method: "POST",
+      body: JSON.stringify({ title: "encoded export", contentMarkdown: assets.map((asset, index) => `![image${index}](${asset.url})`).join("\n\n") }),
+    }, login.cookie);
+    expect(created.response.status).toBe(201);
+    const response = await handleRequest(new Request("http://xiangying.test/api/export", { headers: { Cookie: login.cookie! } }), { database, environment, clientRoot: "dist/client", assetRoot });
+    const archive = new TextDecoder().decode(new Uint8Array(await response.arrayBuffer()));
+    for (const [index, asset] of assets.entries()) {
+      const imageMarkdown = archive.match(new RegExp(`!\\[image${index}\\]\\([^\\n]+\\)`))?.[0];
+      expect(imageMarkdown).toBeDefined();
+      const paragraph = marked.lexer(imageMarkdown!)[0];
+      if (paragraph?.type !== "paragraph") throw new Error("Expected an exported image paragraph");
+      const image = paragraph.tokens?.[0];
+      if (image?.type !== "image") throw new Error("Expected a valid exported Markdown image");
+      const url = new URL(image.href, "https://export.test/notebook/note.md");
+      expect(url.hash).toBe("");
+      expect(url.search).toBe("");
+      const zipPath = `attachments/${asset.id}_${asset.name}`;
+      expect(decodeURIComponent(url.pathname)).toBe(`/${zipPath}`);
+      expect(archive).toContain(zipPath);
+    }
   });
 
   test("keeps ZIP entries inside the archive when a notebook is named dot dot", async () => {

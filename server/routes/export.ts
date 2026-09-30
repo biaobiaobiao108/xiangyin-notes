@@ -112,7 +112,8 @@ export async function handleExportRoute(ctx: RouteContext, user: UserRow, assetR
       ASSET_REFERENCE_PATTERN.lastIndex = 0;
       const content = row.content_markdown.replace(ASSET_REFERENCE_PATTERN, (_match, id: string) => {
         const localRel = assetFileNameMap.get(id.toLowerCase());
-        return localRel ? `../${localRel}` : `/api/assets/${id}`;
+        const encodedPath = localRel?.split("/").map((segment) => encodeURIComponent(segment).replace(/[()]/g, (character) => character === "(" ? "%28" : "%29")).join("/");
+        return encodedPath ? `../${encodedPath}` : `/api/assets/${id}`;
       });
       const bytes = encoder.encode(content);
       yield { name: note.name, mtime: new Date(note.updated_at * 1000), stream: () => oneChunk(bytes) };
