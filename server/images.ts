@@ -80,9 +80,9 @@ function inspectWebp(bytes: Uint8Array): ImageInspection | null {
       const height = 1 + littleEndian24(bytes, data + 7);
       return validDimensions(width, height) ? { mimeType: "image/webp", width, height } : null;
     }
-    if (type === "VP8 " && size >= 14 && bytes[data + 6] === 0x9d && bytes[data + 7] === 0x01 && bytes[data + 8] === 0x2a) {
-      const width = littleEndian16(bytes, data + 10) & 0x3fff;
-      const height = littleEndian16(bytes, data + 12) & 0x3fff;
+    if (type === "VP8 " && size >= 10 && bytes[data + 3] === 0x9d && bytes[data + 4] === 0x01 && bytes[data + 5] === 0x2a) {
+      const width = littleEndian16(bytes, data + 6) & 0x3fff;
+      const height = littleEndian16(bytes, data + 8) & 0x3fff;
       return validDimensions(width, height) ? { mimeType: "image/webp", width, height } : null;
     }
     if (type === "VP8L" && size >= 5 && bytes[data] === 0x2f) {
