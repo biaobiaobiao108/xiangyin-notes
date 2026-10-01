@@ -177,7 +177,7 @@ describe("remote MCP endpoint", () => {
     expect(listSharesTool.inputSchema.properties.limit.maximum).toBe(100);
     const createNoteTool = tools.find((tool: { name: string }) => tool.name === "create_note");
     expect(createNoteTool.description).toContain("普通笔记应优先在本次 create_note 一次写入完整内容");
-    expect(createNoteTool.description).toContain("仅当客户端无法承载单次参数或请求接近 4.5 MB MCP 请求体上限时");
+    expect(createNoteTool.description).toContain("只有客户端明确无法承载单次参数或服务端返回 MCP 请求体超过 4.5 MB 的错误时");
     expect(createNoteTool.description).not.toContain("8,000");
     expect(createNoteTool.inputSchema.properties.contentMarkdown.description).toContain("普通笔记优先一次创建");
     const getNotesBatch = tools.find((tool: { name: string }) => tool.name === "get_notes_batch");
@@ -224,11 +224,12 @@ describe("remote MCP endpoint", () => {
     expect(resultOf(discovered.body!).instructions).toContain("revoke_share 撤销");
     expect(resultOf(discovered.body!).instructions).toContain("不构成同一时刻快照");
     expect(resultOf(discovered.body!).instructions).toContain("普通笔记应优先在 create_note 一次写入完整正文");
-    expect(resultOf(discovered.body!).instructions).toContain("请求接近 4.5 MB MCP 请求体上限");
+    expect(resultOf(discovered.body!).instructions).toContain("服务端返回 MCP 请求体超过 4.5 MB 的错误时");
     expect(resultOf(discovered.body!).instructions).not.toContain("8,000");
     expect(resultOf(discovered.body!).instructions).toContain("保留字面井号");
     expect(resultOf(discovered.body!).instructions).toContain("contentLength 回执与批量读取字符预算按 Unicode code points 计算");
     expect(resultOf(discovered.body!).instructions).toContain("统一错误码 INVALID_ARGUMENT，并通过 field 指明字段");
+    expect(resultOf(discovered.body!).instructions).toContain("field 取值为 name、color、icon、tag、tags");
   });
 
   test("keeps tag and color validation on the server without publishing regex patterns", async () => {
@@ -560,7 +561,7 @@ describe("remote MCP endpoint", () => {
 
     const repeatedDelete = await callTool("batch_update_notes", { notes, deleted: true }, 5, environment);
     const repeatedDeleteData = toolData(repeatedDelete.body!);
-    expect(repeatedDeleteData.updatedCount).toBe(2);
+    expect(repeatedDeleteData).toMatchObject({ updatedCount: 0, noopCount: 2, failedCount: 0 });
     expect(repeatedDeleteData.results.map((result: Record<string, any>) => result.noop)).toEqual([true, true]);
     expect(repeatedDeleteData.results.map((result: Record<string, any>) => result.note.version)).toEqual([trashedFirst.version, trashedSecond.version]);
 
@@ -586,6 +587,16 @@ describe("remote MCP endpoint", () => {
       isFavorite: true,
     }, 4, environment)).body!);
     expect(favoriteAgain.results[0]).toMatchObject({ noop: true, note: { version: favoriteNote.version, isFavorite: true } });
+    expect(favoriteAgain).toMatchObject({ updatedCount: 0, noopCount: 1, failedCount: 0 });
+
+    const noopWithFailure = toolData((await callTool("batch_update_notes", {
+      notes: [
+        { noteId: note.id, version: favoriteNote.version },
+        { noteId: "00000000-0000-4000-8000-000000000001", version: 1 },
+      ],
+      isFavorite: true,
+    }, 41, environment)).body!);
+    expect(noopWithFailure).toMatchObject({ updatedCount: 0, noopCount: 1, failedCount: 1, partial: true });
 
     const moved = toolData((await callTool("batch_update_notes", {
       notes: [{ noteId: note.id, version: favoriteNote.version }],
@@ -597,6 +608,7 @@ describe("remote MCP endpoint", () => {
       notebookId: notebook.id,
     }, 6, environment)).body!);
     expect(movedAgain.results[0]).toMatchObject({ noop: true, note: { version: movedNote.version, notebookId: notebook.id } });
+    expect(movedAgain).toMatchObject({ updatedCount: 0, noopCount: 1, failedCount: 0 });
   });
 
   test("inserts separate lines at line boundaries and supports selecting an occurrence", async () => {
@@ -1148,6 +1160,13 @@ describe("remote MCP endpoint", () => {
     expect(oversized.response.status).toBe(400);
     expect(oversized.body?.error.message).toContain("超过单次字段 1,000,000 个 UTF-16 code units 上限");
     expect(oversized.body?.error.message).toContain("分段追加仍受单篇笔记正文总长度上限约束");
+
+    const oversizedEncodedBody = await callMcp(modernMcpRequest("tools/call", 7, {
+      name: "create_note",
+      arguments: { title: "JSON 转义后请求体超限", contentMarkdown: "\u0000".repeat(750_000) },
+    }, "create_note"), environment);
+    expect(oversizedEncodedBody.response.status).toBe(400);
+    expect(oversizedEncodedBody.body?.error.message).toContain("请求体超过 4.5 MB 传输上限");
   });
 
   test("lists notebooks, creates, searches, reads, and updates notes with version checks", async () => {

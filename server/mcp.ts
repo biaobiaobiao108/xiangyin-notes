@@ -37,8 +37,8 @@ const MCP_CONTENT_FIELDS = new Map([
 const MCP_SERVER_INSTRUCTIONS = [
   "象映笔记是跨会话 Markdown 记忆库，可搜索、读取、新建和增量修改笔记，也可管理笔记本、收藏、标签、回收站与公开分享。",
   "工具参数必须是 JSON 对象。客户端会先校验参数；手写原始 JSON 时，字符串中的控制字符须按 JSON 规范转义（换行写作 \\n）；结构化参数中的多行 Markdown 会原样保留。",
-  "字段值不合法时使用统一错误码 INVALID_ARGUMENT，并通过 field 指明字段；标签错误还会在 invalidTags 中列出违规值。",
-  "普通笔记应优先在 create_note 一次写入完整正文；仅当客户端无法承载单次参数，或请求接近 4.5 MB MCP 请求体上限时，才用 append_to_note 分段追加并沿用返回的 version。单篇正文硬上限为 1,000,000 个 UTF-16 code units。contentLength 回执与批量读取字符预算按 Unicode code points 计算。写操作默认不回传正文。",
+  "字段值不合法时使用统一错误码 INVALID_ARGUMENT，并通过 field 指明字段；当前 field 取值为 name、color、icon、tag、tags。标签错误还会在 invalidTags 中列出违规值。",
+  "普通笔记应优先在 create_note 一次写入完整正文；只有客户端明确无法承载单次参数，或服务端返回 MCP 请求体超过 4.5 MB 的错误时，才用 append_to_note 分段追加并沿用返回的 version。单篇正文硬上限为 1,000,000 个 UTF-16 code units。contentLength 回执与批量读取字符预算按 Unicode code points 计算。写操作默认不回传正文。",
   "需要分类时先用 list_notebooks 获取 ID；create_notebook 创建笔记本，update_notebook 修改，delete_notebook 需 confirm=true 并建议用 totalCount 做二次确认。单篇写操作可省略 version，由服务端读取当前版本并以乐观锁保存；batch_update_notes 必须提供每篇读取时的 version。单篇 VERSION_CONFLICT 返回完整 current；批量冲突只返回摘要与元数据，需要时再读取失败项正文。",
   "create_note.tags 与 batch_update_notes.tags 是追加；note_operation 的 set_tags 必须显式传 mode=replace、add 或 remove。正文中未转义、代码区外且不超过 40 个 UTF-16 code units 的 #标签会被索引；可在井号前加反斜杠保留字面井号。回收站笔记可恢复，但 MCP 不提供永久删除笔记或清空回收站。",
   "用 search_notes 的 view=trash 或 list_trash 检索回收站；view=shared 筛选已分享笔记。create_share 创建 7 天只读链接，list_shares 分页查看，revoke_share 撤销。get_notes_batch 最多读 50 篇、总正文默认预算 20,000 个 Unicode 字符；各笔记分别读取，不构成同一时刻快照。",
@@ -824,10 +824,10 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("create_note", {
     title: "创建笔记",
-    description: "创建一篇 Markdown 笔记。contentMarkdown 可直接传入完整正文，普通笔记应优先在本次 create_note 一次写入完整内容；多行 Markdown 会原样保留。仅当客户端无法承载单次参数或请求接近 4.5 MB MCP 请求体上限时，才先创建骨架并用 append_to_note 分段追加，沿用每次返回的 version；单篇正文总上限为 1,000,000 个 UTF-16 code units。若手写原始 JSON，其中的换行、制表符等控制字符必须转义。tags 会以 #标签 形式追加到正文；每个正文标签最多 40 个 UTF-16 code units，代码中的标签和超长标签不会被索引；字面井号词可写作 \\#CSharp 以避免成为标签。省略 notebookId 时放入收件箱。默认不回传正文；需要时设 includeContent=true。成功结果包含按 Unicode code point 统计的 contentLength 回执。",
+    description: "创建一篇 Markdown 笔记。contentMarkdown 可直接传入完整正文，普通笔记应优先在本次 create_note 一次写入完整内容；多行 Markdown 会原样保留。只有客户端明确无法承载单次参数或服务端返回 MCP 请求体超过 4.5 MB 的错误时，才先创建骨架并用 append_to_note 分段追加，沿用每次返回的 version；单篇正文总上限为 1,000,000 个 UTF-16 code units。若手写原始 JSON，其中的换行、制表符等控制字符必须转义。tags 会以 #标签 形式追加到正文；每个正文标签最多 40 个 UTF-16 code units，代码中的标签和超长标签不会被索引；字面井号词可写作 \\#CSharp 以避免成为标签。省略 notebookId 时放入收件箱。默认不回传正文；需要时设 includeContent=true。成功结果包含按 Unicode code point 统计的 contentLength 回执。",
     inputSchema: z.object({
       title: z.string().min(1).max(200),
-      contentMarkdown: z.string().max(NOTE_CONTENT_MAX_LENGTH).optional().describe("可直接传入完整 Markdown 正文；普通笔记优先一次创建；只有客户端无法承载单次参数或接近 MCP 请求体上限时才分段；最多 1,000,000 个 UTF-16 code units"),
+      contentMarkdown: z.string().max(NOTE_CONTENT_MAX_LENGTH).optional().describe("可直接传入完整 Markdown 正文；普通笔记优先一次创建；只有客户端明确无法承载单次参数或服务端返回 MCP 请求体超过 4.5 MB 的错误时才分段；最多 1,000,000 个 UTF-16 code units"),
       notebookId: z.string().min(1).max(200).optional(),
       tags: noteTagsSchema.optional().describe("要追加到正文的标签名，仅可含中文、字母、数字、下划线或连字符，不带 #；仅追加，不会覆盖已有标签（整体替换请用 note_operation action=set_tags）"),
       includeContent: z.boolean().optional().describe("是否在成功结果中回传完整正文，默认 false"),
@@ -846,7 +846,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("update_note", {
     title: "更新笔记",
-    description: "仅用于更新未删除笔记的标题或完整 Markdown 正文；回收站笔记只读，会返回 NOTE_IN_TRASH，请先用 note_operation action=restore 恢复。移动、收藏、标签和回收站操作统一用 note_operation。version 可省略，由服务端读取当前版本并以乐观锁保存；传入时会校验，VERSION_CONFLICT 的 error.current 含最新完整笔记，可直接合并后重试。完整正文可直接一次传入；局部改字优先用 replace_in_note。仅当客户端无法承载单次参数或请求接近 4.5 MB MCP 请求体上限时，才将新增内容分段交给 append_to_note。正文最多 1,000,000 个 UTF-16 code units（JavaScript string.length）；结构化参数直接传入多行 Markdown，手写原始 JSON 时换行、制表符须转义。正文写入结果含按 Unicode code point 统计的 contentLength；默认不回传正文，设 includeContent=true 可返回。",
+    description: "仅用于更新未删除笔记的标题或完整 Markdown 正文；回收站笔记只读，会返回 NOTE_IN_TRASH，请先用 note_operation action=restore 恢复。移动、收藏、标签和回收站操作统一用 note_operation。version 可省略，由服务端读取当前版本并以乐观锁保存；传入时会校验，VERSION_CONFLICT 的 error.current 含最新完整笔记，可直接合并后重试。完整正文可直接一次传入；局部改字优先用 replace_in_note。只有客户端明确无法承载单次参数或服务端返回 MCP 请求体超过 4.5 MB 的错误时，才将新增内容分段交给 append_to_note。正文最多 1,000,000 个 UTF-16 code units（JavaScript string.length）；结构化参数直接传入多行 Markdown，手写原始 JSON 时换行、制表符须转义。正文写入结果含按 Unicode code point 统计的 contentLength；默认不回传正文，设 includeContent=true 可返回。",
     inputSchema: z.object({
       noteId: z.string().min(1).max(200),
       version: z.number().int().positive().optional().describe("可选的预期版本；省略时由服务端读取当前版本，仍使用乐观锁保存"),
@@ -1006,7 +1006,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("append_to_note", {
     title: "追加到笔记",
-    description: "仅修改未删除笔记；回收站笔记只读，会返回 NOTE_IN_TRASH，请先用 note_operation action=restore 恢复。将 contentMarkdown 追加到现有正文，避免重新发送长正文。普通追加按一个请求完成；仅当客户端无法承载单次参数或请求接近 4.5 MB MCP 请求体上限时才分段，所有分段合计仍受单篇正文 1,000,000 个 UTF-16 code units 的总上限约束。沿用上一次写入返回的 version，或省略 version 让服务端读取最新正文并执行乐观锁保存。传入 version 时仍会校验版本。末尾若有独立标签行，会把新内容插到标签行之前并保留标签；否则按原样追加。遇 VERSION_CONFLICT 时 error.current 含完整当前笔记。需要换行时请在追加文本中包含换行。多行正文通过结构化参数直接传入；手写原始 JSON 时控制字符必须转义。默认不回传正文，结果含 contentLength 回执。",
+    description: "仅修改未删除笔记；回收站笔记只读，会返回 NOTE_IN_TRASH，请先用 note_operation action=restore 恢复。将 contentMarkdown 追加到现有正文，避免重新发送长正文。普通追加按一个请求完成；只有客户端明确无法承载单次参数或服务端返回 MCP 请求体超过 4.5 MB 的错误时才分段，所有分段合计仍受单篇正文 1,000,000 个 UTF-16 code units 的总上限约束。沿用上一次写入返回的 version，或省略 version 让服务端读取最新正文并执行乐观锁保存。传入 version 时仍会校验版本。末尾若有独立标签行，会把新内容插到标签行之前并保留标签；否则按原样追加。遇 VERSION_CONFLICT 时 error.current 含完整当前笔记。需要换行时请在追加文本中包含换行。多行正文通过结构化参数直接传入；手写原始 JSON 时控制字符必须转义。默认不回传正文，结果含 contentLength 回执。",
     inputSchema: z.object({
       noteId: z.string().min(1).max(200),
       version: z.number().int().positive().optional().describe("可选的预期版本；省略时服务端读取当前版本"),
@@ -1131,7 +1131,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("batch_update_notes", {
     title: "批量更新笔记",
-    description: "批量移动笔记本、追加标签 tags、移除标签 removeTags、整体替换标签 replaceTags、设定收藏状态或移入/恢复回收站。replaceTags 与 tags/removeTags 互斥；空 replaceTags 可清空所有标签。回收站笔记只读；仅当本次只传 deleted:false 时可批量恢复，其他修改都会返回 NOTE_IN_TRASH，恢复后再进行其他编辑。isFavorite 是目标状态（true 收藏、false 取消收藏），重复设定不会反转；未实际改变笔记的成功项会标记 noop:true。把最多 50 篇笔记的 noteId 和 version 放入 notes，并传同一个 notebookId 即可批量移入该笔记本。每篇笔记都必须带上读取时的 version；逐条执行并返回每条结果，冲突不会覆盖。冲突 current 只返回有界摘要、版本、长度和元数据；需要合并正文时再用 get_note 或 get_notes_batch 读取失败笔记，避免批量重复回传长正文。失败项可单独重试。",
+    description: "批量移动笔记本、追加标签 tags、移除标签 removeTags、整体替换标签 replaceTags、设定收藏状态或移入/恢复回收站。replaceTags 与 tags/removeTags 互斥；空 replaceTags 可清空所有标签。回收站笔记只读；仅当本次只传 deleted:false 时可批量恢复，其他修改都会返回 NOTE_IN_TRASH，恢复后再进行其他编辑。isFavorite 是目标状态（true 收藏、false 取消收藏），重复设定不会反转；未实际改变笔记的成功项会标记 noop:true。返回 updatedCount 实际改动数、noopCount 未变化成功数与 failedCount 失败数；noop 也算成功。把最多 50 篇笔记的 noteId 和 version 放入 notes，并传同一个 notebookId 即可批量移入该笔记本。每篇笔记都必须带上读取时的 version；逐条执行并返回每条结果，冲突不会覆盖。冲突 current 只返回有界摘要、版本、长度和元数据；需要合并正文时再用 get_note 或 get_notes_batch 读取失败笔记，避免批量重复回传长正文。失败项可单独重试。",
     inputSchema: z.object({
       notes: z.array(z.object({ noteId: z.string().min(1).max(200), version: z.number().int().positive() }).strict()).min(1).max(50),
       notebookId: z.string().min(1).max(200).optional(),
@@ -1181,15 +1181,18 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
       }
     }
     const failedCount = results.filter((result) => result.ok === false).length;
-    const updatedCount = results.length - failedCount;
-    // A partially applied batch is not a failed tool call: retrying everything would
-    // rewrite the notes that already succeeded and bump their versions again.
-    const isError = failedCount > 0 && updatedCount === 0;
+    const noopCount = results.filter((result) => result.noop === true).length;
+    const successfulCount = results.length - failedCount;
+    const updatedCount = successfulCount - noopCount;
+    // Keep successful no-ops distinct from mutations: a no-op still makes a
+    // mixed-success batch recoverable without reporting the whole call as failed.
+    const isError = failedCount > 0 && successfulCount === 0;
     return responseValue({
       results,
       updatedCount,
+      noopCount,
       failedCount,
-      ...(failedCount > 0 && updatedCount > 0 ? { partial: true } : {}),
+      ...(failedCount > 0 && successfulCount > 0 ? { partial: true } : {}),
     }, isError);
   });
 
