@@ -18,6 +18,7 @@ import { ensureEnvironmentUser, getAuthCredentials } from "./routes/auth";
 import { assetRootFromEnv } from "./routes/assets";
 import { handleNotebooksRoute, VALID_NOTEBOOK_ICONS } from "./routes/notebooks";
 import { handleNotesRoute } from "./routes/notes";
+import { handleNoteShares, handleSharesRoute } from "./routes/shares";
 import { extractTags, findTrailingTagFooterStart, normalizeTag, removeTagsFromMarkdown } from "../shared/tags";
 
 export const MCP_PATH = "/mcp";
@@ -31,13 +32,13 @@ const MCP_CONTENT_FIELDS = new Map([
   ["replace_in_note", "newText"],
 ]);
 const MCP_SERVER_INSTRUCTIONS = [
-  "象映笔记用于跨会话保存 Markdown 记忆，提供搜索、批量读取、新建、追加、片段替换、锚点插入和更新；也可管理笔记本、收藏、标签与回收站。",
+  "象映笔记用于跨会话保存 Markdown 记忆，提供搜索、批量读取、新建、追加、片段替换、锚点插入和更新；也可管理笔记本、收藏、标签、回收站与公开分享。",
   "工具参数必须是 JSON 对象。客户端会先校验参数；手写原始 JSON 时，字符串中的控制字符须按 JSON 规范转义（换行写作 \\n）。结构化参数中的多行 Markdown 会原样保留。",
   "单次正文写入建议不超过 8,000 个 Unicode 字符；超长新内容先用 create_note 创建标题和笔记本骨架，再分段调用 append_to_note，并沿用每次写入返回的 version。写操作默认不回传正文，创建和正文写入结果含 contentLength。",
   "需要分类时先用 list_notebooks 获取 ID；create_notebook 创建，update_notebook 重命名或改图标、颜色，delete_notebook 必须传 confirm=true，可用 totalCount 传 expectedNoteCount 二次确认，删除后笔记移入收件箱。update_note 只改标题或正文；低频单篇管理统一用 note_operation：move 移动，set_favorite 设定目标收藏状态，set_tags 管理标签，trash 软删除，restore 恢复。收藏设定是幂等的；最多 50 篇的批量管理用 batch_update_notes。",
-  "create_note.tags 和 batch_update_notes.tags 只追加标签；note_operation action=set_tags 默认整体替换，未列出的标签会被清除，空数组清空全部；只追加或移除时用 mode=add 或 mode=remove。标签是正文非代码区域未转义的 #标签；字面井号词在井号前加反斜杠，例如 \\#CSharp。回收站笔记只能通过 note_operation action=restore 或 batch_update_notes 单独传 deleted:false 恢复；MCP 不提供单项永久删除或清空回收站的工具。",
-  "search_notes 的 view=trash 可搜索回收站，view=shared 只读列出已分享笔记；MCP 不提供创建或管理分享的工具。preview 保留正文换行、孤立下划线以及标识符和 URL 中的下划线，过滤纯标签行。list_trash 也可用 query 搜索回收站，再用 note_operation action=restore 恢复。",
-  "需完整正文时用 get_note 或 get_notes_batch；批量读取最多 50 篇且受正文字符预算限制。oversizedIds 标明因剩余预算不足而跳过的笔记，工具会继续处理后续 ID；checkedCount 与 uncheckedCount 表示已检查和未检查存在性的数量，超出总预算的长笔记可单独用 get_note 读取。",
+  "create_note.tags 和 batch_update_notes.tags 只追加标签；note_operation action=set_tags 必须显式指定 mode=replace、add 或 remove，replace 会清除未列出的标签，空数组可清空全部。标签是正文非代码区域未转义的 #标签；字面井号词在井号前加反斜杠，例如 \\#CSharp。回收站笔记只能通过 note_operation action=restore 或 batch_update_notes 单独传 deleted:false 恢复；MCP 不提供单项永久删除或清空回收站的工具。",
+  "search_notes 的 view=trash 可搜索回收站，view=shared 可筛选已分享笔记；create_share 创建 7 天只读分享，list_shares 查看指定笔记的分享记录，revoke_share 撤销分享链接。preview 保留正文换行、孤立下划线以及标识符和 URL 中的下划线，过滤纯标签行。list_trash 也可用 query 搜索回收站，再用 note_operation action=restore 恢复。",
+  "需完整正文时用 get_note 或 get_notes_batch；批量读取最多 50 篇且受正文字符预算限制，各篇在本次调用期间分别读取，不构成同一时刻的一致快照，也可能看不到并行写入。oversizedIds 标明因剩余预算不足而跳过的笔记，工具会继续处理后续 ID；checkedCount 与 uncheckedCount 表示已检查和未检查存在性的数量，超出总预算的长笔记可单独用 get_note 读取。",
   "replace_in_note 可替换正文片段，insert_into_note 可按锚点插入；两处匹配都按非重叠计数。歧义时返回匹配数量和上下文，可用 occurrence 指定第几个匹配。append_to_note、insert_into_note、replace_in_note 可省略 version，由服务端读取最新正文并以乐观锁保存；其他单篇写操作使用 search_notes 或 list_trash 返回的 version，VERSION_CONFLICT 的 error.current 含当前完整笔记。insert_into_note 在行边界插入时自动补换行，行内插入保持精确拼接。",
   "MCP 只传输文字和 Markdown，不提供图片数据或缩略图；保留正文中的图片引用。",
 ].join(" ");
@@ -61,7 +62,7 @@ const noteOperationActionSchema = z.discriminatedUnion("action", [
     noteId: z.string().min(1).max(200),
     version: z.number().int().positive(),
     tags: noteTagsSchema.describe("标签名，不带 #；mode=replace 时传空数组以清空"),
-    mode: z.enum(["replace", "add", "remove"]).optional().describe("标签操作方式，默认 replace（整体替换）；add 追加，remove 移除"),
+    mode: z.enum(["replace", "add", "remove"]).describe("必填的标签操作方式；replace 整体替换，add 追加，remove 移除"),
   }).strict(),
   z.object({
     action: z.literal("trash"),
@@ -85,7 +86,7 @@ const noteOperationInputSchema = z.object({
   notebookId: z.string().min(1).max(200).optional().describe("仅 action=move 时必填"),
   isFavorite: z.boolean().optional().describe("仅 action=set_favorite 时必填；true 收藏，false 取消收藏"),
   tags: noteTagsSchema.optional().describe("仅 action=set_tags 时必填；标签名不带 #"),
-  mode: z.enum(["replace", "add", "remove"]).optional().describe("仅 action=set_tags 时使用；默认 replace"),
+  mode: z.enum(["replace", "add", "remove"]).optional().describe("action=set_tags 时必填；其他 action 不适用"),
 }).strict();
 
 function countUnicodeCharacters(value: string) {
@@ -175,7 +176,13 @@ function withMcpMetadata(value: unknown): unknown {
     return Number.isFinite(date.getTime()) ? date.toISOString() : undefined;
   };
   // Every timestamp exposed to an agent gets an ISO twin; raw Unix seconds are easy to misread.
-  for (const [key, isoKey] of [["updatedAt", "updatedAtISO"], ["createdAt", "createdAtISO"], ["deletedAt", "deletedAtISO"]] as const) {
+  for (const [key, isoKey] of [
+    ["updatedAt", "updatedAtISO"],
+    ["createdAt", "createdAtISO"],
+    ["deletedAt", "deletedAtISO"],
+    ["expiresAt", "expiresAtISO"],
+    ["revokedAt", "revokedAtISO"],
+  ] as const) {
     const iso = isoFromUnixSeconds(result[key]);
     if (iso) result[isoKey] = iso;
   }
@@ -330,6 +337,45 @@ async function notesRoute(options: ServerOptions, user: UserRow, method: string,
   const context = createRouteContext(options, method, urlPath, segments, payload);
   const assetRoot = options.assetRoot ?? assetRootFromEnv(options.environment);
   return routeResult(await handleNotesRoute(context, user, assetRoot));
+}
+
+function mcpRouteContext(
+  options: ServerOptions,
+  context: McpRequestContext,
+  method: string,
+  pathname: string,
+  segments: string[],
+): RouteContext {
+  const origin = context.requestInfo ? new URL(context.requestInfo.url).origin : "http://xiangying-notes.internal";
+  const url = new URL(pathname, origin);
+  const request = new Request(url, { method });
+  return { request, url, method, segments, options };
+}
+
+async function noteSharesRoute(
+  options: ServerOptions,
+  context: McpRequestContext,
+  user: UserRow,
+  method: "GET" | "POST",
+  noteId: string,
+) {
+  const encodedNoteId = encodeURIComponent(noteId);
+  const routeContext = mcpRouteContext(options, context, method, `/api/notes/${encodedNoteId}/shares`, ["notes", noteId, "shares"]);
+  return routeResult(await handleNoteShares(
+    options.database,
+    user,
+    noteId,
+    method,
+    routeContext.url,
+    options.environment,
+    routeContext,
+  ));
+}
+
+async function revokeShareRoute(options: ServerOptions, context: McpRequestContext, user: UserRow, shareId: string) {
+  const encodedShareId = encodeURIComponent(shareId);
+  const routeContext = mcpRouteContext(options, context, "DELETE", `/api/shares/${encodedShareId}`, ["shares", shareId]);
+  return routeResult(await handleSharesRoute(routeContext, user));
 }
 
 async function notebooksRoute(
@@ -514,7 +560,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("search_notes", {
     title: "搜索笔记",
-    description: "按标题或正文搜索笔记，可用 tag 精确筛选正文标签，并配合 nextCursor 分页取回该标签下全部匹配笔记。省略 query 可列出最近更新的笔记；view=shared 只读筛选已分享笔记，不提供分享管理。默认每页 20 篇，preview 默认最多 120 个 Unicode 字符；摘要保留换行、孤立下划线及标识符和 URL 中的下划线，过滤纯标签行。结果含可读的 updatedAtISO，不含正文、图片或缩略图。",
+    description: "按标题或正文搜索笔记，可用 tag 精确筛选正文标签，并配合 nextCursor 分页取回该标签下全部匹配笔记。省略 query 可列出最近更新的笔记；view=shared 可只筛选已分享笔记，也可用 create_share、list_shares、revoke_share 管理分享。默认每页 20 篇，preview 默认最多 120 个 Unicode 字符；摘要保留换行、孤立下划线及标识符和 URL 中的下划线，过滤纯标签行。结果含可读的 updatedAtISO，不含正文、图片或缩略图。",
     inputSchema: z.object({
       query: z.string().max(80).optional().describe("搜索词；省略或留空时列出最近笔记"),
       tag: z.string().trim().min(1).max(40).regex(/^[#]?[\p{L}\p{N}_-]+$/u).optional().describe("按正文中的标签精确筛选，可带或不带 #"),
@@ -537,6 +583,42 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
     if (result.status !== 200) return routeError(result);
     const notes = Array.isArray(result.body.notes) ? result.body.notes as Record<string, unknown>[] : [];
     return responseValue({ ...result.body, notes: withPreviewLimit(notes, previewLength) });
+  });
+
+  server.registerTool("create_share", {
+    title: "创建分享链接",
+    description: "为指定笔记创建 7 天有效的公开只读分享链接；链接持有者可查看笔记当前内容。分享链接可通过 revoke_share 撤销；重复调用会创建新的独立链接。",
+    inputSchema: z.object({
+      noteId: z.string().min(1).max(200).describe("要分享的笔记 ID，可从搜索结果或读取结果获取"),
+    }).strict(),
+  }, async ({ noteId }) => {
+    if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
+    const result = await noteSharesRoute(options, context, user, "POST", noteId);
+    return result.status === 201 ? responseValue(result.body) : routeError(result);
+  });
+
+  server.registerTool("list_shares", {
+    title: "查看笔记分享记录",
+    description: "列出指定笔记的分享记录，包含分享 ID、创建时间、到期时间和撤销时间，可据此判断链接是否仍有效并传 shareId 给 revoke_share。历史链接的原始 URL 不会再次返回；创建时请保存 create_share 返回的 URL。",
+    inputSchema: z.object({
+      noteId: z.string().min(1).max(200).describe("要查看分享记录的笔记 ID"),
+    }).strict(),
+  }, async ({ noteId }) => {
+    if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
+    const result = await noteSharesRoute(options, context, user, "GET", noteId);
+    return result.status === 200 ? responseValue(result.body) : routeError(result);
+  });
+
+  server.registerTool("revoke_share", {
+    title: "撤销分享链接",
+    description: "撤销一个分享链接并立即阻止后续公开访问。shareId 可从 list_shares 或 create_share 获取；撤销后不能恢复，如仍需分享请创建新链接。",
+    inputSchema: z.object({
+      shareId: z.string().min(1).max(200).describe("要撤销的分享记录 ID"),
+    }).strict(),
+  }, async ({ shareId }) => {
+    if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
+    const result = await revokeShareRoute(options, context, user, shareId);
+    return result.status === 200 ? responseValue(result.body) : routeError(result);
   });
 
   server.registerTool("list_trash", {
@@ -590,7 +672,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("get_notes_batch", {
     title: "批量读取笔记",
-    description: "按 ID 一次读取多篇完整 Markdown 笔记，不重复返回 preview。最多输入 50 个 ID；limit 默认取 min(noteIds.length, 50)、最大 50；正文总 Unicode 字符预算 maxTotalCharacters 默认 20,000、最大 100,000。单篇正文放不进剩余预算时，该 ID 会列入 oversizedIds 和 remainingIds，工具仍会继续读取后续 ID；超过本次总预算的长笔记可改用 get_note 单篇读取。checkedCount 表示已查询存在性的 ID 数，uncheckedCount 表示尚未查询存在性的 ID 数。只有已检查且不存在的 ID 才列入 notFoundIds。skippedForCharacterLimit 表示至少有一篇因预算被跳过。",
+    description: "按 ID 一次读取多篇完整 Markdown 笔记，不重复返回 preview。最多输入 50 个 ID；limit 默认取 min(noteIds.length, 50)、最大 50；正文总 Unicode 字符预算 maxTotalCharacters 默认 20,000、最大 100,000。各篇在本次调用期间分别读取，不构成同一时刻的一致快照，也可能看不到并行或之后完成的写入；需要最新状态时再次读取，写入仍应使用最新 version 并处理 VERSION_CONFLICT。单篇正文放不进剩余预算时，该 ID 会列入 oversizedIds 和 remainingIds，工具仍会继续读取后续 ID；超过本次总预算的长笔记可改用 get_note 单篇读取。checkedCount 表示已查询存在性的 ID 数，uncheckedCount 表示尚未查询存在性的 ID 数。只有已检查且不存在的 ID 才列入 notFoundIds。skippedForCharacterLimit 表示至少有一篇因预算被跳过。",
     inputSchema: z.object({
       noteIds: z.array(z.string().min(1).max(200)).min(1).max(50).describe("要读取的笔记 ID，最多 50 个且不能重复"),
       limit: z.number().int().min(1).max(50).optional().describe("本次最多返回的笔记数；省略时取 min(noteIds.length, 50)，最大 50"),
@@ -745,7 +827,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("note_operation", {
     title: "笔记管理操作",
-    description: "低频笔记管理入口，每次通过 action 执行一项操作：move 移动到笔记本；set_favorite 设定目标收藏状态（幂等）；set_tags 管理标签（默认整体替换，可选 add/remove）；trash 软删除到回收站；restore 恢复。各 action 只接受对应字段，version 必填，可直接从 search_notes 或 list_trash 结果获取。回收站笔记只读，恢复前不能移动、改标签或改收藏。此工具不提供永久删除。",
+    description: "低频笔记管理入口，每次通过 action 执行一项操作：move 移动到笔记本；set_favorite 设定目标收藏状态（幂等）；set_tags 管理标签（必须显式传 mode=replace/add/remove，避免遗漏时意外覆盖）；trash 软删除到回收站；restore 恢复。各 action 只接受对应字段，version 必填，可直接从 search_notes 或 list_trash 结果获取。回收站笔记只读，恢复前不能移动、改标签或改收藏。此工具不提供永久删除。",
     inputSchema: noteOperationInputSchema,
   }, async (input) => {
     if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
@@ -775,7 +857,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
           : { replaceTags: operation.tags };
       const result = await updateNoteRoute(options, user, { noteId: operation.noteId, version: operation.version, ...tagInput });
       return result.status === 200
-        ? responseValue({ ...result.body, mode: operation.mode ?? "replace" }, false, { writeResult: true })
+        ? responseValue({ ...result.body, mode: operation.mode }, false, { writeResult: true })
         : routeError(result);
     }
     if (operation.action === "trash") {
@@ -957,10 +1039,17 @@ function getMcpHandler(options: ServerOptions) {
   return handler;
 }
 
-function staticToken(request: Request) {
-  const authorization = request.headers.get("Authorization")?.trim() ?? "";
-  const match = /^Bearer\s+(\S+)$/iu.exec(authorization);
-  return match?.[1] ?? null;
+function pathToken(request: Request) {
+  const pathname = new URL(request.url).pathname;
+  const prefix = `${MCP_PATH}/`;
+  if (!pathname.startsWith(prefix)) return null;
+  const encodedToken = pathname.slice(prefix.length);
+  if (!encodedToken || encodedToken.includes("/")) return null;
+  try {
+    return decodeURIComponent(encodedToken) || null;
+  } catch {
+    return null;
+  }
 }
 
 function validateOrigin(request: Request, environment: Record<string, string | undefined>) {
@@ -1132,11 +1221,9 @@ export async function handleMcpRequest(request: Request, options: ServerOptions)
   const expectedToken = environment.XIANGYING_MCP_TOKEN?.trim();
   if (!expectedToken) return jsonError(503, "MCP_AUTH_NOT_CONFIGURED", "请先配置 XIANGYING_MCP_TOKEN");
 
-  const suppliedToken = staticToken(request);
+  const suppliedToken = pathToken(request);
   if (!suppliedToken || !constantTimeEqual(suppliedToken, expectedToken)) {
-    return jsonError(401, "INVALID_MCP_TOKEN", "MCP Bearer Token 无效或缺失", {
-      "WWW-Authenticate": 'Bearer realm="xiangying-mcp"',
-    });
+    return jsonError(401, "INVALID_MCP_TOKEN", "MCP URL 令牌无效或缺失");
   }
 
   const originError = validateOrigin(request, environment);

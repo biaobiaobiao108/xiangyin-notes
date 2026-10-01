@@ -3,7 +3,7 @@ import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyMigrations, openDatabase, type SqliteDatabase } from "../server/db";
-import { handleRequest } from "../server/index";
+import { handleRequest, redactSensitivePath } from "../server/index";
 import { MCP_PATH } from "../server/mcp";
 import { createNote } from "../server/routes/notes";
 
@@ -31,10 +31,9 @@ async function request(path: string, init: RequestInit = {}, environment: Record
 
 function modernMcpRequest(method: string, id: number, params: Record<string, unknown> = {}, name?: string) {
   const protocolVersion = "2026-07-28";
-  return new Request(`http://xiangying.test${MCP_PATH}`, {
+  return new Request(`http://xiangying.test${MCP_PATH}/${encodeURIComponent(token)}`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
       Accept: "application/json, text/event-stream",
       "Content-Type": "application/json",
       "MCP-Protocol-Version": protocolVersion,
@@ -89,17 +88,24 @@ function toolData(responseBody: Record<string, any>) {
 }
 
 describe("remote MCP endpoint", () => {
-  test("requires its own configured Bearer token and ignores cookies and the import token", async () => {
-    const unconfigured = await request(MCP_PATH, { method: "POST" });
+  test("authenticates with a path token and ignores Authorization, cookies, and the import token", async () => {
+    const unconfigured = await request(`${MCP_PATH}/${token}`, { method: "POST" });
     expect(unconfigured.response.status).toBe(503);
     expect(unconfigured.body?.error.code).toBe("MCP_AUTH_NOT_CONFIGURED");
 
     const configuredEnvironment = { ...credentials, XIANGYING_MCP_TOKEN: token, XIANGYING_API_TOKEN: "shortcut-import-token-1234567890" };
-    const invalid = await request(MCP_PATH, { method: "POST", headers: { Authorization: "Bearer wrong-token" } }, configuredEnvironment);
+    const invalid = await request(`${MCP_PATH}/wrong-token`, { method: "POST" }, configuredEnvironment);
     expect(invalid.response.status).toBe(401);
-    expect(invalid.response.headers.get("WWW-Authenticate")).toContain("Bearer");
+    expect(invalid.response.headers.get("Cache-Control")).toBe("no-store");
+    expect(invalid.response.headers.get("Referrer-Policy")).toBe("no-referrer");
 
-    const apiToken = await request(MCP_PATH, { method: "POST", headers: { Authorization: "Bearer shortcut-import-token-1234567890" } }, configuredEnvironment);
+    const nestedTokenPath = await request(`${MCP_PATH}/${token}/extra`, { method: "POST" }, configuredEnvironment);
+    expect(nestedTokenPath.response.status).toBe(401);
+
+    const headerOnly = await request(MCP_PATH, { method: "POST", headers: { Authorization: `Bearer ${token}` } }, configuredEnvironment);
+    expect(headerOnly.response.status).toBe(401);
+
+    const apiToken = await request(`${MCP_PATH}/shortcut-import-token-1234567890`, { method: "POST" }, configuredEnvironment);
     expect(apiToken.response.status).toBe(401);
 
     const loginResponse = await handleRequest(new Request("http://xiangying.test/api/auth/login", {
@@ -114,12 +120,9 @@ describe("remote MCP endpoint", () => {
 
   test("validates Origin when present and accepts native clients without Origin", async () => {
     const environment = { ...credentials, XIANGYING_MCP_TOKEN: token, PUBLIC_URL: "https://notes.example.com" };
-    const invalidOrigin = await handleRequest(new Request("https://notes.example.com/mcp", {
+    const invalidOrigin = await handleRequest(new Request(`https://notes.example.com${MCP_PATH}/${encodeURIComponent(token)}`, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Origin: "https://attacker.example",
-      },
+      headers: { Origin: "https://attacker.example" },
     }), { database, environment, assetRoot });
     expect(invalidOrigin.status).toBe(403);
 
@@ -127,7 +130,7 @@ describe("remote MCP endpoint", () => {
     expect(noOrigin.response.status).toBe(200);
     const tools = resultOf(noOrigin.body!).tools;
     expect(tools.map((tool: { name: string }) => tool.name)).toEqual([
-      "list_notebooks", "create_notebook", "update_notebook", "delete_notebook", "search_notes", "list_trash", "get_note", "get_notes_batch", "create_note", "update_note", "replace_in_note", "note_operation", "append_to_note", "insert_into_note", "batch_update_notes",
+      "list_notebooks", "create_notebook", "update_notebook", "delete_notebook", "search_notes", "create_share", "list_shares", "revoke_share", "list_trash", "get_note", "get_notes_batch", "create_note", "update_note", "replace_in_note", "note_operation", "append_to_note", "insert_into_note", "batch_update_notes",
     ]);
     const assertClosedSchemas = (schema: Record<string, any>) => {
       if ((schema.type === "object" || schema.properties) && !schema.oneOf && !schema.anyOf) expect(schema.additionalProperties).toBe(false);
@@ -153,7 +156,10 @@ describe("remote MCP endpoint", () => {
       "move", "set_favorite", "set_tags", "trash", "restore",
     ]);
     expect(noteOperation.inputSchema.required).toEqual(["action", "noteId", "version"]);
+    expect(noteOperation.inputSchema.properties.mode.description).toContain("action=set_tags 时必填");
     expect(noteOperation.description).toContain("此工具不提供永久删除");
+    const getNotesBatch = tools.find((tool: { name: string }) => tool.name === "get_notes_batch");
+    expect(getNotesBatch.description).toContain("不构成同一时刻的一致快照，也可能看不到并行或之后完成的写入");
     const replaceSchema = tools.find((tool: { name: string }) => tool.name === "replace_in_note").inputSchema;
     expect(Object.keys(replaceSchema.properties)).toEqual(["noteId", "oldText", "newText", "occurrence", "version", "force", "includeContent"]);
     const batchUpdateTool = tools.find((tool: { name: string }) => tool.name === "batch_update_notes");
@@ -182,8 +188,12 @@ describe("remote MCP endpoint", () => {
     expect(resultOf(discovered.body!).instructions).toContain("note_operation");
     expect(resultOf(discovered.body!).instructions).toContain("set_favorite 设定目标收藏状态");
     expect(resultOf(discovered.body!).instructions).toContain("action=set_tags");
+    expect(resultOf(discovered.body!).instructions).toContain("必须显式指定 mode=replace、add 或 remove");
     expect(resultOf(discovered.body!).instructions).toContain("preview 保留正文换行");
-    expect(resultOf(discovered.body!).instructions).toContain("view=shared 只读列出已分享笔记");
+    expect(resultOf(discovered.body!).instructions).toContain("create_share 创建 7 天只读分享");
+    expect(resultOf(discovered.body!).instructions).toContain("list_shares 查看指定笔记的分享记录");
+    expect(resultOf(discovered.body!).instructions).toContain("revoke_share 撤销分享链接");
+    expect(resultOf(discovered.body!).instructions).toContain("不构成同一时刻的一致快照，也可能看不到并行写入");
     expect(resultOf(discovered.body!).instructions).toContain("8,000 个 Unicode 字符");
     expect(resultOf(discovered.body!).instructions).toContain("字面井号词");
     expect(resultOf(discovered.body!).instructions).toContain("例如 \\#CSharp");
@@ -191,6 +201,45 @@ describe("remote MCP endpoint", () => {
     expect(resultOf(discovered.body!).instructions).toContain("batch_update_notes 单独传 deleted:false 恢复");
     expect(resultOf(discovered.body!).instructions).toContain("oversizedIds 标明因剩余预算不足而跳过的笔记");
     expect(resultOf(discovered.body!).instructions).toContain("insert_into_note 在行边界插入时自动补换行");
+  });
+
+  test("redacts MCP path tokens from application error log paths", () => {
+    expect(redactSensitivePath(`${MCP_PATH}/${token}`)).toBe(`${MCP_PATH}/[REDACTED]`);
+    expect(redactSensitivePath(`${MCP_PATH}/${token}/extra`)).toBe(`${MCP_PATH}/[REDACTED]/extra`);
+  });
+
+  test("creates, inspects, and revokes public share links through MCP", async () => {
+    const environment = { ...credentials, XIANGYING_MCP_TOKEN: token, PUBLIC_URL: "https://notes.example.com" };
+    const note = toolData((await callTool("create_note", {
+      title: "MCP 分享生命周期",
+      contentMarkdown: "分享中的当前内容",
+    }, 1, environment)).body!).note;
+
+    const created = await callTool("create_share", { noteId: note.id }, 2, environment);
+    expect(created.response.status).toBe(200);
+    const share = toolData(created.body!).share;
+    expect(share.url.startsWith("https://notes.example.com/share/")).toBe(true);
+    expect(share.createdAtISO).toBe(new Date(share.createdAt * 1000).toISOString());
+    expect(share.expiresAtISO).toBe(new Date(share.expiresAt * 1000).toISOString());
+
+    const shares = toolData((await callTool("list_shares", { noteId: note.id }, 3, environment)).body!).shares;
+    expect(shares).toHaveLength(1);
+    expect(shares[0]).toMatchObject({ id: share.id, noteId: note.id, revokedAt: null });
+    expect(shares[0].url).toBeUndefined();
+
+    const publicToken = new URL(share.url).pathname.split("/").at(-1)!;
+    const publiclyReadable = await request(`/api/shares/${publicToken}`, {}, environment);
+    expect(publiclyReadable.response.status).toBe(200);
+    expect(publiclyReadable.body?.note.contentMarkdown).toBe("分享中的当前内容");
+
+    const revoked = await callTool("revoke_share", { shareId: share.id }, 4, environment);
+    expect(toolData(revoked.body!)).toEqual({ ok: true });
+    const afterRevoke = toolData((await callTool("list_shares", { noteId: note.id }, 5, environment)).body!).shares;
+    expect(typeof afterRevoke[0].revokedAtISO).toBe("string");
+
+    const noLongerPublic = await request(`/api/shares/${publicToken}`, {}, environment);
+    expect(noLongerPublic.response.status).toBe(410);
+    expect(noLongerPublic.body?.error.code).toBe("SHARE_REVOKED");
   });
 
   test("creates, renames, and deletes a notebook while preserving its notes", async () => {
@@ -457,7 +506,7 @@ describe("remote MCP endpoint", () => {
     }, 2, environment);
     expect(toolData(unexpectedTrashField.body!).error.code).toBe("INVALID_NOTE_OPERATION");
 
-    const tagged = await callTool("note_operation", { action: "set_tags", noteId: note.id, version: note.version, tags: ["新标签"] }, 3, environment);
+    const tagged = await callTool("note_operation", { action: "set_tags", noteId: note.id, version: note.version, tags: ["新标签"], mode: "replace" }, 3, environment);
     note = toolData(tagged.body!).note;
     expect(note.tags).toEqual(["新标签"]);
     expect(note.contentMarkdown).toBeUndefined();
@@ -481,7 +530,7 @@ describe("remote MCP endpoint", () => {
     expect(note.notebookId).toBe(notebook.id);
     expect(note.isFavorite).toBe(true);
 
-    const cleared = await callTool("note_operation", { action: "set_tags", noteId: note.id, version: note.version, tags: [] }, 9, environment);
+    const cleared = await callTool("note_operation", { action: "set_tags", noteId: note.id, version: note.version, tags: [], mode: "replace" }, 9, environment);
     note = toolData(cleared.body!).note;
     expect(note.tags).toEqual([]);
     fullNote = toolData((await callTool("get_note", { noteId: note.id }, 10, environment)).body!).note;
@@ -491,7 +540,7 @@ describe("remote MCP endpoint", () => {
     const trashedNote = toolData(trashedResult.body!).note;
     const favoriteRejected = await callTool("note_operation", { action: "set_favorite", noteId: note.id, version: trashedNote.version, isFavorite: false }, 12, environment);
     expect(toolData(favoriteRejected.body!).error.code).toBe("NOTE_IN_TRASH");
-    const tagsRejected = await callTool("note_operation", { action: "set_tags", noteId: note.id, version: trashedNote.version, tags: ["不应写入"] }, 13, environment);
+    const tagsRejected = await callTool("note_operation", { action: "set_tags", noteId: note.id, version: trashedNote.version, tags: ["不应写入"], mode: "replace" }, 13, environment);
     expect(toolData(tagsRejected.body!).error.code).toBe("NOTE_IN_TRASH");
     const batchRejected = await callTool("batch_update_notes", {
       notes: [{ noteId: note.id, version: trashedNote.version }],
@@ -614,6 +663,7 @@ describe("remote MCP endpoint", () => {
       noteId: note.id,
       version: note.version,
       tags: ["保留"],
+      mode: "replace",
     }, 2, environment);
     expect(toolData(removed.body!).note.tags).toEqual(["保留"]);
     const read = toolData((await callTool("get_note", { noteId: note.id }, 3, environment)).body!).note;
@@ -1016,9 +1066,11 @@ describe("remote MCP endpoint", () => {
     expect(afterRemove.tags).toEqual(["乙"]);
     expect(removed.response.status).toBe(200);
 
-    const replaced = await callTool("note_operation", { action: "set_tags", noteId: created.id, version: afterRemove.version, tags: ["丙"] }, 6, environment);
+    const missingMode = await callTool("note_operation", { action: "set_tags", noteId: created.id, version: afterRemove.version, tags: ["丙"] }, 6, environment);
+    expect(toolData(missingMode.body!).error.code).toBe("INVALID_NOTE_OPERATION");
+    const replaced = await callTool("note_operation", { action: "set_tags", noteId: created.id, version: afterRemove.version, tags: ["丙"], mode: "replace" }, 7, environment);
     expect(toolData(replaced.body!).mode).toBe("replace");
-    const afterReplace = toolData((await callTool("get_note", { noteId: created.id }, 7, environment)).body!).note;
+    const afterReplace = toolData((await callTool("get_note", { noteId: created.id }, 8, environment)).body!).note;
     expect(afterReplace.tags).toEqual(["丙"]);
   });
 

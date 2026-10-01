@@ -65,15 +65,25 @@ const SECURITY_HEADERS: Record<string, string> = {
 function withSecurityHeaders(response: Response, environment: Record<string, string | undefined> = {}, request?: Request) {
   const headers = new Headers(response.headers);
   for (const [name, value] of Object.entries(SECURITY_HEADERS)) headers.set(name, value);
+  if (request && isMcpPath(new URL(request.url).pathname)) {
+    headers.set("Cache-Control", "no-store");
+    headers.set("Referrer-Policy", "no-referrer");
+  }
   if (request && isSecureRequest(request, environment)) headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
-function redactSensitivePath(pathname: string) {
+function isMcpPath(pathname: string) {
+  return pathname === MCP_PATH || pathname.startsWith(`${MCP_PATH}/`);
+}
+
+export function redactSensitivePath(pathname: string) {
   const segments = pathname.split("/");
   if (segments[1] === "api" && (segments[2] === "shares" || segments[2] === "share-assets")) {
     segments[3] = "[REDACTED]";
   } else if (segments[1] === "share") {
+    segments[2] = "[REDACTED]";
+  } else if (segments[1] === "mcp" && segments.length > 2) {
     segments[2] = "[REDACTED]";
   }
   return segments.join("/");
@@ -222,7 +232,7 @@ export async function handleRequest(request: Request, options: ServerOptions) {
     const url = new URL(request.url);
     const environment = options.environment ?? {};
     let response: Response;
-    if (url.pathname === MCP_PATH) {
+    if (isMcpPath(url.pathname)) {
       response = await handleMcpRequest(request, options);
     } else if (url.pathname === "/api/share-assets/" || url.pathname.startsWith("/api/share-assets/")) {
       response = await servePublicShareAsset(request, options.database, resolve(options.assetRoot ?? assetRootFromEnv(environment)));
@@ -239,7 +249,7 @@ export async function handleRequest(request: Request, options: ServerOptions) {
   } catch (error) {
     const url = new URL(request.url);
     console.error(`[request] ${request.method} ${redactSensitivePath(url.pathname)}`, error);
-    if (url.pathname.startsWith("/api/") || url.pathname === MCP_PATH) return withSecurityHeaders(jsonError(500, "INTERNAL_ERROR", "服务器暂时无法处理请求"), options.environment, request);
+    if (url.pathname.startsWith("/api/") || isMcpPath(url.pathname)) return withSecurityHeaders(jsonError(500, "INTERNAL_ERROR", "服务器暂时无法处理请求"), options.environment, request);
     return withSecurityHeaders(new Response("Internal Server Error", { status: 500 }), options.environment, request);
   }
 }
