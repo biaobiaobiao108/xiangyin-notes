@@ -233,8 +233,12 @@ describe("remote MCP endpoint", () => {
     expect(publiclyReadable.body?.note.contentMarkdown).toBe("分享中的当前内容");
 
     const revoked = await callTool("revoke_share", { shareId: share.id }, 4, environment);
-    expect(toolData(revoked.body!)).toEqual({ ok: true });
-    const afterRevoke = toolData((await callTool("list_shares", { noteId: note.id }, 5, environment)).body!).shares;
+    const revokeResult = toolData(revoked.body!);
+    expect(revokeResult).toMatchObject({ ok: true, noop: false, share: { id: share.id, revokedAt: expect.any(Number) } });
+    expect(typeof revokeResult.share.revokedAtISO).toBe("string");
+    const revokedAgain = await callTool("revoke_share", { shareId: share.id }, 5, environment);
+    expect(toolData(revokedAgain.body!)).toMatchObject({ ok: true, noop: true, share: { id: share.id, revokedAt: revokeResult.share.revokedAt } });
+    const afterRevoke = toolData((await callTool("list_shares", { noteId: note.id }, 6, environment)).body!).shares;
     expect(typeof afterRevoke[0].revokedAtISO).toBe("string");
 
     const noLongerPublic = await request(`/api/shares/${publicToken}`, {}, environment);
@@ -1068,10 +1072,31 @@ describe("remote MCP endpoint", () => {
 
     const missingMode = await callTool("note_operation", { action: "set_tags", noteId: created.id, version: afterRemove.version, tags: ["丙"] }, 6, environment);
     expect(toolData(missingMode.body!).error.code).toBe("INVALID_NOTE_OPERATION");
+    expect(toolData(missingMode.body!).error.message).toContain("action=set_tags 时必须显式传 mode=replace、add 或 remove");
+    expect(toolData(missingMode.body!).error.message).not.toContain("需 tags");
     const replaced = await callTool("note_operation", { action: "set_tags", noteId: created.id, version: afterRemove.version, tags: ["丙"], mode: "replace" }, 7, environment);
     expect(toolData(replaced.body!).mode).toBe("replace");
     const afterReplace = toolData((await callTool("get_note", { noteId: created.id }, 8, environment)).body!).note;
     expect(afterReplace.tags).toEqual(["丙"]);
+  });
+
+  test("refuses to create MCP shares for trashed notes while keeping existing links auditable", async () => {
+    const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
+    const note = toolData((await callTool("create_note", { title: "回收站分享保护", contentMarkdown: "正文" }, 1, environment)).body!).note;
+    const createdShare = toolData((await callTool("create_share", { noteId: note.id }, 2, environment)).body!).share;
+    const trashed = toolData((await callTool("note_operation", { action: "trash", noteId: note.id, version: note.version }, 3, environment)).body!).note;
+
+    const refused = await callTool("create_share", { noteId: note.id }, 4, environment);
+    expect(refused.response.status).toBe(200);
+    expect(refused.body?.result?.isError).toBe(true);
+    expect(toolData(refused.body!).error.code).toBe("NOTE_IN_TRASH");
+
+    const listed = toolData((await callTool("list_shares", { noteId: note.id }, 5, environment)).body!).shares;
+    expect(listed).toHaveLength(1);
+    expect(listed[0].id).toBe(createdShare.id);
+    const sharedSearch = toolData((await callTool("search_notes", { view: "shared" }, 6, environment)).body!).notes;
+    expect(sharedSearch.some((entry: { id: string }) => entry.id === note.id)).toBe(false);
+    expect(trashed.deletedAt).not.toBeNull();
   });
 
   test("omits note content on request and exposes ISO timestamps", async () => {

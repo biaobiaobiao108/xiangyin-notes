@@ -35,7 +35,7 @@ export async function handlePublicShare(request: Request, database: SqliteDataba
   const sharedNote: SharedNote = {
     title: note.title,
     contentMarkdown: rewriteAssetUrlsForShare(note.content_markdown, token),
-    createdAt: row.created_at,
+    sharedAt: row.created_at,
     expiresAt: row.expires_at,
   };
   return json({ note: sharedNote });
@@ -80,6 +80,9 @@ export async function handleNoteShares(
 ): Promise<Response> {
   const note = getNote(database, user.id, noteId);
   if (!note) return jsonError(404, "NOTE_NOT_FOUND", "笔记不存在");
+  if (method === "POST" && note.deleted_at !== null) {
+    return jsonError(409, "NOTE_IN_TRASH", "回收站中的笔记不能创建分享，请先恢复笔记");
+  }
 
   if (method === "GET") {
     const rows = all<{ id: string; note_id: string; created_at: number; expires_at: number; revoked_at: number | null }>(
@@ -125,9 +128,21 @@ export async function handleSharesRoute(ctx: RouteContext, user?: UserRow | null
 
   if (id && !subresource && method === "DELETE") {
     if (!user) return null;
+    const findOwnedShare = () => first<{ id: string; note_id: string; created_at: number; expires_at: number; revoked_at: number | null }>(
+      database,
+      "SELECT id, note_id, created_at, expires_at, revoked_at FROM shares WHERE id = ? AND user_id = ?",
+      id,
+      user.id,
+    );
     const result = database.query("UPDATE shares SET revoked_at = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL").run(now(), id, user.id);
-    if (result.changes) publishWorkspaceChange(options, user.id, { resource: "shares" }, request);
-    return result.changes ? json({ ok: true }) : jsonError(404, "SHARE_NOT_FOUND", "分享链接不存在");
+    if (result.changes) {
+      publishWorkspaceChange(options, user.id, { resource: "shares" }, request);
+      const share = findOwnedShare();
+      return share ? json({ ok: true, share: toShare(share), noop: false }) : jsonError(404, "SHARE_NOT_FOUND", "分享链接不存在");
+    }
+    const share = findOwnedShare();
+    if (share && share.revoked_at !== null) return json({ ok: true, share: toShare(share), noop: true });
+    return jsonError(404, "SHARE_NOT_FOUND", "分享链接不存在");
   }
 
   return null;

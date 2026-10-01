@@ -60,7 +60,7 @@ export type Share = {
 export type SharedNote = {
   title: string;
   contentMarkdown: string;
-  createdAt: number;
+  sharedAt: number;
   expiresAt: number;
 };
 

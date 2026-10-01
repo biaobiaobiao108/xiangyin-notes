@@ -310,6 +310,26 @@ function noteInTrashError() {
   return responseValue({ error: { code: "NOTE_IN_TRASH", message: "回收站中的笔记只读，请先恢复笔记后再修改" } }, true);
 }
 
+function noteOperationValidationMessage(input: unknown, issues: z.ZodIssue[]) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return "参数必须是包含 action、noteId 和 version 的对象。";
+  }
+  const value = input as Record<string, unknown>;
+  const action = value.action;
+  if (action === "set_tags") {
+    if (!Object.hasOwn(value, "mode")) return "action=set_tags 时必须显式传 mode=replace、add 或 remove。";
+    if (!Object.hasOwn(value, "tags")) return "action=set_tags 时必须传 tags 数组；mode 必须为 replace、add 或 remove。";
+    if (issues.some((issue) => issue.path[0] === "mode")) return "action=set_tags 的 mode 只能是 replace、add 或 remove。";
+    return "action=set_tags 参数无效；请检查 tags 数组、标签格式和必填的 mode。";
+  }
+  if (action === "move" && !Object.hasOwn(value, "notebookId")) return "action=move 时必须传 notebookId。";
+  if (action === "set_favorite" && !Object.hasOwn(value, "isFavorite")) return "action=set_favorite 时必须传 isFavorite（true 收藏，false 取消收藏）。";
+  if ((action === "trash" || action === "restore") && issues.some((issue) => issue.code === "unrecognized_keys")) {
+    return `action=${action} 只接受 action、noteId 和 version。`;
+  }
+  return "action 与参数不匹配；请只传该 action 需要的字段，并提供有效的 noteId 和 version。";
+}
+
 function noteWriteError(result: RouteResult) {
   const error = result.body.error;
   if (error && typeof error === "object" && (error as Record<string, unknown>).code === "NOTE_TOO_LARGE") {
@@ -587,7 +607,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("create_share", {
     title: "创建分享链接",
-    description: "为指定笔记创建 7 天有效的公开只读分享链接；链接持有者可查看笔记当前内容。分享链接可通过 revoke_share 撤销；重复调用会创建新的独立链接。",
+    description: "为未删除笔记创建 7 天有效的公开只读分享链接；回收站中的笔记会返回 NOTE_IN_TRASH，请先恢复。链接持有者可查看笔记当前内容。分享链接可通过 revoke_share 撤销；重复调用会创建新的独立链接。",
     inputSchema: z.object({
       noteId: z.string().min(1).max(200).describe("要分享的笔记 ID，可从搜索结果或读取结果获取"),
     }).strict(),
@@ -611,7 +631,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("revoke_share", {
     title: "撤销分享链接",
-    description: "撤销一个分享链接并立即阻止后续公开访问。shareId 可从 list_shares 或 create_share 获取；撤销后不能恢复，如仍需分享请创建新链接。",
+    description: "撤销一个分享链接并立即阻止后续公开访问。shareId 可从 list_shares 或 create_share 获取；重复撤销会幂等返回现有撤销记录并标记 noop=true。撤销后不能恢复，如仍需分享请创建新链接。",
     inputSchema: z.object({
       shareId: z.string().min(1).max(200).describe("要撤销的分享记录 ID"),
     }).strict(),
@@ -836,7 +856,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
       return responseValue({
         error: {
           code: "INVALID_NOTE_OPERATION",
-          message: "action 与参数不匹配：move 需 notebookId，set_favorite 需 isFavorite，set_tags 需 tags；trash 和 restore 只接受 noteId、version。",
+          message: noteOperationValidationMessage(input, parsedInput.error.issues),
         },
       }, true);
     }

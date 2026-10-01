@@ -742,12 +742,14 @@ describe("Bun Server API", () => {
     database.transaction(() => {
       for (const id of deletedIds) { insertNote.run(id, login.body?.user.id, inbox.id); }
     })();
+    database.query("UPDATE notes SET deleted_at = NULL WHERE id = ? AND user_id = ?").run(deletedIds[0], login.body?.user.id);
     const active = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "Active", contentMarkdown: "activeneedle" }) }, login.cookie);
     const other = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "Other trash", contentMarkdown: "otherneedle" }) }, otherLogin.cookie, otherEnvironment);
-    await request(`/api/notes/${other.body?.note.id}`, { method: "PATCH", body: JSON.stringify({ version: 1, deleted: true }) }, otherLogin.cookie, otherEnvironment);
     const trashedShare = await request(`/api/notes/${deletedIds[0]}/shares`, { method: "POST" }, login.cookie);
+    await request(`/api/notes/${deletedIds[0]}`, { method: "PATCH", body: JSON.stringify({ version: 1, deleted: true }) }, login.cookie);
     const activeShare = await request(`/api/notes/${active.body?.note.id}/shares`, { method: "POST" }, login.cookie);
     const otherShare = await request(`/api/notes/${other.body?.note.id}/shares`, { method: "POST" }, otherLogin.cookie, otherEnvironment);
+    await request(`/api/notes/${other.body?.note.id}`, { method: "PATCH", body: JSON.stringify({ version: 1, deleted: true }) }, otherLogin.cookie, otherEnvironment);
     const beforeCounts = await request("/api/notebooks", {}, login.cookie);
     const list = await request("/api/notes?view=trash", {}, login.cookie);
     expect(list.body?.notes).toHaveLength(100);
@@ -785,8 +787,8 @@ describe("Bun Server API", () => {
     const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
     const created = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "Rollback", contentMarkdown: "rollbackneedle" }) }, login.cookie);
     const id = created.body?.note.id;
-    await request(`/api/notes/${id}`, { method: "PATCH", body: JSON.stringify({ version: 1, deleted: true }) }, login.cookie);
     const share = await request(`/api/notes/${id}/shares`, { method: "POST" }, login.cookie);
+    await request(`/api/notes/${id}`, { method: "PATCH", body: JSON.stringify({ version: 1, deleted: true }) }, login.cookie);
     database.exec("CREATE TEMP TRIGGER fail_trash_delete BEFORE DELETE ON notes BEGIN SELECT RAISE(ABORT, 'simulated delete failure'); END");
     const log = spyOn(console, "error").mockImplementation(() => {});
     try {
@@ -833,6 +835,8 @@ describe("Bun Server API", () => {
     expect(original.response.status).toBe(200);
     expect(original.response.headers.get("Cache-Control")).toBe("no-store");
     expect(original.body?.note.contentMarkdown).toBe("Original content");
+    expect(original.body?.note.sharedAt).toBe(shared.body?.share.createdAt);
+    expect(original.body?.note).not.toHaveProperty("createdAt");
 
     const updated = await request(`/api/notes/${note.id}`, { method: "PATCH", body: JSON.stringify({ version: note.version, title: "Updated title", contentMarkdown: "Changed later" }) }, login.cookie);
     expect(updated.response.status).toBe(200);
@@ -850,6 +854,10 @@ describe("Bun Server API", () => {
     const shareId = shared.body?.share.id;
     const revoked = await request(`/api/shares/${shareId}`, { method: "DELETE" }, login.cookie);
     expect(revoked.response.status).toBe(200);
+    expect(revoked.body).toMatchObject({ ok: true, noop: false, share: { id: shareId, revokedAt: expect.any(Number) } });
+    const revokedAgain = await request(`/api/shares/${shareId}`, { method: "DELETE" }, login.cookie);
+    expect(revokedAgain.response.status).toBe(200);
+    expect(revokedAgain.body).toMatchObject({ ok: true, noop: true, share: { id: shareId, revokedAt: revoked.body?.share.revokedAt } });
     const unavailable = await request(`/api/shares/${token}`);
     expect(unavailable.response.status).toBe(410);
     expect(unavailable.body?.error.code).toBe("SHARE_REVOKED");
