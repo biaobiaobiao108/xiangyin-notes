@@ -1,6 +1,7 @@
 const TAG_CHARACTER_PATTERN = /[\p{L}\p{N}_-]/u;
 const TAG_QUERY_PATTERN = /^#([\p{L}\p{N}_-]+)$/u;
 const WHITESPACE_CHARACTER_PATTERN = /\s/u;
+export const NOTE_TAG_MAX_LENGTH = 40;
 
 type Fence = {
   marker: "`" | "~";
@@ -117,6 +118,12 @@ function collectTagsOutsideCode(markdown: string, start: number, end: number, ra
       const character = tagCharacterAt(markdown, tagEnd);
       if (!TAG_CHARACTER_PATTERN.test(character)) break;
       tagEnd += character.length;
+    }
+    // Keep body-derived tags within the same bound as explicit MCP tag inputs.
+    // Still skip the complete token so a long hashtag cannot expose a suffix as a tag.
+    if (tagEnd - tagStart > NOTE_TAG_MAX_LENGTH) {
+      index = tagEnd - 1;
+      continue;
     }
     let backslashCount = 0;
     while (index - backslashCount - 1 >= start && markdown[index - backslashCount - 1] === "\\") backslashCount += 1;

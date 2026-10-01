@@ -6,6 +6,16 @@ describe("note tags", () => {
     expect(extractTags("中文#项目 #Tag #项目-资料 #Tag_2 #tag")).toEqual(["项目", "Tag", "项目-资料", "Tag_2"]);
   });
 
+  test("uses the explicit 40-code-unit tag limit for body hashtags", () => {
+    const withinLimit = `#${"界".repeat(40)}`;
+    const overLimit = `#${"界".repeat(41)}`;
+    expect(extractTags(withinLimit)).toEqual(["界".repeat(40)]);
+    expect(extractTags(`${overLimit} #后续标签`)).toEqual(["后续标签"]);
+    const supplementaryLetters = String.fromCodePoint(0x10400);
+    expect(extractTags(`#${supplementaryLetters.repeat(20)}`)).toEqual([supplementaryLetters.repeat(20)]);
+    expect(extractTags(`#${supplementaryLetters.repeat(21)}`)).toEqual([]);
+  });
+
   test("returns exact ranges for visual decorations", () => {
     const markdown = "前#项目，后 #Tag";
     expect(findTagRanges(markdown)).toEqual([

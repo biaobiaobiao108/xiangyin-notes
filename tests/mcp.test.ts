@@ -6,6 +6,7 @@ import { applyMigrations, openDatabase, type SqliteDatabase } from "../server/db
 import { handleRequest, redactSensitivePath } from "../server/index";
 import { MCP_PATH } from "../server/mcp";
 import { createNote } from "../server/routes/notes";
+import { handleNoteShares } from "../server/routes/shares";
 
 let database: SqliteDatabase;
 let assetRoot: string;
@@ -167,15 +168,21 @@ describe("remote MCP endpoint", () => {
     expect(noteOperation.inputSchema.properties.action.enum).toEqual([
       "move", "set_favorite", "set_tags", "trash", "restore",
     ]);
-    expect(noteOperation.inputSchema.required).toEqual(["action", "noteId", "version"]);
+    expect(noteOperation.inputSchema.required).toEqual(["action", "noteId"]);
+    expect(noteOperation.inputSchema.properties.version.description).toContain("省略时服务端读取当前版本");
     expect(noteOperation.inputSchema.properties.mode.description).toContain("action=set_tags 时必填");
     expect(noteOperation.description).toContain("此工具不提供永久删除");
+    const listSharesTool = tools.find((tool: { name: string }) => tool.name === "list_shares");
+    expect(listSharesTool.inputSchema.required).toEqual(["noteId"]);
+    expect(listSharesTool.inputSchema.properties.limit.maximum).toBe(100);
     const createNoteTool = tools.find((tool: { name: string }) => tool.name === "create_note");
     expect(createNoteTool.description).toContain("普通笔记优先在本次 create_note 一次创建完成");
     expect(createNoteTool.description).toContain("只有正文超过约 8,000 个 Unicode 字符时");
     expect(createNoteTool.inputSchema.properties.contentMarkdown.description).toContain("普通笔记优先一次创建");
     const getNotesBatch = tools.find((tool: { name: string }) => tool.name === "get_notes_batch");
     expect(getNotesBatch.description).toContain("不构成同一时刻的一致快照，也可能看不到并行或之后完成的写入");
+    const searchTool = tools.find((tool: { name: string }) => tool.name === "search_notes");
+    expect(searchTool.description).toContain("摘要保留换行");
     const replaceSchema = tools.find((tool: { name: string }) => tool.name === "replace_in_note").inputSchema;
     expect(Object.keys(replaceSchema.properties)).toEqual(["noteId", "oldText", "newText", "replaceAll", "occurrence", "version", "force", "includeContent"]);
     const insertSchema = tools.find((tool: { name: string }) => tool.name === "insert_into_note").inputSchema;
@@ -198,35 +205,27 @@ describe("remote MCP endpoint", () => {
   test("provides server-level usage instructions during discovery", async () => {
     const discovered = await callMcp(modernMcpRequest("server/discover", 1), { ...credentials, XIANGYING_MCP_TOKEN: token });
     expect(discovered.response.status).toBe(200);
-    expect(resultOf(discovered.body!).instructions).toContain("append_to_note、insert_into_note、replace_in_note、update_note 可省略 version");
+    expect(resultOf(discovered.body!).instructions).toContain("单篇写操作可省略 version");
     expect(resultOf(discovered.body!).instructions).toContain("create_notebook");
     expect(resultOf(discovered.body!).instructions).toContain("换行写作 \\n");
     expect(resultOf(discovered.body!).instructions).toContain("工具参数必须是 JSON 对象");
     expect(resultOf(discovered.body!).instructions).toContain("客户端会先校验参数");
     expect(resultOf(discovered.body!).instructions).toContain("list_trash");
-    expect(resultOf(discovered.body!).instructions).toContain("insert_into_note");
+    expect(resultOf(discovered.body!).instructions).toContain("create_notebook 创建笔记本");
     expect(resultOf(discovered.body!).instructions).toContain("update_notebook");
     expect(resultOf(discovered.body!).instructions).toContain("delete_notebook");
     expect(resultOf(discovered.body!).instructions).toContain("get_notes_batch");
-    expect(resultOf(discovered.body!).instructions).toContain("MCP 不提供单项永久删除或清空回收站的工具");
+    expect(resultOf(discovered.body!).instructions).toContain("MCP 不提供永久删除笔记或清空回收站");
     expect(resultOf(discovered.body!).instructions).toContain("note_operation");
-    expect(resultOf(discovered.body!).instructions).toContain("set_favorite 设定目标收藏状态");
-    expect(resultOf(discovered.body!).instructions).toContain("action=set_tags");
-    expect(resultOf(discovered.body!).instructions).toContain("必须显式指定 mode=replace、add 或 remove");
-    expect(resultOf(discovered.body!).instructions).toContain("preview 保留正文换行");
-    expect(resultOf(discovered.body!).instructions).toContain("create_share 创建 7 天只读分享");
-    expect(resultOf(discovered.body!).instructions).toContain("list_shares 查看指定笔记的分享记录");
-    expect(resultOf(discovered.body!).instructions).toContain("revoke_share 撤销分享链接");
-    expect(resultOf(discovered.body!).instructions).toContain("不构成同一时刻的一致快照，也可能看不到并行写入");
-    expect(resultOf(discovered.body!).instructions).toContain("8,000 个 Unicode 字符");
-    expect(resultOf(discovered.body!).instructions).toContain("普通笔记优先一次创建完成");
-    expect(resultOf(discovered.body!).instructions).toContain("只有正文超过约 8,000 个 Unicode 字符时");
-    expect(resultOf(discovered.body!).instructions).toContain("字面井号词");
-    expect(resultOf(discovered.body!).instructions).toContain("例如 \\#CSharp");
-    expect(resultOf(discovered.body!).instructions).toContain("最多 50 篇的批量管理用 batch_update_notes");
-    expect(resultOf(discovered.body!).instructions).toContain("batch_update_notes 单独传 deleted:false 恢复");
-    expect(resultOf(discovered.body!).instructions).toContain("oversizedIds 标明因剩余预算不足而跳过的笔记");
-    expect(resultOf(discovered.body!).instructions).toContain("insert_into_note 在行边界插入时自动补换行");
+    expect(resultOf(discovered.body!).instructions).toContain("note_operation 的 set_tags 必须显式传 mode=replace、add 或 remove");
+    expect(resultOf(discovered.body!).instructions).toContain("create_share 创建 7 天只读链接");
+    expect(resultOf(discovered.body!).instructions).toContain("list_shares 分页查看");
+    expect(resultOf(discovered.body!).instructions).toContain("revoke_share 撤销");
+    expect(resultOf(discovered.body!).instructions).toContain("不构成同一时刻快照");
+    expect(resultOf(discovered.body!).instructions).toContain("普通笔记应优先在 create_note 一次写入完整正文");
+    expect(resultOf(discovered.body!).instructions).toContain("超过约 8,000 个 Unicode 字符");
+    expect(resultOf(discovered.body!).instructions).toContain("保留字面井号");
+    expect(resultOf(discovered.body!).instructions).toContain("contentLength 与批量读取字符预算按 Unicode code points 计算");
   });
 
   test("keeps tag and color validation on the server without publishing regex patterns", async () => {
@@ -308,6 +307,37 @@ describe("remote MCP endpoint", () => {
     expect(toolData(revokedByToken.body!)).toMatchObject({ ok: true, noop: false, share: { id: secondShare.id } });
     const invalidSelector = await callTool("revoke_share", { shareId: share.id, url: share.url }, 10, environment);
     expect(toolData(invalidSelector.body!).error.code).toBe("INVALID_SHARE_SELECTOR");
+  });
+
+  test("paginates share history and rechecks trash state after token hashing", async () => {
+    const environment = { ...credentials, XIANGYING_MCP_TOKEN: token, PUBLIC_URL: "https://notes.example.com" };
+    const note = toolData((await callTool("create_note", { title: "分享分页与并发删除", contentMarkdown: "正文" }, 1, environment)).body!).note;
+    for (let index = 0; index < 3; index += 1) {
+      expect((await callTool("create_share", { noteId: note.id }, 2 + index, environment)).response.status).toBe(200);
+    }
+
+    const firstPage = toolData((await callTool("list_shares", { noteId: note.id, limit: 2 }, 5, environment)).body!);
+    expect(firstPage.shares).toHaveLength(2);
+    expect(firstPage.hasMore).toBe(true);
+    expect(typeof firstPage.nextCursor).toBe("string");
+    const secondPage = toolData((await callTool("list_shares", { noteId: note.id, limit: 2, cursor: firstPage.nextCursor }, 6, environment)).body!);
+    expect(secondPage.shares).toHaveLength(1);
+    expect(secondPage.hasMore).toBe(false);
+    expect(secondPage.nextCursor).toBeNull();
+    expect(new Set([...firstPage.shares, ...secondPage.shares].map((share: { id: string }) => share.id)).size).toBe(3);
+
+    const user = database.query("SELECT id, username FROM users WHERE username = ?").get(credentials.XIANGYING_USERNAME) as { id: string; username: string };
+    const legacyList = await handleNoteShares(database, user, note.id, "GET", new URL("https://notes.example.com/api/notes"), environment);
+    const legacyBody = await legacyList.json() as { shares: unknown[]; nextCursor?: unknown };
+    expect(legacyBody.shares).toHaveLength(3);
+    expect(legacyBody).not.toHaveProperty("nextCursor");
+    // handleNoteShares runs synchronously through the initial read, then yields for token hashing.
+    const pendingShare = handleNoteShares(database, user, note.id, "POST", new URL("https://notes.example.com/api/notes"), environment);
+    database.query("UPDATE notes SET deleted_at = ?, version = version + 1 WHERE id = ? AND user_id = ?").run(Math.floor(Date.now() / 1000), note.id, user.id);
+    const rejected = await pendingShare;
+    expect(rejected.status).toBe(409);
+    expect((await rejected.json() as { error: { code: string } }).error.code).toBe("NOTE_IN_TRASH");
+    expect(database.query("SELECT COUNT(*) AS count FROM shares WHERE note_id = ?").get(note.id)).toMatchObject({ count: 3 });
   });
 
   test("creates, renames, and deletes a notebook while preserving its notes", async () => {
@@ -586,10 +616,18 @@ describe("remote MCP endpoint", () => {
     note = toolData(favorited.body!).note;
     expect(note.isFavorite).toBe(true);
     const favoritedVersion = note.version;
+
+    const autoVersionFavorite = await callTool("note_operation", { action: "set_favorite", noteId: note.id, isFavorite: false }, 55, environment);
+    note = toolData(autoVersionFavorite.body!).note;
+    expect(note.isFavorite).toBe(false);
+    expect(note.version).toBe(favoritedVersion + 1);
+    const refavorited = await callTool("note_operation", { action: "set_favorite", noteId: note.id, isFavorite: true }, 56, environment);
+    note = toolData(refavorited.body!).note;
+    expect(note.version).toBe(favoritedVersion + 2);
     const favoriteAgain = await callTool("note_operation", { action: "set_favorite", noteId: note.id, version: note.version, isFavorite: true }, 6, environment);
     note = toolData(favoriteAgain.body!).note;
     expect(note.isFavorite).toBe(true);
-    expect(note.version).toBe(favoritedVersion);
+    expect(note.version).toBe(favoritedVersion + 2);
     const staleFavorite = await callTool("note_operation", { action: "set_favorite", noteId: note.id, version: fullNote.version, isFavorite: false }, 7, environment);
     expect(toolData(staleFavorite.body!).error.code).toBe("VERSION_CONFLICT");
 
@@ -665,6 +703,19 @@ describe("remote MCP endpoint", () => {
     expect(toolData(notYetChecked.body!).remainingIds).toEqual(["missing-but-not-checked"]);
     expect(toolData(notYetChecked.body!).notFoundIds).toEqual([]);
     expect(toolData(notYetChecked.body!)).toMatchObject({ checkedCount: 1, uncheckedCount: 1 });
+
+    const filledPastMissing = await callTool("get_notes_batch", {
+      noteIds: ["missing-before-result", first.id, second.id],
+      limit: 1,
+    }, 71, environment);
+    expect(toolData(filledPastMissing.body!)).toMatchObject({
+      returnedCount: 1,
+      checkedCount: 2,
+      uncheckedCount: 1,
+      notFoundIds: ["missing-before-result"],
+      remainingIds: [second.id],
+    });
+    expect(toolData(filledPastMissing.body!).notes[0].id).toBe(first.id);
 
     const characterLimited = await callTool("get_notes_batch", {
       noteIds: [first.id, second.id, small.id],
@@ -843,7 +894,7 @@ describe("remote MCP endpoint", () => {
     expect(byId).toMatchObject({ id: created.id, version: trashed.version, isDeleted: true, deletedAt: expect.any(Number) });
   });
 
-  test("includes the current full note for per-item batch version conflicts", async () => {
+  test("keeps per-item batch version conflicts bounded while preserving recovery metadata", async () => {
     const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
     const created = toolData((await callTool("create_note", { title: "批量冲突回执", contentMarkdown: "旧正文" }, 1, environment)).body!).note;
     await callTool("update_note", { noteId: created.id, version: created.version, contentMarkdown: "新正文" }, 2, environment);
@@ -855,8 +906,8 @@ describe("remote MCP endpoint", () => {
     const data = toolData(conflict.body!);
     expect(data.failedCount).toBe(1);
     expect(data.results[0].error.code).toBe("VERSION_CONFLICT");
-    expect(data.results[0].error.current.contentMarkdown).toBe("新正文");
-    expect(data.results[0].error.current.version).toBe(2);
+    expect(data.results[0].error.current).not.toHaveProperty("contentMarkdown");
+    expect(data.results[0].error.current).toMatchObject({ version: 2, contentLength: 3, preview: "新正文" });
   });
 
   test("treats escaped hashtag text as literal content while keeping real tags searchable", async () => {
@@ -1044,8 +1095,8 @@ describe("remote MCP endpoint", () => {
       arguments: { title: "超长正文", contentMarkdown: "a".repeat(1_000_001) },
     }, "create_note"), environment);
     expect(oversized.response.status).toBe(400);
-    expect(oversized.body?.error.message).toContain("超过单篇 1,000,000 字符上限");
-    expect(oversized.body?.error.message).toContain("append_to_note 分段写入");
+    expect(oversized.body?.error.message).toContain("超过单次字段 1,000,000 个 UTF-16 code units 上限");
+    expect(oversized.body?.error.message).toContain("分段追加仍受单篇笔记正文总长度上限约束");
   });
 
   test("lists notebooks, creates, searches, reads, and updates notes with version checks", async () => {

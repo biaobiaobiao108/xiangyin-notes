@@ -24,6 +24,24 @@ import { publishWorkspaceChange } from "../realtime";
 
 type ShareRouteContext = Pick<RouteContext, "request" | "options">;
 
+type ShareCursor = { createdAt: number; id: string };
+
+function encodeShareCursor(cursor: ShareCursor) {
+  return Buffer.from(JSON.stringify(cursor)).toString("base64url");
+}
+
+function decodeShareCursor(value: string | null): ShareCursor | null | false {
+  if (value === null) return null;
+  if (!value) return false;
+  try {
+    const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as Partial<ShareCursor>;
+    if (!Number.isSafeInteger(parsed.createdAt) || typeof parsed.id !== "string" || !parsed.id) return false;
+    return parsed as ShareCursor;
+  } catch {
+    return false;
+  }
+}
+
 export async function handlePublicShare(request: Request, database: SqliteDatabase) {
   const token = new URL(request.url).pathname.split("/").filter(Boolean)[2] ?? "";
   const row = first<ShareRow>(database, "SELECT id, note_id, user_id, created_at, expires_at, revoked_at FROM shares WHERE token_hash = ?", await digestHex(token));
@@ -80,28 +98,73 @@ export async function handleNoteShares(
 ): Promise<Response> {
   const note = getNote(database, user.id, noteId);
   if (!note) return jsonError(404, "NOTE_NOT_FOUND", "笔记不存在");
-  if (method === "POST" && note.deleted_at !== null) {
-    return jsonError(409, "NOTE_IN_TRASH", "回收站中的笔记不能创建分享，请先恢复笔记");
-  }
 
   if (method === "GET") {
-    const rows = all<{ id: string; note_id: string; created_at: number; expires_at: number; revoked_at: number | null }>(
-      database,
-      "SELECT id, note_id, created_at, expires_at, revoked_at FROM shares WHERE note_id = ? AND user_id = ? ORDER BY created_at DESC",
-      note.id,
-      user.id,
-    );
-    return json({ shares: rows.map(toShare) });
+    // Keep the existing application API contract for callers that do not ask
+    // for pagination; MCP passes an explicit limit and uses cursor pages.
+    if (!url.searchParams.has("limit") && !url.searchParams.has("cursor")) {
+      const rows = all<{ id: string; note_id: string; created_at: number; expires_at: number; revoked_at: number | null }>(
+        database,
+        "SELECT id, note_id, created_at, expires_at, revoked_at FROM shares WHERE note_id = ? AND user_id = ? ORDER BY created_at DESC, id DESC",
+        note.id,
+        user.id,
+      );
+      return json({ shares: rows.map(toShare) });
+    }
+    const parsedLimit = Number(url.searchParams.get("limit") ?? "20");
+    if (!Number.isInteger(parsedLimit) || parsedLimit < 1 || parsedLimit > 100) {
+      return jsonError(400, "INVALID_LIMIT", "limit 必须是 1 到 100 之间的整数");
+    }
+    const cursor = decodeShareCursor(url.searchParams.get("cursor"));
+    if (cursor === false) return jsonError(400, "INVALID_CURSOR", "cursor 无效，请使用上一页返回的 nextCursor");
+    const rows = cursor
+      ? all<{ id: string; note_id: string; created_at: number; expires_at: number; revoked_at: number | null }>(
+        database,
+        "SELECT id, note_id, created_at, expires_at, revoked_at FROM shares WHERE note_id = ? AND user_id = ? AND (created_at < ? OR (created_at = ? AND id < ?)) ORDER BY created_at DESC, id DESC LIMIT ?",
+        note.id,
+        user.id,
+        cursor.createdAt,
+        cursor.createdAt,
+        cursor.id,
+        parsedLimit + 1,
+      )
+      : all<{ id: string; note_id: string; created_at: number; expires_at: number; revoked_at: number | null }>(
+        database,
+        "SELECT id, note_id, created_at, expires_at, revoked_at FROM shares WHERE note_id = ? AND user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?",
+        note.id,
+        user.id,
+        parsedLimit + 1,
+      );
+    const hasMore = rows.length > parsedLimit;
+    const page = rows.slice(0, parsedLimit);
+    const last = page.at(-1);
+    return json({
+      shares: page.map(toShare),
+      hasMore,
+      nextCursor: hasMore && last ? encodeShareCursor({ createdAt: last.created_at, id: last.id }) : null,
+    });
   }
 
   if (method === "POST") {
+    if (note.deleted_at !== null) {
+      return jsonError(409, "NOTE_IN_TRASH", "回收站中的笔记不能创建分享，请先恢复笔记");
+    }
     const publicOrigin = publicOriginForShare(url, environment);
     const createdAt = now();
     const expiresAt = createdAt + SHARE_TTL;
     const shareId = crypto.randomUUID();
     const token = createOpaqueToken();
     const tokenHash = await digestHex(token);
-    database.query("INSERT INTO shares (id, note_id, user_id, token_hash, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)").run(shareId, note.id, user.id, tokenHash, createdAt, expiresAt);
+    const createShare = database.transaction(() => {
+      const current = getNote(database, user.id, noteId);
+      if (!current) return "NOTE_NOT_FOUND" as const;
+      if (current.deleted_at !== null) return "NOTE_IN_TRASH" as const;
+      database.query("INSERT INTO shares (id, note_id, user_id, token_hash, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)").run(shareId, current.id, user.id, tokenHash, createdAt, expiresAt);
+      return current.id;
+    });
+    const createdForNote = createShare.immediate();
+    if (createdForNote === "NOTE_NOT_FOUND") return jsonError(404, "NOTE_NOT_FOUND", "笔记不存在");
+    if (createdForNote === "NOTE_IN_TRASH") return jsonError(409, "NOTE_IN_TRASH", "回收站中的笔记不能创建分享，请先恢复笔记");
     if (context) publishWorkspaceChange(context.options, user.id, { resource: "shares", noteId: note.id }, context.request);
     const share: Share = {
       id: shareId,
