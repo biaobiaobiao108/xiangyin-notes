@@ -127,19 +127,25 @@ describe("remote MCP endpoint", () => {
     expect(noOrigin.response.status).toBe(200);
     const tools = resultOf(noOrigin.body!).tools;
     expect(tools.map((tool: { name: string }) => tool.name)).toEqual([
-      "list_notebooks", "create_notebook", "update_notebook", "delete_notebook", "search_notes", "list_trash", "get_note", "get_notes_batch", "create_note", "update_note", "replace_in_note", "toggle_favorite", "move_note", "set_tags", "append_to_note", "insert_into_note", "delete_note", "restore_note", "batch_update_notes",
+      "list_notebooks", "create_notebook", "update_notebook", "delete_notebook", "search_notes", "list_trash", "get_note", "get_notes_batch", "create_note", "update_note", "replace_in_note", "note_operation", "append_to_note", "insert_into_note", "batch_update_notes",
     ]);
     const assertClosedSchemas = (schema: Record<string, any>) => {
-      if (schema.type === "object" || schema.properties) expect(schema.additionalProperties).toBe(false);
+      if ((schema.type === "object" || schema.properties) && !schema.oneOf && !schema.anyOf) expect(schema.additionalProperties).toBe(false);
       for (const property of Object.values(schema.properties ?? {})) {
         if (property && typeof property === "object") assertClosedSchemas(property as Record<string, any>);
       }
       if (schema.items && typeof schema.items === "object") assertClosedSchemas(schema.items as Record<string, any>);
+      for (const branch of [...(schema.oneOf ?? []), ...(schema.anyOf ?? [])]) assertClosedSchemas(branch);
     };
     for (const tool of tools) assertClosedSchemas(tool.inputSchema);
     const updateSchema = tools.find((tool: { name: string }) => tool.name === "update_note").inputSchema;
-    expect(Object.keys(updateSchema.properties)).toEqual(["noteId", "version", "title", "contentMarkdown", "notebookId", "includeContent"]);
+    expect(Object.keys(updateSchema.properties)).toEqual(["noteId", "version", "title", "contentMarkdown", "includeContent"]);
     expect(updateSchema.additionalProperties).toBe(false);
+    const noteOperation = tools.find((tool: { name: string }) => tool.name === "note_operation");
+    expect(noteOperation.inputSchema.oneOf.map((branch: any) => branch.properties.action.const)).toEqual([
+      "move", "set_favorite", "set_tags", "trash", "restore",
+    ]);
+    expect(noteOperation.description).toContain("此工具不提供永久删除");
     const replaceSchema = tools.find((tool: { name: string }) => tool.name === "replace_in_note").inputSchema;
     expect(Object.keys(replaceSchema.properties)).toEqual(["noteId", "oldText", "newText", "occurrence", "version", "force", "includeContent"]);
     const batchUpdateTool = tools.find((tool: { name: string }) => tool.name === "batch_update_notes");
@@ -164,16 +170,19 @@ describe("remote MCP endpoint", () => {
     expect(resultOf(discovered.body!).instructions).toContain("update_notebook");
     expect(resultOf(discovered.body!).instructions).toContain("delete_notebook");
     expect(resultOf(discovered.body!).instructions).toContain("get_notes_batch");
-    expect(resultOf(discovered.body!).instructions).toContain("MCP 不提供永久删除或清空回收站的工具");
-    expect(resultOf(discovered.body!).instructions).toContain("restore_note");
-    expect(resultOf(discovered.body!).instructions).toContain("toggle_favorite");
-    expect(resultOf(discovered.body!).instructions).toContain("set_tags");
+    expect(resultOf(discovered.body!).instructions).toContain("MCP 不提供单项永久删除或清空回收站的工具");
+    expect(resultOf(discovered.body!).instructions).toContain("note_operation");
+    expect(resultOf(discovered.body!).instructions).toContain("set_favorite 设定目标收藏状态");
+    expect(resultOf(discovered.body!).instructions).toContain("action=set_tags");
+    expect(resultOf(discovered.body!).instructions).toContain("preview 保留正文换行");
+    expect(resultOf(discovered.body!).instructions).toContain("view=shared 只读列出已分享笔记");
     expect(resultOf(discovered.body!).instructions).toContain("8,000 个 Unicode 字符");
     expect(resultOf(discovered.body!).instructions).toContain("字面井号词");
-    expect(resultOf(discovered.body!).instructions).toContain("batch_update_notes 可将最多 50 篇");
-    expect(resultOf(discovered.body!).instructions).toContain("batch_update_notes 单独设置 deleted:false 恢复");
-    expect(resultOf(discovered.body!).instructions).toContain("oversizedIds 标明因剩余字符预算不足而跳过的笔记");
-    expect(resultOf(discovered.body!).instructions).toContain("insert_into_note 在行边界插入时会自动补换行");
+    expect(resultOf(discovered.body!).instructions).toContain("例如 \\#CSharp");
+    expect(resultOf(discovered.body!).instructions).toContain("最多 50 篇的批量管理用 batch_update_notes");
+    expect(resultOf(discovered.body!).instructions).toContain("batch_update_notes 单独传 deleted:false 恢复");
+    expect(resultOf(discovered.body!).instructions).toContain("oversizedIds 标明因剩余预算不足而跳过的笔记");
+    expect(resultOf(discovered.body!).instructions).toContain("insert_into_note 在行边界插入时自动补换行");
   });
 
   test("creates, renames, and deletes a notebook while preserving its notes", async () => {
@@ -233,7 +242,8 @@ describe("remote MCP endpoint", () => {
     const missingNotebookCreate = await callTool("create_note", { title: "缺失笔记本", notebookId: "missing-notebook-id" }, 8, environment);
     expect(toolData(missingNotebookCreate.body!).error).toMatchObject({ code: "NOT_FOUND", target: "notebook", legacyCode: "NOTEBOOK_NOT_FOUND" });
     const existingNote = toolData((await callTool("create_note", { title: "笔记本错误码一致性" }, 9, environment)).body!).note;
-    const missingNotebookUpdate = await callTool("update_note", {
+    const missingNotebookUpdate = await callTool("note_operation", {
+      action: "move",
       noteId: existingNote.id,
       version: existingNote.version,
       notebookId: "missing-notebook-id",
@@ -245,7 +255,7 @@ describe("remote MCP endpoint", () => {
     const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
     const notebook = toolData((await callTool("create_notebook", { name: "含回收站笔记的笔记本" }, 1, environment)).body!).notebook;
     const created = toolData((await callTool("create_note", { title: "已删除的笔记", notebookId: notebook.id }, 2, environment)).body!).note;
-    const deleted = await callTool("delete_note", { noteId: created.id, version: created.version }, 3, environment);
+    const deleted = await callTool("note_operation", { action: "trash", noteId: created.id, version: created.version }, 3, environment);
     const trashed = toolData(deleted.body!).note;
 
     const listed = toolData((await callTool("list_notebooks", {}, 4, environment)).body!).notebooks;
@@ -342,11 +352,11 @@ describe("remote MCP endpoint", () => {
     }, 7, environment);
     expect(toolData(staleInsert.body!).error.code).toBe("VERSION_CONFLICT");
 
-    const deleted = await callTool("delete_note", { noteId: note.id, version: insertedNote.version }, 8, environment);
+    const deleted = await callTool("note_operation", { action: "trash", noteId: note.id, version: insertedNote.version }, 8, environment);
     const deletedNote = toolData(deleted.body!).note;
     expect(deletedNote.deletedAt).not.toBeNull();
     expect(deletedNote.version).toBe(4);
-    const deletedAgain = await callTool("delete_note", { noteId: note.id, version: deletedNote.version }, 9, environment);
+    const deletedAgain = await callTool("note_operation", { action: "trash", noteId: note.id, version: deletedNote.version }, 9, environment);
     expect(toolData(deletedAgain.body!)).toMatchObject({ noop: true, note: { version: deletedNote.version, deletedAt: deletedNote.deletedAt } });
     const trash = await callTool("list_trash", { limit: 5, previewLength: 20 }, 10, environment);
     const trashedNote = toolData(trash.body!).notes.find((entry: { id: string }) => entry.id === note.id);
@@ -356,11 +366,11 @@ describe("remote MCP endpoint", () => {
     const reread = await callTool("get_note", { noteId: note.id }, 11, environment);
     expect(toolData(reread.body!).note.deletedAt).not.toBeNull();
     expect(toolData(reread.body!).note.isDeleted).toBe(true);
-    const restored = await callTool("restore_note", { noteId: note.id, version: deletedNote.version }, 12, environment);
+    const restored = await callTool("note_operation", { action: "restore", noteId: note.id, version: deletedNote.version }, 12, environment);
     const restoredNote = toolData(restored.body!).note;
     expect(restoredNote.deletedAt).toBeNull();
     expect(restoredNote.isDeleted).toBe(false);
-    const alreadyRestored = await callTool("restore_note", { noteId: note.id, version: restoredNote.version }, 13, environment);
+    const alreadyRestored = await callTool("note_operation", { action: "restore", noteId: note.id, version: restoredNote.version }, 13, environment);
     expect(toolData(alreadyRestored.body!).noop).toBe(true);
     expect(toolData(alreadyRestored.body!).note.version).toBe(restoredNote.version);
   });
@@ -369,8 +379,8 @@ describe("remote MCP endpoint", () => {
     const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
     const first = toolData((await callTool("create_note", { title: "批量恢复甲" }, 1, environment)).body!).note;
     const second = toolData((await callTool("create_note", { title: "批量恢复乙" }, 2, environment)).body!).note;
-    const trashedFirst = toolData((await callTool("delete_note", { noteId: first.id, version: first.version }, 3, environment)).body!).note;
-    const trashedSecond = toolData((await callTool("delete_note", { noteId: second.id, version: second.version }, 4, environment)).body!).note;
+    const trashedFirst = toolData((await callTool("note_operation", { action: "trash", noteId: first.id, version: first.version }, 3, environment)).body!).note;
+    const trashedSecond = toolData((await callTool("note_operation", { action: "trash", noteId: second.id, version: second.version }, 4, environment)).body!).note;
     const notes = [trashedFirst, trashedSecond].map((note) => ({ noteId: note.id, version: note.version }));
 
     const repeatedDelete = await callTool("batch_update_notes", { notes, deleted: true }, 5, environment);
@@ -423,7 +433,7 @@ describe("remote MCP endpoint", () => {
     expect(toolData(inline.body!).note.contentMarkdown).toBe("开头\n插入前\n锚点\n插入后\n结尾\n行内锚点-行内-后缀");
   });
 
-  test("splits favorite, move, and tag operations into narrow tools", async () => {
+  test("unifies low-frequency note operations and makes favorite setting idempotent", async () => {
     const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
     const notebook = toolData((await callTool("create_notebook", { name: "专用工具目标" }, 1, environment)).body!).notebook;
     const created = await callTool("create_note", {
@@ -432,7 +442,7 @@ describe("remote MCP endpoint", () => {
     }, 2, environment);
     let note = toolData(created.body!).note;
 
-    const tagged = await callTool("set_tags", { noteId: note.id, version: note.version, tags: ["新标签"] }, 3, environment);
+    const tagged = await callTool("note_operation", { action: "set_tags", noteId: note.id, version: note.version, tags: ["新标签"] }, 3, environment);
     note = toolData(tagged.body!).note;
     expect(note.tags).toEqual(["新标签"]);
     expect(note.contentMarkdown).toBeUndefined();
@@ -440,58 +450,63 @@ describe("remote MCP endpoint", () => {
     expect(fullNote.contentMarkdown).toBe("正文\n代码示例 `#代码标签`\n#新标签");
     expect(fullNote.updatedAtISO).toBe(new Date(fullNote.updatedAt * 1000).toISOString());
 
-    const favorited = await callTool("toggle_favorite", { noteId: note.id, version: note.version }, 5, environment);
+    const favorited = await callTool("note_operation", { action: "set_favorite", noteId: note.id, version: note.version, isFavorite: true }, 5, environment);
     note = toolData(favorited.body!).note;
     expect(note.isFavorite).toBe(true);
-    const staleToggle = await callTool("toggle_favorite", { noteId: note.id, version: fullNote.version }, 6, environment);
-    expect(toolData(staleToggle.body!).error.code).toBe("VERSION_CONFLICT");
+    const favoritedVersion = note.version;
+    const favoriteAgain = await callTool("note_operation", { action: "set_favorite", noteId: note.id, version: note.version, isFavorite: true }, 6, environment);
+    note = toolData(favoriteAgain.body!).note;
+    expect(note.isFavorite).toBe(true);
+    expect(note.version).toBe(favoritedVersion);
+    const staleFavorite = await callTool("note_operation", { action: "set_favorite", noteId: note.id, version: fullNote.version, isFavorite: false }, 7, environment);
+    expect(toolData(staleFavorite.body!).error.code).toBe("VERSION_CONFLICT");
 
-    const moved = await callTool("move_note", { noteId: note.id, version: note.version, notebookId: notebook.id }, 7, environment);
+    const moved = await callTool("note_operation", { action: "move", noteId: note.id, version: note.version, notebookId: notebook.id }, 8, environment);
     note = toolData(moved.body!).note;
     expect(note.notebookId).toBe(notebook.id);
     expect(note.isFavorite).toBe(true);
 
-    const cleared = await callTool("set_tags", { noteId: note.id, version: note.version, tags: [] }, 8, environment);
+    const cleared = await callTool("note_operation", { action: "set_tags", noteId: note.id, version: note.version, tags: [] }, 9, environment);
     note = toolData(cleared.body!).note;
     expect(note.tags).toEqual([]);
-    fullNote = toolData((await callTool("get_note", { noteId: note.id }, 9, environment)).body!).note;
+    fullNote = toolData((await callTool("get_note", { noteId: note.id }, 10, environment)).body!).note;
     expect(fullNote.contentMarkdown).toBe("正文\n代码示例 `#代码标签`");
 
-    const trashedResult = await callTool("delete_note", { noteId: note.id, version: fullNote.version }, 10, environment);
+    const trashedResult = await callTool("note_operation", { action: "trash", noteId: note.id, version: fullNote.version }, 11, environment);
     const trashedNote = toolData(trashedResult.body!).note;
-    const favoriteRejected = await callTool("toggle_favorite", { noteId: note.id, version: trashedNote.version }, 11, environment);
+    const favoriteRejected = await callTool("note_operation", { action: "set_favorite", noteId: note.id, version: trashedNote.version, isFavorite: false }, 12, environment);
     expect(toolData(favoriteRejected.body!).error.code).toBe("NOTE_IN_TRASH");
-    const tagsRejected = await callTool("set_tags", { noteId: note.id, version: trashedNote.version, tags: ["不应写入"] }, 12, environment);
+    const tagsRejected = await callTool("note_operation", { action: "set_tags", noteId: note.id, version: trashedNote.version, tags: ["不应写入"] }, 13, environment);
     expect(toolData(tagsRejected.body!).error.code).toBe("NOTE_IN_TRASH");
     const batchRejected = await callTool("batch_update_notes", {
       notes: [{ noteId: note.id, version: trashedNote.version }],
       isFavorite: false,
       tags: ["不应写入"],
-    }, 13, environment);
+    }, 14, environment);
     expect(toolData(batchRejected.body!).results[0].error.code).toBe("NOTE_IN_TRASH");
     const updateRejected = await callTool("update_note", {
       noteId: note.id,
       version: trashedNote.version,
       title: "不应改标题",
       contentMarkdown: "不应改正文",
-    }, 14, environment);
+    }, 15, environment);
     expect(toolData(updateRejected.body!).error.code).toBe("NOTE_IN_TRASH");
-    const appendRejected = await callTool("append_to_note", { noteId: note.id, version: trashedNote.version, contentMarkdown: "不应追加" }, 15, environment);
+    const appendRejected = await callTool("append_to_note", { noteId: note.id, version: trashedNote.version, contentMarkdown: "不应追加" }, 16, environment);
     expect(toolData(appendRejected.body!).error.code).toBe("NOTE_IN_TRASH");
-    const replaceRejected = await callTool("replace_in_note", { noteId: note.id, version: trashedNote.version, oldText: "不存在的正文片段", newText: "不应替换" }, 16, environment);
+    const replaceRejected = await callTool("replace_in_note", { noteId: note.id, version: trashedNote.version, oldText: "不存在的正文片段", newText: "不应替换" }, 17, environment);
     expect(toolData(replaceRejected.body!).error.code).toBe("NOTE_IN_TRASH");
-    const insertRejected = await callTool("insert_into_note", { noteId: note.id, version: trashedNote.version, anchor: "不存在的锚点", contentMarkdown: "不应插入" }, 17, environment);
+    const insertRejected = await callTool("insert_into_note", { noteId: note.id, version: trashedNote.version, anchor: "不存在的锚点", contentMarkdown: "不应插入" }, 18, environment);
     expect(toolData(insertRejected.body!).error.code).toBe("NOTE_IN_TRASH");
-    const moveRejected = await callTool("move_note", { noteId: note.id, version: trashedNote.version, notebookId: "another-notebook" }, 18, environment);
+    const moveRejected = await callTool("note_operation", { action: "move", noteId: note.id, version: trashedNote.version, notebookId: "another-notebook" }, 19, environment);
     expect(toolData(moveRejected.body!).error.code).toBe("NOTE_IN_TRASH");
     const batchMoveRejected = await callTool("batch_update_notes", {
       notes: [{ noteId: note.id, version: trashedNote.version }],
       notebookId: "another-notebook",
-    }, 19, environment);
+    }, 20, environment);
     expect(toolData(batchMoveRejected.body!).results[0].error.code).toBe("NOTE_IN_TRASH");
-    const unchanged = toolData((await callTool("get_note", { noteId: note.id }, 20, environment)).body!).note;
+    const unchanged = toolData((await callTool("get_note", { noteId: note.id }, 21, environment)).body!).note;
     expect(unchanged).toMatchObject({ isDeleted: true, version: trashedNote.version, isFavorite: true, tags: [] });
-    const restored = toolData((await callTool("restore_note", { noteId: note.id, version: trashedNote.version }, 21, environment)).body!).note;
+    const restored = toolData((await callTool("note_operation", { action: "restore", noteId: note.id, version: trashedNote.version }, 22, environment)).body!).note;
     expect(restored.isDeleted).toBe(false);
   });
 
@@ -579,7 +594,8 @@ describe("remote MCP endpoint", () => {
     const note = toolData(created.body!).note;
     expect(note.tags).toEqual(["保留", "移除", "单独一行标签"]);
 
-    const removed = await callTool("set_tags", {
+    const removed = await callTool("note_operation", {
+      action: "set_tags",
       noteId: note.id,
       version: note.version,
       tags: ["保留"],
@@ -951,7 +967,7 @@ describe("remote MCP endpoint", () => {
     const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
     const kept = toolData((await callTool("create_note", { title: "留存笔记", contentMarkdown: "正文关键词" }, 1, environment)).body!).note;
     const trashed = toolData((await callTool("create_note", { title: "待恢复的会议记录", contentMarkdown: "关键词在回收站" }, 2, environment)).body!).note;
-    await callTool("delete_note", { noteId: trashed.id, version: trashed.version }, 3, environment);
+    await callTool("note_operation", { action: "trash", noteId: trashed.id, version: trashed.version }, 3, environment);
 
     const trashQuery = toolData((await callTool("list_trash", { query: "会议记录" }, 4, environment)).body!).notes;
     expect(trashQuery.map((note: { id: string }) => note.id)).toEqual([trashed.id]);
@@ -975,17 +991,17 @@ describe("remote MCP endpoint", () => {
     const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
     const created = toolData((await callTool("create_note", { title: "标签语义", contentMarkdown: "正文", tags: ["甲"] }, 1, environment)).body!).note;
 
-    const added = await callTool("set_tags", { noteId: created.id, version: created.version, tags: ["乙"], mode: "add" }, 2, environment);
+    const added = await callTool("note_operation", { action: "set_tags", noteId: created.id, version: created.version, tags: ["乙"], mode: "add" }, 2, environment);
     expect(toolData(added.body!).mode).toBe("add");
     const afterAdd = toolData((await callTool("get_note", { noteId: created.id }, 3, environment)).body!).note;
     expect(afterAdd.tags).toEqual(["甲", "乙"]);
 
-    const removed = await callTool("set_tags", { noteId: afterAdd.id, version: afterAdd.version, tags: ["甲"], mode: "remove" }, 4, environment);
+    const removed = await callTool("note_operation", { action: "set_tags", noteId: afterAdd.id, version: afterAdd.version, tags: ["甲"], mode: "remove" }, 4, environment);
     const afterRemove = toolData((await callTool("get_note", { noteId: created.id }, 5, environment)).body!).note;
     expect(afterRemove.tags).toEqual(["乙"]);
     expect(removed.response.status).toBe(200);
 
-    const replaced = await callTool("set_tags", { noteId: created.id, version: afterRemove.version, tags: ["丙"] }, 6, environment);
+    const replaced = await callTool("note_operation", { action: "set_tags", noteId: created.id, version: afterRemove.version, tags: ["丙"] }, 6, environment);
     expect(toolData(replaced.body!).mode).toBe("replace");
     const afterReplace = toolData((await callTool("get_note", { noteId: created.id }, 7, environment)).body!).note;
     expect(afterReplace.tags).toEqual(["丙"]);
