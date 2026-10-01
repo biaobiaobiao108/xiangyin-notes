@@ -834,140 +834,49 @@ button.save-status:hover { text-decoration: underline; }
   position: relative;
 }
 
-.editor-outline-item--level-1 { --outline-level-color: var(--h1-color); --outline-marker-fill: light-dark(#efb8b5, #74434c); }
-.editor-outline-item--level-2 { --outline-level-color: var(--h2-color); --outline-marker-fill: light-dark(#c9bbd3, #5b4d6c); }
-.editor-outline-item--level-3 { --outline-level-color: var(--h3-color); --outline-marker-fill: light-dark(#a8cbd5, #3d6573); }
-.editor-outline-item--level-4 { --outline-level-color: var(--h4-color); --outline-marker-fill: light-dark(#b6ccbe, #426249); }
-.editor-outline-item--level-5 { --outline-level-color: var(--muted); --outline-marker-fill: light-dark(#d3c5a8, #695a38); }
-.editor-outline-item--level-6 { --outline-level-color: var(--soft-muted); --outline-marker-fill: light-dark(#c1c8c2, #4d5952); }
+.editor-outline-item--level-1 { --outline-indent: 0px; --outline-weight: 650; }
+.editor-outline-item--level-2 { --outline-indent: 10px; --outline-weight: 550; }
+.editor-outline-item--level-3 { --outline-indent: 20px; --outline-weight: 450; }
+.editor-outline-item--level-4 { --outline-indent: 30px; --outline-weight: 450; }
+.editor-outline-item--level-5 { --outline-indent: 40px; --outline-weight: 400; }
+.editor-outline-item--level-6 { --outline-indent: 50px; --outline-weight: 400; }
 
 .editor-outline-item button {
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
+  align-items: center;
   width: 100%;
   max-width: 100%;
   min-width: 0;
+  height: 32px;
+  min-height: 32px;
+  padding: 5px 6px 5px calc(6px + var(--outline-indent));
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: var(--outline-weight);
+  letter-spacing: 0;
   background: transparent;
+  box-shadow: none;
   text-align: left;
   cursor: pointer;
-  transition: background-color var(--motion-fast) var(--motion-ease-out),
-              border-color var(--motion-fast) var(--motion-ease-out),
-              color var(--motion-fast) var(--motion-ease-out),
-              transform var(--motion-fast) var(--motion-ease-out);
+  transition: transform var(--motion-micro) var(--motion-ease-out);
 }
 
-/* 递进字阶与呼吸感缩进 */
-.editor-outline-item--level-1 button {
-  min-height: 38px;
-  padding: 7px 10px 7px 9px;
-  color: var(--outline-level-color);
-  font-size: 0.88rem;
-  font-weight: 650;
-  letter-spacing: 0;
+.editor-outline-item button:hover,
+.editor-outline-item button[aria-current="true"] {
+  color: var(--accent);
 }
 
-.editor-outline-item--level-2 button {
-  min-height: 35px;
-  padding: 6px 10px 6px 24px;
-  color: var(--outline-level-color);
-  font-size: 0.84rem;
-  font-weight: 550;
-  letter-spacing: 0;
-}
-
-.editor-outline-item--level-3 button {
-  min-height: 33px;
-  padding: 5px 10px 5px 38px;
-  color: var(--outline-level-color);
-  font-size: 0.81rem;
-  font-weight: 450;
-}
-
-.editor-outline-item--level-4 button {
-  min-height: 31px;
-  padding: 4px 10px 4px 52px;
-  color: var(--outline-level-color);
-  font-size: 0.78rem;
-  font-weight: 450;
-}
-
-.editor-outline-item--level-5 button {
-  min-height: 30px;
-  padding: 4px 10px 4px 66px;
-  color: var(--outline-level-color);
-  font-size: 0.76rem;
-  font-weight: 400;
-}
-
-.editor-outline-item--level-6 button {
-  min-height: 29px;
-  padding: 3px 10px 3px 80px;
-  color: var(--outline-level-color);
-  font-size: 0.74rem;
-  font-weight: 400;
-}
-
-/* 圆形级数标记 */
-.outline-level-marker {
-  display: grid;
-  place-items: center;
-  flex: 0 0 18px;
-  width: 18px;
-  height: 18px;
-  margin-top: 2px;
-  border-radius: 50%;
-  background: var(--outline-marker-fill);
-  color: light-dark(#46504a, #f3f4f8);
-  font-size: 0.62rem;
-  font-weight: 650;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-  transition: transform var(--motion-fast) var(--motion-ease-out),
-              box-shadow var(--motion-fast) var(--motion-ease-out);
-}
-
+.editor-outline-item button:active { transform: scale(0.98); }
 .outline-item-title {
   flex: 1;
   min-width: 0;
-  overflow: clip;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
-  overflow-wrap: anywhere;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   line-height: 1.45;
-}
-
-.editor-outline-item--level-1 button:hover {
-  background: var(--surface-danger);
-}
-.editor-outline-item--level-1 button[aria-current="true"] {
-  background: var(--h1-active);
-}
-.editor-outline-item--level-2 button:hover {
-  background: var(--surface-success);
-}
-.editor-outline-item--level-2 button[aria-current="true"] {
-  background: var(--h2-active);
-}
-
-.editor-outline-item--level-3 button:hover {
-  background: var(--surface-warning);
-}
-.editor-outline-item--level-3 button[aria-current="true"] {
-  background: var(--h3-active);
-}
-
-.editor-outline-item--level-4 button:hover,
-.editor-outline-item--level-4 button[aria-current="true"],
-.editor-outline-item--level-5 button:hover,
-.editor-outline-item--level-5 button[aria-current="true"],
-.editor-outline-item--level-6 button:hover,
-.editor-outline-item--level-6 button[aria-current="true"] {
-  background: var(--surface-muted);
 }
 .editor-outline-empty {
   display: flex;
@@ -2650,36 +2559,6 @@ dialog::backdrop {
 }
 
 .editor-floating-outline .note-outline-scroll { padding: 8px 0 20px; }
-.editor-floating-outline .editor-outline-item button {
-  align-items: center;
-  height: 32px;
-  min-height: 32px;
-  padding: 5px 6px 5px calc(6px + var(--card-outline-indent));
-  color: var(--muted);
-  font-size: 0.8rem;
-  background: transparent;
-  border-color: transparent;
-  box-shadow: none;
-  transition: transform var(--motion-micro) var(--motion-ease-out);
-}
-
-.editor-floating-outline .editor-outline-item button:hover,
-.editor-floating-outline .editor-outline-item button[aria-current="true"] {
-  color: var(--accent);
-  background: transparent;
-  border-color: transparent;
-}
-
-.editor-floating-outline .editor-outline-item button:active { transform: scale(0.98); }
-.editor-floating-outline .outline-item-title {
-  display: block;
-  -webkit-line-clamp: unset;
-  line-clamp: unset;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 @keyframes outlineFadeIn {
   from { opacity: 0; transform: translateX(-8px) scale(0.98); }
   to { opacity: 1; transform: translateX(0) scale(1); }
@@ -2700,7 +2579,7 @@ dialog::backdrop {
   .editor-floating-outline .floating-outline-title { gap: 4px; font-size: 0.72rem; }
   .editor-floating-outline .floating-outline-count { display: none; }
   .editor-floating-outline .editor-outline-item button {
-    padding-left: calc(6px + var(--card-outline-indent) * 0.6);
+    padding-left: calc(6px + var(--outline-indent) * 0.6);
   }
 }
 @media (max-width: 900px) {
