@@ -2540,32 +2540,6 @@ dialog::backdrop {
   height: 100%;
 }
 
-.editor-floating-outline .floating-outline-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 46px;
-  min-height: 46px;
-  padding: 0 6px;
-}
-
-.editor-floating-outline .floating-outline-title {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--ink);
-}
-
-.editor-floating-outline .floating-outline-count {
-  font-size: 0.72rem;
-  font-variant-numeric: tabular-nums;
-  color: var(--soft-muted);
-  font-weight: 400;
-}
-
 .editor-floating-outline .note-outline-scroll { padding: 8px 0 20px; }
 @keyframes outlineFadeIn {
   from { opacity: 0; transform: translateX(-8px) scale(0.98); }
@@ -2584,8 +2558,6 @@ dialog::backdrop {
     --card-outline-gutter: 160px;
     --card-document-end-space: 20px;
   }
-  .editor-floating-outline .floating-outline-title { gap: 4px; font-size: 0.72rem; }
-  .editor-floating-outline .floating-outline-count { display: none; }
   .editor-floating-outline .editor-outline-item button {
     padding-left: calc(6px + var(--outline-indent) * 0.6);
   }

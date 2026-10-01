@@ -1,5 +1,5 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type RefObject } from "react";
-import { Archive, ChevronDown, ChevronLeft, LayoutPanelLeft, ListTree, LogOut, Menu, Pencil, Plus, Search, Star, Trash2, X } from "lucide-react";
+import { Archive, ChevronDown, ChevronLeft, LayoutPanelLeft, LogOut, Menu, Pencil, Plus, Search, Star, Trash2, X } from "lucide-react";
 import type { NoteSummary, NoteView, Notebook } from "../../shared/types";
 import { playEntranceAnimation } from "../animation";
 import { BrandMark } from "../brand-mark";
@@ -125,16 +125,8 @@ export function NoteOutlinePanel({ outlineItems, activeOutlineId, onScrollToOutl
     scrollRoot.scrollTo({ top: Math.min(maxScrollTop, Math.max(0, scrollRoot.scrollTop + delta)), behavior });
   }, [activeOutlineId, outlineItems]);
 
-  return <aside className={`note-outline-panel ${isFloating ? "is-floating" : ""}`} id="note-outline" aria-labelledby="note-outline-title">
-    {isFloating ? (
-      <header className="floating-outline-header">
-        <div className="floating-outline-title">
-          <ListTree size={16} />
-          <span id="note-outline-title">笔记大纲</span>
-          {outlineItems.length > 0 && <span className="floating-outline-count">{outlineItems.length}</span>}
-        </div>
-      </header>
-    ) : (
+  return <aside className={`note-outline-panel ${isFloating ? "is-floating" : ""}`} id="note-outline" aria-label={isFloating ? "笔记大纲" : undefined} aria-labelledby={isFloating ? undefined : "note-outline-title"}>
+    {!isFloating && (
       <header className="list-header note-outline-header">
         <div className="list-header-main"><h2 id="note-outline-title">笔记大纲</h2><p>{outlineItems.length > 0 ? `${outlineItems.length} 个标题` : "当前笔记暂无标题"}</p></div>
         <div className="list-header-controls"><button className="text-button outline-back-button" type="button" onClick={onCloseOutline}><ChevronLeft size={15} aria-hidden="true" /><span>返回笔记列表</span></button>{isMobileDrawer && onCloseMobile && <button className="icon-button mobile-only" type="button" aria-label="关闭笔记列表" onClick={onCloseMobile}><X size={17} /></button>}</div>
@@ -148,7 +140,7 @@ export function NoteOutlinePanel({ outlineItems, activeOutlineId, onScrollToOutl
           </ol>
         </nav> : <p className="editor-outline-empty">用 <code>#</code> 标题为这篇笔记建立大纲。</p>}
       </div>
-      <FloatingScrollbar scrollTargetRef={outlineScrollRef} controlsId="note-outline-scroll-region" ariaLabel="笔记大纲滚动条" placement="right" enabled />
+      <FloatingScrollbar scrollTargetRef={outlineScrollRef} controlsId="note-outline-scroll-region" ariaLabel="笔记大纲滚动条" placement="right" enabled={!isFloating} />
     </div>
   </aside>;
 }
