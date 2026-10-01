@@ -869,6 +869,11 @@ button.save-status:hover { text-decoration: underline; }
 }
 
 .editor-outline-item button:active { transform: scale(0.98); }
+
+.note-outline-panel:not(.is-floating) .editor-outline-item button {
+  font-size: 0.9rem;
+}
+
 .outline-item-title {
   flex: 1;
   min-width: 0;
