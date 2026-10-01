@@ -876,17 +876,6 @@ button.save-status:hover { text-decoration: underline; }
   font-weight: 650;
 }
 
-.editor-outline-item button[aria-current="true"]::before {
-  content: "";
-  position: absolute;
-  inset-inline-start: 0;
-  top: 9px;
-  width: 2px;
-  height: 12px;
-  border-radius: 999px;
-  background: var(--accent);
-}
-
 .editor-outline-item button:active { transform: scale(0.98); }
 
 .note-outline-panel:not(.is-floating) .editor-outline-item button {
