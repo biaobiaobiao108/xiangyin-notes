@@ -37,7 +37,7 @@ const MCP_CONTENT_FIELDS = new Map([
 const MCP_SERVER_INSTRUCTIONS = [
   "象映笔记用于跨会话保存 Markdown 记忆，提供搜索、批量读取、新建、追加、片段替换、锚点插入和更新；也可管理笔记本、收藏、标签、回收站与公开分享。",
   "工具参数必须是 JSON 对象。客户端会先校验参数；手写原始 JSON 时，字符串中的控制字符须按 JSON 规范转义（换行写作 \\n）。结构化参数中的多行 Markdown 会原样保留。",
-  "单次正文写入建议不超过 8,000 个 Unicode 字符；超长新内容先用 create_note 创建标题和笔记本骨架，再分段调用 append_to_note，并沿用每次写入返回的 version。写操作默认不回传正文，创建和正文写入结果含 contentLength。",
+  "create_note 的 contentMarkdown 可直接传入完整正文，普通笔记优先一次创建完成；只有正文超过约 8,000 个 Unicode 字符时，才建议先创建标题和笔记本骨架，再分段调用 append_to_note，并沿用每次写入返回的 version。写操作默认不回传正文，创建和正文写入结果含 contentLength。",
   "需要分类时先用 list_notebooks 获取 ID；create_notebook 创建，update_notebook 重命名或改图标、颜色，delete_notebook 必须传 confirm=true，可用 totalCount 传 expectedNoteCount 二次确认，删除后笔记移入收件箱。update_note 只改标题或正文；低频单篇管理统一用 note_operation：move 移动，set_favorite 设定目标收藏状态，set_tags 管理标签，trash 软删除，restore 恢复。收藏设定是幂等的；最多 50 篇的批量管理用 batch_update_notes。",
   "create_note.tags 和 batch_update_notes.tags 只追加标签；note_operation action=set_tags 必须显式指定 mode=replace、add 或 remove，replace 会清除未列出的标签，空数组可清空全部。标签名只允许中文、字母、数字、下划线和连字符；标签是正文非代码区域未转义的 #标签，字面井号词在井号前加反斜杠，例如 \\#CSharp。回收站笔记只能通过 note_operation action=restore 或 batch_update_notes 单独传 deleted:false 恢复；MCP 不提供单项永久删除或清空回收站的工具。",
   "search_notes 的 view=trash 可搜索回收站，view=shared 可筛选已分享笔记；create_share 创建 7 天只读分享，list_shares 查看指定笔记的分享记录，revoke_share 撤销分享链接。preview 保留正文换行、孤立下划线以及标识符和 URL 中的下划线，过滤纯标签行。list_trash 也可用 query 搜索回收站，再用 note_operation action=restore 恢复。",
@@ -814,10 +814,10 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("create_note", {
     title: "创建笔记",
-    description: "创建一篇 Markdown 笔记。contentMarkdown 支持多行 Markdown 文本，直接传入即可；若手写原始 JSON，其中的换行、制表符等控制字符必须转义。单次正文建议不超过 8,000 个 Unicode 字符；超长内容请先创建标题和笔记本骨架，再用 append_to_note 分段追加，并沿用返回的 version。tags 会以 #标签 形式追加到正文；字面井号词可写作 \\#CSharp 以避免成为标签。省略 notebookId 时放入收件箱。默认不回传正文；需要时设 includeContent=true。成功结果包含 contentLength 回执。",
+    description: "创建一篇 Markdown 笔记。contentMarkdown 可直接传入完整正文，普通笔记优先在本次 create_note 一次创建完成；多行 Markdown 会原样保留。只有正文超过约 8,000 个 Unicode 字符时，才建议先创建标题和笔记本骨架，再用 append_to_note 分段追加，并沿用返回的 version。若手写原始 JSON，其中的换行、制表符等控制字符必须转义。tags 会以 #标签 形式追加到正文；字面井号词可写作 \\#CSharp 以避免成为标签。省略 notebookId 时放入收件箱。默认不回传正文；需要时设 includeContent=true。成功结果包含 contentLength 回执。",
     inputSchema: z.object({
       title: z.string().min(1).max(200),
-      contentMarkdown: z.string().max(NOTE_CONTENT_MAX_LENGTH).optional().describe("Markdown 正文，最多 1,000,000 个字符；单次建议不超过 8,000 个 Unicode 字符，超长内容请分段追加"),
+      contentMarkdown: z.string().max(NOTE_CONTENT_MAX_LENGTH).optional().describe("可直接传入完整 Markdown 正文；普通笔记优先一次创建，只有超过约 8,000 个 Unicode 字符时才建议分段追加；最多 1,000,000 个字符"),
       notebookId: z.string().min(1).max(200).optional(),
       tags: noteTagsSchema.optional().describe("要追加到正文的标签名，仅可含中文、字母、数字、下划线或连字符，不带 #；仅追加，不会覆盖已有标签（整体替换请用 note_operation action=set_tags）"),
       includeContent: z.boolean().optional().describe("是否在成功结果中回传完整正文，默认 false"),

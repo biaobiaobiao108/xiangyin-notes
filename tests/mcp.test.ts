@@ -170,6 +170,10 @@ describe("remote MCP endpoint", () => {
     expect(noteOperation.inputSchema.required).toEqual(["action", "noteId", "version"]);
     expect(noteOperation.inputSchema.properties.mode.description).toContain("action=set_tags 时必填");
     expect(noteOperation.description).toContain("此工具不提供永久删除");
+    const createNoteTool = tools.find((tool: { name: string }) => tool.name === "create_note");
+    expect(createNoteTool.description).toContain("普通笔记优先在本次 create_note 一次创建完成");
+    expect(createNoteTool.description).toContain("只有正文超过约 8,000 个 Unicode 字符时");
+    expect(createNoteTool.inputSchema.properties.contentMarkdown.description).toContain("普通笔记优先一次创建");
     const getNotesBatch = tools.find((tool: { name: string }) => tool.name === "get_notes_batch");
     expect(getNotesBatch.description).toContain("不构成同一时刻的一致快照，也可能看不到并行或之后完成的写入");
     const replaceSchema = tools.find((tool: { name: string }) => tool.name === "replace_in_note").inputSchema;
@@ -215,6 +219,8 @@ describe("remote MCP endpoint", () => {
     expect(resultOf(discovered.body!).instructions).toContain("revoke_share 撤销分享链接");
     expect(resultOf(discovered.body!).instructions).toContain("不构成同一时刻的一致快照，也可能看不到并行写入");
     expect(resultOf(discovered.body!).instructions).toContain("8,000 个 Unicode 字符");
+    expect(resultOf(discovered.body!).instructions).toContain("普通笔记优先一次创建完成");
+    expect(resultOf(discovered.body!).instructions).toContain("只有正文超过约 8,000 个 Unicode 字符时");
     expect(resultOf(discovered.body!).instructions).toContain("字面井号词");
     expect(resultOf(discovered.body!).instructions).toContain("例如 \\#CSharp");
     expect(resultOf(discovered.body!).instructions).toContain("最多 50 篇的批量管理用 batch_update_notes");
