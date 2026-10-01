@@ -378,7 +378,14 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     const notebookId = url.searchParams.get("notebookId");
     const rawTag = url.searchParams.get("tag")?.trim() ?? "";
     const explicitTagQuery = rawTag ? parseTagQuery(rawTag.startsWith("#") ? rawTag : `#${rawTag}`) : null;
-    if (rawTag && !explicitTagQuery) return jsonError(400, "INVALID_TAG_FILTER", "标签筛选格式无效");
+    if (rawTag && !explicitTagQuery) {
+      return json({ error: {
+        code: "INVALID_ARGUMENT",
+        field: "tag",
+        invalidTags: [rawTag],
+        message: "字段 tag 格式无效；标签只能包含中文、字母、数字、下划线或连字符，最多 40 个 UTF-16 code units",
+      } }, 400);
+    }
     const tagQuery = parseTagQuery(query);
     const tagFilters = [...new Set([tagQuery, explicitTagQuery].filter((tag): tag is string => Boolean(tag)))];
     const normalizedTagFilters = [...new Set(tagFilters.map(normalizeTag))];

@@ -176,8 +176,9 @@ describe("remote MCP endpoint", () => {
     expect(listSharesTool.inputSchema.required).toEqual(["noteId"]);
     expect(listSharesTool.inputSchema.properties.limit.maximum).toBe(100);
     const createNoteTool = tools.find((tool: { name: string }) => tool.name === "create_note");
-    expect(createNoteTool.description).toContain("普通笔记优先在本次 create_note 一次创建完成");
-    expect(createNoteTool.description).toContain("只有正文超过约 8,000 个 Unicode 字符时");
+    expect(createNoteTool.description).toContain("普通笔记应优先在本次 create_note 一次写入完整内容");
+    expect(createNoteTool.description).toContain("仅当客户端无法承载单次参数或请求接近 4.5 MB MCP 请求体上限时");
+    expect(createNoteTool.description).not.toContain("8,000");
     expect(createNoteTool.inputSchema.properties.contentMarkdown.description).toContain("普通笔记优先一次创建");
     const getNotesBatch = tools.find((tool: { name: string }) => tool.name === "get_notes_batch");
     expect(getNotesBatch.description).toContain("不构成同一时刻的一致快照，也可能看不到并行或之后完成的写入");
@@ -223,9 +224,11 @@ describe("remote MCP endpoint", () => {
     expect(resultOf(discovered.body!).instructions).toContain("revoke_share 撤销");
     expect(resultOf(discovered.body!).instructions).toContain("不构成同一时刻快照");
     expect(resultOf(discovered.body!).instructions).toContain("普通笔记应优先在 create_note 一次写入完整正文");
-    expect(resultOf(discovered.body!).instructions).toContain("超过约 8,000 个 Unicode 字符");
+    expect(resultOf(discovered.body!).instructions).toContain("请求接近 4.5 MB MCP 请求体上限");
+    expect(resultOf(discovered.body!).instructions).not.toContain("8,000");
     expect(resultOf(discovered.body!).instructions).toContain("保留字面井号");
-    expect(resultOf(discovered.body!).instructions).toContain("contentLength 与批量读取字符预算按 Unicode code points 计算");
+    expect(resultOf(discovered.body!).instructions).toContain("contentLength 回执与批量读取字符预算按 Unicode code points 计算");
+    expect(resultOf(discovered.body!).instructions).toContain("统一错误码 INVALID_ARGUMENT，并通过 field 指明字段");
   });
 
   test("keeps tag and color validation on the server without publishing regex patterns", async () => {
@@ -235,22 +238,39 @@ describe("remote MCP endpoint", () => {
     const search = tools.find((tool) => tool.name === "search_notes")!;
     expect(search.inputSchema.properties.tag).toMatchObject({ type: "string", minLength: 1, maxLength: 40 });
     expect(search.inputSchema.properties.tag.pattern).toBeUndefined();
+    const updateNotebookTool = tools.find((tool) => tool.name === "update_notebook")!;
+    expect(updateNotebookTool.inputSchema.properties.color.minLength).toBeUndefined();
+    expect(updateNotebookTool.inputSchema.properties.color.maxLength).toBeUndefined();
 
     const invalidSearchTag = await callTool("search_notes", { tag: "bad tag" }, 2, environment);
-    expect(toolData(invalidSearchTag.body!).error.code).toBe("INVALID_TAG_FILTER");
+    expect(toolData(invalidSearchTag.body!).error).toMatchObject({ code: "INVALID_ARGUMENT", field: "tag", invalidTags: ["bad tag"] });
 
     const invalidCreateTag = await callTool("create_note", {
       title: "非法标签不会写入",
       contentMarkdown: "正文",
-      tags: ["bad tag"],
+      tags: ["含空格 标签", "正常标签"],
     }, 3, environment);
-    expect(toolData(invalidCreateTag.body!).error.code).toBe("INVALID_TAGS");
+    expect(toolData(invalidCreateTag.body!).error).toMatchObject({ code: "INVALID_ARGUMENT", field: "tags", invalidTags: ["含空格 标签"] });
+
+    const validNote = toolData((await callTool("create_note", { title: "批量非法标签定位" }, 7, environment)).body!).note;
+    const invalidBatchTags = await callTool("batch_update_notes", {
+      notes: [{ noteId: validNote.id, version: validNote.version }],
+      tags: ["bad tag", "valid_tag"],
+    }, 8, environment);
+    expect(toolData(invalidBatchTags.body!).error).toMatchObject({ code: "INVALID_ARGUMENT", field: "tags", invalidTags: ["bad tag"] });
 
     const invalidNotebookColor = await callTool("create_notebook", {
       name: "非法颜色校验",
       color: "#GGGGGG",
     }, 4, environment);
-    expect(toolData(invalidNotebookColor.body!).error.code).toBe("INVALID_NOTEBOOK");
+    expect(toolData(invalidNotebookColor.body!).error).toMatchObject({ code: "INVALID_ARGUMENT", field: "color", message: "请输入有效的六位十六进制颜色" });
+
+    const notebook = toolData((await callTool("create_notebook", { name: "更新颜色校验" }, 5, environment)).body!).notebook;
+    const invalidUpdatedNotebookColor = await callTool("update_notebook", {
+      notebookId: notebook.id,
+      color: "#xyz",
+    }, 6, environment);
+    expect(toolData(invalidUpdatedNotebookColor.body!).error).toMatchObject({ code: "INVALID_ARGUMENT", field: "color", message: "请输入有效的六位十六进制颜色" });
   });
 
   test("redacts MCP path tokens from application error log paths", () => {
@@ -551,6 +571,34 @@ describe("remote MCP endpoint", () => {
     expect(restoredData.results.map((result: Record<string, any>) => result.note.version)).toEqual([trashedFirst.version + 1, trashedSecond.version + 1]);
   });
 
+  test("marks repeated batch favorite and move requests as no-op", async () => {
+    const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
+    const note = toolData((await callTool("create_note", { title: "批量幂等收藏与移动" }, 1, environment)).body!).note;
+    const notebook = toolData((await callTool("create_notebook", { name: "批量幂等目标" }, 2, environment)).body!).notebook;
+
+    const favorited = toolData((await callTool("batch_update_notes", {
+      notes: [{ noteId: note.id, version: note.version }],
+      isFavorite: true,
+    }, 3, environment)).body!);
+    const favoriteNote = favorited.results[0].note;
+    const favoriteAgain = toolData((await callTool("batch_update_notes", {
+      notes: [{ noteId: note.id, version: favoriteNote.version }],
+      isFavorite: true,
+    }, 4, environment)).body!);
+    expect(favoriteAgain.results[0]).toMatchObject({ noop: true, note: { version: favoriteNote.version, isFavorite: true } });
+
+    const moved = toolData((await callTool("batch_update_notes", {
+      notes: [{ noteId: note.id, version: favoriteNote.version }],
+      notebookId: notebook.id,
+    }, 5, environment)).body!);
+    const movedNote = moved.results[0].note;
+    const movedAgain = toolData((await callTool("batch_update_notes", {
+      notes: [{ noteId: note.id, version: movedNote.version }],
+      notebookId: notebook.id,
+    }, 6, environment)).body!);
+    expect(movedAgain.results[0]).toMatchObject({ noop: true, note: { version: movedNote.version, notebookId: notebook.id } });
+  });
+
   test("inserts separate lines at line boundaries and supports selecting an occurrence", async () => {
     const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
     const created = await callTool("create_note", {
@@ -628,6 +676,7 @@ describe("remote MCP endpoint", () => {
     note = toolData(favoriteAgain.body!).note;
     expect(note.isFavorite).toBe(true);
     expect(note.version).toBe(favoritedVersion + 2);
+    expect(toolData(favoriteAgain.body!).noop).toBe(true);
     const staleFavorite = await callTool("note_operation", { action: "set_favorite", noteId: note.id, version: fullNote.version, isFavorite: false }, 7, environment);
     expect(toolData(staleFavorite.body!).error.code).toBe("VERSION_CONFLICT");
 
@@ -635,6 +684,8 @@ describe("remote MCP endpoint", () => {
     note = toolData(moved.body!).note;
     expect(note.notebookId).toBe(notebook.id);
     expect(note.isFavorite).toBe(true);
+    const movedAgain = await callTool("note_operation", { action: "move", noteId: note.id, version: note.version, notebookId: notebook.id }, 81, environment);
+    expect(toolData(movedAgain.body!)).toMatchObject({ noop: true, note: { version: note.version, notebookId: notebook.id } });
 
     const cleared = await callTool("note_operation", { action: "set_tags", noteId: note.id, version: note.version, tags: [], mode: "replace" }, 9, environment);
     note = toolData(cleared.body!).note;

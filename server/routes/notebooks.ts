@@ -87,14 +87,14 @@ export async function handleNotebooksRoute(ctx: RouteContext, user: UserRow): Pr
   if (!id && method === "POST") {
     const payload = await readJson<{ name?: unknown; color?: unknown; icon?: unknown }>(request, 64 * 1024);
     if (!payload || !validText(payload.name, 40) || !(payload.name as string).trim()) {
-      return jsonError(400, "INVALID_NOTEBOOK", "请输入笔记本名称");
+      return json({ error: { code: "INVALID_ARGUMENT", field: "name", message: "字段 name 必须是非空笔记本名称，最多 40 个字符" } }, 400);
     }
     const notebookId = crypto.randomUUID();
     const createdAt = now();
     const color = payload.color === undefined ? "#718077" : payload.color;
-    if (!validColor(color)) return jsonError(400, "INVALID_NOTEBOOK", "请输入有效的六位十六进制颜色");
+    if (!validColor(color)) return json({ error: { code: "INVALID_ARGUMENT", field: "color", message: "请输入有效的六位十六进制颜色" } }, 400);
     const icon = payload.icon === undefined ? "folder" : payload.icon;
-    if (!validNotebookIcon(icon)) return jsonError(400, "INVALID_NOTEBOOK", "请输入有效的笔记本图标");
+    if (!validNotebookIcon(icon)) return json({ error: { code: "INVALID_ARGUMENT", field: "icon", message: "请输入有效的笔记本图标" } }, 400);
     try {
       database.query("INSERT INTO notebooks (id, user_id, name, color, icon, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 10, ?, ?)").run(notebookId, user.id, (payload.name as string).trim(), color as string, icon as string, createdAt, createdAt);
     } catch (error) {
@@ -113,9 +113,11 @@ export async function handleNotebooksRoute(ctx: RouteContext, user: UserRow): Pr
     const name = payload?.name === undefined ? current.name : payload.name;
     const color = payload?.color === undefined ? current.color : payload.color;
     const icon = payload?.icon === undefined ? (current.icon || "folder") : payload.icon;
-    if (!validText(name, 40) || !(name as string).trim() || !validColor(color) || !validNotebookIcon(icon)) {
-      return jsonError(400, "INVALID_NOTEBOOK", "笔记本名称、颜色或图标无效");
+    if (!validText(name, 40) || !(name as string).trim()) {
+      return json({ error: { code: "INVALID_ARGUMENT", field: "name", message: "字段 name 必须是非空笔记本名称，最多 40 个字符" } }, 400);
     }
+    if (!validColor(color)) return json({ error: { code: "INVALID_ARGUMENT", field: "color", message: "请输入有效的六位十六进制颜色" } }, 400);
+    if (!validNotebookIcon(icon)) return json({ error: { code: "INVALID_ARGUMENT", field: "icon", message: "请输入有效的笔记本图标" } }, 400);
     try {
       database.query("UPDATE notebooks SET name = ?, color = ?, icon = ?, updated_at = ? WHERE id = ? AND user_id = ?").run((name as string).trim(), color as string, icon as string, now(), current.id, user.id);
     } catch (error) {

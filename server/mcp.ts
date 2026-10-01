@@ -37,7 +37,8 @@ const MCP_CONTENT_FIELDS = new Map([
 const MCP_SERVER_INSTRUCTIONS = [
   "象映笔记是跨会话 Markdown 记忆库，可搜索、读取、新建和增量修改笔记，也可管理笔记本、收藏、标签、回收站与公开分享。",
   "工具参数必须是 JSON 对象。客户端会先校验参数；手写原始 JSON 时，字符串中的控制字符须按 JSON 规范转义（换行写作 \\n）；结构化参数中的多行 Markdown 会原样保留。",
-  "普通笔记应优先在 create_note 一次写入完整正文。仅当新增内容超过约 8,000 个 Unicode 字符时，才建议先创建骨架，再用 append_to_note 分段追加并沿用返回的 version。正文总上限按 UTF-16 code units 计算；contentLength 与批量读取字符预算按 Unicode code points 计算。写操作默认不回传正文。",
+  "字段值不合法时使用统一错误码 INVALID_ARGUMENT，并通过 field 指明字段；标签错误还会在 invalidTags 中列出违规值。",
+  "普通笔记应优先在 create_note 一次写入完整正文；仅当客户端无法承载单次参数，或请求接近 4.5 MB MCP 请求体上限时，才用 append_to_note 分段追加并沿用返回的 version。单篇正文硬上限为 1,000,000 个 UTF-16 code units。contentLength 回执与批量读取字符预算按 Unicode code points 计算。写操作默认不回传正文。",
   "需要分类时先用 list_notebooks 获取 ID；create_notebook 创建笔记本，update_notebook 修改，delete_notebook 需 confirm=true 并建议用 totalCount 做二次确认。单篇写操作可省略 version，由服务端读取当前版本并以乐观锁保存；batch_update_notes 必须提供每篇读取时的 version。单篇 VERSION_CONFLICT 返回完整 current；批量冲突只返回摘要与元数据，需要时再读取失败项正文。",
   "create_note.tags 与 batch_update_notes.tags 是追加；note_operation 的 set_tags 必须显式传 mode=replace、add 或 remove。正文中未转义、代码区外且不超过 40 个 UTF-16 code units 的 #标签会被索引；可在井号前加反斜杠保留字面井号。回收站笔记可恢复，但 MCP 不提供永久删除笔记或清空回收站。",
   "用 search_notes 的 view=trash 或 list_trash 检索回收站；view=shared 筛选已分享笔记。create_share 创建 7 天只读链接，list_shares 分页查看，revoke_share 撤销。get_notes_batch 最多读 50 篇、总正文默认预算 20,000 个 Unicode 字符；各笔记分别读取，不构成同一时刻快照。",
@@ -53,11 +54,14 @@ function validMcpTags(tags: readonly string[]) {
   return tags.every((tag) => validMcpTagName.test(tag.trim()));
 }
 
-function invalidMcpTagsError() {
+function invalidMcpTagsError(tags: readonly string[]) {
+  const invalidTags = [...new Set(tags.filter((tag) => !validMcpTagName.test(tag.trim())))];
   return responseValue({
     error: {
-      code: "INVALID_TAGS",
-      message: `标签只能包含中文、字母、数字、下划线或连字符；每个标签最多 ${NOTE_TAG_MAX_LENGTH} 个 UTF-16 code units，最多传 50 个标签。`,
+      code: "INVALID_ARGUMENT",
+      field: "tags",
+      invalidTags,
+      message: `字段 tags 中的标签格式无效；标签只能包含中文、字母、数字、下划线或连字符，每个最多 ${NOTE_TAG_MAX_LENGTH} 个 UTF-16 code units，最多传 50 个标签。请检查 invalidTags。`,
     },
   }, true);
 }
@@ -580,7 +584,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
     description: "创建一个用于分类笔记的新笔记本。返回新笔记本的 ID、名称、图标和颜色；省略颜色或图标时使用默认值。重名会返回 NOTEBOOK_EXISTS。",
     inputSchema: z.object({
       name: z.string().trim().min(1).max(40).describe("笔记本名称，最多 40 个字符"),
-      color: z.string().min(7).max(7).optional().describe("六位十六进制颜色；预设示例：#718077 松柏绿、#d96245 朱砂、#5b7899 蓝灰、#9c765f 木棕"),
+      color: z.string().optional().describe("六位十六进制颜色；格式无效时返回 INVALID_ARGUMENT，field=color。预设示例：#718077 松柏绿、#d96245 朱砂、#5b7899 蓝灰、#9c765f 木棕"),
       icon: z.enum(VALID_NOTEBOOK_ICONS).optional().describe("笔记本图标标识，例如 folder、book 或 bookmark"),
     }).strict(),
   }, async ({ name, color, icon }) => {
@@ -600,7 +604,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
     inputSchema: z.object({
       notebookId: z.string().min(1).max(200),
       name: z.string().trim().min(1).max(40).optional().describe("新名称，最多 40 个字符；用于重命名"),
-      color: z.string().min(7).max(7).optional().describe("六位十六进制颜色；预设示例：#718077 松柏绿、#d96245 朱砂、#5b7899 蓝灰、#9c765f 木棕"),
+      color: z.string().optional().describe("六位十六进制颜色；格式无效时返回 INVALID_ARGUMENT，field=color。预设示例：#718077 松柏绿、#d96245 朱砂、#5b7899 蓝灰、#9c765f 木棕"),
       icon: z.enum(VALID_NOTEBOOK_ICONS).optional().describe("笔记本图标标识，例如 folder、book 或 bookmark"),
     }).strict(),
   }, async ({ notebookId, name, color, icon }) => {
@@ -820,17 +824,17 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("create_note", {
     title: "创建笔记",
-    description: "创建一篇 Markdown 笔记。contentMarkdown 可直接传入完整正文，普通笔记优先在本次 create_note 一次创建完成；多行 Markdown 会原样保留。只有正文超过约 8,000 个 Unicode 字符时，才建议先创建标题和笔记本骨架，再用 append_to_note 分段追加，并沿用返回的 version；分段不能超过单篇 1,000,000 个 UTF-16 code units 的总上限。若手写原始 JSON，其中的换行、制表符等控制字符必须转义。tags 会以 #标签 形式追加到正文；每个正文标签最多 40 个 UTF-16 code units，代码中的标签和超长标签不会被索引；字面井号词可写作 \\#CSharp 以避免成为标签。省略 notebookId 时放入收件箱。默认不回传正文；需要时设 includeContent=true。成功结果包含按 Unicode code point 统计的 contentLength 回执。",
+    description: "创建一篇 Markdown 笔记。contentMarkdown 可直接传入完整正文，普通笔记应优先在本次 create_note 一次写入完整内容；多行 Markdown 会原样保留。仅当客户端无法承载单次参数或请求接近 4.5 MB MCP 请求体上限时，才先创建骨架并用 append_to_note 分段追加，沿用每次返回的 version；单篇正文总上限为 1,000,000 个 UTF-16 code units。若手写原始 JSON，其中的换行、制表符等控制字符必须转义。tags 会以 #标签 形式追加到正文；每个正文标签最多 40 个 UTF-16 code units，代码中的标签和超长标签不会被索引；字面井号词可写作 \\#CSharp 以避免成为标签。省略 notebookId 时放入收件箱。默认不回传正文；需要时设 includeContent=true。成功结果包含按 Unicode code point 统计的 contentLength 回执。",
     inputSchema: z.object({
       title: z.string().min(1).max(200),
-      contentMarkdown: z.string().max(NOTE_CONTENT_MAX_LENGTH).optional().describe("可直接传入完整 Markdown 正文；普通笔记优先一次创建，只有超长时才建议分段追加；最多 1,000,000 个 UTF-16 code units"),
+      contentMarkdown: z.string().max(NOTE_CONTENT_MAX_LENGTH).optional().describe("可直接传入完整 Markdown 正文；普通笔记优先一次创建；只有客户端无法承载单次参数或接近 MCP 请求体上限时才分段；最多 1,000,000 个 UTF-16 code units"),
       notebookId: z.string().min(1).max(200).optional(),
       tags: noteTagsSchema.optional().describe("要追加到正文的标签名，仅可含中文、字母、数字、下划线或连字符，不带 #；仅追加，不会覆盖已有标签（整体替换请用 note_operation action=set_tags）"),
       includeContent: z.boolean().optional().describe("是否在成功结果中回传完整正文，默认 false"),
     }).strict(),
   }, async ({ title, contentMarkdown = "", notebookId, tags = [], includeContent = false }) => {
     if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
-    if (!validMcpTags(tags)) return invalidMcpTagsError();
+    if (!validMcpTags(tags)) return invalidMcpTagsError(tags);
     const payload = {
       title,
       contentMarkdown: appendMarkdownTags(contentMarkdown, tags),
@@ -842,7 +846,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("update_note", {
     title: "更新笔记",
-    description: "仅用于更新未删除笔记的标题或完整 Markdown 正文；回收站笔记只读，会返回 NOTE_IN_TRASH，请先用 note_operation action=restore 恢复。移动、收藏、标签和回收站操作统一用 note_operation。version 可省略，由服务端读取当前版本并以乐观锁保存；传入时会校验，VERSION_CONFLICT 的 error.current 含最新完整笔记，可直接合并后重试。完整正文可直接一次传入；局部改字优先用 replace_in_note，长内容新增可用 append_to_note 分段追加（每段建议不超过 8,000 个 Unicode 字符）。正文最多 1,000,000 个 UTF-16 code units（JavaScript string.length）；结构化参数直接传入多行 Markdown，手写原始 JSON 时换行、制表符须转义。正文写入结果含按 Unicode code point 统计的 contentLength；默认不回传正文，设 includeContent=true 可返回。",
+    description: "仅用于更新未删除笔记的标题或完整 Markdown 正文；回收站笔记只读，会返回 NOTE_IN_TRASH，请先用 note_operation action=restore 恢复。移动、收藏、标签和回收站操作统一用 note_operation。version 可省略，由服务端读取当前版本并以乐观锁保存；传入时会校验，VERSION_CONFLICT 的 error.current 含最新完整笔记，可直接合并后重试。完整正文可直接一次传入；局部改字优先用 replace_in_note。仅当客户端无法承载单次参数或请求接近 4.5 MB MCP 请求体上限时，才将新增内容分段交给 append_to_note。正文最多 1,000,000 个 UTF-16 code units（JavaScript string.length）；结构化参数直接传入多行 Markdown，手写原始 JSON 时换行、制表符须转义。正文写入结果含按 Unicode code point 统计的 contentLength；默认不回传正文，设 includeContent=true 可返回。",
     inputSchema: z.object({
       noteId: z.string().min(1).max(200),
       version: z.number().int().positive().optional().describe("可选的预期版本；省略时由服务端读取当前版本，仍使用乐观锁保存"),
@@ -936,7 +940,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("note_operation", {
     title: "笔记管理操作",
-    description: "低频笔记管理入口，每次通过 action 执行一项操作：move 移动到笔记本；set_favorite 设定目标收藏状态（幂等）；set_tags 管理标签（必须显式传 mode=replace/add/remove，避免遗漏时意外覆盖）；trash 软删除到回收站；restore 恢复。各 action 只接受对应字段。version 可直接从 search_notes 或 list_trash 结果获取；也可省略，由服务端读取当前版本并继续使用乐观锁。回收站笔记只读，恢复前不能移动、改标签或改收藏。此工具不提供永久删除。",
+    description: "低频笔记管理入口，每次通过 action 执行一项操作：move 移动到笔记本；set_favorite 设定目标收藏状态；set_tags 管理标签（必须显式传 mode=replace/add/remove，避免遗漏时意外覆盖）；trash 软删除到回收站；restore 恢复。幂等操作若未改变状态会返回 noop=true。各 action 只接受对应字段。version 可直接从 search_notes 或 list_trash 结果获取；也可省略，由服务端读取当前版本并继续使用乐观锁。回收站笔记只读，恢复前不能移动、改标签或改收藏。此工具不提供永久删除。",
     inputSchema: noteOperationInputSchema,
   }, async (input) => {
     if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
@@ -964,23 +968,27 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
     }
     if (operation.action === "move") {
       const result = await updateNoteRoute(options, user, { noteId: operation.noteId, version, currentNote, notebookId: operation.notebookId });
-      return result.status === 200 ? responseValue(result.body, false, { writeResult: true }) : routeError(result);
+      if (result.status !== 200) return routeError(result);
+      const note = result.body.note as Record<string, unknown> | undefined;
+      return responseValue({ ...result.body, ...(note?.version === version ? { noop: true } : {}) }, false, { writeResult: true });
     }
     if (operation.action === "set_favorite") {
       const result = await updateNoteRoute(options, user, { noteId: operation.noteId, version, currentNote, isFavorite: operation.isFavorite });
-      return result.status === 200 ? responseValue(result.body, false, { writeResult: true }) : routeError(result);
+      if (result.status !== 200) return routeError(result);
+      const note = result.body.note as Record<string, unknown> | undefined;
+      return responseValue({ ...result.body, ...(note?.version === version ? { noop: true } : {}) }, false, { writeResult: true });
     }
     if (operation.action === "set_tags") {
-      if (!validMcpTags(operation.tags)) return invalidMcpTagsError();
+      if (!validMcpTags(operation.tags)) return invalidMcpTagsError(operation.tags);
       const tagInput = operation.mode === "add"
         ? { tags: operation.tags }
         : operation.mode === "remove"
           ? { removeTags: operation.tags }
           : { replaceTags: operation.tags };
       const result = await updateNoteRoute(options, user, { noteId: operation.noteId, version, currentNote, ...tagInput });
-      return result.status === 200
-        ? responseValue({ ...result.body, mode: operation.mode }, false, { writeResult: true })
-        : routeError(result);
+      if (result.status !== 200) return routeError(result);
+      const note = result.body.note as Record<string, unknown> | undefined;
+      return responseValue({ ...result.body, mode: operation.mode, ...(note?.version === version ? { noop: true } : {}) }, false, { writeResult: true });
     }
     if (operation.action === "trash") {
       const result = await updateNoteRoute(options, user, { noteId: operation.noteId, version, currentNote, deleted: true });
@@ -998,11 +1006,11 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("append_to_note", {
     title: "追加到笔记",
-    description: "仅修改未删除笔记；回收站笔记只读，会返回 NOTE_IN_TRASH，请先用 note_operation action=restore 恢复。将 contentMarkdown 追加到现有正文，避免重新发送长正文。超长内容请分段追加，每段建议不超过 8,000 个 Unicode 字符；沿用上一次写入返回的 version，或省略 version 让服务端读取最新正文并执行乐观锁保存。传入 version 时仍会校验版本。末尾若有独立标签行，会把新内容插到标签行之前并保留标签；否则按原样追加。遇 VERSION_CONFLICT 时 error.current 含完整当前笔记。需要换行时请在追加文本中包含换行。多行正文通过结构化参数直接传入；手写原始 JSON 时控制字符必须转义。默认不回传正文，结果含 contentLength 回执。",
+    description: "仅修改未删除笔记；回收站笔记只读，会返回 NOTE_IN_TRASH，请先用 note_operation action=restore 恢复。将 contentMarkdown 追加到现有正文，避免重新发送长正文。普通追加按一个请求完成；仅当客户端无法承载单次参数或请求接近 4.5 MB MCP 请求体上限时才分段，所有分段合计仍受单篇正文 1,000,000 个 UTF-16 code units 的总上限约束。沿用上一次写入返回的 version，或省略 version 让服务端读取最新正文并执行乐观锁保存。传入 version 时仍会校验版本。末尾若有独立标签行，会把新内容插到标签行之前并保留标签；否则按原样追加。遇 VERSION_CONFLICT 时 error.current 含完整当前笔记。需要换行时请在追加文本中包含换行。多行正文通过结构化参数直接传入；手写原始 JSON 时控制字符必须转义。默认不回传正文，结果含 contentLength 回执。",
     inputSchema: z.object({
       noteId: z.string().min(1).max(200),
       version: z.number().int().positive().optional().describe("可选的预期版本；省略时服务端读取当前版本"),
-      contentMarkdown: z.string().min(1).max(NOTE_CONTENT_MAX_LENGTH).describe("要追加的一段 Markdown；建议每段不超过 8,000 个 Unicode 字符"),
+      contentMarkdown: z.string().min(1).max(NOTE_CONTENT_MAX_LENGTH).describe("要追加的一段 Markdown；正常情况下可一次追加完整新增内容，仅按客户端参数能力或 MCP 请求体上限分段"),
       includeContent: z.boolean().optional().describe("是否在成功结果中回传完整正文，默认 false"),
     }).strict(),
   }, async ({ noteId, version, contentMarkdown, includeContent = false }) => {
@@ -1029,12 +1037,12 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("insert_into_note", {
     title: "按锚点插入正文",
-    description: "仅修改未删除笔记；回收站笔记只读，会返回 NOTE_IN_TRASH，请先用 note_operation action=restore 恢复。在正文中匹配的 anchor 前或后插入 Markdown，不必重传整篇笔记。单次正文建议不超过 8,000 个 Unicode 字符。默认要求 anchor 唯一；歧义时返回 matchCount 和最多 10 条前后各 30 字上下文，可传 occurrence（从 1 开始）指定一处，或设 insertAll=true 在所有非重叠匹配处插入（返回 insertedCount）；insertAll 与 occurrence 不能同时使用。插入点位于行首或行尾时会自动补换行，行内锚点保持精确拼接。version 可省略以使用服务端读取的当前版本；传入时会校验，冲突时 error.current 含完整当前笔记。默认插入到锚点后；成功结果含 contentLength 回执。",
+    description: "仅修改未删除笔记；回收站笔记只读，会返回 NOTE_IN_TRASH，请先用 note_operation action=restore 恢复。在正文中匹配的 anchor 前或后插入 Markdown，不必重传整篇笔记；contentMarkdown 可传入完整插入内容，单篇正文仍受 1,000,000 个 UTF-16 code units 上限约束。默认要求 anchor 唯一；歧义时返回 matchCount 和最多 10 条前后各 30 字上下文，可传 occurrence（从 1 开始）指定一处，或设 insertAll=true 在所有非重叠匹配处插入（返回 insertedCount）；insertAll 与 occurrence 不能同时使用。插入点位于行首或行尾时会自动补换行，行内锚点保持精确拼接。version 可省略以使用服务端读取的当前版本；传入时会校验，冲突时 error.current 含完整当前笔记。默认插入到锚点后；成功结果含 contentLength 回执。",
     inputSchema: z.object({
       noteId: z.string().min(1).max(200),
       version: z.number().int().positive().optional().describe("可选的预期版本；省略时服务端读取当前版本"),
       anchor: z.string().min(1).max(2000).describe("正文中精确的原文片段"),
-      contentMarkdown: z.string().min(1).max(NOTE_CONTENT_MAX_LENGTH).describe("要插入的 Markdown 内容，单次建议不超过 8,000 个 Unicode 字符"),
+      contentMarkdown: z.string().min(1).max(NOTE_CONTENT_MAX_LENGTH).describe("要在锚点前或后插入的 Markdown 内容"),
       insertAll: z.boolean().optional().describe("设为 true 时在所有非重叠 anchor 匹配处插入，不能与 occurrence 同时使用"),
       occurrence: z.number().int().min(1).optional().describe("可选的匹配序号，从 1 开始；不传时要求 anchor 只出现一次"),
       position: z.enum(["before", "after"]).optional().describe("插入位置，默认 after"),
@@ -1123,7 +1131,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("batch_update_notes", {
     title: "批量更新笔记",
-    description: "批量移动笔记本、追加标签 tags、移除标签 removeTags、整体替换标签 replaceTags、设定收藏状态或移入/恢复回收站。replaceTags 与 tags/removeTags 互斥；空 replaceTags 可清空所有标签。回收站笔记只读；仅当本次只传 deleted:false 时可批量恢复，其他修改都会返回 NOTE_IN_TRASH，恢复后再进行其他编辑。isFavorite 是目标状态（true 收藏、false 取消收藏），重复设定不会反转。重复 deleted:true 会在对应结果中标记 noop:true。把最多 50 篇笔记的 noteId 和 version 放入 notes，并传同一个 notebookId 即可批量移入该笔记本。每篇笔记都必须带上读取时的 version；逐条执行并返回每条结果，冲突不会覆盖。冲突 current 只返回有界摘要、版本、长度和元数据；需要合并正文时再用 get_note 或 get_notes_batch 读取失败笔记，避免批量重复回传长正文。失败项可单独重试。",
+    description: "批量移动笔记本、追加标签 tags、移除标签 removeTags、整体替换标签 replaceTags、设定收藏状态或移入/恢复回收站。replaceTags 与 tags/removeTags 互斥；空 replaceTags 可清空所有标签。回收站笔记只读；仅当本次只传 deleted:false 时可批量恢复，其他修改都会返回 NOTE_IN_TRASH，恢复后再进行其他编辑。isFavorite 是目标状态（true 收藏、false 取消收藏），重复设定不会反转；未实际改变笔记的成功项会标记 noop:true。把最多 50 篇笔记的 noteId 和 version 放入 notes，并传同一个 notebookId 即可批量移入该笔记本。每篇笔记都必须带上读取时的 version；逐条执行并返回每条结果，冲突不会覆盖。冲突 current 只返回有界摘要、版本、长度和元数据；需要合并正文时再用 get_note 或 get_notes_batch 读取失败笔记，避免批量重复回传长正文。失败项可单独重试。",
     inputSchema: z.object({
       notes: z.array(z.object({ noteId: z.string().min(1).max(200), version: z.number().int().positive() }).strict()).min(1).max(50),
       notebookId: z.string().min(1).max(200).optional(),
@@ -1136,7 +1144,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
   }, async ({ notes, notebookId, isFavorite, deleted, tags, removeTags, replaceTags }) => {
     if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
     if ([tags, removeTags, replaceTags].some((values) => values !== undefined && !validMcpTags(values))) {
-      return invalidMcpTagsError();
+      return invalidMcpTagsError([...(tags ?? []), ...(removeTags ?? []), ...(replaceTags ?? [])]);
     }
     if (replaceTags !== undefined && (tags !== undefined || removeTags !== undefined)) {
       return responseValue({ error: { code: "INCOMPATIBLE_TAG_OPERATIONS", message: "replaceTags 是整体替换操作，不能与追加 tags 或移除 removeTags 同次使用" } }, true);
@@ -1152,7 +1160,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
       const result = await updateNoteRoute(options, user, { ...note, notebookId, isFavorite, deleted, tags, removeTags, replaceTags });
       if (result.status === 200) {
         const updatedNote = result.body.note as Record<string, unknown> | undefined;
-        const noop = deleted === true && updatedNote !== undefined && isDeletedNote(updatedNote) && updatedNote.version === note.version;
+        const noop = updatedNote !== undefined && updatedNote.version === note.version;
         results.push({ noteId: note.noteId, ok: true, note: conciseWriteNote(updatedNote), ...(noop ? { noop: true } : {}) });
       } else {
         const rawError = result.body.error && typeof result.body.error === "object"
