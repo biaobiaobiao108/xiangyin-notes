@@ -43,7 +43,7 @@ const MCP_SERVER_INSTRUCTIONS = [
 ].join(" ");
 
 const noteTagsSchema = z.array(z.string().trim().min(1).max(40).regex(/^[\p{L}\p{N}_-]+$/u)).max(50);
-const noteOperationSchema = z.discriminatedUnion("action", [
+const noteOperationActionSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("move"),
     noteId: z.string().min(1).max(200),
@@ -74,6 +74,19 @@ const noteOperationSchema = z.discriminatedUnion("action", [
     version: z.number().int().positive(),
   }).strict(),
 ]);
+// Keep the published MCP schema as a plain object. Some clients incorrectly
+// combine a root-level additionalProperties:false with oneOf and reject every
+// action field before sending the request. The stricter discriminated union
+// below still validates the action-specific field combinations server-side.
+const noteOperationInputSchema = z.object({
+  action: z.enum(["move", "set_favorite", "set_tags", "trash", "restore"]),
+  noteId: z.string().min(1).max(200),
+  version: z.number().int().positive(),
+  notebookId: z.string().min(1).max(200).optional().describe("仅 action=move 时必填"),
+  isFavorite: z.boolean().optional().describe("仅 action=set_favorite 时必填；true 收藏，false 取消收藏"),
+  tags: noteTagsSchema.optional().describe("仅 action=set_tags 时必填；标签名不带 #"),
+  mode: z.enum(["replace", "add", "remove"]).optional().describe("仅 action=set_tags 时使用；默认 replace"),
+}).strict();
 
 function countUnicodeCharacters(value: string) {
   let count = 0;
@@ -733,39 +746,49 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
   server.registerTool("note_operation", {
     title: "笔记管理操作",
     description: "低频笔记管理入口，每次通过 action 执行一项操作：move 移动到笔记本；set_favorite 设定目标收藏状态（幂等）；set_tags 管理标签（默认整体替换，可选 add/remove）；trash 软删除到回收站；restore 恢复。各 action 只接受对应字段，version 必填，可直接从 search_notes 或 list_trash 结果获取。回收站笔记只读，恢复前不能移动、改标签或改收藏。此工具不提供永久删除。",
-    inputSchema: noteOperationSchema,
+    inputSchema: noteOperationInputSchema,
   }, async (input) => {
     if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
-    if (input.action === "move") {
-      const result = await updateNoteRoute(options, user, { noteId: input.noteId, version: input.version, notebookId: input.notebookId });
+    const parsedInput = noteOperationActionSchema.safeParse(input);
+    if (!parsedInput.success) {
+      return responseValue({
+        error: {
+          code: "INVALID_NOTE_OPERATION",
+          message: "action 与参数不匹配：move 需 notebookId，set_favorite 需 isFavorite，set_tags 需 tags；trash 和 restore 只接受 noteId、version。",
+        },
+      }, true);
+    }
+    const operation = parsedInput.data;
+    if (operation.action === "move") {
+      const result = await updateNoteRoute(options, user, { noteId: operation.noteId, version: operation.version, notebookId: operation.notebookId });
       return result.status === 200 ? responseValue(result.body, false, { writeResult: true }) : routeError(result);
     }
-    if (input.action === "set_favorite") {
-      const result = await updateNoteRoute(options, user, { noteId: input.noteId, version: input.version, isFavorite: input.isFavorite });
+    if (operation.action === "set_favorite") {
+      const result = await updateNoteRoute(options, user, { noteId: operation.noteId, version: operation.version, isFavorite: operation.isFavorite });
       return result.status === 200 ? responseValue(result.body, false, { writeResult: true }) : routeError(result);
     }
-    if (input.action === "set_tags") {
-      const tagInput = input.mode === "add"
-        ? { tags: input.tags }
-        : input.mode === "remove"
-          ? { removeTags: input.tags }
-          : { replaceTags: input.tags };
-      const result = await updateNoteRoute(options, user, { noteId: input.noteId, version: input.version, ...tagInput });
+    if (operation.action === "set_tags") {
+      const tagInput = operation.mode === "add"
+        ? { tags: operation.tags }
+        : operation.mode === "remove"
+          ? { removeTags: operation.tags }
+          : { replaceTags: operation.tags };
+      const result = await updateNoteRoute(options, user, { noteId: operation.noteId, version: operation.version, ...tagInput });
       return result.status === 200
-        ? responseValue({ ...result.body, mode: input.mode ?? "replace" }, false, { writeResult: true })
+        ? responseValue({ ...result.body, mode: operation.mode ?? "replace" }, false, { writeResult: true })
         : routeError(result);
     }
-    if (input.action === "trash") {
-      const result = await updateNoteRoute(options, user, { noteId: input.noteId, version: input.version, deleted: true });
+    if (operation.action === "trash") {
+      const result = await updateNoteRoute(options, user, { noteId: operation.noteId, version: operation.version, deleted: true });
       if (result.status !== 200) return routeError(result);
       const note = result.body.note as Record<string, unknown> | undefined;
-      const noop = note !== undefined && isDeletedNote(note) && note.version === input.version;
+      const noop = note !== undefined && isDeletedNote(note) && note.version === operation.version;
       return responseValue({ ...result.body, ...(noop ? { noop: true } : {}) }, false, { writeResult: true });
     }
-    const result = await updateNoteRoute(options, user, { noteId: input.noteId, version: input.version, deleted: false });
+    const result = await updateNoteRoute(options, user, { noteId: operation.noteId, version: operation.version, deleted: false });
     if (result.status !== 200) return routeError(result);
     const note = result.body.note as Record<string, unknown> | undefined;
-    const noop = note?.deletedAt === null && note.version === input.version;
+    const noop = note?.deletedAt === null && note.version === operation.version;
     return responseValue({ ...result.body, ...(noop ? { noop: true } : {}) }, false, { writeResult: true });
   });
 

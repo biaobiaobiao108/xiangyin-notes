@@ -142,9 +142,17 @@ describe("remote MCP endpoint", () => {
     expect(Object.keys(updateSchema.properties)).toEqual(["noteId", "version", "title", "contentMarkdown", "includeContent"]);
     expect(updateSchema.additionalProperties).toBe(false);
     const noteOperation = tools.find((tool: { name: string }) => tool.name === "note_operation");
-    expect(noteOperation.inputSchema.oneOf.map((branch: any) => branch.properties.action.const)).toEqual([
+    expect(noteOperation.inputSchema.type).toBe("object");
+    expect(noteOperation.inputSchema.oneOf).toBeUndefined();
+    expect(noteOperation.inputSchema.anyOf).toBeUndefined();
+    expect(noteOperation.inputSchema.additionalProperties).toBe(false);
+    expect(Object.keys(noteOperation.inputSchema.properties)).toEqual([
+      "action", "noteId", "version", "notebookId", "isFavorite", "tags", "mode",
+    ]);
+    expect(noteOperation.inputSchema.properties.action.enum).toEqual([
       "move", "set_favorite", "set_tags", "trash", "restore",
     ]);
+    expect(noteOperation.inputSchema.required).toEqual(["action", "noteId", "version"]);
     expect(noteOperation.description).toContain("此工具不提供永久删除");
     const replaceSchema = tools.find((tool: { name: string }) => tool.name === "replace_in_note").inputSchema;
     expect(Object.keys(replaceSchema.properties)).toEqual(["noteId", "oldText", "newText", "occurrence", "version", "force", "includeContent"]);
@@ -441,6 +449,13 @@ describe("remote MCP endpoint", () => {
       contentMarkdown: "正文 #旧标签\n代码示例 `#代码标签`",
     }, 2, environment);
     let note = toolData(created.body!).note;
+
+    const missingMoveTarget = await callTool("note_operation", { action: "move", noteId: note.id, version: note.version }, 2, environment);
+    expect(toolData(missingMoveTarget.body!).error.code).toBe("INVALID_NOTE_OPERATION");
+    const unexpectedTrashField = await callTool("note_operation", {
+      action: "trash", noteId: note.id, version: note.version, isFavorite: true,
+    }, 2, environment);
+    expect(toolData(unexpectedTrashField.body!).error.code).toBe("INVALID_NOTE_OPERATION");
 
     const tagged = await callTool("note_operation", { action: "set_tags", noteId: note.id, version: note.version, tags: ["新标签"] }, 3, environment);
     note = toolData(tagged.body!).note;
