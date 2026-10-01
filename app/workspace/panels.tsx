@@ -133,9 +133,6 @@ export function NoteOutlinePanel({ outlineItems, activeOutlineId, onScrollToOutl
           <span id="note-outline-title">笔记大纲</span>
           {outlineItems.length > 0 && <span className="floating-outline-count">{outlineItems.length}</span>}
         </div>
-        <button className="icon-button tiny-button" type="button" onClick={onCloseOutline} aria-label="关闭笔记大纲">
-          <X size={15} />
-        </button>
       </header>
     ) : (
       <header className="list-header note-outline-header">
