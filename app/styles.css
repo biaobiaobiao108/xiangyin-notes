@@ -87,22 +87,25 @@
   --code-inline-ink: light-dark(#8d4b37, #bb9af7);
   --blockquote-border: light-dark(#9da9a1, #565f89);
   --danger-contrast: light-dark(#ffffff, #1a1b26);
-  --h1-color: light-dark(#b94e35, #f7768e);
+  /* Muted editorial inks: distinct hues without bright, competing accents. */
+  --h1-color: light-dark(#8d5144, #c59586);
   --h1-soft: light-dark(#faeee9, rgba(247, 118, 142, 0.12));
   --h1-active: light-dark(rgba(185, 78, 53, 0.08), rgba(247, 118, 142, 0.16));
   --h1-ring: light-dark(rgba(185, 78, 53, 0.16), rgba(247, 118, 142, 0.32));
   --h1-border: light-dark(#f2d0c6, rgba(247, 118, 142, 0.42));
-  --h2-color: light-dark(#2d5c48, #9ece6a);
+  --h2-color: light-dark(#405b4c, #a2b6a5);
   --h2-soft: light-dark(#edf4f0, rgba(158, 206, 106, 0.12));
   --h2-active: light-dark(rgba(45, 92, 72, 0.08), rgba(158, 206, 106, 0.16));
   --h2-ring: light-dark(rgba(45, 92, 72, 0.16), rgba(158, 206, 106, 0.32));
   --h2-border: light-dark(#c9ded3, rgba(158, 206, 106, 0.38));
-  --h3-color: light-dark(#35566b, #7dcfff);
+  --h3-color: light-dark(#4c606a, #9fb2bf);
   --h3-soft: light-dark(#edf3f7, rgba(125, 207, 255, 0.1));
   --h3-active: light-dark(rgba(53, 86, 107, 0.08), rgba(125, 207, 255, 0.14));
   --h3-ring: light-dark(rgba(53, 86, 107, 0.16), rgba(125, 207, 255, 0.3));
   --h3-border: light-dark(#ccdce7, rgba(125, 207, 255, 0.38));
-  --h4-color: light-dark(#656c63, #a9b1d6);
+  --h4-color: light-dark(#69604f, #b9af98);
+  --h5-color: light-dark(#635866, #b6a5b6);
+  --h6-color: light-dark(#5e6661, #a9afa8);
   --shadow-2xs: light-dark(0 1px 2px rgba(32, 38, 33, 0.04), 0 1px 2px rgba(0, 0, 0, 0.2));
   --shadow-xs: light-dark(0 2px 5px rgba(32, 38, 33, 0.05), 0 2px 6px rgba(0, 0, 0, 0.25));
   --shadow-sm: light-dark(0 4px 12px rgba(32, 38, 33, 0.06), 0 4px 14px rgba(0, 0, 0, 0.3));
@@ -602,8 +605,8 @@ button.save-status:hover { text-decoration: underline; }
 .note-prose h2 { font-size: 1.45rem; color: var(--h2-color); font-weight: 650; }
 .note-prose h3 { font-size: 1.18rem; color: var(--h3-color); font-weight: 600; }
 .note-prose h4 { font-size: 1.04rem; color: var(--h4-color); font-weight: 600; }
-.note-prose h5 { font-size: 0.98rem; color: var(--muted); font-weight: 600; }
-.note-prose h6 { font-size: 0.92rem; color: var(--quiet-ink); font-weight: 600; }
+.note-prose h5 { font-size: 0.98rem; color: var(--h5-color); font-weight: 600; }
+.note-prose h6 { font-size: 0.92rem; color: var(--h6-color); font-weight: 600; }
 .note-prose p { margin-block: 0 0.88em; }
 .note-prose strong, .note-prose b, .share-prose strong, .share-prose b { color: var(--ink); font-weight: 700; }
 .note-prose a { color: var(--accent-dark); text-decoration-thickness: 1px; text-underline-offset: 3px; cursor: pointer; }
