@@ -2526,7 +2526,7 @@ dialog::backdrop {
   animation: outlineFadeIn var(--motion-panel) var(--motion-ease-out) both;
 }
 
-.app-shell.layout-cards .editor-panel:has(.editor-floating-outline) .editor-document {
+.app-shell .editor-panel:has(.editor-floating-outline) .editor-document {
   --card-document-max: 820px;
   --card-outline-gutter: 248px;
   --card-document-end-space: 32px;
@@ -2573,14 +2573,14 @@ dialog::backdrop {
 }
 
 @media (max-width: 1180px) {
-  .app-shell.layout-cards .editor-panel:has(.editor-floating-outline) .editor-document {
+  .app-shell .editor-panel:has(.editor-floating-outline) .editor-document {
     --card-document-max: 760px;
   }
 }
 
 @media (max-width: 768px) {
   .editor-floating-outline { top: 62px; left: 6px; width: 140px; bottom: 88px; }
-  .app-shell.layout-cards .editor-panel:has(.editor-floating-outline) .editor-document {
+  .app-shell .editor-panel:has(.editor-floating-outline) .editor-document {
     --card-outline-gutter: 160px;
     --card-document-end-space: 20px;
   }

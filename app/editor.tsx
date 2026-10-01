@@ -1317,7 +1317,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     <section className={`editor-panel ${deferredLoading ? "is-loading" : ""} ${focusMode ? "is-focus-mode" : ""}`} aria-label="笔记编辑器" aria-busy={editorLocked} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === "s") { event.preventDefault(); handleSaveNow(); } }}>
       <header className="editor-header">
         <div className="editor-header-start">
-          {onBackToCards && (
+          {onBackToCards && !focusMode && (
             <button
               className="icon-button editor-back-cards"
               type="button"
@@ -1328,7 +1328,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
               <LayoutGrid size={18} strokeWidth={1.8} />
             </button>
           )}
-          {onOpenList && <button className="icon-button mobile-only editor-back" type="button" aria-label="返回笔记列表" onClick={onOpenList} disabled={editorLocked}><ChevronLeft size={20} /></button>}
+          {onOpenList && !focusMode && <button className="icon-button mobile-only editor-back" type="button" aria-label="返回笔记列表" onClick={onOpenList} disabled={editorLocked}><ChevronLeft size={20} /></button>}
           <div className="editor-meta" aria-label={`最后编辑于${relativeDate(note.updatedAt)}`}>
             <span>最后编辑于 {relativeDate(note.updatedAt)}</span>
           </div>
@@ -1418,7 +1418,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
         outlineOpen={outlineOpen}
         editorStats={editorStats}
         onToggleOutline={onToggleOutline}
-        outlineDisabled={focusMode}
+        hideOutlineTrigger={focusMode}
         searchNavigation={searchNavigation}
         searchQuery={searchQuery}
         deferredLoading={editorLocked}
@@ -1435,7 +1435,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
           onBacklinkCountChange={setBacklinkCount}
         />
       )}
-      {onBackToCards && outlineOpen && (
+      {(focusMode || (onBackToCards && outlineOpen)) && (
         <CardOutline
           key={note.id}
           outlineItems={outlineItems}

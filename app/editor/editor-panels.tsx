@@ -9,13 +9,13 @@ type SearchNavigation = {
   matchCount: number;
 };
 
-export function EditorFloatingTools({ editor, outlineTriggerRef, outlineOpen, editorStats, onToggleOutline, outlineDisabled = false, searchNavigation, searchQuery, deferredLoading, onMoveSearchMatch, onClearSearch }: {
+export function EditorFloatingTools({ editor, outlineTriggerRef, outlineOpen, editorStats, onToggleOutline, hideOutlineTrigger = false, searchNavigation, searchQuery, deferredLoading, onMoveSearchMatch, onClearSearch }: {
   editor: Editor | null;
   outlineTriggerRef: RefObject<HTMLButtonElement | null>;
   outlineOpen: boolean;
   editorStats: EditorStats;
   onToggleOutline: () => void;
-  outlineDisabled?: boolean;
+  hideOutlineTrigger?: boolean;
   searchNavigation: SearchNavigation;
   searchQuery?: string;
   deferredLoading: boolean;
@@ -39,7 +39,7 @@ export function EditorFloatingTools({ editor, outlineTriggerRef, outlineOpen, ed
         {onClearSearch && <button className="editor-search-nav-button editor-search-nav-button--close" type="button" aria-label="退出搜索高亮" onClick={onClearSearch}><X size={15} strokeWidth={2} /></button>}
       </div>}
       <EditorStatsPill stats={editorStats} />
-      <button className={`outline-trigger ${outlineOpen ? "is-active" : ""}`} ref={outlineTriggerRef} type="button" aria-expanded={outlineOpen} aria-controls={outlineOpen ? "note-outline" : undefined} aria-label={outlineOpen ? "关闭笔记大纲" : "打开笔记大纲"} onClick={onToggleOutline} disabled={deferredLoading || outlineDisabled}><ListTree size={16} strokeWidth={1.9} /><span>大纲</span></button>
+      {!hideOutlineTrigger && <button className={`outline-trigger ${outlineOpen ? "is-active" : ""}`} ref={outlineTriggerRef} type="button" aria-expanded={outlineOpen} aria-controls={outlineOpen ? "note-outline" : undefined} aria-label={outlineOpen ? "关闭笔记大纲" : "打开笔记大纲"} onClick={onToggleOutline} disabled={deferredLoading}><ListTree size={16} strokeWidth={1.9} /><span>大纲</span></button>}
     </div>
   </div>;
 }
