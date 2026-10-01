@@ -152,6 +152,8 @@ PUBLIC_URL=https://notes.example.com
 
 MCP 只传输文字和 Markdown，不提供图片内容或缩略图。正文中非代码区域、未转义的 `#标签` 会被索引，行内代码、围栏代码和反斜杠转义的井号词（如 `\#CSharp`）会忽略；`create_note.tags` 和 `batch_update_notes.tags` 只追加标签，`note_operation` 的 `set_tags` 必须显式传 `mode=replace`、`mode=add` 或 `mode=remove`，以明确选择整体替换、追加或移除；回收站笔记只读；`batch_update_notes` 可通过单独传 `deleted:false` 批量恢复，其他修改都会返回 `NOTE_IN_TRASH`，需先恢复笔记；重复调用 `note_operation` 的 `trash` 动作或批量传 `deleted:true` 会在对应结果中标记 `noop=true`。`replace_in_note` 可替换正文中唯一匹配的片段，不必把全文传给模型；可选传 `version` 时会校验版本，显式传 `force=true` 才会忽略调用方提供的旧版本，但服务端写入仍使用乐观锁。`insert_into_note` 可在正文唯一匹配的锚点前后插入内容；锚点不存在或不唯一时不会修改笔记。两个工具的匹配都按非重叠计数，`occurrence` 从 1 开始。删除笔记本是不可逆的级联操作，必须传 `confirm=true`；`list_notebooks` 的 `count` 不含回收站笔记，二次确认时应把含回收站的 `totalCount` 传给 `expectedNoteCount`；MCP 不提供单项永久删除笔记或清空回收站的工具。正文中的图片引用会原样保留，方便后续编辑时保留这些引用；MCP 令牌不能用于读取 `/api/assets/` 下的图片。通过 MCP 结构化参数传多行 Markdown 即可；若手写原始 JSON，字符串中的换行、制表符等控制字符必须按 JSON 规范转义。工具结果只通过 MCP 文本 `content` 返回一次 JSON，不另附重复的结构化结果。
 
+MCP 的 `update_note` 可省略 `version`，服务端会读取当前版本并继续使用乐观锁；显式传入时仍会校验。`replace_in_note` 可传 `replaceAll=true` 一次替换所有非重叠匹配并返回 `replacedCount`；`insert_into_note` 可传 `insertAll=true` 在全部非重叠锚点处插入并返回 `insertedCount`，两者的全量操作均会先检查正文长度上限。批量标签使用 `tags` 追加、`removeTags` 移除、`replaceTags` 整体替换；`replaceTags` 与另外两种标签操作互斥。`revoke_share` 除 `shareId` 外也接受完整分享 URL 或 URL 中的 token；三种标识必须且只能传一种，并按当前用户校验。标题歧义候选附带摘要和可读更新时间，`truncated=true` 表示候选列表不完整；`get_note` 按 ID 读取回收站笔记无需设置 `includeDeleted`。
+
 ### 本机运行
 
 在安装了 Bun 的电脑上运行：

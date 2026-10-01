@@ -143,6 +143,7 @@ describe("remote MCP endpoint", () => {
     for (const tool of tools) assertClosedSchemas(tool.inputSchema);
     const updateSchema = tools.find((tool: { name: string }) => tool.name === "update_note").inputSchema;
     expect(Object.keys(updateSchema.properties)).toEqual(["noteId", "version", "title", "contentMarkdown", "includeContent"]);
+    expect(updateSchema.required).toEqual(["noteId"]);
     expect(updateSchema.additionalProperties).toBe(false);
     const noteOperation = tools.find((tool: { name: string }) => tool.name === "note_operation");
     expect(noteOperation.inputSchema.type).toBe("object");
@@ -161,9 +162,17 @@ describe("remote MCP endpoint", () => {
     const getNotesBatch = tools.find((tool: { name: string }) => tool.name === "get_notes_batch");
     expect(getNotesBatch.description).toContain("不构成同一时刻的一致快照，也可能看不到并行或之后完成的写入");
     const replaceSchema = tools.find((tool: { name: string }) => tool.name === "replace_in_note").inputSchema;
-    expect(Object.keys(replaceSchema.properties)).toEqual(["noteId", "oldText", "newText", "occurrence", "version", "force", "includeContent"]);
+    expect(Object.keys(replaceSchema.properties)).toEqual(["noteId", "oldText", "newText", "replaceAll", "occurrence", "version", "force", "includeContent"]);
+    const insertSchema = tools.find((tool: { name: string }) => tool.name === "insert_into_note").inputSchema;
+    expect(Object.keys(insertSchema.properties)).toContain("insertAll");
     const batchUpdateTool = tools.find((tool: { name: string }) => tool.name === "batch_update_notes");
     expect(batchUpdateTool.description).toContain("仅当本次只传 deleted:false 时可批量恢复");
+    expect(batchUpdateTool.inputSchema.properties.replaceTags.description).toContain("整体替换");
+    const revokeShareTool = tools.find((tool: { name: string }) => tool.name === "revoke_share");
+    expect(Object.keys(revokeShareTool.inputSchema.properties)).toEqual(["shareId", "url", "token"]);
+    const getNoteTool = tools.find((tool: { name: string }) => tool.name === "get_note");
+    expect(getNoteTool.description).toContain("truncated=true 表示候选未列全");
+    expect(getNoteTool.inputSchema.properties.includeDeleted.description).toContain("按 noteId 读取回收站笔记不需要此参数");
 
     const validOriginRequest = modernMcpRequest("tools/list", 2);
     validOriginRequest.headers.set("Origin", "https://notes.example.com");
@@ -174,7 +183,7 @@ describe("remote MCP endpoint", () => {
   test("provides server-level usage instructions during discovery", async () => {
     const discovered = await callMcp(modernMcpRequest("server/discover", 1), { ...credentials, XIANGYING_MCP_TOKEN: token });
     expect(discovered.response.status).toBe(200);
-    expect(resultOf(discovered.body!).instructions).toContain("append_to_note、insert_into_note、replace_in_note 可省略 version");
+    expect(resultOf(discovered.body!).instructions).toContain("append_to_note、insert_into_note、replace_in_note、update_note 可省略 version");
     expect(resultOf(discovered.body!).instructions).toContain("create_notebook");
     expect(resultOf(discovered.body!).instructions).toContain("换行写作 \\n");
     expect(resultOf(discovered.body!).instructions).toContain("工具参数必须是 JSON 对象");
@@ -236,7 +245,7 @@ describe("remote MCP endpoint", () => {
     const revokeResult = toolData(revoked.body!);
     expect(revokeResult).toMatchObject({ ok: true, noop: false, share: { id: share.id, revokedAt: expect.any(Number) } });
     expect(typeof revokeResult.share.revokedAtISO).toBe("string");
-    const revokedAgain = await callTool("revoke_share", { shareId: share.id }, 5, environment);
+    const revokedAgain = await callTool("revoke_share", { url: share.url }, 5, environment);
     expect(toolData(revokedAgain.body!)).toMatchObject({ ok: true, noop: true, share: { id: share.id, revokedAt: revokeResult.share.revokedAt } });
     const afterRevoke = toolData((await callTool("list_shares", { noteId: note.id }, 6, environment)).body!).shares;
     expect(typeof afterRevoke[0].revokedAtISO).toBe("string");
@@ -244,6 +253,19 @@ describe("remote MCP endpoint", () => {
     const noLongerPublic = await request(`/api/shares/${publicToken}`, {}, environment);
     expect(noLongerPublic.response.status).toBe(410);
     expect(noLongerPublic.body?.error.code).toBe("SHARE_REVOKED");
+
+    const secondShare = toolData((await callTool("create_share", { noteId: note.id }, 7, environment)).body!).share;
+    const tokenOnly = new URL(secondShare.url).pathname.split("/").at(-1)!;
+    const otherOwner = await callTool("revoke_share", { token: tokenOnly }, 8, {
+      XIANGYING_USERNAME: "other-owner",
+      XIANGYING_PASSWORD: "another long passphrase 5678",
+      XIANGYING_MCP_TOKEN: token,
+    });
+    expect(toolData(otherOwner.body!).error.code).toBe("SHARE_NOT_FOUND");
+    const revokedByToken = await callTool("revoke_share", { token: tokenOnly }, 9, environment);
+    expect(toolData(revokedByToken.body!)).toMatchObject({ ok: true, noop: false, share: { id: secondShare.id } });
+    const invalidSelector = await callTool("revoke_share", { shareId: share.id, url: share.url }, 10, environment);
+    expect(toolData(invalidSelector.body!).error.code).toBe("INVALID_SHARE_SELECTOR");
   });
 
   test("creates, renames, and deletes a notebook while preserving its notes", async () => {
@@ -696,6 +718,22 @@ describe("remote MCP endpoint", () => {
     expect(toolData(ambiguous.body!).error.code).toBe("AMBIGUOUS_MATCH");
     expect(toolData(ambiguous.body!).error.target).toBe("title");
     expect(toolData(ambiguous.body!).error.matches).toHaveLength(2);
+
+    await callTool("create_note", { title: "重复标题消歧", contentMarkdown: "候选正文甲，有独特信息" }, 6, environment);
+    await callTool("create_note", { title: "重复标题消歧", contentMarkdown: "候选正文乙，另一段信息" }, 7, environment);
+    const duplicateTitle = toolData((await callTool("get_note", { title: "重复标题消歧" }, 8, environment)).body!).error;
+    expect(duplicateTitle.truncated).toBe(false);
+    expect(duplicateTitle.matches).toHaveLength(2);
+    expect(duplicateTitle.matches.map((match: { preview: string }) => match.preview)).toContain("候选正文甲，有独特信息");
+    expect(duplicateTitle.matches.map((match: { preview: string }) => match.preview)).toContain("候选正文乙，另一段信息");
+    expect(typeof duplicateTitle.matches[0].updatedAtISO).toBe("string");
+    expect(typeof duplicateTitle.matches[0].createdAtISO).toBe("string");
+    for (let index = 0; index < 4; index += 1) {
+      await callTool("create_note", { title: "重复标题消歧", contentMarkdown: `后续候选正文${index}` }, 9 + index, environment);
+    }
+    const truncatedTitle = toolData((await callTool("get_note", { title: "重复标题消歧" }, 13, environment)).body!).error;
+    expect(truncatedTitle).toMatchObject({ matchCount: 6, truncated: true });
+    expect(truncatedTitle.matches).toHaveLength(5);
   });
 
   test("batch-updates notebooks and tags, and bounds search results", async () => {
@@ -727,6 +765,40 @@ describe("remote MCP endpoint", () => {
     expect(toolData(removal.body!).updatedCount).toBe(2);
     const removedSearch = await callTool("search_notes", { tag: "batch-tag" }, 7, environment);
     expect(toolData(removedSearch.body!).notes).toHaveLength(0);
+
+    const currentNotes = toolData(removal.body!).results.map((entry: { noteId: string; note: { version: number } }) => ({ noteId: entry.noteId, version: entry.note.version }));
+    const replacedTags = await callTool("batch_update_notes", { notes: currentNotes, replaceTags: ["统一标签", "迁移标签"] }, 8, environment);
+    expect(toolData(replacedTags.body!).updatedCount).toBe(2);
+    const replacementResults = toolData(replacedTags.body!).results;
+    expect(replacementResults.every((entry: { note: { tags: string[] } }) => JSON.stringify(entry.note.tags) === JSON.stringify(["统一标签", "迁移标签"]))).toBe(true);
+    const incompatible = await callTool("batch_update_notes", {
+      notes: replacementResults.map((entry: { noteId: string; note: { version: number } }) => ({ noteId: entry.noteId, version: entry.note.version })),
+      replaceTags: ["替换"],
+      tags: ["追加"],
+    }, 9, environment);
+    expect(toolData(incompatible.body!).error.code).toBe("INCOMPATIBLE_TAG_OPERATIONS");
+    const cleared = await callTool("batch_update_notes", {
+      notes: replacementResults.map((entry: { noteId: string; note: { version: number } }) => ({ noteId: entry.noteId, version: entry.note.version })),
+      replaceTags: [],
+    }, 10, environment);
+    expect(toolData(cleared.body!).updatedCount).toBe(2);
+    expect(toolData(cleared.body!).results.every((entry: { note: { tags: string[] } }) => entry.note.tags.length === 0)).toBe(true);
+  });
+
+  test("update_note reads the current version when the caller omits it", async () => {
+    const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
+    const created = toolData((await callTool("create_note", { title: "自动版本更新", contentMarkdown: "正文保持完整" }, 1, environment)).body!).note;
+    const updated = await callTool("update_note", { noteId: created.id, title: "自动版本更新完成" }, 2, environment);
+    expect(toolData(updated.body!).note).toMatchObject({ id: created.id, title: "自动版本更新完成", version: created.version + 1 });
+    expect(toolData((await callTool("get_note", { noteId: created.id }, 3, environment)).body!).note.contentMarkdown).toBe("正文保持完整");
+  });
+
+  test("get_note reads trashed notes by ID without includeDeleted", async () => {
+    const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
+    const created = toolData((await callTool("create_note", { title: "按 ID 读取回收站", contentMarkdown: "回收站正文" }, 1, environment)).body!).note;
+    const trashed = toolData((await callTool("note_operation", { action: "trash", noteId: created.id, version: created.version }, 2, environment)).body!).note;
+    const byId = toolData((await callTool("get_note", { noteId: created.id, includeContent: false }, 3, environment)).body!).note;
+    expect(byId).toMatchObject({ id: created.id, version: trashed.version, isDeleted: true, deletedAt: expect.any(Number) });
   });
 
   test("includes the current full note for per-item batch version conflicts", async () => {
@@ -796,6 +868,36 @@ describe("remote MCP endpoint", () => {
     }, 5, environment);
     expect(toolData(forced.body!).note.version).toBe(3);
     expect(toolData((await callTool("get_note", { noteId: note.id }, 6, environment)).body!).note.contentMarkdown).toBe("报告中的占位符：最终修正；其余正文保持原样");
+  });
+
+  test("replace_in_note can replace every non-overlapping match in one call", async () => {
+    const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
+    const originalBody = "复X、复X、复X";
+    const created = toolData((await callTool("create_note", { title: "全局术语替换", contentMarkdown: originalBody }, 1, environment)).body!).note;
+    const replaced = await callTool("replace_in_note", { noteId: created.id, oldText: "复X", newText: "统一术语", replaceAll: true }, 2, environment);
+    expect(toolData(replaced.body!)).toMatchObject({ replacedCount: 3, note: { version: created.version + 1 } });
+    expect(toolData((await callTool("get_note", { noteId: created.id }, 3, environment)).body!).note.contentMarkdown).toBe("统一术语、统一术语、统一术语");
+
+    const invalid = await callTool("replace_in_note", { noteId: created.id, oldText: "统一术语", newText: "不应写入", replaceAll: true, occurrence: 1 }, 4, environment);
+    expect(toolData(invalid.body!).error.code).toBe("INVALID_REPLACEMENT_SELECTOR");
+    expect(toolData((await callTool("get_note", { noteId: created.id }, 5, environment)).body!).note.contentMarkdown).toBe("统一术语、统一术语、统一术语");
+
+    const short = toolData((await callTool("create_note", { title: "替换扩容上限", contentMarkdown: "xx" }, 6, environment)).body!).note;
+    const tooLarge = await callTool("replace_in_note", { noteId: short.id, oldText: "x", newText: "y".repeat(600_000), replaceAll: true }, 7, environment);
+    expect(toolData(tooLarge.body!).error.code).toBe("NOTE_TOO_LARGE");
+    expect(toolData((await callTool("get_note", { noteId: short.id }, 8, environment)).body!).note.contentMarkdown).toBe("xx");
+  });
+
+  test("insert_into_note can insert at every non-overlapping anchor in one call", async () => {
+    const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
+    const created = toolData((await callTool("create_note", { title: "全部锚点插入", contentMarkdown: "a--a--a." }, 1, environment)).body!).note;
+    const inserted = await callTool("insert_into_note", { noteId: created.id, anchor: "a", contentMarkdown: "X", insertAll: true }, 2, environment);
+    expect(toolData(inserted.body!)).toMatchObject({ insertedCount: 3, note: { version: created.version + 1 } });
+    expect(toolData((await callTool("get_note", { noteId: created.id }, 3, environment)).body!).note.contentMarkdown).toBe("aX--aX--aX.");
+
+    const invalid = await callTool("insert_into_note", { noteId: created.id, anchor: "a", contentMarkdown: "Y", insertAll: true, occurrence: 1 }, 4, environment);
+    expect(toolData(invalid.body!).error.code).toBe("INVALID_INSERTION_SELECTOR");
+    expect(toolData((await callTool("get_note", { noteId: created.id }, 5, environment)).body!).note.contentMarkdown).toBe("aX--aX--aX.");
   });
 
   test("reports bounded match contexts and replaces a requested occurrence", async () => {

@@ -995,6 +995,9 @@ export type TitleMatchRow = {
   title: string;
   version: number;
   notebook_name: string;
+  content_markdown: string;
+  created_at: number;
+  updated_at: number;
 };
 
 // Shared title lookup so the REST and MCP layers cannot drift apart.
@@ -1005,7 +1008,9 @@ export function findNotesByTitlePattern(
   includeDeleted = false,
 ) {
   return all<TitleMatchRow>(database, `
-    SELECT n.id, n.title, n.version, b.name AS notebook_name
+    SELECT n.id, n.title, n.version, b.name AS notebook_name,
+      substr(n.content_markdown, 1, ${NOTE_PREVIEW_SCAN_LIMIT}) AS content_markdown,
+      n.created_at, n.updated_at
     FROM notes n JOIN notebooks b ON b.id = n.notebook_id
     WHERE n.user_id = ? ${includeDeleted ? "" : "AND n.deleted_at IS NULL "}AND n.title LIKE ? ESCAPE '!'
     ORDER BY CASE WHEN n.title = ? COLLATE NOCASE THEN 0 ELSE 1 END, n.updated_at DESC, n.id DESC
