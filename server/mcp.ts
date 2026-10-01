@@ -39,7 +39,7 @@ const MCP_SERVER_INSTRUCTIONS = [
   "工具参数必须是 JSON 对象。客户端会先校验参数；手写原始 JSON 时，字符串中的控制字符须按 JSON 规范转义（换行写作 \\n）。结构化参数中的多行 Markdown 会原样保留。",
   "单次正文写入建议不超过 8,000 个 Unicode 字符；超长新内容先用 create_note 创建标题和笔记本骨架，再分段调用 append_to_note，并沿用每次写入返回的 version。写操作默认不回传正文，创建和正文写入结果含 contentLength。",
   "需要分类时先用 list_notebooks 获取 ID；create_notebook 创建，update_notebook 重命名或改图标、颜色，delete_notebook 必须传 confirm=true，可用 totalCount 传 expectedNoteCount 二次确认，删除后笔记移入收件箱。update_note 只改标题或正文；低频单篇管理统一用 note_operation：move 移动，set_favorite 设定目标收藏状态，set_tags 管理标签，trash 软删除，restore 恢复。收藏设定是幂等的；最多 50 篇的批量管理用 batch_update_notes。",
-  "create_note.tags 和 batch_update_notes.tags 只追加标签；note_operation action=set_tags 必须显式指定 mode=replace、add 或 remove，replace 会清除未列出的标签，空数组可清空全部。标签是正文非代码区域未转义的 #标签；字面井号词在井号前加反斜杠，例如 \\#CSharp。回收站笔记只能通过 note_operation action=restore 或 batch_update_notes 单独传 deleted:false 恢复；MCP 不提供单项永久删除或清空回收站的工具。",
+  "create_note.tags 和 batch_update_notes.tags 只追加标签；note_operation action=set_tags 必须显式指定 mode=replace、add 或 remove，replace 会清除未列出的标签，空数组可清空全部。标签名只允许中文、字母、数字、下划线和连字符；标签是正文非代码区域未转义的 #标签，字面井号词在井号前加反斜杠，例如 \\#CSharp。回收站笔记只能通过 note_operation action=restore 或 batch_update_notes 单独传 deleted:false 恢复；MCP 不提供单项永久删除或清空回收站的工具。",
   "search_notes 的 view=trash 可搜索回收站，view=shared 可筛选已分享笔记；create_share 创建 7 天只读分享，list_shares 查看指定笔记的分享记录，revoke_share 撤销分享链接。preview 保留正文换行、孤立下划线以及标识符和 URL 中的下划线，过滤纯标签行。list_trash 也可用 query 搜索回收站，再用 note_operation action=restore 恢复。",
   "需完整正文时用 get_note 或 get_notes_batch；批量读取最多 50 篇且受正文字符预算限制，各篇在本次调用期间分别读取，不构成同一时刻的一致快照，也可能看不到并行写入。oversizedIds 标明因剩余预算不足而跳过的笔记，工具会继续处理后续 ID；checkedCount 与 uncheckedCount 表示已检查和未检查存在性的数量，超出总预算的长笔记可单独用 get_note 读取。",
   "replace_in_note 可替换正文片段，支持 replaceAll=true 一次替换全部非重叠匹配；insert_into_note 可按锚点插入，支持 insertAll=true 对全部非重叠匹配插入。歧义时返回匹配数量和上下文，可用 occurrence 指定第几个匹配。append_to_note、insert_into_note、replace_in_note、update_note 可省略 version，由服务端读取当前 version 并以乐观锁保存；传入时会校验。其他单篇写操作使用 search_notes 或 list_trash 返回的 version，VERSION_CONFLICT 的 error.current 含当前完整笔记。insert_into_note 在行边界插入时自动补换行，行内插入保持精确拼接。",
@@ -47,7 +47,23 @@ const MCP_SERVER_INSTRUCTIONS = [
   "MCP 只传输文字和 Markdown，不提供图片数据或缩略图；保留正文中的图片引用。",
 ].join(" ");
 
-const noteTagsSchema = z.array(z.string().trim().min(1).max(40).regex(/^[\p{L}\p{N}_-]+$/u)).max(50);
+// Keep published JSON Schemas within the broadly supported regular-expression
+// subset. Tag syntax is still validated in the MCP handler below.
+const noteTagsSchema = z.array(z.string().trim().min(1).max(40)).max(50);
+const validMcpTagName = /^[\p{L}\p{N}_-]+$/u;
+
+function validMcpTags(tags: readonly string[]) {
+  return tags.every((tag) => validMcpTagName.test(tag.trim()));
+}
+
+function invalidMcpTagsError() {
+  return responseValue({
+    error: {
+      code: "INVALID_TAGS",
+      message: "标签只能包含中文、字母、数字、下划线或连字符；每个标签最多 40 个字符，最多传 50 个标签。",
+    },
+  }, true);
+}
 const noteOperationActionSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("move"),
@@ -65,7 +81,7 @@ const noteOperationActionSchema = z.discriminatedUnion("action", [
     action: z.literal("set_tags"),
     noteId: z.string().min(1).max(200),
     version: z.number().int().positive(),
-    tags: noteTagsSchema.describe("标签名，不带 #；mode=replace 时传空数组以清空"),
+      tags: noteTagsSchema.describe("标签名，仅可含中文、字母、数字、下划线或连字符，不带 #；mode=replace 时传空数组以清空"),
     mode: z.enum(["replace", "add", "remove"]).describe("必填的标签操作方式；replace 整体替换，add 追加，remove 移除"),
   }).strict(),
   z.object({
@@ -89,7 +105,7 @@ const noteOperationInputSchema = z.object({
   version: z.number().int().positive(),
   notebookId: z.string().min(1).max(200).optional().describe("仅 action=move 时必填"),
   isFavorite: z.boolean().optional().describe("仅 action=set_favorite 时必填；true 收藏，false 取消收藏"),
-  tags: noteTagsSchema.optional().describe("仅 action=set_tags 时必填；标签名不带 #"),
+  tags: noteTagsSchema.optional().describe("仅 action=set_tags 时必填；标签名仅可含中文、字母、数字、下划线或连字符，不带 #"),
   mode: z.enum(["replace", "add", "remove"]).optional().describe("action=set_tags 时必填；其他 action 不适用"),
 }).strict();
 
@@ -560,7 +576,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
     description: "创建一个用于分类笔记的新笔记本。返回新笔记本的 ID、名称、图标和颜色；省略颜色或图标时使用默认值。重名会返回 NOTEBOOK_EXISTS。",
     inputSchema: z.object({
       name: z.string().trim().min(1).max(40).describe("笔记本名称，最多 40 个字符"),
-      color: z.string().regex(/^#[0-9a-f]{6}$/iu).optional().describe("六位十六进制颜色；预设示例：#718077 松柏绿、#d96245 朱砂、#5b7899 蓝灰、#9c765f 木棕"),
+      color: z.string().min(7).max(7).optional().describe("六位十六进制颜色；预设示例：#718077 松柏绿、#d96245 朱砂、#5b7899 蓝灰、#9c765f 木棕"),
       icon: z.enum(VALID_NOTEBOOK_ICONS).optional().describe("笔记本图标标识，例如 folder、book 或 bookmark"),
     }).strict(),
   }, async ({ name, color, icon }) => {
@@ -580,7 +596,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
     inputSchema: z.object({
       notebookId: z.string().min(1).max(200),
       name: z.string().trim().min(1).max(40).optional().describe("新名称，最多 40 个字符；用于重命名"),
-      color: z.string().regex(/^#[0-9a-f]{6}$/iu).optional().describe("六位十六进制颜色；预设示例：#718077 松柏绿、#d96245 朱砂、#5b7899 蓝灰、#9c765f 木棕"),
+      color: z.string().min(7).max(7).optional().describe("六位十六进制颜色；预设示例：#718077 松柏绿、#d96245 朱砂、#5b7899 蓝灰、#9c765f 木棕"),
       icon: z.enum(VALID_NOTEBOOK_ICONS).optional().describe("笔记本图标标识，例如 folder、book 或 bookmark"),
     }).strict(),
   }, async ({ notebookId, name, color, icon }) => {
@@ -616,7 +632,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
     description: "按标题或正文搜索笔记，可用 tag 精确筛选正文标签，并配合 nextCursor 分页取回该标签下全部匹配笔记。省略 query 可列出最近更新的笔记；view=shared 可只筛选已分享笔记，也可用 create_share、list_shares、revoke_share 管理分享。默认每页 20 篇，preview 默认最多 120 个 Unicode 字符；摘要保留换行、孤立下划线及标识符和 URL 中的下划线，过滤纯标签行。结果含可读的 updatedAtISO，不含正文、图片或缩略图。",
     inputSchema: z.object({
       query: z.string().max(80).optional().describe("搜索词；省略或留空时列出最近笔记"),
-      tag: z.string().trim().min(1).max(40).regex(/^[#]?[\p{L}\p{N}_-]+$/u).optional().describe("按正文中的标签精确筛选，可带或不带 #"),
+      tag: z.string().trim().min(1).max(40).optional().describe("按正文中的标签精确筛选，可带或不带 #；仅支持中文、字母、数字、下划线或连字符，格式由服务端校验"),
       notebookId: z.string().min(1).max(200).optional().describe("仅搜索指定笔记本"),
       view: z.enum(NOTE_VIEWS).optional().describe("笔记视图，默认 all；trash 搜索回收站，shared 只筛选已分享笔记"),
       cursor: z.string().max(2048).optional().describe("上一次搜索结果返回的 nextCursor"),
@@ -803,11 +819,12 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
       title: z.string().min(1).max(200),
       contentMarkdown: z.string().max(NOTE_CONTENT_MAX_LENGTH).optional().describe("Markdown 正文，最多 1,000,000 个字符；单次建议不超过 8,000 个 Unicode 字符，超长内容请分段追加"),
       notebookId: z.string().min(1).max(200).optional(),
-      tags: noteTagsSchema.optional().describe("要追加到正文的标签名，不带 #；仅追加，不会覆盖已有标签（整体替换请用 note_operation action=set_tags）"),
+      tags: noteTagsSchema.optional().describe("要追加到正文的标签名，仅可含中文、字母、数字、下划线或连字符，不带 #；仅追加，不会覆盖已有标签（整体替换请用 note_operation action=set_tags）"),
       includeContent: z.boolean().optional().describe("是否在成功结果中回传完整正文，默认 false"),
     }).strict(),
   }, async ({ title, contentMarkdown = "", notebookId, tags = [], includeContent = false }) => {
     if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
+    if (!validMcpTags(tags)) return invalidMcpTagsError();
     const payload = {
       title,
       contentMarkdown: appendMarkdownTags(contentMarkdown, tags),
@@ -936,6 +953,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
       return result.status === 200 ? responseValue(result.body, false, { writeResult: true }) : routeError(result);
     }
     if (operation.action === "set_tags") {
+      if (!validMcpTags(operation.tags)) return invalidMcpTagsError();
       const tagInput = operation.mode === "add"
         ? { tags: operation.tags }
         : operation.mode === "remove"
@@ -1093,12 +1111,15 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
       notebookId: z.string().min(1).max(200).optional(),
       isFavorite: z.boolean().optional(),
       deleted: z.boolean().optional(),
-      tags: noteTagsSchema.optional().describe("追加到每篇笔记正文的标签名，不带 #；仅追加，不会覆盖已有标签"),
-      removeTags: noteTagsSchema.optional().describe("从每篇笔记正文移除的标签名，不带 #"),
-      replaceTags: noteTagsSchema.optional().describe("整体替换每篇笔记的标签集合，不带 #；空数组清空所有标签，不能与 tags/removeTags 同时使用"),
+      tags: noteTagsSchema.optional().describe("追加到每篇笔记正文的标签名，仅可含中文、字母、数字、下划线或连字符，不带 #；仅追加，不会覆盖已有标签"),
+      removeTags: noteTagsSchema.optional().describe("从每篇笔记正文移除的标签名，仅可含中文、字母、数字、下划线或连字符，不带 #"),
+      replaceTags: noteTagsSchema.optional().describe("整体替换每篇笔记的标签集合，仅可含中文、字母、数字、下划线或连字符，不带 #；空数组清空所有标签，不能与 tags/removeTags 同时使用"),
     }).strict(),
   }, async ({ notes, notebookId, isFavorite, deleted, tags, removeTags, replaceTags }) => {
     if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
+    if ([tags, removeTags, replaceTags].some((values) => values !== undefined && !validMcpTags(values))) {
+      return invalidMcpTagsError();
+    }
     if (replaceTags !== undefined && (tags !== undefined || removeTags !== undefined)) {
       return responseValue({ error: { code: "INCOMPATIBLE_TAG_OPERATIONS", message: "replaceTags 是整体替换操作，不能与追加 tags 或移除 removeTags 同次使用" } }, true);
     }

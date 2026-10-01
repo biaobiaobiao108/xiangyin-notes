@@ -140,7 +140,18 @@ describe("remote MCP endpoint", () => {
       if (schema.items && typeof schema.items === "object") assertClosedSchemas(schema.items as Record<string, any>);
       for (const branch of [...(schema.oneOf ?? []), ...(schema.anyOf ?? [])]) assertClosedSchemas(branch);
     };
-    for (const tool of tools) assertClosedSchemas(tool.inputSchema);
+    const assertNoPattern = (schema: Record<string, any>) => {
+      expect(schema.pattern).toBeUndefined();
+      for (const property of Object.values(schema.properties ?? {})) {
+        if (property && typeof property === "object") assertNoPattern(property as Record<string, any>);
+      }
+      if (schema.items && typeof schema.items === "object") assertNoPattern(schema.items as Record<string, any>);
+      for (const branch of [...(schema.oneOf ?? []), ...(schema.anyOf ?? [])]) assertNoPattern(branch);
+    };
+    for (const tool of tools) {
+      assertClosedSchemas(tool.inputSchema);
+      assertNoPattern(tool.inputSchema);
+    }
     const updateSchema = tools.find((tool: { name: string }) => tool.name === "update_note").inputSchema;
     expect(Object.keys(updateSchema.properties)).toEqual(["noteId", "version", "title", "contentMarkdown", "includeContent"]);
     expect(updateSchema.required).toEqual(["noteId"]);
@@ -210,6 +221,31 @@ describe("remote MCP endpoint", () => {
     expect(resultOf(discovered.body!).instructions).toContain("batch_update_notes 单独传 deleted:false 恢复");
     expect(resultOf(discovered.body!).instructions).toContain("oversizedIds 标明因剩余预算不足而跳过的笔记");
     expect(resultOf(discovered.body!).instructions).toContain("insert_into_note 在行边界插入时自动补换行");
+  });
+
+  test("keeps tag and color validation on the server without publishing regex patterns", async () => {
+    const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
+    const listed = await callMcp(modernMcpRequest("tools/list", 1), environment);
+    const tools = resultOf(listed.body!).tools as Array<{ name: string; inputSchema: Record<string, any> }>;
+    const search = tools.find((tool) => tool.name === "search_notes")!;
+    expect(search.inputSchema.properties.tag).toMatchObject({ type: "string", minLength: 1, maxLength: 40 });
+    expect(search.inputSchema.properties.tag.pattern).toBeUndefined();
+
+    const invalidSearchTag = await callTool("search_notes", { tag: "bad tag" }, 2, environment);
+    expect(toolData(invalidSearchTag.body!).error.code).toBe("INVALID_TAG_FILTER");
+
+    const invalidCreateTag = await callTool("create_note", {
+      title: "非法标签不会写入",
+      contentMarkdown: "正文",
+      tags: ["bad tag"],
+    }, 3, environment);
+    expect(toolData(invalidCreateTag.body!).error.code).toBe("INVALID_TAGS");
+
+    const invalidNotebookColor = await callTool("create_notebook", {
+      name: "非法颜色校验",
+      color: "#GGGGGG",
+    }, 4, environment);
+    expect(toolData(invalidNotebookColor.body!).error.code).toBe("INVALID_NOTEBOOK");
   });
 
   test("redacts MCP path tokens from application error log paths", () => {
