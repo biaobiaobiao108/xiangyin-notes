@@ -845,6 +845,7 @@ button.save-status:hover { text-decoration: underline; }
 .editor-outline-item--level-6 { --outline-indent: 50px; --outline-weight: 400; }
 
 .editor-outline-item button {
+  position: relative;
   display: flex;
   align-items: center;
   width: 100%;
@@ -866,9 +867,24 @@ button.save-status:hover { text-decoration: underline; }
   transition: transform var(--motion-micro) var(--motion-ease-out);
 }
 
-.editor-outline-item button:hover,
-.editor-outline-item button[aria-current="true"] {
+.editor-outline-item button:hover {
   color: var(--accent);
+}
+
+.editor-outline-item button[aria-current="true"] {
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.editor-outline-item button[aria-current="true"]::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: 0;
+  top: 9px;
+  width: 2px;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--accent);
 }
 
 .editor-outline-item button:active { transform: scale(0.98); }
