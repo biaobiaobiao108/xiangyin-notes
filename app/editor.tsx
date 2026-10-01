@@ -38,7 +38,7 @@ import { SlashCommandExtension } from "./editor/slash-command-menu";
 import { TableScrollbars } from "./editor/table-scrollbars";
 import { createTableExtensions } from "./editor/table-extensions";
 import { playEntranceAnimation } from "./animation";
-import { NoteOutlinePanel } from "./workspace/panels";
+import { CardOutline } from "./editor/card-outline";
 
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
 type SaveState = "idle" | "saving" | "saved" | "conflict" | "error";
@@ -1436,15 +1436,13 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
         />
       )}
       {onBackToCards && outlineOpen && (
-        <div className="editor-floating-outline">
-          <NoteOutlinePanel
-            outlineItems={outlineItems}
-            activeOutlineId={activeOutlineId ?? null}
-            onScrollToOutlineItem={scrollToOutlineItem}
-            onCloseOutline={onCloseOutline}
-            isFloating
-          />
-        </div>
+        <CardOutline
+          key={note.id}
+          outlineItems={outlineItems}
+          activeOutlineId={activeOutlineId ?? null}
+          onNavigate={scrollToOutlineItem}
+          onClose={onCloseOutline}
+        />
       )}
     </section>
   );

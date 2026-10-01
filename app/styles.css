@@ -2598,25 +2598,23 @@ dialog::backdrop {
   margin-right: 4px;
 }
 
-/* Floating outline for card layout */
+/* Frameless floating outline for card editing. Keep a reading gutter beside it. */
 .editor-floating-outline {
   position: absolute;
-  top: 68px;
-  left: 20px;
-  bottom: 24px;
-  width: 250px;
-  max-width: calc(100vw - 40px);
+  top: 78px;
+  left: 16px;
+  bottom: 96px;
+  width: 216px;
   z-index: 30;
-  display: flex;
-  flex-direction: column;
-  background: var(--surface-glass);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-float);
-  overflow: hidden;
   animation: outlineFadeIn var(--motion-panel) var(--motion-ease-out) both;
+}
+
+.app-shell.layout-cards .editor-panel:has(.editor-floating-outline) .editor-scroll {
+  padding-inline: 248px 32px;
+}
+
+.app-shell.layout-cards .editor-panel:has(.editor-floating-outline) .editor-document {
+  width: min(820px, 100%);
 }
 
 .editor-floating-outline .note-outline-panel {
@@ -2631,52 +2629,73 @@ dialog::backdrop {
   justify-content: space-between;
   height: 46px;
   min-height: 46px;
-  padding: 0 12px 0 16px;
-  border-bottom: 1px solid var(--border-soft);
+  padding: 0 6px;
 }
 
 .editor-floating-outline .floating-outline-title {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 0.86rem;
+  min-width: 0;
+  font-size: 0.8rem;
   font-weight: 600;
   color: var(--ink);
 }
 
 .editor-floating-outline .floating-outline-count {
   font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
   color: var(--soft-muted);
   font-weight: 400;
 }
 
-.editor-floating-outline .note-outline-scroll {
-  padding: 12px 14px 20px;
+.editor-floating-outline .note-outline-scroll { padding: 8px 0 20px; }
+.editor-floating-outline .editor-outline-item button {
+  align-items: center;
+  height: 32px;
+  min-height: 32px;
+  padding: 5px 6px 5px calc(6px + var(--card-outline-indent));
+  color: var(--muted);
+  font-size: 0.8rem;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  transition: transform var(--motion-micro) var(--motion-ease-out);
+}
+
+.editor-floating-outline .editor-outline-item button:hover,
+.editor-floating-outline .editor-outline-item button[aria-current="true"] {
+  color: var(--accent);
+  background: transparent;
+  border-color: transparent;
+}
+
+.editor-floating-outline .editor-outline-item button:active { transform: scale(0.98); }
+.editor-floating-outline .outline-item-title {
+  display: block;
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 @keyframes outlineFadeIn {
-  from {
-    opacity: 0;
-    transform: translateX(-10px) scale(0.98);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0) scale(1);
-  }
+  from { opacity: 0; transform: translateX(-8px) scale(0.98); }
+  to { opacity: 1; transform: translateX(0) scale(1); }
 }
 
 @media (max-width: 768px) {
-  .editor-floating-outline {
-    top: 56px;
-    left: 12px;
-    right: 12px;
-    width: auto;
-    max-width: none;
-    bottom: 20px;
-    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.16);
+  .editor-floating-outline { top: 62px; left: 6px; width: 140px; bottom: 88px; }
+  .app-shell.layout-cards .editor-panel:has(.editor-floating-outline) .editor-scroll {
+    padding-inline: 160px 20px;
+  }
+  .editor-floating-outline .floating-outline-title { gap: 4px; font-size: 0.72rem; }
+  .editor-floating-outline .floating-outline-count { display: none; }
+  .editor-floating-outline .editor-outline-item button {
+    padding-left: calc(6px + var(--card-outline-indent) * 0.6);
   }
 }
-
 @media (max-width: 900px) {
   .card-masonry {
     columns: 1;
