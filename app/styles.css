@@ -617,6 +617,7 @@ button.save-status:hover { text-decoration: underline; }
 .note-prose blockquote {
   position: relative;
   margin-block: 1.15em;
+  margin-inline: 0;
   padding: 12px 12px 12px 20px;
   border: 0;
   border-radius: var(--radius-md);
