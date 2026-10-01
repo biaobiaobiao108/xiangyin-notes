@@ -106,6 +106,33 @@ const NoteListRow = memo(function NoteListRow({ note, isSelected, isActive, show
 
 export function NoteOutlinePanel({ outlineItems, activeOutlineId, onScrollToOutlineItem, onCloseOutline, onCloseMobile, isMobileDrawer = false, isFloating = false }: { outlineItems: OutlineItem[]; activeOutlineId: string | null; onScrollToOutlineItem: (id: string) => void; onCloseOutline: () => void; onCloseMobile?: () => void; isMobileDrawer?: boolean; isFloating?: boolean }) {
   const outlineScrollRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const scrollRoot = outlineScrollRef.current;
+    const shell = scrollRoot?.parentElement;
+    if (!isFloating || !scrollRoot || !shell) return;
+    const fitCompleteRows = () => {
+      const list = scrollRoot.querySelector<HTMLOListElement>(".editor-outline-list");
+      const row = list?.querySelector<HTMLButtonElement>("button");
+      if (!list || !row) {
+        scrollRoot.style.height = "100%";
+        return;
+      }
+      const style = getComputedStyle(scrollRoot);
+      const padding = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+      const gap = parseFloat(getComputedStyle(list).rowGap) || 0;
+      const stride = row.offsetHeight + gap;
+      if (stride <= 0) return;
+      const rows = Math.max(1, Math.floor((shell.clientHeight - padding + gap) / stride));
+      scrollRoot.style.height = `${Math.min(shell.clientHeight, rows * stride - gap + padding)}px`;
+    };
+    fitCompleteRows();
+    const observer = new ResizeObserver(fitCompleteRows);
+    observer.observe(shell);
+    return () => {
+      observer.disconnect();
+      scrollRoot.style.removeProperty("height");
+    };
+  }, [isFloating, outlineItems]);
   useEffect(() => {
     const scrollRoot = outlineScrollRef.current;
     if (!scrollRoot || !activeOutlineId) return;
@@ -113,7 +140,7 @@ export function NoteOutlinePanel({ outlineItems, activeOutlineId, onScrollToOutl
     if (!activeButton) return;
     const scrollRect = scrollRoot.getBoundingClientRect();
     const buttonRect = activeButton.getBoundingClientRect();
-    const edgePadding = 8;
+    const edgePadding = isFloating ? 14 : 8;
     const visibleTop = scrollRect.top + edgePadding;
     const visibleBottom = scrollRect.bottom - edgePadding;
     let delta = 0;
@@ -123,7 +150,7 @@ export function NoteOutlinePanel({ outlineItems, activeOutlineId, onScrollToOutl
     const behavior: ScrollBehavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
     const maxScrollTop = Math.max(0, scrollRoot.scrollHeight - scrollRoot.clientHeight);
     scrollRoot.scrollTo({ top: Math.min(maxScrollTop, Math.max(0, scrollRoot.scrollTop + delta)), behavior });
-  }, [activeOutlineId, outlineItems]);
+  }, [activeOutlineId, outlineItems, isFloating]);
 
   return <aside className={`note-outline-panel ${isFloating ? "is-floating" : ""}`} id="note-outline" aria-label={isFloating ? "笔记大纲" : undefined} aria-labelledby={isFloating ? undefined : "note-outline-title"}>
     {!isFloating && (
