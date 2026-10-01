@@ -542,6 +542,8 @@ button.save-status:hover { text-decoration: underline; }
 .trashed-banner button { font-weight: 600; text-decoration: underline; }
 .editor-scroll-shell { position: relative; flex: 1 1 0; min-height: 0; overflow: hidden; }
 .editor-scroll { height: 100%; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
+/* 浏览器会自动聚焦可滚动容器；正文区域无需整页焦点轮廓。 */
+.editor-scroll:focus, .editor-scroll:focus-visible { outline: none; }
 .editor-document {
   position: relative;
   width: min(820px, calc(100% - 96px));
@@ -581,7 +583,7 @@ button.save-status:hover { text-decoration: underline; }
 .note-title-input::placeholder { color: var(--prose-placeholder); }
 .note-title-input::selection { background: var(--accent); color: var(--accent-contrast); }
 .note-prose { margin-top: 24px; color: var(--ink-soft); font-size: 1.08rem; line-height: 1.74; letter-spacing: 0.012em; overflow-wrap: anywhere; }
-.note-prose:focus { outline: 0; }
+.note-prose:focus, .note-prose:focus-visible { outline: none; }
 .note-image-node { display: block; width: 100%; margin: 1.05em 0; }
 .note-image-frame { position: relative; display: block; width: min(var(--image-display-width), 100%); max-width: 100%; }
 .note-image { display: block; width: 100%; height: auto; max-width: 100%; border-radius: 10px; box-shadow: 0 5px 18px rgba(39, 47, 41, 0.08); user-select: none; }

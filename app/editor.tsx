@@ -17,6 +17,7 @@ import { BrandMark } from "./brand-mark";
 import { cycleSearchMatchIndex, findEditorSearchMatches, findTextMatches, searchHighlightPluginKey, SearchHighlightExtension } from "./editor-search";
 import { buildOutlineItems, countEditorText, detectLeakedImePrefix, getOutlineStructureKey, parseMarkdownBlockShortcut, shouldParseMarkdownPaste, shouldUpdateActiveOutlineFromViewport, type EditorStats, type MarkdownBlockShortcut, type OutlineItem } from "./editor-metrics";
 import { changedDocumentRange } from "./editor/changed-range";
+import { scrollNoteBoundary } from "./editor/document-navigation";
 import { FloatingScrollbar } from "./floating-scrollbar";
 import { relativeDate } from "./format";
 import { ImeMarkdownSafeExtension, imeMarkdownSafePluginKey } from "./ime-markdown-safe-extension";
@@ -1367,7 +1368,18 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
         </div>
       </header>
       <div className="editor-scroll-shell">
-        <div id="editor-scroll-region" className={`editor-scroll floating-scrollbar-target ${typewriterMode ? "is-typewriter-mode" : ""}`} ref={editorScrollRef}>
+        <div id="editor-scroll-region" className={`editor-scroll floating-scrollbar-target ${typewriterMode ? "is-typewriter-mode" : ""}`} ref={editorScrollRef} onKeyDownCapture={(event) => {
+          const target = event.target;
+          if (!(target instanceof HTMLElement) || editor?.view.composing || composingRef.current) return;
+          if (target.closest("input, textarea, button, select, [role='dialog'], [role='menu']")) return;
+          // 在 ProseMirror 吞掉 Home / End 前处理阅读滚动，保留正文光标与选区。
+          if (scrollNoteBoundary(event.nativeEvent, event.currentTarget)) {
+            event.stopPropagation();
+            if (typewriterAnimRef.current !== null) cancelAnimationFrame(typewriterAnimRef.current);
+            typewriterAnimRef.current = null;
+            typewriterTargetRef.current = null;
+          }
+        }}>
           <div className="editor-document editor-document--entering" ref={documentRef} onAnimationEnd={() => documentRef.current?.classList.remove("editor-document--entering")}>
             {note.deletedAt && (
               <div className="trashed-banner" role="status">
