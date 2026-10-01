@@ -2545,7 +2545,17 @@ dialog::backdrop {
   height: 100%;
 }
 
-.editor-floating-outline .note-outline-scroll { padding: 8px 0 20px; }
+.editor-floating-outline .note-outline-scroll {
+  display: flex;
+  flex-direction: column;
+  padding: 14px 0;
+}
+
+.editor-floating-outline .note-outline-scroll > nav,
+.editor-floating-outline .note-outline-scroll > .editor-outline-empty {
+  flex-shrink: 0;
+  margin-block: auto;
+}
 @keyframes outlineFadeIn {
   from { opacity: 0; transform: translateX(-8px) scale(0.98); }
   to { opacity: 1; transform: translateX(0) scale(1); }
