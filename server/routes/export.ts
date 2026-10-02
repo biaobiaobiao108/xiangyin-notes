@@ -1,5 +1,5 @@
 import { all, ASSET_REFERENCE_PATTERN, jsonError, type RouteContext, type UserRow } from "../core";
-import { createZipReadableStream, type ZipStreamEntry } from "../zip";
+import { createZipReadableStream, type ZipStreamEntry } from "../../shared/zip";
 import { assetFilePath } from "./assets";
 
 export const EXPORT_MAX_BYTES = 512 * 1024 * 1024;

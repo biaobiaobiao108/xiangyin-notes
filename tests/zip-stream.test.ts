@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { createZipReadableStream, type ZipStreamEntry } from "../server/zip";
+import { createZipReadableStream, type ZipStreamEntry } from "../shared/zip";
 
 test("ZIP generation follows reader demand and stops after cancellation", async () => {
   let opened = 0;

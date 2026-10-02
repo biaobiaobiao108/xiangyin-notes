@@ -14,10 +14,8 @@ import { CodeBlockWithCopy } from "./code-block-copy";
 import { TableScrollbars } from "./table-scrollbars";
 import { createTableExtensions } from "./table-extensions";
 
-export function ReadOnlyMarkdown({ markdown }: { markdown: string }) {
-  const initialContentRef = useRef(markdown);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const extensions = useMemo(() => [
+export function createReadOnlyExtensions() {
+  return [
     StarterKit.configure({ heading: { levels: [1, 2, 3, 4, 5, 6] }, link: false, codeBlock: false }),
     CodeBlockWithCopy.configure({ exitOnTripleEnter: false }),
     ...createTableExtensions(),
@@ -29,7 +27,14 @@ export function ReadOnlyMarkdown({ markdown }: { markdown: string }) {
     ImageNode,
     WikiLinkNode,
     TagDecorationExtension,
-  ], []);
+  ];
+}
+
+
+export function ReadOnlyMarkdown({ markdown }: { markdown: string }) {
+  const initialContentRef = useRef(markdown);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const extensions = useMemo(createReadOnlyExtensions, []);
   const editorProps = useMemo(() => ({ attributes: { class: "note-prose read-only-prose" } }), []);
   const editor = useEditor({ editable: false, extensions, coreExtensionOptions: editorCoreExtensionOptions, content: initialContentRef.current, contentType: "markdown", editorProps });
 
