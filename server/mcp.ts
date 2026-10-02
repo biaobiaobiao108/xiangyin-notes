@@ -1018,7 +1018,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("batch_update_notes", {
     title: "批量更新笔记",
-    description: "批量移动笔记本、追加标签 tags、移除标签 removeTags、整体替换标签 replaceTags、设定收藏状态或移入/恢复回收站。replaceTags 与 tags/removeTags 互斥；空 replaceTags 可清空所有标签。回收站笔记只读；仅当本次只传 deleted:false 时可批量恢复，其他修改都会返回 NOTE_IN_TRASH，恢复后再进行其他编辑。isFavorite 是目标状态（true 收藏、false 取消收藏），重复设定不会反转；未实际改变笔记的成功项会标记 noop:true。返回 updatedCount 实际改动数、noopCount 未变化成功数与 failedCount 失败数；noop 也算成功。仅当同一批次同时有成功项和失败项时返回 partial:true；全部成功时省略该字段，全部失败时整个工具结果标记为错误。把最多 50 篇笔记的 noteId 和 version 放入 notes，并传同一个 notebookId 即可批量移入该笔记本。每篇笔记都必须带上读取时的 version；逐条执行并返回每条结果，冲突不会覆盖。冲突 current 只返回有界摘要、版本、长度和元数据；需要合并正文时再用 get_note 或 get_notes_batch 读取失败笔记，避免批量重复回传长正文。失败项可单独重试。",
+    description: "批量移动笔记本、追加标签 tags、移除标签 removeTags、整体替换标签 replaceTags、设定收藏状态或移入/恢复回收站。replaceTags 与 tags/removeTags 互斥；空 replaceTags 可清空所有标签。回收站笔记只读；仅当本次只传 deleted:false 时可批量恢复，其他修改都会返回 NOTE_IN_TRASH，恢复后再进行其他编辑。isFavorite 是目标状态（true 收藏、false 取消收藏），重复设定不会反转；未实际改变笔记的成功项会标记 noop:true。返回 updatedCount 实际改动数、noopCount 未变化成功数与 failedCount 失败数；noop 也算成功。仅当同一批次同时有成功项和失败项时返回 partial:true；全部成功或全部失败时都省略该字段，失败项的原因见 results。把最多 50 篇笔记的 noteId 和 version 放入 notes，并传同一个 notebookId 即可批量移入该笔记本。每篇笔记都必须带上读取时的 version；逐条执行并返回每条结果，冲突不会覆盖。冲突 current 只返回有界摘要、版本、长度和元数据；需要合并正文时再用 get_note 或 get_notes_batch 读取失败笔记，避免批量重复回传长正文。失败项可单独重试。",
     inputSchema: z.object({
       notes: z.array(z.object({ noteId: z.string().min(1).max(200), version: z.number().int().positive() }).strict()).min(1).max(50),
       notebookId: z.string().min(1).max(200).optional(),
