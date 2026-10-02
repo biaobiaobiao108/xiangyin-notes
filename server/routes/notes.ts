@@ -99,17 +99,19 @@ class NoteRenameContentTooLargeError extends Error {
   }
 }
 
+type SearchSort = NoteSort | "relevance";
 type NoteListCursor = {
-  sort: NoteSort;
+  sort: SearchSort;
   value: number | string;
   id: string;
+  scope?: string;
 };
 
 function encodeNoteListCursor(cursor: NoteListCursor) {
   return Buffer.from(JSON.stringify(cursor)).toString("base64url");
 }
 
-function decodeNoteListCursor(value: string | null, sort: NoteSort) {
+function decodeNoteListCursor(value: string | null, sort: SearchSort) {
   if (!value) return null;
   try {
     const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as Partial<NoteListCursor>;
@@ -376,6 +378,13 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     const query = url.searchParams.get("query")?.slice(0, 80) ?? "";
     const notebookId = url.searchParams.get("notebookId");
     const rawTag = url.searchParams.get("tag")?.trim() ?? "";
+    const rawTags = url.searchParams.getAll("tags");
+    if (rawTags.length > 20) return jsonError(400, "INVALID_ARGUMENT", "标签筛选最多包含 20 个标签");
+    const parsedTags = rawTags.map((tag) => parseTagQuery(tag.startsWith("#") ? tag : `#${tag}`));
+    const invalidTags = rawTags.filter((_, index) => !parsedTags[index]);
+    if (invalidTags.length) return json({ error: { code: "INVALID_ARGUMENT", field: "tags", invalidTags, message: "字段 tags 包含无效标签" } }, 400);
+    const tagMode = url.searchParams.get("tagMode") ?? "all";
+    if (tagMode !== "all" && tagMode !== "any") return jsonError(400, "INVALID_ARGUMENT", "tagMode 必须为 all 或 any");
     const explicitTagQuery = rawTag ? parseTagQuery(rawTag.startsWith("#") ? rawTag : `#${rawTag}`) : null;
     if (rawTag && !explicitTagQuery) {
       return json({ error: {
@@ -386,7 +395,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
       } }, 400);
     }
     const tagQuery = parseTagQuery(query);
-    const tagFilters = [...new Set([tagQuery, explicitTagQuery].filter((tag): tag is string => Boolean(tag)))];
+    const tagFilters = [...new Set([tagQuery, explicitTagQuery, ...parsedTags].filter((tag): tag is string => Boolean(tag)))];
     const normalizedTagFilters = [...new Set(tagFilters.map(normalizeTag))];
     // Tag rows are derived from Markdown and may have been indexed by an older
     // parser. Reconcile candidates before filtering so old code-span hashtags
@@ -414,6 +423,13 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     const conditions = ["n.user_id = ?"];
     const params: SqlValue[] = [user.id];
     let from = NOTE_FROM;
+    const rawSort = url.searchParams.get("sort") ?? "updated";
+    if (rawSort !== "relevance" && !NOTE_SORTS.includes(rawSort as NoteSort)) return jsonError(400, "INVALID_SORT", "不支持的笔记排序方式");
+    const sort: SearchSort = rawSort === "relevance" && !query.trim() ? "updated" : rawSort as SearchSort;
+    let rankingCte = "";
+    const rankingParams: SqlValue[] = [];
+    let scoreExpression = "0";
+    const searchTokens = query && !tagQuery ? parseSearchTerms(query).tokens : [];
 
     if (view === "trash") conditions.push("n.deleted_at IS NOT NULL");
     else conditions.push("n.deleted_at IS NULL");
@@ -429,9 +445,16 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
 
       if (ftsTokens.length > 0) {
         const ftsQuery = ftsTokens.map((part) => `"${part.replaceAll('"', '""')}"`).join(" AND ");
-        from += " JOIN notes_fts ON notes_fts.rowid = n.rowid";
-        conditions.push("notes_fts MATCH ?");
-        params.push(ftsQuery);
+        if (sort === "relevance") {
+          rankingCte = "WITH search_rank AS MATERIALIZED (SELECT rowid, bm25(notes_fts, 8.0, 1.0) AS score FROM notes_fts WHERE notes_fts MATCH ?)";
+          rankingParams.push(ftsQuery);
+          from += " JOIN search_rank ON search_rank.rowid = n.rowid";
+          scoreExpression = "search_rank.score";
+        } else {
+          from += " JOIN notes_fts ON notes_fts.rowid = n.rowid";
+          conditions.push("notes_fts MATCH ?");
+          params.push(ftsQuery);
+        }
       }
 
       for (const short of shortTokens.filter(canIndexShortSearchTerm)) {
@@ -455,25 +478,38 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
         params.push(`%${escapedQuery}%`, `%${escapedQuery}%`);
       }
     }
-    const rawSort = url.searchParams.get("sort") ?? "updated";
-    if (!NOTE_SORTS.includes(rawSort as NoteSort)) return jsonError(400, "INVALID_SORT", "不支持的笔记排序方式");
-    const sort = rawSort as NoteSort;
+    if (sort === "relevance" && !rankingCte && searchTokens.length) {
+      // Short terms bypass FTS; rank title matches ahead of body-only matches.
+      scoreExpression = searchTokens.map(() => "(CASE WHEN n.title LIKE ? ESCAPE '!' THEN -8.0 ELSE -1.0 END)").join(" + ");
+      // A materialized score lets the cursor compare a stable numeric value.
+      rankingCte = `WITH search_rank AS MATERIALIZED (SELECT id, (${scoreExpression}) AS score FROM notes n WHERE n.user_id = ?)`;
+      rankingParams.push(...searchTokens.map((token) => `%${escapeLikePattern(token)}%`), user.id);
+      from += " JOIN search_rank ON search_rank.id = n.id";
+      scoreExpression = "search_rank.score";
+    }
+    const scope = sort === "relevance" ? new Bun.CryptoHasher("sha256").update(JSON.stringify([user.id, query, notebookId, view, normalizedTagFilters, tagMode])).digest("hex") : undefined;
     const cursor = decodeNoteListCursor(url.searchParams.get("cursor"), sort);
     if (url.searchParams.get("cursor") && !cursor) return jsonError(400, "INVALID_CURSOR", "笔记列表游标无效");
+    if (cursor && sort === "relevance" && cursor.scope !== scope) return jsonError(400, "INVALID_CURSOR", "笔记列表游标与搜索条件不一致");
     const requestedOffset = Math.max(0, Number.parseInt(url.searchParams.get("offset") ?? "0", 10) || 0);
     if (requestedOffset > NOTE_LIST_MAX_OFFSET) return jsonError(400, "INVALID_OFFSET", `分页偏移量不能超过 ${NOTE_LIST_MAX_OFFSET}`);
     const offset = cursor ? 0 : requestedOffset;
     const rawLimit = url.searchParams.get("limit");
     const pageLimit = rawLimit === null ? NOTE_PAGE_SIZE : Number(rawLimit);
     if (!Number.isSafeInteger(pageLimit) || pageLimit < 1 || pageLimit > NOTE_PAGE_SIZE) return jsonError(400, "INVALID_LIMIT", `每页数量必须介于 1 和 ${NOTE_PAGE_SIZE} 之间`);
-    for (const tagFilter of normalizedTagFilters) {
-      conditions.push("EXISTS (SELECT 1 FROM note_tags t WHERE t.note_id = n.id AND t.user_id = n.user_id AND t.tag_normalized = ?)");
-      params.push(tagFilter);
+    if (normalizedTagFilters.length) {
+      const tagConditions = normalizedTagFilters.map(() => "EXISTS (SELECT 1 FROM note_tags t WHERE t.note_id = n.id AND t.user_id = n.user_id AND t.tag_normalized = ?)");
+      conditions.push(`(${tagConditions.join(tagMode === "any" ? " OR " : " AND ")})`);
+      params.push(...normalizedTagFilters);
     }
     const totalWhere = conditions.join(" AND ");
     const totalParams = [...params];
     if (cursor) {
-      if (sort === "title") {
+      if (sort === "relevance") {
+        if (typeof cursor.value !== "number" || !Number.isFinite(cursor.value)) return jsonError(400, "INVALID_CURSOR", "笔记列表游标无效");
+        conditions.push(`(${scoreExpression} > ? OR (${scoreExpression} = ? AND n.id > ?))`);
+        params.push(cursor.value, cursor.value, cursor.id);
+      } else if (sort === "title") {
         if (typeof cursor.value !== "string") return jsonError(400, "INVALID_CURSOR", "笔记列表游标无效");
         conditions.push("(n.title COLLATE NOCASE > ? OR (n.title COLLATE NOCASE = ? AND n.id > ?))");
         params.push(cursor.value, cursor.value, cursor.id);
@@ -486,18 +522,33 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     }
     const where = conditions.join(" AND ");
     const includeTotal = url.searchParams.get("includeTotal") !== "0";
-    const totalRow = includeTotal ? first<{ count: number }>(database, `SELECT COUNT(*) AS count FROM ${from} WHERE ${totalWhere}`, ...totalParams) : null;
+    const totalRow = includeTotal ? first<{ count: number }>(database, `${rankingCte} SELECT COUNT(*) AS count FROM ${from} WHERE ${totalWhere}`, ...rankingParams, ...totalParams) : null;
+    const includeMatch = url.searchParams.get("includeMatch") === "1";
+    const matchParams: SqlValue[] = [];
+    let matchSelect = "";
+    if (includeMatch && searchTokens.length) {
+      const positions = searchTokens.map(() => "NULLIF(instr(lower(n.content_markdown), lower(?)), 0)");
+      const position = `(SELECT MIN(position) FROM (${positions.map((expression) => `SELECT ${expression} AS position`).join(" UNION ALL ")}))`;
+      matchSelect = `, substr(n.content_markdown, max(1, COALESCE(${position}, 1) - 60), 200) AS match_snippet`;
+      matchParams.push(...searchTokens);
+    }
     const listStatement = database.query(`
-      SELECT ${NOTE_LIST_SELECT}
-      FROM ${from} WHERE ${where} ORDER BY ${noteListOrder(sort)} LIMIT ? OFFSET ?
+      ${rankingCte} SELECT ${NOTE_LIST_SELECT}, ${scoreExpression} AS relevance_score ${matchSelect}
+      FROM ${from} WHERE ${where} ORDER BY ${sort === "relevance" ? `${scoreExpression} ASC, n.id ASC` : noteListOrder(sort)} LIMIT ? OFFSET ?
     `);
-    const rows = listStatement.all(...params, pageLimit + 1, offset) as (NoteRow & { tags_json: string })[];
+    const rows = listStatement.all(...rankingParams, ...matchParams, ...params, pageLimit + 1, offset) as (NoteRow & { tags_json: string; relevance_score: number; match_snippet?: string })[];
     const hasMore = rows.length > pageLimit;
     const pageRows = hasMore ? rows.slice(0, pageLimit) : rows;
-    const notes: NoteSummary[] = pageRows.map((row) => toNote(row, parseIndexedTags(row.tags_json)));
+    const notes: NoteSummary[] = pageRows.map((row) => {
+      const note = toNote(row, parseIndexedTags(row.tags_json));
+      if (!includeMatch) return note;
+      const titleMatched = searchTokens.some((token) => row.title.toLocaleLowerCase().includes(token.toLocaleLowerCase()));
+      const field = searchTokens.length ? titleMatched ? "title" : "content" : normalizedTagFilters.length ? "tag" : "content";
+      return { ...note, match: { field, ...(field === "content" && row.match_snippet ? { snippet: row.match_snippet } : {}) } };
+    });
     const lastRow = pageRows[pageRows.length - 1];
     const nextCursor = hasMore && lastRow
-      ? encodeNoteListCursor({ sort, value: sort === "title" ? lastRow.title : sort === "created" ? lastRow.created_at : lastRow.updated_at, id: lastRow.id })
+      ? encodeNoteListCursor({ sort, value: sort === "relevance" ? lastRow.relevance_score : sort === "title" ? lastRow.title : sort === "created" ? lastRow.created_at : lastRow.updated_at, id: lastRow.id, ...(scope ? { scope } : {}) })
       : undefined;
     return json({ notes, ...(includeTotal ? { total: Number(totalRow?.count ?? 0) } : {}), ...(hasMore ? { hasMore: true, nextCursor } : {}) });
   }

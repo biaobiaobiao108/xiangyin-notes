@@ -30,6 +30,8 @@ const LazyImageExportDialog = lazy(() => import("./image-export/dialog").then(({
 const LazyNoteEditor = lazy(() => import("./editor").then(({ NoteEditor }) => ({ default: memo(NoteEditor) })));
 export function Workspace() {
   const navigate = useNavigate();
+  const [initialLinkedNoteId] = useState(() => new URLSearchParams(window.location.search).get("note"));
+  const pendingLinkedNoteRef = useRef(initialLinkedNoteId);
   const { preference: themePreference, setPreference: setThemePreference } = useThemePreference();
   const [view, setView] = useState<NoteView>("all");
   const [notebookId, setNotebookId] = useState<string>();
@@ -245,10 +247,10 @@ export function Workspace() {
   useEffect(() => {
     let disposed = false;
     void api.bootstrap().then(async (status) => {
-      if (!status.configured) { navigate("/setup", { replace: true }); return; }
+      if (!status.configured) { navigate(`/setup${window.location.search}`, { replace: true }); return; }
       try { await api.me(); if (!disposed) setReady(true); }
-      catch { if (!disposed) navigate("/login", { replace: true }); }
-    }).catch(() => { if (!disposed) navigate("/login", { replace: true }); });
+      catch { if (!disposed) navigate(`/login${window.location.search}`, { replace: true }); }
+    }).catch(() => { if (!disposed) navigate(`/login${window.location.search}`, { replace: true }); });
     return () => { disposed = true; };
   }, [navigate]);
   const requestListTransition = useCallback(() => {
@@ -273,6 +275,7 @@ export function Workspace() {
     } catch { /* Keep the current list visible until the next request succeeds. */ }
   }, []);
   const loadNotes = useCallback(async () => {
+    if (pendingLinkedNoteRef.current) return;
     nextNotesCursorRef.current = null;
     setHasMoreNotes(false);
     const requestId = ++listRequestRef.current;
@@ -298,7 +301,7 @@ export function Workspace() {
       playPendingListTransition();
     } catch (reason) {
       if (reason instanceof Error && reason.name === "AbortError") return;
-      if (reason instanceof ApiError && reason.status === 401) navigate("/login", { replace: true });
+      if (reason instanceof ApiError && reason.status === 401) navigate(`/login${window.location.search}`, { replace: true });
     } finally {
       if (listAbortRef.current === controller) listAbortRef.current = null;
     }
@@ -349,6 +352,32 @@ export function Workspace() {
       setCardEditingNoteId(null);
     }
   }, [clearNoteSelection]);
+  useEffect(() => {
+    if (!ready || !initialLinkedNoteId || !pendingLinkedNoteRef.current) return;
+    const controller = new AbortController();
+    void api.getNote(initialLinkedNoteId, { signal: controller.signal }).then(({ note }) => {
+      if (controller.signal.aborted) return;
+      invalidateCollections();
+      selectedRef.current = note;
+      setSelectedNote(note);
+      setView(note.deletedAt !== null ? "trash" : "all");
+      setNotebookId(note.deletedAt !== null ? undefined : note.notebookId);
+      setQuery("");
+      selectNote(note.id);
+      setCardEditingNoteId(note.id);
+      closeDrawer();
+    }).catch((error) => {
+      if (!controller.signal.aborted) setToast(errorMessage(error, "无法打开链接中的笔记"));
+    }).finally(() => {
+      if (controller.signal.aborted) return;
+      pendingLinkedNoteRef.current = null;
+      const url = new URL(window.location.href);
+      url.searchParams.delete("note");
+      window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+      reloadNotes();
+    });
+    return () => controller.abort();
+  }, [closeDrawer, initialLinkedNoteId, invalidateCollections, ready, reloadNotes, selectNote]);
   useEffect(() => {
     setOutlineOpen(false);
     setOutlineItems([]);
@@ -446,7 +475,7 @@ export function Workspace() {
       if (reason instanceof Error && reason.name === "AbortError") return;
       setIsNoteLoading(false);
       if (reason instanceof ApiError && reason.status === 401) {
-        navigate("/login", { replace: true });
+        navigate(`/login${window.location.search}`, { replace: true });
         return;
       }
       if (previousNote) {
@@ -638,7 +667,7 @@ export function Workspace() {
       const result = await api.createNote({ notebookId: commandToCreate.notebookId, title: commandToCreate.title });
       revealCreatedNote(result.note, { view: "all", notebookId: commandToCreate.notebookId }, `已在“${commandToCreate.notebookName}”中创建“${commandToCreate.title}”`);
       void refreshNotebooks();
-    } catch (reason) { if (reason instanceof ApiError && reason.status === 401) navigate("/login", { replace: true }); setToast(errorMessage(reason, "创建笔记失败，请稍后重试")); }
+    } catch (reason) { if (reason instanceof ApiError && reason.status === 401) navigate(`/login${window.location.search}`, { replace: true }); setToast(errorMessage(reason, "创建笔记失败，请稍后重试")); }
   }, [navigate, notebooks, refreshNotebooks, revealCreatedNote]);
   const createNotebook = useCallback(() => setEditingNotebook(null), []);
   const saveNotebook = useCallback((saved: Notebook) => {
@@ -689,7 +718,7 @@ export function Workspace() {
       setNoteReloadToken((value) => value + 1);
       setSaveState("idle");
     },
-    onUnauthorized: () => navigate("/login", { replace: true }),
+    onUnauthorized: () => navigate(`/login${window.location.search}`, { replace: true }),
     onNotFound: removeFromList,
     onError: () => setToast("同步当前笔记失败，请稍后重试"),
   }), [failedSavesRef, navigate, pendingSavesRef, removeFromList, replaceList, setSaveState]);
@@ -1144,7 +1173,7 @@ export function Workspace() {
     }
     await api.logout().catch(() => undefined);
     clearAllDraftRecoveries();
-    navigate("/login", { replace: true });
+    navigate(`/login${window.location.search}`, { replace: true });
   }, [flushPendingSaves, navigate]);
   const updatePwa = useCallback(async () => {
     await flushPendingSaves("now");

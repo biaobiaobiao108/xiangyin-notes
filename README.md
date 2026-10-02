@@ -140,15 +140,41 @@ PUBLIC_URL=https://notes.example.com
 
 在 MCP 客户端中将服务地址填写为 `https://notes.example.com/mcp/<URL 编码后的令牌>`，无需额外配置 Bearer 请求头；MCP 只接受路径令牌，旧的 `Authorization` 认证方式不再生效。令牌仍从 `XIANGYING_MCP_TOKEN` 环境变量读取，拥有整个笔记库的搜索、读取、创建、更新、笔记本和回收站管理权限，请只配置给可信客户端。令牌位于 URL 路径中，可能出现在代理访问日志；请为 `/mcp/<令牌>` 配置路径脱敏，并只通过 HTTPS 访问。修改令牌后需要重新创建容器，令牌不会因单纯重启容器而从 `.env` 重新读取。
 
-反向代理需要将 `/mcp/<令牌>` 转发到应用容器，保留 MCP 协议请求头和 POST 请求体，并允许 `text/event-stream` 响应及时传递。使用 Nginx 时应为该路径关闭响应缓冲（例如设置 `proxy_buffering off`）；其他代理使用对应的流式响应设置。MCP 提供的工具包括：列出、创建、重命名、更新和删除笔记本（删除时笔记会移入收件箱）、搜索与分页、列出回收站并恢复笔记、按 ID 或标题读取笔记、按 ID 批量读取全文、创建和追加笔记、替换正文片段、按锚点插入正文、按版本更新与批量更新笔记，用 `note_operation` 管理单篇笔记。收藏按目标状态设置，可安全重复调用。搜索和回收站列表默认每页返回 20 篇，每篇摘要最多 120 个 Unicode 字符；摘要保留正文换行、孤立下划线以及标识符、URL 中的下划线，并过滤纯标签行；搜索可按标签分页，传 `view=trash` 或在 `list_trash` 上传 `query` 即可检索回收站；批量全文读取默认取 `min(noteIds.length, 50)` 篇、单次最多 50 篇，正文总量默认不超过 20,000、最高可设为 100,000 个 Unicode 字符，且不重复返回 preview；返回 `checkedCount` / `uncheckedCount` 标明已检查与未检查存在性的 ID 数；放不进剩余预算的笔记列入 `oversizedIds` 和 `remainingIds`，并继续读取后续 ID，超出总预算的长笔记可用 `get_note` 单篇读取。`get_notes_batch` 的各篇笔记在本次调用期间分别读取，不构成同一时刻的一致快照，也可能看不到并行或之后完成的写入。
+反向代理需要将 `/mcp/<令牌>` 转发到应用容器，保留 MCP 协议请求头和 POST 请求体，并允许 `text/event-stream` 响应及时传递。使用 Nginx 时为该路径关闭响应缓冲（`proxy_buffering off`）；其他代理使用对应流式响应设置。
 
-`batch_update_notes` 可一次移动最多 50 篇笔记到同一笔记本，部分失败时返回 `partial=true` 与逐条结果，只需重试失败项；汇总中的 `updatedCount` 只计实际改动，`noopCount` 计成功但未改动的条目，`failedCount` 计失败项。写操作默认不回传正文；`create_note`、`update_note`、`replace_in_note`、`append_to_note` 和 `insert_into_note` 可通过 `includeContent=true` 显式请求，`note_operation` 与 `batch_update_notes` 不支持该参数。只想取 `version` 时可用 `get_note` 传 `includeContent=false`，或直接从 `search_notes` / `list_trash` 结果中读取。`contentLength` 回执与批量读取预算按 Unicode code point 统计；单篇正文硬上限为 1,000,000 个 UTF-16 code units（JavaScript `string.length`）。`create_note` 可直接传入完整正文，普通笔记优先一次写入；只有客户端明确无法承载单次参数或服务端实际返回 MCP 请求体超过 4.5 MB 的错误时，才先创建骨架，再沿用每次返回的 version 用 `append_to_note` 分段追加。读取结果提供 ISO 可读时间；单篇版本冲突的 `error.current` 含当前完整笔记，可据此合并并使用最新 version 重试；批量冲突只回传摘要与元数据，需要时再按失败笔记 ID 读取正文。
+MCP 推荐工具：
 
-正文提取的标签每个最多 40 个 UTF-16 code units，与显式传入标签的上限一致；行内代码、围栏代码、反斜杠转义井号词和超长标签不会写入标签索引。
+- 笔记本：`list_notebooks`、`ensure_notebook`、`create_notebook`、`update_notebook`、`delete_notebook`。
+- 搜索与读取：`search_notes`、`get_note`、`get_notes_batch`、`get_note_outline`、`get_note_section`。
+- 写入：`save_note`、`create_note`、`update_note`、`append_to_note`、`replace_in_note`、`insert_into_note`、`replace_note_section`。
+- 管理：`manage_note`、`batch_update_notes`。旧 `note_operation` 与 `list_trash` 保留调用兼容，工具发现列表不再展示；回收站搜索统一用 `search_notes({view:"trash"})`。
 
-MCP 只传输文字和 Markdown，不提供图片内容或缩略图。正文中非代码区域、未转义的 `#标签` 会被索引，行内代码、围栏代码和反斜杠转义的井号词（如 `\#CSharp`）会忽略；`create_note.tags` 和 `batch_update_notes.tags` 只追加标签，`note_operation` 的 `set_tags` 必须显式传 `mode=replace`、`mode=add` 或 `mode=remove`，以明确选择整体替换、追加或移除；回收站笔记只读；`batch_update_notes` 可通过单独传 `deleted:false` 批量恢复，其他修改都会返回 `NOTE_IN_TRASH`，需先恢复笔记；`note_operation` 与 `batch_update_notes` 的幂等操作未改变状态时会在对应结果中标记 `noop=true`。`replace_in_note` 可替换正文中唯一匹配的片段，不必把全文传给模型；可选传 `version` 时会校验版本，显式传 `force=true` 才会忽略调用方提供的旧版本，但服务端写入仍使用乐观锁。`insert_into_note` 可在正文唯一匹配的锚点前后插入内容；锚点不存在或不唯一时不会修改笔记。两个工具的匹配都按非重叠计数，`occurrence` 从 1 开始。删除笔记本是不可逆的级联操作，必须传 `confirm=true`；`list_notebooks` 的 `count` 不含回收站笔记，二次确认时应把含回收站的 `totalCount` 传给 `expectedNoteCount`；MCP 不提供单项永久删除笔记或清空回收站的工具。正文中的图片引用会原样保留，方便后续编辑时保留这些引用；MCP 令牌不能用于读取 `/api/assets/` 下的图片。通过 MCP 结构化参数传多行 Markdown 即可；若手写原始 JSON，字符串中的换行、制表符等控制字符必须按 JSON 规范转义。工具结果只通过 MCP 文本 `content` 返回一次 JSON，不另附重复的结构化结果。
+按名称操作笔记本无需先查 ID。涉及笔记本的工具同时接受 `notebookId` / `notebookName`，二者同时存在时以 ID 为准；无效 ID 不回退到名称。`ensure_notebook({name})` 获取或创建并返回 `created`，已有笔记本的颜色、图标不被修改。以下调用可一次创建缺失的笔记本并保存文案：
 
-MCP 的 `update_note` 可省略 `version`，服务端会读取当前版本并继续使用乐观锁；显式传入时仍会校验。`replace_in_note` 可传 `replaceAll=true` 一次替换所有非重叠匹配并返回 `replacedCount`；`insert_into_note` 可传 `insertAll=true` 在全部非重叠锚点处插入并返回 `insertedCount`，两者的全量操作均会先检查正文长度上限。批量标签使用 `tags` 追加、`removeTags` 移除、`replaceTags` 整体替换；`replaceTags` 与另外两种标签操作互斥。标题歧义候选附带摘要和可读更新时间，`truncated=true` 表示候选列表不完整；`get_note` 按 ID 读取回收站笔记无需设置 `includeDeleted`。
+```json
+{
+  "title": "文案标题",
+  "contentMarkdown": "完整 Markdown 正文",
+  "notebook": { "notebookName": "文案", "createIfMissing": true },
+  "mode": "create"
+}
+```
+
+`save_note` 的 `mode` 默认是 `create`，每次新建；`upsert` 必须指定笔记本，在该笔记本内按精确标题匹配：不存在则创建，唯一则更新，多篇返回 `AMBIGUOUS_NOTE`。更新已有笔记必须传读取时的 `expectedVersion`，否则返回 `VERSION_REQUIRED`。`tags` 追加到提交正文。`update_note` 覆盖 `contentMarkdown` 必须提供 `expectedVersion`，兼容 `version` 或 `baseVersion`；多个版本参数必须一致。仅改标题和局部编辑可以省略版本，服务端读取最新版本后仍以乐观锁保存。所有冲突的 `error.current` 只返回有界摘要、长度、版本及元数据；需要正文时再读取，旧版本不会静默覆盖新版本。
+
+`get_note` 按 ID 或精确标题读取，不再自动退回子串搜索；标题参数裁剪首尾空白且忽略 ASCII 大小写，重复标题返回最多 5 个有界候选，可通过笔记本限定范围。模糊查找用 `search_notes`，支持最多 20 个 `tags`、`tagMode=all|any`、`notebookName` 和 `sort=relevance|updated_desc|created_desc`。默认有查询时按相关性排序，无查询时按更新时间排序；返回命中字段 `match.field`，正文命中提供有界 `snippet`。保留单标签 `tag`、视图与游标分页。每页默认 20 篇，摘要默认 120 个 Unicode 字符，不返回正文或缩略图。
+
+长笔记可先用 `get_note_outline` 获取 `headings` 和 `version`，再用 `get_note_section` 按 `sectionId` 或精确 `heading` 读取；同名标题以从 1 开始的 `occurrence` 消歧。只识别 Markdown 文档级 ATX/setext 标题，不把代码、引用、列表或 HTML 内标题当成章节。章节包括标题和其下子章节，直到下一同级或更高级标题；`replace_note_section` 的 `contentMarkdown` 替换整个章节，必须包含希望保留的标题和子章节。建议携带读取时的 `version`。正文改变后旧 `sectionId` 失效，需重新读取大纲；可传空正文删除章节。其余正文保持原样。
+
+写操作默认不返回正文，通过 `includeContent=true` 显式请求；管理和批量更新不支持该参数。`get_notes_batch` 最多读取 50 篇，总正文预算默认 20,000、最大 100,000 个 Unicode code points；超预算项列在 `oversizedIds` / `remainingIds`，逐篇读取不构成同一时刻快照。`contentLength` 同样按 code points 统计；单篇正文硬上限为 1,000,000 个 UTF-16 code units。普通笔记优先一次提交，只有客户端无法承载或 MCP 请求体超过 4.5 MB 时才用 `append_to_note` 分段，分段不能突破单篇上限。工具结果提供 `structuredContent` 对象，同时保留等价 JSON 文本 `content` 兼容旧客户端；连接层的展示形式由客户端决定。
+
+`replace_in_note` 支持唯一片段、`occurrence` 或 `replaceAll`；显式 `force=true` 可把替换应用到最新正文，写入仍使用乐观锁。`insert_into_note` 支持锚点前后插入、`occurrence` 或 `insertAll`。二者按非重叠匹配计数，歧义时不写入。末尾独立标签行会保留在追加正文之后。
+
+收藏使用目标值而非 toggle。`manage_note` 的 `set_tags` 必须显式传 `mode=replace|add|remove`；批量标签用 `tags` 追加、`removeTags` 移除、`replaceTags` 整体替换，整体替换与其他标签操作互斥。`batch_update_notes` 每篇必须提供读取时的版本，逐项执行并报告 `updatedCount`、`noopCount`、`failedCount`；混合成功和失败时 `partial=true`。回收站只读，先恢复再修改；批量恢复仅传 `deleted:false`。
+
+删除笔记本可先传 `dryRun:true`，返回 `wouldDeleteNotebook` 与 `wouldMoveNotes`，不执行删除。正式删除必须 `confirm:true`，建议将 `list_notebooks` 包括回收站的 `totalCount` 作为 `expectedNoteCount`；事务中数量不一致则拒绝。删除会将全部笔记移入收件箱并使其旧版本失效，系统收件箱不能删除。MCP 不提供永久删除笔记或清空回收站。配置有效的 `PUBLIC_URL` 后，笔记结果包含 `webUrl` / `deepLink`（`/app?note=<id>`），登录后可直接打开对应笔记。
+
+MCP 只传输文字和 Markdown，不提供图片上传、图片数据或缩略图；正文可引用 HTTPS 图片或当前用户可用于该笔记的已上传附件，令牌不能用于读取 `/api/assets/` 图片。代码区外未转义的 `#标签` 会被索引，每个最多 40 个 UTF-16 code units；字面井号可用反斜杠转义。工具参数必须是 JSON 对象，结构化参数可直接传多行 Markdown；手写 JSON 的控制字符须按 JSON 规范转义。读取结果提供 ISO 时间字段。
 
 ### 本机运行
 
