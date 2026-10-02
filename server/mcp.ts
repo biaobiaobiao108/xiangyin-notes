@@ -208,7 +208,7 @@ const BUSINESS_RECOVERY_ACTIONS: Record<string, string> = {
   VERSION_CONFLICT: "重新读取目标笔记或章节，合并修改后使用最新 version 作为 expectedVersion 重试。",
   NOTE_IN_TRASH: "先用 manage_note 恢复笔记，再执行修改。",
   SECTION_NOT_FOUND: "重新读取大纲，使用当前 sectionId 或正确的 heading。",
-  NOT_FOUND: "使用 search_notes 或 list_notebooks 查找当前目标，再以正确的 ID 操作。",
+  NOT_FOUND: "使用 search_notes 查找目标笔记，再以正确的 ID 操作。",
   NOTEBOOK_COUNT_MISMATCH: "重新读取笔记本 totalCount，核实后更新 expectedNoteCount。",
   SYSTEM_NOTEBOOK: "选择其他笔记本；系统收件箱不能删除。",
 };
@@ -222,9 +222,14 @@ function businessError(value: unknown): Record<string, unknown> {
     code: typeof normalized.code === "string" ? normalized.code : "MCP_OPERATION_FAILED",
     message: typeof normalized.message === "string" ? normalized.message : "笔记操作失败",
   };
-  const suggestedAction = error.code === "NOT_FOUND" && ["text", "anchor", "occurrence"].includes(String(error.target))
-    ? "使用 get_note 读取最新正文，修正 oldText、anchor 或 occurrence 后重试。"
-    : BUSINESS_RECOVERY_ACTIONS[String(error.code)];
+  let suggestedAction = BUSINESS_RECOVERY_ACTIONS[String(error.code)];
+  if (error.code === "NOT_FOUND") {
+    if (error.target === "notebook") {
+      suggestedAction = "使用 list_notebooks 查找目标笔记本，再以正确的 ID 操作。";
+    } else if (["text", "anchor", "occurrence"].includes(String(error.target))) {
+      suggestedAction = "使用 get_note 读取最新正文，修正 oldText、anchor 或 occurrence 后重试。";
+    }
+  }
   const current = compactConflictNote(error.current);
   const currentVersion = current && typeof current === "object" && typeof (current as Record<string, unknown>).version === "number"
     ? (current as Record<string, unknown>).version : undefined;
