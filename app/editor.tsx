@@ -9,7 +9,7 @@ import Placeholder from "@tiptap/extension-placeholder";
 import { findWrapping } from "@tiptap/pm/transform";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { Transaction } from "@tiptap/pm/state";
-import { ArrowLeft, ArrowLeftRight, CheckCircle, ChevronLeft, CircleAlert, LayoutGrid, Link2, LoaderCircle, RefreshCw, Star, Trash2, Undo2 } from "lucide-react";
+import { ArrowLeft, ArrowLeftRight, CheckCircle, ChevronLeft, CircleAlert, LayoutGrid, LoaderCircle, RefreshCw, Star, Trash2, Undo2 } from "lucide-react";
 import type { ImageAssetSummary, Note, NoteSummary } from "../shared/types";
 import { preserveEscapedHashtagsForEditor } from "../shared/tags";
 import { api } from "./api";
@@ -169,7 +169,7 @@ async function imageDimensions(file: File) {
   }
 }
 
-export function NoteEditor({ note, searchQuery = "", saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onShare, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList, onBackToCards, onUploadImage, focusMode = false, onClearSearch, typewriterMode = false, outlineOpen, outlineItems, activeOutlineId, onToggleOutline, onCloseOutline, onOutlineItemsChange, onOutlineActiveChange, onOutlineNavigationReady, availableNotes = [], onNavigateWikiLink, onCreateAndLinkNote, onNavigateToNote, onToast, onMarkdownReaderChange, onMarkdownDirtyChange }: {
+export function NoteEditor({ note, searchQuery = "", saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList, onBackToCards, onUploadImage, focusMode = false, onClearSearch, typewriterMode = false, outlineOpen, outlineItems, activeOutlineId, onToggleOutline, onCloseOutline, onOutlineItemsChange, onOutlineActiveChange, onOutlineNavigationReady, availableNotes = [], onNavigateWikiLink, onCreateAndLinkNote, onNavigateToNote, onToast, onMarkdownReaderChange, onMarkdownDirtyChange }: {
   note: Note;
   searchQuery?: string;
   saveState: SaveState;
@@ -181,7 +181,6 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   onChange: (patch: { title?: string; contentMarkdown?: string; notebookId?: string }) => void;
   onSaveNow: () => void;
   onReloadNote: () => void;
-  onShare: () => void;
   onToggleFavorite: () => void;
   onMoveToTrash: () => void;
   onRestore: () => void;
@@ -1360,7 +1359,6 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
             </button>
           )}
           <button className={`icon-button favorite-toggle ${note.isFavorite ? "is-active" : ""}`} type="button" aria-label={note.isFavorite ? "取消收藏" : "收藏笔记"} aria-pressed={note.isFavorite} onClick={onToggleFavorite} disabled={editorLocked}><Star size={19} strokeWidth={1.8} fill={note.isFavorite ? "currentColor" : "none"} aria-hidden="true" /></button>
-          <button className="icon-button" type="button" aria-label="分享笔记" onClick={onShare} disabled={editorLocked}><Link2 size={18} strokeWidth={1.8} /></button>
           {note.deletedAt ? <>
             <button className="icon-button" type="button" aria-label="恢复笔记" onClick={onRestore} disabled={editorLocked || trashBusy}><Undo2 size={18} strokeWidth={1.8} /></button>
             {onPermanentDelete && <button className="icon-button danger-button" type="button" aria-label="彻底删除" onClick={onPermanentDelete} disabled={editorLocked || trashBusy}><Trash2 size={18} strokeWidth={1.8} /></button>}

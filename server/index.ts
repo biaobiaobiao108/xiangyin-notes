@@ -14,7 +14,6 @@ import { handleImportRoute } from "./routes/import";
 import { handleMcpRequest, MCP_PATH } from "./mcp";
 import { handleNotebooksRoute } from "./routes/notebooks";
 import { handleNotesRoute } from "./routes/notes";
-import { cleanupExpiredShares, handlePublicShare, handleSharesRoute, servePublicShareAsset } from "./routes/shares";
 import { REALTIME_PATH, RealtimeHub, upgradeRealtimeRequest, type RealtimeSocketData } from "./realtime";
 
 // Re-exports for backward compatibility and test runners
@@ -30,6 +29,8 @@ export {
 } from "./core";
 
 const DEFAULT_CLIENT_ROOT = "./dist/client";
+const CLIENT_ROUTES = new Set(["/", "/app", "/login", "/setup"]);
+const API_RESOURCES = new Set(["health", "bootstrap", "setup", "auth", "me", "notes", "notebooks", "assets", "trash", "wiki-notes", "export", "import", "realtime"]);
 
 const DEV_SERVICE_WORKER_SOURCE = `
 self.addEventListener("install", (event) => {
@@ -79,11 +80,7 @@ function isMcpPath(pathname: string) {
 
 export function redactSensitivePath(pathname: string) {
   const segments = pathname.split("/");
-  if (segments[1] === "api" && (segments[2] === "shares" || segments[2] === "share-assets")) {
-    segments[3] = "[REDACTED]";
-  } else if (segments[1] === "share") {
-    segments[2] = "[REDACTED]";
-  } else if (segments[1] === "mcp" && segments.length > 2) {
+  if (segments[1] === "mcp" && segments.length > 2) {
     segments[2] = "[REDACTED]";
   }
   return segments.join("/");
@@ -140,6 +137,7 @@ async function serveStatic(request: Request, clientRoot: string, environment: Re
 
   const relativePath = pathname.replace(/^[/\\]+/, "");
   const hasExtension = extname(relativePath) !== "";
+  if (!hasExtension && !CLIENT_ROUTES.has(pathname)) return new Response("Not Found", { status: 404 });
   const rootPath = resolve(clientRoot);
   let requestedPath = hasExtension ? resolve(rootPath, relativePath) : join(rootPath, "index.html");
   const pathFromRoot = relative(rootPath, requestedPath);
@@ -188,18 +186,16 @@ async function handleApi(request: Request, options: ServerOptions) {
     return jsonError(400, "INVALID_PATH", "请求路径无效");
   }
 
+  if (!API_RESOURCES.has(segments[0] ?? "")) return jsonError(404, "NOT_FOUND", "接口不存在");
+
   cleanupExpiredSessions(database);
-  cleanupExpiredShares(database);
   void cleanupOrphanAssets(database, assetRoot).catch((error) => console.warn("[assets] orphan cleanup failed", error));
 
   const ctx: RouteContext = { request, url, method, segments, options };
 
-  // 1. Unauthenticated routes (Health, Auth, Bootstrap, Setup, Public Shares)
+  // 1. Unauthenticated routes (Health, Auth, Bootstrap, Setup)
   const authResponse = await handleAuthRoute(ctx);
   if (authResponse) return authResponse;
-
-  const publicShareResponse = await handleSharesRoute(ctx, null);
-  if (publicShareResponse) return publicShareResponse;
 
   const importResponse = await handleImportRoute(ctx);
   if (importResponse) return importResponse;
@@ -214,9 +210,6 @@ async function handleApi(request: Request, options: ServerOptions) {
 
   const notebooksResponse = await handleNotebooksRoute(ctx, user);
   if (notebooksResponse) return notebooksResponse;
-
-  const sharesResponse = await handleSharesRoute(ctx, user);
-  if (sharesResponse) return sharesResponse;
 
   const assetsResponse = await handleAssetsRoute(ctx, user, assetRoot);
   if (assetsResponse) return assetsResponse;
@@ -234,12 +227,6 @@ export async function handleRequest(request: Request, options: ServerOptions) {
     let response: Response;
     if (isMcpPath(url.pathname)) {
       response = await handleMcpRequest(request, options);
-    } else if (url.pathname === "/api/share-assets/" || url.pathname.startsWith("/api/share-assets/")) {
-      response = await servePublicShareAsset(request, options.database, resolve(options.assetRoot ?? assetRootFromEnv(environment)));
-    } else if (url.pathname === "/api/shares/" || url.pathname.startsWith("/api/shares/")) {
-      const segments = url.pathname.split("/").filter(Boolean);
-      if (request.method === "GET" && segments.length === 3) response = await handlePublicShare(request, options.database);
-      else response = url.pathname.startsWith("/api/") ? await handleApi(request, options) : await serveStatic(request, options.clientRoot ?? DEFAULT_CLIENT_ROOT, environment);
     } else if (url.pathname.startsWith("/api/")) {
       response = await handleApi(request, options);
     } else {

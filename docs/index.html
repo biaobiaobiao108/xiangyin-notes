@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light" />
     <meta name="theme-color" content="#f6f4ef" />
-    <meta name="description" content="象映笔记是一款由你自己部署的 Markdown 个人笔记应用。先记录，再整理、搜索和关联，也可以按需分享或导出。" />
+    <meta name="description" content="象映笔记是一款由你自己部署的 Markdown 个人笔记应用。先记录，再整理、搜索和关联，也可以打包导出。" />
     <meta property="og:type" content="website" />
     <meta property="og:title" content="象映笔记 · 让想法有地方落脚" />
     <meta property="og:description" content="一款由你自己部署、以 Markdown 为基础的个人笔记应用。" />
@@ -587,30 +587,8 @@
         font-size: 0.9rem;
       }
 
-      .share-section {
+      .export-section {
         padding-top: calc(var(--section-space) * 0.82);
-      }
-
-      .share-callout {
-        display: flex;
-        gap: 14px;
-        align-items: flex-start;
-        margin-top: 28px;
-        padding: 17px 19px;
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        background: var(--surface);
-        color: var(--muted);
-        font-size: 0.91rem;
-        line-height: 1.75;
-      }
-
-      .share-callout svg {
-        width: 19px;
-        height: 19px;
-        flex: 0 0 auto;
-        margin-top: 2px;
-        color: var(--accent);
       }
 
       .deployment {
@@ -901,10 +879,6 @@
         .writing-point h3 {
           font-size: 1.18rem;
         }
-
-        .share-callout {
-          padding: 14px;
-        }
       }
 
       @media (prefers-reduced-motion: reduce) {
@@ -934,7 +908,7 @@
         <nav class="site-nav" aria-label="主导航">
           <a href="#record">写作与记录</a>
           <a href="#organize">整理与搜索</a>
-          <a href="#sharing">分享与导出</a>
+          <a href="#exporting">导出与备份</a>
           <a href="#deploy">部署方式</a>
         </nav>
         <a class="header-cta" href="https://github.com/biaobiaobiao108/xiangyin-notes">
@@ -988,9 +962,9 @@
               <span class="intro-rail__number">03</span>
               <span class="intro-rail__title">日常使用</span>
             </a>
-            <a href="#sharing">
+            <a href="#exporting">
               <span class="intro-rail__number">04</span>
-              <span class="intro-rail__title">分享与带走</span>
+              <span class="intro-rail__title">导出与带走</span>
             </a>
             <a href="#deploy">
               <span class="intro-rail__number">05</span>
@@ -1047,7 +1021,7 @@
               <p>按项目、主题或生活场景建立笔记本，用标签标出关键内容。之后既可以通过分类缩小范围，也可以直接搜索标题和正文。</p>
               <ul class="detail-list">
                 <li><strong>笔记本和标签：</strong>笔记本可以自选名称、图标和颜色；在正文写入 <code>#读书</code>、<code>#工作</code> 等标签，就能按标签筛选。</li>
-                <li><strong>日常入口与浏览方式：</strong>收件箱、全部笔记、收藏、已分享和回收站各有入口；列表可按更新时间、创建时间或标题排序，也能切换为卡片网格。</li>
+                <li><strong>日常入口与浏览方式：</strong>收件箱、全部笔记、收藏和回收站各有入口；列表可按更新时间、创建时间或标题排序，也能切换为卡片网格。</li>
                 <li><strong>全文搜索：</strong>搜索标题与正文；要找当前笔记中的一段内容，也可以使用当前笔记查找。</li>
                 <li><strong>双向链接：</strong>输入 <code>[[笔记标题]]</code> 连接相关记录。目标笔记会列出反向链接，也会提示尚未建立链接的同名提及。</li>
                 <li><strong>重命名同步：</strong>修改被引用笔记的标题时，已有链接会一并更新。</li>
@@ -1117,39 +1091,15 @@
           </div>
         </section>
 
-        <section class="section share-section" id="sharing" aria-labelledby="sharing-title">
-          <div class="split-section split-section--reverse">
-            <figure class="product-figure">
-              <div class="screenshot-frame">
-                <img
-                  src="assets/screenshots/share-dialog-light.jpg"
-                  width="1279"
-                  height="790"
-                  alt="象映笔记浅色模式分享窗口：可以生成一条有效期为 7 天的只读链接。"
-                  loading="lazy"
-                  decoding="async"
-                />
-              </div>
-              <figcaption class="figure-caption">
-                <strong>按需分享 · 实时内容</strong>
-                <span>链接打开时读取笔记当前内容</span>
-              </figcaption>
-              <p class="screenshot-note">截图展示分享窗口，未生成真实分享链接。</p>
-            </figure>
-
-            <div class="section-copy">
-              <span class="section-number">04 / 分享与带走</span>
-              <h2 id="sharing-title">分享和备份，都由你安排</h2>
-              <p>需要把一篇笔记发给别人时，可以生成一条只读链接。链接固定有效 7 天，每次打开都会显示笔记当前内容，也可以提前撤销。</p>
-              <div class="share-callout">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" /></svg>
-                <span>有效链接可以被任何拿到它的人打开。分享前，请确认这篇笔记适合通过链接公开阅读。</span>
-              </div>
-              <ul class="detail-list">
-                <li><strong>导出为 ZIP：</strong>笔记以 Markdown 文件保存，并按笔记本归类；图片附件也会包含在压缩包中。</li>
-                <li><strong>快捷指令导入：</strong>可选配置导入 API，把 Markdown 内容直接送进收件箱。</li>
-              </ul>
-            </div>
+        <section class="section export-section" id="exporting" aria-labelledby="exporting-title">
+          <div class="section-copy">
+            <span class="section-number">04 / 导出与带走</span>
+            <h2 id="exporting-title">为自己的内容留一份备份</h2>
+            <p>把笔记原文和图片附件带走，保留 Markdown 格式，方便以后在其他工具中继续使用。</p>
+            <ul class="detail-list">
+              <li><strong>导出为 ZIP：</strong>笔记以 Markdown 文件保存，并按笔记本归类；图片附件也会包含在压缩包中。</li>
+              <li><strong>快捷指令导入：</strong>可选配置导入 API，把 Markdown 内容直接送进收件箱。</li>
+            </ul>
           </div>
         </section>
 
@@ -1173,7 +1123,6 @@
             <li>象映笔记目前按单人使用设计，没有公开注册和多人协作功能。</li>
             <li>编辑时需要连接到你部署的服务，目前不支持断网编辑和稍后自动上传。</li>
             <li>跨设备通知会帮助其他页面刷新内容，但不会合并同时发生的正文编辑。</li>
-            <li>分享链接是只读公开链接，有效期为 7 天，也可以提前撤销。</li>
           </ul>
         </section>
       </main>

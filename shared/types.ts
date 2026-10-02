@@ -1,4 +1,4 @@
-export type NoteView = "all" | "inbox" | "favorites" | "shared" | "trash";
+export type NoteView = "all" | "inbox" | "favorites" | "trash";
 
 export type NoteSort = "updated" | "created" | "title";
 
@@ -46,22 +46,6 @@ export type NoteSummary = {
 
 export type Note = NoteSummary & {
   contentMarkdown: string;
-};
-
-export type Share = {
-  id: string;
-  noteId: string;
-  expiresAt: number;
-  revokedAt: number | null;
-  createdAt: number;
-  url?: string;
-};
-
-export type SharedNote = {
-  title: string;
-  contentMarkdown: string;
-  sharedAt: number;
-  expiresAt: number;
 };
 
 export type ApiErrorPayload = {

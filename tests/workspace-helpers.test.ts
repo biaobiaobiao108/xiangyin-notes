@@ -24,8 +24,7 @@ const note: Note = {
 };
 
 describe("active note list membership", () => {
-  test("never injects an active note into shared or search results", () => {
-    expect(shouldKeepActiveNoteInList(note, notebooks, "shared", "")).toBe(false);
+  test("never injects an active note into search results", () => {
     expect(shouldKeepActiveNoteInList(note, notebooks, "all", "不存在的关键词")).toBe(false);
   });
 

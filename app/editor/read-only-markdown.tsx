@@ -30,7 +30,7 @@ export function ReadOnlyMarkdown({ markdown }: { markdown: string }) {
     WikiLinkNode,
     TagDecorationExtension,
   ], []);
-  const editorProps = useMemo(() => ({ attributes: { class: "note-prose share-prose" } }), []);
+  const editorProps = useMemo(() => ({ attributes: { class: "note-prose read-only-prose" } }), []);
   const editor = useEditor({ editable: false, extensions, coreExtensionOptions: editorCoreExtensionOptions, content: initialContentRef.current, contentType: "markdown", editorProps });
 
   const previousMarkdownRef = useRef(markdown);

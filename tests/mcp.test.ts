@@ -6,7 +6,6 @@ import { applyMigrations, openDatabase, type SqliteDatabase } from "../server/db
 import { handleRequest, redactSensitivePath } from "../server/index";
 import { MCP_PATH } from "../server/mcp";
 import { createNote } from "../server/routes/notes";
-import { handleNoteShares } from "../server/routes/shares";
 
 let database: SqliteDatabase;
 let assetRoot: string;
@@ -131,7 +130,7 @@ describe("remote MCP endpoint", () => {
     expect(noOrigin.response.status).toBe(200);
     const tools = resultOf(noOrigin.body!).tools;
     expect(tools.map((tool: { name: string }) => tool.name)).toEqual([
-      "list_notebooks", "create_notebook", "update_notebook", "delete_notebook", "search_notes", "create_share", "list_shares", "revoke_share", "list_trash", "get_note", "get_notes_batch", "create_note", "update_note", "replace_in_note", "note_operation", "append_to_note", "insert_into_note", "batch_update_notes",
+      "list_notebooks", "create_notebook", "update_notebook", "delete_notebook", "search_notes", "list_trash", "get_note", "get_notes_batch", "create_note", "update_note", "replace_in_note", "note_operation", "append_to_note", "insert_into_note", "batch_update_notes",
     ]);
     const assertClosedSchemas = (schema: Record<string, any>) => {
       if ((schema.type === "object" || schema.properties) && !schema.oneOf && !schema.anyOf) expect(schema.additionalProperties).toBe(false);
@@ -172,9 +171,6 @@ describe("remote MCP endpoint", () => {
     expect(noteOperation.inputSchema.properties.version.description).toContain("省略时服务端读取当前版本");
     expect(noteOperation.inputSchema.properties.mode.description).toContain("action=set_tags 时必填");
     expect(noteOperation.description).toContain("此工具不提供永久删除");
-    const listSharesTool = tools.find((tool: { name: string }) => tool.name === "list_shares");
-    expect(listSharesTool.inputSchema.required).toEqual(["noteId"]);
-    expect(listSharesTool.inputSchema.properties.limit.maximum).toBe(100);
     const createNoteTool = tools.find((tool: { name: string }) => tool.name === "create_note");
     expect(createNoteTool.description).toContain("普通笔记应优先在本次 create_note 一次写入完整内容");
     expect(createNoteTool.description).toContain("只有客户端明确无法承载单次参数或服务端返回 MCP 请求体超过 4.5 MB 的错误时");
@@ -183,6 +179,8 @@ describe("remote MCP endpoint", () => {
     const getNotesBatch = tools.find((tool: { name: string }) => tool.name === "get_notes_batch");
     expect(getNotesBatch.description).toContain("不构成同一时刻的一致快照，也可能看不到并行或之后完成的写入");
     const searchTool = tools.find((tool: { name: string }) => tool.name === "search_notes");
+    expect(tools.some((tool: { name: string }) => ["create_share", "list_shares", "revoke_share"].includes(tool.name))).toBe(false);
+    expect(searchTool.inputSchema.properties.view.enum).toEqual(["all", "inbox", "favorites", "trash"]);
     expect(searchTool.description).toContain("摘要保留换行");
     const replaceSchema = tools.find((tool: { name: string }) => tool.name === "replace_in_note").inputSchema;
     expect(Object.keys(replaceSchema.properties)).toEqual(["noteId", "oldText", "newText", "replaceAll", "occurrence", "version", "force", "includeContent"]);
@@ -191,8 +189,6 @@ describe("remote MCP endpoint", () => {
     const batchUpdateTool = tools.find((tool: { name: string }) => tool.name === "batch_update_notes");
     expect(batchUpdateTool.description).toContain("仅当本次只传 deleted:false 时可批量恢复");
     expect(batchUpdateTool.inputSchema.properties.replaceTags.description).toContain("整体替换");
-    const revokeShareTool = tools.find((tool: { name: string }) => tool.name === "revoke_share");
-    expect(Object.keys(revokeShareTool.inputSchema.properties)).toEqual(["shareId", "url", "token"]);
     const getNoteTool = tools.find((tool: { name: string }) => tool.name === "get_note");
     expect(getNoteTool.description).toContain("truncated=true 表示候选未列全");
     expect(getNoteTool.inputSchema.properties.includeDeleted.description).toContain("按 noteId 读取回收站笔记不需要此参数");
@@ -219,9 +215,6 @@ describe("remote MCP endpoint", () => {
     expect(resultOf(discovered.body!).instructions).toContain("MCP 不提供永久删除笔记或清空回收站");
     expect(resultOf(discovered.body!).instructions).toContain("note_operation");
     expect(resultOf(discovered.body!).instructions).toContain("note_operation 的 set_tags 必须显式传 mode=replace、add 或 remove");
-    expect(resultOf(discovered.body!).instructions).toContain("create_share 创建 7 天只读链接");
-    expect(resultOf(discovered.body!).instructions).toContain("list_shares 分页查看");
-    expect(resultOf(discovered.body!).instructions).toContain("revoke_share 撤销");
     expect(resultOf(discovered.body!).instructions).toContain("不构成同一时刻快照");
     expect(resultOf(discovered.body!).instructions).toContain("普通笔记应优先在 create_note 一次写入完整正文");
     expect(resultOf(discovered.body!).instructions).toContain("服务端返回 MCP 请求体超过 4.5 MB 的错误时");
@@ -279,87 +272,6 @@ describe("remote MCP endpoint", () => {
     expect(redactSensitivePath(`${MCP_PATH}/${token}/extra`)).toBe(`${MCP_PATH}/[REDACTED]/extra`);
   });
 
-  test("creates, inspects, and revokes public share links through MCP", async () => {
-    const environment = { ...credentials, XIANGYING_MCP_TOKEN: token, PUBLIC_URL: "https://notes.example.com" };
-    const note = toolData((await callTool("create_note", {
-      title: "MCP 分享生命周期",
-      contentMarkdown: "分享中的当前内容",
-    }, 1, environment)).body!).note;
-
-    const created = await callTool("create_share", { noteId: note.id }, 2, environment);
-    expect(created.response.status).toBe(200);
-    const share = toolData(created.body!).share;
-    expect(share.url.startsWith("https://notes.example.com/share/")).toBe(true);
-    expect(share.createdAtISO).toBe(new Date(share.createdAt * 1000).toISOString());
-    expect(share.expiresAtISO).toBe(new Date(share.expiresAt * 1000).toISOString());
-
-    const shares = toolData((await callTool("list_shares", { noteId: note.id }, 3, environment)).body!).shares;
-    expect(shares).toHaveLength(1);
-    expect(shares[0]).toMatchObject({ id: share.id, noteId: note.id, revokedAt: null });
-    expect(shares[0].url).toBeUndefined();
-
-    const publicToken = new URL(share.url).pathname.split("/").at(-1)!;
-    const publiclyReadable = await request(`/api/shares/${publicToken}`, {}, environment);
-    expect(publiclyReadable.response.status).toBe(200);
-    expect(publiclyReadable.body?.note.contentMarkdown).toBe("分享中的当前内容");
-
-    const revoked = await callTool("revoke_share", { shareId: share.id }, 4, environment);
-    const revokeResult = toolData(revoked.body!);
-    expect(revokeResult).toMatchObject({ ok: true, noop: false, share: { id: share.id, revokedAt: expect.any(Number) } });
-    expect(typeof revokeResult.share.revokedAtISO).toBe("string");
-    const revokedAgain = await callTool("revoke_share", { url: share.url }, 5, environment);
-    expect(toolData(revokedAgain.body!)).toMatchObject({ ok: true, noop: true, share: { id: share.id, revokedAt: revokeResult.share.revokedAt } });
-    const afterRevoke = toolData((await callTool("list_shares", { noteId: note.id }, 6, environment)).body!).shares;
-    expect(typeof afterRevoke[0].revokedAtISO).toBe("string");
-
-    const noLongerPublic = await request(`/api/shares/${publicToken}`, {}, environment);
-    expect(noLongerPublic.response.status).toBe(410);
-    expect(noLongerPublic.body?.error.code).toBe("SHARE_REVOKED");
-
-    const secondShare = toolData((await callTool("create_share", { noteId: note.id }, 7, environment)).body!).share;
-    const tokenOnly = new URL(secondShare.url).pathname.split("/").at(-1)!;
-    const otherOwner = await callTool("revoke_share", { token: tokenOnly }, 8, {
-      XIANGYING_USERNAME: "other-owner",
-      XIANGYING_PASSWORD: "another long passphrase 5678",
-      XIANGYING_MCP_TOKEN: token,
-    });
-    expect(toolData(otherOwner.body!).error.code).toBe("SHARE_NOT_FOUND");
-    const revokedByToken = await callTool("revoke_share", { token: tokenOnly }, 9, environment);
-    expect(toolData(revokedByToken.body!)).toMatchObject({ ok: true, noop: false, share: { id: secondShare.id } });
-    const invalidSelector = await callTool("revoke_share", { shareId: share.id, url: share.url }, 10, environment);
-    expect(toolData(invalidSelector.body!).error.code).toBe("INVALID_SHARE_SELECTOR");
-  });
-
-  test("paginates share history and rechecks trash state after token hashing", async () => {
-    const environment = { ...credentials, XIANGYING_MCP_TOKEN: token, PUBLIC_URL: "https://notes.example.com" };
-    const note = toolData((await callTool("create_note", { title: "分享分页与并发删除", contentMarkdown: "正文" }, 1, environment)).body!).note;
-    for (let index = 0; index < 3; index += 1) {
-      expect((await callTool("create_share", { noteId: note.id }, 2 + index, environment)).response.status).toBe(200);
-    }
-
-    const firstPage = toolData((await callTool("list_shares", { noteId: note.id, limit: 2 }, 5, environment)).body!);
-    expect(firstPage.shares).toHaveLength(2);
-    expect(firstPage.hasMore).toBe(true);
-    expect(typeof firstPage.nextCursor).toBe("string");
-    const secondPage = toolData((await callTool("list_shares", { noteId: note.id, limit: 2, cursor: firstPage.nextCursor }, 6, environment)).body!);
-    expect(secondPage.shares).toHaveLength(1);
-    expect(secondPage.hasMore).toBe(false);
-    expect(secondPage.nextCursor).toBeNull();
-    expect(new Set([...firstPage.shares, ...secondPage.shares].map((share: { id: string }) => share.id)).size).toBe(3);
-
-    const user = database.query("SELECT id, username FROM users WHERE username = ?").get(credentials.XIANGYING_USERNAME) as { id: string; username: string };
-    const legacyList = await handleNoteShares(database, user, note.id, "GET", new URL("https://notes.example.com/api/notes"), environment);
-    const legacyBody = await legacyList.json() as { shares: unknown[]; nextCursor?: unknown };
-    expect(legacyBody.shares).toHaveLength(3);
-    expect(legacyBody).not.toHaveProperty("nextCursor");
-    // handleNoteShares runs synchronously through the initial read, then yields for token hashing.
-    const pendingShare = handleNoteShares(database, user, note.id, "POST", new URL("https://notes.example.com/api/notes"), environment);
-    database.query("UPDATE notes SET deleted_at = ?, version = version + 1 WHERE id = ? AND user_id = ?").run(Math.floor(Date.now() / 1000), note.id, user.id);
-    const rejected = await pendingShare;
-    expect(rejected.status).toBe(409);
-    expect((await rejected.json() as { error: { code: string } }).error.code).toBe("NOTE_IN_TRASH");
-    expect(database.query("SELECT COUNT(*) AS count FROM shares WHERE note_id = ?").get(note.id)).toMatchObject({ count: 3 });
-  });
 
   test("creates, renames, and deletes a notebook while preserving its notes", async () => {
     const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
@@ -1343,25 +1255,6 @@ describe("remote MCP endpoint", () => {
     expect(toolData(replaced.body!).mode).toBe("replace");
     const afterReplace = toolData((await callTool("get_note", { noteId: created.id }, 8, environment)).body!).note;
     expect(afterReplace.tags).toEqual(["丙"]);
-  });
-
-  test("refuses to create MCP shares for trashed notes while keeping existing links auditable", async () => {
-    const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
-    const note = toolData((await callTool("create_note", { title: "回收站分享保护", contentMarkdown: "正文" }, 1, environment)).body!).note;
-    const createdShare = toolData((await callTool("create_share", { noteId: note.id }, 2, environment)).body!).share;
-    const trashed = toolData((await callTool("note_operation", { action: "trash", noteId: note.id, version: note.version }, 3, environment)).body!).note;
-
-    const refused = await callTool("create_share", { noteId: note.id }, 4, environment);
-    expect(refused.response.status).toBe(200);
-    expect(refused.body?.result?.isError).toBe(true);
-    expect(toolData(refused.body!).error.code).toBe("NOTE_IN_TRASH");
-
-    const listed = toolData((await callTool("list_shares", { noteId: note.id }, 5, environment)).body!).shares;
-    expect(listed).toHaveLength(1);
-    expect(listed[0].id).toBe(createdShare.id);
-    const sharedSearch = toolData((await callTool("search_notes", { view: "shared" }, 6, environment)).body!).notes;
-    expect(sharedSearch.some((entry: { id: string }) => entry.id === note.id)).toBe(false);
-    expect(trashed.deletedAt).not.toBeNull();
   });
 
   test("omits note content on request and exposes ISO timestamps", async () => {

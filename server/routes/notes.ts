@@ -53,7 +53,6 @@ import {
 } from "../note-links";
 import { assetPathsForNotes, removeAssetFiles } from "./assets";
 import { canIndexShortSearchTerm, MAX_SHORT_TERM_CONTENT_CHARS, MAX_SHORT_TERMS_PER_NOTE, syncNoteShortSearchTerms } from "../note-search";
-import { handleNoteShares } from "./shares";
 import { publishWorkspaceChange } from "../realtime";
 
 const NOTE_BATCH_LIMIT = 500;
@@ -272,7 +271,7 @@ export function updateNote(
 
 export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRoot: string): Promise<Response | null> {
   const { request, url, method, segments, options } = ctx;
-  const { database, environment } = options;
+  const { database } = options;
   const resource = segments[0] ?? "";
   const id = segments[1] ?? "";
   const subresource = segments[2] ?? "";
@@ -420,10 +419,6 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     else conditions.push("n.deleted_at IS NULL");
     if (view === "inbox") conditions.push("b.is_system = 1");
     if (view === "favorites") conditions.push("n.is_favorite = 1");
-    if (view === "shared") {
-      conditions.push("EXISTS (SELECT 1 FROM shares s WHERE s.note_id = n.id AND s.revoked_at IS NULL AND s.expires_at > ?)");
-      params.push(now());
-    }
     if (notebookId) {
       conditions.push("n.notebook_id = ?");
       params.push(notebookId);
@@ -528,11 +523,6 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     const note = getNote(database, user.id, noteId);
     publishWorkspaceChange(options, user.id, { resource: "notes", noteId }, request);
     return json({ note: note ? toFullNote(note) : null }, 201);
-  }
-
-  // Note shares
-  if (id && subresource === "shares" && (method === "GET" || method === "POST")) {
-    return await handleNoteShares(database, user, id, method, url, environment, { request, options });
   }
 
   // Backlinks

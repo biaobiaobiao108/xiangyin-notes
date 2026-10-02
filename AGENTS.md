@@ -2,7 +2,7 @@
 
 ## 项目定位
 
-象映笔记是一个使用 Bun + TypeScript + React 构建的本地全栈 Markdown 笔记软件。前端由 Bun bundler 打包，后端使用原生 `Bun.serve`，数据使用 `bun:sqlite` 保存；分享链接实时读取笔记，SQLite 只保存分享令牌元数据。
+象映笔记是一个使用 Bun + TypeScript + React 构建的本地全栈 Markdown 笔记软件。前端由 Bun bundler 打包，后端使用原生 `Bun.serve`，数据使用 `bun:sqlite` 保存。
 
 ## 基本原则
 
@@ -11,7 +11,7 @@
 - 优先复用现有代码和实现模式，不增加没有必要的依赖、配置或新文件。
 - JavaScript / TypeScript 项目统一使用 Bun；不要用 npm、yarn 或 pnpm 替代项目脚本。
 - 修改前先检查工作区状态，保留用户已有的未提交修改，不覆盖无关工作。
-- 不要把密码、真实分享 token、`.env`、SQLite 数据库或其他敏感信息写入仓库。
+- 不要把密码、`.env`、SQLite 数据库或其他敏感信息写入仓库。
 
 ## 运行时与配置边界
 
@@ -105,7 +105,7 @@ bun run build
     - `--motion-panel: 220ms`：弹窗浮层、侧边抽屉、Toast 通知优雅滑入；
     - `--motion-layout: 280ms`：侧栏折叠/展开、工作区视口大结构切换。
 - **弹窗与浮层入场体系**：
-  - 全站模态弹窗（`<dialog>`、命令面板、分享面板、笔记本设置、确认弹窗等）统一采用 `dialog-in` 配合 `var(--motion-panel) var(--motion-ease-out)`，起始态带有细腻微位移与微缩放（`translateY(-10px) scale(0.975)`），呈现轻盈浮现质感；
+  - 全站模态弹窗（`<dialog>`、命令面板、笔记本设置、确认弹窗等）统一采用 `dialog-in` 配合 `var(--motion-panel) var(--motion-ease-out)`，起始态带有细腻微位移与微缩放（`translateY(-10px) scale(0.975)`），呈现轻盈浮现质感；
   - 侧边与浮动大纲抽屉（`.editor-floating-outline`）采用 `outlineFadeIn`（`translateX(-10px) scale(0.98)` 到正常），配合半透明毛玻璃柔和展开。
 - **系统通知与 Toast**：
   - Toast 与更新通知采用 `toast-in-top`（带有 `scale(0.97)` 微缩放），如浮动轻手记卡片自然滑落悬浮，避免生硬下冲。
@@ -149,7 +149,6 @@ bun run build
 - 物理删除笔记与清空废纸篓遵循数据库空闲页复用机制（freelist reuse），释放页保留在数据库中供后续写入直接复用，不在删除请求中强行截断，避免 I/O 抖动与磁盘磨损；深度整理工具函数 `reclaimDatabaseSpace` 仅按需维护使用。
 - 更新笔记必须携带并校验 `version`，版本冲突返回 `409 VERSION_CONFLICT`。
 - 私有 API 必须校验当前会话和资源归属。
-- 分享公开读取在验证撤销状态和过期时间后读取笔记当前内容；笔记进入回收站时不可公开读取，固定有效期 7 天。分享记录只保存令牌元数据，不保存正文快照，并定期清理过期 30 天以上的记录。
 - 生产错误返回统一错误 JSON，详细堆栈只写服务端日志。
 
 ## Docker 与 CI 要求

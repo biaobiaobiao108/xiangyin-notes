@@ -8,7 +8,7 @@ import { applyPwaUpdate, installPwa, subscribePwa, type PwaState } from "./pwa";
 import type { WorkspaceChangeMessage } from "../shared/realtime";
 import type { Note, NoteSummary, NoteView, Notebook } from "../shared/types";
 import type { OutlineItem } from "./editor-metrics";
-import { ConfirmDialog, NotebookDialog, ShareDialog, type ConfirmRequest } from "./workspace/dialogs";
+import { ConfirmDialog, NotebookDialog, type ConfirmRequest } from "./workspace/dialogs";
 import { clearAllDraftRecoveries, readDraftRecovery } from "./workspace/draft-recovery";
 import { EmptyEditor, NoteListPanel, NoteLoadingState, Sidebar } from "./workspace/panels";
 import { NoteCardGridPanel } from "./workspace/note-card-grid";
@@ -180,7 +180,6 @@ export function Workspace() {
   const [commandOpen, setCommandOpen] = useState(false);
   const [commandInitialQuery, setCommandInitialQuery] = useState("");
   const [inNoteSearchQuery, setInNoteSearchQuery] = useState("");
-  const [shareOpen, setShareOpen] = useState(false);
   const [editingNotebook, setEditingNotebook] = useState<Notebook | null | undefined>(undefined);
   const [toast, setToast] = useState("");
   const [ready, setReady] = useState(false);
@@ -496,7 +495,7 @@ export function Workspace() {
   const activeSearchQuery = inNoteSearchQuery || query;
   useWorkspaceShortcuts({
     focusMode,
-    hasModalOpen: Boolean(commandOpen || shareOpen || editingNotebook !== undefined || confirmRequest || activeDrawer),
+    hasModalOpen: Boolean(commandOpen || editingNotebook !== undefined || confirmRequest || activeDrawer),
     // Escape 第 1 层：正文搜索高亮清除优先于退出沉浸模式。
     hasSearchHighlight: Boolean(activeSearchQuery.trim()),
     clearSearchHighlight: () => handleClearSearch(),
@@ -797,7 +796,7 @@ export function Workspace() {
       requestConfirm({
         eyebrow: "不可撤销",
         title: `彻底删除 ${ids.length} 篇笔记？`,
-        description: "这些笔记会从数据库永久移除，回收站不再保留，相关分享链接也会同时失效。",
+        description: "这些笔记会从数据库永久移除，回收站不再保留。",
         confirmLabel: "彻底删除",
         danger: true,
         onConfirm: () => performBatchDelete(ids, true),
@@ -827,7 +826,7 @@ export function Workspace() {
     requestConfirm({
       eyebrow: "不可撤销",
       title: `彻底删除“${current.title.trim() || "未命名笔记"}”？`,
-      description: "这篇笔记会从数据库中永久移除，回收站不再保留，已生成的分享链接也会同时失效。",
+      description: "这篇笔记会从数据库中永久移除，回收站不再保留。",
       confirmLabel: "彻底删除",
       danger: true,
       onConfirm: () => performPermanentDelete(current.id),
@@ -860,7 +859,7 @@ export function Workspace() {
     requestConfirm({
       eyebrow: "不可撤销",
       title: "清空回收站？",
-      description: `将永久删除回收站中的全部笔记（当前共 ${totalNotes} 篇），包括列表尚未显示的笔记。删除后无法恢复，相关分享链接也会同时失效。`,
+      description: `将永久删除回收站中的全部笔记（当前共 ${totalNotes} 篇），包括列表尚未显示的笔记。删除后无法恢复。`,
       confirmLabel: "清空回收站",
       danger: true,
       onConfirm: performEmptyTrash,
@@ -925,7 +924,7 @@ export function Workspace() {
     requestConfirm({
       eyebrow: "不可撤销",
       title: `彻底删除“${target.title.trim() || "未命名笔记"}”？`,
-      description: "这篇笔记会从数据库中永久移除，回收站不再保留，已生成的分享链接也会同时失效。",
+      description: "这篇笔记会从数据库中永久移除，回收站不再保留。",
       confirmLabel: "彻底删除",
       danger: true,
       onConfirm: async () => {
@@ -972,7 +971,7 @@ export function Workspace() {
     const pending = pendingRealtimeRefreshRef.current;
     const resource = message?.resource;
     if (!message || resource === "notes" || resource === "notebooks") pending.notebooks = true;
-    if (!message || resource === "notes" || resource === "notebooks" || (resource === "shares" && view === "shared")) pending.notes = true;
+    if (!message || resource === "notes" || resource === "notebooks") pending.notes = true;
     if (!message || resource === "notes") {
       if (!message?.noteId) pending.selected = true;
       else pending.noteIds.add(message.noteId);
@@ -1109,7 +1108,6 @@ export function Workspace() {
     if (id === "set-theme-light") setThemePreference("light");
     if (id === "set-theme-dark") setThemePreference("dark");
     if (id === "set-theme-system") setThemePreference("system");
-    if (id === "share" && selectedRef.current) setShareOpen(true);
     if (id === "copy-note-markdown") void copyNoteMarkdown();
     if (id === "favorite") toggleFavorite();
     if (id === "trash") moveToTrash();
@@ -1260,7 +1258,6 @@ export function Workspace() {
     }
     openDrawer("list");
   }, [openDrawer, viewLayout]);
-  const handleShare = useCallback(() => setShareOpen(true), []);
   const handleUploadImage = useCallback((file: File) => api.uploadAsset(file), []);
   const handleScrollToOutlineItem = useCallback((id: string) => outlineNavigateRef.current?.(id), []);
   const handleClearQuery = useCallback(() => changeQuery(""), [changeQuery]);
@@ -1312,13 +1309,12 @@ export function Workspace() {
       />
     ) : (
       <main ref={editorRegionRef} className="editor-region" tabIndex={-1} aria-hidden={editorContentInert || undefined} inert={editorContentInert}>
-        {renderedNote ? <Suspense fallback={<NoteLoadingState />}><LazyNoteEditor note={renderedNote} availableNotes={notes} onNavigateWikiLink={handleNavigateWikiLink} onCreateAndLinkNote={handleCreateAndLinkNote} onNavigateToNote={selectNote} searchQuery={activeSearchQuery} onClearSearch={activeSearchQuery ? handleClearSearch : undefined} onToast={setToast} onMarkdownReaderChange={registerEditorMarkdownReader} onMarkdownDirtyChange={registerEditorMarkdownDirty} saveState={saveState} isLoading={isNoteLoading} trashBusy={emptyingTrash || (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onShare={handleShare} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={handleOpenList} onBackToCards={isCardsLayout ? () => setCardEditingNoteId(null) : undefined} onUploadImage={handleUploadImage} focusMode={focusMode} typewriterMode={typewriterMode} outlineOpen={outlineOpen} outlineItems={outlineItems} activeOutlineId={activeOutlineId} onToggleOutline={toggleOutline} onCloseOutline={closeOutline} onOutlineItemsChange={handleOutlineItemsChange} onOutlineActiveChange={handleOutlineActiveChange} onOutlineNavigationReady={handleOutlineNavigationReady} /></Suspense> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor isTrash={view === "trash"} onNewNote={handleNewNote} onOpenList={handleOpenList} transitionToken={listTransitionToken} />}
+        {renderedNote ? <Suspense fallback={<NoteLoadingState />}><LazyNoteEditor note={renderedNote} availableNotes={notes} onNavigateWikiLink={handleNavigateWikiLink} onCreateAndLinkNote={handleCreateAndLinkNote} onNavigateToNote={selectNote} searchQuery={activeSearchQuery} onClearSearch={activeSearchQuery ? handleClearSearch : undefined} onToast={setToast} onMarkdownReaderChange={registerEditorMarkdownReader} onMarkdownDirtyChange={registerEditorMarkdownDirty} saveState={saveState} isLoading={isNoteLoading} trashBusy={emptyingTrash || (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={handleOpenList} onBackToCards={isCardsLayout ? () => setCardEditingNoteId(null) : undefined} onUploadImage={handleUploadImage} focusMode={focusMode} typewriterMode={typewriterMode} outlineOpen={outlineOpen} outlineItems={outlineItems} activeOutlineId={activeOutlineId} onToggleOutline={toggleOutline} onCloseOutline={closeOutline} onOutlineItemsChange={handleOutlineItemsChange} onOutlineActiveChange={handleOutlineActiveChange} onOutlineNavigationReady={handleOutlineNavigationReady} /></Suspense> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor isTrash={view === "trash"} onNewNote={handleNewNote} onOpenList={handleOpenList} transitionToken={listTransitionToken} />}
       </main>
     )}
     <CommandMenu open={commandOpen} onClose={closeCommandMenu} onCommand={command} onCreateNoteInNotebook={createNoteInNotebook} canRestore={Boolean(commandNoteReady && renderedNote?.deletedAt)} canMoveToTrash={Boolean(commandNoteReady && renderedNote && !renderedNote.deletedAt)} notebooks={notebooks} currentNotebookId={renderedNote?.notebookId} onMoveNoteToNotebook={(targetNotebookId) => onNoteChange({ notebookId: targetNotebookId })} focusMode={focusMode} typewriterMode={typewriterMode} viewLayout={viewLayout} canInstallApp={pwaState.canInstall} showIosInstallHint={pwaState.showIosInstallHint} standalone={pwaState.standalone} hasSelectedNote={commandNoteReady} onSearchInCurrentNote={handleSearchInCurrentNote} onSearchGlobal={handleSearchGlobal} onFocusGlobalSearch={handleFocusGlobalSearch} initialQuery={commandInitialQuery} themePreference={themePreference} />
 
 
-    {shareOpen && renderedNote && <ShareDialog note={renderedNote} onClose={() => setShareOpen(false)} onToast={setToast} />}
     {editingNotebook !== undefined && <NotebookDialog key={editingNotebook?.id ?? "new"} notebook={editingNotebook} onClose={() => setEditingNotebook(undefined)} onSave={saveNotebookDraft} onSaved={saveNotebook} onRequestDelete={(target) => requestConfirm({ eyebrow: "整理上下文", title: `删除笔记本“${target.name}”？`, description: "笔记本中的笔记会自动移入收件箱，笔记内容不会被删除。", confirmLabel: "删除笔记本", danger: true, onConfirm: () => deleteNotebook(target.id) })} onToast={setToast} />}
     {confirmRequest && <ConfirmDialog key={confirmRequest.id} request={confirmRequest} onClose={() => setConfirmRequest(null)} />}
     <div className="system-notices">{pwaState.updateAvailable && <div className="update-notice" role="status" aria-live="polite" aria-labelledby="update-notice-title"><div className="update-notice-header"><RefreshCw size={18} aria-hidden="true" /><div><strong id="update-notice-title">发现新版本</strong><p>保存当前编辑后即可更新应用。</p></div></div><div className="update-notice-actions"><button className="text-button update-notice-action" type="button" onClick={() => void updatePwa()}>更新</button></div></div>}{toast && <div className="toast" role="status">{toast}</div>}</div>

@@ -54,19 +54,6 @@ CREATE INDEX IF NOT EXISTS idx_notes_user_deleted_created ON notes(user_id, dele
 CREATE INDEX IF NOT EXISTS idx_notes_user_deleted_title_nocase ON notes(user_id, deleted_at, title COLLATE NOCASE, id);
 CREATE INDEX IF NOT EXISTS idx_notes_user_deleted_title_normalized ON notes(user_id, deleted_at, title_normalized, updated_at DESC, id);
 
-CREATE TABLE IF NOT EXISTS shares (
-  id TEXT PRIMARY KEY,
-  note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
-  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  token_hash TEXT NOT NULL UNIQUE,
-  created_at INTEGER NOT NULL,
-  expires_at INTEGER NOT NULL,
-  revoked_at INTEGER
-);
-
-CREATE INDEX IF NOT EXISTS idx_shares_note ON shares(note_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_shares_expiry ON shares(expires_at);
-
 CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
   title,
   content_markdown,

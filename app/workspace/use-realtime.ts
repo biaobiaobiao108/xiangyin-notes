@@ -15,7 +15,7 @@ type UseWorkspaceRealtimeOptions = {
 function isWorkspaceChangeMessage(value: unknown): value is WorkspaceChangeMessage {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<WorkspaceChangeMessage>;
-  const resources: WorkspaceChangeResource[] = ["notes", "notebooks", "shares"];
+  const resources: WorkspaceChangeResource[] = ["notes", "notebooks"];
   return candidate.type === "workspace.changed"
     && Number.isInteger(candidate.revision)
     && resources.includes(candidate.resource as WorkspaceChangeResource)

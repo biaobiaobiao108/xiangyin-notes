@@ -3,7 +3,7 @@ import { rm } from "node:fs/promises";
 import { isIP } from "node:net";
 import { join } from "node:path";
 import { extractTags, normalizeTag } from "../shared/tags";
-import type { ImageAssetSummary, Note, NoteSummary, NoteView, Share } from "../shared/types";
+import type { ImageAssetSummary, Note, NoteSummary, NoteView } from "../shared/types";
 import type { RealtimeHub } from "./realtime";
 import type { SqliteDatabase } from "./db";
 
@@ -67,15 +67,6 @@ export type NoteRow = {
   thumbnail_created_at: number | null;
 };
 
-export type ShareRow = {
-  id: string;
-  note_id: string;
-  user_id: string;
-  created_at: number;
-  expires_at: number;
-  revoked_at: number | null;
-};
-
 export type ImageAssetRow = {
   id: string;
   user_id: string;
@@ -107,7 +98,6 @@ export const SESSION_COOKIE = "xiangying_session";
 export const SESSION_TTL = 60 * 60 * 24 * 30;
 export const SESSION_COOKIE_TTL = 60 * 60 * 24 * 400;
 export const SESSION_REFRESH_WINDOW = 60 * 60 * 24 * 7;
-export const SHARE_TTL = 60 * 60 * 24 * 7;
 export const PASSWORD_ITERATIONS = 100_000;
 export const NOTE_PAGE_SIZE = 100;
 export const BACKLINK_REFERENCE_LIMIT = 100;
@@ -124,9 +114,9 @@ export const LOGIN_BLOCK_SECONDS = 15 * 60;
 export const LOGIN_ATTEMPT_MAX_ENTRIES = 2_000;
 export const LOGIN_ATTEMPT_CLEANUP_INTERVAL_SECONDS = 60;
 export const SESSION_CLEANUP_INTERVAL_SECONDS = 60;
-export const NOTE_VIEWS: NoteView[] = ["all", "inbox", "favorites", "shared", "trash"];
+export const NOTE_VIEWS: NoteView[] = ["all", "inbox", "favorites", "trash"];
 
-export const welcomeMarkdown = "## 欢迎来到象映笔记\n\n这是你的第一个笔记。按下 **Ctrl /** 可以打开命令菜单，开始记录你的想法。\n\n- 写下值得保留的东西\n- 用笔记本整理上下文\n- 随时生成一个 7 天有效的只读分享\n";
+export const welcomeMarkdown = "## 欢迎来到象映笔记\n\n这是你的第一个笔记。按下 **Ctrl /** 可以打开命令菜单，开始记录你的想法。\n\n- 写下值得保留的东西\n- 用笔记本整理上下文\n- 随时整理值得保留的想法\n";
 
 export function now() {
   return Math.floor(Date.now() / 1000);
@@ -232,15 +222,6 @@ export function isSecureRequest(request: Request, environment: Record<string, st
     return request.headers.get("X-Forwarded-Proto")?.split(",")[0]?.trim().toLowerCase() === "https";
   }
   return false;
-}
-
-// Generating a share link must fail loudly: a wrong PUBLIC_URL would publish unusable links.
-export function publicOriginForShare(requestUrl: URL, environment: Record<string, string | undefined> = {}) {
-  const configuredUrl = environment.PUBLIC_URL?.trim();
-  if (!configuredUrl) return requestUrl.origin;
-  const publicUrl = new URL(configuredUrl);
-  if (publicUrl.protocol !== "http:" && publicUrl.protocol !== "https:") throw new Error("PUBLIC_URL must use http or https");
-  return publicUrl.origin;
 }
 
 let publicOriginWarningShown = false;
@@ -856,16 +837,6 @@ export function parseIndexedTags(value: string) {
   }
 }
 
-export function toShare(row: { id: string; note_id: string; created_at: number; expires_at: number; revoked_at: number | null }): Share {
-  return {
-    id: row.id,
-    noteId: row.note_id,
-    createdAt: row.created_at,
-    expiresAt: row.expires_at,
-    revokedAt: row.revoked_at,
-  };
-}
-
 export class InvalidNoteAssetsError extends Error {
   constructor() {
     super("invalid-note-assets");
@@ -975,11 +946,6 @@ export function syncNoteAssetReferences(
     database.query("UPDATE image_assets SET note_id = ?, document_order = ? WHERE id = ? AND user_id = ?").run(noteId, documentOrder, id, userId);
   }
   return true;
-}
-
-export function rewriteAssetUrlsForShare(markdown: string, token: string) {
-  ASSET_REFERENCE_PATTERN.lastIndex = 0;
-  return markdown.replace(ASSET_REFERENCE_PATTERN, (_match, id: string) => `/api/share-assets/${token}/${id}`);
 }
 
 export function getNote(database: SqliteDatabase, userId: string, noteId: string) {

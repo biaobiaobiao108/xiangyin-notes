@@ -22,16 +22,12 @@
 
 ![象映笔记浅色模式下的反向链接窗口，列出引用当前笔记的内容和可以补成链接的同名提及。](docs/assets/screenshots/backlinks-light.jpg)
 
-**只读分享：** 分享窗口会说明链接有效期；本截图没有生成真实分享链接。
-
-![象映笔记浅色模式下的分享窗口，可生成 7 天有效的只读链接；截图中没有真实分享链接。](docs/assets/screenshots/share-dialog-light.jpg)
-
 ## 象映笔记能帮你做什么
 
 - **随手记录：** 在收件箱里先记下灵感、会议内容、阅读摘录、计划和待办，不必一开始就决定放在哪里。
 - **慢慢整理：** 用笔记本、标签和收藏建立适合自己的分类；误删的内容可以先从回收站恢复。
 - **方便找回：** 搜索标题和正文，用双向链接把相关笔记连起来，再通过反向链接看到它们之间的关系。
-- **按需分享：** 生成一条 7 天有效的只读链接，可以提前撤销；也可以把笔记和图片打包导出。
+- **带走内容：** 把笔记和图片打包导出，保留 Markdown 原文与附件。
 - **自己保管：** 自行部署服务、管理数据目录，并按自己的习惯备份。
 
 ## 写作时，少一点打断
@@ -46,7 +42,7 @@
 
 ## 整理方式由你决定
 
-象映笔记提供收件箱、全部笔记、收藏、已分享和回收站几个常用入口。收件箱适合暂存新内容；笔记本可以按项目、主题、工作或生活建立，图标和颜色也可以自选。
+象映笔记提供收件箱、全部笔记、收藏和回收站几个常用入口。收件箱适合暂存新内容；笔记本可以按项目、主题、工作或生活建立，图标和颜色也可以自选。
 
 在正文里写上 `#工作`、`#读书` 这样的标签，象映笔记会为它们建立索引。之后可以点标签筛选笔记，也可以在搜索框或命令菜单中输入 `#标签名` 查找。
 
@@ -73,9 +69,8 @@
 
 在多个设备上登录同一个账号时，笔记和笔记本的变化会通知其他已打开的页面并刷新列表。正文同时在多台设备上编辑时，内容不会自动合并，建议同一时间只在一台设备上编辑同一篇笔记。
 
-## 分享和带走自己的内容
+## 带走自己的内容
 
-分享笔记时，象映笔记会生成一条 7 天有效的只读链接。链接每次打开都会读取笔记当前内容，因此后续修改也会公开显示；笔记移入回收站时链接无法读取，恢复后可继续使用。你可以在“已分享”或笔记的分享窗口中查看记录并撤销链接。请记住，任何拿到有效链接的人都能阅读其中的内容。
 
 导出会把当前未删除的笔记打包为 ZIP：笔记以 Markdown 文件保存，并按笔记本归类；图片附件也包含在压缩包里。这样可以留作备份，也方便以后用其他 Markdown 工具打开。
 
@@ -86,7 +81,6 @@
 - 象映笔记目前供一个人使用，不提供公开注册、多人协作或多租户账号。
 - 使用时需要连接到运行象映笔记的服务；目前不支持断网编辑和稍后自动上传。
 - 多设备通知用于更新其他页面的笔记列表和内容，不会合并同时发生的正文编辑。
-- 分享链接是公开只读链接。链接有效期为 7 天，也可以提前撤销。
 - 建议定期备份数据库和图片附件目录。服务运行期间不要直接复制正在使用的 SQLite 数据库文件；请先停服，或使用 SQLite 在线备份方式。
 
 ## 快速开始
@@ -144,17 +138,17 @@ XIANGYING_MCP_TOKEN=上一步生成的随机令牌
 PUBLIC_URL=https://notes.example.com
 ```
 
-在 MCP 客户端中将服务地址填写为 `https://notes.example.com/mcp/<URL 编码后的令牌>`，无需额外配置 Bearer 请求头；MCP 只接受路径令牌，旧的 `Authorization` 认证方式不再生效。令牌仍从 `XIANGYING_MCP_TOKEN` 环境变量读取，拥有整个笔记库的搜索、读取、创建、更新、笔记本、分享和回收站管理权限，请只配置给可信客户端。令牌位于 URL 路径中，可能出现在代理访问日志；请为 `/mcp/<令牌>` 配置路径脱敏，并只通过 HTTPS 访问。修改令牌后需要重新创建容器，令牌不会因单纯重启容器而从 `.env` 重新读取。
+在 MCP 客户端中将服务地址填写为 `https://notes.example.com/mcp/<URL 编码后的令牌>`，无需额外配置 Bearer 请求头；MCP 只接受路径令牌，旧的 `Authorization` 认证方式不再生效。令牌仍从 `XIANGYING_MCP_TOKEN` 环境变量读取，拥有整个笔记库的搜索、读取、创建、更新、笔记本和回收站管理权限，请只配置给可信客户端。令牌位于 URL 路径中，可能出现在代理访问日志；请为 `/mcp/<令牌>` 配置路径脱敏，并只通过 HTTPS 访问。修改令牌后需要重新创建容器，令牌不会因单纯重启容器而从 `.env` 重新读取。
 
-反向代理需要将 `/mcp/<令牌>` 转发到应用容器，保留 MCP 协议请求头和 POST 请求体，并允许 `text/event-stream` 响应及时传递。使用 Nginx 时应为该路径关闭响应缓冲（例如设置 `proxy_buffering off`）；其他代理使用对应的流式响应设置。MCP 提供的工具包括：列出、创建、重命名、更新和删除笔记本（删除时笔记会移入收件箱）、搜索与分页、列出回收站并恢复笔记、按 ID 或标题读取笔记、按 ID 批量读取全文、创建和追加笔记、替换正文片段、按锚点插入正文、按版本更新与批量更新笔记，用 `note_operation` 管理单篇笔记，并通过 `create_share`、`list_shares`、`revoke_share` 创建、检查和撤销公开分享。分享链接默认有效 7 天，只读显示笔记当前内容。收藏按目标状态设置，可安全重复调用。搜索和回收站列表默认每页返回 20 篇，每篇摘要最多 120 个 Unicode 字符；摘要保留正文换行、孤立下划线以及标识符、URL 中的下划线，并过滤纯标签行；搜索可按标签分页，传 `view=trash` 或在 `list_trash` 上传 `query` 即可检索回收站，`view=shared` 可筛选已分享笔记；批量全文读取默认取 `min(noteIds.length, 50)` 篇、单次最多 50 篇，正文总量默认不超过 20,000、最高可设为 100,000 个 Unicode 字符，且不重复返回 preview；返回 `checkedCount` / `uncheckedCount` 标明已检查与未检查存在性的 ID 数；放不进剩余预算的笔记列入 `oversizedIds` 和 `remainingIds`，并继续读取后续 ID，超出总预算的长笔记可用 `get_note` 单篇读取。`get_notes_batch` 的各篇笔记在本次调用期间分别读取，不构成同一时刻的一致快照，也可能看不到并行或之后完成的写入。
+反向代理需要将 `/mcp/<令牌>` 转发到应用容器，保留 MCP 协议请求头和 POST 请求体，并允许 `text/event-stream` 响应及时传递。使用 Nginx 时应为该路径关闭响应缓冲（例如设置 `proxy_buffering off`）；其他代理使用对应的流式响应设置。MCP 提供的工具包括：列出、创建、重命名、更新和删除笔记本（删除时笔记会移入收件箱）、搜索与分页、列出回收站并恢复笔记、按 ID 或标题读取笔记、按 ID 批量读取全文、创建和追加笔记、替换正文片段、按锚点插入正文、按版本更新与批量更新笔记，用 `note_operation` 管理单篇笔记。收藏按目标状态设置，可安全重复调用。搜索和回收站列表默认每页返回 20 篇，每篇摘要最多 120 个 Unicode 字符；摘要保留正文换行、孤立下划线以及标识符、URL 中的下划线，并过滤纯标签行；搜索可按标签分页，传 `view=trash` 或在 `list_trash` 上传 `query` 即可检索回收站；批量全文读取默认取 `min(noteIds.length, 50)` 篇、单次最多 50 篇，正文总量默认不超过 20,000、最高可设为 100,000 个 Unicode 字符，且不重复返回 preview；返回 `checkedCount` / `uncheckedCount` 标明已检查与未检查存在性的 ID 数；放不进剩余预算的笔记列入 `oversizedIds` 和 `remainingIds`，并继续读取后续 ID，超出总预算的长笔记可用 `get_note` 单篇读取。`get_notes_batch` 的各篇笔记在本次调用期间分别读取，不构成同一时刻的一致快照，也可能看不到并行或之后完成的写入。
 
 `batch_update_notes` 可一次移动最多 50 篇笔记到同一笔记本，部分失败时返回 `partial=true` 与逐条结果，只需重试失败项；汇总中的 `updatedCount` 只计实际改动，`noopCount` 计成功但未改动的条目，`failedCount` 计失败项。写操作默认不回传正文；`create_note`、`update_note`、`replace_in_note`、`append_to_note` 和 `insert_into_note` 可通过 `includeContent=true` 显式请求，`note_operation` 与 `batch_update_notes` 不支持该参数。只想取 `version` 时可用 `get_note` 传 `includeContent=false`，或直接从 `search_notes` / `list_trash` 结果中读取。`contentLength` 回执与批量读取预算按 Unicode code point 统计；单篇正文硬上限为 1,000,000 个 UTF-16 code units（JavaScript `string.length`）。`create_note` 可直接传入完整正文，普通笔记优先一次写入；只有客户端明确无法承载单次参数或服务端实际返回 MCP 请求体超过 4.5 MB 的错误时，才先创建骨架，再沿用每次返回的 version 用 `append_to_note` 分段追加。读取结果提供 ISO 可读时间；单篇版本冲突的 `error.current` 含当前完整笔记，可据此合并并使用最新 version 重试；批量冲突只回传摘要与元数据，需要时再按失败笔记 ID 读取正文。
 
-`list_shares` 每页默认 20 条、最多 100 条，并通过 `nextCursor` 分页。正文提取的标签每个最多 40 个 UTF-16 code units，与显式传入标签的上限一致；行内代码、围栏代码、反斜杠转义井号词和超长标签不会写入标签索引。
+正文提取的标签每个最多 40 个 UTF-16 code units，与显式传入标签的上限一致；行内代码、围栏代码、反斜杠转义井号词和超长标签不会写入标签索引。
 
 MCP 只传输文字和 Markdown，不提供图片内容或缩略图。正文中非代码区域、未转义的 `#标签` 会被索引，行内代码、围栏代码和反斜杠转义的井号词（如 `\#CSharp`）会忽略；`create_note.tags` 和 `batch_update_notes.tags` 只追加标签，`note_operation` 的 `set_tags` 必须显式传 `mode=replace`、`mode=add` 或 `mode=remove`，以明确选择整体替换、追加或移除；回收站笔记只读；`batch_update_notes` 可通过单独传 `deleted:false` 批量恢复，其他修改都会返回 `NOTE_IN_TRASH`，需先恢复笔记；`note_operation` 与 `batch_update_notes` 的幂等操作未改变状态时会在对应结果中标记 `noop=true`。`replace_in_note` 可替换正文中唯一匹配的片段，不必把全文传给模型；可选传 `version` 时会校验版本，显式传 `force=true` 才会忽略调用方提供的旧版本，但服务端写入仍使用乐观锁。`insert_into_note` 可在正文唯一匹配的锚点前后插入内容；锚点不存在或不唯一时不会修改笔记。两个工具的匹配都按非重叠计数，`occurrence` 从 1 开始。删除笔记本是不可逆的级联操作，必须传 `confirm=true`；`list_notebooks` 的 `count` 不含回收站笔记，二次确认时应把含回收站的 `totalCount` 传给 `expectedNoteCount`；MCP 不提供单项永久删除笔记或清空回收站的工具。正文中的图片引用会原样保留，方便后续编辑时保留这些引用；MCP 令牌不能用于读取 `/api/assets/` 下的图片。通过 MCP 结构化参数传多行 Markdown 即可；若手写原始 JSON，字符串中的换行、制表符等控制字符必须按 JSON 规范转义。工具结果只通过 MCP 文本 `content` 返回一次 JSON，不另附重复的结构化结果。
 
-MCP 的 `update_note` 可省略 `version`，服务端会读取当前版本并继续使用乐观锁；显式传入时仍会校验。`replace_in_note` 可传 `replaceAll=true` 一次替换所有非重叠匹配并返回 `replacedCount`；`insert_into_note` 可传 `insertAll=true` 在全部非重叠锚点处插入并返回 `insertedCount`，两者的全量操作均会先检查正文长度上限。批量标签使用 `tags` 追加、`removeTags` 移除、`replaceTags` 整体替换；`replaceTags` 与另外两种标签操作互斥。`revoke_share` 除 `shareId` 外也接受完整分享 URL 或 URL 中的 token；三种标识必须且只能传一种，并按当前用户校验。标题歧义候选附带摘要和可读更新时间，`truncated=true` 表示候选列表不完整；`get_note` 按 ID 读取回收站笔记无需设置 `includeDeleted`。
+MCP 的 `update_note` 可省略 `version`，服务端会读取当前版本并继续使用乐观锁；显式传入时仍会校验。`replace_in_note` 可传 `replaceAll=true` 一次替换所有非重叠匹配并返回 `replacedCount`；`insert_into_note` 可传 `insertAll=true` 在全部非重叠锚点处插入并返回 `insertedCount`，两者的全量操作均会先检查正文长度上限。批量标签使用 `tags` 追加、`removeTags` 移除、`replaceTags` 整体替换；`replaceTags` 与另外两种标签操作互斥。标题歧义候选附带摘要和可读更新时间，`truncated=true` 表示候选列表不完整；`get_note` 按 ID 读取回收站笔记无需设置 `includeDeleted`。
 
 ### 本机运行
 

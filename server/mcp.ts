@@ -2,7 +2,6 @@ import { createMcpHandler, McpServer, type AuthInfo, type McpHttpHandler, type M
 import { z } from "zod";
 import {
   constantTimeEqual,
-  digestHex,
   first,
   findNotesByTitlePattern,
   formatPreview,
@@ -21,7 +20,6 @@ import { ensureEnvironmentUser, getAuthCredentials } from "./routes/auth";
 import { assetRootFromEnv } from "./routes/assets";
 import { handleNotebooksRoute, VALID_NOTEBOOK_ICONS } from "./routes/notebooks";
 import { handleNotesRoute } from "./routes/notes";
-import { handleNoteShares, handleSharesRoute } from "./routes/shares";
 import { extractTags, findTrailingTagFooterStart, normalizeTag, NOTE_TAG_MAX_LENGTH, removeTagsFromMarkdown } from "../shared/tags";
 
 export const MCP_PATH = "/mcp";
@@ -35,13 +33,13 @@ const MCP_CONTENT_FIELDS = new Map([
   ["replace_in_note", "newText"],
 ]);
 const MCP_SERVER_INSTRUCTIONS = [
-  "象映笔记是跨会话 Markdown 记忆库，可搜索、读取、新建和增量修改笔记，也可管理笔记本、收藏、标签、回收站与公开分享。",
+  "象映笔记是跨会话 Markdown 记忆库，可搜索、读取、新建和增量修改笔记，也可管理笔记本、收藏、标签、回收站。",
   "工具参数必须是 JSON 对象。客户端会先校验参数；手写原始 JSON 时，字符串中的控制字符须按 JSON 规范转义（换行写作 \\n）；结构化参数中的多行 Markdown 会原样保留。",
   "字段值不合法时使用统一错误码 INVALID_ARGUMENT，并通过 field 指明字段；当前 field 取值为 name、color、icon、tag、tags。标签错误还会在 invalidTags 中列出违规值。",
   "普通笔记应优先在 create_note 一次写入完整正文；只有客户端明确无法承载单次参数，或服务端返回 MCP 请求体超过 4.5 MB 的错误时，才用 append_to_note 分段追加并沿用返回的 version。单篇正文硬上限为 1,000,000 个 UTF-16 code units。contentLength 回执与批量读取字符预算按 Unicode code points 计算。写操作默认不回传正文。",
   "需要分类时先用 list_notebooks 获取 ID；create_notebook 创建笔记本，update_notebook 修改，delete_notebook 需 confirm=true 并建议用 totalCount 做二次确认。单篇写操作可省略 version，由服务端读取当前版本并以乐观锁保存；batch_update_notes 必须提供每篇读取时的 version。单篇 VERSION_CONFLICT 返回完整 current；批量冲突只返回摘要与元数据，需要时再读取失败项正文。",
   "create_note.tags 与 batch_update_notes.tags 是追加；note_operation 的 set_tags 必须显式传 mode=replace、add 或 remove。正文中未转义、代码区外且不超过 40 个 UTF-16 code units 的 #标签会被索引；可在井号前加反斜杠保留字面井号。回收站笔记可恢复，但 MCP 不提供永久删除笔记或清空回收站。",
-  "用 search_notes 的 view=trash 或 list_trash 检索回收站；view=shared 筛选已分享笔记。create_share 创建 7 天只读链接，list_shares 分页查看，revoke_share 撤销。get_notes_batch 最多读 50 篇、总正文默认预算 20,000 个 Unicode 字符；各笔记分别读取，不构成同一时刻快照。",
+  "用 search_notes 的 view=trash 或 list_trash 检索回收站。get_notes_batch 最多读 50 篇、总正文默认预算 20,000 个 Unicode 字符；各笔记分别读取，不构成同一时刻快照。",
   "MCP 只传输文字和 Markdown，不提供图片数据或缩略图；正文中的图片引用会保留。",
 ].join(" ");
 
@@ -381,58 +379,6 @@ async function notesRoute(options: ServerOptions, user: UserRow, method: string,
   return routeResult(await handleNotesRoute(context, user, assetRoot));
 }
 
-function mcpRouteContext(
-  options: ServerOptions,
-  context: McpRequestContext,
-  method: string,
-  pathname: string,
-  segments: string[],
-): RouteContext {
-  const origin = context.requestInfo ? new URL(context.requestInfo.url).origin : "http://xiangying-notes.internal";
-  const url = new URL(pathname, origin);
-  const request = new Request(url, { method });
-  return { request, url, method, segments, options };
-}
-
-async function noteSharesRoute(
-  options: ServerOptions,
-  context: McpRequestContext,
-  user: UserRow,
-  method: "GET" | "POST",
-  noteId: string,
-  query?: { cursor?: string; limit?: number },
-) {
-  const encodedNoteId = encodeURIComponent(noteId);
-  const routeContext = mcpRouteContext(options, context, method, `/api/notes/${encodedNoteId}/shares`, ["notes", noteId, "shares"]);
-  if (query?.cursor) routeContext.url.searchParams.set("cursor", query.cursor);
-  if (query?.limit !== undefined) routeContext.url.searchParams.set("limit", String(query.limit));
-  return routeResult(await handleNoteShares(
-    options.database,
-    user,
-    noteId,
-    method,
-    routeContext.url,
-    options.environment,
-    routeContext,
-  ));
-}
-
-async function revokeShareRoute(options: ServerOptions, context: McpRequestContext, user: UserRow, shareId: string) {
-  const encodedShareId = encodeURIComponent(shareId);
-  const routeContext = mcpRouteContext(options, context, "DELETE", `/api/shares/${encodedShareId}`, ["shares", shareId]);
-  return routeResult(await handleSharesRoute(routeContext, user));
-}
-
-function shareTokenFromUrl(value: string) {
-  try {
-    const url = new URL(value);
-    if ((url.protocol !== "https:" && url.protocol !== "http:") || url.username || url.password) return null;
-    return /^\/share\/([A-Za-z0-9_-]{1,200})\/?$/u.exec(url.pathname)?.[1] ?? null;
-  } catch {
-    return null;
-  }
-}
-
 async function notebooksRoute(
   options: ServerOptions,
   user: UserRow,
@@ -637,12 +583,12 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("search_notes", {
     title: "搜索笔记",
-    description: "按标题或正文搜索笔记，可用 tag 精确筛选正文标签，并配合 nextCursor 分页取回该标签下全部匹配笔记。省略 query 可列出最近更新的笔记；view=shared 可只筛选已分享笔记，也可用 create_share、list_shares、revoke_share 管理分享。默认每页 20 篇，preview 默认最多 120 个 Unicode 字符；摘要保留换行、孤立下划线及标识符和 URL 中的下划线，过滤纯标签行。结果含可读的 updatedAtISO，不含正文、图片或缩略图。",
+    description: "按标题或正文搜索笔记，可用 tag 精确筛选正文标签，并配合 nextCursor 分页取回该标签下全部匹配笔记。省略 query 可列出最近更新的笔记；默认每页 20 篇，preview 默认最多 120 个 Unicode 字符；摘要保留换行、孤立下划线及标识符和 URL 中的下划线，过滤纯标签行。结果含可读的 updatedAtISO，不含正文、图片或缩略图。",
     inputSchema: z.object({
       query: z.string().max(80).optional().describe("搜索词；省略或留空时列出最近笔记"),
       tag: z.string().trim().min(1).max(NOTE_TAG_MAX_LENGTH).optional().describe("按正文中的标签精确筛选，可带或不带 #；仅支持中文、字母、数字、下划线或连字符，格式由服务端校验"),
       notebookId: z.string().min(1).max(200).optional().describe("仅搜索指定笔记本"),
-      view: z.enum(NOTE_VIEWS).optional().describe("笔记视图，默认 all；trash 搜索回收站，shared 只筛选已分享笔记"),
+      view: z.enum(NOTE_VIEWS).optional().describe("笔记视图，默认 all；trash 搜索回收站"),
       cursor: z.string().max(2048).optional().describe("上一次搜索结果返回的 nextCursor"),
       limit: z.number().int().min(1).max(100).optional().describe("每页数量，默认 20，最大 100"),
       previewLength: z.number().int().min(0).max(NOTE_PREVIEW_LIMIT).optional().describe(`每篇笔记的摘要长度，默认 120，最大 ${NOTE_PREVIEW_LIMIT} 个 Unicode 字符`),
@@ -660,65 +606,6 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
     if (result.status !== 200) return routeError(result);
     const notes = Array.isArray(result.body.notes) ? result.body.notes as Record<string, unknown>[] : [];
     return responseValue({ ...result.body, notes: withPreviewLimit(notes, previewLength) });
-  });
-
-  server.registerTool("create_share", {
-    title: "创建分享链接",
-    description: "为未删除笔记创建 7 天有效的公开只读分享链接；回收站中的笔记会返回 NOTE_IN_TRASH，请先恢复。链接持有者可查看笔记当前内容。分享链接可通过 revoke_share 撤销；重复调用会创建新的独立链接。",
-    inputSchema: z.object({
-      noteId: z.string().min(1).max(200).describe("要分享的笔记 ID，可从搜索结果或读取结果获取"),
-    }).strict(),
-  }, async ({ noteId }) => {
-    if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
-    const result = await noteSharesRoute(options, context, user, "POST", noteId);
-    return result.status === 201 ? responseValue(result.body) : routeError(result);
-  });
-
-  server.registerTool("list_shares", {
-    title: "查看笔记分享记录",
-    description: "分页列出指定笔记的分享记录，包含分享 ID、创建时间、到期时间和撤销时间，可据此判断链接是否仍有效并传 shareId 给 revoke_share。默认每页 20 条、最多 100 条；用 nextCursor 读取下一页。历史链接的原始 URL 不会再次返回；创建时请保存 create_share 返回的 URL。",
-    inputSchema: z.object({
-      noteId: z.string().min(1).max(200).describe("要查看分享记录的笔记 ID"),
-      cursor: z.string().min(1).max(2048).optional().describe("上一页返回的 nextCursor"),
-      limit: z.number().int().min(1).max(100).optional().describe("每页数量，默认 20，最大 100"),
-    }).strict(),
-  }, async ({ noteId, cursor, limit = 20 }) => {
-    if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
-    const result = await noteSharesRoute(options, context, user, "GET", noteId, { cursor, limit });
-    return result.status === 200 ? responseValue(result.body) : routeError(result);
-  });
-
-  server.registerTool("revoke_share", {
-    title: "撤销分享链接",
-    description: "撤销一个分享链接并立即阻止后续公开访问。shareId、完整 URL 或 token 三者必须且只能传一个；shareId 可从 list_shares 或 create_share 获取，URL/token 可直接使用用户提供的分享链接。查找按当前用户校验，其他用户的链接会返回 SHARE_NOT_FOUND。重复撤销会幂等返回现有撤销记录并标记 noop=true；撤销后不能恢复，如仍需分享请创建新链接。",
-    inputSchema: z.object({
-      shareId: z.string().min(1).max(200).optional().describe("要撤销的分享记录 ID；与 url、token 二选一"),
-      url: z.string().min(1).max(2048).optional().describe("完整分享 URL，格式为 http(s)://主机/share/token；与 shareId、token 二选一"),
-      token: z.string().min(1).max(200).optional().describe("分享链接中的 token；与 shareId、url 二选一"),
-    }).strict(),
-  }, async ({ shareId, url, token }) => {
-    if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
-    const selectors = [shareId, url, token].filter((value) => value !== undefined);
-    if (selectors.length !== 1) {
-      return responseValue({ error: { code: "INVALID_SHARE_SELECTOR", message: "shareId、url、token 必须且只能传一个" } }, true);
-    }
-    const selectedToken = token ?? (url === undefined ? undefined : shareTokenFromUrl(url));
-    if (selectedToken === null) {
-      return responseValue({ error: { code: "INVALID_SHARE_URL", message: "URL 格式无效；请提供 /share/{token} 格式的 HTTP 或 HTTPS 分享链接" } }, true);
-    }
-    let targetShareId = shareId;
-    if (selectedToken !== undefined) {
-      const ownedShare = first<{ id: string }>(options.database,
-        "SELECT id FROM shares WHERE token_hash = ? AND user_id = ?",
-        await digestHex(selectedToken),
-        user.id,
-      );
-      if (!ownedShare) return responseValue({ error: { code: "SHARE_NOT_FOUND", message: "分享链接不存在" } }, true);
-      targetShareId = ownedShare.id;
-    }
-    if (!targetShareId) return responseValue({ error: { code: "INVALID_SHARE_SELECTOR", message: "shareId、url、token 必须且只能传一个" } }, true);
-    const result = await revokeShareRoute(options, context, user, targetShareId);
-    return result.status === 200 ? responseValue(result.body) : routeError(result);
   });
 
   server.registerTool("list_trash", {

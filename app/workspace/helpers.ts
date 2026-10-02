@@ -17,7 +17,6 @@ import {
   Tag,
   Terminal,
   Trash2,
-  UsersRound,
 } from "lucide-react";
 import { ApiError } from "../api";
 import type { Note, NoteSort, NoteSummary, NoteView, Notebook } from "../../shared/types";
@@ -27,7 +26,6 @@ export const navItems: Array<{ id: NoteView; label: string; icon: typeof Inbox }
   { id: "inbox", label: "收件箱", icon: Inbox },
   { id: "all", label: "全部笔记", icon: FileText },
   { id: "favorites", label: "收藏", icon: Star },
-  { id: "shared", label: "已分享", icon: UsersRound },
   { id: "trash", label: "回收站", icon: Trash2 },
 ];
 
@@ -103,9 +101,8 @@ export function sortNotes(notes: NoteSummary[], sort: NoteSort) {
 }
 
 export function shouldKeepActiveNoteInList(note: Note, notebooks: Notebook[], view: NoteView, query: string, notebookId?: string) {
-  // Search and shared membership are server-derived. Re-inserting the active note
-  // there would make an unrelated note look like a search result or active share.
-  if (query.trim() || view === "shared") return false;
+  // Search membership is server-derived; never inject unrelated active notes.
+  if (query.trim()) return false;
   if (view === "trash") return note.deletedAt !== null;
   if (note.deletedAt !== null) return false;
   if (notebookId) return note.notebookId === notebookId;
@@ -115,7 +112,7 @@ export function shouldKeepActiveNoteInList(note: Note, notebooks: Notebook[], vi
 }
 
 export function viewLabel(view: NoteView) {
-  return ({ all: "全部笔记", inbox: "收件箱", favorites: "收藏", shared: "已分享", trash: "回收站" })[view];
+  return ({ all: "全部笔记", inbox: "收件箱", favorites: "收藏", trash: "回收站" })[view];
 }
 
 export { relativeDate } from "../format";

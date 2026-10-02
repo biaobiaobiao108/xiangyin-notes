@@ -1,4 +1,4 @@
-export type WorkspaceChangeResource = "notes" | "notebooks" | "shares";
+export type WorkspaceChangeResource = "notes" | "notebooks";
 
 export type WorkspaceChangeMessage = {
   type: "workspace.changed";
