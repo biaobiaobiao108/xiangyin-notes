@@ -16,7 +16,7 @@ import {
   validNoteAssetReferences,
   validText,
 } from "../core";
-import { getAuthCredentials, ensureEnvironmentUser } from "./auth";
+import { cleanupExpiredRateLimits, getAuthCredentials, ensureEnvironmentUser } from "./auth";
 import { createNote } from "./notes";
 import { publishWorkspaceChange } from "../realtime";
 
@@ -62,6 +62,7 @@ export function checkImportRateLimit(
 ) {
   const key = importClientKey(request, environment, clientAddress);
   const timestamp = now();
+  cleanupExpiredRateLimits(database, timestamp);
 
   const blocked = database.transaction((): { retryAfter: number } | null => {
     const row = database.query("SELECT points, window_started_at FROM rate_limits WHERE action = 'import' AND key = ?")
