@@ -36,9 +36,10 @@ const MCP_CONTENT_FIELDS = new Map([
   ["replace_in_note", "newText"],
 ]);
 const MCP_SERVER_INSTRUCTIONS = [
+  "完整机器数据仅在 structuredContent 中，content 只给简短说明；检查 ok 和 error.code，可恢复业务分支不标记为工具异常；批量结果另检查 partial 与逐项 results。",
   "象映笔记是跨会话 Markdown 记忆库，可搜索、读取、新建和增量修改笔记，也可管理笔记本、收藏、标签、回收站。",
   "工具参数必须是 JSON 对象。客户端会先校验参数；手写原始 JSON 时，字符串中的控制字符须按 JSON 规范转义（换行写作 \\n）；结构化参数中的多行 Markdown 会原样保留。",
-  "字段值不合法时使用统一错误码 INVALID_ARGUMENT，并通过 field 指明字段；当前 field 取值为 name、color、icon、tag、tags。标签错误还会在 invalidTags 中列出违规值。",
+  "字段值不合法时使用统一错误码 INVALID_ARGUMENT，并通过 field 指明字段；当前 field 取值为 name、color、icon、tags。标签错误还会在 invalidTags 中列出违规值。",
   "普通笔记应优先在 save_note 一次写入完整正文；其默认 create 在目标笔记本内防重名；create_note 仅在有意允许同名时使用；只有客户端明确无法承载单次参数，或服务端返回 MCP 请求体超过 4.5 MB 的错误时，才用 append_to_note 分段追加并将返回的 version 作为 expectedVersion。单篇正文硬上限为 1,000,000 个 UTF-16 code units。contentLength 回执与批量读取字符预算按 Unicode code points 计算。写操作默认不回传正文。",
   "分类可直接传 notebookName，notebookId 同时存在时优先；ensure_notebook 幂等创建，save_note 可一次创建笔记本并保存笔记；create_notebook 创建笔记本，update_notebook 修改，delete_notebook 需 confirm=true 并建议用 totalCount 做二次确认。局部编辑和仅改标题可省略 expectedVersion，由服务端读取当前版本并以乐观锁保存；所有写入的版本参数统一 expectedVersion，不接受 version/baseVersion 别名；全文覆盖必须提供 expectedVersion，save_note 的 upsert 更新已有笔记也必须提供 expectedVersion；batch_update_notes 必须提供每篇读取时的 expectedVersion。所有 VERSION_CONFLICT 的 current 只返回有界摘要、长度、版本与元数据，需要时用 get_note/get_note_section 读取正文。",
   "create_note.tags 与 batch_update_notes.tags 是追加；manage_note 的 set_tags 必须显式传 mode=replace、add 或 remove。正文中未转义、代码区外且不超过 40 个 UTF-16 code units 的 #标签会被索引；可在井号前加反斜杠保留字面井号。回收站笔记可恢复，但 MCP 不提供永久删除笔记或清空回收站。",
@@ -198,12 +199,84 @@ function asUser(value: unknown): UserRow | null {
     : null;
 }
 
+const BUSINESS_RECOVERY_ACTIONS: Record<string, string> = {
+  NOTE_EXISTS: "使用候选 version 作为 expectedVersion 并在指定笔记本内 upsert；多个候选请按 noteId 操作，或使用新标题。",
+  NOTEBOOK_EXISTS: "使用 ensure_notebook 获取现有笔记本，或换一个名称。",
+  AMBIGUOUS_NOTE: "从 matches 选择目标 noteId，或使用新标题。",
+  AMBIGUOUS_MATCH: "选择候选 ID，或提供更精确的片段及 occurrence。",
+  AMBIGUOUS_SECTION: "从大纲选择 sectionId，或指定 heading 的 occurrence。",
+  VERSION_CONFLICT: "重新读取目标笔记或章节，合并修改后使用最新 version 作为 expectedVersion 重试。",
+  NOTE_IN_TRASH: "先用 manage_note 恢复笔记，再执行修改。",
+  SECTION_NOT_FOUND: "重新读取大纲，使用当前 sectionId 或正确的 heading。",
+  NOT_FOUND: "使用 search_notes 或 list_notebooks 查找当前目标，再以正确的 ID 操作。",
+  NOTEBOOK_COUNT_MISMATCH: "重新读取笔记本 totalCount，核实后更新 expectedNoteCount。",
+  SYSTEM_NOTEBOOK: "选择其他笔记本；系统收件箱不能删除。",
+};
+
+function businessError(value: unknown): Record<string, unknown> {
+  const normalized = normalizeMcpError(value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : { code: "MCP_OPERATION_FAILED", message: "笔记操作失败" });
+  const error: Record<string, unknown> = {
+    ...normalized,
+    code: typeof normalized.code === "string" ? normalized.code : "MCP_OPERATION_FAILED",
+    message: typeof normalized.message === "string" ? normalized.message : "笔记操作失败",
+  };
+  const suggestedAction = error.code === "NOT_FOUND" && ["text", "anchor", "occurrence"].includes(String(error.target))
+    ? "使用 get_note 读取最新正文，修正 oldText、anchor 或 occurrence 后重试。"
+    : BUSINESS_RECOVERY_ACTIONS[String(error.code)];
+  const current = compactConflictNote(error.current);
+  const currentVersion = current && typeof current === "object" && typeof (current as Record<string, unknown>).version === "number"
+    ? (current as Record<string, unknown>).version : undefined;
+  return {
+    ...error,
+    ...(Object.hasOwn(error, "current") ? { current } : {}),
+    recoverable: suggestedAction !== undefined,
+    ...(suggestedAction ? { suggestedAction } : {}),
+    ...(currentVersion === undefined ? {} : { currentVersion }),
+  };
+}
+
+function resultSummary(value: Record<string, unknown>) {
+  if (value.error && typeof value.error === "object") {
+    const error = value.error as Record<string, unknown>;
+    return error.recoverable ? `操作未完成：${error.code}；请查看结构化结果中的恢复建议。` : `操作失败：${error.code}；请检查参数或服务状态。`;
+  }
+  if (Array.isArray(value.results)) return `批量操作完成：更新 ${value.updatedCount ?? 0} 篇，未变 ${value.noopCount ?? 0} 篇，失败 ${value.failedCount ?? 0} 篇。`;
+  if (Array.isArray(value.headings)) return `已读取笔记大纲，共 ${value.headings.length} 个标题。`;
+  if (value.section) return "已读取目标章节。";
+  if (Array.isArray(value.notes)) return `已返回 ${value.notes.length} 篇笔记。`;
+  if (Array.isArray(value.notebooks)) return `已返回 ${value.notebooks.length} 个笔记本。`;
+  if (value.note) return value.created === true ? "已创建笔记。" : "笔记操作完成。";
+  if (value.notebook) return value.created === true ? "已创建笔记本。" : "笔记本操作完成。";
+  if (value.wouldDeleteNotebook !== undefined) return `已生成删除预览，将移动 ${value.wouldMoveNotes ?? 0} 篇笔记。`;
+  return "操作完成。";
+}
+
 function rawResponseValue(value: Record<string, unknown>, isError = false, options: { writeResult?: boolean; includeContent?: boolean; contentLength?: number } = {}) {
-  const structuredContent = withMcpMetadata(withoutThumbnailMetadata(value, options)) as Record<string, unknown>;
+  const sanitized: Record<string, unknown> = withoutThumbnailMetadata(value, options);
+  const error = sanitized.error === undefined ? undefined : businessError(sanitized.error);
+  const results = Array.isArray(sanitized.results) ? sanitized.results.map((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return entry;
+    const result = entry as Record<string, unknown>;
+    return result.error === undefined ? result : { ...result, error: businessError(result.error) };
+  }) : undefined;
+  const failedResults = results?.filter((entry) => entry && typeof entry === "object" && (entry as Record<string, unknown>).ok === false) as Array<Record<string, unknown>> | undefined;
+  const ok = error === undefined && !(failedResults?.length) && !isError;
+  const structuredContent = withMcpMetadata({
+    ...sanitized,
+    ok,
+    ...(error === undefined ? {} : { error }),
+    ...(results === undefined ? {} : { results }),
+  }) as Record<string, unknown>;
+  // Recoverable library states are normal tool results; validation and internal
+  // failures retain MCP's tool-error signal. Partial batches always retain data.
+  const toolError = error !== undefined ? !error.recoverable
+    : isError && !(failedResults?.length && failedResults.every((entry) => (entry.error as Record<string, unknown>)?.recoverable === true));
   return {
     structuredContent,
-    content: [{ type: "text" as const, text: JSON.stringify(structuredContent) }],
-    ...(isError ? { isError: true } : {}),
+    content: [{ type: "text" as const, text: resultSummary(structuredContent) }],
+    ...(toolError ? { isError: true } : {}),
   };
 }
 
@@ -338,10 +411,13 @@ function routeError(result: RouteResult) {
   return responseValue({ error: normalizeMcpError(normalizedError) }, true);
 }
 
-function normalizeMcpError(error: Record<string, unknown>) {
-  if (error.code === "NOTE_NOT_FOUND") return { ...error, code: "NOT_FOUND", target: "note", legacyCode: "NOTE_NOT_FOUND" };
-  if (error.code === "NOTEBOOK_NOT_FOUND") return { ...error, code: "NOT_FOUND", target: "notebook", legacyCode: "NOTEBOOK_NOT_FOUND" };
-  return error;
+function normalizeMcpError(error: Record<string, unknown>): Record<string, unknown> {
+  const normalized = { ...error };
+  delete normalized.legacyCode;
+  if (normalized.code === "NOTE_NOT_FOUND") return { ...normalized, code: "NOT_FOUND", target: "note" };
+  if (normalized.code === "NOTEBOOK_NOT_FOUND") return { ...normalized, code: "NOT_FOUND", target: "notebook" };
+  if (normalized.code === "SECTION_AMBIGUOUS") return { ...normalized, code: "AMBIGUOUS_SECTION", target: "section" };
+  return normalized;
 }
 
 function isDeletedNote(note: unknown) {
@@ -523,7 +599,7 @@ async function noteByTitle(options: ServerOptions, user: UserRow, requestedTitle
 async function resolveNotebook(options: ServerOptions, user: UserRow, selector: { notebookId?: string; notebookName?: string; createIfMissing?: boolean }) {
   if (selector.notebookId !== undefined) {
     const row = getNotebook(options.database, user.id, selector.notebookId);
-    return row ? { notebook: toNotebook(row), created: false } : { error: { code: "NOT_FOUND", target: "notebook", legacyCode: "NOTEBOOK_NOT_FOUND", message: "笔记本不存在" } };
+    return row ? { notebook: toNotebook(row), created: false } : { error: { code: "NOT_FOUND", target: "notebook", message: "笔记本不存在" } };
   }
   if (selector.notebookName === undefined) return {};
   const find = () => {
@@ -541,7 +617,7 @@ async function resolveNotebook(options: ServerOptions, user: UserRow, selector: 
     }
     return { error: normalizeMcpError(result.body.error as Record<string, unknown>) };
   }
-  return { error: { code: "NOT_FOUND", target: "notebook", legacyCode: "NOTEBOOK_NOT_FOUND", message: "笔记本不存在" } };
+  return { error: { code: "NOT_FOUND", target: "notebook", message: "笔记本不存在" } };
 }
 
 function mcpUser(context: McpRequestContext) {
@@ -571,7 +647,6 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
               url.hash = "";
               url.searchParams.set("note", result.id);
               result.webUrl = url.href;
-              result.deepLink = url.href;
             }
           } catch { /* Links are optional when no valid public URL is configured. */ }
         }
@@ -800,7 +875,6 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
       tags: noteTagsSchema.max(20).optional(),
       tagMode: z.enum(["all", "any"]).optional(),
       sort: z.enum(["relevance", "updated_desc", "created_desc"]).optional(),
-      tag: z.string().trim().min(1).max(NOTE_TAG_MAX_LENGTH).optional().describe("按正文中的标签精确筛选，可带或不带 #；仅支持中文、字母、数字、下划线或连字符，格式由服务端校验"),
       notebookId: z.string().min(1).max(200).optional().describe("仅搜索指定笔记本"),
       notebookName: z.string().trim().min(1).max(40).optional(),
       view: z.enum(NOTE_VIEWS).optional().describe("笔记视图，默认 all；trash 搜索回收站"),
@@ -808,7 +882,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
       limit: z.number().int().min(1).max(100).optional().describe("每页数量，默认 20，最大 100"),
       previewLength: z.number().int().min(0).max(NOTE_PREVIEW_LIMIT).optional().describe(`每篇笔记的摘要长度，默认 120，最大 ${NOTE_PREVIEW_LIMIT} 个 Unicode 字符`),
     }).strict(),
-  }, async ({ query, tag, tags, tagMode, sort, notebookId, notebookName, view, cursor, limit = 20, previewLength = 120 }) => {
+  }, async ({ query, tags, tagMode, sort, notebookId, notebookName, view, cursor, limit = 20, previewLength = 120 }) => {
     if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
     const resolved = await resolveNotebook(options, user, { notebookId, notebookName });
     if (resolved.error) return responseValue({ error: resolved.error }, true);
@@ -821,7 +895,6 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
     url.searchParams.set("sort", sort === "created_desc" ? "created" : sort === "updated_desc" ? "updated" : "relevance");
     url.searchParams.set("includeMatch", "1");
     if (query) url.searchParams.set("query", query);
-    if (tag) url.searchParams.set("tag", tag.startsWith("#") ? tag.slice(1) : tag);
     if (notebookId) url.searchParams.set("notebookId", notebookId);
     if (view) url.searchParams.set("view", view);
     if (cursor) url.searchParams.set("cursor", cursor);
@@ -966,7 +1039,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("replace_in_note", {
     title: "替换笔记片段",
-    description: "替换精确片段；歧义需 occurrence 或 replaceAll。force 将替换应用到最新正文，写入仍使用乐观锁。 图片仅接受 HTTPS 地址或当前用户可用于该笔记的已上传附件，MCP 不上传图片。",
+    description: "替换精确片段；歧义需 occurrence 或 replaceAll。applyToLatest 将替换应用到最新正文，写入仍使用乐观锁。 图片仅接受 HTTPS 地址或当前用户可用于该笔记的已上传附件，MCP 不上传图片。",
     inputSchema: z.object({
       noteId: z.string().min(1).max(200),
       oldText: z.string().min(1).max(NOTE_CONTENT_MAX_LENGTH).describe("正文中要查找的精确文本"),
@@ -974,10 +1047,10 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
       replaceAll: z.boolean().optional().describe("设为 true 时替换所有非重叠匹配，不能与 occurrence 同时使用"),
       occurrence: z.number().int().min(1).optional().describe("可选的匹配序号，从 1 开始；不传时要求 oldText 只出现一次"),
       expectedVersion: z.number().int().positive().optional().describe("可选的预期版本；传入时默认必须与当前版本一致"),
-      force: z.boolean().optional().describe("显式设为 true 时忽略调用方传入的旧 expectedVersion，并基于服务端刚读取的正文重试替换"),
+      applyToLatest: z.boolean().optional().describe("显式设为 true 时忽略调用方传入的旧 expectedVersion，并基于服务端刚读取的正文重试替换"),
       includeContent: z.boolean().optional().describe("是否在成功结果中回传完整正文，默认 false"),
     }).strict(),
-  }, async ({ noteId, oldText, newText, replaceAll = false, occurrence, expectedVersion: version, force = false, includeContent = false }) => {
+  }, async ({ noteId, oldText, newText, replaceAll = false, occurrence, expectedVersion: version, applyToLatest = false, includeContent = false }) => {
     try {
       if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
       if (replaceAll && occurrence !== undefined) {
@@ -989,11 +1062,11 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
       if (typeof note?.contentMarkdown !== "string" || typeof note.version !== "number") {
         return responseValue({ error: { code: "NOTE_READ_FAILED", message: "读取笔记正文或版本失败" } }, true);
       }
-      if (version !== undefined && version !== note.version && !force) {
+      if (version !== undefined && version !== note.version && !applyToLatest) {
         return responseValue({
           error: {
             code: "VERSION_CONFLICT",
-            message: "这篇笔记已在别处更新；请读取最新正文后重试，或显式设置 force=true 将替换应用到最新正文",
+            message: "这篇笔记已在别处更新；请读取最新正文后重试，或显式设置 applyToLatest=true 将替换应用到最新正文",
             current: note,
           },
         }, true);
@@ -1240,7 +1313,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("batch_update_notes", {
     title: "批量更新笔记",
-    description: "按每篇 expectedVersion 批量管理，逐条报告成功、失败与 noop。仅成功（含 noop）与失败混合时返回 partial=true；全成功或全失败省略 partial。回收站仅支持单独 deleted=false 恢复。",
+    description: "按每篇 expectedVersion 批量管理，逐条报告成功、失败与 noop。partial 固定返回布尔值，仅成功（含 noop）与失败混合时为 true，其他为 false。回收站仅支持单独 deleted=false 恢复。",
     inputSchema: z.object({
       notes: z.array(z.object({ noteId: z.string().min(1).max(200), expectedVersion: z.number().int().positive() }).strict()).min(1).max(50),
       notebookId: z.string().min(1).max(200).optional(),
@@ -1289,7 +1362,6 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
             code: error.code,
             message: error.message,
             ...(error.target === undefined ? {} : { target: error.target }),
-            ...(error.legacyCode === undefined ? {} : { legacyCode: error.legacyCode }),
             ...(Object.prototype.hasOwnProperty.call(error, "current") ? { current: compactConflictNote(error.current) } : {}),
           },
         });
@@ -1307,7 +1379,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
       updatedCount,
       noopCount,
       failedCount,
-      ...(failedCount > 0 && successfulCount > 0 ? { partial: true } : {}),
+      partial: failedCount > 0 && successfulCount > 0,
     }, isError);
   });
 

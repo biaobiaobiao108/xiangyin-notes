@@ -83,12 +83,94 @@ function resultOf(responseBody: Record<string, any>) {
 function toolData(responseBody: Record<string, any>) {
   const result = resultOf(responseBody);
   expect(result.content).toHaveLength(1);
-  const data = JSON.parse(result.content[0].text) as Record<string, any>;
-  expect(result.structuredContent).toEqual(data);
+  expect(result.content[0].type).toBe("text");
+  expect(result.content[0].text.length).toBeLessThan(200);
+  expect(result.content[0].text).toMatch(/[\u4e00-\u9fff]/);
+  expect(() => JSON.parse(result.content[0].text)).toThrow();
+  const data = result.structuredContent as Record<string, any>;
+  expect(typeof data.ok).toBe("boolean");
+  if (data.error) {
+    expect(data.ok).toBe(false);
+    expect(typeof data.error.recoverable).toBe("boolean");
+    if (["NOTE_EXISTS", "NOTEBOOK_EXISTS", "AMBIGUOUS_NOTE", "AMBIGUOUS_MATCH", "AMBIGUOUS_SECTION", "VERSION_CONFLICT", "NOTE_IN_TRASH", "NOT_FOUND", "SECTION_NOT_FOUND", "NOTEBOOK_COUNT_MISMATCH", "SYSTEM_NOTEBOOK"].includes(data.error.code)) {
+      expect(data.error.recoverable).toBe(true);
+    }
+    if (["INVALID_ARGUMENT", "INVALID_NOTEBOOK_SELECTOR", "VERSION_REQUIRED", "EMPTY_UPDATE", "CONFIRMATION_REQUIRED"].includes(data.error.code)) {
+      expect(data.error.recoverable).toBe(false);
+    }
+    expect(data.error.legacyCode).toBeUndefined();
+    if (data.error.recoverable) {
+      expect(result.isError).toBeUndefined();
+      expect(typeof data.error.suggestedAction).toBe("string");
+      expect(data.error.suggestedAction.length).toBeGreaterThan(0);
+    } else {
+      expect(result.isError).toBe(true);
+    }
+    if (data.error.current?.version !== undefined) {
+      expect(data.error.currentVersion).toBe(data.error.current.version);
+      expect(data.error.current.contentMarkdown).toBeUndefined();
+    }
+  }
+  if (data.failedCount !== undefined) {
+    expect(data.ok).toBe(data.failedCount === 0);
+    expect(typeof data.partial).toBe("boolean");
+    expect(data.partial).toBe(data.failedCount > 0 && data.results.some((entry: { ok: boolean }) => entry.ok));
+    expect(result.isError).toBeUndefined();
+    for (const entry of data.results) {
+      if (!entry.ok) {
+        expect(typeof entry.error.recoverable).toBe("boolean");
+        if (entry.error.recoverable) expect(typeof entry.error.suggestedAction).toBe("string");
+        if (entry.error.current?.version !== undefined) expect(entry.error.currentVersion).toBe(entry.error.current.version);
+      }
+    }
+  }
   return data;
 }
 
 describe("remote MCP endpoint", () => {
+  test("keeps long note bodies only in structured results across save, read, outline, section, and search", async () => {
+    const body = "唯一正文标记".repeat(2_000);
+    const markdown = `# 长正文\n\n## 第一节\n\n${body}\n\n## 第二节\n尾声`;
+    const save = await callTool("save_note", { title: "长正文回执", contentMarkdown: markdown, includeContent: true });
+    const note = toolData(save.body!).note;
+    expect(note.contentMarkdown).toBe(markdown);
+    const read = await callTool("get_note", { noteId: note.id });
+    expect(toolData(read.body!).note.contentMarkdown).toBe(markdown);
+    const outline = await callTool("get_note_outline", { noteId: note.id });
+    expect(toolData(outline.body!).headings).toHaveLength(3);
+    const section = await callTool("get_note_section", { noteId: note.id, heading: "第一节" });
+    expect(toolData(section.body!).section.contentMarkdown).toContain(body);
+    const search = await callTool("search_notes", { query: "长正文回执" });
+    expect(toolData(search.body!).notes[0].id).toBe(note.id);
+    for (const response of [save, read, outline, section, search]) {
+      expect(resultOf(response.body!).content[0].text).not.toContain("唯一正文标记");
+    }
+  });
+
+  test("rejects removed tag and force inputs without changing notes", async () => {
+    const note = toolData((await callTool("create_note", { title: "严格新参数", contentMarkdown: "保留正文", tags: ["标签"], includeContent: true })).body!).note;
+    for (const [name, argumentsValue] of [
+      ["search_notes", { tag: "标签" }],
+      ["replace_in_note", { noteId: note.id, oldText: "保留", newText: "损坏", force: true }],
+    ] as const) {
+      const rejected = await callTool(name, argumentsValue);
+      expect(resultOf(rejected.body!).isError).toBe(true);
+    }
+    expect(toolData((await callTool("get_note", { noteId: note.id })).body!).note).toMatchObject({ version: note.version, contentMarkdown: note.contentMarkdown });
+    expect(toolData((await callTool("search_notes", { tags: ["标签"] })).body!).notes.map((entry: { id: string }) => entry.id)).toEqual([note.id]);
+  });
+
+  test("applyToLatest replaces the latest body and preserves changes after the supplied version", async () => {
+    const original = toolData((await callTool("create_note", { title: "最新正文替换", contentMarkdown: "原有片段" })).body!).note;
+    const latest = toolData((await callTool("append_to_note", { noteId: original.id, contentMarkdown: "\n独立新增内容", expectedVersion: original.version })).body!).note;
+    const stale = toolData((await callTool("replace_in_note", { noteId: original.id, oldText: "原有片段", newText: "替换片段", expectedVersion: original.version })).body!);
+    expect(stale.error).toMatchObject({ code: "VERSION_CONFLICT", recoverable: true, currentVersion: latest.version });
+    const updated = toolData((await callTool("replace_in_note", { noteId: original.id, oldText: "原有片段", newText: "替换片段", expectedVersion: original.version, applyToLatest: true, includeContent: true })).body!).note;
+    expect(updated.version).toBe(latest.version + 1);
+    expect(updated.contentMarkdown).toContain("替换片段");
+    expect(updated.contentMarkdown).toContain("独立新增内容");
+  });
+
   test("ensures notebooks idempotently and saves into a missing notebook in one call", async () => {
     const saved = toolData((await callTool("save_note", {
       title: "文案初稿", contentMarkdown: "完整正文", notebook: { notebookName: "文案", createIfMissing: true }, tags: ["初稿"],
@@ -255,7 +337,7 @@ describe("remote MCP endpoint", () => {
   test("requires disambiguation for repeated headings and supports selecting an occurrence", async () => {
     const note = toolData((await callTool("create_note", { title: "重复章节", contentMarkdown: "## 结论\n甲\n\n## 结论\n乙\n" })).body!).note;
     const ambiguous = await callTool("get_note_section", { noteId: note.id, heading: "结论" });
-    expect(toolData(ambiguous.body!).error.code).toBe("SECTION_AMBIGUOUS");
+    expect(toolData(ambiguous.body!).error.code).toBe("AMBIGUOUS_SECTION");
     const second = toolData((await callTool("get_note_section", { noteId: note.id, heading: "结论", occurrence: 2 })).body!).section;
     expect(second.contentMarkdown).toContain("乙");
     expect(second.contentMarkdown).not.toContain("甲");
@@ -329,7 +411,7 @@ describe("remote MCP endpoint", () => {
     const environment = { ...credentials, XIANGYING_MCP_TOKEN: token, PUBLIC_URL: "https://notes.example.com" };
     const note = toolData((await callTool("save_note", { title: "公共链接", contentMarkdown: "正文" }, 2, environment)).body!).note;
     expect(note.webUrl).toBe(`https://notes.example.com/app?note=${note.id}`);
-    expect(note.deepLink).toBe(note.webUrl);
+    expect(note.deepLink).toBeUndefined();
     expect(toolData((await callTool("get_note", { noteId: note.id }, 3, environment)).body!).note.webUrl).toBe(note.webUrl);
     const invalidEnvironment = { ...environment, PUBLIC_URL: "javascript:alert(1)" };
     const invalid = toolData((await callTool("get_note", { noteId: note.id }, 4, invalidEnvironment)).body!).note;
@@ -432,9 +514,11 @@ describe("remote MCP endpoint", () => {
     expect(searchTool.inputSchema.properties.view.enum).toEqual(["all", "inbox", "favorites", "trash"]);
     expect(searchTool.inputSchema.properties.sort.enum).toEqual(["relevance", "updated_desc", "created_desc"]);
     expect(searchTool.inputSchema.properties.tagMode.enum).toEqual(["all", "any"]);
+    expect(searchTool.inputSchema.properties.tag).toBeUndefined();
+    expect(searchTool.inputSchema.properties.tags.type).toBe("array");
     expect(tools.some((tool: { name: string }) => ["note_operation", "list_trash"].includes(tool.name))).toBe(false);
     const replaceSchema = tools.find((tool: { name: string }) => tool.name === "replace_in_note").inputSchema;
-    expect(Object.keys(replaceSchema.properties)).toEqual(["noteId", "oldText", "newText", "replaceAll", "occurrence", "expectedVersion", "force", "includeContent"]);
+    expect(Object.keys(replaceSchema.properties)).toEqual(["noteId", "oldText", "newText", "replaceAll", "occurrence", "expectedVersion", "applyToLatest", "includeContent"]);
     const insertSchema = tools.find((tool: { name: string }) => tool.name === "insert_into_note").inputSchema;
     expect(Object.keys(insertSchema.properties)).toContain("insertAll");
     const batchUpdateTool = tools.find((tool: { name: string }) => tool.name === "batch_update_notes");
@@ -482,7 +566,7 @@ describe("remote MCP endpoint", () => {
     expect(resultOf(discovered.body!).instructions).toContain("保留字面井号");
     expect(resultOf(discovered.body!).instructions).toContain("contentLength 回执与批量读取字符预算按 Unicode code points 计算");
     expect(resultOf(discovered.body!).instructions).toContain("统一错误码 INVALID_ARGUMENT，并通过 field 指明字段");
-    expect(resultOf(discovered.body!).instructions).toContain("field 取值为 name、color、icon、tag、tags");
+    expect(resultOf(discovered.body!).instructions).toContain("field 取值为 name、color、icon、tags");
   });
 
   test("keeps tag and color validation on the server without publishing regex patterns", async () => {
@@ -490,14 +574,15 @@ describe("remote MCP endpoint", () => {
     const listed = await callMcp(modernMcpRequest("tools/list", 1), environment);
     const tools = resultOf(listed.body!).tools as Array<{ name: string; inputSchema: Record<string, any> }>;
     const search = tools.find((tool) => tool.name === "search_notes")!;
-    expect(search.inputSchema.properties.tag).toMatchObject({ type: "string", minLength: 1, maxLength: 40 });
-    expect(search.inputSchema.properties.tag.pattern).toBeUndefined();
+    expect(search.inputSchema.properties.tag).toBeUndefined();
+    expect(search.inputSchema.properties.tags.items).toMatchObject({ type: "string", minLength: 1, maxLength: 40 });
+    expect(search.inputSchema.properties.tags.items.pattern).toBeUndefined();
     const updateNotebookTool = tools.find((tool) => tool.name === "update_notebook")!;
     expect(updateNotebookTool.inputSchema.properties.color.minLength).toBeUndefined();
     expect(updateNotebookTool.inputSchema.properties.color.maxLength).toBeUndefined();
 
-    const invalidSearchTag = await callTool("search_notes", { tag: "bad tag" }, 2, environment);
-    expect(toolData(invalidSearchTag.body!).error).toMatchObject({ code: "INVALID_ARGUMENT", field: "tag", invalidTags: ["bad tag"] });
+    const invalidSearchTag = await callTool("search_notes", { tags: ["bad tag"] }, 2, environment);
+    expect(toolData(invalidSearchTag.body!).error).toMatchObject({ code: "INVALID_ARGUMENT", field: "tags", invalidTags: ["bad tag"] });
 
     const invalidCreateTag = await callTool("create_note", {
       title: "非法标签不会写入",
@@ -584,11 +669,11 @@ describe("remote MCP endpoint", () => {
 
     const systemNotebook = inboxes.find((entry: { isSystem: boolean }) => entry.isSystem);
     const rejectedDeletion = await callTool("delete_notebook", { notebookId: systemNotebook.id, confirm: true }, 7, environment);
-    expect(resultOf(rejectedDeletion.body!).isError).toBe(true);
+    expect(resultOf(rejectedDeletion.body!).isError).toBeUndefined();
     expect(toolData(rejectedDeletion.body!).error.code).toBe("SYSTEM_NOTEBOOK");
 
     const missingNotebookCreate = await callTool("create_note", { title: "缺失笔记本", notebookId: "missing-notebook-id" }, 8, environment);
-    expect(toolData(missingNotebookCreate.body!).error).toMatchObject({ code: "NOT_FOUND", target: "notebook", legacyCode: "NOTEBOOK_NOT_FOUND" });
+    expect(toolData(missingNotebookCreate.body!).error).toMatchObject({ code: "NOT_FOUND", target: "notebook" });
     const existingNote = toolData((await callTool("create_note", { title: "笔记本错误码一致性" }, 9, environment)).body!).note;
     const missingNotebookUpdate = await callTool("manage_note", {
       action: "move",
@@ -596,7 +681,7 @@ describe("remote MCP endpoint", () => {
       expectedVersion: existingNote.version,
       notebookId: "missing-notebook-id",
     }, 10, environment);
-    expect(toolData(missingNotebookUpdate.body!).error).toMatchObject({ code: "NOT_FOUND", target: "notebook", legacyCode: "NOTEBOOK_NOT_FOUND" });
+    expect(toolData(missingNotebookUpdate.body!).error).toMatchObject({ code: "NOT_FOUND", target: "notebook" });
   });
 
   test("confirms notebook deletion against totalCount including trashed notes", async () => {
@@ -686,7 +771,7 @@ describe("remote MCP endpoint", () => {
       anchor: "\n",
       contentMarkdown: "不应插入",
     }, 6, environment);
-    expect(resultOf(duplicateAnchor.body!).isError).toBe(true);
+    expect(resultOf(duplicateAnchor.body!).isError).toBeUndefined();
     expect(toolData(duplicateAnchor.body!).error.code).toBe("AMBIGUOUS_MATCH");
     expect(toolData(duplicateAnchor.body!).error.target).toBe("anchor");
     expect(toolData(duplicateAnchor.body!).error.matchCount).toBe(2);
@@ -1028,7 +1113,7 @@ describe("remote MCP endpoint", () => {
     const user = database.query("SELECT id FROM users WHERE username = ?").get(credentials.XIANGYING_USERNAME) as { id: string };
     database.query("INSERT INTO note_tags (note_id, user_id, tag_normalized, tag, position) VALUES (?, ?, ?, ?, ?)")
       .run(note.id, user.id, "代码标签", "代码标签", 1);
-    const codeTagSearch = await callTool("search_notes", { tag: "代码标签" }, 4, environment);
+    const codeTagSearch = await callTool("search_notes", { tags: ["代码标签"] }, 4, environment);
     expect(toolData(codeTagSearch.body!).notes.some((entry: { id: string }) => entry.id === note.id)).toBe(false);
     expect(database.query("SELECT 1 FROM note_tags WHERE note_id = ? AND tag_normalized = ?").get(note.id, "代码标签")).toBeNull();
   });
@@ -1042,7 +1127,7 @@ describe("remote MCP endpoint", () => {
     const byTitle = await callTool("get_note", { title: "季度复盘" }, 4, environment);
     expect(toolData(byTitle.body!).note.id).toBe(toolData(exact.body!).note.id);
     const ambiguous = await callTool("get_note", { title: "季度计划" }, 5, environment);
-    expect(resultOf(ambiguous.body!).isError).toBe(true);
+    expect(resultOf(ambiguous.body!).isError).toBeUndefined();
     expect(toolData(ambiguous.body!).error.code).toBe("NOT_FOUND");
     expect(toolData(ambiguous.body!).error.target).toBe("note");
     const fuzzy = toolData((await callTool("search_notes", { query: "季度计划" }, 51, environment)).body!);
@@ -1103,7 +1188,7 @@ describe("remote MCP endpoint", () => {
     expect(batchData.updatedCount).toBe(2);
     expect(batchData.failedCount).toBe(0);
 
-    const search = await callTool("search_notes", { query: "searchable marker", tag: "batch-tag", limit: 1, previewLength: 6 }, 5, environment);
+    const search = await callTool("search_notes", { query: "searchable marker", tags: ["batch-tag"], limit: 1, previewLength: 6 }, 5, environment);
     const searchData = toolData(search.body!);
     expect(searchData.notes).toHaveLength(1);
     expect(Array.from(searchData.notes[0].preview).length).toBeLessThanOrEqual(6);
@@ -1115,7 +1200,7 @@ describe("remote MCP endpoint", () => {
       removeTags: ["batch-tag"],
     }, 6, environment);
     expect(toolData(removal.body!).updatedCount).toBe(2);
-    const removedSearch = await callTool("search_notes", { tag: "batch-tag" }, 7, environment);
+    const removedSearch = await callTool("search_notes", { tags: ["batch-tag"] }, 7, environment);
     expect(toolData(removedSearch.body!).notes).toHaveLength(0);
 
     const currentNotes = toolData(removal.body!).results.map((entry: { noteId: string; note: { version: number } }) => ({ noteId: entry.noteId, expectedVersion: entry.note.version }));
@@ -1178,9 +1263,9 @@ describe("remote MCP endpoint", () => {
     const note = toolData(created.body!).note;
     expect(note.tags).toEqual(["可检索"]);
 
-    expect(toolData((await callTool("search_notes", { tag: "CSharp" }, 2, environment)).body!).notes).toHaveLength(0);
-    expect(toolData((await callTool("search_notes", { tag: "技术" }, 3, environment)).body!).notes).toHaveLength(0);
-    expect(toolData((await callTool("search_notes", { tag: "可检索" }, 4, environment)).body!).notes.map((entry: { id: string }) => entry.id)).toEqual([note.id]);
+    expect(toolData((await callTool("search_notes", { tags: ["CSharp"] }, 2, environment)).body!).notes).toHaveLength(0);
+    expect(toolData((await callTool("search_notes", { tags: ["技术"] }, 3, environment)).body!).notes).toHaveLength(0);
+    expect(toolData((await callTool("search_notes", { tags: ["可检索"] }, 4, environment)).body!).notes.map((entry: { id: string }) => entry.id)).toEqual([note.id]);
   });
 
   test("replaces one exact text span without returning or resending the full body", async () => {
@@ -1212,14 +1297,14 @@ describe("remote MCP endpoint", () => {
     expect(toolData(stale.body!).error.current.contentMarkdown).toBeUndefined();
     expect(toolData(stale.body!).error.current.preview).toContain("已修正");
 
-    const forced = await callTool("replace_in_note", {
+    const appliedToLatest = await callTool("replace_in_note", {
       noteId: note.id,
       expectedVersion: note.version,
-      force: true,
+      applyToLatest: true,
       oldText: "已修正",
       newText: "最终修正",
     }, 5, environment);
-    expect(toolData(forced.body!).note.version).toBe(3);
+    expect(toolData(appliedToLatest.body!).note.version).toBe(3);
     expect(toolData((await callTool("get_note", { noteId: note.id }, 6, environment)).body!).note.contentMarkdown).toBe("报告中的占位符：最终修正；其余正文保持原样");
   });
 
@@ -1290,6 +1375,7 @@ describe("remote MCP endpoint", () => {
     }, 4, environment);
     expect(toolData(missingOccurrence.body!).error.code).toBe("NOT_FOUND");
     expect(toolData(missingOccurrence.body!).error.target).toBe("occurrence");
+    expect(toolData(missingOccurrence.body!).error.suggestedAction).toContain("get_note");
     expect(toolData(missingOccurrence.body!).error.matchCount).toBe(1);
 
     const missingText = await callTool("replace_in_note", {
@@ -1299,6 +1385,7 @@ describe("remote MCP endpoint", () => {
     }, 5, environment);
     expect(toolData(missingText.body!).error.code).toBe("NOT_FOUND");
     expect(toolData(missingText.body!).error.target).toBe("text");
+    expect(toolData(missingText.body!).error.suggestedAction).toContain("get_note");
   });
 
   test("supports official chunked writing with a length receipt and returned versions", async () => {
@@ -1389,7 +1476,7 @@ describe("remote MCP endpoint", () => {
 
     const search = await callTool("search_notes", { query: "mcp-test" }, 3, environment);
     expect(toolData(search.body!).notes.map((note: { id: string }) => note.id)).toContain(createdNote.id);
-    const tagSearch = await callTool("search_notes", { tag: "mcp-explicit-tag" }, 4, environment);
+    const tagSearch = await callTool("search_notes", { tags: ["mcp-explicit-tag"] }, 4, environment);
     expect(toolData(tagSearch.body!).notes.map((note: { id: string }) => note.id)).toContain(createdNote.id);
 
     const fetched = await callTool("get_note", { noteId: createdNote.id }, 5, environment);
@@ -1415,7 +1502,7 @@ describe("remote MCP endpoint", () => {
       contentMarkdown: "这次不应覆盖当前正文",
     }, 7, environment);
     const staleResult = resultOf(staleUpdate.body!);
-    expect(staleResult.isError).toBe(true);
+    expect(staleResult.isError).toBeUndefined();
     expect(toolData(staleUpdate.body!).error.code).toBe("VERSION_CONFLICT");
     expect(toolData(staleUpdate.body!).error.current.version).toBe(2);
 
@@ -1484,14 +1571,14 @@ describe("remote MCP endpoint", () => {
     expect(secondPageData.notes.every((note: { id: string }) => !firstIds.has(note.id))).toBe(true);
   });
 
-  test("rejects empty updates and missing notes as MCP tool errors", async () => {
+  test("distinguishes invalid empty updates from recoverable missing notes", async () => {
     const emptyUpdate = await callTool("update_note", { noteId: "missing", expectedVersion: 1 });
     expect(resultOf(emptyUpdate.body!).isError).toBe(true);
     expect(toolData(emptyUpdate.body!).error.code).toBe("EMPTY_UPDATE");
 
     const missingNote = await callTool("get_note", { noteId: "missing" }, 2);
-    expect(resultOf(missingNote.body!).isError).toBe(true);
-    expect(toolData(missingNote.body!).error).toMatchObject({ code: "NOT_FOUND", target: "note", legacyCode: "NOTE_NOT_FOUND" });
+    expect(resultOf(missingNote.body!).isError).toBeUndefined();
+    expect(toolData(missingNote.body!).error).toMatchObject({ code: "NOT_FOUND", target: "note" });
   });
 
   test("searches the trash by query through the unified search_notes tool", async () => {
@@ -1514,7 +1601,7 @@ describe("remote MCP endpoint", () => {
     expect(restoredByTitle.isDeleted).toBe(true);
 
     const hiddenByDefault = await callTool("get_note", { title: "待恢复的会议记录" }, 8, environment);
-    expect(resultOf(hiddenByDefault.body!).isError).toBe(true);
+    expect(resultOf(hiddenByDefault.body!).isError).toBeUndefined();
     expect(toolData(hiddenByDefault.body!).error.code).toBe("NOT_FOUND");
   });
 
@@ -1574,11 +1661,11 @@ describe("remote MCP endpoint", () => {
     expect(partialData.results[0].ok).toBe(true);
     expect(partialData.results[1].error.code).toBe("VERSION_CONFLICT");
     const allFailed = await callTool("batch_update_notes", { notes: [{ noteId: first.id, expectedVersion: 99 }, { noteId: second.id, expectedVersion: 99 }], isFavorite: true });
-    expect(resultOf(allFailed.body!).isError).toBe(true);
+    expect(resultOf(allFailed.body!).isError).toBeUndefined();
     expect(toolData(allFailed.body!)).toMatchObject({ updatedCount: 0, failedCount: 2 });
-    expect(toolData(allFailed.body!).partial).toBeUndefined();
+    expect(toolData(allFailed.body!).partial).toBe(false);
     const success = toolData((await callTool("batch_update_notes", { notes: [{ noteId: second.id, expectedVersion: second.version }], isFavorite: true })).body!);
     expect(success).toMatchObject({ updatedCount: 1, failedCount: 0 });
-    expect(success.partial).toBeUndefined();
+    expect(success.partial).toBe(false);
   });
 });
