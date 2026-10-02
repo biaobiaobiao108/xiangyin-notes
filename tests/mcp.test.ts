@@ -84,10 +84,8 @@ function toolData(responseBody: Record<string, any>) {
   const result = resultOf(responseBody);
   expect(result.content).toHaveLength(1);
   expect(result.content[0].type).toBe("text");
-  expect(result.content[0].text.length).toBeLessThan(200);
-  expect(result.content[0].text).toMatch(/[\u4e00-\u9fff]/);
-  expect(() => JSON.parse(result.content[0].text)).toThrow();
-  const data = result.structuredContent as Record<string, any>;
+  const data = JSON.parse(result.content[0].text) as Record<string, any>;
+  expect(data).toEqual(result.structuredContent);
   expect(typeof data.ok).toBe("boolean");
   if (data.error) {
     expect(data.ok).toBe(false);
@@ -128,7 +126,42 @@ function toolData(responseBody: Record<string, any>) {
 }
 
 describe("remote MCP endpoint", () => {
-  test("keeps long note bodies only in structured results across save, read, outline, section, and search", async () => {
+  test("supports read, error recovery, versioned writes and deletion confirmation through text alone", async () => {
+    // Model a connector that forwards content but drops structuredContent.
+    const textOnlyCall = async (name: string, args: Record<string, unknown>) => {
+      const response = await callTool(name, args);
+      const content = resultOf(response.body!).content;
+      return JSON.parse(content[0].text) as Record<string, any>;
+    };
+    const notebook = (await textOnlyCall("ensure_notebook", { name: "纯文本客户端" })).notebook;
+    const saveArgs = { title: "可恢复笔记", contentMarkdown: "# 标题\n原正文", notebook: { notebookId: notebook.id } };
+    const saved = await textOnlyCall("save_note", saveArgs);
+    const search = await textOnlyCall("search_notes", { notebookId: notebook.id });
+    expect(search.notes[0]).toMatchObject({ id: saved.note.id, version: saved.note.version, title: saveArgs.title });
+    const read = await textOnlyCall("get_note", { noteId: search.notes[0].id });
+    expect(read.note.contentMarkdown).toBe(saveArgs.contentMarkdown);
+    const batchRead = await textOnlyCall("get_notes_batch", { noteIds: [read.note.id, "missing"] });
+    expect(batchRead.notes[0].contentMarkdown).toBe(saveArgs.contentMarkdown);
+    expect(batchRead.notFoundIds).toEqual(["missing"]);
+    const outline = await textOnlyCall("get_note_outline", { noteId: read.note.id });
+    expect(outline.version).toBe(read.note.version);
+    expect(typeof outline.headings[0].sectionId).toBe("string");
+    const duplicate = await textOnlyCall("save_note", saveArgs);
+    expect(duplicate.error).toMatchObject({ code: "NOTE_EXISTS", recoverable: true });
+    const candidate = duplicate.error.matches[0];
+    expect(candidate).toMatchObject({ id: read.note.id, version: read.note.version });
+    const updated = await textOnlyCall("save_note", { ...saveArgs, mode: "upsert", expectedVersion: candidate.version, contentMarkdown: "新正文" });
+    expect(updated.ok).toBe(true);
+    const batchWrite = await textOnlyCall("batch_update_notes", { notes: [{ noteId: updated.note.id, expectedVersion: updated.note.version }], isFavorite: true });
+    expect(batchWrite).toMatchObject({ ok: true, updatedCount: 1, partial: false });
+    const notebooks = await textOnlyCall("list_notebooks", {});
+    const currentNotebook = notebooks.notebooks.find((entry: { id: string }) => entry.id === notebook.id);
+    expect(currentNotebook.totalCount).toBe(1);
+    const deleted = await textOnlyCall("delete_notebook", { notebookId: currentNotebook.id, expectedNoteCount: currentNotebook.totalCount, confirm: true });
+    expect(deleted.ok).toBe(true);
+  });
+
+  test("preserves full long-note results for text-only clients across save, read, outline, section, and search", async () => {
     const body = "唯一正文标记".repeat(2_000);
     const markdown = `# 长正文\n\n## 第一节\n\n${body}\n\n## 第二节\n尾声`;
     const save = await callTool("save_note", { title: "长正文回执", contentMarkdown: markdown, includeContent: true });
@@ -142,8 +175,8 @@ describe("remote MCP endpoint", () => {
     expect(toolData(section.body!).section.contentMarkdown).toContain(body);
     const search = await callTool("search_notes", { query: "长正文回执" });
     expect(toolData(search.body!).notes[0].id).toBe(note.id);
-    for (const response of [save, read, outline, section, search]) {
-      expect(resultOf(response.body!).content[0].text).not.toContain("唯一正文标记");
+    for (const response of [save, read, section]) {
+      expect(resultOf(response.body!).content[0].text).toContain("唯一正文标记");
     }
   });
 
