@@ -147,7 +147,7 @@ MCP 推荐工具：
 - 笔记本：`list_notebooks`、`ensure_notebook`、`create_notebook`、`update_notebook`、`delete_notebook`。
 - 搜索与读取：`search_notes`、`get_note`、`get_notes_batch`、`get_note_outline`、`get_note_section`。
 - 写入：`save_note`、`create_note`、`update_note`、`append_to_note`、`replace_in_note`、`insert_into_note`、`replace_note_section`。
-- 管理：`manage_note`、`batch_update_notes`。旧 `note_operation` 与 `list_trash` 保留调用兼容，工具发现列表不再展示；回收站搜索统一用 `search_notes({view:"trash"})`。
+- 管理：`manage_note`、`batch_update_notes`。回收站搜索统一用 `search_notes({view:"trash"})`。
 
 按名称操作笔记本无需先查 ID。涉及笔记本的工具同时接受 `notebookId` / `notebookName`，二者同时存在时以 ID 为准；无效 ID 不回退到名称。`ensure_notebook({name})` 获取或创建并返回 `created`，已有笔记本的颜色、图标不被修改。以下调用可一次创建缺失的笔记本并保存文案：
 

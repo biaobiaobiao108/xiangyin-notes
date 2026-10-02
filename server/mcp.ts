@@ -42,7 +42,7 @@ const MCP_SERVER_INSTRUCTIONS = [
   "普通笔记应优先在 create_note 一次写入完整正文；只有客户端明确无法承载单次参数，或服务端返回 MCP 请求体超过 4.5 MB 的错误时，才用 append_to_note 分段追加并沿用返回的 version。单篇正文硬上限为 1,000,000 个 UTF-16 code units。contentLength 回执与批量读取字符预算按 Unicode code points 计算。写操作默认不回传正文。",
   "分类可直接传 notebookName，notebookId 同时存在时优先；ensure_notebook 幂等创建，save_note 可一次创建笔记本并保存笔记；create_notebook 创建笔记本，update_notebook 修改，delete_notebook 需 confirm=true 并建议用 totalCount 做二次确认。局部编辑和仅改标题可省略 version，由服务端读取当前版本并以乐观锁保存；全文覆盖必须提供 expectedVersion（update_note 兼容 version/baseVersion），save_note 的 upsert 更新已有笔记也必须提供 expectedVersion；batch_update_notes 必须提供每篇读取时的 version。所有 VERSION_CONFLICT 的 current 只返回有界摘要、长度、版本与元数据，需要时用 get_note/get_note_section 读取正文。",
   "create_note.tags 与 batch_update_notes.tags 是追加；manage_note 的 set_tags 必须显式传 mode=replace、add 或 remove。正文中未转义、代码区外且不超过 40 个 UTF-16 code units 的 #标签会被索引；可在井号前加反斜杠保留字面井号。回收站笔记可恢复，但 MCP 不提供永久删除笔记或清空回收站。",
-  "用 search_notes 的 view=trash 检索回收站；旧 list_trash、note_operation 仅保留调用兼容。get_notes_batch 最多读 50 篇、总正文默认预算 20,000 个 Unicode 字符；各笔记分别读取，不构成同一时刻快照。",
+  "用 search_notes 的 view=trash 检索回收站。get_notes_batch 最多读 50 篇、总正文默认预算 20,000 个 Unicode 字符；各笔记分别读取，不构成同一时刻快照。",
   "MCP 只传输文字和 Markdown，不提供图片数据、缩略图或图片上传；正文可引用 HTTPS 图片地址或当前用户可用于该笔记的已上传附件，无效或不可用的图片引用会被拒绝。",
 ].join(" ");
 
@@ -911,7 +911,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
       contentMarkdown: z.string().max(NOTE_CONTENT_MAX_LENGTH).optional().describe("可直接传入完整 Markdown 正文；普通笔记优先一次创建；只有客户端明确无法承载单次参数或服务端返回 MCP 请求体超过 4.5 MB 的错误时才分段；最多 1,000,000 个 UTF-16 code units"),
       notebookId: z.string().min(1).max(200).optional(),
       notebookName: z.string().trim().min(1).max(40).optional(),
-      tags: noteTagsSchema.optional().describe("要追加到正文的标签名，仅可含中文、字母、数字、下划线或连字符，不带 #；仅追加，不会覆盖已有标签（整体替换请用 note_operation action=set_tags）"),
+      tags: noteTagsSchema.optional().describe("要追加到正文的标签名，仅可含中文、字母、数字、下划线或连字符，不带 #；仅追加，不会覆盖已有标签（整体替换请用 manage_note action=set_tags）"),
       includeContent: z.boolean().optional().describe("是否在成功结果中回传完整正文，默认 false"),
     }).strict(),
   }, async ({ title, contentMarkdown = "", notebookId, notebookName, tags = [], includeContent = false }) => {
@@ -1442,15 +1442,6 @@ async function normalizeMcpRequest(request: Request): Promise<{ request: Request
     const params = message.params && typeof message.params === "object" && !Array.isArray(message.params)
       ? message.params as Record<string, unknown>
       : null;
-    const legacyTrash = params?.name === "list_trash";
-    if (params?.name === "note_operation") {
-      params.name = "manage_note";
-      rewritten = true;
-    }
-    if (legacyTrash && params) {
-      params.name = "search_notes";
-      rewritten = true;
-    }
     const rawArguments = params?.arguments;
     let argumentsValue: unknown = rawArguments;
     if (typeof rawArguments === "string") {
@@ -1476,10 +1467,6 @@ async function normalizeMcpRequest(request: Request): Promise<{ request: Request
     if (rawArguments !== undefined && (!argumentsValue || typeof argumentsValue !== "object" || Array.isArray(argumentsValue))) {
       return { request, error: invalidMcpArguments(message.id, "tools/call 的 arguments 必须是 JSON 对象；多行正文请放在 contentMarkdown 字段中。") };
     }
-    if (legacyTrash && params) {
-      argumentsValue = { ...(argumentsValue as Record<string, unknown> | undefined), view: "trash" };
-      params.arguments = argumentsValue;
-    }
     const toolName = params?.name;
     const contentField = typeof toolName === "string" ? MCP_CONTENT_FIELDS.get(toolName) : undefined;
     const contentValue = argumentsValue && typeof argumentsValue === "object" && !Array.isArray(argumentsValue)
@@ -1501,7 +1488,6 @@ async function normalizeMcpRequest(request: Request): Promise<{ request: Request
   if (!rewritten) return { request };
   const headers = new Headers(request.headers);
   headers.delete("Content-Length");
-  if (message.method === "tools/call" && message.params && typeof message.params === "object") headers.set("Mcp-Name", String((message.params as Record<string, unknown>).name));
   return { request: new Request(request, { headers, body: JSON.stringify(message) }) };
 }
 
