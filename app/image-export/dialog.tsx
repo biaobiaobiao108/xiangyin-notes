@@ -39,7 +39,7 @@ export function ImageExportDialog({ snapshot, onClose }: { snapshot: ImageExport
     if (!page) throw new Error("页面尚未就绪");
     const { default: html2canvas } = await import("html2canvas");
     signal.throwIfAborted();
-    const canvas = await html2canvas(page, { scale: 2, backgroundColor: "#f6f4ef", logging: false, useCORS: true, foreignObjectRendering: false, imageTimeout: 15000 });
+    const canvas = await html2canvas(page, { scale: 2, backgroundColor: null, logging: false, useCORS: true, foreignObjectRendering: false, imageTimeout: 15000 });
     try {
       signal.throwIfAborted();
       const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((result) => result ? resolve(result) : reject(new Error("图片生成失败")), "image/png"));
