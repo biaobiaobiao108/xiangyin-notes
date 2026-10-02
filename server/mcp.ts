@@ -36,7 +36,7 @@ const MCP_CONTENT_FIELDS = new Map([
   ["replace_in_note", "newText"],
 ]);
 const MCP_SERVER_INSTRUCTIONS = [
-  "完整机器数据同时提供在 structuredContent 和 content 文本块的 JSON 中；检查 ok 和 error.code，可恢复业务分支不标记为工具异常；批量结果另检查 partial 与逐项 results。",
+  "完整机器数据仅在 structuredContent 中，content 只给简短说明；客户端必须透传 structuredContent。检查 ok 和 error.code，可恢复业务分支不标记为工具异常；批量结果另检查 partial 与逐项 results。",
   "象映笔记是跨会话 Markdown 记忆库，可搜索、读取、新建和增量修改笔记，也可管理笔记本、收藏、标签、回收站。",
   "工具参数必须是 JSON 对象。客户端会先校验参数；手写原始 JSON 时，字符串中的控制字符须按 JSON 规范转义（换行写作 \\n）；结构化参数中的多行 Markdown 会原样保留。",
   "字段值不合法时使用统一错误码 INVALID_ARGUMENT，并通过 field 指明字段；当前 field 取值为 name、color、icon、tags。标签错误还会在 invalidTags 中列出违规值。",
@@ -237,6 +237,22 @@ function businessError(value: unknown): Record<string, unknown> {
   };
 }
 
+function resultSummary(value: Record<string, unknown>) {
+  if (value.error && typeof value.error === "object") {
+    const error = value.error as Record<string, unknown>;
+    return error.recoverable ? `操作未完成：${error.code}；请查看 structuredContent 中的恢复建议。` : `操作失败：${error.code}；请检查参数或服务状态。`;
+  }
+  if (Array.isArray(value.results)) return `批量操作完成：更新 ${value.updatedCount ?? 0} 篇，未变 ${value.noopCount ?? 0} 篇，失败 ${value.failedCount ?? 0} 篇。`;
+  if (Array.isArray(value.headings)) return `已返回笔记大纲，共 ${value.headings.length} 个标题。`;
+  if (value.section) return "已返回目标章节数据。";
+  if (Array.isArray(value.notes)) return `已返回 ${value.notes.length} 篇笔记。`;
+  if (Array.isArray(value.notebooks)) return `已返回 ${value.notebooks.length} 个笔记本。`;
+  if (value.note) return value.created === true ? "已创建笔记。" : "已返回笔记数据。";
+  if (value.notebook) return value.created === true ? "已创建笔记本。" : "已返回笔记本数据。";
+  if (value.wouldDeleteNotebook !== undefined) return `已生成删除预览，将移动 ${value.wouldMoveNotes ?? 0} 篇笔记。`;
+  return "操作完成。";
+}
+
 function rawResponseValue(value: Record<string, unknown>, isError = false, options: { writeResult?: boolean; includeContent?: boolean; contentLength?: number } = {}) {
   const sanitized: Record<string, unknown> = withoutThumbnailMetadata(value, options);
   const error = sanitized.error === undefined ? undefined : businessError(sanitized.error);
@@ -259,7 +275,7 @@ function rawResponseValue(value: Record<string, unknown>, isError = false, optio
     : isError && !(failedResults?.length && failedResults.every((entry) => (entry.error as Record<string, unknown>)?.recoverable === true));
   return {
     structuredContent,
-    content: [{ type: "text" as const, text: JSON.stringify(structuredContent) }],
+    content: [{ type: "text" as const, text: resultSummary(structuredContent) }],
     ...(toolError ? { isError: true } : {}),
   };
 }
