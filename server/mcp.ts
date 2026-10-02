@@ -632,7 +632,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("get_note", {
     title: "读取笔记",
-    description: "按 noteId 读取，或按 title 进行标题子串匹配读取。title 匹配唯一时返回笔记；匹配多篇时返回候选（含 preview、version、createdAtISO、updatedAtISO），可据此消歧；最多列出 5 篇，truncated=true 表示候选未列全，matchCount 最多报告 6、可能只是总数下限。默认标题查找只搜索未删除的笔记；includeDeleted=true 时也会匹配回收站中的笔记。includeDeleted 仅影响标题查找，按 noteId 可直接读取回收站笔记。结果含可读的 updatedAtISO；保留 Markdown 图片引用，但不提供图片内容或缩略图。只需要 version 时可传 includeContent=false 以省去正文；search_notes 与 list_trash 的返回结果本身也带 version，不必为此读取全文。",
+    description: "按 noteId 读取，或按 title 查找笔记。标题查找会先优先采用规范化后的精确标题匹配：若恰有一篇精确匹配，即使另有更长标题包含该字符串，也直接返回精确匹配的笔记；若有多篇规范化后的精确匹配则返回这些候选；若没有精确匹配，再按标题子串匹配。最终匹配多篇时返回候选（含 preview、version、createdAtISO、updatedAtISO），可据此消歧；最多列出 5 篇，truncated=true 表示候选未列全，matchCount 最多报告 6、可能只是总数下限。默认标题查找只搜索未删除的笔记；includeDeleted=true 时也会匹配回收站中的笔记。includeDeleted 仅影响标题查找，按 noteId 可直接读取回收站笔记。结果含可读的 updatedAtISO；保留 Markdown 图片引用，但不提供图片内容或缩略图。只需要 version 时可传 includeContent=false 以省去正文；search_notes 与 list_trash 的返回结果本身也带 version，不必为此读取全文。",
     inputSchema: z.object({
       noteId: z.string().min(1).max(200).optional(),
       title: z.string().trim().min(1).max(200).optional(),
@@ -1018,7 +1018,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("batch_update_notes", {
     title: "批量更新笔记",
-    description: "批量移动笔记本、追加标签 tags、移除标签 removeTags、整体替换标签 replaceTags、设定收藏状态或移入/恢复回收站。replaceTags 与 tags/removeTags 互斥；空 replaceTags 可清空所有标签。回收站笔记只读；仅当本次只传 deleted:false 时可批量恢复，其他修改都会返回 NOTE_IN_TRASH，恢复后再进行其他编辑。isFavorite 是目标状态（true 收藏、false 取消收藏），重复设定不会反转；未实际改变笔记的成功项会标记 noop:true。返回 updatedCount 实际改动数、noopCount 未变化成功数与 failedCount 失败数；noop 也算成功。把最多 50 篇笔记的 noteId 和 version 放入 notes，并传同一个 notebookId 即可批量移入该笔记本。每篇笔记都必须带上读取时的 version；逐条执行并返回每条结果，冲突不会覆盖。冲突 current 只返回有界摘要、版本、长度和元数据；需要合并正文时再用 get_note 或 get_notes_batch 读取失败笔记，避免批量重复回传长正文。失败项可单独重试。",
+    description: "批量移动笔记本、追加标签 tags、移除标签 removeTags、整体替换标签 replaceTags、设定收藏状态或移入/恢复回收站。replaceTags 与 tags/removeTags 互斥；空 replaceTags 可清空所有标签。回收站笔记只读；仅当本次只传 deleted:false 时可批量恢复，其他修改都会返回 NOTE_IN_TRASH，恢复后再进行其他编辑。isFavorite 是目标状态（true 收藏、false 取消收藏），重复设定不会反转；未实际改变笔记的成功项会标记 noop:true。返回 updatedCount 实际改动数、noopCount 未变化成功数与 failedCount 失败数；noop 也算成功。仅当同一批次同时有成功项和失败项时返回 partial:true；全部成功时省略该字段，全部失败时整个工具结果标记为错误。把最多 50 篇笔记的 noteId 和 version 放入 notes，并传同一个 notebookId 即可批量移入该笔记本。每篇笔记都必须带上读取时的 version；逐条执行并返回每条结果，冲突不会覆盖。冲突 current 只返回有界摘要、版本、长度和元数据；需要合并正文时再用 get_note 或 get_notes_batch 读取失败笔记，避免批量重复回传长正文。失败项可单独重试。",
     inputSchema: z.object({
       notes: z.array(z.object({ noteId: z.string().min(1).max(200), version: z.number().int().positive() }).strict()).min(1).max(50),
       notebookId: z.string().min(1).max(200).optional(),
