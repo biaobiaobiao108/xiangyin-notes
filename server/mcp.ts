@@ -632,7 +632,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("get_note", {
     title: "读取笔记",
-    description: "按 noteId 读取，或按 title 查找笔记。标题查找会先优先采用规范化后的精确标题匹配：若恰有一篇精确匹配，即使另有更长标题包含该字符串，也直接返回精确匹配的笔记；若有多篇规范化后的精确匹配则返回这些候选；若没有精确匹配，再按标题子串匹配。最终匹配多篇时返回候选（含 preview、version、createdAtISO、updatedAtISO），可据此消歧；最多列出 5 篇，truncated=true 表示候选未列全，matchCount 最多报告 6、可能只是总数下限。默认标题查找只搜索未删除的笔记；includeDeleted=true 时也会匹配回收站中的笔记。includeDeleted 仅影响标题查找，按 noteId 可直接读取回收站笔记。结果含可读的 updatedAtISO；保留 Markdown 图片引用，但不提供图片内容或缩略图。只需要 version 时可传 includeContent=false 以省去正文；search_notes 与 list_trash 的返回结果本身也带 version，不必为此读取全文。",
+    description: "按 noteId 读取，或按 title 查找笔记。标题查找会先裁剪 title 参数的首尾空白；精确匹配和子串匹配均忽略 ASCII 字母大小写。因此仅改变查询 title 的大小写或首尾空白，不能用于区分笔记。先优先采用精确标题匹配：若恰有一篇精确匹配，即使另有更长标题包含该字符串，也直接返回精确匹配的笔记；若多篇标题仅大小写不同，会一起作为精确匹配候选返回。若没有精确匹配，再按标题子串匹配；最终匹配多篇时返回候选（含 preview、version、createdAtISO、updatedAtISO），可据此消歧；最多列出 5 篇，truncated=true 表示候选未列全，matchCount 最多报告 6、可能只是总数下限。默认标题查找只搜索未删除的笔记；includeDeleted=true 时也会匹配回收站中的笔记。includeDeleted 仅影响标题查找，按 noteId 可直接读取回收站笔记。结果含可读的 updatedAtISO；保留 Markdown 图片引用，但不提供图片内容或缩略图。只需要 version 时可传 includeContent=false 以省去正文；search_notes 与 list_trash 的返回结果本身也带 version，不必为此读取全文。",
     inputSchema: z.object({
       noteId: z.string().min(1).max(200).optional(),
       title: z.string().trim().min(1).max(200).optional(),
