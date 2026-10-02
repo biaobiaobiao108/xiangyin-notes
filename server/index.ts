@@ -245,7 +245,7 @@ if (import.meta.main) {
   const database = await openDatabase();
   const realtime = new RealtimeHub();
   const port = Number.parseInt(Bun.env.PORT ?? "3000", 10) || 3000;
-  const hostname = Bun.env.HOST?.trim() || "0.0.0.0";
+  const hostname = Bun.env.HOST?.trim() || "localhost";
   const clientRoot = Bun.env.CLIENT_ROOT?.trim() || DEFAULT_CLIENT_ROOT;
   const server = Bun.serve({
     hostname,
