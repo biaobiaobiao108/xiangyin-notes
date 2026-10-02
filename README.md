@@ -160,7 +160,7 @@ MCP 推荐工具：
 }
 ```
 
-`save_note` 的 `mode` 默认是 `create`；省略 `notebook` 时目标为收件箱。在目标笔记本内已有未删除的同标题笔记时，`create` 返回 `NOTE_EXISTS` 和有界候选，不再创建副本；不同笔记本允许同标题。明确需要创建同名笔记时使用 `create_note`。`upsert` 必须指定笔记本，在该笔记本内按精确标题匹配：不存在则创建，唯一则更新，多篇返回 `AMBIGUOUS_NOTE`。更新已有笔记必须传读取时的 `expectedVersion`，否则返回 `VERSION_REQUIRED`。`tags` 追加到提交正文。所有写入工具的版本输入统一为 `expectedVersion`，不接受 `version` 或 `baseVersion`；读取结果仍返回 `note.version`。`update_note` 覆盖 `contentMarkdown` 必须提供 `expectedVersion`。仅改标题和局部编辑可以省略版本，服务端读取最新版本后仍以乐观锁保存。所有冲突的 `error.current` 只返回有界摘要、长度、版本及元数据；需要正文时再读取，旧版本不会静默覆盖新版本。
+`save_note` 的 `mode` 默认是 `create`；`create` 模式省略 `notebook` 时目标为收件箱。在目标笔记本内已有未删除的同标题笔记时，`create` 返回 `NOTE_EXISTS` 和有界候选，不再创建副本；不同笔记本允许同标题。明确需要创建同名笔记时使用 `create_note`。`upsert` 必须指定笔记本，在该笔记本内按精确标题匹配：不存在则创建，唯一则更新，多篇返回 `AMBIGUOUS_NOTE`。更新已有笔记必须传读取时的 `expectedVersion`，否则返回 `VERSION_REQUIRED`。`tags` 追加到提交正文。所有写入工具的版本输入统一为 `expectedVersion`，不接受 `version` 或 `baseVersion`；读取结果仍返回 `note.version`。`update_note` 覆盖 `contentMarkdown` 必须提供 `expectedVersion`。仅改标题和局部编辑可以省略版本，服务端读取最新版本后仍以乐观锁保存。所有冲突的 `error.current` 只返回有界摘要、长度、版本及元数据；需要正文时再读取，旧版本不会静默覆盖新版本。
 
 `get_note` 按 ID 或精确标题读取，不再自动退回子串搜索；`get_note` 与 `save_note` 的标题匹配均忽略 ASCII 大小写，只裁剪查询参数的首尾空白，不裁剪已存储标题。因此仅改变查询标题的大小写或首尾空白不能消歧，仅大小写不同的标题须使用 ID 区分。重复标题返回最多 5 个有界候选，可通过笔记本限定范围；`matchCount` 最多为 6，达到 6 时可能只是实际匹配数的下限，`truncated:true` 表示候选未完整列出。`get_note({includeContent:false})` 只返回元数据和摘要，节省正文传输。模糊查找用 `search_notes`，支持最多 20 个 `tags`、`tagMode=all|any`、`notebookName` 和 `sort=relevance|updated_desc|created_desc`。默认有查询时按相关性排序，无查询时按更新时间排序；返回命中字段 `match.field`，正文命中提供有界 `snippet`。保留单标签 `tag`、视图与游标分页。每页默认 20 篇，摘要默认 120 个 Unicode 字符，不返回正文或缩略图。
 

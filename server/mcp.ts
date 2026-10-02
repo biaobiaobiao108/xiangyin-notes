@@ -604,7 +604,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("save_note", {
     title: "保存笔记",
-    description: "一次定位或创建笔记本并保存。mode 默认 create，同笔记本已有同标题报 NOTE_EXISTS；省略笔记本放入收件箱。upsert 按标题匹配，更新需 expectedVersion，多篇拒绝。标题匹配忽略 ASCII 大小写，裁剪查询参数首尾空白。 图片仅接受 HTTPS 地址或当前用户可用于该笔记的已上传附件，MCP 不上传图片。",
+    description: "一次定位或创建笔记本并保存。mode 默认 create，同笔记本已有同标题报 NOTE_EXISTS；create 模式省略笔记本放入收件箱；upsert 必须指定笔记本，按标题匹配，更新需 expectedVersion，多篇拒绝。标题匹配忽略 ASCII 大小写，裁剪查询参数首尾空白。 图片仅接受 HTTPS 地址或当前用户可用于该笔记的已上传附件，MCP 不上传图片。",
     inputSchema: z.object({
       title: z.string().trim().min(1).max(200),
       contentMarkdown: z.string().max(NOTE_CONTENT_MAX_LENGTH),
