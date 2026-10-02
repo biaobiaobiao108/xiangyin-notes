@@ -189,7 +189,7 @@ export async function handleImportRoute(ctx: RouteContext): Promise<Response | n
   const user = await ensureEnvironmentUser(options.database, credentials);
   const inbox = first<{ id: string }>(options.database, "SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1 LIMIT 1", user.id);
   if (!inbox) return jsonError(500, "NO_INBOX", "找不到收件箱");
-  if (!validNoteAssetReferences(options.database, user.id, null, contentMarkdown)) return jsonError(400, "INVALID_ASSET", "笔记包含不支持的图片地址或无权访问的图片");
+  if (!validNoteAssetReferences(options.database, user.id, null, contentMarkdown)) return jsonError(400, "INVALID_ASSET", "图片引用无效、不受支持或附件当前不可用");
 
   const requestedId = idempotencyKey ? await deterministicImportNoteId(user.id, idempotencyKey) : undefined;
   if (requestedId) {
@@ -205,7 +205,7 @@ export async function handleImportRoute(ctx: RouteContext): Promise<Response | n
       const replay = replayIdempotentImport(options.database, user.id, requestedId, contentMarkdown);
       if (replay) return replay;
     }
-    if (error instanceof Error && error.message === "invalid-note-assets") return jsonError(400, "INVALID_ASSET", "笔记包含不支持的图片地址或无权访问的图片");
+    if (error instanceof Error && error.message === "invalid-note-assets") return jsonError(400, "INVALID_ASSET", "图片引用无效、不受支持或附件当前不可用");
     throw error;
   }
   const note = getNote(options.database, user.id, noteId);

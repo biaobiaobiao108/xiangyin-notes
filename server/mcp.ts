@@ -40,7 +40,7 @@ const MCP_SERVER_INSTRUCTIONS = [
   "需要分类时先用 list_notebooks 获取 ID；create_notebook 创建笔记本，update_notebook 修改，delete_notebook 需 confirm=true 并建议用 totalCount 做二次确认。单篇写操作可省略 version，由服务端读取当前版本并以乐观锁保存；batch_update_notes 必须提供每篇读取时的 version。单篇 VERSION_CONFLICT 返回完整 current；批量冲突只返回摘要与元数据，需要时再读取失败项正文。",
   "create_note.tags 与 batch_update_notes.tags 是追加；note_operation 的 set_tags 必须显式传 mode=replace、add 或 remove。正文中未转义、代码区外且不超过 40 个 UTF-16 code units 的 #标签会被索引；可在井号前加反斜杠保留字面井号。回收站笔记可恢复，但 MCP 不提供永久删除笔记或清空回收站。",
   "用 search_notes 的 view=trash 或 list_trash 检索回收站。get_notes_batch 最多读 50 篇、总正文默认预算 20,000 个 Unicode 字符；各笔记分别读取，不构成同一时刻快照。",
-  "MCP 只传输文字和 Markdown，不提供图片数据或缩略图；正文中的图片引用会保留。",
+  "MCP 只传输文字和 Markdown，不提供图片数据、缩略图或图片上传；正文可引用 HTTPS 图片地址或当前用户可用于该笔记的已上传附件，无效或不可用的图片引用会被拒绝。",
 ].join(" ");
 
 // Keep published JSON Schemas within the broadly supported regular-expression
@@ -352,6 +352,14 @@ function noteOperationValidationMessage(input: unknown, issues: z.ZodIssue[]) {
 
 function noteWriteError(result: RouteResult) {
   const error = result.body.error;
+  if (error && typeof error === "object" && (error as Record<string, unknown>).code === "INVALID_ASSET") {
+    return responseValue({
+      error: {
+        ...(error as Record<string, unknown>),
+        message: "该图片引用无法写入：MCP 不提供图片上传；请使用 HTTPS 图片地址，或当前用户已上传且可用于此笔记的附件引用。",
+      },
+    }, true);
+  }
   if (error && typeof error === "object" && (error as Record<string, unknown>).code === "NOTE_TOO_LARGE") {
     return responseValue({
       error: {
@@ -711,7 +719,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("create_note", {
     title: "创建笔记",
-    description: "创建一篇 Markdown 笔记。contentMarkdown 可直接传入完整正文，普通笔记应优先在本次 create_note 一次写入完整内容；多行 Markdown 会原样保留。只有客户端明确无法承载单次参数或服务端返回 MCP 请求体超过 4.5 MB 的错误时，才先创建骨架并用 append_to_note 分段追加，沿用每次返回的 version；单篇正文总上限为 1,000,000 个 UTF-16 code units。若手写原始 JSON，其中的换行、制表符等控制字符必须转义。tags 会以 #标签 形式追加到正文；每个正文标签最多 40 个 UTF-16 code units，代码中的标签和超长标签不会被索引；字面井号词可写作 \\#CSharp 以避免成为标签。省略 notebookId 时放入收件箱。默认不回传正文；需要时设 includeContent=true。成功结果包含按 Unicode code point 统计的 contentLength 回执。",
+    description: "创建一篇 Markdown 笔记。MCP 不提供图片上传；正文可引用 HTTPS 图片地址或当前用户可用于该笔记的已上传附件，无效或不可用的引用会返回 INVALID_ASSET。contentMarkdown 可直接传入完整正文，普通笔记应优先在本次 create_note 一次写入完整内容；多行 Markdown 会原样保留。只有客户端明确无法承载单次参数或服务端返回 MCP 请求体超过 4.5 MB 的错误时，才先创建骨架并用 append_to_note 分段追加，沿用每次返回的 version；单篇正文总上限为 1,000,000 个 UTF-16 code units。若手写原始 JSON，其中的换行、制表符等控制字符必须转义。tags 会以 #标签 形式追加到正文；每个正文标签最多 40 个 UTF-16 code units，代码中的标签和超长标签不会被索引；字面井号词可写作 \\#CSharp 以避免成为标签。省略 notebookId 时放入收件箱。默认不回传正文；需要时设 includeContent=true。成功结果包含按 Unicode code point 统计的 contentLength 回执。",
     inputSchema: z.object({
       title: z.string().min(1).max(200),
       contentMarkdown: z.string().max(NOTE_CONTENT_MAX_LENGTH).optional().describe("可直接传入完整 Markdown 正文；普通笔记优先一次创建；只有客户端明确无法承载单次参数或服务端返回 MCP 请求体超过 4.5 MB 的错误时才分段；最多 1,000,000 个 UTF-16 code units"),
@@ -733,7 +741,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("update_note", {
     title: "更新笔记",
-    description: "仅用于更新未删除笔记的标题或完整 Markdown 正文；回收站笔记只读，会返回 NOTE_IN_TRASH，请先用 note_operation action=restore 恢复。移动、收藏、标签和回收站操作统一用 note_operation。version 可省略，由服务端读取当前版本并以乐观锁保存；传入时会校验，VERSION_CONFLICT 的 error.current 含最新完整笔记，可直接合并后重试。完整正文可直接一次传入；局部改字优先用 replace_in_note。只有客户端明确无法承载单次参数或服务端返回 MCP 请求体超过 4.5 MB 的错误时，才将新增内容分段交给 append_to_note。正文最多 1,000,000 个 UTF-16 code units（JavaScript string.length）；结构化参数直接传入多行 Markdown，手写原始 JSON 时换行、制表符须转义。正文写入结果含按 Unicode code point 统计的 contentLength；默认不回传正文，设 includeContent=true 可返回。",
+    description: "仅用于更新未删除笔记的标题或完整 Markdown 正文；MCP 不提供图片上传，正文中的图片引用必须是 HTTPS 地址或当前用户可用于该笔记的已上传附件，否则返回 INVALID_ASSET。回收站笔记只读，会返回 NOTE_IN_TRASH，请先用 note_operation action=restore 恢复。移动、收藏、标签和回收站操作统一用 note_operation。version 可省略，由服务端读取当前版本并以乐观锁保存；传入时会校验，VERSION_CONFLICT 的 error.current 含最新完整笔记，可直接合并后重试。完整正文可直接一次传入；局部改字优先用 replace_in_note。只有客户端明确无法承载单次参数或服务端返回 MCP 请求体超过 4.5 MB 的错误时，才将新增内容分段交给 append_to_note。正文最多 1,000,000 个 UTF-16 code units（JavaScript string.length）；结构化参数直接传入多行 Markdown，手写原始 JSON 时换行、制表符须转义。正文写入结果含按 Unicode code point 统计的 contentLength；默认不回传正文，设 includeContent=true 可返回。",
     inputSchema: z.object({
       noteId: z.string().min(1).max(200),
       version: z.number().int().positive().optional().describe("可选的预期版本；省略时由服务端读取当前版本，仍使用乐观锁保存"),
@@ -754,7 +762,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("replace_in_note", {
     title: "替换笔记片段",
-    description: "仅修改未删除笔记；回收站笔记只读，会返回 NOTE_IN_TRASH，请先用 note_operation action=restore 恢复。在正文中替换 oldText，不需要把全文传给模型。默认只接受唯一匹配；多处匹配时可设 replaceAll=true 一次替换全部非重叠匹配（返回 replacedCount），或传 occurrence（从 1 开始）指定其中一处；replaceAll 与 occurrence 不能同时使用。歧义时返回 matchCount 和最多 10 条前后各 30 字上下文。服务端读取当前正文和 version 后以乐观锁保存；可选传 version 校验你手中的版本。force=true 会忽略传入的旧 version 并把替换应用到刚读取的最新正文，但保存仍受乐观锁保护。可用 includeContent=true 在成功结果中回传正文，默认 false。",
+    description: "仅修改未删除笔记；MCP 不提供图片上传，正文中的图片引用必须是 HTTPS 地址或当前用户可用于该笔记的已上传附件，否则返回 INVALID_ASSET。回收站笔记只读，会返回 NOTE_IN_TRASH，请先用 note_operation action=restore 恢复。在正文中替换 oldText，不需要把全文传给模型。默认只接受唯一匹配；多处匹配时可设 replaceAll=true 一次替换全部非重叠匹配（返回 replacedCount），或传 occurrence（从 1 开始）指定其中一处；replaceAll 与 occurrence 不能同时使用。歧义时返回 matchCount 和最多 10 条前后各 30 字上下文。服务端读取当前正文和 version 后以乐观锁保存；可选传 version 校验你手中的版本。force=true 会忽略传入的旧 version 并把替换应用到刚读取的最新正文，但保存仍受乐观锁保护。可用 includeContent=true 在成功结果中回传正文，默认 false。",
     inputSchema: z.object({
       noteId: z.string().min(1).max(200),
       oldText: z.string().min(1).max(NOTE_CONTENT_MAX_LENGTH).describe("正文中要查找的精确文本"),
@@ -893,7 +901,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("append_to_note", {
     title: "追加到笔记",
-    description: "仅修改未删除笔记；回收站笔记只读，会返回 NOTE_IN_TRASH，请先用 note_operation action=restore 恢复。将 contentMarkdown 追加到现有正文，避免重新发送长正文。普通追加按一个请求完成；只有客户端明确无法承载单次参数或服务端返回 MCP 请求体超过 4.5 MB 的错误时才分段，所有分段合计仍受单篇正文 1,000,000 个 UTF-16 code units 的总上限约束。沿用上一次写入返回的 version，或省略 version 让服务端读取最新正文并执行乐观锁保存。传入 version 时仍会校验版本。末尾若有独立标签行，会把新内容插到标签行之前并保留标签；否则按原样追加。遇 VERSION_CONFLICT 时 error.current 含完整当前笔记。需要换行时请在追加文本中包含换行。多行正文通过结构化参数直接传入；手写原始 JSON 时控制字符必须转义。默认不回传正文，结果含 contentLength 回执。",
+    description: "仅修改未删除笔记；MCP 不提供图片上传，正文中的图片引用必须是 HTTPS 地址或当前用户可用于该笔记的已上传附件，否则返回 INVALID_ASSET。回收站笔记只读，会返回 NOTE_IN_TRASH，请先用 note_operation action=restore 恢复。将 contentMarkdown 追加到现有正文，避免重新发送长正文。普通追加按一个请求完成；只有客户端明确无法承载单次参数或服务端返回 MCP 请求体超过 4.5 MB 的错误时才分段，所有分段合计仍受单篇正文 1,000,000 个 UTF-16 code units 的总上限约束。沿用上一次写入返回的 version，或省略 version 让服务端读取最新正文并执行乐观锁保存。传入 version 时仍会校验版本。末尾若有独立标签行，会把新内容插到标签行之前并保留标签；否则按原样追加。遇 VERSION_CONFLICT 时 error.current 含完整当前笔记。需要换行时请在追加文本中包含换行。多行正文通过结构化参数直接传入；手写原始 JSON 时控制字符必须转义。默认不回传正文，结果含 contentLength 回执。",
     inputSchema: z.object({
       noteId: z.string().min(1).max(200),
       version: z.number().int().positive().optional().describe("可选的预期版本；省略时服务端读取当前版本"),
@@ -924,7 +932,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 
   server.registerTool("insert_into_note", {
     title: "按锚点插入正文",
-    description: "仅修改未删除笔记；回收站笔记只读，会返回 NOTE_IN_TRASH，请先用 note_operation action=restore 恢复。在正文中匹配的 anchor 前或后插入 Markdown，不必重传整篇笔记；contentMarkdown 可传入完整插入内容，单篇正文仍受 1,000,000 个 UTF-16 code units 上限约束。默认要求 anchor 唯一；歧义时返回 matchCount 和最多 10 条前后各 30 字上下文，可传 occurrence（从 1 开始）指定一处，或设 insertAll=true 在所有非重叠匹配处插入（返回 insertedCount）；insertAll 与 occurrence 不能同时使用。插入点位于行首或行尾时会自动补换行，行内锚点保持精确拼接。version 可省略以使用服务端读取的当前版本；传入时会校验，冲突时 error.current 含完整当前笔记。默认插入到锚点后；成功结果含 contentLength 回执。",
+    description: "仅修改未删除笔记；MCP 不提供图片上传，正文中的图片引用必须是 HTTPS 地址或当前用户可用于该笔记的已上传附件，否则返回 INVALID_ASSET。回收站笔记只读，会返回 NOTE_IN_TRASH，请先用 note_operation action=restore 恢复。在正文中匹配的 anchor 前或后插入 Markdown，不必重传整篇笔记；contentMarkdown 可传入完整插入内容，单篇正文仍受 1,000,000 个 UTF-16 code units 上限约束。默认要求 anchor 唯一；歧义时返回 matchCount 和最多 10 条前后各 30 字上下文，可传 occurrence（从 1 开始）指定一处，或设 insertAll=true 在所有非重叠匹配处插入（返回 insertedCount）；insertAll 与 occurrence 不能同时使用。插入点位于行首或行尾时会自动补换行，行内锚点保持精确拼接。version 可省略以使用服务端读取的当前版本；传入时会校验，冲突时 error.current 含完整当前笔记。默认插入到锚点后；成功结果含 contentLength 回执。",
     inputSchema: z.object({
       noteId: z.string().min(1).max(200),
       version: z.number().int().positive().optional().describe("可选的预期版本；省略时服务端读取当前版本"),

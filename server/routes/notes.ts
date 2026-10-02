@@ -514,7 +514,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     const notebookId = typeof payload?.notebookId === "string" ? payload.notebookId : first<{ id: string }>(database, "SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1 LIMIT 1", user.id)?.id;
     if (!notebookId) return jsonError(400, "NO_NOTEBOOK", "没有可用的收件箱");
     if (!first(database, "SELECT id FROM notebooks WHERE id = ? AND user_id = ?", notebookId, user.id)) return jsonError(404, "NOTEBOOK_NOT_FOUND", "笔记本不存在");
-    if (!validNoteAssetReferences(database, user.id, null, contentMarkdown as string)) return jsonError(400, "INVALID_ASSET", "笔记引用了无权访问的图片");
+    if (!validNoteAssetReferences(database, user.id, null, contentMarkdown as string)) return jsonError(400, "INVALID_ASSET", "图片引用无效、不受支持或附件当前不可用");
     const requestedId = payload?.id === undefined ? undefined : payload.id;
     if (requestedId !== undefined && (typeof requestedId !== "string" || !NOTE_ID_PATTERN.test(requestedId))) {
       return jsonError(400, "INVALID_NOTE", "笔记 ID 必须是 UUID");
@@ -767,7 +767,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     const title = normalizeNoteTitle(rawTitle as string);
     if (!first(database, "SELECT id FROM notebooks WHERE id = ? AND user_id = ?", notebookId, user.id)) return jsonError(404, "NOTEBOOK_NOT_FOUND", "笔记本不存在");
     const contentChanged = current.content_markdown !== contentMarkdown;
-    if (contentChanged && !validNoteAssetReferences(database, user.id, current.id, contentMarkdown as string)) return jsonError(400, "INVALID_ASSET", "笔记引用了无权访问的图片");
+    if (contentChanged && !validNoteAssetReferences(database, user.id, current.id, contentMarkdown as string)) return jsonError(400, "INVALID_ASSET", "图片引用无效、不受支持或附件当前不可用");
     const summaryResponse = url.searchParams.get("response") === "summary";
     const hasChanges = current.title !== title
       || contentChanged
@@ -779,7 +779,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     try {
       updated = updateNote(database, current, user.id, title, contentMarkdown as string, notebookId, isFavorite, deletedAt);
     } catch (error) {
-      if (error instanceof InvalidNoteAssetsError) return jsonError(400, "INVALID_ASSET", "笔记引用了无权访问的图片");
+      if (error instanceof InvalidNoteAssetsError) return jsonError(400, "INVALID_ASSET", "图片引用无效、不受支持或附件当前不可用");
       if (error instanceof NoteRenameContentTooLargeError) return jsonError(413, "NOTE_TOO_LARGE", "重命名会使引用这篇笔记的正文超出长度限制，请缩短标题或减少双向链接后重试");
       throw error;
     }
