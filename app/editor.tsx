@@ -226,7 +226,10 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   const leakedCandidateRef = useRef<{ key: string; blockStartPos: number; emptyAtStart: boolean } | null>(null);
   const imeCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeEditorNoteIdRef = useRef(note.id);
-  const initialContentRef = useRef(preserveEscapedHashtagsForEditor(note.contentMarkdown));
+  const initialContentRef = useRef<string | null>(null);
+  if (initialContentRef.current === null) {
+    initialContentRef.current = preserveEscapedHashtagsForEditor(note.contentMarkdown);
+  }
   const isPastingRef = useRef(false);
   const smoothScrollToHeadRef = useRef<(view: Editor["view"]) => void>(() => undefined);
   const outlineScrollAnimRef = useRef<number | null>(null);
