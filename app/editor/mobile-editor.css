@@ -141,6 +141,7 @@
     padding-bottom: calc(112px + env(safe-area-inset-bottom));
   }
   .is-mobile-editor .note-title-input { font-size: clamp(26px, 6.5vw, 34px); }
+  .is-mobile-editor .note-prose { font-size: 1.125rem; }
   .is-mobile-editor .editor-floating-tools,
   .is-mobile-editor.is-focus-mode .editor-floating-tools {
     right: 18px;
@@ -182,6 +183,6 @@
   .is-mobile-editor .mobile-editor-outline .note-outline-scroll > nav,
   .is-mobile-editor .mobile-editor-outline .editor-outline-empty { flex-shrink: 0; margin-block: auto; }
   .is-mobile-editor .mobile-editor-outline .editor-outline-item { scroll-snap-align: start; }
-  .is-mobile-editor .mobile-editor-outline .editor-outline-item button { min-height: 44px; }
+  .is-mobile-editor .mobile-editor-outline .editor-outline-item button { min-height: 48px; height: 48px; font-size: 1.0625rem; }
   .is-mobile-editor button:focus-visible { background: var(--accent-soft); }
 }

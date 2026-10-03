@@ -1114,14 +1114,17 @@ dialog::backdrop {
   .app-shell[data-mobile-page] .mobile-list-back span { display: none; }
   .app-shell[data-mobile-page] .list-header-main { grid-column: 2; grid-row: 1; margin: 0; width: 100%; min-width: 0; }
   .app-shell[data-mobile-page] .list-header h2 { font-size: 20px; font-weight: 650; letter-spacing: -0.025em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .app-shell[data-mobile-page] .list-header p { font-size: 11px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .app-shell[data-mobile-page] .list-header p { font-size: 13px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .app-shell[data-mobile-page] .list-header-controls { grid-column: 3; grid-row: 1; margin: 0; }
-  .app-shell[data-mobile-page] .sort-button { min-height: 44px; padding-inline: 8px; font-size: 12px; background: transparent; border: 0; box-shadow: none; }
+  .app-shell[data-mobile-page] .sort-button { min-height: 44px; padding-inline: 8px; font-size: 14px; background: transparent; border: 0; box-shadow: none; }
   .app-shell[data-mobile-page] .list-header { border: 0; box-shadow: var(--shadow-xs); }
   .floating-scrollbar { display: none !important; }
   .app-shell[data-mobile-page] .sort-dropdown button { min-height: 44px; }
   .app-shell[data-mobile-page] .empty-trash-button { width: 44px; height: 44px; justify-content: center; }
   .app-shell[data-mobile-page] .note-list { padding-top: calc(72px + env(safe-area-inset-top)); padding-bottom: calc(110px + env(safe-area-inset-bottom)); scroll-padding-top: calc(72px + env(safe-area-inset-top)); }
+  .app-shell[data-mobile-page] .note-row-title { font-size: 1.0625rem; }
+  .app-shell[data-mobile-page] .note-row-preview { font-size: 0.9375rem; line-height: 1.55; }
+  .app-shell[data-mobile-page] .note-row-meta { font-size: 0.8125rem; }
   .note-outline-header .list-header-main { margin-left: 0; }
   .list-header-controls { margin-left: 8px; }
   .editor-header { grid-template-columns: auto minmax(0, 1fr) auto; padding: 0 16px; }
