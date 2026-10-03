@@ -970,6 +970,10 @@ dialog::backdrop {
 .command-search-wrap input { min-width: 0; flex: 1; border: 0; outline: 0; color: var(--ink); background: transparent; }
 .command-list-wrap { position: relative; flex: 0 1 294px; min-height: 0; display: flex; flex-direction: column; }
 .command-list { --command-list-bottom-inset: 8px; flex: 1; min-height: 0; overflow-y: auto; display: grid; grid-auto-rows: max-content; gap: 2px; padding: 0 10px 12px; scroll-padding-block-end: var(--command-list-bottom-inset); }
+.command-dialog--mobile { max-height: calc(var(--mobile-viewport-height, 100dvh) - 24px); }
+.command-dialog--mobile .command-list-wrap { flex: 0 1 auto; height: min(294px, max(0px, calc(var(--mobile-viewport-height, 100dvh) - 180px))); }
+.command-dialog--mobile .command-list { flex: none; height: 100%; touch-action: pan-y; overscroll-behavior-y: contain; -webkit-overflow-scrolling: touch; }
+.command-dialog--mobile .command-search-wrap input { font-size: 16px; }
 .command-section-label { padding: 6px 10px 3px; color: var(--soft-muted); font-size: 0.66rem; font-weight: 700; letter-spacing: 0.08em; }
 .command-row { display: grid; grid-template-columns: 24px minmax(0,1fr) auto; align-items: center; gap: 9px; min-height: 46px; padding: 0 10px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ink); text-align: left; cursor: default; }
 .command-row.is-selected { background: var(--surface-command-selected); }

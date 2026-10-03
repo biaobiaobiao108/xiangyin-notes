@@ -78,6 +78,7 @@ export function CommandMenu({
   const listRef = useRef<HTMLDivElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
   const lastMousePositionRef = useRef<{ x: number; y: number } | null>(null);
+  const mobileTouchScrollingRef = useRef(false);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
 
@@ -177,6 +178,7 @@ export function CommandMenu({
   const emptySearchPrefix = Boolean(parsedSearchPrefix && !parsedSearchPrefix.term);
 
   const updateQuery = (next: string) => {
+    mobileTouchScrollingRef.current = false;
     lastMousePositionRef.current = null;
     setQuery(next);
     setSelected(0);
@@ -186,6 +188,7 @@ export function CommandMenu({
     const dialog = dialogRef.current;
     if (!dialog) return;
     if (open && !dialog.open) {
+      mobileTouchScrollingRef.current = false;
       lastMousePositionRef.current = null;
       returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       dialog.showModal();
@@ -218,6 +221,8 @@ export function CommandMenu({
     if (!list) return;
 
     const alignSelectedRow = () => {
+      // A touch scroll owns its position, including when the software keyboard closes.
+      if (isMobileViewport && mobileTouchScrollingRef.current) return;
       const selectedElement = list.querySelector<HTMLElement>(".command-row.is-selected");
       if (!selectedElement) return;
 
@@ -241,7 +246,7 @@ export function CommandMenu({
     const resizeObserver = new ResizeObserver(alignSelectedRow);
     resizeObserver.observe(list);
     return () => resizeObserver.disconnect();
-  }, [selected]);
+  }, [isMobileViewport, selected]);
 
   const execute = useCallback((option: CommandOption) => {
     if (option.createNote) {
@@ -293,10 +298,12 @@ export function CommandMenu({
         onClose();
       } else if (event.key === "ArrowDown") {
         event.preventDefault();
+        mobileTouchScrollingRef.current = false;
         lastMousePositionRef.current = null;
         setSelected((current) => Math.min(current + 1, Math.max(options.length - 1, 0)));
       } else if (event.key === "ArrowUp") {
         event.preventDefault();
+        mobileTouchScrollingRef.current = false;
         lastMousePositionRef.current = null;
         setSelected((current) => Math.max(current - 1, 0));
       } else if (event.key === "Enter" && !event.isComposing && event.keyCode !== 229 && options[selected]) {
@@ -344,7 +351,7 @@ export function CommandMenu({
   let previousSection = "";
 
   return (
-    <dialog ref={dialogRef} className="command-dialog" aria-labelledby="command-menu-title" onCancel={handleCancel}>
+    <dialog ref={dialogRef} className={`command-dialog${isMobileViewport ? " command-dialog--mobile" : ""}`} aria-labelledby="command-menu-title" onCancel={handleCancel}>
       <div className="command-dialog-header"><h2 id="command-menu-title">命令菜单</h2>{isMobileViewport ? <button className="icon-button" type="button" aria-label="关闭命令面板" onClick={onClose}><X size={20} aria-hidden="true" /></button> : <kbd>Esc</kbd>}</div>
       <div className="command-search-wrap">
         <Search size={18} aria-hidden="true" />
@@ -363,6 +370,7 @@ export function CommandMenu({
           className="command-list floating-scrollbar-target"
           role="listbox"
           aria-label="命令和笔记搜索结果"
+          onPointerDownCapture={(event) => { if (isMobileViewport) mobileTouchScrollingRef.current = event.pointerType !== "mouse"; }}
         >
           {feedbackMessage ? <div className="command-feedback" role="status">{feedbackMessage}</div> : options.length ? options.map((command, index) => {
             const Icon = command.icon;
@@ -381,8 +389,8 @@ export function CommandMenu({
                   className={`command-row ${command.kind === "in-note-search" || command.kind === "global-search" ? "command-row--search" : ""} ${selected === index ? "is-selected" : ""}`}
                   role="option"
                   aria-selected={selected === index}
-                  onPointerDown={() => setSelected(index)}
-                  onMouseMove={(event) => handleRowMouseMove(index, event)}
+                  onPointerDown={(event) => { if (!isMobileViewport || event.pointerType === "mouse") setSelected(index); }}
+                  onMouseMove={(event) => { if (!isMobileViewport) handleRowMouseMove(index, event); }}
                   onClick={() => execute(command)}
                 >
                   {command.kind === "move-note" && command.notebook ? (
