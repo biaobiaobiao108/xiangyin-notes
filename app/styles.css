@@ -989,7 +989,7 @@ dialog::backdrop {
 .dialog-heading p { margin: 7px 0 0; color: var(--muted); font-size: 0.82rem; }
 .dialog-eyebrow { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; color: var(--accent-dark); font-size: 0.72rem; font-weight: 600; }
 
-.notebook-dialog { width: min(430px, calc(100% - 32px)); border: 1px solid var(--border-soft); border-radius: var(--radius-lg); background: var(--surface); color: var(--ink); box-shadow: var(--shadow-float); animation: dialog-in var(--motion-panel) var(--motion-ease-out) both; }
+.notebook-dialog { width: min(480px, calc(100% - 24px)); border: 1px solid var(--border-soft); border-radius: var(--radius-lg); background: var(--surface); color: var(--ink); box-shadow: var(--shadow-float); animation: dialog-in var(--motion-panel) var(--motion-ease-out) both; }
 .notebook-dialog .dialog-heading { align-items: center; padding: 20px 24px 20px; }
 .notebook-dialog .dialog-heading h2 { font-size: 21px; font-weight: 600; letter-spacing: -0.02em; }
 .notebook-dialog .dialog-heading .icon-button { width: 44px; height: 44px; flex-shrink: 0; }
@@ -998,6 +998,8 @@ dialog::backdrop {
 .notebook-dialog .dialog-field input:focus { border-color: var(--accent-border-soft); background: var(--surface); }
 .notebook-dialog .dialog-actions { gap: 12px; padding-top: 4px; }
 .notebook-dialog .dialog-actions button { flex: 1; min-height: 44px; justify-content: center; font-size: 14px; }
+.notebook-dialog .notebook-delete-button { color: var(--danger); background: var(--canvas); border-color: var(--border-soft); }
+.notebook-dialog .notebook-delete-button:hover, .notebook-dialog .notebook-delete-button:focus-visible { background: var(--accent-soft); }
 .confirm-dialog { width: min(430px, calc(100% - 32px)); border: 1px solid var(--border-soft); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow-float); animation: dialog-in var(--motion-panel) var(--motion-ease-out) both; }
 .confirm-dialog .dialog-heading p { max-width: 340px; line-height: 1.55; }
 .dialog-eyebrow.is-danger { color: var(--danger); }
@@ -1005,13 +1007,14 @@ dialog::backdrop {
 .primary-button.danger-primary:hover { background: var(--danger-primary-hover); }
 .notebook-icon-field, .notebook-color-field { display: grid; gap: 10px; margin: 0 24px 22px; padding: 0; border: 0; color: var(--ink); font-size: 13px; font-weight: 600; }
 .notebook-icon-field legend, .notebook-color-field legend { padding: 0; margin-bottom: 10px; }
-.notebook-icon-options, .notebook-color-options { display: grid; grid-template-columns: repeat(6, minmax(44px, 1fr)); gap: 6px; width: 100%; }
-.notebook-icon-option, .notebook-color-option { display: grid; width: 100%; min-width: 44px; height: 44px; place-items: center; padding: 0; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--muted); cursor: pointer; }
+.notebook-icon-options, .notebook-color-options { display: grid; gap: 4px; width: 100%; }
+.notebook-icon-options { grid-template-columns: repeat(8, minmax(0, 1fr)); }
+.notebook-color-options { grid-template-columns: repeat(9, minmax(0, 1fr)); }
+.notebook-icon-option, .notebook-color-option { display: grid; width: 100%; min-width: 0; height: 44px; place-items: center; padding: 0; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--muted); cursor: pointer; }
 .notebook-icon-option:hover, .notebook-color-option:hover, .notebook-icon-option:focus-visible, .notebook-color-option:focus-visible { background: var(--surface-muted); color: var(--ink); }
 .notebook-icon-option[aria-checked="true"], .notebook-color-option[aria-checked="true"] { border-color: var(--accent-border-soft); background: var(--accent-soft); }
 .notebook-color-swatch { display: block; width: 22px; aspect-ratio: 1; border: 1px solid var(--line); border-radius: 50%; }
-@media (max-width: 360px) {
-  .notebook-icon-options, .notebook-color-options { grid-template-columns: repeat(5, minmax(44px, 1fr)); }
+@media (max-width: 900px) {
   .notebook-dialog .dialog-heading { padding-inline: 16px; }
   .notebook-dialog .dialog-field, .notebook-dialog .notebook-icon-field, .notebook-dialog .notebook-color-field { margin-inline: 16px; }
   .notebook-dialog .dialog-actions { padding-inline: 16px; }
@@ -1104,7 +1107,7 @@ dialog::backdrop {
   .app-shell[data-mobile-page="editor"] > .editor-region { animation: page-content-in var(--motion-content) var(--motion-ease-out); }
   .mobile-only { display: inline-grid; }
   .list-header, .editor-header { height: 56px; min-height: 56px; }
-  .app-shell[data-mobile-page] .list-header { position: absolute; inset: 0 0 auto; z-index: 4; display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 8px; height: auto; min-height: 0; align-items: center; padding: calc(8px + env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left)); background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .app-shell[data-mobile-page] .list-header { position: absolute; top: calc(8px + env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right)); z-index: 4; display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 4px; height: 52px; min-height: 52px; align-items: center; padding: 4px 8px; border-radius: 999px; background: var(--surface-glass-medium); backdrop-filter: blur(20px) saturate(135%); -webkit-backdrop-filter: blur(20px) saturate(135%); }
   .mobile-list-back { display: inline-flex; align-items: center; justify-self: start; gap: 3px; min-height: 44px; padding: 0 10px 0 0; border: 0; border-radius: 999px; background: transparent; color: var(--accent); font-size: 16px; }
   .mobile-list-back:focus-visible { background: var(--accent-soft); }
   .app-shell[data-mobile-page] .mobile-list-back { width: 44px; padding: 0; justify-content: center; }
@@ -1114,7 +1117,7 @@ dialog::backdrop {
   .app-shell[data-mobile-page] .list-header p { font-size: 11px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .app-shell[data-mobile-page] .list-header-controls { grid-column: 3; grid-row: 1; margin: 0; }
   .app-shell[data-mobile-page] .sort-button { min-height: 44px; padding-inline: 8px; font-size: 12px; background: transparent; border: 0; box-shadow: none; }
-  .app-shell[data-mobile-page] .list-header { border: 0; box-shadow: none; }
+  .app-shell[data-mobile-page] .list-header { border: 0; box-shadow: var(--shadow-xs); }
   .floating-scrollbar { display: none !important; }
   .app-shell[data-mobile-page] .sort-dropdown button { min-height: 44px; }
   .app-shell[data-mobile-page] .empty-trash-button { width: 44px; height: 44px; justify-content: center; }

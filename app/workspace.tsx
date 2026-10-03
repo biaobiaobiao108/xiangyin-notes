@@ -198,7 +198,7 @@ export function Workspace() {
     runSave,
     saveImmediately,
     saveFavorite,
-
+    flushNotebookSaves,
     saveNoteNow,
     flushPendingSaves,
     hasUnsavedWork,
@@ -727,6 +727,20 @@ export function Workspace() {
     onNotFound: removeFromList,
     onError: () => setToast("同步当前笔记失败，请稍后重试"),
   }), [failedSavesRef, navigate, pendingSavesRef, removeFromList, replaceList, setSaveState]);
+  const deleteNotebook = useCallback(async (id: string) => {
+    const target = notebooks.find((notebook) => notebook.id === id);
+    if (!target || target.isSystem) throw new Error("无法删除此笔记本");
+    await flushNotebookSaves(id);
+    await api.deleteNotebook(id);
+    const activeNote = selectedRef.current;
+    if (activeNote?.notebookId === id) await refreshSelectedNoteFromRemote(activeNote.id);
+    setNotebooks((current) => current.filter((notebook) => notebook.id !== id));
+    if (notebookId === id) setNotebookId(undefined);
+    refreshNotebooks();
+    void loadNotes();
+    setEditingNotebook(undefined);
+    setToast("已删除笔记本，原笔记已归入收件箱");
+  }, [flushNotebookSaves, loadNotes, notebookId, notebooks, refreshNotebooks, refreshSelectedNoteFromRemote]);
   const toggleFavorite = useCallback(() => {
     const current = selectedRef.current;
     if (!current) return;
@@ -1374,7 +1388,7 @@ export function Workspace() {
 
 
     {imageExportSnapshot && <Suspense fallback={null}><LazyImageExportDialog snapshot={imageExportSnapshot} onClose={closeImageExport} /></Suspense>}
-    {editingNotebook !== undefined && <NotebookDialog key={editingNotebook?.id ?? "new"} notebook={editingNotebook} onClose={() => setEditingNotebook(undefined)} onSave={saveNotebookDraft} onSaved={saveNotebook} onToast={setToast} />}
+    {editingNotebook !== undefined && <NotebookDialog key={editingNotebook?.id ?? "new"} notebook={editingNotebook} onClose={() => setEditingNotebook(undefined)} onSave={saveNotebookDraft} onSaved={saveNotebook} onRequestDelete={(target) => requestConfirm({ eyebrow: "删除笔记本", title: `删除笔记本“${target.name}”？`, description: "笔记本中的笔记会自动移入收件箱，笔记内容不会被删除。", confirmLabel: "删除笔记本", danger: true, onConfirm: () => deleteNotebook(target.id) })} onToast={setToast} />}
     {confirmRequest && <ConfirmDialog key={confirmRequest.id} request={confirmRequest} onClose={() => setConfirmRequest(null)} />}
     <div className="system-notices">{pwaState.updateAvailable && <div className="update-notice" role="status" aria-live="polite" aria-labelledby="update-notice-title"><div className="update-notice-header"><RefreshCw size={18} aria-hidden="true" /><div><strong id="update-notice-title">发现新版本</strong><p>保存当前编辑后即可更新应用。</p></div></div><div className="update-notice-actions"><button className="text-button update-notice-action" type="button" onClick={() => void updatePwa()}>更新</button></div></div>}{toast && <div className="toast" role="status">{toast}</div>}</div>
   </div>;

@@ -1,20 +1,23 @@
 @media (max-width: 900px) {
   .is-mobile-editor {
-    --mobile-editor-bar: 62px;
+    --mobile-editor-bar: 52px;
   }
   .is-mobile-editor .mobile-editor-header {
     position: absolute;
-    inset: 0 0 auto;
+    inset: calc(8px + env(safe-area-inset-top)) 12px auto;
     z-index: 35;
     display: flex;
     align-items: center;
     gap: 5px;
-    min-height: calc(var(--mobile-editor-bar) + env(safe-area-inset-top));
-    padding: env(safe-area-inset-top) 14px 0;
+    height: var(--mobile-editor-bar);
+    min-height: var(--mobile-editor-bar);
+    padding: 0 4px;
     border: 0;
-    background: transparent;
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
+    border-radius: 999px;
+    background: var(--surface-glass-medium);
+    backdrop-filter: blur(20px) saturate(135%);
+    -webkit-backdrop-filter: blur(20px) saturate(135%);
+    box-shadow: var(--shadow-xs);
   }
   .is-mobile-editor .mobile-editor-title {
     min-width: 0;
@@ -135,7 +138,7 @@
   .app-shell .is-mobile-editor:has(.editor-floating-outline) .editor-document {
     width: calc(100% - 40px);
     margin-inline: auto;
-    padding-top: calc(90px + env(safe-area-inset-top));
+    padding-top: calc(var(--mobile-editor-bar) + 38px + env(safe-area-inset-top));
     padding-bottom: calc(112px + env(safe-area-inset-bottom));
   }
   .is-mobile-editor .note-title-input { font-size: clamp(26px, 6.5vw, 34px); }
@@ -148,7 +151,7 @@
   }
   .is-mobile-editor .editor-floating-tools .editor-stats-pill { display: none; }
   .is-mobile-editor .editor-floating-outline {
-    top: calc(74px + env(safe-area-inset-top));
+    top: calc(var(--mobile-editor-bar) + 22px + env(safe-area-inset-top));
     bottom: calc(86px + env(safe-area-inset-bottom));
     left: 14px;
     width: min(280px, calc(100% - 28px));
@@ -160,7 +163,7 @@
   }
   .is-mobile-editor .mobile-editor-outline-backdrop {
     position: absolute;
-    inset: calc(62px + env(safe-area-inset-top)) 0 calc(68px + env(safe-area-inset-bottom));
+    inset: calc(var(--mobile-editor-bar) + 8px + env(safe-area-inset-top)) 0 calc(68px + env(safe-area-inset-bottom));
     z-index: 29;
     padding: 0;
     border: 0;
