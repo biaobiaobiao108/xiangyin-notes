@@ -6,6 +6,7 @@ import { applyMigrations, openDatabase, type SqliteDatabase } from "../server/db
 import { handleRequest, redactSensitivePath } from "../server/index";
 import { MCP_PATH } from "../server/mcp";
 import { createNote } from "../server/routes/notes";
+import { NOTE_BODY_MAX_BYTES } from "../server/core";
 
 let database: SqliteDatabase;
 let assetRoot: string;
@@ -1496,6 +1497,55 @@ describe("remote MCP endpoint", () => {
     }, "create_note"), environment);
     expect(oversizedEncodedBody.response.status).toBe(400);
     expect(oversizedEncodedBody.body?.error.message).toContain("请求体超过 4.5 MB 传输上限");
+  });
+
+  test("accepts streamed MCP JSON with UTF-8 characters split across chunks", async () => {
+    const contentMarkdown = "正常流式正文\n保留中文与 emoji 🌲";
+    const template = modernMcpRequest("tools/call", 1, {
+      name: "create_note", arguments: { title: "流式请求", contentMarkdown },
+    }, "create_note");
+    const bytes = new TextEncoder().encode(await template.clone().text());
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (let offset = 0; offset < bytes.length; offset += 7) controller.enqueue(bytes.subarray(offset, offset + 7));
+        controller.close();
+      },
+    });
+    const created = await callMcp(new Request(template.url, { method: "POST", headers: template.headers, body }));
+    expect(created.response.status).toBe(200);
+    const note = toolData(created.body!).note;
+    expect(toolData((await callTool("get_note", { noteId: note.id })).body!).note.contentMarkdown).toBe(contentMarkdown);
+  });
+
+  test("rejects an open oversized MCP stream without waiting for source cancellation", async () => {
+    let sourceCancelled = false;
+    let finishCancellation!: () => void;
+    const cancellation = new Promise<void>((resolve) => { finishCancellation = resolve; });
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(NOTE_BODY_MAX_BYTES + 1));
+        // Keep the upload open; a size-limit response must not wait for its EOF.
+      },
+      cancel() {
+        sourceCancelled = true;
+        return cancellation;
+      },
+    });
+    const template = modernMcpRequest("tools/call", 1, { name: "create_note", arguments: {} }, "create_note");
+    const requestValue = new Request(template.url, { method: "POST", headers: template.headers, body });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const rejected = await Promise.race([
+        callMcp(requestValue),
+        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("oversized stream response stalled")), 1_000); }),
+      ]);
+      expect(rejected.response.status).toBe(400);
+      expect(rejected.body?.error.message).toContain("请求体超过 4.5 MB 传输上限");
+      expect(sourceCancelled).toBe(true);
+    } finally {
+      clearTimeout(timer);
+      finishCancellation();
+    }
   });
 
   test("lists notebooks, creates, searches, reads, and updates notes with version checks", async () => {

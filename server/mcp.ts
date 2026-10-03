@@ -1484,15 +1484,22 @@ async function readMcpBody(request: Request) {
   if (!reader) return { value: "", tooLarge: false };
   const chunks: Uint8Array[] = [];
   let totalBytes = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    totalBytes += value.byteLength;
-    if (totalBytes > NOTE_BODY_MAX_BYTES) {
-      await reader.cancel();
-      return { value: "", tooLarge: true };
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > NOTE_BODY_MAX_BYTES) {
+        // A tee branch waits for its sibling (and potentially the source) to cancel.
+        // Stop both branches without delaying the size-limit response.
+        void reader.cancel().catch(() => {});
+        void request.body?.cancel().catch(() => {});
+        return { value: "", tooLarge: true };
+      }
+      chunks.push(value);
     }
-    chunks.push(value);
+  } finally {
+    reader.releaseLock();
   }
   const bytes = new Uint8Array(totalBytes);
   let offset = 0;
