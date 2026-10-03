@@ -1,5 +1,5 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type RefObject } from "react";
-import { Archive, ChevronDown, ChevronLeft, LayoutPanelLeft, LogOut, Menu, Pencil, Plus, Search, Star, Trash2, X } from "lucide-react";
+import { Archive, ChevronDown, ChevronLeft, LayoutPanelLeft, LogOut, Menu, Plus, Search, Star, Trash2, X } from "lucide-react";
 import type { NoteSummary, NoteView, Notebook } from "../../shared/types";
 import { playEntranceAnimation } from "../animation";
 import { BrandMark } from "../brand-mark";
@@ -14,13 +14,13 @@ export function NoteLoadingState() {
   return <section className="editor-panel editor-loading-shell" aria-label="笔记编辑器" aria-busy="true"><div className="editor-switch-overlay editor-switch-overlay--visible" role="status" aria-live="polite"><div className="editor-switch-card"><BrandMark className="editor-switch-mark" /><div className="editor-switch-lines" aria-hidden="true"><span /><span /><span /></div><strong>正在打开笔记…</strong></div></div></section>;
 }
 
-export const Sidebar = memo(function Sidebar({ view, setView, notebooks, notebookId, setNotebookId, query, setQuery, searchRef, onNewInboxNote, onCreateNotebook, onEditNotebook, collapsed, onCollapse, mobileOpen, onLogout, drawerRef, modal = false, inert = false, onCloseMobile }: { view: NoteView; setView: (view: NoteView) => void; notebooks: Notebook[]; notebookId?: string; setNotebookId: (id: string) => void; query: string; setQuery: (query: string) => void; searchRef: RefObject<HTMLInputElement | null>; onNewInboxNote: () => void; onCreateNotebook: () => void; onEditNotebook: (notebook: Notebook) => void; collapsed: boolean; onCollapse: () => void; mobileOpen: boolean; onLogout: () => void; drawerRef?: RefObject<HTMLElement | null>; modal?: boolean; inert?: boolean; onCloseMobile?: () => void }) {
+export const Sidebar = memo(function Sidebar({ view, setView, notebooks, notebookId, setNotebookId, query, setQuery, searchRef, onNewInboxNote, onCreateNotebook, onEditNotebook, collapsed, onCollapse, onLogout }: { view: NoteView; setView: (view: NoteView) => void; notebooks: Notebook[]; notebookId?: string; setNotebookId: (id: string) => void; query: string; setQuery: (query: string) => void; searchRef: RefObject<HTMLInputElement | null>; onNewInboxNote: () => void; onCreateNotebook: () => void; onEditNotebook: (notebook: Notebook) => void; collapsed: boolean; onCollapse: () => void; onLogout: () => void }) {
   const notebookListRef = useRef<HTMLDivElement>(null);
   const collapsedNotebookListRef = useRef<HTMLDivElement>(null);
   const customNotebooks = useMemo(() => notebooks.filter((notebook) => !notebook.isSystem), [notebooks]);
 
-  return <aside ref={drawerRef} className={`sidebar ${mobileOpen ? "is-mobile-open" : ""}`} aria-label="主导航" role={modal ? "dialog" : undefined} aria-modal={modal || undefined} aria-hidden={inert || undefined} inert={inert} tabIndex={modal ? -1 : undefined}>
-    <div className="brand-row"><BrandMark /><span className="brand-name">象映笔记</span><button className="icon-button collapse-button" type="button" onClick={onCollapse} aria-label={collapsed ? "展开侧栏" : "收起侧栏"}><LayoutPanelLeft size={18} /></button>{onCloseMobile && <button className="icon-button mobile-only" type="button" aria-label="关闭导航" onClick={onCloseMobile}><X size={18} /></button>}</div>
+  return <aside className="sidebar" aria-label="主导航">
+    <div className="brand-row"><BrandMark /><span className="brand-name">象映笔记</span><button className="icon-button collapse-button" type="button" onClick={onCollapse} aria-label={collapsed ? "展开侧栏" : "收起侧栏"}><LayoutPanelLeft size={18} /></button></div>
     <button className="primary-button new-note-button" type="button" aria-label="在收件箱中新建笔记" onClick={onNewInboxNote}><Plus size={18} />新建笔记</button>
     <label className="search-box"><Search size={17} /><input ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索笔记或 #标签……" aria-label="搜索笔记或标签" />{query ? <button className="search-clear" type="button" aria-label="清空搜索" onClick={() => setQuery("")}><X size={15} /></button> : <kbd>{commandMenuShortcutLabel}</kbd>}</label>
     <nav className="main-nav"><ul>{navItems.map((item) => { const Icon = item.icon; return <li key={item.id}><button className={`nav-item ${view === item.id && !notebookId ? "is-active" : ""}`} type="button" onClick={() => setView(item.id)}><Icon size={18} /><span>{item.label}</span></button></li>; })}</ul></nav>
@@ -36,6 +36,8 @@ export const Sidebar = memo(function Sidebar({ view, setView, notebooks, noteboo
               type="button"
               className={`nav-item collapsed-notebook-item ${isActive ? "is-active" : ""}`}
               onClick={() => setNotebookId(notebook.id)}
+              onContextMenu={(event) => { event.preventDefault(); onEditNotebook(notebook); }}
+              onKeyDown={(event) => { if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) { event.preventDefault(); onEditNotebook(notebook); } }}
               aria-label={`${notebook.name}，${notebook.count} 篇笔记`}
             >
               <NotebookIcon size={18} style={{ color: notebook.color }} />
@@ -54,13 +56,10 @@ export const Sidebar = memo(function Sidebar({ view, setView, notebooks, noteboo
             return (
               <li key={notebook.id} className="notebook-row-item">
                 <div className={`notebook-row-wrap ${notebook.id === notebookId ? "is-active" : ""}`}>
-                  <button className="notebook-item" type="button" aria-label={`${notebook.name}，${notebook.count} 篇笔记`} onClick={() => setNotebookId(notebook.id)}>
+                  <button className="notebook-item" type="button" aria-label={`${notebook.name}，${notebook.count} 篇笔记`} onClick={() => setNotebookId(notebook.id)} onContextMenu={(event) => { event.preventDefault(); onEditNotebook(notebook); }} onKeyDown={(event) => { if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) { event.preventDefault(); onEditNotebook(notebook); } }}>
                     <NotebookIcon size={16} className="notebook-custom-icon" style={{ color: notebook.color, flexShrink: 0 }} />
                     <span>{notebook.name}</span>
                     <em>{notebook.count}</em>
-                  </button>
-                  <button className="icon-button tiny-button notebook-edit-button" type="button" aria-label={`管理笔记本“${notebook.name}”`} onClick={(e) => { e.stopPropagation(); onEditNotebook(notebook); }}>
-                    <Pencil size={12} />
                   </button>
                 </div>
               </li>
@@ -104,7 +103,7 @@ const NoteListRow = memo(function NoteListRow({ note, isSelected, isActive, show
   return <li ref={rowRef} data-note-id={note.id} className="note-list-item" style={rowStyle} aria-posinset={rowIndex + 1} aria-setsize={setSize}><button type="button" className={`note-row ${note.thumbnail ? "has-thumbnail" : ""} ${isSelected ? "is-selected" : ""} ${isActive ? "is-active" : ""}`} aria-current={isActive ? "page" : undefined} aria-pressed={isSelected} onClick={(event) => onSelect(note.id, event)}><NoteThumbnail note={note} /><span className="note-row-main"><span className="note-row-title"><span className="note-row-title-text">{note.title || "未命名笔记"}</span>{note.isFavorite && <Star size={13} fill="currentColor" />}</span><span className="note-row-preview">{note.preview || "还没有内容，开始写下第一句话。"}</span><NoteRowMeta note={note} showNotebook={showNotebook} /></span></button></li>;
 });
 
-export function NoteOutlinePanel({ outlineItems, activeOutlineId, onScrollToOutlineItem, onCloseOutline, onCloseMobile, isMobileDrawer = false, isFloating = false }: { outlineItems: OutlineItem[]; activeOutlineId: string | null; onScrollToOutlineItem: (id: string) => void; onCloseOutline: () => void; onCloseMobile?: () => void; isMobileDrawer?: boolean; isFloating?: boolean }) {
+export function NoteOutlinePanel({ outlineItems, activeOutlineId, onScrollToOutlineItem, onCloseOutline, isFloating = false }: { outlineItems: OutlineItem[]; activeOutlineId: string | null; onScrollToOutlineItem: (id: string) => void; onCloseOutline: () => void; isFloating?: boolean }) {
   const outlineScrollRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const scrollRoot = outlineScrollRef.current;
@@ -156,7 +155,7 @@ export function NoteOutlinePanel({ outlineItems, activeOutlineId, onScrollToOutl
     {!isFloating && (
       <header className="list-header note-outline-header">
         <div className="list-header-main"><h2 id="note-outline-title">笔记大纲</h2><p>{outlineItems.length > 0 ? `${outlineItems.length} 个标题` : "当前笔记暂无标题"}</p></div>
-        <div className="list-header-controls"><button className="text-button outline-back-button" type="button" onClick={onCloseOutline}><ChevronLeft size={15} aria-hidden="true" /><span>返回笔记列表</span></button>{isMobileDrawer && onCloseMobile && <button className="icon-button mobile-only" type="button" aria-label="关闭笔记列表" onClick={onCloseMobile}><X size={17} /></button>}</div>
+        <div className="list-header-controls"><button className="text-button outline-back-button" type="button" onClick={onCloseOutline}><ChevronLeft size={15} aria-hidden="true" /><span>返回笔记列表</span></button></div>
       </header>
     )}
     <div className="note-outline-scroll-shell">
@@ -197,7 +196,8 @@ type NoteListPanelProps = {
   onClearQuery: () => void;
   onOpenSidebar: () => void;
   transitionToken: number;
-  mobileOpen: boolean;
+
+  isMobileViewport?: boolean;
   outlineOpen: boolean;
   outlineItems: OutlineItem[];
   activeOutlineId: string | null;
@@ -206,13 +206,13 @@ type NoteListPanelProps = {
   onLoadMore?: () => void;
   isLoadingMore?: boolean;
   virtualizationScope: string;
-  drawerRef?: RefObject<HTMLElement | null>;
-  modal?: boolean;
+
+
   inert?: boolean;
-  onCloseMobile: () => void;
+
 };
 
-export const NoteListPanel = memo(function NoteListPanel({ notes, total, hasMore = total > notes.length, sort, setSort, selectedId, selectedIds, onSelect, onDeleteSelected, view, query, currentNotebookName, onNewNote, onEmptyTrash, trashBusy, onClearQuery, mobileOpen, onOpenSidebar, transitionToken, outlineOpen, outlineItems, activeOutlineId, onScrollToOutlineItem, onCloseOutline, onLoadMore, isLoadingMore = false, virtualizationScope, drawerRef, modal = false, inert = false, onCloseMobile }: NoteListPanelProps) {
+export const NoteListPanel = memo(function NoteListPanel({ notes, total, hasMore = total > notes.length, sort, setSort, selectedId, selectedIds, onSelect, onDeleteSelected, view, query, currentNotebookName, onNewNote, onEmptyTrash, trashBusy, onClearQuery, isMobileViewport = false, onOpenSidebar, transitionToken, outlineOpen, outlineItems, activeOutlineId, onScrollToOutlineItem, onCloseOutline, onLoadMore, isLoadingMore = false, virtualizationScope, inert = false }: NoteListPanelProps) {
   const [sortOpen, setSortOpen] = useState(false);
   const sortRef = useRef<HTMLDivElement>(null);
   const sortTriggerRef = useRef<HTMLButtonElement>(null);
@@ -327,16 +327,16 @@ export const NoteListPanel = memo(function NoteListPanel({ notes, total, hasMore
     height: `${virtualList.totalHeight + (hasLoadMoreRow ? 76 : 0)}px`,
   } : undefined;
   const noteListStyle: CSSProperties | undefined = virtualList.isVirtualized ? { overflowAnchor: "none" } : undefined;
-  return <section ref={(element) => { panelRef.current = element; if (drawerRef) drawerRef.current = element; }} className={`note-list-panel ${mobileOpen ? "is-mobile-open" : ""} ${outlineOpen ? "is-outline-open" : ""}`} aria-label={outlineOpen ? "笔记大纲" : "笔记列表"} role={modal ? "dialog" : undefined} aria-modal={modal || undefined} aria-hidden={inert || undefined} inert={inert} tabIndex={modal ? -1 : undefined}>
+  return <section ref={panelRef} className={`note-list-panel ${outlineOpen ? "is-outline-open" : ""}`} aria-label={outlineOpen ? "笔记大纲" : "笔记列表"} aria-hidden={inert || undefined} inert={inert}>
     <div className="note-list-content">
-      {outlineOpen ? <NoteOutlinePanel outlineItems={outlineItems} activeOutlineId={activeOutlineId} onScrollToOutlineItem={onScrollToOutlineItem} onCloseOutline={onCloseOutline} onCloseMobile={onCloseMobile} isMobileDrawer={mobileOpen} /> : <>
+      {outlineOpen ? <NoteOutlinePanel outlineItems={outlineItems} activeOutlineId={activeOutlineId} onScrollToOutlineItem={onScrollToOutlineItem} onCloseOutline={onCloseOutline} /> : <>
       <header className="list-header">
-        <button className="icon-button mobile-only" type="button" aria-label="打开导航" onClick={onOpenSidebar}><Menu size={20} /></button>
+        {isMobileViewport ? <button className="mobile-list-back" type="button" aria-label="返回笔记本首页" onClick={onOpenSidebar}><ChevronLeft size={22} /><span>笔记本</span></button> : <button className="icon-button mobile-only" type="button" aria-label="打开导航" onClick={onOpenSidebar}><Menu size={20} /></button>}
         <div className="list-header-main"><h2 tabIndex={-1}>{heading}</h2><p>{query ? `包含“${query}”的笔记` : `${truncated ? total : notes.length} 篇笔记`}{truncated && <> · 已显示最近 {notes.length} 篇</>}</p></div>
         <div className="list-header-controls">
-          {onEmptyTrash && <button className="text-button text-danger empty-trash-button" type="button" onClick={onEmptyTrash} disabled={trashBusy || total === 0}><Trash2 size={15} aria-hidden="true" />清空回收站</button>}
-          {onNewNote && <button className="icon-button list-new-note-button" type="button" aria-label={`在${currentNotebookName}中新建笔记`} onClick={onNewNote}><Plus size={18} /></button>}
-          {mobileOpen && <button className="icon-button mobile-only" type="button" aria-label="关闭笔记列表" onClick={onCloseMobile}><X size={17} /></button>}
+          {onEmptyTrash && <button className="text-button text-danger empty-trash-button" type="button" aria-label="清空回收站" onClick={onEmptyTrash} disabled={trashBusy || total === 0}><Trash2 size={isMobileViewport ? 20 : 15} aria-hidden="true" />{!isMobileViewport && "清空回收站"}</button>}
+          {onNewNote && !isMobileViewport && <button className="icon-button list-new-note-button" type="button" aria-label={`在${currentNotebookName}中新建笔记`} onClick={onNewNote}><Plus size={18} /></button>}
+
           <div className="sort-menu-wrap" ref={sortRef}>
             <button ref={sortTriggerRef} id="note-sort-trigger" className="sort-button" type="button" aria-haspopup="listbox" aria-controls="note-sort-options" aria-expanded={sortOpen} onClick={() => setSortOpen((open) => !open)}>
               <span className="sort-button-label">{SORT_OPTIONS.find((option) => option.value === sort)?.label}</span>

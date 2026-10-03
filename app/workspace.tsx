@@ -20,7 +20,9 @@ import { useNoteSaveQueue } from "./workspace/use-note-save-queue";
 import { useWorkspaceRealtime } from "./workspace/use-realtime";
 import { latestSelectedNoteSnapshot, refreshSelectedNote } from "./workspace/selected-note-sync";
 import { useWorkspaceShortcuts } from "./workspace/use-workspace-shortcuts";
-import { useMobileDrawer, type MobileDrawer } from "./workspace/use-mobile-drawer";
+import { useMobileNavigation, type MobileListContext, type MobilePage } from "./workspace/use-mobile-navigation";
+import { MobileNotebookHome, MobileBottomBar } from "./workspace/mobile-panels";
+import { viewLabel } from "./workspace/helpers";
 import { useThemePreference } from "./theme";
 
 export type ViewLayout = "three-column" | "cards";
@@ -130,6 +132,7 @@ export function Workspace() {
     }
   });
   const toggleViewLayout = useCallback(() => {
+    if (window.matchMedia("(max-width: 900px)").matches) return;
     setViewLayout((current) => {
       const next = current === "cards" ? "three-column" : "cards";
       try {
@@ -140,33 +143,22 @@ export function Workspace() {
   }, []);
   const [cardEditingNoteId, setCardEditingNoteId] = useState<string | null>(null);
   const cardGridScrollPositionRef = useRef<{ scope: string; top: number }>({ scope: "", top: 0 });
-  const [mobileDrawer, setMobileDrawer] = useState<MobileDrawer>(null);
-  const sidebarRef = useRef<HTMLElement | null>(null);
-  const listPanelRef = useRef<HTMLElement | null>(null);
+  const mobileEditorVisitedRef = useRef(false);
+
   const editorRegionRef = useRef<HTMLElement | null>(null);
-  const { isMobileViewport, activeDrawer, openDrawer, closeDrawer } = useMobileDrawer({
-    drawer: mobileDrawer,
-    setDrawer: setMobileDrawer,
-    sidebarRef,
-    listRef: listPanelRef,
-    sidebarInitialFocusRef: searchRef,
-    fallbackFocusRef: editorRegionRef,
-  });
+  const mobileRestoreRef = useRef<(context: MobileListContext, page: MobilePage) => void>(() => undefined);
+  const { isMobileViewport, mobilePage, openMobileList, openMobileNote, backMobilePage, openMobileHome } = useMobileNavigation(
+    { view, notebookId, query, sort: noteSort, noteId: selectedId, searchOrigin: searchOriginRef.current },
+    (context, page) => mobileRestoreRef.current(context, page),
+  );
   const toggleOutline = useCallback(() => {
     if (focusMode) return;
     setOutlineOpen((current) => {
       const next = !current;
-      if (next && viewLayout !== "cards") {
-        openDrawer("list");
-      }
       return next;
     });
-  }, [focusMode, openDrawer, viewLayout]);
+  }, [focusMode]);
   const closeOutline = useCallback(() => setOutlineOpen(false), []);
-  const closeMobileNavigation = useCallback(() => {
-    closeDrawer();
-    closeOutline();
-  }, [closeDrawer, closeOutline]);
   const handleOutlineItemsChange = useCallback((nextItems: OutlineItem[]) => {
     setOutlineItems((current) => {
       const unchanged = current.length === nextItems.length && current.every((item, index) => {
@@ -206,7 +198,7 @@ export function Workspace() {
     runSave,
     saveImmediately,
     saveFavorite,
-    flushNotebookSaves,
+
     saveNoteNow,
     flushPendingSaves,
     hasUnsavedWork,
@@ -352,9 +344,24 @@ export function Workspace() {
       setCardEditingNoteId(null);
     }
   }, [clearNoteSelection]);
+  mobileRestoreRef.current = (context, page) => {
+    flushEditorDraftRef.current();
+    setOutlineOpen(false);
+    setView(context.view);
+    setNotebookId(context.notebookId);
+    setQuery(context.query);
+    setNoteSort(context.sort);
+    searchOriginRef.current = context.searchOrigin;
+    if (page === "editor" && context.noteId) selectNote(context.noteId);
+  };
   useEffect(() => {
     if (!ready || !initialLinkedNoteId || !pendingLinkedNoteRef.current) return;
     const controller = new AbortController();
+    // Consume the link before creating page entries so returning to the list
+    // and refreshing does not reopen the linked note.
+    const linkedUrl = new URL(window.location.href);
+    linkedUrl.searchParams.delete("note");
+    window.history.replaceState(window.history.state, "", `${linkedUrl.pathname}${linkedUrl.search}${linkedUrl.hash}`);
     void api.getNote(initialLinkedNoteId, { signal: controller.signal }).then(({ note }) => {
       if (controller.signal.aborted) return;
       invalidateCollections();
@@ -365,7 +372,7 @@ export function Workspace() {
       setQuery("");
       selectNote(note.id);
       setCardEditingNoteId(note.id);
-      closeDrawer();
+      openMobileNote({ view: note.deletedAt !== null ? "trash" : "all", notebookId: note.deletedAt !== null ? undefined : note.notebookId, query: "", noteId: note.id, searchOrigin: null });
     }).catch((error) => {
       if (!controller.signal.aborted) setToast(errorMessage(error, "无法打开链接中的笔记"));
     }).finally(() => {
@@ -373,11 +380,11 @@ export function Workspace() {
       pendingLinkedNoteRef.current = null;
       const url = new URL(window.location.href);
       url.searchParams.delete("note");
-      window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+      window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
       reloadNotes();
     });
     return () => controller.abort();
-  }, [closeDrawer, initialLinkedNoteId, invalidateCollections, ready, reloadNotes, selectNote]);
+  }, [openMobileNote, initialLinkedNoteId, invalidateCollections, ready, reloadNotes, selectNote]);
   useEffect(() => {
     setOutlineOpen(false);
     setOutlineItems([]);
@@ -387,9 +394,8 @@ export function Workspace() {
   useEffect(() => {
     if (focusMode) {
       setOutlineOpen(false);
-      closeDrawer();
     }
-  }, [closeDrawer, focusMode]);
+  }, [focusMode]);
   const removeFromList = useCallback((noteId: string) => {
     const ordered = sortNotes(notesRef.current, noteSort);
     const index = ordered.findIndex((note) => note.id === noteId);
@@ -528,11 +534,11 @@ export function Workspace() {
   const activeSearchQuery = inNoteSearchQuery || query;
   useWorkspaceShortcuts({
     focusMode,
-    hasModalOpen: Boolean(commandOpen || imageExportSnapshot || editingNotebook !== undefined || confirmRequest || activeDrawer),
+    hasModalOpen: Boolean(commandOpen || imageExportSnapshot || editingNotebook !== undefined || confirmRequest),
     // Escape 第 1 层：正文搜索高亮清除优先于退出沉浸模式。
     hasSearchHighlight: Boolean(activeSearchQuery.trim()),
     clearSearchHighlight: () => handleClearSearch(),
-    toggleSidebar: () => setSidebarCollapsed((value) => !value),
+    toggleSidebar: () => isMobileViewport ? openMobileHome() : setSidebarCollapsed((value) => !value),
     toggleFocusMode,
     toggleTypewriterMode,
     exitFocusMode,
@@ -541,7 +547,7 @@ export function Workspace() {
       setCommandOpen(true);
     },
     toggleViewLayout,
-    isCardEditing: viewLayout === "cards" && cardEditingNoteId !== null,
+    isCardEditing: !isMobileViewport && viewLayout === "cards" && cardEditingNoteId !== null,
     onExitCardEditing: () => setCardEditingNoteId(null),
     hasSelection: selectedNoteIds.size > 0,
     clearSelection: clearNoteSelection,
@@ -586,7 +592,6 @@ export function Workspace() {
           if (notebook.id === targetNotebook.id) return { ...notebook, count: notebook.count + 1 };
           return notebook;
         }));
-        closeDrawer();
       }
       void saveImmediately(next, false, ["notebookId"]).then(() => {
         refreshNotebooks();
@@ -599,7 +604,7 @@ export function Workspace() {
     } else {
       persist(next, Object.keys(patch) as Array<"title" | "contentMarkdown" | "notebookId">);
     }
-  }, [closeDrawer, invalidateCollections, notebooks, persist, refreshNotebooks, reloadNotes, replaceList, requestListTransition, saveImmediately]);
+  }, [invalidateCollections, notebooks, persist, refreshNotebooks, reloadNotes, replaceList, requestListTransition, saveImmediately]);
   const registerEditorMarkdownReader = useCallback((reader: (() => string | null) | null) => {
     editorMarkdownReaderRef.current = reader;
   }, []);
@@ -635,9 +640,9 @@ export function Workspace() {
     setEditorFocusNoteId(note.id);
     setSelectedId(note.id);
     setCardEditingNoteId(note.id);
-    closeDrawer();
+    openMobileNote({ ...target, query: "", noteId: note.id, searchOrigin: null });
     setToast(message);
-  }, [closeDrawer, playListTransition]);
+  }, [openMobileNote, playListTransition]);
   const createNoteHere = useCallback(async () => {
     const currentNotebook = notebookId ? notebooks.find((notebook) => notebook.id === notebookId) : undefined;
     const inbox = notebooks.find((notebook) => notebook.isSystem);
@@ -686,11 +691,11 @@ export function Workspace() {
     } else {
       setNotebookId(saved.id);
       setView("all");
-      closeDrawer();
+      openMobileList({ view: "all", notebookId: saved.id, query: "", searchOrigin: null });
       setToast(`已创建笔记本“${saved.name}”`);
     }
     setEditingNotebook(undefined);
-  }, [closeDrawer, editingNotebook]);
+  }, [openMobileList, editingNotebook]);
   const saveNotebookDraft = useCallback(async (draft: { name: string; color: string; icon: string }) => {
     const existing = editingNotebook ?? undefined;
     const timestamp = Math.floor(Date.now() / 1000);
@@ -722,25 +727,6 @@ export function Workspace() {
     onNotFound: removeFromList,
     onError: () => setToast("同步当前笔记失败，请稍后重试"),
   }), [failedSavesRef, navigate, pendingSavesRef, removeFromList, replaceList, setSaveState]);
-  const deleteNotebook = useCallback(async (id: string) => {
-    try {
-      const target = notebooks.find((notebook) => notebook.id === id);
-      const inbox = notebooks.find((notebook) => notebook.isSystem);
-      if (!target || !inbox) throw new Error("notebook-not-found");
-      await flushNotebookSaves(target.id);
-      await api.deleteNotebook(target.id);
-      const activeNote = selectedRef.current;
-      if (activeNote?.notebookId === target.id) await refreshSelectedNoteFromRemote(activeNote.id);
-      setNotebooks((current) => current.filter((nb) => nb.id !== id));
-      if (notebookId === id) setNotebookId(undefined);
-      refreshNotebooks();
-      void loadNotes();
-      setToast("已删除笔记本，原笔记已归入收件箱");
-      setEditingNotebook(undefined);
-    } catch (reason) {
-      setToast(errorMessage(reason, "删除笔记本失败"));
-    }
-  }, [flushNotebookSaves, loadNotes, notebookId, notebooks, refreshNotebooks, refreshSelectedNoteFromRemote]);
   const toggleFavorite = useCallback(() => {
     const current = selectedRef.current;
     if (!current) return;
@@ -1028,8 +1014,8 @@ export function Workspace() {
     setView(next);
     setNotebookId(undefined);
     setCardEditingNoteId(null);
-    closeDrawer();
-  }, [closeDrawer, notebookId, query, requestListTransition, view]);
+    openMobileList({ view: next, notebookId: undefined, query: "", searchOrigin: null });
+  }, [openMobileList, notebookId, query, requestListTransition, view]);
   const selectNotebook = useCallback((notebookIdToSelect: string) => {
     if (notebookId !== notebookIdToSelect || view !== "all" || query) requestListTransition();
     searchOriginRef.current = null;
@@ -1037,8 +1023,8 @@ export function Workspace() {
     setNotebookId(notebookIdToSelect);
     setView("all");
     setCardEditingNoteId(null);
-    closeDrawer();
-  }, [closeDrawer, notebookId, query, requestListTransition, view]);
+    openMobileList({ view: "all", notebookId: notebookIdToSelect, query: "", searchOrigin: null });
+  }, [openMobileList, notebookId, query, requestListTransition, view]);
   const changeQuery = useCallback((next: string) => {
     if (next) {
       if (!query) {
@@ -1048,6 +1034,7 @@ export function Workspace() {
       setQuery(next);
       setView("all");
       setNotebookId(undefined);
+      openMobileList({ view: "all", notebookId: undefined, query: next, searchOrigin: searchOriginRef.current });
       return;
     }
     if (query) requestListTransition();
@@ -1056,7 +1043,7 @@ export function Workspace() {
     setQuery("");
     setView(origin?.view ?? "all");
     setNotebookId(origin?.notebookId);
-  }, [notebookId, query, requestListTransition, view]);
+  }, [notebookId, openMobileList, query, requestListTransition, view]);
   const closeCommandMenu = useCallback(() => {
     setCommandOpen(false);
     setCommandInitialQuery("");
@@ -1076,19 +1063,19 @@ export function Workspace() {
     changeQuery(normalized);
     setSidebarCollapsed(false);
     setCardEditingNoteId(null);
-    openDrawer("sidebar");
+    openMobileList();
     closeCommandMenu();
-  }, [changeQuery, closeCommandMenu, openDrawer]);
+  }, [changeQuery, closeCommandMenu, openMobileList]);
   const handleFocusGlobalSearch = useCallback(() => {
     setSidebarCollapsed(false);
     setCardEditingNoteId(null);
-    openDrawer("sidebar");
+    openMobileList();
     closeCommandMenu();
     requestAnimationFrame(() => {
       searchRef.current?.focus();
       searchRef.current?.select();
     });
-  }, [closeCommandMenu, openDrawer]);
+  }, [closeCommandMenu, openMobileList]);
   const handleClearSearch = useCallback(() => {
     setInNoteSearchQuery("");
     if (query) {
@@ -1142,7 +1129,7 @@ export function Workspace() {
       setCommandInitialQuery(initial);
       setCommandOpen(true);
     }
-    if (id === "toggle-sidebar") setSidebarCollapsed((value) => !value);
+    if (id === "toggle-sidebar") { if (isMobileViewport) openMobileHome(); else setSidebarCollapsed((value) => !value); }
     if (id === "toggle-view-layout") toggleViewLayout();
     if (id === "toggle-focus-mode") toggleFocusMode();
     if (id === "toggle-typewriter-mode") toggleTypewriterMode();
@@ -1156,15 +1143,15 @@ export function Workspace() {
     if (id === "export-image") handleExportImage();
     if (id === "export-notes") void handleExportNotes();
     if (id === "install-app") { if (pwaState.canInstall) void installPwa(); else if (pwaState.showIosInstallHint && !pwaState.standalone) setToast("请在 Safari 中点击分享，再选择“添加到主屏幕”"); }
-  }, [copyNoteMarkdown, createNoteInInbox, handleExportImage, handleExportNotes, moveToTrash, pwaState, restoreFromTrash, setThemePreference, toggleFavorite, toggleFocusMode, toggleTypewriterMode, toggleViewLayout]);
+  }, [copyNoteMarkdown, createNoteInInbox, handleExportImage, handleExportNotes, isMobileViewport, moveToTrash, openMobileHome, pwaState, restoreFromTrash, setThemePreference, toggleFavorite, toggleFocusMode, toggleTypewriterMode, toggleViewLayout]);
   useEffect(() => {
     if (!ready || shortcutHandledRef.current) return;
     const action = new URLSearchParams(window.location.search).get("action");
     if (action === "new-note") void createNoteInInbox();
-    if (action === "search") { openDrawer("sidebar"); requestAnimationFrame(() => searchRef.current?.focus()); }
+    if (action === "search") { openMobileList(); requestAnimationFrame(() => searchRef.current?.focus()); }
     shortcutHandledRef.current = true;
-    if (action) window.history.replaceState(null, "", `${window.location.pathname}${window.location.hash}`);
-  }, [createNoteInInbox, openDrawer, ready]);
+    if (action) window.history.replaceState(window.history.state, "", `${window.location.pathname}${window.location.hash}`);
+  }, [createNoteInInbox, openMobileList, ready]);
   const logout = useCallback(async () => {
     await flushPendingSaves("now");
     if (hasUnsavedWork()) {
@@ -1268,8 +1255,8 @@ export function Workspace() {
     if (!isModifierSelection) selectNote(id);
     updateNoteSelection(nextSelection);
     if (isModifierSelection) return;
-    closeDrawer();
-  }, [closeDrawer, noteSort, selectNote, updateNoteSelection]);
+    openMobileNote({ noteId: id });
+  }, [openMobileNote, noteSort, selectNote, updateNoteSelection]);
   const handleOpenCardNote = useCallback((id: string) => {
     selectNote(id);
     setCardEditingNoteId(id);
@@ -1291,18 +1278,45 @@ export function Workspace() {
     setNoteSort(nextSort);
   }, [clearNoteSelection]);
   const handleOpenSidebar = useCallback(() => {
-    openDrawer("sidebar");
-  }, [openDrawer]);
+    openMobileHome();
+  }, [openMobileHome]);
   const handleOpenList = useCallback(() => {
+    if (isMobileViewport) {
+      flushEditorDraftRef.current();
+      closeOutline();
+      backMobilePage();
+      return;
+    }
     if (viewLayout === "cards") {
       setCardEditingNoteId(null);
       return;
     }
-    openDrawer("list");
-  }, [openDrawer, viewLayout]);
+  }, [backMobilePage, closeOutline, isMobileViewport, viewLayout]);
   const handleUploadImage = useCallback((file: File) => api.uploadAsset(file), []);
   const handleScrollToOutlineItem = useCallback((id: string) => outlineNavigateRef.current?.(id), []);
   const handleClearQuery = useCallback(() => changeQuery(""), [changeQuery]);
+  useEffect(() => {
+    if (!ready || !isMobileViewport || isNoteLoading) return;
+    const frame = requestAnimationFrame(() => {
+      if (document.activeElement?.closest(".mobile-bottom-search")) return;
+      const selector = mobilePage === "home" ? "#mobile-notebooks-title" : mobilePage === "list" ? ".note-list-panel .list-header h2" : ".mobile-editor-title";
+      document.querySelector<HTMLElement>(selector)?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [isMobileViewport, isNoteLoading, mobilePage, ready]);
+  useEffect(() => {
+    if (!isMobileViewport || !ready) return;
+    const viewport = window.visualViewport;
+    const update = () => document.documentElement.style.setProperty("--mobile-viewport-height", `${viewport?.height ?? window.innerHeight}px`);
+    update();
+    viewport?.addEventListener("resize", update);
+    window.addEventListener("resize", update);
+    return () => {
+      viewport?.removeEventListener("resize", update);
+      window.removeEventListener("resize", update);
+      document.documentElement.style.removeProperty("--mobile-viewport-height");
+    };
+  }, [isMobileViewport, ready]);
 
   if (!ready) return <main className="app-loading"><span className="loading-ring" /><span>正在进入你的空间……</span></main>;
   const currentNotebook = notebookId ? notebooks.find((notebook) => notebook.id === notebookId) : undefined;
@@ -1310,17 +1324,18 @@ export function Workspace() {
   // 以 selectedNote 为准：纯正文变更只更新 selectedRef，避免每次防抖同步都给 memo(NoteEditor) 新引用。
   // id 变化或尚未同步到 state 时（切换笔记、外部同步、草稿恢复）才回退到 selectedRef。
   const renderedNote = selectedNote && selectedRef.current?.id === selectedNote.id ? selectedNote : selectedRef.current ?? selectedNote;
-  const commandNoteReady = Boolean(renderedNote && selectedRef.current?.id === renderedNote.id && !isNoteLoading);
-  const mobileNavigationOpen = activeDrawer !== null;
-  const isCardsLayout = viewLayout === "cards";
+  const commandNoteReady = Boolean((!isMobileViewport || mobilePage === "editor") && renderedNote && selectedRef.current?.id === renderedNote.id && !isNoteLoading);
+  const isCardsLayout = !isMobileViewport && viewLayout === "cards";
   const showCardsGrid = isCardsLayout && cardEditingNoteId === null;
-  const editorContentInert = Boolean(activeDrawer);
+  const editorContentInert = isMobileViewport && mobilePage !== "editor";
+  if (mobilePage === "editor") mobileEditorVisitedRef.current = true;
+  const mountEditor = !isMobileViewport || mobileEditorVisitedRef.current;
 
-  return <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${focusMode ? "is-focus-mode" : ""} ${isCardsLayout ? "layout-cards" : ""}`}>
-    {mobileNavigationOpen && <button className="mobile-scrim is-visible" type="button" aria-label="关闭导航" onClick={closeMobileNavigation} />}
-    <Sidebar view={view} setView={selectView} notebooks={notebooks} notebookId={notebookId} setNotebookId={selectNotebook} query={query} setQuery={changeQuery} searchRef={searchRef} onNewInboxNote={handleNewInboxNote} onCreateNotebook={handleCreateNotebook} onEditNotebook={handleEditNotebook} collapsed={sidebarCollapsed} onCollapse={handleCollapseSidebar} mobileOpen={mobileDrawer === "sidebar"} onLogout={logout} drawerRef={sidebarRef} modal={activeDrawer === "sidebar"} inert={isMobileViewport && activeDrawer !== "sidebar"} onCloseMobile={closeMobileNavigation} />
+  return <div data-mobile-page={isMobileViewport ? mobilePage : undefined} className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${focusMode ? "is-focus-mode" : ""} ${isCardsLayout ? "layout-cards" : ""}`}>
+    {!isMobileViewport && <Sidebar view={view} setView={selectView} notebooks={notebooks} notebookId={notebookId} setNotebookId={selectNotebook} query={query} setQuery={changeQuery} searchRef={searchRef} onNewInboxNote={handleNewInboxNote} onCreateNotebook={handleCreateNotebook} onEditNotebook={handleEditNotebook} collapsed={sidebarCollapsed} onCollapse={handleCollapseSidebar} onLogout={logout} />}
+    {isMobileViewport && <div className="mobile-home-region" hidden={mobilePage !== "home"} inert={mobilePage !== "home"}><MobileNotebookHome view={view} setView={selectView} notebooks={notebooks} notebookId={notebookId} setNotebookId={selectNotebook} onCreateNotebook={handleCreateNotebook} onEditNotebook={handleEditNotebook} /></div>}
     {!isCardsLayout && (
-      <NoteListPanel notes={notes} total={totalNotes} hasMore={hasMoreNotes} sort={noteSort} setSort={handleNoteSort} selectedId={selectedId} selectedIds={selectedNoteIds} onSelect={handleSelectListNote} onDeleteSelected={deleteSelectedNotes} view={view} query={query} currentNotebookName={currentNotebook?.name} onEmptyTrash={view === "trash" ? emptyTrash : undefined} trashBusy={pendingTrashCount > 0 || emptyingTrash} onNewNote={listNewNote} onClearQuery={handleClearQuery} mobileOpen={mobileDrawer === "list"} onOpenSidebar={handleOpenSidebar} transitionToken={listTransitionToken} outlineOpen={outlineOpen} outlineItems={outlineItems} activeOutlineId={activeOutlineId} onScrollToOutlineItem={handleScrollToOutlineItem} onCloseOutline={closeOutline} onLoadMore={loadMoreNotes} isLoadingMore={isLoadingMore} virtualizationScope={listScope} drawerRef={listPanelRef} modal={activeDrawer === "list"} inert={isMobileViewport && activeDrawer !== "list"} onCloseMobile={closeMobileNavigation} />
+      <NoteListPanel notes={notes} total={totalNotes} hasMore={hasMoreNotes} sort={noteSort} setSort={handleNoteSort} selectedId={selectedId} selectedIds={selectedNoteIds} onSelect={handleSelectListNote} onDeleteSelected={deleteSelectedNotes} view={view} query={query} currentNotebookName={currentNotebook?.name} onEmptyTrash={view === "trash" ? emptyTrash : undefined} trashBusy={pendingTrashCount > 0 || emptyingTrash} onNewNote={listNewNote} onClearQuery={handleClearQuery} isMobileViewport={isMobileViewport} onOpenSidebar={handleOpenSidebar} transitionToken={listTransitionToken} outlineOpen={!isMobileViewport && outlineOpen} outlineItems={outlineItems} activeOutlineId={activeOutlineId} onScrollToOutlineItem={handleScrollToOutlineItem} onCloseOutline={closeOutline} onLoadMore={loadMoreNotes} isLoadingMore={isLoadingMore} virtualizationScope={listScope} inert={isMobileViewport && mobilePage !== "list"} />
     )}
     {showCardsGrid ? (
       <NoteCardGridPanel
@@ -1351,14 +1366,15 @@ export function Workspace() {
       />
     ) : (
       <main ref={editorRegionRef} className="editor-region" tabIndex={-1} aria-hidden={editorContentInert || undefined} inert={editorContentInert}>
-        {renderedNote ? <Suspense fallback={<NoteLoadingState />}><LazyNoteEditor note={renderedNote} availableNotes={notes} onNavigateWikiLink={handleNavigateWikiLink} onCreateAndLinkNote={handleCreateAndLinkNote} onNavigateToNote={selectNote} searchQuery={activeSearchQuery} onClearSearch={activeSearchQuery ? handleClearSearch : undefined} onToast={setToast} onMarkdownReaderChange={registerEditorMarkdownReader} onMarkdownDirtyChange={registerEditorMarkdownDirty} saveState={saveState} isLoading={isNoteLoading} trashBusy={emptyingTrash || (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onExportImage={handleExportImage} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={handleOpenList} onBackToCards={isCardsLayout ? () => setCardEditingNoteId(null) : undefined} onUploadImage={handleUploadImage} focusMode={focusMode} typewriterMode={typewriterMode} outlineOpen={outlineOpen} outlineItems={outlineItems} activeOutlineId={activeOutlineId} onToggleOutline={toggleOutline} onCloseOutline={closeOutline} onOutlineItemsChange={handleOutlineItemsChange} onOutlineActiveChange={handleOutlineActiveChange} onOutlineNavigationReady={handleOutlineNavigationReady} /></Suspense> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor isTrash={view === "trash"} onNewNote={handleNewNote} onOpenList={handleOpenList} transitionToken={listTransitionToken} />}
+        {mountEditor && renderedNote ? <Suspense fallback={<NoteLoadingState />}><LazyNoteEditor note={renderedNote} availableNotes={notes} onNavigateWikiLink={handleNavigateWikiLink} onCreateAndLinkNote={handleCreateAndLinkNote} onNavigateToNote={selectNote} searchQuery={activeSearchQuery} onClearSearch={activeSearchQuery ? handleClearSearch : undefined} onToast={setToast} onMarkdownReaderChange={registerEditorMarkdownReader} onMarkdownDirtyChange={registerEditorMarkdownDirty} saveState={saveState} isLoading={isNoteLoading} trashBusy={emptyingTrash || (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onExportImage={handleExportImage} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={handleOpenList} isMobileViewport={isMobileViewport} mobileBackLabel={query ? "搜索结果" : currentNotebook?.name ?? viewLabel(view)} onBackToCards={isCardsLayout ? () => setCardEditingNoteId(null) : undefined} onUploadImage={handleUploadImage} focusMode={focusMode} typewriterMode={typewriterMode} outlineOpen={outlineOpen} outlineItems={outlineItems} activeOutlineId={activeOutlineId} onToggleOutline={toggleOutline} onCloseOutline={closeOutline} onOutlineItemsChange={handleOutlineItemsChange} onOutlineActiveChange={handleOutlineActiveChange} onOutlineNavigationReady={handleOutlineNavigationReady} /></Suspense> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor isTrash={view === "trash"} onNewNote={handleNewNote} onOpenList={handleOpenList} transitionToken={listTransitionToken} />}
       </main>
     )}
-    <CommandMenu open={commandOpen} onClose={closeCommandMenu} onCommand={command} onCreateNoteInNotebook={createNoteInNotebook} canRestore={Boolean(commandNoteReady && renderedNote?.deletedAt)} canMoveToTrash={Boolean(commandNoteReady && renderedNote && !renderedNote.deletedAt)} notebooks={notebooks} currentNotebookId={renderedNote?.notebookId} onMoveNoteToNotebook={(targetNotebookId) => onNoteChange({ notebookId: targetNotebookId })} focusMode={focusMode} typewriterMode={typewriterMode} viewLayout={viewLayout} canInstallApp={pwaState.canInstall} showIosInstallHint={pwaState.showIosInstallHint} standalone={pwaState.standalone} hasSelectedNote={commandNoteReady} onSearchInCurrentNote={handleSearchInCurrentNote} onSearchGlobal={handleSearchGlobal} onFocusGlobalSearch={handleFocusGlobalSearch} initialQuery={commandInitialQuery} themePreference={themePreference} />
+    {isMobileViewport && mobilePage !== "editor" && <MobileBottomBar query={query} setQuery={changeQuery} searchRef={searchRef} onNewNote={mobilePage === "home" ? handleNewInboxNote : view === "trash" ? undefined : handleNewNote} />}
+    <CommandMenu isMobileViewport={isMobileViewport} open={commandOpen} onClose={closeCommandMenu} onCommand={command} onCreateNoteInNotebook={createNoteInNotebook} canRestore={Boolean(commandNoteReady && renderedNote?.deletedAt)} canMoveToTrash={Boolean(commandNoteReady && renderedNote && !renderedNote.deletedAt)} notebooks={notebooks} currentNotebookId={renderedNote?.notebookId} onMoveNoteToNotebook={(targetNotebookId) => onNoteChange({ notebookId: targetNotebookId })} focusMode={focusMode} typewriterMode={typewriterMode} viewLayout={viewLayout} canInstallApp={pwaState.canInstall} showIosInstallHint={pwaState.showIosInstallHint} standalone={pwaState.standalone} hasSelectedNote={commandNoteReady} onSearchInCurrentNote={handleSearchInCurrentNote} onSearchGlobal={handleSearchGlobal} onFocusGlobalSearch={handleFocusGlobalSearch} initialQuery={commandInitialQuery} themePreference={themePreference} />
 
 
     {imageExportSnapshot && <Suspense fallback={null}><LazyImageExportDialog snapshot={imageExportSnapshot} onClose={closeImageExport} /></Suspense>}
-    {editingNotebook !== undefined && <NotebookDialog key={editingNotebook?.id ?? "new"} notebook={editingNotebook} onClose={() => setEditingNotebook(undefined)} onSave={saveNotebookDraft} onSaved={saveNotebook} onRequestDelete={(target) => requestConfirm({ eyebrow: "整理上下文", title: `删除笔记本“${target.name}”？`, description: "笔记本中的笔记会自动移入收件箱，笔记内容不会被删除。", confirmLabel: "删除笔记本", danger: true, onConfirm: () => deleteNotebook(target.id) })} onToast={setToast} />}
+    {editingNotebook !== undefined && <NotebookDialog key={editingNotebook?.id ?? "new"} notebook={editingNotebook} onClose={() => setEditingNotebook(undefined)} onSave={saveNotebookDraft} onSaved={saveNotebook} onToast={setToast} />}
     {confirmRequest && <ConfirmDialog key={confirmRequest.id} request={confirmRequest} onClose={() => setConfirmRequest(null)} />}
     <div className="system-notices">{pwaState.updateAvailable && <div className="update-notice" role="status" aria-live="polite" aria-labelledby="update-notice-title"><div className="update-notice-header"><RefreshCw size={18} aria-hidden="true" /><div><strong id="update-notice-title">发现新版本</strong><p>保存当前编辑后即可更新应用。</p></div></div><div className="update-notice-actions"><button className="text-button update-notice-action" type="button" onClick={() => void updatePwa()}>更新</button></div></div>}{toast && <div className="toast" role="status">{toast}</div>}</div>
   </div>;

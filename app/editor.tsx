@@ -39,6 +39,8 @@ import { TableScrollbars } from "./editor/table-scrollbars";
 import { createTableExtensions } from "./editor/table-extensions";
 import { playEntranceAnimation } from "./animation";
 import { CardOutline } from "./editor/card-outline";
+import { MobileEditorHeader, MobileEditorFooter, MobileEditorOutline } from "./editor/mobile-editor-controls";
+import "./editor/mobile-editor.css";
 
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
 type SaveState = "idle" | "saving" | "saved" | "conflict" | "error";
@@ -169,7 +171,7 @@ async function imageDimensions(file: File) {
   }
 }
 
-export function NoteEditor({ note, searchQuery = "", saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onExportImage, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList, onBackToCards, onUploadImage, focusMode = false, onClearSearch, typewriterMode = false, outlineOpen, outlineItems, activeOutlineId, onToggleOutline, onCloseOutline, onOutlineItemsChange, onOutlineActiveChange, onOutlineNavigationReady, availableNotes = [], onNavigateWikiLink, onCreateAndLinkNote, onNavigateToNote, onToast, onMarkdownReaderChange, onMarkdownDirtyChange }: {
+export function NoteEditor({ note, searchQuery = "", saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onExportImage, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList, onBackToCards, onUploadImage, isMobileViewport = false, mobileBackLabel = "笔记列表", focusMode = false, onClearSearch, typewriterMode = false, outlineOpen, outlineItems, activeOutlineId, onToggleOutline, onCloseOutline, onOutlineItemsChange, onOutlineActiveChange, onOutlineNavigationReady, availableNotes = [], onNavigateWikiLink, onCreateAndLinkNote, onNavigateToNote, onToast, onMarkdownReaderChange, onMarkdownDirtyChange }: {
   note: Note;
   searchQuery?: string;
   saveState: SaveState;
@@ -189,6 +191,8 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   onOpenList?: () => void;
   onBackToCards?: () => void;
   onUploadImage?: (file: File, dimensions: { width: number; height: number }) => Promise<{ asset: ImageAssetSummary }>;
+  isMobileViewport?: boolean;
+  mobileBackLabel?: string;
   focusMode?: boolean;
   onClearSearch?: () => void;
   typewriterMode?: boolean;
@@ -1091,9 +1095,10 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
 
   useEffect(() => {
     if (!editor || !focusRequested || isLoading || note.deletedAt) return;
+    if (isMobileViewport) { onFocusHandled?.(); return; }
     // Apply focus after the new note's content and editable state are ready.
     if (editor.commands.focus("start")) onFocusHandled?.();
-  }, [editor, focusRequested, isLoading, note.id, note.deletedAt, onFocusHandled]);
+  }, [editor, focusRequested, isLoading, isMobileViewport, note.id, note.deletedAt, onFocusHandled]);
 
   const scrollToActiveSearchMatch = useCallback(() => {
     if (!editor || editor.isDestroyed) return;
@@ -1133,7 +1138,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       if (titleMatches.length > 0) {
         editorScrollRef.current?.scrollTo({ top: 0, behavior });
         const titleInput = titleInputRef.current;
-        if (titleInput) {
+        if (titleInput && !isMobileViewport) {
           titleInput.focus({ preventScroll: true });
           titleInput.setSelectionRange(titleMatches[0].start, titleMatches[0].end);
         }
@@ -1143,7 +1148,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       editor.view.dom.querySelector<HTMLElement>(".editor-search-match--active")?.scrollIntoView({ behavior, block: "center", inline: "nearest" });
     });
     return () => cancelAnimationFrame(frame);
-  }, [editor, isLoading, note.id, onToast, searchQuery, syncSearchNavigation]);
+  }, [editor, isLoading, isMobileViewport, note.id, onToast, searchQuery, syncSearchNavigation]);
 
   useEffect(() => {
     const handleSearchKeyDown = (event: KeyboardEvent) => {
@@ -1317,8 +1322,20 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
 
   const saveLabel = saveState === "saving" ? "保存中" : saveState === "conflict" ? "检测到版本冲突，点击重新载入" : saveState === "error" ? "保存失败，点击重试" : "已保存";
   return (
-    <section className={`editor-panel ${deferredLoading ? "is-loading" : ""} ${focusMode ? "is-focus-mode" : ""}`} aria-label="笔记编辑器" aria-busy={editorLocked} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === "s") { event.preventDefault(); handleSaveNow(); } }}>
-      <header className="editor-header">
+    <section className={`editor-panel ${deferredLoading ? "is-loading" : ""} ${focusMode ? "is-focus-mode" : ""} ${isMobileViewport ? "is-mobile-editor" : ""}`} aria-label="笔记编辑器" aria-busy={editorLocked} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === "s") { event.preventDefault(); handleSaveNow(); } }}>
+      {isMobileViewport ? <MobileEditorHeader
+        noteId={note.id} title={note.title.trim() || "未命名笔记"} backLabel={mobileBackLabel}
+        locked={editorLocked} trashBusy={trashBusy} deleted={Boolean(note.deletedAt)} favorite={note.isFavorite}
+        backlinkCount={backlinkCount} onBack={onOpenList} onExport={onExportImage} onFavorite={onToggleFavorite}
+        onBacklinks={onNavigateToNote ? () => setBacklinksOpen(true) : undefined}
+        onTrash={onMoveToTrash} onRestore={onRestore} onPermanentDelete={onPermanentDelete}
+        status={<>
+          {saveState === "error" ? <button className="save-status save-status--error save-status--icon" type="button" aria-label="重试保存" title="重试保存" onClick={handleSaveNow}><SaveStatusIcon state="error" /></button>
+            : saveState === "conflict" ? <button className="save-status save-status--conflict save-status--icon" type="button" aria-label="重新载入最新版本" title="重新载入最新版本" onClick={onReloadNote}><SaveStatusIcon state="conflict" /></button>
+              : <span className={`save-status save-status--${saveState} save-status--icon`} role="status" aria-label={saveState === "idle" ? "待保存" : saveLabel} title={saveState === "idle" ? "待保存" : saveLabel}>{saveState !== "idle" && <SaveStatusIcon state={saveState} />}</span>}
+          <span className={`save-status save-status--${imageUploadState === "uploading" ? "saving" : "error"} save-status--icon mobile-upload-status`} role="status" aria-label={imageUploadState === "uploading" ? "正在上传图片" : imageUploadState === "error" ? "图片上传失败" : undefined} title={imageUploadState === "uploading" ? "正在上传图片" : imageUploadState === "error" ? "图片上传失败" : undefined}>{imageUploadState !== "idle" && <SaveStatusIcon state={imageUploadState === "uploading" ? "saving" : "error"} />}</span>
+        </>}
+      /> : <header className="editor-header">
         <div className="editor-header-start">
           {onBackToCards && !focusMode && (
             <button
@@ -1369,7 +1386,8 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
             {onPermanentDelete && <button className="icon-button danger-button" type="button" aria-label="彻底删除" onClick={onPermanentDelete} disabled={editorLocked || trashBusy}><Trash2 size={18} strokeWidth={1.8} /></button>}
           </> : <button className="icon-button" type="button" aria-label="移入回收站" onClick={onMoveToTrash} disabled={editorLocked || trashBusy}><Trash2 size={18} strokeWidth={1.8} /></button>}
         </div>
-      </header>
+      </header>}
+      {isMobileViewport && onUploadImage && !note.deletedAt && <input ref={imageFileInputRef} className="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple tabIndex={-1} aria-label="选择要上传的图片文件" onChange={(event) => { uploadImageFilesRef.current(Array.from(event.target.files ?? [])); event.target.value = ""; }} />}
       <div className="editor-scroll-shell">
         <div id="editor-scroll-region" className={`editor-scroll floating-scrollbar-target ${typewriterMode ? "is-typewriter-mode" : ""}`} ref={editorScrollRef} onKeyDownCapture={(event) => {
           const target = event.target;
@@ -1421,13 +1439,14 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
         outlineOpen={outlineOpen}
         editorStats={editorStats}
         onToggleOutline={onToggleOutline}
-        hideOutlineTrigger={focusMode}
+        hideOutlineTrigger={focusMode || isMobileViewport}
         searchNavigation={searchNavigation}
         searchQuery={searchQuery}
         deferredLoading={editorLocked}
         onMoveSearchMatch={moveSearchMatch}
         onClearSearch={onClearSearch}
       />
+      {isMobileViewport && <MobileEditorFooter stats={editorStats} outlineOpen={outlineOpen} outlineTriggerRef={outlineTriggerRef} locked={editorLocked} canUpload={Boolean(onUploadImage) && !note.deletedAt && imageUploadState !== "uploading"} onUpload={() => imageFileInputRef.current?.click()} onToggleOutline={onToggleOutline} />}
       {!note.deletedAt && onNavigateToNote && (
         <BacklinksDialog
           open={backlinksOpen}
@@ -1438,7 +1457,8 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
           onBacklinkCountChange={setBacklinkCount}
         />
       )}
-      {(focusMode || (onBackToCards && outlineOpen)) && (
+      {isMobileViewport && outlineOpen && <MobileEditorOutline items={outlineItems} activeId={activeOutlineId ?? null} onNavigate={scrollToOutlineItem} onClose={onCloseOutline} />}
+      {!isMobileViewport && (focusMode || (onBackToCards && outlineOpen)) && (
         <CardOutline
           key={note.id}
           outlineItems={outlineItems}

@@ -35,6 +35,7 @@ type CommandMenuProps = {
   focusMode?: boolean;
   typewriterMode?: boolean;
   viewLayout?: "three-column" | "cards";
+  isMobileViewport?: boolean;
   canInstallApp: boolean;
   showIosInstallHint: boolean;
   standalone: boolean;
@@ -59,6 +60,7 @@ export function CommandMenu({
   focusMode = false,
   typewriterMode = false,
   viewLayout = "three-column",
+  isMobileViewport = false,
   canInstallApp,
   showIosInstallHint,
   standalone,
@@ -84,8 +86,8 @@ export function CommandMenu({
     { id: "search-notes" as const, label: "全局搜索笔记", shortcut: "↵", icon: Search },
     ...(hasSelectedNote && canMoveToTrash ? [{ id: "move-to-notebook" as const, label: "移动到笔记本", shortcut: "↵", icon: FolderInput }] : []),
     ...(hasSelectedNote ? [{ id: "find-in-note" as const, label: "在当前笔记中查找", shortcut: `${modKey} F`, icon: FileSearch }] : []),
-    { id: "toggle-sidebar", label: "切换侧栏", shortcut: `${modKey} \\`, icon: PanelLeft },
-    { id: "toggle-view-layout" as const, label: viewLayout === "cards" ? "切换到三栏列表视图" : "切换到卡片网格视图", shortcut: `${altKey} V`, icon: LayoutGrid },
+    { id: "toggle-sidebar", label: isMobileViewport ? "返回笔记本首页" : "切换侧栏", shortcut: `${modKey} \\`, icon: PanelLeft },
+    ...(!isMobileViewport ? [{ id: "toggle-view-layout" as const, label: viewLayout === "cards" ? "切换到三栏列表视图" : "切换到卡片网格视图", shortcut: `${altKey} V`, icon: LayoutGrid }] : []),
     { id: "toggle-focus-mode", label: focusMode ? "退出沉浸模式" : "进入沉浸模式", shortcut: `${modKey} ⇧ F`, icon: Maximize2 },
     { id: "toggle-typewriter-mode", label: typewriterMode ? "退出打字机模式" : "开启打字机模式", shortcut: `${altKey} ⇧ T`, icon: AlignVerticalSpaceAround },
     { id: "set-theme-light", label: "浅色模式", shortcut: "↵", icon: Sun, isCurrent: themePreference === "light", keywords: "主题 外观" },
@@ -98,7 +100,7 @@ export function CommandMenu({
     ...(canRestore ? [{ id: "restore" as const, label: "恢复笔记", shortcut: "↵", icon: Archive }] : []),
     { id: "export-notes" as const, label: "导出全部笔记 (ZIP)", shortcut: "↵", icon: Download },
     ...(!standalone && (canInstallApp || showIosInstallHint) ? [{ id: "install-app" as const, label: "安装象映笔记", shortcut: "↵", icon: Download }] : []),
-  ], [canInstallApp, canMoveToTrash, canRestore, focusMode, hasSelectedNote, showIosInstallHint, standalone, themePreference, typewriterMode, viewLayout]);
+  ], [canInstallApp, canMoveToTrash, canRestore, focusMode, hasSelectedNote, isMobileViewport, showIosInstallHint, standalone, themePreference, typewriterMode, viewLayout]);
 
   const createNoteResult = useMemo(() => parseCreateNoteCommand(query, notebooks), [notebooks, query]);
   const parsedSearchPrefix = useMemo(() => parseSearchPrefixCommand(query), [query]);

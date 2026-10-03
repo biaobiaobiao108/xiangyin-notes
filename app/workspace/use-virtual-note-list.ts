@@ -42,6 +42,7 @@ export function useVirtualNoteList(
   const rowRefCallbacksRef = useRef(new Map<string, (element: HTMLLIElement | null) => void>());
   const rowStylesRef = useRef(new Map<number, CSSProperties>());
   const pendingFocusIdRef = useRef<string | null>(null);
+  const contentInsetRef = useRef(0);
   const indexById = useMemo(() => new Map(rows.map((row, index) => [row.id, index])), [rows]);
   const indexByIdRef = useRef(indexById);
   indexByIdRef.current = indexById;
@@ -78,8 +79,9 @@ export function useVirtualNoteList(
 
     let scrollFrame = 0;
     const updateViewport = () => {
+      contentInsetRef.current = Number.parseFloat(getComputedStyle(container).paddingTop) || 0;
       setViewport((current) => {
-        const next = { top: container.scrollTop, height: container.clientHeight || current.height || 800 };
+        const next = { top: Math.max(0, container.scrollTop - contentInsetRef.current), height: container.clientHeight || current.height || 800 };
         return current.top === next.top && current.height === next.height ? current : next;
       });
     };
@@ -107,7 +109,7 @@ export function useVirtualNoteList(
     const observer = new ResizeObserver((entries) => {
       const container = scrollRef.current;
       const oldOffsets = offsetsRef.current;
-      const anchorIndex = container ? indexAtOffset(oldOffsets, container.scrollTop) : 0;
+      const anchorIndex = container ? indexAtOffset(oldOffsets, Math.max(0, container.scrollTop - contentInsetRef.current)) : 0;
       let anchorAdjustment = 0;
       let changed = false;
 
@@ -235,7 +237,7 @@ export function useVirtualNoteList(
     const targetScrollTop = event.shiftKey
       ? Math.max(0, nextTop - container.clientHeight + nextHeight + 80)
       : Math.max(0, nextTop - 80);
-    container.scrollTop = targetScrollTop;
+    container.scrollTop = targetScrollTop + contentInsetRef.current;
     setViewport({ top: targetScrollTop, height: container.clientHeight || viewport.height });
   }, [endIndex, isVirtualized, offsets, rows, scrollRef, startIndex, viewport.height]);
 

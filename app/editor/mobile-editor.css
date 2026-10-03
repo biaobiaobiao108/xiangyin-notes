@@ -1,0 +1,176 @@
+@media (max-width: 900px) {
+  .is-mobile-editor {
+    --mobile-editor-bar: 62px;
+  }
+  .is-mobile-editor .mobile-editor-header {
+    position: absolute;
+    inset: 0 0 auto;
+    z-index: 35;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-height: calc(var(--mobile-editor-bar) + env(safe-area-inset-top));
+    padding: env(safe-area-inset-top) 14px 0;
+    border: 0;
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .is-mobile-editor .mobile-editor-title {
+    min-width: 0;
+    flex: 1;
+    margin: 0 4px;
+    overflow: hidden;
+    color: var(--ink);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.94rem;
+    font-weight: 600;
+  }
+  .is-mobile-editor .mobile-editor-title:focus-visible {
+    background: var(--accent-soft);
+    border-radius: var(--radius-sm);
+  }
+  .is-mobile-editor .icon-button {
+    width: 44px;
+    height: 44px;
+    flex: 0 0 44px;
+    border-radius: 999px;
+    color: var(--accent);
+    border: 0;
+    box-shadow: none;
+  }
+  .is-mobile-editor .mobile-editor-back,
+  .is-mobile-editor .mobile-editor-more {
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  .is-mobile-editor .mobile-editor-status {
+    display: flex;
+    align-items: center;
+    flex: none;
+  }
+  .is-mobile-editor .mobile-editor-status .save-status--icon {
+    width: 44px;
+    height: 44px;
+    flex: 0 0 44px;
+    margin: 0;
+  }
+  .is-mobile-editor .mobile-editor-status .mobile-upload-status { width: 24px; flex-basis: 24px; }
+  .is-mobile-editor .mobile-editor-status button.save-status--icon {
+    width: 44px;
+    height: 44px;
+    flex-basis: 44px;
+  }
+  .is-mobile-editor .mobile-editor-menu-root { position: relative; flex: none; }
+  .is-mobile-editor .mobile-editor-menu {
+    position: absolute;
+    top: calc(100% + 10px);
+    right: 0;
+    width: min(230px, calc(100vw - 28px));
+    padding: 7px;
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-lg);
+    background: var(--surface-glass-menu);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    box-shadow: var(--shadow-float);
+    animation: dialog-in var(--motion-panel) var(--motion-ease-out);
+  }
+  .is-mobile-editor .mobile-editor-menu button {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 44px;
+    padding: 9px 12px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--ink);
+    text-align: left;
+    font-size: 0.88rem;
+  }
+  .is-mobile-editor .mobile-editor-menu button:hover,
+  .is-mobile-editor .mobile-editor-menu button:focus-visible { background: var(--accent-soft); }
+  .is-mobile-editor .mobile-editor-menu .is-danger { color: var(--danger); }
+  .is-mobile-editor .mobile-editor-footer {
+    position: absolute;
+    inset: auto 20px calc(12px + env(safe-area-inset-bottom));
+    z-index: 32;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    box-shadow: none;
+  }
+  .is-mobile-editor .mobile-editor-footer .icon-button {
+    background: var(--surface-glass-soft);
+    backdrop-filter: blur(20px) saturate(135%);
+    -webkit-backdrop-filter: blur(20px) saturate(135%);
+    box-shadow: var(--shadow-xs);
+  }
+  .is-mobile-editor .mobile-editor-footer .editor-stats-pill {
+    min-width: 0;
+    flex-wrap: wrap;
+    justify-content: center;
+    border: 0;
+    background: var(--surface-glass-soft);
+    backdrop-filter: blur(20px) saturate(135%);
+    -webkit-backdrop-filter: blur(20px) saturate(135%);
+    box-shadow: var(--shadow-xs);
+    border-radius: 999px;
+    padding: 8px 12px;
+  }
+  .is-mobile-editor .editor-scroll-shell { flex: 1 1 0; }
+  .app-shell .is-mobile-editor .editor-document,
+  .app-shell .is-mobile-editor:has(.editor-floating-outline) .editor-document {
+    width: calc(100% - 40px);
+    margin-inline: auto;
+    padding-top: calc(90px + env(safe-area-inset-top));
+    padding-bottom: calc(112px + env(safe-area-inset-bottom));
+  }
+  .is-mobile-editor .note-title-input { font-size: clamp(26px, 6.5vw, 34px); }
+  .is-mobile-editor .editor-floating-tools,
+  .is-mobile-editor.is-focus-mode .editor-floating-tools {
+    right: 18px;
+    bottom: calc(84px + env(safe-area-inset-bottom));
+    opacity: 1;
+    transform: none;
+  }
+  .is-mobile-editor .editor-floating-tools .editor-stats-pill { display: none; }
+  .is-mobile-editor .editor-floating-outline {
+    top: calc(74px + env(safe-area-inset-top));
+    bottom: calc(86px + env(safe-area-inset-bottom));
+    left: 14px;
+    width: min(280px, calc(100% - 28px));
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  .is-mobile-editor .mobile-editor-outline-backdrop {
+    position: absolute;
+    inset: calc(62px + env(safe-area-inset-top)) 0 calc(68px + env(safe-area-inset-bottom));
+    z-index: 29;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: color-mix(in srgb, var(--canvas) 40%, transparent);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    cursor: default;
+  }
+  .is-mobile-editor .mobile-editor-outline-backdrop:focus-visible { background: color-mix(in srgb, var(--canvas) 40%, transparent); }
+  .is-mobile-editor .editor-floating-outline .editor-outline-item button { min-height: 44px; }
+  .is-mobile-editor button:focus-visible { background: var(--accent-soft); }
+}
