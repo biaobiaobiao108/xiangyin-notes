@@ -1103,7 +1103,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
       }
       const firstMatch = occurrence === undefined ? search.matches[0].offset : search.selectedOffset!;
       const updatedBody = replaceAll
-        ? body.replaceAll(oldText, newText)
+        ? body.replaceAll(oldText, () => newText)
         : `${body.slice(0, firstMatch)}${newText}${body.slice(firstMatch + oldText.length)}`;
       const result = await updateNoteRoute(options, user, { noteId, version: note.version, contentMarkdown: updatedBody, includeContent });
       return result.status === 200

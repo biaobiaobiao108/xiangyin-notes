@@ -1358,6 +1358,19 @@ describe("remote MCP endpoint", () => {
     expect(toolData((await callTool("get_note", { noteId: short.id }, 8, environment)).body!).note.contentMarkdown).toBe("xx");
   });
 
+  test("replace_in_note preserves literal dollar replacement sequences", async () => {
+    const newText = "$& $$ $` $' $1 $<name>";
+    const created = toolData((await callTool("create_note", { title: "字面替换", contentMarkdown: "before old middle old after" })).body!).note;
+    const replaced = toolData((await callTool("replace_in_note", {
+      noteId: created.id, oldText: "old", newText, replaceAll: true, includeContent: true,
+    })).body!);
+    expect(replaced.replacedCount).toBe(2);
+    expect(replaced.note.version).toBe(created.version + 1);
+    const expected = `before ${newText} middle ${newText} after`;
+    expect(replaced.note.contentMarkdown).toBe(expected);
+    expect(toolData((await callTool("get_note", { noteId: created.id })).body!).note.contentMarkdown).toBe(expected);
+  });
+
   test("insert_into_note can insert at every non-overlapping anchor in one call", async () => {
     const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
     const created = toolData((await callTool("create_note", { title: "全部锚点插入", contentMarkdown: "a--a--a." }, 1, environment)).body!).note;
