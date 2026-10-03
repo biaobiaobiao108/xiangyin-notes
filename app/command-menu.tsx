@@ -359,7 +359,6 @@ export function CommandMenu({
           ref={searchRef}
           value={query}
           onChange={(event) => updateQuery(event.target.value)}
-          placeholder={hasSelectedNote ? "输入命令，或输入“搜索/全局搜索 关键字”……" : "输入命令，或输入“全局搜索 关键字”……"}
           aria-label="搜索命令或笔记内容"
         />
       </div>
