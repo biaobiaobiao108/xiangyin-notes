@@ -2249,13 +2249,15 @@ dialog::backdrop {
   .is-mobile-card-grid .note-card-star-btn { position: absolute; top: -10px; right: -10px; z-index: 2; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 999px; }
   .is-mobile-card-grid .note-card-preview-text { font-size: 0.8125rem; line-height: 1.65; -webkit-line-clamp: 6; }
   .is-mobile-card-grid .note-card-cover { height: 116px; }
-  .is-mobile-card-grid .note-card-footer { display: block; margin-top: 0; padding-top: 8px; }
-  .is-mobile-card-grid .note-card-footer-leading { flex-direction: column; align-items: flex-start; gap: 7px; overflow: visible; }
+  .is-mobile-card-grid .note-card-footer { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; margin-top: 0; padding-top: 8px; }
+  .is-mobile-card-grid .note-card-footer-leading { display: contents; }
   .is-mobile-card-grid .note-card-footer-divider { display: none; }
-  .is-mobile-card-grid .note-card-notebook-badge { max-width: 100%; min-width: 0; overflow: hidden; }
-  .is-mobile-card-grid .note-card-tags { width: 100%; flex-wrap: wrap; align-items: flex-start; gap: 5px 4px; overflow: visible; }
+  .is-mobile-card-grid .note-card-notebook-badge { grid-row: 2; grid-column: 1; max-width: 100%; min-width: 0; overflow: hidden; }
+  .is-mobile-card-grid .note-card-tags { grid-row: 1; grid-column: 1 / -1; width: 100%; flex-wrap: wrap; align-items: flex-start; gap: 5px 4px; overflow: visible; }
   .is-mobile-card-grid .note-card-tag { max-width: 100%; min-width: 0; white-space: normal; overflow-wrap: anywhere; line-height: 1.5; }
-  .is-mobile-card-grid .note-card-date { display: block; margin-top: 8px; text-align: right; font-size: 0.6875rem; font-variant-numeric: tabular-nums; }
+  .is-mobile-card-grid .note-card-date { grid-row: 2; grid-column: 2; margin-top: 0; text-align: right; font-size: 0.6875rem; font-variant-numeric: tabular-nums; }
+  .is-mobile-card-grid .note-card-footer:not(:has(.note-card-tags)) > .note-card-date,
+  .is-mobile-card-grid .note-card-footer:not(:has(.note-card-tags)) .note-card-notebook-badge { grid-row: 1; }
   .mobile-collection-header .sort-button-label,
   .mobile-collection-header .sort-button-arrow { display: none; }
   .app-shell[data-mobile-page] .mobile-collection-header .sort-button,
