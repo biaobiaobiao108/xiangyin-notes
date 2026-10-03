@@ -1095,7 +1095,10 @@ dialog::backdrop {
 }
 
 @media (max-width: 900px) {
-  .app-shell, .app-shell.sidebar-collapsed, .app-shell.is-focus-mode { display: block; position: relative; height: var(--mobile-viewport-height, 100dvh); min-height: 0; max-height: none; overflow: hidden; overflow: clip; }
+  html:has(.app-shell[data-mobile-page]) { height: 100%; }
+  body:has(.app-shell[data-mobile-page]) { position: fixed; inset: 0; height: 100%; padding: 0; }
+  .app-shell, .app-shell.sidebar-collapsed, .app-shell.is-focus-mode { display: block; position: fixed; top: var(--mobile-viewport-top, 0px); left: 0; width: 100%; height: var(--mobile-viewport-height, 100dvh); min-height: 0; max-height: none; overflow: hidden; overflow: clip; }
+  .app-shell[data-mobile-page="editor"] { height: var(--mobile-editor-height, 100dvh); }
   .editor-panel.is-focus-mode .editor-header { height: 50px; min-height: 50px; }
   .editor-panel.is-focus-mode .editor-document { padding-top: max(36px, env(safe-area-inset-top)); }
   .mobile-home-region { height: 100%; min-width: 0; }

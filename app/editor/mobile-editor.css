@@ -100,7 +100,7 @@
   .is-mobile-editor .mobile-editor-menu .is-danger { color: var(--danger); }
   .is-mobile-editor .mobile-editor-footer {
     position: absolute;
-    inset: auto 20px calc(12px + env(safe-area-inset-bottom));
+    inset: auto 20px calc(12px + var(--mobile-keyboard-inset, 0px) + var(--mobile-bottom-safe-area, env(safe-area-inset-bottom)));
     z-index: 32;
     display: flex;
     justify-content: space-between;
@@ -138,14 +138,14 @@
     width: calc(100% - 40px);
     margin-inline: auto;
     padding-top: calc(var(--mobile-editor-bar) + 38px + env(safe-area-inset-top));
-    padding-bottom: calc(112px + env(safe-area-inset-bottom));
+    padding-bottom: calc(112px + var(--mobile-keyboard-inset, 0px) + var(--mobile-bottom-safe-area, env(safe-area-inset-bottom)));
   }
   .is-mobile-editor .note-title-input { font-size: clamp(26px, 6.5vw, 34px); }
   .is-mobile-editor .note-prose { font-size: 1.125rem; }
   .is-mobile-editor .editor-floating-tools,
   .is-mobile-editor.is-focus-mode .editor-floating-tools {
     right: 18px;
-    bottom: calc(84px + env(safe-area-inset-bottom));
+    bottom: calc(84px + var(--mobile-keyboard-inset, 0px) + var(--mobile-bottom-safe-area, env(safe-area-inset-bottom)));
     opacity: 1;
     transform: none;
   }
@@ -155,7 +155,7 @@
     position: absolute;
     z-index: 1;
     top: calc(var(--mobile-editor-bar) + 22px + env(safe-area-inset-top));
-    bottom: calc(86px + env(safe-area-inset-bottom));
+    bottom: calc(86px + var(--mobile-keyboard-inset, 0px) + var(--mobile-bottom-safe-area, env(safe-area-inset-bottom)));
     left: 14px;
     width: min(280px, calc(100% - 28px));
     padding: 0;

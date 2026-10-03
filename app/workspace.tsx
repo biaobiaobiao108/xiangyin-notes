@@ -21,6 +21,7 @@ import { useWorkspaceRealtime } from "./workspace/use-realtime";
 import { latestSelectedNoteSnapshot, refreshSelectedNote } from "./workspace/selected-note-sync";
 import { useWorkspaceShortcuts } from "./workspace/use-workspace-shortcuts";
 import { useMobileNavigation, type MobileListContext, type MobilePage } from "./workspace/use-mobile-navigation";
+import { useMobileViewport } from "./workspace/use-mobile-viewport";
 import { MobileNotebookHome, MobileBottomBar } from "./workspace/mobile-panels";
 import { viewLabel } from "./workspace/helpers";
 import { useThemePreference } from "./theme";
@@ -1328,19 +1329,7 @@ export function Workspace() {
     });
     return () => cancelAnimationFrame(frame);
   }, [isMobileViewport, isNoteLoading, mobilePage, ready]);
-  useEffect(() => {
-    if (!isMobileViewport || !ready) return;
-    const viewport = window.visualViewport;
-    const update = () => document.documentElement.style.setProperty("--mobile-viewport-height", `${viewport?.height ?? window.innerHeight}px`);
-    update();
-    viewport?.addEventListener("resize", update);
-    window.addEventListener("resize", update);
-    return () => {
-      viewport?.removeEventListener("resize", update);
-      window.removeEventListener("resize", update);
-      document.documentElement.style.removeProperty("--mobile-viewport-height");
-    };
-  }, [isMobileViewport, ready]);
+  useMobileViewport(isMobileViewport && ready);
 
   if (!ready) return <main className="app-loading"><span className="loading-ring" /><span>正在进入你的空间……</span></main>;
   const currentNotebook = notebookId ? notebooks.find((notebook) => notebook.id === notebookId) : undefined;

@@ -40,6 +40,7 @@ import { createTableExtensions } from "./editor/table-extensions";
 import { playEntranceAnimation } from "./animation";
 import { CardOutline } from "./editor/card-outline";
 import { MobileEditorHeader, MobileEditorFooter, MobileEditorOutline } from "./editor/mobile-editor-controls";
+import { mobileCaretBounds, useMobileCaret } from "./editor/use-mobile-caret";
 import "./editor/mobile-editor.css";
 
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
@@ -215,6 +216,9 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
 }) {
 
   const editorScrollRef = useRef<HTMLDivElement>(null);
+  const mobileViewportRef = useRef(isMobileViewport);
+  mobileViewportRef.current = isMobileViewport;
+  const mobileCaretScrollRef = useRef<() => void>(() => undefined);
   const documentRef = useRef<HTMLDivElement>(null);
   const titleInputRef = useRef<HTMLTextAreaElement>(null);
   const editorInstanceRef = useRef<Editor | null>(null);
@@ -516,6 +520,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   ], []);
 
   const smoothScrollToHead = useCallback((view: Editor["view"]) => {
+    if (mobileViewportRef.current) { mobileCaretScrollRef.current(); return; }
     requestAnimationFrame(() => {
       const scrollContainer = editorScrollRef.current;
       if (!scrollContainer) return;
@@ -574,7 +579,9 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
         const coords = view.coordsAtPos(head);
         const containerRect = scrollContainer.getBoundingClientRect();
         const cursorCenterY = (coords.top + coords.bottom) / 2;
-        const targetY = containerRect.top + containerRect.height * 0.6;
+        const bounds = mobileViewportRef.current ? mobileCaretBounds(scrollContainer) : { top: containerRect.top, bottom: containerRect.bottom };
+        if (mobileViewportRef.current && window.visualViewport && Math.abs(window.visualViewport.scale - 1) > 0.01) return;
+        const targetY = bounds.top + (bounds.bottom - bounds.top) * 0.6;
         const delta = cursorCenterY - targetY;
         const maxScroll = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
         const targetScrollTop = Math.min(maxScroll, Math.max(0, Math.round(scrollContainer.scrollTop + delta)));
@@ -708,6 +715,10 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       }
       if (typewriterModeRef.current) {
         alignTypewriterRef.current(view);
+        return true;
+      }
+      if (mobileViewportRef.current) {
+        mobileCaretScrollRef.current();
         return true;
       }
       return false;
@@ -877,6 +888,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       surfaceSyncRef.current(instance, transactionMayChangeOutline(transaction));
     },
   });
+  mobileCaretScrollRef.current = useMobileCaret(editor, editorScrollRef, titleInputRef, isMobileViewport);
 
   const handleSaveNow = useCallback(() => {
     flushMarkdownChange();
