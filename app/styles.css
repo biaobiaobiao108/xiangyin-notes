@@ -1127,6 +1127,7 @@ dialog::backdrop {
   .app-shell[data-mobile-page] .list-header p { font-size: 13px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .app-shell[data-mobile-page] .list-header-controls { grid-column: 3; grid-row: 1; margin: 0; }
   .app-shell[data-mobile-page] .sort-button { min-height: 44px; padding-inline: 8px; font-size: 14px; background: transparent; border: 0; box-shadow: none; }
+  .app-shell[data-mobile-page] .mobile-collection-header .sort-dropdown { left: auto; right: 0; width: max-content; min-width: 132px; max-width: calc(100vw - 32px); }
   .app-shell[data-mobile-page] .list-header { border: 0; box-shadow: var(--shadow-xs); }
   .floating-scrollbar { display: none !important; }
   .app-shell[data-mobile-page] .sort-dropdown button { min-height: 44px; }
