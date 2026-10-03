@@ -171,7 +171,7 @@ async function imageDimensions(file: File) {
   }
 }
 
-export function NoteEditor({ note, searchQuery = "", saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onExportImage, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList, onBackToCards, onUploadImage, isMobileViewport = false, mobileBackLabel = "笔记列表", focusMode = false, onClearSearch, typewriterMode = false, outlineOpen, outlineItems, activeOutlineId, onToggleOutline, onCloseOutline, onOutlineItemsChange, onOutlineActiveChange, onOutlineNavigationReady, availableNotes = [], onNavigateWikiLink, onCreateAndLinkNote, onNavigateToNote, onToast, onMarkdownReaderChange, onMarkdownDirtyChange }: {
+export function NoteEditor({ note, searchQuery = "", saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onExportImage, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList, onOpenCommands, onBackToCards, onUploadImage, isMobileViewport = false, mobileBackLabel = "笔记列表", focusMode = false, onClearSearch, typewriterMode = false, outlineOpen, outlineItems, activeOutlineId, onToggleOutline, onCloseOutline, onOutlineItemsChange, onOutlineActiveChange, onOutlineNavigationReady, availableNotes = [], onNavigateWikiLink, onCreateAndLinkNote, onNavigateToNote, onToast, onMarkdownReaderChange, onMarkdownDirtyChange }: {
   note: Note;
   searchQuery?: string;
   saveState: SaveState;
@@ -189,6 +189,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   onRestore: () => void;
   onPermanentDelete?: () => void;
   onOpenList?: () => void;
+  onOpenCommands?: () => void;
   onBackToCards?: () => void;
   onUploadImage?: (file: File, dimensions: { width: number; height: number }) => Promise<{ asset: ImageAssetSummary }>;
   isMobileViewport?: boolean;
@@ -1326,7 +1327,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       {isMobileViewport ? <MobileEditorHeader
         noteId={note.id} title={note.title.trim() || "未命名笔记"} backLabel={mobileBackLabel}
         locked={editorLocked} trashBusy={trashBusy} deleted={Boolean(note.deletedAt)} favorite={note.isFavorite}
-        backlinkCount={backlinkCount} onBack={onOpenList} onExport={onExportImage} onFavorite={onToggleFavorite}
+        backlinkCount={backlinkCount} onBack={onOpenList} onOpenCommands={onOpenCommands} onExport={onExportImage} onFavorite={onToggleFavorite}
         onBacklinks={onNavigateToNote ? () => setBacklinksOpen(true) : undefined}
         onTrash={onMoveToTrash} onRestore={onRestore} onPermanentDelete={onPermanentDelete}
         status={<>

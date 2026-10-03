@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, type RefObject } from "react";
-import { ChevronRight, FolderPlus, LogOut, Search, SquarePen, X } from "lucide-react";
+import { ChevronRight, FolderPlus, LogOut, Search, SlidersHorizontal, SquarePen, X } from "lucide-react";
 import type { Notebook, NoteView } from "../../shared/types";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { getNotebookIconComponent, navItems } from "./helpers";
@@ -82,10 +82,12 @@ export type MobileBottomBarProps = {
   onNewNote?: () => void;
   searchRef?: RefObject<HTMLInputElement | null>;
   label?: string;
+  onOpenCommands: () => void;
 };
 
-export function MobileBottomBar({ query, setQuery, onNewNote, searchRef, label = "搜索笔记或标签" }: MobileBottomBarProps) {
+export function MobileBottomBar({ query, setQuery, onNewNote, searchRef, onOpenCommands, label = "搜索笔记或标签" }: MobileBottomBarProps) {
   return <footer className="mobile-bottom-bar" aria-label="搜索与新建笔记">
+    <button className="mobile-compose-button" type="button" aria-label="打开命令面板" onClick={onOpenCommands}><SlidersHorizontal size={22} aria-hidden="true" /></button>
     <div className="mobile-bottom-search"><Search size={21} aria-hidden="true" /><input ref={searchRef} type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索笔记或 #标签" aria-label={label} />{query && <button type="button" className="mobile-search-clear" aria-label="清空搜索" onClick={() => setQuery("")}><X size={18} /></button>}</div>
     {onNewNote && <button type="button" className="mobile-compose-button" aria-label="新建笔记" onClick={onNewNote}><SquarePen size={24} /></button>}
   </footer>;

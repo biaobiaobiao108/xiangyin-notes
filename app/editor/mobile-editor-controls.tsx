@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
-import { ArrowLeftRight, ChevronLeft, ImageDown, ImagePlus, ListTree, MoreHorizontal, Star, Trash2, Undo2 } from "lucide-react";
+import { ArrowLeftRight, ChevronLeft, ImageDown, ImagePlus, ListTree, MoreHorizontal, SlidersHorizontal, Star, Trash2, Undo2 } from "lucide-react";
 import type { EditorStats, OutlineItem } from "../editor-metrics";
 import { NoteOutlinePanel } from "../workspace/panels";
 import { EditorStatsPill } from "./editor-panels";
 
-export function MobileEditorHeader({ noteId, title, backLabel, locked, trashBusy, deleted, favorite, backlinkCount, status, onBack, onExport, onFavorite, onBacklinks, onTrash, onRestore, onPermanentDelete }: {
+export function MobileEditorHeader({ noteId, title, backLabel, locked, trashBusy, deleted, favorite, backlinkCount, status, onBack, onExport, onFavorite, onBacklinks, onTrash, onRestore, onPermanentDelete, onOpenCommands }: {
   noteId: string; title: string; backLabel: string; locked: boolean; trashBusy: boolean; deleted: boolean; favorite: boolean; backlinkCount: number; status: ReactNode;
   onBack?: () => void; onExport: () => void; onFavorite: () => void; onBacklinks?: () => void; onTrash: () => void; onRestore: () => void; onPermanentDelete?: () => void;
+  onOpenCommands?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const menuRootRef = useRef<HTMLDivElement>(null);
@@ -40,6 +41,7 @@ export function MobileEditorHeader({ noteId, title, backLabel, locked, trashBusy
     }}>
       <button ref={triggerRef} className="icon-button mobile-editor-more" type="button" aria-label="更多笔记操作" aria-haspopup="menu" aria-expanded={open} aria-controls={open ? "mobile-note-actions" : undefined} onClick={() => setOpen((value) => !value)} disabled={locked}><MoreHorizontal size={22} aria-hidden="true" /></button>
       {open && <div id="mobile-note-actions" className="mobile-editor-menu" role="menu" aria-label="笔记操作" onBlur={(event) => { if (!event.currentTarget.parentElement?.contains(event.relatedTarget)) setOpen(false); }}>
+        {onOpenCommands && <button type="button" role="menuitem" onClick={() => runAction(onOpenCommands)}><SlidersHorizontal size={18} />打开命令面板</button>}
         <button type="button" role="menuitem" onClick={() => runAction(onFavorite)}><Star size={18} fill={favorite ? "currentColor" : "none"} />{favorite ? "取消收藏" : "收藏笔记"}</button>
         <button type="button" role="menuitem" onClick={() => runAction(onExport)}><ImageDown size={18} />导出图片</button>
         {!deleted && onBacklinks && <button type="button" role="menuitem" onClick={() => runAction(onBacklinks)}><ArrowLeftRight size={18} />反向链接{backlinkCount > 0 ? ` (${backlinkCount})` : ""}</button>}

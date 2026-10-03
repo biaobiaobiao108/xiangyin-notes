@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type SyntheticEvent } from "react";
-import { AlignVerticalSpaceAround, Archive, Bookmark, Check, Copy, Download, FilePlus2, FileSearch, FolderInput, ImageDown, LayoutGrid, Maximize2, Monitor, Moon, PanelLeft, Search, Sun, Trash2, type LucideIcon } from "lucide-react";
+import { AlignVerticalSpaceAround, Archive, Bookmark, Check, Copy, Download, FilePlus2, FileSearch, FolderInput, ImageDown, LayoutGrid, Maximize2, Monitor, Moon, PanelLeft, Search, Sun, Trash2, X, type LucideIcon } from "lucide-react";
 import type { Notebook } from "../shared/types";
 import { parseCreateNoteCommand, parseMoveNoteCommand, parseSearchPrefixCommand, type CreateNoteCommand } from "./command-parser";
 import { FloatingScrollbar } from "./floating-scrollbar";
@@ -345,7 +345,7 @@ export function CommandMenu({
 
   return (
     <dialog ref={dialogRef} className="command-dialog" aria-labelledby="command-menu-title" onCancel={handleCancel}>
-      <div className="command-dialog-header"><h2 id="command-menu-title">命令菜单</h2><kbd>Esc</kbd></div>
+      <div className="command-dialog-header"><h2 id="command-menu-title">命令菜单</h2>{isMobileViewport ? <button className="icon-button" type="button" aria-label="关闭命令面板" onClick={onClose}><X size={20} aria-hidden="true" /></button> : <kbd>Esc</kbd>}</div>
       <div className="command-search-wrap">
         <Search size={18} aria-hidden="true" />
         <input
