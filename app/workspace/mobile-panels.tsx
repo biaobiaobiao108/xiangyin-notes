@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, type RefObject } from "react";
-import { ChevronRight, FolderPlus, Search, SquarePen, X } from "lucide-react";
+import { ChevronRight, FolderPlus, LogOut, Search, SquarePen, X } from "lucide-react";
 import type { Notebook, NoteView } from "../../shared/types";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { getNotebookIconComponent, navItems } from "./helpers";
@@ -13,9 +13,10 @@ export type MobileNotebookHomeProps = {
   setNotebookId: (id: string) => void;
   onCreateNotebook: () => void;
   onEditNotebook: (notebook: Notebook) => void;
+  onLogout: () => void;
 };
 
-export const MobileNotebookHome = memo(function MobileNotebookHome({ view, setView, notebooks, notebookId, setNotebookId, onCreateNotebook, onEditNotebook }: MobileNotebookHomeProps) {
+export const MobileNotebookHome = memo(function MobileNotebookHome({ view, setView, notebooks, notebookId, setNotebookId, onCreateNotebook, onEditNotebook, onLogout }: MobileNotebookHomeProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const customNotebooks = notebooks.filter((notebook) => !notebook.isSystem);
 
@@ -36,6 +37,7 @@ export const MobileNotebookHome = memo(function MobileNotebookHome({ view, setVi
         {customNotebooks.length > 0 ? <nav className="mobile-home-group" aria-label="自定义笔记本"><ul>{customNotebooks.map((notebook) => {
           return <li key={notebook.id} className="mobile-notebook-row"><MobileNotebookLink notebook={notebook} selected={notebook.id === notebookId} onOpen={setNotebookId} onEdit={onEditNotebook} /></li>;
         })}</ul></nav> : <div className="mobile-notebooks-empty"><p>为生活与灵感，留一本手记。</p><button type="button" onClick={onCreateNotebook}>新建笔记本</button></div>}
+        <button className="mobile-logout-button" type="button" onClick={onLogout}><LogOut size={18} aria-hidden="true" />退出登录</button>
       </div>
       <FloatingScrollbar scrollTargetRef={scrollRef} controlsId="mobile-notebooks-scroll" ariaLabel="笔记本首页滚动条" placement="right" />
     </div>
