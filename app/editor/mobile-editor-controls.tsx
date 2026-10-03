@@ -4,10 +4,10 @@ import type { EditorStats, OutlineItem } from "../editor-metrics";
 import { NoteOutlinePanel } from "../workspace/panels";
 import { EditorStatsPill } from "./editor-panels";
 
-export function MobileEditorHeader({ noteId, title, backLabel, locked, trashBusy, deleted, favorite, backlinkCount, status, onBack, onExport, onFavorite, onBacklinks, onTrash, onRestore, onPermanentDelete, onOpenCommands }: {
+export function MobileEditorHeader({ noteId, title, backLabel, locked, trashBusy, deleted, favorite, backlinkCount, status, onBack, onExport, onFavorite, onBacklinks, onTrash, onRestore, onPermanentDelete, canUpload, onUpload }: {
   noteId: string; title: string; backLabel: string; locked: boolean; trashBusy: boolean; deleted: boolean; favorite: boolean; backlinkCount: number; status: ReactNode;
   onBack?: () => void; onExport: () => void; onFavorite: () => void; onBacklinks?: () => void; onTrash: () => void; onRestore: () => void; onPermanentDelete?: () => void;
-  onOpenCommands?: () => void;
+  canUpload: boolean; onUpload: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const menuRootRef = useRef<HTMLDivElement>(null);
@@ -41,7 +41,7 @@ export function MobileEditorHeader({ noteId, title, backLabel, locked, trashBusy
     }}>
       <button ref={triggerRef} className="icon-button mobile-editor-more" type="button" aria-label="更多笔记操作" aria-haspopup="menu" aria-expanded={open} aria-controls={open ? "mobile-note-actions" : undefined} onClick={() => setOpen((value) => !value)} disabled={locked}><MoreHorizontal size={22} aria-hidden="true" /></button>
       {open && <div id="mobile-note-actions" className="mobile-editor-menu" role="menu" aria-label="笔记操作" onBlur={(event) => { if (!event.currentTarget.parentElement?.contains(event.relatedTarget)) setOpen(false); }}>
-        {onOpenCommands && <button type="button" role="menuitem" onClick={() => runAction(onOpenCommands)}><SlidersHorizontal size={18} />打开命令面板</button>}
+        {!deleted && <button type="button" role="menuitem" disabled={!canUpload} onClick={() => runAction(onUpload)}><ImagePlus size={18} />上传图片</button>}
         <button type="button" role="menuitem" onClick={() => runAction(onFavorite)}><Star size={18} fill={favorite ? "currentColor" : "none"} />{favorite ? "取消收藏" : "收藏笔记"}</button>
         <button type="button" role="menuitem" onClick={() => runAction(onExport)}><ImageDown size={18} />导出图片</button>
         {!deleted && onBacklinks && <button type="button" role="menuitem" onClick={() => runAction(onBacklinks)}><ArrowLeftRight size={18} />反向链接{backlinkCount > 0 ? ` (${backlinkCount})` : ""}</button>}
@@ -54,11 +54,11 @@ export function MobileEditorHeader({ noteId, title, backLabel, locked, trashBusy
   </header>;
 }
 
-export function MobileEditorFooter({ stats, outlineOpen, outlineTriggerRef, locked, canUpload, onUpload, onToggleOutline }: {
-  stats: EditorStats; outlineOpen: boolean; outlineTriggerRef: RefObject<HTMLButtonElement | null>; locked: boolean; canUpload: boolean; onUpload: () => void; onToggleOutline: () => void;
+export function MobileEditorFooter({ stats, outlineOpen, outlineTriggerRef, locked, onOpenCommands, onToggleOutline }: {
+  stats: EditorStats; outlineOpen: boolean; outlineTriggerRef: RefObject<HTMLButtonElement | null>; locked: boolean; onOpenCommands?: () => void; onToggleOutline: () => void;
 }) {
   return <footer className="mobile-editor-footer" aria-label="笔记工具">
-    <button className="icon-button" type="button" aria-label="上传图片" title="上传图片" disabled={locked || !canUpload} onClick={onUpload}><ImagePlus size={22} aria-hidden="true" /></button>
+    <button className="icon-button" type="button" aria-label="打开命令面板" title="打开命令面板" disabled={locked || !onOpenCommands} onClick={onOpenCommands}><SlidersHorizontal size={22} aria-hidden="true" /></button>
     <EditorStatsPill stats={stats} />
     <button ref={outlineTriggerRef} className={`icon-button ${outlineOpen ? "is-active" : ""}`} type="button" aria-label={outlineOpen ? "关闭笔记大纲" : "打开笔记大纲"} aria-expanded={outlineOpen} aria-controls={outlineOpen ? "note-outline" : undefined} disabled={locked} onClick={onToggleOutline}><ListTree size={22} aria-hidden="true" /></button>
   </footer>;
