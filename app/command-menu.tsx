@@ -187,6 +187,7 @@ export function CommandMenu({
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
+    let focusFrame = 0;
     if (open && !dialog.open) {
       mobileTouchScrollingRef.current = false;
       lastMousePositionRef.current = null;
@@ -196,12 +197,16 @@ export function CommandMenu({
       const nextQuery = initialQuery ?? "";
       setQuery(nextQuery);
       setSelected(0);
-      requestAnimationFrame(() => {
-        searchRef.current?.focus();
-        if (nextQuery) {
-          searchRef.current?.select();
-        }
-      });
+      // Browsing commands on touch should not start a keyboard/viewport transition
+      // while Safari is still creating the dialog's native scrolling layer.
+      // An explicit search query still opens directly into search.
+      if (!isMobileViewport || nextQuery) {
+        focusFrame = requestAnimationFrame(() => {
+          if (!dialog.open) return;
+          searchRef.current?.focus(isMobileViewport ? { preventScroll: true } : undefined);
+          if (nextQuery) searchRef.current?.select();
+        });
+      }
     }
     if (!open && dialog.open) {
       lastMousePositionRef.current = null;
@@ -210,7 +215,8 @@ export function CommandMenu({
       returnFocusRef.current = null;
       if (target?.isConnected) target.focus({ preventScroll: true });
     }
-  }, [initialQuery, open]);
+    return () => cancelAnimationFrame(focusFrame);
+  }, [initialQuery, isMobileViewport, open]);
 
   useEffect(() => {
     setSelected((current) => Math.min(current, Math.max(options.length - 1, 0)));
