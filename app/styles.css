@@ -998,8 +998,8 @@ dialog::backdrop {
 .notebook-dialog .dialog-field input:focus { border-color: var(--accent-border-soft); background: var(--surface); }
 .notebook-dialog .dialog-actions { gap: 12px; padding-top: 4px; }
 .notebook-dialog .dialog-actions button { flex: 1; min-height: 44px; justify-content: center; font-size: 14px; }
-.notebook-dialog .notebook-delete-button { color: var(--danger); background: var(--canvas); border-color: var(--border-soft); }
-.notebook-dialog .notebook-delete-button:hover, .notebook-dialog .notebook-delete-button:focus-visible { background: var(--accent-soft); }
+.notebook-dialog .notebook-delete-button { flex: 0 0 auto; padding-inline: 8px; color: var(--danger); background: transparent; border: 0; box-shadow: none; font-size: 13px; }
+.notebook-dialog .notebook-delete-button:hover, .notebook-dialog .notebook-delete-button:focus-visible { background: var(--surface-muted); }
 .confirm-dialog { width: min(430px, calc(100% - 32px)); border: 1px solid var(--border-soft); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow-float); animation: dialog-in var(--motion-panel) var(--motion-ease-out) both; }
 .confirm-dialog .dialog-heading p { max-width: 340px; line-height: 1.55; }
 .dialog-eyebrow.is-danger { color: var(--danger); }

@@ -65,8 +65,24 @@ export function MobileEditorFooter({ stats, outlineOpen, outlineTriggerRef, lock
 export function MobileEditorOutline({ items, activeId, onNavigate, onClose }: {
   items: OutlineItem[]; activeId: string | null; onNavigate: (id: string) => void; onClose: () => void;
 }) {
-  return <>
+  const layerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const layer = layerRef.current;
+    (layer?.querySelector<HTMLButtonElement>(".editor-outline-item button") ?? layer)?.focus({ preventScroll: true });
+    return () => { if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true }); };
+  }, []);
+  return <div ref={layerRef} className="mobile-editor-outline-layer" role="dialog" aria-modal="true" aria-label="笔记大纲" tabIndex={-1} onKeyDown={(event) => {
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+    if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); onClose(); }
+    if (event.key === "Tab") {
+      const items = Array.from(layerRef.current?.querySelectorAll<HTMLButtonElement>(".editor-outline-item button") ?? []);
+      const index = items.indexOf(document.activeElement as HTMLButtonElement);
+      event.preventDefault();
+      if (items.length) items[(index + (event.shiftKey ? -1 : 1) + items.length) % items.length]?.focus();
+    }
+  }}>
     <button className="mobile-editor-outline-backdrop" type="button" tabIndex={-1} aria-label="关闭笔记大纲" onClick={onClose} />
-    <div className="editor-floating-outline mobile-editor-outline"><NoteOutlinePanel outlineItems={items} activeOutlineId={activeId} onScrollToOutlineItem={onNavigate} onCloseOutline={onClose} isFloating /></div>
-  </>;
+    <div className="mobile-editor-outline"><NoteOutlinePanel outlineItems={items} activeOutlineId={activeId} onScrollToOutlineItem={onNavigate} onCloseOutline={onClose} isFloating /></div>
+  </div>;
 }

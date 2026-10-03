@@ -71,8 +71,8 @@
     position: absolute;
     top: calc(100% + 10px);
     right: 0;
-    width: min(230px, calc(100vw - 28px));
-    padding: 7px;
+    width: min(180px, calc(100vw - 40px));
+    padding: 4px;
     border: 1px solid var(--border-soft);
     border-radius: var(--radius-lg);
     background: var(--surface-glass-menu);
@@ -84,10 +84,10 @@
   .is-mobile-editor .mobile-editor-menu button {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 9px;
     width: 100%;
     min-height: 44px;
-    padding: 9px 12px;
+    padding: 6px 10px;
     border: 0;
     border-radius: var(--radius-sm);
     background: transparent;
@@ -134,8 +134,7 @@
     padding: 8px 12px;
   }
   .is-mobile-editor .editor-scroll-shell { flex: 1 1 0; }
-  .app-shell .is-mobile-editor .editor-document,
-  .app-shell .is-mobile-editor:has(.editor-floating-outline) .editor-document {
+  .app-shell .is-mobile-editor .editor-document {
     width: calc(100% - 40px);
     margin-inline: auto;
     padding-top: calc(var(--mobile-editor-bar) + 38px + env(safe-area-inset-top));
@@ -150,7 +149,10 @@
     transform: none;
   }
   .is-mobile-editor .editor-floating-tools .editor-stats-pill { display: none; }
-  .is-mobile-editor .editor-floating-outline {
+  .is-mobile-editor .mobile-editor-outline-layer { position: absolute; inset: 0; z-index: 100; }
+  .is-mobile-editor .mobile-editor-outline {
+    position: absolute;
+    z-index: 1;
     top: calc(var(--mobile-editor-bar) + 22px + env(safe-area-inset-top));
     bottom: calc(86px + env(safe-area-inset-bottom));
     left: 14px;
@@ -163,8 +165,8 @@
   }
   .is-mobile-editor .mobile-editor-outline-backdrop {
     position: absolute;
-    inset: calc(var(--mobile-editor-bar) + 8px + env(safe-area-inset-top)) 0 calc(68px + env(safe-area-inset-bottom));
-    z-index: 29;
+    inset: 0;
+    z-index: 0;
     padding: 0;
     border: 0;
     border-radius: 0;
@@ -174,6 +176,12 @@
     cursor: default;
   }
   .is-mobile-editor .mobile-editor-outline-backdrop:focus-visible { background: color-mix(in srgb, var(--canvas) 40%, transparent); }
-  .is-mobile-editor .editor-floating-outline .editor-outline-item button { min-height: 44px; }
+  .is-mobile-editor .mobile-editor-outline .note-outline-panel { background: transparent; border: 0; height: 100%; }
+  .is-mobile-editor .mobile-editor-outline .note-outline-scroll-shell { display: flex; align-items: center; }
+  .is-mobile-editor .mobile-editor-outline .note-outline-scroll { flex: none; width: 100%; display: flex; flex-direction: column; padding: 14px 0; scroll-snap-type: y mandatory; scroll-padding-block: 14px; clip-path: inset(14px 0); }
+  .is-mobile-editor .mobile-editor-outline .note-outline-scroll > nav,
+  .is-mobile-editor .mobile-editor-outline .editor-outline-empty { flex-shrink: 0; margin-block: auto; }
+  .is-mobile-editor .mobile-editor-outline .editor-outline-item { scroll-snap-align: start; }
+  .is-mobile-editor .mobile-editor-outline .editor-outline-item button { min-height: 44px; }
   .is-mobile-editor button:focus-visible { background: var(--accent-soft); }
 }
