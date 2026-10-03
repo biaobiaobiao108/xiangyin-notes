@@ -1104,6 +1104,11 @@ export function Workspace() {
   const handleExportNotes = useCallback(async () => {
     setToast("正在生成笔记压缩包……");
     try {
+      await flushPendingSaves("now");
+      if (hasUnsavedWork()) {
+        setToast("仍有内容未保存，请保存成功后再导出");
+        return;
+      }
       const response = await fetch("/api/export", { credentials: "include" });
       if (!response.ok) throw new Error("export-failed");
       const blob = await response.blob();
@@ -1119,7 +1124,7 @@ export function Workspace() {
     } catch {
       setToast("导出失败，请检查网络后重试");
     }
-  }, []);
+  }, [flushPendingSaves, hasUnsavedWork]);
   const handleExportImage = useCallback(() => {
     flushEditorDraftRef.current();
     const note = selectedRef.current;
