@@ -1,5 +1,4 @@
 import { lazy, memo, Suspense, useCallback, useDeferredValue, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
-import { RefreshCw } from "lucide-react";
 import { useNavigate } from "react-router";
 import { ApiError, api } from "./api";
 import { CommandId, CommandMenu } from "./command-menu";
@@ -22,6 +21,8 @@ import { latestSelectedNoteSnapshot, refreshSelectedNote } from "./workspace/sel
 import { useWorkspaceShortcuts } from "./workspace/use-workspace-shortcuts";
 import { useMobileNavigation, type MobileListContext, type MobilePage } from "./workspace/use-mobile-navigation";
 import { useMobileViewport } from "./workspace/use-mobile-viewport";
+import { useNotices } from "./workspace/use-notices";
+import { SystemNotices } from "./workspace/system-notices";
 import { MobileNotebookHome, MobileBottomBar } from "./workspace/mobile-panels";
 import { viewLabel } from "./workspace/helpers";
 import { useThemePreference } from "./theme";
@@ -180,7 +181,7 @@ export function Workspace() {
   const [commandInitialQuery, setCommandInitialQuery] = useState("");
   const [inNoteSearchQuery, setInNoteSearchQuery] = useState("");
   const [editingNotebook, setEditingNotebook] = useState<Notebook | null | undefined>(undefined);
-  const [toast, setToast] = useState("");
+  const { notice, notifyError, notifyWarning, notifyInfo, dismiss: dismissNotice, setPaused: pauseNotice } = useNotices();
   const [ready, setReady] = useState(false);
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
   const [noteReloadToken, setNoteReloadToken] = useState(0);
@@ -212,7 +213,7 @@ export function Workspace() {
     flushEditorDraftRef,
     replaceList,
     setSelectedNote,
-    setToast,
+    setToast: notifyError,
   });
   const persistRef = useRef(persist);
   persistRef.current = persist;
@@ -318,7 +319,7 @@ export function Workspace() {
       setHasMoreNotes(Boolean(result.hasMore));
       nextNotesCursorRef.current = result.nextCursor ?? null;
     } catch {
-      setToast("加载更多笔记失败，请重试");
+      notifyError("加载更多笔记失败，请重试");
     } finally {
       setIsLoadingMore(false);
     }
@@ -375,7 +376,7 @@ export function Workspace() {
       setCardEditingNoteId(note.id);
       openMobileNote({ view: note.deletedAt !== null ? "trash" : "all", notebookId: note.deletedAt !== null ? undefined : note.notebookId, query: "", noteId: note.id, searchOrigin: null });
     }).catch((error) => {
-      if (!controller.signal.aborted) setToast(errorMessage(error, "无法打开链接中的笔记"));
+      if (!controller.signal.aborted) notifyError(errorMessage(error, "无法打开链接中的笔记"));
     }).finally(() => {
       if (controller.signal.aborted) return;
       pendingLinkedNoteRef.current = null;
@@ -460,11 +461,11 @@ export function Workspace() {
         if (recoveredDraft && !pendingSavesRef.current.has(id)) {
           pendingSavesRef.current.set(id, recoveredDraft);
           if (recoveredDraft.version === loadedNote.version) {
-            setToast("已恢复一份未保存草稿");
+            notifyWarning("已恢复一份未保存草稿");
           } else {
             failedSavesRef.current.set(id, new ApiError(409, "VERSION_CONFLICT", "恢复的草稿与服务器版本不同"));
             setSaveState("conflict");
-            setToast("已保留未保存草稿；服务器版本已变化，请先复制需要的修改再重新载入");
+            notifyWarning("已保留未保存草稿；服务器版本已变化，请先复制需要的修改再重新载入");
           }
         }
       }
@@ -502,7 +503,7 @@ export function Workspace() {
         setSelectedId(null);
         setSelectedNote(null);
       }
-      setToast("无法打开这篇笔记");
+      notifyError("无法打开这篇笔记");
     } finally {
       if (noteAbortRef.current === controller) noteAbortRef.current = null;
     }
@@ -560,7 +561,6 @@ export function Workspace() {
     outlineOpen,
     closeOutline,
   });
-  useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(""), 3000); return () => clearTimeout(timer); }, [toast]);
 
 
   const onNoteChange = useCallback((patch: { title?: string; contentMarkdown?: string; notebookId?: string }) => {
@@ -606,7 +606,6 @@ export function Workspace() {
         refreshNotebooks();
         reloadNotes();
       });
-      setToast(targetNotebook ? `已移至“${targetNotebook.name}”` : "已变更所属笔记本");
     } else {
       persist(next, Object.keys(patch) as Array<"title" | "contentMarkdown" | "notebookId">);
     }
@@ -628,7 +627,7 @@ export function Workspace() {
     persistRef.current(next, ["contentMarkdown"]);
   }, []);
   flushEditorDraftRef.current = flushActiveEditorDraft;
-  const revealCreatedNote = useCallback((note: Note, target: { view: NoteView; notebookId?: string }, message: string) => {
+  const revealCreatedNote = useCallback((note: Note, target: { view: NoteView; notebookId?: string }) => {
     flushEditorDraftRef.current();
     invalidateCollections();
     searchOriginRef.current = null;
@@ -647,7 +646,6 @@ export function Workspace() {
     setSelectedId(note.id);
     setCardEditingNoteId(note.id);
     openMobileNote({ ...target, query: "", noteId: note.id, searchOrigin: null });
-    setToast(message);
   }, [openMobileNote, playListTransition]);
   const createNoteHere = useCallback(async () => {
     const currentNotebook = notebookId ? notebooks.find((notebook) => notebook.id === notebookId) : undefined;
@@ -655,9 +653,9 @@ export function Workspace() {
     const staysInView = Boolean(currentNotebook) || view === "all" || view === "inbox";
     try {
       const result = await api.createNote(currentNotebook ? { notebookId: currentNotebook.id } : { notebookId: inbox?.id });
-      revealCreatedNote(result.note, { view: currentNotebook || !staysInView ? "all" : view, notebookId: currentNotebook?.id }, currentNotebook ? `已在“${currentNotebook.name}”中创建新笔记` : "已在收件箱中创建新笔记");
+      revealCreatedNote(result.note, { view: currentNotebook || !staysInView ? "all" : view, notebookId: currentNotebook?.id });
       void refreshNotebooks();
-    } catch (reason) { setToast(errorMessage(reason, "创建笔记失败")); }
+    } catch (reason) { notifyError(errorMessage(reason, "创建笔记失败")); }
   }, [notebookId, notebooks, refreshNotebooks, revealCreatedNote, view]);
   const createNoteInInbox = useCallback(async () => {
     if (inboxNoteCreationRef.current) return;
@@ -665,10 +663,10 @@ export function Workspace() {
     inboxNoteCreationRef.current = true;
     try {
       const result = await api.createNote(inbox ? { notebookId: inbox.id } : {});
-      revealCreatedNote(result.note, { view: "inbox", notebookId: result.note.notebookId }, "已在收件箱中创建新笔记");
+      revealCreatedNote(result.note, { view: "inbox", notebookId: result.note.notebookId });
       void refreshNotebooks();
     } catch (reason) {
-      setToast(errorMessage(reason, "创建笔记失败"));
+      notifyError(errorMessage(reason, "创建笔记失败"));
     } finally {
       inboxNoteCreationRef.current = false;
     }
@@ -676,9 +674,9 @@ export function Workspace() {
   const createNoteInNotebook = useCallback(async (commandToCreate: CreateNoteCommand) => {
     try {
       const result = await api.createNote({ notebookId: commandToCreate.notebookId, title: commandToCreate.title });
-      revealCreatedNote(result.note, { view: "all", notebookId: commandToCreate.notebookId }, `已在“${commandToCreate.notebookName}”中创建“${commandToCreate.title}”`);
+      revealCreatedNote(result.note, { view: "all", notebookId: commandToCreate.notebookId });
       void refreshNotebooks();
-    } catch (reason) { if (reason instanceof ApiError && reason.status === 401) navigate(`/login${window.location.search}`, { replace: true }); setToast(errorMessage(reason, "创建笔记失败，请稍后重试")); }
+    } catch (reason) { if (reason instanceof ApiError && reason.status === 401) navigate(`/login${window.location.search}`, { replace: true }); notifyError(errorMessage(reason, "创建笔记失败，请稍后重试")); }
   }, [navigate, notebooks, refreshNotebooks, revealCreatedNote]);
   const createNotebook = useCallback(() => setEditingNotebook(null), []);
   const saveNotebook = useCallback((saved: Notebook) => {
@@ -693,12 +691,10 @@ export function Workspace() {
         selectedRef.current = next;
         setSelectedNote(next);
       }
-      setToast(`已更新笔记本“${saved.name}”`);
     } else {
       setNotebookId(saved.id);
       setView("all");
       openMobileList({ view: "all", notebookId: saved.id, query: "", searchOrigin: null });
-      setToast(`已创建笔记本“${saved.name}”`);
     }
     setEditingNotebook(undefined);
   }, [openMobileList, editingNotebook]);
@@ -721,7 +717,7 @@ export function Workspace() {
     hasPendingWork: (id) => pendingSavesRef.current.has(id) || failedSavesRef.current.has(id) || editorMarkdownDirtyNoteRef.current === id,
     onConflict: () => {
       setSaveState("conflict");
-      setToast("当前笔记已在其他设备更新，请先保存或重新载入");
+      notifyWarning("当前笔记已在其他设备更新，请先保存或重新载入");
     },
     onUpdated: (note) => {
       setSelectedNote(note);
@@ -731,7 +727,7 @@ export function Workspace() {
     },
     onUnauthorized: () => navigate(`/login${window.location.search}`, { replace: true }),
     onNotFound: removeFromList,
-    onError: () => setToast("同步当前笔记失败，请稍后重试"),
+    onError: () => notifyError("同步当前笔记失败，请稍后重试"),
   }), [failedSavesRef, navigate, pendingSavesRef, removeFromList, replaceList, setSaveState]);
   const deleteNotebook = useCallback(async (id: string) => {
     const target = notebooks.find((notebook) => notebook.id === id);
@@ -745,7 +741,6 @@ export function Workspace() {
     refreshNotebooks();
     void loadNotes();
     setEditingNotebook(undefined);
-    setToast("已删除笔记本，原笔记已归入收件箱");
   }, [flushNotebookSaves, loadNotes, notebookId, notebooks, refreshNotebooks, refreshSelectedNoteFromRemote]);
   const toggleFavorite = useCallback(() => {
     const current = selectedRef.current;
@@ -782,11 +777,10 @@ export function Workspace() {
     try {
       await saveImmediately(next, false, ["deleted"]);
       if (scope === listScopeRef.current) removeFromList(current.id);
-      setToast(deleted ? "已移入回收站" : "已恢复笔记");
     } catch (reason) {
       pendingSavesRef.current.set(current.id, toNoteDraft(current));
       setNotebooks((items) => items.map((notebook) => notebook.id === current.notebookId ? { ...notebook, count: Math.max(0, notebook.count + (deleted ? 1 : -1)) } : notebook));
-      setToast(reason instanceof ApiError && reason.code === "VERSION_CONFLICT" ? "这篇笔记已在别处更新，操作未完成，本地草稿已保留" : errorMessage(reason, deleted ? "移入回收站失败，请重试" : "恢复笔记失败，请重试"));
+      notifyError(reason instanceof ApiError && reason.code === "VERSION_CONFLICT" ? "这篇笔记已在别处更新，操作未完成，本地草稿已保留" : errorMessage(reason, deleted ? "移入回收站失败，请重试" : "恢复笔记失败，请重试"));
     } finally { finishTrashOperation(current.id); }
   }, [finishTrashOperation, invalidateCollections, pendingSavesRef, removeFromList, saveImmediately]);
   const moveToTrash = useCallback(() => { void changeDeletedState(true); }, [changeDeletedState]);
@@ -816,7 +810,6 @@ export function Workspace() {
       const result = permanent ? await api.deleteNotes(entries) : await api.moveNotesToTrash(entries);
       for (const id of result.deletedIds) discardNoteDraft(id);
       removeManyFromList(result.deletedIds);
-      setToast(permanent ? `已彻底删除 ${result.deletedIds.length} 篇笔记` : `已移入回收站 ${result.deletedIds.length} 篇笔记`);
     } finally {
       ids.forEach((id) => trashOperationsRef.current.delete(id));
       setPendingTrashCount(trashOperationsRef.current.size);
@@ -826,7 +819,7 @@ export function Workspace() {
     }
   }, [discardNoteDraft, getBatchEntries, invalidateCollections, refreshNotebooks, reloadNotes, removeManyFromList, runSave]);
   const showBatchDeleteError = useCallback((reason: unknown) => {
-    setToast(reason instanceof ApiError && reason.code === "VERSION_CONFLICT" ? "选中的笔记已发生变化，请重新选择后重试" : errorMessage(reason, "批量删除失败，请重试"));
+    notifyError(reason instanceof ApiError && reason.code === "VERSION_CONFLICT" ? "选中的笔记已发生变化，请重新选择后重试" : errorMessage(reason, "批量删除失败，请重试"));
   }, []);
   const deleteSelectedNotes = useCallback(() => {
     const ids = [...noteSelectionRef.current.ids];
@@ -855,7 +848,6 @@ export function Workspace() {
       await api.deleteNote(noteId);
       removeFromList(noteId);
       discardNoteDraft(noteId);
-      setToast("已彻底删除笔记");
     } finally { finishTrashOperation(noteId); }
   }, [discardNoteDraft, finishTrashOperation, invalidateCollections, removeFromList, runSave]);
   const permanentDeleteNote = useCallback(async () => {
@@ -884,7 +876,6 @@ export function Workspace() {
       const result = await api.emptyTrash();
       for (const id of result.deletedIds) { removeFromList(id); discardNoteDraft(id); }
       if (scope === listScopeRef.current) { replaceList([]); setTotalNotes(0); selectNote(null); }
-      setToast(`回收站已清空，已彻底删除 ${result.deletedCount} 篇笔记`);
     } finally {
       emptyingTrashRef.current = false;
       setEmptyingTrash(false);
@@ -908,7 +899,6 @@ export function Workspace() {
   const handleMoveSelectedToNotebook = useCallback(async (targetNotebookId: string) => {
     const ids = [...noteSelectionRef.current.ids];
     if (!ids.length) return;
-    const targetNotebook = notebooks.find((nb) => nb.id === targetNotebookId);
     try {
       await Promise.all(
         ids.map(async (id) => {
@@ -920,44 +910,40 @@ export function Workspace() {
       clearNoteSelection();
       void loadNotes();
       void refreshNotebooks();
-      setToast(`已将 ${ids.length} 篇笔记移动到“${targetNotebook?.name ?? "笔记本"}”`);
     } catch (reason) {
-      setToast(errorMessage(reason, "移动笔记失败"));
+      notifyError(errorMessage(reason, "移动笔记失败"));
     }
-  }, [clearNoteSelection, loadNotes, notebooks, refreshNotebooks, setToast]);
+  }, [clearNoteSelection, loadNotes, refreshNotebooks, notifyError]);
 
   const handleToggleFavoriteCardNote = useCallback(async (target: NoteSummary) => {
     const isFavorite = !target.isFavorite;
     try {
       await saveFavorite(target.id, isFavorite);
       if (view === "favorites" && !isFavorite) removeFromList(target.id);
-      setToast(isFavorite ? "已加入收藏" : "已取消收藏");
     } catch (reason) {
-      setToast(errorMessage(reason, "操作失败"));
+      notifyError(errorMessage(reason, "操作失败"));
     }
-  }, [removeFromList, saveFavorite, setToast, view]);
+  }, [removeFromList, saveFavorite, notifyError, view]);
 
   const handleMoveCardNoteToTrash = useCallback(async (target: NoteSummary) => {
     try {
       await api.moveNotesToTrash([{ id: target.id, version: target.version }]);
       clearPendingForNote(target.id);
       removeFromList(target.id);
-      setToast("已移入回收站");
     } catch (reason) {
-      setToast(errorMessage(reason, "移入回收站失败"));
+      notifyError(errorMessage(reason, "移入回收站失败"));
     }
-  }, [clearPendingForNote, removeFromList, setToast]);
+  }, [clearPendingForNote, removeFromList, notifyError]);
 
   const handleRestoreCardNote = useCallback(async (target: NoteSummary) => {
     try {
       await api.updateNote(target.id, { version: target.version, deleted: false }, { response: "summary" });
       clearPendingForNote(target.id);
       removeFromList(target.id);
-      setToast("已从回收站恢复");
     } catch (reason) {
-      setToast(errorMessage(reason, "恢复笔记失败"));
+      notifyError(errorMessage(reason, "恢复笔记失败"));
     }
-  }, [clearPendingForNote, removeFromList, setToast]);
+  }, [clearPendingForNote, removeFromList, notifyError]);
 
   const handlePermanentDeleteCardNote = useCallback((target: NoteSummary) => {
     requestConfirm({
@@ -971,13 +957,12 @@ export function Workspace() {
           await api.deleteNotes([{ id: target.id, version: target.version }]);
           clearPendingForNote(target.id);
           removeFromList(target.id);
-          setToast("已彻底删除笔记");
         } catch (reason) {
-          setToast(errorMessage(reason, "删除笔记失败"));
+          notifyError(errorMessage(reason, "删除笔记失败"));
         }
       },
     });
-  }, [clearPendingForNote, removeFromList, requestConfirm, setToast]);
+  }, [clearPendingForNote, removeFromList, requestConfirm, notifyError]);
   const reloadSelectedNote = useCallback(async () => {
     const current = selectedRef.current;
     if (!current) return;
@@ -990,9 +975,8 @@ export function Workspace() {
       setSelectedNote(result.note);
       setNoteReloadToken((value) => value + 1);
       setSaveState("idle");
-      setToast("已重新载入最新版本");
     } catch {
-      setToast("重新载入失败，请重试");
+      notifyError("重新载入失败，请重试");
     } finally {
       setIsNoteLoading(false);
     }
@@ -1072,7 +1056,7 @@ export function Workspace() {
     const normalized = term.trim();
     if (!normalized) return;
     if (!selectedRef.current) {
-      setToast("当前未打开笔记，无法在单篇笔记内查找");
+      notifyWarning("当前未打开笔记，无法在单篇笔记内查找");
       return;
     }
     setInNoteSearchQuery(normalized);
@@ -1103,11 +1087,10 @@ export function Workspace() {
     }
   }, [changeQuery, query]);
   const handleExportNotes = useCallback(async () => {
-    setToast("正在生成笔记压缩包……");
     try {
       await flushPendingSaves("now");
       if (hasUnsavedWork()) {
-        setToast("仍有内容未保存，请保存成功后再导出");
+        notifyWarning("仍有内容未保存，请保存成功后再导出");
         return;
       }
       const response = await fetch("/api/export", { credentials: "include" });
@@ -1121,9 +1104,8 @@ export function Workspace() {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-      setToast("笔记压缩包已下载");
     } catch {
-      setToast("导出失败，请检查网络后重试");
+      notifyError("导出失败，请检查网络后重试");
     }
   }, [flushPendingSaves, hasUnsavedWork]);
   const handleExportImage = useCallback(() => {
@@ -1141,9 +1123,9 @@ export function Workspace() {
     try {
       if (!navigator.clipboard?.writeText) throw new Error("clipboard-unavailable");
       await navigator.clipboard.writeText(markdown);
-      setToast("笔记 Markdown 已复制");
+      notifyInfo("笔记 Markdown 已复制");
     } catch {
-      setToast("复制失败，请检查浏览器剪贴板权限");
+      notifyError("复制失败，请检查浏览器剪贴板权限");
     }
   }, []);
   const command = useCallback((id: CommandId) => {
@@ -1167,7 +1149,7 @@ export function Workspace() {
     if (id === "restore") restoreFromTrash();
     if (id === "export-image") handleExportImage();
     if (id === "export-notes") void handleExportNotes();
-    if (id === "install-app") { if (pwaState.canInstall) void installPwa(); else if (pwaState.showIosInstallHint && !pwaState.standalone) setToast("请在 Safari 中点击分享，再选择“添加到主屏幕”"); }
+    if (id === "install-app") { if (pwaState.canInstall) void installPwa(); else if (pwaState.showIosInstallHint && !pwaState.standalone) notifyInfo("请在 Safari 中点击分享，再选择“添加到主屏幕”"); }
   }, [copyNoteMarkdown, createNoteInInbox, handleExportImage, handleExportNotes, isMobileViewport, moveToTrash, openMobileHome, pwaState, restoreFromTrash, setThemePreference, toggleFavorite, toggleFocusMode, toggleTypewriterMode, toggleViewLayout]);
   useEffect(() => {
     if (!ready || shortcutHandledRef.current) return;
@@ -1180,7 +1162,7 @@ export function Workspace() {
   const logout = useCallback(async () => {
     await flushPendingSaves("now");
     if (hasUnsavedWork()) {
-      setToast("仍有内容未保存，请稍后再退出");
+      notifyWarning("仍有内容未保存，请稍后再退出");
       return;
     }
     await api.logout().catch(() => undefined);
@@ -1189,7 +1171,7 @@ export function Workspace() {
   }, [flushPendingSaves, navigate]);
   const updatePwa = useCallback(async () => {
     await flushPendingSaves("now");
-    if (hasUnsavedWork()) { setToast("仍有编辑内容未保存，更新已暂缓"); return; }
+    if (hasUnsavedWork()) { notifyWarning("仍有编辑内容未保存，更新已暂缓"); return; }
     applyPwaUpdate();
   }, [flushPendingSaves, hasUnsavedWork]);
 
@@ -1251,7 +1233,7 @@ export function Workspace() {
       if (note) {
         selectNote(note.id);
       } else {
-        setToast("打开或创建笔记失败，请重试");
+        notifyError("打开或创建笔记失败，请重试");
       }
     },
     [ensureWikiNoteExists, selectNote],
@@ -1379,7 +1361,7 @@ export function Workspace() {
       />
     ) : (
       <main ref={editorRegionRef} className="editor-region" tabIndex={-1} aria-hidden={editorContentInert || undefined} inert={editorContentInert}>
-        {mountEditor && renderedNote ? <Suspense fallback={<NoteLoadingState />}><LazyNoteEditor note={renderedNote} availableNotes={notes} onNavigateWikiLink={handleNavigateWikiLink} onCreateAndLinkNote={handleCreateAndLinkNote} onNavigateToNote={selectNote} searchQuery={activeSearchQuery} onClearSearch={activeSearchQuery ? handleClearSearch : undefined} onToast={setToast} onMarkdownReaderChange={registerEditorMarkdownReader} onMarkdownDirtyChange={registerEditorMarkdownDirty} saveState={saveState} isLoading={isNoteLoading} trashBusy={emptyingTrash || (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onExportImage={handleExportImage} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={handleOpenList} onOpenCommands={handleOpenCommands} isMobileViewport={isMobileViewport} mobileBackLabel={query ? "搜索结果" : currentNotebook?.name ?? viewLabel(view)} onBackToCards={isCardsLayout ? () => setCardEditingNoteId(null) : undefined} onUploadImage={handleUploadImage} focusMode={focusMode} typewriterMode={typewriterMode} outlineOpen={outlineOpen} outlineItems={outlineItems} activeOutlineId={activeOutlineId} onToggleOutline={toggleOutline} onCloseOutline={closeOutline} onOutlineItemsChange={handleOutlineItemsChange} onOutlineActiveChange={handleOutlineActiveChange} onOutlineNavigationReady={handleOutlineNavigationReady} /></Suspense> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor isTrash={view === "trash"} onNewNote={handleNewNote} onOpenList={handleOpenList} transitionToken={listTransitionToken} />}
+        {mountEditor && renderedNote ? <Suspense fallback={<NoteLoadingState />}><LazyNoteEditor note={renderedNote} availableNotes={notes} onNavigateWikiLink={handleNavigateWikiLink} onCreateAndLinkNote={handleCreateAndLinkNote} onNavigateToNote={selectNote} searchQuery={activeSearchQuery} onClearSearch={activeSearchQuery ? handleClearSearch : undefined} onMarkdownReaderChange={registerEditorMarkdownReader} onMarkdownDirtyChange={registerEditorMarkdownDirty} saveState={saveState} isLoading={isNoteLoading} trashBusy={emptyingTrash || (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onExportImage={handleExportImage} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={handleOpenList} onOpenCommands={handleOpenCommands} isMobileViewport={isMobileViewport} mobileBackLabel={query ? "搜索结果" : currentNotebook?.name ?? viewLabel(view)} onBackToCards={isCardsLayout ? () => setCardEditingNoteId(null) : undefined} onUploadImage={handleUploadImage} focusMode={focusMode} typewriterMode={typewriterMode} outlineOpen={outlineOpen} outlineItems={outlineItems} activeOutlineId={activeOutlineId} onToggleOutline={toggleOutline} onCloseOutline={closeOutline} onOutlineItemsChange={handleOutlineItemsChange} onOutlineActiveChange={handleOutlineActiveChange} onOutlineNavigationReady={handleOutlineNavigationReady} /></Suspense> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor isTrash={view === "trash"} onNewNote={handleNewNote} onOpenList={handleOpenList} transitionToken={listTransitionToken} />}
       </main>
     )}
     {isMobileViewport && mobilePage !== "editor" && <MobileBottomBar onOpenCommands={handleOpenCommands} query={query} setQuery={changeQuery} searchRef={searchRef} onNewNote={mobilePage === "home" ? handleNewInboxNote : view === "trash" ? undefined : handleNewNote} />}
@@ -1387,8 +1369,8 @@ export function Workspace() {
 
 
     {imageExportSnapshot && <Suspense fallback={null}><LazyImageExportDialog snapshot={imageExportSnapshot} onClose={closeImageExport} /></Suspense>}
-    {editingNotebook !== undefined && <NotebookDialog key={editingNotebook?.id ?? "new"} notebook={editingNotebook} onClose={() => setEditingNotebook(undefined)} onSave={saveNotebookDraft} onSaved={saveNotebook} onRequestDelete={(target) => requestConfirm({ eyebrow: "删除笔记本", title: `删除笔记本“${target.name}”？`, description: "笔记本中的笔记会自动移入收件箱，笔记内容不会被删除。", confirmLabel: "删除笔记本", danger: true, onConfirm: () => deleteNotebook(target.id) })} onToast={setToast} />}
+    {editingNotebook !== undefined && <NotebookDialog key={editingNotebook?.id ?? "new"} notebook={editingNotebook} onClose={() => setEditingNotebook(undefined)} onSave={saveNotebookDraft} onSaved={saveNotebook} onRequestDelete={(target) => requestConfirm({ eyebrow: "删除笔记本", title: `删除笔记本“${target.name}”？`, description: "笔记本中的笔记会自动移入收件箱，笔记内容不会被删除。", confirmLabel: "删除笔记本", danger: true, onConfirm: () => deleteNotebook(target.id) })} />}
     {confirmRequest && <ConfirmDialog key={confirmRequest.id} request={confirmRequest} onClose={() => setConfirmRequest(null)} />}
-    <div className="system-notices">{pwaState.updateAvailable && <div className="update-notice" role="status" aria-live="polite" aria-labelledby="update-notice-title"><div className="update-notice-header"><RefreshCw size={18} aria-hidden="true" /><div><strong id="update-notice-title">发现新版本</strong><p>保存当前编辑后即可更新应用。</p></div></div><div className="update-notice-actions"><button className="text-button update-notice-action" type="button" onClick={() => void updatePwa()}>更新</button></div></div>}{toast && <div className="toast" role="status">{toast}</div>}</div>
+    <SystemNotices notice={notice} onDismiss={dismissNotice} onPause={pauseNotice} updateAvailable={pwaState.updateAvailable} onUpdate={() => void updatePwa()} />
   </div>;
 }

@@ -172,7 +172,7 @@ async function imageDimensions(file: File) {
   }
 }
 
-export function NoteEditor({ note, searchQuery = "", saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onExportImage, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList, onOpenCommands, onBackToCards, onUploadImage, isMobileViewport = false, mobileBackLabel = "笔记列表", focusMode = false, onClearSearch, typewriterMode = false, outlineOpen, outlineItems, activeOutlineId, onToggleOutline, onCloseOutline, onOutlineItemsChange, onOutlineActiveChange, onOutlineNavigationReady, availableNotes = [], onNavigateWikiLink, onCreateAndLinkNote, onNavigateToNote, onToast, onMarkdownReaderChange, onMarkdownDirtyChange }: {
+export function NoteEditor({ note, searchQuery = "", saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onExportImage, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList, onOpenCommands, onBackToCards, onUploadImage, isMobileViewport = false, mobileBackLabel = "笔记列表", focusMode = false, onClearSearch, typewriterMode = false, outlineOpen, outlineItems, activeOutlineId, onToggleOutline, onCloseOutline, onOutlineItemsChange, onOutlineActiveChange, onOutlineNavigationReady, availableNotes = [], onNavigateWikiLink, onCreateAndLinkNote, onNavigateToNote, onMarkdownReaderChange, onMarkdownDirtyChange }: {
   note: Note;
   searchQuery?: string;
   saveState: SaveState;
@@ -210,7 +210,6 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   onNavigateWikiLink?: (targetTitle: string) => void;
   onCreateAndLinkNote?: (title: string) => void;
   onNavigateToNote?: (id: string) => void;
-  onToast?: (message: string) => void;
   onMarkdownReaderChange?: (reader: (() => string | null) | null) => void;
   onMarkdownDirtyChange?: (noteId: string, isDirty: boolean) => void;
 }) {
@@ -268,7 +267,6 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   const [searchNavigation, setSearchNavigation] = useState({ activeIndex: 0, matchCount: 0 });
   const searchQueryRef = useRef(searchQuery);
   const searchNavigationRef = useRef(searchNavigation);
-  const lastNotifiedEmptySearchRef = useRef("");
   const typewriterModeRef = useRef(typewriterMode);
   const typewriterAnimRef = useRef<number | null>(null);
   const typewriterTargetRef = useRef<number | null>(null);
@@ -1136,15 +1134,6 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     editor.view.dispatch(editor.state.tr.setMeta(searchHighlightPluginKey, { type: "query", query: trimmedQuery, activeIndex: 0 }));
     syncSearchNavigation(editor);
 
-    if (trimmedQuery && titleMatches.length === 0 && bodyMatches.length === 0) {
-      if (lastNotifiedEmptySearchRef.current !== trimmedQuery) {
-        lastNotifiedEmptySearchRef.current = trimmedQuery;
-        onToast?.(`当前笔记中未找到“${trimmedQuery}”`);
-      }
-    } else {
-      lastNotifiedEmptySearchRef.current = "";
-    }
-
     const frame = requestAnimationFrame(() => {
       if (editor.isDestroyed) return;
       const behavior: ScrollBehavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
@@ -1161,7 +1150,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       editor.view.dom.querySelector<HTMLElement>(".editor-search-match--active")?.scrollIntoView({ behavior, block: "center", inline: "nearest" });
     });
     return () => cancelAnimationFrame(frame);
-  }, [editor, isLoading, isMobileViewport, note.id, onToast, searchQuery, syncSearchNavigation]);
+  }, [editor, isLoading, isMobileViewport, note.id, searchQuery, syncSearchNavigation]);
 
   useEffect(() => {
     const handleSearchKeyDown = (event: KeyboardEvent) => {
