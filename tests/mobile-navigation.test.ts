@@ -49,17 +49,56 @@ describe("mobile page navigation", () => {
     expect((history.state as { key: string }).key).toBe("router-key");
     expect((history.state as { usr: unknown }).usr).toEqual({ retained: true });
   });
-  test("reload starts at home and stale or foreign history states cannot restore an editor", () => {
+  test("reload starts at home while preserving the history base and Router fields", () => {
     const history = new TestHistory();
     const navigation = new MobileNavigationHistory(history, context, "old-session");
     navigation.open("editor", { ...context, noteId: "note" });
-    const stale = history.state;
     const reloaded = new MobileNavigationHistory(history, context, "new-session");
     expect(reloaded.page).toBe("home");
-    expect(reloaded.restore(stale)).toBeNull();
+    expect(history.state).toMatchObject({ idx: 2, key: "router-key", usr: { retained: true }, xiangyingMobile: { session: "old-session", page: "home", depth: 2 } });
+    reloaded.home();
+    expect(history.index).toBe(0);
+    expect(reloaded.restore(history.state)?.page).toBe("home");
+  });
+  test("reload then browser back can open another list and return back or home", () => {
+    const history = new TestHistory();
+    const navigation = new MobileNavigationHistory(history, context, "old-session");
+    navigation.open("editor", { ...context, noteId: "note" });
+    const reloaded = new MobileNavigationHistory(history, context, "new-session");
+    history.go(-1);
+    expect(reloaded.restore(history.state)?.page).toBe("list");
+    reloaded.open("list", { ...context, notebookId: "another" });
+    reloaded.back();
+    expect(reloaded.restore(history.state)?.page).toBe("home");
+    reloaded.open("list", { ...context, notebookId: "another" });
+    reloaded.open("editor", { ...context, noteId: "another-note" });
+    reloaded.home();
+    expect(history.index).toBe(0);
+    expect(reloaded.restore(history.state)?.page).toBe("home");
+  });
+  test("repeated reloads preserve browser forward and an accurate home destination", () => {
+    const history = new TestHistory();
+    const navigation = new MobileNavigationHistory(history, context, "first-session");
+    navigation.open("editor", { ...context, noteId: "note" });
+    new MobileNavigationHistory(history, context, "second-session");
+    const reloaded = new MobileNavigationHistory(history, context, "third-session");
+    history.go(-1);
+    expect(reloaded.restore(history.state)?.page).toBe("list");
+    history.go(1);
+    expect(reloaded.restore(history.state)?.page).toBe("home");
+    reloaded.open("list", context);
+    reloaded.home();
+    expect(history.index).toBe(0);
+    expect(reloaded.restore(history.state)?.page).toBe("home");
+  });
+  test("foreign and malformed history states are ignored", () => {
+    const history = new TestHistory();
+    const reloaded = new MobileNavigationHistory(history, context, "session");
+    expect(reloaded.restore({ xiangyingMobile: { session: "foreign", page: "editor", depth: 1, context } })).toBeNull();
+    expect(reloaded.restore({ xiangyingMobile: { session: "session", page: "editor", depth: -1, context } })).toBeNull();
     expect(reloaded.restore(null)).toBeNull();
     expect(reloaded.restore({ idx: 1 })).toBeNull();
     reloaded.back();
-    expect(history.index).toBe(2);
+    expect(history.index).toBe(0);
   });
 });

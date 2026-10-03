@@ -15,11 +15,22 @@ type NavigationEntry = { session: string; page: MobilePage; depth: number; conte
 const ENTRY_KEY = "xiangyingMobile";
 const MOBILE_VIEWPORT = "(max-width: 900px)";
 
+function readEntry(state: unknown): NavigationEntry | null {
+  const entry = state && typeof state === "object" ? (state as Record<string, unknown>)[ENTRY_KEY] as NavigationEntry | undefined : undefined;
+  if (!entry || typeof entry.session !== "string" || !entry.session || !["home", "list", "editor"].includes(entry.page)
+    || !Number.isSafeInteger(entry.depth) || entry.depth < 0 || !entry.context || typeof entry.context !== "object") return null;
+  return entry;
+}
+
 /** Keep React Router's history fields intact; entries contain metadata, never note bodies. */
 export class MobileNavigationHistory {
   private entry: NavigationEntry;
   constructor(private history: Pick<History, "state" | "pushState" | "replaceState" | "go">, context: MobileListContext, private session: string) {
-    this.entry = { session, page: "home", depth: 0, context };
+    // Reload starts at home, but older entries still share this history's base.
+    // Retain its session and depth so back/forward and home remain reachable.
+    const previous = readEntry(history.state);
+    if (previous) this.session = previous.session;
+    this.entry = { session: this.session, page: "home", depth: previous?.depth ?? 0, context };
     this.write(false);
   }
   get page() { return this.entry.page; }
@@ -46,8 +57,8 @@ export class MobileNavigationHistory {
     if (this.entry.depth > 0) this.history.go(-this.entry.depth);
   }
   restore(state: unknown): NavigationEntry | null {
-    const entry = state && typeof state === "object" ? (state as Record<string, unknown>)[ENTRY_KEY] as NavigationEntry | undefined : undefined;
-    if (!entry || entry.session !== this.session || !["home", "list", "editor"].includes(entry.page)) return null;
+    const entry = readEntry(state);
+    if (!entry || entry.session !== this.session) return null;
     this.entry = entry;
     return entry;
   }
