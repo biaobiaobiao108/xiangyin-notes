@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef, type RefObject } from "react";
 import { ChevronRight, FolderPlus, LogOut, Search, SlidersHorizontal, SquarePen, X } from "lucide-react";
 import type { Notebook, NoteView } from "../../shared/types";
+import { BrandMark } from "../brand-mark";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { getNotebookIconComponent, navItems } from "./helpers";
 import "./mobile-panels.css";
@@ -23,7 +24,7 @@ export const MobileNotebookHome = memo(function MobileNotebookHome({ view, setVi
   return <section className="mobile-notebook-home" aria-labelledby="mobile-notebooks-title">
     <div className="mobile-home-scroll-shell">
       <div ref={scrollRef} id="mobile-notebooks-scroll" className="mobile-home-scroll floating-scrollbar-target">
-        <h1 id="mobile-notebooks-title" className="mobile-home-title" tabIndex={-1} data-mobile-heading>笔记本</h1>
+        <h1 id="mobile-notebooks-title" className="mobile-home-title" tabIndex={-1} data-mobile-heading><BrandMark className="mobile-home-brand-mark" /><span>象映笔记</span></h1>
         <nav aria-label="笔记分类" className="mobile-home-group">
           <ul>{navItems.map((item) => {
             const Icon = item.icon;

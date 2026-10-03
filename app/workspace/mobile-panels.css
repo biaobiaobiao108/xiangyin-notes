@@ -7,7 +7,8 @@
   .mobile-compose-button:focus-visible, .mobile-plain-button:focus-visible, .mobile-search-clear:focus-visible { background: var(--accent-soft); }
   .mobile-home-scroll-shell { flex: 1; min-height: 0; position: relative; }
   .mobile-home-scroll { height: 100%; overflow: auto; overscroll-behavior-y: contain; padding: calc(30px + env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) calc(118px + env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left)); }
-  .mobile-home-title { margin: 4px 0 28px; color: var(--ink); font-size: clamp(30px, 8vw, 38px); font-weight: 650; line-height: 1.2; letter-spacing: -0.035em; }
+  .mobile-home-title { display: flex; align-items: center; gap: 13px; margin: 4px 0 28px; color: var(--ink); font-size: clamp(28px, 7.2vw, 32px); font-weight: 650; line-height: 1.25; letter-spacing: -0.025em; }
+  .mobile-home-title .mobile-home-brand-mark { width: 46px; height: 46px; border-radius: var(--radius-md); box-shadow: var(--shadow-xs); }
   .mobile-logout-button { display: flex; align-items: center; gap: 10px; min-height: 44px; margin-top: 24px; padding: 8px 14px; border: 0; border-radius: var(--radius-sm); color: var(--muted); background: transparent; }
   .mobile-logout-button:hover, .mobile-logout-button:focus-visible { background: var(--accent-soft); color: var(--accent); }
   .mobile-home-group { border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow-2xs); overflow: hidden; }
