@@ -18,13 +18,17 @@ import type { NoteSort, NoteSummary, NoteView, Notebook } from "../../shared/typ
 import { playEntranceAnimation } from "../animation";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { isNoteSelectionModifierClick, type NoteSelectionClick } from "./note-list-selection";
-import { getNoteTags, NOTE_TAG_DISPLAY_LIMIT, relativeDate, sortNotes } from "./helpers";
+import { getNoteTags, NOTE_TAG_DISPLAY_LIMIT, relativeDate, sortNotes, viewLabel } from "./helpers";
+import { MobileCollectionHeader } from "./mobile-collection-header";
 
 export type NoteCardGridPanelProps = {
   notes: NoteSummary[];
   total: number;
   hasMore: boolean;
   sort: NoteSort;
+  setSort: (sort: NoteSort) => void;
+  isMobileViewport?: boolean;
+  onToggleLayout?: () => void;
   selectedIds: ReadonlySet<string>;
   onOpenNote: (id: string) => void;
   onToggleSelectNote: (id: string, modifiers: Pick<NoteSelectionClick, "metaKey" | "ctrlKey" | "shiftKey">) => void;
@@ -52,6 +56,9 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
   total,
   hasMore,
   sort,
+  setSort,
+  isMobileViewport = false,
+  onToggleLayout,
   selectedIds,
   onOpenNote,
   onToggleSelectNote,
@@ -109,7 +116,7 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
   useEffect(() => {
     const sentinel = loadMoreSentinelRef.current;
     const container = gridScrollRef.current;
-    if (!sentinel || !container || !hasMore || !onLoadMore || isLoadingMore) return;
+    if (inert || !sentinel || !container || !hasMore || !onLoadMore || isLoadingMore) return;
     if (typeof IntersectionObserver === "undefined") return;
 
     const observer = new IntersectionObserver(
@@ -127,19 +134,20 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
 
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [hasMore, onLoadMore, isLoadingMore]);
+  }, [hasMore, inert, onLoadMore, isLoadingMore]);
 
   return (
     <section
       ref={panelRef}
-      className="note-card-grid-panel"
+      className={`note-card-grid-panel${isMobileViewport ? " is-mobile-card-grid" : ""}`}
       aria-label="笔记卡片网格"
       aria-hidden={inert || undefined}
       inert={inert}
     >
       {/* 沉浸式瀑布流滚动区域（无多余顶栏） */}
       <div className="card-grid-scroll-shell">
-        {onOpenSidebar && (
+        {isMobileViewport && onOpenSidebar && <MobileCollectionHeader active={!inert} heading={query ? "搜索结果" : currentNotebookName ?? viewLabel(view)} total={total} shown={notes.length} query={query} sort={sort} onSort={setSort} onBack={onOpenSidebar} layout="cards" onToggleLayout={onToggleLayout} onEmptyTrash={onEmptyTrash} trashBusy={trashBusy} />}
+        {!isMobileViewport && onOpenSidebar && (
           <button
             className="icon-button card-grid-mobile-menu mobile-only"
             type="button"
@@ -149,7 +157,7 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
             <Menu size={20} />
           </button>
         )}
-        {onEmptyTrash && (
+        {!isMobileViewport && onEmptyTrash && (
           <button
             className="text-button text-danger card-grid-empty-trash"
             type="button"
@@ -173,6 +181,7 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
               {sortedNotes.map((note) => (
                 <NoteCardItem
                   key={note.id}
+                  isMobileViewport={isMobileViewport}
                   note={note}
                   isSelected={selectedIds.has(note.id)}
                   hasSelectionActive={selectedIds.size > 0}
@@ -198,7 +207,7 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
                   ? "试试更短的关键词，或清空搜索查看全部内容。"
                   : isTrashView
                   ? "移入回收站的笔记会显示在这里。"
-                  : "从侧栏新建笔记，让一个想法有地方落脚。"}
+                  : isMobileViewport ? "点击下方新建笔记，让一个想法有地方落脚。" : "从侧栏新建笔记，让一个想法有地方落脚。"}
               </span>
               {query && (
                 <button className="secondary-button" type="button" onClick={onClearQuery}>
@@ -235,6 +244,7 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
 
 // 单张便笺卡片组件
 type NoteCardItemProps = {
+  isMobileViewport: boolean;
   note: NoteSummary;
   isSelected: boolean;
   hasSelectionActive: boolean;
@@ -247,6 +257,7 @@ type NoteCardItemProps = {
 };
 
 const NoteCardItem = memo(function NoteCardItem({
+  isMobileViewport,
   note,
   isSelected,
   hasSelectionActive,
@@ -258,7 +269,7 @@ const NoteCardItem = memo(function NoteCardItem({
   isTrashView,
 }: NoteCardItemProps) {
   const handleCardClick = (event: ReactMouseEvent) => {
-    if (isNoteSelectionModifierClick(event) || hasSelectionActive) {
+    if (!isMobileViewport && (isNoteSelectionModifierClick(event) || hasSelectionActive)) {
       event.preventDefault();
       onToggleSelect(note.id, event);
       return;
@@ -282,8 +293,8 @@ const NoteCardItem = memo(function NoteCardItem({
       className={`note-card ${isSelected ? "is-selected" : ""} ${hasThumbnail ? "has-thumbnail" : ""}`}
       onClick={handleCardClick}
       role="listitem"
-      aria-label={`${displayTitle}，${isSelected ? "已选择" : "未选择"}；空格键切换选择，回车打开笔记`}
-      tabIndex={0}
+      aria-label={isMobileViewport ? undefined : `${displayTitle}，${isSelected ? "已选择" : "未选择"}；空格键切换选择，回车打开笔记`}
+      tabIndex={isMobileViewport ? undefined : 0}
       onKeyDown={(event: ReactKeyboardEvent) => {
         if (event.target !== event.currentTarget) return;
         if (event.key === " ") {
@@ -299,6 +310,7 @@ const NoteCardItem = memo(function NoteCardItem({
         }
       }}
     >
+      {isMobileViewport && <button className="note-card-open" type="button" aria-label={`打开笔记：${displayTitle}`} />}
       {/* 缩略图封面（若有） */}
       {hasThumbnail && (
         <div className="note-card-cover">

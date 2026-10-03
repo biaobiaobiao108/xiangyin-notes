@@ -9,6 +9,7 @@ import { commandMenuShortcutLabel } from "../platform";
 import { type PwaState } from "../pwa";
 import { getNoteTags, getNotebookIconComponent, navItems, NOTE_TAG_DISPLAY_LIMIT, relativeDate, sortNotes, type NoteSort, viewLabel } from "./helpers";
 import { useVirtualNoteList } from "./use-virtual-note-list";
+import { MobileCollectionHeader } from "./mobile-collection-header";
 
 export function NoteLoadingState() {
   return <section className="editor-panel editor-loading-shell" aria-label="笔记编辑器" aria-busy="true"><div className="editor-switch-overlay editor-switch-overlay--visible" role="status" aria-live="polite"><div className="editor-switch-card"><BrandMark className="editor-switch-mark" /><div className="editor-switch-lines" aria-hidden="true"><span /><span /><span /></div><strong>正在打开笔记…</strong></div></div></section>;
@@ -195,6 +196,7 @@ type NoteListPanelProps = {
   trashBusy: boolean;
   onClearQuery: () => void;
   onOpenSidebar: () => void;
+  onToggleLayout?: () => void;
   transitionToken: number;
 
   isMobileViewport?: boolean;
@@ -212,7 +214,7 @@ type NoteListPanelProps = {
 
 };
 
-export const NoteListPanel = memo(function NoteListPanel({ notes, total, hasMore = total > notes.length, sort, setSort, selectedId, selectedIds, onSelect, onDeleteSelected, view, query, currentNotebookName, onNewNote, onEmptyTrash, trashBusy, onClearQuery, isMobileViewport = false, onOpenSidebar, transitionToken, outlineOpen, outlineItems, activeOutlineId, onScrollToOutlineItem, onCloseOutline, onLoadMore, isLoadingMore = false, virtualizationScope, inert = false }: NoteListPanelProps) {
+export const NoteListPanel = memo(function NoteListPanel({ notes, total, hasMore = total > notes.length, sort, setSort, selectedId, selectedIds, onSelect, onDeleteSelected, view, query, currentNotebookName, onNewNote, onEmptyTrash, trashBusy, onClearQuery, isMobileViewport = false, onOpenSidebar, onToggleLayout, transitionToken, outlineOpen, outlineItems, activeOutlineId, onScrollToOutlineItem, onCloseOutline, onLoadMore, isLoadingMore = false, virtualizationScope, inert = false }: NoteListPanelProps) {
   const [sortOpen, setSortOpen] = useState(false);
   const sortRef = useRef<HTMLDivElement>(null);
   const sortTriggerRef = useRef<HTMLButtonElement>(null);
@@ -330,8 +332,8 @@ export const NoteListPanel = memo(function NoteListPanel({ notes, total, hasMore
   return <section ref={panelRef} className={`note-list-panel ${outlineOpen ? "is-outline-open" : ""}`} aria-label={outlineOpen ? "笔记大纲" : "笔记列表"} aria-hidden={inert || undefined} inert={inert}>
     <div className="note-list-content">
       {outlineOpen ? <NoteOutlinePanel outlineItems={outlineItems} activeOutlineId={activeOutlineId} onScrollToOutlineItem={onScrollToOutlineItem} onCloseOutline={onCloseOutline} /> : <>
-      <header className="list-header">
-        {isMobileViewport ? <button className="mobile-list-back" type="button" aria-label="返回笔记本首页" onClick={onOpenSidebar}><ChevronLeft size={22} /><span>笔记本</span></button> : <button className="icon-button mobile-only" type="button" aria-label="打开导航" onClick={onOpenSidebar}><Menu size={20} /></button>}
+      {isMobileViewport ? <MobileCollectionHeader active={!inert} heading={heading} total={total} shown={notes.length} query={query} sort={sort} onSort={setSort} onBack={onOpenSidebar} layout="three-column" onToggleLayout={onToggleLayout} onEmptyTrash={onEmptyTrash} trashBusy={trashBusy} /> : <header className="list-header">
+        <button className="icon-button mobile-only" type="button" aria-label="打开导航" onClick={onOpenSidebar}><Menu size={20} /></button>
         <div className="list-header-main"><h2 tabIndex={-1}>{heading}</h2><p>{query ? `包含“${query}”的笔记` : `${truncated ? total : notes.length} 篇笔记`}{truncated && <> · 已显示最近 {notes.length} 篇</>}</p></div>
         <div className="list-header-controls">
           {onEmptyTrash && <button className="text-button text-danger empty-trash-button" type="button" aria-label="清空回收站" onClick={onEmptyTrash} disabled={trashBusy || total === 0}><Trash2 size={isMobileViewport ? 20 : 15} aria-hidden="true" />{!isMobileViewport && "清空回收站"}</button>}
@@ -350,7 +352,7 @@ export const NoteListPanel = memo(function NoteListPanel({ notes, total, hasMore
             </div>}
           </div>
         </div>
-      </header>
+      </header>}
       <div className="note-list-scroll-shell"><div id="note-list-scroll-region" className="note-list floating-scrollbar-target" ref={noteListRef} style={noteListStyle} onKeyDown={handleNoteListKeyDown} onFocusCapture={virtualList.onFocusCapture} onBlurCapture={virtualList.onBlurCapture}><ul className="note-list-items" role="list" style={listStyle}>{virtualList.visibleRows.map(({ note, index, top }) => <NoteListRow key={note.id} note={note} rowIndex={index} setSize={listSize} rowRef={virtualList.isVirtualized ? virtualList.getRowRef(note.id) : undefined} rowStyle={virtualList.rowStyle(top)} isSelected={selectedIds.has(note.id)} isActive={selectedId === note.id} showNotebook={!currentNotebookName && view !== "inbox"} onSelect={onSelect} />)}{hasLoadMoreRow && <li ref={loadMoreSentinelRef} className="note-list-load-more-item" style={virtualList.isVirtualized ? { position: "absolute", insetInline: 0, top: 0, transform: `translateY(${virtualList.totalHeight}px)` } : undefined}><button className="secondary-button note-list-load-more-button" type="button" onClick={onLoadMore} disabled={isLoadingMore}>{isLoadingMore ? "正在加载……" : `加载更多（已显示 ${notes.length} / ${total}）`}</button></li>}</ul>{!sortedNotes.length && (query ? <div className="list-empty"><span className="empty-icon"><Search size={23} /></span><strong>没有找到匹配的笔记</strong><span>试试更短的关键词，或清空搜索查看全部内容。</span><button className="secondary-button" type="button" onClick={onClearQuery}>清空搜索</button></div> : <div className="list-empty"><span className="empty-icon"><Archive size={23} /></span><strong>{view === "trash" ? "回收站是空的" : "这里还没有笔记"}</strong><span>{view === "trash" ? "移入回收站的笔记会显示在这里。" : "按下“新建笔记”，让一个想法有地方落脚。"}</span></div>)}</div><FloatingScrollbar scrollTargetRef={noteListRef} controlsId="note-list-scroll-region" ariaLabel="笔记列表滚动条" placement="left" /></div>
       </>}
     </div>

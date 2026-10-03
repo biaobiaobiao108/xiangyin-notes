@@ -2231,14 +2231,41 @@ dialog::backdrop {
   }
 }
 @media (max-width: 900px) {
-  .card-masonry {
-    columns: 1;
-    grid-template-columns: minmax(0, 1fr);
-  }
-
   .card-grid-container.has-trash-action {
     padding-top: max(72px, calc(env(safe-area-inset-top) + 64px));
   }
+  .app-shell[data-mobile-page="home"] > .note-card-grid-panel,
+  .app-shell[data-mobile-page="editor"] > .note-card-grid-panel { display: none; }
+  .is-mobile-card-grid { height: 100%; background: var(--canvas); }
+  .is-mobile-card-grid .card-grid-container,
+  .is-mobile-card-grid .card-grid-container.has-trash-action { padding: calc(76px + env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) calc(112px + env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left)); overscroll-behavior: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; }
+  .is-mobile-card-grid .card-masonry { columns: 2; column-gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .is-mobile-card-grid .note-card { position: relative; min-width: 0; margin-bottom: 12px; border-color: var(--border-soft); transition-timing-function: var(--motion-ease-out); }
+  .is-mobile-card-grid .note-card-open { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; padding: 0; border: 0; border-radius: inherit; background: transparent; touch-action: pan-y; }
+  .is-mobile-card-grid .note-card:has(.note-card-open:focus-visible) { background: var(--accent-soft); }
+  .is-mobile-card-grid .note-card-body { padding: 14px 12px 12px; gap: 10px; }
+  .is-mobile-card-grid .note-card-header { position: relative; }
+  .is-mobile-card-grid .note-card-title { min-width: 0; padding-right: 24px; font-size: 1rem; }
+  .is-mobile-card-grid .note-card-star-btn { position: absolute; top: -10px; right: -10px; z-index: 2; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 999px; }
+  .is-mobile-card-grid .note-card-preview-text { font-size: 0.8125rem; line-height: 1.65; -webkit-line-clamp: 6; }
+  .is-mobile-card-grid .note-card-cover { height: 116px; }
+  .is-mobile-card-grid .note-card-footer { display: block; margin-top: 0; padding-top: 8px; }
+  .is-mobile-card-grid .note-card-notebook-badge { max-width: 100%; min-width: 0; overflow: hidden; }
+  .is-mobile-card-grid .note-card-date { display: block; margin-top: 5px; font-size: 0.6875rem; font-variant-numeric: tabular-nums; }
+  .mobile-collection-header .sort-button-label,
+  .mobile-collection-header .sort-button-arrow { display: none; }
+  .app-shell[data-mobile-page] .mobile-collection-header .sort-button,
+  .app-shell[data-mobile-page] .mobile-layout-toggle { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; flex: 0 0 44px; }
+  .mobile-collection-header .list-header-controls { flex-shrink: 0; gap: 2px; }
+}
+@media (max-width: 359px) {
+  .is-mobile-card-grid .card-masonry { columns: 1; grid-template-columns: minmax(0, 1fr); }
+}
+@media (min-width: 600px) and (max-width: 900px) {
+  .is-mobile-card-grid .card-masonry { columns: 3; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@supports (display: grid-lanes) {
+  .is-mobile-card-grid .note-card { margin-bottom: 0; }
 }
 
 .card-grid-empty {

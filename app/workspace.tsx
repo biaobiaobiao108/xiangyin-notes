@@ -133,8 +133,19 @@ export function Workspace() {
       return "three-column";
     }
   });
+  const [mobileViewLayout, setMobileViewLayout] = useState<ViewLayout>(() => {
+    try { return localStorage.getItem("xiangying_mobile_view_layout") === "cards" ? "cards" : "three-column"; }
+    catch { return "three-column"; }
+  });
   const toggleViewLayout = useCallback(() => {
-    if (window.matchMedia("(max-width: 900px)").matches) return;
+    if (window.matchMedia("(max-width: 900px)").matches) {
+      setMobileViewLayout((current) => {
+        const next = current === "cards" ? "three-column" : "cards";
+        try { localStorage.setItem("xiangying_mobile_view_layout", next); } catch {}
+        return next;
+      });
+      return;
+    }
     setViewLayout((current) => {
       const next = current === "cards" ? "three-column" : "cards";
       try {
@@ -1267,7 +1278,8 @@ export function Workspace() {
   const handleOpenCardNote = useCallback((id: string) => {
     selectNote(id);
     setCardEditingNoteId(id);
-  }, [selectNote]);
+    openMobileNote({ noteId: id });
+  }, [openMobileNote, selectNote]);
   const handleToggleCardSelection = useCallback((id: string, modifiers: Pick<NoteSelectionClick, "metaKey" | "ctrlKey" | "shiftKey">) => {
     const nextSelection = applyNoteSelectionClick(noteSelectionRef.current, sortNotes(notesRef.current, noteSort).map((note) => note.id), {
       id,
@@ -1306,11 +1318,11 @@ export function Workspace() {
     if (!ready || !isMobileViewport || isNoteLoading) return;
     const frame = requestAnimationFrame(() => {
       if (document.activeElement?.closest(".mobile-bottom-search")) return;
-      const selector = mobilePage === "home" ? "#mobile-notebooks-title" : mobilePage === "list" ? ".note-list-panel .list-header h2" : ".mobile-editor-title";
+      const selector = mobilePage === "home" ? "#mobile-notebooks-title" : mobilePage === "list" ? ".mobile-collection-header h2" : ".mobile-editor-title";
       document.querySelector<HTMLElement>(selector)?.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(frame);
-  }, [isMobileViewport, isNoteLoading, mobilePage, ready]);
+  }, [isMobileViewport, isNoteLoading, mobilePage, mobileViewLayout, ready]);
   useMobileViewport(isMobileViewport && ready);
 
   if (!ready) return <main className="app-loading"><span className="loading-ring" /><span>正在进入你的空间……</span></main>;
@@ -1321,7 +1333,8 @@ export function Workspace() {
   const renderedNote = selectedNote && selectedRef.current?.id === selectedNote.id ? selectedNote : selectedRef.current ?? selectedNote;
   const commandNoteReady = Boolean((!isMobileViewport || mobilePage === "editor") && renderedNote && selectedRef.current?.id === renderedNote.id && !isNoteLoading);
   const isCardsLayout = !isMobileViewport && viewLayout === "cards";
-  const showCardsGrid = isCardsLayout && cardEditingNoteId === null;
+  const mobileCards = isMobileViewport && mobileViewLayout === "cards";
+  const showCardsGrid = mobileCards || (isCardsLayout && cardEditingNoteId === null);
   const editorContentInert = isMobileViewport && mobilePage !== "editor";
   if (mobilePage === "editor") mobileEditorVisitedRef.current = true;
   const mountEditor = !isMobileViewport || mobileEditorVisitedRef.current;
@@ -1329,15 +1342,18 @@ export function Workspace() {
   return <div data-mobile-page={isMobileViewport ? mobilePage : undefined} className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${focusMode ? "is-focus-mode" : ""} ${isCardsLayout ? "layout-cards" : ""}`}>
     {!isMobileViewport && <Sidebar view={view} setView={selectView} notebooks={notebooks} notebookId={notebookId} setNotebookId={selectNotebook} query={query} setQuery={changeQuery} searchRef={searchRef} onNewInboxNote={handleNewInboxNote} onCreateNotebook={handleCreateNotebook} onEditNotebook={handleEditNotebook} collapsed={sidebarCollapsed} onCollapse={handleCollapseSidebar} onLogout={logout} />}
     {isMobileViewport && <div className="mobile-home-region" hidden={mobilePage !== "home"} inert={mobilePage !== "home"}><MobileNotebookHome view={view} setView={selectView} notebooks={notebooks} notebookId={notebookId} setNotebookId={selectNotebook} onCreateNotebook={handleCreateNotebook} onEditNotebook={handleEditNotebook} onLogout={logout} /></div>}
-    {!isCardsLayout && (
-      <NoteListPanel notes={notes} total={totalNotes} hasMore={hasMoreNotes} sort={noteSort} setSort={handleNoteSort} selectedId={selectedId} selectedIds={selectedNoteIds} onSelect={handleSelectListNote} onDeleteSelected={deleteSelectedNotes} view={view} query={query} currentNotebookName={currentNotebook?.name} onEmptyTrash={view === "trash" ? emptyTrash : undefined} trashBusy={pendingTrashCount > 0 || emptyingTrash} onNewNote={listNewNote} onClearQuery={handleClearQuery} isMobileViewport={isMobileViewport} onOpenSidebar={handleOpenSidebar} transitionToken={listTransitionToken} outlineOpen={!isMobileViewport && outlineOpen} outlineItems={outlineItems} activeOutlineId={activeOutlineId} onScrollToOutlineItem={handleScrollToOutlineItem} onCloseOutline={closeOutline} onLoadMore={loadMoreNotes} isLoadingMore={isLoadingMore} virtualizationScope={listScope} inert={isMobileViewport && mobilePage !== "list"} />
+    {!isCardsLayout && !mobileCards && (
+      <NoteListPanel notes={notes} total={totalNotes} hasMore={hasMoreNotes} sort={noteSort} setSort={handleNoteSort} selectedId={selectedId} selectedIds={selectedNoteIds} onSelect={handleSelectListNote} onDeleteSelected={deleteSelectedNotes} view={view} query={query} currentNotebookName={currentNotebook?.name} onEmptyTrash={view === "trash" ? emptyTrash : undefined} trashBusy={pendingTrashCount > 0 || emptyingTrash} onNewNote={listNewNote} onClearQuery={handleClearQuery} isMobileViewport={isMobileViewport} onToggleLayout={toggleViewLayout} onOpenSidebar={handleOpenSidebar} transitionToken={listTransitionToken} outlineOpen={!isMobileViewport && outlineOpen} outlineItems={outlineItems} activeOutlineId={activeOutlineId} onScrollToOutlineItem={handleScrollToOutlineItem} onCloseOutline={closeOutline} onLoadMore={loadMoreNotes} isLoadingMore={isLoadingMore} virtualizationScope={listScope} inert={isMobileViewport && mobilePage !== "list"} />
     )}
-    {showCardsGrid ? (
+    {showCardsGrid && (
       <NoteCardGridPanel
         notes={notes}
         total={totalNotes}
         hasMore={hasMoreNotes}
         sort={noteSort}
+        setSort={handleNoteSort}
+        isMobileViewport={isMobileViewport}
+        onToggleLayout={toggleViewLayout}
         selectedIds={selectedNoteIds}
         onOpenNote={handleOpenCardNote}
         onToggleSelectNote={handleToggleCardSelection}
@@ -1357,15 +1373,16 @@ export function Workspace() {
         scrollScope={listScope}
         initialScrollTop={cardGridScrollPositionRef.current.scope === listScope ? cardGridScrollPositionRef.current.top : 0}
         onScrollPositionChange={handleCardGridScrollPositionChange}
-        inert={editorContentInert}
+        inert={isMobileViewport && mobilePage !== "list"}
       />
-    ) : (
+    )}
+    {(!showCardsGrid || isMobileViewport) && (
       <main ref={editorRegionRef} className="editor-region" tabIndex={-1} aria-hidden={editorContentInert || undefined} inert={editorContentInert}>
         {mountEditor && renderedNote ? <Suspense fallback={<NoteLoadingState />}><LazyNoteEditor note={renderedNote} availableNotes={notes} onNavigateWikiLink={handleNavigateWikiLink} onCreateAndLinkNote={handleCreateAndLinkNote} onNavigateToNote={selectNote} searchQuery={activeSearchQuery} onClearSearch={activeSearchQuery ? handleClearSearch : undefined} onMarkdownReaderChange={registerEditorMarkdownReader} onMarkdownDirtyChange={registerEditorMarkdownDirty} saveState={saveState} isLoading={isNoteLoading} trashBusy={emptyingTrash || (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onExportImage={handleExportImage} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={handleOpenList} onOpenCommands={handleOpenCommands} isMobileViewport={isMobileViewport} mobileBackLabel={query ? "搜索结果" : currentNotebook?.name ?? viewLabel(view)} onBackToCards={isCardsLayout ? () => setCardEditingNoteId(null) : undefined} onUploadImage={handleUploadImage} focusMode={focusMode} typewriterMode={typewriterMode} outlineOpen={outlineOpen} outlineItems={outlineItems} activeOutlineId={activeOutlineId} onToggleOutline={toggleOutline} onCloseOutline={closeOutline} onOutlineItemsChange={handleOutlineItemsChange} onOutlineActiveChange={handleOutlineActiveChange} onOutlineNavigationReady={handleOutlineNavigationReady} /></Suspense> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor isTrash={view === "trash"} onNewNote={handleNewNote} onOpenList={handleOpenList} transitionToken={listTransitionToken} />}
       </main>
     )}
     {isMobileViewport && mobilePage !== "editor" && <MobileBottomBar onOpenCommands={handleOpenCommands} query={query} setQuery={changeQuery} searchRef={searchRef} onNewNote={mobilePage === "home" ? handleNewInboxNote : view === "trash" ? undefined : handleNewNote} />}
-    <CommandMenu isMobileViewport={isMobileViewport} open={commandOpen} onClose={closeCommandMenu} onCommand={command} onCreateNoteInNotebook={createNoteInNotebook} canRestore={Boolean(commandNoteReady && renderedNote?.deletedAt)} canMoveToTrash={Boolean(commandNoteReady && renderedNote && !renderedNote.deletedAt)} notebooks={notebooks} currentNotebookId={renderedNote?.notebookId} onMoveNoteToNotebook={(targetNotebookId) => onNoteChange({ notebookId: targetNotebookId })} focusMode={focusMode} typewriterMode={typewriterMode} viewLayout={viewLayout} canInstallApp={pwaState.canInstall} showIosInstallHint={pwaState.showIosInstallHint} standalone={pwaState.standalone} hasSelectedNote={commandNoteReady} onSearchInCurrentNote={handleSearchInCurrentNote} onSearchGlobal={handleSearchGlobal} onFocusGlobalSearch={handleFocusGlobalSearch} initialQuery={commandInitialQuery} themePreference={themePreference} />
+    <CommandMenu isMobileViewport={isMobileViewport} open={commandOpen} onClose={closeCommandMenu} onCommand={command} onCreateNoteInNotebook={createNoteInNotebook} canRestore={Boolean(commandNoteReady && renderedNote?.deletedAt)} canMoveToTrash={Boolean(commandNoteReady && renderedNote && !renderedNote.deletedAt)} notebooks={notebooks} currentNotebookId={renderedNote?.notebookId} onMoveNoteToNotebook={(targetNotebookId) => onNoteChange({ notebookId: targetNotebookId })} focusMode={focusMode} typewriterMode={typewriterMode} viewLayout={isMobileViewport ? mobileViewLayout : viewLayout} canInstallApp={pwaState.canInstall} showIosInstallHint={pwaState.showIosInstallHint} standalone={pwaState.standalone} hasSelectedNote={commandNoteReady} onSearchInCurrentNote={handleSearchInCurrentNote} onSearchGlobal={handleSearchGlobal} onFocusGlobalSearch={handleFocusGlobalSearch} initialQuery={commandInitialQuery} themePreference={themePreference} />
 
 
     {imageExportSnapshot && <Suspense fallback={null}><LazyImageExportDialog snapshot={imageExportSnapshot} onClose={closeImageExport} /></Suspense>}

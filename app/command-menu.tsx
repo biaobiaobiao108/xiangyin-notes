@@ -88,7 +88,7 @@ export function CommandMenu({
     ...(hasSelectedNote && canMoveToTrash ? [{ id: "move-to-notebook" as const, label: "移动到笔记本", shortcut: "↵", icon: FolderInput }] : []),
     ...(hasSelectedNote ? [{ id: "find-in-note" as const, label: "在当前笔记中查找", shortcut: `${modKey} F`, icon: FileSearch }] : []),
     { id: "toggle-sidebar", label: isMobileViewport ? "返回笔记本首页" : "切换侧栏", shortcut: `${modKey} \\`, icon: PanelLeft },
-    ...(!isMobileViewport ? [{ id: "toggle-view-layout" as const, label: viewLayout === "cards" ? "切换到三栏列表视图" : "切换到卡片网格视图", shortcut: `${altKey} V`, icon: LayoutGrid }] : []),
+    { id: "toggle-view-layout", label: viewLayout === "cards" ? isMobileViewport ? "切换到列表视图" : "切换到三栏列表视图" : "切换到卡片网格视图", shortcut: `${altKey} V`, icon: LayoutGrid },
     { id: "toggle-focus-mode", label: focusMode ? "退出沉浸模式" : "进入沉浸模式", shortcut: `${modKey} ⇧ F`, icon: Maximize2 },
     { id: "toggle-typewriter-mode", label: typewriterMode ? "退出打字机模式" : "开启打字机模式", shortcut: `${altKey} ⇧ T`, icon: AlignVerticalSpaceAround },
     { id: "set-theme-light", label: "浅色模式", shortcut: "↵", icon: Sun, isCurrent: themePreference === "light", keywords: "主题 外观" },

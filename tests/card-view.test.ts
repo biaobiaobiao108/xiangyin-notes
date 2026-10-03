@@ -154,7 +154,7 @@ describe("card view & layout", () => {
     expect(gridLanesRule).toMatch(/columns:\s*unset/);
     expect(cssContent).toMatch(/\.card-masonry > \.note-card\s*\{\s*margin-block-end:\s*0;/);
     const responsiveCardGridRule = cssContent.slice(cssContent.lastIndexOf("@media (max-width: 900px)"));
-    expect(responsiveCardGridRule).toMatch(/\.card-masonry\s*\{[^}]*columns:\s*1\s*[;}]/);
-    expect(responsiveCardGridRule).toMatch(/\.card-masonry\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/);
+    expect(responsiveCardGridRule).toMatch(/\.is-mobile-card-grid \.card-masonry\s*\{[^}]*columns:\s*2\s*[;}]/);
+    expect(responsiveCardGridRule).toMatch(/@media \(max-width: 359px\)[\s\S]*?\.card-masonry\s*\{[^}]*columns:\s*1\s*[;}]/);
   });
 });
