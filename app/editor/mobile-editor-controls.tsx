@@ -13,9 +13,11 @@ export function MobileEditorHeader({ noteId, title, backLabel, locked, trashBusy
   const menuRootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const tabNavigationRef = useRef(false);
   useEffect(() => { setOpen(false); headingRef.current?.focus({ preventScroll: true }); }, [noteId]);
   useEffect(() => {
     if (!open) return;
+    tabNavigationRef.current = false;
     menuRootRef.current?.querySelector<HTMLButtonElement>("[role='menuitem']:not(:disabled)")?.focus();
     const closeOutside = (event: PointerEvent) => {
       if (event.target instanceof Node && !menuRootRef.current?.contains(event.target)) setOpen(false);
@@ -28,8 +30,12 @@ export function MobileEditorHeader({ noteId, title, backLabel, locked, trashBusy
     <button className="icon-button mobile-editor-back" type="button" aria-label={`返回${backLabel}`} title={`返回${backLabel}`} onClick={onBack} disabled={locked || !onBack}><ChevronLeft size={22} aria-hidden="true" /></button>
     <h2 className="mobile-editor-title" ref={headingRef} tabIndex={-1}>{title}</h2>
     <div className="mobile-editor-status">{status}</div>
-    <div className="mobile-editor-menu-root" ref={menuRootRef} onKeyDown={(event) => {
+    <div className="mobile-editor-menu-root" ref={menuRootRef} onPointerDownCapture={() => { tabNavigationRef.current = false; }} onBlur={(event) => {
+      // WebKit 触摸按钮会先退焦到页面 main，再派发 click；仅 Tab 离开时关闭。
+      if (tabNavigationRef.current && event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget)) setOpen(false);
+    }} onKeyDown={(event) => {
       if (event.nativeEvent.isComposing || event.keyCode === 229 || !open) return;
+      tabNavigationRef.current = event.key === "Tab";
       if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setOpen(false); triggerRef.current?.focus(); }
       if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
         event.preventDefault(); event.stopPropagation();
@@ -40,11 +46,7 @@ export function MobileEditorHeader({ noteId, title, backLabel, locked, trashBusy
       }
     }}>
       <button ref={triggerRef} className="icon-button mobile-editor-more" type="button" aria-label="更多笔记操作" aria-haspopup="menu" aria-expanded={open} aria-controls={open ? "mobile-note-actions" : undefined} onClick={() => setOpen((value) => !value)} disabled={locked}><MoreHorizontal size={22} aria-hidden="true" /></button>
-      {open && <div id="mobile-note-actions" className="mobile-editor-menu" role="menu" aria-label="笔记操作" onBlur={(event) => {
-        // Safari 点击按钮时可能先失焦到 null；此时不能提前卸载尚未收到 click 的菜单项。
-        // 外部触摸由 pointerdown 关闭，键盘离开则以明确的焦点目标判断。
-        if (event.relatedTarget instanceof Node && !menuRootRef.current?.contains(event.relatedTarget)) setOpen(false);
-      }}>
+      {open && <div id="mobile-note-actions" className="mobile-editor-menu" role="menu" aria-label="笔记操作">
         {!deleted && <button type="button" role="menuitem" disabled={!canUpload} onClick={() => runAction(onUpload)}><ImagePlus size={18} />上传图片</button>}
         <button type="button" role="menuitem" onClick={() => runAction(onFavorite)}><Star size={18} fill={favorite ? "currentColor" : "none"} />{favorite ? "取消收藏" : "收藏笔记"}</button>
         <button type="button" role="menuitem" onClick={() => runAction(onExport)}><ImageDown size={18} />导出图片</button>
