@@ -1048,6 +1048,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       imeCleanupTimerRef.current = null;
       leakedCandidateRef.current = null;
       composingRef.current = false;
+      outlineHeadingElementsRef.current.clear();
     };
   }, [editor, flushMarkdownChange]);
 

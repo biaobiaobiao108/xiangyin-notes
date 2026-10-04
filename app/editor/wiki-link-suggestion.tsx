@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useId, useImperativeHandle, useRef, useState } from "react";
 import { Extension } from "@tiptap/core";
+import { Plugin } from "@tiptap/pm/state";
 import { ReactRenderer } from "@tiptap/react";
 import Suggestion, { type SuggestionKeyDownProps, type SuggestionMatch, type SuggestionOptions } from "@tiptap/suggestion";
 import { FilePlus2, FileText } from "lucide-react";
@@ -253,7 +254,38 @@ export const WikiLinkSuggestionExtension = Extension.create<WikiLinkSuggestionOp
     const getNotes = this.options.getNotes;
     const onCreateNote = this.options.onCreateNote;
 
+    const imeEscapeGuard = new Plugin({
+      props: {
+        handleDOMEvents: {
+          keydown: (_view, event) => {
+            if (!((event.isComposing || (event as KeyboardEvent).keyCode === 229) && (event as KeyboardEvent).key === "Escape")) return false;
+            event.stopPropagation();
+            return true;
+          },
+        },
+      },
+      view: (view) => {
+        let refreshFrame: number | null = null;
+        const refreshSuggestionAfterComposition = () => {
+          if (refreshFrame !== null) window.cancelAnimationFrame(refreshFrame);
+          refreshFrame = window.requestAnimationFrame(() => {
+            refreshFrame = null;
+            if (view.isDestroyed) return;
+            view.dispatch(view.state.tr.setMeta("addToHistory", false).setMeta("preventUpdate", true));
+          });
+        };
+        view.dom.addEventListener("compositionend", refreshSuggestionAfterComposition);
+        return {
+          destroy() {
+            view.dom.removeEventListener("compositionend", refreshSuggestionAfterComposition);
+            if (refreshFrame !== null) window.cancelAnimationFrame(refreshFrame);
+          },
+        };
+      },
+    });
+
     return [
+      imeEscapeGuard,
       Suggestion<WikiLinkSuggestionItem>({
         editor: this.editor,
         char: "[[",
