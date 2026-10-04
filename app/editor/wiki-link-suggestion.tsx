@@ -6,6 +6,7 @@ import { FilePlus2, FileText } from "lucide-react";
 import type { NoteSummary } from "../../shared/types";
 import { normalizeLinkTitle } from "../../shared/wiki-links";
 import { FloatingScrollbar } from "../floating-scrollbar";
+import { suggestionPopupBounds, suggestionViewport } from "./suggestion-popup.helpers";
 
 export function findWikiLinkSuggestionMatch(config: {
   $position: any;
@@ -331,6 +332,8 @@ export const WikiLinkSuggestionExtension = Extension.create<WikiLinkSuggestionOp
           const removeViewportListeners = () => {
             window.removeEventListener("resize", updatePositionOnViewportChange);
             window.removeEventListener("scroll", updatePositionOnViewportChange, true);
+            window.visualViewport?.removeEventListener("resize", updatePositionOnViewportChange);
+            window.visualViewport?.removeEventListener("scroll", updatePositionOnViewportChange);
           };
 
           const updatePosition = (clientRect: (() => DOMRect | null) | undefined) => {
@@ -338,24 +341,20 @@ export const WikiLinkSuggestionExtension = Extension.create<WikiLinkSuggestionOp
             const rect = clientRect();
             if (!rect) return;
 
-            const dropdownWidth = 280;
-            const dropdownHeight = 260;
-            const viewportWidth = window.innerWidth;
-            const viewportHeight = window.innerHeight;
-
-            let left = rect.left;
-            if (left + dropdownWidth > viewportWidth - 16) {
-              left = Math.max(16, viewportWidth - dropdownWidth - 16);
+            const viewport = suggestionViewport();
+            const bounds = suggestionPopupBounds(rect, viewport, 300, 280);
+            popupEl.style.width = `${bounds.width}px`;
+            const dropdown = popupEl.querySelector<HTMLElement>(".wiki-link-suggestion-dropdown");
+            const header = popupEl.querySelector<HTMLElement>(".wiki-link-suggestion-header");
+            const list = popupEl.querySelector<HTMLElement>(".wiki-link-suggestion-list");
+            if (dropdown) {
+              dropdown.style.width = "100%";
+              dropdown.style.maxHeight = `${bounds.maxHeight}px`;
             }
-
-            let top = rect.bottom + 6;
-            if (top + dropdownHeight > viewportHeight - 16 && rect.top > dropdownHeight + 16) {
-              // Flip above cursor if not enough space below
-              top = rect.top - dropdownHeight - 6;
-            }
-
-            popupEl.style.left = `${Math.round(left)}px`;
-            popupEl.style.top = `${Math.round(top)}px`;
+            if (list) list.style.maxHeight = `${Math.max(0, bounds.maxHeight - (header?.getBoundingClientRect().height ?? 0) - 2)}px`;
+            const placement = suggestionPopupBounds(rect, viewport, 300, 280, popupEl.getBoundingClientRect().height || bounds.maxHeight);
+            popupEl.style.left = `${placement.left}px`;
+            popupEl.style.top = `${placement.top}px`;
           };
 
           const destroy = () => {
@@ -386,6 +385,8 @@ export const WikiLinkSuggestionExtension = Extension.create<WikiLinkSuggestionOp
               activeClientRect = props.clientRect as any;
               window.addEventListener("resize", updatePositionOnViewportChange);
               window.addEventListener("scroll", updatePositionOnViewportChange, true);
+              window.visualViewport?.addEventListener("resize", updatePositionOnViewportChange);
+              window.visualViewport?.addEventListener("scroll", updatePositionOnViewportChange);
               updatePosition(activeClientRect);
             },
             onUpdate: (props) => {

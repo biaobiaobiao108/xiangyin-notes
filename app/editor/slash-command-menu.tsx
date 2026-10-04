@@ -7,6 +7,7 @@ import { Bold, Bookmark, Code, Code2, Heading1, Heading2, Heading3, Heading4, He
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import type { CalloutType } from "./callout-node";
 import { FloatingScrollbar } from "../floating-scrollbar";
+import { suggestionPopupBounds, suggestionViewport } from "./suggestion-popup.helpers";
 
 type SlashAction = "paragraph" | "heading" | "bulletList" | "orderedList" | "taskList" | "blockquote" | "codeBlock" | "horizontalRule" | "callout" | "table" | "image" | "wikiLink" | "bold" | "italic" | "strike" | "underline" | "inlineCode";
 type SlashCommandGroupId = "text" | "lists" | "callouts" | "insert";
@@ -464,26 +465,19 @@ export const SlashCommandExtension = Extension.create<SlashCommandOptions>({
           if (!popupEl || !activeClientRect) return;
           const rect = activeClientRect();
           if (!rect) return;
-          const viewportPadding = 12;
           const directory = popupEl.dataset.query?.trim().length === 0;
-          const width = Math.min(directory ? 660 : 400, window.innerWidth - viewportPadding * 2);
-          const maxHeight = Math.min(directory ? 500 : 340, window.innerHeight - viewportPadding * 2);
-          popupEl.style.width = `${width}px`;
-          popupEl.style.maxHeight = `${maxHeight}px`;
+          const viewport = suggestionViewport();
+          const desiredWidth = directory ? 660 : 400;
+          const desiredHeight = directory ? 500 : 340;
+          const bounds = suggestionPopupBounds(rect, viewport, desiredWidth, desiredHeight);
+          popupEl.style.width = `${bounds.width}px`;
+          popupEl.style.maxHeight = `${bounds.maxHeight}px`;
+          const list = popupEl.querySelector<HTMLElement>(".slash-command-menu-list");
+          if (list) list.style.maxHeight = `${Math.max(0, bounds.maxHeight - 2)}px`;
           const measuredHeight = popupEl.getBoundingClientRect().height;
-          const height = Math.min(measuredHeight > 0 ? measuredHeight : maxHeight, window.innerHeight - viewportPadding * 2);
-          const left = Math.max(viewportPadding, Math.min(rect.left, window.innerWidth - width - viewportPadding));
-          const below = rect.bottom + 6;
-          const above = rect.top - height - 6;
-          const fitsBelow = below + height <= window.innerHeight - viewportPadding;
-          const fitsAbove = above >= viewportPadding;
-          const top = fitsBelow
-            ? below
-            : fitsAbove
-              ? above
-              : Math.max(viewportPadding, Math.min(below, window.innerHeight - height - viewportPadding));
-          popupEl.style.left = `${Math.round(Math.max(viewportPadding, Math.min(left, window.innerWidth - width - viewportPadding)))}px`;
-          popupEl.style.top = `${Math.round(Math.max(viewportPadding, top))}px`;
+          const placement = suggestionPopupBounds(rect, viewport, desiredWidth, desiredHeight, measuredHeight || bounds.maxHeight);
+          popupEl.style.left = `${placement.left}px`;
+          popupEl.style.top = `${placement.top}px`;
         };
 
         const schedulePosition = () => {
@@ -497,6 +491,8 @@ export const SlashCommandExtension = Extension.create<SlashCommandOptions>({
         const destroy = () => {
           window.removeEventListener("resize", updatePosition);
           window.removeEventListener("scroll", updatePosition, true);
+          window.visualViewport?.removeEventListener("resize", updatePosition);
+          window.visualViewport?.removeEventListener("scroll", updatePosition);
           if (positionFrame !== null) window.cancelAnimationFrame(positionFrame);
           positionFrame = null;
           activeClientRect = undefined;
@@ -519,6 +515,8 @@ export const SlashCommandExtension = Extension.create<SlashCommandOptions>({
             activeClientRect = props.clientRect as (() => DOMRect | null) | undefined;
             window.addEventListener("resize", updatePosition);
             window.addEventListener("scroll", updatePosition, true);
+            window.visualViewport?.addEventListener("resize", updatePosition);
+            window.visualViewport?.addEventListener("scroll", updatePosition);
             updatePosition();
             schedulePosition();
           },
@@ -535,6 +533,8 @@ export const SlashCommandExtension = Extension.create<SlashCommandOptions>({
               popupEl.appendChild(component.element);
               window.addEventListener("resize", updatePosition);
               window.addEventListener("scroll", updatePosition, true);
+              window.visualViewport?.addEventListener("resize", updatePosition);
+              window.visualViewport?.addEventListener("scroll", updatePosition);
             } else {
               component?.updateProps(props);
             }
