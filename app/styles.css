@@ -1364,6 +1364,7 @@ dialog::backdrop {
   .note-list-items > li:has(.note-row) + li:has(.note-row):not(:has(.is-swipe-open))::before {
     content: "";
     position: absolute;
+    z-index: 2;
     inset-inline: 22px;
     top: 0;
     height: 1px;

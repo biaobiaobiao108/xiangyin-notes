@@ -58,7 +58,7 @@ describe("mobile swipe actions", () => {
     const mobileCss = await Bun.file("app/workspace/mobile-panels.css").text();
     const mobilePanels = await Bun.file("app/workspace/mobile-panels.tsx").text();
     expect(mobileCss).toContain(".mobile-notebook-swipe.is-swipe-open > .mobile-notebook-link--editable { background: var(--accent-soft)");
-    expect(mobileCss).toContain(".mobile-home-group .mobile-notebook-row + .mobile-notebook-row::before { display: block; }");
+    expect(mobileCss).toContain(".mobile-home-group .mobile-notebook-row + .mobile-notebook-row::before { display: block; z-index: 2; }");
     expect(mobileCss).toContain(".mobile-home-group .mobile-notebook-row:has(.is-swipe-open)::before { display: none; }");
     expect(mobilePanels).not.toContain("<span>编辑</span>");
     expect(mobilePanels).not.toContain("<span>删除</span>");
@@ -83,7 +83,8 @@ describe("mobile swipe actions", () => {
     expect(sharedCss).toContain(".note-row-swipe.is-swipe-open > .note-row { background: var(--accent-soft); border-color: transparent; box-shadow: none; }");
     expect(sharedCss).toContain(".is-mobile-card-grid .note-card.is-swipe-open { border-color: transparent; box-shadow: var(--note-card-shadow); }");
     expect(sharedCss).toContain(".is-mobile-card-grid .note-card.is-swipe-open > .note-card-foreground { background: var(--surface-card-swipe); }");
-    expect(sharedCss).toContain(".note-list-items > li:has(.note-row) + li:has(.note-row):not(:has(.is-swipe-open))::before");
+    expect(sharedCss).toContain(".note-list-items > li:has(.note-row) + li:has(.note-row):not(:has(.is-swipe-open))::before {");
+    expect(sharedCss).toContain("    z-index: 2;");
   });
 
   test("returns keyboard focus to the foreground item after Escape closes actions", async () => {
