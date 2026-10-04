@@ -229,6 +229,16 @@ export function BacklinksDialog({
       className="backlinks-dialog"
       aria-labelledby="backlinks-dialog-title"
       onClick={handleBackdropClick}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.stopPropagation();
+          if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) {
+            event.preventDefault();
+            return;
+          }
+          onClose();
+        }
+      }}
       onCancel={(event) => {
         event.preventDefault();
         onClose();
