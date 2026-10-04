@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { mkdir, readdir, rm } from "node:fs/promises";
+import { mkdir, readdir, rm, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { marked } from "marked";
 import { applyMigrations, openDatabase, reclaimDatabaseSpace, type SqliteDatabase } from "../server/db";
 import { handleRequest } from "../server/index";
 import { MAX_SHORT_TERM_CONTENT_CHARS, MAX_SHORT_TERMS_PER_NOTE } from "../server/note-search";
-import { IMAGE_UPLOAD_MAX_BODY_BYTES, removeAssetFiles, retryPendingAssetDeletions } from "../server/routes/assets";
+import { cleanupOrphanAssetFiles, IMAGE_UPLOAD_MAX_BODY_BYTES, ORPHAN_ASSET_TTL_SECONDS, removeAssetFiles, retryPendingAssetDeletions } from "../server/routes/assets";
 import { IMPORT_RATE_LIMIT_MAX_REQUESTS } from "../server/routes/import";
 
 let database: SqliteDatabase;
@@ -394,6 +394,43 @@ describe("Bun Server API", () => {
     expect(unsafe.changes).toBe(1);
     const isolated = await request(asset.url, {}, login.cookie);
     expect(isolated.response.status).toBe(404);
+  });
+
+  test("cleans stale orphan files and recovers interrupted uploads with database rows", async () => {
+    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
+    const ownerId = login.body?.user.id as string;
+    const ownerRoot = join(assetRoot, ownerId);
+    await mkdir(ownerRoot, { recursive: true });
+    const orphanPath = join(ownerRoot, `${crypto.randomUUID()}.png`);
+    const recentPath = join(ownerRoot, `${crypto.randomUUID()}.png`);
+    const abandonedUploadPath = join(ownerRoot, `${crypto.randomUUID()}.png.uploading-${crypto.randomUUID()}`);
+    const recoverableId = crypto.randomUUID();
+    const recoverableStoragePath = `${ownerId}/${recoverableId}.png`;
+    const recoverableUploadPath = join(ownerRoot, `${recoverableId}.png.uploading-${crypto.randomUUID()}`);
+    const oldTime = new Date(Date.now() - (ORPHAN_ASSET_TTL_SECONDS + 60) * 1000);
+
+    await Promise.all([
+      Bun.write(orphanPath, "orphan"),
+      Bun.write(recentPath, "recent"),
+      Bun.write(abandonedUploadPath, "abandoned"),
+      Bun.write(recoverableUploadPath, "recoverable"),
+    ]);
+    await Promise.all([
+      utimes(orphanPath, oldTime, oldTime),
+      utimes(abandonedUploadPath, oldTime, oldTime),
+      utimes(recoverableUploadPath, oldTime, oldTime),
+    ]);
+    database.query("INSERT INTO image_assets (id, user_id, storage_path, original_name, mime_type, byte_size, width, height, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
+      recoverableId, ownerId, recoverableStoragePath, "recovered.png", "image/png", 11, 1, 1, Math.floor(oldTime.getTime() / 1000),
+    );
+
+    await cleanupOrphanAssetFiles(database, assetRoot);
+
+    expect(await Bun.file(orphanPath).exists()).toBe(false);
+    expect(await Bun.file(recentPath).exists()).toBe(true);
+    expect(await Bun.file(abandonedUploadPath).exists()).toBe(false);
+    expect(await Bun.file(recoverableUploadPath).exists()).toBe(false);
+    expect(await Bun.file(join(ownerRoot, `${recoverableId}.png`)).text()).toBe("recoverable");
   });
 
   test("rejects oversized chunked image uploads before multipart parsing", async () => {

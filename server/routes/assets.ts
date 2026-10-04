@@ -1,5 +1,5 @@
 import type { Dirent } from "node:fs";
-import { mkdir, open, readdir, rename, unlink } from "node:fs/promises";
+import { lstat, mkdir, open, readdir, rename, unlink } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { ImageAssetSummary } from "../../shared/types";
 import {
@@ -25,6 +25,10 @@ export const ORPHAN_ASSET_CLEANUP_INTERVAL_SECONDS = 60 * 60;
 export const IMAGE_UPLOAD_MAX_BODY_BYTES = IMAGE_MAX_BYTES + 256 * 1024;
 const PENDING_ASSET_DELETE_DIRECTORY = ".pending-delete";
 const PENDING_ASSET_DELETE_BATCH_SIZE = 100;
+const UUID_PATTERN = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+const ASSET_OWNER_DIRECTORY = new RegExp(`^${UUID_PATTERN}$`, "u");
+const ASSET_FILE_NAME = new RegExp(`^${UUID_PATTERN}\\.(?:jpg|png|webp|gif)$`, "u");
+const TEMPORARY_ASSET_FILE_NAME = new RegExp(`^(${UUID_PATTERN}\\.(?:jpg|png|webp|gif))\\.uploading-${UUID_PATTERN}$`, "u");
 let nextOrphanAssetCleanupAt = 0;
 
 export function assetRootFromEnv(environment: RuntimeEnvironment = Bun.env) {
@@ -135,11 +139,69 @@ export async function retryPendingAssetDeletions(assetRoot: string, limit = PEND
   }
 }
 
+/** Sweep old filesystem-only uploads and recover interrupted uploads with a committed database row. */
+export async function cleanupOrphanAssetFiles(database: SqliteDatabase, assetRoot: string, timestamp = now()) {
+  let owners: Dirent[];
+  try {
+    owners = await readdir(resolve(assetRoot), { withFileTypes: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    return;
+  }
+
+  const staleBefore = (timestamp - ORPHAN_ASSET_TTL_SECONDS) * 1000;
+  const hasAsset = database.query("SELECT 1 AS found FROM image_assets WHERE storage_path = ? LIMIT 1");
+  for (const owner of owners) {
+    if (!owner.isDirectory() || !ASSET_OWNER_DIRECTORY.test(owner.name)) continue;
+    const ownerPath = join(resolve(assetRoot), owner.name);
+    let files: Dirent[];
+    try {
+      files = await readdir(ownerPath, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw error;
+    }
+
+    for (const file of files) {
+      if (!file.isFile()) continue;
+      const temporaryMatch = TEMPORARY_ASSET_FILE_NAME.exec(file.name);
+      if (!temporaryMatch && !ASSET_FILE_NAME.test(file.name)) continue;
+      const filePath = join(ownerPath, file.name);
+      let details: Awaited<ReturnType<typeof lstat>>;
+      try {
+        details = await lstat(filePath);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+        throw error;
+      }
+      if (!details.isFile() || details.mtimeMs > staleBefore) continue;
+
+      const storagePath = `${owner.name}/${temporaryMatch?.[1] ?? file.name}`;
+      const registered = Boolean(hasAsset.get(storagePath));
+      if (temporaryMatch && registered) {
+        const finalPath = join(ownerPath, temporaryMatch[1]);
+        if (await Bun.file(finalPath).exists()) {
+          await unlink(filePath).catch((error) => {
+            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+          });
+        } else {
+          await rename(filePath, finalPath).catch((error) => {
+            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+          });
+        }
+      } else if (!registered) {
+        await unlink(filePath).catch((error) => {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        });
+      }
+    }
+  }
+}
+
 export async function cleanupOrphanAssets(database: SqliteDatabase, assetRoot: string) {
   const timestamp = now();
   if (timestamp < nextOrphanAssetCleanupAt) return;
   nextOrphanAssetCleanupAt = timestamp + ORPHAN_ASSET_CLEANUP_INTERVAL_SECONDS;
-  await retryPendingAssetDeletions(assetRoot);
   // Asset ids are UUIDs and references in Markdown are matched case-insensitively elsewhere,
   // so the orphan check must lowercase both sides or referenced images would be deleted.
   const staleAssets = all<{ id: string; storage_path: string }>(database, `
@@ -170,7 +232,10 @@ export async function cleanupOrphanAssets(database: SqliteDatabase, assetRoot: s
     }
     return deletedPaths;
   });
-  await removeAssetFiles(assetRoot, deleteStaleAssets());
+  const stalePaths = deleteStaleAssets();
+  await retryPendingAssetDeletions(assetRoot);
+  await cleanupOrphanAssetFiles(database, assetRoot, timestamp);
+  await removeAssetFiles(assetRoot, stalePaths);
 }
 
 export async function uploadImageAsset(request: Request, database: SqliteDatabase, user: UserRow, assetRoot: string) {
@@ -208,13 +273,22 @@ export async function uploadImageAsset(request: Request, database: SqliteDatabas
   if (!filePath) return jsonError(500, "ASSET_STORAGE_ERROR", "图片存储路径无效");
   await mkdir(dirname(filePath), { recursive: true });
   const temporaryPath = `${filePath}.uploading-${crypto.randomUUID()}`;
+  let databaseRowInserted = false;
   try {
     await Bun.write(temporaryPath, bytes);
-    await rename(temporaryPath, filePath);
     database.query("INSERT INTO image_assets (id, user_id, storage_path, original_name, mime_type, byte_size, width, height, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").run(id, user.id, storagePath, safeOriginalName(entry.name), inspection.mimeType, bytes.byteLength, inspection.width, inspection.height, now());
+    databaseRowInserted = true;
+    await rename(temporaryPath, filePath);
   } catch (error) {
     await Bun.file(temporaryPath).unlink().catch(() => undefined);
     await Bun.file(filePath).unlink().catch(() => undefined);
+    if (databaseRowInserted) {
+      try {
+        database.query("DELETE FROM image_assets WHERE id = ? AND user_id = ?").run(id, user.id);
+      } catch (cleanupError) {
+        console.warn("[assets] failed to roll back an interrupted upload record", id, cleanupError);
+      }
+    }
     throw error;
   }
 

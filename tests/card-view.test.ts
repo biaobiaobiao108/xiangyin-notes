@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { sortNotes, type NoteSort } from "../app/workspace/helpers";
+import { createCardPages, NOTE_CARD_PAGE_SIZE } from "../app/workspace/note-card-grid";
 import type { NoteSummary } from "../shared/types";
 import { applyNoteSelectionClick, isNoteSelectionModifierClick } from "../app/workspace/note-list-selection";
 
@@ -74,6 +75,17 @@ describe("card view & layout", () => {
       "每日代办事项",
       "象映设计规范",
     ]);
+  });
+
+  test("splits the card grid into bounded masonry pages without changing item order", () => {
+    const notes = Array.from({ length: NOTE_CARD_PAGE_SIZE * 2 + 3 }, (_, index) => index);
+    const pages = createCardPages(notes);
+
+    expect(pages.map((page) => page.items.length)).toEqual([NOTE_CARD_PAGE_SIZE, NOTE_CARD_PAGE_SIZE, 3]);
+    expect(pages.map((page) => page.startIndex)).toEqual([0, NOTE_CARD_PAGE_SIZE, NOTE_CARD_PAGE_SIZE * 2]);
+    expect(pages.flatMap((page) => page.items)).toEqual(notes);
+    expect(createCardPages([])).toEqual([]);
+    expect(() => createCardPages(notes, 0)).toThrow(RangeError);
   });
 
   test("card selection with modifier keys supports multi-select", () => {

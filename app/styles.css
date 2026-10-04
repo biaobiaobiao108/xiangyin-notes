@@ -1996,6 +1996,20 @@ dialog::backdrop {
   padding-top: 58px;
 }
 
+.card-masonry-page {
+  display: flow-root;
+  width: 100%;
+  max-width: 1240px;
+  margin: 0 auto;
+}
+
+.card-masonry-page + .card-masonry-page { margin-top: 12px; }
+
+.card-masonry-page > .card-masonry {
+  max-width: none;
+  margin: 0;
+}
+
 .card-masonry {
   columns: 3 280px;
   column-gap: 18px;
