@@ -335,9 +335,9 @@ const NoteCardItem = memo(function NoteCardItem({
     >
       {isMobileViewport && <div id={`note-actions-${note.id}`} className="swipe-action-buttons" role="group" aria-label={`${displayTitle}的操作`}>
         {isTrashView ? <>
-          <button type="button" className="swipe-action-button" aria-label={`恢复笔记：${displayTitle}`} disabled={trashBusy} onClick={(event) => { event.stopPropagation(); setOpenId(null); onNoteSwipeAction(note, "restore"); }}><RotateCcw size={17} aria-hidden="true" /><span>恢复</span></button>
-          <button type="button" className="swipe-action-button is-danger" aria-label={`彻底删除笔记：${displayTitle}`} disabled={trashBusy} onClick={(event) => { event.stopPropagation(); setOpenId(null); onNoteSwipeAction(note, "permanent-delete"); }}><Trash2 size={17} aria-hidden="true" /><span>彻底删除</span></button>
-        </> : <button type="button" className="swipe-action-button is-danger" aria-label={`移入回收站：${displayTitle}`} disabled={trashBusy} onClick={(event) => { event.stopPropagation(); setOpenId(null); onNoteSwipeAction(note, "trash"); }}><Trash2 size={17} aria-hidden="true" /><span>移入回收站</span></button>}
+          <button type="button" className="swipe-action-button" aria-label={`恢复笔记：${displayTitle}`} disabled={trashBusy} onClick={(event) => { event.stopPropagation(); setOpenId(null); onNoteSwipeAction(note, "restore"); }}><span className="swipe-action-icon"><RotateCcw size={17} aria-hidden="true" /></span><span>恢复</span></button>
+          <button type="button" className="swipe-action-button is-danger" aria-label={`彻底删除笔记：${displayTitle}`} disabled={trashBusy} onClick={(event) => { event.stopPropagation(); setOpenId(null); onNoteSwipeAction(note, "permanent-delete"); }}><span className="swipe-action-icon"><Trash2 size={17} aria-hidden="true" /></span><span>彻底删除</span></button>
+        </> : <button type="button" className="swipe-action-button is-danger" aria-label={`移入回收站：${displayTitle}`} disabled={trashBusy} onClick={(event) => { event.stopPropagation(); setOpenId(null); onNoteSwipeAction(note, "trash"); }}><span className="swipe-action-icon"><Trash2 size={17} aria-hidden="true" /></span><span>移入回收站</span></button>}
       </div>}
       <div ref={foregroundRef} className="note-card-foreground swipe-action-foreground">
       {isMobileViewport && <button className="note-card-open" type="button" aria-label={`打开笔记：${displayTitle}；${open ? "操作已展开" : "向左轻扫显示操作"}`} aria-expanded={open} aria-controls={`note-actions-${note.id}`} />}

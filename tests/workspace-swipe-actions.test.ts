@@ -22,6 +22,14 @@ describe("mobile swipe actions", () => {
     expect(source).toContain("HORIZONTAL_INTENT_RATIO");
   });
 
+  test("keeps closed actions covered and renders round action icons", async () => {
+    const css = await Bun.file("app/styles.css").text();
+    const mobileCss = await Bun.file("app/workspace/mobile-panels.css").text();
+    expect(css).toContain(".swipe-action-icon { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 50%");
+    expect(css).toContain(".note-row-swipe > .note-row { background: var(--surface); }");
+    expect(mobileCss).toContain(".mobile-notebook-row .mobile-notebook-link--editable { background: var(--surface); }");
+  });
+
   test("exposes notebook and note actions through named buttons", async () => {
     const mobilePanels = await Bun.file("app/workspace/mobile-panels.tsx").text();
     const noteList = await Bun.file("app/workspace/panels.tsx").text();

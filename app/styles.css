@@ -421,16 +421,24 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .note-list-items { margin: 0; padding: 4px 0; list-style: none; }
 @media (max-width: 900px) {
   .swipe-action-row { position: relative; overflow: hidden; min-width: 0; border-radius: var(--radius-md); touch-action: pan-y; }
-  .swipe-action-buttons { position: absolute; z-index: 0; inset: 0 0 0 auto; display: flex; justify-content: flex-end; width: var(--swipe-action-width); overflow: hidden; background: var(--surface-muted); pointer-events: none; }
-  .swipe-action-button { display: grid; flex: 0 0 var(--swipe-action-button-width); align-content: center; justify-items: center; gap: 5px; min-width: 0; min-height: 100%; padding: 5px 3px; border: 0; border-radius: 0; color: var(--accent); background: var(--accent-soft); font-size: 0.68rem; line-height: 1.25; text-align: center; white-space: normal; overflow-wrap: anywhere; }
-  .swipe-action-button.is-danger { color: var(--danger); background: var(--danger-soft); }
+  .swipe-action-buttons { position: absolute; z-index: 0; inset: 0 0 0 auto; display: flex; justify-content: flex-end; width: var(--swipe-action-width); overflow: hidden; background: transparent; pointer-events: none; }
+  .swipe-action-button { display: grid; flex: 0 0 var(--swipe-action-button-width); align-content: center; justify-items: center; gap: 4px; min-width: 0; min-height: 100%; padding: 5px 3px; border: 0; border-radius: 0; color: var(--accent); background: transparent; font-size: 0.68rem; line-height: 1.25; text-align: center; white-space: normal; overflow-wrap: anywhere; }
+  .swipe-action-button.is-danger { color: var(--danger); background: transparent; }
+  .swipe-action-icon { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 50%; background: var(--accent-soft); box-shadow: var(--shadow-xs); }
+  .swipe-action-button.is-danger .swipe-action-icon { background: var(--danger-soft); }
   .swipe-action-button:disabled { opacity: 0.55; }
-  .swipe-action-button:focus-visible { position: relative; z-index: 1; background: var(--surface); box-shadow: inset 0 0 0 2px var(--accent-border); }
+  .swipe-action-button:focus-visible { position: relative; z-index: 1; background: transparent; }
+  .swipe-action-button:focus-visible .swipe-action-icon { box-shadow: inset 0 0 0 2px var(--accent-border), var(--shadow-xs); }
   .is-swipe-open > .swipe-action-buttons { pointer-events: auto; }
   .swipe-action-foreground { position: relative; z-index: 1; transform: translate3d(0, 0, 0); transition: transform var(--motion-fast) var(--motion-ease-out); }
   .is-swipe-open > .swipe-action-foreground { transform: translate3d(calc(0px - var(--swipe-action-width)), 0, 0); }
   .note-row-swipe { width: calc(100% - 16px); margin: 3px 8px; }
   .note-row-swipe .note-row { width: 100%; margin: 0; border-radius: inherit; }
+  .note-row-swipe > .note-row { background: var(--surface); }
+  .note-row-swipe > .note-row:hover,
+  .note-row-swipe > .note-row:focus-visible:not(.is-selected):not(.is-active) { background: var(--surface-hover); }
+  .note-row-swipe > .note-row.is-selected,
+  .note-row-swipe > .note-row.is-active { background: var(--accent-soft); }
 }
 /* Keep rows fully painted; WebKit can retain skipped subtrees as blank after scroll reveal. */
 .note-row {

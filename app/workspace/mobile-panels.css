@@ -30,6 +30,10 @@
   .mobile-notebook-row { display: flex; align-items: stretch; }
   .mobile-notebook-row .mobile-notebook-swipe { flex: 1; border-radius: var(--radius-md); }
   .mobile-notebook-row .mobile-notebook-link { width: 100%; min-height: 61px; border-radius: inherit; }
+  .mobile-notebook-row .mobile-notebook-link--editable { background: var(--surface); }
+  .mobile-notebook-row .mobile-notebook-link--editable:hover,
+  .mobile-notebook-row .mobile-notebook-link--editable:focus-visible { background: var(--surface-hover); }
+  .mobile-notebook-row .mobile-notebook-link--editable:active { background: var(--accent-soft); }
   .mobile-notebook-row .swipe-action-button { flex-basis: 72px; }
   .mobile-notebooks-empty { padding: 24px 18px; border-radius: var(--radius-lg); background: var(--surface); color: var(--muted); text-align: center; font-size: 14px; }
   .mobile-notebooks-empty p { margin: 0 0 12px; }
