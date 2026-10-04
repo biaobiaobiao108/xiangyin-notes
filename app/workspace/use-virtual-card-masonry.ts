@@ -157,9 +157,12 @@ export function useVirtualCardMasonry(
         const noteId = (entry.target as HTMLElement).dataset.cardMasonryNoteId;
         if (!noteId) continue;
         const borderBox = entry.borderBoxSize as unknown as ResizeObserverSize | readonly ResizeObserverSize[] | undefined;
-        const height = borderBox
-          ? "blockSize" in borderBox ? borderBox.blockSize : borderBox[0]?.blockSize
-          : entry.target.getBoundingClientRect().height;
+        const borderBoxBlockSize = Array.isArray(borderBox)
+          ? borderBox[0]?.blockSize
+          : (borderBox as ResizeObserverSize | undefined)?.blockSize;
+        const height = typeof borderBoxBlockSize === "number" && borderBoxBlockSize > 0
+          ? borderBoxBlockSize
+          : (entry.target as HTMLElement).getBoundingClientRect().height;
         if (!height || !Number.isFinite(height)) continue;
         const previous = measuredHeightsRef.current.get(noteId);
         if (previous?.widthKey === widthKey && Math.abs(previous.height - height) < 0.75) continue;
@@ -265,7 +268,7 @@ export function useVirtualCardMasonry(
       const element = cardNodesRef.current.get(anchor.noteId);
       if (root && element) {
         const delta = element.getBoundingClientRect().top - anchor.top;
-        if (Math.abs(delta) > 0.5) root.scrollTop += delta;
+        if (Math.abs(delta) > 0.5 && (root.scrollTop > 1 || delta < 0)) root.scrollTop += delta;
       }
       scrollAnchorRef.current = null;
     }
@@ -283,6 +286,12 @@ export function useVirtualCardMasonry(
     target?.focus({ preventScroll: true });
     pendingFocusRef.current = null;
   }, [focusRevision, indexById, lanes, scrollRootRef, visibleIndexes]);
+
+  useLayoutEffect(() => {
+    for (const noteId of measuredHeightsRef.current.keys()) {
+      if (!indexById.has(noteId)) measuredHeightsRef.current.delete(noteId);
+    }
+  }, [indexById]);
 
   return {
     config,
