@@ -50,6 +50,7 @@ describe("mobile swipe actions", () => {
 
   test("removes sticky touch highlights and uses fill-only focus and swipe feedback", async () => {
     const mobileCss = await Bun.file("app/workspace/mobile-panels.css").text();
+    const sharedCss = await Bun.file("app/styles.css").text();
     const customNotebookFeedback = mobileCss.slice(
       mobileCss.indexOf(".mobile-notebook-row .mobile-notebook-link--editable:hover"),
       mobileCss.indexOf(".mobile-notebook-row .swipe-action-button"),
@@ -60,6 +61,10 @@ describe("mobile swipe actions", () => {
     expect(customNotebookFeedback).toContain(":focus-visible,");
     expect(customNotebookFeedback).toContain("background: var(--accent-soft)");
     expect(customNotebookFeedback).not.toContain("box-shadow");
+
+    expect(sharedCss).toContain(".note-row-swipe.is-swipe-open > .note-row { background: var(--accent-soft); border-color: transparent; box-shadow: none; }");
+    expect(sharedCss).toContain(".is-mobile-card-grid .note-card.is-swipe-open { border-color: transparent; box-shadow: var(--note-card-shadow); }");
+    expect(sharedCss).toContain(".is-mobile-card-grid .note-card.is-swipe-open > .note-card-foreground { background: var(--accent-soft); }");
   });
 
   test("returns keyboard focus to the foreground item after Escape closes actions", async () => {
