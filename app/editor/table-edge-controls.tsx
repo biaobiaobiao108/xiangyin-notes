@@ -14,6 +14,7 @@ type TableControlsPosition = {
 
 type DragSession = {
   pointerId: number;
+  pointerType: string;
   startX: number;
   startY: number;
   delta: number;
@@ -153,7 +154,10 @@ function TableEdgeRail({ editor, axis, size, tablePosition, shell, position, dis
       restoreActiveTableSnapshot(editor, drag.snapshot, { addToHistory: false, emitUpdate: false, closeHistory: true });
       if (delta) onAdjustRef.current(delta, drag.snapshot.position);
     } else {
-      suppressClickRef.current = false;
+      // WebKit 在 preventDefault + 指针捕获后可能不再为触屏轻点派发 click。
+      // 触屏/笔直接在抬手提交，鼠标仍由 click 执行，避免改变桌面交互。
+      suppressClickRef.current = drag.pointerType !== "mouse";
+      if (drag.pointerType !== "mouse") onAdjustRef.current(1, drag.snapshot.position);
     }
     setPreviewDelta(0);
   };
@@ -193,6 +197,7 @@ function TableEdgeRail({ editor, axis, size, tablePosition, shell, position, dis
     onDragPositionChange(tablePosition);
     dragRef.current = {
       pointerId: event.pointerId,
+      pointerType: event.pointerType,
       startX: event.clientX,
       startY: event.clientY,
       delta: 0,
