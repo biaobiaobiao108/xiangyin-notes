@@ -1371,6 +1371,8 @@ dialog::backdrop {
     background: var(--line);
     pointer-events: none;
   }
+  .note-list-items > li:has(.note-row) + li:has(.note-row):has(.is-swipe-open)::before,
+  .note-list-items > li:has(.note-row):has(.is-swipe-open) + li:has(.note-row)::before { display: none; }
 }
 
 .wiki-link-item-icon {
