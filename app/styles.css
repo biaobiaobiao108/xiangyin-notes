@@ -1379,6 +1379,12 @@ dialog::backdrop {
   .note-list-items > li:has(.note-row) + li:has(.note-row):has(.is-swipe-open)::before,
   .note-list-items > li:has(.note-row):has(.is-swipe-open) + li:has(.note-row)::before { display: none; }
 }
+@media (min-width: 901px) {
+  .note-list-items > li:has(.note-row.is-selected)::before,
+  .note-list-items > li:has(.note-row.is-active)::before,
+  .note-list-items > li:has(.note-row.is-selected) + li:has(.note-row)::before,
+  .note-list-items > li:has(.note-row.is-active) + li:has(.note-row)::before { display: none; }
+}
 
 .wiki-link-item-icon {
   flex-shrink: 0;

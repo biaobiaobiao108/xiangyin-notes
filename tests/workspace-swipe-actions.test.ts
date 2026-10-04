@@ -9,6 +9,16 @@ describe("desktop note list separators", () => {
     expect(separator).toContain("height: 1px");
     expect(separator).toContain("background: var(--line)");
   });
+
+  test("hides both separators around the selected or active row on desktop", async () => {
+    const css = await Bun.file("app/styles.css").text();
+    const desktopRules = css.slice(css.indexOf("@media (min-width: 901px)"));
+    expect(desktopRules).toMatch(/li:has\(\.note-row\.is-selected\)::before/);
+    expect(desktopRules).toMatch(/li:has\(\.note-row\.is-selected\) \+ li:has\(\.note-row\)::before/);
+    expect(desktopRules).toMatch(/li:has\(\.note-row\.is-active\)::before/);
+    expect(desktopRules).toMatch(/li:has\(\.note-row\.is-active\) \+ li:has\(\.note-row\)::before/);
+    expect(desktopRules).toMatch(/\{ display: none; \}/);
+  });
 });
 
 describe("mobile swipe actions", () => {
