@@ -33,10 +33,8 @@
   .mobile-notebook-row .mobile-notebook-link { width: 100%; min-height: 61px; border-radius: inherit; }
   .mobile-notebook-row .mobile-notebook-link--editable { background: var(--surface); }
   .mobile-notebook-row .mobile-notebook-link--editable:hover,
-  .mobile-notebook-row .mobile-notebook-link--editable:active,
-  .mobile-notebook-row .mobile-notebook-link--editable:focus-visible { background: var(--surface); }
+  .mobile-notebook-row .mobile-notebook-link--editable:active { background: var(--surface); }
   .mobile-notebook-row .mobile-notebook-link--editable:focus-visible,
-  .mobile-notebook-swipe.is-swipe-open > .mobile-notebook-link--editable { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-border-soft) 48%, transparent); }
   .mobile-notebook-swipe.is-swipe-open > .mobile-notebook-link--editable { background: var(--accent-soft); }
   .mobile-notebook-row .swipe-action-button { flex-basis: 72px; padding: 0; gap: 0; }
   .mobile-notebooks-empty { padding: 24px 18px; border-radius: var(--radius-lg); background: var(--surface); color: var(--muted); text-align: center; font-size: 14px; }

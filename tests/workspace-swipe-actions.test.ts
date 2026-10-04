@@ -48,7 +48,7 @@ describe("mobile swipe actions", () => {
     expect(mobilePanels).toContain("aria-label={`删除笔记本：${notebook.name}`}");
   });
 
-  test("removes sticky touch highlights and softens the opened notebook border", async () => {
+  test("removes sticky touch highlights and uses fill-only focus and swipe feedback", async () => {
     const mobileCss = await Bun.file("app/workspace/mobile-panels.css").text();
     const customNotebookFeedback = mobileCss.slice(
       mobileCss.indexOf(".mobile-notebook-row .mobile-notebook-link--editable:hover"),
@@ -57,7 +57,9 @@ describe("mobile swipe actions", () => {
     expect(mobileCss).toContain("-webkit-tap-highlight-color: transparent");
     expect(customNotebookFeedback).not.toContain("surface-hover");
     expect(customNotebookFeedback).toContain("background: var(--surface)");
-    expect(mobileCss).toContain("color-mix(in srgb, var(--accent-border-soft) 48%, transparent)");
+    expect(customNotebookFeedback).toContain(":focus-visible,");
+    expect(customNotebookFeedback).toContain("background: var(--accent-soft)");
+    expect(customNotebookFeedback).not.toContain("box-shadow");
   });
 
   test("returns keyboard focus to the foreground item after Escape closes actions", async () => {
