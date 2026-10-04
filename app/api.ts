@@ -1,4 +1,5 @@
 import type { ApiErrorPayload, ImageAssetSummary, Note, NoteSort, NoteSummary, NoteView, Notebook, User, NoteBacklinksResponse } from "../shared/types";
+import { createUuid } from "./uuid";
 
 export class ApiError extends Error {
   status: number;
@@ -17,7 +18,7 @@ export class ApiError extends Error {
 type RequestOptions = Pick<RequestInit, "keepalive" | "signal">;
 type UpdateNoteOptions = RequestOptions & { response?: "summary" };
 
-export const realtimeClientId = crypto.randomUUID();
+export const realtimeClientId = createUuid();
 
 async function request<T>(path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers);

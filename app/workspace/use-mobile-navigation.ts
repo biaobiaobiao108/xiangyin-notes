@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createUuid } from "../uuid";
 import type { NoteView } from "../../shared/types";
 import type { NoteSort } from "./helpers";
 
@@ -76,7 +77,7 @@ export function useMobileNavigation(context: MobileListContext, onRestore: (cont
   enabledRef.current = isMobileViewport;
 
   const ensureHistory = useCallback(() => {
-    if (!historyRef.current) historyRef.current = new MobileNavigationHistory(window.history, contextRef.current, crypto.randomUUID());
+    if (!historyRef.current) historyRef.current = new MobileNavigationHistory(window.history, contextRef.current, createUuid());
     return historyRef.current;
   }, []);
   useEffect(() => {

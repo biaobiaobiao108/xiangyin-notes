@@ -1,6 +1,7 @@
 import { lazy, memo, Suspense, useCallback, useDeferredValue, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useNavigate } from "react-router";
 import { ApiError, api } from "./api";
+import { createUuid } from "./uuid";
 import { CommandId, CommandMenu } from "./command-menu";
 import type { CreateNoteCommand } from "./command-parser";
 import { applyPwaUpdate, installPwa, subscribePwa, type PwaState } from "./pwa";
@@ -715,7 +716,7 @@ export function Workspace() {
     const timestamp = Math.floor(Date.now() / 1000);
     const notebook: Notebook = existing
       ? { ...existing, name: draft.name, color: draft.color, icon: draft.icon }
-      : { id: crypto.randomUUID(), name: draft.name, color: draft.color, icon: draft.icon, isSystem: false, count: 0, updatedAt: timestamp };
+      : { id: createUuid(), name: draft.name, color: draft.color, icon: draft.icon, isSystem: false, count: 0, updatedAt: timestamp };
     const result = existing
       ? await api.updateNotebook(notebook.id, { name: notebook.name, color: notebook.color, icon: notebook.icon })
       : await api.createNotebook({ name: notebook.name, color: notebook.color, icon: notebook.icon });
