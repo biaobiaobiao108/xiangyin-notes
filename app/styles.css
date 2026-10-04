@@ -238,10 +238,10 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .nav-item, .notebook-item { display: flex; align-items: center; gap: 11px; width: 100%; min-height: 36px; padding: 0 10px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--quiet-ink); text-align: left; cursor: pointer; transition: background-color var(--motion-fast) ease, color var(--motion-fast) ease, box-shadow var(--motion-fast) ease; }
 .nav-item:hover { background: var(--control-hover); color: var(--ink); }
 .nav-item.is-active {
-  background: var(--surface);
+  background: var(--accent-soft);
   color: var(--ink);
   font-weight: 600;
-  box-shadow: var(--shadow-xs);
+  box-shadow: none;
 }
 .nav-item.is-active svg { color: var(--accent); }
 .notebook-section { display: flex; flex: 1 1 0; flex-direction: column; gap: 9px; min-height: 0; padding-top: 11px; border-top: 1px solid var(--line); overflow: visible; }
@@ -269,10 +269,10 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .notebook-row-wrap { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; width: 100%; min-height: 36px; position: relative; border-radius: var(--radius-sm); color: var(--quiet-ink); transition: background-color var(--motion-fast) ease, color var(--motion-fast) ease, box-shadow var(--motion-fast) ease; }
 .notebook-row-wrap:hover, .notebook-row-wrap:focus-within { background: var(--control-hover); color: var(--ink); }
 .notebook-row-wrap.is-active {
-  background: var(--surface);
+  background: var(--accent-soft);
   color: var(--ink);
   font-weight: 600;
-  box-shadow: var(--shadow-xs);
+  box-shadow: none;
 }
 .notebook-row-wrap .notebook-item { width: 100%; min-width: 0; color: inherit; background: transparent; }
 .sidebar-bottom { display: grid; gap: 10px; margin-top: auto; }
@@ -297,7 +297,7 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .sidebar-collapsed .collapsed-notebook-list::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .collapsed-notebook-divider { width: 24px; height: 1px; background: var(--line); margin: 6px 0; }
 .collapsed-notebook-item { width: 38px; height: 38px; border-radius: var(--radius-sm); position: relative; display: inline-grid; place-items: center; }
-.collapsed-notebook-item.is-active { background: var(--surface); box-shadow: var(--shadow-xs); }
+.collapsed-notebook-item.is-active { background: var(--accent-soft); box-shadow: none; }
 .notebook-custom-icon { flex: none; }
 
 .list-header, .editor-header { height: 62px; min-height: 62px; }

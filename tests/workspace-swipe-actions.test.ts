@@ -2,6 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { shouldKeepSwipeActionsOpenAfterCancel, shouldOpenSwipeActions } from "../app/workspace/swipe-actions";
 
 describe("mobile swipe actions", () => {
+  test("uses the same fill-only selection feedback in the desktop sidebar", async () => {
+    const css = await Bun.file("app/styles.css").text();
+    expect(css).toMatch(/\.nav-item\.is-active\s*\{[^}]*background:\s*var\(--accent-soft\);[^}]*box-shadow:\s*none;/s);
+    expect(css).toMatch(/\.notebook-row-wrap\.is-active\s*\{[^}]*background:\s*var\(--accent-soft\);[^}]*box-shadow:\s*none;/s);
+    expect(css).toContain(".collapsed-notebook-item.is-active { background: var(--accent-soft); box-shadow: none; }");
+  });
+
   test("opens after a decisive left drag but does not auto-run an action", () => {
     expect(shouldOpenSwipeActions(-58, 144, 0)).toBe(true);
     expect(shouldOpenSwipeActions(-56, 144, 0)).toBe(false);
