@@ -62,6 +62,7 @@ type ActivePointer = {
   startY: number;
   startOffset: number;
   latestX: number;
+  latestY: number;
   latestTime: number;
   locked: boolean;
   cancelled: boolean;
@@ -73,6 +74,10 @@ function clampOffset(offset: number, actionWidth: number) {
 
 export function shouldOpenSwipeActions(offset: number, actionWidth: number, velocityX: number) {
   return offset <= -actionWidth * OPEN_DISTANCE_RATIO || velocityX <= -SWIPE_VELOCITY_THRESHOLD;
+}
+
+export function shouldKeepSwipeActionsOpenAfterCancel(offset: number, actionWidth: number) {
+  return offset <= -actionWidth * OPEN_DISTANCE_RATIO;
 }
 
 export function useSwipeActionGesture({ enabled, itemId, open, actionWidth, onOpenChange, foregroundRef }: SwipeActionGestureOptions) {
@@ -96,6 +101,7 @@ export function useSwipeActionGesture({ enabled, itemId, open, actionWidth, onOp
       startY: event.clientY,
       startOffset: open ? -actionWidth : 0,
       latestX: event.clientX,
+      latestY: event.clientY,
       latestTime: event.timeStamp,
       locked: false,
       cancelled: false,
@@ -126,6 +132,7 @@ export function useSwipeActionGesture({ enabled, itemId, open, actionWidth, onOp
 
     event.preventDefault();
     pointer.latestX = event.clientX;
+    pointer.latestY = event.clientY;
     pointer.latestTime = event.timeStamp;
     const offset = clampOffset(pointer.startOffset + deltaX, actionWidth);
     if (foregroundRef.current) foregroundRef.current.style.transform = `translate3d(${offset}px, 0, 0)`;
@@ -135,6 +142,21 @@ export function useSwipeActionGesture({ enabled, itemId, open, actionWidth, onOp
     const pointer = pointerRef.current;
     if (!pointer || pointer.id !== event.pointerId) return;
     pointerRef.current = null;
+    if (cancelled && pointer.locked && !pointer.cancelled) {
+      // Safari may cancel a touch Pointer sequence after taking over gesture
+      // handling. Keep a decisively revealed tray open instead of snapping it
+      // back, but never infer or run an action from a cancelled sequence.
+      const deltaX = pointer.latestX - pointer.startX;
+      const deltaY = pointer.latestY - pointer.startY;
+      const offset = clampOffset(pointer.startOffset + deltaX, actionWidth);
+      const horizontalIntent = Math.abs(deltaX) >= Math.abs(deltaY) * HORIZONTAL_INTENT_RATIO;
+      suppressClickRef.current = true;
+      window.setTimeout(() => { suppressClickRef.current = false; }, 0);
+      resetForeground();
+      const shouldOpen = horizontalIntent ? shouldKeepSwipeActionsOpenAfterCancel(offset, actionWidth) : open;
+      onOpenChange(shouldOpen ? itemId : null);
+      return;
+    }
     if (!pointer.locked || cancelled || pointer.cancelled) {
       if (cancelled || pointer.cancelled) {
         suppressClickRef.current = true;

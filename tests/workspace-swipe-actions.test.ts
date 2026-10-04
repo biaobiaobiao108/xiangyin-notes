@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { shouldOpenSwipeActions } from "../app/workspace/swipe-actions";
+import { shouldKeepSwipeActionsOpenAfterCancel, shouldOpenSwipeActions } from "../app/workspace/swipe-actions";
 
 describe("mobile swipe actions", () => {
   test("opens after a decisive left drag but does not auto-run an action", () => {
@@ -11,6 +11,11 @@ describe("mobile swipe actions", () => {
   test("a rightward release closes an open action tray", () => {
     expect(shouldOpenSwipeActions(-54, 144, 0.45)).toBe(false);
     expect(shouldOpenSwipeActions(0, 144, 0)).toBe(false);
+  });
+
+  test("keeps a decisively revealed tray open if Safari cancels the touch sequence", () => {
+    expect(shouldKeepSwipeActionsOpenAfterCancel(-58, 144)).toBe(true);
+    expect(shouldKeepSwipeActionsOpenAfterCancel(-56, 144)).toBe(false);
   });
 
   test("keeps vertical scrolling available and translates only the swipe foreground", async () => {
