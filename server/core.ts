@@ -212,14 +212,28 @@ export function rateLimitClientAddress(
   return normalizedIp(forwarded) ?? normalizedIp(realIp) ?? directAddress;
 }
 
-export function isSecureRequest(request: Request, environment: Record<string, string | undefined> = {}) {
+export function isSecureRequest(
+  request: Request,
+  environment: Record<string, string | undefined> = {},
+  clientAddress?: string,
+) {
   const configured = environment.COOKIE_SECURE?.trim().toLowerCase();
   if (configured === "true") return true;
   if (configured === "false") return false;
   if (new URL(request.url).protocol === "https:") return true;
   // TLS terminated by a reverse proxy: honour X-Forwarded-Proto only when the proxy is trusted.
   if (environment.TRUST_PROXY === "true") {
-    return request.headers.get("X-Forwarded-Proto")?.split(",")[0]?.trim().toLowerCase() === "https";
+    const peerAddress = normalizedIp(clientAddress);
+    if (!peerAddress) return false;
+    const trustedProxies = new Set(
+      (environment.TRUSTED_PROXY_ADDRESSES ?? "")
+        .split(",")
+        .map((value) => normalizedIp(value) ?? "")
+        .filter(Boolean),
+    );
+    if (trustedProxies.has(peerAddress)) {
+      return request.headers.get("X-Forwarded-Proto")?.split(",")[0]?.trim().toLowerCase() === "https";
+    }
   }
   return false;
 }

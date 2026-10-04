@@ -68,6 +68,7 @@ export async function openDatabase(
   if (resolvedPath !== ":memory:") await mkdir(dirname(resolvedPath), { recursive: true });
 
   const database = new Database(resolvedPath, { create: true });
+  database.exec("PRAGMA busy_timeout = 5000;");
   const autoVacuumRow = database.query("PRAGMA auto_vacuum;").get() as { auto_vacuum: number } | null | undefined;
   if (Number(autoVacuumRow?.auto_vacuum ?? 0) !== 2) {
     if (resolvedPath !== ":memory:") console.warn("[db] 正在启用 auto_vacuum=INCREMENTAL，首次整理可能需要一些时间");
@@ -78,7 +79,6 @@ export async function openDatabase(
     PRAGMA foreign_keys = ON;
     PRAGMA journal_mode = WAL;
     PRAGMA synchronous = NORMAL;
-    PRAGMA busy_timeout = 5000;
     PRAGMA cache_size = -20000;
     PRAGMA temp_store = MEMORY;
   `);

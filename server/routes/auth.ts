@@ -160,8 +160,8 @@ export function resetLoginAttempt(database: SqliteDatabase, key: string) {
   database.query("DELETE FROM rate_limits WHERE action = 'login' AND key = ?").run(key);
 }
 
-export function setSessionCookie(headers: Headers, request: Request, token: string, environment: RuntimeEnvironment, maxAge = SESSION_COOKIE_TTL) {
-  const secure = isSecureRequest(request, environment);
+export function setSessionCookie(headers: Headers, request: Request, token: string, environment: RuntimeEnvironment, maxAge = SESSION_COOKIE_TTL, clientAddress?: string) {
+  const secure = isSecureRequest(request, environment, clientAddress);
   headers.set("Set-Cookie", `${SESSION_COOKIE}=${encodeURIComponent(token)}; Max-Age=${maxAge}; Path=/; HttpOnly; SameSite=Lax${secure ? "; Secure" : ""}`);
 }
 
@@ -248,7 +248,7 @@ export async function handleAuthRoute(ctx: RouteContext): Promise<Response | nul
       const createdAt = now();
       database.query("INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)").run(await digestHex(session), user.id, createdAt, createdAt + SESSION_TTL);
       const headers = new Headers();
-      setSessionCookie(headers, request, session, environment);
+      setSessionCookie(headers, request, session, environment, SESSION_COOKIE_TTL, clientAddress);
       return json({ configured: true }, 200, headers);
     }
     return json({ configured: Boolean(credentials) });
@@ -281,7 +281,7 @@ export async function handleAuthRoute(ctx: RouteContext): Promise<Response | nul
     const createdAt = now();
     database.query("INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)").run(await digestHex(session), user.id, createdAt, createdAt + SESSION_TTL);
     const headers = new Headers();
-    setSessionCookie(headers, request, session, environment);
+    setSessionCookie(headers, request, session, environment, SESSION_COOKIE_TTL, clientAddress);
     return json({ user }, 200, headers);
   }
 
@@ -289,7 +289,7 @@ export async function handleAuthRoute(ctx: RouteContext): Promise<Response | nul
     const session = cookieValue(request.headers.get("Cookie"), SESSION_COOKIE);
     if (session) database.query("DELETE FROM sessions WHERE token_hash = ?").run(await digestHex(session));
     const headers = new Headers();
-    setSessionCookie(headers, request, "", environment, 0);
+    setSessionCookie(headers, request, "", environment, 0, clientAddress);
     headers.set("Clear-Site-Data", '"cookies"');
     return json({ ok: true }, 200, headers);
   }
@@ -299,7 +299,7 @@ export async function handleAuthRoute(ctx: RouteContext): Promise<Response | nul
     if (isResponse(user)) return user;
     const headers = new Headers();
     const session = cookieValue(request.headers.get("Cookie"), SESSION_COOKIE);
-    if (session) setSessionCookie(headers, request, session, environment);
+    if (session) setSessionCookie(headers, request, session, environment, SESSION_COOKIE_TTL, clientAddress);
     return json({ user }, 200, headers);
   }
 
