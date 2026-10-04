@@ -63,6 +63,7 @@ export const WikiLinkSuggestionList = forwardRef<WikiLinkSuggestionListRef, Wiki
   const listboxId = `wiki-link-suggestion-listbox-${useId().replaceAll(":", "")}`;
   const listRef = useRef<HTMLDivElement>(null);
   const lastMousePositionRef = useRef<{ x: number; y: number } | null>(null);
+  const candidatePressRef = useRef<{ pointerType: string; x: number; y: number; cancelled: boolean } | null>(null);
 
   useEffect(() => {
     lastMousePositionRef.current = null;
@@ -183,15 +184,31 @@ export const WikiLinkSuggestionList = forwardRef<WikiLinkSuggestionListRef, Wiki
                 type="button"
                 className={`wiki-link-item ${isSelected ? "is-selected" : ""} ${item.isCreate ? "is-create" : ""}`}
                 onPointerDown={(e) => {
-                  e.preventDefault();
                   e.stopPropagation();
-                  handleSelect(item);
+                  candidatePressRef.current = { pointerType: e.pointerType, x: e.clientX, y: e.clientY, cancelled: false };
+                  // 鼠标保持编辑器选区；触屏起手必须允许原生滚动，抬手点击再确认。
+                  if (e.pointerType === "mouse") {
+                    e.preventDefault();
+                    handleSelect(item);
+                  }
+                }}
+                onPointerMove={(e) => {
+                  const press = candidatePressRef.current;
+                  if (press && press.pointerType !== "mouse" && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 8) press.cancelled = true;
+                }}
+                onPointerCancel={() => {
+                  if (candidatePressRef.current) candidatePressRef.current.cancelled = true;
                 }}
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
+                  const press = candidatePressRef.current;
+                  candidatePressRef.current = null;
+                  if (!press || (press.pointerType !== "mouse" && !press.cancelled)) handleSelect(item);
                 }}
-                onMouseMove={(e) => handleItemMouseMove(index, e)}
+                onMouseMove={(e) => {
+                  if (!candidatePressRef.current || candidatePressRef.current.pointerType === "mouse") handleItemMouseMove(index, e);
+                }}
                 role="option"
                 aria-selected={isSelected}
               >
