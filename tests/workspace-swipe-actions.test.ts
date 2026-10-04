@@ -98,6 +98,12 @@ describe("mobile swipe actions", () => {
     expect(mobilePanels).toContain("删除笔记本：${notebook.name}");
     expect(noteList).toContain("恢复笔记：${note.title");
     expect(noteList).toContain("彻底删除笔记：${note.title");
+    expect(noteList).not.toContain("<span>恢复</span>");
+    expect(noteList).not.toContain("<span>彻底删除</span>");
+    expect(noteList).not.toContain("<span>移入回收站</span>");
     expect(noteCards).toContain("移入回收站：${displayTitle}");
+    expect(noteCards).not.toContain("<span>恢复</span>");
+    expect(noteCards).not.toContain("<span>彻底删除</span>");
+    expect(noteCards).not.toContain("<span>移入回收站</span>");
   });
 });
