@@ -1350,6 +1350,28 @@ dialog::backdrop {
   background: var(--accent-soft);
 }
 
+@media (max-width: 900px) {
+  /* Touch users browse these menus by tapping; keyboard-index highlighting is unnecessary. */
+  .command-dialog--mobile .command-row.is-selected { background: transparent; }
+  .slash-command-item.is-selected { border-color: transparent; background: transparent; color: var(--ink); }
+  .slash-command-item.is-selected .slash-command-icon { border-color: var(--border-soft); color: var(--muted); }
+  .wiki-link-item:hover,
+  .wiki-link-item.is-selected,
+  .wiki-link-item.is-create:hover,
+  .wiki-link-item.is-create.is-selected { background: transparent; }
+
+  .note-list-items > li:has(.note-row) + li:has(.note-row) { position: relative; }
+  .note-list-items > li:has(.note-row) + li:has(.note-row):not(:has(.is-swipe-open))::before {
+    content: "";
+    position: absolute;
+    inset-inline: 22px;
+    top: 0;
+    height: 1px;
+    background: var(--line);
+    pointer-events: none;
+  }
+}
+
 .wiki-link-item-icon {
   flex-shrink: 0;
   color: var(--muted);
