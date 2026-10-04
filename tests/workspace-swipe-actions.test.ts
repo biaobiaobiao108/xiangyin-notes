@@ -48,6 +48,18 @@ describe("mobile swipe actions", () => {
     expect(mobilePanels).toContain("aria-label={`删除笔记本：${notebook.name}`}");
   });
 
+  test("removes sticky touch highlights and softens the opened notebook border", async () => {
+    const mobileCss = await Bun.file("app/workspace/mobile-panels.css").text();
+    const customNotebookFeedback = mobileCss.slice(
+      mobileCss.indexOf(".mobile-notebook-row .mobile-notebook-link--editable:hover"),
+      mobileCss.indexOf(".mobile-notebook-row .swipe-action-button"),
+    );
+    expect(mobileCss).toContain("-webkit-tap-highlight-color: transparent");
+    expect(customNotebookFeedback).not.toContain("surface-hover");
+    expect(customNotebookFeedback).toContain("background: var(--surface)");
+    expect(mobileCss).toContain("color-mix(in srgb, var(--accent-border-soft) 48%, transparent)");
+  });
+
   test("returns keyboard focus to the foreground item after Escape closes actions", async () => {
     const source = await Bun.file("app/workspace/swipe-actions.ts").text();
     expect(source).toContain('foreground?.querySelector<HTMLButtonElement>(".note-card-open")');

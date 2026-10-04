@@ -26,16 +26,18 @@
   .mobile-home-section-heading { display: flex; justify-content: space-between; align-items: center; margin: 24px 0 8px; }
   .mobile-home-section-heading h2 { margin: 0; font-size: 18px; font-weight: 600; }
   .mobile-plain-button { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; flex-shrink: 0; padding: 0; color: var(--accent); background: transparent; border: 0; border-radius: var(--radius-sm); }
-  .mobile-notebook-link--editable { -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; touch-action: pan-y; }
+  .mobile-notebook-link--editable { -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; touch-action: pan-y; }
   .mobile-notebook-row { display: flex; align-items: stretch; }
   .mobile-notebook-row .mobile-notebook-swipe { flex: 1; border-radius: var(--radius-md); }
   .mobile-home-group .mobile-notebook-row + .mobile-notebook-row::before { display: none; }
   .mobile-notebook-row .mobile-notebook-link { width: 100%; min-height: 61px; border-radius: inherit; }
   .mobile-notebook-row .mobile-notebook-link--editable { background: var(--surface); }
   .mobile-notebook-row .mobile-notebook-link--editable:hover,
-  .mobile-notebook-row .mobile-notebook-link--editable:focus-visible { background: var(--surface-hover); }
-  .mobile-notebook-row .mobile-notebook-link--editable:active { background: var(--surface); }
-  .mobile-notebook-swipe.is-swipe-open > .mobile-notebook-link--editable { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent-border-soft); }
+  .mobile-notebook-row .mobile-notebook-link--editable:active,
+  .mobile-notebook-row .mobile-notebook-link--editable:focus-visible { background: var(--surface); }
+  .mobile-notebook-row .mobile-notebook-link--editable:focus-visible,
+  .mobile-notebook-swipe.is-swipe-open > .mobile-notebook-link--editable { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-border-soft) 48%, transparent); }
+  .mobile-notebook-swipe.is-swipe-open > .mobile-notebook-link--editable { background: var(--accent-soft); }
   .mobile-notebook-row .swipe-action-button { flex-basis: 72px; padding: 0; gap: 0; }
   .mobile-notebooks-empty { padding: 24px 18px; border-radius: var(--radius-lg); background: var(--surface); color: var(--muted); text-align: center; font-size: 14px; }
   .mobile-notebooks-empty p { margin: 0 0 12px; }
