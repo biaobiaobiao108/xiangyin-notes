@@ -644,8 +644,8 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   const editorProps = useMemo(() => ({
     attributes: { class: "note-prose" },
     handleClick: (_view: Editor["view"], _pos: number, event: MouseEvent) => {
-      if (event.ctrlKey || event.metaKey) {
-        const target = event.target as HTMLElement | null;
+      const target = event.target as HTMLElement | null;
+      if (event.ctrlKey || event.metaKey || mobileViewportRef.current) {
         const wikiLinkEl = target?.closest(".editor-wiki-link");
         if (wikiLinkEl) {
           event.preventDefault();
@@ -656,6 +656,8 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
             return true;
           }
         }
+      }
+      if (event.ctrlKey || event.metaKey) {
         const anchor = target?.closest("a");
         if (anchor?.href) {
           event.preventDefault();
