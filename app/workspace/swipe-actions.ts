@@ -82,6 +82,7 @@ export function shouldKeepSwipeActionsOpenAfterCancel(offset: number, actionWidt
 
 export function useSwipeActionGesture({ enabled, itemId, open, actionWidth, onOpenChange, foregroundRef }: SwipeActionGestureOptions) {
   const pointerRef = useRef<ActivePointer | null>(null);
+  const touchRef = useRef<ActivePointer | null>(null);
   const suppressClickRef = useRef(false);
 
   const resetForeground = useCallback(() => {
@@ -92,8 +93,124 @@ export function useSwipeActionGesture({ enabled, itemId, open, actionWidth, onOp
     }
   }, [foregroundRef]);
 
+  useEffect(() => {
+    const foreground = foregroundRef.current;
+    if (!enabled || !foreground) return;
+
+    const finishTouch = (event: TouchEvent, cancelled: boolean) => {
+      const touch = touchRef.current;
+      if (!touch) return;
+      const changedTouch = Array.from(event.changedTouches).find((candidate) => candidate.identifier === touch.id);
+      const previousX = touch.latestX;
+      const previousTime = touch.latestTime;
+      if (changedTouch) {
+        touch.latestX = changedTouch.clientX;
+        touch.latestY = changedTouch.clientY;
+        touch.latestTime = event.timeStamp;
+      }
+      touchRef.current = null;
+
+      if (!touch.locked || touch.cancelled) {
+        resetForeground();
+        return;
+      }
+
+      const deltaX = touch.latestX - touch.startX;
+      const deltaY = touch.latestY - touch.startY;
+      const offset = clampOffset(touch.startOffset + deltaX, actionWidth);
+      resetForeground();
+
+      if (cancelled) {
+        // iOS may cancel a touch sequence when the browser takes over. Preserve
+        // only a clear horizontal reveal; never execute an action on cancel.
+        const horizontalIntent = Math.abs(deltaX) >= Math.abs(deltaY) * HORIZONTAL_INTENT_RATIO;
+        const shouldOpen = horizontalIntent ? shouldKeepSwipeActionsOpenAfterCancel(offset, actionWidth) : open;
+        suppressClickRef.current = true;
+        window.setTimeout(() => { suppressClickRef.current = false; }, 0);
+        onOpenChange(shouldOpen ? itemId : null);
+        return;
+      }
+
+      suppressClickRef.current = true;
+      window.setTimeout(() => { suppressClickRef.current = false; }, 0);
+      const elapsed = Math.max(1, event.timeStamp - previousTime);
+      const velocityX = (touch.latestX - previousX) / elapsed;
+      onOpenChange(shouldOpenSwipeActions(offset, actionWidth, velocityX) ? itemId : null);
+    };
+
+    const onTouchStart = (event: TouchEvent) => {
+      if (event.touches.length !== 1) {
+        touchRef.current = null;
+        resetForeground();
+        return;
+      }
+      const target = event.target;
+      if (target instanceof Element && target.closest(".swipe-action-button, .note-card-star-btn, a, input, textarea, select, [contenteditable='true']")) return;
+      const touch = event.touches[0];
+      if (!touch) return;
+      suppressClickRef.current = false;
+      touchRef.current = {
+        id: touch.identifier,
+        startX: touch.clientX,
+        startY: touch.clientY,
+        startOffset: open ? -actionWidth : 0,
+        latestX: touch.clientX,
+        latestY: touch.clientY,
+        latestTime: event.timeStamp,
+        locked: false,
+        cancelled: false,
+      };
+    };
+
+    const onTouchMove = (event: TouchEvent) => {
+      const touch = touchRef.current;
+      if (!touch || touch.cancelled) return;
+      const point = Array.from(event.touches).find((candidate) => candidate.identifier === touch.id);
+      if (!point) return;
+      const deltaX = point.clientX - touch.startX;
+      const deltaY = point.clientY - touch.startY;
+      if (!touch.locked) {
+        if (Math.hypot(deltaX, deltaY) < SWIPE_INTENT_DISTANCE) return;
+        if (Math.abs(deltaX) < Math.abs(deltaY) * HORIZONTAL_INTENT_RATIO) {
+          touch.cancelled = true;
+          return;
+        }
+        if ((!open && deltaX >= 0) || (open && deltaX <= 0)) {
+          touch.cancelled = true;
+          return;
+        }
+        touch.locked = true;
+        if (foregroundRef.current) foregroundRef.current.style.transition = "none";
+      }
+
+      if (event.cancelable) event.preventDefault();
+      touch.latestX = point.clientX;
+      touch.latestY = point.clientY;
+      touch.latestTime = event.timeStamp;
+      const offset = clampOffset(touch.startOffset + deltaX, actionWidth);
+      if (foregroundRef.current) foregroundRef.current.style.transform = `translate3d(${offset}px, 0, 0)`;
+    };
+
+    const onTouchEnd = (event: TouchEvent) => finishTouch(event, false);
+    const onTouchCancel = (event: TouchEvent) => finishTouch(event, true);
+
+    foreground.addEventListener("touchstart", onTouchStart, { passive: true });
+    foreground.addEventListener("touchmove", onTouchMove, { passive: false });
+    foreground.addEventListener("touchend", onTouchEnd, { passive: true });
+    foreground.addEventListener("touchcancel", onTouchCancel, { passive: true });
+    return () => {
+      foreground.removeEventListener("touchstart", onTouchStart);
+      foreground.removeEventListener("touchmove", onTouchMove);
+      foreground.removeEventListener("touchend", onTouchEnd);
+      foreground.removeEventListener("touchcancel", onTouchCancel);
+      touchRef.current = null;
+      resetForeground();
+    };
+  }, [actionWidth, enabled, foregroundRef, itemId, onOpenChange, open, resetForeground]);
+
   const handlePointerDown = useCallback((event: ReactPointerEvent<HTMLElement>) => {
     if (!enabled || event.pointerType !== "touch" || !event.isPrimary || event.button !== 0) return;
+    if ("ontouchstart" in window) return;
     if (event.target instanceof Element && event.target.closest(".swipe-action-button, .note-card-star-btn, a, input, textarea, select, [contenteditable='true']")) return;
     pointerRef.current = {
       id: event.pointerId,

@@ -23,6 +23,8 @@ describe("mobile swipe actions", () => {
     const source = await Bun.file("app/workspace/swipe-actions.ts").text();
     expect(css).toContain("touch-action: pan-y");
     expect(css).toContain(".is-swipe-open > .swipe-action-foreground");
+    expect(source).toContain('foreground.addEventListener("touchmove", onTouchMove, { passive: false })');
+    expect(source).toContain('if ("ontouchstart" in window) return;');
     expect(source).toContain('event.pointerType !== "touch"');
     expect(source).toContain("HORIZONTAL_INTENT_RATIO");
   });
