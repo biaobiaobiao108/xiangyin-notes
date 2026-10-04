@@ -194,12 +194,12 @@ describe("Note links, backlinks, and renaming cascade", () => {
     expect(getC2.body?.note.contentMarkdown).toBe("回顾本次工作，[[系统架构]] 非常关键。");
 
     // 8. Delete Note A and check backlinks
-    await request(`/api/notes/${noteA.id}`, {
+    const trashedA = await request(`/api/notes/${noteA.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ version: getA.body?.note.version, deleted: true }),
     }, cookie);
-    const deleteRes = await request(`/api/notes/${noteA.id}`, { method: "DELETE" }, cookie);
+    const deleteRes = await request(`/api/notes/${noteA.id}`, { method: "DELETE", body: JSON.stringify({ version: trashedA.body?.note.version }) }, cookie);
     expect(deleteRes.response.status).toBe(200);
 
     const backlinksB3 = await request(`/api/notes/${noteB.id}/backlinks`, { method: "GET" }, cookie);

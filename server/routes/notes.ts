@@ -845,17 +845,30 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
 
   // Delete note permanently
   if (id && !subresource && method === "DELETE") {
-    const note = getNote(database, user.id, id);
-    if (!note) return jsonError(404, "NOTE_NOT_FOUND", "笔记不存在");
-    if (!note.deleted_at) return jsonError(400, "NOTE_NOT_TRASHED", "只能永久删除回收站中的笔记");
-    const assetPaths = assetPathsForNotes(database, user.id, [note.id]);
-    const transaction = database.transaction(() => {
-      database.query("DELETE FROM note_links WHERE user_id = ? AND source_note_id = ?").run(user.id, note.id);
-      database.query("DELETE FROM notes WHERE id = ? AND user_id = ?").run(note.id, user.id);
-    });
-    transaction();
-    publishWorkspaceChange(options, user.id, { resource: "notes", noteId: note.id }, request);
-    await removeAssetFiles(assetRoot, assetPaths);
+    const payload = await readJson<{ version?: unknown }>(request, 1024);
+    if (!payload || !Number.isSafeInteger(payload.version) || (payload.version as number) < 1) {
+      return jsonError(400, "VERSION_REQUIRED", "永久删除笔记必须携带版本号");
+    }
+    const result = database.transaction(() => {
+      const note = getNote(database, user.id, id);
+      if (!note) return { kind: "missing" as const };
+      if (note.version !== payload.version) return { kind: "conflict" as const, note };
+      if (note.deleted_at === null) return { kind: "not-trashed" as const };
+
+      const assetPaths = assetPathsForNotes(database, user.id, [note.id]);
+      const deleted = database.query("DELETE FROM notes WHERE id = ? AND user_id = ? AND version = ? AND deleted_at IS NOT NULL").run(note.id, user.id, payload.version as number);
+      if (!deleted.changes) {
+        return { kind: "conflict" as const, note: getNote(database, user.id, id) };
+      }
+      return { kind: "deleted" as const, noteId: note.id, assetPaths };
+    }).immediate();
+    if (result.kind === "missing") return jsonError(404, "NOTE_NOT_FOUND", "笔记不存在");
+    if (result.kind === "not-trashed") return jsonError(400, "NOTE_NOT_TRASHED", "只能永久删除回收站中的笔记");
+    if (result.kind === "conflict") {
+      return json({ error: { code: "VERSION_CONFLICT", message: "这篇笔记已在别处更新，请刷新后重试", current: result.note ? toFullNote(result.note) : null } }, 409);
+    }
+    publishWorkspaceChange(options, user.id, { resource: "notes", noteId: result.noteId }, request);
+    await removeAssetFiles(assetRoot, result.assetPaths);
     return json({ ok: true });
   }
 

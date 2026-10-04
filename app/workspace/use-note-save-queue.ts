@@ -38,7 +38,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
   const draftRecoveryTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const pendingSavesRef = useRef(new Map<string, NoteDraft>());
   const pendingFieldsRef = useRef(new Map<string, Set<SaveField>>());
-  const inFlightSavesRef = useRef(new Map<string, Promise<void>>());
+  const inFlightSavesRef = useRef(new Map<string, Promise<number | undefined>>());
   const failedSavesRef = useRef(new Map<string, unknown>());
 
   const hasUnsavedWork = useCallback(() => {
@@ -46,11 +46,12 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
     return pendingSavesRef.current.size > 0 || failedSavesRef.current.size > 0;
   }, [flushEditorDraftRef]);
 
-  const runSave = useCallback(async (noteId: string, keepalive = false) => {
+  const runSave = useCallback(async (noteId: string, keepalive = false): Promise<number | undefined> => {
     const running = inFlightSavesRef.current.get(noteId);
     if (running) return running;
 
     const task = (async () => {
+      let savedVersion: number | undefined;
       let fieldsForRequest: Set<SaveField> | null = null;
       try {
         while (pendingSavesRef.current.has(noteId)) {
@@ -72,6 +73,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
           const savedNote: Note = "contentMarkdown" in result.note
             ? result.note
             : { ...result.note, contentMarkdown: draft.contentMarkdown };
+          savedVersion = savedNote.version;
           const savedSummary = toNoteSummary(savedNote);
 
           const latest = pendingSavesRef.current.get(noteId);
@@ -97,6 +99,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
             setSaveState(next ? "saving" : "saved");
           }
         }
+        return savedVersion;
       } catch (reason) {
         if (fieldsForRequest) {
           const pendingFields = pendingFieldsRef.current.get(noteId) ?? new Set<SaveField>();
@@ -115,7 +118,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
 
     inFlightSavesRef.current.set(noteId, task);
     try {
-      await task;
+      return await task;
     } finally {
       if (inFlightSavesRef.current.get(noteId) === task) inFlightSavesRef.current.delete(noteId);
     }

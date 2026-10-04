@@ -30,6 +30,12 @@ describe("mobile swipe actions", () => {
     expect(mobileCss).toContain(".mobile-notebook-row .mobile-notebook-link--editable { background: var(--surface); }");
   });
 
+  test("returns keyboard focus to the foreground item after Escape closes actions", async () => {
+    const source = await Bun.file("app/workspace/swipe-actions.ts").text();
+    expect(source).toContain('foreground?.querySelector<HTMLButtonElement>(".note-card-open")');
+    expect(source).toContain("focusTarget?.focus();");
+  });
+
   test("exposes notebook and note actions through named buttons", async () => {
     const mobilePanels = await Bun.file("app/workspace/mobile-panels.tsx").text();
     const noteList = await Bun.file("app/workspace/panels.tsx").text();

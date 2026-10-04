@@ -497,10 +497,56 @@ describe("Bun Server API", () => {
     expect(await Bun.file(join(assetRoot, stored.storage_path)).exists()).toBe(true);
     const trashed = await request(`/api/notes/${created.body?.note.id}`, { method: "PATCH", body: JSON.stringify({ version: created.body?.note.version, deleted: true }) }, login.cookie);
     expect(trashed.response.status).toBe(200);
-    const deleted = await request(`/api/notes/${created.body?.note.id}`, { method: "DELETE" }, login.cookie);
+    const deleted = await request(`/api/notes/${created.body?.note.id}`, { method: "DELETE", body: JSON.stringify({ version: trashed.body?.note.version }) }, login.cookie);
     expect(deleted.response.status).toBe(200);
     expect(database.query("SELECT id FROM image_assets WHERE id = ?").get(asset.id)).toBeNull();
     expect(await Bun.file(join(assetRoot, stored.storage_path)).exists()).toBe(false);
+  });
+
+  test("requires the current version for permanently deleting a single trashed note", async () => {
+    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
+    const created = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "等待永久删除的旧内容", contentMarkdown: "初始正文" }) }, login.cookie);
+    const noteId = created.body?.note.id;
+    const firstTrash = await request(`/api/notes/${noteId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ version: created.body?.note.version, deleted: true }),
+    }, login.cookie);
+    expect(firstTrash.response.status).toBe(200);
+
+    const restored = await request(`/api/notes/${noteId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ version: firstTrash.body?.note.version, deleted: false }),
+    }, login.cookie);
+    expect(restored.response.status).toBe(200);
+    const updated = await request(`/api/notes/${noteId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ version: restored.body?.note.version, title: "设备 B 的新内容", contentMarkdown: "更新后的正文" }),
+    }, login.cookie);
+    expect(updated.response.status).toBe(200);
+    const secondTrash = await request(`/api/notes/${noteId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ version: updated.body?.note.version, deleted: true }),
+    }, login.cookie);
+    expect(secondTrash.response.status).toBe(200);
+
+    const missingVersion = await request(`/api/notes/${noteId}`, { method: "DELETE" }, login.cookie);
+    expect(missingVersion.response.status).toBe(400);
+    expect(missingVersion.body?.error.code).toBe("VERSION_REQUIRED");
+
+    const staleDelete = await request(`/api/notes/${noteId}`, {
+      method: "DELETE",
+      body: JSON.stringify({ version: firstTrash.body?.note.version }),
+    }, login.cookie);
+    expect(staleDelete.response.status).toBe(409);
+    expect(staleDelete.body?.error).toMatchObject({ code: "VERSION_CONFLICT", current: { version: secondTrash.body?.note.version, title: "设备 B 的新内容" } });
+    expect((await request(`/api/notes/${noteId}`, {}, login.cookie)).body?.note.contentMarkdown).toBe("更新后的正文");
+
+    const deleted = await request(`/api/notes/${noteId}`, {
+      method: "DELETE",
+      body: JSON.stringify({ version: secondTrash.body?.note.version }),
+    }, login.cookie);
+    expect(deleted.response.status).toBe(200);
+    expect((await request(`/api/notes/${noteId}`, {}, login.cookie)).response.status).toBe(404);
   });
 
   test("releases images no longer referenced by the current note", async () => {

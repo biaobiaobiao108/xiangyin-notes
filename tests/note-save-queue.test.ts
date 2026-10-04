@@ -56,6 +56,13 @@ afterEach(() => {
 });
 
 describe("favorite operations and the save queue", () => {
+  test("returns the persisted version after flushing a pending draft", async () => {
+    queue.persist({ ...original, contentMarkdown: "删除前保存的正文" }, ["contentMarkdown"]);
+
+    await expect(queue.runSave(original.id)).resolves.toBe(2);
+    await expect(queue.runSave(original.id)).resolves.toBeUndefined();
+  });
+
   test("saves an unsaved body together with a card favorite", async () => {
     const draft = { ...original, contentMarkdown: "未保存的正文" };
     selectedRef.current = draft;

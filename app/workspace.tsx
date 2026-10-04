@@ -849,15 +849,15 @@ export function Workspace() {
     }
     void performBatchDelete(ids, false).catch(showBatchDeleteError);
   }, [emptyingTrashRef, pendingTrashCount, performBatchDelete, requestConfirm, showBatchDeleteError, view]);
-  const performPermanentDelete = useCallback(async (noteId: string) => {
+  const performPermanentDelete = useCallback(async (noteId: string, expectedVersion: number) => {
     if (trashOperationsRef.current.has(noteId) || emptyingTrashRef.current) throw new ApiError(409, "TRASH_BUSY", "回收站正在处理其他操作，请稍后重试");
     flushEditorDraftRef.current();
     trashOperationsRef.current.add(noteId);
     setPendingTrashCount(trashOperationsRef.current.size);
     invalidateCollections();
     try {
-      await runSave(noteId);
-      await api.deleteNote(noteId);
+      const savedVersion = await runSave(noteId);
+      await api.deleteNote(noteId, savedVersion ?? expectedVersion);
       removeFromList(noteId);
       discardNoteDraft(noteId);
     } finally { finishTrashOperation(noteId); }
@@ -872,7 +872,7 @@ export function Workspace() {
       description: "这篇笔记会从数据库中永久移除，回收站不再保留。",
       confirmLabel: "彻底删除",
       danger: true,
-      onConfirm: () => performPermanentDelete(current.id),
+      onConfirm: () => performPermanentDelete(current.id, current.version),
     });
   }, [performPermanentDelete, requestConfirm]);
   const restoreNoteFromList = useCallback(async (noteId: string) => {
@@ -903,7 +903,7 @@ export function Workspace() {
         description: "这篇笔记会从数据库中永久移除，回收站不再保留。",
         confirmLabel: "彻底删除",
         danger: true,
-        onConfirm: () => performPermanentDelete(note.id),
+        onConfirm: () => performPermanentDelete(note.id, note.version),
       });
     }
   }, [emptyingTrashRef, notifyError, pendingTrashCount, performBatchDelete, performPermanentDelete, requestConfirm, restoreNoteFromList, showBatchDeleteError]);
