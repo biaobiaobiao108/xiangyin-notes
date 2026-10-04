@@ -934,8 +934,9 @@ export function syncNoteAssetReferences(
     UPDATE image_assets
     SET note_id = NULL, document_order = NULL
     WHERE note_id = ?
+      AND user_id = ?
       AND ${detachedAssetCondition}
-  `).run(noteId, ...ids);
+  `).run(noteId, userId, ...ids);
   const assets = ids.length
     ? all<ImageAssetRow>(
         database,
@@ -955,7 +956,7 @@ export function syncNoteAssetReferences(
     return false;
   }
 
-  database.query("UPDATE image_assets SET document_order = NULL WHERE note_id = ?").run(noteId);
+  database.query("UPDATE image_assets SET document_order = NULL WHERE note_id = ? AND user_id = ?").run(noteId, userId);
   for (const [documentOrder, id] of ids.entries()) {
     database.query("UPDATE image_assets SET note_id = ?, document_order = ? WHERE id = ? AND user_id = ?").run(noteId, documentOrder, id, userId);
   }

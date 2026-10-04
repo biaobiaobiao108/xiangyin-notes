@@ -234,8 +234,8 @@ export async function cleanupOrphanAssets(database: SqliteDatabase, assetRoot: s
   });
   const stalePaths = deleteStaleAssets();
   await retryPendingAssetDeletions(assetRoot);
-  await cleanupOrphanAssetFiles(database, assetRoot, timestamp);
   await removeAssetFiles(assetRoot, stalePaths);
+  await cleanupOrphanAssetFiles(database, assetRoot, timestamp);
 }
 
 export async function uploadImageAsset(request: Request, database: SqliteDatabase, user: UserRow, assetRoot: string) {

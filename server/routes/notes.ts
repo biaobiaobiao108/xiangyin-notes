@@ -402,7 +402,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     // stop matching and the returned tag metadata is corrected as well.
     for (const tagFilter of normalizedTagFilters) {
       if (isTagFilterVerified(database, user.id, tagFilter)) continue;
-      // Fetch every candidate in one query instead of one query per note.
+      // Fetch bounded candidates in one query instead of unbounded notes.
       const candidates = all<{ id: string; content_markdown: string; tags_json: string }>(database, `
         SELECT n.id, n.content_markdown,
           COALESCE((SELECT json_group_array(tag) FROM (SELECT tag FROM note_tags WHERE note_id = n.id ORDER BY position)), '[]') AS tags_json
@@ -410,6 +410,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
         WHERE n.user_id = ? AND EXISTS (
           SELECT 1 FROM note_tags t WHERE t.note_id = n.id AND t.user_id = n.user_id AND t.tag_normalized = ?
         )
+        LIMIT 100
       `, user.id, tagFilter);
       for (const candidate of candidates) {
         const storedTags = parseIndexedTags(candidate.tags_json);
@@ -567,8 +568,13 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     if (!first(database, "SELECT id FROM notebooks WHERE id = ? AND user_id = ?", notebookId, user.id)) return jsonError(404, "NOTEBOOK_NOT_FOUND", "笔记本不存在");
     if (!validNoteAssetReferences(database, user.id, null, contentMarkdown as string)) return jsonError(400, "INVALID_ASSET", "图片引用无效、不受支持或附件当前不可用");
     const requestedId = payload?.id === undefined ? undefined : payload.id;
-    if (requestedId !== undefined && (typeof requestedId !== "string" || !NOTE_ID_PATTERN.test(requestedId))) {
-      return jsonError(400, "INVALID_NOTE", "笔记 ID 必须是 UUID");
+    if (requestedId !== undefined) {
+      if (typeof requestedId !== "string" || !NOTE_ID_PATTERN.test(requestedId)) {
+        return jsonError(400, "INVALID_NOTE", "笔记 ID 必须是 UUID");
+      }
+      if (first(database, "SELECT 1 FROM notes WHERE id = ?", requestedId)) {
+        return jsonError(409, "NOTE_EXISTS", "指定 ID 的笔记已存在");
+      }
     }
     const noteId = createNote(database, user.id, notebookId, title, contentMarkdown as string, requestedId);
     const note = getNote(database, user.id, noteId);
