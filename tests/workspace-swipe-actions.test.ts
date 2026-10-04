@@ -2,6 +2,14 @@ import { describe, expect, test } from "bun:test";
 import { shouldKeepSwipeActionsOpenAfterCancel, shouldOpenSwipeActions } from "../app/workspace/swipe-actions";
 
 describe("mobile swipe actions", () => {
+  test("does not keep the opened note highlighted in mobile lists and uses a neutral card swipe fill", async () => {
+    const css = await Bun.file("app/styles.css").text();
+    const panels = await Bun.file("app/workspace/panels.tsx").text();
+    expect(panels).toContain("isActive={selectedId === note.id && !isMobileViewport}");
+    expect(css).toContain("--surface-card-swipe: light-dark(#fffdfa, #2b3045);");
+    expect(css).toContain(".is-mobile-card-grid .note-card.is-swipe-open > .note-card-foreground { background: var(--surface-card-swipe); }");
+  });
+
   test("uses the same fill-only selection feedback in the desktop sidebar", async () => {
     const css = await Bun.file("app/styles.css").text();
     expect(css).toMatch(/\.nav-item\.is-active\s*\{[^}]*background:\s*var\(--accent-soft\);[^}]*box-shadow:\s*none;/s);
@@ -71,7 +79,7 @@ describe("mobile swipe actions", () => {
 
     expect(sharedCss).toContain(".note-row-swipe.is-swipe-open > .note-row { background: var(--accent-soft); border-color: transparent; box-shadow: none; }");
     expect(sharedCss).toContain(".is-mobile-card-grid .note-card.is-swipe-open { border-color: transparent; box-shadow: var(--note-card-shadow); }");
-    expect(sharedCss).toContain(".is-mobile-card-grid .note-card.is-swipe-open > .note-card-foreground { background: var(--accent-soft); }");
+    expect(sharedCss).toContain(".is-mobile-card-grid .note-card.is-swipe-open > .note-card-foreground { background: var(--surface-card-swipe); }");
   });
 
   test("returns keyboard focus to the foreground item after Escape closes actions", async () => {

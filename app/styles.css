@@ -7,6 +7,7 @@
   text-rendering: optimizeLegibility;
   --canvas: light-dark(#f6f4ef, #1a1b26);
   --surface: light-dark(#faf9f6, #24283b);
+  --surface-card-swipe: light-dark(#fffdfa, #2b3045);
   --surface-muted: light-dark(#f4f3ef, #292e42);
   --surface-command-selected: light-dark(#edeae3, #292e42);
   --surface-hover: light-dark(#f5f4ef, #292e42);
@@ -2294,7 +2295,8 @@ dialog::backdrop {
   .is-mobile-card-grid .note-card { --swipe-action-button-width: 92px; }
   .is-mobile-card-grid .note-card-foreground { min-height: 100%; }
   .is-mobile-card-grid .note-card.is-swipe-open { border-color: transparent; box-shadow: var(--note-card-shadow); }
-  .is-mobile-card-grid .note-card.is-swipe-open > .note-card-foreground { background: var(--accent-soft); }
+  .is-mobile-card-grid .note-card.is-swipe-open { background: var(--surface-card-swipe); }
+  .is-mobile-card-grid .note-card.is-swipe-open > .note-card-foreground { background: var(--surface-card-swipe); }
   .is-mobile-card-grid .note-card .swipe-action-buttons { border-radius: inherit; }
   .is-mobile-card-grid .note-card:has(.note-card-open:focus-visible) > .note-card-foreground { background: var(--accent-soft); }
   .is-mobile-card-grid .note-card-open { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; padding: 0; border: 0; border-radius: inherit; background: transparent; touch-action: pan-y; }
