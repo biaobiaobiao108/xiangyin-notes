@@ -759,7 +759,7 @@ button.save-status:hover { text-decoration: underline; }
 .note-prose hr { margin-block: 1.4em; border: 0; border-top: 1px solid var(--border); }
 .note-prose ul[data-type="taskList"] { padding-left: 0; list-style: none; }
 .note-prose ul[data-type="taskList"] li { display: flex; align-items: flex-start; gap: 10px; padding-left: 0; }
-.note-prose ul[data-type="taskList"] li > label { flex: none; padding-top: 0.28em; }
+.note-prose ul[data-type="taskList"] li > label { display: flex; flex: none; align-items: center; height: 1.74em; padding-top: 0; }
 .note-prose ul[data-type="taskList"] li > label input { width: 17px; height: 17px; accent-color: var(--accent); }
 .note-prose ul[data-type="taskList"] li[data-checked="true"] > div { color: var(--soft-muted); text-decoration: line-through; }
 .editor-floating-tools { position: absolute; right: 28px; bottom: max(18px, env(safe-area-inset-bottom)); z-index: 3; display: grid; justify-items: end; gap: 10px; pointer-events: none; transition: opacity var(--motion-panel) ease, transform var(--motion-panel) ease; }
