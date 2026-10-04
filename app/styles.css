@@ -425,6 +425,17 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .floating-scrollbar--horizontal .floating-scrollbar-thumb:focus-visible { inset-block-end: 1px; }
 .table-horizontal-scrollbar-overlay { position: absolute; z-index: 4; height: 18px; pointer-events: none; }
 .note-list-items { margin: 0; padding: 4px 0; list-style: none; }
+.note-list-items > li:has(.note-row) + li:has(.note-row) { position: relative; }
+.note-list-items > li:has(.note-row) + li:has(.note-row)::before {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  inset-inline: 22px;
+  top: 0;
+  height: 1px;
+  background: var(--line);
+  pointer-events: none;
+}
 @media (max-width: 900px) {
   .swipe-action-row { position: relative; overflow: hidden; min-width: 0; border-radius: var(--radius-md); touch-action: pan-y; }
   .swipe-action-buttons { position: absolute; z-index: 0; inset: 0 0 0 auto; display: flex; justify-content: flex-end; width: var(--swipe-action-width); overflow: hidden; background: transparent; pointer-events: none; }
@@ -1365,17 +1376,6 @@ dialog::backdrop {
   .wiki-link-item.is-create:hover,
   .wiki-link-item.is-create.is-selected { background: transparent; }
 
-  .note-list-items > li:has(.note-row) + li:has(.note-row) { position: relative; }
-  .note-list-items > li:has(.note-row) + li:has(.note-row)::before {
-    content: "";
-    position: absolute;
-    z-index: 2;
-    inset-inline: 22px;
-    top: 0;
-    height: 1px;
-    background: var(--line);
-    pointer-events: none;
-  }
   .note-list-items > li:has(.note-row) + li:has(.note-row):has(.is-swipe-open)::before,
   .note-list-items > li:has(.note-row):has(.is-swipe-open) + li:has(.note-row)::before { display: none; }
 }

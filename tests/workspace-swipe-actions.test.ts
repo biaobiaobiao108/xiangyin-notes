@@ -1,6 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import { shouldKeepSwipeActionsOpenAfterCancel, shouldOpenSwipeActions } from "../app/workspace/swipe-actions";
 
+describe("desktop note list separators", () => {
+  test("uses an inset soft divider between note rows", async () => {
+    const css = await Bun.file("app/styles.css").text();
+    const separator = css.match(/\.note-list-items > li:has\(\.note-row\) \+ li:has\(\.note-row\)::before\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(separator).toContain("inset-inline: 22px");
+    expect(separator).toContain("height: 1px");
+    expect(separator).toContain("background: var(--line)");
+  });
+});
+
 describe("mobile swipe actions", () => {
   test("does not keep the opened note highlighted in mobile lists and uses a neutral card swipe fill", async () => {
     const css = await Bun.file("app/styles.css").text();
@@ -85,7 +95,7 @@ describe("mobile swipe actions", () => {
     expect(sharedCss).toContain(".is-mobile-card-grid .note-card.is-swipe-open { border-color: transparent; box-shadow: var(--note-card-shadow); }");
     expect(sharedCss).toContain(".is-mobile-card-grid .note-card.is-swipe-open > .note-card-foreground { background: var(--surface-card-swipe); }");
     expect(sharedCss).toContain(".note-list-items > li:has(.note-row) + li:has(.note-row)::before {");
-    expect(sharedCss).toContain("    z-index: 2;");
+    expect(sharedCss).toMatch(/\.note-list-items > li:has\(\.note-row\) \+ li:has\(\.note-row\)::before\s*\{[^}]*z-index:\s*2;/s);
     expect(sharedCss).toContain(".note-list-items > li:has(.note-row) + li:has(.note-row):has(.is-swipe-open)::before,");
     expect(sharedCss).toContain(".note-list-items > li:has(.note-row):has(.is-swipe-open) + li:has(.note-row)::before { display: none; }");
   });
