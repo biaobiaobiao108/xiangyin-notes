@@ -40,7 +40,11 @@ export function MobileEditorHeader({ noteId, title, backLabel, locked, trashBusy
       }
     }}>
       <button ref={triggerRef} className="icon-button mobile-editor-more" type="button" aria-label="更多笔记操作" aria-haspopup="menu" aria-expanded={open} aria-controls={open ? "mobile-note-actions" : undefined} onClick={() => setOpen((value) => !value)} disabled={locked}><MoreHorizontal size={22} aria-hidden="true" /></button>
-      {open && <div id="mobile-note-actions" className="mobile-editor-menu" role="menu" aria-label="笔记操作" onBlur={(event) => { if (!event.currentTarget.parentElement?.contains(event.relatedTarget)) setOpen(false); }}>
+      {open && <div id="mobile-note-actions" className="mobile-editor-menu" role="menu" aria-label="笔记操作" onBlur={(event) => {
+        // Safari 点击按钮时可能先失焦到 null；此时不能提前卸载尚未收到 click 的菜单项。
+        // 外部触摸由 pointerdown 关闭，键盘离开则以明确的焦点目标判断。
+        if (event.relatedTarget instanceof Node && !menuRootRef.current?.contains(event.relatedTarget)) setOpen(false);
+      }}>
         {!deleted && <button type="button" role="menuitem" disabled={!canUpload} onClick={() => runAction(onUpload)}><ImagePlus size={18} />上传图片</button>}
         <button type="button" role="menuitem" onClick={() => runAction(onFavorite)}><Star size={18} fill={favorite ? "currentColor" : "none"} />{favorite ? "取消收藏" : "收藏笔记"}</button>
         <button type="button" role="menuitem" onClick={() => runAction(onExport)}><ImageDown size={18} />导出图片</button>
