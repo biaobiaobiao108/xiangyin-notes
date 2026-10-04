@@ -5,9 +5,6 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
-  useState,
-  type ReactNode,
-  type RefObject,
   type MouseEvent as ReactMouseEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type CSSProperties,
@@ -27,6 +24,7 @@ import { isNoteSelectionModifierClick, type NoteSelectionClick } from "./note-li
 import { getNoteTags, NOTE_TAG_DISPLAY_LIMIT, relativeDate, sortNotes, viewLabel } from "./helpers";
 import { MobileCollectionHeader } from "./mobile-collection-header";
 import { type NoteSwipeAction, useSwipeActionGesture, useSwipeActionGroup } from "./swipe-actions";
+import { useVirtualCardMasonry } from "./use-virtual-card-masonry";
 
 export type NoteCardGridPanelProps = {
   notes: NoteSummary[];
@@ -58,85 +56,6 @@ export type NoteCardGridPanelProps = {
   onScrollPositionChange: (scope: string, scrollTop: number) => void;
   inert?: boolean;
 };
-
-const CARD_VIRTUALIZATION_OVERSCAN = "900px 0px";
-
-type CardMasonryPageProps = {
-  notes: NoteSummary[];
-  startIndex: number;
-  estimatedHeight: number;
-  scrollRootRef: RefObject<HTMLDivElement | null>;
-  pageHeightsRef: RefObject<Map<string, number>>;
-  pageHeightKey: string;
-  renderNote: (note: NoteSummary, index: number) => ReactNode;
-};
-
-/** Keep a measured spacer for distant card pages, mounting their cards only near the viewport. */
-const CardMasonryPage = memo(function CardMasonryPage({ notes, startIndex, estimatedHeight, scrollRootRef, pageHeightsRef, pageHeightKey, renderNote }: CardMasonryPageProps) {
-  const pageRef = useRef<HTMLDivElement>(null);
-  const measuredHeightRef = useRef(estimatedHeight);
-  const intersectsViewportRef = useRef(startIndex === 0);
-  const [isNearViewport, setIsNearViewport] = useState(startIndex === 0);
-  const canVirtualize = typeof IntersectionObserver !== "undefined" && typeof ResizeObserver !== "undefined";
-
-  useEffect(() => {
-    const page = pageRef.current;
-    const scrollRoot = scrollRootRef.current;
-    if (!page || !scrollRoot || !canVirtualize) {
-      setIsNearViewport(true);
-      return;
-    }
-
-    const intersectionObserver = new IntersectionObserver(([entry]) => {
-      if (!entry) return;
-      intersectsViewportRef.current = entry.isIntersecting;
-      setIsNearViewport(entry.isIntersecting || page.contains(document.activeElement));
-    }, { root: scrollRoot, rootMargin: CARD_VIRTUALIZATION_OVERSCAN });
-    const resizeObserver = new ResizeObserver(([entry]) => {
-      if (!entry || !isNearViewport) return;
-      const borderBox = entry.borderBoxSize as unknown as ResizeObserverSize | readonly ResizeObserverSize[] | undefined;
-      const nextHeight = borderBox
-        ? "blockSize" in borderBox ? borderBox.blockSize : borderBox[0]?.blockSize
-        : page.getBoundingClientRect().height;
-      if (nextHeight && Number.isFinite(nextHeight)) {
-        measuredHeightRef.current = nextHeight;
-        pageHeightsRef.current.set(pageHeightKey, nextHeight);
-      }
-    });
-    intersectionObserver.observe(page);
-    if (isNearViewport) resizeObserver.observe(page);
-    return () => {
-      intersectionObserver.disconnect();
-      resizeObserver.disconnect();
-    };
-  }, [canVirtualize, isNearViewport, pageHeightKey, pageHeightsRef, scrollRootRef]);
-
-  const shouldRenderCards = !canVirtualize || isNearViewport;
-  return (
-    <div
-      ref={pageRef}
-      className="card-masonry-page"
-      role="presentation"
-      style={shouldRenderCards ? undefined : { height: Math.max(1, measuredHeightRef.current), overflow: "hidden" }}
-      onBlurCapture={(event) => {
-        if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
-        if (!intersectsViewportRef.current) setIsNearViewport(false);
-      }}
-    >
-      {shouldRenderCards && <div className="card-masonry" role="list">{notes.map((note, index) => renderNote(note, startIndex + index))}</div>}
-    </div>
-  );
-});
-
-export const NOTE_CARD_PAGE_SIZE = 100;
-
-export function createCardPages<T>(items: T[], pageSize = NOTE_CARD_PAGE_SIZE) {
-  if (!Number.isInteger(pageSize) || pageSize < 1) throw new RangeError("卡片页大小必须为正整数");
-  return Array.from({ length: Math.ceil(items.length / pageSize) }, (_, pageIndex) => {
-    const startIndex = pageIndex * pageSize;
-    return { pageIndex, startIndex, items: items.slice(startIndex, startIndex + pageSize) };
-  });
-}
 
 export const NoteCardGridPanel = memo(function NoteCardGridPanel({
   notes,
@@ -171,14 +90,12 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
   const panelRef = useRef<HTMLElement>(null);
   const gridScrollRef = useRef<HTMLDivElement>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
-  const pageHeightsRef = useRef(new Map<string, number>());
   const swipeActions = useSwipeActionGroup(gridScrollRef, isMobileViewport && !inert, `${view}:${query}:${scrollScope}`);
   const sortedNotes = useMemo(() => sortNotes(notes, sort), [notes, sort]);
-  const cardPages = useMemo(() => createCardPages(sortedNotes), [sortedNotes]);
   const notebooksById = useMemo(() => new Map(notebooks.map((notebook) => [notebook.id, notebook])), [notebooks]);
   const isTrashView = view === "trash";
   const showNotebook = !currentNotebookName && view !== "inbox";
-  const pageHeightScope = `${scrollScope}:${isMobileViewport ? "mobile" : "desktop"}`;
+  const masonry = useVirtualCardMasonry(sortedNotes, gridScrollRef, isMobileViewport, [swipeActions.openId]);
   const renderCard = useCallback((note: NoteSummary, index: number) => (
     <NoteCardItem
       key={note.id}
@@ -214,7 +131,8 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
 
   useLayoutEffect(() => {
     if (gridScrollRef.current) gridScrollRef.current.scrollTop = initialScrollTop;
-  }, [initialScrollTop, scrollScope]);
+    masonry.refreshViewport();
+  }, [initialScrollTop, masonry.refreshViewport, scrollScope]);
 
   const handleGridKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (event.defaultPrevented || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
@@ -287,24 +205,22 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
           className={`card-grid-container floating-scrollbar-target ${onEmptyTrash ? "has-trash-action" : ""}`}
           tabIndex={0}
           onKeyDown={handleGridKeyDown}
+          onKeyDownCapture={masonry.onKeyDownCapture}
+          onFocusCapture={masonry.onFocusCapture}
+          onBlurCapture={masonry.onBlurCapture}
           onScroll={(event) => onScrollPositionChange(scrollScope, event.currentTarget.scrollTop)}
         >
           {sortedNotes.length > 0 ? (
-            cardPages.map(({ pageIndex, startIndex, items: pageNotes }) => {
-              const pageHeightKey = `${pageHeightScope}:${pageIndex}`;
-              const cachedHeight = pageHeightsRef.current.get(pageHeightKey)
-                ?? pageHeightsRef.current.get(`${pageHeightScope}:${pageIndex - 1}`);
-              return <CardMasonryPage
-                key={`${scrollScope}:${pageIndex}`}
-                notes={pageNotes}
-                startIndex={startIndex}
-                estimatedHeight={cachedHeight ?? Math.ceil(pageNotes.length / (isMobileViewport ? 2 : 3)) * 320}
-                scrollRootRef={gridScrollRef}
-                pageHeightsRef={pageHeightsRef}
-                pageHeightKey={pageHeightKey}
-                renderNote={renderCard}
-              />;
-            })
+            <div className="card-masonry" role="list" style={{ height: masonry.totalHeight, width: masonry.config.width }}>
+              {masonry.visibleCards.map((placement) => <div
+                key={placement.note.id}
+                ref={masonry.getCardRef(placement.note.id)}
+                className="card-masonry-slot"
+                data-card-masonry-note-id={placement.note.id}
+                role="presentation"
+                style={{ top: placement.top, insetInlineStart: placement.lane * (masonry.config.laneWidth + masonry.config.gap), width: masonry.config.laneWidth }}
+              >{renderCard(placement.note, placement.index)}</div>)}
+            </div>
           ) : (
             <div className="card-grid-empty">
               <span className="empty-icon">

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { sortNotes, type NoteSort } from "../app/workspace/helpers";
-import { createCardPages, NOTE_CARD_PAGE_SIZE } from "../app/workspace/note-card-grid";
+import { assignCardMasonryLanes, cardLaneConfig, positionCardMasonryLanes, visibleCardIndexes } from "../app/workspace/card-masonry";
 import type { NoteSummary } from "../shared/types";
 import { applyNoteSelectionClick, isNoteSelectionModifierClick } from "../app/workspace/note-list-selection";
 
@@ -77,15 +77,36 @@ describe("card view & layout", () => {
     ]);
   });
 
-  test("splits the card grid into bounded masonry pages without changing item order", () => {
-    const notes = Array.from({ length: NOTE_CARD_PAGE_SIZE * 2 + 3 }, (_, index) => index);
-    const pages = createCardPages(notes);
+  test("assigns variable-height cards to masonry lanes and virtualizes by measured positions", () => {
+    const config = cardLaneConfig(700, 900, false);
+    expect(config.laneCount).toBe(2);
+    const assignments = assignCardMasonryLanes(sampleNotes, config, false);
+    expect(assignments.flatMap((lane) => lane.map((card) => card.index)).sort((a, b) => a - b)).toEqual([0, 1, 2]);
 
-    expect(pages.map((page) => page.items.length)).toEqual([NOTE_CARD_PAGE_SIZE, NOTE_CARD_PAGE_SIZE, 3]);
-    expect(pages.map((page) => page.startIndex)).toEqual([0, NOTE_CARD_PAGE_SIZE, NOTE_CARD_PAGE_SIZE * 2]);
-    expect(pages.flatMap((page) => page.items)).toEqual(notes);
-    expect(createCardPages([])).toEqual([]);
-    expect(() => createCardPages(notes, 0)).toThrow(RangeError);
+    const baseline = positionCardMasonryLanes(assignments, new Map(), Math.round(config.laneWidth), config.gap);
+    const firstLaneFirstNote = assignments.find((lane) => lane.some((card) => card.index === 0))?.[0];
+    expect(firstLaneFirstNote).toBeDefined();
+    const measured = new Map([[firstLaneFirstNote!.note.id, { widthKey: Math.round(config.laneWidth), height: firstLaneFirstNote!.estimatedHeight + 120 }]]);
+    const refined = positionCardMasonryLanes(assignments, measured, Math.round(config.laneWidth), config.gap);
+
+    const laneIndex = assignments.findIndex((lane) => lane.some((card) => card.index === firstLaneFirstNote!.index));
+    const nextCardIndex = assignments[laneIndex][1]?.index;
+    if (nextCardIndex !== undefined) {
+      const before = baseline[laneIndex].cards.find((card) => card.index === nextCardIndex)!;
+      const after = refined[laneIndex].cards.find((card) => card.index === nextCardIndex)!;
+      expect(after.top - before.top).toBe(120);
+    }
+
+    const visible = visibleCardIndexes(refined, 0, 300);
+    expect(visible.size).toBeGreaterThan(0);
+    expect([...visible].every((index) => index >= 0 && index < sampleNotes.length)).toBe(true);
+  });
+
+  test("chooses responsive lane counts without CSS masonry support", () => {
+    expect(cardLaneConfig(330, 350, true).laneCount).toBe(1);
+    expect(cardLaneConfig(500, 520, true).laneCount).toBe(2);
+    expect(cardLaneConfig(820, 800, true).laneCount).toBe(3);
+    expect(cardLaneConfig(1000, 1200, false).laneCount).toBe(3);
   });
 
   test("card selection with modifier keys supports multi-select", () => {
@@ -143,7 +164,7 @@ describe("card view & layout", () => {
     expect(cardRule).toMatch(/box-shadow:\s*var\(--note-card-shadow\)/);
     expect(cssContent).toContain("--note-card-shadow: light-dark(0 1px 4px");
     expect(cssContent).toContain("0 2px 8px rgba(192, 202, 245, 0.08)");
-    expect(cardRule).toMatch(/-webkit-column-break-inside:\s*avoid/);
+    expect(cssContent).toMatch(/\.card-masonry-slot\s*\{[^}]*position:\s*absolute/);
     expect(cssContent).not.toMatch(/\.note-list-item\s*\{[^}]*content-visibility/);
     expect(cardRule).not.toContain("transform");
     const focusCardRule = cssContent.match(/\.note-card:focus-visible\s*\{([^}]*)\}/)?.[1] ?? "";
@@ -155,18 +176,12 @@ describe("card view & layout", () => {
     expect(cssContent).not.toMatch(/\.note-card:hover\s*\{[^}]*border-color:/);
     expect(cssContent).toContain("--note-card-hover-shadow: light-dark(0 4px 12px rgba(32, 38, 33, 0.12), 0 8px 22px rgba(192, 202, 245, 0.18))");
     expect(cssContent).toMatch(/\.sidebar\s*\{[^}]*border-right:\s*1px solid var\(--border\)/);
-    expect(cssContent).toMatch(/\.card-masonry > \.note-card:hover\s*\{[^}]*scale:\s*1\.015;[^}]*z-index:\s*1;/);
-    expect(cssContent).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.card-masonry > \.note-card:hover\s*\{\s*scale:\s*1;/);
+    expect(cssContent).toMatch(/\.card-masonry-slot:hover > \.note-card\s*\{[^}]*scale:\s*1\.015;[^}]*z-index:\s*1;/);
+    expect(cssContent).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.card-masonry-slot:hover > \.note-card\s*\{\s*scale:\s*1;/);
     expect(cssContent).toMatch(/\.note-card\.is-selected\s*\{[^}]*box-shadow:.*0 1px 5px/);
     expect(cssContent).toMatch(/\.note-card\.is-selected\s*\{[^}]*border-color:\s*var\(--accent\)/);
-    expect(cssContent).toMatch(/\.card-masonry\s*\{[^}]*columns:\s*3\s+280px/);
-    const gridLanesRule = cssContent.match(/@supports \(display: grid-lanes\)\s*\{\s*\.card-masonry\s*\{([^}]*)\}/)?.[1] ?? "";
-    expect(gridLanesRule).toMatch(/display:\s*grid-lanes/);
-    expect(gridLanesRule).toContain("grid-template-columns: repeat(auto-fill, minmax(max(280px, calc((100% - 36px) / 3)), 1fr));");
-    expect(gridLanesRule).toMatch(/columns:\s*unset/);
-    expect(cssContent).toMatch(/\.card-masonry > \.note-card\s*\{\s*margin-block-end:\s*0;/);
-    const responsiveCardGridRule = cssContent.slice(cssContent.lastIndexOf("@media (max-width: 900px)"));
-    expect(responsiveCardGridRule).toMatch(/\.is-mobile-card-grid \.card-masonry\s*\{[^}]*columns:\s*2\s*[;}]/);
-    expect(responsiveCardGridRule).toMatch(/@media \(max-width: 359px\)[\s\S]*?\.card-masonry\s*\{[^}]*columns:\s*1\s*[;}]/);
+    expect(cssContent).toMatch(/\.card-masonry\s*\{[^}]*position:\s*relative/);
+    expect(cssContent).not.toMatch(/\.card-masonry\s*\{[^}]*columns:/);
+    expect(cssContent).not.toContain("display: grid-lanes");
   });
 });

@@ -1996,55 +1996,34 @@ dialog::backdrop {
   padding-top: 58px;
 }
 
-.card-masonry-page {
-  display: flow-root;
-  width: 100%;
-  max-width: 1240px;
-  margin: 0 auto;
-}
-
-.card-masonry-page + .card-masonry-page { margin-top: 12px; }
-
-.card-masonry-page > .card-masonry {
-  max-width: none;
-  margin: 0;
-}
-
 .card-masonry {
-  columns: 3 280px;
-  column-gap: 18px;
+  position: relative;
   width: 100%;
   max-width: 1240px;
   margin: 0 auto;
 }
 
-@supports (display: grid-lanes) {
-  .card-masonry {
-    display: grid-lanes;
-    columns: unset;
-    /* Keep a useful card width while deriving the lane count from no more than three tracks. */
-    grid-template-columns: repeat(auto-fill, minmax(max(280px, calc((100% - 36px) / 3)), 1fr));
-    gap: 18px;
-  }
+.card-masonry-slot {
+  position: absolute;
+  inset-block-start: 0;
+  min-width: 0;
+}
 
-  .card-masonry > .note-card {
-    margin-block-end: 0;
-    scale: 1;
-    transition: scale var(--motion-fast) var(--motion-ease-out), box-shadow var(--motion-fast) ease, border-color var(--motion-fast) ease, background-color var(--motion-fast) ease;
-  }
+.card-masonry-slot > .note-card {
+  margin-block-end: 0;
+  scale: 1;
+  transition: scale var(--motion-fast) var(--motion-ease-out), box-shadow var(--motion-fast) ease, border-color var(--motion-fast) ease, background-color var(--motion-fast) ease;
+}
 
-  @media (hover: hover) and (pointer: fine) {
-    .card-masonry > .note-card:hover {
-      scale: 1.015;
-      z-index: 1;
-    }
+@media (hover: hover) and (pointer: fine) {
+  .card-masonry-slot:hover > .note-card {
+    scale: 1.015;
+    z-index: 1;
   }
 }
 
 /* Individual Note Card */
 .note-card {
-  -webkit-column-break-inside: avoid;
-  break-inside: avoid;
   margin-bottom: 18px;
   display: flex;
   flex-direction: column;
@@ -2329,8 +2308,7 @@ dialog::backdrop {
   .is-mobile-card-grid { height: 100%; background: var(--canvas); }
   .is-mobile-card-grid .card-grid-container,
   .is-mobile-card-grid .card-grid-container.has-trash-action { padding: calc(76px + env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) calc(112px + env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left)); overscroll-behavior: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; }
-  .is-mobile-card-grid .card-masonry { columns: 2; column-gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-  .is-mobile-card-grid .note-card { position: relative; min-width: 0; margin-bottom: 12px; border-color: var(--border-soft); transition-timing-function: var(--motion-ease-out); }
+  .is-mobile-card-grid .note-card { position: relative; min-width: 0; margin-bottom: 0; border-color: var(--border-soft); transition-timing-function: var(--motion-ease-out); }
   .is-mobile-card-grid .note-card { --swipe-action-button-width: 92px; }
   .is-mobile-card-grid .note-card-foreground { min-height: 100%; }
   .is-mobile-card-grid .note-card.is-swipe-open { border-color: transparent; box-shadow: var(--note-card-shadow); }
@@ -2361,16 +2339,6 @@ dialog::backdrop {
   .app-shell[data-mobile-page] .mobile-layout-toggle { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; flex: 0 0 44px; }
   .mobile-collection-header .list-header-controls { flex-shrink: 0; gap: 2px; }
 }
-@media (max-width: 359px) {
-  .is-mobile-card-grid .card-masonry { columns: 1; grid-template-columns: minmax(0, 1fr); }
-}
-@media (min-width: 600px) and (max-width: 900px) {
-  .is-mobile-card-grid .card-masonry { columns: 3; grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
-@supports (display: grid-lanes) {
-  .is-mobile-card-grid .note-card { margin-bottom: 0; }
-}
-
 .card-grid-empty {
   display: flex;
   flex-direction: column;
@@ -2408,7 +2376,7 @@ dialog::backdrop {
     --motion-layout: 0ms;
   }
 
-  .card-masonry > .note-card:hover {
+  .card-masonry-slot:hover > .note-card {
     scale: 1;
   }
 
