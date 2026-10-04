@@ -1305,11 +1305,14 @@ export function Workspace() {
       shiftKey: event.shiftKey,
     });
     const isModifierSelection = isNoteSelectionModifierClick(event);
-    if (!isModifierSelection) selectNote(id);
-    updateNoteSelection(nextSelection);
-    if (isModifierSelection) return;
+    if (isModifierSelection) {
+      updateNoteSelection(nextSelection);
+      return;
+    }
+    selectNote(id);
+    if (!isMobileViewport) updateNoteSelection(nextSelection);
     openMobileNote({ noteId: id });
-  }, [openMobileNote, noteSort, selectNote, updateNoteSelection]);
+  }, [isMobileViewport, openMobileNote, noteSort, selectNote, updateNoteSelection]);
   const handleOpenCardNote = useCallback((id: string) => {
     selectNote(id);
     setCardEditingNoteId(id);

@@ -5,7 +5,9 @@ describe("mobile swipe actions", () => {
   test("does not keep the opened note highlighted in mobile lists and uses a neutral card swipe fill", async () => {
     const css = await Bun.file("app/styles.css").text();
     const panels = await Bun.file("app/workspace/panels.tsx").text();
+    const workspace = await Bun.file("app/workspace.tsx").text();
     expect(panels).toContain("isActive={selectedId === note.id && !isMobileViewport}");
+    expect(workspace).toContain("if (!isMobileViewport) updateNoteSelection(nextSelection);");
     expect(css).toContain("--surface-card-swipe: light-dark(#fffdfa, #2b3045);");
     expect(css).toContain(".is-mobile-card-grid .note-card.is-swipe-open > .note-card-foreground { background: var(--surface-card-swipe); }");
   });
