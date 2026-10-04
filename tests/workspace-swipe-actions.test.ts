@@ -37,6 +37,17 @@ describe("mobile swipe actions", () => {
     expect(mobileCss).toContain(".mobile-notebook-row .mobile-notebook-link--editable { background: var(--surface); }");
   });
 
+  test("highlights the opened notebook row, hides its separator, and keeps notebook actions icon-only", async () => {
+    const mobileCss = await Bun.file("app/workspace/mobile-panels.css").text();
+    const mobilePanels = await Bun.file("app/workspace/mobile-panels.tsx").text();
+    expect(mobileCss).toContain(".mobile-notebook-swipe.is-swipe-open > .mobile-notebook-link--editable { background: var(--accent-soft)");
+    expect(mobileCss).toContain(".mobile-home-group .mobile-notebook-row + .mobile-notebook-row::before { display: none; }");
+    expect(mobilePanels).not.toContain("<span>编辑</span>");
+    expect(mobilePanels).not.toContain("<span>删除</span>");
+    expect(mobilePanels).toContain("aria-label={`编辑笔记本：${notebook.name}`}");
+    expect(mobilePanels).toContain("aria-label={`删除笔记本：${notebook.name}`}");
+  });
+
   test("returns keyboard focus to the foreground item after Escape closes actions", async () => {
     const source = await Bun.file("app/workspace/swipe-actions.ts").text();
     expect(source).toContain('foreground?.querySelector<HTMLButtonElement>(".note-card-open")');
