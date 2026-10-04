@@ -1184,6 +1184,15 @@ dialog::backdrop {
   .backlinks-dialog-header { height: 50px; padding: 0 10px 0 14px; gap: 8px; }
   .backlinks-dialog-title { font-size: 0.95rem; }
   .backlinks-dialog-body { padding: 12px 14px max(16px, env(safe-area-inset-bottom)); }
+  .backlinks-dialog .backlink-card { gap: 7px; padding: 11px 12px; }
+  .backlinks-dialog .backlink-card-header { align-items: flex-start; gap: 6px; }
+  .backlinks-dialog .backlink-card-title-button { display: grid; grid-template-columns: minmax(0, 1fr); align-content: center; gap: 6px; }
+  .backlinks-dialog .backlink-card-title { width: 100%; flex: none; font-size: 14px; }
+  .backlinks-dialog .backlink-card-meta { display: flex; align-items: center; gap: 7px; width: 100%; min-width: 0; }
+  .backlinks-dialog .backlink-card-notebook { max-width: min(42vw, 12em); }
+  .backlinks-dialog .backlink-kind-badge.is-linked { display: inline-grid; flex: none; place-items: center; width: 22px; height: 22px; padding: 0; border-radius: 50%; background: var(--accent-soft); color: var(--accent); }
+  .backlinks-dialog .backlink-card-time { flex: none; margin-left: auto; white-space: nowrap; font-size: 11px; }
+  .backlinks-dialog .backlink-card-open-btn { flex: none; margin: 0; opacity: 0.7; }
   .auth-card { padding: 28px 22px; }
   .system-notices { right: 16px; bottom: auto; left: 16px; width: auto; justify-items: center; top: calc(var(--mobile-viewport-top, 0px) + var(--mobile-viewport-height, 100dvh) - 88px - var(--mobile-bottom-safe-area, env(safe-area-inset-bottom))); transform: translateY(-100%); }
   .toast, .update-notice { max-width: min(360px, 100%); }
@@ -1709,6 +1718,14 @@ dialog::backdrop {
   flex: 1;
 }
 
+.backlink-card-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: none;
+}
+
 .backlink-card-title {
   min-width: 0;
   overflow: hidden;
@@ -1752,8 +1769,14 @@ dialog::backdrop {
 }
 
 .backlink-kind-badge.is-linked {
-  background: var(--surface-chip);
-  color: var(--soft-muted);
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .backlink-kind-badge.is-unlinked {
@@ -1765,6 +1788,8 @@ dialog::backdrop {
   font-size: 11px;
   color: var(--soft-muted);
   margin-left: auto;
+  white-space: nowrap;
+  flex: none;
 }
 
 .backlink-card-open-btn {

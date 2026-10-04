@@ -291,29 +291,29 @@ export function BacklinksDialog({
                         <span className="backlink-card-title">
                           {displayTitle}
                         </span>
-                        {item.sourceNotebookName && (
-                          <span className="backlink-card-notebook">
-                            {item.sourceNotebookName}
-                          </span>
-                        )}
-                        <span
-                          className={`backlink-kind-badge ${
-                            isUnlinked ? "is-unlinked" : "is-linked"
-                          }`}
-                        >
-                          {isUnlinked ? (
-                            <>
-                              <Sparkles size={11} aria-hidden="true" />
-                              <span>提及</span>
-                            </>
-                          ) : (
-                            <>
-                              <Link2 size={11} aria-hidden="true" />
-                              <span>已链接</span>
-                            </>
+                        <span className="backlink-card-meta">
+                          {item.sourceNotebookName && (
+                            <span className="backlink-card-notebook">
+                              {item.sourceNotebookName}
+                            </span>
                           )}
+                          <span
+                            className={`backlink-kind-badge ${
+                              isUnlinked ? "is-unlinked" : "is-linked"
+                            }`}
+                            {...(isUnlinked ? {} : { role: "img", "aria-label": "已链接", title: "已链接" })}
+                          >
+                            {isUnlinked ? (
+                              <>
+                                <Sparkles size={11} aria-hidden="true" />
+                                <span>提及</span>
+                              </>
+                            ) : (
+                              <Link2 size={13} aria-hidden="true" />
+                            )}
+                          </span>
+                          <time className="backlink-card-time">{relativeDate(item.updatedAt)}</time>
                         </span>
-                        <time className="backlink-card-time">{relativeDate(item.updatedAt)}</time>
                       </button>
 
                       {isUnlinked ? (

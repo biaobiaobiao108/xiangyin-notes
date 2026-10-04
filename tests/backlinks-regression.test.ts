@@ -8,6 +8,16 @@ let cookie: string;
 let notebookId: string;
 const environment = { XIANGYING_USERNAME: "owner", XIANGYING_PASSWORD: "backlinks test passphrase 1234" };
 
+test("backlink dialog keeps linked status icon-only and metadata grouped on mobile", async () => {
+  const component = await Bun.file("app/editor/backlinks-panel.tsx").text();
+  const styles = await Bun.file("app/styles.css").text();
+  expect(component).toContain('role: "img", "aria-label": "已链接", title: "已链接"');
+  expect(component).toContain('<Link2 size={13} aria-hidden="true" />');
+  expect(component).not.toContain("<span>已链接</span>");
+  expect(styles).toContain(".backlinks-dialog .backlink-card-title-button { display: grid;");
+  expect(styles).toContain(".backlinks-dialog .backlink-card-time { flex: none; margin-left: auto; white-space: nowrap;");
+});
+
 async function request(path: string, method = "GET", payload?: unknown) {
   const response = await handleRequest(new Request(`http://xiangying.test${path}`, {
     method,
