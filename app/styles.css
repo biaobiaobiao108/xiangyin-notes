@@ -1361,7 +1361,7 @@ dialog::backdrop {
   .wiki-link-item.is-create.is-selected { background: transparent; }
 
   .note-list-items > li:has(.note-row) + li:has(.note-row) { position: relative; }
-  .note-list-items > li:has(.note-row) + li:has(.note-row):not(:has(.is-swipe-open))::before {
+  .note-list-items > li:has(.note-row) + li:has(.note-row)::before {
     content: "";
     position: absolute;
     z-index: 2;

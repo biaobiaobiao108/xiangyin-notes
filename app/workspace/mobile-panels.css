@@ -30,7 +30,6 @@
   .mobile-notebook-row { display: flex; align-items: stretch; }
   .mobile-notebook-row .mobile-notebook-swipe { flex: 1; border-radius: var(--radius-md); }
   .mobile-home-group .mobile-notebook-row + .mobile-notebook-row::before { display: block; z-index: 2; }
-  .mobile-home-group .mobile-notebook-row:has(.is-swipe-open)::before { display: none; }
   .mobile-notebook-row .mobile-notebook-link { width: 100%; min-height: 61px; border-radius: inherit; }
   .mobile-notebook-row .mobile-notebook-link--editable { background: var(--surface); }
   .mobile-notebook-row .mobile-notebook-link--editable:hover,
