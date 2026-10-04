@@ -26,6 +26,7 @@ import { SystemNotices } from "./workspace/system-notices";
 import { MobileNotebookHome, MobileBottomBar } from "./workspace/mobile-panels";
 import { viewLabel } from "./workspace/helpers";
 import { useThemePreference } from "./theme";
+import type { NoteSwipeAction } from "./workspace/swipe-actions";
 
 export type ViewLayout = "three-column" | "cards";
 
@@ -874,6 +875,38 @@ export function Workspace() {
       onConfirm: () => performPermanentDelete(current.id),
     });
   }, [performPermanentDelete, requestConfirm]);
+  const restoreNoteFromList = useCallback(async (noteId: string) => {
+    if (emptyingTrashRef.current || trashOperationsRef.current.size > 0) throw new ApiError(409, "TRASH_BUSY", "回收站正在处理其他操作，请稍后重试");
+    flushEditorDraftRef.current();
+    trashOperationsRef.current.add(noteId);
+    setPendingTrashCount(trashOperationsRef.current.size);
+    invalidateCollections();
+    try {
+      await runSave(noteId);
+      const current = notesRef.current.find((note) => note.id === noteId);
+      if (!current || !current.deletedAt) throw new ApiError(409, "NOTE_SELECTION_STALE", "这篇笔记已不在回收站，请刷新后重试");
+      await api.updateNote(noteId, { version: current.version, deleted: false }, { response: "summary" });
+      removeFromList(noteId);
+      discardNoteDraft(noteId);
+    } finally { finishTrashOperation(noteId); }
+  }, [discardNoteDraft, finishTrashOperation, invalidateCollections, notesRef, removeFromList, runSave]);
+  const handleNoteSwipeAction = useCallback((note: NoteSummary, action: NoteSwipeAction) => {
+    if (pendingTrashCount > 0 || emptyingTrashRef.current) return;
+    if (action === "trash") {
+      void performBatchDelete([note.id], false).catch(showBatchDeleteError);
+    } else if (action === "restore") {
+      void restoreNoteFromList(note.id).catch((reason) => notifyError(reason instanceof ApiError && reason.code === "VERSION_CONFLICT" ? "这篇笔记已在别处更新，恢复未完成，请刷新后重试" : errorMessage(reason, "恢复笔记失败，请重试")));
+    } else {
+      requestConfirm({
+        eyebrow: "不可撤销",
+        title: `彻底删除“${note.title.trim() || "未命名笔记"}”？`,
+        description: "这篇笔记会从数据库中永久移除，回收站不再保留。",
+        confirmLabel: "彻底删除",
+        danger: true,
+        onConfirm: () => performPermanentDelete(note.id),
+      });
+    }
+  }, [emptyingTrashRef, notifyError, pendingTrashCount, performBatchDelete, performPermanentDelete, requestConfirm, restoreNoteFromList, showBatchDeleteError]);
   const performEmptyTrash = useCallback(async () => {
     if (emptyingTrashRef.current || trashOperationsRef.current.size) throw new ApiError(409, "TRASH_BUSY", "回收站正在处理其他操作，请稍后重试");
     flushEditorDraftRef.current();
@@ -1261,6 +1294,7 @@ export function Workspace() {
   const handleNewInboxNote = useCallback(() => { void createNoteInInbox(); }, [createNoteInInbox]);
   const handleCreateNotebook = useCallback(() => { createNotebook(); }, [createNotebook]);
   const handleEditNotebook = useCallback((target: Notebook) => setEditingNotebook(target), []);
+  const handleDeleteNotebook = useCallback((target: Notebook) => requestConfirm({ eyebrow: "删除笔记本", title: `删除笔记本“${target.name}”？`, description: "笔记本中的笔记会自动移入收件箱，笔记内容不会被删除。", confirmLabel: "删除笔记本", danger: true, onConfirm: () => deleteNotebook(target.id) }), [deleteNotebook, requestConfirm]);
   const handleCollapseSidebar = useCallback(() => setSidebarCollapsed((value) => !value), []);
   const handleSelectListNote = useCallback((id: string, event: ReactMouseEvent<HTMLButtonElement>) => {
     const nextSelection = applyNoteSelectionClick(noteSelectionRef.current, sortNotes(notesRef.current, noteSort).map((note) => note.id), {
@@ -1341,9 +1375,9 @@ export function Workspace() {
 
   return <div data-mobile-page={isMobileViewport ? mobilePage : undefined} className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${focusMode ? "is-focus-mode" : ""} ${isCardsLayout ? "layout-cards" : ""}`}>
     {!isMobileViewport && <Sidebar view={view} setView={selectView} notebooks={notebooks} notebookId={notebookId} setNotebookId={selectNotebook} query={query} setQuery={changeQuery} searchRef={searchRef} onNewInboxNote={handleNewInboxNote} onCreateNotebook={handleCreateNotebook} onEditNotebook={handleEditNotebook} collapsed={sidebarCollapsed} onCollapse={handleCollapseSidebar} onLogout={logout} />}
-    {isMobileViewport && <div className="mobile-home-region" hidden={mobilePage !== "home"} inert={mobilePage !== "home"}><MobileNotebookHome view={view} setView={selectView} notebooks={notebooks} notebookId={notebookId} setNotebookId={selectNotebook} onCreateNotebook={handleCreateNotebook} onEditNotebook={handleEditNotebook} onLogout={logout} /></div>}
+    {isMobileViewport && <div className="mobile-home-region" hidden={mobilePage !== "home"} inert={mobilePage !== "home"}><MobileNotebookHome view={view} setView={selectView} notebooks={notebooks} notebookId={notebookId} setNotebookId={selectNotebook} onCreateNotebook={handleCreateNotebook} onEditNotebook={handleEditNotebook} onDeleteNotebook={handleDeleteNotebook} onLogout={logout} active={mobilePage === "home"} /></div>}
     {!isCardsLayout && !mobileCards && (
-      <NoteListPanel notes={notes} total={totalNotes} hasMore={hasMoreNotes} sort={noteSort} setSort={handleNoteSort} selectedId={selectedId} selectedIds={selectedNoteIds} onSelect={handleSelectListNote} onDeleteSelected={deleteSelectedNotes} view={view} query={query} currentNotebookName={currentNotebook?.name} onEmptyTrash={view === "trash" ? emptyTrash : undefined} trashBusy={pendingTrashCount > 0 || emptyingTrash} onNewNote={listNewNote} onClearQuery={handleClearQuery} isMobileViewport={isMobileViewport} onToggleLayout={toggleViewLayout} onOpenSidebar={handleOpenSidebar} transitionToken={listTransitionToken} outlineOpen={!isMobileViewport && outlineOpen} outlineItems={outlineItems} activeOutlineId={activeOutlineId} onScrollToOutlineItem={handleScrollToOutlineItem} onCloseOutline={closeOutline} onLoadMore={loadMoreNotes} isLoadingMore={isLoadingMore} virtualizationScope={listScope} inert={isMobileViewport && mobilePage !== "list"} />
+      <NoteListPanel notes={notes} total={totalNotes} hasMore={hasMoreNotes} sort={noteSort} setSort={handleNoteSort} selectedId={selectedId} selectedIds={selectedNoteIds} onSelect={handleSelectListNote} onDeleteSelected={deleteSelectedNotes} onNoteSwipeAction={handleNoteSwipeAction} view={view} query={query} currentNotebookName={currentNotebook?.name} onEmptyTrash={view === "trash" ? emptyTrash : undefined} trashBusy={pendingTrashCount > 0 || emptyingTrash} onNewNote={listNewNote} onClearQuery={handleClearQuery} isMobileViewport={isMobileViewport} onToggleLayout={toggleViewLayout} onOpenSidebar={handleOpenSidebar} transitionToken={listTransitionToken} outlineOpen={!isMobileViewport && outlineOpen} outlineItems={outlineItems} activeOutlineId={activeOutlineId} onScrollToOutlineItem={handleScrollToOutlineItem} onCloseOutline={closeOutline} onLoadMore={loadMoreNotes} isLoadingMore={isLoadingMore} virtualizationScope={listScope} inert={isMobileViewport && mobilePage !== "list"} />
     )}
     {showCardsGrid && (
       <NoteCardGridPanel
@@ -1358,6 +1392,7 @@ export function Workspace() {
         onOpenNote={handleOpenCardNote}
         onToggleSelectNote={handleToggleCardSelection}
         onDeleteSelected={deleteSelectedNotes}
+        onNoteSwipeAction={handleNoteSwipeAction}
         view={view}
         currentNotebookName={currentNotebook?.name}
         query={query}

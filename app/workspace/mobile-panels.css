@@ -27,8 +27,10 @@
   .mobile-home-section-heading h2 { margin: 0; font-size: 18px; font-weight: 600; }
   .mobile-plain-button { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; flex-shrink: 0; padding: 0; color: var(--accent); background: transparent; border: 0; border-radius: var(--radius-sm); }
   .mobile-notebook-link--editable { -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; touch-action: pan-y; }
-  .mobile-notebook-row { display: flex; align-items: center; }
-  .mobile-notebook-row .mobile-notebook-link { flex: 1; }
+  .mobile-notebook-row { display: flex; align-items: stretch; }
+  .mobile-notebook-row .mobile-notebook-swipe { flex: 1; border-radius: var(--radius-md); }
+  .mobile-notebook-row .mobile-notebook-link { width: 100%; min-height: 61px; border-radius: inherit; }
+  .mobile-notebook-row .swipe-action-button { flex-basis: 72px; }
   .mobile-notebooks-empty { padding: 24px 18px; border-radius: var(--radius-lg); background: var(--surface); color: var(--muted); text-align: center; font-size: 14px; }
   .mobile-notebooks-empty p { margin: 0 0 12px; }
   .mobile-notebooks-empty button { min-height: 44px; padding: 0 16px; border: 0; border-radius: var(--radius-sm); background: var(--accent-soft); color: var(--accent); font-size: 15px; }

@@ -1,9 +1,10 @@
-import { memo, useEffect, useRef, type RefObject } from "react";
-import { ChevronRight, FolderPlus, LogOut, Search, SlidersHorizontal, SquarePen, X } from "lucide-react";
+import { memo, useRef, type CSSProperties, type RefObject } from "react";
+import { ChevronRight, FolderPlus, LogOut, Pencil, Search, SlidersHorizontal, SquarePen, Trash2, X } from "lucide-react";
 import type { Notebook, NoteView } from "../../shared/types";
 import { BrandMark } from "../brand-mark";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { getNotebookIconComponent, navItems } from "./helpers";
+import { useSwipeActionGesture, useSwipeActionGroup } from "./swipe-actions";
 import "./mobile-panels.css";
 
 export type MobileNotebookHomeProps = {
@@ -14,11 +15,14 @@ export type MobileNotebookHomeProps = {
   setNotebookId: (id: string) => void;
   onCreateNotebook: () => void;
   onEditNotebook: (notebook: Notebook) => void;
+  onDeleteNotebook: (notebook: Notebook) => void;
   onLogout: () => void;
+  active?: boolean;
 };
 
-export const MobileNotebookHome = memo(function MobileNotebookHome({ view, setView, notebooks, notebookId, setNotebookId, onCreateNotebook, onEditNotebook, onLogout }: MobileNotebookHomeProps) {
+export const MobileNotebookHome = memo(function MobileNotebookHome({ view, setView, notebooks, notebookId, setNotebookId, onCreateNotebook, onEditNotebook, onDeleteNotebook, onLogout, active = true }: MobileNotebookHomeProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const swipeActions = useSwipeActionGroup(scrollRef, active, active ? "home" : "inactive");
   const customNotebooks = notebooks.filter((notebook) => !notebook.isSystem);
 
   return <section className="mobile-notebook-home" aria-labelledby="mobile-notebooks-title">
@@ -36,7 +40,7 @@ export const MobileNotebookHome = memo(function MobileNotebookHome({ view, setVi
         </nav>
         <div className="mobile-home-section-heading"><h2>我的笔记本</h2><button className="mobile-plain-button" type="button" aria-label="新建笔记本" onClick={onCreateNotebook}><FolderPlus size={20} /></button></div>
         {customNotebooks.length > 0 ? <nav className="mobile-home-group" aria-label="自定义笔记本"><ul>{customNotebooks.map((notebook) => {
-          return <li key={notebook.id} className="mobile-notebook-row"><MobileNotebookLink notebook={notebook} selected={notebook.id === notebookId} onOpen={setNotebookId} onEdit={onEditNotebook} /></li>;
+          return <li key={notebook.id} className="mobile-notebook-row"><MobileNotebookLink notebook={notebook} selected={notebook.id === notebookId} onOpen={setNotebookId} onEdit={onEditNotebook} onDelete={onDeleteNotebook} open={swipeActions.openId === notebook.id} setOpenId={swipeActions.setOpenId} /></li>;
         })}</ul></nav> : <div className="mobile-notebooks-empty"><p>为生活与灵感，留一本手记。</p><button type="button" onClick={onCreateNotebook}>新建笔记本</button></div>}
         <button className="mobile-logout-button" type="button" onClick={onLogout}><LogOut size={18} aria-hidden="true" />退出登录</button>
       </div>
@@ -45,36 +49,19 @@ export const MobileNotebookHome = memo(function MobileNotebookHome({ view, setVi
   </section>;
 });
 
-function MobileNotebookLink({ notebook, selected, onOpen, onEdit }: { notebook: Notebook; selected: boolean; onOpen: (id: string) => void; onEdit: (notebook: Notebook) => void }) {
-  const pressRef = useRef<{ x: number; y: number; timer: ReturnType<typeof setTimeout> | null; suppressClick: boolean }>({ x: 0, y: 0, timer: null, suppressClick: false });
-  const clearPress = () => {
-    if (pressRef.current.timer !== null) clearTimeout(pressRef.current.timer);
-    pressRef.current.timer = null;
-  };
-  useEffect(() => () => clearPress(), []);
+function MobileNotebookLink({ notebook, selected, onOpen, onEdit, onDelete, open, setOpenId }: { notebook: Notebook; selected: boolean; onOpen: (id: string) => void; onEdit: (notebook: Notebook) => void; onDelete: (notebook: Notebook) => void; open: boolean; setOpenId: (id: string | null) => void }) {
+  const foregroundRef = useRef<HTMLButtonElement>(null);
+  const gesture = useSwipeActionGesture({ enabled: true, itemId: notebook.id, open, actionWidth: 144, onOpenChange: setOpenId, foregroundRef });
   const Icon = getNotebookIconComponent(notebook.icon);
-  return <button type="button" className="mobile-notebook-link mobile-notebook-link--editable" aria-label={`${notebook.name}，${notebook.count} 篇笔记，长按编辑`} aria-current={selected ? "true" : undefined}
-    onPointerDown={(event) => {
-      clearPress();
-      const press = pressRef.current;
-      press.suppressClick = false;
-      if (event.button !== 0) return;
-      press.x = event.clientX;
-      press.y = event.clientY;
-      press.timer = setTimeout(() => { press.timer = null; press.suppressClick = true; onEdit(notebook); }, 500);
-    }}
-    onPointerMove={(event) => {
-      const press = pressRef.current;
-      if (Math.hypot(event.clientX - press.x, event.clientY - press.y) > 8) { clearPress(); press.suppressClick = true; }
-    }}
-    onPointerUp={clearPress}
-    onPointerCancel={() => { clearPress(); pressRef.current.suppressClick = true; }}
-    onPointerLeave={() => { if (pressRef.current.timer !== null) { clearPress(); pressRef.current.suppressClick = true; } }}
-    onContextMenu={(event) => { event.preventDefault(); clearPress(); if (!pressRef.current.suppressClick) onEdit(notebook); pressRef.current.suppressClick = true; }}
-    onKeyDown={(event) => { if (event.key === "F2") { event.preventDefault(); clearPress(); onEdit(notebook); } }}
-    onClick={(event) => { clearPress(); if (pressRef.current.suppressClick && event.detail !== 0) { event.preventDefault(); return; } onOpen(notebook.id); }}>
-    <span className="mobile-notebook-icon" style={{ color: notebook.color }}><Icon size={22} /></span><span className="mobile-notebook-name">{notebook.name}</span><span className="mobile-notebook-count">{notebook.count}</span><ChevronRight className="mobile-notebook-chevron" size={18} />
-  </button>;
+  return <div className={`swipe-action-row mobile-notebook-swipe${open ? " is-swipe-open" : ""}`} style={{ "--swipe-action-width": "144px" } as CSSProperties} {...gesture}>
+    <div id={`notebook-actions-${notebook.id}`} className="swipe-action-buttons" role="group" aria-label={`${notebook.name}的操作`}>
+      <button type="button" className="swipe-action-button" aria-label={`编辑笔记本：${notebook.name}`} onClick={() => { setOpenId(null); onEdit(notebook); }}><Pencil size={17} aria-hidden="true" /><span>编辑</span></button>
+      <button type="button" className="swipe-action-button is-danger" aria-label={`删除笔记本：${notebook.name}`} onClick={() => { setOpenId(null); onDelete(notebook); }}><Trash2 size={17} aria-hidden="true" /><span>删除</span></button>
+    </div>
+    <button ref={foregroundRef} type="button" className="mobile-notebook-link mobile-notebook-link--editable swipe-action-foreground" aria-label={`${notebook.name}，${notebook.count} 篇笔记，向左轻扫显示编辑和删除操作`} aria-current={selected ? "true" : undefined} aria-expanded={open} aria-controls={`notebook-actions-${notebook.id}`} onKeyDown={(event) => { if (event.key === "F2") { event.preventDefault(); onEdit(notebook); } }} onClick={() => onOpen(notebook.id)}>
+      <span className="mobile-notebook-icon" style={{ color: notebook.color }}><Icon size={22} /></span><span className="mobile-notebook-name">{notebook.name}</span><span className="mobile-notebook-count">{notebook.count}</span><ChevronRight className="mobile-notebook-chevron" size={18} />
+    </button>
+  </div>;
 }
 
 export type MobileBottomBarProps = {

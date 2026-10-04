@@ -1,5 +1,5 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type RefObject } from "react";
-import { Archive, ChevronDown, ChevronLeft, LayoutPanelLeft, LogOut, Menu, Plus, Search, Star, Trash2, X } from "lucide-react";
+import { Archive, ChevronDown, ChevronLeft, LayoutPanelLeft, LogOut, Menu, Plus, RotateCcw, Search, Star, Trash2, X } from "lucide-react";
 import type { NoteSummary, NoteView, Notebook } from "../../shared/types";
 import { playEntranceAnimation } from "../animation";
 import { BrandMark } from "../brand-mark";
@@ -10,6 +10,7 @@ import { type PwaState } from "../pwa";
 import { getNoteTags, getNotebookIconComponent, navItems, NOTE_TAG_DISPLAY_LIMIT, relativeDate, sortNotes, type NoteSort, viewLabel } from "./helpers";
 import { useVirtualNoteList } from "./use-virtual-note-list";
 import { MobileCollectionHeader } from "./mobile-collection-header";
+import { type NoteSwipeAction, useSwipeActionGesture, useSwipeActionGroup } from "./swipe-actions";
 
 export function NoteLoadingState() {
   return <section className="editor-panel editor-loading-shell" aria-label="笔记编辑器" aria-busy="true"><div className="editor-switch-overlay editor-switch-overlay--visible" role="status" aria-live="polite"><div className="editor-switch-card"><BrandMark className="editor-switch-mark" /><div className="editor-switch-lines" aria-hidden="true"><span /><span /><span /></div><strong>正在打开笔记…</strong></div></div></section>;
@@ -100,8 +101,21 @@ function NoteRowMeta({ note, showNotebook }: { note: NoteSummary; showNotebook: 
   </span>;
 }
 
-const NoteListRow = memo(function NoteListRow({ note, isSelected, isActive, showNotebook, onSelect, rowRef, rowStyle, rowIndex, setSize }: { note: NoteSummary; isSelected: boolean; isActive: boolean; showNotebook: boolean; onSelect: (id: string, event: ReactMouseEvent<HTMLButtonElement>) => void; rowRef?: (element: HTMLLIElement | null) => void; rowStyle?: CSSProperties; rowIndex: number; setSize: number }) {
-  return <li ref={rowRef} data-note-id={note.id} className="note-list-item" style={rowStyle} aria-posinset={rowIndex + 1} aria-setsize={setSize}><button type="button" className={`note-row ${note.thumbnail ? "has-thumbnail" : ""} ${isSelected ? "is-selected" : ""} ${isActive ? "is-active" : ""}`} aria-current={isActive ? "page" : undefined} aria-pressed={isSelected} onClick={(event) => onSelect(note.id, event)}><NoteThumbnail note={note} /><span className="note-row-main"><span className="note-row-title"><span className="note-row-title-text">{note.title || "未命名笔记"}</span>{note.isFavorite && <Star size={13} fill="currentColor" />}</span><span className="note-row-preview">{note.preview || "还没有内容，开始写下第一句话。"}</span><NoteRowMeta note={note} showNotebook={showNotebook} /></span></button></li>;
+const NoteListRow = memo(function NoteListRow({ note, isSelected, isActive, showNotebook, onSelect, rowRef, rowStyle, rowIndex, setSize, isMobileViewport, isTrashView, trashBusy, onNoteSwipeAction, open, setOpenId }: { note: NoteSummary; isSelected: boolean; isActive: boolean; showNotebook: boolean; onSelect: (id: string, event: ReactMouseEvent<HTMLButtonElement>) => void; rowRef?: (element: HTMLLIElement | null) => void; rowStyle?: CSSProperties; rowIndex: number; setSize: number; isMobileViewport: boolean; isTrashView: boolean; trashBusy: boolean; onNoteSwipeAction: (note: NoteSummary, action: NoteSwipeAction) => void; open: boolean; setOpenId: (id: string | null) => void }) {
+  const actionWidth = isTrashView ? 144 : 96;
+  const foregroundRef = useRef<HTMLButtonElement>(null);
+  const gesture = useSwipeActionGesture({ enabled: isMobileViewport && !trashBusy, itemId: note.id, open, actionWidth, onOpenChange: setOpenId, foregroundRef });
+  return <li ref={rowRef} data-note-id={note.id} className="note-list-item" style={rowStyle} aria-posinset={rowIndex + 1} aria-setsize={setSize}>
+    <div className={`swipe-action-row note-row-swipe${open ? " is-swipe-open" : ""}`} style={{ "--swipe-action-width": `${actionWidth}px`, "--swipe-action-button-width": isTrashView ? "72px" : "96px" } as CSSProperties} {...gesture}>
+      {isMobileViewport && <div id={`note-actions-${note.id}`} className="swipe-action-buttons" role="group" aria-label={`${note.title || "未命名笔记"}的操作`}>
+        {isTrashView ? <>
+          <button type="button" className="swipe-action-button" aria-label={`恢复笔记：${note.title || "未命名笔记"}`} disabled={trashBusy} onClick={() => { setOpenId(null); onNoteSwipeAction(note, "restore"); }}><RotateCcw size={17} aria-hidden="true" /><span>恢复</span></button>
+          <button type="button" className="swipe-action-button is-danger" aria-label={`彻底删除笔记：${note.title || "未命名笔记"}`} disabled={trashBusy} onClick={() => { setOpenId(null); onNoteSwipeAction(note, "permanent-delete"); }}><Trash2 size={17} aria-hidden="true" /><span>彻底删除</span></button>
+        </> : <button type="button" className="swipe-action-button is-danger" aria-label={`移入回收站：${note.title || "未命名笔记"}`} disabled={trashBusy} onClick={() => { setOpenId(null); onNoteSwipeAction(note, "trash"); }}><Trash2 size={17} aria-hidden="true" /><span>移入回收站</span></button>}
+      </div>}
+      <button ref={foregroundRef} type="button" className={`note-row swipe-action-foreground ${note.thumbnail ? "has-thumbnail" : ""} ${isSelected ? "is-selected" : ""} ${isActive ? "is-active" : ""}`} aria-current={isActive ? "page" : undefined} aria-pressed={isSelected} aria-expanded={isMobileViewport ? open : undefined} aria-controls={isMobileViewport ? `note-actions-${note.id}` : undefined} onClick={(event) => onSelect(note.id, event)}><NoteThumbnail note={note} /><span className="note-row-main"><span className="note-row-title"><span className="note-row-title-text">{note.title || "未命名笔记"}</span>{note.isFavorite && <Star size={13} fill="currentColor" />}</span><span className="note-row-preview">{note.preview || "还没有内容，开始写下第一句话。"}</span><NoteRowMeta note={note} showNotebook={showNotebook} /></span></button>
+    </div>
+  </li>;
 });
 
 export function NoteOutlinePanel({ outlineItems, activeOutlineId, onScrollToOutlineItem, onCloseOutline, isFloating = false }: { outlineItems: OutlineItem[]; activeOutlineId: string | null; onScrollToOutlineItem: (id: string) => void; onCloseOutline: () => void; isFloating?: boolean }) {
@@ -188,6 +202,7 @@ type NoteListPanelProps = {
   selectedIds: ReadonlySet<string>;
   onSelect: (id: string, event: ReactMouseEvent<HTMLButtonElement>) => void;
   onDeleteSelected: () => void;
+  onNoteSwipeAction: (note: NoteSummary, action: NoteSwipeAction) => void;
   view: NoteView;
   query: string;
   currentNotebookName?: string;
@@ -214,7 +229,7 @@ type NoteListPanelProps = {
 
 };
 
-export const NoteListPanel = memo(function NoteListPanel({ notes, total, hasMore = total > notes.length, sort, setSort, selectedId, selectedIds, onSelect, onDeleteSelected, view, query, currentNotebookName, onNewNote, onEmptyTrash, trashBusy, onClearQuery, isMobileViewport = false, onOpenSidebar, onToggleLayout, transitionToken, outlineOpen, outlineItems, activeOutlineId, onScrollToOutlineItem, onCloseOutline, onLoadMore, isLoadingMore = false, virtualizationScope, inert = false }: NoteListPanelProps) {
+export const NoteListPanel = memo(function NoteListPanel({ notes, total, hasMore = total > notes.length, sort, setSort, selectedId, selectedIds, onSelect, onDeleteSelected, onNoteSwipeAction, view, query, currentNotebookName, onNewNote, onEmptyTrash, trashBusy, onClearQuery, isMobileViewport = false, onOpenSidebar, onToggleLayout, transitionToken, outlineOpen, outlineItems, activeOutlineId, onScrollToOutlineItem, onCloseOutline, onLoadMore, isLoadingMore = false, virtualizationScope, inert = false }: NoteListPanelProps) {
   const [sortOpen, setSortOpen] = useState(false);
   const sortRef = useRef<HTMLDivElement>(null);
   const sortTriggerRef = useRef<HTMLButtonElement>(null);
@@ -222,6 +237,7 @@ export const NoteListPanel = memo(function NoteListPanel({ notes, total, hasMore
   const noteListRef = useRef<HTMLDivElement>(null);
   const loadMoreSentinelRef = useRef<HTMLLIElement>(null);
   const panelRef = useRef<HTMLElement>(null);
+  const swipeActions = useSwipeActionGroup(noteListRef, isMobileViewport && !inert, virtualizationScope);
 
   useLayoutEffect(() => {
     if (transitionToken === 0 || !panelRef.current) return;
@@ -353,7 +369,7 @@ export const NoteListPanel = memo(function NoteListPanel({ notes, total, hasMore
           </div>
         </div>
       </header>}
-      <div className="note-list-scroll-shell"><div id="note-list-scroll-region" className="note-list floating-scrollbar-target" ref={noteListRef} style={noteListStyle} onKeyDown={handleNoteListKeyDown} onFocusCapture={virtualList.onFocusCapture} onBlurCapture={virtualList.onBlurCapture}><ul className="note-list-items" role="list" style={listStyle}>{virtualList.visibleRows.map(({ note, index, top }) => <NoteListRow key={note.id} note={note} rowIndex={index} setSize={listSize} rowRef={virtualList.isVirtualized ? virtualList.getRowRef(note.id) : undefined} rowStyle={virtualList.rowStyle(top)} isSelected={selectedIds.has(note.id)} isActive={selectedId === note.id} showNotebook={!currentNotebookName && view !== "inbox"} onSelect={onSelect} />)}{hasLoadMoreRow && <li ref={loadMoreSentinelRef} className="note-list-load-more-item" style={virtualList.isVirtualized ? { position: "absolute", insetInline: 0, top: 0, transform: `translateY(${virtualList.totalHeight}px)` } : undefined}><button className="secondary-button note-list-load-more-button" type="button" onClick={onLoadMore} disabled={isLoadingMore}>{isLoadingMore ? "正在加载……" : `加载更多（已显示 ${notes.length} / ${total}）`}</button></li>}</ul>{!sortedNotes.length && (query ? <div className="list-empty"><span className="empty-icon"><Search size={23} /></span><strong>没有找到匹配的笔记</strong><span>试试更短的关键词，或清空搜索查看全部内容。</span><button className="secondary-button" type="button" onClick={onClearQuery}>清空搜索</button></div> : <div className="list-empty"><span className="empty-icon"><Archive size={23} /></span><strong>{view === "trash" ? "回收站是空的" : "这里还没有笔记"}</strong><span>{view === "trash" ? "移入回收站的笔记会显示在这里。" : "按下“新建笔记”，让一个想法有地方落脚。"}</span></div>)}</div><FloatingScrollbar scrollTargetRef={noteListRef} controlsId="note-list-scroll-region" ariaLabel="笔记列表滚动条" placement="left" /></div>
+      <div className="note-list-scroll-shell"><div id="note-list-scroll-region" className="note-list floating-scrollbar-target" ref={noteListRef} style={noteListStyle} onKeyDown={handleNoteListKeyDown} onFocusCapture={virtualList.onFocusCapture} onBlurCapture={virtualList.onBlurCapture}><ul className="note-list-items" role="list" style={listStyle}>{virtualList.visibleRows.map(({ note, index, top }) => <NoteListRow key={note.id} note={note} rowIndex={index} setSize={listSize} rowRef={virtualList.isVirtualized ? virtualList.getRowRef(note.id) : undefined} rowStyle={virtualList.rowStyle(top)} isSelected={selectedIds.has(note.id)} isActive={selectedId === note.id} showNotebook={!currentNotebookName && view !== "inbox"} onSelect={onSelect} isMobileViewport={isMobileViewport} isTrashView={view === "trash"} trashBusy={trashBusy} onNoteSwipeAction={onNoteSwipeAction} open={swipeActions.openId === note.id} setOpenId={swipeActions.setOpenId} />)}{hasLoadMoreRow && <li ref={loadMoreSentinelRef} className="note-list-load-more-item" style={virtualList.isVirtualized ? { position: "absolute", insetInline: 0, top: 0, transform: `translateY(${virtualList.totalHeight}px)` } : undefined}><button className="secondary-button note-list-load-more-button" type="button" onClick={onLoadMore} disabled={isLoadingMore}>{isLoadingMore ? "正在加载……" : `加载更多（已显示 ${notes.length} / ${total}）`}</button></li>}</ul>{!sortedNotes.length && (query ? <div className="list-empty"><span className="empty-icon"><Search size={23} /></span><strong>没有找到匹配的笔记</strong><span>试试更短的关键词，或清空搜索查看全部内容。</span><button className="secondary-button" type="button" onClick={onClearQuery}>清空搜索</button></div> : <div className="list-empty"><span className="empty-icon"><Archive size={23} /></span><strong>{view === "trash" ? "回收站是空的" : "这里还没有笔记"}</strong><span>{view === "trash" ? "移入回收站的笔记会显示在这里。" : "按下“新建笔记”，让一个想法有地方落脚。"}</span></div>)}</div><FloatingScrollbar scrollTargetRef={noteListRef} controlsId="note-list-scroll-region" ariaLabel="笔记列表滚动条" placement="left" /></div>
       </>}
     </div>
   </section>;
