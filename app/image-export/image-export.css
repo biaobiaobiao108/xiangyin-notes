@@ -1,10 +1,12 @@
 .image-export-dialog { width: min(860px, calc(100vw - 32px)); max-width: none; padding: 0; overflow: hidden; border: 1px solid var(--border-soft); border-radius: var(--radius-lg); background: var(--surface); color: var(--ink); box-shadow: var(--shadow-float); animation: dialog-in var(--motion-panel) var(--motion-ease-out); }
 .image-export-dialog::backdrop { background: var(--backdrop); backdrop-filter: blur(8px); }
+.image-export-dialog[open] { display: flex; flex-direction: column; max-height: calc(100dvh - 32px); }
+.image-export-heading, .image-export-actions { flex-shrink: 0; }
 .image-export-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 20px 24px; }
 .image-export-heading h2 { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 1.2rem; }
 .image-export-heading p { margin: 8px 0 0; color: var(--muted); font-size: .85rem; }
-.image-export-preview-shell { position: relative; }
-.image-export-preview { max-height: min(62vh, 760px); min-height: 160px; padding: 20px; overflow: auto; scrollbar-width: none; background: var(--canvas); }
+.image-export-preview-shell { position: relative; display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.image-export-preview { flex: 1 1 auto; max-height: min(62vh, 760px); min-height: 0; padding: 20px; overflow: auto; scrollbar-width: none; background: var(--canvas); }
 .image-export-preview::-webkit-scrollbar { display: none; }
 .image-export-preview-image { display: block; width: min(100%, 720px); height: auto; margin: auto; border-radius: 24px; box-shadow: var(--shadow-sm); }
 .image-export-message { margin: 48px auto; text-align: center; color: var(--muted); }
