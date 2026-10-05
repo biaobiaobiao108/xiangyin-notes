@@ -10,6 +10,11 @@ describe("desktop note list separators", () => {
     expect(separator).toContain("background: var(--line)");
   });
 
+  test("contains row margins so highlight spacing stays even around dividers", async () => {
+    const css = await Bun.file("app/styles.css").text();
+    expect(css).toMatch(/\.note-row-swipe\s*\{\s*display:\s*flow-root;\s*\}/);
+  });
+
   test("hides both separators around the selected or active row on desktop", async () => {
     const css = await Bun.file("app/styles.css").text();
     const desktopRules = css.slice(css.indexOf("@media (min-width: 901px)"));

@@ -458,6 +458,7 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
   .note-row-swipe > .note-row.is-active { background: var(--accent-soft); }
   .note-row-swipe.is-swipe-open > .note-row { background: var(--accent-soft); border-color: transparent; box-shadow: none; }
 }
+.note-row-swipe { display: flow-root; }
 /* Keep rows fully painted; WebKit can retain skipped subtrees as blank after scroll reveal. */
 .note-row {
   display: grid;
