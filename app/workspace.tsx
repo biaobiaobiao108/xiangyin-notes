@@ -1463,7 +1463,6 @@ export function Workspace() {
         onOpenNote={handleOpenCardNote}
         onToggleSelectNote={handleToggleCardSelection}
         onDeleteSelected={deleteSelectedNotes}
-        onNoteSwipeAction={handleNoteSwipeAction}
         view={view}
         currentNotebookName={currentNotebook?.name}
         query={query}

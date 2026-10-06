@@ -27,14 +27,24 @@ describe("desktop note list separators", () => {
 });
 
 describe("mobile swipe actions", () => {
-  test("does not keep the opened note highlighted in mobile lists and uses a neutral card swipe fill", async () => {
+  test("does not keep the opened note highlighted in mobile lists", async () => {
     const css = await Bun.file("app/styles.css").text();
     const panels = await Bun.file("app/workspace/panels.tsx").text();
     const workspace = await Bun.file("app/workspace.tsx").text();
     expect(panels).toContain("isActive={selectedId === note.id && !isMobileViewport}");
     expect(workspace).toContain("if (!isMobileViewport) updateNoteSelection(nextSelection);");
-    expect(css).toContain("--surface-card-swipe: light-dark(#fffdfa, #2b3045);");
-    expect(css).toContain(".is-mobile-card-grid .note-card.is-swipe-open > .note-card-foreground { background: var(--surface-card-swipe); }");
+    expect(css).not.toContain("--surface-card-swipe:");
+  });
+
+  test("mobile cards open on tap and expose no swipe actions", async () => {
+    const source = await Bun.file("app/workspace/note-card-grid.tsx").text();
+    const css = await Bun.file("app/styles.css").text();
+    expect(source).toContain("onClick={handleCardClick}");
+    expect(source).toContain("aria-label={`打开笔记：${displayTitle}`}");
+    expect(source).not.toContain("useSwipeActionGesture");
+    expect(source).not.toContain("swipe-action-buttons");
+    expect(source).not.toContain("onNoteSwipeAction");
+    expect(css).not.toMatch(/\.is-mobile-card-grid[^{}]*\.is-swipe-open/);
   });
 
   test("uses a raised white surface for selected items in the desktop sidebar", async () => {
@@ -108,8 +118,7 @@ describe("mobile swipe actions", () => {
     expect(customNotebookFeedback).not.toContain("box-shadow");
 
     expect(sharedCss).toContain(".note-row-swipe.is-swipe-open > .note-row { background: var(--accent-soft); border-color: transparent; box-shadow: none; }");
-    expect(sharedCss).toContain(".is-mobile-card-grid .note-card.is-swipe-open { border-color: transparent; box-shadow: var(--note-card-shadow); }");
-    expect(sharedCss).toContain(".is-mobile-card-grid .note-card.is-swipe-open > .note-card-foreground { background: var(--surface-card-swipe); }");
+    expect(sharedCss).not.toContain(".is-mobile-card-grid .note-card.is-swipe-open");
     expect(sharedCss).toContain(".note-list-items > li:has(.note-row) + li:has(.note-row)::before {");
     expect(sharedCss).toMatch(/\.note-list-items > li:has\(\.note-row\) \+ li:has\(\.note-row\)::before\s*\{[^}]*z-index:\s*2;/s);
     expect(sharedCss).toContain(".note-list-items > li:has(.note-row) + li:has(.note-row):has(.is-swipe-open)::before,");
@@ -118,8 +127,8 @@ describe("mobile swipe actions", () => {
 
   test("returns keyboard focus to the foreground item after Escape closes actions", async () => {
     const source = await Bun.file("app/workspace/swipe-actions.ts").text();
-    expect(source).toContain('foreground?.querySelector<HTMLButtonElement>(".note-card-open")');
-    expect(source).toContain("focusTarget?.focus();");
+    expect(source).toContain("foregroundRef.current?.matches(\"button\")");
+    expect(source).toContain("foregroundRef.current.focus();");
   });
 
   test("exposes notebook and note actions through named buttons", async () => {
@@ -133,7 +142,7 @@ describe("mobile swipe actions", () => {
     expect(noteList).not.toContain("<span>恢复</span>");
     expect(noteList).not.toContain("<span>彻底删除</span>");
     expect(noteList).not.toContain("<span>移入回收站</span>");
-    expect(noteCards).toContain("移入回收站：${displayTitle}");
+    expect(noteCards).not.toContain("移入回收站：${displayTitle}");
     expect(noteCards).not.toContain("<span>恢复</span>");
     expect(noteCards).not.toContain("<span>彻底删除</span>");
     expect(noteCards).not.toContain("<span>移入回收站</span>");

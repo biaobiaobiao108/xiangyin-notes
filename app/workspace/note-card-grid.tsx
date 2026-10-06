@@ -7,7 +7,6 @@ import {
   useRef,
   type MouseEvent as ReactMouseEvent,
   type KeyboardEvent as ReactKeyboardEvent,
-  type CSSProperties,
 } from "react";
 import {
   Archive,
@@ -15,7 +14,6 @@ import {
   Search,
   Star,
   Trash2,
-  RotateCcw,
 } from "lucide-react";
 import type { NoteSort, NoteSummary, NoteView, Notebook } from "../../shared/types";
 import { playEntranceAnimation } from "../animation";
@@ -23,7 +21,6 @@ import { FloatingScrollbar } from "../floating-scrollbar";
 import { isNoteSelectionModifierClick, type NoteSelectionClick } from "./note-list-selection";
 import { getNoteTags, NOTE_TAG_DISPLAY_LIMIT, relativeDate, sortNotes, viewLabel } from "./helpers";
 import { MobileCollectionHeader } from "./mobile-collection-header";
-import { type NoteSwipeAction, useSwipeActionGesture, useSwipeActionGroup } from "./swipe-actions";
 import { useVirtualCardMasonry } from "./use-virtual-card-masonry";
 
 export type NoteCardGridPanelProps = {
@@ -38,7 +35,6 @@ export type NoteCardGridPanelProps = {
   onOpenNote: (id: string) => void;
   onToggleSelectNote: (id: string, modifiers: Pick<NoteSelectionClick, "metaKey" | "ctrlKey" | "shiftKey">) => void;
   onDeleteSelected: () => void;
-  onNoteSwipeAction: (note: NoteSummary, action: NoteSwipeAction) => void;
   view: NoteView;
   currentNotebookName?: string;
   query: string;
@@ -69,7 +65,6 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
   onOpenNote,
   onToggleSelectNote,
   onDeleteSelected,
-  onNoteSwipeAction,
   view,
   currentNotebookName,
   query,
@@ -90,12 +85,11 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
   const panelRef = useRef<HTMLElement>(null);
   const gridScrollRef = useRef<HTMLDivElement>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
-  const swipeActions = useSwipeActionGroup(gridScrollRef, isMobileViewport && !inert, `${view}:${query}:${scrollScope}`);
   const sortedNotes = useMemo(() => sortNotes(notes, sort), [notes, sort]);
   const notebooksById = useMemo(() => new Map(notebooks.map((notebook) => [notebook.id, notebook])), [notebooks]);
   const isTrashView = view === "trash";
   const showNotebook = !currentNotebookName && view !== "inbox";
-  const masonry = useVirtualCardMasonry(sortedNotes, gridScrollRef, isMobileViewport, [swipeActions.openId]);
+  const masonry = useVirtualCardMasonry(sortedNotes, gridScrollRef, isMobileViewport);
   const renderCard = useCallback((note: NoteSummary, index: number) => (
     <NoteCardItem
       key={note.id}
@@ -109,14 +103,10 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
       onOpen={onOpenNote}
       onToggleSelect={onToggleSelectNote}
       onToggleFavorite={onToggleFavoriteNote}
-      onNoteSwipeAction={onNoteSwipeAction}
       notebook={notebooksById.get(note.notebookId)}
       isTrashView={isTrashView}
-      trashBusy={trashBusy}
-      open={swipeActions.openId === note.id}
-      setOpenId={swipeActions.setOpenId}
     />
-  ), [isMobileViewport, isTrashView, notebooksById, notes.length, onNoteSwipeAction, onOpenNote, onToggleFavoriteNote, onToggleSelectNote, selectedIds, showNotebook, swipeActions.openId, swipeActions.setOpenId, total, trashBusy]);
+  ), [isMobileViewport, isTrashView, notebooksById, notes.length, onOpenNote, onToggleFavoriteNote, onToggleSelectNote, selectedIds, showNotebook, total]);
 
   useLayoutEffect(() => {
     const panel = panelRef.current;
@@ -281,12 +271,8 @@ type NoteCardItemProps = {
   onOpen: (id: string) => void;
   onToggleSelect: (id: string, modifiers: Pick<NoteSelectionClick, "metaKey" | "ctrlKey" | "shiftKey">) => void;
   onToggleFavorite: (note: NoteSummary) => void;
-  onNoteSwipeAction: (note: NoteSummary, action: NoteSwipeAction) => void;
   notebook?: Notebook;
   isTrashView: boolean;
-  trashBusy: boolean;
-  open: boolean;
-  setOpenId: (id: string | null) => void;
 };
 
 const NoteCardItem = memo(function NoteCardItem({
@@ -300,16 +286,9 @@ const NoteCardItem = memo(function NoteCardItem({
   onOpen,
   onToggleSelect,
   onToggleFavorite,
-  onNoteSwipeAction,
   notebook,
   isTrashView,
-  trashBusy,
-  open,
-  setOpenId,
 }: NoteCardItemProps) {
-  const foregroundRef = useRef<HTMLDivElement>(null);
-  const actionWidth = isTrashView ? 128 : 92;
-  const gesture = useSwipeActionGesture({ enabled: isMobileViewport && !trashBusy, itemId: note.id, open, actionWidth, onOpenChange: setOpenId, foregroundRef });
   const handleCardClick = (event: ReactMouseEvent) => {
     if (!isMobileViewport && (isNoteSelectionModifierClick(event) || hasSelectionActive)) {
       event.preventDefault();
@@ -333,9 +312,7 @@ const NoteCardItem = memo(function NoteCardItem({
   return (
     <article
       data-note-id={note.id}
-      className={`note-card ${isSelected ? "is-selected" : ""} ${hasThumbnail ? "has-thumbnail" : ""} ${open ? "is-swipe-open" : ""}`}
-      style={isMobileViewport ? { "--swipe-action-width": `${actionWidth}px`, "--swipe-action-button-width": isTrashView ? "64px" : "92px" } as CSSProperties : undefined}
-      {...gesture}
+      className={`note-card ${isSelected ? "is-selected" : ""} ${hasThumbnail ? "has-thumbnail" : ""}`}
       onClick={handleCardClick}
       role="listitem"
       aria-posinset={position}
@@ -357,14 +334,8 @@ const NoteCardItem = memo(function NoteCardItem({
         }
       }}
     >
-      {isMobileViewport && <div id={`note-actions-${note.id}`} className="swipe-action-buttons" role="group" aria-label={`${displayTitle}的操作`}>
-        {isTrashView ? <>
-          <button type="button" className="swipe-action-button" aria-label={`恢复笔记：${displayTitle}`} disabled={trashBusy} onClick={(event) => { event.stopPropagation(); setOpenId(null); onNoteSwipeAction(note, "restore"); }}><span className="swipe-action-icon"><RotateCcw size={17} aria-hidden="true" /></span></button>
-          <button type="button" className="swipe-action-button is-danger" aria-label={`彻底删除笔记：${displayTitle}`} disabled={trashBusy} onClick={(event) => { event.stopPropagation(); setOpenId(null); onNoteSwipeAction(note, "permanent-delete"); }}><span className="swipe-action-icon"><Trash2 size={17} aria-hidden="true" /></span></button>
-        </> : <button type="button" className="swipe-action-button is-danger" aria-label={`移入回收站：${displayTitle}`} disabled={trashBusy} onClick={(event) => { event.stopPropagation(); setOpenId(null); onNoteSwipeAction(note, "trash"); }}><span className="swipe-action-icon"><Trash2 size={17} aria-hidden="true" /></span></button>}
-      </div>}
-      <div ref={foregroundRef} className="note-card-foreground swipe-action-foreground">
-      {isMobileViewport && <button className="note-card-open" type="button" aria-label={`打开笔记：${displayTitle}；${open ? "操作已展开" : "向左轻扫显示操作"}`} aria-expanded={open} aria-controls={`note-actions-${note.id}`} />}
+      <div className="note-card-foreground">
+      {isMobileViewport && <button className="note-card-open" type="button" aria-label={`打开笔记：${displayTitle}`} />}
       {/* 缩略图封面（若有） */}
       {hasThumbnail && (
         <div className="note-card-cover">

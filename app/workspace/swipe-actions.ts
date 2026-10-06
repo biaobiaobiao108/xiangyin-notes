@@ -313,11 +313,7 @@ export function useSwipeActionGesture({ enabled, itemId, open, actionWidth, onOp
       event.preventDefault();
       event.stopPropagation();
       onOpenChange(null);
-      const foreground = foregroundRef.current;
-      const focusTarget = foreground?.matches("button")
-        ? foreground
-        : foreground?.querySelector<HTMLButtonElement>(".note-card-open");
-      focusTarget?.focus();
+      if (foregroundRef.current?.matches("button")) foregroundRef.current.focus();
     }
   }, [foregroundRef, onOpenChange, open]);
 

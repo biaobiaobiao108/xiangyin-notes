@@ -54,7 +54,6 @@ export function useVirtualCardMasonry(
   notes: NoteSummary[],
   scrollRootRef: RefObject<HTMLDivElement | null>,
   isMobileViewport: boolean,
-  pinnedNoteIds: readonly (string | null | undefined)[] = [],
 ) {
   const [viewport, setViewport] = useState(() => initialViewport(isMobileViewport));
   const [measurementRevision, setMeasurementRevision] = useState(0);
@@ -88,12 +87,10 @@ export function useVirtualCardMasonry(
     const top = Math.max(0, viewport.scrollTop - viewport.paddingTop - CARD_OVERSCAN_PX);
     const bottom = viewport.scrollTop - viewport.paddingTop + viewport.visibleHeight + CARD_OVERSCAN_PX;
     const result = visibleCardIndexes(lanes, top, bottom);
-    for (const id of [focusedNoteId, ...pinnedNoteIds]) {
-      const index = id ? indexById.get(id) : undefined;
-      if (index !== undefined) result.add(index);
-    }
+    const focusedIndex = focusedNoteId ? indexById.get(focusedNoteId) : undefined;
+    if (focusedIndex !== undefined) result.add(focusedIndex);
     return result;
-  }, [focusedNoteId, indexById, lanes, notes, pinnedNoteIds, viewport.paddingTop, viewport.scrollTop, viewport.visibleHeight, virtualizationSupported]);
+  }, [focusedNoteId, indexById, lanes, notes, viewport.paddingTop, viewport.scrollTop, viewport.visibleHeight, virtualizationSupported]);
 
   const visibleCards = useMemo(() => [...visibleIndexes]
     .sort((left, right) => left - right)
