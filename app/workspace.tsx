@@ -1397,6 +1397,7 @@ export function Workspace() {
         { label: "打开笔记本", icon: ArrowUpRight, onSelect: () => selectNotebook(targetNotebook.id) },
         { label: "在此新建笔记", icon: Plus, onSelect: () => createNoteInNotebook({ notebookId: targetNotebook.id, notebookName: targetNotebook.name, title: "未命名笔记" }) },
         { label: "笔记本设置", icon: Settings2, separator: true, onSelect: () => handleEditNotebook(targetNotebook) },
+        ...(!targetNotebook.isSystem ? [{ label: "删除笔记本", icon: Trash2, danger: true, separator: true, onSelect: () => handleDeleteNotebook(targetNotebook) }] : []),
       ], targetNotebook.name);
       return;
     }
