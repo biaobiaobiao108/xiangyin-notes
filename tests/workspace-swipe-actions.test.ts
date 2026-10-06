@@ -37,11 +37,12 @@ describe("mobile swipe actions", () => {
     expect(css).toContain(".is-mobile-card-grid .note-card.is-swipe-open > .note-card-foreground { background: var(--surface-card-swipe); }");
   });
 
-  test("uses the same fill-only selection feedback in the desktop sidebar", async () => {
+  test("uses a raised white surface for selected items in the desktop sidebar", async () => {
     const css = await Bun.file("app/styles.css").text();
-    expect(css).toMatch(/\.nav-item\.is-active\s*\{[^}]*background:\s*var\(--accent-soft\);[^}]*box-shadow:\s*none;/s);
-    expect(css).toMatch(/\.notebook-row-wrap\.is-active\s*\{[^}]*background:\s*var\(--accent-soft\);[^}]*box-shadow:\s*none;/s);
-    expect(css).toContain(".collapsed-notebook-item.is-active { background: var(--accent-soft); box-shadow: none; }");
+    expect(css).toMatch(/\.nav-item\.is-active\s*\{[^}]*background:\s*var\(--surface\);[^}]*color:\s*var\(--ink\);[^}]*box-shadow:\s*var\(--shadow-xs\);/s);
+    expect(css).toMatch(/\.nav-item\.is-active svg\s*\{\s*color:\s*var\(--accent\);\s*\}/);
+    expect(css).toMatch(/\.notebook-row-wrap\.is-active\s*\{[^}]*background:\s*var\(--surface\);[^}]*color:\s*var\(--ink\);[^}]*box-shadow:\s*var\(--shadow-xs\);/s);
+    expect(css).toContain(".collapsed-notebook-item.is-active { background: var(--surface); box-shadow: var(--shadow-xs); }");
   });
 
   test("opens after a decisive left drag but does not auto-run an action", () => {
