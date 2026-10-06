@@ -147,6 +147,33 @@ export function NoteOutlinePanel({ outlineItems, activeOutlineId, onScrollToOutl
       scrollRoot.style.removeProperty("height");
     };
   }, [isFloating, outlineItems]);
+  useLayoutEffect(() => {
+    const scrollRoot = outlineScrollRef.current;
+    if (!scrollRoot) return;
+    let frame: number | null = null;
+    const updateScrollEdges = () => {
+      frame = null;
+      // Clamp Safari's elastic overscroll; tolerate fractional offsets at the edges.
+      const maxScroll = Math.max(0, scrollRoot.scrollHeight - scrollRoot.clientHeight);
+      const offset = Math.min(maxScroll, Math.max(0, scrollRoot.scrollTop));
+      scrollRoot.toggleAttribute("data-scroll-above", offset > 1);
+      scrollRoot.toggleAttribute("data-scroll-below", maxScroll - offset > 1);
+    };
+    const scheduleScrollEdges = () => {
+      if (frame === null) frame = requestAnimationFrame(updateScrollEdges);
+    };
+    const observer = new ResizeObserver(scheduleScrollEdges);
+    observer.observe(scrollRoot);
+    const content = scrollRoot.firstElementChild;
+    if (content) observer.observe(content);
+    scrollRoot.addEventListener("scroll", scheduleScrollEdges, { passive: true });
+    updateScrollEdges();
+    return () => {
+      observer.disconnect();
+      scrollRoot.removeEventListener("scroll", scheduleScrollEdges);
+      if (frame !== null) cancelAnimationFrame(frame);
+    };
+  }, [isFloating, outlineItems]);
   useEffect(() => {
     const scrollRoot = outlineScrollRef.current;
     if (!scrollRoot || !activeOutlineId) return;

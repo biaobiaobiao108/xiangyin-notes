@@ -845,12 +845,21 @@ button.save-status:hover { text-decoration: underline; }
 }
 
 .note-outline-scroll {
+  --outline-fade-inset: 0px;
+  --outline-fade-top: #000;
+  --outline-fade-bottom: #000;
   height: 100%;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 16px 16px 28px;
+  -webkit-mask-image: linear-gradient(to bottom, var(--outline-fade-top) var(--outline-fade-inset), #000 calc(var(--outline-fade-inset) + 28px), #000 calc(100% - var(--outline-fade-inset) - 28px), var(--outline-fade-bottom) calc(100% - var(--outline-fade-inset)));
+  mask-image: linear-gradient(to bottom, var(--outline-fade-top) var(--outline-fade-inset), #000 calc(var(--outline-fade-inset) + 28px), #000 calc(100% - var(--outline-fade-inset) - 28px), var(--outline-fade-bottom) calc(100% - var(--outline-fade-inset)));
 }
+
+.note-outline-scroll[data-scroll-above] { --outline-fade-top: rgba(0, 0, 0, 0.15); }
+.note-outline-scroll[data-scroll-below] { --outline-fade-bottom: rgba(0, 0, 0, 0.15); }
+.note-outline-panel.is-floating .note-outline-scroll { --outline-fade-inset: 14px; }
 
 .note-outline-panel nav,
 .editor-outline-list,
