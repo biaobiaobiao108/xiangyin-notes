@@ -38,7 +38,7 @@
   .mobile-notebook-row .mobile-notebook-link--editable:active { background: var(--surface); }
   .mobile-notebook-row .mobile-notebook-link--editable:focus-visible,
   .mobile-notebook-swipe.is-swipe-open > .mobile-notebook-link--editable { background: var(--accent-soft); }
-  .mobile-notebook-row .swipe-action-button { flex-basis: 72px; padding: 0; gap: 0; }
+  .mobile-notebook-row .swipe-action-button { flex-basis: 56px; padding: 0; gap: 0; }
   .mobile-notebooks-empty { padding: 24px 18px; border-radius: var(--radius-lg); background: var(--surface); color: var(--muted); text-align: center; font-size: 14px; }
   .mobile-notebooks-empty p { margin: 0 0 12px; }
   .mobile-notebooks-empty button { min-height: 44px; padding: 0 16px; border: 0; border-radius: var(--radius-sm); background: var(--accent-soft); color: var(--accent); font-size: 15px; }

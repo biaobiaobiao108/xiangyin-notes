@@ -51,9 +51,10 @@ export const MobileNotebookHome = memo(function MobileNotebookHome({ view, setVi
 
 function MobileNotebookLink({ notebook, selected, onOpen, onEdit, onDelete, open, setOpenId }: { notebook: Notebook; selected: boolean; onOpen: (id: string) => void; onEdit: (notebook: Notebook) => void; onDelete: (notebook: Notebook) => void; open: boolean; setOpenId: (id: string | null) => void }) {
   const foregroundRef = useRef<HTMLButtonElement>(null);
-  const gesture = useSwipeActionGesture({ enabled: true, itemId: notebook.id, open, actionWidth: 144, onOpenChange: setOpenId, foregroundRef });
+  const actionWidth = 112;
+  const gesture = useSwipeActionGesture({ enabled: true, itemId: notebook.id, open, actionWidth, onOpenChange: setOpenId, foregroundRef });
   const Icon = getNotebookIconComponent(notebook.icon);
-  return <div className={`swipe-action-row mobile-notebook-swipe${open ? " is-swipe-open" : ""}`} style={{ "--swipe-action-width": "144px" } as CSSProperties} {...gesture}>
+  return <div className={`swipe-action-row mobile-notebook-swipe${open ? " is-swipe-open" : ""}`} style={{ "--swipe-action-width": `${actionWidth}px` } as CSSProperties} {...gesture}>
     <div id={`notebook-actions-${notebook.id}`} className="swipe-action-buttons" role="group" aria-label={`${notebook.name}的操作`}>
       <button type="button" className="swipe-action-button" aria-label={`编辑笔记本：${notebook.name}`} onClick={() => { setOpenId(null); onEdit(notebook); }}><span className="swipe-action-icon"><Pencil size={19} aria-hidden="true" /></span></button>
       <button type="button" className="swipe-action-button is-danger" aria-label={`删除笔记本：${notebook.name}`} onClick={() => { setOpenId(null); onDelete(notebook); }}><span className="swipe-action-icon"><Trash2 size={19} aria-hidden="true" /></span></button>

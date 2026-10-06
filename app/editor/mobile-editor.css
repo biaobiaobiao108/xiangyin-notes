@@ -183,6 +183,7 @@
   .is-mobile-editor .mobile-editor-outline .note-outline-scroll > nav,
   .is-mobile-editor .mobile-editor-outline .editor-outline-empty { flex-shrink: 0; margin-block: auto; }
   .is-mobile-editor .mobile-editor-outline .editor-outline-item { scroll-snap-align: start; }
-  .is-mobile-editor .mobile-editor-outline .editor-outline-item button { min-height: 48px; height: 48px; font-size: 1.0625rem; }
+  .is-mobile-editor .mobile-editor-outline .editor-outline-item button { min-height: 48px; height: 48px; font-size: 1.0625rem; color: color-mix(in srgb, var(--ink) 80%, var(--muted)); }
+  .is-mobile-editor .mobile-editor-outline .editor-outline-item button[aria-current="true"] { color: var(--ink); }
   .is-mobile-editor button:focus-visible { background: var(--accent-soft); }
 }
