@@ -332,6 +332,7 @@ const NoteCardItem = memo(function NoteCardItem({
 
   return (
     <article
+      data-note-id={note.id}
       className={`note-card ${isSelected ? "is-selected" : ""} ${hasThumbnail ? "has-thumbnail" : ""} ${open ? "is-swipe-open" : ""}`}
       style={isMobileViewport ? { "--swipe-action-width": `${actionWidth}px`, "--swipe-action-button-width": isTrashView ? "64px" : "92px" } as CSSProperties : undefined}
       {...gesture}

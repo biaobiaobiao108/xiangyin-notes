@@ -41,6 +41,7 @@ import { playEntranceAnimation } from "./animation";
 import { CardOutline } from "./editor/card-outline";
 import { MobileEditorHeader, MobileEditorFooter, MobileEditorOutline } from "./editor/mobile-editor-controls";
 import { mobileCaretBounds, useMobileCaret } from "./editor/use-mobile-caret";
+import { useEditorContextMenu } from "./editor/use-editor-context-menu";
 import "./editor/mobile-editor.css";
 
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
@@ -1326,8 +1327,23 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   }, [onOutlineNavigationReady, scrollToOutlineItem]);
 
   const saveLabel = saveState === "saving" ? "保存中" : saveState === "conflict" ? "检测到版本冲突，点击重新载入" : saveState === "error" ? "保存失败，点击重试" : "已保存";
+  const contextMenu = useEditorContextMenu({ editor, noteId: note.id, locked: editorLocked, deleted: Boolean(note.deletedAt), onTitleChange: (title) => onChange({ title }), noteActions: [
+    { label: "导出图片", icon: ImageDown, disabled: editorLocked, onSelect: onExportImage },
+    ...(note.deletedAt ? [{ label: "恢复笔记", icon: Undo2, disabled: editorLocked, onSelect: onRestore }]
+      : [{ label: note.isFavorite ? "取消收藏" : "收藏笔记", icon: Star, disabled: editorLocked, onSelect: onToggleFavorite }, { label: "移入回收站", icon: Trash2, separator: true, danger: true, disabled: editorLocked, onSelect: onMoveToTrash }]),
+  ] });
   return (
-    <section className={`editor-panel ${deferredLoading ? "is-loading" : ""} ${focusMode ? "is-focus-mode" : ""} ${isMobileViewport ? "is-mobile-editor" : ""}`} aria-label="笔记编辑器" aria-busy={editorLocked} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === "s") { event.preventDefault(); handleSaveNow(); } }}>
+    <section className={`editor-panel ${deferredLoading ? "is-loading" : ""} ${focusMode ? "is-focus-mode" : ""} ${isMobileViewport ? "is-mobile-editor" : ""}`} aria-label="笔记编辑器" aria-busy={editorLocked} onContextMenu={contextMenu.onContextMenu} onKeyDown={(event) => {
+      if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+      if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+        const target = event.target;
+        if (target instanceof HTMLElement && !target.closest("dialog, [role='menu']")) {
+          const rect = target.getBoundingClientRect();
+          if (!target.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: rect.left + 12, clientY: rect.top + 12 }))) event.preventDefault();
+        }
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key === "s") { event.preventDefault(); handleSaveNow(); }
+    }}>
       {isMobileViewport ? <MobileEditorHeader
         noteId={note.id} title={note.title.trim() || "未命名笔记"} backLabel={mobileBackLabel}
         locked={editorLocked} trashBusy={trashBusy} deleted={Boolean(note.deletedAt)} favorite={note.isFavorite}
@@ -1451,6 +1467,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
         onMoveSearchMatch={moveSearchMatch}
         onClearSearch={onClearSearch}
       />
+      {contextMenu.menu}
       {isMobileViewport && <MobileEditorFooter stats={editorStats} outlineOpen={outlineOpen} outlineTriggerRef={outlineTriggerRef} locked={editorLocked} onOpenCommands={onOpenCommands} onToggleOutline={onToggleOutline} />}
       {!note.deletedAt && onNavigateToNote && (
         <BacklinksDialog

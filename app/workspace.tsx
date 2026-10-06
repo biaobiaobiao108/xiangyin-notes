@@ -1,5 +1,7 @@
 import { lazy, memo, Suspense, useCallback, useDeferredValue, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useNavigate } from "react-router";
+import { ArrowUpRight, LayoutGrid, List, Plus, RotateCcw, Settings2, Star, Trash2, X } from "lucide-react";
+import { textFieldMenuItems, useContextMenu, type ContextMenuItem } from "./context-menu";
 import { ApiError, api } from "./api";
 import { createUuid } from "./uuid";
 import { CommandId, CommandMenu } from "./command-menu";
@@ -36,6 +38,7 @@ const LazyImageExportDialog = lazy(() => import("./image-export/dialog").then(({
 const LazyNoteEditor = lazy(() => import("./editor").then(({ NoteEditor }) => ({ default: memo(NoteEditor) })));
 export function Workspace() {
   const navigate = useNavigate();
+  const { openMenu: openWorkspaceMenu, menu: workspaceMenu } = useContextMenu();
   const [initialLinkedNoteId] = useState(() => new URLSearchParams(window.location.search).get("note"));
   const pendingLinkedNoteRef = useRef(initialLinkedNoteId);
   const { preference: themePreference, setPreference: setThemePreference } = useThemePreference();
@@ -1363,6 +1366,63 @@ export function Workspace() {
   }, [isMobileViewport, isNoteLoading, mobilePage, mobileViewLayout, ready]);
   useMobileViewport(isMobileViewport && ready);
 
+  const handleWorkspaceContextMenu = (event: ReactMouseEvent<HTMLDivElement>) => {
+    const target = event.target;
+    if (target instanceof HTMLInputElement && target === searchRef.current) {
+      openWorkspaceMenu(event, textFieldMenuItems(target, changeQuery), "搜索文本");
+      return;
+    }
+    if (!(target instanceof Element) || target.closest("dialog, input, textarea, [contenteditable='true'], .editor-panel")) return;
+    const noteId = target.closest<HTMLElement>("[data-note-id]")?.dataset.noteId;
+    const targetNote = noteId ? notesRef.current.find((note) => note.id === noteId) : undefined;
+    if (targetNote) {
+      const busy = pendingTrashCount > 0 || emptyingTrash;
+      const items: ContextMenuItem[] = [
+        { label: "打开笔记", icon: ArrowUpRight, onSelect: () => { clearNoteSelection(); if (viewLayout === "cards") handleOpenCardNote(targetNote.id); else selectNote(targetNote.id); } },
+      ];
+      if (targetNote.deletedAt) {
+        items.push({ label: "恢复笔记", icon: RotateCcw, disabled: busy, onSelect: () => handleNoteSwipeAction(targetNote, "restore") });
+      } else {
+        items.push({ label: targetNote.isFavorite ? "取消收藏" : "收藏笔记", icon: Star, onSelect: () => handleToggleFavoriteCardNote(targetNote) });
+      }
+      items.push({ label: targetNote.deletedAt ? "彻底删除" : "移入回收站", icon: Trash2, danger: true, separator: true, disabled: busy, onSelect: () => handleNoteSwipeAction(targetNote, targetNote.deletedAt ? "permanent-delete" : "trash") });
+      if (selectedNoteIds.has(targetNote.id) && selectedNoteIds.size > 1) items.push({ label: `${view === "trash" ? "彻底删除" : "移入回收站"}所选 ${selectedNoteIds.size} 篇笔记`, icon: Trash2, danger: true, disabled: busy, onSelect: deleteSelectedNotes });
+      openWorkspaceMenu(event, items, targetNote.title || "未命名笔记");
+      return;
+    }
+    const targetNotebookId = target.closest<HTMLElement>("[data-notebook-id]")?.dataset.notebookId;
+    const targetNotebook = notebooks.find((notebook) => notebook.id === targetNotebookId);
+    if (targetNotebook) {
+      openWorkspaceMenu(event, [
+        { label: "打开笔记本", icon: ArrowUpRight, onSelect: () => selectNotebook(targetNotebook.id) },
+        { label: "在此新建笔记", icon: Plus, onSelect: () => createNoteInNotebook({ notebookId: targetNotebook.id, notebookName: targetNotebook.name, title: "未命名笔记" }) },
+        { label: "笔记本设置", icon: Settings2, separator: true, onSelect: () => handleEditNotebook(targetNotebook) },
+      ], targetNotebook.name);
+      return;
+    }
+    if (target.closest(".sidebar")) {
+      const targetView = target.closest<HTMLElement>("[data-note-view]")?.dataset.noteView as NoteView | undefined;
+      const items: ContextMenuItem[] = [];
+      if (targetView) items.push({ label: `打开${viewLabel(targetView)}`, icon: ArrowUpRight, onSelect: () => selectView(targetView) });
+      items.push({ label: "新建笔记", icon: Plus, onSelect: handleNewInboxNote }, { label: "新建笔记本", icon: Plus, onSelect: handleCreateNotebook }, { label: sidebarCollapsed ? "展开侧栏" : "收起侧栏", icon: Settings2, separator: true, onSelect: handleCollapseSidebar });
+      openWorkspaceMenu(event, items, "导航");
+      return;
+    }
+    if (target.closest(".note-list-panel, .note-card-grid-panel, .empty-editor")) {
+      if (target.closest(".note-outline-panel")) {
+        openWorkspaceMenu(event, [{ label: "关闭大纲", icon: X, onSelect: closeOutline }], "笔记大纲");
+        return;
+      }
+      const items: ContextMenuItem[] = [];
+      if (view !== "trash") items.push({ label: "新建笔记", icon: Plus, onSelect: handleNewNote });
+      items.push({ label: viewLayout === "cards" ? "切换为列表视图" : "切换为卡片视图", icon: viewLayout === "cards" ? List : LayoutGrid, onSelect: toggleViewLayout });
+      if (query) items.push({ label: "清空搜索", icon: X, onSelect: handleClearQuery });
+      if (selectedNoteIds.size) items.push({ label: "取消多选", icon: X, onSelect: clearNoteSelection });
+      if (view === "trash") items.push({ label: "清空回收站", icon: Trash2, danger: true, separator: true, disabled: !totalNotes || pendingTrashCount > 0 || emptyingTrash, onSelect: emptyTrash });
+      openWorkspaceMenu(event, items, "笔记工作区");
+    }
+  };
+
   if (!ready) return <main className="app-loading"><span className="loading-ring" /><span>正在进入你的空间……</span></main>;
   const currentNotebook = notebookId ? notebooks.find((notebook) => notebook.id === notebookId) : undefined;
   const listNewNote = currentNotebook ? handleNewNote : undefined;
@@ -1377,8 +1437,14 @@ export function Workspace() {
   if (mobilePage === "editor") mobileEditorVisitedRef.current = true;
   const mountEditor = !isMobileViewport || mobileEditorVisitedRef.current;
 
-  return <div data-mobile-page={isMobileViewport ? mobilePage : undefined} className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${focusMode ? "is-focus-mode" : ""} ${isCardsLayout ? "layout-cards" : ""}`}>
-    {!isMobileViewport && <Sidebar view={view} setView={selectView} notebooks={notebooks} notebookId={notebookId} setNotebookId={selectNotebook} query={query} setQuery={changeQuery} searchRef={searchRef} onNewInboxNote={handleNewInboxNote} onCreateNotebook={handleCreateNotebook} onEditNotebook={handleEditNotebook} collapsed={sidebarCollapsed} onCollapse={handleCollapseSidebar} onLogout={logout} />}
+  return <div onContextMenu={handleWorkspaceContextMenu} onKeyDown={(event) => {
+    if (event.nativeEvent.isComposing || event.keyCode === 229 || !(event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) return;
+    const target = event.target;
+    if (!(target instanceof HTMLElement) || target.closest("dialog, input, textarea, [contenteditable='true'], .editor-panel")) return;
+    const rect = target.getBoundingClientRect();
+    if (!target.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: rect.left + 12, clientY: rect.top + 12 }))) event.preventDefault();
+  }} data-mobile-page={isMobileViewport ? mobilePage : undefined} className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${focusMode ? "is-focus-mode" : ""} ${isCardsLayout ? "layout-cards" : ""}`}>
+    {!isMobileViewport && <Sidebar view={view} setView={selectView} notebooks={notebooks} notebookId={notebookId} setNotebookId={selectNotebook} query={query} setQuery={changeQuery} searchRef={searchRef} onNewInboxNote={handleNewInboxNote} onCreateNotebook={handleCreateNotebook} collapsed={sidebarCollapsed} onCollapse={handleCollapseSidebar} onLogout={logout} />}
     {isMobileViewport && <div className="mobile-home-region" hidden={mobilePage !== "home"} inert={mobilePage !== "home"}><MobileNotebookHome view={view} setView={selectView} notebooks={notebooks} notebookId={notebookId} setNotebookId={selectNotebook} onCreateNotebook={handleCreateNotebook} onEditNotebook={handleEditNotebook} onDeleteNotebook={handleDeleteNotebook} onLogout={logout} active={mobilePage === "home"} /></div>}
     {!isCardsLayout && !mobileCards && (
       <NoteListPanel notes={notes} total={totalNotes} hasMore={hasMoreNotes} sort={noteSort} setSort={handleNoteSort} selectedId={selectedId} selectedIds={selectedNoteIds} onSelect={handleSelectListNote} onDeleteSelected={deleteSelectedNotes} onNoteSwipeAction={handleNoteSwipeAction} view={view} query={query} currentNotebookName={currentNotebook?.name} onEmptyTrash={view === "trash" ? emptyTrash : undefined} trashBusy={pendingTrashCount > 0 || emptyingTrash} onNewNote={listNewNote} onClearQuery={handleClearQuery} isMobileViewport={isMobileViewport} onToggleLayout={toggleViewLayout} onOpenSidebar={handleOpenSidebar} transitionToken={listTransitionToken} outlineOpen={!isMobileViewport && outlineOpen} outlineItems={outlineItems} activeOutlineId={activeOutlineId} onScrollToOutlineItem={handleScrollToOutlineItem} onCloseOutline={closeOutline} onLoadMore={loadMoreNotes} isLoadingMore={isLoadingMore} virtualizationScope={listScope} inert={isMobileViewport && mobilePage !== "list"} />
@@ -1428,5 +1494,6 @@ export function Workspace() {
     {editingNotebook !== undefined && <NotebookDialog key={editingNotebook?.id ?? "new"} notebook={editingNotebook} onClose={() => setEditingNotebook(undefined)} onSave={saveNotebookDraft} onSaved={saveNotebook} onRequestDelete={(target) => requestConfirm({ eyebrow: "删除笔记本", title: `删除笔记本“${target.name}”？`, description: "笔记本中的笔记会自动移入收件箱，笔记内容不会被删除。", confirmLabel: "删除笔记本", danger: true, onConfirm: () => deleteNotebook(target.id) })} />}
     {confirmRequest && <ConfirmDialog key={confirmRequest.id} request={confirmRequest} onClose={() => setConfirmRequest(null)} />}
     <SystemNotices notice={notice} onDismiss={dismissNotice} onPause={pauseNotice} updateAvailable={pwaState.updateAvailable} onUpdate={() => void updatePwa()} />
+    {workspaceMenu}
   </div>;
 }

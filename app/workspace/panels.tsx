@@ -16,7 +16,7 @@ export function NoteLoadingState() {
   return <section className="editor-panel editor-loading-shell" aria-label="笔记编辑器" aria-busy="true"><div className="editor-switch-overlay editor-switch-overlay--visible" role="status" aria-live="polite"><div className="editor-switch-card"><BrandMark className="editor-switch-mark" /><div className="editor-switch-lines" aria-hidden="true"><span /><span /><span /></div><strong>正在打开笔记…</strong></div></div></section>;
 }
 
-export const Sidebar = memo(function Sidebar({ view, setView, notebooks, notebookId, setNotebookId, query, setQuery, searchRef, onNewInboxNote, onCreateNotebook, onEditNotebook, collapsed, onCollapse, onLogout }: { view: NoteView; setView: (view: NoteView) => void; notebooks: Notebook[]; notebookId?: string; setNotebookId: (id: string) => void; query: string; setQuery: (query: string) => void; searchRef: RefObject<HTMLInputElement | null>; onNewInboxNote: () => void; onCreateNotebook: () => void; onEditNotebook: (notebook: Notebook) => void; collapsed: boolean; onCollapse: () => void; onLogout: () => void }) {
+export const Sidebar = memo(function Sidebar({ view, setView, notebooks, notebookId, setNotebookId, query, setQuery, searchRef, onNewInboxNote, onCreateNotebook, collapsed, onCollapse, onLogout }: { view: NoteView; setView: (view: NoteView) => void; notebooks: Notebook[]; notebookId?: string; setNotebookId: (id: string) => void; query: string; setQuery: (query: string) => void; searchRef: RefObject<HTMLInputElement | null>; onNewInboxNote: () => void; onCreateNotebook: () => void; collapsed: boolean; onCollapse: () => void; onLogout: () => void }) {
   const notebookListRef = useRef<HTMLDivElement>(null);
   const collapsedNotebookListRef = useRef<HTMLDivElement>(null);
   const customNotebooks = useMemo(() => notebooks.filter((notebook) => !notebook.isSystem), [notebooks]);
@@ -25,7 +25,7 @@ export const Sidebar = memo(function Sidebar({ view, setView, notebooks, noteboo
     <div className="brand-row"><BrandMark /><span className="brand-name">象映笔记</span><button className="icon-button collapse-button" type="button" onClick={onCollapse} aria-label={collapsed ? "展开侧栏" : "收起侧栏"}><LayoutPanelLeft size={18} /></button></div>
     <button className="primary-button new-note-button" type="button" aria-label="在收件箱中新建笔记" onClick={onNewInboxNote}><Plus size={18} />新建笔记</button>
     <label className="search-box"><Search size={17} /><input ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索笔记或 #标签……" aria-label="搜索笔记或标签" />{query ? <button className="search-clear" type="button" aria-label="清空搜索" onClick={() => setQuery("")}><X size={15} /></button> : <kbd>{commandMenuShortcutLabel}</kbd>}</label>
-    <nav className="main-nav"><ul>{navItems.map((item) => { const Icon = item.icon; return <li key={item.id}><button className={`nav-item ${view === item.id && !notebookId ? "is-active" : ""}`} type="button" onClick={() => setView(item.id)}><Icon size={18} /><span>{item.label}</span></button></li>; })}</ul></nav>
+    <nav className="main-nav"><ul>{navItems.map((item) => { const Icon = item.icon; return <li key={item.id}><button className={`nav-item ${view === item.id && !notebookId ? "is-active" : ""}`} type="button" data-note-view={item.id} onClick={() => setView(item.id)}><Icon size={18} /><span>{item.label}</span></button></li>; })}</ul></nav>
     <div className="collapsed-notebook-shell">
       <div id="collapsed-notebook-scroll-region" ref={collapsedNotebookListRef} className="collapsed-notebook-list floating-scrollbar-target" role="toolbar" aria-label="笔记本快捷切换">
         {customNotebooks.length > 0 && <div className="collapsed-notebook-divider" aria-hidden="true" />}
@@ -38,8 +38,7 @@ export const Sidebar = memo(function Sidebar({ view, setView, notebooks, noteboo
               type="button"
               className={`nav-item collapsed-notebook-item ${isActive ? "is-active" : ""}`}
               onClick={() => setNotebookId(notebook.id)}
-              onContextMenu={(event) => { event.preventDefault(); onEditNotebook(notebook); }}
-              onKeyDown={(event) => { if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) { event.preventDefault(); onEditNotebook(notebook); } }}
+              data-notebook-id={notebook.id}
               aria-label={`${notebook.name}，${notebook.count} 篇笔记`}
             >
               <NotebookIcon size={18} style={{ color: notebook.color }} />
@@ -58,7 +57,7 @@ export const Sidebar = memo(function Sidebar({ view, setView, notebooks, noteboo
             return (
               <li key={notebook.id} className="notebook-row-item">
                 <div className={`notebook-row-wrap ${notebook.id === notebookId ? "is-active" : ""}`}>
-                  <button className="notebook-item" type="button" aria-label={`${notebook.name}，${notebook.count} 篇笔记`} onClick={() => setNotebookId(notebook.id)} onContextMenu={(event) => { event.preventDefault(); onEditNotebook(notebook); }} onKeyDown={(event) => { if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) { event.preventDefault(); onEditNotebook(notebook); } }}>
+                  <button className="notebook-item" type="button" aria-label={`${notebook.name}，${notebook.count} 篇笔记`} onClick={() => setNotebookId(notebook.id)} data-notebook-id={notebook.id}>
                     <NotebookIcon size={16} className="notebook-custom-icon" style={{ color: notebook.color, flexShrink: 0 }} />
                     <span>{notebook.name}</span>
                     <em>{notebook.count}</em>
