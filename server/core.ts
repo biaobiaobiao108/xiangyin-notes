@@ -116,7 +116,7 @@ export const LOGIN_ATTEMPT_CLEANUP_INTERVAL_SECONDS = 60;
 export const SESSION_CLEANUP_INTERVAL_SECONDS = 60;
 export const NOTE_VIEWS: NoteView[] = ["all", "inbox", "favorites", "trash"];
 
-export const welcomeMarkdown = "## 欢迎来到象映笔记\n\n这是你的第一个笔记。按下 **Ctrl /** 可以打开命令菜单，开始记录你的想法。\n\n- 写下值得保留的东西\n- 用笔记本整理上下文\n- 随时整理值得保留的想法\n";
+export const welcomeMarkdown = "## 欢迎来到象映笔记\n\n这是你的第一个笔记。Windows 用户按下 **Alt + /**，macOS 用户按下 **Command + /**，即可打开命令菜单，开始记录你的想法。\n\n- 写下值得保留的东西\n- 用笔记本整理上下文\n- 随时整理值得保留的想法\n";
 
 export function now() {
   return Math.floor(Date.now() / 1000);
