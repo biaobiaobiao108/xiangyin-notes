@@ -172,6 +172,7 @@ button:disabled { cursor: not-allowed; opacity: 0.52; }
               opacity var(--motion-panel) ease,
               border-color var(--motion-panel) ease,
               visibility 0s linear 0s;
+  view-transition-name: workspace-sidebar;
 }
 .note-list-panel {
   grid-column: 2;
@@ -184,8 +185,15 @@ button:disabled { cursor: not-allowed; opacity: 0.52; }
               opacity var(--motion-panel) ease,
               border-color var(--motion-panel) ease,
               visibility 0s linear 0s;
+  view-transition-name: workspace-note-list;
 }
-.editor-region { grid-column: 3; min-height: 0; overflow: hidden; background: var(--surface); }
+.editor-region { grid-column: 3; min-height: 0; overflow: hidden; background: var(--surface); view-transition-name: workspace-editor; }
+::view-transition-group(workspace-sidebar),
+::view-transition-group(workspace-note-list),
+::view-transition-group(workspace-editor) {
+  animation-duration: var(--motion-layout);
+  animation-timing-function: var(--motion-ease-out);
+}
 .app-shell.is-focus-mode .sidebar {
   transform: translateX(-24px);
   opacity: 0;

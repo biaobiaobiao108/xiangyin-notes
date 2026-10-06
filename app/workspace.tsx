@@ -1,4 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useDeferredValue, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { flushSync } from "react-dom";
 import { useNavigate } from "react-router";
 import { ArrowUpRight, LayoutGrid, List, Plus, RotateCcw, Settings2, Star, Trash2, X } from "lucide-react";
 import { textFieldMenuItems, useContextMenu, type ContextMenuItem } from "./context-menu";
@@ -1299,7 +1300,15 @@ export function Workspace() {
   const handleCreateNotebook = useCallback(() => { createNotebook(); }, [createNotebook]);
   const handleEditNotebook = useCallback((target: Notebook) => setEditingNotebook(target), []);
   const handleDeleteNotebook = useCallback((target: Notebook) => requestConfirm({ eyebrow: "删除笔记本", title: `删除笔记本“${target.name}”？`, description: "笔记本中的笔记会自动移入收件箱，笔记内容不会被删除。", confirmLabel: "删除笔记本", danger: true, onConfirm: () => deleteNotebook(target.id) }), [deleteNotebook, requestConfirm]);
-  const handleCollapseSidebar = useCallback(() => setSidebarCollapsed((value) => !value), []);
+  const handleCollapseSidebar = useCallback(() => {
+    const toggle = () => setSidebarCollapsed((value) => !value);
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reducedMotion || typeof document.startViewTransition !== "function") {
+      toggle();
+      return;
+    }
+    document.startViewTransition(() => flushSync(toggle));
+  }, []);
   const handleSelectListNote = useCallback((id: string, event: ReactMouseEvent<HTMLButtonElement>) => {
     const nextSelection = applyNoteSelectionClick(noteSelectionRef.current, sortNotes(notesRef.current, noteSort).map((note) => note.id), {
       id,

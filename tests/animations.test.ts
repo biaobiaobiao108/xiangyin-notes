@@ -67,10 +67,16 @@ describe("page transition animations", () => {
 
   test("page layout changes do not animate dimensions or grid tracks", async () => {
     const css = await Bun.file("app/styles.css").text();
+    const workspace = await Bun.file("app/workspace.tsx").text();
     const shellRule = css.match(/\.app-shell\s*\{([^}]*)\}/)?.[1] ?? "";
     const editorDocumentRule = css.match(/\.editor-document\s*\{([^}]*)\}/)?.[1] ?? "";
 
     expect(shellRule).not.toMatch(/transition\s*:[^;]*grid-template-columns/);
     expect(editorDocumentRule).not.toMatch(/transition\s*:[^;]*(?:width|padding)/);
+    expect(css).toContain("::view-transition-group(workspace-sidebar)");
+    expect(css).toContain("::view-transition-group(workspace-note-list)");
+    expect(css).toContain("::view-transition-group(workspace-editor)");
+    expect(workspace).toContain("document.startViewTransition");
+    expect(workspace).toContain('window.matchMedia("(prefers-reduced-motion: reduce)").matches');
   });
 });
