@@ -370,6 +370,14 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   }, [editorLocked, note.deletedAt]);
   uploadImageFilesRef.current = (files) => { void uploadImageFiles(files); };
 
+  useLayoutEffect(() => {
+    if (imageUploadTimerRef.current !== null) {
+      clearTimeout(imageUploadTimerRef.current);
+      imageUploadTimerRef.current = null;
+    }
+    setImageUploadState("idle");
+  }, [note.id]);
+
   useEffect(() => () => {
     if (imageUploadTimerRef.current !== null) clearTimeout(imageUploadTimerRef.current);
   }, []);
