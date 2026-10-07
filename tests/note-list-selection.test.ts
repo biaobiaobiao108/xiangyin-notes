@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { applyNoteSelectionClick, pruneNoteSelection, type NoteSelectionState } from "../app/workspace/note-list-selection";
+import { applyNoteSelectionClick, noteSelectionAnchor, pruneNoteSelection, type NoteSelectionState } from "../app/workspace/note-list-selection";
 
 const orderedIds = ["a", "b", "c", "d", "e"];
 
@@ -12,6 +12,14 @@ describe("note list selection", () => {
     const next = applyNoteSelectionClick(state(["a", "c"], "c"), orderedIds, { id: "d" });
     expect([...next.ids]).toEqual(["d"]);
     expect(next.anchorId).toBe("d");
+  });
+
+  test("opening a note keeps a range anchor without selecting it", () => {
+    const anchor = noteSelectionAnchor("b");
+    expect([...anchor.ids]).toEqual([]);
+    expect(anchor.anchorId).toBe("b");
+    const range = applyNoteSelectionClick(anchor, orderedIds, { id: "d", shiftKey: true });
+    expect([...range.ids]).toEqual(["b", "c", "d"]);
   });
 
   test("Command or Ctrl clicks toggle non-contiguous notes", () => {

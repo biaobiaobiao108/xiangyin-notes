@@ -17,7 +17,7 @@ import { clearAllDraftRecoveries, readDraftRecovery } from "./workspace/draft-re
 import { EmptyEditor, NoteListPanel, NoteLoadingState, Sidebar } from "./workspace/panels";
 import { NoteCardGridPanel } from "./workspace/note-card-grid";
 import { errorMessage, shouldKeepActiveNoteInList, sortNotes, toNoteDraft, toNoteSummary, type NoteDraft, type NoteSort } from "./workspace/helpers";
-import { applyNoteSelectionClick, isNoteSelectionModifierClick, pruneNoteSelection, type NoteSelectionClick, type NoteSelectionState } from "./workspace/note-list-selection";
+import { applyNoteSelectionClick, isNoteSelectionModifierClick, noteSelectionAnchor, pruneNoteSelection, type NoteSelectionClick, type NoteSelectionState } from "./workspace/note-list-selection";
 import { normalizeLinkTitle } from "../shared/wiki-links";
 import { useNoteSaveQueue } from "./workspace/use-note-save-queue";
 import { useWorkspaceRealtime } from "./workspace/use-realtime";
@@ -246,6 +246,9 @@ export function Workspace() {
   }, []);
   const clearNoteSelection = useCallback(() => {
     updateNoteSelection({ ids: new Set(), anchorId: null });
+  }, [updateNoteSelection]);
+  const setNoteSelectionAnchor = useCallback((id: string) => {
+    updateNoteSelection(noteSelectionAnchor(id));
   }, [updateNoteSelection]);
   const previousListScopeRef = useRef(listScope);
   useEffect(() => {
@@ -1342,26 +1345,26 @@ export function Workspace() {
     document.startViewTransition(() => flushSync(toggle));
   }, []);
   const handleSelectListNote = useCallback((id: string, event: ReactMouseEvent<HTMLButtonElement>) => {
-    const nextSelection = applyNoteSelectionClick(noteSelectionRef.current, sortNotes(notesRef.current, noteSort).map((note) => note.id), {
-      id,
-      metaKey: event.metaKey,
-      ctrlKey: event.ctrlKey,
-      shiftKey: event.shiftKey,
-    });
-    const isModifierSelection = isNoteSelectionModifierClick(event);
-    if (isModifierSelection) {
+    if (isNoteSelectionModifierClick(event)) {
+      const nextSelection = applyNoteSelectionClick(noteSelectionRef.current, sortNotes(notesRef.current, noteSort).map((note) => note.id), {
+        id,
+        metaKey: event.metaKey,
+        ctrlKey: event.ctrlKey,
+        shiftKey: event.shiftKey,
+      });
       updateNoteSelection(nextSelection);
       return;
     }
     selectNote(id);
-    if (!isMobileViewport) updateNoteSelection(nextSelection);
+    setNoteSelectionAnchor(id);
     openMobileNote({ noteId: id });
-  }, [isMobileViewport, openMobileNote, noteSort, selectNote, updateNoteSelection]);
+  }, [openMobileNote, noteSort, selectNote, setNoteSelectionAnchor, updateNoteSelection]);
   const handleOpenCardNote = useCallback((id: string) => {
     selectNote(id);
+    setNoteSelectionAnchor(id);
     setCardEditingNoteId(id);
     openMobileNote({ noteId: id });
-  }, [openMobileNote, selectNote]);
+  }, [openMobileNote, selectNote, setNoteSelectionAnchor]);
   const handleToggleCardSelection = useCallback((id: string, modifiers: Pick<NoteSelectionClick, "metaKey" | "ctrlKey" | "shiftKey">) => {
     const nextSelection = applyNoteSelectionClick(noteSelectionRef.current, sortNotes(notesRef.current, noteSort).map((note) => note.id), {
       id,

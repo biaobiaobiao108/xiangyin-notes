@@ -32,7 +32,8 @@ describe("mobile swipe actions", () => {
     const panels = await Bun.file("app/workspace/panels.tsx").text();
     const workspace = await Bun.file("app/workspace.tsx").text();
     expect(panels).toContain("isActive={selectedId === note.id && !isMobileViewport}");
-    expect(workspace).toContain("if (!isMobileViewport) updateNoteSelection(nextSelection);");
+    expect(workspace).toContain("selectNote(id);\n    setNoteSelectionAnchor(id);");
+    expect(workspace).not.toContain("if (!isMobileViewport) updateNoteSelection(nextSelection);");
     expect(css).not.toContain("--surface-card-swipe:");
   });
 

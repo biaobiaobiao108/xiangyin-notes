@@ -14,6 +14,10 @@ export function isNoteSelectionModifierClick(click: Pick<NoteSelectionClick, "me
   return Boolean(click.metaKey || click.ctrlKey || click.shiftKey);
 }
 
+export function noteSelectionAnchor(id: string): NoteSelectionState {
+  return { ids: new Set(), anchorId: id };
+}
+
 export function applyNoteSelectionClick(
   state: NoteSelectionState,
   orderedIds: readonly string[],
