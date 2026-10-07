@@ -658,6 +658,92 @@ describe("Bun Server API", () => {
     expect((await request(`/api/notes/${second.body?.note.id}`, {}, login.cookie)).body?.note.deletedAt).not.toBeNull();
   });
 
+  test("restores a batch atomically, increments versions, and reconnects wiki links", async () => {
+    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
+    const target = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "批量恢复目标" }) }, login.cookie);
+    const source = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "批量恢复引用", contentMarkdown: "[[批量恢复目标]]" }) }, login.cookie);
+    const second = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "批量恢复第二篇" }) }, login.cookie);
+
+    const trashed = await request("/api/notes/batch", {
+      method: "PATCH",
+      body: JSON.stringify({ notes: [
+        { id: target.body?.note.id, version: target.body?.note.version },
+        { id: second.body?.note.id, version: second.body?.note.version },
+      ] }),
+    }, login.cookie);
+    expect(trashed.response.status).toBe(200);
+    expect(database.query("SELECT target_note_id FROM note_links WHERE source_note_id = ?").get(source.body?.note.id)).toEqual({ target_note_id: null });
+
+    const restored = await request("/api/notes/batch", {
+      method: "PATCH",
+      body: JSON.stringify({ deleted: false, notes: [
+        { id: target.body?.note.id, version: 2 },
+        { id: second.body?.note.id, version: 2 },
+      ] }),
+    }, login.cookie);
+    expect(restored.response.status).toBe(200);
+    expect(new Set(restored.body?.restoredIds)).toEqual(new Set([target.body?.note.id, second.body?.note.id]));
+    const restoredTarget = await request(`/api/notes/${target.body?.note.id}`, {}, login.cookie);
+    const restoredSecond = await request(`/api/notes/${second.body?.note.id}`, {}, login.cookie);
+    expect(restoredTarget.body?.note).toMatchObject({ deletedAt: null, version: 3 });
+    expect(restoredSecond.body?.note).toMatchObject({ deletedAt: null, version: 3 });
+    expect(database.query("SELECT target_note_id FROM note_links WHERE source_note_id = ?").get(source.body?.note.id)).toEqual({ target_note_id: target.body?.note.id });
+  });
+
+  test("batch restore rejects stale, active, or another user's notes without partial changes", async () => {
+    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
+    const otherEnvironment = { ...environment, XIANGYING_USERNAME: "restore-other" };
+    const otherLogin = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "restore-other", password: environment.XIANGYING_PASSWORD }) }, undefined, otherEnvironment);
+    const first = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "原子恢复一" }) }, login.cookie);
+    const stale = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "原子恢复二" }) }, login.cookie);
+    const active = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "保持活动" }) }, login.cookie);
+    const other = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "其他用户回收站笔记" }) }, otherLogin.cookie, otherEnvironment);
+
+    for (const note of [first, stale, other]) {
+      const cookie = note === other ? otherLogin.cookie : login.cookie;
+      const targetEnvironment = note === other ? otherEnvironment : environment;
+      const move = await request("/api/notes/batch", {
+        method: "PATCH",
+        body: JSON.stringify({ notes: [{ id: note.body?.note.id, version: note.body?.note.version }] }),
+      }, cookie, targetEnvironment);
+      expect(move.response.status).toBe(200);
+    }
+    database.query("UPDATE notes SET version = version + 1 WHERE id = ?").run(stale.body?.note.id);
+
+    const staleBatch = await request("/api/notes/batch", {
+      method: "PATCH",
+      body: JSON.stringify({ deleted: false, notes: [
+        { id: first.body?.note.id, version: 2 },
+        { id: stale.body?.note.id, version: 2 },
+      ] }),
+    }, login.cookie);
+    expect(staleBatch.response.status).toBe(409);
+    expect(staleBatch.body?.error.code).toBe("VERSION_CONFLICT");
+    expect((await request(`/api/notes/${first.body?.note.id}`, {}, login.cookie)).body?.note.deletedAt).not.toBeNull();
+
+    const activeBatch = await request("/api/notes/batch", {
+      method: "PATCH",
+      body: JSON.stringify({ deleted: false, notes: [
+        { id: first.body?.note.id, version: 2 },
+        { id: active.body?.note.id, version: 1 },
+      ] }),
+    }, login.cookie);
+    expect(activeBatch.response.status).toBe(409);
+    expect((await request(`/api/notes/${first.body?.note.id}`, {}, login.cookie)).body?.note.deletedAt).not.toBeNull();
+    expect((await request(`/api/notes/${active.body?.note.id}`, {}, login.cookie)).body?.note.deletedAt).toBeNull();
+
+    const unauthorizedBatch = await request("/api/notes/batch", {
+      method: "PATCH",
+      body: JSON.stringify({ deleted: false, notes: [
+        { id: first.body?.note.id, version: 2 },
+        { id: other.body?.note.id, version: 2 },
+      ] }),
+    }, login.cookie);
+    expect(unauthorizedBatch.response.status).toBe(409);
+    expect((await request(`/api/notes/${first.body?.note.id}`, {}, login.cookie)).body?.note.deletedAt).not.toBeNull();
+    expect((await request(`/api/notes/${other.body?.note.id}`, {}, otherLogin.cookie, otherEnvironment)).body?.note.deletedAt).not.toBeNull();
+  });
+
   test("permanently deletes a batch of trashed notes without touching other users", async () => {
     const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
     const otherEnvironment = { ...environment, XIANGYING_USERNAME: "other" };

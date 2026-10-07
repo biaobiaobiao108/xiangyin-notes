@@ -514,6 +514,8 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .note-row-title { display: flex; align-items: flex-start; gap: 6px; min-width: 0; color: var(--ink); font-size: 0.94rem; font-weight: 600; letter-spacing: 0; }
 .note-row-title-text { display: -webkit-box; min-width: 0; overflow: clip; overflow-wrap: anywhere; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
 .note-row-title svg { flex: none; margin-top: 0.15em; color: var(--accent); }
+.note-selection-mark { display: inline-grid; flex: none; place-items: center; width: 17px; height: 17px; margin-top: 1px; border: 1px solid var(--accent-border-soft); border-radius: 50%; background: var(--accent-soft); color: var(--accent); }
+.note-selection-mark svg { display: block; margin: 0; color: inherit; }
 .note-row-preview { display: -webkit-box; min-width: 0; overflow: clip; overflow-wrap: anywhere; color: var(--muted); font-size: 0.79rem; line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
 .note-row-meta { display: flex; min-width: 0; justify-content: space-between; gap: 10px; color: var(--soft-muted); font-size: 0.7rem; }
 .note-row-meta-leading { display: flex; align-items: center; min-width: 0; gap: 5px; overflow: clip; }

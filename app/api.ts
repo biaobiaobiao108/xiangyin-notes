@@ -58,6 +58,7 @@ export const api = {
     return request<{ note: Note | NoteSummary }>(path, { method: "PATCH", body: JSON.stringify(payload), ...requestOptions });
   },
   moveNotesToTrash: (notes: Array<{ id: string; version: number }>) => request<{ ok: true; deletedIds: string[] }>("/api/notes/batch", { method: "PATCH", body: JSON.stringify({ notes }) }),
+  restoreNotes: (notes: Array<{ id: string; version: number }>) => request<{ ok: true; restoredIds: string[] }>("/api/notes/batch", { method: "PATCH", body: JSON.stringify({ notes, deleted: false }) }),
   deleteNote: (id: string, version: number) => request<{ ok: true }>(`/api/notes/${id}`, { method: "DELETE", body: JSON.stringify({ version }) }),
   deleteNotes: (notes: Array<{ id: string; version: number }>) => request<{ ok: true; deletedIds: string[] }>("/api/notes/batch", { method: "DELETE", body: JSON.stringify({ notes }) }),
   emptyTrash: () => request<{ ok: true; deletedCount: number; deletedIds: string[] }>("/api/trash", { method: "DELETE" }),

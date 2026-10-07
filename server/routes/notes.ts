@@ -171,7 +171,7 @@ function getBatchNoteStates(database: SqliteDatabase, userId: string, entries: B
   return all<BatchNoteState>(database, `SELECT id, title, deleted_at, version FROM notes WHERE user_id = ? AND id IN (${placeholders})`, userId, ...entries.map((entry) => entry.id));
 }
 
-function assertBatchNoteStates(rows: BatchNoteState[], entries: BatchNoteEntry[], mode: "trash" | "permanent") {
+function assertBatchNoteStates(rows: BatchNoteState[], entries: BatchNoteEntry[], mode: "trash" | "restore" | "permanent") {
   const states = new Map(rows.map((row) => [row.id, row]));
   const conflictIds = entries
     .filter((entry) => {
@@ -325,11 +325,34 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
   // Batch move to trash or permanent deletion. Both operations validate every
   // selected note in one transaction so a stale selection cannot partially apply.
   if (id === "batch" && (method === "PATCH" || method === "DELETE")) {
-    const payload = await readJson<{ notes?: unknown }>(request, NOTE_BATCH_BODY_MAX_BYTES);
+    const payload = await readJson<{ notes?: unknown; deleted?: unknown }>(request, NOTE_BATCH_BODY_MAX_BYTES);
+    if (method === "PATCH" && payload?.deleted !== undefined && typeof payload.deleted !== "boolean") {
+      return jsonError(400, "INVALID_BATCH_NOTES", "批量回收站状态无效");
+    }
     const entries = parseBatchNoteEntries(payload);
     if (!entries) return jsonError(400, "INVALID_BATCH_NOTES", "批量操作的笔记参数无效");
 
     if (method === "PATCH") {
+      if (payload?.deleted === false) {
+        let restored: { restoredIds: string[] };
+        try {
+          restored = database.transaction(() => {
+            const rows = getBatchNoteStates(database, user.id, entries);
+            assertBatchNoteStates(rows, entries, "restore");
+            const restoredAt = now();
+            const update = database.query("UPDATE notes SET deleted_at = NULL, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ? AND version = ? AND deleted_at IS NOT NULL");
+            for (const entry of entries) update.run(restoredAt, entry.id, user.id, entry.version);
+            resolveNoteLinksForTitles(database, user.id, rows.map((row) => row.title));
+            return { restoredIds: entries.map((entry) => entry.id) };
+          })();
+        } catch (error) {
+          if (error instanceof BatchNoteConflictError) return batchConflictResponse(error);
+          throw error;
+        }
+        publishWorkspaceChange(options, user.id, { resource: "notes" }, request);
+        return json({ ok: true, restoredIds: restored.restoredIds });
+      }
+
       let moved: { deletedIds: string[] };
       try {
         moved = database.transaction(() => {

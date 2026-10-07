@@ -835,8 +835,35 @@ export function Workspace() {
       reloadNotes();
     }
   }, [discardNoteDraft, getBatchEntries, invalidateCollections, refreshNotebooks, reloadNotes, removeManyFromList, runSave]);
+  const performBatchRestore = useCallback(async (noteIds: string[]) => {
+    flushEditorDraftRef.current();
+    const ids = [...new Set(noteIds)];
+    if (!ids.length) return;
+    if (emptyingTrashRef.current || trashOperationsRef.current.size) throw new ApiError(409, "TRASH_BUSY", "回收站正在处理其他操作，请稍后重试");
+
+    ids.forEach((id) => trashOperationsRef.current.add(id));
+    setPendingTrashCount(trashOperationsRef.current.size);
+    invalidateCollections();
+    try {
+      await Promise.all(ids.map((id) => runSave(id)));
+      const entries = getBatchEntries(ids);
+      if (entries.length !== ids.length) throw new ApiError(409, "NOTE_SELECTION_STALE", "选中的笔记已不在当前列表，请重新选择");
+      const result = await api.restoreNotes(entries);
+      for (const id of result.restoredIds) discardNoteDraft(id);
+      removeManyFromList(result.restoredIds);
+    } finally {
+      ids.forEach((id) => trashOperationsRef.current.delete(id));
+      setPendingTrashCount(trashOperationsRef.current.size);
+      invalidateCollections();
+      void refreshNotebooks();
+      reloadNotes();
+    }
+  }, [discardNoteDraft, getBatchEntries, invalidateCollections, refreshNotebooks, reloadNotes, removeManyFromList, runSave]);
   const showBatchDeleteError = useCallback((reason: unknown) => {
     notifyError(reason instanceof ApiError && reason.code === "VERSION_CONFLICT" ? "选中的笔记已发生变化，请重新选择后重试" : errorMessage(reason, "批量删除失败，请重试"));
+  }, []);
+  const showBatchRestoreError = useCallback((reason: unknown) => {
+    notifyError(reason instanceof ApiError && reason.code === "VERSION_CONFLICT" ? "选中的笔记已发生变化，请重新选择后重试" : errorMessage(reason, "批量恢复失败，请重试"));
   }, []);
   const deleteSelectedNotes = useCallback(() => {
     const ids = [...noteSelectionRef.current.ids];
@@ -854,6 +881,11 @@ export function Workspace() {
     }
     void performBatchDelete(ids, false).catch(showBatchDeleteError);
   }, [emptyingTrashRef, pendingTrashCount, performBatchDelete, requestConfirm, showBatchDeleteError, view]);
+  const restoreSelectedNotes = useCallback(() => {
+    const ids = [...noteSelectionRef.current.ids];
+    if (view !== "trash" || ids.length < 2 || pendingTrashCount > 0 || emptyingTrashRef.current) return;
+    void performBatchRestore(ids).catch(showBatchRestoreError);
+  }, [emptyingTrashRef, pendingTrashCount, performBatchRestore, showBatchRestoreError, view]);
   const performPermanentDelete = useCallback(async (noteId: string, expectedVersion: number) => {
     if (trashOperationsRef.current.has(noteId) || emptyingTrashRef.current) throw new ApiError(409, "TRASH_BUSY", "回收站正在处理其他操作，请稍后重试");
     flushEditorDraftRef.current();
@@ -1392,6 +1424,7 @@ export function Workspace() {
       ];
       if (targetNote.deletedAt) {
         items.push({ label: "恢复笔记", icon: RotateCcw, disabled: busy, onSelect: () => handleNoteSwipeAction(targetNote, "restore") });
+        if (selectedNoteIds.has(targetNote.id) && selectedNoteIds.size > 1) items.push({ label: `恢复所选 ${selectedNoteIds.size} 篇笔记`, icon: RotateCcw, disabled: busy, onSelect: restoreSelectedNotes });
       } else {
         items.push({ label: targetNote.isFavorite ? "取消收藏" : "收藏笔记", icon: Star, onSelect: () => handleToggleFavoriteCardNote(targetNote) });
       }

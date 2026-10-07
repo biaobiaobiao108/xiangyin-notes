@@ -10,6 +10,7 @@ import {
 } from "react";
 import {
   Archive,
+  Check,
   Menu,
   Search,
   Star,
@@ -356,6 +357,7 @@ const NoteCardItem = memo(function NoteCardItem({
           <h3 className="note-card-title">
             {displayTitle}
           </h3>
+          {isSelected && <span className="note-selection-mark" aria-hidden="true"><Check size={11} strokeWidth={2.5} /></span>}
           {!isTrashView && (
             <button
               type="button"
