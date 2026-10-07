@@ -515,7 +515,8 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .note-row-title { display: flex; align-items: flex-start; gap: 6px; min-width: 0; color: var(--ink); font-size: 0.94rem; font-weight: 600; letter-spacing: 0; }
 .note-row-title-text { display: -webkit-box; min-width: 0; overflow: clip; overflow-wrap: anywhere; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
 .note-row-title svg { flex: none; margin-top: 0.15em; color: var(--accent); }
-.note-selection-mark { display: inline-grid; flex: none; place-items: center; width: 22px; height: 22px; margin-top: 0; border: 1px solid var(--accent-border-soft); border-radius: 50%; background: var(--accent-soft); box-shadow: var(--shadow-2xs); color: var(--accent-dark); }
+.note-selection-slot { display: inline-grid; flex: none; place-items: center; width: 22px; height: 1.35em; }
+.note-selection-mark { display: grid; place-items: center; width: 22px; height: 22px; border: 1px solid var(--accent-border-soft); border-radius: 50%; background: var(--accent-soft); box-shadow: var(--shadow-2xs); color: var(--accent-dark); }
 .note-selection-mark svg { display: block; margin: 0; color: inherit; }
 .note-row-preview { display: -webkit-box; min-width: 0; overflow: clip; overflow-wrap: anywhere; color: var(--muted); font-size: 0.79rem; line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
 .note-row-meta { display: flex; min-width: 0; justify-content: space-between; gap: 10px; color: var(--soft-muted); font-size: 0.7rem; }
@@ -2126,6 +2127,7 @@ dialog::backdrop {
   justify-content: space-between;
   gap: 8px;
 }
+.note-card-header .note-selection-slot { height: 1.42em; }
 
 .note-card-title {
   margin: 0;
@@ -2343,7 +2345,9 @@ dialog::backdrop {
   .is-mobile-card-grid .note-card:has(.note-card-open:focus-visible) { background: var(--accent-soft); }
   .is-mobile-card-grid .note-card-body { padding: 14px 12px 12px; gap: 10px; }
   .is-mobile-card-grid .note-card-header { position: relative; }
-  .is-mobile-card-grid .note-card-title { min-width: 0; padding-right: 24px; font-size: 1rem; }
+  .is-mobile-card-grid .note-card-header.has-favorite-action { padding-right: 24px; }
+  .is-mobile-card-grid .note-card-header .note-selection-slot { height: 1.42em; }
+  .is-mobile-card-grid .note-card-title { min-width: 0; font-size: 1rem; }
   .is-mobile-card-grid .note-card-star-btn { position: absolute; top: -10px; right: -10px; z-index: 2; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 999px; }
   .is-mobile-card-grid .note-card-preview-text { font-size: 0.8125rem; line-height: 1.65; -webkit-line-clamp: 6; }
   .is-mobile-card-grid .note-card-cover { height: 116px; }

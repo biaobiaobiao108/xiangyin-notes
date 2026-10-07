@@ -353,11 +353,11 @@ const NoteCardItem = memo(function NoteCardItem({
       {/* 卡片主体：统一纯白底色便笺排版 */}
       <div className="note-card-body">
         {/* 顶部标题与收藏星标 */}
-        <div className="note-card-header">
+        <div className={`note-card-header ${!isTrashView ? "has-favorite-action" : ""}`}>
           <h3 className="note-card-title">
             {displayTitle}
           </h3>
-          {isSelected && <span className="note-selection-mark" aria-hidden="true"><Check size={11} strokeWidth={2.5} /></span>}
+          <span className="note-selection-slot" aria-hidden="true">{isSelected && <span className="note-selection-mark"><Check size={11} strokeWidth={2.5} /></span>}</span>
           {!isTrashView && (
             <button
               type="button"

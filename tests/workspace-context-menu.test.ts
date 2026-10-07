@@ -21,9 +21,13 @@ describe("note context menu selection", () => {
     const list = await Bun.file("app/workspace/panels.tsx").text();
     const cards = await Bun.file("app/workspace/note-card-grid.tsx").text();
     const css = await Bun.file("app/styles.css").text();
-    expect(list).toContain('isSelected && <span className="note-selection-mark"');
-    expect(cards).toContain('isSelected && <span className="note-selection-mark"');
+    expect(list).toContain('<span className="note-selection-slot" aria-hidden="true">{isSelected && <span className="note-selection-mark"');
+    expect(cards).toContain('<span className="note-selection-slot" aria-hidden="true">{isSelected && <span className="note-selection-mark"');
+    expect(cards).toContain('className={`note-card-header ${!isTrashView ? "has-favorite-action" : ""}`}');
+    expect(css).toMatch(/\.note-selection-slot\s*\{[^}]*width:\s*22px;[^}]*height:\s*1\.35em/s);
     expect(css).toMatch(/\.note-selection-mark\s*\{[^}]*width:\s*22px;[^}]*height:\s*22px;[^}]*border-radius:\s*50%;[^}]*background:\s*var\(--accent-soft\);[^}]*box-shadow:\s*var\(--shadow-2xs\)/s);
+    expect(css).toContain(".note-card-header .note-selection-slot { height: 1.42em; }");
+    expect(css).toContain(".is-mobile-card-grid .note-card-header.has-favorite-action { padding-right: 24px; }");
     expect(css).toContain(".note-row.is-active {");
     expect(css).not.toContain(".note-row.is-selected, .note-row.is-active");
     expect(css).not.toContain(".note-card.is-selected {");
