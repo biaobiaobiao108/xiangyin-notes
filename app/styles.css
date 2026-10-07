@@ -329,7 +329,7 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .list-header p { margin: 4px 0 0; color: var(--soft-muted); font-size: 0.76rem; }
 .list-header-controls { display: flex; align-items: center; gap: 4px; margin-left: 12px; }
 .empty-trash-button { width: 36px; height: 36px; flex: none; padding: 0; border-radius: var(--radius-sm); color: var(--muted); }
-.empty-trash-button:hover:not(:disabled), .empty-trash-button:focus-visible { border-color: var(--danger-border); background: var(--danger-soft); color: var(--danger); }
+.empty-trash-button:hover:not(:disabled), .empty-trash-button:focus-visible { border-color: transparent; background: transparent; box-shadow: none; color: var(--danger); }
 .empty-trash-button:disabled { cursor: not-allowed; opacity: 0.48; }
 .list-new-note-button { color: var(--accent-dark); }
 .list-new-note-button:hover { border-color: var(--accent-border); background: var(--accent-soft); color: var(--accent-dark); }
@@ -477,7 +477,6 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
   .note-row-swipe > .note-row { background: var(--surface); }
   .note-row-swipe > .note-row:hover { background: var(--surface); }
   .note-row-swipe > .note-row:focus-visible:not(.is-selected):not(.is-active) { background: var(--accent-soft); border-color: transparent; box-shadow: none; }
-  .note-row-swipe > .note-row.is-selected,
   .note-row-swipe > .note-row.is-active { background: var(--accent-soft); }
   .note-row-swipe.is-swipe-open > .note-row { background: var(--accent-soft); border-color: transparent; box-shadow: none; }
 }
@@ -502,7 +501,7 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .note-row:has(.note-row-thumbnail), .note-row.has-thumbnail { grid-template-columns: 54px minmax(0, 1fr); }
 .note-row:hover { background: var(--surface-hover); }
 .note-row:active { scale: 0.992; }
-.note-row.is-selected, .note-row.is-active {
+.note-row.is-active {
   background: var(--accent-soft);
   border-color: var(--accent-border-soft);
   box-shadow: var(--shadow-2xs);
@@ -516,7 +515,7 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .note-row-title { display: flex; align-items: flex-start; gap: 6px; min-width: 0; color: var(--ink); font-size: 0.94rem; font-weight: 600; letter-spacing: 0; }
 .note-row-title-text { display: -webkit-box; min-width: 0; overflow: clip; overflow-wrap: anywhere; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
 .note-row-title svg { flex: none; margin-top: 0.15em; color: var(--accent); }
-.note-selection-mark { display: inline-grid; flex: none; place-items: center; width: 17px; height: 17px; margin-top: 1px; border: 1px solid var(--accent-border-soft); border-radius: 50%; background: var(--accent-soft); color: var(--accent); }
+.note-selection-mark { display: inline-grid; flex: none; place-items: center; width: 22px; height: 22px; margin-top: 0; border: 1px solid var(--accent-border-soft); border-radius: 50%; background: var(--accent-soft); box-shadow: var(--shadow-2xs); color: var(--accent-dark); }
 .note-selection-mark svg { display: block; margin: 0; color: inherit; }
 .note-row-preview { display: -webkit-box; min-width: 0; overflow: clip; overflow-wrap: anywhere; color: var(--muted); font-size: 0.79rem; line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
 .note-row-meta { display: flex; min-width: 0; justify-content: space-between; gap: 10px; color: var(--soft-muted); font-size: 0.7rem; }
@@ -2081,12 +2080,12 @@ dialog::backdrop {
   user-select: none;
 }
 .note-card-foreground { position: relative; z-index: 1; display: flex; min-width: 0; flex: 1 1 auto; flex-direction: column; background: var(--surface); }
-.note-card.is-selected > .note-card-foreground { background: var(--accent-soft); }
 
 .note-card:focus-visible {
   outline: none;
   box-shadow: var(--note-card-hover-shadow), var(--note-card-hover-detail-shadow);
 }
+.note-card.is-selected:focus-visible { box-shadow: none; }
 
 .note-card:active {
   background-color: var(--surface-muted);
@@ -2096,19 +2095,6 @@ dialog::backdrop {
 @media (hover: hover) and (pointer: fine) {
   .note-card:hover {
     box-shadow: var(--note-card-hover-shadow), var(--note-card-hover-detail-shadow);
-  }
-}
-
-.note-card.is-selected {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  box-shadow: 0 0 0 2px var(--selection-ring), 0 1px 5px rgba(32, 38, 33, 0.06);
-}
-
-@media (hover: hover) and (pointer: fine) {
-  .note-card.is-selected:hover,
-  .note-card.is-selected:focus-visible {
-    box-shadow: 0 0 0 2px var(--selection-ring), var(--note-card-hover-shadow), var(--note-card-hover-detail-shadow);
   }
 }
 

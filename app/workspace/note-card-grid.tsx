@@ -184,7 +184,6 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
             className="icon-button empty-trash-button card-grid-empty-trash"
             type="button"
             aria-label="清空回收站"
-            title="清空回收站"
             onClick={onEmptyTrash}
             disabled={trashBusy || total === 0}
           >

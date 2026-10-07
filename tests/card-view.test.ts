@@ -178,8 +178,8 @@ describe("card view & layout", () => {
     expect(cssContent).toMatch(/\.sidebar\s*\{[^}]*border-right:\s*1px solid var\(--border\)/);
     expect(cssContent).toMatch(/\.card-masonry-slot:hover > \.note-card\s*\{[^}]*scale:\s*1\.015;[^}]*z-index:\s*1;/);
     expect(cssContent).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.card-masonry-slot:hover > \.note-card\s*\{\s*scale:\s*1;/);
-    expect(cssContent).toMatch(/\.note-card\.is-selected\s*\{[^}]*box-shadow:.*0 1px 5px/);
-    expect(cssContent).toMatch(/\.note-card\.is-selected\s*\{[^}]*border-color:\s*var\(--accent\)/);
+    expect(cssContent).not.toMatch(/\.note-card\.is-selected\s*\{/);
+    expect(cssContent).not.toContain(".note-card.is-selected > .note-card-foreground");
     expect(cssContent).toMatch(/\.card-masonry\s*\{[^}]*position:\s*relative/);
     expect(cssContent).not.toMatch(/\.card-masonry\s*\{[^}]*columns:/);
     expect(cssContent).not.toContain("display: grid-lanes");

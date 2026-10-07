@@ -100,7 +100,7 @@ export function MobileCollectionHeader({ heading, total, shown, query, sort, onS
     <button className="mobile-list-back" type="button" aria-label="返回笔记本首页" onClick={onBack}><ChevronLeft size={22} aria-hidden="true" /><span>笔记本</span></button>
     <div className="list-header-main"><h2 tabIndex={-1}>{heading}</h2><p>{query ? `包含“${query}”的笔记` : `${total} 篇笔记`}{shown < total && <> · 已显示 {shown} 篇</>}</p></div>
     <div className="list-header-controls">
-      {onEmptyTrash && <button className="icon-button empty-trash-button" type="button" aria-label="清空回收站" title="清空回收站" onClick={onEmptyTrash} disabled={trashBusy || total === 0}><Trash2 size={20} aria-hidden="true" /></button>}
+      {onEmptyTrash && <button className="icon-button empty-trash-button" type="button" aria-label="清空回收站" onClick={onEmptyTrash} disabled={trashBusy || total === 0}><Trash2 size={20} aria-hidden="true" /></button>}
       <div className="sort-menu-wrap" ref={sortRef}>
         <button ref={sortTriggerRef} id={`${id}-sort-trigger`} className="sort-button" type="button" aria-label={`笔记排序：${SORT_OPTIONS.find((option) => option.value === sort)?.label}`} aria-haspopup="listbox" aria-controls={`${id}-sort-options`} aria-expanded={sortOpen} onClick={() => setSortOpen((open) => !open)}>
           <ArrowDownWideNarrow className="mobile-sort-icon" size={20} aria-hidden="true" /><span className="sort-button-label">{SORT_OPTIONS.find((option) => option.value === sort)?.label}</span><ChevronDown size={14} className="sort-button-arrow" aria-hidden="true" />
@@ -112,7 +112,7 @@ export function MobileCollectionHeader({ heading, total, shown, query, sort, onS
           })}
         </div>}
       </div>
-      {onToggleLayout && <button className="icon-button mobile-layout-toggle" type="button" aria-label={layoutLabel} title={layoutLabel} onClick={onToggleLayout}><LayoutIcon size={20} aria-hidden="true" /></button>}
+      {onToggleLayout && <button className="icon-button mobile-layout-toggle" type="button" aria-label={layoutLabel} onClick={onToggleLayout}><LayoutIcon size={20} aria-hidden="true" /></button>}
     </div>
   </header>;
 }

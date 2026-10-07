@@ -27,7 +27,7 @@ export function MobileEditorHeader({ noteId, title, backLabel, locked, trashBusy
   }, [open]);
   const runAction = (action: () => void) => { setOpen(false); triggerRef.current?.focus(); action(); };
   return <header className="mobile-editor-header">
-    <button className="icon-button mobile-editor-back" type="button" aria-label={`返回${backLabel}`} title={`返回${backLabel}`} onClick={onBack} disabled={locked || !onBack}><ChevronLeft size={22} aria-hidden="true" /></button>
+    <button className="icon-button mobile-editor-back" type="button" aria-label={`返回${backLabel}`} onClick={onBack} disabled={locked || !onBack}><ChevronLeft size={22} aria-hidden="true" /></button>
     <h2 className="mobile-editor-title" ref={headingRef} tabIndex={-1}>{title}</h2>
     <div className="mobile-editor-status">{status}</div>
     <div className="mobile-editor-menu-root" ref={menuRootRef} onPointerDownCapture={() => { tabNavigationRef.current = false; }} onBlur={(event) => {
@@ -64,7 +64,7 @@ export function MobileEditorFooter({ stats, outlineOpen, outlineTriggerRef, lock
   stats: EditorStats; outlineOpen: boolean; outlineTriggerRef: RefObject<HTMLButtonElement | null>; locked: boolean; onOpenCommands?: () => void; onToggleOutline: () => void;
 }) {
   return <footer className="mobile-editor-footer" aria-label="笔记工具">
-    <button className="icon-button" type="button" aria-label="打开命令面板" title="打开命令面板" disabled={locked || !onOpenCommands} onClick={onOpenCommands}><SlidersHorizontal size={22} aria-hidden="true" /></button>
+    <button className="icon-button" type="button" aria-label="打开命令面板" disabled={locked || !onOpenCommands} onClick={onOpenCommands}><SlidersHorizontal size={22} aria-hidden="true" /></button>
     <EditorStatsPill stats={stats} />
     <button ref={outlineTriggerRef} className={`icon-button ${outlineOpen ? "is-active" : ""}`} type="button" aria-label={outlineOpen ? "关闭笔记大纲" : "打开笔记大纲"} aria-expanded={outlineOpen} aria-controls={outlineOpen ? "note-outline" : undefined} disabled={locked} onClick={onToggleOutline}><ListTree size={22} aria-hidden="true" /></button>
   </footer>;

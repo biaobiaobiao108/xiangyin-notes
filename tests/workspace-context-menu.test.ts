@@ -23,7 +23,10 @@ describe("note context menu selection", () => {
     const css = await Bun.file("app/styles.css").text();
     expect(list).toContain('isSelected && <span className="note-selection-mark"');
     expect(cards).toContain('isSelected && <span className="note-selection-mark"');
-    expect(css).toMatch(/\.note-selection-mark\s*\{[^}]*width:\s*17px;[^}]*height:\s*17px;[^}]*border-radius:\s*50%;[^}]*background:\s*var\(--accent-soft\)/s);
+    expect(css).toMatch(/\.note-selection-mark\s*\{[^}]*width:\s*22px;[^}]*height:\s*22px;[^}]*border-radius:\s*50%;[^}]*background:\s*var\(--accent-soft\);[^}]*box-shadow:\s*var\(--shadow-2xs\)/s);
+    expect(css).toContain(".note-row.is-active {");
+    expect(css).not.toContain(".note-row.is-selected, .note-row.is-active");
+    expect(css).not.toContain(".note-card.is-selected {");
   });
 
   test("offers bulk restore only for a selected trashed note in a multi-selection", async () => {

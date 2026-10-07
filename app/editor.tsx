@@ -1359,10 +1359,10 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
         onBacklinks={onNavigateToNote ? () => setBacklinksOpen(true) : undefined}
         onTrash={onMoveToTrash} onRestore={onRestore} onPermanentDelete={onPermanentDelete}
         status={<>
-          {saveState === "error" ? <button className="save-status save-status--error save-status--icon" type="button" aria-label="重试保存" title="重试保存" onClick={handleSaveNow}><SaveStatusIcon state="error" /></button>
-            : saveState === "conflict" ? <button className="save-status save-status--conflict save-status--icon" type="button" aria-label="重新载入最新版本" title="重新载入最新版本" onClick={onReloadNote}><SaveStatusIcon state="conflict" /></button>
-              : <span className={`save-status save-status--${saveState} save-status--icon`} role="status" aria-label={saveState === "idle" ? "待保存" : saveLabel} title={saveState === "idle" ? "待保存" : saveLabel}>{saveState !== "idle" && <SaveStatusIcon state={saveState} />}</span>}
-          <span className={`save-status save-status--${imageUploadState === "uploading" ? "saving" : "error"} save-status--icon mobile-upload-status`} role="status" aria-label={imageUploadState === "uploading" ? "正在上传图片" : imageUploadState === "error" ? "图片上传失败" : undefined} title={imageUploadState === "uploading" ? "正在上传图片" : imageUploadState === "error" ? "图片上传失败" : undefined}>{imageUploadState !== "idle" && <SaveStatusIcon state={imageUploadState === "uploading" ? "saving" : "error"} />}</span>
+          {saveState === "error" ? <button className="save-status save-status--error save-status--icon" type="button" aria-label="重试保存" onClick={handleSaveNow}><SaveStatusIcon state="error" /></button>
+            : saveState === "conflict" ? <button className="save-status save-status--conflict save-status--icon" type="button" aria-label="重新载入最新版本" onClick={onReloadNote}><SaveStatusIcon state="conflict" /></button>
+              : <span className={`save-status save-status--${saveState} save-status--icon`} role="status" aria-label={saveState === "idle" ? "待保存" : saveLabel}>{saveState !== "idle" && <SaveStatusIcon state={saveState} />}</span>}
+          <span className={`save-status save-status--${imageUploadState === "uploading" ? "saving" : "error"} save-status--icon mobile-upload-status`} role="status" aria-label={imageUploadState === "uploading" ? "正在上传图片" : imageUploadState === "error" ? "图片上传失败" : undefined}>{imageUploadState !== "idle" && <SaveStatusIcon state={imageUploadState === "uploading" ? "saving" : "error"} />}</span>
         </>}
       /> : <header className="editor-header">
         <div className="editor-header-start">
@@ -1408,7 +1408,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
               {backlinkCount > 0 && <span className="icon-badge">{backlinkCount}</span>}
             </button>
           )}
-          <button className="icon-button" type="button" aria-label="导出图片" title="导出图片" onClick={onExportImage} disabled={editorLocked}><ImageDown size={19} aria-hidden="true" /></button>
+          <button className="icon-button" type="button" aria-label="导出图片" onClick={onExportImage} disabled={editorLocked}><ImageDown size={19} aria-hidden="true" /></button>
           <button className={`icon-button favorite-toggle ${note.isFavorite ? "is-active" : ""}`} type="button" aria-label={note.isFavorite ? "取消收藏" : "收藏笔记"} aria-pressed={note.isFavorite} onClick={onToggleFavorite} disabled={editorLocked}><Star size={19} strokeWidth={1.8} fill={note.isFavorite ? "currentColor" : "none"} aria-hidden="true" /></button>
           {note.deletedAt ? <>
             <button className="icon-button" type="button" aria-label="恢复笔记" onClick={onRestore} disabled={editorLocked || trashBusy}><Undo2 size={18} strokeWidth={1.8} /></button>
