@@ -1345,13 +1345,19 @@ export function Workspace() {
     document.startViewTransition(() => flushSync(toggle));
   }, []);
   const handleSelectListNote = useCallback((id: string, event: ReactMouseEvent<HTMLButtonElement>) => {
+    const orderedIds = sortNotes(notesRef.current, noteSort).map((note) => note.id);
     if (isNoteSelectionModifierClick(event)) {
-      const nextSelection = applyNoteSelectionClick(noteSelectionRef.current, sortNotes(notesRef.current, noteSort).map((note) => note.id), {
+      const nextSelection = applyNoteSelectionClick(noteSelectionRef.current, orderedIds, {
         id,
         metaKey: event.metaKey,
         ctrlKey: event.ctrlKey,
         shiftKey: event.shiftKey,
       });
+      updateNoteSelection(nextSelection);
+      return;
+    }
+    if (noteSelectionRef.current.ids.size > 0) {
+      const nextSelection = applyNoteSelectionClick(noteSelectionRef.current, orderedIds, { id, ctrlKey: true });
       updateNoteSelection(nextSelection);
       return;
     }

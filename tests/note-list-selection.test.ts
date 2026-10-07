@@ -32,6 +32,17 @@ describe("note list selection", () => {
     expect(second.anchorId).toBe("a");
   });
 
+  test("plain clicks in active multi-select mode add or remove only the clicked note", () => {
+    const added = applyNoteSelectionClick(state(["a", "c"], "a"), orderedIds, { id: "d", ctrlKey: true });
+    expect([...added.ids]).toEqual(["a", "c", "d"]);
+
+    const removed = applyNoteSelectionClick(added, orderedIds, { id: "c", ctrlKey: true });
+    expect([...removed.ids]).toEqual(["a", "d"]);
+
+    const empty = applyNoteSelectionClick(state(["c"], "c"), orderedIds, { id: "c", ctrlKey: true });
+    expect([...empty.ids]).toEqual([]);
+  });
+
   test("context menu selection toggles only its note and preserves the others", () => {
     const added = applyNoteSelectionClick(state(["a", "c"], "a"), orderedIds, { id: "d", ctrlKey: true });
     expect([...added.ids]).toEqual(["a", "c", "d"]);

@@ -99,6 +99,7 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
       position={index + 1}
       setSize={Math.max(total, notes.length)}
       isSelected={selectedIds.has(note.id)}
+      hasSelectionActive={selectedIds.size > 0}
       showNotebook={showNotebook}
       onOpen={onOpenNote}
       onToggleSelect={onToggleSelectNote}
@@ -266,6 +267,7 @@ type NoteCardItemProps = {
   position: number;
   setSize: number;
   isSelected: boolean;
+  hasSelectionActive: boolean;
   showNotebook: boolean;
   onOpen: (id: string) => void;
   onToggleSelect: (id: string, modifiers: Pick<NoteSelectionClick, "metaKey" | "ctrlKey" | "shiftKey">) => void;
@@ -280,6 +282,7 @@ const NoteCardItem = memo(function NoteCardItem({
   position,
   setSize,
   isSelected,
+  hasSelectionActive,
   showNotebook,
   onOpen,
   onToggleSelect,
@@ -288,9 +291,9 @@ const NoteCardItem = memo(function NoteCardItem({
   isTrashView,
 }: NoteCardItemProps) {
   const handleCardClick = (event: ReactMouseEvent) => {
-    if (!isMobileViewport && isNoteSelectionModifierClick(event)) {
+    if (!isMobileViewport && (isNoteSelectionModifierClick(event) || hasSelectionActive)) {
       event.preventDefault();
-      onToggleSelect(note.id, event);
+      onToggleSelect(note.id, isNoteSelectionModifierClick(event) ? event : { ctrlKey: true });
       return;
     }
     onOpen(note.id);

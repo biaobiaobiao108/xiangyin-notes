@@ -149,3 +149,15 @@ describe("mobile swipe actions", () => {
     expect(noteCards).not.toContain("<span>移入回收站</span>");
   });
 });
+
+describe("active note multi-select clicks", () => {
+  test("list clicks toggle selection while active and open notes only when inactive", async () => {
+    const workspace = await Bun.file("app/workspace.tsx").text();
+    const handler = workspace.slice(workspace.indexOf("const handleSelectListNote"), workspace.indexOf("const handleOpenCardNote"));
+    expect(handler).toContain("if (noteSelectionRef.current.ids.size > 0)");
+    expect(handler).toContain("applyNoteSelectionClick(noteSelectionRef.current, orderedIds, { id, ctrlKey: true })");
+    expect(handler).toContain("selectNote(id);");
+    expect(handler).toContain("openMobileNote({ noteId: id });");
+    expect(handler.indexOf("if (noteSelectionRef.current.ids.size > 0)")).toBeLessThan(handler.indexOf("selectNote(id);"));
+  });
+});

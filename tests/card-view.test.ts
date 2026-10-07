@@ -135,10 +135,12 @@ describe("card view & layout", () => {
     expect([...state3.ids]).toEqual(["note-2"]);
   });
 
-  test("ordinary card clicks open notes instead of continuing multi-select", async () => {
+  test("plain card clicks toggle selection while multi-select is active", async () => {
     const source = await Bun.file("app/workspace/note-card-grid.tsx").text();
-    expect(source).toContain("if (!isMobileViewport && isNoteSelectionModifierClick(event))");
-    expect(source).not.toContain("hasSelectionActive");
+    expect(source).toContain("hasSelectionActive={selectedIds.size > 0}");
+    expect(source).toContain("if (!isMobileViewport && (isNoteSelectionModifierClick(event) || hasSelectionActive))");
+    expect(source).toContain("isNoteSelectionModifierClick(event) ? event : { ctrlKey: true }");
+    expect(source).toContain("onOpen(note.id)");
   });
 
   test("shift-click is a selection modifier and starts a range when no anchor exists", () => {
