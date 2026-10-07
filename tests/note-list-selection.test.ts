@@ -24,6 +24,14 @@ describe("note list selection", () => {
     expect(second.anchorId).toBe("a");
   });
 
+  test("context menu selection toggles only its note and preserves the others", () => {
+    const added = applyNoteSelectionClick(state(["a", "c"], "a"), orderedIds, { id: "d", ctrlKey: true });
+    expect([...added.ids]).toEqual(["a", "c", "d"]);
+
+    const removed = applyNoteSelectionClick(added, orderedIds, { id: "c", ctrlKey: true });
+    expect([...removed.ids]).toEqual(["a", "d"]);
+  });
+
   test("Shift click selects the inclusive range from the anchor", () => {
     const next = applyNoteSelectionClick(state(["b"], "b"), orderedIds, { id: "e", shiftKey: true });
     expect([...next.ids]).toEqual(["b", "c", "d", "e"]);

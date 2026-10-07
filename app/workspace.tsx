@@ -1,7 +1,7 @@
 import { lazy, memo, Suspense, useCallback, useDeferredValue, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { flushSync } from "react-dom";
 import { useNavigate } from "react-router";
-import { ArrowUpRight, LayoutGrid, List, Plus, RotateCcw, Settings2, Star, Trash2, X } from "lucide-react";
+import { ArrowUpRight, LayoutGrid, List, ListChecks, Plus, RotateCcw, Settings2, Star, Trash2, X } from "lucide-react";
 import { textFieldMenuItems, useContextMenu, type ContextMenuItem } from "./context-menu";
 import { ApiError, api } from "./api";
 import { createUuid } from "./uuid";
@@ -1388,6 +1388,7 @@ export function Workspace() {
       const busy = pendingTrashCount > 0 || emptyingTrash;
       const items: ContextMenuItem[] = [
         { label: "打开笔记", icon: ArrowUpRight, onSelect: () => { clearNoteSelection(); if (viewLayout === "cards") handleOpenCardNote(targetNote.id); else selectNote(targetNote.id); } },
+        { label: selectedNoteIds.has(targetNote.id) ? "从多选中移除" : "加入多选", icon: ListChecks, onSelect: () => handleToggleCardSelection(targetNote.id, { ctrlKey: true }) },
       ];
       if (targetNote.deletedAt) {
         items.push({ label: "恢复笔记", icon: RotateCcw, disabled: busy, onSelect: () => handleNoteSwipeAction(targetNote, "restore") });
