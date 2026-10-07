@@ -1431,6 +1431,7 @@ export function Workspace() {
         { label: "打开笔记", icon: ArrowUpRight, onSelect: () => { clearNoteSelection(); if (viewLayout === "cards") handleOpenCardNote(targetNote.id); else selectNote(targetNote.id); } },
         { label: selectedNoteIds.has(targetNote.id) ? "从多选中移除" : "加入多选", icon: ListChecks, onSelect: () => handleToggleCardSelection(targetNote.id, { ctrlKey: true }) },
       ];
+      if (selectedNoteIds.size) items.push({ label: "退出多选", icon: X, separator: true, onSelect: clearNoteSelection });
       if (targetNote.deletedAt) {
         items.push({ label: "恢复笔记", icon: RotateCcw, disabled: busy, onSelect: () => handleNoteSwipeAction(targetNote, "restore") });
         if (selectedNoteIds.has(targetNote.id) && selectedNoteIds.size > 1) items.push({ label: `恢复所选 ${selectedNoteIds.size} 篇笔记`, icon: RotateCcw, disabled: busy, onSelect: restoreSelectedNotes });

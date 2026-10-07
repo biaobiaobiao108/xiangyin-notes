@@ -8,6 +8,11 @@ describe("note context menu selection", () => {
     expect(source).toContain("handleToggleCardSelection(targetNote.id, { ctrlKey: true })");
   });
 
+  test("offers an exit selection action on note context menus while multi-select is active", async () => {
+    const source = await Bun.file("app/workspace.tsx").text();
+    expect(source).toContain('if (selectedNoteIds.size) items.push({ label: "退出多选", icon: X, separator: true, onSelect: clearNoteSelection });');
+  });
+
   test("selection toggle preserves bulk actions without opening the note", async () => {
     const source = await Bun.file("app/workspace.tsx").text();
     const selectionHandler = source.slice(source.indexOf("const handleToggleCardSelection"), source.indexOf("const handleCardGridScrollPositionChange"));
