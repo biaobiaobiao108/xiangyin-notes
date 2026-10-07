@@ -378,7 +378,7 @@ export const NoteListPanel = memo(function NoteListPanel({ notes, total, hasMore
         <button className="icon-button mobile-only" type="button" aria-label="打开导航" onClick={onOpenSidebar}><Menu size={20} /></button>
         <div className="list-header-main"><h2 tabIndex={-1}>{heading}</h2><p>{query ? `包含“${query}”的笔记` : `${truncated ? total : notes.length} 篇笔记`}{truncated && <> · 已显示最近 {notes.length} 篇</>}</p></div>
         <div className="list-header-controls">
-          {onEmptyTrash && <button className="text-button text-danger empty-trash-button" type="button" aria-label="清空回收站" onClick={onEmptyTrash} disabled={trashBusy || total === 0}><Trash2 size={isMobileViewport ? 20 : 15} aria-hidden="true" />{!isMobileViewport && "清空回收站"}</button>}
+          {onEmptyTrash && <button className="icon-button empty-trash-button" type="button" aria-label="清空回收站" title="清空回收站" onClick={onEmptyTrash} disabled={trashBusy || total === 0}><Trash2 size={18} aria-hidden="true" /></button>}
           {onNewNote && !isMobileViewport && <button className="icon-button list-new-note-button" type="button" aria-label={`在${currentNotebookName}中新建笔记`} onClick={onNewNote}><Plus size={18} /></button>}
 
           <div className="sort-menu-wrap" ref={sortRef}>

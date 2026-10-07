@@ -328,7 +328,9 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .list-header h2 { min-width: 0; margin: 0; overflow: hidden; font-size: 1.04rem; font-weight: 600; letter-spacing: -0.01em; text-overflow: ellipsis; white-space: nowrap; }
 .list-header p { margin: 4px 0 0; color: var(--soft-muted); font-size: 0.76rem; }
 .list-header-controls { display: flex; align-items: center; gap: 4px; margin-left: 12px; }
-.empty-trash-button { display: inline-flex; align-items: center; gap: 5px; padding: 5px 8px; border-radius: var(--radius-sm); white-space: nowrap; font-size: 0.74rem; font-weight: 500; }
+.empty-trash-button { width: 36px; height: 36px; flex: none; padding: 0; border-radius: var(--radius-sm); color: var(--muted); }
+.empty-trash-button:hover:not(:disabled), .empty-trash-button:focus-visible { border-color: var(--danger-border); background: var(--danger-soft); color: var(--danger); }
+.empty-trash-button:disabled { cursor: not-allowed; opacity: 0.48; }
 .list-new-note-button { color: var(--accent-dark); }
 .list-new-note-button:hover { border-color: var(--accent-border); background: var(--accent-soft); color: var(--accent-dark); }
 .sort-menu-wrap {
@@ -2019,11 +2021,7 @@ dialog::backdrop {
   top: max(14px, env(safe-area-inset-top));
   right: 24px;
   z-index: 5;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
   margin: 0;
-  padding: 6px 10px;
   border: 1px solid var(--border-soft);
   border-radius: 8px;
   background: var(--surface-glass-strong);
