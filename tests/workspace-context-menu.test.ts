@@ -25,6 +25,8 @@ describe("note context menu selection", () => {
     expect(cards).toContain('<span className="note-selection-slot" aria-hidden="true">{isSelected && <span className="note-selection-mark"');
     expect(cards).toContain('className={`note-card-header ${!isTrashView ? "has-favorite-action" : ""}`}');
     expect(css).toMatch(/\.note-selection-slot\s*\{[^}]*width:\s*22px;[^}]*height:\s*1\.35em/s);
+    expect(css).toMatch(/\.note-row-title\s*\{[^}]*position:\s*relative;[^}]*padding-right:\s*28px/s);
+    expect(css).toMatch(/\.note-row-title \.note-selection-slot\s*\{[^}]*position:\s*absolute;[^}]*top:\s*0;[^}]*right:\s*0/s);
     expect(css).toMatch(/\.note-selection-mark\s*\{[^}]*width:\s*22px;[^}]*height:\s*22px;[^}]*border-radius:\s*50%;[^}]*background:\s*var\(--accent-soft\);[^}]*box-shadow:\s*var\(--shadow-2xs\)/s);
     expect(css).toContain(".note-card-header .note-selection-slot { height: 1.42em; }");
     expect(css).toContain(".is-mobile-card-grid .note-card-header.has-favorite-action { padding-right: 24px; }");

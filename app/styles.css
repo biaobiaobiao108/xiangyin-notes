@@ -512,10 +512,11 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .note-row-thumbnail img { display: block; width: 54px; height: 54px; object-fit: cover; }
 .note-row-thumbnail--empty { border-color: transparent; background: transparent; }
 .note-row-main { display: grid; min-width: 0; gap: 6px; }
-.note-row-title { display: flex; align-items: flex-start; gap: 6px; min-width: 0; color: var(--ink); font-size: 0.94rem; font-weight: 600; letter-spacing: 0; }
-.note-row-title-text { display: -webkit-box; min-width: 0; overflow: clip; overflow-wrap: anywhere; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
+.note-row-title { position: relative; display: flex; align-items: flex-start; gap: 6px; min-width: 0; padding-right: 28px; color: var(--ink); font-size: 0.94rem; font-weight: 600; letter-spacing: 0; }
+.note-row-title-text { display: -webkit-box; flex: 1 1 auto; min-width: 0; overflow: clip; overflow-wrap: anywhere; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
 .note-row-title svg { flex: none; margin-top: 0.15em; color: var(--accent); }
 .note-selection-slot { display: inline-grid; flex: none; place-items: center; width: 22px; height: 1.35em; }
+.note-row-title .note-selection-slot { position: absolute; top: 0; right: 0; }
 .note-selection-mark { display: grid; place-items: center; width: 22px; height: 22px; border: 1px solid var(--accent-border-soft); border-radius: 50%; background: var(--accent-soft); box-shadow: var(--shadow-2xs); color: var(--accent-dark); }
 .note-selection-mark svg { display: block; margin: 0; color: inherit; }
 .note-row-preview { display: -webkit-box; min-width: 0; overflow: clip; overflow-wrap: anywhere; color: var(--muted); font-size: 0.79rem; line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
