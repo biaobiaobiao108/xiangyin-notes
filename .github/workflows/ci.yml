@@ -2,6 +2,8 @@ name: CI
 
 on:
   push:
+    branches:
+      - "**"
   pull_request:
 
 permissions:
@@ -18,7 +20,7 @@ jobs:
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.4.2
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -40,6 +42,33 @@ jobs:
         with:
           context: .
           push: false
+          load: true
           tags: xiangying-notes:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Run Docker image smoke check
+        shell: bash
+        run: |
+          set -euo pipefail
+          container_name=xiangying-notes-ci
+          cleanup() { docker rm --force --volumes "$container_name" >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+          docker run --detach --name "$container_name" --publish 127.0.0.1:3030:3030 \
+            --health-interval=1s --health-start-period=1s \
+            --env XIANGYING_USERNAME=ci \
+            --env XIANGYING_PASSWORD=ci-smoke-password \
+            --env PORT=3030 \
+            xiangying-notes:ci
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:3030/api/health >/dev/null; then
+              health_status="$(docker inspect --format='{{.State.Health.Status}}' "$container_name")"
+              if [[ "$health_status" == healthy ]]; then
+                docker exec "$container_name" sh -c 'test -w /data && : > /data/.write-check && rm /data/.write-check'
+                exit 0
+              fi
+            fi
+            sleep 1
+          done
+          docker logs "$container_name"
+          exit 1
