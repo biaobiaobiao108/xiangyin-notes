@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { Schema } from "@tiptap/pm/model";
+import { EditorState, type Transaction } from "@tiptap/pm/state";
 import { buildOutlineItems, countEditorText, detectLeakedImePrefix, getOutlineStructureKey, isMarkdownHeadingMarker, parseMarkdownBlockShortcut, parseMarkdownHeadingPrefix, shouldParseMarkdownPaste, shouldUpdateActiveOutlineFromViewport } from "../app/editor-metrics";
+import { countEditorDocumentText, updateEditorDocumentText, type EditorTextBlockStatsCache, type EditorTextStatsSnapshot } from "../app/editor-text-stats";
 import { healLeakedImePrefix } from "../app/ime-markdown-safe-extension";
 
 describe("editor metrics", () => {
@@ -17,6 +20,40 @@ describe("editor metrics", () => {
 
   test("counts long text without changing the result", () => {
     expect(countEditorText("a".repeat(100_000))).toEqual({ wordCount: 1, characterCount: 100_000 });
+  });
+
+  test("updates document statistics for inline and block edits", () => {
+    const schema = new Schema({
+      nodes: {
+        doc: { content: "block+" },
+        paragraph: { content: "inline*", group: "block" },
+        heading: { content: "inline*", group: "block" },
+        text: { group: "inline" },
+      },
+      marks: {},
+    });
+    const doc = schema.node("doc", null, [
+      schema.node("paragraph", null, [schema.text("第一段")]),
+      schema.node("paragraph", null, [schema.text("second paragraph")]),
+      schema.node("paragraph", null, [schema.text("最后一段")]),
+    ]);
+    let state = EditorState.create({ doc });
+    const cache: EditorTextBlockStatsCache = new WeakMap();
+    let snapshot: EditorTextStatsSnapshot = { doc: state.doc, stats: countEditorDocumentText(state.doc, cache) };
+    const applyAndCompare = (transaction: Transaction) => {
+      snapshot = updateEditorDocumentText(transaction, snapshot, cache);
+      state = state.apply(transaction);
+      expect(snapshot.doc).toBe(state.doc);
+      expect(snapshot.stats).toEqual(countEditorDocumentText(state.doc, new WeakMap()));
+    };
+
+    applyAndCompare(state.tr.insertText(" 新增", 5 + "second paragraph".length));
+
+    const firstBlockEnd = state.doc.child(0).nodeSize;
+    applyAndCompare(state.tr.delete(0, firstBlockEnd));
+
+    const insertedHeading = schema.node("heading", null, [schema.text("新标题")]);
+    applyAndCompare(state.tr.insert(0, insertedHeading));
   });
 
   test("builds a hierarchical outline with unique ids", () => {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { cycleSearchMatchIndex, findTextMatches, getSearchTerms, normalizeSearchMatchIndex } from "../app/editor-search";
+import { cycleSearchMatchIndex, findTextMatchSummary, findTextMatches, getSearchTerms, normalizeSearchMatchIndex } from "../app/editor-search";
 
 describe("editor search", () => {
   test("finds every Chinese match in document order", () => {
@@ -14,6 +14,24 @@ describe("editor search", () => {
     expect(findTextMatches("Search the SEARCH result", "search")).toEqual([
       { start: 0, end: 6 },
       { start: 11, end: 17 },
+    ]);
+  });
+
+  test("maps Unicode lowercase expansions back to original text offsets", () => {
+    expect(findTextMatches("İfoo İFOO", "foo")).toEqual([
+      { start: 1, end: 4 },
+      { start: 6, end: 9 },
+    ]);
+    expect(findTextMatches("İ", "i")).toEqual([{ start: 0, end: 1 }]);
+  });
+
+  test("limits stored matches while reporting the exact hit count", () => {
+    const summary = findTextMatchSummary("hit ".repeat(2_000), "hit", 3);
+    expect(summary.totalMatchCount).toBe(2_000);
+    expect(summary.matches).toEqual([
+      { start: 0, end: 3 },
+      { start: 4, end: 7 },
+      { start: 8, end: 11 },
     ]);
   });
 

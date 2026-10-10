@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { Markdown } from "@tiptap/markdown";
+import { Schema } from "@tiptap/pm/model";
+import { EditorState } from "@tiptap/pm/state";
 import { createMarkdownExtension } from "../app/editor/markdown-config";
 import { Info, Table2 } from "lucide-react";
 import { formatPreview } from "../server/core";
@@ -10,6 +12,7 @@ import { CalloutNode, CALLOUT_TYPES, shouldExitCalloutOnEnter } from "../app/edi
 import { CodeBlockDoubleEnter, handleCodeBlockDoubleEnter, shouldExitCodeBlockOnEnter } from "../app/editor/code-block-enter";
 import { handleInlineMarkExitOnEnter, InlineMarkExitOnEnter } from "../app/editor/inline-mark-exit";
 import { ImageNode } from "../app/editor/image-node";
+import { createSearchHighlightPlugin, findEditorSearchMatchSummary, MAX_SEARCH_HIGHLIGHTS, searchHighlightPluginKey } from "../app/editor-search";
 import { NoteLink } from "../app/editor/note-link";
 import { copyCodeBlockText } from "../app/editor/code-block-copy";
 import { pastePlainTextIntoCodeBlock } from "../app/editor/code-block-paste";
@@ -30,6 +33,19 @@ function createMarkdownEditor(content: string) {
     content,
     contentType: "markdown",
   });
+}
+
+function createSearchState(text: string) {
+  const schema = new Schema({
+    nodes: {
+      doc: { content: "block+" },
+      paragraph: { content: "inline*", group: "block" },
+      text: { group: "inline" },
+    },
+    marks: {},
+  });
+  const doc = schema.node("doc", null, [schema.node("paragraph", null, [schema.text(text)])]);
+  return EditorState.create({ doc, plugins: [createSearchHighlightPlugin()] });
 }
 
 describe("escaped hashtag Markdown", () => {
@@ -112,6 +128,31 @@ describe("slash command inline formatting", () => {
     } finally {
       editor.destroy();
     }
+  });
+});
+
+describe("editor search decorations", () => {
+  test("caps editor search decorations while retaining the total match count", () => {
+    const totalMatchCount = MAX_SEARCH_HIGHLIGHTS + 25;
+    let state = createSearchState("hit ".repeat(totalMatchCount));
+    state = state.apply(state.tr.setMeta(searchHighlightPluginKey, { type: "query", query: "hit" }));
+    const searchState = searchHighlightPluginKey.getState(state);
+    expect(searchState?.matches).toHaveLength(MAX_SEARCH_HIGHLIGHTS);
+    expect(searchState?.totalMatchCount).toBe(totalMatchCount);
+    expect(searchState?.decorations.find()).toHaveLength(MAX_SEARCH_HIGHLIGHTS);
+  });
+
+  test("keeps the first 500 navigable results accurate after an early match is removed", () => {
+    const totalMatchCount = MAX_SEARCH_HIGHLIGHTS + 25;
+    let state = createSearchState("hit ".repeat(totalMatchCount));
+    state = state.apply(state.tr.setMeta(searchHighlightPluginKey, { type: "query", query: "hit" }));
+    state = state.apply(state.tr.delete(1, 4));
+    const searchState = searchHighlightPluginKey.getState(state);
+    const expected = findEditorSearchMatchSummary(state.doc, "hit", MAX_SEARCH_HIGHLIGHTS);
+
+    expect(searchState?.matches).toEqual(expected.matches);
+    expect(searchState?.matches).toHaveLength(MAX_SEARCH_HIGHLIGHTS);
+    expect(searchState?.totalMatchCount).toBe(totalMatchCount - 1);
   });
 });
 

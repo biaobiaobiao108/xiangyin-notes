@@ -1,6 +1,6 @@
 import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
-import type { Editor, TextSerializer } from "@tiptap/core";
+import type { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { createMarkdownExtension } from "./editor/markdown-config";
 import TaskList from "@tiptap/extension-task-list";
@@ -14,8 +14,9 @@ import type { ImageAssetSummary, Note, NoteSummary } from "../shared/types";
 import { preserveEscapedHashtagsForEditor } from "../shared/tags";
 import { api } from "./api";
 import { BrandMark } from "./brand-mark";
-import { cycleSearchMatchIndex, findEditorSearchMatches, findTextMatches, searchHighlightPluginKey, SearchHighlightExtension } from "./editor-search";
+import { cycleSearchMatchIndex, findTextMatches, searchHighlightPluginKey, SearchHighlightExtension } from "./editor-search";
 import { buildOutlineItems, countEditorText, detectLeakedImePrefix, getOutlineStructureKey, parseMarkdownBlockShortcut, shouldParseMarkdownPaste, shouldUpdateActiveOutlineFromViewport, type EditorStats, type MarkdownBlockShortcut, type OutlineItem } from "./editor-metrics";
+import { getEditorDocumentTextSnapshot, updateEditorDocumentText, type EditorTextBlockStatsCache, type EditorTextStatsSnapshot } from "./editor-text-stats";
 import { changedDocumentRange } from "./editor/changed-range";
 import { scrollNoteBoundary } from "./editor/document-navigation";
 import { FloatingScrollbar } from "./floating-scrollbar";
@@ -51,36 +52,6 @@ const MAX_IMAGE_FILES_PER_ACTION = 10;
 const OUTLINE_HEADING_SELECTOR = "h1, h2, h3, h4, h5, h6";
 const EDITOR_SYNC_DEBOUNCE_MS = 180;
 const EDITOR_SYNC_MAX_WAIT_MS = 720;
-
-function getEditorTextBlockContent(node: ProseMirrorNode): string {
-  let text = "";
-  const range = { from: 0, to: node.content.size };
-  node.descendants((child, pos, parent, index) => {
-    const serializer = child.type.spec.toText as TextSerializer | undefined;
-    if (serializer) {
-      if (parent) text += serializer({ node: child, pos, parent, index, range });
-      return false;
-    }
-    if (child.isText) text += child.text ?? "";
-  });
-  return text;
-}
-
-function countEditorDocumentText(doc: ProseMirrorNode, cache: WeakMap<ProseMirrorNode, EditorStats>): EditorStats {
-  let wordCount = 0;
-  let characterCount = 0;
-  doc.descendants((node) => {
-    if (!node.isTextblock) return;
-    let stats = cache.get(node);
-    if (!stats) {
-      stats = countEditorText(getEditorTextBlockContent(node));
-      cache.set(node, stats);
-    }
-    wordCount += stats.wordCount;
-    characterCount += stats.characterCount;
-  });
-  return { wordCount, characterCount };
-}
 
 function rangeTouchesHeading(doc: ProseMirrorNode, from: number, to: number): boolean {
   const start = Math.max(0, Math.min(from, doc.content.size));
@@ -229,7 +200,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   const markdownSyncFrameRef = useRef<number | null>(null);
   const markdownSyncStartedAtRef = useRef<number | null>(null);
   const markdownDirtyRef = useRef(false);
-  const editorTextBlockStatsRef = useRef(new WeakMap<ProseMirrorNode, EditorStats>());
+  const editorTextBlockStatsRef = useRef<EditorTextBlockStatsCache>(new WeakMap<ProseMirrorNode, EditorStats>());
   const markdownOwnerRef = useRef({ noteId: note.id, reloadToken });
   const composingRef = useRef(false);
   const leakedCandidateRef = useRef<{ key: string; blockStartPos: number; emptyAtStart: boolean } | null>(null);
@@ -260,12 +231,13 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   }, []);
   const onChangeRef = useRef(onChange);
   const onMarkdownDirtyChangeRef = useRef(onMarkdownDirtyChange);
-  const surfaceSyncRef = useRef<(instance: Editor, outlineMayHaveChanged?: boolean) => void>(() => undefined);
+  const surfaceSyncRef = useRef<(instance: Editor, outlineMayHaveChanged?: boolean, transaction?: Transaction) => void>(() => undefined);
   const [editorStats, setEditorStats] = useState<EditorStats>(() => countEditorText(""));
+  const editorTextStatsSnapshotRef = useRef<EditorTextStatsSnapshot | null>(null);
   const [deferredLoading, setDeferredLoading] = useState(false);
   const [imageUploadState, setImageUploadState] = useState<"idle" | "uploading" | "error">("idle");
   const editorLocked = isLoading || deferredLoading || trashBusy;
-  const [searchNavigation, setSearchNavigation] = useState({ activeIndex: 0, matchCount: 0 });
+  const [searchNavigation, setSearchNavigation] = useState({ activeIndex: 0, matchCount: 0, totalMatchCount: 0 });
   const searchQueryRef = useRef(searchQuery);
   const searchNavigationRef = useRef(searchNavigation);
   const typewriterModeRef = useRef(typewriterMode);
@@ -383,7 +355,9 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   }, []);
 
   const syncEditorSurface = (instance: Editor, syncOutline: boolean) => {
-    const nextStats = countEditorDocumentText(instance.state.doc, editorTextBlockStatsRef.current);
+    const snapshot = getEditorDocumentTextSnapshot(instance.state.doc, editorTextStatsSnapshotRef.current, editorTextBlockStatsRef.current);
+    editorTextStatsSnapshotRef.current = snapshot;
+    const nextStats = snapshot.stats;
     startTransition(() => {
       setEditorStats((current) => current.wordCount === nextStats.wordCount && current.characterCount === nextStats.characterCount ? current : nextStats);
     });
@@ -407,7 +381,12 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     outlineHeadingElementsRef.current = new Map(nextItems.map((item, index) => [item.id, outlineHeadingElements[index]] as const));
     startTransition(() => onOutlineItemsChange(nextItems));
   };
-  const scheduleEditorSurfaceSync = (instance: Editor, outlineMayHaveChanged = true) => {
+  const scheduleEditorSurfaceSync = (instance: Editor, outlineMayHaveChanged = true, transaction?: Transaction) => {
+    if (transaction) {
+      editorTextStatsSnapshotRef.current = updateEditorDocumentText(transaction, editorTextStatsSnapshotRef.current, editorTextBlockStatsRef.current);
+    } else if (editorTextStatsSnapshotRef.current?.doc !== instance.state.doc) {
+      editorTextStatsSnapshotRef.current = getEditorDocumentTextSnapshot(instance.state.doc, editorTextStatsSnapshotRef.current, editorTextBlockStatsRef.current);
+    }
     syncOutlineDirtyRef.current ||= outlineMayHaveChanged;
     if (syncFrameRef.current !== null) {
       window.clearTimeout(syncFrameRef.current);
@@ -894,7 +873,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
         alignTypewriterRef.current(instance);
       }
       if (instance.view.composing || composingRef.current) return;
-      surfaceSyncRef.current(instance, transactionMayChangeOutline(transaction));
+      surfaceSyncRef.current(instance, transactionMayChangeOutline(transaction), transaction);
     },
   });
   mobileCaretScrollRef.current = useMobileCaret(editor, editorScrollRef, titleInputRef, isMobileViewport);
@@ -906,8 +885,8 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
 
   const syncSearchNavigation = useCallback((instance: Editor) => {
     const state = searchHighlightPluginKey.getState(instance.state);
-    const next = { activeIndex: state?.activeIndex ?? 0, matchCount: state?.matches.length ?? 0 };
-    setSearchNavigation((current) => current.activeIndex === next.activeIndex && current.matchCount === next.matchCount ? current : next);
+    const next = { activeIndex: state?.activeIndex ?? 0, matchCount: state?.matches.length ?? 0, totalMatchCount: state?.totalMatchCount ?? 0 };
+    setSearchNavigation((current) => current.activeIndex === next.activeIndex && current.matchCount === next.matchCount && current.totalMatchCount === next.totalMatchCount ? current : next);
   }, []);
 
   const syncActiveOutlineFromSelection = useCallback((instance: Editor) => {
@@ -1142,9 +1121,9 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     if (!editor || isLoading) return;
     const trimmedQuery = searchQuery.trim();
     const titleMatches = findTextMatches(note.title, trimmedQuery);
-    const bodyMatches = findEditorSearchMatches(editor.state.doc, trimmedQuery);
     editor.view.dispatch(editor.state.tr.setMeta(searchHighlightPluginKey, { type: "query", query: trimmedQuery, activeIndex: 0 }));
     syncSearchNavigation(editor);
+    const hasBodyMatches = (searchHighlightPluginKey.getState(editor.state)?.totalMatchCount ?? 0) > 0;
 
     const frame = requestAnimationFrame(() => {
       if (editor.isDestroyed) return;
@@ -1158,7 +1137,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
         }
         return;
       }
-      if (!bodyMatches.length) return;
+      if (!hasBodyMatches) return;
       editor.view.dom.querySelector<HTMLElement>(".editor-search-match--active")?.scrollIntoView({ behavior, block: "center", inline: "nearest" });
     });
     return () => cancelAnimationFrame(frame);
@@ -1170,7 +1149,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       if (event.target instanceof Element && event.target.closest("dialog[open]")) return;
       if (event.key === "F3") {
         if (event.defaultPrevented) return;
-        if (!searchQueryRef.current.trim() || searchNavigationRef.current.matchCount === 0) return;
+        if (!searchQueryRef.current.trim() || searchNavigationRef.current.totalMatchCount === 0) return;
         event.preventDefault();
         moveSearchMatch(event.shiftKey ? -1 : 1);
       } else if (event.key === "Escape") {
