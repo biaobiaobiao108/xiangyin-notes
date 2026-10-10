@@ -262,6 +262,10 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .notebook-section { display: flex; flex: 1 1 0; flex-direction: column; gap: 9px; min-height: 0; padding-top: 11px; border-top: 1px solid var(--line); overflow: visible; }
 .section-heading { display: flex; align-items: center; justify-content: space-between; padding: 0 10px; color: var(--muted); font-size: 0.76rem; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; }
 .notebook-list-scroll-shell { position: relative; flex: 1 1 0; min-height: 0; overflow: visible; }
+.notebook-list-scroll-shell::before, .notebook-list-scroll-shell::after { position: absolute; z-index: 1; inset-inline: 0; height: 26px; content: ""; opacity: 0; pointer-events: none; transition: opacity var(--motion-fast) var(--motion-ease-out); }
+.notebook-list-scroll-shell::before { inset-block-start: 0; background: linear-gradient(to bottom, var(--canvas), transparent); }
+.notebook-list-scroll-shell::after { inset-block-end: 0; background: linear-gradient(to top, var(--canvas), transparent); }
+.notebook-list-scroll-shell.has-scroll-before::before, .notebook-list-scroll-shell.has-scroll-after::after { opacity: 1; }
 .notebook-list-scroll-shell > .floating-scrollbar--left { inset-inline-start: -10px; }
 .notebook-list-scroll { height: 100%; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
 .tiny-button { width: 26px; height: 26px; }

@@ -20,6 +20,40 @@ export const Sidebar = memo(function Sidebar({ view, setView, notebooks, noteboo
   const notebookListRef = useRef<HTMLDivElement>(null);
   const collapsedNotebookListRef = useRef<HTMLDivElement>(null);
   const customNotebooks = useMemo(() => notebooks.filter((notebook) => !notebook.isSystem), [notebooks]);
+  const [notebookScrollEdges, setNotebookScrollEdges] = useState({ before: false, after: false });
+
+  useLayoutEffect(() => {
+    const scrollRoot = notebookListRef.current;
+    if (!scrollRoot) return;
+
+    let animationFrame = 0;
+    const updateScrollEdges = () => {
+      animationFrame = 0;
+      const nextEdges = {
+        before: scrollRoot.scrollTop > 1,
+        after: scrollRoot.scrollHeight - scrollRoot.clientHeight - scrollRoot.scrollTop > 1,
+      };
+      setNotebookScrollEdges((current) => current.before === nextEdges.before && current.after === nextEdges.after ? current : nextEdges);
+    };
+    const scheduleScrollEdgeUpdate = () => {
+      if (animationFrame) return;
+      animationFrame = requestAnimationFrame(updateScrollEdges);
+    };
+
+    updateScrollEdges();
+    scrollRoot.addEventListener("scroll", scheduleScrollEdgeUpdate, { passive: true });
+    const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(scheduleScrollEdgeUpdate);
+    resizeObserver?.observe(scrollRoot);
+    if (scrollRoot.firstElementChild) resizeObserver?.observe(scrollRoot.firstElementChild);
+    window.addEventListener("resize", scheduleScrollEdgeUpdate, { passive: true });
+
+    return () => {
+      scrollRoot.removeEventListener("scroll", scheduleScrollEdgeUpdate);
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", scheduleScrollEdgeUpdate);
+      if (animationFrame) cancelAnimationFrame(animationFrame);
+    };
+  }, [customNotebooks.length]);
 
   return <aside className="sidebar" aria-label="主导航">
     <div className="brand-row"><BrandMark /><span className="brand-name">象映笔记</span><button className="icon-button collapse-button" type="button" onClick={onCollapse} aria-label={collapsed ? "展开侧栏" : "收起侧栏"}><LayoutPanelLeft size={18} /></button></div>
@@ -50,7 +84,7 @@ export const Sidebar = memo(function Sidebar({ view, setView, notebooks, noteboo
     </div>
     <div className="notebook-section">
       <div className="section-heading"><span>笔记本</span><button className="icon-button tiny-button" type="button" aria-label="新建笔记本" onClick={onCreateNotebook}><Plus size={16} /></button></div>
-      <div className="notebook-list-scroll-shell">
+      <div className={`notebook-list-scroll-shell${notebookScrollEdges.before ? " has-scroll-before" : ""}${notebookScrollEdges.after ? " has-scroll-after" : ""}`}>
         <div id="notebook-list-scroll-region" className="notebook-list-scroll floating-scrollbar-target" ref={notebookListRef}>
           <ul>{customNotebooks.map((notebook) => {
             const NotebookIcon = getNotebookIconComponent(notebook.icon);
