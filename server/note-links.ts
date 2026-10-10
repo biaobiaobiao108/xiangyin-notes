@@ -120,7 +120,10 @@ export function resolveNoteLinksForTarget(database: SqliteDatabase, userId: stri
 export function sourceNoteIdsReferencingTarget(database: SqliteDatabase, userId: string, targetNoteId: string) {
   const rows = all<Pick<NoteLinkRow, "source_note_id" | "target_title" | "target_note_id">>(
     database,
-    "SELECT source_note_id, target_title, target_note_id FROM note_links WHERE user_id = ? AND target_note_id = ? AND source_note_id != ?",
+    `SELECT nl.source_note_id, nl.target_title, nl.target_note_id
+     FROM note_links nl
+     JOIN notes n ON n.id = nl.source_note_id AND n.user_id = nl.user_id
+     WHERE nl.user_id = ? AND nl.target_note_id = ? AND nl.source_note_id != ? AND n.deleted_at IS NULL`,
     userId,
     targetNoteId,
     targetNoteId,

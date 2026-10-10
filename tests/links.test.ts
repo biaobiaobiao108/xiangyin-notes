@@ -98,6 +98,32 @@ describe("Note links, backlinks, and renaming cascade", () => {
     expect(backlinks.body?.linkedReferences.map((link: { sourceNoteId: string }) => link.sourceNoteId)).toContain(source.id);
   });
 
+  test("renaming a target leaves references in trashed source notes untouched", async () => {
+    const auth = await request("/api/auth/login", {
+      method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
+    });
+    const cookie = auth.cookie!;
+    const target = (await request("/api/notes", {
+      method: "POST", body: JSON.stringify({ title: "原始标题" }),
+    }, cookie)).body?.note as Note;
+    const source = (await request("/api/notes", {
+      method: "POST", body: JSON.stringify({ title: "回收站来源", contentMarkdown: "保留 [[原始标题]]" }),
+    }, cookie)).body?.note as Note;
+    const trashed = await request(`/api/notes/${source.id}`, {
+      method: "PATCH", body: JSON.stringify({ version: source.version, deleted: true }),
+    }, cookie);
+    expect(trashed.response.status).toBe(200);
+
+    const renamed = await request(`/api/notes/${target.id}`, {
+      method: "PATCH", body: JSON.stringify({ version: target.version, title: "新标题" }),
+    }, cookie);
+    expect(renamed.response.status).toBe(200);
+
+    const unchangedSource = await request(`/api/notes/${source.id}`, { method: "GET" }, cookie);
+    expect(unchangedSource.body?.note.contentMarkdown).toBe("保留 [[原始标题]]");
+    expect(unchangedSource.body?.note.version).toBe(trashed.body?.note.version);
+  });
+
   test("creates links, queries backlinks and unlinked mentions, and cascades title updates", async () => {
     // 1. Authenticate
     const auth = await request("/api/auth/login", {

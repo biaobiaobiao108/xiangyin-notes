@@ -23,6 +23,7 @@ import {
   NOTE_BODY_MAX_BYTES,
   NOTE_CONTENT_MAX_LENGTH,
   NOTE_FROM,
+  NOTE_SELECT,
   NOTE_LIST_SELECT,
   NOTE_PAGE_SIZE,
   NOTE_VIEWS,
@@ -238,8 +239,13 @@ export function updateNoteInTransaction(
 
   if (titleChanged && oldTitle.trim() && title.trim()) {
     const referencingSourceNoteIds = sourceNoteIdsReferencingTarget(database, userId, current.id);
+    const selectReferencingNote = database.query(`
+      SELECT ${NOTE_SELECT}
+      FROM ${NOTE_FROM}
+      WHERE n.id = ? AND n.user_id = ? AND n.deleted_at IS NULL
+    `);
     for (const sourceNoteId of referencingSourceNoteIds) {
-      const refNote = getNote(database, userId, sourceNoteId);
+      const refNote = selectReferencingNote.get(sourceNoteId, userId) as NoteRow | null | undefined;
       if (!refNote) continue;
       const { content: replacedContent, count } = replaceWikiLinkTarget(refNote.content_markdown, oldTitle, title);
       if (count > 0) {
