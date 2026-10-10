@@ -198,10 +198,12 @@ export async function cleanupOrphanAssetFiles(database: SqliteDatabase, assetRoo
   }
 }
 
-export async function cleanupOrphanAssets(database: SqliteDatabase, assetRoot: string) {
-  const timestamp = now();
+export async function cleanupOrphanAssets(database: SqliteDatabase, assetRoot: string, timestamp = now()) {
   if (timestamp < nextOrphanAssetCleanupAt) return;
   nextOrphanAssetCleanupAt = timestamp + ORPHAN_ASSET_CLEANUP_INTERVAL_SECONDS;
+  // Pending markers represent file deletes that outlived their database rows.
+  // Retry them even when this sweep finds no stale rows to delete.
+  await retryPendingAssetDeletions(assetRoot);
   // Asset ids are UUIDs and references in Markdown are matched case-insensitively elsewhere,
   // so the orphan check must lowercase both sides or referenced images would be deleted.
   const staleAssets = all<{ id: string; storage_path: string }>(database, `
@@ -233,7 +235,6 @@ export async function cleanupOrphanAssets(database: SqliteDatabase, assetRoot: s
     return deletedPaths;
   });
   const stalePaths = deleteStaleAssets();
-  await retryPendingAssetDeletions(assetRoot);
   await removeAssetFiles(assetRoot, stalePaths);
   await cleanupOrphanAssetFiles(database, assetRoot, timestamp);
 }
