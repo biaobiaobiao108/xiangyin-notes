@@ -4,6 +4,11 @@ export type ParsedImageSource = {
   height: number | null;
 };
 
+export function isExternalImageSource(source: string) {
+  const normalized = source.trim().replace(/\\/gu, "/");
+  return /^(?:https?:\/|\/\/)/iu.test(normalized);
+}
+
 function positiveInteger(value: string | null) {
   if (!value || !/^\d+$/u.test(value)) return null;
   const parsed = Number(value);

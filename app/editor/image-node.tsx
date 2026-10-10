@@ -1,7 +1,7 @@
-import { useEffect, useRef, type CSSProperties, type PointerEvent as ReactPointerEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Node, mergeAttributes } from "@tiptap/core";
 import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
-import { escapeImageAlt, parseImageSource, serializeImageSource } from "../image-markdown";
+import { escapeImageAlt, isExternalImageSource, parseImageSource, serializeImageSource } from "../image-markdown";
 
 type ImageNodeAttrs = {
   assetId: string | null;
@@ -24,6 +24,9 @@ function imageDimensions(node: NodeViewProps["node"]) {
 function ResizableImageView({ node, selected, editor, updateAttributes }: NodeViewProps) {
   const attrs = node.attrs as ImageNodeAttrs;
   const source = parseImageSource(attrs.src);
+  const [loadedExternalSource, setLoadedExternalSource] = useState<string | null>(null);
+  const isExternal = !attrs.assetId && isExternalImageSource(source.src);
+  const imageSource = isExternal ? (loadedExternalSource === source.src ? source.src : null) : source.src;
   const { width, height } = imageDimensions(node);
   const frameRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ startX: number; startWidth: number; ratio: number; currentWidth: number; maxWidth: number; animationFrame: number | null; pointerId: number } | null>(null);
@@ -102,8 +105,26 @@ function ResizableImageView({ node, selected, editor, updateAttributes }: NodeVi
   const frameStyle = { "--image-display-width": `${Math.round(width)}px` } as CSSProperties;
   return <NodeViewWrapper className={`note-image-node ${selected ? "is-selected" : ""}`}>
     <span ref={frameRef} className="note-image-frame" style={frameStyle}>
-      <img className="note-image" src={source.src} alt={attrs.alt} width={Math.round(width)} height={Math.round(height)} draggable={false} decoding="async" loading={editor.isEditable ? "eager" : "lazy"} />
-      {editor.isEditable && selected && <button className="note-image-resize-handle" type="button" aria-label="调整图片大小" onPointerDown={startResize} onKeyDown={adjustByKeyboard} />}
+      {imageSource ? (
+        <img className="note-image" src={imageSource} alt={attrs.alt} width={Math.round(width)} height={Math.round(height)} draggable={false} decoding="async" loading={isExternal ? "lazy" : editor.isEditable ? "eager" : "lazy"} />
+      ) : (
+        <span className="note-image-loading" role="group" style={{ aspectRatio: `${Math.round(width)} / ${Math.round(height)}` }}>
+          <span>外链图片不会自动加载</span>
+          <span>点击后会向图片所在网站发起请求</span>
+          <button
+            className="secondary-button"
+            type="button"
+            aria-label="加载外链图片；加载后会向图片所在网站发起请求"
+            onPointerDown={(event) => event.stopPropagation()}
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              setLoadedExternalSource(source.src);
+            }}
+          >加载外链图片</button>
+        </span>
+      )}
+      {imageSource && editor.isEditable && selected && <button className="note-image-resize-handle" type="button" aria-label="调整图片大小" onPointerDown={startResize} onKeyDown={adjustByKeyboard} />}
     </span>
   </NodeViewWrapper>;
 }
