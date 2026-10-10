@@ -25,6 +25,17 @@ describe("WebP image inspection", () => {
     expect(inspectImage(bytes)).toBeNull();
   });
 
+  test("rejects high-bit RIFF chunk lengths without rewinding the parser", () => {
+    const bytes = new Uint8Array(20);
+    bytes.set(new TextEncoder().encode("RIFF"), 0);
+    bytes.set(new TextEncoder().encode("WEBP"), 8);
+    bytes.set(new TextEncoder().encode("JUNK"), 12);
+    // 0x80000000 is an unsigned RIFF size. Interpreting it as signed moves the
+    // old parser cursor billions of bytes backwards and can stall the server.
+    bytes.set([0x00, 0x00, 0x00, 0x80], 16);
+    expect(inspectImage(bytes)).toBeNull();
+  });
+
   test("rejects zero and excessive dimensions", () => {
     const bytes = lossyWebp.slice();
     bytes[26] = 0;

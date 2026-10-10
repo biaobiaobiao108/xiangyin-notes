@@ -74,7 +74,9 @@ function inspectWebp(bytes: Uint8Array): ImageInspection | null {
     const type = ascii(bytes, offset, 4);
     const size = littleEndian32(bytes, offset + 4);
     const data = offset + 8;
-    if (data + size > bytes.length) return null;
+    // RIFF chunk lengths are unsigned 32-bit values. Check against remaining
+    // bytes before advancing so malformed lengths can never rewind the cursor.
+    if (size > bytes.length - data) return null;
     if (type === "VP8X" && size >= 10) {
       const width = 1 + littleEndian24(bytes, data + 4);
       const height = 1 + littleEndian24(bytes, data + 7);
@@ -96,7 +98,7 @@ function inspectWebp(bytes: Uint8Array): ImageInspection | null {
 }
 
 function littleEndian32(bytes: Uint8Array, offset: number) {
-  return bytes[offset] | (bytes[offset + 1] << 8) | (bytes[offset + 2] << 16) | (bytes[offset + 3] * 0x1000000);
+  return bytes[offset] + bytes[offset + 1] * 0x100 + bytes[offset + 2] * 0x10000 + bytes[offset + 3] * 0x1000000;
 }
 
 export function inspectImage(bytes: Uint8Array): ImageInspection | null {
