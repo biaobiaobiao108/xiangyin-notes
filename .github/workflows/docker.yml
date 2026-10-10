@@ -13,13 +13,10 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  verify:
-    name: Verify release candidate
+  validate-tag:
+    name: Validate release tag
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
       - name: Validate release tag
         shell: bash
         env:
@@ -32,65 +29,13 @@ jobs:
             exit 1
           fi
 
-      - name: Install Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.4.2
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Typecheck
-        run: bun run typecheck
-
-      - name: Build application
-        run: bun run build
-
-      - name: Test
-        run: bun test
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Validate Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: false
-          load: true
-          tags: xiangying-notes:release-check
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Run Docker image smoke check
-        shell: bash
-        run: |
-          set -euo pipefail
-          container_name=xiangying-notes-release-check
-          cleanup() { docker rm --force --volumes "$container_name" >/dev/null 2>&1 || true; }
-          trap cleanup EXIT
-          docker run --detach --name "$container_name" --publish 127.0.0.1:3030:3030 \
-            --health-interval=1s --health-start-period=1s \
-            --env XIANGYING_USERNAME=ci \
-            --env XIANGYING_PASSWORD=ci-smoke-password \
-            --env PORT=3030 \
-            xiangying-notes:release-check
-          for attempt in {1..30}; do
-            if curl --fail --silent http://127.0.0.1:3030/api/health >/dev/null; then
-              health_status="$(docker inspect --format='{{.State.Health.Status}}' "$container_name")"
-              if [[ "$health_status" == healthy ]]; then
-                docker exec "$container_name" sh -c 'test -w /data && : > /data/.write-check && rm /data/.write-check'
-                exit 0
-              fi
-            fi
-            sleep 1
-          done
-          docker logs "$container_name"
-          exit 1
+  verify:
+    name: Verify release candidate
+    uses: ./.github/workflows/ci.yml
 
   publish:
     name: Build and publish image
-    needs: verify
+    needs: [validate-tag, verify]
     runs-on: ubuntu-latest
     permissions:
       contents: write
