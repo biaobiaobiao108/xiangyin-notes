@@ -64,7 +64,10 @@ export async function handleExportRoute(ctx: RouteContext, user: UserRow, assetR
 
   const assetRows = all<ExportAssetRow>(
     database,
-    "SELECT id, storage_path, original_name, mime_type, byte_size FROM image_assets WHERE user_id = ?",
+    `SELECT a.id, a.storage_path, a.original_name, a.mime_type, a.byte_size
+     FROM image_assets a
+     JOIN notes n ON n.id = a.note_id AND n.user_id = a.user_id AND n.deleted_at IS NULL
+     WHERE a.user_id = ?`,
     user.id,
   );
 

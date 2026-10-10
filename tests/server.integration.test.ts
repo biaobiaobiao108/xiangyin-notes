@@ -1131,6 +1131,42 @@ describe("Bun Server API", () => {
     expect(archive).not.toContain(originalName);
   });
 
+  test("exports only attachments referenced by non-trashed notes", async () => {
+    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
+    const activeUpload = await request("/api/assets", { method: "POST", body: imageForm("active.png") }, login.cookie);
+    const trashedUpload = await request("/api/assets", { method: "POST", body: imageForm("trashed.png") }, login.cookie);
+    const orphanUpload = await request("/api/assets", { method: "POST", body: imageForm("orphan.png") }, login.cookie);
+    const activeAsset = activeUpload.body?.asset;
+    const trashedAsset = trashedUpload.body?.asset;
+    const orphanAsset = orphanUpload.body?.asset;
+    expect(activeUpload.response.status).toBe(201);
+    expect(trashedUpload.response.status).toBe(201);
+    expect(orphanUpload.response.status).toBe(201);
+
+    const activeNote = await request("/api/notes", {
+      method: "POST",
+      body: JSON.stringify({ title: "active image", contentMarkdown: `![active](${activeAsset.url})` }),
+    }, login.cookie);
+    const trashedNote = await request("/api/notes", {
+      method: "POST",
+      body: JSON.stringify({ title: "trashed image", contentMarkdown: `![trashed](${trashedAsset.url})` }),
+    }, login.cookie);
+    expect(activeNote.response.status).toBe(201);
+    expect(trashedNote.response.status).toBe(201);
+    const trashed = await request(`/api/notes/${trashedNote.body?.note.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ version: trashedNote.body?.note.version, deleted: true }),
+    }, login.cookie);
+    expect(trashed.response.status).toBe(200);
+
+    const exported = await handleRequest(new Request("http://xiangying.test/api/export", { headers: { Cookie: login.cookie ?? "" } }), { database, environment, clientRoot: "dist/client", assetRoot });
+    const archive = new TextDecoder().decode(new Uint8Array(await exported.arrayBuffer()));
+
+    expect(archive).toContain(`attachments/${activeAsset.id}_active.png`);
+    expect(archive).not.toContain(`attachments/${trashedAsset.id}_trashed.png`);
+    expect(archive).not.toContain(`attachments/${orphanAsset.id}_orphan.png`);
+  });
+
   test("exports Markdown image URLs that resolve filenames with spaces and URL syntax", async () => {
     const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
     const names = ["Screen Shot.png", "figure#1%.png", "figure(unbalanced.png", "中文 图片).png"];
