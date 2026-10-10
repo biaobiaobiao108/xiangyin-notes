@@ -117,16 +117,27 @@ export function resolveNoteLinksForTarget(database: SqliteDatabase, userId: stri
   database.query("UPDATE note_links SET target_note_id = ? WHERE user_id = ? AND target_note_id IS NULL AND target_title_normalized = ?").run(targetNoteId, userId, normalized);
 }
 
-export function sourceNoteIdsReferencingTarget(database: SqliteDatabase, userId: string, targetNoteId: string) {
-  const rows = all<Pick<NoteLinkRow, "source_note_id" | "target_title" | "target_note_id">>(
+export function sourceNoteIdsReferencingTarget(
+  database: SqliteDatabase,
+  userId: string,
+  targetNoteId: string,
+  afterSourceNoteId: string,
+  limit: number,
+) {
+  const rows = all<{ source_note_id: string }>(
     database,
-    `SELECT nl.source_note_id, nl.target_title, nl.target_note_id
+    `SELECT DISTINCT nl.source_note_id
      FROM note_links nl
      JOIN notes n ON n.id = nl.source_note_id AND n.user_id = nl.user_id
-     WHERE nl.user_id = ? AND nl.target_note_id = ? AND nl.source_note_id != ? AND n.deleted_at IS NULL`,
+     WHERE nl.user_id = ? AND nl.target_note_id = ? AND nl.source_note_id != ?
+       AND n.deleted_at IS NULL AND nl.source_note_id > ?
+     ORDER BY nl.source_note_id
+     LIMIT ?`,
     userId,
     targetNoteId,
     targetNoteId,
+    afterSourceNoteId,
+    limit,
   );
-  return [...new Set(rows.map((row) => row.source_note_id))];
+  return rows.map((row) => row.source_note_id);
 }

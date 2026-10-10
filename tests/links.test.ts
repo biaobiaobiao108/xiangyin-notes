@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyMigrations, openDatabase, type SqliteDatabase } from "../server/db";
 import { handleRequest } from "../server/index";
+import { NOTE_RENAME_SOURCE_BATCH_SIZE } from "../server/routes/notes";
 import type { Note, NoteBacklinksResponse } from "../shared/types";
 
 let database: SqliteDatabase;
@@ -38,6 +39,35 @@ async function request(path: string, init: RequestInit = {}, cookie?: string) {
 }
 
 describe("Note links, backlinks, and renaming cascade", () => {
+  test("renames links across bounded source-note batches", async () => {
+    const auth = await request("/api/auth/login", {
+      method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
+    });
+    const cookie = auth.cookie!;
+    const target = (await request("/api/notes", {
+      method: "POST", body: JSON.stringify({ title: "原名", contentMarkdown: "" }),
+    }, cookie)).body?.note as Note;
+    const sourceIds: string[] = [];
+    for (let index = 0; index < NOTE_RENAME_SOURCE_BATCH_SIZE + 1; index += 1) {
+      const source = (await request("/api/notes", {
+        method: "POST", body: JSON.stringify({ title: `来源 ${index}`, contentMarkdown: "引用 [[原名]]" }),
+      }, cookie)).body?.note as Note;
+      sourceIds.push(source.id);
+    }
+
+    const renamed = await request(`/api/notes/${target.id}`, {
+      method: "PATCH", body: JSON.stringify({ version: target.version, title: "新名" }),
+    }, cookie);
+
+    expect(renamed.response.status).toBe(200);
+    const placeholders = sourceIds.map(() => "?").join(", ");
+    const updatedCount = database.query(`
+      SELECT COUNT(*) AS count FROM notes
+      WHERE id IN (${placeholders}) AND content_markdown = '引用 [[新名]]' AND version = 2
+    `).get(...sourceIds) as { count: number };
+    expect(updatedCount.count).toBe(sourceIds.length);
+  });
+
   test("renaming a target preserves code examples while updating its real backlinks", async () => {
     const auth = await request("/api/auth/login", {
       method: "POST", body: JSON.stringify({ username: "owner", password: "a long passphrase 1234" }),

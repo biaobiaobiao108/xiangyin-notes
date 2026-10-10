@@ -58,6 +58,7 @@ import { publishWorkspaceChange } from "../realtime";
 
 const NOTE_BATCH_LIMIT = 500;
 const NOTE_BATCH_BODY_MAX_BYTES = 64 * 1024;
+export const NOTE_RENAME_SOURCE_BATCH_SIZE = 16;
 const NOTE_SORTS: NoteSort[] = ["updated", "created", "title"];
 const NOTE_LIST_MAX_OFFSET = 1_000_000;
 const NOTE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
@@ -238,17 +239,27 @@ export function updateNoteInTransaction(
   }
 
   if (titleChanged && oldTitle.trim() && title.trim()) {
-    const referencingSourceNoteIds = sourceNoteIdsReferencingTarget(database, userId, current.id);
-    const selectReferencingNote = database.query(`
-      SELECT ${NOTE_SELECT}
-      FROM ${NOTE_FROM}
-      WHERE n.id = ? AND n.user_id = ? AND n.deleted_at IS NULL
-    `);
-    for (const sourceNoteId of referencingSourceNoteIds) {
-      const refNote = selectReferencingNote.get(sourceNoteId, userId) as NoteRow | null | undefined;
-      if (!refNote) continue;
-      const { content: replacedContent, count } = replaceWikiLinkTarget(refNote.content_markdown, oldTitle, title);
-      if (count > 0) {
+    let afterSourceNoteId = "";
+    while (true) {
+      const sourceNoteIds = sourceNoteIdsReferencingTarget(
+        database,
+        userId,
+        current.id,
+        afterSourceNoteId,
+        NOTE_RENAME_SOURCE_BATCH_SIZE,
+      );
+      if (sourceNoteIds.length === 0) break;
+      afterSourceNoteId = sourceNoteIds[sourceNoteIds.length - 1]!;
+
+      const placeholders = sourceNoteIds.map(() => "?").join(", ");
+      const referencingNotes = all<NoteRow>(database, `
+        SELECT ${NOTE_SELECT}
+        FROM ${NOTE_FROM}
+        WHERE n.id IN (${placeholders}) AND n.user_id = ? AND n.deleted_at IS NULL
+      `, ...sourceNoteIds, userId);
+      for (const refNote of referencingNotes) {
+        const { content: replacedContent, count } = replaceWikiLinkTarget(refNote.content_markdown, oldTitle, title);
+        if (count === 0) continue;
         if (replacedContent.length > NOTE_CONTENT_MAX_LENGTH) throw new NoteRenameContentTooLargeError();
         database.query("UPDATE notes SET content_markdown = ?, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ?").run(replacedContent, updatedAt, refNote.id, userId);
         syncNoteTags(database, userId, refNote.id, replacedContent);
