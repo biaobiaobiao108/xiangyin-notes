@@ -1,4 +1,4 @@
-FROM oven/bun:alpine AS builder
+FROM oven/bun:1.4.3-alpine AS builder
 
 WORKDIR /app
 
@@ -10,11 +10,9 @@ COPY server ./server
 COPY shared ./shared
 COPY scripts ./scripts
 COPY migrations ./migrations
-COPY tsconfig.json ./tsconfig.json
-
 RUN bun run build
 
-FROM oven/bun:alpine AS runtime
+FROM oven/bun:1.4.3-alpine AS runtime
 
 WORKDIR /app
 
