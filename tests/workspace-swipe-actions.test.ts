@@ -1,6 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { shouldKeepSwipeActionsOpenAfterCancel, shouldOpenSwipeActions } from "../app/workspace/swipe-actions";
 
+describe("desktop sidebar row spacing", () => {
+  test("gives system navigation rows a little more breathing room than notebook rows", async () => {
+    const css = await Bun.file("app/styles.css").text();
+    expect(css).toMatch(/\.main-nav ul\s*\{\s*gap:\s*8px;\s*\}/);
+    expect(css).toMatch(/\.notebook-section ul\s*\{\s*gap:\s*6px;\s*\}/);
+  });
+});
+
 describe("desktop note list separators", () => {
   test("uses an inset soft divider between note rows", async () => {
     const css = await Bun.file("app/styles.css").text();

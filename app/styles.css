@@ -246,7 +246,9 @@ button:disabled { cursor: not-allowed; opacity: 0.52; }
 .search-clear { display: inline-grid; place-items: center; width: 22px; height: 22px; flex: none; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; transition: background-color var(--motion-fast) ease, color var(--motion-fast) ease; }
 .search-clear:hover { background: var(--hover-overlay); color: var(--ink); }
 kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-keyboard); color: var(--muted); font-size: 0.69rem; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; line-height: 1; white-space: nowrap; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04); }
-.main-nav ul, .notebook-section ul { display: grid; gap: 3px; margin: 0; padding: 0; list-style: none; }
+.main-nav ul, .notebook-section ul { display: grid; margin: 0; padding: 0; list-style: none; }
+.main-nav ul { gap: 8px; }
+.notebook-section ul { gap: 6px; }
 .nav-item, .notebook-item { display: flex; align-items: center; gap: 11px; width: 100%; min-height: 36px; padding: 0 10px; border: 0; border-radius: var(--radius-md); background: transparent; color: var(--quiet-ink); text-align: left; cursor: pointer; transition: background-color var(--motion-fast) var(--motion-ease-out), color var(--motion-fast) var(--motion-ease-out), box-shadow var(--motion-fast) var(--motion-ease-out); }
 .nav-item:hover { background: var(--control-hover); color: var(--ink); }
 .nav-item:focus-visible, .notebook-item:focus-visible { background: var(--control-hover); color: var(--ink); box-shadow: inset 0 0 0 2px var(--focus-ring); }
