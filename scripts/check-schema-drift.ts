@@ -13,29 +13,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { applyMigrations, databasePathFromEnv, openDatabase } from "../server/db";
+import { snapshotSchema } from "./schema-snapshot";
 
 const existingPath = process.argv[2]?.trim() || databasePathFromEnv(Bun.env);
-
-const normalize = (sql: string | null) => (sql ?? "").replace(/\s+/g, " ").replace(/"/g, "").trim();
-
-function snapshot(database: Database) {
-  const rows = database.query("SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' AND sql IS NOT NULL").all() as Array<{ type: string; name: string; sql: string }>;
-  const objects = new Map<string, string>();
-  for (const row of rows) {
-    // notes_fts 是外部内容表，其影子表由 SQLite 自行维护，不参与比较。
-    if (row.name.startsWith("notes_fts")) continue;
-    objects.set(`${row.type}:${row.name}`, normalize(row.sql));
-  }
-  return objects;
-}
 
 const targetPath = join(tmpdir(), `xiangying-schema-target-${crypto.randomUUID()}.sqlite`);
 const target = await openDatabase(targetPath);
 await applyMigrations(target);
 
 const existing = new Database(existingPath, { readonly: true });
-const existingObjects = snapshot(existing);
-const targetObjects = snapshot(target);
+const existingObjects = snapshotSchema(existing);
+const targetObjects = snapshotSchema(target);
 
 const missing: string[] = [];
 const different: string[] = [];
