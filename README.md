@@ -91,7 +91,7 @@ Markdown 中引用的外站图片默认不会自动加载。需要查看时，�
 
 ### 1. 在 Cloudflare 连接 GitHub
 
-打开 Cloudflare Dashboard 的 **Workers & Pages > Create application > Import a repository**，授权 Cloudflare 访问 GitHub 仓库并选择本项目。Workers Builds 的部署凭据在 Cloudflare 侧配置，不需要创建 GitHub Actions secrets。给构建凭据授予目标账号的 **Workers Scripts: Edit、D1: Edit、Workers R2 Storage: Edit** 权限。
+打开 Cloudflare Dashboard 的 **Workers & Pages > Create application**，选择创建 **Worker** 并导入 GitHub 仓库；不要创建 Pages 项目。授权 Cloudflare 访问 GitHub 仓库并选择本项目。Workers Builds 的部署凭据在 Cloudflare 侧配置，不需要创建 GitHub Actions secrets。给构建凭据授予目标账号的 **Workers Scripts: Edit、D1: Edit、Workers R2 Storage: Edit** 权限。
 
 在 Worker 的 **Settings > Build > Build Configuration** 设置：
 
@@ -101,7 +101,9 @@ Markdown 中引用的外站图片默认不会自动加载。需要查看时，�
 | Build command | `bun run build` |
 | Deploy command | `bun run cf:deploy` |
 
-确认 Worker 名称为 `xiangying-notes`，并保存配置后开始首次构建。仓库必须保留 `wrangler.jsonc`：Cloudflare 使用它部署 Worker 入口、静态资源和 D1、R2、Durable Object 绑定。只删除 GitHub Actions 的发布工作流；删除 Wrangler 配置会导致部署缺少这些绑定声明。
+在 **Settings > Build > Build Variables and Secrets** 添加构建变量 `BUN_VERSION=1.4.3`。Cloudflare 构建镜像默认 Bun 版本为 1.2.15，与本项目的锁文件格式不兼容；设置此变量后重新运行构建。它是构建工具版本设置，不是应用运行密钥。
+
+确认 Worker 名称为 `xiangying-notes`，并保存配置后开始首次构建。仓库必须保留 `wrangler.jsonc`：Cloudflare 使用它部署 Worker 入口、静态资源和 D1、R2、Durable Object 绑定。只删除 GitHub Actions 的发布工作流；删除 Wrangler 配置会导致部署缺少这些绑定声明。如果构建日志提示 `pages_build_output_dir`，说明创建成了 Pages 项目，请改用 Worker 项目重新连接仓库；本项目不是 Pages 项目。
 
 ### 2. 首次部署并初始化 D1
 
