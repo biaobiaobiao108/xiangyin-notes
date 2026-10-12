@@ -6,6 +6,7 @@ import {
   json,
   jsonError,
   NOTE_BODY_MAX_BYTES,
+  NOTE_CONTENT_MAX_BYTES,
   NOTE_CONTENT_MAX_LENGTH,
   now,
   readBodyBytes,
@@ -14,6 +15,7 @@ import {
   type SqliteDatabase,
   toNote,
   validNoteAssetReferences,
+  validNoteContent,
   validText,
 } from "../core";
 import { cleanupExpiredRateLimits, getAuthCredentials, ensureEnvironmentUser } from "./auth";
@@ -54,7 +56,7 @@ function importClientKey(request: Request, environment: Record<string, string | 
   return address.slice(0, 128) || "unknown";
 }
 
-export function checkImportRateLimit(
+export async function checkImportRateLimit(
   database: SqliteDatabase,
   request: Request,
   environment: Record<string, string | undefined>,
@@ -62,39 +64,23 @@ export function checkImportRateLimit(
 ) {
   const key = importClientKey(request, environment, clientAddress);
   const timestamp = now();
-  cleanupExpiredRateLimits(database, timestamp);
+  await cleanupExpiredRateLimits(database, timestamp);
+  const result = await database.query(`
+    INSERT INTO rate_limits (action, key, points, window_started_at, blocked_until, updated_at)
+    VALUES ('import', ?, 1, ?, 0, ?)
+    ON CONFLICT(action, key) DO UPDATE SET
+      points = CASE WHEN excluded.window_started_at - rate_limits.window_started_at >= ? THEN 1 ELSE rate_limits.points + 1 END,
+      window_started_at = CASE WHEN excluded.window_started_at - rate_limits.window_started_at >= ? THEN excluded.window_started_at ELSE rate_limits.window_started_at END,
+      blocked_until = 0,
+      updated_at = excluded.updated_at
+    WHERE excluded.window_started_at - rate_limits.window_started_at >= ? OR rate_limits.points < ?
+  `).run(key, timestamp, timestamp, IMPORT_RATE_LIMIT_WINDOW_SECONDS, IMPORT_RATE_LIMIT_WINDOW_SECONDS, IMPORT_RATE_LIMIT_WINDOW_SECONDS, IMPORT_RATE_LIMIT_MAX_REQUESTS);
+  if (result.changes > 0) return null;
 
-  const blocked = database.transaction((): { retryAfter: number } | null => {
-    const row = database.query("SELECT points, window_started_at FROM rate_limits WHERE action = 'import' AND key = ?")
-      .get(key) as { points: number; window_started_at: number } | null | undefined;
-
-    if (!row || timestamp - row.window_started_at >= IMPORT_RATE_LIMIT_WINDOW_SECONDS) {
-      database.query(`
-        INSERT INTO rate_limits (action, key, points, window_started_at, blocked_until, updated_at)
-        VALUES ('import', ?, 1, ?, 0, ?)
-        ON CONFLICT(action, key) DO UPDATE SET
-          points = 1,
-          window_started_at = excluded.window_started_at,
-          blocked_until = 0,
-          updated_at = excluded.updated_at
-      `).run(key, timestamp, timestamp);
-      return null;
-    }
-
-    if (row.points >= IMPORT_RATE_LIMIT_MAX_REQUESTS) {
-      const retryAfter = Math.max(1, row.window_started_at + IMPORT_RATE_LIMIT_WINDOW_SECONDS - timestamp);
-      return { retryAfter };
-    }
-
-    database.query("UPDATE rate_limits SET points = points + 1, updated_at = ? WHERE action = 'import' AND key = ?")
-      .run(timestamp, key);
-    return null;
-  })();
-
-  if (blocked) {
-    return jsonError(429, "TOO_MANY_IMPORTS", "导入请求过于频繁，请稍后再试", { "Retry-After": String(blocked.retryAfter) });
-  }
-  return null;
+  const row = await database.query("SELECT window_started_at FROM rate_limits WHERE action = 'import' AND key = ?")
+    .get(key) as { window_started_at: number } | null | undefined;
+  const retryAfter = Math.max(1, (row?.window_started_at ?? timestamp) + IMPORT_RATE_LIMIT_WINDOW_SECONDS - timestamp);
+  return jsonError(429, "TOO_MANY_IMPORTS", "导入请求过于频繁，请稍后再试", { "Retry-After": String(retryAfter) });
 }
 
 type ReadTextBodyResult =
@@ -115,8 +101,8 @@ async function deterministicImportNoteId(userId: string, idempotencyKey: string)
   return `import-${await digestHex(`xiangying-import:${userId}:${idempotencyKey}`)}`;
 }
 
-function replayIdempotentImport(database: RouteContext["options"]["database"], userId: string, noteId: string, contentMarkdown: string) {
-  const existing = getNote(database, userId, noteId);
+async function replayIdempotentImport(database: RouteContext["options"]["database"], userId: string, noteId: string, contentMarkdown: string) {
+  const existing = await getNote(database, userId, noteId);
   if (!existing) return null;
   if (existing.content_markdown !== contentMarkdown) return jsonError(409, "IDEMPOTENCY_CONFLICT", "Idempotency-Key 已用于其他笔记内容");
   return json({ ok: true, note: toNote(existing) }, 200, { "Idempotent-Replayed": "true" });
@@ -145,7 +131,7 @@ export async function handleImportRoute(ctx: RouteContext): Promise<Response | n
   const environment = options.environment ?? {};
   const tokenError = requireApiToken(request, environment);
   if (tokenError) return tokenError;
-  const rateLimitError = checkImportRateLimit(options.database, request, environment, options.clientAddress);
+  const rateLimitError = await checkImportRateLimit(options.database, request, environment, options.clientAddress);
   if (rateLimitError) return rateLimitError;
 
   const credentials = getAuthCredentials(environment);
@@ -183,32 +169,32 @@ export async function handleImportRoute(ctx: RouteContext): Promise<Response | n
     contentMarkdown = body.text;
   }
 
-  if (!validText(contentMarkdown, NOTE_CONTENT_MAX_LENGTH)) return jsonError(413, "NOTE_TOO_LARGE", "笔记正文超过 1000000 个字符限制");
+  if (!validNoteContent(contentMarkdown)) return jsonError(413, "NOTE_TOO_LARGE", `笔记正文最多 ${NOTE_CONTENT_MAX_LENGTH.toLocaleString("en-US")} 个 UTF-16 code units 且不超过 ${NOTE_CONTENT_MAX_BYTES.toLocaleString("en-US")} 个 UTF-8 字节`);
   if (!contentMarkdown.trim()) return jsonError(400, "EMPTY_NOTE", "笔记正文不能为空");
 
   const user = await ensureEnvironmentUser(options.database, credentials);
-  const inbox = first<{ id: string }>(options.database, "SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1 LIMIT 1", user.id);
+  const inbox = await first<{ id: string }>(options.database, "SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1 LIMIT 1", user.id);
   if (!inbox) return jsonError(500, "NO_INBOX", "找不到收件箱");
-  if (!validNoteAssetReferences(options.database, user.id, null, contentMarkdown)) return jsonError(400, "INVALID_ASSET", "图片引用无效、不受支持或附件当前不可用");
+  if (!await validNoteAssetReferences(options.database, user.id, null, contentMarkdown)) return jsonError(400, "INVALID_ASSET", "图片引用无效、不受支持或附件当前不可用");
 
   const requestedId = idempotencyKey ? await deterministicImportNoteId(user.id, idempotencyKey) : undefined;
   if (requestedId) {
-    const replay = replayIdempotentImport(options.database, user.id, requestedId, contentMarkdown);
+    const replay = await replayIdempotentImport(options.database, user.id, requestedId, contentMarkdown);
     if (replay) return replay;
   }
 
   let noteId: string;
   try {
-    noteId = createNote(options.database, user.id, inbox.id, formatImportTitle(Math.floor(Date.now() / 1000)), contentMarkdown, requestedId);
+    noteId = await createNote(options.database, user.id, inbox.id, formatImportTitle(Math.floor(Date.now() / 1000)), contentMarkdown, requestedId);
   } catch (error) {
     if (requestedId) {
-      const replay = replayIdempotentImport(options.database, user.id, requestedId, contentMarkdown);
+      const replay = await replayIdempotentImport(options.database, user.id, requestedId, contentMarkdown);
       if (replay) return replay;
     }
     if (error instanceof Error && error.message === "invalid-note-assets") return jsonError(400, "INVALID_ASSET", "图片引用无效、不受支持或附件当前不可用");
     throw error;
   }
-  const note = getNote(options.database, user.id, noteId);
+  const note = await getNote(options.database, user.id, noteId);
   publishWorkspaceChange(options, user.id, { resource: "notes", noteId }, request);
   return json({ ok: true, note: note ? toNote(note) : null }, 201);
 }

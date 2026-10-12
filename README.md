@@ -4,7 +4,7 @@
 
 象映笔记是一款面向个人的 Markdown 笔记应用。它把写作、待办清单、图片、笔记整理、全文搜索和笔记关联放在同一个工作区。你可以先把内容写进收件箱，等有空时再归类、加标签，或连到相关笔记。
 
-你可以在自己的电脑、家用服务器或 NAS 上运行象映笔记。笔记正文保存在你部署的服务所使用的 SQLite 数据库中，图片附件保存在单独的目录里；不需要把笔记交给第三方云笔记服务托管。
+象映笔记可以部署到 Cloudflare Workers。笔记数据保存在 Cloudflare D1，图片附件保存在 Cloudflare R2，前端由 Workers Static Assets 提供。
 
 ## 看看实际界面
 
@@ -83,66 +83,69 @@ Markdown 中引用的外站图片默认不会自动加载。需要查看时，�
 - 象映笔记目前供一个人使用，不提供公开注册、多人协作或多租户账号。
 - 使用时需要连接到运行象映笔记的服务；目前不支持断网编辑和稍后自动上传。
 - 多设备通知用于更新其他页面的笔记列表和内容，不会合并同时发生的正文编辑。
-- 建议定期备份数据库和图片附件目录。服务运行期间不要直接复制正在使用的 SQLite 数据库文件；请先停服，或使用 SQLite 在线备份方式。
+- 请根据 Cloudflare D1 与 R2 的能力配置备份和保留策略。
 
 ## 快速开始
 
-最简单的长期使用方式是用 Docker 在自己的服务器或 NAS 上运行。先在项目目录创建 `.env`：
+象映笔记部署在 Cloudflare Workers，运行时需要 D1 数据库、R2 bucket 和账号凭据。先安装项目依赖并在 Cloudflare 创建资源：
+
+```bash
+bun install
+bunx wrangler d1 create xiangying-notes
+bunx wrangler r2 bucket create xiangying-notes-assets
+```
+
+将创建 D1 时返回的 `database_id` 填入 `wrangler.jsonc` 的 `d1_databases` 配置。然后配置 Worker 登录凭据；不要将真实凭据写入仓库：
+
+```bash
+bunx wrangler secret put XIANGYING_USERNAME
+bunx wrangler secret put XIANGYING_PASSWORD
+# 按需设置：
+bunx wrangler secret put XIANGYING_API_TOKEN
+bunx wrangler secret put XIANGYING_MCP_TOKEN
+bunx wrangler secret put PUBLIC_URL
+```
+
+首次部署或更新 schema 时，先应用 D1 migrations，再构建并部署：
+
+```bash
+bun run cf:db:migrate:remote
+bun run build
+bun run cf:deploy
+```
+
+本地开发使用 Wrangler 本地模拟环境：
+
+```bash
+bun run cf:db:migrate:local
+bun run cf:dev
+```
+
+首次本地登录需要在忽略文件 `.dev.vars` 中提供初始化账号：
 
 ```dotenv
-XIANGYING_USERNAME=
-XIANGYING_PASSWORD=
-# 使用快捷指令导入时再设置：
-# XIANGYING_API_TOKEN=
-# 使用远程 MCP 时另行设置，不要与上面的导入令牌共用：
-# XIANGYING_MCP_TOKEN=
+XIANGYING_USERNAME=local
+XIANGYING_PASSWORD=替换为本地开发密码
 ```
 
-复制为 `.env` 后，必须先为 `XIANGYING_USERNAME` 和 `XIANGYING_PASSWORD` 填入自己的登录凭据。快捷指令导入与远程 MCP 是可选功能；启用时分别生成独立随机令牌并填写对应变量。
+部署前需在 Cloudflare Dashboard 为 Worker 配置 `CLOUDFLARE_API_TOKEN` 和 `CLOUDFLARE_ACCOUNT_ID` GitHub Actions secrets；也可以从本机直接运行上述 Wrangler 命令。仓库中的“Deploy Cloudflare Worker”工作流只会在手动触发后执行远程迁移和部署。
 
-创建持久化数据卷并启动：
-
-```bash
-docker volume create xiangying-notes-data
-
-docker run -d \
-  --name xiangying-notes \
-  --restart unless-stopped \
-  -p 3000:3000 \
-  --env-file .env \
-  -v xiangying-notes-data:/data \
-  ghcr.io/biaobiaobiao108/xiangyin-notes:latest
-```
-
-启动后打开 `http://127.0.0.1:3000/app` 并使用 `.env` 中的账号登录。数据库和图片附件都会保存在 `xiangying-notes-data` 数据卷中。**注意：不要在 `.env` 里设置 `DATABASE_PATH`**——容器内的数据库路径固定为 `/data/xiangying-notes.sqlite`，一旦覆盖，数据和附件会写到容器内部目录而不在数据卷中，重建容器即丢失。首次启动的空数据库会自动初始化；升级已有安装时，拉取新镜像并停止旧容器后，显式执行迁移，再启动新版本：
-
-```bash
-docker pull ghcr.io/biaobiaobiao108/xiangyin-notes:latest
-docker stop xiangying-notes
-docker run --rm --env-file .env -v xiangying-notes-data:/data --entrypoint bun ghcr.io/biaobiaobiao108/xiangyin-notes:latest dist/server/migrate.js
-docker rm xiangying-notes
-```
-
-迁移完成后，按上面的启动命令重新创建容器，并继续使用原数据卷。即使该版本没有待执行的迁移，迁移命令也可安全重复运行。
-
-如果通过 HTTPS 反向代理从公网访问，请把 `PUBLIC_URL` 设置为实际访问的 HTTPS 根地址，并根据代理情况启用 `TRUST_PROXY=true` 和 `COOKIE_SECURE=true`。启用 `TRUST_PROXY` 时还要通过 `TRUSTED_PROXY_ADDRESSES` 配置应用实际看到的反向代理 IP（逗号分隔）；应用只信任这些代理转发的客户端 IP。反向代理应覆盖 `X-Forwarded-For` / `X-Real-IP`，并阻止公网绕过代理直连应用。仅在本机或局域网使用 HTTP 时，`COOKIE_SECURE` 保持默认的 `false`。
+本次 Cloudflare schema 面向空 D1 数据库。旧 SQLite 数据库不会自动迁移或导入；部署前请保留原数据库备份，并按需另行迁移数据。
 
 ### Agent 接入（MCP）
 
-MCP 服务直接运行在象映笔记容器内，不需要另起一个服务。生成独立的访问令牌并写入容器环境：
+MCP 服务由 Worker 提供。生成独立的访问令牌并作为 Worker secret 配置：
 
 ```bash
 openssl rand -hex 32
 ```
 
-```dotenv
-XIANGYING_MCP_TOKEN=上一步生成的随机令牌
-PUBLIC_URL=https://notes.example.com
+```bash
+bunx wrangler secret put XIANGYING_MCP_TOKEN
+bunx wrangler secret put PUBLIC_URL
 ```
 
-在 MCP 客户端中将服务地址填写为 `https://notes.example.com/mcp/<URL 编码后的令牌>`，无需额外配置 Bearer 请求头；MCP 只接受路径令牌，旧的 `Authorization` 认证方式不再生效。令牌仍从 `XIANGYING_MCP_TOKEN` 环境变量读取，拥有整个笔记库的搜索、读取、创建、更新、笔记本和回收站管理权限，请只配置给可信客户端。令牌位于 URL 路径中，可能出现在代理访问日志；请为 `/mcp/<令牌>` 配置路径脱敏，并只通过 HTTPS 访问。修改令牌后需要重新创建容器，令牌不会因单纯重启容器而从 `.env` 重新读取。
-
-反向代理需要将 `/mcp/<令牌>` 转发到应用容器，保留 MCP 协议请求头和 POST 请求体，并允许 `text/event-stream` 响应及时传递。使用 Nginx 时为该路径关闭响应缓冲（`proxy_buffering off`）；其他代理使用对应流式响应设置。
+在 MCP 客户端中将服务地址填写为 `https://notes.example.com/mcp/<URL 编码后的令牌>`，无需额外配置 Bearer 请求头；MCP 只接受路径令牌，旧的 `Authorization` 认证方式不再生效。令牌从 Worker secret `XIANGYING_MCP_TOKEN` 读取，拥有整个笔记库的搜索、读取、创建、更新、笔记本和回收站管理权限，请只配置给可信客户端。令牌位于 URL 路径中，可能出现在访问日志；请只通过 HTTPS 访问。需要轮换时重新执行 `wrangler secret put XIANGYING_MCP_TOKEN`。
 
 MCP 推荐工具：
 
@@ -168,7 +171,7 @@ MCP 推荐工具：
 
 长笔记可先用 `get_note_outline` 获取 `headings` 和 `version`，再用 `get_note_section` 按 `sectionId` 或精确 `heading` 读取；同名标题返回 `AMBIGUOUS_SECTION`，以从 1 开始的 `occurrence` 消歧。只识别 Markdown 文档级 ATX/setext 标题，不把代码、引用、列表或 HTML 内标题当成章节。章节包括标题和其下子章节，直到下一同级或更高级标题；`replace_note_section` 的 `contentMarkdown` 替换整个章节，必须包含希望保留的标题和子章节。建议将读取时的版本作为 `expectedVersion` 提交。正文改变后旧 `sectionId` 失效，需重新读取大纲；可传空正文删除章节。其余正文保持原样。
 
-写操作默认不返回正文，通过 `includeContent=true` 显式请求；管理和批量更新不支持该参数。`get_notes_batch` 最多读取 50 篇，总正文预算默认 20,000、最大 100,000 个 Unicode code points；超预算项列在 `oversizedIds` / `remainingIds`，逐篇读取不构成同一时刻快照。`contentLength` 同样按 code points 统计；单篇正文硬上限为 1,000,000 个 UTF-16 code units。普通笔记优先一次提交，只有客户端无法承载或 MCP 请求体超过 4.5 MB 时才用 `append_to_note` 分段，分段不能突破单篇上限。完整结果仅放在 `structuredContent` 中，`content` 只提供简短摘要，避免重复传输 JSON。客户端必须将 `structuredContent` 传递给模型；不支持仅透传文本的连接链路。省流量通过章节读取、摘要长度、批量预算和 `includeContent` 控制。
+写操作默认不返回正文，通过 `includeContent=true` 显式请求；管理和批量更新不支持该参数。`get_notes_batch` 最多读取 50 篇，总正文预算默认 20,000、最大 100,000 个 Unicode code points；超预算项列在 `oversizedIds` / `remainingIds`，逐篇读取不构成同一时刻快照。`contentLength` 同样按 code points 统计；单篇正文最多 1,000,000 个 UTF-16 code units 且最多 1,900,000 个 UTF-8 字节，正文保存在 D1 的单条笔记记录中。完整结果仅放在 `structuredContent` 中，`content` 只提供简短摘要，避免重复传输 JSON。客户端必须将 `structuredContent` 传递给模型；不支持仅透传文本的连接链路。省流量通过章节读取、摘要长度、批量预算和 `includeContent` 控制。
 
 成功结果统一为 `{ok:true,...}`。版本冲突、目标不存在、标题或章节歧义等可恢复业务分支返回 `{ok:false,error:{code,message,recoverable:true,...}}`，不设置 MCP `isError`，也不通过抛异常传递；按情况提供 `suggestedAction`、`currentVersion`、有界 `current` 摘要或 `matches`，调用方根据 `error.code` 继续处理。笔记、笔记本或正文片段不存在使用 `NOT_FOUND` 并保留 `target`，章节不存在使用 `SECTION_NOT_FOUND`，不提供旧错误码别名。参数错误由 SDK 校验拒绝，或返回带 `isError:true`、`recoverable:false` 的结构化结果。正文、ID、版本和错误恢复信息均从 `structuredContent` 读取。
 
@@ -180,32 +183,19 @@ MCP 推荐工具：
 
 MCP 只传输文字和 Markdown，不提供图片上传、图片数据或缩略图；正文可引用 HTTPS 图片或当前用户可用于该笔记的已上传附件，无效或不可用的图片引用会被拒绝，令牌不能用于读取 `/api/assets/` 图片。代码区外未转义的 `#标签` 会被索引，每个最多 40 个 UTF-16 code units；字面井号可用反斜杠转义。工具参数必须是 JSON 对象，结构化参数可直接传多行 Markdown；手写 JSON 的控制字符须按 JSON 规范转义。读取结果提供 ISO 时间字段。
 
-### 本机运行
+### 本地开发
 
-在安装了 Bun 的电脑上运行：
+安装依赖后，使用 Wrangler 的本地模拟环境开发和预览：
 
 ```bash
 bun install
-```
-
-将 `.env.example` 复制为 `.env`，填写 `XIANGYING_USERNAME` 和 `XIANGYING_PASSWORD`，然后构建并启动：
-
-```bash
-bun run build
-bun run start
-```
-
-访问 `http://127.0.0.1:3000/app`。修改项目并进行开发时，可以运行 `bun run dev`。
-
-升级已有安装时，已有数据库不会在启动时自动迁移，请在停服后显式执行迁移再启动新版本：
-
-```bash
-bun run db:migrate
+bun run cf:db:migrate:local
+bun run cf:dev
 ```
 
 ### 快捷指令导入
 
-配置 `XIANGYING_API_TOKEN` 后，将快捷指令中的“获取 URL 内容”设为 `POST`，请求地址使用 `https://你的域名/api/import`，请求头添加：
+配置 Worker secret `XIANGYING_API_TOKEN` 后，将快捷指令中的“获取 URL 内容”设为 `POST`，请求地址使用 `https://你的域名/api/import`，请求头添加：
 
 ```text
 Authorization: Bearer 你的令牌
@@ -231,7 +221,7 @@ macOS 上把 `Ctrl` 换成 `⌘`，把 `Alt` 换成 `⌥`。
 
 ## 项目信息
 
-象映笔记使用 Bun、TypeScript、React、Bun Server 和 SQLite 构建。开发时运行 `bun run dev`，类型检查、测试和构建命令分别是 `bun run typecheck`、`bun test` 和 `bun run build`。
+象映笔记使用 Bun、TypeScript、React、Cloudflare Workers 与 D1 构建。开发时运行 `bun run cf:dev`，类型检查、测试和构建命令分别是 `bun run typecheck`、`bun test` 和 `bun run build`。
 
 当前仓库未声明独立开源许可证。若要公开分发或二次开发，请先确认项目的授权范围。
 

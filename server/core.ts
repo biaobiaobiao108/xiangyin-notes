@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { extractTags, normalizeTag } from "../shared/tags";
 import type { ImageAssetSummary, Note, NoteSummary, NoteView } from "../shared/types";
 import type { RealtimeHub } from "./realtime";
-import type { SqliteDatabase } from "./db";
+import type { D1Value, SqliteDatabase } from "./db";
 
 export type { SqliteDatabase };
 
@@ -13,15 +13,37 @@ export function normalizeNoteTitle(value: string) {
   return value.trim() === "" ? "" : value;
 }
 
-export type SqlValue = string | number | null | Uint8Array | bigint;
+export type SqlValue = D1Value;
 
 export type ServerOptions = {
   database: SqliteDatabase;
+  assets?: R2BucketBinding;
+  staticAssets?: { fetch(request: Request): Promise<Response> };
+  realtimeNamespace?: RealtimeNamespaceBinding;
+  waitUntil?: (promise: Promise<unknown>) => void;
   environment?: Record<string, string | undefined>;
   clientRoot?: string;
   assetRoot?: string;
   clientAddress?: string;
   realtime?: RealtimeHub;
+};
+
+export type R2ObjectBinding = {
+  body: ReadableStream<Uint8Array>;
+  httpMetadata?: { contentType?: string; cacheControl?: string };
+  arrayBuffer(): Promise<ArrayBuffer>;
+};
+
+export type R2BucketBinding = {
+  put(key: string, value: ArrayBuffer | ArrayBufferView | ReadableStream<Uint8Array>, options?: { httpMetadata?: { contentType?: string; cacheControl?: string } }): Promise<unknown>;
+  get(key: string): Promise<R2ObjectBinding | null>;
+  delete(key: string | string[]): Promise<void>;
+  list(options?: { prefix?: string; limit?: number; cursor?: string }): Promise<{ objects: Array<{ key: string; uploaded?: Date }>; truncated: boolean; cursor?: string }>;
+};
+
+export type RealtimeNamespaceBinding = {
+  idFromName(name: string): unknown;
+  get(id: unknown): { fetch(request: Request): Promise<Response> };
 };
 
 export type AuthCredentials = {
@@ -108,6 +130,8 @@ export const NOTE_PREVIEW_LIMIT = 180;
 export const NOTE_PREVIEW_SCAN_LIMIT = NOTE_PREVIEW_LIMIT + 64;
 export const NOTE_BODY_MAX_BYTES = 4_500_000;
 export const NOTE_CONTENT_MAX_LENGTH = 1_000_000;
+// Leave room for the title, identifiers, and other columns under D1's 2 MB row limit.
+export const NOTE_CONTENT_MAX_BYTES = 1_900_000;
 export const LOGIN_WINDOW_SECONDS = 15 * 60;
 export const LOGIN_MAX_FAILURES = 8;
 export const LOGIN_BLOCK_SECONDS = 15 * 60;
@@ -122,16 +146,22 @@ export function now() {
   return Math.floor(Date.now() / 1000);
 }
 
-export function first<T>(database: SqliteDatabase, sql: string, ...values: SqlValue[]) {
-  return database.query(sql).get(...values) as T | null | undefined;
+export async function first<T>(database: SqliteDatabase, sql: string, ...values: SqlValue[]): Promise<T | null | undefined> {
+  return await database.query(sql).get(...values) as T | null | undefined;
 }
 
-export function all<T>(database: SqliteDatabase, sql: string, ...values: SqlValue[]) {
-  return database.query(sql).all(...values) as T[];
+export async function all<T>(database: SqliteDatabase, sql: string, ...values: SqlValue[]): Promise<T[]> {
+  return await database.query(sql).all(...values) as T[];
 }
 
 export function validText(value: unknown, maxLength: number) {
   return typeof value === "string" && value.length <= maxLength;
+}
+
+export function validNoteContent(value: unknown) {
+  return typeof value === "string"
+    && value.length <= NOTE_CONTENT_MAX_LENGTH
+    && new TextEncoder().encode(value).byteLength <= NOTE_CONTENT_MAX_BYTES;
 }
 
 export function escapeLikePattern(value: string) {
@@ -180,7 +210,12 @@ export async function hashPassword(password: string) {
 export function constantTimeEqual(a: string, b: string) {
   const hashA = createHash("sha256").update(a).digest();
   const hashB = createHash("sha256").update(b).digest();
-  return crypto.timingSafeEqual(hashA, hashB);
+  let difference = hashA.length ^ hashB.length;
+  const maxLength = Math.max(hashA.length, hashB.length);
+  for (let index = 0; index < maxLength; index += 1) {
+    difference |= (hashA[index] ?? 0) ^ (hashB[index] ?? 0);
+  }
+  return difference === 0;
 }
 
 function normalizedIp(value: string | undefined) {
@@ -857,17 +892,17 @@ export class InvalidNoteAssetsError extends Error {
   }
 }
 
-export function syncNoteTags(database: SqliteDatabase, userId: string, noteId: string, contentMarkdown: string) {
-  database.query("DELETE FROM note_tags WHERE note_id = ? AND user_id = ?").run(noteId, userId);
-  const insert = database.query("INSERT INTO note_tags (note_id, user_id, tag_normalized, tag, position) VALUES (?, ?, ?, ?, ?)");
+export async function syncNoteTags(database: SqliteDatabase, userId: string, noteId: string, contentMarkdown: string) {
   const seen = new Set<string>();
   let position = 0;
+  const statements: { sql: string; values: SqlValue[] }[] = [{ sql: "DELETE FROM note_tags WHERE note_id = ? AND user_id = ?", values: [noteId, userId] }];
   for (const tag of extractTags(contentMarkdown)) {
     const normalized = normalizeTag(tag);
     if (seen.has(normalized)) continue;
     seen.add(normalized);
-    insert.run(noteId, userId, normalized, tag, position++);
+    statements.push({ sql: "INSERT INTO note_tags (note_id, user_id, tag_normalized, tag, position) VALUES (?, ?, ?, ?, ?)", values: [noteId, userId, normalized, tag, position++] });
   }
+  await database.batch(statements);
 }
 
 export const ASSET_REFERENCE_PATTERN = /\/api\/assets\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})(?=[?#)\s]|$)/giu;
@@ -900,7 +935,7 @@ export function validNoteImageSource(source: string) {
   }
 }
 
-export function validNoteAssetReferences(
+export async function validNoteAssetReferences(
   database: SqliteDatabase,
   userId: string,
   noteId: string | null,
@@ -909,7 +944,7 @@ export function validNoteAssetReferences(
   if (noteImageSources(contentMarkdown).some((source) => !validNoteImageSource(source))) return false;
   const ids = noteAssetIds(contentMarkdown);
   if (!ids.length) return true;
-  const assets = all<Pick<ImageAssetRow, "id" | "note_id">>(
+  const assets = await all<Pick<ImageAssetRow, "id" | "note_id">>(
     database,
     `SELECT id, note_id FROM image_assets WHERE user_id = ? AND id IN (${ids.map(() => "?").join(",")})`,
     userId,
@@ -922,23 +957,15 @@ export function validNoteAssetReferences(
   });
 }
 
-export function syncNoteAssetReferences(
+export async function syncNoteAssetReferences(
   database: SqliteDatabase,
   userId: string,
   noteId: string,
   contentMarkdown: string,
 ) {
   const ids = noteAssetIds(contentMarkdown);
-  const detachedAssetCondition = ids.length ? `id NOT IN (${ids.map(() => "?").join(",")})` : "1 = 1";
-  database.query(`
-    UPDATE image_assets
-    SET note_id = NULL, document_order = NULL
-    WHERE note_id = ?
-      AND user_id = ?
-      AND ${detachedAssetCondition}
-  `).run(noteId, userId, ...ids);
   const assets = ids.length
-    ? all<ImageAssetRow>(
+    ? await all<ImageAssetRow>(
         database,
         `SELECT id, user_id, note_id, storage_path, original_name, mime_type, byte_size, width, height, document_order, created_at FROM image_assets WHERE user_id = ? AND id IN (${ids.map(() => "?").join(",")})`,
         userId,
@@ -956,15 +983,17 @@ export function syncNoteAssetReferences(
     return false;
   }
 
-  database.query("UPDATE image_assets SET document_order = NULL WHERE note_id = ? AND user_id = ?").run(noteId, userId);
+  const statements: { sql: string; values: SqlValue[] }[] = [{ sql: "UPDATE image_assets SET note_id = NULL, document_order = NULL WHERE note_id = ? AND user_id = ? AND " + (ids.length ? `id NOT IN (${ids.map(() => "?").join(",")})` : "1 = 1"), values: [noteId, userId, ...ids] }];
+  statements.push({ sql: "UPDATE image_assets SET document_order = NULL WHERE note_id = ? AND user_id = ?", values: [noteId, userId] });
   for (const [documentOrder, id] of ids.entries()) {
-    database.query("UPDATE image_assets SET note_id = ?, document_order = ? WHERE id = ? AND user_id = ?").run(noteId, documentOrder, id, userId);
+    statements.push({ sql: "UPDATE image_assets SET note_id = ?, document_order = ? WHERE id = ? AND user_id = ?", values: [noteId, documentOrder, id, userId] });
   }
+  await database.batch(statements);
   return true;
 }
 
-export function getNote(database: SqliteDatabase, userId: string, noteId: string) {
-  return first<NoteRow>(database, `
+export async function getNote(database: SqliteDatabase, userId: string, noteId: string) {
+  return await first<NoteRow>(database, `
     SELECT ${NOTE_SELECT}
     FROM ${NOTE_FROM}
     WHERE n.id = ? AND n.user_id = ?
@@ -982,13 +1011,13 @@ export type TitleMatchRow = {
 };
 
 // Shared title lookup so the REST and MCP layers cannot drift apart.
-export function findNotesByTitlePattern(
+export async function findNotesByTitlePattern(
   database: SqliteDatabase,
   userId: string,
   title: string,
   includeDeleted = false,
 ) {
-  return all<TitleMatchRow>(database, `
+  return await all<TitleMatchRow>(database, `
     SELECT n.id, n.title, n.version, b.name AS notebook_name,
       substr(n.content_markdown, 1, ${NOTE_PREVIEW_SCAN_LIMIT}) AS content_markdown,
       n.created_at, n.updated_at

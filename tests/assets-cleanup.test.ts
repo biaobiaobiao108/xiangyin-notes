@@ -1,46 +1,32 @@
-import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { mkdir, readdir, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { openDatabase, type SqliteDatabase } from "../server/db";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { openDatabase } from "../server/test-db";
+import type { TestSqliteDatabase } from "../server/test-db";
 import { cleanupOrphanAssets, ORPHAN_ASSET_CLEANUP_INTERVAL_SECONDS, removeAssetFiles } from "../server/routes/assets";
+import { MemoryR2Bucket } from "./memory-r2";
 
-let database: SqliteDatabase;
-let assetRoot: string;
+let database: TestSqliteDatabase;
+let bucket: MemoryR2Bucket;
 
 beforeEach(async () => {
   database = await openDatabase(":memory:");
-  assetRoot = join(tmpdir(), `xiangyin-notes-assets-${crypto.randomUUID()}`);
+  bucket = new MemoryR2Bucket();
 });
 
-afterEach(async () => {
-  database.close();
-  await rm(assetRoot, { recursive: true, force: true });
-});
+afterEach(() => database.close());
 
-describe("orphan asset cleanup", () => {
-  test("retries pending deletion markers when the database has no stale asset rows", async () => {
-    const storagePath = "blocked/retry.png";
-    const targetPath = join(assetRoot, storagePath);
-    await mkdir(targetPath, { recursive: true });
-    await Bun.write(join(targetPath, "nested"), "keep directory non-empty");
+describe("R2 asset cleanup", () => {
+  test("deletes object keys in batches", async () => {
+    await bucket.put("owner/old.png", new Uint8Array([1]));
+    await removeAssetFiles(bucket, ["owner/old.png"]);
+    expect(bucket.objects.has("owner/old.png")).toBe(false);
+  });
 
-    const warning = spyOn(console, "warn").mockImplementation(() => undefined);
-    try {
-      await removeAssetFiles(assetRoot, [storagePath]);
-    } finally {
-      warning.mockRestore();
-    }
-    const queueRoot = join(assetRoot, ".pending-delete");
-    expect((await readdir(queueRoot)).length).toBe(1);
-    expect(database.query("SELECT COUNT(*) AS count FROM image_assets").get()).toEqual({ count: 0 });
-
-    await rm(targetPath, { recursive: true });
-    await Bun.write(targetPath, "retry after restart");
-    const cleanupTimestamp = Math.floor(Date.now() / 1000) + ORPHAN_ASSET_CLEANUP_INTERVAL_SECONDS + 1;
-    await cleanupOrphanAssets(database, assetRoot, cleanupTimestamp);
-
-    expect(await Bun.file(targetPath).exists()).toBe(false);
-    expect(await readdir(queueRoot)).toEqual([]);
+  test("removes old unregistered UUID assets from R2", async () => {
+    const now = Math.floor(Date.now() / 1000) + ORPHAN_ASSET_CLEANUP_INTERVAL_SECONDS + 1;
+    const key = `${crypto.randomUUID()}/${crypto.randomUUID()}.png`;
+    await bucket.put(key, new Uint8Array([1]));
+    bucket.objects.get(key)!.uploaded = new Date((now - 25 * 60 * 60) * 1000);
+    await cleanupOrphanAssets(database, bucket, now);
+    expect(bucket.objects.has(key)).toBe(false);
   });
 });

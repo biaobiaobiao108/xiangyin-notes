@@ -1,6 +1,5 @@
-import { all, ASSET_REFERENCE_PATTERN, jsonError, type RouteContext, type UserRow } from "../core";
+import { all, ASSET_REFERENCE_PATTERN, first, jsonError, type RouteContext, type UserRow } from "../core";
 import { createZipReadableStream, type ZipStreamEntry } from "../../shared/zip";
-import { assetFilePath } from "./assets";
 
 export const EXPORT_MAX_BYTES = 512 * 1024 * 1024;
 
@@ -43,13 +42,14 @@ async function* oneChunk(bytes: Uint8Array) {
   yield bytes;
 }
 
-export async function handleExportRoute(ctx: RouteContext, user: UserRow, assetRoot: string): Promise<Response | null> {
+export async function handleExportRoute(ctx: RouteContext, user: UserRow): Promise<Response | null> {
   const { url, method, options } = ctx;
-  const { database } = options;
+  const { database, assets } = options;
 
   if (method !== "GET" || url.pathname !== "/api/export") return null;
+  if (!assets) return jsonError(503, "ASSET_STORAGE_UNAVAILABLE", "附件存储暂不可用");
 
-  const notes = all<ExportNoteRow>(
+  const notes = await all<ExportNoteRow>(
     database,
     `
     SELECT n.id, n.title, n.updated_at, b.name AS notebook_name,
@@ -62,7 +62,7 @@ export async function handleExportRoute(ctx: RouteContext, user: UserRow, assetR
     user.id,
   );
 
-  const assetRows = all<ExportAssetRow>(
+  const assetRows = await all<ExportAssetRow>(
     database,
     `SELECT a.id, a.storage_path, a.original_name, a.mime_type, a.byte_size
      FROM image_assets a
@@ -71,16 +71,14 @@ export async function handleExportRoute(ctx: RouteContext, user: UserRow, assetR
     user.id,
   );
 
-  const exportAssets: Array<ExportAssetRow & { file: Bun.BunFile; name: string }> = [];
+  const exportAssets: Array<ExportAssetRow & { body: ReadableStream<Uint8Array>; name: string }> = [];
   const assetFileNameMap = new Map<string, string>();
   for (const asset of assetRows) {
-    const filePath = assetFilePath(assetRoot, asset.storage_path);
-    if (!filePath) continue;
-    const file = Bun.file(filePath);
-    if (!(await file.exists())) continue;
+    const object = await assets.get(asset.storage_path);
+    if (!object) continue;
     const extension = ARCHIVE_ASSET_EXTENSIONS[asset.mime_type] ?? ".bin";
     const name = `attachments/${asset.id}_${safeArchiveAssetStem(asset.original_name)}${extension}`;
-    exportAssets.push({ ...asset, file, name });
+    exportAssets.push({ ...asset, body: object.body, name });
     assetFileNameMap.set(asset.id.toLowerCase(), name);
   }
 
@@ -104,13 +102,12 @@ export async function handleExportRoute(ctx: RouteContext, user: UserRow, assetR
 
   const entries = async function* (): AsyncGenerator<ZipStreamEntry> {
     for (const asset of exportAssets) {
-      yield { name: asset.name, stream: () => asset.file.stream() };
+      yield { name: asset.name, stream: () => asset.body };
     }
 
-    const contentStatement = database.query("SELECT content_markdown FROM notes WHERE id = ? AND user_id = ? AND deleted_at IS NULL");
     const encoder = new TextEncoder();
     for (const note of noteEntries) {
-      const row = contentStatement.get(note.id, user.id) as { content_markdown: string } | null;
+      const row = await first<{ content_markdown: string }>(database, "SELECT content_markdown FROM notes WHERE id = ? AND user_id = ? AND deleted_at IS NULL", note.id, user.id);
       if (!row) continue;
       ASSET_REFERENCE_PATTERN.lastIndex = 0;
       const content = row.content_markdown.replace(ASSET_REFERENCE_PATTERN, (_match, id: string) => {

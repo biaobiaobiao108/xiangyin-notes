@@ -2,12 +2,13 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyMigrations, openDatabase, type SqliteDatabase } from "../server/db";
+import { applyMigrations, openDatabase } from "../server/test-db";
+import type { TestSqliteDatabase } from "../server/test-db";
 import { handleRequest } from "../server/index";
 import { NOTE_RENAME_SOURCE_BATCH_SIZE } from "../server/routes/notes";
 import type { Note, NoteBacklinksResponse } from "../shared/types";
 
-let database: SqliteDatabase;
+let database: TestSqliteDatabase;
 let assetRoot: string;
 let clientAddress: string;
 const environment: Record<string, string | undefined> = {

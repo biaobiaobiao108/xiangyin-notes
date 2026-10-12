@@ -49,7 +49,7 @@ async function syncEnvironmentPassword(database: SqliteDatabase, credentials: Au
 
   const task = (async () => {
     await previous?.task;
-    const existing = first<UserRow & { password_hash: string; password_salt: string }>(
+    const existing = await first<UserRow & { password_hash: string; password_salt: string }>(
       database,
       "SELECT id, username, password_hash, password_salt FROM users WHERE username = ?",
       credentials.username,
@@ -59,11 +59,10 @@ async function syncEnvironmentPassword(database: SqliteDatabase, credentials: Au
     if (constantTimeEqual(derived, existing.password_hash)) return;
 
     const replacement = await hashPassword(credentials.password);
-    database.transaction(() => {
-      const updated = database.query("UPDATE users SET password_hash = ?, password_salt = ? WHERE id = ? AND password_hash = ? AND password_salt = ?")
-        .run(replacement.hash, replacement.salt, existing.id, existing.password_hash, existing.password_salt);
-      if (updated.changes) database.query("DELETE FROM sessions WHERE user_id = ?").run(existing.id);
-    })();
+    await database.batch([
+      { sql: "UPDATE users SET password_hash = ?, password_salt = ? WHERE id = ? AND password_hash = ? AND password_salt = ?", values: [replacement.hash, replacement.salt, existing.id, existing.password_hash, existing.password_salt] },
+      { sql: "DELETE FROM sessions WHERE user_id = ? AND EXISTS (SELECT 1 FROM users WHERE id = ? AND password_hash = ? AND password_salt = ?)", values: [existing.id, existing.id, replacement.hash, replacement.salt] },
+    ]);
   })();
   credentialChecks.set(database, { signature, task });
   try {
@@ -74,7 +73,7 @@ async function syncEnvironmentPassword(database: SqliteDatabase, credentials: Au
   }
 }
 
-export function getAuthCredentials(environment: RuntimeEnvironment = Bun.env): AuthCredentials | null {
+export function getAuthCredentials(environment: RuntimeEnvironment = {}): AuthCredentials | null {
   const username = environment.XIANGYING_USERNAME?.trim();
   const password = environment.XIANGYING_PASSWORD?.trim();
   if (!username || !password) return null;
@@ -94,19 +93,19 @@ export function loginClientKey(request: Request, environment: RuntimeEnvironment
 
 const nextRateLimitCleanupAt = new WeakMap<SqliteDatabase, number>();
 
-export function cleanupExpiredRateLimits(database: SqliteDatabase, timestamp: number) {
+export async function cleanupExpiredRateLimits(database: SqliteDatabase, timestamp: number) {
   const nextAt = nextRateLimitCleanupAt.get(database) ?? 0;
   if (timestamp < nextAt) return;
   nextRateLimitCleanupAt.set(database, timestamp + LOGIN_ATTEMPT_CLEANUP_INTERVAL_SECONDS);
-  database.query("DELETE FROM rate_limits WHERE blocked_until <= ? AND updated_at < ?").run(timestamp, timestamp - 3600);
-  pruneLoginRateLimits(database, LOGIN_ATTEMPT_MAX_ENTRIES);
+  await database.query("DELETE FROM rate_limits WHERE blocked_until <= ? AND updated_at < ?").run(timestamp, timestamp - 3600);
+  await pruneLoginRateLimits(database, LOGIN_ATTEMPT_MAX_ENTRIES);
 }
 
-function pruneLoginRateLimits(database: SqliteDatabase, maxEntries: number) {
-  const row = database.query("SELECT COUNT(*) AS count FROM rate_limits WHERE action = 'login'").get() as { count: number };
+async function pruneLoginRateLimits(database: SqliteDatabase, maxEntries: number) {
+  const row = await database.query("SELECT COUNT(*) AS count FROM rate_limits WHERE action = 'login'").get() as { count: number };
   const excess = Number(row.count) - maxEntries;
   if (excess <= 0) return;
-  database.query(`
+  await database.query(`
     DELETE FROM rate_limits
     WHERE action = 'login' AND key IN (
       SELECT key FROM rate_limits WHERE action = 'login'
@@ -115,9 +114,9 @@ function pruneLoginRateLimits(database: SqliteDatabase, maxEntries: number) {
   `).run(excess);
 }
 
-export function getLoginAttempt(database: SqliteDatabase, key: string, timestamp: number): LoginAttempt {
-  cleanupExpiredRateLimits(database, timestamp);
-  const row = database.query("SELECT points, window_started_at, blocked_until FROM rate_limits WHERE action = 'login' AND key = ?")
+export async function getLoginAttempt(database: SqliteDatabase, key: string, timestamp: number): Promise<LoginAttempt> {
+  await cleanupExpiredRateLimits(database, timestamp);
+  const row = await database.query("SELECT points, window_started_at, blocked_until FROM rate_limits WHERE action = 'login' AND key = ?")
     .get(key) as { points: number; window_started_at: number; blocked_until: number } | null | undefined;
 
   if (!row) {
@@ -135,29 +134,24 @@ export function getLoginAttempt(database: SqliteDatabase, key: string, timestamp
   return { windowStartedAt: row.window_started_at, failures: row.points, blockedUntil: 0 };
 }
 
-export function recordFailedLogin(database: SqliteDatabase, key: string, timestamp: number) {
-  database.transaction(() => {
-    const current = getLoginAttempt(database, key, timestamp);
-    const existing = database.query("SELECT 1 AS found FROM rate_limits WHERE action = 'login' AND key = ?").get(key);
-    if (!existing) pruneLoginRateLimits(database, LOGIN_ATTEMPT_MAX_ENTRIES - 1);
-    const failures = current.failures + 1;
-    const windowStartedAt = current.failures === 0 ? timestamp : current.windowStartedAt;
-    const blockedUntil = failures >= LOGIN_MAX_FAILURES ? timestamp + LOGIN_BLOCK_SECONDS : 0;
-
-    database.query(`
-      INSERT INTO rate_limits (action, key, points, window_started_at, blocked_until, updated_at)
-      VALUES ('login', ?, ?, ?, ?, ?)
-      ON CONFLICT(action, key) DO UPDATE SET
-        points = excluded.points,
-        window_started_at = excluded.window_started_at,
-        blocked_until = excluded.blocked_until,
-        updated_at = excluded.updated_at
-    `).run(key, failures, windowStartedAt, blockedUntil, timestamp);
-  })();
+export async function recordFailedLogin(database: SqliteDatabase, key: string, timestamp: number) {
+  await database.query(`
+    INSERT INTO rate_limits (action, key, points, window_started_at, blocked_until, updated_at)
+    VALUES ('login', ?, 1, ?, 0, ?)
+    ON CONFLICT(action, key) DO UPDATE SET
+      points = CASE WHEN excluded.window_started_at - rate_limits.window_started_at > ? THEN 1 ELSE rate_limits.points + 1 END,
+      window_started_at = CASE WHEN excluded.window_started_at - rate_limits.window_started_at > ? THEN excluded.window_started_at ELSE rate_limits.window_started_at END,
+      blocked_until = CASE
+        WHEN (CASE WHEN excluded.window_started_at - rate_limits.window_started_at > ? THEN 1 ELSE rate_limits.points + 1 END) >= ? THEN excluded.window_started_at + ?
+        ELSE 0
+      END,
+      updated_at = excluded.updated_at
+  `).run(key, timestamp, timestamp, LOGIN_WINDOW_SECONDS, LOGIN_WINDOW_SECONDS, LOGIN_WINDOW_SECONDS, LOGIN_MAX_FAILURES, LOGIN_BLOCK_SECONDS);
+  await pruneLoginRateLimits(database, LOGIN_ATTEMPT_MAX_ENTRIES);
 }
 
-export function resetLoginAttempt(database: SqliteDatabase, key: string) {
-  database.query("DELETE FROM rate_limits WHERE action = 'login' AND key = ?").run(key);
+export async function resetLoginAttempt(database: SqliteDatabase, key: string) {
+  await database.query("DELETE FROM rate_limits WHERE action = 'login' AND key = ?").run(key);
 }
 
 export function setSessionCookie(headers: Headers, request: Request, token: string, environment: RuntimeEnvironment, maxAge = SESSION_COOKIE_TTL, clientAddress?: string) {
@@ -167,16 +161,16 @@ export function setSessionCookie(headers: Headers, request: Request, token: stri
 
 const nextSessionCleanupAt = new WeakMap<SqliteDatabase, number>();
 
-export function cleanupExpiredSessions(database: SqliteDatabase, force = false) {
+export async function cleanupExpiredSessions(database: SqliteDatabase, force = false) {
   const timestamp = now();
   if (!force && timestamp < (nextSessionCleanupAt.get(database) ?? 0)) return;
   nextSessionCleanupAt.set(database, timestamp + SESSION_CLEANUP_INTERVAL_SECONDS);
-  database.query("DELETE FROM sessions WHERE expires_at <= ?").run(timestamp);
+  await database.query("DELETE FROM sessions WHERE expires_at <= ?").run(timestamp);
 }
 
 export async function ensureEnvironmentUser(database: SqliteDatabase, credentials: AuthCredentials): Promise<UserRow> {
   await syncEnvironmentPassword(database, credentials);
-  const existing = first<UserRow>(database, "SELECT id, username FROM users WHERE username = ?", credentials.username);
+  const existing = await first<UserRow>(database, "SELECT id, username FROM users WHERE username = ?", credentials.username);
   if (existing) return existing;
 
   const userId = crypto.randomUUID();
@@ -186,21 +180,20 @@ export async function ensureEnvironmentUser(database: SqliteDatabase, credential
   const password = await hashPassword(credentials.password);
 
   try {
-    const seed = database.transaction(() => {
-      database.query("INSERT INTO users (id, username, password_hash, password_salt, created_at) VALUES (?, ?, ?, ?, ?)").run(userId, credentials.username, password.hash, password.salt, createdAt);
-      database.query("INSERT INTO notebooks (id, user_id, name, color, is_system, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, 1, 0, ?, ?)").run(inboxId, userId, "收件箱", "#d96245", createdAt, createdAt);
-      database.query("INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)").run(noteId, userId, inboxId, "开始记录你的想法", welcomeMarkdown, createdAt, createdAt);
-      syncStoredNoteTitleKey(database, noteId, "开始记录你的想法");
-      syncNoteTags(database, userId, noteId, welcomeMarkdown);
-      syncNoteShortSearchTerms(database, userId, noteId, "开始记录你的想法", welcomeMarkdown);
-    });
-    seed();
-    return { id: userId, username: credentials.username };
+    await database.batch([
+      { sql: "INSERT INTO users (id, username, password_hash, password_salt, created_at) VALUES (?, ?, ?, ?, ?)", values: [userId, credentials.username, password.hash, password.salt, createdAt] },
+      { sql: "INSERT INTO notebooks (id, user_id, name, color, is_system, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, 1, 0, ?, ?)", values: [inboxId, userId, "收件箱", "#d96245", createdAt, createdAt] },
+      { sql: "INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)", values: [noteId, userId, inboxId, "开始记录你的想法", welcomeMarkdown, createdAt, createdAt] },
+    ]);
   } catch (error) {
-    const concurrent = first<UserRow>(database, "SELECT id, username FROM users WHERE username = ?", credentials.username);
+    const concurrent = await first<UserRow>(database, "SELECT id, username FROM users WHERE username = ?", credentials.username);
     if (concurrent) return concurrent;
     throw error;
   }
+  await syncStoredNoteTitleKey(database, noteId, "开始记录你的想法");
+  await syncNoteTags(database, userId, noteId, welcomeMarkdown);
+  await syncNoteShortSearchTerms(database, userId, noteId, "开始记录你的想法", welcomeMarkdown);
+  return { id: userId, username: credentials.username };
 }
 
 export async function getCurrentUser(database: SqliteDatabase, environment: RuntimeEnvironment, request: Request) {
@@ -211,14 +204,14 @@ export async function getCurrentUser(database: SqliteDatabase, environment: Runt
   await syncEnvironmentPassword(database, credentials);
   const tokenHash = await digestHex(session);
   const timestamp = now();
-  const current = first<UserRow & { session_expires_at: number }>(database, `
+  const current = await first<UserRow & { session_expires_at: number }>(database, `
     SELECT users.id, users.username, sessions.expires_at AS session_expires_at
     FROM sessions JOIN users ON users.id = sessions.user_id
     WHERE sessions.token_hash = ? AND sessions.expires_at > ? AND users.username = ?
   `, tokenHash, timestamp, credentials.username);
   if (!current) return null;
   if (current.session_expires_at <= timestamp + SESSION_REFRESH_WINDOW) {
-    database.query("UPDATE sessions SET expires_at = ? WHERE token_hash = ?").run(timestamp + SESSION_TTL, tokenHash);
+    await database.query("UPDATE sessions SET expires_at = ? WHERE token_hash = ?").run(timestamp + SESSION_TTL, tokenHash);
   }
   return { id: current.id, username: current.username };
 }
@@ -236,7 +229,7 @@ export async function handleAuthRoute(ctx: RouteContext): Promise<Response | nul
   const { database, environment = {}, clientAddress } = options;
 
   if (method === "GET" && url.pathname === "/api/health") {
-    first(database, "SELECT 1 AS ok");
+    await first(database, "SELECT 1 AS ok");
     return json({ status: "ok", database: "ok" });
   }
 
@@ -246,7 +239,7 @@ export async function handleAuthRoute(ctx: RouteContext): Promise<Response | nul
       const user = await ensureEnvironmentUser(database, credentials);
       const session = createOpaqueToken();
       const createdAt = now();
-      database.query("INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)").run(await digestHex(session), user.id, createdAt, createdAt + SESSION_TTL);
+      await database.query("INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)").run(await digestHex(session), user.id, createdAt, createdAt + SESSION_TTL);
       const headers = new Headers();
       setSessionCookie(headers, request, session, environment, SESSION_COOKIE_TTL, clientAddress);
       return json({ configured: true }, 200, headers);
@@ -268,18 +261,18 @@ export async function handleAuthRoute(ctx: RouteContext): Promise<Response | nul
     if (!credentials) return jsonError(503, "AUTH_NOT_CONFIGURED", "请先配置 XIANGYING_USERNAME 和 XIANGYING_PASSWORD");
     const attemptKey = loginClientKey(request, environment, clientAddress);
     const timestamp = now();
-    const attempt = getLoginAttempt(database, attemptKey, timestamp);
+    const attempt = await getLoginAttempt(database, attemptKey, timestamp);
     if (attempt.blockedUntil > timestamp) return jsonError(429, "TOO_MANY_LOGIN_ATTEMPTS", "登录尝试过于频繁，请稍后再试", { "Retry-After": String(attempt.blockedUntil - timestamp) });
     if (!constantTimeEqual(payload.username, credentials.username) || !constantTimeEqual(payload.password, credentials.password)) {
-      recordFailedLogin(database, attemptKey, timestamp);
+      await recordFailedLogin(database, attemptKey, timestamp);
       return jsonError(401, "INVALID_CREDENTIALS", "用户名或密码不正确");
     }
-    resetLoginAttempt(database, attemptKey);
+    await resetLoginAttempt(database, attemptKey);
 
     const user = await ensureEnvironmentUser(database, credentials);
     const session = createOpaqueToken();
     const createdAt = now();
-    database.query("INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)").run(await digestHex(session), user.id, createdAt, createdAt + SESSION_TTL);
+    await database.query("INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)").run(await digestHex(session), user.id, createdAt, createdAt + SESSION_TTL);
     const headers = new Headers();
     setSessionCookie(headers, request, session, environment, SESSION_COOKIE_TTL, clientAddress);
     return json({ user }, 200, headers);
@@ -287,7 +280,7 @@ export async function handleAuthRoute(ctx: RouteContext): Promise<Response | nul
 
   if (method === "POST" && url.pathname === "/api/auth/logout") {
     const session = cookieValue(request.headers.get("Cookie"), SESSION_COOKIE);
-    if (session) database.query("DELETE FROM sessions WHERE token_hash = ?").run(await digestHex(session));
+    if (session) await database.query("DELETE FROM sessions WHERE token_hash = ?").run(await digestHex(session));
     const headers = new Headers();
     setSessionCookie(headers, request, "", environment, 0, clientAddress);
     headers.set("Clear-Site-Data", '"cookies"');

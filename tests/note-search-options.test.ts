@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { openDatabase } from "../server/db";
+import { openDatabase } from "../server/test-db";
 import { handleRequest } from "../server/index";
 import { ensureEnvironmentUser } from "../server/routes/auth";
 import { createNote } from "../server/routes/notes";
@@ -16,7 +16,7 @@ async function fixture() {
   const cookie = login.headers.get("Set-Cookie")!.split(";", 1)[0]!;
   return {
     database,
-    create: (title: string, content: string) => createNote(database, user.id, inbox.id, title, content),
+    create: async (title: string, content: string) => await createNote(database, user.id, inbox.id, title, content),
     list: (params: string) => handleRequest(new Request(`http://search.test/api/notes?${params}`, { headers: { Cookie: cookie } }), { database, environment }),
   };
 }
@@ -24,9 +24,9 @@ async function fixture() {
 test("multiple tag filters run before pagination, support any/all, and validate every tag", async () => {
   const f = await fixture();
   try {
-    const both = f.create("both", "#alpha #beta");
-    const alpha = f.create("alpha", "#alpha");
-    f.create("other", "#other");
+    const both = await f.create("both", "#alpha #beta");
+    const alpha = await f.create("alpha", "#alpha");
+    await f.create("other", "#other");
     const all = await (await f.list("tags=alpha&tags=beta&limit=1&includeMatch=1")).json();
     expect(all.notes.map((note: { id: string }) => note.id)).toEqual([both]);
     expect(all.total).toBe(1);
@@ -45,9 +45,9 @@ test("multiple tag filters run before pagination, support any/all, and validate 
 test("relevance prioritizes title matches, cursors retain scores and reject changed searches", async () => {
   const f = await fixture();
   try {
-    const title = f.create("needle", "a short note #alpha");
-    const body = f.create("body", `${"padding ".repeat(1500)}needle useful context #alpha`);
-    const another = f.create("another", "needle secondary context #alpha");
+    const title = await f.create("needle", "a short note #alpha");
+    const body = await f.create("body", `${"padding ".repeat(1500)}needle useful context #alpha`);
+    const another = await f.create("another", "needle secondary context #alpha");
     const first = await (await f.list("query=needle&sort=relevance&includeMatch=1&limit=1")).json();
     expect(first.notes[0].id).toBe(title);
     expect(first.notes[0].match).toEqual({ field: "title" });
@@ -66,9 +66,9 @@ test("relevance prioritizes title matches, cursors retain scores and reject chan
 test("short-term relevance paginates ties and relevance without a query falls back to updated", async () => {
   const f = await fixture();
   try {
-    const title = f.create("猫", "title result");
-    const a = f.create("a", "猫");
-    const b = f.create("b", "猫");
+    const title = await f.create("猫", "title result");
+    const a = await f.create("a", "猫");
+    const b = await f.create("b", "猫");
     f.database.query("UPDATE notes SET updated_at = 100 WHERE id = ?").run(title);
     f.database.query("UPDATE notes SET updated_at = 200 WHERE id = ?").run(a);
     f.database.query("UPDATE notes SET updated_at = 300 WHERE id = ?").run(b);

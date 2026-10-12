@@ -132,22 +132,27 @@ export class RealtimeHub {
 }
 
 export function publishWorkspaceChange(
-  options: Pick<ServerOptions, "realtime"> | undefined,
+  options: Pick<ServerOptions, "realtime" | "realtimeNamespace" | "waitUntil"> | undefined,
   userId: string,
   change: { resource: WorkspaceChangeResource; noteId?: string },
   request?: Request,
 ) {
   options?.realtime?.publish(userId, change, request ? requestClientId(request) : null);
+  const namespace = options?.realtimeNamespace;
+  if (!namespace) return;
+  const task = namespace.get(namespace.idFromName(userId)).fetch(new Request("https://realtime.internal/broadcast", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...change, clientId: request ? requestClientId(request) : null }),
+  }));
+  if (options.waitUntil) options.waitUntil(task);
+  else void task.catch((error) => console.warn("[realtime] broadcast failed", error));
 }
 
-export async function upgradeRealtimeRequest(
-  request: Request,
-  server: Bun.Server<RealtimeSocketData>,
-  options: ServerOptions,
-): Promise<Response | null> {
+export async function handleRealtimeRequest(request: Request, options: ServerOptions): Promise<Response> {
   if (request.method !== "GET") return jsonError(405, "METHOD_NOT_ALLOWED", "实时连接只支持 GET", { Allow: "GET" });
   if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") return jsonError(426, "UPGRADE_REQUIRED", "需要使用 WebSocket 连接");
-  if (!options.realtime) return jsonError(503, "REALTIME_NOT_CONFIGURED", "实时连接暂不可用");
+  if (!options.realtimeNamespace) return jsonError(503, "REALTIME_NOT_CONFIGURED", "实时连接暂不可用");
 
   const origin = request.headers.get("Origin");
   if (origin) {
@@ -161,15 +166,33 @@ export async function upgradeRealtimeRequest(
     }
   }
 
-  cleanupExpiredSessions(options.database);
+  await cleanupExpiredSessions(options.database);
   const user = await requireUser(options.database, options.environment ?? {}, request);
   if (isResponse(user)) return user;
+  const namespace = options.realtimeNamespace;
+  const response = await namespace.get(namespace.idFromName(user.id)).fetch(request);
+  return response;
+}
 
-  const upgraded = server.upgrade(request, {
-    data: {
-      userId: user.id,
-      clientId: realtimeClientIdFromUrl(request),
-    },
-  });
-  return upgraded ? null : jsonError(400, "REALTIME_UPGRADE_FAILED", "无法建立实时连接");
+/** Test/development adapter for the former Bun websocket upgrader. Production uses the Durable Object handler above. */
+export async function upgradeRealtimeRequest(
+  request: Request,
+  server: Pick<Bun.Server<RealtimeSocketData>, "upgrade">,
+  options: ServerOptions,
+): Promise<Response | null> {
+  if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") return jsonError(426, "UPGRADE_REQUIRED", "需要使用 WebSocket 连接");
+  const origin = request.headers.get("Origin");
+  if (origin) {
+    const requestUrl = new URL(request.url);
+    if (origin !== requestUrl.origin && origin !== getPublicOrigin(requestUrl, options.environment)) {
+      return jsonError(403, "FORBIDDEN_ORIGIN", "非法的实时连接来源");
+    }
+  }
+  await cleanupExpiredSessions(options.database);
+  const user = await requireUser(options.database, options.environment ?? {}, request);
+  if (isResponse(user)) return user;
+  const clientId = realtimeClientIdFromUrl(request) ?? requestClientId(request);
+  return server.upgrade(request, { data: { userId: user.id, clientId } })
+    ? null
+    : jsonError(400, "WEBSOCKET_UPGRADE_FAILED", "无法建立实时连接");
 }

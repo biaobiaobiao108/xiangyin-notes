@@ -8,6 +8,7 @@ import {
   getPublicOrigin,
   jsonError,
   NOTE_BODY_MAX_BYTES,
+  NOTE_CONTENT_MAX_BYTES,
   NOTE_CONTENT_MAX_LENGTH,
   NOTE_PREVIEW_LIMIT,
   NOTE_VIEWS,
@@ -17,7 +18,6 @@ import {
   type UserRow,
 } from "./core";
 import { ensureEnvironmentUser, getAuthCredentials } from "./routes/auth";
-import { assetRootFromEnv } from "./routes/assets";
 import { getNotebook, toNotebook, handleNotebooksRoute, VALID_NOTEBOOK_ICONS } from "./routes/notebooks";
 import { handleNotesRoute } from "./routes/notes";
 import { getMarkdownOutline, locateMarkdownSection } from "./mcp-sections";
@@ -40,7 +40,7 @@ const MCP_SERVER_INSTRUCTIONS = [
   "象映笔记是跨会话 Markdown 记忆库，可搜索、读取、新建和增量修改笔记，也可管理笔记本、收藏、标签、回收站。",
   "工具参数必须是 JSON 对象。客户端会先校验参数；手写原始 JSON 时，字符串中的控制字符须按 JSON 规范转义（换行写作 \\n）；结构化参数中的多行 Markdown 会原样保留。",
   "字段值不合法时使用统一错误码 INVALID_ARGUMENT，并通过 field 指明字段；当前 field 取值为 name、color、icon、tags。标签错误还会在 invalidTags 中列出违规值。",
-  "普通笔记应优先在 save_note 一次写入完整正文；其默认 create 在目标笔记本内防重名；create_note 仅在有意允许同名时使用；只有客户端明确无法承载单次参数，或服务端返回 MCP 请求体超过 4.5 MB 的错误时，才用 append_to_note 分段追加并将返回的 version 作为 expectedVersion。单篇正文硬上限为 1,000,000 个 UTF-16 code units。contentLength 回执与批量读取字符预算按 Unicode code points 计算。写操作默认不回传正文。",
+  `普通笔记应优先在 save_note 一次写入完整正文；其默认 create 在目标笔记本内防重名；create_note 仅在有意允许同名时使用；只有客户端明确无法承载单次参数时才用 append_to_note 分次传输。MCP 单次请求体上限为 4.5 MB。单篇正文硬上限为 ${NOTE_CONTENT_MAX_LENGTH.toLocaleString("en-US")} 个 UTF-16 code units 和 ${NOTE_CONTENT_MAX_BYTES.toLocaleString("en-US")} 个 UTF-8 字节。contentLength 回执与批量读取字符预算按 Unicode code points 计算。写操作默认不回传正文。`,
   "分类可直接传 notebookName，notebookId 同时存在时优先；ensure_notebook 幂等创建，save_note 可一次创建笔记本并保存笔记；create_notebook 创建笔记本，update_notebook 修改，delete_notebook 需 confirm=true 并建议用 totalCount 做二次确认。局部编辑和仅改标题可省略 expectedVersion，由服务端读取当前版本并以乐观锁保存；所有写入的版本参数统一 expectedVersion，不接受 version/baseVersion 别名；全文覆盖必须提供 expectedVersion，save_note 的 upsert 更新已有笔记也必须提供 expectedVersion；batch_update_notes 必须提供每篇读取时的 expectedVersion。所有 VERSION_CONFLICT 的 current 只返回有界摘要、长度、版本与元数据，需要时用 get_note/get_note_section 读取正文。",
   "create_note.tags 与 batch_update_notes.tags 是追加；manage_note 的 set_tags 必须显式传 mode=replace、add 或 remove。正文中未转义、代码区外且不超过 40 个 UTF-16 code units 的 #标签会被索引；可在井号前加反斜杠保留字面井号。回收站笔记可恢复，但 MCP 不提供永久删除笔记或清空回收站。",
   "用 search_notes 的 view=trash 检索回收站。get_notes_batch 最多读 50 篇、总正文默认预算 20,000 个 Unicode 字符；各笔记分别读取，不构成同一时刻快照。",
@@ -469,7 +469,7 @@ function noteWriteError(result: RouteResult) {
     return responseValue({
       error: {
         ...(error as Record<string, unknown>),
-        message: `笔记标题或正文超出长度限制（正文最多 ${NOTE_CONTENT_MAX_LENGTH.toLocaleString("en-US")} 个 UTF-16 code units）；请缩短正文或使用 replace_in_note 修正局部内容。分段追加不能突破单篇笔记的正文上限。`,
+        message: `笔记标题或正文超出长度限制（正文最多 ${NOTE_CONTENT_MAX_LENGTH.toLocaleString("en-US")} 个 UTF-16 code units、${NOTE_CONTENT_MAX_BYTES.toLocaleString("en-US")} 个 UTF-8 字节）；请缩短正文或使用 replace_in_note 修正局部内容。`,
       },
     }, true);
   }
@@ -488,8 +488,7 @@ function createRouteContext(options: ServerOptions, method: string, pathname: st
 
 async function notesRoute(options: ServerOptions, user: UserRow, method: string, segments: string[], urlPath: string, payload?: unknown) {
   const context = createRouteContext(options, method, urlPath, segments, payload);
-  const assetRoot = options.assetRoot ?? assetRootFromEnv(options.environment);
-  return routeResult(await handleNotesRoute(context, user, assetRoot));
+  return routeResult(await handleNotesRoute(context, user));
 }
 
 async function notebooksRoute(
@@ -586,7 +585,7 @@ async function updateNoteRoute(options: ServerOptions, user: UserRow, input: Not
 }
 
 async function noteByTitle(options: ServerOptions, user: UserRow, requestedTitle: string, includeDeleted = false, notebookId?: string) {
-  const matches = all<{ id: string; title: string; version: number; notebook_name: string; notebook_id: string; content_markdown: string; created_at: number; updated_at: number }>(options.database, `
+  const matches = await all<{ id: string; title: string; version: number; notebook_name: string; notebook_id: string; content_markdown: string; created_at: number; updated_at: number }>(options.database, `
     SELECT n.id, n.title, n.version, b.name AS notebook_name, n.notebook_id, substr(n.content_markdown, 1, 4000) AS content_markdown, n.created_at, n.updated_at
     FROM notes n JOIN notebooks b ON b.id = n.notebook_id
     WHERE n.user_id = ? AND n.title = ? COLLATE NOCASE
@@ -603,21 +602,21 @@ async function noteByTitle(options: ServerOptions, user: UserRow, requestedTitle
 // Resolve within the authenticated user's library. Never fall back from a bad ID to a name.
 async function resolveNotebook(options: ServerOptions, user: UserRow, selector: { notebookId?: string; notebookName?: string; createIfMissing?: boolean }) {
   if (selector.notebookId !== undefined) {
-    const row = getNotebook(options.database, user.id, selector.notebookId);
+    const row = await getNotebook(options.database, user.id, selector.notebookId);
     return row ? { notebook: toNotebook(row), created: false } : { error: { code: "NOT_FOUND", target: "notebook", message: "笔记本不存在" } };
   }
   if (selector.notebookName === undefined) return {};
-  const find = () => {
-    const row = first<{ id: string }>(options.database, "SELECT id FROM notebooks WHERE user_id = ? AND name = ?", user.id, selector.notebookName!.trim());
-    return row ? getNotebook(options.database, user.id, row.id) : null;
+  const find = async () => {
+    const row = await first<{ id: string }>(options.database, "SELECT id FROM notebooks WHERE user_id = ? AND name = ?", user.id, selector.notebookName!.trim());
+    return row ? await getNotebook(options.database, user.id, row.id) : null;
   };
-  const row = find();
+  const row = await find();
   if (row) return { notebook: toNotebook(row), created: false };
   if (selector.createIfMissing) {
     const result = await notebooksRoute(options, user, "POST", { name: selector.notebookName });
     if (result.status === 201) return { notebook: result.body.notebook as ReturnType<typeof toNotebook>, created: true };
     if ((result.body.error as Record<string, unknown>)?.code === "NOTEBOOK_EXISTS") {
-      const existing = find();
+      const existing = await find();
       if (existing) return { notebook: toNotebook(existing), created: false };
     }
     return { error: normalizeMcpError(result.body.error as Record<string, unknown>) };
@@ -702,12 +701,13 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
     if (!user) return responseValue({ error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } }, true);
     if (!validMcpTags(tags)) return invalidMcpTagsError(tags);
     const markdown = appendMarkdownTags(contentMarkdown, tags);
-    if (markdown.length > NOTE_CONTENT_MAX_LENGTH) return responseValue({ error: { code: "NOTE_TOO_LARGE", message: "包含标签的正文超出长度限制" } }, true);
+    if (markdown.length > NOTE_CONTENT_MAX_LENGTH || new TextEncoder().encode(markdown).byteLength > NOTE_CONTENT_MAX_BYTES) return responseValue({ error: { code: "NOTE_TOO_LARGE", message: "包含标签的正文超出长度限制" } }, true);
     if (mode === "upsert" && !notebook?.notebookId && !notebook?.notebookName) return responseValue({ error: { code: "INVALID_NOTEBOOK_SELECTOR", message: "upsert 必须指定笔记本" } }, true);
     return withSaveLock(options.database, async () => {
       const resolved = await resolveNotebook(options, user, notebook ?? {});
       if (resolved.error) return responseValue({ error: resolved.error }, true);
-      const notebookId = resolved.notebook?.id ?? first<{ id: string }>(options.database, "SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1 LIMIT 1", user.id)?.id;
+      const defaultNotebook = resolved.notebook?.id ? null : await first<{ id: string }>(options.database, "SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1 LIMIT 1", user.id);
+      const notebookId = resolved.notebook?.id ?? defaultNotebook?.id;
       if (!notebookId) return responseValue({ error: { code: "NO_NOTEBOOK", message: "没有可用的收件箱" } }, true);
       const match = await noteByTitle(options, user, title, false, notebookId);
       if (mode === "create" && ("noteId" in match || match.error.code !== "NOT_FOUND")) {
@@ -998,7 +998,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
     description: "创建 Markdown 笔记并追加 tags，允许同名；省略笔记本放入收件箱。常规保存或需防重名时用 save_note。 图片仅接受 HTTPS 地址或当前用户可用于该笔记的已上传附件，MCP 不上传图片。",
     inputSchema: z.object({
       title: z.string().min(1).max(200),
-      contentMarkdown: z.string().max(NOTE_CONTENT_MAX_LENGTH).optional().describe("可直接传入完整 Markdown 正文；普通笔记优先一次创建；只有客户端明确无法承载单次参数或服务端返回 MCP 请求体超过 4.5 MB 的错误时才分段；最多 1,000,000 个 UTF-16 code units"),
+      contentMarkdown: z.string().max(NOTE_CONTENT_MAX_LENGTH).optional().describe(`可直接传入完整 Markdown 正文；最多 ${NOTE_CONTENT_MAX_LENGTH.toLocaleString("en-US")} 个 UTF-16 code units、${NOTE_CONTENT_MAX_BYTES.toLocaleString("en-US")} 个 UTF-8 字节`),
       notebookId: z.string().min(1).max(200).optional(),
       notebookName: z.string().trim().min(1).max(40).optional(),
       tags: noteTagsSchema.optional().describe("要追加到正文的标签名，仅可含中文、字母、数字、下划线或连字符，不带 #；仅追加，不会覆盖已有标签（整体替换请用 manage_note action=set_tags）"),
@@ -1027,7 +1027,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
       noteId: z.string().min(1).max(200),
       expectedVersion: z.number().int().positive().optional().describe("预期版本；仅改标题可省略，覆盖正文必须提供版本"),
       title: z.string().max(200).optional(),
-      contentMarkdown: z.string().max(NOTE_CONTENT_MAX_LENGTH).optional().describe("完整替换 Markdown 正文；最多 1,000,000 个 UTF-16 code units（JavaScript string.length）"),
+      contentMarkdown: z.string().max(NOTE_CONTENT_MAX_LENGTH).optional().describe(`完整替换 Markdown 正文；最多 ${NOTE_CONTENT_MAX_LENGTH.toLocaleString("en-US")} 个 UTF-16 code units、${NOTE_CONTENT_MAX_BYTES.toLocaleString("en-US")} 个 UTF-8 字节`),
       includeContent: z.boolean().optional().describe("是否在成功结果中回传完整正文，默认 false"),
     }).strict(),
   }, async ({ noteId, expectedVersion: version, title, contentMarkdown, includeContent = false }) => {
@@ -1197,7 +1197,7 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
     inputSchema: z.object({
       noteId: z.string().min(1).max(200),
       expectedVersion: z.number().int().positive().optional().describe("可选的预期版本；省略时服务端读取当前版本"),
-      contentMarkdown: z.string().min(1).max(NOTE_CONTENT_MAX_LENGTH).describe("要追加的一段 Markdown；正常情况下可一次追加完整新增内容，仅按客户端参数能力或 MCP 请求体上限分段"),
+      contentMarkdown: z.string().min(1).max(NOTE_CONTENT_MAX_LENGTH).describe(`要追加的 Markdown；最多 ${NOTE_CONTENT_MAX_LENGTH.toLocaleString("en-US")} 个 UTF-16 code units、${NOTE_CONTENT_MAX_BYTES.toLocaleString("en-US")} 个 UTF-8 字节`),
       includeContent: z.boolean().optional().describe("是否在成功结果中回传完整正文，默认 false"),
     }).strict(),
   }, async ({ noteId, expectedVersion: version, contentMarkdown, includeContent = false }) => {
@@ -1513,7 +1513,7 @@ async function readMcpBody(request: Request) {
 async function normalizeMcpRequest(request: Request): Promise<{ request: Request; error?: Response }> {
   if (request.method !== "POST" || !request.body) return { request };
   const { value: rawBody, tooLarge } = await readMcpBody(request);
-  if (tooLarge) return { request, error: invalidMcpArguments(null, "MCP 请求体超过 4.5 MB 传输上限；请拆分本次参数或把新增正文分段调用 append_to_note。普通笔记在单次请求未超限时应优先直接创建；分段写入仍受单篇笔记正文总长度上限约束。") };
+  if (tooLarge) return { request, error: invalidMcpArguments(null, "MCP 请求体超过 4.5 MB 传输上限；请拆分本次参数，写入正文仍须满足单篇笔记的字符数和 UTF-8 字节上限。") };
   const outer = escapeUnescapedControlsInJsonStrings(rawBody);
   let message: Record<string, unknown>;
   try {
@@ -1563,13 +1563,13 @@ async function normalizeMcpRequest(request: Request): Promise<{ request: Request
     const contentValue = argumentsValue && typeof argumentsValue === "object" && !Array.isArray(argumentsValue)
       ? (argumentsValue as Record<string, unknown>)[contentField ?? ""]
       : undefined;
-    if (typeof contentValue === "string" && contentValue.length > NOTE_CONTENT_MAX_LENGTH) {
-      const nextStep = "请缩短本次字段；替换或分段追加仍受单篇笔记正文总长度上限约束。";
+    if (typeof contentValue === "string" && (contentValue.length > NOTE_CONTENT_MAX_LENGTH || new TextEncoder().encode(contentValue).byteLength > NOTE_CONTENT_MAX_BYTES)) {
+      const nextStep = "请缩短本次字段；局部替换和分次追加也受单篇笔记正文总长度上限约束。";
       return {
         request,
         error: invalidMcpArguments(
           message.id,
-          `${contentField} 超过单次字段 1,000,000 个 UTF-16 code units 上限；${nextStep}`,
+          `${contentField} 超过 ${NOTE_CONTENT_MAX_LENGTH.toLocaleString("en-US")} 个 UTF-16 code units 或 ${NOTE_CONTENT_MAX_BYTES.toLocaleString("en-US")} 个 UTF-8 字节上限；${nextStep}`,
         ),
       };
     }

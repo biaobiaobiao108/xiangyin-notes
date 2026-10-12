@@ -15,12 +15,14 @@ import {
   BACKLINK_REFERENCE_LIMIT,
   BACKLINK_SCAN_CHAR_LIMIT,
   escapeLikePattern,
+  digestHex,
   first,
   getNote,
   InvalidNoteAssetsError,
   json,
   jsonError,
   NOTE_BODY_MAX_BYTES,
+  NOTE_CONTENT_MAX_BYTES,
   NOTE_CONTENT_MAX_LENGTH,
   NOTE_FROM,
   NOTE_SELECT,
@@ -42,6 +44,7 @@ import {
   toNote,
   type UserRow,
   validNoteAssetReferences,
+  validNoteContent,
   validText,
 } from "../core";
 import {
@@ -98,6 +101,12 @@ function markTagFilterVerified(database: SqliteDatabase, userId: string, normali
 class NoteRenameContentTooLargeError extends Error {
   constructor() {
     super("note-rename-content-too-large");
+  }
+}
+
+class NoteContentTooLargeError extends Error {
+  constructor() {
+    super("note-content-too-large");
   }
 }
 
@@ -168,9 +177,9 @@ function parseBatchNoteEntries(payload: unknown): BatchNoteEntry[] | null {
   return entries;
 }
 
-function getBatchNoteStates(database: SqliteDatabase, userId: string, entries: BatchNoteEntry[]) {
+async function getBatchNoteStates(database: SqliteDatabase, userId: string, entries: BatchNoteEntry[]) {
   const placeholders = entries.map(() => "?").join(",");
-  return all<BatchNoteState>(database, `SELECT id, title, deleted_at, version FROM notes WHERE user_id = ? AND id IN (${placeholders})`, userId, ...entries.map((entry) => entry.id));
+  return await all<BatchNoteState>(database, `SELECT id, title, deleted_at, version FROM notes WHERE user_id = ? AND id IN (${placeholders})`, userId, ...entries.map((entry) => entry.id));
 }
 
 function assertBatchNoteStates(rows: BatchNoteState[], entries: BatchNoteEntry[], mode: "trash" | "restore" | "permanent") {
@@ -189,7 +198,7 @@ function batchConflictResponse(error: BatchNoteConflictError) {
   return json({ error: { code: "VERSION_CONFLICT", message: "选中的笔记已发生变化，请重新选择后重试", conflictIds: error.conflictIds } }, 409);
 }
 
-export function createNote(
+export async function createNote(
   database: SqliteDatabase,
   userId: string,
   notebookId: string,
@@ -199,20 +208,19 @@ export function createNote(
 ) {
   const id = requestedId ?? crypto.randomUUID();
   const createdAt = now();
-  const transaction = database.transaction(() => {
-    database.query("INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)").run(id, userId, notebookId, title, contentMarkdown, createdAt, createdAt);
-    syncStoredNoteTitleKey(database, id, title);
-    if (!syncNoteAssetReferences(database, userId, id, contentMarkdown)) throw new Error("invalid-note-assets");
-    syncNoteTags(database, userId, id, contentMarkdown);
-    syncNoteShortSearchTerms(database, userId, id, title, contentMarkdown);
-    syncNoteLinks(database, userId, id, contentMarkdown, createdAt);
-    resolveNoteLinksForTarget(database, userId, title, id);
-  });
-  transaction();
+  if (!validNoteContent(contentMarkdown)) throw new NoteContentTooLargeError();
+  if (!await validNoteAssetReferences(database, userId, id, contentMarkdown)) throw new Error("invalid-note-assets");
+  await database.query("INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)").run(id, userId, notebookId, title, contentMarkdown, createdAt, createdAt);
+  await syncStoredNoteTitleKey(database, id, title);
+  if (!await syncNoteAssetReferences(database, userId, id, contentMarkdown)) throw new Error("invalid-note-assets");
+  await syncNoteTags(database, userId, id, contentMarkdown);
+  await syncNoteShortSearchTerms(database, userId, id, title, contentMarkdown);
+  await syncNoteLinks(database, userId, id, contentMarkdown, createdAt);
+  await resolveNoteLinksForTarget(database, userId, title, id);
   return id;
 }
 
-export function updateNoteInTransaction(
+export async function updateNoteInTransaction(
   database: SqliteDatabase,
   current: NoteRow,
   userId: string,
@@ -222,26 +230,49 @@ export function updateNoteInTransaction(
   isFavorite: number,
   deletedAt: number | null,
 ) {
+  if (!validNoteContent(contentMarkdown)) throw new NoteContentTooLargeError();
   const updatedAt = now();
   const titleChanged = current.title !== title;
   const contentChanged = current.content_markdown !== contentMarkdown;
   const deletedChanged = current.deleted_at !== deletedAt;
   const oldTitle = current.title;
+  if (contentChanged && !await validNoteAssetReferences(database, userId, current.id, contentMarkdown)) throw new InvalidNoteAssetsError();
 
-  const updated = database.query("UPDATE notes SET title = ?, content_markdown = ?, notebook_id = ?, is_favorite = ?, deleted_at = ?, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ? AND version = ? RETURNING id").get(title, contentMarkdown, notebookId, isFavorite, deletedAt, updatedAt, current.id, userId, current.version) as { id: string } | null;
+  // Validate every backlink rewrite before committing the target title. D1
+  // commits each batch independently, so discovering an oversized source only
+  // after updating the target would leave a partially applied rename.
+  if (titleChanged && oldTitle.trim() && title.trim()) {
+    let afterSourceNoteId = "";
+    while (true) {
+      const sourceNoteIds = await sourceNoteIdsReferencingTarget(database, userId, current.id, afterSourceNoteId, NOTE_RENAME_SOURCE_BATCH_SIZE);
+      if (!sourceNoteIds.length) break;
+      afterSourceNoteId = sourceNoteIds[sourceNoteIds.length - 1]!;
+      const placeholders = sourceNoteIds.map(() => "?").join(", ");
+      const referencingNotes = await all<NoteRow>(database, `
+        SELECT ${NOTE_SELECT} FROM ${NOTE_FROM}
+        WHERE n.id IN (${placeholders}) AND n.user_id = ? AND n.deleted_at IS NULL
+      `, ...sourceNoteIds, userId);
+      for (const source of referencingNotes) {
+        const rewritten = replaceWikiLinkTarget(source.content_markdown, oldTitle, title);
+        if (rewritten.count && !validNoteContent(rewritten.content)) throw new NoteRenameContentTooLargeError();
+      }
+    }
+  }
+
+  const updated = await database.query("UPDATE notes SET title = ?, content_markdown = ?, notebook_id = ?, is_favorite = ?, deleted_at = ?, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ? AND version = ? RETURNING id").get(title, contentMarkdown, notebookId, isFavorite, deletedAt, updatedAt, current.id, userId, current.version) as { id: string } | null;
   if (!updated) return false;
-  if (titleChanged) syncStoredNoteTitleKey(database, current.id, title);
-  if (contentChanged && !syncNoteAssetReferences(database, userId, current.id, contentMarkdown)) throw new InvalidNoteAssetsError();
-  if (contentChanged || titleChanged) syncNoteShortSearchTerms(database, userId, current.id, title, contentMarkdown);
+  if (titleChanged) await syncStoredNoteTitleKey(database, current.id, title);
+  if (contentChanged && !await syncNoteAssetReferences(database, userId, current.id, contentMarkdown)) throw new InvalidNoteAssetsError();
+  if (contentChanged || titleChanged) await syncNoteShortSearchTerms(database, userId, current.id, title, contentMarkdown);
   if (contentChanged) {
-    syncNoteTags(database, userId, current.id, contentMarkdown);
-    syncNoteLinks(database, userId, current.id, contentMarkdown, updatedAt);
+    await syncNoteTags(database, userId, current.id, contentMarkdown);
+    await syncNoteLinks(database, userId, current.id, contentMarkdown, updatedAt);
   }
 
   if (titleChanged && oldTitle.trim() && title.trim()) {
     let afterSourceNoteId = "";
     while (true) {
-      const sourceNoteIds = sourceNoteIdsReferencingTarget(
+      const sourceNoteIds = await sourceNoteIdsReferencingTarget(
         database,
         userId,
         current.id,
@@ -252,7 +283,7 @@ export function updateNoteInTransaction(
       afterSourceNoteId = sourceNoteIds[sourceNoteIds.length - 1]!;
 
       const placeholders = sourceNoteIds.map(() => "?").join(", ");
-      const referencingNotes = all<NoteRow>(database, `
+      const referencingNotes = await all<NoteRow>(database, `
         SELECT ${NOTE_SELECT}
         FROM ${NOTE_FROM}
         WHERE n.id IN (${placeholders}) AND n.user_id = ? AND n.deleted_at IS NULL
@@ -260,16 +291,16 @@ export function updateNoteInTransaction(
       for (const refNote of referencingNotes) {
         const { content: replacedContent, count } = replaceWikiLinkTarget(refNote.content_markdown, oldTitle, title);
         if (count === 0) continue;
-        if (replacedContent.length > NOTE_CONTENT_MAX_LENGTH) throw new NoteRenameContentTooLargeError();
-        database.query("UPDATE notes SET content_markdown = ?, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ?").run(replacedContent, updatedAt, refNote.id, userId);
-        syncNoteTags(database, userId, refNote.id, replacedContent);
-        syncNoteShortSearchTerms(database, userId, refNote.id, refNote.title, replacedContent);
-        syncNoteLinks(database, userId, refNote.id, replacedContent, updatedAt);
+        if (!validNoteContent(replacedContent)) throw new NoteRenameContentTooLargeError();
+        await database.query("UPDATE notes SET content_markdown = ?, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ?").run(replacedContent, updatedAt, refNote.id, userId);
+        await syncNoteTags(database, userId, refNote.id, replacedContent);
+        await syncNoteShortSearchTerms(database, userId, refNote.id, refNote.title, replacedContent);
+        await syncNoteLinks(database, userId, refNote.id, replacedContent, updatedAt);
       }
     }
   }
   if (titleChanged || deletedChanged) {
-    resolveNoteLinksForTitles(database, userId, [oldTitle, title]);
+    await resolveNoteLinksForTitles(database, userId, [oldTitle, title]);
   }
 
   return true;
@@ -285,10 +316,10 @@ export function updateNote(
   isFavorite: number,
   deletedAt: number | null,
 ) {
-  return database.transaction(() => updateNoteInTransaction(database, current, userId, title, contentMarkdown, notebookId, isFavorite, deletedAt))();
+  return updateNoteInTransaction(database, current, userId, title, contentMarkdown, notebookId, isFavorite, deletedAt);
 }
 
-export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRoot: string): Promise<Response | null> {
+export async function handleNotesRoute(ctx: RouteContext, user: UserRow): Promise<Response | null> {
   const { request, url, method, segments, options } = ctx;
   const { database } = options;
   const resource = segments[0] ?? "";
@@ -297,15 +328,12 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
 
   // Empty trash
   if (method === "DELETE" && (url.pathname === "/api/trash" || (resource === "notes" && id === "trash"))) {
-    const emptyTrash = database.transaction(() => {
-      const deletedIds = all<{ id: string }>(database, "SELECT id FROM notes WHERE user_id = ? AND deleted_at IS NOT NULL", user.id).map((note) => note.id);
-      const assetPaths = assetPathsForNotes(database, user.id, deletedIds);
-      database.query("DELETE FROM notes WHERE user_id = ? AND deleted_at IS NOT NULL").run(user.id);
-      return { ok: true, deletedCount: deletedIds.length, deletedIds, assetPaths };
-    });
-    const emptiedTrash = emptyTrash();
+    const deletedIds = (await all<{ id: string }>(database, "SELECT id FROM notes WHERE user_id = ? AND deleted_at IS NOT NULL", user.id)).map((note) => note.id);
+    const assetPaths = await assetPathsForNotes(database, user.id, deletedIds);
+    await database.query("DELETE FROM notes WHERE user_id = ? AND deleted_at IS NOT NULL").run(user.id);
+    const emptiedTrash = { ok: true, deletedCount: deletedIds.length, deletedIds, assetPaths };
     publishWorkspaceChange(options, user.id, { resource: "notes" }, request);
-    await removeAssetFiles(assetRoot, emptiedTrash.assetPaths);
+    if (options.assets) await removeAssetFiles(options.assets, emptiedTrash.assetPaths);
     return json({ ok: emptiedTrash.ok, deletedCount: emptiedTrash.deletedCount, deletedIds: emptiedTrash.deletedIds });
   }
 
@@ -316,22 +344,18 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
       return jsonError(400, "INVALID_WIKI_TARGET", "双向链接目标无效");
     }
     const title = (payload.title as string).trim();
-    if (!first(database, "SELECT id FROM notebooks WHERE id = ? AND user_id = ?", payload.notebookId, user.id)) {
+    if (!await first(database, "SELECT id FROM notebooks WHERE id = ? AND user_id = ?", payload.notebookId, user.id)) {
       return jsonError(404, "NOTEBOOK_NOT_FOUND", "笔记本不存在");
     }
-    // The lookup and the insert must share one immediate transaction, otherwise two
-    // concurrent requests could both miss and create duplicate notes with the same title.
-    const ensureNote = database.transaction(() => {
-      const existingId = findActiveNoteIdByTitle(database, user.id, title);
-      if (existingId) {
-        const existing = getNote(database, user.id, existingId);
-        if (existing) return { note: toFullNote(existing), created: false as const };
-      }
-      const noteId = createNote(database, user.id, payload.notebookId as string, title, "");
-      const note = getNote(database, user.id, noteId);
-      return note ? { note: toFullNote(note), created: true as const, noteId } : null;
-    });
-    const ensured = ensureNote.immediate();
+    const existingId = await findActiveNoteIdByTitle(database, user.id, title);
+    const existing = existingId ? await getNote(database, user.id, existingId) : null;
+    const ensured = existing
+      ? { note: toFullNote(existing), created: false as const }
+      : await (async () => {
+          const noteId = await createNote(database, user.id, payload.notebookId as string, title, "");
+          const note = await getNote(database, user.id, noteId);
+          return note ? { note: toFullNote(note), created: true as const, noteId } : null;
+        })();
     if (!ensured) return jsonError(500, "NOTE_CREATE_FAILED", "笔记创建失败");
     if (ensured.created) publishWorkspaceChange(options, user.id, { resource: "notes", noteId: ensured.noteId }, request);
     return ensured.created ? json({ note: ensured.note, created: true }, 201) : json({ note: ensured.note, created: false });
@@ -353,15 +377,23 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
       if (payload?.deleted === false) {
         let restored: { restoredIds: string[] };
         try {
-          restored = database.transaction(() => {
-            const rows = getBatchNoteStates(database, user.id, entries);
-            assertBatchNoteStates(rows, entries, "restore");
-            const restoredAt = now();
-            const update = database.query("UPDATE notes SET deleted_at = NULL, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ? AND version = ? AND deleted_at IS NOT NULL");
-            for (const entry of entries) update.run(restoredAt, entry.id, user.id, entry.version);
-            resolveNoteLinksForTitles(database, user.id, rows.map((row) => row.title));
-            return { restoredIds: entries.map((entry) => entry.id) };
-          })();
+          const rows = await getBatchNoteStates(database, user.id, entries);
+          assertBatchNoteStates(rows, entries, "restore");
+          const restoredAt = now();
+          const expected = entries.map(() => "(?, ?)").join(", ");
+          const values: SqlValue[] = entries.flatMap((entry) => [entry.id, entry.version]);
+          values.push(restoredAt, user.id, user.id, entries.length);
+          const updated = await database.query(`
+            WITH expected(id, version) AS (VALUES ${expected})
+            UPDATE notes SET deleted_at = NULL, version = version + 1, updated_at = ?
+            WHERE user_id = ? AND deleted_at IS NOT NULL
+              AND EXISTS (SELECT 1 FROM expected e WHERE e.id = notes.id AND e.version = notes.version)
+              AND (SELECT COUNT(*) FROM notes n JOIN expected e ON e.id = n.id AND e.version = n.version WHERE n.user_id = ? AND n.deleted_at IS NOT NULL) = ?
+            RETURNING id
+          `).all<{ id: string }>(...values);
+          if (updated.length !== entries.length) throw new BatchNoteConflictError(entries.map((entry) => entry.id));
+          await resolveNoteLinksForTitles(database, user.id, rows.map((row) => row.title));
+          restored = { restoredIds: entries.map((entry) => entry.id) };
         } catch (error) {
           if (error instanceof BatchNoteConflictError) return batchConflictResponse(error);
           throw error;
@@ -372,15 +404,23 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
 
       let moved: { deletedIds: string[] };
       try {
-        moved = database.transaction(() => {
-          const rows = getBatchNoteStates(database, user.id, entries);
-          assertBatchNoteStates(rows, entries, "trash");
-          const deletedAt = now();
-          const update = database.query("UPDATE notes SET deleted_at = ?, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ? AND version = ? AND deleted_at IS NULL");
-          for (const entry of entries) update.run(deletedAt, deletedAt, entry.id, user.id, entry.version);
-          resolveNoteLinksForTitles(database, user.id, rows.map((row) => row.title));
-          return { deletedIds: entries.map((entry) => entry.id) };
-        })();
+        const rows = await getBatchNoteStates(database, user.id, entries);
+        assertBatchNoteStates(rows, entries, "trash");
+        const deletedAt = now();
+        const expected = entries.map(() => "(?, ?)").join(", ");
+        const values: SqlValue[] = entries.flatMap((entry) => [entry.id, entry.version]);
+        values.push(deletedAt, deletedAt, user.id, user.id, entries.length);
+        const updated = await database.query(`
+          WITH expected(id, version) AS (VALUES ${expected})
+          UPDATE notes SET deleted_at = ?, version = version + 1, updated_at = ?
+          WHERE user_id = ? AND deleted_at IS NULL
+            AND EXISTS (SELECT 1 FROM expected e WHERE e.id = notes.id AND e.version = notes.version)
+            AND (SELECT COUNT(*) FROM notes n JOIN expected e ON e.id = n.id AND e.version = n.version WHERE n.user_id = ? AND n.deleted_at IS NULL) = ?
+          RETURNING id
+        `).all<{ id: string }>(...values);
+        if (updated.length !== entries.length) throw new BatchNoteConflictError(entries.map((entry) => entry.id));
+        await resolveNoteLinksForTitles(database, user.id, rows.map((row) => row.title));
+        moved = { deletedIds: entries.map((entry) => entry.id) };
       } catch (error) {
         if (error instanceof BatchNoteConflictError) return batchConflictResponse(error);
         throw error;
@@ -391,23 +431,29 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
 
     let deleted: { deletedIds: string[]; assetPaths: string[] };
     try {
-      deleted = database.transaction(() => {
-        const rows = getBatchNoteStates(database, user.id, entries);
-        assertBatchNoteStates(rows, entries, "permanent");
-        const deletedIds = entries.map((entry) => entry.id);
-        const assetPaths = assetPathsForNotes(database, user.id, deletedIds);
-        const deleteLinks = database.query("DELETE FROM note_links WHERE user_id = ? AND source_note_id = ?");
-        for (const noteId of deletedIds) deleteLinks.run(user.id, noteId);
-        const placeholders = deletedIds.map(() => "?").join(",");
-        database.query(`DELETE FROM notes WHERE user_id = ? AND id IN (${placeholders})`).run(user.id, ...deletedIds);
-        return { deletedIds, assetPaths };
-      })();
+      const rows = await getBatchNoteStates(database, user.id, entries);
+      assertBatchNoteStates(rows, entries, "permanent");
+      const deletedIds = entries.map((entry) => entry.id);
+      const assetPaths = await assetPathsForNotes(database, user.id, deletedIds);
+      const expected = entries.map(() => "(?, ?)").join(", ");
+      const values: SqlValue[] = entries.flatMap((entry) => [entry.id, entry.version]);
+      values.push(user.id, user.id, entries.length);
+      const deletedRows = await database.query(`
+        WITH expected(id, version) AS (VALUES ${expected})
+        DELETE FROM notes
+        WHERE user_id = ? AND deleted_at IS NOT NULL
+          AND EXISTS (SELECT 1 FROM expected e WHERE e.id = notes.id AND e.version = notes.version)
+          AND (SELECT COUNT(*) FROM notes n JOIN expected e ON e.id = n.id AND e.version = n.version WHERE n.user_id = ? AND n.deleted_at IS NOT NULL) = ?
+        RETURNING id
+      `).all<{ id: string }>(...values);
+      if (deletedRows.length !== entries.length) throw new BatchNoteConflictError(entries.map((entry) => entry.id));
+      deleted = { deletedIds, assetPaths };
     } catch (error) {
       if (error instanceof BatchNoteConflictError) return batchConflictResponse(error);
       throw error;
     }
     publishWorkspaceChange(options, user.id, { resource: "notes" }, request);
-    await removeAssetFiles(assetRoot, deleted.assetPaths);
+    if (options.assets) await removeAssetFiles(options.assets, deleted.assetPaths);
     return json({ ok: true, deletedIds: deleted.deletedIds });
   }
 
@@ -443,7 +489,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     for (const tagFilter of normalizedTagFilters) {
       if (isTagFilterVerified(database, user.id, tagFilter)) continue;
       // Fetch bounded candidates in one query instead of unbounded notes.
-      const candidates = all<{ id: string; content_markdown: string; tags_json: string }>(database, `
+      const candidates = await all<{ id: string; content_markdown: string; tags_json: string }>(database, `
         SELECT n.id, n.content_markdown,
           COALESCE((SELECT json_group_array(tag) FROM (SELECT tag FROM note_tags WHERE note_id = n.id ORDER BY position)), '[]') AS tags_json
         FROM notes n
@@ -456,7 +502,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
         const storedTags = parseIndexedTags(candidate.tags_json);
         const parsedTags = extractTags(candidate.content_markdown);
         if (storedTags.length !== parsedTags.length || storedTags.some((tag, index) => tag !== parsedTags[index])) {
-          syncNoteTags(database, user.id, candidate.id, candidate.content_markdown);
+          await syncNoteTags(database, user.id, candidate.id, candidate.content_markdown);
         }
       }
       markTagFilterVerified(database, user.id, tagFilter);
@@ -487,13 +533,12 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
       if (ftsTokens.length > 0) {
         const ftsQuery = ftsTokens.map((part) => `"${part.replaceAll('"', '""')}"`).join(" AND ");
         if (sort === "relevance") {
-          rankingCte = "WITH search_rank AS MATERIALIZED (SELECT rowid, bm25(notes_fts, 8.0, 1.0) AS score FROM notes_fts WHERE notes_fts MATCH ?)";
+          rankingCte = "WITH search_rank AS MATERIALIZED (SELECT rowid AS note_rowid, bm25(notes_fts, 8.0, 1.0) AS score FROM notes_fts WHERE notes_fts MATCH ?)";
           rankingParams.push(ftsQuery);
-          from += " JOIN search_rank ON search_rank.rowid = n.rowid";
+          from += " JOIN search_rank ON search_rank.note_rowid = n.rowid";
           scoreExpression = "search_rank.score";
         } else {
-          from += " JOIN notes_fts ON notes_fts.rowid = n.rowid";
-          conditions.push("notes_fts MATCH ?");
+          conditions.push("n.rowid IN (SELECT rowid FROM notes_fts WHERE notes_fts MATCH ?)");
           params.push(ftsQuery);
         }
       }
@@ -528,7 +573,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
       from += " JOIN search_rank ON search_rank.id = n.id";
       scoreExpression = "search_rank.score";
     }
-    const scope = sort === "relevance" ? new Bun.CryptoHasher("sha256").update(JSON.stringify([user.id, query, notebookId, view, normalizedTagFilters, tagMode])).digest("hex") : undefined;
+    const scope = sort === "relevance" ? await digestHex(JSON.stringify([user.id, query, notebookId, view, normalizedTagFilters, tagMode])) : undefined;
     const cursor = decodeNoteListCursor(url.searchParams.get("cursor"), sort);
     if (url.searchParams.get("cursor") && !cursor) return jsonError(400, "INVALID_CURSOR", "笔记列表游标无效");
     if (cursor && sort === "relevance" && cursor.scope !== scope) return jsonError(400, "INVALID_CURSOR", "笔记列表游标与搜索条件不一致");
@@ -563,7 +608,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     }
     const where = conditions.join(" AND ");
     const includeTotal = url.searchParams.get("includeTotal") !== "0";
-    const totalRow = includeTotal ? first<{ count: number }>(database, `${rankingCte} SELECT COUNT(*) AS count FROM ${from} WHERE ${totalWhere}`, ...rankingParams, ...totalParams) : null;
+    const totalRow = includeTotal ? await first<{ count: number }>(database, `${rankingCte} SELECT COUNT(*) AS count FROM ${from} WHERE ${totalWhere}`, ...rankingParams, ...totalParams) : null;
     const includeMatch = url.searchParams.get("includeMatch") === "1";
     const matchParams: SqlValue[] = [];
     let matchSelect = "";
@@ -577,7 +622,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
       ${rankingCte} SELECT ${NOTE_LIST_SELECT}, ${scoreExpression} AS relevance_score ${matchSelect}
       FROM ${from} WHERE ${where} ORDER BY ${sort === "relevance" ? `${scoreExpression} ASC, n.id ASC` : noteListOrder(sort)} LIMIT ? OFFSET ?
     `);
-    const rows = listStatement.all(...rankingParams, ...matchParams, ...params, pageLimit + 1, offset) as (NoteRow & { tags_json: string; relevance_score: number; match_snippet?: string })[];
+    const rows = await listStatement.all(...rankingParams, ...matchParams, ...params, pageLimit + 1, offset) as (NoteRow & { tags_json: string; relevance_score: number; match_snippet?: string })[];
     const hasMore = rows.length > pageLimit;
     const pageRows = hasMore ? rows.slice(0, pageLimit) : rows;
     const notes: NoteSummary[] = pageRows.map((row) => {
@@ -601,33 +646,44 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     const rawTitle = payload?.title === undefined ? "未命名笔记" : payload.title;
     const contentMarkdown = payload?.contentMarkdown === undefined ? "" : payload.contentMarkdown;
     if (typeof rawTitle !== "string" || typeof contentMarkdown !== "string") return jsonError(400, "INVALID_NOTE", "笔记标题或正文格式无效");
-    if (!validText(rawTitle, 200) || !validText(contentMarkdown, 1_000_000)) return jsonError(413, "NOTE_TOO_LARGE", "笔记标题或正文超出长度限制");
+    if (!validText(rawTitle, 200) || !validNoteContent(contentMarkdown)) return jsonError(413, "NOTE_TOO_LARGE", `笔记正文最多 ${NOTE_CONTENT_MAX_LENGTH.toLocaleString("en-US")} 个 UTF-16 code units 且不超过 ${NOTE_CONTENT_MAX_BYTES.toLocaleString("en-US")} 个 UTF-8 字节`);
     const title = normalizeNoteTitle(rawTitle as string);
-    const notebookId = typeof payload?.notebookId === "string" ? payload.notebookId : first<{ id: string }>(database, "SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1 LIMIT 1", user.id)?.id;
+    const defaultNotebook = typeof payload?.notebookId === "string" ? null : await first<{ id: string }>(database, "SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1 LIMIT 1", user.id);
+    const notebookId = typeof payload?.notebookId === "string" ? payload.notebookId : defaultNotebook?.id;
     if (!notebookId) return jsonError(400, "NO_NOTEBOOK", "没有可用的收件箱");
-    if (!first(database, "SELECT id FROM notebooks WHERE id = ? AND user_id = ?", notebookId, user.id)) return jsonError(404, "NOTEBOOK_NOT_FOUND", "笔记本不存在");
-    if (!validNoteAssetReferences(database, user.id, null, contentMarkdown as string)) return jsonError(400, "INVALID_ASSET", "图片引用无效、不受支持或附件当前不可用");
+    if (!await first(database, "SELECT id FROM notebooks WHERE id = ? AND user_id = ?", notebookId, user.id)) return jsonError(404, "NOTEBOOK_NOT_FOUND", "笔记本不存在");
+    if (!await validNoteAssetReferences(database, user.id, null, contentMarkdown as string)) return jsonError(400, "INVALID_ASSET", "图片引用无效、不受支持或附件当前不可用");
     const requestedId = payload?.id === undefined ? undefined : payload.id;
     if (requestedId !== undefined) {
       if (typeof requestedId !== "string" || !NOTE_ID_PATTERN.test(requestedId)) {
         return jsonError(400, "INVALID_NOTE", "笔记 ID 必须是 UUID");
       }
-      if (first(database, "SELECT 1 FROM notes WHERE id = ?", requestedId)) {
+      if (await first(database, "SELECT 1 FROM notes WHERE id = ?", requestedId)) {
         return jsonError(409, "NOTE_EXISTS", "指定 ID 的笔记已存在");
       }
     }
-    const noteId = createNote(database, user.id, notebookId, title, contentMarkdown as string, requestedId);
-    const note = getNote(database, user.id, noteId);
+    const noteId = await createNote(database, user.id, notebookId, title, contentMarkdown as string, requestedId);
+    const note = await getNote(database, user.id, noteId);
     publishWorkspaceChange(options, user.id, { resource: "notes", noteId }, request);
     return json({ note: note ? toFullNote(note) : null }, 201);
   }
 
   // Backlinks
   if (id && subresource === "backlinks" && method === "GET") {
-    const note = getNote(database, user.id, id);
+    const note = await getNote(database, user.id, id);
     if (!note) return jsonError(404, "NOTE_NOT_FOUND", "笔记不存在");
 
-    const linkedRows = database.query(`
+    const linkedRows = await all<{
+      link_id: string;
+      source_note_id: string;
+      source_title: string;
+      link_snippet: string | null;
+      source_content_char_count: number;
+      source_updated_at: number;
+      notebook_name: string;
+      target_title: string;
+      target_note_id: string | null;
+    }>(database, `
       SELECT nl.id AS link_id, nl.source_note_id, n.title AS source_title,
         nl.snippet AS link_snippet,
         length(n.content_markdown) AS source_content_char_count,
@@ -638,22 +694,12 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
       WHERE nl.user_id = ? AND nl.target_note_id = ? AND nl.source_note_id != ? AND n.deleted_at IS NULL
       ORDER BY n.updated_at DESC
       LIMIT ?
-    `).iterate(
+    `,
       user.id,
       note.id,
       note.id,
       BACKLINK_REFERENCE_LIMIT + 1,
-    ) as IterableIterator<{
-      link_id: string;
-      source_note_id: string;
-      source_title: string;
-      link_snippet: string | null;
-      source_content_char_count: number;
-      source_updated_at: number;
-      notebook_name: string;
-      target_title: string;
-      target_note_id: string | null;
-    }>;
+    );
     let linkedContentStatement: ReturnType<SqliteDatabase["query"]> | null = null;
     const linkedReferences: NoteLinkSummary[] = [];
     let truncated = false;
@@ -675,7 +721,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
         if (!linkedContentStatement) {
           linkedContentStatement = database.query("SELECT content_markdown FROM notes WHERE id = ? AND user_id = ?");
         }
-        const source = linkedContentStatement.get(row.source_note_id, user.id) as { content_markdown: string } | null;
+        const source = await linkedContentStatement.get(row.source_note_id, user.id) as { content_markdown: string } | null;
         if (!source) continue;
         scannedChars += source.content_markdown.length;
         if (scannedChars > BACKLINK_SCAN_CHAR_LIMIT) {
@@ -709,8 +755,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
       const candidateParams: SqlValue[] = [user.id, note.id];
 
       if (useFts) {
-        candidateFrom += " JOIN notes_fts ON notes_fts.rowid = n.rowid";
-        candidateConditions.push("notes_fts MATCH ?");
+        candidateConditions.push("EXISTS (SELECT 1 FROM notes_fts WHERE notes_fts.rowid = n.rowid AND notes_fts MATCH ?)");
         candidateParams.push(ftsTokens.map((p) => `"${p.replaceAll('"', '""')}"`).join(" AND "));
       } else if (canIndexShortSearchTerm(trimmedTitle)) {
         candidateConditions.push(`(
@@ -738,7 +783,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
         LIMIT ?
       `;
       candidateParams.push(BACKLINK_CANDIDATE_LIMIT + 1);
-      const candidateRows = database.query(candidateSql).iterate(...candidateParams) as IterableIterator<{
+      const candidateRows = await database.query(candidateSql).all(...candidateParams) as Array<{
         id: string;
         title: string;
         content_char_count: number;
@@ -758,7 +803,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
           truncated = true;
           break;
         }
-        const source = candidateContentStatement.get(candidate.id, user.id) as { content_markdown: string } | null;
+        const source = await candidateContentStatement.get(candidate.id, user.id) as { content_markdown: string } | null;
         if (!source) continue;
         scannedChars += source.content_markdown.length;
         if (scannedChars > BACKLINK_SCAN_CHAR_LIMIT) {
@@ -791,7 +836,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
 
   // Link mention
   if (id && subresource === "link-mention" && method === "POST") {
-    const targetNote = getNote(database, user.id, id);
+    const targetNote = await getNote(database, user.id, id);
     if (!targetNote) return jsonError(404, "NOTE_NOT_FOUND", "目标笔记不存在");
     if (targetNote.deleted_at !== null) return jsonError(409, "NOTE_IN_TRASH", "回收站中的笔记只读，请先恢复笔记后再修改");
 
@@ -800,7 +845,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
       return jsonError(400, "INVALID_MENTION_PAYLOAD", "提及参数无效");
     }
 
-    const sourceNote = getNote(database, user.id, payload.sourceNoteId);
+    const sourceNote = await getNote(database, user.id, payload.sourceNoteId);
     if (!sourceNote) return jsonError(404, "SOURCE_NOTE_NOT_FOUND", "来源笔记不存在");
     if (sourceNote.deleted_at !== null) return jsonError(409, "NOTE_IN_TRASH", "回收站中的笔记只读，请先恢复笔记后再修改");
     if (sourceNote.version !== payload.sourceVersion) return jsonError(409, "MENTION_STALE", "来源笔记已更新，请重新选择提及");
@@ -827,13 +872,13 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
 
   // Get single note
   if (id && !subresource && method === "GET") {
-    const note = getNote(database, user.id, id);
+    const note = await getNote(database, user.id, id);
     return note ? json({ note: toFullNote(note) }) : jsonError(404, "NOTE_NOT_FOUND", "笔记不存在");
   }
 
   // Patch note
   if (id && !subresource && method === "PATCH") {
-    const current = getNote(database, user.id, id);
+    const current = await getNote(database, user.id, id);
     if (!current) return jsonError(404, "NOTE_NOT_FOUND", "笔记不存在");
     const payload = await readJson<{ version?: unknown; title?: unknown; contentMarkdown?: unknown; notebookId?: unknown; isFavorite?: unknown; deleted?: unknown }>(request, NOTE_BODY_MAX_BYTES);
     if (!payload || !Number.isInteger(payload.version)) return jsonError(400, "VERSION_REQUIRED", "保存笔记必须携带版本号");
@@ -860,11 +905,11 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
       ? current.deleted_at
       : payload.deleted ? now() : null;
     if (typeof rawTitle !== "string" || typeof contentMarkdown !== "string" || typeof notebookId !== "string") return jsonError(400, "INVALID_NOTE", "笔记标题、正文或笔记本格式无效");
-    if (!validText(rawTitle, 200) || !validText(contentMarkdown, 1_000_000)) return jsonError(413, "NOTE_TOO_LARGE", "笔记标题或正文超出长度限制");
+    if (!validText(rawTitle, 200) || !validNoteContent(contentMarkdown)) return jsonError(413, "NOTE_TOO_LARGE", `笔记正文最多 ${NOTE_CONTENT_MAX_LENGTH.toLocaleString("en-US")} 个 UTF-16 code units 且不超过 ${NOTE_CONTENT_MAX_BYTES.toLocaleString("en-US")} 个 UTF-8 字节`);
     const title = normalizeNoteTitle(rawTitle as string);
-    if (!first(database, "SELECT id FROM notebooks WHERE id = ? AND user_id = ?", notebookId, user.id)) return jsonError(404, "NOTEBOOK_NOT_FOUND", "笔记本不存在");
+    if (!await first(database, "SELECT id FROM notebooks WHERE id = ? AND user_id = ?", notebookId, user.id)) return jsonError(404, "NOTEBOOK_NOT_FOUND", "笔记本不存在");
     const contentChanged = current.content_markdown !== contentMarkdown;
-    if (contentChanged && !validNoteAssetReferences(database, user.id, current.id, contentMarkdown as string)) return jsonError(400, "INVALID_ASSET", "图片引用无效、不受支持或附件当前不可用");
+    if (contentChanged && !await validNoteAssetReferences(database, user.id, current.id, contentMarkdown as string)) return jsonError(400, "INVALID_ASSET", "图片引用无效、不受支持或附件当前不可用");
     const summaryResponse = url.searchParams.get("response") === "summary";
     const hasChanges = current.title !== title
       || contentChanged
@@ -874,17 +919,18 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     if (!hasChanges) return json({ note: summaryResponse ? toNote(current) : toFullNote(current) });
     let updated: boolean;
     try {
-      updated = updateNote(database, current, user.id, title, contentMarkdown as string, notebookId, isFavorite, deletedAt);
+      updated = await updateNote(database, current, user.id, title, contentMarkdown as string, notebookId, isFavorite, deletedAt);
     } catch (error) {
       if (error instanceof InvalidNoteAssetsError) return jsonError(400, "INVALID_ASSET", "图片引用无效、不受支持或附件当前不可用");
+      if (error instanceof NoteContentTooLargeError) return jsonError(413, "NOTE_TOO_LARGE", `笔记正文最多 ${NOTE_CONTENT_MAX_LENGTH.toLocaleString("en-US")} 个 UTF-16 code units 且不超过 ${NOTE_CONTENT_MAX_BYTES.toLocaleString("en-US")} 个 UTF-8 字节`);
       if (error instanceof NoteRenameContentTooLargeError) return jsonError(413, "NOTE_TOO_LARGE", "重命名会使引用这篇笔记的正文超出长度限制，请缩短标题或减少双向链接后重试");
       throw error;
     }
     if (!updated) {
-      const latest = getNote(database, user.id, current.id);
+      const latest = await getNote(database, user.id, current.id);
       return json({ error: { code: "VERSION_CONFLICT", message: "这篇笔记已在别处更新", current: latest ? toFullNote(latest) : null } }, 409);
     }
-    const note = getNote(database, user.id, current.id);
+    const note = await getNote(database, user.id, current.id);
     publishWorkspaceChange(options, user.id, { resource: "notes", ...(current.title === title ? { noteId: current.id } : {}) }, request);
     return json({ note: note ? summaryResponse ? toNote(note) : toFullNote(note) : null });
   }
@@ -895,26 +941,25 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     if (!payload || !Number.isSafeInteger(payload.version) || (payload.version as number) < 1) {
       return jsonError(400, "VERSION_REQUIRED", "永久删除笔记必须携带版本号");
     }
-    const result = database.transaction(() => {
-      const note = getNote(database, user.id, id);
-      if (!note) return { kind: "missing" as const };
-      if (note.version !== payload.version) return { kind: "conflict" as const, note };
-      if (note.deleted_at === null) return { kind: "not-trashed" as const };
-
-      const assetPaths = assetPathsForNotes(database, user.id, [note.id]);
-      const deleted = database.query("DELETE FROM notes WHERE id = ? AND user_id = ? AND version = ? AND deleted_at IS NOT NULL").run(note.id, user.id, payload.version as number);
-      if (!deleted.changes) {
-        return { kind: "conflict" as const, note: getNote(database, user.id, id) };
-      }
-      return { kind: "deleted" as const, noteId: note.id, assetPaths };
-    }).immediate();
+    const note = await getNote(database, user.id, id);
+    let result: { kind: "missing" } | { kind: "conflict"; note: NoteRow | null } | { kind: "not-trashed" } | { kind: "deleted"; noteId: string; assetPaths: string[] };
+    if (!note) result = { kind: "missing" };
+    else if (note.version !== payload.version) result = { kind: "conflict", note };
+    else if (note.deleted_at === null) result = { kind: "not-trashed" };
+    else {
+      const assetPaths = await assetPathsForNotes(database, user.id, [note.id]);
+      const deleted = await database.query("DELETE FROM notes WHERE id = ? AND user_id = ? AND version = ? AND deleted_at IS NOT NULL RETURNING id").get(note.id, user.id, payload.version as number) as { id: string } | null;
+      result = deleted
+        ? { kind: "deleted", noteId: note.id, assetPaths }
+        : { kind: "conflict", note: (await getNote(database, user.id, id)) ?? null };
+    }
     if (result.kind === "missing") return jsonError(404, "NOTE_NOT_FOUND", "笔记不存在");
     if (result.kind === "not-trashed") return jsonError(400, "NOTE_NOT_TRASHED", "只能永久删除回收站中的笔记");
     if (result.kind === "conflict") {
       return json({ error: { code: "VERSION_CONFLICT", message: "这篇笔记已在别处更新，请刷新后重试", current: result.note ? toFullNote(result.note) : null } }, 409);
     }
     publishWorkspaceChange(options, user.id, { resource: "notes", noteId: result.noteId }, request);
-    await removeAssetFiles(assetRoot, result.assetPaths);
+      if (options.assets) await removeAssetFiles(options.assets, result.assetPaths);
     return json({ ok: true });
   }
 

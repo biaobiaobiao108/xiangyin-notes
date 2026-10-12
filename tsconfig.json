@@ -17,5 +17,5 @@
     "jsx": "react-jsx",
     "types": ["bun-types"]
   },
-  "include": ["app", "server", "shared", "scripts", "tests"]
+  "include": ["app", "server", "shared", "scripts", "tests", "worker"]
 }

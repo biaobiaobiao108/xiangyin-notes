@@ -6,15 +6,14 @@ import {
   type RouteContext,
   type ServerOptions,
 } from "./core";
-import { openDatabase } from "./db";
-import { assetRootFromEnv, cleanupOrphanAssets, handleAssetsRoute } from "./routes/assets";
+import { cleanupOrphanAssets, handleAssetsRoute } from "./routes/assets";
 import { cleanupExpiredSessions, handleAuthRoute, isResponse, requireUser } from "./routes/auth";
 import { handleExportRoute } from "./routes/export";
 import { handleImportRoute } from "./routes/import";
 import { handleMcpRequest, MCP_PATH } from "./mcp";
 import { handleNotebooksRoute } from "./routes/notebooks";
 import { handleNotesRoute } from "./routes/notes";
-import { REALTIME_PATH, RealtimeHub, upgradeRealtimeRequest, type RealtimeSocketData } from "./realtime";
+import { handleRealtimeRequest, REALTIME_PATH } from "./realtime";
 
 // Re-exports for backward compatibility and test runners
 export {
@@ -71,9 +70,12 @@ function withSecurityHeaders(response: Response, environment: Record<string, str
     headers.set("Referrer-Policy", "no-referrer");
   }
   if (request && isSecureRequest(request, environment, clientAddress)) headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  if (response.status === 101) {
+    const webSocket = (response as Response & { webSocket?: WebSocket }).webSocket;
+    return new Response(null, { status: 101, headers, webSocket } as ResponseInit);
+  }
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
-
 function isMcpPath(pathname: string) {
   return pathname === MCP_PATH || pathname.startsWith(`${MCP_PATH}/`);
 }
@@ -176,7 +178,6 @@ async function serveStatic(request: Request, clientRoot: string, environment: Re
 async function handleApi(request: Request, options: ServerOptions) {
   const { database, environment = {} } = options;
   if (invalidCookieMutationOrigin(request, environment)) return jsonError(403, "FORBIDDEN_ORIGIN", "请求来源无效");
-  const assetRoot = resolve(options.assetRoot ?? assetRootFromEnv(environment));
   const url = new URL(request.url);
   const method = request.method.toUpperCase();
   let segments: string[];
@@ -188,8 +189,11 @@ async function handleApi(request: Request, options: ServerOptions) {
 
   if (!API_RESOURCES.has(segments[0] ?? "")) return jsonError(404, "NOT_FOUND", "接口不存在");
 
-  cleanupExpiredSessions(database);
-  void cleanupOrphanAssets(database, assetRoot).catch((error) => console.warn("[assets] orphan cleanup failed", error));
+  await cleanupExpiredSessions(database);
+  if (options.assets) {
+    const cleanup = cleanupOrphanAssets(database, options.assets).catch((error) => console.warn("[assets] orphan cleanup failed", error));
+    options.waitUntil?.(cleanup);
+  }
 
   const ctx: RouteContext = { request, url, method, segments, options };
 
@@ -205,16 +209,16 @@ async function handleApi(request: Request, options: ServerOptions) {
   if (isResponse(user)) return user;
 
   // 3. Domain routes
-  const notesResponse = await handleNotesRoute(ctx, user, assetRoot);
+  const notesResponse = await handleNotesRoute(ctx, user);
   if (notesResponse) return notesResponse;
 
   const notebooksResponse = await handleNotebooksRoute(ctx, user);
   if (notebooksResponse) return notebooksResponse;
 
-  const assetsResponse = await handleAssetsRoute(ctx, user, assetRoot);
+  const assetsResponse = await handleAssetsRoute(ctx, user);
   if (assetsResponse) return assetsResponse;
 
-  const exportResponse = await handleExportRoute(ctx, user, assetRoot);
+  const exportResponse = await handleExportRoute(ctx, user);
   if (exportResponse) return exportResponse;
 
   return jsonError(404, "NOT_FOUND", "接口不存在");
@@ -227,10 +231,14 @@ export async function handleRequest(request: Request, options: ServerOptions) {
     let response: Response;
     if (isMcpPath(url.pathname)) {
       response = await handleMcpRequest(request, options);
+    } else if (url.pathname === REALTIME_PATH) {
+      response = await handleRealtimeRequest(request, options);
     } else if (url.pathname.startsWith("/api/")) {
       response = await handleApi(request, options);
     } else {
-      response = await serveStatic(request, options.clientRoot ?? DEFAULT_CLIENT_ROOT, environment);
+      response = options.staticAssets
+        ? await options.staticAssets.fetch(request)
+        : await serveStatic(request, options.clientRoot ?? DEFAULT_CLIENT_ROOT, environment);
     }
     return withSecurityHeaders(response, environment, request, options.clientAddress);
   } catch (error) {
@@ -239,77 +247,4 @@ export async function handleRequest(request: Request, options: ServerOptions) {
     if (url.pathname.startsWith("/api/") || isMcpPath(url.pathname)) return withSecurityHeaders(jsonError(500, "INTERNAL_ERROR", "服务器暂时无法处理请求"), options.environment, request, options.clientAddress);
     return withSecurityHeaders(new Response("Internal Server Error", { status: 500 }), options.environment, request, options.clientAddress);
   }
-}
-
-if (import.meta.main) {
-  const database = await openDatabase();
-  const realtime = new RealtimeHub();
-  const port = Number.parseInt(Bun.env.PORT ?? "3000", 10) || 3000;
-  const hostname = Bun.env.HOST?.trim() || "localhost";
-  const clientRoot = Bun.env.CLIENT_ROOT?.trim() || DEFAULT_CLIENT_ROOT;
-  const server = Bun.serve({
-    hostname,
-    port,
-    async fetch(request, server) {
-      const options: ServerOptions = { database, environment: Bun.env, clientRoot, realtime, clientAddress: server.requestIP(request)?.address };
-      if (new URL(request.url).pathname === REALTIME_PATH) {
-        const realtimeResponse = await upgradeRealtimeRequest(request, server, options);
-        if (realtimeResponse) return withSecurityHeaders(realtimeResponse, Bun.env, request, options.clientAddress);
-        return undefined;
-      }
-      return handleRequest(request, options);
-    },
-    websocket: {
-      data: {} as RealtimeSocketData,
-      open(socket) {
-        realtime.add(socket);
-      },
-      close(socket) {
-        realtime.remove(socket);
-      },
-      message() {
-        // The realtime channel is intentionally server-to-client only.
-      },
-    },
-    error(error) {
-      console.error("[server] uncaught error", error);
-      return withSecurityHeaders(jsonError(500, "INTERNAL_ERROR", "服务器暂时无法处理请求"), Bun.env);
-    },
-  });
-  realtime.startHeartbeat();
-  console.log(`象映笔记服务已启动：${server.url}`);
-
-  let shutdownPromise: Promise<void> | null = null;
-  const shutdown = (signal: string) => {
-    if (shutdownPromise) return shutdownPromise;
-
-    shutdownPromise = (async () => {
-      console.log(`[server] 收到 ${signal}，开始关闭服务`);
-
-      let forceShutdownTimer: ReturnType<typeof setTimeout> | null = null;
-      const forceShutdown = new Promise<"forced">((resolveForceShutdown) => {
-        forceShutdownTimer = setTimeout(() => {
-          console.warn("[server] 优雅关闭超时，强制关闭活动连接");
-          void server.stop(true).then(() => resolveForceShutdown("forced"), (error) => {
-            console.error("[server] 强制关闭服务失败", error);
-            resolveForceShutdown("forced");
-          });
-        }, 5_000);
-      });
-
-      try {
-        realtime.stop();
-        await Promise.race([server.stop(), forceShutdown]);
-      } finally {
-        if (forceShutdownTimer) clearTimeout(forceShutdownTimer);
-        database.close();
-        console.log("[server] 服务已关闭");
-      }
-    })();
-
-    return shutdownPromise;
-  };
-
-  process.once("SIGTERM", () => void shutdown("SIGTERM"));
-  process.once("SIGINT", () => void shutdown("SIGINT"));
 }

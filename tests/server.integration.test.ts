@@ -1,16 +1,18 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { mkdir, readdir, rm, utimes } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { rm } from "node:fs/promises";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { marked } from "marked";
-import { applyMigrations, openDatabase, reclaimDatabaseSpace, type SqliteDatabase } from "../server/db";
+import { applyMigrations, openDatabase, reclaimDatabaseSpace } from "../server/test-db";
+import type { TestSqliteDatabase } from "../server/test-db";
 import { handleRequest } from "../server/index";
 import { MAX_SHORT_TERM_CONTENT_CHARS, MAX_SHORT_TERMS_PER_NOTE } from "../server/note-search";
-import { cleanupOrphanAssetFiles, IMAGE_UPLOAD_MAX_BODY_BYTES, ORPHAN_ASSET_TTL_SECONDS, removeAssetFiles, retryPendingAssetDeletions } from "../server/routes/assets";
+import { cleanupOrphanAssets, IMAGE_UPLOAD_MAX_BODY_BYTES, ORPHAN_ASSET_TTL_SECONDS } from "../server/routes/assets";
 import { IMPORT_RATE_LIMIT_MAX_REQUESTS } from "../server/routes/import";
+import { MemoryR2Bucket } from "./memory-r2";
 
-let database: SqliteDatabase;
-let assetRoot: string;
+let database: TestSqliteDatabase;
+let assets: MemoryR2Bucket;
 let clientAddress: string;
 const environment: Record<string, string | undefined> = { XIANGYING_USERNAME: "owner", XIANGYING_PASSWORD: "a long passphrase 1234" };
 const ONE_PIXEL_PNG = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="), (character) => character.charCodeAt(0));
@@ -24,51 +26,33 @@ function imageForm(name = "cat.png", bytes = ONE_PIXEL_PNG, mimeType = "image/pn
 beforeEach(async () => {
   database = await openDatabase(":memory:");
   await applyMigrations(database);
-  assetRoot = join(tmpdir(), `xiangying-notes-assets-${crypto.randomUUID()}`);
+  assets = new MemoryR2Bucket();
   clientAddress = `test-${crypto.randomUUID()}`;
 });
 
 afterEach(async () => {
   database.close();
-  await rm(assetRoot, { recursive: true, force: true });
 });
 
 async function request(path: string, init: RequestInit = {}, cookie?: string, targetEnvironment = environment, origin = "http://xiangying.test", targetClientRoot = "dist/client") {
   const headers = new Headers(init.headers);
   if (cookie) headers.set("Cookie", cookie);
-  const response = await handleRequest(new Request(`${origin}${path}`, { ...init, headers }), { database, environment: targetEnvironment, clientRoot: targetClientRoot, assetRoot, clientAddress });
+  const response = await handleRequest(new Request(`${origin}${path}`, { ...init, headers }), { database, environment: targetEnvironment, clientRoot: targetClientRoot, assets, clientAddress });
   const body = await response.json().catch(() => null) as Record<string, any> | null;
   return { response, body, cookie: response.headers.get("Set-Cookie")?.split(";", 1)[0] };
 }
 
 describe("Bun Server API", () => {
-  test("retries asset file deletions that failed after their database rows were removed", async () => {
-    const warningSpy = spyOn(console, "warn").mockImplementation(() => undefined);
-    const storagePath = "blocked/retry.png";
-    const targetPath = join(assetRoot, storagePath);
-    await mkdir(assetRoot, { recursive: true });
-    await mkdir(targetPath, { recursive: true });
-    await Bun.write(join(targetPath, "nested"), "keep directory non-empty");
-
-    try {
-      await removeAssetFiles(assetRoot, [storagePath]);
-      const queueRoot = join(assetRoot, ".pending-delete");
-      expect((await readdir(queueRoot)).length).toBe(1);
-
-      await rm(targetPath, { recursive: true });
-      await Bun.write(targetPath, "retry me");
-      await retryPendingAssetDeletions(assetRoot);
-
-      expect(await Bun.file(targetPath).exists()).toBe(false);
-      expect(await readdir(queueRoot)).toEqual([]);
-    } finally {
-      warningSpy.mockRestore();
-    }
+  test("deletes removed asset objects from R2", async () => {
+    const key = `${crypto.randomUUID()}/${crypto.randomUUID()}.png`;
+    await assets.put(key, new Uint8Array([1]));
+    await assets.delete(key);
+    expect(await assets.get(key)).toBeNull();
   });
 
   test("serves a cache-bypassing service worker in development", async () => {
     const devEnvironment = { ...environment, NODE_ENV: "development" };
-    const response = await handleRequest(new Request("http://xiangying.test/sw.js"), { database, environment: devEnvironment, clientRoot: "dist/client", assetRoot });
+    const response = await handleRequest(new Request("http://xiangying.test/sw.js"), { database, environment: devEnvironment, clientRoot: "dist/client", assets });
     const source = await response.text();
     expect(response.status).toBe(200);
     expect(response.headers.get("Cache-Control")).toBe("no-cache");
@@ -209,6 +193,10 @@ describe("Bun Server API", () => {
     const oversized = await request("/api/import", { method: "POST", headers: { ...headers, "Content-Type": "text/markdown" }, body: "字".repeat(1_000_001) }, undefined, apiEnvironment);
     expect(oversized.response.status).toBe(413);
     expect(oversized.body?.error.code).toBe("NOTE_TOO_LARGE");
+
+    const oversizedUtf8 = await request("/api/import", { method: "POST", headers: { ...headers, "Content-Type": "text/markdown" }, body: "字".repeat(700_000) }, undefined, apiEnvironment);
+    expect(oversizedUtf8.response.status).toBe(413);
+    expect(oversizedUtf8.body?.error.code).toBe("NOTE_TOO_LARGE");
   });
 
   test("rate limits authenticated API imports by client address", async () => {
@@ -377,7 +365,7 @@ describe("Bun Server API", () => {
     expect(columns.some((column) => /blob|data|content/iu.test(column.name) || /blob/iu.test(column.type))).toBe(false);
     const stored = database.query("SELECT storage_path FROM image_assets WHERE id = ?").get(asset.id) as { storage_path: string };
     expect(stored.storage_path).toMatch(/^.+\/[0-9a-f-]+\.png$/u);
-    expect(await Bun.file(join(assetRoot, stored.storage_path)).exists()).toBe(true);
+    expect(await assets.get(stored.storage_path)).not.toBeNull();
 
     const noteContent = `![猫](${asset.url}?w=320&h=240)`;
     const created = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "带图片", contentMarkdown: noteContent }) }, login.cookie);
@@ -386,7 +374,7 @@ describe("Bun Server API", () => {
     const list = await request("/api/notes?view=all", {}, login.cookie);
     expect(list.body?.notes.find((item: { id: string }) => item.id === created.body?.note.id).thumbnail.id).toBe(asset.id);
 
-    const imageResponse = await handleRequest(new Request(`http://xiangying.test${asset.url}`, { headers: { Cookie: login.cookie! } }), { database, environment, clientRoot: "dist/client", assetRoot });
+    const imageResponse = await handleRequest(new Request(`http://xiangying.test${asset.url}`, { headers: { Cookie: login.cookie! } }), { database, environment, clientRoot: "dist/client", assets });
     expect(imageResponse.status).toBe(200);
     expect(new Uint8Array(await imageResponse.arrayBuffer())).toEqual(ONE_PIXEL_PNG);
 
@@ -396,41 +384,31 @@ describe("Bun Server API", () => {
     expect(isolated.response.status).toBe(404);
   });
 
-  test("cleans stale orphan files and recovers interrupted uploads with database rows", async () => {
+  test("cleans old orphan objects and stale metadata from R2", async () => {
     const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
     const ownerId = login.body?.user.id as string;
-    const ownerRoot = join(assetRoot, ownerId);
-    await mkdir(ownerRoot, { recursive: true });
-    const orphanPath = join(ownerRoot, `${crypto.randomUUID()}.png`);
-    const recentPath = join(ownerRoot, `${crypto.randomUUID()}.png`);
-    const abandonedUploadPath = join(ownerRoot, `${crypto.randomUUID()}.png.uploading-${crypto.randomUUID()}`);
+    const orphanPath = `${ownerId}/${crypto.randomUUID()}.png`;
+    const recentPath = `${ownerId}/${crypto.randomUUID()}.png`;
     const recoverableId = crypto.randomUUID();
     const recoverableStoragePath = `${ownerId}/${recoverableId}.png`;
-    const recoverableUploadPath = join(ownerRoot, `${recoverableId}.png.uploading-${crypto.randomUUID()}`);
     const oldTime = new Date(Date.now() - (ORPHAN_ASSET_TTL_SECONDS + 60) * 1000);
 
     await Promise.all([
-      Bun.write(orphanPath, "orphan"),
-      Bun.write(recentPath, "recent"),
-      Bun.write(abandonedUploadPath, "abandoned"),
-      Bun.write(recoverableUploadPath, "recoverable"),
+      assets.put(orphanPath, new Uint8Array([1])),
+      assets.put(recentPath, new Uint8Array([2])),
+      assets.put(recoverableStoragePath, new Uint8Array([3])),
     ]);
-    await Promise.all([
-      utimes(orphanPath, oldTime, oldTime),
-      utimes(abandonedUploadPath, oldTime, oldTime),
-      utimes(recoverableUploadPath, oldTime, oldTime),
-    ]);
+    assets.objects.get(orphanPath)!.uploaded = oldTime;
+    assets.objects.get(recoverableStoragePath)!.uploaded = oldTime;
     database.query("INSERT INTO image_assets (id, user_id, storage_path, original_name, mime_type, byte_size, width, height, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
       recoverableId, ownerId, recoverableStoragePath, "recovered.png", "image/png", 11, 1, 1, Math.floor(oldTime.getTime() / 1000),
     );
 
-    await cleanupOrphanAssetFiles(database, assetRoot);
+    await cleanupOrphanAssets(database, assets, Math.floor(Date.now() / 1000) + 3601);
 
-    expect(await Bun.file(orphanPath).exists()).toBe(false);
-    expect(await Bun.file(recentPath).exists()).toBe(true);
-    expect(await Bun.file(abandonedUploadPath).exists()).toBe(false);
-    expect(await Bun.file(recoverableUploadPath).exists()).toBe(false);
-    expect(await Bun.file(join(ownerRoot, `${recoverableId}.png`)).text()).toBe("recoverable");
+    expect(await assets.get(orphanPath)).toBeNull();
+    expect(await assets.get(recentPath)).not.toBeNull();
+    expect(await assets.get(recoverableStoragePath)).toBeNull();
   });
 
   test("rejects oversized chunked image uploads before multipart parsing", async () => {
@@ -450,20 +428,13 @@ describe("Bun Server API", () => {
     expect(response.body?.error.code).toBe("IMAGE_TOO_LARGE");
   });
 
-  test("rolls back note updates when asset references become invalid during the transaction", async () => {
+  test("rejects invalid asset references before updating a note", async () => {
     const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
     const created = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "事务一致性", contentMarkdown: "原始内容" }) }, login.cookie);
     const note = created.body?.note;
     const uploaded = await request("/api/assets", { method: "POST", body: imageForm("race.png") }, login.cookie);
     const asset = uploaded.body?.asset;
-    database.exec(`
-      CREATE TRIGGER invalidate_asset_before_note_update
-      AFTER UPDATE OF content_markdown ON notes
-      WHEN NEW.id = '${note.id}'
-      BEGIN
-        DELETE FROM image_assets WHERE id = '${asset.id}';
-      END;
-    `);
+    database.query("DELETE FROM image_assets WHERE id = ?").run(asset.id);
 
     const response = await request(`/api/notes/${note.id}`, {
       method: "PATCH",
@@ -472,7 +443,7 @@ describe("Bun Server API", () => {
     expect(response.response.status).toBe(400);
     expect(response.body?.error.code).toBe("INVALID_ASSET");
     expect(database.query("SELECT version, content_markdown FROM notes WHERE id = ?").get(note.id)).toEqual({ version: note.version, content_markdown: "原始内容" });
-    expect(database.query("SELECT id FROM image_assets WHERE id = ?").get(asset.id)).toBeDefined();
+    expect(database.query("SELECT id FROM image_assets WHERE id = ?").get(asset.id)).toBeNull();
   });
 
   test("rejects unsupported image bytes and protects private images across users", async () => {
@@ -514,8 +485,8 @@ describe("Bun Server API", () => {
     const assetUrl = `/api/assets/${id}`;
     const created = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "uppercase image", contentMarkdown: `![image](${assetUrl})` }) }, login.cookie);
     expect(created.response.status).toBe(201);
-    for (const method of ["GET", "HEAD"]) {
-      const response = await handleRequest(new Request(`http://xiangying.test${assetUrl}`, { method, headers: { Cookie: login.cookie! } }), { database, environment, clientRoot: "dist/client", assetRoot });
+      for (const method of ["GET", "HEAD"]) {
+      const response = await handleRequest(new Request(`http://xiangying.test${assetUrl}`, { method, headers: { Cookie: login.cookie! } }), { database, environment, clientRoot: "dist/client", assets });
       expect(response.status).toBe(200);
       expect(response.headers.get("Content-Type")).toBe("image/png");
       expect(new Uint8Array(await response.arrayBuffer())).toEqual(method === "GET" ? ONE_PIXEL_PNG : new Uint8Array());
@@ -531,13 +502,13 @@ describe("Bun Server API", () => {
     const asset = uploaded.body?.asset;
     const created = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "待清理图片", contentMarkdown: `![x](${asset.url})` }) }, login.cookie);
     const stored = database.query("SELECT storage_path FROM image_assets WHERE id = ?").get(asset.id) as { storage_path: string };
-    expect(await Bun.file(join(assetRoot, stored.storage_path)).exists()).toBe(true);
+    expect(await assets.get(stored.storage_path)).not.toBeNull();
     const trashed = await request(`/api/notes/${created.body?.note.id}`, { method: "PATCH", body: JSON.stringify({ version: created.body?.note.version, deleted: true }) }, login.cookie);
     expect(trashed.response.status).toBe(200);
     const deleted = await request(`/api/notes/${created.body?.note.id}`, { method: "DELETE", body: JSON.stringify({ version: trashed.body?.note.version }) }, login.cookie);
     expect(deleted.response.status).toBe(200);
     expect(database.query("SELECT id FROM image_assets WHERE id = ?").get(asset.id)).toBeNull();
-    expect(await Bun.file(join(assetRoot, stored.storage_path)).exists()).toBe(false);
+    expect(await assets.get(stored.storage_path)).toBeNull();
   });
 
   test("requires the current version for permanently deleting a single trashed note", async () => {
@@ -943,7 +914,7 @@ describe("Bun Server API", () => {
     }
     expect((await request(`/api/notes/${noteId}/shares`)).response.status).toBe(401);
     for (const path of ["/share/unused-token", "/unknown-page"]) {
-      const response = await handleRequest(new Request(`http://xiangying.test${path}`), { database, environment, clientRoot: "dist/client", assetRoot });
+      const response = await handleRequest(new Request(`http://xiangying.test${path}`), { database, environment, clientRoot: "dist/client", assets });
       expect(response.status).toBe(404);
     }
     const invalidView = await request("/api/notes?view=shared", {}, login.cookie);
@@ -1095,7 +1066,7 @@ describe("Bun Server API", () => {
     const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
     const exportResponse = await handleRequest(new Request("http://xiangying.test/api/export", {
       headers: { Cookie: login.cookie! },
-    }), { database, environment, clientRoot: "dist/client", assetRoot });
+    }), { database, environment, clientRoot: "dist/client", assets });
 
     expect(exportResponse.status).toBe(200);
     expect(exportResponse.headers.get("Content-Type")).toBe("application/zip");
@@ -1123,7 +1094,7 @@ describe("Bun Server API", () => {
     }, login.cookie);
     expect(created.response.status).toBe(201);
 
-    const response = await handleRequest(new Request("http://xiangying.test/api/export", { headers: { Cookie: login.cookie ?? "" } }), { database, environment, clientRoot: "dist/client", assetRoot });
+    const response = await handleRequest(new Request("http://xiangying.test/api/export", { headers: { Cookie: login.cookie ?? "" } }), { database, environment, clientRoot: "dist/client", assets });
     expect(response.status).toBe(200);
     const archive = new TextDecoder().decode(new Uint8Array(await response.arrayBuffer()));
     expect(archive).toContain(`attachments/${asset.id}_${boundedName}`);
@@ -1159,7 +1130,7 @@ describe("Bun Server API", () => {
     }, login.cookie);
     expect(trashed.response.status).toBe(200);
 
-    const exported = await handleRequest(new Request("http://xiangying.test/api/export", { headers: { Cookie: login.cookie ?? "" } }), { database, environment, clientRoot: "dist/client", assetRoot });
+    const exported = await handleRequest(new Request("http://xiangying.test/api/export", { headers: { Cookie: login.cookie ?? "" } }), { database, environment, clientRoot: "dist/client", assets });
     const archive = new TextDecoder().decode(new Uint8Array(await exported.arrayBuffer()));
 
     expect(archive).toContain(`attachments/${activeAsset.id}_active.png`);
@@ -1170,20 +1141,20 @@ describe("Bun Server API", () => {
   test("exports Markdown image URLs that resolve filenames with spaces and URL syntax", async () => {
     const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
     const names = ["Screen Shot.png", "figure#1%.png", "figure(unbalanced.png", "中文 图片).png"];
-    const assets: Array<{ id: string; url: string; name: string }> = [];
+    const uploadedAssets: Array<{ id: string; url: string; name: string }> = [];
     for (const name of names) {
       const uploaded = await request("/api/assets", { method: "POST", body: imageForm(name) }, login.cookie);
       expect(uploaded.response.status).toBe(201);
-      assets.push({ ...uploaded.body?.asset, name });
+      uploadedAssets.push({ ...uploaded.body?.asset, name });
     }
     const created = await request("/api/notes", {
       method: "POST",
-      body: JSON.stringify({ title: "encoded export", contentMarkdown: assets.map((asset, index) => `![image${index}](${asset.url})`).join("\n\n") }),
+      body: JSON.stringify({ title: "encoded export", contentMarkdown: uploadedAssets.map((asset, index) => `![image${index}](${asset.url})`).join("\n\n") }),
     }, login.cookie);
     expect(created.response.status).toBe(201);
-    const response = await handleRequest(new Request("http://xiangying.test/api/export", { headers: { Cookie: login.cookie! } }), { database, environment, clientRoot: "dist/client", assetRoot });
+    const response = await handleRequest(new Request("http://xiangying.test/api/export", { headers: { Cookie: login.cookie! } }), { database, environment, clientRoot: "dist/client", assets });
     const archive = new TextDecoder().decode(new Uint8Array(await response.arrayBuffer()));
-    for (const [index, asset] of assets.entries()) {
+    for (const [index, asset] of uploadedAssets.entries()) {
       const imageMarkdown = archive.match(new RegExp(`!\\[image${index}\\]\\([^\\n]+\\)`))?.[0];
       expect(imageMarkdown).toBeDefined();
       const paragraph = marked.lexer(imageMarkdown!)[0];
@@ -1205,7 +1176,7 @@ describe("Bun Server API", () => {
     expect(notebook.response.status).toBe(201);
     const created = await request("/api/notes", { method: "POST", body: JSON.stringify({ title: "note", notebookId: notebook.body?.notebook.id, contentMarkdown: "content" }) }, login.cookie);
     expect(created.response.status).toBe(201);
-    const response = await handleRequest(new Request("http://xiangying.test/api/export", { headers: { Cookie: login.cookie ?? "" } }), { database, environment, clientRoot: "dist/client", assetRoot });
+    const response = await handleRequest(new Request("http://xiangying.test/api/export", { headers: { Cookie: login.cookie ?? "" } }), { database, environment, clientRoot: "dist/client", assets });
     const bytes = new Uint8Array(await response.arrayBuffer());
     const archive = new TextDecoder().decode(bytes);
     expect(archive).toContain("收件箱/note.md");

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openDatabase } from "../server/db";
+import { openDatabase } from "../server/test-db";
 import { getLoginAttempt, recordFailedLogin, resetLoginAttempt } from "../server/routes/auth";
 
 test("keeps a late login lockout after its failure window expires", async () => {
@@ -10,14 +10,14 @@ test("keeps a late login lockout after its failure window expires", async () => 
   const key = `late-lockout-${crypto.randomUUID()}`;
   const startedAt = Math.floor(Date.now() / 1000);
   try {
-    for (let index = 0; index < 7; index += 1) recordFailedLogin(database, key, startedAt);
-    recordFailedLogin(database, key, startedAt + 899);
+    for (let index = 0; index < 7; index += 1) await recordFailedLogin(database, key, startedAt);
+    await recordFailedLogin(database, key, startedAt + 899);
 
-    expect(getLoginAttempt(database, key, startedAt + 901)).toMatchObject({ failures: 8, blockedUntil: startedAt + 1799 });
-    expect(getLoginAttempt(database, key, startedAt + 1798).blockedUntil).toBe(startedAt + 1799);
-    expect(getLoginAttempt(database, key, startedAt + 1799)).toMatchObject({ failures: 0, blockedUntil: 0 });
+    expect(await getLoginAttempt(database, key, startedAt + 901)).toMatchObject({ failures: 8, blockedUntil: startedAt + 1799 });
+    expect((await getLoginAttempt(database, key, startedAt + 1798)).blockedUntil).toBe(startedAt + 1799);
+    expect(await getLoginAttempt(database, key, startedAt + 1799)).toMatchObject({ failures: 0, blockedUntil: 0 });
   } finally {
-    resetLoginAttempt(database, key);
+    await resetLoginAttempt(database, key);
     database.close();
   }
 });
@@ -32,11 +32,11 @@ test("shares and persists rate limits across separate database instances targeti
   try {
     // Record failures on Instance A
     for (let index = 0; index < 8; index += 1) {
-      recordFailedLogin(instanceA, key, startedAt);
+      await recordFailedLogin(instanceA, key, startedAt);
     }
 
     // Instance B should immediately see the lockout state written by Instance A
-    const attemptOnB = getLoginAttempt(instanceB, key, startedAt + 10);
+    const attemptOnB = await getLoginAttempt(instanceB, key, startedAt + 10);
     expect(attemptOnB.failures).toBe(8);
     expect(attemptOnB.blockedUntil).toBe(startedAt + 900);
 
@@ -44,7 +44,7 @@ test("shares and persists rate limits across separate database instances targeti
     instanceA.close();
     instanceB.close();
     const instanceC = await openDatabase(dbPath);
-    const attemptOnC = getLoginAttempt(instanceC, key, startedAt + 20);
+    const attemptOnC = await getLoginAttempt(instanceC, key, startedAt + 20);
     expect(attemptOnC.failures).toBe(8);
     expect(attemptOnC.blockedUntil).toBe(startedAt + 900);
     instanceC.close();

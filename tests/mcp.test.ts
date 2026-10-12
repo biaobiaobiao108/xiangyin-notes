@@ -2,13 +2,14 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyMigrations, openDatabase, type SqliteDatabase } from "../server/db";
+import { applyMigrations, openDatabase } from "../server/test-db";
+import type { TestSqliteDatabase } from "../server/test-db";
 import { handleRequest, redactSensitivePath } from "../server/index";
 import { MCP_PATH } from "../server/mcp";
 import { createNote } from "../server/routes/notes";
 import { NOTE_BODY_MAX_BYTES } from "../server/core";
 
-let database: SqliteDatabase;
+let database: TestSqliteDatabase;
 let assetRoot: string;
 const token = "mcp-test-token-with-enough-randomness-1234567890";
 const credentials = { XIANGYING_USERNAME: "owner", XIANGYING_PASSWORD: "a long passphrase 1234" };
@@ -88,6 +89,7 @@ function toolData(responseBody: Record<string, any>) {
   expect(result.content[0].text.length).toBeLessThan(200);
   expect(() => JSON.parse(result.content[0].text)).toThrow();
   const data = result.structuredContent as Record<string, any>;
+  if (!data) throw new Error(`MCP result missing structured content: ${JSON.stringify(result)}`);
   expect(typeof data.ok).toBe("boolean");
   if (data.error) {
     expect(data.ok).toBe(false);
@@ -1434,7 +1436,7 @@ describe("remote MCP endpoint", () => {
     expect(toolData(missingText.body!).error.suggestedAction).toContain("get_note");
   });
 
-  test("supports official chunked writing with a length receipt and returned versions", async () => {
+  test("supports incremental edits with a length receipt and returned versions", async () => {
     const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
     const created = await callTool("create_note", { title: "分段长文骨架" }, 1, environment);
     let note = toolData(created.body!).note;
@@ -1488,8 +1490,8 @@ describe("remote MCP endpoint", () => {
       arguments: { title: "超长正文", contentMarkdown: "a".repeat(1_000_001) },
     }, "create_note"), environment);
     expect(oversized.response.status).toBe(400);
-    expect(oversized.body?.error.message).toContain("超过单次字段 1,000,000 个 UTF-16 code units 上限");
-    expect(oversized.body?.error.message).toContain("分段追加仍受单篇笔记正文总长度上限约束");
+    expect(oversized.body?.error.message).toContain("超过 1,000,000 个 UTF-16 code units");
+    expect(oversized.body?.error.message).toContain("局部替换和分次追加也受单篇笔记正文总长度上限约束");
 
     const oversizedEncodedBody = await callMcp(modernMcpRequest("tools/call", 7, {
       name: "create_note",

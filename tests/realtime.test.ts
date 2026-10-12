@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyMigrations, openDatabase, type SqliteDatabase } from "../server/db";
+import { applyMigrations, openDatabase } from "../server/test-db";
+import type { TestSqliteDatabase } from "../server/test-db";
 import { handleRequest } from "../server/index";
 import {
   REALTIME_CLIENT_ID_HEADER,
@@ -17,7 +18,7 @@ const environment: Record<string, string | undefined> = {
   XIANGYING_API_TOKEN: "shortcut-api-token-1234567890",
 };
 
-let database: SqliteDatabase;
+let database: TestSqliteDatabase;
 let assetRoot: string;
 
 type FakeSocket = {

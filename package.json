@@ -4,17 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun run scripts/dev.ts",
+    "dev": "bunx wrangler dev",
     "dev:client": "bun build ./app/index.html --outdir ./dist/dev-client --target browser --format esm --splitting --watch",
     "build:client": "bun run scripts/build-client.ts",
-    "build:server": "bun build ./server/index.ts ./server/migrate.ts --outdir ./dist/server --target bun --format esm --production --minify",
-    "build": "bun run build:client && bun run build:server",
-    "start": "bun dist/server/index.js",
+    "build:worker": "bunx wrangler deploy --dry-run --outdir dist/worker",
+    "build": "bun run build:client && bun run build:worker",
     "typecheck": "bun check",
-    "test": "bun test --check",
-    "preview": "bun run scripts/preview.ts",
-    "db:migrate": "bun run scripts/migrate.ts",
-    "db:check": "bun run scripts/check-schema-drift.ts"
+    "test": "bun test",
+    "cf:dev": "bunx wrangler dev",
+    "cf:deploy": "bunx wrangler deploy",
+    "cf:db:migrate:local": "bunx wrangler d1 migrations apply xiangying-notes --local",
+    "cf:db:migrate:remote": "bunx wrangler d1 migrations apply xiangying-notes --remote"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "^2.1.0",
@@ -41,6 +41,7 @@
   "devDependencies": {
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
-    "bun-types": "1.4.3"
+    "bun-types": "1.4.3",
+    "wrangler": "4.149.0"
   }
 }

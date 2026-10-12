@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { openDatabase, type SqliteDatabase } from "../server/db";
+import { openDatabase } from "../server/test-db";
+import type { TestSqliteDatabase } from "../server/test-db";
 import { handleRequest } from "../server/index";
 import { MAX_SHORT_TERM_CONTENT_CHARS, MAX_SHORT_TERMS_PER_NOTE } from "../server/note-search";
 
-let database: SqliteDatabase;
+let database: TestSqliteDatabase;
 let cookie: string;
 let notebookId: string;
 const environment = { XIANGYING_USERNAME: "owner", XIANGYING_PASSWORD: "backlinks test passphrase 1234" };

@@ -14,8 +14,8 @@ type NoteLinkRow = {
   snippet?: string;
 };
 
-export function syncStoredNoteTitleKey(database: SqliteDatabase, noteId: string, title: string) {
-  database.query("UPDATE notes SET title_normalized = ? WHERE id = ?").run(normalizeLinkTitle(title), noteId);
+export async function syncStoredNoteTitleKey(database: SqliteDatabase, noteId: string, title: string) {
+  await database.query("UPDATE notes SET title_normalized = ? WHERE id = ?").run(normalizeLinkTitle(title), noteId);
 }
 
 function activeTitleMap(rows: ActiveNoteTitleRow[]) {
@@ -27,7 +27,7 @@ function activeTitleMap(rows: ActiveNoteTitleRow[]) {
   return targets;
 }
 
-function activeTitlesForKeys(database: SqliteDatabase, userId: string, keys: Set<string>) {
+async function activeTitlesForKeys(database: SqliteDatabase, userId: string, keys: Set<string>) {
   if (keys.size === 0) return [];
   const placeholders = [...keys].map(() => "?").join(",");
   return all<ActiveNoteTitleRow>(
@@ -41,43 +41,39 @@ function activeTitlesForKeys(database: SqliteDatabase, userId: string, keys: Set
   );
 }
 
-function insertNoteLinks(
-  database: SqliteDatabase,
-  userId: string,
-  sourceNoteId: string,
-  contentMarkdown: string,
-  targets: Map<string, string>,
-  createdAt: number,
-) {
-  const insert = database.query("INSERT INTO note_links (id, user_id, source_note_id, target_title, target_title_normalized, target_note_id, snippet, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-  const seen = new Set<string>();
-  for (const link of extractWikiLinks(contentMarkdown)) {
-    const key = normalizeLinkTitle(link.target);
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    const snippet = extractContextSnippet(contentMarkdown, link.start, link.end);
-    insert.run(crypto.randomUUID(), userId, sourceNoteId, link.target, key, targets.get(key) ?? null, snippet, createdAt);
-  }
-}
-
-export function findActiveNoteIdByTitle(database: SqliteDatabase, userId: string, title: string) {
+export async function findActiveNoteIdByTitle(database: SqliteDatabase, userId: string, title: string) {
   const normalized = normalizeLinkTitle(title);
   if (!normalized) return null;
-  const match = database.query("SELECT id FROM notes WHERE user_id = ? AND deleted_at IS NULL AND title_normalized = ? ORDER BY updated_at DESC, id LIMIT 1").get(userId, normalized) as { id: string } | null | undefined;
+  const match = await database.query("SELECT id FROM notes WHERE user_id = ? AND deleted_at IS NULL AND title_normalized = ? ORDER BY updated_at DESC, id LIMIT 1").get(userId, normalized) as { id: string } | null | undefined;
   return match?.id ?? null;
 }
 
-export function syncNoteLinks(database: SqliteDatabase, userId: string, sourceNoteId: string, contentMarkdown: string, createdAt: number) {
-  database.query("DELETE FROM note_links WHERE user_id = ? AND source_note_id = ?").run(userId, sourceNoteId);
-  if (!contentMarkdown || (!contentMarkdown.includes("[[") && !contentMarkdown.includes("【【"))) return;
+export async function syncNoteLinks(database: SqliteDatabase, userId: string, sourceNoteId: string, contentMarkdown: string, createdAt: number) {
+  if (!contentMarkdown || (!contentMarkdown.includes("[[") && !contentMarkdown.includes("【【"))) {
+    await database.query("DELETE FROM note_links WHERE user_id = ? AND source_note_id = ?").run(userId, sourceNoteId);
+    return;
+  }
   const links = extractWikiLinks(contentMarkdown);
   const targetKeys = new Set(links.map((link) => normalizeLinkTitle(link.target)).filter(Boolean));
-  const targets = activeTitleMap(activeTitlesForKeys(database, userId, targetKeys));
-  insertNoteLinks(database, userId, sourceNoteId, contentMarkdown, targets, createdAt);
+  const targets = activeTitleMap(await activeTitlesForKeys(database, userId, targetKeys));
+  const statements: { sql: string; values: SqlValue[] }[] = [
+    { sql: "DELETE FROM note_links WHERE user_id = ? AND source_note_id = ?", values: [userId, sourceNoteId] },
+  ];
+  const seen = new Set<string>();
+  for (const link of links) {
+    const key = normalizeLinkTitle(link.target);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    statements.push({
+      sql: "INSERT INTO note_links (id, user_id, source_note_id, target_title, target_title_normalized, target_note_id, snippet, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      values: [crypto.randomUUID(), userId, sourceNoteId, link.target, key, targets.get(key) ?? null, extractContextSnippet(contentMarkdown, link.start, link.end), createdAt],
+    });
+  }
+  await database.batch(statements);
 }
 
-export function resolveNoteLinksForUser(database: SqliteDatabase, userId: string) {
-  database.query(`
+export async function resolveNoteLinksForUser(database: SqliteDatabase, userId: string) {
+  await database.query(`
     UPDATE note_links
     SET target_note_id = (
       SELECT n.id
@@ -92,11 +88,11 @@ export function resolveNoteLinksForUser(database: SqliteDatabase, userId: string
   `).run(userId);
 }
 
-export function resolveNoteLinksForTitles(database: SqliteDatabase, userId: string, titles: string[]) {
+export async function resolveNoteLinksForTitles(database: SqliteDatabase, userId: string, titles: string[]) {
   const normalizedTargets = new Set(titles.map((title) => normalizeLinkTitle(title)).filter(Boolean));
   if (normalizedTargets.size === 0) return;
   const placeholders = [...normalizedTargets].map(() => "?").join(",");
-  database.query(`
+  await database.query(`
     UPDATE note_links
     SET target_note_id = (
       SELECT n.id
@@ -111,20 +107,20 @@ export function resolveNoteLinksForTitles(database: SqliteDatabase, userId: stri
   `).run(userId, ...normalizedTargets);
 }
 
-export function resolveNoteLinksForTarget(database: SqliteDatabase, userId: string, title: string, targetNoteId: string) {
+export async function resolveNoteLinksForTarget(database: SqliteDatabase, userId: string, title: string, targetNoteId: string) {
   const normalized = normalizeLinkTitle(title);
   if (!normalized) return;
-  database.query("UPDATE note_links SET target_note_id = ? WHERE user_id = ? AND target_note_id IS NULL AND target_title_normalized = ?").run(targetNoteId, userId, normalized);
+  await database.query("UPDATE note_links SET target_note_id = ? WHERE user_id = ? AND target_note_id IS NULL AND target_title_normalized = ?").run(targetNoteId, userId, normalized);
 }
 
-export function sourceNoteIdsReferencingTarget(
+export async function sourceNoteIdsReferencingTarget(
   database: SqliteDatabase,
   userId: string,
   targetNoteId: string,
   afterSourceNoteId: string,
   limit: number,
 ) {
-  const rows = all<{ source_note_id: string }>(
+  const rows = await all<{ source_note_id: string }>(
     database,
     `SELECT DISTINCT nl.source_note_id
      FROM note_links nl
