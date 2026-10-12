@@ -229,6 +229,9 @@ export function rateLimitClientAddress(
   environment: Record<string, string | undefined>,
   clientAddress: string | undefined,
 ) {
+  const cfConnectingIp = normalizedIp(request.headers.get("CF-Connecting-IP") ?? undefined);
+  if (cfConnectingIp) return cfConnectingIp;
+
   const directAddress = clientAddress?.trim() || "unknown";
   if (environment.TRUST_PROXY !== "true") return directAddress;
 

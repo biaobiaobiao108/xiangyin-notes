@@ -54,6 +54,7 @@ export default {
       realtimeNamespace: env.REALTIME_HUB,
       waitUntil: (promise) => context.waitUntil(promise),
       environment: workerEnvironment(env),
+      clientAddress: request.headers.get("CF-Connecting-IP") ?? undefined,
     });
   },
 };

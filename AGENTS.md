@@ -2,7 +2,7 @@
 
 ## 项目定位
 
-象映笔记是一个使用 Bun + TypeScript + React 构建的本地全栈 Markdown 笔记软件。前端由 Bun bundler 打包，后端使用原生 `Bun.serve`，数据使用 `bun:sqlite` 保存。
+象映笔记是一个使用 Bun + TypeScript + React 构建的全栈 Markdown 笔记软件。前端由 Bun bundler 打包并由 Cloudflare Workers 静态资产提供，服务端运行在 Cloudflare Workers 上，数据保存在 Cloudflare D1，图片附件保存在 Cloudflare R2，实时多设备同步基于 Cloudflare Durable Objects。
 
 ## 基本原则
 
@@ -11,26 +11,24 @@
 - 优先复用现有代码和实现模式，不增加没有必要的依赖、配置或新文件。
 - JavaScript / TypeScript 项目统一使用 Bun；不要用 npm、yarn 或 pnpm 替代项目脚本。
 - 修改前先检查工作区状态，保留用户已有的未提交修改，不覆盖无关工作。
-- 不要把密码、`.env`、SQLite 数据库或其他敏感信息写入仓库。
+- 不要把密码、`.env`、`.dev.vars`、SQLite 数据库或其他敏感信息写入仓库。
 
 ## 运行时与配置边界
 
-- 生产运行时是 Bun Server，不再使用 Cloudflare Worker、D1、KV、Hono 或 Wrangler。
-- 服务端使用标准 `Request` / `Response` 和 `Bun.serve`，不得依赖其他运行时专属 API。
-- SQLite 默认路径为 `./data/xiangying-notes.sqlite`，Docker 中为 `/data/xiangying-notes.sqlite`，通过 volume 持久化。
-- 登录凭据只通过运行时环境变量 `XIANGYING_USERNAME` 和 `XIANGYING_PASSWORD` 注入，不写入代码、镜像或日志。
-- `COOKIE_SECURE` 仅在 HTTPS 反向代理场景设为 `true`；本地 HTTP 默认使用 `false`。
+- 生产运行时是 Cloudflare Workers（Worker + D1 + R2 + Durable Objects）；本地开发使用 Wrangler 本地模拟环境（`bun run cf:dev`）。
+- 服务端使用标准 `Request` / `Response` 和 Web APIs，依赖 D1 Binding (`DB`)、R2 Bucket Binding (`ASSETS_BUCKET`)、Durable Objects (`REALTIME_HUB`) 和静态资产 (`ASSETS`)。
+- 登录凭据通过运行时 secrets `XIANGYING_USERNAME` 和 `XIANGYING_PASSWORD` 注入，不写入代码、镜像或日志；可选配置 `XIANGYING_API_TOKEN`、`XIANGYING_MCP_TOKEN` 和 `PUBLIC_URL`。
+- 客户端真实 IP 优先通过 `CF-Connecting-IP` 请求头识别，并据此执行防暴力破解登录与导入速率限制。
 
 ## 开发、功能和 Bug 修复流程
 
 每次新增一个功能，或者修复一个 bug，都执行一次 `git commit`。提交前至少运行：
 
-本项目本地开发不需要执行 Docker 构建测试，Docker 构建由 CI 流程负责。
-
 ```text
 bun run typecheck
 bun test
 bun run build
+bun run cf:db:migrate:local
 ```
 
 ## 提交规范
@@ -143,21 +141,19 @@ bun run build
 
 ## 后端与数据要求
 
-- SQLite 查询一律使用 prepared statements，不拼接用户输入。
-- 空数据库首次启动时允许自动执行当前迁移完成基础初始化；已有数据库启动不得自动执行后续迁移。新增迁移只能通过 `bun run db:migrate` 或明确的容器迁移命令执行，迁移按文件名顺序执行并通过 `schema_migrations` 保证幂等。正式部署前可以把迁移折叠进 `0001_baseline.sql`；正式部署后不要修改已经应用的历史迁移——就地修改基线不会作用于已应用该文件的数据库，必须另增迁移文件补齐。升级已有数据库前先执行 `bun run db:check`，它会对比目标库与当前迁移产物的表、索引和列，发现漂移时以退出码 1 结束。
-- `notes_fts` 配置为外部内容表（`content='notes', content_rowid='rowid'`），由 SQLite 触发器在正文或标题变更时自动同步维护，搜索联查使用 `notes_fts.rowid = n.rowid`；不额外存储正文副本。
-- 数据库打开时必须确保 `PRAGMA auto_vacuum = INCREMENTAL;`，已有数据库如未启用需通过 `VACUUM;` 自动升级。
-- 物理删除笔记与清空废纸篓遵循数据库空闲页复用机制（freelist reuse），释放页保留在数据库中供后续写入直接复用，不在删除请求中强行截断，避免 I/O 抖动与磁盘磨损；深度整理工具函数 `reclaimDatabaseSpace` 仅按需维护使用。
+- D1 / SQLite 查询一律使用 prepared statements，不拼接用户输入。
+- 迁移文件统一定义在 `migrations-d1/` 目录中，使用 `bun run cf:db:migrate:local`（本地）或 `bun run cf:db:migrate:remote`（线上）执行迁移；初始化迁移必须确保 `PRAGMA foreign_keys = ON;` 生效。
+- `notes_fts` 配置为外部内容表（`content='notes', content_rowid='rowid'`，tokenize = 'trigram'），由 SQLite 触发器在正文或标题变更时自动同步维护，搜索联查使用 `notes_fts.rowid = n.rowid`；不额外存储正文副本。
+- 复杂写入（如批量回收站与永久删除）使用 D1 `batch()` 执行，保证受影响行数与版本严格受控。
 - 更新笔记必须携带并校验 `version`，版本冲突返回 `409 VERSION_CONFLICT`。
 - 私有 API 必须校验当前会话和资源归属。
 - 生产错误返回统一错误 JSON，详细堆栈只写服务端日志。
 
-## Docker 与 CI 要求
+## CI 与部署要求
 
-- 最终镜像基于 `oven/bun:1.4.3-alpine`，使用多阶段构建。
-- 最终镜像只包含 `dist/client`、`dist/server` 和 `migrations`，不包含源码、测试、开发依赖、`.env` 或 SQLite 数据。
-- `.github/workflows/ci.yml` 在 push 时执行类型检查、测试、Bun 构建和 Docker 构建。
-- `.github/workflows/docker.yml` 只在 Git tag 推送时发布支持 `linux/amd64` 和 `linux/arm64` 的 GHCR 多架构镜像，并在镜像推送成功后创建同名 GitHub Release；只有正式 SemVer tag 更新 `latest` 镜像标签。
+- `.github/workflows/ci.yml` 在 push 时执行类型检查、测试、Bun 构建和本地 D1 迁移验证。
+- `.github/workflows/cloudflare-deploy.yml` 通过 `workflow_dispatch` 手动触发，应用线上 D1 迁移并使用 Wrangler 部署 Worker。
+- `wrangler.jsonc` 包含 D1 (`DB`)、R2 (`ASSETS_BUCKET`)、Durable Object (`REALTIME_HUB`) 和静态资产 (`ASSETS`) 绑定。部署前需确保 `database_id` 已填入真实的 Cloudflare D1 数据库 ID。
 
 ## 结束任务前检查
 

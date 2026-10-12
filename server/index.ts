@@ -190,7 +190,7 @@ async function handleApi(request: Request, options: ServerOptions) {
   if (!API_RESOURCES.has(segments[0] ?? "")) return jsonError(404, "NOT_FOUND", "接口不存在");
 
   await cleanupExpiredSessions(database);
-  if (options.assets) {
+  if (options.assets && method !== "GET" && method !== "HEAD") {
     const cleanup = cleanupOrphanAssets(database, options.assets).catch((error) => console.warn("[assets] orphan cleanup failed", error));
     options.waitUntil?.(cleanup);
   }

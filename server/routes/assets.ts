@@ -83,18 +83,33 @@ export async function cleanupOrphanAssets(database: SqliteDatabase, bucket: R2Bu
   // R2 uploads can outlive a failed metadata insert. Sweep only old, UUID-shaped
   // keys so unrelated objects in a shared bucket are never considered.
   let cursor: string | undefined;
+  let pagesProcessed = 0;
   do {
     const page = await bucket.list({ limit: 1000, ...(cursor ? { cursor } : {}) });
+    pagesProcessed += 1;
     const staleObjects = page.objects.filter((object) => {
       if (!object.uploaded || Math.floor(object.uploaded.getTime() / 1000) > timestamp - ORPHAN_ASSET_TTL_SECONDS) return false;
       const [owner, fileName, ...rest] = object.key.split("/");
       return rest.length === 0 && ASSET_OWNER_DIRECTORY.test(owner ?? "") && ASSET_FILE_NAME.test(fileName ?? "");
     });
-    for (const object of staleObjects) {
-      const registered = await first<{ found: number }>(database, "SELECT 1 AS found FROM image_assets WHERE storage_path = ? LIMIT 1", object.key);
-      if (!registered) await bucket.delete(object.key);
+    if (staleObjects.length) {
+      const keys = staleObjects.map((o) => o.key);
+      const foundPaths = new Set<string>();
+      for (let i = 0; i < keys.length; i += 50) {
+        const batchKeys = keys.slice(i, i + 50);
+        const rows = await all<{ storage_path: string }>(
+          database,
+          `SELECT storage_path FROM image_assets WHERE storage_path IN (${batchKeys.map(() => "?").join(",")})`,
+          ...batchKeys,
+        );
+        for (const row of rows) foundPaths.add(row.storage_path);
+      }
+      const unlinkedKeys = keys.filter((key) => !foundPaths.has(key));
+      if (unlinkedKeys.length) {
+        await removeAssetFiles(bucket, unlinkedKeys);
+      }
     }
-    cursor = page.truncated ? page.cursor : undefined;
+    cursor = page.truncated && pagesProcessed < 5 ? page.cursor : undefined;
   } while (cursor);
 }
 

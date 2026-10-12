@@ -71,14 +71,12 @@ export async function handleExportRoute(ctx: RouteContext, user: UserRow): Promi
     user.id,
   );
 
-  const exportAssets: Array<ExportAssetRow & { body: ReadableStream<Uint8Array>; name: string }> = [];
+  const exportAssets: Array<ExportAssetRow & { name: string }> = [];
   const assetFileNameMap = new Map<string, string>();
   for (const asset of assetRows) {
-    const object = await assets.get(asset.storage_path);
-    if (!object) continue;
     const extension = ARCHIVE_ASSET_EXTENSIONS[asset.mime_type] ?? ".bin";
     const name = `attachments/${asset.id}_${safeArchiveAssetStem(asset.original_name)}${extension}`;
-    exportAssets.push({ ...asset, body: object.body, name });
+    exportAssets.push({ ...asset, name });
     assetFileNameMap.set(asset.id.toLowerCase(), name);
   }
 
@@ -102,7 +100,23 @@ export async function handleExportRoute(ctx: RouteContext, user: UserRow): Promi
 
   const entries = async function* (): AsyncGenerator<ZipStreamEntry> {
     for (const asset of exportAssets) {
-      yield { name: asset.name, stream: () => asset.body };
+      yield {
+        name: asset.name,
+        stream: async function* () {
+          const object = await assets.get(asset.storage_path);
+          if (!object) return;
+          const reader = object.body.getReader();
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              yield value;
+            }
+          } finally {
+            reader.releaseLock();
+          }
+        },
+      };
     }
 
     const encoder = new TextEncoder();

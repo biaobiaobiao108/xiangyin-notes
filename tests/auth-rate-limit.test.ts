@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase } from "../server/test-db";
 import { getLoginAttempt, recordFailedLogin, resetLoginAttempt } from "../server/routes/auth";
+import { rateLimitClientAddress } from "../server/core";
 
 test("keeps a late login lockout after its failure window expires", async () => {
   const database = await openDatabase(":memory:");
@@ -55,4 +56,15 @@ test("shares and persists rate limits across separate database instances targeti
       rm(`${dbPath}-shm`, { force: true }),
     ]);
   }
+});
+
+test("rateLimitClientAddress extracts CF-Connecting-IP correctly in Cloudflare Worker environment", () => {
+  const reqWithCfIp = new Request("https://example.com/api/auth/login", {
+    headers: { "CF-Connecting-IP": "203.0.113.195" },
+  });
+  expect(rateLimitClientAddress(reqWithCfIp, {}, undefined)).toBe("203.0.113.195");
+
+  const reqWithoutCfIp = new Request("https://example.com/api/auth/login");
+  expect(rateLimitClientAddress(reqWithoutCfIp, {}, undefined)).toBe("unknown");
+  expect(rateLimitClientAddress(reqWithoutCfIp, {}, "198.51.100.22")).toBe("198.51.100.22");
 });
