@@ -87,32 +87,43 @@ Markdown 中引用的外站图片默认不会自动加载。需要查看时，�
 
 ## 快速开始
 
-象映笔记部署在 Cloudflare Workers，运行时需要 D1 数据库、R2 bucket 和账号凭据。先安装项目依赖并在 Cloudflare 创建资源：
+项目用 GitHub Actions 将 Worker 与前端发布到 Cloudflare。仓库中的 `wrangler.jsonc` 只声明 Worker 入口、绑定变量名和资源类型；不包含 D1 数据库 ID、R2 bucket 名称、账号密码或访问令牌。Wrangler 首次发布时会在 Cloudflare 账号中创建并绑定 D1、R2 和 Durable Object 资源；资源 ID 由 Cloudflare 保存。`keep_vars` 已启用，Dashboard 中的普通运行变量会在后续 Wrangler 发布时保留。Cloudflare 也会保留 Worker secrets。
 
-```bash
-bun install
-bunx wrangler d1 create xiangying-notes
-bunx wrangler r2 bucket create xiangying-notes-assets
-```
+### 1. 准备 GitHub 部署凭据
 
-将创建 D1 时返回的 `database_id` 填入 `wrangler.jsonc` 的 `d1_databases` 配置。然后配置 Worker 登录凭据；不要将真实凭据写入仓库：
+在 Cloudflare **My Profile > API Tokens** 创建 API Token，按最小权限原则授予目标账号的 **Workers Scripts: Edit、D1: Edit、Workers R2 Storage: Edit**。在 GitHub 仓库打开 **Settings > Secrets and variables > Actions**，新增以下 Repository secrets：
 
-```bash
-bunx wrangler secret put XIANGYING_USERNAME
-bunx wrangler secret put XIANGYING_PASSWORD
-# 按需设置：
-bunx wrangler secret put XIANGYING_API_TOKEN
-bunx wrangler secret put XIANGYING_MCP_TOKEN
-bunx wrangler secret put PUBLIC_URL
-```
+| 名称 | 内容 |
+| --- | --- |
+| `CLOUDFLARE_API_TOKEN` | 上一步创建的 Cloudflare API Token |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare 账号 ID，可在 Dashboard 的 Workers & Pages 页面或账号概览中找到 |
 
-首次部署或更新 schema 时，先应用 D1 migrations，再构建并部署：
+不要把这两个值写进 GitHub 仓库文件、Actions 日志或 README。
 
-```bash
-bun run cf:db:migrate:remote
-bun run build
-bun run cf:deploy
-```
+### 2. 从 GitHub 首次部署并初始化 D1
+
+先将代码推送到 GitHub。进入仓库 **Actions > Deploy Cloudflare Worker > Run workflow**。第一次运行时勾选 `initialize_resources`：工作流会先发布 Worker，让 Wrangler 在 Cloudflare 创建所需资源，然后应用 `migrations-d1` 中的 D1 schema，最后再发布一次。
+
+首次发布完成后，在 Cloudflare Dashboard 打开 **Workers & Pages > xiangying-notes > Settings > Variables and Secrets**，添加应用运行密钥。每项选择 **Secret** 类型，保存后点击 **Deploy**：
+
+| Secret 名称 | 用途 |
+| --- | --- |
+| `XIANGYING_USERNAME` | 登录用户名 |
+| `XIANGYING_PASSWORD` | 登录密码 |
+| `XIANGYING_API_TOKEN` | 可选，快捷导入 API 的 Bearer Token |
+| `XIANGYING_MCP_TOKEN` | 可选，MCP 端点访问令牌 |
+
+如使用自定义域名，可在同一页面添加 **Text** 类型变量 `PUBLIC_URL`，值填写完整的 HTTPS 根地址，例如 `https://notes.example.com`。只有在自定义域名已经启用 HTTPS 时，才添加 Text 变量 `COOKIE_SECURE=true`。用户名和密码也应按 Secret 保存。
+
+首次部署到设置好 secrets 之间，登录功能尚未启用；添加密钥并 Deploy 后即可使用。不要将运行密钥加到 GitHub Actions 的 Build Variables，也不要放入 `wrangler.jsonc`。
+
+### 3. 后续发布和 schema 更新
+
+后续每次发布，在 GitHub **Actions > Deploy Cloudflare Worker > Run workflow** 手动运行，保持 `initialize_resources` 未勾选。工作流按顺序应用 D1 migrations、构建并部署 Worker 与静态资源。新增数据库结构时，将新的 SQL migration 提交到 `migrations-d1` 后再运行该工作流。不要修改已经在 Cloudflare 上应用过的 migration。
+
+Worker 绑定由仓库里的 Wrangler 配置声明，Cloudflare Dashboard 可查看已经绑定的资源；绑定名必须与代码里的 `env.DB`、`env.ASSETS_BUCKET`、`env.REALTIME_HUB`、`env.ASSETS` 一致。不要在 Dashboard 中将这些绑定改指向其他资源，因为后续 Wrangler 发布会按仓库中的绑定声明部署。账号凭据和访问令牌在 Dashboard 的 **Settings > Variables and Secrets** 里管理；普通运行变量也可以在那里配置，发布时 `keep_vars` 会保留它们。
+
+### 本地开发
 
 本地开发使用 Wrangler 本地模拟环境：
 
@@ -128,8 +139,6 @@ XIANGYING_USERNAME=local
 XIANGYING_PASSWORD=替换为本地开发密码
 ```
 
-部署前需在 Cloudflare Dashboard 为 Worker 配置 `CLOUDFLARE_API_TOKEN` 和 `CLOUDFLARE_ACCOUNT_ID` GitHub Actions secrets；也可以从本机直接运行上述 Wrangler 命令。仓库中的“Deploy Cloudflare Worker”工作流只会在手动触发后执行远程迁移和部署。
-
 本次 Cloudflare schema 面向空 D1 数据库。旧 SQLite 数据库不会自动迁移或导入；部署前请保留原数据库备份，并按需另行迁移数据。
 
 ### Agent 接入（MCP）
@@ -140,12 +149,9 @@ MCP 服务由 Worker 提供。生成独立的访问令牌并作为 Worker secret
 openssl rand -hex 32
 ```
 
-```bash
-bunx wrangler secret put XIANGYING_MCP_TOKEN
-bunx wrangler secret put PUBLIC_URL
-```
+在 Cloudflare Dashboard 打开 **Workers & Pages > xiangying-notes > Settings > Variables and Secrets**，将 `XIANGYING_MCP_TOKEN` 添加为 **Secret**。使用自定义域名时，将 `PUBLIC_URL` 添加为 Text variable。
 
-在 MCP 客户端中将服务地址填写为 `https://notes.example.com/mcp/<URL 编码后的令牌>`，无需额外配置 Bearer 请求头；MCP 只接受路径令牌，旧的 `Authorization` 认证方式不再生效。令牌从 Worker secret `XIANGYING_MCP_TOKEN` 读取，拥有整个笔记库的搜索、读取、创建、更新、笔记本和回收站管理权限，请只配置给可信客户端。令牌位于 URL 路径中，可能出现在访问日志；请只通过 HTTPS 访问。需要轮换时重新执行 `wrangler secret put XIANGYING_MCP_TOKEN`。
+在 MCP 客户端中将服务地址填写为 `https://notes.example.com/mcp/<URL 编码后的令牌>`，无需额外配置 Bearer 请求头；MCP 只接受路径令牌，旧的 `Authorization` 认证方式不再生效。令牌从 Worker secret `XIANGYING_MCP_TOKEN` 读取，拥有整个笔记库的搜索、读取、创建、更新、笔记本和回收站管理权限，请只配置给可信客户端。令牌位于 URL 路径中，可能出现在访问日志；请只通过 HTTPS 访问。需要轮换时，在 Dashboard 修改该 secret 并点击 Deploy。
 
 MCP 推荐工具：
 

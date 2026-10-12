@@ -2,6 +2,12 @@ name: Deploy Cloudflare Worker
 
 on:
   workflow_dispatch:
+    inputs:
+      initialize_resources:
+        description: First deployment only: deploy once to provision D1/R2/DO before applying migrations
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -25,8 +31,15 @@ jobs:
       - name: Build application
         run: bun run build
 
+      - name: Initialize Cloudflare resources
+        if: ${{ inputs.initialize_resources }}
+        run: bunx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
       - name: Apply D1 migrations
-        run: bunx wrangler d1 migrations apply xiangying-notes --remote
+        run: bunx wrangler d1 migrations apply DB --remote
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

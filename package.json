@@ -13,8 +13,8 @@
     "test": "bun test",
     "cf:dev": "bunx wrangler dev",
     "cf:deploy": "bunx wrangler deploy",
-    "cf:db:migrate:local": "bunx wrangler d1 migrations apply xiangying-notes --local",
-    "cf:db:migrate:remote": "bunx wrangler d1 migrations apply xiangying-notes --remote"
+    "cf:db:migrate:local": "bunx wrangler d1 migrations apply DB --local",
+    "cf:db:migrate:remote": "bunx wrangler d1 migrations apply DB --remote"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "^2.1.0",

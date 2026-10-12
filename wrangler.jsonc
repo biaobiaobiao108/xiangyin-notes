@@ -4,6 +4,7 @@
   "main": "worker/index.ts",
   "compatibility_date": "2026-10-12",
   "compatibility_flags": ["nodejs_compat"],
+  "keep_vars": true,
   "assets": {
     "directory": "./dist/client",
     "binding": "ASSETS",
@@ -13,15 +14,13 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "xiangying-notes",
-      "database_id": "REPLACE_WITH_CLOUDFLARE_D1_DATABASE_ID",
+      // Wrangler provisions the D1 resource; its account-specific ID stays in Cloudflare.
       "migrations_dir": "migrations-d1"
     }
   ],
   "r2_buckets": [
     {
-      "binding": "ASSETS_BUCKET",
-      "bucket_name": "xiangying-notes-assets"
+      "binding": "ASSETS_BUCKET"
     }
   ],
   "durable_objects": {
