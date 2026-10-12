@@ -103,7 +103,7 @@ Markdown 中引用的外站图片默认不会自动加载。需要查看时，�
 
 Cloudflare Workers Builds 默认使用 Bun 1.2.15。当前 `bun.lock` 保持为 v1 格式，兼容该默认版本；Bun 1.4 会将锁文件升级为 v2。依赖更新时，建议先在 **Settings > Build > Build Variables and Secrets** 添加构建变量 `BUN_VERSION=1.4.3`，再更新并提交锁文件。该设置属于构建环境；若构建的是 Preview 分支，也要确认对应 Preview 构建环境能读到该变量。不要把它加到 Worker 运行时的 Variables and Secrets。
 
-确认 Worker 名称为 `xiangying-notes`，并保存配置后开始首次构建。仓库必须保留 `wrangler.jsonc`：Cloudflare 使用它部署 Worker 入口、静态资源和 D1、R2、Durable Object 绑定。只删除 GitHub Actions 的发布工作流；删除 Wrangler 配置会导致部署缺少这些绑定声明。如果构建日志提示 `pages_build_output_dir`，说明创建成了 Pages 项目，请改用 Worker 项目重新连接仓库；本项目不是 Pages 项目。
+确认 Worker 名称为 `xiangyin-notes`，并保存配置后开始首次构建。仓库必须保留 `wrangler.jsonc`：Cloudflare 使用它部署 Worker 入口、静态资源和 D1、R2、Durable Object 绑定。只删除 GitHub Actions 的发布工作流；删除 Wrangler 配置会导致部署缺少这些绑定声明。如果构建日志提示 `pages_build_output_dir`，说明创建成了 Pages 项目，请改用 Worker 项目重新连接仓库；本项目不是 Pages 项目。
 
 ### 2. 首次部署并初始化 D1
 
