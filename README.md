@@ -87,24 +87,32 @@ Markdown 中引用的外站图片默认不会自动加载。需要查看时，�
 
 ## 快速开始
 
-项目用 GitHub Actions 将 Worker 与前端发布到 Cloudflare。仓库中的 `wrangler.jsonc` 只声明 Worker 入口、绑定变量名和资源类型；不包含 D1 数据库 ID、R2 bucket 名称、账号密码或访问令牌。Wrangler 首次发布时会在 Cloudflare 账号中创建并绑定 D1、R2 和 Durable Object 资源；资源 ID 由 Cloudflare 保存。`keep_vars` 已启用，Dashboard 中的普通运行变量会在后续 Wrangler 发布时保留。Cloudflare 也会保留 Worker secrets。
+项目通过 Cloudflare Dashboard 的 Workers Builds 连接 GitHub 仓库并发布。仓库中的 `wrangler.jsonc` 声明 Worker 入口、绑定变量名和资源类型；不包含 D1 数据库 ID、R2 bucket 名称、账号密码或访问令牌。Wrangler 首次发布时会在 Cloudflare 账号中创建并绑定 D1、R2 和 Durable Object 资源；资源 ID 由 Cloudflare 保存。`keep_vars` 已启用，Dashboard 中的普通运行变量会在后续 Wrangler 发布时保留。Cloudflare 也会保留 Worker secrets。
 
-### 1. 准备 GitHub 部署凭据
+### 1. 在 Cloudflare 连接 GitHub
 
-在 Cloudflare **My Profile > API Tokens** 创建 API Token，按最小权限原则授予目标账号的 **Workers Scripts: Edit、D1: Edit、Workers R2 Storage: Edit**。在 GitHub 仓库打开 **Settings > Secrets and variables > Actions**，新增以下 Repository secrets：
+打开 Cloudflare Dashboard 的 **Workers & Pages > Create application > Import a repository**，授权 Cloudflare 访问 GitHub 仓库并选择本项目。Workers Builds 的部署凭据在 Cloudflare 侧配置，不需要创建 GitHub Actions secrets。给构建凭据授予目标账号的 **Workers Scripts: Edit、D1: Edit、Workers R2 Storage: Edit** 权限。
 
-| 名称 | 内容 |
+在 Worker 的 **Settings > Build > Build Configuration** 设置：
+
+| 配置项 | 值 |
 | --- | --- |
-| `CLOUDFLARE_API_TOKEN` | 上一步创建的 Cloudflare API Token |
-| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare 账号 ID，可在 Dashboard 的 Workers & Pages 页面或账号概览中找到 |
+| Root directory | 留空（仓库根目录） |
+| Build command | `bun run build` |
+| Deploy command | `bun run cf:deploy` |
 
-不要把这两个值写进 GitHub 仓库文件、Actions 日志或 README。
+确认 Worker 名称为 `xiangying-notes`，并保存配置后开始首次构建。仓库必须保留 `wrangler.jsonc`：Cloudflare 使用它部署 Worker 入口、静态资源和 D1、R2、Durable Object 绑定。只删除 GitHub Actions 的发布工作流；删除 Wrangler 配置会导致部署缺少这些绑定声明。
 
-### 2. 从 GitHub 首次部署并初始化 D1
+### 2. 首次部署并初始化 D1
 
-先将代码推送到 GitHub。进入仓库 **Actions > Deploy Cloudflare Worker > Run workflow**。第一次运行时勾选 `initialize_resources`：工作流会先发布 Worker，让 Wrangler 在 Cloudflare 创建所需资源，然后应用 `migrations-d1` 中的 D1 schema，最后再发布一次。
+首次发布会创建并绑定 Cloudflare 资源。发布完成后，在本地项目目录登录 Wrangler 并应用 D1 初始 schema：
 
-首次发布完成后，在 Cloudflare Dashboard 打开 **Workers & Pages > xiangying-notes > Settings > Variables and Secrets**，添加应用运行密钥。每项选择 **Secret** 类型，保存后点击 **Deploy**：
+```bash
+bunx wrangler login
+bun run cf:db:migrate:remote
+```
+
+随后在 Cloudflare Dashboard 打开 **Workers & Pages > xiangying-notes > Settings > Variables and Secrets**，添加应用运行密钥。每项选择 **Secret** 类型并保存：
 
 | Secret 名称 | 用途 |
 | --- | --- |
@@ -115,13 +123,13 @@ Markdown 中引用的外站图片默认不会自动加载。需要查看时，�
 
 如使用自定义域名，可在同一页面添加 **Text** 类型变量 `PUBLIC_URL`，值填写完整的 HTTPS 根地址，例如 `https://notes.example.com`。只有在自定义域名已经启用 HTTPS 时，才添加 Text 变量 `COOKIE_SECURE=true`。用户名和密码也应按 Secret 保存。
 
-首次部署到设置好 secrets 之间，登录功能尚未启用；添加密钥并 Deploy 后即可使用。不要将运行密钥加到 GitHub Actions 的 Build Variables，也不要放入 `wrangler.jsonc`。
+首次部署到设置好 secrets 之间，登录功能尚未启用；添加密钥并点击 **Deploy** 后即可使用。不要将运行密钥放入 GitHub 仓库或 `wrangler.jsonc`。
 
 ### 3. 后续发布和 schema 更新
 
-后续每次发布，在 GitHub **Actions > Deploy Cloudflare Worker > Run workflow** 手动运行，保持 `initialize_resources` 未勾选。工作流按顺序应用 D1 migrations、构建并部署 Worker 与静态资源。新增数据库结构时，将新的 SQL migration 提交到 `migrations-d1` 后再运行该工作流。不要修改已经在 Cloudflare 上应用过的 migration。
+连接完成后，Cloudflare Workers Builds 会按仓库分支设置在推送时构建并发布；需要手动发布时，可在 Cloudflare Worker 的 **Deployments** 页面重新部署对应版本。新增数据库结构时，先在本地项目目录运行 `bun run cf:db:migrate:remote`，再将对应版本发布到 Cloudflare。新增 migration 文件后再执行该命令；不要修改已经在 Cloudflare 上应用过的 migration。
 
-Worker 绑定由仓库里的 Wrangler 配置声明，Cloudflare Dashboard 可查看已经绑定的资源；绑定名必须与代码里的 `env.DB`、`env.ASSETS_BUCKET`、`env.REALTIME_HUB`、`env.ASSETS` 一致。不要在 Dashboard 中将这些绑定改指向其他资源，因为后续 Wrangler 发布会按仓库中的绑定声明部署。账号凭据和访问令牌在 Dashboard 的 **Settings > Variables and Secrets** 里管理；普通运行变量也可以在那里配置，发布时 `keep_vars` 会保留它们。
+Worker 绑定由仓库里的 Wrangler 配置声明，Cloudflare Dashboard 可查看已经绑定的资源；绑定名必须与代码里的 `env.DB`、`env.ASSETS_BUCKET`、`env.REALTIME_HUB`、`env.ASSETS` 一致。不要在 Dashboard 中将这些绑定改指向其他资源，因为后续 Wrangler 发布会按仓库中的绑定声明部署。账号凭据和访问令牌在 Dashboard 的 **Settings > Variables and Secrets** 里管理；普通运行变量也可以在那里配置，发布时 `keep_vars` 会保留它们。Cloudflare Workers Builds 的 Git 集成会调用 Wrangler 发布并使用其 Wrangler 配置；更多说明见 [Cloudflare Workers Builds 配置文档](https://developers.cloudflare.com/workers/ci-cd/builds/configuration/)。
 
 ### 本地开发
 
