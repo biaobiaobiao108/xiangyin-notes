@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { mkdir, readdir, rm } from "node:fs/promises";
+import { mkdir, readdir, rm, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase, type SqliteDatabase } from "../server/db";
-import { cleanupOrphanAssets, ORPHAN_ASSET_CLEANUP_INTERVAL_SECONDS, removeAssetFiles } from "../server/routes/assets";
+import { cleanupOrphanAssets, ORPHAN_ASSET_CLEANUP_INTERVAL_SECONDS, ORPHAN_ASSET_TTL_SECONDS, removeAssetFiles } from "../server/routes/assets";
 
 let database: SqliteDatabase;
 let assetRoot: string;
@@ -42,5 +42,19 @@ describe("orphan asset cleanup", () => {
 
     expect(await Bun.file(targetPath).exists()).toBe(false);
     expect(await readdir(queueRoot)).toEqual([]);
+  });
+
+  test("sweeps stale orphan files when there are no stale database rows", async () => {
+    const ownerRoot = join(assetRoot, crypto.randomUUID());
+    const orphanPath = join(ownerRoot, `${crypto.randomUUID()}.png`);
+    await mkdir(ownerRoot, { recursive: true });
+    await Bun.write(orphanPath, "orphan without a database row");
+    const oldTime = new Date(Date.now() - (ORPHAN_ASSET_TTL_SECONDS + 60) * 1000);
+    await utimes(orphanPath, oldTime, oldTime);
+
+    const timestamp = Math.floor(Date.now() / 1000) + ORPHAN_ASSET_CLEANUP_INTERVAL_SECONDS * 10;
+    await cleanupOrphanAssets(database, assetRoot, timestamp);
+
+    expect(await Bun.file(orphanPath).exists()).toBe(false);
   });
 });

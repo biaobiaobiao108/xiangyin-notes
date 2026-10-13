@@ -146,6 +146,13 @@ describe("editor metrics", () => {
     expect(parseMarkdownBlockShortcut("普通段落 ")).toBeNull();
   });
 
+  test("does not convert a shortcut-looking prefix inside existing paragraph text", () => {
+    expect(parseMarkdownBlockShortcut("# 已有重要正文 ")).toBeNull();
+    expect(parseMarkdownBlockShortcut("## 已有标题内容 ")).toBeNull();
+    expect(parseMarkdownBlockShortcut("1. 已有列表样文字 ")).toBeNull();
+    expect(parseMarkdownBlockShortcut("> 已有引用文字 ")).toBeNull();
+  });
+
   test("detects Markdown clipboard text without overriding ordinary rich text", () => {
     expect(shouldParseMarkdownPaste("普通文本\n下一行", false)).toBe(true);
     expect(shouldParseMarkdownPaste("# 一级标题\n\n- 列表项", true)).toBe(true);

@@ -501,7 +501,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
       for (const short of shortTokens.filter(canIndexShortSearchTerm)) {
         const escapedQuery = escapeLikePattern(short);
         conditions.push(`(
-          EXISTS (SELECT 1 FROM note_short_terms st WHERE st.note_id = n.id AND st.user_id = n.user_id AND st.term = ?)
+          EXISTS (SELECT 1 FROM note_short_terms st WHERE st.note_id = n.id AND st.user_id = n.user_id AND st.term = ? COLLATE NOCASE)
           OR (
             (
               length(n.content_markdown) >= ?
@@ -817,6 +817,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     if (!isCurrentMention) return jsonError(409, "MENTION_STALE", "提及位置已变化，请重新选择");
 
     const newContent = linkMentionInMarkdown(sourceNote.content_markdown, matchStart, matchEnd, targetNote.title);
+    if (!validText(newContent, NOTE_CONTENT_MAX_LENGTH)) return jsonError(413, "NOTE_TOO_LARGE", "笔记标题或正文超出长度限制");
     if (!updateNote(database, sourceNote, user.id, sourceNote.title, newContent, sourceNote.notebook_id, sourceNote.is_favorite, sourceNote.deleted_at)) {
       return jsonError(409, "VERSION_CONFLICT", "来源笔记已被更新，请重试");
     }

@@ -34,6 +34,7 @@ test("older IndexedDB completions cannot remove, overwrite or restore a newer re
   const local = new Map<string, string>();
   const indexed = new Map<string, string>();
   const writes: Array<{ transaction: IDBTransaction; key: string; value: string }> = [];
+  let localWritesFail = false;
   const flush = async () => { for (let index = 0; index < 8; index += 1) await Promise.resolve(); };
   const database = {
     transaction() {
@@ -44,7 +45,10 @@ test("older IndexedDB completions cannot remove, overwrite or restore a newer re
         objectStore() {
           return {
             put(value: string, key: string) { writes.push({ transaction: transaction as unknown as IDBTransaction, key, value }); },
-            delete(key: string) { indexed.delete(key); },
+            delete(key: string) {
+              indexed.delete(key);
+              queueMicrotask(() => (transaction as unknown as IDBTransaction).oncomplete?.({} as Event));
+            },
             clear() { indexed.clear(); },
             get(key: string) {
               const request = { result: indexed.get(key), onsuccess: null as (() => void) | null };
@@ -60,7 +64,10 @@ test("older IndexedDB completions cannot remove, overwrite or restore a newer re
   Object.defineProperty(globalThis, "window", { configurable: true, value: {
     localStorage: {
       getItem: (key: string) => local.get(key) ?? null,
-      setItem: (key: string, value: string) => local.set(key, value),
+      setItem: (key: string, value: string) => {
+        if (localWritesFail) throw new DOMException("Quota exceeded", "QuotaExceededError");
+        local.set(key, value);
+      },
       removeItem: (key: string) => local.delete(key),
       get length() { return local.size; },
       key: (index: number) => [...local.keys()][index] ?? null,
@@ -123,6 +130,40 @@ test("older IndexedDB completions cannot remove, overwrite or restore a newer re
     await flush();
     expect(writes).toHaveLength(0);
     expect(await readDraftRecovery(draft.id)).toEqual(draft);
+
+    // A quota fallback must replace a stale localStorage copy once IndexedDB
+    // has durably accepted the newer draft.
+    const quotaDraft = { ...draft, id: "quota-note", title: "较新的草稿" };
+    const quotaKey = draftRecoveryStorageKey(quotaDraft.id);
+    local.set(quotaKey, JSON.stringify({ ...quotaDraft, title: "旧草稿" }));
+    localWritesFail = true;
+    writeDraftRecovery(quotaDraft);
+    await flush();
+    expect(writes).toHaveLength(1);
+    completeWrite(true);
+    await flush();
+    expect(local.has(quotaKey)).toBe(false);
+    expect(await readDraftRecovery(quotaDraft.id)).toEqual(quotaDraft);
+    localWritesFail = false;
+
+    // Another tab can write after this tab observed an empty slot. Clearing a
+    // successful save from this tab must not erase that unobserved recovery.
+    const sharedDraft = { ...draft, id: "shared-note", title: "另一标签页未保存的内容" };
+    const sharedKey = draftRecoveryStorageKey(sharedDraft.id);
+    expect(await readDraftRecovery(sharedDraft.id)).toBeNull();
+    local.set(sharedKey, JSON.stringify(sharedDraft));
+    clearDraftRecovery(sharedDraft.id);
+    await flush();
+    expect(local.get(sharedKey)).toBe(JSON.stringify(sharedDraft));
+    expect(await readDraftRecovery(sharedDraft.id)).toEqual(sharedDraft);
+
+    const indexedSharedDraft = { ...draft, id: "indexed-shared-note", title: "另一标签页的较大草稿" };
+    expect(await readDraftRecovery(indexedSharedDraft.id)).toBeNull();
+    indexed.set(indexedSharedDraft.id, JSON.stringify(indexedSharedDraft));
+    clearDraftRecovery(indexedSharedDraft.id);
+    await flush();
+    expect(indexed.has(indexedSharedDraft.id)).toBe(true);
+    expect(await readDraftRecovery(indexedSharedDraft.id)).toEqual(indexedSharedDraft);
   } finally {
     if (windowDescriptor) Object.defineProperty(globalThis, "window", windowDescriptor);
     else Reflect.deleteProperty(globalThis, "window");

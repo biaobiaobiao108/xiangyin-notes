@@ -41,27 +41,31 @@ export type MarkdownBlockShortcut =
   | { type: "codeBlock"; length: number };
 
 export function parseMarkdownBlockShortcut(text: string): MarkdownBlockShortcut | null {
-  const headingMatch = /^([#＃]{1,6})[ \t\u3000]/u.exec(text);
+  // A block shortcut is only valid when the whole text before the typed
+  // whitespace is the marker. Matching just a prefix can delete the rest of
+  // an existing paragraph when executeBlockShortcut removes the block start
+  // through the cursor.
+  const headingMatch = /^([#＃]{1,6})[ \t\u3000]$/u.exec(text);
   if (headingMatch) {
     return { type: "heading", level: headingMatch[1].length as MarkdownHeadingLevel, length: headingMatch[0].length };
   }
-  const codeBlockMatch = /^(?:```|｀｀｀)[ \t\u3000\n]/u.exec(text);
+  const codeBlockMatch = /^(?:```|｀｀｀)[ \t\u3000\n]$/u.exec(text);
   if (codeBlockMatch) {
     return { type: "codeBlock", length: codeBlockMatch[0].length };
   }
-  const taskMatch = /^(?:\[(?: |)\]|【(?: |)】)[ \t\u3000]/u.exec(text);
+  const taskMatch = /^(?:\[(?: |)\]|【(?: |)】)[ \t\u3000]$/u.exec(text);
   if (taskMatch) {
     return { type: "taskList", length: taskMatch[0].length };
   }
-  const bulletMatch = /^[-+*－][ \t\u3000]/u.exec(text);
+  const bulletMatch = /^[-+*－][ \t\u3000]$/u.exec(text);
   if (bulletMatch) {
     return { type: "bulletList", length: bulletMatch[0].length };
   }
-  const orderedMatch = /^(?:1\.|１\.|1、|１、|1。|１。)[ \t\u3000]/u.exec(text);
+  const orderedMatch = /^(?:1\.|１\.|1、|１、|1。|１。)[ \t\u3000]$/u.exec(text);
   if (orderedMatch) {
     return { type: "orderedList", length: orderedMatch[0].length };
   }
-  const quoteMatch = /^[>＞》〉][ \t\u3000]/u.exec(text);
+  const quoteMatch = /^[>＞》〉][ \t\u3000]$/u.exec(text);
   if (quoteMatch) {
     return { type: "blockquote", length: quoteMatch[0].length };
   }

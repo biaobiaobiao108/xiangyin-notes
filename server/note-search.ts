@@ -17,9 +17,12 @@ export const MAX_SHORT_TERM_CONTENT_CHARS = 4000;
 export function extractShortSearchTerms(titleOrValue: string, contentMarkdown = "") {
   const terms = new Set<string>();
 
-  const addTermsFromText = (text: string) => {
+  const addTermsFromText = (text: string, maxCharacters = Number.POSITIVE_INFINITY) => {
     let previous: string | null = null;
+    let charactersRead = 0;
     for (const current of text) {
+      if (charactersRead >= maxCharacters) break;
+      charactersRead += 1;
       if (!isIndexableCharacter(current)) {
         previous = null;
         continue;
@@ -33,7 +36,9 @@ export function extractShortSearchTerms(titleOrValue: string, contentMarkdown = 
 
   addTermsFromText(titleOrValue);
   if (terms.size < MAX_SHORT_TERMS_PER_NOTE && contentMarkdown) {
-    addTermsFromText(contentMarkdown.slice(0, MAX_SHORT_TERM_CONTENT_CHARS));
+    // SQLite length(text) counts Unicode code points, as does for...of here.
+    // Keep the short-term index boundary aligned with the SQL fallback threshold.
+    addTermsFromText(contentMarkdown, MAX_SHORT_TERM_CONTENT_CHARS);
   }
   return terms;
 }

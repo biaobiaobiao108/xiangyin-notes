@@ -217,7 +217,10 @@ export async function cleanupOrphanAssets(database: SqliteDatabase, assetRoot: s
       ))
     LIMIT 100
   `, timestamp - ORPHAN_ASSET_TTL_SECONDS);
-  if (!staleAssets.length) return;
+  if (!staleAssets.length) {
+    await cleanupOrphanAssetFiles(database, assetRoot, timestamp);
+    return;
+  }
   const deleteStaleAssets = database.transaction(() => {
     const deletedPaths: string[] = [];
     const statement = database.query(`

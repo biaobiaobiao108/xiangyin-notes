@@ -9,6 +9,31 @@ describe("image markdown helpers", () => {
     expect(parseImageSource(serialized)).toEqual({ src: source, width: 480, height: 320 });
   });
 
+  test("preserves raw encoding in local query parameters when extracting display dimensions", () => {
+    const source = "/api/image.png?download=a%2Fb&w=480&h=320&token=x+y";
+    expect(parseImageSource(source)).toEqual({
+      src: "/api/image.png?download=a%2Fb&token=x+y",
+      width: 480,
+      height: 320,
+    });
+  });
+
+  test("preserves external image URLs and query strings byte-for-byte", () => {
+    const source = "https://images.example/photo.png?signature=a%2Fb&w=original&h=auto&x=1+2#preview";
+    expect(parseImageSource(source)).toEqual({ src: source, width: null, height: null });
+    expect(serializeImageSource(source, 480, 320)).toBe(source);
+  });
+
+  test("preserves nonnumeric size parameters and encoding in local source queries", () => {
+    const source = "/api/image.png?download=a%2Fb&w=original&h=auto&token=x+y";
+    expect(parseImageSource(source)).toEqual({ src: source, width: null, height: null });
+    expect(parseImageSource("/api/image.png?w=480&h=auto")).toEqual({
+      src: "/api/image.png?w=480&h=auto",
+      width: null,
+      height: null,
+    });
+  });
+
   test("identifies remote image URLs while keeping uploaded asset paths local", () => {
     expect(isExternalImageSource("https://images.example/photo.png")).toBe(true);
     expect(isExternalImageSource("https:/images.example/photo.png")).toBe(true);

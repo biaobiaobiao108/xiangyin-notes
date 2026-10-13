@@ -85,3 +85,23 @@ test("short-term relevance paginates ties and relevance without a query falls ba
     expect(plain.notes.map((note: { id: string }) => note.id)).toEqual([b, a, title]);
   } finally { f.database.close(); }
 });
+
+test("short ASCII searches match indexed mixed-case title terms", async () => {
+  const f = await fixture();
+  try {
+    const docker = f.create("Docker", "container notes");
+    for (const query of ["d", "D", "do", "Do"]) {
+      const result = await (await f.list(`query=${query}`)).json();
+      expect(result.notes.map((note: { id: string }) => note.id)).toContain(docker);
+    }
+  } finally { f.database.close(); }
+});
+
+test("short-term indexing and fallback share a Unicode code-point boundary", async () => {
+  const f = await fixture();
+  try {
+    const note = f.create("表情笔记", `${"😀".repeat(2500)}末尾`);
+    const result = await (await f.list("query=末尾")).json();
+    expect(result.notes.map((item: { id: string }) => item.id)).toContain(note);
+  } finally { f.database.close(); }
+});

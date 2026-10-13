@@ -677,7 +677,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       const markdownManager = editorInstanceRef.current?.markdown;
       if (!markdownManager) return false;
       try {
-        const parsedDocument = view.state.schema.nodeFromJSON(markdownManager.parse(text));
+        const parsedDocument = view.state.schema.nodeFromJSON(markdownManager.parse(preserveEscapedHashtagsForEditor(text)));
         const slice = parsedDocument.slice(0, parsedDocument.content.size);
         view.dispatch(view.state.tr.replaceSelection(slice).setMeta("uiEvent", "paste"));
         isPastingRef.current = false;
