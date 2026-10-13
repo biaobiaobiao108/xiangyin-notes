@@ -7,7 +7,8 @@ import type { OutlineItem } from "../editor-metrics";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { commandMenuShortcutLabel } from "../platform";
 import { type PwaState } from "../pwa";
-import { getNoteTags, getNotebookIconComponent, navItems, NOTE_TAG_DISPLAY_LIMIT, relativeDate, sortNotes, type NoteSort, viewLabel } from "./helpers";
+import { getNoteTags, getNotebookIconComponent, navItems, relativeDate, sortNotes, type NoteSort, viewLabel } from "./helpers";
+import { NoteTags } from "./note-tags";
 import { useVirtualNoteList } from "./use-virtual-note-list";
 import { MobileCollectionHeader } from "./mobile-collection-header";
 import { type NoteSwipeAction, useSwipeActionGesture, useSwipeActionGroup } from "./swipe-actions";
@@ -116,20 +117,9 @@ function NoteThumbnail({ note }: { note: NoteSummary }) {
 
 function NoteRowMeta({ note, showNotebook }: { note: NoteSummary; showNotebook: boolean }) {
   const tags = getNoteTags(note);
-  const visibleTags = tags.slice(0, NOTE_TAG_DISPLAY_LIMIT);
   return <span className="note-row-meta">
-    <span className="note-row-meta-leading">
-      {showNotebook && note.notebookName && <span className="note-row-notebook">{note.notebookName}</span>}
-      {showNotebook && note.notebookName && visibleTags.length > 0 && <>
-        <span className="note-row-meta-divider" aria-hidden="true">·</span>
-      </>}
-      {visibleTags.length > 0 && (
-        <span className="note-row-tags" aria-label={`标签：${tags.map((tag) => `#${tag}`).join("、")}`}>
-          {visibleTags.map((tag) => <span className="note-row-tag" key={tag}>#{tag}</span>)}
-          {tags.length > visibleTags.length && <span className="note-row-tag note-row-tag--overflow">+{tags.length - visibleTags.length}</span>}
-        </span>
-      )}
-    </span>
+    <NoteTags tags={tags} variant="row" />
+    {showNotebook && note.notebookName && <span className="note-row-notebook">{note.notebookName}</span>}
     <time>{relativeDate(note.updatedAt)}</time>
   </span>;
 }

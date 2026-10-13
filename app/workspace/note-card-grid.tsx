@@ -20,7 +20,8 @@ import type { NoteSort, NoteSummary, NoteView, Notebook } from "../../shared/typ
 import { playEntranceAnimation } from "../animation";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { isNoteSelectionModifierClick, type NoteSelectionClick } from "./note-list-selection";
-import { getNoteTags, NOTE_TAG_DISPLAY_LIMIT, relativeDate, sortNotes, viewLabel } from "./helpers";
+import { getNoteTags, relativeDate, sortNotes, viewLabel } from "./helpers";
+import { NoteTags } from "./note-tags";
 import { MobileCollectionHeader } from "./mobile-collection-header";
 import { useVirtualCardMasonry } from "./use-virtual-card-masonry";
 
@@ -308,7 +309,6 @@ const NoteCardItem = memo(function NoteCardItem({
   const hasThumbnail = Boolean(note.thumbnail?.id);
   const displayNotebook = notebook;
   const tags = getNoteTags(note);
-  const visibleTags = tags.slice(0, NOTE_TAG_DISPLAY_LIMIT);
 
   return (
     <article
@@ -382,31 +382,17 @@ const NoteCardItem = memo(function NoteCardItem({
 
         {/* 卡片底部元信息栏：与列表视图保持统一 */}
         <div className="note-card-footer">
-          <div className="note-card-footer-leading">
-            {showNotebook && displayNotebook && (
-              <span className="note-card-notebook-badge">
-                <span
-                  className="notebook-color-dot"
-                  style={{ backgroundColor: displayNotebook.color }}
-                  aria-hidden="true"
-                />
-                <span className="notebook-badge-name">{displayNotebook.name}</span>
-              </span>
-            )}
-            {showNotebook && displayNotebook && visibleTags.length > 0 && (
-              <span className="note-card-footer-divider" aria-hidden="true">·</span>
-            )}
-            {visibleTags.length > 0 && (
-              <span className="note-card-tags" aria-label={`标签：${tags.map((tag) => `#${tag}`).join("、")}`}>
-                {visibleTags.map((tag) => (
-                  <span className="note-card-tag" key={tag}>#{tag}</span>
-                ))}
-                {tags.length > visibleTags.length && (
-                  <span className="note-card-tag note-card-tag--overflow">+{tags.length - visibleTags.length}</span>
-                )}
-              </span>
-            )}
-          </div>
+          {showNotebook && displayNotebook && (
+            <span className="note-card-notebook-badge">
+              <span
+                className="notebook-color-dot"
+                style={{ backgroundColor: displayNotebook.color }}
+                aria-hidden="true"
+              />
+              <span className="notebook-badge-name">{displayNotebook.name}</span>
+            </span>
+          )}
+          <NoteTags tags={tags} variant="card" />
 
           <time className="note-card-date">{relativeDate(note.updatedAt)}</time>
         </div>
