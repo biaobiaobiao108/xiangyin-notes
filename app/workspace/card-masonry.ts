@@ -67,7 +67,7 @@ export function estimateCardHeight(note: NoteSummary, laneWidth: number, isMobil
   const coverHeight = note.thumbnail ? isMobileViewport ? 116 : 140 : 0;
   const titleHeight = titleLines * (isMobileViewport ? 23 : 24);
   const previewHeight = previewLines * (isMobileViewport ? 22 : 24);
-  const footerHeight = isMobileViewport ? 42 + (note.tags.length > 3 ? 22 : 0) : 34;
+  const footerHeight = isMobileViewport ? 42 : 34;
   const bodyPadding = isMobileViewport ? 26 : 38;
   const bodyGaps = isMobileViewport ? 20 : 24;
   return Math.ceil(coverHeight + titleHeight + previewHeight + footerHeight + bodyPadding + bodyGaps + 4);
