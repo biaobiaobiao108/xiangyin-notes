@@ -38,7 +38,7 @@ describe("note context menu selection", () => {
     expect(css).toContain(".is-mobile-card-grid .note-card-title::before");
     expect(css).toContain("float: right;");
     expect(css).toContain("line-clamp: 3;");
-    expect(css).toContain(".note-card-tags:has(> .note-card-tag--overflow) > .note-card-tag:nth-last-child(2) { flex: 0 1 100%; }");
+    expect(css).toContain(".note-card-tags:has(> .note-card-tag--overflow) > .note-card-tag:nth-last-child(2) { flex: 0 1 auto; }");
     expect(css).toContain(".note-row.is-active {");
     expect(css).not.toContain(".note-row.is-selected, .note-row.is-active");
     expect(css).not.toContain(".note-card.is-selected {");

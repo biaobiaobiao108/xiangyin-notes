@@ -2257,7 +2257,7 @@ dialog::backdrop {
 }
 
 .note-card-tags:not(:has(> .note-card-tag--overflow)) > .note-card-tag:last-child:not(:only-child),
-.note-card-tags:has(> .note-card-tag--overflow) > .note-card-tag:nth-last-child(2) { flex: 0 1 100%; }
+.note-card-tags:has(> .note-card-tag--overflow) > .note-card-tag:nth-last-child(2) { flex: 0 1 auto; }
 .note-card-tags > .note-card-tag:only-child { flex: 0 1 auto; }
 
 .note-card-tag--overflow {
