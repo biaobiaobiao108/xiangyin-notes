@@ -1,7 +1,18 @@
 import { describe, expect, test } from "bun:test";
+import { fittingTagCount } from "../app/workspace/note-tags";
 import { extractTags, findTagRanges, findTrailingTagFooterStart, hasTag, normalizeTag, parseTagQuery, preserveEscapedHashtagsForEditor, removeTagsFromMarkdown } from "../shared/tags";
 
 describe("note tags", () => {
+  test("fits a single tag row while reserving the hidden-tag count", () => {
+    expect(fittingTagCount(200, [60, 60, 60], 24, 3, 4)).toBe(3);
+    expect(fittingTagCount(200, [60, 60, 60], 24, 5, 4)).toBe(2);
+    expect(fittingTagCount(148, [60, 60, 60], 24, 5, 4)).toBe(1);
+    expect(fittingTagCount(152, [60, 60, 60], 24, 5, 4)).toBe(2);
+    expect(fittingTagCount(100, [240, 60, 60], 24, 5, 4)).toBe(1);
+    expect(fittingTagCount(300, [60, 60, 60], 24, 5, 4)).toBe(3);
+    expect(fittingTagCount(100, [], 24, 0, 4)).toBe(0);
+  });
+
   test("extracts unique tags in first-seen order", () => {
     expect(extractTags("中文#项目 #Tag #项目-资料 #Tag_2 #tag")).toEqual(["项目", "Tag", "项目-资料", "Tag_2"]);
   });
