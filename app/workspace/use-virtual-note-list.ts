@@ -31,6 +31,7 @@ function indexAtOffset(offsets: readonly number[], offset: number) {
 export function useVirtualNoteList(
   rows: readonly NoteSummary[],
   scrollRef: RefObject<HTMLDivElement | null>,
+  scrollElement: HTMLDivElement | null,
   scope: string,
 ) {
   const [viewport, setViewport] = useState<Viewport>({ top: 0, height: 800 });
@@ -74,7 +75,7 @@ export function useVirtualNoteList(
   }, [indexById]);
 
   useLayoutEffect(() => {
-    const container = scrollRef.current;
+    const container = scrollElement;
     if (!container) return;
 
     let scrollFrame = 0;
@@ -102,12 +103,12 @@ export function useVirtualNoteList(
       container.removeEventListener("scroll", onScroll);
       resizeObserver?.disconnect();
     };
-  }, [scrollRef]);
+  }, [scrollElement, scrollRef]);
 
   useLayoutEffect(() => {
-    if (!isVirtualized || typeof ResizeObserver === "undefined") return;
+    if (!scrollElement || !isVirtualized || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver((entries) => {
-      const container = scrollRef.current;
+      const container = scrollElement;
       const oldOffsets = offsetsRef.current;
       const anchorIndex = container ? indexAtOffset(oldOffsets, Math.max(0, container.scrollTop - contentInsetRef.current)) : 0;
       let anchorAdjustment = 0;
@@ -142,7 +143,7 @@ export function useVirtualNoteList(
       observer.disconnect();
       if (observerRef.current === observer) observerRef.current = null;
     };
-  }, [isVirtualized, scrollRef]);
+  }, [isVirtualized, scrollElement, scrollRef]);
 
   const startIndex = isVirtualized
     ? indexAtOffset(offsets, Math.max(0, viewport.top - OVERSCAN_PX))

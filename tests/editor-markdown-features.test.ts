@@ -61,6 +61,18 @@ describe("escaped hashtag Markdown", () => {
       editor.destroy();
     }
   });
+
+  test("preserves escaped hashtag semantics when Markdown text is prepared for paste", () => {
+    const pastedText = "话题 \\#技术，标签 #真实标签";
+    const editor = createMarkdownEditor(preserveEscapedHashtagsForEditor(pastedText));
+    try {
+      const serialized = (editor as Editor & { getMarkdown: () => string }).getMarkdown();
+      expect(serialized).toContain("#\u2060技术");
+      expect(extractTags(serialized)).toEqual(["真实标签"]);
+    } finally {
+      editor.destroy();
+    }
+  });
 });
 
 describe("slash command inline formatting", () => {

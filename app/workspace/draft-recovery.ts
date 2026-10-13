@@ -5,18 +5,41 @@ const MAX_DRAFT_RECOVERY_BYTES = 4 * 1024 * 1024;
 const LOCAL_STORAGE_DRAFT_MAX_BYTES = 128 * 1024;
 const DRAFT_DATABASE_NAME = "xiangying-notes-drafts";
 const DRAFT_STORE_NAME = "drafts";
+const RECOVERY_UPDATED_AT_FIELD = "__xiangyingRecoveryUpdatedAt";
 
 let draftDatabasePromise: Promise<IDBDatabase | null> | null = null;
-// Only pending operations are retained; tokens do not retain draft contents.
-const pendingOperations = new Map<string, symbol>();
+// Keep only short fingerprints for the last value seen in each store. Recovery
+// contents can be large, so completed drafts are never retained in memory.
+const knownRecoveries = new Map<string, { local?: string | null; indexed?: string | null }>();
+const pendingOperations = new Map<string, { token: symbol; fingerprint?: string }>();
 
-function beginDraftOperation(noteId: string) {
+function fingerprint(serialized: string) {
+  let first = 0x811c9dc5;
+  let second = 0x9e3779b9;
+  for (let index = 0; index < serialized.length; index += 1) {
+    const code = serialized.charCodeAt(index);
+    first = Math.imul(first ^ code, 0x01000193);
+    second = Math.imul(second ^ (code + index), 0x85ebca6b);
+  }
+  return `${serialized.length}:${(first >>> 0).toString(16)}:${(second >>> 0).toString(16)}`;
+}
+
+function rememberRecovery(noteId: string, store: "local" | "indexed", serialized: string | null) {
+  const known = knownRecoveries.get(noteId) ?? {};
+  known[store] = serialized === null ? null : fingerprint(serialized);
+  knownRecoveries.set(noteId, known);
+}
+
+function beginDraftOperation(noteId: string, serialized?: string) {
   const token = Symbol();
-  pendingOperations.set(noteId, token);
+  const pendingFingerprint = serialized ? fingerprint(serialized) : undefined;
+  const previousFingerprint = pendingOperations.get(noteId)?.fingerprint;
+  pendingOperations.set(noteId, { token, fingerprint: pendingFingerprint });
   return {
-    isCurrent: () => pendingOperations.get(noteId) === token,
+    pendingFingerprints: [previousFingerprint, pendingFingerprint].filter((value): value is string => Boolean(value)),
+    isCurrent: () => pendingOperations.get(noteId)?.token === token,
     finish: () => {
-      if (pendingOperations.get(noteId) === token) pendingOperations.delete(noteId);
+      if (pendingOperations.get(noteId)?.token === token) pendingOperations.delete(noteId);
     },
   };
 }
@@ -33,6 +56,37 @@ export function serializeDraftRecovery(draft: NoteDraft) {
   } catch {
     return null;
   }
+}
+
+function serializeStoredDraftRecovery(draft: NoteDraft) {
+  try {
+    const serialized = JSON.stringify({
+      ...draft,
+      [RECOVERY_UPDATED_AT_FIELD]: Date.now() * 1000 + Math.floor(Math.random() * 1000),
+    });
+    if (new TextEncoder().encode(serialized).byteLength > MAX_DRAFT_RECOVERY_BYTES) return null;
+    return serialized;
+  } catch {
+    return null;
+  }
+}
+
+function readLocalDraft(noteId: string) {
+  try {
+    return { readable: true, serialized: window.localStorage.getItem(draftRecoveryStorageKey(noteId)) };
+  } catch {
+    return { readable: false, serialized: null };
+  }
+}
+
+function removeLocalDraftIfUnchanged(noteId: string, previous: { readable: boolean; serialized: string | null }) {
+  if (!previous.readable || previous.serialized === null) return;
+  try {
+    const key = draftRecoveryStorageKey(noteId);
+    if (window.localStorage.getItem(key) !== previous.serialized) return;
+    window.localStorage.removeItem(key);
+    rememberRecovery(noteId, "local", null);
+  } catch {}
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -92,83 +146,142 @@ async function readIndexedDraft(noteId: string) {
   });
 }
 
-async function deleteIndexedDraft(noteId: string, isCurrent: () => boolean) {
+async function deleteIndexedDraft(noteId: string, expectedFingerprints: Set<string>, isCurrent: () => boolean) {
   const database = await openDraftDatabase();
-  if (!database || !isCurrent()) return;
-  try { database.transaction(DRAFT_STORE_NAME, "readwrite").objectStore(DRAFT_STORE_NAME).delete(noteId); } catch {}
+  if (!database || !isCurrent() || expectedFingerprints.size === 0) return false;
+  return await new Promise<boolean>((resolve) => {
+    let removed = false;
+    try {
+      const transaction = database.transaction(DRAFT_STORE_NAME, "readwrite");
+      const store = transaction.objectStore(DRAFT_STORE_NAME);
+      const request = store.get(noteId);
+      request.onsuccess = () => {
+        if (!isCurrent() || typeof request.result !== "string" || !expectedFingerprints.has(fingerprint(request.result))) return;
+        store.delete(noteId);
+        removed = true;
+      };
+      transaction.oncomplete = () => resolve(removed);
+      transaction.onerror = () => resolve(false);
+      transaction.onabort = () => resolve(false);
+    } catch {
+      resolve(false);
+    }
+  });
 }
 
-export function parseDraftRecovery(serialized: string, noteId: string): NoteDraft | null {
+function parseDraftRecoveryRecord(serialized: string, noteId: string) {
   try {
     const value: unknown = JSON.parse(serialized);
     if (!isRecord(value)) return null;
     if (value.id !== noteId || typeof value.title !== "string" || value.title.length > 200 || typeof value.contentMarkdown !== "string" || value.contentMarkdown.length > 1_000_000 || typeof value.notebookId !== "string" || typeof value.isFavorite !== "boolean") return null;
     if (typeof value.version !== "number" || !Number.isSafeInteger(value.version) || value.version < 1) return null;
     if (value.deletedAt !== null && (typeof value.deletedAt !== "number" || !Number.isSafeInteger(value.deletedAt))) return null;
+    const updatedAt = value[RECOVERY_UPDATED_AT_FIELD];
     return {
-      id: value.id,
-      version: value.version,
-      title: value.title,
-      contentMarkdown: value.contentMarkdown,
-      notebookId: value.notebookId,
-      isFavorite: value.isFavorite,
-      deletedAt: value.deletedAt,
+      draft: {
+        id: value.id,
+        version: value.version,
+        title: value.title,
+        contentMarkdown: value.contentMarkdown,
+        notebookId: value.notebookId,
+        isFavorite: value.isFavorite,
+        deletedAt: value.deletedAt,
+      },
+      updatedAt: typeof updatedAt === "number" && Number.isSafeInteger(updatedAt) ? updatedAt : 0,
     };
   } catch {
     return null;
   }
 }
 
+export function parseDraftRecovery(serialized: string, noteId: string): NoteDraft | null {
+  return parseDraftRecoveryRecord(serialized, noteId)?.draft ?? null;
+}
+
 export function writeDraftRecovery(draft: NoteDraft) {
   if (typeof window === "undefined") return;
-  const serialized = serializeDraftRecovery(draft);
+  const serialized = serializeStoredDraftRecovery(draft);
   if (!serialized) return;
-  const operation = beginDraftOperation(draft.id);
+  const operation = beginDraftOperation(draft.id, serialized);
+  const localBefore = readLocalDraft(draft.id);
+  const serializedFingerprint = fingerprint(serialized);
   const byteSize = new TextEncoder().encode(serialized).byteLength;
   if (byteSize > LOCAL_STORAGE_DRAFT_MAX_BYTES && canUseIndexedDb()) {
     void writeIndexedDraft(draft.id, serialized, operation.isCurrent).then((written) => {
       if (!operation.isCurrent()) return;
       if (written) {
-        try { window.localStorage.removeItem(draftRecoveryStorageKey(draft.id)); } catch {}
+        rememberRecovery(draft.id, "indexed", serialized);
+        removeLocalDraftIfUnchanged(draft.id, localBefore);
         return;
       }
-      try { window.localStorage.setItem(draftRecoveryStorageKey(draft.id), serialized); } catch {}
+      try {
+        window.localStorage.setItem(draftRecoveryStorageKey(draft.id), serialized);
+        rememberRecovery(draft.id, "local", serialized);
+      } catch {}
     }).finally(operation.finish);
     return;
   }
   try {
     window.localStorage.setItem(draftRecoveryStorageKey(draft.id), serialized);
-    void deleteIndexedDraft(draft.id, operation.isCurrent).finally(operation.finish);
+    rememberRecovery(draft.id, "local", serialized);
+    const expected = new Set([...operation.pendingFingerprints, serializedFingerprint]);
+    void deleteIndexedDraft(draft.id, expected, operation.isCurrent).then((removed) => {
+      if (removed && operation.isCurrent()) rememberRecovery(draft.id, "indexed", null);
+    }).finally(operation.finish);
   } catch {
-    void writeIndexedDraft(draft.id, serialized, operation.isCurrent).finally(operation.finish);
+    void writeIndexedDraft(draft.id, serialized, operation.isCurrent).then((written) => {
+      if (!written || !operation.isCurrent()) return;
+      rememberRecovery(draft.id, "indexed", serialized);
+      removeLocalDraftIfUnchanged(draft.id, localBefore);
+    }).finally(operation.finish);
   }
 }
 
 export async function readDraftRecovery(noteId: string) {
   if (typeof window === "undefined") return null;
-  try {
-    const serialized = window.localStorage.getItem(draftRecoveryStorageKey(noteId));
-    if (serialized) {
-      const draft = parseDraftRecovery(serialized, noteId);
-      if (draft) return draft;
-    }
-  } catch {}
-  const serialized = await readIndexedDraft(noteId);
-  return serialized ? parseDraftRecovery(serialized, noteId) : null;
+  const local = readLocalDraft(noteId);
+  if (local.readable) rememberRecovery(noteId, "local", local.serialized);
+  const indexedSerialized = await readIndexedDraft(noteId);
+  rememberRecovery(noteId, "indexed", indexedSerialized);
+
+  const localRecord = local.serialized ? parseDraftRecoveryRecord(local.serialized, noteId) : null;
+  const indexedRecord = indexedSerialized ? parseDraftRecoveryRecord(indexedSerialized, noteId) : null;
+  if (localRecord && indexedRecord) {
+    return indexedRecord.updatedAt > localRecord.updatedAt ? indexedRecord.draft : localRecord.draft;
+  }
+  return localRecord?.draft ?? indexedRecord?.draft ?? null;
 }
 
 export function clearDraftRecovery(noteId: string) {
   if (typeof window === "undefined") return;
+  const known = knownRecoveries.get(noteId);
+  const pendingFingerprints = pendingOperations.get(noteId)?.fingerprint ? [pendingOperations.get(noteId)!.fingerprint!] : [];
   const operation = beginDraftOperation(noteId);
-  try {
-    window.localStorage.removeItem(draftRecoveryStorageKey(noteId));
-  } catch {}
-  void deleteIndexedDraft(noteId, operation.isCurrent).finally(operation.finish);
+  const key = draftRecoveryStorageKey(noteId);
+  const localExpected = new Set([known?.local, ...pendingFingerprints].filter((value): value is string => Boolean(value)));
+  const indexedExpected = new Set([known?.indexed, ...pendingFingerprints].filter((value): value is string => Boolean(value)));
+  if (localExpected.size > 0) {
+    try {
+      const serialized = window.localStorage.getItem(key);
+      if (serialized && localExpected.has(fingerprint(serialized))) {
+        window.localStorage.removeItem(key);
+        rememberRecovery(noteId, "local", null);
+      }
+    } catch {}
+  }
+  if (indexedExpected.size === 0) {
+    operation.finish();
+    return;
+  }
+  void deleteIndexedDraft(noteId, indexedExpected, operation.isCurrent).then((removed) => {
+    if (removed && operation.isCurrent()) rememberRecovery(noteId, "indexed", null);
+  }).finally(operation.finish);
 }
 
 export function clearAllDraftRecoveries() {
   if (typeof window === "undefined") return;
   pendingOperations.clear();
+  knownRecoveries.clear();
   try {
     const keys: string[] = [];
     for (let index = 0; index < window.localStorage.length; index += 1) {

@@ -3,6 +3,7 @@ import { openDatabase } from "../server/test-db";
 import type { TestSqliteDatabase } from "../server/test-db";
 import { handleRequest } from "../server/index";
 import { MAX_SHORT_TERM_CONTENT_CHARS, MAX_SHORT_TERMS_PER_NOTE } from "../server/note-search";
+import { NOTE_CONTENT_MAX_BYTES } from "../server/core";
 
 let database: TestSqliteDatabase;
 let cookie: string;
@@ -67,6 +68,41 @@ for (const trashedRole of ["source", "target"] as const) {
     expect(after.deletedAt).toBe(before.deletedAt);
   });
 }
+
+test("link mention rejects replacements that would exceed the note content limit", async () => {
+  const target = await createNote("苹果");
+  const prefix = "x".repeat(999_998);
+  const source = await createNote("来源", `${prefix}苹果`);
+  const result = await request(`/api/notes/${target.id}/link-mention`, "POST", {
+    sourceNoteId: source.id,
+    sourceVersion: source.version,
+    matchStart: prefix.length,
+    matchEnd: prefix.length + 2,
+    matchText: "苹果",
+  });
+  expect(source.contentMarkdown.length).toBe(1_000_000);
+  expect(result.response.status).toBe(413);
+  expect(result.body.error.code).toBe("NOTE_TOO_LARGE");
+  const after = (await request(`/api/notes/${source.id}`)).body.note;
+  expect(after.contentMarkdown).toBe(source.contentMarkdown);
+  expect(after.version).toBe(source.version);
+});
+
+test("link mention rejects replacements above the D1 UTF-8 byte limit", async () => {
+  const target = await createNote("苹果");
+  const prefix = "甲".repeat(Math.floor((NOTE_CONTENT_MAX_BYTES - 6) / 3));
+  const source = await createNote("来源", `${prefix}苹果`);
+  const result = await request(`/api/notes/${target.id}/link-mention`, "POST", {
+    sourceNoteId: source.id, sourceVersion: source.version,
+    matchStart: prefix.length, matchEnd: prefix.length + 2, matchText: "苹果",
+  });
+  expect(source.contentMarkdown.length).toBeLessThan(1_000_000);
+  expect(result.response.status).toBe(413);
+  expect(result.body.error.code).toBe("NOTE_TOO_LARGE");
+  const after = (await request(`/api/notes/${source.id}`)).body.note;
+  expect(after.contentMarkdown).toBe(source.contentMarkdown);
+  expect(after.version).toBe(source.version);
+});
 
 for (const limit of ["content", "terms"] as const) {
   test(`backlinks find a short-title mention beyond the ${limit} index limit`, async () => {
