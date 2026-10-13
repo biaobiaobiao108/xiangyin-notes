@@ -2256,8 +2256,9 @@ dialog::backdrop {
   border-radius: 999px;
 }
 
-.note-card-tags > .note-card-tag:last-child:not(.note-card-tag--overflow),
-.note-card-tags:has(> .note-card-tag--overflow) > .note-card-tag:nth-last-child(2) { flex: 0 1 auto; }
+.note-card-tags:not(:has(> .note-card-tag--overflow)) > .note-card-tag:last-child:not(:only-child),
+.note-card-tags:has(> .note-card-tag--overflow) > .note-card-tag:nth-last-child(2) { flex: 0 1 100%; }
+.note-card-tags > .note-card-tag:only-child { flex: 0 1 auto; }
 
 .note-card-tag--overflow {
   color: var(--muted);
@@ -2362,8 +2363,9 @@ dialog::backdrop {
   .is-mobile-card-grid .note-card:has(.note-card-open:focus-visible) { background: var(--accent-soft); }
   .is-mobile-card-grid .note-card-body { padding: 14px 12px 12px; gap: 10px; }
   .is-mobile-card-grid .note-card-header { position: relative; }
-  .is-mobile-card-grid .note-card-header.has-favorite-action { padding-right: 24px; }
-  .is-mobile-card-grid .note-card-header .note-selection-slot { height: 1.42em; }
+  .is-mobile-card-grid .note-card-header.has-favorite-action { padding-right: 44px; }
+  .is-mobile-card-grid .note-card-header .note-selection-slot { display: none; }
+  .is-mobile-card-grid .note-card-header:has(.note-selection-mark) .note-selection-slot { position: absolute; top: 0; right: 44px; z-index: 2; display: inline-grid; }
   .is-mobile-card-grid .note-card-title { min-width: 0; font-size: 1rem; }
   .is-mobile-card-grid .note-card-star-btn { position: absolute; top: -10px; right: -10px; z-index: 2; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 999px; }
   .is-mobile-card-grid .note-card-preview-text { font-size: 0.8125rem; line-height: 1.65; -webkit-line-clamp: 6; }
@@ -2382,6 +2384,24 @@ dialog::backdrop {
   .app-shell[data-mobile-page] .mobile-collection-header .sort-button,
   .app-shell[data-mobile-page] .mobile-layout-toggle { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; flex: 0 0 44px; }
   .mobile-collection-header .list-header-controls { flex-shrink: 0; gap: 2px; }
+}
+
+@supports (line-clamp: 3) {
+  .is-mobile-card-grid .note-card-header.has-favorite-action { padding-right: 0; }
+  .is-mobile-card-grid .note-card-title {
+    display: block;
+    width: 100%;
+    line-clamp: 3;
+    -webkit-line-clamp: unset;
+    overflow: hidden;
+  }
+  .is-mobile-card-grid .note-card-title::before {
+    content: "";
+    float: right;
+    width: 44px;
+    height: 1.42em;
+  }
+  .is-mobile-card-grid .note-card-header:has(.note-selection-mark) .note-card-title::before { width: 70px; }
 }
 .card-grid-empty {
   display: flex;
