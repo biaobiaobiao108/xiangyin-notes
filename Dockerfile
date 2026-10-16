@@ -9,7 +9,6 @@ COPY app ./app
 COPY server ./server
 COPY shared ./shared
 COPY scripts ./scripts
-COPY migrations ./migrations
 RUN bun run build
 
 FROM oven/bun:1.4.3-alpine AS runtime
@@ -24,7 +23,7 @@ ENV NODE_ENV=production \
 RUN mkdir -p /data && chown -R bun:bun /data /app
 
 COPY --from=builder --chown=bun:bun /app/dist ./dist
-COPY --from=builder --chown=bun:bun /app/migrations ./migrations
+COPY --chown=bun:bun migrations ./migrations
 
 USER bun
 
