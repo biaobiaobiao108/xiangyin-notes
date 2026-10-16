@@ -24,6 +24,7 @@ import { getNoteTags, relativeDate, sortNotes, viewLabel } from "./helpers";
 import { NoteTags } from "./note-tags";
 import { MobileCollectionHeader } from "./mobile-collection-header";
 import { useVirtualCardMasonry } from "./use-virtual-card-masonry";
+import { useScrollEdges } from "./use-scroll-edges";
 
 export type NoteCardGridPanelProps = {
   notes: NoteSummary[];
@@ -92,6 +93,7 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
   const isTrashView = view === "trash";
   const showNotebook = !currentNotebookName && view !== "inbox";
   const masonry = useVirtualCardMasonry(sortedNotes, gridScrollRef, isMobileViewport);
+  const cardGridScrollEdges = useScrollEdges(gridScrollRef, [sortedNotes.length, masonry.totalHeight]);
   const renderCard = useCallback((note: NoteSummary, index: number) => (
     <NoteCardItem
       key={note.id}
@@ -168,7 +170,7 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
       inert={inert}
     >
       {/* 沉浸式瀑布流滚动区域（无多余顶栏） */}
-      <div className="card-grid-scroll-shell">
+      <div className={`card-grid-scroll-shell${cardGridScrollEdges.before ? " has-scroll-before" : ""}${cardGridScrollEdges.after ? " has-scroll-after" : ""}`}>
         {isMobileViewport && onOpenSidebar && <MobileCollectionHeader active={!inert} heading={query ? "搜索结果" : currentNotebookName ?? viewLabel(view)} total={total} shown={notes.length} query={query} sort={sort} onSort={setSort} onBack={onOpenSidebar} layout="cards" onToggleLayout={onToggleLayout} onEmptyTrash={onEmptyTrash} trashBusy={trashBusy} />}
         {!isMobileViewport && onOpenSidebar && (
           <button

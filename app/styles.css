@@ -421,6 +421,28 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .sort-option.is-active { background: var(--accent-soft); color: var(--accent-dark); font-weight: 600; }
 .note-list-content { display: flex; flex: 1 1 0; flex-direction: column; min-height: 0; }
 .note-list-scroll-shell { position: relative; flex: 1 1 0; min-height: 0; overflow: hidden; }
+.note-list-scroll-shell::before, .note-list-scroll-shell::after {
+  position: absolute;
+  z-index: 2;
+  inset-inline: 0;
+  height: 28px;
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--motion-fast) var(--motion-ease-out);
+}
+.note-list-scroll-shell::before {
+  inset-block-start: 0;
+  background: linear-gradient(to bottom, var(--surface), transparent);
+}
+.note-list-scroll-shell::after {
+  inset-block-end: 0;
+  background: linear-gradient(to top, var(--surface), transparent);
+}
+.note-list-scroll-shell.has-scroll-before::before,
+.note-list-scroll-shell.has-scroll-after::after {
+  opacity: 1;
+}
 .note-list-scroll-shell > .floating-scrollbar--left { inset-inline-start: 0; }
 .floating-scrollbar-target { scrollbar-color: transparent transparent; scrollbar-width: none; }
 .floating-scrollbar-target::-webkit-scrollbar { display: none; width: 0; height: 0; }
@@ -2012,6 +2034,29 @@ dialog::backdrop {
   min-height: 0;
   overflow: hidden;
 }
+.card-grid-scroll-shell::before,
+.card-grid-scroll-shell::after {
+  position: absolute;
+  z-index: 2;
+  inset-inline: 0;
+  height: 32px;
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--motion-fast) var(--motion-ease-out);
+}
+.card-grid-scroll-shell::before {
+  inset-block-start: 0;
+  background: linear-gradient(to bottom, var(--surface), transparent);
+}
+.card-grid-scroll-shell::after {
+  inset-block-end: 0;
+  background: linear-gradient(to top, var(--surface), transparent);
+}
+.card-grid-scroll-shell.has-scroll-before::before,
+.card-grid-scroll-shell.has-scroll-after::after {
+  opacity: 1;
+}
 
 .card-grid-mobile-menu {
   position: absolute;
@@ -2323,6 +2368,8 @@ dialog::backdrop {
   .app-shell[data-mobile-page="home"] > .note-card-grid-panel,
   .app-shell[data-mobile-page="editor"] > .note-card-grid-panel { display: none; }
   .is-mobile-card-grid { height: 100%; background: var(--canvas); }
+  .is-mobile-card-grid .card-grid-scroll-shell::before { background: linear-gradient(to bottom, var(--canvas), transparent); }
+  .is-mobile-card-grid .card-grid-scroll-shell::after { background: linear-gradient(to top, var(--canvas), transparent); }
   .is-mobile-card-grid .card-grid-container,
   .is-mobile-card-grid .card-grid-container.has-trash-action { padding: calc(76px + env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) calc(112px + env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left)); overscroll-behavior: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; }
   .is-mobile-card-grid .note-card { position: relative; min-width: 0; margin-bottom: 0; border-color: var(--border-soft); transition-timing-function: var(--motion-ease-out); }
