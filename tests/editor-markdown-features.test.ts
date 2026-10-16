@@ -8,7 +8,7 @@ import { createMarkdownExtension } from "../app/editor/markdown-config";
 import { Info, Table2 } from "lucide-react";
 import { formatPreview } from "../server/core";
 import { extractTags, preserveEscapedHashtagsForEditor } from "../shared/tags";
-import { CalloutNode, CALLOUT_TYPES, shouldExitCalloutOnEnter } from "../app/editor/callout-node";
+import { CalloutNode, CALLOUT_TYPES, handleCalloutEnter, shouldExitCalloutOnEnter } from "../app/editor/callout-node";
 import { CodeBlockDoubleEnter, handleCodeBlockDoubleEnter, shouldExitCodeBlockOnEnter } from "../app/editor/code-block-enter";
 import { handleInlineMarkExitOnEnter, InlineMarkExitOnEnter } from "../app/editor/inline-mark-exit";
 import { ImageNode } from "../app/editor/image-node";
@@ -597,6 +597,20 @@ describe("callout markdown integration", () => {
       expect(editor.state.doc.childCount).toBe(2);
       expect(editor.state.doc.firstChild?.type.name).toBe("callout");
       expect(editor.state.doc.lastChild?.type.name).toBe("paragraph");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  test("does not exit callout on Enter while an IME is composing", () => {
+    const editor = createMarkdownEditor("> [!NOTE]\n> 内容");
+    try {
+      editor.commands.setTextSelection(5);
+      expect(editor.commands.splitBlock()).toBe(true);
+      expect(shouldExitCalloutOnEnter(editor.state)).toBe(true);
+      expect(handleCalloutEnter(editor, { key: "Enter", keyCode: 13, isComposing: true })).toBe(false);
+      expect(editor.state.doc.childCount).toBe(1);
+      expect(editor.state.doc.firstChild?.type.name).toBe("callout");
     } finally {
       editor.destroy();
     }
