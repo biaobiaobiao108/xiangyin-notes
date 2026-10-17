@@ -811,6 +811,21 @@ describe("Bun Server API", () => {
     expect(worker.response.headers.get("Cache-Control")).toBe("no-cache");
   });
 
+  test("revalidates static files with ETag instead of resending them", async () => {
+    const first = await request("/manifest.webmanifest", {}, undefined, environment, "http://xiangying.test", "app");
+    expect(first.response.status).toBe(200);
+    const etag = first.response.headers.get("etag");
+    expect(etag).toBeString();
+    expect(first.response.headers.get("last-modified")).toContain("GMT");
+
+    const revalidated = await request("/manifest.webmanifest", { headers: { "If-None-Match": etag! } }, undefined, environment, "http://xiangying.test", "app");
+    expect(revalidated.response.status).toBe(304);
+    expect(revalidated.response.headers.get("etag")).toBe(etag);
+
+    const changed = await request("/manifest.webmanifest", { headers: { "If-None-Match": 'W/"stale-tag"' } }, undefined, environment, "http://xiangying.test", "app");
+    expect(changed.response.status).toBe(200);
+  });
+
   test("serves source PWA asset aliases in development", async () => {
     const devEnvironment = { ...environment, NODE_ENV: "development" };
     const manifest = await request("/manifest.webmanifest", {}, undefined, devEnvironment, "http://xiangying.test", "dist/dev-client");
