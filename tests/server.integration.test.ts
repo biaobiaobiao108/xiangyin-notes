@@ -297,6 +297,12 @@ describe("Bun Server API", () => {
     expect(summaryUpdate.body?.note).not.toHaveProperty("contentMarkdown");
     expect(summaryUpdate.body?.note.isFavorite).toBe(true);
 
+    const summaryRead = await request(`/api/notes/${note.id}?response=summary`, {}, login.cookie);
+    expect(summaryRead.response.status).toBe(200);
+    expect(summaryRead.body?.note).not.toHaveProperty("contentMarkdown");
+    expect(summaryRead.body?.note.title).toBe("Updated");
+    expect(summaryRead.body?.note.version).toBe(summaryUpdate.body?.note.version);
+
     const invalidCreate = await request("/api/notes", { method: "POST", body: "not-json" }, login.cookie);
     expect(invalidCreate.response.status).toBe(400);
     expect(invalidCreate.body?.error.code).toBe("INVALID_JSON");

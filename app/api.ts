@@ -49,6 +49,7 @@ export const api = {
     return request<{ notes: NoteSummary[]; total?: number; hasMore?: boolean; nextCursor?: string }>(`/api/notes?${search.toString()}`, options);
   },
   getNote: (id: string, options?: RequestOptions) => request<{ note: Note }>(`/api/notes/${id}`, options),
+  getNoteSummary: (id: string, options?: RequestOptions) => request<{ note: NoteSummary }>(`/api/notes/${id}?response=summary`, options),
   ensureWikiNote: (payload: { title: string; notebookId: string }) => request<{ note: Note; created: boolean }>("/api/wiki-notes/ensure", { method: "POST", body: JSON.stringify(payload) }),
   uploadAsset: (file: File) => request<{ asset: ImageAssetSummary }>("/api/assets", { method: "POST", body: (() => { const formData = new FormData(); formData.append("file", file, file.name); return formData; })() }),
   createNote: (payload: { id?: string; title?: string; contentMarkdown?: string; notebookId?: string }) => request<{ note: Note }>("/api/notes", { method: "POST", body: JSON.stringify(payload) }),

@@ -100,7 +100,7 @@ export function sortNotes(notes: NoteSummary[], sort: NoteSort) {
   return [...notes].sort((a, b) => sort === "created" ? b.createdAt - a.createdAt : sort === "title" ? (a.title || "未命名笔记").localeCompare(b.title || "未命名笔记", "zh-CN") : b.updatedAt - a.updatedAt);
 }
 
-export function shouldKeepActiveNoteInList(note: Note, notebooks: Notebook[], view: NoteView, query: string, notebookId?: string) {
+export function shouldKeepActiveNoteInList(note: Pick<Note, "deletedAt" | "notebookId" | "isFavorite">, notebooks: Notebook[], view: NoteView, query: string, notebookId?: string) {
   // Search membership is server-derived; never inject unrelated active notes.
   if (query.trim()) return false;
   if (view === "trash") return note.deletedAt !== null;

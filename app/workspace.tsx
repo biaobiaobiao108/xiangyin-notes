@@ -21,6 +21,7 @@ import { applyNoteSelectionClick, isNoteSelectionModifierClick, noteSelectionAnc
 import { normalizeLinkTitle } from "../shared/wiki-links";
 import { useNoteSaveQueue } from "./workspace/use-note-save-queue";
 import { useWorkspaceRealtime } from "./workspace/use-realtime";
+import { accumulateRealtimeRefresh, emptyRealtimeRefreshPlan, type RealtimeRefreshPlan } from "./workspace/realtime-refresh";
 import { latestSelectedNoteSnapshot, refreshSelectedNote } from "./workspace/selected-note-sync";
 import { useWorkspaceShortcuts } from "./workspace/use-workspace-shortcuts";
 import { useMobileNavigation, type MobileListContext, type MobilePage } from "./workspace/use-mobile-navigation";
@@ -204,7 +205,7 @@ export function Workspace() {
   const [noteReloadToken, setNoteReloadToken] = useState(0);
   const [pwaState, setPwaState] = useState<PwaState>({ standalone: false, canInstall: false, showIosInstallHint: false, updateAvailable: false });
   const realtimeRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingRealtimeRefreshRef = useRef({ notebooks: false, notes: false, selected: false, noteIds: new Set<string>() });
+  const pendingRealtimeRefreshRef = useRef<RealtimeRefreshPlan>(emptyRealtimeRefreshPlan());
   const shortcutHandledRef = useRef(false);
   const confirmIdRef = useRef(0);
   const replaceList = useCallback((next: NoteSummary[]) => { notesRef.current = next; setNotes(next); }, []);
@@ -430,6 +431,25 @@ export function Workspace() {
       setCardEditingNoteId((current) => current === noteId ? nextId : current);
     }
   }, [noteSort, replaceList, selectNote]);
+  // Realtime updates for a single note refresh only that row, so a remote save
+  // never collapses the loaded pages back to the first page.
+  const patchNoteFromRemote = useCallback(async (noteId: string) => {
+    if (!notesRef.current.some((note) => note.id === noteId)) return;
+    try {
+      const summary = (await api.getNoteSummary(noteId)).note;
+      const index = notesRef.current.findIndex((note) => note.id === noteId);
+      if (index === -1) return;
+      if (!shouldKeepActiveNoteInList(summary, notebooks, view, deferredQuery, notebookId)) {
+        removeFromList(noteId);
+        return;
+      }
+      const next = [...notesRef.current];
+      next[index] = { ...next[index]!, ...summary };
+      replaceList(next);
+    } catch (reason) {
+      if (reason instanceof ApiError && reason.status === 404) removeFromList(noteId);
+    }
+  }, [deferredQuery, notebookId, notebooks, removeFromList, replaceList, view]);
   const removeManyFromList = useCallback((noteIds: string[]) => {
     const deletedIds = new Set(noteIds);
     const currentList = notesRef.current;
@@ -1075,25 +1095,21 @@ export function Workspace() {
     });
   }, [reloadSelectedNote, requestConfirm]);
   const handleRealtimeChange = useCallback((message?: WorkspaceChangeMessage) => {
-    const pending = pendingRealtimeRefreshRef.current;
-    const resource = message?.resource;
-    if (!message || resource === "notes" || resource === "notebooks") pending.notebooks = true;
-    if (!message || resource === "notes" || resource === "notebooks") pending.notes = true;
-    if (!message || resource === "notes") {
-      if (!message?.noteId) pending.selected = true;
-      else pending.noteIds.add(message.noteId);
-    }
+    accumulateRealtimeRefresh(pendingRealtimeRefreshRef.current, message);
     if (realtimeRefreshTimerRef.current !== null) return;
     realtimeRefreshTimerRef.current = setTimeout(() => {
       realtimeRefreshTimerRef.current = null;
       const next = pendingRealtimeRefreshRef.current;
-      pendingRealtimeRefreshRef.current = { notebooks: false, notes: false, selected: false, noteIds: new Set() };
+      pendingRealtimeRefreshRef.current = emptyRealtimeRefreshPlan();
       if (next.notebooks) void refreshNotebooks();
       if (next.notes) reloadNotes();
       const activeId = activeNoteIdRef.current;
       if (activeId && (next.selected || next.noteIds.has(activeId))) void refreshSelectedNoteFromRemote(activeId);
+      for (const noteId of next.noteIds) {
+        if (noteId !== activeId) void patchNoteFromRemote(noteId);
+      }
     }, 50);
-  }, [refreshNotebooks, refreshSelectedNoteFromRemote, reloadNotes, view]);
+  }, [patchNoteFromRemote, refreshNotebooks, refreshSelectedNoteFromRemote, reloadNotes]);
   useWorkspaceRealtime({ ready, onChange: handleRealtimeChange });
   const selectView = useCallback((next: NoteView) => {
     if (view !== next || notebookId || query) requestListTransition();

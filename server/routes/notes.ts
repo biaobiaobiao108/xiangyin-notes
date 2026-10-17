@@ -829,7 +829,9 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
   // Get single note
   if (id && !subresource && method === "GET") {
     const note = getNote(database, user.id, id);
-    return note ? json({ note: toFullNote(note) }) : jsonError(404, "NOTE_NOT_FOUND", "笔记不存在");
+    if (!note) return jsonError(404, "NOTE_NOT_FOUND", "笔记不存在");
+    // A summary is enough to patch one list row after a realtime change.
+    return json({ note: url.searchParams.get("response") === "summary" ? toNote(note) : toFullNote(note) });
   }
 
   // Patch note
