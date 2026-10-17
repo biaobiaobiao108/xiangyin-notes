@@ -29,7 +29,9 @@ const UUID_PATTERN = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 const ASSET_OWNER_DIRECTORY = new RegExp(`^${UUID_PATTERN}$`, "u");
 const ASSET_FILE_NAME = new RegExp(`^${UUID_PATTERN}\\.(?:jpg|png|webp|gif)$`, "u");
 const TEMPORARY_ASSET_FILE_NAME = new RegExp(`^(${UUID_PATTERN}\\.(?:jpg|png|webp|gif))\\.uploading-${UUID_PATTERN}$`, "u");
-let nextOrphanAssetCleanupAt = 0;
+// Per-database throttle: a module-level timestamp would let one database's sweep
+// suppress another's (tests and any multi-database process would share it).
+const nextOrphanAssetCleanupAt = new WeakMap<SqliteDatabase, number>();
 
 export function assetRootFromEnv(environment: RuntimeEnvironment = Bun.env) {
   const configured = environment.ASSETS_PATH?.trim();
@@ -199,8 +201,8 @@ export async function cleanupOrphanAssetFiles(database: SqliteDatabase, assetRoo
 }
 
 export async function cleanupOrphanAssets(database: SqliteDatabase, assetRoot: string, timestamp = now()) {
-  if (timestamp < nextOrphanAssetCleanupAt) return;
-  nextOrphanAssetCleanupAt = timestamp + ORPHAN_ASSET_CLEANUP_INTERVAL_SECONDS;
+  if (timestamp < (nextOrphanAssetCleanupAt.get(database) ?? 0)) return;
+  nextOrphanAssetCleanupAt.set(database, timestamp + ORPHAN_ASSET_CLEANUP_INTERVAL_SECONDS);
   // Pending markers represent file deletes that outlived their database rows.
   // Retry them even when this sweep finds no stale rows to delete.
   await retryPendingAssetDeletions(assetRoot);

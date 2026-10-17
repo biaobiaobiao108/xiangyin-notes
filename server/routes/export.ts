@@ -109,11 +109,13 @@ export async function handleExportRoute(ctx: RouteContext, user: UserRow, assetR
 
     const contentStatement = database.query("SELECT content_markdown FROM notes WHERE id = ? AND user_id = ? AND deleted_at IS NULL");
     const encoder = new TextEncoder();
+    // Local copy: the shared pattern is global, and mutating its lastIndex in a
+    // generator loop is fragile if another caller iterates it concurrently.
+    const assetReference = new RegExp(ASSET_REFERENCE_PATTERN.source, ASSET_REFERENCE_PATTERN.flags);
     for (const note of noteEntries) {
       const row = contentStatement.get(note.id, user.id) as { content_markdown: string } | null;
       if (!row) continue;
-      ASSET_REFERENCE_PATTERN.lastIndex = 0;
-      const content = row.content_markdown.replace(ASSET_REFERENCE_PATTERN, (_match, id: string) => {
+      const content = row.content_markdown.replace(assetReference, (_match, id: string) => {
         const localRel = assetFileNameMap.get(id.toLowerCase());
         const encodedPath = localRel?.split("/").map((segment) => encodeURIComponent(segment).replace(/[()]/g, (character) => character === "(" ? "%28" : "%29")).join("/");
         return encodedPath ? `../${encodedPath}` : `/api/assets/${id}`;
