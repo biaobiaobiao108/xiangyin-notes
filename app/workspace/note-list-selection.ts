@@ -14,6 +14,36 @@ export function isNoteSelectionModifierClick(click: Pick<NoteSelectionClick, "me
   return Boolean(click.metaKey || click.ctrlKey || click.shiftKey);
 }
 
+export type NoteClickIntent =
+  | { action: "open" }
+  | { action: "toggle"; modifiers: Pick<NoteSelectionClick, "metaKey" | "ctrlKey" | "shiftKey"> };
+
+/**
+ * Decides whether a click on a note row or card opens the note or toggles selection.
+ * While a multi-selection is active a plain click keeps toggling (it never opens the
+ * note), and mobile taps always open because mobile has no modifier keys.
+ */
+export function resolveNoteClickAction(
+  click: Pick<NoteSelectionClick, "metaKey" | "ctrlKey" | "shiftKey">,
+  options: { hasSelectionActive: boolean; isMobileViewport?: boolean },
+): NoteClickIntent {
+  if (options.isMobileViewport) return { action: "open" };
+
+  const modifierClick = isNoteSelectionModifierClick(click);
+  if (!modifierClick && !options.hasSelectionActive) return { action: "open" };
+
+  return {
+    action: "toggle",
+    modifiers: modifierClick
+      ? {
+        ...(click.metaKey ? { metaKey: true } : {}),
+        ...(click.ctrlKey ? { ctrlKey: true } : {}),
+        ...(click.shiftKey ? { shiftKey: true } : {}),
+      }
+      : { ctrlKey: true },
+  };
+}
+
 export function noteSelectionAnchor(id: string): NoteSelectionState {
   return { ids: new Set(), anchorId: id };
 }

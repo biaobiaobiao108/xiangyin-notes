@@ -1,8 +1,9 @@
 import { lazy, memo, Suspense, useCallback, useDeferredValue, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { flushSync } from "react-dom";
 import { useNavigate } from "react-router";
-import { ArrowUpRight, LayoutGrid, List, ListChecks, Plus, RotateCcw, Settings2, Star, Trash2, X } from "lucide-react";
+import { ArrowUpRight, Plus, Settings2, Trash2, X } from "lucide-react";
 import { textFieldMenuItems, useContextMenu, type ContextMenuItem } from "./context-menu";
+import { buildNoteContextMenuItems, buildWorkspaceMenuItems } from "./workspace/note-context-menu";
 import { ApiError, api } from "./api";
 import { createUuid } from "./uuid";
 import { CommandId, CommandMenu } from "./command-menu";
@@ -17,7 +18,7 @@ import { clearAllDraftRecoveries, readDraftRecovery } from "./workspace/draft-re
 import { EmptyEditor, NoteListPanel, NoteLoadingState, Sidebar } from "./workspace/panels";
 import { NoteCardGridPanel } from "./workspace/note-card-grid";
 import { errorMessage, mergeRemoteSummary, mergeWikiNoteSummary, shouldKeepActiveNoteInList, sortNotes, toNoteDraft, toNoteSummary, type NoteDraft, type NoteSort } from "./workspace/helpers";
-import { applyNoteSelectionClick, isNoteSelectionModifierClick, noteSelectionAnchor, pruneNoteSelection, type NoteSelectionClick, type NoteSelectionState } from "./workspace/note-list-selection";
+import { applyNoteSelectionClick, noteSelectionAnchor, pruneNoteSelection, resolveNoteClickAction, type NoteSelectionClick, type NoteSelectionState } from "./workspace/note-list-selection";
 import { normalizeLinkTitle } from "../shared/wiki-links";
 import { useNoteSaveQueue } from "./workspace/use-note-save-queue";
 import { useWorkspaceRealtime } from "./workspace/use-realtime";
@@ -1369,19 +1370,9 @@ export function Workspace() {
   }, []);
   const handleSelectListNote = useCallback((id: string, event: ReactMouseEvent<HTMLButtonElement>) => {
     const orderedIds = sortNotes(notesRef.current, noteSort).map((note) => note.id);
-    if (isNoteSelectionModifierClick(event)) {
-      const nextSelection = applyNoteSelectionClick(noteSelectionRef.current, orderedIds, {
-        id,
-        metaKey: event.metaKey,
-        ctrlKey: event.ctrlKey,
-        shiftKey: event.shiftKey,
-      });
-      updateNoteSelection(nextSelection);
-      return;
-    }
-    if (noteSelectionRef.current.ids.size > 0) {
-      const nextSelection = applyNoteSelectionClick(noteSelectionRef.current, orderedIds, { id, ctrlKey: true });
-      updateNoteSelection(nextSelection);
+    const intent = resolveNoteClickAction(event, { hasSelectionActive: noteSelectionRef.current.ids.size > 0 });
+    if (intent.action === "toggle") {
+      updateNoteSelection(applyNoteSelectionClick(noteSelectionRef.current, orderedIds, { id, ...intent.modifiers }));
       return;
     }
     selectNote(id);
@@ -1450,20 +1441,21 @@ export function Workspace() {
     const targetNote = noteId ? notesRef.current.find((note) => note.id === noteId) : undefined;
     if (targetNote) {
       const busy = pendingTrashCount > 0 || emptyingTrash;
-      const items: ContextMenuItem[] = [
-        { label: "打开笔记", icon: ArrowUpRight, onSelect: () => { clearNoteSelection(); if (viewLayout === "cards") handleOpenCardNote(targetNote.id); else selectNote(targetNote.id); } },
-        { label: selectedNoteIds.has(targetNote.id) ? "从多选中移除" : "加入多选", icon: ListChecks, onSelect: () => handleToggleCardSelection(targetNote.id, { ctrlKey: true }) },
-      ];
-      if (selectedNoteIds.size) items.push({ label: "退出多选", icon: X, separator: true, onSelect: clearNoteSelection });
-      if (targetNote.deletedAt) {
-        items.push({ label: "恢复笔记", icon: RotateCcw, disabled: busy, onSelect: () => handleNoteSwipeAction(targetNote, "restore") });
-        if (selectedNoteIds.has(targetNote.id) && selectedNoteIds.size > 1) items.push({ label: `恢复所选 ${selectedNoteIds.size} 篇笔记`, icon: RotateCcw, disabled: busy, onSelect: restoreSelectedNotes });
-      } else {
-        items.push({ label: targetNote.isFavorite ? "取消收藏" : "收藏笔记", icon: Star, onSelect: () => handleToggleFavoriteCardNote(targetNote) });
-      }
-      items.push({ label: targetNote.deletedAt ? "彻底删除" : "移入回收站", icon: Trash2, danger: true, separator: true, disabled: busy, onSelect: () => handleNoteSwipeAction(targetNote, targetNote.deletedAt ? "permanent-delete" : "trash") });
-      if (selectedNoteIds.has(targetNote.id) && selectedNoteIds.size > 1) items.push({ label: `${view === "trash" ? "彻底删除" : "移入回收站"}所选 ${selectedNoteIds.size} 篇笔记`, icon: Trash2, danger: true, disabled: busy, onSelect: deleteSelectedNotes });
-      openWorkspaceMenu(event, items, targetNote.title || "未命名笔记");
+      openWorkspaceMenu(event, buildNoteContextMenuItems({
+        note: targetNote,
+        view,
+        selectedIds: selectedNoteIds,
+        busy,
+        actions: {
+          clearSelection: clearNoteSelection,
+          openNote: (note) => { if (viewLayout === "cards") handleOpenCardNote(note.id); else selectNote(note.id); },
+          toggleSelection: (noteId) => handleToggleCardSelection(noteId, { ctrlKey: true }),
+          swipeAction: handleNoteSwipeAction,
+          restoreSelected: restoreSelectedNotes,
+          deleteSelected: deleteSelectedNotes,
+          toggleFavorite: handleToggleFavoriteCardNote,
+        },
+      }), targetNote.title || "未命名笔记");
       return;
     }
     const targetNotebookId = target.closest<HTMLElement>("[data-notebook-id]")?.dataset.notebookId;
@@ -1490,13 +1482,21 @@ export function Workspace() {
         openWorkspaceMenu(event, [{ label: "关闭大纲", icon: X, onSelect: closeOutline }], "笔记大纲");
         return;
       }
-      const items: ContextMenuItem[] = [];
-      if (view !== "trash") items.push({ label: "新建笔记", icon: Plus, onSelect: handleNewNote });
-      items.push({ label: viewLayout === "cards" ? "切换为列表视图" : "切换为卡片视图", icon: viewLayout === "cards" ? List : LayoutGrid, onSelect: toggleViewLayout });
-      if (query) items.push({ label: "清空搜索", icon: X, onSelect: handleClearQuery });
-      if (selectedNoteIds.size) items.push({ label: "取消多选", icon: X, onSelect: clearNoteSelection });
-      if (view === "trash") items.push({ label: "清空回收站", icon: Trash2, danger: true, separator: true, disabled: !totalNotes || pendingTrashCount > 0 || emptyingTrash, onSelect: emptyTrash });
-      openWorkspaceMenu(event, items, "笔记工作区");
+      openWorkspaceMenu(event, buildWorkspaceMenuItems({
+        view,
+        viewLayout,
+        query,
+        hasSelection: selectedNoteIds.size > 0,
+        totalNotes,
+        busy: pendingTrashCount > 0 || emptyingTrash,
+        actions: {
+          newNote: handleNewNote,
+          toggleLayout: toggleViewLayout,
+          clearQuery: handleClearQuery,
+          clearSelection: clearNoteSelection,
+          emptyTrash,
+        },
+      }), "笔记工作区");
     }
   };
 

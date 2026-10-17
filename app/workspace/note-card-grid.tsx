@@ -14,12 +14,12 @@ import {
   Menu,
   Search,
   Star,
-  Trash2,
 } from "lucide-react";
 import type { NoteSort, NoteSummary, NoteView, Notebook } from "../../shared/types";
 import { playEntranceAnimation } from "../animation";
 import { FloatingScrollbar } from "../floating-scrollbar";
-import { isNoteSelectionModifierClick, type NoteSelectionClick } from "./note-list-selection";
+import { resolveNoteClickAction, type NoteSelectionClick } from "./note-list-selection";
+import { EmptyTrashButton } from "./empty-trash-button";
 import { getNoteTags, relativeDate, sortNotes, viewLabel } from "./helpers";
 import { NoteTags } from "./note-tags";
 import { MobileCollectionHeader } from "./mobile-collection-header";
@@ -183,15 +183,7 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
           </button>
         )}
         {!isMobileViewport && onEmptyTrash && (
-          <button
-            className="icon-button empty-trash-button card-grid-empty-trash"
-            type="button"
-            aria-label="清空回收站"
-            onClick={onEmptyTrash}
-            disabled={trashBusy || total === 0}
-          >
-            <Trash2 size={18} aria-hidden="true" />
-          </button>
+          <EmptyTrashButton className="card-grid-empty-trash" onClick={onEmptyTrash} disabled={trashBusy || total === 0} />
         )}
         <div
           id="card-grid-scroll-region"
@@ -294,9 +286,10 @@ const NoteCardItem = memo(function NoteCardItem({
   isTrashView,
 }: NoteCardItemProps) {
   const handleCardClick = (event: ReactMouseEvent) => {
-    if (!isMobileViewport && (isNoteSelectionModifierClick(event) || hasSelectionActive)) {
+    const intent = resolveNoteClickAction(event, { hasSelectionActive, isMobileViewport });
+    if (intent.action === "toggle") {
       event.preventDefault();
-      onToggleSelect(note.id, isNoteSelectionModifierClick(event) ? event : { ctrlKey: true });
+      onToggleSelect(note.id, intent.modifiers);
       return;
     }
     onOpen(note.id);

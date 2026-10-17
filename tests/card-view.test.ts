@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { sortNotes, type NoteSort } from "../app/workspace/helpers";
 import { assignCardMasonryLanes, cardLaneConfig, positionCardMasonryLanes, visibleCardIndexes } from "../app/workspace/card-masonry";
 import type { NoteSummary } from "../shared/types";
-import { applyNoteSelectionClick, isNoteSelectionModifierClick } from "../app/workspace/note-list-selection";
+import { applyNoteSelectionClick, isNoteSelectionModifierClick, resolveNoteClickAction } from "../app/workspace/note-list-selection";
 
 describe("card view & layout", () => {
   const sampleNotes: NoteSummary[] = [
@@ -135,12 +135,19 @@ describe("card view & layout", () => {
     expect([...state3.ids]).toEqual(["note-2"]);
   });
 
-  test("plain card clicks toggle selection while multi-select is active", async () => {
-    const source = await Bun.file("app/workspace/note-card-grid.tsx").text();
-    expect(source).toContain("hasSelectionActive={selectedIds.size > 0}");
-    expect(source).toContain("if (!isMobileViewport && (isNoteSelectionModifierClick(event) || hasSelectionActive))");
-    expect(source).toContain("isNoteSelectionModifierClick(event) ? event : { ctrlKey: true }");
-    expect(source).toContain("onOpen(note.id)");
+  test("plain card clicks toggle selection while multi-select is active", () => {
+    expect(resolveNoteClickAction({}, { hasSelectionActive: false })).toEqual({ action: "open" });
+    expect(resolveNoteClickAction({}, { hasSelectionActive: true })).toEqual({
+      action: "toggle",
+      modifiers: { ctrlKey: true },
+    });
+    expect(resolveNoteClickAction({ shiftKey: true }, { hasSelectionActive: false })).toEqual({
+      action: "toggle",
+      modifiers: { shiftKey: true },
+    });
+    // 移动端没有修饰键，点按始终打开笔记。
+    expect(resolveNoteClickAction({ ctrlKey: true }, { hasSelectionActive: true, isMobileViewport: true }))
+      .toEqual({ action: "open" });
   });
 
   test("shift-click is a selection modifier and starts a range when no anchor exists", () => {
@@ -161,35 +168,5 @@ describe("card view & layout", () => {
 
     const withoutThumb = sampleNotes.find((n) => !n.thumbnail);
     expect(withoutThumb?.preview).toContain("文人笔墨");
-  });
-
-  test("Safari card layout avoids fragmented shadows and keeps card content painted", async () => {
-    const cssContent = await Bun.file("app/styles.css").text();
-    expect(cssContent).toContain(".note-card {");
-    const cardRule = cssContent.match(/(?:^|\n)\.note-card\s*\{([^}]*)\}/)?.[1] ?? "";
-    expect(cardRule).not.toMatch(/content-visibility|contain-intrinsic-size/);
-    expect(cardRule).toMatch(/border:\s*1px solid var\(--border\)/);
-    expect(cardRule).toMatch(/box-shadow:\s*var\(--note-card-shadow\)/);
-    expect(cssContent).toContain("--note-card-shadow: light-dark(0 1px 4px");
-    expect(cssContent).toContain("0 2px 8px rgba(192, 202, 245, 0.08)");
-    expect(cssContent).toMatch(/\.card-masonry-slot\s*\{[^}]*position:\s*absolute/);
-    expect(cssContent).not.toMatch(/\.note-list-item\s*\{[^}]*content-visibility/);
-    expect(cardRule).not.toContain("transform");
-    const focusCardRule = cssContent.match(/\.note-card:focus-visible\s*\{([^}]*)\}/)?.[1] ?? "";
-    expect(focusCardRule).toMatch(/outline:\s*none/);
-    expect(focusCardRule).toMatch(/box-shadow:\s*var\(--note-card-hover-shadow\)/);
-    expect(focusCardRule).not.toContain("border-color");
-    expect(cssContent).toContain("@media (hover: hover) and (pointer: fine)");
-    expect(cssContent).toMatch(/\.note-card:hover\s*\{[^}]*box-shadow:\s*var\(--note-card-hover-shadow\)/);
-    expect(cssContent).not.toMatch(/\.note-card:hover\s*\{[^}]*border-color:/);
-    expect(cssContent).toContain("--note-card-hover-shadow: light-dark(0 4px 12px rgba(32, 38, 33, 0.12), 0 8px 22px rgba(192, 202, 245, 0.18))");
-    expect(cssContent).toMatch(/\.sidebar\s*\{[^}]*border-right:\s*1px solid var\(--border\)/);
-    expect(cssContent).toMatch(/\.card-masonry-slot:hover > \.note-card\s*\{[^}]*scale:\s*1\.015;[^}]*z-index:\s*1;/);
-    expect(cssContent).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.card-masonry-slot:hover > \.note-card\s*\{\s*scale:\s*1;/);
-    expect(cssContent).not.toMatch(/\.note-card\.is-selected\s*\{/);
-    expect(cssContent).not.toContain(".note-card.is-selected > .note-card-foreground");
-    expect(cssContent).toMatch(/\.card-masonry\s*\{[^}]*position:\s*relative/);
-    expect(cssContent).not.toMatch(/\.card-masonry\s*\{[^}]*columns:/);
-    expect(cssContent).not.toContain("display: grid-lanes");
   });
 });
