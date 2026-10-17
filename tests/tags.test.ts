@@ -17,6 +17,15 @@ describe("note tags", () => {
     expect(extractTags("中文#项目 #Tag #项目-资料 #Tag_2 #tag")).toEqual(["项目", "Tag", "项目-资料", "Tag_2"]);
   });
 
+  test("ignores URL fragments and Markdown link anchors", () => {
+    expect(extractTags("详见 https://example.com/doc#section-2 的说明")).toEqual([]);
+    expect(extractTags("见 //cdn.example.com/a#top 与 www.example.com/b#part")).toEqual([]);
+    expect(extractTags("见 [摘要](#jump) 与 [附录](./note.md#appendix)")).toEqual([]);
+    expect(extractTags("**https://example.com/x#frag** 之后 #真标签")).toEqual(["真标签"]);
+    // 中文里紧跟正文的井号写法仍按标签处理。
+    expect(extractTags("今天很开心#随手记")).toEqual(["随手记"]);
+  });
+
   test("uses the explicit 40-code-unit tag limit for body hashtags", () => {
     const withinLimit = `#${"界".repeat(40)}`;
     const overLimit = `#${"界".repeat(41)}`;
