@@ -100,6 +100,11 @@ XIANGYING_PASSWORD=
 
 复制为 `.env` 后，必须先为 `XIANGYING_USERNAME` 和 `XIANGYING_PASSWORD` 填入自己的登录凭据。快捷指令导入与远程 MCP 是可选功能；启用时分别生成独立随机令牌并填写对应变量。
 
+> [!WARNING]
+> 修改 `XIANGYING_USERNAME` 等同于换一个账号：服务会为新用户名创建账号，原有笔记仍留在数据库中，但不再对当前登录可见，也不会自动迁移。修改 `XIANGYING_PASSWORD` 则只更新密码，并让所有已登录会话失效。确实需要改用户名时，请先备份数据库。
+
+如果服务部署在反向代理后面（Nginx、Caddy、Cloudflare Tunnel 等），请同时设置 `TRUST_PROXY=true` 和 `TRUSTED_PROXY_ADDRESSES`，否则所有请求会被视为来自代理的同一个地址，登录失败次数也会合并计算。
+
 创建持久化数据卷并启动：
 
 ```bash

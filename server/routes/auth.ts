@@ -1,4 +1,5 @@
 import {
+  all,
   type AuthCredentials,
   constantTimeEqual,
   createOpaqueToken,
@@ -87,9 +88,13 @@ export function cookieValue(cookieHeader: string | null, name: string) {
   return match ? match[1] : null;
 }
 
-export function loginClientKey(request: Request, environment: RuntimeEnvironment, clientAddress: string | undefined) {
+export function loginClientKey(request: Request, environment: RuntimeEnvironment, clientAddress: string | undefined, username?: string) {
   const address = rateLimitClientAddress(request, environment, clientAddress);
-  return address.slice(0, 128);
+  // Include the submitted username so failed guesses for other names cannot
+  // exhaust the owner's budget, which matters when a proxy collapses every
+  // client onto one address (TRUST_PROXY not configured).
+  const scope = username?.trim().toLowerCase() ?? "";
+  return (scope ? `${scope}\u0000${address}` : address).slice(0, 128);
 }
 
 const nextRateLimitCleanupAt = new WeakMap<SqliteDatabase, number>();
@@ -179,6 +184,13 @@ export async function ensureEnvironmentUser(database: SqliteDatabase, credential
   const existing = first<UserRow>(database, "SELECT id, username FROM users WHERE username = ?", credentials.username);
   if (existing) return existing;
 
+  // Changing XIANGYING_USERNAME creates a new account; the previous account's
+  // notes stay in the database but become unreachable from the UI.
+  const previousUsers = all<{ username: string }>(database, "SELECT username FROM users WHERE username != ? ORDER BY created_at LIMIT 3", credentials.username);
+  if (previousUsers.length > 0) {
+    console.warn(`[auth] 环境变量 XIANGYING_USERNAME=${credentials.username} 与已有账号（${previousUsers.map((user) => user.username).join("、")}）不一致，将创建新账号；原账号的笔记仍保留在数据库中，当前账号不可见。如需继续使用原笔记，请把用户名改回原先的值。`);
+  }
+
   const userId = crypto.randomUUID();
   const inboxId = crypto.randomUUID();
   const noteId = crypto.randomUUID();
@@ -266,7 +278,7 @@ export async function handleAuthRoute(ctx: RouteContext): Promise<Response | nul
     if (payload.username.length > 128) return jsonError(400, "INVALID_LOGIN", "用户名或密码格式无效");
     const credentials = getAuthCredentials(environment);
     if (!credentials) return jsonError(503, "AUTH_NOT_CONFIGURED", "请先配置 XIANGYING_USERNAME 和 XIANGYING_PASSWORD");
-    const attemptKey = loginClientKey(request, environment, clientAddress);
+    const attemptKey = loginClientKey(request, environment, clientAddress, payload.username);
     const timestamp = now();
     const attempt = getLoginAttempt(database, attemptKey, timestamp);
     if (attempt.blockedUntil > timestamp) return jsonError(429, "TOO_MANY_LOGIN_ATTEMPTS", "登录尝试过于频繁，请稍后再试", { "Retry-After": String(attempt.blockedUntil - timestamp) });
