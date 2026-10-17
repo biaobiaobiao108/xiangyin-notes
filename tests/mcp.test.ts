@@ -1658,10 +1658,13 @@ describe("remote MCP endpoint", () => {
     const firstPageData = toolData(firstPage.body!);
     expect(firstPageData.notes).toHaveLength(100);
     expect(typeof firstPageData.nextCursor).toBe("string");
+    expect(typeof firstPageData.total).toBe("number");
 
     const secondPage = await callTool("search_notes", { query: "pagination", cursor: firstPageData.nextCursor, limit: 100 }, 3, environment);
     const secondPageData = toolData(secondPage.body!);
     expect(secondPageData.notes.length).toBeGreaterThan(0);
+    // 翻页请求不再重复统计总数，靠 nextCursor 表达“还有更多”。
+    expect(secondPageData).not.toHaveProperty("total");
     const firstIds = new Set(firstPageData.notes.map((note: { id: string }) => note.id));
     expect(secondPageData.notes.every((note: { id: string }) => !firstIds.has(note.id))).toBe(true);
   });
