@@ -1,11 +1,22 @@
 import type { NoteDraft } from "./helpers";
 
 export const DRAFT_RECOVERY_KEY_PREFIX = "xiangying_note_draft_recovery:";
-const MAX_DRAFT_RECOVERY_BYTES = 4 * 1024 * 1024;
+// 正文上限是 1,000,000 个 UTF-16 code units，按最坏情况转成 UTF-8 后仍要留出
+// JSON 转义余量，否则接近上限的长笔记会静默失去本地恢复副本。
+const MAX_DRAFT_RECOVERY_BYTES = 8 * 1024 * 1024;
 const LOCAL_STORAGE_DRAFT_MAX_BYTES = 128 * 1024;
 const DRAFT_DATABASE_NAME = "xiangying-notes-drafts";
 const DRAFT_STORE_NAME = "drafts";
 const RECOVERY_UPDATED_AT_FIELD = "__xiangyingRecoveryUpdatedAt";
+
+const oversizedDraftWarnings = new Set<string>();
+
+function warnOversizedDraft(noteId: string) {
+  if (oversizedDraftWarnings.has(noteId)) return;
+  if (oversizedDraftWarnings.size >= 50) oversizedDraftWarnings.clear();
+  oversizedDraftWarnings.add(noteId);
+  console.warn(`[draft] 笔记 ${noteId} 的草稿超过 ${MAX_DRAFT_RECOVERY_BYTES / 1024 / 1024} MiB，未写入本地恢复副本；请确认保存状态。`);
+}
 
 let draftDatabasePromise: Promise<IDBDatabase | null> | null = null;
 // Keep only short fingerprints for the last value seen in each store. Recovery
@@ -201,7 +212,10 @@ export function parseDraftRecovery(serialized: string, noteId: string): NoteDraf
 export function writeDraftRecovery(draft: NoteDraft) {
   if (typeof window === "undefined") return;
   const serialized = serializeStoredDraftRecovery(draft);
-  if (!serialized) return;
+  if (!serialized) {
+    warnOversizedDraft(draft.id);
+    return;
+  }
   const operation = beginDraftOperation(draft.id, serialized);
   const localBefore = readLocalDraft(draft.id);
   const serializedFingerprint = fingerprint(serialized);
