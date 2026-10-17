@@ -716,7 +716,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
         candidateParams.push(ftsTokens.map((p) => `"${p.replaceAll('"', '""')}"`).join(" AND "));
       } else if (canIndexShortSearchTerm(trimmedTitle)) {
         candidateConditions.push(`(
-          EXISTS (SELECT 1 FROM note_short_terms st WHERE st.note_id = n.id AND st.user_id = n.user_id AND st.term = ?)
+          EXISTS (SELECT 1 FROM note_short_terms st WHERE st.note_id = n.id AND st.user_id = n.user_id AND st.term = ? COLLATE NOCASE)
           OR (
             (
               length(n.content_markdown) >= ?
