@@ -16,7 +16,7 @@ import { ConfirmDialog, NotebookDialog, type ConfirmRequest } from "./workspace/
 import { clearAllDraftRecoveries, readDraftRecovery } from "./workspace/draft-recovery";
 import { EmptyEditor, NoteListPanel, NoteLoadingState, Sidebar } from "./workspace/panels";
 import { NoteCardGridPanel } from "./workspace/note-card-grid";
-import { errorMessage, shouldKeepActiveNoteInList, sortNotes, toNoteDraft, toNoteSummary, type NoteDraft, type NoteSort } from "./workspace/helpers";
+import { errorMessage, mergeRemoteSummary, shouldKeepActiveNoteInList, sortNotes, toNoteDraft, toNoteSummary, type NoteDraft, type NoteSort } from "./workspace/helpers";
 import { applyNoteSelectionClick, isNoteSelectionModifierClick, noteSelectionAnchor, pruneNoteSelection, type NoteSelectionClick, type NoteSelectionState } from "./workspace/note-list-selection";
 import { normalizeLinkTitle } from "../shared/wiki-links";
 import { useNoteSaveQueue } from "./workspace/use-note-save-queue";
@@ -437,19 +437,16 @@ export function Workspace() {
     if (!notesRef.current.some((note) => note.id === noteId)) return;
     try {
       const summary = (await api.getNoteSummary(noteId)).note;
-      const index = notesRef.current.findIndex((note) => note.id === noteId);
-      if (index === -1) return;
       if (!shouldKeepActiveNoteInList(summary, notebooks, view, deferredQuery, notebookId)) {
         removeFromList(noteId);
         return;
       }
-      const next = [...notesRef.current];
-      next[index] = { ...next[index]!, ...summary };
-      replaceList(next);
+      const merged = mergeRemoteSummary(notesRef.current, summary, noteSort);
+      if (merged) replaceList(merged);
     } catch (reason) {
       if (reason instanceof ApiError && reason.status === 404) removeFromList(noteId);
     }
-  }, [deferredQuery, notebookId, notebooks, removeFromList, replaceList, view]);
+  }, [deferredQuery, noteSort, notebookId, notebooks, removeFromList, replaceList, view]);
   const removeManyFromList = useCallback((noteIds: string[]) => {
     const deletedIds = new Set(noteIds);
     const currentList = notesRef.current;

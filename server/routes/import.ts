@@ -219,6 +219,7 @@ export async function handleImportRoute(ctx: RouteContext): Promise<Response | n
     throw error;
   }
   const note = getNote(options.database, user.id, noteId);
-  publishWorkspaceChange(options, user.id, { resource: "notes", noteId }, request);
+  // 导入会新增笔记，广播不带 noteId，让其他客户端整表刷新。
+  publishWorkspaceChange(options, user.id, { resource: "notes" }, request);
   return json({ ok: true, note: note ? toNote(note) : null }, 201);
 }

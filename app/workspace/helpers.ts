@@ -100,6 +100,22 @@ export function sortNotes(notes: NoteSummary[], sort: NoteSort) {
   return [...notes].sort((a, b) => sort === "created" ? b.createdAt - a.createdAt : sort === "title" ? (a.title || "未命名笔记").localeCompare(b.title || "未命名笔记", "zh-CN") : b.updatedAt - a.updatedAt);
 }
 
+/**
+ * 把单篇远端摘要合并进当前列表。返回 null 表示该笔记不在当前列表里。
+ * `updated` 排序下服务端会把刚更新的笔记排在前面，这里同步置顶以保持顺序可信。
+ */
+export function mergeRemoteSummary(notes: NoteSummary[], summary: NoteSummary, sort: NoteSort) {
+  const index = notes.findIndex((note) => note.id === summary.id);
+  if (index === -1) return null;
+  const next = [...notes];
+  next[index] = { ...next[index]!, ...summary };
+  if (sort === "updated" && index > 0) {
+    const [patched] = next.splice(index, 1);
+    next.unshift(patched!);
+  }
+  return next;
+}
+
 export function shouldKeepActiveNoteInList(note: Pick<Note, "deletedAt" | "notebookId" | "isFavorite">, notebooks: Notebook[], view: NoteView, query: string, notebookId?: string) {
   // Search membership is server-derived; never inject unrelated active notes.
   if (query.trim()) return false;

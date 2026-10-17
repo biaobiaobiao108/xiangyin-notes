@@ -333,7 +333,8 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     });
     const ensured = ensureNote.immediate();
     if (!ensured) return jsonError(500, "NOTE_CREATE_FAILED", "笔记创建失败");
-    if (ensured.created) publishWorkspaceChange(options, user.id, { resource: "notes", noteId: ensured.noteId }, request);
+    // 新笔记会改变列表成员，广播不带 noteId，让其他客户端整表刷新。
+    if (ensured.created) publishWorkspaceChange(options, user.id, { resource: "notes" }, request);
     return ensured.created ? json({ note: ensured.note, created: true }, 201) : json({ note: ensured.note, created: false });
   }
 
@@ -618,7 +619,8 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     }
     const noteId = createNote(database, user.id, notebookId, title, contentMarkdown as string, requestedId);
     const note = getNote(database, user.id, noteId);
-    publishWorkspaceChange(options, user.id, { resource: "notes", noteId }, request);
+    // 新笔记会改变列表成员，广播不带 noteId，让其他客户端整表刷新。
+    publishWorkspaceChange(options, user.id, { resource: "notes" }, request);
     return json({ note: note ? toFullNote(note) : null }, 201);
   }
 
