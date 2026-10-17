@@ -629,6 +629,8 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     const note = getNote(database, user.id, id);
     if (!note) return jsonError(404, "NOTE_NOT_FOUND", "笔记不存在");
 
+    // 只物化最多 101 条元数据，正文仍按扫描预算逐篇读取。Bun 的缓存语句
+    // 在 iterate() 提前 break 后可能无法再次执行，不能把截断游标留给后续请求。
     const linkedRows = database.query(`
       SELECT nl.id AS link_id, nl.source_note_id, n.title AS source_title,
         nl.snippet AS link_snippet,
@@ -640,12 +642,12 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
       WHERE nl.user_id = ? AND nl.target_note_id = ? AND nl.source_note_id != ? AND n.deleted_at IS NULL
       ORDER BY n.updated_at DESC
       LIMIT ?
-    `).iterate(
+    `).all(
       user.id,
       note.id,
       note.id,
       BACKLINK_REFERENCE_LIMIT + 1,
-    ) as IterableIterator<{
+    ) as Array<{
       link_id: string;
       source_note_id: string;
       source_title: string;
@@ -740,7 +742,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
         LIMIT ?
       `;
       candidateParams.push(BACKLINK_CANDIDATE_LIMIT + 1);
-      const candidateRows = database.query(candidateSql).iterate(...candidateParams) as IterableIterator<{
+      const candidateRows = database.query(candidateSql).all(...candidateParams) as Array<{
         id: string;
         title: string;
         content_char_count: number;

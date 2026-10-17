@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { openDatabase, type SqliteDatabase } from "../server/db";
 import { handleRequest } from "../server/index";
 import { MAX_SHORT_TERM_CONTENT_CHARS, MAX_SHORT_TERMS_PER_NOTE } from "../server/note-search";
+import { BACKLINK_MENTION_LIMIT, BACKLINK_REFERENCE_LIMIT } from "../server/core";
 
 let database: SqliteDatabase;
 let cookie: string;
@@ -36,6 +37,33 @@ async function createNote(title: string, contentMarkdown = "") {
   expect(result.response.status).toBe(201);
   return result.body.note;
 }
+
+for (const title of ["苹果", "反链测试"]) {
+  test(`repeated backlinks requests work after truncating mentions of ${title}`, async () => {
+    const target = await createNote(title);
+    const source = await createNote("来源", Array.from({ length: BACKLINK_MENTION_LIMIT + 1 }, () => title).join("\n\n"));
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const result = await request(`/api/notes/${target.id}/backlinks`);
+      expect(result.response.status).toBe(200);
+      expect(result.body.truncated).toBe(true);
+      expect(result.body.unlinkedMentions).toHaveLength(BACKLINK_MENTION_LIMIT);
+      expect(result.body.unlinkedMentions[0].sourceNoteId).toBe(source.id);
+    }
+  });
+}
+
+test("repeated backlinks requests work after truncating linked references", async () => {
+  const target = await createNote("目标笔记");
+  for (let index = 0; index <= BACKLINK_REFERENCE_LIMIT; index += 1) {
+    await createNote(`来源 ${index}`, "[[目标笔记]]");
+  }
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const result = await request(`/api/notes/${target.id}/backlinks`);
+    expect(result.response.status).toBe(200);
+    expect(result.body.truncated).toBe(true);
+    expect(result.body.linkedReferences).toHaveLength(BACKLINK_REFERENCE_LIMIT);
+  }
+});
 
 for (const trashedRole of ["source", "target"] as const) {
   test(`link mention rejects a trashed ${trashedRole} and preserves the source`, async () => {
