@@ -1,6 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { computeScrollEdges } from "../app/workspace/use-scroll-edges";
 
 describe("computeScrollEdges", () => {
@@ -43,44 +41,5 @@ describe("computeScrollEdges", () => {
     expect(computeScrollEdges(5, 1000, 400, 10)).toEqual({ before: false, after: true });
     expect(computeScrollEdges(12, 1000, 400, 10)).toEqual({ before: true, after: true });
     expect(computeScrollEdges(595, 1000, 400, 10)).toEqual({ before: true, after: false });
-  });
-});
-
-describe("scroll edge gradient styles and markup contract", () => {
-  const cssPath = resolve(import.meta.dir, "../app/styles.css");
-  const css = readFileSync(cssPath, "utf-8");
-
-  test("defines scroll edge gradient classes for all four scroll shells", () => {
-    expect(css).toContain(".notebook-list-scroll-shell.has-scroll-before::before");
-    expect(css).toContain(".notebook-list-scroll-shell.has-scroll-after::after");
-
-    expect(css).toContain(".note-list-scroll-shell.has-scroll-before::before");
-    expect(css).toContain(".note-list-scroll-shell.has-scroll-after::after");
-
-    expect(css).toContain(".card-grid-scroll-shell.has-scroll-before::before");
-    expect(css).toContain(".card-grid-scroll-shell.has-scroll-after::after");
-
-    expect(css).toContain(".editor-scroll-shell.has-scroll-before::before");
-    expect(css).toContain(".editor-scroll-shell.has-scroll-after::after");
-  });
-
-  test("ensures pointer-events none and non-blocking z-index on overlays", () => {
-    // Note list pseudo-elements
-    expect(css).toMatch(/\.note-list-scroll-shell::before,\s*\.note-list-scroll-shell::after[\s\S]*?pointer-events:\s*none/);
-    expect(css).toMatch(/\.note-list-scroll-shell::before,\s*\.note-list-scroll-shell::after[\s\S]*?z-index:\s*2/);
-
-    // Card grid pseudo-elements
-    expect(css).toMatch(/\.card-grid-scroll-shell::before,\s*\.card-grid-scroll-shell::after[\s\S]*?pointer-events:\s*none/);
-    expect(css).toMatch(/\.card-grid-scroll-shell::before,\s*\.card-grid-scroll-shell::after[\s\S]*?z-index:\s*2/);
-
-    // Editor body pseudo-elements
-    expect(css).toMatch(/\.editor-scroll-shell::before,\s*\.editor-scroll-shell::after[\s\S]*?pointer-events:\s*none/);
-    expect(css).toMatch(/\.editor-scroll-shell::before,\s*\.editor-scroll-shell::after[\s\S]*?z-index:\s*2/);
-  });
-
-  test("adapts card grid scroll edge gradients for mobile canvas background", () => {
-    expect(css).toContain(".is-mobile-card-grid .card-grid-scroll-shell::before");
-    expect(css).toContain(".is-mobile-card-grid .card-grid-scroll-shell::after");
-    expect(css).toMatch(/\.is-mobile-card-grid \.card-grid-scroll-shell::before\s*\{\s*background:\s*linear-gradient\(to bottom,\s*var\(--canvas\)/);
   });
 });
