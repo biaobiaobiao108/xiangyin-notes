@@ -16,7 +16,7 @@ import { ConfirmDialog, NotebookDialog, type ConfirmRequest } from "./workspace/
 import { clearAllDraftRecoveries, readDraftRecovery } from "./workspace/draft-recovery";
 import { EmptyEditor, NoteListPanel, NoteLoadingState, Sidebar } from "./workspace/panels";
 import { NoteCardGridPanel } from "./workspace/note-card-grid";
-import { errorMessage, mergeRemoteSummary, shouldKeepActiveNoteInList, sortNotes, toNoteDraft, toNoteSummary, type NoteDraft, type NoteSort } from "./workspace/helpers";
+import { errorMessage, mergeRemoteSummary, mergeWikiNoteSummary, shouldKeepActiveNoteInList, sortNotes, toNoteDraft, toNoteSummary, type NoteDraft, type NoteSort } from "./workspace/helpers";
 import { applyNoteSelectionClick, isNoteSelectionModifierClick, noteSelectionAnchor, pruneNoteSelection, type NoteSelectionClick, type NoteSelectionState } from "./workspace/note-list-selection";
 import { normalizeLinkTitle } from "../shared/wiki-links";
 import { useNoteSaveQueue } from "./workspace/use-note-save-queue";
@@ -1288,6 +1288,7 @@ export function Workspace() {
         ? notebooks.find((n) => n.id === notebookId)
         : notebooks.find((n) => n.isSystem) ?? notebooks[0];
       if (!defaultNotebook) return null;
+      const scope = listScopeRef.current;
       const creationPromise = (async () => {
         try {
           const result = await api.ensureWikiNote({ title: cleanTitle, notebookId: defaultNotebook.id });
@@ -1307,9 +1308,15 @@ export function Workspace() {
             updatedAt: result.note.updatedAt,
           };
 
-          replaceList([summary, ...notesRef.current.filter((n) => n.id !== summary.id)]);
+          if (scope === listScopeRef.current) {
+            const currentNotes = notesRef.current;
+            const merged = mergeWikiNoteSummary(currentNotes, summary, notebooks, view, deferredQuery, notebookId);
+            if (merged) {
+              replaceList(merged);
+              if (result.created && merged.length > currentNotes.length) setTotalNotes((prev) => prev + 1);
+            }
+          }
           if (result.created) {
-            setTotalNotes((prev) => prev + 1);
             void refreshNotebooks();
           }
 
@@ -1324,7 +1331,7 @@ export function Workspace() {
       pendingWikiCreationsRef.current.set(normalized, creationPromise);
       return await creationPromise;
     },
-    [notebookId, notebooks, refreshNotebooks, replaceList],
+    [deferredQuery, notebookId, notebooks, refreshNotebooks, replaceList, view],
   );
 
   const handleNavigateWikiLink = useCallback(

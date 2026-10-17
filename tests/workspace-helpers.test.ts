@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Note, NoteSummary, Notebook } from "../shared/types";
-import { getNotebookIconComponent, mergeRemoteSummary, notebookColorOptions, notebookIconOptions, shouldKeepActiveNoteInList } from "../app/workspace/helpers";
+import { getNotebookIconComponent, mergeRemoteSummary, mergeWikiNoteSummary, notebookColorOptions, notebookIconOptions, shouldKeepActiveNoteInList } from "../app/workspace/helpers";
 
 const notebooks: Notebook[] = [
   { id: "inbox", name: "收件箱", color: "#718077", icon: "folder", isSystem: true, count: 1, updatedAt: 1 },
@@ -39,6 +39,25 @@ describe("active note list membership", () => {
     expect(shouldKeepActiveNoteInList(note, notebooks, "all", "", "work")).toBe(true);
     expect(shouldKeepActiveNoteInList(note, notebooks, "all", "", "inbox")).toBe(false);
     expect(shouldKeepActiveNoteInList({ ...note, notebookId: "inbox" }, notebooks, "inbox", "")).toBe(true);
+  });
+});
+
+describe("wiki target list membership", () => {
+  test("does not insert targets from another notebook or outside favorites and search", () => {
+    const rows = [{ ...note, id: "source", notebookId: "inbox" }];
+    expect(mergeWikiNoteSummary(rows, note, notebooks, "all", "", "inbox")).toBeNull();
+    expect(mergeWikiNoteSummary(rows, note, notebooks, "favorites", "")).toBeNull();
+    expect(mergeWikiNoteSummary(rows, note, notebooks, "all", "正文")).toBeNull();
+    expect(rows.map((row) => row.id)).toEqual(["source"]);
+  });
+
+  test("inserts matching targets once and refreshes existing targets without duplicates", () => {
+    const rows = [{ ...note, id: "source" }];
+    const merged = mergeWikiNoteSummary(rows, note, notebooks, "all", "", "work")!;
+    expect(merged.map((row) => row.id)).toEqual([note.id, "source"]);
+    expect(mergeWikiNoteSummary(merged, { ...note, version: 2 }, notebooks, "all", "", "work"))
+      .toEqual([{ ...note, version: 2 }, ...rows]);
+    expect(mergeWikiNoteSummary(rows, { ...note, isFavorite: true }, notebooks, "favorites", "")?.[0]?.id).toBe(note.id);
   });
 });
 

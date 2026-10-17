@@ -127,6 +127,12 @@ export function shouldKeepActiveNoteInList(note: Pick<Note, "deletedAt" | "noteb
   return view === "all";
 }
 
+/** 双链返回的目标可能属于其他笔记本；搜索归属仍由服务端判断。 */
+export function mergeWikiNoteSummary(notes: NoteSummary[], summary: NoteSummary, notebooks: Notebook[], view: NoteView, query: string, notebookId?: string) {
+  if (!shouldKeepActiveNoteInList(summary, notebooks, view, query, notebookId)) return null;
+  return [summary, ...notes.filter((note) => note.id !== summary.id)];
+}
+
 export function viewLabel(view: NoteView) {
   return ({ all: "全部笔记", inbox: "收件箱", favorites: "收藏", trash: "回收站" })[view];
 }
