@@ -2,6 +2,14 @@ import { describe, expect, test } from "bun:test";
 import { accumulateRealtimeRefresh, emptyRealtimeRefreshPlan } from "../app/workspace/realtime-refresh";
 
 describe("workspace realtime refresh plan", () => {
+  test("requeries search membership for note updates, including notes outside the loaded results", () => {
+    for (const noteId of ["matching-result", "previously-unmatched-note"]) {
+      const plan = accumulateRealtimeRefresh(emptyRealtimeRefreshPlan(), { type: "workspace.changed", revision: 1, resource: "notes", noteId }, true);
+      expect(plan.notes).toBe(true);
+      expect([...plan.noteIds]).toEqual([noteId]);
+    }
+  });
+
   test("a note event with an id only patches that row", () => {
     const plan = accumulateRealtimeRefresh(emptyRealtimeRefreshPlan(), { type: "workspace.changed", revision: 1, resource: "notes", noteId: "note-a" });
     expect(plan.notes).toBe(false);

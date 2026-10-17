@@ -18,7 +18,7 @@ export function emptyRealtimeRefreshPlan(): RealtimeRefreshPlan {
  * 多页列表重置回第一页；不带 noteId 时（批量回收站、改名、生命周期对账）
  * 顺序或归属可能变化，必须整表刷新。笔记本变更会改变列表行里显示的名称。
  */
-export function accumulateRealtimeRefresh(plan: RealtimeRefreshPlan, message?: WorkspaceChangeMessage): RealtimeRefreshPlan {
+export function accumulateRealtimeRefresh(plan: RealtimeRefreshPlan, message?: WorkspaceChangeMessage, searchActive = false): RealtimeRefreshPlan {
   if (!message) {
     plan.notebooks = true;
     plan.notes = true;
@@ -30,7 +30,11 @@ export function accumulateRealtimeRefresh(plan: RealtimeRefreshPlan, message?: W
     plan.notes = true;
     return plan;
   }
-  if (message.noteId) plan.noteIds.add(message.noteId);
+  if (message.noteId) {
+    plan.noteIds.add(message.noteId);
+    // 摘要无法判断正文是否仍匹配搜索；新增匹配也可能不在当前列表。
+    if (searchActive) plan.notes = true;
+  }
   else plan.notes = true;
   return plan;
 }
