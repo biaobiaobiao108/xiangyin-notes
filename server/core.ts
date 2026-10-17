@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { isIP } from "node:net";
 import { join } from "node:path";
+import { Lexer } from "marked";
 import { extractTags, normalizeTag } from "../shared/tags";
 import type { ImageAssetSummary, Note, NoteSummary, NoteView } from "../shared/types";
 import type { RealtimeHub } from "./realtime";
@@ -331,8 +332,44 @@ export async function readJson<T>(request: Request, maxBytes: number): Promise<T
   }
 }
 
-const NON_BREAKING_SPACE_ENTITY_RE = /^(?:&nbsp;|&#0*160;|&#x0*a0;)/iu;
+const NON_BREAKING_SPACE_PATTERN = /\u00a0|&nbsp;|&#0*160;|&#[xX]0*[aA]0;/gu;
+const SPACE_BEFORE_PUNCTUATION_PATTERN = / ([,.;:!?。！？、，；：])/gu;
+const WIKI_LINK_PREVIEW_PATTERN = /\[\[([^\[\]\r\n]*)\]\]|【【([^【】\r\n]*)】】/gu;
 
+type PreviewInlineToken = { type: string; raw: string; text?: string; tokens?: PreviewInlineToken[] };
+
+/**
+ * Flattens a marked inline AST to plain text for note previews.
+ * Images contribute nothing (neither alt text nor the asset URL), raw HTML tags
+ * are dropped, and markup is reduced to its text content.
+ */
+function plainTextFromInlineTokens(tokens: PreviewInlineToken[]): string {
+  let text = "";
+  for (const token of tokens) {
+    if (token.type === "image" || token.type === "html") continue;
+    const children = token.tokens;
+    if (children && children.length > 0) {
+      text += plainTextFromInlineTokens(children);
+      continue;
+    }
+    if (token.type === "br") {
+      text += " ";
+      continue;
+    }
+    text += token.text ?? token.raw;
+  }
+  return text;
+}
+
+/**
+ * Builds the one-line-ish plain text preview shown in note lists.
+ *
+ * Block structure is scanned line by line so the work stays bounded (a 1 MB note
+ * must not slow down a 100-note list) and so blocks a preview never shows —
+ * GFM tables, fenced/indented code, supported callouts — can be skipped without
+ * parsing them. Inline markup is handed to marked, which keeps the preview
+ * faithful to the editor's inline grammar instead of a hand-rolled approximation.
+ */
 export function formatPreview(markdown: string) {
   const output: string[] = [];
   let outputLength = 0;
@@ -372,147 +409,21 @@ export function formatPreview(markdown: string) {
     return appendLine(text);
   };
 
+  // Inline parsing is delegated to marked; the block scan above stays in charge of
+  // bounded work and of the blocks a preview never shows (tables, code, callouts).
   const readPlainText = (start: number, end: number, maximumLength: number) => {
-    const text: string[] = [];
-    let textLength = 0;
-    let pendingWhitespace = false;
-    const inlineCodeRanges: Array<{ start: number; end: number }> = [];
-    const pairedUnderscoreMarkers = new Set<number>();
-
-    for (let index = start; index < end;) {
-      if (markdown[index] !== "`") {
-        index += 1;
-        continue;
-      }
-
-      const markerStart = index;
-      while (index < end && markdown[index] === "`") index += 1;
-      const markerLength = index - markerStart;
-      let searchIndex = index;
-      let closingStart = -1;
-      while (searchIndex < end) {
-        const nextMarker = markdown.indexOf("`", searchIndex);
-        if (nextMarker === -1 || nextMarker >= end) break;
-        let nextEnd = nextMarker;
-        while (nextEnd < end && markdown[nextEnd] === "`") nextEnd += 1;
-        if (nextEnd - nextMarker === markerLength) {
-          closingStart = nextMarker;
-          break;
-        }
-        searchIndex = nextEnd;
-      }
-
-      inlineCodeRanges.push({ start: index, end: closingStart === -1 ? end : closingStart });
-      index = closingStart === -1 ? end : closingStart + markerLength;
-    }
-
-    const isWordCharacter = (character: string | undefined) => character !== undefined && /[\p{L}\p{N}]/u.test(character);
-    const isWhitespaceCharacter = (character: string | undefined) => character !== undefined && /\s/u.test(character);
-    const isEscaped = (index: number) => {
-      let backslashes = 0;
-      for (let cursor = index - 1; cursor >= start && markdown[cursor] === "\\"; cursor -= 1) backslashes += 1;
-      return backslashes % 2 === 1;
-    };
-    let inlineCodeRangeIndex = 0;
-    const openingUnderscores = new Map<number, number[]>();
-
-    for (let index = start; index < end;) {
-      while (inlineCodeRangeIndex < inlineCodeRanges.length && inlineCodeRanges[inlineCodeRangeIndex].end <= index) {
-        inlineCodeRangeIndex += 1;
-      }
-      const inlineCodeRange = inlineCodeRanges[inlineCodeRangeIndex];
-      if (inlineCodeRange && index >= inlineCodeRange.start && index < inlineCodeRange.end) {
-        index = inlineCodeRange.end;
-        continue;
-      }
-      if (markdown[index] !== "_" || isEscaped(index)) {
-        index += 1;
-        continue;
-      }
-
-      const markerStart = index;
-      while (index < end && markdown[index] === "_") index += 1;
-      const markerLength = index - markerStart;
-      if (markerLength !== 1 && markerLength !== 2) continue;
-
-      const previousCharacter = markdown[markerStart - 1];
-      const nextCharacter = markdown[index];
-      const canOpen = !isWhitespaceCharacter(nextCharacter) && !isWordCharacter(previousCharacter);
-      const canClose = !isWhitespaceCharacter(previousCharacter) && !isWordCharacter(nextCharacter);
-      const openings = openingUnderscores.get(markerLength) ?? [];
-
-      if (canClose && openings.length > 0) {
-        const openingStart = openings.pop()!;
-        if (markerStart > openingStart + markerLength) {
-          for (let offset = 0; offset < markerLength; offset += 1) {
-            pairedUnderscoreMarkers.add(openingStart + offset);
-            pairedUnderscoreMarkers.add(markerStart + offset);
-          }
-        }
-      }
-      if (canOpen) openings.push(markerStart);
-      if (openings.length > 0) openingUnderscores.set(markerLength, openings);
-      else openingUnderscores.delete(markerLength);
-    }
-
-    for (let index = start; index < end && textLength < maximumLength; index += 1) {
-      if (markdown.startsWith("![", index)) {
-        const closeBracket = markdown.indexOf("]", index + 2);
-        if (closeBracket !== -1 && closeBracket < end && markdown[closeBracket + 1] === "(") {
-          const closeParen = markdown.indexOf(")", closeBracket + 2);
-          if (closeParen !== -1 && closeParen < end) {
-            index = closeParen;
-            pendingWhitespace = textLength > 0;
-            continue;
-          }
-        }
-      }
-
-      let character = markdown[index];
-      if (character === "\\" && markdown[index + 1] === "#") {
-        character = "#";
-        index += 1;
-      }
-      const spaceEntity = character === "&"
-        ? NON_BREAKING_SPACE_ENTITY_RE.exec(markdown.slice(index, Math.min(end, index + 16)))
-        : null;
-      if (spaceEntity) {
-        pendingWhitespace = textLength > 0;
-        index += spaceEntity[0].length - 1;
-        continue;
-      }
-
-      if (character === "\r" || character === "\n" || character === "\t" || character === " " || character === "\u00a0") {
-        pendingWhitespace = textLength > 0;
-        continue;
-      }
-
-      if (
-        character === "*" ||
-        (character === "_" && pairedUnderscoreMarkers.has(index)) ||
-        character === "`" ||
-        character === "~" ||
-        character === ">" ||
-        character === "[" ||
-        character === "]"
-      ) {
-        continue;
-      }
-
-      if (pendingWhitespace) {
-        if (!/[,.;!?。！？、，；：]/.test(character)) {
-          text.push(" ");
-          textLength += 1;
-          if (textLength >= maximumLength) break;
-        }
-      }
-
-      text.push(character);
-      textLength += character.length;
-      pendingWhitespace = false;
-    }
-
-    return text.join("").trim();
+    if (maximumLength <= 0 || end <= start) return "";
+    const text = plainTextFromInlineTokens(new Lexer({ gfm: true }).inlineTokens(markdown.slice(start, end)))
+      .replace(WIKI_LINK_PREVIEW_PATTERN, (_match, wiki: string | undefined, fullWidth: string | undefined) => {
+        // 双链只显示可读部分：有别名用别名，否则用目标标题。
+        const body = wiki ?? fullWidth ?? "";
+        const separator = body.search(/[|｜]/u);
+        return separator === -1 ? body : body.slice(separator + 1);
+      })
+      .replace(NON_BREAKING_SPACE_PATTERN, " ")
+      .replace(/[ \t]+/gu, " ")
+      .replace(SPACE_BEFORE_PUNCTUATION_PATTERN, "$1");
+    return (text.length > maximumLength ? text.slice(0, maximumLength) : text).trim();
   };
 
   const isHorizontalRule = (start: number, end: number) => {
