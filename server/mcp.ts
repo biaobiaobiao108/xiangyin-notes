@@ -13,6 +13,7 @@ import {
   NOTE_PREVIEW_LIMIT,
   NOTE_VIEWS,
   type RouteContext,
+  parseIndexedTags,
   type ServerOptions,
   type SqliteDatabase,
   type UserRow,
@@ -174,7 +175,7 @@ type RouteResult = {
   body: Record<string, unknown>;
 };
 
-const handlerByDatabase = new WeakMap<SqliteDatabase, McpHttpHandler>();
+const handlerByDatabase = new WeakMap<SqliteDatabase, { key: string; handler: McpHttpHandler }>();
 
 // Serialize convenience saves so concurrent title upserts do not both create a note.
 const saveLocks = new WeakMap<SqliteDatabase, Promise<void>>();
@@ -903,6 +904,9 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
     if (notebookId) url.searchParams.set("notebookId", notebookId);
     if (view) url.searchParams.set("view", view);
     if (cursor) url.searchParams.set("cursor", cursor);
+    // Counting every page doubles the query cost of a paginated search; hasMore
+    // and nextCursor already describe whether more results exist.
+    if (cursor) url.searchParams.set("includeTotal", "0");
     url.searchParams.set("limit", String(limit));
     const result = await notesRoute(options, user, "GET", ["notes"], `${url.pathname}${url.search}`);
     if (result.status !== 200) return routeError(result);
@@ -956,41 +960,83 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
     if (new Set(noteIds).size !== noteIds.length) {
       return responseValue({ error: { code: "DUPLICATE_NOTE_ID", message: "noteIds 中不能重复出现同一篇笔记" } }, true);
     }
+    // One query for the whole batch: per-note reads would repeat the join and the
+    // preview formatter for every id. Preview and thumbnail are not exposed here.
+    const rows = await all<{
+      id: string;
+      title: string;
+      content_markdown: string;
+      notebook_id: string;
+      notebook_name: string;
+      is_favorite: number;
+      deleted_at: number | null;
+      version: number;
+      created_at: number;
+      updated_at: number;
+      tags_json: string;
+    }>(options.database, `
+      SELECT n.id, n.title, n.content_markdown, n.notebook_id, b.name AS notebook_name,
+        n.is_favorite, n.deleted_at, n.version, n.created_at, n.updated_at,
+        COALESCE((SELECT json_group_array(tag) FROM (SELECT tag FROM note_tags WHERE note_id = n.id ORDER BY position)), '[]') AS tags_json
+      FROM notes n
+      JOIN notebooks b ON b.id = n.notebook_id
+      WHERE n.user_id = ? AND n.id IN (${noteIds.map(() => "?").join(",")})
+    `, user.id, ...noteIds);
+    const rowsById = new Map(rows.map((row) => [row.id, row]));
+
     const notes: Record<string, unknown>[] = [];
     const notFoundIds: string[] = [];
     const oversizedIds: string[] = [];
-    let checkedCount = 0;
+    let deferredCount = 0;
     let totalContentCharacters = 0;
-    for (let index = 0; index < noteIds.length && notes.length < effectiveLimit; index += 1) {
-      const noteId = noteIds[index];
-      const result = await notesRoute(options, user, "GET", ["notes", noteId], `/api/notes/${encodeURIComponent(noteId)}`);
-      checkedCount += 1;
-      if (result.status === 404) {
+    for (const noteId of noteIds) {
+      // Ids beyond the effective limit stay unclassified so the caller can retry
+      // them with a larger limit instead of treating them as missing.
+      if (notes.length >= effectiveLimit) {
+        deferredCount += 1;
+        continue;
+      }
+      const row = rowsById.get(noteId);
+      if (!row) {
         notFoundIds.push(noteId);
         continue;
       }
-      if (result.status !== 200) return routeError(result);
-      const note = result.body.note;
-      if (!note || typeof note !== "object" || Array.isArray(note)) {
-        return responseValue({ error: { code: "NOTE_READ_FAILED", message: "读取笔记失败" } }, true);
-      }
-      const fullNote = note as Record<string, unknown>;
-      if (typeof fullNote.contentMarkdown !== "string") {
-        return responseValue({ error: { code: "NOTE_READ_FAILED", message: "读取笔记正文失败" } }, true);
-      }
-      const contentCharacters = countUnicodeCharacters(fullNote.contentMarkdown);
+      const contentCharacters = countUnicodeCharacters(row.content_markdown);
       if (totalContentCharacters + contentCharacters > maxTotalCharacters) {
         oversizedIds.push(noteId);
         continue;
       }
-      const withoutPreview = { ...fullNote };
-      delete withoutPreview.preview;
-      notes.push(withoutPreview);
+      notes.push({
+        id: row.id,
+        notebookId: row.notebook_id,
+        notebookName: row.notebook_name,
+        title: row.title,
+        tags: parseIndexedTags(row.tags_json),
+        isFavorite: Boolean(row.is_favorite),
+        deletedAt: row.deleted_at,
+        version: row.version,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        contentMarkdown: row.content_markdown,
+      });
       totalContentCharacters += contentCharacters;
     }
-    const oversized = new Set(oversizedIds);
-    const remainingIds = noteIds.filter((noteId, index) => oversized.has(noteId) || index >= checkedCount);
-    return responseValue({ notes, notFoundIds, oversizedIds, remainingIds, checkedCount, uncheckedCount: noteIds.length - checkedCount, returnedCount: notes.length, totalContentCharacters, maxTotalCharacters, skippedForCharacterLimit: oversizedIds.length > 0 });
+    const returned = new Set(notes.map((note) => note.id as string));
+    const notFound = new Set(notFoundIds);
+    const remainingIds = noteIds.filter((noteId) => !returned.has(noteId) && !notFound.has(noteId));
+    const checkedCount = noteIds.length - deferredCount;
+    return responseValue({
+      notes,
+      notFoundIds,
+      oversizedIds,
+      remainingIds,
+      checkedCount,
+      uncheckedCount: noteIds.length - checkedCount,
+      returnedCount: notes.length,
+      totalContentCharacters,
+      maxTotalCharacters,
+      skippedForCharacterLimit: oversizedIds.length > 0,
+    });
   });
 
   server.registerTool("create_note", {
@@ -1392,11 +1438,13 @@ function createNoteMcpServer(options: ServerOptions, context: McpRequestContext)
 }
 
 function getMcpHandler(options: ServerOptions) {
-  let handler = handlerByDatabase.get(options.database);
-  if (!handler) {
-    handler = createMcpHandler((context) => createNoteMcpServer(options, context));
-    handlerByDatabase.set(options.database, handler);
-  }
+  // The handler closes over `options`, so a cache keyed only by the database would
+  // keep serving the first environment/asset root it saw in the process.
+  const cacheKey = [options.assetRoot ?? "", options.clientRoot ?? "", options.environment?.PUBLIC_URL ?? "", options.environment?.XIANGYING_USERNAME ?? ""].join("\u0000");
+  const cached = handlerByDatabase.get(options.database);
+  if (cached && cached.key === cacheKey) return cached.handler;
+  const handler = createMcpHandler((context) => createNoteMcpServer(options, context));
+  handlerByDatabase.set(options.database, { key: cacheKey, handler });
   return handler;
 }
 

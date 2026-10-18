@@ -23,7 +23,9 @@ describe("draft recovery serialization", () => {
   test("rejects malformed or oversized drafts", () => {
     expect(parseDraftRecovery("not-json", draft.id)).toBeNull();
     expect(parseDraftRecovery(JSON.stringify({ ...draft, version: 0 }), draft.id)).toBeNull();
-    expect(serializeDraftRecovery({ ...draft, contentMarkdown: "字".repeat(2_000_000) })).toBeNull();
+    // 1,000,000 个中文字符（约 3 MiB）属于合法正文，必须能写入恢复副本。
+    expect(serializeDraftRecovery({ ...draft, contentMarkdown: "字".repeat(1_000_000) })).toBeString();
+    expect(serializeDraftRecovery({ ...draft, contentMarkdown: "字".repeat(3_000_000) })).toBeNull();
   });
 });
 

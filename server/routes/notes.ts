@@ -357,7 +357,8 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow): Promis
           return note ? { note: toFullNote(note), created: true as const, noteId } : null;
         })();
     if (!ensured) return jsonError(500, "NOTE_CREATE_FAILED", "笔记创建失败");
-    if (ensured.created) publishWorkspaceChange(options, user.id, { resource: "notes", noteId: ensured.noteId }, request);
+    // 新笔记会改变列表成员，广播不带 noteId，让其他客户端整表刷新。
+    if (ensured.created) publishWorkspaceChange(options, user.id, { resource: "notes" }, request);
     return ensured.created ? json({ note: ensured.note, created: true }, 201) : json({ note: ensured.note, created: false });
   }
 
@@ -664,7 +665,8 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow): Promis
     }
     const noteId = await createNote(database, user.id, notebookId, title, contentMarkdown as string, requestedId);
     const note = await getNote(database, user.id, noteId);
-    publishWorkspaceChange(options, user.id, { resource: "notes", noteId }, request);
+    // 新笔记会改变列表成员，广播不带 noteId，让其他客户端整表刷新。
+    publishWorkspaceChange(options, user.id, { resource: "notes" }, request);
     return json({ note: note ? toFullNote(note) : null }, 201);
   }
 
@@ -759,7 +761,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow): Promis
         candidateParams.push(ftsTokens.map((p) => `"${p.replaceAll('"', '""')}"`).join(" AND "));
       } else if (canIndexShortSearchTerm(trimmedTitle)) {
         candidateConditions.push(`(
-          EXISTS (SELECT 1 FROM note_short_terms st WHERE st.note_id = n.id AND st.user_id = n.user_id AND st.term = ?)
+          EXISTS (SELECT 1 FROM note_short_terms st WHERE st.note_id = n.id AND st.user_id = n.user_id AND st.term = ? COLLATE NOCASE)
           OR (
             (
               length(n.content_markdown) >= ?
@@ -874,7 +876,9 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow): Promis
   // Get single note
   if (id && !subresource && method === "GET") {
     const note = await getNote(database, user.id, id);
-    return note ? json({ note: toFullNote(note) }) : jsonError(404, "NOTE_NOT_FOUND", "笔记不存在");
+    if (!note) return jsonError(404, "NOTE_NOT_FOUND", "笔记不存在");
+    // A summary is enough to patch one list row after a realtime change.
+    return json({ note: url.searchParams.get("response") === "summary" ? toNote(note) : toFullNote(note) });
   }
 
   // Patch note

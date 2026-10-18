@@ -172,6 +172,23 @@ async function serveStatic(request: Request, clientRoot: string, environment: Re
     || basename === "manifest.webmanifest"
     || /^(?:favicon\.png|icon-(?:192|512|maskable-512)\.png)$/u.test(basename);
   headers.set("Cache-Control", hasExtension && relativePath !== "index.html" && !mutablePwaAsset ? "public, max-age=31536000, immutable" : "no-cache");
+
+  // Revalidation: `no-cache` entries (index.html, sw.js) are requested on every
+  // navigation, so answer them with 304 instead of resending the whole file.
+  const lastModified = Math.floor(Number(file.lastModified ?? 0));
+  if (Number.isFinite(lastModified) && lastModified > 0) headers.set("Last-Modified", new Date(lastModified).toUTCString());
+  const etag = `W/"${Number(file.size ?? 0).toString(16)}-${lastModified.toString(16)}"`;
+  headers.set("ETag", etag);
+  const ifNoneMatch = request.headers.get("If-None-Match");
+  if (ifNoneMatch) {
+    const candidates = ifNoneMatch.split(",").map((value) => value.trim());
+    if (candidates.includes(etag) || candidates.includes("*")) return new Response(null, { status: 304, headers });
+  } else if (lastModified > 0) {
+    const ifModifiedSince = Date.parse(request.headers.get("If-Modified-Since") ?? "");
+    if (Number.isFinite(ifModifiedSince) && Math.floor(ifModifiedSince / 1000) >= lastModified) {
+      return new Response(null, { status: 304, headers });
+    }
+  }
   return new Response(request.method === "HEAD" ? null : file, { headers });
 }
 

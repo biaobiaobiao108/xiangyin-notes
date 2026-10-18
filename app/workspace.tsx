@@ -1,8 +1,9 @@
 import { lazy, memo, Suspense, useCallback, useDeferredValue, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { flushSync } from "react-dom";
 import { useNavigate } from "react-router";
-import { ArrowUpRight, LayoutGrid, List, ListChecks, Plus, RotateCcw, Settings2, Star, Trash2, X } from "lucide-react";
+import { ArrowUpRight, Plus, Settings2, Trash2, X } from "lucide-react";
 import { textFieldMenuItems, useContextMenu, type ContextMenuItem } from "./context-menu";
+import { buildNoteContextMenuItems, buildWorkspaceMenuItems } from "./workspace/note-context-menu";
 import { ApiError, api } from "./api";
 import { createUuid } from "./uuid";
 import { CommandId, CommandMenu } from "./command-menu";
@@ -16,11 +17,12 @@ import { ConfirmDialog, NotebookDialog, type ConfirmRequest } from "./workspace/
 import { clearAllDraftRecoveries, readDraftRecovery } from "./workspace/draft-recovery";
 import { EmptyEditor, NoteListPanel, NoteLoadingState, Sidebar } from "./workspace/panels";
 import { NoteCardGridPanel } from "./workspace/note-card-grid";
-import { errorMessage, shouldKeepActiveNoteInList, sortNotes, toNoteDraft, toNoteSummary, type NoteDraft, type NoteSort } from "./workspace/helpers";
-import { applyNoteSelectionClick, isNoteSelectionModifierClick, noteSelectionAnchor, pruneNoteSelection, type NoteSelectionClick, type NoteSelectionState } from "./workspace/note-list-selection";
+import { errorMessage, mergeRemoteSummary, mergeWikiNoteSummary, shouldKeepActiveNoteInList, sortNotes, toNoteDraft, toNoteSummary, type NoteDraft, type NoteSort } from "./workspace/helpers";
+import { applyNoteSelectionClick, noteSelectionAnchor, pruneNoteSelection, resolveNoteClickAction, type NoteSelectionClick, type NoteSelectionState } from "./workspace/note-list-selection";
 import { normalizeLinkTitle } from "../shared/wiki-links";
 import { useNoteSaveQueue } from "./workspace/use-note-save-queue";
 import { useWorkspaceRealtime } from "./workspace/use-realtime";
+import { accumulateRealtimeRefresh, emptyRealtimeRefreshPlan, type RealtimeRefreshPlan } from "./workspace/realtime-refresh";
 import { latestSelectedNoteSnapshot, refreshSelectedNote } from "./workspace/selected-note-sync";
 import { useWorkspaceShortcuts } from "./workspace/use-workspace-shortcuts";
 import { useMobileNavigation, type MobileListContext, type MobilePage } from "./workspace/use-mobile-navigation";
@@ -204,7 +206,7 @@ export function Workspace() {
   const [noteReloadToken, setNoteReloadToken] = useState(0);
   const [pwaState, setPwaState] = useState<PwaState>({ standalone: false, canInstall: false, showIosInstallHint: false, updateAvailable: false });
   const realtimeRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingRealtimeRefreshRef = useRef({ notebooks: false, notes: false, selected: false, noteIds: new Set<string>() });
+  const pendingRealtimeRefreshRef = useRef<RealtimeRefreshPlan>(emptyRealtimeRefreshPlan());
   const shortcutHandledRef = useRef(false);
   const confirmIdRef = useRef(0);
   const replaceList = useCallback((next: NoteSummary[]) => { notesRef.current = next; setNotes(next); }, []);
@@ -430,6 +432,25 @@ export function Workspace() {
       setCardEditingNoteId((current) => current === noteId ? nextId : current);
     }
   }, [noteSort, replaceList, selectNote]);
+  // Realtime updates for a single note refresh only that row, so a remote save
+  // never collapses the loaded pages back to the first page.
+  const patchNoteFromRemote = useCallback(async (noteId: string) => {
+    const scope = listScopeRef.current;
+    if (!notesRef.current.some((note) => note.id === noteId)) return;
+    try {
+      const summary = (await api.getNoteSummary(noteId)).note;
+      if (scope !== listScopeRef.current) return;
+      if (!shouldKeepActiveNoteInList(summary, notebooks, view, deferredQuery, notebookId)) {
+        removeFromList(noteId);
+        return;
+      }
+      const merged = mergeRemoteSummary(notesRef.current, summary, noteSort);
+      if (merged) replaceList(merged);
+    } catch (reason) {
+      if (scope !== listScopeRef.current) return;
+      if (reason instanceof ApiError && reason.status === 404) removeFromList(noteId);
+    }
+  }, [deferredQuery, noteSort, notebookId, notebooks, removeFromList, replaceList, view]);
   const removeManyFromList = useCallback((noteIds: string[]) => {
     const deletedIds = new Set(noteIds);
     const currentList = notesRef.current;
@@ -1075,25 +1096,21 @@ export function Workspace() {
     });
   }, [reloadSelectedNote, requestConfirm]);
   const handleRealtimeChange = useCallback((message?: WorkspaceChangeMessage) => {
-    const pending = pendingRealtimeRefreshRef.current;
-    const resource = message?.resource;
-    if (!message || resource === "notes" || resource === "notebooks") pending.notebooks = true;
-    if (!message || resource === "notes" || resource === "notebooks") pending.notes = true;
-    if (!message || resource === "notes") {
-      if (!message?.noteId) pending.selected = true;
-      else pending.noteIds.add(message.noteId);
-    }
+    accumulateRealtimeRefresh(pendingRealtimeRefreshRef.current, message, Boolean(deferredQuery.trim()));
     if (realtimeRefreshTimerRef.current !== null) return;
     realtimeRefreshTimerRef.current = setTimeout(() => {
       realtimeRefreshTimerRef.current = null;
       const next = pendingRealtimeRefreshRef.current;
-      pendingRealtimeRefreshRef.current = { notebooks: false, notes: false, selected: false, noteIds: new Set() };
+      pendingRealtimeRefreshRef.current = emptyRealtimeRefreshPlan();
       if (next.notebooks) void refreshNotebooks();
       if (next.notes) reloadNotes();
       const activeId = activeNoteIdRef.current;
       if (activeId && (next.selected || next.noteIds.has(activeId))) void refreshSelectedNoteFromRemote(activeId);
+      for (const noteId of next.noteIds) {
+        if (!next.notes && noteId !== activeId) void patchNoteFromRemote(noteId);
+      }
     }, 50);
-  }, [refreshNotebooks, refreshSelectedNoteFromRemote, reloadNotes, view]);
+  }, [deferredQuery, patchNoteFromRemote, refreshNotebooks, refreshSelectedNoteFromRemote, reloadNotes]);
   useWorkspaceRealtime({ ready, onChange: handleRealtimeChange });
   const selectView = useCallback((next: NoteView) => {
     if (view !== next || notebookId || query) requestListTransition();
@@ -1272,6 +1289,7 @@ export function Workspace() {
         ? notebooks.find((n) => n.id === notebookId)
         : notebooks.find((n) => n.isSystem) ?? notebooks[0];
       if (!defaultNotebook) return null;
+      const scope = listScopeRef.current;
       const creationPromise = (async () => {
         try {
           const result = await api.ensureWikiNote({ title: cleanTitle, notebookId: defaultNotebook.id });
@@ -1291,9 +1309,15 @@ export function Workspace() {
             updatedAt: result.note.updatedAt,
           };
 
-          replaceList([summary, ...notesRef.current.filter((n) => n.id !== summary.id)]);
+          if (scope === listScopeRef.current) {
+            const currentNotes = notesRef.current;
+            const merged = mergeWikiNoteSummary(currentNotes, summary, notebooks, view, deferredQuery, notebookId);
+            if (merged) {
+              replaceList(merged);
+              if (result.created && merged.length > currentNotes.length) setTotalNotes((prev) => prev + 1);
+            }
+          }
           if (result.created) {
-            setTotalNotes((prev) => prev + 1);
             void refreshNotebooks();
           }
 
@@ -1308,7 +1332,7 @@ export function Workspace() {
       pendingWikiCreationsRef.current.set(normalized, creationPromise);
       return await creationPromise;
     },
-    [notebookId, notebooks, refreshNotebooks, replaceList],
+    [deferredQuery, notebookId, notebooks, refreshNotebooks, replaceList, view],
   );
 
   const handleNavigateWikiLink = useCallback(
@@ -1346,19 +1370,9 @@ export function Workspace() {
   }, []);
   const handleSelectListNote = useCallback((id: string, event: ReactMouseEvent<HTMLButtonElement>) => {
     const orderedIds = sortNotes(notesRef.current, noteSort).map((note) => note.id);
-    if (isNoteSelectionModifierClick(event)) {
-      const nextSelection = applyNoteSelectionClick(noteSelectionRef.current, orderedIds, {
-        id,
-        metaKey: event.metaKey,
-        ctrlKey: event.ctrlKey,
-        shiftKey: event.shiftKey,
-      });
-      updateNoteSelection(nextSelection);
-      return;
-    }
-    if (noteSelectionRef.current.ids.size > 0) {
-      const nextSelection = applyNoteSelectionClick(noteSelectionRef.current, orderedIds, { id, ctrlKey: true });
-      updateNoteSelection(nextSelection);
+    const intent = resolveNoteClickAction(event, { hasSelectionActive: noteSelectionRef.current.ids.size > 0 });
+    if (intent.action === "toggle") {
+      updateNoteSelection(applyNoteSelectionClick(noteSelectionRef.current, orderedIds, { id, ...intent.modifiers }));
       return;
     }
     selectNote(id);
@@ -1427,20 +1441,21 @@ export function Workspace() {
     const targetNote = noteId ? notesRef.current.find((note) => note.id === noteId) : undefined;
     if (targetNote) {
       const busy = pendingTrashCount > 0 || emptyingTrash;
-      const items: ContextMenuItem[] = [
-        { label: "打开笔记", icon: ArrowUpRight, onSelect: () => { clearNoteSelection(); if (viewLayout === "cards") handleOpenCardNote(targetNote.id); else selectNote(targetNote.id); } },
-        { label: selectedNoteIds.has(targetNote.id) ? "从多选中移除" : "加入多选", icon: ListChecks, onSelect: () => handleToggleCardSelection(targetNote.id, { ctrlKey: true }) },
-      ];
-      if (selectedNoteIds.size) items.push({ label: "退出多选", icon: X, separator: true, onSelect: clearNoteSelection });
-      if (targetNote.deletedAt) {
-        items.push({ label: "恢复笔记", icon: RotateCcw, disabled: busy, onSelect: () => handleNoteSwipeAction(targetNote, "restore") });
-        if (selectedNoteIds.has(targetNote.id) && selectedNoteIds.size > 1) items.push({ label: `恢复所选 ${selectedNoteIds.size} 篇笔记`, icon: RotateCcw, disabled: busy, onSelect: restoreSelectedNotes });
-      } else {
-        items.push({ label: targetNote.isFavorite ? "取消收藏" : "收藏笔记", icon: Star, onSelect: () => handleToggleFavoriteCardNote(targetNote) });
-      }
-      items.push({ label: targetNote.deletedAt ? "彻底删除" : "移入回收站", icon: Trash2, danger: true, separator: true, disabled: busy, onSelect: () => handleNoteSwipeAction(targetNote, targetNote.deletedAt ? "permanent-delete" : "trash") });
-      if (selectedNoteIds.has(targetNote.id) && selectedNoteIds.size > 1) items.push({ label: `${view === "trash" ? "彻底删除" : "移入回收站"}所选 ${selectedNoteIds.size} 篇笔记`, icon: Trash2, danger: true, disabled: busy, onSelect: deleteSelectedNotes });
-      openWorkspaceMenu(event, items, targetNote.title || "未命名笔记");
+      openWorkspaceMenu(event, buildNoteContextMenuItems({
+        note: targetNote,
+        view,
+        selectedIds: selectedNoteIds,
+        busy,
+        actions: {
+          clearSelection: clearNoteSelection,
+          openNote: (note) => { if (viewLayout === "cards") handleOpenCardNote(note.id); else selectNote(note.id); },
+          toggleSelection: (noteId) => handleToggleCardSelection(noteId, { ctrlKey: true }),
+          swipeAction: handleNoteSwipeAction,
+          restoreSelected: restoreSelectedNotes,
+          deleteSelected: deleteSelectedNotes,
+          toggleFavorite: handleToggleFavoriteCardNote,
+        },
+      }), targetNote.title || "未命名笔记");
       return;
     }
     const targetNotebookId = target.closest<HTMLElement>("[data-notebook-id]")?.dataset.notebookId;
@@ -1467,13 +1482,21 @@ export function Workspace() {
         openWorkspaceMenu(event, [{ label: "关闭大纲", icon: X, onSelect: closeOutline }], "笔记大纲");
         return;
       }
-      const items: ContextMenuItem[] = [];
-      if (view !== "trash") items.push({ label: "新建笔记", icon: Plus, onSelect: handleNewNote });
-      items.push({ label: viewLayout === "cards" ? "切换为列表视图" : "切换为卡片视图", icon: viewLayout === "cards" ? List : LayoutGrid, onSelect: toggleViewLayout });
-      if (query) items.push({ label: "清空搜索", icon: X, onSelect: handleClearQuery });
-      if (selectedNoteIds.size) items.push({ label: "取消多选", icon: X, onSelect: clearNoteSelection });
-      if (view === "trash") items.push({ label: "清空回收站", icon: Trash2, danger: true, separator: true, disabled: !totalNotes || pendingTrashCount > 0 || emptyingTrash, onSelect: emptyTrash });
-      openWorkspaceMenu(event, items, "笔记工作区");
+      openWorkspaceMenu(event, buildWorkspaceMenuItems({
+        view,
+        viewLayout,
+        query,
+        hasSelection: selectedNoteIds.size > 0,
+        totalNotes,
+        busy: pendingTrashCount > 0 || emptyingTrash,
+        actions: {
+          newNote: handleNewNote,
+          toggleLayout: toggleViewLayout,
+          clearQuery: handleClearQuery,
+          clearSelection: clearNoteSelection,
+          emptyTrash,
+        },
+      }), "笔记工作区");
     }
   };
 

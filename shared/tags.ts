@@ -107,9 +107,29 @@ function collectBacktickRuns(markdown: string, segment: MarkdownSegment) {
   return { runs, byLength };
 }
 
+/**
+ * Hashtags inside a URL or a Markdown link target are fragments, not tags:
+ * `https://example.com/doc#section-2`, `//cdn.example.com/a#top`, `[摘要](#jump)`.
+ * Everything back to the previous whitespace is treated as the enclosing token.
+ */
+function isLinkFragmentHash(markdown: string, hashIndex: number, rangeStart: number) {
+  let tokenStart = hashIndex;
+  while (tokenStart > rangeStart && !WHITESPACE_CHARACTER_PATTERN.test(markdown[tokenStart - 1]!)) tokenStart -= 1;
+  if (tokenStart === hashIndex) return false;
+  const prefix = markdown.slice(tokenStart, hashIndex);
+  if (prefix.includes("://") || prefix.startsWith("//") || /^www\./iu.test(prefix)) return true;
+  // `[标题](#锚点)` / `[标题](./note.md#锚点)` — the fragment belongs to the link destination.
+  return /\]\([^)\s]*$/u.test(prefix);
+}
+
 function collectTagsOutsideCode(markdown: string, start: number, end: number, ranges: TagRange[], escapedRanges?: EscapedTagRange[]) {
   for (let index = start; index < end; index += 1) {
     if (markdown[index] !== "#" || markdown[index - 1] === "#") continue;
+    // Skip the whole token so a URL fragment can never surface as a tag.
+    if (isLinkFragmentHash(markdown, index, start)) {
+      while (index < end && !WHITESPACE_CHARACTER_PATTERN.test(markdown[index]!)) index += 1;
+      continue;
+    }
     const tagStart = index + 1;
     if (!TAG_CHARACTER_PATTERN.test(tagCharacterAt(markdown, tagStart))) continue;
 

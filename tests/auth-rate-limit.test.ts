@@ -3,8 +3,19 @@ import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase } from "../server/test-db";
-import { getLoginAttempt, recordFailedLogin, resetLoginAttempt } from "../server/routes/auth";
+import { getLoginAttempt, loginClientKey, recordFailedLogin, resetLoginAttempt } from "../server/routes/auth";
 import { rateLimitClientAddress } from "../server/core";
+
+test("scopes login rate limits by submitted username and client address", () => {
+  const request = new Request("http://localhost/api/auth/login", { method: "POST" });
+  const owner = loginClientKey(request, {}, "203.0.113.7", "owner");
+  const stranger = loginClientKey(request, {}, "203.0.113.7", "admin");
+  const otherAddress = loginClientKey(request, {}, "203.0.113.8", "owner");
+  // 猜错用户名不应消耗真实账号的失败额度（反向代理把所有人折叠到同一地址时尤其重要）。
+  expect(owner).not.toBe(stranger);
+  expect(owner).not.toBe(otherAddress);
+  expect(loginClientKey(request, {}, "203.0.113.7", " OWNER ")).toBe(owner);
+});
 
 test("keeps a late login lockout after its failure window expires", async () => {
   const database = await openDatabase(":memory:");

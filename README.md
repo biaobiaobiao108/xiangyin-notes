@@ -151,6 +151,9 @@ XIANGYING_PASSWORD=替换为本地开发密码
 
 本次 Cloudflare schema 面向空 D1 数据库。旧 SQLite 数据库不会自动迁移或导入；部署前请保留原数据库备份，并按需另行迁移数据。
 
+> [!WARNING]
+> 修改 `XIANGYING_USERNAME` 会创建新账号；原账号的笔记仍保留在 D1 中，但新账号看不到，也不会自动迁移。改回原用户名才能继续访问原笔记。修改密码会更新凭据并使已有会话失效。
+
 ### Agent 接入（MCP）
 
 MCP 服务由 Worker 提供。生成独立的访问令牌并作为 Worker secret 配置：

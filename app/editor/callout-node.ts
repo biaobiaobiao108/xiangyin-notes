@@ -1,6 +1,6 @@
-import { Node, type MarkdownToken } from "@tiptap/core";
+import { Node, type Editor, type MarkdownToken } from "@tiptap/core";
 import type { DOMOutputSpec } from "@tiptap/pm/model";
-import type { EditorState } from "@tiptap/pm/state";
+import { Plugin, type EditorState } from "@tiptap/pm/state";
 
 export const CALLOUT_TYPES = ["NOTE", "TIP", "IMPORTANT", "WARNING", "CAUTION"] as const;
 export type CalloutType = (typeof CALLOUT_TYPES)[number];
@@ -40,6 +40,16 @@ export function shouldExitCalloutOnEnter(state: EditorState): boolean {
   return false;
 }
 
+export function handleCalloutEnter(
+  editor: Editor,
+  event: { key?: string; isComposing?: boolean; keyCode?: number },
+): boolean {
+  if (event.key !== "Enter") return false;
+  if (editor.view.composing || event.isComposing || event.keyCode === 229) return false;
+  if (!shouldExitCalloutOnEnter(editor.state)) return false;
+  return editor.commands.liftEmptyBlock();
+}
+
 type CalloutToken = MarkdownToken & { calloutType?: string };
 
 export const CalloutNode = Node.create({
@@ -50,13 +60,14 @@ export const CalloutNode = Node.create({
   defining: true,
   markdownTokenName: "callout",
 
-  addKeyboardShortcuts() {
-    return {
-      Enter: () => {
-        if (!shouldExitCalloutOnEnter(this.editor.state)) return false;
-        return this.editor.commands.liftEmptyBlock();
-      },
-    };
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        props: {
+          handleKeyDown: (_view, event) => handleCalloutEnter(this.editor, event),
+        },
+      }),
+    ];
   },
 
   addAttributes() {

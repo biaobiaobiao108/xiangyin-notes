@@ -97,8 +97,18 @@ async function readTextBody(request: Request, maxBytes: number): Promise<ReadTex
   }
 }
 
+const NOTE_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+
+/**
+ * Same Idempotency-Key must produce the same note id, and the result must satisfy
+ * the UUID contract every other note id follows.
+ */
 async function deterministicImportNoteId(userId: string, idempotencyKey: string) {
-  return `import-${await digestHex(`xiangying-import:${userId}:${idempotencyKey}`)}`;
+  const hex = await digestHex(`xiangying-import:${userId}:${idempotencyKey}`);
+  const variant = ((Number.parseInt(hex[16]!, 16) & 0b0011) | 0b1000).toString(16);
+  const noteId = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+  if (!NOTE_UUID_PATTERN.test(noteId)) throw new Error("deterministic import id is not a UUID");
+  return noteId;
 }
 
 async function replayIdempotentImport(database: RouteContext["options"]["database"], userId: string, noteId: string, contentMarkdown: string) {
@@ -195,6 +205,7 @@ export async function handleImportRoute(ctx: RouteContext): Promise<Response | n
     throw error;
   }
   const note = await getNote(options.database, user.id, noteId);
-  publishWorkspaceChange(options, user.id, { resource: "notes", noteId }, request);
+  // 导入会新增笔记，广播不带 noteId，让其他客户端整表刷新。
+  publishWorkspaceChange(options, user.id, { resource: "notes" }, request);
   return json({ ok: true, note: note ? toNote(note) : null }, 201);
 }

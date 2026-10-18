@@ -3,6 +3,7 @@ import { Archive, Check, ChevronDown, ChevronLeft, LayoutPanelLeft, LogOut, Menu
 import type { NoteSummary, NoteView, Notebook } from "../../shared/types";
 import { playEntranceAnimation } from "../animation";
 import { BrandMark } from "../brand-mark";
+import { EmptyTrashButton } from "./empty-trash-button";
 import type { OutlineItem } from "../editor-metrics";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { commandMenuShortcutLabel } from "../platform";
@@ -10,6 +11,7 @@ import { type PwaState } from "../pwa";
 import { getNoteTags, getNotebookIconComponent, navItems, relativeDate, sortNotes, type NoteSort, viewLabel } from "./helpers";
 import { NoteTags } from "./note-tags";
 import { useVirtualNoteList } from "./use-virtual-note-list";
+import { useScrollEdges } from "./use-scroll-edges";
 import { MobileCollectionHeader } from "./mobile-collection-header";
 import { type NoteSwipeAction, useSwipeActionGesture, useSwipeActionGroup } from "./swipe-actions";
 
@@ -21,40 +23,7 @@ export const Sidebar = memo(function Sidebar({ view, setView, notebooks, noteboo
   const notebookListRef = useRef<HTMLDivElement>(null);
   const collapsedNotebookListRef = useRef<HTMLDivElement>(null);
   const customNotebooks = useMemo(() => notebooks.filter((notebook) => !notebook.isSystem), [notebooks]);
-  const [notebookScrollEdges, setNotebookScrollEdges] = useState({ before: false, after: false });
-
-  useLayoutEffect(() => {
-    const scrollRoot = notebookListRef.current;
-    if (!scrollRoot) return;
-
-    let animationFrame = 0;
-    const updateScrollEdges = () => {
-      animationFrame = 0;
-      const nextEdges = {
-        before: scrollRoot.scrollTop > 1,
-        after: scrollRoot.scrollHeight - scrollRoot.clientHeight - scrollRoot.scrollTop > 1,
-      };
-      setNotebookScrollEdges((current) => current.before === nextEdges.before && current.after === nextEdges.after ? current : nextEdges);
-    };
-    const scheduleScrollEdgeUpdate = () => {
-      if (animationFrame) return;
-      animationFrame = requestAnimationFrame(updateScrollEdges);
-    };
-
-    updateScrollEdges();
-    scrollRoot.addEventListener("scroll", scheduleScrollEdgeUpdate, { passive: true });
-    const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(scheduleScrollEdgeUpdate);
-    resizeObserver?.observe(scrollRoot);
-    if (scrollRoot.firstElementChild) resizeObserver?.observe(scrollRoot.firstElementChild);
-    window.addEventListener("resize", scheduleScrollEdgeUpdate, { passive: true });
-
-    return () => {
-      scrollRoot.removeEventListener("scroll", scheduleScrollEdgeUpdate);
-      resizeObserver?.disconnect();
-      window.removeEventListener("resize", scheduleScrollEdgeUpdate);
-      if (animationFrame) cancelAnimationFrame(animationFrame);
-    };
-  }, [customNotebooks.length]);
+  const notebookScrollEdges = useScrollEdges(notebookListRef, [customNotebooks.length]);
 
   return <aside className="sidebar" aria-label="主导航">
     <div className="brand-row"><BrandMark /><span className="brand-name">象映笔记</span><button className="icon-button collapse-button" type="button" onClick={onCollapse} aria-label={collapsed ? "展开侧栏" : "收起侧栏"}><LayoutPanelLeft size={18} /></button></div>
@@ -380,6 +349,7 @@ export const NoteListPanel = memo(function NoteListPanel({ notes, total, hasMore
 
   const sortedNotes = useMemo(() => sortNotes(notes, sort), [notes, sort]);
   const virtualList = useVirtualNoteList(sortedNotes, noteListRef, noteListElement, virtualizationScope);
+  const noteListScrollEdges = useScrollEdges(noteListRef, [noteListElement, sortedNotes.length, virtualList.totalHeight]);
   const handleNoteListKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     virtualList.moveTabFocus(event);
     if (event.defaultPrevented) return;
@@ -407,7 +377,7 @@ export const NoteListPanel = memo(function NoteListPanel({ notes, total, hasMore
         <button className="icon-button mobile-only" type="button" aria-label="打开导航" onClick={onOpenSidebar}><Menu size={20} /></button>
         <div className="list-header-main"><h2 tabIndex={-1}>{heading}</h2><p>{query ? `包含“${query}”的笔记` : `${truncated ? total : notes.length} 篇笔记`}{truncated && <> · 已显示最近 {notes.length} 篇</>}</p></div>
         <div className="list-header-controls">
-          {onEmptyTrash && <button className="icon-button empty-trash-button" type="button" aria-label="清空回收站" onClick={onEmptyTrash} disabled={trashBusy || total === 0}><Trash2 size={18} aria-hidden="true" /></button>}
+          {onEmptyTrash && <EmptyTrashButton onClick={onEmptyTrash} disabled={trashBusy || total === 0} />}
           {onNewNote && !isMobileViewport && <button className="icon-button list-new-note-button" type="button" aria-label={`在${currentNotebookName}中新建笔记`} onClick={onNewNote}><Plus size={18} /></button>}
 
           <div className="sort-menu-wrap" ref={sortRef}>
@@ -424,7 +394,7 @@ export const NoteListPanel = memo(function NoteListPanel({ notes, total, hasMore
           </div>
         </div>
       </header>}
-      <div className="note-list-scroll-shell"><div id="note-list-scroll-region" className="note-list floating-scrollbar-target" ref={setNoteListRef} style={noteListStyle} onKeyDown={handleNoteListKeyDown} onFocusCapture={virtualList.onFocusCapture} onBlurCapture={virtualList.onBlurCapture}><ul className="note-list-items" role="list" style={listStyle}>{virtualList.visibleRows.map(({ note, index, top }) => <NoteListRow key={note.id} note={note} rowIndex={index} setSize={listSize} rowRef={virtualList.isVirtualized ? virtualList.getRowRef(note.id) : undefined} rowStyle={virtualList.rowStyle(top)} isSelected={selectedIds.has(note.id)} isActive={selectedId === note.id && !isMobileViewport} showNotebook={!currentNotebookName && view !== "inbox"} onSelect={onSelect} isMobileViewport={isMobileViewport} isTrashView={view === "trash"} trashBusy={trashBusy} onNoteSwipeAction={onNoteSwipeAction} open={swipeActions.openId === note.id} setOpenId={swipeActions.setOpenId} />)}{hasLoadMoreRow && <li ref={loadMoreSentinelRef} className="note-list-load-more-item" style={virtualList.isVirtualized ? { position: "absolute", insetInline: 0, top: 0, transform: `translateY(${virtualList.totalHeight}px)` } : undefined}><button className="secondary-button note-list-load-more-button" type="button" onClick={onLoadMore} disabled={isLoadingMore}>{isLoadingMore ? "正在加载……" : `加载更多（已显示 ${notes.length} / ${total}）`}</button></li>}</ul>{!sortedNotes.length && (query ? <div className="list-empty"><span className="empty-icon"><Search size={23} /></span><strong>没有找到匹配的笔记</strong><span>试试更短的关键词，或清空搜索查看全部内容。</span><button className="secondary-button" type="button" onClick={onClearQuery}>清空搜索</button></div> : <div className="list-empty"><span className="empty-icon"><Archive size={23} /></span><strong>{view === "trash" ? "回收站是空的" : "这里还没有笔记"}</strong><span>{view === "trash" ? "移入回收站的笔记会显示在这里。" : "按下“新建笔记”，让一个想法有地方落脚。"}</span></div>)}</div><FloatingScrollbar scrollTargetRef={noteListRef} controlsId="note-list-scroll-region" ariaLabel="笔记列表滚动条" placement="left" /></div>
+      <div className={`note-list-scroll-shell${noteListScrollEdges.before ? " has-scroll-before" : ""}${noteListScrollEdges.after ? " has-scroll-after" : ""}`}><div id="note-list-scroll-region" className="note-list floating-scrollbar-target" ref={setNoteListRef} style={noteListStyle} onKeyDown={handleNoteListKeyDown} onFocusCapture={virtualList.onFocusCapture} onBlurCapture={virtualList.onBlurCapture}><ul className="note-list-items" role="list" style={listStyle}>{virtualList.visibleRows.map(({ note, index, top }) => <NoteListRow key={note.id} note={note} rowIndex={index} setSize={listSize} rowRef={virtualList.isVirtualized ? virtualList.getRowRef(note.id) : undefined} rowStyle={virtualList.rowStyle(top)} isSelected={selectedIds.has(note.id)} isActive={selectedId === note.id && !isMobileViewport} showNotebook={!currentNotebookName && view !== "inbox"} onSelect={onSelect} isMobileViewport={isMobileViewport} isTrashView={view === "trash"} trashBusy={trashBusy} onNoteSwipeAction={onNoteSwipeAction} open={swipeActions.openId === note.id} setOpenId={swipeActions.setOpenId} />)}{hasLoadMoreRow && <li ref={loadMoreSentinelRef} className="note-list-load-more-item" style={virtualList.isVirtualized ? { position: "absolute", insetInline: 0, top: 0, transform: `translateY(${virtualList.totalHeight}px)` } : undefined}><button className="secondary-button note-list-load-more-button" type="button" onClick={onLoadMore} disabled={isLoadingMore}>{isLoadingMore ? "正在加载……" : `加载更多（已显示 ${notes.length} / ${total}）`}</button></li>}</ul>{!sortedNotes.length && (query ? <div className="list-empty"><span className="empty-icon"><Search size={23} /></span><strong>没有找到匹配的笔记</strong><span>试试更短的关键词，或清空搜索查看全部内容。</span><button className="secondary-button" type="button" onClick={onClearQuery}>清空搜索</button></div> : <div className="list-empty"><span className="empty-icon"><Archive size={23} /></span><strong>{view === "trash" ? "回收站是空的" : "这里还没有笔记"}</strong><span>{view === "trash" ? "移入回收站的笔记会显示在这里。" : "按下“新建笔记”，让一个想法有地方落脚。"}</span></div>)}</div><FloatingScrollbar scrollTargetRef={noteListRef} controlsId="note-list-scroll-region" ariaLabel="笔记列表滚动条" placement="left" /></div>
       </>}
     </div>
   </section>;

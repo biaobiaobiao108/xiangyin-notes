@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { Note, Notebook } from "../shared/types";
-import { getNotebookIconComponent, notebookColorOptions, notebookIconOptions, shouldKeepActiveNoteInList } from "../app/workspace/helpers";
+import type { Note, NoteSummary, Notebook } from "../shared/types";
+import { getNotebookIconComponent, mergeRemoteSummary, mergeWikiNoteSummary, notebookColorOptions, notebookIconOptions, shouldKeepActiveNoteInList } from "../app/workspace/helpers";
 
 const notebooks: Notebook[] = [
   { id: "inbox", name: "收件箱", color: "#718077", icon: "folder", isSystem: true, count: 1, updatedAt: 1 },
@@ -39,6 +39,62 @@ describe("active note list membership", () => {
     expect(shouldKeepActiveNoteInList(note, notebooks, "all", "", "work")).toBe(true);
     expect(shouldKeepActiveNoteInList(note, notebooks, "all", "", "inbox")).toBe(false);
     expect(shouldKeepActiveNoteInList({ ...note, notebookId: "inbox" }, notebooks, "inbox", "")).toBe(true);
+  });
+});
+
+describe("wiki target list membership", () => {
+  test("does not insert targets from another notebook or outside favorites and search", () => {
+    const rows = [{ ...note, id: "source", notebookId: "inbox" }];
+    expect(mergeWikiNoteSummary(rows, note, notebooks, "all", "", "inbox")).toBeNull();
+    expect(mergeWikiNoteSummary(rows, note, notebooks, "favorites", "")).toBeNull();
+    expect(mergeWikiNoteSummary(rows, note, notebooks, "all", "正文")).toBeNull();
+    expect(rows.map((row) => row.id)).toEqual(["source"]);
+  });
+
+  test("inserts matching targets once and refreshes existing targets without duplicates", () => {
+    const rows = [{ ...note, id: "source" }];
+    const merged = mergeWikiNoteSummary(rows, note, notebooks, "all", "", "work")!;
+    expect(merged.map((row) => row.id)).toEqual([note.id, "source"]);
+    expect(mergeWikiNoteSummary(merged, { ...note, version: 2 }, notebooks, "all", "", "work"))
+      .toEqual([{ ...note, version: 2 }, ...rows]);
+    expect(mergeWikiNoteSummary(rows, { ...note, isFavorite: true }, notebooks, "favorites", "")?.[0]?.id).toBe(note.id);
+  });
+});
+
+describe("remote summary merging", () => {
+  const summary = (id: string, updatedAt: number, overrides: Partial<NoteSummary> = {}): NoteSummary => ({
+    id,
+    title: `笔记 ${id}`,
+    preview: "",
+    tags: [],
+    thumbnail: null,
+    notebookId: "work",
+    notebookName: "工作",
+    isFavorite: false,
+    deletedAt: null,
+    version: 1,
+    createdAt: updatedAt,
+    updatedAt,
+    ...overrides,
+  });
+
+  test("patches one row and moves it to the top under the updated sort", () => {
+    const rows = [summary("a", 30), summary("b", 20), summary("c", 10)];
+    const merged = mergeRemoteSummary(rows, summary("c", 40, { title: "改过" }), "updated");
+    expect(merged?.map((row) => row.id)).toEqual(["c", "a", "b"]);
+    expect(merged?.[0]?.title).toBe("改过");
+    // 原数组不被就地修改。
+    expect(rows.map((row) => row.id)).toEqual(["a", "b", "c"]);
+  });
+
+  test("keeps the position for created and title sorts", () => {
+    const rows = [summary("a", 30), summary("b", 20)];
+    expect(mergeRemoteSummary(rows, summary("b", 40), "created")?.map((row) => row.id)).toEqual(["a", "b"]);
+    expect(mergeRemoteSummary(rows, summary("b", 40), "title")?.map((row) => row.id)).toEqual(["a", "b"]);
+  });
+
+  test("returns null when the note is not in the current list", () => {
+    expect(mergeRemoteSummary([summary("a", 1)], summary("missing", 2), "updated")).toBeNull();
   });
 });
 

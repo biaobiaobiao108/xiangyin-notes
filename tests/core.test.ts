@@ -141,8 +141,15 @@ describe("markdown and search helpers", () => {
   });
 
   test("keeps ordinary quotes and unknown callout markers in previews", () => {
+    // 未识别的 callout 只是普通引用，标记按原文字面保留（方括号不再被吞掉）。
     expect(formatPreview("> A normal quote.\n> Still quoted.\n\n> [!CUSTOM]\n> Unknown content."))
-      .toBe("A normal quote.\nStill quoted.\n!CUSTOM\nUnknown content.");
+      .toBe("A normal quote.\nStill quoted.\n[!CUSTOM]\nUnknown content.");
+  });
+
+  test("keeps literal brackets and flattens wiki links in previews", () => {
+    expect(formatPreview("数组 a[0] 与 a[1]")).toBe("数组 a[0] 与 a[1]");
+    expect(formatPreview("见 [[目标笔记]] 与 [[目标笔记|显示别名]]")).toBe("见 目标笔记 与 显示别名");
+    expect(formatPreview("【【目标笔记｜全角别名】】")).toBe("全角别名");
   });
 
   test("skips supported callouts when the marker line also contains text", () => {

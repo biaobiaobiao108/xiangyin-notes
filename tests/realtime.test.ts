@@ -281,11 +281,10 @@ describe("Realtime HTTP integration", () => {
     }, { realtime: hub });
     expect(imported.response.status).toBe(201);
     expect(socket.messages).toHaveLength(1);
-    expect(JSON.parse(socket.messages[0])).toMatchObject({
-      type: "workspace.changed",
-      resource: "notes",
-      noteId: imported.body?.note?.id,
-    });
+    const importEvent = JSON.parse(socket.messages[0]!);
+    expect(importEvent).toMatchObject({ type: "workspace.changed", resource: "notes" });
+    // 导入新增了笔记：事件代表成员变化，不带 noteId，客户端整表刷新。
+    expect(importEvent).not.toHaveProperty("noteId");
 
     const replay = await request("/api/import", {
       method: "POST",

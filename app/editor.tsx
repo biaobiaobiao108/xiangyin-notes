@@ -43,6 +43,7 @@ import { CardOutline } from "./editor/card-outline";
 import { MobileEditorHeader, MobileEditorFooter, MobileEditorOutline } from "./editor/mobile-editor-controls";
 import { mobileCaretBounds, useMobileCaret } from "./editor/use-mobile-caret";
 import { useEditorContextMenu } from "./editor/use-editor-context-menu";
+import { useScrollEdges } from "./workspace/use-scroll-edges";
 import "./editor/mobile-editor.css";
 
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
@@ -233,6 +234,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   const onMarkdownDirtyChangeRef = useRef(onMarkdownDirtyChange);
   const surfaceSyncRef = useRef<(instance: Editor, outlineMayHaveChanged?: boolean, transaction?: Transaction) => void>(() => undefined);
   const [editorStats, setEditorStats] = useState<EditorStats>(() => countEditorText(""));
+  const editorScrollEdges = useScrollEdges(editorScrollRef, [note.id, note.updatedAt, editorStats.characterCount]);
   const editorTextStatsSnapshotRef = useRef<EditorTextStatsSnapshot | null>(null);
   const [deferredLoading, setDeferredLoading] = useState(false);
   const [imageUploadState, setImageUploadState] = useState<"idle" | "uploading" | "error">("idle");
@@ -1396,7 +1398,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
         </div>
       </header>}
       {isMobileViewport && onUploadImage && !note.deletedAt && <input ref={imageFileInputRef} className="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple tabIndex={-1} aria-label="选择要上传的图片文件" onChange={(event) => { uploadImageFilesRef.current(Array.from(event.target.files ?? [])); event.target.value = ""; }} />}
-      <div className="editor-scroll-shell">
+      <div className={`editor-scroll-shell${editorScrollEdges.before ? " has-scroll-before" : ""}${editorScrollEdges.after ? " has-scroll-after" : ""}`}>
         <div id="editor-scroll-region" className={`editor-scroll floating-scrollbar-target ${typewriterMode ? "is-typewriter-mode" : ""}`} ref={editorScrollRef} onKeyDownCapture={(event) => {
           const target = event.target;
           if (!(target instanceof HTMLElement) || editor?.view.composing || composingRef.current) return;

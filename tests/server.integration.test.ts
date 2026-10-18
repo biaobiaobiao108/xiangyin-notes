@@ -130,6 +130,8 @@ describe("Bun Server API", () => {
     expect(imported.body?.note).not.toHaveProperty("contentMarkdown");
     expect(imported.body?.note.title).toMatch(/^快捷导入 \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/u);
     expect(imported.body?.note.notebookName).toBe("收件箱");
+    // 幂等导入的 ID 也必须是 UUID，与 POST /api/notes 的校验保持同一契约。
+    expect(imported.body?.note.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u);
 
     const importedNote = database.query("SELECT id, title, content_markdown, notebook_id FROM notes WHERE id = ?").get(imported.body?.note.id) as { id: string; title: string; content_markdown: string; notebook_id: string };
     const inbox = database.query("SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1").get(login.body?.user?.id ?? "") as { id: string } | null;
@@ -284,6 +286,12 @@ describe("Bun Server API", () => {
     expect(summaryUpdate.response.status).toBe(200);
     expect(summaryUpdate.body?.note).not.toHaveProperty("contentMarkdown");
     expect(summaryUpdate.body?.note.isFavorite).toBe(true);
+
+    const summaryRead = await request(`/api/notes/${note.id}?response=summary`, {}, login.cookie);
+    expect(summaryRead.response.status).toBe(200);
+    expect(summaryRead.body?.note).not.toHaveProperty("contentMarkdown");
+    expect(summaryRead.body?.note.title).toBe("Updated");
+    expect(summaryRead.body?.note.version).toBe(summaryUpdate.body?.note.version);
 
     const invalidCreate = await request("/api/notes", { method: "POST", body: "not-json" }, login.cookie);
     expect(invalidCreate.response.status).toBe(400);
@@ -772,6 +780,21 @@ describe("Bun Server API", () => {
     expect(worker.response.status).toBe(200);
     expect(worker.response.headers.get("Content-Type")).toContain("javascript");
     expect(worker.response.headers.get("Cache-Control")).toBe("no-cache");
+  });
+
+  test("revalidates static files with ETag instead of resending them", async () => {
+    const first = await request("/manifest.webmanifest", {}, undefined, environment, "http://xiangying.test", "app");
+    expect(first.response.status).toBe(200);
+    const etag = first.response.headers.get("etag");
+    expect(etag).toBeString();
+    expect(first.response.headers.get("last-modified")).toContain("GMT");
+
+    const revalidated = await request("/manifest.webmanifest", { headers: { "If-None-Match": etag! } }, undefined, environment, "http://xiangying.test", "app");
+    expect(revalidated.response.status).toBe(304);
+    expect(revalidated.response.headers.get("etag")).toBe(etag);
+
+    const changed = await request("/manifest.webmanifest", { headers: { "If-None-Match": 'W/"stale-tag"' } }, undefined, environment, "http://xiangying.test", "app");
+    expect(changed.response.status).toBe(200);
   });
 
   test("serves source PWA asset aliases in development", async () => {

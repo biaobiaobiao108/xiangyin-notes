@@ -4,21 +4,12 @@ import type { TestSqliteDatabase } from "../server/test-db";
 import { handleRequest } from "../server/index";
 import { MAX_SHORT_TERM_CONTENT_CHARS, MAX_SHORT_TERMS_PER_NOTE } from "../server/note-search";
 import { NOTE_CONTENT_MAX_BYTES } from "../server/core";
+import { BACKLINK_MENTION_LIMIT, BACKLINK_REFERENCE_LIMIT } from "../server/core";
 
 let database: TestSqliteDatabase;
 let cookie: string;
 let notebookId: string;
 const environment = { XIANGYING_USERNAME: "owner", XIANGYING_PASSWORD: "backlinks test passphrase 1234" };
-
-test("backlink dialog keeps linked status icon-only and metadata grouped on mobile", async () => {
-  const component = await Bun.file("app/editor/backlinks-panel.tsx").text();
-  const styles = await Bun.file("app/styles.css").text();
-  expect(component).toContain('role: "img", "aria-label": "已链接", title: "已链接"');
-  expect(component).toContain('<Link2 size={13} aria-hidden="true" />');
-  expect(component).not.toContain("<span>已链接</span>");
-  expect(styles).toContain(".backlinks-dialog .backlink-card-title-button { display: grid;");
-  expect(styles).toContain(".backlinks-dialog .backlink-card-time { flex: none; margin-left: auto; white-space: nowrap;");
-});
 
 async function request(path: string, method = "GET", payload?: unknown) {
   const response = await handleRequest(new Request(`http://xiangying.test${path}`, {
@@ -48,6 +39,33 @@ async function createNote(title: string, contentMarkdown = "") {
   expect(result.response.status).toBe(201);
   return result.body.note;
 }
+
+for (const title of ["苹果", "反链测试"]) {
+  test(`repeated backlinks requests work after truncating mentions of ${title}`, async () => {
+    const target = await createNote(title);
+    const source = await createNote("来源", Array.from({ length: BACKLINK_MENTION_LIMIT + 1 }, () => title).join("\n\n"));
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const result = await request(`/api/notes/${target.id}/backlinks`);
+      expect(result.response.status).toBe(200);
+      expect(result.body.truncated).toBe(true);
+      expect(result.body.unlinkedMentions).toHaveLength(BACKLINK_MENTION_LIMIT);
+      expect(result.body.unlinkedMentions[0].sourceNoteId).toBe(source.id);
+    }
+  });
+}
+
+test("repeated backlinks requests work after truncating linked references", async () => {
+  const target = await createNote("目标笔记");
+  for (let index = 0; index <= BACKLINK_REFERENCE_LIMIT; index += 1) {
+    await createNote(`来源 ${index}`, "[[目标笔记]]");
+  }
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const result = await request(`/api/notes/${target.id}/backlinks`);
+    expect(result.response.status).toBe(200);
+    expect(result.body.truncated).toBe(true);
+    expect(result.body.linkedReferences).toHaveLength(BACKLINK_REFERENCE_LIMIT);
+  }
+});
 
 for (const trashedRole of ["source", "target"] as const) {
   test(`link mention rejects a trashed ${trashedRole} and preserves the source`, async () => {

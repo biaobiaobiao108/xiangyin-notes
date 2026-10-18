@@ -237,7 +237,7 @@ export function useVirtualCardMasonry(
   }, [placements, refreshViewport, scrollRootRef]);
 
   const onKeyDownCapture = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== "Tab" || !(event.target instanceof Element)) return;
+    if (event.key !== "Tab" || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || !(event.target instanceof Element)) return;
     const slot = event.target.closest<HTMLElement>("[data-card-masonry-note-id]");
     const noteId = slot?.dataset.cardMasonryNoteId;
     if (!noteId) return;
