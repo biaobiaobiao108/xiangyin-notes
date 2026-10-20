@@ -1,8 +1,9 @@
 import { databaseFromBinding, type D1Binding } from "../server/db";
-import type { R2BucketBinding, RealtimeNamespaceBinding } from "../server/core";
+import { digestHex, SESSION_COOKIE, type R2BucketBinding, type RealtimeNamespaceBinding } from "../server/core";
 import { handleRequest } from "../server/index";
 import type { WorkspaceChangeMessage } from "../shared/realtime";
 import { MAX_CONNECTIONS_PER_USER, REALTIME_CLIENT_ID_HEADER } from "../server/realtime";
+import { cookieValue } from "../server/routes/auth";
 
 type StaticAssetsBinding = { fetch(request: Request): Promise<Response> };
 
@@ -24,7 +25,7 @@ export type Env = {
 type WorkerExecutionContext = { waitUntil(promise: Promise<unknown>): void };
 type SocketWithAttachment = WebSocket & {
   serializeAttachment(value: unknown): void;
-  deserializeAttachment(): { clientId?: string | null } | null;
+  deserializeAttachment(): { clientId?: string | null; sessionTokenHash?: string } | null;
 };
 type RealtimeDurableState = {
   acceptWebSocket(socket: SocketWithAttachment): void;
@@ -65,6 +66,15 @@ export class RealtimeHub {
 
   async fetch(request: Request) {
     const url = new URL(request.url);
+    if (request.method === "POST" && (url.pathname === "/revoke-user" || url.pathname === "/revoke-session")) {
+      const payload = await request.json() as { tokenHash?: string };
+      for (const socket of this.state.getWebSockets()) {
+        const attachment = socket.deserializeAttachment();
+        if (url.pathname === "/revoke-session" && (!payload.tokenHash || attachment?.sessionTokenHash !== payload.tokenHash)) continue;
+        try { socket.close(1008, "session revoked"); } catch {}
+      }
+      return new Response(null, { status: 204 });
+    }
     if (request.method === "POST" && url.pathname === "/broadcast") {
       const payload = await request.json() as { resource?: string; noteId?: string; clientId?: string | null };
       if (payload.resource !== "notes" && payload.resource !== "notebooks") return new Response("Invalid broadcast", { status: 400 });
@@ -98,7 +108,9 @@ export class RealtimeHub {
     const server = pair[1];
     const clientId = request.headers.get(REALTIME_CLIENT_ID_HEADER)
       ?? new URL(request.url).searchParams.get("clientId");
-    server.serializeAttachment({ clientId });
+    const session = cookieValue(request.headers.get("Cookie"), SESSION_COOKIE);
+    if (!session) return new Response("Unauthenticated", { status: 401 });
+    server.serializeAttachment({ clientId, sessionTokenHash: await digestHex(session) });
     this.state.acceptWebSocket(server);
     return new Response(null, { status: 101, webSocket: client } as ResponseInit);
   }

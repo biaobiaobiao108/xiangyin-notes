@@ -311,7 +311,7 @@ export function BacklinksDialog({
                             className={`backlink-kind-badge ${
                               isUnlinked ? "is-unlinked" : "is-linked"
                             }`}
-                            {...(isUnlinked ? {} : { role: "img", "aria-label": "已链接", title: "已链接" })}
+                            {...(isUnlinked ? {} : { role: "img", "aria-label": "已链接" })}
                           >
                             {isUnlinked ? (
                               <>

@@ -14,6 +14,7 @@ import { handleMcpRequest, MCP_PATH } from "./mcp";
 import { handleNotebooksRoute } from "./routes/notebooks";
 import { handleNotesRoute } from "./routes/notes";
 import { handleRealtimeRequest, REALTIME_PATH } from "./realtime";
+import { createRealtimeSessionRevoker } from "./realtime-revocation";
 
 // Re-exports for backward compatibility and test runners
 export {
@@ -222,7 +223,7 @@ async function handleApi(request: Request, options: ServerOptions) {
   if (importResponse) return importResponse;
 
   // 2. Authenticated barrier
-  const user = await requireUser(database, environment, request);
+  const user = await requireUser(database, environment, request, createRealtimeSessionRevoker(options));
   if (isResponse(user)) return user;
 
   // 3. Domain routes

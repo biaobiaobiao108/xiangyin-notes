@@ -267,7 +267,8 @@ describe("Realtime HTTP integration", () => {
       { database, environment, realtime: hub },
     );
     expect(upgradeResponse).toBeNull();
-    expect(upgradeData).toEqual({ userId, clientId: "browser-1" });
+    expect(upgradeData).toMatchObject({ userId, clientId: "browser-1" });
+    expect(upgradeData?.sessionTokenHash).toMatch(/^[a-f0-9]{64}$/u);
 
     const importHeaders = {
       Authorization: `Bearer ${environment.XIANGYING_API_TOKEN}`,

@@ -1,6 +1,7 @@
 import type { WorkspaceChangeMessage, WorkspaceChangeResource } from "../shared/realtime";
-import { getPublicOrigin, jsonError, type ServerOptions } from "./core";
-import { cleanupExpiredSessions, isResponse, requireUser } from "./routes/auth";
+import { digestHex, getPublicOrigin, jsonError, SESSION_COOKIE, type ServerOptions } from "./core";
+import { cleanupExpiredSessions, cookieValue, isResponse, requireUser } from "./routes/auth";
+import { createRealtimeSessionRevoker } from "./realtime-revocation";
 
 export const REALTIME_PATH = "/api/realtime";
 export const REALTIME_CLIENT_ID_HEADER = "X-Xiangying-Client-Id";
@@ -12,6 +13,7 @@ const CLIENT_ID_PATTERN = /^[\x21-\x7E]{1,128}$/u;
 export type RealtimeSocketData = {
   userId: string;
   clientId: string | null;
+  sessionTokenHash?: string;
 };
 
 function normalizeClientId(value: string | null | undefined) {
@@ -31,6 +33,24 @@ export class RealtimeHub {
   private readonly connections = new Map<string, Set<Bun.ServerWebSocket<RealtimeSocketData>>>();
   private revision = 0;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+
+  private closeMatching(predicate: (socket: Bun.ServerWebSocket<RealtimeSocketData>) => boolean) {
+    for (const userConnections of this.connections.values()) {
+      for (const socket of userConnections) {
+        if (!predicate(socket)) continue;
+        this.remove(socket);
+        try { socket.close(1008, "session revoked"); } catch {}
+      }
+    }
+  }
+
+  revokeUser(userId: string) {
+    this.closeMatching((socket) => socket.data?.userId === userId);
+  }
+
+  revokeSession(tokenHash: string) {
+    this.closeMatching((socket) => socket.data?.sessionTokenHash === tokenHash);
+  }
 
   add(socket: Bun.ServerWebSocket<RealtimeSocketData>) {
     const userId = socket.data?.userId;
@@ -167,7 +187,7 @@ export async function handleRealtimeRequest(request: Request, options: ServerOpt
   }
 
   await cleanupExpiredSessions(options.database);
-  const user = await requireUser(options.database, options.environment ?? {}, request);
+  const user = await requireUser(options.database, options.environment ?? {}, request, createRealtimeSessionRevoker(options));
   if (isResponse(user)) return user;
   const namespace = options.realtimeNamespace;
   const response = await namespace.get(namespace.idFromName(user.id)).fetch(request);
@@ -189,10 +209,14 @@ export async function upgradeRealtimeRequest(
     }
   }
   await cleanupExpiredSessions(options.database);
-  const user = await requireUser(options.database, options.environment ?? {}, request);
+  const realtime = createRealtimeSessionRevoker(options);
+  const user = await requireUser(options.database, options.environment ?? {}, request, realtime);
   if (isResponse(user)) return user;
   const clientId = realtimeClientIdFromUrl(request) ?? requestClientId(request);
-  return server.upgrade(request, { data: { userId: user.id, clientId } })
+  const session = cookieValue(request.headers.get("Cookie"), SESSION_COOKIE);
+  if (!session) return jsonError(401, "UNAUTHENTICATED", "请先登录");
+  const sessionTokenHash = await digestHex(session);
+  return server.upgrade(request, { data: { userId: user.id, clientId, sessionTokenHash } })
     ? null
     : jsonError(400, "WEBSOCKET_UPGRADE_FAILED", "无法建立实时连接");
 }

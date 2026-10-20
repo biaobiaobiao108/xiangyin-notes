@@ -31,6 +31,7 @@ import {
 } from "../core";
 import { syncNoteShortSearchTerms } from "../note-search";
 import { syncStoredNoteTitleKey } from "../note-links";
+import { createRealtimeSessionRevoker, type RealtimeSessionRevoker } from "../realtime-revocation";
 
 type RuntimeEnvironment = Record<string, string | undefined>;
 
@@ -41,12 +42,20 @@ type LoginAttempt = {
 };
 
 
-const credentialChecks = new WeakMap<SqliteDatabase, { signature: string; task: Promise<void> }>();
+type CredentialCheck = { signature: string; task: Promise<string | null>; revocationNotified: boolean };
+const credentialChecks = new WeakMap<SqliteDatabase, CredentialCheck>();
 
-async function syncEnvironmentPassword(database: SqliteDatabase, credentials: AuthCredentials) {
+async function syncEnvironmentPassword(database: SqliteDatabase, credentials: AuthCredentials, realtime?: RealtimeSessionRevoker) {
   const signature = await digestHex(`${credentials.username}\0${credentials.password}`);
   const previous = credentialChecks.get(database);
-  if (previous?.signature === signature) return previous.task;
+  if (previous?.signature === signature) {
+    const revokedUserId = await previous.task;
+    if (revokedUserId && realtime && !previous.revocationNotified) {
+      previous.revocationNotified = true;
+      realtime.revokeUser(revokedUserId);
+    }
+    return;
+  }
 
   const task = (async () => {
     await previous?.task;
@@ -55,19 +64,25 @@ async function syncEnvironmentPassword(database: SqliteDatabase, credentials: Au
       "SELECT id, username, password_hash, password_salt FROM users WHERE username = ?",
       credentials.username,
     );
-    if (!existing) return;
+    if (!existing) return null;
     const derived = await derivePassword(credentials.password, existing.password_salt);
-    if (constantTimeEqual(derived, existing.password_hash)) return;
+    if (constantTimeEqual(derived, existing.password_hash)) return null;
 
     const replacement = await hashPassword(credentials.password);
-    await database.batch([
+    const results = await database.batch([
       { sql: "UPDATE users SET password_hash = ?, password_salt = ? WHERE id = ? AND password_hash = ? AND password_salt = ?", values: [replacement.hash, replacement.salt, existing.id, existing.password_hash, existing.password_salt] },
       { sql: "DELETE FROM sessions WHERE user_id = ? AND EXISTS (SELECT 1 FROM users WHERE id = ? AND password_hash = ? AND password_salt = ?)", values: [existing.id, existing.id, replacement.hash, replacement.salt] },
     ]);
+    return results[0]?.changes ? existing.id : null;
   })();
-  credentialChecks.set(database, { signature, task });
+  const check: CredentialCheck = { signature, task, revocationNotified: false };
+  credentialChecks.set(database, check);
   try {
-    await task;
+    const revokedUserId = await task;
+    if (revokedUserId && realtime && !check.revocationNotified) {
+      check.revocationNotified = true;
+      realtime.revokeUser(revokedUserId);
+    }
   } catch (error) {
     if (credentialChecks.get(database)?.task === task) credentialChecks.delete(database);
     throw error;
@@ -76,8 +91,8 @@ async function syncEnvironmentPassword(database: SqliteDatabase, credentials: Au
 
 export function getAuthCredentials(environment: RuntimeEnvironment = {}): AuthCredentials | null {
   const username = environment.XIANGYING_USERNAME?.trim();
-  const password = environment.XIANGYING_PASSWORD?.trim();
-  if (!username || !password) return null;
+  const password = environment.XIANGYING_PASSWORD;
+  if (!username || password === undefined || password.length === 0) return null;
   return { username, password };
 }
 
@@ -173,8 +188,8 @@ export async function cleanupExpiredSessions(database: SqliteDatabase, force = f
   await database.query("DELETE FROM sessions WHERE expires_at <= ?").run(timestamp);
 }
 
-export async function ensureEnvironmentUser(database: SqliteDatabase, credentials: AuthCredentials): Promise<UserRow> {
-  await syncEnvironmentPassword(database, credentials);
+export async function ensureEnvironmentUser(database: SqliteDatabase, credentials: AuthCredentials, realtime?: RealtimeSessionRevoker): Promise<UserRow> {
+  await syncEnvironmentPassword(database, credentials, realtime);
   const existing = await first<UserRow>(database, "SELECT id, username FROM users WHERE username = ?", credentials.username);
   if (existing) return existing;
 
@@ -208,12 +223,12 @@ export async function ensureEnvironmentUser(database: SqliteDatabase, credential
   return { id: userId, username: credentials.username };
 }
 
-export async function getCurrentUser(database: SqliteDatabase, environment: RuntimeEnvironment, request: Request) {
+export async function getCurrentUser(database: SqliteDatabase, environment: RuntimeEnvironment, request: Request, realtime?: RealtimeSessionRevoker) {
   const credentials = getAuthCredentials(environment);
   if (!credentials) return null;
   const session = cookieValue(request.headers.get("Cookie"), SESSION_COOKIE);
   if (!session) return null;
-  await syncEnvironmentPassword(database, credentials);
+  await syncEnvironmentPassword(database, credentials, realtime);
   const tokenHash = await digestHex(session);
   const timestamp = now();
   const current = await first<UserRow & { session_expires_at: number }>(database, `
@@ -228,8 +243,8 @@ export async function getCurrentUser(database: SqliteDatabase, environment: Runt
   return { id: current.id, username: current.username };
 }
 
-export async function requireUser(database: SqliteDatabase, environment: RuntimeEnvironment, request: Request) {
-  return (await getCurrentUser(database, environment, request)) ?? jsonError(401, "UNAUTHENTICATED", "请先登录");
+export async function requireUser(database: SqliteDatabase, environment: RuntimeEnvironment, request: Request, realtime?: RealtimeSessionRevoker) {
+  return (await getCurrentUser(database, environment, request, realtime)) ?? jsonError(401, "UNAUTHENTICATED", "请先登录");
 }
 
 export function isResponse(value: UserRow | Response): value is Response {
@@ -239,6 +254,7 @@ export function isResponse(value: UserRow | Response): value is Response {
 export async function handleAuthRoute(ctx: RouteContext): Promise<Response | null> {
   const { request, url, method, options } = ctx;
   const { database, environment = {}, clientAddress } = options;
+  const realtime = createRealtimeSessionRevoker(options);
 
   if (method === "GET" && url.pathname === "/api/health") {
     await first(database, "SELECT 1 AS ok");
@@ -247,8 +263,8 @@ export async function handleAuthRoute(ctx: RouteContext): Promise<Response | nul
 
   if (method === "GET" && url.pathname === "/api/bootstrap") {
     const credentials = getAuthCredentials(environment);
-    if (credentials && environment.NODE_ENV === "development" && environment.XIANGYING_DEV_AUTO_LOGIN === "true" && !await getCurrentUser(database, environment, request)) {
-      const user = await ensureEnvironmentUser(database, credentials);
+    if (credentials && environment.NODE_ENV === "development" && environment.XIANGYING_DEV_AUTO_LOGIN === "true" && !await getCurrentUser(database, environment, request, realtime)) {
+      const user = await ensureEnvironmentUser(database, credentials, realtime);
       const session = createOpaqueToken();
       const createdAt = now();
       await database.query("INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)").run(await digestHex(session), user.id, createdAt, createdAt + SESSION_TTL);
@@ -281,7 +297,7 @@ export async function handleAuthRoute(ctx: RouteContext): Promise<Response | nul
     }
     await resetLoginAttempt(database, attemptKey);
 
-    const user = await ensureEnvironmentUser(database, credentials);
+    const user = await ensureEnvironmentUser(database, credentials, realtime);
     const session = createOpaqueToken();
     const createdAt = now();
     await database.query("INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)").run(await digestHex(session), user.id, createdAt, createdAt + SESSION_TTL);
@@ -292,7 +308,12 @@ export async function handleAuthRoute(ctx: RouteContext): Promise<Response | nul
 
   if (method === "POST" && url.pathname === "/api/auth/logout") {
     const session = cookieValue(request.headers.get("Cookie"), SESSION_COOKIE);
-    if (session) await database.query("DELETE FROM sessions WHERE token_hash = ?").run(await digestHex(session));
+    if (session) {
+      const tokenHash = await digestHex(session);
+      const activeSession = await first<{ user_id: string }>(database, "SELECT user_id FROM sessions WHERE token_hash = ?", tokenHash);
+      await database.query("DELETE FROM sessions WHERE token_hash = ?").run(tokenHash);
+      if (activeSession) realtime?.revokeSession(activeSession.user_id, tokenHash);
+    }
     const headers = new Headers();
     setSessionCookie(headers, request, "", environment, 0, clientAddress);
     headers.set("Clear-Site-Data", '"cookies"');
@@ -300,7 +321,7 @@ export async function handleAuthRoute(ctx: RouteContext): Promise<Response | nul
   }
 
   if (method === "GET" && url.pathname === "/api/me") {
-    const user = await requireUser(database, environment, request);
+    const user = await requireUser(database, environment, request, realtime);
     if (isResponse(user)) return user;
     const headers = new Headers();
     const session = cookieValue(request.headers.get("Cookie"), SESSION_COOKIE);

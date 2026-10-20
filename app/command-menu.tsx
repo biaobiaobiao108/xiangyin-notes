@@ -176,6 +176,7 @@ export function CommandMenu({
   const moveNoteError = moveNoteResult?.kind === "error" ? moveNoteResult.message : "";
   const feedbackMessage = createNoteError || moveNoteError;
   const emptySearchPrefix = Boolean(parsedSearchPrefix && !parsedSearchPrefix.term);
+  const activeOptionId = feedbackMessage || !options[selected] ? undefined : `command-option-${selected}`;
 
   const updateQuery = (next: string) => {
     mobileTouchScrollingRef.current = false;
@@ -366,6 +367,12 @@ export function CommandMenu({
           value={query}
           onChange={(event) => updateQuery(event.target.value)}
           aria-label="搜索命令或笔记内容"
+          role="combobox"
+          aria-autocomplete="list"
+          aria-haspopup="listbox"
+          aria-expanded={Boolean(activeOptionId)}
+          aria-controls="command-list-scroll-region"
+          aria-activedescendant={activeOptionId}
         />
       </div>
       <div className="command-list-wrap">
@@ -383,13 +390,14 @@ export function CommandMenu({
               : (command.kind === "in-note-search" || command.kind === "global-search") ? "搜索"
               : command.kind === "move-note" ? "移动笔记"
               : "命令";
-            const heading = section !== previousSection && section !== "命令" ? <div className="command-section-label" key={`${command.key}-section`}>{section}</div> : null;
+            const heading = section !== previousSection && section !== "命令" ? <div className="command-section-label" key={`${command.key}-section`} role="presentation">{section}</div> : null;
             const commandDetail = command.detail || "";
             previousSection = section;
             return (
               <Fragment key={command.key}>
                 {heading}
                 <button
+                  id={`command-option-${index}`}
                   type="button"
                   className={`command-row ${command.kind === "in-note-search" || command.kind === "global-search" ? "command-row--search" : ""} ${selected === index ? "is-selected" : ""}`}
                   role="option"
