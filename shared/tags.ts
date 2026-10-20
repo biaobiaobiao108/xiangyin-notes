@@ -65,22 +65,21 @@ function collectVisibleSegments(markdown: string) {
   let lineStart = 0;
 
   while (lineStart <= markdown.length) {
-    const lineBreak = markdown.indexOf("\n", lineStart);
-    const lineEnd = lineBreak === -1 ? markdown.length : lineBreak;
+    const { end: lineEnd, next: lineNext, hasBreak } = lineBounds(markdown, lineStart);
     const candidateFence = lineFence(markdown, lineStart, lineEnd);
 
     if (fence) {
       if (isClosingFence(fence, candidateFence)) {
         fence = null;
-        visibleStart = lineBreak === -1 ? markdown.length : lineBreak + 1;
+        visibleStart = lineNext;
       }
     } else if (candidateFence) {
       if (lineStart > visibleStart) segments.push({ start: visibleStart, end: lineStart });
       fence = candidateFence;
     }
 
-    if (lineBreak === -1) break;
-    lineStart = lineBreak + 1;
+    if (!hasBreak) break;
+    lineStart = lineNext;
   }
 
   if (!fence && visibleStart < markdown.length) segments.push({ start: visibleStart, end: markdown.length });

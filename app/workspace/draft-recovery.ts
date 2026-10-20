@@ -21,8 +21,11 @@ function warnOversizedDraft(noteId: string) {
 let draftDatabasePromise: Promise<IDBDatabase | null> | null = null;
 // Keep only short fingerprints for the last value seen in each store. Recovery
 // contents can be large, so completed drafts are never retained in memory.
-const knownRecoveries = new Map<string, { local?: string | null; indexed?: string | null }>();
+const knownRecoveries = new Map<string, { local?: string; indexed?: string }>();
+const MAX_KNOWN_RECOVERIES = 256;
 const pendingOperations = new Map<string, { token: symbol; fingerprint?: string }>();
+type RecoveryRead = { invalidated: boolean };
+const pendingRecoveryReads = new Map<string, Set<RecoveryRead>>();
 
 function fingerprint(serialized: string) {
   let first = 0x811c9dc5;
@@ -37,11 +40,40 @@ function fingerprint(serialized: string) {
 
 function rememberRecovery(noteId: string, store: "local" | "indexed", serialized: string | null) {
   const known = knownRecoveries.get(noteId) ?? {};
-  known[store] = serialized === null ? null : fingerprint(serialized);
-  knownRecoveries.set(noteId, known);
+  if (serialized === null) delete known[store];
+  else known[store] = fingerprint(serialized);
+  if (known.local === undefined && known.indexed === undefined) knownRecoveries.delete(noteId);
+  else {
+    knownRecoveries.delete(noteId);
+    knownRecoveries.set(noteId, known);
+    while (knownRecoveries.size > MAX_KNOWN_RECOVERIES) {
+      const oldestNoteId = knownRecoveries.keys().next().value;
+      if (oldestNoteId === undefined) break;
+      knownRecoveries.delete(oldestNoteId);
+    }
+  }
 }
 
-function beginDraftOperation(noteId: string, serialized?: string) {
+function invalidateRecoveryReads(noteId: string) {
+  for (const read of pendingRecoveryReads.get(noteId) ?? []) read.invalidated = true;
+}
+
+function beginRecoveryRead(noteId: string) {
+  const read: RecoveryRead = { invalidated: false };
+  const reads = pendingRecoveryReads.get(noteId) ?? new Set<RecoveryRead>();
+  reads.add(read);
+  pendingRecoveryReads.set(noteId, reads);
+  return {
+    isCurrent: () => !read.invalidated,
+    finish: () => {
+      reads.delete(read);
+      if (reads.size === 0) pendingRecoveryReads.delete(noteId);
+    },
+  };
+}
+
+function beginDraftOperation(noteId: string, serialized?: string, invalidateReads = true) {
+  if (invalidateReads) invalidateRecoveryReads(noteId);
   const token = Symbol();
   const pendingFingerprint = serialized ? fingerprint(serialized) : undefined;
   const previousFingerprint = pendingOperations.get(noteId)?.fingerprint;
@@ -253,17 +285,22 @@ export function writeDraftRecovery(draft: NoteDraft) {
 
 export async function readDraftRecovery(noteId: string) {
   if (typeof window === "undefined") return null;
-  const local = readLocalDraft(noteId);
-  if (local.readable) rememberRecovery(noteId, "local", local.serialized);
-  const indexedSerialized = await readIndexedDraft(noteId);
-  rememberRecovery(noteId, "indexed", indexedSerialized);
+  const operation = beginRecoveryRead(noteId);
+  try {
+    const local = readLocalDraft(noteId);
+    if (local.readable && operation.isCurrent()) rememberRecovery(noteId, "local", local.serialized);
+    const indexedSerialized = await readIndexedDraft(noteId);
+    if (operation.isCurrent()) rememberRecovery(noteId, "indexed", indexedSerialized);
 
-  const localRecord = local.serialized ? parseDraftRecoveryRecord(local.serialized, noteId) : null;
-  const indexedRecord = indexedSerialized ? parseDraftRecoveryRecord(indexedSerialized, noteId) : null;
-  if (localRecord && indexedRecord) {
-    return indexedRecord.updatedAt > localRecord.updatedAt ? indexedRecord.draft : localRecord.draft;
+    const localRecord = local.serialized ? parseDraftRecoveryRecord(local.serialized, noteId) : null;
+    const indexedRecord = indexedSerialized ? parseDraftRecoveryRecord(indexedSerialized, noteId) : null;
+    if (localRecord && indexedRecord) {
+      return indexedRecord.updatedAt > localRecord.updatedAt ? indexedRecord.draft : localRecord.draft;
+    }
+    return localRecord?.draft ?? indexedRecord?.draft ?? null;
+  } finally {
+    operation.finish();
   }
-  return localRecord?.draft ?? indexedRecord?.draft ?? null;
 }
 
 export function clearDraftRecovery(noteId: string) {
@@ -279,8 +316,9 @@ export function clearDraftRecovery(noteId: string) {
       const serialized = window.localStorage.getItem(key);
       if (serialized && localExpected.has(fingerprint(serialized))) {
         window.localStorage.removeItem(key);
-        rememberRecovery(noteId, "local", null);
       }
+      // A missing or changed value makes the previous fingerprint stale too.
+      rememberRecovery(noteId, "local", null);
     } catch {}
   }
   if (indexedExpected.size === 0) {
@@ -288,12 +326,16 @@ export function clearDraftRecovery(noteId: string) {
     return;
   }
   void deleteIndexedDraft(noteId, indexedExpected, operation.isCurrent).then((removed) => {
-    if (removed && operation.isCurrent()) rememberRecovery(noteId, "indexed", null);
+    if (removed && operation.isCurrent()) {
+      invalidateRecoveryReads(noteId);
+      rememberRecovery(noteId, "indexed", null);
+    }
   }).finally(operation.finish);
 }
 
 export function clearAllDraftRecoveries() {
   if (typeof window === "undefined") return;
+  for (const noteId of pendingRecoveryReads.keys()) invalidateRecoveryReads(noteId);
   pendingOperations.clear();
   knownRecoveries.clear();
   try {

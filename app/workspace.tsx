@@ -39,6 +39,11 @@ export type ViewLayout = "three-column" | "cards";
 const LazyImageExportDialog = lazy(() => import("./image-export/dialog").then(({ ImageExportDialog }) => ({ default: ImageExportDialog })));
 
 const LazyNoteEditor = lazy(() => import("./editor").then(({ NoteEditor }) => ({ default: memo(NoteEditor) })));
+
+function noteMetadataSnapshot(note: Note): Note {
+  return { ...note, contentMarkdown: "" };
+}
+
 export function Workspace() {
   const navigate = useNavigate();
   const { openMenu: openWorkspaceMenu, menu: workspaceMenu } = useContextMenu();
@@ -204,6 +209,9 @@ export function Workspace() {
   const [ready, setReady] = useState(false);
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
   const [noteReloadToken, setNoteReloadToken] = useState(0);
+  const setSelectedNoteMetadata = useCallback((note: Note | null) => {
+    setSelectedNote(note ? noteMetadataSnapshot(note) : null);
+  }, []);
   const [pwaState, setPwaState] = useState<PwaState>({ standalone: false, canInstall: false, showIosInstallHint: false, updateAvailable: false });
   const realtimeRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingRealtimeRefreshRef = useRef<RealtimeRefreshPlan>(emptyRealtimeRefreshPlan());
@@ -231,7 +239,7 @@ export function Workspace() {
     trashOperationsRef,
     flushEditorDraftRef,
     replaceList,
-    setSelectedNote,
+    setSelectedNote: setSelectedNoteMetadata,
     setToast: notifyError,
   });
   const persistRef = useRef(persist);
@@ -390,7 +398,7 @@ export function Workspace() {
       if (controller.signal.aborted) return;
       invalidateCollections();
       selectedRef.current = note;
-      setSelectedNote(note);
+      setSelectedNote(noteMetadataSnapshot(note));
       setView(note.deletedAt !== null ? "trash" : "all");
       setNotebookId(note.deletedAt !== null ? undefined : note.notebookId);
       setQuery("");
@@ -514,7 +522,7 @@ export function Workspace() {
       loadedNote = latestSelectedNoteSnapshot(loadedNote, selectedRef.current);
       const nextNote = latestPendingNote ? { ...loadedNote, ...latestPendingNote } : loadedNote;
       selectedRef.current = nextNote;
-      setSelectedNote(nextNote);
+      setSelectedNote(noteMetadataSnapshot(nextNote));
       setIsNoteLoading(false);
       // A draft kept from an earlier failure or a note switch is retried instead of staying stuck on "saving".
       const retryDraft = latestPendingNote;
@@ -536,7 +544,7 @@ export function Workspace() {
         activeNoteIdRef.current = restoredNote.id;
         selectedRef.current = restoredNote;
         setSelectedId(restoredNote.id);
-        setSelectedNote(restoredNote);
+        setSelectedNote(noteMetadataSnapshot(restoredNote));
         setCardEditingNoteId((current) => current === id ? restoredNote.id : current);
       } else {
         activeNoteIdRef.current = null;
@@ -613,7 +621,7 @@ export function Workspace() {
     selectedRef.current = next;
     const contentOnlyChange = patch.contentMarkdown !== undefined && patch.title === undefined && patch.notebookId === undefined;
     if (!contentOnlyChange) {
-      setSelectedNote(next);
+      setSelectedNote(noteMetadataSnapshot(next));
       const summaryPatch: Partial<NoteSummary> = {
         ...(patch.title !== undefined ? { title: patch.title } : {}),
         ...(patch.notebookId !== undefined ? { notebookId: patch.notebookId } : {}),
@@ -678,7 +686,7 @@ export function Workspace() {
     replaceList([toNoteSummary(note), ...notesRef.current.filter((currentNote) => currentNote.id !== note.id)]);
     setTotalNotes((value) => value + 1);
     playListTransition();
-    setSelectedNote(note);
+    setSelectedNote(noteMetadataSnapshot(note));
     setIsNoteLoading(true);
     selectedRef.current = note;
     activeNoteIdRef.current = note.id;
@@ -730,7 +738,7 @@ export function Workspace() {
       if (current?.notebookId === saved.id) {
         const next = { ...current, notebookName: saved.name };
         selectedRef.current = next;
-        setSelectedNote(next);
+        setSelectedNote(noteMetadataSnapshot(next));
       }
     } else {
       setNotebookId(saved.id);
@@ -761,7 +769,7 @@ export function Workspace() {
       notifyWarning("当前笔记已在其他设备更新，请先保存或重新载入");
     },
     onUpdated: (note) => {
-      setSelectedNote(note);
+      setSelectedNote(noteMetadataSnapshot(note));
       replaceList(notesRef.current.map((n) => (n.id === noteId ? { ...n, ...toNoteSummary(note) } : n)));
       setNoteReloadToken((value) => value + 1);
       setSaveState("idle");
@@ -788,7 +796,7 @@ export function Workspace() {
     if (!current) return;
     const next = { ...current, isFavorite: !current.isFavorite };
     selectedRef.current = next;
-    setSelectedNote(next);
+    setSelectedNote(noteMetadataSnapshot(next));
     if (view !== "favorites" || next.isFavorite) {
       persist(next);
       return;
@@ -1077,7 +1085,7 @@ export function Workspace() {
       if (selectedRef.current?.id !== result.note.id) return;
       clearPendingForNote(current.id);
       selectedRef.current = result.note;
-      setSelectedNote(result.note);
+      setSelectedNote(noteMetadataSnapshot(result.note));
       setNoteReloadToken((value) => value + 1);
       setSaveState("idle");
     } catch {
@@ -1503,9 +1511,12 @@ export function Workspace() {
   if (!ready) return <main className="app-loading"><span className="loading-ring" /><span>正在进入你的空间……</span></main>;
   const currentNotebook = notebookId ? notebooks.find((notebook) => notebook.id === notebookId) : undefined;
   const listNewNote = currentNotebook ? handleNewNote : undefined;
-  // 以 selectedNote 为准：纯正文变更只更新 selectedRef，避免每次防抖同步都给 memo(NoteEditor) 新引用。
-  // id 变化或尚未同步到 state 时（切换笔记、外部同步、草稿恢复）才回退到 selectedRef。
+  // selectedNote 只保留元数据；正文从 selectedRef 单独传入，纯正文同步不更新 React state。
+  // 这样 memo(NoteEditor) 不会因每次输入触发的 Markdown 同步而重渲染，也不会在 state 中留住旧正文。
   const renderedNote = selectedNote && selectedRef.current?.id === selectedNote.id ? selectedNote : selectedRef.current ?? selectedNote;
+  const renderedNoteContent = renderedNote && selectedRef.current?.id === renderedNote.id
+    ? selectedRef.current.contentMarkdown
+    : renderedNote?.contentMarkdown ?? "";
   const commandNoteReady = Boolean((!isMobileViewport || mobilePage === "editor") && renderedNote && selectedRef.current?.id === renderedNote.id && !isNoteLoading);
   const isCardsLayout = !isMobileViewport && viewLayout === "cards";
   const mobileCards = isMobileViewport && mobileViewLayout === "cards";
@@ -1559,7 +1570,7 @@ export function Workspace() {
     )}
     {(!showCardsGrid || isMobileViewport) && (
       <main ref={editorRegionRef} className="editor-region" tabIndex={-1} aria-hidden={editorContentInert || undefined} inert={editorContentInert}>
-        {mountEditor && renderedNote ? <Suspense fallback={<NoteLoadingState />}><LazyNoteEditor note={renderedNote} availableNotes={notes} onNavigateWikiLink={handleNavigateWikiLink} onCreateAndLinkNote={handleCreateAndLinkNote} onNavigateToNote={selectNote} searchQuery={activeSearchQuery} onClearSearch={activeSearchQuery ? handleClearSearch : undefined} onMarkdownReaderChange={registerEditorMarkdownReader} onMarkdownDirtyChange={registerEditorMarkdownDirty} saveState={saveState} isLoading={isNoteLoading} trashBusy={emptyingTrash || (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onExportImage={handleExportImage} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={handleOpenList} onOpenCommands={handleOpenCommands} isMobileViewport={isMobileViewport} mobileBackLabel={query ? "搜索结果" : currentNotebook?.name ?? viewLabel(view)} onBackToCards={isCardsLayout ? () => setCardEditingNoteId(null) : undefined} onUploadImage={handleUploadImage} focusMode={focusMode} typewriterMode={typewriterMode} outlineOpen={outlineOpen} outlineItems={outlineItems} activeOutlineId={activeOutlineId} onToggleOutline={toggleOutline} onCloseOutline={closeOutline} onOutlineItemsChange={handleOutlineItemsChange} onOutlineActiveChange={handleOutlineActiveChange} onOutlineNavigationReady={handleOutlineNavigationReady} /></Suspense> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor isTrash={view === "trash"} onNewNote={handleNewNote} onOpenList={handleOpenList} transitionToken={listTransitionToken} />}
+        {mountEditor && renderedNote ? <Suspense fallback={<NoteLoadingState />}><LazyNoteEditor note={renderedNote} contentMarkdown={renderedNoteContent} availableNotes={notes} onNavigateWikiLink={handleNavigateWikiLink} onCreateAndLinkNote={handleCreateAndLinkNote} onNavigateToNote={selectNote} searchQuery={activeSearchQuery} onClearSearch={activeSearchQuery ? handleClearSearch : undefined} onMarkdownReaderChange={registerEditorMarkdownReader} onMarkdownDirtyChange={registerEditorMarkdownDirty} saveState={saveState} isLoading={isNoteLoading} trashBusy={emptyingTrash || (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onExportImage={handleExportImage} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={handleOpenList} onOpenCommands={handleOpenCommands} isMobileViewport={isMobileViewport} mobileBackLabel={query ? "搜索结果" : currentNotebook?.name ?? viewLabel(view)} onBackToCards={isCardsLayout ? () => setCardEditingNoteId(null) : undefined} onUploadImage={handleUploadImage} focusMode={focusMode} typewriterMode={typewriterMode} outlineOpen={outlineOpen} outlineItems={outlineItems} activeOutlineId={activeOutlineId} onToggleOutline={toggleOutline} onCloseOutline={closeOutline} onOutlineItemsChange={handleOutlineItemsChange} onOutlineActiveChange={handleOutlineActiveChange} onOutlineNavigationReady={handleOutlineNavigationReady} /></Suspense> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor isTrash={view === "trash"} onNewNote={handleNewNote} onOpenList={handleOpenList} transitionToken={listTransitionToken} />}
       </main>
     )}
     {isMobileViewport && mobilePage !== "editor" && <MobileBottomBar onOpenCommands={handleOpenCommands} query={query} setQuery={changeQuery} searchRef={searchRef} onNewNote={mobilePage === "home" ? handleNewInboxNote : view === "trash" ? undefined : handleNewNote} />}

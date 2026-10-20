@@ -218,7 +218,7 @@ async function handleApi(request: Request, options: ServerOptions) {
   if (importResponse) return importResponse;
 
   // 2. Authenticated barrier
-  const user = await requireUser(database, environment, request);
+  const user = await requireUser(database, environment, request, options.realtime);
   if (isResponse(user)) return user;
 
   // 3. Domain routes
@@ -260,7 +260,7 @@ export async function handleRequest(request: Request, options: ServerOptions) {
 
 if (import.meta.main) {
   const database = await openDatabase();
-  const realtime = new RealtimeHub();
+  const realtime = new RealtimeHub(database);
   const port = Number.parseInt(Bun.env.PORT ?? "3000", 10) || 3000;
   const hostname = Bun.env.HOST?.trim() || "localhost";
   const clientRoot = Bun.env.CLIENT_ROOT?.trim() || DEFAULT_CLIENT_ROOT;

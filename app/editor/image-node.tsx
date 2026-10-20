@@ -90,13 +90,16 @@ function ResizableImageView({ node, selected, editor, updateAttributes }: NodeVi
   const adjustByKeyboard = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
     // 输入法候选态下的 Escape 只取消候选，不得触发缩放退出。
     if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
-    if (!editor.isEditable || !["ArrowLeft", "ArrowRight", "Escape"].includes(event.key)) return;
-    event.preventDefault();
-    event.stopPropagation();
     if (event.key === "Escape") {
+      if (!dragRef.current) return;
       finishResize(true);
+      event.preventDefault();
+      event.stopPropagation();
       return;
     }
+    if (!editor.isEditable || !["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+    event.preventDefault();
+    event.stopPropagation();
     const maxWidth = Math.max(1, frameRef.current?.closest(".note-prose")?.getBoundingClientRect().width ?? 820);
     const nextWidth = Math.min(maxWidth, Math.max(Math.min(MIN_IMAGE_WIDTH, maxWidth), width + (event.key === "ArrowRight" ? 16 : -16)));
     updateAttributes({ width: Math.round(nextWidth), height: Math.round(nextWidth * (height / Math.max(1, width))) });

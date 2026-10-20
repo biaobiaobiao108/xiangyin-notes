@@ -145,8 +145,9 @@ async function imageDimensions(file: File) {
   }
 }
 
-export function NoteEditor({ note, searchQuery = "", saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onExportImage, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList, onOpenCommands, onBackToCards, onUploadImage, isMobileViewport = false, mobileBackLabel = "笔记列表", focusMode = false, onClearSearch, typewriterMode = false, outlineOpen, outlineItems, activeOutlineId, onToggleOutline, onCloseOutline, onOutlineItemsChange, onOutlineActiveChange, onOutlineNavigationReady, availableNotes = [], onNavigateWikiLink, onCreateAndLinkNote, onNavigateToNote, onMarkdownReaderChange, onMarkdownDirtyChange }: {
+export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searchQuery = "", saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onExportImage, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList, onOpenCommands, onBackToCards, onUploadImage, isMobileViewport = false, mobileBackLabel = "笔记列表", focusMode = false, onClearSearch, typewriterMode = false, outlineOpen, outlineItems, activeOutlineId, onToggleOutline, onCloseOutline, onOutlineItemsChange, onOutlineActiveChange, onOutlineNavigationReady, availableNotes = [], onNavigateWikiLink, onCreateAndLinkNote, onNavigateToNote, onMarkdownReaderChange, onMarkdownDirtyChange }: {
   note: Note;
+  contentMarkdown?: string;
   searchQuery?: string;
   saveState: SaveState;
   isLoading?: boolean;
@@ -209,7 +210,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
   const activeEditorNoteIdRef = useRef(note.id);
   const initialContentRef = useRef<string | null>(null);
   if (initialContentRef.current === null) {
-    initialContentRef.current = preserveEscapedHashtagsForEditor(note.contentMarkdown);
+    initialContentRef.current = preserveEscapedHashtagsForEditor(contentMarkdown);
   }
   const isPastingRef = useRef(false);
   const smoothScrollToHeadRef = useRef<(view: Editor["view"]) => void>(() => undefined);
@@ -1084,7 +1085,8 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
     if (markdownSyncFrameRef.current !== null) window.clearTimeout(markdownSyncFrameRef.current);
     markdownSyncFrameRef.current = null;
     markdownSyncStartedAtRef.current = null;
-    editor.commands.setContent(preserveEscapedHashtagsForEditor(note.contentMarkdown), { contentType: "markdown", emitUpdate: false });
+    initialContentRef.current = preserveEscapedHashtagsForEditor(contentMarkdown);
+    editor.commands.setContent(initialContentRef.current, { contentType: "markdown", emitUpdate: false });
     editorScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
     if (switchedNote) {
       const doc = documentRef.current;
@@ -1095,7 +1097,7 @@ export function NoteEditor({ note, searchQuery = "", saveState, isLoading = fals
       onMarkdownDirtyChangeRef.current?.(note.id, false);
       enteringAnimation?.cancel();
     };
-  }, [cancelOutlineSmoothScroll, editor, note.id, onCloseOutline, onOutlineActiveChange, onOutlineItemsChange, onOutlineNavigationReady, reloadToken]);
+  }, [cancelOutlineSmoothScroll, contentMarkdown, editor, note.id, onCloseOutline, onOutlineActiveChange, onOutlineItemsChange, onOutlineNavigationReady, reloadToken]);
 
   useEffect(() => {
     if (!editor || !focusRequested || isLoading || note.deletedAt) return;

@@ -17,7 +17,7 @@ export type UseNoteSaveQueueOptions = {
   trashOperationsRef: React.MutableRefObject<Set<string>>;
   flushEditorDraftRef: React.MutableRefObject<() => void>;
   replaceList: (notes: NoteSummary[]) => void;
-  setSelectedNote: React.Dispatch<React.SetStateAction<Note | null>>;
+  setSelectedNote: (note: Note | null) => void;
   setToast: (toast: string) => void;
 };
 

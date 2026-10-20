@@ -1,6 +1,6 @@
 import type { WorkspaceChangeMessage, WorkspaceChangeResource } from "../shared/realtime";
-import { getPublicOrigin, jsonError, type ServerOptions } from "./core";
-import { cleanupExpiredSessions, isResponse, requireUser } from "./routes/auth";
+import { digestHex, getPublicOrigin, jsonError, now, SESSION_COOKIE, type ServerOptions, type SqliteDatabase } from "./core";
+import { cleanupExpiredSessions, cookieValue, isResponse, requireUser } from "./routes/auth";
 
 export const REALTIME_PATH = "/api/realtime";
 export const REALTIME_CLIENT_ID_HEADER = "X-Xiangying-Client-Id";
@@ -12,6 +12,7 @@ const CLIENT_ID_PATTERN = /^[\x21-\x7E]{1,128}$/u;
 export type RealtimeSocketData = {
   userId: string;
   clientId: string | null;
+  sessionTokenHash?: string;
 };
 
 function normalizeClientId(value: string | null | undefined) {
@@ -31,6 +32,47 @@ export class RealtimeHub {
   private readonly connections = new Map<string, Set<Bun.ServerWebSocket<RealtimeSocketData>>>();
   private revision = 0;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+
+  constructor(private readonly database?: SqliteDatabase) {}
+
+  private hasActiveSession(socket: Bun.ServerWebSocket<RealtimeSocketData>) {
+    const { userId, sessionTokenHash } = socket.data ?? {};
+    // Unit-level hubs without a database retain their in-memory behavior.
+    // The production hub always has a database and must fail closed when the
+    // upgraded socket is missing its session identity.
+    if (!this.database) return true;
+    if (!sessionTokenHash || !userId) return false;
+    try {
+      return Boolean(this.database.query(`
+        SELECT 1 AS active
+        FROM sessions
+        WHERE token_hash = ? AND user_id = ? AND expires_at > ?
+      `).get(sessionTokenHash, userId, now()));
+    } catch {
+      // If session state cannot be checked, fail closed for realtime delivery.
+      return false;
+    }
+  }
+
+  private closeMatching(predicate: (socket: Bun.ServerWebSocket<RealtimeSocketData>) => boolean, reason: string) {
+    for (const userConnections of this.connections.values()) {
+      for (const socket of userConnections) {
+        if (!predicate(socket)) continue;
+        this.remove(socket);
+        try {
+          socket.close(1008, reason);
+        } catch {}
+      }
+    }
+  }
+
+  revokeUser(userId: string) {
+    this.closeMatching((socket) => socket.data?.userId === userId, "session revoked");
+  }
+
+  revokeSession(tokenHash: string) {
+    this.closeMatching((socket) => socket.data?.sessionTokenHash === tokenHash, "session revoked");
+  }
 
   add(socket: Bun.ServerWebSocket<RealtimeSocketData>) {
     const userId = socket.data?.userId;
@@ -69,8 +111,13 @@ export class RealtimeHub {
       ...(change.noteId ? { noteId: change.noteId } : {}),
     };
     const serialized = JSON.stringify(message);
+    const revokedSockets: Bun.ServerWebSocket<RealtimeSocketData>[] = [];
     const deadSockets: Bun.ServerWebSocket<RealtimeSocketData>[] = [];
     for (const socket of userConnections) {
+      if (!this.hasActiveSession(socket)) {
+        revokedSockets.push(socket);
+        continue;
+      }
       if (sourceClientId && socket.data?.clientId === sourceClientId) continue;
       try {
         socket.sendText(serialized);
@@ -78,10 +125,16 @@ export class RealtimeHub {
         deadSockets.push(socket);
       }
     }
+    for (const socket of revokedSockets) {
+      this.remove(socket);
+      try {
+        socket.close(1008, "session revoked");
+      } catch {}
+    }
     for (const socket of deadSockets) {
       this.remove(socket);
       try {
-        socket.close(1006, "send failed");
+        socket.close(1011, "send failed");
       } catch {}
     }
   }
@@ -89,9 +142,14 @@ export class RealtimeHub {
   startHeartbeat() {
     if (this.heartbeatTimer) return;
     this.heartbeatTimer = setInterval(() => {
+      const revokedSockets: Bun.ServerWebSocket<RealtimeSocketData>[] = [];
       const deadSockets: Bun.ServerWebSocket<RealtimeSocketData>[] = [];
       for (const userConnections of this.connections.values()) {
         for (const socket of userConnections) {
+          if (!this.hasActiveSession(socket)) {
+            revokedSockets.push(socket);
+            continue;
+          }
           try {
             socket.ping();
           } catch {
@@ -99,10 +157,16 @@ export class RealtimeHub {
           }
         }
       }
+      for (const socket of revokedSockets) {
+        this.remove(socket);
+        try {
+          socket.close(1008, "session revoked");
+        } catch {}
+      }
       for (const socket of deadSockets) {
         this.remove(socket);
         try {
-          socket.close(1006, "heartbeat failed");
+          socket.close(1011, "heartbeat failed");
         } catch {}
       }
     }, REALTIME_HEARTBEAT_MS);
@@ -162,14 +226,20 @@ export async function upgradeRealtimeRequest(
   }
 
   cleanupExpiredSessions(options.database);
-  const user = await requireUser(options.database, options.environment ?? {}, request);
+  const user = await requireUser(options.database, options.environment ?? {}, request, options.realtime);
   if (isResponse(user)) return user;
 
+  const session = cookieValue(request.headers.get("Cookie"), SESSION_COOKIE);
+  if (!session) return jsonError(401, "UNAUTHENTICATED", "请先登录");
+  const sessionTokenHash = await digestHex(session);
+  const data: RealtimeSocketData = {
+    userId: user.id,
+    clientId: realtimeClientIdFromUrl(request),
+    sessionTokenHash,
+  };
+
   const upgraded = server.upgrade(request, {
-    data: {
-      userId: user.id,
-      clientId: realtimeClientIdFromUrl(request),
-    },
+    data,
   });
   return upgraded ? null : jsonError(400, "REALTIME_UPGRADE_FAILED", "无法建立实时连接");
 }

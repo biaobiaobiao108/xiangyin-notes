@@ -40,13 +40,30 @@ type LoginAttempt = {
   blockedUntil: number;
 };
 
+type RealtimeSessionRevoker = {
+  revokeUser(userId: string): void;
+  revokeSession(tokenHash: string): void;
+};
 
-const credentialChecks = new WeakMap<SqliteDatabase, { signature: string; task: Promise<void> }>();
+type CredentialCheck = {
+  signature: string;
+  task: Promise<string | null>;
+  revocationNotified: boolean;
+};
 
-async function syncEnvironmentPassword(database: SqliteDatabase, credentials: AuthCredentials) {
+const credentialChecks = new WeakMap<SqliteDatabase, CredentialCheck>();
+
+async function syncEnvironmentPassword(database: SqliteDatabase, credentials: AuthCredentials, realtime?: RealtimeSessionRevoker) {
   const signature = await digestHex(`${credentials.username}\0${credentials.password}`);
   const previous = credentialChecks.get(database);
-  if (previous?.signature === signature) return previous.task;
+  if (previous?.signature === signature) {
+    const revokedUserId = await previous.task;
+    if (revokedUserId && realtime && !previous.revocationNotified) {
+      previous.revocationNotified = true;
+      realtime.revokeUser(revokedUserId);
+    }
+    return;
+  }
 
   const task = (async () => {
     await previous?.task;
@@ -55,20 +72,26 @@ async function syncEnvironmentPassword(database: SqliteDatabase, credentials: Au
       "SELECT id, username, password_hash, password_salt FROM users WHERE username = ?",
       credentials.username,
     );
-    if (!existing) return;
+    if (!existing) return null;
     const derived = await derivePassword(credentials.password, existing.password_salt);
-    if (constantTimeEqual(derived, existing.password_hash)) return;
+    if (constantTimeEqual(derived, existing.password_hash)) return null;
 
     const replacement = await hashPassword(credentials.password);
-    database.transaction(() => {
+    return database.transaction(() => {
       const updated = database.query("UPDATE users SET password_hash = ?, password_salt = ? WHERE id = ? AND password_hash = ? AND password_salt = ?")
         .run(replacement.hash, replacement.salt, existing.id, existing.password_hash, existing.password_salt);
       if (updated.changes) database.query("DELETE FROM sessions WHERE user_id = ?").run(existing.id);
+      return updated.changes ? existing.id : null;
     })();
   })();
-  credentialChecks.set(database, { signature, task });
+  const check = { signature, task, revocationNotified: false };
+  credentialChecks.set(database, check);
   try {
-    await task;
+    const revokedUserId = await task;
+    if (revokedUserId && realtime && !check.revocationNotified) {
+      check.revocationNotified = true;
+      realtime.revokeUser(revokedUserId);
+    }
   } catch (error) {
     if (credentialChecks.get(database)?.task === task) credentialChecks.delete(database);
     throw error;
@@ -77,8 +100,8 @@ async function syncEnvironmentPassword(database: SqliteDatabase, credentials: Au
 
 export function getAuthCredentials(environment: RuntimeEnvironment = Bun.env): AuthCredentials | null {
   const username = environment.XIANGYING_USERNAME?.trim();
-  const password = environment.XIANGYING_PASSWORD?.trim();
-  if (!username || !password) return null;
+  const password = environment.XIANGYING_PASSWORD;
+  if (!username || password === undefined || password.length === 0) return null;
   return { username, password };
 }
 
@@ -179,8 +202,8 @@ export function cleanupExpiredSessions(database: SqliteDatabase, force = false) 
   database.query("DELETE FROM sessions WHERE expires_at <= ?").run(timestamp);
 }
 
-export async function ensureEnvironmentUser(database: SqliteDatabase, credentials: AuthCredentials): Promise<UserRow> {
-  await syncEnvironmentPassword(database, credentials);
+export async function ensureEnvironmentUser(database: SqliteDatabase, credentials: AuthCredentials, realtime?: RealtimeSessionRevoker): Promise<UserRow> {
+  await syncEnvironmentPassword(database, credentials, realtime);
   const existing = first<UserRow>(database, "SELECT id, username FROM users WHERE username = ?", credentials.username);
   if (existing) return existing;
 
@@ -215,12 +238,12 @@ export async function ensureEnvironmentUser(database: SqliteDatabase, credential
   }
 }
 
-export async function getCurrentUser(database: SqliteDatabase, environment: RuntimeEnvironment, request: Request) {
+export async function getCurrentUser(database: SqliteDatabase, environment: RuntimeEnvironment, request: Request, realtime?: RealtimeSessionRevoker) {
   const credentials = getAuthCredentials(environment);
   if (!credentials) return null;
   const session = cookieValue(request.headers.get("Cookie"), SESSION_COOKIE);
   if (!session) return null;
-  await syncEnvironmentPassword(database, credentials);
+  await syncEnvironmentPassword(database, credentials, realtime);
   const tokenHash = await digestHex(session);
   const timestamp = now();
   const current = first<UserRow & { session_expires_at: number }>(database, `
@@ -235,8 +258,8 @@ export async function getCurrentUser(database: SqliteDatabase, environment: Runt
   return { id: current.id, username: current.username };
 }
 
-export async function requireUser(database: SqliteDatabase, environment: RuntimeEnvironment, request: Request) {
-  return (await getCurrentUser(database, environment, request)) ?? jsonError(401, "UNAUTHENTICATED", "请先登录");
+export async function requireUser(database: SqliteDatabase, environment: RuntimeEnvironment, request: Request, realtime?: RealtimeSessionRevoker) {
+  return (await getCurrentUser(database, environment, request, realtime)) ?? jsonError(401, "UNAUTHENTICATED", "请先登录");
 }
 
 export function isResponse(value: UserRow | Response): value is Response {
@@ -254,8 +277,8 @@ export async function handleAuthRoute(ctx: RouteContext): Promise<Response | nul
 
   if (method === "GET" && url.pathname === "/api/bootstrap") {
     const credentials = getAuthCredentials(environment);
-    if (credentials && environment.NODE_ENV === "development" && environment.XIANGYING_DEV_AUTO_LOGIN === "true" && !await getCurrentUser(database, environment, request)) {
-      const user = await ensureEnvironmentUser(database, credentials);
+    if (credentials && environment.NODE_ENV === "development" && environment.XIANGYING_DEV_AUTO_LOGIN === "true" && !await getCurrentUser(database, environment, request, options.realtime)) {
+      const user = await ensureEnvironmentUser(database, credentials, options.realtime);
       const session = createOpaqueToken();
       const createdAt = now();
       database.query("INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)").run(await digestHex(session), user.id, createdAt, createdAt + SESSION_TTL);
@@ -288,7 +311,7 @@ export async function handleAuthRoute(ctx: RouteContext): Promise<Response | nul
     }
     resetLoginAttempt(database, attemptKey);
 
-    const user = await ensureEnvironmentUser(database, credentials);
+    const user = await ensureEnvironmentUser(database, credentials, options.realtime);
     const session = createOpaqueToken();
     const createdAt = now();
     database.query("INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)").run(await digestHex(session), user.id, createdAt, createdAt + SESSION_TTL);
@@ -299,7 +322,11 @@ export async function handleAuthRoute(ctx: RouteContext): Promise<Response | nul
 
   if (method === "POST" && url.pathname === "/api/auth/logout") {
     const session = cookieValue(request.headers.get("Cookie"), SESSION_COOKIE);
-    if (session) database.query("DELETE FROM sessions WHERE token_hash = ?").run(await digestHex(session));
+    if (session) {
+      const tokenHash = await digestHex(session);
+      database.query("DELETE FROM sessions WHERE token_hash = ?").run(tokenHash);
+      options.realtime?.revokeSession(tokenHash);
+    }
     const headers = new Headers();
     setSessionCookie(headers, request, "", environment, 0, clientAddress);
     headers.set("Clear-Site-Data", '"cookies"');
@@ -307,7 +334,7 @@ export async function handleAuthRoute(ctx: RouteContext): Promise<Response | nul
   }
 
   if (method === "GET" && url.pathname === "/api/me") {
-    const user = await requireUser(database, environment, request);
+    const user = await requireUser(database, environment, request, options.realtime);
     if (isResponse(user)) return user;
     const headers = new Headers();
     const session = cookieValue(request.headers.get("Cookie"), SESSION_COOKIE);
