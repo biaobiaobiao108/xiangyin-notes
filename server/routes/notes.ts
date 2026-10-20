@@ -288,7 +288,7 @@ export function updateNote(
   return database.transaction(() => updateNoteInTransaction(database, current, userId, title, contentMarkdown, notebookId, isFavorite, deletedAt))();
 }
 
-export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRoot: string): Promise<Response | null> {
+export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRoot: string, summarizeNote: (note: NoteRow) => NoteSummary = toNote): Promise<Response | null> {
   const { request, url, method, segments, options } = ctx;
   const { database } = options;
   const resource = segments[0] ?? "";
@@ -835,7 +835,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     const note = getNote(database, user.id, id);
     if (!note) return jsonError(404, "NOTE_NOT_FOUND", "笔记不存在");
     // A summary is enough to patch one list row after a realtime change.
-    return json({ note: url.searchParams.get("response") === "summary" ? toNote(note) : toFullNote(note) });
+    return json({ note: url.searchParams.get("response") === "summary" ? summarizeNote(note) : toFullNote(note) });
   }
 
   // Patch note
@@ -878,7 +878,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
       || current.notebook_id !== notebookId
       || current.is_favorite !== isFavorite
       || current.deleted_at !== deletedAt;
-    if (!hasChanges) return json({ note: summaryResponse ? toNote(current) : toFullNote(current) });
+    if (!hasChanges) return json({ note: summaryResponse ? summarizeNote(current) : toFullNote(current) });
     let updated: boolean;
     try {
       updated = updateNote(database, current, user.id, title, contentMarkdown as string, notebookId, isFavorite, deletedAt);
@@ -893,7 +893,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
     }
     const note = getNote(database, user.id, current.id);
     publishWorkspaceChange(options, user.id, { resource: "notes", ...(current.title === title ? { noteId: current.id } : {}) }, request);
-    return json({ note: note ? summaryResponse ? toNote(note) : toFullNote(note) : null });
+    return json({ note: note ? summaryResponse ? summarizeNote(note) : toFullNote(note) : null });
   }
 
   // Delete note permanently

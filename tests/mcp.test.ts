@@ -128,6 +128,51 @@ function toolData(responseBody: Record<string, any>) {
 }
 
 describe("remote MCP endpoint", () => {
+  test("returns source characters, rendered characters and words without requiring the full body", async () => {
+    const markdown = "# 标题\n\n你好，**world**！ 👩‍💻\n\n[链接](https://example.com)\n\n![图](https://images.example/a.png)";
+    const expected = { markdownCharacterCount: Array.from(markdown).length, textCharacterCount: 14, wordCount: 8 };
+    const created = toolData((await callTool("create_note", { title: "标题字段不计入正文", contentMarkdown: markdown })).body!);
+    expect(created.note).toMatchObject(expected);
+    expect(created.note.contentLength).toBe(expected.markdownCharacterCount);
+    expect(created.note.contentMarkdown).toBeUndefined();
+
+    const noteId = created.note.id;
+    for (const includeContent of [true, false]) {
+      const read = toolData((await callTool("get_note", { noteId, includeContent })).body!).note;
+      expect(read).toMatchObject(expected);
+      expect(read.contentLength).toBe(expected.markdownCharacterCount);
+      expect(read.contentMarkdown).toBe(includeContent ? markdown : undefined);
+    }
+    const batch = toolData((await callTool("get_notes_batch", { noteIds: [noteId] })).body!);
+    expect(batch.notes[0]).toMatchObject(expected);
+    expect(batch.totalContentCharacters).toBe(expected.markdownCharacterCount);
+    for (const [name, argumentsValue] of [
+      ["get_note_outline", { noteId }],
+      ["get_note_section", { noteId, heading: "标题" }],
+    ] as const) {
+      const data = toolData((await callTool(name, argumentsValue)).body!);
+      expect(data.note).toMatchObject(expected);
+      expect(data.note.contentMarkdown).toBeUndefined();
+    }
+
+    const renamed = toolData((await callTool("update_note", { noteId, title: "新标题", expectedVersion: created.note.version })).body!).note;
+    expect(renamed).toMatchObject(expected);
+    const appended = toolData((await callTool("append_to_note", { noteId, contentMarkdown: "\n\n新增 123" })).body!).note;
+    expect(appended).toMatchObject({ textCharacterCount: 19, wordCount: 11 });
+    const replaced = toolData((await callTool("replace_in_note", { noteId, oldText: "world", newText: "Bun", includeContent: true })).body!).note;
+    expect(replaced).toMatchObject({ textCharacterCount: 17, wordCount: 11 });
+    expect(replaced.markdownCharacterCount).toBe(Array.from(replaced.contentMarkdown).length);
+    expect(replaced.contentLength).toBe(replaced.markdownCharacterCount);
+    const metadataBatch = toolData((await callTool("batch_update_notes", { notes: [{ noteId, expectedVersion: replaced.version }], isFavorite: true })).body!);
+    expect(metadataBatch.results[0].note).toMatchObject({ textCharacterCount: 17, wordCount: 11 });
+    expect(metadataBatch.results[0].note.contentMarkdown).toBeUndefined();
+
+    const fullUpdate = toolData((await callTool("update_note", { noteId, expectedVersion: metadataBatch.results[0].note.version, contentMarkdown: "" })).body!).note;
+    expect(fullUpdate).toMatchObject({ contentLength: 0, markdownCharacterCount: 0, textCharacterCount: 0, wordCount: 0 });
+    const search = toolData((await callTool("search_notes", {})).body!);
+    expect(search.notes[0].markdownCharacterCount).toBeUndefined();
+  });
+
   test("supports read, error recovery, versioned writes and deletion confirmation through structured content", async () => {
     const structuredCall = async (name: string, args: Record<string, unknown>) => {
       const response = await callTool(name, args);

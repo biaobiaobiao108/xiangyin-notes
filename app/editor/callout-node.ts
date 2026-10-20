@@ -1,3 +1,4 @@
+import { findCalloutStart, tokenizeCallout } from "../../shared/markdown-lexer";
 import { Node, type Editor, type MarkdownToken } from "@tiptap/core";
 import type { DOMOutputSpec } from "@tiptap/pm/model";
 import { Plugin, type EditorState } from "@tiptap/pm/state";
@@ -105,32 +106,9 @@ export const CalloutNode = Node.create({
   markdownTokenizer: {
     name: "callout",
     level: "block",
-    start(source: string) {
-      return source.search(/^ {0,3}>[ \t]*\[!(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]/im);
-    },
+    start: findCalloutStart,
     tokenize(source, _tokens, lexer) {
-      const opening = /^ {0,3}>[ \t]*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\][ \t]*(?:\r?\n|$)/i.exec(source);
-      if (!opening) return undefined;
-
-      const lines: string[] = [];
-      let consumed = opening[0].length;
-      while (consumed < source.length) {
-        const newlineIndex = source.indexOf("\n", consumed);
-        const lineEnd = newlineIndex === -1 ? source.length : newlineIndex;
-        const line = source.slice(consumed, lineEnd).replace(/\r$/u, "");
-        const quotedLine = /^ {0,3}>[ \t]?(.*)$/u.exec(line);
-        if (!quotedLine) break;
-        lines.push(quotedLine[1]);
-        consumed = newlineIndex === -1 ? source.length : newlineIndex + 1;
-      }
-
-      const body = lines.join("\n");
-      return {
-        type: "callout",
-        raw: source.slice(0, consumed),
-        calloutType: opening[1].toUpperCase(),
-        tokens: body ? lexer.blockTokens(body) : [],
-      };
+      return tokenizeCallout(source, (body) => lexer.blockTokens(body));
     },
   },
 

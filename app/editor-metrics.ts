@@ -1,7 +1,7 @@
-export type EditorStats = {
-  wordCount: number;
-  characterCount: number;
-};
+import { HAN_RE } from "../shared/text-stats";
+
+export { HAN_RE, countTextStats as countEditorText } from "../shared/text-stats";
+export type { TextStats as EditorStats } from "../shared/text-stats";
 
 export type OutlineHeading = {
   level: 1 | 2 | 3 | 4 | 5 | 6;
@@ -80,21 +80,6 @@ export function shouldParseMarkdownPaste(text: string, hasHtml: boolean): boolea
   return !hasHtml || MARKDOWN_PASTE_RE.test(text);
 }
 
-type Segment = {
-  segment: string;
-};
-
-type Segmenter = {
-  segment(input: string): Iterable<Segment>;
-};
-
-type SegmenterConstructor = new (
-  locales?: string | string[],
-  options?: { granularity: "grapheme" },
-) => Segmenter;
-
-export const HAN_RE = /\p{Script=Han}/u;
-
 export function detectLeakedImePrefix(
   blockText: string,
   candidateKey?: string | null,
@@ -132,52 +117,6 @@ export function detectLeakedImePrefix(
   }
 
   return null;
-}
-const LETTER_OR_NUMBER_RE = /[\p{Letter}\p{Number}]/u;
-const EMOJI_RE = /\p{Extended_Pictographic}/u;
-
-const IntlSegmenter = (Intl as unknown as { Segmenter?: SegmenterConstructor }).Segmenter;
-const graphemeSegmenter = IntlSegmenter ? new IntlSegmenter(undefined, { granularity: "grapheme" }) : null;
-
-export function countEditorText(text: string): EditorStats {
-  let wordCount = 0;
-  let characterCount = 0;
-  let hasWordRun = false;
-
-  const flushWordRun = () => {
-    if (hasWordRun) wordCount += 1;
-    hasWordRun = false;
-  };
-
-  const visit = (grapheme: string) => {
-    if (/\s/u.test(grapheme)) {
-      flushWordRun();
-      return;
-    }
-
-    characterCount += 1;
-    if (HAN_RE.test(grapheme) || EMOJI_RE.test(grapheme)) {
-      flushWordRun();
-      wordCount += 1;
-      return;
-    }
-
-    if (LETTER_OR_NUMBER_RE.test(grapheme)) {
-      hasWordRun = true;
-      return;
-    }
-
-    flushWordRun();
-  };
-
-  if (graphemeSegmenter) {
-    for (const { segment } of graphemeSegmenter.segment(text)) visit(segment);
-  } else {
-    for (const grapheme of text) visit(grapheme);
-  }
-  flushWordRun();
-
-  return { wordCount, characterCount };
 }
 
 function slugifyHeading(title: string): string {

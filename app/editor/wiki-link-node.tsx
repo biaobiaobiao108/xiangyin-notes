@@ -1,3 +1,4 @@
+import { findWikiLinkStart, tokenizeWikiLink } from "../../shared/markdown-lexer";
 import { InputRule, Node, mergeAttributes } from "@tiptap/core";
 import { decodeWikiLinkComponent, encodeWikiLinkComponent, WIKI_LINK_PATTERN } from "../../shared/wiki-links";
 
@@ -71,28 +72,15 @@ export const WikiLinkNode = Node.create({
     ];
   },
 
+  renderText({ node }) {
+    return String(node.attrs.alias || node.attrs.target || "");
+  },
+
   markdownTokenizer: {
     name: "wikiLink",
     level: "inline",
-    start(src: string) {
-      const idx1 = src.indexOf("[[");
-      const idx2 = src.indexOf("【【");
-      if (idx1 === -1) return idx2;
-      if (idx2 === -1) return idx1;
-      return Math.min(idx1, idx2);
-    },
-    tokenize(src: string) {
-      const match = new RegExp(`^(?:${WIKI_LINK_PATTERN.source})`).exec(src);
-      if (match) {
-        return {
-          type: "wikiLink",
-          raw: match[0],
-          target: decodeWikiLinkComponent(match[1].trim()),
-          alias: match[2] ? decodeWikiLinkComponent(match[2].trim()) : undefined,
-        };
-      }
-      return undefined;
-    },
+    start: findWikiLinkStart,
+    tokenize: tokenizeWikiLink,
   },
 
   parseMarkdown(token, helpers) {
