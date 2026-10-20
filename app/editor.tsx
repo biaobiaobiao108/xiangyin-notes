@@ -19,6 +19,7 @@ import { buildOutlineItems, countEditorText, detectLeakedImePrefix, getOutlineSt
 import { getEditorDocumentTextSnapshot, updateEditorDocumentText, type EditorTextBlockStatsCache, type EditorTextStatsSnapshot } from "./editor-text-stats";
 import { changedDocumentRange } from "./editor/changed-range";
 import { scrollNoteBoundary } from "./editor/document-navigation";
+import { replaceEditorMarkdown } from "./editor/document-content";
 import { FloatingScrollbar } from "./floating-scrollbar";
 import { relativeDate } from "./format";
 import { ImeMarkdownSafeExtension, imeMarkdownSafePluginKey } from "./ime-markdown-safe-extension";
@@ -1086,7 +1087,7 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
     markdownSyncFrameRef.current = null;
     markdownSyncStartedAtRef.current = null;
     initialContentRef.current = preserveEscapedHashtagsForEditor(contentMarkdown);
-    editor.commands.setContent(initialContentRef.current, { contentType: "markdown", emitUpdate: false });
+    replaceEditorMarkdown(editor, initialContentRef.current);
     editorScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
     if (switchedNote) {
       const doc = documentRef.current;
