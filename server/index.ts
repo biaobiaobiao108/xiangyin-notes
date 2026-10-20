@@ -100,7 +100,7 @@ const MIME_TYPES: Record<string, string> = {
   ".ico": "image/x-icon",
 };
 
-const DEV_PWA_ASSETS = new Set(["manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-maskable-512.png"]);
+const DEV_PWA_ASSETS = new Set(["manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-maskable-512.png", "icon-maskable-1024.png", "apple-touch-icon.png", "favicon.png"]);
 
 function invalidCookieMutationOrigin(request: Request, environment: Record<string, string | undefined>) {
   if (request.method === "GET" || request.method === "HEAD" || request.method === "OPTIONS") return false;
@@ -168,7 +168,7 @@ async function serveStatic(request: Request, clientRoot: string, environment: Re
   const basename = relativePath.toLowerCase();
   const mutablePwaAsset = basename === "sw.js"
     || basename === "manifest.webmanifest"
-    || /^(?:favicon\.png|icon-(?:192|512|maskable-512)\.png)$/u.test(basename);
+    || /^(?:favicon\.png|apple-touch-icon\.png|icon-(?:192|512|maskable-(?:512|1024))\.png)$/u.test(basename);
   headers.set("Cache-Control", hasExtension && relativePath !== "index.html" && !mutablePwaAsset ? "public, max-age=31536000, immutable" : "no-cache");
 
   // Revalidation: `no-cache` entries (index.html, sw.js) are requested on every

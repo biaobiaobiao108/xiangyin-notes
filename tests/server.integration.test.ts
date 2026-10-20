@@ -804,6 +804,18 @@ describe("Bun Server API", () => {
     expect(contentSecurityPolicy).toContain("font-src 'self' https://cdn.jsdelivr.net");
     expect(contentSecurityPolicy).toContain("img-src 'self' data: blob: https:");
     expect(manifest.body?.display).toBe("standalone");
+    const icons = manifest.body?.icons as Array<{ src: string; sizes: string; purpose: string }>;
+    expect(icons.filter((icon) => icon.purpose === "any").map((icon) => icon.src)).toEqual(["/icon-192.png?v=rounded-1", "/icon-512.png?v=rounded-1"]);
+    expect(icons.filter((icon) => icon.purpose === "maskable").map((icon) => icon.sizes)).toEqual(["512x512", "1024x1024"]);
+    const shortcutIcons = (manifest.body?.shortcuts as Array<{ icons: Array<{ src: string }> }>).flatMap((shortcut) => shortcut.icons);
+    expect(shortcutIcons.every((icon) => icon.src === "/icon-192.png?v=rounded-1")).toBe(true);
+    for (const icon of icons) {
+      const url = new URL(icon.src, "http://xiangying.test/manifest.webmanifest");
+      const asset = await request(`${url.pathname}${url.search}`, {}, undefined, environment, url.origin, "app");
+      expect(asset.response.status).toBe(200);
+      expect(asset.response.headers.get("Content-Type")).toContain("image/png");
+      expect(asset.response.headers.get("Cache-Control")).toBe("no-cache");
+    }
 
     const worker = await request("/sw.js");
     expect(worker.response.status).toBe(200);
@@ -832,9 +844,12 @@ describe("Bun Server API", () => {
     expect(manifest.response.status).toBe(200);
     expect(manifest.body?.short_name).toBe("象映笔记");
 
-    const icon = await request("/icon-192.png", {}, undefined, devEnvironment, "http://xiangying.test", "dist/dev-client");
-    expect(icon.response.status).toBe(200);
-    expect(icon.response.headers.get("Content-Type")).toContain("image/png");
+    for (const path of ["/icon-192.png?v=rounded-1", "/icon-maskable-1024.png", "/apple-touch-icon.png?v=rounded-1", "/favicon.png"]) {
+      const icon = await request(path, {}, undefined, devEnvironment, "http://xiangying.test", "dist/dev-client");
+      expect(icon.response.status).toBe(200);
+      expect(icon.response.headers.get("Content-Type")).toContain("image/png");
+      expect(icon.response.headers.get("Cache-Control")).toBe("no-cache");
+    }
   });
 
   test("returns no notes when a search query has no searchable terms", async () => {

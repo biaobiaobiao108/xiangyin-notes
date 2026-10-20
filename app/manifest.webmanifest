@@ -13,12 +13,13 @@
   "background_color": "#f6f4ef",
   "theme_color": "#f6f4ef",
   "icons": [
-    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "./icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    { "src": "/icon-192.png?v=rounded-1", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png?v=rounded-1", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icon-maskable-1024.png", "sizes": "1024x1024", "type": "image/png", "purpose": "maskable" }
   ],
   "shortcuts": [
-    { "name": "新建笔记", "short_name": "新建", "url": "/app?action=new-note", "icons": [{ "src": "./icon-192.png", "sizes": "192x192", "type": "image/png" }] },
-    { "name": "搜索笔记", "short_name": "搜索", "url": "/app?action=search", "icons": [{ "src": "./icon-192.png", "sizes": "192x192", "type": "image/png" }] }
+    { "name": "新建笔记", "short_name": "新建", "url": "/app?action=new-note", "icons": [{ "src": "/icon-192.png?v=rounded-1", "sizes": "192x192", "type": "image/png" }] },
+    { "name": "搜索笔记", "short_name": "搜索", "url": "/app?action=search", "icons": [{ "src": "/icon-192.png?v=rounded-1", "sizes": "192x192", "type": "image/png" }] }
   ]
 }
