@@ -173,7 +173,7 @@ MCP 推荐工具：
 
 长笔记可先用 `get_note_outline` 获取 `headings` 和 `version`，再用 `get_note_section` 按 `sectionId` 或精确 `heading` 读取；同名标题返回 `AMBIGUOUS_SECTION`，以从 1 开始的 `occurrence` 消歧。只识别 Markdown 文档级 ATX/setext 标题，不把代码、引用、列表或 HTML 内标题当成章节。章节包括标题和其下子章节，直到下一同级或更高级标题；`replace_note_section` 的 `contentMarkdown` 替换整个章节，必须包含希望保留的标题和子章节。建议将读取时的版本作为 `expectedVersion` 提交。正文改变后旧 `sectionId` 失效，需重新读取大纲；可传空正文删除章节。其余正文保持原样。
 
-写操作默认不返回正文，通过 `includeContent=true` 显式请求；管理和批量更新不支持该参数。`get_notes_batch` 最多读取 50 篇，总正文预算默认 20,000、最大 100,000 个 Unicode code points；超预算项列在 `oversizedIds` / `remainingIds`，逐篇读取不构成同一时刻快照。`contentLength` 同样按 code points 统计；单篇正文硬上限为 1,000,000 个 UTF-16 code units。普通笔记优先一次提交，只有客户端无法承载或 MCP 请求体超过 4.5 MB 时才用 `append_to_note` 分段，分段不能突破单篇上限。完整结果仅放在 `structuredContent` 中，`content` 只提供简短摘要，避免重复传输 JSON。客户端必须将 `structuredContent` 传递给模型；不支持仅透传文本的连接链路。省流量通过章节读取、摘要长度、批量预算和 `includeContent` 控制。
+写操作默认不返回正文，通过 `includeContent=true` 显式请求；管理和批量更新不支持该参数。`get_notes_batch` 最多读取 50 篇，总正文预算默认 20,000、最大 100,000 个 Unicode code points；超预算项列在 `oversizedIds` / `remainingIds`，逐篇读取不构成同一时刻快照。`markdownCharacterCount` 同样按 code points 统计；单篇正文硬上限为 1,000,000 个 UTF-16 code units。普通笔记优先一次提交，只有客户端无法承载或 MCP 请求体超过 4.5 MB 时才用 `append_to_note` 分段，分段不能突破单篇上限。完整结果仅放在 `structuredContent` 中，`content` 只提供简短摘要，避免重复传输 JSON。客户端必须将 `structuredContent` 传递给模型；不支持仅透传文本的连接链路。省流量通过章节读取、摘要长度、批量预算和 `includeContent` 控制。
 
 成功结果统一为 `{ok:true,...}`。版本冲突、目标不存在、标题或章节歧义等可恢复业务分支返回 `{ok:false,error:{code,message,recoverable:true,...}}`，不设置 MCP `isError`，也不通过抛异常传递；按情况提供 `suggestedAction`、`currentVersion`、有界 `current` 摘要或 `matches`，调用方根据 `error.code` 继续处理。笔记、笔记本或正文片段不存在使用 `NOT_FOUND` 并保留 `target`，章节不存在使用 `SECTION_NOT_FOUND`，不提供旧错误码别名。参数错误由 SDK 校验拒绝，或返回带 `isError:true`、`recoverable:false` 的结构化结果。正文、ID、版本和错误恢复信息均从 `structuredContent` 读取。
 
@@ -193,7 +193,7 @@ MCP 只传输文字和 Markdown，不提供图片上传、图片数据或缩略�
 | `textCharacterCount` | 显示正文的非空白字素数，包含标点；组合 emoji 作为一个字素 |
 | `wordCount` | 每个汉字或 emoji 算一字，连续英文或数字算一词，标点和空白不计 |
 
-`contentLength` 保留兼容，与 `markdownCharacterCount` 相同。笔记标题字段、图片及图片说明不计入正文；正文中的标题、代码、表格文字、链接显示文字和双链别名（无别名时为目标名）计入。章节和大纲结果中的 `note` 统计也针对整篇笔记；搜索列表不解析全文统计。这些数字由后端解析 Markdown 并使用与编辑器共享的计数规则得到，不需要浏览器，也不写入数据库。内嵌 HTML 按文本结构提取，不执行 CSS 或脚本；数值及常见命名实体会解码，未支持的命名实体保留字面量。
+笔记标题字段、图片及图片说明不计入正文；正文中的标题、代码、表格文字、链接显示文字和双链别名（无别名时为目标名）计入。章节和大纲结果中的 `note` 统计也针对整篇笔记；搜索列表不解析全文统计。这些数字由后端解析 Markdown 并使用与编辑器共享的计数规则得到，不需要浏览器，也不写入数据库。内嵌 HTML 按文本结构提取，不执行 CSS 或脚本；数值及常见命名实体会解码，未支持的命名实体保留字面量。
 
 ### 本机运行
 

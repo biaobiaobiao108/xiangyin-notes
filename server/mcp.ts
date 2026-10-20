@@ -43,8 +43,8 @@ const MCP_SERVER_INSTRUCTIONS = [
   "象映笔记是跨会话 Markdown 记忆库，可搜索、读取、新建和增量修改笔记，也可管理笔记本、收藏、标签、回收站。",
   "工具参数必须是 JSON 对象。客户端会先校验参数；手写原始 JSON 时，字符串中的控制字符须按 JSON 规范转义（换行写作 \\n）；结构化参数中的多行 Markdown 会原样保留。",
   "字段值不合法时使用统一错误码 INVALID_ARGUMENT，并通过 field 指明字段；当前 field 取值为 name、color、icon、tags。标签错误还会在 invalidTags 中列出违规值。",
-  "普通笔记应优先在 save_note 一次写入完整正文；其默认 create 在目标笔记本内防重名；create_note 仅在有意允许同名时使用；只有客户端明确无法承载单次参数，或服务端返回 MCP 请求体超过 4.5 MB 的错误时，才用 append_to_note 分段追加并将返回的 version 作为 expectedVersion。单篇正文硬上限为 1,000,000 个 UTF-16 code units。contentLength 回执与批量读取字符预算按 Unicode code points 计算。写操作默认不回传正文。",
-  "单篇读取、批量读取和成功写入的 note 提供整篇正文统计：markdownCharacterCount 是原始 Markdown 的 Unicode code points 数（含语法与空白），与兼容字段 contentLength 相同；textCharacterCount 是显示正文的非空白字素数（含标点），wordCount 按汉字和 emoji 每个一字、连续英文或数字一词计，不含标点和空白。标题字段、图片与图片说明不计入正文，代码、表格文字及双链显示文字计入；统计不依赖 includeContent，搜索列表不解析全文统计。",
+  "普通笔记应优先在 save_note 一次写入完整正文；其默认 create 在目标笔记本内防重名；create_note 仅在有意允许同名时使用；只有客户端明确无法承载单次参数，或服务端返回 MCP 请求体超过 4.5 MB 的错误时，才用 append_to_note 分段追加并将返回的 version 作为 expectedVersion。单篇正文硬上限为 1,000,000 个 UTF-16 code units。markdownCharacterCount 回执与批量读取字符预算按 Unicode code points 计算。写操作默认不回传正文。",
+  "单篇读取、批量读取和成功写入的 note 提供整篇正文统计：markdownCharacterCount 是原始 Markdown 的 Unicode code points 数（含语法与空白）；textCharacterCount 是显示正文的非空白字素数（含标点），wordCount 按汉字和 emoji 每个一字、连续英文或数字一词计，不含标点和空白。标题字段、图片与图片说明不计入正文，代码、表格文字及双链显示文字计入；统计不依赖 includeContent，搜索列表不解析全文统计。",
   "分类可直接传 notebookName，notebookId 同时存在时优先；ensure_notebook 幂等创建，save_note 可一次创建笔记本并保存笔记；create_notebook 创建笔记本，update_notebook 修改，delete_notebook 需 confirm=true 并建议用 totalCount 做二次确认。局部编辑和仅改标题可省略 expectedVersion，由服务端读取当前版本并以乐观锁保存；所有写入的版本参数统一 expectedVersion，不接受 version/baseVersion 别名；全文覆盖必须提供 expectedVersion，save_note 的 upsert 更新已有笔记也必须提供 expectedVersion；batch_update_notes 必须提供每篇读取时的 expectedVersion。所有 VERSION_CONFLICT 的 current 只返回有界摘要、长度、版本与元数据，需要时用 get_note/get_note_section 读取正文。",
   "create_note.tags 与 batch_update_notes.tags 是追加；manage_note 的 set_tags 必须显式传 mode=replace、add 或 remove。正文中未转义、代码区外且不超过 40 个 UTF-16 code units 的 #标签会被索引；可在井号前加反斜杠保留字面井号。回收站笔记可恢复，但 MCP 不提供永久删除笔记或清空回收站。",
   "用 search_notes 的 view=trash 检索回收站。get_notes_batch 最多读 50 篇、总正文默认预算 20,000 个 Unicode 字符；各笔记分别读取，不构成同一时刻快照。",
@@ -319,7 +319,7 @@ function withNoteStatistics(note: Record<string, unknown>) {
   if (typeof note.contentMarkdown !== "string") return note;
   if (typeof note.markdownCharacterCount === "number" && typeof note.textCharacterCount === "number" && typeof note.wordCount === "number") return note;
   const stats = countMarkdownStats(note.contentMarkdown);
-  return { ...note, ...stats, contentLength: stats.markdownCharacterCount };
+  return { ...note, ...stats };
 }
 
 function withoutThumbnailMetadata(value: Record<string, unknown>, options: { writeResult?: boolean; includeContent?: boolean }) {
@@ -404,7 +404,6 @@ function conciseWriteNote(value: unknown) {
     isFavorite: note.isFavorite,
     deletedAt: note.deletedAt,
     version: note.version,
-    contentLength: note.contentLength,
     markdownCharacterCount: note.markdownCharacterCount,
     textCharacterCount: note.textCharacterCount,
     wordCount: note.wordCount,
@@ -504,7 +503,7 @@ async function notesRoute(options: ServerOptions, user: UserRow, method: string,
     // Capture statistics from the exact response version before yielding to
     // another writer. Only MCP summaries pay for parsing the whole document.
     const stats = countMarkdownStats(note.content_markdown);
-    return { ...toNote(note), ...stats, contentLength: stats.markdownCharacterCount };
+    return { ...toNote(note), ...stats };
   }));
 }
 
