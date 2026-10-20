@@ -22,6 +22,7 @@ beforeEach(() => {
     selectedRef: { current: { ...original } },
     activeNoteIdRef: { current: original.id },
     noteAbortRef: { current: null },
+    noteOpeningRef: { current: null },
     noteLoadRequestRef: { current: 0 },
     hasPendingWork: () => pendingWork,
     onUpdated: mock(() => {}),
@@ -35,6 +36,60 @@ beforeEach(() => {
 afterEach(() => get.mockRestore());
 
 describe("selected note remote synchronization", () => {
+  test("waits for a deep-link foreground load instead of aborting it on websocket reconciliation", async () => {
+    const foregroundController = new AbortController();
+    options.noteAbortRef.current = foregroundController;
+    options.noteLoadRequestRef.current = 1;
+    let finishOpening!: () => void;
+    options.noteOpeningRef.current = new Promise<void>((resolve) => { finishOpening = resolve; });
+    const syncing = refreshSelectedNote(original.id, options);
+
+    expect(foregroundController.signal.aborted).toBe(false);
+    expect(options.noteLoadRequestRef.current).toBe(1);
+    expect(get).not.toHaveBeenCalled();
+
+    options.noteAbortRef.current = null;
+    options.noteOpeningRef.current = null;
+    finishOpening();
+    await Promise.resolve();
+    resolveResponse({ note: original });
+    await syncing;
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(foregroundController.signal.aborted).toBe(false);
+    expect(options.onUpdated).not.toHaveBeenCalled();
+    expect(options.onError).not.toHaveBeenCalled();
+  });
+
+  test("preserves a recovered draft when a newer remote version arrives during opening", async () => {
+    let finishOpening!: () => void;
+    options.noteOpeningRef.current = new Promise<void>((resolve) => { finishOpening = resolve; });
+    const syncing = refreshSelectedNote(original.id, options);
+    const recoveredDraft = { ...original, contentMarkdown: "恢复的未保存草稿" };
+    options.selectedRef.current = recoveredDraft;
+    pendingWork = true;
+    options.noteOpeningRef.current = null;
+    finishOpening();
+    resolveResponse({ note: { ...original, version: 2 } });
+    await syncing;
+    expect(options.selectedRef.current).toBe(recoveredDraft);
+    expect(options.onConflict).toHaveBeenCalledTimes(1);
+    expect(options.onUpdated).not.toHaveBeenCalled();
+  });
+
+  test("discards a deferred reconciliation when another note starts loading", async () => {
+    let finishOpening!: () => void;
+    options.noteOpeningRef.current = new Promise<void>((resolve) => { finishOpening = resolve; });
+    const syncing = refreshSelectedNote(original.id, options);
+    const otherController = new AbortController();
+    options.noteAbortRef.current = otherController;
+    options.noteLoadRequestRef.current += 1;
+    options.activeNoteIdRef.current = "note-2";
+    finishOpening();
+    await syncing;
+    expect(otherController.signal.aborted).toBe(false);
+    expect(get).not.toHaveBeenCalled();
+  });
+
   test("ignores a late snapshot after newer local saves have completed", async () => {
     const syncing = refreshSelectedNote(original.id, options);
     const saved = { ...original, version: 3, contentMarkdown: "已保存的新正文" };

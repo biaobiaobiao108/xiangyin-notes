@@ -97,6 +97,7 @@ export function Workspace() {
   const activeNoteIdRef = useRef<string | null>(null);
   const noteLoadRequestRef = useRef(0);
   const noteAbortRef = useRef<AbortController | null>(null);
+  const noteOpeningRef = useRef<Promise<void> | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const searchOriginRef = useRef<{ view: NoteView; notebookId?: string } | null>(null);
   const [isNoteLoading, setIsNoteLoading] = useState(false);
@@ -561,13 +562,18 @@ export function Workspace() {
     if (!ready || !selectedId) {
       flushEditorDraftRef.current();
       noteAbortRef.current?.abort();
+      noteOpeningRef.current = null;
       activeNoteIdRef.current = null;
       selectedRef.current = null;
       setIsNoteLoading(false);
       setSelectedNote(null);
       return;
     }
-    void loadSelectedNote(selectedId);
+    const opening = loadSelectedNote(selectedId);
+    noteOpeningRef.current = opening;
+    void opening.finally(() => {
+      if (noteOpeningRef.current === opening) noteOpeningRef.current = null;
+    });
   }, [loadSelectedNote, ready, selectedId]);
   useEffect(() => () => { notebooksRequestRef.current += 1; }, []);
   useEffect(() => {
@@ -579,6 +585,7 @@ export function Workspace() {
   }, [loadNotes, ready]);
   useEffect(() => () => {
     listAbortRef.current?.abort();
+    noteLoadRequestRef.current += 1;
     noteAbortRef.current?.abort();
     if (realtimeRefreshTimerRef.current !== null) clearTimeout(realtimeRefreshTimerRef.current);
   }, []);
@@ -762,6 +769,7 @@ export function Workspace() {
     selectedRef,
     activeNoteIdRef,
     noteAbortRef,
+    noteOpeningRef,
     noteLoadRequestRef,
     hasPendingWork: (id) => pendingSavesRef.current.has(id) || failedSavesRef.current.has(id) || editorMarkdownDirtyNoteRef.current === id,
     onConflict: () => {

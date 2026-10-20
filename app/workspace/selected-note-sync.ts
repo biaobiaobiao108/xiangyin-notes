@@ -7,6 +7,7 @@ export type SelectedNoteSyncOptions = {
   selectedRef: Ref<Note | null>;
   activeNoteIdRef: Ref<string | null>;
   noteAbortRef: Ref<AbortController | null>;
+  noteOpeningRef: Ref<Promise<void> | null>;
   noteLoadRequestRef: Ref<number>;
   hasPendingWork: (noteId: string) => boolean;
   onUpdated: (note: Note) => void;
@@ -25,6 +26,15 @@ export function latestSelectedNoteSnapshot(remote: Note, current: Note | null): 
 export async function refreshSelectedNote(noteId: string, options: SelectedNoteSyncOptions) {
   const { selectedRef, activeNoteIdRef, noteAbortRef, noteLoadRequestRef } = options;
   if (selectedRef.current?.id !== noteId) return;
+
+  // Deep links already supply a visible snapshot while the foreground loader
+  // still reads the note and recovers drafts. Let that loader finish before a
+  // background reconciliation can reuse its controller or request generation.
+  const openingRequestId = noteLoadRequestRef.current;
+  while (options.noteOpeningRef.current) {
+    await options.noteOpeningRef.current;
+    if (openingRequestId !== noteLoadRequestRef.current || activeNoteIdRef.current !== noteId || selectedRef.current?.id !== noteId) return;
+  }
 
   noteAbortRef.current?.abort();
   const controller = new AbortController();
