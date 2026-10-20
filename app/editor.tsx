@@ -26,6 +26,7 @@ import { ImeMarkdownSafeExtension, imeMarkdownSafePluginKey } from "./ime-markdo
 import { editorCoreExtensionOptions } from "./editor/editor-config";
 import { EditorFloatingTools } from "./editor/editor-panels";
 import { ImageNode } from "./editor/image-node";
+import { createImageUploadPosition, ImageUploadPositions } from "./editor/image-upload-position";
 import { TagDecorationExtension } from "./editor/tag-decoration";
 import { BacklinksDialog } from "./editor/backlinks-panel";
 import { WikiLinkNode } from "./editor/wiki-link-node";
@@ -220,9 +221,9 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
   const imageUploadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const uploadImageFilesRef = useRef<(files: File[]) => void>(() => undefined);
   const onUploadImageRef = useRef(onUploadImage);
-  const imageUploadContextRef = useRef({ noteId: note.id, generation: 0 });
-  if (imageUploadContextRef.current.noteId !== note.id) {
-    imageUploadContextRef.current = { noteId: note.id, generation: imageUploadContextRef.current.generation + 1 };
+  const imageUploadContextRef = useRef({ noteId: note.id, reloadToken });
+  if (imageUploadContextRef.current.noteId !== note.id || imageUploadContextRef.current.reloadToken !== reloadToken) {
+    imageUploadContextRef.current = { noteId: note.id, reloadToken };
   }
   const programmaticOutlineScrollIdRef = useRef<string | null>(null);
   const cancelOutlineSmoothScroll = useCallback(() => {
@@ -324,6 +325,7 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
     if (!editorInstance || !uploadImage || editorLocked || note.deletedAt) return;
     const imageFiles = files.filter(isImageFile).slice(0, MAX_IMAGE_FILES_PER_ACTION);
     if (!imageFiles.length) return;
+    const uploadPosition = createImageUploadPosition(editorInstance);
     setImageUploadState("uploading");
     if (imageUploadTimerRef.current !== null) clearTimeout(imageUploadTimerRef.current);
     try {
@@ -335,13 +337,15 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
         const maxWidth = Math.max(1, editorInstance.view.dom.closest(".note-prose")?.getBoundingClientRect().width ?? 820);
         const width = Math.min(maxWidth, Math.max(1, dimensions.width));
         const height = Math.max(1, Math.round(width * dimensions.height / Math.max(1, dimensions.width)));
-        editorInstance.chain().focus().insertContent({ type: "image", attrs: { assetId: result.asset.id, src: result.asset.url, alt: result.asset.originalName.replace(/\.[^.]+$/u, "") || "图片", width, height } }).run();
+        if (!uploadPosition.insert({ type: "image", attrs: { assetId: result.asset.id, src: result.asset.url, alt: result.asset.originalName.replace(/\.[^.]+$/u, "") || "图片", width, height } })) break;
       }
       setImageUploadState("idle");
     } catch {
       if (!isCurrentUpload()) return;
       setImageUploadState("error");
       imageUploadTimerRef.current = setTimeout(() => { imageUploadTimerRef.current = null; setImageUploadState("idle"); }, 3000);
+    } finally {
+      uploadPosition.dispose();
     }
   }, [editorLocked, note.deletedAt]);
   uploadImageFilesRef.current = (files) => { void uploadImageFiles(files); };
@@ -352,7 +356,7 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
       imageUploadTimerRef.current = null;
     }
     setImageUploadState("idle");
-  }, [note.id]);
+  }, [note.id, reloadToken]);
 
   useEffect(() => () => {
     if (imageUploadTimerRef.current !== null) clearTimeout(imageUploadTimerRef.current);
@@ -498,6 +502,7 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
     createMarkdownExtension(),
     CalloutNode,
     ImageNode,
+    ImageUploadPositions,
     WikiLinkNode,
     SlashCommandExtension.configure({ onPickImage: () => imageFileInputRef.current?.click() }),
     WikiLinkSuggestionExtension.configure({
@@ -1146,7 +1151,7 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
       editor.view.dom.querySelector<HTMLElement>(".editor-search-match--active")?.scrollIntoView({ behavior, block: "center", inline: "nearest" });
     });
     return () => cancelAnimationFrame(frame);
-  }, [editor, isLoading, isMobileViewport, note.id, searchQuery, syncSearchNavigation]);
+  }, [editor, isLoading, isMobileViewport, note.id, reloadToken, searchQuery, syncSearchNavigation]);
 
   useEffect(() => {
     const handleSearchKeyDown = (event: KeyboardEvent) => {
