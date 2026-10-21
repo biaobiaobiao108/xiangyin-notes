@@ -119,18 +119,16 @@ docker run -d \
   ghcr.io/biaobiaobiao108/xiangyin-notes:latest
 ```
 
-启动后打开 `http://127.0.0.1:3000/app` 并使用 `.env` 中的账号登录。数据库和图片附件都会保存在 `xiangying-notes-data` 数据卷中。**注意：不要在 `.env` 里设置 `DATABASE_PATH`**——容器内的数据库路径固定为 `/data/xiangying-notes.sqlite`，一旦覆盖，数据和附件会写到容器内部目录而不在数据卷中，重建容器即丢失。首次启动的空数据库会自动初始化；升级已有安装时，拉取新镜像并停止旧容器后，显式执行迁移，再启动新版本：
+启动后打开 `http://127.0.0.1:3000/app` 并使用 `.env` 中的账号登录。数据库和图片附件都会保存在 `xiangying-notes-data` 数据卷中。**注意：不要在 `.env` 里设置 `DATABASE_PATH`**——容器内的数据库路径固定为 `/data/xiangying-notes.sqlite`，一旦覆盖，数据和附件会写到容器内部目录而不在数据卷中，重建容器即丢失。首次启动会自动初始化空数据库；之后升级时使用同一个数据卷启动新镜像，服务会在监听请求前自动应用已知迁移：
 
 ```bash
 docker pull ghcr.io/biaobiaobiao108/xiangyin-notes:latest
 docker stop xiangying-notes
-docker run --rm --env-file .env -v xiangying-notes-data:/data --entrypoint bun ghcr.io/biaobiaobiao108/xiangyin-notes:latest dist/server/scripts/check-schema-drift.js
-docker run --rm --env-file .env -v xiangying-notes-data:/data --entrypoint bun ghcr.io/biaobiaobiao108/xiangyin-notes:latest dist/server/migrate.js
-docker run --rm --env-file .env -v xiangying-notes-data:/data --entrypoint bun ghcr.io/biaobiaobiao108/xiangyin-notes:latest dist/server/scripts/check-schema-drift.js
 docker rm xiangying-notes
+docker run -d --name xiangying-notes --restart unless-stopped -p 3000:3000 --env-file .env -v xiangying-notes-data:/data ghcr.io/biaobiaobiao108/xiangyin-notes:latest
 ```
 
-升级前检查命令只读现有数据库。早期版本可能报告缺少 `note_links.snippet` 或 `rate_limits`；随镜像提供的 `0003_legacy_schema_repair.sql` 会补齐这两项。若还报告其他漂移，先备份并排查，不要继续迁移。迁移后再次检查，确认没有漂移，再按上面的启动命令重新创建容器并继续使用原数据卷。即使该版本没有待执行的迁移，迁移命令也可安全重复运行。
+迁移仅支持应用已知的 schema 版本，并在事务中执行；版本未知、迁移失败或 schema 漂移时服务会停止启动，原数据库不会被重建。遇到启动错误时先保留数据卷并查看日志，可用 `bun run db:check <数据库路径>` 只读检查结构。不要删除或重建 `xiangying-notes-data` 数据卷来处理迁移错误。
 
 如果通过 HTTPS 反向代理从公网访问，请把 `PUBLIC_URL` 设置为实际访问的 HTTPS 根地址，并根据代理情况启用 `TRUST_PROXY=true` 和 `COOKIE_SECURE=true`。启用 `TRUST_PROXY` 时还要通过 `TRUSTED_PROXY_ADDRESSES` 配置应用实际看到的反向代理 IP（逗号分隔）；应用只信任这些代理转发的客户端 IP。反向代理应覆盖 `X-Forwarded-For` / `X-Real-IP`，并阻止公网绕过代理直连应用。仅在本机或局域网使用 HTTP 时，`COOKIE_SECURE` 保持默认的 `false`。
 
@@ -214,11 +212,13 @@ bun run start
 
 访问 `http://127.0.0.1:3000/app`。修改项目并进行开发时，可以运行 `bun run dev`。
 
-升级已有安装时，已有数据库不会在启动时自动迁移。先用 `bun run db:check` 查看现有结构；早期基线缺少的 `note_links.snippet` 或 `rate_limits` 会由后续迁移补齐，其他漂移应先排查。停服后显式迁移，再次运行检查确认结构一致：
+### 数据库初始化与升级
+
+`database/schema.sql` 是当前 schema 基线，使用 `PRAGMA user_version` 标记版本。首次启动时，空数据库会自动创建；后续版本升级时，服务在监听请求前按版本顺序执行已登记迁移，每步都在事务中完成并更新版本。迁移完成后，服务会核对实际结构；版本未知、迁移未登记、迁移失败或 schema 漂移都会阻止服务启动，数据库不会被重建。
+
+正式部署前可以更新基线。正式部署后不要修改已发布的基线或迁移；schema 变更应新增从当前版本到下一版本的迁移，并递增 `CURRENT_SCHEMA_VERSION`。`bun run db:migrate` 可手动触发相同的启动与迁移流程；`bun run db:check` 只读检查数据库结构：
 
 ```bash
-bun run db:check
-bun run db:migrate
 bun run db:check
 ```
 

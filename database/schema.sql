@@ -141,3 +141,5 @@ CREATE TABLE IF NOT EXISTS rate_limits (
 
 CREATE INDEX IF NOT EXISTS idx_rate_limits_action_expiry ON rate_limits(action, blocked_until, window_started_at);
 
+PRAGMA user_version = 1;
+

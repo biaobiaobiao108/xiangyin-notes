@@ -1,6 +1,8 @@
-import { applyMigrations, openDatabase } from "./db";
+import { CURRENT_SCHEMA_VERSION, openDatabase } from "./db";
 
 const database = await openDatabase();
-await applyMigrations(database);
-database.close();
-console.log("SQLite migrations applied.");
+try {
+  console.log(`SQLite schema is current (version ${CURRENT_SCHEMA_VERSION}).`);
+} finally {
+  database.close();
+}

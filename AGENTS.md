@@ -144,7 +144,7 @@ bun run build
 ## 后端与数据要求
 
 - SQLite 查询一律使用 prepared statements，不拼接用户输入。
-- 空数据库首次启动时允许自动执行当前迁移完成基础初始化；已有数据库启动不得自动执行后续迁移。新增迁移只能通过 `bun run db:migrate` 或明确的容器迁移命令执行，迁移按文件名顺序执行并通过 `schema_migrations` 保证幂等。正式部署前可以把迁移折叠进 `0001_baseline.sql`；正式部署后不要修改已经应用的历史迁移——就地修改基线不会作用于已应用该文件的数据库，必须另增迁移文件补齐。升级已有数据库前先执行 `bun run db:check`，它会对比目标库与当前迁移产物的表、索引和列，发现漂移时以退出码 1 结束。
+- `database/schema.sql` 是当前 schema 基线，并通过 `PRAGMA user_version` 标记版本。空数据库首次启动自动初始化；已有数据库启动时自动按版本顺序执行已知迁移，每步使用事务并更新版本。遇到未知版本、迁移缺失、迁移失败或结构漂移必须停止启动，不猜测修复。正式部署前可以把迁移折叠进当前基线；正式部署后不得修改已经发布的基线或历史迁移，只能新增连续版本迁移。`bun run db:migrate` 可手动触发同一升级流程，`bun run db:check` 只读对比目标库与当前 schema，漂移时以退出码 1 结束。
 - `notes_fts` 配置为外部内容表（`content='notes', content_rowid='rowid'`），由 SQLite 触发器在正文或标题变更时自动同步维护，搜索联查使用 `notes_fts.rowid = n.rowid`；不额外存储正文副本。
 - 数据库打开时必须确保 `PRAGMA auto_vacuum = INCREMENTAL;`，已有数据库如未启用需通过 `VACUUM;` 自动升级。
 - 物理删除笔记与清空废纸篓遵循数据库空闲页复用机制（freelist reuse），释放页保留在数据库中供后续写入直接复用，不在删除请求中强行截断，避免 I/O 抖动与磁盘磨损；深度整理工具函数 `reclaimDatabaseSpace` 仅按需维护使用。
@@ -155,7 +155,7 @@ bun run build
 ## Docker 与 CI 要求
 
 - 最终镜像基于 `oven/bun:1.4.3-alpine`，使用多阶段构建。
-- 最终镜像只包含 `dist/client`、`dist/server` 和 `migrations`，不包含源码、测试、开发依赖、`.env` 或 SQLite 数据。
+- 最终镜像只包含 `dist/client`、`dist/server` 和 `database/schema.sql`，不包含源码、测试、开发依赖、`.env` 或 SQLite 数据。
 - `.github/workflows/ci.yml` 在 push 时执行类型检查、测试、Bun 构建和 Docker 构建。
 - `.github/workflows/docker.yml` 只在 Git tag 推送时发布支持 `linux/amd64` 和 `linux/arm64` 的 GHCR 多架构镜像，并在镜像推送成功后创建同名 GitHub Release；只有正式 SemVer tag 更新 `latest` 镜像标签。
 

@@ -1,17 +1,16 @@
 /**
- * 对比一个已有数据库与「当前迁移产物」的 schema，找出漂移。
+ * 对比一个已有数据库与当前 schema 基线及迁移链，找出漂移。
  *
  * 用法：bun run db:check [数据库路径]
  * 省略路径时使用 DATABASE_PATH，与服务端一致（本机默认 ./data/xiangying-notes.sqlite）。
  *
  * 存在漂移时以退出码 1 结束，便于升级前后当作检查步骤使用。
- * 背景：0001_baseline.sql 曾被就地修改过（新增 note_links.snippet 与 rate_limits），
- * 已应用旧基线文件的数据库不会自动获得这些结构，只能靠新增迁移补齐——本脚本就是用来发现它们的。
+ * 启动时也会执行同样的结构检查；本命令可在启动前只读检查数据库文件。
  */
 import { existsSync } from "node:fs";
 import { Database } from "bun:sqlite";
 import { databasePathFromEnv, openDatabase } from "../server/db";
-import { snapshotSchema } from "./schema-snapshot";
+import { snapshotSchema } from "../server/schema-snapshot";
 
 const existingPath = process.argv[2]?.trim() || databasePathFromEnv(Bun.env);
 
@@ -55,12 +54,12 @@ try {
 
   const drifted = missing.length > 0 || different.length > 0 || extra.length > 0 || columnDiffs.length > 0;
 
-  console.log(`已有库 ${existingPath}：${existingObjects.size} 个对象；当前迁移产物：${targetObjects.size} 个对象`);
-  console.log("缺失对象（迁移产物有、已有库没有）:", missing.length ? missing.join(", ") : "无");
-  console.log("多余对象（已有库有、迁移产物没有）:", extra.length ? extra.join(", ") : "无");
+  console.log(`已有库 ${existingPath}：${existingObjects.size} 个对象；当前 schema：${targetObjects.size} 个对象`);
+  console.log("缺失对象（当前 schema 有、已有库没有）:", missing.length ? missing.join(", ") : "无");
+  console.log("多余对象（已有库有、当前 schema 没有）:", extra.length ? extra.join(", ") : "无");
   console.log("定义不一致:", different.length ? different.join(", ") : "无");
   console.log("列级差异:", columnDiffs.length ? `\n  - ${columnDiffs.join("\n  - ")}` : "无");
-  console.log(drifted ? "\n发现漂移：请新增迁移补齐后再升级。" : "\n结构与当前迁移一致。");
+  console.log(drifted ? "\n发现漂移：请排查后再启动服务。" : "\n结构与当前 schema 一致。");
 
   process.exitCode = drifted ? 1 : 0;
 } finally {

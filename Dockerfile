@@ -23,7 +23,7 @@ ENV NODE_ENV=production \
 RUN mkdir -p /data && chown -R bun:bun /data /app
 
 COPY --from=builder --chown=bun:bun /app/dist ./dist
-COPY --chown=bun:bun migrations ./migrations
+COPY --chown=bun:bun database/schema.sql ./database/schema.sql
 
 USER bun
 

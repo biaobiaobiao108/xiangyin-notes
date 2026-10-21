@@ -79,8 +79,8 @@ describe("Bun Server API", () => {
 
   test("automatically initializes a fresh database and does not rerun the baseline", async () => {
     const fresh = await openDatabase(":memory:");
-    const migrations = fresh.query("SELECT name FROM schema_migrations ORDER BY name").all() as Array<{ name: string }>;
-    expect(migrations.map((item) => item.name)).toEqual(["0001_baseline.sql", "0003_legacy_schema_repair.sql"]);
+    expect(fresh.query("PRAGMA user_version").get()).toEqual({ user_version: 1 });
+    expect(fresh.query("SELECT name FROM sqlite_master WHERE type = ? AND name = ?").get("table", "schema_migrations")).toBeNull();
     expect(fresh.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'users'").get()).toBeDefined();
     fresh.close();
 
@@ -89,16 +89,15 @@ describe("Bun Server API", () => {
     initialized.close();
 
     const reopened = await openDatabase(databasePath);
-    const appliedMigrations = reopened.query("SELECT name FROM schema_migrations ORDER BY name").all() as Array<{ name: string }>;
-    expect(appliedMigrations.map((item) => item.name)).toEqual(["0001_baseline.sql", "0003_legacy_schema_repair.sql"]);
+    expect(reopened.query("PRAGMA user_version").get()).toEqual({ user_version: 1 });
+    expect(reopened.query("SELECT name FROM sqlite_master WHERE type = ? AND name = ?").get("table", "schema_migrations")).toBeNull();
     reopened.close();
     await Promise.all([rm(databasePath, { force: true }), rm(`${databasePath}-wal`, { force: true }), rm(`${databasePath}-shm`, { force: true })]);
   });
 
   test("applies SQLite migrations idempotently and reports health", async () => {
     await applyMigrations(database);
-    const migrations = database.query("SELECT name FROM schema_migrations ORDER BY name").all() as Array<{ name: string }>;
-    expect(migrations.map((item) => item.name)).toEqual(["0001_baseline.sql", "0003_legacy_schema_repair.sql"]);
+    expect(database.query("PRAGMA user_version").get()).toEqual({ user_version: 1 });
     expect(database.query("SELECT name FROM sqlite_master WHERE name = 'shares' OR name LIKE 'idx_shares_%'").all()).toEqual([]);
     expect(database.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'sync_%'").all()).toEqual([]);
 
