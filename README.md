@@ -119,7 +119,7 @@ docker run -d \
   ghcr.io/biaobiaobiao108/xiangyin-notes:latest
 ```
 
-启动后打开 `http://127.0.0.1:3000/app` 并使用 `.env` 中的账号登录。数据库和图片附件都会保存在 `xiangying-notes-data` 数据卷中。**注意：不要在 `.env` 里设置 `DATABASE_PATH`**——容器内的数据库路径固定为 `/data/xiangying-notes.sqlite`，一旦覆盖，数据和附件会写到容器内部目录而不在数据卷中，重建容器即丢失。首次启动会自动初始化空数据库；之后升级时使用同一个数据卷启动新镜像，服务会在监听请求前自动应用已知迁移：
+启动后打开 `http://127.0.0.1:3000/app` 并使用 `.env` 中的账号登录。数据库和图片附件都会保存在 `xiangying-notes-data` 数据卷中。**注意：不要在 `.env` 里设置 `DATABASE_PATH`**——容器内的数据库路径固定为 `/data/xiangying-notes.sqlite`，一旦覆盖，数据和附件会写到容器内部目录而不在数据卷中，重建容器即丢失。首次启动会自动初始化空数据库；后续升级时使用同一个数据卷启动新镜像，服务会在监听请求前执行新版本中登记的迁移：
 
 ```bash
 docker pull ghcr.io/biaobiaobiao108/xiangyin-notes:latest
@@ -128,7 +128,7 @@ docker rm xiangying-notes
 docker run -d --name xiangying-notes --restart unless-stopped -p 3000:3000 --env-file .env -v xiangying-notes-data:/data ghcr.io/biaobiaobiao108/xiangyin-notes:latest
 ```
 
-迁移仅支持应用已知的 schema 版本，并在事务中执行；版本未知、迁移失败或 schema 漂移时服务会停止启动，原数据库不会被重建。遇到启动错误时先保留数据卷并查看日志，可用 `bun run db:check <数据库路径>` 只读检查结构。不要删除或重建 `xiangying-notes-data` 数据卷来处理迁移错误。
+当前 schema 版本为 v1，尚未登记从更早版本升级的迁移步骤；非空但版本未标记或不受支持的数据库不会被自动接管。未来升级只会按连续登记的版本步骤执行，每步都在事务中完成。版本未知、迁移失败或 schema 漂移时，服务会停止启动，原数据库不会被重建。遇到启动错误时先保留数据卷并查看日志，可用 `bun run db:check <数据库路径>` 只读检查结构。不要删除或重建 `xiangying-notes-data` 数据卷来处理迁移错误。
 
 如果通过 HTTPS 反向代理从公网访问，请把 `PUBLIC_URL` 设置为实际访问的 HTTPS 根地址，并根据代理情况启用 `TRUST_PROXY=true` 和 `COOKIE_SECURE=true`。启用 `TRUST_PROXY` 时还要通过 `TRUSTED_PROXY_ADDRESSES` 配置应用实际看到的反向代理 IP（逗号分隔）；应用只信任这些代理转发的客户端 IP。反向代理应覆盖 `X-Forwarded-For` / `X-Real-IP`，并阻止公网绕过代理直连应用。仅在本机或局域网使用 HTTP 时，`COOKIE_SECURE` 保持默认的 `false`。
 
@@ -214,7 +214,7 @@ bun run start
 
 ### 数据库初始化与升级
 
-`database/schema.sql` 是当前 schema 基线，使用 `PRAGMA user_version` 标记版本。首次启动时，空数据库会自动创建；后续版本升级时，服务在监听请求前按版本顺序执行已登记迁移，每步都在事务中完成并更新版本。迁移完成后，服务会核对实际结构；非空但没有受支持版本号的数据库、迁移未登记、迁移失败或 schema 漂移都会阻止服务启动，数据库不会被重建。
+`database/schema.sql` 是当前 schema 基线，通过 `PRAGMA user_version` 标记版本。首次启动时，空数据库会自动创建。当前基线为 v1，尚无后续版本迁移；非空数据库必须已有受支持的版本号，并且结构与对应版本一致，否则服务会停止启动，不会猜测或重建数据库。以后修改 schema 时，在 `server/db.ts` 登记从当前版本到下一版本的迁移步骤；启动时会按顺序逐步执行，每步都在事务中完成并更新版本，再核对最终结构。
 
 正式部署前可以更新基线。正式部署后不要修改已发布的基线或迁移；schema 变更应新增从当前版本到下一版本的迁移，并递增 `CURRENT_SCHEMA_VERSION`。`bun run db:migrate` 可手动触发相同的启动与迁移流程；`bun run db:check` 只读检查数据库结构：
 
