@@ -5,7 +5,7 @@ import type { BatchStatement, SqliteRunResult, TestSqliteDatabase } from "./db";
 
 export type { TestSqliteDatabase } from "./db";
 
-const migrationsRoot = resolve("migrations");
+const migrationsRoot = resolve("migrations-d1");
 
 export async function openDatabase(databasePath = ":memory:"): Promise<TestSqliteDatabase> {
   const resolvedPath = databasePath === ":memory:" ? databasePath : resolve(databasePath);

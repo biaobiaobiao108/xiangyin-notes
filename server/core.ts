@@ -38,6 +38,7 @@ export type R2ObjectBinding = {
 export type R2BucketBinding = {
   put(key: string, value: ArrayBuffer | ArrayBufferView | ReadableStream<Uint8Array>, options?: { httpMetadata?: { contentType?: string; cacheControl?: string } }): Promise<unknown>;
   get(key: string): Promise<R2ObjectBinding | null>;
+  head(key: string): Promise<{ key: string } | null>;
   delete(key: string | string[]): Promise<void>;
   list(options?: { prefix?: string; limit?: number; cursor?: string }): Promise<{ objects: Array<{ key: string; uploaded?: Date }>; truncated: boolean; cursor?: string }>;
 };
@@ -135,6 +136,8 @@ export const NOTE_CONTENT_MAX_LENGTH = 1_000_000;
 export const NOTE_CONTENT_MAX_BYTES = 1_900_000;
 export const LOGIN_WINDOW_SECONDS = 15 * 60;
 export const LOGIN_MAX_FAILURES = 8;
+// A separate, higher address budget stops username rotation without making a few typos block shared networks.
+export const LOGIN_ADDRESS_MAX_FAILURES = 100;
 export const LOGIN_BLOCK_SECONDS = 15 * 60;
 export const LOGIN_ATTEMPT_MAX_ENTRIES = 2_000;
 export const LOGIN_ATTEMPT_CLEANUP_INTERVAL_SECONDS = 60;

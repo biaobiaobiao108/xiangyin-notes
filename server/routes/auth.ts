@@ -12,6 +12,7 @@ import {
   jsonError,
   LOGIN_ATTEMPT_CLEANUP_INTERVAL_SECONDS,
   LOGIN_ATTEMPT_MAX_ENTRIES,
+  LOGIN_ADDRESS_MAX_FAILURES,
   LOGIN_BLOCK_SECONDS,
   LOGIN_MAX_FAILURES,
   LOGIN_WINDOW_SECONDS,
@@ -40,6 +41,8 @@ type LoginAttempt = {
   failures: number;
   blockedUntil: number;
 };
+
+type LoginRateLimitAction = "login" | "login_address";
 
 
 type CredentialCheck = { signature: string; task: Promise<string | null>; revocationNotified: boolean };
@@ -117,27 +120,32 @@ export async function cleanupExpiredRateLimits(database: SqliteDatabase, timesta
   const nextAt = nextRateLimitCleanupAt.get(database) ?? 0;
   if (timestamp < nextAt) return;
   nextRateLimitCleanupAt.set(database, timestamp + LOGIN_ATTEMPT_CLEANUP_INTERVAL_SECONDS);
-  await database.query("DELETE FROM rate_limits WHERE blocked_until <= ? AND updated_at < ?").run(timestamp, timestamp - 3600);
-  await pruneLoginRateLimits(database, LOGIN_ATTEMPT_MAX_ENTRIES);
+  await database.query(`
+    DELETE FROM rate_limits
+    WHERE (blocked_until > 0 AND blocked_until <= ?)
+       OR (blocked_until = 0 AND updated_at < ?)
+  `).run(timestamp, timestamp - 3600);
+  await pruneRateLimitAction(database, "login", LOGIN_ATTEMPT_MAX_ENTRIES, timestamp);
+  await pruneRateLimitAction(database, "login_address", LOGIN_ATTEMPT_MAX_ENTRIES, timestamp);
 }
 
-async function pruneLoginRateLimits(database: SqliteDatabase, maxEntries: number) {
-  const row = await database.query("SELECT COUNT(*) AS count FROM rate_limits WHERE action = 'login'").get() as { count: number };
+async function pruneRateLimitAction(database: SqliteDatabase, action: LoginRateLimitAction, maxEntries: number, timestamp: number) {
+  const row = await database.query("SELECT COUNT(*) AS count FROM rate_limits WHERE action = ?").get(action) as { count: number };
   const excess = Number(row.count) - maxEntries;
   if (excess <= 0) return;
   await database.query(`
     DELETE FROM rate_limits
-    WHERE action = 'login' AND key IN (
-      SELECT key FROM rate_limits WHERE action = 'login'
+    WHERE action = ? AND key IN (
+      SELECT key FROM rate_limits WHERE action = ? AND blocked_until <= ?
       ORDER BY updated_at ASC, key ASC LIMIT ?
     )
-  `).run(excess);
+  `).run(action, action, timestamp, excess);
 }
 
-export async function getLoginAttempt(database: SqliteDatabase, key: string, timestamp: number): Promise<LoginAttempt> {
+export async function getLoginAttempt(database: SqliteDatabase, key: string, timestamp: number, action: LoginRateLimitAction = "login"): Promise<LoginAttempt> {
   await cleanupExpiredRateLimits(database, timestamp);
-  const row = await database.query("SELECT points, window_started_at, blocked_until FROM rate_limits WHERE action = 'login' AND key = ?")
-    .get(key) as { points: number; window_started_at: number; blocked_until: number } | null | undefined;
+  const row = await database.query("SELECT points, window_started_at, blocked_until FROM rate_limits WHERE action = ? AND key = ?")
+    .get(action, key) as { points: number; window_started_at: number; blocked_until: number } | null | undefined;
 
   if (!row) {
     return { windowStartedAt: timestamp, failures: 0, blockedUntil: 0 };
@@ -154,10 +162,11 @@ export async function getLoginAttempt(database: SqliteDatabase, key: string, tim
   return { windowStartedAt: row.window_started_at, failures: row.points, blockedUntil: 0 };
 }
 
-export async function recordFailedLogin(database: SqliteDatabase, key: string, timestamp: number) {
+export async function recordFailedLogin(database: SqliteDatabase, key: string, timestamp: number, action: LoginRateLimitAction = "login") {
+  const maxFailures = action === "login_address" ? LOGIN_ADDRESS_MAX_FAILURES : LOGIN_MAX_FAILURES;
   await database.query(`
     INSERT INTO rate_limits (action, key, points, window_started_at, blocked_until, updated_at)
-    VALUES ('login', ?, 1, ?, 0, ?)
+    VALUES (?, ?, 1, ?, 0, ?)
     ON CONFLICT(action, key) DO UPDATE SET
       points = CASE WHEN excluded.window_started_at - rate_limits.window_started_at > ? THEN 1 ELSE rate_limits.points + 1 END,
       window_started_at = CASE WHEN excluded.window_started_at - rate_limits.window_started_at > ? THEN excluded.window_started_at ELSE rate_limits.window_started_at END,
@@ -166,12 +175,12 @@ export async function recordFailedLogin(database: SqliteDatabase, key: string, t
         ELSE 0
       END,
       updated_at = excluded.updated_at
-  `).run(key, timestamp, timestamp, LOGIN_WINDOW_SECONDS, LOGIN_WINDOW_SECONDS, LOGIN_WINDOW_SECONDS, LOGIN_MAX_FAILURES, LOGIN_BLOCK_SECONDS);
-  await pruneLoginRateLimits(database, LOGIN_ATTEMPT_MAX_ENTRIES);
+  `).run(action, key, timestamp, timestamp, LOGIN_WINDOW_SECONDS, LOGIN_WINDOW_SECONDS, LOGIN_WINDOW_SECONDS, maxFailures, LOGIN_BLOCK_SECONDS);
+  await pruneRateLimitAction(database, action, LOGIN_ATTEMPT_MAX_ENTRIES, timestamp);
 }
 
-export async function resetLoginAttempt(database: SqliteDatabase, key: string) {
-  await database.query("DELETE FROM rate_limits WHERE action = 'login' AND key = ?").run(key);
+export async function resetLoginAttempt(database: SqliteDatabase, key: string, action: LoginRateLimitAction = "login") {
+  await database.query("DELETE FROM rate_limits WHERE action = ? AND key = ?").run(action, key);
 }
 
 export function setSessionCookie(headers: Headers, request: Request, token: string, environment: RuntimeEnvironment, maxAge = SESSION_COOKIE_TTL, clientAddress?: string) {
@@ -288,14 +297,19 @@ export async function handleAuthRoute(ctx: RouteContext): Promise<Response | nul
     const credentials = getAuthCredentials(environment);
     if (!credentials) return jsonError(503, "AUTH_NOT_CONFIGURED", "请先配置 XIANGYING_USERNAME 和 XIANGYING_PASSWORD");
     const attemptKey = loginClientKey(request, environment, clientAddress, payload.username);
+    const addressKey = loginClientKey(request, environment, clientAddress);
     const timestamp = now();
     const attempt = await getLoginAttempt(database, attemptKey, timestamp);
-    if (attempt.blockedUntil > timestamp) return jsonError(429, "TOO_MANY_LOGIN_ATTEMPTS", "登录尝试过于频繁，请稍后再试", { "Retry-After": String(attempt.blockedUntil - timestamp) });
+    const addressAttempt = await getLoginAttempt(database, addressKey, timestamp, "login_address");
+    const retryAfter = Math.max(attempt.blockedUntil, addressAttempt.blockedUntil) - timestamp;
+    if (retryAfter > 0) return jsonError(429, "TOO_MANY_LOGIN_ATTEMPTS", "登录尝试过于频繁，请稍后再试", { "Retry-After": String(retryAfter) });
     if (!constantTimeEqual(payload.username, credentials.username) || !constantTimeEqual(payload.password, credentials.password)) {
       await recordFailedLogin(database, attemptKey, timestamp);
+      await recordFailedLogin(database, addressKey, timestamp, "login_address");
       return jsonError(401, "INVALID_CREDENTIALS", "用户名或密码不正确");
     }
     await resetLoginAttempt(database, attemptKey);
+    await resetLoginAttempt(database, addressKey, "login_address");
 
     const user = await ensureEnvironmentUser(database, credentials, realtime);
     const session = createOpaqueToken();

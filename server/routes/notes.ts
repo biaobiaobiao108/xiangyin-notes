@@ -55,7 +55,7 @@ import {
   sourceNoteIdsReferencingTarget,
   syncNoteLinks,
 } from "../note-links";
-import { assetPathsForNotes, removeAssetFiles } from "./assets";
+import { assetPathsForNotes, assetPathsForTrash, removeAssetFiles } from "./assets";
 import { canIndexShortSearchTerm, MAX_SHORT_TERM_CONTENT_CHARS, MAX_SHORT_TERMS_PER_NOTE, syncNoteShortSearchTerms } from "../note-search";
 import { publishWorkspaceChange } from "../realtime";
 
@@ -319,7 +319,7 @@ export function updateNote(
   return updateNoteInTransaction(database, current, userId, title, contentMarkdown, notebookId, isFavorite, deletedAt);
 }
 
-export async function handleNotesRoute(ctx: RouteContext, user: UserRow): Promise<Response | null> {
+export async function handleNotesRoute(ctx: RouteContext, user: UserRow, summarizeNote: (note: NoteRow) => unknown = toNote): Promise<Response | null> {
   const { request, url, method, segments, options } = ctx;
   const { database } = options;
   const resource = segments[0] ?? "";
@@ -328,13 +328,15 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow): Promis
 
   // Empty trash
   if (method === "DELETE" && (url.pathname === "/api/trash" || (resource === "notes" && id === "trash"))) {
-    const deletedIds = (await all<{ id: string }>(database, "SELECT id FROM notes WHERE user_id = ? AND deleted_at IS NOT NULL", user.id)).map((note) => note.id);
-    const assetPaths = await assetPathsForNotes(database, user.id, deletedIds);
-    await database.query("DELETE FROM notes WHERE user_id = ? AND deleted_at IS NOT NULL").run(user.id);
-    const emptiedTrash = { ok: true, deletedCount: deletedIds.length, deletedIds, assetPaths };
-    publishWorkspaceChange(options, user.id, { resource: "notes" }, request);
-    if (options.assets) await removeAssetFiles(options.assets, emptiedTrash.assetPaths);
-    return json({ ok: emptiedTrash.ok, deletedCount: emptiedTrash.deletedCount, deletedIds: emptiedTrash.deletedIds });
+    const assetPaths = await assetPathsForTrash(database, user.id);
+    const [deleted] = await database.batch([{
+      sql: "DELETE FROM notes WHERE user_id = ? AND deleted_at IS NOT NULL",
+      values: [user.id],
+    }]);
+    const deletedCount = deleted?.changes ?? 0;
+    if (deletedCount > 0) publishWorkspaceChange(options, user.id, { resource: "notes" }, request);
+    if (options.assets) await removeAssetFiles(options.assets, assetPaths);
+    return json({ ok: true, deletedCount });
   }
 
   // Ensure wiki-notes target
@@ -878,7 +880,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow): Promis
     const note = await getNote(database, user.id, id);
     if (!note) return jsonError(404, "NOTE_NOT_FOUND", "笔记不存在");
     // A summary is enough to patch one list row after a realtime change.
-    return json({ note: url.searchParams.get("response") === "summary" ? toNote(note) : toFullNote(note) });
+    return json({ note: url.searchParams.get("response") === "summary" ? summarizeNote(note) : toFullNote(note) });
   }
 
   // Patch note
@@ -921,7 +923,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow): Promis
       || current.notebook_id !== notebookId
       || current.is_favorite !== isFavorite
       || current.deleted_at !== deletedAt;
-    if (!hasChanges) return json({ note: summaryResponse ? toNote(current) : toFullNote(current) });
+    if (!hasChanges) return json({ note: summaryResponse ? summarizeNote(current) : toFullNote(current) });
     let updated: boolean;
     try {
       updated = await updateNote(database, current, user.id, title, contentMarkdown as string, notebookId, isFavorite, deletedAt);
@@ -937,7 +939,7 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow): Promis
     }
     const note = await getNote(database, user.id, current.id);
     publishWorkspaceChange(options, user.id, { resource: "notes", ...(current.title === title ? { noteId: current.id } : {}) }, request);
-    return json({ note: note ? summaryResponse ? toNote(note) : toFullNote(note) : null });
+    return json({ note: note ? summaryResponse ? summarizeNote(note) : toFullNote(note) : null });
   }
 
   // Delete note permanently

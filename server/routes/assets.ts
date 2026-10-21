@@ -33,6 +33,17 @@ export async function assetPathsForNotes(database: SqliteDatabase, userId: strin
   return assets.map((asset) => asset.storage_path);
 }
 
+export async function assetPathsForTrash(database: SqliteDatabase, userId: string) {
+  const assets = await all<{ storage_path: string }>(database, `
+    SELECT storage_path
+    FROM image_assets
+    WHERE user_id = ? AND note_id IN (
+      SELECT id FROM notes WHERE user_id = ? AND deleted_at IS NOT NULL
+    )
+  `, userId, userId);
+  return assets.map((asset) => asset.storage_path);
+}
+
 /** Remove backing objects after their metadata rows have been deleted. */
 export async function removeAssetFiles(bucket: R2BucketBinding, storagePaths: string[]) {
   if (!storagePaths.length) return;

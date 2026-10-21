@@ -74,6 +74,7 @@ export async function handleExportRoute(ctx: RouteContext, user: UserRow): Promi
   const exportAssets: Array<ExportAssetRow & { name: string }> = [];
   const assetFileNameMap = new Map<string, string>();
   for (const asset of assetRows) {
+    if (!await assets.head(asset.storage_path)) continue;
     const extension = ARCHIVE_ASSET_EXTENSIONS[asset.mime_type] ?? ".bin";
     const name = `attachments/${asset.id}_${safeArchiveAssetStem(asset.original_name)}${extension}`;
     exportAssets.push({ ...asset, name });
@@ -122,14 +123,16 @@ export async function handleExportRoute(ctx: RouteContext, user: UserRow): Promi
     const encoder = new TextEncoder();
     // Local copy: the shared pattern is global, and mutating its lastIndex in a
     // generator loop is fragile if another caller iterates it concurrently.
-    const assetReference = new RegExp(ASSET_REFERENCE_PATTERN.source, ASSET_REFERENCE_PATTERN.flags);
+    // Absolute HTTPS image sources are also accepted when saving notes. Consume
+    // their full prefix so the exported path cannot retain a hostname or base path.
+    const assetReference = new RegExp(`(?:https:\\/\\/[^\\s)<>]*?)?${ASSET_REFERENCE_PATTERN.source}`, ASSET_REFERENCE_PATTERN.flags);
     for (const note of noteEntries) {
       const row = await first<{ content_markdown: string }>(database, "SELECT content_markdown FROM notes WHERE id = ? AND user_id = ? AND deleted_at IS NULL", note.id, user.id);
       if (!row) continue;
-      const content = row.content_markdown.replace(assetReference, (_match, id: string) => {
+      const content = row.content_markdown.replace(assetReference, (match, id: string) => {
         const localRel = assetFileNameMap.get(id.toLowerCase());
         const encodedPath = localRel?.split("/").map((segment) => encodeURIComponent(segment).replace(/[()]/g, (character) => character === "(" ? "%28" : "%29")).join("/");
-        return encodedPath ? `../${encodedPath}` : `/api/assets/${id}`;
+        return encodedPath ? `../${encodedPath}` : match;
       });
       const bytes = encoder.encode(content);
       yield { name: note.name, mtime: new Date(note.updated_at * 1000), stream: () => oneChunk(bytes) };

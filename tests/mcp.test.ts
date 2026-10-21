@@ -130,6 +130,52 @@ function toolData(responseBody: Record<string, any>) {
 }
 
 describe("remote MCP endpoint", () => {
+  test("returns source characters, rendered characters and words without requiring the full body", async () => {
+    const markdown = "# 标题\n\n你好，**world**！ 👩‍💻\n\n[链接](https://example.com)\n\n![图](https://images.example/a.png)";
+    const expected = { markdownCharacterCount: Array.from(markdown).length, textCharacterCount: 14, wordCount: 8 };
+    const created = toolData((await callTool("create_note", { title: "标题字段不计入正文", contentMarkdown: markdown })).body!);
+    expect(created.note).toMatchObject(expected);
+    expect(created.note).not.toHaveProperty("contentLength");
+    expect(created.note.contentMarkdown).toBeUndefined();
+
+    const noteId = created.note.id;
+    for (const includeContent of [true, false]) {
+      const read = toolData((await callTool("get_note", { noteId, includeContent })).body!).note;
+      expect(read).toMatchObject(expected);
+      expect(read).not.toHaveProperty("contentLength");
+      expect(read.contentMarkdown).toBe(includeContent ? markdown : undefined);
+    }
+    const batch = toolData((await callTool("get_notes_batch", { noteIds: [noteId] })).body!);
+    expect(batch.notes[0]).toMatchObject(expected);
+    expect(batch.totalContentCharacters).toBe(expected.markdownCharacterCount);
+    for (const [name, argumentsValue] of [
+      ["get_note_outline", { noteId }],
+      ["get_note_section", { noteId, heading: "标题" }],
+    ] as const) {
+      const data = toolData((await callTool(name, argumentsValue)).body!);
+      expect(data.note).toMatchObject(expected);
+      expect(data.note.contentMarkdown).toBeUndefined();
+    }
+
+    const renamed = toolData((await callTool("update_note", { noteId, title: "新标题", expectedVersion: created.note.version })).body!).note;
+    expect(renamed).toMatchObject(expected);
+    const appended = toolData((await callTool("append_to_note", { noteId, contentMarkdown: "\n\n新增 123" })).body!).note;
+    expect(appended).toMatchObject({ textCharacterCount: 19, wordCount: 11 });
+    const replaced = toolData((await callTool("replace_in_note", { noteId, oldText: "world", newText: "Bun", includeContent: true })).body!).note;
+    expect(replaced).toMatchObject({ textCharacterCount: 17, wordCount: 11 });
+    expect(replaced.markdownCharacterCount).toBe(Array.from(replaced.contentMarkdown).length);
+    expect(replaced).not.toHaveProperty("contentLength");
+    const metadataBatch = toolData((await callTool("batch_update_notes", { notes: [{ noteId, expectedVersion: replaced.version }], isFavorite: true })).body!);
+    expect(metadataBatch.results[0].note).toMatchObject({ textCharacterCount: 17, wordCount: 11 });
+    expect(metadataBatch.results[0].note.contentMarkdown).toBeUndefined();
+    expect(metadataBatch.results[0].note).not.toHaveProperty("contentLength");
+
+    const fullUpdate = toolData((await callTool("update_note", { noteId, expectedVersion: metadataBatch.results[0].note.version, contentMarkdown: "" })).body!).note;
+    expect(fullUpdate).toMatchObject({ markdownCharacterCount: 0, textCharacterCount: 0, wordCount: 0 });
+    const search = toolData((await callTool("search_notes", {})).body!);
+    expect(search.notes[0].markdownCharacterCount).toBeUndefined();
+  });
+
   test("supports read, error recovery, versioned writes and deletion confirmation through structured content", async () => {
     const structuredCall = async (name: string, args: Record<string, unknown>) => {
       const response = await callTool(name, args);
@@ -396,11 +442,11 @@ describe("remote MCP endpoint", () => {
 
   test("rejects old section IDs after body changes and counts emoji as Unicode characters", async () => {
     const note = toolData((await callTool("create_note", { title: "章节标识安全", contentMarkdown: "## 标题\n😀😀\n" })).body!).note;
-    expect(note.contentLength).toBe(Array.from("## 标题\n😀😀\n").length);
+    expect(note.markdownCharacterCount).toBe(Array.from("## 标题\n😀😀\n").length);
     const outline = toolData((await callTool("get_note_outline", { noteId: note.id })).body!);
     const oldId = outline.headings[0].sectionId;
     const appended = toolData((await callTool("append_to_note", { noteId: note.id, contentMarkdown: "补充" })).body!).note;
-    expect(appended.contentLength).toBe(Array.from("## 标题\n😀😀\n补充").length);
+    expect(appended.markdownCharacterCount).toBe(Array.from("## 标题\n😀😀\n补充").length);
     const obsolete = toolData((await callTool("replace_note_section", { noteId: note.id, sectionId: oldId, contentMarkdown: "## 标题\n不应覆盖" })).body!);
     expect(obsolete.error.code).toBe("SECTION_NOT_FOUND");
     const current = toolData((await callTool("get_note", { noteId: note.id })).body!).note;
@@ -599,7 +645,7 @@ describe("remote MCP endpoint", () => {
     expect(resultOf(discovered.body!).instructions).toContain("4.5 MB");
     expect(resultOf(discovered.body!).instructions).not.toContain("8,000");
     expect(resultOf(discovered.body!).instructions).toContain("保留字面井号");
-    expect(resultOf(discovered.body!).instructions).toContain("contentLength 回执与批量读取字符预算按 Unicode code points 计算");
+    expect(resultOf(discovered.body!).instructions).toContain("markdownCharacterCount 回执与批量读取字符预算按 Unicode code points 计算");
     expect(resultOf(discovered.body!).instructions).toContain("统一错误码 INVALID_ARGUMENT，并通过 field 指明字段");
     expect(resultOf(discovered.body!).instructions).toContain("field 取值为 name、color、icon、tags");
   });
@@ -1286,7 +1332,7 @@ describe("remote MCP endpoint", () => {
     expect(data.failedCount).toBe(1);
     expect(data.results[0].error.code).toBe("VERSION_CONFLICT");
     expect(data.results[0].error.current).not.toHaveProperty("contentMarkdown");
-    expect(data.results[0].error.current).toMatchObject({ version: 2, contentLength: 3, preview: "新正文" });
+    expect(data.results[0].error.current).toMatchObject({ version: 2, markdownCharacterCount: 3, preview: "新正文" });
   });
 
   test("treats escaped hashtag text as literal content while keeping real tags searchable", async () => {
@@ -1309,7 +1355,7 @@ describe("remote MCP endpoint", () => {
     const created = await callTool("create_note", { title: "局部替换", contentMarkdown: originalBody }, 1, environment);
     const note = toolData(created.body!).note;
     expect(note.contentMarkdown).toBeUndefined();
-    expect(note.contentLength).toBe(Array.from(originalBody).length);
+    expect(note.markdownCharacterCount).toBe(Array.from(originalBody).length);
 
     const replaced = await callTool("replace_in_note", {
       noteId: note.id,
@@ -1319,7 +1365,7 @@ describe("remote MCP endpoint", () => {
     const replacedNote = toolData(replaced.body!).note;
     expect(replacedNote.version).toBe(2);
     expect(replacedNote.contentMarkdown).toBeUndefined();
-    expect(replacedNote.contentLength).toBe(Array.from("报告中的占位符：已修正；其余正文保持原样").length);
+    expect(replacedNote.markdownCharacterCount).toBe(Array.from("报告中的占位符：已修正；其余正文保持原样").length);
     expect(toolData((await callTool("get_note", { noteId: note.id }, 3, environment)).body!).note.contentMarkdown).toBe("报告中的占位符：已修正；其余正文保持原样");
 
     const stale = await callTool("replace_in_note", {
@@ -1413,7 +1459,7 @@ describe("remote MCP endpoint", () => {
       includeContent: true,
     }, 3, environment);
     expect(toolData(replaced.body!).note.contentMarkdown).toBe("前文 目标 后文\n再前 替换 再后");
-    expect(toolData(replaced.body!).note.contentLength).toBe(Array.from("前文 目标 后文\n再前 替换 再后").length);
+    expect(toolData(replaced.body!).note.markdownCharacterCount).toBe(Array.from("前文 目标 后文\n再前 替换 再后").length);
 
     const missingOccurrence = await callTool("replace_in_note", {
       noteId: created.id,
@@ -1440,7 +1486,7 @@ describe("remote MCP endpoint", () => {
     const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
     const created = await callTool("create_note", { title: "分段长文骨架" }, 1, environment);
     let note = toolData(created.body!).note;
-    expect(note.contentLength).toBe(0);
+    expect(note.markdownCharacterCount).toBe(0);
 
     const chunks = ["第一段长文内容", "第二段长文内容\n末尾"];
     for (const [index, contentMarkdown] of chunks.entries()) {
@@ -1450,7 +1496,7 @@ describe("remote MCP endpoint", () => {
         contentMarkdown,
       }, index + 2, environment);
       note = toolData(appended.body!).note;
-      expect(note.contentLength).toBe(Array.from(chunks.slice(0, index + 1).join("")).length);
+      expect(note.markdownCharacterCount).toBe(Array.from(chunks.slice(0, index + 1).join("")).length);
     }
     expect(toolData((await callTool("get_note", { noteId: note.id }, 4, environment)).body!).note.contentMarkdown).toBe(chunks.join(""));
   });
@@ -1569,7 +1615,7 @@ describe("remote MCP endpoint", () => {
     expect(createdNote.version).toBe(1);
     expect(createdNote.contentMarkdown).toContain("#mcp-explicit-tag");
     expect(createdNote.tags).toContain("mcp-explicit-tag");
-    expect(createdNote.contentLength).toBe(Array.from(createdNote.contentMarkdown).length);
+    expect(createdNote.markdownCharacterCount).toBe(Array.from(createdNote.contentMarkdown).length);
 
     const search = await callTool("search_notes", { query: "mcp-test" }, 3, environment);
     expect(toolData(search.body!).notes.map((note: { id: string }) => note.id)).toContain(createdNote.id);

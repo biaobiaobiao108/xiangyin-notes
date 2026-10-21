@@ -185,13 +185,14 @@ export async function handleImportRoute(ctx: RouteContext): Promise<Response | n
   const user = await ensureEnvironmentUser(options.database, credentials);
   const inbox = await first<{ id: string }>(options.database, "SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1 LIMIT 1", user.id);
   if (!inbox) return jsonError(500, "NO_INBOX", "找不到收件箱");
-  if (!await validNoteAssetReferences(options.database, user.id, null, contentMarkdown)) return jsonError(400, "INVALID_ASSET", "图片引用无效、不受支持或附件当前不可用");
-
   const requestedId = idempotencyKey ? await deterministicImportNoteId(user.id, idempotencyKey) : undefined;
   if (requestedId) {
     const replay = await replayIdempotentImport(options.database, user.id, requestedId, contentMarkdown);
     if (replay) return replay;
   }
+  // A replay's attachments are already bound to the original note. Validate
+  // unattached assets only when this request is actually creating a new note.
+  if (!await validNoteAssetReferences(options.database, user.id, null, contentMarkdown)) return jsonError(400, "INVALID_ASSET", "图片引用无效、不受支持或附件当前不可用");
 
   let noteId: string;
   try {

@@ -18,10 +18,10 @@ const indexPath = "./dist/client/index.html";
 let indexHtml = await Bun.file(indexPath).text();
 indexHtml = indexHtml
   .replace(/href="[^"]*manifest(?:-[^"]+)?\.webmanifest"/, 'href="/manifest.webmanifest"')
-  .replace(/href="[^"]*icon-192(?:-[^"]+)?\.png"/, 'href="/icon-192.png"');
+  .replace(/(<link\b[^>]*\brel="apple-touch-icon"[^>]*\bhref=")[^"]*(")/, '$1/apple-touch-icon.png?v=rounded-1$2');
 await Bun.write(indexPath, indexHtml);
 
-for (const file of ["manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-maskable-512.png"]) {
+for (const file of ["manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-maskable-512.png", "icon-maskable-1024.png", "apple-touch-icon.png"]) {
   await Bun.write(`./dist/client/${file}`, Bun.file(`./app/${file}`));
 }
 
@@ -52,6 +52,9 @@ const workerWithPrecache = workerSource
 await Bun.write("./dist/client/sw.js", workerWithPrecache);
 
 for await (const generatedFile of new Bun.Glob("icon-192-*.png").scan({ cwd: clientRoot, onlyFiles: true })) {
+  await rm(resolve(clientRoot, generatedFile), { force: true });
+}
+for await (const generatedFile of new Bun.Glob("apple-touch-icon-*.png").scan({ cwd: clientRoot, onlyFiles: true })) {
   await rm(resolve(clientRoot, generatedFile), { force: true });
 }
 for await (const generatedFile of new Bun.Glob("manifest-*.webmanifest").scan({ cwd: clientRoot, onlyFiles: true })) {

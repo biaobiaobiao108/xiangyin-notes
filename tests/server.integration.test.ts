@@ -775,6 +775,18 @@ describe("Bun Server API", () => {
     expect(contentSecurityPolicy).toContain("font-src 'self' https://cdn.jsdelivr.net");
     expect(contentSecurityPolicy).toContain("img-src 'self' data: blob: https:");
     expect(manifest.body?.display).toBe("standalone");
+    const icons = manifest.body?.icons as Array<{ src: string; sizes: string; purpose: string }>;
+    expect(icons.filter((icon) => icon.purpose === "any").map((icon) => icon.src)).toEqual(["/icon-192.png?v=rounded-1", "/icon-512.png?v=rounded-1"]);
+    expect(icons.filter((icon) => icon.purpose === "maskable").map((icon) => icon.sizes)).toEqual(["512x512", "1024x1024"]);
+    const shortcutIcons = (manifest.body?.shortcuts as Array<{ icons: Array<{ src: string }> }>).flatMap((shortcut) => shortcut.icons);
+    expect(shortcutIcons.every((icon) => icon.src === "/icon-192.png?v=rounded-1")).toBe(true);
+    for (const icon of icons) {
+      const url = new URL(icon.src, "http://xiangying.test/manifest.webmanifest");
+      const asset = await request(`${url.pathname}${url.search}`, {}, undefined, environment, url.origin, "app");
+      expect(asset.response.status).toBe(200);
+      expect(asset.response.headers.get("Content-Type")).toContain("image/png");
+      expect(asset.response.headers.get("Cache-Control")).toBe("no-cache");
+    }
 
     const worker = await request("/sw.js");
     expect(worker.response.status).toBe(200);
@@ -803,9 +815,12 @@ describe("Bun Server API", () => {
     expect(manifest.response.status).toBe(200);
     expect(manifest.body?.short_name).toBe("象映笔记");
 
-    const icon = await request("/icon-192.png", {}, undefined, devEnvironment, "http://xiangying.test", "dist/dev-client");
-    expect(icon.response.status).toBe(200);
-    expect(icon.response.headers.get("Content-Type")).toContain("image/png");
+    for (const path of ["/icon-192.png?v=rounded-1", "/icon-maskable-1024.png", "/apple-touch-icon.png?v=rounded-1", "/favicon.png"]) {
+      const icon = await request(path, {}, undefined, devEnvironment, "http://xiangying.test", "dist/dev-client");
+      expect(icon.response.status).toBe(200);
+      expect(icon.response.headers.get("Content-Type")).toContain("image/png");
+      expect(icon.response.headers.get("Cache-Control")).toBe("no-cache");
+    }
   });
 
   test("returns no notes when a search query has no searchable terms", async () => {
@@ -867,7 +882,7 @@ describe("Bun Server API", () => {
     const otherEnvironment: Record<string, string | undefined> = { ...environment, XIANGYING_USERNAME: "other" };
     const otherLogin = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "other", password: otherEnvironment.XIANGYING_PASSWORD }) }, undefined, otherEnvironment);
     const inbox = database.query("SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1").get(login.body?.user.id) as { id: string };
-    const deletedIds = Array.from({ length: 105 }, () => crypto.randomUUID());
+    const deletedIds = Array.from({ length: 33_000 }, () => crypto.randomUUID());
     const insertNote = database.query("INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, deleted_at, version, created_at, updated_at) VALUES (?, ?, ?, 'Trashed', 'trashneedle', 1, 1, 1, 1)");
     database.transaction(() => {
       for (const id of deletedIds) { insertNote.run(id, login.body?.user.id, inbox.id); }
@@ -880,17 +895,24 @@ describe("Bun Server API", () => {
     const beforeCounts = await request("/api/notebooks", {}, login.cookie);
     const list = await request("/api/notes?view=trash", {}, login.cookie);
     expect(list.body?.notes).toHaveLength(100);
-    expect(list.body?.total).toBe(105);
+    expect(list.body?.total).toBe(deletedIds.length);
+    const imageAssetId = crypto.randomUUID();
+    const storagePath = `${login.body?.user.id}/${imageAssetId}.png`;
+    await assets.put(storagePath, new TextEncoder().encode("trash attachment"), { httpMetadata: { contentType: "image/png" } });
+    database.query("INSERT INTO image_assets (id, user_id, note_id, storage_path, original_name, mime_type, byte_size, width, height, document_order, created_at) VALUES (?, ?, ?, ?, 'trash.png', 'image/png', 16, 1, 1, NULL, 1)")
+      .run(imageAssetId, login.body?.user.id, deletedIds[1], storagePath);
 
     const unauthorized = await request("/api/trash", { method: "DELETE" });
     expect(unauthorized.response.status).toBe(401);
-    expect((await request("/api/notes?view=trash", {}, login.cookie)).body?.total).toBe(105);
+    expect((await request("/api/notes?view=trash", {}, login.cookie)).body?.total).toBe(deletedIds.length);
 
     const emptied = await request("/api/trash", { method: "DELETE" }, login.cookie);
     expect(emptied.response.status).toBe(200);
     expect(emptied.body?.ok).toBe(true);
-    expect(emptied.body?.deletedCount).toBe(105);
-    expect(new Set(emptied.body?.deletedIds)).toEqual(new Set(deletedIds));
+    expect(emptied.body?.deletedCount).toBe(deletedIds.length);
+    expect(emptied.body).not.toHaveProperty("deletedIds");
+    expect(assets.objects.has(storagePath)).toBe(false);
+    expect(database.query("SELECT id FROM image_assets WHERE id = ?").get(imageAssetId)).toBeNull();
     expect((await request("/api/notes?view=trash", {}, login.cookie)).body).toEqual({ notes: [], total: 0 });
     expect(database.query("SELECT rowid FROM notes_fts WHERE notes_fts MATCH ?").all("trashneedle")).toHaveLength(0);
     const afterCounts = (await request("/api/notebooks", {}, login.cookie)).body?.notebooks as Array<{ id: string; count: number; totalCount: number }>;
@@ -903,7 +925,7 @@ describe("Bun Server API", () => {
     expect((await request(`/api/notes/${active.body?.note.id}`, {}, login.cookie)).response.status).toBe(200);
     expect((await request("/api/notes?view=all&query=activeneedle", {}, login.cookie)).body?.total).toBe(1);
     expect((await request("/api/notes?view=trash&query=otherneedle", {}, otherLogin.cookie, otherEnvironment)).body?.total).toBe(1);
-    expect((await request("/api/trash", { method: "DELETE" }, login.cookie)).body).toEqual({ ok: true, deletedCount: 0, deletedIds: [] });
+    expect((await request("/api/trash", { method: "DELETE" }, login.cookie)).body).toEqual({ ok: true, deletedCount: 0 });
   });
 
   test("rolls back notes and full-text entries together when emptying trash fails", async () => {
@@ -1070,6 +1092,23 @@ describe("Bun Server API", () => {
     const blocked = await request("/api/auth/login", { method: "POST", headers: { "X-Forwarded-For": "203.0.113.99" }, body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
     expect(blocked.response.status).toBe(429);
     expect(blocked.body?.error.code).toBe("TOO_MANY_LOGIN_ATTEMPTS");
+    expect(blocked.response.headers.get("Retry-After")).toBeTruthy();
+  });
+
+  test("limits password spraying across changing usernames from one client address", async () => {
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const failed = await request("/api/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ username: `unknown-${attempt}`, password: "wrong passphrase 1234" }),
+      });
+      expect(failed.response.status).toBe(401);
+    }
+
+    const blocked = await request("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
+    });
+    expect(blocked.response.status).toBe(429);
     expect(blocked.response.headers.get("Retry-After")).toBeTruthy();
   });
 

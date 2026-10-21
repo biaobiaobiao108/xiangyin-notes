@@ -22,6 +22,10 @@ export class MemoryR2Bucket implements R2BucketBinding {
     };
   }
 
+  async head(key: string) {
+    return this.objects.has(key) ? { key } : null;
+  }
+
   async delete(keys: string | string[]) {
     for (const key of Array.isArray(keys) ? keys : [keys]) this.objects.delete(key);
   }
