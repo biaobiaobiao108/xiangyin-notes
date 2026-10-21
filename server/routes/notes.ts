@@ -329,11 +329,17 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, summari
   // Empty trash
   if (method === "DELETE" && (url.pathname === "/api/trash" || (resource === "notes" && id === "trash"))) {
     const assetPaths = await assetPathsForTrash(database, user.id);
-    const [deleted] = await database.batch([{
-      sql: "DELETE FROM notes WHERE user_id = ? AND deleted_at IS NOT NULL",
-      values: [user.id],
-    }]);
-    const deletedCount = deleted?.changes ?? 0;
+    const [count] = await database.batch([
+      {
+        sql: "SELECT COUNT(*) AS count FROM notes WHERE user_id = ? AND deleted_at IS NOT NULL",
+        values: [user.id],
+      },
+      {
+        sql: "DELETE FROM notes WHERE user_id = ? AND deleted_at IS NOT NULL",
+        values: [user.id],
+      },
+    ]);
+    const deletedCount = Number(count?.results?.[0]?.count ?? 0);
     if (deletedCount > 0) publishWorkspaceChange(options, user.id, { resource: "notes" }, request);
     if (options.assets) await removeAssetFiles(options.assets, assetPaths);
     return json({ ok: true, deletedCount });

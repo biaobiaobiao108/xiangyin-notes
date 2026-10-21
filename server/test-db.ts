@@ -16,7 +16,11 @@ export async function openDatabase(databasePath = ":memory:"): Promise<TestSqlit
     configurable: true,
     value: async (statements: BatchStatement[]): Promise<SqliteRunResult[]> => {
       const apply = database.transaction(() => statements.map(({ sql, values = [] }) => {
-        const result = database.query(sql).run(...values);
+        const statement = database.query(sql);
+        if (/^\s*SELECT\b/iu.test(sql)) {
+          return { changes: 0, results: statement.all(...values) as Record<string, unknown>[] };
+        }
+        const result = statement.run(...values);
         return { changes: result.changes };
       }));
       return apply();

@@ -21,7 +21,7 @@ export type D1Binding = {
   exec(sql: string): Promise<D1Result>;
 };
 
-export type SqliteRunResult = { changes: number };
+export type SqliteRunResult = { changes: number; results?: Record<string, unknown>[] };
 export type BatchStatement = { sql: string; values?: D1Value[] };
 export type TestSqliteDatabase = import("bun:sqlite").Database & {
   batch(statements: BatchStatement[]): Promise<SqliteRunResult[]>;
@@ -66,7 +66,10 @@ export class CloudflareDatabaseAdapter {
     const results = await this.binding.batch(statements.map(({ sql, values = [] }) => this.binding.prepare(sql).bind(...values)));
     return results.map((result) => {
       if (!result.success) throw new Error(result.error ?? "D1 batch failed");
-      return { changes: Number(result.meta?.changes ?? 0) };
+      return {
+        changes: Number(result.meta?.changes ?? 0),
+        ...(result.results ? { results: result.results as Record<string, unknown>[] } : {}),
+      };
     });
   }
 }
