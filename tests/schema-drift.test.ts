@@ -8,7 +8,6 @@ describe("schema drift snapshots", () => {
     try {
       database.exec("CREATE TABLE notes (rowid INTEGER PRIMARY KEY, title TEXT NOT NULL)");
       database.exec("CREATE VIRTUAL TABLE notes_fts USING fts5(title, content='notes', content_rowid='rowid', tokenize='trigram')");
-      database.exec("CREATE TABLE schema_migrations (name TEXT PRIMARY KEY, applied_at INTEGER NOT NULL)");
 
       const snapshot = snapshotSchema(database);
 
@@ -16,7 +15,6 @@ describe("schema drift snapshots", () => {
       expect(snapshot.has("table:notes_fts_data")).toBe(false);
       expect(snapshot.has("table:notes_fts_idx")).toBe(false);
       expect(snapshot.has("table:notes_fts_config")).toBe(false);
-      expect(snapshot.has("table:schema_migrations")).toBe(false);
     } finally {
       database.close();
     }

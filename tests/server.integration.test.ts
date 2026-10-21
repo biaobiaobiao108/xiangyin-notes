@@ -80,7 +80,6 @@ describe("Bun Server API", () => {
   test("automatically initializes a fresh database and does not rerun the baseline", async () => {
     const fresh = await openDatabase(":memory:");
     expect(fresh.query("PRAGMA user_version").get()).toEqual({ user_version: 1 });
-    expect(fresh.query("SELECT name FROM sqlite_master WHERE type = ? AND name = ?").get("table", "schema_migrations")).toBeNull();
     expect(fresh.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'users'").get()).toBeDefined();
     fresh.close();
 
@@ -90,7 +89,6 @@ describe("Bun Server API", () => {
 
     const reopened = await openDatabase(databasePath);
     expect(reopened.query("PRAGMA user_version").get()).toEqual({ user_version: 1 });
-    expect(reopened.query("SELECT name FROM sqlite_master WHERE type = ? AND name = ?").get("table", "schema_migrations")).toBeNull();
     reopened.close();
     await Promise.all([rm(databasePath, { force: true }), rm(`${databasePath}-wal`, { force: true }), rm(`${databasePath}-shm`, { force: true })]);
   });

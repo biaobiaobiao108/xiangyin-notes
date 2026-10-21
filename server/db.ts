@@ -10,12 +10,6 @@ const BASELINE_SCHEMA_VERSION = 1;
 // Increment this when adding the next entry to SCHEMA_MIGRATIONS.
 export const CURRENT_SCHEMA_VERSION = 1;
 
-const SUPPORTED_LEGACY_MIGRATION_NAMES = new Set([
-  "0001_baseline.sql",
-  "0002_note_links_snippet.sql",
-  "0003_legacy_schema_repair.sql",
-]);
-
 type TableCountRow = {
   count: number;
 };
@@ -34,8 +28,7 @@ export type DatabaseInitializationOptions = {
   currentSchemaVersion?: number;
 };
 
-// The pre-release migrations have been folded into database/schema.sql.
-// After the first real deployment, add each new transition here and increment
+// After deployment, add each new transition here and increment
 // CURRENT_SCHEMA_VERSION; never rewrite an already deployed transition.
 const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [];
 
@@ -51,10 +44,6 @@ function readSchemaVersion(database: SqliteDatabase) {
 function isEmptyDatabase(database: SqliteDatabase) {
   const row = database.query("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").get() as TableCountRow | null | undefined;
   return Number(row?.count ?? 0) === 0;
-}
-
-function tableExists(database: SqliteDatabase, name: string) {
-  return Boolean(database.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1").get(name));
 }
 
 function schemaVersionError(version: number, currentVersion: number) {
@@ -148,43 +137,6 @@ function createSchemaAtVersion(
   }
 }
 
-function legacyMigrationNames(database: SqliteDatabase) {
-  if (!tableExists(database, "schema_migrations")) return null;
-  return (database.query("SELECT name FROM schema_migrations ORDER BY name").all() as Array<{ name: string }>).map((row) => row.name);
-}
-
-function adoptPreReleaseMigrationMetadata(
-  database: SqliteDatabase,
-  schemaSql: string,
-  migrations: readonly SchemaMigration[],
-  currentSchemaVersion: number,
-) {
-  const names = legacyMigrationNames(database);
-  if (!names?.includes("0001_baseline.sql") || names.some((name) => !SUPPORTED_LEGACY_MIGRATION_NAMES.has(name))) {
-    throw new Error("SQLite database has no supported schema version. Refusing to guess its structure; the database was left unchanged.");
-  }
-
-  const expected = createSchemaAtVersion(schemaSql, BASELINE_SCHEMA_VERSION, migrations, currentSchemaVersion);
-  try {
-    assertSchemaMatches(database, expected, BASELINE_SCHEMA_VERSION);
-    const adopt = database.transaction(() => {
-      const currentVersion = readSchemaVersion(database);
-      if (currentVersion === BASELINE_SCHEMA_VERSION) return;
-      if (currentVersion !== 0) throw schemaVersionError(currentVersion, currentSchemaVersion);
-      const currentNames = legacyMigrationNames(database);
-      if (!currentNames?.includes("0001_baseline.sql") || currentNames.some((name) => !SUPPORTED_LEGACY_MIGRATION_NAMES.has(name))) {
-        throw new Error("SQLite migration metadata changed during startup; database was left unchanged.");
-      }
-      assertSchemaMatches(database, expected, BASELINE_SCHEMA_VERSION);
-      database.exec("DROP TABLE schema_migrations;");
-      database.exec(`PRAGMA user_version = ${BASELINE_SCHEMA_VERSION};`);
-    });
-    adopt.immediate();
-  } finally {
-    expected.close();
-  }
-}
-
 export async function initializeDatabase(
   database: SqliteDatabase,
   options: DatabaseInitializationOptions = {},
@@ -208,8 +160,7 @@ export async function initializeDatabase(
     initialize.immediate();
     version = readSchemaVersion(database);
   } else if (version === 0) {
-    adoptPreReleaseMigrationMetadata(database, schemaSql, migrations, currentSchemaVersion);
-    version = readSchemaVersion(database);
+    throw schemaVersionError(version, currentSchemaVersion);
   }
 
   if (version < BASELINE_SCHEMA_VERSION || version > currentSchemaVersion) {
