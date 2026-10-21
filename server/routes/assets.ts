@@ -58,6 +58,16 @@ export function assetPathsForNotes(database: SqliteDatabase, userId: string, not
   return all<{ storage_path: string }>(database, `SELECT storage_path FROM image_assets WHERE user_id = ? AND note_id IN (${noteIds.map(() => "?").join(",")})`, userId, ...noteIds).map((asset) => asset.storage_path);
 }
 
+export function assetPathsForTrash(database: SqliteDatabase, userId: string) {
+  return all<{ storage_path: string }>(database, `
+    SELECT storage_path
+    FROM image_assets
+    WHERE user_id = ? AND note_id IN (
+      SELECT id FROM notes WHERE user_id = ? AND deleted_at IS NOT NULL
+    )
+  `, userId, userId).map((asset) => asset.storage_path);
+}
+
 function pendingAssetDeletePath(assetRoot: string, storagePath: string) {
   const marker = Buffer.from(storagePath, "utf8").toString("base64url");
   return join(resolve(assetRoot), PENDING_ASSET_DELETE_DIRECTORY, marker);

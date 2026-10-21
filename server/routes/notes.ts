@@ -6,7 +6,6 @@ import {
   findUnlinkedMentionsInMarkdown,
   linkMentionInMarkdown,
   normalizeLinkTitle,
-  replaceWikiLinkTarget,
 } from "../../shared/wiki-links";
 import {
   all,
@@ -35,7 +34,6 @@ import {
   type RouteContext,
   type SqliteDatabase,
   type SqlValue,
-  syncNoteAssetReferences,
   syncNoteTags,
   parseIndexedTags,
   toFullNote,
@@ -46,19 +44,16 @@ import {
 } from "../core";
 import {
   findActiveNoteIdByTitle,
-  syncStoredNoteTitleKey,
-  resolveNoteLinksForTarget,
   resolveNoteLinksForTitles,
-  sourceNoteIdsReferencingTarget,
-  syncNoteLinks,
 } from "../note-links";
-import { assetPathsForNotes, removeAssetFiles } from "./assets";
-import { canIndexShortSearchTerm, MAX_SHORT_TERM_CONTENT_CHARS, MAX_SHORT_TERMS_PER_NOTE, syncNoteShortSearchTerms } from "../note-search";
+import { createNote, NoteRenameContentTooLargeError, updateNote } from "./note-mutations";
+export { createNote, updateNote, updateNoteInTransaction, NOTE_RENAME_SOURCE_BATCH_SIZE } from "./note-mutations";
+import { assetPathsForNotes, assetPathsForTrash, removeAssetFiles } from "./assets";
+import { canIndexShortSearchTerm, MAX_SHORT_TERM_CONTENT_CHARS, MAX_SHORT_TERMS_PER_NOTE } from "../note-search";
 import { publishWorkspaceChange } from "../realtime";
 
 const NOTE_BATCH_LIMIT = 500;
 const NOTE_BATCH_BODY_MAX_BYTES = 64 * 1024;
-export const NOTE_RENAME_SOURCE_BATCH_SIZE = 16;
 const NOTE_SORTS: NoteSort[] = ["updated", "created", "title"];
 const NOTE_LIST_MAX_OFFSET = 1_000_000;
 const NOTE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
@@ -93,12 +88,6 @@ function markTagFilterVerified(database: SqliteDatabase, userId: string, normali
     if (oldestKey !== undefined) cache.delete(oldestKey);
   }
   verifiedTagFiltersByDatabase.set(database, cache);
-}
-
-class NoteRenameContentTooLargeError extends Error {
-  constructor() {
-    super("note-rename-content-too-large");
-  }
 }
 
 type SearchSort = NoteSort | "relevance";
@@ -189,105 +178,6 @@ function batchConflictResponse(error: BatchNoteConflictError) {
   return json({ error: { code: "VERSION_CONFLICT", message: "选中的笔记已发生变化，请重新选择后重试", conflictIds: error.conflictIds } }, 409);
 }
 
-export function createNote(
-  database: SqliteDatabase,
-  userId: string,
-  notebookId: string,
-  title: string,
-  contentMarkdown: string,
-  requestedId?: string,
-) {
-  const id = requestedId ?? crypto.randomUUID();
-  const createdAt = now();
-  const transaction = database.transaction(() => {
-    database.query("INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)").run(id, userId, notebookId, title, contentMarkdown, createdAt, createdAt);
-    syncStoredNoteTitleKey(database, id, title);
-    if (!syncNoteAssetReferences(database, userId, id, contentMarkdown)) throw new Error("invalid-note-assets");
-    syncNoteTags(database, userId, id, contentMarkdown);
-    syncNoteShortSearchTerms(database, userId, id, title, contentMarkdown);
-    syncNoteLinks(database, userId, id, contentMarkdown, createdAt);
-    resolveNoteLinksForTarget(database, userId, title, id);
-  });
-  transaction();
-  return id;
-}
-
-export function updateNoteInTransaction(
-  database: SqliteDatabase,
-  current: NoteRow,
-  userId: string,
-  title: string,
-  contentMarkdown: string,
-  notebookId: string,
-  isFavorite: number,
-  deletedAt: number | null,
-) {
-  const updatedAt = now();
-  const titleChanged = current.title !== title;
-  const contentChanged = current.content_markdown !== contentMarkdown;
-  const deletedChanged = current.deleted_at !== deletedAt;
-  const oldTitle = current.title;
-
-  const updated = database.query("UPDATE notes SET title = ?, content_markdown = ?, notebook_id = ?, is_favorite = ?, deleted_at = ?, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ? AND version = ? RETURNING id").get(title, contentMarkdown, notebookId, isFavorite, deletedAt, updatedAt, current.id, userId, current.version) as { id: string } | null;
-  if (!updated) return false;
-  if (titleChanged) syncStoredNoteTitleKey(database, current.id, title);
-  if (contentChanged && !syncNoteAssetReferences(database, userId, current.id, contentMarkdown)) throw new InvalidNoteAssetsError();
-  if (contentChanged || titleChanged) syncNoteShortSearchTerms(database, userId, current.id, title, contentMarkdown);
-  if (contentChanged) {
-    syncNoteTags(database, userId, current.id, contentMarkdown);
-    syncNoteLinks(database, userId, current.id, contentMarkdown, updatedAt);
-  }
-
-  if (titleChanged && oldTitle.trim() && title.trim()) {
-    let afterSourceNoteId = "";
-    while (true) {
-      const sourceNoteIds = sourceNoteIdsReferencingTarget(
-        database,
-        userId,
-        current.id,
-        afterSourceNoteId,
-        NOTE_RENAME_SOURCE_BATCH_SIZE,
-      );
-      if (sourceNoteIds.length === 0) break;
-      afterSourceNoteId = sourceNoteIds[sourceNoteIds.length - 1]!;
-
-      const placeholders = sourceNoteIds.map(() => "?").join(", ");
-      const referencingNotes = all<NoteRow>(database, `
-        SELECT ${NOTE_SELECT}
-        FROM ${NOTE_FROM}
-        WHERE n.id IN (${placeholders}) AND n.user_id = ? AND n.deleted_at IS NULL
-      `, ...sourceNoteIds, userId);
-      for (const refNote of referencingNotes) {
-        const { content: replacedContent, count } = replaceWikiLinkTarget(refNote.content_markdown, oldTitle, title);
-        if (count === 0) continue;
-        if (replacedContent.length > NOTE_CONTENT_MAX_LENGTH) throw new NoteRenameContentTooLargeError();
-        database.query("UPDATE notes SET content_markdown = ?, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ?").run(replacedContent, updatedAt, refNote.id, userId);
-        syncNoteTags(database, userId, refNote.id, replacedContent);
-        syncNoteShortSearchTerms(database, userId, refNote.id, refNote.title, replacedContent);
-        syncNoteLinks(database, userId, refNote.id, replacedContent, updatedAt);
-      }
-    }
-  }
-  if (titleChanged || deletedChanged) {
-    resolveNoteLinksForTitles(database, userId, [oldTitle, title]);
-  }
-
-  return true;
-}
-
-export function updateNote(
-  database: SqliteDatabase,
-  current: NoteRow,
-  userId: string,
-  title: string,
-  contentMarkdown: string,
-  notebookId: string,
-  isFavorite: number,
-  deletedAt: number | null,
-) {
-  return database.transaction(() => updateNoteInTransaction(database, current, userId, title, contentMarkdown, notebookId, isFavorite, deletedAt))();
-}
-
 export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRoot: string, summarizeNote: (note: NoteRow) => NoteSummary = toNote): Promise<Response | null> {
   const { request, url, method, segments, options } = ctx;
   const { database } = options;
@@ -298,15 +188,16 @@ export async function handleNotesRoute(ctx: RouteContext, user: UserRow, assetRo
   // Empty trash
   if (method === "DELETE" && (url.pathname === "/api/trash" || (resource === "notes" && id === "trash"))) {
     const emptyTrash = database.transaction(() => {
-      const deletedIds = all<{ id: string }>(database, "SELECT id FROM notes WHERE user_id = ? AND deleted_at IS NOT NULL", user.id).map((note) => note.id);
-      const assetPaths = assetPathsForNotes(database, user.id, deletedIds);
+      const assetPaths = assetPathsForTrash(database, user.id);
+      const count = first<{ count: number }>(database, "SELECT COUNT(*) AS count FROM notes WHERE user_id = ? AND deleted_at IS NOT NULL", user.id);
+      const deletedCount = Number(count?.count ?? 0);
       database.query("DELETE FROM notes WHERE user_id = ? AND deleted_at IS NOT NULL").run(user.id);
-      return { ok: true, deletedCount: deletedIds.length, deletedIds, assetPaths };
+      return { deletedCount, assetPaths };
     });
     const emptiedTrash = emptyTrash();
-    publishWorkspaceChange(options, user.id, { resource: "notes" }, request);
+    if (emptiedTrash.deletedCount > 0) publishWorkspaceChange(options, user.id, { resource: "notes" }, request);
     await removeAssetFiles(assetRoot, emptiedTrash.assetPaths);
-    return json({ ok: emptiedTrash.ok, deletedCount: emptiedTrash.deletedCount, deletedIds: emptiedTrash.deletedIds });
+    return json({ ok: true, deletedCount: emptiedTrash.deletedCount });
   }
 
   // Ensure wiki-notes target

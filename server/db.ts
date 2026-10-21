@@ -24,26 +24,32 @@ function isEmptyDatabase(database: SqliteDatabase) {
   return Number(row?.count ?? 0) === 0;
 }
 
-async function countMigrationFiles(migrationsPath: string) {
+async function migrationFilesIn(migrationsPath: string) {
   const glob = new Bun.Glob("*.sql");
-  let count = 0;
-  try {
-    for await (const file of glob.scan({ cwd: migrationsPath, onlyFiles: true })) {
-      if (file) count += 1;
-    }
-  } catch {
-    return 0;
-  }
-  return count;
+  const files: string[] = [];
+  for await (const file of glob.scan({ cwd: migrationsPath, onlyFiles: true })) files.push(file);
+  return files.sort();
 }
 
-function appliedMigrationCount(database: SqliteDatabase) {
+function appliedMigrationNames(database: SqliteDatabase) {
   try {
-    const row = database.query("SELECT COUNT(*) AS count FROM schema_migrations").get() as TableCountRow | null | undefined;
-    return Number(row?.count ?? 0);
+    return new Set((database.query("SELECT name FROM schema_migrations").all() as MigrationRow[]).map((row) => row.name));
   } catch {
-    return 0;
+    return new Set<string>();
   }
+}
+
+const CONDITIONAL_COLUMN_MIGRATION_BLOCK = /^-- @if-column-missing ([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\r?\n([\s\S]*?)^-- @endif[ \t]*\r?$/gmu;
+
+function resolveConditionalMigrationBlocks(database: SqliteDatabase, sql: string) {
+  const resolved = sql.replace(CONDITIONAL_COLUMN_MIGRATION_BLOCK, (_block, table: string, column: string, body: string) => {
+    const columns = database.query(`PRAGMA table_info("${table}")`).all() as Array<{ name: string }>;
+    return columns.some((candidate) => candidate.name === column) ? "" : body;
+  });
+  if (/^-- @if-column-missing\b|^-- @endif\b/mu.test(resolved)) {
+    throw new Error("Invalid conditional migration block");
+  }
+  return resolved;
 }
 
 export function reclaimDatabaseSpace(database: SqliteDatabase) {
@@ -86,8 +92,9 @@ export async function openDatabase(
     await applyMigrations(database);
   } else {
     // Existing databases are never migrated automatically; warn instead of failing later at runtime.
-    const pending = (await countMigrationFiles(DEFAULT_MIGRATIONS_PATH)) - appliedMigrationCount(database);
-    if (pending > 0) console.warn(`[db] 检测到 ${pending} 个未应用的迁移，请执行 bun run db:migrate`);
+    const applied = appliedMigrationNames(database);
+    const pending = (await migrationFilesIn(DEFAULT_MIGRATIONS_PATH)).filter((file) => !applied.has(file));
+    if (pending.length > 0) console.warn(`[db] 检测到未应用的迁移：${pending.join(", ")}，请执行 bun run db:migrate`);
   }
   return database;
 }
@@ -100,18 +107,14 @@ export async function applyMigrations(database: SqliteDatabase, migrationsPath =
     )
   `);
 
-  const migrationFiles: string[] = [];
-  const glob = new Bun.Glob("*.sql");
-  for await (const file of glob.scan({ cwd: migrationsPath, onlyFiles: true })) migrationFiles.push(file);
-
-  for (const file of migrationFiles.sort()) {
+  for (const file of await migrationFilesIn(migrationsPath)) {
     const name = file.replaceAll("\\", "/");
     const applied = database.query("SELECT name FROM schema_migrations WHERE name = ?").get(name) as MigrationRow | null;
     if (applied) continue;
 
-    const sql = await Bun.file(join(migrationsPath, file)).text();
+    const sourceSql = await Bun.file(join(migrationsPath, file)).text();
     const applyMigration = database.transaction(() => {
-      database.exec(sql);
+      database.exec(resolveConditionalMigrationBlocks(database, sourceSql));
       database.query("INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)").run(name, Date.now());
     });
     applyMigration();

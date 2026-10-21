@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyMigrations, openDatabase, type SqliteDatabase } from "../server/db";
 import { handleRequest, redactSensitivePath } from "../server/index";
-import { MCP_PATH } from "../server/mcp";
+import { MCP_PATH } from "../server/mcp-transport";
 import { createNote } from "../server/routes/notes";
 import { NOTE_BODY_MAX_BYTES } from "../server/core";
 

@@ -11,7 +11,7 @@ import { assetRootFromEnv, cleanupOrphanAssets, handleAssetsRoute } from "./rout
 import { cleanupExpiredSessions, handleAuthRoute, isResponse, requireUser } from "./routes/auth";
 import { handleExportRoute } from "./routes/export";
 import { handleImportRoute } from "./routes/import";
-import { handleMcpRequest, MCP_PATH } from "./mcp";
+import { handleMcpRequest, MCP_PATH } from "./mcp-transport";
 import { handleNotebooksRoute } from "./routes/notebooks";
 import { handleNotesRoute } from "./routes/notes";
 import { REALTIME_PATH, RealtimeHub, upgradeRealtimeRequest, type RealtimeSocketData } from "./realtime";

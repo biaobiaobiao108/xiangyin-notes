@@ -12,6 +12,7 @@ import {
   jsonError,
   LOGIN_ATTEMPT_CLEANUP_INTERVAL_SECONDS,
   LOGIN_ATTEMPT_MAX_ENTRIES,
+  LOGIN_ADDRESS_MAX_FAILURES,
   LOGIN_BLOCK_SECONDS,
   LOGIN_MAX_FAILURES,
   LOGIN_WINDOW_SECONDS,
@@ -122,31 +123,38 @@ export function loginClientKey(request: Request, environment: RuntimeEnvironment
 
 const nextRateLimitCleanupAt = new WeakMap<SqliteDatabase, number>();
 
+type LoginRateLimitAction = "login" | "login_address";
+
 export function cleanupExpiredRateLimits(database: SqliteDatabase, timestamp: number) {
   const nextAt = nextRateLimitCleanupAt.get(database) ?? 0;
   if (timestamp < nextAt) return;
   nextRateLimitCleanupAt.set(database, timestamp + LOGIN_ATTEMPT_CLEANUP_INTERVAL_SECONDS);
-  database.query("DELETE FROM rate_limits WHERE blocked_until <= ? AND updated_at < ?").run(timestamp, timestamp - 3600);
-  pruneLoginRateLimits(database, LOGIN_ATTEMPT_MAX_ENTRIES);
+  database.query(`
+    DELETE FROM rate_limits
+    WHERE (blocked_until > 0 AND blocked_until <= ?)
+       OR (blocked_until = 0 AND updated_at < ?)
+  `).run(timestamp, timestamp - 3600);
+  pruneRateLimitAction(database, "login", LOGIN_ATTEMPT_MAX_ENTRIES, timestamp);
+  pruneRateLimitAction(database, "login_address", LOGIN_ATTEMPT_MAX_ENTRIES, timestamp);
 }
 
-function pruneLoginRateLimits(database: SqliteDatabase, maxEntries: number) {
-  const row = database.query("SELECT COUNT(*) AS count FROM rate_limits WHERE action = 'login'").get() as { count: number };
+function pruneRateLimitAction(database: SqliteDatabase, action: LoginRateLimitAction, maxEntries: number, timestamp: number) {
+  const row = database.query("SELECT COUNT(*) AS count FROM rate_limits WHERE action = ?").get(action) as { count: number };
   const excess = Number(row.count) - maxEntries;
   if (excess <= 0) return;
   database.query(`
     DELETE FROM rate_limits
-    WHERE action = 'login' AND key IN (
-      SELECT key FROM rate_limits WHERE action = 'login'
+    WHERE action = ? AND key IN (
+      SELECT key FROM rate_limits WHERE action = ? AND blocked_until <= ?
       ORDER BY updated_at ASC, key ASC LIMIT ?
     )
-  `).run(excess);
+  `).run(action, action, timestamp, excess);
 }
 
-export function getLoginAttempt(database: SqliteDatabase, key: string, timestamp: number): LoginAttempt {
+export function getLoginAttempt(database: SqliteDatabase, key: string, timestamp: number, action: LoginRateLimitAction = "login"): LoginAttempt {
   cleanupExpiredRateLimits(database, timestamp);
-  const row = database.query("SELECT points, window_started_at, blocked_until FROM rate_limits WHERE action = 'login' AND key = ?")
-    .get(key) as { points: number; window_started_at: number; blocked_until: number } | null | undefined;
+  const row = database.query("SELECT points, window_started_at, blocked_until FROM rate_limits WHERE action = ? AND key = ?")
+    .get(action, key) as { points: number; window_started_at: number; blocked_until: number } | null | undefined;
 
   if (!row) {
     return { windowStartedAt: timestamp, failures: 0, blockedUntil: 0 };
@@ -163,29 +171,30 @@ export function getLoginAttempt(database: SqliteDatabase, key: string, timestamp
   return { windowStartedAt: row.window_started_at, failures: row.points, blockedUntil: 0 };
 }
 
-export function recordFailedLogin(database: SqliteDatabase, key: string, timestamp: number) {
+export function recordFailedLogin(database: SqliteDatabase, key: string, timestamp: number, action: LoginRateLimitAction = "login") {
   database.transaction(() => {
-    const current = getLoginAttempt(database, key, timestamp);
-    const existing = database.query("SELECT 1 AS found FROM rate_limits WHERE action = 'login' AND key = ?").get(key);
-    if (!existing) pruneLoginRateLimits(database, LOGIN_ATTEMPT_MAX_ENTRIES - 1);
+    const current = getLoginAttempt(database, key, timestamp, action);
+    const existing = database.query("SELECT 1 AS found FROM rate_limits WHERE action = ? AND key = ?").get(action, key);
+    if (!existing) pruneRateLimitAction(database, action, LOGIN_ATTEMPT_MAX_ENTRIES - 1, timestamp);
     const failures = current.failures + 1;
     const windowStartedAt = current.failures === 0 ? timestamp : current.windowStartedAt;
-    const blockedUntil = failures >= LOGIN_MAX_FAILURES ? timestamp + LOGIN_BLOCK_SECONDS : 0;
+    const maxFailures = action === "login_address" ? LOGIN_ADDRESS_MAX_FAILURES : LOGIN_MAX_FAILURES;
+    const blockedUntil = failures >= maxFailures ? timestamp + LOGIN_BLOCK_SECONDS : 0;
 
     database.query(`
       INSERT INTO rate_limits (action, key, points, window_started_at, blocked_until, updated_at)
-      VALUES ('login', ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(action, key) DO UPDATE SET
         points = excluded.points,
         window_started_at = excluded.window_started_at,
         blocked_until = excluded.blocked_until,
         updated_at = excluded.updated_at
-    `).run(key, failures, windowStartedAt, blockedUntil, timestamp);
+    `).run(action, key, failures, windowStartedAt, blockedUntil, timestamp);
   })();
 }
 
-export function resetLoginAttempt(database: SqliteDatabase, key: string) {
-  database.query("DELETE FROM rate_limits WHERE action = 'login' AND key = ?").run(key);
+export function resetLoginAttempt(database: SqliteDatabase, key: string, action: LoginRateLimitAction = "login") {
+  database.query("DELETE FROM rate_limits WHERE action = ? AND key = ?").run(action, key);
 }
 
 export function setSessionCookie(headers: Headers, request: Request, token: string, environment: RuntimeEnvironment, maxAge = SESSION_COOKIE_TTL, clientAddress?: string) {
@@ -302,14 +311,19 @@ export async function handleAuthRoute(ctx: RouteContext): Promise<Response | nul
     const credentials = getAuthCredentials(environment);
     if (!credentials) return jsonError(503, "AUTH_NOT_CONFIGURED", "请先配置 XIANGYING_USERNAME 和 XIANGYING_PASSWORD");
     const attemptKey = loginClientKey(request, environment, clientAddress, payload.username);
+    const addressKey = loginClientKey(request, environment, clientAddress);
     const timestamp = now();
     const attempt = getLoginAttempt(database, attemptKey, timestamp);
-    if (attempt.blockedUntil > timestamp) return jsonError(429, "TOO_MANY_LOGIN_ATTEMPTS", "登录尝试过于频繁，请稍后再试", { "Retry-After": String(attempt.blockedUntil - timestamp) });
+    const addressAttempt = getLoginAttempt(database, addressKey, timestamp, "login_address");
+    const retryAfter = Math.max(attempt.blockedUntil, addressAttempt.blockedUntil) - timestamp;
+    if (retryAfter > 0) return jsonError(429, "TOO_MANY_LOGIN_ATTEMPTS", "登录尝试过于频繁，请稍后再试", { "Retry-After": String(retryAfter) });
     if (!constantTimeEqual(payload.username, credentials.username) || !constantTimeEqual(payload.password, credentials.password)) {
       recordFailedLogin(database, attemptKey, timestamp);
+      recordFailedLogin(database, addressKey, timestamp, "login_address");
       return jsonError(401, "INVALID_CREDENTIALS", "用户名或密码不正确");
     }
     resetLoginAttempt(database, attemptKey);
+    resetLoginAttempt(database, addressKey, "login_address");
 
     const user = await ensureEnvironmentUser(database, credentials, options.realtime);
     const session = createOpaqueToken();

@@ -114,11 +114,13 @@ jobs:
               docker pull $IMAGE:$VERSION
               docker run -d --name xiangying-notes --restart unless-stopped -p 3000:3000 --env-file .env -v xiangying-notes-data:/data $IMAGE:$VERSION
 
-          首次启动的空数据库会自动初始化。升级已有安装时，先拉取目标镜像并停止旧容器，再用目标版本显式执行迁移；完成后删除旧容器并按上面的命令启动新版本：
+          首次启动的空数据库会自动初始化。升级已有安装时，先拉取目标镜像并停止旧容器。执行只读 schema 检查；早期基线缺少的 note_links.snippet 或 rate_limits 会由后续迁移补齐，其他漂移应先排查。显式迁移后再次检查，确认结构一致，再删除旧容器并启动新版本：
 
               docker pull $IMAGE:$VERSION
               docker stop xiangying-notes
+              docker run --rm --env-file .env -v xiangying-notes-data:/data --entrypoint bun $IMAGE:$VERSION dist/server/scripts/check-schema-drift.js
               docker run --rm --env-file .env -v xiangying-notes-data:/data --entrypoint bun $IMAGE:$VERSION dist/server/migrate.js
+              docker run --rm --env-file .env -v xiangying-notes-data:/data --entrypoint bun $IMAGE:$VERSION dist/server/scripts/check-schema-drift.js
               docker rm xiangying-notes
 
           即使该版本没有待执行的迁移，迁移命令也可安全重复运行。升级或回滚时继续使用同一个数据卷；回滚前应确认目标旧版本兼容当前数据库 schema。

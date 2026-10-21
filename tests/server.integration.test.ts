@@ -80,7 +80,7 @@ describe("Bun Server API", () => {
   test("automatically initializes a fresh database and does not rerun the baseline", async () => {
     const fresh = await openDatabase(":memory:");
     const migrations = fresh.query("SELECT name FROM schema_migrations ORDER BY name").all() as Array<{ name: string }>;
-    expect(migrations.map((item) => item.name)).toEqual(["0001_baseline.sql"]);
+    expect(migrations.map((item) => item.name)).toEqual(["0001_baseline.sql", "0003_legacy_schema_repair.sql"]);
     expect(fresh.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'users'").get()).toBeDefined();
     fresh.close();
 
@@ -90,7 +90,7 @@ describe("Bun Server API", () => {
 
     const reopened = await openDatabase(databasePath);
     const appliedMigrations = reopened.query("SELECT name FROM schema_migrations ORDER BY name").all() as Array<{ name: string }>;
-    expect(appliedMigrations.map((item) => item.name)).toEqual(["0001_baseline.sql"]);
+    expect(appliedMigrations.map((item) => item.name)).toEqual(["0001_baseline.sql", "0003_legacy_schema_repair.sql"]);
     reopened.close();
     await Promise.all([rm(databasePath, { force: true }), rm(`${databasePath}-wal`, { force: true }), rm(`${databasePath}-shm`, { force: true })]);
   });
@@ -98,7 +98,7 @@ describe("Bun Server API", () => {
   test("applies SQLite migrations idempotently and reports health", async () => {
     await applyMigrations(database);
     const migrations = database.query("SELECT name FROM schema_migrations ORDER BY name").all() as Array<{ name: string }>;
-    expect(migrations.map((item) => item.name)).toEqual(["0001_baseline.sql"]);
+    expect(migrations.map((item) => item.name)).toEqual(["0001_baseline.sql", "0003_legacy_schema_repair.sql"]);
     expect(database.query("SELECT name FROM sqlite_master WHERE name = 'shares' OR name LIKE 'idx_shares_%'").all()).toEqual([]);
     expect(database.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'sync_%'").all()).toEqual([]);
 
@@ -911,7 +911,7 @@ describe("Bun Server API", () => {
     const otherEnvironment: Record<string, string | undefined> = { ...environment, XIANGYING_USERNAME: "other" };
     const otherLogin = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "other", password: otherEnvironment.XIANGYING_PASSWORD }) }, undefined, otherEnvironment);
     const inbox = database.query("SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1").get(login.body?.user.id) as { id: string };
-    const deletedIds = Array.from({ length: 105 }, () => crypto.randomUUID());
+    const deletedIds = Array.from({ length: 33_000 }, () => crypto.randomUUID());
     const insertNote = database.query("INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, deleted_at, version, created_at, updated_at) VALUES (?, ?, ?, 'Trashed', 'trashneedle', 1, 1, 1, 1)");
     database.transaction(() => {
       for (const id of deletedIds) { insertNote.run(id, login.body?.user.id, inbox.id); }
@@ -924,17 +924,25 @@ describe("Bun Server API", () => {
     const beforeCounts = await request("/api/notebooks", {}, login.cookie);
     const list = await request("/api/notes?view=trash", {}, login.cookie);
     expect(list.body?.notes).toHaveLength(100);
-    expect(list.body?.total).toBe(105);
+    expect(list.body?.total).toBe(deletedIds.length);
+    const imageAssetId = crypto.randomUUID();
+    const storagePath = `${login.body?.user.id}/${imageAssetId}.png`;
+    await mkdir(join(assetRoot, login.body?.user.id), { recursive: true });
+    await Bun.write(join(assetRoot, storagePath), "trash attachment");
+    database.query("INSERT INTO image_assets (id, user_id, note_id, storage_path, original_name, mime_type, byte_size, width, height, document_order, created_at) VALUES (?, ?, ?, ?, 'trash.png', 'image/png', 16, 1, 1, NULL, 1)")
+      .run(imageAssetId, login.body?.user.id, deletedIds[1], storagePath);
 
     const unauthorized = await request("/api/trash", { method: "DELETE" });
     expect(unauthorized.response.status).toBe(401);
-    expect((await request("/api/notes?view=trash", {}, login.cookie)).body?.total).toBe(105);
+    expect((await request("/api/notes?view=trash", {}, login.cookie)).body?.total).toBe(deletedIds.length);
 
     const emptied = await request("/api/trash", { method: "DELETE" }, login.cookie);
     expect(emptied.response.status).toBe(200);
     expect(emptied.body?.ok).toBe(true);
-    expect(emptied.body?.deletedCount).toBe(105);
-    expect(new Set(emptied.body?.deletedIds)).toEqual(new Set(deletedIds));
+    expect(emptied.body?.deletedCount).toBe(deletedIds.length);
+    expect(emptied.body).not.toHaveProperty("deletedIds");
+    expect(await Bun.file(join(assetRoot, storagePath)).exists()).toBe(false);
+    expect(database.query("SELECT id FROM image_assets WHERE id = ?").get(imageAssetId)).toBeNull();
     expect((await request("/api/notes?view=trash", {}, login.cookie)).body).toEqual({ notes: [], total: 0 });
     expect(database.query("SELECT rowid FROM notes_fts WHERE notes_fts MATCH ?").all("trashneedle")).toHaveLength(0);
     const afterCounts = (await request("/api/notebooks", {}, login.cookie)).body?.notebooks as Array<{ id: string; count: number; totalCount: number }>;
@@ -947,7 +955,7 @@ describe("Bun Server API", () => {
     expect((await request(`/api/notes/${active.body?.note.id}`, {}, login.cookie)).response.status).toBe(200);
     expect((await request("/api/notes?view=all&query=activeneedle", {}, login.cookie)).body?.total).toBe(1);
     expect((await request("/api/notes?view=trash&query=otherneedle", {}, otherLogin.cookie, otherEnvironment)).body?.total).toBe(1);
-    expect((await request("/api/trash", { method: "DELETE" }, login.cookie)).body).toEqual({ ok: true, deletedCount: 0, deletedIds: [] });
+    expect((await request("/api/trash", { method: "DELETE" }, login.cookie)).body).toEqual({ ok: true, deletedCount: 0 });
   });
 
   test("rolls back notes and full-text entries together when emptying trash fails", async () => {
@@ -1114,6 +1122,23 @@ describe("Bun Server API", () => {
     const blocked = await request("/api/auth/login", { method: "POST", headers: { "X-Forwarded-For": "203.0.113.99" }, body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
     expect(blocked.response.status).toBe(429);
     expect(blocked.body?.error.code).toBe("TOO_MANY_LOGIN_ATTEMPTS");
+    expect(blocked.response.headers.get("Retry-After")).toBeTruthy();
+  });
+
+  test("limits password spraying across changing usernames from one client address", async () => {
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const failed = await request("/api/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ username: `unknown-${attempt}`, password: "wrong passphrase 1234" }),
+      });
+      expect(failed.response.status).toBe(401);
+    }
+
+    const blocked = await request("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
+    });
+    expect(blocked.response.status).toBe(429);
     expect(blocked.response.headers.get("Retry-After")).toBeTruthy();
   });
 

@@ -111,6 +111,8 @@ export const NOTE_BODY_MAX_BYTES = 4_500_000;
 export const NOTE_CONTENT_MAX_LENGTH = 1_000_000;
 export const LOGIN_WINDOW_SECONDS = 15 * 60;
 export const LOGIN_MAX_FAILURES = 8;
+// A separate, higher address budget stops username rotation without making a few typos block shared networks.
+export const LOGIN_ADDRESS_MAX_FAILURES = 100;
 export const LOGIN_BLOCK_SECONDS = 15 * 60;
 export const LOGIN_ATTEMPT_MAX_ENTRIES = 2_000;
 export const LOGIN_ATTEMPT_CLEANUP_INTERVAL_SECONDS = 60;
