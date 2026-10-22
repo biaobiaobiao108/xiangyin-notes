@@ -5,19 +5,30 @@ export type RealtimeSessionRevoker = {
   revokeSession(userId: string, tokenHash: string): void;
 };
 
-export function createRealtimeSessionRevoker(options: Pick<ServerOptions, "realtime" | "realtimeNamespace" | "waitUntil"> | undefined): RealtimeSessionRevoker | undefined {
+export function createRealtimeSessionRevoker(
+  options: Pick<ServerOptions, "realtime" | "realtimeNamespace" | "waitUntil"> | undefined,
+): RealtimeSessionRevoker | undefined {
   if (!options?.realtime && !options?.realtimeNamespace) return undefined;
 
-  const dispatch = (userId: string, action: "revoke-user" | "revoke-session", tokenHash?: string) => {
+  const dispatch = (
+    userId: string,
+    action: "revoke-user" | "revoke-session",
+    tokenHash?: string,
+  ) => {
     const namespace = options.realtimeNamespace;
     if (!namespace) return;
-    const task = namespace.get(namespace.idFromName(userId)).fetch(new Request(`https://realtime.internal/${action}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId, ...(tokenHash ? { tokenHash } : {}) }),
-    })).then((response) => {
-      if (!response.ok) throw new Error(`Realtime revocation failed: ${response.status}`);
-    });
+    const task = namespace
+      .get(namespace.idFromName(userId))
+      .fetch(
+        new Request(`https://realtime.internal/${action}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId, ...(tokenHash ? { tokenHash } : {}) }),
+        }),
+      )
+      .then((response) => {
+        if (!response.ok) throw new Error(`Realtime revocation failed: ${response.status}`);
+      });
     if (options.waitUntil) options.waitUntil(task);
     else void task.catch((error) => console.warn("[realtime] session revocation failed", error));
   };

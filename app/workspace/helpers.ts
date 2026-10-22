@@ -67,7 +67,10 @@ export function getNotebookIconComponent(iconId?: string) {
   return matched ? matched.icon : Folder;
 }
 
-export type NoteDraft = Pick<Note, "id" | "version" | "title" | "contentMarkdown" | "notebookId" | "isFavorite" | "deletedAt">;
+export type NoteDraft = Pick<
+  Note,
+  "id" | "version" | "title" | "contentMarkdown" | "notebookId" | "isFavorite" | "deletedAt"
+>;
 
 export function toNoteDraft(note: Note | NoteDraft): NoteDraft {
   return {
@@ -91,13 +94,23 @@ export function errorMessage(reason: unknown, fallback: string) {
 }
 
 export function getNoteTags(note: { tags?: string[]; contentMarkdown?: string }) {
-  return Array.isArray(note.tags) ? note.tags : note.contentMarkdown ? extractTags(note.contentMarkdown) : [];
+  return Array.isArray(note.tags)
+    ? note.tags
+    : note.contentMarkdown
+      ? extractTags(note.contentMarkdown)
+      : [];
 }
 
 export type { NoteSort } from "../../shared/types";
 
 export function sortNotes(notes: NoteSummary[], sort: NoteSort) {
-  return [...notes].sort((a, b) => sort === "created" ? b.createdAt - a.createdAt : sort === "title" ? (a.title || "未命名笔记").localeCompare(b.title || "未命名笔记", "zh-CN") : b.updatedAt - a.updatedAt);
+  return [...notes].sort((a, b) =>
+    sort === "created"
+      ? b.createdAt - a.createdAt
+      : sort === "title"
+        ? (a.title || "未命名笔记").localeCompare(b.title || "未命名笔记", "zh-CN")
+        : b.updatedAt - a.updatedAt,
+  );
 }
 
 /**
@@ -116,25 +129,39 @@ export function mergeRemoteSummary(notes: NoteSummary[], summary: NoteSummary, s
   return next;
 }
 
-export function shouldKeepActiveNoteInList(note: Pick<Note, "deletedAt" | "notebookId" | "isFavorite">, notebooks: Notebook[], view: NoteView, query: string, notebookId?: string) {
+export function shouldKeepActiveNoteInList(
+  note: Pick<Note, "deletedAt" | "notebookId" | "isFavorite">,
+  notebooks: Notebook[],
+  view: NoteView,
+  query: string,
+  notebookId?: string,
+) {
   // Search membership is server-derived; never inject unrelated active notes.
   if (query.trim()) return false;
   if (view === "trash") return note.deletedAt !== null;
   if (note.deletedAt !== null) return false;
   if (notebookId) return note.notebookId === notebookId;
   if (view === "favorites") return note.isFavorite;
-  if (view === "inbox") return Boolean(notebooks.find((notebook) => notebook.id === note.notebookId)?.isSystem);
+  if (view === "inbox")
+    return Boolean(notebooks.find((notebook) => notebook.id === note.notebookId)?.isSystem);
   return view === "all";
 }
 
 /** 双链返回的目标可能属于其他笔记本；搜索归属仍由服务端判断。 */
-export function mergeWikiNoteSummary(notes: NoteSummary[], summary: NoteSummary, notebooks: Notebook[], view: NoteView, query: string, notebookId?: string) {
+export function mergeWikiNoteSummary(
+  notes: NoteSummary[],
+  summary: NoteSummary,
+  notebooks: Notebook[],
+  view: NoteView,
+  query: string,
+  notebookId?: string,
+) {
   if (!shouldKeepActiveNoteInList(summary, notebooks, view, query, notebookId)) return null;
   return [summary, ...notes.filter((note) => note.id !== summary.id)];
 }
 
 export function viewLabel(view: NoteView) {
-  return ({ all: "全部笔记", inbox: "收件箱", favorites: "收藏", trash: "回收站" })[view];
+  return { all: "全部笔记", inbox: "收件箱", favorites: "收藏", trash: "回收站" }[view];
 }
 
 export { relativeDate } from "../format";
@@ -142,5 +169,7 @@ export { relativeDate } from "../format";
 export const NOTE_TAG_DISPLAY_LIMIT = 3;
 
 export function formatDate(timestamp: number) {
-  return new Intl.DateTimeFormat("zh-CN", { month: "short", day: "numeric" }).format(new Date(timestamp * 1000));
+  return new Intl.DateTimeFormat("zh-CN", { month: "short", day: "numeric" }).format(
+    new Date(timestamp * 1000),
+  );
 }

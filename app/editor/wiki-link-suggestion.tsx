@@ -2,7 +2,11 @@ import { forwardRef, useEffect, useId, useImperativeHandle, useRef, useState } f
 import { Extension } from "@tiptap/core";
 import { Plugin } from "@tiptap/pm/state";
 import { ReactRenderer } from "@tiptap/react";
-import Suggestion, { type SuggestionKeyDownProps, type SuggestionMatch, type SuggestionOptions } from "@tiptap/suggestion";
+import Suggestion, {
+  type SuggestionKeyDownProps,
+  type SuggestionMatch,
+  type SuggestionOptions,
+} from "@tiptap/suggestion";
 import { FilePlus2, FileText } from "lucide-react";
 import type { NoteSummary } from "../../shared/types";
 import { normalizeLinkTitle } from "../../shared/wiki-links";
@@ -25,8 +29,11 @@ export function findWikiLinkSuggestionMatch(config: {
   if (!match || match.input === undefined || match.index === undefined) return null;
 
   const matchPrefix = match.input.slice(Math.max(0, match.index - 1), match.index);
-  const matchPrefixIsAllowed = new RegExp(`^[${allowedPrefixes?.join("") || ""}\0]?$`).test(matchPrefix);
-  if (allowedPrefixes !== null && allowedPrefixes !== undefined && !matchPrefixIsAllowed) return null;
+  const matchPrefixIsAllowed = new RegExp(`^[${allowedPrefixes?.join("") || ""}\0]?$`).test(
+    matchPrefix,
+  );
+  if (allowedPrefixes !== null && allowedPrefixes !== undefined && !matchPrefixIsAllowed)
+    return null;
 
   const from = textFrom + match.index;
   const to = from + match[0].length;
@@ -59,13 +66,21 @@ type WikiLinkSuggestionListProps = {
   editor: any;
 };
 
-export const WikiLinkSuggestionList = forwardRef<WikiLinkSuggestionListRef, WikiLinkSuggestionListProps>((props, ref) => {
+export const WikiLinkSuggestionList = forwardRef<
+  WikiLinkSuggestionListRef,
+  WikiLinkSuggestionListProps
+>((props, ref) => {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const items = props.items;
   const listboxId = `wiki-link-suggestion-listbox-${useId().replaceAll(":", "")}`;
   const listRef = useRef<HTMLDivElement>(null);
   const lastMousePositionRef = useRef<{ x: number; y: number } | null>(null);
-  const candidatePressRef = useRef<{ pointerType: string; x: number; y: number; cancelled: boolean } | null>(null);
+  const candidatePressRef = useRef<{
+    pointerType: string;
+    x: number;
+    y: number;
+    cancelled: boolean;
+  } | null>(null);
 
   useEffect(() => {
     lastMousePositionRef.current = null;
@@ -101,10 +116,14 @@ export const WikiLinkSuggestionList = forwardRef<WikiLinkSuggestionListRef, Wiki
         if (value === null) editorElement.removeAttribute(attribute);
         else editorElement.setAttribute(attribute, value);
       };
-      if (editorElement.getAttribute("aria-activedescendant") === activeItemId) restore("aria-activedescendant", previousAttributes.activeDescendant);
-      if (editorElement.getAttribute("aria-autocomplete") === "list") restore("aria-autocomplete", previousAttributes.autocomplete);
-      if (editorElement.getAttribute("aria-controls") === listboxId) restore("aria-controls", previousAttributes.controls);
-      if (editorElement.getAttribute("aria-haspopup") === "listbox") restore("aria-haspopup", previousAttributes.hasPopup);
+      if (editorElement.getAttribute("aria-activedescendant") === activeItemId)
+        restore("aria-activedescendant", previousAttributes.activeDescendant);
+      if (editorElement.getAttribute("aria-autocomplete") === "list")
+        restore("aria-autocomplete", previousAttributes.autocomplete);
+      if (editorElement.getAttribute("aria-controls") === listboxId)
+        restore("aria-controls", previousAttributes.controls);
+      if (editorElement.getAttribute("aria-haspopup") === "listbox")
+        restore("aria-haspopup", previousAttributes.hasPopup);
     };
   }, [activeItemId, items.length, listboxId, props.editor]);
 
@@ -170,13 +189,23 @@ export const WikiLinkSuggestionList = forwardRef<WikiLinkSuggestionListRef, Wiki
   if (!items.length) return null;
 
   return (
-    <div id={listboxId} className="wiki-link-suggestion-dropdown" role="listbox" aria-label="双向链接推荐笔记" aria-activedescendant={activeItemId}>
+    <div
+      id={listboxId}
+      className="wiki-link-suggestion-dropdown"
+      role="listbox"
+      aria-label="双向链接推荐笔记"
+      aria-activedescendant={activeItemId}
+    >
       <div className="wiki-link-suggestion-header">
         <span>双向链接至笔记</span>
         <kbd>↵ 确认</kbd>
       </div>
       <div className="wiki-link-suggestion-list-shell">
-        <div id={`${listboxId}-scroll-region`} className="wiki-link-suggestion-list floating-scrollbar-target" ref={listRef}>
+        <div
+          id={`${listboxId}-scroll-region`}
+          className="wiki-link-suggestion-list floating-scrollbar-target"
+          ref={listRef}
+        >
           {items.map((item, index) => {
             const isSelected = index === selectedIndex;
             return (
@@ -187,7 +216,12 @@ export const WikiLinkSuggestionList = forwardRef<WikiLinkSuggestionListRef, Wiki
                 className={`wiki-link-item ${isSelected ? "is-selected" : ""} ${item.isCreate ? "is-create" : ""}`}
                 onPointerDown={(e) => {
                   e.stopPropagation();
-                  candidatePressRef.current = { pointerType: e.pointerType, x: e.clientX, y: e.clientY, cancelled: false };
+                  candidatePressRef.current = {
+                    pointerType: e.pointerType,
+                    x: e.clientX,
+                    y: e.clientY,
+                    cancelled: false,
+                  };
                   // 鼠标保持编辑器选区；触屏起手必须允许原生滚动，抬手点击再确认。
                   if (e.pointerType === "mouse") {
                     e.preventDefault();
@@ -196,7 +230,12 @@ export const WikiLinkSuggestionList = forwardRef<WikiLinkSuggestionListRef, Wiki
                 }}
                 onPointerMove={(e) => {
                   const press = candidatePressRef.current;
-                  if (press && press.pointerType !== "mouse" && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 8) press.cancelled = true;
+                  if (
+                    press &&
+                    press.pointerType !== "mouse" &&
+                    Math.hypot(e.clientX - press.x, e.clientY - press.y) > 8
+                  )
+                    press.cancelled = true;
                 }}
                 onPointerCancel={() => {
                   if (candidatePressRef.current) candidatePressRef.current.cancelled = true;
@@ -206,10 +245,15 @@ export const WikiLinkSuggestionList = forwardRef<WikiLinkSuggestionListRef, Wiki
                   e.stopPropagation();
                   const press = candidatePressRef.current;
                   candidatePressRef.current = null;
-                  if (!press || (press.pointerType !== "mouse" && !press.cancelled)) handleSelect(item);
+                  if (!press || (press.pointerType !== "mouse" && !press.cancelled))
+                    handleSelect(item);
                 }}
                 onMouseMove={(e) => {
-                  if (!candidatePressRef.current || candidatePressRef.current.pointerType === "mouse") handleItemMouseMove(index, e);
+                  if (
+                    !candidatePressRef.current ||
+                    candidatePressRef.current.pointerType === "mouse"
+                  )
+                    handleItemMouseMove(index, e);
                 }}
                 role="option"
                 aria-selected={isSelected}
@@ -229,7 +273,12 @@ export const WikiLinkSuggestionList = forwardRef<WikiLinkSuggestionListRef, Wiki
             );
           })}
         </div>
-        <FloatingScrollbar scrollTargetRef={listRef} controlsId={`${listboxId}-scroll-region`} ariaLabel="双向链接推荐笔记滚动条" placement="right" />
+        <FloatingScrollbar
+          scrollTargetRef={listRef}
+          controlsId={`${listboxId}-scroll-region`}
+          ariaLabel="双向链接推荐笔记滚动条"
+          placement="right"
+        />
       </div>
     </div>
   );
@@ -258,7 +307,11 @@ export const WikiLinkSuggestionExtension = Extension.create<WikiLinkSuggestionOp
       props: {
         handleDOMEvents: {
           keydown: (_view, event) => {
-            if (!((event.isComposing || (event as KeyboardEvent).keyCode === 229) && (event as KeyboardEvent).key === "Escape")) return false;
+            if (!(
+              (event.isComposing || (event as KeyboardEvent).keyCode === 229) &&
+              (event as KeyboardEvent).key === "Escape"
+            ))
+              return false;
             event.stopPropagation();
             return true;
           },
@@ -271,7 +324,9 @@ export const WikiLinkSuggestionExtension = Extension.create<WikiLinkSuggestionOp
           refreshFrame = window.requestAnimationFrame(() => {
             refreshFrame = null;
             if (view.isDestroyed) return;
-            view.dispatch(view.state.tr.setMeta("addToHistory", false).setMeta("preventUpdate", true));
+            view.dispatch(
+              view.state.tr.setMeta("addToHistory", false).setMeta("preventUpdate", true),
+            );
           });
         };
         view.dom.addEventListener("compositionend", refreshSuggestionAfterComposition);
@@ -383,8 +438,15 @@ export const WikiLinkSuggestionExtension = Extension.create<WikiLinkSuggestionOp
               dropdown.style.width = "100%";
               dropdown.style.maxHeight = `${bounds.maxHeight}px`;
             }
-            if (list) list.style.maxHeight = `${Math.max(0, bounds.maxHeight - (header?.getBoundingClientRect().height ?? 0) - 2)}px`;
-            const placement = suggestionPopupBounds(rect, viewport, 300, 280, popupEl.getBoundingClientRect().height || bounds.maxHeight);
+            if (list)
+              list.style.maxHeight = `${Math.max(0, bounds.maxHeight - (header?.getBoundingClientRect().height ?? 0) - 2)}px`;
+            const placement = suggestionPopupBounds(
+              rect,
+              viewport,
+              300,
+              280,
+              popupEl.getBoundingClientRect().height || bounds.maxHeight,
+            );
             popupEl.style.left = `${placement.left}px`;
             popupEl.style.top = `${placement.top}px`;
           };
@@ -427,7 +489,8 @@ export const WikiLinkSuggestionExtension = Extension.create<WikiLinkSuggestionOp
               updatePosition(activeClientRect);
             },
             onKeyDown: (props) => {
-              if (props.event.isComposing || (props.event as KeyboardEvent).keyCode === 229) return false;
+              if (props.event.isComposing || (props.event as KeyboardEvent).keyCode === 229)
+                return false;
               if (props.event.key === "Escape") {
                 props.event.stopPropagation();
                 destroy();

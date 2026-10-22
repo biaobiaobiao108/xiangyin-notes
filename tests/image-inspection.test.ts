@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { inspectImage } from "../server/images";
 
 // A complete 1 × 1 lossy VP8 WebP, including the three-byte frame tag.
-const lossyWebp = Uint8Array.from(Buffer.from("UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA", "base64"));
+const lossyWebp = Uint8Array.from(
+  Buffer.from("UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA", "base64"),
+);
 
 describe("WebP image inspection", () => {
   test("recognizes a regular lossy WebP", () => {

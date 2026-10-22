@@ -30,21 +30,33 @@ export type TestSqliteDatabase = import("bun:sqlite").Database & {
 type Database = CloudflareDatabaseAdapter | TestSqliteDatabase;
 
 class D1Query {
-  constructor(private readonly binding: D1Binding, private readonly sql: string) {}
+  constructor(
+    private readonly binding: D1Binding,
+    private readonly sql: string,
+  ) {}
 
   async get<T = Record<string, unknown>>(...values: D1Value[]) {
-    const result = await this.binding.prepare(this.sql).bind(...values).first<T>();
+    const result = await this.binding
+      .prepare(this.sql)
+      .bind(...values)
+      .first<T>();
     return result;
   }
 
   async all<T = Record<string, unknown>>(...values: D1Value[]) {
-    const result = await this.binding.prepare(this.sql).bind(...values).all<T>();
+    const result = await this.binding
+      .prepare(this.sql)
+      .bind(...values)
+      .all<T>();
     if (!result.success) throw new Error(result.error ?? "D1 query failed");
     return result.results ?? [];
   }
 
   async run(...values: D1Value[]): Promise<SqliteRunResult> {
-    const result = await this.binding.prepare(this.sql).bind(...values).run();
+    const result = await this.binding
+      .prepare(this.sql)
+      .bind(...values)
+      .run();
     if (!result.success) throw new Error(result.error ?? "D1 query failed");
     return { changes: Number(result.meta?.changes ?? 0) };
   }
@@ -63,7 +75,9 @@ export class CloudflareDatabaseAdapter {
 
   async batch(statements: BatchStatement[]) {
     if (statements.length === 0) return [] as SqliteRunResult[];
-    const results = await this.binding.batch(statements.map(({ sql, values = [] }) => this.binding.prepare(sql).bind(...values)));
+    const results = await this.binding.batch(
+      statements.map(({ sql, values = [] }) => this.binding.prepare(sql).bind(...values)),
+    );
     return results.map((result) => {
       if (!result.success) throw new Error(result.error ?? "D1 batch failed");
       return {

@@ -1,8 +1,23 @@
-import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { createPortal } from "react-dom";
 import type { Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { adjustActiveTableSize, getActiveTableContext, getActiveTableSnapshot, restoreActiveTableSnapshot, snapTableEdgeDrag, type TableEdgeAxis, type TableEdgeSnapshot } from "./table-edge-commands";
+import {
+  adjustActiveTableSize,
+  getActiveTableContext,
+  getActiveTableSnapshot,
+  restoreActiveTableSnapshot,
+  snapTableEdgeDrag,
+  type TableEdgeAxis,
+  type TableEdgeSnapshot,
+} from "./table-edge-commands";
 
 type TableControlsPosition = {
   columns: { top: number; left: number; height: number };
@@ -28,9 +43,11 @@ type DragSession = {
 function getTableShellAtPosition(editor: Editor, position: number): HTMLElement | null {
   const nodeDom = editor.view.nodeDOM(position);
   if (!(nodeDom instanceof HTMLElement)) return null;
-  return nodeDom.closest<HTMLElement>(".table-scroll-shell, .tableWrapper")
-    ?? nodeDom.querySelector<HTMLElement>(".table-scroll-shell, .tableWrapper")
-    ?? (nodeDom.matches("table") ? nodeDom : null);
+  return (
+    nodeDom.closest<HTMLElement>(".table-scroll-shell, .tableWrapper") ??
+    nodeDom.querySelector<HTMLElement>(".table-scroll-shell, .tableWrapper") ??
+    (nodeDom.matches("table") ? nodeDom : null)
+  );
 }
 
 const tablePositionsByDocument = new WeakMap<ProseMirrorNode, Map<HTMLElement, number>>();
@@ -43,8 +60,9 @@ function getTablePositionForShell(editor: Editor, shell: HTMLElement) {
       if (node.type.name !== "table") return;
       const nodeDom = editor.view.nodeDOM(position);
       if (!(nodeDom instanceof HTMLElement)) return;
-      const tableShell = nodeDom.closest<HTMLElement>(".table-scroll-shell, .tableWrapper")
-        ?? nodeDom.querySelector<HTMLElement>(".table-scroll-shell, .tableWrapper");
+      const tableShell =
+        nodeDom.closest<HTMLElement>(".table-scroll-shell, .tableWrapper") ??
+        nodeDom.querySelector<HTMLElement>(".table-scroll-shell, .tableWrapper");
       if (tableShell) positions?.set(tableShell, position);
     });
     tablePositionsByDocument.set(editor.state.doc, positions);
@@ -54,22 +72,28 @@ function getTablePositionForShell(editor: Editor, shell: HTMLElement) {
 
 function getTableShellNearPointer(editor: Editor, pointer: { x: number; y: number }) {
   const hit = document.elementFromPoint(pointer.x, pointer.y);
-  const directShell = hit instanceof HTMLElement
-    ? hit.closest<HTMLElement>(".table-scroll-shell, .tableWrapper")
-    : null;
+  const directShell =
+    hit instanceof HTMLElement
+      ? hit.closest<HTMLElement>(".table-scroll-shell, .tableWrapper")
+      : null;
   if (directShell && editor.view.dom.contains(directShell)) return directShell;
 
   let nearest: HTMLElement | null = null;
   let nearestDistance = Number.POSITIVE_INFINITY;
-  const shells = editor.view.dom.querySelectorAll<HTMLElement>(".table-scroll-shell, .tableWrapper");
+  const shells = editor.view.dom.querySelectorAll<HTMLElement>(
+    ".table-scroll-shell, .tableWrapper",
+  );
   shells.forEach((shell) => {
-    const tableRect = shell.querySelector("table")?.getBoundingClientRect() ?? shell.getBoundingClientRect();
+    const tableRect =
+      shell.querySelector("table")?.getBoundingClientRect() ?? shell.getBoundingClientRect();
     const shellRect = shell.getBoundingClientRect();
     const visibleRight = Math.min(tableRect.right, shellRect.right);
     const rightDistance = Math.abs(pointer.x - visibleRight);
     const bottomDistance = Math.abs(pointer.y - tableRect.bottom);
-    const besideRight = rightDistance <= 34 && pointer.y >= tableRect.top - 14 && pointer.y <= tableRect.bottom + 14;
-    const belowBottom = bottomDistance <= 34 && pointer.x >= tableRect.left - 14 && pointer.x <= visibleRight + 14;
+    const besideRight =
+      rightDistance <= 34 && pointer.y >= tableRect.top - 14 && pointer.y <= tableRect.bottom + 14;
+    const belowBottom =
+      bottomDistance <= 34 && pointer.x >= tableRect.left - 14 && pointer.x <= visibleRight + 14;
     if (!besideRight && !belowBottom) return;
     const distance = Math.min(
       besideRight ? rightDistance : Number.POSITIVE_INFINITY,
@@ -87,22 +111,41 @@ function clamp(value: number, minimum: number, maximum: number) {
   return Math.max(minimum, Math.min(value, maximum));
 }
 
-function getTableEdgeDragStep(shell: HTMLElement | null, axis: TableEdgeAxis, fallbackSize: number) {
+function getTableEdgeDragStep(
+  shell: HTMLElement | null,
+  axis: TableEdgeAxis,
+  fallbackSize: number,
+) {
   const table = shell?.querySelector("table");
   if (!table) return 28;
 
   if (axis === "columns") {
     const edgeCell = table.querySelector("tr")?.lastElementChild;
-    const measuredWidth = edgeCell?.getBoundingClientRect().width || table.getBoundingClientRect().width / Math.max(1, fallbackSize);
+    const measuredWidth =
+      edgeCell?.getBoundingClientRect().width ||
+      table.getBoundingClientRect().width / Math.max(1, fallbackSize);
     return Math.max(20, Math.min(96, measuredWidth));
   }
 
   const rows = Array.from(table.querySelectorAll("tr"));
-  const measuredHeight = rows.at(-1)?.getBoundingClientRect().height || table.getBoundingClientRect().height / Math.max(1, fallbackSize);
+  const measuredHeight =
+    rows.at(-1)?.getBoundingClientRect().height ||
+    table.getBoundingClientRect().height / Math.max(1, fallbackSize);
   return Math.max(20, measuredHeight);
 }
 
-function TableEdgeRail({ editor, axis, size, tablePosition, shell, position, disabled, visible, onAdjust, onDragPositionChange }: {
+function TableEdgeRail({
+  editor,
+  axis,
+  size,
+  tablePosition,
+  shell,
+  position,
+  disabled,
+  visible,
+  onAdjust,
+  onDragPositionChange,
+}: {
   editor: Editor;
   axis: TableEdgeAxis;
   size: number;
@@ -136,12 +179,21 @@ function TableEdgeRail({ editor, axis, size, tablePosition, shell, position, dis
   const cancelDrag = (pointerId?: number) => {
     const drag = clearDrag(pointerId);
     if (!drag) return;
-    restoreActiveTableSnapshot(editor, drag.snapshot, { addToHistory: false, emitUpdate: false, closeHistory: true });
+    restoreActiveTableSnapshot(editor, drag.snapshot, {
+      addToHistory: false,
+      emitUpdate: false,
+      closeHistory: true,
+    });
     suppressClickRef.current = false;
     setPreviewDelta(0);
   };
 
-  const finishDrag = (event: { pointerId: number; clientX: number; clientY: number; preventDefault: () => void }) => {
+  const finishDrag = (event: {
+    pointerId: number;
+    clientX: number;
+    clientY: number;
+    preventDefault: () => void;
+  }) => {
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
     const distance = isColumnRail ? event.clientX - drag.startX : event.clientY - drag.startY;
@@ -151,7 +203,11 @@ function TableEdgeRail({ editor, axis, size, tablePosition, shell, position, dis
     if (Math.abs(distance) >= 6) {
       event.preventDefault();
       suppressClickRef.current = true;
-      restoreActiveTableSnapshot(editor, drag.snapshot, { addToHistory: false, emitUpdate: false, closeHistory: true });
+      restoreActiveTableSnapshot(editor, drag.snapshot, {
+        addToHistory: false,
+        emitUpdate: false,
+        closeHistory: true,
+      });
       if (delta) onAdjustRef.current(delta, drag.snapshot.position);
     } else {
       // WebKit 在 preventDefault + 指针捕获后可能不再为触屏轻点派发 click。
@@ -169,23 +225,37 @@ function TableEdgeRail({ editor, axis, size, tablePosition, shell, position, dis
     const { delta, snappedDistance } = snapTableEdgeDrag(distance, drag.initialSize, drag.step);
     if (drag.delta !== delta) {
       restoreActiveTableSnapshot(editor, drag.snapshot, { addToHistory: false, emitUpdate: false });
-      if (delta) adjustActiveTableSize(editor, axis, delta, { addToHistory: false, emitUpdate: false }, drag.snapshot.position);
+      if (delta)
+        adjustActiveTableSize(
+          editor,
+          axis,
+          delta,
+          { addToHistory: false, emitUpdate: false },
+          drag.snapshot.position,
+        );
       drag.delta = delta;
       setPreviewDelta(delta);
     }
     drag.snappedDistance = snappedDistance;
   };
 
-  useEffect(() => () => {
-    removeWindowListenersRef.current?.();
-    removeWindowListenersRef.current = null;
-    onDragPositionChange(null);
-    const drag = dragRef.current;
-    dragRef.current = null;
-    if (drag && !editor.isDestroyed) {
-      restoreActiveTableSnapshot(editor, drag.snapshot, { addToHistory: false, emitUpdate: false, closeHistory: true });
-    }
-  }, [editor, onDragPositionChange]);
+  useEffect(
+    () => () => {
+      removeWindowListenersRef.current?.();
+      removeWindowListenersRef.current = null;
+      onDragPositionChange(null);
+      const drag = dragRef.current;
+      dragRef.current = null;
+      if (drag && !editor.isDestroyed) {
+        restoreActiveTableSnapshot(editor, drag.snapshot, {
+          addToHistory: false,
+          emitUpdate: false,
+          closeHistory: true,
+        });
+      }
+    },
+    [editor, onDragPositionChange],
+  );
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (disabled || !event.isPrimary || event.button !== 0) return;
@@ -209,7 +279,8 @@ function TableEdgeRail({ editor, axis, size, tablePosition, shell, position, dis
     };
     const handleWindowPointerMove = (pointerEvent: PointerEvent) => moveDrag(pointerEvent);
     const handleWindowPointerUp = (pointerEvent: PointerEvent) => finishDrag(pointerEvent);
-    const handleWindowPointerCancel = (pointerEvent: PointerEvent) => cancelDrag(pointerEvent.pointerId);
+    const handleWindowPointerCancel = (pointerEvent: PointerEvent) =>
+      cancelDrag(pointerEvent.pointerId);
     const handleWindowBlur = () => cancelDrag();
     window.addEventListener("pointermove", handleWindowPointerMove, true);
     window.addEventListener("pointerup", handleWindowPointerUp, true);
@@ -235,37 +306,54 @@ function TableEdgeRail({ editor, axis, size, tablePosition, shell, position, dis
   const activeDrag = dragRef.current;
   const railPosition = activeDrag
     ? {
-      top: activeDrag.startPosition.top + (isColumnRail ? 0 : activeDrag.snappedDistance),
-      left: activeDrag.startPosition.left + (isColumnRail ? activeDrag.snappedDistance : 0),
-      width: activeDrag.startPosition.width,
-      height: activeDrag.startPosition.height,
-    }
+        top: activeDrag.startPosition.top + (isColumnRail ? 0 : activeDrag.snappedDistance),
+        left: activeDrag.startPosition.left + (isColumnRail ? activeDrag.snappedDistance : 0),
+        width: activeDrag.startPosition.width,
+        height: activeDrag.startPosition.height,
+      }
     : position;
 
-  return <div
-    className={`table-edge-rail table-edge-rail--${axis}${visible || activeDrag ? " is-visible" : ""}`}
-    style={{ top: railPosition.top, left: railPosition.left, width: railPosition.width, height: railPosition.height }}
-    role="group"
-    aria-label={`调整表格${noun}数`}
-  >
-    <button
-      className="table-edge-drag-handle"
-      type="button"
-      aria-label={`增加一${noun}`}
-      disabled={disabled}
-      onPointerDown={handlePointerDown}
-      onPointerUp={finishDrag}
-      onPointerCancel={(event) => cancelDrag(event.pointerId)}
-      onLostPointerCapture={(event) => cancelDrag(event.pointerId)}
-      onClick={handleDragHandleClick}
-    ><span className="table-edge-grip" aria-hidden="true" /></button>
-    {previewDelta !== 0 && <output className="table-edge-preview" aria-live="polite">
-      {previewDelta > 0 ? `+${previewDelta}` : previewDelta} {noun}
-    </output>}
-  </div>;
+  return (
+    <div
+      className={`table-edge-rail table-edge-rail--${axis}${visible || activeDrag ? " is-visible" : ""}`}
+      style={{
+        top: railPosition.top,
+        left: railPosition.left,
+        width: railPosition.width,
+        height: railPosition.height,
+      }}
+      role="group"
+      aria-label={`调整表格${noun}数`}
+    >
+      <button
+        className="table-edge-drag-handle"
+        type="button"
+        aria-label={`增加一${noun}`}
+        disabled={disabled}
+        onPointerDown={handlePointerDown}
+        onPointerUp={finishDrag}
+        onPointerCancel={(event) => cancelDrag(event.pointerId)}
+        onLostPointerCapture={(event) => cancelDrag(event.pointerId)}
+        onClick={handleDragHandleClick}
+      >
+        <span className="table-edge-grip" aria-hidden="true" />
+      </button>
+      {previewDelta !== 0 && (
+        <output className="table-edge-preview" aria-live="polite">
+          {previewDelta > 0 ? `+${previewDelta}` : previewDelta} {noun}
+        </output>
+      )}
+    </div>
+  );
 }
 
-export function TableEdgeControls({ editor, deferredLoading }: { editor: Editor; deferredLoading: boolean }) {
+export function TableEdgeControls({
+  editor,
+  deferredLoading,
+}: {
+  editor: Editor;
+  deferredLoading: boolean;
+}) {
   const [position, setPosition] = useState<TableControlsPosition | null>(null);
   const [visibleRails, setVisibleRails] = useState({ columns: false, rows: false });
   const pointerPositionRef = useRef<{ x: number; y: number } | null>(null);
@@ -285,17 +373,24 @@ export function TableEdgeControls({ editor, deferredLoading }: { editor: Editor;
         frame = null;
         if (editor.isDestroyed || !editor.isEditable) {
           setPosition(null);
-          setVisibleRails((current) => current.columns || current.rows ? { columns: false, rows: false } : current);
+          setVisibleRails((current) =>
+            current.columns || current.rows ? { columns: false, rows: false } : current,
+          );
           return;
         }
 
         const pointer = pointerPositionRef.current;
         const hoveredShell = pointer ? getTableShellNearPointer(editor, pointer) : null;
-        const hoveredPosition = hoveredShell ? getTablePositionForShell(editor, hoveredShell) : null;
+        const hoveredPosition = hoveredShell
+          ? getTablePositionForShell(editor, hoveredShell)
+          : null;
         const activeContext = getActiveTableContext(editor);
-        const tablePosition = dragTablePositionRef.current ?? hoveredPosition ?? activeContext?.position;
-        const context = tablePosition === undefined ? null : getActiveTableContext(editor, tablePosition);
-        const shell = tablePosition === undefined ? null : getTableShellAtPosition(editor, tablePosition);
+        const tablePosition =
+          dragTablePositionRef.current ?? hoveredPosition ?? activeContext?.position;
+        const context =
+          tablePosition === undefined ? null : getActiveTableContext(editor, tablePosition);
+        const shell =
+          tablePosition === undefined ? null : getTableShellAtPosition(editor, tablePosition);
         if (shell !== observedShell) {
           resizeObserver?.disconnect();
           observedShell = shell;
@@ -303,27 +398,48 @@ export function TableEdgeControls({ editor, deferredLoading }: { editor: Editor;
         }
         if (!shell || !context || tablePosition === undefined) {
           setPosition(null);
-          setVisibleRails((current) => current.columns || current.rows ? { columns: false, rows: false } : current);
+          setVisibleRails((current) =>
+            current.columns || current.rows ? { columns: false, rows: false } : current,
+          );
           return;
         }
 
         const shellRect = shell.getBoundingClientRect();
         const tableRect = shell.querySelector("table")?.getBoundingClientRect() ?? shellRect;
-        if (shellRect.bottom < 0 || shellRect.top > window.innerHeight || shellRect.right < 0 || shellRect.left > window.innerWidth) {
+        if (
+          shellRect.bottom < 0 ||
+          shellRect.top > window.innerHeight ||
+          shellRect.right < 0 ||
+          shellRect.left > window.innerWidth
+        ) {
           setPosition(null);
-          setVisibleRails((current) => current.columns || current.rows ? { columns: false, rows: false } : current);
+          setVisibleRails((current) =>
+            current.columns || current.rows ? { columns: false, rows: false } : current,
+          );
           return;
         }
 
         const padding = 10;
         const columnRailHeight = clamp(tableRect.height, 72, 280);
-        const columnTop = clamp(tableRect.top + (tableRect.height - columnRailHeight) / 2, padding, window.innerHeight - columnRailHeight - padding);
+        const columnTop = clamp(
+          tableRect.top + (tableRect.height - columnRailHeight) / 2,
+          padding,
+          window.innerHeight - columnRailHeight - padding,
+        );
         const visibleTableLeft = Math.max(shellRect.left, tableRect.left);
         const visibleTableRight = Math.min(shellRect.right, tableRect.right);
         const visibleTableWidth = Math.max(96, visibleTableRight - visibleTableLeft);
         const columnLeft = clamp(visibleTableRight + 4, padding, window.innerWidth - 14 - padding);
-        const rowRailWidth = clamp(Math.min(visibleTableWidth - 12, window.innerWidth - padding * 2), 96, window.innerWidth - padding * 2);
-        const rowLeft = clamp(visibleTableLeft + (visibleTableWidth - rowRailWidth) / 2, padding, window.innerWidth - rowRailWidth - padding);
+        const rowRailWidth = clamp(
+          Math.min(visibleTableWidth - 12, window.innerWidth - padding * 2),
+          96,
+          window.innerWidth - padding * 2,
+        );
+        const rowLeft = clamp(
+          visibleTableLeft + (visibleTableWidth - rowRailWidth) / 2,
+          padding,
+          window.innerWidth - rowRailWidth - padding,
+        );
         const rowTop = clamp(tableRect.bottom + 4, padding, window.innerHeight - 14 - padding);
         const next: TableControlsPosition = {
           columns: { top: columnTop, left: columnLeft, height: columnRailHeight },
@@ -335,28 +451,44 @@ export function TableEdgeControls({ editor, deferredLoading }: { editor: Editor;
         if (!pointer) {
           const hasHover = window.matchMedia?.("(hover: hover)").matches ?? true;
           setVisibleRails((current) => {
-            const nextVisibility = hasHover ? { columns: false, rows: false } : { columns: true, rows: true };
-            return current.columns === nextVisibility.columns && current.rows === nextVisibility.rows ? current : nextVisibility;
+            const nextVisibility = hasHover
+              ? { columns: false, rows: false }
+              : { columns: true, rows: true };
+            return current.columns === nextVisibility.columns &&
+              current.rows === nextVisibility.rows
+              ? current
+              : nextVisibility;
           });
         } else {
           const inBand = (left: number, top: number, width: number, height: number, padding = 8) =>
-            pointer.x >= left - padding && pointer.x <= left + width + padding &&
-            pointer.y >= top - padding && pointer.y <= top + height + padding;
+            pointer.x >= left - padding &&
+            pointer.x <= left + width + padding &&
+            pointer.y >= top - padding &&
+            pointer.y <= top + height + padding;
           const visibleTableTop = Math.max(shellRect.top, tableRect.top);
           const visibleTableBottom = Math.min(shellRect.bottom, tableRect.bottom);
-          const inColumnEdgeBand = pointer.x >= visibleTableRight - 10 && pointer.x <= next.columns.left + 22 &&
-            pointer.y >= visibleTableTop - 8 && pointer.y <= visibleTableBottom + 8;
-          const inRowEdgeBand = pointer.x >= visibleTableLeft - 8 && pointer.x <= visibleTableRight + 8 &&
-            pointer.y >= tableRect.bottom - 10 && pointer.y <= next.rows.top + 22;
+          const inColumnEdgeBand =
+            pointer.x >= visibleTableRight - 10 &&
+            pointer.x <= next.columns.left + 22 &&
+            pointer.y >= visibleTableTop - 8 &&
+            pointer.y <= visibleTableBottom + 8;
+          const inRowEdgeBand =
+            pointer.x >= visibleTableLeft - 8 &&
+            pointer.x <= visibleTableRight + 8 &&
+            pointer.y >= tableRect.bottom - 10 &&
+            pointer.y <= next.rows.top + 22;
           const inColumnRail = inBand(next.columns.left, next.columns.top, 14, next.columns.height);
           const inRowRail = inBand(next.rows.left, next.rows.top, next.rows.width, 14);
           setVisibleRails((current) => {
             const columns = inColumnEdgeBand || inColumnRail;
             const rows = inRowEdgeBand || inRowRail;
-            return current.columns === columns && current.rows === rows ? current : { columns, rows };
+            return current.columns === columns && current.rows === rows
+              ? current
+              : { columns, rows };
           });
         }
-        setPosition((current) => current &&
+        setPosition((current) =>
+          current &&
           Math.abs(current.columns.top - next.columns.top) < 1 &&
           Math.abs(current.columns.left - next.columns.left) < 1 &&
           Math.abs(current.columns.height - next.columns.height) < 1 &&
@@ -366,12 +498,14 @@ export function TableEdgeControls({ editor, deferredLoading }: { editor: Editor;
           current.rowCount === next.rowCount &&
           current.columnCount === next.columnCount &&
           current.tablePosition === next.tablePosition
-          ? current
-          : next);
+            ? current
+            : next,
+        );
       });
     };
 
-    resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updatePosition);
+    resizeObserver =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updatePosition);
 
     const handlePointerMove = (event: PointerEvent) => {
       if (event.pointerType !== "mouse" && event.pointerType !== "pen") return;
@@ -404,30 +538,43 @@ export function TableEdgeControls({ editor, deferredLoading }: { editor: Editor;
   }, [editor]);
 
   if (typeof document === "undefined" || !position) return null;
-  return createPortal(<div className="table-edge-controls-overlay" aria-label="表格边缘操作">
-    <TableEdgeRail
-      editor={editor}
-      axis="columns"
-      size={position.columnCount}
-      tablePosition={position.tablePosition}
-      shell={getTableShellAtPosition(editor, position.tablePosition)}
-      position={position.columns}
-      disabled={deferredLoading}
-      visible={visibleRails.columns}
-      onAdjust={(delta, tablePosition) => adjustActiveTableSize(editor, "columns", delta, {}, tablePosition ?? position.tablePosition)}
-      onDragPositionChange={onDragPositionChange}
-    />
-    <TableEdgeRail
-      editor={editor}
-      axis="rows"
-      size={position.rowCount}
-      tablePosition={position.tablePosition}
-      shell={getTableShellAtPosition(editor, position.tablePosition)}
-      position={position.rows}
-      disabled={deferredLoading}
-      visible={visibleRails.rows}
-      onAdjust={(delta, tablePosition) => adjustActiveTableSize(editor, "rows", delta, {}, tablePosition ?? position.tablePosition)}
-      onDragPositionChange={onDragPositionChange}
-    />
-  </div>, document.body);
+  return createPortal(
+    <div className="table-edge-controls-overlay" aria-label="表格边缘操作">
+      <TableEdgeRail
+        editor={editor}
+        axis="columns"
+        size={position.columnCount}
+        tablePosition={position.tablePosition}
+        shell={getTableShellAtPosition(editor, position.tablePosition)}
+        position={position.columns}
+        disabled={deferredLoading}
+        visible={visibleRails.columns}
+        onAdjust={(delta, tablePosition) =>
+          adjustActiveTableSize(
+            editor,
+            "columns",
+            delta,
+            {},
+            tablePosition ?? position.tablePosition,
+          )
+        }
+        onDragPositionChange={onDragPositionChange}
+      />
+      <TableEdgeRail
+        editor={editor}
+        axis="rows"
+        size={position.rowCount}
+        tablePosition={position.tablePosition}
+        shell={getTableShellAtPosition(editor, position.tablePosition)}
+        position={position.rows}
+        disabled={deferredLoading}
+        visible={visibleRails.rows}
+        onAdjust={(delta, tablePosition) =>
+          adjustActiveTableSize(editor, "rows", delta, {}, tablePosition ?? position.tablePosition)
+        }
+        onDragPositionChange={onDragPositionChange}
+      />
+    </div>,
+    document.body,
+  );
 }

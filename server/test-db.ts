@@ -15,14 +15,16 @@ export async function openDatabase(databasePath = ":memory:"): Promise<TestSqlit
   Object.defineProperty(database, "batch", {
     configurable: true,
     value: async (statements: BatchStatement[]): Promise<SqliteRunResult[]> => {
-      const apply = database.transaction(() => statements.map(({ sql, values = [] }) => {
-        const statement = database.query(sql);
-        if (/^\s*SELECT\b/iu.test(sql)) {
-          return { changes: 0, results: statement.all(...values) as Record<string, unknown>[] };
-        }
-        const result = statement.run(...values);
-        return { changes: result.changes };
-      }));
+      const apply = database.transaction(() =>
+        statements.map(({ sql, values = [] }) => {
+          const statement = database.query(sql);
+          if (/^\s*SELECT\b/iu.test(sql)) {
+            return { changes: 0, results: statement.all(...values) as Record<string, unknown>[] };
+          }
+          const result = statement.run(...values);
+          return { changes: result.changes };
+        }),
+      );
       return apply();
     },
   });
@@ -31,7 +33,10 @@ export async function openDatabase(databasePath = ":memory:"): Promise<TestSqlit
   return enhanced;
 }
 
-export async function applyMigrations(database: TestSqliteDatabase, migrationsPath = migrationsRoot) {
+export async function applyMigrations(
+  database: TestSqliteDatabase,
+  migrationsPath = migrationsRoot,
+) {
   database.exec(`
     CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY, applied_at INTEGER NOT NULL);
   `);
@@ -44,7 +49,9 @@ export async function applyMigrations(database: TestSqliteDatabase, migrationsPa
     const sql = await Bun.file(resolve(migrationsPath, file)).text();
     const apply = database.transaction(() => {
       database.exec(sql);
-      database.query("INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)").run(file, Date.now());
+      database
+        .query("INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)")
+        .run(file, Date.now());
     });
     apply();
   }

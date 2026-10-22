@@ -11,12 +11,16 @@ describe("loading editor documents", () => {
     const editor = new Editor({
       element: null,
       extensions: [StarterKit, createMarkdownExtension()],
-      content: "Note A", contentType: "markdown",
-      onUpdate: () => { updates += 1; },
+      content: "Note A",
+      contentType: "markdown",
+      onUpdate: () => {
+        updates += 1;
+      },
     });
     // Headless editors do not mount extension plugins automatically.
     editor.registerPlugin(history());
-    const dispatch = (transaction: Parameters<typeof editor.view.dispatch>[0]) => editor.view.dispatch(transaction);
+    const dispatch = (transaction: Parameters<typeof editor.view.dispatch>[0]) =>
+      editor.view.dispatch(transaction);
     try {
       dispatch(editor.state.tr.insertText("edited "));
       expect(undoDepth(editor.state)).toBe(1);

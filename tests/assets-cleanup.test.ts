@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { openDatabase } from "../server/test-db";
 import type { TestSqliteDatabase } from "../server/test-db";
-import { cleanupOrphanAssets, ORPHAN_ASSET_CLEANUP_INTERVAL_SECONDS, removeAssetFiles } from "../server/routes/assets";
+import {
+  cleanupOrphanAssets,
+  ORPHAN_ASSET_CLEANUP_INTERVAL_SECONDS,
+  removeAssetFiles,
+} from "../server/routes/assets";
 import { MemoryR2Bucket } from "./memory-r2";
 
 let database: TestSqliteDatabase;

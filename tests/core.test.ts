@@ -1,5 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { buildFtsQuery, constantTimeEqual, createOpaqueToken, derivePassword, formatPreview, hashPassword, rateLimitClientAddress, readJson } from "../server/core";
+import {
+  buildFtsQuery,
+  constantTimeEqual,
+  createOpaqueToken,
+  derivePassword,
+  formatPreview,
+  hashPassword,
+  rateLimitClientAddress,
+  readJson,
+} from "../server/core";
 
 describe("security helpers", () => {
   test("creates URL-safe opaque tokens", () => {
@@ -23,19 +32,39 @@ describe("security helpers", () => {
   });
 
   test("only trusts forwarded client IPs from explicitly trusted proxy peers", () => {
-    const spoofedRequest = new Request("http://example.test", { headers: { "X-Forwarded-For": "198.51.100.9" } });
-    expect(rateLimitClientAddress(spoofedRequest, { TRUST_PROXY: "true" }, "203.0.113.8")).toBe("203.0.113.8");
+    const spoofedRequest = new Request("http://example.test", {
+      headers: { "X-Forwarded-For": "198.51.100.9" },
+    });
+    expect(rateLimitClientAddress(spoofedRequest, { TRUST_PROXY: "true" }, "203.0.113.8")).toBe(
+      "203.0.113.8",
+    );
 
-    const forwardedRequest = new Request("http://example.test", { headers: { "X-Forwarded-For": "198.51.100.9, 127.0.0.1" } });
-    expect(rateLimitClientAddress(forwardedRequest, {
-      TRUST_PROXY: "true",
-      TRUSTED_PROXY_ADDRESSES: "127.0.0.1, ::1",
-    }, "::ffff:127.0.0.1")).toBe("198.51.100.9");
-    const invalidForwardedRequest = new Request("http://example.test", { headers: { "X-Forwarded-For": "not-an-ip" } });
-    expect(rateLimitClientAddress(invalidForwardedRequest, {
-      TRUST_PROXY: "true",
-      TRUSTED_PROXY_ADDRESSES: "127.0.0.1",
-    }, "127.0.0.1")).toBe("127.0.0.1");
+    const forwardedRequest = new Request("http://example.test", {
+      headers: { "X-Forwarded-For": "198.51.100.9, 127.0.0.1" },
+    });
+    expect(
+      rateLimitClientAddress(
+        forwardedRequest,
+        {
+          TRUST_PROXY: "true",
+          TRUSTED_PROXY_ADDRESSES: "127.0.0.1, ::1",
+        },
+        "::ffff:127.0.0.1",
+      ),
+    ).toBe("198.51.100.9");
+    const invalidForwardedRequest = new Request("http://example.test", {
+      headers: { "X-Forwarded-For": "not-an-ip" },
+    });
+    expect(
+      rateLimitClientAddress(
+        invalidForwardedRequest,
+        {
+          TRUST_PROXY: "true",
+          TRUSTED_PROXY_ADDRESSES: "127.0.0.1",
+        },
+        "127.0.0.1",
+      ),
+    ).toBe("127.0.0.1");
   });
 
   test("sets secure cookie flag based on protocol and environment", async () => {
@@ -63,29 +92,37 @@ describe("security helpers", () => {
 
 describe("markdown and search helpers", () => {
   test("removes markdown syntax from note previews", () => {
-    expect(formatPreview("# Heading\n\nA **quiet** note with `code`.")) .toBe("Heading\nA quiet note with code.");
+    expect(formatPreview("# Heading\n\nA **quiet** note with `code`.")).toBe(
+      "Heading\nA quiet note with code.",
+    );
   });
 
   test("preserves identifier underscores and escaped hash characters in previews", () => {
-    expect(formatPreview([
-      "行A `snake_case_identifier`",
-      "行B __双下划线粗体__",
-      "行C _单下划线斜体_",
-      "行D **星号粗体**",
-      "行E a_b_c",
-      "行F \\#转义井号标签词",
-      "行H get_note_id",
-      "行I 中文之间_的下划线",
-    ].join("\n\n"))).toBe([
-      "行A snake_case_identifier",
-      "行B 双下划线粗体",
-      "行C 单下划线斜体",
-      "行D 星号粗体",
-      "行E a_b_c",
-      "行F #转义井号标签词",
-      "行H get_note_id",
-      "行I 中文之间_的下划线",
-    ].join("\n"));
+    expect(
+      formatPreview(
+        [
+          "行A `snake_case_identifier`",
+          "行B __双下划线粗体__",
+          "行C _单下划线斜体_",
+          "行D **星号粗体**",
+          "行E a_b_c",
+          "行F \\#转义井号标签词",
+          "行H get_note_id",
+          "行I 中文之间_的下划线",
+        ].join("\n\n"),
+      ),
+    ).toBe(
+      [
+        "行A snake_case_identifier",
+        "行B 双下划线粗体",
+        "行C 单下划线斜体",
+        "行D 星号粗体",
+        "行E a_b_c",
+        "行F #转义井号标签词",
+        "行H get_note_id",
+        "行I 中文之间_的下划线",
+      ].join("\n"),
+    );
   });
 
   test("keeps underscore characters literal inside inline code spans", () => {
@@ -93,11 +130,15 @@ describe("markdown and search helpers", () => {
   });
 
   test("preserves source line breaks inside plain text paragraphs", () => {
-    expect(formatPreview("第一行普通正文\n第二行普通正文\n\n第三行段落")).toBe("第一行普通正文\n第二行普通正文\n第三行段落");
+    expect(formatPreview("第一行普通正文\n第二行普通正文\n\n第三行段落")).toBe(
+      "第一行普通正文\n第二行普通正文\n第三行段落",
+    );
   });
 
   test("omits tag-only lines while retaining inline and escaped hash text", () => {
-    expect(formatPreview("正文 #行内标签\n\n#标签一 #标签二\n\n\\#字面井号词")).toBe("正文 #行内标签\n#字面井号词");
+    expect(formatPreview("正文 #行内标签\n\n#标签一 #标签二\n\n\\#字面井号词")).toBe(
+      "正文 #行内标签\n#字面井号词",
+    );
   });
 
   test("treats trailing nonbreaking spaces and their HTML entities as whitespace", () => {
@@ -106,18 +147,26 @@ describe("markdown and search helpers", () => {
   });
 
   test("preserves paragraph, heading, and list item boundaries in previews", () => {
-    expect(formatPreview("# Heading\n\nFirst paragraph\ncontinues.\n\nSecond paragraph.\n- first item\n- second item\n3. ordered item\n## Next heading\nFinal paragraph"))
-      .toBe("Heading\nFirst paragraph\ncontinues.\nSecond paragraph.\nfirst item\nsecond item\nordered item\nNext heading\nFinal paragraph");
+    expect(
+      formatPreview(
+        "# Heading\n\nFirst paragraph\ncontinues.\n\nSecond paragraph.\n- first item\n- second item\n3. ordered item\n## Next heading\nFinal paragraph",
+      ),
+    ).toBe(
+      "Heading\nFirst paragraph\ncontinues.\nSecond paragraph.\nfirst item\nsecond item\nordered item\nNext heading\nFinal paragraph",
+    );
   });
 
   test("skips Markdown horizontal rules in note previews", () => {
-    expect(formatPreview("Before rule.\n\n---\n\n* * *\n___\n\nAfter rule."))
-      .toBe("Before rule.\nAfter rule.");
+    expect(formatPreview("Before rule.\n\n---\n\n* * *\n___\n\nAfter rule.")).toBe(
+      "Before rule.\nAfter rule.",
+    );
   });
 
   test("keeps preview work bounded for long markdown bodies", () => {
     expect(formatPreview(`${"x".repeat(1_000_000)} tail`)).toBe("x".repeat(180));
-    expect(formatPreview(`before\n\n\`\`\`ts\n${"code ".repeat(100_000)}\n\`\`\`\nafter`)).toBe("before\nafter");
+    expect(formatPreview(`before\n\n\`\`\`ts\n${"code ".repeat(100_000)}\n\`\`\`\nafter`)).toBe(
+      "before\nafter",
+    );
   });
 
   test("omits GFM tables, fenced code, indented code, and supported callouts", () => {
@@ -142,29 +191,41 @@ describe("markdown and search helpers", () => {
 
   test("keeps ordinary quotes and unknown callout markers in previews", () => {
     // 未识别的 callout 只是普通引用，标记按原文字面保留（方括号不再被吞掉）。
-    expect(formatPreview("> A normal quote.\n> Still quoted.\n\n> [!CUSTOM]\n> Unknown content."))
-      .toBe("A normal quote.\nStill quoted.\n[!CUSTOM]\nUnknown content.");
+    expect(
+      formatPreview("> A normal quote.\n> Still quoted.\n\n> [!CUSTOM]\n> Unknown content."),
+    ).toBe("A normal quote.\nStill quoted.\n[!CUSTOM]\nUnknown content.");
   });
 
   test("keeps literal brackets and flattens wiki links in previews", () => {
     expect(formatPreview("数组 a[0] 与 a[1]")).toBe("数组 a[0] 与 a[1]");
-    expect(formatPreview("见 [[目标笔记]] 与 [[目标笔记|显示别名]]")).toBe("见 目标笔记 与 显示别名");
+    expect(formatPreview("见 [[目标笔记]] 与 [[目标笔记|显示别名]]")).toBe(
+      "见 目标笔记 与 显示别名",
+    );
     expect(formatPreview("【【目标笔记｜全角别名】】")).toBe("全角别名");
   });
 
   test("skips supported callouts when the marker line also contains text", () => {
     for (const type of ["NOTE", "TIP", "IMPORTANT", "WARNING", "CAUTION"]) {
-      expect(formatPreview(`Before.\n\n> [!${type}] 警示正文\n> 第二行\n\nAfter.`)).toBe("Before.\nAfter.");
+      expect(formatPreview(`Before.\n\n> [!${type}] 警示正文\n> 第二行\n\nAfter.`)).toBe(
+        "Before.\nAfter.",
+      );
     }
   });
 
   test("does not treat ordinary pipe text as a table", () => {
-    expect(formatPreview("A | B is just prose.\n\n| A | B |\n| --- | --- |\n| hidden | row |\n\nAfter the table."))
-      .toBe("A | B is just prose.\nAfter the table.");
+    expect(
+      formatPreview(
+        "A | B is just prose.\n\n| A | B |\n| --- | --- |\n| hidden | row |\n\nAfter the table.",
+      ),
+    ).toBe("A | B is just prose.\nAfter the table.");
   });
 
   test("does not expose image URLs in note previews", () => {
-    expect(formatPreview("![示例](/api/assets/11111111-1111-4111-8111-111111111111?w=640&h=360)\n\n正文说明")).toBe("正文说明");
+    expect(
+      formatPreview(
+        "![示例](/api/assets/11111111-1111-4111-8111-111111111111?w=640&h=360)\n\n正文说明",
+      ),
+    ).toBe("正文说明");
   });
 
   test("quotes search terms for FTS", () => {
@@ -172,17 +233,23 @@ describe("markdown and search helpers", () => {
   });
 
   test("limits JSON request bodies by encoded byte length", async () => {
-    const valid = await readJson<{ text: string }>(new Request("http://xiangying.test", {
-      method: "POST",
-      body: JSON.stringify({ text: "你好" }),
-    }), 32);
+    const valid = await readJson<{ text: string }>(
+      new Request("http://xiangying.test", {
+        method: "POST",
+        body: JSON.stringify({ text: "你好" }),
+      }),
+      32,
+    );
     expect(valid).toEqual({ text: "你好" });
 
-    const oversized = await readJson(new Request("http://xiangying.test", {
-      method: "POST",
-      body: JSON.stringify({ text: "你好" }),
-      headers: { "Content-Length": "10" },
-    }), 10);
+    const oversized = await readJson(
+      new Request("http://xiangying.test", {
+        method: "POST",
+        body: JSON.stringify({ text: "你好" }),
+        headers: { "Content-Length": "10" },
+      }),
+      10,
+    );
     expect(oversized).toBeNull();
   });
 });

@@ -49,7 +49,8 @@ const code = "[[代码中的伪链接]]";
       expect(links).toHaveLength(1);
       expect(links[0].start).toBe(markdown.lastIndexOf("[[Alpha]]"));
       expect(replaceWikiLinkTarget(markdown, "Alpha", "Beta")).toEqual({
-        content: markdown.slice(0, markdown.lastIndexOf("[[Alpha]]")) + "[[Beta]]", count: 1,
+        content: markdown.slice(0, markdown.lastIndexOf("[[Alpha]]")) + "[[Beta]]",
+        count: 1,
       });
     }
     expect(findUnlinkedMentionsInMarkdown("    Alpha\n\nAlpha", "Alpha")).toHaveLength(1);
@@ -59,7 +60,9 @@ const code = "[[代码中的伪链接]]";
   test("preserves inline code with a shorter backtick run in its contents", () => {
     const markdown = "``example ` [[Alpha]]`` and [[Alpha]]";
     expect(extractWikiLinks(markdown)).toHaveLength(1);
-    expect(replaceWikiLinkTarget(markdown, "Alpha", "Beta").content).toBe("``example ` [[Alpha]]`` and [[Beta]]");
+    expect(replaceWikiLinkTarget(markdown, "Alpha", "Beta").content).toBe(
+      "``example ` [[Alpha]]`` and [[Beta]]",
+    );
   });
 
   test("replaces wiki link target correctly and preserves aliases", () => {
@@ -118,11 +121,19 @@ const code = "[[代码中的伪链接]]";
   });
 
   test("cleanSnippetForDisplay removes double brackets and normalizes aliases", () => {
-    expect(cleanSnippetForDisplay("[[ 这就是一种自信 ]], 你信不i想你")).toBe("这就是一种自信, 你信不i想你");
-    expect(cleanSnippetForDisplay("[[ 这就是一种自信 ]]你这么纠缠有意思么?")).toBe("这就是一种自信你这么纠缠有意思么?");
+    expect(cleanSnippetForDisplay("[[ 这就是一种自信 ]], 你信不i想你")).toBe(
+      "这就是一种自信, 你信不i想你",
+    );
+    expect(cleanSnippetForDisplay("[[ 这就是一种自信 ]]你这么纠缠有意思么?")).toBe(
+      "这就是一种自信你这么纠缠有意思么?",
+    );
     expect(cleanSnippetForDisplay("【【全角笔记】】测试")).toBe("全角笔记测试");
-    expect(cleanSnippetForDisplay("参考 [[这就是一种自信|自信心]] 详细介绍")).toBe("参考 自信心 详细介绍");
-    expect(cleanSnippetForDisplay("参考 【【这就是一种自信｜自信心】】 详细介绍")).toBe("参考 自信心 详细介绍");
+    expect(cleanSnippetForDisplay("参考 [[这就是一种自信|自信心]] 详细介绍")).toBe(
+      "参考 自信心 详细介绍",
+    );
+    expect(cleanSnippetForDisplay("参考 【【这就是一种自信｜自信心】】 详细介绍")).toBe(
+      "参考 自信心 详细介绍",
+    );
     expect(cleanSnippetForDisplay("### [[这就是一种自信]]")).toBe("这就是一种自信");
     expect(cleanSnippetForDisplay("")).toBe("");
   });

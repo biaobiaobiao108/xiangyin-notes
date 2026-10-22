@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { buildNoteContextMenuItems, buildWorkspaceMenuItems, type NoteContextMenuActions } from "../app/workspace/note-context-menu";
+import {
+  buildNoteContextMenuItems,
+  buildWorkspaceMenuItems,
+  type NoteContextMenuActions,
+} from "../app/workspace/note-context-menu";
 import type { ContextMenuItem } from "../app/context-menu";
 import type { NoteSummary } from "../shared/types";
 

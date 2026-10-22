@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { isExternalImageSource, parseImageSource, serializeImageSource } from "../app/image-markdown";
+import {
+  isExternalImageSource,
+  parseImageSource,
+  serializeImageSource,
+} from "../app/image-markdown";
 
 describe("image markdown helpers", () => {
   test("round-trips display dimensions while preserving other URL parts", () => {
@@ -19,7 +23,8 @@ describe("image markdown helpers", () => {
   });
 
   test("preserves external image URLs and query strings byte-for-byte", () => {
-    const source = "https://images.example/photo.png?signature=a%2Fb&w=original&h=auto&x=1+2#preview";
+    const source =
+      "https://images.example/photo.png?signature=a%2Fb&w=original&h=auto&x=1+2#preview";
     expect(parseImageSource(source)).toEqual({ src: source, width: null, height: null });
     expect(serializeImageSource(source, 480, 320)).toBe(source);
   });
@@ -41,5 +46,4 @@ describe("image markdown helpers", () => {
     expect(isExternalImageSource("/api/assets/photo.png")).toBe(false);
     expect(isExternalImageSource("blob:https://app.example/image-id")).toBe(false);
   });
-
 });

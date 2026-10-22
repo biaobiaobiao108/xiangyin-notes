@@ -12,7 +12,9 @@ function createTagDecorations(doc: ProseMirrorNode, from = 0, to = doc.content.s
   doc.nodesBetween(from, to, (node, position, parent) => {
     if (!node.isText || !node.text || parent?.type.name === "codeBlock") return;
     for (const range of findTagRanges(node.text)) {
-      decorations.push(Decoration.inline(position + range.start, position + range.end, { class: "editor-tag" }));
+      decorations.push(
+        Decoration.inline(position + range.start, position + range.end, { class: "editor-tag" }),
+      );
     }
   });
   return decorations;
@@ -38,7 +40,10 @@ export const TagDecorationExtension = Extension.create({
             if (!range) return previous.map(transaction.mapping, transaction.doc);
             const mapped = previous.map(transaction.mapping, transaction.doc);
             const removed = mapped.remove(mapped.find(range.from, range.to));
-            return removed.add(transaction.doc, createTagDecorations(transaction.doc, range.from, range.to));
+            return removed.add(
+              transaction.doc,
+              createTagDecorations(transaction.doc, range.from, range.to),
+            );
           },
         },
         props: {

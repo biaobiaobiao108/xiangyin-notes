@@ -9,7 +9,9 @@ function clearInlineFormatMarks(editor: Editor) {
   const { state, view } = editor;
   const activeMarks = state.storedMarks ?? state.selection.$from.marks();
   if (!activeMarks.some((mark) => INLINE_FORMAT_MARKS.has(mark.type.name))) return;
-  view.dispatch(state.tr.setStoredMarks(activeMarks.filter((mark) => !INLINE_FORMAT_MARKS.has(mark.type.name))));
+  view.dispatch(
+    state.tr.setStoredMarks(activeMarks.filter((mark) => !INLINE_FORMAT_MARKS.has(mark.type.name))),
+  );
 }
 
 export function handleInlineMarkExitOnEnter(editor: Editor, event: KeyboardEvent): boolean {
@@ -18,7 +20,8 @@ export function handleInlineMarkExitOnEnter(editor: Editor, event: KeyboardEvent
     event.isComposing ||
     event.keyCode === 229 ||
     editor.view.composing
-  ) return false;
+  )
+    return false;
   if (event.key !== "Enter") return false;
 
   const { selection, storedMarks } = editor.state;
@@ -52,10 +55,12 @@ export const InlineMarkExitOnEnter = Extension.create({
   priority: 120,
 
   addProseMirrorPlugins() {
-    return [new Plugin({
-      props: {
-        handleKeyDown: (_view, event) => handleInlineMarkExitOnEnter(this.editor, event),
-      },
-    })];
+    return [
+      new Plugin({
+        props: {
+          handleKeyDown: (_view, event) => handleInlineMarkExitOnEnter(this.editor, event),
+        },
+      }),
+    ];
   },
 });

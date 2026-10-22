@@ -17,7 +17,10 @@ function parseCssTime(value: string, fallback: number) {
   return value.trim().endsWith("s") && !value.trim().endsWith("ms") ? time * 1000 : time;
 }
 
-export function playEntranceAnimation(target: HTMLElement, animationName: EntranceAnimationName): Animation | null {
+export function playEntranceAnimation(
+  target: HTMLElement,
+  animationName: EntranceAnimationName,
+): Animation | null {
   const view = target.ownerDocument.defaultView;
   if (!view || view.matchMedia("(prefers-reduced-motion: reduce)").matches) return null;
   if (typeof target.animate !== "function") return null;
@@ -26,8 +29,13 @@ export function playEntranceAnimation(target: HTMLElement, animationName: Entran
   const duration = parseCssTime(styles.getPropertyValue("--motion-content").trim(), 180);
   if (duration <= 0) return null;
 
-  const easing = styles.getPropertyValue("--motion-ease-out").trim() || "cubic-bezier(0.16, 1, 0.3, 1)";
-  const animation = target.animate(entranceKeyframes[animationName], { duration, easing, fill: "both" });
+  const easing =
+    styles.getPropertyValue("--motion-ease-out").trim() || "cubic-bezier(0.16, 1, 0.3, 1)";
+  const animation = target.animate(entranceKeyframes[animationName], {
+    duration,
+    easing,
+    fill: "both",
+  });
   animation.addEventListener("finish", () => animation.cancel(), { once: true });
   return animation;
 }

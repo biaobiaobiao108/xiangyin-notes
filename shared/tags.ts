@@ -15,7 +15,11 @@ export function normalizeTag(tag: string) {
 function lineFence(markdown: string, lineStart: number, lineEnd: number): Fence | null {
   let cursor = lineStart;
   let indentation = 0;
-  while (cursor < lineEnd && indentation < 4 && (markdown[cursor] === " " || markdown[cursor] === "\t")) {
+  while (
+    cursor < lineEnd &&
+    indentation < 4 &&
+    (markdown[cursor] === " " || markdown[cursor] === "\t")
+  ) {
     cursor += 1;
     indentation += 1;
   }
@@ -29,7 +33,9 @@ function lineFence(markdown: string, lineStart: number, lineEnd: number): Fence 
 }
 
 function isClosingFence(fence: Fence, candidate: Fence | null) {
-  return Boolean(candidate && candidate.marker === fence.marker && candidate.length >= fence.length);
+  return Boolean(
+    candidate && candidate.marker === fence.marker && candidate.length >= fence.length,
+  );
 }
 
 function tagCharacterAt(markdown: string, index: number) {
@@ -48,9 +54,10 @@ function lineBounds(markdown: string, start: number) {
   const nextCr = markdown.indexOf("\r", start);
   const lineBreak = nextLf === -1 ? nextCr : nextCr === -1 ? nextLf : Math.min(nextLf, nextCr);
   const end = lineBreak === -1 ? markdown.length : lineBreak;
-  const next = lineBreak === -1
-    ? markdown.length
-    : lineBreak + (markdown[lineBreak] === "\r" && markdown[lineBreak + 1] === "\n" ? 2 : 1);
+  const next =
+    lineBreak === -1
+      ? markdown.length
+      : lineBreak + (markdown[lineBreak] === "\r" && markdown[lineBreak + 1] === "\n" ? 2 : 1);
   return { end, next, hasBreak: lineBreak !== -1 };
 }
 
@@ -82,7 +89,8 @@ function collectVisibleSegments(markdown: string) {
     lineStart = lineNext;
   }
 
-  if (!fence && visibleStart < markdown.length) segments.push({ start: visibleStart, end: markdown.length });
+  if (!fence && visibleStart < markdown.length)
+    segments.push({ start: visibleStart, end: markdown.length });
   return segments;
 }
 
@@ -113,7 +121,8 @@ function collectBacktickRuns(markdown: string, segment: MarkdownSegment) {
  */
 function isLinkFragmentHash(markdown: string, hashIndex: number, rangeStart: number) {
   let tokenStart = hashIndex;
-  while (tokenStart > rangeStart && !WHITESPACE_CHARACTER_PATTERN.test(markdown[tokenStart - 1]!)) tokenStart -= 1;
+  while (tokenStart > rangeStart && !WHITESPACE_CHARACTER_PATTERN.test(markdown[tokenStart - 1]!))
+    tokenStart -= 1;
   if (tokenStart === hashIndex) return false;
   const prefix = markdown.slice(tokenStart, hashIndex);
   if (prefix.includes("://") || prefix.startsWith("//") || /^www\./iu.test(prefix)) return true;
@@ -121,7 +130,13 @@ function isLinkFragmentHash(markdown: string, hashIndex: number, rangeStart: num
   return /\]\([^)\s]*$/u.test(prefix);
 }
 
-function collectTagsOutsideCode(markdown: string, start: number, end: number, ranges: TagRange[], escapedRanges?: EscapedTagRange[]) {
+function collectTagsOutsideCode(
+  markdown: string,
+  start: number,
+  end: number,
+  ranges: TagRange[],
+  escapedRanges?: EscapedTagRange[],
+) {
   for (let index = start; index < end; index += 1) {
     if (markdown[index] !== "#" || markdown[index - 1] === "#") continue;
     // Skip the whole token so a URL fragment can never surface as a tag.
@@ -145,9 +160,15 @@ function collectTagsOutsideCode(markdown: string, start: number, end: number, ra
       continue;
     }
     let backslashCount = 0;
-    while (index - backslashCount - 1 >= start && markdown[index - backslashCount - 1] === "\\") backslashCount += 1;
+    while (index - backslashCount - 1 >= start && markdown[index - backslashCount - 1] === "\\")
+      backslashCount += 1;
     if (backslashCount % 2 === 1) {
-      escapedRanges?.push({ start: index - backslashCount, end: tagEnd, hashIndex: index, backslashCount });
+      escapedRanges?.push({
+        start: index - backslashCount,
+        end: tagEnd,
+        hashIndex: index,
+        backslashCount,
+      });
     } else {
       ranges.push({ start: index, end: tagEnd, tag: markdown.slice(tagStart, tagEnd) });
     }
@@ -155,14 +176,20 @@ function collectTagsOutsideCode(markdown: string, start: number, end: number, ra
   }
 }
 
-function collectSegmentTagRanges(markdown: string, segment: MarkdownSegment, ranges: TagRange[], escapedRanges?: EscapedTagRange[]) {
+function collectSegmentTagRanges(
+  markdown: string,
+  segment: MarkdownSegment,
+  ranges: TagRange[],
+  escapedRanges?: EscapedTagRange[],
+) {
   const { runs, byLength } = collectBacktickRuns(markdown, segment);
   let cursor = segment.start;
   let runIndex = 0;
 
   while (runIndex < runs.length) {
     const run = runs[runIndex];
-    if (run.start > cursor) collectTagsOutsideCode(markdown, cursor, run.start, ranges, escapedRanges);
+    if (run.start > cursor)
+      collectTagsOutsideCode(markdown, cursor, run.start, ranges, escapedRanges);
 
     const sameLengthRuns = byLength.get(run.length) ?? [];
     const closingRun = sameLengthRuns[run.indexForLength + 1];
@@ -175,13 +202,15 @@ function collectSegmentTagRanges(markdown: string, segment: MarkdownSegment, ran
     }
   }
 
-  if (cursor < segment.end) collectTagsOutsideCode(markdown, cursor, segment.end, ranges, escapedRanges);
+  if (cursor < segment.end)
+    collectTagsOutsideCode(markdown, cursor, segment.end, ranges, escapedRanges);
 }
 
 /** Finds unescaped body hashtag ranges, excluding fenced and inline code. */
 export function findTagRanges(markdown: string) {
   const ranges: TagRange[] = [];
-  for (const segment of collectVisibleSegments(markdown)) collectSegmentTagRanges(markdown, segment, ranges);
+  for (const segment of collectVisibleSegments(markdown))
+    collectSegmentTagRanges(markdown, segment, ranges);
   return ranges;
 }
 
@@ -190,14 +219,17 @@ export function preserveEscapedHashtagsForEditor(markdown: string) {
   if (!markdown.includes("\\#")) return markdown;
   const escapedRanges: EscapedTagRange[] = [];
   const ignoredRanges: TagRange[] = [];
-  for (const segment of collectVisibleSegments(markdown)) collectSegmentTagRanges(markdown, segment, ignoredRanges, escapedRanges);
+  for (const segment of collectVisibleSegments(markdown))
+    collectSegmentTagRanges(markdown, segment, ignoredRanges, escapedRanges);
   if (escapedRanges.length === 0) return markdown;
 
   const parts: string[] = [];
   let cursor = 0;
   for (const range of escapedRanges) {
     parts.push(markdown.slice(cursor, range.start));
-    parts.push(`${"\\".repeat(range.backslashCount - 1)}#\u2060${markdown.slice(range.hashIndex + 1, range.end)}`);
+    parts.push(
+      `${"\\".repeat(range.backslashCount - 1)}#\u2060${markdown.slice(range.hashIndex + 1, range.end)}`,
+    );
     cursor = range.end;
   }
   parts.push(markdown.slice(cursor));
@@ -303,7 +335,8 @@ export function removeTagsFromMarkdown(markdown: string, tags: string[]) {
       let end = range.end;
       while (end < lineEnd && (markdown[end] === " " || markdown[end] === "\t")) end += 1;
       if (end === range.end) {
-        while (start > lineStart && (markdown[start - 1] === " " || markdown[start - 1] === "\t")) start -= 1;
+        while (start > lineStart && (markdown[start - 1] === " " || markdown[start - 1] === "\t"))
+          start -= 1;
       }
       removalRanges.push({ start, end });
       lineHasRemovedTag = true;
@@ -322,7 +355,8 @@ export function removeTagsFromMarkdown(markdown: string, tags: string[]) {
       if (lastRemoval && /^[\t ]*$/u.test(markdown.slice(lastRemoval.end, lineEnd))) {
         remainingLine = remainingLine.replace(/[\t ]+$/u, "");
       }
-      if (remainingLine.trim().length > 0) result += remainingLine + markdown.slice(lineEnd, lineNext);
+      if (remainingLine.trim().length > 0)
+        result += remainingLine + markdown.slice(lineEnd, lineNext);
     } else {
       result += markdown.slice(lineStart, lineNext);
     }

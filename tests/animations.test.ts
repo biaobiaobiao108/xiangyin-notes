@@ -8,13 +8,18 @@ function makeAnimationTarget(reducedMotion = false) {
   let animationCalls = 0;
   let cancelCalls = 0;
   const animation = {
-    addEventListener: (_type: string, listener: EventListener) => { finishListener = listener; },
-    cancel: () => { cancelCalls += 1; },
+    addEventListener: (_type: string, listener: EventListener) => {
+      finishListener = listener;
+    },
+    cancel: () => {
+      cancelCalls += 1;
+    },
   } as unknown as Animation;
   const view = {
     matchMedia: () => ({ matches: reducedMotion }),
     getComputedStyle: () => ({
-      getPropertyValue: (property: string) => property === "--motion-content" ? "180ms" : "cubic-bezier(0.16, 1, 0.3, 1)",
+      getPropertyValue: (property: string) =>
+        property === "--motion-content" ? "180ms" : "cubic-bezier(0.16, 1, 0.3, 1)",
     }),
   } as unknown as Window;
   const target = {
@@ -25,17 +30,29 @@ function makeAnimationTarget(reducedMotion = false) {
       capturedOptions = options;
       return animation;
     },
-    get offsetWidth() { throw new Error("animation must not force layout"); },
+    get offsetWidth() {
+      throw new Error("animation must not force layout");
+    },
   } as unknown as HTMLElement;
 
   return {
     animation,
     target,
-    get capturedKeyframes() { return capturedKeyframes; },
-    get capturedOptions() { return capturedOptions; },
-    get animationCalls() { return animationCalls; },
-    get cancelCalls() { return cancelCalls; },
-    get finishListener() { return finishListener; },
+    get capturedKeyframes() {
+      return capturedKeyframes;
+    },
+    get capturedOptions() {
+      return capturedOptions;
+    },
+    get animationCalls() {
+      return animationCalls;
+    },
+    get cancelCalls() {
+      return cancelCalls;
+    },
+    get finishListener() {
+      return finishListener;
+    },
   };
 }
 

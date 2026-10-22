@@ -1,4 +1,12 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 
 export type ThemePreference = "system" | "light" | "dark";
 export type ResolvedTheme = Exclude<ThemePreference, "system">;
@@ -26,7 +34,9 @@ function getThemeStorage(): ThemeStorage | undefined {
   }
 }
 
-export function readThemePreference(storage: ThemeStorage | undefined = getThemeStorage()): ThemePreference {
+export function readThemePreference(
+  storage: ThemeStorage | undefined = getThemeStorage(),
+): ThemePreference {
   try {
     const value = storage?.getItem(THEME_STORAGE_KEY) ?? null;
     return isThemePreference(value) ? value : "system";
@@ -35,7 +45,10 @@ export function readThemePreference(storage: ThemeStorage | undefined = getTheme
   }
 }
 
-export function writeThemePreference(preference: ThemePreference, storage: ThemeStorage | undefined = getThemeStorage()): void {
+export function writeThemePreference(
+  preference: ThemePreference,
+  storage: ThemeStorage | undefined = getThemeStorage(),
+): void {
   try {
     storage?.setItem(THEME_STORAGE_KEY, preference);
   } catch {
@@ -47,13 +60,18 @@ export function resolveTheme(preference: ThemePreference, systemIsDark: boolean)
   return preference === "system" ? (systemIsDark ? "dark" : "light") : preference;
 }
 
-export function applyThemeToDocument(document: Document, preference: ThemePreference, systemIsDark: boolean): void {
+export function applyThemeToDocument(
+  document: Document,
+  preference: ThemePreference,
+  systemIsDark: boolean,
+): void {
   const resolvedTheme = resolveTheme(preference, systemIsDark);
   document.documentElement.dataset.theme = resolvedTheme;
   document.documentElement.dataset.themePreference = preference;
 
   const colorSchemeMeta = document.querySelector<HTMLMetaElement>('meta[name="color-scheme"]');
-  if (colorSchemeMeta) colorSchemeMeta.content = preference === "system" ? "light dark" : resolvedTheme;
+  if (colorSchemeMeta)
+    colorSchemeMeta.content = preference === "system" ? "light dark" : resolvedTheme;
 
   const themeColorMeta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
   if (themeColorMeta) themeColorMeta.content = resolvedTheme === "dark" ? "#1a1b26" : "#f6f4ef";
@@ -61,7 +79,9 @@ export function applyThemeToDocument(document: Document, preference: ThemePrefer
 
 function getSystemThemeIsDark(): boolean {
   try {
-    return typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches;
+    return (
+      typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches
+    );
   } catch {
     return false;
   }
@@ -97,7 +117,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const setPreference = useCallback((next: ThemePreference) => {
     writeThemePreference(next);
     setPreferenceState(next);
-    if (typeof document !== "undefined") applyThemeToDocument(document, next, getSystemThemeIsDark());
+    if (typeof document !== "undefined")
+      applyThemeToDocument(document, next, getSystemThemeIsDark());
   }, []);
 
   const value = useMemo(() => ({ preference, setPreference }), [preference, setPreference]);

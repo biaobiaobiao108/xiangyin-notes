@@ -1,4 +1,11 @@
-import { all, ASSET_REFERENCE_PATTERN, first, jsonError, type RouteContext, type UserRow } from "../core";
+import {
+  all,
+  ASSET_REFERENCE_PATTERN,
+  first,
+  jsonError,
+  type RouteContext,
+  type UserRow,
+} from "../core";
 import { createZipReadableStream, type ZipStreamEntry } from "../../shared/zip";
 
 export const EXPORT_MAX_BYTES = 512 * 1024 * 1024;
@@ -42,7 +49,10 @@ async function* oneChunk(bytes: Uint8Array) {
   yield bytes;
 }
 
-export async function handleExportRoute(ctx: RouteContext, user: UserRow): Promise<Response | null> {
+export async function handleExportRoute(
+  ctx: RouteContext,
+  user: UserRow,
+): Promise<Response | null> {
   const { url, method, options } = ctx;
   const { database, assets } = options;
 
@@ -74,19 +84,22 @@ export async function handleExportRoute(ctx: RouteContext, user: UserRow): Promi
   const exportAssets: Array<ExportAssetRow & { name: string }> = [];
   const assetFileNameMap = new Map<string, string>();
   for (const asset of assetRows) {
-    if (!await assets.head(asset.storage_path)) continue;
+    if (!(await assets.head(asset.storage_path))) continue;
     const extension = ARCHIVE_ASSET_EXTENSIONS[asset.mime_type] ?? ".bin";
     const name = `attachments/${asset.id}_${safeArchiveAssetStem(asset.original_name)}${extension}`;
     exportAssets.push({ ...asset, name });
     assetFileNameMap.set(asset.id.toLowerCase(), name);
   }
 
-  if (exportAssets.length + notes.length > 0xffff) return jsonError(413, "EXPORT_TOO_LARGE", "导出文件包含的条目过多");
-  const estimatedBytes = exportAssets.reduce((total, asset) => total + asset.byte_size, 0)
-    + notes.reduce((total, note) => total + note.content_byte_size * 2, 0)
-    + (exportAssets.length + notes.length) * 512
-    + 22;
-  if (estimatedBytes > EXPORT_MAX_BYTES) return jsonError(413, "EXPORT_TOO_LARGE", "导出内容超过 512 MiB 限制，请减少附件后重试");
+  if (exportAssets.length + notes.length > 0xffff)
+    return jsonError(413, "EXPORT_TOO_LARGE", "导出文件包含的条目过多");
+  const estimatedBytes =
+    exportAssets.reduce((total, asset) => total + asset.byte_size, 0) +
+    notes.reduce((total, note) => total + note.content_byte_size * 2, 0) +
+    (exportAssets.length + notes.length) * 512 +
+    22;
+  if (estimatedBytes > EXPORT_MAX_BYTES)
+    return jsonError(413, "EXPORT_TOO_LARGE", "导出内容超过 512 MiB 限制，请减少附件后重试");
 
   const usedPaths = new Set<string>();
   const noteEntries = notes.map((note) => {
@@ -94,7 +107,8 @@ export async function handleExportRoute(ctx: RouteContext, user: UserRow): Promi
     const baseTitle = safeArchiveName(note.title, "未命名笔记", 100);
     let name = `${notebookDir}/${baseTitle}.md`;
     let counter = 1;
-    while (usedPaths.has(name.toLowerCase())) name = `${notebookDir}/${baseTitle} (${counter++}).md`;
+    while (usedPaths.has(name.toLowerCase()))
+      name = `${notebookDir}/${baseTitle} (${counter++}).md`;
     usedPaths.add(name.toLowerCase());
     return { ...note, name };
   });
@@ -125,17 +139,36 @@ export async function handleExportRoute(ctx: RouteContext, user: UserRow): Promi
     // generator loop is fragile if another caller iterates it concurrently.
     // Absolute HTTPS image sources are also accepted when saving notes. Consume
     // their full prefix so the exported path cannot retain a hostname or base path.
-    const assetReference = new RegExp(`(?:https:\\/\\/[^\\s)<>]*?)?${ASSET_REFERENCE_PATTERN.source}`, ASSET_REFERENCE_PATTERN.flags);
+    const assetReference = new RegExp(
+      `(?:https:\\/\\/[^\\s)<>]*?)?${ASSET_REFERENCE_PATTERN.source}`,
+      ASSET_REFERENCE_PATTERN.flags,
+    );
     for (const note of noteEntries) {
-      const row = await first<{ content_markdown: string }>(database, "SELECT content_markdown FROM notes WHERE id = ? AND user_id = ? AND deleted_at IS NULL", note.id, user.id);
+      const row = await first<{ content_markdown: string }>(
+        database,
+        "SELECT content_markdown FROM notes WHERE id = ? AND user_id = ? AND deleted_at IS NULL",
+        note.id,
+        user.id,
+      );
       if (!row) continue;
       const content = row.content_markdown.replace(assetReference, (match, id: string) => {
         const localRel = assetFileNameMap.get(id.toLowerCase());
-        const encodedPath = localRel?.split("/").map((segment) => encodeURIComponent(segment).replace(/[()]/g, (character) => character === "(" ? "%28" : "%29")).join("/");
+        const encodedPath = localRel
+          ?.split("/")
+          .map((segment) =>
+            encodeURIComponent(segment).replace(/[()]/g, (character) =>
+              character === "(" ? "%28" : "%29",
+            ),
+          )
+          .join("/");
         return encodedPath ? `../${encodedPath}` : match;
       });
       const bytes = encoder.encode(content);
-      yield { name: note.name, mtime: new Date(note.updated_at * 1000), stream: () => oneChunk(bytes) };
+      yield {
+        name: note.name,
+        mtime: new Date(note.updated_at * 1000),
+        stream: () => oneChunk(bytes),
+      };
     }
   };
 

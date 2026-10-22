@@ -43,13 +43,22 @@ export function extractShortSearchTerms(titleOrValue: string, contentMarkdown = 
   return terms;
 }
 
-export async function syncNoteShortSearchTerms(database: SqliteDatabase, userId: string, noteId: string, title: string, contentMarkdown: string) {
+export async function syncNoteShortSearchTerms(
+  database: SqliteDatabase,
+  userId: string,
+  noteId: string,
+  title: string,
+  contentMarkdown: string,
+) {
   const terms = extractShortSearchTerms(title, contentMarkdown);
   const termList = Array.from(terms);
   // D1 currently limits bound variables per statement; 25 rows use 75.
   const BATCH_SIZE = 25;
   const statements: { sql: string; values: D1Value[] }[] = [
-    { sql: "DELETE FROM note_short_terms WHERE note_id = ? AND user_id = ?", values: [noteId, userId] },
+    {
+      sql: "DELETE FROM note_short_terms WHERE note_id = ? AND user_id = ?",
+      values: [noteId, userId],
+    },
   ];
   for (let i = 0; i < termList.length; i += BATCH_SIZE) {
     const chunk = termList.slice(i, i + BATCH_SIZE);
@@ -58,7 +67,10 @@ export async function syncNoteShortSearchTerms(database: SqliteDatabase, userId:
     for (const term of chunk) {
       params.push(noteId, userId, term);
     }
-    statements.push({ sql: `INSERT INTO note_short_terms (note_id, user_id, term) VALUES ${placeholders}`, values: params });
+    statements.push({
+      sql: `INSERT INTO note_short_terms (note_id, user_id, term) VALUES ${placeholders}`,
+      values: params,
+    });
   }
   await database.batch(statements);
 }

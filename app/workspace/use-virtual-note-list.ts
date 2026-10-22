@@ -1,4 +1,14 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FocusEvent as ReactFocusEvent, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from "react";
+import {
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type FocusEvent as ReactFocusEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type RefObject,
+} from "react";
 import type { NoteSummary } from "../../shared/types";
 
 const VIRTUALIZE_AFTER = 140;
@@ -47,7 +57,10 @@ export function useVirtualNoteList(
   const indexById = useMemo(() => new Map(rows.map((row, index) => [row.id, index])), [rows]);
   const indexByIdRef = useRef(indexById);
   indexByIdRef.current = indexById;
-  const offsets = useMemo(() => offsetsForRows(rows, heightsRef.current), [rows, measurementRevision]);
+  const offsets = useMemo(
+    () => offsetsForRows(rows, heightsRef.current),
+    [rows, measurementRevision],
+  );
   const offsetsRef = useRef(offsets);
   offsetsRef.current = offsets;
   const isVirtualized = rows.length > VIRTUALIZE_AFTER;
@@ -82,7 +95,10 @@ export function useVirtualNoteList(
     const updateViewport = () => {
       contentInsetRef.current = Number.parseFloat(getComputedStyle(container).paddingTop) || 0;
       setViewport((current) => {
-        const next = { top: Math.max(0, container.scrollTop - contentInsetRef.current), height: container.clientHeight || current.height || 800 };
+        const next = {
+          top: Math.max(0, container.scrollTop - contentInsetRef.current),
+          height: container.clientHeight || current.height || 800,
+        };
         return current.top === next.top && current.height === next.height ? current : next;
       });
     };
@@ -93,7 +109,8 @@ export function useVirtualNoteList(
         updateViewport();
       });
     };
-    const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updateViewport);
+    const resizeObserver =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updateViewport);
     resizeObserver?.observe(container);
     container.addEventListener("scroll", onScroll, { passive: true });
     updateViewport();
@@ -110,7 +127,9 @@ export function useVirtualNoteList(
     const observer = new ResizeObserver((entries) => {
       const container = scrollElement;
       const oldOffsets = offsetsRef.current;
-      const anchorIndex = container ? indexAtOffset(oldOffsets, Math.max(0, container.scrollTop - contentInsetRef.current)) : 0;
+      const anchorIndex = container
+        ? indexAtOffset(oldOffsets, Math.max(0, container.scrollTop - contentInsetRef.current))
+        : 0;
       let anchorAdjustment = 0;
       let changed = false;
 
@@ -120,9 +139,12 @@ export function useVirtualNoteList(
         if (!noteId) continue;
         const index = indexByIdRef.current.get(noteId);
         if (index === undefined) continue;
-        const borderBox = entry.borderBoxSize as unknown as ResizeObserverSize | readonly ResizeObserverSize[] | undefined;
+        const borderBox = entry.borderBoxSize as unknown as
+          ResizeObserverSize | readonly ResizeObserverSize[] | undefined;
         const measuredHeight = borderBox
-          ? "blockSize" in borderBox ? borderBox.blockSize : borderBox[0]?.blockSize
+          ? "blockSize" in borderBox
+            ? borderBox.blockSize
+            : borderBox[0]?.blockSize
           : undefined;
         const nextHeight = measuredHeight ?? element.getBoundingClientRect().height;
         if (!Number.isFinite(nextHeight) || nextHeight <= 0) continue;
@@ -149,12 +171,16 @@ export function useVirtualNoteList(
     ? indexAtOffset(offsets, Math.max(0, viewport.top - OVERSCAN_PX))
     : 0;
   const endIndex = isVirtualized
-    ? Math.min(rows.length, indexAtOffset(offsets, viewport.top + viewport.height + OVERSCAN_PX) + 1)
+    ? Math.min(
+        rows.length,
+        indexAtOffset(offsets, viewport.top + viewport.height + OVERSCAN_PX) + 1,
+      )
     : rows.length;
   const visibleRows = useMemo(() => {
     const indices = new Set<number>();
     for (let index = startIndex; index < endIndex; index += 1) indices.add(index);
-    if (pinnedIndex !== null && pinnedIndex >= 0 && pinnedIndex < rows.length) indices.add(pinnedIndex);
+    if (pinnedIndex !== null && pinnedIndex >= 0 && pinnedIndex < rows.length)
+      indices.add(pinnedIndex);
     const result: Array<{ note: NoteSummary; index: number; top: number }> = [];
     for (const index of [...indices].sort((left, right) => left - right)) {
       const note = rows[index];
@@ -182,65 +208,91 @@ export function useVirtualNoteList(
   }, []);
 
   // 按 top 缓存样式对象：同一偏移复用同一引用，memo(NoteListRow) 的 rowStyle prop 才不会每次渲染都失效。
-  const rowStyle = useCallback((top: number) => {
-    if (!isVirtualized) return undefined;
-    const cache = rowStylesRef.current;
-    const cached = cache.get(top);
-    if (cached) return cached;
-    const style = { position: "absolute", insetInline: 0, top: 0, transform: `translateY(${top}px)` } as CSSProperties;
-    if (cache.size > 512) cache.clear();
-    cache.set(top, style);
-    return style;
-  }, [isVirtualized]);
+  const rowStyle = useCallback(
+    (top: number) => {
+      if (!isVirtualized) return undefined;
+      const cache = rowStylesRef.current;
+      const cached = cache.get(top);
+      if (cached) return cached;
+      const style = {
+        position: "absolute",
+        insetInline: 0,
+        top: 0,
+        transform: `translateY(${top}px)`,
+      } as CSSProperties;
+      if (cache.size > 512) cache.clear();
+      cache.set(top, style);
+      return style;
+    },
+    [isVirtualized],
+  );
 
   const onFocusCapture = useCallback((event: ReactFocusEvent<HTMLDivElement>) => {
-    const noteId = (event.target as HTMLElement).closest<HTMLElement>("[data-note-id]")?.dataset.noteId;
-    setPinnedIndex(noteId ? indexByIdRef.current.get(noteId) ?? null : null);
+    const noteId = (event.target as HTMLElement).closest<HTMLElement>("[data-note-id]")?.dataset
+      .noteId;
+    setPinnedIndex(noteId ? (indexByIdRef.current.get(noteId) ?? null) : null);
   }, []);
   const onBlurCapture = useCallback((event: ReactFocusEvent<HTMLDivElement>) => {
     const nextTarget = event.relatedTarget;
-    const noteId = nextTarget instanceof HTMLElement
-      ? nextTarget.closest<HTMLElement>("[data-note-id]")?.dataset.noteId
-      : undefined;
-    setPinnedIndex(noteId ? indexByIdRef.current.get(noteId) ?? null : null);
+    const noteId =
+      nextTarget instanceof HTMLElement
+        ? nextTarget.closest<HTMLElement>("[data-note-id]")?.dataset.noteId
+        : undefined;
+    setPinnedIndex(noteId ? (indexByIdRef.current.get(noteId) ?? null) : null);
   }, []);
 
   useLayoutEffect(() => {
     const focusId = pendingFocusIdRef.current;
     if (!focusId) return;
-    const row = scrollRef.current?.querySelector<HTMLButtonElement>(`[data-note-id="${CSS.escape(focusId)}"] .note-row`);
+    const row = scrollRef.current?.querySelector<HTMLButtonElement>(
+      `[data-note-id="${CSS.escape(focusId)}"] .note-row`,
+    );
     if (row) {
       pendingFocusIdRef.current = null;
       row.focus();
     }
   }, [scrollRef, visibleRows]);
 
-  const moveTabFocus = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (!isVirtualized || event.key !== "Tab" || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
-    const target = event.target;
-    if (!(target instanceof HTMLElement)) return;
-    const currentId = target.closest<HTMLElement>("[data-note-id]")?.dataset.noteId;
-    if (!currentId) return;
-    const currentIndex = indexByIdRef.current.get(currentId);
-    if (currentIndex === undefined) return;
-    const nextIndex = event.shiftKey ? currentIndex - 1 : currentIndex + 1;
-    const boundaryIndex = event.shiftKey ? startIndex : endIndex - 1;
-    const focusedOutsideWindow = currentIndex < startIndex || currentIndex >= endIndex;
-    if ((!focusedOutsideWindow && currentIndex !== boundaryIndex) || nextIndex < 0 || nextIndex >= rows.length) return;
+  const moveTabFocus = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (
+        !isVirtualized ||
+        event.key !== "Tab" ||
+        event.nativeEvent.isComposing ||
+        event.nativeEvent.keyCode === 229
+      )
+        return;
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const currentId = target.closest<HTMLElement>("[data-note-id]")?.dataset.noteId;
+      if (!currentId) return;
+      const currentIndex = indexByIdRef.current.get(currentId);
+      if (currentIndex === undefined) return;
+      const nextIndex = event.shiftKey ? currentIndex - 1 : currentIndex + 1;
+      const boundaryIndex = event.shiftKey ? startIndex : endIndex - 1;
+      const focusedOutsideWindow = currentIndex < startIndex || currentIndex >= endIndex;
+      if (
+        (!focusedOutsideWindow && currentIndex !== boundaryIndex) ||
+        nextIndex < 0 ||
+        nextIndex >= rows.length
+      )
+        return;
 
-    event.preventDefault();
-    const container = scrollRef.current;
-    if (!container) return;
-    pendingFocusIdRef.current = rows[nextIndex]!.id;
-    setPinnedIndex(nextIndex);
-    const nextTop = offsets[nextIndex]!;
-    const nextHeight = offsets[nextIndex + 1]! - nextTop;
-    const targetScrollTop = event.shiftKey
-      ? Math.max(0, nextTop - container.clientHeight + nextHeight + 80)
-      : Math.max(0, nextTop - 80);
-    container.scrollTop = targetScrollTop + contentInsetRef.current;
-    setViewport({ top: targetScrollTop, height: container.clientHeight || viewport.height });
-  }, [endIndex, isVirtualized, offsets, rows, scrollRef, startIndex, viewport.height]);
+      event.preventDefault();
+      const container = scrollRef.current;
+      if (!container) return;
+      pendingFocusIdRef.current = rows[nextIndex]!.id;
+      setPinnedIndex(nextIndex);
+      const nextTop = offsets[nextIndex]!;
+      const nextHeight = offsets[nextIndex + 1]! - nextTop;
+      const targetScrollTop = event.shiftKey
+        ? Math.max(0, nextTop - container.clientHeight + nextHeight + 80)
+        : Math.max(0, nextTop - 80);
+      container.scrollTop = targetScrollTop + contentInsetRef.current;
+      setViewport({ top: targetScrollTop, height: container.clientHeight || viewport.height });
+    },
+    [endIndex, isVirtualized, offsets, rows, scrollRef, startIndex, viewport.height],
+  );
 
   return {
     isVirtualized,

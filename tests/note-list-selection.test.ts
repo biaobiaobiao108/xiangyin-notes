@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { applyNoteSelectionClick, noteSelectionAnchor, pruneNoteSelection, type NoteSelectionState } from "../app/workspace/note-list-selection";
+import {
+  applyNoteSelectionClick,
+  noteSelectionAnchor,
+  pruneNoteSelection,
+  type NoteSelectionState,
+} from "../app/workspace/note-list-selection";
 
 const orderedIds = ["a", "b", "c", "d", "e"];
 
@@ -23,7 +28,10 @@ describe("note list selection", () => {
   });
 
   test("Command or Ctrl clicks toggle non-contiguous notes", () => {
-    const first = applyNoteSelectionClick(state(["a"], "a"), orderedIds, { id: "c", ctrlKey: true });
+    const first = applyNoteSelectionClick(state(["a"], "a"), orderedIds, {
+      id: "c",
+      ctrlKey: true,
+    });
     expect([...first.ids]).toEqual(["a", "c"]);
     expect(first.anchorId).toBe("c");
 
@@ -33,18 +41,27 @@ describe("note list selection", () => {
   });
 
   test("plain clicks in active multi-select mode add or remove only the clicked note", () => {
-    const added = applyNoteSelectionClick(state(["a", "c"], "a"), orderedIds, { id: "d", ctrlKey: true });
+    const added = applyNoteSelectionClick(state(["a", "c"], "a"), orderedIds, {
+      id: "d",
+      ctrlKey: true,
+    });
     expect([...added.ids]).toEqual(["a", "c", "d"]);
 
     const removed = applyNoteSelectionClick(added, orderedIds, { id: "c", ctrlKey: true });
     expect([...removed.ids]).toEqual(["a", "d"]);
 
-    const empty = applyNoteSelectionClick(state(["c"], "c"), orderedIds, { id: "c", ctrlKey: true });
+    const empty = applyNoteSelectionClick(state(["c"], "c"), orderedIds, {
+      id: "c",
+      ctrlKey: true,
+    });
     expect([...empty.ids]).toEqual([]);
   });
 
   test("context menu selection toggles only its note and preserves the others", () => {
-    const added = applyNoteSelectionClick(state(["a", "c"], "a"), orderedIds, { id: "d", ctrlKey: true });
+    const added = applyNoteSelectionClick(state(["a", "c"], "a"), orderedIds, {
+      id: "d",
+      ctrlKey: true,
+    });
     expect([...added.ids]).toEqual(["a", "c", "d"]);
 
     const removed = applyNoteSelectionClick(added, orderedIds, { id: "c", ctrlKey: true });
@@ -52,13 +69,19 @@ describe("note list selection", () => {
   });
 
   test("Shift click selects the inclusive range from the anchor", () => {
-    const next = applyNoteSelectionClick(state(["b"], "b"), orderedIds, { id: "e", shiftKey: true });
+    const next = applyNoteSelectionClick(state(["b"], "b"), orderedIds, {
+      id: "e",
+      shiftKey: true,
+    });
     expect([...next.ids]).toEqual(["b", "c", "d", "e"]);
     expect(next.anchorId).toBe("b");
   });
 
   test("Shift click falls back to a single selection when the anchor is gone", () => {
-    const next = applyNoteSelectionClick(state(["a"], "missing"), orderedIds, { id: "d", shiftKey: true });
+    const next = applyNoteSelectionClick(state(["a"], "missing"), orderedIds, {
+      id: "d",
+      shiftKey: true,
+    });
     expect([...next.ids]).toEqual(["d"]);
     expect(next.anchorId).toBe("d");
   });

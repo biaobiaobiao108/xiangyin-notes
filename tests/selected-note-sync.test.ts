@@ -1,12 +1,26 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { api } from "../app/api";
-import { latestSelectedNoteSnapshot, refreshSelectedNote, type SelectedNoteSyncOptions } from "../app/workspace/selected-note-sync";
+import {
+  latestSelectedNoteSnapshot,
+  refreshSelectedNote,
+  type SelectedNoteSyncOptions,
+} from "../app/workspace/selected-note-sync";
 import type { Note } from "../shared/types";
 
 const original: Note = {
-  id: "note-1", title: "测试笔记", contentMarkdown: "原正文", preview: "原正文",
-  tags: [], thumbnail: null, notebookId: "work", notebookName: "工作",
-  isFavorite: false, deletedAt: null, version: 1, createdAt: 1, updatedAt: 1,
+  id: "note-1",
+  title: "测试笔记",
+  contentMarkdown: "原正文",
+  preview: "原正文",
+  tags: [],
+  thumbnail: null,
+  notebookId: "work",
+  notebookName: "工作",
+  isFavorite: false,
+  deletedAt: null,
+  version: 1,
+  createdAt: 1,
+  updatedAt: 1,
 };
 
 let options: SelectedNoteSyncOptions;
@@ -16,7 +30,9 @@ let pendingWork: boolean;
 
 beforeEach(() => {
   pendingWork = false;
-  const response = new Promise<{ note: Note }>((resolve) => { resolveResponse = resolve; });
+  const response = new Promise<{ note: Note }>((resolve) => {
+    resolveResponse = resolve;
+  });
   get = spyOn(api, "getNote").mockImplementation(() => response);
   options = {
     selectedRef: { current: { ...original } },
@@ -41,7 +57,9 @@ describe("selected note remote synchronization", () => {
     options.noteAbortRef.current = foregroundController;
     options.noteLoadRequestRef.current = 1;
     let finishOpening!: () => void;
-    options.noteOpeningRef.current = new Promise<void>((resolve) => { finishOpening = resolve; });
+    options.noteOpeningRef.current = new Promise<void>((resolve) => {
+      finishOpening = resolve;
+    });
     const syncing = refreshSelectedNote(original.id, options);
 
     expect(foregroundController.signal.aborted).toBe(false);
@@ -62,7 +80,9 @@ describe("selected note remote synchronization", () => {
 
   test("preserves a recovered draft when a newer remote version arrives during opening", async () => {
     let finishOpening!: () => void;
-    options.noteOpeningRef.current = new Promise<void>((resolve) => { finishOpening = resolve; });
+    options.noteOpeningRef.current = new Promise<void>((resolve) => {
+      finishOpening = resolve;
+    });
     const syncing = refreshSelectedNote(original.id, options);
     const recoveredDraft = { ...original, contentMarkdown: "恢复的未保存草稿" };
     options.selectedRef.current = recoveredDraft;
@@ -78,7 +98,9 @@ describe("selected note remote synchronization", () => {
 
   test("discards a deferred reconciliation when another note starts loading", async () => {
     let finishOpening!: () => void;
-    options.noteOpeningRef.current = new Promise<void>((resolve) => { finishOpening = resolve; });
+    options.noteOpeningRef.current = new Promise<void>((resolve) => {
+      finishOpening = resolve;
+    });
     const syncing = refreshSelectedNote(original.id, options);
     const otherController = new AbortController();
     options.noteAbortRef.current = otherController;
@@ -154,7 +176,6 @@ describe("selected note remote synchronization", () => {
   });
 });
 
-
 describe("selected note load snapshot selection", () => {
   test("keeps a completed save when the earlier GET arrives after switching back", async () => {
     const loading = (async () => {
@@ -170,9 +191,13 @@ describe("selected note load snapshot selection", () => {
 
   test("checks again when a save completes during asynchronous draft recovery", async () => {
     let finishRecovery!: () => void;
-    const recovery = new Promise<void>((resolve) => { finishRecovery = resolve; });
+    const recovery = new Promise<void>((resolve) => {
+      finishRecovery = resolve;
+    });
     let startedRecovery!: () => void;
-    const recoveryStarted = new Promise<void>((resolve) => { startedRecovery = resolve; });
+    const recoveryStarted = new Promise<void>((resolve) => {
+      startedRecovery = resolve;
+    });
     const loading = (async () => {
       const response = await api.getNote(original.id);
       let snapshot = latestSelectedNoteSnapshot(response.note, options.selectedRef.current);
@@ -193,7 +218,9 @@ describe("selected note load snapshot selection", () => {
   test("only keeps a local snapshot for the same note at an equal or newer version", () => {
     const remote = { ...original, version: 2 };
     expect(latestSelectedNoteSnapshot(remote, original)).toBe(remote);
-    expect(latestSelectedNoteSnapshot(remote, { ...remote, id: "another-note", version: 3 })).toBe(remote);
+    expect(latestSelectedNoteSnapshot(remote, { ...remote, id: "another-note", version: 3 })).toBe(
+      remote,
+    );
     expect(latestSelectedNoteSnapshot(remote, null)).toBe(remote);
     const local = { ...remote, contentMarkdown: "同版本的本地状态" };
     expect(latestSelectedNoteSnapshot(remote, local)).toBe(local);

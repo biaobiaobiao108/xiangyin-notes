@@ -1,9 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import CodeBlock from "@tiptap/extension-code-block";
-import { NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
+import {
+  NodeViewContent,
+  NodeViewWrapper,
+  ReactNodeViewRenderer,
+  type NodeViewProps,
+} from "@tiptap/react";
 import { Check, CircleAlert, Copy } from "lucide-react";
 
-export async function copyCodeBlockText(text: string, clipboard: Pick<Clipboard, "writeText"> | null = typeof navigator === "undefined" ? null : navigator.clipboard ?? null) {
+export async function copyCodeBlockText(
+  text: string,
+  clipboard: Pick<Clipboard, "writeText"> | null = typeof navigator === "undefined"
+    ? null
+    : (navigator.clipboard ?? null),
+) {
   if (clipboard) {
     try {
       await clipboard.writeText(text);
@@ -13,11 +23,17 @@ export async function copyCodeBlockText(text: string, clipboard: Pick<Clipboard,
     }
   }
 
-  if (typeof document === "undefined" || !document.execCommand) throw new Error("Clipboard API is unavailable");
+  if (typeof document === "undefined" || !document.execCommand)
+    throw new Error("Clipboard API is unavailable");
 
-  const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const activeElement =
+    document.activeElement instanceof HTMLElement ? document.activeElement : null;
   const selection = document.getSelection();
-  const ranges = selection ? Array.from({ length: selection.rangeCount }, (_, index) => selection.getRangeAt(index).cloneRange()) : [];
+  const ranges = selection
+    ? Array.from({ length: selection.rangeCount }, (_, index) =>
+        selection.getRangeAt(index).cloneRange(),
+      )
+    : [];
   const textarea = document.createElement("textarea");
   textarea.value = text;
   textarea.setAttribute("readonly", "");
@@ -75,20 +91,24 @@ function CodeBlockCopyView({ node }: NodeViewProps) {
   const Icon = status === "copied" ? Check : status === "error" ? CircleAlert : Copy;
   const label = status === "copied" ? "代码已复制" : status === "error" ? "复制失败" : "复制代码";
 
-  return <NodeViewWrapper as="pre" className="code-block-node-view" style={{ whiteSpace: "pre-wrap" }}>
-    <button
-      className={`code-block-copy-button ${status === "idle" ? "" : `is-${status}`}`}
-      type="button"
-      contentEditable={false}
-      aria-label={label}
-      onMouseDown={(event) => event.preventDefault()}
-      onClick={() => void copy()}
-    >
-      <Icon size={16} strokeWidth={1.9} aria-hidden="true" />
-      <span className="visually-hidden" aria-live="polite">{label}</span>
-    </button>
-    <NodeViewContent<"code"> as="code" />
-  </NodeViewWrapper>;
+  return (
+    <NodeViewWrapper as="pre" className="code-block-node-view" style={{ whiteSpace: "pre-wrap" }}>
+      <button
+        className={`code-block-copy-button ${status === "idle" ? "" : `is-${status}`}`}
+        type="button"
+        contentEditable={false}
+        aria-label={label}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => void copy()}
+      >
+        <Icon size={16} strokeWidth={1.9} aria-hidden="true" />
+        <span className="visually-hidden" aria-live="polite">
+          {label}
+        </span>
+      </button>
+      <NodeViewContent<"code"> as="code" />
+    </NodeViewWrapper>
+  );
 }
 
 export const CodeBlockWithCopy = CodeBlock.extend({

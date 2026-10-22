@@ -10,7 +10,9 @@ export type NoteSelectionClick = {
   shiftKey?: boolean;
 };
 
-export function isNoteSelectionModifierClick(click: Pick<NoteSelectionClick, "metaKey" | "ctrlKey" | "shiftKey">) {
+export function isNoteSelectionModifierClick(
+  click: Pick<NoteSelectionClick, "metaKey" | "ctrlKey" | "shiftKey">,
+) {
   return Boolean(click.metaKey || click.ctrlKey || click.shiftKey);
 }
 
@@ -36,10 +38,10 @@ export function resolveNoteClickAction(
     action: "toggle",
     modifiers: modifierClick
       ? {
-        ...(click.metaKey ? { metaKey: true } : {}),
-        ...(click.ctrlKey ? { ctrlKey: true } : {}),
-        ...(click.shiftKey ? { shiftKey: true } : {}),
-      }
+          ...(click.metaKey ? { metaKey: true } : {}),
+          ...(click.ctrlKey ? { ctrlKey: true } : {}),
+          ...(click.shiftKey ? { shiftKey: true } : {}),
+        }
       : { ctrlKey: true },
   };
 }
@@ -75,12 +77,18 @@ export function applyNoteSelectionClick(
   return { ids: new Set([click.id]), anchorId: click.id };
 }
 
-export function pruneNoteSelection(state: NoteSelectionState, orderedIds: readonly string[]): NoteSelectionState {
+export function pruneNoteSelection(
+  state: NoteSelectionState,
+  orderedIds: readonly string[],
+): NoteSelectionState {
   const visibleIds = new Set(orderedIds);
   const ids = new Set([...state.ids].filter((id) => visibleIds.has(id)));
   const fallbackAnchor = ids.values().next().value;
-  const anchorId = state.anchorId && visibleIds.has(state.anchorId)
-    ? state.anchorId
-    : typeof fallbackAnchor === "string" ? fallbackAnchor : null;
+  const anchorId =
+    state.anchorId && visibleIds.has(state.anchorId)
+      ? state.anchorId
+      : typeof fallbackAnchor === "string"
+        ? fallbackAnchor
+        : null;
   return { ids, anchorId };
 }

@@ -7,9 +7,19 @@ import { toNoteSummary } from "../app/workspace/helpers";
 import type { Note, NoteSummary } from "../shared/types";
 
 const original: Note = {
-  id: "note-1", title: "测试笔记", contentMarkdown: "已保存正文", preview: "已保存正文",
-  tags: [], thumbnail: null, notebookId: "work", notebookName: "工作",
-  isFavorite: false, deletedAt: null, version: 1, createdAt: 1, updatedAt: 1,
+  id: "note-1",
+  title: "测试笔记",
+  contentMarkdown: "已保存正文",
+  preview: "已保存正文",
+  tags: [],
+  thumbnail: null,
+  notebookId: "work",
+  notebookName: "工作",
+  isFavorite: false,
+  deletedAt: null,
+  version: 1,
+  createdAt: 1,
+  updatedAt: 1,
 };
 
 let queue: ReturnType<typeof useNoteSaveQueue>;
@@ -21,7 +31,9 @@ let get: ReturnType<typeof spyOn<typeof api, "getNote">>;
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => { resolve = done; });
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
   return { promise, resolve };
 }
 
@@ -37,20 +49,28 @@ beforeEach(() => {
   get = spyOn(api, "getNote").mockImplementation(async () => ({ note: { ...stored } }));
   // Server rendering supplies real React hooks without a DOM; these tests drive
   // the queue directly and clean up its timers instead of mounting UI effects.
-  renderToString(createElement(function Harness() {
-    queue = useNoteSaveQueue({
-      selectedRef, notesRef, activeNoteIdRef: { current: original.id },
-      trashOperationsRef: { current: new Set() },
-      flushEditorDraftRef: { current: () => undefined },
-      replaceList: (notes) => { notesRef.current = notes; },
-      setSelectedNote: () => {}, setToast: () => {},
-    });
-    return null;
-  }));
+  renderToString(
+    createElement(function Harness() {
+      queue = useNoteSaveQueue({
+        selectedRef,
+        notesRef,
+        activeNoteIdRef: { current: original.id },
+        trashOperationsRef: { current: new Set() },
+        flushEditorDraftRef: { current: () => undefined },
+        replaceList: (notes) => {
+          notesRef.current = notes;
+        },
+        setSelectedNote: () => {},
+        setToast: () => {},
+      });
+      return null;
+    }),
+  );
 });
 
 afterEach(() => {
-  for (const id of new Set([original.id, ...queue.pendingSavesRef.current.keys()])) queue.clearPendingForNote(id);
+  for (const id of new Set([original.id, ...queue.pendingSavesRef.current.keys()]))
+    queue.clearPendingForNote(id);
   update.mockRestore();
   get.mockRestore();
 });
@@ -73,7 +93,11 @@ describe("favorite operations and the save queue", () => {
     expect(stored.contentMarkdown).toBe(draft.contentMarkdown);
     expect(stored.isFavorite).toBe(true);
     expect(update).toHaveBeenCalledTimes(1);
-    expect(update.mock.calls[0]?.[1]).toEqual({ version: 1, contentMarkdown: draft.contentMarkdown, isFavorite: true });
+    expect(update.mock.calls[0]?.[1]).toEqual({
+      version: 1,
+      contentMarkdown: draft.contentMarkdown,
+      isFavorite: true,
+    });
     expect(selectedRef.current?.version).toBe(2);
     expect(queue.hasUnsavedWork()).toBe(false);
   });
@@ -121,7 +145,9 @@ describe("favorite operations and the save queue", () => {
     queue.persist(draft, ["contentMarkdown"]);
     stored = { ...stored, contentMarkdown: "远端正文", version: 2 };
 
-    await expect(queue.saveFavorite(original.id, true)).rejects.toMatchObject({ code: "VERSION_CONFLICT" });
+    await expect(queue.saveFavorite(original.id, true)).rejects.toMatchObject({
+      code: "VERSION_CONFLICT",
+    });
 
     expect(stored.contentMarkdown).toBe("远端正文");
     expect(queue.pendingSavesRef.current.get(original.id)?.contentMarkdown).toBe("本地草稿");
@@ -132,7 +158,9 @@ describe("favorite operations and the save queue", () => {
 describe("notebook draft flushing", () => {
   test("saves all drafts in a notebook without dropping drafts from other notebooks", async () => {
     queue.persist({ ...original, contentMarkdown: "删除笔记本前的编辑" }, ["contentMarkdown"]);
-    queue.persist({ ...original, id: "note-2", notebookId: "other", contentMarkdown: "其他草稿" }, ["contentMarkdown"]);
+    queue.persist({ ...original, id: "note-2", notebookId: "other", contentMarkdown: "其他草稿" }, [
+      "contentMarkdown",
+    ]);
 
     await queue.flushNotebookSaves("work");
 

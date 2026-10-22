@@ -13,7 +13,8 @@ export function createUuid(source: UuidCrypto | undefined = globalThis.crypto) {
   } else {
     // UUIDs here are identifiers, not credentials. This only supports very
     // old webviews that expose neither Web Crypto method.
-    for (let index = 0; index < bytes.length; index += 1) bytes[index] = Math.floor(Math.random() * 256);
+    for (let index = 0; index < bytes.length; index += 1)
+      bytes[index] = Math.floor(Math.random() * 256);
   }
 
   bytes[6] = (bytes[6] & 0x0f) | 0x40;

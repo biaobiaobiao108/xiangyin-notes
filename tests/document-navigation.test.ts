@@ -4,8 +4,20 @@ import { scrollNoteBoundary } from "../app/editor/document-navigation";
 function keyEvent(key: string, overrides: Partial<KeyboardEvent> = {}) {
   let prevented = false;
   return {
-    event: { key, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, isComposing: false, keyCode: 0, defaultPrevented: false,
-      preventDefault() { prevented = true; }, ...overrides },
+    event: {
+      key,
+      ctrlKey: false,
+      metaKey: false,
+      altKey: false,
+      shiftKey: false,
+      isComposing: false,
+      keyCode: 0,
+      defaultPrevented: false,
+      preventDefault() {
+        prevented = true;
+      },
+      ...overrides,
+    },
     wasPrevented: () => prevented,
   };
 }
@@ -23,7 +35,15 @@ describe("note document boundary navigation", () => {
     expect(end.wasPrevented()).toBe(true);
   });
 
-  test.each([{ isComposing: true }, { keyCode: 229 }, { defaultPrevented: true }, { ctrlKey: true }, { metaKey: true }, { altKey: true }, { shiftKey: true }])("preserves IME and modified navigation: %j", (overrides) => {
+  test.each([
+    { isComposing: true },
+    { keyCode: 229 },
+    { defaultPrevented: true },
+    { ctrlKey: true },
+    { metaKey: true },
+    { altKey: true },
+    { shiftKey: true },
+  ])("preserves IME and modified navigation: %j", (overrides) => {
     for (const key of ["Home", "End"]) {
       const target = { scrollTop: 100, scrollHeight: 2400, clientHeight: 800 };
       const input = keyEvent(key, overrides);

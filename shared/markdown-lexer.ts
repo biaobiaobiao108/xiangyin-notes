@@ -11,7 +11,8 @@ export function tokenizeWikiLink(source: string) {
   const match = new RegExp(`^(?:${WIKI_LINK_PATTERN.source})`).exec(source);
   if (!match) return undefined;
   return {
-    type: "wikiLink", raw: match[0],
+    type: "wikiLink",
+    raw: match[0],
     target: decodeWikiLinkComponent(match[1].trim()),
     alias: match[2] ? decodeWikiLinkComponent(match[2].trim()) : undefined,
   };
@@ -22,7 +23,9 @@ export function findCalloutStart(source: string) {
 }
 
 export function tokenizeCallout<T>(source: string, blockTokens: (body: string) => T[]) {
-  const opening = /^ {0,3}>[ \t]*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\][ \t]*(?:\r?\n|$)/i.exec(source);
+  const opening = /^ {0,3}>[ \t]*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\][ \t]*(?:\r?\n|$)/i.exec(
+    source,
+  );
   if (!opening) return undefined;
   const lines: string[] = [];
   let consumed = opening[0].length;
@@ -36,7 +39,12 @@ export function tokenizeCallout<T>(source: string, blockTokens: (body: string) =
     consumed = newlineIndex === -1 ? source.length : newlineIndex + 1;
   }
   const body = lines.join("\n");
-  return { type: "callout", raw: source.slice(0, consumed), calloutType: opening[1].toUpperCase(), tokens: body ? blockTokens(body) : [] };
+  return {
+    type: "callout",
+    raw: source.slice(0, consumed),
+    calloutType: opening[1].toUpperCase(),
+    tokens: body ? blockTokens(body) : [],
+  };
 }
 /**
  * CommonMark delimiter flanking rules dictate that a delimiter run preceded by punctuation
@@ -51,7 +59,8 @@ export function tokenizeCallout<T>(source: string, blockTokens: (body: string) =
  * even when the closing delimiter is preceded by punctuation and immediately followed
  * by CJK or other non-whitespace characters.
  */
-const STAR_STRONG_RE = /^\*\*(?!\*|\s)((?:\\.|(?!\*\*)(?:[^\n\r]|\r?\n(?!\r?\n)))+?)(?<!\*|\s)\*\*(?!\*)/u;
+const STAR_STRONG_RE =
+  /^\*\*(?!\*|\s)((?:\\.|(?!\*\*)(?:[^\n\r]|\r?\n(?!\r?\n)))+?)(?<!\*|\s)\*\*(?!\*)/u;
 const UND_STRONG_RE = /^__(?!_|\s)((?:\\.|(?!__)(?:[^\n\r]|\r?\n(?!\r?\n)))+?)(?<!_|\s)__(?!_)/u;
 
 export function createXiangyingMarked() {

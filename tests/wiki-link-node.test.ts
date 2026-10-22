@@ -40,10 +40,11 @@ describe("WikiLinkNode markdown integration", () => {
 });
 
 describe("findWikiLinkSuggestionMatch", () => {
-  const fakePos = (text: string) => ({
-    pos: text.length,
-    nodeBefore: { isText: true, text } as any,
-  } as any);
+  const fakePos = (text: string) =>
+    ({
+      pos: text.length,
+      nodeBefore: { isText: true, text } as any,
+    }) as any;
 
   test("matches [[ and 【【 triggers", () => {
     const matchEn = findWikiLinkSuggestionMatch({ $position: fakePos("[[") });
@@ -83,7 +84,9 @@ describe("findWikiLinkSuggestionMatch", () => {
   });
 
   test("matches latest open trigger when multiple triggers exist on same line", () => {
-    const match = findWikiLinkSuggestionMatch({ $position: fakePos("[[已完成]] 以及 【【当前输入") });
+    const match = findWikiLinkSuggestionMatch({
+      $position: fakePos("[[已完成]] 以及 【【当前输入"),
+    });
     expect(match).toEqual({
       range: { from: 11, to: 17 },
       query: "当前输入",

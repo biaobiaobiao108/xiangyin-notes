@@ -39,7 +39,9 @@ export class RealtimeHub {
       for (const socket of userConnections) {
         if (!predicate(socket)) continue;
         this.remove(socket);
-        try { socket.close(1008, "session revoked"); } catch {}
+        try {
+          socket.close(1008, "session revoked");
+        } catch {}
       }
     }
   }
@@ -55,7 +57,8 @@ export class RealtimeHub {
   add(socket: Bun.ServerWebSocket<RealtimeSocketData>) {
     const userId = socket.data?.userId;
     if (!userId) return;
-    const userConnections = this.connections.get(userId) ?? new Set<Bun.ServerWebSocket<RealtimeSocketData>>();
+    const userConnections =
+      this.connections.get(userId) ?? new Set<Bun.ServerWebSocket<RealtimeSocketData>>();
     if (userConnections.size >= MAX_CONNECTIONS_PER_USER) {
       const oldest = userConnections.values().next().value;
       if (oldest) {
@@ -78,7 +81,11 @@ export class RealtimeHub {
     if (!userConnections.size) this.connections.delete(userId);
   }
 
-  publish(userId: string, change: { resource: WorkspaceChangeResource; noteId?: string }, sourceClientId: string | null = null) {
+  publish(
+    userId: string,
+    change: { resource: WorkspaceChangeResource; noteId?: string },
+    sourceClientId: string | null = null,
+  ) {
     const userConnections = this.connections.get(userId);
     if (!userConnections?.size) return;
 
@@ -160,19 +167,27 @@ export function publishWorkspaceChange(
   options?.realtime?.publish(userId, change, request ? requestClientId(request) : null);
   const namespace = options?.realtimeNamespace;
   if (!namespace) return;
-  const task = namespace.get(namespace.idFromName(userId)).fetch(new Request("https://realtime.internal/broadcast", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...change, clientId: request ? requestClientId(request) : null }),
-  }));
+  const task = namespace.get(namespace.idFromName(userId)).fetch(
+    new Request("https://realtime.internal/broadcast", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...change, clientId: request ? requestClientId(request) : null }),
+    }),
+  );
   if (options.waitUntil) options.waitUntil(task);
   else void task.catch((error) => console.warn("[realtime] broadcast failed", error));
 }
 
-export async function handleRealtimeRequest(request: Request, options: ServerOptions): Promise<Response> {
-  if (request.method !== "GET") return jsonError(405, "METHOD_NOT_ALLOWED", "实时连接只支持 GET", { Allow: "GET" });
-  if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") return jsonError(426, "UPGRADE_REQUIRED", "需要使用 WebSocket 连接");
-  if (!options.realtimeNamespace) return jsonError(503, "REALTIME_NOT_CONFIGURED", "实时连接暂不可用");
+export async function handleRealtimeRequest(
+  request: Request,
+  options: ServerOptions,
+): Promise<Response> {
+  if (request.method !== "GET")
+    return jsonError(405, "METHOD_NOT_ALLOWED", "实时连接只支持 GET", { Allow: "GET" });
+  if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket")
+    return jsonError(426, "UPGRADE_REQUIRED", "需要使用 WebSocket 连接");
+  if (!options.realtimeNamespace)
+    return jsonError(503, "REALTIME_NOT_CONFIGURED", "实时连接暂不可用");
 
   const origin = request.headers.get("Origin");
   if (origin) {
@@ -187,7 +202,12 @@ export async function handleRealtimeRequest(request: Request, options: ServerOpt
   }
 
   await cleanupExpiredSessions(options.database);
-  const user = await requireUser(options.database, options.environment ?? {}, request, createRealtimeSessionRevoker(options));
+  const user = await requireUser(
+    options.database,
+    options.environment ?? {},
+    request,
+    createRealtimeSessionRevoker(options),
+  );
   if (isResponse(user)) return user;
   const namespace = options.realtimeNamespace;
   const response = await namespace.get(namespace.idFromName(user.id)).fetch(request);
@@ -200,11 +220,15 @@ export async function upgradeRealtimeRequest(
   server: Pick<Bun.Server<RealtimeSocketData>, "upgrade">,
   options: ServerOptions,
 ): Promise<Response | null> {
-  if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") return jsonError(426, "UPGRADE_REQUIRED", "需要使用 WebSocket 连接");
+  if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket")
+    return jsonError(426, "UPGRADE_REQUIRED", "需要使用 WebSocket 连接");
   const origin = request.headers.get("Origin");
   if (origin) {
     const requestUrl = new URL(request.url);
-    if (origin !== requestUrl.origin && origin !== getPublicOrigin(requestUrl, options.environment)) {
+    if (
+      origin !== requestUrl.origin &&
+      origin !== getPublicOrigin(requestUrl, options.environment)
+    ) {
       return jsonError(403, "FORBIDDEN_ORIGIN", "非法的实时连接来源");
     }
   }

@@ -19,7 +19,7 @@ describe("CommandMenu 键盘优先与鼠标防干扰契约", () => {
         showIosInstallHint: false,
         standalone: false,
         themePreference: "system",
-      })
+      }),
     );
     expect(html).toContain('aria-selected="true"');
   });
@@ -38,7 +38,7 @@ describe("CommandMenu 键盘优先与鼠标防干扰契约", () => {
         showIosInstallHint: false,
         standalone: false,
         themePreference: "system",
-      })
+      }),
     );
 
     // 默认第一项带有 is-selected

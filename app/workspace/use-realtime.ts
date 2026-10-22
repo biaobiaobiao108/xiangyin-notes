@@ -16,10 +16,12 @@ function isWorkspaceChangeMessage(value: unknown): value is WorkspaceChangeMessa
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<WorkspaceChangeMessage>;
   const resources: WorkspaceChangeResource[] = ["notes", "notebooks"];
-  return candidate.type === "workspace.changed"
-    && Number.isInteger(candidate.revision)
-    && resources.includes(candidate.resource as WorkspaceChangeResource)
-    && (candidate.noteId === undefined || typeof candidate.noteId === "string");
+  return (
+    candidate.type === "workspace.changed" &&
+    Number.isInteger(candidate.revision) &&
+    resources.includes(candidate.resource as WorkspaceChangeResource) &&
+    (candidate.noteId === undefined || typeof candidate.noteId === "string")
+  );
 }
 
 function websocketUrl() {
@@ -79,9 +81,12 @@ export function useWorkspaceRealtime({ ready, onChange }: UseWorkspaceRealtimeOp
 
     const scheduleReconnect = (immediate = false) => {
       if (disposed || !isOnlineAndVisible() || reconnectTimer) return;
-      const baseDelay = immediate ? 0 : RECONNECT_DELAYS_MS[Math.min(reconnectAttempt, RECONNECT_DELAYS_MS.length - 1)];
+      const baseDelay = immediate
+        ? 0
+        : RECONNECT_DELAYS_MS[Math.min(reconnectAttempt, RECONNECT_DELAYS_MS.length - 1)];
       const jitter = immediate ? 0 : Math.floor(baseDelay * (Math.random() * 0.2));
-      if (!immediate) reconnectAttempt = Math.min(reconnectAttempt + 1, RECONNECT_DELAYS_MS.length - 1);
+      if (!immediate)
+        reconnectAttempt = Math.min(reconnectAttempt + 1, RECONNECT_DELAYS_MS.length - 1);
       reconnectTimer = setTimeout(() => {
         reconnectTimer = null;
         if (!disposed) openSocket();
@@ -91,11 +96,21 @@ export function useWorkspaceRealtime({ ready, onChange }: UseWorkspaceRealtimeOp
     const closeSocket = (code = 1000, reason = "reconnect") => {
       const current = socket;
       socket = null;
-      if (current && (current.readyState === WebSocket.OPEN || current.readyState === WebSocket.CONNECTING)) current.close(code, reason);
+      if (
+        current &&
+        (current.readyState === WebSocket.OPEN || current.readyState === WebSocket.CONNECTING)
+      )
+        current.close(code, reason);
     };
 
     const openSocket = () => {
-      if (disposed || !isOnlineAndVisible() || (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING))) return;
+      if (
+        disposed ||
+        !isOnlineAndVisible() ||
+        (socket &&
+          (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING))
+      )
+        return;
       if (typeof WebSocket === "undefined") {
         scheduleFallbackReconcile();
         return;
