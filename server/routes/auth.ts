@@ -34,6 +34,7 @@ import { syncNoteShortSearchTerms } from "../note-search";
 import { syncStoredNoteTitleKey } from "../note-links";
 
 type RuntimeEnvironment = Record<string, string | undefined>;
+const LOGIN_USERNAME_MAX_LENGTH = 128;
 
 type LoginAttempt = {
   windowStartedAt: number;
@@ -102,7 +103,7 @@ async function syncEnvironmentPassword(database: SqliteDatabase, credentials: Au
 export function getAuthCredentials(environment: RuntimeEnvironment = Bun.env): AuthCredentials | null {
   const username = environment.XIANGYING_USERNAME?.trim();
   const password = environment.XIANGYING_PASSWORD;
-  if (!username || password === undefined || password.length === 0) return null;
+  if (!username || username.length > LOGIN_USERNAME_MAX_LENGTH || password === undefined || password.length === 0) return null;
   return { username, password };
 }
 
@@ -118,7 +119,9 @@ export function loginClientKey(request: Request, environment: RuntimeEnvironment
   // exhaust the owner's budget, which matters when a proxy collapses every
   // client onto one address (TRUST_PROXY not configured).
   const scope = username?.trim().toLowerCase() ?? "";
-  return (scope ? `${scope}\u0000${address}` : address).slice(0, 128);
+  // JSON encoding preserves both values, including a full 128-character
+  // username; truncating the combined key could drop the address entirely.
+  return scope ? JSON.stringify([scope, address]) : address;
 }
 
 const nextRateLimitCleanupAt = new WeakMap<SqliteDatabase, number>();
@@ -149,6 +152,20 @@ function pruneRateLimitAction(database: SqliteDatabase, action: LoginRateLimitAc
       ORDER BY updated_at ASC, key ASC LIMIT ?
     )
   `).run(action, action, timestamp, excess);
+
+  // Prefer keeping active lockouts, but the per-action limit must remain hard
+  // even during a distributed flood that leaves every row blocked.
+  const remaining = database.query("SELECT COUNT(*) AS count FROM rate_limits WHERE action = ?").get(action) as { count: number };
+  const remainingExcess = Number(remaining.count) - maxEntries;
+  if (remainingExcess > 0) {
+    database.query(`
+      DELETE FROM rate_limits
+      WHERE action = ? AND key IN (
+        SELECT key FROM rate_limits WHERE action = ?
+        ORDER BY updated_at ASC, key ASC LIMIT ?
+      )
+    `).run(action, action, remainingExcess);
+  }
 }
 
 export function getLoginAttempt(database: SqliteDatabase, key: string, timestamp: number, action: LoginRateLimitAction = "login"): LoginAttempt {
@@ -307,7 +324,7 @@ export async function handleAuthRoute(ctx: RouteContext): Promise<Response | nul
   if (method === "POST" && url.pathname === "/api/auth/login") {
     const payload = await readJson<{ username?: unknown; password?: unknown }>(request, 64 * 1024);
     if (!payload || typeof payload.username !== "string" || typeof payload.password !== "string") return jsonError(400, "INVALID_LOGIN", "请输入用户名和密码");
-    if (payload.username.length > 128) return jsonError(400, "INVALID_LOGIN", "用户名或密码格式无效");
+    if (payload.username.length > LOGIN_USERNAME_MAX_LENGTH) return jsonError(400, "INVALID_LOGIN", "用户名或密码格式无效");
     const credentials = getAuthCredentials(environment);
     if (!credentials) return jsonError(503, "AUTH_NOT_CONFIGURED", "请先配置 XIANGYING_USERNAME 和 XIANGYING_PASSWORD");
     const attemptKey = loginClientKey(request, environment, clientAddress, payload.username);

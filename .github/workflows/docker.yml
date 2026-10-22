@@ -119,9 +119,11 @@ jobs:
               docker pull $IMAGE:$VERSION
               docker stop xiangying-notes
               docker rm xiangying-notes
+              # 可选：在启动新容器前，使用新镜像检查并迁移同一个数据卷
+              docker run --rm --env DATABASE_PATH=/data/xiangying-notes.sqlite -v xiangying-notes-data:/data $IMAGE:$VERSION bun dist/server/migrate.js
               docker run -d --name xiangying-notes --restart unless-stopped -p 3000:3000 --env-file .env -v xiangying-notes-data:/data $IMAGE:$VERSION
 
-          可选地在启动服务前运行 bun run db:migrate 执行同一套检查与升级。升级或回滚时继续使用同一个数据卷；回滚前应确认目标旧版本兼容当前数据库 schema。
+          服务启动时会自动执行迁移；如需单独预先迁移，可在停止并移除旧容器后运行上面的可选命令。升级或回滚时继续使用同一个数据卷；回滚前应确认目标旧版本兼容当前数据库 schema。
 
           4. 打开 http://127.0.0.1:3000/app，并使用 .env 中的凭据登录。
 

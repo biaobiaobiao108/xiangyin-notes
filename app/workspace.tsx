@@ -776,16 +776,21 @@ export function Workspace() {
       setSaveState("conflict");
       notifyWarning("当前笔记已在其他设备更新，请先保存或重新载入");
     },
-    onUpdated: (note) => {
+    onUpdated: (note, reloadEditor = true) => {
       setSelectedNote(noteMetadataSnapshot(note));
       replaceList(notesRef.current.map((n) => (n.id === noteId ? { ...n, ...toNoteSummary(note) } : n)));
-      setNoteReloadToken((value) => value + 1);
-      setSaveState("idle");
+      if (reloadEditor) {
+        setNoteReloadToken((value) => value + 1);
+        setSaveState("idle");
+      }
     },
     onUnauthorized: () => navigate(`/login${window.location.search}`, { replace: true }),
-    onNotFound: removeFromList,
+    onNotFound: (id) => {
+      if (notesRef.current.some((note) => note.id === id)) removeFromList(id);
+      else if (activeNoteIdRef.current === id) selectNote(null);
+    },
     onError: () => notifyError("同步当前笔记失败，请稍后重试"),
-  }), [failedSavesRef, navigate, pendingSavesRef, removeFromList, replaceList, setSaveState]);
+  }), [failedSavesRef, navigate, pendingSavesRef, removeFromList, replaceList, selectNote, setSaveState]);
   const deleteNotebook = useCallback(async (id: string) => {
     const target = notebooks.find((notebook) => notebook.id === id);
     if (!target || target.isSystem) throw new Error("无法删除此笔记本");

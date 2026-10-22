@@ -55,9 +55,9 @@ function MobileNotebookLink({ notebook, selected, onOpen, onEdit, onDelete, open
   const gesture = useSwipeActionGesture({ enabled: true, itemId: notebook.id, open, actionWidth, onOpenChange: setOpenId, foregroundRef });
   const Icon = getNotebookIconComponent(notebook.icon);
   return <div className={`swipe-action-row mobile-notebook-swipe${open ? " is-swipe-open" : ""}`} style={{ "--swipe-action-width": `${actionWidth}px` } as CSSProperties} {...gesture}>
-    <div id={`notebook-actions-${notebook.id}`} className="swipe-action-buttons" role="group" aria-label={`${notebook.name}的操作`}>
-      <button type="button" className="swipe-action-button" aria-label={`编辑笔记本：${notebook.name}`} onClick={() => { setOpenId(null); onEdit(notebook); }}><span className="swipe-action-icon"><Pencil size={19} aria-hidden="true" /></span></button>
-      <button type="button" className="swipe-action-button is-danger" aria-label={`删除笔记本：${notebook.name}`} onClick={() => { setOpenId(null); onDelete(notebook); }}><span className="swipe-action-icon"><Trash2 size={19} aria-hidden="true" /></span></button>
+    <div id={`notebook-actions-${notebook.id}`} className="swipe-action-buttons" role="group" aria-label={`${notebook.name}的操作`} aria-hidden={!open} inert={!open}>
+      <button type="button" className="swipe-action-button" tabIndex={open ? 0 : -1} aria-label={`编辑笔记本：${notebook.name}`} onClick={() => { setOpenId(null); onEdit(notebook); }}><span className="swipe-action-icon"><Pencil size={19} aria-hidden="true" /></span></button>
+      <button type="button" className="swipe-action-button is-danger" tabIndex={open ? 0 : -1} aria-label={`删除笔记本：${notebook.name}`} onClick={() => { setOpenId(null); onDelete(notebook); }}><span className="swipe-action-icon"><Trash2 size={19} aria-hidden="true" /></span></button>
     </div>
     <button ref={foregroundRef} type="button" className="mobile-notebook-link mobile-notebook-link--editable swipe-action-foreground" aria-label={`${notebook.name}，${notebook.count} 篇笔记，向左轻扫显示编辑和删除操作`} aria-current={selected ? "true" : undefined} aria-expanded={open} aria-controls={`notebook-actions-${notebook.id}`} onKeyDown={(event) => { if (event.key === "F2") { event.preventDefault(); onEdit(notebook); } }} onClick={() => onOpen(notebook.id)}>
       <span className="mobile-notebook-icon" style={{ color: notebook.color }}><Icon size={22} /></span><span className="mobile-notebook-name">{notebook.name}</span><span className="mobile-notebook-count">{notebook.count}</span><ChevronRight className="mobile-notebook-chevron" size={18} />

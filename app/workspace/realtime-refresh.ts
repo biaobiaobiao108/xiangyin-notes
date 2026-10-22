@@ -28,6 +28,7 @@ export function accumulateRealtimeRefresh(plan: RealtimeRefreshPlan, message?: W
   if (message.resource === "notebooks") {
     plan.notebooks = true;
     plan.notes = true;
+    plan.selected = true;
     return plan;
   }
   if (message.noteId) {
@@ -35,6 +36,9 @@ export function accumulateRealtimeRefresh(plan: RealtimeRefreshPlan, message?: W
     // 摘要无法判断正文是否仍匹配搜索；新增匹配也可能不在当前列表。
     if (searchActive) plan.notes = true;
   }
-  else plan.notes = true;
+  else {
+    plan.notes = true;
+    plan.selected = true;
+  }
   return plan;
 }
