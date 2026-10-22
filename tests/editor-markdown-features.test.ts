@@ -3,7 +3,7 @@ import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { Markdown } from "@tiptap/markdown";
 import { Schema } from "@tiptap/pm/model";
-import { EditorState } from "@tiptap/pm/state";
+import { EditorState, TextSelection } from "@tiptap/pm/state";
 import { createMarkdownExtension } from "../app/editor/markdown-config";
 import { Info, Table2 } from "lucide-react";
 import { formatPreview } from "../server/core";
@@ -19,6 +19,7 @@ import { pastePlainTextIntoCodeBlock } from "../app/editor/code-block-paste";
 import { adjustActiveTableSize, getActiveTableContext, getActiveTableSnapshot, getTableEdgeDragDelta, restoreActiveTableSnapshot, snapTableEdgeDrag } from "../app/editor/table-edge-commands";
 import { filterSlashCommandItems, findSlashCommandMatch, getNextGroupedSlashCommandIndex, getNextSlashCommandIndex, groupSlashCommandItems, insertSlashCommand, isSlashCommandImeEscape, isSlashCommandImeEvent } from "../app/editor/slash-command-menu";
 import { createTableExtensions } from "../app/editor/table-extensions";
+import { TagDecorationExtension, tagDecorationPluginKey } from "../app/editor/tag-decoration";
 
 function createMarkdownEditor(content: string) {
   return new Editor({
@@ -29,6 +30,7 @@ function createMarkdownEditor(content: string) {
       ...createTableExtensions(),
       createMarkdownExtension(),
       CalloutNode,
+      TagDecorationExtension,
     ],
     content,
     contentType: "markdown",
@@ -69,6 +71,36 @@ describe("escaped hashtag Markdown", () => {
       const serialized = (editor as Editor & { getMarkdown: () => string }).getMarkdown();
       expect(serialized).toContain("#\u2060技术");
       expect(extractTags(serialized)).toEqual(["真实标签"]);
+    } finally {
+      editor.destroy();
+    }
+  });
+});
+
+describe("hashtag editor decorations", () => {
+  test("keeps end hashtags decorated across repeated Enter and edits in the new final paragraph", () => {
+    const editor = createMarkdownEditor("正文 #Git #Codex #Worktree");
+    try {
+      const plugin = editor.extensionManager.plugins.find(({ spec }) => spec.key === tagDecorationPluginKey);
+      expect(plugin).toBeDefined();
+      let state = EditorState.create({ schema: editor.schema, doc: editor.state.doc, plugins: [plugin!] });
+      const decoratedTags = () => (tagDecorationPluginKey.getState(state)?.find() ?? [])
+        .map(({ from, to }) => state.doc.textBetween(from, to));
+      const expectedTags = ["#Git", "#Codex", "#Worktree"];
+
+      for (let index = 0; index < 2; index += 1) {
+        const position = state.doc.content.size - 1;
+        state = state.apply(state.tr.setSelection(TextSelection.create(state.doc, position)).split(position));
+        expect(decoratedTags()).toEqual(expectedTags);
+      }
+
+      const newParagraphStart = state.doc.content.size - 1;
+      state = state.apply(state.tr.insertText("#After", newParagraphStart));
+      expect(decoratedTags()).toEqual([...expectedTags, "#After"]);
+
+      const addedTag = tagDecorationPluginKey.getState(state)!.find().at(-1)!;
+      state = state.apply(state.tr.delete(addedTag.from, addedTag.to));
+      expect(decoratedTags()).toEqual(expectedTags);
     } finally {
       editor.destroy();
     }
@@ -144,6 +176,21 @@ describe("slash command inline formatting", () => {
 });
 
 describe("editor search decorations", () => {
+  test("retains an end-of-document match after repeated Enter", () => {
+    let state = createSearchState("正文 hit");
+    state = state.apply(state.tr.setMeta(searchHighlightPluginKey, { type: "query", query: "hit" }));
+
+    for (let index = 0; index < 2; index += 1) {
+      const position = state.doc.content.size - 1;
+      state = state.apply(state.tr.setSelection(TextSelection.create(state.doc, position)).split(position));
+    }
+
+    const searchState = searchHighlightPluginKey.getState(state);
+    expect(searchState?.totalMatchCount).toBe(1);
+    expect(searchState?.matches.map(({ from, to }) => state.doc.textBetween(from, to))).toEqual(["hit"]);
+    expect(searchState?.decorations.find()).toHaveLength(1);
+  });
+
   test("caps editor search decorations while retaining the total match count", () => {
     const totalMatchCount = MAX_SEARCH_HIGHLIGHTS + 25;
     let state = createSearchState("hit ".repeat(totalMatchCount));
