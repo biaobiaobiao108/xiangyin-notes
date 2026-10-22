@@ -7,7 +7,9 @@ describe("schema drift snapshots", () => {
     const database = new Database(":memory:");
     try {
       database.exec("CREATE TABLE notes (rowid INTEGER PRIMARY KEY, title TEXT NOT NULL)");
-      database.exec("CREATE VIRTUAL TABLE notes_fts USING fts5(title, content='notes', content_rowid='rowid', tokenize='trigram')");
+      database.exec(
+        "CREATE VIRTUAL TABLE notes_fts USING fts5(title, content='notes', content_rowid='rowid', tokenize='trigram')",
+      );
 
       const snapshot = snapshotSchema(database);
 

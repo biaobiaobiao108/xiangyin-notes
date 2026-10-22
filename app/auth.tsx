@@ -21,9 +21,50 @@ export function SetupPage() {
     }
   }, [navigate]);
 
-  useEffect(() => { void checkConfiguration(); }, [checkConfiguration]);
+  useEffect(() => {
+    void checkConfiguration();
+  }, [checkConfiguration]);
 
-  return <AuthLayout title="配置你的安静空间" description="象映笔记使用本地 Bun 服务的环境变量管理唯一登录凭据。"><section className="config-panel" aria-live="polite"><BrandMark className="config-panel-icon" /><h2>{status === "checking" ? "正在检查服务配置" : status === "error" ? "暂时无法读取配置" : "等待配置登录凭据"}</h2><p>{status === "error" ? "请确认 Bun 服务正在运行并且已加载 .env，然后重新检查。" : "请在启动 Bun 服务时提供下面两个环境变量。"}</p><div className="config-variable-list"><code>XIANGYING_USERNAME</code><code>XIANGYING_PASSWORD</code></div>{status === "error" && <p className="form-error" role="alert">无法连接到 /api/bootstrap。</p>}<button className="secondary-button auth-submit" type="button" onClick={() => void checkConfiguration()} disabled={status === "checking"}><RefreshCw size={16} />重新检查配置</button></section></AuthLayout>;
+  return (
+    <AuthLayout
+      title="配置你的安静空间"
+      description="象映笔记使用本地 Bun 服务的环境变量管理唯一登录凭据。"
+    >
+      <section className="config-panel" aria-live="polite">
+        <BrandMark className="config-panel-icon" />
+        <h2>
+          {status === "checking"
+            ? "正在检查服务配置"
+            : status === "error"
+              ? "暂时无法读取配置"
+              : "等待配置登录凭据"}
+        </h2>
+        <p>
+          {status === "error"
+            ? "请确认 Bun 服务正在运行并且已加载 .env，然后重新检查。"
+            : "请在启动 Bun 服务时提供下面两个环境变量。"}
+        </p>
+        <div className="config-variable-list">
+          <code>XIANGYING_USERNAME</code>
+          <code>XIANGYING_PASSWORD</code>
+        </div>
+        {status === "error" && (
+          <p className="form-error" role="alert">
+            无法连接到 /api/bootstrap。
+          </p>
+        )}
+        <button
+          className="secondary-button auth-submit"
+          type="button"
+          onClick={() => void checkConfiguration()}
+          disabled={status === "checking"}
+        >
+          <RefreshCw size={16} />
+          重新检查配置
+        </button>
+      </section>
+    </AuthLayout>
+  );
 }
 
 export function LoginPage() {
@@ -33,27 +74,163 @@ export function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  useEffect(() => { void api.bootstrap().then(async (result) => { if (!result.configured) { navigate(`/setup${window.location.search}`, { replace: true }); return; } try { await api.me(); navigate(`/app${window.location.search}`, { replace: true }); } catch { /* no existing session */ } }).catch(() => undefined); }, [navigate]);
+  useEffect(() => {
+    void api
+      .bootstrap()
+      .then(async (result) => {
+        if (!result.configured) {
+          navigate(`/setup${window.location.search}`, { replace: true });
+          return;
+        }
+        try {
+          await api.me();
+          navigate(`/app${window.location.search}`, { replace: true });
+        } catch {
+          /* no existing session */
+        }
+      })
+      .catch(() => undefined);
+  }, [navigate]);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setError("");
     setBusy(true);
-    try { await api.login({ username, password }); navigate(`/app${window.location.search}`, { replace: true }); }
-    catch (reason) { setError(reason instanceof ApiError ? reason.message : "登录失败，请稍后重试"); }
-    finally { setBusy(false); }
+    try {
+      await api.login({ username, password });
+      navigate(`/app${window.location.search}`, { replace: true });
+    } catch (reason) {
+      setError(reason instanceof ApiError ? reason.message : "登录失败，请稍后重试");
+    } finally {
+      setBusy(false);
+    }
   };
-  return <AuthLayout title="欢迎回来" description="继续记录那些值得留下的东西。"><form className="auth-form" onSubmit={submit}><Field label="用户名" value={username} onChange={setUsername} placeholder="你的用户名" autoComplete="username" /><PasswordField label="密码" value={password} onChange={setPassword} show={showPassword} onToggle={() => setShowPassword((value) => !value)} autoComplete="current-password" />{error && <p className="form-error" role="alert">{error}</p>}<button className="primary-button auth-submit" disabled={busy}>{busy ? "正在登录……" : "进入笔记"}<ArrowRight size={18} /></button></form></AuthLayout>;
+  return (
+    <AuthLayout title="欢迎回来" description="继续记录那些值得留下的东西。">
+      <form className="auth-form" onSubmit={submit}>
+        <Field
+          label="用户名"
+          value={username}
+          onChange={setUsername}
+          placeholder="你的用户名"
+          autoComplete="username"
+        />
+        <PasswordField
+          label="密码"
+          value={password}
+          onChange={setPassword}
+          show={showPassword}
+          onToggle={() => setShowPassword((value) => !value)}
+          autoComplete="current-password"
+        />
+        {error && (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        )}
+        <button className="primary-button auth-submit" disabled={busy}>
+          {busy ? "正在登录……" : "进入笔记"}
+          <ArrowRight size={18} />
+        </button>
+      </form>
+    </AuthLayout>
+  );
 }
 
-function Field({ label, value, onChange, placeholder, autoComplete }: { label: string; value: string; onChange: (value: string) => void; placeholder: string; autoComplete: string }) {
+function Field({
+  label,
+  value,
+  onChange,
+  placeholder,
+  autoComplete,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  autoComplete: string;
+}) {
   const id = label === "用户名" ? "auth-username" : "auth-field";
-  return <label className="field"><span>{label}</span><input id={id} name="username" required value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} autoComplete={autoComplete} /></label>;
+  return (
+    <label className="field">
+      <span>{label}</span>
+      <input
+        id={id}
+        name="username"
+        required
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        autoComplete={autoComplete}
+      />
+    </label>
+  );
 }
 
-function PasswordField({ label, value, onChange, show, onToggle, autoComplete = "new-password" }: { label: string; value: string; onChange: (value: string) => void; show: boolean; onToggle: () => void; autoComplete?: string }) {
-  return <label className="field"><span>{label}</span><span className="password-input"><input id={autoComplete === "current-password" ? "current-password" : "auth-password"} name="password" required type={show ? "text" : "password"} value={value} onChange={(event) => onChange(event.target.value)} placeholder="至少 12 个字符" autoComplete={autoComplete} /><button type="button" className="password-toggle" aria-label={show ? "隐藏密码" : "显示密码"} onClick={onToggle}>{show ? <EyeOff size={17} /> : <Eye size={17} />}</button></span></label>;
+function PasswordField({
+  label,
+  value,
+  onChange,
+  show,
+  onToggle,
+  autoComplete = "new-password",
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  show: boolean;
+  onToggle: () => void;
+  autoComplete?: string;
+}) {
+  return (
+    <label className="field">
+      <span>{label}</span>
+      <span className="password-input">
+        <input
+          id={autoComplete === "current-password" ? "current-password" : "auth-password"}
+          name="password"
+          required
+          type={show ? "text" : "password"}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder="至少 12 个字符"
+          autoComplete={autoComplete}
+        />
+        <button
+          type="button"
+          className="password-toggle"
+          aria-label={show ? "隐藏密码" : "显示密码"}
+          onClick={onToggle}
+        >
+          {show ? <EyeOff size={17} /> : <Eye size={17} />}
+        </button>
+      </span>
+    </label>
+  );
 }
 
-function AuthLayout({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
-  return <main className="auth-shell"><div className="auth-brand"><BrandMark /><span>象映笔记</span></div><div className="auth-card"><div className="auth-card-copy"><h1>{title}</h1><p>{description}</p></div>{children}</div><p className="auth-footnote">你的笔记，只属于你的空间。</p></main>;
+function AuthLayout({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <main className="auth-shell">
+      <div className="auth-brand">
+        <BrandMark />
+        <span>象映笔记</span>
+      </div>
+      <div className="auth-card">
+        <div className="auth-card-copy">
+          <h1>{title}</h1>
+          <p>{description}</p>
+        </div>
+        {children}
+      </div>
+      <p className="auth-footnote">你的笔记，只属于你的空间。</p>
+    </main>
+  );
 }

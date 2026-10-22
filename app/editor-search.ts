@@ -26,11 +26,12 @@ export type SearchHighlightState = SearchMatchSummary<EditorSearchMatch> & {
 };
 
 export type SearchHighlightMeta =
-  | { type: "query"; query: string; activeIndex?: number }
-  | { type: "activeIndex"; index: number };
+  { type: "query"; query: string; activeIndex?: number } | { type: "activeIndex"; index: number };
 
 export const MAX_SEARCH_HIGHLIGHTS = 500;
-export const searchHighlightPluginKey = new PluginKey<SearchHighlightState>("editorSearchHighlight");
+export const searchHighlightPluginKey = new PluginKey<SearchHighlightState>(
+  "editorSearchHighlight",
+);
 
 const HAN_RE = /\p{Script=Han}/u;
 
@@ -83,7 +84,8 @@ function createSourceOffsetMapper(source: string, normalized: string) {
 
   const toSourceStart = (offset: number) => {
     const expansion = findExpansion(offset);
-    if (expansion) return offset === expansion.normalizedEnd ? expansion.sourceEnd : expansion.sourceStart;
+    if (expansion)
+      return offset === expansion.normalizedEnd ? expansion.sourceEnd : expansion.sourceStart;
     return offset - findPreviousDelta(offset);
   };
 
@@ -100,13 +102,16 @@ function createSourceOffsetMapper(source: string, normalized: string) {
       } else high = middle - 1;
     }
     return previous
-      ? previous.deltaBefore + (previous.normalizedEnd - previous.normalizedStart) - (previous.sourceEnd - previous.sourceStart)
+      ? previous.deltaBefore +
+          (previous.normalizedEnd - previous.normalizedStart) -
+          (previous.sourceEnd - previous.sourceStart)
       : 0;
   };
 
   const toSourceEnd = (offset: number) => {
     const expansion = findExpansion(offset);
-    if (expansion) return offset === expansion.normalizedStart ? expansion.sourceStart : expansion.sourceEnd;
+    if (expansion)
+      return offset === expansion.normalizedStart ? expansion.sourceStart : expansion.sourceEnd;
     return offset - findPreviousDelta(offset);
   };
 
@@ -126,7 +131,11 @@ export function getSearchTerms(query: string): string[] {
     .filter(Boolean);
 }
 
-function collectTextMatchSummary(text: string, terms: string[], maxMatches: number): SearchMatchSummary<TextSearchMatch> {
+function collectTextMatchSummary(
+  text: string,
+  terms: string[],
+  maxMatches: number,
+): SearchMatchSummary<TextSearchMatch> {
   if (!text || !terms.length) return { matches: [], totalMatchCount: 0 };
 
   const normalizedText = text.toLocaleLowerCase("zh-CN");
@@ -155,8 +164,10 @@ function collectTextMatchSummary(text: string, terms: string[], maxMatches: numb
       const left = index * 2 + 1;
       const right = left + 1;
       let firstChild = index;
-      if (left < streams.length && streamComesFirst(streams[left], streams[firstChild])) firstChild = left;
-      if (right < streams.length && streamComesFirst(streams[right], streams[firstChild])) firstChild = right;
+      if (left < streams.length && streamComesFirst(streams[left], streams[firstChild]))
+        firstChild = left;
+      if (right < streams.length && streamComesFirst(streams[right], streams[firstChild]))
+        firstChild = right;
       if (firstChild === index) break;
       [streams[index], streams[firstChild]] = [streams[firstChild], streams[index]];
       index = firstChild;
@@ -168,7 +179,9 @@ function collectTextMatchSummary(text: string, terms: string[], maxMatches: numb
     if (stream.next >= 0) pushStream(stream);
   }
   const matches: TextSearchMatch[] = [];
-  const limit = Number.isFinite(maxMatches) ? Math.max(0, Math.floor(maxMatches)) : Number.POSITIVE_INFINITY;
+  const limit = Number.isFinite(maxMatches)
+    ? Math.max(0, Math.floor(maxMatches))
+    : Number.POSITIVE_INFINITY;
   let totalMatchCount = 0;
   let pendingStart = -1;
   let pendingEnd = -1;
@@ -207,7 +220,11 @@ function collectTextMatchSummary(text: string, terms: string[], maxMatches: numb
   return { matches, totalMatchCount };
 }
 
-export function findTextMatchSummary(text: string, query: string, maxMatches = Number.POSITIVE_INFINITY): SearchMatchSummary<TextSearchMatch> {
+export function findTextMatchSummary(
+  text: string,
+  query: string,
+  maxMatches = Number.POSITIVE_INFINITY,
+): SearchMatchSummary<TextSearchMatch> {
   return collectTextMatchSummary(text, getSearchTerms(query), maxMatches);
 }
 
@@ -215,7 +232,13 @@ export function findTextMatches(text: string, query: string): TextSearchMatch[] 
   return findTextMatchSummary(text, query).matches;
 }
 
-function findEditorSearchMatchSummaryInRange(doc: ProseMirrorNode, terms: string[], from: number, to: number, maxMatches: number): SearchMatchSummary<EditorSearchMatch> {
+function findEditorSearchMatchSummaryInRange(
+  doc: ProseMirrorNode,
+  terms: string[],
+  from: number,
+  to: number,
+  maxMatches: number,
+): SearchMatchSummary<EditorSearchMatch> {
   const matches: EditorSearchMatch[] = [];
   let totalMatchCount = 0;
   if (!terms.length || from > to) return { matches, totalMatchCount };
@@ -232,7 +255,11 @@ function findEditorSearchMatchSummaryInRange(doc: ProseMirrorNode, terms: string
   return { matches, totalMatchCount };
 }
 
-export function findEditorSearchMatchSummary(doc: ProseMirrorNode, query: string, maxMatches = MAX_SEARCH_HIGHLIGHTS): SearchMatchSummary<EditorSearchMatch> {
+export function findEditorSearchMatchSummary(
+  doc: ProseMirrorNode,
+  query: string,
+  maxMatches = MAX_SEARCH_HIGHLIGHTS,
+): SearchMatchSummary<EditorSearchMatch> {
   const terms = getSearchTerms(query);
   return findEditorSearchMatchSummaryInRange(doc, terms, 0, doc.content.size, maxMatches);
 }
@@ -246,30 +273,55 @@ export function normalizeSearchMatchIndex(index: number, count: number): number 
   return ((index % count) + count) % count;
 }
 
-export function cycleSearchMatchIndex(currentIndex: number, count: number, direction: -1 | 1): number {
+export function cycleSearchMatchIndex(
+  currentIndex: number,
+  count: number,
+  direction: -1 | 1,
+): number {
   return normalizeSearchMatchIndex(currentIndex + direction, count);
 }
 
-function createSearchHighlightState(doc: ProseMirrorNode, query: string, requestedIndex = 0): SearchHighlightState {
+function createSearchHighlightState(
+  doc: ProseMirrorNode,
+  query: string,
+  requestedIndex = 0,
+): SearchHighlightState {
   const summary = findEditorSearchMatchSummary(doc, query);
-  return createSearchHighlightStateFromMatches(doc, query, summary.matches, summary.totalMatchCount, requestedIndex);
+  return createSearchHighlightStateFromMatches(
+    doc,
+    query,
+    summary.matches,
+    summary.totalMatchCount,
+    requestedIndex,
+  );
 }
 
-function createSearchHighlightStateFromMatches(doc: ProseMirrorNode, query: string, matches: EditorSearchMatch[], totalMatchCount: number, requestedIndex = 0): SearchHighlightState {
+function createSearchHighlightStateFromMatches(
+  doc: ProseMirrorNode,
+  query: string,
+  matches: EditorSearchMatch[],
+  totalMatchCount: number,
+  requestedIndex = 0,
+): SearchHighlightState {
   const activeIndex = normalizeSearchMatchIndex(requestedIndex, matches.length);
-  const decorations = DecorationSet.create(doc, matches.map((match, index) => createSearchMatchDecoration(match, index === activeIndex)));
+  const decorations = DecorationSet.create(
+    doc,
+    matches.map((match, index) => createSearchMatchDecoration(match, index === activeIndex)),
+  );
   return { query, matches, totalMatchCount, activeIndex, decorations };
 }
 
 function createSearchMatchDecoration(match: EditorSearchMatch, active: boolean) {
-  return Decoration.inline(
-    match.from,
-    match.to,
-    { class: active ? "editor-search-match editor-search-match--active" : "editor-search-match" },
-  );
+  return Decoration.inline(match.from, match.to, {
+    class: active ? "editor-search-match editor-search-match--active" : "editor-search-match",
+  });
 }
 
-function updateActiveSearchMatch(doc: ProseMirrorNode, previous: SearchHighlightState, requestedIndex: number): SearchHighlightState {
+function updateActiveSearchMatch(
+  doc: ProseMirrorNode,
+  previous: SearchHighlightState,
+  requestedIndex: number,
+): SearchHighlightState {
   const activeIndex = normalizeSearchMatchIndex(requestedIndex, previous.matches.length);
   if (activeIndex === previous.activeIndex) return previous;
 
@@ -316,58 +368,113 @@ function mergeSearchMatches(matches: EditorSearchMatch[]) {
   return merged.length > MAX_SEARCH_HIGHLIGHTS ? merged.slice(0, MAX_SEARCH_HIGHLIGHTS) : merged;
 }
 
-function findEditorSearchMatchesInRange(doc: ProseMirrorNode, terms: string[], from: number, to: number, maxMatches = MAX_SEARCH_HIGHLIGHTS) {
+function findEditorSearchMatchesInRange(
+  doc: ProseMirrorNode,
+  terms: string[],
+  from: number,
+  to: number,
+  maxMatches = MAX_SEARCH_HIGHLIGHTS,
+) {
   return findEditorSearchMatchSummaryInRange(doc, terms, from, to, maxMatches);
 }
 
 function updateSearchHighlightState(transaction: Transaction, previous: SearchHighlightState) {
   const terms = getSearchTerms(previous.query);
   const rawRange = changedDocumentRange(transaction, searchPadding(terms));
-  if (!rawRange) return createSearchHighlightState(transaction.doc, previous.query, previous.activeIndex);
+  if (!rawRange)
+    return createSearchHighlightState(transaction.doc, previous.query, previous.activeIndex);
   const range = expandRangeToTextNodes(transaction.doc, rawRange);
   const inverse = transaction.mapping.invert();
-  const oldFrom = Math.max(0, Math.min(transaction.before.content.size, inverse.map(range.from, -1)));
-  const oldTo = Math.max(oldFrom, Math.min(transaction.before.content.size, inverse.map(range.to, 1)));
+  const oldFrom = Math.max(
+    0,
+    Math.min(transaction.before.content.size, inverse.map(range.from, -1)),
+  );
+  const oldTo = Math.max(
+    oldFrom,
+    Math.min(transaction.before.content.size, inverse.map(range.to, 1)),
+  );
   const oldRange = expandRangeToTextNodes(transaction.before, { from: oldFrom, to: oldTo });
-  const oldSummary = findEditorSearchMatchesInRange(transaction.before, terms, oldRange.from, oldRange.to, 0);
+  const oldSummary = findEditorSearchMatchesInRange(
+    transaction.before,
+    terms,
+    oldRange.from,
+    oldRange.to,
+    0,
+  );
   const addedSummary = findEditorSearchMatchesInRange(transaction.doc, terms, range.from, range.to);
-  let totalMatchCount = Math.max(0, previous.totalMatchCount - oldSummary.totalMatchCount + addedSummary.totalMatchCount);
+  let totalMatchCount = Math.max(
+    0,
+    previous.totalMatchCount - oldSummary.totalMatchCount + addedSummary.totalMatchCount,
+  );
 
-  const mappedMatches = previous.matches.map((match) => mapSearchMatch(transaction, match)).filter((match): match is EditorSearchMatch => Boolean(match));
-  const keptMatches = mappedMatches.filter((match) => match.to <= range.from || match.from >= range.to);
+  const mappedMatches = previous.matches
+    .map((match) => mapSearchMatch(transaction, match))
+    .filter((match): match is EditorSearchMatch => Boolean(match));
+  const keptMatches = mappedMatches.filter(
+    (match) => match.to <= range.from || match.from >= range.to,
+  );
   const matches = mergeSearchMatches([...keptMatches, ...addedSummary.matches]);
   const expectedVisibleCount = Math.min(totalMatchCount, MAX_SEARCH_HIGHLIGHTS);
   const previousWindowEnd = previous.matches[previous.matches.length - 1]?.to ?? -1;
-  const changedInsideVisibleWindow = previous.matches.length === MAX_SEARCH_HIGHLIGHTS && totalMatchCount > MAX_SEARCH_HIGHLIGHTS && range.from < previousWindowEnd;
+  const changedInsideVisibleWindow =
+    previous.matches.length === MAX_SEARCH_HIGHLIGHTS &&
+    totalMatchCount > MAX_SEARCH_HIGHLIGHTS &&
+    range.from < previousWindowEnd;
   let visibleMatches = matches;
   if (matches.length < expectedVisibleCount || changedInsideVisibleWindow) {
-    const summary = findEditorSearchMatchSummary(transaction.doc, previous.query, MAX_SEARCH_HIGHLIGHTS);
+    const summary = findEditorSearchMatchSummary(
+      transaction.doc,
+      previous.query,
+      MAX_SEARCH_HIGHLIGHTS,
+    );
     visibleMatches = summary.matches;
     totalMatchCount = summary.totalMatchCount;
   }
   const previousActive = previous.matches[previous.activeIndex];
   const mappedActive = previousActive ? mapSearchMatch(transaction, previousActive) : null;
   const activeIndex = mappedActive
-    ? Math.max(0, visibleMatches.findIndex((match) => match.from === mappedActive.from && match.to === mappedActive.to))
+    ? Math.max(
+        0,
+        visibleMatches.findIndex(
+          (match) => match.from === mappedActive.from && match.to === mappedActive.to,
+        ),
+      )
     : normalizeSearchMatchIndex(previous.activeIndex, visibleMatches.length);
-  return createSearchHighlightStateFromMatches(transaction.doc, previous.query, visibleMatches, totalMatchCount, activeIndex);
+  return createSearchHighlightStateFromMatches(
+    transaction.doc,
+    previous.query,
+    visibleMatches,
+    totalMatchCount,
+    activeIndex,
+  );
 }
 
 export function createSearchHighlightPlugin() {
   return new Plugin<SearchHighlightState>({
     key: searchHighlightPluginKey,
     state: {
-      init: () => ({ query: "", matches: [], totalMatchCount: 0, activeIndex: 0, decorations: DecorationSet.empty }),
+      init: () => ({
+        query: "",
+        matches: [],
+        totalMatchCount: 0,
+        activeIndex: 0,
+        decorations: DecorationSet.empty,
+      }),
       apply: (transaction, previous) => {
-        const meta = transaction.getMeta(searchHighlightPluginKey) as SearchHighlightMeta | undefined;
-        if (meta?.type === "query") return createSearchHighlightState(transaction.doc, meta.query, meta.activeIndex);
-        if (meta?.type === "activeIndex") return updateActiveSearchMatch(transaction.doc, previous, meta.index);
-        if (transaction.docChanged && previous.query) return updateSearchHighlightState(transaction, previous);
+        const meta = transaction.getMeta(searchHighlightPluginKey) as
+          SearchHighlightMeta | undefined;
+        if (meta?.type === "query")
+          return createSearchHighlightState(transaction.doc, meta.query, meta.activeIndex);
+        if (meta?.type === "activeIndex")
+          return updateActiveSearchMatch(transaction.doc, previous, meta.index);
+        if (transaction.docChanged && previous.query)
+          return updateSearchHighlightState(transaction, previous);
         return previous;
       },
     },
     props: {
-      decorations: (state) => searchHighlightPluginKey.getState(state)?.decorations ?? DecorationSet.empty,
+      decorations: (state) =>
+        searchHighlightPluginKey.getState(state)?.decorations ?? DecorationSet.empty,
     },
   });
 }

@@ -5,20 +5,67 @@ import { caretScrollTop } from "../app/editor/use-mobile-caret";
 const resting = { width: 390, height: 844, keyboard: false };
 describe("mobile keyboard viewport", () => {
   test("keeps the document height while following Safari's keyboard pan", () => {
-    expect(resolveMobileViewport(resting, { width: 390, height: 470, layoutHeight: 844, offsetTop: 120, editable: true }))
-      .toEqual({ width: 390, height: 844, keyboard: true, inset: 374, top: 120 });
+    expect(
+      resolveMobileViewport(resting, {
+        width: 390,
+        height: 470,
+        layoutHeight: 844,
+        offsetTop: 120,
+        editable: true,
+      }),
+    ).toEqual({ width: 390, height: 844, keyboard: true, inset: 374, top: 120 });
   });
   test("retains the keyboard inset during focus transfer and clears it on dismissal", () => {
     const open = { ...resting, keyboard: true };
-    expect(resolveMobileViewport(open, { width: 390, height: 470, layoutHeight: 844, offsetTop: 0, editable: false }).inset).toBe(374);
-    expect(resolveMobileViewport(open, { width: 390, height: 844, layoutHeight: 844, offsetTop: 0, editable: true }).inset).toBe(0);
+    expect(
+      resolveMobileViewport(open, {
+        width: 390,
+        height: 470,
+        layoutHeight: 844,
+        offsetTop: 0,
+        editable: false,
+      }).inset,
+    ).toBe(374);
+    expect(
+      resolveMobileViewport(open, {
+        width: 390,
+        height: 844,
+        layoutHeight: 844,
+        offsetTop: 0,
+        editable: true,
+      }).inset,
+    ).toBe(0);
   });
   test("browser chrome and rotation do not preserve an obsolete portrait height", () => {
-    expect(resolveMobileViewport(resting, { width: 390, height: 770, layoutHeight: 844, offsetTop: 0, editable: true }).keyboard).toBe(false);
-    expect(resolveMobileViewport(resting, { width: 844, height: 390, layoutHeight: 390, offsetTop: 0, editable: true }).height).toBe(390);
+    expect(
+      resolveMobileViewport(resting, {
+        width: 390,
+        height: 770,
+        layoutHeight: 844,
+        offsetTop: 0,
+        editable: true,
+      }).keyboard,
+    ).toBe(false);
+    expect(
+      resolveMobileViewport(resting, {
+        width: 844,
+        height: 390,
+        layoutHeight: 390,
+        offsetTop: 0,
+        editable: true,
+      }).height,
+    ).toBe(390);
   });
   test("also handles browsers that resize the layout viewport for the keyboard", () => {
-    expect(resolveMobileViewport(resting, { width: 390, height: 470, layoutHeight: 470, offsetTop: 0, editable: true }).inset).toBe(374);
+    expect(
+      resolveMobileViewport(resting, {
+        width: 390,
+        height: 470,
+        layoutHeight: 470,
+        offsetTop: 0,
+        editable: true,
+      }).inset,
+    ).toBe(374);
   });
 });
 

@@ -38,7 +38,8 @@ function bearerToken(request: Request) {
 
 function requireApiToken(request: Request, environment: Record<string, string | undefined>) {
   const expectedToken = getApiToken(environment);
-  if (!expectedToken) return jsonError(503, "API_AUTH_NOT_CONFIGURED", "请先配置 XIANGYING_API_TOKEN");
+  if (!expectedToken)
+    return jsonError(503, "API_AUTH_NOT_CONFIGURED", "请先配置 XIANGYING_API_TOKEN");
 
   const suppliedToken = bearerToken(request);
   if (!suppliedToken || !constantTimeEqual(suppliedToken, expectedToken)) {
@@ -49,7 +50,11 @@ function requireApiToken(request: Request, environment: Record<string, string | 
   return null;
 }
 
-function importClientKey(request: Request, environment: Record<string, string | undefined>, clientAddress: string | undefined) {
+function importClientKey(
+  request: Request,
+  environment: Record<string, string | undefined>,
+  clientAddress: string | undefined,
+) {
   const address = rateLimitClientAddress(request, environment, clientAddress);
   return address.slice(0, 128) || "unknown";
 }
@@ -65,11 +70,16 @@ export function checkImportRateLimit(
   cleanupExpiredRateLimits(database, timestamp);
 
   const blocked = database.transaction((): { retryAfter: number } | null => {
-    const row = database.query("SELECT points, window_started_at FROM rate_limits WHERE action = 'import' AND key = ?")
+    const row = database
+      .query(
+        "SELECT points, window_started_at FROM rate_limits WHERE action = 'import' AND key = ?",
+      )
       .get(key) as { points: number; window_started_at: number } | null | undefined;
 
     if (!row || timestamp - row.window_started_at >= IMPORT_RATE_LIMIT_WINDOW_SECONDS) {
-      database.query(`
+      database
+        .query(
+          `
         INSERT INTO rate_limits (action, key, points, window_started_at, blocked_until, updated_at)
         VALUES ('import', ?, 1, ?, 0, ?)
         ON CONFLICT(action, key) DO UPDATE SET
@@ -77,29 +87,38 @@ export function checkImportRateLimit(
           window_started_at = excluded.window_started_at,
           blocked_until = 0,
           updated_at = excluded.updated_at
-      `).run(key, timestamp, timestamp);
+      `,
+        )
+        .run(key, timestamp, timestamp);
       return null;
     }
 
     if (row.points >= IMPORT_RATE_LIMIT_MAX_REQUESTS) {
-      const retryAfter = Math.max(1, row.window_started_at + IMPORT_RATE_LIMIT_WINDOW_SECONDS - timestamp);
+      const retryAfter = Math.max(
+        1,
+        row.window_started_at + IMPORT_RATE_LIMIT_WINDOW_SECONDS - timestamp,
+      );
       return { retryAfter };
     }
 
-    database.query("UPDATE rate_limits SET points = points + 1, updated_at = ? WHERE action = 'import' AND key = ?")
+    database
+      .query(
+        "UPDATE rate_limits SET points = points + 1, updated_at = ? WHERE action = 'import' AND key = ?",
+      )
       .run(timestamp, key);
     return null;
   })();
 
   if (blocked) {
-    return jsonError(429, "TOO_MANY_IMPORTS", "导入请求过于频繁，请稍后再试", { "Retry-After": String(blocked.retryAfter) });
+    return jsonError(429, "TOO_MANY_IMPORTS", "导入请求过于频繁，请稍后再试", {
+      "Retry-After": String(blocked.retryAfter),
+    });
   }
   return null;
 }
 
 type ReadTextBodyResult =
-  | { ok: true; text: string }
-  | { ok: false; reason: "invalid" | "too-large" };
+  { ok: true; text: string } | { ok: false; reason: "invalid" | "too-large" };
 
 async function readTextBody(request: Request, maxBytes: number): Promise<ReadTextBodyResult> {
   const body = await readBodyBytes(request, maxBytes);
@@ -111,7 +130,8 @@ async function readTextBody(request: Request, maxBytes: number): Promise<ReadTex
   }
 }
 
-const NOTE_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+const NOTE_UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 
 /**
  * Same Idempotency-Key must produce the same note id, and the result must satisfy
@@ -125,10 +145,16 @@ async function deterministicImportNoteId(userId: string, idempotencyKey: string)
   return noteId;
 }
 
-function replayIdempotentImport(database: RouteContext["options"]["database"], userId: string, noteId: string, contentMarkdown: string) {
+function replayIdempotentImport(
+  database: RouteContext["options"]["database"],
+  userId: string,
+  noteId: string,
+  contentMarkdown: string,
+) {
   const existing = getNote(database, userId, noteId);
   if (!existing) return null;
-  if (existing.content_markdown !== contentMarkdown) return jsonError(409, "IDEMPOTENCY_CONFLICT", "Idempotency-Key 已用于其他笔记内容");
+  if (existing.content_markdown !== contentMarkdown)
+    return jsonError(409, "IDEMPOTENCY_CONFLICT", "Idempotency-Key 已用于其他笔记内容");
   return json({ ok: true, note: toNote(existing) }, 200, { "Idempotent-Replayed": "true" });
 }
 
@@ -150,25 +176,49 @@ function formatImportTitle(timestamp: number) {
 export async function handleImportRoute(ctx: RouteContext): Promise<Response | null> {
   const { request, url, method, options } = ctx;
   if (url.pathname !== IMPORT_API_PATH) return null;
-  if (method !== "POST") return jsonError(405, "METHOD_NOT_ALLOWED", "导入接口只支持 POST", { Allow: "POST" });
+  if (method !== "POST")
+    return jsonError(405, "METHOD_NOT_ALLOWED", "导入接口只支持 POST", { Allow: "POST" });
 
   const environment = options.environment ?? {};
   const tokenError = requireApiToken(request, environment);
   if (tokenError) return tokenError;
-  const rateLimitError = checkImportRateLimit(options.database, request, environment, options.clientAddress);
+  const rateLimitError = checkImportRateLimit(
+    options.database,
+    request,
+    environment,
+    options.clientAddress,
+  );
   if (rateLimitError) return rateLimitError;
 
   const credentials = getAuthCredentials(environment);
-  if (!credentials) return jsonError(503, "AUTH_NOT_CONFIGURED", "请先配置 XIANGYING_USERNAME 和 XIANGYING_PASSWORD");
+  if (!credentials)
+    return jsonError(
+      503,
+      "AUTH_NOT_CONFIGURED",
+      "请先配置 XIANGYING_USERNAME 和 XIANGYING_PASSWORD",
+    );
 
-  const mediaType = (request.headers.get("Content-Type") ?? "").split(";", 1)[0].trim().toLowerCase();
+  const mediaType = (request.headers.get("Content-Type") ?? "")
+    .split(";", 1)[0]
+    .trim()
+    .toLowerCase();
   const isJson = mediaType === "application/json";
-  const isMarkdown = mediaType === "text/markdown" || mediaType === "text/plain" || mediaType === "";
-  if (!isJson && !isMarkdown) return jsonError(415, "UNSUPPORTED_MEDIA_TYPE", "只支持 application/json、text/markdown 或 text/plain");
+  const isMarkdown =
+    mediaType === "text/markdown" || mediaType === "text/plain" || mediaType === "";
+  if (!isJson && !isMarkdown)
+    return jsonError(
+      415,
+      "UNSUPPORTED_MEDIA_TYPE",
+      "只支持 application/json、text/markdown 或 text/plain",
+    );
 
   const idempotencyKey = request.headers.get("Idempotency-Key")?.trim() || null;
   if (idempotencyKey && (idempotencyKey.length > 128 || !/^[\x21-\x7E]+$/u.test(idempotencyKey))) {
-    return jsonError(400, "INVALID_IDEMPOTENCY_KEY", "Idempotency-Key 只能包含 128 个以内的可见 ASCII 字符");
+    return jsonError(
+      400,
+      "INVALID_IDEMPOTENCY_KEY",
+      "Idempotency-Key 只能包含 128 个以内的可见 ASCII 字符",
+    );
   }
 
   const body = await readTextBody(request, NOTE_BODY_MAX_BYTES);
@@ -193,30 +243,51 @@ export async function handleImportRoute(ctx: RouteContext): Promise<Response | n
     contentMarkdown = body.text;
   }
 
-  if (!validText(contentMarkdown, NOTE_CONTENT_MAX_LENGTH)) return jsonError(413, "NOTE_TOO_LARGE", "笔记正文超过 1000000 个字符限制");
+  if (!validText(contentMarkdown, NOTE_CONTENT_MAX_LENGTH))
+    return jsonError(413, "NOTE_TOO_LARGE", "笔记正文超过 1000000 个字符限制");
   if (!contentMarkdown.trim()) return jsonError(400, "EMPTY_NOTE", "笔记正文不能为空");
 
   const user = await ensureEnvironmentUser(options.database, credentials);
-  const inbox = first<{ id: string }>(options.database, "SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1 LIMIT 1", user.id);
+  const inbox = first<{ id: string }>(
+    options.database,
+    "SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1 LIMIT 1",
+    user.id,
+  );
   if (!inbox) return jsonError(500, "NO_INBOX", "找不到收件箱");
-  const requestedId = idempotencyKey ? await deterministicImportNoteId(user.id, idempotencyKey) : undefined;
+  const requestedId = idempotencyKey
+    ? await deterministicImportNoteId(user.id, idempotencyKey)
+    : undefined;
   if (requestedId) {
     const replay = replayIdempotentImport(options.database, user.id, requestedId, contentMarkdown);
     if (replay) return replay;
   }
   // A replay's attachments are already bound to the original note. Validate
   // unattached assets only when this request is actually creating a new note.
-  if (!validNoteAssetReferences(options.database, user.id, null, contentMarkdown)) return jsonError(400, "INVALID_ASSET", "图片引用无效、不受支持或附件当前不可用");
+  if (!validNoteAssetReferences(options.database, user.id, null, contentMarkdown))
+    return jsonError(400, "INVALID_ASSET", "图片引用无效、不受支持或附件当前不可用");
 
   let noteId: string;
   try {
-    noteId = createNote(options.database, user.id, inbox.id, formatImportTitle(Math.floor(Date.now() / 1000)), contentMarkdown, requestedId);
+    noteId = createNote(
+      options.database,
+      user.id,
+      inbox.id,
+      formatImportTitle(Math.floor(Date.now() / 1000)),
+      contentMarkdown,
+      requestedId,
+    );
   } catch (error) {
     if (requestedId) {
-      const replay = replayIdempotentImport(options.database, user.id, requestedId, contentMarkdown);
+      const replay = replayIdempotentImport(
+        options.database,
+        user.id,
+        requestedId,
+        contentMarkdown,
+      );
       if (replay) return replay;
     }
-    if (error instanceof Error && error.message === "invalid-note-assets") return jsonError(400, "INVALID_ASSET", "图片引用无效、不受支持或附件当前不可用");
+    if (error instanceof Error && error.message === "invalid-note-assets")
+      return jsonError(400, "INVALID_ASSET", "图片引用无效、不受支持或附件当前不可用");
     throw error;
   }
   const note = getNote(options.database, user.id, noteId);

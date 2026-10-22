@@ -3,7 +3,10 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MobileNotebookHome } from "../app/workspace/mobile-panels";
 import { NoteListPanel } from "../app/workspace/panels";
-import { shouldKeepSwipeActionsOpenAfterCancel, shouldOpenSwipeActions } from "../app/workspace/swipe-actions";
+import {
+  shouldKeepSwipeActionsOpenAfterCancel,
+  shouldOpenSwipeActions,
+} from "../app/workspace/swipe-actions";
 import type { Notebook, NoteSummary } from "../shared/types";
 
 function noteSummary(overrides: Partial<NoteSummary> = {}): NoteSummary {
@@ -76,7 +79,11 @@ describe("swipe gesture decisions", () => {
 
 describe("note list swipe actions", () => {
   test("exposes restore and permanent delete as named icon-only buttons", () => {
-    const html = renderNoteList({ notes: [noteSummary({ deletedAt: 1_700_000_100 })], view: "trash", isMobileViewport: true });
+    const html = renderNoteList({
+      notes: [noteSummary({ deletedAt: 1_700_000_100 })],
+      view: "trash",
+      isMobileViewport: true,
+    });
 
     expect(html).toContain('aria-label="恢复笔记：未命名笔记"');
     expect(html).toContain('aria-label="彻底删除笔记：未命名笔记"');
@@ -94,8 +101,12 @@ describe("note list swipe actions", () => {
   });
 
   test("does not mark the opened note as active on mobile, but does on desktop", () => {
-    expect(renderNoteList({ selectedId: "note-1", isMobileViewport: true })).not.toContain("note-row is-active");
-    expect(renderNoteList({ selectedId: "note-1", isMobileViewport: false })).toContain("is-active");
+    expect(renderNoteList({ selectedId: "note-1", isMobileViewport: true })).not.toContain(
+      "note-row is-active",
+    );
+    expect(renderNoteList({ selectedId: "note-1", isMobileViewport: false })).toContain(
+      "is-active",
+    );
   });
 
   test("links the swipe tray to the row it belongs to", () => {
@@ -109,7 +120,15 @@ describe("note list swipe actions", () => {
 
 describe("notebook actions on mobile", () => {
   const notebooks: Notebook[] = [
-    { id: "notebook-1", name: "项目笔记", color: "blue", icon: "folder", isSystem: false, count: 2, updatedAt: 1_700_000_000 },
+    {
+      id: "notebook-1",
+      name: "项目笔记",
+      color: "blue",
+      icon: "folder",
+      isSystem: false,
+      count: 2,
+      updatedAt: 1_700_000_000,
+    },
   ];
 
   test("exposes edit and delete as named icon-only buttons", () => {

@@ -16,10 +16,18 @@ import { createTableExtensions } from "./table-extensions";
 
 export function createReadOnlyExtensions() {
   return [
-    StarterKit.configure({ heading: { levels: [1, 2, 3, 4, 5, 6] }, link: false, codeBlock: false }),
+    StarterKit.configure({
+      heading: { levels: [1, 2, 3, 4, 5, 6] },
+      link: false,
+      codeBlock: false,
+    }),
     CodeBlockWithCopy.configure({ exitOnTripleEnter: false }),
     ...createTableExtensions(),
-    NoteLink.configure({ openOnClick: true, autolink: true, HTMLAttributes: { rel: "noopener noreferrer", target: "_blank" } }),
+    NoteLink.configure({
+      openOnClick: true,
+      autolink: true,
+      HTMLAttributes: { rel: "noopener noreferrer", target: "_blank" },
+    }),
     TaskList,
     TaskItem.configure({ nested: true }),
     createMarkdownExtension(),
@@ -30,13 +38,19 @@ export function createReadOnlyExtensions() {
   ];
 }
 
-
 export function ReadOnlyMarkdown({ markdown }: { markdown: string }) {
   const initialContentRef = useRef(markdown);
   const rootRef = useRef<HTMLDivElement>(null);
   const extensions = useMemo(createReadOnlyExtensions, []);
   const editorProps = useMemo(() => ({ attributes: { class: "note-prose read-only-prose" } }), []);
-  const editor = useEditor({ editable: false, extensions, coreExtensionOptions: editorCoreExtensionOptions, content: initialContentRef.current, contentType: "markdown", editorProps });
+  const editor = useEditor({
+    editable: false,
+    extensions,
+    coreExtensionOptions: editorCoreExtensionOptions,
+    content: initialContentRef.current,
+    contentType: "markdown",
+    editorProps,
+  });
 
   const previousMarkdownRef = useRef(markdown);
 
@@ -48,5 +62,10 @@ export function ReadOnlyMarkdown({ markdown }: { markdown: string }) {
     }
   }, [editor, markdown]);
 
-  return <div ref={rootRef} className="markdown-render-shell"><EditorContent editor={editor} /><TableScrollbars rootRef={rootRef} /></div>;
+  return (
+    <div ref={rootRef} className="markdown-render-shell">
+      <EditorContent editor={editor} />
+      <TableScrollbars rootRef={rootRef} />
+    </div>
+  );
 }

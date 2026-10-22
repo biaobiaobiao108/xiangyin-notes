@@ -43,8 +43,16 @@ export function extractShortSearchTerms(titleOrValue: string, contentMarkdown = 
   return terms;
 }
 
-export function syncNoteShortSearchTerms(database: SqliteDatabase, userId: string, noteId: string, title: string, contentMarkdown: string) {
-  database.query("DELETE FROM note_short_terms WHERE note_id = ? AND user_id = ?").run(noteId, userId);
+export function syncNoteShortSearchTerms(
+  database: SqliteDatabase,
+  userId: string,
+  noteId: string,
+  title: string,
+  contentMarkdown: string,
+) {
+  database
+    .query("DELETE FROM note_short_terms WHERE note_id = ? AND user_id = ?")
+    .run(noteId, userId);
   const terms = extractShortSearchTerms(title, contentMarkdown);
   if (terms.size === 0) return;
 
@@ -57,6 +65,8 @@ export function syncNoteShortSearchTerms(database: SqliteDatabase, userId: strin
     for (const term of chunk) {
       params.push(noteId, userId, term);
     }
-    database.query(`INSERT INTO note_short_terms (note_id, user_id, term) VALUES ${placeholders}`).run(...params);
+    database
+      .query(`INSERT INTO note_short_terms (note_id, user_id, term) VALUES ${placeholders}`)
+      .run(...params);
   }
 }

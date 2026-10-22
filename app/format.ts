@@ -8,5 +8,8 @@ export function relativeDate(timestamp: number) {
   if (hours < 24) return `${hours} 小时前`;
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days} 天前`;
-  return new Intl.DateTimeFormat("zh-CN", { month: "short", day: "numeric" }).format(new Date(timestamp * 1000));
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "short",
+    day: "numeric",
+  }).format(new Date(timestamp * 1000));
 }

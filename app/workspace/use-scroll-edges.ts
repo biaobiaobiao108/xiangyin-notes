@@ -51,7 +51,8 @@ export function useScrollEdges(
 
     updateScrollEdges();
     scrollRoot.addEventListener("scroll", scheduleScrollEdgeUpdate, { passive: true });
-    const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(scheduleScrollEdgeUpdate);
+    const resizeObserver =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(scheduleScrollEdgeUpdate);
     resizeObserver?.observe(scrollRoot);
     if (scrollRoot.firstElementChild) resizeObserver?.observe(scrollRoot.firstElementChild);
     window.addEventListener("resize", scheduleScrollEdgeUpdate, { passive: true });

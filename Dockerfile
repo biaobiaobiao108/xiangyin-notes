@@ -1,4 +1,4 @@
-FROM oven/bun:1.4.3-alpine AS builder
+FROM oven/bun:1.4.4-alpine AS builder
 
 WORKDIR /app
 
@@ -11,7 +11,7 @@ COPY shared ./shared
 COPY scripts ./scripts
 RUN bun run build
 
-FROM oven/bun:1.4.3-alpine AS runtime
+FROM oven/bun:1.4.4-alpine AS runtime
 
 WORKDIR /app
 

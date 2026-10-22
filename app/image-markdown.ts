@@ -65,7 +65,11 @@ export function parseImageSource(source: string): ParsedImageSource {
   return { src: `${base}${query ? `?${query}` : ""}${hash}`, width, height };
 }
 
-export function serializeImageSource(source: string, width: number | null | undefined, height: number | null | undefined) {
+export function serializeImageSource(
+  source: string,
+  width: number | null | undefined,
+  height: number | null | undefined,
+) {
   if (isExternalImageSource(source)) return source;
   const parsed = parseImageSource(source);
   const clean = parsed.src;

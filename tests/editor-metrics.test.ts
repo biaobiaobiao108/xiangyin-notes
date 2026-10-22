@@ -1,8 +1,23 @@
 import { describe, expect, test } from "bun:test";
 import { Schema } from "@tiptap/pm/model";
 import { EditorState, type Transaction } from "@tiptap/pm/state";
-import { buildOutlineItems, countEditorText, detectLeakedImePrefix, getOutlineStructureKey, isMarkdownHeadingMarker, parseMarkdownBlockShortcut, parseMarkdownHeadingPrefix, shouldParseMarkdownPaste, shouldUpdateActiveOutlineFromViewport } from "../app/editor-metrics";
-import { countEditorDocumentText, updateEditorDocumentText, type EditorTextBlockStatsCache, type EditorTextStatsSnapshot } from "../app/editor-text-stats";
+import {
+  buildOutlineItems,
+  countEditorText,
+  detectLeakedImePrefix,
+  getOutlineStructureKey,
+  isMarkdownHeadingMarker,
+  parseMarkdownBlockShortcut,
+  parseMarkdownHeadingPrefix,
+  shouldParseMarkdownPaste,
+  shouldUpdateActiveOutlineFromViewport,
+} from "../app/editor-metrics";
+import {
+  countEditorDocumentText,
+  updateEditorDocumentText,
+  type EditorTextBlockStatsCache,
+  type EditorTextStatsSnapshot,
+} from "../app/editor-text-stats";
 import { healLeakedImePrefix } from "../app/ime-markdown-safe-extension";
 
 describe("editor metrics", () => {
@@ -11,7 +26,10 @@ describe("editor metrics", () => {
   });
 
   test("ignores whitespace for both text statistics", () => {
-    expect(countEditorText("  first\n\nsecond\tthird  ")).toEqual({ wordCount: 3, characterCount: 16 });
+    expect(countEditorText("  first\n\nsecond\tthird  ")).toEqual({
+      wordCount: 3,
+      characterCount: 16,
+    });
   });
 
   test("counts the plain text returned by the editor", () => {
@@ -39,7 +57,10 @@ describe("editor metrics", () => {
     ]);
     let state = EditorState.create({ doc });
     const cache: EditorTextBlockStatsCache = new WeakMap();
-    let snapshot: EditorTextStatsSnapshot = { doc: state.doc, stats: countEditorDocumentText(state.doc, cache) };
+    let snapshot: EditorTextStatsSnapshot = {
+      doc: state.doc,
+      stats: countEditorDocumentText(state.doc, cache),
+    };
     const applyAndCompare = (transaction: Transaction) => {
       snapshot = updateEditorDocumentText(transaction, snapshot, cache);
       state = state.apply(transaction);
@@ -117,8 +138,16 @@ describe("editor metrics", () => {
     // Full-width hash and full-width space
     expect(parseMarkdownBlockShortcut("＃ ")).toEqual({ type: "heading", level: 1, length: 2 });
     expect(parseMarkdownBlockShortcut("＃＃ ")).toEqual({ type: "heading", level: 2, length: 3 });
-    expect(parseMarkdownBlockShortcut("##\u3000")).toEqual({ type: "heading", level: 2, length: 3 });
-    expect(parseMarkdownBlockShortcut("＃＃\u3000")).toEqual({ type: "heading", level: 2, length: 3 });
+    expect(parseMarkdownBlockShortcut("##\u3000")).toEqual({
+      type: "heading",
+      level: 2,
+      length: 3,
+    });
+    expect(parseMarkdownBlockShortcut("＃＃\u3000")).toEqual({
+      type: "heading",
+      level: 2,
+      length: 3,
+    });
 
     expect(parseMarkdownBlockShortcut("- ")).toEqual({ type: "bulletList", length: 2 });
     expect(parseMarkdownBlockShortcut("* ")).toEqual({ type: "bulletList", length: 2 });

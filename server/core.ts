@@ -119,7 +119,8 @@ export const LOGIN_ATTEMPT_CLEANUP_INTERVAL_SECONDS = 60;
 export const SESSION_CLEANUP_INTERVAL_SECONDS = 60;
 export const NOTE_VIEWS: NoteView[] = ["all", "inbox", "favorites", "trash"];
 
-export const welcomeMarkdown = "## 欢迎来到象映笔记\n\n这是你的第一个笔记。Windows 用户按下 **Alt + /**，macOS 用户按下 **Command + /**，即可打开命令菜单，开始记录你的想法。\n\n- 写下值得保留的东西\n- 用笔记本整理上下文\n- 随时整理值得保留的想法\n";
+export const welcomeMarkdown =
+  "## 欢迎来到象映笔记\n\n这是你的第一个笔记。Windows 用户按下 **Alt + /**，macOS 用户按下 **Command + /**，即可打开命令菜单，开始记录你的想法。\n\n- 写下值得保留的东西\n- 用笔记本整理上下文\n- 随时整理值得保留的想法\n";
 
 export function now() {
   return Math.floor(Date.now() / 1000);
@@ -235,7 +236,9 @@ export function isSecureRequest(
         .filter(Boolean),
     );
     if (trustedProxies.has(peerAddress)) {
-      return request.headers.get("X-Forwarded-Proto")?.split(",")[0]?.trim().toLowerCase() === "https";
+      return (
+        request.headers.get("X-Forwarded-Proto")?.split(",")[0]?.trim().toLowerCase() === "https"
+      );
     }
   }
   return false;
@@ -243,12 +246,16 @@ export function isSecureRequest(
 
 let publicOriginWarningShown = false;
 
-export function getPublicOrigin(requestUrl: URL, environment: Record<string, string | undefined> = {}) {
+export function getPublicOrigin(
+  requestUrl: URL,
+  environment: Record<string, string | undefined> = {},
+) {
   const configuredUrl = environment.PUBLIC_URL?.trim();
   if (!configuredUrl) return requestUrl.origin;
   try {
     const publicUrl = new URL(configuredUrl);
-    if (publicUrl.protocol !== "http:" && publicUrl.protocol !== "https:") throw new Error("PUBLIC_URL must use http or https");
+    if (publicUrl.protocol !== "http:" && publicUrl.protocol !== "https:")
+      throw new Error("PUBLIC_URL must use http or https");
     return publicUrl.origin;
   } catch (error) {
     // A malformed PUBLIC_URL must not turn every write request into a 500.
@@ -267,19 +274,24 @@ export function json(payload: unknown, status = 200, headers: HeadersInit = {}) 
   return new Response(JSON.stringify(payload), { status, headers: responseHeaders });
 }
 
-export function jsonError(status: number, code: string, message: string, headers: HeadersInit = {}) {
+export function jsonError(
+  status: number,
+  code: string,
+  message: string,
+  headers: HeadersInit = {},
+) {
   return json({ error: { code, message } }, status, headers);
 }
 
 export type ReadBodyResult =
-  | { ok: true; bytes: Uint8Array }
-  | { ok: false; reason: "invalid" | "too-large" };
+  { ok: true; bytes: Uint8Array } | { ok: false; reason: "invalid" | "too-large" };
 
 export async function readBodyBytes(request: Request, maxBytes: number): Promise<ReadBodyResult> {
   const contentLengthHeader = request.headers.get("Content-Length");
   if (contentLengthHeader !== null) {
     const contentLength = Number(contentLengthHeader);
-    if (!Number.isInteger(contentLength) || contentLength < 0) return { ok: false, reason: "invalid" };
+    if (!Number.isInteger(contentLength) || contentLength < 0)
+      return { ok: false, reason: "invalid" };
     if (contentLength > maxBytes) return { ok: false, reason: "too-large" };
   }
 
@@ -338,7 +350,12 @@ const NON_BREAKING_SPACE_PATTERN = /\u00a0|&nbsp;|&#0*160;|&#[xX]0*[aA]0;/gu;
 const SPACE_BEFORE_PUNCTUATION_PATTERN = / ([,.;:!?。！？、，；：])/gu;
 const WIKI_LINK_PREVIEW_PATTERN = /\[\[([^\[\]\r\n]*)\]\]|【【([^【】\r\n]*)】】/gu;
 
-type PreviewInlineToken = { type: string; raw: string; text?: string; tokens?: PreviewInlineToken[] };
+type PreviewInlineToken = {
+  type: string;
+  raw: string;
+  text?: string;
+  tokens?: PreviewInlineToken[];
+};
 
 /**
  * Flattens a marked inline AST to plain text for note previews.
@@ -415,13 +432,18 @@ export function formatPreview(markdown: string) {
   // bounded work and of the blocks a preview never shows (tables, code, callouts).
   const readPlainText = (start: number, end: number, maximumLength: number) => {
     if (maximumLength <= 0 || end <= start) return "";
-    const text = plainTextFromInlineTokens(new Lexer({ gfm: true }).inlineTokens(markdown.slice(start, end)))
-      .replace(WIKI_LINK_PREVIEW_PATTERN, (_match, wiki: string | undefined, fullWidth: string | undefined) => {
-        // 双链只显示可读部分：有别名用别名，否则用目标标题。
-        const body = wiki ?? fullWidth ?? "";
-        const separator = body.search(/[|｜]/u);
-        return separator === -1 ? body : body.slice(separator + 1);
-      })
+    const text = plainTextFromInlineTokens(
+      new Lexer({ gfm: true }).inlineTokens(markdown.slice(start, end)),
+    )
+      .replace(
+        WIKI_LINK_PREVIEW_PATTERN,
+        (_match, wiki: string | undefined, fullWidth: string | undefined) => {
+          // 双链只显示可读部分：有别名用别名，否则用目标标题。
+          const body = wiki ?? fullWidth ?? "";
+          const separator = body.search(/[|｜]/u);
+          return separator === -1 ? body : body.slice(separator + 1);
+        },
+      )
       .replace(NON_BREAKING_SPACE_PATTERN, " ")
       .replace(/[ \t]+/gu, " ")
       .replace(SPACE_BEFORE_PUNCTUATION_PATTERN, "$1");
@@ -481,9 +503,13 @@ export function formatPreview(markdown: string) {
     return length >= 3 ? { marker, length, remainderStart: index } : null;
   };
 
-  const isFenceClose = (line: { start: number; end: number }, fence: { marker: "`" | "~"; length: number }) => {
+  const isFenceClose = (
+    line: { start: number; end: number },
+    fence: { marker: "`" | "~"; length: number },
+  ) => {
     const candidate = getFence(line);
-    if (!candidate || candidate.marker !== fence.marker || candidate.length < fence.length) return false;
+    if (!candidate || candidate.marker !== fence.marker || candidate.length < fence.length)
+      return false;
     for (let index = candidate.remainderStart; index < line.end; index += 1) {
       if (markdown[index] !== " " && markdown[index] !== "\t") return false;
     }
@@ -500,7 +526,10 @@ export function formatPreview(markdown: string) {
   const isTableDelimiter = (line: { start: number; end: number }) => {
     const text = markdown.slice(line.start, line.end);
     if (!text.includes("|") || text.length >= NOTE_PREVIEW_SCAN_LIMIT) return false;
-    const cells = text.trim().replace(/^\||\|$/gu, "").split("|");
+    const cells = text
+      .trim()
+      .replace(/^\||\|$/gu, "")
+      .split("|");
     return cells.length > 0 && cells.every((cell) => /^\s*:?-{1,}:?\s*$/u.test(cell));
   };
 
@@ -522,8 +551,11 @@ export function formatPreview(markdown: string) {
   const isKnownCalloutMarker = (line: { start: number; end: number }, contentStart: number) => {
     if (markdown[contentStart] !== ">") return false;
     let bodyStart = contentStart + 1;
-    while (bodyStart < line.end && (markdown[bodyStart] === " " || markdown[bodyStart] === "\t")) bodyStart += 1;
-    return /^\[!(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION)\](?:[ \t]+.*)?$/iu.test(markdown.slice(bodyStart, line.end));
+    while (bodyStart < line.end && (markdown[bodyStart] === " " || markdown[bodyStart] === "\t"))
+      bodyStart += 1;
+    return /^\[!(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION)\](?:[ \t]+.*)?$/iu.test(
+      markdown.slice(bodyStart, line.end),
+    );
   };
 
   let cursor = 0;
@@ -559,7 +591,11 @@ export function formatPreview(markdown: string) {
       let isBlock = false;
 
       let headingEnd = contentStart;
-      while (headingEnd < contentEnd && markdown[headingEnd] === "#" && headingEnd - contentStart < 6) {
+      while (
+        headingEnd < contentEnd &&
+        markdown[headingEnd] === "#" &&
+        headingEnd - contentStart < 6
+      ) {
         headingEnd += 1;
       }
       if (
@@ -567,16 +603,24 @@ export function formatPreview(markdown: string) {
         (headingEnd === contentEnd || markdown[headingEnd] === " " || markdown[headingEnd] === "\t")
       ) {
         bodyStart = headingEnd;
-        while (bodyStart < contentEnd && (markdown[bodyStart] === " " || markdown[bodyStart] === "\t")) {
+        while (
+          bodyStart < contentEnd &&
+          (markdown[bodyStart] === " " || markdown[bodyStart] === "\t")
+        ) {
           bodyStart += 1;
         }
         isBlock = true;
       } else if (
-        (markdown[contentStart] === "-" || markdown[contentStart] === "+" || markdown[contentStart] === "*") &&
+        (markdown[contentStart] === "-" ||
+          markdown[contentStart] === "+" ||
+          markdown[contentStart] === "*") &&
         (markdown[contentStart + 1] === " " || markdown[contentStart + 1] === "\t")
       ) {
         bodyStart = contentStart + 2;
-        while (bodyStart < contentEnd && (markdown[bodyStart] === " " || markdown[bodyStart] === "\t")) {
+        while (
+          bodyStart < contentEnd &&
+          (markdown[bodyStart] === " " || markdown[bodyStart] === "\t")
+        ) {
           bodyStart += 1;
         }
         isBlock = true;
@@ -591,13 +635,19 @@ export function formatPreview(markdown: string) {
           (markdown[markerEnd + 1] === " " || markdown[markerEnd + 1] === "\t")
         ) {
           bodyStart = markerEnd + 2;
-          while (bodyStart < contentEnd && (markdown[bodyStart] === " " || markdown[bodyStart] === "\t")) {
+          while (
+            bodyStart < contentEnd &&
+            (markdown[bodyStart] === " " || markdown[bodyStart] === "\t")
+          ) {
             bodyStart += 1;
           }
           isBlock = true;
         } else if (markdown[contentStart] === ">") {
           bodyStart = contentStart + 1;
-          while (bodyStart < contentEnd && (markdown[bodyStart] === " " || markdown[bodyStart] === "\t")) {
+          while (
+            bodyStart < contentEnd &&
+            (markdown[bodyStart] === " " || markdown[bodyStart] === "\t")
+          ) {
             bodyStart += 1;
           }
           isBlock = true;
@@ -624,7 +674,12 @@ export function formatPreview(markdown: string) {
         }
       } else {
         const separatorLength = paragraphLength > 0 ? 1 : 0;
-        const availableLength = NOTE_PREVIEW_LIMIT - outputLength - (output.length > 0 ? 1 : 0) - paragraphLength - separatorLength;
+        const availableLength =
+          NOTE_PREVIEW_LIMIT -
+          outputLength -
+          (output.length > 0 ? 1 : 0) -
+          paragraphLength -
+          separatorLength;
         if (availableLength <= 0) {
           stopped = true;
         } else {
@@ -683,7 +738,12 @@ export function assetUrl(id: string) {
   return `/api/assets/${encodeURIComponent(id)}`;
 }
 
-export function toImageAsset(row: Pick<ImageAssetRow, "id" | "original_name" | "mime_type" | "byte_size" | "width" | "height" | "created_at">): ImageAssetSummary {
+export function toImageAsset(
+  row: Pick<
+    ImageAssetRow,
+    "id" | "original_name" | "mime_type" | "byte_size" | "width" | "height" | "created_at"
+  >,
+): ImageAssetSummary {
   return {
     id: row.id,
     url: assetUrl(row.id),
@@ -697,7 +757,16 @@ export function toImageAsset(row: Pick<ImageAssetRow, "id" | "original_name" | "
 }
 
 export function thumbnailFromNoteRow(row: NoteRow): ImageAssetSummary | null {
-  if (!row.thumbnail_asset_id || !row.thumbnail_original_name || !row.thumbnail_mime_type || row.thumbnail_byte_size === null || row.thumbnail_width === null || row.thumbnail_height === null || row.thumbnail_created_at === null) return null;
+  if (
+    !row.thumbnail_asset_id ||
+    !row.thumbnail_original_name ||
+    !row.thumbnail_mime_type ||
+    row.thumbnail_byte_size === null ||
+    row.thumbnail_width === null ||
+    row.thumbnail_height === null ||
+    row.thumbnail_created_at === null
+  )
+    return null;
   return toImageAsset({
     id: row.thumbnail_asset_id,
     original_name: row.thumbnail_original_name,
@@ -758,7 +827,9 @@ export function toFullNote(row: NoteRow): Note {
 export function parseIndexedTags(value: string) {
   try {
     const parsed = JSON.parse(value) as unknown;
-    return Array.isArray(parsed) ? parsed.filter((tag): tag is string => typeof tag === "string") : [];
+    return Array.isArray(parsed)
+      ? parsed.filter((tag): tag is string => typeof tag === "string")
+      : [];
   } catch {
     return [];
   }
@@ -770,9 +841,16 @@ export class InvalidNoteAssetsError extends Error {
   }
 }
 
-export function syncNoteTags(database: SqliteDatabase, userId: string, noteId: string, contentMarkdown: string) {
+export function syncNoteTags(
+  database: SqliteDatabase,
+  userId: string,
+  noteId: string,
+  contentMarkdown: string,
+) {
   database.query("DELETE FROM note_tags WHERE note_id = ? AND user_id = ?").run(noteId, userId);
-  const insert = database.query("INSERT INTO note_tags (note_id, user_id, tag_normalized, tag, position) VALUES (?, ?, ?, ?, ?)");
+  const insert = database.query(
+    "INSERT INTO note_tags (note_id, user_id, tag_normalized, tag, position) VALUES (?, ?, ?, ?, ?)",
+  );
   const seen = new Set<string>();
   let position = 0;
   for (const tag of extractTags(contentMarkdown)) {
@@ -783,9 +861,11 @@ export function syncNoteTags(database: SqliteDatabase, userId: string, noteId: s
   }
 }
 
-export const ASSET_REFERENCE_PATTERN = /\/api\/assets\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})(?=[?#)\s]|$)/giu;
+export const ASSET_REFERENCE_PATTERN =
+  /\/api\/assets\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})(?=[?#)\s]|$)/giu;
 export const MARKDOWN_IMAGE_SOURCE_PATTERN = /!\[[^\]]*\]\(([^)\s]+)(?:\s+[^)]*)?\)/gu;
-export const PRIVATE_ASSET_SOURCE_PATTERN = /^\/api\/assets\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?=[?#]|$)/iu;
+export const PRIVATE_ASSET_SOURCE_PATTERN =
+  /^\/api\/assets\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?=[?#]|$)/iu;
 
 export function noteImageSources(markdown: string) {
   const sources: string[] = [];
@@ -819,7 +899,8 @@ export function validNoteAssetReferences(
   noteId: string | null,
   contentMarkdown: string,
 ) {
-  if (noteImageSources(contentMarkdown).some((source) => !validNoteImageSource(source))) return false;
+  if (noteImageSources(contentMarkdown).some((source) => !validNoteImageSource(source)))
+    return false;
   const ids = noteAssetIds(contentMarkdown);
   if (!ids.length) return true;
   const assets = all<Pick<ImageAssetRow, "id" | "note_id">>(
@@ -829,10 +910,13 @@ export function validNoteAssetReferences(
     ...ids,
   );
   const assetsById = new Map(assets.map((asset) => [asset.id.toLowerCase(), asset]));
-  return assets.length === ids.length && ids.every((id) => {
-    const asset = assetsById.get(id);
-    return Boolean(asset) && (asset?.note_id === null || asset?.note_id === noteId);
-  });
+  return (
+    assets.length === ids.length &&
+    ids.every((id) => {
+      const asset = assetsById.get(id);
+      return Boolean(asset) && (asset?.note_id === null || asset?.note_id === noteId);
+    })
+  );
 }
 
 export function syncNoteAssetReferences(
@@ -842,14 +926,20 @@ export function syncNoteAssetReferences(
   contentMarkdown: string,
 ) {
   const ids = noteAssetIds(contentMarkdown);
-  const detachedAssetCondition = ids.length ? `id NOT IN (${ids.map(() => "?").join(",")})` : "1 = 1";
-  database.query(`
+  const detachedAssetCondition = ids.length
+    ? `id NOT IN (${ids.map(() => "?").join(",")})`
+    : "1 = 1";
+  database
+    .query(
+      `
     UPDATE image_assets
     SET note_id = NULL, document_order = NULL
     WHERE note_id = ?
       AND user_id = ?
       AND ${detachedAssetCondition}
-  `).run(noteId, userId, ...ids);
+  `,
+    )
+    .run(noteId, userId, ...ids);
   const assets = ids.length
     ? all<ImageAssetRow>(
         database,
@@ -869,19 +959,28 @@ export function syncNoteAssetReferences(
     return false;
   }
 
-  database.query("UPDATE image_assets SET document_order = NULL WHERE note_id = ? AND user_id = ?").run(noteId, userId);
+  database
+    .query("UPDATE image_assets SET document_order = NULL WHERE note_id = ? AND user_id = ?")
+    .run(noteId, userId);
   for (const [documentOrder, id] of ids.entries()) {
-    database.query("UPDATE image_assets SET note_id = ?, document_order = ? WHERE id = ? AND user_id = ?").run(noteId, documentOrder, id, userId);
+    database
+      .query("UPDATE image_assets SET note_id = ?, document_order = ? WHERE id = ? AND user_id = ?")
+      .run(noteId, documentOrder, id, userId);
   }
   return true;
 }
 
 export function getNote(database: SqliteDatabase, userId: string, noteId: string) {
-  return first<NoteRow>(database, `
+  return first<NoteRow>(
+    database,
+    `
     SELECT ${NOTE_SELECT}
     FROM ${NOTE_FROM}
     WHERE n.id = ? AND n.user_id = ?
-  `, noteId, userId);
+  `,
+    noteId,
+    userId,
+  );
 }
 
 export type TitleMatchRow = {
@@ -901,7 +1000,9 @@ export function findNotesByTitlePattern(
   title: string,
   includeDeleted = false,
 ) {
-  return all<TitleMatchRow>(database, `
+  return all<TitleMatchRow>(
+    database,
+    `
     SELECT n.id, n.title, n.version, b.name AS notebook_name,
       substr(n.content_markdown, 1, ${NOTE_PREVIEW_SCAN_LIMIT}) AS content_markdown,
       n.created_at, n.updated_at
@@ -909,5 +1010,9 @@ export function findNotesByTitlePattern(
     WHERE n.user_id = ? ${includeDeleted ? "" : "AND n.deleted_at IS NULL "}AND n.title LIKE ? ESCAPE '!'
     ORDER BY CASE WHEN n.title = ? COLLATE NOCASE THEN 0 ELSE 1 END, n.updated_at DESC, n.id DESC
     LIMIT 6
-  `, userId, `%${escapeLikePattern(title)}%`, title);
+  `,
+    userId,
+    `%${escapeLikePattern(title)}%`,
+    title,
+  );
 }

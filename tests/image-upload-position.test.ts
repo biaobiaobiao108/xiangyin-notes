@@ -3,23 +3,34 @@ import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { createMarkdownExtension } from "../app/editor/markdown-config";
 import { ImageNode } from "../app/editor/image-node";
-import { createImageUploadPosition, createImageUploadPositionPlugin } from "../app/editor/image-upload-position";
+import {
+  createImageUploadPosition,
+  createImageUploadPositionPlugin,
+} from "../app/editor/image-upload-position";
 import { replaceEditorMarkdown } from "../app/editor/document-content";
 
 function withEditor(markdown: string, run: (editor: Editor) => void) {
   const editor = new Editor({
     element: null,
     extensions: [StarterKit, createMarkdownExtension(), ImageNode],
-    content: markdown || { type: "doc", content: [{ type: "paragraph" }] }, contentType: "markdown",
+    content: markdown || { type: "doc", content: [{ type: "paragraph" }] },
+    contentType: "markdown",
   });
   // Core treats unmounted editors as destroyed; this harness drives their real
   // commands and plugin state without mounting a browser view.
   Object.defineProperty(editor, "isDestroyed", { get: () => false });
   editor.registerPlugin(createImageUploadPositionPlugin());
-  try { run(editor); } finally { editor.destroy(); }
+  try {
+    run(editor);
+  } finally {
+    editor.destroy();
+  }
 }
 
-const image = (alt: string) => ({ type: "image", attrs: { src: "https://images.example/photo.png", alt } });
+const image = (alt: string) => ({
+  type: "image",
+  attrs: { src: "https://images.example/photo.png", alt },
+});
 
 describe("asynchronous image insertion", () => {
   test("preserves a later text selection and inserts at the upload origin", () => {
@@ -27,11 +38,15 @@ describe("asynchronous image insertion", () => {
       editor.commands.setTextSelection(6);
       const upload = createImageUploadPosition(editor);
       editor.commands.setTextSelection({ from: 8, to: 12 });
-      expect(editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to)).toBe("keep");
+      expect(
+        editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to),
+      ).toBe("keep");
       expect(upload.insert(image("uploaded"))).toBe(true);
       expect(editor.state.doc.textContent).toBe("firstkeep this text");
       expect(editor.state.doc.child(1).type.name).toBe("image");
-      expect(editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to)).toBe("keep");
+      expect(
+        editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to),
+      ).toBe("keep");
       upload.dispose();
     });
   });
@@ -55,7 +70,9 @@ describe("asynchronous image insertion", () => {
       expect(upload.insert(image("one"))).toBe(true);
       expect(upload.insert(image("two"))).toBe(true);
       const images: string[] = [];
-      editor.state.doc.descendants((node) => { if (node.type.name === "image") images.push(node.attrs.alt); });
+      editor.state.doc.descendants((node) => {
+        if (node.type.name === "image") images.push(node.attrs.alt);
+      });
       expect(images).toEqual(["one", "two"]);
       upload.dispose();
     });

@@ -5,4 +5,8 @@ import { registerPwa } from "./pwa";
 import "./styles.css";
 
 void registerPwa();
-createRoot(document.getElementById("root")!).render(<BrowserRouter><App /></BrowserRouter>);
+createRoot(document.getElementById("root")!).render(
+  <BrowserRouter>
+    <App />
+  </BrowserRouter>,
+);

@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { getCommandMenuShortcutLabel, isApplePlatform, matchesCommandMenuShortcut } from "../app/platform";
+import {
+  getCommandMenuShortcutLabel,
+  isApplePlatform,
+  matchesCommandMenuShortcut,
+} from "../app/platform";
 import { handleWorkspaceKeyDown } from "../app/workspace/use-workspace-shortcuts";
 
 describe("workspace shortcuts Escape handling", () => {
@@ -10,14 +14,26 @@ describe("workspace shortcuts Escape handling", () => {
       hasModalOpen: false,
       outlineOpen: true,
       handlers: {
-        toggleSidebar() {}, toggleFocusMode() {}, toggleTypewriterMode() {}, openCommandMenu() {},
-        exitFocusMode() { actions.push("focus"); },
-        closeOutline() { actions.push("outline"); },
+        toggleSidebar() {},
+        toggleFocusMode() {},
+        toggleTypewriterMode() {},
+        openCommandMenu() {},
+        exitFocusMode() {
+          actions.push("focus");
+        },
+        closeOutline() {
+          actions.push("outline");
+        },
       },
     };
     const event = {
-      key: "Escape", defaultPrevented: true, isComposing: false, keyCode: 27,
-      preventDefault() { actions.push("prevent"); },
+      key: "Escape",
+      defaultPrevented: true,
+      isComposing: false,
+      keyCode: 27,
+      preventDefault() {
+        actions.push("prevent");
+      },
     } as KeyboardEvent;
 
     handleWorkspaceKeyDown({ ...event, isComposing: true } as KeyboardEvent, context);
@@ -212,7 +228,9 @@ describe("workspace shortcuts on macOS keyboard layouts", () => {
       ctrlKey: false,
       metaKey: false,
       defaultPrevented: false,
-      preventDefault() { defaultPrevented = true; },
+      preventDefault() {
+        defaultPrevented = true;
+      },
     } as any;
 
     handleWorkspaceKeyDown(event, {
@@ -224,7 +242,9 @@ describe("workspace shortcuts on macOS keyboard layouts", () => {
         toggleTypewriterMode() {},
         exitFocusMode() {},
         openCommandMenu() {},
-        toggleViewLayout() { layoutToggled = true; },
+        toggleViewLayout() {
+          layoutToggled = true;
+        },
       },
     });
 
@@ -243,7 +263,9 @@ describe("workspace shortcuts on macOS keyboard layouts", () => {
       ctrlKey: false,
       metaKey: false,
       defaultPrevented: false,
-      preventDefault() { defaultPrevented = true; },
+      preventDefault() {
+        defaultPrevented = true;
+      },
     } as any;
 
     handleWorkspaceKeyDown(event, {
@@ -252,7 +274,9 @@ describe("workspace shortcuts on macOS keyboard layouts", () => {
       handlers: {
         toggleSidebar() {},
         toggleFocusMode() {},
-        toggleTypewriterMode() { typewriterToggled = true; },
+        toggleTypewriterMode() {
+          typewriterToggled = true;
+        },
         exitFocusMode() {},
         openCommandMenu() {},
       },
@@ -270,7 +294,14 @@ describe("command menu shortcut", () => {
   });
 
   test("uses the platform-specific modifier for the slash shortcut", () => {
-    const base = { key: "/", code: "Slash", shiftKey: false, altKey: false, ctrlKey: false, metaKey: false };
+    const base = {
+      key: "/",
+      code: "Slash",
+      shiftKey: false,
+      altKey: false,
+      ctrlKey: false,
+      metaKey: false,
+    };
 
     expect(matchesCommandMenuShortcut({ ...base, metaKey: true }, true)).toBe(true);
     expect(matchesCommandMenuShortcut({ ...base, altKey: true }, true)).toBe(false);
@@ -279,7 +310,14 @@ describe("command menu shortcut", () => {
   });
 
   test("recognizes the physical slash key when Safari reports an alternate symbol", () => {
-    const event = { key: "÷", code: "Slash", shiftKey: false, altKey: true, ctrlKey: false, metaKey: false };
+    const event = {
+      key: "÷",
+      code: "Slash",
+      shiftKey: false,
+      altKey: true,
+      ctrlKey: false,
+      metaKey: false,
+    };
     expect(matchesCommandMenuShortcut(event, false)).toBe(true);
   });
 
@@ -287,18 +325,29 @@ describe("command menu shortcut", () => {
     let opened = false;
     let prevented = false;
     const event = {
-      key: "/", code: "Slash", shiftKey: false,
-      altKey: !isApplePlatform, ctrlKey: false, metaKey: isApplePlatform,
+      key: "/",
+      code: "Slash",
+      shiftKey: false,
+      altKey: !isApplePlatform,
+      ctrlKey: false,
+      metaKey: isApplePlatform,
       defaultPrevented: false,
-      preventDefault() { prevented = true; },
+      preventDefault() {
+        prevented = true;
+      },
     } as KeyboardEvent;
 
     handleWorkspaceKeyDown(event, {
       focusMode: false,
       hasModalOpen: false,
       handlers: {
-        toggleSidebar() {}, toggleFocusMode() {}, toggleTypewriterMode() {}, exitFocusMode() {},
-        openCommandMenu() { opened = true; },
+        toggleSidebar() {},
+        toggleFocusMode() {},
+        toggleTypewriterMode() {},
+        exitFocusMode() {},
+        openCommandMenu() {
+          opened = true;
+        },
       },
     });
 

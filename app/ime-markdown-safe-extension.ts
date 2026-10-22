@@ -33,7 +33,8 @@ export const ImeMarkdownSafeExtension = Extension.create({
           },
           apply(tr, prev) {
             let { trackedBlockPos, isComposing, committedText } = prev;
-            const meta = tr.getMeta(imeMarkdownSafePluginKey) as { type: string; pos?: number; text?: string } | undefined;
+            const meta = tr.getMeta(imeMarkdownSafePluginKey) as
+              { type: string; pos?: number; text?: string } | undefined;
             if (meta) {
               if (meta.type === "blockConverted") {
                 trackedBlockPos = meta.pos ?? null;
@@ -61,7 +62,13 @@ export const ImeMarkdownSafeExtension = Extension.create({
           },
         },
         appendTransaction(transactions, _oldState, newState) {
-          if (transactions.some((tr) => (tr.getMeta(imeMarkdownSafePluginKey) as { type?: string } | undefined)?.type === "healed")) {
+          if (
+            transactions.some(
+              (tr) =>
+                (tr.getMeta(imeMarkdownSafePluginKey) as { type?: string } | undefined)?.type ===
+                "healed",
+            )
+          ) {
             return null;
           }
 
@@ -77,7 +84,11 @@ export const ImeMarkdownSafeExtension = Extension.create({
           const blockText = block.textContent;
 
           const healedResult = healLeakedImePrefix(blockText);
-          if (healedResult && (!pluginState.committedText || healedResult.healed.startsWith(pluginState.committedText))) {
+          if (
+            healedResult &&
+            (!pluginState.committedText ||
+              healedResult.healed.startsWith(pluginState.committedText))
+          ) {
             const startOfBlock = $pos.start();
             const tr = newState.tr.delete(startOfBlock, startOfBlock + healedResult.leaked.length);
             tr.setMeta(imeMarkdownSafePluginKey, { type: "healed" });
@@ -107,12 +118,17 @@ export const ImeMarkdownSafeExtension = Extension.create({
               return false;
             },
             compositionend(view, event) {
-              const tr = view.state.tr.setMeta(imeMarkdownSafePluginKey, { type: "compositionEnd", text: (event as CompositionEvent).data });
+              const tr = view.state.tr.setMeta(imeMarkdownSafePluginKey, {
+                type: "compositionEnd",
+                text: (event as CompositionEvent).data,
+              });
               view.dispatch(tr);
               return false;
             },
             compositioncancel(view) {
-              view.dispatch(view.state.tr.setMeta(imeMarkdownSafePluginKey, { type: "compositionCancel" }));
+              view.dispatch(
+                view.state.tr.setMeta(imeMarkdownSafePluginKey, { type: "compositionCancel" }),
+              );
               return false;
             },
           },

@@ -23,10 +23,18 @@ function TableHorizontalScrollbar({ root, target }: { root: HTMLElement; target:
           left: targetRect.left - rootRect.left + root.scrollLeft,
           width: targetRect.width,
         };
-        setPosition((current) => current && Math.abs(current.top - next.top) < 1 && Math.abs(current.left - next.left) < 1 && Math.abs(current.width - next.width) < 1 ? current : next);
+        setPosition((current) =>
+          current &&
+          Math.abs(current.top - next.top) < 1 &&
+          Math.abs(current.left - next.left) < 1 &&
+          Math.abs(current.width - next.width) < 1
+            ? current
+            : next,
+        );
       });
     };
-    const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updatePosition);
+    const resizeObserver =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updatePosition);
     resizeObserver?.observe(root);
     resizeObserver?.observe(target);
     window.addEventListener("resize", updatePosition);
@@ -41,15 +49,18 @@ function TableHorizontalScrollbar({ root, target }: { root: HTMLElement; target:
   }, [root, target]);
 
   if (!position) return null;
-  return createPortal(<div className="table-horizontal-scrollbar-overlay" style={position}>
-    <FloatingScrollbar
-      scrollTargetRef={targetRef}
-      controlsId={target.id}
-      ariaLabel="表格横向滚动条"
-      placement="bottom"
-      orientation="horizontal"
-    />
-  </div>, root);
+  return createPortal(
+    <div className="table-horizontal-scrollbar-overlay" style={position}>
+      <FloatingScrollbar
+        scrollTargetRef={targetRef}
+        controlsId={target.id}
+        ariaLabel="表格横向滚动条"
+        placement="bottom"
+        orientation="horizontal"
+      />
+    </div>,
+    root,
+  );
 }
 
 export function TableScrollbars({ rootRef }: { rootRef: RefObject<HTMLElement | null> }) {
@@ -64,14 +75,19 @@ export function TableScrollbars({ rootRef }: { rootRef: RefObject<HTMLElement | 
       const nextTargets = Array.from(root.querySelectorAll<HTMLElement>(".tableWrapper"));
       // 没有表格时提前短路，避免为每帧输入做额外的 class 与 id 写入。
       if (nextTargets.length === 0) {
-        setTargets((current) => current.length === 0 ? current : []);
+        setTargets((current) => (current.length === 0 ? current : []));
         return;
       }
       nextTargets.forEach((target, index) => {
         target.classList.add("table-scroll-shell", "floating-scrollbar-target");
         if (!target.id) target.id = `table-scroll-${instanceId}-${index + 1}`;
       });
-      setTargets((current) => current.length === nextTargets.length && current.every((target, index) => target === nextTargets[index]) ? current : nextTargets);
+      setTargets((current) =>
+        current.length === nextTargets.length &&
+        current.every((target, index) => target === nextTargets[index])
+          ? current
+          : nextTargets,
+      );
     };
 
     // MutationObserver 观察整篇文档，用 rAF 合并同步，避免每次回车/粘贴都立即重扫全文。
@@ -95,5 +111,11 @@ export function TableScrollbars({ rootRef }: { rootRef: RefObject<HTMLElement | 
 
   const root = rootRef.current;
   if (!root) return null;
-  return <>{targets.map((target) => <TableHorizontalScrollbar key={target.id} root={root} target={target} />)}</>;
+  return (
+    <>
+      {targets.map((target) => (
+        <TableHorizontalScrollbar key={target.id} root={root} target={target} />
+      ))}
+    </>
+  );
 }

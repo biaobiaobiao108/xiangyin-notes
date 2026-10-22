@@ -2,9 +2,18 @@ import { expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { LOGIN_ADDRESS_MAX_FAILURES, LOGIN_ATTEMPT_MAX_ENTRIES, LOGIN_BLOCK_SECONDS } from "../server/core";
+import {
+  LOGIN_ADDRESS_MAX_FAILURES,
+  LOGIN_ATTEMPT_MAX_ENTRIES,
+  LOGIN_BLOCK_SECONDS,
+} from "../server/core";
 import { openDatabase } from "../server/db";
-import { getLoginAttempt, loginClientKey, recordFailedLogin, resetLoginAttempt } from "../server/routes/auth";
+import {
+  getLoginAttempt,
+  loginClientKey,
+  recordFailedLogin,
+  resetLoginAttempt,
+} from "../server/routes/auth";
 
 test("scopes login rate limits by submitted username and client address", () => {
   const request = new Request("http://localhost/api/auth/login", { method: "POST" });
@@ -25,9 +34,15 @@ test("keeps a late login lockout after its failure window expires", async () => 
     for (let index = 0; index < 7; index += 1) recordFailedLogin(database, key, startedAt);
     recordFailedLogin(database, key, startedAt + 899);
 
-    expect(getLoginAttempt(database, key, startedAt + 901)).toMatchObject({ failures: 8, blockedUntil: startedAt + 1799 });
+    expect(getLoginAttempt(database, key, startedAt + 901)).toMatchObject({
+      failures: 8,
+      blockedUntil: startedAt + 1799,
+    });
     expect(getLoginAttempt(database, key, startedAt + 1798).blockedUntil).toBe(startedAt + 1799);
-    expect(getLoginAttempt(database, key, startedAt + 1799)).toMatchObject({ failures: 0, blockedUntil: 0 });
+    expect(getLoginAttempt(database, key, startedAt + 1799)).toMatchObject({
+      failures: 0,
+      blockedUntil: 0,
+    });
   } finally {
     resetLoginAttempt(database, key);
     database.close();
@@ -44,8 +59,17 @@ test("applies an address-level limit when failed attempts rotate usernames", asy
       recordFailedLogin(database, addressKey, startedAt + index, "login_address");
     }
 
-    expect(getLoginAttempt(database, addressKey, startedAt + LOGIN_ADDRESS_MAX_FAILURES, "login_address"))
-      .toMatchObject({ failures: LOGIN_ADDRESS_MAX_FAILURES, blockedUntil: startedAt + LOGIN_ADDRESS_MAX_FAILURES - 1 + LOGIN_BLOCK_SECONDS });
+    expect(
+      getLoginAttempt(
+        database,
+        addressKey,
+        startedAt + LOGIN_ADDRESS_MAX_FAILURES,
+        "login_address",
+      ),
+    ).toMatchObject({
+      failures: LOGIN_ADDRESS_MAX_FAILURES,
+      blockedUntil: startedAt + LOGIN_ADDRESS_MAX_FAILURES - 1 + LOGIN_BLOCK_SECONDS,
+    });
   } finally {
     database.close();
   }
@@ -61,8 +85,10 @@ test("does not prune an active username lockout when the key limit is reached", 
       recordFailedLogin(database, `rotating-user-${index}`, startedAt + 1);
     }
 
-    expect(getLoginAttempt(database, targetKey, startedAt + 2))
-      .toMatchObject({ failures: 8, blockedUntil: startedAt + LOGIN_BLOCK_SECONDS });
+    expect(getLoginAttempt(database, targetKey, startedAt + 2)).toMatchObject({
+      failures: 8,
+      blockedUntil: startedAt + LOGIN_BLOCK_SECONDS,
+    });
   } finally {
     database.close();
   }

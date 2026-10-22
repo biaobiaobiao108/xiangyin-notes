@@ -1,4 +1,12 @@
-import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  startTransition,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import type { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
@@ -9,14 +17,48 @@ import Placeholder from "@tiptap/extension-placeholder";
 import { findWrapping } from "@tiptap/pm/transform";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { Transaction } from "@tiptap/pm/state";
-import { ArrowLeft, ArrowLeftRight, CheckCircle, ChevronLeft, CircleAlert, ImageDown, LayoutGrid, LoaderCircle, RefreshCw, Star, Trash2, Undo2 } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowLeftRight,
+  CheckCircle,
+  ChevronLeft,
+  CircleAlert,
+  ImageDown,
+  LayoutGrid,
+  LoaderCircle,
+  RefreshCw,
+  Star,
+  Trash2,
+  Undo2,
+} from "lucide-react";
 import type { ImageAssetSummary, Note, NoteSummary } from "../shared/types";
 import { preserveEscapedHashtagsForEditor } from "../shared/tags";
 import { api } from "./api";
 import { BrandMark } from "./brand-mark";
-import { cycleSearchMatchIndex, findTextMatches, searchHighlightPluginKey, SearchHighlightExtension } from "./editor-search";
-import { buildOutlineItems, countEditorText, detectLeakedImePrefix, getOutlineStructureKey, parseMarkdownBlockShortcut, shouldParseMarkdownPaste, shouldUpdateActiveOutlineFromViewport, type EditorStats, type MarkdownBlockShortcut, type OutlineItem } from "./editor-metrics";
-import { getEditorDocumentTextSnapshot, updateEditorDocumentText, type EditorTextBlockStatsCache, type EditorTextStatsSnapshot } from "./editor-text-stats";
+import {
+  cycleSearchMatchIndex,
+  findTextMatches,
+  searchHighlightPluginKey,
+  SearchHighlightExtension,
+} from "./editor-search";
+import {
+  buildOutlineItems,
+  countEditorText,
+  detectLeakedImePrefix,
+  getOutlineStructureKey,
+  parseMarkdownBlockShortcut,
+  shouldParseMarkdownPaste,
+  shouldUpdateActiveOutlineFromViewport,
+  type EditorStats,
+  type MarkdownBlockShortcut,
+  type OutlineItem,
+} from "./editor-metrics";
+import {
+  getEditorDocumentTextSnapshot,
+  updateEditorDocumentText,
+  type EditorTextBlockStatsCache,
+  type EditorTextStatsSnapshot,
+} from "./editor-text-stats";
 import { changedDocumentRange } from "./editor/changed-range";
 import { scrollNoteBoundary } from "./editor/document-navigation";
 import { replaceEditorMarkdown } from "./editor/document-content";
@@ -42,7 +84,11 @@ import { TableScrollbars } from "./editor/table-scrollbars";
 import { createTableExtensions } from "./editor/table-extensions";
 import { playEntranceAnimation } from "./animation";
 import { CardOutline } from "./editor/card-outline";
-import { MobileEditorHeader, MobileEditorFooter, MobileEditorOutline } from "./editor/mobile-editor-controls";
+import {
+  MobileEditorHeader,
+  MobileEditorFooter,
+  MobileEditorOutline,
+} from "./editor/mobile-editor-controls";
 import { mobileCaretBounds, useMobileCaret } from "./editor/use-mobile-caret";
 import { useEditorContextMenu } from "./editor/use-editor-context-menu";
 import { useScrollEdges } from "./workspace/use-scroll-edges";
@@ -63,7 +109,8 @@ function rangeTouchesHeading(doc: ProseMirrorNode, from: number, to: number): bo
   for (let depth = $start.depth; depth > 0; depth -= 1) {
     if ($start.node(depth).type.name === "heading") return true;
   }
-  if ($start.nodeAfter?.type.name === "heading" || $start.nodeBefore?.type.name === "heading") return true;
+  if ($start.nodeAfter?.type.name === "heading" || $start.nodeBefore?.type.name === "heading")
+    return true;
 
   let touchesHeading = false;
   if (end > start) {
@@ -86,8 +133,10 @@ function transactionMayChangeOutline(transaction: Transaction): boolean {
   for (const map of transaction.mapping.maps) {
     let touchesHeading = false;
     map.forEach((oldStart, oldEnd, newStart, newEnd) => {
-      if (rangeTouchesHeading(transaction.before, oldStart, oldEnd)
-        || rangeTouchesHeading(transaction.doc, newStart, newEnd)) {
+      if (
+        rangeTouchesHeading(transaction.before, oldStart, oldEnd) ||
+        rangeTouchesHeading(transaction.doc, newStart, newEnd)
+      ) {
         touchesHeading = true;
       }
     });
@@ -103,7 +152,12 @@ function resizeTitleField(field: HTMLTextAreaElement | null) {
 }
 
 function SaveStatusIcon({ state }: { state: Exclude<SaveState, "idle"> }) {
-  const iconProps = { className: "save-status-icon", size: 16, strokeWidth: 1.9, "aria-hidden": true } as const;
+  const iconProps = {
+    className: "save-status-icon",
+    size: 16,
+    strokeWidth: 1.9,
+    "aria-hidden": true,
+  } as const;
   switch (state) {
     case "saving":
       return <LoaderCircle {...iconProps} />;
@@ -118,11 +172,16 @@ function SaveStatusIcon({ state }: { state: Exclude<SaveState, "idle"> }) {
 }
 
 function getOutlineHeadingElements(root: HTMLElement): HTMLElement[] {
-  return Array.from(root.querySelectorAll<HTMLElement>(OUTLINE_HEADING_SELECTOR)).filter((element) => Boolean(element.textContent?.trim()));
+  return Array.from(root.querySelectorAll<HTMLElement>(OUTLINE_HEADING_SELECTOR)).filter(
+    (element) => Boolean(element.textContent?.trim()),
+  );
 }
 
 function isImageFile(file: File) {
-  return /^image\/(?:jpeg|png|webp|gif)$/u.test(file.type) || /\.(?:jpe?g|png|webp|gif)$/iu.test(file.name);
+  return (
+    /^image\/(?:jpeg|png|webp|gif)$/u.test(file.type) ||
+    /\.(?:jpe?g|png|webp|gif)$/iu.test(file.name)
+  );
 }
 
 async function imageDimensions(file: File) {
@@ -147,7 +206,48 @@ async function imageDimensions(file: File) {
   }
 }
 
-export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searchQuery = "", saveState, isLoading = false, reloadToken = 0, focusRequested = false, trashBusy = false, onFocusHandled, onChange, onSaveNow, onReloadNote, onExportImage, onToggleFavorite, onMoveToTrash, onRestore, onPermanentDelete, onOpenList, onOpenCommands, onBackToCards, onUploadImage, isMobileViewport = false, mobileBackLabel = "笔记列表", focusMode = false, onClearSearch, typewriterMode = false, outlineOpen, outlineItems, activeOutlineId, onToggleOutline, onCloseOutline, onOutlineItemsChange, onOutlineActiveChange, onOutlineNavigationReady, availableNotes = [], onNavigateWikiLink, onCreateAndLinkNote, onNavigateToNote, onMarkdownReaderChange, onMarkdownDirtyChange }: {
+export function NoteEditor({
+  note,
+  contentMarkdown = note.contentMarkdown,
+  searchQuery = "",
+  saveState,
+  isLoading = false,
+  reloadToken = 0,
+  focusRequested = false,
+  trashBusy = false,
+  onFocusHandled,
+  onChange,
+  onSaveNow,
+  onReloadNote,
+  onExportImage,
+  onToggleFavorite,
+  onMoveToTrash,
+  onRestore,
+  onPermanentDelete,
+  onOpenList,
+  onOpenCommands,
+  onBackToCards,
+  onUploadImage,
+  isMobileViewport = false,
+  mobileBackLabel = "笔记列表",
+  focusMode = false,
+  onClearSearch,
+  typewriterMode = false,
+  outlineOpen,
+  outlineItems,
+  activeOutlineId,
+  onToggleOutline,
+  onCloseOutline,
+  onOutlineItemsChange,
+  onOutlineActiveChange,
+  onOutlineNavigationReady,
+  availableNotes = [],
+  onNavigateWikiLink,
+  onCreateAndLinkNote,
+  onNavigateToNote,
+  onMarkdownReaderChange,
+  onMarkdownDirtyChange,
+}: {
   note: Note;
   contentMarkdown?: string;
   searchQuery?: string;
@@ -168,7 +268,10 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
   onOpenList?: () => void;
   onOpenCommands?: () => void;
   onBackToCards?: () => void;
-  onUploadImage?: (file: File, dimensions: { width: number; height: number }) => Promise<{ asset: ImageAssetSummary }>;
+  onUploadImage?: (
+    file: File,
+    dimensions: { width: number; height: number },
+  ) => Promise<{ asset: ImageAssetSummary }>;
   isMobileViewport?: boolean;
   mobileBackLabel?: string;
   focusMode?: boolean;
@@ -189,7 +292,6 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
   onMarkdownReaderChange?: (reader: (() => string | null) | null) => void;
   onMarkdownDirtyChange?: (noteId: string, isDirty: boolean) => void;
 }) {
-
   const editorScrollRef = useRef<HTMLDivElement>(null);
   const mobileViewportRef = useRef(isMobileViewport);
   mobileViewportRef.current = isMobileViewport;
@@ -204,10 +306,16 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
   const markdownSyncFrameRef = useRef<number | null>(null);
   const markdownSyncStartedAtRef = useRef<number | null>(null);
   const markdownDirtyRef = useRef(false);
-  const editorTextBlockStatsRef = useRef<EditorTextBlockStatsCache>(new WeakMap<ProseMirrorNode, EditorStats>());
+  const editorTextBlockStatsRef = useRef<EditorTextBlockStatsCache>(
+    new WeakMap<ProseMirrorNode, EditorStats>(),
+  );
   const markdownOwnerRef = useRef({ noteId: note.id, reloadToken });
   const composingRef = useRef(false);
-  const leakedCandidateRef = useRef<{ key: string; blockStartPos: number; emptyAtStart: boolean } | null>(null);
+  const leakedCandidateRef = useRef<{
+    key: string;
+    blockStartPos: number;
+    emptyAtStart: boolean;
+  } | null>(null);
   const imeCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeEditorNoteIdRef = useRef(note.id);
   const initialContentRef = useRef<string | null>(null);
@@ -222,7 +330,10 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
   const uploadImageFilesRef = useRef<(files: File[]) => void>(() => undefined);
   const onUploadImageRef = useRef(onUploadImage);
   const imageUploadContextRef = useRef({ noteId: note.id, reloadToken });
-  if (imageUploadContextRef.current.noteId !== note.id || imageUploadContextRef.current.reloadToken !== reloadToken) {
+  if (
+    imageUploadContextRef.current.noteId !== note.id ||
+    imageUploadContextRef.current.reloadToken !== reloadToken
+  ) {
     imageUploadContextRef.current = { noteId: note.id, reloadToken };
   }
   const programmaticOutlineScrollIdRef = useRef<string | null>(null);
@@ -235,14 +346,24 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
   }, []);
   const onChangeRef = useRef(onChange);
   const onMarkdownDirtyChangeRef = useRef(onMarkdownDirtyChange);
-  const surfaceSyncRef = useRef<(instance: Editor, outlineMayHaveChanged?: boolean, transaction?: Transaction) => void>(() => undefined);
+  const surfaceSyncRef = useRef<
+    (instance: Editor, outlineMayHaveChanged?: boolean, transaction?: Transaction) => void
+  >(() => undefined);
   const [editorStats, setEditorStats] = useState<EditorStats>(() => countEditorText(""));
-  const editorScrollEdges = useScrollEdges(editorScrollRef, [note.id, note.updatedAt, editorStats.characterCount]);
+  const editorScrollEdges = useScrollEdges(editorScrollRef, [
+    note.id,
+    note.updatedAt,
+    editorStats.characterCount,
+  ]);
   const editorTextStatsSnapshotRef = useRef<EditorTextStatsSnapshot | null>(null);
   const [deferredLoading, setDeferredLoading] = useState(false);
   const [imageUploadState, setImageUploadState] = useState<"idle" | "uploading" | "error">("idle");
   const editorLocked = isLoading || deferredLoading || trashBusy;
-  const [searchNavigation, setSearchNavigation] = useState({ activeIndex: 0, matchCount: 0, totalMatchCount: 0 });
+  const [searchNavigation, setSearchNavigation] = useState({
+    activeIndex: 0,
+    matchCount: 0,
+    totalMatchCount: 0,
+  });
   const searchQueryRef = useRef(searchQuery);
   const searchNavigationRef = useRef(searchNavigation);
   const typewriterModeRef = useRef(typewriterMode);
@@ -306,7 +427,8 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
     void api
       .getBacklinks(note.id, { signal: controller.signal })
       .then((response) => {
-        if (active) setBacklinkCount(response.linkedReferences.length + response.unlinkedMentions.length);
+        if (active)
+          setBacklinkCount(response.linkedReferences.length + response.unlinkedMentions.length);
       })
       .catch((reason) => {
         if (reason instanceof Error && reason.name === "AbortError") return;
@@ -317,38 +439,67 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
     };
   }, [note.id, note.deletedAt]);
 
-  const uploadImageFiles = useCallback(async (files: File[]) => {
-    const editorInstance = editorInstanceRef.current;
-    const uploadImage = onUploadImageRef.current;
-    const uploadContext = imageUploadContextRef.current;
-    const isCurrentUpload = () => imageUploadContextRef.current === uploadContext && editorInstanceRef.current === editorInstance && !editorInstance?.isDestroyed;
-    if (!editorInstance || !uploadImage || editorLocked || note.deletedAt) return;
-    const imageFiles = files.filter(isImageFile).slice(0, MAX_IMAGE_FILES_PER_ACTION);
-    if (!imageFiles.length) return;
-    const uploadPosition = createImageUploadPosition(editorInstance);
-    setImageUploadState("uploading");
-    if (imageUploadTimerRef.current !== null) clearTimeout(imageUploadTimerRef.current);
-    try {
-      for (const file of imageFiles) {
-        const dimensions = await imageDimensions(file);
+  const uploadImageFiles = useCallback(
+    async (files: File[]) => {
+      const editorInstance = editorInstanceRef.current;
+      const uploadImage = onUploadImageRef.current;
+      const uploadContext = imageUploadContextRef.current;
+      const isCurrentUpload = () =>
+        imageUploadContextRef.current === uploadContext &&
+        editorInstanceRef.current === editorInstance &&
+        !editorInstance?.isDestroyed;
+      if (!editorInstance || !uploadImage || editorLocked || note.deletedAt) return;
+      const imageFiles = files.filter(isImageFile).slice(0, MAX_IMAGE_FILES_PER_ACTION);
+      if (!imageFiles.length) return;
+      const uploadPosition = createImageUploadPosition(editorInstance);
+      setImageUploadState("uploading");
+      if (imageUploadTimerRef.current !== null) clearTimeout(imageUploadTimerRef.current);
+      try {
+        for (const file of imageFiles) {
+          const dimensions = await imageDimensions(file);
+          if (!isCurrentUpload()) return;
+          const result = await uploadImage(file, dimensions);
+          if (!isCurrentUpload()) return;
+          const maxWidth = Math.max(
+            1,
+            editorInstance.view.dom.closest(".note-prose")?.getBoundingClientRect().width ?? 820,
+          );
+          const width = Math.min(maxWidth, Math.max(1, dimensions.width));
+          const height = Math.max(
+            1,
+            Math.round((width * dimensions.height) / Math.max(1, dimensions.width)),
+          );
+          if (
+            !uploadPosition.insert({
+              type: "image",
+              attrs: {
+                assetId: result.asset.id,
+                src: result.asset.url,
+                alt: result.asset.originalName.replace(/\.[^.]+$/u, "") || "图片",
+                width,
+                height,
+              },
+            })
+          )
+            break;
+        }
+        setImageUploadState("idle");
+      } catch {
         if (!isCurrentUpload()) return;
-        const result = await uploadImage(file, dimensions);
-        if (!isCurrentUpload()) return;
-        const maxWidth = Math.max(1, editorInstance.view.dom.closest(".note-prose")?.getBoundingClientRect().width ?? 820);
-        const width = Math.min(maxWidth, Math.max(1, dimensions.width));
-        const height = Math.max(1, Math.round(width * dimensions.height / Math.max(1, dimensions.width)));
-        if (!uploadPosition.insert({ type: "image", attrs: { assetId: result.asset.id, src: result.asset.url, alt: result.asset.originalName.replace(/\.[^.]+$/u, "") || "图片", width, height } })) break;
+        setImageUploadState("error");
+        imageUploadTimerRef.current = setTimeout(() => {
+          imageUploadTimerRef.current = null;
+          setImageUploadState("idle");
+        }, 3000);
+      } finally {
+        uploadPosition.dispose();
       }
-      setImageUploadState("idle");
-    } catch {
-      if (!isCurrentUpload()) return;
-      setImageUploadState("error");
-      imageUploadTimerRef.current = setTimeout(() => { imageUploadTimerRef.current = null; setImageUploadState("idle"); }, 3000);
-    } finally {
-      uploadPosition.dispose();
-    }
-  }, [editorLocked, note.deletedAt]);
-  uploadImageFilesRef.current = (files) => { void uploadImageFiles(files); };
+    },
+    [editorLocked, note.deletedAt],
+  );
+  uploadImageFilesRef.current = (files) => {
+    void uploadImageFiles(files);
+  };
 
   useLayoutEffect(() => {
     if (imageUploadTimerRef.current !== null) {
@@ -358,22 +509,43 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
     setImageUploadState("idle");
   }, [note.id, reloadToken]);
 
-  useEffect(() => () => {
-    if (imageUploadTimerRef.current !== null) clearTimeout(imageUploadTimerRef.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (imageUploadTimerRef.current !== null) clearTimeout(imageUploadTimerRef.current);
+    },
+    [],
+  );
 
   const syncEditorSurface = (instance: Editor, syncOutline: boolean) => {
-    const snapshot = getEditorDocumentTextSnapshot(instance.state.doc, editorTextStatsSnapshotRef.current, editorTextBlockStatsRef.current);
+    const snapshot = getEditorDocumentTextSnapshot(
+      instance.state.doc,
+      editorTextStatsSnapshotRef.current,
+      editorTextBlockStatsRef.current,
+    );
     editorTextStatsSnapshotRef.current = snapshot;
     const nextStats = snapshot.stats;
     startTransition(() => {
-      setEditorStats((current) => current.wordCount === nextStats.wordCount && current.characterCount === nextStats.characterCount ? current : nextStats);
+      setEditorStats((current) =>
+        current.wordCount === nextStats.wordCount &&
+        current.characterCount === nextStats.characterCount
+          ? current
+          : nextStats,
+      );
     });
 
     if (!syncOutline) return;
-    const headingElements = Array.from(instance.view.dom.querySelectorAll<HTMLElement>(OUTLINE_HEADING_SELECTOR));
-    const outlineHeadingElements = headingElements.filter((element) => Boolean(element.textContent?.trim()));
-    const generatedItems = buildOutlineItems(outlineHeadingElements.map((element) => ({ level: Number(element.tagName.slice(1)) as 1 | 2 | 3 | 4 | 5 | 6, title: element.textContent?.trim() ?? "" })));
+    const headingElements = Array.from(
+      instance.view.dom.querySelectorAll<HTMLElement>(OUTLINE_HEADING_SELECTOR),
+    );
+    const outlineHeadingElements = headingElements.filter((element) =>
+      Boolean(element.textContent?.trim()),
+    );
+    const generatedItems = buildOutlineItems(
+      outlineHeadingElements.map((element) => ({
+        level: Number(element.tagName.slice(1)) as 1 | 2 | 3 | 4 | 5 | 6,
+        title: element.textContent?.trim() ?? "",
+      })),
+    );
     const previousIds = new Map<HTMLElement, string>();
     for (const [id, element] of outlineHeadingElementsRef.current) previousIds.set(element, id);
     const usedIds = new Set<string>();
@@ -386,14 +558,28 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
       usedIds.add(id);
       return id === item.id ? item : { ...item, id };
     });
-    outlineHeadingElementsRef.current = new Map(nextItems.map((item, index) => [item.id, outlineHeadingElements[index]] as const));
+    outlineHeadingElementsRef.current = new Map(
+      nextItems.map((item, index) => [item.id, outlineHeadingElements[index]] as const),
+    );
     startTransition(() => onOutlineItemsChange(nextItems));
   };
-  const scheduleEditorSurfaceSync = (instance: Editor, outlineMayHaveChanged = true, transaction?: Transaction) => {
+  const scheduleEditorSurfaceSync = (
+    instance: Editor,
+    outlineMayHaveChanged = true,
+    transaction?: Transaction,
+  ) => {
     if (transaction) {
-      editorTextStatsSnapshotRef.current = updateEditorDocumentText(transaction, editorTextStatsSnapshotRef.current, editorTextBlockStatsRef.current);
+      editorTextStatsSnapshotRef.current = updateEditorDocumentText(
+        transaction,
+        editorTextStatsSnapshotRef.current,
+        editorTextBlockStatsRef.current,
+      );
     } else if (editorTextStatsSnapshotRef.current?.doc !== instance.state.doc) {
-      editorTextStatsSnapshotRef.current = getEditorDocumentTextSnapshot(instance.state.doc, editorTextStatsSnapshotRef.current, editorTextBlockStatsRef.current);
+      editorTextStatsSnapshotRef.current = getEditorDocumentTextSnapshot(
+        instance.state.doc,
+        editorTextStatsSnapshotRef.current,
+        editorTextBlockStatsRef.current,
+      );
     }
     syncOutlineDirtyRef.current ||= outlineMayHaveChanged;
     if (syncFrameRef.current !== null) {
@@ -402,7 +588,10 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
     const now = performance.now();
     const startedAt = syncStartedAtRef.current ?? now;
     syncStartedAtRef.current = startedAt;
-    const wait = Math.min(EDITOR_SYNC_DEBOUNCE_MS, Math.max(0, startedAt + EDITOR_SYNC_MAX_WAIT_MS - now));
+    const wait = Math.min(
+      EDITOR_SYNC_DEBOUNCE_MS,
+      Math.max(0, startedAt + EDITOR_SYNC_MAX_WAIT_MS - now),
+    );
     const run = () => {
       syncFrameRef.current = null;
       syncStartedAtRef.current = null;
@@ -414,7 +603,11 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
     syncFrameRef.current = window.setTimeout(run, wait);
   };
 
-  const executeBlockShortcut = (view: Editor["view"], from: number, shortcut: MarkdownBlockShortcut): boolean => {
+  const executeBlockShortcut = (
+    view: Editor["view"],
+    from: number,
+    shortcut: MarkdownBlockShortcut,
+  ): boolean => {
     const $from = view.state.doc.resolve(from);
     const start = $from.start();
     const end = from;
@@ -489,33 +682,43 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
     return false;
   };
 
-  const extensions = useMemo(() => [
-    StarterKit.configure({ heading: { levels: [1, 2, 3, 4, 5, 6] }, link: false, codeBlock: false }),
-    CodeBlockWithCopy.configure({ exitOnTripleEnter: false }),
-    CodeBlockDoubleEnter,
-    InlineMarkExitOnEnter,
-    ...createTableExtensions(),
-    NoteLink.configure({ openOnClick: false, autolink: true, linkOnPaste: true }),
-    TaskList,
-    TaskItem.configure({ nested: true }),
-    Placeholder.configure({ placeholder: "从一句话开始……" }),
-    createMarkdownExtension(),
-    CalloutNode,
-    ImageNode,
-    ImageUploadPositions,
-    WikiLinkNode,
-    SlashCommandExtension.configure({ onPickImage: () => imageFileInputRef.current?.click() }),
-    WikiLinkSuggestionExtension.configure({
-      getNotes: () => availableNotesRef.current,
-      onCreateNote: (title) => onCreateAndLinkNoteRef.current?.(title),
-    }),
-    ImeMarkdownSafeExtension,
-    TagDecorationExtension,
-    SearchHighlightExtension,
-  ], []);
+  const extensions = useMemo(
+    () => [
+      StarterKit.configure({
+        heading: { levels: [1, 2, 3, 4, 5, 6] },
+        link: false,
+        codeBlock: false,
+      }),
+      CodeBlockWithCopy.configure({ exitOnTripleEnter: false }),
+      CodeBlockDoubleEnter,
+      InlineMarkExitOnEnter,
+      ...createTableExtensions(),
+      NoteLink.configure({ openOnClick: false, autolink: true, linkOnPaste: true }),
+      TaskList,
+      TaskItem.configure({ nested: true }),
+      Placeholder.configure({ placeholder: "从一句话开始……" }),
+      createMarkdownExtension(),
+      CalloutNode,
+      ImageNode,
+      ImageUploadPositions,
+      WikiLinkNode,
+      SlashCommandExtension.configure({ onPickImage: () => imageFileInputRef.current?.click() }),
+      WikiLinkSuggestionExtension.configure({
+        getNotes: () => availableNotesRef.current,
+        onCreateNote: (title) => onCreateAndLinkNoteRef.current?.(title),
+      }),
+      ImeMarkdownSafeExtension,
+      TagDecorationExtension,
+      SearchHighlightExtension,
+    ],
+    [],
+  );
 
   const smoothScrollToHead = useCallback((view: Editor["view"]) => {
-    if (mobileViewportRef.current) { mobileCaretScrollRef.current(); return; }
+    if (mobileViewportRef.current) {
+      mobileCaretScrollRef.current();
+      return;
+    }
     requestAnimationFrame(() => {
       const scrollContainer = editorScrollRef.current;
       if (!scrollContainer) return;
@@ -529,9 +732,14 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
 
         if (isBelow) {
           const diff = coords.bottom - (containerRect.bottom - paddingBottom);
-          const maxScroll = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
+          const maxScroll = Math.max(
+            0,
+            scrollContainer.scrollHeight - scrollContainer.clientHeight,
+          );
           const targetScrollTop = Math.min(maxScroll, scrollContainer.scrollTop + diff);
-          const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+          const prefersReducedMotion = window.matchMedia(
+            "(prefers-reduced-motion: reduce)",
+          ).matches;
           if (prefersReducedMotion) {
             scrollContainer.scrollTop = targetScrollTop;
           } else {
@@ -541,9 +749,11 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
             });
           }
         } else if (isAbove) {
-          const diff = (containerRect.top + 24) - coords.top;
+          const diff = containerRect.top + 24 - coords.top;
           const targetScrollTop = Math.max(0, scrollContainer.scrollTop - diff);
-          const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+          const prefersReducedMotion = window.matchMedia(
+            "(prefers-reduced-motion: reduce)",
+          ).matches;
           if (prefersReducedMotion) {
             scrollContainer.scrollTop = targetScrollTop;
           } else {
@@ -574,12 +784,22 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
         const coords = view.coordsAtPos(head);
         const containerRect = scrollContainer.getBoundingClientRect();
         const cursorCenterY = (coords.top + coords.bottom) / 2;
-        const bounds = mobileViewportRef.current ? mobileCaretBounds(scrollContainer) : { top: containerRect.top, bottom: containerRect.bottom };
-        if (mobileViewportRef.current && window.visualViewport && Math.abs(window.visualViewport.scale - 1) > 0.01) return;
+        const bounds = mobileViewportRef.current
+          ? mobileCaretBounds(scrollContainer)
+          : { top: containerRect.top, bottom: containerRect.bottom };
+        if (
+          mobileViewportRef.current &&
+          window.visualViewport &&
+          Math.abs(window.visualViewport.scale - 1) > 0.01
+        )
+          return;
         const targetY = bounds.top + (bounds.bottom - bounds.top) * 0.6;
         const delta = cursorCenterY - targetY;
         const maxScroll = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
-        const targetScrollTop = Math.min(maxScroll, Math.max(0, Math.round(scrollContainer.scrollTop + delta)));
+        const targetScrollTop = Math.min(
+          maxScroll,
+          Math.max(0, Math.round(scrollContainer.scrollTop + delta)),
+        );
 
         // Negligible distance: prevent jitter on same-line typing
         if (Math.abs(scrollContainer.scrollTop - targetScrollTop) < 2) {
@@ -587,7 +807,10 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
         }
 
         // Already animating to this target position: do not restart
-        if (typewriterTargetRef.current !== null && Math.abs(typewriterTargetRef.current - targetScrollTop) < 2) {
+        if (
+          typewriterTargetRef.current !== null &&
+          Math.abs(typewriterTargetRef.current - targetScrollTop) < 2
+        ) {
           return;
         }
 
@@ -638,197 +861,218 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
   const alignTypewriterRef = useRef(alignTypewriter);
   alignTypewriterRef.current = alignTypewriter;
 
-  const editorProps = useMemo(() => ({
-    attributes: { class: "note-prose" },
-    handleClick: (_view: Editor["view"], _pos: number, event: MouseEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (event.ctrlKey || event.metaKey || mobileViewportRef.current) {
-        const wikiLinkEl = target?.closest(".editor-wiki-link");
-        if (wikiLinkEl) {
-          event.preventDefault();
-          event.stopPropagation();
-          const targetTitle = wikiLinkEl.getAttribute("data-wiki-link");
-          if (targetTitle && onNavigateWikiLinkRef.current) {
-            onNavigateWikiLinkRef.current(targetTitle);
+  const editorProps = useMemo(
+    () => ({
+      attributes: { class: "note-prose" },
+      handleClick: (_view: Editor["view"], _pos: number, event: MouseEvent) => {
+        const target = event.target as HTMLElement | null;
+        if (event.ctrlKey || event.metaKey || mobileViewportRef.current) {
+          const wikiLinkEl = target?.closest(".editor-wiki-link");
+          if (wikiLinkEl) {
+            event.preventDefault();
+            event.stopPropagation();
+            const targetTitle = wikiLinkEl.getAttribute("data-wiki-link");
+            if (targetTitle && onNavigateWikiLinkRef.current) {
+              onNavigateWikiLinkRef.current(targetTitle);
+              return true;
+            }
+          }
+        }
+        if (event.ctrlKey || event.metaKey) {
+          const anchor = target?.closest("a");
+          if (anchor?.href) {
+            event.preventDefault();
+            event.stopPropagation();
+            window.open(anchor.href, "_blank", "noopener,noreferrer");
             return true;
           }
         }
-      }
-      if (event.ctrlKey || event.metaKey) {
-        const anchor = target?.closest("a");
-        if (anchor?.href) {
+        return false;
+      },
+      handlePaste: (view: Editor["view"], event: ClipboardEvent) => {
+        const imageFiles = Array.from(event.clipboardData?.files ?? []).filter(isImageFile);
+        if (imageFiles.length) {
           event.preventDefault();
-          event.stopPropagation();
-          window.open(anchor.href, "_blank", "noopener,noreferrer");
+          uploadImageFilesRef.current(imageFiles);
           return true;
         }
-      }
-      return false;
-    },
-    handlePaste: (view: Editor["view"], event: ClipboardEvent) => {
-      const imageFiles = Array.from(event.clipboardData?.files ?? []).filter(isImageFile);
-      if (imageFiles.length) {
+        const text = event.clipboardData?.getData("text/plain") ?? "";
+        if (pastePlainTextIntoCodeBlock(view, text)) {
+          event.preventDefault();
+          return true;
+        }
+        isPastingRef.current = true;
+        window.setTimeout(() => {
+          isPastingRef.current = false;
+        }, 200);
+        const html = event.clipboardData?.getData("text/html") ?? "";
+        if (!shouldParseMarkdownPaste(text, Boolean(html))) return false;
+        const markdownManager = editorInstanceRef.current?.markdown;
+        if (!markdownManager) return false;
+        try {
+          const parsedDocument = view.state.schema.nodeFromJSON(
+            markdownManager.parse(preserveEscapedHashtagsForEditor(text)),
+          );
+          const slice = parsedDocument.slice(0, parsedDocument.content.size);
+          view.dispatch(view.state.tr.replaceSelection(slice).setMeta("uiEvent", "paste"));
+          isPastingRef.current = false;
+          smoothScrollToHeadRef.current(view);
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      handleDrop: (_view: Editor["view"], event: DragEvent, _slice: unknown, moved: boolean) => {
+        if (moved) return false;
+        const imageFiles = Array.from(event.dataTransfer?.files ?? []).filter(isImageFile);
+        if (!imageFiles.length) return false;
         event.preventDefault();
         uploadImageFilesRef.current(imageFiles);
         return true;
-      }
-      const text = event.clipboardData?.getData("text/plain") ?? "";
-      if (pastePlainTextIntoCodeBlock(view, text)) {
-        event.preventDefault();
-        return true;
-      }
-      isPastingRef.current = true;
-      window.setTimeout(() => {
-        isPastingRef.current = false;
-      }, 200);
-      const html = event.clipboardData?.getData("text/html") ?? "";
-      if (!shouldParseMarkdownPaste(text, Boolean(html))) return false;
-      const markdownManager = editorInstanceRef.current?.markdown;
-      if (!markdownManager) return false;
-      try {
-        const parsedDocument = view.state.schema.nodeFromJSON(markdownManager.parse(preserveEscapedHashtagsForEditor(text)));
-        const slice = parsedDocument.slice(0, parsedDocument.content.size);
-        view.dispatch(view.state.tr.replaceSelection(slice).setMeta("uiEvent", "paste"));
-        isPastingRef.current = false;
-        smoothScrollToHeadRef.current(view);
-        return true;
-      } catch {
-        return false;
-      }
-    },
-    handleDrop: (_view: Editor["view"], event: DragEvent, _slice: unknown, moved: boolean) => {
-      if (moved) return false;
-      const imageFiles = Array.from(event.dataTransfer?.files ?? []).filter(isImageFile);
-      if (!imageFiles.length) return false;
-      event.preventDefault();
-      uploadImageFilesRef.current(imageFiles);
-      return true;
-    },
-    handleScrollToSelection: (view: Editor["view"]) => {
-      if (isPastingRef.current) {
-        isPastingRef.current = false;
-        smoothScrollToHeadRef.current(view);
-        return true;
-      }
-      if (typewriterModeRef.current) {
-        alignTypewriterRef.current(view);
-        return true;
-      }
-      if (mobileViewportRef.current) {
-        mobileCaretScrollRef.current();
-        return true;
-      }
-      return false;
-    },
-    handleKeyDown: (view: Editor["view"], event: KeyboardEvent) => {
-      if (event.isComposing || event.keyCode === 229 || event.key === "Process") {
-        composingRef.current = true;
-        if (!leakedCandidateRef.current) {
-          const { $from } = view.state.selection;
-          if ($from.parent.content.size === 0 || ($from.parentOffset === 0 && $from.parent.textContent.length === 0)) {
-            let key = "";
-            if (event.code && event.code.startsWith("Key")) {
-              key = event.code.slice(3).toLowerCase();
-            } else if (event.code && event.code.startsWith("Digit")) {
-              key = event.code.slice(5);
-            } else if (event.key && event.key.length === 1 && event.key !== "Process") {
-              key = event.key.toLowerCase();
-            }
-            leakedCandidateRef.current = {
-              key,
-              blockStartPos: $from.start(),
-              emptyAtStart: true,
-            };
-          }
+      },
+      handleScrollToSelection: (view: Editor["view"]) => {
+        if (isPastingRef.current) {
+          isPastingRef.current = false;
+          smoothScrollToHeadRef.current(view);
+          return true;
         }
-      }
-      return false;
-    },
-    handleTextInput: (view: Editor["view"], from: number, to: number, text: string) => {
-      if ((text !== " " && text !== "\u3000") || from !== to || composingRef.current || view.composing) return false;
-      const $from = view.state.doc.resolve(from);
-      if ($from.parent.type.name !== "paragraph") return false;
-      const textBefore = $from.parent.textBetween(0, $from.parentOffset, undefined, "\uFFFC");
-      const shortcut = parseMarkdownBlockShortcut(`${textBefore} `);
-      if (!shortcut) return false;
-      return executeBlockShortcut(view, from, shortcut);
-    },
-    handleDOMEvents: {
-      compositionstart: (view: Editor["view"]) => {
-        composingRef.current = true;
-        if (imeCleanupTimerRef.current !== null) {
-          clearTimeout(imeCleanupTimerRef.current);
-          imeCleanupTimerRef.current = null;
+        if (typewriterModeRef.current) {
+          alignTypewriterRef.current(view);
+          return true;
         }
-        const { $from } = view.state.selection;
-        const text = $from.parent.textContent;
-        if (!leakedCandidateRef.current) {
-          if ($from.parent.content.size === 0 || ($from.parentOffset === 0 && text.length === 0)) {
-            leakedCandidateRef.current = {
-              key: "",
-              blockStartPos: $from.start(),
-              emptyAtStart: true,
-            };
-          }
+        if (mobileViewportRef.current) {
+          mobileCaretScrollRef.current();
+          return true;
         }
         return false;
       },
-      compositionend: (view: Editor["view"], event: Event) => {
-        composingRef.current = false;
-        const candidate = leakedCandidateRef.current;
-        const committedText = (event as CompositionEvent).data;
-        if (imeCleanupTimerRef.current !== null) {
-          clearTimeout(imeCleanupTimerRef.current);
-          imeCleanupTimerRef.current = null;
-        }
-        if (candidate && candidate.emptyAtStart) {
-          imeCleanupTimerRef.current = setTimeout(() => {
-            imeCleanupTimerRef.current = null;
-            try {
-              if (!view || view.isDestroyed) return;
-              const { state, dispatch } = view;
-              const resolvedPos = Math.min(candidate.blockStartPos, state.doc.content.size);
-              const $pos = state.doc.resolve(resolvedPos);
-              const block = $pos.parent;
-              const blockStart = $pos.start();
-              const blockText = block.textContent;
-
-              const leakedLen = detectLeakedImePrefix(blockText, candidate.key || null, committedText);
-              if (leakedLen && leakedLen > 0) {
-                const deleteFrom = blockStart;
-                const deleteTo = blockStart + leakedLen;
-                const tr = state.tr.delete(deleteFrom, deleteTo);
-                dispatch(tr.scrollIntoView());
+      handleKeyDown: (view: Editor["view"], event: KeyboardEvent) => {
+        if (event.isComposing || event.keyCode === 229 || event.key === "Process") {
+          composingRef.current = true;
+          if (!leakedCandidateRef.current) {
+            const { $from } = view.state.selection;
+            if (
+              $from.parent.content.size === 0 ||
+              ($from.parentOffset === 0 && $from.parent.textContent.length === 0)
+            ) {
+              let key = "";
+              if (event.code && event.code.startsWith("Key")) {
+                key = event.code.slice(3).toLowerCase();
+              } else if (event.code && event.code.startsWith("Digit")) {
+                key = event.code.slice(5);
+              } else if (event.key && event.key.length === 1 && event.key !== "Process") {
+                key = event.key.toLowerCase();
               }
-            } finally {
-              leakedCandidateRef.current = null;
+              leakedCandidateRef.current = {
+                key,
+                blockStartPos: $from.start(),
+                emptyAtStart: true,
+              };
             }
-          }, 30);
-        } else {
-          leakedCandidateRef.current = null;
-        }
-        if (editorInstanceRef.current) {
-          surfaceSyncRef.current(editorInstanceRef.current);
-          if (typewriterModeRef.current) {
-            alignTypewriterRef.current(editorInstanceRef.current);
           }
         }
         return false;
       },
-      compositioncancel: () => {
-        composingRef.current = false;
-        leakedCandidateRef.current = null;
-        if (imeCleanupTimerRef.current !== null) {
-          clearTimeout(imeCleanupTimerRef.current);
-          imeCleanupTimerRef.current = null;
-        }
-        if (editorInstanceRef.current) {
-          surfaceSyncRef.current(editorInstanceRef.current);
-        }
-        return false;
+      handleTextInput: (view: Editor["view"], from: number, to: number, text: string) => {
+        if (
+          (text !== " " && text !== "\u3000") ||
+          from !== to ||
+          composingRef.current ||
+          view.composing
+        )
+          return false;
+        const $from = view.state.doc.resolve(from);
+        if ($from.parent.type.name !== "paragraph") return false;
+        const textBefore = $from.parent.textBetween(0, $from.parentOffset, undefined, "\uFFFC");
+        const shortcut = parseMarkdownBlockShortcut(`${textBefore} `);
+        if (!shortcut) return false;
+        return executeBlockShortcut(view, from, shortcut);
       },
-    },
-  }), []);
+      handleDOMEvents: {
+        compositionstart: (view: Editor["view"]) => {
+          composingRef.current = true;
+          if (imeCleanupTimerRef.current !== null) {
+            clearTimeout(imeCleanupTimerRef.current);
+            imeCleanupTimerRef.current = null;
+          }
+          const { $from } = view.state.selection;
+          const text = $from.parent.textContent;
+          if (!leakedCandidateRef.current) {
+            if (
+              $from.parent.content.size === 0 ||
+              ($from.parentOffset === 0 && text.length === 0)
+            ) {
+              leakedCandidateRef.current = {
+                key: "",
+                blockStartPos: $from.start(),
+                emptyAtStart: true,
+              };
+            }
+          }
+          return false;
+        },
+        compositionend: (view: Editor["view"], event: Event) => {
+          composingRef.current = false;
+          const candidate = leakedCandidateRef.current;
+          const committedText = (event as CompositionEvent).data;
+          if (imeCleanupTimerRef.current !== null) {
+            clearTimeout(imeCleanupTimerRef.current);
+            imeCleanupTimerRef.current = null;
+          }
+          if (candidate && candidate.emptyAtStart) {
+            imeCleanupTimerRef.current = setTimeout(() => {
+              imeCleanupTimerRef.current = null;
+              try {
+                if (!view || view.isDestroyed) return;
+                const { state, dispatch } = view;
+                const resolvedPos = Math.min(candidate.blockStartPos, state.doc.content.size);
+                const $pos = state.doc.resolve(resolvedPos);
+                const block = $pos.parent;
+                const blockStart = $pos.start();
+                const blockText = block.textContent;
+
+                const leakedLen = detectLeakedImePrefix(
+                  blockText,
+                  candidate.key || null,
+                  committedText,
+                );
+                if (leakedLen && leakedLen > 0) {
+                  const deleteFrom = blockStart;
+                  const deleteTo = blockStart + leakedLen;
+                  const tr = state.tr.delete(deleteFrom, deleteTo);
+                  dispatch(tr.scrollIntoView());
+                }
+              } finally {
+                leakedCandidateRef.current = null;
+              }
+            }, 30);
+          } else {
+            leakedCandidateRef.current = null;
+          }
+          if (editorInstanceRef.current) {
+            surfaceSyncRef.current(editorInstanceRef.current);
+            if (typewriterModeRef.current) {
+              alignTypewriterRef.current(editorInstanceRef.current);
+            }
+          }
+          return false;
+        },
+        compositioncancel: () => {
+          composingRef.current = false;
+          leakedCandidateRef.current = null;
+          if (imeCleanupTimerRef.current !== null) {
+            clearTimeout(imeCleanupTimerRef.current);
+            imeCleanupTimerRef.current = null;
+          }
+          if (editorInstanceRef.current) {
+            surfaceSyncRef.current(editorInstanceRef.current);
+          }
+          return false;
+        },
+      },
+    }),
+    [],
+  );
   surfaceSyncRef.current = scheduleEditorSurfaceSync;
 
   const flushMarkdownChange = useCallback((source?: Editor) => {
@@ -845,29 +1089,38 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
     onChangeRef.current({ contentMarkdown: instance.getMarkdown() });
   }, []);
 
-  const scheduleMarkdownChange = useCallback((instance: Editor) => {
-    const wasDirty = markdownDirtyRef.current;
-    markdownDirtyRef.current = true;
-    const noteId = markdownOwnerRef.current.noteId;
-    if (!wasDirty) onMarkdownDirtyChangeRef.current?.(noteId, true);
-    const currentReloadToken = markdownOwnerRef.current.reloadToken;
-    const now = performance.now();
-    const startedAt = markdownSyncStartedAtRef.current ?? now;
-    markdownSyncStartedAtRef.current = startedAt;
-    if (markdownSyncFrameRef.current !== null) window.clearTimeout(markdownSyncFrameRef.current);
-    const wait = Math.min(EDITOR_SYNC_DEBOUNCE_MS, Math.max(0, startedAt + EDITOR_SYNC_MAX_WAIT_MS - now));
-    markdownSyncFrameRef.current = window.setTimeout(() => {
-      markdownSyncFrameRef.current = null;
-      markdownSyncStartedAtRef.current = null;
-      if (instance.isDestroyed || !markdownDirtyRef.current) return;
-      if (noteId !== markdownOwnerRef.current.noteId || currentReloadToken !== markdownOwnerRef.current.reloadToken) {
-        markdownDirtyRef.current = false;
-        onMarkdownDirtyChangeRef.current?.(noteId, false);
-        return;
-      }
-      flushMarkdownChange(instance);
-    }, wait);
-  }, [flushMarkdownChange]);
+  const scheduleMarkdownChange = useCallback(
+    (instance: Editor) => {
+      const wasDirty = markdownDirtyRef.current;
+      markdownDirtyRef.current = true;
+      const noteId = markdownOwnerRef.current.noteId;
+      if (!wasDirty) onMarkdownDirtyChangeRef.current?.(noteId, true);
+      const currentReloadToken = markdownOwnerRef.current.reloadToken;
+      const now = performance.now();
+      const startedAt = markdownSyncStartedAtRef.current ?? now;
+      markdownSyncStartedAtRef.current = startedAt;
+      if (markdownSyncFrameRef.current !== null) window.clearTimeout(markdownSyncFrameRef.current);
+      const wait = Math.min(
+        EDITOR_SYNC_DEBOUNCE_MS,
+        Math.max(0, startedAt + EDITOR_SYNC_MAX_WAIT_MS - now),
+      );
+      markdownSyncFrameRef.current = window.setTimeout(() => {
+        markdownSyncFrameRef.current = null;
+        markdownSyncStartedAtRef.current = null;
+        if (instance.isDestroyed || !markdownDirtyRef.current) return;
+        if (
+          noteId !== markdownOwnerRef.current.noteId ||
+          currentReloadToken !== markdownOwnerRef.current.reloadToken
+        ) {
+          markdownDirtyRef.current = false;
+          onMarkdownDirtyChangeRef.current?.(noteId, false);
+          return;
+        }
+        flushMarkdownChange(instance);
+      }, wait);
+    },
+    [flushMarkdownChange],
+  );
 
   const editor = useEditor({
     editable: !note.deletedAt && !isLoading && !trashBusy,
@@ -885,7 +1138,12 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
       surfaceSyncRef.current(instance, transactionMayChangeOutline(transaction), transaction);
     },
   });
-  mobileCaretScrollRef.current = useMobileCaret(editor, editorScrollRef, titleInputRef, isMobileViewport);
+  mobileCaretScrollRef.current = useMobileCaret(
+    editor,
+    editorScrollRef,
+    titleInputRef,
+    isMobileViewport,
+  );
 
   const handleSaveNow = useCallback(() => {
     flushMarkdownChange();
@@ -894,54 +1152,73 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
 
   const syncSearchNavigation = useCallback((instance: Editor) => {
     const state = searchHighlightPluginKey.getState(instance.state);
-    const next = { activeIndex: state?.activeIndex ?? 0, matchCount: state?.matches.length ?? 0, totalMatchCount: state?.totalMatchCount ?? 0 };
-    setSearchNavigation((current) => current.activeIndex === next.activeIndex && current.matchCount === next.matchCount && current.totalMatchCount === next.totalMatchCount ? current : next);
+    const next = {
+      activeIndex: state?.activeIndex ?? 0,
+      matchCount: state?.matches.length ?? 0,
+      totalMatchCount: state?.totalMatchCount ?? 0,
+    };
+    setSearchNavigation((current) =>
+      current.activeIndex === next.activeIndex &&
+      current.matchCount === next.matchCount &&
+      current.totalMatchCount === next.totalMatchCount
+        ? current
+        : next,
+    );
   }, []);
 
-  const syncActiveOutlineFromSelection = useCallback((instance: Editor) => {
-    const root = editorScrollRef.current;
-    const items = outlineItemsRef.current;
-    if (!root || items.length === 0) return false;
+  const syncActiveOutlineFromSelection = useCallback(
+    (instance: Editor) => {
+      const root = editorScrollRef.current;
+      const items = outlineItemsRef.current;
+      if (!root || items.length === 0) return false;
 
-    const { $from } = instance.state.selection;
-    let previousHeadingElement: HTMLElement | null = null;
-    let previousHeadingIndex = -1;
-    for (let depth = $from.depth; depth > 0; depth -= 1) {
-      if ($from.node(depth).type.name !== "heading") continue;
-      const headingDom = instance.view.nodeDOM($from.before(depth));
-      const headingElement = headingDom instanceof HTMLElement ? headingDom.closest<HTMLElement>(OUTLINE_HEADING_SELECTOR) : null;
-      if (headingElement?.textContent?.trim()) previousHeadingElement = headingElement;
-      break;
-    }
-    if (!previousHeadingElement) {
-      let low = 0;
-      let high = items.length - 1;
-      try {
-        while (low <= high) {
-          const middle = Math.floor((low + high) / 2);
-          const element = outlineHeadingElementsRef.current.get(items[middle].id);
-          if (!element || !root.contains(element)) return false;
-          if (instance.view.posAtDOM(element, 0) <= $from.pos) {
-            previousHeadingElement = element;
-            previousHeadingIndex = middle;
-            low = middle + 1;
-          } else {
-            high = middle - 1;
-          }
-        }
-      } catch {
-        return false;
+      const { $from } = instance.state.selection;
+      let previousHeadingElement: HTMLElement | null = null;
+      let previousHeadingIndex = -1;
+      for (let depth = $from.depth; depth > 0; depth -= 1) {
+        if ($from.node(depth).type.name !== "heading") continue;
+        const headingDom = instance.view.nodeDOM($from.before(depth));
+        const headingElement =
+          headingDom instanceof HTMLElement
+            ? headingDom.closest<HTMLElement>(OUTLINE_HEADING_SELECTOR)
+            : null;
+        if (headingElement?.textContent?.trim()) previousHeadingElement = headingElement;
+        break;
       }
-    }
-    if (!previousHeadingElement || !root.contains(previousHeadingElement)) return false;
-    const item = previousHeadingIndex >= 0
-      ? items[previousHeadingIndex]
-      : items.find((candidate) => outlineHeadingElementsRef.current.get(candidate.id) === previousHeadingElement)
-        ?? items[getOutlineHeadingElements(root).indexOf(previousHeadingElement)];
-    if (!item) return false;
-    onOutlineActiveChange(item.id);
-    return true;
-  }, [onOutlineActiveChange]);
+      if (!previousHeadingElement) {
+        let low = 0;
+        let high = items.length - 1;
+        try {
+          while (low <= high) {
+            const middle = Math.floor((low + high) / 2);
+            const element = outlineHeadingElementsRef.current.get(items[middle].id);
+            if (!element || !root.contains(element)) return false;
+            if (instance.view.posAtDOM(element, 0) <= $from.pos) {
+              previousHeadingElement = element;
+              previousHeadingIndex = middle;
+              low = middle + 1;
+            } else {
+              high = middle - 1;
+            }
+          }
+        } catch {
+          return false;
+        }
+      }
+      if (!previousHeadingElement || !root.contains(previousHeadingElement)) return false;
+      const item =
+        previousHeadingIndex >= 0
+          ? items[previousHeadingIndex]
+          : (items.find(
+              (candidate) =>
+                outlineHeadingElementsRef.current.get(candidate.id) === previousHeadingElement,
+            ) ?? items[getOutlineHeadingElements(root).indexOf(previousHeadingElement)]);
+      if (!item) return false;
+      onOutlineActiveChange(item.id);
+      return true;
+    },
+    [onOutlineActiveChange],
+  );
 
   useEffect(() => {
     editorInstanceRef.current = editor;
@@ -952,7 +1229,10 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
 
   useEffect(() => {
     if (!editor) return;
-    const readCurrentMarkdown = () => editor.isDestroyed || !markdownDirtyRef.current ? null : (editor as EditorWithMarkdown).getMarkdown();
+    const readCurrentMarkdown = () =>
+      editor.isDestroyed || !markdownDirtyRef.current
+        ? null
+        : (editor as EditorWithMarkdown).getMarkdown();
     onMarkdownReaderChange?.(readCurrentMarkdown);
     return () => onMarkdownReaderChange?.(null);
   }, [editor, onMarkdownReaderChange]);
@@ -1019,13 +1299,16 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
     }
   }, [note.id]);
 
-  useEffect(() => () => {
-    if (typewriterAnimRef.current !== null) {
-      cancelAnimationFrame(typewriterAnimRef.current);
-      typewriterAnimRef.current = null;
-      typewriterTargetRef.current = null;
-    }
-  }, []);
+  useEffect(
+    () => () => {
+      if (typewriterAnimRef.current !== null) {
+        cancelAnimationFrame(typewriterAnimRef.current);
+        typewriterAnimRef.current = null;
+        typewriterTargetRef.current = null;
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!editor) return;
@@ -1096,48 +1379,91 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
     editorScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
     if (switchedNote) {
       const doc = documentRef.current;
-      if (doc && !doc.closest(".app-shell.layout-cards")) enteringAnimation = playEntranceAnimation(doc, "note-fade-in");
+      if (doc && !doc.closest(".app-shell.layout-cards"))
+        enteringAnimation = playEntranceAnimation(doc, "note-fade-in");
     }
     scheduleEditorSurfaceSync(editor);
     return () => {
       onMarkdownDirtyChangeRef.current?.(note.id, false);
       enteringAnimation?.cancel();
     };
-  }, [cancelOutlineSmoothScroll, contentMarkdown, editor, note.id, onCloseOutline, onOutlineActiveChange, onOutlineItemsChange, onOutlineNavigationReady, reloadToken]);
+  }, [
+    cancelOutlineSmoothScroll,
+    contentMarkdown,
+    editor,
+    note.id,
+    onCloseOutline,
+    onOutlineActiveChange,
+    onOutlineItemsChange,
+    onOutlineNavigationReady,
+    reloadToken,
+  ]);
 
   useEffect(() => {
     if (!editor || !focusRequested || isLoading || note.deletedAt) return;
-    if (isMobileViewport) { onFocusHandled?.(); return; }
+    if (isMobileViewport) {
+      onFocusHandled?.();
+      return;
+    }
     // Apply focus after the new note's content and editable state are ready.
     if (editor.commands.focus("start")) onFocusHandled?.();
-  }, [editor, focusRequested, isLoading, isMobileViewport, note.id, note.deletedAt, onFocusHandled]);
+  }, [
+    editor,
+    focusRequested,
+    isLoading,
+    isMobileViewport,
+    note.id,
+    note.deletedAt,
+    onFocusHandled,
+  ]);
 
   const scrollToActiveSearchMatch = useCallback(() => {
     if (!editor || editor.isDestroyed) return;
-    const behavior: ScrollBehavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
-    editor.view.dom.querySelector<HTMLElement>(".editor-search-match--active")?.scrollIntoView({ behavior, block: "center", inline: "nearest" });
+    const behavior: ScrollBehavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      ? "auto"
+      : "smooth";
+    editor.view.dom
+      .querySelector<HTMLElement>(".editor-search-match--active")
+      ?.scrollIntoView({ behavior, block: "center", inline: "nearest" });
   }, [editor]);
 
-  const moveSearchMatch = useCallback((direction: -1 | 1) => {
-    if (!editor || isLoading || !searchQueryRef.current.trim()) return;
-    const state = searchHighlightPluginKey.getState(editor.state);
-    if (!state?.matches.length) return;
-    const nextIndex = cycleSearchMatchIndex(state.activeIndex, state.matches.length, direction);
-    editor.view.dispatch(editor.state.tr.setMeta(searchHighlightPluginKey, { type: "activeIndex", index: nextIndex }));
-    requestAnimationFrame(scrollToActiveSearchMatch);
-  }, [editor, isLoading, scrollToActiveSearchMatch]);
+  const moveSearchMatch = useCallback(
+    (direction: -1 | 1) => {
+      if (!editor || isLoading || !searchQueryRef.current.trim()) return;
+      const state = searchHighlightPluginKey.getState(editor.state);
+      if (!state?.matches.length) return;
+      const nextIndex = cycleSearchMatchIndex(state.activeIndex, state.matches.length, direction);
+      editor.view.dispatch(
+        editor.state.tr.setMeta(searchHighlightPluginKey, {
+          type: "activeIndex",
+          index: nextIndex,
+        }),
+      );
+      requestAnimationFrame(scrollToActiveSearchMatch);
+    },
+    [editor, isLoading, scrollToActiveSearchMatch],
+  );
 
   useEffect(() => {
     if (!editor || isLoading) return;
     const trimmedQuery = searchQuery.trim();
     const titleMatches = findTextMatches(note.title, trimmedQuery);
-    editor.view.dispatch(editor.state.tr.setMeta(searchHighlightPluginKey, { type: "query", query: trimmedQuery, activeIndex: 0 }));
+    editor.view.dispatch(
+      editor.state.tr.setMeta(searchHighlightPluginKey, {
+        type: "query",
+        query: trimmedQuery,
+        activeIndex: 0,
+      }),
+    );
     syncSearchNavigation(editor);
-    const hasBodyMatches = (searchHighlightPluginKey.getState(editor.state)?.totalMatchCount ?? 0) > 0;
+    const hasBodyMatches =
+      (searchHighlightPluginKey.getState(editor.state)?.totalMatchCount ?? 0) > 0;
 
     const frame = requestAnimationFrame(() => {
       if (editor.isDestroyed) return;
-      const behavior: ScrollBehavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+      const behavior: ScrollBehavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "auto"
+        : "smooth";
       if (titleMatches.length > 0) {
         editorScrollRef.current?.scrollTo({ top: 0, behavior });
         const titleInput = titleInputRef.current;
@@ -1148,10 +1474,20 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
         return;
       }
       if (!hasBodyMatches) return;
-      editor.view.dom.querySelector<HTMLElement>(".editor-search-match--active")?.scrollIntoView({ behavior, block: "center", inline: "nearest" });
+      editor.view.dom
+        .querySelector<HTMLElement>(".editor-search-match--active")
+        ?.scrollIntoView({ behavior, block: "center", inline: "nearest" });
     });
     return () => cancelAnimationFrame(frame);
-  }, [editor, isLoading, isMobileViewport, note.id, reloadToken, searchQuery, syncSearchNavigation]);
+  }, [
+    editor,
+    isLoading,
+    isMobileViewport,
+    note.id,
+    reloadToken,
+    searchQuery,
+    syncSearchNavigation,
+  ]);
 
   useEffect(() => {
     const handleSearchKeyDown = (event: KeyboardEvent) => {
@@ -1159,7 +1495,8 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
       if (event.target instanceof Element && event.target.closest("dialog[open]")) return;
       if (event.key === "F3") {
         if (event.defaultPrevented) return;
-        if (!searchQueryRef.current.trim() || searchNavigationRef.current.totalMatchCount === 0) return;
+        if (!searchQueryRef.current.trim() || searchNavigationRef.current.totalMatchCount === 0)
+          return;
         event.preventDefault();
         moveSearchMatch(event.shiftKey ? -1 : 1);
       } else if (event.key === "Escape") {
@@ -1174,7 +1511,6 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
     window.addEventListener("keydown", handleSearchKeyDown);
     return () => window.removeEventListener("keydown", handleSearchKeyDown);
   }, [moveSearchMatch, onClearSearch]);
-
 
   useEffect(() => {
     if (isLoading) onCloseOutline();
@@ -1194,7 +1530,8 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
       const headings = new Map<string, HTMLElement>();
       for (const [index, item] of outlineItemsRef.current.entries()) {
         const mappedElement = outlineHeadingElementsRef.current.get(item.id);
-        const element = mappedElement && root.contains(mappedElement) ? mappedElement : domHeadings[index];
+        const element =
+          mappedElement && root.contains(mappedElement) ? mappedElement : domHeadings[index];
         if (element) {
           headings.set(item.id, element);
           if (mappedElement !== element) outlineHeadingElementsRef.current.set(item.id, element);
@@ -1205,7 +1542,13 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
     const updateActiveHeading = () => {
       if (programmaticOutlineScrollIdRef.current) return;
       const editorFocused = Boolean(editor && !editor.isDestroyed && editor.view.hasFocus());
-      if (!shouldUpdateActiveOutlineFromViewport(editorFocused, outlineSelectionSynchronizedRef.current)) return;
+      if (
+        !shouldUpdateActiveOutlineFromViewport(
+          editorFocused,
+          outlineSelectionSynchronizedRef.current,
+        )
+      )
+        return;
       const currentHeadings = getCurrentHeadings();
       const rootTop = root.getBoundingClientRect().top;
       const activationLine = rootTop + 32;
@@ -1234,16 +1577,24 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
 
     const handleUserScroll = (event?: Event) => {
       cancelOutlineSmoothScroll();
-      if (event?.type === "pointerdown" && event.target instanceof Element && event.target.closest("h1, h2, h3, h4, h5, h6")) return;
+      if (
+        event?.type === "pointerdown" &&
+        event.target instanceof Element &&
+        event.target.closest("h1, h2, h3, h4, h5, h6")
+      )
+        return;
       outlineSelectionSynchronizedRef.current = false;
       scheduleActiveHeading();
     };
 
-    const observer = typeof IntersectionObserver === "undefined" ? null : new IntersectionObserver(scheduleActiveHeading, {
-      root,
-      rootMargin: "-12% 0px -68% 0px",
-      threshold: [0, 1],
-    });
+    const observer =
+      typeof IntersectionObserver === "undefined"
+        ? null
+        : new IntersectionObserver(scheduleActiveHeading, {
+            root,
+            rootMargin: "-12% 0px -68% 0px",
+            threshold: [0, 1],
+          });
     for (const element of getCurrentHeadings().values()) {
       observer?.observe(element);
     }
@@ -1259,171 +1610,438 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
       root.removeEventListener("touchstart", handleUserScroll);
       root.removeEventListener("pointerdown", handleUserScroll);
       if (activeFrame !== null) cancelAnimationFrame(activeFrame);
-      if (outlineFallbackSyncRef.current === scheduleActiveHeading) outlineFallbackSyncRef.current = null;
+      if (outlineFallbackSyncRef.current === scheduleActiveHeading)
+        outlineFallbackSyncRef.current = null;
       cancelOutlineSmoothScroll();
     };
   }, [cancelOutlineSmoothScroll, editor, onOutlineActiveChange, outlineStructureKey]);
 
-  const scrollToOutlineItem = useCallback((id: string) => {
-    const scrollRoot = editorScrollRef.current;
-    if (!scrollRoot) return;
+  const scrollToOutlineItem = useCallback(
+    (id: string) => {
+      const scrollRoot = editorScrollRef.current;
+      if (!scrollRoot) return;
 
-    const mappedElement = outlineHeadingElementsRef.current.get(id);
-    const element = mappedElement && scrollRoot.contains(mappedElement)
-      ? mappedElement
-      : getOutlineHeadingElements(scrollRoot)[outlineItems.findIndex((item) => item.id === id)];
-    if (!element) return;
+      const mappedElement = outlineHeadingElementsRef.current.get(id);
+      const element =
+        mappedElement && scrollRoot.contains(mappedElement)
+          ? mappedElement
+          : getOutlineHeadingElements(scrollRoot)[outlineItems.findIndex((item) => item.id === id)];
+      if (!element) return;
 
-    cancelOutlineSmoothScroll();
+      cancelOutlineSmoothScroll();
 
-    const rootRect = scrollRoot.getBoundingClientRect();
-    const elementRect = element.getBoundingClientRect();
-    const maxScrollTop = Math.max(0, scrollRoot.scrollHeight - scrollRoot.clientHeight);
-    const targetTop = Math.min(maxScrollTop, Math.max(0, scrollRoot.scrollTop + elementRect.top - rootRect.top - 24));
+      const rootRect = scrollRoot.getBoundingClientRect();
+      const elementRect = element.getBoundingClientRect();
+      const maxScrollTop = Math.max(0, scrollRoot.scrollHeight - scrollRoot.clientHeight);
+      const targetTop = Math.min(
+        maxScrollTop,
+        Math.max(0, scrollRoot.scrollTop + elementRect.top - rootRect.top - 24),
+      );
 
-    onOutlineActiveChange(id);
-    programmaticOutlineScrollIdRef.current = id;
+      onOutlineActiveChange(id);
+      programmaticOutlineScrollIdRef.current = id;
 
-    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const startTop = scrollRoot.scrollTop;
-    const distance = targetTop - startTop;
+      const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const startTop = scrollRoot.scrollTop;
+      const distance = targetTop - startTop;
 
-    if (prefersReducedMotion || Math.abs(distance) < 2) {
-      scrollRoot.scrollTop = targetTop;
-      programmaticOutlineScrollIdRef.current = null;
-      return;
-    }
-
-    // 参照搜索导航的平滑过渡动画，并针对大纲跳转场景进行速度加快与敏捷调校（160ms ~ 240ms），
-    // 配合 quartic ease-out 缓动曲线，比浏览器原生固定约 400~600ms 的平滑滚动更加轻快且视觉连贯。
-    const duration = Math.min(240, Math.max(160, Math.round(Math.abs(distance) * 0.08 + 140)));
-    const startTime = performance.now();
-    const easeOutQuart = (t: number) => 1 - Math.pow(1 - t, 4);
-
-    const step = (now: number) => {
-      const elapsed = now - startTime;
-      const progress = Math.min(1, elapsed / duration);
-      const eased = easeOutQuart(progress);
-      scrollRoot.scrollTop = Math.round(startTop + distance * eased);
-
-      if (progress < 1) {
-        outlineScrollAnimRef.current = requestAnimationFrame(step);
-      } else {
+      if (prefersReducedMotion || Math.abs(distance) < 2) {
         scrollRoot.scrollTop = targetTop;
-        outlineScrollAnimRef.current = null;
         programmaticOutlineScrollIdRef.current = null;
+        return;
       }
-    };
 
-    outlineScrollAnimRef.current = requestAnimationFrame(step);
-  }, [cancelOutlineSmoothScroll, onOutlineActiveChange, outlineItems]);
+      // 参照搜索导航的平滑过渡动画，并针对大纲跳转场景进行速度加快与敏捷调校（160ms ~ 240ms），
+      // 配合 quartic ease-out 缓动曲线，比浏览器原生固定约 400~600ms 的平滑滚动更加轻快且视觉连贯。
+      const duration = Math.min(240, Math.max(160, Math.round(Math.abs(distance) * 0.08 + 140)));
+      const startTime = performance.now();
+      const easeOutQuart = (t: number) => 1 - Math.pow(1 - t, 4);
+
+      const step = (now: number) => {
+        const elapsed = now - startTime;
+        const progress = Math.min(1, elapsed / duration);
+        const eased = easeOutQuart(progress);
+        scrollRoot.scrollTop = Math.round(startTop + distance * eased);
+
+        if (progress < 1) {
+          outlineScrollAnimRef.current = requestAnimationFrame(step);
+        } else {
+          scrollRoot.scrollTop = targetTop;
+          outlineScrollAnimRef.current = null;
+          programmaticOutlineScrollIdRef.current = null;
+        }
+      };
+
+      outlineScrollAnimRef.current = requestAnimationFrame(step);
+    },
+    [cancelOutlineSmoothScroll, onOutlineActiveChange, outlineItems],
+  );
 
   useEffect(() => {
     onOutlineNavigationReady(scrollToOutlineItem);
     return () => onOutlineNavigationReady(null);
   }, [onOutlineNavigationReady, scrollToOutlineItem]);
 
-  const saveLabel = saveState === "saving" ? "保存中" : saveState === "conflict" ? "检测到版本冲突，点击重新载入" : saveState === "error" ? "保存失败，点击重试" : "已保存";
-  const contextMenu = useEditorContextMenu({ editor, noteId: note.id, locked: editorLocked, deleted: Boolean(note.deletedAt), onTitleChange: (title) => onChange({ title }), noteActions: [
-    { label: "导出图片", icon: ImageDown, disabled: editorLocked, onSelect: onExportImage },
-    ...(note.deletedAt ? [{ label: "恢复笔记", icon: Undo2, disabled: editorLocked, onSelect: onRestore }]
-      : [{ label: note.isFavorite ? "取消收藏" : "收藏笔记", icon: Star, disabled: editorLocked, onSelect: onToggleFavorite }, { label: "移入回收站", icon: Trash2, separator: true, danger: true, disabled: editorLocked, onSelect: onMoveToTrash }]),
-  ] });
+  const saveLabel =
+    saveState === "saving"
+      ? "保存中"
+      : saveState === "conflict"
+        ? "检测到版本冲突，点击重新载入"
+        : saveState === "error"
+          ? "保存失败，点击重试"
+          : "已保存";
+  const contextMenu = useEditorContextMenu({
+    editor,
+    noteId: note.id,
+    locked: editorLocked,
+    deleted: Boolean(note.deletedAt),
+    onTitleChange: (title) => onChange({ title }),
+    noteActions: [
+      { label: "导出图片", icon: ImageDown, disabled: editorLocked, onSelect: onExportImage },
+      ...(note.deletedAt
+        ? [{ label: "恢复笔记", icon: Undo2, disabled: editorLocked, onSelect: onRestore }]
+        : [
+            {
+              label: note.isFavorite ? "取消收藏" : "收藏笔记",
+              icon: Star,
+              disabled: editorLocked,
+              onSelect: onToggleFavorite,
+            },
+            {
+              label: "移入回收站",
+              icon: Trash2,
+              separator: true,
+              danger: true,
+              disabled: editorLocked,
+              onSelect: onMoveToTrash,
+            },
+          ]),
+    ],
+  });
   return (
-    <section className={`editor-panel ${deferredLoading ? "is-loading" : ""} ${focusMode ? "is-focus-mode" : ""} ${isMobileViewport ? "is-mobile-editor" : ""}`} aria-label="笔记编辑器" aria-busy={editorLocked} onContextMenu={contextMenu.onContextMenu} onKeyDown={(event) => {
-      if (event.nativeEvent.isComposing || event.keyCode === 229) return;
-      if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
-        const target = event.target;
-        if (target instanceof HTMLElement && !target.closest("dialog, [role='menu']")) {
-          const rect = target.getBoundingClientRect();
-          if (!target.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: rect.left + 12, clientY: rect.top + 12 }))) event.preventDefault();
-        }
-      }
-      if ((event.ctrlKey || event.metaKey) && event.key === "s") { event.preventDefault(); handleSaveNow(); }
-    }}>
-      {isMobileViewport ? <MobileEditorHeader
-        noteId={note.id} title={note.title.trim() || "未命名笔记"} backLabel={mobileBackLabel}
-        locked={editorLocked} trashBusy={trashBusy} deleted={Boolean(note.deletedAt)} favorite={note.isFavorite}
-        backlinkCount={backlinkCount} onBack={onOpenList} canUpload={Boolean(onUploadImage) && !note.deletedAt && imageUploadState !== "uploading"} onUpload={() => imageFileInputRef.current?.click()} onExport={onExportImage} onFavorite={onToggleFavorite}
-        onBacklinks={onNavigateToNote ? () => setBacklinksOpen(true) : undefined}
-        onTrash={onMoveToTrash} onRestore={onRestore} onPermanentDelete={onPermanentDelete}
-        status={<>
-          {saveState === "error" ? <button className="save-status save-status--error save-status--icon" type="button" aria-label="重试保存" onClick={handleSaveNow}><SaveStatusIcon state="error" /></button>
-            : saveState === "conflict" ? <button className="save-status save-status--conflict save-status--icon" type="button" aria-label="重新载入最新版本" onClick={onReloadNote}><SaveStatusIcon state="conflict" /></button>
-              : <span className={`save-status save-status--${saveState} save-status--icon`} role="status" aria-label={saveState === "idle" ? "待保存" : saveLabel}>{saveState !== "idle" && <SaveStatusIcon state={saveState} />}</span>}
-          <span className={`save-status save-status--${imageUploadState === "uploading" ? "saving" : "error"} save-status--icon mobile-upload-status`} role="status" aria-label={imageUploadState === "uploading" ? "正在上传图片" : imageUploadState === "error" ? "图片上传失败" : undefined}>{imageUploadState !== "idle" && <SaveStatusIcon state={imageUploadState === "uploading" ? "saving" : "error"} />}</span>
-        </>}
-      /> : <header className="editor-header">
-        <div className="editor-header-start">
-          {onBackToCards && !focusMode && (
-            <button
-              className="icon-button editor-back-cards"
-              type="button"
-              aria-label="返回卡片视图"
-              onClick={onBackToCards}
-              disabled={editorLocked}
-            >
-              <LayoutGrid size={18} strokeWidth={1.8} />
-            </button>
-          )}
-          {onOpenList && !focusMode && <button className="icon-button mobile-only editor-back" type="button" aria-label="返回笔记列表" onClick={onOpenList} disabled={editorLocked}><ChevronLeft size={20} /></button>}
-          <div className="editor-meta" aria-label={`最后编辑于${relativeDate(note.updatedAt)}`}>
-            <span>最后编辑于 {relativeDate(note.updatedAt)}</span>
-          </div>
-        </div>
-        <div className="editor-header-title" aria-label={`当前文档：${note.title.trim() || "未命名笔记"}`}>
-          {note.title.trim() || "未命名笔记"}
-        </div>
-        <div className="editor-actions">
-          {saveState === "error" ? (
-            <button className="save-status save-status--error save-status--action save-status--icon" type="button" aria-label="重试保存" onClick={handleSaveNow}><SaveStatusIcon state="error" /></button>
-          ) : saveState === "conflict" ? (
-            <button className="save-status save-status--conflict save-status--action save-status--icon" type="button" aria-label="重新载入最新版本" onClick={onReloadNote}><SaveStatusIcon state="conflict" /></button>
-          ) : saveState === "idle" ? null : (
-            <span className={`save-status save-status--${saveState} save-status--icon`} role="status" aria-label={saveLabel} aria-live="polite"><SaveStatusIcon state={saveState} /></span>
-          )}
-          {onUploadImage && !note.deletedAt && <input ref={imageFileInputRef} className="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple tabIndex={-1} aria-label="选择要上传的图片文件" onChange={(event) => { uploadImageFilesRef.current(Array.from(event.target.files ?? [])); event.target.value = ""; }} />}
-          {imageUploadState === "uploading" && <span className="save-status save-status--saving save-status--icon" role="status" aria-label="正在上传图片" aria-live="polite"><SaveStatusIcon state="saving" /></span>}
-          {imageUploadState === "error" && <span className="save-status save-status--error save-status--icon" role="alert" aria-label="图片上传失败"><SaveStatusIcon state="error" /></span>}
-          {!note.deletedAt && onNavigateToNote && (
-            <button
-              className={`icon-button ${backlinksOpen ? "is-active" : ""}`}
-              type="button"
-              aria-label={`反向链接${backlinkCount > 0 ? ` (${backlinkCount})` : ""}`}
-              onClick={() => setBacklinksOpen(true)}
-              disabled={editorLocked}
-            >
-              <ArrowLeftRight size={18} strokeWidth={1.8} />
-              {backlinkCount > 0 && <span className="icon-badge">{backlinkCount}</span>}
-            </button>
-          )}
-          <button className="icon-button" type="button" aria-label="导出图片" onClick={onExportImage} disabled={editorLocked}><ImageDown size={19} aria-hidden="true" /></button>
-          <button className={`icon-button favorite-toggle ${note.isFavorite ? "is-active" : ""}`} type="button" aria-label={note.isFavorite ? "取消收藏" : "收藏笔记"} aria-pressed={note.isFavorite} onClick={onToggleFavorite} disabled={editorLocked}><Star size={19} strokeWidth={1.8} fill={note.isFavorite ? "currentColor" : "none"} aria-hidden="true" /></button>
-          {note.deletedAt ? <>
-            <button className="icon-button" type="button" aria-label="恢复笔记" onClick={onRestore} disabled={editorLocked || trashBusy}><Undo2 size={18} strokeWidth={1.8} /></button>
-            {onPermanentDelete && <button className="icon-button danger-button" type="button" aria-label="彻底删除" onClick={onPermanentDelete} disabled={editorLocked || trashBusy}><Trash2 size={18} strokeWidth={1.8} /></button>}
-          </> : <button className="icon-button" type="button" aria-label="移入回收站" onClick={onMoveToTrash} disabled={editorLocked || trashBusy}><Trash2 size={18} strokeWidth={1.8} /></button>}
-        </div>
-      </header>}
-      {isMobileViewport && onUploadImage && !note.deletedAt && <input ref={imageFileInputRef} className="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple tabIndex={-1} aria-label="选择要上传的图片文件" onChange={(event) => { uploadImageFilesRef.current(Array.from(event.target.files ?? [])); event.target.value = ""; }} />}
-      <div className={`editor-scroll-shell${editorScrollEdges.before ? " has-scroll-before" : ""}${editorScrollEdges.after ? " has-scroll-after" : ""}`}>
-        <div id="editor-scroll-region" className={`editor-scroll floating-scrollbar-target ${typewriterMode ? "is-typewriter-mode" : ""}`} ref={editorScrollRef} onKeyDownCapture={(event) => {
+    <section
+      className={`editor-panel ${deferredLoading ? "is-loading" : ""} ${focusMode ? "is-focus-mode" : ""} ${isMobileViewport ? "is-mobile-editor" : ""}`}
+      aria-label="笔记编辑器"
+      aria-busy={editorLocked}
+      onContextMenu={contextMenu.onContextMenu}
+      onKeyDown={(event) => {
+        if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+        if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
           const target = event.target;
-          if (!(target instanceof HTMLElement) || editor?.view.composing || composingRef.current) return;
-          if (target.closest("input, textarea, button, select, [role='dialog'], [role='menu']")) return;
-          // 在 ProseMirror 吞掉 Home / End 前处理阅读滚动，保留正文光标与选区。
-          if (scrollNoteBoundary(event.nativeEvent, event.currentTarget)) {
-            event.stopPropagation();
-            if (typewriterAnimRef.current !== null) cancelAnimationFrame(typewriterAnimRef.current);
-            typewriterAnimRef.current = null;
-            typewriterTargetRef.current = null;
+          if (target instanceof HTMLElement && !target.closest("dialog, [role='menu']")) {
+            const rect = target.getBoundingClientRect();
+            if (
+              !target.dispatchEvent(
+                new MouseEvent("contextmenu", {
+                  bubbles: true,
+                  cancelable: true,
+                  clientX: rect.left + 12,
+                  clientY: rect.top + 12,
+                }),
+              )
+            )
+              event.preventDefault();
           }
-        }}>
-          <div className="editor-document editor-document--entering" ref={documentRef} onAnimationEnd={() => documentRef.current?.classList.remove("editor-document--entering")}>
+        }
+        if ((event.ctrlKey || event.metaKey) && event.key === "s") {
+          event.preventDefault();
+          handleSaveNow();
+        }
+      }}
+    >
+      {isMobileViewport ? (
+        <MobileEditorHeader
+          noteId={note.id}
+          title={note.title.trim() || "未命名笔记"}
+          backLabel={mobileBackLabel}
+          locked={editorLocked}
+          trashBusy={trashBusy}
+          deleted={Boolean(note.deletedAt)}
+          favorite={note.isFavorite}
+          backlinkCount={backlinkCount}
+          onBack={onOpenList}
+          canUpload={Boolean(onUploadImage) && !note.deletedAt && imageUploadState !== "uploading"}
+          onUpload={() => imageFileInputRef.current?.click()}
+          onExport={onExportImage}
+          onFavorite={onToggleFavorite}
+          onBacklinks={onNavigateToNote ? () => setBacklinksOpen(true) : undefined}
+          onTrash={onMoveToTrash}
+          onRestore={onRestore}
+          onPermanentDelete={onPermanentDelete}
+          status={
+            <>
+              {saveState === "error" ? (
+                <button
+                  className="save-status save-status--error save-status--icon"
+                  type="button"
+                  aria-label="重试保存"
+                  onClick={handleSaveNow}
+                >
+                  <SaveStatusIcon state="error" />
+                </button>
+              ) : saveState === "conflict" ? (
+                <button
+                  className="save-status save-status--conflict save-status--icon"
+                  type="button"
+                  aria-label="重新载入最新版本"
+                  onClick={onReloadNote}
+                >
+                  <SaveStatusIcon state="conflict" />
+                </button>
+              ) : (
+                <span
+                  className={`save-status save-status--${saveState} save-status--icon`}
+                  role="status"
+                  aria-label={saveState === "idle" ? "待保存" : saveLabel}
+                >
+                  {saveState !== "idle" && <SaveStatusIcon state={saveState} />}
+                </span>
+              )}
+              <span
+                className={`save-status save-status--${imageUploadState === "uploading" ? "saving" : "error"} save-status--icon mobile-upload-status`}
+                role="status"
+                aria-label={
+                  imageUploadState === "uploading"
+                    ? "正在上传图片"
+                    : imageUploadState === "error"
+                      ? "图片上传失败"
+                      : undefined
+                }
+              >
+                {imageUploadState !== "idle" && (
+                  <SaveStatusIcon state={imageUploadState === "uploading" ? "saving" : "error"} />
+                )}
+              </span>
+            </>
+          }
+        />
+      ) : (
+        <header className="editor-header">
+          <div className="editor-header-start">
+            {onBackToCards && !focusMode && (
+              <button
+                className="icon-button editor-back-cards"
+                type="button"
+                aria-label="返回卡片视图"
+                onClick={onBackToCards}
+                disabled={editorLocked}
+              >
+                <LayoutGrid size={18} strokeWidth={1.8} />
+              </button>
+            )}
+            {onOpenList && !focusMode && (
+              <button
+                className="icon-button mobile-only editor-back"
+                type="button"
+                aria-label="返回笔记列表"
+                onClick={onOpenList}
+                disabled={editorLocked}
+              >
+                <ChevronLeft size={20} />
+              </button>
+            )}
+            <div className="editor-meta" aria-label={`最后编辑于${relativeDate(note.updatedAt)}`}>
+              <span>最后编辑于 {relativeDate(note.updatedAt)}</span>
+            </div>
+          </div>
+          <div
+            className="editor-header-title"
+            aria-label={`当前文档：${note.title.trim() || "未命名笔记"}`}
+          >
+            {note.title.trim() || "未命名笔记"}
+          </div>
+          <div className="editor-actions">
+            {saveState === "error" ? (
+              <button
+                className="save-status save-status--error save-status--action save-status--icon"
+                type="button"
+                aria-label="重试保存"
+                onClick={handleSaveNow}
+              >
+                <SaveStatusIcon state="error" />
+              </button>
+            ) : saveState === "conflict" ? (
+              <button
+                className="save-status save-status--conflict save-status--action save-status--icon"
+                type="button"
+                aria-label="重新载入最新版本"
+                onClick={onReloadNote}
+              >
+                <SaveStatusIcon state="conflict" />
+              </button>
+            ) : saveState === "idle" ? null : (
+              <span
+                className={`save-status save-status--${saveState} save-status--icon`}
+                role="status"
+                aria-label={saveLabel}
+                aria-live="polite"
+              >
+                <SaveStatusIcon state={saveState} />
+              </span>
+            )}
+            {onUploadImage && !note.deletedAt && (
+              <input
+                ref={imageFileInputRef}
+                className="visually-hidden"
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                multiple
+                tabIndex={-1}
+                aria-label="选择要上传的图片文件"
+                onChange={(event) => {
+                  uploadImageFilesRef.current(Array.from(event.target.files ?? []));
+                  event.target.value = "";
+                }}
+              />
+            )}
+            {imageUploadState === "uploading" && (
+              <span
+                className="save-status save-status--saving save-status--icon"
+                role="status"
+                aria-label="正在上传图片"
+                aria-live="polite"
+              >
+                <SaveStatusIcon state="saving" />
+              </span>
+            )}
+            {imageUploadState === "error" && (
+              <span
+                className="save-status save-status--error save-status--icon"
+                role="alert"
+                aria-label="图片上传失败"
+              >
+                <SaveStatusIcon state="error" />
+              </span>
+            )}
+            {!note.deletedAt && onNavigateToNote && (
+              <button
+                className={`icon-button ${backlinksOpen ? "is-active" : ""}`}
+                type="button"
+                aria-label={`反向链接${backlinkCount > 0 ? ` (${backlinkCount})` : ""}`}
+                onClick={() => setBacklinksOpen(true)}
+                disabled={editorLocked}
+              >
+                <ArrowLeftRight size={18} strokeWidth={1.8} />
+                {backlinkCount > 0 && <span className="icon-badge">{backlinkCount}</span>}
+              </button>
+            )}
+            <button
+              className="icon-button"
+              type="button"
+              aria-label="导出图片"
+              onClick={onExportImage}
+              disabled={editorLocked}
+            >
+              <ImageDown size={19} aria-hidden="true" />
+            </button>
+            <button
+              className={`icon-button favorite-toggle ${note.isFavorite ? "is-active" : ""}`}
+              type="button"
+              aria-label={note.isFavorite ? "取消收藏" : "收藏笔记"}
+              aria-pressed={note.isFavorite}
+              onClick={onToggleFavorite}
+              disabled={editorLocked}
+            >
+              <Star
+                size={19}
+                strokeWidth={1.8}
+                fill={note.isFavorite ? "currentColor" : "none"}
+                aria-hidden="true"
+              />
+            </button>
+            {note.deletedAt ? (
+              <>
+                <button
+                  className="icon-button"
+                  type="button"
+                  aria-label="恢复笔记"
+                  onClick={onRestore}
+                  disabled={editorLocked || trashBusy}
+                >
+                  <Undo2 size={18} strokeWidth={1.8} />
+                </button>
+                {onPermanentDelete && (
+                  <button
+                    className="icon-button danger-button"
+                    type="button"
+                    aria-label="彻底删除"
+                    onClick={onPermanentDelete}
+                    disabled={editorLocked || trashBusy}
+                  >
+                    <Trash2 size={18} strokeWidth={1.8} />
+                  </button>
+                )}
+              </>
+            ) : (
+              <button
+                className="icon-button"
+                type="button"
+                aria-label="移入回收站"
+                onClick={onMoveToTrash}
+                disabled={editorLocked || trashBusy}
+              >
+                <Trash2 size={18} strokeWidth={1.8} />
+              </button>
+            )}
+          </div>
+        </header>
+      )}
+      {isMobileViewport && onUploadImage && !note.deletedAt && (
+        <input
+          ref={imageFileInputRef}
+          className="visually-hidden"
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/gif"
+          multiple
+          tabIndex={-1}
+          aria-label="选择要上传的图片文件"
+          onChange={(event) => {
+            uploadImageFilesRef.current(Array.from(event.target.files ?? []));
+            event.target.value = "";
+          }}
+        />
+      )}
+      <div
+        className={`editor-scroll-shell${editorScrollEdges.before ? " has-scroll-before" : ""}${editorScrollEdges.after ? " has-scroll-after" : ""}`}
+      >
+        <div
+          id="editor-scroll-region"
+          className={`editor-scroll floating-scrollbar-target ${typewriterMode ? "is-typewriter-mode" : ""}`}
+          ref={editorScrollRef}
+          onKeyDownCapture={(event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement) || editor?.view.composing || composingRef.current)
+              return;
+            if (target.closest("input, textarea, button, select, [role='dialog'], [role='menu']"))
+              return;
+            // 在 ProseMirror 吞掉 Home / End 前处理阅读滚动，保留正文光标与选区。
+            if (scrollNoteBoundary(event.nativeEvent, event.currentTarget)) {
+              event.stopPropagation();
+              if (typewriterAnimRef.current !== null)
+                cancelAnimationFrame(typewriterAnimRef.current);
+              typewriterAnimRef.current = null;
+              typewriterTargetRef.current = null;
+            }
+          }}
+        >
+          <div
+            className="editor-document editor-document--entering"
+            ref={documentRef}
+            onAnimationEnd={() =>
+              documentRef.current?.classList.remove("editor-document--entering")
+            }
+          >
             {note.deletedAt && (
               <div className="trashed-banner" role="status">
                 <span>此笔记已在回收站中，恢复后可继续编辑。</span>
-                <button className="text-button" type="button" onClick={onRestore} disabled={editorLocked || trashBusy}>立即恢复</button>
+                <button
+                  className="text-button"
+                  type="button"
+                  onClick={onRestore}
+                  disabled={editorLocked || trashBusy}
+                >
+                  立即恢复
+                </button>
               </div>
             )}
             <textarea
@@ -1434,9 +2052,16 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
               maxLength={200}
               readOnly={Boolean(note.deletedAt) || editorLocked}
               onChange={(event) => onChange({ title: event.target.value })}
-              onBlur={() => { const trimmed = note.title.trim(); if (trimmed !== note.title) onChange({ title: trimmed }); }}
+              onBlur={() => {
+                const trimmed = note.title.trim();
+                if (trimmed !== note.title) onChange({ title: trimmed });
+              }}
               onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.nativeEvent.isComposing && event.keyCode !== 229) {
+                if (
+                  event.key === "Enter" &&
+                  !event.nativeEvent.isComposing &&
+                  event.keyCode !== 229
+                ) {
                   event.preventDefault();
                   editor?.commands.focus("start");
                 }
@@ -1448,9 +2073,31 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
             <TableScrollbars rootRef={documentRef} />
           </div>
         </div>
-        <FloatingScrollbar scrollTargetRef={editorScrollRef} contentRef={documentRef} controlsId="editor-scroll-region" ariaLabel="编辑器滚动条" placement="right" />
+        <FloatingScrollbar
+          scrollTargetRef={editorScrollRef}
+          contentRef={documentRef}
+          controlsId="editor-scroll-region"
+          ariaLabel="编辑器滚动条"
+          placement="right"
+        />
       </div>
-      {deferredLoading && <div className="editor-switch-overlay editor-switch-overlay--visible" role="status" aria-live="polite"><div className="editor-switch-card"><BrandMark className="editor-switch-mark" /><div className="editor-switch-lines" aria-hidden="true"><span /><span /><span /></div><strong>正在打开笔记…</strong></div></div>}
+      {deferredLoading && (
+        <div
+          className="editor-switch-overlay editor-switch-overlay--visible"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="editor-switch-card">
+            <BrandMark className="editor-switch-mark" />
+            <div className="editor-switch-lines" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </div>
+            <strong>正在打开笔记…</strong>
+          </div>
+        </div>
+      )}
       <EditorFloatingTools
         editor={editor}
         outlineTriggerRef={outlineTriggerRef}
@@ -1465,7 +2112,16 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
         onClearSearch={onClearSearch}
       />
       {contextMenu.menu}
-      {isMobileViewport && <MobileEditorFooter stats={editorStats} outlineOpen={outlineOpen} outlineTriggerRef={outlineTriggerRef} locked={editorLocked} onOpenCommands={onOpenCommands} onToggleOutline={onToggleOutline} />}
+      {isMobileViewport && (
+        <MobileEditorFooter
+          stats={editorStats}
+          outlineOpen={outlineOpen}
+          outlineTriggerRef={outlineTriggerRef}
+          locked={editorLocked}
+          onOpenCommands={onOpenCommands}
+          onToggleOutline={onToggleOutline}
+        />
+      )}
       {!note.deletedAt && onNavigateToNote && (
         <BacklinksDialog
           open={backlinksOpen}
@@ -1476,7 +2132,14 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
           onBacklinkCountChange={setBacklinkCount}
         />
       )}
-      {isMobileViewport && outlineOpen && <MobileEditorOutline items={outlineItems} activeId={activeOutlineId ?? null} onNavigate={scrollToOutlineItem} onClose={onCloseOutline} />}
+      {isMobileViewport && outlineOpen && (
+        <MobileEditorOutline
+          items={outlineItems}
+          activeId={activeOutlineId ?? null}
+          onNavigate={scrollToOutlineItem}
+          onClose={onCloseOutline}
+        />
+      )}
       {!isMobileViewport && (focusMode || (onBackToCards && outlineOpen)) && (
         <CardOutline
           key={note.id}
@@ -1489,5 +2152,3 @@ export function NoteEditor({ note, contentMarkdown = note.contentMarkdown, searc
     </section>
   );
 }
-
-

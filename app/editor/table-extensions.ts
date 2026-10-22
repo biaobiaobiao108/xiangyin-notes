@@ -1,4 +1,10 @@
-import { renderTableToMarkdown, Table, TableCell, TableHeader, TableRow } from "@tiptap/extension-table";
+import {
+  renderTableToMarkdown,
+  Table,
+  TableCell,
+  TableHeader,
+  TableRow,
+} from "@tiptap/extension-table";
 import type { JSONContent, MarkdownRendererHelpers, MarkdownToken } from "@tiptap/core";
 
 const WIDTH_DASH_OFFSET = 5;
@@ -12,11 +18,16 @@ function readColumnWidthsFromDelimiter(markdown: string) {
   const delimiter = markdown.replace(/\r/gu, "").split("\n")[1];
   if (!delimiter) return null;
 
-  const cells = delimiter.trim().replace(/^\||\|$/gu, "").split("|");
+  const cells = delimiter
+    .trim()
+    .replace(/^\||\|$/gu, "")
+    .split("|");
   const dashCounts = cells.map((cell) => (cell.match(/-/gu) ?? []).length);
   if (dashCounts.length === 0 || dashCounts.some((count) => count < MIN_WIDTH_DASHES)) return null;
 
-  return dashCounts.map((count) => Math.max(MIN_COLUMN_WIDTH, (count - WIDTH_DASH_OFFSET) * PIXELS_PER_WIDTH_DASH));
+  return dashCounts.map((count) =>
+    Math.max(MIN_COLUMN_WIDTH, (count - WIDTH_DASH_OFFSET) * PIXELS_PER_WIDTH_DASH),
+  );
 }
 
 function renderTableMarkdownWithWidths(node: JSONContent, helpers: MarkdownRendererHelpers) {
@@ -35,14 +46,20 @@ function renderTableMarkdownWithWidths(node: JSONContent, helpers: MarkdownRende
   const delimiter = lines[1];
   if (!delimiter) return markdown;
 
-  const delimiterCells = delimiter.trim().replace(/^\||\|$/gu, "").split("|");
+  const delimiterCells = delimiter
+    .trim()
+    .replace(/^\||\|$/gu, "")
+    .split("|");
   const encodedDelimiter = widths.map((width, index) => {
     const source = delimiterCells[index] ?? "---";
     const hasLeadingAlignment = /^\s*:/u.test(source);
     const hasTrailingAlignment = /:\s*$/u.test(source);
     const sourceWidth = (source.match(/-/gu) ?? []).length * PIXELS_PER_WIDTH_DASH;
     const effectiveWidth = width ?? Math.max(MIN_COLUMN_WIDTH, sourceWidth);
-    const dashCount = Math.max(MIN_WIDTH_DASHES, Math.round(effectiveWidth / PIXELS_PER_WIDTH_DASH) + WIDTH_DASH_OFFSET);
+    const dashCount = Math.max(
+      MIN_WIDTH_DASHES,
+      Math.round(effectiveWidth / PIXELS_PER_WIDTH_DASH) + WIDTH_DASH_OFFSET,
+    );
     return `${hasLeadingAlignment ? ":" : ""}${"-".repeat(dashCount)}${hasTrailingAlignment ? ":" : ""}`;
   });
 
@@ -79,7 +96,12 @@ const ResizableTable = Table.extend({
  */
 export function createTableExtensions() {
   return [
-    ResizableTable.configure({ resizable: true, renderWrapper: true, cellMinWidth: MIN_COLUMN_WIDTH, handleWidth: 8 }),
+    ResizableTable.configure({
+      resizable: true,
+      renderWrapper: true,
+      cellMinWidth: MIN_COLUMN_WIDTH,
+      handleWidth: 8,
+    }),
     TableRow,
     TableCell.extend({ content: "paragraph" }),
     TableHeader.extend({ content: "paragraph" }),

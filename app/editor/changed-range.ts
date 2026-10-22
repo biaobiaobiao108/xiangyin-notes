@@ -6,7 +6,10 @@ export type ChangedDocumentRange = {
 };
 
 /** Returns the smallest new-document range affected by a transaction, with padding for text matches. */
-export function changedDocumentRange(transaction: Transaction, padding = 0): ChangedDocumentRange | null {
+export function changedDocumentRange(
+  transaction: Transaction,
+  padding = 0,
+): ChangedDocumentRange | null {
   if (!transaction.docChanged) return null;
   let from = transaction.doc.content.size;
   let to = 0;
@@ -23,7 +26,10 @@ export function changedDocumentRange(transaction: Transaction, padding = 0): Cha
   };
 }
 
-export function expandRangeToTextNodes(doc: Transaction["doc"], range: ChangedDocumentRange): ChangedDocumentRange {
+export function expandRangeToTextNodes(
+  doc: Transaction["doc"],
+  range: ChangedDocumentRange,
+): ChangedDocumentRange {
   let from = range.from;
   let to = range.to;
   // Decorations can be removed when a changed range only touches their edge.

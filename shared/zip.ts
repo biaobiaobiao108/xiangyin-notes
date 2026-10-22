@@ -38,8 +38,10 @@ const ZIP32_MAX = 0xffffffff;
 
 function dosDateTime(date: Date) {
   return {
-    dosTime: ((date.getHours() << 11) | (date.getMinutes() << 5) | (date.getSeconds() >> 1)) & 0xffff,
-    dosDate: (((date.getFullYear() - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate()) & 0xffff,
+    dosTime:
+      ((date.getHours() << 11) | (date.getMinutes() << 5) | (date.getSeconds() >> 1)) & 0xffff,
+    dosDate:
+      (((date.getFullYear() - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate()) & 0xffff,
   };
 }
 
@@ -75,7 +77,9 @@ async function* zipEntryChunks(entry: ZipStreamEntry) {
  * retained while the central directory is being built. The archive remains
  * ZIP32-compatible; callers should enforce a total size below 4 GiB.
  */
-export async function* createZipStream(entries: AsyncIterable<ZipStreamEntry>): AsyncGenerator<Uint8Array> {
+export async function* createZipStream(
+  entries: AsyncIterable<ZipStreamEntry>,
+): AsyncGenerator<Uint8Array> {
   const encoder = new TextEncoder();
   const records: ZipStreamRecord[] = [];
   const centralChunks: Uint8Array[] = [];
@@ -123,7 +127,14 @@ export async function* createZipStream(entries: AsyncIterable<ZipStreamEntry>): 
     yield descriptor;
     offset += descriptor.length;
 
-    records.push({ nameBytes, crc: (crc ^ 0xffffffff) >>> 0, size, offset: localOffset, dosTime, dosDate });
+    records.push({
+      nameBytes,
+      crc: (crc ^ 0xffffffff) >>> 0,
+      size,
+      offset: localOffset,
+      dosTime,
+      dosDate,
+    });
   }
 
   const centralOffset = offset;
@@ -153,7 +164,8 @@ export async function* createZipStream(entries: AsyncIterable<ZipStreamEntry>): 
   }
 
   const centralSize = offset - centralOffset;
-  if (centralOffset > ZIP32_MAX || centralSize > ZIP32_MAX) throw new Error("ZIP32_SIZE_LIMIT_EXCEEDED");
+  if (centralOffset > ZIP32_MAX || centralSize > ZIP32_MAX)
+    throw new Error("ZIP32_SIZE_LIMIT_EXCEEDED");
   const eocd = new Uint8Array(22);
   const eocdView = new DataView(eocd.buffer);
   eocdView.setUint32(0, 0x06054b50, true);
@@ -171,18 +183,21 @@ export async function* createZipStream(entries: AsyncIterable<ZipStreamEntry>): 
 
 export function createZipReadableStream(entries: AsyncIterable<ZipStreamEntry>) {
   const iterator = createZipStream(entries);
-  return new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      try {
-        const next = await iterator.next();
-        if (next.done) controller.close();
-        else controller.enqueue(next.value);
-      } catch (error) {
-        controller.error(error);
-      }
+  return new ReadableStream<Uint8Array>(
+    {
+      async pull(controller) {
+        try {
+          const next = await iterator.next();
+          if (next.done) controller.close();
+          else controller.enqueue(next.value);
+        } catch (error) {
+          controller.error(error);
+        }
+      },
+      async cancel() {
+        await iterator.return(undefined);
+      },
     },
-    async cancel() {
-      await iterator.return(undefined);
-    },
-  }, { highWaterMark: 0 });
+    { highWaterMark: 0 },
+  );
 }

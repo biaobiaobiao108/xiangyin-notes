@@ -1,6 +1,10 @@
 import { findWikiLinkStart, tokenizeWikiLink } from "../../shared/markdown-lexer";
 import { InputRule, Node, mergeAttributes } from "@tiptap/core";
-import { decodeWikiLinkComponent, encodeWikiLinkComponent, WIKI_LINK_PATTERN } from "../../shared/wiki-links";
+import {
+  decodeWikiLinkComponent,
+  encodeWikiLinkComponent,
+  WIKI_LINK_PATTERN,
+} from "../../shared/wiki-links";
 
 export type WikiLinkNodeAttrs = {
   target: string;
@@ -32,11 +36,7 @@ export const WikiLinkNode = Node.create({
           if (!target) return null;
           const alias = match[2] ? decodeWikiLinkComponent(match[2].trim()) || null : null;
           const { tr } = state;
-          tr.replaceWith(
-            range.from,
-            range.to,
-            this.type.create({ target, alias })
-          );
+          tr.replaceWith(range.from, range.to, this.type.create({ target, alias }));
         },
       }),
     ];

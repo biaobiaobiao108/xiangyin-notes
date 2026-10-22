@@ -54,13 +54,37 @@ export type WorkspaceKeyboardContext = {
 
 export function handleWorkspaceKeyDown(event: KeyboardEvent, ctx: WorkspaceKeyboardContext) {
   if (event.isComposing || event.keyCode === 229) return;
-  const { handlers, focusMode, hasModalOpen, hasSearchHighlight = false, outlineOpen = false, isCardEditing = false, hasSelection = false } = ctx;
-  const { toggleSidebar, toggleFocusMode, toggleTypewriterMode, exitFocusMode, openCommandMenu, toggleViewLayout, onExitCardEditing, clearSelection, closeOutline, clearSearchHighlight } = handlers;
+  const {
+    handlers,
+    focusMode,
+    hasModalOpen,
+    hasSearchHighlight = false,
+    outlineOpen = false,
+    isCardEditing = false,
+    hasSelection = false,
+  } = ctx;
+  const {
+    toggleSidebar,
+    toggleFocusMode,
+    toggleTypewriterMode,
+    exitFocusMode,
+    openCommandMenu,
+    toggleViewLayout,
+    onExitCardEditing,
+    clearSelection,
+    closeOutline,
+    clearSearchHighlight,
+  } = handlers;
 
   if (event.key === "Escape") {
     if (hasModalOpen) return;
     const target = event.target;
-    if (typeof Element !== "undefined" && target instanceof Element && target.closest("dialog[open], [role='dialog']")) return;
+    if (
+      typeof Element !== "undefined" &&
+      target instanceof Element &&
+      target.closest("dialog[open], [role='dialog']")
+    )
+      return;
 
     // 优先级 1: 子级浮层——先清除正文搜索高亮（不受正文 ProseMirror preventDefault 影响）
     if (hasSearchHighlight && clearSearchHighlight) {
@@ -128,7 +152,13 @@ export function handleWorkspaceKeyDown(event: KeyboardEvent, ctx: WorkspaceKeybo
   } else if (event.altKey && event.shiftKey && matchesShortcutLetter(event, "t")) {
     event.preventDefault();
     toggleTypewriterMode();
-  } else if (event.altKey && !event.shiftKey && !event.ctrlKey && !event.metaKey && matchesShortcutLetter(event, "v")) {
+  } else if (
+    event.altKey &&
+    !event.shiftKey &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    matchesShortcutLetter(event, "v")
+  ) {
     event.preventDefault();
     toggleViewLayout?.();
   }
@@ -166,8 +196,30 @@ export function useWorkspaceShortcuts(options: UseWorkspaceShortcutsOptions) {
   hasSelectionRef.current = hasSelection;
   const outlineOpenRef = useRef(outlineOpen);
   outlineOpenRef.current = outlineOpen;
-  const handlersRef = useRef({ toggleSidebar, toggleFocusMode, toggleTypewriterMode, exitFocusMode, openCommandMenu, toggleViewLayout, onExitCardEditing, clearSelection, closeOutline, clearSearchHighlight });
-  handlersRef.current = { toggleSidebar, toggleFocusMode, toggleTypewriterMode, exitFocusMode, openCommandMenu, toggleViewLayout, onExitCardEditing, clearSelection, closeOutline, clearSearchHighlight };
+  const handlersRef = useRef({
+    toggleSidebar,
+    toggleFocusMode,
+    toggleTypewriterMode,
+    exitFocusMode,
+    openCommandMenu,
+    toggleViewLayout,
+    onExitCardEditing,
+    clearSelection,
+    closeOutline,
+    clearSearchHighlight,
+  });
+  handlersRef.current = {
+    toggleSidebar,
+    toggleFocusMode,
+    toggleTypewriterMode,
+    exitFocusMode,
+    openCommandMenu,
+    toggleViewLayout,
+    onExitCardEditing,
+    clearSelection,
+    closeOutline,
+    clearSearchHighlight,
+  };
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {

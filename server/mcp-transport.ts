@@ -28,7 +28,12 @@ const handlerByDatabase = new WeakMap<SqliteDatabase, { key: string; handler: Mc
 function getMcpHandler(options: ServerOptions) {
   // The handler closes over `options`, so a cache keyed only by the database would
   // keep serving the first environment/asset root it saw in the process.
-  const cacheKey = [options.assetRoot ?? "", options.clientRoot ?? "", options.environment?.PUBLIC_URL ?? "", options.environment?.XIANGYING_USERNAME ?? ""].join("\u0000");
+  const cacheKey = [
+    options.assetRoot ?? "",
+    options.clientRoot ?? "",
+    options.environment?.PUBLIC_URL ?? "",
+    options.environment?.XIANGYING_USERNAME ?? "",
+  ].join("\u0000");
   const cached = handlerByDatabase.get(options.database);
   if (cached && cached.key === cacheKey) return cached.handler;
   const handler = createMcpHandler((context) => createNoteMcpServer(options, context));
@@ -94,12 +99,18 @@ function escapeUnescapedControlsInJsonStrings(value: string) {
     }
     if (code < 0x20) {
       changed = true;
-      output += code === 0x08 ? "\\b"
-        : code === 0x09 ? "\\t"
-          : code === 0x0a ? "\\n"
-            : code === 0x0c ? "\\f"
-              : code === 0x0d ? "\\r"
-                : `\\u${code.toString(16).padStart(4, "0")}`;
+      output +=
+        code === 0x08
+          ? "\\b"
+          : code === 0x09
+            ? "\\t"
+            : code === 0x0a
+              ? "\\n"
+              : code === 0x0c
+                ? "\\f"
+                : code === 0x0d
+                  ? "\\r"
+                  : `\\u${code.toString(16).padStart(4, "0")}`;
       continue;
     }
     output += character;
@@ -108,11 +119,14 @@ function escapeUnescapedControlsInJsonStrings(value: string) {
 }
 
 function invalidMcpArguments(id: unknown, message: string) {
-  return new Response(JSON.stringify({
-    jsonrpc: "2.0",
-    id: typeof id === "string" || typeof id === "number" ? id : null,
-    error: { code: -32602, message },
-  }), { status: 400, headers: { "Content-Type": "application/json; charset=utf-8" } });
+  return new Response(
+    JSON.stringify({
+      jsonrpc: "2.0",
+      id: typeof id === "string" || typeof id === "number" ? id : null,
+      error: { code: -32602, message },
+    }),
+    { status: 400, headers: { "Content-Type": "application/json; charset=utf-8" } },
+  );
 }
 
 async function readMcpBody(request: Request) {
@@ -146,10 +160,19 @@ async function readMcpBody(request: Request) {
   return { value: new TextDecoder().decode(bytes), tooLarge: false };
 }
 
-async function normalizeMcpRequest(request: Request): Promise<{ request: Request; error?: Response }> {
+async function normalizeMcpRequest(
+  request: Request,
+): Promise<{ request: Request; error?: Response }> {
   if (request.method !== "POST" || !request.body) return { request };
   const { value: rawBody, tooLarge } = await readMcpBody(request);
-  if (tooLarge) return { request, error: invalidMcpArguments(null, "MCP 请求体超过 4.5 MB 传输上限；请拆分本次参数或把新增正文分段调用 append_to_note。普通笔记在单次请求未超限时应优先直接创建；分段写入仍受单篇笔记正文总长度上限约束。") };
+  if (tooLarge)
+    return {
+      request,
+      error: invalidMcpArguments(
+        null,
+        "MCP 请求体超过 4.5 MB 传输上限；请拆分本次参数或把新增正文分段调用 append_to_note。普通笔记在单次请求未超限时应优先直接创建；分段写入仍受单篇笔记正文总长度上限约束。",
+      ),
+    };
   const outer = escapeUnescapedControlsInJsonStrings(rawBody);
   let message: Record<string, unknown>;
   try {
@@ -160,15 +183,19 @@ async function normalizeMcpRequest(request: Request): Promise<{ request: Request
     if (!outer.changed) return { request };
     return {
       request,
-      error: invalidMcpArguments(null, "字符串中存在未转义的控制字符（U+0000–U+001F），请检查 contentMarkdown；修正后仍需发送完整 JSON。"),
+      error: invalidMcpArguments(
+        null,
+        "字符串中存在未转义的控制字符（U+0000–U+001F），请检查 contentMarkdown；修正后仍需发送完整 JSON。",
+      ),
     };
   }
 
   let rewritten = outer.changed;
   if (message.method === "tools/call") {
-    const params = message.params && typeof message.params === "object" && !Array.isArray(message.params)
-      ? message.params as Record<string, unknown>
-      : null;
+    const params =
+      message.params && typeof message.params === "object" && !Array.isArray(message.params)
+        ? (message.params as Record<string, unknown>)
+        : null;
     const rawArguments = params?.arguments;
     let argumentsValue: unknown = rawArguments;
     if (typeof rawArguments === "string") {
@@ -177,7 +204,13 @@ async function normalizeMcpRequest(request: Request): Promise<{ request: Request
         argumentsValue = JSON.parse(rawArguments);
       } catch {
         if (!inner.changed) {
-          return { request, error: invalidMcpArguments(message.id, "tools/call 的 arguments 必须是 JSON 对象，不能是字符串；请传入未二次序列化的对象参数。") };
+          return {
+            request,
+            error: invalidMcpArguments(
+              message.id,
+              "tools/call 的 arguments 必须是 JSON 对象，不能是字符串；请传入未二次序列化的对象参数。",
+            ),
+          };
         }
         try {
           argumentsValue = JSON.parse(inner.value);
@@ -185,20 +218,34 @@ async function normalizeMcpRequest(request: Request): Promise<{ request: Request
         } catch {
           return {
             request,
-            error: invalidMcpArguments(message.id, "字符串中存在未转义的控制字符（U+0000–U+001F），请检查 contentMarkdown；arguments 还必须是完整 JSON 对象。"),
+            error: invalidMcpArguments(
+              message.id,
+              "字符串中存在未转义的控制字符（U+0000–U+001F），请检查 contentMarkdown；arguments 还必须是完整 JSON 对象。",
+            ),
           };
         }
       }
       rewritten = true;
     }
-    if (rawArguments !== undefined && (!argumentsValue || typeof argumentsValue !== "object" || Array.isArray(argumentsValue))) {
-      return { request, error: invalidMcpArguments(message.id, "tools/call 的 arguments 必须是 JSON 对象；多行正文请放在 contentMarkdown 字段中。") };
+    if (
+      rawArguments !== undefined &&
+      (!argumentsValue || typeof argumentsValue !== "object" || Array.isArray(argumentsValue))
+    ) {
+      return {
+        request,
+        error: invalidMcpArguments(
+          message.id,
+          "tools/call 的 arguments 必须是 JSON 对象；多行正文请放在 contentMarkdown 字段中。",
+        ),
+      };
     }
     const toolName = params?.name;
-    const contentField = typeof toolName === "string" ? MCP_CONTENT_FIELDS.get(toolName) : undefined;
-    const contentValue = argumentsValue && typeof argumentsValue === "object" && !Array.isArray(argumentsValue)
-      ? (argumentsValue as Record<string, unknown>)[contentField ?? ""]
-      : undefined;
+    const contentField =
+      typeof toolName === "string" ? MCP_CONTENT_FIELDS.get(toolName) : undefined;
+    const contentValue =
+      argumentsValue && typeof argumentsValue === "object" && !Array.isArray(argumentsValue)
+        ? (argumentsValue as Record<string, unknown>)[contentField ?? ""]
+        : undefined;
     if (typeof contentValue === "string" && contentValue.length > NOTE_CONTENT_MAX_LENGTH) {
       const nextStep = "请缩短本次字段；替换或分段追加仍受单篇笔记正文总长度上限约束。";
       return {
@@ -221,7 +268,8 @@ async function normalizeMcpRequest(request: Request): Promise<{ request: Request
 export async function handleMcpRequest(request: Request, options: ServerOptions) {
   const environment = options.environment ?? {};
   const expectedToken = environment.XIANGYING_MCP_TOKEN?.trim();
-  if (!expectedToken) return jsonError(503, "MCP_AUTH_NOT_CONFIGURED", "请先配置 XIANGYING_MCP_TOKEN");
+  if (!expectedToken)
+    return jsonError(503, "MCP_AUTH_NOT_CONFIGURED", "请先配置 XIANGYING_MCP_TOKEN");
 
   const suppliedToken = pathToken(request);
   if (!suppliedToken || !constantTimeEqual(suppliedToken, expectedToken)) {
@@ -232,7 +280,12 @@ export async function handleMcpRequest(request: Request, options: ServerOptions)
   if (originError) return originError;
 
   const credentials = getAuthCredentials(environment);
-  if (!credentials) return jsonError(503, "AUTH_NOT_CONFIGURED", "请先配置 XIANGYING_USERNAME 和 XIANGYING_PASSWORD");
+  if (!credentials)
+    return jsonError(
+      503,
+      "AUTH_NOT_CONFIGURED",
+      "请先配置 XIANGYING_USERNAME 和 XIANGYING_PASSWORD",
+    );
   const user = await ensureEnvironmentUser(options.database, credentials);
   const authInfo: AuthInfo = {
     token: suppliedToken,
@@ -246,6 +299,11 @@ export async function handleMcpRequest(request: Request, options: ServerOptions)
   const response = await getMcpHandler(options).fetch(normalized.request, { authInfo });
   const headers = new Headers(response.headers);
   headers.set("Cache-Control", "no-store");
-  if (headers.get("Content-Type")?.toLowerCase().includes("text/event-stream")) headers.set("X-Accel-Buffering", "no");
-  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+  if (headers.get("Content-Type")?.toLowerCase().includes("text/event-stream"))
+    headers.set("X-Accel-Buffering", "no");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
 }

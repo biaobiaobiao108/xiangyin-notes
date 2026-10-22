@@ -15,7 +15,9 @@ function warnOversizedDraft(noteId: string) {
   if (oversizedDraftWarnings.has(noteId)) return;
   if (oversizedDraftWarnings.size >= 50) oversizedDraftWarnings.clear();
   oversizedDraftWarnings.add(noteId);
-  console.warn(`[draft] 笔记 ${noteId} 的草稿超过 ${MAX_DRAFT_RECOVERY_BYTES / 1024 / 1024} MiB，未写入本地恢复副本；请确认保存状态。`);
+  console.warn(
+    `[draft] 笔记 ${noteId} 的草稿超过 ${MAX_DRAFT_RECOVERY_BYTES / 1024 / 1024} MiB，未写入本地恢复副本；请确认保存状态。`,
+  );
 }
 
 let draftDatabasePromise: Promise<IDBDatabase | null> | null = null;
@@ -79,7 +81,9 @@ function beginDraftOperation(noteId: string, serialized?: string, invalidateRead
   const previousFingerprint = pendingOperations.get(noteId)?.fingerprint;
   pendingOperations.set(noteId, { token, fingerprint: pendingFingerprint });
   return {
-    pendingFingerprints: [previousFingerprint, pendingFingerprint].filter((value): value is string => Boolean(value)),
+    pendingFingerprints: [previousFingerprint, pendingFingerprint].filter(
+      (value): value is string => Boolean(value),
+    ),
     isCurrent: () => pendingOperations.get(noteId)?.token === token,
     finish: () => {
       if (pendingOperations.get(noteId)?.token === token) pendingOperations.delete(noteId);
@@ -116,13 +120,19 @@ function serializeStoredDraftRecovery(draft: NoteDraft) {
 
 function readLocalDraft(noteId: string) {
   try {
-    return { readable: true, serialized: window.localStorage.getItem(draftRecoveryStorageKey(noteId)) };
+    return {
+      readable: true,
+      serialized: window.localStorage.getItem(draftRecoveryStorageKey(noteId)),
+    };
   } catch {
     return { readable: false, serialized: null };
   }
 }
 
-function removeLocalDraftIfUnchanged(noteId: string, previous: { readable: boolean; serialized: string | null }) {
+function removeLocalDraftIfUnchanged(
+  noteId: string,
+  previous: { readable: boolean; serialized: string | null },
+) {
   if (!previous.readable || previous.serialized === null) return;
   try {
     const key = draftRecoveryStorageKey(noteId);
@@ -147,7 +157,8 @@ function openDraftDatabase() {
     try {
       const request = indexedDB.open(DRAFT_DATABASE_NAME, 1);
       request.onupgradeneeded = () => {
-        if (!request.result.objectStoreNames.contains(DRAFT_STORE_NAME)) request.result.createObjectStore(DRAFT_STORE_NAME);
+        if (!request.result.objectStoreNames.contains(DRAFT_STORE_NAME))
+          request.result.createObjectStore(DRAFT_STORE_NAME);
       };
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => resolve(null);
@@ -180,7 +191,10 @@ async function readIndexedDraft(noteId: string) {
   if (!database) return null;
   return await new Promise<string | null>((resolve) => {
     try {
-      const request = database.transaction(DRAFT_STORE_NAME, "readonly").objectStore(DRAFT_STORE_NAME).get(noteId);
+      const request = database
+        .transaction(DRAFT_STORE_NAME, "readonly")
+        .objectStore(DRAFT_STORE_NAME)
+        .get(noteId);
       request.onsuccess = () => resolve(typeof request.result === "string" ? request.result : null);
       request.onerror = () => resolve(null);
     } catch {
@@ -189,7 +203,11 @@ async function readIndexedDraft(noteId: string) {
   });
 }
 
-async function deleteIndexedDraft(noteId: string, expectedFingerprints: Set<string>, isCurrent: () => boolean) {
+async function deleteIndexedDraft(
+  noteId: string,
+  expectedFingerprints: Set<string>,
+  isCurrent: () => boolean,
+) {
   const database = await openDraftDatabase();
   if (!database || !isCurrent() || expectedFingerprints.size === 0) return false;
   return await new Promise<boolean>((resolve) => {
@@ -199,7 +217,12 @@ async function deleteIndexedDraft(noteId: string, expectedFingerprints: Set<stri
       const store = transaction.objectStore(DRAFT_STORE_NAME);
       const request = store.get(noteId);
       request.onsuccess = () => {
-        if (!isCurrent() || typeof request.result !== "string" || !expectedFingerprints.has(fingerprint(request.result))) return;
+        if (
+          !isCurrent() ||
+          typeof request.result !== "string" ||
+          !expectedFingerprints.has(fingerprint(request.result))
+        )
+          return;
         store.delete(noteId);
         removed = true;
       };
@@ -216,9 +239,27 @@ function parseDraftRecoveryRecord(serialized: string, noteId: string) {
   try {
     const value: unknown = JSON.parse(serialized);
     if (!isRecord(value)) return null;
-    if (value.id !== noteId || typeof value.title !== "string" || value.title.length > 200 || typeof value.contentMarkdown !== "string" || value.contentMarkdown.length > 1_000_000 || typeof value.notebookId !== "string" || typeof value.isFavorite !== "boolean") return null;
-    if (typeof value.version !== "number" || !Number.isSafeInteger(value.version) || value.version < 1) return null;
-    if (value.deletedAt !== null && (typeof value.deletedAt !== "number" || !Number.isSafeInteger(value.deletedAt))) return null;
+    if (
+      value.id !== noteId ||
+      typeof value.title !== "string" ||
+      value.title.length > 200 ||
+      typeof value.contentMarkdown !== "string" ||
+      value.contentMarkdown.length > 1_000_000 ||
+      typeof value.notebookId !== "string" ||
+      typeof value.isFavorite !== "boolean"
+    )
+      return null;
+    if (
+      typeof value.version !== "number" ||
+      !Number.isSafeInteger(value.version) ||
+      value.version < 1
+    )
+      return null;
+    if (
+      value.deletedAt !== null &&
+      (typeof value.deletedAt !== "number" || !Number.isSafeInteger(value.deletedAt))
+    )
+      return null;
     const updatedAt = value[RECOVERY_UPDATED_AT_FIELD];
     return {
       draft: {
@@ -253,33 +294,39 @@ export function writeDraftRecovery(draft: NoteDraft) {
   const serializedFingerprint = fingerprint(serialized);
   const byteSize = new TextEncoder().encode(serialized).byteLength;
   if (byteSize > LOCAL_STORAGE_DRAFT_MAX_BYTES && canUseIndexedDb()) {
-    void writeIndexedDraft(draft.id, serialized, operation.isCurrent).then((written) => {
-      if (!operation.isCurrent()) return;
-      if (written) {
-        rememberRecovery(draft.id, "indexed", serialized);
-        removeLocalDraftIfUnchanged(draft.id, localBefore);
-        return;
-      }
-      try {
-        window.localStorage.setItem(draftRecoveryStorageKey(draft.id), serialized);
-        rememberRecovery(draft.id, "local", serialized);
-      } catch {}
-    }).finally(operation.finish);
+    void writeIndexedDraft(draft.id, serialized, operation.isCurrent)
+      .then((written) => {
+        if (!operation.isCurrent()) return;
+        if (written) {
+          rememberRecovery(draft.id, "indexed", serialized);
+          removeLocalDraftIfUnchanged(draft.id, localBefore);
+          return;
+        }
+        try {
+          window.localStorage.setItem(draftRecoveryStorageKey(draft.id), serialized);
+          rememberRecovery(draft.id, "local", serialized);
+        } catch {}
+      })
+      .finally(operation.finish);
     return;
   }
   try {
     window.localStorage.setItem(draftRecoveryStorageKey(draft.id), serialized);
     rememberRecovery(draft.id, "local", serialized);
     const expected = new Set([...operation.pendingFingerprints, serializedFingerprint]);
-    void deleteIndexedDraft(draft.id, expected, operation.isCurrent).then((removed) => {
-      if (removed && operation.isCurrent()) rememberRecovery(draft.id, "indexed", null);
-    }).finally(operation.finish);
+    void deleteIndexedDraft(draft.id, expected, operation.isCurrent)
+      .then((removed) => {
+        if (removed && operation.isCurrent()) rememberRecovery(draft.id, "indexed", null);
+      })
+      .finally(operation.finish);
   } catch {
-    void writeIndexedDraft(draft.id, serialized, operation.isCurrent).then((written) => {
-      if (!written || !operation.isCurrent()) return;
-      rememberRecovery(draft.id, "indexed", serialized);
-      removeLocalDraftIfUnchanged(draft.id, localBefore);
-    }).finally(operation.finish);
+    void writeIndexedDraft(draft.id, serialized, operation.isCurrent)
+      .then((written) => {
+        if (!written || !operation.isCurrent()) return;
+        rememberRecovery(draft.id, "indexed", serialized);
+        removeLocalDraftIfUnchanged(draft.id, localBefore);
+      })
+      .finally(operation.finish);
   }
 }
 
@@ -288,14 +335,21 @@ export async function readDraftRecovery(noteId: string) {
   const operation = beginRecoveryRead(noteId);
   try {
     const local = readLocalDraft(noteId);
-    if (local.readable && operation.isCurrent()) rememberRecovery(noteId, "local", local.serialized);
+    if (local.readable && operation.isCurrent())
+      rememberRecovery(noteId, "local", local.serialized);
     const indexedSerialized = await readIndexedDraft(noteId);
     if (operation.isCurrent()) rememberRecovery(noteId, "indexed", indexedSerialized);
 
-    const localRecord = local.serialized ? parseDraftRecoveryRecord(local.serialized, noteId) : null;
-    const indexedRecord = indexedSerialized ? parseDraftRecoveryRecord(indexedSerialized, noteId) : null;
+    const localRecord = local.serialized
+      ? parseDraftRecoveryRecord(local.serialized, noteId)
+      : null;
+    const indexedRecord = indexedSerialized
+      ? parseDraftRecoveryRecord(indexedSerialized, noteId)
+      : null;
     if (localRecord && indexedRecord) {
-      return indexedRecord.updatedAt > localRecord.updatedAt ? indexedRecord.draft : localRecord.draft;
+      return indexedRecord.updatedAt > localRecord.updatedAt
+        ? indexedRecord.draft
+        : localRecord.draft;
     }
     return localRecord?.draft ?? indexedRecord?.draft ?? null;
   } finally {
@@ -306,11 +360,17 @@ export async function readDraftRecovery(noteId: string) {
 export function clearDraftRecovery(noteId: string) {
   if (typeof window === "undefined") return;
   const known = knownRecoveries.get(noteId);
-  const pendingFingerprints = pendingOperations.get(noteId)?.fingerprint ? [pendingOperations.get(noteId)!.fingerprint!] : [];
+  const pendingFingerprints = pendingOperations.get(noteId)?.fingerprint
+    ? [pendingOperations.get(noteId)!.fingerprint!]
+    : [];
   const operation = beginDraftOperation(noteId);
   const key = draftRecoveryStorageKey(noteId);
-  const localExpected = new Set([known?.local, ...pendingFingerprints].filter((value): value is string => Boolean(value)));
-  const indexedExpected = new Set([known?.indexed, ...pendingFingerprints].filter((value): value is string => Boolean(value)));
+  const localExpected = new Set(
+    [known?.local, ...pendingFingerprints].filter((value): value is string => Boolean(value)),
+  );
+  const indexedExpected = new Set(
+    [known?.indexed, ...pendingFingerprints].filter((value): value is string => Boolean(value)),
+  );
   if (localExpected.size > 0) {
     try {
       const serialized = window.localStorage.getItem(key);
@@ -325,12 +385,14 @@ export function clearDraftRecovery(noteId: string) {
     operation.finish();
     return;
   }
-  void deleteIndexedDraft(noteId, indexedExpected, operation.isCurrent).then((removed) => {
-    if (removed && operation.isCurrent()) {
-      invalidateRecoveryReads(noteId);
-      rememberRecovery(noteId, "indexed", null);
-    }
-  }).finally(operation.finish);
+  void deleteIndexedDraft(noteId, indexedExpected, operation.isCurrent)
+    .then((removed) => {
+      if (removed && operation.isCurrent()) {
+        invalidateRecoveryReads(noteId);
+        rememberRecovery(noteId, "indexed", null);
+      }
+    })
+    .finally(operation.finish);
 }
 
 export function clearAllDraftRecoveries() {
@@ -348,6 +410,8 @@ export function clearAllDraftRecoveries() {
   } catch {}
   void openDraftDatabase().then((database) => {
     if (!database) return;
-    try { database.transaction(DRAFT_STORE_NAME, "readwrite").objectStore(DRAFT_STORE_NAME).clear(); } catch {}
+    try {
+      database.transaction(DRAFT_STORE_NAME, "readwrite").objectStore(DRAFT_STORE_NAME).clear();
+    } catch {}
   });
 }

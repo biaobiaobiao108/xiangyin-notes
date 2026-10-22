@@ -18,10 +18,20 @@ const indexPath = "./dist/client/index.html";
 let indexHtml = await Bun.file(indexPath).text();
 indexHtml = indexHtml
   .replace(/href="[^"]*manifest(?:-[^"]+)?\.webmanifest"/, 'href="/manifest.webmanifest"')
-  .replace(/(<link\b[^>]*\brel="apple-touch-icon"[^>]*\bhref=")[^"]*(")/, '$1/apple-touch-icon.png?v=rounded-1$2');
+  .replace(
+    /(<link\b[^>]*\brel="apple-touch-icon"[^>]*\bhref=")[^"]*(")/,
+    "$1/apple-touch-icon.png?v=rounded-1$2",
+  );
 await Bun.write(indexPath, indexHtml);
 
-for (const file of ["manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-maskable-512.png", "icon-maskable-1024.png", "apple-touch-icon.png"]) {
+for (const file of [
+  "manifest.webmanifest",
+  "icon-192.png",
+  "icon-512.png",
+  "icon-maskable-512.png",
+  "icon-maskable-1024.png",
+  "apple-touch-icon.png",
+]) {
   await Bun.write(`./dist/client/${file}`, Bun.file(`./app/${file}`));
 }
 
@@ -41,23 +51,34 @@ const workerBuild = await Bun.build({
   minify: true,
 });
 if (!workerBuild.success) throw new AggregateError(workerBuild.logs, "Service worker build failed");
-if (workerBuild.outputs.length !== 1) throw new Error("Service worker build did not produce exactly one output");
+if (workerBuild.outputs.length !== 1)
+  throw new Error("Service worker build did not produce exactly one output");
 const workerSource = await workerBuild.outputs[0].text();
 const cacheName = `xiangying-notes-shell-${Date.now().toString(36)}`;
 const precachePlaceholder = JSON.stringify("__XIANGYING_PRECACHE_URLS_JSON__");
-if (!workerSource.includes(precachePlaceholder)) throw new Error("Service worker precache placeholder was not found");
+if (!workerSource.includes(precachePlaceholder))
+  throw new Error("Service worker precache placeholder was not found");
 const workerWithPrecache = workerSource
   .replaceAll("__XIANGYING_CACHE_NAME__", cacheName)
   .replace(precachePlaceholder, JSON.stringify(JSON.stringify([...precacheUrls])));
 await Bun.write("./dist/client/sw.js", workerWithPrecache);
 
-for await (const generatedFile of new Bun.Glob("icon-192-*.png").scan({ cwd: clientRoot, onlyFiles: true })) {
+for await (const generatedFile of new Bun.Glob("icon-192-*.png").scan({
+  cwd: clientRoot,
+  onlyFiles: true,
+})) {
   await rm(resolve(clientRoot, generatedFile), { force: true });
 }
-for await (const generatedFile of new Bun.Glob("apple-touch-icon-*.png").scan({ cwd: clientRoot, onlyFiles: true })) {
+for await (const generatedFile of new Bun.Glob("apple-touch-icon-*.png").scan({
+  cwd: clientRoot,
+  onlyFiles: true,
+})) {
   await rm(resolve(clientRoot, generatedFile), { force: true });
 }
-for await (const generatedFile of new Bun.Glob("manifest-*.webmanifest").scan({ cwd: clientRoot, onlyFiles: true })) {
+for await (const generatedFile of new Bun.Glob("manifest-*.webmanifest").scan({
+  cwd: clientRoot,
+  onlyFiles: true,
+})) {
   await rm(resolve(clientRoot, generatedFile), { force: true });
 }
 

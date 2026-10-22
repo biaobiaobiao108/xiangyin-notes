@@ -7,14 +7,15 @@ export type CreateNoteCommand = {
 };
 
 export type CreateNoteCommandResult =
-  | { kind: "match"; command: CreateNoteCommand }
-  | { kind: "error"; message: string }
-  | null;
+  { kind: "match"; command: CreateNoteCommand } | { kind: "error"; message: string } | null;
 
 const CREATE_NOTE_PREFIX = "新建";
 const MAX_NOTE_TITLE_LENGTH = 200;
 
-export function parseCreateNoteCommand(query: string, notebooks: Notebook[]): CreateNoteCommandResult {
+export function parseCreateNoteCommand(
+  query: string,
+  notebooks: Notebook[],
+): CreateNoteCommandResult {
   const input = query.trim();
   const prefixRemainder = input.slice(CREATE_NOTE_PREFIX.length);
 
@@ -25,16 +26,25 @@ export function parseCreateNoteCommand(query: string, notebooks: Notebook[]): Cr
   if (!remainder) return { kind: "error", message: "请输入笔记本名称和笔记标题" };
 
   const notebook = [...notebooks]
-    .filter((candidate) => remainder.startsWith(candidate.name) && (remainder.length === candidate.name.length || /\s/.test(remainder[candidate.name.length] ?? "")))
+    .filter(
+      (candidate) =>
+        remainder.startsWith(candidate.name) &&
+        (remainder.length === candidate.name.length ||
+          /\s/.test(remainder[candidate.name.length] ?? "")),
+    )
     .sort((left, right) => right.name.length - left.name.length)[0];
 
   if (!notebook) return { kind: "error", message: "找不到这个笔记本，请输入已有笔记本名称" };
 
   const title = remainder.slice(notebook.name.length).trim();
   if (!title) return { kind: "error", message: "请输入笔记标题" };
-  if (title.length > MAX_NOTE_TITLE_LENGTH) return { kind: "error", message: "笔记标题不能超过 200 个字符" };
+  if (title.length > MAX_NOTE_TITLE_LENGTH)
+    return { kind: "error", message: "笔记标题不能超过 200 个字符" };
 
-  return { kind: "match", command: { notebookId: notebook.id, notebookName: notebook.name, title } };
+  return {
+    kind: "match",
+    command: { notebookId: notebook.id, notebookName: notebook.name, title },
+  };
 }
 
 export type ParsedSearchCommand = {
@@ -42,7 +52,15 @@ export type ParsedSearchCommand = {
   term: string;
 };
 
-const GLOBAL_SEARCH_PREFIXES = ["全局搜索", "全库搜索", "全库", "全部笔记", "全局", "global", "all"];
+const GLOBAL_SEARCH_PREFIXES = [
+  "全局搜索",
+  "全库搜索",
+  "全库",
+  "全部笔记",
+  "全局",
+  "global",
+  "all",
+];
 const IN_NOTE_SEARCH_PREFIXES = ["单篇搜索", "当前笔记", "当前", "搜索", "查找", "find"];
 
 export function parseSearchPrefixCommand(query: string): ParsedSearchCommand | null {

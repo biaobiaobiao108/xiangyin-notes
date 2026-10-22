@@ -50,23 +50,34 @@ function fakeSocket(userId: string, clientId: string | null): FakeSocket {
   return {
     socket,
     messages: state.messages,
-    get pings() { return state.pings; },
-    get closed() { return state.closed; },
+    get pings() {
+      return state.pings;
+    },
+    get closed() {
+      return state.closed;
+    },
   };
 }
 
-async function request(path: string, init: RequestInit = {}, options: { realtime?: RealtimeHub; cookie?: string; clientId?: string } = {}) {
+async function request(
+  path: string,
+  init: RequestInit = {},
+  options: { realtime?: RealtimeHub; cookie?: string; clientId?: string } = {},
+) {
   const headers = new Headers(init.headers);
   if (options.cookie) headers.set("Cookie", options.cookie);
   if (options.clientId) headers.set(REALTIME_CLIENT_ID_HEADER, options.clientId);
-  const response = await handleRequest(new Request(`http://xiangying.test${path}`, { ...init, headers }), {
-    database,
-    environment,
-    assetRoot,
-    realtime: options.realtime,
-    clientAddress: `test-${crypto.randomUUID()}`,
-  });
-  const body = await response.json().catch(() => null) as Record<string, any> | null;
+  const response = await handleRequest(
+    new Request(`http://xiangying.test${path}`, { ...init, headers }),
+    {
+      database,
+      environment,
+      assetRoot,
+      realtime: options.realtime,
+      clientAddress: `test-${crypto.randomUUID()}`,
+    },
+  );
+  const body = (await response.json().catch(() => null)) as Record<string, any> | null;
   return { response, body, cookie: response.headers.get("Set-Cookie")?.split(";", 1)[0] };
 }
 
@@ -95,7 +106,10 @@ describe("RealtimeHub", () => {
     hub.publish("owner", { resource: "notebooks" });
 
     expect(owner.messages).toHaveLength(1);
-    expect(JSON.parse(owner.messages[0])).toMatchObject({ type: "workspace.changed", resource: "notebooks" });
+    expect(JSON.parse(owner.messages[0])).toMatchObject({
+      type: "workspace.changed",
+      resource: "notebooks",
+    });
     expect(ownerOtherTab.messages).toHaveLength(2);
     expect(otherUser.messages).toHaveLength(0);
     expect(JSON.parse(ownerOtherTab.messages[0])).toEqual({
@@ -150,32 +164,65 @@ describe("Realtime HTTP integration", () => {
   test("notifies other clients of note version changes when deleting a notebook", async () => {
     const hub = new RealtimeHub();
     const login = await request("/api/auth/login", {
-      method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
+      method: "POST",
+      body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
     });
     const cookie = login.cookie!;
-    const notebook = (await request("/api/notebooks", {
-      method: "POST", body: JSON.stringify({ name: "待删除笔记本" }),
-    }, { cookie })).body?.notebook;
-    const note = (await request("/api/notes", {
-      method: "POST", body: JSON.stringify({ title: "仍在编辑", notebookId: notebook.id, contentMarkdown: "已保存草稿" }),
-    }, { cookie })).body?.note;
+    const notebook = (
+      await request(
+        "/api/notebooks",
+        {
+          method: "POST",
+          body: JSON.stringify({ name: "待删除笔记本" }),
+        },
+        { cookie },
+      )
+    ).body?.notebook;
+    const note = (
+      await request(
+        "/api/notes",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            title: "仍在编辑",
+            notebookId: notebook.id,
+            contentMarkdown: "已保存草稿",
+          }),
+        },
+        { cookie },
+      )
+    ).body?.note;
     const owner = fakeSocket(login.body?.user.id, "browser-1");
     const other = fakeSocket(login.body?.user.id, "browser-2");
     hub.add(owner.socket);
     hub.add(other.socket);
 
-    const deletion = await request(`/api/notebooks/${notebook.id}`, { method: "DELETE" }, {
-      cookie, realtime: hub, clientId: "browser-1",
-    });
+    const deletion = await request(
+      `/api/notebooks/${notebook.id}`,
+      { method: "DELETE" },
+      {
+        cookie,
+        realtime: hub,
+        clientId: "browser-1",
+      },
+    );
     expect(deletion.response.status).toBe(200);
     expect(owner.messages).toHaveLength(0);
-    expect(other.messages.map((message) => JSON.parse(message).resource)).toEqual(["notebooks", "notes"]);
+    expect(other.messages.map((message) => JSON.parse(message).resource)).toEqual([
+      "notebooks",
+      "notes",
+    ]);
     const current = (await request(`/api/notes/${note.id}`, {}, { cookie })).body?.note;
     expect(current.version).toBe(note.version + 1);
     expect(current.notebookId).not.toBe(notebook.id);
-    const save = await request(`/api/notes/${note.id}`, {
-      method: "PATCH", body: JSON.stringify({ version: current.version, contentMarkdown: "继续编辑" }),
-    }, { cookie });
+    const save = await request(
+      `/api/notes/${note.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ version: current.version, contentMarkdown: "继续编辑" }),
+      },
+      { cookie },
+    );
     expect(save.response.status).toBe(200);
     expect(save.body?.note.contentMarkdown).toBe("继续编辑");
     hub.stop();
@@ -204,7 +251,10 @@ describe("Realtime HTTP integration", () => {
 
   test("rejects cross-site websocket hijacking with 403 when origin does not match", async () => {
     const hub = new RealtimeHub();
-    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
+    const login = await request("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
+    });
     expect(login.cookie).toBeTruthy();
 
     const server = {
@@ -247,7 +297,10 @@ describe("Realtime HTTP integration", () => {
 
   test("authenticates the upgrade and emits import and link-mention events", async () => {
     const hub = new RealtimeHub();
-    const login = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }) });
+    const login = await request("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
+    });
     expect(login.cookie).toBeTruthy();
     const userId = login.body?.user?.id as string;
     const socket = fakeSocket(userId, "browser-1");
@@ -261,7 +314,9 @@ describe("Realtime HTTP integration", () => {
       },
     } as unknown as Bun.Server<RealtimeSocketData>;
     const upgradeResponse = await upgradeRealtimeRequest(
-      new Request("http://xiangying.test/api/realtime?clientId=browser-1", { headers: { Upgrade: "websocket", Cookie: login.cookie! } }),
+      new Request("http://xiangying.test/api/realtime?clientId=browser-1", {
+        headers: { Upgrade: "websocket", Cookie: login.cookie! },
+      }),
       server,
       { database, environment, realtime: hub },
     );
@@ -274,11 +329,15 @@ describe("Realtime HTTP integration", () => {
       "Content-Type": "text/markdown",
       "Idempotency-Key": "realtime-import-1",
     };
-    const imported = await request("/api/import", {
-      method: "POST",
-      headers: importHeaders,
-      body: "跨设备事件测试",
-    }, { realtime: hub });
+    const imported = await request(
+      "/api/import",
+      {
+        method: "POST",
+        headers: importHeaders,
+        body: "跨设备事件测试",
+      },
+      { realtime: hub },
+    );
     expect(imported.response.status).toBe(201);
     expect(socket.messages).toHaveLength(1);
     const importEvent = JSON.parse(socket.messages[0]!);
@@ -286,46 +345,66 @@ describe("Realtime HTTP integration", () => {
     // 导入新增了笔记：事件代表成员变化，不带 noteId，客户端整表刷新。
     expect(importEvent).not.toHaveProperty("noteId");
 
-    const replay = await request("/api/import", {
-      method: "POST",
-      headers: importHeaders,
-      body: "跨设备事件测试",
-    }, { realtime: hub });
+    const replay = await request(
+      "/api/import",
+      {
+        method: "POST",
+        headers: importHeaders,
+        body: "跨设备事件测试",
+      },
+      { realtime: hub },
+    );
     expect(replay.response.status).toBe(200);
     expect(socket.messages).toHaveLength(1);
 
-    const sourceSuppressed = await request("/api/import", {
-      method: "POST",
-      headers: { ...importHeaders, "Idempotency-Key": "realtime-import-source" },
-      body: "当前标签页发起的导入",
-    }, { realtime: hub, clientId: "browser-1" });
+    const sourceSuppressed = await request(
+      "/api/import",
+      {
+        method: "POST",
+        headers: { ...importHeaders, "Idempotency-Key": "realtime-import-source" },
+        body: "当前标签页发起的导入",
+      },
+      { realtime: hub, clientId: "browser-1" },
+    );
     expect(sourceSuppressed.response.status).toBe(201);
     expect(socket.messages).toHaveLength(1);
 
     // Link mention event test
-    const targetNote = await request("/api/notes", {
-      method: "POST",
-      body: JSON.stringify({ title: "提及目标" }),
-    }, { cookie: login.cookie, realtime: hub });
+    const targetNote = await request(
+      "/api/notes",
+      {
+        method: "POST",
+        body: JSON.stringify({ title: "提及目标" }),
+      },
+      { cookie: login.cookie, realtime: hub },
+    );
     const targetId = targetNote.body?.note?.id as string;
 
-    const sourceNote = await request("/api/notes", {
-      method: "POST",
-      body: JSON.stringify({ title: "来源笔记", contentMarkdown: "这里包含提及目标的正文" }),
-    }, { cookie: login.cookie, realtime: hub });
+    const sourceNote = await request(
+      "/api/notes",
+      {
+        method: "POST",
+        body: JSON.stringify({ title: "来源笔记", contentMarkdown: "这里包含提及目标的正文" }),
+      },
+      { cookie: login.cookie, realtime: hub },
+    );
     const sourceId = sourceNote.body?.note?.id as string;
     const sourceVersion = sourceNote.body?.note?.version as number;
 
-    const linkMentionRes = await request(`/api/notes/${targetId}/link-mention`, {
-      method: "POST",
-      body: JSON.stringify({
-        sourceNoteId: sourceId,
-        sourceVersion,
-        matchStart: 4,
-        matchEnd: 8,
-        matchText: "提及目标",
-      }),
-    }, { cookie: login.cookie, realtime: hub, clientId: "other-client" });
+    const linkMentionRes = await request(
+      `/api/notes/${targetId}/link-mention`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          sourceNoteId: sourceId,
+          sourceVersion,
+          matchStart: 4,
+          matchEnd: 8,
+          matchText: "提及目标",
+        }),
+      },
+      { cookie: login.cookie, realtime: hub, clientId: "other-client" },
+    );
     expect(linkMentionRes.response.status).toBe(200);
 
     const lastMessage = JSON.parse(socket.messages[socket.messages.length - 1]!);
@@ -335,10 +414,14 @@ describe("Realtime HTTP integration", () => {
       noteId: sourceId,
     });
 
-    const renamed = await request(`/api/notes/${targetId}`, {
-      method: "PATCH",
-      body: JSON.stringify({ version: targetNote.body?.note?.version, title: "新提及目标" }),
-    }, { cookie: login.cookie, realtime: hub, clientId: "other-client" });
+    const renamed = await request(
+      `/api/notes/${targetId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ version: targetNote.body?.note?.version, title: "新提及目标" }),
+      },
+      { cookie: login.cookie, realtime: hub, clientId: "other-client" },
+    );
     expect(renamed.response.status).toBe(200);
     const renameMessage = JSON.parse(socket.messages[socket.messages.length - 1]!);
     expect(renameMessage).toMatchObject({ type: "workspace.changed", resource: "notes" });

@@ -1,4 +1,10 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import { ArrowDownWideNarrow, ChevronDown, ChevronLeft, LayoutGrid, List } from "lucide-react";
 import type { NoteSort } from "./helpers";
 import { EmptyTrashButton } from "./empty-trash-button";
@@ -24,7 +30,20 @@ type MobileCollectionHeaderProps = {
   active?: boolean;
 };
 
-export function MobileCollectionHeader({ heading, total, shown, query, sort, onSort, onBack, layout, onToggleLayout, onEmptyTrash, trashBusy = false, active = true }: MobileCollectionHeaderProps) {
+export function MobileCollectionHeader({
+  heading,
+  total,
+  shown,
+  query,
+  sort,
+  onSort,
+  onBack,
+  layout,
+  onToggleLayout,
+  onEmptyTrash,
+  trashBusy = false,
+  active = true,
+}: MobileCollectionHeaderProps) {
   const id = useId();
   const [sortOpen, setSortOpen] = useState(false);
   const sortRef = useRef<HTMLDivElement>(null);
@@ -44,15 +63,25 @@ export function MobileCollectionHeader({ heading, total, shown, query, sort, onS
     restoreTriggerFocus();
   };
 
-  useEffect(() => () => {
-    if (focusFrameRef.current !== null) cancelAnimationFrame(focusFrameRef.current);
-  }, []);
-  useEffect(() => { if (!active) setSortOpen(false); }, [active]);
+  useEffect(
+    () => () => {
+      if (focusFrameRef.current !== null) cancelAnimationFrame(focusFrameRef.current);
+    },
+    [],
+  );
+  useEffect(() => {
+    if (!active) setSortOpen(false);
+  }, [active]);
 
   useEffect(() => {
     if (!sortOpen || !active) return;
-    const selectedOptionIndex = Math.max(0, SORT_OPTIONS.findIndex((option) => option.value === sort));
-    const focusFrame = requestAnimationFrame(() => sortOptionRefs.current[selectedOptionIndex]?.focus());
+    const selectedOptionIndex = Math.max(
+      0,
+      SORT_OPTIONS.findIndex((option) => option.value === sort),
+    );
+    const focusFrame = requestAnimationFrame(() =>
+      sortOptionRefs.current[selectedOptionIndex]?.focus(),
+    );
     const onPointerDown = (event: PointerEvent) => {
       if (event.target instanceof Node && !sortRef.current?.contains(event.target)) closeSortMenu();
     };
@@ -97,23 +126,95 @@ export function MobileCollectionHeader({ heading, total, shown, query, sort, onS
 
   const layoutLabel = layout === "cards" ? "切换为列表视图" : "切换为卡片视图";
   const LayoutIcon = layout === "cards" ? List : LayoutGrid;
-  return <header className="list-header mobile-collection-header">
-    <button className="mobile-list-back" type="button" aria-label="返回笔记本首页" onClick={onBack}><ChevronLeft size={22} aria-hidden="true" /><span>笔记本</span></button>
-    <div className="list-header-main"><h2 tabIndex={-1}>{heading}</h2><p>{query ? `包含“${query}”的笔记` : `${total} 篇笔记`}{shown < total && <> · 已显示 {shown} 篇</>}</p></div>
-    <div className="list-header-controls">
-      {onEmptyTrash && <EmptyTrashButton onClick={onEmptyTrash} disabled={trashBusy || total === 0} iconSize={20} />}
-      <div className="sort-menu-wrap" ref={sortRef}>
-        <button ref={sortTriggerRef} id={`${id}-sort-trigger`} className="sort-button" type="button" aria-label={`笔记排序：${SORT_OPTIONS.find((option) => option.value === sort)?.label}`} aria-haspopup="listbox" aria-controls={`${id}-sort-options`} aria-expanded={sortOpen} onClick={() => setSortOpen((open) => !open)}>
-          <ArrowDownWideNarrow className="mobile-sort-icon" size={20} aria-hidden="true" /><span className="sort-button-label">{SORT_OPTIONS.find((option) => option.value === sort)?.label}</span><ChevronDown size={14} className="sort-button-arrow" aria-hidden="true" />
-        </button>
-        {sortOpen && <div id={`${id}-sort-options`} className="sort-dropdown" role="listbox" aria-label="笔记排序方式">
-          {SORT_OPTIONS.map((option, index) => {
-            const isSelected = sort === option.value;
-            return <button ref={(element) => { sortOptionRefs.current[index] = element; }} id={`${id}-sort-${option.value}`} key={option.value} type="button" className={`sort-option ${isSelected ? "is-active" : ""}`} role="option" aria-selected={isSelected} tabIndex={isSelected ? 0 : -1} onClick={() => { onSort(option.value); closeSortMenu(); }} onKeyDown={(event) => handleSortOptionKeyDown(event, index)}>{option.label}</button>;
-          })}
-        </div>}
+  return (
+    <header className="list-header mobile-collection-header">
+      <button
+        className="mobile-list-back"
+        type="button"
+        aria-label="返回笔记本首页"
+        onClick={onBack}
+      >
+        <ChevronLeft size={22} aria-hidden="true" />
+        <span>笔记本</span>
+      </button>
+      <div className="list-header-main">
+        <h2 tabIndex={-1}>{heading}</h2>
+        <p>
+          {query ? `包含“${query}”的笔记` : `${total} 篇笔记`}
+          {shown < total && <> · 已显示 {shown} 篇</>}
+        </p>
       </div>
-      {onToggleLayout && <button className="icon-button mobile-layout-toggle" type="button" aria-label={layoutLabel} onClick={onToggleLayout}><LayoutIcon size={20} aria-hidden="true" /></button>}
-    </div>
-  </header>;
+      <div className="list-header-controls">
+        {onEmptyTrash && (
+          <EmptyTrashButton
+            onClick={onEmptyTrash}
+            disabled={trashBusy || total === 0}
+            iconSize={20}
+          />
+        )}
+        <div className="sort-menu-wrap" ref={sortRef}>
+          <button
+            ref={sortTriggerRef}
+            id={`${id}-sort-trigger`}
+            className="sort-button"
+            type="button"
+            aria-label={`笔记排序：${SORT_OPTIONS.find((option) => option.value === sort)?.label}`}
+            aria-haspopup="listbox"
+            aria-controls={`${id}-sort-options`}
+            aria-expanded={sortOpen}
+            onClick={() => setSortOpen((open) => !open)}
+          >
+            <ArrowDownWideNarrow className="mobile-sort-icon" size={20} aria-hidden="true" />
+            <span className="sort-button-label">
+              {SORT_OPTIONS.find((option) => option.value === sort)?.label}
+            </span>
+            <ChevronDown size={14} className="sort-button-arrow" aria-hidden="true" />
+          </button>
+          {sortOpen && (
+            <div
+              id={`${id}-sort-options`}
+              className="sort-dropdown"
+              role="listbox"
+              aria-label="笔记排序方式"
+            >
+              {SORT_OPTIONS.map((option, index) => {
+                const isSelected = sort === option.value;
+                return (
+                  <button
+                    ref={(element) => {
+                      sortOptionRefs.current[index] = element;
+                    }}
+                    id={`${id}-sort-${option.value}`}
+                    key={option.value}
+                    type="button"
+                    className={`sort-option ${isSelected ? "is-active" : ""}`}
+                    role="option"
+                    aria-selected={isSelected}
+                    tabIndex={isSelected ? 0 : -1}
+                    onClick={() => {
+                      onSort(option.value);
+                      closeSortMenu();
+                    }}
+                    onKeyDown={(event) => handleSortOptionKeyDown(event, index)}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+        {onToggleLayout && (
+          <button
+            className="icon-button mobile-layout-toggle"
+            type="button"
+            aria-label={layoutLabel}
+            onClick={onToggleLayout}
+          >
+            <LayoutIcon size={20} aria-hidden="true" />
+          </button>
+        )}
+      </div>
+    </header>
+  );
 }

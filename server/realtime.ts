@@ -1,5 +1,13 @@
 import type { WorkspaceChangeMessage, WorkspaceChangeResource } from "../shared/realtime";
-import { digestHex, getPublicOrigin, jsonError, now, SESSION_COOKIE, type ServerOptions, type SqliteDatabase } from "./core";
+import {
+  digestHex,
+  getPublicOrigin,
+  jsonError,
+  now,
+  SESSION_COOKIE,
+  type ServerOptions,
+  type SqliteDatabase,
+} from "./core";
 import { cleanupExpiredSessions, cookieValue, isResponse, requireUser } from "./routes/auth";
 
 export const REALTIME_PATH = "/api/realtime";
@@ -43,18 +51,27 @@ export class RealtimeHub {
     if (!this.database) return true;
     if (!sessionTokenHash || !userId) return false;
     try {
-      return Boolean(this.database.query(`
+      return Boolean(
+        this.database
+          .query(
+            `
         SELECT 1 AS active
         FROM sessions
         WHERE token_hash = ? AND user_id = ? AND expires_at > ?
-      `).get(sessionTokenHash, userId, now()));
+      `,
+          )
+          .get(sessionTokenHash, userId, now()),
+      );
     } catch {
       // If session state cannot be checked, fail closed for realtime delivery.
       return false;
     }
   }
 
-  private closeMatching(predicate: (socket: Bun.ServerWebSocket<RealtimeSocketData>) => boolean, reason: string) {
+  private closeMatching(
+    predicate: (socket: Bun.ServerWebSocket<RealtimeSocketData>) => boolean,
+    reason: string,
+  ) {
     for (const userConnections of this.connections.values()) {
       for (const socket of userConnections) {
         if (!predicate(socket)) continue;
@@ -77,7 +94,8 @@ export class RealtimeHub {
   add(socket: Bun.ServerWebSocket<RealtimeSocketData>) {
     const userId = socket.data?.userId;
     if (!userId) return;
-    const userConnections = this.connections.get(userId) ?? new Set<Bun.ServerWebSocket<RealtimeSocketData>>();
+    const userConnections =
+      this.connections.get(userId) ?? new Set<Bun.ServerWebSocket<RealtimeSocketData>>();
     if (userConnections.size >= MAX_CONNECTIONS_PER_USER) {
       const oldest = userConnections.values().next().value;
       if (oldest) {
@@ -100,7 +118,11 @@ export class RealtimeHub {
     if (!userConnections.size) this.connections.delete(userId);
   }
 
-  publish(userId: string, change: { resource: WorkspaceChangeResource; noteId?: string }, sourceClientId: string | null = null) {
+  publish(
+    userId: string,
+    change: { resource: WorkspaceChangeResource; noteId?: string },
+    sourceClientId: string | null = null,
+  ) {
     const userConnections = this.connections.get(userId);
     if (!userConnections?.size) return;
 
@@ -209,8 +231,10 @@ export async function upgradeRealtimeRequest(
   server: Bun.Server<RealtimeSocketData>,
   options: ServerOptions,
 ): Promise<Response | null> {
-  if (request.method !== "GET") return jsonError(405, "METHOD_NOT_ALLOWED", "实时连接只支持 GET", { Allow: "GET" });
-  if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") return jsonError(426, "UPGRADE_REQUIRED", "需要使用 WebSocket 连接");
+  if (request.method !== "GET")
+    return jsonError(405, "METHOD_NOT_ALLOWED", "实时连接只支持 GET", { Allow: "GET" });
+  if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket")
+    return jsonError(426, "UPGRADE_REQUIRED", "需要使用 WebSocket 连接");
   if (!options.realtime) return jsonError(503, "REALTIME_NOT_CONFIGURED", "实时连接暂不可用");
 
   const origin = request.headers.get("Origin");
@@ -226,7 +250,12 @@ export async function upgradeRealtimeRequest(
   }
 
   cleanupExpiredSessions(options.database);
-  const user = await requireUser(options.database, options.environment ?? {}, request, options.realtime);
+  const user = await requireUser(
+    options.database,
+    options.environment ?? {},
+    request,
+    options.realtime,
+  );
   if (isResponse(user)) return user;
 
   const session = cookieValue(request.headers.get("Cookie"), SESSION_COOKIE);

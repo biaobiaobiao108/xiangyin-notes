@@ -24,20 +24,32 @@ describe("draft recovery serialization", () => {
     expect(parseDraftRecovery("not-json", draft.id)).toBeNull();
     expect(parseDraftRecovery(JSON.stringify({ ...draft, version: 0 }), draft.id)).toBeNull();
     // 1,000,000 个中文字符（约 3 MiB）属于合法正文，必须能写入恢复副本。
-    expect(serializeDraftRecovery({ ...draft, contentMarkdown: "字".repeat(1_000_000) })).toBeString();
-    expect(serializeDraftRecovery({ ...draft, contentMarkdown: "字".repeat(3_000_000) })).toBeNull();
+    expect(
+      serializeDraftRecovery({ ...draft, contentMarkdown: "字".repeat(1_000_000) }),
+    ).toBeString();
+    expect(
+      serializeDraftRecovery({ ...draft, contentMarkdown: "字".repeat(3_000_000) }),
+    ).toBeNull();
   });
 });
 
 test("older IndexedDB completions cannot remove, overwrite or restore a newer recovery", async () => {
-  const { writeDraftRecovery, readDraftRecovery, clearDraftRecovery, clearAllDraftRecoveries, draftRecoveryStorageKey } = await import("../app/workspace/draft-recovery");
+  const {
+    writeDraftRecovery,
+    readDraftRecovery,
+    clearDraftRecovery,
+    clearAllDraftRecoveries,
+    draftRecoveryStorageKey,
+  } = await import("../app/workspace/draft-recovery");
   const windowDescriptor = Object.getOwnPropertyDescriptor(globalThis, "window");
   const indexedDbDescriptor = Object.getOwnPropertyDescriptor(globalThis, "indexedDB");
   const local = new Map<string, string>();
   const indexed = new Map<string, string>();
   const writes: Array<{ transaction: IDBTransaction; key: string; value: string }> = [];
   let localWritesFail = false;
-  const flush = async () => { for (let index = 0; index < 8; index += 1) await Promise.resolve(); };
+  const flush = async () => {
+    for (let index = 0; index < 8; index += 1) await Promise.resolve();
+  };
   const database = {
     transaction() {
       const transaction = {
@@ -46,12 +58,18 @@ test("older IndexedDB completions cannot remove, overwrite or restore a newer re
         onabort: null,
         objectStore() {
           return {
-            put(value: string, key: string) { writes.push({ transaction: transaction as unknown as IDBTransaction, key, value }); },
+            put(value: string, key: string) {
+              writes.push({ transaction: transaction as unknown as IDBTransaction, key, value });
+            },
             delete(key: string) {
               indexed.delete(key);
-              queueMicrotask(() => (transaction as unknown as IDBTransaction).oncomplete?.({} as Event));
+              queueMicrotask(() =>
+                (transaction as unknown as IDBTransaction).oncomplete?.({} as Event),
+              );
             },
-            clear() { indexed.clear(); },
+            clear() {
+              indexed.clear();
+            },
             get(key: string) {
               const request = { result: indexed.get(key), onsuccess: null as (() => void) | null };
               queueMicrotask(() => request.onsuccess?.());
@@ -63,25 +81,33 @@ test("older IndexedDB completions cannot remove, overwrite or restore a newer re
       return transaction;
     },
   };
-  Object.defineProperty(globalThis, "window", { configurable: true, value: {
-    localStorage: {
-      getItem: (key: string) => local.get(key) ?? null,
-      setItem: (key: string, value: string) => {
-        if (localWritesFail) throw new DOMException("Quota exceeded", "QuotaExceededError");
-        local.set(key, value);
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: {
+      localStorage: {
+        getItem: (key: string) => local.get(key) ?? null,
+        setItem: (key: string, value: string) => {
+          if (localWritesFail) throw new DOMException("Quota exceeded", "QuotaExceededError");
+          local.set(key, value);
+        },
+        removeItem: (key: string) => local.delete(key),
+        get length() {
+          return local.size;
+        },
+        key: (index: number) => [...local.keys()][index] ?? null,
       },
-      removeItem: (key: string) => local.delete(key),
-      get length() { return local.size; },
-      key: (index: number) => [...local.keys()][index] ?? null,
     },
-  } });
-  Object.defineProperty(globalThis, "indexedDB", { configurable: true, value: {
-    open() {
-      const request = { result: database, onsuccess: null as (() => void) | null };
-      queueMicrotask(() => request.onsuccess?.());
-      return request;
+  });
+  Object.defineProperty(globalThis, "indexedDB", {
+    configurable: true,
+    value: {
+      open() {
+        const request = { result: database, onsuccess: null as (() => void) | null };
+        queueMicrotask(() => request.onsuccess?.());
+        return request;
+      },
     },
-  } });
+  });
   const large = { ...draft, contentMarkdown: "字".repeat(50_000) };
   const completeWrite = (successful: boolean) => {
     const write = writes.shift()!;
@@ -159,7 +185,11 @@ test("older IndexedDB completions cannot remove, overwrite or restore a newer re
     expect(local.get(sharedKey)).toBe(JSON.stringify(sharedDraft));
     expect(await readDraftRecovery(sharedDraft.id)).toEqual(sharedDraft);
 
-    const indexedSharedDraft = { ...draft, id: "indexed-shared-note", title: "另一标签页的较大草稿" };
+    const indexedSharedDraft = {
+      ...draft,
+      id: "indexed-shared-note",
+      title: "另一标签页的较大草稿",
+    };
     expect(await readDraftRecovery(indexedSharedDraft.id)).toBeNull();
     indexed.set(indexedSharedDraft.id, JSON.stringify(indexedSharedDraft));
     clearDraftRecovery(indexedSharedDraft.id);

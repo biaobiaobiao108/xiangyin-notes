@@ -37,17 +37,24 @@ export function databasePathFromEnv(env: Record<string, string | undefined> = Bu
 }
 
 function readSchemaVersion(database: SqliteDatabase) {
-  const row = database.query("PRAGMA user_version").get() as { user_version: number } | null | undefined;
+  const row = database.query("PRAGMA user_version").get() as
+    { user_version: number } | null | undefined;
   return Number(row?.user_version ?? 0);
 }
 
 function isEmptyDatabase(database: SqliteDatabase) {
-  const row = database.query("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").get() as TableCountRow | null | undefined;
+  const row = database
+    .query(
+      "SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+    )
+    .get() as TableCountRow | null | undefined;
   return Number(row?.count ?? 0) === 0;
 }
 
 function schemaVersionError(version: number, currentVersion: number) {
-  return new Error(`SQLite schema version ${version} is unsupported; this application supports versions ${BASELINE_SCHEMA_VERSION} through ${currentVersion}.`);
+  return new Error(
+    `SQLite schema version ${version} is unsupported; this application supports versions ${BASELINE_SCHEMA_VERSION} through ${currentVersion}.`,
+  );
 }
 
 function schemaDifference(actual: SqliteDatabase, expected: SqliteDatabase) {
@@ -55,7 +62,9 @@ function schemaDifference(actual: SqliteDatabase, expected: SqliteDatabase) {
   const expectedObjects = snapshotSchema(expected);
   const missing = [...expectedObjects.keys()].filter((key) => !actualObjects.has(key));
   const extra = [...actualObjects.keys()].filter((key) => !expectedObjects.has(key));
-  const different = [...expectedObjects.keys()].filter((key) => actualObjects.has(key) && actualObjects.get(key) !== expectedObjects.get(key));
+  const different = [...expectedObjects.keys()].filter(
+    (key) => actualObjects.has(key) && actualObjects.get(key) !== expectedObjects.get(key),
+  );
   return { missing, extra, different };
 }
 
@@ -66,8 +75,12 @@ function assertSchemaMatches(actual: SqliteDatabase, expected: SqliteDatabase, v
       missing.length ? `缺失 [${missing.join(", ")}]` : "",
       extra.length ? `多余 [${extra.join(", ")}]` : "",
       different.length ? `定义不一致 [${different.join(", ")}]` : "",
-    ].filter(Boolean).join("；");
-    throw new Error(`SQLite schema version ${version} has drift: ${details}. Database was left unchanged.`);
+    ]
+      .filter(Boolean)
+      .join("；");
+    throw new Error(
+      `SQLite schema version ${version} has drift: ${details}. Database was left unchanged.`,
+    );
   }
 }
 
@@ -105,7 +118,8 @@ export function applyMigrations(
     const apply = database.transaction(() => {
       const currentVersion = readSchemaVersion(database);
       if (currentVersion === migration.targetVersion) return;
-      if (currentVersion !== migration.sourceVersion) throw schemaVersionError(currentVersion, currentSchemaVersion);
+      if (currentVersion !== migration.sourceVersion)
+        throw schemaVersionError(currentVersion, currentSchemaVersion);
       migration.migrate(database);
       database.exec(`PRAGMA user_version = ${migration.targetVersion};`);
     });
@@ -126,7 +140,9 @@ function createSchemaAtVersion(
   try {
     expected.exec(schemaSql);
     if (readSchemaVersion(expected) !== BASELINE_SCHEMA_VERSION) {
-      throw new Error(`database/schema.sql must set PRAGMA user_version = ${BASELINE_SCHEMA_VERSION}.`);
+      throw new Error(
+        `database/schema.sql must set PRAGMA user_version = ${BASELINE_SCHEMA_VERSION}.`,
+      );
     }
     if (version > currentSchemaVersion) throw schemaVersionError(version, currentSchemaVersion);
     applyMigrations(expected, migrations, version);
@@ -145,7 +161,8 @@ export async function initializeDatabase(
   const migrations = options.migrations ?? SCHEMA_MIGRATIONS;
   const currentSchemaVersion = options.currentSchemaVersion ?? CURRENT_SCHEMA_VERSION;
   const schemaFile = Bun.file(schemaPath);
-  if (!(await schemaFile.exists())) throw new Error(`SQLite schema baseline not found: ${schemaPath}`);
+  if (!(await schemaFile.exists()))
+    throw new Error(`SQLite schema baseline not found: ${schemaPath}`);
   const schemaSql = await schemaFile.text();
 
   let version = readSchemaVersion(database);
@@ -154,7 +171,8 @@ export async function initializeDatabase(
   if (isEmptyDatabase(database) && version === 0) {
     const initialize = database.transaction(() => {
       if (!isEmptyDatabase(database)) return;
-      if (readSchemaVersion(database) !== 0) throw schemaVersionError(readSchemaVersion(database), currentSchemaVersion);
+      if (readSchemaVersion(database) !== 0)
+        throw schemaVersionError(readSchemaVersion(database), currentSchemaVersion);
       database.exec(schemaSql);
     });
     initialize.immediate();
@@ -167,7 +185,12 @@ export async function initializeDatabase(
     throw schemaVersionError(version, currentSchemaVersion);
   }
 
-  const expectedAtStoredVersion = createSchemaAtVersion(schemaSql, version, migrations, currentSchemaVersion);
+  const expectedAtStoredVersion = createSchemaAtVersion(
+    schemaSql,
+    version,
+    migrations,
+    currentSchemaVersion,
+  );
   try {
     assertSchemaMatches(database, expectedAtStoredVersion, version);
   } finally {
@@ -176,7 +199,12 @@ export async function initializeDatabase(
 
   applyMigrations(database, migrations, currentSchemaVersion);
 
-  const expectedCurrentSchema = createSchemaAtVersion(schemaSql, currentSchemaVersion, migrations, currentSchemaVersion);
+  const expectedCurrentSchema = createSchemaAtVersion(
+    schemaSql,
+    currentSchemaVersion,
+    migrations,
+    currentSchemaVersion,
+  );
   try {
     assertSchemaMatches(database, expectedCurrentSchema, currentSchemaVersion);
   } finally {
@@ -202,9 +230,11 @@ export async function openDatabase(
     `);
     await initializeDatabase(database, options);
 
-    const autoVacuumRow = database.query("PRAGMA auto_vacuum;").get() as { auto_vacuum: number } | null | undefined;
+    const autoVacuumRow = database.query("PRAGMA auto_vacuum;").get() as
+      { auto_vacuum: number } | null | undefined;
     if (Number(autoVacuumRow?.auto_vacuum ?? 0) !== 2) {
-      if (resolvedPath !== ":memory:") console.warn("[db] 正在启用 auto_vacuum=INCREMENTAL，首次整理可能需要一些时间");
+      if (resolvedPath !== ":memory:")
+        console.warn("[db] 正在启用 auto_vacuum=INCREMENTAL，首次整理可能需要一些时间");
       database.exec("PRAGMA auto_vacuum = INCREMENTAL;");
       database.exec("VACUUM;");
     }

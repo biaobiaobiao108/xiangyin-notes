@@ -8,7 +8,12 @@ test("ZIP generation follows reader demand and stops after cancellation", async 
     try {
       for (let index = 0; index < 100; index += 1) {
         opened += 1;
-        yield { name: `${index}.md`, stream: async function* () { yield new Uint8Array(1024); } };
+        yield {
+          name: `${index}.md`,
+          stream: async function* () {
+            yield new Uint8Array(1024);
+          },
+        };
       }
     } finally {
       closed = true;
@@ -32,10 +37,15 @@ test("cancelling a ZIP download closes its active attachment stream", async () =
   async function* entries(): AsyncGenerator<ZipStreamEntry> {
     yield {
       name: "attachment.bin",
-      stream: () => new ReadableStream<Uint8Array>({
-        pull(controller) { controller.enqueue(new Uint8Array(1024)); },
-        cancel() { cancelled = true; },
-      }),
+      stream: () =>
+        new ReadableStream<Uint8Array>({
+          pull(controller) {
+            controller.enqueue(new Uint8Array(1024));
+          },
+          cancel() {
+            cancelled = true;
+          },
+        }),
     };
   }
 

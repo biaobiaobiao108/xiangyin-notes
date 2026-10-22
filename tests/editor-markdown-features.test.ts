@@ -8,23 +8,56 @@ import { createMarkdownExtension } from "../app/editor/markdown-config";
 import { Info, Table2 } from "lucide-react";
 import { formatPreview } from "../server/core";
 import { extractTags, preserveEscapedHashtagsForEditor } from "../shared/tags";
-import { CalloutNode, CALLOUT_TYPES, handleCalloutEnter, shouldExitCalloutOnEnter } from "../app/editor/callout-node";
-import { CodeBlockDoubleEnter, handleCodeBlockDoubleEnter, shouldExitCodeBlockOnEnter } from "../app/editor/code-block-enter";
+import {
+  CalloutNode,
+  CALLOUT_TYPES,
+  handleCalloutEnter,
+  shouldExitCalloutOnEnter,
+} from "../app/editor/callout-node";
+import {
+  CodeBlockDoubleEnter,
+  handleCodeBlockDoubleEnter,
+  shouldExitCodeBlockOnEnter,
+} from "../app/editor/code-block-enter";
 import { handleInlineMarkExitOnEnter, InlineMarkExitOnEnter } from "../app/editor/inline-mark-exit";
 import { ImageNode } from "../app/editor/image-node";
-import { createSearchHighlightPlugin, findEditorSearchMatchSummary, MAX_SEARCH_HIGHLIGHTS, searchHighlightPluginKey } from "../app/editor-search";
+import {
+  createSearchHighlightPlugin,
+  findEditorSearchMatchSummary,
+  MAX_SEARCH_HIGHLIGHTS,
+  searchHighlightPluginKey,
+} from "../app/editor-search";
 import { NoteLink } from "../app/editor/note-link";
 import { copyCodeBlockText } from "../app/editor/code-block-copy";
 import { pastePlainTextIntoCodeBlock } from "../app/editor/code-block-paste";
-import { adjustActiveTableSize, getActiveTableContext, getActiveTableSnapshot, getTableEdgeDragDelta, restoreActiveTableSnapshot, snapTableEdgeDrag } from "../app/editor/table-edge-commands";
-import { filterSlashCommandItems, findSlashCommandMatch, getNextGroupedSlashCommandIndex, getNextSlashCommandIndex, groupSlashCommandItems, insertSlashCommand, isSlashCommandImeEscape, isSlashCommandImeEvent } from "../app/editor/slash-command-menu";
+import {
+  adjustActiveTableSize,
+  getActiveTableContext,
+  getActiveTableSnapshot,
+  getTableEdgeDragDelta,
+  restoreActiveTableSnapshot,
+  snapTableEdgeDrag,
+} from "../app/editor/table-edge-commands";
+import {
+  filterSlashCommandItems,
+  findSlashCommandMatch,
+  getNextGroupedSlashCommandIndex,
+  getNextSlashCommandIndex,
+  groupSlashCommandItems,
+  insertSlashCommand,
+  isSlashCommandImeEscape,
+  isSlashCommandImeEvent,
+} from "../app/editor/slash-command-menu";
 import { createTableExtensions } from "../app/editor/table-extensions";
 import { TagDecorationExtension, tagDecorationPluginKey } from "../app/editor/tag-decoration";
 
 function createMarkdownEditor(content: string) {
   return new Editor({
     extensions: [
-      StarterKit.configure({ heading: { levels: [1, 2, 3, 4, 5, 6] }, codeBlock: { exitOnTripleEnter: false } }),
+      StarterKit.configure({
+        heading: { levels: [1, 2, 3, 4, 5, 6] },
+        codeBlock: { exitOnTripleEnter: false },
+      }),
       CodeBlockDoubleEnter,
       InlineMarkExitOnEnter,
       ...createTableExtensions(),
@@ -81,16 +114,26 @@ describe("hashtag editor decorations", () => {
   test("keeps end hashtags decorated across repeated Enter and edits in the new final paragraph", () => {
     const editor = createMarkdownEditor("正文 #Git #Codex #Worktree");
     try {
-      const plugin = editor.extensionManager.plugins.find(({ spec }) => spec.key === tagDecorationPluginKey);
+      const plugin = editor.extensionManager.plugins.find(
+        ({ spec }) => spec.key === tagDecorationPluginKey,
+      );
       expect(plugin).toBeDefined();
-      let state = EditorState.create({ schema: editor.schema, doc: editor.state.doc, plugins: [plugin!] });
-      const decoratedTags = () => (tagDecorationPluginKey.getState(state)?.find() ?? [])
-        .map(({ from, to }) => state.doc.textBetween(from, to));
+      let state = EditorState.create({
+        schema: editor.schema,
+        doc: editor.state.doc,
+        plugins: [plugin!],
+      });
+      const decoratedTags = () =>
+        (tagDecorationPluginKey.getState(state)?.find() ?? []).map(({ from, to }) =>
+          state.doc.textBetween(from, to),
+        );
       const expectedTags = ["#Git", "#Codex", "#Worktree"];
 
       for (let index = 0; index < 2; index += 1) {
         const position = state.doc.content.size - 1;
-        state = state.apply(state.tr.setSelection(TextSelection.create(state.doc, position)).split(position));
+        state = state.apply(
+          state.tr.setSelection(TextSelection.create(state.doc, position)).split(position),
+        );
         expect(decoratedTags()).toEqual(expectedTags);
       }
 
@@ -123,9 +166,13 @@ describe("slash command inline formatting", () => {
 
       expect(editor.isActive(markName)).toBe(true);
       editor.view.dispatch(editor.state.tr.insertText("formatted text"));
-      expect(editor.state.doc.firstChild?.firstChild?.marks.some((mark) => mark.type.name === markName)).toBe(true);
+      expect(
+        editor.state.doc.firstChild?.firstChild?.marks.some((mark) => mark.type.name === markName),
+      ).toBe(true);
 
-      expect(handleInlineMarkExitOnEnter(editor, { key: "Enter", keyCode: 13 } as KeyboardEvent)).toBe(true);
+      expect(
+        handleInlineMarkExitOnEnter(editor, { key: "Enter", keyCode: 13 } as KeyboardEvent),
+      ).toBe(true);
       expect(editor.state.doc.childCount).toBe(2);
       expect(editor.state.storedMarks).toBeNull();
       expect(editor.isActive(markName)).toBe(false);
@@ -141,7 +188,13 @@ describe("slash command inline formatting", () => {
       editor.commands.setTextSelection(2);
       insertSlashCommand(editor, { from: 1, to: 2 }, item);
 
-      expect(handleInlineMarkExitOnEnter(editor, { key: "Enter", keyCode: 13, isComposing: true } as KeyboardEvent)).toBe(false);
+      expect(
+        handleInlineMarkExitOnEnter(editor, {
+          key: "Enter",
+          keyCode: 13,
+          isComposing: true,
+        } as KeyboardEvent),
+      ).toBe(false);
       expect(editor.state.doc.childCount).toBe(1);
       expect(editor.isActive("bold")).toBe(true);
     } finally {
@@ -163,7 +216,9 @@ describe("slash command inline formatting", () => {
       insertSlashCommand(editor, { from: slashPosition, to: slashPosition + 1 }, item);
       editor.view.dispatch(editor.state.tr.insertText("formatted text"));
 
-      expect(handleInlineMarkExitOnEnter(editor, { key: "Enter", keyCode: 13 } as KeyboardEvent)).toBe(true);
+      expect(
+        handleInlineMarkExitOnEnter(editor, { key: "Enter", keyCode: 13 } as KeyboardEvent),
+      ).toBe(true);
       expect(editor.state.doc.firstChild?.type.name).toBe("bulletList");
       expect(editor.state.doc.firstChild?.childCount).toBe(2);
       expect(editor.state.doc.firstChild?.firstChild?.textContent).toBe("formatted text");
@@ -178,23 +233,31 @@ describe("slash command inline formatting", () => {
 describe("editor search decorations", () => {
   test("retains an end-of-document match after repeated Enter", () => {
     let state = createSearchState("正文 hit");
-    state = state.apply(state.tr.setMeta(searchHighlightPluginKey, { type: "query", query: "hit" }));
+    state = state.apply(
+      state.tr.setMeta(searchHighlightPluginKey, { type: "query", query: "hit" }),
+    );
 
     for (let index = 0; index < 2; index += 1) {
       const position = state.doc.content.size - 1;
-      state = state.apply(state.tr.setSelection(TextSelection.create(state.doc, position)).split(position));
+      state = state.apply(
+        state.tr.setSelection(TextSelection.create(state.doc, position)).split(position),
+      );
     }
 
     const searchState = searchHighlightPluginKey.getState(state);
     expect(searchState?.totalMatchCount).toBe(1);
-    expect(searchState?.matches.map(({ from, to }) => state.doc.textBetween(from, to))).toEqual(["hit"]);
+    expect(searchState?.matches.map(({ from, to }) => state.doc.textBetween(from, to))).toEqual([
+      "hit",
+    ]);
     expect(searchState?.decorations.find()).toHaveLength(1);
   });
 
   test("caps editor search decorations while retaining the total match count", () => {
     const totalMatchCount = MAX_SEARCH_HIGHLIGHTS + 25;
     let state = createSearchState("hit ".repeat(totalMatchCount));
-    state = state.apply(state.tr.setMeta(searchHighlightPluginKey, { type: "query", query: "hit" }));
+    state = state.apply(
+      state.tr.setMeta(searchHighlightPluginKey, { type: "query", query: "hit" }),
+    );
     const searchState = searchHighlightPluginKey.getState(state);
     expect(searchState?.matches).toHaveLength(MAX_SEARCH_HIGHLIGHTS);
     expect(searchState?.totalMatchCount).toBe(totalMatchCount);
@@ -204,7 +267,9 @@ describe("editor search decorations", () => {
   test("keeps the first 500 navigable results accurate after an early match is removed", () => {
     const totalMatchCount = MAX_SEARCH_HIGHLIGHTS + 25;
     let state = createSearchState("hit ".repeat(totalMatchCount));
-    state = state.apply(state.tr.setMeta(searchHighlightPluginKey, { type: "query", query: "hit" }));
+    state = state.apply(
+      state.tr.setMeta(searchHighlightPluginKey, { type: "query", query: "hit" }),
+    );
     state = state.apply(state.tr.delete(1, 4));
     const searchState = searchHighlightPluginKey.getState(state);
     const expected = findEditorSearchMatchSummary(state.doc, "hit", MAX_SEARCH_HIGHLIGHTS);
@@ -217,17 +282,29 @@ describe("editor search decorations", () => {
 
 describe("GFM table markdown integration", () => {
   test("does not render Markdown link or image titles as hover tooltips", () => {
-    const source = "[链接](https://example.com \"链接说明\")\n\n![图片](https://example.com/image.png \"图片说明\")";
+    const source =
+      '[链接](https://example.com "链接说明")\n\n![图片](https://example.com/image.png "图片说明")';
     const editor = new Editor({
-      extensions: [StarterKit.configure({ link: false }), NoteLink.configure({ openOnClick: false }), Markdown, ImageNode],
+      extensions: [
+        StarterKit.configure({ link: false }),
+        NoteLink.configure({ openOnClick: false }),
+        Markdown,
+        ImageNode,
+      ],
       content: source,
       contentType: "markdown",
     });
     try {
-      const linkTitle = editor.extensionManager.attributes.find((attribute) => attribute.type === "link" && attribute.name === "title");
+      const linkTitle = editor.extensionManager.attributes.find(
+        (attribute) => attribute.type === "link" && attribute.name === "title",
+      );
       expect(linkTitle?.attribute.rendered).toBe(false);
-      const renderImageHTML = ImageNode.config.renderHTML as (props: { HTMLAttributes: Record<string, unknown> }) => unknown;
-      const imageHTML = renderImageHTML({ HTMLAttributes: { src: "https://example.com/image.png", alt: "图片", title: "图片说明" } });
+      const renderImageHTML = ImageNode.config.renderHTML as (props: {
+        HTMLAttributes: Record<string, unknown>;
+      }) => unknown;
+      const imageHTML = renderImageHTML({
+        HTMLAttributes: { src: "https://example.com/image.png", alt: "图片", title: "图片说明" },
+      });
       expect(JSON.stringify(imageHTML)).not.toContain("title");
       const markdown = (editor as Editor & { getMarkdown: () => string }).getMarkdown();
       expect(markdown).toContain('[链接](https://example.com "链接说明")');
@@ -268,23 +345,38 @@ describe("GFM table markdown integration", () => {
   });
 
   test("uses compact default columns and preserves resized widths in Markdown", () => {
-    const tableExtension = createTableExtensions().find((extension) => extension.name === "table") as { options: { resizable: boolean; handleWidth: number; cellMinWidth: number } } | undefined;
+    const tableExtension = createTableExtensions().find(
+      (extension) => extension.name === "table",
+    ) as { options: { resizable: boolean; handleWidth: number; cellMinWidth: number } } | undefined;
     expect(tableExtension?.options.resizable).toBe(true);
     expect(tableExtension?.options.handleWidth).toBe(8);
     expect(tableExtension?.options.cellMinWidth).toBe(96);
 
-    const editor = createMarkdownEditor("| 项目 | 状态 |\n| --- | --- |\n| 一个较长的项目名称 | 已修 |\n| 短项 | 进行中 |\n");
+    const editor = createMarkdownEditor(
+      "| 项目 | 状态 |\n| --- | --- |\n| 一个较长的项目名称 | 已修 |\n| 短项 | 进行中 |\n",
+    );
     try {
       let headerCellPosition: number | null = null;
       editor.state.doc.descendants((node, position) => {
-        if (headerCellPosition === null && node.type.name === "tableHeader") headerCellPosition = position;
+        if (headerCellPosition === null && node.type.name === "tableHeader")
+          headerCellPosition = position;
       });
       expect(headerCellPosition).not.toBeNull();
       const headerCell = editor.state.doc.nodeAt(headerCellPosition!)!;
-      editor.view.dispatch(editor.state.tr.setNodeMarkup(headerCellPosition!, undefined, { ...headerCell.attrs, colwidth: [360] }));
+      editor.view.dispatch(
+        editor.state.tr.setNodeMarkup(headerCellPosition!, undefined, {
+          ...headerCell.attrs,
+          colwidth: [360],
+        }),
+      );
 
       const markdown = (editor as Editor & { getMarkdown: () => string }).getMarkdown();
-      const separatorCells = markdown.trim().split("\n")[1].split("|").slice(1, -1).map((cell) => cell.replaceAll(":", "").trim());
+      const separatorCells = markdown
+        .trim()
+        .split("\n")[1]
+        .split("|")
+        .slice(1, -1)
+        .map((cell) => cell.replaceAll(":", "").trim());
       expect(separatorCells[0].length).toBe(35);
       expect(separatorCells[1].length).toBe(13);
 
@@ -302,7 +394,9 @@ describe("GFM table markdown integration", () => {
   });
 
   test("keeps previously saved long separator widths when loading Markdown", () => {
-    const editor = createMarkdownEditor("| 项目 | 状态 |\n| ----------------------------------- | -------------------- |\n| 内容 | 空 |\n");
+    const editor = createMarkdownEditor(
+      "| 项目 | 状态 |\n| ----------------------------------- | -------------------- |\n| 内容 | 空 |\n",
+    );
     try {
       const firstRow = editor.state.doc.firstChild?.firstChild;
       expect(firstRow?.firstChild?.attrs.colwidth).toEqual([360]);
@@ -415,7 +509,9 @@ describe("code block copy", () => {
   test("copies the exact code text including line breaks", async () => {
     let copiedText = "";
     await copyCodeBlockText("first line\nsecond line\n", {
-      writeText: async (text) => { copiedText = text; },
+      writeText: async (text) => {
+        copiedText = text;
+      },
     });
     expect(copiedText).toBe("first line\nsecond line\n");
   });
@@ -448,7 +544,11 @@ describe("table edge controls", () => {
 
   test("adjusts the far edge in a single transaction and preserves one row and column", () => {
     const editor = new Editor({
-      extensions: [StarterKit.configure({ heading: { levels: [1, 2, 3, 4] } }), ...createTableExtensions(), Markdown],
+      extensions: [
+        StarterKit.configure({ heading: { levels: [1, 2, 3, 4] } }),
+        ...createTableExtensions(),
+        Markdown,
+      ],
       content: { type: "doc", content: [{ type: "paragraph" }] },
     });
     try {
@@ -457,13 +557,23 @@ describe("table edge controls", () => {
       expect(context).not.toBeNull();
       expect(context?.rows).toBe(2);
       expect(context?.columns).toBe(2);
-      expect(editor.state.doc.resolve(context!.lastCellTextPosition).parent.type.name).toBe("paragraph");
+      expect(editor.state.doc.resolve(context!.lastCellTextPosition).parent.type.name).toBe(
+        "paragraph",
+      );
 
       const snapshot = getActiveTableSnapshot(editor);
       expect(snapshot).not.toBeNull();
-      expect(adjustActiveTableSize(editor, "columns", 2, { addToHistory: false, emitUpdate: false })).toBe(true);
+      expect(
+        adjustActiveTableSize(editor, "columns", 2, { addToHistory: false, emitUpdate: false }),
+      ).toBe(true);
       expect(getActiveTableContext(editor)?.columns).toBe(4);
-      expect(restoreActiveTableSnapshot(editor, snapshot!, { addToHistory: false, emitUpdate: false, closeHistory: true })).toBe(true);
+      expect(
+        restoreActiveTableSnapshot(editor, snapshot!, {
+          addToHistory: false,
+          emitUpdate: false,
+          closeHistory: true,
+        }),
+      ).toBe(true);
       expect(getActiveTableContext(editor)?.columns).toBe(2);
 
       const table = editor.state.doc.firstChild!;
@@ -472,12 +582,17 @@ describe("table edge controls", () => {
         const lastCell = row.lastChild!;
         const lastCellOffset = row.content.size - lastCell.nodeSize;
         const position = 2 + rowOffset + lastCellOffset;
-        setLastColumnWidth.setNodeMarkup(position, undefined, { ...lastCell.attrs, colwidth: [192] });
+        setLastColumnWidth.setNodeMarkup(position, undefined, {
+          ...lastCell.attrs,
+          colwidth: [192],
+        });
       });
       editor.view.dispatch(setLastColumnWidth);
 
       let transactionCount = 0;
-      const countTransaction = () => { transactionCount += 1; };
+      const countTransaction = () => {
+        transactionCount += 1;
+      };
       editor.on("transaction", countTransaction);
       expect(adjustActiveTableSize(editor, "columns", 3)).toBe(true);
       editor.off("transaction", countTransaction);
@@ -520,7 +635,9 @@ describe("table edge controls", () => {
 
       expect(adjustActiveTableSize(editor, "columns", 1, {}, tablePosition)).toBe(true);
       expect(getActiveTableContext(editor, tablePosition)?.columns).toBe(3);
-      expect(restoreActiveTableSnapshot(editor, snapshot!, { addToHistory: false, emitUpdate: false })).toBe(true);
+      expect(
+        restoreActiveTableSnapshot(editor, snapshot!, { addToHistory: false, emitUpdate: false }),
+      ).toBe(true);
       expect(getActiveTableContext(editor, tablePosition)?.columns).toBe(2);
     } finally {
       editor.destroy();
@@ -539,9 +656,13 @@ describe("code block double Enter behavior", () => {
       expect(editor.state.doc.firstChild?.textContent).toBe("const value = 1;\n");
       expect(shouldExitCodeBlockOnEnter(editor.state)).toBe(true);
 
-      expect(handleCodeBlockDoubleEnter(editor, { key: "Enter", isComposing: true, keyCode: 229 })).toBe(false);
+      expect(
+        handleCodeBlockDoubleEnter(editor, { key: "Enter", isComposing: true, keyCode: 229 }),
+      ).toBe(false);
       expect(editor.state.doc.firstChild?.textContent).toBe("const value = 1;\n");
-      expect(handleCodeBlockDoubleEnter(editor, { key: "Enter", isComposing: false, keyCode: 13 })).toBe(true);
+      expect(
+        handleCodeBlockDoubleEnter(editor, { key: "Enter", isComposing: false, keyCode: 13 }),
+      ).toBe(true);
       expect(editor.state.doc.firstChild?.textContent).toBe("const value = 1;");
       expect(editor.state.doc.childCount).toBe(2);
       expect(editor.state.doc.lastChild?.type.name).toBe("paragraph");
@@ -576,7 +697,13 @@ describe("callout markdown integration", () => {
         expect(editor.state.doc.firstChild?.attrs.type).toBe(type);
         const markdown = (editor as Editor & { getMarkdown: () => string }).getMarkdown();
         expect(markdown).toBe(`> [!${type}]\n> 说明正文`);
-        const labels: Record<(typeof CALLOUT_TYPES)[number], string> = { NOTE: "说明", TIP: "建议", IMPORTANT: "重要", WARNING: "警告", CAUTION: "注意" };
+        const labels: Record<(typeof CALLOUT_TYPES)[number], string> = {
+          NOTE: "说明",
+          TIP: "建议",
+          IMPORTANT: "重要",
+          WARNING: "警告",
+          CAUTION: "注意",
+        };
         const htmlSpec = editor.schema.nodes.callout.spec.toDOM?.(editor.state.doc.firstChild!);
         const htmlSpecText = JSON.stringify(htmlSpec);
         expect(htmlSpecText).toContain("note-callout-icon");
@@ -655,7 +782,9 @@ describe("callout markdown integration", () => {
       editor.commands.setTextSelection(5);
       expect(editor.commands.splitBlock()).toBe(true);
       expect(shouldExitCalloutOnEnter(editor.state)).toBe(true);
-      expect(handleCalloutEnter(editor, { key: "Enter", keyCode: 13, isComposing: true })).toBe(false);
+      expect(handleCalloutEnter(editor, { key: "Enter", keyCode: 13, isComposing: true })).toBe(
+        false,
+      );
       expect(editor.state.doc.childCount).toBe(1);
       expect(editor.state.doc.firstChild?.type.name).toBe("callout");
     } finally {
@@ -676,21 +805,26 @@ describe("callout markdown integration", () => {
 });
 
 describe("slash command matching", () => {
-  const positionAfter = (text: string) => ({ pos: text.length, nodeBefore: { isText: true, text } } as any);
+  const positionAfter = (text: string) =>
+    ({ pos: text.length, nodeBefore: { isText: true, text } }) as any;
 
   test("inserts a table and places the cursor in its first header cell", () => {
     const editor = createMarkdownEditor("/table");
     try {
       editor.commands.setTextSelection(7);
-      insertSlashCommand(editor, { from: 1, to: 7 }, {
-        id: "table",
-        label: "表格",
-        description: "插入表格",
-        keywords: [],
-        icon: Table2,
-        action: "table",
-        group: "lists",
-      });
+      insertSlashCommand(
+        editor,
+        { from: 1, to: 7 },
+        {
+          id: "table",
+          label: "表格",
+          description: "插入表格",
+          keywords: [],
+          icon: Table2,
+          action: "table",
+          group: "lists",
+        },
+      );
 
       expect(editor.state.doc.firstChild?.type.name).toBe("table");
       expect(editor.state.selection.$from.parent.type.name).toBe("paragraph");
@@ -704,16 +838,20 @@ describe("slash command matching", () => {
     const editor = createMarkdownEditor("/warning");
     try {
       editor.commands.setTextSelection(9);
-      insertSlashCommand(editor, { from: 1, to: 9 }, {
-        id: "callout-warning",
-        label: "提示块 · 警告",
-        description: "插入 WARNING 提示块",
-        keywords: [],
-        icon: Info,
-        action: "callout",
-        group: "callouts",
-        calloutType: "WARNING",
-      });
+      insertSlashCommand(
+        editor,
+        { from: 1, to: 9 },
+        {
+          id: "callout-warning",
+          label: "提示块 · 警告",
+          description: "插入 WARNING 提示块",
+          keywords: [],
+          icon: Info,
+          action: "callout",
+          group: "callouts",
+          calloutType: "WARNING",
+        },
+      );
 
       expect(editor.state.doc.firstChild?.type.name).toBe("callout");
       expect(editor.state.doc.firstChild?.attrs.type).toBe("WARNING");
@@ -725,8 +863,16 @@ describe("slash command matching", () => {
   });
 
   test("matches a slash command at paragraph start and after whitespace", () => {
-    expect(findSlashCommandMatch({ $position: positionAfter("/表格") })).toEqual({ range: { from: 0, to: 3 }, query: "表格", text: "/表格" });
-    expect(findSlashCommandMatch({ $position: positionAfter("正文 /任务 清单") })).toEqual({ range: { from: 3, to: 9 }, query: "任务 清单", text: "/任务 清单" });
+    expect(findSlashCommandMatch({ $position: positionAfter("/表格") })).toEqual({
+      range: { from: 0, to: 3 },
+      query: "表格",
+      text: "/表格",
+    });
+    expect(findSlashCommandMatch({ $position: positionAfter("正文 /任务 清单") })).toEqual({
+      range: { from: 3, to: 9 },
+      query: "任务 清单",
+      text: "/任务 清单",
+    });
   });
 
   test("typing /一级 and pressing Enter applies the exact H1 suggestion directly", () => {
@@ -767,7 +913,9 @@ describe("slash command matching", () => {
     expect(groups.map((group) => group.id)).toEqual(["column-1", "column-2", "column-3"]);
     expect(groups.map((group) => group.items.length)).toEqual([9, 9, 8]);
     expect(groups.map((group) => group.startIndex)).toEqual([0, 9, 18]);
-    expect(groups.flatMap((group) => group.items).map((item) => item.id)).toEqual(filterSlashCommandItems("").map((item) => item.id));
+    expect(groups.flatMap((group) => group.items).map((item) => item.id)).toEqual(
+      filterSlashCommandItems("").map((item) => item.id),
+    );
     expect(groups.flatMap((group) => group.items).some((item) => item.id === "table")).toBe(true);
 
     const itemGroups = groups.map((group) => group.items);
@@ -813,43 +961,60 @@ describe("slash command matching", () => {
       expect(item).toBeDefined();
       editor.commands.setTextSelection(query.length + 1);
       insertSlashCommand(editor, { from: 1, to: query.length + 1 }, item!);
-      expect(editor.state.storedMarks?.some((mark) => mark.type.name === ({ bold: "bold", italic: "italic", strike: "strike", underline: "underline", "inline-code": "code" } as const)[id])).toBe(true);
+      expect(
+        editor.state.storedMarks?.some(
+          (mark) =>
+            mark.type.name ===
+            (
+              {
+                bold: "bold",
+                italic: "italic",
+                strike: "strike",
+                underline: "underline",
+                "inline-code": "code",
+              } as const
+            )[id],
+        ),
+      ).toBe(true);
     } finally {
       editor.destroy();
     }
   });
 
-  test.each([
-    "**加粗**",
-    "*斜体*",
-    "~~删除线~~",
-    "++下划线++",
-    "`行内代码`",
-  ])("round-trips Markdown inline formatting %s", (source) => {
-    const editor = createMarkdownEditor(source);
-    try {
-      expect((editor as Editor & { getMarkdown: () => string }).getMarkdown()).toBe(source);
-    } finally {
-      editor.destroy();
-    }
-  });
+  test.each(["**加粗**", "*斜体*", "~~删除线~~", "++下划线++", "`行内代码`"])(
+    "round-trips Markdown inline formatting %s",
+    (source) => {
+      const editor = createMarkdownEditor(source);
+      try {
+        expect((editor as Editor & { getMarkdown: () => string }).getMarkdown()).toBe(source);
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
 
   test("does not match slash inside a word or an escaped slash", () => {
     expect(findSlashCommandMatch({ $position: positionAfter("path/to") })).toBeNull();
     expect(findSlashCommandMatch({ $position: positionAfter("正文 \\/表格") })).toBeNull();
-    expect(findSlashCommandMatch({
-      $position: {
-        pos: 7,
-        parentOffset: 7,
-        parent: { textBetween: () => "正文/path" },
-        nodeBefore: { isText: true, text: "/path" },
-      },
-    })).toBeNull();
+    expect(
+      findSlashCommandMatch({
+        $position: {
+          pos: 7,
+          parentOffset: 7,
+          parent: { textBetween: () => "正文/path" },
+          nodeBefore: { isText: true, text: "/path" },
+        },
+      }),
+    ).toBeNull();
   });
 
   test("does not match slash followed by whitespace or non-command text", () => {
     // 普通标点用法（如 "A / B"、分类分隔符）斜杠后紧跟空格，不触发斜杠命令状态
-    expect(findSlashCommandMatch({ $position: positionAfter("选题类型： 互联网人物 / 网红塌房 / 荒诞事件") })).toBeNull();
+    expect(
+      findSlashCommandMatch({
+        $position: positionAfter("选题类型： 互联网人物 / 网红塌房 / 荒诞事件"),
+      }),
+    ).toBeNull();
     expect(findSlashCommandMatch({ $position: positionAfter("正文 / ") })).toBeNull();
     expect(findSlashCommandMatch({ $position: positionAfter("正文 /\t") })).toBeNull();
     expect(findSlashCommandMatch({ $position: positionAfter("正文 /\u3000") })).toBeNull();
@@ -862,9 +1027,21 @@ describe("slash command matching", () => {
     expect(findSlashCommandMatch({ $position: positionAfter("正文 /path/to") })).toBeNull();
 
     // 刚输入单独斜杠或有匹配命令时正常触发
-    expect(findSlashCommandMatch({ $position: positionAfter("正文 /") })).toEqual({ range: { from: 3, to: 4 }, query: "", text: "/" });
-    expect(findSlashCommandMatch({ $position: positionAfter("正文 /h1") })).toEqual({ range: { from: 3, to: 6 }, query: "h1", text: "/h1" });
-    expect(findSlashCommandMatch({ $position: positionAfter("正文 /引用") })).toEqual({ range: { from: 3, to: 6 }, query: "引用", text: "/引用" });
+    expect(findSlashCommandMatch({ $position: positionAfter("正文 /") })).toEqual({
+      range: { from: 3, to: 4 },
+      query: "",
+      text: "/",
+    });
+    expect(findSlashCommandMatch({ $position: positionAfter("正文 /h1") })).toEqual({
+      range: { from: 3, to: 6 },
+      query: "h1",
+      text: "/h1",
+    });
+    expect(findSlashCommandMatch({ $position: positionAfter("正文 /引用") })).toEqual({
+      range: { from: 3, to: 6 },
+      query: "引用",
+      text: "/引用",
+    });
   });
 
   test("does not intercept Chinese input method candidate keys", () => {
@@ -898,7 +1075,9 @@ describe("slash command matching", () => {
   });
 
   test("correctly parses multiple CJK bold markers and various punctuation boundaries", () => {
-    const editor = createMarkdownEditor("**主线：**技术操作 **支线：**日常 **提示！**注意 **Key:**value");
+    const editor = createMarkdownEditor(
+      "**主线：**技术操作 **支线：**日常 **提示！**注意 **Key:**value",
+    );
     try {
       const serialized = (editor as Editor & { getMarkdown: () => string }).getMarkdown();
       expect(serialized).toBe("**主线：**技术操作 **支线：**日常 **提示！**注意 **Key:**value");
@@ -939,4 +1118,3 @@ describe("slash command matching", () => {
     }
   });
 });
-

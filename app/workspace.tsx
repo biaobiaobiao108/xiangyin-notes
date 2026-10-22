@@ -1,4 +1,14 @@
-import { lazy, memo, Suspense, useCallback, useDeferredValue, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import {
+  lazy,
+  memo,
+  Suspense,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import { flushSync } from "react-dom";
 import { useNavigate } from "react-router";
 import { ArrowUpRight, Plus, Settings2, Trash2, X } from "lucide-react";
@@ -17,16 +27,39 @@ import { ConfirmDialog, NotebookDialog, type ConfirmRequest } from "./workspace/
 import { clearAllDraftRecoveries, readDraftRecovery } from "./workspace/draft-recovery";
 import { EmptyEditor, NoteListPanel, NoteLoadingState, Sidebar } from "./workspace/panels";
 import { NoteCardGridPanel } from "./workspace/note-card-grid";
-import { errorMessage, mergeRemoteSummary, mergeWikiNoteSummary, shouldKeepActiveNoteInList, sortNotes, toNoteSummary, type NoteSort } from "./workspace/helpers";
-import { applyNoteSelectionClick, noteSelectionAnchor, pruneNoteSelection, resolveNoteClickAction, type NoteSelectionClick, type NoteSelectionState } from "./workspace/note-list-selection";
+import {
+  errorMessage,
+  mergeRemoteSummary,
+  mergeWikiNoteSummary,
+  shouldKeepActiveNoteInList,
+  sortNotes,
+  toNoteSummary,
+  type NoteSort,
+} from "./workspace/helpers";
+import {
+  applyNoteSelectionClick,
+  noteSelectionAnchor,
+  pruneNoteSelection,
+  resolveNoteClickAction,
+  type NoteSelectionClick,
+  type NoteSelectionState,
+} from "./workspace/note-list-selection";
 import { normalizeLinkTitle } from "../shared/wiki-links";
 import { useNoteSaveQueue } from "./workspace/use-note-save-queue";
 import { useWorkspaceRealtime } from "./workspace/use-realtime";
-import { accumulateRealtimeRefresh, emptyRealtimeRefreshPlan, type RealtimeRefreshPlan } from "./workspace/realtime-refresh";
+import {
+  accumulateRealtimeRefresh,
+  emptyRealtimeRefreshPlan,
+  type RealtimeRefreshPlan,
+} from "./workspace/realtime-refresh";
 import { latestSelectedNoteSnapshot, refreshSelectedNote } from "./workspace/selected-note-sync";
 import { useWorkspaceShortcuts } from "./workspace/use-workspace-shortcuts";
 import { useTrashActions } from "./workspace/use-trash-actions";
-import { useMobileNavigation, type MobileListContext, type MobilePage } from "./workspace/use-mobile-navigation";
+import {
+  useMobileNavigation,
+  type MobileListContext,
+  type MobilePage,
+} from "./workspace/use-mobile-navigation";
 import { useMobileViewport } from "./workspace/use-mobile-viewport";
 import { useNotices } from "./workspace/use-notices";
 import { SystemNotices } from "./workspace/system-notices";
@@ -36,9 +69,13 @@ import { useThemePreference } from "./theme";
 
 export type ViewLayout = "three-column" | "cards";
 
-const LazyImageExportDialog = lazy(() => import("./image-export/dialog").then(({ ImageExportDialog }) => ({ default: ImageExportDialog })));
+const LazyImageExportDialog = lazy(() =>
+  import("./image-export/dialog").then(({ ImageExportDialog }) => ({ default: ImageExportDialog })),
+);
 
-const LazyNoteEditor = lazy(() => import("./editor").then(({ NoteEditor }) => ({ default: memo(NoteEditor) })));
+const LazyNoteEditor = lazy(() =>
+  import("./editor").then(({ NoteEditor }) => ({ default: memo(NoteEditor) })),
+);
 
 function noteMetadataSnapshot(note: Note): Note {
   return { ...note, contentMarkdown: "" };
@@ -47,7 +84,9 @@ function noteMetadataSnapshot(note: Note): Note {
 export function Workspace() {
   const navigate = useNavigate();
   const { openMenu: openWorkspaceMenu, menu: workspaceMenu } = useContextMenu();
-  const [initialLinkedNoteId] = useState(() => new URLSearchParams(window.location.search).get("note"));
+  const [initialLinkedNoteId] = useState(() =>
+    new URLSearchParams(window.location.search).get("note"),
+  );
   const pendingLinkedNoteRef = useRef(initialLinkedNoteId);
   const { preference: themePreference, setPreference: setThemePreference } = useThemePreference();
   const [view, setView] = useState<NoteView>("all");
@@ -148,14 +187,21 @@ export function Workspace() {
     }
   });
   const [mobileViewLayout, setMobileViewLayout] = useState<ViewLayout>(() => {
-    try { return localStorage.getItem("xiangying_mobile_view_layout") === "cards" ? "cards" : "three-column"; }
-    catch { return "three-column"; }
+    try {
+      return localStorage.getItem("xiangying_mobile_view_layout") === "cards"
+        ? "cards"
+        : "three-column";
+    } catch {
+      return "three-column";
+    }
   });
   const toggleViewLayout = useCallback(() => {
     if (window.matchMedia("(max-width: 900px)").matches) {
       setMobileViewLayout((current) => {
         const next = current === "cards" ? "three-column" : "cards";
-        try { localStorage.setItem("xiangying_mobile_view_layout", next); } catch {}
+        try {
+          localStorage.setItem("xiangying_mobile_view_layout", next);
+        } catch {}
         return next;
       });
       return;
@@ -173,9 +219,25 @@ export function Workspace() {
   const mobileEditorVisitedRef = useRef(false);
 
   const editorRegionRef = useRef<HTMLElement | null>(null);
-  const mobileRestoreRef = useRef<(context: MobileListContext, page: MobilePage) => void>(() => undefined);
-  const { isMobileViewport, mobilePage, openMobileList, openMobileNote, backMobilePage, openMobileHome } = useMobileNavigation(
-    { view, notebookId, query, sort: noteSort, noteId: selectedId, searchOrigin: searchOriginRef.current },
+  const mobileRestoreRef = useRef<(context: MobileListContext, page: MobilePage) => void>(
+    () => undefined,
+  );
+  const {
+    isMobileViewport,
+    mobilePage,
+    openMobileList,
+    openMobileNote,
+    backMobilePage,
+    openMobileHome,
+  } = useMobileNavigation(
+    {
+      view,
+      notebookId,
+      query,
+      sort: noteSort,
+      noteId: selectedId,
+      searchOrigin: searchOriginRef.current,
+    },
     (context, page) => mobileRestoreRef.current(context, page),
   );
   const toggleOutline = useCallback(() => {
@@ -188,15 +250,19 @@ export function Workspace() {
   const closeOutline = useCallback(() => setOutlineOpen(false), []);
   const handleOutlineItemsChange = useCallback((nextItems: OutlineItem[]) => {
     setOutlineItems((current) => {
-      const unchanged = current.length === nextItems.length && current.every((item, index) => {
-        const next = nextItems[index];
-        return next && item.id === next.id && item.level === next.level && item.title === next.title;
-      });
+      const unchanged =
+        current.length === nextItems.length &&
+        current.every((item, index) => {
+          const next = nextItems[index];
+          return (
+            next && item.id === next.id && item.level === next.level && item.title === next.title
+          );
+        });
       return unchanged ? current : nextItems;
     });
   }, []);
   const handleOutlineActiveChange = useCallback((nextId: string | null) => {
-    setActiveOutlineId((current) => current === nextId ? current : nextId);
+    setActiveOutlineId((current) => (current === nextId ? current : nextId));
   }, []);
   const handleOutlineNavigationReady = useCallback((navigate: ((id: string) => void) | null) => {
     outlineNavigateRef.current = navigate;
@@ -206,19 +272,34 @@ export function Workspace() {
   const [commandInitialQuery, setCommandInitialQuery] = useState("");
   const [inNoteSearchQuery, setInNoteSearchQuery] = useState("");
   const [editingNotebook, setEditingNotebook] = useState<Notebook | null | undefined>(undefined);
-  const { notice, notifyError, notifyWarning, notifyInfo, dismiss: dismissNotice, setPaused: pauseNotice } = useNotices();
+  const {
+    notice,
+    notifyError,
+    notifyWarning,
+    notifyInfo,
+    dismiss: dismissNotice,
+    setPaused: pauseNotice,
+  } = useNotices();
   const [ready, setReady] = useState(false);
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
   const [noteReloadToken, setNoteReloadToken] = useState(0);
   const setSelectedNoteMetadata = useCallback((note: Note | null) => {
     setSelectedNote(note ? noteMetadataSnapshot(note) : null);
   }, []);
-  const [pwaState, setPwaState] = useState<PwaState>({ standalone: false, canInstall: false, showIosInstallHint: false, updateAvailable: false });
+  const [pwaState, setPwaState] = useState<PwaState>({
+    standalone: false,
+    canInstall: false,
+    showIosInstallHint: false,
+    updateAvailable: false,
+  });
   const realtimeRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingRealtimeRefreshRef = useRef<RealtimeRefreshPlan>(emptyRealtimeRefreshPlan());
   const shortcutHandledRef = useRef(false);
   const confirmIdRef = useRef(0);
-  const replaceList = useCallback((next: NoteSummary[]) => { notesRef.current = next; setNotes(next); }, []);
+  const replaceList = useCallback((next: NoteSummary[]) => {
+    notesRef.current = next;
+    setNotes(next);
+  }, []);
   const {
     saveState,
     setSaveState,
@@ -248,7 +329,11 @@ export function Workspace() {
 
   const requestConfirm = useCallback((request: Omit<ConfirmRequest, "id">) => {
     confirmIdRef.current += 1;
-    setConfirmRequest({ ...request, id: confirmIdRef.current, returnFocus: document.activeElement instanceof HTMLElement ? document.activeElement : null });
+    setConfirmRequest({
+      ...request,
+      id: confirmIdRef.current,
+      returnFocus: document.activeElement instanceof HTMLElement ? document.activeElement : null,
+    });
   }, []);
   const updateNoteSelection = useCallback((next: NoteSelectionState) => {
     const normalized = { ids: new Set(next.ids), anchorId: next.anchorId };
@@ -258,9 +343,12 @@ export function Workspace() {
   const clearNoteSelection = useCallback(() => {
     updateNoteSelection({ ids: new Set(), anchorId: null });
   }, [updateNoteSelection]);
-  const setNoteSelectionAnchor = useCallback((id: string) => {
-    updateNoteSelection(noteSelectionAnchor(id));
-  }, [updateNoteSelection]);
+  const setNoteSelectionAnchor = useCallback(
+    (id: string) => {
+      updateNoteSelection(noteSelectionAnchor(id));
+    },
+    [updateNoteSelection],
+  );
   const previousListScopeRef = useRef(listScope);
   useEffect(() => {
     if (previousListScopeRef.current === listScope) return;
@@ -271,12 +359,26 @@ export function Workspace() {
   useEffect(() => subscribePwa(setPwaState), []);
   useEffect(() => {
     let disposed = false;
-    void api.bootstrap().then(async (status) => {
-      if (!status.configured) { navigate(`/setup${window.location.search}`, { replace: true }); return; }
-      try { await api.me(); if (!disposed) setReady(true); }
-      catch { if (!disposed) navigate(`/login${window.location.search}`, { replace: true }); }
-    }).catch(() => { if (!disposed) navigate(`/login${window.location.search}`, { replace: true }); });
-    return () => { disposed = true; };
+    void api
+      .bootstrap()
+      .then(async (status) => {
+        if (!status.configured) {
+          navigate(`/setup${window.location.search}`, { replace: true });
+          return;
+        }
+        try {
+          await api.me();
+          if (!disposed) setReady(true);
+        } catch {
+          if (!disposed) navigate(`/login${window.location.search}`, { replace: true });
+        }
+      })
+      .catch(() => {
+        if (!disposed) navigate(`/login${window.location.search}`, { replace: true });
+      });
+    return () => {
+      disposed = true;
+    };
   }, [navigate]);
   const requestListTransition = useCallback(() => {
     listTransitionIntentRef.current += 1;
@@ -289,15 +391,24 @@ export function Workspace() {
     if (listTransitionIntentRef.current === listTransitionConsumedRef.current) return;
     playListTransition();
   }, [playListTransition]);
-  const invalidateCollections = useCallback(() => { listRequestRef.current += 1; notebooksRequestRef.current += 1; }, []);
+  const invalidateCollections = useCallback(() => {
+    listRequestRef.current += 1;
+    notebooksRequestRef.current += 1;
+  }, []);
   const refreshNotebooks = useCallback(async () => {
     const requestId = ++notebooksRequestRef.current;
     try {
       const result = await api.listNotebooks();
-      if (requestId === notebooksRequestRef.current && !trashOperationsRef.current.size && !emptyingTrashRef.current) {
+      if (
+        requestId === notebooksRequestRef.current &&
+        !trashOperationsRef.current.size &&
+        !emptyingTrashRef.current
+      ) {
         setNotebooks(result.notebooks);
       }
-    } catch { /* Keep the current list visible until the next request succeeds. */ }
+    } catch {
+      /* Keep the current list visible until the next request succeeds. */
+    }
   }, []);
   const loadNotes = useCallback(async () => {
     if (pendingLinkedNoteRef.current) return;
@@ -308,29 +419,61 @@ export function Workspace() {
     const controller = new AbortController();
     listAbortRef.current = controller;
     try {
-      const result = await api.listNotes({ view, query: deferredQuery, notebookId, sort: noteSort }, { signal: controller.signal });
-      if (requestId !== listRequestRef.current || listScope !== listScopeRef.current || trashOperationsRef.current.size || emptyingTrashRef.current) return;
+      const result = await api.listNotes(
+        { view, query: deferredQuery, notebookId, sort: noteSort },
+        { signal: controller.signal },
+      );
+      if (
+        requestId !== listRequestRef.current ||
+        listScope !== listScopeRef.current ||
+        trashOperationsRef.current.size ||
+        emptyingTrashRef.current
+      )
+        return;
       const active = selectedRef.current;
-      const notesToDisplay = active && !result.notes.some((note) => note.id === active.id) &&
+      const notesToDisplay =
+        active &&
+        !result.notes.some((note) => note.id === active.id) &&
         shouldKeepActiveNoteInList(active, notebooks, view, deferredQuery, notebookId)
-        ? [toNoteSummary(active), ...result.notes]
-        : result.notes;
+          ? [toNoteSummary(active), ...result.notes]
+          : result.notes;
       replaceList(notesToDisplay);
       setTotalNotes(Math.max(result.total ?? 0, notesToDisplay.length));
       setHasMoreNotes(Boolean(result.hasMore));
       nextNotesCursorRef.current = result.nextCursor ?? null;
       const currentSelectedId = selectedIdRef.current;
-      const nextSelectedId = currentSelectedId && notesToDisplay.some((note) => note.id === currentSelectedId) ? currentSelectedId : notesToDisplay[0]?.id ?? null;
+      const nextSelectedId =
+        currentSelectedId && notesToDisplay.some((note) => note.id === currentSelectedId)
+          ? currentSelectedId
+          : (notesToDisplay[0]?.id ?? null);
       setSelectedId(nextSelectedId);
-      updateNoteSelection(pruneNoteSelection(noteSelectionRef.current, sortNotes(notesToDisplay, noteSort).map((note) => note.id)));
+      updateNoteSelection(
+        pruneNoteSelection(
+          noteSelectionRef.current,
+          sortNotes(notesToDisplay, noteSort).map((note) => note.id),
+        ),
+      );
       playPendingListTransition();
     } catch (reason) {
       if (reason instanceof Error && reason.name === "AbortError") return;
-      if (reason instanceof ApiError && reason.status === 401) navigate(`/login${window.location.search}`, { replace: true });
+      if (reason instanceof ApiError && reason.status === 401)
+        navigate(`/login${window.location.search}`, { replace: true });
     } finally {
       if (listAbortRef.current === controller) listAbortRef.current = null;
     }
-  }, [deferredQuery, listScope, navigate, noteSort, notebookId, notebooks, notesReloadToken, playPendingListTransition, replaceList, updateNoteSelection, view]);
+  }, [
+    deferredQuery,
+    listScope,
+    navigate,
+    noteSort,
+    notebookId,
+    notebooks,
+    notesReloadToken,
+    playPendingListTransition,
+    replaceList,
+    updateNoteSelection,
+    view,
+  ]);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const loadMoreNotes = useCallback(async () => {
     const cursor = nextNotesCursorRef.current;
@@ -339,8 +482,21 @@ export function Workspace() {
     const scope = listScopeRef.current;
     setIsLoadingMore(true);
     try {
-      const result = await api.listNotes({ view, query: deferredQuery, notebookId, sort: noteSort, cursor, includeTotal: false });
-      if (requestId !== listRequestRef.current || scope !== listScopeRef.current || trashOperationsRef.current.size || emptyingTrashRef.current) return;
+      const result = await api.listNotes({
+        view,
+        query: deferredQuery,
+        notebookId,
+        sort: noteSort,
+        cursor,
+        includeTotal: false,
+      });
+      if (
+        requestId !== listRequestRef.current ||
+        scope !== listScopeRef.current ||
+        trashOperationsRef.current.size ||
+        emptyingTrashRef.current
+      )
+        return;
       const currentList = notesRef.current;
       const existingIds = new Set(currentList.map((note) => note.id));
       const nextNotes = result.notes.filter((note) => !existingIds.has(note.id));
@@ -361,22 +517,25 @@ export function Workspace() {
     void refreshNotebooks();
     reloadNotes();
   }, [ready, refreshNotebooks, reloadNotes]);
-  const selectNote = useCallback((id: string | null) => {
-    setInNoteSearchQuery("");
-    clearNoteSelection();
-    if (activeNoteIdRef.current === id) return;
-    flushEditorDraftRef.current();
-    noteLoadRequestRef.current += 1;
+  const selectNote = useCallback(
+    (id: string | null) => {
+      setInNoteSearchQuery("");
+      clearNoteSelection();
+      if (activeNoteIdRef.current === id) return;
+      flushEditorDraftRef.current();
+      noteLoadRequestRef.current += 1;
 
-    activeNoteIdRef.current = id;
-    setSelectedId(id);
-    setIsNoteLoading(Boolean(id));
-    if (!id) {
-      selectedRef.current = null;
-      setSelectedNote(null);
-      setCardEditingNoteId(null);
-    }
-  }, [clearNoteSelection]);
+      activeNoteIdRef.current = id;
+      setSelectedId(id);
+      setIsNoteLoading(Boolean(id));
+      if (!id) {
+        selectedRef.current = null;
+        setSelectedNote(null);
+        setCardEditingNoteId(null);
+      }
+    },
+    [clearNoteSelection],
+  );
   mobileRestoreRef.current = (context, page) => {
     flushEditorDraftRef.current();
     setOutlineOpen(false);
@@ -394,28 +553,46 @@ export function Workspace() {
     // and refreshing does not reopen the linked note.
     const linkedUrl = new URL(window.location.href);
     linkedUrl.searchParams.delete("note");
-    window.history.replaceState(window.history.state, "", `${linkedUrl.pathname}${linkedUrl.search}${linkedUrl.hash}`);
-    void api.getNote(initialLinkedNoteId, { signal: controller.signal }).then(({ note }) => {
-      if (controller.signal.aborted) return;
-      invalidateCollections();
-      selectedRef.current = note;
-      setSelectedNote(noteMetadataSnapshot(note));
-      setView(note.deletedAt !== null ? "trash" : "all");
-      setNotebookId(note.deletedAt !== null ? undefined : note.notebookId);
-      setQuery("");
-      selectNote(note.id);
-      setCardEditingNoteId(note.id);
-      openMobileNote({ view: note.deletedAt !== null ? "trash" : "all", notebookId: note.deletedAt !== null ? undefined : note.notebookId, query: "", noteId: note.id, searchOrigin: null });
-    }).catch((error) => {
-      if (!controller.signal.aborted) notifyError(errorMessage(error, "无法打开链接中的笔记"));
-    }).finally(() => {
-      if (controller.signal.aborted) return;
-      pendingLinkedNoteRef.current = null;
-      const url = new URL(window.location.href);
-      url.searchParams.delete("note");
-      window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
-      reloadNotes();
-    });
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${linkedUrl.pathname}${linkedUrl.search}${linkedUrl.hash}`,
+    );
+    void api
+      .getNote(initialLinkedNoteId, { signal: controller.signal })
+      .then(({ note }) => {
+        if (controller.signal.aborted) return;
+        invalidateCollections();
+        selectedRef.current = note;
+        setSelectedNote(noteMetadataSnapshot(note));
+        setView(note.deletedAt !== null ? "trash" : "all");
+        setNotebookId(note.deletedAt !== null ? undefined : note.notebookId);
+        setQuery("");
+        selectNote(note.id);
+        setCardEditingNoteId(note.id);
+        openMobileNote({
+          view: note.deletedAt !== null ? "trash" : "all",
+          notebookId: note.deletedAt !== null ? undefined : note.notebookId,
+          query: "",
+          noteId: note.id,
+          searchOrigin: null,
+        });
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) notifyError(errorMessage(error, "无法打开链接中的笔记"));
+      })
+      .finally(() => {
+        if (controller.signal.aborted) return;
+        pendingLinkedNoteRef.current = null;
+        const url = new URL(window.location.href);
+        url.searchParams.delete("note");
+        window.history.replaceState(
+          window.history.state,
+          "",
+          `${url.pathname}${url.search}${url.hash}`,
+        );
+        reloadNotes();
+      });
     return () => controller.abort();
   }, [openMobileNote, initialLinkedNoteId, invalidateCollections, ready, reloadNotes, selectNote]);
   useEffect(() => {
@@ -429,135 +606,171 @@ export function Workspace() {
       setOutlineOpen(false);
     }
   }, [focusMode]);
-  const removeFromList = useCallback((noteId: string) => {
-    const ordered = sortNotes(notesRef.current, noteSort);
-    const index = ordered.findIndex((note) => note.id === noteId);
-    if (index === -1) return;
-    replaceList(notesRef.current.filter((note) => note.id !== noteId));
-    setTotalNotes((value) => Math.max(0, value - 1));
-    if (activeNoteIdRef.current === noteId) {
-      const nextId = ordered[index + 1]?.id ?? ordered[index - 1]?.id ?? null;
-      selectNote(nextId);
-      setCardEditingNoteId((current) => current === noteId ? nextId : current);
-    }
-  }, [noteSort, replaceList, selectNote]);
+  const removeFromList = useCallback(
+    (noteId: string) => {
+      const ordered = sortNotes(notesRef.current, noteSort);
+      const index = ordered.findIndex((note) => note.id === noteId);
+      if (index === -1) return;
+      replaceList(notesRef.current.filter((note) => note.id !== noteId));
+      setTotalNotes((value) => Math.max(0, value - 1));
+      if (activeNoteIdRef.current === noteId) {
+        const nextId = ordered[index + 1]?.id ?? ordered[index - 1]?.id ?? null;
+        selectNote(nextId);
+        setCardEditingNoteId((current) => (current === noteId ? nextId : current));
+      }
+    },
+    [noteSort, replaceList, selectNote],
+  );
   // Realtime updates for a single note refresh only that row, so a remote save
   // never collapses the loaded pages back to the first page.
-  const patchNoteFromRemote = useCallback(async (noteId: string) => {
-    const scope = listScopeRef.current;
-    if (!notesRef.current.some((note) => note.id === noteId)) return;
-    try {
-      const summary = (await api.getNoteSummary(noteId)).note;
-      if (scope !== listScopeRef.current) return;
-      if (!shouldKeepActiveNoteInList(summary, notebooks, view, deferredQuery, notebookId)) {
-        removeFromList(noteId);
-        return;
+  const patchNoteFromRemote = useCallback(
+    async (noteId: string) => {
+      const scope = listScopeRef.current;
+      if (!notesRef.current.some((note) => note.id === noteId)) return;
+      try {
+        const summary = (await api.getNoteSummary(noteId)).note;
+        if (scope !== listScopeRef.current) return;
+        if (!shouldKeepActiveNoteInList(summary, notebooks, view, deferredQuery, notebookId)) {
+          removeFromList(noteId);
+          return;
+        }
+        const merged = mergeRemoteSummary(notesRef.current, summary, noteSort);
+        if (merged) replaceList(merged);
+      } catch (reason) {
+        if (scope !== listScopeRef.current) return;
+        if (reason instanceof ApiError && reason.status === 404) removeFromList(noteId);
       }
-      const merged = mergeRemoteSummary(notesRef.current, summary, noteSort);
-      if (merged) replaceList(merged);
-    } catch (reason) {
-      if (scope !== listScopeRef.current) return;
-      if (reason instanceof ApiError && reason.status === 404) removeFromList(noteId);
-    }
-  }, [deferredQuery, noteSort, notebookId, notebooks, removeFromList, replaceList, view]);
-  const removeManyFromList = useCallback((noteIds: string[]) => {
-    const deletedIds = new Set(noteIds);
-    const currentList = notesRef.current;
-    const ordered = sortNotes(currentList, noteSort);
-    const visibleDeletedCount = currentList.filter((note) => deletedIds.has(note.id)).length;
-    const activeId = activeNoteIdRef.current;
-    const activeIndex = activeId ? ordered.findIndex((note) => note.id === activeId) : -1;
-    const activeWasDeleted = Boolean(activeId && deletedIds.has(activeId));
-    const nextActiveId = activeWasDeleted && activeIndex >= 0
-      ? ordered.slice(activeIndex + 1).find((note) => !deletedIds.has(note.id))?.id
-        ?? ordered.slice(0, activeIndex).reverse().find((note) => !deletedIds.has(note.id))?.id
-        ?? null
-      : null;
+    },
+    [deferredQuery, noteSort, notebookId, notebooks, removeFromList, replaceList, view],
+  );
+  const removeManyFromList = useCallback(
+    (noteIds: string[]) => {
+      const deletedIds = new Set(noteIds);
+      const currentList = notesRef.current;
+      const ordered = sortNotes(currentList, noteSort);
+      const visibleDeletedCount = currentList.filter((note) => deletedIds.has(note.id)).length;
+      const activeId = activeNoteIdRef.current;
+      const activeIndex = activeId ? ordered.findIndex((note) => note.id === activeId) : -1;
+      const activeWasDeleted = Boolean(activeId && deletedIds.has(activeId));
+      const nextActiveId =
+        activeWasDeleted && activeIndex >= 0
+          ? (ordered.slice(activeIndex + 1).find((note) => !deletedIds.has(note.id))?.id ??
+            ordered
+              .slice(0, activeIndex)
+              .reverse()
+              .find((note) => !deletedIds.has(note.id))?.id ??
+            null)
+          : null;
 
-    replaceList(currentList.filter((note) => !deletedIds.has(note.id)));
-    setTotalNotes((value) => Math.max(0, value - visibleDeletedCount));
-    clearNoteSelection();
-    if (activeWasDeleted) {
-      selectNote(nextActiveId);
-      setCardEditingNoteId((current) => current && deletedIds.has(current) ? nextActiveId : current);
-    }
-  }, [clearNoteSelection, noteSort, replaceList, selectNote]);
-  const loadSelectedNote = useCallback(async (id: string) => {
-    noteAbortRef.current?.abort();
-    const controller = new AbortController();
-    noteAbortRef.current = controller;
-    setEditorFocusNoteId((current) => current === id ? current : null);
-    const requestId = ++noteLoadRequestRef.current;
-    let previousNote = selectedRef.current;
-    if (previousNote?.id !== id) {
-      flushEditorDraftRef.current();
-      previousNote = selectedRef.current;
-    }
-    const pendingNote = pendingSavesRef.current.get(id);
-    const failedSave = failedSavesRef.current.get(id);
-    activeNoteIdRef.current = id;
-    setIsNoteLoading(true);
-    setSaveState(failedSave ? failedSave instanceof ApiError && failedSave.code === "VERSION_CONFLICT" ? "conflict" : "error" : pendingNote ? "saving" : "idle");
-    try {
-      const result = await api.getNote(id, { signal: controller.signal });
-      if (requestId !== noteLoadRequestRef.current || activeNoteIdRef.current !== id) return;
-      let loadedNote = latestSelectedNoteSnapshot(result.note, selectedRef.current);
-      // The load can outlive a queued save; do not recover the same draft after
-      // that save has already succeeded and started clearing its recovery copy.
-      if (!pendingNote && !pendingSavesRef.current.has(id)) {
-        const recoveredDraft = await readDraftRecovery(id);
+      replaceList(currentList.filter((note) => !deletedIds.has(note.id)));
+      setTotalNotes((value) => Math.max(0, value - visibleDeletedCount));
+      clearNoteSelection();
+      if (activeWasDeleted) {
+        selectNote(nextActiveId);
+        setCardEditingNoteId((current) =>
+          current && deletedIds.has(current) ? nextActiveId : current,
+        );
+      }
+    },
+    [clearNoteSelection, noteSort, replaceList, selectNote],
+  );
+  const loadSelectedNote = useCallback(
+    async (id: string) => {
+      noteAbortRef.current?.abort();
+      const controller = new AbortController();
+      noteAbortRef.current = controller;
+      setEditorFocusNoteId((current) => (current === id ? current : null));
+      const requestId = ++noteLoadRequestRef.current;
+      let previousNote = selectedRef.current;
+      if (previousNote?.id !== id) {
+        flushEditorDraftRef.current();
+        previousNote = selectedRef.current;
+      }
+      const pendingNote = pendingSavesRef.current.get(id);
+      const failedSave = failedSavesRef.current.get(id);
+      activeNoteIdRef.current = id;
+      setIsNoteLoading(true);
+      setSaveState(
+        failedSave
+          ? failedSave instanceof ApiError && failedSave.code === "VERSION_CONFLICT"
+            ? "conflict"
+            : "error"
+          : pendingNote
+            ? "saving"
+            : "idle",
+      );
+      try {
+        const result = await api.getNote(id, { signal: controller.signal });
         if (requestId !== noteLoadRequestRef.current || activeNoteIdRef.current !== id) return;
-        loadedNote = latestSelectedNoteSnapshot(loadedNote, selectedRef.current);
-        if (recoveredDraft && !pendingSavesRef.current.has(id)) {
-          pendingSavesRef.current.set(id, recoveredDraft);
-          if (recoveredDraft.version === loadedNote.version) {
-            notifyWarning("已恢复一份未保存草稿");
-          } else {
-            failedSavesRef.current.set(id, new ApiError(409, "VERSION_CONFLICT", "恢复的草稿与服务器版本不同"));
-            setSaveState("conflict");
-            notifyWarning("已保留未保存草稿；服务器版本已变化，请先复制需要的修改再重新载入");
+        let loadedNote = latestSelectedNoteSnapshot(result.note, selectedRef.current);
+        // The load can outlive a queued save; do not recover the same draft after
+        // that save has already succeeded and started clearing its recovery copy.
+        if (!pendingNote && !pendingSavesRef.current.has(id)) {
+          const recoveredDraft = await readDraftRecovery(id);
+          if (requestId !== noteLoadRequestRef.current || activeNoteIdRef.current !== id) return;
+          loadedNote = latestSelectedNoteSnapshot(loadedNote, selectedRef.current);
+          if (recoveredDraft && !pendingSavesRef.current.has(id)) {
+            pendingSavesRef.current.set(id, recoveredDraft);
+            if (recoveredDraft.version === loadedNote.version) {
+              notifyWarning("已恢复一份未保存草稿");
+            } else {
+              failedSavesRef.current.set(
+                id,
+                new ApiError(409, "VERSION_CONFLICT", "恢复的草稿与服务器版本不同"),
+              );
+              setSaveState("conflict");
+              notifyWarning("已保留未保存草稿；服务器版本已变化，请先复制需要的修改再重新载入");
+            }
           }
         }
+        const latestPendingNote = pendingSavesRef.current.get(id);
+        loadedNote = latestSelectedNoteSnapshot(loadedNote, selectedRef.current);
+        const nextNote = latestPendingNote ? { ...loadedNote, ...latestPendingNote } : loadedNote;
+        selectedRef.current = nextNote;
+        setSelectedNote(noteMetadataSnapshot(nextNote));
+        setIsNoteLoading(false);
+        // A draft kept from an earlier failure or a note switch is retried instead of staying stuck on "saving".
+        const retryDraft = latestPendingNote;
+        if (retryDraft && !failedSavesRef.current.has(id) && !trashOperationsRef.current.has(id))
+          persistRef.current(retryDraft);
+      } catch (reason) {
+        if (requestId !== noteLoadRequestRef.current || activeNoteIdRef.current !== id) return;
+        if (reason instanceof Error && reason.name === "AbortError") return;
+        setIsNoteLoading(false);
+        if (reason instanceof ApiError && reason.status === 401) {
+          navigate(`/login${window.location.search}`, { replace: true });
+          return;
+        }
+        if (previousNote) {
+          const restoredNote = previousNote;
+          const previousFailure = failedSavesRef.current.get(restoredNote.id);
+          setSaveState(
+            previousFailure
+              ? previousFailure instanceof ApiError && previousFailure.code === "VERSION_CONFLICT"
+                ? "conflict"
+                : "error"
+              : pendingSavesRef.current.has(restoredNote.id)
+                ? "saving"
+                : "idle",
+          );
+          activeNoteIdRef.current = restoredNote.id;
+          selectedRef.current = restoredNote;
+          setSelectedId(restoredNote.id);
+          setSelectedNote(noteMetadataSnapshot(restoredNote));
+          setCardEditingNoteId((current) => (current === id ? restoredNote.id : current));
+        } else {
+          activeNoteIdRef.current = null;
+          selectedRef.current = null;
+          setSelectedId(null);
+          setSelectedNote(null);
+        }
+        notifyError("无法打开这篇笔记");
+      } finally {
+        if (noteAbortRef.current === controller) noteAbortRef.current = null;
       }
-      const latestPendingNote = pendingSavesRef.current.get(id);
-      loadedNote = latestSelectedNoteSnapshot(loadedNote, selectedRef.current);
-      const nextNote = latestPendingNote ? { ...loadedNote, ...latestPendingNote } : loadedNote;
-      selectedRef.current = nextNote;
-      setSelectedNote(noteMetadataSnapshot(nextNote));
-      setIsNoteLoading(false);
-      // A draft kept from an earlier failure or a note switch is retried instead of staying stuck on "saving".
-      const retryDraft = latestPendingNote;
-      if (retryDraft && !failedSavesRef.current.has(id) && !trashOperationsRef.current.has(id)) persistRef.current(retryDraft);
-    } catch (reason) {
-      if (requestId !== noteLoadRequestRef.current || activeNoteIdRef.current !== id) return;
-      if (reason instanceof Error && reason.name === "AbortError") return;
-      setIsNoteLoading(false);
-      if (reason instanceof ApiError && reason.status === 401) {
-        navigate(`/login${window.location.search}`, { replace: true });
-        return;
-      }
-      if (previousNote) {
-        const restoredNote = previousNote;
-        const previousFailure = failedSavesRef.current.get(restoredNote.id);
-        setSaveState(previousFailure
-          ? previousFailure instanceof ApiError && previousFailure.code === "VERSION_CONFLICT" ? "conflict" : "error"
-          : pendingSavesRef.current.has(restoredNote.id) ? "saving" : "idle");
-        activeNoteIdRef.current = restoredNote.id;
-        selectedRef.current = restoredNote;
-        setSelectedId(restoredNote.id);
-        setSelectedNote(noteMetadataSnapshot(restoredNote));
-        setCardEditingNoteId((current) => current === id ? restoredNote.id : current);
-      } else {
-        activeNoteIdRef.current = null;
-        selectedRef.current = null;
-        setSelectedId(null);
-        setSelectedNote(null);
-      }
-      notifyError("无法打开这篇笔记");
-    } finally {
-      if (noteAbortRef.current === controller) noteAbortRef.current = null;
-    }
-  }, [failedSavesRef, navigate]);
+    },
+    [failedSavesRef, navigate],
+  );
   useEffect(() => {
     if (!ready || !selectedId) {
       flushEditorDraftRef.current();
@@ -575,20 +788,31 @@ export function Workspace() {
       if (noteOpeningRef.current === opening) noteOpeningRef.current = null;
     });
   }, [loadSelectedNote, ready, selectedId]);
-  useEffect(() => () => { notebooksRequestRef.current += 1; }, []);
+  useEffect(
+    () => () => {
+      notebooksRequestRef.current += 1;
+    },
+    [],
+  );
   useEffect(() => {
     if (!ready) return;
     nextNotesCursorRef.current = null;
     setHasMoreNotes(false);
     const timer = setTimeout(() => void loadNotes(), 180);
-    return () => { clearTimeout(timer); listRequestRef.current += 1; };
+    return () => {
+      clearTimeout(timer);
+      listRequestRef.current += 1;
+    };
   }, [loadNotes, ready]);
-  useEffect(() => () => {
-    listAbortRef.current?.abort();
-    noteLoadRequestRef.current += 1;
-    noteAbortRef.current?.abort();
-    if (realtimeRefreshTimerRef.current !== null) clearTimeout(realtimeRefreshTimerRef.current);
-  }, []);
+  useEffect(
+    () => () => {
+      listAbortRef.current?.abort();
+      noteLoadRequestRef.current += 1;
+      noteAbortRef.current?.abort();
+      if (realtimeRefreshTimerRef.current !== null) clearTimeout(realtimeRefreshTimerRef.current);
+    },
+    [],
+  );
   const openCommandMenu = useCallback((initialQuery = "") => {
     setCommandInitialQuery(initialQuery);
     setCommandOpen(true);
@@ -597,11 +821,14 @@ export function Workspace() {
   const activeSearchQuery = inNoteSearchQuery || query;
   useWorkspaceShortcuts({
     focusMode,
-    hasModalOpen: Boolean(commandOpen || imageExportSnapshot || editingNotebook !== undefined || confirmRequest),
+    hasModalOpen: Boolean(
+      commandOpen || imageExportSnapshot || editingNotebook !== undefined || confirmRequest,
+    ),
     // Escape 第 1 层：正文搜索高亮清除优先于退出沉浸模式。
     hasSearchHighlight: Boolean(activeSearchQuery.trim()),
     clearSearchHighlight: () => handleClearSearch(),
-    toggleSidebar: () => isMobileViewport ? openMobileHome() : setSidebarCollapsed((value) => !value),
+    toggleSidebar: () =>
+      isMobileViewport ? openMobileHome() : setSidebarCollapsed((value) => !value),
     toggleFocusMode,
     toggleTypewriterMode,
     exitFocusMode,
@@ -618,60 +845,97 @@ export function Workspace() {
     closeOutline,
   });
 
-
-  const onNoteChange = useCallback((patch: { title?: string; contentMarkdown?: string; notebookId?: string }) => {
-    const current = selectedRef.current;
-    if (!current || trashOperationsRef.current.has(current.id)) return;
-    if ((patch.title === undefined || patch.title === current.title) && (patch.contentMarkdown === undefined || patch.contentMarkdown === current.contentMarkdown) && (patch.notebookId === undefined || patch.notebookId === current.notebookId)) return;
-    const targetNotebook = patch.notebookId ? notebooks.find((nb) => nb.id === patch.notebookId) : undefined;
-    const next = { ...current, ...patch, ...(targetNotebook ? { notebookName: targetNotebook.name } : {}) };
-    selectedRef.current = next;
-    const contentOnlyChange = patch.contentMarkdown !== undefined && patch.title === undefined && patch.notebookId === undefined;
-    if (!contentOnlyChange) {
-      setSelectedNote(noteMetadataSnapshot(next));
-      const summaryPatch: Partial<NoteSummary> = {
-        ...(patch.title !== undefined ? { title: patch.title } : {}),
-        ...(patch.notebookId !== undefined ? { notebookId: patch.notebookId } : {}),
+  const onNoteChange = useCallback(
+    (patch: { title?: string; contentMarkdown?: string; notebookId?: string }) => {
+      const current = selectedRef.current;
+      if (!current || trashOperationsRef.current.has(current.id)) return;
+      if (
+        (patch.title === undefined || patch.title === current.title) &&
+        (patch.contentMarkdown === undefined ||
+          patch.contentMarkdown === current.contentMarkdown) &&
+        (patch.notebookId === undefined || patch.notebookId === current.notebookId)
+      )
+        return;
+      const targetNotebook = patch.notebookId
+        ? notebooks.find((nb) => nb.id === patch.notebookId)
+        : undefined;
+      const next = {
+        ...current,
+        ...patch,
         ...(targetNotebook ? { notebookName: targetNotebook.name } : {}),
       };
-      replaceList(notesRef.current.map((note) => note.id === current.id ? { ...note, ...summaryPatch } : note));
-    }
-
-    if (patch.notebookId && patch.notebookId !== current.notebookId) {
-      if (targetNotebook) {
-        invalidateCollections();
-        searchOriginRef.current = null;
-        setQuery("");
-        const targetView: NoteView = targetNotebook.isSystem ? "inbox" : "all";
-        const targetNotebookId = targetNotebook.isSystem ? undefined : targetNotebook.id;
-        requestListTransition();
-        setView(targetView);
-        setNotebookId(targetNotebookId);
-        replaceList([toNoteSummary(next)]);
-        setTotalNotes(Math.max(1, targetNotebook.count + 1));
-        setNotebooks((items) => items.map((notebook) => {
-          if (notebook.id === current.notebookId) return { ...notebook, count: Math.max(0, notebook.count - 1) };
-          if (notebook.id === targetNotebook.id) return { ...notebook, count: notebook.count + 1 };
-          return notebook;
-        }));
+      selectedRef.current = next;
+      const contentOnlyChange =
+        patch.contentMarkdown !== undefined &&
+        patch.title === undefined &&
+        patch.notebookId === undefined;
+      if (!contentOnlyChange) {
+        setSelectedNote(noteMetadataSnapshot(next));
+        const summaryPatch: Partial<NoteSummary> = {
+          ...(patch.title !== undefined ? { title: patch.title } : {}),
+          ...(patch.notebookId !== undefined ? { notebookId: patch.notebookId } : {}),
+          ...(targetNotebook ? { notebookName: targetNotebook.name } : {}),
+        };
+        replaceList(
+          notesRef.current.map((note) =>
+            note.id === current.id ? { ...note, ...summaryPatch } : note,
+          ),
+        );
       }
-      void saveImmediately(next, false, ["notebookId"]).then(() => {
-        refreshNotebooks();
-        reloadNotes();
-      }).catch(() => {
-        refreshNotebooks();
-        reloadNotes();
-      });
-    } else {
-      persist(next, Object.keys(patch) as Array<"title" | "contentMarkdown" | "notebookId">);
-    }
-  }, [invalidateCollections, notebooks, persist, refreshNotebooks, reloadNotes, replaceList, requestListTransition, saveImmediately]);
+
+      if (patch.notebookId && patch.notebookId !== current.notebookId) {
+        if (targetNotebook) {
+          invalidateCollections();
+          searchOriginRef.current = null;
+          setQuery("");
+          const targetView: NoteView = targetNotebook.isSystem ? "inbox" : "all";
+          const targetNotebookId = targetNotebook.isSystem ? undefined : targetNotebook.id;
+          requestListTransition();
+          setView(targetView);
+          setNotebookId(targetNotebookId);
+          replaceList([toNoteSummary(next)]);
+          setTotalNotes(Math.max(1, targetNotebook.count + 1));
+          setNotebooks((items) =>
+            items.map((notebook) => {
+              if (notebook.id === current.notebookId)
+                return { ...notebook, count: Math.max(0, notebook.count - 1) };
+              if (notebook.id === targetNotebook.id)
+                return { ...notebook, count: notebook.count + 1 };
+              return notebook;
+            }),
+          );
+        }
+        void saveImmediately(next, false, ["notebookId"])
+          .then(() => {
+            refreshNotebooks();
+            reloadNotes();
+          })
+          .catch(() => {
+            refreshNotebooks();
+            reloadNotes();
+          });
+      } else {
+        persist(next, Object.keys(patch) as Array<"title" | "contentMarkdown" | "notebookId">);
+      }
+    },
+    [
+      invalidateCollections,
+      notebooks,
+      persist,
+      refreshNotebooks,
+      reloadNotes,
+      replaceList,
+      requestListTransition,
+      saveImmediately,
+    ],
+  );
   const registerEditorMarkdownReader = useCallback((reader: (() => string | null) | null) => {
     editorMarkdownReaderRef.current = reader;
   }, []);
   const registerEditorMarkdownDirty = useCallback((noteId: string, isDirty: boolean) => {
     if (isDirty) editorMarkdownDirtyNoteRef.current = noteId;
-    else if (editorMarkdownDirtyNoteRef.current === noteId) editorMarkdownDirtyNoteRef.current = null;
+    else if (editorMarkdownDirtyNoteRef.current === noteId)
+      editorMarkdownDirtyNoteRef.current = null;
   }, []);
   const flushActiveEditorDraft = useCallback(() => {
     const current = selectedRef.current;
@@ -683,35 +947,50 @@ export function Workspace() {
     persistRef.current(next, ["contentMarkdown"]);
   }, []);
   flushEditorDraftRef.current = flushActiveEditorDraft;
-  const revealCreatedNote = useCallback((note: Note, target: { view: NoteView; notebookId?: string }) => {
-    flushEditorDraftRef.current();
-    invalidateCollections();
-    searchOriginRef.current = null;
-    setView(target.view);
-    setNotebookId(target.notebookId);
-    setQuery("");
-    replaceList([toNoteSummary(note), ...notesRef.current.filter((currentNote) => currentNote.id !== note.id)]);
-    setTotalNotes((value) => value + 1);
-    playListTransition();
-    setSelectedNote(noteMetadataSnapshot(note));
-    setIsNoteLoading(true);
-    selectedRef.current = note;
-    activeNoteIdRef.current = note.id;
-    clearPendingForNote(note.id);
-    setEditorFocusNoteId(note.id);
-    setSelectedId(note.id);
-    setCardEditingNoteId(note.id);
-    openMobileNote({ ...target, query: "", noteId: note.id, searchOrigin: null });
-  }, [openMobileNote, playListTransition]);
+  const revealCreatedNote = useCallback(
+    (note: Note, target: { view: NoteView; notebookId?: string }) => {
+      flushEditorDraftRef.current();
+      invalidateCollections();
+      searchOriginRef.current = null;
+      setView(target.view);
+      setNotebookId(target.notebookId);
+      setQuery("");
+      replaceList([
+        toNoteSummary(note),
+        ...notesRef.current.filter((currentNote) => currentNote.id !== note.id),
+      ]);
+      setTotalNotes((value) => value + 1);
+      playListTransition();
+      setSelectedNote(noteMetadataSnapshot(note));
+      setIsNoteLoading(true);
+      selectedRef.current = note;
+      activeNoteIdRef.current = note.id;
+      clearPendingForNote(note.id);
+      setEditorFocusNoteId(note.id);
+      setSelectedId(note.id);
+      setCardEditingNoteId(note.id);
+      openMobileNote({ ...target, query: "", noteId: note.id, searchOrigin: null });
+    },
+    [openMobileNote, playListTransition],
+  );
   const createNoteHere = useCallback(async () => {
-    const currentNotebook = notebookId ? notebooks.find((notebook) => notebook.id === notebookId) : undefined;
+    const currentNotebook = notebookId
+      ? notebooks.find((notebook) => notebook.id === notebookId)
+      : undefined;
     const inbox = notebooks.find((notebook) => notebook.isSystem);
     const staysInView = Boolean(currentNotebook) || view === "all" || view === "inbox";
     try {
-      const result = await api.createNote(currentNotebook ? { notebookId: currentNotebook.id } : { notebookId: inbox?.id });
-      revealCreatedNote(result.note, { view: currentNotebook || !staysInView ? "all" : view, notebookId: currentNotebook?.id });
+      const result = await api.createNote(
+        currentNotebook ? { notebookId: currentNotebook.id } : { notebookId: inbox?.id },
+      );
+      revealCreatedNote(result.note, {
+        view: currentNotebook || !staysInView ? "all" : view,
+        notebookId: currentNotebook?.id,
+      });
       void refreshNotebooks();
-    } catch (reason) { notifyError(errorMessage(reason, "创建笔记失败")); }
+    } catch (reason) {
+      notifyError(errorMessage(reason, "创建笔记失败"));
+    }
   }, [notebookId, notebooks, refreshNotebooks, revealCreatedNote, view]);
   const createNoteInInbox = useCallback(async () => {
     if (inboxNoteCreationRef.current) return;
@@ -727,83 +1006,144 @@ export function Workspace() {
       inboxNoteCreationRef.current = false;
     }
   }, [notebooks, refreshNotebooks, revealCreatedNote]);
-  const createNoteInNotebook = useCallback(async (commandToCreate: CreateNoteCommand) => {
-    try {
-      const result = await api.createNote({ notebookId: commandToCreate.notebookId, title: commandToCreate.title });
-      revealCreatedNote(result.note, { view: "all", notebookId: commandToCreate.notebookId });
-      void refreshNotebooks();
-    } catch (reason) { if (reason instanceof ApiError && reason.status === 401) navigate(`/login${window.location.search}`, { replace: true }); notifyError(errorMessage(reason, "创建笔记失败，请稍后重试")); }
-  }, [navigate, notebooks, refreshNotebooks, revealCreatedNote]);
+  const createNoteInNotebook = useCallback(
+    async (commandToCreate: CreateNoteCommand) => {
+      try {
+        const result = await api.createNote({
+          notebookId: commandToCreate.notebookId,
+          title: commandToCreate.title,
+        });
+        revealCreatedNote(result.note, { view: "all", notebookId: commandToCreate.notebookId });
+        void refreshNotebooks();
+      } catch (reason) {
+        if (reason instanceof ApiError && reason.status === 401)
+          navigate(`/login${window.location.search}`, { replace: true });
+        notifyError(errorMessage(reason, "创建笔记失败，请稍后重试"));
+      }
+    },
+    [navigate, notebooks, refreshNotebooks, revealCreatedNote],
+  );
   const createNotebook = useCallback(() => setEditingNotebook(null), []);
-  const saveNotebook = useCallback((saved: Notebook) => {
-    setNotebooks((current) => {
-      const exists = current.some((nb) => nb.id === saved.id);
-      return exists ? current.map((nb) => nb.id === saved.id ? { ...nb, ...saved } : nb) : [...current, saved];
-    });
-    if (editingNotebook) {
-      const current = selectedRef.current;
-      if (current?.notebookId === saved.id) {
-        const next = { ...current, notebookName: saved.name };
-        selectedRef.current = next;
-        setSelectedNote(noteMetadataSnapshot(next));
+  const saveNotebook = useCallback(
+    (saved: Notebook) => {
+      setNotebooks((current) => {
+        const exists = current.some((nb) => nb.id === saved.id);
+        return exists
+          ? current.map((nb) => (nb.id === saved.id ? { ...nb, ...saved } : nb))
+          : [...current, saved];
+      });
+      if (editingNotebook) {
+        const current = selectedRef.current;
+        if (current?.notebookId === saved.id) {
+          const next = { ...current, notebookName: saved.name };
+          selectedRef.current = next;
+          setSelectedNote(noteMetadataSnapshot(next));
+        }
+      } else {
+        setNotebookId(saved.id);
+        setView("all");
+        openMobileList({ view: "all", notebookId: saved.id, query: "", searchOrigin: null });
       }
-    } else {
-      setNotebookId(saved.id);
-      setView("all");
-      openMobileList({ view: "all", notebookId: saved.id, query: "", searchOrigin: null });
-    }
-    setEditingNotebook(undefined);
-  }, [openMobileList, editingNotebook]);
-  const saveNotebookDraft = useCallback(async (draft: { name: string; color: string; icon: string }) => {
-    const existing = editingNotebook ?? undefined;
-    const timestamp = Math.floor(Date.now() / 1000);
-    const notebook: Notebook = existing
-      ? { ...existing, name: draft.name, color: draft.color, icon: draft.icon }
-      : { id: createUuid(), name: draft.name, color: draft.color, icon: draft.icon, isSystem: false, count: 0, updatedAt: timestamp };
-    const result = existing
-      ? await api.updateNotebook(notebook.id, { name: notebook.name, color: notebook.color, icon: notebook.icon })
-      : await api.createNotebook({ name: notebook.name, color: notebook.color, icon: notebook.icon });
-    return result.notebook;
-  }, [editingNotebook]);
-  const refreshSelectedNoteFromRemote = useCallback((noteId: string) => refreshSelectedNote(noteId, {
-    selectedRef,
-    activeNoteIdRef,
-    noteAbortRef,
-    noteOpeningRef,
-    noteLoadRequestRef,
-    hasPendingWork: (id) => pendingSavesRef.current.has(id) || failedSavesRef.current.has(id) || editorMarkdownDirtyNoteRef.current === id,
-    onConflict: () => {
-      setSaveState("conflict");
-      notifyWarning("当前笔记已在其他设备更新，请先保存或重新载入");
+      setEditingNotebook(undefined);
     },
-    onUpdated: (note, reloadEditor = true) => {
-      setSelectedNote(noteMetadataSnapshot(note));
-      replaceList(notesRef.current.map((n) => (n.id === noteId ? { ...n, ...toNoteSummary(note) } : n)));
-      if (reloadEditor) {
-        setNoteReloadToken((value) => value + 1);
-        setSaveState("idle");
-      }
+    [openMobileList, editingNotebook],
+  );
+  const saveNotebookDraft = useCallback(
+    async (draft: { name: string; color: string; icon: string }) => {
+      const existing = editingNotebook ?? undefined;
+      const timestamp = Math.floor(Date.now() / 1000);
+      const notebook: Notebook = existing
+        ? { ...existing, name: draft.name, color: draft.color, icon: draft.icon }
+        : {
+            id: createUuid(),
+            name: draft.name,
+            color: draft.color,
+            icon: draft.icon,
+            isSystem: false,
+            count: 0,
+            updatedAt: timestamp,
+          };
+      const result = existing
+        ? await api.updateNotebook(notebook.id, {
+            name: notebook.name,
+            color: notebook.color,
+            icon: notebook.icon,
+          })
+        : await api.createNotebook({
+            name: notebook.name,
+            color: notebook.color,
+            icon: notebook.icon,
+          });
+      return result.notebook;
     },
-    onUnauthorized: () => navigate(`/login${window.location.search}`, { replace: true }),
-    onNotFound: (id) => {
-      if (notesRef.current.some((note) => note.id === id)) removeFromList(id);
-      else if (activeNoteIdRef.current === id) selectNote(null);
+    [editingNotebook],
+  );
+  const refreshSelectedNoteFromRemote = useCallback(
+    (noteId: string) =>
+      refreshSelectedNote(noteId, {
+        selectedRef,
+        activeNoteIdRef,
+        noteAbortRef,
+        noteOpeningRef,
+        noteLoadRequestRef,
+        hasPendingWork: (id) =>
+          pendingSavesRef.current.has(id) ||
+          failedSavesRef.current.has(id) ||
+          editorMarkdownDirtyNoteRef.current === id,
+        onConflict: () => {
+          setSaveState("conflict");
+          notifyWarning("当前笔记已在其他设备更新，请先保存或重新载入");
+        },
+        onUpdated: (note, reloadEditor = true) => {
+          setSelectedNote(noteMetadataSnapshot(note));
+          replaceList(
+            notesRef.current.map((n) => (n.id === noteId ? { ...n, ...toNoteSummary(note) } : n)),
+          );
+          if (reloadEditor) {
+            setNoteReloadToken((value) => value + 1);
+            setSaveState("idle");
+          }
+        },
+        onUnauthorized: () => navigate(`/login${window.location.search}`, { replace: true }),
+        onNotFound: (id) => {
+          if (notesRef.current.some((note) => note.id === id)) removeFromList(id);
+          else if (activeNoteIdRef.current === id) selectNote(null);
+        },
+        onError: () => notifyError("同步当前笔记失败，请稍后重试"),
+      }),
+    [
+      failedSavesRef,
+      navigate,
+      pendingSavesRef,
+      removeFromList,
+      replaceList,
+      selectNote,
+      setSaveState,
+    ],
+  );
+  const deleteNotebook = useCallback(
+    async (id: string) => {
+      const target = notebooks.find((notebook) => notebook.id === id);
+      if (!target || target.isSystem) throw new Error("无法删除此笔记本");
+      await flushNotebookSaves(id);
+      await api.deleteNotebook(id);
+      const activeNote = selectedRef.current;
+      if (activeNote?.notebookId === id) await refreshSelectedNoteFromRemote(activeNote.id);
+      setNotebooks((current) => current.filter((notebook) => notebook.id !== id));
+      if (notebookId === id) setNotebookId(undefined);
+      refreshNotebooks();
+      void loadNotes();
+      setEditingNotebook(undefined);
     },
-    onError: () => notifyError("同步当前笔记失败，请稍后重试"),
-  }), [failedSavesRef, navigate, pendingSavesRef, removeFromList, replaceList, selectNote, setSaveState]);
-  const deleteNotebook = useCallback(async (id: string) => {
-    const target = notebooks.find((notebook) => notebook.id === id);
-    if (!target || target.isSystem) throw new Error("无法删除此笔记本");
-    await flushNotebookSaves(id);
-    await api.deleteNotebook(id);
-    const activeNote = selectedRef.current;
-    if (activeNote?.notebookId === id) await refreshSelectedNoteFromRemote(activeNote.id);
-    setNotebooks((current) => current.filter((notebook) => notebook.id !== id));
-    if (notebookId === id) setNotebookId(undefined);
-    refreshNotebooks();
-    void loadNotes();
-    setEditingNotebook(undefined);
-  }, [flushNotebookSaves, loadNotes, notebookId, notebooks, refreshNotebooks, refreshSelectedNoteFromRemote]);
+    [
+      flushNotebookSaves,
+      loadNotes,
+      notebookId,
+      notebooks,
+      refreshNotebooks,
+      refreshSelectedNoteFromRemote,
+    ],
+  );
   const toggleFavorite = useCallback(() => {
     const current = selectedRef.current;
     if (!current) return;
@@ -816,9 +1156,11 @@ export function Workspace() {
     }
 
     const scope = listScopeRef.current;
-    void saveImmediately(next, false, ["isFavorite"]).then(() => {
-      if (scope === listScopeRef.current) removeFromList(current.id);
-    }).catch(() => undefined);
+    void saveImmediately(next, false, ["isFavorite"])
+      .then(() => {
+        if (scope === listScopeRef.current) removeFromList(current.id);
+      })
+      .catch(() => undefined);
   }, [persist, removeFromList, saveImmediately, view]);
   const {
     moveToTrash,
@@ -841,36 +1183,55 @@ export function Workspace() {
       flushEditorDraftRef,
     },
     saveQueue: { runSave, saveImmediately, clearPendingForNote },
-    list: { invalidateCollections, removeFromList, removeManyFromList, replaceList, selectNote, reloadNotes, refreshNotebooks },
+    list: {
+      invalidateCollections,
+      removeFromList,
+      removeManyFromList,
+      replaceList,
+      selectNote,
+      reloadNotes,
+      refreshNotebooks,
+    },
     ui: { setPendingTrashCount, setEmptyingTrash, setNotebooks, requestConfirm, notifyError },
-  });  const handleMoveSelectedToNotebook = useCallback(async (targetNotebookId: string) => {
-    const ids = [...noteSelectionRef.current.ids];
-    if (!ids.length) return;
-    try {
-      await Promise.all(
-        ids.map(async (id) => {
-          const note = notesRef.current.find((n) => n.id === id);
-          if (!note) return;
-          return api.updateNote(id, { version: note.version, notebookId: targetNotebookId }, { response: "summary" });
-        })
-      );
-      clearNoteSelection();
-      void loadNotes();
-      void refreshNotebooks();
-    } catch (reason) {
-      notifyError(errorMessage(reason, "移动笔记失败"));
-    }
-  }, [clearNoteSelection, loadNotes, refreshNotebooks, notifyError]);
+  });
+  const handleMoveSelectedToNotebook = useCallback(
+    async (targetNotebookId: string) => {
+      const ids = [...noteSelectionRef.current.ids];
+      if (!ids.length) return;
+      try {
+        await Promise.all(
+          ids.map(async (id) => {
+            const note = notesRef.current.find((n) => n.id === id);
+            if (!note) return;
+            return api.updateNote(
+              id,
+              { version: note.version, notebookId: targetNotebookId },
+              { response: "summary" },
+            );
+          }),
+        );
+        clearNoteSelection();
+        void loadNotes();
+        void refreshNotebooks();
+      } catch (reason) {
+        notifyError(errorMessage(reason, "移动笔记失败"));
+      }
+    },
+    [clearNoteSelection, loadNotes, refreshNotebooks, notifyError],
+  );
 
-  const handleToggleFavoriteCardNote = useCallback(async (target: NoteSummary) => {
-    const isFavorite = !target.isFavorite;
-    try {
-      await saveFavorite(target.id, isFavorite);
-      if (view === "favorites" && !isFavorite) removeFromList(target.id);
-    } catch (reason) {
-      notifyError(errorMessage(reason, "操作失败"));
-    }
-  }, [removeFromList, saveFavorite, notifyError, view]);
+  const handleToggleFavoriteCardNote = useCallback(
+    async (target: NoteSummary) => {
+      const isFavorite = !target.isFavorite;
+      try {
+        await saveFavorite(target.id, isFavorite);
+        if (view === "favorites" && !isFavorite) removeFromList(target.id);
+      } catch (reason) {
+        notifyError(errorMessage(reason, "操作失败"));
+      }
+    },
+    [removeFromList, saveFavorite, notifyError, view],
+  );
 
   const reloadSelectedNote = useCallback(async () => {
     const current = selectedRef.current;
@@ -894,65 +1255,99 @@ export function Workspace() {
     requestConfirm({
       eyebrow: "版本冲突",
       title: "重新载入最新版本？",
-      description: "这篇笔记已在别处更新。重新载入会使用服务器上的最新内容替换当前编辑，本地尚未保存的修改将丢失。",
+      description:
+        "这篇笔记已在别处更新。重新载入会使用服务器上的最新内容替换当前编辑，本地尚未保存的修改将丢失。",
       confirmLabel: "重新载入",
       onConfirm: () => void reloadSelectedNote(),
     });
   }, [reloadSelectedNote, requestConfirm]);
-  const handleRealtimeChange = useCallback((message?: WorkspaceChangeMessage) => {
-    accumulateRealtimeRefresh(pendingRealtimeRefreshRef.current, message, Boolean(deferredQuery.trim()));
-    if (realtimeRefreshTimerRef.current !== null) return;
-    realtimeRefreshTimerRef.current = setTimeout(() => {
-      realtimeRefreshTimerRef.current = null;
-      const next = pendingRealtimeRefreshRef.current;
-      pendingRealtimeRefreshRef.current = emptyRealtimeRefreshPlan();
-      if (next.notebooks) void refreshNotebooks();
-      if (next.notes) reloadNotes();
-      const activeId = activeNoteIdRef.current;
-      if (activeId && (next.selected || next.noteIds.has(activeId))) void refreshSelectedNoteFromRemote(activeId);
-      for (const noteId of next.noteIds) {
-        if (!next.notes && noteId !== activeId) void patchNoteFromRemote(noteId);
-      }
-    }, 50);
-  }, [deferredQuery, patchNoteFromRemote, refreshNotebooks, refreshSelectedNoteFromRemote, reloadNotes]);
+  const handleRealtimeChange = useCallback(
+    (message?: WorkspaceChangeMessage) => {
+      accumulateRealtimeRefresh(
+        pendingRealtimeRefreshRef.current,
+        message,
+        Boolean(deferredQuery.trim()),
+      );
+      if (realtimeRefreshTimerRef.current !== null) return;
+      realtimeRefreshTimerRef.current = setTimeout(() => {
+        realtimeRefreshTimerRef.current = null;
+        const next = pendingRealtimeRefreshRef.current;
+        pendingRealtimeRefreshRef.current = emptyRealtimeRefreshPlan();
+        if (next.notebooks) void refreshNotebooks();
+        if (next.notes) reloadNotes();
+        const activeId = activeNoteIdRef.current;
+        if (activeId && (next.selected || next.noteIds.has(activeId)))
+          void refreshSelectedNoteFromRemote(activeId);
+        for (const noteId of next.noteIds) {
+          if (!next.notes && noteId !== activeId) void patchNoteFromRemote(noteId);
+        }
+      }, 50);
+    },
+    [
+      deferredQuery,
+      patchNoteFromRemote,
+      refreshNotebooks,
+      refreshSelectedNoteFromRemote,
+      reloadNotes,
+    ],
+  );
   useWorkspaceRealtime({ ready, onChange: handleRealtimeChange });
-  const selectView = useCallback((next: NoteView) => {
-    if (view !== next || notebookId || query) requestListTransition();
-    searchOriginRef.current = null;
-    setQuery("");
-    setView(next);
-    setNotebookId(undefined);
-    setCardEditingNoteId(null);
-    openMobileList({ view: next, notebookId: undefined, query: "", searchOrigin: null });
-  }, [openMobileList, notebookId, query, requestListTransition, view]);
-  const selectNotebook = useCallback((notebookIdToSelect: string) => {
-    if (notebookId !== notebookIdToSelect || view !== "all" || query) requestListTransition();
-    searchOriginRef.current = null;
-    setQuery("");
-    setNotebookId(notebookIdToSelect);
-    setView("all");
-    setCardEditingNoteId(null);
-    openMobileList({ view: "all", notebookId: notebookIdToSelect, query: "", searchOrigin: null });
-  }, [openMobileList, notebookId, query, requestListTransition, view]);
-  const changeQuery = useCallback((next: string) => {
-    if (next) {
-      if (!query) {
-        requestListTransition();
-        searchOriginRef.current = { view, notebookId };
-      }
-      setQuery(next);
-      setView("all");
+  const selectView = useCallback(
+    (next: NoteView) => {
+      if (view !== next || notebookId || query) requestListTransition();
+      searchOriginRef.current = null;
+      setQuery("");
+      setView(next);
       setNotebookId(undefined);
-      openMobileList({ view: "all", notebookId: undefined, query: next, searchOrigin: searchOriginRef.current });
-      return;
-    }
-    if (query) requestListTransition();
-    const origin = searchOriginRef.current;
-    searchOriginRef.current = null;
-    setQuery("");
-    setView(origin?.view ?? "all");
-    setNotebookId(origin?.notebookId);
-  }, [notebookId, openMobileList, query, requestListTransition, view]);
+      setCardEditingNoteId(null);
+      openMobileList({ view: next, notebookId: undefined, query: "", searchOrigin: null });
+    },
+    [openMobileList, notebookId, query, requestListTransition, view],
+  );
+  const selectNotebook = useCallback(
+    (notebookIdToSelect: string) => {
+      if (notebookId !== notebookIdToSelect || view !== "all" || query) requestListTransition();
+      searchOriginRef.current = null;
+      setQuery("");
+      setNotebookId(notebookIdToSelect);
+      setView("all");
+      setCardEditingNoteId(null);
+      openMobileList({
+        view: "all",
+        notebookId: notebookIdToSelect,
+        query: "",
+        searchOrigin: null,
+      });
+    },
+    [openMobileList, notebookId, query, requestListTransition, view],
+  );
+  const changeQuery = useCallback(
+    (next: string) => {
+      if (next) {
+        if (!query) {
+          requestListTransition();
+          searchOriginRef.current = { view, notebookId };
+        }
+        setQuery(next);
+        setView("all");
+        setNotebookId(undefined);
+        openMobileList({
+          view: "all",
+          notebookId: undefined,
+          query: next,
+          searchOrigin: searchOriginRef.current,
+        });
+        return;
+      }
+      if (query) requestListTransition();
+      const origin = searchOriginRef.current;
+      searchOriginRef.current = null;
+      setQuery("");
+      setView(origin?.view ?? "all");
+      setNotebookId(origin?.notebookId);
+    },
+    [notebookId, openMobileList, query, requestListTransition, view],
+  );
   const closeCommandMenu = useCallback(() => {
     setCommandOpen(false);
     setCommandInitialQuery("");
@@ -966,15 +1361,18 @@ export function Workspace() {
     }
     setInNoteSearchQuery(normalized);
   }, []);
-  const handleSearchGlobal = useCallback((term: string) => {
-    const normalized = term.trim();
-    if (!normalized) return;
-    changeQuery(normalized);
-    setSidebarCollapsed(false);
-    setCardEditingNoteId(null);
-    openMobileList();
-    closeCommandMenu();
-  }, [changeQuery, closeCommandMenu, openMobileList]);
+  const handleSearchGlobal = useCallback(
+    (term: string) => {
+      const normalized = term.trim();
+      if (!normalized) return;
+      changeQuery(normalized);
+      setSidebarCollapsed(false);
+      setCardEditingNoteId(null);
+      openMobileList();
+      closeCommandMenu();
+    },
+    [changeQuery, closeCommandMenu, openMobileList],
+  );
   const handleFocusGlobalSearch = useCallback(() => {
     setSidebarCollapsed(false);
     setCardEditingNoteId(null);
@@ -1033,36 +1431,69 @@ export function Workspace() {
       notifyError("复制失败，请检查浏览器剪贴板权限");
     }
   }, []);
-  const command = useCallback((id: CommandId) => {
-    if (id === "new-note") void createNoteInInbox();
-    if (id === "find-in-note") {
-      const selectedText = window.getSelection()?.toString().trim() ?? "";
-      const initial = selectedText && selectedText.length <= 50 ? selectedText : "";
-      setCommandInitialQuery(initial);
-      setCommandOpen(true);
-    }
-    if (id === "toggle-sidebar") { if (isMobileViewport) openMobileHome(); else setSidebarCollapsed((value) => !value); }
-    if (id === "toggle-view-layout") toggleViewLayout();
-    if (id === "toggle-focus-mode") toggleFocusMode();
-    if (id === "toggle-typewriter-mode") toggleTypewriterMode();
-    if (id === "set-theme-light") setThemePreference("light");
-    if (id === "set-theme-dark") setThemePreference("dark");
-    if (id === "set-theme-system") setThemePreference("system");
-    if (id === "copy-note-markdown") void copyNoteMarkdown();
-    if (id === "favorite") toggleFavorite();
-    if (id === "trash") moveToTrash();
-    if (id === "restore") restoreFromTrash();
-    if (id === "export-image") handleExportImage();
-    if (id === "export-notes") void handleExportNotes();
-    if (id === "install-app") { if (pwaState.canInstall) void installPwa(); else if (pwaState.showIosInstallHint && !pwaState.standalone) notifyInfo("请在 Safari 中点击分享，再选择“添加到主屏幕”"); }
-  }, [copyNoteMarkdown, createNoteInInbox, handleExportImage, handleExportNotes, isMobileViewport, moveToTrash, openMobileHome, pwaState, restoreFromTrash, setThemePreference, toggleFavorite, toggleFocusMode, toggleTypewriterMode, toggleViewLayout]);
+  const command = useCallback(
+    (id: CommandId) => {
+      if (id === "new-note") void createNoteInInbox();
+      if (id === "find-in-note") {
+        const selectedText = window.getSelection()?.toString().trim() ?? "";
+        const initial = selectedText && selectedText.length <= 50 ? selectedText : "";
+        setCommandInitialQuery(initial);
+        setCommandOpen(true);
+      }
+      if (id === "toggle-sidebar") {
+        if (isMobileViewport) openMobileHome();
+        else setSidebarCollapsed((value) => !value);
+      }
+      if (id === "toggle-view-layout") toggleViewLayout();
+      if (id === "toggle-focus-mode") toggleFocusMode();
+      if (id === "toggle-typewriter-mode") toggleTypewriterMode();
+      if (id === "set-theme-light") setThemePreference("light");
+      if (id === "set-theme-dark") setThemePreference("dark");
+      if (id === "set-theme-system") setThemePreference("system");
+      if (id === "copy-note-markdown") void copyNoteMarkdown();
+      if (id === "favorite") toggleFavorite();
+      if (id === "trash") moveToTrash();
+      if (id === "restore") restoreFromTrash();
+      if (id === "export-image") handleExportImage();
+      if (id === "export-notes") void handleExportNotes();
+      if (id === "install-app") {
+        if (pwaState.canInstall) void installPwa();
+        else if (pwaState.showIosInstallHint && !pwaState.standalone)
+          notifyInfo("请在 Safari 中点击分享，再选择“添加到主屏幕”");
+      }
+    },
+    [
+      copyNoteMarkdown,
+      createNoteInInbox,
+      handleExportImage,
+      handleExportNotes,
+      isMobileViewport,
+      moveToTrash,
+      openMobileHome,
+      pwaState,
+      restoreFromTrash,
+      setThemePreference,
+      toggleFavorite,
+      toggleFocusMode,
+      toggleTypewriterMode,
+      toggleViewLayout,
+    ],
+  );
   useEffect(() => {
     if (!ready || shortcutHandledRef.current) return;
     const action = new URLSearchParams(window.location.search).get("action");
     if (action === "new-note") void createNoteInInbox();
-    if (action === "search") { openMobileList(); requestAnimationFrame(() => searchRef.current?.focus()); }
+    if (action === "search") {
+      openMobileList();
+      requestAnimationFrame(() => searchRef.current?.focus());
+    }
     shortcutHandledRef.current = true;
-    if (action) window.history.replaceState(window.history.state, "", `${window.location.pathname}${window.location.hash}`);
+    if (action)
+      window.history.replaceState(
+        window.history.state,
+        "",
+        `${window.location.pathname}${window.location.hash}`,
+      );
   }, [createNoteInInbox, openMobileList, ready]);
   const logout = useCallback(async () => {
     await flushPendingSaves("now");
@@ -1076,7 +1507,10 @@ export function Workspace() {
   }, [flushPendingSaves, navigate]);
   const updatePwa = useCallback(async () => {
     await flushPendingSaves("now");
-    if (hasUnsavedWork()) { notifyWarning("仍有编辑内容未保存，更新已暂缓"); return; }
+    if (hasUnsavedWork()) {
+      notifyWarning("仍有编辑内容未保存，更新已暂缓");
+      return;
+    }
     applyPwaUpdate();
   }, [flushPendingSaves, hasUnsavedWork]);
 
@@ -1091,12 +1525,15 @@ export function Workspace() {
       }
       const defaultNotebook = notebookId
         ? notebooks.find((n) => n.id === notebookId)
-        : notebooks.find((n) => n.isSystem) ?? notebooks[0];
+        : (notebooks.find((n) => n.isSystem) ?? notebooks[0]);
       if (!defaultNotebook) return null;
       const scope = listScopeRef.current;
       const creationPromise = (async () => {
         try {
-          const result = await api.ensureWikiNote({ title: cleanTitle, notebookId: defaultNotebook.id });
+          const result = await api.ensureWikiNote({
+            title: cleanTitle,
+            notebookId: defaultNotebook.id,
+          });
 
           const summary: NoteSummary = {
             id: result.note.id,
@@ -1115,10 +1552,18 @@ export function Workspace() {
 
           if (scope === listScopeRef.current) {
             const currentNotes = notesRef.current;
-            const merged = mergeWikiNoteSummary(currentNotes, summary, notebooks, view, deferredQuery, notebookId);
+            const merged = mergeWikiNoteSummary(
+              currentNotes,
+              summary,
+              notebooks,
+              view,
+              deferredQuery,
+              notebookId,
+            );
             if (merged) {
               replaceList(merged);
-              if (result.created && merged.length > currentNotes.length) setTotalNotes((prev) => prev + 1);
+              if (result.created && merged.length > currentNotes.length)
+                setTotalNotes((prev) => prev + 1);
             }
           }
           if (result.created) {
@@ -1158,11 +1603,28 @@ export function Workspace() {
     [ensureWikiNoteExists],
   );
 
-  const handleNewNote = useCallback(() => { void createNoteHere(); }, [createNoteHere]);
-  const handleNewInboxNote = useCallback(() => { void createNoteInInbox(); }, [createNoteInInbox]);
-  const handleCreateNotebook = useCallback(() => { createNotebook(); }, [createNotebook]);
+  const handleNewNote = useCallback(() => {
+    void createNoteHere();
+  }, [createNoteHere]);
+  const handleNewInboxNote = useCallback(() => {
+    void createNoteInInbox();
+  }, [createNoteInInbox]);
+  const handleCreateNotebook = useCallback(() => {
+    createNotebook();
+  }, [createNotebook]);
   const handleEditNotebook = useCallback((target: Notebook) => setEditingNotebook(target), []);
-  const handleDeleteNotebook = useCallback((target: Notebook) => requestConfirm({ eyebrow: "删除笔记本", title: `删除笔记本“${target.name}”？`, description: "笔记本中的笔记会自动移入收件箱，笔记内容不会被删除。", confirmLabel: "删除笔记本", danger: true, onConfirm: () => deleteNotebook(target.id) }), [deleteNotebook, requestConfirm]);
+  const handleDeleteNotebook = useCallback(
+    (target: Notebook) =>
+      requestConfirm({
+        eyebrow: "删除笔记本",
+        title: `删除笔记本“${target.name}”？`,
+        description: "笔记本中的笔记会自动移入收件箱，笔记内容不会被删除。",
+        confirmLabel: "删除笔记本",
+        danger: true,
+        onConfirm: () => deleteNotebook(target.id),
+      }),
+    [deleteNotebook, requestConfirm],
+  );
   const handleCollapseSidebar = useCallback(() => {
     const toggle = () => setSidebarCollapsed((value) => !value);
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -1172,39 +1634,62 @@ export function Workspace() {
     }
     document.startViewTransition(() => flushSync(toggle));
   }, []);
-  const handleSelectListNote = useCallback((id: string, event: ReactMouseEvent<HTMLButtonElement>) => {
-    const orderedIds = sortNotes(notesRef.current, noteSort).map((note) => note.id);
-    const intent = resolveNoteClickAction(event, { hasSelectionActive: noteSelectionRef.current.ids.size > 0 });
-    if (intent.action === "toggle") {
-      updateNoteSelection(applyNoteSelectionClick(noteSelectionRef.current, orderedIds, { id, ...intent.modifiers }));
-      return;
-    }
-    selectNote(id);
-    setNoteSelectionAnchor(id);
-    openMobileNote({ noteId: id });
-  }, [openMobileNote, noteSort, selectNote, setNoteSelectionAnchor, updateNoteSelection]);
-  const handleOpenCardNote = useCallback((id: string) => {
-    selectNote(id);
-    setNoteSelectionAnchor(id);
-    setCardEditingNoteId(id);
-    openMobileNote({ noteId: id });
-  }, [openMobileNote, selectNote, setNoteSelectionAnchor]);
-  const handleToggleCardSelection = useCallback((id: string, modifiers: Pick<NoteSelectionClick, "metaKey" | "ctrlKey" | "shiftKey">) => {
-    const nextSelection = applyNoteSelectionClick(noteSelectionRef.current, sortNotes(notesRef.current, noteSort).map((note) => note.id), {
-      id,
-      metaKey: modifiers.metaKey,
-      ctrlKey: modifiers.ctrlKey,
-      shiftKey: modifiers.shiftKey,
-    });
-    updateNoteSelection(nextSelection);
-  }, [noteSort, updateNoteSelection]);
+  const handleSelectListNote = useCallback(
+    (id: string, event: ReactMouseEvent<HTMLButtonElement>) => {
+      const orderedIds = sortNotes(notesRef.current, noteSort).map((note) => note.id);
+      const intent = resolveNoteClickAction(event, {
+        hasSelectionActive: noteSelectionRef.current.ids.size > 0,
+      });
+      if (intent.action === "toggle") {
+        updateNoteSelection(
+          applyNoteSelectionClick(noteSelectionRef.current, orderedIds, {
+            id,
+            ...intent.modifiers,
+          }),
+        );
+        return;
+      }
+      selectNote(id);
+      setNoteSelectionAnchor(id);
+      openMobileNote({ noteId: id });
+    },
+    [openMobileNote, noteSort, selectNote, setNoteSelectionAnchor, updateNoteSelection],
+  );
+  const handleOpenCardNote = useCallback(
+    (id: string) => {
+      selectNote(id);
+      setNoteSelectionAnchor(id);
+      setCardEditingNoteId(id);
+      openMobileNote({ noteId: id });
+    },
+    [openMobileNote, selectNote, setNoteSelectionAnchor],
+  );
+  const handleToggleCardSelection = useCallback(
+    (id: string, modifiers: Pick<NoteSelectionClick, "metaKey" | "ctrlKey" | "shiftKey">) => {
+      const nextSelection = applyNoteSelectionClick(
+        noteSelectionRef.current,
+        sortNotes(notesRef.current, noteSort).map((note) => note.id),
+        {
+          id,
+          metaKey: modifiers.metaKey,
+          ctrlKey: modifiers.ctrlKey,
+          shiftKey: modifiers.shiftKey,
+        },
+      );
+      updateNoteSelection(nextSelection);
+    },
+    [noteSort, updateNoteSelection],
+  );
   const handleCardGridScrollPositionChange = useCallback((scope: string, top: number) => {
     cardGridScrollPositionRef.current = { scope, top };
   }, []);
-  const handleNoteSort = useCallback((nextSort: NoteSort) => {
-    clearNoteSelection();
-    setNoteSort(nextSort);
-  }, [clearNoteSelection]);
+  const handleNoteSort = useCallback(
+    (nextSort: NoteSort) => {
+      clearNoteSelection();
+      setNoteSort(nextSort);
+    },
+    [clearNoteSelection],
+  );
   const handleOpenSidebar = useCallback(() => {
     openMobileHome();
   }, [openMobileHome]);
@@ -1221,13 +1706,21 @@ export function Workspace() {
     }
   }, [backMobilePage, closeOutline, isMobileViewport, viewLayout]);
   const handleUploadImage = useCallback((file: File) => api.uploadAsset(file), []);
-  const handleScrollToOutlineItem = useCallback((id: string) => outlineNavigateRef.current?.(id), []);
+  const handleScrollToOutlineItem = useCallback(
+    (id: string) => outlineNavigateRef.current?.(id),
+    [],
+  );
   const handleClearQuery = useCallback(() => changeQuery(""), [changeQuery]);
   useEffect(() => {
     if (!ready || !isMobileViewport || isNoteLoading) return;
     const frame = requestAnimationFrame(() => {
       if (document.activeElement?.closest(".mobile-bottom-search")) return;
-      const selector = mobilePage === "home" ? "#mobile-notebooks-title" : mobilePage === "list" ? ".mobile-collection-header h2" : ".mobile-editor-title";
+      const selector =
+        mobilePage === "home"
+          ? "#mobile-notebooks-title"
+          : mobilePage === "list"
+            ? ".mobile-collection-header h2"
+            : ".mobile-editor-title";
       document.querySelector<HTMLElement>(selector)?.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(frame);
@@ -1240,80 +1733,163 @@ export function Workspace() {
       openWorkspaceMenu(event, textFieldMenuItems(target, changeQuery), "搜索文本");
       return;
     }
-    if (!(target instanceof Element) || target.closest("dialog, input, textarea, [contenteditable='true'], .editor-panel")) return;
+    if (
+      !(target instanceof Element) ||
+      target.closest("dialog, input, textarea, [contenteditable='true'], .editor-panel")
+    )
+      return;
     const noteId = target.closest<HTMLElement>("[data-note-id]")?.dataset.noteId;
     const targetNote = noteId ? notesRef.current.find((note) => note.id === noteId) : undefined;
     if (targetNote) {
       const busy = pendingTrashCount > 0 || emptyingTrash;
-      openWorkspaceMenu(event, buildNoteContextMenuItems({
-        note: targetNote,
-        view,
-        selectedIds: selectedNoteIds,
-        busy,
-        actions: {
-          clearSelection: clearNoteSelection,
-          openNote: (note) => { if (viewLayout === "cards") handleOpenCardNote(note.id); else selectNote(note.id); },
-          toggleSelection: (noteId) => handleToggleCardSelection(noteId, { ctrlKey: true }),
-          swipeAction: handleNoteSwipeAction,
-          restoreSelected: restoreSelectedNotes,
-          deleteSelected: deleteSelectedNotes,
-          toggleFavorite: handleToggleFavoriteCardNote,
-        },
-      }), targetNote.title || "未命名笔记");
+      openWorkspaceMenu(
+        event,
+        buildNoteContextMenuItems({
+          note: targetNote,
+          view,
+          selectedIds: selectedNoteIds,
+          busy,
+          actions: {
+            clearSelection: clearNoteSelection,
+            openNote: (note) => {
+              if (viewLayout === "cards") handleOpenCardNote(note.id);
+              else selectNote(note.id);
+            },
+            toggleSelection: (noteId) => handleToggleCardSelection(noteId, { ctrlKey: true }),
+            swipeAction: handleNoteSwipeAction,
+            restoreSelected: restoreSelectedNotes,
+            deleteSelected: deleteSelectedNotes,
+            toggleFavorite: handleToggleFavoriteCardNote,
+          },
+        }),
+        targetNote.title || "未命名笔记",
+      );
       return;
     }
     const targetNotebookId = target.closest<HTMLElement>("[data-notebook-id]")?.dataset.notebookId;
     const targetNotebook = notebooks.find((notebook) => notebook.id === targetNotebookId);
     if (targetNotebook) {
-      openWorkspaceMenu(event, [
-        { label: "打开笔记本", icon: ArrowUpRight, onSelect: () => selectNotebook(targetNotebook.id) },
-        { label: "在此新建笔记", icon: Plus, onSelect: () => createNoteInNotebook({ notebookId: targetNotebook.id, notebookName: targetNotebook.name, title: "未命名笔记" }) },
-        { label: "笔记本设置", icon: Settings2, separator: true, onSelect: () => handleEditNotebook(targetNotebook) },
-        ...(!targetNotebook.isSystem ? [{ label: "删除笔记本", icon: Trash2, danger: true, separator: true, onSelect: () => handleDeleteNotebook(targetNotebook) }] : []),
-      ], targetNotebook.name);
+      openWorkspaceMenu(
+        event,
+        [
+          {
+            label: "打开笔记本",
+            icon: ArrowUpRight,
+            onSelect: () => selectNotebook(targetNotebook.id),
+          },
+          {
+            label: "在此新建笔记",
+            icon: Plus,
+            onSelect: () =>
+              createNoteInNotebook({
+                notebookId: targetNotebook.id,
+                notebookName: targetNotebook.name,
+                title: "未命名笔记",
+              }),
+          },
+          {
+            label: "笔记本设置",
+            icon: Settings2,
+            separator: true,
+            onSelect: () => handleEditNotebook(targetNotebook),
+          },
+          ...(!targetNotebook.isSystem
+            ? [
+                {
+                  label: "删除笔记本",
+                  icon: Trash2,
+                  danger: true,
+                  separator: true,
+                  onSelect: () => handleDeleteNotebook(targetNotebook),
+                },
+              ]
+            : []),
+        ],
+        targetNotebook.name,
+      );
       return;
     }
     if (target.closest(".sidebar")) {
-      const targetView = target.closest<HTMLElement>("[data-note-view]")?.dataset.noteView as NoteView | undefined;
+      const targetView = target.closest<HTMLElement>("[data-note-view]")?.dataset.noteView as
+        NoteView | undefined;
       const items: ContextMenuItem[] = [];
-      if (targetView) items.push({ label: `打开${viewLabel(targetView)}`, icon: ArrowUpRight, onSelect: () => selectView(targetView) });
-      items.push({ label: "新建笔记", icon: Plus, onSelect: handleNewInboxNote }, { label: "新建笔记本", icon: Plus, onSelect: handleCreateNotebook }, { label: sidebarCollapsed ? "展开侧栏" : "收起侧栏", icon: Settings2, separator: true, onSelect: handleCollapseSidebar });
+      if (targetView)
+        items.push({
+          label: `打开${viewLabel(targetView)}`,
+          icon: ArrowUpRight,
+          onSelect: () => selectView(targetView),
+        });
+      items.push(
+        { label: "新建笔记", icon: Plus, onSelect: handleNewInboxNote },
+        { label: "新建笔记本", icon: Plus, onSelect: handleCreateNotebook },
+        {
+          label: sidebarCollapsed ? "展开侧栏" : "收起侧栏",
+          icon: Settings2,
+          separator: true,
+          onSelect: handleCollapseSidebar,
+        },
+      );
       openWorkspaceMenu(event, items, "导航");
       return;
     }
     if (target.closest(".note-list-panel, .note-card-grid-panel, .empty-editor")) {
       if (target.closest(".note-outline-panel")) {
-        openWorkspaceMenu(event, [{ label: "关闭大纲", icon: X, onSelect: closeOutline }], "笔记大纲");
+        openWorkspaceMenu(
+          event,
+          [{ label: "关闭大纲", icon: X, onSelect: closeOutline }],
+          "笔记大纲",
+        );
         return;
       }
-      openWorkspaceMenu(event, buildWorkspaceMenuItems({
-        view,
-        viewLayout,
-        query,
-        hasSelection: selectedNoteIds.size > 0,
-        totalNotes,
-        busy: pendingTrashCount > 0 || emptyingTrash,
-        actions: {
-          newNote: handleNewNote,
-          toggleLayout: toggleViewLayout,
-          clearQuery: handleClearQuery,
-          clearSelection: clearNoteSelection,
-          emptyTrash,
-        },
-      }), "笔记工作区");
+      openWorkspaceMenu(
+        event,
+        buildWorkspaceMenuItems({
+          view,
+          viewLayout,
+          query,
+          hasSelection: selectedNoteIds.size > 0,
+          totalNotes,
+          busy: pendingTrashCount > 0 || emptyingTrash,
+          actions: {
+            newNote: handleNewNote,
+            toggleLayout: toggleViewLayout,
+            clearQuery: handleClearQuery,
+            clearSelection: clearNoteSelection,
+            emptyTrash,
+          },
+        }),
+        "笔记工作区",
+      );
     }
   };
 
-  if (!ready) return <main className="app-loading"><span className="loading-ring" /><span>正在进入你的空间……</span></main>;
-  const currentNotebook = notebookId ? notebooks.find((notebook) => notebook.id === notebookId) : undefined;
+  if (!ready)
+    return (
+      <main className="app-loading">
+        <span className="loading-ring" />
+        <span>正在进入你的空间……</span>
+      </main>
+    );
+  const currentNotebook = notebookId
+    ? notebooks.find((notebook) => notebook.id === notebookId)
+    : undefined;
   const listNewNote = currentNotebook ? handleNewNote : undefined;
   // selectedNote 只保留元数据；正文从 selectedRef 单独传入，纯正文同步不更新 React state。
   // 这样 memo(NoteEditor) 不会因每次输入触发的 Markdown 同步而重渲染，也不会在 state 中留住旧正文。
-  const renderedNote = selectedNote && selectedRef.current?.id === selectedNote.id ? selectedNote : selectedRef.current ?? selectedNote;
-  const renderedNoteContent = renderedNote && selectedRef.current?.id === renderedNote.id
-    ? selectedRef.current.contentMarkdown
-    : renderedNote?.contentMarkdown ?? "";
-  const commandNoteReady = Boolean((!isMobileViewport || mobilePage === "editor") && renderedNote && selectedRef.current?.id === renderedNote.id && !isNoteLoading);
+  const renderedNote =
+    selectedNote && selectedRef.current?.id === selectedNote.id
+      ? selectedNote
+      : (selectedRef.current ?? selectedNote);
+  const renderedNoteContent =
+    renderedNote && selectedRef.current?.id === renderedNote.id
+      ? selectedRef.current.contentMarkdown
+      : (renderedNote?.contentMarkdown ?? "");
+  const commandNoteReady = Boolean(
+    (!isMobileViewport || mobilePage === "editor") &&
+    renderedNote &&
+    selectedRef.current?.id === renderedNote.id &&
+    !isNoteLoading,
+  );
   const isCardsLayout = !isMobileViewport && viewLayout === "cards";
   const mobileCards = isMobileViewport && mobileViewLayout === "cards";
   const showCardsGrid = mobileCards || (isCardsLayout && cardEditingNoteId === null);
@@ -1321,62 +1897,291 @@ export function Workspace() {
   if (mobilePage === "editor") mobileEditorVisitedRef.current = true;
   const mountEditor = !isMobileViewport || mobileEditorVisitedRef.current;
 
-  return <div onContextMenu={handleWorkspaceContextMenu} onKeyDown={(event) => {
-    if (event.nativeEvent.isComposing || event.keyCode === 229 || !(event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) return;
-    const target = event.target;
-    if (!(target instanceof HTMLElement) || target.closest("dialog, input, textarea, [contenteditable='true'], .editor-panel")) return;
-    const rect = target.getBoundingClientRect();
-    if (!target.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: rect.left + 12, clientY: rect.top + 12 }))) event.preventDefault();
-  }} data-mobile-page={isMobileViewport ? mobilePage : undefined} className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${focusMode ? "is-focus-mode" : ""} ${isCardsLayout ? "layout-cards" : ""}`}>
-    {!isMobileViewport && <Sidebar view={view} setView={selectView} notebooks={notebooks} notebookId={notebookId} setNotebookId={selectNotebook} query={query} setQuery={changeQuery} searchRef={searchRef} onNewInboxNote={handleNewInboxNote} onCreateNotebook={handleCreateNotebook} collapsed={sidebarCollapsed} onCollapse={handleCollapseSidebar} onLogout={logout} />}
-    {isMobileViewport && <div className="mobile-home-region" hidden={mobilePage !== "home"} inert={mobilePage !== "home"}><MobileNotebookHome view={view} setView={selectView} notebooks={notebooks} notebookId={notebookId} setNotebookId={selectNotebook} onCreateNotebook={handleCreateNotebook} onEditNotebook={handleEditNotebook} onDeleteNotebook={handleDeleteNotebook} onLogout={logout} active={mobilePage === "home"} /></div>}
-    {!isCardsLayout && !mobileCards && (
-      <NoteListPanel notes={notes} total={totalNotes} hasMore={hasMoreNotes} sort={noteSort} setSort={handleNoteSort} selectedId={selectedId} selectedIds={selectedNoteIds} onSelect={handleSelectListNote} onDeleteSelected={deleteSelectedNotes} onNoteSwipeAction={handleNoteSwipeAction} view={view} query={query} currentNotebookName={currentNotebook?.name} onEmptyTrash={view === "trash" ? emptyTrash : undefined} trashBusy={pendingTrashCount > 0 || emptyingTrash} onNewNote={listNewNote} onClearQuery={handleClearQuery} isMobileViewport={isMobileViewport} onToggleLayout={toggleViewLayout} onOpenSidebar={handleOpenSidebar} transitionToken={listTransitionToken} outlineOpen={!isMobileViewport && outlineOpen} outlineItems={outlineItems} activeOutlineId={activeOutlineId} onScrollToOutlineItem={handleScrollToOutlineItem} onCloseOutline={closeOutline} onLoadMore={loadMoreNotes} isLoadingMore={isLoadingMore} virtualizationScope={listScope} inert={isMobileViewport && mobilePage !== "list"} />
-    )}
-    {showCardsGrid && (
-      <NoteCardGridPanel
-        notes={notes}
-        total={totalNotes}
-        hasMore={hasMoreNotes}
-        sort={noteSort}
-        setSort={handleNoteSort}
+  return (
+    <div
+      onContextMenu={handleWorkspaceContextMenu}
+      onKeyDown={(event) => {
+        if (
+          event.nativeEvent.isComposing ||
+          event.keyCode === 229 ||
+          !(event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))
+        )
+          return;
+        const target = event.target;
+        if (
+          !(target instanceof HTMLElement) ||
+          target.closest("dialog, input, textarea, [contenteditable='true'], .editor-panel")
+        )
+          return;
+        const rect = target.getBoundingClientRect();
+        if (
+          !target.dispatchEvent(
+            new MouseEvent("contextmenu", {
+              bubbles: true,
+              cancelable: true,
+              clientX: rect.left + 12,
+              clientY: rect.top + 12,
+            }),
+          )
+        )
+          event.preventDefault();
+      }}
+      data-mobile-page={isMobileViewport ? mobilePage : undefined}
+      className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${focusMode ? "is-focus-mode" : ""} ${isCardsLayout ? "layout-cards" : ""}`}
+    >
+      {!isMobileViewport && (
+        <Sidebar
+          view={view}
+          setView={selectView}
+          notebooks={notebooks}
+          notebookId={notebookId}
+          setNotebookId={selectNotebook}
+          query={query}
+          setQuery={changeQuery}
+          searchRef={searchRef}
+          onNewInboxNote={handleNewInboxNote}
+          onCreateNotebook={handleCreateNotebook}
+          collapsed={sidebarCollapsed}
+          onCollapse={handleCollapseSidebar}
+          onLogout={logout}
+        />
+      )}
+      {isMobileViewport && (
+        <div
+          className="mobile-home-region"
+          hidden={mobilePage !== "home"}
+          inert={mobilePage !== "home"}
+        >
+          <MobileNotebookHome
+            view={view}
+            setView={selectView}
+            notebooks={notebooks}
+            notebookId={notebookId}
+            setNotebookId={selectNotebook}
+            onCreateNotebook={handleCreateNotebook}
+            onEditNotebook={handleEditNotebook}
+            onDeleteNotebook={handleDeleteNotebook}
+            onLogout={logout}
+            active={mobilePage === "home"}
+          />
+        </div>
+      )}
+      {!isCardsLayout && !mobileCards && (
+        <NoteListPanel
+          notes={notes}
+          total={totalNotes}
+          hasMore={hasMoreNotes}
+          sort={noteSort}
+          setSort={handleNoteSort}
+          selectedId={selectedId}
+          selectedIds={selectedNoteIds}
+          onSelect={handleSelectListNote}
+          onDeleteSelected={deleteSelectedNotes}
+          onNoteSwipeAction={handleNoteSwipeAction}
+          view={view}
+          query={query}
+          currentNotebookName={currentNotebook?.name}
+          onEmptyTrash={view === "trash" ? emptyTrash : undefined}
+          trashBusy={pendingTrashCount > 0 || emptyingTrash}
+          onNewNote={listNewNote}
+          onClearQuery={handleClearQuery}
+          isMobileViewport={isMobileViewport}
+          onToggleLayout={toggleViewLayout}
+          onOpenSidebar={handleOpenSidebar}
+          transitionToken={listTransitionToken}
+          outlineOpen={!isMobileViewport && outlineOpen}
+          outlineItems={outlineItems}
+          activeOutlineId={activeOutlineId}
+          onScrollToOutlineItem={handleScrollToOutlineItem}
+          onCloseOutline={closeOutline}
+          onLoadMore={loadMoreNotes}
+          isLoadingMore={isLoadingMore}
+          virtualizationScope={listScope}
+          inert={isMobileViewport && mobilePage !== "list"}
+        />
+      )}
+      {showCardsGrid && (
+        <NoteCardGridPanel
+          notes={notes}
+          total={totalNotes}
+          hasMore={hasMoreNotes}
+          sort={noteSort}
+          setSort={handleNoteSort}
+          isMobileViewport={isMobileViewport}
+          onToggleLayout={toggleViewLayout}
+          selectedIds={selectedNoteIds}
+          onOpenNote={handleOpenCardNote}
+          onToggleSelectNote={handleToggleCardSelection}
+          onDeleteSelected={deleteSelectedNotes}
+          view={view}
+          currentNotebookName={currentNotebook?.name}
+          query={query}
+          onClearQuery={handleClearQuery}
+          notebooks={notebooks}
+          onToggleFavoriteNote={handleToggleFavoriteCardNote}
+          onEmptyTrash={view === "trash" ? emptyTrash : undefined}
+          trashBusy={pendingTrashCount > 0 || emptyingTrash}
+          transitionToken={listTransitionToken}
+          onOpenSidebar={handleOpenSidebar}
+          onLoadMore={loadMoreNotes}
+          isLoadingMore={isLoadingMore}
+          scrollScope={listScope}
+          initialScrollTop={
+            cardGridScrollPositionRef.current.scope === listScope
+              ? cardGridScrollPositionRef.current.top
+              : 0
+          }
+          onScrollPositionChange={handleCardGridScrollPositionChange}
+          inert={isMobileViewport && mobilePage !== "list"}
+        />
+      )}
+      {(!showCardsGrid || isMobileViewport) && (
+        <main
+          ref={editorRegionRef}
+          className="editor-region"
+          tabIndex={-1}
+          aria-hidden={editorContentInert || undefined}
+          inert={editorContentInert}
+        >
+          {mountEditor && renderedNote ? (
+            <Suspense fallback={<NoteLoadingState />}>
+              <LazyNoteEditor
+                note={renderedNote}
+                contentMarkdown={renderedNoteContent}
+                availableNotes={notes}
+                onNavigateWikiLink={handleNavigateWikiLink}
+                onCreateAndLinkNote={handleCreateAndLinkNote}
+                onNavigateToNote={selectNote}
+                searchQuery={activeSearchQuery}
+                onClearSearch={activeSearchQuery ? handleClearSearch : undefined}
+                onMarkdownReaderChange={registerEditorMarkdownReader}
+                onMarkdownDirtyChange={registerEditorMarkdownDirty}
+                saveState={saveState}
+                isLoading={isNoteLoading}
+                trashBusy={
+                  emptyingTrash ||
+                  (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))
+                }
+                reloadToken={noteReloadToken}
+                focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen}
+                onFocusHandled={handleEditorFocus}
+                onChange={onNoteChange}
+                onSaveNow={saveNoteNow}
+                onReloadNote={requestConflictReload}
+                onExportImage={handleExportImage}
+                onToggleFavorite={toggleFavorite}
+                onMoveToTrash={moveToTrash}
+                onRestore={restoreFromTrash}
+                onPermanentDelete={permanentDeleteNote}
+                onOpenList={handleOpenList}
+                onOpenCommands={handleOpenCommands}
+                isMobileViewport={isMobileViewport}
+                mobileBackLabel={query ? "搜索结果" : (currentNotebook?.name ?? viewLabel(view))}
+                onBackToCards={isCardsLayout ? () => setCardEditingNoteId(null) : undefined}
+                onUploadImage={handleUploadImage}
+                focusMode={focusMode}
+                typewriterMode={typewriterMode}
+                outlineOpen={outlineOpen}
+                outlineItems={outlineItems}
+                activeOutlineId={activeOutlineId}
+                onToggleOutline={toggleOutline}
+                onCloseOutline={closeOutline}
+                onOutlineItemsChange={handleOutlineItemsChange}
+                onOutlineActiveChange={handleOutlineActiveChange}
+                onOutlineNavigationReady={handleOutlineNavigationReady}
+              />
+            </Suspense>
+          ) : isNoteLoading ? (
+            <NoteLoadingState />
+          ) : (
+            <EmptyEditor
+              isTrash={view === "trash"}
+              onNewNote={handleNewNote}
+              onOpenList={handleOpenList}
+              transitionToken={listTransitionToken}
+            />
+          )}
+        </main>
+      )}
+      {isMobileViewport && mobilePage !== "editor" && (
+        <MobileBottomBar
+          onOpenCommands={handleOpenCommands}
+          query={query}
+          setQuery={changeQuery}
+          searchRef={searchRef}
+          onNewNote={
+            mobilePage === "home"
+              ? handleNewInboxNote
+              : view === "trash"
+                ? undefined
+                : handleNewNote
+          }
+        />
+      )}
+      <CommandMenu
         isMobileViewport={isMobileViewport}
-        onToggleLayout={toggleViewLayout}
-        selectedIds={selectedNoteIds}
-        onOpenNote={handleOpenCardNote}
-        onToggleSelectNote={handleToggleCardSelection}
-        onDeleteSelected={deleteSelectedNotes}
-        view={view}
-        currentNotebookName={currentNotebook?.name}
-        query={query}
-        onClearQuery={handleClearQuery}
+        open={commandOpen}
+        onClose={closeCommandMenu}
+        onCommand={command}
+        onCreateNoteInNotebook={createNoteInNotebook}
+        canRestore={Boolean(commandNoteReady && renderedNote?.deletedAt)}
+        canMoveToTrash={Boolean(commandNoteReady && renderedNote && !renderedNote.deletedAt)}
         notebooks={notebooks}
-        onToggleFavoriteNote={handleToggleFavoriteCardNote}
-        onEmptyTrash={view === "trash" ? emptyTrash : undefined}
-        trashBusy={pendingTrashCount > 0 || emptyingTrash}
-        transitionToken={listTransitionToken}
-        onOpenSidebar={handleOpenSidebar}
-        onLoadMore={loadMoreNotes}
-        isLoadingMore={isLoadingMore}
-        scrollScope={listScope}
-        initialScrollTop={cardGridScrollPositionRef.current.scope === listScope ? cardGridScrollPositionRef.current.top : 0}
-        onScrollPositionChange={handleCardGridScrollPositionChange}
-        inert={isMobileViewport && mobilePage !== "list"}
+        currentNotebookId={renderedNote?.notebookId}
+        onMoveNoteToNotebook={(targetNotebookId) => onNoteChange({ notebookId: targetNotebookId })}
+        focusMode={focusMode}
+        typewriterMode={typewriterMode}
+        viewLayout={isMobileViewport ? mobileViewLayout : viewLayout}
+        canInstallApp={pwaState.canInstall}
+        showIosInstallHint={pwaState.showIosInstallHint}
+        standalone={pwaState.standalone}
+        hasSelectedNote={commandNoteReady}
+        onSearchInCurrentNote={handleSearchInCurrentNote}
+        onSearchGlobal={handleSearchGlobal}
+        onFocusGlobalSearch={handleFocusGlobalSearch}
+        initialQuery={commandInitialQuery}
+        themePreference={themePreference}
       />
-    )}
-    {(!showCardsGrid || isMobileViewport) && (
-      <main ref={editorRegionRef} className="editor-region" tabIndex={-1} aria-hidden={editorContentInert || undefined} inert={editorContentInert}>
-        {mountEditor && renderedNote ? <Suspense fallback={<NoteLoadingState />}><LazyNoteEditor note={renderedNote} contentMarkdown={renderedNoteContent} availableNotes={notes} onNavigateWikiLink={handleNavigateWikiLink} onCreateAndLinkNote={handleCreateAndLinkNote} onNavigateToNote={selectNote} searchQuery={activeSearchQuery} onClearSearch={activeSearchQuery ? handleClearSearch : undefined} onMarkdownReaderChange={registerEditorMarkdownReader} onMarkdownDirtyChange={registerEditorMarkdownDirty} saveState={saveState} isLoading={isNoteLoading} trashBusy={emptyingTrash || (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))} reloadToken={noteReloadToken} focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen} onFocusHandled={handleEditorFocus} onChange={onNoteChange} onSaveNow={saveNoteNow} onReloadNote={requestConflictReload} onExportImage={handleExportImage} onToggleFavorite={toggleFavorite} onMoveToTrash={moveToTrash} onRestore={restoreFromTrash} onPermanentDelete={permanentDeleteNote} onOpenList={handleOpenList} onOpenCommands={handleOpenCommands} isMobileViewport={isMobileViewport} mobileBackLabel={query ? "搜索结果" : currentNotebook?.name ?? viewLabel(view)} onBackToCards={isCardsLayout ? () => setCardEditingNoteId(null) : undefined} onUploadImage={handleUploadImage} focusMode={focusMode} typewriterMode={typewriterMode} outlineOpen={outlineOpen} outlineItems={outlineItems} activeOutlineId={activeOutlineId} onToggleOutline={toggleOutline} onCloseOutline={closeOutline} onOutlineItemsChange={handleOutlineItemsChange} onOutlineActiveChange={handleOutlineActiveChange} onOutlineNavigationReady={handleOutlineNavigationReady} /></Suspense> : isNoteLoading ? <NoteLoadingState /> : <EmptyEditor isTrash={view === "trash"} onNewNote={handleNewNote} onOpenList={handleOpenList} transitionToken={listTransitionToken} />}
-      </main>
-    )}
-    {isMobileViewport && mobilePage !== "editor" && <MobileBottomBar onOpenCommands={handleOpenCommands} query={query} setQuery={changeQuery} searchRef={searchRef} onNewNote={mobilePage === "home" ? handleNewInboxNote : view === "trash" ? undefined : handleNewNote} />}
-    <CommandMenu isMobileViewport={isMobileViewport} open={commandOpen} onClose={closeCommandMenu} onCommand={command} onCreateNoteInNotebook={createNoteInNotebook} canRestore={Boolean(commandNoteReady && renderedNote?.deletedAt)} canMoveToTrash={Boolean(commandNoteReady && renderedNote && !renderedNote.deletedAt)} notebooks={notebooks} currentNotebookId={renderedNote?.notebookId} onMoveNoteToNotebook={(targetNotebookId) => onNoteChange({ notebookId: targetNotebookId })} focusMode={focusMode} typewriterMode={typewriterMode} viewLayout={isMobileViewport ? mobileViewLayout : viewLayout} canInstallApp={pwaState.canInstall} showIosInstallHint={pwaState.showIosInstallHint} standalone={pwaState.standalone} hasSelectedNote={commandNoteReady} onSearchInCurrentNote={handleSearchInCurrentNote} onSearchGlobal={handleSearchGlobal} onFocusGlobalSearch={handleFocusGlobalSearch} initialQuery={commandInitialQuery} themePreference={themePreference} />
 
-
-    {imageExportSnapshot && <Suspense fallback={null}><LazyImageExportDialog snapshot={imageExportSnapshot} onClose={closeImageExport} /></Suspense>}
-    {editingNotebook !== undefined && <NotebookDialog key={editingNotebook?.id ?? "new"} notebook={editingNotebook} onClose={() => setEditingNotebook(undefined)} onSave={saveNotebookDraft} onSaved={saveNotebook} onRequestDelete={(target) => requestConfirm({ eyebrow: "删除笔记本", title: `删除笔记本“${target.name}”？`, description: "笔记本中的笔记会自动移入收件箱，笔记内容不会被删除。", confirmLabel: "删除笔记本", danger: true, onConfirm: () => deleteNotebook(target.id) })} />}
-    {confirmRequest && <ConfirmDialog key={confirmRequest.id} request={confirmRequest} onClose={() => setConfirmRequest(null)} />}
-    <SystemNotices notice={notice} onDismiss={dismissNotice} onPause={pauseNotice} updateAvailable={pwaState.updateAvailable} onUpdate={() => void updatePwa()} />
-    {workspaceMenu}
-  </div>;
+      {imageExportSnapshot && (
+        <Suspense fallback={null}>
+          <LazyImageExportDialog snapshot={imageExportSnapshot} onClose={closeImageExport} />
+        </Suspense>
+      )}
+      {editingNotebook !== undefined && (
+        <NotebookDialog
+          key={editingNotebook?.id ?? "new"}
+          notebook={editingNotebook}
+          onClose={() => setEditingNotebook(undefined)}
+          onSave={saveNotebookDraft}
+          onSaved={saveNotebook}
+          onRequestDelete={(target) =>
+            requestConfirm({
+              eyebrow: "删除笔记本",
+              title: `删除笔记本“${target.name}”？`,
+              description: "笔记本中的笔记会自动移入收件箱，笔记内容不会被删除。",
+              confirmLabel: "删除笔记本",
+              danger: true,
+              onConfirm: () => deleteNotebook(target.id),
+            })
+          }
+        />
+      )}
+      {confirmRequest && (
+        <ConfirmDialog
+          key={confirmRequest.id}
+          request={confirmRequest}
+          onClose={() => setConfirmRequest(null)}
+        />
+      )}
+      <SystemNotices
+        notice={notice}
+        onDismiss={dismissNotice}
+        onPause={pauseNotice}
+        updateAvailable={pwaState.updateAvailable}
+        onUpdate={() => void updatePwa()}
+      />
+      {workspaceMenu}
+    </div>
+  );
 }

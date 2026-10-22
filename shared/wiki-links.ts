@@ -27,14 +27,18 @@ export function findCodeFenceIntervals(markdown: string): MarkdownInterval[] {
   // Block tokenization suffices here; avoid building an inline AST for the body.
   for (const token of new Lexer().blockTokens(normalized)) {
     const end = offset + token.raw.length;
-    if (token.type === "code") intervals.push({ start: originalOffset(offset), end: originalOffset(end) });
+    if (token.type === "code")
+      intervals.push({ start: originalOffset(offset), end: originalOffset(end) });
     offset = end;
   }
   return intervals;
 }
 
 /** Finds inline code outside block code, with matching complete backtick runs. */
-export function findInlineCodeIntervals(markdown: string, blocks = findCodeFenceIntervals(markdown)): MarkdownInterval[] {
+export function findInlineCodeIntervals(
+  markdown: string,
+  blocks = findCodeFenceIntervals(markdown),
+): MarkdownInterval[] {
   const intervals: MarkdownInterval[] = [];
   const regex = /(?<!`)(`+)(?!`)([\s\S]*?)(?<!`)\1(?!`)/g;
   let start = 0;
@@ -64,18 +68,26 @@ export type WikiLinkMatch = {
  * by a URI-encoded JSON string. The marker cannot begin a valid legacy target,
  * which lets the parser keep interpreting every existing link as before.
  */
-export const WIKI_LINK_PATTERN = /(?:\[\[|【【)(\\\][^\]】\r\n|｜]+|[^\]】\r\n|｜]+)(?:[|｜](\\\][^\]】\r\n|｜]+|[^\]】\r\n]+))?(?:\]\]|】】)/g;
+export const WIKI_LINK_PATTERN =
+  /(?:\[\[|【【)(\\\][^\]】\r\n|｜]+|[^\]】\r\n|｜]+)(?:[|｜](\\\][^\]】\r\n|｜]+|[^\]】\r\n]+))?(?:\]\]|】】)/g;
 
 export type WikiLinkComponentKind = "target" | "alias";
 
 function isEscapableWikiLinkDelimiter(character: string, kind: WikiLinkComponentKind) {
-  return character === "]" || character === "】" || character === "\r" || character === "\n"
-    || (kind === "target" && (character === "|" || character === "｜"));
+  return (
+    character === "]" ||
+    character === "】" ||
+    character === "\r" ||
+    character === "\n" ||
+    (kind === "target" && (character === "|" || character === "｜"))
+  );
 }
 
 /** Encodes a target or alias so it can be written inside a wiki-link. */
 export function encodeWikiLinkComponent(value: string, kind: WikiLinkComponentKind = "target") {
-  const hasDelimiter = [...value].some((character) => isEscapableWikiLinkDelimiter(character, kind));
+  const hasDelimiter = [...value].some((character) =>
+    isEscapableWikiLinkDelimiter(character, kind),
+  );
   if (!hasDelimiter) return value;
   return `\\]${encodeURIComponent(JSON.stringify(value))}`;
 }
@@ -104,8 +116,10 @@ export function extractWikiLinks(markdown: string): WikiLinkMatch[] {
   const codeFences = findCodeFenceIntervals(markdown);
   const inlineCodes = findInlineCodeIntervals(markdown, codeFences);
   const isInsideCode = (start: number, end: number) => {
-    return codeFences.some((f) => start >= f.start && end <= f.end) ||
-      inlineCodes.some((c) => start >= c.start && end <= c.end);
+    return (
+      codeFences.some((f) => start >= f.start && end <= f.end) ||
+      inlineCodes.some((c) => start >= c.start && end <= c.end)
+    );
   };
 
   const matches: WikiLinkMatch[] = [];
@@ -155,7 +169,12 @@ export function extractWikiLinkTargets(markdown: string): string[] {
 /**
  * Extracts a concise human-readable snippet around an index in Markdown.
  */
-export function extractContextSnippet(markdown: string, matchStart: number, matchEnd: number, maxLength = 120): string {
+export function extractContextSnippet(
+  markdown: string,
+  matchStart: number,
+  matchEnd: number,
+  maxLength = 120,
+): string {
   // Find surrounding line or paragraph
   const lineStart = Math.max(0, markdown.lastIndexOf("\n", matchStart - 1) + 1);
   let lineEnd = markdown.indexOf("\n", matchEnd);
@@ -180,7 +199,11 @@ export function extractContextSnippet(markdown: string, matchStart: number, matc
 /**
  * Replaces all Wiki-link references to oldTitle with newTitle outside code blocks.
  */
-export function replaceWikiLinkTarget(markdown: string, oldTitle: string, newTitle: string): { content: string; count: number } {
+export function replaceWikiLinkTarget(
+  markdown: string,
+  oldTitle: string,
+  newTitle: string,
+): { content: string; count: number } {
   const normalizedOld = normalizeLinkTitle(oldTitle);
   if (!normalizedOld) return { content: markdown, count: 0 };
 
@@ -216,7 +239,10 @@ export type UnlinkedMentionMatch = {
  * Searches for occurrences of targetTitle in Markdown that are not already part of a wiki link,
  * code block, image, or markdown link URL.
  */
-export function findUnlinkedMentionsInMarkdown(markdown: string, targetTitle: string): UnlinkedMentionMatch[] {
+export function findUnlinkedMentionsInMarkdown(
+  markdown: string,
+  targetTitle: string,
+): UnlinkedMentionMatch[] {
   const trimmed = targetTitle.trim();
   if (!trimmed || trimmed.length < 2) return [];
 
@@ -290,12 +316,18 @@ export function findUnlinkedMentionsInMarkdown(markdown: string, targetTitle: st
 /**
  * Converts an unlinked mention at [start, end] into a Wiki-link.
  */
-export function linkMentionInMarkdown(markdown: string, start: number, end: number, targetTitle: string): string {
+export function linkMentionInMarkdown(
+  markdown: string,
+  start: number,
+  end: number,
+  targetTitle: string,
+): string {
   const text = markdown.slice(start, end);
   const cleanTarget = targetTitle.replace(/^(?:\[\[|【【)\s*|\s*(?:\]\]|】】)$/g, "").trim();
   const encodedTarget = encodeWikiLinkComponent(cleanTarget, "target");
-  const replacement = text.trim() === cleanTarget
-    ? `[[${encodedTarget}]]`
-    : `[[${encodedTarget}|${encodeWikiLinkComponent(text, "alias")}]]`;
+  const replacement =
+    text.trim() === cleanTarget
+      ? `[[${encodedTarget}]]`
+      : `[[${encodedTarget}|${encodeWikiLinkComponent(text, "alias")}]]`;
   return markdown.slice(0, start) + replacement + markdown.slice(end);
 }

@@ -2,7 +2,12 @@ const PNG_SIGNATURE = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
 const MAX_IMAGE_PIXELS = 40_000_000;
 
 export const IMAGE_MAX_BYTES = 10 * 1024 * 1024;
-export const IMAGE_ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+export const IMAGE_ALLOWED_MIME_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+]);
 
 export type ImageInspection = {
   mimeType: "image/jpeg" | "image/png" | "image/webp" | "image/gif";
@@ -23,15 +28,27 @@ function littleEndian24(bytes: Uint8Array, offset: number) {
 }
 
 function bigEndian32(bytes: Uint8Array, offset: number) {
-  return bytes[offset] * 0x1000000 + (bytes[offset + 1] << 16) + (bytes[offset + 2] << 8) + bytes[offset + 3];
+  return (
+    bytes[offset] * 0x1000000 +
+    (bytes[offset + 1] << 16) +
+    (bytes[offset + 2] << 8) +
+    bytes[offset + 3]
+  );
 }
 
 function validDimensions(width: number, height: number) {
-  return Number.isInteger(width) && Number.isInteger(height) && width > 0 && height > 0 && width * height <= MAX_IMAGE_PIXELS;
+  return (
+    Number.isInteger(width) &&
+    Number.isInteger(height) &&
+    width > 0 &&
+    height > 0 &&
+    width * height <= MAX_IMAGE_PIXELS
+  );
 }
 
 function inspectPng(bytes: Uint8Array): ImageInspection | null {
-  if (bytes.length < 24 || !PNG_SIGNATURE.every((value, index) => bytes[index] === value)) return null;
+  if (bytes.length < 24 || !PNG_SIGNATURE.every((value, index) => bytes[index] === value))
+    return null;
   const width = bigEndian32(bytes, 16);
   const height = bigEndian32(bytes, 20);
   return validDimensions(width, height) ? { mimeType: "image/png", width, height } : null;
@@ -68,7 +85,8 @@ function inspectJpeg(bytes: Uint8Array): ImageInspection | null {
 }
 
 function inspectWebp(bytes: Uint8Array): ImageInspection | null {
-  if (bytes.length < 16 || ascii(bytes, 0, 4) !== "RIFF" || ascii(bytes, 8, 4) !== "WEBP") return null;
+  if (bytes.length < 16 || ascii(bytes, 0, 4) !== "RIFF" || ascii(bytes, 8, 4) !== "WEBP")
+    return null;
   let offset = 12;
   while (offset + 8 <= bytes.length) {
     const type = ascii(bytes, offset, 4);
@@ -82,14 +100,21 @@ function inspectWebp(bytes: Uint8Array): ImageInspection | null {
       const height = 1 + littleEndian24(bytes, data + 7);
       return validDimensions(width, height) ? { mimeType: "image/webp", width, height } : null;
     }
-    if (type === "VP8 " && size >= 10 && bytes[data + 3] === 0x9d && bytes[data + 4] === 0x01 && bytes[data + 5] === 0x2a) {
+    if (
+      type === "VP8 " &&
+      size >= 10 &&
+      bytes[data + 3] === 0x9d &&
+      bytes[data + 4] === 0x01 &&
+      bytes[data + 5] === 0x2a
+    ) {
       const width = littleEndian16(bytes, data + 6) & 0x3fff;
       const height = littleEndian16(bytes, data + 8) & 0x3fff;
       return validDimensions(width, height) ? { mimeType: "image/webp", width, height } : null;
     }
     if (type === "VP8L" && size >= 5 && bytes[data] === 0x2f) {
       const width = 1 + (bytes[data + 1] | ((bytes[data + 2] & 0x3f) << 8));
-      const height = 1 + ((bytes[data + 2] >> 6) | (bytes[data + 3] << 2) | ((bytes[data + 4] & 0x0f) << 10));
+      const height =
+        1 + ((bytes[data + 2] >> 6) | (bytes[data + 3] << 2) | ((bytes[data + 4] & 0x0f) << 10));
       return validDimensions(width, height) ? { mimeType: "image/webp", width, height } : null;
     }
     offset = data + size + (size % 2);
@@ -98,7 +123,12 @@ function inspectWebp(bytes: Uint8Array): ImageInspection | null {
 }
 
 function littleEndian32(bytes: Uint8Array, offset: number) {
-  return bytes[offset] + bytes[offset + 1] * 0x100 + bytes[offset + 2] * 0x10000 + bytes[offset + 3] * 0x1000000;
+  return (
+    bytes[offset] +
+    bytes[offset + 1] * 0x100 +
+    bytes[offset + 2] * 0x10000 +
+    bytes[offset + 3] * 0x1000000
+  );
 }
 
 export function inspectImage(bytes: Uint8Array): ImageInspection | null {
@@ -106,5 +136,11 @@ export function inspectImage(bytes: Uint8Array): ImageInspection | null {
 }
 
 export function extensionForMimeType(mimeType: ImageInspection["mimeType"]) {
-  return mimeType === "image/jpeg" ? ".jpg" : mimeType === "image/png" ? ".png" : mimeType === "image/webp" ? ".webp" : ".gif";
+  return mimeType === "image/jpeg"
+    ? ".jpg"
+    : mimeType === "image/png"
+      ? ".png"
+      : mimeType === "image/webp"
+        ? ".webp"
+        : ".gif";
 }

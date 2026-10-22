@@ -23,11 +23,17 @@ let state: PwaState = {
 const listeners = new Set<Listener>();
 
 function isStandalone() {
-  return window.matchMedia("(display-mode: standalone)").matches || Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
+  return (
+    window.matchMedia("(display-mode: standalone)").matches ||
+    Boolean((navigator as Navigator & { standalone?: boolean }).standalone)
+  );
 }
 
 function isIos() {
-  return /iPad|iPhone|iPod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  return (
+    /iPad|iPhone|iPod/i.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+  );
 }
 
 function emit(partial: Partial<PwaState>) {
@@ -40,12 +46,14 @@ function watchRegistration(nextRegistration: ServiceWorkerRegistration) {
   const watchWorker = (worker: ServiceWorker | null) => {
     if (!worker) return;
     worker.addEventListener("statechange", () => {
-      if (worker.state === "installed" && navigator.serviceWorker.controller) emit({ updateAvailable: true });
+      if (worker.state === "installed" && navigator.serviceWorker.controller)
+        emit({ updateAvailable: true });
     });
   };
   watchWorker(nextRegistration.installing);
   nextRegistration.addEventListener("updatefound", () => watchWorker(nextRegistration.installing));
-  if (nextRegistration.waiting && navigator.serviceWorker.controller) emit({ updateAvailable: true });
+  if (nextRegistration.waiting && navigator.serviceWorker.controller)
+    emit({ updateAvailable: true });
 }
 
 export async function registerPwa() {
@@ -57,7 +65,10 @@ export async function registerPwa() {
     deferredPrompt = event as BeforeInstallPromptEvent;
     emit({ canInstall: true });
   });
-  window.addEventListener("appinstalled", () => { deferredPrompt = null; emit({ canInstall: false, standalone: true }); });
+  window.addEventListener("appinstalled", () => {
+    deferredPrompt = null;
+    emit({ canInstall: false, standalone: true });
+  });
   if ("serviceWorker" in navigator) {
     try {
       const nextRegistration = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
@@ -72,7 +83,9 @@ export async function registerPwa() {
 export function subscribePwa(listener: Listener) {
   listeners.add(listener);
   listener(state);
-  return () => { listeners.delete(listener); };
+  return () => {
+    listeners.delete(listener);
+  };
 }
 
 export async function installPwa() {

@@ -1,12 +1,19 @@
 import { describe, expect, test } from "bun:test";
-import { readThemePreference, resolveTheme, THEME_STORAGE_KEY, writeThemePreference } from "../app/theme";
+import {
+  readThemePreference,
+  resolveTheme,
+  THEME_STORAGE_KEY,
+  writeThemePreference,
+} from "../app/theme";
 
 function memoryStorage(initial?: string) {
   const values = new Map<string, string>();
   if (initial !== undefined) values.set(THEME_STORAGE_KEY, initial);
   return {
     getItem: (key: string) => values.get(key) ?? null,
-    setItem: (key: string, value: string) => { values.set(key, value); },
+    setItem: (key: string, value: string) => {
+      values.set(key, value);
+    },
   };
 }
 
@@ -20,14 +27,28 @@ describe("theme preference", () => {
 
   test("falls back to system for unknown values or storage errors", () => {
     expect(readThemePreference(memoryStorage("sepia"))).toBe("system");
-    expect(readThemePreference({ getItem: () => { throw new Error("blocked"); }, setItem: () => {} })).toBe("system");
+    expect(
+      readThemePreference({
+        getItem: () => {
+          throw new Error("blocked");
+        },
+        setItem: () => {},
+      }),
+    ).toBe("system");
   });
 
   test("persists choices and tolerates unavailable storage", () => {
     const storage = memoryStorage();
     writeThemePreference("dark", storage);
     expect(readThemePreference(storage)).toBe("dark");
-    expect(() => writeThemePreference("light", { getItem: () => null, setItem: () => { throw new Error("blocked"); } })).not.toThrow();
+    expect(() =>
+      writeThemePreference("light", {
+        getItem: () => null,
+        setItem: () => {
+          throw new Error("blocked");
+        },
+      }),
+    ).not.toThrow();
   });
 
   test("resolves system mode dynamically and keeps explicit choices fixed", () => {

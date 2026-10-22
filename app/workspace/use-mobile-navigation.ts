@@ -12,21 +12,42 @@ export type MobileListContext = {
   noteId: string | null;
   searchOrigin: { view: NoteView; notebookId?: string } | null;
 };
-type NavigationEntry = { session: string; page: MobilePage; depth: number; context: MobileListContext };
+type NavigationEntry = {
+  session: string;
+  page: MobilePage;
+  depth: number;
+  context: MobileListContext;
+};
 const ENTRY_KEY = "xiangyingMobile";
 const MOBILE_VIEWPORT = "(max-width: 900px)";
 
 function readEntry(state: unknown): NavigationEntry | null {
-  const entry = state && typeof state === "object" ? (state as Record<string, unknown>)[ENTRY_KEY] as NavigationEntry | undefined : undefined;
-  if (!entry || typeof entry.session !== "string" || !entry.session || !["home", "list", "editor"].includes(entry.page)
-    || !Number.isSafeInteger(entry.depth) || entry.depth < 0 || !entry.context || typeof entry.context !== "object") return null;
+  const entry =
+    state && typeof state === "object"
+      ? ((state as Record<string, unknown>)[ENTRY_KEY] as NavigationEntry | undefined)
+      : undefined;
+  if (
+    !entry ||
+    typeof entry.session !== "string" ||
+    !entry.session ||
+    !["home", "list", "editor"].includes(entry.page) ||
+    !Number.isSafeInteger(entry.depth) ||
+    entry.depth < 0 ||
+    !entry.context ||
+    typeof entry.context !== "object"
+  )
+    return null;
   return entry;
 }
 
 /** Keep React Router's history fields intact; entries contain metadata, never note bodies. */
 export class MobileNavigationHistory {
   private entry: NavigationEntry;
-  constructor(private history: Pick<History, "state" | "pushState" | "replaceState" | "go">, context: MobileListContext, private session: string) {
+  constructor(
+    private history: Pick<History, "state" | "pushState" | "replaceState" | "go">,
+    context: MobileListContext,
+    private session: string,
+  ) {
     // Reload starts at home, but older entries still share this history's base.
     // Retain its session and depth so back/forward and home remain reachable.
     const previous = readEntry(history.state);
@@ -34,7 +55,9 @@ export class MobileNavigationHistory {
     this.entry = { session: this.session, page: "home", depth: previous?.depth ?? 0, context };
     this.write(false);
   }
-  get page() { return this.entry.page; }
+  get page() {
+    return this.entry.page;
+  }
   private write(push: boolean) {
     const state = { ...this.history.state, [ENTRY_KEY]: this.entry };
     if (push) this.history.pushState(state, "");
@@ -45,7 +68,10 @@ export class MobileNavigationHistory {
     this.write(false);
   }
   open(page: Exclude<MobilePage, "home">, context: MobileListContext) {
-    if (this.entry.page === page) { this.update(context); return; }
+    if (this.entry.page === page) {
+      this.update(context);
+      return;
+    }
     // Direct links and home compose still have a real list entry to return to.
     if (page === "editor" && this.entry.page === "home") this.open("list", context);
     this.entry = { session: this.session, page, depth: this.entry.depth + 1, context };
@@ -65,8 +91,13 @@ export class MobileNavigationHistory {
   }
 }
 
-export function useMobileNavigation(context: MobileListContext, onRestore: (context: MobileListContext, page: MobilePage) => void) {
-  const [isMobileViewport, setIsMobileViewport] = useState(() => window.matchMedia(MOBILE_VIEWPORT).matches);
+export function useMobileNavigation(
+  context: MobileListContext,
+  onRestore: (context: MobileListContext, page: MobilePage) => void,
+) {
+  const [isMobileViewport, setIsMobileViewport] = useState(
+    () => window.matchMedia(MOBILE_VIEWPORT).matches,
+  );
   const [mobilePage, setMobilePage] = useState<MobilePage>("home");
   const historyRef = useRef<MobileNavigationHistory | null>(null);
   const contextRef = useRef(context);
@@ -77,7 +108,12 @@ export function useMobileNavigation(context: MobileListContext, onRestore: (cont
   enabledRef.current = isMobileViewport;
 
   const ensureHistory = useCallback(() => {
-    if (!historyRef.current) historyRef.current = new MobileNavigationHistory(window.history, contextRef.current, createUuid());
+    if (!historyRef.current)
+      historyRef.current = new MobileNavigationHistory(
+        window.history,
+        contextRef.current,
+        createUuid(),
+      );
     return historyRef.current;
   }, []);
   useEffect(() => {
@@ -97,7 +133,16 @@ export function useMobileNavigation(context: MobileListContext, onRestore: (cont
   }, [ensureHistory]);
   useEffect(() => {
     if (isMobileViewport) ensureHistory().update(context);
-  }, [context.view, context.notebookId, context.query, context.sort, context.noteId, context.searchOrigin, isMobileViewport, ensureHistory]);
+  }, [
+    context.view,
+    context.notebookId,
+    context.query,
+    context.sort,
+    context.noteId,
+    context.searchOrigin,
+    isMobileViewport,
+    ensureHistory,
+  ]);
   useEffect(() => {
     const onPopState = (event: PopStateEvent) => {
       const entry = historyRef.current?.restore(event.state);
@@ -108,17 +153,34 @@ export function useMobileNavigation(context: MobileListContext, onRestore: (cont
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
-  const openMobileList = useCallback((next?: Partial<MobileListContext>) => {
-    if (!enabledRef.current) return;
-    ensureHistory().open("list", { ...contextRef.current, ...next });
-    setMobilePage("list");
+  const openMobileList = useCallback(
+    (next?: Partial<MobileListContext>) => {
+      if (!enabledRef.current) return;
+      ensureHistory().open("list", { ...contextRef.current, ...next });
+      setMobilePage("list");
+    },
+    [ensureHistory],
+  );
+  const openMobileNote = useCallback(
+    (next?: Partial<MobileListContext>) => {
+      if (!enabledRef.current) return;
+      ensureHistory().open("editor", { ...contextRef.current, ...next });
+      setMobilePage("editor");
+    },
+    [ensureHistory],
+  );
+  const backMobilePage = useCallback(() => {
+    if (enabledRef.current) ensureHistory().back();
   }, [ensureHistory]);
-  const openMobileNote = useCallback((next?: Partial<MobileListContext>) => {
-    if (!enabledRef.current) return;
-    ensureHistory().open("editor", { ...contextRef.current, ...next });
-    setMobilePage("editor");
+  const openMobileHome = useCallback(() => {
+    if (enabledRef.current) ensureHistory().home();
   }, [ensureHistory]);
-  const backMobilePage = useCallback(() => { if (enabledRef.current) ensureHistory().back(); }, [ensureHistory]);
-  const openMobileHome = useCallback(() => { if (enabledRef.current) ensureHistory().home(); }, [ensureHistory]);
-  return { isMobileViewport, mobilePage, openMobileList, openMobileNote, backMobilePage, openMobileHome };
+  return {
+    isMobileViewport,
+    mobilePage,
+    openMobileList,
+    openMobileNote,
+    backMobilePage,
+    openMobileHome,
+  };
 }

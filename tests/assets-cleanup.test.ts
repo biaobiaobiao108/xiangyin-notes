@@ -3,7 +3,12 @@ import { mkdir, readdir, rm, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase, type SqliteDatabase } from "../server/db";
-import { cleanupOrphanAssets, ORPHAN_ASSET_CLEANUP_INTERVAL_SECONDS, ORPHAN_ASSET_TTL_SECONDS, removeAssetFiles } from "../server/routes/assets";
+import {
+  cleanupOrphanAssets,
+  ORPHAN_ASSET_CLEANUP_INTERVAL_SECONDS,
+  ORPHAN_ASSET_TTL_SECONDS,
+  removeAssetFiles,
+} from "../server/routes/assets";
 
 let database: SqliteDatabase;
 let assetRoot: string;
@@ -33,11 +38,14 @@ describe("orphan asset cleanup", () => {
     }
     const queueRoot = join(assetRoot, ".pending-delete");
     expect((await readdir(queueRoot)).length).toBe(1);
-    expect(database.query("SELECT COUNT(*) AS count FROM image_assets").get()).toEqual({ count: 0 });
+    expect(database.query("SELECT COUNT(*) AS count FROM image_assets").get()).toEqual({
+      count: 0,
+    });
 
     await rm(targetPath, { recursive: true });
     await Bun.write(targetPath, "retry after restart");
-    const cleanupTimestamp = Math.floor(Date.now() / 1000) + ORPHAN_ASSET_CLEANUP_INTERVAL_SECONDS + 1;
+    const cleanupTimestamp =
+      Math.floor(Date.now() / 1000) + ORPHAN_ASSET_CLEANUP_INTERVAL_SECONDS + 1;
     await cleanupOrphanAssets(database, assetRoot, cleanupTimestamp);
 
     expect(await Bun.file(targetPath).exists()).toBe(false);

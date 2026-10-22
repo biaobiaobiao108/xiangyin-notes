@@ -34,7 +34,10 @@ function getEditorTextBlockStats(node: ProseMirrorNode, cache: EditorTextBlockSt
   return stats;
 }
 
-export function countEditorDocumentText(doc: ProseMirrorNode, cache: EditorTextBlockStatsCache): EditorStats {
+export function countEditorDocumentText(
+  doc: ProseMirrorNode,
+  cache: EditorTextBlockStatsCache,
+): EditorStats {
   let wordCount = 0;
   let characterCount = 0;
   doc.descendants((node) => {
@@ -75,7 +78,11 @@ function collectTextBlocks(doc: ProseMirrorNode, from: number, to: number) {
   return blocks;
 }
 
-export function updateEditorDocumentText(transaction: Transaction, previous: EditorTextStatsSnapshot | null, cache: EditorTextBlockStatsCache): EditorTextStatsSnapshot {
+export function updateEditorDocumentText(
+  transaction: Transaction,
+  previous: EditorTextStatsSnapshot | null,
+  cache: EditorTextBlockStatsCache,
+): EditorTextStatsSnapshot {
   if (!transaction.docChanged) {
     if (previous?.doc === transaction.doc) return previous;
     return { doc: transaction.doc, stats: countEditorDocumentText(transaction.doc, cache) };
@@ -85,13 +92,28 @@ export function updateEditorDocumentText(transaction: Transaction, previous: Edi
   }
 
   const changedRange = changedDocumentRange(transaction);
-  if (!changedRange) return { doc: transaction.doc, stats: countEditorDocumentText(transaction.doc, cache) };
+  if (!changedRange)
+    return { doc: transaction.doc, stats: countEditorDocumentText(transaction.doc, cache) };
 
   const inverse = transaction.mapping.invert();
-  const beforeFrom = Math.max(0, Math.min(transaction.before.content.size, inverse.map(changedRange.from, -1)));
-  const beforeTo = Math.max(beforeFrom, Math.min(transaction.before.content.size, inverse.map(changedRange.to, 1)));
-  const beforeBlocks = collectTextBlocks(transaction.before, Math.max(0, beforeFrom - 1), Math.min(transaction.before.content.size, beforeTo + 1));
-  const afterBlocks = collectTextBlocks(transaction.doc, Math.max(0, changedRange.from - 1), Math.min(transaction.doc.content.size, changedRange.to + 1));
+  const beforeFrom = Math.max(
+    0,
+    Math.min(transaction.before.content.size, inverse.map(changedRange.from, -1)),
+  );
+  const beforeTo = Math.max(
+    beforeFrom,
+    Math.min(transaction.before.content.size, inverse.map(changedRange.to, 1)),
+  );
+  const beforeBlocks = collectTextBlocks(
+    transaction.before,
+    Math.max(0, beforeFrom - 1),
+    Math.min(transaction.before.content.size, beforeTo + 1),
+  );
+  const afterBlocks = collectTextBlocks(
+    transaction.doc,
+    Math.max(0, changedRange.from - 1),
+    Math.min(transaction.doc.content.size, changedRange.to + 1),
+  );
 
   let wordCount = previous.stats.wordCount;
   let characterCount = previous.stats.characterCount;
@@ -109,8 +131,10 @@ export function updateEditorDocumentText(transaction: Transaction, previous: Edi
   return { doc: transaction.doc, stats: { wordCount, characterCount } };
 }
 
-export function getEditorDocumentTextSnapshot(doc: ProseMirrorNode, previous: EditorTextStatsSnapshot | null, cache: EditorTextBlockStatsCache) {
-  return previous?.doc === doc
-    ? previous
-    : { doc, stats: countEditorDocumentText(doc, cache) };
+export function getEditorDocumentTextSnapshot(
+  doc: ProseMirrorNode,
+  previous: EditorTextStatsSnapshot | null,
+  cache: EditorTextBlockStatsCache,
+) {
+  return previous?.doc === doc ? previous : { doc, stats: countEditorDocumentText(doc, cache) };
 }

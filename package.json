@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun run scripts/dev.ts",
+    "format": "bun fmt \"app/**/*.ts\" \"app/**/*.tsx\" \"server/**/*.ts\" \"shared/**/*.ts\" \"scripts/**/*.ts\" \"tests/**/*.ts\" package.json tsconfig.json",
     "dev:client": "bun build ./app/index.html --outdir ./dist/dev-client --target browser --format esm --splitting --watch",
     "build:client": "bun run scripts/build-client.ts",
     "build:server": "bun build ./server/index.ts ./server/migrate.ts ./scripts/check-schema-drift.ts --outdir ./dist/server --target bun --format esm --production --minify --entry-naming=\"[name].[ext]\"",
@@ -41,6 +42,6 @@
   "devDependencies": {
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
-    "bun-types": "1.4.3"
+    "bun-types": "1.4.4"
   }
 }

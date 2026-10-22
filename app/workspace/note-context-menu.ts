@@ -1,4 +1,14 @@
-import { ArrowUpRight, LayoutGrid, List, ListChecks, Plus, RotateCcw, Star, Trash2, X } from "lucide-react";
+import {
+  ArrowUpRight,
+  LayoutGrid,
+  List,
+  ListChecks,
+  Plus,
+  RotateCcw,
+  Star,
+  Trash2,
+  X,
+} from "lucide-react";
 import type { ContextMenuItem } from "../context-menu";
 import type { NoteSummary, NoteView } from "../../shared/types";
 import type { NoteSwipeAction } from "./swipe-actions";
@@ -28,7 +38,13 @@ export type NoteContextMenuInput = {
  * 笔记列表与卡片网格共用的右键菜单。抽成纯函数后可以直接断言菜单项、
  * 顺序与禁用态，而不必读取组件源码字符串。
  */
-export function buildNoteContextMenuItems({ note, view, selectedIds, busy, actions }: NoteContextMenuInput): ContextMenuItem[] {
+export function buildNoteContextMenuItems({
+  note,
+  view,
+  selectedIds,
+  busy,
+  actions,
+}: NoteContextMenuInput): ContextMenuItem[] {
   const isSelected = selectedIds.has(note.id);
   const multiSelected = isSelected && selectedIds.size > 1;
 
@@ -48,10 +64,16 @@ export function buildNoteContextMenuItems({ note, view, selectedIds, busy, actio
     },
   ];
 
-  if (selectedIds.size) items.push({ label: "退出多选", icon: X, separator: true, onSelect: actions.clearSelection });
+  if (selectedIds.size)
+    items.push({ label: "退出多选", icon: X, separator: true, onSelect: actions.clearSelection });
 
   if (note.deletedAt) {
-    items.push({ label: "恢复笔记", icon: RotateCcw, disabled: busy, onSelect: () => actions.swipeAction(note, "restore") });
+    items.push({
+      label: "恢复笔记",
+      icon: RotateCcw,
+      disabled: busy,
+      onSelect: () => actions.swipeAction(note, "restore"),
+    });
     if (multiSelected) {
       items.push({
         label: `恢复所选 ${selectedIds.size} 篇笔记`,

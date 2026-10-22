@@ -8,13 +8,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import {
-  Archive,
-  Check,
-  Menu,
-  Search,
-  Star,
-} from "lucide-react";
+import { Archive, Check, Menu, Search, Star } from "lucide-react";
 import type { NoteSort, NoteSummary, NoteView, Notebook } from "../../shared/types";
 import { playEntranceAnimation } from "../animation";
 import { FloatingScrollbar } from "../floating-scrollbar";
@@ -36,7 +30,10 @@ export type NoteCardGridPanelProps = {
   onToggleLayout?: () => void;
   selectedIds: ReadonlySet<string>;
   onOpenNote: (id: string) => void;
-  onToggleSelectNote: (id: string, modifiers: Pick<NoteSelectionClick, "metaKey" | "ctrlKey" | "shiftKey">) => void;
+  onToggleSelectNote: (
+    id: string,
+    modifiers: Pick<NoteSelectionClick, "metaKey" | "ctrlKey" | "shiftKey">,
+  ) => void;
   onDeleteSelected: () => void;
   view: NoteView;
   currentNotebookName?: string;
@@ -89,28 +86,48 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
   const gridScrollRef = useRef<HTMLDivElement>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
   const sortedNotes = useMemo(() => sortNotes(notes, sort), [notes, sort]);
-  const notebooksById = useMemo(() => new Map(notebooks.map((notebook) => [notebook.id, notebook])), [notebooks]);
+  const notebooksById = useMemo(
+    () => new Map(notebooks.map((notebook) => [notebook.id, notebook])),
+    [notebooks],
+  );
   const isTrashView = view === "trash";
   const showNotebook = !currentNotebookName && view !== "inbox";
   const masonry = useVirtualCardMasonry(sortedNotes, gridScrollRef, isMobileViewport);
-  const cardGridScrollEdges = useScrollEdges(gridScrollRef, [sortedNotes.length, masonry.totalHeight]);
-  const renderCard = useCallback((note: NoteSummary, index: number) => (
-    <NoteCardItem
-      key={note.id}
-      isMobileViewport={isMobileViewport}
-      note={note}
-      position={index + 1}
-      setSize={Math.max(total, notes.length)}
-      isSelected={selectedIds.has(note.id)}
-      hasSelectionActive={selectedIds.size > 0}
-      showNotebook={showNotebook}
-      onOpen={onOpenNote}
-      onToggleSelect={onToggleSelectNote}
-      onToggleFavorite={onToggleFavoriteNote}
-      notebook={notebooksById.get(note.notebookId)}
-      isTrashView={isTrashView}
-    />
-  ), [isMobileViewport, isTrashView, notebooksById, notes.length, onOpenNote, onToggleFavoriteNote, onToggleSelectNote, selectedIds, showNotebook, total]);
+  const cardGridScrollEdges = useScrollEdges(gridScrollRef, [
+    sortedNotes.length,
+    masonry.totalHeight,
+  ]);
+  const renderCard = useCallback(
+    (note: NoteSummary, index: number) => (
+      <NoteCardItem
+        key={note.id}
+        isMobileViewport={isMobileViewport}
+        note={note}
+        position={index + 1}
+        setSize={Math.max(total, notes.length)}
+        isSelected={selectedIds.has(note.id)}
+        hasSelectionActive={selectedIds.size > 0}
+        showNotebook={showNotebook}
+        onOpen={onOpenNote}
+        onToggleSelect={onToggleSelectNote}
+        onToggleFavorite={onToggleFavoriteNote}
+        notebook={notebooksById.get(note.notebookId)}
+        isTrashView={isTrashView}
+      />
+    ),
+    [
+      isMobileViewport,
+      isTrashView,
+      notebooksById,
+      notes.length,
+      onOpenNote,
+      onToggleFavoriteNote,
+      onToggleSelectNote,
+      selectedIds,
+      showNotebook,
+      total,
+    ],
+  );
 
   useLayoutEffect(() => {
     const panel = panelRef.current;
@@ -129,9 +146,18 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
   }, [initialScrollTop, masonry.refreshViewport, scrollScope]);
 
   const handleGridKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (event.defaultPrevented || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+    if (
+      event.defaultPrevented ||
+      event.nativeEvent.isComposing ||
+      event.nativeEvent.keyCode === 229
+    )
+      return;
     const target = event.target;
-    if (target instanceof HTMLElement && (target.isContentEditable || target.matches("input, textarea, select"))) return;
+    if (
+      target instanceof HTMLElement &&
+      (target.isContentEditable || target.matches("input, textarea, select"))
+    )
+      return;
     if ((event.key === "Delete" || event.key === "Backspace") && selectedIds.size > 0) {
       event.preventDefault();
       onDeleteSelected();
@@ -154,7 +180,7 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
       {
         root: container,
         rootMargin: "280px",
-      }
+      },
     );
 
     observer.observe(sentinel);
@@ -170,8 +196,25 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
       inert={inert}
     >
       {/* 沉浸式瀑布流滚动区域（无多余顶栏） */}
-      <div className={`card-grid-scroll-shell${cardGridScrollEdges.before ? " has-scroll-before" : ""}${cardGridScrollEdges.after ? " has-scroll-after" : ""}`}>
-        {isMobileViewport && onOpenSidebar && <MobileCollectionHeader active={!inert} heading={query ? "搜索结果" : currentNotebookName ?? viewLabel(view)} total={total} shown={notes.length} query={query} sort={sort} onSort={setSort} onBack={onOpenSidebar} layout="cards" onToggleLayout={onToggleLayout} onEmptyTrash={onEmptyTrash} trashBusy={trashBusy} />}
+      <div
+        className={`card-grid-scroll-shell${cardGridScrollEdges.before ? " has-scroll-before" : ""}${cardGridScrollEdges.after ? " has-scroll-after" : ""}`}
+      >
+        {isMobileViewport && onOpenSidebar && (
+          <MobileCollectionHeader
+            active={!inert}
+            heading={query ? "搜索结果" : (currentNotebookName ?? viewLabel(view))}
+            total={total}
+            shown={notes.length}
+            query={query}
+            sort={sort}
+            onSort={setSort}
+            onBack={onOpenSidebar}
+            layout="cards"
+            onToggleLayout={onToggleLayout}
+            onEmptyTrash={onEmptyTrash}
+            trashBusy={trashBusy}
+          />
+        )}
         {!isMobileViewport && onOpenSidebar && (
           <button
             className="icon-button card-grid-mobile-menu mobile-only"
@@ -183,7 +226,11 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
           </button>
         )}
         {!isMobileViewport && onEmptyTrash && (
-          <EmptyTrashButton className="card-grid-empty-trash" onClick={onEmptyTrash} disabled={trashBusy || total === 0} />
+          <EmptyTrashButton
+            className="card-grid-empty-trash"
+            onClick={onEmptyTrash}
+            disabled={trashBusy || total === 0}
+          />
         )}
         <div
           id="card-grid-scroll-region"
@@ -197,15 +244,28 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
           onScroll={(event) => onScrollPositionChange(scrollScope, event.currentTarget.scrollTop)}
         >
           {sortedNotes.length > 0 ? (
-            <div className="card-masonry" role="list" style={{ height: masonry.totalHeight, width: masonry.config.width }}>
-              {masonry.visibleCards.map((placement) => <div
-                key={placement.note.id}
-                ref={masonry.getCardRef(placement.note.id)}
-                className="card-masonry-slot"
-                data-card-masonry-note-id={placement.note.id}
-                role="presentation"
-                style={{ top: placement.top, insetInlineStart: placement.lane * (masonry.config.laneWidth + masonry.config.gap), width: masonry.config.laneWidth }}
-              >{renderCard(placement.note, placement.index)}</div>)}
+            <div
+              className="card-masonry"
+              role="list"
+              style={{ height: masonry.totalHeight, width: masonry.config.width }}
+            >
+              {masonry.visibleCards.map((placement) => (
+                <div
+                  key={placement.note.id}
+                  ref={masonry.getCardRef(placement.note.id)}
+                  className="card-masonry-slot"
+                  data-card-masonry-note-id={placement.note.id}
+                  role="presentation"
+                  style={{
+                    top: placement.top,
+                    insetInlineStart:
+                      placement.lane * (masonry.config.laneWidth + masonry.config.gap),
+                    width: masonry.config.laneWidth,
+                  }}
+                >
+                  {renderCard(placement.note, placement.index)}
+                </div>
+              ))}
             </div>
           ) : (
             <div className="card-grid-empty">
@@ -219,8 +279,10 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
                 {query
                   ? "试试更短的关键词，或清空搜索查看全部内容。"
                   : isTrashView
-                  ? "移入回收站的笔记会显示在这里。"
-                  : isMobileViewport ? "点击下方新建笔记，让一个想法有地方落脚。" : "从侧栏新建笔记，让一个想法有地方落脚。"}
+                    ? "移入回收站的笔记会显示在这里。"
+                    : isMobileViewport
+                      ? "点击下方新建笔记，让一个想法有地方落脚。"
+                      : "从侧栏新建笔记，让一个想法有地方落脚。"}
               </span>
               {query && (
                 <button className="secondary-button" type="button" onClick={onClearQuery}>
@@ -265,7 +327,10 @@ type NoteCardItemProps = {
   hasSelectionActive: boolean;
   showNotebook: boolean;
   onOpen: (id: string) => void;
-  onToggleSelect: (id: string, modifiers: Pick<NoteSelectionClick, "metaKey" | "ctrlKey" | "shiftKey">) => void;
+  onToggleSelect: (
+    id: string,
+    modifiers: Pick<NoteSelectionClick, "metaKey" | "ctrlKey" | "shiftKey">,
+  ) => void;
   onToggleFavorite: (note: NoteSummary) => void;
   notebook?: Notebook;
   isTrashView: boolean;
@@ -313,7 +378,11 @@ const NoteCardItem = memo(function NoteCardItem({
       role="listitem"
       aria-posinset={position}
       aria-setsize={setSize}
-      aria-label={isMobileViewport ? undefined : `${displayTitle}，${isSelected ? "已选择" : "未选择"}；空格键切换选择，回车打开笔记`}
+      aria-label={
+        isMobileViewport
+          ? undefined
+          : `${displayTitle}，${isSelected ? "已选择" : "未选择"}；空格键切换选择，回车打开笔记`
+      }
       tabIndex={isMobileViewport ? undefined : 0}
       onKeyDown={(event: ReactKeyboardEvent) => {
         if (event.target !== event.currentTarget) return;
@@ -331,67 +400,75 @@ const NoteCardItem = memo(function NoteCardItem({
       }}
     >
       <div className="note-card-foreground">
-      {isMobileViewport && <button className="note-card-open" type="button" aria-label={`打开笔记：${displayTitle}`} />}
-      {/* 缩略图封面（若有） */}
-      {hasThumbnail && (
-        <div className="note-card-cover">
-          <img
-            src={`/api/assets/${encodeURIComponent(note.thumbnail!.id)}`}
-            alt=""
-            loading="lazy"
-            decoding="async"
-            className="note-card-cover-image"
+        {isMobileViewport && (
+          <button
+            className="note-card-open"
+            type="button"
+            aria-label={`打开笔记：${displayTitle}`}
           />
-        </div>
-      )}
-
-      {/* 卡片主体：统一纯白底色便笺排版 */}
-      <div className="note-card-body">
-        {/* 顶部标题与收藏星标 */}
-        <div className={`note-card-header ${!isTrashView ? "has-favorite-action" : ""}`}>
-          <h3 className="note-card-title">
-            {displayTitle}
-          </h3>
-          <span className="note-selection-slot" aria-hidden="true">{isSelected && <span className="note-selection-mark"><Check size={11} strokeWidth={2.5} /></span>}</span>
-          {!isTrashView && (
-            <button
-              type="button"
-              className={`note-card-star-btn ${note.isFavorite ? "is-favorite" : ""}`}
-              onClick={handleStarClick}
-              aria-label={note.isFavorite ? "取消收藏" : "加入收藏"}
-              aria-pressed={note.isFavorite}
-            >
-              <Star size={15} fill={note.isFavorite ? "currentColor" : "none"} />
-            </button>
-          )}
-        </div>
-
-        {/* 正文摘要：自上而下流畅展示，更高高度 */}
-        {note.preview ? (
-          <p className="note-card-preview-text">
-            {note.preview}
-          </p>
-        ) : (
-          <p className="note-card-preview-empty">无正文内容</p>
+        )}
+        {/* 缩略图封面（若有） */}
+        {hasThumbnail && (
+          <div className="note-card-cover">
+            <img
+              src={`/api/assets/${encodeURIComponent(note.thumbnail!.id)}`}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              className="note-card-cover-image"
+            />
+          </div>
         )}
 
-        {/* 卡片底部元信息栏：与列表视图保持统一 */}
-        <div className="note-card-footer">
-          {showNotebook && displayNotebook && (
-            <span className="note-card-notebook-badge">
-              <span
-                className="notebook-color-dot"
-                style={{ backgroundColor: displayNotebook.color }}
-                aria-hidden="true"
-              />
-              <span className="notebook-badge-name">{displayNotebook.name}</span>
+        {/* 卡片主体：统一纯白底色便笺排版 */}
+        <div className="note-card-body">
+          {/* 顶部标题与收藏星标 */}
+          <div className={`note-card-header ${!isTrashView ? "has-favorite-action" : ""}`}>
+            <h3 className="note-card-title">{displayTitle}</h3>
+            <span className="note-selection-slot" aria-hidden="true">
+              {isSelected && (
+                <span className="note-selection-mark">
+                  <Check size={11} strokeWidth={2.5} />
+                </span>
+              )}
             </span>
-          )}
-          <NoteTags tags={tags} variant="card" />
+            {!isTrashView && (
+              <button
+                type="button"
+                className={`note-card-star-btn ${note.isFavorite ? "is-favorite" : ""}`}
+                onClick={handleStarClick}
+                aria-label={note.isFavorite ? "取消收藏" : "加入收藏"}
+                aria-pressed={note.isFavorite}
+              >
+                <Star size={15} fill={note.isFavorite ? "currentColor" : "none"} />
+              </button>
+            )}
+          </div>
 
-          <time className="note-card-date">{relativeDate(note.updatedAt)}</time>
+          {/* 正文摘要：自上而下流畅展示，更高高度 */}
+          {note.preview ? (
+            <p className="note-card-preview-text">{note.preview}</p>
+          ) : (
+            <p className="note-card-preview-empty">无正文内容</p>
+          )}
+
+          {/* 卡片底部元信息栏：与列表视图保持统一 */}
+          <div className="note-card-footer">
+            {showNotebook && displayNotebook && (
+              <span className="note-card-notebook-badge">
+                <span
+                  className="notebook-color-dot"
+                  style={{ backgroundColor: displayNotebook.color }}
+                  aria-hidden="true"
+                />
+                <span className="notebook-badge-name">{displayNotebook.name}</span>
+              </span>
+            )}
+            <NoteTags tags={tags} variant="card" />
+
+            <time className="note-card-date">{relativeDate(note.updatedAt)}</time>
+          </div>
         </div>
-      </div>
       </div>
     </article>
   );

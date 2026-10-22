@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { cycleSearchMatchIndex, findTextMatchSummary, findTextMatches, getSearchTerms, normalizeSearchMatchIndex } from "../app/editor-search";
+import {
+  cycleSearchMatchIndex,
+  findTextMatchSummary,
+  findTextMatches,
+  getSearchTerms,
+  normalizeSearchMatchIndex,
+} from "../app/editor-search";
 
 describe("editor search", () => {
   test("finds every Chinese match in document order", () => {

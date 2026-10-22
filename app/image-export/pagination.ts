@@ -6,14 +6,24 @@ export const IMAGE_PAGE_LIMIT = 200;
 /** Keep surrogate pairs together when a measured text fragment ends mid-character. */
 export function safeTextBoundary(text: string, boundary: number): number {
   const end = Math.max(0, Math.min(text.length, boundary));
-  if (end > 0 && end < text.length && /[\uD800-\uDBFF]/.test(text[end - 1]!) && /[\uDC00-\uDFFF]/.test(text[end]!)) return end - 1;
+  if (
+    end > 0 &&
+    end < text.length &&
+    /[\uD800-\uDBFF]/.test(text[end - 1]!) &&
+    /[\uDC00-\uDFFF]/.test(text[end]!)
+  )
+    return end - 1;
   return end;
 }
 
 type Shell = { element: HTMLElement; listStart?: number };
 
 /** Source must be a sanitized .note-prose containing the title and rendered Markdown. */
-export async function paginateNote(source: HTMLElement, host: HTMLElement, signal: AbortSignal): Promise<HTMLElement[]> {
+export async function paginateNote(
+  source: HTMLElement,
+  host: HTMLElement,
+  signal: AbortSignal,
+): Promise<HTMLElement[]> {
   const pages: HTMLElement[] = [];
   let page!: HTMLElement;
   let prose!: HTMLElement;
@@ -29,10 +39,15 @@ export async function paginateNote(source: HTMLElement, host: HTMLElement, signa
   };
   const newPage = () => {
     check();
-    if (pages.length >= IMAGE_PAGE_LIMIT) throw new Error(`笔记超过 ${IMAGE_PAGE_LIMIT} 页，请缩短内容后导出。`);
+    if (pages.length >= IMAGE_PAGE_LIMIT)
+      throw new Error(`笔记超过 ${IMAGE_PAGE_LIMIT} 页，请缩短内容后导出。`);
     page = document.createElement("article");
     page.className = "image-export-page";
-    Object.assign(page.style, { width: `${IMAGE_PAGE_WIDTH}px`, padding: `${IMAGE_PAGE_PADDING}px`, boxSizing: "border-box" });
+    Object.assign(page.style, {
+      width: `${IMAGE_PAGE_WIDTH}px`,
+      padding: `${IMAGE_PAGE_PADDING}px`,
+      boxSizing: "border-box",
+    });
     prose = source.cloneNode(false) as HTMLElement;
     prose.removeAttribute("contenteditable");
     prose.removeAttribute("id");
@@ -43,7 +58,9 @@ export async function paginateNote(source: HTMLElement, host: HTMLElement, signa
     pages.push(page);
     shells = new Map();
   };
-  const fits = () => prose.getBoundingClientRect().bottom - page.getBoundingClientRect().top + IMAGE_PAGE_PADDING <= IMAGE_PAGE_HEIGHT + 0.5;
+  const fits = () =>
+    prose.getBoundingClientRect().bottom - page.getBoundingClientRect().top + IMAGE_PAGE_PADDING <=
+    IMAGE_PAGE_HEIGHT + 0.5;
   const targetFor = (ancestors: Shell[]): HTMLElement => {
     let target = prose;
     for (const shell of ancestors) {
@@ -57,7 +74,8 @@ export async function paginateNote(source: HTMLElement, host: HTMLElement, signa
         const decoration = shell.element.matches("aside.note-callout")
           ? shell.element.querySelector(":scope > .note-callout-icon")
           : shell.element.matches('li[data-type="taskItem"]')
-            ? shell.element.querySelector(":scope > label") : null;
+            ? shell.element.querySelector(":scope > label")
+            : null;
         if (decoration) clone.append(decoration.cloneNode(true));
         target.append(clone);
         shells.set(shell.element, clone);
@@ -68,8 +86,13 @@ export async function paginateNote(source: HTMLElement, host: HTMLElement, signa
   };
   const removeEmptyShells = () => {
     for (const [original, clone] of Array.from(shells).reverse()) {
-      const onlyDecoration = (clone.matches("aside.note-callout") && clone.children.length === 1 && clone.firstElementChild?.matches(".note-callout-icon"))
-        || (clone.matches('li[data-type="taskItem"]') && clone.children.length === 1 && clone.firstElementChild?.tagName === "LABEL");
+      const onlyDecoration =
+        (clone.matches("aside.note-callout") &&
+          clone.children.length === 1 &&
+          clone.firstElementChild?.matches(".note-callout-icon")) ||
+        (clone.matches('li[data-type="taskItem"]') &&
+          clone.children.length === 1 &&
+          clone.firstElementChild?.tagName === "LABEL");
       if (!clone.childNodes.length || onlyDecoration) {
         clone.remove();
         shells.delete(original);
@@ -127,7 +150,10 @@ export async function paginateNote(source: HTMLElement, host: HTMLElement, signa
       let end = safeTextBoundary(text, low);
       if (end <= start) {
         removeEmptyShells();
-        if (prose.textContent?.length || prose.querySelector("img, hr, table")) { newPage(); continue; }
+        if (prose.textContent?.length || prose.querySelector("img, hr, table")) {
+          newPage();
+          continue;
+        }
         throw new Error("正文样式过高，无法放入一页，请简化该内容后重试。");
       }
       if (end < text.length) {
@@ -161,7 +187,10 @@ export async function paginateNote(source: HTMLElement, host: HTMLElement, signa
 
   const appendTable = async (table: HTMLTableElement, ancestors: Shell[]) => {
     const rows = Array.from(table.rows);
-    const headers = rows.filter((row) => row.parentElement?.tagName === "THEAD" || (row === rows[0] && !!row.querySelector("th")));
+    const headers = rows.filter(
+      (row) =>
+        row.parentElement?.tagName === "THEAD" || (row === rows[0] && !!row.querySelector("th")),
+    );
     const bodyRows = rows.filter((row) => !headers.includes(row));
     let tableClone: HTMLTableElement | undefined;
     let body: HTMLTableSectionElement;
@@ -210,18 +239,33 @@ export async function paginateNote(source: HTMLElement, host: HTMLElement, signa
     if (tryAppend(clone, ancestors)) return;
     // Preserve ordinary blocks intact whenever they can fit on a fresh page.
     const precedingHeading = prose.lastElementChild?.matches("h1, h2, h3, h4, h5, h6");
-    if (!precedingHeading && (prose.textContent?.length || prose.querySelector("img, hr, table")) && node.getBoundingClientRect().height <= IMAGE_PAGE_HEIGHT - IMAGE_PAGE_PADDING * 2) {
+    if (
+      !precedingHeading &&
+      (prose.textContent?.length || prose.querySelector("img, hr, table")) &&
+      node.getBoundingClientRect().height <= IMAGE_PAGE_HEIGHT - IMAGE_PAGE_PADDING * 2
+    ) {
       newPage();
       if (tryAppend(clone, ancestors)) return;
     }
     if (node.tagName === "TABLE") return appendTable(node as HTMLTableElement, ancestors);
-    if (["P", "PRE", "H1", "H2", "H3", "H4", "H5", "H6"].includes(node.tagName) && node.textContent?.length) return appendText(node, ancestors);
-    if (["UL", "OL", "LI", "BLOCKQUOTE", "DIV", "SECTION", "ASIDE"].includes(node.tagName) && node.children.length) {
+    if (
+      ["P", "PRE", "H1", "H2", "H3", "H4", "H5", "H6"].includes(node.tagName) &&
+      node.textContent?.length
+    )
+      return appendText(node, ancestors);
+    if (
+      ["UL", "OL", "LI", "BLOCKQUOTE", "DIV", "SECTION", "ASIDE"].includes(node.tagName) &&
+      node.children.length
+    ) {
       const children = Array.from(node.childNodes);
       let listIndex = Number(node.getAttribute("start") || 1);
       for (const child of children) {
-        if (child instanceof HTMLElement && ((node.matches("aside.note-callout") && child.matches(".note-callout-icon"))
-          || (node.matches('li[data-type="taskItem"]') && child.tagName === "LABEL"))) continue;
+        if (
+          child instanceof HTMLElement &&
+          ((node.matches("aside.note-callout") && child.matches(".note-callout-icon")) ||
+            (node.matches('li[data-type="taskItem"]') && child.tagName === "LABEL"))
+        )
+          continue;
         const shell: Shell = { element: node };
         if (node.tagName === "OL") shell.listStart = listIndex;
         await appendFlow(child, [...ancestors, shell]);
@@ -230,7 +274,8 @@ export async function paginateNote(source: HTMLElement, host: HTMLElement, signa
       return;
     }
     if (prose.textContent?.length || prose.querySelector("img, hr, table")) newPage();
-    if (!tryAppend(clone, ancestors)) throw new Error("有图片或内容块超过一页，请缩小该内容后导出。");
+    if (!tryAppend(clone, ancestors))
+      throw new Error("有图片或内容块超过一页，请缩小该内容后导出。");
   };
 
   newPage();
@@ -243,7 +288,10 @@ export async function paginateNote(source: HTMLElement, host: HTMLElement, signa
         if (next) {
           const heading = block.cloneNode(true);
           let following = next.cloneNode(true);
-          if (next instanceof HTMLElement && next.getBoundingClientRect().height > IMAGE_PAGE_HEIGHT - IMAGE_PAGE_PADDING * 2) {
+          if (
+            next instanceof HTMLElement &&
+            next.getBoundingClientRect().height > IMAGE_PAGE_HEIGHT - IMAGE_PAGE_PADDING * 2
+          ) {
             const walker = document.createTreeWalker(next, NodeFilter.SHOW_TEXT);
             let first = walker.nextNode() as Text | null;
             while (first && !first.data.trim()) first = walker.nextNode() as Text | null;

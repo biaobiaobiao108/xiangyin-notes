@@ -14,7 +14,12 @@ import { handleImportRoute } from "./routes/import";
 import { handleMcpRequest, MCP_PATH } from "./mcp-transport";
 import { handleNotebooksRoute } from "./routes/notebooks";
 import { handleNotesRoute } from "./routes/notes";
-import { REALTIME_PATH, RealtimeHub, upgradeRealtimeRequest, type RealtimeSocketData } from "./realtime";
+import {
+  REALTIME_PATH,
+  RealtimeHub,
+  upgradeRealtimeRequest,
+  type RealtimeSocketData,
+} from "./realtime";
 
 // Re-exports for backward compatibility and test runners
 export {
@@ -30,7 +35,21 @@ export {
 
 const DEFAULT_CLIENT_ROOT = "./dist/client";
 const CLIENT_ROUTES = new Set(["/", "/app", "/login", "/setup"]);
-const API_RESOURCES = new Set(["health", "bootstrap", "setup", "auth", "me", "notes", "notebooks", "assets", "trash", "wiki-notes", "export", "import", "realtime"]);
+const API_RESOURCES = new Set([
+  "health",
+  "bootstrap",
+  "setup",
+  "auth",
+  "me",
+  "notes",
+  "notebooks",
+  "assets",
+  "trash",
+  "wiki-notes",
+  "export",
+  "import",
+  "realtime",
+]);
 
 const DEV_SERVICE_WORKER_SOURCE = `
 self.addEventListener("install", (event) => {
@@ -54,7 +73,8 @@ self.addEventListener("fetch", (event) => {
 
 const SECURITY_HEADERS: Record<string, string> = {
   // SHA-256 of the inline theme bootstrap in app/index.html.
-  "Content-Security-Policy": "default-src 'self'; script-src 'self' 'sha256-CTW2ndcNC8/ZHOwYB0GdVTGVxtKJtKgBPxnJikeVUA0='; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net; img-src 'self' data: blob: https:; connect-src 'self' ws: wss:; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+  "Content-Security-Policy":
+    "default-src 'self'; script-src 'self' 'sha256-CTW2ndcNC8/ZHOwYB0GdVTGVxtKJtKgBPxnJikeVUA0='; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net; img-src 'self' data: blob: https:; connect-src 'self' ws: wss:; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
   "X-Content-Type-Options": "nosniff",
   "X-Frame-Options": "DENY",
   "Referrer-Policy": "strict-origin-when-cross-origin",
@@ -63,15 +83,25 @@ const SECURITY_HEADERS: Record<string, string> = {
   "Cross-Origin-Opener-Policy": "same-origin-allow-popups",
 };
 
-function withSecurityHeaders(response: Response, environment: Record<string, string | undefined> = {}, request?: Request, clientAddress?: string) {
+function withSecurityHeaders(
+  response: Response,
+  environment: Record<string, string | undefined> = {},
+  request?: Request,
+  clientAddress?: string,
+) {
   const headers = new Headers(response.headers);
   for (const [name, value] of Object.entries(SECURITY_HEADERS)) headers.set(name, value);
   if (request && isMcpPath(new URL(request.url).pathname)) {
     headers.set("Cache-Control", "no-store");
     headers.set("Referrer-Policy", "no-referrer");
   }
-  if (request && isSecureRequest(request, environment, clientAddress)) headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
-  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+  if (request && isSecureRequest(request, environment, clientAddress))
+    headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
 }
 
 function isMcpPath(pathname: string) {
@@ -100,12 +130,25 @@ const MIME_TYPES: Record<string, string> = {
   ".ico": "image/x-icon",
 };
 
-const DEV_PWA_ASSETS = new Set(["manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-maskable-512.png", "icon-maskable-1024.png", "apple-touch-icon.png", "favicon.png"]);
+const DEV_PWA_ASSETS = new Set([
+  "manifest.webmanifest",
+  "icon-192.png",
+  "icon-512.png",
+  "icon-maskable-512.png",
+  "icon-maskable-1024.png",
+  "apple-touch-icon.png",
+  "favicon.png",
+]);
 
-function invalidCookieMutationOrigin(request: Request, environment: Record<string, string | undefined>) {
-  if (request.method === "GET" || request.method === "HEAD" || request.method === "OPTIONS") return false;
+function invalidCookieMutationOrigin(
+  request: Request,
+  environment: Record<string, string | undefined>,
+) {
+  if (request.method === "GET" || request.method === "HEAD" || request.method === "OPTIONS")
+    return false;
   const pathname = new URL(request.url).pathname;
-  if (pathname === "/api/import" || pathname === "/api/auth/login" || pathname === "/api/setup") return false;
+  if (pathname === "/api/import" || pathname === "/api/auth/login" || pathname === "/api/setup")
+    return false;
 
   const fetchSite = request.headers.get("Sec-Fetch-Site");
   if (fetchSite === "same-site" || fetchSite === "cross-site") return true;
@@ -115,8 +158,13 @@ function invalidCookieMutationOrigin(request: Request, environment: Record<strin
   return origin !== requestUrl.origin && origin !== getPublicOrigin(requestUrl, environment);
 }
 
-async function serveStatic(request: Request, clientRoot: string, environment: Record<string, string | undefined> = {}) {
-  if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
+async function serveStatic(
+  request: Request,
+  clientRoot: string,
+  environment: Record<string, string | undefined> = {},
+) {
+  if (request.method !== "GET" && request.method !== "HEAD")
+    return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
   const url = new URL(request.url);
   let pathname: string;
   try {
@@ -124,7 +172,8 @@ async function serveStatic(request: Request, clientRoot: string, environment: Re
   } catch {
     return new Response("Bad Request", { status: 400 });
   }
-  if (pathname.includes("\0") || pathname.split(/[\\/]/).includes("..")) return new Response("Forbidden", { status: 403 });
+  if (pathname.includes("\0") || pathname.split(/[\\/]/).includes(".."))
+    return new Response("Forbidden", { status: 403 });
 
   if (pathname === "/sw.js" && environment.NODE_ENV === "development") {
     return new Response(request.method === "HEAD" ? null : DEV_SERVICE_WORKER_SOURCE, {
@@ -137,14 +186,23 @@ async function serveStatic(request: Request, clientRoot: string, environment: Re
 
   const relativePath = pathname.replace(/^[/\\]+/, "");
   const hasExtension = extname(relativePath) !== "";
-  if (!hasExtension && !CLIENT_ROUTES.has(pathname)) return new Response("Not Found", { status: 404 });
+  if (!hasExtension && !CLIENT_ROUTES.has(pathname))
+    return new Response("Not Found", { status: 404 });
   const rootPath = resolve(clientRoot);
   let requestedPath = hasExtension ? resolve(rootPath, relativePath) : join(rootPath, "index.html");
   const pathFromRoot = relative(rootPath, requestedPath);
-  if (isAbsolute(pathFromRoot) || pathFromRoot === ".." || pathFromRoot.startsWith(`..${sep}`) || pathFromRoot.startsWith(sep)) return new Response("Forbidden", { status: 403 });
+  if (
+    isAbsolute(pathFromRoot) ||
+    pathFromRoot === ".." ||
+    pathFromRoot.startsWith(`..${sep}`) ||
+    pathFromRoot.startsWith(sep)
+  )
+    return new Response("Forbidden", { status: 403 });
   let file = Bun.file(requestedPath);
   let contentEncoding: string | null = null;
-  const acceptsGzip = /(?:^|,)\s*gzip(?:\s*;|\s|,|$)/iu.test(request.headers.get("Accept-Encoding") ?? "");
+  const acceptsGzip = /(?:^|,)\s*gzip(?:\s*;|\s|,|$)/iu.test(
+    request.headers.get("Accept-Encoding") ?? "",
+  );
   if (acceptsGzip && /\.(?:css|html|js|json|webmanifest)$/iu.test(extname(requestedPath))) {
     const compressedFile = Bun.file(`${requestedPath}.gz`);
     if (await compressedFile.exists()) {
@@ -152,35 +210,52 @@ async function serveStatic(request: Request, clientRoot: string, environment: Re
       contentEncoding = "gzip";
     }
   }
-  if (!(await file.exists()) && environment.NODE_ENV === "development" && DEV_PWA_ASSETS.has(relativePath.toLowerCase())) {
+  if (
+    !(await file.exists()) &&
+    environment.NODE_ENV === "development" &&
+    DEV_PWA_ASSETS.has(relativePath.toLowerCase())
+  ) {
     file = Bun.file(resolve("app", relativePath));
     contentEncoding = null;
   }
   if (!(await file.exists())) return new Response("Not Found", { status: 404 });
 
   const headers = new Headers();
-  headers.set("Content-Type", MIME_TYPES[extname(requestedPath).toLowerCase()] ?? file.type ?? "application/octet-stream");
+  headers.set(
+    "Content-Type",
+    MIME_TYPES[extname(requestedPath).toLowerCase()] ?? file.type ?? "application/octet-stream",
+  );
   const compressible = /\.(?:css|html|js|json|webmanifest)$/iu.test(extname(requestedPath));
   if (compressible) headers.set("Vary", "Accept-Encoding");
   if (contentEncoding) {
     headers.set("Content-Encoding", contentEncoding);
   }
   const basename = relativePath.toLowerCase();
-  const mutablePwaAsset = basename === "sw.js"
-    || basename === "manifest.webmanifest"
-    || /^(?:favicon\.png|apple-touch-icon\.png|icon-(?:192|512|maskable-(?:512|1024))\.png)$/u.test(basename);
-  headers.set("Cache-Control", hasExtension && relativePath !== "index.html" && !mutablePwaAsset ? "public, max-age=31536000, immutable" : "no-cache");
+  const mutablePwaAsset =
+    basename === "sw.js" ||
+    basename === "manifest.webmanifest" ||
+    /^(?:favicon\.png|apple-touch-icon\.png|icon-(?:192|512|maskable-(?:512|1024))\.png)$/u.test(
+      basename,
+    );
+  headers.set(
+    "Cache-Control",
+    hasExtension && relativePath !== "index.html" && !mutablePwaAsset
+      ? "public, max-age=31536000, immutable"
+      : "no-cache",
+  );
 
   // Revalidation: `no-cache` entries (index.html, sw.js) are requested on every
   // navigation, so answer them with 304 instead of resending the whole file.
   const lastModified = Math.floor(Number(file.lastModified ?? 0));
-  if (Number.isFinite(lastModified) && lastModified > 0) headers.set("Last-Modified", new Date(lastModified).toUTCString());
+  if (Number.isFinite(lastModified) && lastModified > 0)
+    headers.set("Last-Modified", new Date(lastModified).toUTCString());
   const etag = `W/"${Number(file.size ?? 0).toString(16)}-${lastModified.toString(16)}"`;
   headers.set("ETag", etag);
   const ifNoneMatch = request.headers.get("If-None-Match");
   if (ifNoneMatch) {
     const candidates = ifNoneMatch.split(",").map((value) => value.trim());
-    if (candidates.includes(etag) || candidates.includes("*")) return new Response(null, { status: 304, headers });
+    if (candidates.includes(etag) || candidates.includes("*"))
+      return new Response(null, { status: 304, headers });
   } else if (lastModified > 0) {
     const ifModifiedSince = Date.parse(request.headers.get("If-Modified-Since") ?? "");
     if (Number.isFinite(ifModifiedSince) && Math.floor(ifModifiedSince / 1000) >= lastModified) {
@@ -192,13 +267,18 @@ async function serveStatic(request: Request, clientRoot: string, environment: Re
 
 async function handleApi(request: Request, options: ServerOptions) {
   const { database, environment = {} } = options;
-  if (invalidCookieMutationOrigin(request, environment)) return jsonError(403, "FORBIDDEN_ORIGIN", "请求来源无效");
+  if (invalidCookieMutationOrigin(request, environment))
+    return jsonError(403, "FORBIDDEN_ORIGIN", "请求来源无效");
   const assetRoot = resolve(options.assetRoot ?? assetRootFromEnv(environment));
   const url = new URL(request.url);
   const method = request.method.toUpperCase();
   let segments: string[];
   try {
-    segments = url.pathname.split("/").filter(Boolean).slice(1).map((segment) => decodeURIComponent(segment));
+    segments = url.pathname
+      .split("/")
+      .filter(Boolean)
+      .slice(1)
+      .map((segment) => decodeURIComponent(segment));
   } catch {
     return jsonError(400, "INVALID_PATH", "请求路径无效");
   }
@@ -206,7 +286,9 @@ async function handleApi(request: Request, options: ServerOptions) {
   if (!API_RESOURCES.has(segments[0] ?? "")) return jsonError(404, "NOT_FOUND", "接口不存在");
 
   cleanupExpiredSessions(database);
-  void cleanupOrphanAssets(database, assetRoot).catch((error) => console.warn("[assets] orphan cleanup failed", error));
+  void cleanupOrphanAssets(database, assetRoot).catch((error) =>
+    console.warn("[assets] orphan cleanup failed", error),
+  );
 
   const ctx: RouteContext = { request, url, method, segments, options };
 
@@ -253,8 +335,19 @@ export async function handleRequest(request: Request, options: ServerOptions) {
   } catch (error) {
     const url = new URL(request.url);
     console.error(`[request] ${request.method} ${redactSensitivePath(url.pathname)}`, error);
-    if (url.pathname.startsWith("/api/") || isMcpPath(url.pathname)) return withSecurityHeaders(jsonError(500, "INTERNAL_ERROR", "服务器暂时无法处理请求"), options.environment, request, options.clientAddress);
-    return withSecurityHeaders(new Response("Internal Server Error", { status: 500 }), options.environment, request, options.clientAddress);
+    if (url.pathname.startsWith("/api/") || isMcpPath(url.pathname))
+      return withSecurityHeaders(
+        jsonError(500, "INTERNAL_ERROR", "服务器暂时无法处理请求"),
+        options.environment,
+        request,
+        options.clientAddress,
+      );
+    return withSecurityHeaders(
+      new Response("Internal Server Error", { status: 500 }),
+      options.environment,
+      request,
+      options.clientAddress,
+    );
   }
 }
 
@@ -268,10 +361,17 @@ if (import.meta.main) {
     hostname,
     port,
     async fetch(request, server) {
-      const options: ServerOptions = { database, environment: Bun.env, clientRoot, realtime, clientAddress: server.requestIP(request)?.address };
+      const options: ServerOptions = {
+        database,
+        environment: Bun.env,
+        clientRoot,
+        realtime,
+        clientAddress: server.requestIP(request)?.address,
+      };
       if (new URL(request.url).pathname === REALTIME_PATH) {
         const realtimeResponse = await upgradeRealtimeRequest(request, server, options);
-        if (realtimeResponse) return withSecurityHeaders(realtimeResponse, Bun.env, request, options.clientAddress);
+        if (realtimeResponse)
+          return withSecurityHeaders(realtimeResponse, Bun.env, request, options.clientAddress);
         return undefined;
       }
       return handleRequest(request, options);
@@ -290,7 +390,10 @@ if (import.meta.main) {
     },
     error(error) {
       console.error("[server] uncaught error", error);
-      return withSecurityHeaders(jsonError(500, "INTERNAL_ERROR", "服务器暂时无法处理请求"), Bun.env);
+      return withSecurityHeaders(
+        jsonError(500, "INTERNAL_ERROR", "服务器暂时无法处理请求"),
+        Bun.env,
+      );
     },
   });
   realtime.startHeartbeat();
@@ -307,10 +410,13 @@ if (import.meta.main) {
       const forceShutdown = new Promise<"forced">((resolveForceShutdown) => {
         forceShutdownTimer = setTimeout(() => {
           console.warn("[server] 优雅关闭超时，强制关闭活动连接");
-          void server.stop(true).then(() => resolveForceShutdown("forced"), (error) => {
-            console.error("[server] 强制关闭服务失败", error);
-            resolveForceShutdown("forced");
-          });
+          void server.stop(true).then(
+            () => resolveForceShutdown("forced"),
+            (error) => {
+              console.error("[server] 强制关闭服务失败", error);
+              resolveForceShutdown("forced");
+            },
+          );
         }, 5_000);
       });
 

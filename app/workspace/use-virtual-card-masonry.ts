@@ -1,4 +1,15 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FocusEvent as ReactFocusEvent, type KeyboardEvent as ReactKeyboardEvent, type RefCallback, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FocusEvent as ReactFocusEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type RefCallback,
+  type RefObject,
+} from "react";
 import type { NoteSummary } from "../../shared/types";
 import {
   assignCardMasonryLanes,
@@ -10,7 +21,8 @@ import {
 } from "./card-masonry";
 
 const CARD_OVERSCAN_PX = 900;
-const TAB_STOP_SELECTOR = "a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
+const TAB_STOP_SELECTOR =
+  "a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
 
 type ViewportMetrics = {
   scrollTop: number;
@@ -70,10 +82,19 @@ export function useVirtualCardMasonry(
   const scrollAnchorRef = useRef<ScrollAnchor | null>(null);
   const pendingFocusRef = useRef<PendingFocus | null>(null);
 
-  const config = useMemo(() => cardLaneConfig(viewport.contentWidth, viewport.viewportWidth, isMobileViewport), [isMobileViewport, viewport.contentWidth, viewport.viewportWidth]);
+  const config = useMemo(
+    () => cardLaneConfig(viewport.contentWidth, viewport.viewportWidth, isMobileViewport),
+    [isMobileViewport, viewport.contentWidth, viewport.viewportWidth],
+  );
   const widthKey = Math.round(config.laneWidth);
-  const assignments = useMemo(() => assignCardMasonryLanes(notes, config, isMobileViewport), [config, isMobileViewport, notes]);
-  const lanes = useMemo(() => positionCardMasonryLanes(assignments, measuredHeightsRef.current, widthKey, config.gap), [assignments, config.gap, measurementRevision, widthKey]);
+  const assignments = useMemo(
+    () => assignCardMasonryLanes(notes, config, isMobileViewport),
+    [config, isMobileViewport, notes],
+  );
+  const lanes = useMemo(
+    () => positionCardMasonryLanes(assignments, measuredHeightsRef.current, widthKey, config.gap),
+    [assignments, config.gap, measurementRevision, widthKey],
+  );
   const placements = useMemo(() => {
     const result = new Array<CardMasonryPlacement>(notes.length);
     for (const lane of lanes) for (const card of lane.cards) result[card.index] = card;
@@ -85,17 +106,31 @@ export function useVirtualCardMasonry(
   const visibleIndexes = useMemo(() => {
     if (!virtualizationSupported) return new Set(notes.map((_, index) => index));
     const top = Math.max(0, viewport.scrollTop - viewport.paddingTop - CARD_OVERSCAN_PX);
-    const bottom = viewport.scrollTop - viewport.paddingTop + viewport.visibleHeight + CARD_OVERSCAN_PX;
+    const bottom =
+      viewport.scrollTop - viewport.paddingTop + viewport.visibleHeight + CARD_OVERSCAN_PX;
     const result = visibleCardIndexes(lanes, top, bottom);
     const focusedIndex = focusedNoteId ? indexById.get(focusedNoteId) : undefined;
     if (focusedIndex !== undefined) result.add(focusedIndex);
     return result;
-  }, [focusedNoteId, indexById, lanes, notes, viewport.paddingTop, viewport.scrollTop, viewport.visibleHeight, virtualizationSupported]);
+  }, [
+    focusedNoteId,
+    indexById,
+    lanes,
+    notes,
+    viewport.paddingTop,
+    viewport.scrollTop,
+    viewport.visibleHeight,
+    virtualizationSupported,
+  ]);
 
-  const visibleCards = useMemo(() => [...visibleIndexes]
-    .sort((left, right) => left - right)
-    .map((index) => placements[index])
-    .filter((placement): placement is CardMasonryPlacement => Boolean(placement)), [placements, visibleIndexes]);
+  const visibleCards = useMemo(
+    () =>
+      [...visibleIndexes]
+        .sort((left, right) => left - right)
+        .map((index) => placements[index])
+        .filter((placement): placement is CardMasonryPlacement => Boolean(placement)),
+    [placements, visibleIndexes],
+  );
   const totalHeight = Math.max(0, ...lanes.map((lane) => lane.height));
 
   const captureScrollAnchor = useCallback(() => {
@@ -115,18 +150,26 @@ export function useVirtualCardMasonry(
     return anchor;
   }, [scrollRootRef]);
 
-  const applyViewport = useCallback((next: ViewportMetrics) => {
-    const current = viewportRef.current;
-    const widthChanged = Math.abs(current.contentWidth - next.contentWidth) >= 1 || current.viewportWidth !== next.viewportWidth;
-    if (widthChanged) scrollAnchorRef.current ??= captureScrollAnchor();
-    if (Math.abs(current.scrollTop - next.scrollTop) < 1
-      && Math.abs(current.paddingTop - next.paddingTop) < 1
-      && Math.abs(current.visibleHeight - next.visibleHeight) < 1
-      && Math.abs(current.contentWidth - next.contentWidth) < 1
-      && current.viewportWidth === next.viewportWidth) return;
-    viewportRef.current = next;
-    setViewport(next);
-  }, [captureScrollAnchor]);
+  const applyViewport = useCallback(
+    (next: ViewportMetrics) => {
+      const current = viewportRef.current;
+      const widthChanged =
+        Math.abs(current.contentWidth - next.contentWidth) >= 1 ||
+        current.viewportWidth !== next.viewportWidth;
+      if (widthChanged) scrollAnchorRef.current ??= captureScrollAnchor();
+      if (
+        Math.abs(current.scrollTop - next.scrollTop) < 1 &&
+        Math.abs(current.paddingTop - next.paddingTop) < 1 &&
+        Math.abs(current.visibleHeight - next.visibleHeight) < 1 &&
+        Math.abs(current.contentWidth - next.contentWidth) < 1 &&
+        current.viewportWidth === next.viewportWidth
+      )
+        return;
+      viewportRef.current = next;
+      setViewport(next);
+    },
+    [captureScrollAnchor],
+  );
 
   const refreshViewport = useCallback(() => {
     const root = scrollRootRef.current;
@@ -145,37 +188,44 @@ export function useVirtualCardMasonry(
   useEffect(() => {
     const root = scrollRootRef.current;
     if (!root) return;
-    const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        if (entry.target === root) {
-          scheduleViewportRefresh();
-          continue;
-        }
-        const noteId = (entry.target as HTMLElement).dataset.cardMasonryNoteId;
-        if (!noteId) continue;
-        const borderBox = entry.borderBoxSize as unknown as ResizeObserverSize | readonly ResizeObserverSize[] | undefined;
-        const borderBoxBlockSize = Array.isArray(borderBox)
-          ? borderBox[0]?.blockSize
-          : (borderBox as ResizeObserverSize | undefined)?.blockSize;
-        const height = typeof borderBoxBlockSize === "number" && borderBoxBlockSize > 0
-          ? borderBoxBlockSize
-          : (entry.target as HTMLElement).getBoundingClientRect().height;
-        if (!height || !Number.isFinite(height)) continue;
-        const previous = measuredHeightsRef.current.get(noteId);
-        if (previous?.widthKey === widthKey && Math.abs(previous.height - height) < 0.75) continue;
-        pendingMeasurementsRef.current.set(noteId, height);
-      }
+    const resizeObserver =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver((entries) => {
+            for (const entry of entries) {
+              if (entry.target === root) {
+                scheduleViewportRefresh();
+                continue;
+              }
+              const noteId = (entry.target as HTMLElement).dataset.cardMasonryNoteId;
+              if (!noteId) continue;
+              const borderBox = entry.borderBoxSize as unknown as
+                ResizeObserverSize | readonly ResizeObserverSize[] | undefined;
+              const borderBoxBlockSize = Array.isArray(borderBox)
+                ? borderBox[0]?.blockSize
+                : (borderBox as ResizeObserverSize | undefined)?.blockSize;
+              const height =
+                typeof borderBoxBlockSize === "number" && borderBoxBlockSize > 0
+                  ? borderBoxBlockSize
+                  : (entry.target as HTMLElement).getBoundingClientRect().height;
+              if (!height || !Number.isFinite(height)) continue;
+              const previous = measuredHeightsRef.current.get(noteId);
+              if (previous?.widthKey === widthKey && Math.abs(previous.height - height) < 0.75)
+                continue;
+              pendingMeasurementsRef.current.set(noteId, height);
+            }
 
-      if (!pendingMeasurementsRef.current.size || measurementFrameRef.current) return;
-      measurementFrameRef.current = requestAnimationFrame(() => {
-        measurementFrameRef.current = 0;
-        if (!pendingMeasurementsRef.current.size) return;
-        scrollAnchorRef.current ??= captureScrollAnchor();
-        for (const [noteId, height] of pendingMeasurementsRef.current) measuredHeightsRef.current.set(noteId, { widthKey, height });
-        pendingMeasurementsRef.current.clear();
-        setMeasurementRevision((revision) => revision + 1);
-      });
-    });
+            if (!pendingMeasurementsRef.current.size || measurementFrameRef.current) return;
+            measurementFrameRef.current = requestAnimationFrame(() => {
+              measurementFrameRef.current = 0;
+              if (!pendingMeasurementsRef.current.size) return;
+              scrollAnchorRef.current ??= captureScrollAnchor();
+              for (const [noteId, height] of pendingMeasurementsRef.current)
+                measuredHeightsRef.current.set(noteId, { widthKey, height });
+              pendingMeasurementsRef.current.clear();
+              setMeasurementRevision((revision) => revision + 1);
+            });
+          });
     resizeObserverRef.current = resizeObserver;
     resizeObserver?.observe(root);
     for (const node of cardNodesRef.current.values()) resizeObserver?.observe(node);
@@ -215,48 +265,78 @@ export function useVirtualCardMasonry(
   }, []);
 
   const onFocusCapture = useCallback((event: ReactFocusEvent<HTMLDivElement>) => {
-    const slot = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-card-masonry-note-id]") : null;
+    const slot =
+      event.target instanceof Element
+        ? event.target.closest<HTMLElement>("[data-card-masonry-note-id]")
+        : null;
     setFocusedNoteId(slot?.dataset.cardMasonryNoteId ?? null);
   }, []);
 
   const onBlurCapture = useCallback((event: ReactFocusEvent<HTMLDivElement>) => {
-    const slot = event.relatedTarget instanceof Element ? event.relatedTarget.closest<HTMLElement>("[data-card-masonry-note-id]") : null;
+    const slot =
+      event.relatedTarget instanceof Element
+        ? event.relatedTarget.closest<HTMLElement>("[data-card-masonry-note-id]")
+        : null;
     setFocusedNoteId(slot?.dataset.cardMasonryNoteId ?? null);
   }, []);
 
-  const focusCardAtIndex = useCallback((index: number, backwards = false) => {
-    const placement = placements[index];
-    const root = scrollRootRef.current;
-    if (!placement || !root) return;
-    pendingFocusRef.current = { noteId: placement.note.id, backwards };
-    const paddingTop = viewportRef.current.paddingTop;
-    const margin = Math.max(0, Math.min(CARD_OVERSCAN_PX / 2, viewportRef.current.visibleHeight / 2));
-    root.scrollTop = Math.max(0, placement.top + paddingTop - margin);
-    refreshViewport();
-    setFocusRevision((revision) => revision + 1);
-  }, [placements, refreshViewport, scrollRootRef]);
+  const focusCardAtIndex = useCallback(
+    (index: number, backwards = false) => {
+      const placement = placements[index];
+      const root = scrollRootRef.current;
+      if (!placement || !root) return;
+      pendingFocusRef.current = { noteId: placement.note.id, backwards };
+      const paddingTop = viewportRef.current.paddingTop;
+      const margin = Math.max(
+        0,
+        Math.min(CARD_OVERSCAN_PX / 2, viewportRef.current.visibleHeight / 2),
+      );
+      root.scrollTop = Math.max(0, placement.top + paddingTop - margin);
+      refreshViewport();
+      setFocusRevision((revision) => revision + 1);
+    },
+    [placements, refreshViewport, scrollRootRef],
+  );
 
-  const onKeyDownCapture = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== "Tab" || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || !(event.target instanceof Element)) return;
-    const slot = event.target.closest<HTMLElement>("[data-card-masonry-note-id]");
-    const noteId = slot?.dataset.cardMasonryNoteId;
-    if (!noteId) return;
-    const currentIndex = indexById.get(noteId);
-    if (currentIndex === undefined) return;
-    const article = slot.querySelector<HTMLElement>(".note-card");
-    if (!article) return;
-    const tabStops = [
-      ...(article.tabIndex >= 0 ? [article] : []),
-      ...Array.from(article.querySelectorAll<HTMLElement>(TAB_STOP_SELECTOR)).filter((element) => element.tabIndex >= 0 && !element.closest("[inert]")),
-    ];
-    const targetIndex = tabStops.indexOf(event.target as HTMLElement);
-    const crossesCardBoundary = event.shiftKey ? targetIndex === 0 : targetIndex === tabStops.length - 1;
-    if (!crossesCardBoundary) return;
-    const nextIndex = currentIndex + (event.shiftKey ? -1 : 1);
-    if (nextIndex < 0 || nextIndex >= notes.length || cardNodesRef.current.has(notes[nextIndex].id)) return;
-    event.preventDefault();
-    focusCardAtIndex(nextIndex, event.shiftKey);
-  }, [focusCardAtIndex, indexById, notes]);
+  const onKeyDownCapture = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (
+        event.key !== "Tab" ||
+        event.nativeEvent.isComposing ||
+        event.nativeEvent.keyCode === 229 ||
+        !(event.target instanceof Element)
+      )
+        return;
+      const slot = event.target.closest<HTMLElement>("[data-card-masonry-note-id]");
+      const noteId = slot?.dataset.cardMasonryNoteId;
+      if (!noteId) return;
+      const currentIndex = indexById.get(noteId);
+      if (currentIndex === undefined) return;
+      const article = slot.querySelector<HTMLElement>(".note-card");
+      if (!article) return;
+      const tabStops = [
+        ...(article.tabIndex >= 0 ? [article] : []),
+        ...Array.from(article.querySelectorAll<HTMLElement>(TAB_STOP_SELECTOR)).filter(
+          (element) => element.tabIndex >= 0 && !element.closest("[inert]"),
+        ),
+      ];
+      const targetIndex = tabStops.indexOf(event.target as HTMLElement);
+      const crossesCardBoundary = event.shiftKey
+        ? targetIndex === 0
+        : targetIndex === tabStops.length - 1;
+      if (!crossesCardBoundary) return;
+      const nextIndex = currentIndex + (event.shiftKey ? -1 : 1);
+      if (
+        nextIndex < 0 ||
+        nextIndex >= notes.length ||
+        cardNodesRef.current.has(notes[nextIndex].id)
+      )
+        return;
+      event.preventDefault();
+      focusCardAtIndex(nextIndex, event.shiftKey);
+    },
+    [focusCardAtIndex, indexById, notes],
+  );
 
   useLayoutEffect(() => {
     const anchor = scrollAnchorRef.current;
@@ -277,7 +357,9 @@ export function useVirtualCardMasonry(
     if (!article) return;
     const tabStops = [
       ...(article.tabIndex >= 0 ? [article] : []),
-      ...Array.from(article.querySelectorAll<HTMLElement>(TAB_STOP_SELECTOR)).filter((element) => element.tabIndex >= 0 && !element.closest("[inert]")),
+      ...Array.from(article.querySelectorAll<HTMLElement>(TAB_STOP_SELECTOR)).filter(
+        (element) => element.tabIndex >= 0 && !element.closest("[inert]"),
+      ),
     ];
     const target = pendingFocus.backwards ? tabStops.at(-1) : tabStops[0];
     target?.focus({ preventScroll: true });

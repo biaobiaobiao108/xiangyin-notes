@@ -14,13 +14,19 @@ export function cleanDisplayTitle(title: string | null | undefined): string {
 
 export function cleanSnippetForDisplay(snippet: string): string {
   if (!snippet) return "";
-  return snippet.replace(new RegExp(WIKI_LINK_PATTERN.source, "g"), (_match, target: string, alias?: string) => {
-    return (alias ? decodeWikiLinkComponent(alias) : decodeWikiLinkComponent(target)).trim();
-  })
-    // Also remove any stray double brackets if any
-    .replace(/\[\[|\]\]|【【|】】/g, "")
-    // Remove leading markdown heading markers
-    .replace(/^#{1,6}\s+/, "");
+  return (
+    snippet
+      .replace(
+        new RegExp(WIKI_LINK_PATTERN.source, "g"),
+        (_match, target: string, alias?: string) => {
+          return (alias ? decodeWikiLinkComponent(alias) : decodeWikiLinkComponent(target)).trim();
+        },
+      )
+      // Also remove any stray double brackets if any
+      .replace(/\[\[|\]\]|【【|】】/g, "")
+      // Remove leading markdown heading markers
+      .replace(/^#{1,6}\s+/, "")
+  );
 }
 
 function HighlightSnippet({ snippet, highlight }: { snippet: string; highlight: string }) {
@@ -36,13 +42,20 @@ function HighlightSnippet({ snippet, highlight }: { snippet: string; highlight: 
   while ((linkMatch = linkPattern.exec(snippet)) !== null) {
     const target = decodeWikiLinkComponent(linkMatch[1] ?? "").trim();
     const alias = linkMatch[2] ? decodeWikiLinkComponent(linkMatch[2]).trim() : "";
-    if (target && cleanHighlight && target.toLowerCase() === cleanHighlight.toLowerCase() && alias) {
+    if (
+      target &&
+      cleanHighlight &&
+      target.toLowerCase() === cleanHighlight.toLowerCase() &&
+      alias
+    ) {
       candidates.add(alias);
     }
   }
 
   const cleaned = cleanSnippetForDisplay(snippet);
-  const sortedCandidates = Array.from(candidates).filter(Boolean).sort((a, b) => b.length - a.length);
+  const sortedCandidates = Array.from(candidates)
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length);
 
   if (!sortedCandidates.length) return <span>{cleaned}</span>;
 
@@ -132,7 +145,8 @@ export function BacklinksDialog({
     if (!dialog) return;
 
     if (open) {
-      const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      const returnFocus =
+        document.activeElement instanceof HTMLElement ? document.activeElement : null;
       const handleNativeClose = () => onClose();
       // 不使用 closedby="any"：早期 Safari 稳定版不支持，遮罩关闭统一走 handleBackdropClick。
       dialog.addEventListener("close", handleNativeClose);
@@ -185,7 +199,10 @@ export function BacklinksDialog({
       });
       await fetchBacklinks();
     } catch (reason) {
-      const message = reason instanceof ApiError && reason.code === "MENTION_STALE" ? reason.message : "添加链接失败，请重试";
+      const message =
+        reason instanceof ApiError && reason.code === "MENTION_STALE"
+          ? reason.message
+          : "添加链接失败，请重试";
       await fetchBacklinks();
       setError(message);
     } finally {
@@ -271,7 +288,11 @@ export function BacklinksDialog({
           ref={bodyRef}
           className="backlinks-dialog-body floating-scrollbar-target"
         >
-          {error && <p className="backlinks-error" role="alert">{error}</p>}
+          {error && (
+            <p className="backlinks-error" role="alert">
+              {error}
+            </p>
+          )}
           {loading && !data ? (
             <div className="backlinks-loading-state">
               <Loader2 size={18} className="spin-icon" />
@@ -298,9 +319,7 @@ export function BacklinksDialog({
                         className="backlink-card-title-button"
                         onClick={() => handleNavigate(item.sourceNoteId)}
                       >
-                        <span className="backlink-card-title">
-                          {displayTitle}
-                        </span>
+                        <span className="backlink-card-title">{displayTitle}</span>
                         <span className="backlink-card-meta">
                           {item.sourceNotebookName && (
                             <span className="backlink-card-notebook">
@@ -373,7 +392,11 @@ export function BacklinksDialog({
               })}
             </ul>
           )}
-          {data?.truncated && <p className="backlinks-truncated-hint" role="status">结果较多，仅显示最近的部分引用。</p>}
+          {data?.truncated && (
+            <p className="backlinks-truncated-hint" role="status">
+              结果较多，仅显示最近的部分引用。
+            </p>
+          )}
         </div>
         <FloatingScrollbar
           scrollTargetRef={bodyRef}

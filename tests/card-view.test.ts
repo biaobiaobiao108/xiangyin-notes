@@ -1,8 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { sortNotes, type NoteSort } from "../app/workspace/helpers";
-import { assignCardMasonryLanes, cardLaneConfig, positionCardMasonryLanes, visibleCardIndexes } from "../app/workspace/card-masonry";
+import {
+  assignCardMasonryLanes,
+  cardLaneConfig,
+  positionCardMasonryLanes,
+  visibleCardIndexes,
+} from "../app/workspace/card-masonry";
 import type { NoteSummary } from "../shared/types";
-import { applyNoteSelectionClick, isNoteSelectionModifierClick, resolveNoteClickAction } from "../app/workspace/note-list-selection";
+import {
+  applyNoteSelectionClick,
+  isNoteSelectionModifierClick,
+  resolveNoteClickAction,
+} from "../app/workspace/note-list-selection";
 
 describe("card view & layout", () => {
   const sampleNotes: NoteSummary[] = [
@@ -81,15 +90,39 @@ describe("card view & layout", () => {
     const config = cardLaneConfig(700, 900, false);
     expect(config.laneCount).toBe(2);
     const assignments = assignCardMasonryLanes(sampleNotes, config, false);
-    expect(assignments.flatMap((lane) => lane.map((card) => card.index)).sort((a, b) => a - b)).toEqual([0, 1, 2]);
+    expect(
+      assignments.flatMap((lane) => lane.map((card) => card.index)).sort((a, b) => a - b),
+    ).toEqual([0, 1, 2]);
 
-    const baseline = positionCardMasonryLanes(assignments, new Map(), Math.round(config.laneWidth), config.gap);
-    const firstLaneFirstNote = assignments.find((lane) => lane.some((card) => card.index === 0))?.[0];
+    const baseline = positionCardMasonryLanes(
+      assignments,
+      new Map(),
+      Math.round(config.laneWidth),
+      config.gap,
+    );
+    const firstLaneFirstNote = assignments.find((lane) =>
+      lane.some((card) => card.index === 0),
+    )?.[0];
     expect(firstLaneFirstNote).toBeDefined();
-    const measured = new Map([[firstLaneFirstNote!.note.id, { widthKey: Math.round(config.laneWidth), height: firstLaneFirstNote!.estimatedHeight + 120 }]]);
-    const refined = positionCardMasonryLanes(assignments, measured, Math.round(config.laneWidth), config.gap);
+    const measured = new Map([
+      [
+        firstLaneFirstNote!.note.id,
+        {
+          widthKey: Math.round(config.laneWidth),
+          height: firstLaneFirstNote!.estimatedHeight + 120,
+        },
+      ],
+    ]);
+    const refined = positionCardMasonryLanes(
+      assignments,
+      measured,
+      Math.round(config.laneWidth),
+      config.gap,
+    );
 
-    const laneIndex = assignments.findIndex((lane) => lane.some((card) => card.index === firstLaneFirstNote!.index));
+    const laneIndex = assignments.findIndex((lane) =>
+      lane.some((card) => card.index === firstLaneFirstNote!.index),
+    );
     const nextCardIndex = assignments[laneIndex][1]?.index;
     if (nextCardIndex !== undefined) {
       const before = baseline[laneIndex].cards.find((card) => card.index === nextCardIndex)!;
@@ -146,17 +179,25 @@ describe("card view & layout", () => {
       modifiers: { shiftKey: true },
     });
     // 移动端没有修饰键，点按始终打开笔记。
-    expect(resolveNoteClickAction({ ctrlKey: true }, { hasSelectionActive: true, isMobileViewport: true }))
-      .toEqual({ action: "open" });
+    expect(
+      resolveNoteClickAction(
+        { ctrlKey: true },
+        { hasSelectionActive: true, isMobileViewport: true },
+      ),
+    ).toEqual({ action: "open" });
   });
 
   test("shift-click is a selection modifier and starts a range when no anchor exists", () => {
     expect(isNoteSelectionModifierClick({ shiftKey: true })).toBe(true);
 
-    const state = applyNoteSelectionClick({ ids: new Set(), anchorId: null }, sampleNotes.map((note) => note.id), {
-      id: "note-2",
-      shiftKey: true,
-    });
+    const state = applyNoteSelectionClick(
+      { ids: new Set(), anchorId: null },
+      sampleNotes.map((note) => note.id),
+      {
+        id: "note-2",
+        shiftKey: true,
+      },
+    );
 
     expect([...state.ids]).toEqual(["note-2"]);
     expect(state.anchorId).toBe("note-2");
