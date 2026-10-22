@@ -127,6 +127,7 @@ export function loginClientKey(request: Request, environment: RuntimeEnvironment
 const nextRateLimitCleanupAt = new WeakMap<SqliteDatabase, number>();
 
 type LoginRateLimitAction = "login" | "login_address";
+type LoginRateLimitRecordResult = { recorded: true } | { recorded: false; retryAfter: number };
 
 export function cleanupExpiredRateLimits(database: SqliteDatabase, timestamp: number) {
   const nextAt = nextRateLimitCleanupAt.get(database) ?? 0;
@@ -152,20 +153,6 @@ function pruneRateLimitAction(database: SqliteDatabase, action: LoginRateLimitAc
       ORDER BY updated_at ASC, key ASC LIMIT ?
     )
   `).run(action, action, timestamp, excess);
-
-  // Prefer keeping active lockouts, but the per-action limit must remain hard
-  // even during a distributed flood that leaves every row blocked.
-  const remaining = database.query("SELECT COUNT(*) AS count FROM rate_limits WHERE action = ?").get(action) as { count: number };
-  const remainingExcess = Number(remaining.count) - maxEntries;
-  if (remainingExcess > 0) {
-    database.query(`
-      DELETE FROM rate_limits
-      WHERE action = ? AND key IN (
-        SELECT key FROM rate_limits WHERE action = ?
-        ORDER BY updated_at ASC, key ASC LIMIT ?
-      )
-    `).run(action, action, remainingExcess);
-  }
 }
 
 export function getLoginAttempt(database: SqliteDatabase, key: string, timestamp: number, action: LoginRateLimitAction = "login"): LoginAttempt {
@@ -188,11 +175,27 @@ export function getLoginAttempt(database: SqliteDatabase, key: string, timestamp
   return { windowStartedAt: row.window_started_at, failures: row.points, blockedUntil: 0 };
 }
 
-export function recordFailedLogin(database: SqliteDatabase, key: string, timestamp: number, action: LoginRateLimitAction = "login") {
-  database.transaction(() => {
+export function recordFailedLogin(database: SqliteDatabase, key: string, timestamp: number, action: LoginRateLimitAction = "login"): LoginRateLimitRecordResult {
+  return database.transaction((): LoginRateLimitRecordResult => {
     const current = getLoginAttempt(database, key, timestamp, action);
     const existing = database.query("SELECT 1 AS found FROM rate_limits WHERE action = ? AND key = ?").get(action, key);
-    if (!existing) pruneRateLimitAction(database, action, LOGIN_ATTEMPT_MAX_ENTRIES - 1, timestamp);
+    if (!existing) {
+      pruneRateLimitAction(database, action, LOGIN_ATTEMPT_MAX_ENTRIES - 1, timestamp);
+      const count = first<{ count: number }>(database, "SELECT COUNT(*) AS count FROM rate_limits WHERE action = ?", action)?.count ?? 0;
+      if (Number(count) >= LOGIN_ATTEMPT_MAX_ENTRIES) {
+        const nextRelease = first<{ next_release: number | null }>(database,
+          "SELECT MIN(blocked_until) AS next_release FROM rate_limits WHERE action = ? AND blocked_until > ?",
+          action,
+          timestamp,
+        )?.next_release;
+        return {
+          recorded: false,
+          retryAfter: nextRelease === null || nextRelease === undefined
+            ? LOGIN_BLOCK_SECONDS
+            : Math.max(1, nextRelease - timestamp),
+        };
+      }
+    }
     const failures = current.failures + 1;
     const windowStartedAt = current.failures === 0 ? timestamp : current.windowStartedAt;
     const maxFailures = action === "login_address" ? LOGIN_ADDRESS_MAX_FAILURES : LOGIN_MAX_FAILURES;
@@ -207,6 +210,7 @@ export function recordFailedLogin(database: SqliteDatabase, key: string, timesta
         blocked_until = excluded.blocked_until,
         updated_at = excluded.updated_at
     `).run(action, key, failures, windowStartedAt, blockedUntil, timestamp);
+    return { recorded: true };
   })();
 }
 
@@ -335,8 +339,15 @@ export async function handleAuthRoute(ctx: RouteContext): Promise<Response | nul
     const retryAfter = Math.max(attempt.blockedUntil, addressAttempt.blockedUntil) - timestamp;
     if (retryAfter > 0) return jsonError(429, "TOO_MANY_LOGIN_ATTEMPTS", "登录尝试过于频繁，请稍后再试", { "Retry-After": String(retryAfter) });
     if (!constantTimeEqual(payload.username, credentials.username) || !constantTimeEqual(payload.password, credentials.password)) {
-      recordFailedLogin(database, attemptKey, timestamp);
-      recordFailedLogin(database, addressKey, timestamp, "login_address");
+      const userResult = recordFailedLogin(database, attemptKey, timestamp);
+      const addressResult = recordFailedLogin(database, addressKey, timestamp, "login_address");
+      if (!userResult.recorded || !addressResult.recorded) {
+        const capacityRetryAfter = Math.max(
+          userResult.recorded ? 0 : userResult.retryAfter,
+          addressResult.recorded ? 0 : addressResult.retryAfter,
+        );
+        return jsonError(429, "TOO_MANY_LOGIN_ATTEMPTS", "登录尝试过于频繁，请稍后再试", { "Retry-After": String(capacityRetryAfter) });
+      }
       return jsonError(401, "INVALID_CREDENTIALS", "用户名或密码不正确");
     }
     resetLoginAttempt(database, attemptKey);
