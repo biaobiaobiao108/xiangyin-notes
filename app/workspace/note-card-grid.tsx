@@ -8,7 +8,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { Archive, Check, Menu, Search, Star } from "lucide-react";
+import { Archive, Menu, Search, Star } from "lucide-react";
 import type { NoteSort, NoteSummary, NoteView, Notebook } from "../../shared/types";
 import { playEntranceAnimation } from "../animation";
 import { FloatingScrollbar } from "../floating-scrollbar";
@@ -425,13 +425,6 @@ const NoteCardItem = memo(function NoteCardItem({
           {/* 顶部标题与收藏星标 */}
           <div className={`note-card-header ${!isTrashView ? "has-favorite-action" : ""}`}>
             <h3 className="note-card-title">{displayTitle}</h3>
-            <span className="note-selection-slot" aria-hidden="true">
-              {isSelected && (
-                <span className="note-selection-mark">
-                  <Check size={11} strokeWidth={2.5} />
-                </span>
-              )}
-            </span>
             {!isTrashView && (
               <button
                 type="button"

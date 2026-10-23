@@ -13,7 +13,6 @@ import {
 } from "react";
 import {
   Archive,
-  Check,
   ChevronDown,
   ChevronLeft,
   LayoutPanelLeft,
@@ -437,13 +436,6 @@ const NoteListRow = memo(function NoteListRow({
           <span className="note-row-main">
             <span className="note-row-title">
               <span className="note-row-title-text">{note.title || "未命名笔记"}</span>
-              <span className="note-selection-slot" aria-hidden="true">
-                {isSelected && (
-                  <span className="note-selection-mark">
-                    <Check size={11} strokeWidth={2.5} />
-                  </span>
-                )}
-              </span>
             </span>
             <span className="note-row-preview">
               {note.preview || "还没有内容，开始写下第一句话。"}

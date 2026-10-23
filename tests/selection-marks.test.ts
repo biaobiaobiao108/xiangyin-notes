@@ -22,14 +22,14 @@ function noteSummary(): NoteSummary {
   };
 }
 
-function renderList(selectedIds: Set<string>): string {
+function renderList(selectedIds: Set<string>, selectedId: string | null = null): string {
   return renderToStaticMarkup(
     React.createElement(NoteListPanel, {
       notes: [noteSummary()],
       total: 1,
       sort: "updated",
       setSort: () => {},
-      selectedId: null,
+      selectedId,
       selectedIds,
       onSelect: () => {},
       onToggleFavoriteNote: () => {},
@@ -87,20 +87,22 @@ function renderCards(selectedIds: Set<string>): string {
   );
 }
 
-describe("selection affordance", () => {
-  test("list rows reserve an aria-hidden slot and only fill it when selected", () => {
+describe("multi-selection highlight", () => {
+  test("list rows use a highlight instead of a checkmark, including on the active note", () => {
     const unselected = renderList(new Set<string>());
-    expect(unselected).toContain('class="note-selection-slot" aria-hidden="true"');
-    expect(unselected).not.toContain("note-selection-mark");
+    expect(unselected).not.toContain("is-selected");
 
-    const selected = renderList(new Set(["note-1"]));
-    expect(selected).toContain("note-selection-mark");
+    const selected = renderList(new Set(["note-1"]), "note-1");
+    expect(selected).toContain("is-selected");
+    expect(selected).toContain("is-active");
+    expect(selected).not.toContain("note-selection-mark");
     expect(selected).toContain('aria-pressed="true"');
   });
 
-  test("cards expose the same selection mark as list rows", () => {
-    expect(renderCards(new Set<string>())).not.toContain("note-selection-mark");
-    expect(renderCards(new Set(["note-1"]))).toContain("note-selection-mark");
+  test("cards use a selection highlight instead of a checkmark", () => {
+    expect(renderCards(new Set<string>())).not.toContain("is-selected");
+    expect(renderCards(new Set(["note-1"]))).toContain("is-selected");
+    expect(renderCards(new Set(["note-1"]))).not.toContain("note-selection-mark");
   });
 
   test("list and card views show notebook names and favorite controls in notebook views", () => {
