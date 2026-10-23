@@ -45,8 +45,8 @@
   --accent: light-dark(#365e4e, #7aa2f7);
   --accent-dark: light-dark(#27473a, #89ddff);
   --accent-soft: light-dark(#edf5f0, rgba(122, 162, 247, 0.14));
-  --multi-selection-soft: light-dark(rgba(195, 75, 53, 0.1), rgba(247, 118, 142, 0.16));
-  --multi-selection-border: light-dark(rgba(195, 75, 53, 0.28), rgba(247, 118, 142, 0.42));
+  --multi-selection-soft: light-dark(#edf3f7, rgba(125, 207, 255, 0.14));
+  --multi-selection-border: light-dark(#c6d8e7, rgba(125, 207, 255, 0.38));
   --accent-contrast: light-dark(#ffffff, #1a1b26);
   --accent-rgb: light-dark(rgba(54, 94, 78, 0.2), rgba(122, 162, 247, 0.2));
   --accent-ring: light-dark(rgba(54, 94, 78, 0.32), rgba(122, 162, 247, 0.42));
