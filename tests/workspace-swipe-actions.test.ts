@@ -39,6 +39,7 @@ function renderNoteList(
       selectedId: null,
       selectedIds: new Set<string>(),
       onSelect: () => {},
+      onToggleFavoriteNote: () => {},
       onDeleteSelected: () => {},
       onNoteSwipeAction: () => {},
       view: "all",

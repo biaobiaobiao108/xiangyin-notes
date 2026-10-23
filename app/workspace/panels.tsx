@@ -303,6 +303,7 @@ const NoteListRow = memo(function NoteListRow({
   isSelected,
   isActive,
   showNotebook,
+  onToggleFavorite,
   onSelect,
   rowRef,
   rowStyle,
@@ -319,6 +320,7 @@ const NoteListRow = memo(function NoteListRow({
   isSelected: boolean;
   isActive: boolean;
   showNotebook: boolean;
+  onToggleFavorite: (note: NoteSummary) => void;
   onSelect: (id: string, event: ReactMouseEvent<HTMLButtonElement>) => void;
   rowRef?: (element: HTMLLIElement | null) => void;
   rowStyle?: CSSProperties;
@@ -424,7 +426,7 @@ const NoteListRow = memo(function NoteListRow({
         <button
           ref={foregroundRef}
           type="button"
-          className={`note-row swipe-action-foreground ${note.thumbnail ? "has-thumbnail" : ""} ${isSelected ? "is-selected" : ""} ${isActive ? "is-active" : ""}`}
+          className={`note-row swipe-action-foreground ${note.thumbnail ? "has-thumbnail" : ""} ${!isTrashView ? "has-favorite-action" : ""} ${isSelected ? "is-selected" : ""} ${isActive ? "is-active" : ""}`}
           aria-current={isActive ? "page" : undefined}
           aria-pressed={isSelected}
           aria-expanded={isMobileViewport ? open : undefined}
@@ -442,7 +444,6 @@ const NoteListRow = memo(function NoteListRow({
                   </span>
                 )}
               </span>
-              {note.isFavorite && <Star size={13} fill="currentColor" />}
             </span>
             <span className="note-row-preview">
               {note.preview || "还没有内容，开始写下第一句话。"}
@@ -450,6 +451,20 @@ const NoteListRow = memo(function NoteListRow({
             <NoteRowMeta note={note} showNotebook={showNotebook} />
           </span>
         </button>
+        {!isTrashView && (
+          <button
+            type="button"
+            className={`note-row-star-btn ${note.isFavorite ? "is-favorite" : ""}`}
+            aria-label={note.isFavorite ? "取消收藏" : "加入收藏"}
+            aria-pressed={note.isFavorite}
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleFavorite(note);
+            }}
+          >
+            <Star size={15} fill={note.isFavorite ? "currentColor" : "none"} />
+          </button>
+        )}
       </div>
     </li>
   );
@@ -633,6 +648,7 @@ type NoteListPanelProps = {
   selectedId: string | null;
   selectedIds: ReadonlySet<string>;
   onSelect: (id: string, event: ReactMouseEvent<HTMLButtonElement>) => void;
+  onToggleFavoriteNote: (note: NoteSummary) => void;
   onDeleteSelected: () => void;
   onNoteSwipeAction: (note: NoteSummary, action: NoteSwipeAction) => void;
   view: NoteView;
@@ -668,6 +684,7 @@ export const NoteListPanel = memo(function NoteListPanel({
   selectedId,
   selectedIds,
   onSelect,
+  onToggleFavoriteNote,
   onDeleteSelected,
   onNoteSwipeAction,
   view,
@@ -981,7 +998,8 @@ export const NoteListPanel = memo(function NoteListPanel({
                       rowStyle={virtualList.rowStyle(top)}
                       isSelected={selectedIds.has(note.id)}
                       isActive={selectedId === note.id && !isMobileViewport}
-                      showNotebook={!currentNotebookName && view !== "inbox"}
+                      showNotebook
+                      onToggleFavorite={onToggleFavoriteNote}
                       onSelect={onSelect}
                       isMobileViewport={isMobileViewport}
                       isTrashView={view === "trash"}

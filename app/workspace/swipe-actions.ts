@@ -181,7 +181,7 @@ export function useSwipeActionGesture({
       if (
         target instanceof Element &&
         target.closest(
-          ".swipe-action-button, .note-card-star-btn, a, input, textarea, select, [contenteditable='true']",
+          ".swipe-action-button, .note-card-star-btn, .note-row-star-btn, a, input, textarea, select, [contenteditable='true']",
         )
       )
         return;
@@ -258,7 +258,7 @@ export function useSwipeActionGesture({
       if (
         event.target instanceof Element &&
         event.target.closest(
-          ".swipe-action-button, .note-card-star-btn, a, input, textarea, select, [contenteditable='true']",
+          ".swipe-action-button, .note-card-star-btn, .note-row-star-btn, a, input, textarea, select, [contenteditable='true']",
         )
       )
         return;

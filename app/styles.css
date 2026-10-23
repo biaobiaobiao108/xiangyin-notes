@@ -499,6 +499,10 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
   .is-swipe-open > .swipe-action-buttons { pointer-events: auto; }
   .swipe-action-foreground { position: relative; z-index: 1; transform: translate3d(0, 0, 0); transition: transform var(--motion-fast) var(--motion-ease-out); }
   .is-swipe-open > .swipe-action-foreground { transform: translate3d(calc(0px - var(--swipe-action-width)), 0, 0); }
+  .note-row-star-btn { top: 4px; right: 14px; width: 40px; height: 40px; }
+  .note-row.has-favorite-action .note-row-title { padding-right: 70px; }
+  .note-row.has-favorite-action .note-row-title .note-selection-slot { right: 46px; }
+  .is-swipe-open > .note-row-star-btn { transform: translate3d(calc(0px - var(--swipe-action-width)), 0, 0); }
   .note-row-swipe { width: calc(100% - 16px); margin: 3px 8px; }
   .note-row-swipe .note-row { width: 100%; margin: 0; border-radius: inherit; }
   .note-row-swipe > .note-row { background: var(--surface); }
@@ -507,7 +511,7 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
   .note-row-swipe > .note-row.is-active { background: var(--accent-soft); }
   .note-row-swipe.is-swipe-open > .note-row { background: var(--accent-soft); border-color: transparent; box-shadow: none; }
 }
-.note-row-swipe { display: flow-root; }
+.note-row-swipe { position: relative; display: flow-root; }
 /* Keep rows fully painted; WebKit can retain skipped subtrees as blank after scroll reveal. */
 .note-row {
   display: grid;
@@ -540,10 +544,16 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .note-row-thumbnail--empty { border-color: transparent; background: transparent; }
 .note-row-main { display: grid; min-width: 0; gap: 6px; }
 .note-row-title { position: relative; display: flex; align-items: flex-start; gap: 6px; min-width: 0; padding-right: 28px; color: var(--ink); font-size: 0.94rem; font-weight: 600; letter-spacing: 0; }
+.note-row.has-favorite-action .note-row-title { padding-right: 62px; }
 .note-row-title-text { display: -webkit-box; flex: 1 1 auto; min-width: 0; overflow: clip; overflow-wrap: anywhere; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
 .note-row-title svg { flex: none; margin-top: 0.15em; color: var(--accent); }
 .note-selection-slot { display: inline-grid; flex: none; place-items: center; width: 22px; height: 1.35em; }
 .note-row-title .note-selection-slot { position: absolute; top: 0; right: 0; }
+.note-row.has-favorite-action .note-row-title .note-selection-slot { right: 34px; }
+.note-row-star-btn { position: absolute; z-index: 2; top: 11px; right: 22px; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--soft-muted); cursor: pointer; transition: color var(--motion-fast) var(--motion-ease-out), background-color var(--motion-fast) var(--motion-ease-out), transform var(--motion-fast) var(--motion-ease-out); }
+.note-row-star-btn:hover, .note-row-star-btn:focus-visible { background: var(--control-hover-soft); color: var(--ink); }
+.note-row-star-btn.is-favorite { color: var(--accent); }
+.note-row-star-btn:focus-visible { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--focus-ring); }
 .note-selection-mark { display: grid; place-items: center; width: 22px; height: 22px; border: 1px solid var(--accent-border-soft); border-radius: 50%; background: var(--accent-soft); box-shadow: var(--shadow-2xs); color: var(--accent-dark); }
 .note-selection-mark svg { display: block; margin: 0; color: inherit; }
 .note-row-preview { display: -webkit-box; min-width: 0; overflow: clip; overflow-wrap: anywhere; color: var(--muted); font-size: 0.79rem; line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
@@ -2129,13 +2139,11 @@ dialog::backdrop {
 
 .card-masonry-slot > .note-card {
   margin-block-end: 0;
-  scale: 1;
-  transition: scale var(--motion-fast) var(--motion-ease-out), box-shadow var(--motion-fast) var(--motion-ease-out), border-color var(--motion-fast) var(--motion-ease-out), background-color var(--motion-fast) var(--motion-ease-out);
+  transition: box-shadow var(--motion-fast) var(--motion-ease-out), border-color var(--motion-fast) var(--motion-ease-out), background-color var(--motion-fast) var(--motion-ease-out);
 }
 
 @media (hover: hover) and (pointer: fine) {
   .card-masonry-slot:hover > .note-card {
-    scale: 1.015;
     z-index: 1;
   }
 }
@@ -2471,10 +2479,6 @@ dialog::backdrop {
     --motion-layout: 0ms;
     --motion-spin: 0ms;
     --motion-pulse: 0ms;
-  }
-
-  .card-masonry-slot:hover > .note-card {
-    scale: 1;
   }
 
   .app-shell.layout-cards .editor-panel,

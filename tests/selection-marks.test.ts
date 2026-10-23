@@ -32,6 +32,7 @@ function renderList(selectedIds: Set<string>): string {
       selectedId: null,
       selectedIds,
       onSelect: () => {},
+      onToggleFavoriteNote: () => {},
       onDeleteSelected: () => {},
       onNoteSwipeAction: () => {},
       view: "all",
@@ -67,7 +68,17 @@ function renderCards(selectedIds: Set<string>): string {
       currentNotebookName: "笔记本",
       query: "",
       onClearQuery: () => {},
-      notebooks: [],
+      notebooks: [
+        {
+          id: "notebook-1",
+          name: "笔记本",
+          color: "#5d795f",
+          icon: "folder",
+          isSystem: false,
+          count: 1,
+          updatedAt: 1_700_000_000,
+        },
+      ],
       onToggleFavoriteNote: () => {},
       scrollScope: "selection-marks-test",
       initialScrollTop: 0,
@@ -90,6 +101,16 @@ describe("selection affordance", () => {
   test("cards expose the same selection mark as list rows", () => {
     expect(renderCards(new Set<string>())).not.toContain("note-selection-mark");
     expect(renderCards(new Set(["note-1"]))).toContain("note-selection-mark");
+  });
+
+  test("list and card views show notebook names and favorite controls in notebook views", () => {
+    const list = renderList(new Set<string>());
+    const cards = renderCards(new Set<string>());
+
+    expect(list).toContain('<span class="note-row-notebook">笔记本</span>');
+    expect(list).toContain('aria-label="加入收藏"');
+    expect(cards).toContain('<span class="notebook-badge-name">笔记本</span>');
+    expect(cards).toContain('aria-label="加入收藏"');
   });
 
   test("cards keep room for the favorite action only outside the trash", () => {

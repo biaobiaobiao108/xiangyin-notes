@@ -1220,7 +1220,7 @@ export function Workspace() {
     [clearNoteSelection, loadNotes, refreshNotebooks, notifyError],
   );
 
-  const handleToggleFavoriteCardNote = useCallback(
+  const handleToggleFavoriteNote = useCallback(
     async (target: NoteSummary) => {
       const isFavorite = !target.isFavorite;
       try {
@@ -1759,7 +1759,7 @@ export function Workspace() {
             swipeAction: handleNoteSwipeAction,
             restoreSelected: restoreSelectedNotes,
             deleteSelected: deleteSelectedNotes,
-            toggleFavorite: handleToggleFavoriteCardNote,
+            toggleFavorite: handleToggleFavoriteNote,
           },
         }),
         targetNote.title || "未命名笔记",
@@ -1976,6 +1976,7 @@ export function Workspace() {
           selectedId={selectedId}
           selectedIds={selectedNoteIds}
           onSelect={handleSelectListNote}
+          onToggleFavoriteNote={handleToggleFavoriteNote}
           onDeleteSelected={deleteSelectedNotes}
           onNoteSwipeAction={handleNoteSwipeAction}
           view={view}
@@ -2018,7 +2019,7 @@ export function Workspace() {
           query={query}
           onClearQuery={handleClearQuery}
           notebooks={notebooks}
-          onToggleFavoriteNote={handleToggleFavoriteCardNote}
+          onToggleFavoriteNote={handleToggleFavoriteNote}
           onEmptyTrash={view === "trash" ? emptyTrash : undefined}
           trashBusy={pendingTrashCount > 0 || emptyingTrash}
           transitionToken={listTransitionToken}

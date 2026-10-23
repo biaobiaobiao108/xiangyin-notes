@@ -91,7 +91,7 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
     [notebooks],
   );
   const isTrashView = view === "trash";
-  const showNotebook = !currentNotebookName && view !== "inbox";
+  const showNotebook = true;
   const masonry = useVirtualCardMasonry(sortedNotes, gridScrollRef, isMobileViewport);
   const cardGridScrollEdges = useScrollEdges(gridScrollRef, [
     sortedNotes.length,
