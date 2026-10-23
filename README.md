@@ -92,13 +92,13 @@ Markdown 中引用的外站图片默认不会自动加载。需要查看时，�
 ```dotenv
 XIANGYING_USERNAME=
 XIANGYING_PASSWORD=
-# 使用快捷指令导入时再设置：
+# 使用快捷指令导入或外部 API 时再设置：
 # XIANGYING_API_TOKEN=
-# 使用远程 MCP 时另行设置，不要与上面的导入令牌共用：
+# 使用远程 MCP 时另行设置，不要与上面的 API 令牌共用：
 # XIANGYING_MCP_TOKEN=
 ```
 
-复制为 `.env` 后，必须先为 `XIANGYING_USERNAME` 和 `XIANGYING_PASSWORD` 填入自己的登录凭据。快捷指令导入与远程 MCP 是可选功能；启用时分别生成独立随机令牌并填写对应变量。
+复制为 `.env` 后，必须先为 `XIANGYING_USERNAME` 和 `XIANGYING_PASSWORD` 填入自己的登录凭据。外部 API 与远程 MCP 是可选功能；启用时分别生成独立随机令牌并填写对应变量。`XIANGYING_API_TOKEN` 同时用于快捷指令导入和只读笔记 API。
 
 > [!WARNING]
 > 修改 `XIANGYING_USERNAME` 等同于换一个账号：服务会为新用户名创建账号，原有笔记仍留在数据库中，但不再对当前登录可见，也不会自动迁移。修改 `XIANGYING_PASSWORD` 则只更新密码，并让所有已登录会话失效。确实需要改用户名时，请先备份数据库。
@@ -232,6 +232,24 @@ Content-Type: text/markdown
 ```
 
 请求正文放入要保存的 Markdown 文本。每次导入都会在收件箱新建一篇笔记。请通过 HTTPS 调用，并把令牌放在请求头里，不要放进网址。
+
+### 只读集成 API
+
+集成 API 使用 `XIANGYING_API_TOKEN` 的 Bearer 令牌认证。读取最近更新的笔记摘要：
+
+```text
+GET https://你的域名/api/v1/notes?sort=updated&limit=10&includeTotal=0
+Authorization: Bearer 你的令牌
+```
+
+列表默认只返回未删除笔记；`sort` 支持 `updated`、`created`、`title`，`limit` 为 1 到 100。响应包含 `notes`；有下一页时还会返回 `hasMore: true` 和可继续请求的 `nextCursor`。摘要包含标题、预览、标签、笔记本和时间等元数据，不包含正文；时间字段使用 Unix 秒。读取单篇笔记正文：
+
+```text
+GET https://你的域名/api/v1/notes/笔记ID
+Authorization: Bearer 你的令牌
+```
+
+该令牌也允许调用 `/api/import` 导入笔记，因此应按凭据妥善保管，通过 HTTPS 发送，并放在请求头中，不要放进网址。
 
 ## 常用快捷键
 

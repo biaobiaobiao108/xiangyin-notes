@@ -322,6 +322,112 @@ describe("Bun Server API", () => {
     expect(conflict.body?.error.code).toBe("IDEMPOTENCY_CONFLICT");
   });
 
+  test("protects the versioned read API with the configured Bearer token", async () => {
+    const apiToken = "shortcut-api-token-1234567890";
+    const apiEnvironment = { ...environment, XIANGYING_API_TOKEN: apiToken };
+
+    const unconfigured = await request("/api/v1/notes");
+    expect(unconfigured.response.status).toBe(503);
+    expect(unconfigured.body?.error.code).toBe("API_AUTH_NOT_CONFIGURED");
+
+    const missingToken = await request("/api/v1/notes", {}, undefined, apiEnvironment);
+    expect(missingToken.response.status).toBe(401);
+    expect(missingToken.response.headers.get("WWW-Authenticate")).toContain("Bearer");
+
+    const invalidToken = await request(
+      "/api/v1/notes",
+      { headers: { Authorization: "Bearer incorrect-token" } },
+      undefined,
+      apiEnvironment,
+    );
+    expect(invalidToken.response.status).toBe(401);
+    expect(invalidToken.body?.error.code).toBe("INVALID_API_TOKEN");
+
+    const cookieOnly = await request(
+      "/api/v1/notes",
+      {},
+      "xiangying_session=not-an-api-token",
+      apiEnvironment,
+    );
+    expect(cookieOnly.response.status).toBe(401);
+
+    const readOnlyViolation = await request(
+      "/api/v1/notes",
+      { method: "POST", headers: { Authorization: `Bearer ${apiToken}` } },
+      undefined,
+      apiEnvironment,
+    );
+    expect(readOnlyViolation.response.status).toBe(405);
+    expect(readOnlyViolation.response.headers.get("Allow")).toBe("GET");
+  });
+
+  test("lists recent note summaries with cursor pagination and reads note content", async () => {
+    const apiToken = "shortcut-api-token-1234567890";
+    const apiEnvironment = { ...environment, XIANGYING_API_TOKEN: apiToken };
+    const noteIds: string[] = [];
+
+    for (let index = 0; index < 3; index += 1) {
+      const imported = await request(
+        "/api/import",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiToken}`,
+            "Content-Type": "text/markdown",
+          },
+          body: `# 集成 API 笔记 ${index}\n\n内容 ${index}`,
+        },
+        undefined,
+        apiEnvironment,
+      );
+      expect(imported.response.status).toBe(201);
+      noteIds.push(imported.body?.note.id);
+      database
+        .query("UPDATE notes SET updated_at = ? WHERE id = ?")
+        .run(4_000_000_000 + index, imported.body?.note.id);
+    }
+
+    const firstPage = await request(
+      "/api/v1/notes?sort=updated&limit=2&includeTotal=0",
+      { headers: { Authorization: `Bearer ${apiToken}` } },
+      undefined,
+      apiEnvironment,
+    );
+    expect(firstPage.response.status).toBe(200);
+    expect(firstPage.body?.notes.map((note: { id: string }) => note.id)).toEqual([
+      noteIds[2],
+      noteIds[1],
+    ]);
+    expect(firstPage.body?.hasMore).toBe(true);
+    expect(firstPage.body?.nextCursor).toBeString();
+    expect(firstPage.body?.notes[0]).not.toHaveProperty("contentMarkdown");
+    expect(firstPage.body?.notes[0]).not.toHaveProperty("thumbnail");
+
+    const nextPage = await request(
+      `/api/v1/notes?${new URLSearchParams({
+        sort: "updated",
+        limit: "2",
+        includeTotal: "0",
+        cursor: firstPage.body?.nextCursor,
+      })}`,
+      { headers: { Authorization: `Bearer ${apiToken}` } },
+      undefined,
+      apiEnvironment,
+    );
+    expect(nextPage.response.status).toBe(200);
+    expect(nextPage.body?.notes[0]?.id).toBe(noteIds[0]);
+
+    const detail = await request(
+      `/api/v1/notes/${noteIds[2]}`,
+      { headers: { Authorization: `Bearer ${apiToken}` } },
+      undefined,
+      apiEnvironment,
+    );
+    expect(detail.response.status).toBe(200);
+    expect(detail.body?.note.contentMarkdown).toBe("# 集成 API 笔记 2\n\n内容 2");
+    expect(detail.body?.note).not.toHaveProperty("thumbnail");
+  });
+
   test("validates imported Markdown request bodies", async () => {
     const apiEnvironment = { ...environment, XIANGYING_API_TOKEN: "shortcut-api-token-1234567890" };
     const headers = { Authorization: `Bearer ${apiEnvironment.XIANGYING_API_TOKEN}` };

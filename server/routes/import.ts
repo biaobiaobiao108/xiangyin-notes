@@ -1,5 +1,4 @@
 import {
-  constantTimeEqual,
   digestHex,
   first,
   getNote,
@@ -16,6 +15,7 @@ import {
   validNoteAssetReferences,
   validText,
 } from "../core";
+import { requireApiToken } from "../api-token";
 import { cleanupExpiredRateLimits, getAuthCredentials, ensureEnvironmentUser } from "./auth";
 import { createNote } from "./notes";
 import { publishWorkspaceChange } from "../realtime";
@@ -23,32 +23,6 @@ import { publishWorkspaceChange } from "../realtime";
 const IMPORT_API_PATH = "/api/import";
 export const IMPORT_RATE_LIMIT_WINDOW_SECONDS = 60;
 export const IMPORT_RATE_LIMIT_MAX_REQUESTS = 30;
-
-function getApiToken(environment: Record<string, string | undefined>) {
-  const token = environment.XIANGYING_API_TOKEN?.trim();
-  return token || null;
-}
-
-function bearerToken(request: Request) {
-  const header = request.headers.get("Authorization")?.trim();
-  if (!header) return null;
-  const match = /^Bearer\s+(\S+)$/iu.exec(header);
-  return match?.[1] ?? null;
-}
-
-function requireApiToken(request: Request, environment: Record<string, string | undefined>) {
-  const expectedToken = getApiToken(environment);
-  if (!expectedToken)
-    return jsonError(503, "API_AUTH_NOT_CONFIGURED", "请先配置 XIANGYING_API_TOKEN");
-
-  const suppliedToken = bearerToken(request);
-  if (!suppliedToken || !constantTimeEqual(suppliedToken, expectedToken)) {
-    return jsonError(401, "INVALID_API_TOKEN", "API Token 无效或缺失", {
-      "WWW-Authenticate": 'Bearer realm="xiangying-import"',
-    });
-  }
-  return null;
-}
 
 function importClientKey(
   request: Request,
@@ -180,7 +154,7 @@ export async function handleImportRoute(ctx: RouteContext): Promise<Response | n
     return jsonError(405, "METHOD_NOT_ALLOWED", "导入接口只支持 POST", { Allow: "POST" });
 
   const environment = options.environment ?? {};
-  const tokenError = requireApiToken(request, environment);
+  const tokenError = requireApiToken(request, environment, "xiangying-import");
   if (tokenError) return tokenError;
   const rateLimitError = checkImportRateLimit(
     options.database,

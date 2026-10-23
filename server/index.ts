@@ -19,6 +19,7 @@ import { handleImportRoute } from "./routes/import";
 import { handleMcpRequest, MCP_PATH } from "./mcp-transport";
 import { handleNotebooksRoute } from "./routes/notebooks";
 import { handleNotesRoute } from "./routes/notes";
+import { handleVersionedApiRoute } from "./routes/versioned-api";
 import {
   REALTIME_PATH,
   RealtimeHub,
@@ -302,14 +303,14 @@ async function handleApi(request: Request, options: ServerOptions) {
     return jsonError(400, "INVALID_PATH", "请求路径无效");
   }
 
+  const ctx: RouteContext = { request, url, method, segments, options };
+  if (segments[0] === "v1") return handleVersionedApiRoute(ctx, assetRoot);
   if (!API_RESOURCES.has(segments[0] ?? "")) return jsonError(404, "NOT_FOUND", "接口不存在");
 
   cleanupExpiredSessions(database);
   void cleanupOrphanAssets(database, assetRoot).catch((error) =>
     console.warn("[assets] orphan cleanup failed", error),
   );
-
-  const ctx: RouteContext = { request, url, method, segments, options };
 
   // 1. Unauthenticated routes (Health, Auth, Bootstrap, Setup)
   const authResponse = await handleAuthRoute(ctx);
