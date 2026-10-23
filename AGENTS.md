@@ -15,13 +15,16 @@
 ## 开发与提交
 
 - 新功能或 bug 修复完成后提交；标题使用中文，并按 `feat:`、`fix:`、`docs:`、`test:`、`chore:` 或 `ci:` 分类。
-- 代码修改提交前运行：
+- 代码修改提交前先运行 `bun run format`，再运行以下检查：
 
   ```text
+  bun run format
   bun run typecheck
   bun test
   bun run build
   ```
+
+- `bun run format` 会直接改写脚本覆盖的文件；提交前检查格式化产生的 diff，确认没有无关改动。
 
 - 本地不需要构建 Docker 镜像；由 CI 负责。
 
