@@ -669,6 +669,10 @@ describe("Bun Server API", () => {
     expect(invalidBoolean.response.status).toBe(400);
     expect(invalidBoolean.body?.error.code).toBe("INVALID_NOTE");
 
+    const favoriteBaselineUpdatedAt = 1_700_000_000;
+    database
+      .query("UPDATE notes SET updated_at = ? WHERE id = ?")
+      .run(favoriteBaselineUpdatedAt, note.id);
     const summaryUpdate = await request(
       `/api/notes/${note.id}?response=summary`,
       {
@@ -680,6 +684,7 @@ describe("Bun Server API", () => {
     expect(summaryUpdate.response.status).toBe(200);
     expect(summaryUpdate.body?.note).not.toHaveProperty("contentMarkdown");
     expect(summaryUpdate.body?.note.isFavorite).toBe(true);
+    expect(summaryUpdate.body?.note.updatedAt).toBe(favoriteBaselineUpdatedAt);
 
     const summaryRead = await request(`/api/notes/${note.id}?response=summary`, {}, login.cookie);
     expect(summaryRead.response.status).toBe(200);

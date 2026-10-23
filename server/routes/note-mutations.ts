@@ -66,10 +66,14 @@ export function updateNoteInTransaction(
   isFavorite: number,
   deletedAt: number | null,
 ) {
-  const updatedAt = now();
   const titleChanged = current.title !== title;
   const contentChanged = current.content_markdown !== contentMarkdown;
+  const notebookChanged = current.notebook_id !== notebookId;
   const deletedChanged = current.deleted_at !== deletedAt;
+  const updatedAt =
+    titleChanged || contentChanged || notebookChanged || deletedChanged
+      ? now()
+      : current.updated_at;
   const oldTitle = current.title;
 
   const updated = database
