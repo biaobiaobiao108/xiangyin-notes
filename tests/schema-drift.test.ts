@@ -21,4 +21,14 @@ describe("schema drift snapshots", () => {
       database.close();
     }
   });
+
+  test("keeps user objects whose names begin with sqlite but not sqlite_", () => {
+    const database = new Database(":memory:");
+    try {
+      database.exec("CREATE VIEW sqliteX_view AS SELECT 1 AS value");
+      expect(snapshotSchema(database).has("view:sqliteX_view")).toBe(true);
+    } finally {
+      database.close();
+    }
+  });
 });

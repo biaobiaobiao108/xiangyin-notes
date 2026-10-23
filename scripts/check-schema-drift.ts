@@ -9,7 +9,7 @@
  */
 import { existsSync } from "node:fs";
 import { Database } from "bun:sqlite";
-import { databasePathFromEnv, openDatabase } from "../server/db";
+import { CURRENT_SCHEMA_VERSION, databasePathFromEnv, openDatabase } from "../server/db";
 import { snapshotSchema } from "../server/schema-snapshot";
 
 const existingPath = process.argv[2]?.trim() || databasePathFromEnv(Bun.env);
@@ -23,6 +23,14 @@ const target = await openDatabase(":memory:");
 const existing = new Database(existingPath, { readonly: true });
 
 try {
+  const existingVersion = Number(
+    (existing.query("PRAGMA user_version").get() as { user_version: number } | null)
+      ?.user_version ?? 0,
+  );
+  const versionUnsupported =
+    !Number.isInteger(existingVersion) ||
+    existingVersion < 1 ||
+    existingVersion > CURRENT_SCHEMA_VERSION;
   const existingObjects = snapshotSchema(existing);
   const targetObjects = snapshotSchema(target);
 
@@ -58,11 +66,17 @@ try {
   }
 
   const drifted =
-    missing.length > 0 || different.length > 0 || extra.length > 0 || columnDiffs.length > 0;
+    versionUnsupported ||
+    missing.length > 0 ||
+    different.length > 0 ||
+    extra.length > 0 ||
+    columnDiffs.length > 0;
 
   console.log(
     `已有库 ${existingPath}：${existingObjects.size} 个对象；当前 schema：${targetObjects.size} 个对象`,
   );
+  if (versionUnsupported)
+    console.log(`不支持的 schema 版本：${existingVersion}（支持 1 至 ${CURRENT_SCHEMA_VERSION}）`);
   console.log(
     "缺失对象（当前 schema 有、已有库没有）:",
     missing.length ? missing.join(", ") : "无",

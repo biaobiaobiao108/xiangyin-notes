@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { openDatabase } from "../server/db";
 import { handleRequest } from "../server/index";
+import { waitForOrphanAssetCleanup } from "../server/routes/assets";
 import { ensureEnvironmentUser } from "../server/routes/auth";
 import { createNote } from "../server/routes/notes";
 
@@ -64,6 +65,7 @@ test("multiple tag filters run before pagination, support any/all, and validate 
     expect((await f.list("tags=alpha&tags=bad%20tag")).status).toBe(400);
     expect((await f.list("tagMode=invalid")).status).toBe(400);
   } finally {
+    await waitForOrphanAssetCleanup(f.database);
     f.database.close();
   }
 });
@@ -99,6 +101,7 @@ test("relevance prioritizes title matches, cursors retain scores and reject chan
       (await f.list(`query=needle&sort=relevance&tags=alpha&cursor=${first.nextCursor}`)).status,
     ).toBe(400);
   } finally {
+    await waitForOrphanAssetCleanup(f.database);
     f.database.close();
   }
 });
@@ -126,6 +129,7 @@ test("short-term relevance paginates ties and relevance without a query falls ba
     const plain = await (await f.list("sort=relevance")).json();
     expect(plain.notes.map((note: { id: string }) => note.id)).toEqual([b, a, title]);
   } finally {
+    await waitForOrphanAssetCleanup(f.database);
     f.database.close();
   }
 });
@@ -139,6 +143,7 @@ test("short ASCII searches match indexed mixed-case title terms", async () => {
       expect(result.notes.map((note: { id: string }) => note.id)).toContain(docker);
     }
   } finally {
+    await waitForOrphanAssetCleanup(f.database);
     f.database.close();
   }
 });
@@ -150,6 +155,7 @@ test("short-term indexing and fallback share a Unicode code-point boundary", asy
     const result = await (await f.list("query=末尾")).json();
     expect(result.notes.map((item: { id: string }) => item.id)).toContain(note);
   } finally {
+    await waitForOrphanAssetCleanup(f.database);
     f.database.close();
   }
 });

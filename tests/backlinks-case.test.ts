@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { openDatabase } from "../server/db";
 import { handleRequest } from "../server/index";
+import { waitForOrphanAssetCleanup } from "../server/routes/assets";
 
 for (const [title, mention] of [
   ["AI", "ai"],
@@ -59,6 +60,7 @@ for (const [title, mention] of [
         truncated: false,
       });
     } finally {
+      await waitForOrphanAssetCleanup(database);
       database.close();
     }
   });

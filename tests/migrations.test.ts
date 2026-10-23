@@ -1,5 +1,8 @@
 import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   applyMigrations,
   CURRENT_SCHEMA_VERSION,
@@ -97,5 +100,72 @@ test("refuses an unversioned non-empty database and leaves it unchanged", async 
     expect(database.query("PRAGMA user_version").get()).toEqual({ user_version: 0 });
   } finally {
     database.close();
+  }
+});
+
+test("refuses an unversioned database containing only a view without changing it", async () => {
+  const database = new Database(":memory:");
+  database.exec("CREATE VIEW user_view AS SELECT 1 AS value");
+  try {
+    await expect(initializeDatabase(database)).rejects.toThrow("schema version 0 is unsupported");
+    expect(database.query("PRAGMA user_version").get()).toEqual({ user_version: 0 });
+    expect(
+      database
+        .query("SELECT name FROM sqlite_master WHERE type = 'view' AND name = 'user_view'")
+        .get(),
+    ).toBeTruthy();
+    expect(
+      database
+        .query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'users'")
+        .get(),
+    ).toBeNull();
+  } finally {
+    database.close();
+  }
+});
+
+test("refuses an unversioned database containing a sqlite-prefixed user view", async () => {
+  const database = new Database(":memory:");
+  database.exec("CREATE VIEW sqliteX_view AS SELECT 1 AS value");
+  try {
+    await expect(initializeDatabase(database)).rejects.toThrow("schema version 0 is unsupported");
+    expect(database.query("PRAGMA user_version").get()).toEqual({ user_version: 0 });
+    expect(
+      database
+        .query("SELECT name FROM sqlite_master WHERE type = 'view' AND name = 'sqliteX_view'")
+        .get(),
+    ).toBeTruthy();
+    expect(
+      database
+        .query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'users'")
+        .get(),
+    ).toBeNull();
+  } finally {
+    database.close();
+  }
+});
+
+test("db:check rejects a database with a matching schema and unsupported version", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "xiangying-schema-check-"));
+  const path = join(directory, "notes.sqlite");
+  const database = await openDatabase(path);
+  database.exec("PRAGMA user_version = 999");
+  database.close();
+
+  try {
+    const child = Bun.spawn(["bun", "run", "scripts/check-schema-drift.ts", path], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [exitCode, stdout, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ]);
+    expect(exitCode).toBe(1);
+    expect(stdout).toContain("不支持的 schema 版本：999");
+    expect(stderr).toBe("");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
   }
 });

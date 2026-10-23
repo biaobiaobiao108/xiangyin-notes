@@ -40,6 +40,7 @@ const TEMPORARY_ASSET_FILE_NAME = new RegExp(
 // Per-database throttle: a module-level timestamp would let one database's sweep
 // suppress another's (tests and any multi-database process would share it).
 const nextOrphanAssetCleanupAt = new WeakMap<SqliteDatabase, number>();
+const activeOrphanAssetCleanup = new WeakMap<SqliteDatabase, Promise<void>>();
 
 export function assetRootFromEnv(environment: RuntimeEnvironment = Bun.env) {
   const configured = environment.ASSETS_PATH?.trim();
@@ -248,13 +249,32 @@ export async function cleanupOrphanAssetFiles(
   }
 }
 
-export async function cleanupOrphanAssets(
+export function cleanupOrphanAssets(
   database: SqliteDatabase,
   assetRoot: string,
   timestamp = now(),
 ) {
-  if (timestamp < (nextOrphanAssetCleanupAt.get(database) ?? 0)) return;
+  const active = activeOrphanAssetCleanup.get(database);
+  if (active) return active;
+  if (timestamp < (nextOrphanAssetCleanupAt.get(database) ?? 0)) return Promise.resolve();
   nextOrphanAssetCleanupAt.set(database, timestamp + ORPHAN_ASSET_CLEANUP_INTERVAL_SECONDS);
+  const cleanup = runOrphanAssetCleanup(database, assetRoot, timestamp).finally(() => {
+    if (activeOrphanAssetCleanup.get(database) === cleanup)
+      activeOrphanAssetCleanup.delete(database);
+  });
+  activeOrphanAssetCleanup.set(database, cleanup);
+  return cleanup;
+}
+
+export async function waitForOrphanAssetCleanup(database: SqliteDatabase) {
+  await activeOrphanAssetCleanup.get(database);
+}
+
+async function runOrphanAssetCleanup(
+  database: SqliteDatabase,
+  assetRoot: string,
+  timestamp: number,
+) {
   // Pending markers represent file deletes that outlived their database rows.
   // Retry them even when this sweep finds no stale rows to delete.
   await retryPendingAssetDeletions(assetRoot);

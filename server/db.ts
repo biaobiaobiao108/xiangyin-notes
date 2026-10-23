@@ -45,7 +45,7 @@ function readSchemaVersion(database: SqliteDatabase) {
 function isEmptyDatabase(database: SqliteDatabase) {
   const row = database
     .query(
-      "SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+      "SELECT COUNT(*) AS count FROM sqlite_master WHERE type IN ('table', 'view', 'index', 'trigger') AND name NOT GLOB 'sqlite_*'",
     )
     .get() as TableCountRow | null | undefined;
   return Number(row?.count ?? 0) === 0;
@@ -169,14 +169,25 @@ export async function initializeDatabase(
   if (version > currentSchemaVersion) throw schemaVersionError(version, currentSchemaVersion);
 
   if (isEmptyDatabase(database) && version === 0) {
-    const initialize = database.transaction(() => {
-      if (!isEmptyDatabase(database)) return;
-      if (readSchemaVersion(database) !== 0)
-        throw schemaVersionError(readSchemaVersion(database), currentSchemaVersion);
-      database.exec(schemaSql);
-    });
-    initialize.immediate();
-    version = readSchemaVersion(database);
+    const expectedBaseline = createSchemaAtVersion(
+      schemaSql,
+      BASELINE_SCHEMA_VERSION,
+      migrations,
+      currentSchemaVersion,
+    );
+    try {
+      const initialize = database.transaction(() => {
+        if (!isEmptyDatabase(database)) return;
+        if (readSchemaVersion(database) !== 0)
+          throw schemaVersionError(readSchemaVersion(database), currentSchemaVersion);
+        database.exec(schemaSql);
+        assertSchemaMatches(database, expectedBaseline, BASELINE_SCHEMA_VERSION);
+      });
+      initialize.immediate();
+      version = readSchemaVersion(database);
+    } finally {
+      expectedBaseline.close();
+    }
   } else if (version === 0) {
     throw schemaVersionError(version, currentSchemaVersion);
   }

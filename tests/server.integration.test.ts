@@ -17,6 +17,7 @@ import {
   ORPHAN_ASSET_TTL_SECONDS,
   removeAssetFiles,
   retryPendingAssetDeletions,
+  waitForOrphanAssetCleanup,
 } from "../server/routes/assets";
 import { IMPORT_RATE_LIMIT_MAX_REQUESTS } from "../server/routes/import";
 
@@ -48,6 +49,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  await waitForOrphanAssetCleanup(database);
   database.close();
   await rm(assetRoot, { recursive: true, force: true });
 });
@@ -1810,6 +1812,66 @@ describe("Bun Server API", () => {
       "app",
     );
     expect(changed.response.status).toBe(200);
+  });
+
+  test("revalidates static files by modification time and preserves ETag precedence", async () => {
+    const clientRoot = join(assetRoot, "client");
+    const path = join(clientRoot, "index.html");
+    await Bun.write(path, "<!doctype html><p>cache test</p>");
+    const modifiedAt = new Date("2026-01-01T12:00:00.789Z");
+    await utimes(path, modifiedAt, modifiedAt);
+    const get = (headers: HeadersInit = {}, method = "GET") =>
+      handleRequest(new Request("http://xiangying.test/index.html", { headers, method }), {
+        database,
+        clientRoot,
+      });
+    const first = await get();
+    const lastModified = first.headers.get("Last-Modified")!;
+    expect(lastModified).toBe("Thu, 01 Jan 2026 12:00:00 GMT");
+    await first.body?.cancel();
+    for (const method of ["GET", "HEAD"]) {
+      const response = await get({ "If-Modified-Since": lastModified }, method);
+      expect(response.status).toBe(304);
+      expect(await response.text()).toBe("");
+    }
+    for (const headers of [
+      { "If-Modified-Since": "Thu, 01 Jan 2026 11:59:59 GMT" },
+      { "If-Modified-Since": "invalid" },
+      { "If-Modified-Since": lastModified, "If-None-Match": 'W/"stale"' },
+    ] as HeadersInit[]) {
+      const response = await get(headers);
+      expect(response.status).toBe(200);
+      await response.body?.cancel();
+    }
+  });
+
+  test("negotiates gzip without overriding an explicit zero quality", async () => {
+    const clientRoot = join(assetRoot, "client");
+    const content = "<!doctype html><p>compression test</p>";
+    const compressed = Bun.gzipSync(new TextEncoder().encode(content));
+    await Bun.write(join(clientRoot, "index.html"), content);
+    await Bun.write(join(clientRoot, "index.html.gz"), compressed);
+    for (const [acceptEncoding, gzip] of [
+      ["identity, gzip;q=0", false],
+      ["gzip;q=0.000, *;q=1", false],
+      ["br", false],
+      ["*;q=0", false],
+      ["gzip", true],
+      ["br, GZIP; Q=0.5", true],
+      ["*;q=0.5", true],
+    ] as const) {
+      const response = await handleRequest(
+        new Request("http://xiangying.test/index.html", {
+          headers: { "Accept-Encoding": acceptEncoding },
+        }),
+        { database, clientRoot },
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Vary")).toBe("Accept-Encoding");
+      expect(response.headers.get("Content-Encoding")).toBe(gzip ? "gzip" : null);
+      const body = new Uint8Array(await response.arrayBuffer());
+      expect(new TextDecoder().decode(gzip ? Bun.gunzipSync(body) : body)).toBe(content);
+    }
   });
 
   test("serves source PWA asset aliases in development", async () => {

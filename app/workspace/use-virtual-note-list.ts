@@ -69,8 +69,11 @@ export function useVirtualNoteList(
     heightsRef.current.clear();
     rowRefCallbacksRef.current.clear();
     rowStylesRef.current.clear();
+    if (scrollElement) scrollElement.scrollTop = 0;
+    setViewport((current) => ({ ...current, top: 0 }));
+    setPinnedIndex(null);
     setMeasurementRevision((revision) => revision + 1);
-  }, [scope]);
+  }, [scope, scrollElement]);
 
   // 同一 scope 内删除或移出笔记后，及时裁掉已不存在的测量值与 ref 回调，避免长期滞留。
   useLayoutEffect(() => {

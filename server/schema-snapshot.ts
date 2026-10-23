@@ -10,7 +10,7 @@ const FTS_SHADOW_TABLES = new Set([
 export function snapshotSchema(database: Database) {
   const rows = database
     .query(
-      "SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' AND sql IS NOT NULL",
+      "SELECT type, name, sql FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' AND sql IS NOT NULL",
     )
     .all() as Array<{ type: string; name: string; sql: string }>;
   const objects = new Map<string, string>();

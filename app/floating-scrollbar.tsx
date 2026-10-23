@@ -139,7 +139,13 @@ export function FloatingScrollbar({
       content || typeof MutationObserver === "undefined"
         ? null
         : new MutationObserver(scheduleMetrics);
-    mutationObserver?.observe(target, { childList: true, subtree: true, characterData: true });
+    mutationObserver?.observe(target, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ["style"],
+    });
     target.addEventListener("scroll", handleTargetActivity, { passive: true });
     target.addEventListener("pointerenter", handleTargetActivity);
     target.addEventListener("pointermove", handleTargetActivity);

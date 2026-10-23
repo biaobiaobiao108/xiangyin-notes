@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { openDatabase, type SqliteDatabase } from "../server/db";
 import { handleRequest } from "../server/index";
+import { waitForOrphanAssetCleanup } from "../server/routes/assets";
 import { MAX_SHORT_TERM_CONTENT_CHARS, MAX_SHORT_TERMS_PER_NOTE } from "../server/note-search";
 import { BACKLINK_MENTION_LIMIT, BACKLINK_REFERENCE_LIMIT } from "../server/core";
 
@@ -42,7 +43,10 @@ beforeEach(async () => {
   notebookId = (await request("/api/notebooks")).body.notebooks[0].id;
 });
 
-afterEach(() => database.close());
+afterEach(async () => {
+  await waitForOrphanAssetCleanup(database);
+  database.close();
+});
 
 async function createNote(title: string, contentMarkdown = "") {
   const result = await request("/api/notes", "POST", { notebookId, title, contentMarkdown });

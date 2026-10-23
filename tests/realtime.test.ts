@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyMigrations, openDatabase, type SqliteDatabase } from "../server/db";
 import { handleRequest } from "../server/index";
+import { waitForOrphanAssetCleanup } from "../server/routes/assets";
 import {
   REALTIME_CLIENT_ID_HEADER,
   RealtimeHub,
@@ -88,6 +89,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  await waitForOrphanAssetCleanup(database);
   database.close();
   await rm(assetRoot, { recursive: true, force: true });
 });

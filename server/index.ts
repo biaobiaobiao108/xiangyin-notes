@@ -7,7 +7,12 @@ import {
   type ServerOptions,
 } from "./core";
 import { openDatabase } from "./db";
-import { assetRootFromEnv, cleanupOrphanAssets, handleAssetsRoute } from "./routes/assets";
+import {
+  assetRootFromEnv,
+  cleanupOrphanAssets,
+  handleAssetsRoute,
+  waitForOrphanAssetCleanup,
+} from "./routes/assets";
 import { cleanupExpiredSessions, handleAuthRoute, isResponse, requireUser } from "./routes/auth";
 import { handleExportRoute } from "./routes/export";
 import { handleImportRoute } from "./routes/import";
@@ -158,6 +163,19 @@ function invalidCookieMutationOrigin(
   return origin !== requestUrl.origin && origin !== getPublicOrigin(requestUrl, environment);
 }
 
+function acceptsGzipEncoding(header: string | null) {
+  const encodings = (header ?? "").split(",").map((entry) => {
+    const [name, ...parameters] = entry.trim().toLowerCase().split(";");
+    const qualityParameter = parameters.find((parameter) => /^\s*q\s*=/u.test(parameter));
+    const quality = qualityParameter ? Number(qualityParameter.split("=")[1]?.trim()) : 1;
+    return { name: name.trim(), quality };
+  });
+  const encoding =
+    encodings.find((entry) => entry.name === "gzip") ??
+    encodings.find((entry) => entry.name === "*");
+  return encoding !== undefined && encoding.quality > 0 && encoding.quality <= 1;
+}
+
 async function serveStatic(
   request: Request,
   clientRoot: string,
@@ -200,9 +218,7 @@ async function serveStatic(
     return new Response("Forbidden", { status: 403 });
   let file = Bun.file(requestedPath);
   let contentEncoding: string | null = null;
-  const acceptsGzip = /(?:^|,)\s*gzip(?:\s*;|\s|,|$)/iu.test(
-    request.headers.get("Accept-Encoding") ?? "",
-  );
+  const acceptsGzip = acceptsGzipEncoding(request.headers.get("Accept-Encoding"));
   if (acceptsGzip && /\.(?:css|html|js|json|webmanifest)$/iu.test(extname(requestedPath))) {
     const compressedFile = Bun.file(`${requestedPath}.gz`);
     if (await compressedFile.exists()) {
@@ -258,7 +274,10 @@ async function serveStatic(
       return new Response(null, { status: 304, headers });
   } else if (lastModified > 0) {
     const ifModifiedSince = Date.parse(request.headers.get("If-Modified-Since") ?? "");
-    if (Number.isFinite(ifModifiedSince) && Math.floor(ifModifiedSince / 1000) >= lastModified) {
+    if (
+      Number.isFinite(ifModifiedSince) &&
+      Math.floor(ifModifiedSince / 1000) >= Math.floor(lastModified / 1000)
+    ) {
       return new Response(null, { status: 304, headers });
     }
   }
@@ -425,6 +444,11 @@ if (import.meta.main) {
         await Promise.race([server.stop(), forceShutdown]);
       } finally {
         if (forceShutdownTimer) clearTimeout(forceShutdownTimer);
+        try {
+          await waitForOrphanAssetCleanup(database);
+        } catch (error) {
+          console.warn("[assets] orphan cleanup failed during shutdown", error);
+        }
         database.close();
         console.log("[server] 服务已关闭");
       }

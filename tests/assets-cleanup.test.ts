@@ -8,6 +8,7 @@ import {
   ORPHAN_ASSET_CLEANUP_INTERVAL_SECONDS,
   ORPHAN_ASSET_TTL_SECONDS,
   removeAssetFiles,
+  waitForOrphanAssetCleanup,
 } from "../server/routes/assets";
 
 let database: SqliteDatabase;
@@ -64,5 +65,17 @@ describe("orphan asset cleanup", () => {
     await cleanupOrphanAssets(database, assetRoot, timestamp);
 
     expect(await Bun.file(orphanPath).exists()).toBe(false);
+  });
+
+  test("coalesces concurrent cleanup and exposes a promise to await before closing the database", async () => {
+    const timestamp = Math.floor(Date.now() / 1000) + ORPHAN_ASSET_CLEANUP_INTERVAL_SECONDS * 20;
+    const first = cleanupOrphanAssets(database, assetRoot, timestamp);
+    const second = cleanupOrphanAssets(database, assetRoot, timestamp + 1);
+
+    expect(second).toBe(first);
+    await waitForOrphanAssetCleanup(database);
+    expect(database.query("SELECT COUNT(*) AS count FROM image_assets").get()).toEqual({
+      count: 0,
+    });
   });
 });
