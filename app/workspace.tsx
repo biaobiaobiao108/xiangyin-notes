@@ -1389,28 +1389,26 @@ export function Workspace() {
       changeQuery("");
     }
   }, [changeQuery, query]);
-  const handleExportNotes = useCallback(async () => {
+  const handleExportNote = useCallback(async () => {
+    const note = selectedRef.current;
+    if (!note || isNoteLoading) return;
+
     try {
+      flushEditorDraftRef.current();
       await flushPendingSaves("now");
       if (hasUnsavedWork()) {
         notifyWarning("仍有内容未保存，请保存成功后再导出");
         return;
       }
-      const response = await fetch("/api/export", { credentials: "include" });
-      if (!response.ok) throw new Error("export-failed");
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = url;
-      a.download = `xiangying-notes-${new Date().toISOString().slice(0, 10)}.zip`;
+      a.href = `/api/notes/${encodeURIComponent(note.id)}/export`;
       document.body.appendChild(a);
       a.click();
       a.remove();
-      URL.revokeObjectURL(url);
     } catch {
       notifyError("导出失败，请检查网络后重试");
     }
-  }, [flushPendingSaves, hasUnsavedWork]);
+  }, [flushPendingSaves, hasUnsavedWork, isNoteLoading]);
   const handleExportImage = useCallback(() => {
     flushEditorDraftRef.current();
     const note = selectedRef.current;
@@ -1455,7 +1453,7 @@ export function Workspace() {
       if (id === "trash") moveToTrash();
       if (id === "restore") restoreFromTrash();
       if (id === "export-image") handleExportImage();
-      if (id === "export-notes") void handleExportNotes();
+      if (id === "export-note") void handleExportNote();
       if (id === "install-app") {
         if (pwaState.canInstall) void installPwa();
         else if (pwaState.showIosInstallHint && !pwaState.standalone)
@@ -1466,7 +1464,7 @@ export function Workspace() {
       copyNoteMarkdown,
       createNoteInInbox,
       handleExportImage,
-      handleExportNotes,
+      handleExportNote,
       isMobileViewport,
       moveToTrash,
       openMobileHome,

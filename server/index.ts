@@ -52,7 +52,6 @@ const API_RESOURCES = new Set([
   "assets",
   "trash",
   "wiki-notes",
-  "export",
   "import",
   "realtime",
 ]);
@@ -333,7 +332,7 @@ async function handleApi(request: Request, options: ServerOptions) {
   const assetsResponse = await handleAssetsRoute(ctx, user, assetRoot);
   if (assetsResponse) return assetsResponse;
 
-  const exportResponse = await handleExportRoute(ctx, user, assetRoot);
+  const exportResponse = await handleExportRoute(ctx, user);
   if (exportResponse) return exportResponse;
 
   return jsonError(404, "NOT_FOUND", "接口不存在");

@@ -57,7 +57,7 @@ export type CommandId =
   | "restore"
   | "install-app"
   | "move-to-notebook"
-  | "export-notes"
+  | "export-note"
   | "export-image";
 
 type CommandOption = {
@@ -235,6 +235,17 @@ export function CommandMenu({
       ...(hasSelectedNote
         ? [
             {
+              id: "export-note" as const,
+              label: "导出当前笔记 Markdown",
+              shortcut: "↵",
+              icon: Download,
+              keywords: "导出 下载 markdown 文件",
+            },
+          ]
+        : []),
+      ...(hasSelectedNote
+        ? [
+            {
               id: "export-image" as const,
               label: "导出图片",
               shortcut: "↵",
@@ -252,7 +263,6 @@ export function CommandMenu({
       ...(canRestore
         ? [{ id: "restore" as const, label: "恢复笔记", shortcut: "↵", icon: Archive }]
         : []),
-      { id: "export-notes" as const, label: "导出全部笔记 (ZIP)", shortcut: "↵", icon: Download },
       ...(!standalone && (canInstallApp || showIosInstallHint)
         ? [{ id: "install-app" as const, label: "安装象映笔记", shortcut: "↵", icon: Download }]
         : []),

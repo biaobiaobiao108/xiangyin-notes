@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdir, readdir, rm, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { marked } from "marked";
 import {
   applyMigrations,
   openDatabase,
@@ -2590,226 +2589,111 @@ describe("Bun Server API", () => {
     expect(me.body?.user.username).toBe("owner");
   });
 
-  test("exports all user notes and attachments as a standard zip archive", async () => {
+  test("exports only the selected note as Markdown with a safe UTF-8 filename", async () => {
     const login = await request("/api/auth/login", {
       method: "POST",
       body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
     });
-    const exportResponse = await handleRequest(
-      new Request("http://xiangying.test/api/export", {
-        headers: { Cookie: login.cookie! },
+    const content = "# 今日记录\n\n保留原始 Markdown **格式**。";
+    const firstNote = await request(
+      "/api/notes",
+      {
+        method: "POST",
+        body: JSON.stringify({ title: "周报/2026.md", contentMarkdown: content }),
+      },
+      login.cookie,
+    );
+    const otherNote = await request(
+      "/api/notes",
+      {
+        method: "POST",
+        body: JSON.stringify({ title: "其他笔记", contentMarkdown: "不应被一起导出" }),
+      },
+      login.cookie,
+    );
+    expect(firstNote.response.status).toBe(201);
+    expect(otherNote.response.status).toBe(201);
+
+    const response = await handleRequest(
+      new Request(`http://xiangying.test/api/notes/${firstNote.body?.note.id}/export`, {
+        headers: { Cookie: login.cookie ?? "" },
       }),
       { database, environment, clientRoot: "dist/client", assetRoot },
     );
 
-    expect(exportResponse.status).toBe(200);
-    expect(exportResponse.headers.get("Content-Type")).toBe("application/zip");
-    expect(exportResponse.headers.get("Content-Disposition")).toContain("attachment; filename=");
-    const zipBytes = new Uint8Array(await exportResponse.arrayBuffer());
-    expect(zipBytes.length).toBeGreaterThan(50);
-    // Standard ZIP local file header signature: PK\x03\x04
-    expect(zipBytes[0]).toBe(0x50);
-    expect(zipBytes[1]).toBe(0x4b);
-    expect(zipBytes[2]).toBe(0x03);
-    expect(zipBytes[3]).toBe(0x04);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toBe("text/markdown; charset=utf-8");
+    expect(response.headers.get("Content-Disposition")).toContain(
+      "filename*=UTF-8''%E5%91%A8%E6%8A%A5_2026.md",
+    );
+    expect(await response.text()).toBe(content);
   });
 
-  test("uses bounded attachment names for exported Markdown image references", async () => {
+  test("exports the user's trashed note but not another user's note", async () => {
     const login = await request("/api/auth/login", {
       method: "POST",
       body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
     });
-    const originalName = `${"图片".repeat(120)}.png`;
-    const boundedName = `${"图片".repeat(32)}.png`;
-    const uploaded = await request(
-      "/api/assets",
-      { method: "POST", body: imageForm(originalName) },
-      login.cookie,
-    );
-    const asset = uploaded.body?.asset;
-    expect(uploaded.response.status).toBe(201);
-
     const created = await request(
       "/api/notes",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          title: "export image",
-          contentMarkdown: `![image](${asset.url})\n\n![same image again](${asset.url})`,
-        }),
-      },
+      { method: "POST", body: JSON.stringify({ title: "私有笔记", contentMarkdown: "content" }) },
       login.cookie,
     );
     expect(created.response.status).toBe(201);
-
-    const response = await handleRequest(
-      new Request("http://xiangying.test/api/export", { headers: { Cookie: login.cookie ?? "" } }),
-      { database, environment, clientRoot: "dist/client", assetRoot },
-    );
-    expect(response.status).toBe(200);
-    const archive = new TextDecoder().decode(new Uint8Array(await response.arrayBuffer()));
-    expect(archive).toContain(`attachments/${asset.id}_${boundedName}`);
-    expect(
-      archive.split(`../attachments/${asset.id}_${encodeURIComponent(boundedName)}`),
-    ).toHaveLength(3);
-    expect(archive).not.toContain(originalName);
-  });
-
-  test("exports only attachments referenced by non-trashed notes", async () => {
-    const login = await request("/api/auth/login", {
-      method: "POST",
-      body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
-    });
-    const activeUpload = await request(
-      "/api/assets",
-      { method: "POST", body: imageForm("active.png") },
-      login.cookie,
-    );
-    const trashedUpload = await request(
-      "/api/assets",
-      { method: "POST", body: imageForm("trashed.png") },
-      login.cookie,
-    );
-    const orphanUpload = await request(
-      "/api/assets",
-      { method: "POST", body: imageForm("orphan.png") },
-      login.cookie,
-    );
-    const activeAsset = activeUpload.body?.asset;
-    const trashedAsset = trashedUpload.body?.asset;
-    const orphanAsset = orphanUpload.body?.asset;
-    expect(activeUpload.response.status).toBe(201);
-    expect(trashedUpload.response.status).toBe(201);
-    expect(orphanUpload.response.status).toBe(201);
-
-    const activeNote = await request(
-      "/api/notes",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          title: "active image",
-          contentMarkdown: `![active](${activeAsset.url})`,
-        }),
-      },
-      login.cookie,
-    );
-    const trashedNote = await request(
-      "/api/notes",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          title: "trashed image",
-          contentMarkdown: `![trashed](${trashedAsset.url})`,
-        }),
-      },
-      login.cookie,
-    );
-    expect(activeNote.response.status).toBe(201);
-    expect(trashedNote.response.status).toBe(201);
     const trashed = await request(
-      `/api/notes/${trashedNote.body?.note.id}`,
+      `/api/notes/${created.body?.note.id}`,
       {
         method: "PATCH",
-        body: JSON.stringify({ version: trashedNote.body?.note.version, deleted: true }),
+        body: JSON.stringify({ version: created.body?.note.version, deleted: true }),
       },
       login.cookie,
     );
     expect(trashed.response.status).toBe(200);
 
-    const exported = await handleRequest(
-      new Request("http://xiangying.test/api/export", { headers: { Cookie: login.cookie ?? "" } }),
+    database
+      .query(
+        "INSERT INTO users (id, username, password_hash, password_salt, created_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run("other-user", "other", "hash", "salt", 1);
+    database
+      .query(
+        "INSERT INTO notebooks (id, user_id, name, is_system, created_at, updated_at) VALUES (?, ?, ?, 1, 1, 1)",
+      )
+      .run("other-notebook", "other-user", "收件箱");
+    const otherNoteId = crypto.randomUUID();
+    database
+      .query(
+        "INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, 1, 1)",
+      )
+      .run(otherNoteId, "other-user", "other-notebook", "其他用户笔记", "secret");
+
+    const trashedExport = await handleRequest(
+      new Request(`http://xiangying.test/api/notes/${created.body?.note.id}/export`, {
+        headers: { Cookie: login.cookie ?? "" },
+      }),
       { database, environment, clientRoot: "dist/client", assetRoot },
     );
-    const archive = new TextDecoder().decode(new Uint8Array(await exported.arrayBuffer()));
+    expect(trashedExport.status).toBe(200);
+    expect(await trashedExport.text()).toBe("content");
 
-    expect(archive).toContain(`attachments/${activeAsset.id}_active.png`);
-    expect(archive).not.toContain(`attachments/${trashedAsset.id}_trashed.png`);
-    expect(archive).not.toContain(`attachments/${orphanAsset.id}_orphan.png`);
+    const otherUserExport = await handleRequest(
+      new Request(`http://xiangying.test/api/notes/${otherNoteId}/export`, {
+        headers: { Cookie: login.cookie ?? "" },
+      }),
+      { database, environment, clientRoot: "dist/client", assetRoot },
+    );
+    expect(otherUserExport.status).toBe(404);
+    expect((await otherUserExport.json()).error.code).toBe("NOTE_NOT_FOUND");
   });
 
-  test("exports Markdown image URLs that resolve filenames with spaces and URL syntax", async () => {
-    const login = await request("/api/auth/login", {
-      method: "POST",
-      body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
+  test("removes the all-notes ZIP export endpoint", async () => {
+    const response = await handleRequest(new Request("http://xiangying.test/api/export"), {
+      database,
+      environment,
+      clientRoot: "dist/client",
+      assetRoot,
     });
-    const names = ["Screen Shot.png", "figure#1%.png", "figure(unbalanced.png", "中文 图片).png"];
-    const assets: Array<{ id: string; url: string; name: string }> = [];
-    for (const name of names) {
-      const uploaded = await request(
-        "/api/assets",
-        { method: "POST", body: imageForm(name) },
-        login.cookie,
-      );
-      expect(uploaded.response.status).toBe(201);
-      assets.push({ ...uploaded.body?.asset, name });
-    }
-    const created = await request(
-      "/api/notes",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          title: "encoded export",
-          contentMarkdown: assets
-            .map((asset, index) => `![image${index}](${asset.url})`)
-            .join("\n\n"),
-        }),
-      },
-      login.cookie,
-    );
-    expect(created.response.status).toBe(201);
-    const response = await handleRequest(
-      new Request("http://xiangying.test/api/export", { headers: { Cookie: login.cookie! } }),
-      { database, environment, clientRoot: "dist/client", assetRoot },
-    );
-    const archive = new TextDecoder().decode(new Uint8Array(await response.arrayBuffer()));
-    for (const [index, asset] of assets.entries()) {
-      const imageMarkdown = archive.match(new RegExp(`!\\[image${index}\\]\\([^\\n]+\\)`))?.[0];
-      expect(imageMarkdown).toBeDefined();
-      const paragraph = marked.lexer(imageMarkdown!)[0];
-      if (paragraph?.type !== "paragraph") throw new Error("Expected an exported image paragraph");
-      const image = paragraph.tokens?.[0];
-      if (image?.type !== "image") throw new Error("Expected a valid exported Markdown image");
-      const url = new URL(image.href, "https://export.test/notebook/note.md");
-      expect(url.hash).toBe("");
-      expect(url.search).toBe("");
-      const zipPath = `attachments/${asset.id}_${asset.name}`;
-      expect(decodeURIComponent(url.pathname)).toBe(`/${zipPath}`);
-      expect(archive).toContain(zipPath);
-    }
-  });
-
-  test("keeps ZIP entries inside the archive when a notebook is named dot dot", async () => {
-    const login = await request("/api/auth/login", {
-      method: "POST",
-      body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
-    });
-    const notebook = await request(
-      "/api/notebooks",
-      { method: "POST", body: JSON.stringify({ name: ".." }) },
-      login.cookie,
-    );
-    expect(notebook.response.status).toBe(201);
-    const created = await request(
-      "/api/notes",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          title: "note",
-          notebookId: notebook.body?.notebook.id,
-          contentMarkdown: "content",
-        }),
-      },
-      login.cookie,
-    );
-    expect(created.response.status).toBe(201);
-    const response = await handleRequest(
-      new Request("http://xiangying.test/api/export", { headers: { Cookie: login.cookie ?? "" } }),
-      { database, environment, clientRoot: "dist/client", assetRoot },
-    );
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    const archive = new TextDecoder().decode(bytes);
-    expect(archive).toContain("收件箱/note.md");
-    expect(archive).not.toContain("../note.md");
+    expect(response.status).toBe(404);
   });
 
   test("limits note_short_terms per note and bounds scanned content length", async () => {
