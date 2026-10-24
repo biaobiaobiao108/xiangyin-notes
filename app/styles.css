@@ -563,6 +563,7 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .note-row-notebook { grid-column: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .note-row-tags, .note-card-tags { position: relative; display: flex; grid-column: 1 / -1; grid-row: 1; align-items: center; min-width: 0; gap: 4px; }
 .note-row-tag, .note-card-tag { flex: 0 1 auto; min-width: 0; max-width: min(100%, 16em); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--accent); font-weight: 500; background: var(--accent-soft); padding: 1px 7px; border-radius: 999px; }
+.note-row.is-active .note-row-tag:not(.note-row-tag--overflow) { background: var(--surface); box-shadow: inset 0 0 0 1px var(--accent-border-soft); }
 .note-row-tag--overflow, .note-card-tag--overflow { flex: none; max-width: 100%; color: var(--muted); background: var(--surface-muted); font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
 .note-row-meta time { grid-column: 2; white-space: nowrap; font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
 .note-row-meta:has(.note-row-tags) > .note-row-notebook,
