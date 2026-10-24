@@ -14,17 +14,16 @@
 
 ## 开发与提交
 
-- 新功能或 bug 修复完成后提交；标题使用中文，并按 `feat:`、`fix:`、`docs:`、`test:`、`chore:` 或 `ci:` 分类。
-- 代码修改提交前先运行 `bun run format`，再运行以下检查：
+- 每次提交包含应用代码、服务端代码、脚本或测试改动时，提交前按顺序完成以下步骤：
 
-  ```text
-  bun run format
-  bun run typecheck
-  bun test
-  bun run build
-  ```
+  1. 运行 `bun run format`。
+  2. 检查格式化产生的 diff，确认没有无关改动。
+  3. 依次运行 `bun run typecheck`、`bun test` 和 `bun run build`。
 
-- `bun run format` 会直接改写脚本覆盖的文件；提交前检查格式化产生的 diff，确认没有无关改动。
+- 上述检查全部通过后再提交。代码再次改动后，从格式化开始重新执行完整流程；任一检查失败，先修复再继续。
+- 仅修改文档时可跳过上述代码检查。
+- 每个完成的代码改动集都必须提交，包括重构、维护类改动和小修复，不限于新功能或 bug 修复。
+- 提交标题使用中文，并按 `feat:`、`fix:`、`docs:`、`test:`、`chore:` 或 `ci:` 分类。
 
 - 本地不需要构建 Docker 镜像；由 CI 负责。
 
