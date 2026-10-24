@@ -398,7 +398,7 @@ export const WikiLinkSuggestionExtension = Extension.create<WikiLinkSuggestionOp
             return result;
           });
         },
-        minQueryLength: 1,
+        minQueryLength: 0,
         debounce: 150,
         render: () => {
           let component: ReactRenderer<WikiLinkSuggestionListRef> | null = null;

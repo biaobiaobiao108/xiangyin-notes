@@ -116,6 +116,14 @@ describe("Markdown asset references", () => {
 
     expect(noteImageSources(markdown)).toEqual(["https://example.com/image(1).png"]);
   });
+
+  test("does not treat link-like image alt text as an asset reference", () => {
+    const assetId = "423e4567-e89b-42d3-a456-426614174000";
+    const markdown = String.raw`![alt [fake](/api/assets/${assetId})](https://example.com/a.png)`;
+
+    expect(noteAssetIds(markdown)).toEqual([]);
+    expect(noteImageSources(markdown)).toEqual(["https://example.com/a.png"]);
+  });
 });
 
 describe("markdown and search helpers", () => {

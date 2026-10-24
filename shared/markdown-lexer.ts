@@ -106,6 +106,8 @@ export type MarkdownDestinationReference = {
 const destinationLexer = createXiangyingMarked();
 
 export function extractMarkdownDestinationReferences(markdown: string) {
+  if (!markdown.includes("[")) return [];
+
   const references: MarkdownDestinationReference[] = [];
   const visited = new WeakSet<object>();
   const visit = (value: unknown) => {
@@ -120,6 +122,7 @@ export function extractMarkdownDestinationReferences(markdown: string) {
     if ((token.type === "image" || token.type === "link") && typeof token.href === "string") {
       references.push({ type: token.type, destination: token.href });
     }
+    if (token.type === "image") return;
     for (const child of Object.values(value)) visit(child);
   };
 

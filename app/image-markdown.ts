@@ -1,3 +1,5 @@
+import { extractMarkdownDestinationReferences } from "../shared/markdown-lexer";
+
 export type ParsedImageSource = {
   src: string;
   width: number | null;
@@ -10,42 +12,44 @@ export type ParsedImageSource = {
  */
 export function normalizeImagesInEmptyListItems(markdown: string) {
   const lines = markdown.split(/(\r\n|\n|\r)/u);
-  let activeFence: { character: string; length: number } | null = null;
+  let probeLines: string[] | null = null;
+  const candidates: Array<{
+    index: number;
+    marker: string;
+    image: string;
+    probeDestination: string;
+  }> = [];
+  const probePrefix = `__xiangying_image_probe_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}__`;
 
   for (let index = 0; index < lines.length; index += 2) {
     const line = lines[index] ?? "";
-    const fence = /^ {0,3}(`{3,}|~{3,})/u.exec(line)?.[1];
-    if (fence) {
-      if (!activeFence) activeFence = { character: fence[0]!, length: fence.length };
-      else if (fence[0] === activeFence.character && fence.length >= activeFence.length)
-        activeFence = null;
-      continue;
-    }
-    if (activeFence) continue;
-
     const listMarker = /^([ ]*)([-+*]|\d+[.)])[ \t]*$/u.exec(line);
     const imageLine = /^[ \t]+(!\[.*\]\(.*\))[ \t]*$/u.exec(lines[index + 2] ?? "");
-    if (
-      !listMarker ||
-      !imageLine ||
-      (listMarker[1]!.length >= 4 && !followsNestedListItem(lines, index, listMarker[1]!.length))
-    )
-      continue;
+    if (!listMarker || !imageLine) continue;
 
-    lines[index] = `${listMarker[1]}${listMarker[2]} ${imageLine[1]}`;
-    lines[index + 1] = "";
-    lines[index + 2] = "";
+    probeLines ??= [...lines];
+    const probeDestination = `/${probePrefix}-${candidates.length}`;
+    const marker = `${listMarker[1]}${listMarker[2]}`;
+    candidates.push({ index, marker, image: imageLine[1]!, probeDestination });
+    probeLines[index] = `${marker} ![probe](${probeDestination})`;
+    probeLines[index + 1] = "";
+    probeLines[index + 2] = "";
   }
 
-  return lines.join("");
-}
+  if (!probeLines) return markdown;
 
-function followsNestedListItem(lines: string[], index: number, indent: number) {
-  const previousLine = lines[index - 2] ?? "";
-  const parent = /^([ ]*)([-+*]|\d+[.)])(?:([ \t]+)(.*))?$/u.exec(previousLine);
-  if (!parent) return false;
-  const contentIndent = parent[1]!.length + parent[2]!.length + (parent[3]?.length ?? 1);
-  return indent === contentIndent;
+  const parsedImages = new Set(
+    extractMarkdownDestinationReferences(probeLines.join(""))
+      .filter((reference) => reference.type === "image")
+      .map((reference) => reference.destination),
+  );
+  for (const candidate of candidates) {
+    if (!parsedImages.has(candidate.probeDestination)) continue;
+    lines[candidate.index] = `${candidate.marker} ${candidate.image}`;
+    lines[candidate.index + 1] = "";
+    lines[candidate.index + 2] = "";
+  }
+  return lines.join("");
 }
 
 export function isExternalImageSource(source: string) {

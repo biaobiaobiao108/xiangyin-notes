@@ -192,8 +192,28 @@ describe("image markdown helpers", () => {
     expect(normalizeImagesInEmptyListItems(source)).toBe(source);
   });
 
+  test("does not treat an invalid closing fence as the end of a code block", () => {
+    const source = "```markdown\n```not-a-close\n- \n  ![code](/api/assets/image.jpg)\n```";
+    expect(normalizeImagesInEmptyListItems(source)).toBe(source);
+  });
+
+  test("does not normalize list-like lines inside a nested fenced code block", () => {
+    const source =
+      "- outer\n  - middle\n    ```md\n    - parent\n      -\n        ![code](/api/assets/image.jpg)\n    ```";
+    expect(normalizeImagesInEmptyListItems(source)).toBe(source);
+  });
+
   test("does not normalize image-like text in indented code blocks", () => {
-    const source = "    - \n      ![image](/api/assets/image.jpg)";
+    const source = [
+      "    - ",
+      "      ![image](/api/assets/image.jpg)",
+      "",
+      "- outer",
+      "",
+      "      - code",
+      "        -",
+      "          ![nested code](/api/assets/image.jpg)",
+    ].join("\n");
     expect(normalizeImagesInEmptyListItems(source)).toBe(source);
   });
 });
