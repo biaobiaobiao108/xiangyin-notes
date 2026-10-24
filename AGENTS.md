@@ -4,6 +4,15 @@
 
 象映笔记是 Bun + TypeScript + React 的本地 Markdown 笔记软件：前端由 Bun 打包，服务端使用 `Bun.serve`，数据保存在 `bun:sqlite`。
 
+## 代码地图
+
+- `app/`：React 前端；`app/editor/` 放编辑器功能，`app/workspace/` 放工作区与笔记列表。
+- `server/`：Bun 服务端；`server/routes/` 放 API 路由，`server/db.ts` 管理数据库访问。
+- `shared/`：前后端共用的类型与逻辑。
+- `database/schema.sql`：schema 基线；`server/migrate.ts` 实现迁移，`scripts/migrate.ts` 提供迁移命令。
+- `tests/`：Bun 测试；`scripts/`：开发、构建和数据库检查脚本。
+- `dist/`：构建产物，不手动编辑。
+
 ## 通用要求
 
 - 使用中文沟通；信息足够后直接行动，不编造检查或运行结果。
