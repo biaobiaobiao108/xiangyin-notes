@@ -3,6 +3,7 @@ import { rm } from "node:fs/promises";
 import { isIP } from "node:net";
 import { join } from "node:path";
 import { Lexer } from "marked";
+import { extractMarkdownDestinationReferences } from "../shared/markdown-lexer";
 import { extractTags, normalizeTag } from "../shared/tags";
 import type { ImageAssetSummary, Note, NoteSummary, NoteView } from "../shared/types";
 import type { RealtimeHub } from "./realtime";
@@ -862,25 +863,33 @@ export function syncNoteTags(
 }
 
 export const ASSET_REFERENCE_PATTERN =
-  /\/api\/assets\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})(?=[?#)\s]|$)/giu;
-export const MARKDOWN_IMAGE_SOURCE_PATTERN = /!\[[^\]]*\]\(([^)\s]+)(?:\s+[^)]*)?\)/gu;
+  /^\/api\/assets\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})(?=[?#]|$)/iu;
 export const PRIVATE_ASSET_SOURCE_PATTERN =
   /^\/api\/assets\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?=[?#]|$)/iu;
 
-export function noteImageSources(markdown: string) {
-  const sources: string[] = [];
-  for (const match of markdown.matchAll(MARKDOWN_IMAGE_SOURCE_PATTERN)) {
-    if (match[1]) sources.push(match[1]);
+function extractNoteAssetReferences(markdown: string) {
+  const imageSources: string[] = [];
+  const assetIds = new Set<string>();
+  const imageAssetIds = new Set<string>();
+
+  for (const reference of extractMarkdownDestinationReferences(markdown)) {
+    if (reference.type === "image") imageSources.push(reference.destination);
+    const id = ASSET_REFERENCE_PATTERN.exec(reference.destination)?.[1]?.toLowerCase();
+    if (id) {
+      assetIds.add(id);
+      if (reference.type === "image") imageAssetIds.add(id);
+    }
   }
-  return sources;
+
+  return { imageSources, assetIds: [...assetIds], imageAssetIds: [...imageAssetIds] };
+}
+
+export function noteImageSources(markdown: string) {
+  return extractNoteAssetReferences(markdown).imageSources;
 }
 
 export function noteAssetIds(markdown: string) {
-  const ids = new Set<string>();
-  for (const match of markdown.matchAll(ASSET_REFERENCE_PATTERN)) {
-    if (match[1]) ids.add(match[1].toLowerCase());
-  }
-  return [...ids];
+  return extractNoteAssetReferences(markdown).assetIds;
 }
 
 export function validNoteImageSource(source: string) {
@@ -899,9 +908,9 @@ export function validNoteAssetReferences(
   noteId: string | null,
   contentMarkdown: string,
 ) {
-  if (noteImageSources(contentMarkdown).some((source) => !validNoteImageSource(source)))
-    return false;
-  const ids = noteAssetIds(contentMarkdown);
+  const references = extractNoteAssetReferences(contentMarkdown);
+  if (references.imageSources.some((source) => !validNoteImageSource(source))) return false;
+  const ids = references.assetIds;
   if (!ids.length) return true;
   const assets = all<Pick<ImageAssetRow, "id" | "note_id">>(
     database,
@@ -925,7 +934,9 @@ export function syncNoteAssetReferences(
   noteId: string,
   contentMarkdown: string,
 ) {
-  const ids = noteAssetIds(contentMarkdown);
+  const references = extractNoteAssetReferences(contentMarkdown);
+  const ids = references.assetIds;
+  const imageDocumentOrder = new Map(references.imageAssetIds.map((id, index) => [id, index]));
   const detachedAssetCondition = ids.length
     ? `id NOT IN (${ids.map(() => "?").join(",")})`
     : "1 = 1";
@@ -962,10 +973,10 @@ export function syncNoteAssetReferences(
   database
     .query("UPDATE image_assets SET document_order = NULL WHERE note_id = ? AND user_id = ?")
     .run(noteId, userId);
-  for (const [documentOrder, id] of ids.entries()) {
+  for (const id of ids) {
     database
       .query("UPDATE image_assets SET note_id = ?, document_order = ? WHERE id = ? AND user_id = ?")
-      .run(noteId, documentOrder, id, userId);
+      .run(noteId, imageDocumentOrder.get(id) ?? null, id, userId);
   }
   return true;
 }

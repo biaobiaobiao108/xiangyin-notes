@@ -1,5 +1,5 @@
 import { Editor } from "@tiptap/core";
-import { createReadOnlyExtensions } from "../editor/read-only-markdown";
+import { createReadOnlyExtensions, prepareMarkdownForReadOnly } from "../editor/read-only-markdown";
 
 export type ImageExportSnapshot = { title: string; contentMarkdown: string };
 
@@ -9,7 +9,7 @@ export function createSnapshotEditor(markdown: string) {
     element: null,
     editable: false,
     extensions: createReadOnlyExtensions(),
-    content: markdown,
+    content: prepareMarkdownForReadOnly(markdown),
     contentType: "markdown",
   });
 }

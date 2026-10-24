@@ -13,6 +13,11 @@ import { NoteLink } from "./note-link";
 import { CodeBlockWithCopy } from "./code-block-copy";
 import { TableScrollbars } from "./table-scrollbars";
 import { createTableExtensions } from "./table-extensions";
+import { normalizeImagesInEmptyListItems } from "../image-markdown";
+
+export function prepareMarkdownForReadOnly(markdown: string) {
+  return normalizeImagesInEmptyListItems(markdown);
+}
 
 export function createReadOnlyExtensions() {
   return [
@@ -47,7 +52,7 @@ export function ReadOnlyMarkdown({ markdown }: { markdown: string }) {
     editable: false,
     extensions,
     coreExtensionOptions: editorCoreExtensionOptions,
-    content: initialContentRef.current,
+    content: prepareMarkdownForReadOnly(initialContentRef.current),
     contentType: "markdown",
     editorProps,
   });
@@ -58,7 +63,10 @@ export function ReadOnlyMarkdown({ markdown }: { markdown: string }) {
     if (!editor || editor.isDestroyed) return;
     if (previousMarkdownRef.current !== markdown) {
       previousMarkdownRef.current = markdown;
-      editor.commands.setContent(markdown, { contentType: "markdown", emitUpdate: false });
+      editor.commands.setContent(prepareMarkdownForReadOnly(markdown), {
+        contentType: "markdown",
+        emitUpdate: false,
+      });
     }
   }, [editor, markdown]);
 

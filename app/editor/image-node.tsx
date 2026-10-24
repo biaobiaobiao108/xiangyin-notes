@@ -13,6 +13,7 @@ import {
   isExternalImageSource,
   parseImageSource,
   serializeImageSource,
+  unescapeImageAlt,
 } from "../image-markdown";
 
 type ImageNodeAttrs = {
@@ -116,7 +117,7 @@ function ResizableImageView({ node, selected, editor, updateAttributes }: NodeVi
   );
 
   const startResize = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (!editor.isEditable) return;
+    if (!editor.isEditable || isExternal) return;
     event.preventDefault();
     event.stopPropagation();
     const maxWidth = Math.max(
@@ -149,7 +150,8 @@ function ResizableImageView({ node, selected, editor, updateAttributes }: NodeVi
       event.stopPropagation();
       return;
     }
-    if (!editor.isEditable || !["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+    if (isExternal || !editor.isEditable || !["ArrowLeft", "ArrowRight"].includes(event.key))
+      return;
     event.preventDefault();
     event.stopPropagation();
     const maxWidth = Math.max(
@@ -207,7 +209,7 @@ function ResizableImageView({ node, selected, editor, updateAttributes }: NodeVi
             </button>
           </span>
         )}
-        {imageSource && editor.isEditable && selected && (
+        {imageSource && !isExternal && editor.isEditable && selected && (
           <button
             className="note-image-resize-handle"
             type="button"
@@ -292,7 +294,7 @@ export const ImageNode = Node.create({
     const parsed = parseImageSource(imageToken.href ?? imageToken.url ?? "");
     return helpers.createNode("image", {
       src: parsed.src,
-      alt: imageToken.text ?? "",
+      alt: unescapeImageAlt(imageToken.text ?? ""),
       title: imageToken.title ?? null,
       width: parsed.width,
       height: parsed.height,

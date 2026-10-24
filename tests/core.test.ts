@@ -6,6 +6,8 @@ import {
   derivePassword,
   formatPreview,
   hashPassword,
+  noteAssetIds,
+  noteImageSources,
   rateLimitClientAddress,
   readJson,
 } from "../server/core";
@@ -87,6 +89,32 @@ describe("security helpers", () => {
     const headers4 = new Headers();
     setSessionCookie(headers4, httpsReq, "token123", { COOKIE_SECURE: "false" });
     expect(headers4.get("Set-Cookie")).not.toContain("; Secure");
+  });
+});
+
+describe("Markdown asset references", () => {
+  test("extracts destinations from actual Markdown links and images, not code or plain text", () => {
+    const linkId = "123e4567-e89b-42d3-a456-426614174000";
+    const imageId = "223e4567-e89b-42d3-a456-426614174000";
+    const codeId = "323e4567-e89b-42d3-a456-426614174000";
+    const markdown = [
+      `A plain /api/assets/${codeId} string.`,
+      `[file](/api/assets/${linkId})`,
+      `[remote](https://example.com/api/assets/${codeId})`,
+      `![image](/api/assets/${imageId})`,
+      "```md",
+      `![example](/api/assets/${codeId})`,
+      "```",
+    ].join("\n\n");
+
+    expect(noteAssetIds(markdown)).toEqual([linkId, imageId]);
+    expect(noteImageSources(markdown)).toEqual([`/api/assets/${imageId}`]);
+  });
+
+  test("preserves escaped image alt text and balanced parentheses in destinations", () => {
+    const markdown = String.raw`![escaped \] alt](https://example.com/image(1).png)`;
+
+    expect(noteImageSources(markdown)).toEqual(["https://example.com/image(1).png"]);
   });
 });
 

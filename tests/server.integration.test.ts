@@ -960,6 +960,87 @@ describe("Bun Server API", () => {
     expect(isolated.response.status).toBe(404);
   });
 
+  test("uses Markdown destinations for image security, references, and thumbnail order", async () => {
+    const login = await request("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
+    });
+    const cookie = login.cookie!;
+    const unknownCodeAssetId = crypto.randomUUID();
+    const codeNote = await request(
+      "/api/notes",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          title: "代码中的图片示例",
+          contentMarkdown: `\`\`\`md\n![example](/api/assets/${unknownCodeAssetId})\n\`\`\``,
+        }),
+      },
+      cookie,
+    );
+    expect(codeNote.response.status).toBe(201);
+    expect(codeNote.body?.note.thumbnail).toBeNull();
+
+    const linkedUpload = await request(
+      "/api/assets",
+      { method: "POST", body: imageForm("linked.png") },
+      cookie,
+    );
+    const imageUpload = await request(
+      "/api/assets",
+      { method: "POST", body: imageForm("visible.png") },
+      cookie,
+    );
+    const linkedAsset = linkedUpload.body?.asset;
+    const imageAsset = imageUpload.body?.asset;
+    const note = await request(
+      "/api/notes",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          title: "链接与图片附件",
+          contentMarkdown: `[下载](${linkedAsset.url})\n\n![显示](${imageAsset.url})`,
+        }),
+      },
+      cookie,
+    );
+    expect(note.response.status).toBe(201);
+    expect(note.body?.note.thumbnail.id).toBe(imageAsset.id);
+
+    const assetRows = database
+      .query("SELECT id, note_id, document_order FROM image_assets WHERE id IN (?, ?)")
+      .all(linkedAsset.id, imageAsset.id) as Array<{
+      id: string;
+      note_id: string | null;
+      document_order: number | null;
+    }>;
+    const rowsById = new Map(assetRows.map((row) => [row.id, row]));
+    expect(rowsById.get(linkedAsset.id)).toEqual({
+      id: linkedAsset.id,
+      note_id: note.body?.note.id,
+      document_order: null,
+    });
+    expect(rowsById.get(imageAsset.id)).toEqual({
+      id: imageAsset.id,
+      note_id: note.body?.note.id,
+      document_order: 0,
+    });
+
+    const unsafeImage = await request(
+      "/api/notes",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          title: "不安全的外链图片",
+          contentMarkdown: String.raw`![escaped \] alt](http://example.com/image.png)`,
+        }),
+      },
+      cookie,
+    );
+    expect(unsafeImage.response.status).toBe(400);
+    expect(unsafeImage.body?.error).toMatchObject({ code: "INVALID_ASSET" });
+  });
+
   test("cleans stale orphan files and recovers interrupted uploads with database rows", async () => {
     const login = await request("/api/auth/login", {
       method: "POST",

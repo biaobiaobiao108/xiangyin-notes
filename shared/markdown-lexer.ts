@@ -97,3 +97,32 @@ export function createXiangyingMarked() {
     ],
   });
 }
+
+export type MarkdownDestinationReference = {
+  type: "image" | "link";
+  destination: string;
+};
+
+const destinationLexer = createXiangyingMarked();
+
+export function extractMarkdownDestinationReferences(markdown: string) {
+  const references: MarkdownDestinationReference[] = [];
+  const visited = new WeakSet<object>();
+  const visit = (value: unknown) => {
+    if (!value || typeof value !== "object" || visited.has(value)) return;
+    visited.add(value);
+    if (Array.isArray(value)) {
+      for (const child of value) visit(child);
+      return;
+    }
+
+    const token = value as { type?: unknown; href?: unknown };
+    if ((token.type === "image" || token.type === "link") && typeof token.href === "string") {
+      references.push({ type: token.type, destination: token.href });
+    }
+    for (const child of Object.values(value)) visit(child);
+  };
+
+  visit(destinationLexer.lexer(markdown));
+  return references;
+}

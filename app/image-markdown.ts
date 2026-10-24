@@ -23,16 +23,29 @@ export function normalizeImagesInEmptyListItems(markdown: string) {
     }
     if (activeFence) continue;
 
-    const listMarker = /^( {0,3}(?:[-+*]|\d+[.)]))[ \t]*$/u.exec(line);
+    const listMarker = /^([ ]*)([-+*]|\d+[.)])[ \t]*$/u.exec(line);
     const imageLine = /^[ \t]+(!\[.*\]\(.*\))[ \t]*$/u.exec(lines[index + 2] ?? "");
-    if (!listMarker || !imageLine) continue;
+    if (
+      !listMarker ||
+      !imageLine ||
+      (listMarker[1]!.length >= 4 && !followsNestedListItem(lines, index, listMarker[1]!.length))
+    )
+      continue;
 
-    lines[index] = `${listMarker[1]} ${imageLine[1]}`;
+    lines[index] = `${listMarker[1]}${listMarker[2]} ${imageLine[1]}`;
     lines[index + 1] = "";
     lines[index + 2] = "";
   }
 
   return lines.join("");
+}
+
+function followsNestedListItem(lines: string[], index: number, indent: number) {
+  const previousLine = lines[index - 2] ?? "";
+  const parent = /^([ ]*)([-+*]|\d+[.)])(?:([ \t]+)(.*))?$/u.exec(previousLine);
+  if (!parent) return false;
+  const contentIndent = parent[1]!.length + parent[2]!.length + (parent[3]?.length ?? 1);
+  return indent === contentIndent;
 }
 
 export function isExternalImageSource(source: string) {
@@ -118,4 +131,8 @@ export function serializeImageSource(
 
 export function escapeImageAlt(value: string) {
   return value.replace(/[\\\]]/gu, "\\$&").replace(/\r?\n/gu, " ");
+}
+
+export function unescapeImageAlt(value: string) {
+  return value.replace(/\\\\/gu, "\\");
 }

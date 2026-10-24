@@ -75,8 +75,125 @@ describe("image markdown helpers", () => {
     }
   });
 
+  test("round-trips images in deeply nested empty list items", () => {
+    const sourceEditor = new Editor({
+      extensions: [StarterKit, createMarkdownExtension(), ImageNode],
+      content: {
+        type: "doc",
+        content: [
+          {
+            type: "bulletList",
+            content: [
+              {
+                type: "listItem",
+                content: [
+                  { type: "paragraph", content: [{ type: "text", text: "outer" }] },
+                  {
+                    type: "bulletList",
+                    content: [
+                      {
+                        type: "listItem",
+                        content: [
+                          { type: "paragraph", content: [{ type: "text", text: "middle" }] },
+                          {
+                            type: "bulletList",
+                            content: [
+                              {
+                                type: "listItem",
+                                content: [
+                                  { type: "paragraph" },
+                                  {
+                                    type: "image",
+                                    attrs: {
+                                      src: "/api/assets/image.jpg",
+                                      alt: "deep",
+                                      width: 480,
+                                      height: 320,
+                                    },
+                                  },
+                                ],
+                              },
+                            ],
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    try {
+      const markdown = (sourceEditor as Editor & { getMarkdown: () => string }).getMarkdown();
+      expect(markdown).toContain("    - \n      ![deep]");
+      const editor = new Editor({
+        extensions: [StarterKit, createMarkdownExtension(), ImageNode],
+        content: normalizeImagesInEmptyListItems(markdown),
+        contentType: "markdown",
+      });
+
+      try {
+        let image = editor.state.doc.firstChild;
+        editor.state.doc.descendants((node) => {
+          if (node.type.name === "image") image = node;
+        });
+        expect(image?.type.name).toBe("image");
+        expect(image?.attrs).toMatchObject({ alt: "deep", width: 480, height: 320 });
+      } finally {
+        editor.destroy();
+      }
+    } finally {
+      sourceEditor.destroy();
+    }
+  });
+
+  test("round-trips escaped closing brackets and backslashes in image alt text", () => {
+    const sourceEditor = new Editor({
+      extensions: [StarterKit, createMarkdownExtension(), ImageNode],
+      content: {
+        type: "doc",
+        content: [
+          {
+            type: "image",
+            attrs: { src: "/api/assets/image.jpg", alt: "a]b \\c" },
+          },
+        ],
+      },
+    });
+
+    try {
+      const markdown = (sourceEditor as Editor & { getMarkdown: () => string }).getMarkdown();
+      const editor = new Editor({
+        extensions: [StarterKit, createMarkdownExtension(), ImageNode],
+        content: markdown,
+        contentType: "markdown",
+      });
+
+      try {
+        let image = editor.state.doc.firstChild;
+        editor.state.doc.descendants((node) => {
+          if (node.type.name === "image") image = node;
+        });
+        expect(image?.attrs.alt).toBe("a]b \\c");
+      } finally {
+        editor.destroy();
+      }
+    } finally {
+      sourceEditor.destroy();
+    }
+  });
+
   test("does not normalize image-like code inside fenced blocks", () => {
     const source = "```markdown\n- \n  ![image](/api/assets/image.jpg)\n```";
+    expect(normalizeImagesInEmptyListItems(source)).toBe(source);
+  });
+
+  test("does not normalize image-like text in indented code blocks", () => {
+    const source = "    - \n      ![image](/api/assets/image.jpg)";
     expect(normalizeImagesInEmptyListItems(source)).toBe(source);
   });
 });
