@@ -11,6 +11,7 @@ import {
   assetRootFromEnv,
   cleanupOrphanAssets,
   handleAssetsRoute,
+  ORPHAN_ASSET_CLEANUP_INTERVAL_SECONDS,
   waitForOrphanAssetCleanup,
 } from "./routes/assets";
 import { cleanupExpiredSessions, handleAuthRoute, isResponse, requireUser } from "./routes/auth";
@@ -307,10 +308,6 @@ async function handleApi(request: Request, options: ServerOptions) {
   if (!API_RESOURCES.has(segments[0] ?? "")) return jsonError(404, "NOT_FOUND", "接口不存在");
 
   cleanupExpiredSessions(database);
-  void cleanupOrphanAssets(database, assetRoot).catch((error) =>
-    console.warn("[assets] orphan cleanup failed", error),
-  );
-
   // 1. Unauthenticated routes (Health, Auth, Bootstrap, Setup)
   const authResponse = await handleAuthRoute(ctx);
   if (authResponse) return authResponse;
@@ -376,6 +373,12 @@ if (import.meta.main) {
   const port = Number.parseInt(Bun.env.PORT ?? "3000", 10) || 3000;
   const hostname = Bun.env.HOST?.trim() || "localhost";
   const clientRoot = Bun.env.CLIENT_ROOT?.trim() || DEFAULT_CLIENT_ROOT;
+  const assetRoot = assetRootFromEnv(Bun.env);
+  const cleanupAssets = () => {
+    void cleanupOrphanAssets(database, assetRoot).catch((error) =>
+      console.warn("[assets] orphan cleanup failed", error),
+    );
+  };
   const server = Bun.serve({
     hostname,
     port,
@@ -415,6 +418,11 @@ if (import.meta.main) {
       );
     },
   });
+  cleanupAssets();
+  const assetCleanupTimer = setInterval(
+    cleanupAssets,
+    ORPHAN_ASSET_CLEANUP_INTERVAL_SECONDS * 1_000,
+  );
   realtime.startHeartbeat();
   console.log(`象映笔记服务已启动：${server.url}`);
 
@@ -424,6 +432,7 @@ if (import.meta.main) {
 
     shutdownPromise = (async () => {
       console.log(`[server] 收到 ${signal}，开始关闭服务`);
+      clearInterval(assetCleanupTimer);
 
       let forceShutdownTimer: ReturnType<typeof setTimeout> | null = null;
       const forceShutdown = new Promise<"forced">((resolveForceShutdown) => {

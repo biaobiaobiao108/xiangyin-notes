@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { NOTE_PAGE_SIZE } from "../server/core";
 import { applyMigrations, openDatabase, type SqliteDatabase } from "../server/db";
 import { handleRequest } from "../server/index";
 import { waitForOrphanAssetCleanup } from "../server/routes/assets";
@@ -576,6 +577,58 @@ describe("Note links, backlinks, and renaming cascade", () => {
 
     const listed = await request("/api/notes?view=all", { method: "GET" }, cookie);
     expect(listed.body?.total).toBe(2);
+  });
+
+  test("searches wiki targets outside the current note page and detects exact titles", async () => {
+    const auth = await request("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
+    });
+    const cookie = auth.cookie!;
+    const targetResponse = await request(
+      "/api/notes",
+      {
+        method: "POST",
+        body: JSON.stringify({ title: "页外 Wiki 目标", contentMarkdown: "" }),
+      },
+      cookie,
+    );
+    const target = targetResponse.body?.note as Note;
+    database.query("UPDATE notes SET updated_at = 1 WHERE id = ?").run(target.id);
+
+    for (let index = 0; index < NOTE_PAGE_SIZE + 1; index += 1) {
+      await request(
+        "/api/notes",
+        {
+          method: "POST",
+          body: JSON.stringify({ title: `分页填充 ${index}`, contentMarkdown: "" }),
+        },
+        cookie,
+      );
+    }
+
+    const currentPage = await request("/api/notes?view=all", { method: "GET" }, cookie);
+    expect(currentPage.body?.notes.some((note: Note) => note.id === target.id)).toBe(false);
+
+    const suggestions = await request(
+      "/api/wiki-notes/suggestions?query=Wiki%20%E7%9B%AE%E6%A0%87",
+      { method: "GET" },
+      cookie,
+    );
+    expect(suggestions.response.status).toBe(200);
+    expect(suggestions.body?.exactMatch).toBe(false);
+    expect(suggestions.body?.matches).toContainEqual({
+      title: "页外 Wiki 目标",
+      notebookName: expect.any(String),
+    });
+
+    const exact = await request(
+      "/api/wiki-notes/suggestions?query=%E9%A1%B5%E5%A4%96%20wiki%20%E7%9B%AE%E6%A0%87",
+      { method: "GET" },
+      cookie,
+    );
+    expect(exact.body?.exactMatch).toBe(true);
+    expect(exact.body?.matches[0].title).toBe("页外 Wiki 目标");
   });
 
   test("rejects a stale unlinked mention range without changing the source note", async () => {

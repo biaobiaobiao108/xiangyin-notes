@@ -1,3 +1,6 @@
 [fmt]
 printWidth = 100
 # semi = false
+
+[test]
+pathIgnorePatterns = ["e2e/**"]

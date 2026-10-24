@@ -2,6 +2,11 @@ node_modules
 dist
 data
 docs
+tests
+e2e
+playwright.config.ts
+playwright-report
+test-results
 electron
 scratch
 .workbuddy
@@ -11,4 +16,3 @@ scratch
 .env.*
 *.log
 *.md
-tests

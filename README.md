@@ -83,7 +83,7 @@ Markdown 中引用的外站图片默认不会自动加载。需要查看时，�
 - 象映笔记目前供一个人使用，不提供公开注册、多人协作或多租户账号。
 - 使用时需要连接到运行象映笔记的服务；目前不支持断网编辑和稍后自动上传。
 - 多设备通知用于更新其他页面的笔记列表和内容，不会合并同时发生的正文编辑。
-- 建议定期备份数据库和图片附件目录。服务运行期间不要直接复制正在使用的 SQLite 数据库文件；请先停服，或使用 SQLite 在线备份方式。
+- 建议定期备份数据库和图片附件目录。Docker 部署时两者都在 `/data` 数据卷中；本机默认位于 `./data/`。服务运行期间不要直接复制 SQLite 数据库文件，具体备份与恢复步骤见下文。
 
 ## 快速开始
 
@@ -131,6 +131,44 @@ docker run -d --name xiangying-notes --restart unless-stopped -p 3000:3000 --env
 当前 schema 版本为 v1，尚未登记从更早版本升级的迁移步骤；非空但版本未标记或不受支持的数据库不会被自动接管。未来升级只会按连续登记的版本步骤执行，每步都在事务中完成。版本未知、迁移失败或 schema 漂移时，服务会停止启动，原数据库不会被重建。遇到启动错误时先保留数据卷并查看日志，可用 `bun run db:check <数据库路径>` 只读检查结构。不要删除或重建 `xiangying-notes-data` 数据卷来处理迁移错误。
 
 如果通过 HTTPS 反向代理从公网访问，请把 `PUBLIC_URL` 设置为实际访问的 HTTPS 根地址，并根据代理情况启用 `TRUST_PROXY=true` 和 `COOKIE_SECURE=true`。启用 `TRUST_PROXY` 时还要通过 `TRUSTED_PROXY_ADDRESSES` 配置应用实际看到的反向代理 IP（逗号分隔）；应用只信任这些代理转发的客户端 IP。反向代理应覆盖 `X-Forwarded-For` / `X-Real-IP`，并阻止公网绕过代理直连应用。仅在本机或局域网使用 HTTP 时，`COOKIE_SECURE` 保持默认的 `false`。
+
+### 备份与恢复
+
+备份时应同时保存 SQLite 数据库和图片附件。下面的 Docker 示例会先停止服务，再把整个数据卷打包，保证两者来自同一时间点。请把备份文件存放到数据卷以外的位置，并定期确认归档文件可读取。
+
+```bash
+mkdir -p backups
+docker stop xiangying-notes
+docker run --rm \
+  -v xiangying-notes-data:/data:ro \
+  -v "$PWD/backups:/backup" \
+  busybox:latest \
+  sh -c 'tar -czf "/backup/xiangying-notes-$(date +%Y%m%d-%H%M%S).tar.gz" -C /data .'
+docker start xiangying-notes
+```
+
+恢复时先停止现有服务，将归档解压到一个全新的数据卷，再用该卷启动临时实例核对笔记和图片。每次恢复都使用尚未创建过的数据卷名称；把命令中的归档文件名换成要恢复的文件：
+
+```bash
+docker stop xiangying-notes
+docker volume create xiangying-notes-restore
+docker run --rm \
+  -v xiangying-notes-restore:/data \
+  -v "$PWD/backups:/backup:ro" \
+  busybox:latest \
+  tar -xzf /backup/xiangying-notes-YYYYMMDD-HHMMSS.tar.gz -C /data
+docker run -d \
+  --name xiangying-notes-restore \
+  -p 127.0.0.1:3001:3000 \
+  --env-file .env \
+  --env DATABASE_PATH=/data/xiangying-notes.sqlite \
+  --env ASSETS_PATH=/data/attachments \
+  --env PORT=3000 \
+  -v xiangying-notes-restore:/data \
+  ghcr.io/biaobiaobiao108/xiangyin-notes:latest
+```
+
+打开 `http://127.0.0.1:3001/app` 确认笔记和图片都可用后，执行 `docker stop xiangying-notes-restore && docker rm xiangying-notes-restore && docker rm xiangying-notes`，再按原启动参数重建正式容器，将 `/data` 挂载到 `xiangying-notes-restore` 数据卷。确认恢复后的服务稳定前，请保留原来的 `xiangying-notes-data` 数据卷。若本机运行使用默认路径，停服后备份整个 `data/` 目录即可；设置了自定义 `DATABASE_PATH` 或 `ASSETS_PATH` 时，需同时备份这两个路径。
 
 ### Agent 接入（MCP）
 

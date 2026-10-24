@@ -134,6 +134,23 @@ test("short-term relevance paginates ties and relevance without a query falls ba
   }
 });
 
+test("short-term relevance applies tag filters inside its ranked candidate set", async () => {
+  const f = await fixture();
+  try {
+    f.create("猫标题", "title result #alpha");
+    const matchingBody = f.create("正文命中", "猫 body result #beta");
+    f.create("其他正文", "猫 body result #alpha");
+
+    const result = await (await f.list("query=猫&sort=relevance&tags=beta&includeTotal=1")).json();
+
+    expect(result.notes.map((note: { id: string }) => note.id)).toEqual([matchingBody]);
+    expect(result.total).toBe(1);
+  } finally {
+    await waitForOrphanAssetCleanup(f.database);
+    f.database.close();
+  }
+});
+
 test("short ASCII searches match indexed mixed-case title terms", async () => {
   const f = await fixture();
   try {

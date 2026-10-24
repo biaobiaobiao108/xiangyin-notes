@@ -2050,6 +2050,7 @@ export function Workspace() {
                 availableNotes={notes}
                 onNavigateWikiLink={handleNavigateWikiLink}
                 onCreateAndLinkNote={handleCreateAndLinkNote}
+                onSearchWikiLinkTitles={api.searchWikiNoteTitles}
                 onNavigateToNote={selectNote}
                 searchQuery={activeSearchQuery}
                 onClearSearch={activeSearchQuery ? handleClearSearch : undefined}

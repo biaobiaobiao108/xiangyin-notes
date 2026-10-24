@@ -335,14 +335,14 @@ export async function ensureEnvironmentUser(
 
   // Changing XIANGYING_USERNAME creates a new account; the previous account's
   // notes stay in the database but become unreachable from the UI.
-  const previousUsers = all<{ username: string }>(
+  const hasPreviousUser = first<{ found: number }>(
     database,
-    "SELECT username FROM users WHERE username != ? ORDER BY created_at LIMIT 3",
+    "SELECT 1 AS found FROM users WHERE username != ? LIMIT 1",
     credentials.username,
   );
-  if (previousUsers.length > 0) {
+  if (hasPreviousUser) {
     console.warn(
-      `[auth] 环境变量 XIANGYING_USERNAME=${credentials.username} 与已有账号（${previousUsers.map((user) => user.username).join("、")}）不一致，将创建新账号；原账号的笔记仍保留在数据库中，当前账号不可见。如需继续使用原笔记，请把用户名改回原先的值。`,
+      "[auth] 环境变量 XIANGYING_USERNAME 与已有账号不一致，将创建新账号；原账号的笔记仍保留在数据库中，当前账号不可见。如需继续使用原笔记，请把用户名改回原先的值。",
     );
   }
 

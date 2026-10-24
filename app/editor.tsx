@@ -72,7 +72,10 @@ import { createImageUploadPosition, ImageUploadPositions } from "./editor/image-
 import { TagDecorationExtension } from "./editor/tag-decoration";
 import { BacklinksDialog } from "./editor/backlinks-panel";
 import { WikiLinkNode } from "./editor/wiki-link-node";
-import { WikiLinkSuggestionExtension } from "./editor/wiki-link-suggestion";
+import {
+  WikiLinkSuggestionExtension,
+  type WikiLinkTitleSearch,
+} from "./editor/wiki-link-suggestion";
 import { CalloutNode } from "./editor/callout-node";
 import { NoteLink } from "./editor/note-link";
 import { CodeBlockWithCopy } from "./editor/code-block-copy";
@@ -244,6 +247,7 @@ export function NoteEditor({
   availableNotes = [],
   onNavigateWikiLink,
   onCreateAndLinkNote,
+  onSearchWikiLinkTitles,
   onNavigateToNote,
   onMarkdownReaderChange,
   onMarkdownDirtyChange,
@@ -288,6 +292,7 @@ export function NoteEditor({
   availableNotes?: NoteSummary[];
   onNavigateWikiLink?: (targetTitle: string) => void;
   onCreateAndLinkNote?: (title: string) => void;
+  onSearchWikiLinkTitles?: WikiLinkTitleSearch;
   onNavigateToNote?: (id: string) => void;
   onMarkdownReaderChange?: (reader: (() => string | null) | null) => void;
   onMarkdownDirtyChange?: (noteId: string, isDirty: boolean) => void;
@@ -396,6 +401,7 @@ export function NoteEditor({
   const availableNotesRef = useRef(availableNotes);
   const onNavigateWikiLinkRef = useRef(onNavigateWikiLink);
   const onCreateAndLinkNoteRef = useRef(onCreateAndLinkNote);
+  const onSearchWikiLinkTitlesRef = useRef(onSearchWikiLinkTitles);
 
   // 最新值与回调统一在 effect 中写入 ref，避免渲染阶段直接赋值在并发渲染下产生非幂等副作用。
   useEffect(() => {
@@ -411,6 +417,7 @@ export function NoteEditor({
     availableNotesRef.current = availableNotes;
     onNavigateWikiLinkRef.current = onNavigateWikiLink;
     onCreateAndLinkNoteRef.current = onCreateAndLinkNote;
+    onSearchWikiLinkTitlesRef.current = onSearchWikiLinkTitles;
   });
 
   const [backlinkCount, setBacklinkCount] = useState(0);
@@ -705,6 +712,9 @@ export function NoteEditor({
       SlashCommandExtension.configure({ onPickImage: () => imageFileInputRef.current?.click() }),
       WikiLinkSuggestionExtension.configure({
         getNotes: () => availableNotesRef.current,
+        searchTitles: (query, signal) =>
+          onSearchWikiLinkTitlesRef.current?.(query, signal) ??
+          Promise.resolve({ matches: [], exactMatch: false }),
         onCreateNote: (title) => onCreateAndLinkNoteRef.current?.(title),
       }),
       ImeMarkdownSafeExtension,

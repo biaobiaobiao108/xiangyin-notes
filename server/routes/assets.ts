@@ -326,30 +326,9 @@ export async function uploadImageAsset(
   user: UserRow,
   assetRoot: string,
 ) {
-  const body = await readBodyBytes(request, IMAGE_UPLOAD_MAX_BODY_BYTES);
-  if (!body.ok) {
-    return body.reason === "too-large"
-      ? jsonError(413, "IMAGE_TOO_LARGE", "图片超过 10 MiB 大小限制")
-      : jsonError(400, "INVALID_IMAGE_UPLOAD", "图片上传数据无效");
-  }
-
-  let formData: FormData;
-  try {
-    const formHeaders = new Headers();
-    const contentType = request.headers.get("Content-Type");
-    if (contentType) formHeaders.set("Content-Type", contentType);
-    formData = await new Request(request.url, {
-      method: request.method,
-      headers: formHeaders,
-      body: body.bytes.buffer as ArrayBuffer,
-    }).formData();
-  } catch {
-    return jsonError(400, "INVALID_IMAGE_UPLOAD", "图片上传数据无效");
-  }
-  const entry = formData.get("file");
-  if (!(entry instanceof File)) return jsonError(400, "INVALID_IMAGE_UPLOAD", "请选择图片文件");
-  if (entry.size <= 0 || entry.size > IMAGE_MAX_BYTES)
-    return jsonError(413, "IMAGE_TOO_LARGE", "图片超过 10 MiB 大小限制");
+  const uploadedFile = await readImageUploadFile(request);
+  if (!uploadedFile.ok) return uploadedFile.response;
+  const { file: entry } = uploadedFile;
 
   const bytes = new Uint8Array(await entry.arrayBuffer());
   const inspection = inspectImage(bytes);
@@ -408,6 +387,42 @@ export async function uploadImageAsset(
   return asset
     ? json({ asset: toImageAsset(asset) }, 201)
     : jsonError(500, "ASSET_STORAGE_ERROR", "图片保存失败");
+}
+
+async function readImageUploadFile(
+  request: Request,
+): Promise<{ ok: true; file: File } | { ok: false; response: Response }> {
+  const body = await readBodyBytes(request, IMAGE_UPLOAD_MAX_BODY_BYTES);
+  if (!body.ok) {
+    return {
+      ok: false,
+      response:
+        body.reason === "too-large"
+          ? jsonError(413, "IMAGE_TOO_LARGE", "图片超过 10 MiB 大小限制")
+          : jsonError(400, "INVALID_IMAGE_UPLOAD", "图片上传数据无效"),
+    };
+  }
+
+  let formData: FormData;
+  try {
+    const formHeaders = new Headers();
+    const contentType = request.headers.get("Content-Type");
+    if (contentType) formHeaders.set("Content-Type", contentType);
+    formData = await new Request(request.url, {
+      method: request.method,
+      headers: formHeaders,
+      body: body.bytes.buffer as ArrayBuffer,
+    }).formData();
+  } catch {
+    return { ok: false, response: jsonError(400, "INVALID_IMAGE_UPLOAD", "图片上传数据无效") };
+  }
+
+  const entry = formData.get("file");
+  if (!(entry instanceof File))
+    return { ok: false, response: jsonError(400, "INVALID_IMAGE_UPLOAD", "请选择图片文件") };
+  if (entry.size <= 0 || entry.size > IMAGE_MAX_BYTES)
+    return { ok: false, response: jsonError(413, "IMAGE_TOO_LARGE", "图片超过 10 MiB 大小限制") };
+  return { ok: true, file: entry };
 }
 
 export async function serveImageAsset(

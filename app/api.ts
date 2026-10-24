@@ -92,6 +92,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  searchWikiNoteTitles: (query: string, signal?: AbortSignal) => {
+    const search = new URLSearchParams({ query });
+    return request<{
+      matches: Array<{ title: string; notebookName: string }>;
+      exactMatch: boolean;
+    }>(`/api/wiki-notes/suggestions?${search.toString()}`, { signal });
+  },
   uploadAsset: (file: File) =>
     request<{ asset: ImageAssetSummary }>("/api/assets", {
       method: "POST",

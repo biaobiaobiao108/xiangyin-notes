@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,13 +7,39 @@ import {
   LOGIN_ATTEMPT_MAX_ENTRIES,
   LOGIN_BLOCK_SECONDS,
 } from "../server/core";
-import { openDatabase } from "../server/db";
+import { applyMigrations, openDatabase } from "../server/db";
 import {
+  ensureEnvironmentUser,
   getLoginAttempt,
   loginClientKey,
   recordFailedLogin,
   resetLoginAttempt,
 } from "../server/routes/auth";
+
+test("does not include account names in the environment-user mismatch warning", async () => {
+  const database = await openDatabase(":memory:");
+  await applyMigrations(database);
+  const warning = spyOn(console, "warn").mockImplementation(() => undefined);
+  try {
+    await ensureEnvironmentUser(database, {
+      username: "first-private-name",
+      password: "first-pass",
+    });
+    await ensureEnvironmentUser(database, {
+      username: "second-private-name",
+      password: "second-pass",
+    });
+
+    const messages = warning.mock.calls.map((call) => call.join(" "));
+    const mismatchWarning = messages.find((message) => message.includes("XIANGYING_USERNAME"));
+    expect(mismatchWarning).toContain("已有账号不一致");
+    expect(messages.join("\n")).not.toContain("first-private-name");
+    expect(messages.join("\n")).not.toContain("second-private-name");
+  } finally {
+    warning.mockRestore();
+    database.close();
+  }
+});
 
 test("scopes login rate limits by submitted username and client address", () => {
   const request = new Request("http://localhost/api/auth/login", { method: "POST" });

@@ -239,6 +239,53 @@ export async function handleNotesRoute(
   const id = segments[1] ?? "";
   const subresource = segments[2] ?? "";
 
+  if (resource === "wiki-notes" && id === "suggestions" && method === "GET") {
+    const query = normalizeLinkTitle(url.searchParams.get("query")?.slice(0, 80) ?? "");
+    if (!query) return json({ matches: [], exactMatch: false });
+
+    const exactMatch = Boolean(
+      first(
+        database,
+        "SELECT id FROM notes WHERE user_id = ? AND deleted_at IS NULL AND title_normalized = ? LIMIT 1",
+        user.id,
+        query,
+      ),
+    );
+    const matches = all<{ title: string; notebook_name: string }>(
+      database,
+      `
+        SELECT n.title, b.name AS notebook_name
+        FROM notes n
+        JOIN notebooks b ON b.id = n.notebook_id AND b.user_id = n.user_id
+        WHERE n.user_id = ? AND n.deleted_at IS NULL
+          AND instr(n.title_normalized, ?) > 0
+          AND n.id = (
+            SELECT matched.id
+            FROM notes matched
+            WHERE matched.user_id = n.user_id
+              AND matched.deleted_at IS NULL
+              AND matched.title_normalized = n.title_normalized
+            ORDER BY matched.updated_at DESC, matched.id
+            LIMIT 1
+          )
+        ORDER BY
+          CASE
+            WHEN n.title_normalized = ? THEN 0
+            WHEN n.title_normalized LIKE ? ESCAPE '!' THEN 1
+            ELSE 2
+          END,
+          length(n.title), n.updated_at DESC, n.title_normalized, n.id
+        LIMIT 6
+      `,
+      user.id,
+      query,
+      query,
+      `${escapeLikePattern(query)}%`,
+    ).map((row) => ({ title: row.title, notebookName: row.notebook_name }));
+
+    return json({ matches, exactMatch });
+  }
+
   // Empty trash
   if (
     method === "DELETE" &&
@@ -554,16 +601,12 @@ export async function handleNotesRoute(
         params.push(`%${escapedQuery}%`, `%${escapedQuery}%`);
       }
     }
-    if (sort === "relevance" && !rankingCte && searchTokens.length) {
+    const rankShortTerms = sort === "relevance" && !rankingCte && searchTokens.length > 0;
+    if (rankShortTerms) {
       // Short terms bypass FTS; rank title matches ahead of body-only matches.
       scoreExpression = searchTokens
         .map(() => "(CASE WHEN n.title LIKE ? ESCAPE '!' THEN -8.0 ELSE -1.0 END)")
         .join(" + ");
-      // A materialized score lets the cursor compare a stable numeric value.
-      rankingCte = `WITH search_rank AS MATERIALIZED (SELECT id, (${scoreExpression}) AS score FROM notes n WHERE n.user_id = ?)`;
-      rankingParams.push(...searchTokens.map((token) => `%${escapeLikePattern(token)}%`), user.id);
-      from += " JOIN search_rank ON search_rank.id = n.id";
-      scoreExpression = "search_rank.score";
     }
     const scope =
       sort === "relevance"
@@ -596,6 +639,20 @@ export async function handleNotesRoute(
       );
       conditions.push(`(${tagConditions.join(tagMode === "any" ? " OR " : " AND ")})`);
       params.push(...normalizedTagFilters);
+    }
+    if (rankShortTerms) {
+      // Apply the full candidate scope before materializing scores, including tag filters.
+      rankingCte = `WITH search_rank AS MATERIALIZED (
+        SELECT n.id, (${scoreExpression}) AS score
+        FROM notes n JOIN notebooks b ON b.id = n.notebook_id
+        WHERE ${conditions.join(" AND ")}
+      )`;
+      rankingParams.push(
+        ...searchTokens.map((token) => `%${escapeLikePattern(token)}%`),
+        ...params,
+      );
+      from += " JOIN search_rank ON search_rank.id = n.id";
+      scoreExpression = "search_rank.score";
     }
     const totalWhere = conditions.join(" AND ");
     const totalParams = [...params];
