@@ -64,6 +64,7 @@ import { scrollNoteBoundary } from "./editor/document-navigation";
 import { replaceEditorMarkdown } from "./editor/document-content";
 import { FloatingScrollbar } from "./floating-scrollbar";
 import { relativeDate } from "./format";
+import { normalizeImagesInEmptyListItems } from "./image-markdown";
 import { ImeMarkdownSafeExtension, imeMarkdownSafePluginKey } from "./ime-markdown-safe-extension";
 import { editorCoreExtensionOptions } from "./editor/editor-config";
 import { EditorFloatingTools } from "./editor/editor-panels";
@@ -185,6 +186,10 @@ function isImageFile(file: File) {
     /^image\/(?:jpeg|png|webp|gif)$/u.test(file.type) ||
     /\.(?:jpe?g|png|webp|gif)$/iu.test(file.name)
   );
+}
+
+function prepareMarkdownForEditor(markdown: string) {
+  return normalizeImagesInEmptyListItems(preserveEscapedHashtagsForEditor(markdown));
 }
 
 async function imageDimensions(file: File) {
@@ -325,7 +330,7 @@ export function NoteEditor({
   const activeEditorNoteIdRef = useRef(note.id);
   const initialContentRef = useRef<string | null>(null);
   if (initialContentRef.current === null) {
-    initialContentRef.current = preserveEscapedHashtagsForEditor(contentMarkdown);
+    initialContentRef.current = prepareMarkdownForEditor(contentMarkdown);
   }
   const isPastingRef = useRef(false);
   const smoothScrollToHeadRef = useRef<(view: Editor["view"]) => void>(() => undefined);
@@ -921,7 +926,7 @@ export function NoteEditor({
         if (!markdownManager) return false;
         try {
           const parsedDocument = view.state.schema.nodeFromJSON(
-            markdownManager.parse(preserveEscapedHashtagsForEditor(text)),
+            markdownManager.parse(prepareMarkdownForEditor(text)),
           );
           const slice = parsedDocument.slice(0, parsedDocument.content.size);
           view.dispatch(view.state.tr.replaceSelection(slice).setMeta("uiEvent", "paste"));
@@ -1384,7 +1389,7 @@ export function NoteEditor({
     if (markdownSyncFrameRef.current !== null) window.clearTimeout(markdownSyncFrameRef.current);
     markdownSyncFrameRef.current = null;
     markdownSyncStartedAtRef.current = null;
-    initialContentRef.current = preserveEscapedHashtagsForEditor(contentMarkdown);
+    initialContentRef.current = prepareMarkdownForEditor(contentMarkdown);
     replaceEditorMarkdown(editor, initialContentRef.current);
     editorScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
     if (switchedNote) {

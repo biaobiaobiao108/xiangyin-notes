@@ -4,6 +4,37 @@ export type ParsedImageSource = {
   height: number | null;
 };
 
+/**
+ * Marked leaves images after empty list markers as text. Join those image lines
+ * to the marker before Tiptap parses Markdown so the saved image reopens as a node.
+ */
+export function normalizeImagesInEmptyListItems(markdown: string) {
+  const lines = markdown.split(/(\r\n|\n|\r)/u);
+  let activeFence: { character: string; length: number } | null = null;
+
+  for (let index = 0; index < lines.length; index += 2) {
+    const line = lines[index] ?? "";
+    const fence = /^ {0,3}(`{3,}|~{3,})/u.exec(line)?.[1];
+    if (fence) {
+      if (!activeFence) activeFence = { character: fence[0]!, length: fence.length };
+      else if (fence[0] === activeFence.character && fence.length >= activeFence.length)
+        activeFence = null;
+      continue;
+    }
+    if (activeFence) continue;
+
+    const listMarker = /^( {0,3}(?:[-+*]|\d+[.)]))[ \t]*$/u.exec(line);
+    const imageLine = /^[ \t]+(!\[.*\]\(.*\))[ \t]*$/u.exec(lines[index + 2] ?? "");
+    if (!listMarker || !imageLine) continue;
+
+    lines[index] = `${listMarker[1]} ${imageLine[1]}`;
+    lines[index + 1] = "";
+    lines[index + 2] = "";
+  }
+
+  return lines.join("");
+}
+
 export function isExternalImageSource(source: string) {
   const normalized = source.trim().replace(/\\/gu, "/");
   return /^(?:https?:\/|\/\/)/iu.test(normalized);

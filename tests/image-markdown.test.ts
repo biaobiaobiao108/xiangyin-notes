@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { Editor } from "@tiptap/core";
+import StarterKit from "@tiptap/starter-kit";
+import { ImageNode } from "../app/editor/image-node";
+import { createMarkdownExtension } from "../app/editor/markdown-config";
 import {
   isExternalImageSource,
+  normalizeImagesInEmptyListItems,
   parseImageSource,
   serializeImageSource,
 } from "../app/image-markdown";
@@ -45,5 +50,33 @@ describe("image markdown helpers", () => {
     expect(isExternalImageSource("//images.example/photo.png")).toBe(true);
     expect(isExternalImageSource("/api/assets/photo.png")).toBe(false);
     expect(isExternalImageSource("blob:https://app.example/image-id")).toBe(false);
+  });
+
+  test("parses an indented image after an empty list marker as an image node", () => {
+    const source =
+      "- **L4 技能库**：成功轨迹蒸馏为原子执行宏。\n- \n  ![images (2)](/api/assets/image.jpg?w=480&h=639)\n\n---";
+    const editor = new Editor({
+      extensions: [StarterKit, createMarkdownExtension(), ImageNode],
+      content: normalizeImagesInEmptyListItems(source),
+      contentType: "markdown",
+    });
+
+    try {
+      const image = editor.state.doc.firstChild?.lastChild?.firstChild?.firstChild;
+      expect(image?.type.name).toBe("image");
+      expect(image?.attrs).toMatchObject({
+        src: "/api/assets/image.jpg",
+        alt: "images (2)",
+        width: 480,
+        height: 639,
+      });
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  test("does not normalize image-like code inside fenced blocks", () => {
+    const source = "```markdown\n- \n  ![image](/api/assets/image.jpg)\n```";
+    expect(normalizeImagesInEmptyListItems(source)).toBe(source);
   });
 });
