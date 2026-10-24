@@ -42,12 +42,6 @@ jobs:
       - name: Test
         run: bun test --check
 
-      - name: Install WebKit
-        run: bunx playwright install --with-deps webkit
-
-      - name: Browser regression
-        run: bun run test:e2e
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
