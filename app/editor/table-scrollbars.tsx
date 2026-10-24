@@ -2,11 +2,13 @@ import { useEffect, useId, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { FloatingScrollbar } from "../floating-scrollbar";
 
-type OverlayPosition = { top: number; left: number; width: number };
+type OverlayPosition = { top: number; left: number; width: number; height: number };
+type ScrollEdges = { before: boolean; after: boolean };
 
 function TableHorizontalScrollbar({ root, target }: { root: HTMLElement; target: HTMLElement }) {
   const targetRef = useRef<HTMLElement | null>(target);
   const [position, setPosition] = useState<OverlayPosition | null>(null);
+  const [scrollEdges, setScrollEdges] = useState<ScrollEdges>({ before: false, after: false });
   targetRef.current = target;
 
   useEffect(() => {
@@ -19,17 +21,27 @@ function TableHorizontalScrollbar({ root, target }: { root: HTMLElement; target:
         const rootRect = root.getBoundingClientRect();
         const targetRect = target.getBoundingClientRect();
         const next = {
-          top: targetRect.bottom - rootRect.top + root.scrollTop - 18,
+          top: targetRect.top - rootRect.top + root.scrollTop,
           left: targetRect.left - rootRect.left + root.scrollLeft,
           width: targetRect.width,
+          height: Math.max(0, targetRect.height - 18),
         };
         setPosition((current) =>
           current &&
           Math.abs(current.top - next.top) < 1 &&
           Math.abs(current.left - next.left) < 1 &&
-          Math.abs(current.width - next.width) < 1
+          Math.abs(current.width - next.width) < 1 &&
+          Math.abs(current.height - next.height) < 1
             ? current
             : next,
+        );
+        const maxScroll = Math.max(0, target.scrollWidth - target.clientWidth);
+        const offset = Math.min(maxScroll, Math.max(0, target.scrollLeft));
+        const nextEdges = { before: offset > 1, after: maxScroll - offset > 1 };
+        setScrollEdges((current) =>
+          current.before === nextEdges.before && current.after === nextEdges.after
+            ? current
+            : nextEdges,
         );
       });
     };
@@ -37,27 +49,51 @@ function TableHorizontalScrollbar({ root, target }: { root: HTMLElement; target:
       typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updatePosition);
     resizeObserver?.observe(root);
     resizeObserver?.observe(target);
+    const table = target.querySelector("table");
+    if (table) resizeObserver?.observe(table);
+    const mutationObserver =
+      typeof MutationObserver === "undefined" ? null : new MutationObserver(updatePosition);
+    mutationObserver?.observe(target, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ["style"],
+    });
     window.addEventListener("resize", updatePosition);
     window.addEventListener("scroll", updatePosition, true);
+    target.addEventListener("scroll", updatePosition, { passive: true });
     updatePosition();
     return () => {
       resizeObserver?.disconnect();
+      mutationObserver?.disconnect();
       window.removeEventListener("resize", updatePosition);
       window.removeEventListener("scroll", updatePosition, true);
+      target.removeEventListener("scroll", updatePosition);
       if (frame !== null) cancelAnimationFrame(frame);
     };
   }, [root, target]);
 
   if (!position) return null;
   return createPortal(
-    <div className="table-horizontal-scrollbar-overlay" style={position}>
-      <FloatingScrollbar
-        scrollTargetRef={targetRef}
-        controlsId={target.id}
-        ariaLabel="表格横向滚动条"
-        placement="bottom"
-        orientation="horizontal"
+    <div className="table-horizontal-overflow-overlay" style={position}>
+      <span
+        className={`table-horizontal-overflow-edge table-horizontal-overflow-edge--start${scrollEdges.before ? " is-visible" : ""}`}
+        aria-hidden="true"
       />
+      <span
+        className={`table-horizontal-overflow-edge table-horizontal-overflow-edge--end${scrollEdges.after ? " is-visible" : ""}`}
+        aria-hidden="true"
+      />
+      <div className="table-horizontal-scrollbar-overlay">
+        <FloatingScrollbar
+          scrollTargetRef={targetRef}
+          controlsId={target.id}
+          ariaLabel="表格横向滚动条"
+          placement="bottom"
+          orientation="horizontal"
+        />
+      </div>
     </div>,
     root,
   );

@@ -475,7 +475,12 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .floating-scrollbar--horizontal .floating-scrollbar-thumb { inset-inline-start: 0; inset-inline-end: auto; inset-block: auto 2px; width: 28px; min-width: 28px; height: 6px; min-height: 0; }
 .floating-scrollbar--horizontal .floating-scrollbar-thumb:hover, .floating-scrollbar--horizontal .floating-scrollbar-thumb:focus-visible { inset-inline-start: 0; inset-inline-end: auto; height: 8px; }
 .floating-scrollbar--horizontal .floating-scrollbar-thumb:focus-visible { inset-block-end: 1px; }
-.table-horizontal-scrollbar-overlay { position: absolute; z-index: 4; height: 18px; pointer-events: none; }
+.table-horizontal-overflow-overlay { position: absolute; z-index: 2; pointer-events: none; }
+.table-horizontal-overflow-edge { position: absolute; inset-block: 0; width: 34px; opacity: 0; pointer-events: none; transition: opacity var(--motion-fast) var(--motion-ease-out); }
+.table-horizontal-overflow-edge--start { inset-inline-start: 0; background: linear-gradient(90deg, var(--surface), transparent); }
+.table-horizontal-overflow-edge--end { inset-inline-end: 0; background: linear-gradient(270deg, var(--surface), transparent); }
+.table-horizontal-overflow-edge.is-visible { opacity: 1; }
+.table-horizontal-scrollbar-overlay { position: absolute; z-index: 4; inset-inline: 0; inset-block-end: -18px; height: 18px; pointer-events: none; }
 .note-list-items { margin: 0; padding: 4px 0; list-style: none; }
 .note-list-items > li:has(.note-row) + li:has(.note-row) { position: relative; }
 .note-list-items > li:has(.note-row) + li:has(.note-row)::before {
