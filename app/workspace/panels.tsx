@@ -279,7 +279,7 @@ function NoteThumbnail({ note }: { note: NoteSummary }) {
   if (!thumbnail?.url) return null;
   return (
     <span className="note-row-thumbnail" aria-hidden="true">
-      <img src={thumbnail.url} alt="" width={56} height={56} loading="lazy" decoding="async" />
+      <img src={thumbnail.url} alt="" width={76} height={76} loading="lazy" decoding="async" />
     </span>
   );
 }

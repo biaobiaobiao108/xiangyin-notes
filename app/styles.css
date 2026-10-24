@@ -530,7 +530,7 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
   transition: background-color var(--motion-fast) var(--motion-ease-out), border-color var(--motion-fast) var(--motion-ease-out), box-shadow var(--motion-fast) var(--motion-ease-out), scale var(--motion-micro) var(--motion-ease-out);
 }
 .note-list-items > li:has(.note-row) + li:has(.note-row) { border-top: 0; }
-.note-row:has(.note-row-thumbnail), .note-row.has-thumbnail { grid-template-columns: 54px minmax(0, 1fr); }
+.note-row:has(.note-row-thumbnail), .note-row.has-thumbnail { grid-template-columns: 76px minmax(0, 1fr); }
 .note-row:hover { background: var(--surface-hover); }
 .note-row:active { scale: 0.992; }
 .note-row.is-active {
@@ -546,8 +546,8 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 }
 .note-row:focus-visible { outline: none; }
 .note-row:focus-visible:not(.is-selected):not(.is-active) { background: var(--surface-hover); border-color: var(--border-soft); }
-.note-row-thumbnail { display: block; width: 54px; height: 54px; overflow: hidden; border: 1px solid var(--thumbnail-border); border-radius: var(--radius-sm); background: var(--surface-subtle); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.02); }
-.note-row-thumbnail img { display: block; width: 54px; height: 54px; object-fit: cover; }
+.note-row-thumbnail { display: block; width: 76px; height: 76px; overflow: hidden; border: 1px solid var(--thumbnail-border); border-radius: var(--radius-md); background: var(--surface-subtle); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.02); }
+.note-row-thumbnail img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .note-row-thumbnail--empty { border-color: transparent; background: transparent; }
 .note-row-main { display: grid; min-width: 0; gap: 6px; }
 .note-row-title { position: relative; display: flex; align-items: flex-start; gap: 6px; min-width: 0; padding-right: 28px; color: var(--ink); font-size: 0.94rem; font-weight: 600; letter-spacing: 0; }
@@ -1275,6 +1275,8 @@ dialog::backdrop {
   .app-shell[data-mobile-page] .note-row-title { font-size: 1.0625rem; }
   .app-shell[data-mobile-page] .note-row-preview { font-size: 0.9375rem; line-height: 1.55; }
   .app-shell[data-mobile-page] .note-row-meta { font-size: 0.8125rem; }
+  .note-row:has(.note-row-thumbnail), .note-row.has-thumbnail { grid-template-columns: 64px minmax(0, 1fr); }
+  .note-row-thumbnail { width: 64px; height: 64px; }
   .note-outline-header .list-header-main { margin-left: 0; }
   .list-header-controls { margin-left: 8px; }
   .editor-header { grid-template-columns: auto minmax(0, 1fr) auto; padding: 0 16px; }
