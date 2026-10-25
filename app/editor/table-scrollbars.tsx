@@ -18,13 +18,16 @@ function TableHorizontalScrollbar({ root, target }: { root: HTMLElement; target:
       frame = requestAnimationFrame(() => {
         frame = null;
         if (!root.isConnected || !target.isConnected) return;
+        const maxScroll = Math.max(0, target.scrollWidth - target.clientWidth);
+        const hasHorizontalOverflow = maxScroll > 1;
+        target.classList.toggle("has-horizontal-overflow", hasHorizontalOverflow);
         const rootRect = root.getBoundingClientRect();
         const targetRect = target.getBoundingClientRect();
         const next = {
           top: targetRect.top - rootRect.top + root.scrollTop,
           left: targetRect.left - rootRect.left + root.scrollLeft,
           width: targetRect.width,
-          height: Math.max(0, targetRect.height - 18),
+          height: Math.max(0, targetRect.height - (hasHorizontalOverflow ? 18 : 0)),
         };
         setPosition((current) =>
           current &&
@@ -35,7 +38,6 @@ function TableHorizontalScrollbar({ root, target }: { root: HTMLElement; target:
             ? current
             : next,
         );
-        const maxScroll = Math.max(0, target.scrollWidth - target.clientWidth);
         const offset = Math.min(maxScroll, Math.max(0, target.scrollLeft));
         const nextEdges = { before: offset > 1, after: maxScroll - offset > 1 };
         setScrollEdges((current) =>

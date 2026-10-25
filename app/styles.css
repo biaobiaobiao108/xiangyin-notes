@@ -723,9 +723,11 @@ button.save-status:hover { text-decoration: underline; }
 .note-image-frame { position: relative; display: block; width: min(var(--image-display-width), 100%); max-width: 100%; }
 .note-image { display: block; width: 100%; height: auto; max-width: 100%; border-radius: 10px; box-shadow: 0 5px 18px rgba(39, 47, 41, 0.08); user-select: none; }
 .note-image-node.is-selected .note-image { outline: none; box-shadow: 0 0 0 3px var(--surface), 0 0 0 5px var(--image-selection), 0 0 0 8px var(--image-selection-soft), 0 5px 18px rgba(39, 47, 41, 0.08); }
-.note-image-resize-handle { position: absolute; right: -8px; bottom: -8px; width: 18px; height: 18px; padding: 0; border: 2px solid var(--surface); border-radius: 5px; background: var(--accent); box-shadow: 0 2px 8px rgba(39, 47, 41, 0.22); cursor: nwse-resize; opacity: 0; transform: scale(0.9); transition: opacity var(--motion-fast) var(--motion-ease-out), transform var(--motion-fast) var(--motion-ease-out), background-color var(--motion-fast) var(--motion-ease-out); touch-action: none; }
+.note-image-resize-handle { position: absolute; right: -22px; bottom: -22px; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: transparent; cursor: nwse-resize; opacity: 0; transform: scale(0.9); transition: opacity var(--motion-fast) var(--motion-ease-out), transform var(--motion-fast) var(--motion-ease-out); touch-action: none; }
+.note-image-resize-handle::after { position: absolute; right: 13px; bottom: 13px; width: 18px; height: 18px; border: 2px solid var(--surface); border-radius: 5px; background: var(--accent); box-shadow: 0 2px 8px rgba(39, 47, 41, 0.22); content: ""; pointer-events: none; }
 .note-image-node.is-selected .note-image-resize-handle { opacity: 1; transform: scale(1); }
-.note-image-resize-handle:hover, .note-image-resize-handle:focus-visible { background: var(--accent-dark); }
+.note-image-resize-handle:hover::after { background: var(--accent-dark); }
+.note-image-resize-handle:focus-visible::after { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--focus-ring), 0 2px 8px rgba(39, 47, 41, 0.22); }
 .note-image-loading { display: grid; width: min(var(--image-display-width), 100%); min-height: 120px; place-items: center; border: 1px dashed var(--border-strong); border-radius: 10px; background: var(--surface-muted); color: var(--muted); font-size: 0.78rem; }
 .note-prose .editor-search-match { border-radius: 0.22em; background: var(--search-match); color: inherit; box-shadow: 0 0.08em 0 var(--search-match-shadow); }
 .note-prose .editor-search-match--active { background: var(--accent); color: var(--accent-contrast); box-shadow: 0 0 0 2px var(--focus-soft); }
@@ -794,6 +796,7 @@ button.save-status:hover { text-decoration: underline; }
 .note-prose pre { position: relative; overflow: clip; overflow-wrap: anywhere; white-space: pre-wrap; margin-block: 1em; padding: 16px 20px 18px; border: 1px solid var(--border-soft); border-radius: 10px; background: var(--surface-code); color: var(--code-ink); font: 1rem/1.65 ui-monospace, SFMono-Regular, Consolas, monospace; }
 .note-prose code { padding: 0.13em 0.34em; border-radius: 4px; background: var(--surface-code-inline); color: var(--code-inline-ink); font-family: inherit; font-size: 0.86em; }
 .note-prose pre code { display: block; padding: 0; background: transparent; color: inherit; font-size: inherit; }
+.note-prose pre.code-block-node-view code::before { content: ""; float: right; width: 18px; height: 22px; pointer-events: none; }
 .note-prose .code-block-copy-button { position: absolute; inset-block-start: 8px; inset-inline-end: 8px; z-index: 1; display: grid; width: 30px; height: 30px; place-items: center; padding: 0; border: 1px solid transparent; border-radius: var(--radius-sm); background: var(--surface-glass-soft); color: var(--muted); opacity: 0; pointer-events: none; cursor: pointer; transition: opacity var(--motion-fast) var(--motion-ease-out), color var(--motion-fast) var(--motion-ease-out), background-color var(--motion-fast) var(--motion-ease-out), border-color var(--motion-fast) var(--motion-ease-out); }
 .note-prose pre:hover .code-block-copy-button, .note-prose pre:focus-within .code-block-copy-button { opacity: 1; pointer-events: auto; }
 .note-prose .code-block-copy-button:hover { background: var(--surface); color: var(--ink); }
@@ -802,7 +805,8 @@ button.save-status:hover { text-decoration: underline; }
 .note-prose .code-block-copy-button.is-error { color: var(--danger); opacity: 1; pointer-events: auto; }
 @media (hover: none), (pointer: coarse) { .note-prose pre .code-block-copy-button { opacity: 1; pointer-events: auto; } }
 @media (prefers-reduced-motion: reduce) { .note-prose .code-block-copy-button { transition: none; } }
-.note-prose .table-scroll-shell { position: relative; display: block; max-width: 100%; margin-block: 1.05em; padding-block-end: 18px; overflow-x: auto; overflow-y: hidden; overscroll-behavior-inline: contain; }
+.note-prose .table-scroll-shell { position: relative; display: block; max-width: 100%; margin-block: 1.05em; overflow-x: auto; overflow-y: hidden; overscroll-behavior-inline: contain; }
+.note-prose .table-scroll-shell.has-horizontal-overflow { padding-block-end: 18px; }
 .note-prose .table-scroll-shell table { width: fit-content; min-width: 0; max-width: none; border-collapse: separate; border-spacing: 0; border-radius: var(--radius-md); table-layout: auto; color: var(--ink-soft); font-size: 0.9rem; line-height: 1.45; background: var(--surface); box-shadow: var(--shadow-2xs); }
 .note-prose .table-scroll-shell table:has(> colgroup > col[style^="width:"]) { width: auto; min-width: 0; table-layout: fixed; }
 .note-prose .table-scroll-shell th, .note-prose .table-scroll-shell td { position: relative; min-width: 6rem; padding: 9px 12px; border-inline-end: 1px solid var(--border-soft); border-block-end: 1px solid var(--border-soft); overflow-wrap: anywhere; white-space: normal; text-align: start; vertical-align: top; }
@@ -2413,6 +2417,8 @@ dialog::backdrop {
   .is-mobile-card-grid { height: 100%; background: var(--canvas); }
   .is-mobile-card-grid .card-grid-scroll-shell::before { background: linear-gradient(to bottom, var(--canvas), transparent); }
   .is-mobile-card-grid .card-grid-scroll-shell::after { background: linear-gradient(to top, var(--canvas), transparent); }
+  .card-grid-mobile-menu { left: max(14px, env(safe-area-inset-left)); }
+  .card-grid-empty-trash { right: max(24px, env(safe-area-inset-right)); }
   .is-mobile-card-grid .card-grid-container,
   .is-mobile-card-grid .card-grid-container.has-trash-action { padding: calc(76px + env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) calc(112px + env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left)); overscroll-behavior: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; }
   .is-mobile-card-grid .note-card { position: relative; min-width: 0; margin-bottom: 0; border-color: var(--border-soft); transition-timing-function: var(--motion-ease-out); }
