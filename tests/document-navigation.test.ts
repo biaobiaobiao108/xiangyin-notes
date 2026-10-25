@@ -24,15 +24,35 @@ function keyEvent(key: string, overrides: Partial<KeyboardEvent> = {}) {
 
 describe("note document boundary navigation", () => {
   test("Home and End scroll the full note rather than the window or current line", () => {
-    const target = { scrollTop: 600, scrollHeight: 2400, clientHeight: 800 };
+    const scrolls: Array<{ top: number; behavior: ScrollBehavior }> = [];
+    const target = {
+      scrollHeight: 2400,
+      clientHeight: 800,
+      scrollTo(options: { top: number; behavior: ScrollBehavior }) {
+        scrolls.push(options);
+      },
+    };
     const home = keyEvent("Home");
     expect(scrollNoteBoundary(home.event, target)).toBe(true);
-    expect(target.scrollTop).toBe(0);
+    expect(scrolls[0]).toEqual({ top: 0, behavior: "smooth" });
     expect(home.wasPrevented()).toBe(true);
     const end = keyEvent("End");
     expect(scrollNoteBoundary(end.event, target)).toBe(true);
-    expect(target.scrollTop).toBe(1600);
+    expect(scrolls[1]).toEqual({ top: 1600, behavior: "smooth" });
     expect(end.wasPrevented()).toBe(true);
+  });
+
+  test("allows reduced-motion navigation to be immediate", () => {
+    const scrolls: Array<{ top: number; behavior: ScrollBehavior }> = [];
+    const target = {
+      scrollHeight: 2400,
+      clientHeight: 800,
+      scrollTo(options: { top: number; behavior: ScrollBehavior }) {
+        scrolls.push(options);
+      },
+    };
+    expect(scrollNoteBoundary(keyEvent("End").event, target, "auto")).toBe(true);
+    expect(scrolls).toEqual([{ top: 1600, behavior: "auto" }]);
   });
 
   test.each([
@@ -45,18 +65,20 @@ describe("note document boundary navigation", () => {
     { shiftKey: true },
   ])("preserves IME and modified navigation: %j", (overrides) => {
     for (const key of ["Home", "End"]) {
-      const target = { scrollTop: 100, scrollHeight: 2400, clientHeight: 800 };
+      const target = {
+        scrollHeight: 2400,
+        clientHeight: 800,
+        scrollTo() {},
+      };
       const input = keyEvent(key, overrides);
       expect(scrollNoteBoundary(input.event, target)).toBe(false);
-      expect(target.scrollTop).toBe(100);
       expect(input.wasPrevented()).toBe(false);
     }
   });
 
   test("short notes and other navigation keys", () => {
-    const target = { scrollTop: 0, scrollHeight: 200, clientHeight: 800 };
+    const target = { scrollHeight: 200, clientHeight: 800, scrollTo() {} };
     expect(scrollNoteBoundary(keyEvent("End").event, target)).toBe(true);
-    expect(target.scrollTop).toBe(0);
     const down = keyEvent("ArrowDown");
     expect(scrollNoteBoundary(down.event, target)).toBe(false);
     expect(down.wasPrevented()).toBe(false);

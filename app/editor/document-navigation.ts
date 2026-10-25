@@ -11,10 +11,15 @@ type BoundaryKey = Pick<
   | "preventDefault"
 >;
 
+type BoundaryScrollTarget = Pick<HTMLElement, "scrollHeight" | "clientHeight"> & {
+  scrollTo(options: { top: number; behavior: ScrollBehavior }): void;
+};
+
 // Home / End 浏览整篇笔记；带修饰键的光标移动与选择交给输入控件。
 export function scrollNoteBoundary(
   event: BoundaryKey,
-  target: Pick<HTMLElement, "scrollTop" | "scrollHeight" | "clientHeight">,
+  target: BoundaryScrollTarget,
+  behavior: ScrollBehavior = "smooth",
 ): boolean {
   if (
     event.defaultPrevented ||
@@ -28,7 +33,9 @@ export function scrollNoteBoundary(
     return false;
   if (event.key !== "Home" && event.key !== "End") return false;
   event.preventDefault();
-  target.scrollTop =
-    event.key === "Home" ? 0 : Math.max(0, target.scrollHeight - target.clientHeight);
+  target.scrollTo({
+    top: event.key === "Home" ? 0 : Math.max(0, target.scrollHeight - target.clientHeight),
+    behavior,
+  });
   return true;
 }

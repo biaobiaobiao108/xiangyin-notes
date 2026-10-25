@@ -2030,12 +2030,18 @@ export function NoteEditor({
             if (target.closest("input, textarea, button, select, [role='dialog'], [role='menu']"))
               return;
             // 在 ProseMirror 吞掉 Home / End 前处理阅读滚动，保留正文光标与选区。
-            if (scrollNoteBoundary(event.nativeEvent, event.currentTarget)) {
-              event.stopPropagation();
-              if (typewriterAnimRef.current !== null)
-                cancelAnimationFrame(typewriterAnimRef.current);
-              typewriterAnimRef.current = null;
-              typewriterTargetRef.current = null;
+            if (event.key === "Home" || event.key === "End") {
+              const behavior: ScrollBehavior = window.matchMedia("(prefers-reduced-motion: reduce)")
+                .matches
+                ? "auto"
+                : "smooth";
+              if (scrollNoteBoundary(event.nativeEvent, event.currentTarget, behavior)) {
+                event.stopPropagation();
+                if (typewriterAnimRef.current !== null)
+                  cancelAnimationFrame(typewriterAnimRef.current);
+                typewriterAnimRef.current = null;
+                typewriterTargetRef.current = null;
+              }
             }
           }}
         >

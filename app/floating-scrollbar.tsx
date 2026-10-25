@@ -308,7 +308,15 @@ export function FloatingScrollbar({
       if (nextOffset === undefined) return;
       event.preventDefault();
       const boundedOffset = Math.min(maxScroll, Math.max(0, nextOffset));
-      if (horizontal) target.scrollLeft = boundedOffset;
+      const isPageNavigation = ["PageUp", "PageDown", "Home", "End"].includes(event.key);
+      if (isPageNavigation) {
+        const behavior: ScrollBehavior = !window.matchMedia("(prefers-reduced-motion: reduce)")
+          .matches
+          ? "smooth"
+          : "auto";
+        if (horizontal) target.scrollTo({ left: boundedOffset, behavior });
+        else target.scrollTo({ top: boundedOffset, behavior });
+      } else if (horizontal) target.scrollLeft = boundedOffset;
       else target.scrollTop = boundedOffset;
       scheduleMetrics();
       reveal();
