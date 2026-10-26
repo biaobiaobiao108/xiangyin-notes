@@ -504,7 +504,7 @@ export function CommandMenu({
         searchRef.current?.focus();
         return;
       } else if (option.id === "find-in-note") {
-        setQuery("当前笔记 ");
+        setQuery("搜索 ");
         setSelected(0);
         searchRef.current?.focus();
         return;
@@ -629,8 +629,8 @@ export function CommandMenu({
           ref={searchRef}
           value={query}
           onChange={(event) => updateQuery(event.target.value)}
-          aria-label="搜索全部笔记或命令"
-          placeholder="搜索全部笔记或命令"
+          aria-label="搜索命令或笔记内容"
+          placeholder="搜索命令或笔记内容"
           role="combobox"
           aria-autocomplete="list"
           aria-haspopup="listbox"
