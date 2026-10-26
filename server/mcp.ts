@@ -1065,11 +1065,14 @@ export function createNoteMcpServer(options: ServerOptions, context: McpRequestC
           if (match.error.code !== "NOT_FOUND")
             return responseValue({ error: { ...match.error, code: "AMBIGUOUS_NOTE" } }, true);
         }
-        const result = await notesRoute(options, user, "POST", ["notes"], "/api/notes", {
-          title,
-          contentMarkdown: markdown,
-          notebookId,
-        });
+        const result = await notesRoute(
+          options,
+          user,
+          "POST",
+          ["notes"],
+          `/api/notes${includeContent ? "" : "?response=summary"}`,
+          { title, contentMarkdown: markdown, notebookId },
+        );
         return result.status === 201
           ? responseValue({ ...result.body, created: true }, false, {
               writeResult: true,
@@ -1764,7 +1767,14 @@ export function createNoteMcpServer(options: ServerOptions, context: McpRequestC
         contentMarkdown: appendMarkdownTags(contentMarkdown, tags),
         ...(notebookId === undefined ? {} : { notebookId }),
       };
-      const result = await notesRoute(options, user, "POST", ["notes"], "/api/notes", payload);
+      const result = await notesRoute(
+        options,
+        user,
+        "POST",
+        ["notes"],
+        `/api/notes${includeContent ? "" : "?response=summary"}`,
+        payload,
+      );
       return result.status === 201
         ? responseValue(result.body, false, { writeResult: true, includeContent })
         : noteWriteError(result);

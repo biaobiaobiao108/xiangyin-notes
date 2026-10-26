@@ -807,7 +807,11 @@ export async function handleNotesRoute(
     const note = getNote(database, user.id, noteId);
     // 新笔记会改变列表成员，广播不带 noteId，让其他客户端整表刷新。
     publishWorkspaceChange(options, user.id, { resource: "notes" }, request);
-    return json({ note: note ? toFullNote(note) : null }, 201);
+    const summaryResponse = url.searchParams.get("response") === "summary";
+    return json(
+      { note: note ? (summaryResponse ? summarizeNote(note) : toFullNote(note)) : null },
+      201,
+    );
   }
 
   // Backlinks

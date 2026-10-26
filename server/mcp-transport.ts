@@ -72,34 +72,31 @@ function validateOrigin(request: Request, environment: Record<string, string | u
 function escapeUnescapedControlsInJsonStrings(value: string) {
   let inString = false;
   let escaped = false;
-  let changed = false;
-  let output = "";
+  let output: string[] | null = null;
+  let copiedThrough = 0;
   for (let index = 0; index < value.length; index += 1) {
     const character = value[index];
     const code = character.charCodeAt(0);
     if (!inString) {
-      output += character;
       if (character === '"') inString = true;
       continue;
     }
     if (escaped) {
-      output += character;
       escaped = false;
       continue;
     }
     if (character === "\\") {
-      output += character;
       escaped = true;
       continue;
     }
     if (character === '"') {
-      output += character;
       inString = false;
       continue;
     }
     if (code < 0x20) {
-      changed = true;
-      output +=
+      output ??= [];
+      output.push(
+        value.slice(copiedThrough, index),
         code === 0x08
           ? "\\b"
           : code === 0x09
@@ -110,12 +107,15 @@ function escapeUnescapedControlsInJsonStrings(value: string) {
                 ? "\\f"
                 : code === 0x0d
                   ? "\\r"
-                  : `\\u${code.toString(16).padStart(4, "0")}`;
+                  : `\\u${code.toString(16).padStart(4, "0")}`,
+      );
+      copiedThrough = index + 1;
       continue;
     }
-    output += character;
   }
-  return { value: changed ? output : value, changed };
+  if (!output) return { value, changed: false };
+  output.push(value.slice(copiedThrough));
+  return { value: output.join(""), changed: true };
 }
 
 function invalidMcpArguments(id: unknown, message: string) {
