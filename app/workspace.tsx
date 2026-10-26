@@ -817,7 +817,6 @@ export function Workspace() {
     setCommandInitialQuery(initialQuery);
     setCommandOpen(true);
   }, []);
-  const handleOpenCommands = useCallback(() => openCommandMenu(), [openCommandMenu]);
   useWorkspaceShortcuts({
     focusMode,
     hasModalOpen: Boolean(
@@ -831,10 +830,7 @@ export function Workspace() {
     toggleFocusMode,
     toggleTypewriterMode,
     exitFocusMode,
-    openCommandMenu: (initialQuery = "") => {
-      setCommandInitialQuery(initialQuery);
-      setCommandOpen(true);
-    },
+    openCommandMenu,
     toggleViewLayout,
     isCardEditing: !isMobileViewport && viewLayout === "cards" && cardEditingNoteId !== null,
     onExitCardEditing: () => setCardEditingNoteId(null),
@@ -2071,7 +2067,6 @@ export function Workspace() {
                 onRestore={restoreFromTrash}
                 onPermanentDelete={permanentDeleteNote}
                 onOpenList={handleOpenList}
-                onOpenCommands={handleOpenCommands}
                 isMobileViewport={isMobileViewport}
                 mobileBackLabel={query ? "搜索结果" : (currentNotebook?.name ?? viewLabel(view))}
                 onBackToCards={isCardsLayout ? () => setCardEditingNoteId(null) : undefined}
@@ -2102,7 +2097,6 @@ export function Workspace() {
       )}
       {isMobileViewport && mobilePage !== "editor" && (
         <MobileBottomBar
-          onOpenCommands={handleOpenCommands}
           query={query}
           setQuery={changeQuery}
           searchRef={searchRef}

@@ -136,8 +136,8 @@ export const Sidebar = memo(function Sidebar({
           ref={searchRef}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="搜索笔记或 #标签……"
-          aria-label="搜索笔记或标签"
+          placeholder="全局搜索笔记或 #标签……"
+          aria-label="全局搜索笔记或标签"
         />
         {query ? (
           <button
@@ -148,9 +148,7 @@ export const Sidebar = memo(function Sidebar({
           >
             <X size={15} />
           </button>
-        ) : (
-          <kbd>{commandMenuShortcutLabel}</kbd>
-        )}
+        ) : null}
       </label>
       <nav className="main-nav">
         <ul>

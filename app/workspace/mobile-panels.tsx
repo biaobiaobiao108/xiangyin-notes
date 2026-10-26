@@ -5,7 +5,6 @@ import {
   LogOut,
   Pencil,
   Search,
-  SlidersHorizontal,
   SquarePen,
   Trash2,
   X,
@@ -256,28 +255,11 @@ export type MobileBottomBarProps = {
   setQuery: (query: string) => void;
   onNewNote?: () => void;
   searchRef?: RefObject<HTMLInputElement | null>;
-  label?: string;
-  onOpenCommands: () => void;
 };
 
-export function MobileBottomBar({
-  query,
-  setQuery,
-  onNewNote,
-  searchRef,
-  onOpenCommands,
-  label = "搜索笔记或标签",
-}: MobileBottomBarProps) {
+export function MobileBottomBar({ query, setQuery, onNewNote, searchRef }: MobileBottomBarProps) {
   return (
-    <footer className="mobile-bottom-bar" aria-label="搜索与新建笔记">
-      <button
-        className="mobile-compose-button"
-        type="button"
-        aria-label="打开命令面板"
-        onClick={onOpenCommands}
-      >
-        <SlidersHorizontal size={22} aria-hidden="true" />
-      </button>
+    <footer className="mobile-bottom-bar" aria-label="全局搜索与新建笔记">
       <div className="mobile-bottom-search">
         <Search size={21} aria-hidden="true" />
         <input
@@ -285,8 +267,8 @@ export function MobileBottomBar({
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="搜索笔记或 #标签"
-          aria-label={label}
+          placeholder="全局搜索笔记或 #标签"
+          aria-label="全局搜索笔记或标签"
         />
         {query && (
           <button

@@ -233,7 +233,6 @@ export function NoteEditor({
   onRestore,
   onPermanentDelete,
   onOpenList,
-  onOpenCommands,
   onBackToCards,
   onUploadImage,
   isMobileViewport = false,
@@ -275,7 +274,6 @@ export function NoteEditor({
   onRestore: () => void;
   onPermanentDelete?: () => void;
   onOpenList?: () => void;
-  onOpenCommands?: () => void;
   onBackToCards?: () => void;
   onUploadImage?: (
     file: File,
@@ -2139,7 +2137,6 @@ export function NoteEditor({
           outlineOpen={outlineOpen}
           outlineTriggerRef={outlineTriggerRef}
           locked={editorLocked}
-          onOpenCommands={onOpenCommands}
           onToggleOutline={onToggleOutline}
         />
       )}

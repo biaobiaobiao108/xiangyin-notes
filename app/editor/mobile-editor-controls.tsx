@@ -6,7 +6,6 @@ import {
   ImagePlus,
   ListTree,
   MoreHorizontal,
-  SlidersHorizontal,
   Star,
   Trash2,
   Undo2,
@@ -233,27 +232,16 @@ export function MobileEditorFooter({
   outlineOpen,
   outlineTriggerRef,
   locked,
-  onOpenCommands,
   onToggleOutline,
 }: {
   stats: EditorStats;
   outlineOpen: boolean;
   outlineTriggerRef: RefObject<HTMLButtonElement | null>;
   locked: boolean;
-  onOpenCommands?: () => void;
   onToggleOutline: () => void;
 }) {
   return (
     <footer className="mobile-editor-footer" aria-label="笔记工具">
-      <button
-        className="icon-button"
-        type="button"
-        aria-label="打开命令面板"
-        disabled={locked || !onOpenCommands}
-        onClick={onOpenCommands}
-      >
-        <SlidersHorizontal size={22} aria-hidden="true" />
-      </button>
       <EditorStatsPill stats={stats} />
       <button
         ref={outlineTriggerRef}
