@@ -58,10 +58,11 @@ const GLOBAL_SEARCH_PREFIXES = [
   "全库",
   "全部笔记",
   "全局",
+  "搜索",
   "global",
   "all",
 ];
-const IN_NOTE_SEARCH_PREFIXES = ["单篇搜索", "当前笔记", "当前", "搜索", "查找", "find"];
+const IN_NOTE_SEARCH_PREFIXES = ["单篇搜索", "当前笔记", "当前", "查找", "find"];
 
 export function parseSearchPrefixCommand(query: string): ParsedSearchCommand | null {
   const trimmed = query.trimStart();

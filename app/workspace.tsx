@@ -818,15 +818,14 @@ export function Workspace() {
     setCommandOpen(true);
   }, []);
   const handleOpenCommands = useCallback(() => openCommandMenu(), [openCommandMenu]);
-  const activeSearchQuery = inNoteSearchQuery || query;
   useWorkspaceShortcuts({
     focusMode,
     hasModalOpen: Boolean(
       commandOpen || imageExportSnapshot || editingNotebook !== undefined || confirmRequest,
     ),
     // Escape 第 1 层：正文搜索高亮清除优先于退出沉浸模式。
-    hasSearchHighlight: Boolean(activeSearchQuery.trim()),
-    clearSearchHighlight: () => handleClearSearch(),
+    hasSearchHighlight: Boolean(inNoteSearchQuery.trim()),
+    clearSearchHighlight: () => handleClearInNoteSearch(),
     toggleSidebar: () =>
       isMobileViewport ? openMobileHome() : setSidebarCollapsed((value) => !value),
     toggleFocusMode,
@@ -1365,6 +1364,7 @@ export function Workspace() {
     (term: string) => {
       const normalized = term.trim();
       if (!normalized) return;
+      setInNoteSearchQuery("");
       changeQuery(normalized);
       setSidebarCollapsed(false);
       setCardEditingNoteId(null);
@@ -1383,12 +1383,9 @@ export function Workspace() {
       searchRef.current?.select();
     });
   }, [closeCommandMenu, openMobileList]);
-  const handleClearSearch = useCallback(() => {
+  const handleClearInNoteSearch = useCallback(() => {
     setInNoteSearchQuery("");
-    if (query) {
-      changeQuery("");
-    }
-  }, [changeQuery, query]);
+  }, []);
   const handleExportNote = useCallback(async () => {
     const note = selectedRef.current;
     if (!note || isNoteLoading) return;
@@ -2052,8 +2049,8 @@ export function Workspace() {
                 onCreateAndLinkNote={handleCreateAndLinkNote}
                 onSearchWikiLinkTitles={api.searchWikiNoteTitles}
                 onNavigateToNote={selectNote}
-                searchQuery={activeSearchQuery}
-                onClearSearch={activeSearchQuery ? handleClearSearch : undefined}
+                searchQuery={inNoteSearchQuery}
+                onClearSearch={inNoteSearchQuery ? handleClearInNoteSearch : undefined}
                 onMarkdownReaderChange={registerEditorMarkdownReader}
                 onMarkdownDirtyChange={registerEditorMarkdownDirty}
                 saveState={saveState}

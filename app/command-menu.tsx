@@ -365,6 +365,31 @@ export function CommandMenu({
       }
     }
 
+    const term = query.trim();
+    if (term) {
+      const globalSearchOption: CommandOption = {
+        key: "action:global-search",
+        label: `在全部笔记中搜索“${term}”`,
+        shortcut: "↵",
+        icon: Search,
+        kind: "global-search",
+        searchTerm: term,
+        detail: "在全部笔记中全文检索并列出结果",
+      };
+      const exactCommandIndex = filteredCommands.findIndex(
+        (command) => command.label.trim() === term,
+      );
+      if (exactCommandIndex >= 0) {
+        return [
+          ...filteredCommands.slice(0, exactCommandIndex),
+          filteredCommands[exactCommandIndex],
+          globalSearchOption,
+          ...filteredCommands.slice(exactCommandIndex + 1),
+        ];
+      }
+      return [globalSearchOption, ...filteredCommands];
+    }
+
     return filteredCommands;
   }, [
     createNoteResult,
@@ -373,6 +398,7 @@ export function CommandMenu({
     hasSelectedNote,
     moveNoteResult,
     parsedSearchPrefix,
+    query,
   ]);
 
   const createNoteError = createNoteResult?.kind === "error" ? createNoteResult.message : "";
@@ -478,7 +504,7 @@ export function CommandMenu({
         searchRef.current?.focus();
         return;
       } else if (option.id === "find-in-note") {
-        setQuery("搜索 ");
+        setQuery("当前笔记 ");
         setSelected(0);
         searchRef.current?.focus();
         return;
@@ -603,7 +629,8 @@ export function CommandMenu({
           ref={searchRef}
           value={query}
           onChange={(event) => updateQuery(event.target.value)}
-          aria-label="搜索命令或笔记内容"
+          aria-label="搜索全部笔记或命令"
+          placeholder="搜索全部笔记或命令"
           role="combobox"
           aria-autocomplete="list"
           aria-haspopup="listbox"
