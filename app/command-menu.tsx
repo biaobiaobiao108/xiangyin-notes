@@ -135,7 +135,7 @@ export function CommandMenu({
   const returnFocusRef = useRef<HTMLElement | null>(null);
   const lastMousePositionRef = useRef<{ x: number; y: number } | null>(null);
   const mobileTouchScrollingRef = useRef(false);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(() => initialQuery ?? "");
   const [selected, setSelected] = useState(0);
 
   const commands = useMemo<
@@ -379,31 +379,6 @@ export function CommandMenu({
       }
     }
 
-    const term = query.trim();
-    if (term) {
-      const globalSearchOption: CommandOption = {
-        key: "action:global-search",
-        label: `在全部笔记中搜索“${term}”`,
-        shortcut: "↵",
-        icon: Search,
-        kind: "global-search",
-        searchTerm: term,
-        detail: "在全部笔记中全文检索并列出结果",
-      };
-      const exactCommandIndex = filteredCommands.findIndex(
-        (command) => command.label.trim() === term,
-      );
-      if (exactCommandIndex >= 0) {
-        return [
-          ...filteredCommands.slice(0, exactCommandIndex),
-          filteredCommands[exactCommandIndex],
-          globalSearchOption,
-          ...filteredCommands.slice(exactCommandIndex + 1),
-        ];
-      }
-      return [globalSearchOption, ...filteredCommands];
-    }
-
     return filteredCommands;
   }, [
     createNoteResult,
@@ -412,7 +387,6 @@ export function CommandMenu({
     hasSelectedNote,
     moveNoteResult,
     parsedSearchPrefix,
-    query,
   ]);
 
   const createNoteError = createNoteResult?.kind === "error" ? createNoteResult.message : "";
