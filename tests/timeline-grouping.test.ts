@@ -44,14 +44,14 @@ describe("时间轴分组与标题分组算法", () => {
     // 本周一 (2026-10-26，比昨天更早但在本周内)
     const mondaySeconds = Math.floor(new Date("2026-10-26T10:00:00+08:00").getTime() / 1000);
     expect(getTimelineGroupTitle(mondaySeconds, fixedNowMs)).toBe("本周内");
-    // 本月中旬 (2026-10-15，上周但在本月内)
+    // 本月中旬（早于上周）
     const earlierThisMonthSeconds = Math.floor(
       new Date("2026-10-15T10:00:00+08:00").getTime() / 1000,
     );
     expect(getTimelineGroupTitle(earlierThisMonthSeconds, fixedNowMs)).toBe("本月内");
     // 上月 (2026-09-15)
     const lastMonthSeconds = Math.floor(new Date("2026-09-15T10:00:00+08:00").getTime() / 1000);
-    expect(getTimelineGroupTitle(lastMonthSeconds, fixedNowMs)).toBe("更早");
+    expect(getTimelineGroupTitle(lastMonthSeconds, fixedNowMs)).toBe("上月");
   });
 
   it("对笔记列表按时间分组并统计数量", () => {
@@ -75,8 +75,25 @@ describe("时间轴分组与标题分组算法", () => {
     expect(groups[0]?.count).toBe(2);
     expect(groups[1]?.title).toBe("昨天");
     expect(groups[1]?.count).toBe(1);
-    expect(groups[2]?.title).toBe("更早");
+    expect(groups[2]?.title).toBe("今年内");
     expect(groups[2]?.count).toBe(1);
+  });
+
+  it("在跨月和跨年时按最近的自然时间段分组", () => {
+    const now = new Date(2026, 0, 7, 12).getTime(); // 周三
+    const title = (year: number, month: number, day: number) =>
+      getTimelineGroupTitle(new Date(year, month - 1, day, 12).getTime() / 1000, now);
+    expect(title(2026, 1, 7)).toBe("今天");
+    expect(title(2026, 1, 6)).toBe("昨天");
+    expect(title(2026, 1, 5)).toBe("本周内");
+    expect(title(2026, 1, 4)).toBe("上周");
+    expect(title(2025, 12, 29)).toBe("上周");
+    expect(title(2025, 12, 28)).toBe("上月");
+    expect(title(2025, 11, 30)).toBe("更早");
+
+    const later = new Date(2026, 9, 30, 12).getTime();
+    expect(getTimelineGroupTitle(new Date(2026, 9, 19, 12).getTime() / 1000, later)).toBe("上周");
+    expect(getTimelineGroupTitle(new Date(2026, 7, 1, 12).getTime() / 1000, later)).toBe("今年内");
   });
 
   it("对笔记列表按标题首字母分组", () => {

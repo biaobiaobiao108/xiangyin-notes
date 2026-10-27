@@ -219,16 +219,17 @@ export function getInitialLetter(char: string): string {
 export function getTimelineGroupTitle(timestampSeconds: number, nowMs = Date.now()): string {
   const timestampMs = timestampSeconds * 1000;
   const nowDate = new Date(nowMs);
-  const startOfToday = new Date(
-    nowDate.getFullYear(),
-    nowDate.getMonth(),
-    nowDate.getDate(),
-  ).getTime();
-  const startOfYesterday = startOfToday - 86400000;
-  const day = nowDate.getDay();
-  const daysSinceMonday = (day + 6) % 7;
-  const startOfWeek = startOfToday - daysSinceMonday * 86400000;
+  const year = nowDate.getFullYear();
+  const month = nowDate.getMonth();
+  const date = nowDate.getDate();
+  const daysSinceMonday = (nowDate.getDay() + 6) % 7;
+  const startOfToday = new Date(year, month, date).getTime();
+  const startOfYesterday = new Date(year, month, date - 1).getTime();
+  const startOfWeek = new Date(year, month, date - daysSinceMonday).getTime();
+  const startOfLastWeek = new Date(year, month, date - daysSinceMonday - 7).getTime();
   const startOfMonth = new Date(nowDate.getFullYear(), nowDate.getMonth(), 1).getTime();
+  const startOfLastMonth = new Date(year, month - 1, 1).getTime();
+  const startOfYear = new Date(year, 0, 1).getTime();
 
   if (timestampMs >= startOfToday) {
     return "今天";
@@ -239,8 +240,17 @@ export function getTimelineGroupTitle(timestampSeconds: number, nowMs = Date.now
   if (timestampMs >= startOfWeek) {
     return "本周内";
   }
+  if (timestampMs >= startOfLastWeek) {
+    return "上周";
+  }
   if (timestampMs >= startOfMonth) {
     return "本月内";
+  }
+  if (timestampMs >= startOfLastMonth) {
+    return "上月";
+  }
+  if (timestampMs >= startOfYear) {
+    return "今年内";
   }
   return "更早";
 }
