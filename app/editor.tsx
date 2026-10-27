@@ -1975,6 +1975,21 @@ export function NoteEditor({
                 {backlinkCount > 0 && <span className="icon-badge">{backlinkCount}</span>}
               </button>
             )}
+            <button
+              className={`icon-button favorite-toggle ${note.isFavorite ? "is-active" : ""}`}
+              type="button"
+              aria-label={note.isFavorite ? "取消收藏" : "收藏笔记"}
+              aria-pressed={note.isFavorite}
+              onClick={onToggleFavorite}
+              disabled={editorLocked}
+            >
+              <Star
+                size={19}
+                strokeWidth={1.8}
+                fill={note.isFavorite ? "currentColor" : "none"}
+                aria-hidden="true"
+              />
+            </button>
             {note.deletedAt ? (
               <>
                 <button
