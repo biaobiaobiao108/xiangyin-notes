@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
   NOTE_DRAG_MIME_TYPE,
   createNoteDragGhost,
+  hasNoteDragType,
   registerDragOverGuard,
 } from "../app/workspace/note-drag-drop";
 
@@ -48,6 +49,20 @@ describe("列表视图与卡片视图专属功能与拖拽交互", () => {
 
   it("支持拖拽数据的标准 MIME 类型并提供全局 dragover 保护避免禁止光标", () => {
     expect(NOTE_DRAG_MIME_TYPE).toBe("application/x-xiangying-note-ids");
+
+    // 验证不同环境下的 DataTransfer.types 识别
+    const arrayDt = { types: [NOTE_DRAG_MIME_TYPE] } as unknown as DataTransfer;
+    expect(hasNoteDragType(arrayDt)).toBe(true);
+
+    const domListDt = {
+      types: {
+        contains: (v: string) => v === NOTE_DRAG_MIME_TYPE,
+      },
+    } as unknown as DataTransfer;
+    expect(hasNoteDragType(domListDt)).toBe(true);
+
+    const emptyDt = { types: [] } as unknown as DataTransfer;
+    expect(hasNoteDragType(emptyDt)).toBe(false);
 
     const cleanup = registerDragOverGuard();
     expect(typeof cleanup).toBe("function");

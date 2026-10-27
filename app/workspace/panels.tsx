@@ -42,7 +42,7 @@ import {
   sortNotes,
   viewLabel,
 } from "./helpers";
-import { NOTE_DRAG_MIME_TYPE, createNoteDragGhost } from "./note-drag-drop";
+import { NOTE_DRAG_MIME_TYPE, createNoteDragGhost, hasNoteDragType } from "./note-drag-drop";
 import { NoteTags } from "./note-tags";
 import { useVirtualNoteList } from "./use-virtual-note-list";
 import { useScrollEdges } from "./use-scroll-edges";
@@ -78,7 +78,7 @@ function useSidebarDropTarget(onDropNotes?: (ids: string[]) => void) {
 
   const handleDragEnter = useCallback(
     (event: ReactDragEvent) => {
-      if (!onDropNotes || !event.dataTransfer.types.includes(NOTE_DRAG_MIME_TYPE)) return;
+      if (!onDropNotes || !hasNoteDragType(event.dataTransfer)) return;
       event.preventDefault();
       counterRef.current += 1;
       if (counterRef.current === 1) setIsOver(true);
@@ -88,7 +88,7 @@ function useSidebarDropTarget(onDropNotes?: (ids: string[]) => void) {
 
   const handleDragOver = useCallback(
     (event: ReactDragEvent) => {
-      if (!onDropNotes || !event.dataTransfer.types.includes(NOTE_DRAG_MIME_TYPE)) return;
+      if (!onDropNotes || !hasNoteDragType(event.dataTransfer)) return;
       event.preventDefault();
       event.dataTransfer.dropEffect = "move";
     },
@@ -97,7 +97,7 @@ function useSidebarDropTarget(onDropNotes?: (ids: string[]) => void) {
 
   const handleDragLeave = useCallback(
     (event: ReactDragEvent) => {
-      if (!onDropNotes || !event.dataTransfer.types.includes(NOTE_DRAG_MIME_TYPE)) return;
+      if (!onDropNotes || !hasNoteDragType(event.dataTransfer)) return;
       counterRef.current = Math.max(0, counterRef.current - 1);
       if (counterRef.current === 0) setIsOver(false);
     },
@@ -432,7 +432,15 @@ function NoteThumbnail({ note }: { note: NoteSummary }) {
   if (!thumbnail?.url) return null;
   return (
     <span className="note-row-thumbnail" aria-hidden="true">
-      <img src={thumbnail.url} alt="" width={76} height={76} loading="lazy" decoding="async" />
+      <img
+        src={thumbnail.url}
+        alt=""
+        width={76}
+        height={76}
+        loading="lazy"
+        decoding="async"
+        draggable={false}
+      />
     </span>
   );
 }
@@ -922,7 +930,6 @@ export const NoteListPanel = memo(function NoteListPanel({
       event.dataTransfer.effectAllowed = "move";
       const ghost = createNoteDragGhost(note.title, ids.length);
       event.dataTransfer.setDragImage(ghost, 36, 36);
-      requestAnimationFrame(() => ghost.remove());
 
       setDraggingNoteIds(new Set(ids));
     },

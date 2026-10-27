@@ -2472,6 +2472,16 @@ dialog::backdrop {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  pointer-events: none;
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+.note-card img,
+.note-row img {
+  pointer-events: none;
+  -webkit-user-drag: none;
+  user-select: none;
 }
 
 .note-card-body {

@@ -1,6 +1,26 @@
 export const NOTE_DRAG_MIME_TYPE = "application/x-xiangying-note-ids";
 
 /**
+ * 检查 DataTransfer 中是否包含象映笔记专有的拖拽 MIME 类型。
+ * 兼容 DOMStringList.contains 与 Array.includes。
+ */
+export function hasNoteDragType(dataTransfer: DataTransfer | null): boolean {
+  if (!dataTransfer || !dataTransfer.types) return false;
+  const types = dataTransfer.types as unknown as {
+    includes?: (value: string) => boolean;
+    contains?: (value: string) => boolean;
+    length?: number;
+  };
+  if (typeof types.includes === "function") {
+    return types.includes(NOTE_DRAG_MIME_TYPE);
+  }
+  if (typeof types.contains === "function") {
+    return types.contains(NOTE_DRAG_MIME_TYPE);
+  }
+  return Array.from(dataTransfer.types).includes(NOTE_DRAG_MIME_TYPE);
+}
+
+/**
  * 创建高对比度、物理级层叠与明确状态的桌面级拖拽跟随预览（单选为独立实体卡片，多选为错落 Card Stack 层叠）。
  */
 export function createNoteDragGhost(title: string, count = 1): HTMLElement {
@@ -55,26 +75,38 @@ export function createNoteDragGhost(title: string, count = 1): HTMLElement {
   `;
 
   document.body.appendChild(wrapper);
+  // 强制触发一次同步布局计算，确保浏览器位图捕获前所有元素完成几何渲染
+  void wrapper.offsetWidth;
+
+  // 400ms 后自动卸载，给浏览器留足捕获时间，绝不在当前渲染帧前提前移除
+  setTimeout(() => {
+    wrapper.remove();
+  }, 400);
+
   return wrapper;
 }
 
 /**
  * 全局消除拖拽时 Windows/Chromium 出现的红色禁止图标（not-allowed cursor）。
- * 只要正在拖拽象映笔记内部项，阻止默认事件并将 dropEffect 置为 "move"。
+ * 只要正在拖拽象映笔记内部项，在捕获阶段拦截 dragenter 与 dragover，并将 dropEffect 置为 "move"。
  */
 export function registerDragOverGuard(): () => void {
   if (typeof window === "undefined") return () => undefined;
 
-  const handleDragOver = (event: DragEvent) => {
-    if (event.dataTransfer?.types.includes(NOTE_DRAG_MIME_TYPE)) {
+  const handleGlobalDrag = (event: DragEvent) => {
+    if (hasNoteDragType(event.dataTransfer)) {
       event.preventDefault();
-      event.dataTransfer.dropEffect = "move";
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = "move";
+      }
     }
   };
 
-  window.addEventListener("dragover", handleDragOver);
+  window.addEventListener("dragenter", handleGlobalDrag, true);
+  window.addEventListener("dragover", handleGlobalDrag, true);
   return () => {
-    window.removeEventListener("dragover", handleDragOver);
+    window.removeEventListener("dragenter", handleGlobalDrag, true);
+    window.removeEventListener("dragover", handleGlobalDrag, true);
   };
 }
 

@@ -17,7 +17,7 @@ import { FloatingScrollbar } from "../floating-scrollbar";
 import { resolveNoteClickAction, type NoteSelectionClick } from "./note-list-selection";
 import { EmptyTrashButton } from "./empty-trash-button";
 import { getNoteTags, relativeDate, sortNotes, viewLabel } from "./helpers";
-import { NOTE_DRAG_MIME_TYPE, createNoteDragGhost } from "./note-drag-drop";
+import { NOTE_DRAG_MIME_TYPE, createNoteDragGhost, hasNoteDragType } from "./note-drag-drop";
 import { NoteTags } from "./note-tags";
 import { MobileCollectionHeader } from "./mobile-collection-header";
 import { useVirtualCardMasonry } from "./use-virtual-card-masonry";
@@ -116,7 +116,6 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
       event.dataTransfer.effectAllowed = "move";
       const ghost = createNoteDragGhost(note.title, ids.length);
       event.dataTransfer.setDragImage(ghost, 36, 36);
-      requestAnimationFrame(() => ghost.remove());
 
       setDraggingNoteIds(new Set(ids));
     },
@@ -272,6 +271,12 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
           ref={gridScrollRef}
           className={`card-grid-container floating-scrollbar-target ${onEmptyTrash ? "has-trash-action" : ""}`}
           tabIndex={0}
+          onDragOver={(event) => {
+            if (hasNoteDragType(event.dataTransfer)) {
+              event.preventDefault();
+              event.dataTransfer.dropEffect = "move";
+            }
+          }}
           onKeyDown={handleGridKeyDown}
           onKeyDownCapture={masonry.onKeyDownCapture}
           onFocusCapture={masonry.onFocusCapture}
@@ -461,6 +466,7 @@ const NoteCardItem = memo(function NoteCardItem({
               alt=""
               loading="lazy"
               decoding="async"
+              draggable={false}
               className="note-card-cover-image"
             />
           </div>
