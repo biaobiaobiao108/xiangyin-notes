@@ -725,9 +725,8 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 /* 拖拽微缩卡片与 Card Stack 层叠 Ghost */
 .note-drag-ghost-shell {
   position: fixed;
-  top: 0;
-  left: 0;
-  z-index: -999;
+  top: -9999px;
+  left: -9999px;
   pointer-events: none;
   padding: 20px 28px 28px 20px;
   box-sizing: border-box;
@@ -828,12 +827,11 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
   box-sizing: border-box;
 }
 
-/* 拖拽源被拿起时的微透明状态与物理凹陷反馈 */
+/* 拖拽源被拿起时的微透明状态 */
 .note-list-item.is-dragging,
 .note-card.is-dragging {
   opacity: 0.35 !important;
-  transform: scale(0.98);
-  transition: opacity 0.14s ease, transform 0.14s ease;
+  transition: opacity 0.14s ease;
 }
 
 .editor-panel { position: relative; display: flex; flex-direction: column; height: 100%; min-height: 0; }

@@ -11,13 +11,15 @@ export function hasNoteDragType(dataTransfer: DataTransfer | null): boolean {
     contains?: (value: string) => boolean;
     length?: number;
   };
-  if (typeof types.includes === "function") {
-    return types.includes(NOTE_DRAG_MIME_TYPE);
+  if (typeof types.contains === "function" && types.contains(NOTE_DRAG_MIME_TYPE)) {
+    return true;
   }
-  if (typeof types.contains === "function") {
-    return types.contains(NOTE_DRAG_MIME_TYPE);
+  if (typeof types.includes === "function" && types.includes(NOTE_DRAG_MIME_TYPE)) {
+    return true;
   }
-  return Array.from(dataTransfer.types).includes(NOTE_DRAG_MIME_TYPE);
+  return Array.from(dataTransfer.types).some(
+    (t) => t === NOTE_DRAG_MIME_TYPE || t.toLowerCase() === NOTE_DRAG_MIME_TYPE,
+  );
 }
 
 /**
@@ -35,11 +37,10 @@ export function createNoteDragGhost(title: string, count = 1): HTMLElement {
   const wrapper = document.createElement("div");
   wrapper.className = "note-drag-ghost-shell";
   wrapper.style.position = "fixed";
-  wrapper.style.top = "0";
-  wrapper.style.left = "0";
-  wrapper.style.zIndex = "-999";
+  wrapper.style.top = "-9999px";
+  wrapper.style.left = "-9999px";
   wrapper.style.pointerEvents = "none";
-  wrapper.style.opacity = "0.99";
+  wrapper.style.opacity = "1";
 
   const displayTitle = (title.trim() || "未命名笔记").slice(0, 22);
   const isMulti = count > 1;
@@ -78,17 +79,13 @@ export function createNoteDragGhost(title: string, count = 1): HTMLElement {
   // 强制触发一次同步布局计算，确保浏览器位图捕获前所有元素完成几何渲染
   void wrapper.offsetWidth;
 
-  // 400ms 后自动卸载，给浏览器留足捕获时间，绝不在当前渲染帧前提前移除
-  setTimeout(() => {
-    wrapper.remove();
-  }, 400);
-
   return wrapper;
 }
 
 /**
  * 全局消除拖拽时 Windows/Chromium 出现的红色禁止图标（not-allowed cursor）。
- * 只要正在拖拽象映笔记内部项，在捕获阶段拦截 dragenter 与 dragover，并将 dropEffect 置为 "move"。
+ * 只要正在拖拽象映笔记内部项，在冒泡阶段阻止默认事件并将 dropEffect 置为 "move"。
+ * 严格使用冒泡阶段（false），绝不在 capture 阶段抢占，确保 React 内部组件的 onDragEnter / onDragOver / onDrop 正常派发。
  */
 export function registerDragOverGuard(): () => void {
   if (typeof window === "undefined") return () => undefined;
@@ -102,11 +99,9 @@ export function registerDragOverGuard(): () => void {
     }
   };
 
-  window.addEventListener("dragenter", handleGlobalDrag, true);
-  window.addEventListener("dragover", handleGlobalDrag, true);
+  window.addEventListener("dragover", handleGlobalDrag, false);
   return () => {
-    window.removeEventListener("dragenter", handleGlobalDrag, true);
-    window.removeEventListener("dragover", handleGlobalDrag, true);
+    window.removeEventListener("dragover", handleGlobalDrag, false);
   };
 }
 

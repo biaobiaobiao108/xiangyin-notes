@@ -109,7 +109,8 @@ function useSidebarDropTarget(onDropNotes?: (ids: string[]) => void) {
       if (!onDropNotes) return;
       counterRef.current = 0;
       setIsOver(false);
-      const data = event.dataTransfer.getData(NOTE_DRAG_MIME_TYPE);
+      const data =
+        event.dataTransfer.getData(NOTE_DRAG_MIME_TYPE) || event.dataTransfer.getData("text/plain");
       if (!data) return;
       event.preventDefault();
       event.stopPropagation();
@@ -926,12 +927,18 @@ export const NoteListPanel = memo(function NoteListPanel({
             ? [selectedIds.values().next().value!, note.id]
             : [note.id];
 
-      event.dataTransfer.setData(NOTE_DRAG_MIME_TYPE, JSON.stringify(ids));
+      const serialized = JSON.stringify(ids);
+      event.dataTransfer.setData(NOTE_DRAG_MIME_TYPE, serialized);
+      event.dataTransfer.setData("text/plain", serialized);
       event.dataTransfer.effectAllowed = "move";
       const ghost = createNoteDragGhost(note.title, ids.length);
       event.dataTransfer.setDragImage(ghost, 36, 36);
+      requestAnimationFrame(() => ghost.remove());
 
-      setDraggingNoteIds(new Set(ids));
+      // 延迟到下一动画帧设置 is-dragging，避免在 dragstart 事件同微任务内重渲染 DOM 打断 Chromium 的拖拽初始化
+      requestAnimationFrame(() => {
+        setDraggingNoteIds(new Set(ids));
+      });
     },
     [isMobileViewport, selectedIds],
   );
