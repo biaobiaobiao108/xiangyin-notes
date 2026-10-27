@@ -207,10 +207,10 @@ export const SplitNoteDialog = memo(function SplitNoteDialog({
                   <span className="command-row-label">{note.title || "未命名笔记"}</span>
                 </span>
                 <span className="command-row-trailing">
-                  <span className="note-row-date">{relativeDate(note.updatedAt)}</span>
                   {note.notebookName && (
                     <span className="split-note-notebook">{note.notebookName}</span>
                   )}
+                  <span className="note-row-date">{relativeDate(note.updatedAt)}</span>
                 </span>
               </button>
             ))

@@ -178,7 +178,7 @@ describe("split view layout and interaction logic", () => {
     expect(searchCandidatesDesign.map((n) => n.id)).toEqual(["note-2"]);
   });
 
-  test("renders notebook name after last edit date in split note dialog", () => {
+  test("renders notebook name before last edit date with right-aligned date in split note dialog", () => {
     const notes: NoteSummary[] = [
       makeNote("n-1", "当前打开笔记", "工作", 1000),
       makeNote("n-2", "对照参考笔记", "架构设计", 2000),
@@ -198,7 +198,7 @@ describe("split view layout and interaction logic", () => {
     expect(html).toContain('class="note-row-date"');
     const dateIndex = html.indexOf('class="note-row-date"');
     const notebookIndex = html.indexOf('class="split-note-notebook"');
-    expect(dateIndex).toBeGreaterThan(-1);
-    expect(notebookIndex).toBeGreaterThan(dateIndex);
+    expect(notebookIndex).toBeGreaterThan(-1);
+    expect(dateIndex).toBeGreaterThan(notebookIndex);
   });
 });
