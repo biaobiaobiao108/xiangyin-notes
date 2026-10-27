@@ -96,6 +96,37 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
     sortedNotes.length,
     masonry.totalHeight,
   ]);
+
+  const [draggingNoteIds, setDraggingNoteIds] = useState<ReadonlySet<string> | null>(null);
+
+  const handleCardDragStart = useCallback(
+    (note: NoteSummary, event: ReactDragEvent<HTMLElement>) => {
+      if (isMobileViewport) return;
+      const inSelection = selectedIds.has(note.id);
+      const ids =
+        selectedIds.size > 1
+          ? inSelection
+            ? Array.from(selectedIds)
+            : Array.from(new Set([...selectedIds, note.id]))
+          : selectedIds.size === 1 && !inSelection
+            ? [selectedIds.values().next().value!, note.id]
+            : [note.id];
+
+      event.dataTransfer.setData(NOTE_DRAG_MIME_TYPE, JSON.stringify(ids));
+      event.dataTransfer.effectAllowed = "move";
+      const ghost = createNoteDragGhost(note.title, ids.length);
+      event.dataTransfer.setDragImage(ghost, 36, 36);
+      requestAnimationFrame(() => ghost.remove());
+
+      setDraggingNoteIds(new Set(ids));
+    },
+    [isMobileViewport, selectedIds],
+  );
+
+  const handleCardDragEnd = useCallback(() => {
+    setDraggingNoteIds(null);
+  }, []);
+
   const renderCard = useCallback(
     (note: NoteSummary, index: number) => (
       <NoteCardItem
@@ -113,9 +144,15 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
         onToggleFavorite={onToggleFavoriteNote}
         notebook={notebooksById.get(note.notebookId)}
         isTrashView={isTrashView}
+        isDragging={draggingNoteIds?.has(note.id) ?? false}
+        onDragStart={handleCardDragStart}
+        onDragEnd={handleCardDragEnd}
       />
     ),
     [
+      draggingNoteIds,
+      handleCardDragEnd,
+      handleCardDragStart,
       isMobileViewport,
       isTrashView,
       notebooksById,
@@ -333,6 +370,9 @@ type NoteCardItemProps = {
   notebook?: Notebook;
   isTrashView: boolean;
   selectedIds?: ReadonlySet<string>;
+  isDragging: boolean;
+  onDragStart: (note: NoteSummary, event: ReactDragEvent<HTMLElement>) => void;
+  onDragEnd: () => void;
 };
 
 const NoteCardItem = memo(function NoteCardItem({
@@ -349,8 +389,10 @@ const NoteCardItem = memo(function NoteCardItem({
   onToggleFavorite,
   notebook,
   isTrashView,
+  isDragging,
+  onDragStart,
+  onDragEnd,
 }: NoteCardItemProps) {
-  const [isDragging, setIsDragging] = useState(false);
   const handleCardClick = (event: ReactMouseEvent) => {
     const intent = resolveNoteClickAction(event, { hasSelectionActive, isMobileViewport });
     if (intent.action === "toggle") {
@@ -366,22 +408,6 @@ const NoteCardItem = memo(function NoteCardItem({
     onToggleFavorite(note);
   };
 
-  const handleDragStart = (event: ReactDragEvent<HTMLElement>) => {
-    if (isMobileViewport) return;
-    const isMulti = isSelected && selectedIds && selectedIds.size > 1;
-    const ids = isMulti && selectedIds ? Array.from(selectedIds) : [note.id];
-    event.dataTransfer.setData(NOTE_DRAG_MIME_TYPE, JSON.stringify(ids));
-    event.dataTransfer.effectAllowed = "move";
-    const ghost = createNoteDragGhost(note.title, ids.length);
-    event.dataTransfer.setDragImage(ghost, 28, 28);
-    requestAnimationFrame(() => ghost.remove());
-    setIsDragging(true);
-  };
-
-  const handleDragEnd = () => {
-    setIsDragging(false);
-  };
-
   const displayTitle = note.title.trim() || "未命名笔记";
   const hasThumbnail = Boolean(note.thumbnail?.id);
   const displayNotebook = notebook;
@@ -391,8 +417,8 @@ const NoteCardItem = memo(function NoteCardItem({
     <article
       data-note-id={note.id}
       draggable={!isMobileViewport}
-      onDragStart={handleDragStart}
-      onDragEnd={handleDragEnd}
+      onDragStart={(event) => onDragStart(note, event)}
+      onDragEnd={onDragEnd}
       className={`note-card ${isSelected ? "is-selected" : ""} ${hasThumbnail ? "has-thumbnail" : ""} ${isDragging ? "is-dragging" : ""}`.trim()}
       onClick={handleCardClick}
       role="listitem"

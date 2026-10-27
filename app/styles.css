@@ -715,41 +715,47 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
   left: 0;
   z-index: -999;
   pointer-events: none;
-  width: 220px;
+  padding: 20px 28px 28px 20px;
+  box-sizing: border-box;
 }
 .note-drag-stack {
   position: relative;
-  width: 210px;
+  width: 220px;
+  height: 82px;
 }
 .note-drag-card-layer {
   position: absolute;
   inset: 0;
-  height: 80px;
-  background: var(--surface);
-  border: 1px solid var(--border-soft);
+  width: 220px;
+  height: 82px;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.16);
   border-radius: var(--radius-md);
-  box-shadow: 0 4px 12px rgba(39, 47, 41, 0.08);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.16);
   pointer-events: none;
+  box-sizing: border-box;
 }
 .note-drag-card-layer.is-layer-back {
-  transform: rotate(5deg) translate(8px, 6px);
-  opacity: 0.65;
-  background: var(--surface-subtle);
+  transform: rotate(6deg) translate(10px, 8px);
+  background: #f7f7f5;
+  border-color: rgba(0, 0, 0, 0.2);
+  opacity: 0.9;
 }
 .note-drag-card-layer.is-layer-middle {
-  transform: rotate(-3deg) translate(-4px, 3px);
-  opacity: 0.85;
-  background: var(--surface);
+  transform: rotate(-4deg) translate(-5px, 4px);
+  background: #fafaf8;
+  border-color: rgba(0, 0, 0, 0.2);
+  opacity: 0.95;
 }
 .note-drag-card-top {
   position: relative;
-  width: 210px;
-  height: 80px;
+  width: 220px;
+  height: 82px;
   padding: 10px 12px;
-  background: var(--surface);
-  border: 1px solid var(--border-soft);
+  background: #ffffff;
+  border: 1.5px solid rgba(0, 0, 0, 0.18);
   border-radius: var(--radius-md);
-  box-shadow: 0 12px 28px rgba(39, 47, 41, 0.16), 0 3px 8px rgba(39, 47, 41, 0.08);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.24), 0 4px 10px rgba(0, 0, 0, 0.12);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -759,61 +765,61 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
 }
 .note-drag-card-icon {
   color: var(--accent);
   flex-shrink: 0;
 }
 .note-drag-card-title {
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--ink);
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: #1a201c;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 160px;
+  flex: 1 1 auto;
 }
-.note-drag-card-preview-lines {
+.note-drag-card-info {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-top: 4px;
+  align-items: center;
+  margin-top: auto;
 }
-.note-drag-card-preview-lines .line-1 {
-  height: 5px;
-  width: 85%;
-  background: var(--surface-subtle);
-  border-radius: 2px;
+.note-drag-card-count-text {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.02em;
 }
-.note-drag-card-preview-lines .line-2 {
-  height: 5px;
-  width: 60%;
-  background: var(--surface-subtle);
-  border-radius: 2px;
+.note-drag-stack.is-multi .note-drag-card-count-text {
+  color: var(--vermilion, #d96245);
 }
 .note-drag-stack-badge {
   position: absolute;
-  top: -7px;
-  right: -7px;
+  top: -9px;
+  right: -9px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 20px;
-  height: 20px;
+  min-width: 22px;
+  height: 22px;
   padding: 0 6px;
   border-radius: 999px;
   background: var(--vermilion, #d96245);
-  color: #fff;
-  font-size: 0.72rem;
-  font-weight: 700;
-  box-shadow: 0 2px 6px rgba(217, 98, 69, 0.4);
+  color: #ffffff;
+  font-size: 0.75rem;
+  font-weight: 800;
+  border: 2px solid #ffffff;
+  box-shadow: 0 3px 8px rgba(217, 98, 69, 0.5);
+  box-sizing: border-box;
 }
 
-/* 拖拽源被拿起时的微透明状态 */
+/* 拖拽源被拿起时的微透明状态与物理凹陷反馈 */
 .note-list-item.is-dragging,
 .note-card.is-dragging {
-  opacity: 0.45;
+  opacity: 0.35 !important;
   transform: scale(0.98);
+  transition: opacity 0.14s ease, transform 0.14s ease;
 }
 
 .editor-panel { position: relative; display: flex; flex-direction: column; height: 100%; min-height: 0; }

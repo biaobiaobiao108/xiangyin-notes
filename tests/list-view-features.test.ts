@@ -29,6 +29,7 @@ describe("列表视图与卡片视图专属功能与拖拽交互", () => {
       expect(singleGhost.className).toBe("note-drag-ghost-shell");
       expect(singleGhost.innerHTML).toContain("测试笔记");
       expect(singleGhost.innerHTML).toContain("note-drag-card-top");
+      expect(singleGhost.innerHTML).toContain("拖拽至侧栏以移动");
       expect(singleGhost.innerHTML).not.toContain("note-drag-stack-badge");
       singleGhost.remove();
 
@@ -38,6 +39,7 @@ describe("列表视图与卡片视图专属功能与拖拽交互", () => {
       expect(multiGhost.innerHTML).toContain("note-drag-card-layer");
       expect(multiGhost.innerHTML).toContain("note-drag-stack-badge");
       expect(multiGhost.innerHTML).toContain("3");
+      expect(multiGhost.innerHTML).toContain("已多选 3 篇笔记");
       multiGhost.remove();
     } finally {
       (globalThis as unknown as { document?: unknown }).document = originalDocument;

@@ -468,6 +468,9 @@ const NoteListRow = memo(function NoteListRow({
   onNoteSwipeAction,
   open,
   setOpenId,
+  isDragging,
+  onDragStart,
+  onDragEnd,
 }: {
   note: NoteSummary;
   isSelected: boolean;
@@ -486,8 +489,10 @@ const NoteListRow = memo(function NoteListRow({
   onNoteSwipeAction: (note: NoteSummary, action: NoteSwipeAction) => void;
   open: boolean;
   setOpenId: (id: string | null) => void;
+  isDragging: boolean;
+  onDragStart: (note: NoteSummary, event: ReactDragEvent<HTMLButtonElement>) => void;
+  onDragEnd: () => void;
 }) {
-  const [isDragging, setIsDragging] = useState(false);
   const actionWidth = isTrashView ? 144 : 96;
   const foregroundRef = useRef<HTMLButtonElement>(null);
   const gesture = useSwipeActionGesture({
@@ -498,22 +503,6 @@ const NoteListRow = memo(function NoteListRow({
     onOpenChange: setOpenId,
     foregroundRef,
   });
-
-  const handleDragStart = (event: ReactDragEvent<HTMLButtonElement>) => {
-    if (isMobileViewport) return;
-    const isMulti = isSelected && selectedIds && selectedIds.size > 1;
-    const ids = isMulti && selectedIds ? Array.from(selectedIds) : [note.id];
-    event.dataTransfer.setData(NOTE_DRAG_MIME_TYPE, JSON.stringify(ids));
-    event.dataTransfer.effectAllowed = "move";
-    const ghost = createNoteDragGhost(note.title, ids.length);
-    event.dataTransfer.setDragImage(ghost, 28, 28);
-    requestAnimationFrame(() => ghost.remove());
-    setIsDragging(true);
-  };
-
-  const handleDragEnd = () => {
-    setIsDragging(false);
-  };
 
   return (
     <li
@@ -599,8 +588,8 @@ const NoteListRow = memo(function NoteListRow({
           ref={foregroundRef}
           type="button"
           draggable={!isMobileViewport}
-          onDragStart={handleDragStart}
-          onDragEnd={handleDragEnd}
+          onDragStart={(event) => onDragStart(note, event)}
+          onDragEnd={onDragEnd}
           className={`note-row swipe-action-foreground ${note.thumbnail ? "has-thumbnail" : ""} ${!isTrashView ? "has-favorite-action" : ""} ${isSelected ? "is-selected" : ""} ${isActive ? "is-active" : ""}`}
           aria-current={isActive ? "page" : undefined}
           aria-pressed={isSelected}
@@ -914,6 +903,36 @@ export const NoteListPanel = memo(function NoteListPanel({
     return () => observer.disconnect();
   }, [hasMore, onLoadMore, isLoadingMore]);
 
+  const [draggingNoteIds, setDraggingNoteIds] = useState<ReadonlySet<string> | null>(null);
+
+  const handleRowDragStart = useCallback(
+    (note: NoteSummary, event: ReactDragEvent<HTMLButtonElement>) => {
+      if (isMobileViewport) return;
+      const inSelection = selectedIds.has(note.id);
+      const ids =
+        selectedIds.size > 1
+          ? inSelection
+            ? Array.from(selectedIds)
+            : Array.from(new Set([...selectedIds, note.id]))
+          : selectedIds.size === 1 && !inSelection
+            ? [selectedIds.values().next().value!, note.id]
+            : [note.id];
+
+      event.dataTransfer.setData(NOTE_DRAG_MIME_TYPE, JSON.stringify(ids));
+      event.dataTransfer.effectAllowed = "move";
+      const ghost = createNoteDragGhost(note.title, ids.length);
+      event.dataTransfer.setDragImage(ghost, 36, 36);
+      requestAnimationFrame(() => ghost.remove());
+
+      setDraggingNoteIds(new Set(ids));
+    },
+    [isMobileViewport, selectedIds],
+  );
+
+  const handleRowDragEnd = useCallback(() => {
+    setDraggingNoteIds(null);
+  }, []);
+
   const sortedNotes = useMemo(() => sortNotes(notes, "updated"), [notes]);
   const virtualList = useVirtualNoteList(
     sortedNotes,
@@ -1144,6 +1163,9 @@ export const NoteListPanel = memo(function NoteListPanel({
                                 onNoteSwipeAction={onNoteSwipeAction}
                                 open={swipeActions.openId === note.id}
                                 setOpenId={swipeActions.setOpenId}
+                                isDragging={draggingNoteIds?.has(note.id) ?? false}
+                                onDragStart={handleRowDragStart}
+                                onDragEnd={handleRowDragEnd}
                               />
                             );
                           })}
@@ -1189,6 +1211,9 @@ export const NoteListPanel = memo(function NoteListPanel({
                         onNoteSwipeAction={onNoteSwipeAction}
                         open={swipeActions.openId === note.id}
                         setOpenId={swipeActions.setOpenId}
+                        isDragging={draggingNoteIds?.has(note.id) ?? false}
+                        onDragStart={handleRowDragStart}
+                        onDragEnd={handleRowDragEnd}
                       />
                     ))}
                     {hasLoadMoreRow && (

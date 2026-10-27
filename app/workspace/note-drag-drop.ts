@@ -1,12 +1,12 @@
 export const NOTE_DRAG_MIME_TYPE = "application/x-xiangying-note-ids";
 
 /**
- * 创建符合象映笔记审美与桌面规范的拖拽跟随卡片（单选为真实卡片，多选为错落层叠 Card Stack）。
+ * 创建高对比度、物理级层叠与明确状态的桌面级拖拽跟随预览（单选为独立实体卡片，多选为错落 Card Stack 层叠）。
  */
 export function createNoteDragGhost(title: string, count = 1): HTMLElement {
   if (typeof document === "undefined") {
     return {
-      className: "note-drag-ghost",
+      className: "note-drag-ghost-shell",
       innerHTML: "",
       remove() {},
     } as unknown as HTMLElement;
@@ -21,7 +21,7 @@ export function createNoteDragGhost(title: string, count = 1): HTMLElement {
   wrapper.style.pointerEvents = "none";
   wrapper.style.opacity = "0.99";
 
-  const displayTitle = (title.trim() || "未命名笔记").slice(0, 24);
+  const displayTitle = (title.trim() || "未命名笔记").slice(0, 22);
   const isMulti = count > 1;
 
   wrapper.innerHTML = `
@@ -38,15 +38,16 @@ export function createNoteDragGhost(title: string, count = 1): HTMLElement {
       }
       <div class="note-drag-card-top">
         <div class="note-drag-card-header">
-          <svg class="note-drag-card-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <svg class="note-drag-card-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
             <polyline points="14 2 14 8 20 8"/>
           </svg>
           <span class="note-drag-card-title">${escapeHtml(displayTitle)}</span>
         </div>
-        <div class="note-drag-card-preview-lines" aria-hidden="true">
-          <span class="line-1"></span>
-          <span class="line-2"></span>
+        <div class="note-drag-card-info" aria-hidden="true">
+          <span class="note-drag-card-count-text">${
+            isMulti ? `已多选 ${count} 篇笔记` : "拖拽至侧栏以移动"
+          }</span>
         </div>
         ${isMulti ? `<div class="note-drag-stack-badge" aria-hidden="true">${count}</div>` : ""}
       </div>
