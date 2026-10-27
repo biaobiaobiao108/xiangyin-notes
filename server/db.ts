@@ -248,6 +248,7 @@ export async function openDatabase(
         console.warn("[db] 正在启用 auto_vacuum=INCREMENTAL，首次整理可能需要一些时间");
       database.exec("PRAGMA auto_vacuum = INCREMENTAL;");
       database.exec("VACUUM;");
+      database.exec("INSERT INTO notes_fts(notes_fts) VALUES('rebuild');");
     }
     database.exec("PRAGMA journal_mode = WAL;");
     return database;

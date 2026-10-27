@@ -1,9 +1,12 @@
 import { describe, expect, test } from "bun:test";
+import React from "react";
+import { renderToString } from "react-dom/server";
 import {
   clampSplitRatio,
   DEFAULT_SPLIT_RATIO,
   MIN_SPLIT_RATIO,
   MAX_SPLIT_RATIO,
+  SplitResizer,
 } from "../app/workspace/split-resizer";
 
 describe("split resizer logic", () => {
@@ -22,5 +25,16 @@ describe("split resizer logic", () => {
 
   test("default split ratio is 50%", () => {
     expect(DEFAULT_SPLIT_RATIO).toBe(0.5);
+  });
+
+  test("renders aria-valuetext with percentage", () => {
+    const html = renderToString(
+      React.createElement(SplitResizer, {
+        splitRatio: 0.5,
+        onSplitRatioChange: () => {},
+        containerRef: { current: null },
+      }),
+    );
+    expect(html).toContain('aria-valuetext="50%"');
   });
 });

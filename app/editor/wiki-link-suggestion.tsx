@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useId, useImperativeHandle, useRef, useState } from "react";
-import { Extension } from "@tiptap/core";
+import { Extension, type Editor } from "@tiptap/core";
+import type { ResolvedPos } from "@tiptap/pm/model";
 import { Plugin } from "@tiptap/pm/state";
 import { ReactRenderer } from "@tiptap/react";
 import Suggestion, {
@@ -13,7 +14,7 @@ import { FloatingScrollbar } from "../floating-scrollbar";
 import { suggestionPopupBounds, suggestionViewport } from "./suggestion-popup.helpers";
 
 export function findWikiLinkSuggestionMatch(config: {
-  $position: any;
+  $position: ResolvedPos;
   allowedPrefixes?: string[] | null;
   startOfLine?: boolean;
 }): SuggestionMatch {
@@ -70,7 +71,7 @@ export type WikiLinkSuggestionListRef = {
 type WikiLinkSuggestionListProps = {
   items: WikiLinkSuggestionItem[];
   command: (item: WikiLinkSuggestionItem) => void;
-  editor: any;
+  editor: Editor;
 };
 
 export const WikiLinkSuggestionList = forwardRef<

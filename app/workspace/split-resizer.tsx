@@ -33,18 +33,30 @@ export const SplitResizer = memo(function SplitResizer({
       const container = containerRef.current;
       if (!container) return;
 
+      const rect = container.getBoundingClientRect();
+      const containerLeft = rect.left;
+      const containerWidth = rect.width;
+      if (containerWidth <= 0) return;
+
       const target = event.currentTarget;
       target.setPointerCapture(event.pointerId);
       setIsDragging(true);
 
+      let rafId: number | null = null;
       const handlePointerMove = (moveEvent: PointerEvent) => {
-        const rect = container.getBoundingClientRect();
-        if (rect.width <= 0) return;
-        const rawRatio = (moveEvent.clientX - rect.left) / rect.width;
-        onSplitRatioChange(clampSplitRatio(rawRatio));
+        if (rafId !== null) cancelAnimationFrame(rafId);
+        rafId = requestAnimationFrame(() => {
+          rafId = null;
+          const rawRatio = (moveEvent.clientX - containerLeft) / containerWidth;
+          onSplitRatioChange(clampSplitRatio(rawRatio));
+        });
       };
 
       const handlePointerUp = (upEvent: PointerEvent) => {
+        if (rafId !== null) {
+          cancelAnimationFrame(rafId);
+          rafId = null;
+        }
         try {
           target.releasePointerCapture(upEvent.pointerId);
         } catch {
@@ -54,11 +66,13 @@ export const SplitResizer = memo(function SplitResizer({
         target.removeEventListener("pointermove", handlePointerMove);
         target.removeEventListener("pointerup", handlePointerUp);
         target.removeEventListener("pointercancel", handlePointerUp);
+        target.removeEventListener("lostpointercapture", handlePointerUp);
       };
 
       target.addEventListener("pointermove", handlePointerMove);
       target.addEventListener("pointerup", handlePointerUp);
       target.addEventListener("pointercancel", handlePointerUp);
+      target.addEventListener("lostpointercapture", handlePointerUp);
     },
     [containerRef, onSplitRatioChange],
   );
@@ -92,6 +106,7 @@ export const SplitResizer = memo(function SplitResizer({
       aria-valuenow={Math.round(splitRatio * 100)}
       aria-valuemin={Math.round(MIN_SPLIT_RATIO * 100)}
       aria-valuemax={Math.round(MAX_SPLIT_RATIO * 100)}
+      aria-valuetext={`${Math.round(splitRatio * 100)}%`}
       className={`split-resizer ${isDragging ? "is-dragging" : ""}`}
       onPointerDown={handlePointerDown}
       onDoubleClick={handleDoubleClick}

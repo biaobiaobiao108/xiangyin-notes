@@ -210,6 +210,9 @@ export function Workspace() {
     }
     setViewLayout((current) => {
       const next = current === "cards" ? "three-column" : "cards";
+      if (next !== "cards") {
+        closeSplitRef.current();
+      }
       try {
         localStorage.setItem("xiangying_view_layout", next);
       } catch {}
@@ -303,6 +306,9 @@ export function Workspace() {
     setNotes(next);
   }, []);
   const [splitNoteId, setSplitNoteId] = useState<string | null>(null);
+  const splitNoteIdRef = useRef<string | null>(null);
+  splitNoteIdRef.current = splitNoteId;
+  const closeSplitRef = useRef<() => void>(() => undefined);
   const [splitSelectedNote, setSplitSelectedNote] = useState<Note | null>(null);
   const splitSelectedRef = useRef<Note | null>(null);
   const [splitIsNoteLoading, setSplitIsNoteLoading] = useState(false);
@@ -644,6 +650,9 @@ export function Workspace() {
         selectNote(nextId);
         setCardEditingNoteId((current) => (current === noteId ? nextId : current));
       }
+      if (splitNoteIdRef.current === noteId) {
+        closeSplitRef.current();
+      }
     },
     [noteSort, replaceList, selectNote],
   );
@@ -691,6 +700,9 @@ export function Workspace() {
       replaceList(currentList.filter((note) => !deletedIds.has(note.id)));
       setTotalNotes((value) => Math.max(0, value - visibleDeletedCount));
       clearNoteSelection();
+      if (splitNoteIdRef.current && deletedIds.has(splitNoteIdRef.current)) {
+        closeSplitRef.current();
+      }
       if (activeWasDeleted) {
         selectNote(nextActiveId);
         setCardEditingNoteId((current) =>
@@ -1342,22 +1354,42 @@ export function Workspace() {
     void loadSplitNote(splitNoteId);
   }, [loadSplitNote, ready, splitNoteId]);
 
+  const flushSecondaryDraft = useCallback(() => {
+    const split = splitSelectedRef.current;
+    if (split && !trashOperationsRef.current.has(split.id)) {
+      const md = splitMarkdownReaderRef.current?.();
+      if (md != null && md !== split.contentMarkdown) {
+        const next = { ...split, contentMarkdown: md };
+        splitSelectedRef.current = next;
+        persistRef.current(next, ["contentMarkdown"]);
+      }
+    }
+  }, []);
+
+  const closeSplit = useCallback(() => {
+    flushSecondaryDraft();
+    setSplitNoteId(null);
+    setSplitSelectedNote(null);
+    splitSelectedRef.current = null;
+    setActivePane("primary");
+  }, [flushSecondaryDraft]);
+  closeSplitRef.current = closeSplit;
+
   const openInSplit = useCallback(
     (noteId: string) => {
-      if (isMobileViewport) return;
-      if (viewLayout === "cards") {
-        if (cardEditingNoteId === null) {
-          if (selectedId && selectedId !== noteId) {
-            setCardEditingNoteId(selectedId);
-            setSplitNoteId(noteId);
-            setActivePane("secondary");
-            return;
-          }
-          selectNote(noteId);
-          setCardEditingNoteId(noteId);
-          setSplitPickerOpen(true);
+      if (isMobileViewport || viewLayout !== "cards") return;
+      if (cardEditingNoteId === null) {
+        if (selectedId && selectedId !== noteId) {
+          setCardEditingNoteId(selectedId);
+          if (splitNoteId && splitNoteId !== noteId) flushSecondaryDraft();
+          setSplitNoteId(noteId);
+          setActivePane("secondary");
           return;
         }
+        selectNote(noteId);
+        setCardEditingNoteId(noteId);
+        setSplitPickerOpen(true);
+        return;
       }
       if (noteId === selectedId) {
         setActivePane("primary");
@@ -1371,27 +1403,20 @@ export function Workspace() {
       if (window.innerWidth < 1200) {
         setSidebarCollapsed(true);
       }
+      if (splitNoteId && splitNoteId !== noteId) flushSecondaryDraft();
       setSplitNoteId(noteId);
       setActivePane("secondary");
     },
-    [cardEditingNoteId, isMobileViewport, selectNote, selectedId, splitNoteId, viewLayout],
+    [
+      cardEditingNoteId,
+      flushSecondaryDraft,
+      isMobileViewport,
+      selectNote,
+      selectedId,
+      splitNoteId,
+      viewLayout,
+    ],
   );
-
-  const closeSplit = useCallback(() => {
-    const split = splitSelectedRef.current;
-    if (split && !trashOperationsRef.current.has(split.id)) {
-      const md = splitMarkdownReaderRef.current?.();
-      if (md != null && md !== split.contentMarkdown) {
-        const next = { ...split, contentMarkdown: md };
-        splitSelectedRef.current = next;
-        persistRef.current(next, ["contentMarkdown"]);
-      }
-    }
-    setSplitNoteId(null);
-    setSplitSelectedNote(null);
-    splitSelectedRef.current = null;
-    setActivePane("primary");
-  }, []);
 
   const handleToggleSplit = useCallback(() => {
     if (splitNoteId) {
@@ -1404,7 +1429,8 @@ export function Workspace() {
   const handleSelectSplitNote = useCallback(
     (noteId: string) => {
       setSplitPickerOpen(false);
-      if (viewLayout === "cards" && cardEditingNoteId === null) {
+      if (viewLayout !== "cards") return;
+      if (cardEditingNoteId === null) {
         const primaryId = selectedId ?? noteId;
         setCardEditingNoteId(primaryId);
         if (primaryId === noteId) return;
@@ -1417,10 +1443,11 @@ export function Workspace() {
       if (window.innerWidth < 1200) {
         setSidebarCollapsed(true);
       }
+      if (splitNoteId && splitNoteId !== noteId) flushSecondaryDraft();
       setSplitNoteId(noteId);
       setActivePane("secondary");
     },
-    [cardEditingNoteId, selectedId, viewLayout],
+    [cardEditingNoteId, flushSecondaryDraft, selectedId, splitNoteId, viewLayout],
   );
 
   const onSplitNoteChange = useCallback(
@@ -1519,13 +1546,19 @@ export function Workspace() {
         const activeId = activeNoteIdRef.current;
         if (activeId && (next.selected || next.noteIds.has(activeId)))
           void refreshSelectedNoteFromRemote(activeId);
+        const currentSplitId = splitNoteIdRef.current;
+        if (currentSplitId && next.noteIds.has(currentSplitId)) {
+          void loadSplitNote(currentSplitId);
+        }
         for (const noteId of next.noteIds) {
-          if (!next.notes && noteId !== activeId) void patchNoteFromRemote(noteId);
+          if (!next.notes && noteId !== activeId && noteId !== currentSplitId)
+            void patchNoteFromRemote(noteId);
         }
       }, 50);
     },
     [
       deferredQuery,
+      loadSplitNote,
       patchNoteFromRemote,
       refreshNotebooks,
       refreshSelectedNoteFromRemote,
@@ -1846,13 +1879,16 @@ export function Workspace() {
           setActivePane("primary");
           return;
         }
+        if (splitNoteId && splitNoteId !== note.id) {
+          flushSecondaryDraft();
+        }
         setSplitNoteId(note.id);
         setActivePane("secondary");
       } else {
         notifyError("打开或创建笔记失败，请重试");
       }
     },
-    [ensureWikiNoteExists, notifyError, selectedId],
+    [ensureWikiNoteExists, flushSecondaryDraft, notifyError, selectedId, splitNoteId],
   );
 
   const handleCreateAndLinkNote = useCallback(
@@ -1919,6 +1955,9 @@ export function Workspace() {
             setActivePane("primary");
             setEditorFocusNoteId(id);
             return;
+          }
+          if (splitNoteId && splitNoteId !== id) {
+            flushSecondaryDraft();
           }
           setSplitNoteId(id);
           return;
@@ -2049,7 +2088,10 @@ export function Workspace() {
               if (viewLayout === "cards") handleOpenCardNote(note.id);
               else selectNote(note.id);
             },
-            openInSplit: isMobileViewport ? undefined : (note) => openInSplit(note.id),
+            openInSplit:
+              !isMobileViewport && viewLayout === "cards"
+                ? (note) => openInSplit(note.id)
+                : undefined,
             toggleSelection: (noteId) => handleToggleCardSelection(noteId, { ctrlKey: true }),
             swipeAction: handleNoteSwipeAction,
             restoreSelected: restoreSelectedNotes,
@@ -2416,7 +2458,9 @@ export function Workspace() {
                       onOutlineItemsChange={handleOutlineItemsChange}
                       onOutlineActiveChange={handleOutlineActiveChange}
                       onOutlineNavigationReady={handleOutlineNavigationReady}
-                      onToggleSplit={handleToggleSplit}
+                      onToggleSplit={
+                        !isMobileViewport && viewLayout === "cards" ? handleToggleSplit : undefined
+                      }
                       isSplitActive={true}
                       isActivePane={activePane === "primary"}
                       onActivatePane={() => setActivePane("primary")}
@@ -2556,7 +2600,9 @@ export function Workspace() {
                 onOutlineItemsChange={handleOutlineItemsChange}
                 onOutlineActiveChange={handleOutlineActiveChange}
                 onOutlineNavigationReady={handleOutlineNavigationReady}
-                onToggleSplit={isMobileViewport ? undefined : handleToggleSplit}
+                onToggleSplit={
+                  !isMobileViewport && viewLayout === "cards" ? handleToggleSplit : undefined
+                }
                 isSplitActive={false}
               />
             </Suspense>

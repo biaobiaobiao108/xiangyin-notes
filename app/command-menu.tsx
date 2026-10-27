@@ -178,7 +178,7 @@ export function CommandMenu({
         shortcut: `${modKey} \\`,
         icon: PanelLeft,
       },
-      ...(!isMobileViewport
+      ...(!isMobileViewport && viewLayout === "cards"
         ? [
             {
               id: "toggle-split" as CommandId,

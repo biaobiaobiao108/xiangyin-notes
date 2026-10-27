@@ -40,6 +40,7 @@ export type NoteSummary = {
   isFavorite: boolean;
   deletedAt: number | null;
   version: number;
+  match?: { field: string; snippet?: string };
   createdAt: number;
   updatedAt: number;
 };
@@ -53,6 +54,7 @@ export type ApiErrorPayload = {
     code: string;
     message: string;
     fields?: Record<string, string>;
+    current?: Note;
   };
 };
 

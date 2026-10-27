@@ -60,6 +60,8 @@ export const SplitNoteDialog = memo(function SplitNoteDialog({
   const dialogRef = useRef<HTMLDialogElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const ignoreNextCancelRef = useRef(false);
+  const ignoreNextCancelTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
 
@@ -91,10 +93,34 @@ export const SplitNoteDialog = memo(function SplitNoteDialog({
       return () => {
         if (dialog.open) dialog.close();
         if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
+        if (ignoreNextCancelTimerRef.current !== null) {
+          clearTimeout(ignoreNextCancelTimerRef.current);
+          ignoreNextCancelTimerRef.current = null;
+        }
+        ignoreNextCancelRef.current = false;
       };
     } else {
       if (dialog.open) dialog.close();
     }
+  }, [open]);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog || !open) return;
+    const onDialogKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape" && (event.isComposing || event.keyCode === 229)) {
+        ignoreNextCancelRef.current = true;
+        if (ignoreNextCancelTimerRef.current !== null) {
+          clearTimeout(ignoreNextCancelTimerRef.current);
+        }
+        ignoreNextCancelTimerRef.current = setTimeout(() => {
+          ignoreNextCancelRef.current = false;
+          ignoreNextCancelTimerRef.current = null;
+        }, 0);
+      }
+    };
+    dialog.addEventListener("keydown", onDialogKeyDown);
+    return () => dialog.removeEventListener("keydown", onDialogKeyDown);
   }, [open]);
 
   const handleBackdropClick = useCallback(
@@ -113,6 +139,7 @@ export const SplitNoteDialog = memo(function SplitNoteDialog({
 
   const handleKeyDown = useCallback(
     (event: KeyboardEvent<HTMLInputElement>) => {
+      if (event.nativeEvent.isComposing || event.keyCode === 229) return;
       if (event.key === "Escape") {
         event.stopPropagation();
         onClose();
@@ -159,6 +186,14 @@ export const SplitNoteDialog = memo(function SplitNoteDialog({
       onClick={handleBackdropClick}
       onCancel={(event) => {
         event.preventDefault();
+        if (ignoreNextCancelRef.current) {
+          ignoreNextCancelRef.current = false;
+          if (ignoreNextCancelTimerRef.current !== null) {
+            clearTimeout(ignoreNextCancelTimerRef.current);
+            ignoreNextCancelTimerRef.current = null;
+          }
+          return;
+        }
         onClose();
       }}
     >
@@ -174,6 +209,10 @@ export const SplitNoteDialog = memo(function SplitNoteDialog({
           role="combobox"
           aria-expanded={filteredNotes.length > 0}
           aria-controls="split-note-options"
+          aria-autocomplete="list"
+          aria-activedescendant={
+            filteredNotes[selectedIndex] ? `split-note-option-${selectedIndex}` : undefined
+          }
           aria-label="搜索要分屏对照的笔记"
           placeholder="搜索要分屏对照的笔记……"
           value={query}
@@ -195,6 +234,7 @@ export const SplitNoteDialog = memo(function SplitNoteDialog({
             filteredNotes.map((note, index) => (
               <button
                 key={note.id}
+                id={`split-note-option-${index}`}
                 role="option"
                 type="button"
                 aria-selected={index === selectedIndex}

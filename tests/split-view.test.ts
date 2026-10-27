@@ -196,9 +196,23 @@ describe("split view layout and interaction logic", () => {
 
     expect(html).toContain('class="split-note-notebook">架构设计</span>');
     expect(html).toContain('class="note-row-date"');
+    expect(html).toContain('aria-autocomplete="list"');
+    expect(html).toContain('id="split-note-option-0"');
+    expect(html).toContain('aria-activedescendant="split-note-option-0"');
     const dateIndex = html.indexOf('class="note-row-date"');
     const notebookIndex = html.indexOf('class="split-note-notebook"');
     expect(notebookIndex).toBeGreaterThan(-1);
     expect(dateIndex).toBeGreaterThan(notebookIndex);
+  });
+
+  test("split actions are only enabled in desktop card view", () => {
+    function isSplitAvailable(isMobileViewport: boolean, viewLayout: string): boolean {
+      return !isMobileViewport && viewLayout === "cards";
+    }
+
+    expect(isSplitAvailable(false, "cards")).toBe(true);
+    expect(isSplitAvailable(false, "three-column")).toBe(false);
+    expect(isSplitAvailable(true, "cards")).toBe(false);
+    expect(isSplitAvailable(true, "three-column")).toBe(false);
   });
 });

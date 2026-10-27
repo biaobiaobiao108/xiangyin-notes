@@ -16,7 +16,7 @@ import TaskItem from "@tiptap/extension-task-item";
 import Placeholder from "@tiptap/extension-placeholder";
 import { findWrapping } from "@tiptap/pm/transform";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import type { Transaction } from "@tiptap/pm/state";
+import { Selection, type Transaction } from "@tiptap/pm/state";
 import {
   ArrowLeft,
   ArrowLeftRight,
@@ -471,8 +471,21 @@ export function NoteEditor({
         editorInstanceRef.current === editorInstance &&
         !editorInstance?.isDestroyed;
       if (!editorInstance || !uploadImage || editorLocked || note.deletedAt) return;
-      const imageFiles = files.filter(isImageFile).slice(0, MAX_IMAGE_FILES_PER_ACTION);
-      if (!imageFiles.length) return;
+      const MAX_IMAGE_FILE_SIZE = 10 * 1024 * 1024;
+      const imageFiles = files
+        .filter((file) => isImageFile(file) && file.size <= MAX_IMAGE_FILE_SIZE)
+        .slice(0, MAX_IMAGE_FILES_PER_ACTION);
+      if (!imageFiles.length) {
+        if (files.some(isImageFile)) {
+          setImageUploadState("error");
+          if (imageUploadTimerRef.current !== null) clearTimeout(imageUploadTimerRef.current);
+          imageUploadTimerRef.current = setTimeout(() => {
+            imageUploadTimerRef.current = null;
+            setImageUploadState("idle");
+          }, 3000);
+        }
+        return;
+      }
       const uploadPosition = createImageUploadPosition(editorInstance);
       setImageUploadState("uploading");
       if (imageUploadTimerRef.current !== null) clearTimeout(imageUploadTimerRef.current);
@@ -947,11 +960,21 @@ export function NoteEditor({
           return false;
         }
       },
-      handleDrop: (_view: Editor["view"], event: DragEvent, _slice: unknown, moved: boolean) => {
+      handleDrop: (view: Editor["view"], event: DragEvent, _slice: unknown, moved: boolean) => {
         if (moved) return false;
-        const imageFiles = Array.from(event.dataTransfer?.files ?? []).filter(isImageFile);
-        if (!imageFiles.length) return false;
+        const files = Array.from(event.dataTransfer?.files ?? []);
+        if (!files.length) return false;
+        const imageFiles = files.filter(isImageFile);
+        if (!imageFiles.length) {
+          event.preventDefault();
+          return true;
+        }
         event.preventDefault();
+        const coords = view.posAtCoords({ left: event.clientX, top: event.clientY });
+        if (coords) {
+          const tr = view.state.tr.setSelection(Selection.near(view.state.doc.resolve(coords.pos)));
+          view.dispatch(tr);
+        }
         uploadImageFilesRef.current(imageFiles);
         return true;
       },
@@ -1749,6 +1772,7 @@ export function NoteEditor({
       aria-label="笔记编辑器"
       aria-busy={editorLocked}
       onPointerDown={onActivatePane}
+      onFocusCapture={onActivatePane}
       onContextMenu={contextMenu.onContextMenu}
       onKeyDown={(event) => {
         if (event.nativeEvent.isComposing || event.keyCode === 229) return;

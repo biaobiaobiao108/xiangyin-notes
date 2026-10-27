@@ -83,6 +83,21 @@ describe("note context menu", () => {
     expect(splitCalls).toEqual(["split:note-1"]);
   });
 
+  test("omits open in split when openInSplit action is undefined (three-column or mobile)", () => {
+    const items = buildNoteContextMenuItems({
+      note: noteSummary(),
+      view: "all",
+      selectedIds: new Set<string>(),
+      busy: false,
+      actions: {
+        ...menuActions(),
+        openInSplit: undefined,
+      },
+    });
+
+    expect(labels(items)).not.toContain("在分屏中打开");
+  });
+
   test("turns the toggle into removal once the note is selected", () => {
     const items = buildNoteContextMenuItems({
       note: noteSummary(),

@@ -88,4 +88,44 @@ describe("CommandMenu 键盘优先与鼠标防干扰契约", () => {
 
     expect(html).toContain("在全部笔记中搜索“架构设计”");
   });
+
+  it("仅在卡片视图下提供分屏显示命令，三栏视图下不显示", () => {
+    const cardsHtml = renderToString(
+      React.createElement(CommandMenu, {
+        open: true,
+        viewLayout: "cards",
+        isMobileViewport: false,
+        onClose: () => {},
+        onCommand: () => {},
+        onCreateNoteInNotebook: () => {},
+        canRestore: false,
+        canMoveToTrash: true,
+        notebooks: [],
+        canInstallApp: false,
+        showIosInstallHint: false,
+        standalone: false,
+        themePreference: "system",
+      }),
+    );
+    expect(cardsHtml).toContain("分屏显示笔记");
+
+    const threeColumnHtml = renderToString(
+      React.createElement(CommandMenu, {
+        open: true,
+        viewLayout: "three-column",
+        isMobileViewport: false,
+        onClose: () => {},
+        onCommand: () => {},
+        onCreateNoteInNotebook: () => {},
+        canRestore: false,
+        canMoveToTrash: true,
+        notebooks: [],
+        canInstallApp: false,
+        showIosInstallHint: false,
+        standalone: false,
+        themePreference: "system",
+      }),
+    );
+    expect(threeColumnHtml).not.toContain("分屏显示笔记");
+  });
 });

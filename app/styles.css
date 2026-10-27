@@ -240,8 +240,9 @@ button:disabled { cursor: not-allowed; opacity: 0.52; }
   min-width: 0;
 }
 .editor-region.is-split .editor-header {
-  padding: 0 18px;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  padding: 0 16px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr);
+  gap: 8px;
 }
 .editor-region.is-split .editor-document {
   padding-left: clamp(16px, 3.5vw, 40px);
@@ -683,7 +684,7 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
   opacity: 1;
   transform: translateY(0);
 }
-.editor-header-title { display: -webkit-box; min-width: 0; overflow: clip; overflow-wrap: anywhere; color: var(--muted); font-size: 0.84rem; font-weight: 600; letter-spacing: 0; line-height: 1.2; text-align: center; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
+.editor-header-title { display: block; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 0.84rem; font-weight: 600; letter-spacing: 0; line-height: 1.2; text-align: center; }
 .editor-meta { display: flex; align-items: center; min-width: 0; gap: 8px; color: var(--soft-muted); font-size: 0.76rem; white-space: nowrap; }
 .editor-meta strong { color: var(--muted); font-weight: 500; }
 .editor-actions { justify-content: flex-end; gap: 4px; min-width: 0; }
