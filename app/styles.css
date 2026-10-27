@@ -320,13 +320,27 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .notebook-item.is-drop-target {
   background: var(--accent-soft) !important;
   color: var(--ink) !important;
-  box-shadow: inset 0 0 0 1.5px var(--accent-border), 0 4px 12px rgba(46, 76, 56, 0.08) !important;
-  transform: translateX(6px) scale(1.02);
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1.5px var(--accent-border) !important;
+  transform: none !important;
+}
+.nav-item.is-drop-target svg,
+.notebook-row-wrap.is-drop-target .notebook-custom-icon,
+.notebook-item.is-drop-target .notebook-custom-icon {
+  transform: scale(1.14);
+  transition: transform 0.15s cubic-bezier(0.2, 0, 0, 1);
+}
+.notebook-row-wrap.is-drop-target .notebook-item em,
+.notebook-item.is-drop-target em {
+  background: var(--accent) !important;
+  color: #ffffff !important;
+  font-weight: 600;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 .collapsed-notebook-item.is-drop-target {
   background: var(--accent-soft) !important;
-  box-shadow: inset 0 0 0 1.5px var(--accent-border), 0 4px 12px rgba(46, 76, 56, 0.08) !important;
-  transform: scale(1.08);
+  box-shadow: inset 0 0 0 1.5px var(--accent-border) !important;
+  transform: scale(1.05);
 }
 .nav-item.is-drop-success,
 .notebook-row-wrap.is-drop-success .notebook-item,
@@ -334,8 +348,8 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
   animation: drop-success-pulse 320ms var(--motion-ease-out);
 }
 @keyframes drop-success-pulse {
-  0% { transform: scale(1.04); }
-  50% { transform: scale(0.97); }
+  0% { transform: scale(0.97); }
+  50% { transform: scale(1.01); }
   100% { transform: scale(1); }
 }
 .nav-item.is-active {
