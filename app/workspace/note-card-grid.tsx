@@ -11,7 +11,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { Archive, Menu, Search, Star } from "lucide-react";
-import type { NoteSort, NoteSummary, NoteView, Notebook } from "../../shared/types";
+import type { NoteSummary, NoteView, Notebook } from "../../shared/types";
 import { playEntranceAnimation } from "../animation";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { resolveNoteClickAction, type NoteSelectionClick } from "./note-list-selection";
@@ -27,8 +27,6 @@ export type NoteCardGridPanelProps = {
   notes: NoteSummary[];
   total: number;
   hasMore: boolean;
-  sort: NoteSort;
-  setSort: (sort: NoteSort) => void;
   isMobileViewport?: boolean;
   onToggleLayout?: () => void;
   selectedIds: ReadonlySet<string>;
@@ -60,8 +58,6 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
   notes,
   total,
   hasMore,
-  sort,
-  setSort,
   isMobileViewport = false,
   onToggleLayout,
   selectedIds,
@@ -88,7 +84,7 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
   const panelRef = useRef<HTMLElement>(null);
   const gridScrollRef = useRef<HTMLDivElement>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
-  const sortedNotes = useMemo(() => sortNotes(notes, sort), [notes, sort]);
+  const sortedNotes = useMemo(() => sortNotes(notes, "updated"), [notes]);
   const notebooksById = useMemo(
     () => new Map(notebooks.map((notebook) => [notebook.id, notebook])),
     [notebooks],
@@ -210,8 +206,6 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
             total={total}
             shown={notes.length}
             query={query}
-            sort={sort}
-            onSort={setSort}
             onBack={onOpenSidebar}
             layout="cards"
             onToggleLayout={onToggleLayout}
@@ -379,8 +373,8 @@ const NoteCardItem = memo(function NoteCardItem({
     event.dataTransfer.setData(NOTE_DRAG_MIME_TYPE, JSON.stringify(ids));
     event.dataTransfer.effectAllowed = "move";
     const ghost = createNoteDragGhost(note.title, ids.length);
-    event.dataTransfer.setDragImage(ghost, 20, 20);
-    setTimeout(() => ghost.remove(), 0);
+    event.dataTransfer.setDragImage(ghost, 28, 28);
+    requestAnimationFrame(() => ghost.remove());
     setIsDragging(true);
   };
 

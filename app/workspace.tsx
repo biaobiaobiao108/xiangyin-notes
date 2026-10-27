@@ -30,6 +30,7 @@ import { SplitResizer, DEFAULT_SPLIT_RATIO } from "./workspace/split-resizer";
 import { SplitNoteDialog } from "./workspace/split-note-dialog";
 import { EmptyEditor, NoteListPanel, NoteLoadingState, Sidebar } from "./workspace/panels";
 import { NoteCardGridPanel } from "./workspace/note-card-grid";
+import { registerDragOverGuard } from "./workspace/note-drag-drop";
 import {
   errorMessage,
   mergeRemoteSummary,
@@ -102,6 +103,10 @@ export function Workspace() {
   const [hasMoreNotes, setHasMoreNotes] = useState(false);
   const [notesReloadToken, setNotesReloadToken] = useState(0);
   const [listTransitionToken, setListTransitionToken] = useState(0);
+
+  useEffect(() => {
+    return registerDragOverGuard();
+  }, []);
   const listTransitionIntentRef = useRef(0);
   const listTransitionConsumedRef = useRef(0);
   const editorMarkdownReaderRef = useRef<(() => string | null) | null>(null);
@@ -2342,8 +2347,6 @@ export function Workspace() {
           notes={notes}
           total={totalNotes}
           hasMore={hasMoreNotes}
-          sort={noteSort}
-          setSort={handleNoteSort}
           selectedId={selectedId}
           selectedIds={selectedNoteIds}
           onSelect={handleSelectListNote}
@@ -2388,8 +2391,6 @@ export function Workspace() {
           notes={notes}
           total={totalNotes}
           hasMore={hasMoreNotes}
-          sort={noteSort}
-          setSort={handleNoteSort}
           isMobileViewport={isMobileViewport}
           onToggleLayout={toggleViewLayout}
           selectedIds={selectedNoteIds}

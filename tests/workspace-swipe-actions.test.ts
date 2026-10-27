@@ -34,8 +34,6 @@ function renderNoteList(
     React.createElement(NoteListPanel, {
       notes: [noteSummary()],
       total: 1,
-      sort: "updated",
-      setSort: () => {},
       selectedId: null,
       selectedIds: new Set<string>(),
       onSelect: () => {},

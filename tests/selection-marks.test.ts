@@ -27,8 +27,6 @@ function renderList(selectedIds: Set<string>, selectedId: string | null = null):
     React.createElement(NoteListPanel, {
       notes: [noteSummary()],
       total: 1,
-      sort: "updated",
-      setSort: () => {},
       selectedId,
       selectedIds,
       onSelect: () => {},
@@ -58,8 +56,6 @@ function renderCards(selectedIds: Set<string>): string {
       notes: [noteSummary()],
       total: 1,
       hasMore: false,
-      sort: "updated",
-      setSort: () => {},
       selectedIds,
       onOpenNote: () => {},
       onToggleSelectNote: () => {},

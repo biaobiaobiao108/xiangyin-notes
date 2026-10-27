@@ -13,11 +13,8 @@ import {
   type RefObject,
 } from "react";
 import {
-  AlignJustify,
   Archive,
-  ChevronDown,
   ChevronLeft,
-  LayoutList,
   LayoutPanelLeft,
   LogOut,
   Menu,
@@ -43,7 +40,6 @@ import {
   navItems,
   relativeDate,
   sortNotes,
-  type NoteSort,
   viewLabel,
 } from "./helpers";
 import { NOTE_DRAG_MIME_TYPE, createNoteDragGhost } from "./note-drag-drop";
@@ -510,8 +506,8 @@ const NoteListRow = memo(function NoteListRow({
     event.dataTransfer.setData(NOTE_DRAG_MIME_TYPE, JSON.stringify(ids));
     event.dataTransfer.effectAllowed = "move";
     const ghost = createNoteDragGhost(note.title, ids.length);
-    event.dataTransfer.setDragImage(ghost, 20, 20);
-    setTimeout(() => ghost.remove(), 0);
+    event.dataTransfer.setDragImage(ghost, 28, 28);
+    requestAnimationFrame(() => ghost.remove());
     setIsDragging(true);
   };
 
@@ -805,18 +801,10 @@ export function NoteOutlinePanel({
   );
 }
 
-const SORT_OPTIONS: Array<{ value: NoteSort; label: string }> = [
-  { value: "updated", label: "最近更新" },
-  { value: "created", label: "创建时间" },
-  { value: "title", label: "标题排序" },
-];
-
 type NoteListPanelProps = {
   notes: NoteSummary[];
   total: number;
   hasMore?: boolean;
-  sort: NoteSort;
-  setSort: (sort: NoteSort) => void;
   selectedId: string | null;
   selectedIds: ReadonlySet<string>;
   onSelect: (id: string, event: ReactMouseEvent<HTMLButtonElement>) => void;
@@ -852,8 +840,6 @@ export const NoteListPanel = memo(function NoteListPanel({
   notes,
   total,
   hasMore = total > notes.length,
-  sort,
-  setSort,
   selectedId,
   selectedIds,
   onSelect,
@@ -882,27 +868,6 @@ export const NoteListPanel = memo(function NoteListPanel({
   onFocusEditor,
   inert = false,
 }: NoteListPanelProps) {
-  const [density, setDensity] = useState<"standard" | "compact">(() => {
-    try {
-      return (localStorage.getItem("xiangying:note-list-density") as "compact") || "standard";
-    } catch {
-      return "standard";
-    }
-  });
-  const toggleDensity = useCallback(() => {
-    setDensity((current) => {
-      const next = current === "standard" ? "compact" : "standard";
-      try {
-        localStorage.setItem("xiangying:note-list-density", next);
-      } catch {}
-      return next;
-    });
-  }, []);
-
-  const [sortOpen, setSortOpen] = useState(false);
-  const sortRef = useRef<HTMLDivElement>(null);
-  const sortTriggerRef = useRef<HTMLButtonElement>(null);
-  const sortOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const noteListRef = useRef<HTMLDivElement>(null);
   const [noteListElement, setNoteListElement] = useState<HTMLDivElement | null>(null);
   const setNoteListRef = useCallback((element: HTMLDivElement | null) => {
@@ -949,70 +914,12 @@ export const NoteListPanel = memo(function NoteListPanel({
     return () => observer.disconnect();
   }, [hasMore, onLoadMore, isLoadingMore]);
 
-  useEffect(() => {
-    if (!sortOpen) return;
-    const selectedOptionIndex = Math.max(
-      0,
-      SORT_OPTIONS.findIndex((option) => option.value === sort),
-    );
-    const focusFrame = requestAnimationFrame(() =>
-      sortOptionRefs.current[selectedOptionIndex]?.focus(),
-    );
-    const closeSortMenu = () => {
-      setSortOpen(false);
-      requestAnimationFrame(() => sortTriggerRef.current?.focus());
-    };
-    const onPointerDown = (event: PointerEvent) => {
-      if (event.target instanceof Node && !sortRef.current?.contains(event.target)) closeSortMenu();
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.isComposing || event.keyCode === 229) return;
-      if (event.key === "Escape") {
-        event.preventDefault();
-        event.stopPropagation();
-        event.stopImmediatePropagation();
-        closeSortMenu();
-      }
-    };
-    document.addEventListener("pointerdown", onPointerDown, true);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      cancelAnimationFrame(focusFrame);
-      document.removeEventListener("pointerdown", onPointerDown, true);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [sort, sortOpen]);
-
-  const closeSortMenu = () => {
-    setSortOpen(false);
-    requestAnimationFrame(() => sortTriggerRef.current?.focus());
-  };
-  const handleSortOptionKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, index: number) => {
-    if (event.key === "ArrowDown" || event.key === "ArrowRight") {
-      event.preventDefault();
-      sortOptionRefs.current[(index + 1) % SORT_OPTIONS.length]?.focus();
-    } else if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
-      event.preventDefault();
-      sortOptionRefs.current[(index + SORT_OPTIONS.length - 1) % SORT_OPTIONS.length]?.focus();
-    } else if (event.key === "Home") {
-      event.preventDefault();
-      sortOptionRefs.current[0]?.focus();
-    } else if (event.key === "End") {
-      event.preventDefault();
-      sortOptionRefs.current[SORT_OPTIONS.length - 1]?.focus();
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      closeSortMenu();
-    }
-  };
-
-  const sortedNotes = useMemo(() => sortNotes(notes, sort), [notes, sort]);
-  const virtualScopeWithDensity = `${virtualizationScope}:${density}`;
+  const sortedNotes = useMemo(() => sortNotes(notes, "updated"), [notes]);
   const virtualList = useVirtualNoteList(
     sortedNotes,
     noteListRef,
     noteListElement,
-    virtualScopeWithDensity,
+    virtualizationScope,
   );
   const noteListScrollEdges = useScrollEdges(noteListRef, [
     noteListElement,
@@ -1022,8 +929,8 @@ export const NoteListPanel = memo(function NoteListPanel({
 
   const groups = useMemo(() => {
     if (query.trim()) return null;
-    return groupNotes(sortedNotes, sort);
-  }, [query, sortedNotes, sort]);
+    return groupNotes(sortedNotes, "updated");
+  }, [query, sortedNotes]);
 
   const currentStickyGroup = useMemo(() => {
     if (!groups || groups.length === 0) return null;
@@ -1120,7 +1027,7 @@ export const NoteListPanel = memo(function NoteListPanel({
   return (
     <section
       ref={panelRef}
-      className={`note-list-panel ${density === "compact" ? "is-compact" : ""} ${outlineOpen ? "is-outline-open" : ""}`.trim()}
+      className={`note-list-panel ${outlineOpen ? "is-outline-open" : ""}`.trim()}
       aria-label={outlineOpen ? "笔记大纲" : "笔记列表"}
       aria-hidden={inert || undefined}
       inert={inert}
@@ -1142,8 +1049,6 @@ export const NoteListPanel = memo(function NoteListPanel({
                 total={total}
                 shown={notes.length}
                 query={query}
-                sort={sort}
-                onSort={setSort}
                 onBack={onOpenSidebar}
                 layout="three-column"
                 onToggleLayout={onToggleLayout}
@@ -1181,72 +1086,6 @@ export const NoteListPanel = memo(function NoteListPanel({
                       <Plus size={18} />
                     </button>
                   )}
-
-                  {!isMobileViewport && (
-                    <button
-                      className={`icon-button list-density-button ${density === "compact" ? "is-compact" : ""}`}
-                      type="button"
-                      aria-label={density === "compact" ? "切换为摘要视图" : "切换为紧凑视图"}
-                      onClick={toggleDensity}
-                    >
-                      {density === "compact" ? (
-                        <LayoutList size={17} />
-                      ) : (
-                        <AlignJustify size={17} />
-                      )}
-                    </button>
-                  )}
-
-                  <div className="sort-menu-wrap" ref={sortRef}>
-                    <button
-                      ref={sortTriggerRef}
-                      id="note-sort-trigger"
-                      className="sort-button"
-                      type="button"
-                      aria-haspopup="listbox"
-                      aria-controls="note-sort-options"
-                      aria-expanded={sortOpen}
-                      onClick={() => setSortOpen((open) => !open)}
-                    >
-                      <span className="sort-button-label">
-                        {SORT_OPTIONS.find((option) => option.value === sort)?.label}
-                      </span>
-                      <ChevronDown size={14} className="sort-button-arrow" />
-                    </button>
-                    {sortOpen && (
-                      <div
-                        id="note-sort-options"
-                        className="sort-dropdown"
-                        role="listbox"
-                        aria-label="笔记排序方式"
-                      >
-                        {SORT_OPTIONS.map((option, index) => {
-                          const isSelected = sort === option.value;
-                          return (
-                            <button
-                              ref={(element) => {
-                                sortOptionRefs.current[index] = element;
-                              }}
-                              id={`note-sort-option-${option.value}`}
-                              key={option.value}
-                              type="button"
-                              className={`sort-option ${isSelected ? "is-active" : ""}`}
-                              role="option"
-                              aria-selected={isSelected}
-                              tabIndex={isSelected ? 0 : -1}
-                              onClick={() => {
-                                setSort(option.value);
-                                closeSortMenu();
-                              }}
-                              onKeyDown={(event) => handleSortOptionKeyDown(event, index)}
-                            >
-                              {option.label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
                 </div>
               </header>
             )}
@@ -1284,7 +1123,7 @@ export const NoteListPanel = memo(function NoteListPanel({
                           <span className="note-list-group-title">{group.title}</span>
                           <span className="note-list-group-count">{group.count}</span>
                         </div>
-                        <ul className="note-list-group-items" role="list">
+                        <ul className="note-list-group-items note-list-items" role="list">
                           {group.notes.map((note) => {
                             const index = sortedNotes.findIndex((n) => n.id === note.id);
                             return (
