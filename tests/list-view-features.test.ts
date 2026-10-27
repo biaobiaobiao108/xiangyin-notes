@@ -1,85 +1,49 @@
 import { describe, expect, it } from "bun:test";
 import {
   NOTE_DRAG_MIME_TYPE,
-  createNoteDragGhost,
   hasNoteDragType,
   registerDragOverGuard,
-  showNoteDragGhost,
+  setNoteDragImage,
 } from "../app/workspace/note-drag-drop";
 
 describe("列表视图与卡片视图专属功能与拖拽交互", () => {
-  it("拖拽预览跟随指针并在放置后清理", () => {
+  it("单篇使用原生预览，多篇使用笔记副本和数量标记", () => {
     const originalDocument = globalThis.document;
-    const originalWindow = globalThis.window;
-    const target = new EventTarget();
-    let removed = false;
-    const ghost = {
+    const originalFrame = globalThis.requestAnimationFrame;
+    const children: Array<{ className?: string; textContent?: string }> = [];
+    const wrapper = {
       className: "",
       style: {} as Record<string, string>,
-      innerHTML: "",
-      remove: () => {
-        removed = true;
-      },
+      appendChild: (child: object) => children.push(child),
+      remove() {},
     };
-    (globalThis as unknown as { window: unknown }).window = target;
+    const source = {
+      getBoundingClientRect: () => ({ width: 300, height: 100 }),
+      cloneNode: () => ({ classList: { add() {}, remove() {} }, style: {} }),
+    } as unknown as HTMLElement;
+    let imageCount = 0;
+    const transfer = {
+      setDragImage: () => {
+        imageCount++;
+      },
+    } as unknown as DataTransfer;
     (globalThis as unknown as { document: unknown }).document = {
-      createElement: (tag: string) => (tag === "canvas" ? {} : ghost),
+      createElement: (tag: string) => (tag === "div" ? wrapper : {}),
       body: { appendChild() {} },
     };
+    globalThis.requestAnimationFrame = () => 1;
     try {
-      showNoteDragGhost({ setDragImage() {} } as unknown as DataTransfer, "笔记", 2);
-      const move = new Event("dragover");
-      Object.defineProperties(move, { clientX: { value: 100 }, clientY: { value: 80 } });
-      target.dispatchEvent(move);
-      expect(ghost.style.transform).toBe("translate(64px, 44px)");
-      expect(ghost.style.visibility).toBe("visible");
-      target.dispatchEvent(new Event("drop"));
-      expect(removed).toBe(true);
+      setNoteDragImage(transfer, source, 1);
+      expect(imageCount).toBe(0);
+      setNoteDragImage(transfer, source, 4);
+      expect(imageCount).toBe(1);
+      expect(children).toHaveLength(4);
+      expect(children[3]?.textContent).toBe("4");
     } finally {
       (globalThis as unknown as { document: unknown }).document = originalDocument;
-      (globalThis as unknown as { window: unknown }).window = originalWindow;
+      globalThis.requestAnimationFrame = originalFrame;
     }
   });
-  it("生成符合象映笔记桌面规范的真实微缩卡片与 Card Stack 拖拽预览", () => {
-    const originalDocument = (globalThis as unknown as { document?: unknown }).document;
-    try {
-      (globalThis as unknown as { document: unknown }).document = {
-        createElement: () => {
-          const el: Record<string, unknown> = {
-            className: "",
-            style: {},
-            innerHTML: "",
-            remove() {},
-          };
-          return el;
-        },
-        body: {
-          appendChild() {},
-        },
-      };
-
-      // 单选卡片预览
-      const singleGhost = createNoteDragGhost("测试笔记", 1);
-      expect(singleGhost.className).toBe("note-drag-ghost-shell");
-      expect(singleGhost.innerHTML).toContain("测试笔记");
-      expect(singleGhost.innerHTML).toContain("note-drag-card-top");
-      expect(singleGhost.innerHTML).toContain("拖拽至侧栏以移动");
-      expect(singleGhost.innerHTML).not.toContain("note-drag-stack-badge");
-      singleGhost.remove();
-
-      // 多选 Card Stack 层叠预览
-      const multiGhost = createNoteDragGhost("孙笑川人物传记选题报告", 3);
-      expect(multiGhost.innerHTML).toContain("孙笑川人物传记选题报告");
-      expect(multiGhost.innerHTML).toContain("note-drag-card-layer");
-      expect(multiGhost.innerHTML).toContain("note-drag-stack-badge");
-      expect(multiGhost.innerHTML).toContain("3");
-      expect(multiGhost.innerHTML).toContain("已多选 3 篇笔记");
-      multiGhost.remove();
-    } finally {
-      (globalThis as unknown as { document?: unknown }).document = originalDocument;
-    }
-  });
-
   it("支持拖拽数据的标准 MIME 类型并提供全局 dragover 保护避免禁止光标", () => {
     expect(NOTE_DRAG_MIME_TYPE).toBe("application/x-xiangying-note-ids");
 

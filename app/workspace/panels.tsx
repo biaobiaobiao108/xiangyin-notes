@@ -42,7 +42,7 @@ import {
   sortNotes,
   viewLabel,
 } from "./helpers";
-import { NOTE_DRAG_MIME_TYPE, showNoteDragGhost, hasNoteDragType } from "./note-drag-drop";
+import { NOTE_DRAG_MIME_TYPE, setNoteDragImage, hasNoteDragType } from "./note-drag-drop";
 import { NoteTags } from "./note-tags";
 import { useVirtualNoteList } from "./use-virtual-note-list";
 import { useScrollEdges } from "./use-scroll-edges";
@@ -932,7 +932,7 @@ export const NoteListPanel = memo(function NoteListPanel({
       event.dataTransfer.setData(NOTE_DRAG_MIME_TYPE, serialized);
       event.dataTransfer.setData("text/plain", serialized);
       event.dataTransfer.effectAllowed = "move";
-      showNoteDragGhost(event.dataTransfer, note.title, ids.length);
+      setNoteDragImage(event.dataTransfer, event.currentTarget, ids.length);
 
       // 延迟到下一动画帧设置 is-dragging，避免在 dragstart 事件同微任务内重渲染 DOM 打断 Chromium 的拖拽初始化
       dragFrameRef.current = requestAnimationFrame(() => {
