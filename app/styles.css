@@ -536,6 +536,7 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
   inset-block-start: 0;
   background: linear-gradient(to bottom, var(--surface), transparent);
 }
+.note-list-scroll-shell:has(.note-list-group-header)::before { inset-block-start: 30px; }
 .note-list-scroll-shell::after {
   inset-block-end: 0;
   background: linear-gradient(to top, var(--surface), transparent);
@@ -701,6 +702,8 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
   display: flex;
   align-items: center;
   justify-content: space-between;
+  height: 30px;
+  box-sizing: border-box;
   padding: 8px 14px 4px;
   background: var(--surface-translucent, rgba(251, 251, 249, 0.94));
   backdrop-filter: blur(12px);
