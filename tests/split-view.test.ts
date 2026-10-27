@@ -1,10 +1,18 @@
 import { describe, expect, test } from "bun:test";
+import React from "react";
+import { renderToString } from "react-dom/server";
 import {
   clampSplitRatio,
   DEFAULT_SPLIT_RATIO,
   MIN_SPLIT_RATIO,
   MAX_SPLIT_RATIO,
 } from "../app/workspace/split-resizer";
+import {
+  filterSplitCandidates,
+  MAX_RECENT_SPLIT_NOTES,
+  SplitNoteDialog,
+} from "../app/workspace/split-note-dialog";
+import type { NoteSummary } from "../shared/types";
 
 describe("split view layout and interaction logic", () => {
   test("maintains valid ratio boundaries between min and max constraints", () => {
@@ -119,56 +127,78 @@ describe("split view layout and interaction logic", () => {
     });
   });
 
-  test("filters candidate notes for split dialog excluding current and trashed notes", () => {
-    const notes = [
-      {
-        id: "note-1",
-        title: "当前主笔记",
-        preview: "主笔记内容",
-        deletedAt: null,
-        notebookName: "工作",
-      },
-      {
-        id: "note-2",
-        title: "参考资料 A",
-        preview: "架构图设计",
-        deletedAt: null,
-        notebookName: "设计",
-      },
-      {
-        id: "note-3",
-        title: "已删除笔记",
-        preview: "垃圾箱笔记",
-        deletedAt: 12345678,
-        notebookName: "工作",
-      },
-      {
-        id: "note-4",
-        title: "会议纪要",
-        preview: "周一早会记录",
-        deletedAt: null,
-        notebookName: "记录",
-      },
+  const makeNote = (
+    id: string,
+    title: string,
+    notebookName: string,
+    updatedAt: number,
+    deletedAt: number | null = null,
+  ): NoteSummary => ({
+    id,
+    title,
+    preview: `${title}预览`,
+    tags: [],
+    thumbnail: null,
+    notebookId: `nb-${notebookName}`,
+    notebookName,
+    isFavorite: false,
+    version: 1,
+    deletedAt,
+    createdAt: updatedAt,
+    updatedAt,
+  });
+
+  test("filters candidate notes for split dialog excluding current, trashed and limiting to 5 recent", () => {
+    const notes: NoteSummary[] = [
+      makeNote("note-1", "当前主笔记", "工作", 1000),
+      makeNote("note-2", "参考资料 A", "设计", 2000),
+      makeNote("note-3", "已删除笔记", "工作", 3000, 12345678),
+      makeNote("note-4", "会议纪要", "记录", 1500),
+      makeNote("note-5", "技术分享", "研发", 2500),
+      makeNote("note-6", "规划文档", "研发", 3500),
+      makeNote("note-7", "周报总结", "工作", 1800),
+      makeNote("note-8", "读书感悟", "生活", 4000),
     ];
 
-    function filterSplitCandidates(list: typeof notes, currentPrimaryId: string, query: string) {
-      const available = list.filter((n) => !n.deletedAt && n.id !== currentPrimaryId);
-      const trimmed = query.trim().toLowerCase();
-      if (!trimmed) return available;
-      return available.filter((n) => {
-        const titleMatch = (n.title || "").toLowerCase().includes(trimmed);
-        const previewMatch = (n.preview || "").toLowerCase().includes(trimmed);
-        const notebookMatch = (n.notebookName || "").toLowerCase().includes(trimmed);
-        return titleMatch || previewMatch || notebookMatch;
-      });
-    }
-
-    // Excludes note-1 (current) and note-3 (trashed)
-    const allCandidates = filterSplitCandidates(notes, "note-1", "");
-    expect(allCandidates.map((n) => n.id)).toEqual(["note-2", "note-4"]);
+    // Excludes note-1 (current) and note-3 (trashed), sorts by updatedAt descending, limits to 5
+    const candidates = filterSplitCandidates(notes, "note-1", "");
+    expect(candidates).toHaveLength(MAX_RECENT_SPLIT_NOTES);
+    expect(candidates.map((n) => n.id)).toEqual([
+      "note-8", // 4000
+      "note-6", // 3500
+      "note-5", // 2500
+      "note-2", // 2000
+      "note-7", // 1800
+    ]);
 
     // Search query matches preview or notebook
     const searchCandidates = filterSplitCandidates(notes, "note-1", "架构");
-    expect(searchCandidates.map((n) => n.id)).toEqual(["note-2"]);
+    expect(searchCandidates.map((n) => n.id)).toEqual([]);
+    const searchCandidatesDesign = filterSplitCandidates(notes, "note-1", "设计");
+    expect(searchCandidatesDesign.map((n) => n.id)).toEqual(["note-2"]);
+  });
+
+  test("renders notebook name after last edit date in split note dialog", () => {
+    const notes: NoteSummary[] = [
+      makeNote("n-1", "当前打开笔记", "工作", 1000),
+      makeNote("n-2", "对照参考笔记", "架构设计", 2000),
+    ];
+
+    const html = renderToString(
+      React.createElement(SplitNoteDialog, {
+        open: true,
+        onClose: () => {},
+        onSelectNote: () => {},
+        notes,
+        excludeNoteId: "n-1",
+      }),
+    );
+
+    expect(html).toContain('class="split-note-notebook">架构设计</span>');
+    expect(html).toContain('class="note-row-date"');
+    const dateIndex = html.indexOf('class="note-row-date"');
+    const notebookIndex = html.indexOf('class="split-note-notebook"');
+    expect(dateIndex).toBeGreaterThan(-1);
+    expect(notebookIndex).toBeGreaterThan(dateIndex);
   });
 });

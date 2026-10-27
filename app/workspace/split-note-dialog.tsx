@@ -13,6 +13,35 @@ import type { NoteSummary } from "../../shared/types";
 import { relativeDate } from "../format";
 import { FloatingScrollbar } from "../floating-scrollbar";
 
+export const MAX_RECENT_SPLIT_NOTES = 5;
+export const MAX_SEARCH_SPLIT_NOTES = 20;
+
+export function filterSplitCandidates<
+  T extends {
+    id: string;
+    title?: string | null;
+    preview?: string | null;
+    notebookName?: string | null;
+    deletedAt?: number | null;
+    updatedAt: number;
+  },
+>(notes: T[], excludeNoteId: string | null | undefined, query: string): T[] {
+  const available = notes
+    .filter((note) => !note.deletedAt && note.id !== excludeNoteId)
+    .slice()
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+  const trimmed = query.trim().toLowerCase();
+  if (!trimmed) return available.slice(0, MAX_RECENT_SPLIT_NOTES);
+  return available
+    .filter((note) => {
+      const titleMatch = (note.title || "未命名笔记").toLowerCase().includes(trimmed);
+      const previewMatch = (note.preview || "").toLowerCase().includes(trimmed);
+      const notebookMatch = (note.notebookName || "").toLowerCase().includes(trimmed);
+      return titleMatch || previewMatch || notebookMatch;
+    })
+    .slice(0, MAX_SEARCH_SPLIT_NOTES);
+}
+
 export type SplitNoteDialogProps = {
   open: boolean;
   onClose: () => void;
@@ -34,22 +63,9 @@ export const SplitNoteDialog = memo(function SplitNoteDialog({
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
 
-  const availableNotes = useMemo(() => {
-    return notes.filter((note) => !note.deletedAt && note.id !== excludeNoteId);
-  }, [notes, excludeNoteId]);
-
   const filteredNotes = useMemo(() => {
-    const trimmed = query.trim().toLowerCase();
-    if (!trimmed) return availableNotes.slice(0, 30);
-    return availableNotes
-      .filter((note) => {
-        const titleMatch = (note.title || "未命名笔记").toLowerCase().includes(trimmed);
-        const previewMatch = (note.preview || "").toLowerCase().includes(trimmed);
-        const notebookMatch = (note.notebookName || "").toLowerCase().includes(trimmed);
-        return titleMatch || previewMatch || notebookMatch;
-      })
-      .slice(0, 30);
-  }, [availableNotes, query]);
+    return filterSplitCandidates(notes, excludeNoteId, query);
+  }, [notes, excludeNoteId, query]);
 
   useEffect(() => {
     setSelectedIndex(0);
@@ -189,12 +205,12 @@ export const SplitNoteDialog = memo(function SplitNoteDialog({
                 <FileText size={16} aria-hidden="true" />
                 <span className="command-row-content">
                   <span className="command-row-label">{note.title || "未命名笔记"}</span>
-                  {note.notebookName && (
-                    <span className="command-row-detail">{note.notebookName}</span>
-                  )}
                 </span>
                 <span className="command-row-trailing">
                   <span className="note-row-date">{relativeDate(note.updatedAt)}</span>
+                  {note.notebookName && (
+                    <span className="split-note-notebook">{note.notebookName}</span>
+                  )}
                 </span>
               </button>
             ))
