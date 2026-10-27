@@ -85,4 +85,90 @@ describe("split view layout and interaction logic", () => {
     expect(decideSplitOpenAction("note-2", primaryId, "note-2")).toBe("focus-secondary");
     expect(decideSplitOpenAction("note-3", primaryId, null)).toBe("open-split");
   });
+
+  test("handles card view split pairing correctly", () => {
+    function resolveCardViewSplitAction(
+      clickedId: string,
+      currentSelectedId: string | null,
+    ):
+      | { action: "open-split-pair"; primaryId: string; secondaryId: string }
+      | { action: "open-primary-and-pick"; primaryId: string } {
+      if (currentSelectedId && currentSelectedId !== clickedId) {
+        return { action: "open-split-pair", primaryId: currentSelectedId, secondaryId: clickedId };
+      }
+      return { action: "open-primary-and-pick", primaryId: clickedId };
+    }
+
+    // When card-1 was already selected and user right-clicks card-2: pairs card-1 and card-2
+    expect(resolveCardViewSplitAction("card-2", "card-1")).toEqual({
+      action: "open-split-pair",
+      primaryId: "card-1",
+      secondaryId: "card-2",
+    });
+
+    // When no card was selected: card-2 becomes primary and prompts picker
+    expect(resolveCardViewSplitAction("card-2", null)).toEqual({
+      action: "open-primary-and-pick",
+      primaryId: "card-2",
+    });
+
+    // When clicked card is the only selected card: card-2 becomes primary and prompts picker
+    expect(resolveCardViewSplitAction("card-2", "card-2")).toEqual({
+      action: "open-primary-and-pick",
+      primaryId: "card-2",
+    });
+  });
+
+  test("filters candidate notes for split dialog excluding current and trashed notes", () => {
+    const notes = [
+      {
+        id: "note-1",
+        title: "当前主笔记",
+        preview: "主笔记内容",
+        deletedAt: null,
+        notebookName: "工作",
+      },
+      {
+        id: "note-2",
+        title: "参考资料 A",
+        preview: "架构图设计",
+        deletedAt: null,
+        notebookName: "设计",
+      },
+      {
+        id: "note-3",
+        title: "已删除笔记",
+        preview: "垃圾箱笔记",
+        deletedAt: 12345678,
+        notebookName: "工作",
+      },
+      {
+        id: "note-4",
+        title: "会议纪要",
+        preview: "周一早会记录",
+        deletedAt: null,
+        notebookName: "记录",
+      },
+    ];
+
+    function filterSplitCandidates(list: typeof notes, currentPrimaryId: string, query: string) {
+      const available = list.filter((n) => !n.deletedAt && n.id !== currentPrimaryId);
+      const trimmed = query.trim().toLowerCase();
+      if (!trimmed) return available;
+      return available.filter((n) => {
+        const titleMatch = (n.title || "").toLowerCase().includes(trimmed);
+        const previewMatch = (n.preview || "").toLowerCase().includes(trimmed);
+        const notebookMatch = (n.notebookName || "").toLowerCase().includes(trimmed);
+        return titleMatch || previewMatch || notebookMatch;
+      });
+    }
+
+    // Excludes note-1 (current) and note-3 (trashed)
+    const allCandidates = filterSplitCandidates(notes, "note-1", "");
+    expect(allCandidates.map((n) => n.id)).toEqual(["note-2", "note-4"]);
+
+    // Search query matches preview or notebook
+    const searchCandidates = filterSplitCandidates(notes, "note-1", "架构");
+    expect(searchCandidates.map((n) => n.id)).toEqual(["note-2"]);
+  });
 });

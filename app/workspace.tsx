@@ -26,6 +26,7 @@ import type { OutlineItem } from "./editor-metrics";
 import { ConfirmDialog, NotebookDialog, type ConfirmRequest } from "./workspace/dialogs";
 import { clearAllDraftRecoveries, readDraftRecovery } from "./workspace/draft-recovery";
 import { SplitResizer, DEFAULT_SPLIT_RATIO } from "./workspace/split-resizer";
+import { SplitNoteDialog } from "./workspace/split-note-dialog";
 import { EmptyEditor, NoteListPanel, NoteLoadingState, Sidebar } from "./workspace/panels";
 import { NoteCardGridPanel } from "./workspace/note-card-grid";
 import {
@@ -321,6 +322,7 @@ export function Workspace() {
   const setSplitSelectedNoteMetadata = useCallback((note: Note | null) => {
     setSplitSelectedNote(note ? noteMetadataSnapshot(note) : null);
   }, []);
+  const [splitPickerOpen, setSplitPickerOpen] = useState(false);
   const {
     saveState,
     setSaveState,
@@ -844,7 +846,11 @@ export function Workspace() {
   useWorkspaceShortcuts({
     focusMode,
     hasModalOpen: Boolean(
-      commandOpen || imageExportSnapshot || editingNotebook !== undefined || confirmRequest,
+      commandOpen ||
+      imageExportSnapshot ||
+      editingNotebook !== undefined ||
+      confirmRequest ||
+      splitPickerOpen,
     ),
     // Escape 第 1 层：正文搜索高亮清除优先于退出沉浸模式。
     hasSearchHighlight: Boolean(inNoteSearchQuery.trim()),
@@ -857,7 +863,10 @@ export function Workspace() {
     openCommandMenu,
     toggleViewLayout,
     isCardEditing: !isMobileViewport && viewLayout === "cards" && cardEditingNoteId !== null,
-    onExitCardEditing: () => setCardEditingNoteId(null),
+    onExitCardEditing: () => {
+      closeSplit();
+      setCardEditingNoteId(null);
+    },
     hasSelection: selectedNoteIds.size > 0,
     clearSelection: clearNoteSelection,
     outlineOpen,
@@ -1336,6 +1345,20 @@ export function Workspace() {
   const openInSplit = useCallback(
     (noteId: string) => {
       if (isMobileViewport) return;
+      if (viewLayout === "cards") {
+        if (cardEditingNoteId === null) {
+          if (selectedId && selectedId !== noteId) {
+            setCardEditingNoteId(selectedId);
+            setSplitNoteId(noteId);
+            setActivePane("secondary");
+            return;
+          }
+          selectNote(noteId);
+          setCardEditingNoteId(noteId);
+          setSplitPickerOpen(true);
+          return;
+        }
+      }
       if (noteId === selectedId) {
         setActivePane("primary");
         setEditorFocusNoteId(noteId);
@@ -1351,7 +1374,7 @@ export function Workspace() {
       setSplitNoteId(noteId);
       setActivePane("secondary");
     },
-    [isMobileViewport, selectedId, splitNoteId],
+    [cardEditingNoteId, isMobileViewport, selectNote, selectedId, splitNoteId, viewLayout],
   );
 
   const closeSplit = useCallback(() => {
@@ -1374,14 +1397,31 @@ export function Workspace() {
     if (splitNoteId) {
       closeSplit();
     } else {
-      const candidate = notesRef.current.find((n) => n.id !== selectedId && !n.deletedAt);
-      if (candidate) {
-        openInSplit(candidate.id);
-      } else {
-        notifyInfo("暂无可供分屏对照的笔记");
-      }
+      setSplitPickerOpen(true);
     }
-  }, [closeSplit, notifyInfo, openInSplit, selectedId, splitNoteId]);
+  }, [closeSplit, splitNoteId]);
+
+  const handleSelectSplitNote = useCallback(
+    (noteId: string) => {
+      setSplitPickerOpen(false);
+      if (viewLayout === "cards" && cardEditingNoteId === null) {
+        const primaryId = selectedId ?? noteId;
+        setCardEditingNoteId(primaryId);
+        if (primaryId === noteId) return;
+      }
+      if (noteId === selectedId) {
+        setActivePane("primary");
+        setEditorFocusNoteId(noteId);
+        return;
+      }
+      if (window.innerWidth < 1200) {
+        setSidebarCollapsed(true);
+      }
+      setSplitNoteId(noteId);
+      setActivePane("secondary");
+    },
+    [cardEditingNoteId, selectedId, viewLayout],
+  );
 
   const onSplitNoteChange = useCallback(
     (patch: { title?: string; contentMarkdown?: string; notebookId?: string }) => {
@@ -2354,7 +2394,14 @@ export function Workspace() {
                       mobileBackLabel={
                         query ? "搜索结果" : (currentNotebook?.name ?? viewLabel(view))
                       }
-                      onBackToCards={isCardsLayout ? () => setCardEditingNoteId(null) : undefined}
+                      onBackToCards={
+                        isCardsLayout
+                          ? () => {
+                              closeSplit();
+                              setCardEditingNoteId(null);
+                            }
+                          : undefined
+                      }
                       onUploadImage={handleUploadImage}
                       focusMode={focusMode}
                       typewriterMode={typewriterMode}
@@ -2596,6 +2643,13 @@ export function Workspace() {
           onClose={() => setConfirmRequest(null)}
         />
       )}
+      <SplitNoteDialog
+        open={splitPickerOpen}
+        onClose={() => setSplitPickerOpen(false)}
+        onSelectNote={handleSelectSplitNote}
+        notes={notes}
+        excludeNoteId={selectedId}
+      />
       <SystemNotices
         notice={notice}
         onDismiss={dismissNotice}
