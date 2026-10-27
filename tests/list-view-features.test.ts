@@ -63,9 +63,35 @@ describe("列表视图与卡片视图专属功能与拖拽交互", () => {
 
     const emptyDt = { types: [] } as unknown as DataTransfer;
     expect(hasNoteDragType(emptyDt)).toBe(false);
+  });
 
-    const cleanup = registerDragOverGuard();
-    expect(typeof cleanup).toBe("function");
-    cleanup();
+  it("在捕获阶段接受笔记拖拽并在卸载时移除监听器", () => {
+    const originalWindow = globalThis.window;
+    const target = new EventTarget();
+    (globalThis as unknown as { window: unknown }).window = target;
+    try {
+      const cleanup = registerDragOverGuard();
+      // 单独派发可取消的事件，验证守卫只处理本应用的拖拽。
+      const event = new Event("dragover", { cancelable: true });
+      Object.defineProperty(event, "dataTransfer", {
+        value: { types: [NOTE_DRAG_MIME_TYPE], dropEffect: "none" },
+      });
+      target.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(true);
+      expect((event as DragEvent).dataTransfer?.dropEffect).toBe("move");
+      const unrelated = new Event("dragenter", { cancelable: true });
+      Object.defineProperty(unrelated, "dataTransfer", { value: { types: ["text/plain"] } });
+      target.dispatchEvent(unrelated);
+      expect(unrelated.defaultPrevented).toBe(false);
+      cleanup();
+      const afterCleanup = new Event("dragover", { cancelable: true });
+      Object.defineProperty(afterCleanup, "dataTransfer", {
+        value: { types: [NOTE_DRAG_MIME_TYPE] },
+      });
+      target.dispatchEvent(afterCleanup);
+      expect(afterCleanup.defaultPrevented).toBe(false);
+    } finally {
+      (globalThis as unknown as { window: unknown }).window = originalWindow;
+    }
   });
 });

@@ -913,6 +913,7 @@ export const NoteListPanel = memo(function NoteListPanel({
   }, [hasMore, onLoadMore, isLoadingMore]);
 
   const [draggingNoteIds, setDraggingNoteIds] = useState<ReadonlySet<string> | null>(null);
+  const dragFrameRef = useRef<number | null>(null);
 
   const handleRowDragStart = useCallback(
     (note: NoteSummary, event: ReactDragEvent<HTMLButtonElement>) => {
@@ -936,7 +937,8 @@ export const NoteListPanel = memo(function NoteListPanel({
       requestAnimationFrame(() => ghost.remove());
 
       // 延迟到下一动画帧设置 is-dragging，避免在 dragstart 事件同微任务内重渲染 DOM 打断 Chromium 的拖拽初始化
-      requestAnimationFrame(() => {
+      dragFrameRef.current = requestAnimationFrame(() => {
+        dragFrameRef.current = null;
         setDraggingNoteIds(new Set(ids));
       });
     },
@@ -944,6 +946,8 @@ export const NoteListPanel = memo(function NoteListPanel({
   );
 
   const handleRowDragEnd = useCallback(() => {
+    if (dragFrameRef.current !== null) cancelAnimationFrame(dragFrameRef.current);
+    dragFrameRef.current = null;
     setDraggingNoteIds(null);
   }, []);
 

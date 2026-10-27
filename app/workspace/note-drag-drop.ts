@@ -37,8 +37,9 @@ export function createNoteDragGhost(title: string, count = 1): HTMLElement {
   const wrapper = document.createElement("div");
   wrapper.className = "note-drag-ghost-shell";
   wrapper.style.position = "fixed";
-  wrapper.style.top = "-9999px";
-  wrapper.style.left = "-9999px";
+  wrapper.style.top = "0";
+  wrapper.style.left = "0";
+  wrapper.style.zIndex = "-1";
   wrapper.style.pointerEvents = "none";
   wrapper.style.opacity = "1";
 
@@ -83,9 +84,8 @@ export function createNoteDragGhost(title: string, count = 1): HTMLElement {
 }
 
 /**
- * 全局消除拖拽时 Windows/Chromium 出现的红色禁止图标（not-allowed cursor）。
- * 只要正在拖拽象映笔记内部项，在冒泡阶段阻止默认事件并将 dropEffect 置为 "move"。
- * 严格使用冒泡阶段（false），绝不在 capture 阶段抢占，确保 React 内部组件的 onDragEnter / onDragOver / onDrop 正常派发。
+ * 在捕获阶段处理内部拖拽，即使子组件阻止冒泡也能保持拖拽过程。
+ * 不阻止事件传播，侧栏仍负责处理实际放置。
  */
 export function registerDragOverGuard(): () => void {
   if (typeof window === "undefined") return () => undefined;
@@ -99,9 +99,11 @@ export function registerDragOverGuard(): () => void {
     }
   };
 
-  window.addEventListener("dragover", handleGlobalDrag, false);
+  window.addEventListener("dragenter", handleGlobalDrag, true);
+  window.addEventListener("dragover", handleGlobalDrag, true);
   return () => {
-    window.removeEventListener("dragover", handleGlobalDrag, false);
+    window.removeEventListener("dragenter", handleGlobalDrag, true);
+    window.removeEventListener("dragover", handleGlobalDrag, true);
   };
 }
 

@@ -98,6 +98,7 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
   ]);
 
   const [draggingNoteIds, setDraggingNoteIds] = useState<ReadonlySet<string> | null>(null);
+  const dragFrameRef = useRef<number | null>(null);
 
   const handleCardDragStart = useCallback(
     (note: NoteSummary, event: ReactDragEvent<HTMLElement>) => {
@@ -121,7 +122,8 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
       requestAnimationFrame(() => ghost.remove());
 
       // 延迟到下一动画帧设置 is-dragging，避免在 dragstart 事件同微任务内重渲染 DOM 打断 Chromium 的拖拽初始化
-      requestAnimationFrame(() => {
+      dragFrameRef.current = requestAnimationFrame(() => {
+        dragFrameRef.current = null;
         setDraggingNoteIds(new Set(ids));
       });
     },
@@ -129,6 +131,8 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
   );
 
   const handleCardDragEnd = useCallback(() => {
+    if (dragFrameRef.current !== null) cancelAnimationFrame(dragFrameRef.current);
+    dragFrameRef.current = null;
     setDraggingNoteIds(null);
   }, []);
 
