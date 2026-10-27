@@ -12,6 +12,7 @@ import {
   Archive,
   Bookmark,
   Check,
+  Columns2,
   Copy,
   Download,
   FilePlus2,
@@ -44,6 +45,7 @@ export type CommandId =
   | "new-note"
   | "search-notes"
   | "find-in-note"
+  | "toggle-split"
   | "toggle-sidebar"
   | "toggle-view-layout"
   | "toggle-focus-mode"
@@ -88,6 +90,7 @@ type CommandMenuProps = {
   typewriterMode?: boolean;
   viewLayout?: "three-column" | "cards";
   isMobileViewport?: boolean;
+  isSplitActive?: boolean;
   canInstallApp: boolean;
   showIosInstallHint: boolean;
   standalone: boolean;
@@ -113,6 +116,7 @@ export function CommandMenu({
   typewriterMode = false,
   viewLayout = "three-column",
   isMobileViewport = false,
+  isSplitActive = false,
   canInstallApp,
   showIosInstallHint,
   standalone,
@@ -174,6 +178,16 @@ export function CommandMenu({
         shortcut: `${modKey} \\`,
         icon: PanelLeft,
       },
+      ...(!isMobileViewport
+        ? [
+            {
+              id: "toggle-split" as CommandId,
+              label: isSplitActive ? "关闭分屏" : "分屏显示笔记",
+              shortcut: `${altKey} \\`,
+              icon: Columns2,
+            },
+          ]
+        : []),
       {
         id: "toggle-view-layout",
         label:

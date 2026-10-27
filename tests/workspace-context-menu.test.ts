@@ -63,6 +63,26 @@ describe("note context menu", () => {
     expect(actions.calls).toEqual(["toggle:note-1"]);
   });
 
+  test("offers open in split when openInSplit action is provided", () => {
+    const actions = menuActions();
+    const splitCalls: string[] = [];
+    const items = buildNoteContextMenuItems({
+      note: noteSummary(),
+      view: "all",
+      selectedIds: new Set<string>(),
+      busy: false,
+      actions: {
+        ...actions,
+        openInSplit: (note) => splitCalls.push(`split:${note.id}`),
+      },
+    });
+
+    expect(labels(items)).toContain("在分屏中打开");
+    find(items, "在分屏中打开").onSelect();
+    expect(actions.calls).toEqual(["clearSelection"]);
+    expect(splitCalls).toEqual(["split:note-1"]);
+  });
+
   test("turns the toggle into removal once the note is selected", () => {
     const items = buildNoteContextMenuItems({
       note: noteSummary(),

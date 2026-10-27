@@ -23,6 +23,7 @@ import {
   CheckCircle,
   ChevronLeft,
   CircleAlert,
+  Columns2,
   ImageDown,
   LayoutGrid,
   LoaderCircle,
@@ -30,6 +31,7 @@ import {
   Star,
   Trash2,
   Undo2,
+  X,
 } from "lucide-react";
 import type { ImageAssetSummary, Note, NoteSummary } from "../shared/types";
 import { preserveEscapedHashtagsForEditor } from "../shared/tags";
@@ -255,6 +257,11 @@ export function NoteEditor({
   onNavigateToNote,
   onMarkdownReaderChange,
   onMarkdownDirtyChange,
+  onToggleSplit,
+  isSplitActive = false,
+  onCloseSplit,
+  isActivePane,
+  onActivatePane,
 }: {
   note: Note;
   contentMarkdown?: string;
@@ -299,6 +306,11 @@ export function NoteEditor({
   onNavigateToNote?: (id: string) => void;
   onMarkdownReaderChange?: (reader: (() => string | null) | null) => void;
   onMarkdownDirtyChange?: (noteId: string, isDirty: boolean) => void;
+  onToggleSplit?: () => void;
+  isSplitActive?: boolean;
+  onCloseSplit?: () => void;
+  isActivePane?: boolean;
+  onActivatePane?: () => void;
 }) {
   const editorScrollRef = useRef<HTMLDivElement>(null);
   const mobileViewportRef = useRef(isMobileViewport);
@@ -1733,9 +1745,10 @@ export function NoteEditor({
   });
   return (
     <section
-      className={`editor-panel ${deferredLoading ? "is-loading" : ""} ${focusMode ? "is-focus-mode" : ""} ${isMobileViewport ? "is-mobile-editor" : ""}`}
+      className={`editor-panel ${deferredLoading ? "is-loading" : ""} ${focusMode ? "is-focus-mode" : ""} ${isMobileViewport ? "is-mobile-editor" : ""} ${isActivePane ? "is-active-pane" : ""}`}
       aria-label="笔记编辑器"
       aria-busy={editorLocked}
+      onPointerDown={onActivatePane}
       onContextMenu={contextMenu.onContextMenu}
       onKeyDown={(event) => {
         if (event.nativeEvent.isComposing || event.keyCode === 229) return;
@@ -1994,6 +2007,27 @@ export function NoteEditor({
                 disabled={editorLocked || trashBusy}
               >
                 <Trash2 size={18} strokeWidth={1.8} />
+              </button>
+            )}
+            {!isMobileViewport && onCloseSplit && (
+              <button
+                className="icon-button close-split-button"
+                type="button"
+                aria-label="关闭分屏"
+                onClick={onCloseSplit}
+              >
+                <X size={18} strokeWidth={1.8} />
+              </button>
+            )}
+            {!isMobileViewport && onToggleSplit && !onCloseSplit && (
+              <button
+                className={`icon-button split-toggle ${isSplitActive ? "is-active" : ""}`}
+                type="button"
+                aria-label={isSplitActive ? "关闭分屏" : "分屏显示"}
+                onClick={onToggleSplit}
+                disabled={editorLocked}
+              >
+                <Columns2 size={18} strokeWidth={1.8} />
               </button>
             )}
           </div>

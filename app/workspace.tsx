@@ -25,6 +25,7 @@ import type { Note, NoteSummary, NoteView, Notebook } from "../shared/types";
 import type { OutlineItem } from "./editor-metrics";
 import { ConfirmDialog, NotebookDialog, type ConfirmRequest } from "./workspace/dialogs";
 import { clearAllDraftRecoveries, readDraftRecovery } from "./workspace/draft-recovery";
+import { SplitResizer, DEFAULT_SPLIT_RATIO } from "./workspace/split-resizer";
 import { EmptyEditor, NoteListPanel, NoteLoadingState, Sidebar } from "./workspace/panels";
 import { NoteCardGridPanel } from "./workspace/note-card-grid";
 import {
@@ -45,7 +46,7 @@ import {
   type NoteSelectionState,
 } from "./workspace/note-list-selection";
 import { normalizeLinkTitle } from "../shared/wiki-links";
-import { useNoteSaveQueue } from "./workspace/use-note-save-queue";
+import { useNoteSaveQueue, type SaveState } from "./workspace/use-note-save-queue";
 import { useWorkspaceRealtime } from "./workspace/use-realtime";
 import {
   accumulateRealtimeRefresh,
@@ -300,6 +301,26 @@ export function Workspace() {
     notesRef.current = next;
     setNotes(next);
   }, []);
+  const [splitNoteId, setSplitNoteId] = useState<string | null>(null);
+  const [splitSelectedNote, setSplitSelectedNote] = useState<Note | null>(null);
+  const splitSelectedRef = useRef<Note | null>(null);
+  const [splitIsNoteLoading, setSplitIsNoteLoading] = useState(false);
+  const [splitSaveState, setSplitSaveState] = useState<SaveState>("idle");
+  const [splitNoteReloadToken, setSplitNoteReloadToken] = useState(0);
+  const [activePane, setActivePane] = useState<"primary" | "secondary">("primary");
+  const [splitRatio, setSplitRatio] = useState(DEFAULT_SPLIT_RATIO);
+  const [splitOutlineItems, setSplitOutlineItems] = useState<OutlineItem[]>([]);
+  const [splitActiveOutlineId, setSplitActiveOutlineId] = useState<string | null>(null);
+  const splitOutlineNavigateRef = useRef<((id: string) => void) | null>(null);
+  const splitLoadRequestRef = useRef(0);
+  const splitAbortRef = useRef<AbortController | null>(null);
+  const splitMarkdownReaderRef = useRef<(() => string | null) | null>(null);
+  const splitMarkdownDirtyNoteRef = useRef<string | null>(null);
+  const [splitEditorFocusNoteId, setSplitEditorFocusNoteId] = useState<string | null>(null);
+  const handleSplitEditorFocus = useCallback(() => setSplitEditorFocusNoteId(null), []);
+  const setSplitSelectedNoteMetadata = useCallback((note: Note | null) => {
+    setSplitSelectedNote(note ? noteMetadataSnapshot(note) : null);
+  }, []);
   const {
     saveState,
     setSaveState,
@@ -323,6 +344,9 @@ export function Workspace() {
     replaceList,
     setSelectedNote: setSelectedNoteMetadata,
     setToast: notifyError,
+    splitSelectedRef,
+    setSplitSelectedNote: setSplitSelectedNoteMetadata,
+    setSplitSaveState,
   });
   const persistRef = useRef(persist);
   persistRef.current = persist;
@@ -934,12 +958,23 @@ export function Workspace() {
   }, []);
   const flushActiveEditorDraft = useCallback(() => {
     const current = selectedRef.current;
-    if (!current || trashOperationsRef.current.has(current.id)) return;
-    const markdown = editorMarkdownReaderRef.current?.();
-    if (markdown == null || markdown === current.contentMarkdown) return;
-    const next = { ...current, contentMarkdown: markdown };
-    selectedRef.current = next;
-    persistRef.current(next, ["contentMarkdown"]);
+    if (current && !trashOperationsRef.current.has(current.id)) {
+      const markdown = editorMarkdownReaderRef.current?.();
+      if (markdown != null && markdown !== current.contentMarkdown) {
+        const next = { ...current, contentMarkdown: markdown };
+        selectedRef.current = next;
+        persistRef.current(next, ["contentMarkdown"]);
+      }
+    }
+    const split = splitSelectedRef.current;
+    if (split && !trashOperationsRef.current.has(split.id)) {
+      const markdown = splitMarkdownReaderRef.current?.();
+      if (markdown != null && markdown !== split.contentMarkdown) {
+        const next = { ...split, contentMarkdown: markdown };
+        splitSelectedRef.current = next;
+        persistRef.current(next, ["contentMarkdown"]);
+      }
+    }
   }, []);
   flushEditorDraftRef.current = flushActiveEditorDraft;
   const revealCreatedNote = useCallback(
@@ -1256,6 +1291,177 @@ export function Workspace() {
       onConfirm: () => void reloadSelectedNote(),
     });
   }, [reloadSelectedNote, requestConfirm]);
+
+  const loadSplitNote = useCallback(async (id: string) => {
+    splitAbortRef.current?.abort();
+    const controller = new AbortController();
+    splitAbortRef.current = controller;
+    splitLoadRequestRef.current += 1;
+    const requestId = splitLoadRequestRef.current;
+    setSplitIsNoteLoading(true);
+    try {
+      const result = await api.getNote(id, { signal: controller.signal });
+      if (requestId !== splitLoadRequestRef.current) return;
+      let loadedNote = result.note;
+      const recoveredDraft = await readDraftRecovery(id);
+      if (requestId !== splitLoadRequestRef.current) return;
+      if (recoveredDraft) {
+        loadedNote = { ...loadedNote, ...recoveredDraft };
+      }
+      splitSelectedRef.current = loadedNote;
+      setSplitSelectedNote(noteMetadataSnapshot(loadedNote));
+      setSplitIsNoteLoading(false);
+    } catch (reason) {
+      if (requestId !== splitLoadRequestRef.current) return;
+      if (reason instanceof Error && reason.name === "AbortError") return;
+      setSplitIsNoteLoading(false);
+      setSplitNoteId(null);
+      setSplitSelectedNote(null);
+      splitSelectedRef.current = null;
+      setActivePane("primary");
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!ready || !splitNoteId) {
+      splitAbortRef.current?.abort();
+      setSplitIsNoteLoading(false);
+      setSplitSelectedNote(null);
+      splitSelectedRef.current = null;
+      return;
+    }
+    void loadSplitNote(splitNoteId);
+  }, [loadSplitNote, ready, splitNoteId]);
+
+  const openInSplit = useCallback(
+    (noteId: string) => {
+      if (isMobileViewport) return;
+      if (noteId === selectedId) {
+        setActivePane("primary");
+        setEditorFocusNoteId(noteId);
+        return;
+      }
+      if (noteId === splitNoteId) {
+        setActivePane("secondary");
+        return;
+      }
+      if (window.innerWidth < 1200) {
+        setSidebarCollapsed(true);
+      }
+      setSplitNoteId(noteId);
+      setActivePane("secondary");
+    },
+    [isMobileViewport, selectedId, splitNoteId],
+  );
+
+  const closeSplit = useCallback(() => {
+    const split = splitSelectedRef.current;
+    if (split && !trashOperationsRef.current.has(split.id)) {
+      const md = splitMarkdownReaderRef.current?.();
+      if (md != null && md !== split.contentMarkdown) {
+        const next = { ...split, contentMarkdown: md };
+        splitSelectedRef.current = next;
+        persistRef.current(next, ["contentMarkdown"]);
+      }
+    }
+    setSplitNoteId(null);
+    setSplitSelectedNote(null);
+    splitSelectedRef.current = null;
+    setActivePane("primary");
+  }, []);
+
+  const handleToggleSplit = useCallback(() => {
+    if (splitNoteId) {
+      closeSplit();
+    } else {
+      const candidate = notesRef.current.find((n) => n.id !== selectedId && !n.deletedAt);
+      if (candidate) {
+        openInSplit(candidate.id);
+      } else {
+        notifyInfo("暂无可供分屏对照的笔记");
+      }
+    }
+  }, [closeSplit, notifyInfo, openInSplit, selectedId, splitNoteId]);
+
+  const onSplitNoteChange = useCallback(
+    (patch: { title?: string; contentMarkdown?: string; notebookId?: string }) => {
+      const current = splitSelectedRef.current;
+      if (!current || trashOperationsRef.current.has(current.id)) return;
+      if (
+        (patch.title === undefined || patch.title === current.title) &&
+        (patch.contentMarkdown === undefined ||
+          patch.contentMarkdown === current.contentMarkdown) &&
+        (patch.notebookId === undefined || patch.notebookId === current.notebookId)
+      )
+        return;
+      const targetNotebook = patch.notebookId
+        ? notebooks.find((nb) => nb.id === patch.notebookId)
+        : undefined;
+      const next = {
+        ...current,
+        ...patch,
+        ...(targetNotebook ? { notebookName: targetNotebook.name } : {}),
+      };
+      splitSelectedRef.current = next;
+      const contentOnlyChange =
+        patch.contentMarkdown !== undefined &&
+        patch.title === undefined &&
+        patch.notebookId === undefined;
+      if (!contentOnlyChange) {
+        setSplitSelectedNote(noteMetadataSnapshot(next));
+        const summaryPatch: Partial<NoteSummary> = {
+          ...(patch.title !== undefined ? { title: patch.title } : {}),
+          ...(patch.notebookId !== undefined ? { notebookId: patch.notebookId } : {}),
+          ...(targetNotebook ? { notebookName: targetNotebook.name } : {}),
+        };
+        replaceList(
+          notesRef.current.map((note) =>
+            note.id === current.id ? { ...note, ...summaryPatch } : note,
+          ),
+        );
+      }
+      persist(next, Object.keys(patch) as Array<"title" | "contentMarkdown" | "notebookId">);
+    },
+    [notebooks, persist, replaceList],
+  );
+
+  const handleSplitOutlineItemsChange = useCallback((nextItems: OutlineItem[]) => {
+    setSplitOutlineItems((current) => {
+      const unchanged =
+        current.length === nextItems.length &&
+        current.every((item, index) => {
+          const next = nextItems[index];
+          return (
+            next && item.id === next.id && item.level === next.level && item.title === next.title
+          );
+        });
+      return unchanged ? current : nextItems;
+    });
+  }, []);
+  const handleSplitOutlineActiveChange = useCallback((nextId: string | null) => {
+    setSplitActiveOutlineId((current) => (current === nextId ? current : nextId));
+  }, []);
+  const handleSplitOutlineNavigationReady = useCallback((nav: ((id: string) => void) | null) => {
+    splitOutlineNavigateRef.current = nav;
+  }, []);
+
+  const handleSplitMoveToTrash = useCallback(() => {
+    if (splitSelectedRef.current) {
+      handleNoteSwipeAction(toNoteSummary(splitSelectedRef.current), "trash");
+      closeSplit();
+    }
+  }, [closeSplit, handleNoteSwipeAction]);
+  const handleSplitRestore = useCallback(() => {
+    if (splitSelectedRef.current) {
+      handleNoteSwipeAction(toNoteSummary(splitSelectedRef.current), "restore");
+    }
+  }, [handleNoteSwipeAction]);
+  const handleSplitPermanentDelete = useCallback(() => {
+    if (splitSelectedRef.current) {
+      handleNoteSwipeAction(toNoteSummary(splitSelectedRef.current), "permanent-delete");
+      closeSplit();
+    }
+  }, [closeSplit, handleNoteSwipeAction]);
   const handleRealtimeChange = useCallback(
     (message?: WorkspaceChangeMessage) => {
       accumulateRealtimeRefresh(
@@ -1435,6 +1641,7 @@ export function Workspace() {
         if (isMobileViewport) openMobileHome();
         else setSidebarCollapsed((value) => !value);
       }
+      if (id === "toggle-split") handleToggleSplit();
       if (id === "toggle-view-layout") toggleViewLayout();
       if (id === "toggle-focus-mode") toggleFocusMode();
       if (id === "toggle-typewriter-mode") toggleTypewriterMode();
@@ -1575,16 +1782,37 @@ export function Workspace() {
     [deferredQuery, notebookId, notebooks, refreshNotebooks, replaceList, view],
   );
 
-  const handleNavigateWikiLink = useCallback(
+  const handleNavigateWikiLinkPrimary = useCallback(
     async (targetTitle: string) => {
       const note = await ensureWikiNoteExists(targetTitle);
       if (note) {
+        if (splitNoteId === note.id) {
+          setActivePane("secondary");
+          return;
+        }
         selectNote(note.id);
       } else {
         notifyError("打开或创建笔记失败，请重试");
       }
     },
-    [ensureWikiNoteExists, selectNote],
+    [ensureWikiNoteExists, notifyError, selectNote, splitNoteId],
+  );
+
+  const handleNavigateWikiLinkSplit = useCallback(
+    async (targetTitle: string) => {
+      const note = await ensureWikiNoteExists(targetTitle);
+      if (note) {
+        if (selectedId === note.id) {
+          setActivePane("primary");
+          return;
+        }
+        setSplitNoteId(note.id);
+        setActivePane("secondary");
+      } else {
+        notifyError("打开或创建笔记失败，请重试");
+      }
+    },
+    [ensureWikiNoteExists, notifyError, selectedId],
   );
 
   const handleCreateAndLinkNote = useCallback(
@@ -1627,6 +1855,11 @@ export function Workspace() {
   }, []);
   const handleSelectListNote = useCallback(
     (id: string, event: ReactMouseEvent<HTMLButtonElement>) => {
+      if (event.altKey && !isMobileViewport) {
+        event.preventDefault();
+        openInSplit(id);
+        return;
+      }
       const orderedIds = sortNotes(notesRef.current, noteSort).map((note) => note.id);
       const intent = resolveNoteClickAction(event, {
         hasSelectionActive: noteSelectionRef.current.ids.size > 0,
@@ -1640,11 +1873,41 @@ export function Workspace() {
         );
         return;
       }
+      if (splitNoteId && !isMobileViewport) {
+        if (activePane === "secondary") {
+          if (id === selectedId) {
+            setActivePane("primary");
+            setEditorFocusNoteId(id);
+            return;
+          }
+          setSplitNoteId(id);
+          return;
+        } else {
+          if (id === splitNoteId) {
+            setActivePane("secondary");
+            return;
+          }
+          selectNote(id);
+          setNoteSelectionAnchor(id);
+          return;
+        }
+      }
       selectNote(id);
       setNoteSelectionAnchor(id);
       openMobileNote({ noteId: id });
     },
-    [openMobileNote, noteSort, selectNote, setNoteSelectionAnchor, updateNoteSelection],
+    [
+      activePane,
+      isMobileViewport,
+      noteSort,
+      openInSplit,
+      openMobileNote,
+      selectNote,
+      selectedId,
+      setNoteSelectionAnchor,
+      splitNoteId,
+      updateNoteSelection,
+    ],
   );
   const handleOpenCardNote = useCallback(
     (id: string) => {
@@ -1746,6 +2009,7 @@ export function Workspace() {
               if (viewLayout === "cards") handleOpenCardNote(note.id);
               else selectNote(note.id);
             },
+            openInSplit: isMobileViewport ? undefined : (note) => openInSplit(note.id),
             toggleSelection: (noteId) => handleToggleCardSelection(noteId, { ctrlKey: true }),
             swipeAction: handleNoteSwipeAction,
             restoreSelected: restoreSelectedNotes,
@@ -1875,6 +2139,14 @@ export function Workspace() {
     renderedNote && selectedRef.current?.id === renderedNote.id
       ? selectedRef.current.contentMarkdown
       : (renderedNote?.contentMarkdown ?? "");
+  const splitRenderedNote =
+    splitSelectedNote && splitSelectedRef.current?.id === splitSelectedNote.id
+      ? splitSelectedNote
+      : (splitSelectedRef.current ?? splitSelectedNote);
+  const splitRenderedNoteContent =
+    splitRenderedNote && splitSelectedRef.current?.id === splitRenderedNote.id
+      ? splitSelectedRef.current.contentMarkdown
+      : (splitRenderedNote?.contentMarkdown ?? "");
   const commandNoteReady = Boolean(
     (!isMobileViewport || mobilePage === "editor") &&
     renderedNote &&
@@ -1982,9 +2254,17 @@ export function Workspace() {
           onOpenSidebar={handleOpenSidebar}
           transitionToken={listTransitionToken}
           outlineOpen={!isMobileViewport && outlineOpen}
-          outlineItems={outlineItems}
-          activeOutlineId={activeOutlineId}
-          onScrollToOutlineItem={handleScrollToOutlineItem}
+          outlineItems={
+            activePane === "secondary" && splitNoteId ? splitOutlineItems : outlineItems
+          }
+          activeOutlineId={
+            activePane === "secondary" && splitNoteId ? splitActiveOutlineId : activeOutlineId
+          }
+          onScrollToOutlineItem={
+            activePane === "secondary" && splitNoteId
+              ? (id) => splitOutlineNavigateRef.current?.(id)
+              : handleScrollToOutlineItem
+          }
           onCloseOutline={closeOutline}
           onLoadMore={loadMoreNotes}
           isLoadingMore={isLoadingMore}
@@ -2030,18 +2310,166 @@ export function Workspace() {
       {(!showCardsGrid || isMobileViewport) && (
         <main
           ref={editorRegionRef}
-          className="editor-region"
+          className={`editor-region ${splitNoteId && !isMobileViewport ? "is-split" : ""}`}
           tabIndex={-1}
           aria-hidden={editorContentInert || undefined}
           inert={editorContentInert}
         >
-          {mountEditor && renderedNote ? (
+          {splitNoteId && !isMobileViewport ? (
+            <>
+              <div className="split-pane split-pane-primary" style={{ flex: `${splitRatio} 1 0%` }}>
+                {mountEditor && renderedNote ? (
+                  <Suspense fallback={<NoteLoadingState />}>
+                    <LazyNoteEditor
+                      note={renderedNote}
+                      contentMarkdown={renderedNoteContent}
+                      availableNotes={notes}
+                      onNavigateWikiLink={handleNavigateWikiLinkPrimary}
+                      onCreateAndLinkNote={handleCreateAndLinkNote}
+                      onSearchWikiLinkTitles={api.searchWikiNoteTitles}
+                      onNavigateToNote={selectNote}
+                      searchQuery={inNoteSearchQuery}
+                      onClearSearch={inNoteSearchQuery ? handleClearInNoteSearch : undefined}
+                      onMarkdownReaderChange={registerEditorMarkdownReader}
+                      onMarkdownDirtyChange={registerEditorMarkdownDirty}
+                      saveState={saveState}
+                      isLoading={isNoteLoading}
+                      trashBusy={
+                        emptyingTrash ||
+                        (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))
+                      }
+                      reloadToken={noteReloadToken}
+                      focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen}
+                      onFocusHandled={handleEditorFocus}
+                      onChange={onNoteChange}
+                      onSaveNow={saveNoteNow}
+                      onReloadNote={requestConflictReload}
+                      onExportImage={handleExportImage}
+                      onToggleFavorite={toggleFavorite}
+                      onMoveToTrash={moveToTrash}
+                      onRestore={restoreFromTrash}
+                      onPermanentDelete={permanentDeleteNote}
+                      onOpenList={handleOpenList}
+                      isMobileViewport={false}
+                      mobileBackLabel={
+                        query ? "搜索结果" : (currentNotebook?.name ?? viewLabel(view))
+                      }
+                      onBackToCards={isCardsLayout ? () => setCardEditingNoteId(null) : undefined}
+                      onUploadImage={handleUploadImage}
+                      focusMode={focusMode}
+                      typewriterMode={typewriterMode}
+                      outlineOpen={outlineOpen && activePane === "primary"}
+                      outlineItems={outlineItems}
+                      activeOutlineId={activeOutlineId}
+                      onToggleOutline={() => {
+                        setActivePane("primary");
+                        toggleOutline();
+                      }}
+                      onCloseOutline={closeOutline}
+                      onOutlineItemsChange={handleOutlineItemsChange}
+                      onOutlineActiveChange={handleOutlineActiveChange}
+                      onOutlineNavigationReady={handleOutlineNavigationReady}
+                      onToggleSplit={handleToggleSplit}
+                      isSplitActive={true}
+                      isActivePane={activePane === "primary"}
+                      onActivatePane={() => setActivePane("primary")}
+                    />
+                  </Suspense>
+                ) : isNoteLoading ? (
+                  <NoteLoadingState />
+                ) : (
+                  <EmptyEditor
+                    isTrash={view === "trash"}
+                    onNewNote={handleNewNote}
+                    onOpenList={handleOpenList}
+                    transitionToken={listTransitionToken}
+                  />
+                )}
+              </div>
+              <SplitResizer
+                splitRatio={splitRatio}
+                onSplitRatioChange={setSplitRatio}
+                containerRef={editorRegionRef}
+              />
+              <div
+                className="split-pane split-pane-secondary"
+                style={{ flex: `${1 - splitRatio} 1 0%` }}
+              >
+                {splitRenderedNote ? (
+                  <Suspense fallback={<NoteLoadingState />}>
+                    <LazyNoteEditor
+                      note={splitRenderedNote}
+                      contentMarkdown={splitRenderedNoteContent}
+                      availableNotes={notes}
+                      onNavigateWikiLink={handleNavigateWikiLinkSplit}
+                      onCreateAndLinkNote={handleCreateAndLinkNote}
+                      onSearchWikiLinkTitles={api.searchWikiNoteTitles}
+                      onNavigateToNote={(id) => openInSplit(id)}
+                      searchQuery=""
+                      onMarkdownReaderChange={(reader) => {
+                        splitMarkdownReaderRef.current = reader;
+                      }}
+                      onMarkdownDirtyChange={(noteId, isDirty) => {
+                        if (isDirty) splitMarkdownDirtyNoteRef.current = noteId;
+                        else if (splitMarkdownDirtyNoteRef.current === noteId)
+                          splitMarkdownDirtyNoteRef.current = null;
+                      }}
+                      saveState={splitSaveState}
+                      isLoading={splitIsNoteLoading}
+                      trashBusy={
+                        emptyingTrash ||
+                        (pendingTrashCount > 0 &&
+                          trashOperationsRef.current.has(splitRenderedNote.id))
+                      }
+                      reloadToken={splitNoteReloadToken}
+                      focusRequested={
+                        splitEditorFocusNoteId === splitRenderedNote.id && !commandOpen
+                      }
+                      onFocusHandled={handleSplitEditorFocus}
+                      onChange={onSplitNoteChange}
+                      onSaveNow={() => saveNoteNow(splitRenderedNote.id)}
+                      onReloadNote={() => void loadSplitNote(splitRenderedNote.id)}
+                      onExportImage={handleExportImage}
+                      onToggleFavorite={() =>
+                        void handleToggleFavoriteNote(toNoteSummary(splitRenderedNote))
+                      }
+                      onMoveToTrash={handleSplitMoveToTrash}
+                      onRestore={handleSplitRestore}
+                      onPermanentDelete={handleSplitPermanentDelete}
+                      onOpenList={handleOpenList}
+                      isMobileViewport={false}
+                      mobileBackLabel=""
+                      onUploadImage={handleUploadImage}
+                      focusMode={focusMode}
+                      typewriterMode={typewriterMode}
+                      outlineOpen={outlineOpen && activePane === "secondary"}
+                      outlineItems={splitOutlineItems}
+                      activeOutlineId={splitActiveOutlineId}
+                      onToggleOutline={() => {
+                        setActivePane("secondary");
+                        toggleOutline();
+                      }}
+                      onCloseOutline={closeOutline}
+                      onOutlineItemsChange={handleSplitOutlineItemsChange}
+                      onOutlineActiveChange={handleSplitOutlineActiveChange}
+                      onOutlineNavigationReady={handleSplitOutlineNavigationReady}
+                      onCloseSplit={closeSplit}
+                      isActivePane={activePane === "secondary"}
+                      onActivatePane={() => setActivePane("secondary")}
+                    />
+                  </Suspense>
+                ) : splitIsNoteLoading ? (
+                  <NoteLoadingState />
+                ) : null}
+              </div>
+            </>
+          ) : mountEditor && renderedNote ? (
             <Suspense fallback={<NoteLoadingState />}>
               <LazyNoteEditor
                 note={renderedNote}
                 contentMarkdown={renderedNoteContent}
                 availableNotes={notes}
-                onNavigateWikiLink={handleNavigateWikiLink}
+                onNavigateWikiLink={handleNavigateWikiLinkPrimary}
                 onCreateAndLinkNote={handleCreateAndLinkNote}
                 onSearchWikiLinkTitles={api.searchWikiNoteTitles}
                 onNavigateToNote={selectNote}
@@ -2081,6 +2509,8 @@ export function Workspace() {
                 onOutlineItemsChange={handleOutlineItemsChange}
                 onOutlineActiveChange={handleOutlineActiveChange}
                 onOutlineNavigationReady={handleOutlineNavigationReady}
+                onToggleSplit={isMobileViewport ? undefined : handleToggleSplit}
+                isSplitActive={false}
               />
             </Suspense>
           ) : isNoteLoading ? (
@@ -2123,6 +2553,7 @@ export function Workspace() {
         focusMode={focusMode}
         typewriterMode={typewriterMode}
         viewLayout={isMobileViewport ? mobileViewLayout : viewLayout}
+        isSplitActive={Boolean(splitNoteId && !isMobileViewport)}
         canInstallApp={pwaState.canInstall}
         showIosInstallHint={pwaState.showIosInstallHint}
         standalone={pwaState.standalone}

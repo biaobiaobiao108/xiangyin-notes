@@ -1,5 +1,6 @@
 import {
   ArrowUpRight,
+  Columns2,
   LayoutGrid,
   List,
   ListChecks,
@@ -23,6 +24,8 @@ export type NoteContextMenuActions = {
   restoreSelected: () => void;
   deleteSelected: () => void;
   toggleFavorite: (note: NoteSummary) => void;
+  /** 在右侧分屏打开笔记（桌面端可用）。 */
+  openInSplit?: (note: NoteSummary) => void;
 };
 
 export type NoteContextMenuInput = {
@@ -57,12 +60,24 @@ export function buildNoteContextMenuItems({
         actions.openNote(note);
       },
     },
-    {
-      label: isSelected ? "从多选中移除" : "加入多选",
-      icon: ListChecks,
-      onSelect: () => actions.toggleSelection(note.id),
-    },
   ];
+
+  if (actions.openInSplit) {
+    items.push({
+      label: "在分屏中打开",
+      icon: Columns2,
+      onSelect: () => {
+        actions.clearSelection();
+        actions.openInSplit!(note);
+      },
+    });
+  }
+
+  items.push({
+    label: isSelected ? "从多选中移除" : "加入多选",
+    icon: ListChecks,
+    onSelect: () => actions.toggleSelection(note.id),
+  });
 
   if (selectedIds.size)
     items.push({ label: "退出多选", icon: X, separator: true, onSelect: actions.clearSelection });

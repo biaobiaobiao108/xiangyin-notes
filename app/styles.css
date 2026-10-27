@@ -189,6 +189,67 @@ button:disabled { cursor: not-allowed; opacity: 0.52; }
   view-transition-name: workspace-note-list;
 }
 .editor-region { grid-column: 3; min-height: 0; overflow: hidden; background: var(--surface); view-transition-name: workspace-editor; }
+.editor-region.is-split {
+  display: flex;
+  flex-direction: row;
+  position: relative;
+}
+.split-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+}
+.split-pane-primary {
+  position: relative;
+}
+.split-pane-secondary {
+  position: relative;
+  border-left: 1px solid var(--border);
+}
+.split-resizer {
+  position: relative;
+  z-index: 5;
+  width: 10px;
+  margin-left: -5px;
+  margin-right: -5px;
+  cursor: col-resize;
+  background: transparent;
+  flex-shrink: 0;
+  touch-action: none;
+  user-select: none;
+}
+.split-resizer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 2px;
+  background: transparent;
+  transition: background-color var(--motion-fast) var(--motion-ease-out);
+}
+.split-resizer:hover::after,
+.split-resizer.is-dragging::after {
+  background-color: var(--accent);
+}
+.editor-region.is-split .editor-panel {
+  height: 100%;
+  min-width: 0;
+}
+.editor-region.is-split .editor-header {
+  padding: 0 18px;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+}
+.editor-region.is-split .editor-document {
+  padding-left: clamp(16px, 3.5vw, 40px);
+  padding-right: clamp(16px, 3.5vw, 40px);
+}
+.split-pane:not(:has(.is-active-pane)) .editor-header-title {
+  opacity: 0.7;
+}
 ::view-transition-group(workspace-sidebar),
 ::view-transition-group(workspace-note-list),
 ::view-transition-group(workspace-editor) {
