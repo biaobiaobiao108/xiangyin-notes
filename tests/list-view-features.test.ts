@@ -37,6 +37,7 @@ describe("列表视图与卡片视图专属功能与拖拽交互", () => {
       expect(imageCount).toBe(0);
       setNoteDragImage(transfer, source, 4);
       expect(imageCount).toBe(1);
+      expect(wrapper.style.width).toBe("308px");
       expect(children).toHaveLength(4);
       expect(children[3]?.textContent).toBe("4");
     } finally {

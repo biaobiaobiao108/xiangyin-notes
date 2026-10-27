@@ -26,11 +26,13 @@ export function setNoteDragImage(dataTransfer: DataTransfer, source: HTMLElement
   if (count <= 1) return;
   const wrapper = document.createElement("div");
   wrapper.className = "note-drag-ghost-shell";
-  wrapper.style.width = `${source.getBoundingClientRect().width}px`;
+  const bounds = source.getBoundingClientRect();
+  wrapper.style.width = `${Math.min(bounds.width, 280) + 28}px`;
   for (let index = Math.min(count, 3) - 1; index >= 0; index--) {
     const card = source.cloneNode(true) as HTMLElement;
     card.classList.remove("is-dragging");
     card.classList.add("note-drag-copy");
+    card.style.width = `${Math.min(bounds.width, 280)}px`;
     card.style.transform = `translate(${index * 5}px, ${index * 5}px)`;
     wrapper.appendChild(card);
   }
@@ -39,10 +41,9 @@ export function setNoteDragImage(dataTransfer: DataTransfer, source: HTMLElement
   badge.textContent = String(count);
   wrapper.appendChild(badge);
   document.body.appendChild(wrapper);
-  const bounds = source.getBoundingClientRect();
   dataTransfer.setDragImage(
     wrapper,
-    Math.min(36, bounds.width / 2),
+    Math.min(36, Math.min(bounds.width, 280) / 2),
     Math.min(36, bounds.height / 2),
   );
   requestAnimationFrame(() => wrapper.remove());
