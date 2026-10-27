@@ -168,6 +168,116 @@ export { relativeDate } from "../format";
 // 列表与卡片统一的最多展示标签数。
 export const NOTE_TAG_DISPLAY_LIMIT = 3;
 
+export type NoteGroup = {
+  id: string;
+  title: string;
+  count: number;
+  notes: NoteSummary[];
+};
+
+const PINYIN_COLLATOR = new Intl.Collator("zh-Hans-u-co-pinyin");
+const PINYIN_STARTS: Array<[string, string]> = [
+  ["A", "啊"],
+  ["B", "八"],
+  ["C", "嚓"],
+  ["D", "哒"],
+  ["E", "妸"],
+  ["F", "发"],
+  ["G", "旮"],
+  ["H", "哈"],
+  ["J", "讥"],
+  ["K", "咔"],
+  ["L", "垃"],
+  ["M", "妈"],
+  ["N", "拿"],
+  ["O", "噢"],
+  ["P", "趴"],
+  ["Q", "七"],
+  ["R", "然"],
+  ["S", "仨"],
+  ["T", "他"],
+  ["W", "哇"],
+  ["X", "夕"],
+  ["Y", "丫"],
+  ["Z", "匝"],
+];
+
+export function getInitialLetter(char: string): string {
+  if (!char) return "#";
+  const upper = char.toUpperCase();
+  if (upper >= "A" && upper <= "Z") return upper;
+  if (/[\u4e00-\u9fa5]/.test(char)) {
+    for (let i = PINYIN_STARTS.length - 1; i >= 0; i--) {
+      if (PINYIN_COLLATOR.compare(char, PINYIN_STARTS[i]![1]) >= 0) {
+        return PINYIN_STARTS[i]![0];
+      }
+    }
+  }
+  return "#";
+}
+
+export function getTimelineGroupTitle(timestampSeconds: number, nowMs = Date.now()): string {
+  const timestampMs = timestampSeconds * 1000;
+  const nowDate = new Date(nowMs);
+  const startOfToday = new Date(
+    nowDate.getFullYear(),
+    nowDate.getMonth(),
+    nowDate.getDate(),
+  ).getTime();
+  const startOfYesterday = startOfToday - 86400000;
+  const day = nowDate.getDay();
+  const daysSinceMonday = (day + 6) % 7;
+  const startOfWeek = startOfToday - daysSinceMonday * 86400000;
+  const startOfMonth = new Date(nowDate.getFullYear(), nowDate.getMonth(), 1).getTime();
+
+  if (timestampMs >= startOfToday) {
+    return "今天";
+  }
+  if (timestampMs >= startOfYesterday) {
+    return "昨天";
+  }
+  if (timestampMs >= startOfWeek) {
+    return "本周内";
+  }
+  if (timestampMs >= startOfMonth) {
+    return "本月内";
+  }
+  return "更早";
+}
+
+export function groupNotes(notes: NoteSummary[], sort: NoteSort, nowMs = Date.now()): NoteGroup[] {
+  if (notes.length === 0) return [];
+  const groups: NoteGroup[] = [];
+  const groupMap = new Map<string, NoteGroup>();
+
+  for (const note of notes) {
+    let title: string;
+    if (sort === "title") {
+      const firstChar = (note.title || "未命名笔记").trim()[0] || "";
+      title = getInitialLetter(firstChar);
+    } else {
+      const timestamp = sort === "created" ? note.createdAt : note.updatedAt;
+      title = getTimelineGroupTitle(timestamp, nowMs);
+    }
+
+    let group = groupMap.get(title);
+    if (!group) {
+      group = {
+        id: `group-${title}`,
+        title,
+        count: 0,
+        notes: [],
+      };
+      groupMap.set(title, group);
+      groups.push(group);
+    }
+    group.notes.push(note);
+    group.count += 1;
+  }
+
+  return groups;
+}
+
 export function formatDate(timestamp: number) {
   return new Intl.DateTimeFormat("zh-CN", { month: "short", day: "numeric" }).format(
     new Date(timestamp * 1000),

@@ -7,14 +7,17 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type DragEvent as ReactDragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type RefObject,
 } from "react";
 import {
+  AlignJustify,
   Archive,
   ChevronDown,
   ChevronLeft,
+  LayoutList,
   LayoutPanelLeft,
   LogOut,
   Menu,
@@ -36,12 +39,14 @@ import { type PwaState } from "../pwa";
 import {
   getNoteTags,
   getNotebookIconComponent,
+  groupNotes,
   navItems,
   relativeDate,
   sortNotes,
   type NoteSort,
   viewLabel,
 } from "./helpers";
+import { NOTE_DRAG_MIME_TYPE, createNoteDragGhost } from "./note-drag-drop";
 import { NoteTags } from "./note-tags";
 import { useVirtualNoteList } from "./use-virtual-note-list";
 import { useScrollEdges } from "./use-scroll-edges";
@@ -70,6 +75,171 @@ export function NoteLoadingState() {
   );
 }
 
+function useSidebarDropTarget(onDropNotes?: (ids: string[]) => void) {
+  const [isOver, setIsOver] = useState(false);
+  const [isSuccess, setIsSuccess] = useState(false);
+  const counterRef = useRef(0);
+
+  const handleDragEnter = useCallback(
+    (event: ReactDragEvent) => {
+      if (!onDropNotes || !event.dataTransfer.types.includes(NOTE_DRAG_MIME_TYPE)) return;
+      event.preventDefault();
+      counterRef.current += 1;
+      if (counterRef.current === 1) setIsOver(true);
+    },
+    [onDropNotes],
+  );
+
+  const handleDragOver = useCallback(
+    (event: ReactDragEvent) => {
+      if (!onDropNotes || !event.dataTransfer.types.includes(NOTE_DRAG_MIME_TYPE)) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+    },
+    [onDropNotes],
+  );
+
+  const handleDragLeave = useCallback(
+    (event: ReactDragEvent) => {
+      if (!onDropNotes || !event.dataTransfer.types.includes(NOTE_DRAG_MIME_TYPE)) return;
+      counterRef.current = Math.max(0, counterRef.current - 1);
+      if (counterRef.current === 0) setIsOver(false);
+    },
+    [onDropNotes],
+  );
+
+  const handleDrop = useCallback(
+    (event: ReactDragEvent) => {
+      if (!onDropNotes) return;
+      counterRef.current = 0;
+      setIsOver(false);
+      const data = event.dataTransfer.getData(NOTE_DRAG_MIME_TYPE);
+      if (!data) return;
+      event.preventDefault();
+      event.stopPropagation();
+      try {
+        const noteIds = JSON.parse(data) as string[];
+        if (Array.isArray(noteIds) && noteIds.length > 0) {
+          setIsSuccess(true);
+          setTimeout(() => setIsSuccess(false), 360);
+          onDropNotes(noteIds);
+        }
+      } catch {}
+    },
+    [onDropNotes],
+  );
+
+  return {
+    className: `${isOver ? "is-drop-target" : ""} ${isSuccess ? "is-drop-success" : ""}`.trim(),
+    onDragEnter: handleDragEnter,
+    onDragOver: handleDragOver,
+    onDragLeave: handleDragLeave,
+    onDrop: handleDrop,
+  };
+}
+
+const SidebarNavItem = memo(function SidebarNavItem({
+  item,
+  isActive,
+  onSelect,
+  onDropNotes,
+}: {
+  item: (typeof navItems)[number];
+  isActive: boolean;
+  onSelect: () => void;
+  onDropNotes?: (ids: string[]) => void;
+}) {
+  const Icon = item.icon;
+  const drop = useSidebarDropTarget(onDropNotes);
+  return (
+    <li>
+      <button
+        className={`nav-item ${isActive ? "is-active" : ""} ${drop.className}`.trim()}
+        type="button"
+        data-note-view={item.id}
+        onClick={onSelect}
+        onDragEnter={drop.onDragEnter}
+        onDragOver={drop.onDragOver}
+        onDragLeave={drop.onDragLeave}
+        onDrop={drop.onDrop}
+      >
+        <Icon size={18} />
+        <span>{item.label}</span>
+      </button>
+    </li>
+  );
+});
+
+const SidebarNotebookRow = memo(function SidebarNotebookRow({
+  notebook,
+  isActive,
+  onSelect,
+  onDropNotes,
+}: {
+  notebook: Notebook;
+  isActive: boolean;
+  onSelect: () => void;
+  onDropNotes?: (ids: string[]) => void;
+}) {
+  const NotebookIcon = getNotebookIconComponent(notebook.icon);
+  const drop = useSidebarDropTarget(onDropNotes);
+  return (
+    <li className="notebook-row-item">
+      <div className={`notebook-row-wrap ${isActive ? "is-active" : ""} ${drop.className}`.trim()}>
+        <button
+          className="notebook-item"
+          type="button"
+          aria-label={`${notebook.name}，${notebook.count} 篇笔记`}
+          onClick={onSelect}
+          data-notebook-id={notebook.id}
+          onDragEnter={drop.onDragEnter}
+          onDragOver={drop.onDragOver}
+          onDragLeave={drop.onDragLeave}
+          onDrop={drop.onDrop}
+        >
+          <NotebookIcon
+            size={16}
+            className="notebook-custom-icon"
+            style={{ color: notebook.color, flexShrink: 0 }}
+          />
+          <span>{notebook.name}</span>
+          <em>{notebook.count}</em>
+        </button>
+      </div>
+    </li>
+  );
+});
+
+const CollapsedNotebookButton = memo(function CollapsedNotebookButton({
+  notebook,
+  isActive,
+  onSelect,
+  onDropNotes,
+}: {
+  notebook: Notebook;
+  isActive: boolean;
+  onSelect: () => void;
+  onDropNotes?: (ids: string[]) => void;
+}) {
+  const NotebookIcon = getNotebookIconComponent(notebook.icon);
+  const drop = useSidebarDropTarget(onDropNotes);
+  return (
+    <button
+      type="button"
+      className={`nav-item collapsed-notebook-item ${isActive ? "is-active" : ""} ${drop.className}`.trim()}
+      onClick={onSelect}
+      data-notebook-id={notebook.id}
+      aria-label={`${notebook.name}，${notebook.count} 篇笔记`}
+      onDragEnter={drop.onDragEnter}
+      onDragOver={drop.onDragOver}
+      onDragLeave={drop.onDragLeave}
+      onDrop={drop.onDrop}
+    >
+      <NotebookIcon size={18} style={{ color: notebook.color }} />
+    </button>
+  );
+});
+
 export const Sidebar = memo(function Sidebar({
   view,
   setView,
@@ -84,6 +254,8 @@ export const Sidebar = memo(function Sidebar({
   collapsed,
   onCollapse,
   onLogout,
+  onMoveNotesToNotebook,
+  onTrashNotes,
 }: {
   view: NoteView;
   setView: (view: NoteView) => void;
@@ -98,9 +270,12 @@ export const Sidebar = memo(function Sidebar({
   collapsed: boolean;
   onCollapse: () => void;
   onLogout: () => void;
+  onMoveNotesToNotebook?: (ids: string[], notebookId: string) => void;
+  onTrashNotes?: (ids: string[]) => void;
 }) {
   const notebookListRef = useRef<HTMLDivElement>(null);
   const collapsedNotebookListRef = useRef<HTMLDivElement>(null);
+  const systemInbox = useMemo(() => notebooks.find((notebook) => notebook.isSystem), [notebooks]);
   const customNotebooks = useMemo(
     () => notebooks.filter((notebook) => !notebook.isSystem),
     [notebooks],
@@ -153,19 +328,21 @@ export const Sidebar = memo(function Sidebar({
       <nav className="main-nav">
         <ul>
           {navItems.map((item) => {
-            const Icon = item.icon;
+            const isActive = view === item.id && !notebookId;
+            const dropHandler =
+              item.id === "inbox" && systemInbox && onMoveNotesToNotebook
+                ? (ids: string[]) => onMoveNotesToNotebook(ids, systemInbox.id)
+                : item.id === "trash" && onTrashNotes
+                  ? onTrashNotes
+                  : undefined;
             return (
-              <li key={item.id}>
-                <button
-                  className={`nav-item ${view === item.id && !notebookId ? "is-active" : ""}`}
-                  type="button"
-                  data-note-view={item.id}
-                  onClick={() => setView(item.id)}
-                >
-                  <Icon size={18} />
-                  <span>{item.label}</span>
-                </button>
-              </li>
+              <SidebarNavItem
+                key={item.id}
+                item={item}
+                isActive={isActive}
+                onSelect={() => setView(item.id)}
+                onDropNotes={dropHandler}
+              />
             );
           })}
         </ul>
@@ -181,22 +358,17 @@ export const Sidebar = memo(function Sidebar({
           {customNotebooks.length > 0 && (
             <div className="collapsed-notebook-divider" aria-hidden="true" />
           )}
-          {customNotebooks.map((notebook) => {
-            const NotebookIcon = getNotebookIconComponent(notebook.icon);
-            const isActive = notebook.id === notebookId;
-            return (
-              <button
-                key={notebook.id}
-                type="button"
-                className={`nav-item collapsed-notebook-item ${isActive ? "is-active" : ""}`}
-                onClick={() => setNotebookId(notebook.id)}
-                data-notebook-id={notebook.id}
-                aria-label={`${notebook.name}，${notebook.count} 篇笔记`}
-              >
-                <NotebookIcon size={18} style={{ color: notebook.color }} />
-              </button>
-            );
-          })}
+          {customNotebooks.map((notebook) => (
+            <CollapsedNotebookButton
+              key={notebook.id}
+              notebook={notebook}
+              isActive={notebook.id === notebookId}
+              onSelect={() => setNotebookId(notebook.id)}
+              onDropNotes={
+                onMoveNotesToNotebook ? (ids) => onMoveNotesToNotebook(ids, notebook.id) : undefined
+              }
+            />
+          ))}
         </div>
         <FloatingScrollbar
           scrollTargetRef={collapsedNotebookListRef}
@@ -226,32 +398,19 @@ export const Sidebar = memo(function Sidebar({
             ref={notebookListRef}
           >
             <ul>
-              {customNotebooks.map((notebook) => {
-                const NotebookIcon = getNotebookIconComponent(notebook.icon);
-                return (
-                  <li key={notebook.id} className="notebook-row-item">
-                    <div
-                      className={`notebook-row-wrap ${notebook.id === notebookId ? "is-active" : ""}`}
-                    >
-                      <button
-                        className="notebook-item"
-                        type="button"
-                        aria-label={`${notebook.name}，${notebook.count} 篇笔记`}
-                        onClick={() => setNotebookId(notebook.id)}
-                        data-notebook-id={notebook.id}
-                      >
-                        <NotebookIcon
-                          size={16}
-                          className="notebook-custom-icon"
-                          style={{ color: notebook.color, flexShrink: 0 }}
-                        />
-                        <span>{notebook.name}</span>
-                        <em>{notebook.count}</em>
-                      </button>
-                    </div>
-                  </li>
-                );
-              })}
+              {customNotebooks.map((notebook) => (
+                <SidebarNotebookRow
+                  key={notebook.id}
+                  notebook={notebook}
+                  isActive={notebook.id === notebookId}
+                  onSelect={() => setNotebookId(notebook.id)}
+                  onDropNotes={
+                    onMoveNotesToNotebook
+                      ? (ids) => onMoveNotesToNotebook(ids, notebook.id)
+                      : undefined
+                  }
+                />
+              ))}
             </ul>
           </div>
           <FloatingScrollbar
@@ -298,6 +457,7 @@ function NoteRowMeta({ note, showNotebook }: { note: NoteSummary; showNotebook: 
 const NoteListRow = memo(function NoteListRow({
   note,
   isSelected,
+  selectedIds,
   isActive,
   showNotebook,
   onToggleFavorite,
@@ -315,6 +475,7 @@ const NoteListRow = memo(function NoteListRow({
 }: {
   note: NoteSummary;
   isSelected: boolean;
+  selectedIds?: ReadonlySet<string>;
   isActive: boolean;
   showNotebook: boolean;
   onToggleFavorite: (note: NoteSummary) => void;
@@ -330,6 +491,7 @@ const NoteListRow = memo(function NoteListRow({
   open: boolean;
   setOpenId: (id: string | null) => void;
 }) {
+  const [isDragging, setIsDragging] = useState(false);
   const actionWidth = isTrashView ? 144 : 96;
   const foregroundRef = useRef<HTMLButtonElement>(null);
   const gesture = useSwipeActionGesture({
@@ -340,11 +502,28 @@ const NoteListRow = memo(function NoteListRow({
     onOpenChange: setOpenId,
     foregroundRef,
   });
+
+  const handleDragStart = (event: ReactDragEvent<HTMLButtonElement>) => {
+    if (isMobileViewport) return;
+    const isMulti = isSelected && selectedIds && selectedIds.size > 1;
+    const ids = isMulti && selectedIds ? Array.from(selectedIds) : [note.id];
+    event.dataTransfer.setData(NOTE_DRAG_MIME_TYPE, JSON.stringify(ids));
+    event.dataTransfer.effectAllowed = "move";
+    const ghost = createNoteDragGhost(note.title, ids.length);
+    event.dataTransfer.setDragImage(ghost, 20, 20);
+    setTimeout(() => ghost.remove(), 0);
+    setIsDragging(true);
+  };
+
+  const handleDragEnd = () => {
+    setIsDragging(false);
+  };
+
   return (
     <li
       ref={rowRef}
       data-note-id={note.id}
-      className="note-list-item"
+      className={`note-list-item ${isDragging ? "is-dragging" : ""}`.trim()}
       style={rowStyle}
       aria-posinset={rowIndex + 1}
       aria-setsize={setSize}
@@ -423,6 +602,9 @@ const NoteListRow = memo(function NoteListRow({
         <button
           ref={foregroundRef}
           type="button"
+          draggable={!isMobileViewport}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
           className={`note-row swipe-action-foreground ${note.thumbnail ? "has-thumbnail" : ""} ${!isTrashView ? "has-favorite-action" : ""} ${isSelected ? "is-selected" : ""} ${isActive ? "is-active" : ""}`}
           aria-current={isActive ? "page" : undefined}
           aria-pressed={isSelected}
@@ -661,6 +843,7 @@ type NoteListPanelProps = {
   onLoadMore?: () => void;
   isLoadingMore?: boolean;
   virtualizationScope: string;
+  onFocusEditor?: () => void;
 
   inert?: boolean;
 };
@@ -696,8 +879,26 @@ export const NoteListPanel = memo(function NoteListPanel({
   onLoadMore,
   isLoadingMore = false,
   virtualizationScope,
+  onFocusEditor,
   inert = false,
 }: NoteListPanelProps) {
+  const [density, setDensity] = useState<"standard" | "compact">(() => {
+    try {
+      return (localStorage.getItem("xiangying:note-list-density") as "compact") || "standard";
+    } catch {
+      return "standard";
+    }
+  });
+  const toggleDensity = useCallback(() => {
+    setDensity((current) => {
+      const next = current === "standard" ? "compact" : "standard";
+      try {
+        localStorage.setItem("xiangying:note-list-density", next);
+      } catch {}
+      return next;
+    });
+  }, []);
+
   const [sortOpen, setSortOpen] = useState(false);
   const sortRef = useRef<HTMLDivElement>(null);
   const sortTriggerRef = useRef<HTMLButtonElement>(null);
@@ -806,17 +1007,31 @@ export const NoteListPanel = memo(function NoteListPanel({
   };
 
   const sortedNotes = useMemo(() => sortNotes(notes, sort), [notes, sort]);
+  const virtualScopeWithDensity = `${virtualizationScope}:${density}`;
   const virtualList = useVirtualNoteList(
     sortedNotes,
     noteListRef,
     noteListElement,
-    virtualizationScope,
+    virtualScopeWithDensity,
   );
   const noteListScrollEdges = useScrollEdges(noteListRef, [
     noteListElement,
     sortedNotes.length,
     virtualList.totalHeight,
   ]);
+
+  const groups = useMemo(() => {
+    if (query.trim()) return null;
+    return groupNotes(sortedNotes, sort);
+  }, [query, sortedNotes, sort]);
+
+  const currentStickyGroup = useMemo(() => {
+    if (!groups || groups.length === 0) return null;
+    const topNote = virtualList.visibleRows[0]?.note;
+    if (!topNote) return groups[0];
+    return groups.find((g) => g.notes.some((n) => n.id === topNote.id)) || groups[0];
+  }, [groups, virtualList.visibleRows]);
+
   const handleNoteListKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     virtualList.moveTabFocus(event);
     if (event.defaultPrevented) return;
@@ -827,9 +1042,66 @@ export const NoteListPanel = memo(function NoteListPanel({
       (target.isContentEditable || target.matches("input, textarea, select"))
     )
       return;
-    if ((event.key === "Delete" || event.key === "Backspace") && selectedIds.size > 0) {
+
+    const isPlainKey = !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey;
+
+    if (isPlainKey && (event.key === "j" || event.key === "J" || event.key === "ArrowDown")) {
+      event.preventDefault();
+      const currentIndex = sortedNotes.findIndex((n) => n.id === selectedId);
+      const nextIndex =
+        currentIndex >= 0 && currentIndex < sortedNotes.length - 1 ? currentIndex + 1 : 0;
+      const nextNote = sortedNotes[nextIndex];
+      if (nextNote) {
+        onSelect(nextNote.id, event as unknown as ReactMouseEvent<HTMLButtonElement>);
+        const row = noteListRef.current?.querySelector<HTMLButtonElement>(
+          `[data-note-id="${CSS.escape(nextNote.id)}"] .note-row`,
+        );
+        row?.focus();
+        row?.scrollIntoView({ block: "nearest" });
+      }
+      return;
+    }
+
+    if (isPlainKey && (event.key === "k" || event.key === "K" || event.key === "ArrowUp")) {
+      event.preventDefault();
+      const currentIndex = sortedNotes.findIndex((n) => n.id === selectedId);
+      const prevIndex = currentIndex > 0 ? currentIndex - 1 : sortedNotes.length - 1;
+      const prevNote = sortedNotes[prevIndex];
+      if (prevNote) {
+        onSelect(prevNote.id, event as unknown as ReactMouseEvent<HTMLButtonElement>);
+        const row = noteListRef.current?.querySelector<HTMLButtonElement>(
+          `[data-note-id="${CSS.escape(prevNote.id)}"] .note-row`,
+        );
+        row?.focus();
+        row?.scrollIntoView({ block: "nearest" });
+      }
+      return;
+    }
+
+    if (isPlainKey && event.key === "Enter") {
+      if (selectedId && onFocusEditor) {
+        event.preventDefault();
+        onFocusEditor();
+        return;
+      }
+    }
+
+    if (isPlainKey && (event.key === "s" || event.key === "S")) {
+      const currentNote = sortedNotes.find((n) => n.id === selectedId);
+      if (currentNote) {
+        event.preventDefault();
+        onToggleFavoriteNote(currentNote);
+        return;
+      }
+    }
+
+    if (
+      (event.key === "Delete" || event.key === "Backspace") &&
+      (selectedIds.size > 0 || selectedId)
+    ) {
       event.preventDefault();
       onDeleteSelected();
+      return;
     }
   };
   const heading = query ? "搜索结果" : (currentNotebookName ?? viewLabel(view));
@@ -848,7 +1120,7 @@ export const NoteListPanel = memo(function NoteListPanel({
   return (
     <section
       ref={panelRef}
-      className={`note-list-panel ${outlineOpen ? "is-outline-open" : ""}`}
+      className={`note-list-panel ${density === "compact" ? "is-compact" : ""} ${outlineOpen ? "is-outline-open" : ""}`.trim()}
       aria-label={outlineOpen ? "笔记大纲" : "笔记列表"}
       aria-hidden={inert || undefined}
       inert={inert}
@@ -907,6 +1179,21 @@ export const NoteListPanel = memo(function NoteListPanel({
                       onClick={onNewNote}
                     >
                       <Plus size={18} />
+                    </button>
+                  )}
+
+                  {!isMobileViewport && (
+                    <button
+                      className={`icon-button list-density-button ${density === "compact" ? "is-compact" : ""}`}
+                      type="button"
+                      aria-label={density === "compact" ? "切换为摘要视图" : "切换为紧凑视图"}
+                      onClick={toggleDensity}
+                    >
+                      {density === "compact" ? (
+                        <LayoutList size={17} />
+                      ) : (
+                        <AlignJustify size={17} />
+                      )}
                     </button>
                   )}
 
@@ -975,58 +1262,125 @@ export const NoteListPanel = memo(function NoteListPanel({
                 onFocusCapture={virtualList.onFocusCapture}
                 onBlurCapture={virtualList.onBlurCapture}
               >
-                <ul className="note-list-items" role="list" style={listStyle}>
-                  {virtualList.visibleRows.map(({ note, index, top }) => (
-                    <NoteListRow
-                      key={note.id}
-                      note={note}
-                      rowIndex={index}
-                      setSize={listSize}
-                      rowRef={
-                        virtualList.isVirtualized ? virtualList.getRowRef(note.id) : undefined
-                      }
-                      rowStyle={virtualList.rowStyle(top)}
-                      isSelected={selectedIds.has(note.id)}
-                      isActive={selectedId === note.id && !isMobileViewport}
-                      showNotebook
-                      onToggleFavorite={onToggleFavoriteNote}
-                      onSelect={onSelect}
-                      isMobileViewport={isMobileViewport}
-                      isTrashView={view === "trash"}
-                      trashBusy={trashBusy}
-                      onNoteSwipeAction={onNoteSwipeAction}
-                      open={swipeActions.openId === note.id}
-                      setOpenId={swipeActions.setOpenId}
-                    />
-                  ))}
-                  {hasLoadMoreRow && (
-                    <li
-                      ref={loadMoreSentinelRef}
-                      className="note-list-load-more-item"
-                      style={
-                        virtualList.isVirtualized
-                          ? {
-                              position: "absolute",
-                              insetInline: 0,
-                              top: 0,
-                              transform: `translateY(${virtualList.totalHeight}px)`,
-                            }
-                          : undefined
-                      }
-                    >
-                      <button
-                        className="secondary-button note-list-load-more-button"
-                        type="button"
-                        onClick={onLoadMore}
-                        disabled={isLoadingMore}
+                {virtualList.isVirtualized && groups && groups.length > 0 && (
+                  <div className="note-list-group-header is-virtual-sticky" aria-hidden="true">
+                    <span className="note-list-group-title">
+                      {currentStickyGroup?.title || groups[0]?.title}
+                    </span>
+                    <span className="note-list-group-count">
+                      {currentStickyGroup?.count || groups[0]?.count}
+                    </span>
+                  </div>
+                )}
+                {!virtualList.isVirtualized && groups ? (
+                  <div className="note-list-groups">
+                    {groups.map((group) => (
+                      <section
+                        key={group.id}
+                        className="note-list-group"
+                        aria-label={`${group.title}，共 ${group.count} 篇`}
                       >
-                        {isLoadingMore
-                          ? "正在加载……"
-                          : `加载更多（已显示 ${notes.length} / ${total}）`}
-                      </button>
-                    </li>
-                  )}
-                </ul>
+                        <div className="note-list-group-header">
+                          <span className="note-list-group-title">{group.title}</span>
+                          <span className="note-list-group-count">{group.count}</span>
+                        </div>
+                        <ul className="note-list-group-items" role="list">
+                          {group.notes.map((note) => {
+                            const index = sortedNotes.findIndex((n) => n.id === note.id);
+                            return (
+                              <NoteListRow
+                                key={note.id}
+                                note={note}
+                                rowIndex={index}
+                                setSize={listSize}
+                                isSelected={selectedIds.has(note.id)}
+                                selectedIds={selectedIds}
+                                isActive={selectedId === note.id && !isMobileViewport}
+                                showNotebook
+                                onToggleFavorite={onToggleFavoriteNote}
+                                onSelect={onSelect}
+                                isMobileViewport={isMobileViewport}
+                                isTrashView={view === "trash"}
+                                trashBusy={trashBusy}
+                                onNoteSwipeAction={onNoteSwipeAction}
+                                open={swipeActions.openId === note.id}
+                                setOpenId={swipeActions.setOpenId}
+                              />
+                            );
+                          })}
+                        </ul>
+                      </section>
+                    ))}
+                    {hasLoadMoreRow && (
+                      <div className="note-list-load-more-item">
+                        <button
+                          className="secondary-button note-list-load-more-button"
+                          type="button"
+                          onClick={onLoadMore}
+                          disabled={isLoadingMore}
+                        >
+                          {isLoadingMore
+                            ? "正在加载……"
+                            : `加载更多（已显示 ${notes.length} / ${total}）`}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <ul className="note-list-items" role="list" style={listStyle}>
+                    {virtualList.visibleRows.map(({ note, index, top }) => (
+                      <NoteListRow
+                        key={note.id}
+                        note={note}
+                        rowIndex={index}
+                        setSize={listSize}
+                        rowRef={
+                          virtualList.isVirtualized ? virtualList.getRowRef(note.id) : undefined
+                        }
+                        rowStyle={virtualList.rowStyle(top)}
+                        isSelected={selectedIds.has(note.id)}
+                        selectedIds={selectedIds}
+                        isActive={selectedId === note.id && !isMobileViewport}
+                        showNotebook
+                        onToggleFavorite={onToggleFavoriteNote}
+                        onSelect={onSelect}
+                        isMobileViewport={isMobileViewport}
+                        isTrashView={view === "trash"}
+                        trashBusy={trashBusy}
+                        onNoteSwipeAction={onNoteSwipeAction}
+                        open={swipeActions.openId === note.id}
+                        setOpenId={swipeActions.setOpenId}
+                      />
+                    ))}
+                    {hasLoadMoreRow && (
+                      <li
+                        ref={loadMoreSentinelRef}
+                        className="note-list-load-more-item"
+                        style={
+                          virtualList.isVirtualized
+                            ? {
+                                position: "absolute",
+                                insetInline: 0,
+                                top: 0,
+                                transform: `translateY(${virtualList.totalHeight}px)`,
+                              }
+                            : undefined
+                        }
+                      >
+                        <button
+                          className="secondary-button note-list-load-more-button"
+                          type="button"
+                          onClick={onLoadMore}
+                          disabled={isLoadingMore}
+                        >
+                          {isLoadingMore
+                            ? "正在加载……"
+                            : `加载更多（已显示 ${notes.length} / ${total}）`}
+                        </button>
+                      </li>
+                    )}
+                  </ul>
+                )}
                 {!sortedNotes.length &&
                   (query ? (
                     <div className="list-empty">

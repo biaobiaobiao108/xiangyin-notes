@@ -155,6 +155,49 @@ describe("workspace shortcuts Escape handling", () => {
     expect(cardEditingExited).toBe(false);
   });
 
+  test("returns focus to list when Escape is pressed inside editor and no overlay is open", () => {
+    let listFocusReturned = false;
+    const fakeEvent = {
+      key: "Escape",
+      defaultPrevented: false,
+      preventDefault() {},
+      target: {
+        closest: () => null,
+      },
+    } as any;
+
+    const originalDocument = (globalThis as unknown as { document?: unknown }).document;
+    try {
+      (globalThis as unknown as { document: unknown }).document = {
+        activeElement: {
+          closest: (sel: string) => (sel === ".editor-panel" ? true : null),
+        },
+      };
+
+      handleWorkspaceKeyDown(fakeEvent, {
+        focusMode: false,
+        hasModalOpen: false,
+        outlineOpen: false,
+        isCardEditing: false,
+        hasSelection: false,
+        handlers: {
+          toggleSidebar: () => {},
+          toggleFocusMode: () => {},
+          toggleTypewriterMode: () => {},
+          exitFocusMode: () => {},
+          openCommandMenu: () => {},
+          returnFocusToList: () => {
+            listFocusReturned = true;
+          },
+        },
+      });
+
+      expect(listFocusReturned).toBe(true);
+    } finally {
+      (globalThis as unknown as { document?: unknown }).document = originalDocument;
+    }
+  });
+
   test("ignores Escape when user is composing in IME", () => {
     let focusExited = false;
 

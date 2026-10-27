@@ -884,6 +884,14 @@ export function Workspace() {
     clearSelection: clearNoteSelection,
     outlineOpen,
     closeOutline,
+    returnFocusToList: () => {
+      if (viewLayout === "three-column" && selectedId) {
+        const row = document.querySelector<HTMLButtonElement>(
+          `[data-note-id="${CSS.escape(selectedId)}"] .note-row`,
+        );
+        row?.focus();
+      }
+    },
   });
 
   const onNoteChange = useCallback(
@@ -1246,9 +1254,8 @@ export function Workspace() {
     },
     ui: { setPendingTrashCount, setEmptyingTrash, setNotebooks, requestConfirm, notifyError },
   });
-  const handleMoveSelectedToNotebook = useCallback(
-    async (targetNotebookId: string) => {
-      const ids = [...noteSelectionRef.current.ids];
+  const handleMoveNotesToNotebook = useCallback(
+    async (ids: string[], targetNotebookId: string) => {
       if (!ids.length) return;
       const result = await moveSelectedNotes(ids, {
         flushEditorDraft: () => flushEditorDraftRef.current(),
@@ -1268,6 +1275,24 @@ export function Workspace() {
       }
     },
     [clearNoteSelection, loadNotes, refreshNotebooks, notifyError, runSave],
+  );
+
+  const handleMoveSelectedToNotebook = useCallback(
+    (targetNotebookId: string) => {
+      return handleMoveNotesToNotebook([...noteSelectionRef.current.ids], targetNotebookId);
+    },
+    [handleMoveNotesToNotebook],
+  );
+
+  const handleTrashNotes = useCallback(
+    (ids: string[]) => {
+      if (!ids.length) return;
+      for (const id of ids) {
+        const note = notesRef.current.find((n) => n.id === id);
+        if (note) handleNoteSwipeAction(note, "trash");
+      }
+    },
+    [handleNoteSwipeAction],
   );
 
   const handleToggleFavoriteNote = useCallback(
@@ -2288,6 +2313,8 @@ export function Workspace() {
           collapsed={sidebarCollapsed}
           onCollapse={handleCollapseSidebar}
           onLogout={logout}
+          onMoveNotesToNotebook={handleMoveNotesToNotebook}
+          onTrashNotes={handleTrashNotes}
         />
       )}
       {isMobileViewport && (
@@ -2350,6 +2377,9 @@ export function Workspace() {
           onLoadMore={loadMoreNotes}
           isLoadingMore={isLoadingMore}
           virtualizationScope={listScope}
+          onFocusEditor={() => {
+            if (selectedId) setEditorFocusNoteId(selectedId);
+          }}
           inert={isMobileViewport && mobilePage !== "list"}
         />
       )}

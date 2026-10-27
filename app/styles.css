@@ -312,9 +312,32 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .main-nav ul, .notebook-section ul { display: grid; margin: 0; padding: 0; list-style: none; }
 .main-nav ul { gap: 8px; }
 .notebook-section ul { gap: 6px; }
-.nav-item, .notebook-item { display: flex; align-items: center; gap: 11px; width: 100%; min-height: 36px; padding: 0 10px; border: 0; border-radius: var(--radius-md); background: transparent; color: var(--quiet-ink); text-align: left; cursor: pointer; transition: background-color var(--motion-fast) var(--motion-ease-out), color var(--motion-fast) var(--motion-ease-out), box-shadow var(--motion-fast) var(--motion-ease-out); }
+.nav-item, .notebook-item { display: flex; align-items: center; gap: 11px; width: 100%; min-height: 36px; padding: 0 10px; border: 0; border-radius: var(--radius-md); background: transparent; color: var(--quiet-ink); text-align: left; cursor: pointer; transition: background-color var(--motion-fast) var(--motion-ease-out), color var(--motion-fast) var(--motion-ease-out), box-shadow var(--motion-fast) var(--motion-ease-out), transform var(--motion-fast) var(--motion-ease-out); }
 .nav-item:hover { background: var(--control-hover); color: var(--ink); }
 .nav-item:focus-visible, .notebook-item:focus-visible { background: var(--control-hover); color: var(--ink); box-shadow: inset 0 0 0 2px var(--focus-ring); }
+.nav-item.is-drop-target,
+.notebook-row-wrap.is-drop-target .notebook-item,
+.notebook-item.is-drop-target {
+  background: var(--accent-soft) !important;
+  color: var(--ink) !important;
+  box-shadow: inset 0 0 0 1.5px var(--accent-border) !important;
+  transform: translateX(3px);
+}
+.collapsed-notebook-item.is-drop-target {
+  background: var(--accent-soft) !important;
+  box-shadow: inset 0 0 0 1.5px var(--accent-border) !important;
+  transform: scale(1.08);
+}
+.nav-item.is-drop-success,
+.notebook-row-wrap.is-drop-success .notebook-item,
+.collapsed-notebook-item.is-drop-success {
+  animation: drop-success-pulse 320ms var(--motion-ease-out);
+}
+@keyframes drop-success-pulse {
+  0% { transform: scale(1.04); }
+  50% { transform: scale(0.97); }
+  100% { transform: scale(1); }
+}
 .nav-item.is-active {
   background: var(--surface);
   color: var(--ink);
@@ -644,6 +667,134 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .list-empty > span:last-child { max-width: 220px; font-size: 0.78rem; line-height: 1.5; }
 .empty-icon { display: grid; width: 48px; height: 48px; place-items: center; margin-bottom: 6px; border: 1px solid var(--border); border-radius: 14px; color: var(--accent); background: var(--accent-soft); }
 .list-empty .secondary-button { margin-top: 6px; }
+
+/* 时间轴吸顶分组 */
+.note-list-groups { display: contents; }
+.note-list-group { position: relative; margin: 0; padding: 0; }
+.note-list-group-header {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 14px;
+  background: var(--surface-translucent, rgba(251, 251, 249, 0.88));
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--soft-muted);
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  user-select: none;
+}
+.note-list-group-title { color: var(--ink); }
+.note-list-group-count {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.72rem;
+  color: var(--soft-muted);
+  background: var(--surface-subtle);
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+
+/* 紧凑单行模式 */
+.note-list-panel.is-compact .note-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 38px;
+  padding: 7px 12px;
+  gap: 8px;
+  margin: 1px 8px;
+}
+.note-list-panel.is-compact .note-row-thumbnail { display: none !important; }
+.note-list-panel.is-compact .note-row-preview { display: none !important; }
+.note-list-panel.is-compact .note-row-tags { display: none !important; }
+.note-list-panel.is-compact .note-row-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.note-list-panel.is-compact .note-row-title {
+  padding-right: 0;
+  font-size: 0.88rem;
+  font-weight: 500;
+  flex: 1 1 auto;
+}
+.note-list-panel.is-compact .note-row-title-text {
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+  white-space: nowrap;
+}
+.note-list-panel.is-compact .note-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  font-size: 0.72rem;
+}
+.note-list-panel.is-compact .note-row-notebook {
+  max-width: 100px;
+}
+.note-list-panel.is-compact .note-row-star-btn {
+  top: 5px;
+  right: 12px;
+  width: 28px;
+  height: 28px;
+}
+
+/* 拖拽微缩徽章与 Ghost */
+.note-drag-ghost {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgba(39, 47, 41, 0.14);
+  color: var(--ink);
+  font-size: 0.84rem;
+  font-weight: 500;
+  pointer-events: none;
+}
+.note-drag-ghost-body {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.note-drag-ghost-icon {
+  color: var(--accent);
+  flex: none;
+}
+.note-drag-ghost-title {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.note-drag-ghost-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--vermilion, #d96245);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* 拖拽源被拿起时的微透明状态 */
+.note-list-item.is-dragging,
+.note-card.is-dragging {
+  opacity: 0.45;
+  transform: scale(0.98);
+}
 
 .editor-panel { position: relative; display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .editor-switch-overlay { position: absolute; inset: 0; z-index: 4; display: grid; place-items: center; background: var(--editor-switch-backdrop); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); opacity: 0; pointer-events: none; transform: translateY(5px); transition: opacity var(--motion-fast) var(--motion-ease-out), transform var(--motion-fast) var(--motion-ease-out); }
