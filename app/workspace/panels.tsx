@@ -447,10 +447,8 @@ function NoteThumbnail({ note }: { note: NoteSummary }) {
 }
 
 function NoteRowMeta({ note, showNotebook }: { note: NoteSummary; showNotebook: boolean }) {
-  const tags = getNoteTags(note);
   return (
     <span className="note-row-meta">
-      <NoteTags tags={tags} variant="row" />
       {showNotebook && note.notebookName && (
         <span className="note-row-notebook">{note.notebookName}</span>
       )}
@@ -611,6 +609,7 @@ const NoteListRow = memo(function NoteListRow({
             <span className="note-row-title">
               <span className="note-row-title-text">{note.title || "未命名笔记"}</span>
             </span>
+            <NoteTags tags={getNoteTags(note)} variant="row" />
             <span className="note-row-preview">
               {note.preview || "还没有内容，开始写下第一句话。"}
             </span>

@@ -492,6 +492,8 @@ const NoteCardItem = memo(function NoteCardItem({
             )}
           </div>
 
+          <NoteTags tags={tags} variant="card" />
+
           {/* 正文摘要：自上而下流畅展示，更高高度 */}
           {note.preview ? (
             <p className="note-card-preview-text">{note.preview}</p>
@@ -511,8 +513,6 @@ const NoteCardItem = memo(function NoteCardItem({
                 <span className="notebook-badge-name">{displayNotebook.name}</span>
               </span>
             )}
-            <NoteTags tags={tags} variant="card" />
-
             <time className="note-card-date">{relativeDate(note.updatedAt)}</time>
           </div>
         </div>

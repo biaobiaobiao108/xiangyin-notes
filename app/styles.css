@@ -676,12 +676,10 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .note-row-preview { display: -webkit-box; min-width: 0; overflow: clip; overflow-wrap: anywhere; color: var(--muted); font-size: 0.79rem; line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
 .note-row-meta { display: grid; grid-template-columns: minmax(0, 1fr) auto; min-width: 0; align-items: center; gap: 6px 10px; color: var(--soft-muted); font-size: 0.7rem; }
 .note-row-notebook { grid-column: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.note-row-tags, .note-card-tags { position: relative; display: flex; grid-column: 1 / -1; grid-row: 1; align-items: center; min-width: 0; gap: 12px; }
+.note-row-tags, .note-card-tags { position: relative; display: flex; align-items: center; min-width: 0; gap: 12px; font-size: 0.7rem; }
 .note-row-tag, .note-card-tag { flex: 0 1 auto; min-width: 0; max-width: min(100%, 16em); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--accent); font-weight: 500; }
 .note-row-tag--overflow, .note-card-tag--overflow { flex: none; max-width: 100%; color: var(--muted); font-variant-numeric: tabular-nums; }
 .note-row-meta time { grid-column: 2; white-space: nowrap; font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
-.note-row-meta:has(.note-row-tags) > .note-row-notebook,
-.note-row-meta:has(.note-row-tags) > time { grid-row: 2; }
 .note-tags-measure { position: absolute; width: 0; height: 0; overflow: hidden; visibility: hidden; pointer-events: none; }
 .note-tags-ruler { display: flex; width: max-content; }
 .note-tags-ruler > span { flex: none; max-width: 16em; }
@@ -1476,6 +1474,7 @@ dialog::backdrop {
   .app-shell[data-mobile-page] .note-row-title { font-size: 1.0625rem; }
   .app-shell[data-mobile-page] .note-row-preview { font-size: 0.9375rem; line-height: 1.55; }
   .app-shell[data-mobile-page] .note-row-meta { font-size: 0.8125rem; }
+  .app-shell[data-mobile-page] .note-row-tags { font-size: 0.8125rem; }
   .note-row:has(.note-row-thumbnail), .note-row.has-thumbnail { grid-template-columns: 64px minmax(0, 1fr); }
   .note-row-thumbnail { width: 64px; height: 64px; }
   .note-outline-header .list-header-main { margin-left: 0; }
@@ -2534,8 +2533,6 @@ dialog::backdrop {
   font-variant-numeric: tabular-nums;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
-.note-card-footer:has(.note-card-tags) > .note-card-notebook-badge,
-.note-card-footer:has(.note-card-tags) > .note-card-date { grid-row: 2; }
 
 .editor-back-cards {
   margin-right: 4px;
