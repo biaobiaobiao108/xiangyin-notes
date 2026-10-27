@@ -725,8 +725,10 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 /* 拖拽微缩卡片与 Card Stack 层叠 Ghost */
 .note-drag-ghost-shell {
   position: fixed;
-  top: -9999px;
-  left: -9999px;
+  top: 0;
+  left: 0;
+  z-index: 2000;
+  visibility: hidden;
   pointer-events: none;
   padding: 20px 28px 28px 20px;
   box-sizing: border-box;

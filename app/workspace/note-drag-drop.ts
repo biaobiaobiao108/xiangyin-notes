@@ -37,11 +37,6 @@ export function createNoteDragGhost(title: string, count = 1): HTMLElement {
   const wrapper = document.createElement("div");
   wrapper.className = "note-drag-ghost-shell";
   wrapper.style.position = "fixed";
-  wrapper.style.top = "0";
-  wrapper.style.left = "0";
-  wrapper.style.zIndex = "-1";
-  wrapper.style.pointerEvents = "none";
-  wrapper.style.opacity = "1";
 
   const displayTitle = (title.trim() || "未命名笔记").slice(0, 22);
   const isMulti = count > 1;
@@ -81,6 +76,28 @@ export function createNoteDragGhost(title: string, count = 1): HTMLElement {
   void wrapper.offsetWidth;
 
   return wrapper;
+}
+
+export function showNoteDragGhost(dataTransfer: DataTransfer, title: string, count: number) {
+  const ghost = createNoteDragGhost(title, count);
+  const image = document.createElement("canvas");
+  image.width = 1;
+  image.height = 1;
+  dataTransfer.setDragImage(image, 0, 0);
+
+  const move = (event: DragEvent) => {
+    ghost.style.transform = `translate(${event.clientX - 36}px, ${event.clientY - 36}px)`;
+    ghost.style.visibility = "visible";
+  };
+  const cleanup = () => {
+    window.removeEventListener("dragover", move, true);
+    window.removeEventListener("dragend", cleanup, true);
+    window.removeEventListener("drop", cleanup, true);
+    ghost.remove();
+  };
+  window.addEventListener("dragover", move, true);
+  window.addEventListener("dragend", cleanup, true);
+  window.addEventListener("drop", cleanup, true);
 }
 
 /**

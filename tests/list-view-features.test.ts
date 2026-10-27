@@ -4,9 +4,42 @@ import {
   createNoteDragGhost,
   hasNoteDragType,
   registerDragOverGuard,
+  showNoteDragGhost,
 } from "../app/workspace/note-drag-drop";
 
 describe("列表视图与卡片视图专属功能与拖拽交互", () => {
+  it("拖拽预览跟随指针并在放置后清理", () => {
+    const originalDocument = globalThis.document;
+    const originalWindow = globalThis.window;
+    const target = new EventTarget();
+    let removed = false;
+    const ghost = {
+      className: "",
+      style: {} as Record<string, string>,
+      innerHTML: "",
+      remove: () => {
+        removed = true;
+      },
+    };
+    (globalThis as unknown as { window: unknown }).window = target;
+    (globalThis as unknown as { document: unknown }).document = {
+      createElement: (tag: string) => (tag === "canvas" ? {} : ghost),
+      body: { appendChild() {} },
+    };
+    try {
+      showNoteDragGhost({ setDragImage() {} } as unknown as DataTransfer, "笔记", 2);
+      const move = new Event("dragover");
+      Object.defineProperties(move, { clientX: { value: 100 }, clientY: { value: 80 } });
+      target.dispatchEvent(move);
+      expect(ghost.style.transform).toBe("translate(64px, 44px)");
+      expect(ghost.style.visibility).toBe("visible");
+      target.dispatchEvent(new Event("drop"));
+      expect(removed).toBe(true);
+    } finally {
+      (globalThis as unknown as { document: unknown }).document = originalDocument;
+      (globalThis as unknown as { window: unknown }).window = originalWindow;
+    }
+  });
   it("生成符合象映笔记桌面规范的真实微缩卡片与 Card Stack 拖拽预览", () => {
     const originalDocument = (globalThis as unknown as { document?: unknown }).document;
     try {
