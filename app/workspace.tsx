@@ -14,6 +14,7 @@ import { useNavigate } from "react-router";
 import { ArrowUpRight, Plus, Settings2, Trash2, X } from "lucide-react";
 import { textFieldMenuItems, useContextMenu, type ContextMenuItem } from "./context-menu";
 import { buildNoteContextMenuItems, buildWorkspaceMenuItems } from "./workspace/note-context-menu";
+import { moveSelectedNotes } from "./workspace/move-selected-notes";
 import { ApiError, api } from "./api";
 import { createUuid } from "./uuid";
 import { CommandId, CommandMenu } from "./command-menu";
@@ -1249,26 +1250,24 @@ export function Workspace() {
     async (targetNotebookId: string) => {
       const ids = [...noteSelectionRef.current.ids];
       if (!ids.length) return;
-      try {
-        await Promise.all(
-          ids.map(async (id) => {
-            const note = notesRef.current.find((n) => n.id === id);
-            if (!note) return;
-            return api.updateNote(
-              id,
-              { version: note.version, notebookId: targetNotebookId },
-              { response: "summary" },
-            );
-          }),
-        );
+      const result = await moveSelectedNotes(ids, {
+        flushEditorDraft: () => flushEditorDraftRef.current(),
+        saveNote: runSave,
+        getVersion: (id) => notesRef.current.find((note) => note.id === id)?.version,
+        moveNote: (id, version) =>
+          api.updateNote(id, { version, notebookId: targetNotebookId }, { response: "summary" }),
+        refresh: () => {
+          void loadNotes();
+          void refreshNotebooks();
+        },
+      });
+      if ("failed" in result) {
+        notifyError(errorMessage(result.error, "移动笔记失败"));
+      } else {
         clearNoteSelection();
-        void loadNotes();
-        void refreshNotebooks();
-      } catch (reason) {
-        notifyError(errorMessage(reason, "移动笔记失败"));
       }
     },
-    [clearNoteSelection, loadNotes, refreshNotebooks, notifyError],
+    [clearNoteSelection, loadNotes, refreshNotebooks, notifyError, runSave],
   );
 
   const handleToggleFavoriteNote = useCallback(

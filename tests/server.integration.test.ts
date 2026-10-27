@@ -950,6 +950,7 @@ describe("Bun Server API", () => {
       { database, environment, clientRoot: "dist/client", assetRoot },
     );
     expect(imageResponse.status).toBe(200);
+    expect(imageResponse.headers.get("Cache-Control")).toBe("no-store");
     expect(new Uint8Array(await imageResponse.arrayBuffer())).toEqual(ONE_PIXEL_PNG);
 
     const unsafe = database

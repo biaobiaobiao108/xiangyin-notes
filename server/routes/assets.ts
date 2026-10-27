@@ -431,7 +431,6 @@ export async function serveImageAsset(
   userId: string,
   assetId: string,
   assetRoot: string,
-  cacheControl = "private, max-age=3600",
 ) {
   const asset = first<ImageAssetRow>(
     database,
@@ -449,7 +448,7 @@ export async function serveImageAsset(
     // Use the real file size so a truncated or externally modified file cannot hang the response.
     "Content-Length": String(file.size),
     "Content-Disposition": "inline",
-    "Cache-Control": cacheControl,
+    "Cache-Control": "no-store",
   });
   return new Response(request.method === "HEAD" ? null : file, { headers });
 }
