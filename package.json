@@ -8,14 +8,15 @@
     "format": "bun fmt \"app/**/*.ts\" \"app/**/*.tsx\" \"server/**/*.ts\" \"shared/**/*.ts\" \"scripts/**/*.ts\" \"tests/**/*.ts\" package.json tsconfig.json",
     "dev:client": "bun build ./app/index.html --outdir ./dist/dev-client --target browser --format esm --splitting --watch",
     "build:client": "bun run scripts/build-client.ts",
-    "build:server": "bun build ./server/index.ts ./server/migrate.ts ./scripts/check-schema-drift.ts --outdir ./dist/server --target bun --format esm --production --minify --entry-naming=\"[name].[ext]\"",
+    "build:server": "bun build ./server/index.ts ./server/migrate.ts ./server/vacuum.ts ./scripts/check-schema-drift.ts --outdir ./dist/server --target bun --format esm --production --minify --entry-naming=\"[name].[ext]\"",
     "build": "bun run build:client && bun run build:server",
     "start": "bun dist/server/index.js",
     "typecheck": "bun check",
     "test": "bun test --check",
     "preview": "bun run scripts/preview.ts",
     "db:migrate": "bun run scripts/migrate.ts",
-    "db:check": "bun run scripts/check-schema-drift.ts"
+    "db:check": "bun run scripts/check-schema-drift.ts",
+    "db:vacuum": "bun run scripts/vacuum.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "^2.1.0",

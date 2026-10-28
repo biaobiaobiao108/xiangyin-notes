@@ -1510,6 +1510,99 @@ dialog::backdrop {
 @keyframes spin { to { transform: rotate(360deg); } }
 .mobile-only { display: none; }
 
+.app-error-shell {
+  display: grid;
+  place-items: center;
+  min-height: 100dvh;
+  padding: 24px;
+  background: var(--canvas);
+}
+
+.app-error-card {
+  width: min(480px, 100%);
+  padding: 32px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-float);
+  animation: dialog-in var(--motion-panel) var(--motion-ease-out) both;
+}
+
+.app-error-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.app-error-header h1 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+
+.app-error-message {
+  margin: 0 0 16px;
+  color: var(--quiet-ink);
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.app-error-details {
+  margin-bottom: 20px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-code);
+  border: 1px solid var(--line);
+  color: var(--danger);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  word-break: break-all;
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+.app-error-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.editor-error-pane {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  min-height: 280px;
+  padding: 24px;
+  background: var(--surface);
+}
+
+.editor-error-card {
+  width: min(420px, 100%);
+  padding: 24px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-muted);
+  box-shadow: var(--shadow-xs);
+}
+
+.editor-error-card h3 {
+  margin: 0 0 10px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.editor-error-card p {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+
 .auth-shell { display: grid; align-content: center; justify-items: center; min-height: 100dvh; padding: 36px 20px; background: var(--canvas); }
 .auth-brand { display: flex; align-items: center; gap: 8px; color: var(--ink); font-weight: 700; letter-spacing: -0.035em; }
 .auth-brand { margin-bottom: 28px; }
@@ -2866,6 +2959,7 @@ dialog::backdrop {
   .command-dialog,
   .notebook-dialog,
   .confirm-dialog,
+  .app-error-card,
   .link-dialog,
   .backlinks-dialog,
   .update-notice,

@@ -6,7 +6,7 @@ import {
   type RouteContext,
   type ServerOptions,
 } from "./core";
-import { openDatabase } from "./db";
+import { openDatabase, reclaimDatabaseSpace } from "./db";
 import {
   assetRootFromEnv,
   cleanupOrphanAssets,
@@ -458,6 +458,11 @@ if (import.meta.main) {
           await waitForOrphanAssetCleanup(database);
         } catch (error) {
           console.warn("[assets] orphan cleanup failed during shutdown", error);
+        }
+        try {
+          reclaimDatabaseSpace(database);
+        } catch (error) {
+          console.warn("[db] space reclaim failed during shutdown", error);
         }
         database.close();
         console.log("[server] 服务已关闭");

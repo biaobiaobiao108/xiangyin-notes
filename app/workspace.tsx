@@ -33,6 +33,7 @@ import { EmptyEditor, NoteListPanel, NoteLoadingState, Sidebar } from "./workspa
 import { NoteCardGridPanel } from "./workspace/note-card-grid";
 import { TasksPanel } from "./workspace/tasks-panel";
 import { registerDragOverGuard } from "./workspace/note-drag-drop";
+import { ErrorBoundary, EditorErrorFallback } from "./error-boundary";
 import {
   errorMessage,
   mergeRemoteSummary,
@@ -2776,86 +2777,93 @@ export function Workspace() {
             <>
               <div className="split-pane split-pane-primary" style={{ flex: `${splitRatio} 1 0%` }}>
                 {mountEditor && renderedNote ? (
-                  <Suspense fallback={<NoteLoadingState />}>
-                    <LazyNoteEditor
-                      note={renderedNote}
-                      contentMarkdown={renderedNoteContent}
-                      availableNotes={notes}
-                      onNavigateWikiLink={handleNavigateWikiLinkPrimary}
-                      onCreateAndLinkNote={handleCreateAndLinkNote}
-                      onSearchWikiLinkTitles={api.searchWikiNoteTitles}
-                      onNavigateToNote={selectNote}
-                      searchQuery={
-                        resultSearch?.id === renderedNote.id
-                          ? resultSearch.query
-                          : inNoteSearchQuery
-                      }
-                      searchNavigationToken={
-                        resultSearch?.id === renderedNote.id ? resultSearch.token : 0
-                      }
-                      taskNavigation={
-                        taskNavigation?.noteId === renderedNote.id ? taskNavigation : null
-                      }
-                      onTaskNavigationMissing={handleTaskNavigationMissing}
-                      onClearSearch={
-                        inNoteSearchQuery || resultSearch?.id === renderedNote.id
-                          ? handleClearInNoteSearch
-                          : undefined
-                      }
-                      onMarkdownReaderChange={registerEditorMarkdownReader}
-                      onMarkdownDirtyChange={registerEditorMarkdownDirty}
-                      saveState={saveState}
-                      isLoading={isNoteLoading || taskMutationNoteId === renderedNote.id}
-                      trashBusy={
-                        emptyingTrash ||
-                        (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))
-                      }
-                      reloadToken={noteReloadToken}
-                      focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen}
-                      onFocusHandled={handleEditorFocus}
-                      onChange={onNoteChange}
-                      onSaveNow={saveNoteNow}
-                      onReloadNote={requestConflictReload}
-                      onExportImage={handleExportImage}
-                      onToggleFavorite={toggleFavorite}
-                      onMoveToTrash={moveToTrash}
-                      onRestore={restoreFromTrash}
-                      onPermanentDelete={permanentDeleteNote}
-                      onOpenList={handleOpenList}
-                      isMobileViewport={false}
-                      mobileBackLabel={
-                        query ? "搜索结果" : (currentNotebook?.name ?? viewLabel(view))
-                      }
-                      onBackToCards={
-                        isCardsLayout && !tasksOpen
-                          ? () => {
-                              closeSplit();
-                              setCardEditingNoteId(null);
-                            }
-                          : undefined
-                      }
-                      onUploadImage={handleUploadImage}
-                      focusMode={focusMode}
-                      typewriterMode={typewriterMode}
-                      outlineOpen={outlineOpen && activePane === "primary"}
-                      outlineItems={outlineItems}
-                      activeOutlineId={activeOutlineId}
-                      onToggleOutline={() => {
-                        setActivePane("primary");
-                        toggleOutline();
-                      }}
-                      onCloseOutline={closeOutline}
-                      onOutlineItemsChange={handleOutlineItemsChange}
-                      onOutlineActiveChange={handleOutlineActiveChange}
-                      onOutlineNavigationReady={handleOutlineNavigationReady}
-                      onToggleSplit={
-                        !isMobileViewport && viewLayout === "cards" ? handleToggleSplit : undefined
-                      }
-                      isSplitActive={true}
-                      isActivePane={activePane === "primary"}
-                      onActivatePane={() => setActivePane("primary")}
-                    />
-                  </Suspense>
+                  <ErrorBoundary
+                    key={renderedNote.id}
+                    fallback={(error, reset) => <EditorErrorFallback error={error} reset={reset} />}
+                  >
+                    <Suspense fallback={<NoteLoadingState />}>
+                      <LazyNoteEditor
+                        note={renderedNote}
+                        contentMarkdown={renderedNoteContent}
+                        availableNotes={notes}
+                        onNavigateWikiLink={handleNavigateWikiLinkPrimary}
+                        onCreateAndLinkNote={handleCreateAndLinkNote}
+                        onSearchWikiLinkTitles={api.searchWikiNoteTitles}
+                        onNavigateToNote={selectNote}
+                        searchQuery={
+                          resultSearch?.id === renderedNote.id
+                            ? resultSearch.query
+                            : inNoteSearchQuery
+                        }
+                        searchNavigationToken={
+                          resultSearch?.id === renderedNote.id ? resultSearch.token : 0
+                        }
+                        taskNavigation={
+                          taskNavigation?.noteId === renderedNote.id ? taskNavigation : null
+                        }
+                        onTaskNavigationMissing={handleTaskNavigationMissing}
+                        onClearSearch={
+                          inNoteSearchQuery || resultSearch?.id === renderedNote.id
+                            ? handleClearInNoteSearch
+                            : undefined
+                        }
+                        onMarkdownReaderChange={registerEditorMarkdownReader}
+                        onMarkdownDirtyChange={registerEditorMarkdownDirty}
+                        saveState={saveState}
+                        isLoading={isNoteLoading || taskMutationNoteId === renderedNote.id}
+                        trashBusy={
+                          emptyingTrash ||
+                          (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))
+                        }
+                        reloadToken={noteReloadToken}
+                        focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen}
+                        onFocusHandled={handleEditorFocus}
+                        onChange={onNoteChange}
+                        onSaveNow={saveNoteNow}
+                        onReloadNote={requestConflictReload}
+                        onExportImage={handleExportImage}
+                        onToggleFavorite={toggleFavorite}
+                        onMoveToTrash={moveToTrash}
+                        onRestore={restoreFromTrash}
+                        onPermanentDelete={permanentDeleteNote}
+                        onOpenList={handleOpenList}
+                        isMobileViewport={false}
+                        mobileBackLabel={
+                          query ? "搜索结果" : (currentNotebook?.name ?? viewLabel(view))
+                        }
+                        onBackToCards={
+                          isCardsLayout && !tasksOpen
+                            ? () => {
+                                closeSplit();
+                                setCardEditingNoteId(null);
+                              }
+                            : undefined
+                        }
+                        onUploadImage={handleUploadImage}
+                        focusMode={focusMode}
+                        typewriterMode={typewriterMode}
+                        outlineOpen={outlineOpen && activePane === "primary"}
+                        outlineItems={outlineItems}
+                        activeOutlineId={activeOutlineId}
+                        onToggleOutline={() => {
+                          setActivePane("primary");
+                          toggleOutline();
+                        }}
+                        onCloseOutline={closeOutline}
+                        onOutlineItemsChange={handleOutlineItemsChange}
+                        onOutlineActiveChange={handleOutlineActiveChange}
+                        onOutlineNavigationReady={handleOutlineNavigationReady}
+                        onToggleSplit={
+                          !isMobileViewport && viewLayout === "cards"
+                            ? handleToggleSplit
+                            : undefined
+                        }
+                        isSplitActive={true}
+                        isActivePane={activePane === "primary"}
+                        onActivatePane={() => setActivePane("primary")}
+                      />
+                    </Suspense>
+                  </ErrorBoundary>
                 ) : isNoteLoading ? (
                   <NoteLoadingState />
                 ) : (
@@ -2877,158 +2885,172 @@ export function Workspace() {
                 style={{ flex: `${1 - splitRatio} 1 0%` }}
               >
                 {splitRenderedNote ? (
-                  <Suspense fallback={<NoteLoadingState />}>
-                    <LazyNoteEditor
-                      note={splitRenderedNote}
-                      contentMarkdown={splitRenderedNoteContent}
-                      availableNotes={notes}
-                      onNavigateWikiLink={handleNavigateWikiLinkSplit}
-                      onCreateAndLinkNote={handleCreateAndLinkNote}
-                      onSearchWikiLinkTitles={api.searchWikiNoteTitles}
-                      onNavigateToNote={(id) => openInSplit(id)}
-                      searchQuery={
-                        resultSearch?.id === splitRenderedNote.id ? resultSearch.query : ""
-                      }
-                      searchNavigationToken={
-                        resultSearch?.id === splitRenderedNote.id ? resultSearch.token : 0
-                      }
-                      taskNavigation={
-                        taskNavigation?.noteId === splitRenderedNote.id ? taskNavigation : null
-                      }
-                      onTaskNavigationMissing={handleTaskNavigationMissing}
-                      onClearSearch={
-                        resultSearch?.id === splitRenderedNote.id
-                          ? handleClearInNoteSearch
-                          : undefined
-                      }
-                      onMarkdownReaderChange={(reader) => {
-                        splitMarkdownReaderRef.current = reader;
-                      }}
-                      onMarkdownDirtyChange={(noteId, isDirty) => {
-                        if (isDirty) splitMarkdownDirtyNoteRef.current = noteId;
-                        else if (splitMarkdownDirtyNoteRef.current === noteId)
-                          splitMarkdownDirtyNoteRef.current = null;
-                      }}
-                      saveState={splitSaveState}
-                      isLoading={splitIsNoteLoading || taskMutationNoteId === splitRenderedNote.id}
-                      trashBusy={
-                        emptyingTrash ||
-                        (pendingTrashCount > 0 &&
-                          trashOperationsRef.current.has(splitRenderedNote.id))
-                      }
-                      reloadToken={splitNoteReloadToken}
-                      focusRequested={
-                        splitEditorFocusNoteId === splitRenderedNote.id && !commandOpen
-                      }
-                      onFocusHandled={handleSplitEditorFocus}
-                      onChange={onSplitNoteChange}
-                      onSaveNow={() => saveNoteNow(splitRenderedNote.id)}
-                      onReloadNote={() => void loadSplitNote(splitRenderedNote.id)}
-                      onExportImage={handleExportImage}
-                      onToggleFavorite={() =>
-                        void handleToggleFavoriteNote(toNoteSummary(splitRenderedNote))
-                      }
-                      onMoveToTrash={handleSplitMoveToTrash}
-                      onRestore={handleSplitRestore}
-                      onPermanentDelete={handleSplitPermanentDelete}
-                      onOpenList={handleOpenList}
-                      isMobileViewport={false}
-                      mobileBackLabel=""
-                      onUploadImage={handleUploadImage}
-                      focusMode={focusMode}
-                      typewriterMode={typewriterMode}
-                      outlineOpen={outlineOpen && activePane === "secondary"}
-                      outlineItems={splitOutlineItems}
-                      activeOutlineId={splitActiveOutlineId}
-                      onToggleOutline={() => {
-                        setActivePane("secondary");
-                        toggleOutline();
-                      }}
-                      onCloseOutline={closeOutline}
-                      onOutlineItemsChange={handleSplitOutlineItemsChange}
-                      onOutlineActiveChange={handleSplitOutlineActiveChange}
-                      onOutlineNavigationReady={handleSplitOutlineNavigationReady}
-                      onCloseSplit={closeSplit}
-                      isActivePane={activePane === "secondary"}
-                      onActivatePane={() => setActivePane("secondary")}
-                    />
-                  </Suspense>
+                  <ErrorBoundary
+                    key={splitRenderedNote.id}
+                    fallback={(error, reset) => <EditorErrorFallback error={error} reset={reset} />}
+                  >
+                    <Suspense fallback={<NoteLoadingState />}>
+                      <LazyNoteEditor
+                        note={splitRenderedNote}
+                        contentMarkdown={splitRenderedNoteContent}
+                        availableNotes={notes}
+                        onNavigateWikiLink={handleNavigateWikiLinkSplit}
+                        onCreateAndLinkNote={handleCreateAndLinkNote}
+                        onSearchWikiLinkTitles={api.searchWikiNoteTitles}
+                        onNavigateToNote={(id) => openInSplit(id)}
+                        searchQuery={
+                          resultSearch?.id === splitRenderedNote.id ? resultSearch.query : ""
+                        }
+                        searchNavigationToken={
+                          resultSearch?.id === splitRenderedNote.id ? resultSearch.token : 0
+                        }
+                        taskNavigation={
+                          taskNavigation?.noteId === splitRenderedNote.id ? taskNavigation : null
+                        }
+                        onTaskNavigationMissing={handleTaskNavigationMissing}
+                        onClearSearch={
+                          resultSearch?.id === splitRenderedNote.id
+                            ? handleClearInNoteSearch
+                            : undefined
+                        }
+                        onMarkdownReaderChange={(reader) => {
+                          splitMarkdownReaderRef.current = reader;
+                        }}
+                        onMarkdownDirtyChange={(noteId, isDirty) => {
+                          if (isDirty) splitMarkdownDirtyNoteRef.current = noteId;
+                          else if (splitMarkdownDirtyNoteRef.current === noteId)
+                            splitMarkdownDirtyNoteRef.current = null;
+                        }}
+                        saveState={splitSaveState}
+                        isLoading={
+                          splitIsNoteLoading || taskMutationNoteId === splitRenderedNote.id
+                        }
+                        trashBusy={
+                          emptyingTrash ||
+                          (pendingTrashCount > 0 &&
+                            trashOperationsRef.current.has(splitRenderedNote.id))
+                        }
+                        reloadToken={splitNoteReloadToken}
+                        focusRequested={
+                          splitEditorFocusNoteId === splitRenderedNote.id && !commandOpen
+                        }
+                        onFocusHandled={handleSplitEditorFocus}
+                        onChange={onSplitNoteChange}
+                        onSaveNow={() => saveNoteNow(splitRenderedNote.id)}
+                        onReloadNote={() => void loadSplitNote(splitRenderedNote.id)}
+                        onExportImage={handleExportImage}
+                        onToggleFavorite={() =>
+                          void handleToggleFavoriteNote(toNoteSummary(splitRenderedNote))
+                        }
+                        onMoveToTrash={handleSplitMoveToTrash}
+                        onRestore={handleSplitRestore}
+                        onPermanentDelete={handleSplitPermanentDelete}
+                        onOpenList={handleOpenList}
+                        isMobileViewport={false}
+                        mobileBackLabel=""
+                        onUploadImage={handleUploadImage}
+                        focusMode={focusMode}
+                        typewriterMode={typewriterMode}
+                        outlineOpen={outlineOpen && activePane === "secondary"}
+                        outlineItems={splitOutlineItems}
+                        activeOutlineId={splitActiveOutlineId}
+                        onToggleOutline={() => {
+                          setActivePane("secondary");
+                          toggleOutline();
+                        }}
+                        onCloseOutline={closeOutline}
+                        onOutlineItemsChange={handleSplitOutlineItemsChange}
+                        onOutlineActiveChange={handleSplitOutlineActiveChange}
+                        onOutlineNavigationReady={handleSplitOutlineNavigationReady}
+                        onCloseSplit={closeSplit}
+                        isActivePane={activePane === "secondary"}
+                        onActivatePane={() => setActivePane("secondary")}
+                      />
+                    </Suspense>
+                  </ErrorBoundary>
                 ) : splitIsNoteLoading ? (
                   <NoteLoadingState />
                 ) : null}
               </div>
             </>
           ) : mountEditor && renderedNote ? (
-            <Suspense fallback={<NoteLoadingState />}>
-              <LazyNoteEditor
-                note={renderedNote}
-                contentMarkdown={renderedNoteContent}
-                availableNotes={notes}
-                onNavigateWikiLink={handleNavigateWikiLinkPrimary}
-                onCreateAndLinkNote={handleCreateAndLinkNote}
-                onSearchWikiLinkTitles={api.searchWikiNoteTitles}
-                onNavigateToNote={selectNote}
-                searchQuery={
-                  resultSearch?.id === renderedNote.id ? resultSearch.query : inNoteSearchQuery
-                }
-                searchNavigationToken={
-                  resultSearch?.id === renderedNote.id ? resultSearch.token : 0
-                }
-                taskNavigation={taskNavigation?.noteId === renderedNote.id ? taskNavigation : null}
-                onTaskNavigationMissing={handleTaskNavigationMissing}
-                onClearSearch={
-                  inNoteSearchQuery || resultSearch?.id === renderedNote.id
-                    ? handleClearInNoteSearch
-                    : undefined
-                }
-                onMarkdownReaderChange={registerEditorMarkdownReader}
-                onMarkdownDirtyChange={registerEditorMarkdownDirty}
-                saveState={saveState}
-                isLoading={isNoteLoading || taskMutationNoteId === renderedNote.id}
-                trashBusy={
-                  emptyingTrash ||
-                  (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))
-                }
-                reloadToken={noteReloadToken}
-                focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen}
-                onFocusHandled={handleEditorFocus}
-                onChange={onNoteChange}
-                onSaveNow={saveNoteNow}
-                onReloadNote={requestConflictReload}
-                onExportImage={handleExportImage}
-                onToggleFavorite={toggleFavorite}
-                onMoveToTrash={moveToTrash}
-                onRestore={restoreFromTrash}
-                onPermanentDelete={permanentDeleteNote}
-                onOpenList={handleOpenList}
-                isMobileViewport={isMobileViewport}
-                mobileBackLabel={
-                  tasksOpen
-                    ? "任务"
-                    : query
-                      ? "搜索结果"
-                      : (currentNotebook?.name ?? viewLabel(view))
-                }
-                onBackToCards={
-                  isCardsLayout && !tasksOpen ? () => setCardEditingNoteId(null) : undefined
-                }
-                onUploadImage={handleUploadImage}
-                focusMode={focusMode}
-                typewriterMode={typewriterMode}
-                outlineOpen={outlineOpen}
-                outlineItems={outlineItems}
-                activeOutlineId={activeOutlineId}
-                onToggleOutline={toggleOutline}
-                onCloseOutline={closeOutline}
-                onOutlineItemsChange={handleOutlineItemsChange}
-                onOutlineActiveChange={handleOutlineActiveChange}
-                onOutlineNavigationReady={handleOutlineNavigationReady}
-                onToggleSplit={
-                  !isMobileViewport && viewLayout === "cards" ? handleToggleSplit : undefined
-                }
-                isSplitActive={false}
-              />
-            </Suspense>
+            <ErrorBoundary
+              key={renderedNote.id}
+              fallback={(error, reset) => <EditorErrorFallback error={error} reset={reset} />}
+            >
+              <Suspense fallback={<NoteLoadingState />}>
+                <LazyNoteEditor
+                  note={renderedNote}
+                  contentMarkdown={renderedNoteContent}
+                  availableNotes={notes}
+                  onNavigateWikiLink={handleNavigateWikiLinkPrimary}
+                  onCreateAndLinkNote={handleCreateAndLinkNote}
+                  onSearchWikiLinkTitles={api.searchWikiNoteTitles}
+                  onNavigateToNote={selectNote}
+                  searchQuery={
+                    resultSearch?.id === renderedNote.id ? resultSearch.query : inNoteSearchQuery
+                  }
+                  searchNavigationToken={
+                    resultSearch?.id === renderedNote.id ? resultSearch.token : 0
+                  }
+                  taskNavigation={
+                    taskNavigation?.noteId === renderedNote.id ? taskNavigation : null
+                  }
+                  onTaskNavigationMissing={handleTaskNavigationMissing}
+                  onClearSearch={
+                    inNoteSearchQuery || resultSearch?.id === renderedNote.id
+                      ? handleClearInNoteSearch
+                      : undefined
+                  }
+                  onMarkdownReaderChange={registerEditorMarkdownReader}
+                  onMarkdownDirtyChange={registerEditorMarkdownDirty}
+                  saveState={saveState}
+                  isLoading={isNoteLoading || taskMutationNoteId === renderedNote.id}
+                  trashBusy={
+                    emptyingTrash ||
+                    (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))
+                  }
+                  reloadToken={noteReloadToken}
+                  focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen}
+                  onFocusHandled={handleEditorFocus}
+                  onChange={onNoteChange}
+                  onSaveNow={saveNoteNow}
+                  onReloadNote={requestConflictReload}
+                  onExportImage={handleExportImage}
+                  onToggleFavorite={toggleFavorite}
+                  onMoveToTrash={moveToTrash}
+                  onRestore={restoreFromTrash}
+                  onPermanentDelete={permanentDeleteNote}
+                  onOpenList={handleOpenList}
+                  isMobileViewport={isMobileViewport}
+                  mobileBackLabel={
+                    tasksOpen
+                      ? "任务"
+                      : query
+                        ? "搜索结果"
+                        : (currentNotebook?.name ?? viewLabel(view))
+                  }
+                  onBackToCards={
+                    isCardsLayout && !tasksOpen ? () => setCardEditingNoteId(null) : undefined
+                  }
+                  onUploadImage={handleUploadImage}
+                  focusMode={focusMode}
+                  typewriterMode={typewriterMode}
+                  outlineOpen={outlineOpen}
+                  outlineItems={outlineItems}
+                  activeOutlineId={activeOutlineId}
+                  onToggleOutline={toggleOutline}
+                  onCloseOutline={closeOutline}
+                  onOutlineItemsChange={handleOutlineItemsChange}
+                  onOutlineActiveChange={handleOutlineActiveChange}
+                  onOutlineNavigationReady={handleOutlineNavigationReady}
+                  onToggleSplit={
+                    !isMobileViewport && viewLayout === "cards" ? handleToggleSplit : undefined
+                  }
+                  isSplitActive={false}
+                />
+              </Suspense>
+            </ErrorBoundary>
           ) : isNoteLoading ? (
             <NoteLoadingState />
           ) : (

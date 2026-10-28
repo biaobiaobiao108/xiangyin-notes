@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router";
 import { ThemeProvider } from "./theme";
+import { ErrorBoundary } from "./error-boundary";
 
 const Workspace = lazy(() => import("./workspace").then((m) => ({ default: m.Workspace })));
 const LoginPage = lazy(() => import("./auth").then((m) => ({ default: m.LoginPage })));
@@ -18,17 +19,19 @@ function RouteLoadingFallback() {
 export function App() {
   return (
     <ThemeProvider>
-      <div className="app-root">
-        <Suspense fallback={<RouteLoadingFallback />}>
-          <Routes>
-            <Route path="/" element={<Navigate to="/app" replace />} />
-            <Route path="/setup" element={<SetupPage />} />
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/app" element={<Workspace />} />
-            <Route path="*" element={<Navigate to="/app" replace />} />
-          </Routes>
-        </Suspense>
-      </div>
+      <ErrorBoundary>
+        <div className="app-root">
+          <Suspense fallback={<RouteLoadingFallback />}>
+            <Routes>
+              <Route path="/" element={<Navigate to="/app" replace />} />
+              <Route path="/setup" element={<SetupPage />} />
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/app" element={<Workspace />} />
+              <Route path="*" element={<Navigate to="/app" replace />} />
+            </Routes>
+          </Suspense>
+        </div>
+      </ErrorBoundary>
     </ThemeProvider>
   );
 }
