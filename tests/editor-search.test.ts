@@ -1,13 +1,47 @@
 import { describe, expect, test } from "bun:test";
+import { Editor } from "@tiptap/core";
+import StarterKit from "@tiptap/starter-kit";
+import { createMarkdownExtension } from "../app/editor/markdown-config";
 import {
   cycleSearchMatchIndex,
   findTextMatchSummary,
   findTextMatches,
   getSearchTerms,
   normalizeSearchMatchIndex,
+  createSearchHighlightPlugin,
+  searchHighlightPluginKey,
 } from "../app/editor-search";
 
 describe("editor search", () => {
+  test("querying, switching and clearing real editor highlights do not emit edits", () => {
+    let updates = 0;
+    const editor = new Editor({
+      element: null,
+      extensions: [StarterKit, createMarkdownExtension()],
+      content: "Find this phrase and this phrase again",
+      contentType: "markdown",
+      onUpdate: () => updates++,
+    });
+    editor.registerPlugin(createSearchHighlightPlugin());
+    try {
+      const original = editor.state.doc;
+      const dispatchMeta = (
+        meta: { type: "query"; query: string } | { type: "activeIndex"; index: number },
+      ) => editor.view.dispatch(editor.state.tr.setMeta(searchHighlightPluginKey, meta));
+
+      dispatchMeta({ type: "query", query: "phrase" });
+      expect(searchHighlightPluginKey.getState(editor.state)?.decorations.find()).toHaveLength(2);
+      dispatchMeta({ type: "activeIndex", index: 1 });
+      expect(searchHighlightPluginKey.getState(editor.state)?.activeIndex).toBe(1);
+      dispatchMeta({ type: "query", query: "" });
+      expect(searchHighlightPluginKey.getState(editor.state)?.decorations.find()).toHaveLength(0);
+      expect(editor.state.doc.eq(original)).toBe(true);
+      expect(updates).toBe(0);
+    } finally {
+      editor.destroy();
+    }
+  });
+
   test("finds every Chinese match in document order", () => {
     expect(findTextMatches("绝对不是绝缘，绝对。绝对", "绝对")).toEqual([
       { start: 0, end: 2 },
