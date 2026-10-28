@@ -77,7 +77,6 @@ export function TasksPanel({
   const pendingGroupLayoutRef = useRef<{
     positions: Map<HTMLElement, number>;
     anchorScrollTop: number | null;
-    closing: boolean;
   } | null>(null);
   const groupAnimationsRef = useRef(new Map<HTMLElement, Animation>());
   const [openFilter, setOpenFilter] = useState<"status" | "notebook" | null>(null);
@@ -105,19 +104,21 @@ export function TasksPanel({
     const scroll = listRef.current;
     const section = button.closest<HTMLElement>(".tasks-note-group");
     if (!scroll || !section) return;
-    const positions = new Map<HTMLElement, number>();
-    for (let sibling = section.nextElementSibling; sibling; sibling = sibling.nextElementSibling) {
-      if (sibling instanceof HTMLElement)
-        positions.set(sibling, sibling.getBoundingClientRect().top);
-    }
-    for (const animation of groupAnimationsRef.current.values()) animation.cancel();
-    groupAnimationsRef.current.clear();
     const scrollRect = scroll.getBoundingClientRect();
     const sectionRect = section.getBoundingClientRect();
     const headerRect = button.getBoundingClientRect();
+    const lowerBound = scrollRect.bottom + (closing ? sectionRect.height : 0);
+    const positions = new Map<HTMLElement, number>();
+    for (let sibling = section.nextElementSibling; sibling; sibling = sibling.nextElementSibling) {
+      if (!(sibling instanceof HTMLElement)) continue;
+      const top = sibling.getBoundingClientRect().top;
+      if (top > lowerBound) break;
+      positions.set(sibling, top);
+    }
+    for (const animation of groupAnimationsRef.current.values()) animation.cancel();
+    groupAnimationsRef.current.clear();
     pendingGroupLayoutRef.current = {
       positions,
-      closing,
       anchorScrollTop: collapsedTaskGroupScrollTop({
         closing,
         scrollTop: scroll.scrollTop,
@@ -136,13 +137,8 @@ export function TasksPanel({
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const viewport = scroll.getBoundingClientRect();
     const motion = getComputedStyle(document.documentElement);
-    const duration =
-      Number.parseFloat(
-        motion.getPropertyValue(pending.closing ? "--motion-content" : "--motion-group"),
-      ) || (pending.closing ? 180 : 280);
-    const easing = motion
-      .getPropertyValue(pending.closing ? "--motion-ease-out" : "--motion-group-ease")
-      .trim();
+    const duration = Number.parseFloat(motion.getPropertyValue("--motion-group")) || 320;
+    const easing = motion.getPropertyValue("--motion-group-ease").trim();
     for (const [element, previousTop] of pending.positions) {
       if (!element.isConnected || typeof element.animate !== "function") continue;
       const currentRect = element.getBoundingClientRect();

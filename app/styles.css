@@ -122,7 +122,7 @@
   --motion-micro: 120ms;
   --motion-fast: 160ms;
   --motion-content: 180ms;
-  --motion-group: 280ms;
+  --motion-group: 320ms;
   --motion-group-ease: cubic-bezier(0.4, 0, 0.2, 1);
   --motion-panel: 220ms;
   --motion-layout: 280ms;
@@ -562,14 +562,9 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .tasks-note-group h2 small { overflow: hidden; max-width: 42%; flex: 0 1 auto; color: var(--soft-muted); font-size: .7rem; font-weight: 450; text-overflow: ellipsis; white-space: nowrap; }
 .tasks-note-group ul { margin: 0; padding: 0; list-style: none; }
 .tasks-note-group ul.is-opening { animation: task-group-open var(--motion-group) var(--motion-group-ease) both; }
-.tasks-note-group ul.is-opening > li { animation: task-group-item-open 180ms var(--motion-group-ease) both; }
-.tasks-note-group ul.is-opening > li:nth-child(2) { animation-delay: 30ms; }
-.tasks-note-group ul.is-opening > li:nth-child(3) { animation-delay: 60ms; }
-.tasks-note-group ul.is-opening > li:nth-child(n+4) { animation-delay: 90ms; }
-.tasks-note-group ul.is-closing { position: absolute; inset: 100% 0 auto; z-index: 1; animation: task-group-close var(--motion-content) var(--motion-ease-out) both; }
-@keyframes task-group-open { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes task-group-item-open { from { opacity: 0; } to { opacity: 1; } }
-@keyframes task-group-close { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-4px); } }
+.tasks-note-group ul.is-closing { position: absolute; inset: 100% 0 auto; z-index: 1; animation: task-group-close var(--motion-group) var(--motion-group-ease) both; }
+@keyframes task-group-open { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes task-group-close { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-8px); } }
 .tasks-note-group li + li { border-top: 1px solid var(--line); }
 .tasks-item { display: flex; width: 100%; min-height: 42px; gap: 8px; align-items: flex-start; padding: 5px 6px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ink); }
 .tasks-item:hover { background: var(--surface-muted); }
@@ -2816,7 +2811,6 @@ dialog::backdrop {
     --motion-spin: 0ms;
     --motion-pulse: 0ms;
   }
-  .tasks-note-group ul.is-opening > li { animation: none; }
 
   .app-shell.layout-cards .editor-panel,
   .editor-document--entering,
