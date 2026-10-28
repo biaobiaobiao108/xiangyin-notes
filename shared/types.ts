@@ -49,6 +49,16 @@ export type Note = NoteSummary & {
   contentMarkdown: string;
 };
 
+export type TaskSummary = {
+  noteId: string;
+  noteTitle: string;
+  notebookId: string;
+  notebookName: string;
+  text: string;
+  done: boolean;
+  ordinal: number;
+};
+
 export type ApiErrorPayload = {
   error: {
     code: string;

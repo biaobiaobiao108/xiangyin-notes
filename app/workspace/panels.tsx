@@ -16,6 +16,7 @@ import {
   Archive,
   ChevronLeft,
   LayoutPanelLeft,
+  ListTodo,
   LogOut,
   Menu,
   Plus,
@@ -253,6 +254,8 @@ export const Sidebar = memo(function Sidebar({
   onLogout,
   onMoveNotesToNotebook,
   onTrashNotes,
+  tasksActive,
+  onOpenTasks,
 }: {
   view: NoteView;
   setView: (view: NoteView) => void;
@@ -269,6 +272,8 @@ export const Sidebar = memo(function Sidebar({
   onLogout: () => void;
   onMoveNotesToNotebook?: (ids: string[], notebookId: string) => void;
   onTrashNotes?: (ids: string[]) => void;
+  tasksActive: boolean;
+  onOpenTasks: () => void;
 }) {
   const notebookListRef = useRef<HTMLDivElement>(null);
   const collapsedNotebookListRef = useRef<HTMLDivElement>(null);
@@ -325,7 +330,7 @@ export const Sidebar = memo(function Sidebar({
       <nav className="main-nav">
         <ul>
           {navItems.map((item) => {
-            const isActive = view === item.id && !notebookId;
+            const isActive = !tasksActive && view === item.id && !notebookId;
             const dropHandler =
               item.id === "inbox" && systemInbox && onMoveNotesToNotebook
                 ? (ids: string[]) => onMoveNotesToNotebook(ids, systemInbox.id)
@@ -342,6 +347,18 @@ export const Sidebar = memo(function Sidebar({
               />
             );
           })}
+          <li>
+            <button
+              className={"nav-item" + (tasksActive ? " is-active" : "")}
+              type="button"
+              data-note-view="tasks"
+              aria-current={tasksActive ? "page" : undefined}
+              onClick={onOpenTasks}
+            >
+              <ListTodo size={18} />
+              <span>任务</span>
+            </button>
+          </li>
         </ul>
       </nav>
       <div className="collapsed-notebook-shell">

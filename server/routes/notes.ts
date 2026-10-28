@@ -64,6 +64,7 @@ import {
   MAX_SHORT_TERMS_PER_NOTE,
 } from "../note-search";
 import { publishWorkspaceChange } from "../realtime";
+import { extractMarkdownTasks } from "../../shared/tasks";
 
 const NOTE_BATCH_LIMIT = 500;
 const NOTE_BATCH_BODY_MAX_BYTES = 64 * 1024;
@@ -238,6 +239,58 @@ export async function handleNotesRoute(
   const resource = segments[0] ?? "";
   const id = segments[1] ?? "";
   const subresource = segments[2] ?? "";
+
+  if (resource === "tasks" && !id && method === "GET") {
+    const status = url.searchParams.get("status") ?? "open";
+    if (status !== "open" && status !== "done" && status !== "all")
+      return jsonError(400, "INVALID_ARGUMENT", "status 必须为 open、done 或 all");
+
+    const notebookId = url.searchParams.get("notebookId");
+    if (notebookId) {
+      const notebook = first(
+        database,
+        "SELECT id FROM notebooks WHERE id = ? AND user_id = ?",
+        notebookId,
+        user.id,
+      );
+      if (!notebook) return jsonError(404, "NOT_FOUND", "笔记本不存在");
+    }
+
+    const rows = all<{
+      id: string;
+      title: string;
+      notebook_id: string;
+      notebook_name: string;
+      content_markdown: string;
+    }>(
+      database,
+      `
+        SELECT n.id, n.title, n.notebook_id, b.name AS notebook_name, n.content_markdown
+        FROM notes n
+        JOIN notebooks b ON b.id = n.notebook_id AND b.user_id = n.user_id
+        WHERE n.user_id = ? AND n.deleted_at IS NULL
+          AND (? IS NULL OR n.notebook_id = ?)
+        ORDER BY n.updated_at DESC, n.id
+      `,
+      user.id,
+      notebookId,
+      notebookId,
+    );
+    const tasks = rows.flatMap((note) =>
+      extractMarkdownTasks(note.content_markdown)
+        .filter((task) => status === "all" || task.completed === (status === "done"))
+        .map((task) => ({
+          noteId: note.id,
+          noteTitle: note.title,
+          notebookId: note.notebook_id,
+          notebookName: note.notebook_name,
+          text: task.text,
+          done: task.completed,
+          ordinal: task.ordinal,
+        })),
+    );
+    return json({ tasks, total: tasks.length });
+  }
 
   if (resource === "wiki-notes" && id === "suggestions" && method === "GET") {
     const query = normalizeLinkTitle(url.searchParams.get("query")?.slice(0, 80) ?? "");

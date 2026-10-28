@@ -8,6 +8,7 @@ import type {
   Notebook,
   User,
   NoteBacklinksResponse,
+  TaskSummary,
 } from "../shared/types";
 import { createUuid } from "./uuid";
 
@@ -157,6 +158,14 @@ export const api = {
     }),
   emptyTrash: () => request<{ ok: true; deletedCount: number }>("/api/trash", { method: "DELETE" }),
   listNotebooks: () => request<{ notebooks: Notebook[] }>("/api/notebooks"),
+  listTasks: (
+    params: { status: "open" | "done" | "all"; notebookId?: string },
+    options?: RequestOptions,
+  ) => {
+    const search = new URLSearchParams({ status: params.status });
+    if (params.notebookId) search.set("notebookId", params.notebookId);
+    return request<{ tasks: TaskSummary[] }>(`/api/tasks?${search.toString()}`, options);
+  },
   createNotebook: (payload: { name: string; color?: string; icon?: string }) =>
     request<{ notebook: Notebook }>("/api/notebooks", {
       method: "POST",

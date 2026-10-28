@@ -75,6 +75,51 @@ async function request(
 }
 
 describe("Bun Server API", () => {
+  test("lists open and completed Markdown tasks with note and notebook context", async () => {
+    const login = await request("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
+    });
+    const notebookResponse = await request(
+      "/api/notebooks",
+      { method: "POST", body: JSON.stringify({ name: "任务汇总测试" }) },
+      login.cookie,
+    );
+    const notebook = notebookResponse.body?.notebook;
+    const noteResponse = await request(
+      "/api/notes",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          title: "测试任务笔记",
+          notebookId: notebook.id,
+          contentMarkdown: "- [ ] 未完成\n- [x] 已完成",
+        }),
+      },
+      login.cookie,
+    );
+
+    const open = await request(`/api/tasks?notebookId=${notebook.id}`, {}, login.cookie);
+    expect(open.body?.total).toBe(1);
+    expect(open.body?.tasks[0]).toMatchObject({
+      noteId: noteResponse.body?.note.id,
+      noteTitle: "测试任务笔记",
+      notebookId: notebook.id,
+      notebookName: "任务汇总测试",
+      text: "未完成",
+      done: false,
+      ordinal: 0,
+    });
+
+    const done = await request("/api/tasks?status=done", {}, login.cookie);
+    expect(done.body?.tasks).toMatchObject([{ text: "已完成", done: true, ordinal: 1 }]);
+    const allTasks = await request("/api/tasks?status=all", {}, login.cookie);
+    expect(allTasks.body?.total).toBe(2);
+
+    database.query("UPDATE notes SET deleted_at = 1 WHERE id = ?").run(noteResponse.body?.note.id);
+    expect((await request("/api/tasks?status=all", {}, login.cookie)).body?.total).toBe(0);
+  });
+
   test("retries asset file deletions that failed after their database rows were removed", async () => {
     const warningSpy = spyOn(console, "warn").mockImplementation(() => undefined);
     const storagePath = "blocked/retry.png";

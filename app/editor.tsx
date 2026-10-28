@@ -64,6 +64,7 @@ import {
 import { changedDocumentRange } from "./editor/changed-range";
 import { scrollNoteBoundary } from "./editor/document-navigation";
 import { replaceEditorMarkdown } from "./editor/document-content";
+import { findTaskPosition } from "./editor/task-navigation";
 import { FloatingScrollbar } from "./floating-scrollbar";
 import { relativeDate } from "./format";
 import { normalizeImagesInEmptyListItems } from "./image-markdown";
@@ -221,6 +222,8 @@ export function NoteEditor({
   contentMarkdown = note.contentMarkdown,
   searchQuery = "",
   searchNavigationToken = 0,
+  taskNavigation = null,
+  onTaskNavigationMissing,
   saveState,
   isLoading = false,
   reloadToken = 0,
@@ -268,6 +271,8 @@ export function NoteEditor({
   contentMarkdown?: string;
   searchQuery?: string;
   searchNavigationToken?: number;
+  taskNavigation?: { noteId: string; ordinal: number; text: string; token: number } | null;
+  onTaskNavigationMissing?: () => void;
   saveState: SaveState;
   isLoading?: boolean;
   reloadToken?: number;
@@ -1539,6 +1544,40 @@ export function NoteEditor({
     searchNavigationToken,
     syncSearchNavigation,
   ]);
+
+  useEffect(() => {
+    if (!editor || isLoading || !taskNavigation || taskNavigation.noteId !== note.id) return;
+    const position = findTaskPosition(
+      editor.state.doc,
+      taskNavigation.ordinal,
+      taskNavigation.text,
+    );
+    if (position === null) {
+      onTaskNavigationMissing?.();
+      return;
+    }
+    let element: HTMLElement | null = null;
+    const frame = requestAnimationFrame(() => {
+      if (editor.isDestroyed) return;
+      const node = editor.view.nodeDOM(position);
+      if (!(node instanceof HTMLElement)) return;
+      element = node;
+      element.classList.add("task-navigation-highlight");
+      const behavior: ScrollBehavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "auto"
+        : "smooth";
+      element.scrollIntoView({ behavior, block: "center", inline: "nearest" });
+    });
+    const timer = window.setTimeout(
+      () => element?.classList.remove("task-navigation-highlight"),
+      4000,
+    );
+    return () => {
+      cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+      element?.classList.remove("task-navigation-highlight");
+    };
+  }, [editor, isLoading, note.id, onTaskNavigationMissing, taskNavigation]);
 
   useEffect(() => {
     const handleSearchKeyDown = (event: KeyboardEvent) => {

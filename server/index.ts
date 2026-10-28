@@ -49,6 +49,7 @@ const API_RESOURCES = new Set([
   "auth",
   "me",
   "notes",
+  "tasks",
   "notebooks",
   "assets",
   "trash",

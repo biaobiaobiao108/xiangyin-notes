@@ -521,6 +521,34 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .sort-option:active { transform: scale(0.98); }
 .sort-option.is-active { background: var(--accent-soft); color: var(--accent-dark); font-weight: 600; }
 .note-list-content { display: flex; flex: 1 1 0; flex-direction: column; min-height: 0; }
+.tasks-panel { flex: 0 0 min(390px, 34vw); }
+.tasks-header { display: grid; gap: 14px; }
+.tasks-header .note-list-title-row { align-items: center; }
+.tasks-header h1 { margin: 0; font-size: 1.2rem; }
+.tasks-count { display: block; margin-top: 3px; color: var(--muted); font-size: .78rem; }
+.tasks-notebook-filter select { max-width: 160px; min-height: 36px; padding: 0 28px 0 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink); font: inherit; }
+.tasks-status-filter { display: flex; gap: 4px; padding: 3px; border-radius: var(--radius-sm); background: var(--surface-muted); }
+.tasks-status-filter button { min-height: 32px; padding: 0 12px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); font: inherit; font-size: .82rem; cursor: pointer; }
+.tasks-status-filter button.is-active { background: var(--surface); color: var(--ink); }
+.tasks-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.tasks-list { padding: 8px 12px 24px; }
+.tasks-note-group + .tasks-note-group { margin-top: 10px; border-top: 1px solid var(--line); }
+.tasks-note-group h2 { display: flex; min-height: 38px; align-items: center; justify-content: space-between; gap: 12px; margin: 0; padding: 4px 8px; color: var(--ink); font-size: .9rem; font-weight: 620; }
+.tasks-note-group h2 small { color: var(--muted); font-size: .75rem; font-weight: 450; }
+.tasks-note-group ul { margin: 0; padding: 0; list-style: none; }
+.tasks-note-group li + li { border-top: 1px solid var(--line-subtle); }
+.tasks-item { display: flex; width: 100%; min-height: 54px; gap: 11px; align-items: flex-start; padding: 11px 8px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
+.tasks-item:hover { background: var(--surface-muted); }
+.tasks-check { display: grid; width: 20px; height: 21px; flex: 0 0 20px; place-items: center; color: var(--muted); }
+.tasks-check.is-done { color: var(--accent); }
+.tasks-item-copy { display: grid; min-width: 0; gap: 4px; line-height: 1.45; }
+.tasks-item-copy > span { overflow-wrap: anywhere; }
+.tasks-item-copy > span.is-done { color: var(--muted); text-decoration: line-through; }
+.tasks-item-copy small { overflow: hidden; color: var(--muted); font-size: .78rem; text-overflow: ellipsis; white-space: nowrap; }
+.tasks-empty { display: grid; min-height: 150px; align-content: center; justify-items: center; gap: 10px; padding: 24px; color: var(--muted); text-align: center; }
+.tasks-empty p { margin: 0; }
+.tasks-back { display: none; }
+.app-shell[data-mobile-page="home"].is-tasks-open > .tasks-panel { display: flex; }
 .note-list-scroll-shell { position: relative; flex: 1 1 0; min-height: 0; overflow: hidden; }
 .note-list-scroll-shell::before, .note-list-scroll-shell::after {
   position: absolute;
@@ -919,6 +947,7 @@ button.save-status:hover { text-decoration: underline; }
 .note-image-loading { display: grid; width: min(var(--image-display-width), 100%); min-height: 120px; place-items: center; border: 1px dashed var(--border-strong); border-radius: 10px; background: var(--surface-muted); color: var(--muted); font-size: 0.78rem; }
 .note-prose .editor-search-match { border-radius: 0.22em; background: var(--search-match); color: inherit; box-shadow: 0 0.08em 0 var(--search-match-shadow); }
 .note-prose .editor-search-match--active { background: var(--accent); color: var(--accent-contrast); box-shadow: 0 0 0 2px var(--focus-soft); }
+.note-prose .task-navigation-highlight { background: var(--search-match); }
 .note-prose .editor-tag { display: inline; padding: 0.08em 0.22em; border-radius: 0.28em; background: var(--h2-soft); color: var(--h2-color); font-weight: 600; box-shadow: inset 0 -1px 0 var(--h2-border); box-decoration-break: clone; -webkit-box-decoration-break: clone; overflow-wrap: anywhere; }
 .note-prose .editor-tag.editor-search-match--active { background: var(--accent); color: var(--accent-contrast); box-shadow: 0 0 0 2px var(--focus-soft); }
 .note-prose > *:first-child { margin-top: 0; }
@@ -1473,6 +1502,12 @@ dialog::backdrop {
   .app-shell[data-mobile-page] .sort-dropdown button { min-height: 44px; }
   .app-shell[data-mobile-page] .empty-trash-button { width: 44px; height: 44px; justify-content: center; }
   .app-shell[data-mobile-page] .note-list-panel { background: var(--canvas); }
+  .app-shell[data-mobile-page="home"].is-tasks-open > .tasks-panel { grid-column: 1; width: 100%; height: 100%; }
+  .tasks-panel { flex-basis: auto; }
+  .tasks-header { padding: calc(env(safe-area-inset-top) + 10px) max(16px, env(safe-area-inset-right)) 12px max(16px, env(safe-area-inset-left)); }
+  .tasks-back { display: inline-flex; min-height: 38px; align-items: center; gap: 2px; margin: -5px 0 6px -8px; padding: 0 8px; border: 0; background: transparent; color: var(--muted); font: inherit; }
+  .tasks-notebook-filter select { max-width: 142px; }
+  .tasks-list { padding-bottom: calc(92px + env(safe-area-inset-bottom)); }
   .app-shell[data-mobile-page] .note-list-scroll-shell::before { background: linear-gradient(to bottom, var(--canvas), transparent); }
   .app-shell[data-mobile-page] .note-list-scroll-shell::after { background: linear-gradient(to top, var(--canvas), transparent); }
   .app-shell[data-mobile-page] .note-list { padding-bottom: calc(110px + env(safe-area-inset-bottom)); scroll-padding-top: 30px; }
@@ -2223,6 +2258,9 @@ dialog::backdrop {
 .app-shell.layout-cards.sidebar-collapsed {
   grid-template-columns: 72px minmax(0, 1fr);
 }
+.app-shell.layout-cards.is-tasks-open { grid-template-columns: 252px minmax(300px, 360px) minmax(0, 1fr); }
+.app-shell.layout-cards.sidebar-collapsed.is-tasks-open { grid-template-columns: 72px minmax(300px, 360px) minmax(0, 1fr); }
+.app-shell.layout-cards.is-tasks-open .editor-region { grid-column: 3; }
 .app-shell.layout-cards.is-focus-mode {
   grid-template-columns: 0px minmax(0, 1fr);
 }

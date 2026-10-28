@@ -22,7 +22,7 @@ import type { CreateNoteCommand } from "./command-parser";
 import { applyPwaUpdate, installPwa, subscribePwa, type PwaState } from "./pwa";
 import type { WorkspaceChangeMessage } from "../shared/realtime";
 import type { ImageExportSnapshot } from "./image-export/render";
-import type { Note, NoteSummary, NoteView, Notebook } from "../shared/types";
+import type { Note, NoteSummary, NoteView, Notebook, TaskSummary } from "../shared/types";
 import type { OutlineItem } from "./editor-metrics";
 import { ConfirmDialog, NotebookDialog, type ConfirmRequest } from "./workspace/dialogs";
 import { clearAllDraftRecoveries, readDraftRecovery } from "./workspace/draft-recovery";
@@ -30,6 +30,7 @@ import { SplitResizer, DEFAULT_SPLIT_RATIO } from "./workspace/split-resizer";
 import { SplitNoteDialog } from "./workspace/split-note-dialog";
 import { EmptyEditor, NoteListPanel, NoteLoadingState, Sidebar } from "./workspace/panels";
 import { NoteCardGridPanel } from "./workspace/note-card-grid";
+import { TasksPanel } from "./workspace/tasks-panel";
 import { registerDragOverGuard } from "./workspace/note-drag-drop";
 import {
   errorMessage,
@@ -283,6 +284,20 @@ export function Workspace() {
   const [commandOpen, setCommandOpen] = useState(false);
   const [commandInitialQuery, setCommandInitialQuery] = useState("");
   const [inNoteSearchQuery, setInNoteSearchQuery] = useState("");
+  const [tasksOpen, setTasksOpen] = useState(false);
+  const [taskStatus, setTaskStatus] = useState<"open" | "done" | "all">("open");
+  const [taskNotebookId, setTaskNotebookId] = useState("");
+  const [tasks, setTasks] = useState<TaskSummary[]>([]);
+  const [tasksLoading, setTasksLoading] = useState(false);
+  const [tasksError, setTasksError] = useState<string | null>(null);
+  const [taskRefreshToken, setTaskRefreshToken] = useState(0);
+  const [taskNavigation, setTaskNavigation] = useState<{
+    noteId: string;
+    ordinal: number;
+    text: string;
+    token: number;
+  } | null>(null);
+  const taskNavigationTokenRef = useRef(0);
   const [resultSearch, setResultSearch] = useState<{
     id: string;
     query: string;
@@ -304,6 +319,26 @@ export function Workspace() {
   const setSelectedNoteMetadata = useCallback((note: Note | null) => {
     setSelectedNote(note ? noteMetadataSnapshot(note) : null);
   }, []);
+  useEffect(() => {
+    if (!tasksOpen) return;
+    const controller = new AbortController();
+    setTasksLoading(true);
+    setTasksError(null);
+    void api
+      .listTasks(
+        { status: taskStatus, notebookId: taskNotebookId || undefined },
+        { signal: controller.signal },
+      )
+      .then((result) => setTasks(result.tasks))
+      .catch((reason: unknown) => {
+        if (reason instanceof Error && reason.name === "AbortError") return;
+        setTasksError("加载任务失败，请重试");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setTasksLoading(false);
+      });
+    return () => controller.abort();
+  }, [taskNotebookId, taskRefreshToken, taskStatus, tasksOpen]);
   const [pwaState, setPwaState] = useState<PwaState>({
     standalone: false,
     canInstall: false,
@@ -566,6 +601,7 @@ export function Workspace() {
     (id: string | null) => {
       setInNoteSearchQuery("");
       setResultSearch(null);
+      setTaskNavigation(null);
       clearNoteSelection();
       if (activeNoteIdRef.current === id) return;
       flushEditorDraftRef.current();
@@ -1606,6 +1642,7 @@ export function Workspace() {
   useWorkspaceRealtime({ ready, onChange: handleRealtimeChange });
   const selectView = useCallback(
     (next: NoteView) => {
+      setTasksOpen(false);
       if (view !== next || notebookId || query) requestListTransition();
       searchOriginRef.current = null;
       setQuery("");
@@ -1616,8 +1653,55 @@ export function Workspace() {
     },
     [openMobileList, notebookId, query, requestListTransition, view],
   );
+  const openTasks = useCallback(async () => {
+    flushSecondaryDraft();
+    await flushPendingSaves("now");
+    if (hasUnsavedWork()) {
+      notifyWarning("仍有内容未保存，请保存成功后再查看任务");
+      return;
+    }
+    if (query) setQuery("");
+    setView("all");
+    setNotebookId(undefined);
+    setTasksOpen(true);
+    if (!isMobileViewport)
+      openMobileList({ view: "all", notebookId: undefined, query: "", searchOrigin: null });
+  }, [
+    flushPendingSaves,
+    flushSecondaryDraft,
+    hasUnsavedWork,
+    isMobileViewport,
+    notifyWarning,
+    openMobileList,
+    query,
+  ]);
+  const selectTask = useCallback(
+    (task: TaskSummary) => {
+      setTasksOpen(false);
+      setQuery("");
+      setView("all");
+      setNotebookId(undefined);
+      if (splitNoteId) closeSplit();
+      setCardEditingNoteId(viewLayout === "cards" ? task.noteId : null);
+      selectNote(task.noteId);
+      setTaskNavigation({
+        noteId: task.noteId,
+        ordinal: task.ordinal,
+        text: task.text,
+        token: ++taskNavigationTokenRef.current,
+      });
+      openMobileNote({ noteId: task.noteId });
+    },
+    [closeSplit, openMobileNote, selectNote, splitNoteId, viewLayout],
+  );
+  const handleTaskNavigationMissing = useCallback(() => {
+    setTaskNavigation(null);
+    setTaskRefreshToken((value) => value + 1);
+    notifyWarning("这项任务已发生变化，请重新打开任务列表");
+  }, [notifyWarning]);
   const selectNotebook = useCallback(
     (notebookIdToSelect: string) => {
+      setTasksOpen(false);
       if (notebookId !== notebookIdToSelect || view !== "all" || query) requestListTransition();
       searchOriginRef.current = null;
       setQuery("");
@@ -1635,6 +1719,7 @@ export function Workspace() {
   );
   const changeQuery = useCallback(
     (next: string) => {
+      setTasksOpen(false);
       if (next) {
         if (!query) {
           requestListTransition();
@@ -2298,7 +2383,8 @@ export function Workspace() {
   );
   const isCardsLayout = !isMobileViewport && viewLayout === "cards";
   const mobileCards = isMobileViewport && mobileViewLayout === "cards";
-  const showCardsGrid = mobileCards || (isCardsLayout && cardEditingNoteId === null);
+  const showCardsGrid =
+    !tasksOpen && (mobileCards || (isCardsLayout && cardEditingNoteId === null));
   const editorContentInert = isMobileViewport && mobilePage !== "editor";
   if (mobilePage === "editor") mobileEditorVisitedRef.current = true;
   const mountEditor = !isMobileViewport || mobileEditorVisitedRef.current;
@@ -2333,7 +2419,7 @@ export function Workspace() {
           event.preventDefault();
       }}
       data-mobile-page={isMobileViewport ? mobilePage : undefined}
-      className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${focusMode ? "is-focus-mode" : ""} ${isCardsLayout ? "layout-cards" : ""}`}
+      className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${focusMode ? "is-focus-mode" : ""} ${isCardsLayout ? "layout-cards" : ""} ${tasksOpen ? "is-tasks-open" : ""}`}
     >
       {!isMobileViewport && (
         <Sidebar
@@ -2352,13 +2438,15 @@ export function Workspace() {
           onLogout={logout}
           onMoveNotesToNotebook={handleMoveNotesToNotebook}
           onTrashNotes={handleTrashNotes}
+          tasksActive={tasksOpen}
+          onOpenTasks={openTasks}
         />
       )}
       {isMobileViewport && (
         <div
           className="mobile-home-region"
-          hidden={mobilePage !== "home"}
-          inert={mobilePage !== "home"}
+          hidden={mobilePage !== "home" || tasksOpen}
+          inert={mobilePage !== "home" || tasksOpen}
         >
           <MobileNotebookHome
             view={view}
@@ -2370,11 +2458,33 @@ export function Workspace() {
             onEditNotebook={handleEditNotebook}
             onDeleteNotebook={handleDeleteNotebook}
             onLogout={logout}
+            onOpenTasks={openTasks}
             active={mobilePage === "home"}
           />
         </div>
       )}
-      {!isCardsLayout && !mobileCards && (
+      {tasksOpen && (!isMobileViewport || mobilePage === "home") && (
+        <TasksPanel
+          tasks={tasks}
+          notebooks={notebooks}
+          notebookId={taskNotebookId}
+          status={taskStatus}
+          loading={tasksLoading}
+          error={tasksError}
+          onNotebookChange={setTaskNotebookId}
+          onStatusChange={setTaskStatus}
+          onSelectTask={selectTask}
+          onBack={
+            isMobileViewport
+              ? () => {
+                  setTasksOpen(false);
+                  openMobileHome();
+                }
+              : undefined
+          }
+        />
+      )}
+      {!tasksOpen && !isCardsLayout && !mobileCards && (
         <NoteListPanel
           notes={notes}
           total={totalNotes}
@@ -2480,6 +2590,10 @@ export function Workspace() {
                       searchNavigationToken={
                         resultSearch?.id === renderedNote.id ? resultSearch.token : 0
                       }
+                      taskNavigation={
+                        taskNavigation?.noteId === renderedNote.id ? taskNavigation : null
+                      }
+                      onTaskNavigationMissing={handleTaskNavigationMissing}
                       onClearSearch={
                         inNoteSearchQuery || resultSearch?.id === renderedNote.id
                           ? handleClearInNoteSearch
@@ -2575,6 +2689,10 @@ export function Workspace() {
                       searchNavigationToken={
                         resultSearch?.id === splitRenderedNote.id ? resultSearch.token : 0
                       }
+                      taskNavigation={
+                        taskNavigation?.noteId === splitRenderedNote.id ? taskNavigation : null
+                      }
+                      onTaskNavigationMissing={handleTaskNavigationMissing}
                       onClearSearch={
                         resultSearch?.id === splitRenderedNote.id
                           ? handleClearInNoteSearch
@@ -2653,6 +2771,8 @@ export function Workspace() {
                 searchNavigationToken={
                   resultSearch?.id === renderedNote.id ? resultSearch.token : 0
                 }
+                taskNavigation={taskNavigation?.noteId === renderedNote.id ? taskNavigation : null}
+                onTaskNavigationMissing={handleTaskNavigationMissing}
                 onClearSearch={
                   inNoteSearchQuery || resultSearch?.id === renderedNote.id
                     ? handleClearInNoteSearch

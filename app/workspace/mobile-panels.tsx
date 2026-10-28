@@ -3,6 +3,7 @@ import {
   ChevronRight,
   FolderPlus,
   LogOut,
+  ListTodo,
   Pencil,
   Search,
   SquarePen,
@@ -26,6 +27,7 @@ export type MobileNotebookHomeProps = {
   onEditNotebook: (notebook: Notebook) => void;
   onDeleteNotebook: (notebook: Notebook) => void;
   onLogout: () => void;
+  onOpenTasks?: () => void;
   active?: boolean;
 };
 
@@ -39,6 +41,7 @@ export const MobileNotebookHome = memo(function MobileNotebookHome({
   onEditNotebook,
   onDeleteNotebook,
   onLogout,
+  onOpenTasks,
   active = true,
 }: MobileNotebookHomeProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -95,6 +98,22 @@ export const MobileNotebookHome = memo(function MobileNotebookHome({
                   </li>
                 );
               })}
+              {onOpenTasks && (
+                <li>
+                  <button
+                    type="button"
+                    className="mobile-notebook-link"
+                    aria-current={undefined}
+                    onClick={onOpenTasks}
+                  >
+                    <span className="mobile-notebook-icon">
+                      <ListTodo size={22} />
+                    </span>
+                    <span className="mobile-notebook-name">任务</span>
+                    <ChevronRight className="mobile-notebook-chevron" size={18} />
+                  </button>
+                </li>
+              )}
             </ul>
           </nav>
           <div className="mobile-home-section-heading">
