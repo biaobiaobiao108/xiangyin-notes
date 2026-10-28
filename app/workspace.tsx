@@ -1494,42 +1494,98 @@ export function Workspace() {
     });
   }, [reloadSelectedNote, requestConfirm]);
 
-  const loadSplitNote = useCallback(async (id: string) => {
-    splitAbortRef.current?.abort();
-    const controller = new AbortController();
-    splitAbortRef.current = controller;
-    splitLoadRequestRef.current += 1;
-    const requestId = splitLoadRequestRef.current;
-    setSplitIsNoteLoading(true);
-    try {
-      const result = await api.getNote(id, { signal: controller.signal });
-      if (requestId !== splitLoadRequestRef.current) return;
-      let loadedNote = result.note;
-      const recoveredDraft = await readDraftRecovery(id);
-      if (requestId !== splitLoadRequestRef.current) return;
-      if (recoveredDraft) {
-        loadedNote = { ...loadedNote, ...recoveredDraft };
+  const loadSplitNote = useCallback(
+    async (id: string, discardRecovery = false) => {
+      if (splitNoteIdRef.current !== id) return;
+      splitAbortRef.current?.abort();
+      const controller = new AbortController();
+      splitAbortRef.current = controller;
+      splitLoadRequestRef.current += 1;
+      const requestId = splitLoadRequestRef.current;
+      setSplitIsNoteLoading(true);
+      const pendingNote = pendingSavesRef.current.get(id);
+      const failedSave = failedSavesRef.current.get(id);
+      setSplitSaveState(
+        failedSave
+          ? failedSave instanceof ApiError && failedSave.code === "VERSION_CONFLICT"
+            ? "conflict"
+            : "error"
+          : pendingNote
+            ? "saving"
+            : "idle",
+      );
+      try {
+        const result = await api.getNote(id, { signal: controller.signal });
+        if (requestId !== splitLoadRequestRef.current || splitNoteIdRef.current !== id) return;
+        let loadedNote = result.note;
+        if (discardRecovery) {
+          clearPendingForNote(id);
+        } else if (!pendingNote && !pendingSavesRef.current.has(id)) {
+          const recoveredDraft = await readDraftRecovery(id);
+          if (requestId !== splitLoadRequestRef.current || splitNoteIdRef.current !== id) return;
+          if (recoveredDraft && !pendingSavesRef.current.has(id)) {
+            pendingSavesRef.current.set(id, recoveredDraft);
+            if (recoveredDraft.version === loadedNote.version) {
+              notifyWarning("已恢复一份未保存草稿");
+            } else {
+              failedSavesRef.current.set(
+                id,
+                new ApiError(409, "VERSION_CONFLICT", "恢复的草稿与服务器版本不同"),
+              );
+              setSplitSaveState("conflict");
+              notifyWarning("已保留未保存草稿；服务器版本已变化，请先复制需要的修改再重新载入");
+            }
+          }
+        }
+        const latestPendingNote = pendingSavesRef.current.get(id);
+        if (latestPendingNote) loadedNote = { ...loadedNote, ...latestPendingNote };
+        splitSelectedRef.current = loadedNote;
+        setSplitSelectedNote(noteMetadataSnapshot(loadedNote));
+        setSplitIsNoteLoading(false);
+        if (discardRecovery) {
+          setSplitSaveState("idle");
+          setSplitNoteReloadToken((value) => value + 1);
+        }
+        if (
+          latestPendingNote &&
+          !failedSavesRef.current.has(id) &&
+          !trashOperationsRef.current.has(id)
+        )
+          persistRef.current(latestPendingNote);
+      } catch (reason) {
+        if (requestId !== splitLoadRequestRef.current) return;
+        if (reason instanceof Error && reason.name === "AbortError") return;
+        setSplitIsNoteLoading(false);
+        setSplitNoteId(null);
+        setSplitSelectedNote(null);
+        splitSelectedRef.current = null;
+        setActivePane("primary");
       }
-      splitSelectedRef.current = loadedNote;
-      setSplitSelectedNote(noteMetadataSnapshot(loadedNote));
-      setSplitIsNoteLoading(false);
-    } catch (reason) {
-      if (requestId !== splitLoadRequestRef.current) return;
-      if (reason instanceof Error && reason.name === "AbortError") return;
-      setSplitIsNoteLoading(false);
-      setSplitNoteId(null);
-      setSplitSelectedNote(null);
-      splitSelectedRef.current = null;
-      setActivePane("primary");
-    }
-  }, []);
+    },
+    [clearPendingForNote, failedSavesRef, notifyWarning, pendingSavesRef, setSplitSaveState],
+  );
+  const requestSplitConflictReload = useCallback(
+    (noteId: string) => {
+      if (splitSelectedRef.current?.id !== noteId) return;
+      requestConfirm({
+        eyebrow: "版本冲突",
+        title: "重新载入最新版本？",
+        description: "重新载入会使用服务器上的最新内容替换分栏中的内容，本地尚未保存的修改将丢失。",
+        confirmLabel: "重新载入",
+        onConfirm: () => void loadSplitNote(noteId, true),
+      });
+    },
+    [loadSplitNote, requestConfirm],
+  );
 
   useEffect(() => {
     if (!ready || !splitNoteId) {
+      splitLoadRequestRef.current += 1;
       splitAbortRef.current?.abort();
       setSplitIsNoteLoading(false);
       setSplitSelectedNote(null);
       splitSelectedRef.current = null;
+      setSplitSaveState("idle");
       return;
     }
     void loadSplitNote(splitNoteId);
@@ -1549,10 +1605,13 @@ export function Workspace() {
 
   const closeSplit = useCallback(() => {
     flushSecondaryDraft();
+    splitLoadRequestRef.current += 1;
+    splitAbortRef.current?.abort();
     setResultSearch((current) => (current?.id === splitNoteIdRef.current ? null : current));
     setSplitNoteId(null);
     setSplitSelectedNote(null);
     splitSelectedRef.current = null;
+    setSplitSaveState("idle");
     setActivePane("primary");
   }, [flushSecondaryDraft]);
   closeSplitRef.current = closeSplit;
@@ -2937,7 +2996,7 @@ export function Workspace() {
                         onFocusHandled={handleSplitEditorFocus}
                         onChange={onSplitNoteChange}
                         onSaveNow={() => saveNoteNow(splitRenderedNote.id)}
-                        onReloadNote={() => void loadSplitNote(splitRenderedNote.id)}
+                        onReloadNote={() => requestSplitConflictReload(splitRenderedNote.id)}
                         onExportImage={handleExportImage}
                         onToggleFavorite={() =>
                           void handleToggleFavoriteNote(toNoteSummary(splitRenderedNote))
