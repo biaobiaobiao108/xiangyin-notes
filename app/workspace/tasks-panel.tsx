@@ -343,7 +343,6 @@ export function TasksPanel({
       virtual?: boolean;
       rowRef?: (element: HTMLLIElement | null) => void;
       rowStyle?: CSSProperties;
-      divider?: boolean;
       groupMotion?: "collapsing" | "expanding";
     },
   ) => {
@@ -355,7 +354,7 @@ export function TasksPanel({
         data-task-row-id={options?.virtual ? taskRowId(task) : undefined}
         className={
           options?.virtual
-            ? `tasks-virtual-task-row${options.divider ? " has-divider" : ""}${options.groupMotion ? ` is-group-${options.groupMotion}` : ""}`
+            ? `tasks-virtual-task-row${options.groupMotion ? ` is-group-${options.groupMotion}` : ""}`
             : undefined
         }
         style={options?.rowStyle}
@@ -608,7 +607,7 @@ export function TasksPanel({
                     role="list"
                     style={virtualListStyle}
                   >
-                    {virtualList.visibleRows.map(({ row, index, top }) => {
+                    {virtualList.visibleRows.map(({ row, top }) => {
                       if (row.kind === "group") {
                         const isStickyMarker = row.groupId === activeVirtualGroupId;
                         const isFocusedMarker = virtualList.pinnedRowId === row.id;
@@ -653,7 +652,6 @@ export function TasksPanel({
                           </li>
                         );
                       }
-                      const previousRow = taskRows[index - 1];
                       const groupMotion =
                         virtualGroupTransition?.groupId === row.groupId &&
                         (virtualGroupTransition.phase === "collapsing" ||
@@ -664,8 +662,6 @@ export function TasksPanel({
                         virtual: true,
                         rowRef: virtualList.getRowRef(row.id),
                         rowStyle: virtualList.rowStyle(top),
-                        divider:
-                          previousRow?.kind === "task" && previousRow.groupId === row.groupId,
                         groupMotion,
                       });
                     })}

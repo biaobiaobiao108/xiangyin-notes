@@ -562,7 +562,6 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .tasks-note-group-content.is-collapsed { grid-template-rows: 0fr; }
 .tasks-note-group-content > ul { min-height: 0; overflow: hidden; }
 .tasks-note-group ul { margin: 0; padding: 0; list-style: none; }
-.tasks-note-group li + li { border-top: 1px solid var(--line); }
 .tasks-virtual-sticky-header { height: 34px; padding-inline: 12px; }
 .tasks-virtual-sticky-header .tasks-note-group-toggle { height: 100%; }
 .tasks-virtual-list { position: relative; box-sizing: border-box; margin: 0; padding: 0; list-style: none; }
@@ -571,7 +570,6 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .tasks-virtual-group-marker.is-first { height: 0; }
 .tasks-virtual-group-marker.is-collapsed .tasks-note-group-chevron { transform: rotate(-90deg); }
 .tasks-virtual-group-marker small { overflow: hidden; max-width: 42%; flex: 0 1 auto; color: var(--soft-muted); font-size: .7rem; font-weight: 450; text-overflow: ellipsis; white-space: nowrap; }
-.tasks-virtual-task-row.has-divider { border-top: 1px solid var(--line); }
 .tasks-virtual-list.is-transitioning > li { transition: transform var(--motion-group) var(--motion-group-ease); }
 .tasks-virtual-task-row.is-group-collapsing { pointer-events: none; }
 .tasks-virtual-task-row.is-group-collapsing > .tasks-item { animation: tasks-group-row-exit var(--motion-group) var(--motion-group-ease) both; }
