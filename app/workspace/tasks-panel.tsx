@@ -1,5 +1,5 @@
 import { Check, ChevronDown, ChevronLeft, Circle, ListTodo, LoaderCircle } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import type { Notebook, TaskSummary } from "../../shared/types";
 import { useContextMenu, type ContextMenuItem } from "../context-menu";
 import { FloatingScrollbar } from "../floating-scrollbar";
@@ -34,9 +34,11 @@ export function TasksPanel({
   onBack?: () => void;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
+  const filtersRef = useRef<HTMLDivElement>(null);
   const notebookFilterRef = useRef<HTMLDivElement>(null);
   const notebookTriggerRef = useRef<HTMLButtonElement>(null);
-  const [notebookMenuOpen, setNotebookMenuOpen] = useState(false);
+  const statusTriggerRef = useRef<HTMLButtonElement>(null);
+  const [openFilter, setOpenFilter] = useState<"status" | "notebook" | null>(null);
   const { openMenu, menu: contextMenu } = useContextMenu();
   const useContextDropdown =
     typeof window !== "undefined" &&
@@ -57,6 +59,7 @@ export function TasksPanel({
   }, [tasks]);
   const selectedNotebookName =
     notebooks.find((notebook) => notebook.id === notebookId)?.name ?? "全部笔记本";
+  const selectedStatusLabel = { open: "未完成", done: "已完成", all: "全部" }[status];
   const notebookMenuItems = useMemo<ContextMenuItem[]>(
     () => [
       {
@@ -72,19 +75,36 @@ export function TasksPanel({
     ],
     [notebookId, notebooks, onNotebookChange],
   );
+  const statusMenuItems = useMemo<ContextMenuItem[]>(
+    () =>
+      (
+        [
+          ["open", "未完成"],
+          ["done", "已完成"],
+          ["all", "全部"],
+        ] as const
+      ).map(([value, label]) => ({
+        label,
+        icon: status === value ? Check : undefined,
+        onSelect: () => onStatusChange(value),
+      })),
+    [onStatusChange, status],
+  );
 
   useEffect(() => {
-    if (!notebookMenuOpen) return;
+    if (!openFilter || useContextDropdown) return;
     const handlePointerDown = (event: PointerEvent) => {
-      if (!notebookFilterRef.current?.contains(event.target as Node)) setNotebookMenuOpen(false);
+      if (!filtersRef.current?.contains(event.target as Node)) setOpenFilter(null);
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.isComposing || event.keyCode === 229) return;
       if (event.key !== "Escape") return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      setNotebookMenuOpen(false);
-      notebookTriggerRef.current?.focus();
+      const trigger =
+        openFilter === "notebook" ? notebookTriggerRef.current : statusTriggerRef.current;
+      setOpenFilter(null);
+      trigger?.focus();
     };
     document.addEventListener("pointerdown", handlePointerDown);
     document.addEventListener("keydown", handleKeyDown);
@@ -92,102 +112,141 @@ export function TasksPanel({
       document.removeEventListener("pointerdown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [notebookMenuOpen]);
+  }, [openFilter, useContextDropdown]);
+
+  const openFilterMenu = (
+    kind: "status" | "notebook",
+    event: ReactMouseEvent<HTMLButtonElement>,
+  ) => {
+    if (useContextDropdown) {
+      setOpenFilter(null);
+      openMenu(
+        event,
+        kind === "status" ? statusMenuItems : notebookMenuItems,
+        kind === "status" ? "筛选任务状态" : "筛选笔记本",
+      );
+      return;
+    }
+    setOpenFilter((current) => (current === kind ? null : kind));
+  };
 
   return (
-    <section className="note-list-panel tasks-panel" aria-labelledby="tasks-heading">
+    <section
+      className="note-list-panel tasks-panel"
+      aria-labelledby="tasks-heading"
+      aria-busy={busyTask !== null}
+    >
       <header className="list-header tasks-header">
-        <div className="note-list-title-row">
-          <div>
-            {onBack && (
-              <button className="tasks-back" type="button" onClick={onBack}>
-                <ChevronLeft size={18} />
-                笔记
-              </button>
-            )}
-            <h1 id="tasks-heading">任务</h1>
-            <span className="tasks-count">{tasks.length} 项</span>
-          </div>
-          <div className="tasks-notebook-filter" ref={notebookFilterRef}>
-            <button
-              ref={notebookTriggerRef}
-              className="tasks-notebook-trigger"
-              type="button"
-              aria-label="按笔记本筛选任务"
-              aria-haspopup={useContextDropdown ? "menu" : "listbox"}
-              aria-expanded={useContextDropdown ? undefined : notebookMenuOpen}
-              onClick={(event) => {
-                if (useContextDropdown) {
-                  setNotebookMenuOpen(false);
-                  openMenu(event, notebookMenuItems, "按笔记本筛选任务");
-                } else {
-                  setNotebookMenuOpen((open) => !open);
-                }
-              }}
-            >
-              <span>{selectedNotebookName}</span>
-              <ChevronDown size={15} aria-hidden="true" />
-            </button>
-            {notebookMenuOpen && (
-              <div className="tasks-notebook-menu" role="listbox" aria-label="选择笔记本">
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={!notebookId}
-                  className={!notebookId ? "is-selected" : ""}
-                  onClick={() => {
-                    onNotebookChange("");
-                    setNotebookMenuOpen(false);
-                  }}
-                >
-                  全部笔记本
-                </button>
-                {notebooks.map((notebook) => (
-                  <button
-                    key={notebook.id}
-                    type="button"
-                    role="option"
-                    aria-selected={notebookId === notebook.id}
-                    className={notebookId === notebook.id ? "is-selected" : ""}
-                    onClick={() => {
-                      onNotebookChange(notebook.id);
-                      setNotebookMenuOpen(false);
-                    }}
-                  >
-                    {notebook.name}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-        <div className="tasks-status-filter" role="group" aria-label="任务状态">
-          {(
-            [
-              ["open", "未完成"],
-              ["done", "已完成"],
-              ["all", "全部"],
-            ] as const
-          ).map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              className={status === value ? "is-active" : ""}
-              aria-pressed={status === value}
-              onClick={() => onStatusChange(value)}
-            >
-              {label}
-            </button>
-          ))}
+        <div className="list-header-main">
+          <h2 id="tasks-heading">任务</h2>
+          <p className="tasks-count">{tasks.length} 项</p>
         </div>
       </header>
+      <div className="tasks-toolbar" ref={filtersRef}>
+        {onBack && (
+          <button className="tasks-back" type="button" onClick={onBack}>
+            <ChevronLeft size={18} aria-hidden="true" />
+            <span>笔记</span>
+          </button>
+        )}
+        <div className="tasks-filter-dropdown">
+          <button
+            ref={statusTriggerRef}
+            type="button"
+            className="tasks-filter-trigger"
+            aria-label="筛选任务状态"
+            aria-haspopup="menu"
+            aria-expanded={useContextDropdown ? undefined : openFilter === "status"}
+            onClick={(event) => openFilterMenu("status", event)}
+          >
+            <span>{selectedStatusLabel}</span>
+            <ChevronDown size={14} aria-hidden="true" />
+          </button>
+          {!useContextDropdown && openFilter === "status" && (
+            <div className="tasks-filter-menu" role="menu" aria-label="任务状态">
+              {(
+                [
+                  ["open", "未完成"],
+                  ["done", "已完成"],
+                  ["all", "全部"],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={status === value}
+                  className={status === value ? "is-selected" : ""}
+                  onClick={() => {
+                    onStatusChange(value);
+                    setOpenFilter(null);
+                    statusTriggerRef.current?.focus();
+                  }}
+                >
+                  {status === value ? <Check size={15} aria-hidden="true" /> : <span />}
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="tasks-filter-dropdown" ref={notebookFilterRef}>
+          <button
+            ref={notebookTriggerRef}
+            type="button"
+            className="tasks-filter-trigger tasks-filter-trigger-notebook"
+            aria-label="筛选笔记本"
+            aria-haspopup="menu"
+            aria-expanded={useContextDropdown ? undefined : openFilter === "notebook"}
+            onClick={(event) => openFilterMenu("notebook", event)}
+          >
+            <span>{selectedNotebookName}</span>
+            <ChevronDown size={14} aria-hidden="true" />
+          </button>
+          {!useContextDropdown && openFilter === "notebook" && (
+            <div className="tasks-filter-menu" role="menu" aria-label="笔记本">
+              <button
+                type="button"
+                role="menuitemradio"
+                aria-checked={!notebookId}
+                className={!notebookId ? "is-selected" : ""}
+                onClick={() => {
+                  onNotebookChange("");
+                  setOpenFilter(null);
+                  notebookTriggerRef.current?.focus();
+                }}
+              >
+                {!notebookId ? <Check size={15} aria-hidden="true" /> : <span />}
+                全部笔记本
+              </button>
+              {notebooks.map((notebook) => (
+                <button
+                  key={notebook.id}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={notebookId === notebook.id}
+                  className={notebookId === notebook.id ? "is-selected" : ""}
+                  onClick={() => {
+                    onNotebookChange(notebook.id);
+                    setOpenFilter(null);
+                    notebookTriggerRef.current?.focus();
+                  }}
+                >
+                  {notebookId === notebook.id ? <Check size={15} aria-hidden="true" /> : <span />}
+                  {notebook.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
       <div className="note-list-content">
         <div
           id="tasks-scroll-region"
           className="tasks-scroll floating-scrollbar-target"
           ref={listRef}
         >
-          {loading ? (
+          {loading && tasks.length === 0 ? (
             <p className="tasks-empty" role="status">
               正在加载任务…
             </p>

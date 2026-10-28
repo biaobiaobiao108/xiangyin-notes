@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   MobileNavigationHistory,
+  shouldShowTasksPanel,
   type MobileListContext,
 } from "../app/workspace/use-mobile-navigation";
 
@@ -30,6 +31,13 @@ const context: MobileListContext = {
 };
 
 describe("mobile page navigation", () => {
+  test("task view remains visible on home and list return pages, then restores in editor", () => {
+    expect(shouldShowTasksPanel(true, true, "home")).toBe(true);
+    expect(shouldShowTasksPanel(true, true, "list")).toBe(true);
+    expect(shouldShowTasksPanel(true, true, "editor")).toBe(false);
+    expect(shouldShowTasksPanel(true, false, "editor")).toBe(true);
+    expect(shouldShowTasksPanel(false, true, "home")).toBe(false);
+  });
   test("home → notebook list → note; browser back and forward retain the list context", () => {
     const history = new TestHistory();
     const navigation = new MobileNavigationHistory(history, context, "session");

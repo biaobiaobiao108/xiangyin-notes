@@ -4,6 +4,14 @@ import type { NoteView } from "../../shared/types";
 import type { NoteSort } from "./helpers";
 
 export type MobilePage = "home" | "list" | "editor";
+export function shouldShowTasksPanel(
+  tasksOpen: boolean,
+  isMobileViewport: boolean,
+  page: MobilePage,
+) {
+  return tasksOpen && (!isMobileViewport || page !== "editor");
+}
+
 export type MobileListContext = {
   view: NoteView;
   notebookId?: string;

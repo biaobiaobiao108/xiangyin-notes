@@ -62,6 +62,7 @@ import { useWorkspaceShortcuts } from "./workspace/use-workspace-shortcuts";
 import { useTrashActions } from "./workspace/use-trash-actions";
 import {
   useMobileNavigation,
+  shouldShowTasksPanel,
   type MobileListContext,
   type MobilePage,
 } from "./workspace/use-mobile-navigation";
@@ -407,6 +408,15 @@ export function Workspace() {
     setSplitSelectedNote: setSplitSelectedNoteMetadata,
     setSplitSaveState,
   });
+  const taskSaveStateRef = useRef({ saveState, splitSaveState });
+  useEffect(() => {
+    const previous = taskSaveStateRef.current;
+    const didSave =
+      (saveState === "saved" && previous.saveState !== "saved") ||
+      (splitSaveState === "saved" && previous.splitSaveState !== "saved");
+    taskSaveStateRef.current = { saveState, splitSaveState };
+    if (tasksOpen && didSave) setTaskRefreshToken((value) => value + 1);
+  }, [saveState, splitSaveState, tasksOpen]);
   const persistRef = useRef(persist);
   persistRef.current = persist;
 
@@ -1619,7 +1629,10 @@ export function Workspace() {
         const next = pendingRealtimeRefreshRef.current;
         pendingRealtimeRefreshRef.current = emptyRealtimeRefreshPlan();
         if (next.notebooks) void refreshNotebooks();
-        if (next.notes) reloadNotes();
+        if (next.notes) {
+          reloadNotes();
+          if (tasksOpen) setTaskRefreshToken((value) => value + 1);
+        }
         const activeId = activeNoteIdRef.current;
         if (activeId && (next.selected || next.noteIds.has(activeId)))
           void refreshSelectedNoteFromRemote(activeId);
@@ -1635,6 +1648,7 @@ export function Workspace() {
     },
     [
       deferredQuery,
+      tasksOpen,
       loadSplitNote,
       patchNoteFromRemote,
       refreshNotebooks,
@@ -1680,7 +1694,6 @@ export function Workspace() {
   ]);
   const selectTask = useCallback(
     (task: TaskSummary) => {
-      setTasksOpen(false);
       setQuery("");
       setView("all");
       setNotebookId(undefined);
@@ -1693,7 +1706,7 @@ export function Workspace() {
         text: task.text,
         token: ++taskNavigationTokenRef.current,
       });
-      openMobileNote({ noteId: task.noteId });
+      openMobileNote({ view: "all", notebookId: undefined, query: "", noteId: task.noteId });
     },
     [closeSplit, openMobileNote, selectNote, splitNoteId, viewLayout],
   );
@@ -2532,7 +2545,7 @@ export function Workspace() {
           />
         </div>
       )}
-      {tasksOpen && (!isMobileViewport || mobilePage === "home") && (
+      {shouldShowTasksPanel(tasksOpen, isMobileViewport, mobilePage) && (
         <TasksPanel
           tasks={tasks}
           notebooks={notebooks}
@@ -2699,7 +2712,7 @@ export function Workspace() {
                         query ? "搜索结果" : (currentNotebook?.name ?? viewLabel(view))
                       }
                       onBackToCards={
-                        isCardsLayout
+                        isCardsLayout && !tasksOpen
                           ? () => {
                               closeSplit();
                               setCardEditingNoteId(null);
@@ -2874,8 +2887,16 @@ export function Workspace() {
                 onPermanentDelete={permanentDeleteNote}
                 onOpenList={handleOpenList}
                 isMobileViewport={isMobileViewport}
-                mobileBackLabel={query ? "搜索结果" : (currentNotebook?.name ?? viewLabel(view))}
-                onBackToCards={isCardsLayout ? () => setCardEditingNoteId(null) : undefined}
+                mobileBackLabel={
+                  tasksOpen
+                    ? "任务"
+                    : query
+                      ? "搜索结果"
+                      : (currentNotebook?.name ?? viewLabel(view))
+                }
+                onBackToCards={
+                  isCardsLayout && !tasksOpen ? () => setCardEditingNoteId(null) : undefined
+                }
                 onUploadImage={handleUploadImage}
                 focusMode={focusMode}
                 typewriterMode={typewriterMode}
