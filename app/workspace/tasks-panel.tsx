@@ -174,7 +174,6 @@ export function TasksPanel({
                     statusTriggerRef.current?.focus();
                   }}
                 >
-                  {status === value ? <Check size={15} aria-hidden="true" /> : <span />}
                   <span className="tasks-filter-option-label">{label}</span>
                 </button>
               ))}
@@ -212,7 +211,6 @@ export function TasksPanel({
                   notebookTriggerRef.current?.focus();
                 }}
               >
-                {!notebookId ? <Check size={15} aria-hidden="true" /> : <span />}
                 <span className="tasks-filter-option-label">全部笔记本</span>
               </button>
               {notebooks.map((notebook) => (
@@ -228,7 +226,6 @@ export function TasksPanel({
                     notebookTriggerRef.current?.focus();
                   }}
                 >
-                  {notebookId === notebook.id ? <Check size={15} aria-hidden="true" /> : <span />}
                   <span className="tasks-filter-option-label">{notebook.name}</span>
                 </button>
               ))}
