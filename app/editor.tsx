@@ -1561,15 +1561,7 @@ export function NoteEditor({
       onTaskNavigationMissing?.();
       return;
     }
-    const shouldFocusTask = !isMobileViewport && editor.isEditable;
-    const navigationTransaction = editor.state.tr.setMeta(taskNavigationPluginKey, position);
-    if (shouldFocusTask) {
-      navigationTransaction
-        .setSelection(Selection.near(editor.state.doc.resolve(position + 2), 1))
-        .setMeta("addToHistory", false);
-    }
-    editor.view.dispatch(navigationTransaction);
-    if (shouldFocusTask) editor.view.focus();
+    editor.view.dispatch(editor.state.tr.setMeta(taskNavigationPluginKey, position));
     const frame = requestAnimationFrame(() => {
       if (editor.isDestroyed) return;
       const node = editor.view.nodeDOM(position);
@@ -1594,7 +1586,7 @@ export function NoteEditor({
       window.clearTimeout(clearTimer);
       clearHighlight();
     };
-  }, [editor, isLoading, isMobileViewport, note.id, onTaskNavigationMissing, taskNavigation]);
+  }, [editor, isLoading, note.id, onTaskNavigationMissing, taskNavigation]);
 
   useEffect(() => {
     const handleSearchKeyDown = (event: KeyboardEvent) => {
