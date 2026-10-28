@@ -220,6 +220,7 @@ export function NoteEditor({
   note,
   contentMarkdown = note.contentMarkdown,
   searchQuery = "",
+  searchNavigationToken = 0,
   saveState,
   isLoading = false,
   reloadToken = 0,
@@ -266,6 +267,7 @@ export function NoteEditor({
   note: Note;
   contentMarkdown?: string;
   searchQuery?: string;
+  searchNavigationToken?: number;
   saveState: SaveState;
   isLoading?: boolean;
   reloadToken?: number;
@@ -1534,6 +1536,7 @@ export function NoteEditor({
     note.id,
     reloadToken,
     searchQuery,
+    searchNavigationToken,
     syncSearchNavigation,
   ]);
 

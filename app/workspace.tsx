@@ -69,6 +69,7 @@ import { useNotices } from "./workspace/use-notices";
 import { SystemNotices } from "./workspace/system-notices";
 import { MobileNotebookHome, MobileBottomBar } from "./workspace/mobile-panels";
 import { viewLabel } from "./workspace/helpers";
+import { parseTagQuery } from "../shared/tags";
 import { useThemePreference } from "./theme";
 
 export type ViewLayout = "three-column" | "cards";
@@ -282,6 +283,12 @@ export function Workspace() {
   const [commandOpen, setCommandOpen] = useState(false);
   const [commandInitialQuery, setCommandInitialQuery] = useState("");
   const [inNoteSearchQuery, setInNoteSearchQuery] = useState("");
+  const [resultSearch, setResultSearch] = useState<{
+    id: string;
+    query: string;
+    token: number;
+  } | null>(null);
+  const resultSearchTokenRef = useRef(0);
   const [editingNotebook, setEditingNotebook] = useState<Notebook | null | undefined>(undefined);
   const {
     notice,
@@ -558,6 +565,7 @@ export function Workspace() {
   const selectNote = useCallback(
     (id: string | null) => {
       setInNoteSearchQuery("");
+      setResultSearch(null);
       clearNoteSelection();
       if (activeNoteIdRef.current === id) return;
       flushEditorDraftRef.current();
@@ -871,7 +879,7 @@ export function Workspace() {
       splitPickerOpen,
     ),
     // Escape 第 1 层：正文搜索高亮清除优先于退出沉浸模式。
-    hasSearchHighlight: Boolean(inNoteSearchQuery.trim()),
+    hasSearchHighlight: Boolean(inNoteSearchQuery.trim() || resultSearch),
     clearSearchHighlight: () => handleClearInNoteSearch(),
     toggleSidebar: () =>
       isMobileViewport ? openMobileHome() : setSidebarCollapsed((value) => !value),
@@ -1397,6 +1405,7 @@ export function Workspace() {
 
   const closeSplit = useCallback(() => {
     flushSecondaryDraft();
+    setResultSearch((current) => (current?.id === splitNoteIdRef.current ? null : current));
     setSplitNoteId(null);
     setSplitSelectedNote(null);
     splitSelectedRef.current = null;
@@ -1662,6 +1671,7 @@ export function Workspace() {
       notifyWarning("当前未打开笔记，无法在单篇笔记内查找");
       return;
     }
+    setResultSearch(null);
     setInNoteSearchQuery(normalized);
   }, []);
   const handleSearchGlobal = useCallback(
@@ -1669,6 +1679,7 @@ export function Workspace() {
       const normalized = term.trim();
       if (!normalized) return;
       setInNoteSearchQuery("");
+      setResultSearch(null);
       changeQuery(normalized);
       setSidebarCollapsed(false);
       setCardEditingNoteId(null);
@@ -1689,7 +1700,20 @@ export function Workspace() {
   }, [closeCommandMenu, openMobileList]);
   const handleClearInNoteSearch = useCallback(() => {
     setInNoteSearchQuery("");
+    setResultSearch(null);
   }, []);
+  const locateSearchResult = useCallback(
+    (id: string) => {
+      const term = deferredQuery.trim();
+      setInNoteSearchQuery("");
+      setResultSearch(
+        term && !parseTagQuery(term)
+          ? { id, query: term, token: ++resultSearchTokenRef.current }
+          : null,
+      );
+    },
+    [deferredQuery],
+  );
   const handleExportNote = useCallback(async () => {
     const note = selectedRef.current;
     if (!note || isNoteLoading) return;
@@ -1963,6 +1987,7 @@ export function Workspace() {
       if (event.altKey && !isMobileViewport) {
         event.preventDefault();
         openInSplit(id);
+        locateSearchResult(id);
         return;
       }
       const orderedIds = sortNotes(notesRef.current, noteSort).map((note) => note.id);
@@ -1983,30 +2008,36 @@ export function Workspace() {
           if (id === selectedId) {
             setActivePane("primary");
             setEditorFocusNoteId(id);
+            locateSearchResult(id);
             return;
           }
           if (splitNoteId && splitNoteId !== id) {
             flushSecondaryDraft();
           }
           setSplitNoteId(id);
+          locateSearchResult(id);
           return;
         } else {
           if (id === splitNoteId) {
             setActivePane("secondary");
+            locateSearchResult(id);
             return;
           }
           selectNote(id);
+          locateSearchResult(id);
           setNoteSelectionAnchor(id);
           return;
         }
       }
       selectNote(id);
+      locateSearchResult(id);
       setNoteSelectionAnchor(id);
       openMobileNote({ noteId: id });
     },
     [
       activePane,
       isMobileViewport,
+      locateSearchResult,
       noteSort,
       openInSplit,
       openMobileNote,
@@ -2020,11 +2051,12 @@ export function Workspace() {
   const handleOpenCardNote = useCallback(
     (id: string) => {
       selectNote(id);
+      locateSearchResult(id);
       setNoteSelectionAnchor(id);
       setCardEditingNoteId(id);
       openMobileNote({ noteId: id });
     },
-    [openMobileNote, selectNote, setNoteSelectionAnchor],
+    [locateSearchResult, openMobileNote, selectNote, setNoteSelectionAnchor],
   );
   const handleToggleCardSelection = useCallback(
     (id: string, modifiers: Pick<NoteSelectionClick, "metaKey" | "ctrlKey" | "shiftKey">) => {
@@ -2440,8 +2472,19 @@ export function Workspace() {
                       onCreateAndLinkNote={handleCreateAndLinkNote}
                       onSearchWikiLinkTitles={api.searchWikiNoteTitles}
                       onNavigateToNote={selectNote}
-                      searchQuery={inNoteSearchQuery}
-                      onClearSearch={inNoteSearchQuery ? handleClearInNoteSearch : undefined}
+                      searchQuery={
+                        resultSearch?.id === renderedNote.id
+                          ? resultSearch.query
+                          : inNoteSearchQuery
+                      }
+                      searchNavigationToken={
+                        resultSearch?.id === renderedNote.id ? resultSearch.token : 0
+                      }
+                      onClearSearch={
+                        inNoteSearchQuery || resultSearch?.id === renderedNote.id
+                          ? handleClearInNoteSearch
+                          : undefined
+                      }
                       onMarkdownReaderChange={registerEditorMarkdownReader}
                       onMarkdownDirtyChange={registerEditorMarkdownDirty}
                       saveState={saveState}
@@ -2526,7 +2569,17 @@ export function Workspace() {
                       onCreateAndLinkNote={handleCreateAndLinkNote}
                       onSearchWikiLinkTitles={api.searchWikiNoteTitles}
                       onNavigateToNote={(id) => openInSplit(id)}
-                      searchQuery=""
+                      searchQuery={
+                        resultSearch?.id === splitRenderedNote.id ? resultSearch.query : ""
+                      }
+                      searchNavigationToken={
+                        resultSearch?.id === splitRenderedNote.id ? resultSearch.token : 0
+                      }
+                      onClearSearch={
+                        resultSearch?.id === splitRenderedNote.id
+                          ? handleClearInNoteSearch
+                          : undefined
+                      }
                       onMarkdownReaderChange={(reader) => {
                         splitMarkdownReaderRef.current = reader;
                       }}
@@ -2594,8 +2647,17 @@ export function Workspace() {
                 onCreateAndLinkNote={handleCreateAndLinkNote}
                 onSearchWikiLinkTitles={api.searchWikiNoteTitles}
                 onNavigateToNote={selectNote}
-                searchQuery={inNoteSearchQuery}
-                onClearSearch={inNoteSearchQuery ? handleClearInNoteSearch : undefined}
+                searchQuery={
+                  resultSearch?.id === renderedNote.id ? resultSearch.query : inNoteSearchQuery
+                }
+                searchNavigationToken={
+                  resultSearch?.id === renderedNote.id ? resultSearch.token : 0
+                }
+                onClearSearch={
+                  inNoteSearchQuery || resultSearch?.id === renderedNote.id
+                    ? handleClearInNoteSearch
+                    : undefined
+                }
                 onMarkdownReaderChange={registerEditorMarkdownReader}
                 onMarkdownDirtyChange={registerEditorMarkdownDirty}
                 saveState={saveState}
