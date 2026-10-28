@@ -968,10 +968,10 @@ export const NoteListPanel = memo(function NoteListPanel({
 
   const currentStickyGroup = useMemo(() => {
     if (!groups || groups.length === 0) return null;
-    const topNote = virtualList.visibleRows[0]?.note;
+    const topNote = virtualList.topVisibleNote;
     if (!topNote) return groups[0];
     return groups.find((g) => g.notes.some((n) => n.id === topNote.id)) || groups[0];
-  }, [groups, virtualList.visibleRows]);
+  }, [groups, virtualList.topVisibleNote]);
 
   const handleNoteListKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     virtualList.moveTabFocus(event);

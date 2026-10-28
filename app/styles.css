@@ -1458,7 +1458,7 @@ dialog::backdrop {
   .app-shell[data-mobile-page="editor"] > .editor-region { animation: page-content-in var(--motion-content) var(--motion-ease-out); }
   .mobile-only { display: inline-grid; }
   .list-header, .editor-header { height: 56px; min-height: 56px; }
-  .app-shell[data-mobile-page] .list-header { position: absolute; top: calc(8px + env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right)); z-index: 4; display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 4px; height: 52px; min-height: 52px; align-items: center; padding: 4px 8px; border-radius: 999px; background: var(--surface-glass-medium); backdrop-filter: blur(20px) saturate(135%); -webkit-backdrop-filter: blur(20px) saturate(135%); }
+  .app-shell[data-mobile-page] .mobile-collection-header { position: relative; z-index: 4; display: grid; flex: none; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 4px; height: calc(64px + env(safe-area-inset-top)); min-height: calc(64px + env(safe-area-inset-top)); align-items: center; padding: env(safe-area-inset-top) max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left)); border-bottom: 1px solid var(--line); background: var(--canvas); backdrop-filter: none; -webkit-backdrop-filter: none; }
   .mobile-list-back { display: inline-flex; align-items: center; justify-self: start; gap: 3px; min-height: 44px; padding: 0 10px 0 0; border: 0; border-radius: 999px; background: transparent; color: var(--accent); font-size: 16px; }
   .mobile-list-back:focus-visible { background: var(--accent-soft); }
   .app-shell[data-mobile-page] .mobile-list-back { width: 44px; padding: 0; justify-content: center; }
@@ -1469,15 +1469,14 @@ dialog::backdrop {
   .app-shell[data-mobile-page] .list-header-controls { grid-column: 3; grid-row: 1; margin: 0; }
   .app-shell[data-mobile-page] .sort-button { min-height: 44px; padding-inline: 8px; font-size: 14px; background: transparent; border: 0; box-shadow: none; }
   .app-shell[data-mobile-page] .mobile-collection-header .sort-dropdown { left: auto; right: 0; width: max-content; min-width: 132px; max-width: calc(100vw - 32px); }
-  .app-shell[data-mobile-page] .list-header { border: 0; box-shadow: var(--shadow-xs); }
   .floating-scrollbar { display: none !important; }
   .app-shell[data-mobile-page] .sort-dropdown button { min-height: 44px; }
   .app-shell[data-mobile-page] .empty-trash-button { width: 44px; height: 44px; justify-content: center; }
   .app-shell[data-mobile-page] .note-list-panel { background: var(--canvas); }
   .app-shell[data-mobile-page] .note-list-scroll-shell::before { display: none; }
   .app-shell[data-mobile-page] .note-list-scroll-shell::after { background: linear-gradient(to top, var(--canvas), transparent); }
-  .app-shell[data-mobile-page] .note-list { padding-top: calc(72px + env(safe-area-inset-top)); padding-bottom: calc(110px + env(safe-area-inset-bottom)); scroll-padding-top: calc(72px + env(safe-area-inset-top)); }
-  .app-shell[data-mobile-page] .note-list-group-header { position: relative; background: var(--canvas); backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .app-shell[data-mobile-page] .note-list { padding-bottom: calc(110px + env(safe-area-inset-bottom)); scroll-padding-top: 30px; }
+  .app-shell[data-mobile-page] .note-list-group-header { background: var(--canvas); backdrop-filter: none; -webkit-backdrop-filter: none; }
   .app-shell[data-mobile-page] .note-row-swipe:not(.is-swipe-open) > .note-row:not(.is-selected):not(.is-active):not(:focus-visible) { background: var(--canvas); }
   .app-shell[data-mobile-page] .note-row-title { font-size: 1.0625rem; }
   .app-shell[data-mobile-page] .note-row-preview { font-size: 0.9375rem; line-height: 1.55; }
@@ -2627,7 +2626,7 @@ dialog::backdrop {
   .card-grid-mobile-menu { left: max(14px, env(safe-area-inset-left)); }
   .card-grid-empty-trash { right: max(24px, env(safe-area-inset-right)); }
   .is-mobile-card-grid .card-grid-container,
-  .is-mobile-card-grid .card-grid-container.has-trash-action { padding: calc(76px + env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) calc(112px + env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left)); overscroll-behavior: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; }
+  .is-mobile-card-grid .card-grid-container.has-trash-action { padding: 14px max(14px, env(safe-area-inset-right)) calc(112px + env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left)); overscroll-behavior: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; }
   .is-mobile-card-grid .note-card { position: relative; min-width: 0; margin-bottom: 0; border-color: var(--border-soft); transition-timing-function: var(--motion-ease-out); }
   .is-mobile-card-grid .note-card.is-selected { border-color: var(--multi-selection-border); }
   .is-mobile-card-grid .note-card.is-selected .note-card-foreground { background: var(--multi-selection-soft); }

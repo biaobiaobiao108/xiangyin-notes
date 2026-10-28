@@ -300,6 +300,7 @@ export function useVirtualNoteList(
   return {
     isVirtualized,
     visibleRows,
+    topVisibleNote: rows[indexAtOffset(offsets, viewport.top)],
     totalHeight: offsets[offsets.length - 1] ?? 0,
     rowStyle,
     getRowRef,

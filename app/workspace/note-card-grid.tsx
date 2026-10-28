@@ -239,24 +239,23 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
       aria-hidden={inert || undefined}
       inert={inert}
     >
-      {/* 沉浸式瀑布流滚动区域（无多余顶栏） */}
+      {isMobileViewport && onOpenSidebar && (
+        <MobileCollectionHeader
+          active={!inert}
+          heading={query ? "搜索结果" : (currentNotebookName ?? viewLabel(view))}
+          total={total}
+          shown={notes.length}
+          query={query}
+          onBack={onOpenSidebar}
+          layout="cards"
+          onToggleLayout={onToggleLayout}
+          onEmptyTrash={onEmptyTrash}
+          trashBusy={trashBusy}
+        />
+      )}
       <div
         className={`card-grid-scroll-shell${cardGridScrollEdges.before ? " has-scroll-before" : ""}${cardGridScrollEdges.after ? " has-scroll-after" : ""}`}
       >
-        {isMobileViewport && onOpenSidebar && (
-          <MobileCollectionHeader
-            active={!inert}
-            heading={query ? "搜索结果" : (currentNotebookName ?? viewLabel(view))}
-            total={total}
-            shown={notes.length}
-            query={query}
-            onBack={onOpenSidebar}
-            layout="cards"
-            onToggleLayout={onToggleLayout}
-            onEmptyTrash={onEmptyTrash}
-            trashBusy={trashBusy}
-          />
-        )}
         {!isMobileViewport && onOpenSidebar && (
           <button
             className="icon-button card-grid-mobile-menu mobile-only"
