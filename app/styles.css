@@ -1473,7 +1473,7 @@ dialog::backdrop {
   .app-shell[data-mobile-page] .sort-dropdown button { min-height: 44px; }
   .app-shell[data-mobile-page] .empty-trash-button { width: 44px; height: 44px; justify-content: center; }
   .app-shell[data-mobile-page] .note-list-panel { background: var(--canvas); }
-  .app-shell[data-mobile-page] .note-list-scroll-shell::before { display: none; }
+  .app-shell[data-mobile-page] .note-list-scroll-shell::before { background: linear-gradient(to bottom, var(--canvas), transparent); }
   .app-shell[data-mobile-page] .note-list-scroll-shell::after { background: linear-gradient(to top, var(--canvas), transparent); }
   .app-shell[data-mobile-page] .note-list { padding-bottom: calc(110px + env(safe-area-inset-bottom)); scroll-padding-top: 30px; }
   .app-shell[data-mobile-page] .note-list-group-header { background: var(--canvas); backdrop-filter: none; -webkit-backdrop-filter: none; }
