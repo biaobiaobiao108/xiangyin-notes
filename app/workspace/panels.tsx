@@ -68,7 +68,7 @@ function toggleGroupInSet(current: ReadonlySet<string>, groupId: string) {
 
 type VirtualGroupTransition = {
   groupId: string;
-  phase: "collapsing" | "expanding";
+  phase: "collapsing" | "expanding" | "reversing";
 };
 
 function groupMotionDuration() {
@@ -1005,7 +1005,8 @@ export const NoteListPanel = memo(function NoteListPanel({
     noteListElement,
     virtualizationScope,
     sortedNotes.length,
-    virtualGroupTransition?.phase === "collapsing" ? virtualGroupTransition.groupId : null,
+    virtualGroupTransition?.groupId ?? null,
+    virtualGroupTransition?.phase === "collapsing",
   );
   const noteListScrollEdges = useScrollEdges(noteListRef, [
     noteListElement,
@@ -1027,7 +1028,7 @@ export const NoteListPanel = memo(function NoteListPanel({
   const virtualStickyGroupCollapsed =
     virtualStickyTransition === "collapsing"
       ? true
-      : virtualStickyTransition === "expanding"
+      : virtualStickyTransition === "expanding" || virtualStickyTransition === "reversing"
         ? false
         : virtualStickyGroup
           ? collapsedGroups.has(virtualStickyGroup.id)
@@ -1125,7 +1126,7 @@ export const NoteListPanel = memo(function NoteListPanel({
       virtualGroupTransition?.groupId === group.id &&
       virtualGroupTransition.phase === "collapsing"
     ) {
-      finishTransition("expanding");
+      finishTransition("reversing");
       return;
     }
 
@@ -1457,7 +1458,7 @@ export const NoteListPanel = memo(function NoteListPanel({
                         const markerCollapsed =
                           markerTransition === "collapsing"
                             ? true
-                            : markerTransition === "expanding"
+                            : markerTransition === "expanding" || markerTransition === "reversing"
                               ? false
                               : collapsedGroups.has(row.group.id);
                         return (

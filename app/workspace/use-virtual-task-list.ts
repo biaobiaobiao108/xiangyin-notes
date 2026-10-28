@@ -108,7 +108,8 @@ export function useVirtualTaskList(
   scrollRef: RefObject<HTMLDivElement | null>,
   scope: string,
   taskCount: number,
-  animatingCollapseId: string | null,
+  animatingGroupId: string | null,
+  isCollapsing: boolean,
 ) {
   const [viewport, setViewport] = useState<Viewport>({ top: 0, height: 800 });
   const [measurementRevision, setMeasurementRevision] = useState(0);
@@ -276,29 +277,30 @@ export function useVirtualTaskList(
         indexAtOffset(offsets, viewport.top + viewport.height + OVERSCAN_PX) + 1,
       )
     : rows.length;
-  const collapsingGroup = useMemo(() => {
-    if (!animatingCollapseId) return null;
-    return collapsingGroupRange(rows, offsets, indexById.get(taskGroupRowId(animatingCollapseId)));
-  }, [animatingCollapseId, indexById, offsets, rows]);
-  const shiftedStart = collapsingGroup
+  const animatedGroup = useMemo(() => {
+    if (!animatingGroupId) return null;
+    return collapsingGroupRange(rows, offsets, indexById.get(taskGroupRowId(animatingGroupId)));
+  }, [animatingGroupId, indexById, offsets, rows]);
+  const collapsingGroup = isCollapsing ? animatedGroup : null;
+  const shiftedStart = animatedGroup
     ? Math.max(
-        collapsingGroup.end,
-        indexAtOffset(offsets, viewport.top + collapsingGroup.height - OVERSCAN_PX),
+        animatedGroup.end,
+        indexAtOffset(offsets, viewport.top + animatedGroup.height - OVERSCAN_PX),
       )
     : 0;
-  const shiftedEnd = collapsingGroup
+  const shiftedEnd = animatedGroup
     ? Math.min(
         rows.length,
         indexAtOffset(
           offsets,
-          viewport.top + viewport.height + collapsingGroup.height + OVERSCAN_PX,
+          viewport.top + viewport.height + animatedGroup.height + OVERSCAN_PX,
         ) + 1,
       )
     : 0;
   const visibleRows = useMemo(() => {
     const indices = new Set<number>();
     for (let index = startIndex; index < endIndex; index += 1) indices.add(index);
-    if (isVirtualized && collapsingGroup) {
+    if (isVirtualized && animatedGroup) {
       for (let index = shiftedStart; index < shiftedEnd; index += 1) indices.add(index);
     }
     const pinnedIndex = pinnedRowId ? indexById.get(pinnedRowId) : undefined;
@@ -310,7 +312,7 @@ export function useVirtualTaskList(
         return row ? [{ row, index, top: offsets[index]! }] : [];
       });
   }, [
-    collapsingGroup,
+    animatedGroup,
     endIndex,
     indexById,
     isVirtualized,

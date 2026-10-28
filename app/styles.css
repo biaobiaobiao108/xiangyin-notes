@@ -573,10 +573,10 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .tasks-virtual-group-marker small { overflow: hidden; max-width: 42%; flex: 0 1 auto; color: var(--soft-muted); font-size: .7rem; font-weight: 450; text-overflow: ellipsis; white-space: nowrap; }
 .tasks-virtual-list.is-transitioning > li { transition: transform var(--motion-group) var(--motion-group-ease); }
 .tasks-virtual-task-row.is-group-collapsing { pointer-events: none; }
-.tasks-virtual-task-row.is-group-collapsing > .tasks-item { animation: tasks-group-row-exit var(--motion-group) var(--motion-group-ease) both; }
+.tasks-virtual-list.is-transitioning .tasks-virtual-task-row > .tasks-item { transition: opacity var(--motion-group) var(--motion-group-ease), transform var(--motion-group) var(--motion-group-ease); }
+.tasks-virtual-task-row.is-group-collapsing > .tasks-item { opacity: 0; transform: translateY(-6px); }
 .tasks-virtual-task-row.is-group-expanding > .tasks-item { animation: tasks-group-row-enter var(--motion-group) var(--motion-group-ease) both; }
-@keyframes tasks-group-row-exit { to { opacity: 0; transform: translateY(-5px); } }
-@keyframes tasks-group-row-enter { from { opacity: 0; transform: translateY(-5px); } }
+@keyframes tasks-group-row-enter { from { opacity: 0; transform: translateY(-6px); } }
 .tasks-item { display: flex; width: 100%; min-height: 42px; gap: 8px; align-items: flex-start; padding: 5px 6px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ink); }
 .tasks-item:hover { background: var(--surface-muted); }
 .tasks-check-button { display: grid; width: 28px; height: 30px; flex: 0 0 28px; place-items: center; padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); cursor: pointer; }
@@ -822,11 +822,9 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .note-list-virtual-group-marker.is-sticky-marker { visibility: hidden; }
 .note-list-items.is-group-transitioning > li { transition: transform var(--motion-group) var(--motion-group-ease); }
 .note-list-item.is-group-collapsing { pointer-events: none; }
-.note-list-item.is-group-collapsing > .note-row-swipe { animation: note-list-group-row-exit var(--motion-group) var(--motion-group-ease) both; }
+.note-list-items.is-group-transitioning .note-list-item > .note-row-swipe { transition: opacity var(--motion-group) var(--motion-group-ease), transform var(--motion-group) var(--motion-group-ease); }
+.note-list-item.is-group-collapsing > .note-row-swipe { opacity: 0; transform: translateY(-6px); }
 .note-list-item.is-group-expanding > .note-row-swipe { animation: note-list-group-row-enter var(--motion-group) var(--motion-group-ease) both; }
-@keyframes note-list-group-row-exit {
-  to { opacity: 0; transform: translateY(-6px); }
-}
 @keyframes note-list-group-row-enter {
   from { opacity: 0; transform: translateY(-6px); }
 }

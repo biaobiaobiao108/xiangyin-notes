@@ -22,7 +22,7 @@ import {
 type TaskStatus = "open" | "done" | "all";
 type VirtualGroupTransition = {
   groupId: string;
-  phase: "collapsing" | "expanding";
+  phase: "collapsing" | "expanding" | "reversing";
 };
 
 function groupMotionDuration() {
@@ -122,7 +122,8 @@ export function TasksPanel({
     listRef,
     `${status}:${notebookId}`,
     tasks.length,
-    virtualGroupTransition?.phase === "collapsing" ? virtualGroupTransition.groupId : null,
+    virtualGroupTransition?.groupId ?? null,
+    virtualGroupTransition?.phase === "collapsing",
   );
   const scrollEdges = useScrollEdges(listRef, [
     loading,
@@ -143,7 +144,7 @@ export function TasksPanel({
   const activeVirtualGroupCollapsed =
     activeVirtualGroupTransition === "collapsing"
       ? true
-      : activeVirtualGroupTransition === "expanding"
+      : activeVirtualGroupTransition === "expanding" || activeVirtualGroupTransition === "reversing"
         ? false
         : activeVirtualGroupId
           ? collapsedGroups.has(activeVirtualGroupId)
@@ -220,7 +221,7 @@ export function TasksPanel({
         virtualGroupTransition?.groupId === groupId &&
         virtualGroupTransition.phase === "collapsing"
       ) {
-        startTransition("expanding");
+        startTransition("reversing");
         return;
       }
       if (collapsedGroups.has(groupId)) {
@@ -628,7 +629,7 @@ export function TasksPanel({
                         const markerCollapsed =
                           markerTransition === "collapsing"
                             ? true
-                            : markerTransition === "expanding"
+                            : markerTransition === "expanding" || markerTransition === "reversing"
                               ? false
                               : collapsedGroups.has(row.groupId);
                         return (
