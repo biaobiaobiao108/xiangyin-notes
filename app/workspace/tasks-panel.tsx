@@ -1,12 +1,5 @@
 import { Check, ChevronDown, ChevronLeft, ListTodo, LoaderCircle } from "lucide-react";
-import {
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type MouseEvent as ReactMouseEvent,
-} from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import type { Notebook, TaskSummary } from "../../shared/types";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { useScrollEdges } from "./use-scroll-edges";
@@ -74,20 +67,8 @@ export function TasksPanel({
   const filtersRef = useRef<HTMLDivElement>(null);
   const notebookTriggerRef = useRef<HTMLButtonElement>(null);
   const statusTriggerRef = useRef<HTMLButtonElement>(null);
-  const pendingGroupLayoutRef = useRef<{
-    groupId: string;
-    list: HTMLUListElement;
-    closing: boolean;
-    startHeight: number;
-    anchorScrollTop: number | null;
-  } | null>(null);
-  const listAnimationsRef = useRef(new Map<string, Animation>());
-  const groupListElementsRef = useRef(new Map<string, HTMLUListElement>());
-  const completedGroupRef = useRef<string | null>(null);
   const [openFilter, setOpenFilter] = useState<"status" | "notebook" | null>(null);
-  const [groupStates, setGroupStates] = useState<Map<string, "opening" | "closing" | "closed">>(
-    () => new Map(),
-  );
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
   const scrollEdges = useScrollEdges(listRef, [loading, notebookId, status, tasks.length]);
   const notebookNames = useMemo(
     () => new Map(notebooks.map((notebook) => [notebook.id, notebook.name])),
@@ -105,92 +86,31 @@ export function TasksPanel({
   const selectedNotebookName =
     notebooks.find((notebook) => notebook.id === notebookId)?.name ?? "全部笔记本";
   const selectedStatusLabel = { open: "未完成", done: "已完成", all: "全部" }[status];
-  const captureGroupLayout = (button: HTMLButtonElement, groupId: string, closing: boolean) => {
+  const toggleGroup = (button: HTMLButtonElement, groupId: string) => {
     const scroll = listRef.current;
     const section = button.closest<HTMLElement>(".tasks-note-group");
-    const list = section?.querySelector<HTMLUListElement>("ul");
-    if (!scroll || !section || !list) return;
-    groupListElementsRef.current.set(groupId, list);
-    const scrollRect = scroll.getBoundingClientRect();
-    const sectionRect = section.getBoundingClientRect();
-    const headerRect = button.getBoundingClientRect();
-    const previousListAnimation = listAnimationsRef.current.get(groupId);
-    const startHeight = list.getBoundingClientRect().height;
-    previousListAnimation?.cancel();
-    list.style.height = `${startHeight}px`;
-    listAnimationsRef.current.delete(groupId);
-    pendingGroupLayoutRef.current = {
-      groupId,
-      list,
-      closing,
-      startHeight,
-      anchorScrollTop: collapsedTaskGroupScrollTop({
+    const isCollapsed = collapsedGroups.has(groupId);
+    const closing = !isCollapsed;
+    if (scroll && section) {
+      const scrollRect = scroll.getBoundingClientRect();
+      const sectionRect = section.getBoundingClientRect();
+      const headerRect = button.getBoundingClientRect();
+      const anchorScrollTop = collapsedTaskGroupScrollTop({
         closing,
         scrollTop: scroll.scrollTop,
         scrollEdge: scrollRect.top + scroll.clientTop,
         sectionTop: sectionRect.top,
         headerTop: headerRect.top,
-      }),
-    };
-  };
-  useLayoutEffect(() => {
-    const completedGroup = completedGroupRef.current;
-    if (completedGroup) {
-      completedGroupRef.current = null;
-      const listAnimation = listAnimationsRef.current.get(completedGroup);
-      listAnimation?.cancel();
-      listAnimationsRef.current.delete(completedGroup);
-      const list = groupListElementsRef.current.get(completedGroup);
-      list?.style.removeProperty("height");
-    }
-    const pending = pendingGroupLayoutRef.current;
-    const scroll = listRef.current;
-    if (!pending || !scroll) return;
-    pendingGroupLayoutRef.current = null;
-    if (pending.anchorScrollTop !== null) scroll.scrollTop = pending.anchorScrollTop;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      pending.list.style.removeProperty("height");
-      setGroupStates((current) => {
-        const next = new Map(current);
-        if (pending.closing) next.set(pending.groupId, "closed");
-        else next.delete(pending.groupId);
-        return next;
       });
-      return;
+      if (anchorScrollTop !== null) scroll.scrollTop = anchorScrollTop;
     }
-    const motion = getComputedStyle(document.documentElement);
-    const duration = Number.parseFloat(motion.getPropertyValue("--motion-group")) || 320;
-    const easing = motion.getPropertyValue("--motion-group-ease").trim();
-    const endHeight = pending.closing ? 0 : pending.list.scrollHeight;
-    const listAnimation = pending.list.animate(
-      [{ height: `${pending.startHeight}px` }, { height: `${endHeight}px` }],
-      { duration, easing, fill: "forwards" },
-    );
-    listAnimationsRef.current.set(pending.groupId, listAnimation);
-    listAnimation.addEventListener(
-      "finish",
-      () => {
-        if (listAnimationsRef.current.get(pending.groupId) !== listAnimation) return;
-        completedGroupRef.current = pending.groupId;
-        setGroupStates((current) => {
-          if (current.get(pending.groupId) !== (pending.closing ? "closing" : "opening"))
-            return current;
-          const next = new Map(current);
-          if (pending.closing) next.set(pending.groupId, "closed");
-          else next.delete(pending.groupId);
-          return next;
-        });
-      },
-      { once: true },
-    );
-  }, [groupStates]);
-  useEffect(
-    () => () => {
-      for (const animation of listAnimationsRef.current.values()) animation.cancel();
-      listAnimationsRef.current.clear();
-    },
-    [],
-  );
+    setCollapsedGroups((current) => {
+      const next = new Set(current);
+      if (isCollapsed) next.delete(groupId);
+      else next.add(groupId);
+      return next;
+    });
+  };
   useEffect(() => {
     const root = listRef.current;
     const sentinel = loadMoreRef.current;
@@ -423,8 +343,7 @@ export function TasksPanel({
               <div className="tasks-list">
                 {taskGroups.map((group) => {
                   const firstTask = group[0]!;
-                  const groupState = groupStates.get(firstTask.noteId);
-                  const collapsed = groupState === "closing" || groupState === "closed";
+                  const collapsed = collapsedGroups.has(firstTask.noteId);
                   const groupId = `tasks-note-${firstTask.noteId}`;
                   return (
                     <section className="tasks-note-group" key={firstTask.noteId}>
@@ -434,18 +353,7 @@ export function TasksPanel({
                           className="tasks-note-group-toggle"
                           aria-expanded={!collapsed}
                           aria-controls={groupId}
-                          onClick={(event) => {
-                            captureGroupLayout(event.currentTarget, firstTask.noteId, !collapsed);
-                            setGroupStates((current) => {
-                              const next = new Map(current);
-                              const state = current.get(firstTask.noteId);
-                              next.set(
-                                firstTask.noteId,
-                                state === "closed" || state === "closing" ? "opening" : "closing",
-                              );
-                              return next;
-                            });
-                          }}
+                          onClick={(event) => toggleGroup(event.currentTarget, firstTask.noteId)}
                         >
                           <ChevronDown
                             className="tasks-note-group-chevron"
@@ -458,71 +366,64 @@ export function TasksPanel({
                           ) : null}
                         </button>
                       </h2>
-                      <ul
+                      <div
                         id={groupId}
-                        ref={(element) => {
-                          if (element) groupListElementsRef.current.set(firstTask.noteId, element);
-                          else groupListElementsRef.current.delete(firstTask.noteId);
-                        }}
-                        className={
-                          groupState === "opening" || groupState === "closing"
-                            ? `is-${groupState}`
-                            : undefined
-                        }
-                        hidden={groupState === "closed"}
+                        className={`tasks-note-group-content${collapsed ? " is-collapsed" : ""}`}
                         inert={collapsed}
                       >
-                        {group.map((task) => {
-                          const isBusy =
-                            busyTask?.noteId === task.noteId && busyTask.ordinal === task.ordinal;
-                          return (
-                            <li key={task.noteId + ":" + task.ordinal}>
-                              <div
-                                className="tasks-item"
-                                style={{
-                                  paddingInlineStart: `${6 + Math.min(task.depth, 5) * 16}px`,
-                                }}
-                              >
-                                <button
-                                  type="button"
-                                  className={
-                                    "tasks-check-button" +
-                                    (task.done ? " is-done" : "") +
-                                    (isBusy ? " is-busy" : "")
-                                  }
-                                  aria-label={
-                                    isBusy
-                                      ? "正在更新任务状态"
-                                      : task.done
-                                        ? `标记为未完成：${task.text}`
-                                        : `标记为已完成：${task.text}`
-                                  }
-                                  aria-pressed={task.done}
-                                  disabled={loading || busyTask !== null}
-                                  onClick={() => onToggleTask(task)}
+                        <ul>
+                          {group.map((task) => {
+                            const isBusy =
+                              busyTask?.noteId === task.noteId && busyTask.ordinal === task.ordinal;
+                            return (
+                              <li key={task.noteId + ":" + task.ordinal}>
+                                <div
+                                  className="tasks-item"
+                                  style={{
+                                    paddingInlineStart: `${6 + Math.min(task.depth, 5) * 16}px`,
+                                  }}
                                 >
-                                  <span className="tasks-check-box" aria-hidden="true">
-                                    {isBusy ? (
-                                      <LoaderCircle size={13} />
-                                    ) : task.done ? (
-                                      <Check size={13} />
-                                    ) : null}
-                                  </span>
-                                </button>
-                                <button
-                                  type="button"
-                                  className="tasks-item-copy"
-                                  disabled={loading || busyTask !== null}
-                                  onClick={() => onSelectTask(task)}
-                                  aria-label={`打开笔记 ${task.noteTitle} 并定位任务：${task.text}`}
-                                >
-                                  <span className={task.done ? "is-done" : ""}>{task.text}</span>
-                                </button>
-                              </div>
-                            </li>
-                          );
-                        })}
-                      </ul>
+                                  <button
+                                    type="button"
+                                    className={
+                                      "tasks-check-button" +
+                                      (task.done ? " is-done" : "") +
+                                      (isBusy ? " is-busy" : "")
+                                    }
+                                    aria-label={
+                                      isBusy
+                                        ? "正在更新任务状态"
+                                        : task.done
+                                          ? `标记为未完成：${task.text}`
+                                          : `标记为已完成：${task.text}`
+                                    }
+                                    aria-pressed={task.done}
+                                    disabled={loading || busyTask !== null}
+                                    onClick={() => onToggleTask(task)}
+                                  >
+                                    <span className="tasks-check-box" aria-hidden="true">
+                                      {isBusy ? (
+                                        <LoaderCircle size={13} />
+                                      ) : task.done ? (
+                                        <Check size={13} />
+                                      ) : null}
+                                    </span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="tasks-item-copy"
+                                    disabled={loading || busyTask !== null}
+                                    onClick={() => onSelectTask(task)}
+                                    aria-label={`打开笔记 ${task.noteTitle} 并定位任务：${task.text}`}
+                                  >
+                                    <span className={task.done ? "is-done" : ""}>{task.text}</span>
+                                  </button>
+                                </div>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
                     </section>
                   );
                 })}
