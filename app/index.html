@@ -3,12 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="color-scheme" content="light dark" />
-    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f6f4ef" />
-    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#1a1b26" />
+    <meta name="theme-color" content="#f6f4ef" />
     <meta name="description" content="象映笔记，一款安静、快速的 Markdown 笔记空间。" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="象映笔记" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png?v=rounded-1" />
@@ -27,13 +23,9 @@
         const resolved = preference === "system" ? (systemIsDark ? "dark" : "light") : preference;
         document.documentElement.dataset.themePreference = preference;
         document.documentElement.dataset.theme = resolved;
-        const colorScheme = document.querySelector('meta[name="color-scheme"]');
-        if (colorScheme) colorScheme.content = preference === "system" ? "light dark" : resolved;
-        if (preference !== "system") {
-          document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => {
-            meta.content = resolved === "dark" ? "#1a1b26" : "#f6f4ef";
-          });
-        }
+        document.documentElement.style.colorScheme = resolved;
+        const themeColor = document.querySelector('meta[name="theme-color"]');
+        if (themeColor) themeColor.content = resolved === "dark" ? "#1a1b26" : "#f6f4ef";
       })();
     </script>
     <script type="module" src="./entry.tsx"></script>
