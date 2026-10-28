@@ -558,6 +558,10 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .tasks-note-title { flex: 1; overflow: hidden; min-width: 0; text-overflow: ellipsis; white-space: nowrap; }
 .tasks-note-group h2 small { overflow: hidden; max-width: 42%; flex: 0 1 auto; color: var(--soft-muted); font-size: .7rem; font-weight: 450; text-overflow: ellipsis; white-space: nowrap; }
 .tasks-note-group ul { margin: 0; padding: 0; list-style: none; }
+.tasks-note-group ul.is-opening { animation: task-group-open var(--motion-fast) var(--motion-ease-out) both; }
+.tasks-note-group ul.is-closing { animation: task-group-close var(--motion-fast) var(--motion-ease-out) both; }
+@keyframes task-group-open { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes task-group-close { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-4px); } }
 .tasks-note-group li + li { border-top: 1px solid var(--line); }
 .tasks-item { display: flex; width: 100%; min-height: 42px; gap: 8px; align-items: flex-start; padding: 5px 6px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ink); }
 .tasks-item:hover { background: var(--surface-muted); }

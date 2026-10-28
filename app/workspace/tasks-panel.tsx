@@ -51,7 +51,9 @@ export function TasksPanel({
   const notebookTriggerRef = useRef<HTMLButtonElement>(null);
   const statusTriggerRef = useRef<HTMLButtonElement>(null);
   const [openFilter, setOpenFilter] = useState<"status" | "notebook" | null>(null);
-  const [collapsedNotes, setCollapsedNotes] = useState<Set<string>>(() => new Set());
+  const [groupStates, setGroupStates] = useState<Map<string, "opening" | "closing" | "closed">>(
+    () => new Map(),
+  );
   const scrollEdges = useScrollEdges(listRef, [loading, notebookId, status, tasks.length]);
   const notebookNames = useMemo(
     () => new Map(notebooks.map((notebook) => [notebook.id, notebook.name])),
@@ -301,7 +303,8 @@ export function TasksPanel({
               <div className="tasks-list">
                 {taskGroups.map((group) => {
                   const firstTask = group[0]!;
-                  const collapsed = collapsedNotes.has(firstTask.noteId);
+                  const groupState = groupStates.get(firstTask.noteId);
+                  const collapsed = groupState === "closing" || groupState === "closed";
                   const groupId = `tasks-note-${firstTask.noteId}`;
                   return (
                     <section className="tasks-note-group" key={firstTask.noteId}>
@@ -312,10 +315,13 @@ export function TasksPanel({
                           aria-expanded={!collapsed}
                           aria-controls={groupId}
                           onClick={() => {
-                            setCollapsedNotes((current) => {
-                              const next = new Set(current);
-                              if (next.has(firstTask.noteId)) next.delete(firstTask.noteId);
-                              else next.add(firstTask.noteId);
+                            setGroupStates((current) => {
+                              const next = new Map(current);
+                              const state = current.get(firstTask.noteId);
+                              next.set(
+                                firstTask.noteId,
+                                state === "closed" || state === "closing" ? "opening" : "closing",
+                              );
                               return next;
                             });
                           }}
@@ -331,7 +337,33 @@ export function TasksPanel({
                           ) : null}
                         </button>
                       </h2>
-                      <ul id={groupId} hidden={collapsed}>
+                      <ul
+                        id={groupId}
+                        className={
+                          groupState === "opening" || groupState === "closing"
+                            ? `is-${groupState}`
+                            : undefined
+                        }
+                        hidden={groupState === "closed"}
+                        inert={collapsed}
+                        onAnimationEnd={(event) => {
+                          if (event.target !== event.currentTarget) return;
+                          const finished =
+                            event.animationName === "task-group-open"
+                              ? "opening"
+                              : event.animationName === "task-group-close"
+                                ? "closing"
+                                : null;
+                          if (!finished) return;
+                          setGroupStates((current) => {
+                            if (current.get(firstTask.noteId) !== finished) return current;
+                            const next = new Map(current);
+                            if (finished === "closing") next.set(firstTask.noteId, "closed");
+                            else next.delete(firstTask.noteId);
+                            return next;
+                          });
+                        }}
+                      >
                         {group.map((task) => {
                           const isBusy =
                             busyTask?.noteId === task.noteId && busyTask.ordinal === task.ordinal;
