@@ -549,7 +549,8 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .tasks-scroll-shell.has-scroll-before::before, .tasks-scroll-shell.has-scroll-after::after { opacity: 1; }
 .tasks-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
 .tasks-list { padding: 0 12px 24px; }
-.tasks-note-group + .tasks-note-group { margin-top: 7px; border-top: 1px solid var(--line); }
+.tasks-note-group { position: relative; }
+.tasks-note-group + .tasks-note-group { border-top: 1px solid var(--line); }
 .tasks-note-group-header { position: sticky; top: 0; z-index: 3; margin: 0; background: var(--surface-glass); color: var(--muted); font-size: .77rem; font-weight: 580; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
 .tasks-note-group-toggle { display: flex; width: 100%; min-height: 34px; align-items: center; gap: 6px; padding: 2px 8px; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; }
 .tasks-note-group-toggle:hover, .tasks-note-group-toggle:focus-visible { background: var(--surface-hover); }
@@ -559,7 +560,7 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .tasks-note-group h2 small { overflow: hidden; max-width: 42%; flex: 0 1 auto; color: var(--soft-muted); font-size: .7rem; font-weight: 450; text-overflow: ellipsis; white-space: nowrap; }
 .tasks-note-group ul { margin: 0; padding: 0; list-style: none; }
 .tasks-note-group ul.is-opening { animation: task-group-open var(--motion-fast) var(--motion-ease-out) both; }
-.tasks-note-group ul.is-closing { animation: task-group-close var(--motion-fast) var(--motion-ease-out) both; }
+.tasks-note-group ul.is-closing { position: absolute; inset: 100% 0 auto; z-index: 1; animation: task-group-close var(--motion-content) var(--motion-ease-out) both; }
 @keyframes task-group-open { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes task-group-close { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-4px); } }
 .tasks-note-group li + li { border-top: 1px solid var(--line); }

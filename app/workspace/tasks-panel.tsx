@@ -1,10 +1,34 @@
 import { Check, ChevronDown, ChevronLeft, ListTodo, LoaderCircle } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import type { Notebook, TaskSummary } from "../../shared/types";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { useScrollEdges } from "./use-scroll-edges";
 
 type TaskStatus = "open" | "done" | "all";
+
+export function collapsedTaskGroupScrollTop({
+  closing,
+  scrollTop,
+  scrollEdge,
+  sectionTop,
+  headerTop,
+}: {
+  closing: boolean;
+  scrollTop: number;
+  scrollEdge: number;
+  sectionTop: number;
+  headerTop: number;
+}) {
+  if (!closing || sectionTop >= scrollEdge || headerTop > scrollEdge + 1) return null;
+  return Math.max(0, scrollTop + sectionTop - scrollEdge);
+}
 
 export function TasksPanel({
   tasks,
@@ -50,6 +74,11 @@ export function TasksPanel({
   const filtersRef = useRef<HTMLDivElement>(null);
   const notebookTriggerRef = useRef<HTMLButtonElement>(null);
   const statusTriggerRef = useRef<HTMLButtonElement>(null);
+  const pendingGroupLayoutRef = useRef<{
+    positions: Map<HTMLElement, number>;
+    anchorScrollTop: number | null;
+  } | null>(null);
+  const groupAnimationsRef = useRef(new Map<HTMLElement, Animation>());
   const [openFilter, setOpenFilter] = useState<"status" | "notebook" | null>(null);
   const [groupStates, setGroupStates] = useState<Map<string, "opening" | "closing" | "closed">>(
     () => new Map(),
@@ -71,6 +100,71 @@ export function TasksPanel({
   const selectedNotebookName =
     notebooks.find((notebook) => notebook.id === notebookId)?.name ?? "全部笔记本";
   const selectedStatusLabel = { open: "未完成", done: "已完成", all: "全部" }[status];
+  const captureGroupLayout = (button: HTMLButtonElement, closing: boolean) => {
+    const scroll = listRef.current;
+    const section = button.closest<HTMLElement>(".tasks-note-group");
+    if (!scroll || !section) return;
+    const positions = new Map<HTMLElement, number>();
+    for (let sibling = section.nextElementSibling; sibling; sibling = sibling.nextElementSibling) {
+      if (sibling instanceof HTMLElement)
+        positions.set(sibling, sibling.getBoundingClientRect().top);
+    }
+    for (const animation of groupAnimationsRef.current.values()) animation.cancel();
+    groupAnimationsRef.current.clear();
+    const scrollRect = scroll.getBoundingClientRect();
+    const sectionRect = section.getBoundingClientRect();
+    const headerRect = button.getBoundingClientRect();
+    pendingGroupLayoutRef.current = {
+      positions,
+      anchorScrollTop: collapsedTaskGroupScrollTop({
+        closing,
+        scrollTop: scroll.scrollTop,
+        scrollEdge: scrollRect.top + scroll.clientTop,
+        sectionTop: sectionRect.top,
+        headerTop: headerRect.top,
+      }),
+    };
+  };
+  useLayoutEffect(() => {
+    const pending = pendingGroupLayoutRef.current;
+    const scroll = listRef.current;
+    if (!pending || !scroll) return;
+    pendingGroupLayoutRef.current = null;
+    if (pending.anchorScrollTop !== null) scroll.scrollTop = pending.anchorScrollTop;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const viewport = scroll.getBoundingClientRect();
+    for (const [element, previousTop] of pending.positions) {
+      if (!element.isConnected || typeof element.animate !== "function") continue;
+      const currentRect = element.getBoundingClientRect();
+      if (
+        Math.min(previousTop, currentRect.top) > viewport.bottom ||
+        Math.max(previousTop + currentRect.height, currentRect.bottom) < viewport.top
+      )
+        continue;
+      const offset = previousTop - currentRect.top;
+      if (Math.abs(offset) < 1) continue;
+      const animation = element.animate(
+        [{ transform: `translateY(${offset}px)` }, { transform: "translateY(0)" }],
+        { duration: 200, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
+      );
+      groupAnimationsRef.current.set(element, animation);
+      animation.addEventListener(
+        "finish",
+        () => {
+          if (groupAnimationsRef.current.get(element) === animation)
+            groupAnimationsRef.current.delete(element);
+        },
+        { once: true },
+      );
+    }
+  }, [groupStates]);
+  useEffect(
+    () => () => {
+      for (const animation of groupAnimationsRef.current.values()) animation.cancel();
+      groupAnimationsRef.current.clear();
+    },
+    [],
+  );
   useEffect(() => {
     const root = listRef.current;
     const sentinel = loadMoreRef.current;
@@ -314,7 +408,8 @@ export function TasksPanel({
                           className="tasks-note-group-toggle"
                           aria-expanded={!collapsed}
                           aria-controls={groupId}
-                          onClick={() => {
+                          onClick={(event) => {
+                            captureGroupLayout(event.currentTarget, !collapsed);
                             setGroupStates((current) => {
                               const next = new Map(current);
                               const state = current.get(firstTask.noteId);
