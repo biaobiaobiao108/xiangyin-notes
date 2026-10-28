@@ -2134,6 +2134,10 @@ describe("Bun Server API", () => {
     expect(contentSecurityPolicy).toContain("font-src 'self' https://cdn.jsdelivr.net");
     expect(contentSecurityPolicy).toContain("img-src 'self' data: blob: https:");
     expect(manifest.body?.display).toBe("standalone");
+    expect(manifest.body?.color_scheme_dark).toEqual({
+      background_color: "#1a1b26",
+      theme_color: "#1a1b26",
+    });
     const icons = manifest.body?.icons as Array<{ src: string; sizes: string; purpose: string }>;
     expect(icons.filter((icon) => icon.purpose === "any").map((icon) => icon.src)).toEqual([
       "/icon-192.png?v=rounded-1",
