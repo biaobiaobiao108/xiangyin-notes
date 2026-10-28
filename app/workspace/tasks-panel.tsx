@@ -78,14 +78,9 @@ export function TasksPanel({
     groupId: string;
     list: HTMLUListElement;
     closing: boolean;
-    startScale: number;
-    closingDistance: number;
-    positions: Map<HTMLElement, number>;
+    startHeight: number;
     anchorScrollTop: number | null;
   } | null>(null);
-  const groupAnimationsRef = useRef(new Map<HTMLElement, Animation>());
-  const groupAnimationElementsRef = useRef(new Map<string, Set<HTMLElement>>());
-  const groupAnimationOwnersRef = useRef(new Map<HTMLElement, string>());
   const listAnimationsRef = useRef(new Map<string, Animation>());
   const groupListElementsRef = useRef(new Map<string, HTMLUListElement>());
   const completedGroupRef = useRef<string | null>(null);
@@ -119,30 +114,16 @@ export function TasksPanel({
     const scrollRect = scroll.getBoundingClientRect();
     const sectionRect = section.getBoundingClientRect();
     const headerRect = button.getBoundingClientRect();
-    const lowerBound = scrollRect.bottom + (closing ? sectionRect.height : 0);
-    const positions = new Map<HTMLElement, number>();
-    for (let sibling = section.nextElementSibling; sibling; sibling = sibling.nextElementSibling) {
-      if (!(sibling instanceof HTMLElement)) continue;
-      const top = sibling.getBoundingClientRect().top;
-      if (top > lowerBound) break;
-      positions.set(sibling, top);
-    }
     const previousListAnimation = listAnimationsRef.current.get(groupId);
-    const currentScale = previousListAnimation
-      ? new DOMMatrixReadOnly(getComputedStyle(list).transform).d
-      : closing
-        ? 1
-        : 0;
+    const startHeight = list.getBoundingClientRect().height;
     previousListAnimation?.cancel();
-    if (previousListAnimation) list.style.transform = `scaleY(${currentScale})`;
+    list.style.height = `${startHeight}px`;
     listAnimationsRef.current.delete(groupId);
     pendingGroupLayoutRef.current = {
       groupId,
       list,
       closing,
-      startScale: currentScale,
-      closingDistance: list.scrollHeight,
-      positions,
+      startHeight,
       anchorScrollTop: collapsedTaskGroupScrollTop({
         closing,
         scrollTop: scroll.scrollTop,
@@ -160,19 +141,7 @@ export function TasksPanel({
       listAnimation?.cancel();
       listAnimationsRef.current.delete(completedGroup);
       const list = groupListElementsRef.current.get(completedGroup);
-      list?.style.removeProperty("transform");
-      const animatedElements = groupAnimationElementsRef.current.get(completedGroup);
-      if (animatedElements) {
-        for (const element of animatedElements) {
-          if (groupAnimationOwnersRef.current.get(element) === completedGroup) {
-            groupAnimationsRef.current.get(element)?.cancel();
-            groupAnimationsRef.current.delete(element);
-            groupAnimationOwnersRef.current.delete(element);
-            element.style.removeProperty("transform");
-          }
-        }
-        groupAnimationElementsRef.current.delete(completedGroup);
-      }
+      list?.style.removeProperty("height");
     }
     const pending = pendingGroupLayoutRef.current;
     const scroll = listRef.current;
@@ -180,6 +149,7 @@ export function TasksPanel({
     pendingGroupLayoutRef.current = null;
     if (pending.anchorScrollTop !== null) scroll.scrollTop = pending.anchorScrollTop;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      pending.list.style.removeProperty("height");
       setGroupStates((current) => {
         const next = new Map(current);
         if (pending.closing) next.set(pending.groupId, "closed");
@@ -188,15 +158,12 @@ export function TasksPanel({
       });
       return;
     }
-    const viewport = scroll.getBoundingClientRect();
     const motion = getComputedStyle(document.documentElement);
     const duration = Number.parseFloat(motion.getPropertyValue("--motion-group")) || 320;
     const easing = motion.getPropertyValue("--motion-group-ease").trim();
+    const endHeight = pending.closing ? 0 : pending.list.scrollHeight;
     const listAnimation = pending.list.animate(
-      [
-        { transform: `scaleY(${pending.startScale})` },
-        { transform: `scaleY(${pending.closing ? 0 : 1})` },
-      ],
+      [{ height: `${pending.startHeight}px` }, { height: `${endHeight}px` }],
       { duration, easing, fill: "forwards" },
     );
     listAnimationsRef.current.set(pending.groupId, listAnimation);
@@ -216,52 +183,9 @@ export function TasksPanel({
       },
       { once: true },
     );
-    const animatedElements =
-      groupAnimationElementsRef.current.get(pending.groupId) ?? new Set<HTMLElement>();
-    for (const [element, previousTop] of pending.positions) {
-      if (!element.isConnected || typeof element.animate !== "function") continue;
-      let currentRect = element.getBoundingClientRect();
-      if (
-        Math.min(previousTop, currentRect.top) > viewport.bottom ||
-        Math.max(previousTop + currentRect.height, currentRect.bottom) < viewport.top
-      )
-        continue;
-      const previousAnimation = groupAnimationsRef.current.get(element);
-      if (previousAnimation) {
-        const visualTop = currentRect.top;
-        previousAnimation.cancel();
-        const layoutTop = element.getBoundingClientRect().top;
-        const preservedOffset = visualTop - layoutTop;
-        if (Math.abs(preservedOffset) > 0.5)
-          element.style.transform = `translateY(${preservedOffset}px)`;
-        else element.style.removeProperty("transform");
-        currentRect = element.getBoundingClientRect();
-      }
-      const transform = getComputedStyle(element).transform;
-      const currentOffset = transform === "none" ? 0 : new DOMMatrixReadOnly(transform).m42;
-      const startOffset = currentOffset + previousTop - currentRect.top;
-      const endOffset = pending.closing ? -pending.closingDistance : 0;
-      if (Math.abs(startOffset - endOffset) < 1) {
-        element.style.removeProperty("transform");
-        continue;
-      }
-      const animation = element.animate(
-        [
-          { transform: `translateY(${startOffset}px)` },
-          { transform: `translateY(${endOffset}px)` },
-        ],
-        { duration, easing, fill: "forwards" },
-      );
-      groupAnimationsRef.current.set(element, animation);
-      groupAnimationOwnersRef.current.set(element, pending.groupId);
-      animatedElements.add(element);
-    }
-    groupAnimationElementsRef.current.set(pending.groupId, animatedElements);
   }, [groupStates]);
   useEffect(
     () => () => {
-      for (const animation of groupAnimationsRef.current.values()) animation.cancel();
-      groupAnimationsRef.current.clear();
       for (const animation of listAnimationsRef.current.values()) animation.cancel();
       listAnimationsRef.current.clear();
     },
