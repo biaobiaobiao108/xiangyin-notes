@@ -587,10 +587,10 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .tasks-check-button.is-done .tasks-check-box { border-color: var(--accent); background: var(--accent); }
 .tasks-check-button:disabled { cursor: wait; opacity: .7; }
 .tasks-check-button.is-busy svg { animation: spin var(--motion-spin) linear infinite; }
-.tasks-item-copy { display: flex; min-width: 0; min-height: 30px; flex: 1; align-items: center; padding: 3px 2px; border: 0; background: transparent; color: inherit; font: inherit; line-height: 1.45; text-align: left; cursor: pointer; }
+.tasks-item-copy { display: flex; min-width: 0; min-height: 30px; flex: 1; align-items: center; overflow: hidden; padding: 3px 2px; border: 0; background: transparent; color: inherit; font: inherit; line-height: 1.45; text-align: left; white-space: nowrap; cursor: pointer; }
 .tasks-item-copy:hover:not(:disabled) { color: var(--accent-dark); }
 .tasks-item-copy:disabled { cursor: wait; }
-.tasks-item-copy > span { overflow-wrap: anywhere; }
+.tasks-item-copy > span { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tasks-item-copy > span.is-done { color: var(--muted); text-decoration: line-through; }
 .tasks-empty { display: grid; min-height: 150px; align-content: center; justify-items: center; gap: 10px; padding: 24px; color: var(--muted); text-align: center; }
 .tasks-empty p { margin: 0; }
