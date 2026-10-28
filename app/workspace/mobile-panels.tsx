@@ -52,21 +52,21 @@ export const MobileNotebookHome = memo(function MobileNotebookHome({
 
   return (
     <section className="mobile-notebook-home" aria-labelledby="mobile-notebooks-title">
+      <h1
+        id="mobile-notebooks-title"
+        className="mobile-home-title"
+        tabIndex={-1}
+        data-mobile-heading
+      >
+        <BrandMark className="mobile-home-brand-mark" />
+        <span>象映笔记</span>
+      </h1>
       <div className={`mobile-home-scroll-shell${scrollEdges.after ? " has-scroll-after" : ""}`}>
         <div
           ref={scrollRef}
           id="mobile-notebooks-scroll"
           className="mobile-home-scroll floating-scrollbar-target"
         >
-          <h1
-            id="mobile-notebooks-title"
-            className="mobile-home-title"
-            tabIndex={-1}
-            data-mobile-heading
-          >
-            <BrandMark className="mobile-home-brand-mark" />
-            <span>象映笔记</span>
-          </h1>
           <nav aria-label="笔记分类" className="mobile-home-group">
             <ul>
               {navItems.map((item) => {

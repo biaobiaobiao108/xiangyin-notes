@@ -1504,14 +1504,15 @@ dialog::backdrop {
   html:has(.app-shell[data-mobile-page]) { height: 100%; }
   body:has(.app-shell[data-mobile-page]) { position: fixed; inset: 0; height: 100%; padding: 0; }
   .app-shell, .app-shell.sidebar-collapsed, .app-shell.is-focus-mode { display: block; position: fixed; top: var(--mobile-viewport-top, 0px); left: 0; width: 100%; height: var(--mobile-viewport-height, 100dvh); min-height: 0; max-height: none; overflow: hidden; overflow: clip; }
+  .app-shell[data-mobile-page], .app-shell[data-mobile-page].sidebar-collapsed, .app-shell[data-mobile-page].is-focus-mode { display: flex; flex-direction: column; }
   .app-shell[data-mobile-page]::before { content: ""; position: absolute; z-index: 40; inset: 0 0 auto; height: env(safe-area-inset-top); background: var(--canvas); pointer-events: none; }
   .app-shell[data-mobile-page="editor"] { height: var(--mobile-editor-height, 100dvh); }
   .editor-panel.is-focus-mode .editor-header { height: 50px; min-height: 50px; }
   .editor-panel.is-focus-mode .editor-document { padding-top: max(36px, env(safe-area-inset-top)); }
-  .mobile-home-region { height: 100%; min-width: 0; }
+  .mobile-home-region { flex: 1 1 0; height: 0; min-height: 0; min-width: 0; }
   .mobile-home-region[hidden] { display: none; }
-  .note-list-panel { position: relative; width: 100%; height: 100%; box-shadow: none; border: 0; }
-  .editor-region { height: 100%; min-height: 0; }
+  .note-list-panel { position: relative; flex: 1 1 0; width: 100%; height: 0; box-shadow: none; border: 0; }
+  .editor-region { flex: 1 1 0; height: 0; min-height: 0; }
   .app-shell[data-mobile-page="home"] > .note-list-panel,
   .app-shell[data-mobile-page="editor"] > .note-list-panel,
   .app-shell[data-mobile-page="home"] > .editor-region,
@@ -1536,7 +1537,7 @@ dialog::backdrop {
   .app-shell[data-mobile-page] .sort-dropdown button { min-height: 44px; }
   .app-shell[data-mobile-page] .empty-trash-button { width: 44px; height: 44px; justify-content: center; }
   .app-shell[data-mobile-page] .note-list-panel { background: var(--canvas); }
-  .app-shell[data-mobile-page="home"].is-tasks-open > .tasks-panel { grid-column: 1; width: 100%; height: 100%; }
+  .app-shell[data-mobile-page="home"].is-tasks-open > .tasks-panel, .app-shell[data-mobile-page="tasks"] > .tasks-panel { flex: 1 1 0; width: 100%; height: 0; min-height: 0; }
   .app-shell[data-mobile-page="tasks"] > .tasks-panel > .tasks-header { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 4px; height: calc(64px + env(safe-area-inset-top)); min-height: calc(64px + env(safe-area-inset-top)); box-sizing: border-box; padding: env(safe-area-inset-top) max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left)); background: var(--canvas); backdrop-filter: none; -webkit-backdrop-filter: none; }
   .app-shell[data-mobile-page="tasks"] > .tasks-panel > .tasks-header-back { display: inline-flex; grid-column: 1; grid-row: 1; width: 44px; height: 44px; min-height: 44px; align-items: center; justify-content: center; justify-self: start; margin: 0; padding: 0; color: var(--accent); }
   .app-shell[data-mobile-page="tasks"] > .tasks-panel > .tasks-header .list-header-main { grid-column: 2; grid-row: 1; width: 100%; min-width: 0; margin: 0; }
@@ -1550,14 +1551,14 @@ dialog::backdrop {
   .tasks-filter-dropdown:last-child { max-width: 190px; }
   .tasks-filter-dropdown:first-of-type .tasks-filter-trigger { min-width: 106px; }
   .tasks-filter-menu-wrap, .tasks-filter-menu { max-height: min(420px, 58dvh); }
-  .tasks-list { padding-bottom: calc(74px + env(safe-area-inset-bottom)); }
+  .tasks-list { padding-bottom: 24px; }
   .app-shell[data-mobile-page] .tasks-scroll-shell::before { background: linear-gradient(to bottom, var(--canvas), transparent); }
   .app-shell[data-mobile-page] .tasks-scroll-shell::after { background: linear-gradient(to top, var(--canvas), transparent); }
   .app-shell[data-mobile-page] .tasks-note-group-header { background: var(--canvas); backdrop-filter: none; -webkit-backdrop-filter: none; }
   .app-shell[data-mobile-page] .tasks-scroll-shell::after, .app-shell[data-mobile-page] .note-list-scroll-shell::after, .is-mobile-editor .editor-scroll-shell::after { display: none; }
   .app-shell[data-mobile-page] .note-list-scroll-shell::before { background: linear-gradient(to bottom, var(--canvas), transparent); }
   .app-shell[data-mobile-page] .note-list-scroll-shell::after { background: linear-gradient(to top, var(--canvas), transparent); }
-  .app-shell[data-mobile-page] .note-list { padding-bottom: calc(110px + env(safe-area-inset-bottom)); scroll-padding-top: 30px; }
+  .app-shell[data-mobile-page] .note-list { padding-bottom: 24px; scroll-padding-top: 30px; }
   .app-shell[data-mobile-page] .note-list-group-header { background: var(--canvas); backdrop-filter: none; -webkit-backdrop-filter: none; }
   .app-shell[data-mobile-page] .note-row-swipe:not(.is-swipe-open) > .note-row:not(.is-selected):not(.is-active):not(:focus-visible) { background: var(--canvas); }
   .app-shell[data-mobile-page] .note-row-title { font-size: 1.0625rem; }
@@ -2705,13 +2706,13 @@ dialog::backdrop {
   }
   .app-shell[data-mobile-page="home"] > .note-card-grid-panel,
   .app-shell[data-mobile-page="editor"] > .note-card-grid-panel { display: none; }
-  .is-mobile-card-grid { height: 100%; background: var(--canvas); }
+  .is-mobile-card-grid { flex: 1 1 0; height: 0; min-height: 0; background: var(--canvas); }
   .is-mobile-card-grid .card-grid-scroll-shell::before { background: linear-gradient(to bottom, var(--canvas), transparent); }
   .is-mobile-card-grid .card-grid-scroll-shell::after { background: linear-gradient(to top, var(--canvas), transparent); }
   .card-grid-mobile-menu { left: max(14px, env(safe-area-inset-left)); }
   .card-grid-empty-trash { right: max(24px, env(safe-area-inset-right)); }
   .is-mobile-card-grid .card-grid-container,
-  .is-mobile-card-grid .card-grid-container.has-trash-action { padding: 14px max(14px, env(safe-area-inset-right)) calc(112px + env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left)); overscroll-behavior: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; }
+  .is-mobile-card-grid .card-grid-container.has-trash-action { padding: 14px max(14px, env(safe-area-inset-right)) 24px max(14px, env(safe-area-inset-left)); overscroll-behavior: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; }
   .is-mobile-card-grid .note-card { position: relative; min-width: 0; margin-bottom: 0; border-color: var(--border-soft); transition-timing-function: var(--motion-ease-out); }
   .is-mobile-card-grid .note-card.is-selected { border-color: var(--multi-selection-border); }
   .is-mobile-card-grid .note-card.is-selected .note-card-foreground { background: var(--multi-selection-soft); }

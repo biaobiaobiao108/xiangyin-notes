@@ -3,21 +3,24 @@
     --mobile-editor-bar: 52px;
   }
   .is-mobile-editor .mobile-editor-header {
-    position: absolute;
-    inset: calc(8px + env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) auto max(12px, env(safe-area-inset-left));
+    position: relative;
+    inset: auto;
     z-index: 35;
     display: flex;
     align-items: center;
     gap: 5px;
-    height: var(--mobile-editor-bar);
-    min-height: var(--mobile-editor-bar);
-    padding: 0 4px;
+    flex: none;
+    height: calc(64px + env(safe-area-inset-top));
+    min-height: calc(64px + env(safe-area-inset-top));
+    box-sizing: border-box;
+    padding: env(safe-area-inset-top) max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left));
     border: 0;
-    border-radius: 999px;
-    background: var(--surface-glass-medium);
-    backdrop-filter: blur(20px) saturate(135%);
-    -webkit-backdrop-filter: blur(20px) saturate(135%);
-    box-shadow: var(--shadow-xs);
+    border-bottom: 1px solid var(--line);
+    border-radius: 0;
+    background: var(--canvas);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    box-shadow: none;
   }
   .is-mobile-editor .mobile-editor-title {
     min-width: 0;
@@ -99,37 +102,41 @@
   .is-mobile-editor .mobile-editor-menu button:focus-visible { background: var(--accent-soft); }
   .is-mobile-editor .mobile-editor-menu .is-danger { color: var(--danger); }
   .is-mobile-editor .mobile-editor-footer {
-    position: absolute;
-    inset: auto max(20px, env(safe-area-inset-right)) calc(12px + var(--mobile-keyboard-inset, 0px) + var(--mobile-bottom-safe-area, env(safe-area-inset-bottom))) max(20px, env(safe-area-inset-left));
+    position: relative;
+    inset: auto;
     z-index: 32;
     display: flex;
     justify-content: space-between;
     align-items: center;
     gap: 8px;
-    min-height: 44px;
-    padding: 0;
+    flex: none;
+    min-height: calc(60px + var(--mobile-keyboard-inset, 0px) + var(--mobile-bottom-safe-area, env(safe-area-inset-bottom)));
+    box-sizing: border-box;
+    margin: 0;
+    padding: 8px max(16px, env(safe-area-inset-right)) calc(8px + var(--mobile-keyboard-inset, 0px) + var(--mobile-bottom-safe-area, env(safe-area-inset-bottom))) max(16px, env(safe-area-inset-left));
     border: 0;
+    border-top: 1px solid var(--line);
     border-radius: 0;
-    background: transparent;
+    background: var(--canvas);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
     box-shadow: none;
   }
   .is-mobile-editor .mobile-editor-footer .icon-button {
-    background: var(--surface-glass-soft);
-    backdrop-filter: blur(20px) saturate(135%);
-    -webkit-backdrop-filter: blur(20px) saturate(135%);
-    box-shadow: var(--shadow-xs);
+    background: var(--surface);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    box-shadow: none;
   }
   .is-mobile-editor .mobile-editor-footer .editor-stats-pill {
     min-width: 0;
     flex-wrap: wrap;
     justify-content: center;
     border: 0;
-    background: var(--surface-glass-soft);
-    backdrop-filter: blur(20px) saturate(135%);
-    -webkit-backdrop-filter: blur(20px) saturate(135%);
-    box-shadow: var(--shadow-xs);
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    box-shadow: none;
     border-radius: 999px;
     padding: 8px 12px;
   }
@@ -137,8 +144,8 @@
   .app-shell .is-mobile-editor .editor-document {
     width: auto;
     margin-inline: max(20px, env(safe-area-inset-left)) max(20px, env(safe-area-inset-right));
-    padding-top: calc(var(--mobile-editor-bar) + 38px + env(safe-area-inset-top));
-    padding-bottom: calc(112px + var(--mobile-keyboard-inset, 0px) + var(--mobile-bottom-safe-area, env(safe-area-inset-bottom)));
+    padding-top: 24px;
+    padding-bottom: 32px;
   }
   .is-mobile-editor .note-title-input { font-size: clamp(26px, 6.5vw, 34px); }
   .is-mobile-editor .note-prose { font-size: 1.125rem; }
