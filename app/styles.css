@@ -554,8 +554,7 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .tasks-note-group { position: relative; }
 .tasks-note-group + .tasks-note-group { border-top: 1px solid var(--line); }
 .tasks-note-group-header { position: sticky; top: 0; z-index: 3; margin: 0; background: var(--surface-glass); color: var(--muted); font-size: .77rem; font-weight: 580; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
-.tasks-note-group-toggle { display: flex; width: 100%; min-height: 34px; align-items: center; gap: 6px; padding: 2px 8px; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; }
-.tasks-note-group-toggle:hover, .tasks-note-group-toggle:focus-visible { background: var(--surface-hover); }
+.tasks-note-group-toggle { display: flex; width: 100%; min-height: 34px; align-items: center; gap: 6px; padding: 2px 8px; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; -webkit-tap-highlight-color: transparent; }
 .tasks-note-group-chevron { flex: none; transition: transform var(--motion-fast) var(--motion-ease-out); }
 .tasks-note-group-toggle[aria-expanded="false"] .tasks-note-group-chevron { transform: rotate(-90deg); }
 .tasks-note-title { flex: 1; overflow: hidden; min-width: 0; text-overflow: ellipsis; white-space: nowrap; }
