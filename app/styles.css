@@ -553,7 +553,7 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .tasks-list { padding: 0 12px 24px; }
 .tasks-note-group { position: relative; }
 .tasks-note-group-header { position: sticky; top: 0; z-index: 3; margin: 0; background: var(--surface-glass); color: var(--muted); font-size: .77rem; font-weight: 580; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
-.tasks-note-group-toggle { display: flex; width: 100%; min-height: 34px; align-items: center; gap: 6px; padding: 2px 8px; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; -webkit-tap-highlight-color: transparent; }
+.tasks-note-group-toggle { display: flex; width: 100%; min-height: 34px; align-items: center; gap: 6px; padding: 2px 8px; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; -webkit-tap-highlight-color: transparent; cursor: pointer; }
 .tasks-note-group-chevron { flex: none; transition: transform var(--motion-fast) var(--motion-ease-out); }
 .tasks-note-group-toggle[aria-expanded="false"] .tasks-note-group-chevron { transform: rotate(-90deg); }
 .tasks-note-title { flex: 1; overflow: hidden; min-width: 0; text-overflow: ellipsis; white-space: nowrap; }
@@ -567,7 +567,7 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .tasks-virtual-sticky-header .tasks-note-group-toggle { height: 100%; }
 .tasks-virtual-list { position: relative; box-sizing: border-box; margin: 0; padding: 0; list-style: none; }
 .tasks-virtual-list > li { box-sizing: border-box; margin: 0; list-style: none; }
-.tasks-virtual-group-marker { height: 34px; color: var(--muted); font-size: .77rem; font-weight: 580; pointer-events: none; }
+.tasks-virtual-group-marker { height: 34px; color: var(--muted); font-size: .77rem; font-weight: 580; }
 .tasks-virtual-group-marker.is-first { height: 0; }
 .tasks-virtual-group-marker.is-collapsed .tasks-note-group-chevron { transform: rotate(-90deg); }
 .tasks-virtual-group-marker small { overflow: hidden; max-width: 42%; flex: 0 1 auto; color: var(--soft-muted); font-size: .7rem; font-weight: 450; text-overflow: ellipsis; white-space: nowrap; }

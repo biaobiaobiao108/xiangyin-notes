@@ -412,6 +412,7 @@ export function useVirtualTaskList(
   return {
     isVirtualized,
     visibleRows,
+    pinnedRowId,
     topVisibleRow: rows.length
       ? rows[Math.min(indexAtOffset(offsets, viewport.top), rows.length - 1)]
       : undefined,

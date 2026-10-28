@@ -188,7 +188,7 @@ export function TasksPanel({
 
   const toggleGroup = (groupId: string, button?: HTMLButtonElement) => {
     if (virtualList.isVirtualized) {
-      virtualList.scrollToRowStart(taskGroupRowId(groupId));
+      if (groupId === activeVirtualGroupId) virtualList.scrollToRowStart(taskGroupRowId(groupId));
       if (virtualGroupTransitionTimerRef.current !== null)
         window.clearTimeout(virtualGroupTransitionTimerRef.current);
 
@@ -610,6 +610,9 @@ export function TasksPanel({
                   >
                     {virtualList.visibleRows.map(({ row, index, top }) => {
                       if (row.kind === "group") {
+                        const isStickyMarker = row.groupId === activeVirtualGroupId;
+                        const isFocusedMarker = virtualList.pinnedRowId === row.id;
+                        const hideMarker = isStickyMarker && !isFocusedMarker;
                         const markerTransition =
                           virtualGroupTransition?.groupId === row.groupId
                             ? virtualGroupTransition.phase
@@ -626,10 +629,17 @@ export function TasksPanel({
                             ref={virtualList.getRowRef(row.id)}
                             data-task-row-id={row.id}
                             className={`tasks-virtual-group-marker${row.firstGroup ? " is-first" : ""}${markerCollapsed ? " is-collapsed" : ""}`}
-                            aria-hidden="true"
+                            aria-hidden={hideMarker || undefined}
+                            inert={hideMarker || undefined}
                             style={virtualList.rowStyle(top)}
                           >
-                            <div className="tasks-note-group-toggle">
+                            <button
+                              type="button"
+                              className="tasks-note-group-toggle"
+                              aria-expanded={!markerCollapsed}
+                              aria-controls="tasks-virtual-list"
+                              onClick={() => toggleGroup(row.groupId)}
+                            >
                               <ChevronDown
                                 className="tasks-note-group-chevron"
                                 size={14}
@@ -639,7 +649,7 @@ export function TasksPanel({
                               {notebookNames.has(row.task.notebookId) ? (
                                 <small>{notebookNames.get(row.task.notebookId)}</small>
                               ) : null}
-                            </div>
+                            </button>
                           </li>
                         );
                       }
