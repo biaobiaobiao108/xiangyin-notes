@@ -542,7 +542,7 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .tasks-filter-menu button > .tasks-filter-option-label { width: auto; height: auto; min-width: 0; flex: 1 1 auto; overflow: hidden; color: inherit; text-overflow: ellipsis; white-space: nowrap; }
 .tasks-filter-menu button:hover, .tasks-filter-menu button:focus-visible, .tasks-filter-menu button.is-selected { background: var(--accent-soft); color: var(--accent-dark); }
 .tasks-filter-menu button:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--focus-ring); }
-.tasks-scroll-shell { position: relative; flex: 1 1 0; min-height: 0; overflow: hidden; }
+.tasks-scroll-shell { position: relative; display: flex; flex: 1 1 0; flex-direction: column; min-height: 0; overflow: hidden; }
 .tasks-scroll-shell::before, .tasks-scroll-shell::after { position: absolute; z-index: 2; inset-inline: 0; height: 28px; content: ""; opacity: 0; pointer-events: none; transition: opacity var(--motion-fast) var(--motion-ease-out); }
 .tasks-scroll-shell::before { inset-block-start: 0; background: linear-gradient(to bottom, var(--surface), transparent); }
 .tasks-scroll-shell::after { inset-block-end: 0; background: linear-gradient(to top, var(--surface), transparent); }
@@ -968,10 +968,10 @@ button.save-status:hover { text-decoration: underline; }
 .note-image-loading { display: grid; width: min(var(--image-display-width), 100%); min-height: 120px; place-items: center; border: 1px dashed var(--border-strong); border-radius: 10px; background: var(--surface-muted); color: var(--muted); font-size: 0.78rem; }
 .note-prose .editor-search-match { border-radius: 0.22em; background: var(--search-match); color: inherit; box-shadow: 0 0.08em 0 var(--search-match-shadow); }
 .note-prose .editor-search-match--active { background: var(--accent); color: var(--accent-contrast); box-shadow: 0 0 0 2px var(--focus-soft); }
-.note-prose .task-navigation-highlight { border-radius: 10px; background: light-dark(rgba(101, 116, 106, 0.13), rgba(184, 198, 187, 0.14)); animation: task-navigation-fade-in 220ms var(--motion-ease-out) both; }
+.note-prose .task-navigation-highlight { border-radius: 5px; background-color: light-dark(rgba(101, 116, 106, 0.13), rgba(184, 198, 187, 0.14)); animation: task-navigation-fade-in 220ms var(--motion-ease-out) both; }
 .note-prose .task-navigation-highlight.is-fading { animation: task-navigation-fade-out 280ms var(--motion-ease-out) both; }
-@keyframes task-navigation-fade-in { from { opacity: 0; transform: scale(0.995); } to { opacity: 1; transform: scale(1); } }
-@keyframes task-navigation-fade-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes task-navigation-fade-in { from { background-color: transparent; } to { background-color: light-dark(rgba(101, 116, 106, 0.13), rgba(184, 198, 187, 0.14)); } }
+@keyframes task-navigation-fade-out { from { background-color: light-dark(rgba(101, 116, 106, 0.13), rgba(184, 198, 187, 0.14)); } to { background-color: transparent; } }
 @media (prefers-reduced-motion: reduce) { .note-prose .task-navigation-highlight { animation: none; } }
 .note-prose .editor-tag { display: inline; padding: 0.08em 0.22em; border-radius: 0.28em; background: var(--h2-soft); color: var(--h2-color); font-weight: 600; box-shadow: inset 0 -1px 0 var(--h2-border); box-decoration-break: clone; -webkit-box-decoration-break: clone; overflow-wrap: anywhere; }
 .note-prose .editor-tag.editor-search-match--active { background: var(--accent); color: var(--accent-contrast); box-shadow: 0 0 0 2px var(--focus-soft); }
