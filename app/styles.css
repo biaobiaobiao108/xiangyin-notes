@@ -769,6 +769,7 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
   justify-content: space-between;
   height: 30px;
   box-sizing: border-box;
+  margin: 0;
   padding: 8px 14px 4px;
   background: var(--surface-glass);
   backdrop-filter: blur(12px);
@@ -780,13 +781,21 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
   letter-spacing: 0.04em;
   user-select: none;
 }
+.note-list-group-header:not(.is-virtual-sticky) { padding: 0; }
+.note-list-group-toggle { display: flex; width: 100%; min-width: 0; height: 100%; align-items: center; gap: 6px; padding: 8px 14px 4px; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.note-list-group-chevron { flex: none; transition: transform var(--motion-fast) var(--motion-ease-out); }
+.note-list-group-toggle[aria-expanded="false"] .note-list-group-chevron { transform: rotate(-90deg); }
 .note-list-group-title { color: var(--muted); }
+.note-list-group-toggle .note-list-group-title { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .note-list-group-count {
   font-variant-numeric: tabular-nums;
   font-size: 0.68rem;
   color: var(--soft-muted);
   opacity: 0.8;
 }
+.note-list-group-content { display: grid; grid-template-rows: 1fr; overflow-anchor: none; padding-block: 4px; transition: grid-template-rows var(--motion-group) var(--motion-group-ease), padding-block var(--motion-group) var(--motion-group-ease); }
+.note-list-group-content.is-collapsed { grid-template-rows: 0fr; padding-block: 0; }
+.note-list-group-content > ul { min-height: 0; overflow: hidden; padding: 0; }
 
 /* 多选拖影沿用笔记卡片本身的样式。 */
 .note-drag-ghost-shell {

@@ -14,6 +14,7 @@ import {
 } from "react";
 import {
   Archive,
+  ChevronDown,
   ChevronLeft,
   LayoutPanelLeft,
   ListTodo,
@@ -46,6 +47,7 @@ import {
 import { NOTE_DRAG_MIME_TYPE, setNoteDragImage, hasNoteDragType } from "./note-drag-drop";
 import { NoteTags } from "./note-tags";
 import { useVirtualNoteList } from "./use-virtual-note-list";
+import { collapsedGroupScrollTop } from "./group-layout";
 import { useScrollEdges } from "./use-scroll-edges";
 import { MobileCollectionHeader } from "./mobile-collection-header";
 import { type NoteSwipeAction, useSwipeActionGesture, useSwipeActionGroup } from "./swipe-actions";
@@ -929,6 +931,7 @@ export const NoteListPanel = memo(function NoteListPanel({
   }, [hasMore, onLoadMore, isLoadingMore]);
 
   const [draggingNoteIds, setDraggingNoteIds] = useState<ReadonlySet<string> | null>(null);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
   const dragFrameRef = useRef<number | null>(null);
 
   const handleRowDragStart = useCallback(
@@ -990,6 +993,37 @@ export const NoteListPanel = memo(function NoteListPanel({
     return groups.find((g) => g.notes.some((n) => n.id === topNote.id)) || groups[0];
   }, [groups, virtualList.topVisibleNote]);
 
+  const toggleGroup = (button: HTMLButtonElement, groupId: string) => {
+    const scroll = noteListRef.current;
+    const section = button.closest<HTMLElement>(".note-list-group");
+    const isCollapsed = collapsedGroups.has(groupId);
+    const closing = !isCollapsed;
+    if (scroll && section) {
+      const scrollRect = scroll.getBoundingClientRect();
+      const sectionRect = section.getBoundingClientRect();
+      const headerRect = button.getBoundingClientRect();
+      const anchorScrollTop = collapsedGroupScrollTop({
+        closing,
+        scrollTop: scroll.scrollTop,
+        scrollEdge: scrollRect.top + scroll.clientTop,
+        sectionTop: sectionRect.top,
+        headerTop: headerRect.top,
+      });
+      if (anchorScrollTop !== null) scroll.scrollTop = anchorScrollTop;
+    }
+    setCollapsedGroups((current) => {
+      const next = new Set(current);
+      if (isCollapsed) next.delete(groupId);
+      else next.add(groupId);
+      return next;
+    });
+  };
+
+  const keyboardNotes =
+    !virtualList.isVirtualized && groups
+      ? groups.flatMap((group) => (collapsedGroups.has(group.id) ? [] : group.notes))
+      : sortedNotes;
+
   const handleNoteListKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     virtualList.moveTabFocus(event);
     if (event.defaultPrevented) return;
@@ -1005,10 +1039,10 @@ export const NoteListPanel = memo(function NoteListPanel({
 
     if (isPlainKey && (event.key === "j" || event.key === "J" || event.key === "ArrowDown")) {
       event.preventDefault();
-      const currentIndex = sortedNotes.findIndex((n) => n.id === selectedId);
+      const currentIndex = keyboardNotes.findIndex((n) => n.id === selectedId);
       const nextIndex =
-        currentIndex >= 0 && currentIndex < sortedNotes.length - 1 ? currentIndex + 1 : 0;
-      const nextNote = sortedNotes[nextIndex];
+        currentIndex >= 0 && currentIndex < keyboardNotes.length - 1 ? currentIndex + 1 : 0;
+      const nextNote = keyboardNotes[nextIndex];
       if (nextNote) {
         onSelect(nextNote.id, event as unknown as ReactMouseEvent<HTMLButtonElement>);
         const row = noteListRef.current?.querySelector<HTMLButtonElement>(
@@ -1022,9 +1056,9 @@ export const NoteListPanel = memo(function NoteListPanel({
 
     if (isPlainKey && (event.key === "k" || event.key === "K" || event.key === "ArrowUp")) {
       event.preventDefault();
-      const currentIndex = sortedNotes.findIndex((n) => n.id === selectedId);
-      const prevIndex = currentIndex > 0 ? currentIndex - 1 : sortedNotes.length - 1;
-      const prevNote = sortedNotes[prevIndex];
+      const currentIndex = keyboardNotes.findIndex((n) => n.id === selectedId);
+      const prevIndex = currentIndex > 0 ? currentIndex - 1 : keyboardNotes.length - 1;
+      const prevNote = keyboardNotes[prevIndex];
       if (prevNote) {
         onSelect(prevNote.id, event as unknown as ReactMouseEvent<HTMLButtonElement>);
         const row = noteListRef.current?.querySelector<HTMLButtonElement>(
@@ -1164,46 +1198,69 @@ export const NoteListPanel = memo(function NoteListPanel({
                 )}
                 {!virtualList.isVirtualized && groups ? (
                   <div className="note-list-groups">
-                    {groups.map((group) => (
-                      <section
-                        key={group.id}
-                        className="note-list-group"
-                        aria-label={`${group.title}，共 ${group.count} 篇`}
-                      >
-                        <div className="note-list-group-header">
-                          <span className="note-list-group-title">{group.title}</span>
-                          <span className="note-list-group-count">{group.count}</span>
-                        </div>
-                        <ul className="note-list-group-items note-list-items" role="list">
-                          {group.notes.map((note) => {
-                            const index = sortedNotes.findIndex((n) => n.id === note.id);
-                            return (
-                              <NoteListRow
-                                key={note.id}
-                                note={note}
-                                rowIndex={index}
-                                setSize={listSize}
-                                isSelected={selectedIds.has(note.id)}
-                                selectedIds={selectedIds}
-                                isActive={selectedId === note.id && !isMobileViewport}
-                                showNotebook
-                                onToggleFavorite={onToggleFavoriteNote}
-                                onSelect={onSelect}
-                                isMobileViewport={isMobileViewport}
-                                isTrashView={view === "trash"}
-                                trashBusy={trashBusy}
-                                onNoteSwipeAction={onNoteSwipeAction}
-                                open={swipeActions.openId === note.id}
-                                setOpenId={swipeActions.setOpenId}
-                                isDragging={draggingNoteIds?.has(note.id) ?? false}
-                                onDragStart={handleRowDragStart}
-                                onDragEnd={handleRowDragEnd}
+                    {groups.map((group) => {
+                      const collapsed = collapsedGroups.has(group.id);
+                      const contentId = `note-list-group-${group.id}`;
+                      return (
+                        <section
+                          key={group.id}
+                          className="note-list-group"
+                          aria-label={`${group.title}，共 ${group.count} 篇`}
+                        >
+                          <h2 className="note-list-group-header">
+                            <button
+                              type="button"
+                              className="note-list-group-toggle"
+                              aria-expanded={!collapsed}
+                              aria-controls={contentId}
+                              onClick={(event) => toggleGroup(event.currentTarget, group.id)}
+                            >
+                              <ChevronDown
+                                className="note-list-group-chevron"
+                                size={13}
+                                aria-hidden="true"
                               />
-                            );
-                          })}
-                        </ul>
-                      </section>
-                    ))}
+                              <span className="note-list-group-title">{group.title}</span>
+                              <span className="note-list-group-count">{group.count}</span>
+                            </button>
+                          </h2>
+                          <div
+                            id={contentId}
+                            className={`note-list-group-content${collapsed ? " is-collapsed" : ""}`}
+                            inert={collapsed}
+                          >
+                            <ul className="note-list-group-items note-list-items" role="list">
+                              {group.notes.map((note) => {
+                                const index = sortedNotes.findIndex((n) => n.id === note.id);
+                                return (
+                                  <NoteListRow
+                                    key={note.id}
+                                    note={note}
+                                    rowIndex={index}
+                                    setSize={listSize}
+                                    isSelected={selectedIds.has(note.id)}
+                                    selectedIds={selectedIds}
+                                    isActive={selectedId === note.id && !isMobileViewport}
+                                    showNotebook
+                                    onToggleFavorite={onToggleFavoriteNote}
+                                    onSelect={onSelect}
+                                    isMobileViewport={isMobileViewport}
+                                    isTrashView={view === "trash"}
+                                    trashBusy={trashBusy}
+                                    onNoteSwipeAction={onNoteSwipeAction}
+                                    open={swipeActions.openId === note.id}
+                                    setOpenId={swipeActions.setOpenId}
+                                    isDragging={draggingNoteIds?.has(note.id) ?? false}
+                                    onDragStart={handleRowDragStart}
+                                    onDragEnd={handleRowDragEnd}
+                                  />
+                                );
+                              })}
+                            </ul>
+                          </div>
+                        </section>
+                      );
+                    })}
                     {hasLoadMoreRow && (
                       <div className="note-list-load-more-item">
                         <button

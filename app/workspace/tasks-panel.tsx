@@ -2,26 +2,10 @@ import { Check, ChevronDown, ChevronLeft, ListTodo, LoaderCircle } from "lucide-
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import type { Notebook, TaskSummary } from "../../shared/types";
 import { FloatingScrollbar } from "../floating-scrollbar";
+import { collapsedGroupScrollTop } from "./group-layout";
 import { useScrollEdges } from "./use-scroll-edges";
 
 type TaskStatus = "open" | "done" | "all";
-
-export function collapsedTaskGroupScrollTop({
-  closing,
-  scrollTop,
-  scrollEdge,
-  sectionTop,
-  headerTop,
-}: {
-  closing: boolean;
-  scrollTop: number;
-  scrollEdge: number;
-  sectionTop: number;
-  headerTop: number;
-}) {
-  if (!closing || sectionTop >= scrollEdge || headerTop > scrollEdge + 1) return null;
-  return Math.max(0, scrollTop + sectionTop - scrollEdge);
-}
 
 export function TasksPanel({
   tasks,
@@ -95,7 +79,7 @@ export function TasksPanel({
       const scrollRect = scroll.getBoundingClientRect();
       const sectionRect = section.getBoundingClientRect();
       const headerRect = button.getBoundingClientRect();
-      const anchorScrollTop = collapsedTaskGroupScrollTop({
+      const anchorScrollTop = collapsedGroupScrollTop({
         closing,
         scrollTop: scroll.scrollTop,
         scrollEdge: scrollRect.top + scroll.clientTop,
