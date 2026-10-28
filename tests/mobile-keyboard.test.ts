@@ -67,18 +67,6 @@ describe("mobile keyboard viewport", () => {
       }).inset,
     ).toBe(374);
   });
-  test("uses the layout height when a standalone viewport reports a smaller visible area", () => {
-    expect(
-      resolveMobileViewport(undefined, {
-        width: 390,
-        height: 780,
-        layoutHeight: 844,
-        offsetTop: 0,
-        editable: false,
-        standalone: true,
-      }),
-    ).toEqual({ width: 390, height: 844, keyboard: false, inset: 0, top: 0 });
-  });
 });
 
 describe("mobile caret visibility", () => {

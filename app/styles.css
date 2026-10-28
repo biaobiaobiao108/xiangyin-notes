@@ -1504,6 +1504,7 @@ dialog::backdrop {
   html:has(.app-shell[data-mobile-page]) { height: 100%; }
   body:has(.app-shell[data-mobile-page]) { position: fixed; inset: 0; height: 100%; padding: 0; }
   .app-shell, .app-shell.sidebar-collapsed, .app-shell.is-focus-mode { display: block; position: fixed; top: var(--mobile-viewport-top, 0px); left: 0; width: 100%; height: var(--mobile-viewport-height, 100dvh); min-height: 0; max-height: none; overflow: hidden; overflow: clip; }
+  .app-shell[data-mobile-page]::before { content: ""; position: absolute; z-index: 40; inset: 0 0 auto; height: env(safe-area-inset-top); background: var(--canvas); pointer-events: none; }
   .app-shell[data-mobile-page="editor"] { height: var(--mobile-editor-height, 100dvh); }
   .editor-panel.is-focus-mode .editor-header { height: 50px; min-height: 50px; }
   .editor-panel.is-focus-mode .editor-document { padding-top: max(36px, env(safe-area-inset-top)); }
@@ -1553,7 +1554,7 @@ dialog::backdrop {
   .app-shell[data-mobile-page] .tasks-scroll-shell::before { background: linear-gradient(to bottom, var(--canvas), transparent); }
   .app-shell[data-mobile-page] .tasks-scroll-shell::after { background: linear-gradient(to top, var(--canvas), transparent); }
   .app-shell[data-mobile-page] .tasks-note-group-header { background: var(--canvas); backdrop-filter: none; -webkit-backdrop-filter: none; }
-  .app-shell[data-mobile-page="tasks"] .tasks-scroll-shell::after { inset-block-end: calc(74px + env(safe-area-inset-bottom)); height: 64px; background: linear-gradient(to bottom, transparent, var(--canvas)); }
+  .app-shell[data-mobile-page] .tasks-scroll-shell::after, .app-shell[data-mobile-page] .note-list-scroll-shell::after, .is-mobile-editor .editor-scroll-shell::after { display: none; }
   .app-shell[data-mobile-page] .note-list-scroll-shell::before { background: linear-gradient(to bottom, var(--canvas), transparent); }
   .app-shell[data-mobile-page] .note-list-scroll-shell::after { background: linear-gradient(to top, var(--canvas), transparent); }
   .app-shell[data-mobile-page] .note-list { padding-bottom: calc(110px + env(safe-area-inset-bottom)); scroll-padding-top: 30px; }

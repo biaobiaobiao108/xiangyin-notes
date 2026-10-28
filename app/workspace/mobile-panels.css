@@ -6,7 +6,7 @@
   .mobile-compose-button:active, .mobile-plain-button:active { scale: 0.94; }
   .mobile-compose-button:focus-visible, .mobile-plain-button:focus-visible, .mobile-search-clear:focus-visible { background: var(--accent-soft); }
   .mobile-home-scroll-shell { flex: 1; min-height: 0; position: relative; overflow: hidden; }
-  .mobile-home-scroll-shell::after { position: absolute; z-index: 2; inset-inline: 0; inset-block-end: 0; height: 74px; content: ""; opacity: 0; pointer-events: none; background: linear-gradient(to bottom, transparent, var(--canvas)); transition: opacity var(--motion-fast) var(--motion-ease-out); }
+  .mobile-home-scroll-shell::after { position: absolute; z-index: 2; inset-inline: 0; inset-block-end: 0; height: 28px; content: ""; opacity: 0; pointer-events: none; background: linear-gradient(to bottom, transparent, var(--canvas)); transition: opacity var(--motion-fast) var(--motion-ease-out); }
   .mobile-home-scroll-shell.has-scroll-after::after { opacity: 1; }
   .mobile-home-scroll { height: 100%; overflow: auto; overscroll-behavior-y: contain; padding: calc(30px + env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) calc(118px + env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left)); }
   .mobile-home-title { display: flex; align-items: center; gap: 13px; margin: 4px 0 28px; color: var(--ink); font-size: clamp(28px, 7.2vw, 32px); font-weight: 650; line-height: 1.25; letter-spacing: -0.025em; }
