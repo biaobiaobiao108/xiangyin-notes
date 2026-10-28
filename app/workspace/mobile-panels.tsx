@@ -1,4 +1,4 @@
-import { memo, useRef, type CSSProperties, type RefObject } from "react";
+import { Fragment, memo, useRef, type CSSProperties, type RefObject } from "react";
 import {
   ChevronRight,
   FolderPlus,
@@ -80,44 +80,45 @@ export const MobileNotebookHome = memo(function MobileNotebookHome({
                       ? notebooks.reduce((sum, notebook) => sum + notebook.count, 0)
                       : undefined;
                 return (
-                  <li key={item.id}>
-                    <button
-                      type="button"
-                      className="mobile-notebook-link"
-                      aria-label={
-                        count === undefined ? item.label : `${item.label}，${count} 篇笔记`
-                      }
-                      aria-current={view === item.id && !notebookId ? "true" : undefined}
-                      onClick={() => setView(item.id)}
-                    >
-                      <span className="mobile-notebook-icon">
-                        <Icon size={22} />
-                      </span>
-                      <span className="mobile-notebook-name">{item.label}</span>
-                      {count !== undefined && (
-                        <span className="mobile-notebook-count">{count}</span>
-                      )}
-                      <ChevronRight className="mobile-notebook-chevron" size={18} />
-                    </button>
-                  </li>
+                  <Fragment key={item.id}>
+                    {item.id === "trash" && onOpenTasks && (
+                      <li>
+                        <button
+                          type="button"
+                          className="mobile-notebook-link"
+                          onClick={onOpenTasks}
+                        >
+                          <span className="mobile-notebook-icon">
+                            <ListTodo size={22} />
+                          </span>
+                          <span className="mobile-notebook-name">任务</span>
+                          <ChevronRight className="mobile-notebook-chevron" size={18} />
+                        </button>
+                      </li>
+                    )}
+                    <li>
+                      <button
+                        type="button"
+                        className="mobile-notebook-link"
+                        aria-label={
+                          count === undefined ? item.label : `${item.label}，${count} 篇笔记`
+                        }
+                        aria-current={view === item.id && !notebookId ? "true" : undefined}
+                        onClick={() => setView(item.id)}
+                      >
+                        <span className="mobile-notebook-icon">
+                          <Icon size={22} />
+                        </span>
+                        <span className="mobile-notebook-name">{item.label}</span>
+                        {count !== undefined && (
+                          <span className="mobile-notebook-count">{count}</span>
+                        )}
+                        <ChevronRight className="mobile-notebook-chevron" size={18} />
+                      </button>
+                    </li>
+                  </Fragment>
                 );
               })}
-              {onOpenTasks && (
-                <li>
-                  <button
-                    type="button"
-                    className="mobile-notebook-link"
-                    aria-current={undefined}
-                    onClick={onOpenTasks}
-                  >
-                    <span className="mobile-notebook-icon">
-                      <ListTodo size={22} />
-                    </span>
-                    <span className="mobile-notebook-name">任务</span>
-                    <ChevronRight className="mobile-notebook-chevron" size={18} />
-                  </button>
-                </li>
-              )}
             </ul>
           </nav>
           <div className="mobile-home-section-heading">

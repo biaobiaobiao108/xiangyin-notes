@@ -1,4 +1,5 @@
 import {
+  Fragment,
   memo,
   useCallback,
   useEffect,
@@ -368,27 +369,30 @@ export const Sidebar = memo(function Sidebar({
                   ? onTrashNotes
                   : undefined;
             return (
-              <SidebarNavItem
-                key={item.id}
-                item={item}
-                isActive={isActive}
-                onSelect={() => setView(item.id)}
-                onDropNotes={dropHandler}
-              />
+              <Fragment key={item.id}>
+                {item.id === "trash" && (
+                  <li>
+                    <button
+                      className={"nav-item" + (tasksActive ? " is-active" : "")}
+                      type="button"
+                      data-note-view="tasks"
+                      aria-current={tasksActive ? "page" : undefined}
+                      onClick={onOpenTasks}
+                    >
+                      <ListTodo size={18} />
+                      <span>任务</span>
+                    </button>
+                  </li>
+                )}
+                <SidebarNavItem
+                  item={item}
+                  isActive={isActive}
+                  onSelect={() => setView(item.id)}
+                  onDropNotes={dropHandler}
+                />
+              </Fragment>
             );
           })}
-          <li>
-            <button
-              className={"nav-item" + (tasksActive ? " is-active" : "")}
-              type="button"
-              data-note-view="tasks"
-              aria-current={tasksActive ? "page" : undefined}
-              onClick={onOpenTasks}
-            >
-              <ListTodo size={18} />
-              <span>任务</span>
-            </button>
-          </li>
         </ul>
       </nav>
       <div className="collapsed-notebook-shell">
