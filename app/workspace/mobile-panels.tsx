@@ -61,7 +61,9 @@ export const MobileNotebookHome = memo(function MobileNotebookHome({
         <BrandMark className="mobile-home-brand-mark" />
         <span>象映笔记</span>
       </h1>
-      <div className={`mobile-home-scroll-shell${scrollEdges.after ? " has-scroll-after" : ""}`}>
+      <div
+        className={`mobile-home-scroll-shell${scrollEdges.before ? " has-scroll-before" : ""}${scrollEdges.after ? " has-scroll-after" : ""}`}
+      >
         <div
           ref={scrollRef}
           id="mobile-notebooks-scroll"
