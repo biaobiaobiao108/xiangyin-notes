@@ -547,7 +547,7 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .tasks-scroll-shell::after { inset-block-end: 0; background: linear-gradient(to top, var(--surface), transparent); }
 .tasks-scroll-shell.has-scroll-before::before, .tasks-scroll-shell.has-scroll-after::after { opacity: 1; }
 .tasks-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
-.tasks-list { padding: 8px 12px 24px; }
+.tasks-list { padding: 0 12px 24px; }
 .tasks-note-group + .tasks-note-group { margin-top: 7px; border-top: 1px solid var(--line); }
 .tasks-note-group-header { position: sticky; top: 0; z-index: 3; display: flex; min-height: 34px; align-items: center; justify-content: space-between; gap: 8px; margin: 0; padding: 2px 8px; background: var(--surface-glass); color: var(--muted); font-size: .77rem; font-weight: 580; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
 .tasks-note-title { overflow: hidden; min-width: 0; text-overflow: ellipsis; white-space: nowrap; }
