@@ -550,8 +550,12 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .tasks-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
 .tasks-list { padding: 0 12px 24px; }
 .tasks-note-group + .tasks-note-group { margin-top: 7px; border-top: 1px solid var(--line); }
-.tasks-note-group-header { position: sticky; top: 0; z-index: 3; display: flex; min-height: 34px; align-items: center; justify-content: space-between; gap: 8px; margin: 0; padding: 2px 8px; background: var(--surface-glass); color: var(--muted); font-size: .77rem; font-weight: 580; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
-.tasks-note-title { overflow: hidden; min-width: 0; text-overflow: ellipsis; white-space: nowrap; }
+.tasks-note-group-header { position: sticky; top: 0; z-index: 3; margin: 0; background: var(--surface-glass); color: var(--muted); font-size: .77rem; font-weight: 580; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+.tasks-note-group-toggle { display: flex; width: 100%; min-height: 34px; align-items: center; gap: 6px; padding: 2px 8px; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; }
+.tasks-note-group-toggle:hover, .tasks-note-group-toggle:focus-visible { background: var(--surface-hover); }
+.tasks-note-group-chevron { flex: none; transition: transform var(--motion-fast) var(--motion-ease-out); }
+.tasks-note-group-toggle[aria-expanded="false"] .tasks-note-group-chevron { transform: rotate(-90deg); }
+.tasks-note-title { flex: 1; overflow: hidden; min-width: 0; text-overflow: ellipsis; white-space: nowrap; }
 .tasks-note-group h2 small { overflow: hidden; max-width: 42%; flex: 0 1 auto; color: var(--soft-muted); font-size: .7rem; font-weight: 450; text-overflow: ellipsis; white-space: nowrap; }
 .tasks-note-group ul { margin: 0; padding: 0; list-style: none; }
 .tasks-note-group li + li { border-top: 1px solid var(--line); }
@@ -1560,7 +1564,8 @@ dialog::backdrop {
   .app-shell[data-mobile-page] .tasks-note-group-header { background: var(--canvas); backdrop-filter: none; -webkit-backdrop-filter: none; }
   .app-shell[data-mobile-page] .tasks-scroll-shell::before, .app-shell[data-mobile-page] .note-list-scroll-shell::before, .is-mobile-editor .editor-scroll-shell::before, .is-mobile-card-grid .card-grid-scroll-shell::before { height: 20px; }
   .app-shell[data-mobile-page] .note-list-scroll-shell:has(.note-list-group-header)::before { inset-block-start: 30px; }
-  .app-shell[data-mobile-page] .tasks-scroll-shell:has(.tasks-note-group-header)::before { inset-block-start: 34px; }
+  .app-shell[data-mobile-page] .tasks-scroll-shell:has(.tasks-note-group-header)::before { inset-block-start: 44px; }
+  .app-shell[data-mobile-page] .tasks-note-group-toggle { min-height: 44px; }
   .app-shell[data-mobile-page] .tasks-scroll-shell::after, .app-shell[data-mobile-page] .note-list-scroll-shell::after, .is-mobile-editor .editor-scroll-shell::after { height: 20px; }
   .app-shell[data-mobile-page] .note-list-scroll-shell::after { background: linear-gradient(to top, var(--canvas), transparent); }
   .app-shell[data-mobile-page] .note-list-scroll-shell::before { background: linear-gradient(to bottom, var(--canvas), transparent); }

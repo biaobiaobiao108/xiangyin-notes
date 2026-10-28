@@ -51,6 +51,7 @@ export function TasksPanel({
   const notebookTriggerRef = useRef<HTMLButtonElement>(null);
   const statusTriggerRef = useRef<HTMLButtonElement>(null);
   const [openFilter, setOpenFilter] = useState<"status" | "notebook" | null>(null);
+  const [collapsedNotes, setCollapsedNotes] = useState<Set<string>>(() => new Set());
   const scrollEdges = useScrollEdges(listRef, [loading, notebookId, status, tasks.length]);
   const notebookNames = useMemo(
     () => new Map(notebooks.map((notebook) => [notebook.id, notebook.name])),
@@ -300,15 +301,37 @@ export function TasksPanel({
               <div className="tasks-list">
                 {taskGroups.map((group) => {
                   const firstTask = group[0]!;
+                  const collapsed = collapsedNotes.has(firstTask.noteId);
+                  const groupId = `tasks-note-${firstTask.noteId}`;
                   return (
                     <section className="tasks-note-group" key={firstTask.noteId}>
                       <h2 className="tasks-note-group-header">
-                        <span className="tasks-note-title">{firstTask.noteTitle}</span>
-                        {notebookNames.has(firstTask.notebookId) ? (
-                          <small>{notebookNames.get(firstTask.notebookId)}</small>
-                        ) : null}
+                        <button
+                          type="button"
+                          className="tasks-note-group-toggle"
+                          aria-expanded={!collapsed}
+                          aria-controls={groupId}
+                          onClick={() => {
+                            setCollapsedNotes((current) => {
+                              const next = new Set(current);
+                              if (next.has(firstTask.noteId)) next.delete(firstTask.noteId);
+                              else next.add(firstTask.noteId);
+                              return next;
+                            });
+                          }}
+                        >
+                          <ChevronDown
+                            className="tasks-note-group-chevron"
+                            size={14}
+                            aria-hidden="true"
+                          />
+                          <span className="tasks-note-title">{firstTask.noteTitle}</span>
+                          {notebookNames.has(firstTask.notebookId) ? (
+                            <small>{notebookNames.get(firstTask.notebookId)}</small>
+                          ) : null}
+                        </button>
                       </h2>
-                      <ul>
+                      <ul id={groupId} hidden={collapsed}>
                         {group.map((task) => {
                           const isBusy =
                             busyTask?.noteId === task.noteId && busyTask.ordinal === task.ordinal;
