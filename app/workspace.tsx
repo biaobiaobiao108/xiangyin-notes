@@ -242,6 +242,7 @@ export function Workspace() {
     mobilePage,
     openMobileList,
     openMobileNote,
+    openMobileTasks,
     backMobilePage,
     openMobileHome,
   } = useMobileNavigation(
@@ -720,6 +721,7 @@ export function Workspace() {
   mobileRestoreRef.current = (context, page) => {
     flushEditorDraftRef.current();
     setOutlineOpen(false);
+    setTasksOpen(page === "tasks");
     setView(context.view);
     setNotebookId(context.notebookId);
     setQuery(context.query);
@@ -1767,8 +1769,9 @@ export function Workspace() {
     setView("all");
     setNotebookId(undefined);
     setTasksOpen(true);
-    if (!isMobileViewport)
-      openMobileList({ view: "all", notebookId: undefined, query: "", searchOrigin: null });
+    if (isMobileViewport)
+      openMobileTasks({ view: "all", notebookId: undefined, query: "", searchOrigin: null });
+    else openMobileList({ view: "all", notebookId: undefined, query: "", searchOrigin: null });
   }, [
     flushPendingSaves,
     flushSecondaryDraft,
@@ -1776,6 +1779,7 @@ export function Workspace() {
     isMobileViewport,
     notifyWarning,
     openMobileList,
+    openMobileTasks,
     query,
   ]);
   const selectTask = useCallback(
@@ -2382,7 +2386,9 @@ export function Workspace() {
           ? "#mobile-notebooks-title"
           : mobilePage === "list"
             ? ".mobile-collection-header h2"
-            : ".mobile-editor-title";
+            : mobilePage === "tasks"
+              ? ".tasks-back"
+              : ".mobile-editor-title";
       document.querySelector<HTMLElement>(selector)?.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(frame);
@@ -2672,14 +2678,7 @@ export function Workspace() {
           onSelectTask={selectTask}
           onToggleTask={handleToggleTask}
           onLoadMore={loadMoreTasks}
-          onBack={
-            isMobileViewport
-              ? () => {
-                  setTasksOpen(false);
-                  openMobileHome();
-                }
-              : undefined
-          }
+          onBack={isMobileViewport ? backMobilePage : undefined}
         />
       )}
       {!tasksOpen && !isCardsLayout && !mobileCards && (

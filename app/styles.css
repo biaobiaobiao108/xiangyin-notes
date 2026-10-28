@@ -533,8 +533,8 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .tasks-filter-trigger-notebook { width: 100%; }
 .tasks-filter-trigger > svg { flex: none; color: var(--soft-muted); }
 .tasks-filter-trigger:hover, .tasks-filter-trigger[aria-expanded="true"] { border-color: var(--accent-border-soft); background: var(--surface); color: var(--ink); }
-.tasks-filter-menu { position: absolute; z-index: 30; top: calc(100% + 7px); left: 0; display: grid; width: 100%; max-height: min(360px, 55vh); gap: 2px; overflow-x: hidden; overflow-y: auto; padding: 5px; border: 1px solid var(--border-soft); border-radius: var(--radius-md); background: var(--surface-glass-menu); box-shadow: var(--shadow-float); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); animation: dropdown-in var(--motion-fast) var(--motion-ease-out) both; }
-.tasks-filter-dropdown:last-child .tasks-filter-menu { right: auto; left: 0; }
+.tasks-filter-menu-wrap { position: absolute; z-index: 30; top: calc(100% + 7px); left: 0; width: 100%; max-height: min(360px, 55vh); }
+.tasks-filter-menu { position: relative; display: grid; width: 100%; max-height: inherit; gap: 2px; overflow-x: hidden; overflow-y: auto; padding: 5px; border: 1px solid var(--border-soft); border-radius: var(--radius-md); background: var(--surface-glass-menu); box-shadow: var(--shadow-float); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); animation: dropdown-in var(--motion-fast) var(--motion-ease-out) both; }
 .tasks-filter-menu button { display: flex; width: 100%; min-width: 0; min-height: 34px; align-items: center; gap: 8px; padding: 7px 10px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ink); font: inherit; font-size: .8125rem; text-align: left; cursor: pointer; }
 .tasks-filter-menu button > .tasks-filter-option-label { width: auto; height: auto; min-width: 0; flex: 1 1 auto; overflow: hidden; color: inherit; text-overflow: ellipsis; white-space: nowrap; }
 .tasks-filter-menu button:hover:not(.is-selected), .tasks-filter-menu button:focus-visible:not(.is-selected) { background: var(--surface-muted); }
@@ -575,6 +575,8 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .tasks-load-more button:hover { background: var(--surface-muted); }
 .tasks-back { display: none; }
 .app-shell[data-mobile-page="home"].is-tasks-open > .tasks-panel { display: flex; }
+.app-shell[data-mobile-page="tasks"] > .tasks-panel { display: flex; grid-column: 1; width: 100%; height: 100%; }
+.app-shell[data-mobile-page="tasks"] > .editor-region { display: none; }
 .note-list-scroll-shell { position: relative; flex: 1 1 0; min-height: 0; overflow: hidden; }
 .note-list-scroll-shell::before, .note-list-scroll-shell::after {
   position: absolute;
@@ -1534,6 +1536,9 @@ dialog::backdrop {
   .app-shell[data-mobile-page] .empty-trash-button { width: 44px; height: 44px; justify-content: center; }
   .app-shell[data-mobile-page] .note-list-panel { background: var(--canvas); }
   .app-shell[data-mobile-page="home"].is-tasks-open > .tasks-panel { grid-column: 1; width: 100%; height: 100%; }
+  .app-shell[data-mobile-page="tasks"] > .tasks-panel > .tasks-header { height: calc(64px + env(safe-area-inset-top)); min-height: calc(64px + env(safe-area-inset-top)); box-sizing: border-box; padding: env(safe-area-inset-top) max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left)); background: var(--canvas); backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .app-shell[data-mobile-page="tasks"] > .tasks-panel > .tasks-header h2 { font-size: 20px; font-weight: 650; letter-spacing: -0.025em; }
+  .app-shell[data-mobile-page="tasks"] > .tasks-panel > .tasks-header .tasks-count { margin-top: 2px; font-size: 13px; }
   .tasks-panel { flex-basis: auto; }
   .tasks-toolbar { min-height: 52px; gap: 6px; padding: 7px max(16px, env(safe-area-inset-right)) 7px max(16px, env(safe-area-inset-left)); }
   .app-shell[data-mobile-page] .tasks-header .list-header-main { grid-column: auto; grid-row: auto; width: auto; flex: 1; margin: 0; }
@@ -1541,11 +1546,12 @@ dialog::backdrop {
   .tasks-back span { display: none; }
   .tasks-filter-dropdown:last-child { max-width: 190px; }
   .tasks-filter-dropdown:first-of-type .tasks-filter-trigger { min-width: 106px; }
-  .tasks-filter-menu { max-height: min(420px, 58dvh); }
+  .tasks-filter-menu-wrap, .tasks-filter-menu { max-height: min(420px, 58dvh); }
   .tasks-list { padding-bottom: calc(92px + env(safe-area-inset-bottom)); }
   .app-shell[data-mobile-page] .tasks-scroll-shell::before { background: linear-gradient(to bottom, var(--canvas), transparent); }
   .app-shell[data-mobile-page] .tasks-scroll-shell::after { background: linear-gradient(to top, var(--canvas), transparent); }
   .app-shell[data-mobile-page] .tasks-note-group-header { background: var(--canvas); backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .app-shell[data-mobile-page="tasks"] > .mobile-bottom-bar { background: linear-gradient(to bottom, transparent, var(--canvas) 72px); }
   .app-shell[data-mobile-page] .note-list-scroll-shell::before { background: linear-gradient(to bottom, var(--canvas), transparent); }
   .app-shell[data-mobile-page] .note-list-scroll-shell::after { background: linear-gradient(to top, var(--canvas), transparent); }
   .app-shell[data-mobile-page] .note-list { padding-bottom: calc(110px + env(safe-area-inset-bottom)); scroll-padding-top: 30px; }

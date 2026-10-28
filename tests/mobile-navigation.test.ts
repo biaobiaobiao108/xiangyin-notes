@@ -31,12 +31,28 @@ const context: MobileListContext = {
 };
 
 describe("mobile page navigation", () => {
-  test("task view remains visible on home and list return pages, then restores in editor", () => {
+  test("task panel stays visible while open except in the mobile editor", () => {
     expect(shouldShowTasksPanel(true, true, "home")).toBe(true);
     expect(shouldShowTasksPanel(true, true, "list")).toBe(true);
+    expect(shouldShowTasksPanel(true, true, "tasks")).toBe(true);
     expect(shouldShowTasksPanel(true, true, "editor")).toBe(false);
     expect(shouldShowTasksPanel(true, false, "editor")).toBe(true);
     expect(shouldShowTasksPanel(false, true, "home")).toBe(false);
+  });
+  test("tasks are a history destination so system back returns to home", () => {
+    const history = new TestHistory();
+    const navigation = new MobileNavigationHistory(history, context, "session");
+    navigation.open("tasks", context);
+    expect(history.entries).toHaveLength(2);
+    expect(navigation.restore(history.state)?.page).toBe("tasks");
+
+    navigation.open("editor", { ...context, noteId: "task-note" });
+    navigation.back();
+    expect(navigation.restore(history.state)?.page).toBe("tasks");
+    navigation.back();
+    expect(navigation.restore(history.state)?.page).toBe("home");
+    history.go(1);
+    expect(navigation.restore(history.state)?.page).toBe("tasks");
   });
   test("home → notebook list → note; browser back and forward retain the list context", () => {
     const history = new TestHistory();

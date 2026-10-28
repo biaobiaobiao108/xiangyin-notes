@@ -45,6 +45,8 @@ export function TasksPanel({
 }) {
   const listRef = useRef<HTMLDivElement>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
+  const statusMenuRef = useRef<HTMLDivElement>(null);
+  const notebookMenuRef = useRef<HTMLDivElement>(null);
   const filtersRef = useRef<HTMLDivElement>(null);
   const notebookTriggerRef = useRef<HTMLButtonElement>(null);
   const statusTriggerRef = useRef<HTMLButtonElement>(null);
@@ -173,34 +175,44 @@ export function TasksPanel({
             <ChevronDown size={14} aria-hidden="true" />
           </button>
           {openFilter === "status" && (
-            <div
-              className="tasks-filter-menu"
-              data-filter="status"
-              role="menu"
-              aria-label="任务状态"
-            >
-              {(
-                [
-                  ["open", "未完成"],
-                  ["done", "已完成"],
-                  ["all", "全部"],
-                ] as const
-              ).map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  role="menuitemradio"
-                  aria-checked={status === value}
-                  className={status === value ? "is-selected" : ""}
-                  onClick={() => {
-                    onStatusChange(value);
-                    setOpenFilter(null);
-                    statusTriggerRef.current?.focus();
-                  }}
-                >
-                  <span className="tasks-filter-option-label">{label}</span>
-                </button>
-              ))}
+            <div className="tasks-filter-menu-wrap">
+              <div
+                id="tasks-status-filter-menu"
+                ref={statusMenuRef}
+                className="tasks-filter-menu floating-scrollbar-target"
+                data-filter="status"
+                role="menu"
+                aria-label="任务状态"
+              >
+                {(
+                  [
+                    ["open", "未完成"],
+                    ["done", "已完成"],
+                    ["all", "全部"],
+                  ] as const
+                ).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={status === value}
+                    className={status === value ? "is-selected" : ""}
+                    onClick={() => {
+                      onStatusChange(value);
+                      setOpenFilter(null);
+                      statusTriggerRef.current?.focus();
+                    }}
+                  >
+                    <span className="tasks-filter-option-label">{label}</span>
+                  </button>
+                ))}
+              </div>
+              <FloatingScrollbar
+                scrollTargetRef={statusMenuRef}
+                controlsId="tasks-status-filter-menu"
+                ariaLabel="任务状态菜单滚动条"
+                placement="right"
+              />
             </div>
           )}
         </div>
@@ -218,41 +230,51 @@ export function TasksPanel({
             <ChevronDown size={14} aria-hidden="true" />
           </button>
           {openFilter === "notebook" && (
-            <div
-              className="tasks-filter-menu"
-              data-filter="notebook"
-              role="menu"
-              aria-label="笔记本"
-            >
-              <button
-                type="button"
-                role="menuitemradio"
-                aria-checked={!notebookId}
-                className={!notebookId ? "is-selected" : ""}
-                onClick={() => {
-                  onNotebookChange("");
-                  setOpenFilter(null);
-                  notebookTriggerRef.current?.focus();
-                }}
+            <div className="tasks-filter-menu-wrap">
+              <div
+                id="tasks-notebook-filter-menu"
+                ref={notebookMenuRef}
+                className="tasks-filter-menu floating-scrollbar-target"
+                data-filter="notebook"
+                role="menu"
+                aria-label="笔记本"
               >
-                <span className="tasks-filter-option-label">全部笔记本</span>
-              </button>
-              {notebooks.map((notebook) => (
                 <button
-                  key={notebook.id}
                   type="button"
                   role="menuitemradio"
-                  aria-checked={notebookId === notebook.id}
-                  className={notebookId === notebook.id ? "is-selected" : ""}
+                  aria-checked={!notebookId}
+                  className={!notebookId ? "is-selected" : ""}
                   onClick={() => {
-                    onNotebookChange(notebook.id);
+                    onNotebookChange("");
                     setOpenFilter(null);
                     notebookTriggerRef.current?.focus();
                   }}
                 >
-                  <span className="tasks-filter-option-label">{notebook.name}</span>
+                  <span className="tasks-filter-option-label">全部笔记本</span>
                 </button>
-              ))}
+                {notebooks.map((notebook) => (
+                  <button
+                    key={notebook.id}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={notebookId === notebook.id}
+                    className={notebookId === notebook.id ? "is-selected" : ""}
+                    onClick={() => {
+                      onNotebookChange(notebook.id);
+                      setOpenFilter(null);
+                      notebookTriggerRef.current?.focus();
+                    }}
+                  >
+                    <span className="tasks-filter-option-label">{notebook.name}</span>
+                  </button>
+                ))}
+              </div>
+              <FloatingScrollbar
+                scrollTargetRef={notebookMenuRef}
+                controlsId="tasks-notebook-filter-menu"
+                ariaLabel="笔记本菜单滚动条"
+                placement="right"
+              />
             </div>
           )}
         </div>
