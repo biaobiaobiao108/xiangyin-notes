@@ -749,8 +749,10 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .note-tags-measure { position: absolute; width: 0; height: 0; overflow: hidden; visibility: hidden; pointer-events: none; }
 .note-tags-ruler { display: flex; width: max-content; }
 .note-tags-ruler > span { flex: none; max-width: 16em; }
-.note-list-load-more-item { padding: 14px 20px 24px; list-style: none; display: flex; justify-content: center; }
-.note-list-load-more-button { width: 100%; min-height: 38px; font-size: 0.82rem; }
+.note-list-load-more-item { padding: 10px 20px 20px; list-style: none; display: flex; justify-content: center; }
+.note-list-load-more-button { width: auto; min-height: 38px; padding-inline: 14px; border-color: transparent; background: transparent; color: var(--muted); font-size: 0.8rem; font-weight: 500; box-shadow: none; }
+.note-list-load-more-button:hover:not(:disabled) { border-color: transparent; background: var(--surface-muted); color: var(--ink); box-shadow: none; transform: none; }
+.note-list-load-more-button:active:not(:disabled) { transform: none; }
 .list-empty { display: grid; justify-items: center; gap: 8px; padding: 86px 26px; color: var(--muted); text-align: center; }
 .list-empty strong { color: var(--ink); font-size: 0.92rem; }
 .list-empty > span:last-child { max-width: 220px; font-size: 0.78rem; line-height: 1.5; }
@@ -783,10 +785,13 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 }
 .note-list-group-header:not(.is-virtual-sticky) { padding: 0; }
 .note-list-group-toggle { display: flex; width: 100%; min-width: 0; height: 100%; align-items: center; gap: 6px; padding: 8px 14px 4px; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.note-list-virtual-group-toggle { display: flex; width: 100%; min-width: 0; height: 100%; align-items: center; gap: 6px; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .note-list-group-chevron { flex: none; transition: transform var(--motion-fast) var(--motion-ease-out); }
-.note-list-group-toggle[aria-expanded="false"] .note-list-group-chevron { transform: rotate(-90deg); }
+.note-list-group-toggle[aria-expanded="false"] .note-list-group-chevron,
+.note-list-virtual-group-toggle[aria-expanded="false"] .note-list-group-chevron { transform: rotate(-90deg); }
 .note-list-group-title { color: var(--muted); }
-.note-list-group-toggle .note-list-group-title { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.note-list-group-toggle .note-list-group-title,
+.note-list-virtual-group-toggle .note-list-group-title { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .note-list-group-count {
   font-variant-numeric: tabular-nums;
   font-size: 0.68rem;
@@ -796,6 +801,8 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .note-list-group-content { display: grid; grid-template-rows: 1fr; overflow-anchor: none; padding-block: 4px; transition: grid-template-rows var(--motion-group) var(--motion-group-ease), padding-block var(--motion-group) var(--motion-group-ease); }
 .note-list-group-content.is-collapsed { grid-template-rows: 0fr; padding-block: 0; }
 .note-list-group-content > ul { min-height: 0; overflow: hidden; padding: 0; }
+.note-list-group-proxy { height: 30px; pointer-events: none; }
+.note-list-items.is-group-transitioning > li { transition: transform var(--motion-group) var(--motion-group-ease); }
 
 /* 多选拖影沿用笔记卡片本身的样式。 */
 .note-drag-ghost-shell {

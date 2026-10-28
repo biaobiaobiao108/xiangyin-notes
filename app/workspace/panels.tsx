@@ -39,6 +39,7 @@ import {
   getNoteTags,
   getNotebookIconComponent,
   groupNotes,
+  type NoteGroup,
   navItems,
   relativeDate,
   sortNotes,
@@ -51,6 +52,13 @@ import { collapsedGroupScrollTop } from "./group-layout";
 import { useScrollEdges } from "./use-scroll-edges";
 import { MobileCollectionHeader } from "./mobile-collection-header";
 import { type NoteSwipeAction, useSwipeActionGesture, useSwipeActionGroup } from "./swipe-actions";
+
+function toggleGroupInSet(current: ReadonlySet<string>, groupId: string) {
+  const next = new Set(current);
+  if (current.has(groupId)) next.delete(groupId);
+  else next.add(groupId);
+  return next;
+}
 
 export function NoteLoadingState() {
   return (
@@ -932,7 +940,9 @@ export const NoteListPanel = memo(function NoteListPanel({
 
   const [draggingNoteIds, setDraggingNoteIds] = useState<ReadonlySet<string> | null>(null);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
+  const [virtualGroupTransitioning, setVirtualGroupTransitioning] = useState(false);
   const dragFrameRef = useRef<number | null>(null);
+  const virtualGroupTransitionTimerRef = useRef<number | null>(null);
 
   const handleRowDragStart = useCallback(
     (note: NoteSummary, event: ReactDragEvent<HTMLButtonElement>) => {
@@ -969,11 +979,38 @@ export const NoteListPanel = memo(function NoteListPanel({
   }, []);
 
   const sortedNotes = useMemo(() => sortNotes(notes, "updated"), [notes]);
+  const groups = useMemo(() => {
+    if (query.trim()) return null;
+    return groupNotes(sortedNotes, "updated");
+  }, [query, sortedNotes]);
+  const collapsedProxyGroups = useMemo(() => {
+    const proxyGroups = new Map<string, NoteGroup>();
+    for (const group of groups ?? []) {
+      if (collapsedGroups.has(group.id)) proxyGroups.set(group.notes[0]!.id, group);
+    }
+    return proxyGroups;
+  }, [collapsedGroups, groups]);
+  const collapsedProxyNoteIds = useMemo(
+    () => new Set(collapsedProxyGroups.keys()),
+    [collapsedProxyGroups],
+  );
+  const virtualRows = useMemo(() => {
+    if (!groups) return sortedNotes;
+    return groups.flatMap((group) =>
+      collapsedGroups.has(group.id) ? [group.notes[0]!] : group.notes,
+    );
+  }, [collapsedGroups, groups, sortedNotes]);
+  const sortedIndexById = useMemo(
+    () => new Map(sortedNotes.map((note, index) => [note.id, index])),
+    [sortedNotes],
+  );
   const virtualList = useVirtualNoteList(
-    sortedNotes,
+    virtualRows,
     noteListRef,
     noteListElement,
     virtualizationScope,
+    sortedNotes.length,
+    collapsedProxyNoteIds,
   );
   const noteListScrollEdges = useScrollEdges(noteListRef, [
     noteListElement,
@@ -981,17 +1018,16 @@ export const NoteListPanel = memo(function NoteListPanel({
     virtualList.totalHeight,
   ]);
 
-  const groups = useMemo(() => {
-    if (query.trim()) return null;
-    return groupNotes(sortedNotes, "updated");
-  }, [query, sortedNotes]);
-
   const currentStickyGroup = useMemo(() => {
     if (!groups || groups.length === 0) return null;
     const topNote = virtualList.topVisibleNote;
     if (!topNote) return groups[0];
     return groups.find((g) => g.notes.some((n) => n.id === topNote.id)) || groups[0];
   }, [groups, virtualList.topVisibleNote]);
+  const virtualStickyGroup = currentStickyGroup ?? groups?.[0] ?? null;
+  const virtualStickyGroupCollapsed = virtualStickyGroup
+    ? collapsedGroups.has(virtualStickyGroup.id)
+    : false;
 
   const toggleGroup = (button: HTMLButtonElement, groupId: string) => {
     const scroll = noteListRef.current;
@@ -1011,18 +1047,41 @@ export const NoteListPanel = memo(function NoteListPanel({
       });
       if (anchorScrollTop !== null) scroll.scrollTop = anchorScrollTop;
     }
-    setCollapsedGroups((current) => {
-      const next = new Set(current);
-      if (isCollapsed) next.delete(groupId);
-      else next.add(groupId);
-      return next;
-    });
+    setCollapsedGroups((current) => toggleGroupInSet(current, groupId));
   };
 
-  const keyboardNotes =
-    !virtualList.isVirtualized && groups
-      ? groups.flatMap((group) => (collapsedGroups.has(group.id) ? [] : group.notes))
-      : sortedNotes;
+  const toggleVirtualGroup = (group: NoteGroup) => {
+    virtualList.scrollToRowStart(group.notes[0]!.id);
+    const duration = Number.parseFloat(
+      getComputedStyle(document.documentElement).getPropertyValue("--motion-group"),
+    );
+    if (Number.isFinite(duration) && duration > 0) {
+      if (virtualGroupTransitionTimerRef.current !== null)
+        window.clearTimeout(virtualGroupTransitionTimerRef.current);
+      setVirtualGroupTransitioning(true);
+      virtualGroupTransitionTimerRef.current = window.setTimeout(() => {
+        virtualGroupTransitionTimerRef.current = null;
+        setVirtualGroupTransitioning(false);
+      }, duration);
+    }
+    setCollapsedGroups((current) => toggleGroupInSet(current, group.id));
+  };
+
+  useEffect(
+    () => () => {
+      if (virtualGroupTransitionTimerRef.current !== null)
+        window.clearTimeout(virtualGroupTransitionTimerRef.current);
+    },
+    [],
+  );
+
+  const keyboardNotes = useMemo(
+    () =>
+      groups
+        ? groups.flatMap((group) => (collapsedGroups.has(group.id) ? [] : group.notes))
+        : sortedNotes,
+    [collapsedGroups, groups, sortedNotes],
+  );
 
   const handleNoteListKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     virtualList.moveTabFocus(event);
@@ -1186,14 +1245,22 @@ export const NoteListPanel = memo(function NoteListPanel({
                 onFocusCapture={virtualList.onFocusCapture}
                 onBlurCapture={virtualList.onBlurCapture}
               >
-                {virtualList.isVirtualized && groups && groups.length > 0 && (
-                  <div className="note-list-group-header is-virtual-sticky" aria-hidden="true">
-                    <span className="note-list-group-title">
-                      {currentStickyGroup?.title || groups[0]?.title}
-                    </span>
-                    <span className="note-list-group-count">
-                      {currentStickyGroup?.count || groups[0]?.count}
-                    </span>
+                {virtualList.isVirtualized && virtualStickyGroup && (
+                  <div className="note-list-group-header is-virtual-sticky">
+                    <button
+                      type="button"
+                      className="note-list-virtual-group-toggle"
+                      aria-expanded={!virtualStickyGroupCollapsed}
+                      onClick={() => toggleVirtualGroup(virtualStickyGroup)}
+                    >
+                      <ChevronDown
+                        className="note-list-group-chevron"
+                        size={13}
+                        aria-hidden="true"
+                      />
+                      <span className="note-list-group-title">{virtualStickyGroup.title}</span>
+                      <span className="note-list-group-count">{virtualStickyGroup.count}</span>
+                    </button>
                   </div>
                 )}
                 {!virtualList.isVirtualized && groups ? (
@@ -1277,34 +1344,54 @@ export const NoteListPanel = memo(function NoteListPanel({
                     )}
                   </div>
                 ) : (
-                  <ul className="note-list-items" role="list" style={listStyle}>
-                    {virtualList.visibleRows.map(({ note, index, top }) => (
-                      <NoteListRow
-                        key={note.id}
-                        note={note}
-                        rowIndex={index}
-                        setSize={listSize}
-                        rowRef={
-                          virtualList.isVirtualized ? virtualList.getRowRef(note.id) : undefined
-                        }
-                        rowStyle={virtualList.rowStyle(top)}
-                        isSelected={selectedIds.has(note.id)}
-                        selectedIds={selectedIds}
-                        isActive={selectedId === note.id && !isMobileViewport}
-                        showNotebook
-                        onToggleFavorite={onToggleFavoriteNote}
-                        onSelect={onSelect}
-                        isMobileViewport={isMobileViewport}
-                        isTrashView={view === "trash"}
-                        trashBusy={trashBusy}
-                        onNoteSwipeAction={onNoteSwipeAction}
-                        open={swipeActions.openId === note.id}
-                        setOpenId={swipeActions.setOpenId}
-                        isDragging={draggingNoteIds?.has(note.id) ?? false}
-                        onDragStart={handleRowDragStart}
-                        onDragEnd={handleRowDragEnd}
-                      />
-                    ))}
+                  <ul
+                    className={`note-list-items${virtualGroupTransitioning ? " is-group-transitioning" : ""}`}
+                    role="list"
+                    style={listStyle}
+                  >
+                    {virtualList.visibleRows.map(({ note, index, top }) => {
+                      if (collapsedProxyNoteIds.has(note.id)) {
+                        return (
+                          <li
+                            key={note.id}
+                            ref={
+                              virtualList.isVirtualized ? virtualList.getRowRef(note.id) : undefined
+                            }
+                            data-note-id={note.id}
+                            className="note-list-group-proxy"
+                            aria-hidden="true"
+                            style={{ ...virtualList.rowStyle(top), height: 30 }}
+                          />
+                        );
+                      }
+                      return (
+                        <NoteListRow
+                          key={note.id}
+                          note={note}
+                          rowIndex={sortedIndexById.get(note.id) ?? index}
+                          setSize={listSize}
+                          rowRef={
+                            virtualList.isVirtualized ? virtualList.getRowRef(note.id) : undefined
+                          }
+                          rowStyle={virtualList.rowStyle(top)}
+                          isSelected={selectedIds.has(note.id)}
+                          selectedIds={selectedIds}
+                          isActive={selectedId === note.id && !isMobileViewport}
+                          showNotebook
+                          onToggleFavorite={onToggleFavoriteNote}
+                          onSelect={onSelect}
+                          isMobileViewport={isMobileViewport}
+                          isTrashView={view === "trash"}
+                          trashBusy={trashBusy}
+                          onNoteSwipeAction={onNoteSwipeAction}
+                          open={swipeActions.openId === note.id}
+                          setOpenId={swipeActions.setOpenId}
+                          isDragging={draggingNoteIds?.has(note.id) ?? false}
+                          onDragStart={handleRowDragStart}
+                          onDragEnd={handleRowDragEnd}
+                        />
+                      );
+                    })}
                     {hasLoadMoreRow && (
                       <li
                         ref={loadMoreSentinelRef}

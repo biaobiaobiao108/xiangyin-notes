@@ -14,6 +14,7 @@ import type { NoteSummary } from "../../shared/types";
 const VIRTUALIZE_AFTER = 140;
 const ESTIMATED_ROW_HEIGHT = 120;
 const OVERSCAN_PX = 720;
+const NO_NON_FOCUSABLE_ROWS: ReadonlySet<string> = new Set();
 
 type Viewport = { top: number; height: number };
 
@@ -43,6 +44,8 @@ export function useVirtualNoteList(
   scrollRef: RefObject<HTMLDivElement | null>,
   scrollElement: HTMLDivElement | null,
   scope: string,
+  virtualizationCount = rows.length,
+  nonFocusableRowIds: ReadonlySet<string> = NO_NON_FOCUSABLE_ROWS,
 ) {
   const [viewport, setViewport] = useState<Viewport>({ top: 0, height: 800 });
   const [measurementRevision, setMeasurementRevision] = useState(0);
@@ -63,7 +66,7 @@ export function useVirtualNoteList(
   );
   const offsetsRef = useRef(offsets);
   offsetsRef.current = offsets;
-  const isVirtualized = rows.length > VIRTUALIZE_AFTER;
+  const isVirtualized = virtualizationCount > VIRTUALIZE_AFTER;
 
   useLayoutEffect(() => {
     heightsRef.current.clear();
@@ -230,6 +233,21 @@ export function useVirtualNoteList(
     [isVirtualized],
   );
 
+  const scrollToRowStart = useCallback(
+    (noteId: string) => {
+      const index = indexByIdRef.current.get(noteId);
+      const container = scrollRef.current;
+      if (index === undefined || !container) return;
+      const top = offsetsRef.current[index] ?? 0;
+      container.scrollTop = top + contentInsetRef.current;
+      setViewport((current) => {
+        const next = { top, height: container.clientHeight || current.height || 800 };
+        return current.top === next.top && current.height === next.height ? current : next;
+      });
+    },
+    [scrollRef],
+  );
+
   const onFocusCapture = useCallback((event: ReactFocusEvent<HTMLDivElement>) => {
     const noteId = (event.target as HTMLElement).closest<HTMLElement>("[data-note-id]")?.dataset
       .noteId;
@@ -271,8 +289,30 @@ export function useVirtualNoteList(
       if (!currentId) return;
       const currentIndex = indexByIdRef.current.get(currentId);
       if (currentIndex === undefined) return;
-      const nextIndex = event.shiftKey ? currentIndex - 1 : currentIndex + 1;
-      const boundaryIndex = event.shiftKey ? startIndex : endIndex - 1;
+      const direction = event.shiftKey ? -1 : 1;
+      let nextIndex = currentIndex + direction;
+      while (
+        nextIndex >= 0 &&
+        nextIndex < rows.length &&
+        nonFocusableRowIds.has(rows[nextIndex]!.id)
+      )
+        nextIndex += direction;
+      let boundaryIndex: number | null = null;
+      if (event.shiftKey) {
+        for (let index = startIndex; index < endIndex; index += 1) {
+          if (!nonFocusableRowIds.has(rows[index]!.id)) {
+            boundaryIndex = index;
+            break;
+          }
+        }
+      } else {
+        for (let index = endIndex - 1; index >= startIndex; index -= 1) {
+          if (!nonFocusableRowIds.has(rows[index]!.id)) {
+            boundaryIndex = index;
+            break;
+          }
+        }
+      }
       const focusedOutsideWindow = currentIndex < startIndex || currentIndex >= endIndex;
       if (
         (!focusedOutsideWindow && currentIndex !== boundaryIndex) ||
@@ -294,7 +334,16 @@ export function useVirtualNoteList(
       container.scrollTop = targetScrollTop + contentInsetRef.current;
       setViewport({ top: targetScrollTop, height: container.clientHeight || viewport.height });
     },
-    [endIndex, isVirtualized, offsets, rows, scrollRef, startIndex, viewport.height],
+    [
+      endIndex,
+      isVirtualized,
+      nonFocusableRowIds,
+      offsets,
+      rows,
+      scrollRef,
+      startIndex,
+      viewport.height,
+    ],
   );
 
   return {
@@ -304,6 +353,7 @@ export function useVirtualNoteList(
     totalHeight: offsets[offsets.length - 1] ?? 0,
     rowStyle,
     getRowRef,
+    scrollToRowStart,
     moveTabFocus,
     onFocusCapture,
     onBlurCapture,
