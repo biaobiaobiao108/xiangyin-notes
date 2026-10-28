@@ -1,4 +1,4 @@
-import { extractTags, normalizeTag, parseTagQuery } from "../../shared/tags";
+import { normalizeTag, parseTagQuery } from "../../shared/tags";
 import type {
   NoteBacklinksResponse,
   NoteLinkSummary,
@@ -41,7 +41,6 @@ import {
   type RouteContext,
   type SqliteDatabase,
   type SqlValue,
-  syncNoteTags,
   parseIndexedTags,
   toFullNote,
   toNote,
@@ -78,11 +77,6 @@ const TASK_PAGE_MAX_SIZE = 200;
 const NOTE_SORTS: NoteSort[] = ["updated", "created", "title"];
 const NOTE_LIST_MAX_OFFSET = 1_000_000;
 const NOTE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
-const TAG_RECONCILE_CACHE_LIMIT = 512;
-const TAG_RECONCILE_CACHE_MAX_TAG_LENGTH = 256;
-// Notes created or changed by this server synchronously rebuild note_tags,
-// so a successfully verified user/tag pair remains valid for this DB handle.
-const verifiedTagFiltersByDatabase = new WeakMap<SqliteDatabase, Map<string, true>>();
 
 type TaskCursor = { sortCreatedAt: number; noteId: string; ordinal: number };
 
@@ -109,33 +103,6 @@ function decodeTaskCursor(value: string | null): TaskCursor | null | false {
 
 function encodeTaskCursor(cursor: TaskCursor) {
   return Buffer.from(JSON.stringify(cursor)).toString("base64url");
-}
-
-function tagReconcileCacheKey(userId: string, normalizedTag: string) {
-  return `${userId}\0${normalizedTag}`;
-}
-
-function isTagFilterVerified(database: SqliteDatabase, userId: string, normalizedTag: string) {
-  if (normalizedTag.length > TAG_RECONCILE_CACHE_MAX_TAG_LENGTH) return false;
-  const cache = verifiedTagFiltersByDatabase.get(database);
-  const key = tagReconcileCacheKey(userId, normalizedTag);
-  if (!cache?.has(key)) return false;
-  cache.delete(key);
-  cache.set(key, true);
-  return true;
-}
-
-function markTagFilterVerified(database: SqliteDatabase, userId: string, normalizedTag: string) {
-  if (normalizedTag.length > TAG_RECONCILE_CACHE_MAX_TAG_LENGTH) return;
-  const cache = verifiedTagFiltersByDatabase.get(database) ?? new Map<string, true>();
-  const key = tagReconcileCacheKey(userId, normalizedTag);
-  cache.delete(key);
-  cache.set(key, true);
-  if (cache.size > TAG_RECONCILE_CACHE_LIMIT) {
-    const oldestKey = cache.keys().next().value;
-    if (oldestKey !== undefined) cache.delete(oldestKey);
-  }
-  verifiedTagFiltersByDatabase.set(database, cache);
 }
 
 type SearchSort = NoteSort | "relevance";
@@ -747,38 +714,6 @@ export async function handleNotesRoute(
       ),
     ];
     const normalizedTagFilters = [...new Set(tagFilters.map(normalizeTag))];
-    // Tag rows are derived from Markdown and may have been indexed by an older
-    // parser. Reconcile candidates before filtering so old code-span hashtags
-    // stop matching and the returned tag metadata is corrected as well.
-    for (const tagFilter of normalizedTagFilters) {
-      if (isTagFilterVerified(database, user.id, tagFilter)) continue;
-      // Fetch bounded candidates in one query instead of unbounded notes.
-      const candidates = all<{ id: string; content_markdown: string; tags_json: string }>(
-        database,
-        `
-        SELECT n.id, n.content_markdown,
-          COALESCE((SELECT json_group_array(tag) FROM (SELECT tag FROM note_tags WHERE note_id = n.id ORDER BY position)), '[]') AS tags_json
-        FROM notes n
-        WHERE n.user_id = ? AND EXISTS (
-          SELECT 1 FROM note_tags t WHERE t.note_id = n.id AND t.user_id = n.user_id AND t.tag_normalized = ?
-        )
-        LIMIT 100
-      `,
-        user.id,
-        tagFilter,
-      );
-      for (const candidate of candidates) {
-        const storedTags = parseIndexedTags(candidate.tags_json);
-        const parsedTags = extractTags(candidate.content_markdown);
-        if (
-          storedTags.length !== parsedTags.length ||
-          storedTags.some((tag, index) => tag !== parsedTags[index])
-        ) {
-          syncNoteTags(database, user.id, candidate.id, candidate.content_markdown);
-        }
-      }
-      markTagFilterVerified(database, user.id, tagFilter);
-    }
     const conditions = ["n.user_id = ?"];
     const params: SqlValue[] = [user.id];
     let from = NOTE_FROM;

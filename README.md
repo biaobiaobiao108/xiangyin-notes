@@ -128,7 +128,7 @@ docker rm xiangying-notes
 docker run -d --name xiangying-notes --restart unless-stopped -p 3000:3000 --env-file .env -v xiangying-notes-data:/data ghcr.io/biaobiaobiao108/xiangyin-notes:latest
 ```
 
-当前 schema 版本为 v1，尚未登记从更早版本升级的迁移步骤；非空但版本未标记或不受支持的数据库不会被自动接管。未来升级只会按连续登记的版本步骤执行，每步都在事务中完成。版本未知、迁移失败或 schema 漂移时，服务会停止启动，原数据库不会被重建。遇到启动错误时先保留数据卷并查看日志，可用 `bun run db:check <数据库路径>` 只读检查结构。不要删除或重建 `xiangying-notes-data` 数据卷来处理迁移错误。
+当前 schema 基线为 v1，应用版本为 v6，已登记 v1 到 v6 的连续迁移；空数据库会初始化到当前版本，受支持的旧版本会逐步升级。非空但版本未标记或不受支持的数据库不会被自动接管。每步迁移都在事务中完成。版本未知、迁移失败或 schema 漂移时，服务会停止启动，原数据库不会被重建。遇到启动错误时先保留数据卷并查看日志，可用 `bun run db:check <数据库路径>` 只读检查结构。不要删除或重建 `xiangying-notes-data` 数据卷来处理迁移错误。
 
 如果通过 HTTPS 反向代理从公网访问，请把 `PUBLIC_URL` 设置为实际访问的 HTTPS 根地址，并根据代理情况启用 `TRUST_PROXY=true` 和 `COOKIE_SECURE=true`。启用 `TRUST_PROXY` 时还要通过 `TRUSTED_PROXY_ADDRESSES` 配置应用实际看到的反向代理 IP（逗号分隔）；应用只信任这些代理转发的客户端 IP。反向代理应覆盖 `X-Forwarded-For` / `X-Real-IP`，并阻止公网绕过代理直连应用。仅在本机或局域网使用 HTTP 时，`COOKIE_SECURE` 保持默认的 `false`。
 
@@ -252,7 +252,7 @@ bun run start
 
 ### 数据库初始化与升级
 
-`database/schema.sql` 是当前 schema 基线，通过 `PRAGMA user_version` 标记版本。首次启动时，空数据库会自动创建。当前基线为 v1，尚无后续版本迁移；非空数据库必须已有受支持的版本号，并且结构与对应版本一致，否则服务会停止启动，不会猜测或重建数据库。以后修改 schema 时，在 `server/db.ts` 登记从当前版本到下一版本的迁移步骤；启动时会按顺序逐步执行，每步都在事务中完成并更新版本，再核对最终结构。
+`database/schema.sql` 是 v1 schema 基线，通过 `PRAGMA user_version` 标记版本；应用当前版本为 v6，迁移步骤登记在 `server/db.ts`。首次启动时，空数据库会自动升级到当前版本；已有数据库必须有受支持的版本号，并且结构与对应版本一致，否则服务会停止启动，不会猜测或重建数据库。以后修改 schema 或需要重建派生索引时，在 `server/db.ts` 登记从当前版本到下一版本的迁移步骤；启动时会按顺序逐步执行，每步都在事务中完成并更新版本，再核对最终结构。
 
 正式部署前可以更新基线。正式部署后不要修改已发布的基线或迁移；schema 变更应新增从当前版本到下一版本的迁移，并递增 `CURRENT_SCHEMA_VERSION`。`bun run db:migrate` 可手动触发相同的启动与迁移流程；`bun run db:check` 只读检查数据库结构：
 

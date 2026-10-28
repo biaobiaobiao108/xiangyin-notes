@@ -3,13 +3,14 @@ import { dirname, resolve } from "node:path";
 import { Database } from "bun:sqlite";
 import { snapshotSchema } from "./schema-snapshot";
 import { extractMarkdownTasks } from "../shared/tasks";
+import { extractTags, normalizeTag } from "../shared/tags";
 
 const DEFAULT_DATABASE_PATH = "./data/xiangying-notes.sqlite";
 const DEFAULT_SCHEMA_PATH = "./database/schema.sql";
 const BASELINE_SCHEMA_VERSION = 1;
 
 // Increment this when adding the next entry to SCHEMA_MIGRATIONS.
-export const CURRENT_SCHEMA_VERSION = 5;
+export const CURRENT_SCHEMA_VERSION = 6;
 
 type TableCountRow = {
   count: number;
@@ -212,6 +213,35 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       }
       for (const count of taskCounts.values())
         insertTaskCount.run(count.userId, count.notebookId, count.done, count.count);
+    },
+  },
+  {
+    sourceVersion: 5,
+    targetVersion: 6,
+    migrate: (database) => {
+      // Rebuild tags after the Markdown parser began ignoring code fences inside blockquotes.
+      database.exec("DELETE FROM note_tags;");
+      const insertTag = database.query(
+        "INSERT INTO note_tags (note_id, user_id, tag_normalized, tag, position) VALUES (?, ?, ?, ?, ?)",
+      );
+      const notes = database
+        .query("SELECT id, user_id, content_markdown FROM notes ORDER BY id")
+        .iterate() as IterableIterator<{
+        id: string;
+        user_id: string;
+        content_markdown: string;
+      }>;
+
+      for (const note of notes) {
+        const seen = new Set<string>();
+        let position = 0;
+        for (const tag of extractTags(note.content_markdown)) {
+          const normalized = normalizeTag(tag);
+          if (seen.has(normalized)) continue;
+          seen.add(normalized);
+          insertTag.run(note.id, note.user_id, normalized, tag, position++);
+        }
+      }
     },
   },
 ];

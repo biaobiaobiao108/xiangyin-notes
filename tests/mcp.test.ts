@@ -2486,7 +2486,7 @@ describe("remote MCP endpoint", () => {
     expect(updated.tags).toEqual(["乙标签"]);
   });
 
-  test("removes tags without replacing the body and ignores stale inline-code tag indexes", async () => {
+  test("removes tags without replacing the body and preserves remaining tags", async () => {
     const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
     const created = await callTool(
       "create_note",
@@ -2518,25 +2518,6 @@ describe("remote MCP endpoint", () => {
     ).note;
     expect(read.contentMarkdown).toBe("正文\n示例 `#代码标签` 和\n后续内容\n#保留");
     expect(read.tags).toEqual(["保留"]);
-
-    // Simulate an index created by the earlier parser, which treated code as a tag.
-    const user = database
-      .query("SELECT id FROM users WHERE username = ?")
-      .get(credentials.XIANGYING_USERNAME) as { id: string };
-    database
-      .query(
-        "INSERT INTO note_tags (note_id, user_id, tag_normalized, tag, position) VALUES (?, ?, ?, ?, ?)",
-      )
-      .run(note.id, user.id, "代码标签", "代码标签", 1);
-    const codeTagSearch = await callTool("search_notes", { tags: ["代码标签"] }, 4, environment);
-    expect(
-      toolData(codeTagSearch.body!).notes.some((entry: { id: string }) => entry.id === note.id),
-    ).toBe(false);
-    expect(
-      database
-        .query("SELECT 1 FROM note_tags WHERE note_id = ? AND tag_normalized = ?")
-        .get(note.id, "代码标签"),
-    ).toBeNull();
   });
 
   test("reads a unique title match and reports ambiguous title matches", async () => {

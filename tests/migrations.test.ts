@@ -135,7 +135,65 @@ test("rebuilds derived task data when upgrading a version 4 database", async () 
       { user_id: "user", notebook_id: "notebook", done: 0, task_count: 1 },
       { user_id: "user", notebook_id: "notebook", done: 1, task_count: 1 },
     ]);
-    expect(database.query("PRAGMA user_version").get()).toEqual({ user_version: 5 });
+    expect(database.query("PRAGMA user_version").get()).toEqual({
+      user_version: CURRENT_SCHEMA_VERSION,
+    });
+  } finally {
+    database.close();
+  }
+});
+
+test("rebuilds every legacy tag row using the current Markdown parser", async () => {
+  const database = new Database(":memory:");
+  try {
+    await initializeDatabase(database, { currentSchemaVersion: 5 });
+    database
+      .query(
+        "INSERT INTO users (id, username, password_hash, password_salt, created_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run("user", "owner", "hash", "salt", 1);
+    database
+      .query(
+        "INSERT INTO notebooks (id, user_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run("notebook", "user", "Notes", 1, 1);
+
+    const insertNote = database.query(
+      "INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    );
+    const insertTag = database.query(
+      "INSERT INTO note_tags (note_id, user_id, tag_normalized, tag, position) VALUES (?, ?, ?, ?, ?)",
+    );
+    for (let index = 0; index < 101; index += 1) {
+      const noteId = `note-${index.toString().padStart(3, "0")}`;
+      insertNote.run(
+        noteId,
+        "user",
+        "notebook",
+        `Note ${index}`,
+        "正文 #visible\n\n> ```md\n> #legacy\n> ```",
+        1,
+        1,
+      );
+      insertTag.run(noteId, "user", "visible", "visible", 0);
+      insertTag.run(noteId, "user", "legacy", "legacy", 1);
+    }
+
+    await initializeDatabase(database);
+
+    expect(database.query("PRAGMA user_version").get()).toEqual({
+      user_version: CURRENT_SCHEMA_VERSION,
+    });
+    expect(
+      database
+        .query("SELECT COUNT(*) AS count FROM note_tags WHERE tag_normalized = ?")
+        .get("legacy"),
+    ).toEqual({ count: 0 });
+    expect(
+      database
+        .query("SELECT COUNT(*) AS count FROM note_tags WHERE tag_normalized = ?")
+        .get("visible"),
+    ).toEqual({ count: 101 });
   } finally {
     database.close();
   }
