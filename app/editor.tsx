@@ -1575,10 +1575,15 @@ export function NoteEditor({
       if (!editor.isDestroyed)
         editor.view.dispatch(editor.state.tr.setMeta(taskNavigationPluginKey, null));
     };
-    const timer = window.setTimeout(clearHighlight, 4000);
+    const fadeTimer = window.setTimeout(() => {
+      if (editor.isDestroyed) return;
+      editor.view.dispatch(editor.state.tr.setMeta(taskNavigationPluginKey, { type: "fade" }));
+    }, 3600);
+    const clearTimer = window.setTimeout(clearHighlight, 3900);
     return () => {
       cancelAnimationFrame(frame);
-      window.clearTimeout(timer);
+      window.clearTimeout(fadeTimer);
+      window.clearTimeout(clearTimer);
       clearHighlight();
     };
   }, [editor, isLoading, note.id, onTaskNavigationMissing, taskNavigation]);

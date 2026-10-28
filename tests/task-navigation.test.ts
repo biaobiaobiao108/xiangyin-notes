@@ -34,6 +34,8 @@ describe("task navigation", () => {
       editor.view.dispatch(editor.state.tr.setMeta(taskNavigationPluginKey, position));
       expect(taskNavigationPluginKey.getState(editor.state)?.find()).toHaveLength(1);
       expect(editor.state.doc.eq(original)).toBe(true);
+      editor.view.dispatch(editor.state.tr.setMeta(taskNavigationPluginKey, { type: "fade" }));
+      expect(taskNavigationPluginKey.getState(editor.state)?.find()).toHaveLength(1);
       editor.view.dispatch(editor.state.tr.setMeta(taskNavigationPluginKey, null));
       expect(taskNavigationPluginKey.getState(editor.state)?.find()).toHaveLength(0);
       expect(editor.state.doc.eq(original)).toBe(true);

@@ -1,8 +1,8 @@
 import { Check, ChevronDown, ChevronLeft, Circle, ListTodo, LoaderCircle } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import type { Notebook, TaskSummary } from "../../shared/types";
-import { useContextMenu, type ContextMenuItem } from "../context-menu";
 import { FloatingScrollbar } from "../floating-scrollbar";
+import { useScrollEdges } from "./use-scroll-edges";
 
 type TaskStatus = "open" | "done" | "all";
 
@@ -35,15 +35,10 @@ export function TasksPanel({
 }) {
   const listRef = useRef<HTMLDivElement>(null);
   const filtersRef = useRef<HTMLDivElement>(null);
-  const notebookFilterRef = useRef<HTMLDivElement>(null);
   const notebookTriggerRef = useRef<HTMLButtonElement>(null);
   const statusTriggerRef = useRef<HTMLButtonElement>(null);
   const [openFilter, setOpenFilter] = useState<"status" | "notebook" | null>(null);
-  const { openMenu, menu: contextMenu } = useContextMenu();
-  const useContextDropdown =
-    typeof window !== "undefined" &&
-    window.innerWidth > 900 &&
-    window.matchMedia("(any-pointer: fine)").matches;
+  const scrollEdges = useScrollEdges(listRef, [loading, notebookId, status, tasks.length]);
   const notebookNames = useMemo(
     () => new Map(notebooks.map((notebook) => [notebook.id, notebook.name])),
     [notebooks],
@@ -60,73 +55,64 @@ export function TasksPanel({
   const selectedNotebookName =
     notebooks.find((notebook) => notebook.id === notebookId)?.name ?? "全部笔记本";
   const selectedStatusLabel = { open: "未完成", done: "已完成", all: "全部" }[status];
-  const notebookMenuItems = useMemo<ContextMenuItem[]>(
-    () => [
-      {
-        label: "全部笔记本",
-        icon: !notebookId ? Check : undefined,
-        onSelect: () => onNotebookChange(""),
-      },
-      ...notebooks.map((notebook) => ({
-        label: notebook.name,
-        icon: notebook.id === notebookId ? Check : undefined,
-        onSelect: () => onNotebookChange(notebook.id),
-      })),
-    ],
-    [notebookId, notebooks, onNotebookChange],
-  );
-  const statusMenuItems = useMemo<ContextMenuItem[]>(
-    () =>
-      (
-        [
-          ["open", "未完成"],
-          ["done", "已完成"],
-          ["all", "全部"],
-        ] as const
-      ).map(([value, label]) => ({
-        label,
-        icon: status === value ? Check : undefined,
-        onSelect: () => onStatusChange(value),
-      })),
-    [onStatusChange, status],
-  );
-
   useEffect(() => {
-    if (!openFilter || useContextDropdown) return;
+    if (!openFilter) return;
+    const frame = requestAnimationFrame(() => {
+      filtersRef.current
+        ?.querySelector<HTMLElement>(`.tasks-filter-menu[data-filter="${openFilter}"] button`)
+        ?.focus({ preventScroll: true });
+    });
     const handlePointerDown = (event: PointerEvent) => {
       if (!filtersRef.current?.contains(event.target as Node)) setOpenFilter(null);
     };
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.isComposing || event.keyCode === 229) return;
-      if (event.key !== "Escape") return;
+      if (
+        event.isComposing ||
+        event.keyCode === 229 ||
+        !filtersRef.current?.contains(event.target as Node)
+      )
+        return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        const trigger =
+          openFilter === "notebook" ? notebookTriggerRef.current : statusTriggerRef.current;
+        setOpenFilter(null);
+        trigger?.focus();
+        return;
+      }
+      if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      const trigger =
-        openFilter === "notebook" ? notebookTriggerRef.current : statusTriggerRef.current;
-      setOpenFilter(null);
-      trigger?.focus();
+      const buttons = Array.from(
+        filtersRef.current?.querySelectorAll<HTMLButtonElement>(
+          `.tasks-filter-menu[data-filter="${openFilter}"] button`,
+        ) ?? [],
+      );
+      if (buttons.length === 0) return;
+      const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+      const next =
+        event.key === "Home"
+          ? 0
+          : event.key === "End"
+            ? buttons.length - 1
+            : (index + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length;
+      buttons[next]?.focus({ preventScroll: true });
     };
     document.addEventListener("pointerdown", handlePointerDown);
     document.addEventListener("keydown", handleKeyDown);
     return () => {
+      cancelAnimationFrame(frame);
       document.removeEventListener("pointerdown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [openFilter, useContextDropdown]);
+  }, [openFilter]);
 
   const openFilterMenu = (
     kind: "status" | "notebook",
     event: ReactMouseEvent<HTMLButtonElement>,
   ) => {
-    if (useContextDropdown) {
-      setOpenFilter(null);
-      openMenu(
-        event,
-        kind === "status" ? statusMenuItems : notebookMenuItems,
-        kind === "status" ? "筛选任务状态" : "筛选笔记本",
-      );
-      return;
-    }
+    event.preventDefault();
     setOpenFilter((current) => (current === kind ? null : kind));
   };
 
@@ -156,14 +142,19 @@ export function TasksPanel({
             className="tasks-filter-trigger"
             aria-label="筛选任务状态"
             aria-haspopup="menu"
-            aria-expanded={useContextDropdown ? undefined : openFilter === "status"}
+            aria-expanded={openFilter === "status"}
             onClick={(event) => openFilterMenu("status", event)}
           >
             <span>{selectedStatusLabel}</span>
             <ChevronDown size={14} aria-hidden="true" />
           </button>
-          {!useContextDropdown && openFilter === "status" && (
-            <div className="tasks-filter-menu" role="menu" aria-label="任务状态">
+          {openFilter === "status" && (
+            <div
+              className="tasks-filter-menu"
+              data-filter="status"
+              role="menu"
+              aria-label="任务状态"
+            >
               {(
                 [
                   ["open", "未完成"],
@@ -184,27 +175,32 @@ export function TasksPanel({
                   }}
                 >
                   {status === value ? <Check size={15} aria-hidden="true" /> : <span />}
-                  {label}
+                  <span className="tasks-filter-option-label">{label}</span>
                 </button>
               ))}
             </div>
           )}
         </div>
-        <div className="tasks-filter-dropdown" ref={notebookFilterRef}>
+        <div className="tasks-filter-dropdown">
           <button
             ref={notebookTriggerRef}
             type="button"
             className="tasks-filter-trigger tasks-filter-trigger-notebook"
             aria-label="筛选笔记本"
             aria-haspopup="menu"
-            aria-expanded={useContextDropdown ? undefined : openFilter === "notebook"}
+            aria-expanded={openFilter === "notebook"}
             onClick={(event) => openFilterMenu("notebook", event)}
           >
             <span>{selectedNotebookName}</span>
             <ChevronDown size={14} aria-hidden="true" />
           </button>
-          {!useContextDropdown && openFilter === "notebook" && (
-            <div className="tasks-filter-menu" role="menu" aria-label="笔记本">
+          {openFilter === "notebook" && (
+            <div
+              className="tasks-filter-menu"
+              data-filter="notebook"
+              role="menu"
+              aria-label="笔记本"
+            >
               <button
                 type="button"
                 role="menuitemradio"
@@ -217,7 +213,7 @@ export function TasksPanel({
                 }}
               >
                 {!notebookId ? <Check size={15} aria-hidden="true" /> : <span />}
-                全部笔记本
+                <span className="tasks-filter-option-label">全部笔记本</span>
               </button>
               {notebooks.map((notebook) => (
                 <button
@@ -233,7 +229,7 @@ export function TasksPanel({
                   }}
                 >
                   {notebookId === notebook.id ? <Check size={15} aria-hidden="true" /> : <span />}
-                  {notebook.name}
+                  <span className="tasks-filter-option-label">{notebook.name}</span>
                 </button>
               ))}
             </div>
@@ -242,86 +238,90 @@ export function TasksPanel({
       </div>
       <div className="note-list-content">
         <div
-          id="tasks-scroll-region"
-          className="tasks-scroll floating-scrollbar-target"
-          ref={listRef}
+          className={`tasks-scroll-shell${scrollEdges.before ? " has-scroll-before" : ""}${scrollEdges.after ? " has-scroll-after" : ""}`}
         >
-          {loading && tasks.length === 0 ? (
-            <p className="tasks-empty" role="status">
-              正在加载任务…
-            </p>
-          ) : error ? (
-            <p className="tasks-empty" role="alert">
-              {error}
-            </p>
-          ) : tasks.length ? (
-            <div className="tasks-list">
-              {taskGroups.map((group) => {
-                const firstTask = group[0]!;
-                return (
-                  <section className="tasks-note-group" key={firstTask.noteId}>
-                    <h2>
-                      <span className="tasks-note-title">{firstTask.noteTitle}</span>
-                      {notebookNames.has(firstTask.notebookId) ? (
-                        <small>{notebookNames.get(firstTask.notebookId)}</small>
-                      ) : null}
-                    </h2>
-                    <ul>
-                      {group.map((task) => {
-                        const isBusy =
-                          busyTask?.noteId === task.noteId && busyTask.ordinal === task.ordinal;
-                        return (
-                          <li key={task.noteId + ":" + task.ordinal}>
-                            <div className="tasks-item">
-                              <button
-                                type="button"
-                                className={
-                                  "tasks-check-button" +
-                                  (task.done ? " is-done" : "") +
-                                  (isBusy ? " is-busy" : "")
-                                }
-                                aria-label={
-                                  isBusy
-                                    ? "正在更新任务状态"
-                                    : task.done
-                                      ? `标记为未完成：${task.text}`
-                                      : `标记为已完成：${task.text}`
-                                }
-                                aria-pressed={task.done}
-                                disabled={busyTask !== null}
-                                onClick={() => onToggleTask(task)}
-                              >
-                                {isBusy ? (
-                                  <LoaderCircle size={15} aria-hidden="true" />
-                                ) : task.done ? (
-                                  <Check size={15} aria-hidden="true" />
-                                ) : (
-                                  <Circle size={15} aria-hidden="true" />
-                                )}
-                              </button>
-                              <button
-                                type="button"
-                                className="tasks-item-copy"
-                                onClick={() => onSelectTask(task)}
-                                aria-label={`打开笔记 ${task.noteTitle} 并定位任务：${task.text}`}
-                              >
-                                <span className={task.done ? "is-done" : ""}>{task.text}</span>
-                              </button>
-                            </div>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </section>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="tasks-empty">
-              <ListTodo size={22} aria-hidden="true" />
-              <p>没有匹配的任务</p>
-            </div>
-          )}
+          <div
+            id="tasks-scroll-region"
+            className="tasks-scroll floating-scrollbar-target"
+            ref={listRef}
+          >
+            {loading && tasks.length === 0 ? (
+              <p className="tasks-empty" role="status">
+                正在加载任务…
+              </p>
+            ) : error ? (
+              <p className="tasks-empty" role="alert">
+                {error}
+              </p>
+            ) : tasks.length ? (
+              <div className="tasks-list">
+                {taskGroups.map((group) => {
+                  const firstTask = group[0]!;
+                  return (
+                    <section className="tasks-note-group" key={firstTask.noteId}>
+                      <h2>
+                        <span className="tasks-note-title">{firstTask.noteTitle}</span>
+                        {notebookNames.has(firstTask.notebookId) ? (
+                          <small>{notebookNames.get(firstTask.notebookId)}</small>
+                        ) : null}
+                      </h2>
+                      <ul>
+                        {group.map((task) => {
+                          const isBusy =
+                            busyTask?.noteId === task.noteId && busyTask.ordinal === task.ordinal;
+                          return (
+                            <li key={task.noteId + ":" + task.ordinal}>
+                              <div className="tasks-item">
+                                <button
+                                  type="button"
+                                  className={
+                                    "tasks-check-button" +
+                                    (task.done ? " is-done" : "") +
+                                    (isBusy ? " is-busy" : "")
+                                  }
+                                  aria-label={
+                                    isBusy
+                                      ? "正在更新任务状态"
+                                      : task.done
+                                        ? `标记为未完成：${task.text}`
+                                        : `标记为已完成：${task.text}`
+                                  }
+                                  aria-pressed={task.done}
+                                  disabled={busyTask !== null}
+                                  onClick={() => onToggleTask(task)}
+                                >
+                                  {isBusy ? (
+                                    <LoaderCircle size={15} aria-hidden="true" />
+                                  ) : task.done ? (
+                                    <Check size={15} aria-hidden="true" />
+                                  ) : (
+                                    <Circle size={15} aria-hidden="true" />
+                                  )}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="tasks-item-copy"
+                                  onClick={() => onSelectTask(task)}
+                                  aria-label={`打开笔记 ${task.noteTitle} 并定位任务：${task.text}`}
+                                >
+                                  <span className={task.done ? "is-done" : ""}>{task.text}</span>
+                                </button>
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </section>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="tasks-empty">
+                <ListTodo size={22} aria-hidden="true" />
+                <p>没有匹配的任务</p>
+              </div>
+            )}
+          </div>
         </div>
         <FloatingScrollbar
           scrollTargetRef={listRef}
@@ -330,7 +330,6 @@ export function TasksPanel({
           placement="right"
         />
       </div>
-      {contextMenu}
     </section>
   );
 }

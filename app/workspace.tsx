@@ -2299,6 +2299,10 @@ export function Workspace() {
       target.closest("dialog, input, textarea, [contenteditable='true'], .editor-panel")
     )
       return;
+    if (target.closest(".tasks-panel")) {
+      event.preventDefault();
+      return;
+    }
     const noteId = target.closest<HTMLElement>("[data-note-id]")?.dataset.noteId;
     const targetNote = noteId ? notesRef.current.find((note) => note.id === noteId) : undefined;
     if (targetNote) {

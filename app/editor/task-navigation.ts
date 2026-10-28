@@ -5,23 +5,30 @@ import { Decoration, DecorationSet } from "@tiptap/pm/view";
 
 export const taskNavigationPluginKey = new PluginKey<DecorationSet>("taskNavigation");
 
+type TaskNavigationMeta = number | { type: "fade" } | null;
+
 export function createTaskNavigationPlugin() {
   return new Plugin<DecorationSet>({
     key: taskNavigationPluginKey,
     state: {
       init: () => DecorationSet.empty,
       apply(transaction, previous) {
-        const position = transaction.getMeta(taskNavigationPluginKey) as number | null | undefined;
-        if (position === null) return DecorationSet.empty;
-        if (position !== undefined) {
-          const node = transaction.doc.nodeAt(position);
-          return node?.type.name === "taskItem"
-            ? DecorationSet.create(transaction.doc, [
-                Decoration.node(position, position + node.nodeSize, {
-                  class: "task-navigation-highlight",
-                }),
-              ])
-            : DecorationSet.empty;
+        const meta = transaction.getMeta(taskNavigationPluginKey) as TaskNavigationMeta | undefined;
+        if (meta === null) return DecorationSet.empty;
+        if (meta !== undefined) {
+          const current = typeof meta === "number" ? undefined : previous.find()[0];
+          const position = typeof meta === "number" ? meta : current?.from;
+          const node = position === undefined ? undefined : transaction.doc.nodeAt(position);
+          if (position !== undefined && node?.type.name === "taskItem")
+            return DecorationSet.create(transaction.doc, [
+              Decoration.node(position, position + node.nodeSize, {
+                class:
+                  typeof meta === "number"
+                    ? "task-navigation-highlight"
+                    : "task-navigation-highlight is-fading",
+              }),
+            ]);
+          return DecorationSet.empty;
         }
         return previous.map(transaction.mapping, transaction.doc);
       },
