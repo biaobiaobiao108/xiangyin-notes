@@ -543,12 +543,13 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .tasks-scroll-shell { position: relative; display: flex; flex: 1 1 0; flex-direction: column; min-height: 0; overflow: hidden; }
 .tasks-scroll-shell::before, .tasks-scroll-shell::after { position: absolute; z-index: 2; inset-inline: 0; height: 28px; content: ""; opacity: 0; pointer-events: none; transition: opacity var(--motion-fast) var(--motion-ease-out); }
 .tasks-scroll-shell::before { inset-block-start: 0; background: linear-gradient(to bottom, var(--surface), transparent); }
+.tasks-scroll-shell:has(.tasks-note-group-header)::before { inset-block-start: 34px; }
 .tasks-scroll-shell::after { inset-block-end: 0; background: linear-gradient(to top, var(--surface), transparent); }
 .tasks-scroll-shell.has-scroll-before::before, .tasks-scroll-shell.has-scroll-after::after { opacity: 1; }
 .tasks-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
 .tasks-list { padding: 8px 12px 24px; }
 .tasks-note-group + .tasks-note-group { margin-top: 7px; border-top: 1px solid var(--line); }
-.tasks-note-group h2 { display: flex; min-height: 34px; align-items: center; justify-content: space-between; gap: 8px; margin: 0; padding: 2px 8px; color: var(--muted); font-size: .77rem; font-weight: 580; }
+.tasks-note-group-header { position: sticky; top: 0; z-index: 3; display: flex; min-height: 34px; align-items: center; justify-content: space-between; gap: 8px; margin: 0; padding: 2px 8px; background: var(--surface-glass); color: var(--muted); font-size: .77rem; font-weight: 580; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
 .tasks-note-title { overflow: hidden; min-width: 0; text-overflow: ellipsis; white-space: nowrap; }
 .tasks-note-group h2 small { overflow: hidden; max-width: 42%; flex: 0 1 auto; color: var(--soft-muted); font-size: .7rem; font-weight: 450; text-overflow: ellipsis; white-space: nowrap; }
 .tasks-note-group ul { margin: 0; padding: 0; list-style: none; }
@@ -1544,6 +1545,7 @@ dialog::backdrop {
   .tasks-list { padding-bottom: calc(92px + env(safe-area-inset-bottom)); }
   .app-shell[data-mobile-page] .tasks-scroll-shell::before { background: linear-gradient(to bottom, var(--canvas), transparent); }
   .app-shell[data-mobile-page] .tasks-scroll-shell::after { background: linear-gradient(to top, var(--canvas), transparent); }
+  .app-shell[data-mobile-page] .tasks-note-group-header { background: var(--canvas); backdrop-filter: none; -webkit-backdrop-filter: none; }
   .app-shell[data-mobile-page] .note-list-scroll-shell::before { background: linear-gradient(to bottom, var(--canvas), transparent); }
   .app-shell[data-mobile-page] .note-list-scroll-shell::after { background: linear-gradient(to top, var(--canvas), transparent); }
   .app-shell[data-mobile-page] .note-list { padding-bottom: calc(110px + env(safe-area-inset-bottom)); scroll-padding-top: 30px; }

@@ -280,7 +280,7 @@ export function TasksPanel({
                   const firstTask = group[0]!;
                   return (
                     <section className="tasks-note-group" key={firstTask.noteId}>
-                      <h2>
+                      <h2 className="tasks-note-group-header">
                         <span className="tasks-note-title">{firstTask.noteTitle}</span>
                         {notebookNames.has(firstTask.notebookId) ? (
                           <small>{notebookNames.get(firstTask.notebookId)}</small>
