@@ -1331,7 +1331,10 @@ export const NoteListPanel = memo(function NoteListPanel({
                 onBlurCapture={virtualList.onBlurCapture}
               >
                 {virtualList.isVirtualized && virtualStickyGroup && (
-                  <div className="note-list-group-header is-virtual-sticky">
+                  <div
+                    className="note-list-group-header is-virtual-sticky"
+                    style={{ transform: `translateY(${virtualList.stickyOffset}px)` }}
+                  >
                     <button
                       type="button"
                       className="note-list-virtual-group-toggle"
@@ -1456,7 +1459,7 @@ export const NoteListPanel = memo(function NoteListPanel({
                             key={row.id}
                             ref={virtualList.getRowRef(row.id)}
                             data-note-id={row.id}
-                            className={`note-list-virtual-group-marker${row.firstGroup ? " is-first" : ""}${markerCollapsed ? " is-collapsed" : ""}`}
+                            className={`note-list-virtual-group-marker${row.firstGroup ? " is-first" : ""}${markerCollapsed ? " is-collapsed" : ""}${hideMarker ? " is-sticky-marker" : ""}`}
                             role="presentation"
                             aria-hidden={hideMarker || undefined}
                             inert={hideMarker || undefined}

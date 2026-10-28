@@ -581,7 +581,10 @@ export function TasksPanel({
               virtualList.isVirtualized ? (
                 <>
                   {activeVirtualGroup && (
-                    <h2 className="tasks-note-group-header tasks-virtual-sticky-header">
+                    <h2
+                      className="tasks-note-group-header tasks-virtual-sticky-header"
+                      style={{ transform: `translateY(${virtualList.stickyOffset}px)` }}
+                    >
                       <button
                         type="button"
                         className="tasks-note-group-toggle"
@@ -627,7 +630,7 @@ export function TasksPanel({
                             key={row.id}
                             ref={virtualList.getRowRef(row.id)}
                             data-task-row-id={row.id}
-                            className={`tasks-virtual-group-marker${row.firstGroup ? " is-first" : ""}${markerCollapsed ? " is-collapsed" : ""}`}
+                            className={`tasks-virtual-group-marker${row.firstGroup ? " is-first" : ""}${markerCollapsed ? " is-collapsed" : ""}${hideMarker ? " is-sticky-marker" : ""}`}
                             aria-hidden={hideMarker || undefined}
                             inert={hideMarker || undefined}
                             style={virtualList.rowStyle(top)}

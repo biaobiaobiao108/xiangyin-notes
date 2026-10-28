@@ -568,6 +568,7 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .tasks-virtual-list > li { box-sizing: border-box; margin: 0; list-style: none; }
 .tasks-virtual-group-marker { height: 34px; background: var(--surface-glass); color: var(--muted); font-size: .77rem; font-weight: 580; }
 .tasks-virtual-group-marker.is-first { height: 0; }
+.tasks-virtual-group-marker.is-sticky-marker { visibility: hidden; }
 .tasks-virtual-group-marker.is-collapsed .tasks-note-group-chevron { transform: rotate(-90deg); }
 .tasks-virtual-group-marker small { overflow: hidden; max-width: 42%; flex: 0 1 auto; color: var(--soft-muted); font-size: .7rem; font-weight: 450; text-overflow: ellipsis; white-space: nowrap; }
 .tasks-virtual-list.is-transitioning > li { transition: transform var(--motion-group) var(--motion-group-ease); }
@@ -817,6 +818,7 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .note-list-group-content > ul { min-height: 0; overflow: hidden; padding: 0; }
 .note-list-virtual-group-marker { display: flex; height: 30px; align-items: center; background: var(--surface-glass); color: var(--soft-muted); font-size: 0.72rem; font-weight: 600; letter-spacing: 0.04em; }
 .note-list-virtual-group-marker.is-first { height: 0; }
+.note-list-virtual-group-marker.is-sticky-marker { visibility: hidden; }
 .note-list-items.is-group-transitioning > li { transition: transform var(--motion-group) var(--motion-group-ease); }
 .note-list-item.is-group-collapsing { pointer-events: none; }
 .note-list-item.is-group-collapsing > .note-row-swipe { animation: note-list-group-row-exit var(--motion-group) var(--motion-group-ease) both; }

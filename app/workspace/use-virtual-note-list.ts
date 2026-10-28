@@ -11,6 +11,7 @@ import {
 } from "react";
 import type { NoteSummary } from "../../shared/types";
 import type { NoteGroup } from "./helpers";
+import { stickyGroupOffset } from "./group-layout";
 
 const VIRTUALIZE_AFTER = 140;
 const ESTIMATED_ROW_HEIGHT = 120;
@@ -253,6 +254,9 @@ export function useVirtualNoteList(
     }
     return result;
   }, [endIndex, offsets, pinnedIndex, rows, startIndex]);
+  const nextGroupTop = visibleRows.find(
+    ({ row, index }) => index > topVisibleIndex && row.kind === "group",
+  )?.top;
 
   const getRowRef = useCallback((noteId: string) => {
     let callback = rowRefCallbacksRef.current.get(noteId);
@@ -421,6 +425,11 @@ export function useVirtualNoteList(
     visibleRows,
     pinnedRowId: pinnedIndex === null ? null : (rows[pinnedIndex]?.id ?? null),
     topVisibleRow: topVisibleIndex < 0 ? undefined : rows[topVisibleIndex],
+    stickyOffset: stickyGroupOffset(
+      nextGroupTop,
+      viewport.top - stickyHeaderHeight,
+      stickyHeaderHeight,
+    ),
     totalHeight: offsets[offsets.length - 1] ?? 0,
     rowStyle,
     getRowRef,

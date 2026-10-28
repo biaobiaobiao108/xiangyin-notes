@@ -10,6 +10,7 @@ import {
   type RefObject,
 } from "react";
 import type { TaskSummary } from "../../shared/types";
+import { stickyGroupOffset } from "./group-layout";
 
 const VIRTUALIZE_AFTER = 140;
 const ESTIMATED_TASK_HEIGHT = 52;
@@ -279,6 +280,12 @@ export function useVirtualTaskList(
         return row ? [{ row, index, top: offsets[index]! }] : [];
       });
   }, [endIndex, indexById, offsets, pinnedRowId, rows, startIndex]);
+  const topVisibleIndex = rows.length
+    ? Math.min(indexAtOffset(offsets, viewport.top), rows.length - 1)
+    : -1;
+  const nextGroupTop = visibleRows.find(
+    ({ row, index }) => index > topVisibleIndex && row.kind === "group",
+  )?.top;
 
   const getRowRef = useCallback((rowId: string) => {
     let callback = rowRefCallbacksRef.current.get(rowId);
@@ -413,9 +420,8 @@ export function useVirtualTaskList(
     isVirtualized,
     visibleRows,
     pinnedRowId,
-    topVisibleRow: rows.length
-      ? rows[Math.min(indexAtOffset(offsets, viewport.top), rows.length - 1)]
-      : undefined,
+    topVisibleRow: topVisibleIndex < 0 ? undefined : rows[topVisibleIndex],
+    stickyOffset: stickyGroupOffset(nextGroupTop, viewport.top, groupHeaderHeight),
     totalHeight: offsets[offsets.length - 1] ?? 0,
     rowStyle,
     getRowRef,
