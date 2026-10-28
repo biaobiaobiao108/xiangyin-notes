@@ -1930,6 +1930,11 @@ describe("Bun Server API", () => {
     expect(manifest.response.headers.get("X-Content-Type-Options")).toBe("nosniff");
     const contentSecurityPolicy = manifest.response.headers.get("Content-Security-Policy");
     expect(contentSecurityPolicy).toContain("default-src 'self'");
+    const html = await Bun.file("app/index.html").text();
+    const inlineScript = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
+    expect(inlineScript).toBeDefined();
+    const themeScriptHash = new Bun.CryptoHasher("sha256").update(inlineScript!).digest("base64");
+    expect(contentSecurityPolicy).toContain(`'sha256-${themeScriptHash}'`);
     expect(contentSecurityPolicy).toContain(
       "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
     );
