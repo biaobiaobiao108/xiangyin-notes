@@ -149,18 +149,18 @@ export function TasksPanel({
       aria-busy={loading || busyTask !== null}
     >
       <header className="list-header tasks-header">
+        {onBack && (
+          <button className="tasks-back tasks-header-back" type="button" onClick={onBack}>
+            <ChevronLeft size={18} aria-hidden="true" />
+            <span>笔记</span>
+          </button>
+        )}
         <div className="list-header-main">
           <h2 id="tasks-heading">任务</h2>
           <p className="tasks-count">{total} 项</p>
         </div>
       </header>
       <div className="tasks-toolbar" ref={filtersRef}>
-        {onBack && (
-          <button className="tasks-back" type="button" onClick={onBack}>
-            <ChevronLeft size={18} aria-hidden="true" />
-            <span>笔记</span>
-          </button>
-        )}
         <div className="tasks-filter-dropdown">
           <button
             ref={statusTriggerRef}
