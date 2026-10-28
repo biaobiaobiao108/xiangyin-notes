@@ -23,19 +23,14 @@ import { extractMarkdownTasks } from "../../shared/tasks";
 
 export const NOTE_RENAME_SOURCE_BATCH_SIZE = 16;
 
-// The legacy column stores a stable group order: old values are kept, new groups use the first indexing time.
 function syncNoteTasks(
   database: SqliteDatabase,
   userId: string,
   noteId: string,
   notebookId: string,
-  updatedAt: number,
+  createdAt: number,
   contentMarkdown: string,
 ) {
-  const priorTaskSort = database
-    .query("SELECT MIN(sort_updated_at) AS sort_updated_at FROM note_tasks WHERE note_id = ?")
-    .get(noteId) as { sort_updated_at: number | null };
-  const sortUpdatedAt = priorTaskSort.sort_updated_at ?? -updatedAt;
   const deltas = new Map<string, { notebookId: string; done: number; count: number }>();
   const addDelta = (targetNotebookId: string, done: number, count: number) => {
     const key = `${targetNotebookId}\0${done}`;
@@ -77,7 +72,7 @@ function syncNoteTasks(
   }
 
   const insertTask = database.query(
-    "INSERT INTO note_tasks (note_id, user_id, notebook_id, ordinal, depth, text, done, sort_updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO note_tasks (note_id, user_id, notebook_id, ordinal, depth, text, done, sort_created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
   );
   for (const task of tasks) {
     insertTask.run(
@@ -88,7 +83,7 @@ function syncNoteTasks(
       task.depth,
       task.text,
       task.completed ? 1 : 0,
-      sortUpdatedAt,
+      -createdAt,
     );
   }
 }
@@ -175,7 +170,7 @@ export function updateNoteInTransaction(
       userId,
       current.id,
       notebookId,
-      updatedAt,
+      current.created_at,
       deletedAt === null ? contentMarkdown : "",
     );
   }
@@ -230,7 +225,7 @@ export function updateNoteInTransaction(
           userId,
           refNote.id,
           refNote.notebook_id,
-          updatedAt,
+          refNote.created_at,
           replacedContent,
         );
       }

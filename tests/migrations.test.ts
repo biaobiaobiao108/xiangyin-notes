@@ -51,12 +51,12 @@ test("backfills the task index when upgrading an existing version 1 database", a
     expect(
       database
         .query(
-          "SELECT ordinal, depth, text, done, sort_updated_at FROM note_tasks ORDER BY ordinal",
+          "SELECT ordinal, depth, text, done, sort_created_at FROM note_tasks ORDER BY ordinal",
         )
         .all(),
     ).toEqual([
-      { ordinal: 0, depth: 0, text: "Parent", done: 0, sort_updated_at: -42 },
-      { ordinal: 1, depth: 1, text: "Child", done: 1, sort_updated_at: -42 },
+      { ordinal: 0, depth: 0, text: "Parent", done: 0, sort_created_at: -1 },
+      { ordinal: 1, depth: 1, text: "Child", done: 1, sort_created_at: -1 },
     ]);
     expect(
       database.query("SELECT done, task_count FROM note_task_counts ORDER BY done").all(),
@@ -64,7 +64,11 @@ test("backfills the task index when upgrading an existing version 1 database", a
       { done: 0, task_count: 1 },
       { done: 1, task_count: 1 },
     ]);
-    expect(database.query("PRAGMA user_version").get()).toEqual({ user_version: 3 });
+    expect(database.query("PRAGMA user_version").get()).toEqual({ user_version: 4 });
+    const taskIndexSql = database
+      .query("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?")
+      .get("idx_note_tasks_user_recent") as { sql: string };
+    expect(taskIndexSql.sql).toContain("sort_created_at");
   } finally {
     database.close();
   }
@@ -159,8 +163,8 @@ test("automatically applies each known migration in order during database initia
 test("rolls back a failed migration and leaves its schema version unchanged", async () => {
   const database = await openDatabase(":memory:");
   const failingMigration: SchemaMigration = {
-    sourceVersion: 3,
-    targetVersion: 4,
+    sourceVersion: CURRENT_SCHEMA_VERSION,
+    targetVersion: CURRENT_SCHEMA_VERSION + 1,
     migrate: (target) => {
       target.exec("CREATE TABLE should_rollback (id INTEGER PRIMARY KEY)");
       throw new Error("migration failure");
@@ -168,8 +172,12 @@ test("rolls back a failed migration and leaves its schema version unchanged", as
   };
 
   try {
-    expect(() => applyMigrations(database, [failingMigration], 4)).toThrow("migration failure");
-    expect(database.query("PRAGMA user_version").get()).toEqual({ user_version: 3 });
+    expect(() => applyMigrations(database, [failingMigration], CURRENT_SCHEMA_VERSION + 1)).toThrow(
+      "migration failure",
+    );
+    expect(database.query("PRAGMA user_version").get()).toEqual({
+      user_version: CURRENT_SCHEMA_VERSION,
+    });
     expect(
       database
         .query("SELECT name FROM sqlite_master WHERE type = ? AND name = ?")

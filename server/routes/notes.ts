@@ -79,7 +79,7 @@ const TAG_RECONCILE_CACHE_MAX_TAG_LENGTH = 256;
 // so a successfully verified user/tag pair remains valid for this DB handle.
 const verifiedTagFiltersByDatabase = new WeakMap<SqliteDatabase, Map<string, true>>();
 
-type TaskCursor = { sortUpdatedAt: number; noteId: string; ordinal: number };
+type TaskCursor = { sortCreatedAt: number; noteId: string; ordinal: number };
 
 function decodeTaskCursor(value: string | null): TaskCursor | null | false {
   if (value === null) return null;
@@ -89,7 +89,7 @@ function decodeTaskCursor(value: string | null): TaskCursor | null | false {
       Buffer.from(value, "base64url").toString("utf8"),
     ) as Partial<TaskCursor>;
     if (
-      !Number.isSafeInteger(cursor.sortUpdatedAt) ||
+      !Number.isSafeInteger(cursor.sortCreatedAt) ||
       typeof cursor.noteId !== "string" ||
       !NOTE_ID_PATTERN.test(cursor.noteId) ||
       !Number.isSafeInteger(cursor.ordinal) ||
@@ -307,8 +307,8 @@ export async function handleNotesRoute(
       values.push(status === "done" ? 1 : 0);
     }
     if (cursor) {
-      filters.push("(t.sort_updated_at, t.note_id, t.ordinal) > (?, ?, ?)");
-      values.push(cursor.sortUpdatedAt, cursor.noteId, cursor.ordinal);
+      filters.push("(t.sort_created_at, t.note_id, t.ordinal) > (?, ?, ?)");
+      values.push(cursor.sortCreatedAt, cursor.noteId, cursor.ordinal);
     }
 
     const rows = all<{
@@ -321,17 +321,17 @@ export async function handleNotesRoute(
       done: number;
       ordinal: number;
       depth: number;
-      sort_updated_at: number;
+      sort_created_at: number;
     }>(
       database,
       `
         SELECT t.note_id, n.title AS note_title, t.notebook_id, b.name AS notebook_name,
-          n.version, t.text, t.done, t.ordinal, t.depth, t.sort_updated_at
+          n.version, t.text, t.done, t.ordinal, t.depth, t.sort_created_at
         FROM note_tasks t
         JOIN notes n ON n.id = t.note_id AND n.user_id = t.user_id
         JOIN notebooks b ON b.id = t.notebook_id AND b.user_id = t.user_id
         WHERE ${filters.join(" AND ")}
-        ORDER BY t.sort_updated_at ASC, t.note_id ASC, t.ordinal ASC
+        ORDER BY t.sort_created_at ASC, t.note_id ASC, t.ordinal ASC
         LIMIT ?
       `,
       ...values,
@@ -354,7 +354,7 @@ export async function handleNotesRoute(
     const nextCursor =
       hasMore && last
         ? encodeTaskCursor({
-            sortUpdatedAt: last.sort_updated_at,
+            sortCreatedAt: last.sort_created_at,
             noteId: last.note_id,
             ordinal: last.ordinal,
           })

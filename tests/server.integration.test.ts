@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   applyMigrations,
+  CURRENT_SCHEMA_VERSION,
   openDatabase,
   reclaimDatabaseSpace,
   type SqliteDatabase,
@@ -155,7 +156,7 @@ describe("Bun Server API", () => {
     expect((await request("/api/tasks?status=all", {}, login.cookie)).body?.total).toBe(2);
   });
 
-  test("keeps task note groups in their original order while notes are edited", async () => {
+  test("sorts task note groups by note creation time and keeps that order across edits and pages", async () => {
     const login = await request("/api/auth/login", {
       method: "POST",
       body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
@@ -183,12 +184,17 @@ describe("Bun Server API", () => {
     };
     const olderNote = await createTaskNote("较早的任务笔记", "原任务");
     const newerNote = await createTaskNote("较新的任务笔记", "另一项任务");
-    database
-      .query("UPDATE note_tasks SET sort_updated_at = ? WHERE note_id = ?")
-      .run(-100, olderNote.id);
-    database
-      .query("UPDATE note_tasks SET sort_updated_at = ? WHERE note_id = ?")
-      .run(-200, newerNote.id);
+    const newestNote = await createTaskNote("最新的任务笔记", "最新任务");
+    for (const [note, createdAt] of [
+      [olderNote, 100] as const,
+      [newerNote, 200] as const,
+      [newestNote, 300] as const,
+    ]) {
+      database.query("UPDATE notes SET created_at = ? WHERE id = ?").run(createdAt, note.id);
+      database
+        .query("UPDATE note_tasks SET sort_created_at = ? WHERE note_id = ?")
+        .run(-createdAt, note.id);
+    }
 
     const listGroupIds = async () => {
       const response = await request("/api/tasks?status=all", {}, login.cookie);
@@ -196,7 +202,7 @@ describe("Bun Server API", () => {
       return [...new Set(tasks.map((task) => task.noteId))];
     };
     const initialOrder = await listGroupIds();
-    expect(initialOrder).toEqual([newerNote.id, olderNote.id]);
+    expect(initialOrder).toEqual([newestNote.id, newerNote.id, olderNote.id]);
 
     const edited = await request(
       `/api/notes/${olderNote.id}`,
@@ -241,6 +247,24 @@ describe("Bun Server API", () => {
     );
     expect(toggled.response.status).toBe(200);
     expect(await listGroupIds()).toEqual(initialOrder);
+
+    const firstPage = await request("/api/tasks?status=all&limit=2", {}, login.cookie);
+    expect((firstPage.body?.tasks as Array<{ noteId: string }>).map((task) => task.noteId)).toEqual(
+      [newestNote.id, newerNote.id],
+    );
+    const cursor = firstPage.body?.nextCursor;
+    expect(typeof cursor).toBe("string");
+    if (typeof cursor !== "string") throw new Error("first task page should have a cursor");
+    const secondPage = await request(
+      `/api/tasks?status=all&limit=2&cursor=${encodeURIComponent(cursor)}`,
+      {},
+      login.cookie,
+    );
+    expect(
+      (secondPage.body?.tasks as Array<{ noteId: string }>).map((task) => task.noteId),
+    ).toEqual([olderNote.id, olderNote.id]);
+    expect(secondPage.body?.nextCursor).toBeNull();
+
     const updatedTasks = (await request("/api/tasks?status=all", {}, login.cookie)).body
       ?.tasks as Array<{
       noteId: string;
@@ -405,7 +429,9 @@ describe("Bun Server API", () => {
 
   test("automatically initializes a fresh database and does not rerun the baseline", async () => {
     const fresh = await openDatabase(":memory:");
-    expect(fresh.query("PRAGMA user_version").get()).toEqual({ user_version: 3 });
+    expect(fresh.query("PRAGMA user_version").get()).toEqual({
+      user_version: CURRENT_SCHEMA_VERSION,
+    });
     expect(
       fresh.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'users'").get(),
     ).toBeDefined();
@@ -416,7 +442,9 @@ describe("Bun Server API", () => {
     initialized.close();
 
     const reopened = await openDatabase(databasePath);
-    expect(reopened.query("PRAGMA user_version").get()).toEqual({ user_version: 3 });
+    expect(reopened.query("PRAGMA user_version").get()).toEqual({
+      user_version: CURRENT_SCHEMA_VERSION,
+    });
     reopened.close();
     await Promise.all([
       rm(databasePath, { force: true }),
@@ -427,7 +455,9 @@ describe("Bun Server API", () => {
 
   test("applies SQLite migrations idempotently and reports health", async () => {
     await applyMigrations(database);
-    expect(database.query("PRAGMA user_version").get()).toEqual({ user_version: 3 });
+    expect(database.query("PRAGMA user_version").get()).toEqual({
+      user_version: CURRENT_SCHEMA_VERSION,
+    });
     expect(
       database
         .query("SELECT name FROM sqlite_master WHERE name = 'shares' OR name LIKE 'idx_shares_%'")

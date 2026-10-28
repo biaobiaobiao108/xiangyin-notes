@@ -9,7 +9,7 @@ const DEFAULT_SCHEMA_PATH = "./database/schema.sql";
 const BASELINE_SCHEMA_VERSION = 1;
 
 // Increment this when adding the next entry to SCHEMA_MIGRATIONS.
-export const CURRENT_SCHEMA_VERSION = 3;
+export const CURRENT_SCHEMA_VERSION = 4;
 
 type TableCountRow = {
   count: number;
@@ -140,6 +140,19 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
         DROP INDEX idx_notes_user_deleted_updated;
         DROP INDEX idx_notes_user_notebook_deleted_updated;
         DROP INDEX idx_note_links_target_title;
+      `);
+    },
+  },
+  {
+    sourceVersion: 3,
+    targetVersion: 4,
+    migrate: (database) => {
+      database.exec(`
+        ALTER TABLE note_tasks RENAME COLUMN sort_updated_at TO sort_created_at;
+        UPDATE note_tasks
+        SET sort_created_at = -(
+          SELECT created_at FROM notes WHERE notes.id = note_tasks.note_id
+        );
       `);
     },
   },
