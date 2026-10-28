@@ -137,6 +137,10 @@
 html, body, #root { min-height: 100%; margin: 0; }
 body { min-width: 320px; background: var(--canvas); }
 body { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+@media (display-mode: standalone) {
+  /* Safari can sample a fixed edge element for the PWA status bar color. */
+  body::after { content: ""; position: fixed; inset: 0 0 auto; z-index: 9999; height: 1px; background: var(--canvas); pointer-events: none; }
+}
 html:has(.app-shell), body:has(.app-shell) { overflow: hidden; }
 button, input { font: inherit; }
 button { color: inherit; }
