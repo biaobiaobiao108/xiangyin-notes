@@ -137,6 +137,7 @@
 html, body, #root { min-height: 100%; margin: 0; }
 body { min-width: 320px; background: var(--canvas); }
 body { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+.mobile-status-color { display: none; }
 html:has(.app-shell), body:has(.app-shell) { overflow: hidden; }
 button, input { font: inherit; }
 button { color: inherit; }
@@ -1501,6 +1502,8 @@ dialog::backdrop {
 }
 
 @media (max-width: 900px) {
+  /* WebKit samples a fixed top-edge element when coloring the system status bar. */
+  body:has(.app-shell[data-mobile-page]) > .mobile-status-color { display: block; position: fixed; inset: 0 0 auto; height: 12px; z-index: 50; background: var(--canvas); pointer-events: none; }
   html:has(.app-shell[data-mobile-page]) { height: 100%; }
   body:has(.app-shell[data-mobile-page]) { position: fixed; inset: 0; height: 100%; padding: 0; }
   .app-shell, .app-shell.sidebar-collapsed, .app-shell.is-focus-mode { display: block; position: fixed; top: var(--mobile-viewport-top, 0px); left: 0; width: 100%; height: var(--mobile-viewport-height, 100dvh); min-height: 0; max-height: none; overflow: hidden; overflow: clip; }
