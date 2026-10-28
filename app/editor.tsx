@@ -64,7 +64,11 @@ import {
 import { changedDocumentRange } from "./editor/changed-range";
 import { scrollNoteBoundary } from "./editor/document-navigation";
 import { replaceEditorMarkdown } from "./editor/document-content";
-import { findTaskPosition } from "./editor/task-navigation";
+import {
+  findTaskPosition,
+  TaskNavigationExtension,
+  taskNavigationPluginKey,
+} from "./editor/task-navigation";
 import { FloatingScrollbar } from "./floating-scrollbar";
 import { relativeDate } from "./format";
 import { normalizeImagesInEmptyListItems } from "./image-markdown";
@@ -738,6 +742,7 @@ export function NoteEditor({
       NoteLink.configure({ openOnClick: false, autolink: true, linkOnPaste: true }),
       TaskList,
       TaskItem.configure({ nested: true }),
+      TaskNavigationExtension,
       Placeholder.configure({ placeholder: "从一句话开始……" }),
       createMarkdownExtension(),
       CalloutNode,
@@ -1556,26 +1561,25 @@ export function NoteEditor({
       onTaskNavigationMissing?.();
       return;
     }
-    let element: HTMLElement | null = null;
+    editor.view.dispatch(editor.state.tr.setMeta(taskNavigationPluginKey, position));
     const frame = requestAnimationFrame(() => {
       if (editor.isDestroyed) return;
       const node = editor.view.nodeDOM(position);
       if (!(node instanceof HTMLElement)) return;
-      element = node;
-      element.classList.add("task-navigation-highlight");
       const behavior: ScrollBehavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches
         ? "auto"
         : "smooth";
-      element.scrollIntoView({ behavior, block: "center", inline: "nearest" });
+      node.scrollIntoView({ behavior, block: "center", inline: "nearest" });
     });
-    const timer = window.setTimeout(
-      () => element?.classList.remove("task-navigation-highlight"),
-      4000,
-    );
+    const clearHighlight = () => {
+      if (!editor.isDestroyed)
+        editor.view.dispatch(editor.state.tr.setMeta(taskNavigationPluginKey, null));
+    };
+    const timer = window.setTimeout(clearHighlight, 4000);
     return () => {
       cancelAnimationFrame(frame);
       window.clearTimeout(timer);
-      element?.classList.remove("task-navigation-highlight");
+      clearHighlight();
     };
   }, [editor, isLoading, note.id, onTaskNavigationMissing, taskNavigation]);
 

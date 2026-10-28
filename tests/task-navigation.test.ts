@@ -3,11 +3,45 @@ import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
-import { findTaskPosition } from "../app/editor/task-navigation";
+import {
+  createTaskNavigationPlugin,
+  findTaskPosition,
+  taskNavigationPluginKey,
+} from "../app/editor/task-navigation";
 import { createMarkdownExtension } from "../app/editor/markdown-config";
 import { extractMarkdownTasks } from "../shared/tasks";
 
 describe("task navigation", () => {
+  test("highlighting and clearing a task do not change the document or emit an update", () => {
+    let updates = 0;
+    const markdown = "- [ ] 任务\n  - [x] 子任务";
+    const editor = new Editor({
+      element: null,
+      extensions: [
+        StarterKit,
+        TaskList,
+        TaskItem.configure({ nested: true }),
+        createMarkdownExtension(),
+      ],
+      content: markdown,
+      contentType: "markdown",
+      onUpdate: () => updates++,
+    });
+    editor.registerPlugin(createTaskNavigationPlugin());
+    try {
+      const original = editor.state.doc;
+      const position = findTaskPosition(original, 1, "子任务")!;
+      editor.view.dispatch(editor.state.tr.setMeta(taskNavigationPluginKey, position));
+      expect(taskNavigationPluginKey.getState(editor.state)?.find()).toHaveLength(1);
+      expect(editor.state.doc.eq(original)).toBe(true);
+      editor.view.dispatch(editor.state.tr.setMeta(taskNavigationPluginKey, null));
+      expect(taskNavigationPluginKey.getState(editor.state)?.find()).toHaveLength(0);
+      expect(editor.state.doc.eq(original)).toBe(true);
+      expect(updates).toBe(0);
+    } finally {
+      editor.destroy();
+    }
+  });
   test("matches extracted tasks against the editor document in order", () => {
     const markdown =
       "> - [ ] **父任务**\n>   - [x] 子任务\n\n- [ ] 重复\n- [ ] 重复\n\n```md\n- [ ] 示例\n```";
