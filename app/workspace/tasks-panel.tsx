@@ -77,6 +77,7 @@ export function TasksPanel({
   const pendingGroupLayoutRef = useRef<{
     positions: Map<HTMLElement, number>;
     anchorScrollTop: number | null;
+    closing: boolean;
   } | null>(null);
   const groupAnimationsRef = useRef(new Map<HTMLElement, Animation>());
   const [openFilter, setOpenFilter] = useState<"status" | "notebook" | null>(null);
@@ -116,6 +117,7 @@ export function TasksPanel({
     const headerRect = button.getBoundingClientRect();
     pendingGroupLayoutRef.current = {
       positions,
+      closing,
       anchorScrollTop: collapsedTaskGroupScrollTop({
         closing,
         scrollTop: scroll.scrollTop,
@@ -133,6 +135,14 @@ export function TasksPanel({
     if (pending.anchorScrollTop !== null) scroll.scrollTop = pending.anchorScrollTop;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const viewport = scroll.getBoundingClientRect();
+    const motion = getComputedStyle(document.documentElement);
+    const duration =
+      Number.parseFloat(
+        motion.getPropertyValue(pending.closing ? "--motion-content" : "--motion-group"),
+      ) || (pending.closing ? 180 : 280);
+    const easing = motion
+      .getPropertyValue(pending.closing ? "--motion-ease-out" : "--motion-group-ease")
+      .trim();
     for (const [element, previousTop] of pending.positions) {
       if (!element.isConnected || typeof element.animate !== "function") continue;
       const currentRect = element.getBoundingClientRect();
@@ -145,7 +155,7 @@ export function TasksPanel({
       if (Math.abs(offset) < 1) continue;
       const animation = element.animate(
         [{ transform: `translateY(${offset}px)` }, { transform: "translateY(0)" }],
-        { duration: 180, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
+        { duration, easing },
       );
       groupAnimationsRef.current.set(element, animation);
       animation.addEventListener(
