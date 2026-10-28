@@ -81,7 +81,7 @@ self.addEventListener("fetch", (event) => {
 const SECURITY_HEADERS: Record<string, string> = {
   // SHA-256 of the inline theme bootstrap in app/index.html.
   "Content-Security-Policy":
-    "default-src 'self'; script-src 'self' 'sha256-fk4O4iK+iM9uBSF10L7ChBZFb8ztuLpzLnmqQ25smfs='; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net; img-src 'self' data: blob: https:; connect-src 'self' ws: wss:; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+    "default-src 'self'; script-src 'self' 'sha256-/IDpDQ/HKDvxE+5KZzluJgVYT56VDUqXVXgKtnDq+fU='; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net; img-src 'self' data: blob: https:; connect-src 'self' ws: wss:; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
   "X-Content-Type-Options": "nosniff",
   "X-Frame-Options": "DENY",
   "Referrer-Policy": "strict-origin-when-cross-origin",

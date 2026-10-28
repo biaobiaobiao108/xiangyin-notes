@@ -6,7 +6,7 @@
   .mobile-compose-button:active, .mobile-plain-button:active { scale: 0.94; }
   .mobile-compose-button:focus-visible, .mobile-plain-button:focus-visible, .mobile-search-clear:focus-visible { background: var(--accent-soft); }
   .mobile-home-scroll-shell { flex: 1; min-height: 0; position: relative; overflow: hidden; }
-  .mobile-home-scroll-shell::before { position: absolute; z-index: 2; inset-inline: 0; inset-block-start: 0; height: 20px; content: ""; opacity: 0; pointer-events: none; background: linear-gradient(to bottom, var(--canvas), transparent); transition: opacity var(--motion-fast) var(--motion-ease-out); }
+  .mobile-home-scroll-shell::before { position: absolute; z-index: 2; inset-inline: 0; inset-block-start: 0; height: 28px; content: ""; opacity: 0; pointer-events: none; background: linear-gradient(to bottom, var(--canvas), transparent); transition: opacity var(--motion-fast) var(--motion-ease-out); }
   .mobile-home-scroll-shell.has-scroll-before::before { opacity: 1; }
   .mobile-home-scroll-shell::after { position: absolute; z-index: 2; inset-inline: 0; inset-block-end: 0; height: 28px; content: ""; opacity: 0; pointer-events: none; background: linear-gradient(to bottom, transparent, var(--canvas)); transition: opacity var(--motion-fast) var(--motion-ease-out); }
   .mobile-home-scroll-shell.has-scroll-after::after { opacity: 1; }

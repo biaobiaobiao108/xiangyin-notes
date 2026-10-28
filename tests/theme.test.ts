@@ -60,18 +60,36 @@ describe("theme preference", () => {
   });
 
   test("updates the document color scheme and status bar for system and explicit themes", () => {
-    const themeColor = { content: "" };
+    const colorScheme = { content: "" };
+    const light = { content: "", media: "(prefers-color-scheme: light)" };
+    const dark = { content: "", media: "(prefers-color-scheme: dark)" };
     const style = { colorScheme: "" };
     const document = {
       documentElement: { dataset: {}, style },
-      querySelector: () => themeColor,
+      querySelector: () => colorScheme,
+      querySelectorAll: () => [light, dark],
     } as unknown as Document;
 
     applyThemeToDocument(document, "dark", false);
-    expect([style.colorScheme, themeColor.content]).toEqual(["dark", "#1a1b26"]);
+    expect([style.colorScheme, colorScheme.content, light.content, dark.content]).toEqual([
+      "dark",
+      "dark",
+      "#1a1b26",
+      "#1a1b26",
+    ]);
     applyThemeToDocument(document, "system", false);
-    expect([style.colorScheme, themeColor.content]).toEqual(["light", "#f6f4ef"]);
+    expect([style.colorScheme, colorScheme.content, light.content, dark.content]).toEqual([
+      "light",
+      "light dark",
+      "#f6f4ef",
+      "#1a1b26",
+    ]);
     applyThemeToDocument(document, "system", true);
-    expect([style.colorScheme, themeColor.content]).toEqual(["dark", "#1a1b26"]);
+    expect([style.colorScheme, colorScheme.content, light.content, dark.content]).toEqual([
+      "dark",
+      "light dark",
+      "#f6f4ef",
+      "#1a1b26",
+    ]);
   });
 });

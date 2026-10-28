@@ -70,8 +70,13 @@ export function applyThemeToDocument(
   document.documentElement.dataset.themePreference = preference;
 
   document.documentElement.style.colorScheme = resolvedTheme;
-  const themeColor = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
-  if (themeColor) themeColor.content = resolvedTheme === "dark" ? "#1a1b26" : "#f6f4ef";
+  const colorScheme = document.querySelector<HTMLMetaElement>('meta[name="color-scheme"]');
+  if (colorScheme) colorScheme.content = preference === "system" ? "light dark" : resolvedTheme;
+  document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]').forEach((meta) => {
+    const theme =
+      preference === "system" ? (meta.media.includes("dark") ? "dark" : "light") : resolvedTheme;
+    meta.content = theme === "dark" ? "#1a1b26" : "#f6f4ef";
+  });
 }
 
 function getSystemThemeIsDark(): boolean {
