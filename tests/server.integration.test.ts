@@ -2121,6 +2121,9 @@ describe("Bun Server API", () => {
     const contentSecurityPolicy = manifest.response.headers.get("Content-Security-Policy");
     expect(contentSecurityPolicy).toContain("default-src 'self'");
     const html = await Bun.file("app/index.html").text();
+    expect(html).not.toContain('name="apple-mobile-web-app-status-bar-style"');
+    expect(html).toContain('media="(prefers-color-scheme: light)"');
+    expect(html).toContain('media="(prefers-color-scheme: dark)"');
     const inlineScript = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
     expect(inlineScript).toBeDefined();
     const themeScriptHash = new Bun.CryptoHasher("sha256").update(inlineScript!).digest("base64");
