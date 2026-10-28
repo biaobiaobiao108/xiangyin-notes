@@ -10,19 +10,58 @@ import {
   type RefObject,
 } from "react";
 import type { NoteSummary } from "../../shared/types";
+import type { NoteGroup } from "./helpers";
 
 const VIRTUALIZE_AFTER = 140;
 const ESTIMATED_ROW_HEIGHT = 120;
+const GROUP_HEADER_HEIGHT = 30;
 const OVERSCAN_PX = 720;
-const NO_NON_FOCUSABLE_ROWS: ReadonlySet<string> = new Set();
+
+export type VirtualNoteListRow =
+  | { id: string; kind: "note"; note: NoteSummary }
+  | { id: string; kind: "group"; group: NoteGroup; firstGroup: boolean };
+
+export function noteGroupRowId(groupId: string) {
+  return `group-marker:${groupId}`;
+}
+
+export function flattenNoteGroups(
+  groups: readonly NoteGroup[],
+  collapsedGroupIds: ReadonlySet<string>,
+  collapsingGroupId?: string | null,
+) {
+  const rows: VirtualNoteListRow[] = [];
+  for (const group of groups) {
+    if (group.notes.length === 0) continue;
+    rows.push({
+      id: noteGroupRowId(group.id),
+      kind: "group",
+      group,
+      firstGroup: rows.length === 0,
+    });
+    if (collapsedGroupIds.has(group.id) && collapsingGroupId !== group.id) continue;
+    for (const note of group.notes) rows.push({ id: note.id, kind: "note", note });
+  }
+  return rows;
+}
 
 type Viewport = { top: number; height: number };
 
-function offsetsForRows(rows: readonly NoteSummary[], heights: Map<string, number>) {
+function estimatedRowHeight(row: VirtualNoteListRow) {
+  if (row.kind === "group") return row.firstGroup ? 0 : GROUP_HEADER_HEIGHT;
+  return ESTIMATED_ROW_HEIGHT;
+}
+
+function offsetsForRows(rows: readonly VirtualNoteListRow[], heights: Map<string, number>) {
   const offsets = new Array<number>(rows.length + 1);
   offsets[0] = 0;
   for (let index = 0; index < rows.length; index += 1) {
-    offsets[index + 1] = offsets[index] + (heights.get(rows[index]!.id) ?? ESTIMATED_ROW_HEIGHT);
+    const row = rows[index]!;
+    offsets[index + 1] =
+      offsets[index]! +
+      (row.kind === "group" && row.firstGroup
+        ? 0
+        : (heights.get(row.id) ?? estimatedRowHeight(row)));
   }
   return offsets;
 }
@@ -40,16 +79,16 @@ function indexAtOffset(offsets: readonly number[], offset: number) {
 }
 
 export function useVirtualNoteList(
-  rows: readonly NoteSummary[],
+  rows: readonly VirtualNoteListRow[],
   scrollRef: RefObject<HTMLDivElement | null>,
   scrollElement: HTMLDivElement | null,
   scope: string,
   virtualizationCount = rows.length,
-  nonFocusableRowIds: ReadonlySet<string> = NO_NON_FOCUSABLE_ROWS,
 ) {
   const [viewport, setViewport] = useState<Viewport>({ top: 0, height: 800 });
   const [measurementRevision, setMeasurementRevision] = useState(0);
   const [pinnedIndex, setPinnedIndex] = useState<number | null>(null);
+  const [stickyHeaderHeight, setStickyHeaderHeight] = useState(0);
   const heightsRef = useRef(new Map<string, number>());
   const observerRef = useRef<ResizeObserver | null>(null);
   const rowElementsRef = useRef(new Map<string, HTMLLIElement>());
@@ -57,9 +96,12 @@ export function useVirtualNoteList(
   const rowStylesRef = useRef(new Map<number, CSSProperties>());
   const pendingFocusIdRef = useRef<string | null>(null);
   const contentInsetRef = useRef(0);
+  const stickyHeaderHeightRef = useRef(0);
   const indexById = useMemo(() => new Map(rows.map((row, index) => [row.id, index])), [rows]);
   const indexByIdRef = useRef(indexById);
   indexByIdRef.current = indexById;
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
   const offsets = useMemo(
     () => offsetsForRows(rows, heightsRef.current),
     [rows, measurementRevision],
@@ -67,6 +109,7 @@ export function useVirtualNoteList(
   const offsetsRef = useRef(offsets);
   offsetsRef.current = offsets;
   const isVirtualized = virtualizationCount > VIRTUALIZE_AFTER;
+  const hasGroupRows = rows[0]?.kind === "group";
 
   useLayoutEffect(() => {
     heightsRef.current.clear();
@@ -100,6 +143,14 @@ export function useVirtualNoteList(
     let scrollFrame = 0;
     const updateViewport = () => {
       contentInsetRef.current = Number.parseFloat(getComputedStyle(container).paddingTop) || 0;
+      const header = container.querySelector<HTMLElement>(
+        ".note-list-group-header.is-virtual-sticky",
+      );
+      const headerHeight = header?.getBoundingClientRect().height ?? 0;
+      stickyHeaderHeightRef.current = headerHeight;
+      setStickyHeaderHeight((current) =>
+        Math.abs(current - headerHeight) < 0.5 ? current : headerHeight,
+      );
       setViewport((current) => {
         const next = {
           top: Math.max(0, container.scrollTop - contentInsetRef.current),
@@ -118,6 +169,10 @@ export function useVirtualNoteList(
     const resizeObserver =
       typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updateViewport);
     resizeObserver?.observe(container);
+    const header = container.querySelector<HTMLElement>(
+      ".note-list-group-header.is-virtual-sticky",
+    );
+    if (header) resizeObserver?.observe(header);
     container.addEventListener("scroll", onScroll, { passive: true });
     updateViewport();
 
@@ -126,7 +181,7 @@ export function useVirtualNoteList(
       container.removeEventListener("scroll", onScroll);
       resizeObserver?.disconnect();
     };
-  }, [scrollElement, scrollRef]);
+  }, [hasGroupRows, isVirtualized, scrollElement, scrollRef]);
 
   useLayoutEffect(() => {
     if (!scrollElement || !isVirtualized || typeof ResizeObserver === "undefined") return;
@@ -154,7 +209,8 @@ export function useVirtualNoteList(
           : undefined;
         const nextHeight = measuredHeight ?? element.getBoundingClientRect().height;
         if (!Number.isFinite(nextHeight) || nextHeight <= 0) continue;
-        const previousHeight = heightsRef.current.get(noteId) ?? ESTIMATED_ROW_HEIGHT;
+        const previousHeight =
+          heightsRef.current.get(noteId) ?? estimatedRowHeight(rowsRef.current[index]!);
         if (Math.abs(previousHeight - nextHeight) < 0.75) continue;
         heightsRef.current.set(noteId, nextHeight);
         if (index < anchorIndex) anchorAdjustment += nextHeight - previousHeight;
@@ -176,6 +232,9 @@ export function useVirtualNoteList(
   const startIndex = isVirtualized
     ? indexAtOffset(offsets, Math.max(0, viewport.top - OVERSCAN_PX))
     : 0;
+  const topVisibleIndex = rows.length
+    ? Math.min(indexAtOffset(offsets, viewport.top - stickyHeaderHeight), rows.length - 1)
+    : -1;
   const endIndex = isVirtualized
     ? Math.min(
         rows.length,
@@ -187,10 +246,10 @@ export function useVirtualNoteList(
     for (let index = startIndex; index < endIndex; index += 1) indices.add(index);
     if (pinnedIndex !== null && pinnedIndex >= 0 && pinnedIndex < rows.length)
       indices.add(pinnedIndex);
-    const result: Array<{ note: NoteSummary; index: number; top: number }> = [];
+    const result: Array<{ row: VirtualNoteListRow; index: number; top: number }> = [];
     for (const index of [...indices].sort((left, right) => left - right)) {
-      const note = rows[index];
-      if (note) result.push({ note, index, top: offsets[index]! });
+      const row = rows[index];
+      if (row) result.push({ row, index, top: offsets[index]! });
     }
     return result;
   }, [endIndex, offsets, pinnedIndex, rows, startIndex]);
@@ -239,9 +298,18 @@ export function useVirtualNoteList(
       const container = scrollRef.current;
       if (index === undefined || !container) return;
       const top = offsetsRef.current[index] ?? 0;
-      container.scrollTop = top + contentInsetRef.current;
+      const row = rowsRef.current[index];
+      container.scrollTop =
+        row?.kind === "group" && !row.firstGroup
+          ? top + stickyHeaderHeightRef.current
+          : row?.kind === "group"
+            ? 0
+            : top + contentInsetRef.current;
       setViewport((current) => {
-        const next = { top, height: container.clientHeight || current.height || 800 };
+        const next = {
+          top: container.scrollTop - contentInsetRef.current,
+          height: container.clientHeight || current.height || 800,
+        };
         return current.top === next.top && current.height === next.height ? current : next;
       });
     },
@@ -266,7 +334,7 @@ export function useVirtualNoteList(
     const focusId = pendingFocusIdRef.current;
     if (!focusId) return;
     const row = scrollRef.current?.querySelector<HTMLButtonElement>(
-      `[data-note-id="${CSS.escape(focusId)}"] .note-row`,
+      `[data-note-id="${CSS.escape(focusId)}"] .note-row, [data-note-id="${CSS.escape(focusId)}"] .note-list-virtual-group-toggle`,
     );
     if (row) {
       pendingFocusIdRef.current = null;
@@ -290,27 +358,28 @@ export function useVirtualNoteList(
       const currentIndex = indexByIdRef.current.get(currentId);
       if (currentIndex === undefined) return;
       const direction = event.shiftKey ? -1 : 1;
+      const isFocusableRow = (index: number) => {
+        const row = rows[index];
+        return (
+          row !== undefined &&
+          !(row.kind === "group" && index === topVisibleIndex && pinnedIndex !== index)
+        );
+      };
       let nextIndex = currentIndex + direction;
-      while (
-        nextIndex >= 0 &&
-        nextIndex < rows.length &&
-        nonFocusableRowIds.has(rows[nextIndex]!.id)
-      )
+      while (nextIndex >= 0 && nextIndex < rows.length && !isFocusableRow(nextIndex))
         nextIndex += direction;
       let boundaryIndex: number | null = null;
       if (event.shiftKey) {
         for (let index = startIndex; index < endIndex; index += 1) {
-          if (!nonFocusableRowIds.has(rows[index]!.id)) {
-            boundaryIndex = index;
-            break;
-          }
+          if (!isFocusableRow(index)) continue;
+          boundaryIndex = index;
+          break;
         }
       } else {
         for (let index = endIndex - 1; index >= startIndex; index -= 1) {
-          if (!nonFocusableRowIds.has(rows[index]!.id)) {
-            boundaryIndex = index;
-            break;
-          }
+          if (!isFocusableRow(index)) continue;
+          boundaryIndex = index;
+          break;
         }
       }
       const focusedOutsideWindow = currentIndex < startIndex || currentIndex >= endIndex;
@@ -337,11 +406,12 @@ export function useVirtualNoteList(
     [
       endIndex,
       isVirtualized,
-      nonFocusableRowIds,
       offsets,
+      pinnedIndex,
       rows,
       scrollRef,
       startIndex,
+      topVisibleIndex,
       viewport.height,
     ],
   );
@@ -349,7 +419,8 @@ export function useVirtualNoteList(
   return {
     isVirtualized,
     visibleRows,
-    topVisibleNote: rows[indexAtOffset(offsets, viewport.top)],
+    pinnedRowId: pinnedIndex === null ? null : (rows[pinnedIndex]?.id ?? null),
+    topVisibleRow: topVisibleIndex < 0 ? undefined : rows[topVisibleIndex],
     totalHeight: offsets[offsets.length - 1] ?? 0,
     rowStyle,
     getRowRef,

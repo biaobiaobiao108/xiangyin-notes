@@ -47,7 +47,12 @@ import {
 } from "./helpers";
 import { NOTE_DRAG_MIME_TYPE, setNoteDragImage, hasNoteDragType } from "./note-drag-drop";
 import { NoteTags } from "./note-tags";
-import { useVirtualNoteList } from "./use-virtual-note-list";
+import {
+  flattenNoteGroups,
+  noteGroupRowId,
+  useVirtualNoteList,
+  type VirtualNoteListRow,
+} from "./use-virtual-note-list";
 import { collapsedGroupScrollTop } from "./group-layout";
 import { useScrollEdges } from "./use-scroll-edges";
 import { MobileCollectionHeader } from "./mobile-collection-header";
@@ -920,29 +925,6 @@ export const NoteListPanel = memo(function NoteListPanel({
     return () => animation?.cancel();
   }, [transitionToken]);
 
-  useEffect(() => {
-    const sentinel = loadMoreSentinelRef.current;
-    const container = noteListRef.current;
-    if (!sentinel || !container || !hasMore || !onLoadMore || isLoadingMore) return;
-    if (typeof IntersectionObserver === "undefined") return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const entry = entries[0];
-        if (entry?.isIntersecting) {
-          onLoadMore();
-        }
-      },
-      {
-        root: container,
-        rootMargin: "240px",
-      },
-    );
-
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [hasMore, onLoadMore, isLoadingMore]);
-
   const [draggingNoteIds, setDraggingNoteIds] = useState<ReadonlySet<string> | null>(null);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
   const [virtualGroupTransition, setVirtualGroupTransition] =
@@ -989,41 +971,36 @@ export const NoteListPanel = memo(function NoteListPanel({
     if (query.trim()) return null;
     return groupNotes(sortedNotes, "updated");
   }, [query, sortedNotes]);
-  const collapsedProxyGroups = useMemo(() => {
-    const proxyGroups = new Map<string, NoteGroup>();
-    for (const group of groups ?? []) {
-      if (collapsedGroups.has(group.id)) proxyGroups.set(group.notes[0]!.id, group);
-    }
-    return proxyGroups;
-  }, [collapsedGroups, groups]);
-  const collapsedProxyNoteIds = useMemo(
-    () => new Set(collapsedProxyGroups.keys()),
-    [collapsedProxyGroups],
-  );
   const virtualTransitionNoteIds = useMemo(() => {
     const group = groups?.find((item) => item.id === virtualGroupTransition?.groupId);
     return new Set(group?.notes.map((note) => note.id) ?? []);
   }, [groups, virtualGroupTransition?.groupId]);
-  const virtualRows = useMemo(() => {
-    if (!groups) return sortedNotes;
-    return groups.flatMap((group) => {
-      const isCollapsing =
-        virtualGroupTransition?.groupId === group.id &&
-        virtualGroupTransition.phase === "collapsing";
-      return collapsedGroups.has(group.id) && !isCollapsing ? [group.notes[0]!] : group.notes;
-    });
+  const virtualRows = useMemo<VirtualNoteListRow[]>(() => {
+    if (groups)
+      return flattenNoteGroups(
+        groups,
+        collapsedGroups,
+        virtualGroupTransition?.phase === "collapsing" ? virtualGroupTransition.groupId : null,
+      );
+    return sortedNotes.map((note) => ({ id: note.id, kind: "note" as const, note }));
   }, [collapsedGroups, groups, sortedNotes, virtualGroupTransition]);
   const sortedIndexById = useMemo(
     () => new Map(sortedNotes.map((note, index) => [note.id, index])),
     [sortedNotes],
   );
+  const groupByNoteId = useMemo(() => {
+    const byNoteId = new Map<string, NoteGroup>();
+    for (const group of groups ?? []) {
+      for (const note of group.notes) byNoteId.set(note.id, group);
+    }
+    return byNoteId;
+  }, [groups]);
   const virtualList = useVirtualNoteList(
     virtualRows,
     noteListRef,
     noteListElement,
     virtualizationScope,
     sortedNotes.length,
-    collapsedProxyNoteIds,
   );
   const noteListScrollEdges = useScrollEdges(noteListRef, [
     noteListElement,
@@ -1033,10 +1010,10 @@ export const NoteListPanel = memo(function NoteListPanel({
 
   const currentStickyGroup = useMemo(() => {
     if (!groups || groups.length === 0) return null;
-    const topNote = virtualList.topVisibleNote;
-    if (!topNote) return groups[0];
-    return groups.find((g) => g.notes.some((n) => n.id === topNote.id)) || groups[0];
-  }, [groups, virtualList.topVisibleNote]);
+    const topRow = virtualList.topVisibleRow;
+    if (!topRow) return groups[0];
+    return topRow.kind === "group" ? topRow.group : groupByNoteId.get(topRow.note.id) || groups[0];
+  }, [groupByNoteId, groups, virtualList.topVisibleRow]);
   const virtualStickyGroup = currentStickyGroup ?? groups?.[0] ?? null;
   const virtualStickyTransition =
     virtualGroupTransition && virtualStickyGroup?.id === virtualGroupTransition.groupId
@@ -1050,6 +1027,41 @@ export const NoteListPanel = memo(function NoteListPanel({
         : virtualStickyGroup
           ? collapsedGroups.has(virtualStickyGroup.id)
           : false;
+  const canAutoLoadMore =
+    !groups ||
+    groups.some((group) => {
+      return (
+        !collapsedGroups.has(group.id) &&
+        !(
+          virtualGroupTransition?.groupId === group.id &&
+          virtualGroupTransition.phase === "collapsing"
+        )
+      );
+    });
+
+  useEffect(() => {
+    const sentinel = loadMoreSentinelRef.current;
+    const container = noteListRef.current;
+    if (
+      !sentinel ||
+      !container ||
+      !hasMore ||
+      !onLoadMore ||
+      isLoadingMore ||
+      !canAutoLoadMore ||
+      typeof IntersectionObserver === "undefined"
+    )
+      return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) onLoadMore();
+      },
+      { root: container, rootMargin: "240px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [canAutoLoadMore, hasMore, isLoadingMore, onLoadMore, sortedNotes.length]);
 
   const toggleGroup = (button: HTMLButtonElement, groupId: string) => {
     const scroll = noteListRef.current;
@@ -1073,7 +1085,7 @@ export const NoteListPanel = memo(function NoteListPanel({
   };
 
   const toggleVirtualGroup = (group: NoteGroup) => {
-    virtualList.scrollToRowStart(group.notes[0]!.id);
+    if (group.id === virtualStickyGroup?.id) virtualList.scrollToRowStart(noteGroupRowId(group.id));
     const duration = groupMotionDuration();
     if (virtualGroupTransitionTimerRef.current !== null)
       window.clearTimeout(virtualGroupTransitionTimerRef.current);
@@ -1155,6 +1167,11 @@ export const NoteListPanel = memo(function NoteListPanel({
     if (
       target instanceof HTMLElement &&
       (target.isContentEditable || target.matches("input, textarea, select"))
+    )
+      return;
+    if (
+      target instanceof HTMLElement &&
+      target.closest(".note-list-group-toggle, .note-list-virtual-group-toggle")
     )
       return;
 
@@ -1315,6 +1332,7 @@ export const NoteListPanel = memo(function NoteListPanel({
                       type="button"
                       className="note-list-virtual-group-toggle"
                       aria-expanded={!virtualStickyGroupCollapsed}
+                      aria-controls="note-list-virtual-rows"
                       onClick={() => toggleVirtualGroup(virtualStickyGroup)}
                     >
                       <ChevronDown
@@ -1409,25 +1427,56 @@ export const NoteListPanel = memo(function NoteListPanel({
                   </div>
                 ) : (
                   <ul
+                    id={virtualList.isVirtualized ? "note-list-virtual-rows" : undefined}
                     className={`note-list-items${virtualGroupTransition ? " is-group-transitioning" : ""}`}
                     role="list"
                     style={listStyle}
                   >
-                    {virtualList.visibleRows.map(({ note, index, top }) => {
-                      if (collapsedProxyNoteIds.has(note.id)) {
+                    {virtualList.visibleRows.map(({ row, index, top }) => {
+                      if (row.kind === "group") {
+                        const isStickyMarker = virtualStickyGroup?.id === row.group.id;
+                        const isFocusedMarker = virtualList.pinnedRowId === row.id;
+                        const hideMarker = isStickyMarker && !isFocusedMarker;
+                        const markerTransition =
+                          virtualGroupTransition?.groupId === row.group.id
+                            ? virtualGroupTransition.phase
+                            : null;
+                        const markerCollapsed =
+                          markerTransition === "collapsing" || markerTransition === "settling"
+                            ? true
+                            : markerTransition === "expanding"
+                              ? false
+                              : collapsedGroups.has(row.group.id);
                         return (
                           <li
-                            key={note.id}
-                            ref={
-                              virtualList.isVirtualized ? virtualList.getRowRef(note.id) : undefined
-                            }
-                            data-note-id={note.id}
-                            className="note-list-group-proxy"
-                            aria-hidden="true"
-                            style={{ ...virtualList.rowStyle(top), height: 30 }}
-                          />
+                            key={row.id}
+                            ref={virtualList.getRowRef(row.id)}
+                            data-note-id={row.id}
+                            className={`note-list-virtual-group-marker${row.firstGroup ? " is-first" : ""}${markerCollapsed ? " is-collapsed" : ""}`}
+                            role="presentation"
+                            aria-hidden={hideMarker || undefined}
+                            inert={hideMarker || undefined}
+                            style={virtualList.rowStyle(top)}
+                          >
+                            <button
+                              type="button"
+                              className="note-list-virtual-group-toggle"
+                              aria-expanded={!markerCollapsed}
+                              aria-controls="note-list-virtual-rows"
+                              onClick={() => toggleVirtualGroup(row.group)}
+                            >
+                              <ChevronDown
+                                className="note-list-group-chevron"
+                                size={13}
+                                aria-hidden="true"
+                              />
+                              <span className="note-list-group-title">{row.group.title}</span>
+                              <span className="note-list-group-count">{row.group.count}</span>
+                            </button>
+                          </li>
                         );
                       }
+                      const note = row.note;
                       return (
                         <NoteListRow
                           key={note.id}

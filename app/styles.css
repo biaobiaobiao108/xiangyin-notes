@@ -801,6 +801,7 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .note-list-group-header:not(.is-virtual-sticky) { padding: 0; }
 .note-list-group-toggle { display: flex; width: 100%; min-width: 0; height: 100%; align-items: center; gap: 6px; padding: 8px 14px 4px; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .note-list-virtual-group-toggle { display: flex; width: 100%; min-width: 0; height: 100%; align-items: center; gap: 6px; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.note-list-group-toggle:focus-visible, .note-list-virtual-group-toggle:focus-visible { box-shadow: inset 0 0 0 2px var(--focus-ring); }
 .note-list-group-chevron { flex: none; transition: transform var(--motion-fast) var(--motion-ease-out); }
 .note-list-group-toggle[aria-expanded="false"] .note-list-group-chevron,
 .note-list-virtual-group-toggle[aria-expanded="false"] .note-list-group-chevron { transform: rotate(-90deg); }
@@ -816,7 +817,8 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .note-list-group-content { display: grid; grid-template-rows: 1fr; overflow-anchor: none; padding-block: 4px; transition: grid-template-rows var(--motion-group) var(--motion-group-ease), padding-block var(--motion-group) var(--motion-group-ease); }
 .note-list-group-content.is-collapsed { grid-template-rows: 0fr; padding-block: 0; }
 .note-list-group-content > ul { min-height: 0; overflow: hidden; padding: 0; }
-.note-list-group-proxy { height: 30px; pointer-events: none; }
+.note-list-virtual-group-marker { display: flex; height: 30px; align-items: center; background: var(--surface-glass); color: var(--soft-muted); font-size: 0.72rem; font-weight: 600; letter-spacing: 0.04em; }
+.note-list-virtual-group-marker.is-first { height: 0; }
 .note-list-items.is-group-transitioning > li { transition: transform var(--motion-group) var(--motion-group-ease); }
 .note-list-item.is-group-collapsing { pointer-events: none; }
 .note-list-item.is-group-collapsing > .note-row-swipe { animation: note-list-group-row-exit var(--motion-group) var(--motion-group-ease) both; }
@@ -1617,7 +1619,8 @@ dialog::backdrop {
   .app-shell[data-mobile-page] .note-list-scroll-shell::after { background: linear-gradient(to top, var(--canvas), transparent); }
   .app-shell[data-mobile-page] .note-list-scroll-shell::before { background: linear-gradient(to bottom, var(--canvas), transparent); }
   .app-shell[data-mobile-page] .note-list { padding-bottom: calc(96px + env(safe-area-inset-bottom)); scroll-padding-top: 30px; }
-  .app-shell[data-mobile-page] .note-list-group-header { background: var(--canvas); backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .app-shell[data-mobile-page] .note-list-group-header,
+  .app-shell[data-mobile-page] .note-list-virtual-group-marker { background: var(--canvas); backdrop-filter: none; -webkit-backdrop-filter: none; }
   .app-shell[data-mobile-page] .note-row-swipe:not(.is-swipe-open) > .note-row:not(.is-selected):not(.is-active):not(:focus-visible) { background: var(--canvas); }
   .app-shell[data-mobile-page] .note-row-title { font-size: 1.0625rem; }
   .app-shell[data-mobile-page] .note-row-preview { font-size: 0.9375rem; line-height: 1.55; }
