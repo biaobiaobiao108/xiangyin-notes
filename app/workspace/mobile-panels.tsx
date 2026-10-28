@@ -14,6 +14,7 @@ import type { Notebook, NoteView } from "../../shared/types";
 import { BrandMark } from "../brand-mark";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { getNotebookIconComponent, navItems } from "./helpers";
+import { useScrollEdges } from "./use-scroll-edges";
 import { useSwipeActionGesture, useSwipeActionGroup } from "./swipe-actions";
 import "./mobile-panels.css";
 
@@ -45,12 +46,13 @@ export const MobileNotebookHome = memo(function MobileNotebookHome({
   active = true,
 }: MobileNotebookHomeProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollEdges = useScrollEdges(scrollRef, [notebooks.length]);
   const swipeActions = useSwipeActionGroup(scrollRef, active, active ? "home" : "inactive");
   const customNotebooks = notebooks.filter((notebook) => !notebook.isSystem);
 
   return (
     <section className="mobile-notebook-home" aria-labelledby="mobile-notebooks-title">
-      <div className="mobile-home-scroll-shell">
+      <div className={`mobile-home-scroll-shell${scrollEdges.after ? " has-scroll-after" : ""}`}>
         <div
           ref={scrollRef}
           id="mobile-notebooks-scroll"

@@ -10,6 +10,7 @@ export function resolveMobileViewport(
     layoutHeight: number;
     offsetTop: number;
     editable: boolean;
+    standalone?: boolean;
   },
 ) {
   const rotated = previous && Math.abs(previous.width - viewport.width) > 80;
@@ -21,12 +22,16 @@ export function resolveMobileViewport(
   const keyboard =
     baseline - viewport.height > 100 &&
     (viewport.editable || (!rotated && previous?.keyboard === true));
-  const height = keyboard ? baseline : viewport.height;
+  const height = keyboard
+    ? baseline
+    : viewport.standalone
+      ? Math.max(viewport.height, viewport.layoutHeight)
+      : viewport.height;
   return {
     width: viewport.width,
     height,
     keyboard,
-    inset: height - viewport.height,
+    inset: keyboard ? height - viewport.height : 0,
     top: Math.max(0, viewport.offsetTop),
   };
 }
@@ -43,18 +48,24 @@ export function useMobileViewport(enabled: boolean) {
       frame = 0;
       // Leave pinch zoom to the browser rather than following its pan with the app.
       if (viewport && Math.abs(viewport.scale - 1) > 0.01) return;
-      style.setProperty("--mobile-viewport-height", `${viewport?.height ?? window.innerHeight}px`);
       const active = document.activeElement;
       const geometry = resolveMobileViewport(previous, {
         width: viewport?.width ?? window.innerWidth,
         height: viewport?.height ?? window.innerHeight,
         layoutHeight: document.documentElement.clientHeight,
         offsetTop: viewport?.offsetTop ?? 0,
+        standalone:
+          window.matchMedia("(display-mode: standalone)").matches ||
+          Boolean((navigator as Navigator & { standalone?: boolean }).standalone),
         editable:
           active instanceof HTMLElement &&
           Boolean(active.closest("input, textarea, [contenteditable=true]")),
       });
       previous = geometry;
+      style.setProperty(
+        "--mobile-viewport-height",
+        `${geometry.keyboard ? (viewport?.height ?? window.innerHeight) : geometry.height}px`,
+      );
       style.setProperty("--mobile-editor-height", `${geometry.height}px`);
       style.setProperty("--mobile-viewport-top", `${geometry.top}px`);
       style.setProperty("--mobile-keyboard-inset", `${geometry.inset}px`);
