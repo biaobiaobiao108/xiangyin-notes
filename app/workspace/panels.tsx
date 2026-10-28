@@ -60,6 +60,22 @@ function toggleGroupInSet(current: ReadonlySet<string>, groupId: string) {
   return next;
 }
 
+type VirtualGroupTransition = {
+  groupId: string;
+  phase: "collapsing" | "expanding" | "settling";
+};
+
+function groupMotionDuration() {
+  const value = getComputedStyle(document.documentElement)
+    .getPropertyValue("--motion-group")
+    .trim();
+  const duration = Number.parseFloat(value);
+  if (!Number.isFinite(duration)) return 0;
+  if (value.endsWith("ms")) return duration;
+  if (value.endsWith("s")) return duration * 1000;
+  return duration;
+}
+
 export function NoteLoadingState() {
   return (
     <section className="editor-panel editor-loading-shell" aria-label="笔记编辑器" aria-busy="true">
@@ -503,6 +519,7 @@ const NoteListRow = memo(function NoteListRow({
   open,
   setOpenId,
   isDragging,
+  groupMotion,
   onDragStart,
   onDragEnd,
 }: {
@@ -524,6 +541,7 @@ const NoteListRow = memo(function NoteListRow({
   open: boolean;
   setOpenId: (id: string | null) => void;
   isDragging: boolean;
+  groupMotion?: "collapsing" | "expanding";
   onDragStart: (note: NoteSummary, event: ReactDragEvent<HTMLButtonElement>) => void;
   onDragEnd: () => void;
 }) {
@@ -542,8 +560,9 @@ const NoteListRow = memo(function NoteListRow({
     <li
       ref={rowRef}
       data-note-id={note.id}
-      className={`note-list-item ${isDragging ? "is-dragging" : ""}`.trim()}
+      className={`note-list-item ${isDragging ? "is-dragging" : ""}${groupMotion ? ` is-group-${groupMotion}` : ""}`.trim()}
       style={rowStyle}
+      inert={groupMotion === "collapsing" || undefined}
       aria-posinset={rowIndex + 1}
       aria-setsize={setSize}
     >
@@ -940,7 +959,8 @@ export const NoteListPanel = memo(function NoteListPanel({
 
   const [draggingNoteIds, setDraggingNoteIds] = useState<ReadonlySet<string> | null>(null);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
-  const [virtualGroupTransitioning, setVirtualGroupTransitioning] = useState(false);
+  const [virtualGroupTransition, setVirtualGroupTransition] =
+    useState<VirtualGroupTransition | null>(null);
   const dragFrameRef = useRef<number | null>(null);
   const virtualGroupTransitionTimerRef = useRef<number | null>(null);
 
@@ -994,12 +1014,19 @@ export const NoteListPanel = memo(function NoteListPanel({
     () => new Set(collapsedProxyGroups.keys()),
     [collapsedProxyGroups],
   );
+  const virtualTransitionNoteIds = useMemo(() => {
+    const group = groups?.find((item) => item.id === virtualGroupTransition?.groupId);
+    return new Set(group?.notes.map((note) => note.id) ?? []);
+  }, [groups, virtualGroupTransition?.groupId]);
   const virtualRows = useMemo(() => {
     if (!groups) return sortedNotes;
-    return groups.flatMap((group) =>
-      collapsedGroups.has(group.id) ? [group.notes[0]!] : group.notes,
-    );
-  }, [collapsedGroups, groups, sortedNotes]);
+    return groups.flatMap((group) => {
+      const isCollapsing =
+        virtualGroupTransition?.groupId === group.id &&
+        virtualGroupTransition.phase === "collapsing";
+      return collapsedGroups.has(group.id) && !isCollapsing ? [group.notes[0]!] : group.notes;
+    });
+  }, [collapsedGroups, groups, sortedNotes, virtualGroupTransition]);
   const sortedIndexById = useMemo(
     () => new Map(sortedNotes.map((note, index) => [note.id, index])),
     [sortedNotes],
@@ -1025,9 +1052,18 @@ export const NoteListPanel = memo(function NoteListPanel({
     return groups.find((g) => g.notes.some((n) => n.id === topNote.id)) || groups[0];
   }, [groups, virtualList.topVisibleNote]);
   const virtualStickyGroup = currentStickyGroup ?? groups?.[0] ?? null;
-  const virtualStickyGroupCollapsed = virtualStickyGroup
-    ? collapsedGroups.has(virtualStickyGroup.id)
-    : false;
+  const virtualStickyTransition =
+    virtualGroupTransition && virtualStickyGroup?.id === virtualGroupTransition.groupId
+      ? virtualGroupTransition.phase
+      : null;
+  const virtualStickyGroupCollapsed =
+    virtualStickyTransition === "collapsing" || virtualStickyTransition === "settling"
+      ? true
+      : virtualStickyTransition === "expanding"
+        ? false
+        : virtualStickyGroup
+          ? collapsedGroups.has(virtualStickyGroup.id)
+          : false;
 
   const toggleGroup = (button: HTMLButtonElement, groupId: string) => {
     const scroll = noteListRef.current;
@@ -1052,19 +1088,55 @@ export const NoteListPanel = memo(function NoteListPanel({
 
   const toggleVirtualGroup = (group: NoteGroup) => {
     virtualList.scrollToRowStart(group.notes[0]!.id);
-    const duration = Number.parseFloat(
-      getComputedStyle(document.documentElement).getPropertyValue("--motion-group"),
-    );
-    if (Number.isFinite(duration) && duration > 0) {
-      if (virtualGroupTransitionTimerRef.current !== null)
-        window.clearTimeout(virtualGroupTransitionTimerRef.current);
-      setVirtualGroupTransitioning(true);
+    const duration = groupMotionDuration();
+    if (virtualGroupTransitionTimerRef.current !== null)
+      window.clearTimeout(virtualGroupTransitionTimerRef.current);
+
+    const finishTransition = (phase: VirtualGroupTransition["phase"]) => {
+      if (duration <= 0) {
+        setVirtualGroupTransition(null);
+        return;
+      }
+      setVirtualGroupTransition({ groupId: group.id, phase });
       virtualGroupTransitionTimerRef.current = window.setTimeout(() => {
         virtualGroupTransitionTimerRef.current = null;
-        setVirtualGroupTransitioning(false);
+        if (phase === "collapsing") {
+          setCollapsedGroups((current) => {
+            const next = new Set(current);
+            next.add(group.id);
+            return next;
+          });
+          setVirtualGroupTransition({ groupId: group.id, phase: "settling" });
+          virtualGroupTransitionTimerRef.current = window.setTimeout(() => {
+            virtualGroupTransitionTimerRef.current = null;
+            setVirtualGroupTransition(null);
+          }, duration);
+        } else {
+          setVirtualGroupTransition(null);
+        }
       }, duration);
+    };
+
+    if (
+      virtualGroupTransition?.groupId === group.id &&
+      virtualGroupTransition.phase === "collapsing"
+    ) {
+      finishTransition("expanding");
+      return;
     }
-    setCollapsedGroups((current) => toggleGroupInSet(current, group.id));
+
+    if (collapsedGroups.has(group.id)) {
+      setCollapsedGroups((current) => toggleGroupInSet(current, group.id));
+      finishTransition("expanding");
+      return;
+    }
+
+    if (duration <= 0) {
+      setCollapsedGroups((current) => toggleGroupInSet(current, group.id));
+      setVirtualGroupTransition(null);
+      return;
+    }
+    finishTransition("collapsing");
   };
 
   useEffect(
@@ -1078,9 +1150,15 @@ export const NoteListPanel = memo(function NoteListPanel({
   const keyboardNotes = useMemo(
     () =>
       groups
-        ? groups.flatMap((group) => (collapsedGroups.has(group.id) ? [] : group.notes))
+        ? groups.flatMap((group) =>
+            collapsedGroups.has(group.id) ||
+            (virtualGroupTransition?.groupId === group.id &&
+              virtualGroupTransition.phase === "collapsing")
+              ? []
+              : group.notes,
+          )
         : sortedNotes,
-    [collapsedGroups, groups, sortedNotes],
+    [collapsedGroups, groups, sortedNotes, virtualGroupTransition],
   );
 
   const handleNoteListKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -1345,7 +1423,7 @@ export const NoteListPanel = memo(function NoteListPanel({
                   </div>
                 ) : (
                   <ul
-                    className={`note-list-items${virtualGroupTransitioning ? " is-group-transitioning" : ""}`}
+                    className={`note-list-items${virtualGroupTransition ? " is-group-transitioning" : ""}`}
                     role="list"
                     style={listStyle}
                   >
@@ -1387,6 +1465,13 @@ export const NoteListPanel = memo(function NoteListPanel({
                           open={swipeActions.openId === note.id}
                           setOpenId={swipeActions.setOpenId}
                           isDragging={draggingNoteIds?.has(note.id) ?? false}
+                          groupMotion={
+                            virtualTransitionNoteIds.has(note.id) &&
+                            (virtualGroupTransition?.phase === "collapsing" ||
+                              virtualGroupTransition?.phase === "expanding")
+                              ? virtualGroupTransition.phase
+                              : undefined
+                          }
                           onDragStart={handleRowDragStart}
                           onDragEnd={handleRowDragEnd}
                         />

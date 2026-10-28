@@ -803,6 +803,15 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .note-list-group-content > ul { min-height: 0; overflow: hidden; padding: 0; }
 .note-list-group-proxy { height: 30px; pointer-events: none; }
 .note-list-items.is-group-transitioning > li { transition: transform var(--motion-group) var(--motion-group-ease); }
+.note-list-item.is-group-collapsing { pointer-events: none; }
+.note-list-item.is-group-collapsing > .note-row-swipe { animation: note-list-group-row-exit var(--motion-group) var(--motion-group-ease) both; }
+.note-list-item.is-group-expanding > .note-row-swipe { animation: note-list-group-row-enter var(--motion-group) var(--motion-group-ease) both; }
+@keyframes note-list-group-row-exit {
+  to { opacity: 0; transform: translateY(-6px); }
+}
+@keyframes note-list-group-row-enter {
+  from { opacity: 0; transform: translateY(-6px); }
+}
 
 /* 多选拖影沿用笔记卡片本身的样式。 */
 .note-drag-ghost-shell {
