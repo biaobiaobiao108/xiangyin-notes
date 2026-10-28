@@ -289,9 +289,20 @@ export function Workspace() {
   const [tasksOpen, setTasksOpen] = useState(false);
   const [taskStatus, setTaskStatus] = useState<"open" | "done" | "all">("open");
   const [taskNotebookId, setTaskNotebookId] = useState("");
-  const [tasks, setTasks] = useState<TaskSummary[]>([]);
-  const [tasksLoading, setTasksLoading] = useState(false);
-  const [tasksError, setTasksError] = useState<string | null>(null);
+  const [taskSnapshot, setTaskSnapshot] = useState<{
+    queryKey: string;
+    tasks: TaskSummary[];
+  } | null>(null);
+  const taskSnapshotRef = useRef(taskSnapshot);
+  const [taskLoadError, setTaskLoadError] = useState<{
+    queryKey: string;
+    message: string;
+  } | null>(null);
+  const taskQueryKey = JSON.stringify([taskStatus, taskNotebookId]);
+  const hasTaskSnapshot = taskSnapshot?.queryKey === taskQueryKey;
+  const tasks = hasTaskSnapshot ? taskSnapshot.tasks : [];
+  const tasksLoading = tasksOpen && !hasTaskSnapshot && taskLoadError?.queryKey !== taskQueryKey;
+  const tasksError = taskLoadError?.queryKey === taskQueryKey ? taskLoadError.message : null;
   const [taskRefreshToken, setTaskRefreshToken] = useState(0);
   const [taskNavigation, setTaskNavigation] = useState<{
     noteId: string;
@@ -327,20 +338,23 @@ export function Workspace() {
   useEffect(() => {
     if (!tasksOpen) return;
     const controller = new AbortController();
-    setTasksLoading(true);
-    setTasksError(null);
+    const queryKey = JSON.stringify([taskStatus, taskNotebookId]);
+    setTaskLoadError((current) => (current?.queryKey === queryKey ? null : current));
     void api
       .listTasks(
         { status: taskStatus, notebookId: taskNotebookId || undefined },
         { signal: controller.signal },
       )
-      .then((result) => setTasks(result.tasks))
+      .then((result) => {
+        if (controller.signal.aborted) return;
+        const snapshot = { queryKey, tasks: result.tasks };
+        taskSnapshotRef.current = snapshot;
+        setTaskSnapshot(snapshot);
+      })
       .catch((reason: unknown) => {
         if (reason instanceof Error && reason.name === "AbortError") return;
-        setTasksError("加载任务失败，请重试");
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setTasksLoading(false);
+        if (controller.signal.aborted || taskSnapshotRef.current?.queryKey === queryKey) return;
+        setTaskLoadError({ queryKey, message: "加载任务失败，请重试" });
       });
     return () => controller.abort();
   }, [taskNotebookId, taskRefreshToken, taskStatus, tasksOpen]);
