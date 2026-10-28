@@ -302,7 +302,6 @@ export const Sidebar = memo(function Sidebar({
   onOpenTasks: () => void;
 }) {
   const notebookListRef = useRef<HTMLDivElement>(null);
-  const collapsedNotebookListRef = useRef<HTMLDivElement>(null);
   const systemInbox = useMemo(() => notebooks.find((notebook) => notebook.isSystem), [notebooks]);
   const customNotebooks = useMemo(
     () => notebooks.filter((notebook) => !notebook.isSystem),
@@ -390,7 +389,6 @@ export const Sidebar = memo(function Sidebar({
       <div className="collapsed-notebook-shell">
         <div
           id="collapsed-notebook-scroll-region"
-          ref={collapsedNotebookListRef}
           className="collapsed-notebook-list floating-scrollbar-target"
           role="toolbar"
           aria-label="笔记本快捷切换"
@@ -410,12 +408,6 @@ export const Sidebar = memo(function Sidebar({
             />
           ))}
         </div>
-        <FloatingScrollbar
-          scrollTargetRef={collapsedNotebookListRef}
-          controlsId="collapsed-notebook-scroll-region"
-          ariaLabel="笔记本快捷切换滚动条"
-          placement="left"
-        />
       </div>
       <div className="notebook-section">
         <div className="section-heading">
@@ -453,12 +445,6 @@ export const Sidebar = memo(function Sidebar({
               ))}
             </ul>
           </div>
-          <FloatingScrollbar
-            scrollTargetRef={notebookListRef}
-            controlsId="notebook-list-scroll-region"
-            ariaLabel="笔记本列表滚动条"
-            placement="left"
-          />
         </div>
       </div>
       <div className="sidebar-bottom">
