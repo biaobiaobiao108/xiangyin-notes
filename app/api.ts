@@ -166,6 +166,17 @@ export const api = {
     if (params.notebookId) search.set("notebookId", params.notebookId);
     return request<{ tasks: TaskSummary[] }>(`/api/tasks?${search.toString()}`, options);
   },
+  toggleTask: (payload: {
+    noteId: string;
+    version: number;
+    ordinal: number;
+    text: string;
+    completed: boolean;
+  }) =>
+    request<{ note: Note }>("/api/tasks/toggle", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
   createNotebook: (payload: { name: string; color?: string; icon?: string }) =>
     request<{ notebook: Notebook }>("/api/notebooks", {
       method: "POST",

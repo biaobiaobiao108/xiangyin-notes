@@ -120,6 +120,113 @@ describe("Bun Server API", () => {
     expect((await request("/api/tasks?status=all", {}, login.cookie)).body?.total).toBe(0);
   });
 
+  test("toggles one exact nested task marker and enforces the note version", async () => {
+    const login = await request("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
+    });
+    const notebookResponse = await request(
+      "/api/notebooks",
+      { method: "POST", body: JSON.stringify({ name: "任务切换测试" }) },
+      login.cookie,
+    );
+    const noteResponse = await request(
+      "/api/notes",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          title: "重复与嵌套任务",
+          notebookId: notebookResponse.body?.notebook.id,
+          contentMarkdown: "- [ ] 重复\n  - [x] 子项\n- [ ] 重复",
+        }),
+      },
+      login.cookie,
+    );
+    const note = noteResponse.body?.note;
+    const tasks = (await request("/api/tasks?status=all", {}, login.cookie)).body?.tasks;
+    expect(tasks).toHaveLength(3);
+
+    const toggled = await request(
+      "/api/tasks/toggle",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          noteId: note.id,
+          version: note.version,
+          ordinal: 1,
+          text: "子项",
+          completed: true,
+        }),
+      },
+      login.cookie,
+    );
+    expect(toggled.response.status).toBe(200);
+    expect(toggled.body?.note.contentMarkdown).toBe("- [ ] 重复\n  - [ ] 子项\n- [ ] 重复");
+    expect(toggled.body?.note.version).toBe(note.version + 1);
+
+    const stale = await request(
+      "/api/tasks/toggle",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          noteId: note.id,
+          version: note.version,
+          ordinal: 0,
+          text: "重复",
+          completed: false,
+        }),
+      },
+      login.cookie,
+    );
+    expect(stale.response.status).toBe(409);
+    expect(stale.body?.error.code).toBe("VERSION_CONFLICT");
+
+    const updatedTasks = (await request("/api/tasks?status=all", {}, login.cookie)).body?.tasks;
+    expect(updatedTasks.map((task: { done: boolean }) => task.done)).toEqual([false, false, false]);
+  });
+
+  test("accepts a long Unicode task whose JSON body exceeds 4 KiB", async () => {
+    const login = await request("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
+    });
+    const notebookResponse = await request(
+      "/api/notebooks",
+      { method: "POST", body: JSON.stringify({ name: "长任务切换测试" }) },
+      login.cookie,
+    );
+    const text = "任务".repeat(2000);
+    const noteResponse = await request(
+      "/api/notes",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          title: "长任务",
+          notebookId: notebookResponse.body?.notebook.id,
+          contentMarkdown: `- [ ] ${text}`,
+        }),
+      },
+      login.cookie,
+    );
+    const note = noteResponse.body?.note;
+    const response = await request(
+      "/api/tasks/toggle",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          noteId: note.id,
+          version: note.version,
+          ordinal: 0,
+          text,
+          completed: false,
+        }),
+      },
+      login.cookie,
+    );
+    expect(response.response.status).toBe(200);
+    expect(response.body?.note.contentMarkdown).toBe(`- [x] ${text}`);
+  });
+
   test("retries asset file deletions that failed after their database rows were removed", async () => {
     const warningSpy = spyOn(console, "warn").mockImplementation(() => undefined);
     const storagePath = "blocked/retry.png";

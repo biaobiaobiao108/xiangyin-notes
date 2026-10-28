@@ -3,7 +3,7 @@ import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import TaskItem from "@tiptap/extension-task-item";
 import TaskList from "@tiptap/extension-task-list";
-import { extractMarkdownTasks } from "../shared/tasks";
+import { extractMarkdownTasks, findMarkdownTaskMarker } from "../shared/tasks";
 import { createMarkdownExtension } from "../app/editor/markdown-config";
 
 describe("Markdown task extraction", () => {
@@ -80,5 +80,45 @@ describe("Markdown task extraction", () => {
     expect(
       extractMarkdownTasks("```md\n- [ ] fenced\n```\n\n    - [ ] indented\n\n- [ ] real"),
     ).toEqual([{ text: "real", completed: false, ordinal: 0 }]);
+  });
+
+  test("locates the parsed task when fake and real marker counts can cancel out", () => {
+    const markdown = [
+      "```md",
+      "- [ ] target",
+      "```",
+      "> ```md",
+      "> - [ ] target",
+      "> ```",
+      "- [ ] parent",
+      "    - [ ] target",
+      "- [ ] tail",
+    ].join("\n");
+    const tasks = extractMarkdownTasks(markdown);
+    expect(tasks.map(({ text, ordinal }) => ({ text, ordinal }))).toEqual([
+      { text: "parent", ordinal: 0 },
+      { text: "target", ordinal: 1 },
+      { text: "tail", ordinal: 2 },
+    ]);
+    const marker = findMarkdownTaskMarker(markdown, 1);
+    expect(marker).not.toBeNull();
+    const updated = markdown.slice(0, marker!.start) + "[x]" + markdown.slice(marker!.end);
+    expect(extractMarkdownTasks(updated).map((task) => task.completed)).toEqual([
+      false,
+      true,
+      false,
+    ]);
+    expect(updated).toContain("> - [ ] target");
+    expect(updated).toContain("    - [x] target");
+  });
+
+  test("locates tasks inside blockquotes while ignoring quoted fences", () => {
+    const markdown = "> ```md\n> - [ ] fake\n> ```\n> - [x] real";
+    const marker = findMarkdownTaskMarker(markdown, 0);
+    expect(marker).not.toBeNull();
+    expect(marker?.checked).toBe(true);
+    const updated = markdown.slice(0, marker!.start) + "[ ]" + markdown.slice(marker!.end);
+    expect(extractMarkdownTasks(updated)).toEqual([{ text: "real", completed: false, ordinal: 0 }]);
+    expect(updated).toContain("> - [ ] fake");
   });
 });

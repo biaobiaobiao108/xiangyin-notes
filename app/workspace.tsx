@@ -298,6 +298,9 @@ export function Workspace() {
     token: number;
   } | null>(null);
   const taskNavigationTokenRef = useRef(0);
+  const [taskMutationNoteId, setTaskMutationNoteId] = useState<string | null>(null);
+  const [taskMutationOrdinal, setTaskMutationOrdinal] = useState<number | null>(null);
+  const taskMutationsInFlightRef = useRef(new Set<string>());
   const [resultSearch, setResultSearch] = useState<{
     id: string;
     query: string;
@@ -1694,6 +1697,72 @@ export function Workspace() {
     },
     [closeSplit, openMobileNote, selectNote, splitNoteId, viewLayout],
   );
+  const handleToggleTask = useCallback(
+    async (task: TaskSummary) => {
+      if (taskMutationsInFlightRef.current.size > 0) return;
+      taskMutationsInFlightRef.current.add(task.noteId);
+      setTaskMutationNoteId(task.noteId);
+      setTaskMutationOrdinal(task.ordinal);
+      try {
+        flushEditorDraftRef.current();
+        flushSecondaryDraft();
+        await flushPendingSaves("now");
+        if (hasUnsavedWork()) {
+          notifyWarning("笔记仍有内容未保存，请保存成功后再切换任务状态");
+          return;
+        }
+
+        const { note: latestNote } = await api.getNote(task.noteId, {});
+        if (latestNote.version !== task.version) {
+          setTaskRefreshToken((value) => value + 1);
+          notifyWarning("笔记内容刚刚保存，任务列表已刷新，请再点一次");
+          return;
+        }
+
+        const { note } = await api.toggleTask({
+          noteId: task.noteId,
+          version: task.version,
+          ordinal: task.ordinal,
+          text: task.text,
+          completed: task.done,
+        });
+
+        if (selectedRef.current?.id === note.id) {
+          selectedRef.current = note;
+          setSelectedNote(noteMetadataSnapshot(note));
+          setNoteReloadToken((value) => value + 1);
+        }
+        if (splitSelectedRef.current?.id === note.id) {
+          splitSelectedRef.current = note;
+          setSplitSelectedNote(noteMetadataSnapshot(note));
+          setSplitNoteReloadToken((value) => value + 1);
+        }
+        replaceList(
+          notesRef.current.map((item) => (item.id === note.id ? toNoteSummary(note) : item)),
+        );
+        setTaskRefreshToken((value) => value + 1);
+      } catch (error) {
+        if (error instanceof ApiError && error.code === "VERSION_CONFLICT") {
+          notifyWarning("笔记已在其他位置修改，请重新加载后再切换任务状态");
+          setTaskRefreshToken((value) => value + 1);
+        } else {
+          notifyError(errorMessage(error, "切换任务状态失败"));
+        }
+      } finally {
+        taskMutationsInFlightRef.current.delete(task.noteId);
+        setTaskMutationNoteId(null);
+        setTaskMutationOrdinal(null);
+      }
+    },
+    [
+      flushPendingSaves,
+      flushSecondaryDraft,
+      hasUnsavedWork,
+      notifyError,
+      notifyWarning,
+      replaceList,
+    ],
+  );
   const handleTaskNavigationMissing = useCallback(() => {
     setTaskNavigation(null);
     setTaskRefreshToken((value) => value + 1);
@@ -2470,10 +2539,16 @@ export function Workspace() {
           notebookId={taskNotebookId}
           status={taskStatus}
           loading={tasksLoading}
+          busyTask={
+            taskMutationNoteId !== null && taskMutationOrdinal !== null
+              ? { noteId: taskMutationNoteId, ordinal: taskMutationOrdinal }
+              : null
+          }
           error={tasksError}
           onNotebookChange={setTaskNotebookId}
           onStatusChange={setTaskStatus}
           onSelectTask={selectTask}
+          onToggleTask={handleToggleTask}
           onBack={
             isMobileViewport
               ? () => {
@@ -2602,7 +2677,7 @@ export function Workspace() {
                       onMarkdownReaderChange={registerEditorMarkdownReader}
                       onMarkdownDirtyChange={registerEditorMarkdownDirty}
                       saveState={saveState}
-                      isLoading={isNoteLoading}
+                      isLoading={isNoteLoading || taskMutationNoteId === renderedNote.id}
                       trashBusy={
                         emptyingTrash ||
                         (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))
@@ -2707,7 +2782,7 @@ export function Workspace() {
                           splitMarkdownDirtyNoteRef.current = null;
                       }}
                       saveState={splitSaveState}
-                      isLoading={splitIsNoteLoading}
+                      isLoading={splitIsNoteLoading || taskMutationNoteId === splitRenderedNote.id}
                       trashBusy={
                         emptyingTrash ||
                         (pendingTrashCount > 0 &&
@@ -2781,7 +2856,7 @@ export function Workspace() {
                 onMarkdownReaderChange={registerEditorMarkdownReader}
                 onMarkdownDirtyChange={registerEditorMarkdownDirty}
                 saveState={saveState}
-                isLoading={isNoteLoading}
+                isLoading={isNoteLoading || taskMutationNoteId === renderedNote.id}
                 trashBusy={
                   emptyingTrash ||
                   (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))

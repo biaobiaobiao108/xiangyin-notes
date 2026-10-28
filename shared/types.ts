@@ -54,6 +54,7 @@ export type TaskSummary = {
   noteTitle: string;
   notebookId: string;
   notebookName: string;
+  version: number;
   text: string;
   done: boolean;
   ordinal: number;

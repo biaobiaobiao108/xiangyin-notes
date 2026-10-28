@@ -64,7 +64,7 @@ import {
   MAX_SHORT_TERMS_PER_NOTE,
 } from "../note-search";
 import { publishWorkspaceChange } from "../realtime";
-import { extractMarkdownTasks } from "../../shared/tasks";
+import { extractMarkdownTasks, findMarkdownTaskMarker } from "../../shared/tasks";
 
 const NOTE_BATCH_LIMIT = 500;
 const NOTE_BATCH_BODY_MAX_BYTES = 64 * 1024;
@@ -261,11 +261,12 @@ export async function handleNotesRoute(
       title: string;
       notebook_id: string;
       notebook_name: string;
+      version: number;
       content_markdown: string;
     }>(
       database,
       `
-        SELECT n.id, n.title, n.notebook_id, b.name AS notebook_name, n.content_markdown
+        SELECT n.id, n.title, n.notebook_id, b.name AS notebook_name, n.version, n.content_markdown
         FROM notes n
         JOIN notebooks b ON b.id = n.notebook_id AND b.user_id = n.user_id
         WHERE n.user_id = ? AND n.deleted_at IS NULL
@@ -284,12 +285,79 @@ export async function handleNotesRoute(
           noteTitle: note.title,
           notebookId: note.notebook_id,
           notebookName: note.notebook_name,
+          version: note.version,
           text: task.text,
           done: task.completed,
           ordinal: task.ordinal,
         })),
     );
     return json({ tasks, total: tasks.length });
+  }
+
+  if (resource === "tasks" && id === "toggle" && method === "POST") {
+    const payload = await readJson<{
+      noteId?: unknown;
+      version?: unknown;
+      ordinal?: unknown;
+      text?: unknown;
+      completed?: unknown;
+    }>(request, 64 * 1024);
+    if (
+      !payload ||
+      typeof payload.noteId !== "string" ||
+      !NOTE_ID_PATTERN.test(payload.noteId) ||
+      !Number.isSafeInteger(payload.version) ||
+      (payload.version as number) < 1 ||
+      !Number.isSafeInteger(payload.ordinal) ||
+      (payload.ordinal as number) < 0 ||
+      typeof payload.text !== "string" ||
+      payload.text.length > 10000 ||
+      typeof payload.completed !== "boolean"
+    )
+      return jsonError(400, "INVALID_ARGUMENT", "任务定位信息无效");
+
+    const current = getNote(database, user.id, payload.noteId);
+    if (!current || current.deleted_at !== null) return jsonError(404, "NOT_FOUND", "笔记不存在");
+    if (current.version !== payload.version)
+      return jsonError(409, "VERSION_CONFLICT", "笔记已发生变化，请刷新任务列表后重试");
+
+    const task = extractMarkdownTasks(current.content_markdown)[payload.ordinal as number];
+    if (!task || task.text !== payload.text || task.completed !== payload.completed)
+      return jsonError(409, "VERSION_CONFLICT", "任务已发生变化，请刷新任务列表后重试");
+
+    const marker = findMarkdownTaskMarker(current.content_markdown, task.ordinal);
+    if (!marker || marker.checked !== task.completed)
+      return jsonError(409, "VERSION_CONFLICT", "无法安全定位任务，请刷新任务列表后重试");
+
+    const replacement = task.completed ? "[ ]" : "[x]";
+    const contentMarkdown =
+      current.content_markdown.slice(0, marker.start) +
+      replacement +
+      current.content_markdown.slice(marker.end);
+    if (
+      !updateNote(
+        database,
+        current,
+        user.id,
+        current.title,
+        contentMarkdown,
+        current.notebook_id,
+        current.is_favorite,
+        current.deleted_at,
+      )
+    )
+      return jsonError(409, "VERSION_CONFLICT", "笔记已发生变化，请刷新任务列表后重试");
+
+    const updated = getNote(database, user.id, payload.noteId);
+    publishWorkspaceChange(
+      options,
+      user.id,
+      { resource: "notes", noteId: payload.noteId },
+      request,
+    );
+    return updated
+      ? json({ note: toFullNote(updated) })
+      : jsonError(404, "NOT_FOUND", "笔记不存在");
   }
 
   if (resource === "wiki-notes" && id === "suggestions" && method === "GET") {

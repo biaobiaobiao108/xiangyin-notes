@@ -75,3 +75,52 @@ export function extractMarkdownTasks(markdown: string): MarkdownTask[] {
   visit(tokens);
   return tasks;
 }
+
+/** Locate a task marker in source order, excluding fenced and indented code. */
+export function findMarkdownTaskMarker(markdown: string, ordinal: number) {
+  const lines = markdown.match(/[^\n]*(?:\n|$)/gu) ?? [];
+  let offset = 0;
+  const markers: Array<{ start: number; end: number; checked: boolean; sentinel: string }> = [];
+  const nonce = crypto.randomUUID().replaceAll("-", "");
+  const augmented: string[] = [];
+
+  for (const lineWithEnding of lines) {
+    const line = lineWithEnding.replace(/\r?\n$/u, "");
+    const match = /^(?:[ \t]{0,3}>[ \t]?)*[ \t]*(?:[-+*]|\d+[.)])[ \t]+\[([ xX])\]/u.exec(line);
+    if (match) {
+      const markerStart = match[0].lastIndexOf("[");
+      const markerEnd = markerStart + 3;
+      let insertion = markerEnd;
+      while (insertion < line.length && /[ \t]/u.test(line[insertion]!)) insertion += 1;
+      const sentinel = `TASKPOS${nonce}${markers.length}END`;
+      markers.push({
+        start: offset + markerStart,
+        end: offset + markerEnd,
+        checked: match[1]!.toLowerCase() === "x",
+        sentinel,
+      });
+      augmented.push(
+        lineWithEnding.slice(0, insertion) + sentinel + " " + lineWithEnding.slice(insertion),
+      );
+    } else {
+      augmented.push(lineWithEnding);
+    }
+    offset += lineWithEnding.length;
+  }
+
+  const parsedTasks = extractMarkdownTasks(augmented.join(""));
+  const target = parsedTasks[ordinal];
+  if (!target) return null;
+  const matchingMarkers = markers.filter((marker) => target.text.includes(marker.sentinel));
+  if (matchingMarkers.length !== 1) return null;
+  const marker = matchingMarkers[0]!;
+  const textWithoutSentinel = target.text.replace(marker.sentinel, "").replace(/\s+/gu, " ").trim();
+  const originalTask = extractMarkdownTasks(markdown)[ordinal];
+  if (
+    !originalTask ||
+    textWithoutSentinel !== originalTask.text ||
+    target.completed !== originalTask.completed
+  )
+    return null;
+  return { start: marker.start, end: marker.end, checked: marker.checked };
+}
