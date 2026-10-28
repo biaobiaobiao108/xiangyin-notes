@@ -145,7 +145,7 @@ export function TasksPanel({
       if (Math.abs(offset) < 1) continue;
       const animation = element.animate(
         [{ transform: `translateY(${offset}px)` }, { transform: "translateY(0)" }],
-        { duration: 200, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
+        { duration: 180, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
       );
       groupAnimationsRef.current.set(element, animation);
       animation.addEventListener(
