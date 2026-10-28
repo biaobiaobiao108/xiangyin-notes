@@ -1,5 +1,23 @@
 import { describe, expect, test } from "bun:test";
-import { collapsedGroupScrollTop, stickyGroupOffset } from "../app/workspace/group-layout";
+import {
+  collapsedGroupScrollTop,
+  collapsingGroupRange,
+  stickyGroupOffset,
+} from "../app/workspace/group-layout";
+
+test("computes the space removed by a collapsing group without its header", () => {
+  const rows = [
+    { kind: "group" },
+    { kind: "task" },
+    { kind: "task" },
+    { kind: "group" },
+    { kind: "task" },
+  ];
+  const offsets = [0, 0, 42, 92, 126, 168];
+  expect(collapsingGroupRange(rows, offsets, 0)).toEqual({ end: 3, height: 92 });
+  expect(collapsingGroupRange(rows, offsets, 3)).toEqual({ end: 5, height: 42 });
+  expect(collapsingGroupRange(rows, offsets, undefined)).toBeNull();
+});
 
 describe("virtual sticky group transition", () => {
   test("pushes the current header out as the next group reaches it", () => {

@@ -68,7 +68,7 @@ function toggleGroupInSet(current: ReadonlySet<string>, groupId: string) {
 
 type VirtualGroupTransition = {
   groupId: string;
-  phase: "collapsing" | "expanding" | "settling";
+  phase: "collapsing" | "expanding";
 };
 
 function groupMotionDuration() {
@@ -1005,6 +1005,7 @@ export const NoteListPanel = memo(function NoteListPanel({
     noteListElement,
     virtualizationScope,
     sortedNotes.length,
+    virtualGroupTransition?.phase === "collapsing" ? virtualGroupTransition.groupId : null,
   );
   const noteListScrollEdges = useScrollEdges(noteListRef, [
     noteListElement,
@@ -1024,7 +1025,7 @@ export const NoteListPanel = memo(function NoteListPanel({
       ? virtualGroupTransition.phase
       : null;
   const virtualStickyGroupCollapsed =
-    virtualStickyTransition === "collapsing" || virtualStickyTransition === "settling"
+    virtualStickyTransition === "collapsing"
       ? true
       : virtualStickyTransition === "expanding"
         ? false
@@ -1115,14 +1116,8 @@ export const NoteListPanel = memo(function NoteListPanel({
             next.add(group.id);
             return next;
           });
-          setVirtualGroupTransition({ groupId: group.id, phase: "settling" });
-          virtualGroupTransitionTimerRef.current = window.setTimeout(() => {
-            virtualGroupTransitionTimerRef.current = null;
-            setVirtualGroupTransition(null);
-          }, duration);
-        } else {
-          setVirtualGroupTransition(null);
         }
+        setVirtualGroupTransition(null);
       }, duration);
     };
 
@@ -1447,6 +1442,10 @@ export const NoteListPanel = memo(function NoteListPanel({
                     style={listStyle}
                   >
                     {virtualList.visibleRows.map(({ row, index, top }) => {
+                      const animatedTop =
+                        virtualList.collapsingGroup && index >= virtualList.collapsingGroup.end
+                          ? top - virtualList.collapsingGroup.height
+                          : top;
                       if (row.kind === "group") {
                         const isStickyMarker = virtualStickyGroup?.id === row.group.id;
                         const isFocusedMarker = virtualList.pinnedRowId === row.id;
@@ -1456,7 +1455,7 @@ export const NoteListPanel = memo(function NoteListPanel({
                             ? virtualGroupTransition.phase
                             : null;
                         const markerCollapsed =
-                          markerTransition === "collapsing" || markerTransition === "settling"
+                          markerTransition === "collapsing"
                             ? true
                             : markerTransition === "expanding"
                               ? false
@@ -1470,7 +1469,7 @@ export const NoteListPanel = memo(function NoteListPanel({
                             role="presentation"
                             aria-hidden={hideMarker || undefined}
                             inert={hideMarker || undefined}
-                            style={virtualList.rowStyle(top)}
+                            style={virtualList.rowStyle(animatedTop)}
                           >
                             <button
                               type="button"
@@ -1500,7 +1499,7 @@ export const NoteListPanel = memo(function NoteListPanel({
                           rowRef={
                             virtualList.isVirtualized ? virtualList.getRowRef(note.id) : undefined
                           }
-                          rowStyle={virtualList.rowStyle(top)}
+                          rowStyle={virtualList.rowStyle(animatedTop)}
                           isSelected={selectedIds.has(note.id)}
                           selectedIds={selectedIds}
                           isActive={selectedId === note.id && !isMobileViewport}
@@ -1536,7 +1535,7 @@ export const NoteListPanel = memo(function NoteListPanel({
                                 position: "absolute",
                                 insetInline: 0,
                                 top: 0,
-                                transform: `translateY(${virtualList.totalHeight}px)`,
+                                transform: `translateY(${virtualList.totalHeight - (virtualList.collapsingGroup?.height ?? 0)}px)`,
                               }
                             : undefined
                         }

@@ -11,7 +11,7 @@ import {
 } from "react";
 import type { NoteSummary } from "../../shared/types";
 import type { NoteGroup } from "./helpers";
-import { stickyGroupOffset } from "./group-layout";
+import { collapsingGroupRange, stickyGroupOffset } from "./group-layout";
 
 const VIRTUALIZE_AFTER = 140;
 const ESTIMATED_ROW_HEIGHT = 120;
@@ -85,6 +85,7 @@ export function useVirtualNoteList(
   scrollElement: HTMLDivElement | null,
   scope: string,
   virtualizationCount = rows.length,
+  animatingCollapseId: string | null = null,
 ) {
   const [viewport, setViewport] = useState<Viewport>({ top: 0, height: 800 });
   const [measurementRevision, setMeasurementRevision] = useState(0);
@@ -249,9 +250,31 @@ export function useVirtualNoteList(
         indexAtOffset(offsets, viewport.top + viewport.height + OVERSCAN_PX) + 1,
       )
     : rows.length;
+  const collapsingGroup = useMemo(() => {
+    if (!animatingCollapseId) return null;
+    return collapsingGroupRange(rows, offsets, indexById.get(noteGroupRowId(animatingCollapseId)));
+  }, [animatingCollapseId, indexById, offsets, rows]);
+  const shiftedStart = collapsingGroup
+    ? Math.max(
+        collapsingGroup.end,
+        indexAtOffset(offsets, viewport.top + collapsingGroup.height - OVERSCAN_PX),
+      )
+    : 0;
+  const shiftedEnd = collapsingGroup
+    ? Math.min(
+        rows.length,
+        indexAtOffset(
+          offsets,
+          viewport.top + viewport.height + collapsingGroup.height + OVERSCAN_PX,
+        ) + 1,
+      )
+    : 0;
   const visibleRows = useMemo(() => {
     const indices = new Set<number>();
     for (let index = startIndex; index < endIndex; index += 1) indices.add(index);
+    if (isVirtualized && collapsingGroup) {
+      for (let index = shiftedStart; index < shiftedEnd; index += 1) indices.add(index);
+    }
     if (pinnedIndex !== null && pinnedIndex >= 0 && pinnedIndex < rows.length)
       indices.add(pinnedIndex);
     const result: Array<{ row: VirtualNoteListRow; index: number; top: number }> = [];
@@ -260,7 +283,17 @@ export function useVirtualNoteList(
       if (row) result.push({ row, index, top: offsets[index]! });
     }
     return result;
-  }, [endIndex, offsets, pinnedIndex, rows, startIndex]);
+  }, [
+    collapsingGroup,
+    endIndex,
+    isVirtualized,
+    offsets,
+    pinnedIndex,
+    rows,
+    startIndex,
+    shiftedStart,
+    shiftedEnd,
+  ]);
   const nextGroupTop = visibleRows.find(
     ({ row, index }) => index > topVisibleIndex && row.kind === "group",
   )?.top;
@@ -437,6 +470,7 @@ export function useVirtualNoteList(
       viewport.top - stickyHeaderHeight,
       stickyHeaderHeight,
     ),
+    collapsingGroup,
     totalHeight: offsets[offsets.length - 1] ?? 0,
     rowStyle,
     getRowRef,

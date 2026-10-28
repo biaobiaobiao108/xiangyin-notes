@@ -23,3 +23,14 @@ export function stickyGroupOffset(
   if (nextGroupTop === undefined) return 0;
   return Math.min(0, Math.max(-headerHeight, nextGroupTop - viewportTop - headerHeight));
 }
+
+export function collapsingGroupRange(
+  rows: readonly { kind: string }[],
+  offsets: readonly number[],
+  start: number | undefined,
+) {
+  if (start === undefined) return null;
+  let end = start + 1;
+  while (end < rows.length && rows[end]!.kind !== "group") end += 1;
+  return { end, height: offsets[end]! - offsets[start + 1]! };
+}

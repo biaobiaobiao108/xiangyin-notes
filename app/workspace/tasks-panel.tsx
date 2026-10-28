@@ -22,7 +22,7 @@ import {
 type TaskStatus = "open" | "done" | "all";
 type VirtualGroupTransition = {
   groupId: string;
-  phase: "collapsing" | "expanding" | "settling";
+  phase: "collapsing" | "expanding";
 };
 
 function groupMotionDuration() {
@@ -122,6 +122,7 @@ export function TasksPanel({
     listRef,
     `${status}:${notebookId}`,
     tasks.length,
+    virtualGroupTransition?.phase === "collapsing" ? virtualGroupTransition.groupId : null,
   );
   const scrollEdges = useScrollEdges(listRef, [
     loading,
@@ -140,7 +141,7 @@ export function TasksPanel({
       ? virtualGroupTransition.phase
       : null;
   const activeVirtualGroupCollapsed =
-    activeVirtualGroupTransition === "collapsing" || activeVirtualGroupTransition === "settling"
+    activeVirtualGroupTransition === "collapsing"
       ? true
       : activeVirtualGroupTransition === "expanding"
         ? false
@@ -210,14 +211,8 @@ export function TasksPanel({
           virtualGroupTransitionTimerRef.current = null;
           if (phase === "collapsing") {
             setCollapsedGroups((current) => new Set(current).add(groupId));
-            setVirtualGroupTransition({ groupId, phase: "settling" });
-            virtualGroupTransitionTimerRef.current = window.setTimeout(() => {
-              virtualGroupTransitionTimerRef.current = null;
-              setVirtualGroupTransition(null);
-            }, duration);
-          } else {
-            setVirtualGroupTransition(null);
           }
+          setVirtualGroupTransition(null);
         }, duration);
       };
 
@@ -617,7 +612,11 @@ export function TasksPanel({
                     role="list"
                     style={virtualListStyle}
                   >
-                    {virtualList.visibleRows.map(({ row, top }) => {
+                    {virtualList.visibleRows.map(({ row, index, top }) => {
+                      const animatedTop =
+                        virtualList.collapsingGroup && index >= virtualList.collapsingGroup.end
+                          ? top - virtualList.collapsingGroup.height
+                          : top;
                       if (row.kind === "group") {
                         const isStickyMarker = row.groupId === activeVirtualGroupId;
                         const isFocusedMarker = virtualList.pinnedRowId === row.id;
@@ -627,7 +626,7 @@ export function TasksPanel({
                             ? virtualGroupTransition.phase
                             : null;
                         const markerCollapsed =
-                          markerTransition === "collapsing" || markerTransition === "settling"
+                          markerTransition === "collapsing"
                             ? true
                             : markerTransition === "expanding"
                               ? false
@@ -640,7 +639,7 @@ export function TasksPanel({
                             className={`tasks-virtual-group-marker${row.firstGroup ? " is-first" : ""}${markerCollapsed ? " is-collapsed" : ""}${hideMarker ? " is-sticky-marker" : ""}`}
                             aria-hidden={hideMarker || undefined}
                             inert={hideMarker || undefined}
-                            style={virtualList.rowStyle(top)}
+                            style={virtualList.rowStyle(animatedTop)}
                           >
                             <button
                               type="button"
@@ -671,7 +670,7 @@ export function TasksPanel({
                       return renderTaskItem(row.task, {
                         virtual: true,
                         rowRef: virtualList.getRowRef(row.id),
-                        rowStyle: virtualList.rowStyle(top),
+                        rowStyle: virtualList.rowStyle(animatedTop),
                         groupMotion,
                       });
                     })}
@@ -685,7 +684,7 @@ export function TasksPanel({
                           position: "absolute",
                           insetInline: 12,
                           top: 0,
-                          transform: `translateY(${virtualList.totalHeight}px)`,
+                          transform: `translateY(${virtualList.totalHeight - (virtualList.collapsingGroup?.height ?? 0)}px)`,
                         }}
                       >
                         {renderLoadMoreContent()}
