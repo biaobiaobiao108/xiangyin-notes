@@ -563,6 +563,21 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .tasks-note-group-content > ul { min-height: 0; overflow: hidden; }
 .tasks-note-group ul { margin: 0; padding: 0; list-style: none; }
 .tasks-note-group li + li { border-top: 1px solid var(--line); }
+.tasks-virtual-sticky-header { height: 34px; padding-inline: 12px; }
+.tasks-virtual-sticky-header .tasks-note-group-toggle { height: 100%; }
+.tasks-virtual-list { position: relative; box-sizing: border-box; margin: 0; padding: 0; list-style: none; }
+.tasks-virtual-list > li { box-sizing: border-box; margin: 0; list-style: none; }
+.tasks-virtual-group-marker { height: 34px; color: var(--muted); font-size: .77rem; font-weight: 580; pointer-events: none; }
+.tasks-virtual-group-marker.is-first { height: 0; }
+.tasks-virtual-group-marker.is-collapsed .tasks-note-group-chevron { transform: rotate(-90deg); }
+.tasks-virtual-group-marker small { overflow: hidden; max-width: 42%; flex: 0 1 auto; color: var(--soft-muted); font-size: .7rem; font-weight: 450; text-overflow: ellipsis; white-space: nowrap; }
+.tasks-virtual-task-row.has-divider { border-top: 1px solid var(--line); }
+.tasks-virtual-list.is-transitioning > li { transition: transform var(--motion-group) var(--motion-group-ease); }
+.tasks-virtual-task-row.is-group-collapsing { pointer-events: none; }
+.tasks-virtual-task-row.is-group-collapsing > .tasks-item { animation: tasks-group-row-exit var(--motion-group) var(--motion-group-ease) both; }
+.tasks-virtual-task-row.is-group-expanding > .tasks-item { animation: tasks-group-row-enter var(--motion-group) var(--motion-group-ease) both; }
+@keyframes tasks-group-row-exit { to { opacity: 0; transform: translateY(-5px); } }
+@keyframes tasks-group-row-enter { from { opacity: 0; transform: translateY(-5px); } }
 .tasks-item { display: flex; width: 100%; min-height: 42px; gap: 8px; align-items: flex-start; padding: 5px 6px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ink); }
 .tasks-item:hover { background: var(--surface-muted); }
 .tasks-check-button { display: grid; width: 28px; height: 30px; flex: 0 0 28px; place-items: center; padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); cursor: pointer; }
@@ -1591,6 +1606,9 @@ dialog::backdrop {
   .app-shell[data-mobile-page] .tasks-scroll-shell::after { background: linear-gradient(to top, var(--canvas), transparent); }
   .app-shell[data-mobile-page] .tasks-scroll-shell::before { background: linear-gradient(to bottom, var(--canvas), transparent); }
   .app-shell[data-mobile-page] .tasks-note-group-header { background: var(--canvas); backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .app-shell[data-mobile-page] .tasks-virtual-sticky-header,
+  .app-shell[data-mobile-page] .tasks-virtual-group-marker { height: 44px; }
+  .app-shell[data-mobile-page] .tasks-virtual-group-marker.is-first { height: 0; }
   .app-shell[data-mobile-page] .tasks-scroll-shell::before, .app-shell[data-mobile-page] .note-list-scroll-shell::before, .is-mobile-editor .editor-scroll-shell::before, .is-mobile-card-grid .card-grid-scroll-shell::before { height: 20px; }
   .app-shell[data-mobile-page] .note-list-scroll-shell:has(.note-list-group-header)::before { inset-block-start: 30px; }
   .app-shell[data-mobile-page] .tasks-scroll-shell:has(.tasks-note-group-header)::before { inset-block-start: 44px; }

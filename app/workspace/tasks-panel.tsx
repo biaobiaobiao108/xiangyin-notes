@@ -1,11 +1,40 @@
 import { Check, ChevronDown, ChevronLeft, ListTodo, LoaderCircle } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import type { Notebook, TaskSummary } from "../../shared/types";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { collapsedGroupScrollTop } from "./group-layout";
 import { useScrollEdges } from "./use-scroll-edges";
+import {
+  flattenTaskGroups,
+  taskGroupRowId,
+  taskGroupRowIds,
+  taskRowId,
+  useVirtualTaskList,
+} from "./use-virtual-task-list";
 
 type TaskStatus = "open" | "done" | "all";
+type VirtualGroupTransition = {
+  groupId: string;
+  phase: "collapsing" | "expanding" | "settling";
+};
+
+function groupMotionDuration() {
+  const value = getComputedStyle(document.documentElement)
+    .getPropertyValue("--motion-group")
+    .trim();
+  const duration = Number.parseFloat(value);
+  if (!Number.isFinite(duration)) return 0;
+  if (value.endsWith("ms")) return duration;
+  if (value.endsWith("s")) return duration * 1000;
+  return duration;
+}
 
 export function TasksPanel({
   tasks,
@@ -45,7 +74,7 @@ export function TasksPanel({
   onBack?: () => void;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
-  const loadMoreRef = useRef<HTMLDivElement>(null);
+  const loadMoreRef = useRef<HTMLElement | null>(null);
   const statusMenuRef = useRef<HTMLDivElement>(null);
   const notebookMenuRef = useRef<HTMLDivElement>(null);
   const filtersRef = useRef<HTMLDivElement>(null);
@@ -53,7 +82,9 @@ export function TasksPanel({
   const statusTriggerRef = useRef<HTMLButtonElement>(null);
   const [openFilter, setOpenFilter] = useState<"status" | "notebook" | null>(null);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
-  const scrollEdges = useScrollEdges(listRef, [loading, notebookId, status, tasks.length]);
+  const [virtualGroupTransition, setVirtualGroupTransition] =
+    useState<VirtualGroupTransition | null>(null);
+  const virtualGroupTransitionTimerRef = useRef<number | null>(null);
   const notebookNames = useMemo(
     () => new Map(notebooks.map((notebook) => [notebook.id, notebook.name])),
     [notebooks],
@@ -67,20 +98,156 @@ export function TasksPanel({
     }
     return Array.from(groups.values());
   }, [tasks]);
+  const taskGroupsById = useMemo(() => {
+    const groups = new Map<string, TaskSummary[]>();
+    for (const group of taskGroups) {
+      const firstTask = group[0];
+      if (firstTask) groups.set(firstTask.noteId, group);
+    }
+    return groups;
+  }, [taskGroups]);
+  const taskRows = useMemo(
+    () =>
+      flattenTaskGroups(
+        taskGroups,
+        collapsedGroups,
+        virtualGroupTransition?.phase === "collapsing" ? virtualGroupTransition.groupId : null,
+      ),
+    [collapsedGroups, taskGroups, virtualGroupTransition],
+  );
+  const retainedRowIds = useMemo(() => taskGroupRowIds(taskGroups), [taskGroups]);
+  const virtualList = useVirtualTaskList(
+    taskRows,
+    retainedRowIds,
+    listRef,
+    `${status}:${notebookId}`,
+    tasks.length,
+  );
+  const scrollEdges = useScrollEdges(listRef, [
+    loading,
+    notebookId,
+    status,
+    tasks.length,
+    virtualList.totalHeight,
+  ]);
+  const activeVirtualGroupId =
+    virtualList.topVisibleRow?.groupId ?? taskGroups[0]?.[0]?.noteId ?? null;
+  const activeVirtualGroup = activeVirtualGroupId
+    ? taskGroupsById.get(activeVirtualGroupId)
+    : undefined;
+  const activeVirtualGroupTransition =
+    virtualGroupTransition && virtualGroupTransition.groupId === activeVirtualGroupId
+      ? virtualGroupTransition.phase
+      : null;
+  const activeVirtualGroupCollapsed =
+    activeVirtualGroupTransition === "collapsing" || activeVirtualGroupTransition === "settling"
+      ? true
+      : activeVirtualGroupTransition === "expanding"
+        ? false
+        : activeVirtualGroupId
+          ? collapsedGroups.has(activeVirtualGroupId)
+          : false;
+  const canAutoLoadMore =
+    taskGroups.length === 0 ||
+    taskGroups.some((group) => {
+      const groupId = group[0]!.noteId;
+      return (
+        !collapsedGroups.has(groupId) &&
+        !(
+          virtualGroupTransition?.groupId === groupId &&
+          virtualGroupTransition.phase === "collapsing"
+        )
+      );
+    });
   const selectedNotebookName =
     notebooks.find((notebook) => notebook.id === notebookId)?.name ?? "全部笔记本";
   const selectedStatusLabel = { open: "未完成", done: "已完成", all: "全部" }[status];
-  const toggleGroup = (button: HTMLButtonElement, groupId: string) => {
+  useEffect(() => {
+    const root = listRef.current;
+    const sentinel = loadMoreRef.current;
+    if (
+      !root ||
+      !sentinel ||
+      !hasMore ||
+      loading ||
+      loadingMore ||
+      loadMoreError ||
+      !canAutoLoadMore ||
+      typeof IntersectionObserver === "undefined"
+    )
+      return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) onLoadMore();
+      },
+      { root, rootMargin: "420px 0px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [canAutoLoadMore, hasMore, loading, loadingMore, loadMoreError, onLoadMore, tasks.length]);
+
+  const toggleGroup = (groupId: string, button?: HTMLButtonElement) => {
+    if (virtualList.isVirtualized) {
+      virtualList.scrollToRowStart(taskGroupRowId(groupId));
+      if (virtualGroupTransitionTimerRef.current !== null)
+        window.clearTimeout(virtualGroupTransitionTimerRef.current);
+
+      const duration = groupMotionDuration();
+      const startTransition = (phase: VirtualGroupTransition["phase"]) => {
+        if (duration <= 0) {
+          setVirtualGroupTransition(null);
+          return;
+        }
+        setVirtualGroupTransition({ groupId, phase });
+        virtualGroupTransitionTimerRef.current = window.setTimeout(() => {
+          virtualGroupTransitionTimerRef.current = null;
+          if (phase === "collapsing") {
+            setCollapsedGroups((current) => new Set(current).add(groupId));
+            setVirtualGroupTransition({ groupId, phase: "settling" });
+            virtualGroupTransitionTimerRef.current = window.setTimeout(() => {
+              virtualGroupTransitionTimerRef.current = null;
+              setVirtualGroupTransition(null);
+            }, duration);
+          } else {
+            setVirtualGroupTransition(null);
+          }
+        }, duration);
+      };
+
+      if (
+        virtualGroupTransition?.groupId === groupId &&
+        virtualGroupTransition.phase === "collapsing"
+      ) {
+        startTransition("expanding");
+        return;
+      }
+      if (collapsedGroups.has(groupId)) {
+        setCollapsedGroups((current) => {
+          const next = new Set(current);
+          next.delete(groupId);
+          return next;
+        });
+        startTransition("expanding");
+        return;
+      }
+      if (duration <= 0) {
+        setCollapsedGroups((current) => new Set(current).add(groupId));
+        setVirtualGroupTransition(null);
+        return;
+      }
+      startTransition("collapsing");
+      return;
+    }
+
     const scroll = listRef.current;
-    const section = button.closest<HTMLElement>(".tasks-note-group");
+    const section = button?.closest<HTMLElement>(".tasks-note-group");
     const isCollapsed = collapsedGroups.has(groupId);
-    const closing = !isCollapsed;
-    if (scroll && section) {
+    if (scroll && section && button) {
       const scrollRect = scroll.getBoundingClientRect();
       const sectionRect = section.getBoundingClientRect();
       const headerRect = button.getBoundingClientRect();
       const anchorScrollTop = collapsedGroupScrollTop({
-        closing,
+        closing: !isCollapsed,
         scrollTop: scroll.scrollTop,
         scrollEdge: scrollRect.top + scroll.clientTop,
         sectionTop: sectionRect.top,
@@ -95,19 +262,20 @@ export function TasksPanel({
       return next;
     });
   };
+
   useEffect(() => {
-    const root = listRef.current;
-    const sentinel = loadMoreRef.current;
-    if (!root || !sentinel || !hasMore || loading || loadingMore || loadMoreError) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry?.isIntersecting) onLoadMore();
-      },
-      { root, rootMargin: "420px 0px" },
-    );
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [hasMore, loading, loadingMore, loadMoreError, onLoadMore, tasks.length]);
+    if (virtualGroupTransitionTimerRef.current !== null)
+      window.clearTimeout(virtualGroupTransitionTimerRef.current);
+    virtualGroupTransitionTimerRef.current = null;
+    setVirtualGroupTransition(null);
+  }, [status, notebookId]);
+  useEffect(
+    () => () => {
+      if (virtualGroupTransitionTimerRef.current !== null)
+        window.clearTimeout(virtualGroupTransitionTimerRef.current);
+    },
+    [],
+  );
   useEffect(() => {
     if (!openFilter) return;
     const frame = requestAnimationFrame(() => {
@@ -168,6 +336,90 @@ export function TasksPanel({
     event.preventDefault();
     setOpenFilter((current) => (current === kind ? null : kind));
   };
+
+  const renderTaskItem = (
+    task: TaskSummary,
+    options?: {
+      virtual?: boolean;
+      rowRef?: (element: HTMLLIElement | null) => void;
+      rowStyle?: CSSProperties;
+      divider?: boolean;
+      groupMotion?: "collapsing" | "expanding";
+    },
+  ) => {
+    const isBusy = busyTask?.noteId === task.noteId && busyTask.ordinal === task.ordinal;
+    return (
+      <li
+        key={task.noteId + ":" + task.ordinal}
+        ref={options?.rowRef}
+        data-task-row-id={options?.virtual ? taskRowId(task) : undefined}
+        className={
+          options?.virtual
+            ? `tasks-virtual-task-row${options.divider ? " has-divider" : ""}${options.groupMotion ? ` is-group-${options.groupMotion}` : ""}`
+            : undefined
+        }
+        style={options?.rowStyle}
+        inert={options?.groupMotion === "collapsing" || undefined}
+      >
+        <div
+          className="tasks-item"
+          style={{ paddingInlineStart: `${6 + Math.min(task.depth, 5) * 16}px` }}
+        >
+          <button
+            type="button"
+            className={
+              "tasks-check-button" + (task.done ? " is-done" : "") + (isBusy ? " is-busy" : "")
+            }
+            data-task-tab-index={options?.virtual ? 0 : undefined}
+            aria-label={
+              isBusy
+                ? "正在更新任务状态"
+                : task.done
+                  ? `标记为未完成：${task.text}`
+                  : `标记为已完成：${task.text}`
+            }
+            aria-pressed={task.done}
+            disabled={loading || busyTask !== null}
+            onClick={() => onToggleTask(task)}
+          >
+            <span className="tasks-check-box" aria-hidden="true">
+              {isBusy ? <LoaderCircle size={13} /> : task.done ? <Check size={13} /> : null}
+            </span>
+          </button>
+          <button
+            type="button"
+            className="tasks-item-copy"
+            data-task-tab-index={options?.virtual ? 1 : undefined}
+            disabled={loading || busyTask !== null}
+            onClick={() => onSelectTask(task)}
+            aria-label={`打开笔记 ${task.noteTitle} 并定位任务：${task.text}`}
+          >
+            <span className={task.done ? "is-done" : ""}>{task.text}</span>
+          </button>
+        </div>
+      </li>
+    );
+  };
+
+  const renderLoadMoreContent = () =>
+    loadingMore ? (
+      <span role="status">正在加载更多任务…</span>
+    ) : loadMoreError ? (
+      <>
+        <span role="alert">{loadMoreError}</span>
+        <button type="button" onClick={onLoadMore}>
+          重试
+        </button>
+      </>
+    ) : !canAutoLoadMore ? (
+      <button type="button" onClick={onLoadMore}>
+        加载更多任务
+      </button>
+    ) : null;
+
+  const virtualListStyle: CSSProperties | undefined = virtualList.isVirtualized
+    ? { height: `${virtualList.totalHeight + (hasMore ? 72 : 24)}px` }
+    : undefined;
 
   return (
     <section
@@ -314,6 +566,9 @@ export function TasksPanel({
             id="tasks-scroll-region"
             className="tasks-scroll floating-scrollbar-target"
             ref={listRef}
+            onKeyDown={virtualList.moveTabFocus}
+            onFocusCapture={virtualList.onFocusCapture}
+            onBlurCapture={virtualList.onBlurCapture}
           >
             {loading && tasks.length === 0 ? (
               <p className="tasks-empty" role="status">
@@ -324,108 +579,153 @@ export function TasksPanel({
                 {error}
               </p>
             ) : tasks.length ? (
-              <div className="tasks-list">
-                {taskGroups.map((group) => {
-                  const firstTask = group[0]!;
-                  const collapsed = collapsedGroups.has(firstTask.noteId);
-                  const groupId = `tasks-note-${firstTask.noteId}`;
-                  return (
-                    <section className="tasks-note-group" key={firstTask.noteId}>
-                      <h2 className="tasks-note-group-header">
-                        <button
-                          type="button"
-                          className="tasks-note-group-toggle"
-                          aria-expanded={!collapsed}
-                          aria-controls={groupId}
-                          onClick={(event) => toggleGroup(event.currentTarget, firstTask.noteId)}
-                        >
-                          <ChevronDown
-                            className="tasks-note-group-chevron"
-                            size={14}
-                            aria-hidden="true"
-                          />
-                          <span className="tasks-note-title">{firstTask.noteTitle}</span>
-                          {notebookNames.has(firstTask.notebookId) ? (
-                            <small>{notebookNames.get(firstTask.notebookId)}</small>
-                          ) : null}
-                        </button>
-                      </h2>
-                      <div
-                        id={groupId}
-                        className={`tasks-note-group-content${collapsed ? " is-collapsed" : ""}`}
-                        inert={collapsed}
+              virtualList.isVirtualized ? (
+                <>
+                  {activeVirtualGroup && (
+                    <h2 className="tasks-note-group-header tasks-virtual-sticky-header">
+                      <button
+                        type="button"
+                        className="tasks-note-group-toggle"
+                        aria-expanded={!activeVirtualGroupCollapsed}
+                        aria-controls="tasks-virtual-list"
+                        onClick={() => toggleGroup(activeVirtualGroup[0]!.noteId)}
                       >
-                        <ul>
-                          {group.map((task) => {
-                            const isBusy =
-                              busyTask?.noteId === task.noteId && busyTask.ordinal === task.ordinal;
-                            return (
-                              <li key={task.noteId + ":" + task.ordinal}>
-                                <div
-                                  className="tasks-item"
-                                  style={{
-                                    paddingInlineStart: `${6 + Math.min(task.depth, 5) * 16}px`,
-                                  }}
-                                >
-                                  <button
-                                    type="button"
-                                    className={
-                                      "tasks-check-button" +
-                                      (task.done ? " is-done" : "") +
-                                      (isBusy ? " is-busy" : "")
-                                    }
-                                    aria-label={
-                                      isBusy
-                                        ? "正在更新任务状态"
-                                        : task.done
-                                          ? `标记为未完成：${task.text}`
-                                          : `标记为已完成：${task.text}`
-                                    }
-                                    aria-pressed={task.done}
-                                    disabled={loading || busyTask !== null}
-                                    onClick={() => onToggleTask(task)}
-                                  >
-                                    <span className="tasks-check-box" aria-hidden="true">
-                                      {isBusy ? (
-                                        <LoaderCircle size={13} />
-                                      ) : task.done ? (
-                                        <Check size={13} />
-                                      ) : null}
-                                    </span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="tasks-item-copy"
-                                    disabled={loading || busyTask !== null}
-                                    onClick={() => onSelectTask(task)}
-                                    aria-label={`打开笔记 ${task.noteTitle} 并定位任务：${task.text}`}
-                                  >
-                                    <span className={task.done ? "is-done" : ""}>{task.text}</span>
-                                  </button>
-                                </div>
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      </div>
-                    </section>
-                  );
-                })}
-                {hasMore && (
-                  <div className="tasks-load-more" ref={loadMoreRef}>
-                    {loadingMore ? (
-                      <span role="status">正在加载更多任务…</span>
-                    ) : loadMoreError ? (
-                      <>
-                        <span role="alert">{loadMoreError}</span>
-                        <button type="button" onClick={onLoadMore}>
-                          重试
-                        </button>
-                      </>
-                    ) : null}
-                  </div>
-                )}
-              </div>
+                        <ChevronDown
+                          className="tasks-note-group-chevron"
+                          size={14}
+                          aria-hidden="true"
+                        />
+                        <span className="tasks-note-title">{activeVirtualGroup[0]!.noteTitle}</span>
+                        {notebookNames.has(activeVirtualGroup[0]!.notebookId) ? (
+                          <small>{notebookNames.get(activeVirtualGroup[0]!.notebookId)}</small>
+                        ) : null}
+                      </button>
+                    </h2>
+                  )}
+                  <ul
+                    id="tasks-virtual-list"
+                    className={`tasks-virtual-list${virtualGroupTransition ? " is-transitioning" : ""}`}
+                    role="list"
+                    style={virtualListStyle}
+                  >
+                    {virtualList.visibleRows.map(({ row, index, top }) => {
+                      if (row.kind === "group") {
+                        const markerTransition =
+                          virtualGroupTransition?.groupId === row.groupId
+                            ? virtualGroupTransition.phase
+                            : null;
+                        const markerCollapsed =
+                          markerTransition === "collapsing" || markerTransition === "settling"
+                            ? true
+                            : markerTransition === "expanding"
+                              ? false
+                              : collapsedGroups.has(row.groupId);
+                        return (
+                          <li
+                            key={row.id}
+                            ref={virtualList.getRowRef(row.id)}
+                            data-task-row-id={row.id}
+                            className={`tasks-virtual-group-marker${row.firstGroup ? " is-first" : ""}${markerCollapsed ? " is-collapsed" : ""}`}
+                            aria-hidden="true"
+                            style={virtualList.rowStyle(top)}
+                          >
+                            <div className="tasks-note-group-toggle">
+                              <ChevronDown
+                                className="tasks-note-group-chevron"
+                                size={14}
+                                aria-hidden="true"
+                              />
+                              <span className="tasks-note-title">{row.task.noteTitle}</span>
+                              {notebookNames.has(row.task.notebookId) ? (
+                                <small>{notebookNames.get(row.task.notebookId)}</small>
+                              ) : null}
+                            </div>
+                          </li>
+                        );
+                      }
+                      const previousRow = taskRows[index - 1];
+                      const groupMotion =
+                        virtualGroupTransition?.groupId === row.groupId &&
+                        (virtualGroupTransition.phase === "collapsing" ||
+                          virtualGroupTransition.phase === "expanding")
+                          ? virtualGroupTransition.phase
+                          : undefined;
+                      return renderTaskItem(row.task, {
+                        virtual: true,
+                        rowRef: virtualList.getRowRef(row.id),
+                        rowStyle: virtualList.rowStyle(top),
+                        divider:
+                          previousRow?.kind === "task" && previousRow.groupId === row.groupId,
+                        groupMotion,
+                      });
+                    })}
+                    {hasMore && (
+                      <li
+                        ref={(element) => {
+                          loadMoreRef.current = element;
+                        }}
+                        className="tasks-load-more"
+                        style={{
+                          position: "absolute",
+                          insetInline: 12,
+                          top: 0,
+                          transform: `translateY(${virtualList.totalHeight}px)`,
+                        }}
+                      >
+                        {renderLoadMoreContent()}
+                      </li>
+                    )}
+                  </ul>
+                </>
+              ) : (
+                <div className="tasks-list">
+                  {taskGroups.map((group) => {
+                    const firstTask = group[0]!;
+                    const collapsed = collapsedGroups.has(firstTask.noteId);
+                    const groupId = `tasks-note-${firstTask.noteId}`;
+                    return (
+                      <section className="tasks-note-group" key={firstTask.noteId}>
+                        <h2 className="tasks-note-group-header">
+                          <button
+                            type="button"
+                            className="tasks-note-group-toggle"
+                            aria-expanded={!collapsed}
+                            aria-controls={groupId}
+                            onClick={(event) => toggleGroup(firstTask.noteId, event.currentTarget)}
+                          >
+                            <ChevronDown
+                              className="tasks-note-group-chevron"
+                              size={14}
+                              aria-hidden="true"
+                            />
+                            <span className="tasks-note-title">{firstTask.noteTitle}</span>
+                            {notebookNames.has(firstTask.notebookId) ? (
+                              <small>{notebookNames.get(firstTask.notebookId)}</small>
+                            ) : null}
+                          </button>
+                        </h2>
+                        <div
+                          id={groupId}
+                          className={`tasks-note-group-content${collapsed ? " is-collapsed" : ""}`}
+                          inert={collapsed}
+                        >
+                          <ul>{group.map((task) => renderTaskItem(task))}</ul>
+                        </div>
+                      </section>
+                    );
+                  })}
+                  {hasMore && (
+                    <div
+                      ref={(element) => {
+                        loadMoreRef.current = element;
+                      }}
+                      className="tasks-load-more"
+                    >
+                      {renderLoadMoreContent()}
+                    </div>
+                  )}
+                </div>
+              )
             ) : (
               <div className="tasks-empty">
                 <ListTodo size={22} aria-hidden="true" />
