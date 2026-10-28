@@ -120,7 +120,7 @@ export function TasksPanel({
     <section
       className="note-list-panel tasks-panel"
       aria-labelledby="tasks-heading"
-      aria-busy={busyTask !== null}
+      aria-busy={loading || busyTask !== null}
     >
       <header className="list-header tasks-header">
         <div className="list-header-main">
@@ -284,7 +284,7 @@ export function TasksPanel({
                                         : `标记为已完成：${task.text}`
                                   }
                                   aria-pressed={task.done}
-                                  disabled={busyTask !== null}
+                                  disabled={loading || busyTask !== null}
                                   onClick={() => onToggleTask(task)}
                                 >
                                   {isBusy ? (
@@ -298,6 +298,7 @@ export function TasksPanel({
                                 <button
                                   type="button"
                                   className="tasks-item-copy"
+                                  disabled={loading || busyTask !== null}
                                   onClick={() => onSelectTask(task)}
                                   aria-label={`打开笔记 ${task.noteTitle} 并定位任务：${task.text}`}
                                 >

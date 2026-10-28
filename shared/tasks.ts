@@ -76,6 +76,14 @@ export function extractMarkdownTasks(markdown: string): MarkdownTask[] {
   return tasks;
 }
 
+/** Keeps a task selection usable when edits add or remove earlier tasks. */
+export function resolveTaskOrdinal(markdown: string, ordinal: number, text: string) {
+  const tasks = extractMarkdownTasks(markdown);
+  if (tasks[ordinal]?.text === text) return ordinal;
+  const matches = tasks.filter((task) => task.text === text);
+  return matches.length === 1 ? matches[0]!.ordinal : null;
+}
+
 /** Locate a task marker in source order, excluding fenced and indented code. */
 export function findMarkdownTaskMarker(markdown: string, ordinal: number) {
   const lines = markdown.match(/[^\n]*(?:\n|$)/gu) ?? [];

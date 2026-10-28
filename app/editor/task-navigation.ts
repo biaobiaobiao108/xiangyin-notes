@@ -47,12 +47,15 @@ export const TaskNavigationExtension = Extension.create({
 export function findTaskPosition(doc: ProseMirrorNode, ordinal: number, text: string) {
   let index = 0;
   let position: number | null = null;
+  const matchingPositions: number[] = [];
   const normalize = (value: string) => value.replace(/\s+/gu, " ").trim();
+  const targetText = normalize(text);
   doc.descendants((node, pos) => {
     if (node.type.name !== "taskItem") return;
-    if (index++ === ordinal && normalize(node.firstChild?.textContent ?? "") === normalize(text)) {
-      position = pos;
-    }
+    const currentOrdinal = index++;
+    if (normalize(node.firstChild?.textContent ?? "") !== targetText) return;
+    matchingPositions.push(pos);
+    if (currentOrdinal === ordinal) position = pos;
   });
-  return position;
+  return position ?? (matchingPositions.length === 1 ? matchingPositions[0]! : null);
 }

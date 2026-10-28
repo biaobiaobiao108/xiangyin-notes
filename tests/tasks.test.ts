@@ -3,7 +3,7 @@ import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import TaskItem from "@tiptap/extension-task-item";
 import TaskList from "@tiptap/extension-task-list";
-import { extractMarkdownTasks, findMarkdownTaskMarker } from "../shared/tasks";
+import { extractMarkdownTasks, findMarkdownTaskMarker, resolveTaskOrdinal } from "../shared/tasks";
 import { createMarkdownExtension } from "../app/editor/markdown-config";
 
 describe("Markdown task extraction", () => {
@@ -48,6 +48,16 @@ describe("Markdown task extraction", () => {
       { text: "quoted child", completed: true, ordinal: 1 },
       { text: "outside", completed: false, ordinal: 2 },
     ]);
+  });
+
+  test("resolves a task after earlier items are inserted when its text is unique", () => {
+    const editedMarkdown = "- [ ] 新任务\n- [ ] 目标任务\n- [ ] 其他任务";
+    expect(resolveTaskOrdinal(editedMarkdown, 0, "目标任务")).toBe(1);
+  });
+
+  test("does not guess between duplicate tasks after their ordinal changes", () => {
+    const editedMarkdown = "- [ ] 新任务\n- [ ] 重复任务\n- [ ] 重复任务";
+    expect(resolveTaskOrdinal(editedMarkdown, 0, "重复任务")).toBeNull();
   });
 
   test("plain task text matches the configured Tiptap Markdown parser", () => {

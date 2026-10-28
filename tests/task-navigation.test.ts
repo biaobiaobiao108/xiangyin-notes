@@ -3,6 +3,7 @@ import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
+import { Selection } from "@tiptap/pm/state";
 import {
   createTaskNavigationPlugin,
   findTaskPosition,
@@ -31,8 +32,13 @@ describe("task navigation", () => {
     try {
       const original = editor.state.doc;
       const position = findTaskPosition(original, 1, "子任务")!;
-      editor.view.dispatch(editor.state.tr.setMeta(taskNavigationPluginKey, position));
+      editor.view.dispatch(
+        editor.state.tr
+          .setMeta(taskNavigationPluginKey, position)
+          .setSelection(Selection.near(editor.state.doc.resolve(position + 2), 1)),
+      );
       expect(taskNavigationPluginKey.getState(editor.state)?.find()).toHaveLength(1);
+      expect(editor.state.selection.empty).toBe(true);
       expect(editor.state.doc.eq(original)).toBe(true);
       editor.view.dispatch(editor.state.tr.setMeta(taskNavigationPluginKey, { type: "fade" }));
       expect(taskNavigationPluginKey.getState(editor.state)?.find()).toHaveLength(1);
@@ -101,6 +107,27 @@ describe("task navigation", () => {
       expect(second).not.toBe(first);
       expect(findTaskPosition(editor.state.doc, 1, "已修改的任务")).toBeNull();
       expect(findTaskPosition(editor.state.doc, 2, "重复任务")).toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  test("finds a unique task after earlier items change the ordinal", () => {
+    const editor = new Editor({
+      element: null,
+      extensions: [
+        StarterKit,
+        TaskList,
+        TaskItem.configure({ nested: true }),
+        createMarkdownExtension(),
+      ],
+      content: "- [ ] 新任务\n- [ ] 目标任务",
+      contentType: "markdown",
+    });
+    try {
+      expect(findTaskPosition(editor.state.doc, 0, "目标任务")).toBe(
+        findTaskPosition(editor.state.doc, 1, "目标任务"),
+      );
     } finally {
       editor.destroy();
     }

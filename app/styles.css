@@ -561,7 +561,8 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .tasks-check-button:disabled { cursor: wait; opacity: .7; }
 .tasks-check-button.is-busy svg { animation: spin var(--motion-spin) linear infinite; }
 .tasks-item-copy { display: flex; min-width: 0; min-height: 30px; flex: 1; align-items: center; padding: 3px 2px; border: 0; background: transparent; color: inherit; font: inherit; line-height: 1.45; text-align: left; cursor: pointer; }
-.tasks-item-copy:hover { color: var(--accent-dark); }
+.tasks-item-copy:hover:not(:disabled) { color: var(--accent-dark); }
+.tasks-item-copy:disabled { cursor: wait; }
 .tasks-item-copy > span { overflow-wrap: anywhere; }
 .tasks-item-copy > span.is-done { color: var(--muted); text-decoration: line-through; }
 .tasks-empty { display: grid; min-height: 150px; align-content: center; justify-items: center; gap: 10px; padding: 24px; color: var(--muted); text-align: center; }
@@ -1098,10 +1099,11 @@ button.save-status:hover { text-decoration: underline; }
 .note-prose .note-callout[data-callout="WARNING"] .note-callout-icon, .note-prose .note-callout[data-callout="CAUTION"] .note-callout-icon { background: var(--surface); color: var(--danger); }
 .note-prose hr { margin-block: 1.4em; border: 0; border-top: 1px solid var(--border); }
 .note-prose ul[data-type="taskList"] { padding-left: 0; list-style: none; }
-.note-prose ul[data-type="taskList"] li { display: flex; align-items: flex-start; gap: 10px; padding-left: 0; }
+.note-prose ul[data-type="taskList"] li { display: flex; width: 100%; min-width: 0; box-sizing: border-box; align-items: flex-start; gap: 10px; padding-left: 0; }
+.note-prose ul[data-type="taskList"] li > div { min-width: 0; flex: 1; }
 .note-prose ul[data-type="taskList"] li > label { display: flex; flex: none; align-items: center; height: 1.74em; padding-top: 0; }
 .note-prose ul[data-type="taskList"] li > label input { width: 17px; height: 17px; accent-color: var(--accent); }
-.note-prose ul[data-type="taskList"] li[data-checked="true"] > div { color: var(--soft-muted); text-decoration: line-through; }
+.note-prose ul[data-type="taskList"] li[data-checked="true"] > div > p { color: var(--soft-muted); text-decoration: line-through; }
 .editor-floating-tools { position: absolute; right: 28px; bottom: max(18px, env(safe-area-inset-bottom)); z-index: 3; display: grid; justify-items: end; gap: 10px; pointer-events: none; transition: opacity var(--motion-panel) var(--motion-ease-out), transform var(--motion-panel) var(--motion-ease-out); }
 .editor-panel.is-focus-mode .editor-floating-tools {
   opacity: 0;

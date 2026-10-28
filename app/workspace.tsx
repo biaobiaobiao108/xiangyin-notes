@@ -23,6 +23,7 @@ import { applyPwaUpdate, installPwa, subscribePwa, type PwaState } from "./pwa";
 import type { WorkspaceChangeMessage } from "../shared/realtime";
 import type { ImageExportSnapshot } from "./image-export/render";
 import type { Note, NoteSummary, NoteView, Notebook, TaskSummary } from "../shared/types";
+import { resolveTaskOrdinal } from "../shared/tasks";
 import type { OutlineItem } from "./editor-metrics";
 import { ConfirmDialog, NotebookDialog, type ConfirmRequest } from "./workspace/dialogs";
 import { clearAllDraftRecoveries, readDraftRecovery } from "./workspace/draft-recovery";
@@ -1694,21 +1695,37 @@ export function Workspace() {
   ]);
   const selectTask = useCallback(
     (task: TaskSummary) => {
+      flushEditorDraftRef.current();
+      flushSecondaryDraft();
+      const currentTaskNote =
+        selectedRef.current?.id === task.noteId
+          ? selectedRef.current
+          : splitSelectedRef.current?.id === task.noteId
+            ? splitSelectedRef.current
+            : null;
+      const ordinal = currentTaskNote
+        ? resolveTaskOrdinal(currentTaskNote.contentMarkdown, task.ordinal, task.text)
+        : task.ordinal;
       setQuery("");
       setView("all");
       setNotebookId(undefined);
       if (splitNoteId) closeSplit();
       setCardEditingNoteId(viewLayout === "cards" ? task.noteId : null);
       selectNote(task.noteId);
-      setTaskNavigation({
-        noteId: task.noteId,
-        ordinal: task.ordinal,
-        text: task.text,
-        token: ++taskNavigationTokenRef.current,
-      });
+      if (ordinal === null) {
+        setTaskNavigation(null);
+        setTaskRefreshToken((value) => value + 1);
+      } else {
+        setTaskNavigation({
+          noteId: task.noteId,
+          ordinal,
+          text: task.text,
+          token: ++taskNavigationTokenRef.current,
+        });
+      }
       openMobileNote({ view: "all", notebookId: undefined, query: "", noteId: task.noteId });
     },
-    [closeSplit, openMobileNote, selectNote, splitNoteId, viewLayout],
+    [closeSplit, flushSecondaryDraft, openMobileNote, selectNote, splitNoteId, viewLayout],
   );
   const handleToggleTask = useCallback(
     async (task: TaskSummary) => {
@@ -1779,8 +1796,7 @@ export function Workspace() {
   const handleTaskNavigationMissing = useCallback(() => {
     setTaskNavigation(null);
     setTaskRefreshToken((value) => value + 1);
-    notifyWarning("这项任务已发生变化，请重新打开任务列表");
-  }, [notifyWarning]);
+  }, []);
   const selectNotebook = useCallback(
     (notebookIdToSelect: string) => {
       setTasksOpen(false);
