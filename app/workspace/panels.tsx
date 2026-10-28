@@ -1093,6 +1093,13 @@ export const NoteListPanel = memo(function NoteListPanel({
     const duration = groupMotionDuration();
     if (virtualGroupTransitionTimerRef.current !== null)
       window.clearTimeout(virtualGroupTransitionTimerRef.current);
+    if (
+      virtualGroupTransition?.phase === "collapsing" &&
+      virtualGroupTransition.groupId !== group.id
+    ) {
+      const previousGroupId = virtualGroupTransition.groupId;
+      setCollapsedGroups((current) => new Set(current).add(previousGroupId));
+    }
 
     const finishTransition = (phase: VirtualGroupTransition["phase"]) => {
       if (duration <= 0) {

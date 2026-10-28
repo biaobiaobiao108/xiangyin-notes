@@ -191,6 +191,13 @@ export function TasksPanel({
       if (groupId === activeVirtualGroupId) virtualList.scrollToRowStart(taskGroupRowId(groupId));
       if (virtualGroupTransitionTimerRef.current !== null)
         window.clearTimeout(virtualGroupTransitionTimerRef.current);
+      if (
+        virtualGroupTransition?.phase === "collapsing" &&
+        virtualGroupTransition.groupId !== groupId
+      ) {
+        const previousGroupId = virtualGroupTransition.groupId;
+        setCollapsedGroups((current) => new Set(current).add(previousGroupId));
+      }
 
       const duration = groupMotionDuration();
       const startTransition = (phase: VirtualGroupTransition["phase"]) => {

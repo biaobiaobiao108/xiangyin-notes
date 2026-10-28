@@ -557,7 +557,7 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .tasks-note-group-chevron { flex: none; transition: transform var(--motion-fast) var(--motion-ease-out); }
 .tasks-note-group-toggle[aria-expanded="false"] .tasks-note-group-chevron { transform: rotate(-90deg); }
 .tasks-note-title { flex: 1; overflow: hidden; min-width: 0; text-overflow: ellipsis; white-space: nowrap; }
-.tasks-note-group h2 small { overflow: hidden; max-width: 42%; flex: 0 1 auto; color: var(--soft-muted); font-size: .7rem; font-weight: 450; text-overflow: ellipsis; white-space: nowrap; }
+.tasks-note-group-header small { overflow: hidden; max-width: 42%; flex: 0 1 auto; color: var(--soft-muted); font-size: .7rem; font-weight: 450; text-overflow: ellipsis; white-space: nowrap; }
 .tasks-note-group-content { display: grid; grid-template-rows: 1fr; overflow-anchor: none; transition: grid-template-rows var(--motion-group) var(--motion-group-ease); }
 .tasks-note-group-content.is-collapsed { grid-template-rows: 0fr; }
 .tasks-note-group-content > ul { min-height: 0; overflow: hidden; }
@@ -816,7 +816,8 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .note-list-group-content { display: grid; grid-template-rows: 1fr; overflow-anchor: none; padding-block: 4px; transition: grid-template-rows var(--motion-group) var(--motion-group-ease), padding-block var(--motion-group) var(--motion-group-ease); }
 .note-list-group-content.is-collapsed { grid-template-rows: 0fr; padding-block: 0; }
 .note-list-group-content > ul { min-height: 0; overflow: hidden; padding: 0; }
-.note-list-virtual-group-marker { display: flex; height: 30px; align-items: center; background: var(--surface-glass); color: var(--soft-muted); font-size: 0.72rem; font-weight: 600; letter-spacing: 0.04em; }
+.note-list-virtual-group-marker { z-index: 3; display: flex; height: 30px; align-items: center; background: var(--surface-glass); color: var(--soft-muted); font-size: 0.72rem; font-weight: 600; letter-spacing: 0.04em; }
+.note-list-virtual-group-marker .note-list-virtual-group-toggle { padding: 8px 14px 4px; }
 .note-list-virtual-group-marker.is-first { height: 0; }
 .note-list-virtual-group-marker.is-sticky-marker { visibility: hidden; }
 .note-list-items.is-group-transitioning > li { transition: transform var(--motion-group) var(--motion-group-ease); }
