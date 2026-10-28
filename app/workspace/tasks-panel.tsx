@@ -75,10 +75,20 @@ export function TasksPanel({
   const notebookTriggerRef = useRef<HTMLButtonElement>(null);
   const statusTriggerRef = useRef<HTMLButtonElement>(null);
   const pendingGroupLayoutRef = useRef<{
+    groupId: string;
+    list: HTMLUListElement;
+    closing: boolean;
+    startScale: number;
+    closingDistance: number;
     positions: Map<HTMLElement, number>;
     anchorScrollTop: number | null;
   } | null>(null);
   const groupAnimationsRef = useRef(new Map<HTMLElement, Animation>());
+  const groupAnimationElementsRef = useRef(new Map<string, Set<HTMLElement>>());
+  const groupAnimationOwnersRef = useRef(new Map<HTMLElement, string>());
+  const listAnimationsRef = useRef(new Map<string, Animation>());
+  const groupListElementsRef = useRef(new Map<string, HTMLUListElement>());
+  const completedGroupRef = useRef<string | null>(null);
   const [openFilter, setOpenFilter] = useState<"status" | "notebook" | null>(null);
   const [groupStates, setGroupStates] = useState<Map<string, "opening" | "closing" | "closed">>(
     () => new Map(),
@@ -100,10 +110,12 @@ export function TasksPanel({
   const selectedNotebookName =
     notebooks.find((notebook) => notebook.id === notebookId)?.name ?? "全部笔记本";
   const selectedStatusLabel = { open: "未完成", done: "已完成", all: "全部" }[status];
-  const captureGroupLayout = (button: HTMLButtonElement, closing: boolean) => {
+  const captureGroupLayout = (button: HTMLButtonElement, groupId: string, closing: boolean) => {
     const scroll = listRef.current;
     const section = button.closest<HTMLElement>(".tasks-note-group");
-    if (!scroll || !section) return;
+    const list = section?.querySelector<HTMLUListElement>("ul");
+    if (!scroll || !section || !list) return;
+    groupListElementsRef.current.set(groupId, list);
     const scrollRect = scroll.getBoundingClientRect();
     const sectionRect = section.getBoundingClientRect();
     const headerRect = button.getBoundingClientRect();
@@ -115,9 +127,21 @@ export function TasksPanel({
       if (top > lowerBound) break;
       positions.set(sibling, top);
     }
-    for (const animation of groupAnimationsRef.current.values()) animation.cancel();
-    groupAnimationsRef.current.clear();
+    const previousListAnimation = listAnimationsRef.current.get(groupId);
+    const currentScale = previousListAnimation
+      ? new DOMMatrixReadOnly(getComputedStyle(list).transform).d
+      : closing
+        ? 1
+        : 0;
+    previousListAnimation?.cancel();
+    if (previousListAnimation) list.style.transform = `scaleY(${currentScale})`;
+    listAnimationsRef.current.delete(groupId);
     pendingGroupLayoutRef.current = {
+      groupId,
+      list,
+      closing,
+      startScale: currentScale,
+      closingDistance: list.scrollHeight,
       positions,
       anchorScrollTop: collapsedTaskGroupScrollTop({
         closing,
@@ -129,45 +153,117 @@ export function TasksPanel({
     };
   };
   useLayoutEffect(() => {
+    const completedGroup = completedGroupRef.current;
+    if (completedGroup) {
+      completedGroupRef.current = null;
+      const listAnimation = listAnimationsRef.current.get(completedGroup);
+      listAnimation?.cancel();
+      listAnimationsRef.current.delete(completedGroup);
+      const list = groupListElementsRef.current.get(completedGroup);
+      list?.style.removeProperty("transform");
+      const animatedElements = groupAnimationElementsRef.current.get(completedGroup);
+      if (animatedElements) {
+        for (const element of animatedElements) {
+          if (groupAnimationOwnersRef.current.get(element) === completedGroup) {
+            groupAnimationsRef.current.get(element)?.cancel();
+            groupAnimationsRef.current.delete(element);
+            groupAnimationOwnersRef.current.delete(element);
+            element.style.removeProperty("transform");
+          }
+        }
+        groupAnimationElementsRef.current.delete(completedGroup);
+      }
+    }
     const pending = pendingGroupLayoutRef.current;
     const scroll = listRef.current;
     if (!pending || !scroll) return;
     pendingGroupLayoutRef.current = null;
     if (pending.anchorScrollTop !== null) scroll.scrollTop = pending.anchorScrollTop;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setGroupStates((current) => {
+        const next = new Map(current);
+        if (pending.closing) next.set(pending.groupId, "closed");
+        else next.delete(pending.groupId);
+        return next;
+      });
+      return;
+    }
     const viewport = scroll.getBoundingClientRect();
     const motion = getComputedStyle(document.documentElement);
     const duration = Number.parseFloat(motion.getPropertyValue("--motion-group")) || 320;
     const easing = motion.getPropertyValue("--motion-group-ease").trim();
+    const listAnimation = pending.list.animate(
+      [
+        { transform: `scaleY(${pending.startScale})` },
+        { transform: `scaleY(${pending.closing ? 0 : 1})` },
+      ],
+      { duration, easing, fill: "forwards" },
+    );
+    listAnimationsRef.current.set(pending.groupId, listAnimation);
+    listAnimation.addEventListener(
+      "finish",
+      () => {
+        if (listAnimationsRef.current.get(pending.groupId) !== listAnimation) return;
+        completedGroupRef.current = pending.groupId;
+        setGroupStates((current) => {
+          if (current.get(pending.groupId) !== (pending.closing ? "closing" : "opening"))
+            return current;
+          const next = new Map(current);
+          if (pending.closing) next.set(pending.groupId, "closed");
+          else next.delete(pending.groupId);
+          return next;
+        });
+      },
+      { once: true },
+    );
+    const animatedElements =
+      groupAnimationElementsRef.current.get(pending.groupId) ?? new Set<HTMLElement>();
     for (const [element, previousTop] of pending.positions) {
       if (!element.isConnected || typeof element.animate !== "function") continue;
-      const currentRect = element.getBoundingClientRect();
+      let currentRect = element.getBoundingClientRect();
       if (
         Math.min(previousTop, currentRect.top) > viewport.bottom ||
         Math.max(previousTop + currentRect.height, currentRect.bottom) < viewport.top
       )
         continue;
-      const offset = previousTop - currentRect.top;
-      if (Math.abs(offset) < 1) continue;
+      const previousAnimation = groupAnimationsRef.current.get(element);
+      if (previousAnimation) {
+        const visualTop = currentRect.top;
+        previousAnimation.cancel();
+        const layoutTop = element.getBoundingClientRect().top;
+        const preservedOffset = visualTop - layoutTop;
+        if (Math.abs(preservedOffset) > 0.5)
+          element.style.transform = `translateY(${preservedOffset}px)`;
+        else element.style.removeProperty("transform");
+        currentRect = element.getBoundingClientRect();
+      }
+      const transform = getComputedStyle(element).transform;
+      const currentOffset = transform === "none" ? 0 : new DOMMatrixReadOnly(transform).m42;
+      const startOffset = currentOffset + previousTop - currentRect.top;
+      const endOffset = pending.closing ? -pending.closingDistance : 0;
+      if (Math.abs(startOffset - endOffset) < 1) {
+        element.style.removeProperty("transform");
+        continue;
+      }
       const animation = element.animate(
-        [{ transform: `translateY(${offset}px)` }, { transform: "translateY(0)" }],
-        { duration, easing },
+        [
+          { transform: `translateY(${startOffset}px)` },
+          { transform: `translateY(${endOffset}px)` },
+        ],
+        { duration, easing, fill: "forwards" },
       );
       groupAnimationsRef.current.set(element, animation);
-      animation.addEventListener(
-        "finish",
-        () => {
-          if (groupAnimationsRef.current.get(element) === animation)
-            groupAnimationsRef.current.delete(element);
-        },
-        { once: true },
-      );
+      groupAnimationOwnersRef.current.set(element, pending.groupId);
+      animatedElements.add(element);
     }
+    groupAnimationElementsRef.current.set(pending.groupId, animatedElements);
   }, [groupStates]);
   useEffect(
     () => () => {
       for (const animation of groupAnimationsRef.current.values()) animation.cancel();
       groupAnimationsRef.current.clear();
+      for (const animation of listAnimationsRef.current.values()) animation.cancel();
+      listAnimationsRef.current.clear();
     },
     [],
   );
@@ -415,7 +511,7 @@ export function TasksPanel({
                           aria-expanded={!collapsed}
                           aria-controls={groupId}
                           onClick={(event) => {
-                            captureGroupLayout(event.currentTarget, !collapsed);
+                            captureGroupLayout(event.currentTarget, firstTask.noteId, !collapsed);
                             setGroupStates((current) => {
                               const next = new Map(current);
                               const state = current.get(firstTask.noteId);
@@ -440,6 +536,10 @@ export function TasksPanel({
                       </h2>
                       <ul
                         id={groupId}
+                        ref={(element) => {
+                          if (element) groupListElementsRef.current.set(firstTask.noteId, element);
+                          else groupListElementsRef.current.delete(firstTask.noteId);
+                        }}
                         className={
                           groupState === "opening" || groupState === "closing"
                             ? `is-${groupState}`
@@ -447,23 +547,6 @@ export function TasksPanel({
                         }
                         hidden={groupState === "closed"}
                         inert={collapsed}
-                        onAnimationEnd={(event) => {
-                          if (event.target !== event.currentTarget) return;
-                          const finished =
-                            event.animationName === "task-group-open"
-                              ? "opening"
-                              : event.animationName === "task-group-close"
-                                ? "closing"
-                                : null;
-                          if (!finished) return;
-                          setGroupStates((current) => {
-                            if (current.get(firstTask.noteId) !== finished) return current;
-                            const next = new Map(current);
-                            if (finished === "closing") next.set(firstTask.noteId, "closed");
-                            else next.delete(firstTask.noteId);
-                            return next;
-                          });
-                        }}
                       >
                         {group.map((task) => {
                           const isBusy =
