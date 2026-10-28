@@ -21,21 +21,25 @@ describe("Markdown task extraction", () => {
         text: "Draft the proposal",
         completed: false,
         ordinal: 0,
+        depth: 0,
       },
       {
         text: "Ask Mina",
         completed: true,
         ordinal: 1,
+        depth: 1,
       },
       {
         text: "Repeat",
         completed: false,
         ordinal: 2,
+        depth: 0,
       },
       {
         text: "Repeat",
         completed: false,
         ordinal: 3,
+        depth: 0,
       },
     ]);
   });
@@ -44,9 +48,9 @@ describe("Markdown task extraction", () => {
     expect(
       extractMarkdownTasks("> - [ ] quoted parent\n>   - [x] quoted child\n- [ ] outside"),
     ).toEqual([
-      { text: "quoted parent", completed: false, ordinal: 0 },
-      { text: "quoted child", completed: true, ordinal: 1 },
-      { text: "outside", completed: false, ordinal: 2 },
+      { text: "quoted parent", completed: false, ordinal: 0, depth: 0 },
+      { text: "quoted child", completed: true, ordinal: 1, depth: 1 },
+      { text: "outside", completed: false, ordinal: 2, depth: 0 },
     ]);
   });
 
@@ -89,7 +93,7 @@ describe("Markdown task extraction", () => {
   test("does not treat fenced or indented code examples as tasks", () => {
     expect(
       extractMarkdownTasks("```md\n- [ ] fenced\n```\n\n    - [ ] indented\n\n- [ ] real"),
-    ).toEqual([{ text: "real", completed: false, ordinal: 0 }]);
+    ).toEqual([{ text: "real", completed: false, ordinal: 0, depth: 0 }]);
   });
 
   test("locates the parsed task when fake and real marker counts can cancel out", () => {
@@ -128,7 +132,9 @@ describe("Markdown task extraction", () => {
     expect(marker).not.toBeNull();
     expect(marker?.checked).toBe(true);
     const updated = markdown.slice(0, marker!.start) + "[ ]" + markdown.slice(marker!.end);
-    expect(extractMarkdownTasks(updated)).toEqual([{ text: "real", completed: false, ordinal: 0 }]);
+    expect(extractMarkdownTasks(updated)).toEqual([
+      { text: "real", completed: false, ordinal: 0, depth: 0 },
+    ]);
     expect(updated).toContain("> - [ ] fake");
   });
 });

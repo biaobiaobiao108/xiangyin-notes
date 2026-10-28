@@ -2,13 +2,14 @@ import { mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { Database } from "bun:sqlite";
 import { snapshotSchema } from "./schema-snapshot";
+import { extractMarkdownTasks } from "../shared/tasks";
 
 const DEFAULT_DATABASE_PATH = "./data/xiangying-notes.sqlite";
 const DEFAULT_SCHEMA_PATH = "./database/schema.sql";
 const BASELINE_SCHEMA_VERSION = 1;
 
 // Increment this when adding the next entry to SCHEMA_MIGRATIONS.
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 2;
 
 type TableCountRow = {
   count: number;
@@ -30,7 +31,93 @@ export type DatabaseInitializationOptions = {
 
 // After deployment, add each new transition here and increment
 // CURRENT_SCHEMA_VERSION; never rewrite an already deployed transition.
-const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [];
+const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
+  {
+    sourceVersion: 1,
+    targetVersion: 2,
+    migrate: (database) => {
+      database.exec(`
+        CREATE TABLE note_tasks (
+          note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          notebook_id TEXT NOT NULL REFERENCES notebooks(id) ON DELETE RESTRICT,
+          ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+          depth INTEGER NOT NULL CHECK (depth >= 0),
+          text TEXT NOT NULL,
+          done INTEGER NOT NULL CHECK (done IN (0, 1)),
+          sort_updated_at INTEGER NOT NULL,
+          PRIMARY KEY (note_id, ordinal)
+        );
+        CREATE TABLE note_task_counts (
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          notebook_id TEXT NOT NULL REFERENCES notebooks(id) ON DELETE CASCADE,
+          done INTEGER NOT NULL CHECK (done IN (0, 1)),
+          task_count INTEGER NOT NULL CHECK (task_count > 0),
+          PRIMARY KEY (user_id, notebook_id, done)
+        );
+        CREATE INDEX idx_note_tasks_user_recent
+          ON note_tasks(user_id, sort_updated_at, note_id, ordinal);
+        CREATE INDEX idx_note_tasks_user_done_recent
+          ON note_tasks(user_id, done, sort_updated_at, note_id, ordinal);
+        CREATE INDEX idx_note_tasks_notebook_recent
+          ON note_tasks(user_id, notebook_id, sort_updated_at, note_id, ordinal);
+        CREATE INDEX idx_note_tasks_notebook_done_recent
+          ON note_tasks(user_id, notebook_id, done, sort_updated_at, note_id, ordinal);
+        CREATE INDEX idx_note_task_counts_user_done
+          ON note_task_counts(user_id, done, notebook_id);
+      `);
+
+      const insertTask = database.query(
+        "INSERT INTO note_tasks (note_id, user_id, notebook_id, ordinal, depth, text, done, sort_updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      );
+      const insertTaskCount = database.query(
+        "INSERT INTO note_task_counts (user_id, notebook_id, done, task_count) VALUES (?, ?, ?, ?)",
+      );
+      const taskCounts = new Map<
+        string,
+        { userId: string; notebookId: string; done: number; count: number }
+      >();
+      const notes = database
+        .query(
+          "SELECT id, user_id, notebook_id, content_markdown, updated_at FROM notes WHERE deleted_at IS NULL ORDER BY id",
+        )
+        .iterate() as IterableIterator<{
+        id: string;
+        user_id: string;
+        notebook_id: string;
+        content_markdown: string;
+        updated_at: number;
+      }>;
+      for (const note of notes) {
+        for (const task of extractMarkdownTasks(note.content_markdown)) {
+          const done = task.completed ? 1 : 0;
+          insertTask.run(
+            note.id,
+            note.user_id,
+            note.notebook_id,
+            task.ordinal,
+            task.depth,
+            task.text,
+            done,
+            -note.updated_at,
+          );
+          const countKey = `${note.user_id}\0${note.notebook_id}\0${done}`;
+          const count = taskCounts.get(countKey);
+          if (count) count.count += 1;
+          else
+            taskCounts.set(countKey, {
+              userId: note.user_id,
+              notebookId: note.notebook_id,
+              done,
+              count: 1,
+            });
+        }
+      }
+      for (const count of taskCounts.values())
+        insertTaskCount.run(count.userId, count.notebookId, count.done, count.count);
+    },
+  },
+];
 
 export function databasePathFromEnv(env: Record<string, string | undefined> = Bun.env) {
   return env.DATABASE_PATH?.trim() || DEFAULT_DATABASE_PATH;

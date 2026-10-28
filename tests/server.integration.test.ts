@@ -109,15 +109,50 @@ describe("Bun Server API", () => {
       text: "未完成",
       done: false,
       ordinal: 0,
+      depth: 0,
     });
 
     const done = await request("/api/tasks?status=done", {}, login.cookie);
     expect(done.body?.tasks).toMatchObject([{ text: "已完成", done: true, ordinal: 1 }]);
-    const allTasks = await request("/api/tasks?status=all", {}, login.cookie);
-    expect(allTasks.body?.total).toBe(2);
+    const firstPage = await request(
+      `/api/tasks?status=all&limit=1&notebookId=${notebook.id}`,
+      {},
+      login.cookie,
+    );
+    expect(firstPage.body?.total).toBe(2);
+    expect(firstPage.body?.tasks).toMatchObject([{ text: "未完成", depth: 0 }]);
+    const cursor = firstPage.body?.nextCursor;
+    expect(typeof cursor).toBe("string");
+    if (typeof cursor !== "string") throw new Error("first task page should have a cursor");
+    const secondPage = await request(
+      `/api/tasks?status=all&limit=1&notebookId=${notebook.id}&cursor=${encodeURIComponent(cursor)}`,
+      {},
+      login.cookie,
+    );
+    expect(secondPage.body?.tasks).toMatchObject([{ text: "已完成", depth: 0 }]);
+    expect(secondPage.body?.nextCursor).toBeNull();
+    expect(secondPage.body?.total).toBeUndefined();
 
-    database.query("UPDATE notes SET deleted_at = 1 WHERE id = ?").run(noteResponse.body?.note.id);
+    const trashed = await request(
+      `/api/notes/${noteResponse.body?.note.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ version: noteResponse.body?.note.version, deleted: true }),
+      },
+      login.cookie,
+    );
+    expect(trashed.response.status).toBe(200);
     expect((await request("/api/tasks?status=all", {}, login.cookie)).body?.total).toBe(0);
+    const restored = await request(
+      `/api/notes/${noteResponse.body?.note.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ version: trashed.body?.note.version, deleted: false }),
+      },
+      login.cookie,
+    );
+    expect(restored.response.status).toBe(200);
+    expect((await request("/api/tasks?status=all", {}, login.cookie)).body?.total).toBe(2);
   });
 
   test("toggles one exact nested task marker and enforces the note version", async () => {
@@ -145,6 +180,7 @@ describe("Bun Server API", () => {
     const note = noteResponse.body?.note;
     const tasks = (await request("/api/tasks?status=all", {}, login.cookie)).body?.tasks;
     expect(tasks).toHaveLength(3);
+    expect(tasks.map((task: { depth: number }) => task.depth)).toEqual([0, 1, 0]);
 
     const toggled = await request(
       "/api/tasks/toggle",
@@ -183,6 +219,8 @@ describe("Bun Server API", () => {
 
     const updatedTasks = (await request("/api/tasks?status=all", {}, login.cookie)).body?.tasks;
     expect(updatedTasks.map((task: { done: boolean }) => task.done)).toEqual([false, false, false]);
+    expect((await request("/api/tasks?status=open", {}, login.cookie)).body?.total).toBe(3);
+    expect((await request("/api/tasks?status=done", {}, login.cookie)).body?.total).toBe(0);
   });
 
   test("accepts a long Unicode task whose JSON body exceeds 4 KiB", async () => {
@@ -269,7 +307,7 @@ describe("Bun Server API", () => {
 
   test("automatically initializes a fresh database and does not rerun the baseline", async () => {
     const fresh = await openDatabase(":memory:");
-    expect(fresh.query("PRAGMA user_version").get()).toEqual({ user_version: 1 });
+    expect(fresh.query("PRAGMA user_version").get()).toEqual({ user_version: 2 });
     expect(
       fresh.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'users'").get(),
     ).toBeDefined();
@@ -280,7 +318,7 @@ describe("Bun Server API", () => {
     initialized.close();
 
     const reopened = await openDatabase(databasePath);
-    expect(reopened.query("PRAGMA user_version").get()).toEqual({ user_version: 1 });
+    expect(reopened.query("PRAGMA user_version").get()).toEqual({ user_version: 2 });
     reopened.close();
     await Promise.all([
       rm(databasePath, { force: true }),
@@ -291,7 +329,7 @@ describe("Bun Server API", () => {
 
   test("applies SQLite migrations idempotently and reports health", async () => {
     await applyMigrations(database);
-    expect(database.query("PRAGMA user_version").get()).toEqual({ user_version: 1 });
+    expect(database.query("PRAGMA user_version").get()).toEqual({ user_version: 2 });
     expect(
       database
         .query("SELECT name FROM sqlite_master WHERE name = 'shares' OR name LIKE 'idx_shares_%'")

@@ -292,15 +292,22 @@ export function Workspace() {
   const [taskSnapshot, setTaskSnapshot] = useState<{
     queryKey: string;
     tasks: TaskSummary[];
+    total: number;
+    nextCursor: string | null;
   } | null>(null);
   const taskSnapshotRef = useRef(taskSnapshot);
+  const taskRequestGenerationRef = useRef(0);
+  const taskMoreInFlightRef = useRef(false);
+  const [tasksMoreLoading, setTasksMoreLoading] = useState(false);
+  const [tasksMoreError, setTasksMoreError] = useState<string | null>(null);
   const [taskLoadError, setTaskLoadError] = useState<{
     queryKey: string;
     message: string;
   } | null>(null);
   const taskQueryKey = JSON.stringify([taskStatus, taskNotebookId]);
-  const hasTaskSnapshot = taskSnapshot?.queryKey === taskQueryKey;
-  const tasks = hasTaskSnapshot ? taskSnapshot.tasks : [];
+  const currentTaskSnapshot = taskSnapshot?.queryKey === taskQueryKey ? taskSnapshot : null;
+  const hasTaskSnapshot = currentTaskSnapshot !== null;
+  const tasks = currentTaskSnapshot?.tasks ?? [];
   const tasksLoading = tasksOpen && !hasTaskSnapshot && taskLoadError?.queryKey !== taskQueryKey;
   const tasksError = taskLoadError?.queryKey === taskQueryKey ? taskLoadError.message : null;
   const [taskRefreshToken, setTaskRefreshToken] = useState(0);
@@ -338,7 +345,11 @@ export function Workspace() {
   useEffect(() => {
     if (!tasksOpen) return;
     const controller = new AbortController();
+    const requestGeneration = ++taskRequestGenerationRef.current;
     const queryKey = JSON.stringify([taskStatus, taskNotebookId]);
+    taskMoreInFlightRef.current = false;
+    setTasksMoreLoading(false);
+    setTasksMoreError(null);
     setTaskLoadError((current) => (current?.queryKey === queryKey ? null : current));
     void api
       .listTasks(
@@ -346,18 +357,78 @@ export function Workspace() {
         { signal: controller.signal },
       )
       .then((result) => {
-        if (controller.signal.aborted) return;
-        const snapshot = { queryKey, tasks: result.tasks };
+        if (controller.signal.aborted || taskRequestGenerationRef.current !== requestGeneration)
+          return;
+        const snapshot = {
+          queryKey,
+          tasks: result.tasks,
+          total: result.total ?? result.tasks.length,
+          nextCursor: result.nextCursor,
+        };
         taskSnapshotRef.current = snapshot;
         setTaskSnapshot(snapshot);
       })
       .catch((reason: unknown) => {
         if (reason instanceof Error && reason.name === "AbortError") return;
-        if (controller.signal.aborted || taskSnapshotRef.current?.queryKey === queryKey) return;
+        if (
+          controller.signal.aborted ||
+          taskRequestGenerationRef.current !== requestGeneration ||
+          taskSnapshotRef.current?.queryKey === queryKey
+        )
+          return;
         setTaskLoadError({ queryKey, message: "加载任务失败，请重试" });
       });
     return () => controller.abort();
   }, [taskNotebookId, taskRefreshToken, taskStatus, tasksOpen]);
+
+  const loadMoreTasks = useCallback(() => {
+    const snapshot = taskSnapshotRef.current;
+    if (
+      !tasksOpen ||
+      !snapshot ||
+      snapshot.queryKey !== taskQueryKey ||
+      !snapshot.nextCursor ||
+      taskMoreInFlightRef.current
+    )
+      return;
+
+    const requestGeneration = taskRequestGenerationRef.current;
+    taskMoreInFlightRef.current = true;
+    setTasksMoreLoading(true);
+    setTasksMoreError(null);
+    void api
+      .listTasks({
+        status: taskStatus,
+        notebookId: taskNotebookId || undefined,
+        cursor: snapshot.nextCursor,
+      })
+      .then((result) => {
+        if (taskRequestGenerationRef.current !== requestGeneration) return;
+        const current = taskSnapshotRef.current;
+        if (!current || current.queryKey !== snapshot.queryKey) return;
+        const known = new Set(current.tasks.map((task) => `${task.noteId}:${task.ordinal}`));
+        const next = {
+          ...current,
+          tasks: [
+            ...current.tasks,
+            ...result.tasks.filter((task) => !known.has(`${task.noteId}:${task.ordinal}`)),
+          ],
+          nextCursor: result.nextCursor,
+        };
+        taskSnapshotRef.current = next;
+        setTaskSnapshot(next);
+      })
+      .catch((reason: unknown) => {
+        if (reason instanceof Error && reason.name === "AbortError") return;
+        if (taskRequestGenerationRef.current === requestGeneration)
+          setTasksMoreError("加载更多任务失败，请重试");
+      })
+      .finally(() => {
+        if (taskRequestGenerationRef.current !== requestGeneration) return;
+        taskMoreInFlightRef.current = false;
+        setTasksMoreLoading(false);
+      });
+  }, [taskNotebookId, taskQueryKey, taskStatus, tasksOpen]);
   const [pwaState, setPwaState] = useState<PwaState>({
     standalone: false,
     canInstall: false,
@@ -2582,6 +2653,10 @@ export function Workspace() {
       {shouldShowTasksPanel(tasksOpen, isMobileViewport, mobilePage) && (
         <TasksPanel
           tasks={tasks}
+          total={currentTaskSnapshot?.total ?? 0}
+          hasMore={currentTaskSnapshot !== null && currentTaskSnapshot.nextCursor !== null}
+          loadingMore={tasksMoreLoading}
+          loadMoreError={tasksMoreError}
           notebooks={notebooks}
           notebookId={taskNotebookId}
           status={taskStatus}
@@ -2596,6 +2671,7 @@ export function Workspace() {
           onStatusChange={setTaskStatus}
           onSelectTask={selectTask}
           onToggleTask={handleToggleTask}
+          onLoadMore={loadMoreTasks}
           onBack={
             isMobileViewport
               ? () => {

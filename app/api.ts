@@ -159,12 +159,23 @@ export const api = {
   emptyTrash: () => request<{ ok: true; deletedCount: number }>("/api/trash", { method: "DELETE" }),
   listNotebooks: () => request<{ notebooks: Notebook[] }>("/api/notebooks"),
   listTasks: (
-    params: { status: "open" | "done" | "all"; notebookId?: string },
+    params: {
+      status: "open" | "done" | "all";
+      notebookId?: string;
+      limit?: number;
+      cursor?: string;
+    },
     options?: RequestOptions,
   ) => {
     const search = new URLSearchParams({ status: params.status });
     if (params.notebookId) search.set("notebookId", params.notebookId);
-    return request<{ tasks: TaskSummary[] }>(`/api/tasks?${search.toString()}`, options);
+    if (params.limit !== undefined) search.set("limit", String(params.limit));
+    if (params.cursor) search.set("cursor", params.cursor);
+    return request<{
+      tasks: TaskSummary[];
+      total?: number;
+      nextCursor: string | null;
+    }>(`/api/tasks?${search.toString()}`, options);
   },
   toggleTask: (payload: {
     noteId: string;

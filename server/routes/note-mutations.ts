@@ -19,8 +19,74 @@ import {
   syncStoredNoteTitleKey,
 } from "../note-links";
 import { syncNoteShortSearchTerms } from "../note-search";
+import { extractMarkdownTasks } from "../../shared/tasks";
 
 export const NOTE_RENAME_SOURCE_BATCH_SIZE = 16;
+
+function syncNoteTasks(
+  database: SqliteDatabase,
+  userId: string,
+  noteId: string,
+  notebookId: string,
+  updatedAt: number,
+  contentMarkdown: string,
+) {
+  const deltas = new Map<string, { notebookId: string; done: number; count: number }>();
+  const addDelta = (targetNotebookId: string, done: number, count: number) => {
+    const key = `${targetNotebookId}\0${done}`;
+    const delta = deltas.get(key);
+    if (delta) delta.count += count;
+    else deltas.set(key, { notebookId: targetNotebookId, done, count });
+  };
+  const oldCounts = database
+    .query(
+      "SELECT notebook_id, done, COUNT(*) AS task_count FROM note_tasks WHERE note_id = ? GROUP BY notebook_id, done",
+    )
+    .all(noteId) as Array<{ notebook_id: string; done: number; task_count: number }>;
+  for (const oldCount of oldCounts)
+    addDelta(oldCount.notebook_id, oldCount.done, -oldCount.task_count);
+
+  const tasks = extractMarkdownTasks(contentMarkdown);
+  for (const task of tasks) addDelta(notebookId, task.completed ? 1 : 0, 1);
+
+  database.query("DELETE FROM note_tasks WHERE note_id = ?").run(noteId);
+  const updateTaskCount = database.query(
+    "INSERT INTO note_task_counts (user_id, notebook_id, done, task_count) VALUES (?, ?, ?, ?) ON CONFLICT(user_id, notebook_id, done) DO UPDATE SET task_count = excluded.task_count",
+  );
+  for (const delta of deltas.values()) {
+    if (delta.count === 0) continue;
+    const existing = database
+      .query(
+        "SELECT task_count FROM note_task_counts WHERE user_id = ? AND notebook_id = ? AND done = ?",
+      )
+      .get(userId, delta.notebookId, delta.done) as { task_count: number } | null;
+    const nextCount = Number(existing?.task_count ?? 0) + delta.count;
+    if (nextCount < 0) throw new Error("note-task-count-index-corrupt");
+    if (nextCount === 0) {
+      database
+        .query("DELETE FROM note_task_counts WHERE user_id = ? AND notebook_id = ? AND done = ?")
+        .run(userId, delta.notebookId, delta.done);
+    } else {
+      updateTaskCount.run(userId, delta.notebookId, delta.done, nextCount);
+    }
+  }
+
+  const insertTask = database.query(
+    "INSERT INTO note_tasks (note_id, user_id, notebook_id, ordinal, depth, text, done, sort_updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+  );
+  for (const task of tasks) {
+    insertTask.run(
+      noteId,
+      userId,
+      notebookId,
+      task.ordinal,
+      task.depth,
+      task.text,
+      task.completed ? 1 : 0,
+      -updatedAt,
+    );
+  }
+}
 
 export class NoteRenameContentTooLargeError extends Error {
   constructor() {
@@ -50,6 +116,7 @@ export function createNote(
     syncNoteTags(database, userId, id, contentMarkdown);
     syncNoteShortSearchTerms(database, userId, id, title, contentMarkdown);
     syncNoteLinks(database, userId, id, contentMarkdown, createdAt);
+    syncNoteTasks(database, userId, id, notebookId, createdAt, contentMarkdown);
     resolveNoteLinksForTarget(database, userId, title, id);
   });
   transaction();
@@ -97,6 +164,20 @@ export function updateNoteInTransaction(
     throw new InvalidNoteAssetsError();
   if (contentChanged || titleChanged)
     syncNoteShortSearchTerms(database, userId, current.id, title, contentMarkdown);
+  if (contentChanged || notebookChanged || deletedChanged) {
+    syncNoteTasks(
+      database,
+      userId,
+      current.id,
+      notebookId,
+      updatedAt,
+      deletedAt === null ? contentMarkdown : "",
+    );
+  } else if (titleChanged) {
+    database
+      .query("UPDATE note_tasks SET sort_updated_at = ? WHERE note_id = ?")
+      .run(-updatedAt, current.id);
+  }
   if (contentChanged) {
     syncNoteTags(database, userId, current.id, contentMarkdown);
     syncNoteLinks(database, userId, current.id, contentMarkdown, updatedAt);
@@ -143,6 +224,14 @@ export function updateNoteInTransaction(
         syncNoteTags(database, userId, refNote.id, replacedContent);
         syncNoteShortSearchTerms(database, userId, refNote.id, refNote.title, replacedContent);
         syncNoteLinks(database, userId, refNote.id, replacedContent, updatedAt);
+        syncNoteTasks(
+          database,
+          userId,
+          refNote.id,
+          refNote.notebook_id,
+          updatedAt,
+          replacedContent,
+        );
       }
     }
   }

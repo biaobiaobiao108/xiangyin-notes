@@ -4,6 +4,7 @@ export type MarkdownTask = {
   text: string;
   completed: boolean;
   ordinal: number;
+  depth: number;
 };
 
 type MarkdownToken = {
@@ -53,7 +54,7 @@ export function extractMarkdownTasks(markdown: string): MarkdownTask[] {
   const tokens = marked.lexer(markdown) as unknown as MarkdownToken[];
   const tasks: MarkdownTask[] = [];
 
-  const visit = (children: MarkdownToken[]) => {
+  const visit = (children: MarkdownToken[], depth = 0) => {
     for (const token of children) {
       if (token.type === "list") {
         for (const item of token.items ?? []) {
@@ -62,9 +63,10 @@ export function extractMarkdownTasks(markdown: string): MarkdownTask[] {
               text: taskItemText(item),
               completed: Boolean(item.checked),
               ordinal: tasks.length,
+              depth,
             });
           }
-          if (item.tokens) visit(item.tokens);
+          if (item.tokens) visit(item.tokens, depth + 1);
         }
         continue;
       }

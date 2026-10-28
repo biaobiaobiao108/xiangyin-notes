@@ -1,4 +1,4 @@
-import { Check, ChevronDown, ChevronLeft, Circle, ListTodo, LoaderCircle } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ListTodo, LoaderCircle } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import type { Notebook, TaskSummary } from "../../shared/types";
 import { FloatingScrollbar } from "../floating-scrollbar";
@@ -8,6 +8,10 @@ type TaskStatus = "open" | "done" | "all";
 
 export function TasksPanel({
   tasks,
+  total,
+  hasMore,
+  loadingMore,
+  loadMoreError,
   notebooks,
   notebookId,
   status,
@@ -17,10 +21,15 @@ export function TasksPanel({
   onStatusChange,
   onSelectTask,
   onToggleTask,
+  onLoadMore,
   busyTask = null,
   onBack,
 }: {
   tasks: TaskSummary[];
+  total: number;
+  hasMore: boolean;
+  loadingMore: boolean;
+  loadMoreError: string | null;
   notebooks: Notebook[];
   notebookId: string;
   status: TaskStatus;
@@ -30,10 +39,12 @@ export function TasksPanel({
   onStatusChange: (status: TaskStatus) => void;
   onSelectTask: (task: TaskSummary) => void;
   onToggleTask: (task: TaskSummary) => void;
+  onLoadMore: () => void;
   busyTask: { noteId: string; ordinal: number } | null;
   onBack?: () => void;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
   const filtersRef = useRef<HTMLDivElement>(null);
   const notebookTriggerRef = useRef<HTMLButtonElement>(null);
   const statusTriggerRef = useRef<HTMLButtonElement>(null);
@@ -55,6 +66,19 @@ export function TasksPanel({
   const selectedNotebookName =
     notebooks.find((notebook) => notebook.id === notebookId)?.name ?? "全部笔记本";
   const selectedStatusLabel = { open: "未完成", done: "已完成", all: "全部" }[status];
+  useEffect(() => {
+    const root = listRef.current;
+    const sentinel = loadMoreRef.current;
+    if (!root || !sentinel || !hasMore || loading || loadingMore || loadMoreError) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) onLoadMore();
+      },
+      { root, rootMargin: "420px 0px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, loading, loadingMore, loadMoreError, onLoadMore, tasks.length]);
   useEffect(() => {
     if (!openFilter) return;
     const frame = requestAnimationFrame(() => {
@@ -125,7 +149,7 @@ export function TasksPanel({
       <header className="list-header tasks-header">
         <div className="list-header-main">
           <h2 id="tasks-heading">任务</h2>
-          <p className="tasks-count">{tasks.length} 项</p>
+          <p className="tasks-count">{total} 项</p>
         </div>
       </header>
       <div className="tasks-toolbar" ref={filtersRef}>
@@ -268,7 +292,12 @@ export function TasksPanel({
                             busyTask?.noteId === task.noteId && busyTask.ordinal === task.ordinal;
                           return (
                             <li key={task.noteId + ":" + task.ordinal}>
-                              <div className="tasks-item">
+                              <div
+                                className="tasks-item"
+                                style={{
+                                  paddingInlineStart: `${6 + Math.min(task.depth, 5) * 16}px`,
+                                }}
+                              >
                                 <button
                                   type="button"
                                   className={
@@ -287,13 +316,13 @@ export function TasksPanel({
                                   disabled={loading || busyTask !== null}
                                   onClick={() => onToggleTask(task)}
                                 >
-                                  {isBusy ? (
-                                    <LoaderCircle size={15} aria-hidden="true" />
-                                  ) : task.done ? (
-                                    <Check size={15} aria-hidden="true" />
-                                  ) : (
-                                    <Circle size={15} aria-hidden="true" />
-                                  )}
+                                  <span className="tasks-check-box" aria-hidden="true">
+                                    {isBusy ? (
+                                      <LoaderCircle size={13} />
+                                    ) : task.done ? (
+                                      <Check size={13} />
+                                    ) : null}
+                                  </span>
                                 </button>
                                 <button
                                   type="button"
@@ -312,6 +341,20 @@ export function TasksPanel({
                     </section>
                   );
                 })}
+                {hasMore && (
+                  <div className="tasks-load-more" ref={loadMoreRef}>
+                    {loadingMore ? (
+                      <span role="status">正在加载更多任务…</span>
+                    ) : loadMoreError ? (
+                      <>
+                        <span role="alert">{loadMoreError}</span>
+                        <button type="button" onClick={onLoadMore}>
+                          重试
+                        </button>
+                      </>
+                    ) : null}
+                  </div>
+                )}
               </div>
             ) : (
               <div className="tasks-empty">

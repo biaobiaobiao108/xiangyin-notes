@@ -27,6 +27,49 @@ test("initializes a fresh database from the single baseline and records its vers
   }
 });
 
+test("backfills the task index when upgrading an existing version 1 database", async () => {
+  const database = new Database(":memory:");
+  database.exec(await Bun.file("database/schema.sql").text());
+  database
+    .query(
+      "INSERT INTO users (id, username, password_hash, password_salt, created_at) VALUES (?, ?, ?, ?, ?)",
+    )
+    .run("user", "owner", "hash", "salt", 1);
+  database
+    .query(
+      "INSERT INTO notebooks (id, user_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+    )
+    .run("notebook", "user", "Notes", 1, 1);
+  database
+    .query(
+      "INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    )
+    .run("note", "user", "notebook", "Plan", "- [ ] Parent\n  - [x] Child", 1, 42);
+
+  try {
+    await initializeDatabase(database);
+    expect(
+      database
+        .query(
+          "SELECT ordinal, depth, text, done, sort_updated_at FROM note_tasks ORDER BY ordinal",
+        )
+        .all(),
+    ).toEqual([
+      { ordinal: 0, depth: 0, text: "Parent", done: 0, sort_updated_at: -42 },
+      { ordinal: 1, depth: 1, text: "Child", done: 1, sort_updated_at: -42 },
+    ]);
+    expect(
+      database.query("SELECT done, task_count FROM note_task_counts ORDER BY done").all(),
+    ).toEqual([
+      { done: 0, task_count: 1 },
+      { done: 1, task_count: 1 },
+    ]);
+    expect(database.query("PRAGMA user_version").get()).toEqual({ user_version: 2 });
+  } finally {
+    database.close();
+  }
+});
+
 test("automatically applies each known migration in order during database initialization", async () => {
   const database = new Database(":memory:");
   const migrations: readonly SchemaMigration[] = [
@@ -66,8 +109,8 @@ test("automatically applies each known migration in order during database initia
 test("rolls back a failed migration and leaves its schema version unchanged", async () => {
   const database = await openDatabase(":memory:");
   const failingMigration: SchemaMigration = {
-    sourceVersion: 1,
-    targetVersion: 2,
+    sourceVersion: 2,
+    targetVersion: 3,
     migrate: (target) => {
       target.exec("CREATE TABLE should_rollback (id INTEGER PRIMARY KEY)");
       throw new Error("migration failure");
@@ -75,8 +118,8 @@ test("rolls back a failed migration and leaves its schema version unchanged", as
   };
 
   try {
-    expect(() => applyMigrations(database, [failingMigration], 2)).toThrow("migration failure");
-    expect(database.query("PRAGMA user_version").get()).toEqual({ user_version: 1 });
+    expect(() => applyMigrations(database, [failingMigration], 3)).toThrow("migration failure");
+    expect(database.query("PRAGMA user_version").get()).toEqual({ user_version: 2 });
     expect(
       database
         .query("SELECT name FROM sqlite_master WHERE type = ? AND name = ?")

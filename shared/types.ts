@@ -58,6 +58,7 @@ export type TaskSummary = {
   text: string;
   done: boolean;
   ordinal: number;
+  depth: number;
 };
 
 export type ApiErrorPayload = {
