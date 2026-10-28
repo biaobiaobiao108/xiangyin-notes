@@ -762,7 +762,15 @@ export async function handleNotesRoute(
 
     if (view === "trash") conditions.push("n.deleted_at IS NOT NULL");
     else conditions.push("n.deleted_at IS NULL");
-    if (view === "inbox") conditions.push("b.is_system = 1");
+    if (view === "inbox") {
+      const inbox = first<{ id: string }>(
+        database,
+        "SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1 LIMIT 1",
+        user.id,
+      );
+      conditions.push("n.notebook_id = ?");
+      params.push(inbox?.id ?? "");
+    }
     if (view === "favorites") conditions.push("n.is_favorite = 1");
     if (notebookId) {
       conditions.push("n.notebook_id = ?");
@@ -886,8 +894,8 @@ export async function handleNotesRoute(
         if (typeof cursor.value !== "number" || !Number.isSafeInteger(cursor.value))
           return jsonError(400, "INVALID_CURSOR", "笔记列表游标无效");
         const column = sort === "created" ? "n.created_at" : "n.updated_at";
-        conditions.push(`(${column} < ? OR (${column} = ? AND n.id < ?))`);
-        params.push(cursor.value, cursor.value, cursor.id);
+        conditions.push(`(${column}, n.id) < (?, ?)`);
+        params.push(cursor.value, cursor.id);
       }
     }
     const where = conditions.join(" AND ");

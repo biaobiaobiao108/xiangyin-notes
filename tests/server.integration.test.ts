@@ -307,7 +307,7 @@ describe("Bun Server API", () => {
 
   test("automatically initializes a fresh database and does not rerun the baseline", async () => {
     const fresh = await openDatabase(":memory:");
-    expect(fresh.query("PRAGMA user_version").get()).toEqual({ user_version: 2 });
+    expect(fresh.query("PRAGMA user_version").get()).toEqual({ user_version: 3 });
     expect(
       fresh.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'users'").get(),
     ).toBeDefined();
@@ -318,7 +318,7 @@ describe("Bun Server API", () => {
     initialized.close();
 
     const reopened = await openDatabase(databasePath);
-    expect(reopened.query("PRAGMA user_version").get()).toEqual({ user_version: 2 });
+    expect(reopened.query("PRAGMA user_version").get()).toEqual({ user_version: 3 });
     reopened.close();
     await Promise.all([
       rm(databasePath, { force: true }),
@@ -329,7 +329,7 @@ describe("Bun Server API", () => {
 
   test("applies SQLite migrations idempotently and reports health", async () => {
     await applyMigrations(database);
-    expect(database.query("PRAGMA user_version").get()).toEqual({ user_version: 2 });
+    expect(database.query("PRAGMA user_version").get()).toEqual({ user_version: 3 });
     expect(
       database
         .query("SELECT name FROM sqlite_master WHERE name = 'shares' OR name LIKE 'idx_shares_%'")

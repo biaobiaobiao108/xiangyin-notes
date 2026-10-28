@@ -9,7 +9,7 @@ const DEFAULT_SCHEMA_PATH = "./database/schema.sql";
 const BASELINE_SCHEMA_VERSION = 1;
 
 // Increment this when adding the next entry to SCHEMA_MIGRATIONS.
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 3;
 
 type TableCountRow = {
   count: number;
@@ -115,6 +115,32 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       }
       for (const count of taskCounts.values())
         insertTaskCount.run(count.userId, count.notebookId, count.done, count.count);
+    },
+  },
+  {
+    sourceVersion: 2,
+    targetVersion: 3,
+    migrate: (database) => {
+      database.exec(`
+        CREATE INDEX idx_notes_user_deleted_updated_id
+          ON notes(user_id, deleted_at, updated_at DESC, id DESC);
+        CREATE INDEX idx_notes_user_notebook_deleted_updated_id
+          ON notes(user_id, notebook_id, deleted_at, updated_at DESC, id DESC);
+        CREATE INDEX idx_notes_user_trash_updated
+          ON notes(user_id, updated_at DESC, id DESC)
+          WHERE deleted_at IS NOT NULL;
+        CREATE INDEX idx_notes_user_favorites_updated
+          ON notes(user_id, updated_at DESC, id DESC)
+          WHERE deleted_at IS NULL AND is_favorite = 1;
+        CREATE INDEX idx_sessions_user ON sessions(user_id);
+        CREATE INDEX idx_note_links_source_note ON note_links(source_note_id, user_id);
+        CREATE INDEX idx_note_links_target_note ON note_links(target_note_id, user_id)
+          WHERE target_note_id IS NOT NULL;
+
+        DROP INDEX idx_notes_user_deleted_updated;
+        DROP INDEX idx_notes_user_notebook_deleted_updated;
+        DROP INDEX idx_note_links_target_title;
+      `);
     },
   },
 ];

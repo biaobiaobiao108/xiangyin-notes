@@ -64,7 +64,57 @@ test("backfills the task index when upgrading an existing version 1 database", a
       { done: 0, task_count: 1 },
       { done: 1, task_count: 1 },
     ]);
-    expect(database.query("PRAGMA user_version").get()).toEqual({ user_version: 2 });
+    expect(database.query("PRAGMA user_version").get()).toEqual({ user_version: 3 });
+  } finally {
+    database.close();
+  }
+});
+
+test("uses targeted indexes for paged notes and foreign-key cleanup", async () => {
+  const database = await openDatabase(":memory:");
+  try {
+    const names = new Set(
+      (
+        database.query("SELECT name FROM sqlite_master WHERE type = 'index'").all() as Array<{
+          name: string;
+        }>
+      ).map(({ name }) => name),
+    );
+    expect(names.has("idx_notes_user_deleted_updated_id")).toBe(true);
+    expect(names.has("idx_notes_user_notebook_deleted_updated_id")).toBe(true);
+    expect(names.has("idx_notes_user_trash_updated")).toBe(true);
+    expect(names.has("idx_notes_user_favorites_updated")).toBe(true);
+    expect(names.has("idx_sessions_user")).toBe(true);
+    expect(names.has("idx_note_links_source_note")).toBe(true);
+    expect(names.has("idx_note_links_target_note")).toBe(true);
+    expect(names.has("idx_notes_user_deleted_updated")).toBe(false);
+    expect(names.has("idx_notes_user_notebook_deleted_updated")).toBe(false);
+    expect(names.has("idx_note_links_target_title")).toBe(false);
+
+    const updatedPlan = database
+      .query(
+        "EXPLAIN QUERY PLAN SELECT id FROM notes WHERE user_id = ? AND deleted_at IS NULL AND (updated_at, id) < (?, ?) ORDER BY updated_at DESC, id DESC LIMIT ?",
+      )
+      .all("user", 100, "note", 100) as Array<{ detail: string }>;
+    const updatedDetails = updatedPlan.map(({ detail }) => detail).join(" ");
+    expect(updatedDetails).toContain("idx_notes_user_deleted_updated_id");
+    expect(updatedDetails).not.toContain("TEMP B-TREE");
+
+    const notebookPlan = database
+      .query(
+        "EXPLAIN QUERY PLAN SELECT id FROM notes WHERE user_id = ? AND notebook_id = ? AND deleted_at IS NULL ORDER BY updated_at DESC, id DESC LIMIT ?",
+      )
+      .all("user", "notebook", 100) as Array<{ detail: string }>;
+    expect(notebookPlan.map(({ detail }) => detail).join(" ")).toContain(
+      "idx_notes_user_notebook_deleted_updated_id",
+    );
+
+    const sourceLinkPlan = database
+      .query("EXPLAIN QUERY PLAN SELECT rowid FROM note_links WHERE source_note_id = ?")
+      .all("note") as Array<{ detail: string }>;
+    expect(sourceLinkPlan.map(({ detail }) => detail).join(" ")).toContain(
+      "idx_note_links_source_note",
+    );
   } finally {
     database.close();
   }
@@ -109,8 +159,8 @@ test("automatically applies each known migration in order during database initia
 test("rolls back a failed migration and leaves its schema version unchanged", async () => {
   const database = await openDatabase(":memory:");
   const failingMigration: SchemaMigration = {
-    sourceVersion: 2,
-    targetVersion: 3,
+    sourceVersion: 3,
+    targetVersion: 4,
     migrate: (target) => {
       target.exec("CREATE TABLE should_rollback (id INTEGER PRIMARY KEY)");
       throw new Error("migration failure");
@@ -118,8 +168,8 @@ test("rolls back a failed migration and leaves its schema version unchanged", as
   };
 
   try {
-    expect(() => applyMigrations(database, [failingMigration], 3)).toThrow("migration failure");
-    expect(database.query("PRAGMA user_version").get()).toEqual({ user_version: 2 });
+    expect(() => applyMigrations(database, [failingMigration], 4)).toThrow("migration failure");
+    expect(database.query("PRAGMA user_version").get()).toEqual({ user_version: 3 });
     expect(
       database
         .query("SELECT name FROM sqlite_master WHERE type = ? AND name = ?")
