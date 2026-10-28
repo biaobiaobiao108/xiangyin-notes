@@ -155,6 +155,104 @@ describe("Bun Server API", () => {
     expect((await request("/api/tasks?status=all", {}, login.cookie)).body?.total).toBe(2);
   });
 
+  test("keeps task note groups in their original order while notes are edited", async () => {
+    const login = await request("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
+    });
+    const notebookResponse = await request(
+      "/api/notebooks",
+      { method: "POST", body: JSON.stringify({ name: "任务顺序稳定性测试" }) },
+      login.cookie,
+    );
+    const notebookId = notebookResponse.body?.notebook.id as string;
+    const createTaskNote = async (title: string, task: string) => {
+      const response = await request(
+        "/api/notes",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            title,
+            notebookId,
+            contentMarkdown: `- [ ] ${task}`,
+          }),
+        },
+        login.cookie,
+      );
+      return response.body?.note;
+    };
+    const olderNote = await createTaskNote("较早的任务笔记", "原任务");
+    const newerNote = await createTaskNote("较新的任务笔记", "另一项任务");
+    database
+      .query("UPDATE note_tasks SET sort_updated_at = ? WHERE note_id = ?")
+      .run(-100, olderNote.id);
+    database
+      .query("UPDATE note_tasks SET sort_updated_at = ? WHERE note_id = ?")
+      .run(-200, newerNote.id);
+
+    const listGroupIds = async () => {
+      const response = await request("/api/tasks?status=all", {}, login.cookie);
+      const tasks = response.body?.tasks as Array<{ noteId: string }>;
+      return [...new Set(tasks.map((task) => task.noteId))];
+    };
+    const initialOrder = await listGroupIds();
+    expect(initialOrder).toEqual([newerNote.id, olderNote.id]);
+
+    const edited = await request(
+      `/api/notes/${olderNote.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          version: olderNote.version,
+          title: olderNote.title,
+          contentMarkdown: "- [ ] 原任务\n- [ ] 新增任务",
+          notebookId,
+        }),
+      },
+      login.cookie,
+    );
+    expect(edited.response.status).toBe(200);
+    expect(await listGroupIds()).toEqual(initialOrder);
+
+    const renamed = await request(
+      `/api/notes/${olderNote.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ version: edited.body?.note.version, title: "重命名的任务笔记" }),
+      },
+      login.cookie,
+    );
+    expect(renamed.response.status).toBe(200);
+    expect(await listGroupIds()).toEqual(initialOrder);
+
+    const toggled = await request(
+      "/api/tasks/toggle",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          noteId: olderNote.id,
+          version: renamed.body?.note.version,
+          ordinal: 0,
+          text: "原任务",
+          completed: false,
+        }),
+      },
+      login.cookie,
+    );
+    expect(toggled.response.status).toBe(200);
+    expect(await listGroupIds()).toEqual(initialOrder);
+    const updatedTasks = (await request("/api/tasks?status=all", {}, login.cookie)).body
+      ?.tasks as Array<{
+      noteId: string;
+      done: boolean;
+      text: string;
+    }>;
+    expect(updatedTasks.filter((task) => task.noteId === olderNote.id)).toMatchObject([
+      { text: "原任务", done: true },
+      { text: "新增任务", done: false },
+    ]);
+  });
+
   test("toggles one exact nested task marker and enforces the note version", async () => {
     const login = await request("/api/auth/login", {
       method: "POST",

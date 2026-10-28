@@ -68,6 +68,7 @@ import {
   type MobilePage,
 } from "./workspace/use-mobile-navigation";
 import { useMobileViewport } from "./workspace/use-mobile-viewport";
+import { reloadTaskPages } from "./workspace/task-pages";
 import { useNotices } from "./workspace/use-notices";
 import { SystemNotices } from "./workspace/system-notices";
 import { MobileNotebookHome, MobileBottomBar } from "./workspace/mobile-panels";
@@ -352,11 +353,16 @@ export function Workspace() {
     setTasksMoreLoading(false);
     setTasksMoreError(null);
     setTaskLoadError((current) => (current?.queryKey === queryKey ? null : current));
-    void api
-      .listTasks(
-        { status: taskStatus, notebookId: taskNotebookId || undefined },
-        { signal: controller.signal },
-      )
+    const previous = taskSnapshotRef.current;
+    const loadedCount = previous?.queryKey === queryKey ? previous.tasks.length : 0;
+    void reloadTaskPages(
+      (cursor, limit) =>
+        api.listTasks(
+          { status: taskStatus, notebookId: taskNotebookId || undefined, cursor, limit },
+          { signal: controller.signal },
+        ),
+      loadedCount,
+    )
       .then((result) => {
         if (controller.signal.aborted || taskRequestGenerationRef.current !== requestGeneration)
           return;
