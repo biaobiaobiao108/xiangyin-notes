@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  applyThemeToDocument,
   readThemePreference,
   resolveTheme,
   THEME_STORAGE_KEY,
@@ -56,5 +57,22 @@ describe("theme preference", () => {
     expect(resolveTheme("system", true)).toBe("dark");
     expect(resolveTheme("light", true)).toBe("light");
     expect(resolveTheme("dark", false)).toBe("dark");
+  });
+
+  test("keeps system status bar colors available and applies explicit overrides", () => {
+    const light = { media: "(prefers-color-scheme: light)", content: "" };
+    const dark = { media: "(prefers-color-scheme: dark)", content: "" };
+    const colorScheme = { content: "" };
+    const document = {
+      documentElement: { dataset: {} },
+      querySelector: () => colorScheme,
+      querySelectorAll: () => [light, dark],
+    } as unknown as Document;
+
+    applyThemeToDocument(document, "dark", false);
+    expect([light.content, dark.content]).toEqual(["#1a1b26", "#1a1b26"]);
+    applyThemeToDocument(document, "system", true);
+    expect([light.content, dark.content]).toEqual(["#f6f4ef", "#1a1b26"]);
+    expect(colorScheme.content).toBe("light dark");
   });
 });
