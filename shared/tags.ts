@@ -25,6 +25,21 @@ function lineFence(markdown: string, lineStart: number, lineEnd: number): Fence 
   }
   if (indentation > 3) return null;
 
+  while (cursor < lineEnd && markdown[cursor] === ">") {
+    cursor += 1;
+    if (markdown[cursor] === " " || markdown[cursor] === "\t") cursor += 1;
+    indentation = 0;
+    while (
+      cursor < lineEnd &&
+      indentation < 4 &&
+      (markdown[cursor] === " " || markdown[cursor] === "\t")
+    ) {
+      cursor += 1;
+      indentation += 1;
+    }
+    if (indentation > 3) return null;
+  }
+
   const marker = markdown[cursor];
   if (marker !== "`" && marker !== "~") return null;
   let length = 0;

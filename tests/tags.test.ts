@@ -73,6 +73,13 @@ describe("note tags", () => {
     ).toEqual(["tag"]);
   });
 
+  test("ignores fenced code blocks inside nested blockquotes when extracting and removing tags", () => {
+    const markdown = "> ```ts\n> #示例\n> ```\n> > ~~~txt\n> > #嵌套示例\n> > ~~~\n> #引用标签";
+
+    expect(extractTags(markdown)).toEqual(["引用标签"]);
+    expect(removeTagsFromMarkdown(markdown, ["示例", "嵌套示例"])).toBe(markdown);
+  });
+
   test("ignores inline code spans, including multiline and mixed backtick runs", () => {
     const markdown =
       "正文 `#inline` #visible\n``code `#nested` `` #also-visible\n`跨行\n#hidden`\n#shown\n```ts\n#fenced\n```";

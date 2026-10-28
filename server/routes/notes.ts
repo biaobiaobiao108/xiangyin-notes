@@ -50,7 +50,12 @@ import {
   validText,
 } from "../core";
 import { findActiveNoteIdByTitle, resolveNoteLinksForTitles } from "../note-links";
-import { createNote, NoteRenameContentTooLargeError, updateNote } from "./note-mutations";
+import {
+  createNote,
+  NoteRenameContentTooLargeError,
+  syncNoteTasks,
+  updateNote,
+} from "./note-mutations";
 export {
   createNote,
   updateNote,
@@ -175,6 +180,9 @@ type BatchNoteState = {
   title: string;
   deleted_at: number | null;
   version: number;
+  notebook_id: string;
+  created_at: number;
+  content_markdown: string;
 };
 
 class BatchNoteConflictError extends Error {
@@ -218,7 +226,7 @@ function getBatchNoteStates(database: SqliteDatabase, userId: string, entries: B
   const placeholders = entries.map(() => "?").join(",");
   return all<BatchNoteState>(
     database,
-    `SELECT id, title, deleted_at, version FROM notes WHERE user_id = ? AND id IN (${placeholders})`,
+    `SELECT id, title, deleted_at, version, notebook_id, created_at, content_markdown FROM notes WHERE user_id = ? AND id IN (${placeholders})`,
     userId,
     ...entries.map((entry) => entry.id),
   );
@@ -506,12 +514,18 @@ export async function handleNotesRoute(
   ) {
     const emptyTrash = database.transaction(() => {
       const assetPaths = assetPathsForTrash(database, user.id);
-      const count = first<{ count: number }>(
+      const trashedNotes = all<{
+        id: string;
+        notebook_id: string;
+        created_at: number;
+      }>(
         database,
-        "SELECT COUNT(*) AS count FROM notes WHERE user_id = ? AND deleted_at IS NOT NULL",
+        "SELECT id, notebook_id, created_at FROM notes WHERE user_id = ? AND deleted_at IS NOT NULL",
         user.id,
       );
-      const deletedCount = Number(count?.count ?? 0);
+      for (const note of trashedNotes)
+        syncNoteTasks(database, user.id, note.id, note.notebook_id, note.created_at, "");
+      const deletedCount = trashedNotes.length;
       database.query("DELETE FROM notes WHERE user_id = ? AND deleted_at IS NOT NULL").run(user.id);
       return { deletedCount, assetPaths };
     });
@@ -595,7 +609,19 @@ export async function handleNotesRoute(
             const update = database.query(
               "UPDATE notes SET deleted_at = NULL, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ? AND version = ? AND deleted_at IS NOT NULL",
             );
-            for (const entry of entries) update.run(restoredAt, entry.id, user.id, entry.version);
+            const rowsById = new Map(rows.map((row) => [row.id, row]));
+            for (const entry of entries) {
+              const note = rowsById.get(entry.id)!;
+              syncNoteTasks(
+                database,
+                user.id,
+                note.id,
+                note.notebook_id,
+                note.created_at,
+                note.content_markdown,
+              );
+              update.run(restoredAt, entry.id, user.id, entry.version);
+            }
             resolveNoteLinksForTitles(
               database,
               user.id,
@@ -620,8 +646,12 @@ export async function handleNotesRoute(
           const update = database.query(
             "UPDATE notes SET deleted_at = ?, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ? AND version = ? AND deleted_at IS NULL",
           );
-          for (const entry of entries)
+          const rowsById = new Map(rows.map((row) => [row.id, row]));
+          for (const entry of entries) {
+            const note = rowsById.get(entry.id)!;
+            syncNoteTasks(database, user.id, note.id, note.notebook_id, note.created_at, "");
             update.run(deletedAt, deletedAt, entry.id, user.id, entry.version);
+          }
           resolveNoteLinksForTitles(
             database,
             user.id,
@@ -644,6 +674,8 @@ export async function handleNotesRoute(
         assertBatchNoteStates(rows, entries, "permanent");
         const deletedIds = entries.map((entry) => entry.id);
         const assetPaths = assetPathsForNotes(database, user.id, deletedIds);
+        for (const note of rows)
+          syncNoteTasks(database, user.id, note.id, note.notebook_id, note.created_at, "");
         const deleteLinks = database.query(
           "DELETE FROM note_links WHERE user_id = ? AND source_note_id = ?",
         );
@@ -1448,6 +1480,7 @@ export async function handleNotesRoute(
         if (note.deleted_at === null) return { kind: "not-trashed" as const };
 
         const assetPaths = assetPathsForNotes(database, user.id, [note.id]);
+        syncNoteTasks(database, user.id, note.id, note.notebook_id, note.created_at, "");
         const deleted = database
           .query(
             "DELETE FROM notes WHERE id = ? AND user_id = ? AND version = ? AND deleted_at IS NOT NULL",

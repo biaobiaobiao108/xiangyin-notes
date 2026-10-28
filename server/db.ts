@@ -9,7 +9,7 @@ const DEFAULT_SCHEMA_PATH = "./database/schema.sql";
 const BASELINE_SCHEMA_VERSION = 1;
 
 // Increment this when adding the next entry to SCHEMA_MIGRATIONS.
-export const CURRENT_SCHEMA_VERSION = 4;
+export const CURRENT_SCHEMA_VERSION = 5;
 
 type TableCountRow = {
   count: number;
@@ -154,6 +154,64 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
           SELECT created_at FROM notes WHERE notes.id = note_tasks.note_id
         );
       `);
+    },
+  },
+  {
+    sourceVersion: 4,
+    targetVersion: 5,
+    migrate: (database) => {
+      // Rebuild the derived task index so deployments recover any drift from
+      // earlier trash, notebook-move, or permanent-delete paths.
+      database.exec("DELETE FROM note_tasks; DELETE FROM note_task_counts;");
+
+      const insertTask = database.query(
+        "INSERT INTO note_tasks (note_id, user_id, notebook_id, ordinal, depth, text, done, sort_created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      );
+      const insertTaskCount = database.query(
+        "INSERT INTO note_task_counts (user_id, notebook_id, done, task_count) VALUES (?, ?, ?, ?)",
+      );
+      const taskCounts = new Map<
+        string,
+        { userId: string; notebookId: string; done: number; count: number }
+      >();
+      const notes = database
+        .query(
+          "SELECT id, user_id, notebook_id, content_markdown, created_at FROM notes WHERE deleted_at IS NULL ORDER BY id",
+        )
+        .iterate() as IterableIterator<{
+        id: string;
+        user_id: string;
+        notebook_id: string;
+        content_markdown: string;
+        created_at: number;
+      }>;
+      for (const note of notes) {
+        for (const task of extractMarkdownTasks(note.content_markdown)) {
+          const done = task.completed ? 1 : 0;
+          insertTask.run(
+            note.id,
+            note.user_id,
+            note.notebook_id,
+            task.ordinal,
+            task.depth,
+            task.text,
+            done,
+            -note.created_at,
+          );
+          const countKey = note.user_id + "\0" + note.notebook_id + "\0" + done;
+          const count = taskCounts.get(countKey);
+          if (count) count.count += 1;
+          else
+            taskCounts.set(countKey, {
+              userId: note.user_id,
+              notebookId: note.notebook_id,
+              done,
+              count: 1,
+            });
+        }
+      }
+      for (const count of taskCounts.values())
+        insertTaskCount.run(count.userId, count.notebookId, count.done, count.count);
     },
   },
 ];

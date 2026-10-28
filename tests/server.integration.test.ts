@@ -156,6 +156,187 @@ describe("Bun Server API", () => {
     expect((await request("/api/tasks?status=all", {}, login.cookie)).body?.total).toBe(2);
   });
 
+  test("synchronizes task indexes across batch trash, restore, and notebook deletion", async () => {
+    const login = await request("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
+    });
+    const notebookResponse = await request(
+      "/api/notebooks",
+      { method: "POST", body: JSON.stringify({ name: "任务索引生命周期" }) },
+      login.cookie,
+    );
+    const notebookId = notebookResponse.body?.notebook.id as string;
+    const noteResponse = await request(
+      "/api/notes",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          title: "任务索引生命周期笔记",
+          notebookId,
+          contentMarkdown: "- [ ] 未完成\n- [x] 已完成",
+        }),
+      },
+      login.cookie,
+    );
+    const noteId = noteResponse.body?.note.id as string;
+    const tasksForNotebook = () =>
+      request(`/api/tasks?status=all&notebookId=${notebookId}`, {}, login.cookie);
+
+    const batchTrashed = await request(
+      "/api/notes/batch",
+      {
+        method: "PATCH",
+        body: JSON.stringify({ notes: [{ id: noteId, version: 1 }] }),
+      },
+      login.cookie,
+    );
+    expect(batchTrashed.response.status).toBe(200);
+    expect((await tasksForNotebook()).body).toMatchObject({ total: 0, tasks: [] });
+    expect(
+      database.query("SELECT COUNT(*) AS count FROM note_tasks WHERE note_id = ?").get(noteId),
+    ).toEqual({ count: 0 });
+
+    const batchRestored = await request(
+      "/api/notes/batch",
+      {
+        method: "PATCH",
+        body: JSON.stringify({ deleted: false, notes: [{ id: noteId, version: 2 }] }),
+      },
+      login.cookie,
+    );
+    expect(batchRestored.response.status).toBe(200);
+    expect((await tasksForNotebook()).body?.total).toBe(2);
+
+    const singlyTrashed = await request(
+      `/api/notes/${noteId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ version: 3, deleted: true }),
+      },
+      login.cookie,
+    );
+    expect(singlyTrashed.response.status).toBe(200);
+    expect((await tasksForNotebook()).body?.total).toBe(0);
+    const restoredInBatch = await request(
+      "/api/notes/batch",
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          deleted: false,
+          notes: [{ id: noteId, version: singlyTrashed.body?.note.version }],
+        }),
+      },
+      login.cookie,
+    );
+    expect(restoredInBatch.response.status).toBe(200);
+    expect((await tasksForNotebook()).body?.total).toBe(2);
+
+    const inboxResponse = await request("/api/notebooks", {}, login.cookie);
+    const inboxId = inboxResponse.body?.notebooks.find(
+      (item: { isSystem: boolean }) => item.isSystem,
+    )?.id as string;
+    const deletedNotebook = await request(
+      `/api/notebooks/${notebookId}`,
+      { method: "DELETE" },
+      login.cookie,
+    );
+    expect(deletedNotebook.response.status).toBe(200);
+    expect(deletedNotebook.body).toMatchObject({ ok: true, movedCount: 1 });
+    expect(
+      database.query("SELECT notebook_id FROM note_tasks WHERE note_id = ?").get(noteId),
+    ).toEqual({ notebook_id: inboxId });
+    expect(
+      (await request(`/api/tasks?status=all&notebookId=${inboxId}`, {}, login.cookie)).body?.total,
+    ).toBe(2);
+  });
+
+  test("cleans task counts when permanently deleting indexed trashed notes", async () => {
+    const login = await request("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
+    });
+    const notebookResponse = await request(
+      "/api/notebooks",
+      { method: "POST", body: JSON.stringify({ name: "永久删除任务计数" }) },
+      login.cookie,
+    );
+    const notebookId = notebookResponse.body?.notebook.id as string;
+    const ownerId = login.body?.user.id as string;
+    const createTaskNote = async (title: string) => {
+      const result = await request(
+        "/api/notes",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            title,
+            notebookId,
+            contentMarkdown: "- [ ] 永久删除任务",
+          }),
+        },
+        login.cookie,
+      );
+      return result.body?.note as { id: string };
+    };
+    const first = await createTaskNote("批量永久删除一");
+    const second = await createTaskNote("批量永久删除二");
+    const third = await createTaskNote("单篇永久删除");
+    const fourth = await createTaskNote("清空回收站");
+
+    // Model a version 4 database where bulk trash left the derived task rows behind.
+    database
+      .query("UPDATE notes SET deleted_at = 1, version = 2 WHERE id IN (?, ?, ?, ?)")
+      .run(first.id, second.id, third.id, fourth.id);
+    expect(
+      database
+        .query("SELECT task_count FROM note_task_counts WHERE user_id = ? AND notebook_id = ?")
+        .get(ownerId, notebookId),
+    ).toEqual({ task_count: 4 });
+
+    const batchDeleted = await request(
+      "/api/notes/batch",
+      {
+        method: "DELETE",
+        body: JSON.stringify({
+          notes: [
+            { id: first.id, version: 2 },
+            { id: second.id, version: 2 },
+          ],
+        }),
+      },
+      login.cookie,
+    );
+    expect(batchDeleted.response.status).toBe(200);
+    expect(
+      database
+        .query("SELECT task_count FROM note_task_counts WHERE user_id = ? AND notebook_id = ?")
+        .get(ownerId, notebookId),
+    ).toEqual({ task_count: 2 });
+
+    const singleDeleted = await request(
+      `/api/notes/${third.id}`,
+      { method: "DELETE", body: JSON.stringify({ version: 2 }) },
+      login.cookie,
+    );
+    expect(singleDeleted.response.status).toBe(200);
+    expect(
+      database
+        .query("SELECT task_count FROM note_task_counts WHERE user_id = ? AND notebook_id = ?")
+        .get(ownerId, notebookId),
+    ).toEqual({ task_count: 1 });
+
+    const emptied = await request("/api/trash", { method: "DELETE" }, login.cookie);
+    expect(emptied.response.status).toBe(200);
+    expect(
+      database
+        .query("SELECT task_count FROM note_task_counts WHERE user_id = ? AND notebook_id = ?")
+        .get(ownerId, notebookId),
+    ).toBeNull();
+    expect(
+      database.query("SELECT COUNT(*) AS count FROM note_tasks WHERE user_id = ?").get(ownerId),
+    ).toEqual({ count: 0 });
+  });
+
   test("sorts task note groups by note creation time and keeps that order across edits and pages", async () => {
     const login = await request("/api/auth/login", {
       method: "POST",

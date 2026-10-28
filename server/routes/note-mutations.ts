@@ -23,7 +23,7 @@ import { extractMarkdownTasks } from "../../shared/tasks";
 
 export const NOTE_RENAME_SOURCE_BATCH_SIZE = 16;
 
-function syncNoteTasks(
+export function syncNoteTasks(
   database: SqliteDatabase,
   userId: string,
   noteId: string,

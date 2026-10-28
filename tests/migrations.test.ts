@@ -64,11 +64,78 @@ test("backfills the task index when upgrading an existing version 1 database", a
       { done: 0, task_count: 1 },
       { done: 1, task_count: 1 },
     ]);
-    expect(database.query("PRAGMA user_version").get()).toEqual({ user_version: 4 });
+    expect(database.query("PRAGMA user_version").get()).toEqual({
+      user_version: CURRENT_SCHEMA_VERSION,
+    });
     const taskIndexSql = database
       .query("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?")
       .get("idx_note_tasks_user_recent") as { sql: string };
     expect(taskIndexSql.sql).toContain("sort_created_at");
+  } finally {
+    database.close();
+  }
+});
+
+test("rebuilds derived task data when upgrading a version 4 database", async () => {
+  const database = new Database(":memory:");
+  database.exec(await Bun.file("database/schema.sql").text());
+  try {
+    await initializeDatabase(database, { currentSchemaVersion: 4 });
+    database
+      .query(
+        "INSERT INTO users (id, username, password_hash, password_salt, created_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run("user", "owner", "hash", "salt", 1);
+    database
+      .query(
+        "INSERT INTO notebooks (id, user_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run("notebook", "user", "Notes", 1, 1);
+    database
+      .query(
+        "INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run("active", "user", "notebook", "Active", "- [ ] Open\n- [x] Done", 10, 10);
+    database
+      .query(
+        "INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, deleted_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run("trashed", "user", "notebook", "Trashed", "- [ ] Hidden", 20, 20, 20);
+    database
+      .query(
+        "INSERT INTO note_tasks (note_id, user_id, notebook_id, ordinal, depth, text, done, sort_created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run("active", "user", "notebook", 0, 0, "stale", 0, -10);
+    database
+      .query(
+        "INSERT INTO note_tasks (note_id, user_id, notebook_id, ordinal, depth, text, done, sort_created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run("trashed", "user", "notebook", 0, 0, "Hidden", 0, -20);
+    database
+      .query(
+        "INSERT INTO note_task_counts (user_id, notebook_id, done, task_count) VALUES (?, ?, ?, ?)",
+      )
+      .run("user", "notebook", 0, 99);
+
+    await initializeDatabase(database);
+
+    expect(
+      database
+        .query(
+          "SELECT note_id, ordinal, text, done, sort_created_at FROM note_tasks ORDER BY ordinal",
+        )
+        .all(),
+    ).toEqual([
+      { note_id: "active", ordinal: 0, text: "Open", done: 0, sort_created_at: -10 },
+      { note_id: "active", ordinal: 1, text: "Done", done: 1, sort_created_at: -10 },
+    ]);
+    expect(
+      database.query("SELECT user_id, notebook_id, done, task_count FROM note_task_counts").all(),
+    ).toEqual([
+      { user_id: "user", notebook_id: "notebook", done: 0, task_count: 1 },
+      { user_id: "user", notebook_id: "notebook", done: 1, task_count: 1 },
+    ]);
+    expect(database.query("PRAGMA user_version").get()).toEqual({ user_version: 5 });
   } finally {
     database.close();
   }

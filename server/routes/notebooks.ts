@@ -13,6 +13,7 @@ import {
   validText,
 } from "../core";
 import { publishWorkspaceChange } from "../realtime";
+import { syncNoteTasks } from "./note-mutations";
 
 type NotebookRowWithCount = {
   id: string;
@@ -262,16 +263,31 @@ export async function handleNotebooksRoute(
       if (expectedNoteCount !== undefined && actualCount !== expectedNoteCount) {
         return { movedCount: 0, actualCount, expectedNoteCount, mismatch: true as const };
       }
-      const movedNotes = all<{ id: string }>(
+      const movedNotes = all<{
+        id: string;
+        content_markdown: string;
+        created_at: number;
+        deleted_at: number | null;
+      }>(
         database,
-        "SELECT id FROM notes WHERE notebook_id = ? AND user_id = ?",
+        "SELECT id, content_markdown, created_at, deleted_at FROM notes WHERE notebook_id = ? AND user_id = ?",
         current.id,
         user.id,
       );
       const updateNote = database.query(
         "UPDATE notes SET notebook_id = ?, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ?",
       );
-      for (const note of movedNotes) updateNote.run(inbox.id, now(), note.id, user.id);
+      for (const note of movedNotes) {
+        syncNoteTasks(
+          database,
+          user.id,
+          note.id,
+          inbox.id,
+          note.created_at,
+          note.deleted_at === null ? note.content_markdown : "",
+        );
+        updateNote.run(inbox.id, now(), note.id, user.id);
+      }
       database.query("DELETE FROM notebooks WHERE id = ? AND user_id = ?").run(current.id, user.id);
       return { movedCount: movedNotes.length, mismatch: false as const };
     });
