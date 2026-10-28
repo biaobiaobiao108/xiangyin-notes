@@ -534,7 +534,6 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .tasks-filter-trigger > svg { flex: none; color: var(--soft-muted); }
 .tasks-filter-trigger:hover, .tasks-filter-trigger[aria-expanded="true"] { border-color: var(--accent-border-soft); background: var(--surface); color: var(--ink); }
 .tasks-filter-menu { position: absolute; z-index: 30; top: calc(100% + 7px); left: 0; display: grid; width: 100%; max-height: min(360px, 55vh); gap: 2px; overflow-x: hidden; overflow-y: auto; padding: 5px; border: 1px solid var(--border-soft); border-radius: var(--radius-md); background: var(--surface-glass-menu); box-shadow: var(--shadow-float); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); animation: dropdown-in var(--motion-fast) var(--motion-ease-out) both; }
-.tasks-filter-menu[data-filter="status"] { width: 168px; }
 .tasks-filter-dropdown:last-child .tasks-filter-menu { right: auto; left: 0; }
 .tasks-filter-menu button { display: flex; width: 100%; min-width: 0; min-height: 34px; align-items: center; gap: 8px; padding: 7px 10px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ink); font: inherit; font-size: .8125rem; text-align: left; cursor: pointer; }
 .tasks-filter-menu button > .tasks-filter-option-label { width: auto; height: auto; min-width: 0; flex: 1 1 auto; overflow: hidden; color: inherit; text-overflow: ellipsis; white-space: nowrap; }
@@ -1535,7 +1534,6 @@ dialog::backdrop {
   .tasks-filter-dropdown:last-child { max-width: 190px; }
   .tasks-filter-dropdown:first-of-type .tasks-filter-trigger { min-width: 106px; }
   .tasks-filter-menu { max-height: min(420px, 58dvh); }
-  .tasks-filter-menu[data-filter="status"] { width: 168px; }
   .tasks-list { padding-bottom: calc(92px + env(safe-area-inset-bottom)); }
   .app-shell[data-mobile-page] .tasks-scroll-shell::before { background: linear-gradient(to bottom, var(--canvas), transparent); }
   .app-shell[data-mobile-page] .tasks-scroll-shell::after { background: linear-gradient(to top, var(--canvas), transparent); }
