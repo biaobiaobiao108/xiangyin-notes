@@ -106,14 +106,14 @@ export function TasksPanel({
     }
     return groups;
   }, [taskGroups]);
+  const collapsingGroupId =
+    virtualGroupTransition?.phase === "collapsing" &&
+    collapsedGroups.has(virtualGroupTransition.groupId)
+      ? virtualGroupTransition.groupId
+      : null;
   const taskRows = useMemo(
-    () =>
-      flattenTaskGroups(
-        taskGroups,
-        collapsedGroups,
-        virtualGroupTransition?.phase === "collapsing" ? virtualGroupTransition.groupId : null,
-      ),
-    [collapsedGroups, taskGroups, virtualGroupTransition],
+    () => flattenTaskGroups(taskGroups, collapsedGroups, collapsingGroupId),
+    [collapsedGroups, collapsingGroupId, taskGroups],
   );
   const retainedRowIds = useMemo(() => taskGroupRowIds(taskGroups), [taskGroups]);
   const virtualList = useVirtualTaskList(

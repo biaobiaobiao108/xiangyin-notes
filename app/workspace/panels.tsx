@@ -979,15 +979,15 @@ export const NoteListPanel = memo(function NoteListPanel({
     const group = groups?.find((item) => item.id === virtualGroupTransition?.groupId);
     return new Set(group?.notes.map((note) => note.id) ?? []);
   }, [groups, virtualGroupTransition?.groupId]);
+  const collapsingGroupId =
+    virtualGroupTransition?.phase === "collapsing" &&
+    collapsedGroups.has(virtualGroupTransition.groupId)
+      ? virtualGroupTransition.groupId
+      : null;
   const virtualRows = useMemo<VirtualNoteListRow[]>(() => {
-    if (groups)
-      return flattenNoteGroups(
-        groups,
-        collapsedGroups,
-        virtualGroupTransition?.phase === "collapsing" ? virtualGroupTransition.groupId : null,
-      );
+    if (groups) return flattenNoteGroups(groups, collapsedGroups, collapsingGroupId);
     return sortedNotes.map((note) => ({ id: note.id, kind: "note" as const, note }));
-  }, [collapsedGroups, groups, sortedNotes, virtualGroupTransition]);
+  }, [collapsedGroups, collapsingGroupId, groups, sortedNotes]);
   const sortedIndexById = useMemo(
     () => new Map(sortedNotes.map((note, index) => [note.id, index])),
     [sortedNotes],
@@ -1387,7 +1387,7 @@ export const NoteListPanel = memo(function NoteListPanel({
                           >
                             <ul className="note-list-group-items note-list-items" role="list">
                               {group.notes.map((note) => {
-                                const index = sortedNotes.findIndex((n) => n.id === note.id);
+                                const index = sortedIndexById.get(note.id) ?? -1;
                                 return (
                                   <NoteListRow
                                     key={note.id}

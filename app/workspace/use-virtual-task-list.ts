@@ -163,23 +163,28 @@ export function useVirtualTaskList(
 
   useLayoutEffect(() => {
     const container = scrollRef.current;
-    if (!container) return;
+    if (!container || !isVirtualized) return;
 
     let scrollFrame = 0;
+    let viewportHeight = container.clientHeight || 800;
     const updateViewport = () => {
+      setViewport((current) => {
+        const next = {
+          top: container.scrollTop - contentInsetRef.current,
+          height: viewportHeight,
+        };
+        return current.top === next.top && current.height === next.height ? current : next;
+      });
+    };
+    const updateGeometry = () => {
       const header = container.querySelector<HTMLElement>(".tasks-virtual-sticky-header");
       const inset = header?.getBoundingClientRect().height ?? 0;
       contentInsetRef.current = inset;
       if (inset > 0) {
         setGroupHeaderHeight((current) => (Math.abs(current - inset) < 0.5 ? current : inset));
       }
-      setViewport((current) => {
-        const next = {
-          top: container.scrollTop - inset,
-          height: container.clientHeight || current.height || 800,
-        };
-        return current.top === next.top && current.height === next.height ? current : next;
-      });
+      viewportHeight = container.clientHeight || viewportHeight;
+      updateViewport();
     };
     const onScroll = () => {
       if (scrollFrame) return;
@@ -189,16 +194,18 @@ export function useVirtualTaskList(
       });
     };
     const resizeObserver =
-      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updateViewport);
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updateGeometry);
     resizeObserver?.observe(container);
     const header = container.querySelector<HTMLElement>(".tasks-virtual-sticky-header");
     if (header) resizeObserver?.observe(header);
     container.addEventListener("scroll", onScroll, { passive: true });
-    updateViewport();
+    window.addEventListener("resize", updateGeometry, { passive: true });
+    updateGeometry();
 
     return () => {
       if (scrollFrame) cancelAnimationFrame(scrollFrame);
       container.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", updateGeometry);
       resizeObserver?.disconnect();
     };
   }, [isVirtualized, scrollRef]);
