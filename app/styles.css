@@ -566,7 +566,7 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .tasks-virtual-sticky-header .tasks-note-group-toggle { height: 100%; }
 .tasks-virtual-list { position: relative; box-sizing: border-box; margin: 0; padding: 0; list-style: none; }
 .tasks-virtual-list > li { box-sizing: border-box; margin: 0; list-style: none; }
-.tasks-virtual-group-marker { height: 34px; background: var(--surface-glass); color: var(--muted); font-size: .77rem; font-weight: 580; }
+.tasks-virtual-group-marker { z-index: 3; height: 34px; background: var(--surface-glass); color: var(--muted); font-size: .77rem; font-weight: 580; }
 .tasks-virtual-group-marker.is-first { height: 0; }
 .tasks-virtual-group-marker.is-sticky-marker { visibility: hidden; }
 .tasks-virtual-group-marker.is-collapsed .tasks-note-group-chevron { transform: rotate(-90deg); }
