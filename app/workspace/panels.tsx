@@ -1438,7 +1438,7 @@ export const NoteListPanel = memo(function NoteListPanel({
                 ) : (
                   <ul
                     id={virtualList.isVirtualized ? "note-list-virtual-rows" : undefined}
-                    className={`note-list-items${virtualGroupTransition ? " is-group-transitioning" : ""}`}
+                    className="note-list-items"
                     role="list"
                     style={listStyle}
                   >

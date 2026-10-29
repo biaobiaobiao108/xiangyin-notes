@@ -609,7 +609,7 @@ export function TasksPanel({
                   )}
                   <ul
                     id="tasks-virtual-list"
-                    className={`tasks-virtual-list${virtualGroupTransition ? " is-transitioning" : ""}`}
+                    className="tasks-virtual-list"
                     role="list"
                     style={virtualListStyle}
                   >
