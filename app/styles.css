@@ -1181,8 +1181,7 @@ button.save-status:hover { text-decoration: underline; }
 .table-edge-drag-handle:active:not(:disabled) .table-edge-grip { transform: scale(0.96); }
 .table-edge-drag-handle:focus-visible { box-shadow: 0 0 0 2px var(--focus-ring); }
 .table-edge-drag-handle:disabled { opacity: 0.4; cursor: not-allowed; }
-.table-edge-preview { position: absolute; z-index: 1; top: 50%; left: calc(100% + 6px); padding: 4px 7px; border-radius: 7px; background: var(--ink); color: var(--surface); font-size: 0.7rem; font-weight: 600; white-space: nowrap; transform: translateY(-50%); }
-.table-edge-rail--rows .table-edge-preview { top: auto; left: 50%; bottom: calc(100% + 6px); transform: translateX(-50%); }
+.table-edge-preview { position: fixed; z-index: 1; padding: 4px 7px; border-radius: 7px; background: var(--ink); color: var(--surface); font-size: 0.7rem; font-weight: 600; white-space: nowrap; pointer-events: none; }
 .editor-search-nav { display: inline-flex; align-items: center; min-height: 38px; gap: 2px; padding: 3px; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--surface-glass); box-shadow: 0 10px 26px rgba(39, 47, 41, 0.12), 0 2px 6px rgba(39, 47, 41, 0.06); }
 .editor-search-nav-button { display: inline-grid; width: 30px; height: 30px; place-items: center; padding: 0; border: 0; border-radius: 999px; background: transparent; color: var(--muted); cursor: pointer; transition: background-color var(--motion-fast) var(--motion-ease-out), color var(--motion-fast) var(--motion-ease-out), transform var(--motion-fast) var(--motion-ease-out); }
 .editor-search-nav-button:hover { background: var(--accent-soft); color: var(--accent-dark); }

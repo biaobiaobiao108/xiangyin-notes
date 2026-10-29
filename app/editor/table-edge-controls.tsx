@@ -13,6 +13,7 @@ import {
   adjustActiveTableSize,
   getActiveTableContext,
   getActiveTableSnapshot,
+  previewActiveTableSize,
   restoreActiveTableSnapshot,
   snapTableEdgeDrag,
   type TableEdgeAxis,
@@ -36,6 +37,10 @@ type DragSession = {
   snappedDistance: number;
   initialSize: number;
   step: number;
+  existingItemSizes: number[];
+  startTableEdge: number;
+  pointerX: number;
+  pointerY: number;
   snapshot: TableEdgeSnapshot;
   startPosition: { top: number; left: number; width?: number; height?: number };
 };
@@ -111,27 +116,78 @@ function clamp(value: number, minimum: number, maximum: number) {
   return Math.max(minimum, Math.min(value, maximum));
 }
 
-function getTableEdgeDragStep(
+function getTableForShell(shell: HTMLElement | null) {
+  return shell instanceof HTMLTableElement ? shell : shell?.querySelector("table");
+}
+
+function getTableEdgeDragMetrics(
   shell: HTMLElement | null,
   axis: TableEdgeAxis,
   fallbackSize: number,
 ) {
-  const table = shell?.querySelector("table");
-  if (!table) return 28;
+  const table = getTableForShell(shell);
+  if (!table) return { step: 28, existingItemSizes: [] };
 
   if (axis === "columns") {
-    const edgeCell = table.querySelector("tr")?.lastElementChild;
+    const cells = Array.from(table.querySelector("tr")?.children ?? []);
+    const edgeCell = cells.at(-1);
+    const minimumWidth = edgeCell
+      ? Number.parseFloat(window.getComputedStyle(edgeCell).minWidth)
+      : Number.NaN;
     const measuredWidth =
       edgeCell?.getBoundingClientRect().width ||
       table.getBoundingClientRect().width / Math.max(1, fallbackSize);
-    return Math.max(20, Math.min(96, measuredWidth));
+    return {
+      step: Math.max(20, Number.isFinite(minimumWidth) ? minimumWidth : measuredWidth),
+      existingItemSizes: cells.map((cell) => cell.getBoundingClientRect().width),
+    };
   }
 
   const rows = Array.from(table.querySelectorAll("tr"));
-  const measuredHeight =
-    rows.at(-1)?.getBoundingClientRect().height ||
+  const lastCell = rows.at(-1)?.firstElementChild;
+  const paragraph = lastCell?.querySelector("p");
+  if (lastCell instanceof HTMLElement && paragraph instanceof HTMLElement) {
+    const cellStyle = window.getComputedStyle(lastCell);
+    const paragraphStyle = window.getComputedStyle(paragraph);
+    const fontSize = Number.parseFloat(paragraphStyle.fontSize);
+    const measuredLineHeight = Number.parseFloat(paragraphStyle.lineHeight);
+    const lineHeight = Number.isFinite(measuredLineHeight)
+      ? measuredLineHeight
+      : (Number.isFinite(fontSize) ? fontSize : 16) * 1.2;
+    const emptyRowHeight =
+      lineHeight +
+      Number.parseFloat(cellStyle.paddingTop) +
+      Number.parseFloat(cellStyle.paddingBottom) +
+      Number.parseFloat(cellStyle.borderBottomWidth);
+    if (Number.isFinite(emptyRowHeight))
+      return {
+        step: Math.max(20, emptyRowHeight),
+        existingItemSizes: rows.map((row) => row.getBoundingClientRect().height),
+      };
+  }
+
+  const existingItemSizes = rows.map((row) => row.getBoundingClientRect().height);
+  const step =
+    existingItemSizes.filter((height) => height > 0).sort((a, b) => a - b)[0] ||
     table.getBoundingClientRect().height / Math.max(1, fallbackSize);
-  return Math.max(20, measuredHeight);
+  return { step: Math.max(20, step), existingItemSizes };
+}
+
+function getTableEdgeCoordinate(shell: HTMLElement | null, axis: TableEdgeAxis) {
+  const table = getTableForShell(shell);
+  if (!table) return null;
+  const tableRect = table.getBoundingClientRect();
+  if (axis === "rows") return tableRect.bottom;
+  const shellRect = shell?.getBoundingClientRect();
+  return Math.min(tableRect.right, shellRect?.right ?? tableRect.right);
+}
+
+function positionPreview(output: HTMLOutputElement, pointer: { x: number; y: number }) {
+  const margin = 8;
+  const left = Math.min(pointer.x + 12, window.innerWidth - output.offsetWidth - margin);
+  const top = Math.min(pointer.y + 12, window.innerHeight - output.offsetHeight - margin);
+  output.style.left = `${Math.max(margin, left)}px`;
+  output.style.top = `${Math.max(margin, top)}px`;
 }
 
 function TableEdgeRail({
@@ -159,6 +215,7 @@ function TableEdgeRail({
 }) {
   const dragRef = useRef<DragSession | null>(null);
   const suppressClickRef = useRef(false);
+  const previewRef = useRef<HTMLOutputElement | null>(null);
   const removeWindowListenersRef = useRef<(() => void) | null>(null);
   const onAdjustRef = useRef(onAdjust);
   onAdjustRef.current = onAdjust;
@@ -197,7 +254,12 @@ function TableEdgeRail({
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
     const distance = isColumnRail ? event.clientX - drag.startX : event.clientY - drag.startY;
-    const { delta } = snapTableEdgeDrag(distance, drag.initialSize, drag.step);
+    const { delta } = snapTableEdgeDrag(
+      distance,
+      drag.initialSize,
+      drag.step,
+      drag.existingItemSizes,
+    );
     clearDrag(event.pointerId);
 
     if (Math.abs(distance) >= 6) {
@@ -222,21 +284,26 @@ function TableEdgeRail({
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
     const distance = isColumnRail ? event.clientX - drag.startX : event.clientY - drag.startY;
-    const { delta, snappedDistance } = snapTableEdgeDrag(distance, drag.initialSize, drag.step);
+    drag.pointerX = event.clientX;
+    drag.pointerY = event.clientY;
+    const preview = previewRef.current;
+    if (preview) positionPreview(preview, { x: event.clientX, y: event.clientY });
+    const { delta } = snapTableEdgeDrag(
+      distance,
+      drag.initialSize,
+      drag.step,
+      drag.existingItemSizes,
+    );
     if (drag.delta !== delta) {
-      restoreActiveTableSnapshot(editor, drag.snapshot, { addToHistory: false, emitUpdate: false });
-      if (delta)
-        adjustActiveTableSize(
-          editor,
-          axis,
-          delta,
-          { addToHistory: false, emitUpdate: false },
-          drag.snapshot.position,
-        );
+      previewActiveTableSize(editor, drag.snapshot, axis, delta);
       drag.delta = delta;
       setPreviewDelta(delta);
+      const currentEdge = getTableEdgeCoordinate(
+        getTableShellAtPosition(editor, drag.snapshot.position),
+        axis,
+      );
+      if (currentEdge !== null) drag.snappedDistance = currentEdge - drag.startTableEdge;
     }
-    drag.snappedDistance = snappedDistance;
   };
 
   useEffect(
@@ -262,6 +329,8 @@ function TableEdgeRail({
     suppressClickRef.current = false;
     const snapshot = getActiveTableSnapshot(editor, tablePosition);
     if (!snapshot) return;
+    const metrics = getTableEdgeDragMetrics(shell, axis, size);
+    const startTableEdge = getTableEdgeCoordinate(shell, axis);
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     onDragPositionChange(tablePosition);
@@ -273,7 +342,11 @@ function TableEdgeRail({
       delta: 0,
       snappedDistance: 0,
       initialSize: size,
-      step: getTableEdgeDragStep(shell, axis, size),
+      step: metrics.step,
+      existingItemSizes: metrics.existingItemSizes,
+      startTableEdge: startTableEdge ?? (isColumnRail ? position.left + 7 : position.top + 7),
+      pointerX: event.clientX,
+      pointerY: event.clientY,
       snapshot,
       startPosition: { ...position },
     };
@@ -306,10 +379,14 @@ function TableEdgeRail({
   const activeDrag = dragRef.current;
   const railPosition = activeDrag
     ? {
-        top: activeDrag.startPosition.top + (isColumnRail ? 0 : activeDrag.snappedDistance),
-        left: activeDrag.startPosition.left + (isColumnRail ? activeDrag.snappedDistance : 0),
-        width: activeDrag.startPosition.width,
-        height: activeDrag.startPosition.height,
+        top: isColumnRail
+          ? position.top
+          : activeDrag.startPosition.top + activeDrag.snappedDistance,
+        left: isColumnRail
+          ? activeDrag.startPosition.left + activeDrag.snappedDistance
+          : position.left,
+        width: position.width ?? activeDrag.startPosition.width,
+        height: position.height ?? activeDrag.startPosition.height,
       }
     : position;
 
@@ -339,7 +416,15 @@ function TableEdgeRail({
         <span className="table-edge-grip" aria-hidden="true" />
       </button>
       {previewDelta !== 0 && (
-        <output className="table-edge-preview" aria-live="polite">
+        <output
+          ref={(element) => {
+            previewRef.current = element;
+            if (element && activeDrag)
+              positionPreview(element, { x: activeDrag.pointerX, y: activeDrag.pointerY });
+          }}
+          className="table-edge-preview"
+          aria-live="polite"
+        >
           {previewDelta > 0 ? `+${previewDelta}` : previewDelta} {noun}
         </output>
       )}
@@ -429,7 +514,7 @@ export function TableEdgeControls({
         const visibleTableLeft = Math.max(shellRect.left, tableRect.left);
         const visibleTableRight = Math.min(shellRect.right, tableRect.right);
         const visibleTableWidth = Math.max(96, visibleTableRight - visibleTableLeft);
-        const columnLeft = clamp(visibleTableRight + 4, padding, window.innerWidth - 14 - padding);
+        const columnLeft = clamp(visibleTableRight - 7, padding, window.innerWidth - 14 - padding);
         const rowRailWidth = clamp(
           Math.min(visibleTableWidth - 12, window.innerWidth - padding * 2),
           96,
@@ -440,7 +525,7 @@ export function TableEdgeControls({
           padding,
           window.innerWidth - rowRailWidth - padding,
         );
-        const rowTop = clamp(tableRect.bottom + 4, padding, window.innerHeight - 14 - padding);
+        const rowTop = clamp(tableRect.bottom - 7, padding, window.innerHeight - 14 - padding);
         const next: TableControlsPosition = {
           columns: { top: columnTop, left: columnLeft, height: columnRailHeight },
           rows: { top: rowTop, left: rowLeft, width: rowRailWidth },

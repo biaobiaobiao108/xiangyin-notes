@@ -35,6 +35,7 @@ import {
   getActiveTableContext,
   getActiveTableSnapshot,
   getTableEdgeDragDelta,
+  previewActiveTableSize,
   restoreActiveTableSnapshot,
   snapTableEdgeDrag,
 } from "../app/editor/table-edge-commands";
@@ -518,28 +519,63 @@ describe("code block copy", () => {
 });
 
 describe("table edge controls", () => {
-  test("drag distance adds and removes edge rows or columns without crossing one", () => {
-    expect(getTableEdgeDragDelta(27, 3)).toBe(0);
-    expect(getTableEdgeDragDelta(28, 3)).toBe(1);
-    expect(getTableEdgeDragDelta(19, 3, 20)).toBe(0);
-    expect(getTableEdgeDragDelta(20, 3, 20)).toBe(1);
+  test("snaps to the nearest row or column boundary without crossing one", () => {
+    expect(getTableEdgeDragDelta(13, 3)).toBe(0);
+    expect(getTableEdgeDragDelta(14, 3)).toBe(1);
+    expect(getTableEdgeDragDelta(9, 3, 20)).toBe(0);
+    expect(getTableEdgeDragDelta(10, 3, 20)).toBe(1);
     expect(getTableEdgeDragDelta(84, 3)).toBe(3);
     expect(getTableEdgeDragDelta(-56, 3)).toBe(-2);
     expect(getTableEdgeDragDelta(-140, 3)).toBe(-2);
   });
 
   test("maps drag distance to actual row or column size", () => {
-    expect(getTableEdgeDragDelta(119, 3, 120)).toBe(0);
-    expect(getTableEdgeDragDelta(120, 3, 120)).toBe(1);
-    expect(getTableEdgeDragDelta(-239, 3, 120)).toBe(-1);
+    expect(getTableEdgeDragDelta(59, 3, 120)).toBe(0);
+    expect(getTableEdgeDragDelta(60, 3, 120)).toBe(1);
+    expect(getTableEdgeDragDelta(-239, 3, 120)).toBe(-2);
     expect(getTableEdgeDragDelta(-240, 3, 120)).toBe(-2);
   });
 
-  test("snaps the edge handle to whole row or column steps", () => {
-    expect(snapTableEdgeDrag(119, 3, 120)).toEqual({ delta: 0, snappedDistance: 0 });
-    expect(snapTableEdgeDrag(239, 3, 120)).toEqual({ delta: 1, snappedDistance: 120 });
+  test("uses each existing row or column size when shrinking", () => {
+    const existingItemSizes = [40, 120, 80];
+    expect(getTableEdgeDragDelta(-40, 3, 96, existingItemSizes)).toBe(0);
+    expect(getTableEdgeDragDelta(-41, 3, 96, existingItemSizes)).toBe(-1);
+    expect(getTableEdgeDragDelta(-141, 3, 96, existingItemSizes)).toBe(-2);
+    expect(snapTableEdgeDrag(-141, 3, 96, existingItemSizes)).toEqual({
+      delta: -2,
+      snappedDistance: -200,
+    });
+  });
+
+  test("snaps the edge handle to the nearest row or column step", () => {
+    expect(snapTableEdgeDrag(59, 3, 120)).toEqual({ delta: 0, snappedDistance: 0 });
+    expect(snapTableEdgeDrag(60, 3, 120)).toEqual({ delta: 1, snappedDistance: 120 });
+    expect(snapTableEdgeDrag(239, 3, 120)).toEqual({ delta: 2, snappedDistance: 240 });
     expect(snapTableEdgeDrag(240, 3, 120)).toEqual({ delta: 2, snappedDistance: 240 });
     expect(snapTableEdgeDrag(-240, 2, 120)).toEqual({ delta: -1, snappedDistance: -120 });
+  });
+
+  test("rebuilds each drag preview from the original table snapshot", () => {
+    const editor = new Editor({
+      extensions: [
+        StarterKit.configure({ heading: { levels: [1, 2, 3, 4] } }),
+        ...createTableExtensions(),
+        Markdown,
+      ],
+      content: { type: "doc", content: [{ type: "paragraph" }] },
+    });
+    try {
+      editor.commands.insertTable({ rows: 2, cols: 2, withHeaderRow: true });
+      const snapshot = getActiveTableSnapshot(editor)!;
+      expect(previewActiveTableSize(editor, snapshot, "columns", 1)).toBe(true);
+      expect(getActiveTableContext(editor, snapshot.position)?.columns).toBe(3);
+      expect(previewActiveTableSize(editor, snapshot, "columns", 2)).toBe(true);
+      expect(getActiveTableContext(editor, snapshot.position)?.columns).toBe(4);
+      expect(previewActiveTableSize(editor, snapshot, "columns", 0)).toBe(true);
+      expect(getActiveTableContext(editor, snapshot.position)?.columns).toBe(2);
+    } finally {
+      editor.destroy();
+    }
   });
 
   test("adjusts the far edge in a single transaction and preserves one row and column", () => {
