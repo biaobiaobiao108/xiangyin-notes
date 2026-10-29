@@ -1585,7 +1585,7 @@ export const NoteListPanel = memo(function NoteListPanel({
                 scrollTargetRef={noteListRef}
                 controlsId="note-list-scroll-region"
                 ariaLabel="笔记列表滚动条"
-                placement="left"
+                placement="right"
               />
             </div>
           </>
