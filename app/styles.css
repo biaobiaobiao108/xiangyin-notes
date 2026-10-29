@@ -641,7 +641,7 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .floating-scrollbar--right { inset-inline-end: -3px; transform: translateX(4px); }
 .floating-scrollbar.is-visible { opacity: 1; transform: translateX(0); }
 .floating-scrollbar-track { position: absolute; inset: 0; pointer-events: none; }
-.floating-scrollbar-thumb { position: absolute; width: 6px; min-height: 28px; padding: 0; border: 1px solid var(--scrollbar-thumb-border); border-radius: 999px; appearance: none; background: var(--scrollbar-thumb); box-shadow: 0 1px 5px rgba(39, 47, 41, 0.06); cursor: grab; pointer-events: none; touch-action: none; transition: background-color var(--motion-fast) var(--motion-ease-out), border-color var(--motion-fast) var(--motion-ease-out), box-shadow var(--motion-fast) var(--motion-ease-out); }
+.floating-scrollbar-thumb { position: absolute; top: 0; transform: translateY(var(--scrollbar-offset, 0px)); height: var(--scrollbar-extent, 28px); width: 6px; min-height: 28px; padding: 0; border: 1px solid var(--scrollbar-thumb-border); border-radius: 999px; appearance: none; background: var(--scrollbar-thumb); box-shadow: 0 1px 5px rgba(39, 47, 41, 0.06); cursor: grab; pointer-events: none; touch-action: none; transition: background-color var(--motion-fast) var(--motion-ease-out), border-color var(--motion-fast) var(--motion-ease-out), box-shadow var(--motion-fast) var(--motion-ease-out); }
 .floating-scrollbar--left .floating-scrollbar-thumb { inset-inline-start: 3px; }
 .floating-scrollbar--right .floating-scrollbar-thumb { inset-inline-end: 3px; }
 .floating-scrollbar.is-visible .floating-scrollbar-thumb { pointer-events: auto; }
@@ -653,8 +653,8 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .floating-scrollbar--bottom { inset-inline: 8px; inset-block-end: 0; width: auto; height: 18px; transform: translateY(4px); }
 .floating-scrollbar--bottom.is-visible { transform: translateY(0); }
 .floating-scrollbar--horizontal .floating-scrollbar-track { inset-inline: 0; inset-block: auto 2px; height: 6px; border-radius: 999px; background: var(--border-soft); }
-.floating-scrollbar--horizontal .floating-scrollbar-thumb { inset-inline-start: 0; inset-inline-end: auto; inset-block: auto 2px; width: 28px; min-width: 28px; height: 6px; min-height: 0; }
-.floating-scrollbar--horizontal .floating-scrollbar-thumb:hover, .floating-scrollbar--horizontal .floating-scrollbar-thumb:focus-visible { inset-inline-start: 0; inset-inline-end: auto; height: 8px; }
+.floating-scrollbar--horizontal .floating-scrollbar-thumb { transform: none; inset-inline-start: var(--scrollbar-offset, 0px); inset-inline-end: auto; inset-block: auto 2px; width: var(--scrollbar-extent, 28px); min-width: 28px; height: 6px; min-height: 0; }
+.floating-scrollbar--horizontal .floating-scrollbar-thumb:hover, .floating-scrollbar--horizontal .floating-scrollbar-thumb:focus-visible { inset-inline-start: var(--scrollbar-offset, 0px); inset-inline-end: auto; height: 8px; }
 .floating-scrollbar--horizontal .floating-scrollbar-thumb:focus-visible { inset-block-end: 1px; }
 .table-horizontal-overflow-overlay { position: absolute; z-index: 2; pointer-events: none; }
 .table-horizontal-overflow-edge { position: absolute; inset-block: 0; width: 34px; opacity: 0; pointer-events: none; transition: opacity var(--motion-fast) var(--motion-ease-out); }

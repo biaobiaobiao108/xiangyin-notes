@@ -41,6 +41,7 @@ export function FloatingScrollbar({
   enabled?: boolean;
 }) {
   const scrollbarRef = useRef<HTMLDivElement>(null);
+  const thumbRef = useRef<HTMLButtonElement | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const frameRef = useRef<number | null>(null);
   const dragRef = useRef<DragState | null>(null);
@@ -49,13 +50,33 @@ export function FloatingScrollbar({
   const [visible, setVisible] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [focused, setFocused] = useState(false);
-  const [metrics, setMetrics] = useState<ScrollMetrics>({
+  const [scrollable, setScrollable] = useState(false);
+  const metricsRef = useRef<ScrollMetrics>({
     scrollable: false,
     thumbExtent: 0,
     thumbOffset: 0,
     maxScroll: 0,
     scrollOffset: 0,
   });
+
+  // 位置只影响滑块，不经 React 渲染；挂载时也同步，避免首帧位置闪动。
+  const syncThumb = useCallback(() => {
+    const thumb = thumbRef.current;
+    if (!thumb) return;
+    const metrics = metricsRef.current;
+    thumb.style.setProperty("--scrollbar-offset", `${metrics.thumbOffset}px`);
+    thumb.style.setProperty("--scrollbar-extent", `${metrics.thumbExtent}px`);
+    thumb.setAttribute("aria-valuemax", String(metrics.maxScroll));
+    thumb.setAttribute("aria-valuenow", String(metrics.scrollOffset));
+  }, []);
+
+  const attachThumb = useCallback(
+    (thumb: HTMLButtonElement | null) => {
+      thumbRef.current = thumb;
+      syncThumb();
+    },
+    [syncThumb],
+  );
 
   const updateMetrics = useCallback(() => {
     const target = scrollTargetRef.current;
@@ -88,16 +109,19 @@ export function FloatingScrollbar({
       maxScroll: Math.round(maxScroll),
       scrollOffset: Math.round(scrollOffset),
     };
-    setMetrics((current) =>
+    const current = metricsRef.current;
+    if (
       current.scrollable === nextMetrics.scrollable &&
       current.thumbExtent === nextMetrics.thumbExtent &&
       current.thumbOffset === nextMetrics.thumbOffset &&
       current.maxScroll === nextMetrics.maxScroll &&
       current.scrollOffset === nextMetrics.scrollOffset
-        ? current
-        : nextMetrics,
-    );
-  }, [enabled, orientation, scrollTargetRef]);
+    )
+      return;
+    metricsRef.current = nextMetrics;
+    if (current.scrollable !== nextMetrics.scrollable) setScrollable(nextMetrics.scrollable);
+    syncThumb();
+  }, [enabled, orientation, scrollTargetRef, syncThumb]);
 
   const scheduleMetrics = useCallback(() => {
     if (frameRef.current !== null) return;
@@ -324,21 +348,17 @@ export function FloatingScrollbar({
     [orientation, reveal, scheduleMetrics, scrollTargetRef],
   );
 
-  const isVisible = enabled && metrics.scrollable && (visible || dragging || focused);
-  const thumbStyle =
-    orientation === "horizontal"
-      ? { insetInlineStart: `${metrics.thumbOffset}px`, width: `${metrics.thumbExtent}px` }
-      : { top: `${metrics.thumbOffset}px`, height: `${metrics.thumbExtent}px` };
+  const isVisible = enabled && scrollable && (visible || dragging || focused);
   return (
     <div
       className={`floating-scrollbar floating-scrollbar--${placement} ${orientation === "horizontal" ? "floating-scrollbar--horizontal" : ""} ${isVisible ? "is-visible" : ""}`}
       ref={scrollbarRef}
-      aria-hidden={!enabled || !metrics.scrollable}
+      aria-hidden={!enabled || !scrollable}
       onFocusCapture={handleFocus}
       onBlurCapture={handleBlur}
     >
       <div className="floating-scrollbar-track" aria-hidden="true" />
-      {enabled && metrics.scrollable && (
+      {enabled && scrollable && (
         <button
           className={`floating-scrollbar-thumb ${dragging ? "is-dragging" : ""}`}
           type="button"
@@ -347,9 +367,7 @@ export function FloatingScrollbar({
           aria-controls={controlsId}
           aria-orientation={orientation}
           aria-valuemin={0}
-          aria-valuemax={metrics.maxScroll}
-          aria-valuenow={metrics.scrollOffset}
-          style={thumbStyle}
+          ref={attachThumb}
           onPointerEnter={handleThumbPointerEnter}
           onPointerLeave={handleThumbPointerLeave}
           onPointerDown={handleThumbPointerDown}

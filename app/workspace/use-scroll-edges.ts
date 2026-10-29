@@ -30,6 +30,7 @@ export function useScrollEdges(
     if (!scrollRoot) return;
 
     let animationFrame = 0;
+    let previousEdges: ScrollEdges | null = null;
     const updateScrollEdges = () => {
       animationFrame = 0;
       const nextEdges = computeScrollEdges(
@@ -37,6 +38,10 @@ export function useScrollEdges(
         scrollRoot.scrollHeight,
         scrollRoot.clientHeight,
       );
+      // 滚动中间段的渐隐状态不变，不向整个面板排入重复的 React 更新。
+      if (previousEdges?.before === nextEdges.before && previousEdges.after === nextEdges.after)
+        return;
+      previousEdges = nextEdges;
       setScrollEdges((current) =>
         current.before === nextEdges.before && current.after === nextEdges.after
           ? current
