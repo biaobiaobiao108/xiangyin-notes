@@ -413,7 +413,9 @@ function TableEdgeRail({
         onLostPointerCapture={(event) => cancelDrag(event.pointerId)}
         onClick={handleDragHandleClick}
       >
+        <span className="table-edge-direction table-edge-direction--decrease" aria-hidden="true" />
         <span className="table-edge-grip" aria-hidden="true" />
+        <span className="table-edge-direction table-edge-direction--increase" aria-hidden="true" />
       </button>
       {previewDelta !== 0 && (
         <output
