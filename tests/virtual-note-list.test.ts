@@ -25,6 +25,16 @@ function group(id: string, ...notes: NoteSummary[]): NoteGroup {
 }
 
 describe("virtual note list groups", () => {
+  test("omits empty groups so they do not leave virtual headers", () => {
+    const empty = group("empty");
+    const populated = group("populated", note("note-a"));
+
+    expect(flattenNoteGroups([empty, populated], new Set()).map((row) => row.id)).toEqual([
+      noteGroupRowId("populated"),
+      "note-a",
+    ]);
+  });
+
   test("keeps visible group header rows before expanded notes", () => {
     const first = group("group-a", note("note-a1"), note("note-a2"));
     const second = group("group-b", note("note-b1"));

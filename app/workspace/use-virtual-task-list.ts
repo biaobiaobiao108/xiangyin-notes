@@ -119,7 +119,7 @@ export function useVirtualTaskList(
   const observerRef = useRef<ResizeObserver | null>(null);
   const rowElementsRef = useRef(new Map<string, HTMLLIElement>());
   const rowRefCallbacksRef = useRef(new Map<string, (element: HTMLLIElement | null) => void>());
-  const rowStylesRef = useRef(new Map<number, CSSProperties>());
+  const rowStylesRef = useRef(new Map<string, CSSProperties>());
   const pendingFocusRef = useRef<PendingFocus | null>(null);
   const contentInsetRef = useRef(0);
   const scopeRef = useRef(scope);
@@ -132,8 +132,14 @@ export function useVirtualTaskList(
     () => offsetsForRows(rows, heightsRef.current, groupHeaderHeight),
     [groupHeaderHeight, measurementRevision, rows],
   );
-  const offsetsRef = useRef(offsets);
-  offsetsRef.current = offsets;
+  const transitionOffsetsRef = useRef<{ groupId: string; offsets: readonly number[] } | null>(null);
+  if (!animatingGroupId) transitionOffsetsRef.current = null;
+  else if (transitionOffsetsRef.current?.groupId !== animatingGroupId)
+    transitionOffsetsRef.current = { groupId: animatingGroupId, offsets };
+  const frozenOffsets = transitionOffsetsRef.current?.offsets;
+  const layoutOffsets = frozenOffsets?.length === offsets.length ? frozenOffsets : offsets;
+  const offsetsRef = useRef<readonly number[]>(offsets);
+  offsetsRef.current = layoutOffsets;
   const isVirtualized = taskCount > VIRTUALIZE_AFTER && typeof ResizeObserver !== "undefined";
 
   useLayoutEffect(() => {
@@ -218,6 +224,7 @@ export function useVirtualTaskList(
     if (!container) return;
 
     const observer = new ResizeObserver((entries) => {
+      if (animatingGroupId) return;
       const oldOffsets = offsetsRef.current;
       const anchorIndex = indexAtOffset(
         oldOffsets,
@@ -266,33 +273,35 @@ export function useVirtualTaskList(
       observer.disconnect();
       if (observerRef.current === observer) observerRef.current = null;
     };
-  }, [groupHeaderHeight, isVirtualized, scope, scrollRef]);
+  }, [animatingGroupId, groupHeaderHeight, isVirtualized, scope, scrollRef]);
 
   const startIndex = isVirtualized
-    ? indexAtOffset(offsets, Math.max(0, viewport.top - OVERSCAN_PX))
+    ? indexAtOffset(layoutOffsets, Math.max(0, viewport.top - OVERSCAN_PX))
     : 0;
   const endIndex = isVirtualized
     ? Math.min(
         rows.length,
-        indexAtOffset(offsets, viewport.top + viewport.height + OVERSCAN_PX) + 1,
+        indexAtOffset(layoutOffsets, viewport.top + viewport.height + OVERSCAN_PX) + 1,
       )
     : rows.length;
   const animatedGroup = useMemo(() => {
     if (!animatingGroupId) return null;
-    return collapsingGroupRange(rows, offsets, indexById.get(taskGroupRowId(animatingGroupId)));
-  }, [animatingGroupId, indexById, offsets, rows]);
+    const start = indexById.get(taskGroupRowId(animatingGroupId));
+    const range = collapsingGroupRange(rows, layoutOffsets, start);
+    return range && start !== undefined ? { ...range, start } : null;
+  }, [animatingGroupId, indexById, layoutOffsets, rows]);
   const collapsingGroup = isCollapsing ? animatedGroup : null;
   const shiftedStart = animatedGroup
     ? Math.max(
         animatedGroup.end,
-        indexAtOffset(offsets, viewport.top + animatedGroup.height - OVERSCAN_PX),
+        indexAtOffset(layoutOffsets, viewport.top + animatedGroup.height - OVERSCAN_PX),
       )
     : 0;
   const shiftedEnd = animatedGroup
     ? Math.min(
         rows.length,
         indexAtOffset(
-          offsets,
+          layoutOffsets,
           viewport.top + viewport.height + animatedGroup.height + OVERSCAN_PX,
         ) + 1,
       )
@@ -301,6 +310,7 @@ export function useVirtualTaskList(
     const indices = new Set<number>();
     for (let index = startIndex; index < endIndex; index += 1) indices.add(index);
     if (isVirtualized && animatedGroup) {
+      indices.add(animatedGroup.start);
       for (let index = shiftedStart; index < shiftedEnd; index += 1) indices.add(index);
     }
     const pinnedIndex = pinnedRowId ? indexById.get(pinnedRowId) : undefined;
@@ -309,14 +319,14 @@ export function useVirtualTaskList(
       .sort((left, right) => left - right)
       .flatMap((index) => {
         const row = rows[index];
-        return row ? [{ row, index, top: offsets[index]! }] : [];
+        return row ? [{ row, index, top: layoutOffsets[index]! }] : [];
       });
   }, [
     animatedGroup,
+    layoutOffsets,
     endIndex,
     indexById,
     isVirtualized,
-    offsets,
     pinnedRowId,
     rows,
     startIndex,
@@ -324,7 +334,7 @@ export function useVirtualTaskList(
     shiftedEnd,
   ]);
   const topVisibleIndex = rows.length
-    ? Math.min(indexAtOffset(offsets, viewport.top), rows.length - 1)
+    ? Math.min(indexAtOffset(layoutOffsets, viewport.top), rows.length - 1)
     : -1;
   const nextGroupTop = visibleRows.find(
     ({ row, index }) => index > topVisibleIndex && row.kind === "group",
@@ -349,18 +359,19 @@ export function useVirtualTaskList(
   }, []);
 
   const rowStyle = useCallback(
-    (top: number) => {
+    (top: number, inset = 12) => {
       if (!isVirtualized) return undefined;
-      const cached = rowStylesRef.current.get(top);
+      const key = `${inset}:${top}`;
+      const cached = rowStylesRef.current.get(key);
       if (cached) return cached;
       const style = {
         position: "absolute",
-        insetInline: 12,
+        insetInline: inset,
         top: 0,
         transform: `translateY(${top}px)`,
       } as CSSProperties;
       if (rowStylesRef.current.size > 512) rowStylesRef.current.clear();
-      rowStylesRef.current.set(top, style);
+      rowStylesRef.current.set(key, style);
       return style;
     },
     [isVirtualized],
@@ -448,15 +459,15 @@ export function useVirtualTaskList(
       event.preventDefault();
       pendingFocusRef.current = { rowId: nextRow.id, tabIndex: nextTabIndex };
       setPinnedRowId(nextRow.id);
-      const nextTop = offsets[nextIndex]!;
-      const nextHeight = offsets[nextIndex + 1]! - nextTop;
+      const nextTop = layoutOffsets[nextIndex]!;
+      const nextHeight = layoutOffsets[nextIndex + 1]! - nextTop;
       const targetTop = event.shiftKey
         ? Math.max(0, nextTop - container.clientHeight + nextHeight + 80)
         : Math.max(0, nextTop - 80);
       container.scrollTop = targetTop + contentInsetRef.current;
       setViewport({ top: targetTop, height: container.clientHeight || viewport.height });
     },
-    [isVirtualized, offsets, rows, scrollRef, viewport.height],
+    [isVirtualized, layoutOffsets, rows, scrollRef, viewport.height],
   );
 
   return {
@@ -466,7 +477,13 @@ export function useVirtualTaskList(
     topVisibleRow: topVisibleIndex < 0 ? undefined : rows[topVisibleIndex],
     stickyOffset: stickyGroupOffset(nextGroupTop, viewport.top, groupHeaderHeight),
     collapsingGroup,
-    totalHeight: offsets[offsets.length - 1] ?? 0,
+    transitionGroup:
+      animatedGroup && animatingGroupId
+        ? { ...animatedGroup, start: indexById.get(taskGroupRowId(animatingGroupId))! }
+        : null,
+    groupHeaderHeight,
+    totalHeight: layoutOffsets[layoutOffsets.length - 1] ?? 0,
+    rowTop: (index: number) => layoutOffsets[index] ?? 0,
     rowStyle,
     getRowRef,
     scrollToRowStart,

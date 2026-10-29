@@ -571,11 +571,10 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .tasks-virtual-group-marker.is-sticky-marker { visibility: hidden; }
 .tasks-virtual-group-marker.is-collapsed .tasks-note-group-chevron { transform: rotate(-90deg); }
 .tasks-virtual-group-marker small { overflow: hidden; max-width: 42%; flex: 0 1 auto; color: var(--soft-muted); font-size: .7rem; font-weight: 450; text-overflow: ellipsis; white-space: nowrap; }
-.tasks-virtual-list:is(.is-collapsing, .is-expanding, .is-reversing) > li { transition: transform var(--motion-group) var(--motion-group-ease); }
-.tasks-virtual-task-row.is-group-collapsing { pointer-events: none; }
-.tasks-virtual-task-row.is-group-collapsing > .tasks-item { opacity: 0; }
-.tasks-virtual-task-row.is-group-expanding > .tasks-item { animation: tasks-group-row-enter calc(var(--motion-group) / 2) var(--motion-group-ease) var(--motion-group) both; }
-@keyframes tasks-group-row-enter { from { opacity: 0; transform: translateY(-6px); } }
+.virtual-group-motion-clip { display: grid; grid-template-rows: 1fr; overflow: hidden; transition: grid-template-rows var(--motion-group) var(--motion-group-ease); }
+.virtual-group-motion-clip.is-collapsed { grid-template-rows: 0fr; }
+.virtual-group-motion-clip-content { position: relative; min-height: 0; overflow: hidden; margin: 0; padding: 0; list-style: none; }
+.virtual-group-motion-after, .tasks-virtual-group-after-rows { position: relative; margin: 0; padding: 0; list-style: none; }
 .tasks-item { display: flex; width: 100%; min-height: 42px; gap: 8px; align-items: flex-start; padding: 5px 6px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ink); }
 .tasks-item:hover { background: var(--surface-muted); }
 .tasks-check-button { display: grid; width: 28px; height: 30px; flex: 0 0 28px; place-items: center; padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); cursor: pointer; }
@@ -818,13 +817,7 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .note-list-virtual-group-marker .note-list-virtual-group-toggle { padding: 8px 14px 4px; }
 .note-list-virtual-group-marker.is-first { height: 0; }
 .note-list-virtual-group-marker.is-sticky-marker { visibility: hidden; }
-.note-list-items:is(.is-collapsing, .is-expanding, .is-reversing) > li { transition: transform var(--motion-group) var(--motion-group-ease); }
-.note-list-item.is-group-collapsing { pointer-events: none; }
-.note-list-item.is-group-collapsing > .note-row-swipe { opacity: 0; }
-.note-list-item.is-group-expanding > .note-row-swipe { animation: note-list-group-row-enter calc(var(--motion-group) / 2) var(--motion-group-ease) var(--motion-group) both; }
-@keyframes note-list-group-row-enter {
-  from { opacity: 0; transform: translateY(-6px); }
-}
+.note-list .note-list-virtual-group-content, .note-list .note-list-virtual-group-after { position: relative; margin: 0; padding: 0; list-style: none; }
 
 /* 多选拖影沿用笔记卡片本身的样式。 */
 .note-drag-ghost-shell {

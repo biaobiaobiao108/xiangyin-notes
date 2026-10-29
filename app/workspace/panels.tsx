@@ -9,6 +9,7 @@ import {
   useState,
   type CSSProperties,
   type DragEvent as ReactDragEvent,
+  type FocusEvent as ReactFocusEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type RefObject,
@@ -54,7 +55,7 @@ import {
   useVirtualNoteList,
   type VirtualNoteListRow,
 } from "./use-virtual-note-list";
-import { collapsedGroupScrollTop } from "./group-layout";
+import { collapsedGroupScrollTop, partitionVirtualGroupRows } from "./group-layout";
 import { useScrollEdges } from "./use-scroll-edges";
 import { MobileCollectionHeader } from "./mobile-collection-header";
 import { type NoteSwipeAction, useSwipeActionGesture, useSwipeActionGroup } from "./swipe-actions";
@@ -68,7 +69,7 @@ function toggleGroupInSet(current: ReadonlySet<string>, groupId: string) {
 
 type VirtualGroupTransition = {
   groupId: string;
-  phase: "collapsing" | "expanding" | "reversing";
+  phase: "preparing-collapse" | "preparing-expansion" | "collapsing" | "expanding";
 };
 
 function groupMotionDuration() {
@@ -935,6 +936,9 @@ export const NoteListPanel = memo(function NoteListPanel({
     useState<VirtualGroupTransition | null>(null);
   const dragFrameRef = useRef<number | null>(null);
   const virtualGroupTransitionTimerRef = useRef<number | null>(null);
+  const queuedVirtualGroupIdRef = useRef<string | null>(null);
+  const focusRestoreRef = useRef<{ noteId: string; selector: string } | null>(null);
+  const transitionDataRef = useRef<{ rowIds: string } | null>(null);
 
   const handleRowDragStart = useCallback(
     (note: NoteSummary, event: ReactDragEvent<HTMLButtonElement>) => {
@@ -975,10 +979,6 @@ export const NoteListPanel = memo(function NoteListPanel({
     if (query.trim()) return null;
     return groupNotes(sortedNotes, "updated");
   }, [query, sortedNotes]);
-  const virtualTransitionNoteIds = useMemo(() => {
-    const group = groups?.find((item) => item.id === virtualGroupTransition?.groupId);
-    return new Set(group?.notes.map((note) => note.id) ?? []);
-  }, [groups, virtualGroupTransition?.groupId]);
   const collapsingGroupId =
     virtualGroupTransition?.phase === "collapsing" &&
     collapsedGroups.has(virtualGroupTransition.groupId)
@@ -988,6 +988,14 @@ export const NoteListPanel = memo(function NoteListPanel({
     if (groups) return flattenNoteGroups(groups, collapsedGroups, collapsingGroupId);
     return sortedNotes.map((note) => ({ id: note.id, kind: "note" as const, note }));
   }, [collapsedGroups, collapsingGroupId, groups, sortedNotes]);
+  const currentRowIds = (groups ?? [])
+    .flatMap((group) => [noteGroupRowId(group.id), ...group.notes.map((note) => note.id)])
+    .join("\u0000");
+  const transitionDataChanged = Boolean(
+    virtualGroupTransition &&
+    transitionDataRef.current &&
+    transitionDataRef.current.rowIds !== currentRowIds,
+  );
   const sortedIndexById = useMemo(
     () => new Map(sortedNotes.map((note, index) => [note.id, index])),
     [sortedNotes],
@@ -1026,9 +1034,9 @@ export const NoteListPanel = memo(function NoteListPanel({
       ? virtualGroupTransition.phase
       : null;
   const virtualStickyGroupCollapsed =
-    virtualStickyTransition === "collapsing"
+    virtualStickyTransition === "collapsing" || virtualStickyTransition === "preparing-expansion"
       ? true
-      : virtualStickyTransition === "expanding" || virtualStickyTransition === "reversing"
+      : virtualStickyTransition === "expanding" || virtualStickyTransition === "preparing-collapse"
         ? false
         : virtualStickyGroup
           ? collapsedGroups.has(virtualStickyGroup.id)
@@ -1067,7 +1075,15 @@ export const NoteListPanel = memo(function NoteListPanel({
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [canAutoLoadMore, hasMore, isLoadingMore, onLoadMore, sortedNotes.length]);
+  }, [
+    canAutoLoadMore,
+    hasMore,
+    isLoadingMore,
+    onLoadMore,
+    sortedNotes.length,
+    virtualGroupTransition?.groupId,
+    virtualGroupTransition?.phase,
+  ]);
 
   const toggleGroup = (button: HTMLButtonElement, groupId: string) => {
     const scroll = noteListRef.current;
@@ -1091,61 +1107,156 @@ export const NoteListPanel = memo(function NoteListPanel({
   };
 
   const toggleVirtualGroup = (group: NoteGroup) => {
+    if (virtualGroupTransition && virtualGroupTransition.groupId !== group.id) {
+      queuedVirtualGroupIdRef.current = group.id;
+      return;
+    }
+    queuedVirtualGroupIdRef.current = null;
     if (group.id === virtualStickyGroup?.id) virtualList.scrollToRowStart(noteGroupRowId(group.id));
     const duration = groupMotionDuration();
-    if (virtualGroupTransitionTimerRef.current !== null)
-      window.clearTimeout(virtualGroupTransitionTimerRef.current);
-    if (
-      virtualGroupTransition?.phase === "collapsing" &&
-      virtualGroupTransition.groupId !== group.id
-    ) {
-      const previousGroupId = virtualGroupTransition.groupId;
-      setCollapsedGroups((current) => new Set(current).add(previousGroupId));
-    }
-
-    const finishTransition = (phase: VirtualGroupTransition["phase"]) => {
+    const clearTimer = () => {
+      if (virtualGroupTransitionTimerRef.current !== null)
+        window.clearTimeout(virtualGroupTransitionTimerRef.current);
+      virtualGroupTransitionTimerRef.current = null;
+    };
+    const setCollapsed = (collapsed: boolean) => {
+      setCollapsedGroups((current) => {
+        const next = new Set(current);
+        if (collapsed) next.add(group.id);
+        else next.delete(group.id);
+        return next;
+      });
+    };
+    const rememberTransitionData = () => {
+      transitionDataRef.current = { rowIds: currentRowIds };
+    };
+    const startTransition = (phase: VirtualGroupTransition["phase"], collapsed: boolean) => {
+      clearTimer();
       if (duration <= 0) {
+        setCollapsed(collapsed);
         setVirtualGroupTransition(null);
         return;
       }
       setVirtualGroupTransition({ groupId: group.id, phase });
-      virtualGroupTransitionTimerRef.current = window.setTimeout(
-        () => {
-          virtualGroupTransitionTimerRef.current = null;
-          if (phase === "collapsing") {
-            setCollapsedGroups((current) => {
-              const next = new Set(current);
-              next.add(group.id);
-              return next;
-            });
-          }
-          setVirtualGroupTransition(null);
-        },
-        phase === "expanding" ? duration * 1.5 : duration,
-      );
+      setCollapsed(collapsed);
     };
 
-    if (
-      virtualGroupTransition?.groupId === group.id &&
-      virtualGroupTransition.phase === "collapsing"
-    ) {
-      finishTransition("reversing");
-      return;
+    if (virtualGroupTransition?.groupId === group.id) {
+      if (virtualGroupTransition.phase === "preparing-collapse") {
+        clearTimer();
+        transitionDataRef.current = null;
+        setVirtualGroupTransition(null);
+        return;
+      }
+      if (virtualGroupTransition.phase === "preparing-expansion") {
+        clearTimer();
+        setCollapsed(true);
+        transitionDataRef.current = null;
+        setVirtualGroupTransition(null);
+        return;
+      }
+      if (virtualGroupTransition.phase === "collapsing") {
+        startTransition("expanding", false);
+        return;
+      }
+      if (virtualGroupTransition.phase === "expanding") {
+        startTransition("collapsing", true);
+        return;
+      }
     }
 
     if (collapsedGroups.has(group.id)) {
-      setCollapsedGroups((current) => toggleGroupInSet(current, group.id));
-      finishTransition("expanding");
+      rememberTransitionData();
+      startTransition("preparing-expansion", false);
       return;
     }
 
     if (duration <= 0) {
-      setCollapsedGroups((current) => toggleGroupInSet(current, group.id));
+      setCollapsed(true);
       setVirtualGroupTransition(null);
       return;
     }
-    finishTransition("collapsing");
+    rememberTransitionData();
+    startTransition("preparing-collapse", false);
   };
+
+  useLayoutEffect(() => {
+    const transition = virtualGroupTransition;
+    if (
+      !transition ||
+      (transition.phase !== "preparing-collapse" && transition.phase !== "preparing-expansion")
+    )
+      return;
+    noteListRef.current?.querySelector<HTMLElement>(".virtual-group-motion-clip")?.offsetHeight;
+    const frame = requestAnimationFrame(() => {
+      if (transition.phase === "preparing-collapse") {
+        setCollapsedGroups((current) => new Set(current).add(transition.groupId));
+        setVirtualGroupTransition({ groupId: transition.groupId, phase: "collapsing" });
+      } else {
+        setVirtualGroupTransition({ groupId: transition.groupId, phase: "expanding" });
+      }
+      virtualGroupTransitionTimerRef.current = window.setTimeout(() => {
+        virtualGroupTransitionTimerRef.current = null;
+        transitionDataRef.current = null;
+        setVirtualGroupTransition(null);
+      }, groupMotionDuration());
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [virtualGroupTransition]);
+
+  useLayoutEffect(() => {
+    if (!transitionDataChanged || !virtualGroupTransition) return;
+    if (virtualGroupTransitionTimerRef.current !== null)
+      window.clearTimeout(virtualGroupTransitionTimerRef.current);
+    virtualGroupTransitionTimerRef.current = null;
+    transitionDataRef.current = null;
+    setCollapsedGroups((current) => {
+      const next = new Set(current);
+      if (
+        virtualGroupTransition.phase === "collapsing" ||
+        virtualGroupTransition.phase === "preparing-collapse"
+      )
+        next.add(virtualGroupTransition.groupId);
+      else next.delete(virtualGroupTransition.groupId);
+      return next;
+    });
+    setVirtualGroupTransition(null);
+  }, [transitionDataChanged, virtualGroupTransition]);
+
+  useEffect(() => {
+    if (virtualGroupTransition) return;
+    const queuedGroupId = queuedVirtualGroupIdRef.current;
+    if (!queuedGroupId) return;
+    queuedVirtualGroupIdRef.current = null;
+    const queuedGroup = groups?.find((group) => group.id === queuedGroupId);
+    if (!queuedGroup) return;
+    const frame = requestAnimationFrame(() => toggleVirtualGroup(queuedGroup));
+    return () => cancelAnimationFrame(frame);
+  }, [groups, virtualGroupTransition]);
+
+  useLayoutEffect(() => {
+    if (virtualGroupTransition) return;
+    const focus = focusRestoreRef.current;
+    if (!focus || document.activeElement !== document.body) return;
+    const selector = `[data-note-id="${CSS.escape(focus.noteId)}"] ${focus.selector}`;
+    let target = noteListRef.current?.querySelector<HTMLElement>(selector);
+    if (!target || target.closest("[inert]")) {
+      const groupId = groupByNoteId.get(focus.noteId)?.id;
+      const markerId = groupId ? noteGroupRowId(groupId) : null;
+      target = markerId
+        ? (noteListRef.current?.querySelector<HTMLElement>(
+            `[data-note-id="${CSS.escape(markerId)}"] .note-list-virtual-group-toggle`,
+          ) ?? null)
+        : null;
+    }
+    if (!target || target.closest("[inert]"))
+      target =
+        noteListRef.current?.querySelector<HTMLElement>(
+          ".note-list-group-header.is-virtual-sticky button",
+        ) ?? null;
+    target?.focus({ preventScroll: true });
+    focusRestoreRef.current = null;
+  }, [groupByNoteId, virtualGroupTransition]);
 
   useEffect(
     () => () => {
@@ -1154,6 +1265,19 @@ export const NoteListPanel = memo(function NoteListPanel({
     },
     [],
   );
+
+  useEffect(() => {
+    if (virtualGroupTransition) return;
+    const focus = focusRestoreRef.current;
+    if (!focus || document.activeElement !== document.body) return;
+    const noteRow = noteListRef.current?.querySelector<HTMLElement>(
+      `[data-note-id="${CSS.escape(focus.noteId)}"] ${focus.selector}`,
+    );
+    if (noteRow && !noteRow.closest("[inert]")) {
+      noteRow.focus({ preventScroll: true });
+      focusRestoreRef.current = null;
+    }
+  }, [virtualGroupTransition, virtualList.visibleRows]);
 
   const keyboardNotes = useMemo(
     () =>
@@ -1259,6 +1383,117 @@ export const NoteListPanel = memo(function NoteListPanel({
   const noteListStyle: CSSProperties | undefined = virtualList.isVirtualized
     ? { overflowAnchor: "none" }
     : undefined;
+  const activeMotionGroup = transitionDataChanged ? null : virtualList.transitionGroup;
+  const motionGroupHeader = activeMotionGroup
+    ? virtualList.visibleRows.find(({ index }) => index === activeMotionGroup.start)
+    : undefined;
+  const motionContentTop = activeMotionGroup
+    ? virtualList.rowTop(activeMotionGroup.start + 1) - 4
+    : 0;
+  const motionAfterTop = activeMotionGroup ? virtualList.rowTop(activeMotionGroup.end) : 0;
+  const motionRows = activeMotionGroup
+    ? partitionVirtualGroupRows(
+        virtualList.visibleRows,
+        activeMotionGroup.start,
+        activeMotionGroup.end,
+        motionContentTop,
+        motionAfterTop,
+      )
+    : null;
+  const renderVirtualNote = (note: NoteSummary, rowIndex: number, top: number) => (
+    <NoteListRow
+      key={note.id}
+      note={note}
+      rowIndex={sortedIndexById.get(note.id) ?? rowIndex}
+      setSize={listSize}
+      rowRef={virtualList.getRowRef(note.id)}
+      rowStyle={virtualList.rowStyle(top)}
+      isSelected={selectedIds.has(note.id)}
+      selectedIds={selectedIds}
+      isActive={selectedId === note.id && !isMobileViewport}
+      showNotebook
+      onToggleFavorite={onToggleFavoriteNote}
+      onSelect={onSelect}
+      isMobileViewport={isMobileViewport}
+      isTrashView={view === "trash"}
+      trashBusy={trashBusy}
+      onNoteSwipeAction={onNoteSwipeAction}
+      open={swipeActions.openId === note.id}
+      setOpenId={swipeActions.setOpenId}
+      isDragging={draggingNoteIds?.has(note.id) ?? false}
+      onDragStart={handleRowDragStart}
+      onDragEnd={handleRowDragEnd}
+    />
+  );
+  const renderVirtualGroupMarker = (
+    row: Extract<VirtualNoteListRow, { kind: "group" }>,
+    top: number,
+  ) => {
+    const isStickyMarker = virtualStickyGroup?.id === row.group.id;
+    const isFocusedMarker = virtualList.pinnedRowId === row.id;
+    const hideMarker = isStickyMarker && !isFocusedMarker;
+    const markerTransition =
+      virtualGroupTransition?.groupId === row.group.id ? virtualGroupTransition.phase : null;
+    const markerCollapsed =
+      markerTransition === "collapsing" || markerTransition === "preparing-expansion"
+        ? true
+        : markerTransition === "expanding" || markerTransition === "preparing-collapse"
+          ? false
+          : collapsedGroups.has(row.group.id);
+    return (
+      <li
+        key={row.id}
+        ref={virtualList.getRowRef(row.id)}
+        data-note-id={row.id}
+        className={`note-list-virtual-group-marker${row.firstGroup ? " is-first" : ""}${markerCollapsed ? " is-collapsed" : ""}${hideMarker ? " is-sticky-marker" : ""}`}
+        role="presentation"
+        aria-hidden={hideMarker || undefined}
+        inert={hideMarker || undefined}
+        style={virtualList.rowStyle(top)}
+      >
+        <button
+          type="button"
+          className="note-list-virtual-group-toggle"
+          aria-expanded={!markerCollapsed}
+          aria-controls="note-list-virtual-rows"
+          onClick={() => toggleVirtualGroup(row.group)}
+        >
+          <ChevronDown className="note-list-group-chevron" size={13} aria-hidden="true" />
+          <span className="note-list-group-title">{row.group.title}</span>
+          <span className="note-list-group-count">{row.group.count}</span>
+        </button>
+      </li>
+    );
+  };
+  const handleVirtualListFocusCapture = (event: ReactFocusEvent<HTMLDivElement>) => {
+    virtualList.onFocusCapture(event);
+    const active = event.target;
+    if (!(active instanceof HTMLElement)) {
+      focusRestoreRef.current = null;
+      return;
+    }
+    const row = active.closest<HTMLElement>("[data-note-id]");
+    if (!row?.dataset.noteId || row.dataset.noteId.startsWith("group-marker:")) {
+      focusRestoreRef.current = null;
+      return;
+    }
+    const button = active.closest<HTMLButtonElement>("button");
+    if (!button) {
+      focusRestoreRef.current = null;
+      return;
+    }
+    const selector = button.classList.contains("note-row")
+      ? ".note-row"
+      : button.classList.contains("note-row-star-btn")
+        ? ".note-row-star-btn"
+        : button.classList.contains("swipe-action-button")
+          ? `.swipe-action-button:nth-of-type(${Array.from(button.parentElement?.children ?? []).indexOf(button) + 1})`
+          : null;
+    focusRestoreRef.current = selector ? { noteId: row.dataset.noteId, selector } : null;
+  };
+  const handleVirtualListBlurCapture = (event: ReactFocusEvent<HTMLDivElement>) => {
+    if (!virtualGroupTransition) virtualList.onBlurCapture(event);
+  };
   return (
     <section
       ref={panelRef}
@@ -1333,8 +1568,8 @@ export const NoteListPanel = memo(function NoteListPanel({
                 ref={setNoteListRef}
                 style={noteListStyle}
                 onKeyDown={handleNoteListKeyDown}
-                onFocusCapture={virtualList.onFocusCapture}
-                onBlurCapture={virtualList.onBlurCapture}
+                onFocusCapture={handleVirtualListFocusCapture}
+                onBlurCapture={handleVirtualListBlurCapture}
               >
                 {virtualList.isVirtualized && virtualStickyGroup && (
                   <div
@@ -1441,120 +1676,113 @@ export const NoteListPanel = memo(function NoteListPanel({
                 ) : (
                   <ul
                     id={virtualList.isVirtualized ? "note-list-virtual-rows" : undefined}
-                    className={`note-list-items${virtualGroupTransition ? ` is-${virtualGroupTransition.phase}` : ""}`}
+                    className="note-list-items"
                     role="list"
                     style={listStyle}
                   >
-                    {virtualList.visibleRows.map(({ row, index, top }) => {
-                      const animatedTop =
-                        virtualList.collapsingGroup && index >= virtualList.collapsingGroup.end
-                          ? top - virtualList.collapsingGroup.height
-                          : top;
-                      if (row.kind === "group") {
-                        const isStickyMarker = virtualStickyGroup?.id === row.group.id;
-                        const isFocusedMarker = virtualList.pinnedRowId === row.id;
-                        const hideMarker = isStickyMarker && !isFocusedMarker;
-                        const markerTransition =
-                          virtualGroupTransition?.groupId === row.group.id
-                            ? virtualGroupTransition.phase
-                            : null;
-                        const markerCollapsed =
-                          markerTransition === "collapsing"
-                            ? true
-                            : markerTransition === "expanding" || markerTransition === "reversing"
-                              ? false
-                              : collapsedGroups.has(row.group.id);
-                        return (
+                    {activeMotionGroup && motionRows && motionGroupHeader?.row.kind === "group" ? (
+                      <>
+                        {motionRows.before.map(({ row, index, top }) =>
+                          row.kind === "group"
+                            ? renderVirtualGroupMarker(row, top)
+                            : renderVirtualNote(row.note, index, top),
+                        )}
+                        {renderVirtualGroupMarker(motionGroupHeader.row, motionGroupHeader.top)}
+                        <li
+                          key={`virtual-group-motion-${virtualGroupTransition?.groupId}`}
+                          className="virtual-group-motion note-list-virtual-group-motion"
+                          role="presentation"
+                          style={virtualList.rowStyle(motionContentTop)}
+                        >
+                          <div
+                            className={`virtual-group-motion-clip note-list-virtual-group-clip${virtualGroupTransition?.phase === "collapsing" || virtualGroupTransition?.phase === "preparing-expansion" ? " is-collapsed" : ""}`}
+                            inert={virtualGroupTransition?.phase === "collapsing" || undefined}
+                          >
+                            <ul
+                              className="virtual-group-motion-clip-content note-list-virtual-group-content"
+                              role="list"
+                              style={{ height: `${activeMotionGroup.height}px` }}
+                            >
+                              {motionRows.group.map(({ row, index, localTop }) =>
+                                row.kind === "note"
+                                  ? renderVirtualNote(row.note, index, localTop)
+                                  : null,
+                              )}
+                            </ul>
+                          </div>
+                          <ul
+                            className="virtual-group-motion-after note-list-virtual-group-after"
+                            role="list"
+                            style={{
+                              height: `${Math.max(0, virtualList.totalHeight - motionAfterTop + (hasLoadMoreRow ? 76 : 0))}px`,
+                            }}
+                          >
+                            {motionRows.after.map(({ row, index, localTop }) =>
+                              row.kind === "group"
+                                ? renderVirtualGroupMarker(row, localTop)
+                                : renderVirtualNote(row.note, index, localTop),
+                            )}
+                            {hasLoadMoreRow && (
+                              <li
+                                ref={loadMoreSentinelRef}
+                                className="note-list-load-more-item"
+                                style={{
+                                  position: "absolute",
+                                  insetInline: 0,
+                                  top: 0,
+                                  transform: `translateY(${virtualList.totalHeight - motionAfterTop}px)`,
+                                }}
+                              >
+                                <button
+                                  className="secondary-button note-list-load-more-button"
+                                  type="button"
+                                  onClick={onLoadMore}
+                                  disabled={isLoadingMore}
+                                >
+                                  {isLoadingMore
+                                    ? "正在加载……"
+                                    : `加载更多（已显示 ${notes.length} / ${total}）`}
+                                </button>
+                              </li>
+                            )}
+                          </ul>
+                        </li>
+                      </>
+                    ) : (
+                      <>
+                        {virtualList.visibleRows.map(({ row, index, top }) =>
+                          row.kind === "group"
+                            ? renderVirtualGroupMarker(row, top)
+                            : renderVirtualNote(row.note, index, top),
+                        )}
+                        {hasLoadMoreRow && (
                           <li
-                            key={row.id}
-                            ref={virtualList.getRowRef(row.id)}
-                            data-note-id={row.id}
-                            className={`note-list-virtual-group-marker${row.firstGroup ? " is-first" : ""}${markerCollapsed ? " is-collapsed" : ""}${hideMarker ? " is-sticky-marker" : ""}`}
-                            role="presentation"
-                            aria-hidden={hideMarker || undefined}
-                            inert={hideMarker || undefined}
-                            style={virtualList.rowStyle(animatedTop)}
+                            ref={loadMoreSentinelRef}
+                            className="note-list-load-more-item"
+                            style={
+                              virtualList.isVirtualized
+                                ? {
+                                    position: "absolute",
+                                    insetInline: 0,
+                                    top: 0,
+                                    transform: `translateY(${virtualList.totalHeight}px)`,
+                                  }
+                                : undefined
+                            }
                           >
                             <button
+                              className="secondary-button note-list-load-more-button"
                               type="button"
-                              className="note-list-virtual-group-toggle"
-                              aria-expanded={!markerCollapsed}
-                              aria-controls="note-list-virtual-rows"
-                              onClick={() => toggleVirtualGroup(row.group)}
+                              onClick={onLoadMore}
+                              disabled={isLoadingMore}
                             >
-                              <ChevronDown
-                                className="note-list-group-chevron"
-                                size={13}
-                                aria-hidden="true"
-                              />
-                              <span className="note-list-group-title">{row.group.title}</span>
-                              <span className="note-list-group-count">{row.group.count}</span>
+                              {isLoadingMore
+                                ? "正在加载……"
+                                : `加载更多（已显示 ${notes.length} / ${total}）`}
                             </button>
                           </li>
-                        );
-                      }
-                      const note = row.note;
-                      return (
-                        <NoteListRow
-                          key={note.id}
-                          note={note}
-                          rowIndex={sortedIndexById.get(note.id) ?? index}
-                          setSize={listSize}
-                          rowRef={
-                            virtualList.isVirtualized ? virtualList.getRowRef(note.id) : undefined
-                          }
-                          rowStyle={virtualList.rowStyle(animatedTop)}
-                          isSelected={selectedIds.has(note.id)}
-                          selectedIds={selectedIds}
-                          isActive={selectedId === note.id && !isMobileViewport}
-                          showNotebook
-                          onToggleFavorite={onToggleFavoriteNote}
-                          onSelect={onSelect}
-                          isMobileViewport={isMobileViewport}
-                          isTrashView={view === "trash"}
-                          trashBusy={trashBusy}
-                          onNoteSwipeAction={onNoteSwipeAction}
-                          open={swipeActions.openId === note.id}
-                          setOpenId={swipeActions.setOpenId}
-                          isDragging={draggingNoteIds?.has(note.id) ?? false}
-                          groupMotion={
-                            virtualTransitionNoteIds.has(note.id) &&
-                            (virtualGroupTransition?.phase === "collapsing" ||
-                              virtualGroupTransition?.phase === "expanding")
-                              ? virtualGroupTransition.phase
-                              : undefined
-                          }
-                          onDragStart={handleRowDragStart}
-                          onDragEnd={handleRowDragEnd}
-                        />
-                      );
-                    })}
-                    {hasLoadMoreRow && (
-                      <li
-                        ref={loadMoreSentinelRef}
-                        className="note-list-load-more-item"
-                        style={
-                          virtualList.isVirtualized
-                            ? {
-                                position: "absolute",
-                                insetInline: 0,
-                                top: 0,
-                                transform: `translateY(${virtualList.totalHeight - (virtualList.collapsingGroup?.height ?? 0)}px)`,
-                              }
-                            : undefined
-                        }
-                      >
-                        <button
-                          className="secondary-button note-list-load-more-button"
-                          type="button"
-                          onClick={onLoadMore}
-                          disabled={isLoadingMore}
-                        >
-                          {isLoadingMore
-                            ? "正在加载……"
-                            : `加载更多（已显示 ${notes.length} / ${total}）`}
-                        </button>
-                      </li>
+                        )}
+                      </>
                     )}
                   </ul>
                 )}
