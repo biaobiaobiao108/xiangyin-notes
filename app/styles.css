@@ -1173,11 +1173,9 @@ button.save-status:hover { text-decoration: underline; }
 .table-edge-drag-handle { position: relative; display: grid; flex: 1 1 auto; min-inline-size: 24px; min-block-size: 24px; place-items: center; padding: 0; border: 0; border-radius: inherit; background: transparent; cursor: grab; touch-action: none; }
 .table-edge-rail--columns .table-edge-drag-handle { width: 100%; height: 100%; }
 .table-edge-rail--rows .table-edge-drag-handle { width: 100%; height: 100%; }
-.table-edge-grip { --table-edge-mark: var(--muted); position: relative; display: block; border: 1px solid var(--border-strong); border-radius: 999px; background-color: var(--surface-glass); box-shadow: none; pointer-events: none; transition: background-color var(--motion-fast) var(--motion-ease-out), border-color var(--motion-fast) var(--motion-ease-out), transform var(--motion-fast) var(--motion-ease-out); }
-.table-edge-grip::before { position: absolute; top: calc(50% - 1.5px); left: 50%; width: 4px; height: 1px; background: var(--table-edge-mark); box-shadow: 0 3px var(--table-edge-mark); content: ""; transform: translateX(-50%); }
-.table-edge-rail--columns .table-edge-grip { width: 8px; height: 24px; }
-.table-edge-rail--rows .table-edge-grip { width: 24px; height: 8px; }
-.table-edge-rail--rows .table-edge-grip::before { top: 50%; left: calc(50% - 1.5px); width: 1px; height: 4px; box-shadow: 3px 0 var(--table-edge-mark); transform: translateY(-50%); }
+.table-edge-grip { --table-edge-mark: var(--muted); display: block; border: 1px solid var(--border-strong); border-radius: 999px; background-color: var(--surface-glass); background-image: linear-gradient(var(--table-edge-mark), var(--table-edge-mark)), linear-gradient(var(--table-edge-mark), var(--table-edge-mark)), linear-gradient(var(--table-edge-mark), var(--table-edge-mark)); background-repeat: no-repeat; background-size: 4px 1px; box-shadow: none; pointer-events: none; transition: background-color var(--motion-fast) var(--motion-ease-out), border-color var(--motion-fast) var(--motion-ease-out), transform var(--motion-fast) var(--motion-ease-out); }
+.table-edge-rail--columns .table-edge-grip { width: 8px; height: 28px; background-position: center calc(50% - 4px), center, center calc(50% + 4px); }
+.table-edge-rail--rows .table-edge-grip { width: 28px; height: 8px; background-position: calc(50% - 4px) center, center, calc(50% + 4px) center; background-size: 1px 4px; }
 .table-edge-direction { position: absolute; display: block; width: 13px; height: 8px; color: var(--soft-muted); opacity: 0.8; pointer-events: none; }
 .table-edge-rail--columns .table-edge-direction { top: 50%; background: repeating-linear-gradient(to right, currentColor 0 1px, transparent 1px 3px) 50% 50% / 8px 1px no-repeat; transform: translateY(-50%); }
 .table-edge-rail--columns .table-edge-direction--decrease { right: calc(50% + 5px); }
