@@ -32,7 +32,17 @@ export type MeasuredCardHeight = {
 const DESKTOP_MIN_LANE_WIDTH = 280;
 const DESKTOP_MAX_LANES = 3;
 const MAX_ESTIMATED_TITLE_LINES = 3;
-const estimatedHeights = new WeakMap<NoteSummary, { key: string; height: number }>();
+const estimatedHeights = new WeakMap<
+  NoteSummary,
+  {
+    key: string;
+    height: number;
+    title: string;
+    preview: string;
+    titleLineLengths: number[];
+    previewLineLengths: number[];
+  }
+>();
 
 export function cardLaneConfig(
   contentWidth: number,
@@ -62,12 +72,17 @@ function visualLength(value: string) {
   return length;
 }
 
-function estimateLines(value: string, width: number, fontSize: number, maxLines: number) {
-  if (!value) return 1;
+function textLineLengths(value: string) {
+  return value ? value.split(/\r?\n/u).map(visualLength) : [];
+}
+
+function estimateLines(lineLengths: number[], width: number, fontSize: number, maxLines: number) {
+  if (lineLengths.length === 0) return 1;
   const charactersPerLine = Math.max(8, width / (fontSize * 0.56));
-  const lines = value
-    .split(/\r?\n/u)
-    .reduce((sum, line) => sum + Math.max(1, Math.ceil(visualLength(line) / charactersPerLine)), 0);
+  const lines = lineLengths.reduce(
+    (sum, length) => sum + Math.max(1, Math.ceil(length / charactersPerLine)),
+    0,
+  );
   return Math.min(maxLines, lines);
 }
 
@@ -76,16 +91,25 @@ export function estimateCardHeight(
   laneWidth: number,
   isMobileViewport: boolean,
 ) {
+  const key = `${laneWidth}:${isMobileViewport ? 1 : 0}:${note.thumbnail ? 1 : 0}`;
+  const cached = estimatedHeights.get(note);
+  const sameText = cached?.title === note.title && cached.preview === note.preview;
+  if (sameText && cached.key === key) return cached.height;
+  // 宽度动画每帧仍按实际宽度排版，只复用不随宽度变化的逐行文本长度。
+  const titleLineLengths = sameText
+    ? cached.titleLineLengths
+    : textLineLengths(note.title || "未命名笔记");
+  const previewLineLengths = sameText ? cached.previewLineLengths : textLineLengths(note.preview);
   const horizontalPadding = isMobileViewport ? 24 : 44;
   const width = Math.max(1, laneWidth - horizontalPadding);
   const titleLines = estimateLines(
-    note.title || "未命名笔记",
+    titleLineLengths,
     width,
     isMobileViewport ? 16 : 17,
     MAX_ESTIMATED_TITLE_LINES,
   );
   const previewLines = estimateLines(
-    note.preview,
+    previewLineLengths,
     width,
     isMobileViewport ? 13 : 14,
     isMobileViewport ? 6 : 10,
@@ -96,22 +120,18 @@ export function estimateCardHeight(
   const footerHeight = isMobileViewport ? 42 : 34;
   const bodyPadding = isMobileViewport ? 26 : 38;
   const bodyGaps = isMobileViewport ? 20 : 24;
-  return Math.ceil(
+  const height = Math.ceil(
     coverHeight + titleHeight + previewHeight + footerHeight + bodyPadding + bodyGaps + 4,
   );
-}
-
-function cachedEstimatedCardHeight(
-  note: NoteSummary,
-  laneWidth: number,
-  isMobileViewport: boolean,
-) {
-  const key = `${laneWidth}:${isMobileViewport ? 1 : 0}`;
-  const cached = estimatedHeights.get(note);
-  if (cached?.key === key) return cached.height;
-  const estimated = estimateCardHeight(note, laneWidth, isMobileViewport);
-  estimatedHeights.set(note, { key, height: estimated });
-  return estimated;
+  estimatedHeights.set(note, {
+    key,
+    height,
+    title: note.title,
+    preview: note.preview,
+    titleLineLengths,
+    previewLineLengths,
+  });
+  return height;
 }
 
 /** Assign lanes from stable estimates; later DOM measurements refine positions without moving cards between lanes. */
@@ -127,7 +147,7 @@ export function assignCardMasonryLanes(
     for (let candidate = 1; candidate < laneHeights.length; candidate += 1) {
       if (laneHeights[candidate] < laneHeights[laneIndex]) laneIndex = candidate;
     }
-    const estimatedHeight = cachedEstimatedCardHeight(note, config.laneWidth, isMobileViewport);
+    const estimatedHeight = estimateCardHeight(note, config.laneWidth, isMobileViewport);
     lanes[laneIndex].push({ note, index, estimatedHeight });
     laneHeights[laneIndex] += estimatedHeight + config.gap;
   });

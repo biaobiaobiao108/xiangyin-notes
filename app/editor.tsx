@@ -1708,12 +1708,15 @@ export function NoteEditor({
 
     let activeFrame: number | null = null;
     const getCurrentHeadings = () => {
-      const domHeadings = getOutlineHeadingElements(root);
+      // 元素映射有效时直接复用；缺失或被替换后才扫描正文补齐。
+      let domHeadings: HTMLElement[] | undefined;
       const headings = new Map<string, HTMLElement>();
       for (const [index, item] of outlineItemsRef.current.entries()) {
         const mappedElement = outlineHeadingElementsRef.current.get(item.id);
         const element =
-          mappedElement && root.contains(mappedElement) ? mappedElement : domHeadings[index];
+          mappedElement && root.contains(mappedElement)
+            ? mappedElement
+            : (domHeadings ??= getOutlineHeadingElements(root))[index];
         if (element) {
           headings.set(item.id, element);
           if (mappedElement !== element) outlineHeadingElementsRef.current.set(item.id, element);
