@@ -749,13 +749,13 @@ export function TasksPanel({
               </div>
             )}
           </div>
+          <FloatingScrollbar
+            scrollTargetRef={listRef}
+            controlsId="tasks-scroll-region"
+            ariaLabel="任务列表滚动条"
+            placement="right"
+          />
         </div>
-        <FloatingScrollbar
-          scrollTargetRef={listRef}
-          controlsId="tasks-scroll-region"
-          ariaLabel="任务列表滚动条"
-          placement="right"
-        />
       </div>
     </section>
   );
