@@ -572,8 +572,8 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .tasks-virtual-group-marker.is-sticky-marker { visibility: hidden; }
 .tasks-virtual-group-marker.is-collapsed .tasks-note-group-chevron { transform: rotate(-90deg); }
 .tasks-virtual-group-marker small { overflow: hidden; max-width: 42%; flex: 0 1 auto; color: var(--soft-muted); font-size: .7rem; font-weight: 450; text-overflow: ellipsis; white-space: nowrap; }
-.virtual-group-motion-clip { display: grid; grid-template-rows: 1fr; overflow: hidden; transition: grid-template-rows var(--motion-group) var(--motion-group-ease); }
-.virtual-group-motion-clip.is-collapsed { grid-template-rows: 0fr; }
+.virtual-group-motion-clip { height: var(--group-content-height); overflow: hidden; contain: layout paint; transition: height var(--motion-group) var(--motion-group-ease); }
+.virtual-group-motion-clip.is-collapsed { height: 0; }
 .virtual-group-motion-clip-content { min-height: 0; overflow: hidden; }
 .tasks-virtual-group-content { position: relative; margin: 0; padding: 0; list-style: none; }
 .virtual-group-motion-after, .tasks-virtual-group-after-rows { position: relative; margin: 0; padding: 0; list-style: none; }
@@ -812,9 +812,11 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
   color: var(--soft-muted);
   opacity: 0.8;
 }
-.note-list-group-content { display: grid; grid-template-rows: 1fr; overflow-anchor: none; padding-block: 4px; transition: grid-template-rows var(--motion-group) var(--motion-group-ease), padding-block var(--motion-group) var(--motion-group-ease); }
-.note-list-group-content.is-collapsed { grid-template-rows: 0fr; padding-block: 0; }
+.note-list-group-content { display: grid; grid-template-rows: 1fr; overflow-anchor: none; transition: grid-template-rows var(--motion-group) var(--motion-group-ease); }
+.note-list-group-content.is-collapsed { grid-template-rows: 0fr; }
 .note-list-group-content > ul { min-height: 0; overflow: hidden; padding: 0; }
+/* 间距随内容一起裁切，避免收起时顶部 padding 缩小把笔记向上拉动。 */
+.note-list-group-content > ul::before, .note-list-group-content > ul::after { display: block; height: 4px; content: ""; }
 .note-list-virtual-group-marker { z-index: 3; display: flex; height: 30px; align-items: center; background: var(--surface-glass); color: var(--soft-muted); font-size: 0.72rem; font-weight: 600; letter-spacing: 0.04em; }
 .note-list-virtual-group-marker .note-list-virtual-group-toggle { padding: 8px 14px 4px; }
 .note-list-virtual-group-marker.is-first { height: 0; }
@@ -3002,3 +3004,6 @@ dialog::backdrop {
     scroll-behavior: auto;
   }
 }
+
+/* 吸顶标题下的内容持续移动，使用实色避免 WebKit 每帧重新采样背景模糊。 */
+.note-list-group-header, .tasks-note-group-header { background: var(--surface); backdrop-filter: none; -webkit-backdrop-filter: none; }

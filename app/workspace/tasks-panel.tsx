@@ -830,6 +830,11 @@ export function TasksPanel({
                               >
                                 <div
                                   className={`virtual-group-motion-clip tasks-virtual-group-clip${clipCollapsed ? " is-collapsed" : ""}`}
+                                  style={
+                                    {
+                                      "--group-content-height": `${group.height}px`,
+                                    } as CSSProperties
+                                  }
                                   inert={clipCollapsed || undefined}
                                 >
                                   <div className="virtual-group-motion-clip-content">

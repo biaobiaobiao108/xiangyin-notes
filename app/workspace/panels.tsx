@@ -1696,6 +1696,11 @@ export const NoteListPanel = memo(function NoteListPanel({
                         >
                           <div
                             className={`virtual-group-motion-clip note-list-virtual-group-clip${virtualGroupTransition?.phase === "collapsing" || virtualGroupTransition?.phase === "preparing-expansion" ? " is-collapsed" : ""}`}
+                            style={
+                              {
+                                "--group-content-height": `${activeMotionGroup.height}px`,
+                              } as CSSProperties
+                            }
                             inert={virtualGroupTransition?.phase === "collapsing" || undefined}
                           >
                             <div className="virtual-group-motion-clip-content">
