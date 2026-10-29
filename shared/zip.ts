@@ -73,9 +73,8 @@ async function* zipEntryChunks(entry: ZipStreamEntry) {
 }
 
 /**
- * Streams a ZIP archive using data descriptors so file bytes never need to be
- * retained while the central directory is being built. The archive remains
- * ZIP32-compatible; callers should enforce a total size below 4 GiB.
+ * Streams a ZIP32 archive using data descriptors, retaining only central
+ * directory metadata. Values that require ZIP64 are rejected.
  */
 export async function* createZipStream(
   entries: AsyncIterable<ZipStreamEntry>,
@@ -86,11 +85,13 @@ export async function* createZipStream(
   let offset = 0;
 
   for await (const entry of entries) {
-    if (records.length >= 0xffff) throw new Error("ZIP_ENTRY_LIMIT_EXCEEDED");
+    // 0xffff is the ZIP64 sentinel for the entry count.
+    if (records.length >= 0xfffe) throw new Error("ZIP_ENTRY_LIMIT_EXCEEDED");
     const nameBytes = encoder.encode(entry.name.replaceAll("\\", "/"));
     if (nameBytes.length > 0xffff) throw new Error("ZIP_FILENAME_TOO_LONG");
     const { dosTime, dosDate } = dosDateTime(entry.mtime ?? new Date());
     const localOffset = offset;
+    if (localOffset >= ZIP32_MAX) throw new Error("ZIP32_SIZE_LIMIT_EXCEEDED");
     const localHeader = new Uint8Array(30 + nameBytes.length);
     const localView = new DataView(localHeader.buffer);
     localView.setUint32(0, 0x04034b50, true);
@@ -105,6 +106,7 @@ export async function* createZipStream(
     localView.setUint16(26, nameBytes.length, true);
     localView.setUint16(28, 0, true);
     localHeader.set(nameBytes, 30);
+    if (offset + localHeader.length >= ZIP32_MAX) throw new Error("ZIP32_SIZE_LIMIT_EXCEEDED");
     yield localHeader;
     offset += localHeader.length;
 
@@ -112,9 +114,12 @@ export async function* createZipStream(
     let size = 0;
     for await (const chunk of zipEntryChunks(entry)) {
       if (!(chunk instanceof Uint8Array)) throw new Error("ZIP_INVALID_CHUNK");
-      size += chunk.byteLength;
-      offset += chunk.byteLength;
-      if (size > ZIP32_MAX || offset > ZIP32_MAX) throw new Error("ZIP32_SIZE_LIMIT_EXCEEDED");
+      const nextSize = size + chunk.byteLength;
+      const nextOffset = offset + chunk.byteLength;
+      if (nextSize >= ZIP32_MAX || nextOffset >= ZIP32_MAX)
+        throw new Error("ZIP32_SIZE_LIMIT_EXCEEDED");
+      size = nextSize;
+      offset = nextOffset;
       crc = updateCrc32(crc, chunk);
       yield chunk;
     }
@@ -124,6 +129,7 @@ export async function* createZipStream(
     descriptorView.setUint32(4, (crc ^ 0xffffffff) >>> 0, true);
     descriptorView.setUint32(8, size, true);
     descriptorView.setUint32(12, size, true);
+    if (offset + descriptor.length >= ZIP32_MAX) throw new Error("ZIP32_SIZE_LIMIT_EXCEEDED");
     yield descriptor;
     offset += descriptor.length;
 
@@ -138,6 +144,7 @@ export async function* createZipStream(
   }
 
   const centralOffset = offset;
+  if (centralOffset >= ZIP32_MAX) throw new Error("ZIP32_SIZE_LIMIT_EXCEEDED");
   for (const record of records) {
     const centralHeader = new Uint8Array(46 + record.nameBytes.length);
     const view = new DataView(centralHeader.buffer);
@@ -159,12 +166,13 @@ export async function* createZipStream(
     view.setUint32(38, 0, true);
     view.setUint32(42, record.offset, true);
     centralHeader.set(record.nameBytes, 46);
+    if (offset + centralHeader.length >= ZIP32_MAX) throw new Error("ZIP32_SIZE_LIMIT_EXCEEDED");
     centralChunks.push(centralHeader);
     offset += centralHeader.length;
   }
 
   const centralSize = offset - centralOffset;
-  if (centralOffset > ZIP32_MAX || centralSize > ZIP32_MAX)
+  if (centralOffset >= ZIP32_MAX || centralSize >= ZIP32_MAX)
     throw new Error("ZIP32_SIZE_LIMIT_EXCEEDED");
   const eocd = new Uint8Array(22);
   const eocdView = new DataView(eocd.buffer);
@@ -177,6 +185,7 @@ export async function* createZipStream(
   eocdView.setUint32(16, centralOffset, true);
   eocdView.setUint16(20, 0, true);
 
+  if (offset + eocd.length >= ZIP32_MAX) throw new Error("ZIP32_SIZE_LIMIT_EXCEEDED");
   for (const centralHeader of centralChunks) yield centralHeader;
   yield eocd;
 }

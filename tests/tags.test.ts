@@ -73,11 +73,22 @@ describe("note tags", () => {
     ).toEqual(["tag"]);
   });
 
+  test("ignores hashtags in indented code for extraction, preservation, and removal", () => {
+    const markdown = "    #codeonly\n\n正文 #example";
+
+    expect(extractTags(markdown)).toEqual(["example"]);
+    expect(preserveEscapedHashtagsForEditor("    \\#literal")).toBe("    \\#literal");
+    expect(removeTagsFromMarkdown(markdown, ["codeonly", "example"])).toBe("    #codeonly\n\n正文");
+  });
+
   test("ignores fenced code blocks inside nested blockquotes when extracting and removing tags", () => {
     const markdown = "> ```ts\n> #示例\n> ```\n> > ~~~txt\n> > #嵌套示例\n> > ~~~\n> #引用标签";
+    const unclosedLookingFence =
+      "> ```ts\n> #隐藏\n> ```not-closing\n> #仍隐藏\n> ```\n> #引用标签";
 
     expect(extractTags(markdown)).toEqual(["引用标签"]);
     expect(removeTagsFromMarkdown(markdown, ["示例", "嵌套示例"])).toBe(markdown);
+    expect(extractTags(unclosedLookingFence)).toEqual(["引用标签"]);
   });
 
   test("ignores inline code spans, including multiline and mixed backtick runs", () => {

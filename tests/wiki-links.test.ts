@@ -88,6 +88,29 @@ const code = "[[代码中的伪链接]]";
     expect(mentions[1].snippet).toContain("结尾再次提到 象映笔记 结束");
   });
 
+  test("keeps matches at exclusion boundaries while scanning many intervals", () => {
+    const markdown = [
+      "Alpha",
+      "`Alpha`",
+      "Alpha",
+      "[Alpha](https://example.com)",
+      "Alpha",
+      "[[Alpha]]",
+      "Alpha",
+      "",
+      "    Alpha",
+      "",
+      "Alpha",
+    ].join("\n");
+
+    expect(
+      findUnlinkedMentionsInMarkdown(markdown, "Alpha").map((match) => match.matchText),
+    ).toEqual(["Alpha", "Alpha", "Alpha", "Alpha", "Alpha"]);
+
+    const repeatedIntervals = Array.from({ length: 128 }, () => "Alpha\n`Alpha`\nAlpha").join("\n");
+    expect(findUnlinkedMentionsInMarkdown(repeatedIntervals, "Alpha")).toHaveLength(256);
+  });
+
   test("converts unlinked mention to wiki-link", () => {
     const md = "我们来讨论 象映笔记 的新功能。";
     const target = "象映笔记";

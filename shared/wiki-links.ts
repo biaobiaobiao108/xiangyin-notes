@@ -115,11 +115,20 @@ export function extractWikiLinks(markdown: string): WikiLinkMatch[] {
 
   const codeFences = findCodeFenceIntervals(markdown);
   const inlineCodes = findInlineCodeIntervals(markdown, codeFences);
-  const isInsideCode = (start: number, end: number) => {
-    return (
-      codeFences.some((f) => start >= f.start && end <= f.end) ||
-      inlineCodes.some((c) => start >= c.start && end <= c.end)
-    );
+  let codeFenceIndex = 0;
+  let inlineCodeIndex = 0;
+  const isContainedIn = (
+    intervals: MarkdownInterval[],
+    index: number,
+    start: number,
+    end: number,
+  ) => {
+    while (index < intervals.length && intervals[index]!.end <= start) index += 1;
+    const interval = intervals[index];
+    return {
+      index,
+      contains: Boolean(interval && start >= interval.start && end <= interval.end),
+    };
   };
 
   const matches: WikiLinkMatch[] = [];
@@ -134,7 +143,11 @@ export function extractWikiLinks(markdown: string): WikiLinkMatch[] {
     const end = start + raw.length;
 
     if (!target) continue;
-    if (isInsideCode(start, end)) continue;
+    const fenceResult = isContainedIn(codeFences, codeFenceIndex, start, end);
+    codeFenceIndex = fenceResult.index;
+    const inlineResult = isContainedIn(inlineCodes, inlineCodeIndex, start, end);
+    inlineCodeIndex = inlineResult.index;
+    if (fenceResult.contains || inlineResult.contains) continue;
 
     matches.push({
       raw,
@@ -289,18 +302,27 @@ export function findUnlinkedMentionsInMarkdown(
   // Sort intervals by start for fast pruning
   excludedIntervals.sort((a, b) => a.start - b.start);
 
-  // Check if range overlaps with excluded
-  const isExcluded = (start: number, end: number) => {
-    for (const interval of excludedIntervals) {
-      if (interval.start >= end) break;
-      if (start < interval.end && end > interval.start) return true;
+  // Coalesce the union so each candidate can advance through exclusions once.
+  const mergedIntervals: MarkdownInterval[] = [];
+  for (const interval of excludedIntervals) {
+    const previous = mergedIntervals[mergedIntervals.length - 1];
+    if (previous && interval.start <= previous.end) {
+      previous.end = Math.max(previous.end, interval.end);
+    } else {
+      mergedIntervals.push({ ...interval });
     }
-    return false;
-  };
+  }
 
   const results: UnlinkedMentionMatch[] = [];
+  let excludedIndex = 0;
   for (const raw of rawMatches) {
-    if (isExcluded(raw.start, raw.end)) continue;
+    while (
+      excludedIndex < mergedIntervals.length &&
+      mergedIntervals[excludedIndex]!.end <= raw.start
+    )
+      excludedIndex += 1;
+    const interval = mergedIntervals[excludedIndex];
+    if (interval && interval.start < raw.end && raw.start < interval.end) continue;
 
     results.push({
       start: raw.start,

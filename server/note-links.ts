@@ -48,6 +48,7 @@ function insertNoteLinks(
   userId: string,
   sourceNoteId: string,
   contentMarkdown: string,
+  links: ReturnType<typeof extractWikiLinks>,
   targets: Map<string, string>,
   createdAt: number,
 ) {
@@ -55,7 +56,7 @@ function insertNoteLinks(
     "INSERT INTO note_links (id, user_id, source_note_id, target_title, target_title_normalized, target_note_id, snippet, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
   );
   const seen = new Set<string>();
-  for (const link of extractWikiLinks(contentMarkdown)) {
+  for (const link of links) {
     const key = normalizeLinkTitle(link.target);
     if (!key || seen.has(key)) continue;
     seen.add(key);
@@ -99,7 +100,7 @@ export function syncNoteLinks(
   const links = extractWikiLinks(contentMarkdown);
   const targetKeys = new Set(links.map((link) => normalizeLinkTitle(link.target)).filter(Boolean));
   const targets = activeTitleMap(activeTitlesForKeys(database, userId, targetKeys));
-  insertNoteLinks(database, userId, sourceNoteId, contentMarkdown, targets, createdAt);
+  insertNoteLinks(database, userId, sourceNoteId, contentMarkdown, links, targets, createdAt);
 }
 
 export function resolveNoteLinksForUser(database: SqliteDatabase, userId: string) {

@@ -1,3 +1,5 @@
+import { findCodeFenceIntervals } from "./wiki-links";
+
 const TAG_CHARACTER_PATTERN = /[\p{L}\p{N}_-]/u;
 const TAG_QUERY_PATTERN = /^#([\p{L}\p{N}_-]+)$/u;
 const WHITESPACE_CHARACTER_PATTERN = /\s/u;
@@ -6,10 +8,54 @@ export const NOTE_TAG_MAX_LENGTH = 40;
 type Fence = {
   marker: "`" | "~";
   length: number;
+  markerEnd: number;
 };
+
+const LINE_BREAK_PATTERN = /[\r\n]/g;
 
 export function normalizeTag(tag: string) {
   return tag.normalize("NFKC").toLocaleLowerCase("zh-CN");
+}
+
+function tagCharacterAt(markdown: string, index: number) {
+  const codePoint = markdown.codePointAt(index);
+  return codePoint === undefined ? "" : String.fromCodePoint(codePoint);
+}
+
+export type TagRange = {
+  start: number;
+  end: number;
+  tag: string;
+};
+
+function lineBounds(markdown: string, start: number) {
+  LINE_BREAK_PATTERN.lastIndex = start;
+  const lineBreak = LINE_BREAK_PATTERN.exec(markdown)?.index ?? -1;
+  const end = lineBreak === -1 ? markdown.length : lineBreak;
+  const next =
+    lineBreak === -1
+      ? markdown.length
+      : lineBreak + (markdown[lineBreak] === "\r" && markdown[lineBreak + 1] === "\n" ? 2 : 1);
+  return { end, next, hasBreak: lineBreak !== -1 };
+}
+
+type MarkdownSegment = { start: number; end: number };
+type BacktickRun = { start: number; end: number; length: number; indexForLength: number };
+type EscapedTagRange = { start: number; end: number; hashIndex: number; backslashCount: number };
+
+function collectVisibleSegments(markdown: string) {
+  const codeBlocks = [
+    ...findCodeFenceIntervals(markdown),
+    ...findFencedCodeIntervals(markdown),
+  ].sort((a, b) => a.start - b.start);
+  const segments: MarkdownSegment[] = [];
+  let cursor = 0;
+  for (const codeBlock of codeBlocks) {
+    if (cursor < codeBlock.start) segments.push({ start: cursor, end: codeBlock.start });
+    cursor = Math.max(cursor, codeBlock.end);
+  }
+  if (cursor < markdown.length) segments.push({ start: cursor, end: markdown.length });
+  return segments;
 }
 
 function lineFence(markdown: string, lineStart: number, lineEnd: number): Fence | null {
@@ -44,69 +90,47 @@ function lineFence(markdown: string, lineStart: number, lineEnd: number): Fence 
   if (marker !== "`" && marker !== "~") return null;
   let length = 0;
   while (cursor + length < lineEnd && markdown[cursor + length] === marker) length += 1;
-  return length >= 3 ? { marker, length } : null;
+  return length >= 3 ? { marker, length, markerEnd: cursor + length } : null;
 }
 
-function isClosingFence(fence: Fence, candidate: Fence | null) {
-  return Boolean(
-    candidate && candidate.marker === fence.marker && candidate.length >= fence.length,
-  );
+function isClosingFence(
+  markdown: string,
+  opening: Fence,
+  candidate: Fence | null,
+  lineEnd: number,
+) {
+  if (!candidate || candidate.marker !== opening.marker || candidate.length < opening.length)
+    return false;
+  for (let index = candidate.markerEnd; index < lineEnd; index += 1) {
+    if (markdown[index] !== " " && markdown[index] !== "\t") return false;
+  }
+  return true;
 }
 
-function tagCharacterAt(markdown: string, index: number) {
-  const codePoint = markdown.codePointAt(index);
-  return codePoint === undefined ? "" : String.fromCodePoint(codePoint);
-}
-
-export type TagRange = {
-  start: number;
-  end: number;
-  tag: string;
-};
-
-function lineBounds(markdown: string, start: number) {
-  const nextLf = markdown.indexOf("\n", start);
-  const nextCr = markdown.indexOf("\r", start);
-  const lineBreak = nextLf === -1 ? nextCr : nextCr === -1 ? nextLf : Math.min(nextLf, nextCr);
-  const end = lineBreak === -1 ? markdown.length : lineBreak;
-  const next =
-    lineBreak === -1
-      ? markdown.length
-      : lineBreak + (markdown[lineBreak] === "\r" && markdown[lineBreak + 1] === "\n" ? 2 : 1);
-  return { end, next, hasBreak: lineBreak !== -1 };
-}
-
-type MarkdownSegment = { start: number; end: number };
-type BacktickRun = { start: number; end: number; length: number; indexForLength: number };
-type EscapedTagRange = { start: number; end: number; hashIndex: number; backslashCount: number };
-
-function collectVisibleSegments(markdown: string) {
-  const segments: MarkdownSegment[] = [];
+function findFencedCodeIntervals(markdown: string): MarkdownSegment[] {
+  if (!/[`~]/u.test(markdown)) return [];
+  const intervals: MarkdownSegment[] = [];
   let fence: Fence | null = null;
-  let visibleStart = 0;
+  let fenceStart = 0;
   let lineStart = 0;
 
   while (lineStart <= markdown.length) {
     const { end: lineEnd, next: lineNext, hasBreak } = lineBounds(markdown, lineStart);
     const candidateFence = lineFence(markdown, lineStart, lineEnd);
-
-    if (fence) {
-      if (isClosingFence(fence, candidateFence)) {
-        fence = null;
-        visibleStart = lineNext;
-      }
-    } else if (candidateFence) {
-      if (lineStart > visibleStart) segments.push({ start: visibleStart, end: lineStart });
+    if (!fence && candidateFence) {
       fence = candidateFence;
+      fenceStart = lineStart;
+    } else if (fence && isClosingFence(markdown, fence, candidateFence, lineEnd)) {
+      intervals.push({ start: fenceStart, end: lineNext });
+      fence = null;
     }
 
     if (!hasBreak) break;
     lineStart = lineNext;
   }
 
-  if (!fence && visibleStart < markdown.length)
-    segments.push({ start: visibleStart, end: markdown.length });
-  return segments;
+  if (fence) intervals.push({ start: fenceStart, end: markdown.length });
+  return intervals;
 }
 
 function collectBacktickRuns(markdown: string, segment: MarkdownSegment) {
@@ -134,17 +158,6 @@ function collectBacktickRuns(markdown: string, segment: MarkdownSegment) {
  * `https://example.com/doc#section-2`, `//cdn.example.com/a#top`, `[摘要](#jump)`.
  * Everything back to the previous whitespace is treated as the enclosing token.
  */
-function isLinkFragmentHash(markdown: string, hashIndex: number, rangeStart: number) {
-  let tokenStart = hashIndex;
-  while (tokenStart > rangeStart && !WHITESPACE_CHARACTER_PATTERN.test(markdown[tokenStart - 1]!))
-    tokenStart -= 1;
-  if (tokenStart === hashIndex) return false;
-  const prefix = markdown.slice(tokenStart, hashIndex);
-  if (prefix.includes("://") || prefix.startsWith("//") || /^www\./iu.test(prefix)) return true;
-  // `[标题](#锚点)` / `[标题](./note.md#锚点)` — the fragment belongs to the link destination.
-  return /\]\([^)\s]*$/u.test(prefix);
-}
-
 function collectTagsOutsideCode(
   markdown: string,
   start: number,
@@ -152,13 +165,29 @@ function collectTagsOutsideCode(
   ranges: TagRange[],
   escapedRanges?: EscapedTagRange[],
 ) {
+  let tokenStartsLikeUrl = false;
+  let hasUrlScheme = false;
+  let inMarkdownLinkDestination = false;
+  const updateTokenStart = (index: number) => {
+    tokenStartsLikeUrl = markdown.startsWith("//", index);
+    if (!tokenStartsLikeUrl && index + 4 <= end)
+      tokenStartsLikeUrl = markdown.slice(index, index + 4).toLowerCase() === "www.";
+  };
+  updateTokenStart(start);
+
   for (let index = start; index < end; index += 1) {
-    if (markdown[index] !== "#" || markdown[index - 1] === "#") continue;
-    // Skip the whole token so a URL fragment can never surface as a tag.
-    if (isLinkFragmentHash(markdown, index, start)) {
-      while (index < end && !WHITESPACE_CHARACTER_PATTERN.test(markdown[index]!)) index += 1;
+    const character = markdown[index]!;
+    if (WHITESPACE_CHARACTER_PATTERN.test(character)) {
+      updateTokenStart(index + 1);
+      hasUrlScheme = false;
+      inMarkdownLinkDestination = false;
       continue;
     }
+    if (index >= start + 2 && markdown.slice(index - 2, index + 1) === "://") hasUrlScheme = true;
+    if (character === "(" && markdown[index - 1] === "]") inMarkdownLinkDestination = true;
+    if (character === ")") inMarkdownLinkDestination = false;
+    if (character !== "#" || markdown[index - 1] === "#") continue;
+    if (hasUrlScheme || tokenStartsLikeUrl || inMarkdownLinkDestination) continue;
     const tagStart = index + 1;
     if (!TAG_CHARACTER_PATTERN.test(tagCharacterAt(markdown, tagStart))) continue;
 

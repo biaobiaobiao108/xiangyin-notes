@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { createZipReadableStream, type ZipStreamEntry } from "../shared/zip";
+import { createZipReadableStream, createZipStream, type ZipStreamEntry } from "../shared/zip";
 
 test("ZIP generation follows reader demand and stops after cancellation", async () => {
   let opened = 0;
@@ -54,4 +54,19 @@ test("cancelling a ZIP download closes its active attachment stream", async () =
   await reader.read();
   await reader.cancel();
   expect(cancelled).toBe(true);
+});
+
+test("rejects the ZIP64 entry-count sentinel in a ZIP32 archive", async () => {
+  async function* entries(): AsyncGenerator<ZipStreamEntry> {
+    for (let index = 0; index < 0xffff; index += 1) {
+      yield { name: `${index}`, stream: async function* () {} };
+    }
+  }
+
+  const consume = async () => {
+    for await (const _chunk of createZipStream(entries())) {
+      // Drain through the central directory to exercise the entry-count boundary.
+    }
+  };
+  await expect(consume()).rejects.toThrow("ZIP_ENTRY_LIMIT_EXCEEDED");
 });
