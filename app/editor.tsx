@@ -62,7 +62,7 @@ import {
   type EditorTextStatsSnapshot,
 } from "./editor-text-stats";
 import { transactionMayChangeOutline } from "./editor/outline-change";
-import { scrollNoteBoundary } from "./editor/document-navigation";
+import { scrollNoteNavigation } from "./editor/document-navigation";
 import { replaceEditorMarkdown } from "./editor/document-content";
 import {
   findTaskPosition,
@@ -2084,13 +2084,13 @@ export function NoteEditor({
               return;
             if (target.closest("input, textarea, button, select, [role='dialog'], [role='menu']"))
               return;
-            // 在 ProseMirror 吞掉 Home / End 前处理阅读滚动，保留正文光标与选区。
-            if (event.key === "Home" || event.key === "End") {
+            // 在 ProseMirror 处理前滚动整篇笔记，保留正文光标与选区。
+            if (["Home", "End", "PageUp", "PageDown"].includes(event.key)) {
               const behavior: ScrollBehavior = window.matchMedia("(prefers-reduced-motion: reduce)")
                 .matches
                 ? "auto"
                 : "smooth";
-              if (scrollNoteBoundary(event.nativeEvent, event.currentTarget, behavior)) {
+              if (scrollNoteNavigation(event.nativeEvent, event.currentTarget, behavior)) {
                 event.stopPropagation();
                 if (typewriterAnimRef.current !== null)
                   cancelAnimationFrame(typewriterAnimRef.current);
