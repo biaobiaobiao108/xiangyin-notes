@@ -3,6 +3,7 @@ import { sortNotes, type NoteSort } from "../app/workspace/helpers";
 import {
   assignCardMasonryLanes,
   cardLaneConfig,
+  estimateCardHeight,
   positionCardMasonryLanes,
   visibleCardIndexes,
 } from "../app/workspace/card-masonry";
@@ -133,6 +134,32 @@ describe("card view & layout", () => {
     const visible = visibleCardIndexes(refined, 0, 300);
     expect(visible.size).toBeGreaterThan(0);
     expect([...visible].every((index) => index >= 0 && index < sampleNotes.length)).toBe(true);
+  });
+
+  test("estimates immutable note snapshots against their current text and lane configuration", () => {
+    const config = cardLaneConfig(700, 900, false);
+    const original = sampleNotes[0];
+    const originalAssignment = assignCardMasonryLanes([original], config, false)
+      .flat()
+      .find((assignment) => assignment.note.id === original.id)!;
+    expect(originalAssignment.estimatedHeight).toBe(
+      estimateCardHeight(original, config.laneWidth, false),
+    );
+
+    const changedSnapshot = { ...original, title: original.title.repeat(8) };
+    const changedAssignment = assignCardMasonryLanes([changedSnapshot], config, false)
+      .flat()
+      .find((assignment) => assignment.note.id === original.id)!;
+    expect(changedAssignment.estimatedHeight).toBe(
+      estimateCardHeight(changedSnapshot, config.laneWidth, false),
+    );
+    expect(changedAssignment.estimatedHeight).toBeGreaterThan(originalAssignment.estimatedHeight);
+
+    const mobileConfig = cardLaneConfig(350, 350, true);
+    const mobileAssignment = assignCardMasonryLanes([original], mobileConfig, true).flat()[0];
+    expect(mobileAssignment.estimatedHeight).toBe(
+      estimateCardHeight(original, mobileConfig.laneWidth, true),
+    );
   });
 
   test("chooses responsive lane counts without CSS masonry support", () => {

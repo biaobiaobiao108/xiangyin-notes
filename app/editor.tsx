@@ -61,7 +61,7 @@ import {
   type EditorTextBlockStatsCache,
   type EditorTextStatsSnapshot,
 } from "./editor-text-stats";
-import { changedDocumentRange } from "./editor/changed-range";
+import { transactionMayChangeOutline } from "./editor/outline-change";
 import { scrollNoteBoundary } from "./editor/document-navigation";
 import { replaceEditorMarkdown } from "./editor/document-content";
 import {
@@ -112,49 +112,6 @@ const MAX_IMAGE_FILES_PER_ACTION = 10;
 const OUTLINE_HEADING_SELECTOR = "h1, h2, h3, h4, h5, h6";
 const EDITOR_SYNC_DEBOUNCE_MS = 180;
 const EDITOR_SYNC_MAX_WAIT_MS = 720;
-
-function rangeTouchesHeading(doc: ProseMirrorNode, from: number, to: number): boolean {
-  const start = Math.max(0, Math.min(from, doc.content.size));
-  const end = Math.max(start, Math.min(to, doc.content.size));
-  const $start = doc.resolve(start);
-  for (let depth = $start.depth; depth > 0; depth -= 1) {
-    if ($start.node(depth).type.name === "heading") return true;
-  }
-  if ($start.nodeAfter?.type.name === "heading" || $start.nodeBefore?.type.name === "heading")
-    return true;
-
-  let touchesHeading = false;
-  if (end > start) {
-    doc.nodesBetween(start, end, (node) => {
-      if (node.type.name === "heading") {
-        touchesHeading = true;
-        return false;
-      }
-      return !touchesHeading;
-    });
-  }
-  return touchesHeading;
-}
-
-function transactionMayChangeOutline(transaction: Transaction): boolean {
-  if (!transaction.docChanged) return false;
-  const range = changedDocumentRange(transaction);
-  if (range && rangeTouchesHeading(transaction.doc, range.from, range.to)) return true;
-
-  for (const map of transaction.mapping.maps) {
-    let touchesHeading = false;
-    map.forEach((oldStart, oldEnd, newStart, newEnd) => {
-      if (
-        rangeTouchesHeading(transaction.before, oldStart, oldEnd) ||
-        rangeTouchesHeading(transaction.doc, newStart, newEnd)
-      ) {
-        touchesHeading = true;
-      }
-    });
-    if (touchesHeading) return true;
-  }
-  return false;
-}
 
 function resizeTitleField(field: HTMLTextAreaElement | null) {
   if (!field) return;

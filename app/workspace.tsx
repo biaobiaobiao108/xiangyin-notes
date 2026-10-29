@@ -24,7 +24,7 @@ import type { WorkspaceChangeMessage } from "../shared/realtime";
 import type { ImageExportSnapshot } from "./image-export/render";
 import type { Note, NoteSummary, NoteView, Notebook, TaskSummary } from "../shared/types";
 import { resolveTaskOrdinal } from "../shared/tasks";
-import type { OutlineItem } from "./editor-metrics";
+import { useOutlineState } from "./workspace/use-outline-state";
 import { ConfirmDialog, NotebookDialog, type ConfirmRequest } from "./workspace/dialogs";
 import { clearAllDraftRecoveries, readDraftRecovery } from "./workspace/draft-recovery";
 import { SplitResizer, DEFAULT_SPLIT_RATIO } from "./workspace/split-resizer";
@@ -141,9 +141,15 @@ export function Workspace() {
   const noteSelectionRef = useRef<NoteSelectionState>({ ids: new Set(), anchorId: null });
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [outlineOpen, setOutlineOpen] = useState(false);
-  const [outlineItems, setOutlineItems] = useState<OutlineItem[]>([]);
-  const [activeOutlineId, setActiveOutlineId] = useState<string | null>(null);
-  const outlineNavigateRef = useRef<((id: string) => void) | null>(null);
+  const {
+    items: outlineItems,
+    activeId: activeOutlineId,
+    navigateRef: outlineNavigateRef,
+    onItemsChange: handleOutlineItemsChange,
+    onActiveChange: handleOutlineActiveChange,
+    onNavigationReady: handleOutlineNavigationReady,
+    reset: resetOutline,
+  } = useOutlineState();
   const [editorFocusNoteId, setEditorFocusNoteId] = useState<string | null>(null);
   const handleEditorFocus = useCallback(() => setEditorFocusNoteId(null), []);
   const selectedRef = useRef<Note | null>(null);
@@ -266,25 +272,6 @@ export function Workspace() {
     });
   }, [focusMode]);
   const closeOutline = useCallback(() => setOutlineOpen(false), []);
-  const handleOutlineItemsChange = useCallback((nextItems: OutlineItem[]) => {
-    setOutlineItems((current) => {
-      const unchanged =
-        current.length === nextItems.length &&
-        current.every((item, index) => {
-          const next = nextItems[index];
-          return (
-            next && item.id === next.id && item.level === next.level && item.title === next.title
-          );
-        });
-      return unchanged ? current : nextItems;
-    });
-  }, []);
-  const handleOutlineActiveChange = useCallback((nextId: string | null) => {
-    setActiveOutlineId((current) => (current === nextId ? current : nextId));
-  }, []);
-  const handleOutlineNavigationReady = useCallback((navigate: ((id: string) => void) | null) => {
-    outlineNavigateRef.current = navigate;
-  }, []);
   const [imageExportSnapshot, setImageExportSnapshot] = useState<ImageExportSnapshot | null>(null);
   const [commandOpen, setCommandOpen] = useState(false);
   const [commandInitialQuery, setCommandInitialQuery] = useState("");
@@ -462,9 +449,14 @@ export function Workspace() {
   const [splitNoteReloadToken, setSplitNoteReloadToken] = useState(0);
   const [activePane, setActivePane] = useState<"primary" | "secondary">("primary");
   const [splitRatio, setSplitRatio] = useState(DEFAULT_SPLIT_RATIO);
-  const [splitOutlineItems, setSplitOutlineItems] = useState<OutlineItem[]>([]);
-  const [splitActiveOutlineId, setSplitActiveOutlineId] = useState<string | null>(null);
-  const splitOutlineNavigateRef = useRef<((id: string) => void) | null>(null);
+  const {
+    items: splitOutlineItems,
+    activeId: splitActiveOutlineId,
+    navigateRef: splitOutlineNavigateRef,
+    onItemsChange: handleSplitOutlineItemsChange,
+    onActiveChange: handleSplitOutlineActiveChange,
+    onNavigationReady: handleSplitOutlineNavigationReady,
+  } = useOutlineState();
   const splitLoadRequestRef = useRef(0);
   const splitAbortRef = useRef<AbortController | null>(null);
   const splitMarkdownReaderRef = useRef<(() => string | null) | null>(null);
@@ -787,10 +779,8 @@ export function Workspace() {
   }, [openMobileNote, initialLinkedNoteId, invalidateCollections, ready, reloadNotes, selectNote]);
   useEffect(() => {
     setOutlineOpen(false);
-    setOutlineItems([]);
-    setActiveOutlineId(null);
-    outlineNavigateRef.current = null;
-  }, [selectedId]);
+    resetOutline();
+  }, [resetOutline, selectedId]);
   useEffect(() => {
     if (focusMode) {
       setOutlineOpen(false);
@@ -1732,26 +1722,6 @@ export function Workspace() {
     },
     [notebooks, persist, replaceList],
   );
-
-  const handleSplitOutlineItemsChange = useCallback((nextItems: OutlineItem[]) => {
-    setSplitOutlineItems((current) => {
-      const unchanged =
-        current.length === nextItems.length &&
-        current.every((item, index) => {
-          const next = nextItems[index];
-          return (
-            next && item.id === next.id && item.level === next.level && item.title === next.title
-          );
-        });
-      return unchanged ? current : nextItems;
-    });
-  }, []);
-  const handleSplitOutlineActiveChange = useCallback((nextId: string | null) => {
-    setSplitActiveOutlineId((current) => (current === nextId ? current : nextId));
-  }, []);
-  const handleSplitOutlineNavigationReady = useCallback((nav: ((id: string) => void) | null) => {
-    splitOutlineNavigateRef.current = nav;
-  }, []);
 
   const handleSplitMoveToTrash = useCallback(() => {
     if (splitSelectedRef.current) {

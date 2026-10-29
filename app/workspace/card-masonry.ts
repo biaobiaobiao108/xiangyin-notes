@@ -32,6 +32,7 @@ export type MeasuredCardHeight = {
 const DESKTOP_MIN_LANE_WIDTH = 280;
 const DESKTOP_MAX_LANES = 3;
 const MAX_ESTIMATED_TITLE_LINES = 3;
+const estimatedHeights = new WeakMap<NoteSummary, { key: string; height: number }>();
 
 export function cardLaneConfig(
   contentWidth: number,
@@ -100,6 +101,19 @@ export function estimateCardHeight(
   );
 }
 
+function cachedEstimatedCardHeight(
+  note: NoteSummary,
+  laneWidth: number,
+  isMobileViewport: boolean,
+) {
+  const key = `${laneWidth}:${isMobileViewport ? 1 : 0}`;
+  const cached = estimatedHeights.get(note);
+  if (cached?.key === key) return cached.height;
+  const estimated = estimateCardHeight(note, laneWidth, isMobileViewport);
+  estimatedHeights.set(note, { key, height: estimated });
+  return estimated;
+}
+
 /** Assign lanes from stable estimates; later DOM measurements refine positions without moving cards between lanes. */
 export function assignCardMasonryLanes(
   notes: NoteSummary[],
@@ -113,7 +127,7 @@ export function assignCardMasonryLanes(
     for (let candidate = 1; candidate < laneHeights.length; candidate += 1) {
       if (laneHeights[candidate] < laneHeights[laneIndex]) laneIndex = candidate;
     }
-    const estimatedHeight = estimateCardHeight(note, config.laneWidth, isMobileViewport);
+    const estimatedHeight = cachedEstimatedCardHeight(note, config.laneWidth, isMobileViewport);
     lanes[laneIndex].push({ note, index, estimatedHeight });
     laneHeights[laneIndex] += estimatedHeight + config.gap;
   });

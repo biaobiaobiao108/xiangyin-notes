@@ -60,9 +60,17 @@ jobs:
         run: |
           set -euo pipefail
           container_name=xiangying-notes-ci
-          cleanup() { docker rm --force --volumes "$container_name" >/dev/null 2>&1 || true; }
+          volume_name=xiangying-notes-ci-data
+          cookie_jar="$(mktemp)"
+          cleanup() {
+            docker rm --force "$container_name" >/dev/null 2>&1 || true
+            docker volume rm "$volume_name" >/dev/null 2>&1 || true
+            rm -f "$cookie_jar"
+          }
           trap cleanup EXIT
+          docker volume create "$volume_name" >/dev/null
           docker run --detach --name "$container_name" --publish 127.0.0.1:3030:3030 \
+            --volume "$volume_name:/data" \
             --health-interval=1s --health-start-period=1s \
             --env XIANGYING_USERNAME=ci \
             --env XIANGYING_PASSWORD=ci-smoke-password \
@@ -73,10 +81,47 @@ jobs:
               health_status="$(docker inspect --format='{{.State.Health.Status}}' "$container_name")"
               if [[ "$health_status" == healthy ]]; then
                 docker exec "$container_name" sh -c 'test -w /data && : > /data/.write-check && rm /data/.write-check'
-                exit 0
+                break
               fi
             fi
             sleep 1
           done
-          docker logs "$container_name"
-          exit 1
+          health_status="$(docker inspect --format='{{.State.Health.Status}}' "$container_name")"
+          if [[ "$health_status" != healthy ]]; then
+            docker logs "$container_name"
+            exit 1
+          fi
+          curl --fail --silent --show-error --cookie-jar "$cookie_jar" \
+            --header 'Content-Type: application/json' \
+            --data '{"username":"ci","password":"ci-smoke-password"}' \
+            http://127.0.0.1:3030/api/auth/login >/dev/null
+          note_response="$(curl --fail --silent --show-error --cookie "$cookie_jar" \
+            --header 'Content-Type: application/json' \
+            --data '{"title":"CI persistence smoke","contentMarkdown":"persisted across restart"}' \
+            http://127.0.0.1:3030/api/notes)"
+          note_id="$(jq -er '.note.id' <<<"$note_response")"
+          docker rm --force "$container_name" >/dev/null
+          docker run --detach --name "$container_name" --publish 127.0.0.1:3030:3030 \
+            --volume "$volume_name:/data" \
+            --health-interval=1s --health-start-period=1s \
+            --env XIANGYING_USERNAME=ci \
+            --env XIANGYING_PASSWORD=ci-smoke-password \
+            --env PORT=3030 \
+            xiangying-notes:ci >/dev/null
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:3030/api/health >/dev/null; then
+              health_status="$(docker inspect --format='{{.State.Health.Status}}' "$container_name")"
+              if [[ "$health_status" == healthy ]]; then
+                break
+              fi
+            fi
+            sleep 1
+          done
+          health_status="$(docker inspect --format='{{.State.Health.Status}}' "$container_name")"
+          if [[ "$health_status" != healthy ]]; then
+            docker logs "$container_name"
+            exit 1
+          fi
+          curl --fail --silent --show-error --cookie "$cookie_jar" \
+            "http://127.0.0.1:3030/api/notes/$note_id" \
+            | jq -e '.note.contentMarkdown == "persisted across restart"' >/dev/null

@@ -63,6 +63,7 @@ export const api = {
       query?: string;
       notebookId?: string;
       sort?: NoteSort;
+      /** 兼容旧调用；连续翻页优先使用 cursor，避免深度偏移扫描。 */
       offset?: number;
       cursor?: string;
       includeTotal?: boolean;
