@@ -55,6 +55,7 @@ import {
   useVirtualNoteList,
   type VirtualNoteListRow,
 } from "./use-virtual-note-list";
+import { useGroupCollapseAnchor } from "./use-group-collapse-anchor";
 import { partitionVirtualGroupRows } from "./group-layout";
 import { useScrollEdges } from "./use-scroll-edges";
 import { MobileCollectionHeader } from "./mobile-collection-header";
@@ -913,6 +914,7 @@ export const NoteListPanel = memo(function NoteListPanel({
     noteListRef.current = element;
     setNoteListElement((current) => (current === element ? current : element));
   }, []);
+  const anchorGroupCollapse = useGroupCollapseAnchor(noteListRef);
   const loadMoreSentinelRef = useRef<HTMLLIElement>(null);
   const panelRef = useRef<HTMLElement>(null);
   const swipeActions = useSwipeActionGroup(
@@ -1095,7 +1097,29 @@ export const NoteListPanel = memo(function NoteListPanel({
     virtualGroupTransition?.phase,
   ]);
 
-  const toggleGroup = (groupId: string) => {
+  const toggleGroup = (groupId: string, button: HTMLButtonElement) => {
+    anchorGroupCollapse();
+    const scroll = noteListRef.current;
+    const section = button.closest<HTMLElement>(".note-list-group");
+    const content = section?.querySelector<HTMLElement>(".note-list-group-content");
+    if (
+      !collapsedGroups.has(groupId) &&
+      scroll &&
+      section &&
+      content &&
+      button.getBoundingClientRect().top <= scroll.getBoundingClientRect().top + 1
+    ) {
+      anchorGroupCollapse(
+        Math.max(
+          0,
+          scroll.scrollTop +
+            section.getBoundingClientRect().top -
+            scroll.getBoundingClientRect().top,
+        ),
+        content.getBoundingClientRect().height,
+        `#${CSS.escape(content.id)}`,
+      );
+    }
     setCollapsedGroups((current) => toggleGroupInSet(current, groupId));
   };
 
@@ -1105,6 +1129,17 @@ export const NoteListPanel = memo(function NoteListPanel({
       return;
     }
     queuedVirtualGroupIdRef.current = null;
+    anchorGroupCollapse();
+    if (!collapsedGroups.has(group.id) && group.id === virtualStickyGroup?.id) {
+      const index = virtualRows.findIndex((row) => row.id === noteGroupRowId(group.id));
+      const end = virtualRows.findIndex((row, i) => i > index && row.kind === "group");
+      const contentTop = virtualList.rowTop(index + 1);
+      anchorGroupCollapse(
+        index === 0 ? 0 : contentTop,
+        virtualList.rowTop(end < 0 ? virtualRows.length : end) - contentTop,
+        ".virtual-group-motion-clip",
+      );
+    }
     const duration = groupMotionDuration();
     const clearTimer = () => {
       if (virtualGroupTransitionTimerRef.current !== null)
@@ -1598,7 +1633,7 @@ export const NoteListPanel = memo(function NoteListPanel({
                               className="note-list-group-toggle"
                               aria-expanded={!collapsed}
                               aria-controls={contentId}
-                              onClick={() => toggleGroup(group.id)}
+                              onClick={(event) => toggleGroup(group.id, event.currentTarget)}
                             >
                               <ChevronDown
                                 className="note-list-group-chevron"

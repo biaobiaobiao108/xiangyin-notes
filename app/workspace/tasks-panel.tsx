@@ -10,6 +10,7 @@ import {
 } from "react";
 import type { Notebook, TaskSummary } from "../../shared/types";
 import { FloatingScrollbar } from "../floating-scrollbar";
+import { useGroupCollapseAnchor } from "./use-group-collapse-anchor";
 import { partitionVirtualGroupRows } from "./group-layout";
 import { useScrollEdges } from "./use-scroll-edges";
 import {
@@ -216,7 +217,8 @@ export function TasksPanel({
     virtualGroupTransition?.groupId,
   ]);
 
-  const toggleGroup = (groupId: string) => {
+  const anchorGroupCollapse = useGroupCollapseAnchor(listRef);
+  const toggleGroup = (groupId: string, button?: HTMLButtonElement) => {
     if (virtualList.isVirtualized) {
       if (virtualGroupTransition && virtualGroupTransition.groupId !== groupId) {
         queuedVirtualGroupIdRef.current = groupId;
@@ -225,6 +227,17 @@ export function TasksPanel({
       if (virtualGroupTransitionTimerRef.current !== null)
         window.clearTimeout(virtualGroupTransitionTimerRef.current);
       virtualGroupTransitionTimerRef.current = null;
+      anchorGroupCollapse();
+      if (!collapsedGroups.has(groupId) && groupId === activeVirtualGroupId) {
+        const index = taskRows.findIndex((row) => row.id === taskGroupRowId(groupId));
+        const end = taskRows.findIndex((row, i) => i > index && row.kind === "group");
+        const contentTop = virtualList.rowTop(index + 1);
+        anchorGroupCollapse(
+          index === 0 ? 0 : virtualList.rowTop(index) + virtualList.groupHeaderHeight,
+          virtualList.rowTop(end < 0 ? taskRows.length : end) - contentTop,
+          ".virtual-group-motion-clip",
+        );
+      }
       const duration = groupMotionDuration();
       const setCollapsed = (collapsed: boolean) =>
         setCollapsedGroups((current) => {
@@ -269,6 +282,29 @@ export function TasksPanel({
       return;
     }
 
+    anchorGroupCollapse();
+    const scroll = listRef.current;
+    const section = button?.closest<HTMLElement>(".tasks-note-group");
+    const content = section?.querySelector<HTMLElement>(".tasks-note-group-content");
+    if (
+      !collapsedGroups.has(groupId) &&
+      scroll &&
+      section &&
+      content &&
+      button &&
+      button.getBoundingClientRect().top <= scroll.getBoundingClientRect().top + 1
+    ) {
+      anchorGroupCollapse(
+        Math.max(
+          0,
+          scroll.scrollTop +
+            section.getBoundingClientRect().top -
+            scroll.getBoundingClientRect().top,
+        ),
+        content.getBoundingClientRect().height,
+        `#${CSS.escape(content.id)}`,
+      );
+    }
     const isCollapsed = collapsedGroups.has(groupId);
     setCollapsedGroups((current) => {
       const next = new Set(current);
@@ -898,7 +934,7 @@ export function TasksPanel({
                             className="tasks-note-group-toggle"
                             aria-expanded={!collapsed}
                             aria-controls={groupId}
-                            onClick={() => toggleGroup(firstTask.noteId)}
+                            onClick={(event) => toggleGroup(firstTask.noteId, event.currentTarget)}
                           >
                             <ChevronDown
                               className="tasks-note-group-chevron"
