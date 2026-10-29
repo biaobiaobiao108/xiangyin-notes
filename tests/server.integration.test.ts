@@ -606,6 +606,54 @@ describe("Bun Server API", () => {
     expect(source).toContain("await self.clients.claim()");
     expect(source).toContain("new URL(request.url).origin !== self.location.origin");
     expect(source).toContain("event.respondWith(fetch(request))");
+
+    const listeners = new Map<
+      string,
+      (event: { waitUntil: (work: Promise<unknown>) => void }) => void
+    >();
+    const navigations: string[] = [];
+    const deletedCaches: string[] = [];
+    let claims = 0;
+    // 执行实际返回的 worker，验证激活只接管和清缓存，不打断页面的模块加载。
+    new Function("self", "caches", source)(
+      {
+        addEventListener: (
+          type: string,
+          listener: (event: { waitUntil: (work: Promise<unknown>) => void }) => void,
+        ) => listeners.set(type, listener),
+        clients: {
+          claim: async () => {
+            claims += 1;
+          },
+          matchAll: async () => [
+            {
+              url: "http://xiangying.test/app",
+              navigate: async (url: string) => {
+                navigations.push(url);
+              },
+            },
+          ],
+        },
+      },
+      {
+        keys: async () => ["xiangying-notes-shell-old", "other-app-cache"],
+        delete: async (name: string) => {
+          deletedCaches.push(name);
+          return true;
+        },
+      },
+    );
+    let activation: Promise<unknown> | undefined;
+    listeners.get("activate")!({
+      waitUntil: (work) => {
+        activation = work;
+      },
+    });
+    expect(activation).toBeDefined();
+    await activation;
+    expect(claims).toBe(1);
+    expect(deletedCaches).toEqual(["xiangying-notes-shell-old"]);
+    expect(navigations).toEqual([]);
   });
 
   test("automatically initializes a fresh database and does not rerun the baseline", async () => {
