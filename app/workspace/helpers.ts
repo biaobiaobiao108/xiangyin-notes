@@ -120,6 +120,7 @@ export function sortNotes(notes: NoteSummary[], sort: NoteSort) {
 export function mergeRemoteSummary(notes: NoteSummary[], summary: NoteSummary, sort: NoteSort) {
   const index = notes.findIndex((note) => note.id === summary.id);
   if (index === -1) return null;
+  if (notes[index]!.version > summary.version) return notes;
   const next = [...notes];
   next[index] = { ...next[index]!, ...summary };
   if (sort === "updated" && index > 0) {
@@ -127,6 +128,15 @@ export function mergeRemoteSummary(notes: NoteSummary[], summary: NoteSummary, s
     next.unshift(patched!);
   }
   return next;
+}
+
+/** 列表请求期间完成的保存不能被较早读取的服务端快照覆盖。 */
+export function preserveNewerNoteSummaries(incoming: NoteSummary[], current: NoteSummary[]) {
+  const currentById = new Map(current.map((note) => [note.id, note]));
+  return incoming.map((summary) => {
+    const local = currentById.get(summary.id);
+    return local && local.version > summary.version ? local : summary;
+  });
 }
 
 export function shouldKeepActiveNoteInList(

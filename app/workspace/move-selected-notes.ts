@@ -20,12 +20,17 @@ export async function moveSelectedNotes(
     return { error: saveFailure.reason, failed: true };
   }
 
-  const moves = await Promise.allSettled(
-    ids.flatMap((id) => {
-      const version = getVersion(id);
-      return version === undefined ? [] : [moveNote(id, version)];
-    }),
-  );
+  const versions = ids.map((id) => ({ id, version: getVersion(id) }));
+  const missingVersion = versions.find(({ version }) => version === undefined);
+  if (missingVersion) {
+    refresh();
+    return {
+      error: new Error(`无法获取笔记 ${missingVersion.id} 的最新版本，请刷新后重试`),
+      failed: true,
+    };
+  }
+
+  const moves = await Promise.allSettled(versions.map(({ id, version }) => moveNote(id, version!)));
   refresh();
   const moveFailure = moves.find((result) => result.status === "rejected");
   return moveFailure?.status === "rejected" ? { error: moveFailure.reason, failed: true } : {};

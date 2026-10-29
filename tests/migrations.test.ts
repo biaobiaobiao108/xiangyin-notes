@@ -199,6 +199,74 @@ test("rebuilds every legacy tag row using the current Markdown parser", async ()
   }
 });
 
+test("removes legacy links and tags inside nested code without changing note contents", async () => {
+  const database = new Database(":memory:");
+  const content = "[[Target]] #visible\n\n- ~~~md\n  [[CodeTarget]] #hidden\n  ~~~";
+  try {
+    await initializeDatabase(database, { currentSchemaVersion: 6 });
+    database
+      .query(
+        "INSERT INTO users (id, username, password_hash, password_salt, created_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run("user", "owner", "hash", "salt", 1);
+    database
+      .query(
+        "INSERT INTO notebooks (id, user_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run("notebook", "user", "Notes", 1, 1);
+    const insertNote = database.query(
+      "INSERT INTO notes (id, user_id, notebook_id, title, title_normalized, content_markdown, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    );
+    insertNote.run("target", "user", "notebook", "Target", "target", "", 1, 1);
+    for (const id of ["source", "trashed"]) {
+      insertNote.run(id, "user", "notebook", id, id, content, 1, 2);
+      database
+        .query(
+          "INSERT INTO note_links (id, user_id, source_note_id, target_title, target_title_normalized, snippet, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        )
+        .run(`${id}-false-link`, "user", id, "CodeTarget", "codetarget", "[[CodeTarget]]", 2);
+      database
+        .query(
+          "INSERT INTO note_tags (note_id, user_id, tag_normalized, tag, position) VALUES (?, ?, ?, ?, ?)",
+        )
+        .run(id, "user", "hidden", "hidden", 0);
+    }
+    database.query("UPDATE notes SET deleted_at = 3 WHERE id = ?").run("trashed");
+    const before = database
+      .query("SELECT id, content_markdown, version, updated_at, deleted_at FROM notes ORDER BY id")
+      .all();
+
+    await initializeDatabase(database);
+
+    expect(
+      database
+        .query(
+          "SELECT source_note_id, target_title, target_note_id FROM note_links ORDER BY source_note_id",
+        )
+        .all(),
+    ).toEqual([
+      { source_note_id: "source", target_title: "Target", target_note_id: "target" },
+      { source_note_id: "trashed", target_title: "Target", target_note_id: "target" },
+    ]);
+    expect(database.query("SELECT note_id, tag FROM note_tags ORDER BY note_id").all()).toEqual([
+      { note_id: "source", tag: "visible" },
+      { note_id: "trashed", tag: "visible" },
+    ]);
+    expect(
+      database
+        .query(
+          "SELECT id, content_markdown, version, updated_at, deleted_at FROM notes ORDER BY id",
+        )
+        .all(),
+    ).toEqual(before);
+    expect(database.query("PRAGMA user_version").get()).toEqual({
+      user_version: CURRENT_SCHEMA_VERSION,
+    });
+  } finally {
+    database.close();
+  }
+});
+
 test("uses targeted indexes for paged notes and foreign-key cleanup", async () => {
   const database = await openDatabase(":memory:");
   try {

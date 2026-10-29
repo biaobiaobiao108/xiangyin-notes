@@ -57,6 +57,84 @@ const code = "[[代码中的伪链接]]";
     expect(extractWikiLinks("paragraph\n    [[Alpha]]")).toHaveLength(1);
   });
 
+  test("ignores fenced code nested in block quotes and lists, including CRLF sources", () => {
+    const markdown = [
+      "> ~~~md",
+      "> [[Alpha]]",
+      "> ~~~",
+      "",
+      "- ~~~md",
+      "  [[Alpha]]",
+      "  ~~~",
+      "",
+      "> - ```md",
+      ">   [[Alpha]]",
+      ">   ```",
+      "",
+      "[[Alpha]]",
+    ].join("\r\n");
+
+    expect(extractWikiLinks(markdown).map((link) => link.target)).toEqual(["Alpha"]);
+    const finalLink = markdown.lastIndexOf("[[Alpha]]");
+    expect(replaceWikiLinkTarget(markdown, "Alpha", "Beta")).toEqual({
+      content: markdown.slice(0, finalLink) + "[[Beta]]" + markdown.slice(finalLink + 9),
+      count: 1,
+    });
+  });
+
+  test("ends a nested fence when its Markdown container ends", () => {
+    const markdown = "> ~~~md\n> [[Alpha]]\nordinary text and [[Alpha]]";
+    expect(extractWikiLinks(markdown).map((link) => link.target)).toEqual(["Alpha"]);
+    expect(replaceWikiLinkTarget(markdown, "Alpha", "Beta")).toEqual({
+      content: "> ~~~md\n> [[Alpha]]\nordinary text and [[Beta]]",
+      count: 1,
+    });
+  });
+
+  test("keeps links after a deeply nested list fence in scope", () => {
+    const markdown = "- outer\n  - ~~~\n    [[Alpha]]\n    ~~~\n\n[[Alpha]]";
+    expect(extractWikiLinks(markdown).map((link) => link.target)).toEqual(["Alpha"]);
+    expect(replaceWikiLinkTarget(markdown, "Alpha", "Beta")).toEqual({
+      content: "- outer\n  - ~~~\n    [[Alpha]]\n    ~~~\n\n[[Beta]]",
+      count: 1,
+    });
+  });
+
+  test("maps list code block lines indented with tabs", () => {
+    const markdown = "- ~~~md\n\t[[Alpha]]\n\t~~~\n\n[[Alpha]]";
+    expect(extractWikiLinks(markdown).map((link) => link.target)).toEqual(["Alpha"]);
+  });
+
+  test("preserves code under task items and list markers with varying whitespace", () => {
+    const examples = [
+      "- [ ] todo\n\n  ~~~\n  [[Hidden]]\n  ~~~\n\n[[Visible]]",
+      "-\t~~~\n\t[[Hidden]]\n\t~~~\n\n[[Visible]]",
+      "-     ~~~\n      [[Hidden]]\n      ~~~\n\n[[Visible]]",
+    ];
+    for (const markdown of examples) {
+      expect(extractWikiLinks(markdown).map((link) => link.target)).toEqual(["Visible"]);
+      expect(replaceWikiLinkTarget(markdown, "Hidden", "Changed").content).toBe(markdown);
+    }
+  });
+
+  test("maps code intervals to their exact source when code repeats a prior line", () => {
+    const markdown = "[[Alpha]]\n\n    [[Alpha]]";
+    expect(extractWikiLinks(markdown).map((link) => link.start)).toEqual([0]);
+  });
+
+  test("keeps block offsets exact when later paragraphs have multiple blank lines", () => {
+    const markdown = "[[Visible]]\n\n~~~\n[[Hidden]]\n~~~\n\n\nlast paragraph";
+    expect(extractWikiLinks(markdown).map((link) => link.target)).toEqual(["Visible"]);
+  });
+
+  test("preserves source boundaries with CR-only line endings", () => {
+    const markdown = "> ~~~md\r> [[Alpha]]\rordinary text and [[Alpha]]";
+    expect(extractWikiLinks(markdown).map((link) => link.target)).toEqual(["Alpha"]);
+    expect(replaceWikiLinkTarget(markdown, "Alpha", "Beta").content).toBe(
+      "> ~~~md\r> [[Alpha]]\rordinary text and [[Beta]]",
+    );
+  });
+
   test("preserves inline code with a shorter backtick run in its contents", () => {
     const markdown = "``example ` [[Alpha]]`` and [[Alpha]]";
     expect(extractWikiLinks(markdown)).toHaveLength(1);

@@ -73,4 +73,27 @@ describe("move selected notes", () => {
     expect(result).toEqual({ error: failure, failed: true });
     expect(calls).toEqual(["flush", "save:note-1", "save:note-2", "refresh"]);
   });
+
+  test("does not silently skip notes whose version disappears after saving", async () => {
+    const calls: string[] = [];
+    const versions = new Map([
+      ["note-1", 2],
+      ["note-2", 4],
+    ]);
+    const result = await moveSelectedNotes(["note-1", "note-2"], {
+      flushEditorDraft: () => calls.push("flush"),
+      saveNote: async (id) => {
+        calls.push(`save:${id}`);
+        if (id === "note-2") versions.delete(id);
+      },
+      getVersion: (id) => versions.get(id),
+      moveNote: async (id) => calls.push(`move:${id}`),
+      refresh: () => calls.push("refresh"),
+    });
+
+    expect(result.failed).toBe(true);
+    expect(result.error).toBeInstanceOf(Error);
+    expect((result.error as Error).message).toContain("note-2");
+    expect(calls).toEqual(["flush", "save:note-1", "save:note-2", "refresh"]);
+  });
 });

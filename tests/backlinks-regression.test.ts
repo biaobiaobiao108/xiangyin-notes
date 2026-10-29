@@ -54,6 +54,20 @@ async function createNote(title: string, contentMarkdown = "") {
   return result.body.note;
 }
 
+test("renaming a target preserves nested code examples while updating real wiki links", async () => {
+  const target = await createNote("旧标题");
+  const examples = "> ~~~md\r\n> [[旧标题]]\r\n> ~~~\r\n\r\n- ~~~md\r\n  [[旧标题]]\r\n  ~~~";
+  const source = await createNote("来源", `[[旧标题]]\r\n\r\n${examples}`);
+  const renamed = await request(`/api/notes/${target.id}`, "PATCH", {
+    version: target.version,
+    title: "新标题",
+  });
+  expect(renamed.response.status).toBe(200);
+  const saved = await request(`/api/notes/${source.id}`);
+  expect(saved.body.note.contentMarkdown).toBe(`[[新标题]]\r\n\r\n${examples}`);
+  expect(saved.body.note.version).toBe(source.version + 1);
+});
+
 for (const title of ["苹果", "反链测试"]) {
   test(`repeated backlinks requests work after truncating mentions of ${title}`, async () => {
     const target = await createNote(title);

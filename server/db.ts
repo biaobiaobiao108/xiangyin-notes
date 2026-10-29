@@ -2,6 +2,8 @@ import { mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { Database } from "bun:sqlite";
 import { snapshotSchema } from "./schema-snapshot";
+import { syncNoteTags } from "./core";
+import { syncNoteLinks } from "./note-links";
 import { extractMarkdownTasks } from "../shared/tasks";
 import { extractTags, normalizeTag } from "../shared/tags";
 
@@ -10,7 +12,7 @@ const DEFAULT_SCHEMA_PATH = "./database/schema.sql";
 const BASELINE_SCHEMA_VERSION = 1;
 
 // Increment this when adding the next entry to SCHEMA_MIGRATIONS.
-export const CURRENT_SCHEMA_VERSION = 6;
+export const CURRENT_SCHEMA_VERSION = 7;
 
 type TableCountRow = {
   count: number;
@@ -241,6 +243,25 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
           seen.add(normalized);
           insertTag.run(note.id, note.user_id, normalized, tag, position++);
         }
+      }
+    },
+  },
+  {
+    sourceVersion: 6,
+    targetVersion: 7,
+    migrate: (database) => {
+      // Remove links and tags previously indexed from nested Markdown code blocks.
+      const notes = database
+        .query("SELECT id, user_id, content_markdown, updated_at FROM notes ORDER BY id")
+        .iterate() as IterableIterator<{
+        id: string;
+        user_id: string;
+        content_markdown: string;
+        updated_at: number;
+      }>;
+      for (const note of notes) {
+        syncNoteLinks(database, note.user_id, note.id, note.content_markdown, note.updated_at);
+        syncNoteTags(database, note.user_id, note.id, note.content_markdown);
       }
     },
   },

@@ -4,6 +4,7 @@ import {
   getNotebookIconComponent,
   mergeRemoteSummary,
   mergeWikiNoteSummary,
+  preserveNewerNoteSummaries,
   notebookColorOptions,
   notebookIconOptions,
   shouldKeepActiveNoteInList,
@@ -138,6 +139,24 @@ describe("remote summary merging", () => {
 
   test("returns null when the note is not in the current list", () => {
     expect(mergeRemoteSummary([summary("a", 1)], summary("missing", 2), "updated")).toBeNull();
+  });
+
+  test("ignores a delayed summary after a newer save without changing row order", () => {
+    const latest = summary("b", 40, { title: "保存后的标题", preview: "新正文", version: 2 });
+    const rows = [summary("a", 50), latest];
+    const stale = summary("b", 20, { title: "旧标题", version: 1 });
+    expect(mergeRemoteSummary(rows, stale, "updated")).toBe(rows);
+    expect(rows[1]).toBe(latest);
+  });
+
+  test("keeps newer saved rows when a delayed list snapshot arrives", () => {
+    const latest = summary("b", 40, { title: "新标题", version: 3 });
+    const response = [summary("a", 30, { version: 2 }), summary("b", 20)];
+    const current = [summary("a", 10), latest, summary("c", 5)];
+    const merged = preserveNewerNoteSummaries(response, current);
+    expect(merged).toEqual([response[0]!, latest]);
+    expect(merged[1]).toBe(latest);
+    expect(response[1]!.version).toBe(1);
   });
 });
 

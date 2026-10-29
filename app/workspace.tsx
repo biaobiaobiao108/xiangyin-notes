@@ -38,6 +38,7 @@ import {
   errorMessage,
   mergeRemoteSummary,
   mergeWikiNoteSummary,
+  preserveNewerNoteSummaries,
   shouldKeepActiveNoteInList,
   sortNotes,
   toNoteSummary,
@@ -617,12 +618,17 @@ export function Workspace() {
       )
         return;
       const active = selectedRef.current;
+      const latestNotes = preserveNewerNoteSummaries(result.notes, notesRef.current).filter(
+        (note) =>
+          deferredQuery.trim() ||
+          shouldKeepActiveNoteInList(note, notebooks, view, deferredQuery, notebookId),
+      );
       const notesToDisplay =
         active &&
-        !result.notes.some((note) => note.id === active.id) &&
+        !latestNotes.some((note) => note.id === active.id) &&
         shouldKeepActiveNoteInList(active, notebooks, view, deferredQuery, notebookId)
-          ? [toNoteSummary(active), ...result.notes]
-          : result.notes;
+          ? [toNoteSummary(active), ...latestNotes]
+          : latestNotes;
       replaceList(notesToDisplay);
       setTotalNotes(Math.max(result.total ?? 0, notesToDisplay.length));
       setHasMoreNotes(Boolean(result.hasMore));
@@ -820,6 +826,8 @@ export function Workspace() {
       try {
         const summary = (await api.getNoteSummary(noteId)).note;
         if (scope !== listScopeRef.current) return;
+        const current = notesRef.current.find((note) => note.id === noteId);
+        if (!current || current.version > summary.version) return;
         if (!shouldKeepActiveNoteInList(summary, notebooks, view, deferredQuery, notebookId)) {
           removeFromList(noteId);
           return;
