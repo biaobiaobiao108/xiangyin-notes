@@ -1698,17 +1698,19 @@ export const NoteListPanel = memo(function NoteListPanel({
                             className={`virtual-group-motion-clip note-list-virtual-group-clip${virtualGroupTransition?.phase === "collapsing" || virtualGroupTransition?.phase === "preparing-expansion" ? " is-collapsed" : ""}`}
                             inert={virtualGroupTransition?.phase === "collapsing" || undefined}
                           >
-                            <ul
-                              className="virtual-group-motion-clip-content note-list-virtual-group-content"
-                              role="list"
-                              style={{ height: `${activeMotionGroup.height}px` }}
-                            >
-                              {motionRows.group.map(({ row, index, localTop }) =>
-                                row.kind === "note"
-                                  ? renderVirtualNote(row.note, index, localTop)
-                                  : null,
-                              )}
-                            </ul>
+                            <div className="virtual-group-motion-clip-content">
+                              <ul
+                                className="note-list-virtual-group-content"
+                                role="list"
+                                style={{ height: `${activeMotionGroup.height}px` }}
+                              >
+                                {motionRows.group.map(({ row, index, localTop }) =>
+                                  row.kind === "note"
+                                    ? renderVirtualNote(row.note, index, localTop)
+                                    : null,
+                                )}
+                              </ul>
+                            </div>
                           </div>
                           <ul
                             className="virtual-group-motion-after note-list-virtual-group-after"

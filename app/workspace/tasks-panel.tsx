@@ -832,15 +832,17 @@ export function TasksPanel({
                                   className={`virtual-group-motion-clip tasks-virtual-group-clip${clipCollapsed ? " is-collapsed" : ""}`}
                                   inert={clipCollapsed || undefined}
                                 >
-                                  <ul
-                                    className="virtual-group-motion-clip-content tasks-virtual-group-content"
-                                    style={{ height: `${group.height}px` }}
-                                    role="list"
-                                  >
-                                    {partition.group.map(({ row, index, localTop }) =>
-                                      renderVirtualRow(row, index, localTop, 0),
-                                    )}
-                                  </ul>
+                                  <div className="virtual-group-motion-clip-content">
+                                    <ul
+                                      className="tasks-virtual-group-content"
+                                      style={{ height: `${group.height}px` }}
+                                      role="list"
+                                    >
+                                      {partition.group.map(({ row, index, localTop }) =>
+                                        renderVirtualRow(row, index, localTop, 0),
+                                      )}
+                                    </ul>
+                                  </div>
                                 </div>
                                 <div className="virtual-group-motion-after tasks-virtual-group-after">
                                   <ul

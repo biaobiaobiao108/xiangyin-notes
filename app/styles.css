@@ -573,7 +573,8 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .tasks-virtual-group-marker small { overflow: hidden; max-width: 42%; flex: 0 1 auto; color: var(--soft-muted); font-size: .7rem; font-weight: 450; text-overflow: ellipsis; white-space: nowrap; }
 .virtual-group-motion-clip { display: grid; grid-template-rows: 1fr; overflow: hidden; transition: grid-template-rows var(--motion-group) var(--motion-group-ease); }
 .virtual-group-motion-clip.is-collapsed { grid-template-rows: 0fr; }
-.virtual-group-motion-clip-content { position: relative; min-height: 0; overflow: hidden; margin: 0; padding: 0; list-style: none; }
+.virtual-group-motion-clip-content { min-height: 0; overflow: hidden; }
+.tasks-virtual-group-content { position: relative; margin: 0; padding: 0; list-style: none; }
 .virtual-group-motion-after, .tasks-virtual-group-after-rows { position: relative; margin: 0; padding: 0; list-style: none; }
 .tasks-item { display: flex; width: 100%; min-height: 42px; gap: 8px; align-items: flex-start; padding: 5px 6px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ink); }
 .tasks-item:hover { background: var(--surface-muted); }
