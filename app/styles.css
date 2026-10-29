@@ -572,6 +572,8 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .tasks-virtual-group-marker.is-sticky-marker { visibility: hidden; }
 .tasks-virtual-group-marker.is-collapsed .tasks-note-group-chevron { transform: rotate(-90deg); }
 .tasks-virtual-group-marker small { overflow: hidden; max-width: 42%; flex: 0 1 auto; color: var(--soft-muted); font-size: .7rem; font-weight: 450; text-overflow: ellipsis; white-space: nowrap; }
+.virtual-group-list-motion { transition: height var(--motion-group) var(--motion-group-ease); }
+#note-list-virtual-rows { padding: 0; }
 .virtual-group-motion-clip { height: var(--group-content-height); overflow: hidden; contain: layout paint; transition: height var(--motion-group) var(--motion-group-ease); }
 .virtual-group-motion-clip.is-collapsed { height: 0; }
 .virtual-group-motion-clip-content { min-height: 0; overflow: hidden; }
@@ -1724,6 +1726,7 @@ dialog::backdrop {
   .tasks-filter-dropdown:first-of-type .tasks-filter-trigger { min-width: 106px; }
   .tasks-filter-menu-wrap, .tasks-filter-menu { max-height: min(420px, 58dvh); }
   .tasks-list { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+  .app-shell[data-mobile-page] .tasks-virtual-list { margin-bottom: calc(72px + env(safe-area-inset-bottom)); }
   .app-shell[data-mobile-page] .tasks-scroll-shell::after { background: linear-gradient(to top, var(--canvas), transparent); }
   .app-shell[data-mobile-page] .tasks-scroll-shell::before { background: linear-gradient(to bottom, var(--canvas), transparent); }
   .app-shell[data-mobile-page] .tasks-note-group-header,

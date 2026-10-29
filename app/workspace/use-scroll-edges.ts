@@ -53,13 +53,34 @@ export function useScrollEdges(
     scrollRoot.addEventListener("scroll", scheduleScrollEdgeUpdate, { passive: true });
     const resizeObserver =
       typeof ResizeObserver === "undefined" ? null : new ResizeObserver(scheduleScrollEdgeUpdate);
-    resizeObserver?.observe(scrollRoot);
-    if (scrollRoot.firstElementChild) resizeObserver?.observe(scrollRoot.firstElementChild);
+    // 吸顶标题不随正文变高；同时观察正文及 display:contents 分组，跟随收展更新渐隐。
+    const mutationObserver =
+      typeof MutationObserver === "undefined"
+        ? null
+        : new MutationObserver(() => {
+            observeContent();
+            scheduleScrollEdgeUpdate();
+          });
+    const observeContent = () => {
+      resizeObserver?.disconnect();
+      mutationObserver?.disconnect();
+      resizeObserver?.observe(scrollRoot);
+      const observeChildren = (parent: Element) => {
+        mutationObserver?.observe(parent, { childList: true });
+        for (const child of parent.children) {
+          resizeObserver?.observe(child);
+          if (getComputedStyle(child).display === "contents") observeChildren(child);
+        }
+      };
+      observeChildren(scrollRoot);
+    };
+    observeContent();
     window.addEventListener("resize", scheduleScrollEdgeUpdate, { passive: true });
 
     return () => {
       scrollRoot.removeEventListener("scroll", scheduleScrollEdgeUpdate);
       resizeObserver?.disconnect();
+      mutationObserver?.disconnect();
       window.removeEventListener("resize", scheduleScrollEdgeUpdate);
       if (animationFrame) cancelAnimationFrame(animationFrame);
     };

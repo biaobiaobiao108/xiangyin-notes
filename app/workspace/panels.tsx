@@ -914,7 +914,7 @@ export const NoteListPanel = memo(function NoteListPanel({
     noteListRef.current = element;
     setNoteListElement((current) => (current === element ? current : element));
   }, []);
-  const anchorGroupCollapse = useGroupCollapseAnchor(noteListRef);
+  const { anchorGroupCollapse, isAnchoring } = useGroupCollapseAnchor(noteListRef);
   const [loadMoreSentinel, setLoadMoreSentinel] = useState<HTMLElement | null>(null);
   const panelRef = useRef<HTMLElement>(null);
   const swipeActions = useSwipeActionGroup(
@@ -1075,6 +1075,7 @@ export const NoteListPanel = memo(function NoteListPanel({
       !onLoadMore ||
       isLoadingMore ||
       !canAutoLoadMore ||
+      virtualGroupTransition !== null ||
       typeof IntersectionObserver === "undefined"
     )
       return;
@@ -1223,13 +1224,37 @@ export const NoteListPanel = memo(function NoteListPanel({
       } else {
         setVirtualGroupTransition({ groupId: transition.groupId, phase: "expanding" });
       }
-      virtualGroupTransitionTimerRef.current = window.setTimeout(() => {
-        virtualGroupTransitionTimerRef.current = null;
-        transitionDataRef.current = null;
-        setVirtualGroupTransition(null);
-      }, groupMotionDuration());
     });
     return () => cancelAnimationFrame(frame);
+  }, [virtualGroupTransition]);
+
+  useLayoutEffect(() => {
+    if (
+      !virtualGroupTransition ||
+      (virtualGroupTransition.phase !== "collapsing" &&
+        virtualGroupTransition.phase !== "expanding")
+    )
+      return;
+    const clip = noteListRef.current?.querySelector<HTMLElement>(".virtual-group-motion-clip");
+    const finish = () => {
+      if (virtualGroupTransitionTimerRef.current !== null)
+        window.clearTimeout(virtualGroupTransitionTimerRef.current);
+      virtualGroupTransitionTimerRef.current = null;
+      transitionDataRef.current = null;
+      setVirtualGroupTransition(null);
+    };
+    const onTransitionEnd = (event: TransitionEvent) => {
+      if (event.target === clip && event.propertyName === "height") finish();
+    };
+    clip?.addEventListener("transitionend", onTransitionEnd);
+    // 快速反向点击也重新安排收尾；无高度差时浏览器不会发 transitionend。
+    virtualGroupTransitionTimerRef.current = window.setTimeout(finish, groupMotionDuration() + 50);
+    return () => {
+      clip?.removeEventListener("transitionend", onTransitionEnd);
+      if (virtualGroupTransitionTimerRef.current !== null)
+        window.clearTimeout(virtualGroupTransitionTimerRef.current);
+      virtualGroupTransitionTimerRef.current = null;
+    };
   }, [virtualGroupTransition]);
 
   useLayoutEffect(() => {
@@ -1402,14 +1427,17 @@ export const NoteListPanel = memo(function NoteListPanel({
   const truncated = hasMore;
   const hasLoadMoreRow = hasMore && Boolean(onLoadMore);
   const listSize = Math.max(total, sortedNotes.length);
+  const activeMotionGroup = transitionDataChanged ? null : virtualList.transitionGroup;
+  const motionCollapsed =
+    virtualGroupTransition?.phase === "collapsing" ||
+    virtualGroupTransition?.phase === "preparing-expansion";
   const listStyle: CSSProperties | undefined = virtualList.isVirtualized
     ? {
         position: "relative",
-        height: `${virtualList.totalHeight + (hasLoadMoreRow ? 76 : 0)}px`,
+        height: `${virtualList.totalHeight - (motionCollapsed ? (activeMotionGroup?.height ?? 0) : 0) + (hasLoadMoreRow ? 76 : 0)}px`,
       }
     : undefined;
   const noteListStyle: CSSProperties = { overflowAnchor: "none" };
-  const activeMotionGroup = transitionDataChanged ? null : virtualList.transitionGroup;
   const motionGroupHeader = activeMotionGroup
     ? virtualList.visibleRows.find(({ index }) => index === activeMotionGroup.start)
     : undefined;
@@ -1584,7 +1612,7 @@ export const NoteListPanel = memo(function NoteListPanel({
               </header>
             )}
             <div
-              className={`note-list-scroll-shell${noteListScrollEdges.before ? " has-scroll-before" : ""}${noteListScrollEdges.after ? " has-scroll-after" : ""}`}
+              className={`note-list-scroll-shell${noteListScrollEdges.before || isAnchoring ? " has-scroll-before" : ""}${noteListScrollEdges.after ? " has-scroll-after" : ""}`}
             >
               <div
                 id="note-list-scroll-region"
@@ -1700,7 +1728,7 @@ export const NoteListPanel = memo(function NoteListPanel({
                 ) : (
                   <ul
                     id={virtualList.isVirtualized ? "note-list-virtual-rows" : undefined}
-                    className="note-list-items"
+                    className={`note-list-items${activeMotionGroup ? " virtual-group-list-motion" : ""}`}
                     role="list"
                     style={listStyle}
                   >
@@ -1729,7 +1757,7 @@ export const NoteListPanel = memo(function NoteListPanel({
                           >
                             <div className="virtual-group-motion-clip-content">
                               <ul
-                                className="note-list-virtual-group-content"
+                                className="note-list-items note-list-virtual-group-content"
                                 role="list"
                                 style={{ height: `${activeMotionGroup.height}px` }}
                               >
@@ -1742,7 +1770,7 @@ export const NoteListPanel = memo(function NoteListPanel({
                             </div>
                           </div>
                           <ul
-                            className="virtual-group-motion-after note-list-virtual-group-after"
+                            className="note-list-items virtual-group-motion-after note-list-virtual-group-after"
                             role="list"
                             style={{
                               height: `${Math.max(0, virtualList.totalHeight - motionAfterTop + (hasLoadMoreRow ? 76 : 0))}px`,

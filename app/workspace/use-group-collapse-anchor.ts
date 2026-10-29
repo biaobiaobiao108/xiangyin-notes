@@ -1,24 +1,37 @@
-import { useEffect, useRef, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 
 // 随内容高度缩减同步回收已滚过的距离，标题留在顶部，且不在动画前展示首行。
 export function useGroupCollapseAnchor(scrollRef: RefObject<HTMLDivElement | null>) {
+  const [isAnchoring, setIsAnchoring] = useState(false);
   const frameRef = useRef<number | null>(null);
+  const initialScrollTopRef = useRef<number | null>(null);
   const translatedContentRef = useRef<HTMLElement | null>(null);
-  const cancel = () => {
+  const cancel = (restorePosition = false) => {
     if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
     frameRef.current = null;
+    // 中途反向展开时，同一帧还原滚动和正文补偿，避免清掉 transform 后首行闪现。
+    if (restorePosition && initialScrollTopRef.current !== null && scrollRef.current)
+      scrollRef.current.scrollTop = initialScrollTopRef.current;
+    initialScrollTopRef.current = null;
     translatedContentRef.current?.style.removeProperty("transform");
     translatedContentRef.current = null;
+    setIsAnchoring(false);
   };
-  useEffect(() => cancel, []);
+  useEffect(() => () => cancel(), []);
 
-  return (targetTop?: number, contentHeight?: number, contentSelector?: string) => {
-    cancel();
+  const anchorGroupCollapse = (
+    targetTop?: number,
+    contentHeight?: number,
+    contentSelector?: string,
+  ) => {
+    cancel(true);
     const scroll = scrollRef.current;
     if (!scroll || targetTop === undefined || contentHeight === undefined || !contentSelector)
       return;
     const initialTop = scroll.scrollTop;
     if (initialTop <= targetTop) return;
+    initialScrollTopRef.current = initialTop;
+    setIsAnchoring(true);
     const update = () => {
       const content = scroll.querySelector<HTMLElement>(contentSelector);
       const height = content?.getBoundingClientRect().height ?? 0;
@@ -33,4 +46,5 @@ export function useGroupCollapseAnchor(scrollRef: RefObject<HTMLDivElement | nul
     };
     frameRef.current = requestAnimationFrame(update);
   };
+  return { anchorGroupCollapse, isAnchoring };
 }

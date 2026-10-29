@@ -195,6 +195,7 @@ export function TasksPanel({
       loadingMore ||
       loadMoreError ||
       !canAutoLoadMore ||
+      virtualGroupTransition !== null ||
       typeof IntersectionObserver === "undefined"
     )
       return;
@@ -214,10 +215,10 @@ export function TasksPanel({
     loadMoreError,
     onLoadMore,
     tasks.length,
-    virtualGroupTransition?.groupId,
+    virtualGroupTransition,
   ]);
 
-  const anchorGroupCollapse = useGroupCollapseAnchor(listRef);
+  const { anchorGroupCollapse, isAnchoring } = useGroupCollapseAnchor(listRef);
   const toggleGroup = (groupId: string, button?: HTMLButtonElement) => {
     if (virtualList.isVirtualized) {
       if (virtualGroupTransition && virtualGroupTransition.groupId !== groupId) {
@@ -334,13 +335,37 @@ export function TasksPanel({
         groupId: transition.groupId,
         phase: collapsing ? "collapsing" : "expanding",
       });
-      virtualGroupTransitionTimerRef.current = window.setTimeout(() => {
-        virtualGroupTransitionTimerRef.current = null;
-        captureVirtualTaskFocus();
-        setVirtualGroupTransition(null);
-      }, groupMotionDuration());
     });
     return () => cancelAnimationFrame(frame);
+  }, [virtualGroupTransition]);
+
+  useLayoutEffect(() => {
+    if (
+      !virtualGroupTransition ||
+      (virtualGroupTransition.phase !== "collapsing" &&
+        virtualGroupTransition.phase !== "expanding")
+    )
+      return;
+    const clip = listRef.current?.querySelector<HTMLElement>(".virtual-group-motion-clip");
+    const finish = () => {
+      if (virtualGroupTransitionTimerRef.current !== null)
+        window.clearTimeout(virtualGroupTransitionTimerRef.current);
+      virtualGroupTransitionTimerRef.current = null;
+      captureVirtualTaskFocus();
+      setVirtualGroupTransition(null);
+    };
+    const onTransitionEnd = (event: TransitionEvent) => {
+      if (event.target === clip && event.propertyName === "height") finish();
+    };
+    clip?.addEventListener("transitionend", onTransitionEnd);
+    // 快速反向点击也重新安排收尾；无高度差时浏览器不会发 transitionend。
+    virtualGroupTransitionTimerRef.current = window.setTimeout(finish, groupMotionDuration() + 50);
+    return () => {
+      clip?.removeEventListener("transitionend", onTransitionEnd);
+      if (virtualGroupTransitionTimerRef.current !== null)
+        window.clearTimeout(virtualGroupTransitionTimerRef.current);
+      virtualGroupTransitionTimerRef.current = null;
+    };
   }, [virtualGroupTransition]);
 
   useLayoutEffect(() => {
@@ -611,8 +636,13 @@ export function TasksPanel({
       </button>
     ) : null;
 
+  const motionCollapsed =
+    virtualGroupTransition?.phase === "collapsing" ||
+    virtualGroupTransition?.phase === "preparing-expansion";
   const virtualListStyle: CSSProperties | undefined = virtualList.isVirtualized
-    ? { height: `${virtualList.totalHeight + (hasMore ? 72 : 24)}px` }
+    ? {
+        height: `${virtualList.totalHeight - (motionCollapsed ? (virtualList.transitionGroup?.height ?? 0) : 0) + (hasMore ? 72 : 24)}px`,
+      }
     : undefined;
 
   return (
@@ -754,7 +784,7 @@ export function TasksPanel({
       </div>
       <div className="note-list-content">
         <div
-          className={`tasks-scroll-shell${scrollEdges.before ? " has-scroll-before" : ""}${scrollEdges.after ? " has-scroll-after" : ""}`}
+          className={`tasks-scroll-shell${scrollEdges.before || isAnchoring ? " has-scroll-before" : ""}${scrollEdges.after ? " has-scroll-after" : ""}`}
         >
           <div
             id="tasks-scroll-region"
@@ -804,7 +834,7 @@ export function TasksPanel({
                   )}
                   <ul
                     id="tasks-virtual-list"
-                    className={`tasks-virtual-list${virtualGroupTransition ? ` is-${virtualGroupTransition.phase}` : ""}`}
+                    className={`tasks-virtual-list${virtualList.transitionGroup ? " virtual-group-list-motion" : ""}${virtualGroupTransition ? ` is-${virtualGroupTransition.phase}` : ""}`}
                     role="list"
                     style={virtualListStyle}
                   >
