@@ -915,7 +915,7 @@ export const NoteListPanel = memo(function NoteListPanel({
     setNoteListElement((current) => (current === element ? current : element));
   }, []);
   const anchorGroupCollapse = useGroupCollapseAnchor(noteListRef);
-  const loadMoreSentinelRef = useRef<HTMLLIElement>(null);
+  const [loadMoreSentinel, setLoadMoreSentinel] = useState<HTMLElement | null>(null);
   const panelRef = useRef<HTMLElement>(null);
   const swipeActions = useSwipeActionGroup(
     noteListRef,
@@ -1066,7 +1066,7 @@ export const NoteListPanel = memo(function NoteListPanel({
     });
 
   useEffect(() => {
-    const sentinel = loadMoreSentinelRef.current;
+    const sentinel = loadMoreSentinel;
     const container = noteListRef.current;
     if (
       !sentinel ||
@@ -1089,6 +1089,7 @@ export const NoteListPanel = memo(function NoteListPanel({
     return () => observer.disconnect();
   }, [
     canAutoLoadMore,
+    loadMoreSentinel,
     hasMore,
     isLoadingMore,
     onLoadMore,
@@ -1682,7 +1683,7 @@ export const NoteListPanel = memo(function NoteListPanel({
                       );
                     })}
                     {hasLoadMoreRow && (
-                      <div className="note-list-load-more-item">
+                      <div ref={setLoadMoreSentinel} className="note-list-load-more-item">
                         <button
                           className="secondary-button note-list-load-more-button"
                           type="button"
@@ -1754,7 +1755,7 @@ export const NoteListPanel = memo(function NoteListPanel({
                             )}
                             {hasLoadMoreRow && (
                               <li
-                                ref={loadMoreSentinelRef}
+                                ref={setLoadMoreSentinel}
                                 className="note-list-load-more-item"
                                 style={{
                                   position: "absolute",
@@ -1787,7 +1788,7 @@ export const NoteListPanel = memo(function NoteListPanel({
                         )}
                         {hasLoadMoreRow && (
                           <li
-                            ref={loadMoreSentinelRef}
+                            ref={setLoadMoreSentinel}
                             className="note-list-load-more-item"
                             style={
                               virtualList.isVirtualized
