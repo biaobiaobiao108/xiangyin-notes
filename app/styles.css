@@ -1173,19 +1173,26 @@ button.save-status:hover { text-decoration: underline; }
 .table-edge-drag-handle { position: relative; display: grid; flex: 1 1 auto; min-inline-size: 24px; min-block-size: 24px; place-items: center; padding: 0; border: 0; border-radius: inherit; background: transparent; cursor: grab; touch-action: none; }
 .table-edge-rail--columns .table-edge-drag-handle { width: 100%; height: 100%; }
 .table-edge-rail--rows .table-edge-drag-handle { width: 100%; height: 100%; }
-.table-edge-grip { --table-edge-mark: var(--muted); display: block; border: 1px solid var(--border-strong); border-radius: 999px; background-color: var(--surface-glass); background-image: linear-gradient(var(--table-edge-mark), var(--table-edge-mark)), linear-gradient(var(--table-edge-mark), var(--table-edge-mark)), linear-gradient(var(--table-edge-mark), var(--table-edge-mark)); background-repeat: no-repeat; background-size: 4px 1px; box-shadow: none; pointer-events: none; transition: background-color var(--motion-fast) var(--motion-ease-out), border-color var(--motion-fast) var(--motion-ease-out), transform var(--motion-fast) var(--motion-ease-out); }
-.table-edge-rail--columns .table-edge-grip { width: 8px; height: 28px; background-position: center calc(50% - 4px), center, center calc(50% + 4px); }
-.table-edge-rail--rows .table-edge-grip { width: 28px; height: 8px; background-position: calc(50% - 4px) center, center, calc(50% + 4px) center; background-size: 1px 4px; }
-.table-edge-direction { position: absolute; display: block; width: 13px; height: 8px; color: var(--soft-muted); opacity: 0.8; pointer-events: none; }
-.table-edge-rail--columns .table-edge-direction { top: 50%; background: repeating-linear-gradient(to right, currentColor 0 1px, transparent 1px 3px) 50% 50% / 8px 1px no-repeat; transform: translateY(-50%); }
-.table-edge-rail--columns .table-edge-direction--decrease { right: calc(50% + 5px); }
-.table-edge-rail--columns .table-edge-direction--increase { left: calc(50% + 5px); }
+.table-edge-grip { position: relative; display: flex; align-items: center; justify-content: center; border: 1px solid var(--border-strong); border-radius: 999px; background-color: var(--surface-glass); box-shadow: 0 1px 4px rgba(39, 47, 41, 0.1); pointer-events: none; transition: background-color var(--motion-fast) var(--motion-ease-out), border-color var(--motion-fast) var(--motion-ease-out), transform var(--motion-fast) var(--motion-ease-out); }
+.table-edge-rail--columns .table-edge-grip { width: 10px; height: 48px; }
+.table-edge-rail--rows .table-edge-grip { width: 48px; height: 10px; }
+.table-edge-grip-track { position: absolute; border-radius: 999px; background: var(--border-soft); }
+.table-edge-rail--columns .table-edge-grip-track { top: 7px; bottom: 7px; left: 50%; width: 1px; transform: translateX(-50%); }
+.table-edge-rail--rows .table-edge-grip-track { top: 50%; right: 7px; left: 7px; height: 1px; transform: translateY(-50%); }
+.table-edge-grip-dots { position: relative; display: flex; align-items: center; justify-content: center; gap: 3px; }
+.table-edge-rail--columns .table-edge-grip-dots { flex-direction: column; }
+.table-edge-rail--rows .table-edge-grip-dots { flex-direction: row; }
+.table-edge-grip-dots > span { width: 3px; height: 3px; flex: none; border-radius: 50%; background: var(--muted); }
+.table-edge-direction { position: absolute; display: block; width: 6px; height: 8px; color: var(--soft-muted); opacity: 0.8; pointer-events: none; }
+.table-edge-rail--columns .table-edge-direction { top: 50%; transform: translateY(-50%); }
+.table-edge-rail--columns .table-edge-direction--decrease { right: calc(50% + 8px); }
+.table-edge-rail--columns .table-edge-direction--increase { left: calc(50% + 8px); }
 .table-edge-rail--columns .table-edge-direction--decrease::after, .table-edge-rail--columns .table-edge-direction--increase::after { position: absolute; top: 50%; width: 0; height: 0; border-top: 3px solid transparent; border-bottom: 3px solid transparent; content: ""; transform: translateY(-50%); }
 .table-edge-rail--columns .table-edge-direction--decrease::after { left: 0; border-right: 4px solid currentColor; }
 .table-edge-rail--columns .table-edge-direction--increase::after { right: 0; border-left: 4px solid currentColor; }
-.table-edge-rail--rows .table-edge-direction { left: 50%; width: 8px; height: 13px; background: repeating-linear-gradient(to bottom, currentColor 0 1px, transparent 1px 3px) 50% 50% / 1px 8px no-repeat; transform: translateX(-50%); }
-.table-edge-rail--rows .table-edge-direction--decrease { bottom: calc(50% + 5px); }
-.table-edge-rail--rows .table-edge-direction--increase { top: calc(50% + 5px); }
+.table-edge-rail--rows .table-edge-direction { left: 50%; width: 8px; height: 6px; transform: translateX(-50%); }
+.table-edge-rail--rows .table-edge-direction--decrease { bottom: calc(50% + 8px); }
+.table-edge-rail--rows .table-edge-direction--increase { top: calc(50% + 8px); }
 .table-edge-rail--rows .table-edge-direction--decrease::after, .table-edge-rail--rows .table-edge-direction--increase::after { position: absolute; left: 50%; width: 0; height: 0; border-right: 3px solid transparent; border-left: 3px solid transparent; content: ""; transform: translateX(-50%); }
 .table-edge-rail--rows .table-edge-direction--decrease::after { top: 0; border-bottom: 4px solid currentColor; }
 .table-edge-rail--rows .table-edge-direction--increase::after { bottom: 0; border-top: 4px solid currentColor; }

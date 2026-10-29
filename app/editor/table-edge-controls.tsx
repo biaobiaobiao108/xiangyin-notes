@@ -414,7 +414,14 @@ function TableEdgeRail({
         onClick={handleDragHandleClick}
       >
         <span className="table-edge-direction table-edge-direction--decrease" aria-hidden="true" />
-        <span className="table-edge-grip" aria-hidden="true" />
+        <span className="table-edge-grip" aria-hidden="true">
+          <span className="table-edge-grip-track" />
+          <span className="table-edge-grip-dots">
+            <span />
+            <span />
+            <span />
+          </span>
+        </span>
         <span className="table-edge-direction table-edge-direction--increase" aria-hidden="true" />
       </button>
       {previewDelta !== 0 && (
