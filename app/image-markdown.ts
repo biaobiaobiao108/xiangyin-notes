@@ -23,7 +23,7 @@ export function normalizeImagesInEmptyListItems(markdown: string) {
 
   for (let index = 0; index < lines.length; index += 2) {
     const line = lines[index] ?? "";
-    const listMarker = /^([ ]*)([-+*]|\d+[.)])[ \t]*$/u.exec(line);
+    const listMarker = /^([ ]*)([-+*]|\d+[.)])(?:[ \t]|&nbsp;)*$/u.exec(line);
     const imageLine = /^[ \t]+(!\[.*\]\(.*\))[ \t]*$/u.exec(lines[index + 2] ?? "");
     if (!listMarker || !imageLine) continue;
 

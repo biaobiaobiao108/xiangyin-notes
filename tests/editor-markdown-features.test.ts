@@ -593,6 +593,38 @@ describe("table edge controls", () => {
     }
   });
 
+  test("restores a canceled table edge preview without moving the selection", () => {
+    const editor = new Editor({
+      extensions: [
+        StarterKit.configure({ heading: { levels: [1, 2, 3, 4] } }),
+        ...createTableExtensions(),
+        Markdown,
+      ],
+      content: { type: "doc", content: [{ type: "paragraph" }] },
+    });
+    try {
+      editor.commands.insertTable({ rows: 2, cols: 2, withHeaderRow: true });
+      const context = getActiveTableContext(editor)!;
+      editor.commands.setTextSelection(context.position + 4);
+      const selectionBefore = editor.state.selection.from;
+      const snapshot = getActiveTableSnapshot(editor)!;
+
+      expect(previewActiveTableSize(editor, snapshot, "columns", 1)).toBe(true);
+      expect(
+        restoreActiveTableSnapshot(editor, snapshot, {
+          addToHistory: false,
+          emitUpdate: false,
+          closeHistory: true,
+          preserveSelection: true,
+        }),
+      ).toBe(true);
+      expect(editor.state.selection.from).toBe(selectionBefore);
+      expect(getActiveTableContext(editor)?.columns).toBe(2);
+    } finally {
+      editor.destroy();
+    }
+  });
+
   test("adjusts the far edge in a single transaction and preserves one row and column", () => {
     const editor = new Editor({
       extensions: [

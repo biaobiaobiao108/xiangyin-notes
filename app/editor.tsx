@@ -324,6 +324,18 @@ export function NoteEditor({
   ) {
     imageUploadContextRef.current = { noteId: note.id, reloadToken };
   }
+  const imageUploadProgressRef = useRef({
+    context: imageUploadContextRef.current,
+    activeCount: 0,
+    failed: false,
+  });
+  if (imageUploadProgressRef.current.context !== imageUploadContextRef.current) {
+    imageUploadProgressRef.current = {
+      context: imageUploadContextRef.current,
+      activeCount: 0,
+      failed: false,
+    };
+  }
   const programmaticOutlineScrollIdRef = useRef<string | null>(null);
   const cancelOutlineSmoothScroll = useCallback(() => {
     if (outlineScrollAnimRef.current !== null) {
@@ -445,18 +457,30 @@ export function NoteEditor({
         .slice(0, MAX_IMAGE_FILES_PER_ACTION);
       if (!imageFiles.length) {
         if (files.some(isImageFile)) {
-          setImageUploadState("error");
+          const progress = imageUploadProgressRef.current;
+          progress.failed = true;
+          if (progress.activeCount === 0) setImageUploadState("error");
           if (imageUploadTimerRef.current !== null) clearTimeout(imageUploadTimerRef.current);
-          imageUploadTimerRef.current = setTimeout(() => {
-            imageUploadTimerRef.current = null;
-            setImageUploadState("idle");
-          }, 3000);
+          imageUploadTimerRef.current =
+            progress.activeCount === 0
+              ? setTimeout(() => {
+                  imageUploadTimerRef.current = null;
+                  if (imageUploadProgressRef.current === progress && progress.activeCount === 0) {
+                    progress.failed = false;
+                    setImageUploadState("idle");
+                  }
+                }, 3000)
+              : null;
         }
         return;
       }
       const uploadPosition = createImageUploadPosition(editorInstance);
+      const progress = imageUploadProgressRef.current;
+      if (progress.activeCount === 0) progress.failed = false;
+      progress.activeCount += 1;
       setImageUploadState("uploading");
       if (imageUploadTimerRef.current !== null) clearTimeout(imageUploadTimerRef.current);
+      imageUploadTimerRef.current = null;
       try {
         for (const file of imageFiles) {
           const dimensions = await imageDimensions(file);
@@ -486,16 +510,32 @@ export function NoteEditor({
           )
             break;
         }
-        setImageUploadState("idle");
       } catch {
         if (!isCurrentUpload()) return;
-        setImageUploadState("error");
-        imageUploadTimerRef.current = setTimeout(() => {
-          imageUploadTimerRef.current = null;
-          setImageUploadState("idle");
-        }, 3000);
+        progress.failed = true;
       } finally {
         uploadPosition.dispose();
+        if (
+          isCurrentUpload() &&
+          imageUploadProgressRef.current === progress &&
+          progress.context === uploadContext
+        ) {
+          progress.activeCount = Math.max(0, progress.activeCount - 1);
+          if (progress.activeCount === 0) {
+            if (progress.failed) {
+              setImageUploadState("error");
+              imageUploadTimerRef.current = setTimeout(() => {
+                imageUploadTimerRef.current = null;
+                if (imageUploadProgressRef.current === progress && progress.activeCount === 0) {
+                  progress.failed = false;
+                  setImageUploadState("idle");
+                }
+              }, 3000);
+            } else {
+              setImageUploadState("idle");
+            }
+          }
+        }
       }
     },
     [editorLocked, note.deletedAt],

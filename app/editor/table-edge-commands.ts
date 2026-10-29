@@ -1,7 +1,7 @@
 import type { Editor } from "@tiptap/core";
 import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { closeHistory } from "@tiptap/pm/history";
-import { TextSelection } from "@tiptap/pm/state";
+import { TextSelection, type SelectionBookmark } from "@tiptap/pm/state";
 
 export type TableEdgeAxis = "columns" | "rows";
 
@@ -16,12 +16,13 @@ export type ActiveTableContext = {
 export type TableEdgeSnapshot = Pick<
   ActiveTableContext,
   "node" | "position" | "lastCellTextPosition"
->;
+> & { selectionBookmark: SelectionBookmark };
 
 export type TableEdgeTransactionOptions = {
   addToHistory?: boolean;
   emitUpdate?: boolean;
   closeHistory?: boolean;
+  preserveSelection?: boolean;
 };
 
 export function getTableEdgeDragDelta(
@@ -121,6 +122,7 @@ export function getActiveTableSnapshot(
     node: context.node,
     position: context.position,
     lastCellTextPosition: context.lastCellTextPosition,
+    selectionBookmark: editor.state.selection.getBookmark(),
   };
 }
 
@@ -136,7 +138,11 @@ export function restoreActiveTableSnapshot(
     .chain()
     .command(({ tr }) => {
       tr.replaceWith(context.position, context.position + context.node.nodeSize, snapshot.node);
-      tr.setSelection(TextSelection.near(tr.doc.resolve(snapshot.lastCellTextPosition), 1));
+      tr.setSelection(
+        options.preserveSelection
+          ? snapshot.selectionBookmark.resolve(tr.doc)
+          : TextSelection.near(tr.doc.resolve(snapshot.lastCellTextPosition), 1),
+      );
       if (options.addToHistory === false) tr.setMeta("addToHistory", false);
       if (options.emitUpdate === false) tr.setMeta("preventUpdate", true);
       if (options.closeHistory) closeHistory(tr);

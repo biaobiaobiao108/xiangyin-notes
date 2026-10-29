@@ -33,11 +33,26 @@ statsMarked.use({
 
 /** Match Tiptap's Markdown text decoding; code and wiki-link attributes stay literal. */
 function decodeMarkdownText(text: string) {
-  return text
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&amp;/g, "&");
+  return text.replace(
+    /&(?:#(\d{1,7})|#[xX]([0-9a-fA-F]{1,6})|(lt|gt|quot|amp));/g,
+    (entity, decimal, hex, name) => {
+      if (decimal !== undefined || hex !== undefined) {
+        const codePoint = decimal !== undefined ? Number(decimal) : Number.parseInt(hex, 16);
+        if (
+          codePoint === 0 ||
+          codePoint > 0x10ffff ||
+          (codePoint >= 0xd800 && codePoint <= 0xdfff)
+        ) {
+          return "\ufffd";
+        }
+        return String.fromCodePoint(codePoint);
+      }
+      if (name === "lt") return "<";
+      if (name === "gt") return ">";
+      if (name === "quot") return '"';
+      return "&";
+    },
+  );
 }
 
 const HTML_TAGS = new Set(

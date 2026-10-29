@@ -242,6 +242,7 @@ function TableEdgeRail({
       addToHistory: false,
       emitUpdate: false,
       closeHistory: true,
+      preserveSelection: true,
     });
     suppressClickRef.current = true;
     setPreviewDelta(0);
@@ -270,6 +271,7 @@ function TableEdgeRail({
         addToHistory: false,
         emitUpdate: false,
         closeHistory: true,
+        preserveSelection: delta === 0,
       });
       if (delta) onAdjustRef.current(delta, drag.snapshot.position);
     } else {
@@ -324,6 +326,7 @@ function TableEdgeRail({
           addToHistory: false,
           emitUpdate: false,
           closeHistory: true,
+          preserveSelection: true,
         });
       }
     },

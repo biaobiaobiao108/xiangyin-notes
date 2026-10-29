@@ -129,7 +129,7 @@ describe("image markdown helpers", () => {
 
     try {
       const markdown = (sourceEditor as Editor & { getMarkdown: () => string }).getMarkdown();
-      expect(markdown).toContain("    - \n      ![deep]");
+      expect(markdown).toContain("    - &nbsp;\n      ![deep]");
       const editor = new Editor({
         extensions: [StarterKit, createMarkdownExtension(), ImageNode],
         content: normalizeImagesInEmptyListItems(markdown),
