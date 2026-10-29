@@ -2692,10 +2692,9 @@ describe("Bun Server API", () => {
     expect(list.body?.hasMore).toBe(true);
     expect(list.body?.nextCursor).toEqual(expect.any(String));
 
-    const page2 = await request("/api/notes?view=all&offset=100", {}, login.cookie);
-    expect(page2.response.status).toBe(200);
-    expect(page2.body?.notes).toHaveLength(6);
-    expect(page2.body?.total).toBe(106);
+    const offsetPage = await request("/api/notes?view=all&offset=100", {}, login.cookie);
+    expect(offsetPage.response.status).toBe(400);
+    expect(offsetPage.body?.error?.code).toBe("INVALID_OFFSET");
 
     const cursorPage2 = await request(
       `/api/notes?view=all&cursor=${encodeURIComponent(list.body?.nextCursor)}&includeTotal=0`,
@@ -2706,8 +2705,9 @@ describe("Bun Server API", () => {
     expect(cursorPage2.body?.notes).toHaveLength(6);
     expect(cursorPage2.body).not.toHaveProperty("total");
     expect(cursorPage2.body?.hasMore).toBeUndefined();
-    expect(cursorPage2.body?.notes.map((item: { id: string }) => item.id)).toEqual(
-      page2.body?.notes.map((item: { id: string }) => item.id),
+    const firstIds = new Set(list.body?.notes.map((item: { id: string }) => item.id));
+    expect(cursorPage2.body?.notes.every((item: { id: string }) => !firstIds.has(item.id))).toBe(
+      true,
     );
   });
 

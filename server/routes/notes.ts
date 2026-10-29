@@ -75,7 +75,6 @@ const NOTE_BATCH_BODY_MAX_BYTES = 64 * 1024;
 const TASK_PAGE_SIZE = 100;
 const TASK_PAGE_MAX_SIZE = 200;
 const NOTE_SORTS: NoteSort[] = ["updated", "created", "title"];
-const NOTE_LIST_MAX_OFFSET = 1_000_000;
 const NOTE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 
 type TaskCursor = { sortCreatedAt: number; noteId: string; ordinal: number };
@@ -809,13 +808,7 @@ export async function handleNotesRoute(
       return jsonError(400, "INVALID_CURSOR", "笔记列表游标无效");
     if (cursor && sort === "relevance" && cursor.scope !== scope)
       return jsonError(400, "INVALID_CURSOR", "笔记列表游标与搜索条件不一致");
-    const requestedOffset = Math.max(
-      0,
-      Number.parseInt(url.searchParams.get("offset") ?? "0", 10) || 0,
-    );
-    if (requestedOffset > NOTE_LIST_MAX_OFFSET)
-      return jsonError(400, "INVALID_OFFSET", `分页偏移量不能超过 ${NOTE_LIST_MAX_OFFSET}`);
-    const offset = cursor ? 0 : requestedOffset;
+    if (url.searchParams.has("offset")) return jsonError(400, "INVALID_OFFSET", "请使用游标分页");
     const rawLimit = url.searchParams.get("limit");
     const pageLimit = rawLimit === null ? NOTE_PAGE_SIZE : Number(rawLimit);
     if (!Number.isSafeInteger(pageLimit) || pageLimit < 1 || pageLimit > NOTE_PAGE_SIZE)
@@ -888,14 +881,13 @@ export async function handleNotesRoute(
     }
     const listStatement = database.query(`
       ${rankingCte} SELECT ${NOTE_LIST_SELECT}, ${scoreExpression} AS relevance_score ${matchSelect}
-      FROM ${from} WHERE ${where} ORDER BY ${sort === "relevance" ? `${scoreExpression} ASC, n.id ASC` : noteListOrder(sort)} LIMIT ? OFFSET ?
+      FROM ${from} WHERE ${where} ORDER BY ${sort === "relevance" ? `${scoreExpression} ASC, n.id ASC` : noteListOrder(sort)} LIMIT ?
     `);
     const rows = listStatement.all(
       ...rankingParams,
       ...matchParams,
       ...params,
       pageLimit + 1,
-      offset,
     ) as (NoteRow & { tags_json: string; relevance_score: number; match_snippet?: string })[];
     const hasMore = rows.length > pageLimit;
     const pageRows = hasMore ? rows.slice(0, pageLimit) : rows;

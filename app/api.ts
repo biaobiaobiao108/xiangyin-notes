@@ -63,8 +63,6 @@ export const api = {
       query?: string;
       notebookId?: string;
       sort?: NoteSort;
-      /** 兼容旧调用；连续翻页优先使用 cursor，避免深度偏移扫描。 */
-      offset?: number;
       cursor?: string;
       includeTotal?: boolean;
     },
@@ -74,8 +72,6 @@ export const api = {
     if (params.query) search.set("query", params.query);
     if (params.notebookId) search.set("notebookId", params.notebookId);
     if (params.sort) search.set("sort", params.sort);
-    if (params.offset !== undefined && params.offset > 0)
-      search.set("offset", String(params.offset));
     if (params.cursor) search.set("cursor", params.cursor);
     if (params.includeTotal === false) search.set("includeTotal", "0");
     return request<{
