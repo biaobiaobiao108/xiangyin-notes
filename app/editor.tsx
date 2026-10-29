@@ -17,6 +17,7 @@ import Placeholder from "@tiptap/extension-placeholder";
 import { findWrapping } from "@tiptap/pm/transform";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Selection, type Transaction } from "@tiptap/pm/state";
+import { closeHistory } from "@tiptap/pm/history";
 import {
   ArrowLeft,
   ArrowLeftRight,
@@ -40,6 +41,8 @@ import { BrandMark } from "./brand-mark";
 import {
   cycleSearchMatchIndex,
   findTextMatches,
+  findEditorReplaceMatches,
+  replaceEditorSearchMatches,
   searchHighlightPluginKey,
   SearchHighlightExtension,
 } from "./editor-search";
@@ -364,7 +367,11 @@ export function NoteEditor({
     matchCount: 0,
     totalMatchCount: 0,
   });
-  const searchQueryRef = useRef(searchQuery);
+  const [replaceOpen, setReplaceOpen] = useState(false);
+  const [replaceQuery, setReplaceQuery] = useState("");
+  const [replacementText, setReplacementText] = useState("");
+  const effectiveSearchQuery = replaceOpen ? replaceQuery : searchQuery;
+  const searchQueryRef = useRef(effectiveSearchQuery);
   const searchNavigationRef = useRef(searchNavigation);
   const typewriterModeRef = useRef(typewriterMode);
   const typewriterAnimRef = useRef<number | null>(null);
@@ -402,7 +409,7 @@ export function NoteEditor({
   useEffect(() => {
     markdownOwnerRef.current.noteId = note.id;
     markdownOwnerRef.current.reloadToken = reloadToken;
-    searchQueryRef.current = searchQuery;
+    searchQueryRef.current = effectiveSearchQuery;
     searchNavigationRef.current = searchNavigation;
     onChangeRef.current = onChange;
     onMarkdownDirtyChangeRef.current = onMarkdownDirtyChange;
@@ -1486,7 +1493,7 @@ export function NoteEditor({
 
   const moveSearchMatch = useCallback(
     (direction: -1 | 1) => {
-      if (!editor || isLoading || !searchQueryRef.current.trim()) return;
+      if (!editor || isLoading || !searchQueryRef.current) return;
       const state = searchHighlightPluginKey.getState(editor.state);
       if (!state?.matches.length) return;
       const nextIndex = cycleSearchMatchIndex(state.activeIndex, state.matches.length, direction);
@@ -1501,14 +1508,72 @@ export function NoteEditor({
     [editor, isLoading, scrollToActiveSearchMatch],
   );
 
+  const closeReplace = useCallback(() => {
+    setReplaceOpen(false);
+    editor?.commands.focus();
+  }, [editor]);
+
+  const replaceCurrent = useCallback(() => {
+    if (!editor || !editor.isEditable || editorLocked || !replaceQuery) return;
+    const search = searchHighlightPluginKey.getState(editor.state);
+    const match = search?.matches[search.activeIndex];
+    if (!match) return;
+    const transaction = editor.state.tr.insertText(replacementText, match.from, match.to);
+    const matches = findEditorReplaceMatches(transaction.doc, replaceQuery);
+    const nextPosition = match.from + replacementText.length;
+    const nextIndex = matches.findIndex((item) => item.from >= nextPosition);
+    transaction.setMeta(searchHighlightPluginKey, {
+      type: "query",
+      query: replaceQuery,
+      literal: true,
+      activeIndex: nextIndex < 0 ? 0 : nextIndex,
+    });
+    editor.view.dispatch(closeHistory(transaction));
+    editor.view.dispatch(closeHistory(editor.state.tr));
+    requestAnimationFrame(scrollToActiveSearchMatch);
+  }, [editor, editorLocked, replaceQuery, replacementText, scrollToActiveSearchMatch]);
+
+  const replaceAll = useCallback(() => {
+    if (!editor || !editor.isEditable || editorLocked || !replaceQuery) return;
+    const { transaction, count } = replaceEditorSearchMatches(
+      editor.state,
+      replaceQuery,
+      replacementText,
+    );
+    if (!count) return;
+    editor.view.dispatch(closeHistory(transaction));
+    editor.view.dispatch(closeHistory(editor.state.tr));
+  }, [editor, editorLocked, replaceQuery, replacementText]);
+
+  useEffect(() => {
+    if (!searchQuery) setReplaceOpen(false);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    if (!replaceOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.isComposing || event.keyCode === 229) return;
+      if (event.target instanceof Element && event.target.closest("dialog[open], [role='dialog']"))
+        return;
+      const panel = editor?.view.dom.closest(".editor-panel");
+      if (!(event.target instanceof Node) || !panel?.contains(event.target)) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      closeReplace();
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [replaceOpen, editor, closeReplace]);
+
   useEffect(() => {
     if (!editor || isLoading) return;
-    const trimmedQuery = searchQuery.trim();
-    const titleMatches = findTextMatches(note.title, trimmedQuery);
+    const trimmedQuery = replaceOpen ? replaceQuery : searchQuery.trim();
+    const titleMatches = replaceOpen ? [] : findTextMatches(note.title, trimmedQuery);
     editor.view.dispatch(
       editor.state.tr.setMeta(searchHighlightPluginKey, {
         type: "query",
         query: trimmedQuery,
+        literal: replaceOpen,
         activeIndex: 0,
       }),
     );
@@ -1517,7 +1582,7 @@ export function NoteEditor({
       (searchHighlightPluginKey.getState(editor.state)?.totalMatchCount ?? 0) > 0;
 
     const frame = requestAnimationFrame(() => {
-      if (editor.isDestroyed) return;
+      if (editor.isDestroyed || replaceOpen) return;
       const behavior: ScrollBehavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches
         ? "auto"
         : "smooth";
@@ -1543,6 +1608,8 @@ export function NoteEditor({
     note.id,
     reloadToken,
     searchQuery,
+    replaceOpen,
+    replaceQuery,
     searchNavigationToken,
     syncSearchNavigation,
   ]);
@@ -2223,6 +2290,24 @@ export function NoteEditor({
         hideOutlineTrigger={focusMode || isMobileViewport}
         searchNavigation={searchNavigation}
         searchQuery={searchQuery}
+        replaceOpen={replaceOpen}
+        replaceQuery={replaceQuery}
+        replacementText={replacementText}
+        replaceMatchNavigation={searchNavigation}
+        onToggleReplace={() => {
+          if (replaceOpen) setReplaceOpen(false);
+          else {
+            setReplaceQuery(searchQuery);
+            setReplacementText("");
+            setReplaceOpen(true);
+          }
+        }}
+        onChangeReplaceQuery={setReplaceQuery}
+        onChangeReplacementText={setReplacementText}
+        onMoveReplaceMatch={moveSearchMatch}
+        onReplaceCurrent={replaceCurrent}
+        onReplaceAll={replaceAll}
+        onCloseReplace={closeReplace}
         deferredLoading={editorLocked}
         onMoveSearchMatch={moveSearchMatch}
         onClearSearch={onClearSearch}
