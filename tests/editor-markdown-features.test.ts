@@ -35,6 +35,7 @@ import {
   getActiveTableContext,
   getActiveTableSnapshot,
   getTableEdgeDragDelta,
+  hasTableEdgeDragMoved,
   previewActiveTableSize,
   restoreActiveTableSnapshot,
   snapTableEdgeDrag,
@@ -519,6 +520,20 @@ describe("code block copy", () => {
 });
 
 describe("table edge controls", () => {
+  test("keeps a returned pointer classified as a drag after its preview resets", () => {
+    const start = { x: 40, y: 60 };
+    let moved = false;
+    const previewDeltas = [96, 0].map((distance) => {
+      moved = hasTableEdgeDragMoved(start, { x: start.x + distance, y: start.y }, moved);
+      return getTableEdgeDragDelta(distance, 3, 96);
+    });
+
+    expect(previewDeltas).toEqual([1, 0]);
+    moved = hasTableEdgeDragMoved(start, { x: 40, y: 60 }, moved);
+    expect(moved).toBe(true);
+    expect(hasTableEdgeDragMoved(start, { x: 43, y: 62 })).toBe(false);
+  });
+
   test("snaps to the nearest row or column boundary without crossing one", () => {
     expect(getTableEdgeDragDelta(13, 3)).toBe(0);
     expect(getTableEdgeDragDelta(14, 3)).toBe(1);

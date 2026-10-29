@@ -13,6 +13,7 @@ import {
   adjustActiveTableSize,
   getActiveTableContext,
   getActiveTableSnapshot,
+  hasTableEdgeDragMoved,
   previewActiveTableSize,
   restoreActiveTableSnapshot,
   snapTableEdgeDrag,
@@ -34,6 +35,7 @@ type DragSession = {
   startX: number;
   startY: number;
   delta: number;
+  moved: boolean;
   snappedDistance: number;
   initialSize: number;
   step: number;
@@ -241,7 +243,7 @@ function TableEdgeRail({
       emitUpdate: false,
       closeHistory: true,
     });
-    suppressClickRef.current = false;
+    suppressClickRef.current = true;
     setPreviewDelta(0);
   };
 
@@ -253,16 +255,15 @@ function TableEdgeRail({
   }) => {
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
-    const distance = isColumnRail ? event.clientX - drag.startX : event.clientY - drag.startY;
-    const { delta } = snapTableEdgeDrag(
-      distance,
-      drag.initialSize,
-      drag.step,
-      drag.existingItemSizes,
+    drag.moved = hasTableEdgeDragMoved(
+      { x: drag.startX, y: drag.startY },
+      { x: event.clientX, y: event.clientY },
+      drag.moved,
     );
+    const delta = drag.delta;
     clearDrag(event.pointerId);
 
-    if (Math.abs(distance) >= 6) {
+    if (drag.moved) {
       event.preventDefault();
       suppressClickRef.current = true;
       restoreActiveTableSnapshot(editor, drag.snapshot, {
@@ -284,6 +285,11 @@ function TableEdgeRail({
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
     const distance = isColumnRail ? event.clientX - drag.startX : event.clientY - drag.startY;
+    drag.moved = hasTableEdgeDragMoved(
+      { x: drag.startX, y: drag.startY },
+      { x: event.clientX, y: event.clientY },
+      drag.moved,
+    );
     drag.pointerX = event.clientX;
     drag.pointerY = event.clientY;
     const preview = previewRef.current;
@@ -340,6 +346,7 @@ function TableEdgeRail({
       startX: event.clientX,
       startY: event.clientY,
       delta: 0,
+      moved: false,
       snappedDistance: 0,
       initialSize: size,
       step: metrics.step,

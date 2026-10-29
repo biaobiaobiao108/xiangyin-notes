@@ -62,6 +62,15 @@ export function snapTableEdgeDrag(
   return { delta, snappedDistance };
 }
 
+export function hasTableEdgeDragMoved(
+  start: { x: number; y: number },
+  current: { x: number; y: number },
+  alreadyMoved = false,
+  threshold = 6,
+) {
+  return alreadyMoved || Math.hypot(current.x - start.x, current.y - start.y) >= threshold;
+}
+
 function createTableContext(node: ProseMirrorNode, position: number): ActiveTableContext | null {
   if (node.type.name !== "table" || node.childCount === 0) return null;
   const lastRowIndex = node.childCount - 1;
