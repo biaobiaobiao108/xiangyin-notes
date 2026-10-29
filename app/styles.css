@@ -123,6 +123,7 @@
   --motion-fast: 160ms;
   --motion-content: 180ms;
   --motion-group: 320ms;
+  --motion-note-group: 420ms;
   --motion-group-ease: cubic-bezier(0.4, 0, 0.2, 1);
   --motion-panel: 220ms;
   --motion-layout: 280ms;
@@ -814,6 +815,7 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
   color: var(--soft-muted);
   opacity: 0.8;
 }
+.note-list-panel:not(.tasks-panel) { --motion-group: var(--motion-note-group); --motion-group-ease: cubic-bezier(0.35, 0, 0.25, 1); }
 .note-list-group-content { overflow: hidden; display: grid; grid-template-rows: 1fr; overflow-anchor: none; transition: grid-template-rows var(--motion-group) var(--motion-group-ease); }
 .note-list-group-content.is-collapsed { grid-template-rows: 0fr; }
 .note-list-group-content > ul { min-height: 0; overflow: hidden; padding: 0; }
@@ -2971,6 +2973,7 @@ dialog::backdrop {
     --motion-fast: 0ms;
     --motion-content: 0ms;
     --motion-group: 0ms;
+    --motion-note-group: 0ms;
     --motion-panel: 0ms;
     --motion-layout: 0ms;
     --motion-spin: 0ms;

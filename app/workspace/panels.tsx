@@ -73,10 +73,9 @@ type VirtualGroupTransition = {
   phase: "preparing-collapse" | "preparing-expansion" | "collapsing" | "expanding";
 };
 
-function groupMotionDuration() {
-  const value = getComputedStyle(document.documentElement)
-    .getPropertyValue("--motion-group")
-    .trim();
+function groupMotionDuration(target: HTMLElement | null) {
+  if (!target) return 0;
+  const value = getComputedStyle(target).getPropertyValue("--motion-group").trim();
   const duration = Number.parseFloat(value);
   if (!Number.isFinite(duration)) return 0;
   if (value.endsWith("ms")) return duration;
@@ -1142,7 +1141,7 @@ export const NoteListPanel = memo(function NoteListPanel({
         ".virtual-group-motion-clip",
       );
     }
-    const duration = groupMotionDuration();
+    const duration = groupMotionDuration(noteListRef.current);
     const clearTimer = () => {
       if (virtualGroupTransitionTimerRef.current !== null)
         window.clearTimeout(virtualGroupTransitionTimerRef.current);
@@ -1248,7 +1247,10 @@ export const NoteListPanel = memo(function NoteListPanel({
     };
     clip?.addEventListener("transitionend", onTransitionEnd);
     // 快速反向点击也重新安排收尾；无高度差时浏览器不会发 transitionend。
-    virtualGroupTransitionTimerRef.current = window.setTimeout(finish, groupMotionDuration() + 50);
+    virtualGroupTransitionTimerRef.current = window.setTimeout(
+      finish,
+      groupMotionDuration(noteListRef.current) + 50,
+    );
     return () => {
       clip?.removeEventListener("transitionend", onTransitionEnd);
       if (virtualGroupTransitionTimerRef.current !== null)
