@@ -49,7 +49,7 @@
 - 使用 React + TypeScript 和 `bun build`；不要引入 Vite。以 Safari 为首要适配目标，并延续现有暖白、石墨、松柏绿与朱砂点缀的视觉风格。
 - Markdown 是笔记内容的持久化来源；仅供展示的大纲、统计和标题 ID 不写入数据库。
 - 优先语义化 HTML 和 ARIA；图标按钮提供 `aria-label`。全站不绘制 `outline`，不使用 HTML `title` 或悬停提示；局部滚动使用 `FloatingScrollbar`。
-- 遵循现有组件和 Hook 的职责边界；不要为了拆文件而拆分。动效只使用 `transform` / `opacity`，并尊重 `prefers-reduced-motion`。
+- 遵循现有组件和 Hook 的职责边界；不要为了拆文件而拆分。动效尊重 `prefers-reduced-motion`。
 - Tiptap 内部维护编辑中的正文，避免每次输入都把整篇 Markdown 复制到多个 React state；处理长正文时限制中间数据并及时清理资源。
 - Escape 按局部到全局退出：弹窗/子浮层 → 沉浸模式 → 大纲 → 卡片单篇编辑 → 多选。ProseMirror 的 `defaultPrevented` 不得阻断退出；输入法组合态（`isComposing` 或 `keyCode === 229`）不得触发全局退出。
 
