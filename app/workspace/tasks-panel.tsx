@@ -208,13 +208,16 @@ export function TasksPanel({
           return;
         }
         setVirtualGroupTransition({ groupId, phase });
-        virtualGroupTransitionTimerRef.current = window.setTimeout(() => {
-          virtualGroupTransitionTimerRef.current = null;
-          if (phase === "collapsing") {
-            setCollapsedGroups((current) => new Set(current).add(groupId));
-          }
-          setVirtualGroupTransition(null);
-        }, duration);
+        virtualGroupTransitionTimerRef.current = window.setTimeout(
+          () => {
+            virtualGroupTransitionTimerRef.current = null;
+            if (phase === "collapsing") {
+              setCollapsedGroups((current) => new Set(current).add(groupId));
+            }
+            setVirtualGroupTransition(null);
+          },
+          phase === "expanding" ? duration * 1.5 : duration,
+        );
       };
 
       if (
@@ -609,7 +612,7 @@ export function TasksPanel({
                   )}
                   <ul
                     id="tasks-virtual-list"
-                    className="tasks-virtual-list"
+                    className={`tasks-virtual-list${virtualGroupTransition ? ` is-${virtualGroupTransition.phase}` : ""}`}
                     role="list"
                     style={virtualListStyle}
                   >

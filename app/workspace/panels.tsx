@@ -1109,17 +1109,20 @@ export const NoteListPanel = memo(function NoteListPanel({
         return;
       }
       setVirtualGroupTransition({ groupId: group.id, phase });
-      virtualGroupTransitionTimerRef.current = window.setTimeout(() => {
-        virtualGroupTransitionTimerRef.current = null;
-        if (phase === "collapsing") {
-          setCollapsedGroups((current) => {
-            const next = new Set(current);
-            next.add(group.id);
-            return next;
-          });
-        }
-        setVirtualGroupTransition(null);
-      }, duration);
+      virtualGroupTransitionTimerRef.current = window.setTimeout(
+        () => {
+          virtualGroupTransitionTimerRef.current = null;
+          if (phase === "collapsing") {
+            setCollapsedGroups((current) => {
+              const next = new Set(current);
+              next.add(group.id);
+              return next;
+            });
+          }
+          setVirtualGroupTransition(null);
+        },
+        phase === "expanding" ? duration * 1.5 : duration,
+      );
     };
 
     if (
@@ -1438,7 +1441,7 @@ export const NoteListPanel = memo(function NoteListPanel({
                 ) : (
                   <ul
                     id={virtualList.isVirtualized ? "note-list-virtual-rows" : undefined}
-                    className="note-list-items"
+                    className={`note-list-items${virtualGroupTransition ? ` is-${virtualGroupTransition.phase}` : ""}`}
                     role="list"
                     style={listStyle}
                   >
