@@ -159,6 +159,7 @@ button:disabled { cursor: not-allowed; opacity: 0.52; }
   overflow: hidden;
   overflow: clip;
   background: var(--canvas);
+  transition: grid-template-columns var(--motion-layout) var(--motion-ease-out);
 }
 .app-shell.sidebar-collapsed { grid-template-columns: 72px minmax(300px, 360px) minmax(0, 1fr); }
 .app-shell.is-focus-mode { grid-template-columns: 0px minmax(0px, 0px) minmax(0, 1fr); }

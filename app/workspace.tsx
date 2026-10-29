@@ -115,6 +115,10 @@ export function Workspace() {
   }, []);
   const listTransitionIntentRef = useRef(0);
   const listTransitionConsumedRef = useRef(0);
+  const playListTransition = useCallback(() => {
+    listTransitionConsumedRef.current = listTransitionIntentRef.current;
+    setListTransitionToken((value) => value + 1);
+  }, []);
   const editorMarkdownReaderRef = useRef<(() => string | null) | null>(null);
   const editorMarkdownDirtyNoteRef = useRef<string | null>(null);
   const flushEditorDraftRef = useRef<() => void>(() => undefined);
@@ -217,6 +221,7 @@ export function Workspace() {
   });
   const toggleViewLayout = useCallback(() => {
     if (window.matchMedia("(max-width: 900px)").matches) {
+      if (mobileViewLayout === "three-column") playListTransition();
       setMobileViewLayout((current) => {
         const next = current === "cards" ? "three-column" : "cards";
         try {
@@ -236,7 +241,8 @@ export function Workspace() {
       } catch {}
       return next;
     });
-  }, []);
+    playListTransition();
+  }, [mobileViewLayout, playListTransition]);
   const [cardEditingNoteId, setCardEditingNoteId] = useState<string | null>(null);
   const cardGridScrollPositionRef = useRef<{ scope: string; top: number }>({ scope: "", top: 0 });
   const mobileEditorVisitedRef = useRef(false);
@@ -561,10 +567,6 @@ export function Workspace() {
   }, [navigate]);
   const requestListTransition = useCallback(() => {
     listTransitionIntentRef.current += 1;
-  }, []);
-  const playListTransition = useCallback(() => {
-    listTransitionConsumedRef.current = listTransitionIntentRef.current;
-    setListTransitionToken((value) => value + 1);
   }, []);
   const playPendingListTransition = useCallback(() => {
     if (listTransitionIntentRef.current === listTransitionConsumedRef.current) return;
