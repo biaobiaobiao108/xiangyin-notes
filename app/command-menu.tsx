@@ -45,6 +45,7 @@ export type CommandId =
   | "new-note"
   | "search-notes"
   | "find-in-note"
+  | "replace-in-note"
   | "toggle-split"
   | "toggle-sidebar"
   | "toggle-view-layout"
@@ -96,6 +97,7 @@ type CommandMenuProps = {
   standalone: boolean;
   hasSelectedNote?: boolean;
   onSearchInCurrentNote?: (term: string) => void;
+  onReplaceInCurrentNote?: () => void;
   onSearchGlobal?: (term: string) => void;
   onFocusGlobalSearch?: () => void;
   initialQuery?: string;
@@ -122,6 +124,7 @@ export function CommandMenu({
   standalone,
   hasSelectedNote = false,
   onSearchInCurrentNote,
+  onReplaceInCurrentNote,
   onSearchGlobal,
   onFocusGlobalSearch,
   initialQuery = "",
@@ -159,6 +162,17 @@ export function CommandMenu({
               label: "移动到笔记本",
               shortcut: "↵",
               icon: FolderInput,
+            },
+          ]
+        : []),
+      ...(hasSelectedNote
+        ? [
+            {
+              id: "replace-in-note" as const,
+              label: "在当前笔记中替换",
+              shortcut: `${modKey} F`,
+              icon: FileSearch,
+              keywords: "替换 查找 replace",
             },
           ]
         : []),
@@ -496,6 +510,8 @@ export function CommandMenu({
         setSelected(0);
         searchRef.current?.focus();
         return;
+      } else if (option.id === "replace-in-note") {
+        onReplaceInCurrentNote?.();
       } else if (option.id === "move-to-notebook") {
         setQuery("移动至 ");
         setSelected(0);
@@ -511,6 +527,7 @@ export function CommandMenu({
       onCommand,
       onCreateNoteInNotebook,
       onMoveNoteToNotebook,
+      onReplaceInCurrentNote,
       onSearchInCurrentNote,
       onSearchGlobal,
     ],

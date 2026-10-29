@@ -398,3 +398,41 @@ describe("command menu shortcut", () => {
     expect(prevented).toBe(true);
   });
 });
+
+test("Ctrl/Cmd+F opens replace and respects modal and composition state", () => {
+  let opened = 0;
+  let prevented = 0;
+  const context = {
+    focusMode: false,
+    hasModalOpen: false,
+    handlers: {
+      toggleSidebar() {},
+      toggleFocusMode() {},
+      toggleTypewriterMode() {},
+      exitFocusMode() {},
+      openCommandMenu() {},
+      openReplace() {
+        opened++;
+      },
+    },
+  };
+  const event = {
+    key: "f",
+    code: "KeyF",
+    ctrlKey: true,
+    metaKey: false,
+    altKey: false,
+    shiftKey: false,
+    defaultPrevented: false,
+    preventDefault() {
+      prevented++;
+    },
+  } as KeyboardEvent;
+  handleWorkspaceKeyDown(event, context);
+  handleWorkspaceKeyDown({ ...event, ctrlKey: false, metaKey: true } as KeyboardEvent, context);
+  handleWorkspaceKeyDown({ ...event, isComposing: true } as KeyboardEvent, context);
+  handleWorkspaceKeyDown({ ...event, keyCode: 229 } as KeyboardEvent, context);
+  handleWorkspaceKeyDown(event, { ...context, hasModalOpen: true });
+  expect(opened).toBe(2);
+  expect(prevented).toBe(2);
+});

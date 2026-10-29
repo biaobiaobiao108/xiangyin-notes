@@ -186,6 +186,8 @@ export function NoteEditor({
   contentMarkdown = note.contentMarkdown,
   searchQuery = "",
   searchNavigationToken = 0,
+  replaceRequest = null,
+  onReplaceRequestHandled,
   taskNavigation = null,
   onTaskNavigationMissing,
   saveState,
@@ -235,6 +237,8 @@ export function NoteEditor({
   contentMarkdown?: string;
   searchQuery?: string;
   searchNavigationToken?: number;
+  replaceRequest?: { noteId: string; token: number; query: string } | null;
+  onReplaceRequestHandled?: (token: number) => void;
   taskNavigation?: { noteId: string; ordinal: number; text: string; token: number } | null;
   onTaskNavigationMissing?: () => void;
   saveState: SaveState;
@@ -1548,6 +1552,21 @@ export function NoteEditor({
   useEffect(() => {
     if (!searchQuery) setReplaceOpen(false);
   }, [searchQuery]);
+
+  useEffect(() => {
+    if (!editor || !replaceRequest || replaceRequest.noteId !== note.id) return;
+    setReplaceQuery((current) => replaceRequest.query || (replaceOpen ? current : searchQuery));
+    setReplaceOpen(true);
+    const frame = requestAnimationFrame(() => {
+      const input = editor.view.dom
+        .closest(".editor-panel")
+        ?.querySelector<HTMLInputElement>(".editor-replace-field input[type=search]");
+      input?.focus();
+      input?.select();
+      onReplaceRequestHandled?.(replaceRequest.token);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [editor, note.id, replaceRequest, onReplaceRequestHandled]);
 
   useEffect(() => {
     if (!replaceOpen) return;

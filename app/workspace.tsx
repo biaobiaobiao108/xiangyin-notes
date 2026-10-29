@@ -453,6 +453,11 @@ export function Workspace() {
   const [splitIsNoteLoading, setSplitIsNoteLoading] = useState(false);
   const [splitSaveState, setSplitSaveState] = useState<SaveState>("idle");
   const [splitNoteReloadToken, setSplitNoteReloadToken] = useState(0);
+  const [replaceRequest, setReplaceRequest] = useState<{
+    noteId: string;
+    token: number;
+    query: string;
+  } | null>(null);
   const [activePane, setActivePane] = useState<"primary" | "secondary">("primary");
   const [splitRatio, setSplitRatio] = useState(DEFAULT_SPLIT_RATIO);
   const {
@@ -1005,6 +1010,29 @@ export function Workspace() {
     setCommandInitialQuery(initialQuery);
     setCommandOpen(true);
   }, []);
+  const handleReplaceRequestHandled = useCallback((token: number) => {
+    setReplaceRequest((current) => (current?.token === token ? null : current));
+  }, []);
+  const openReplaceInCurrentNote = useCallback(() => {
+    const note =
+      activePane === "secondary" && splitNoteId ? splitSelectedRef.current : selectedRef.current;
+    if (!note) {
+      notifyWarning("当前未打开笔记，无法查找替换");
+      return;
+    }
+    const selection = window.getSelection();
+    const selectedText = selection?.anchorNode?.parentElement?.closest(".editor-panel")
+      ? selection.toString()
+      : "";
+    setCommandOpen(false);
+    setTasksOpen(false);
+    if (!isMobileViewport && viewLayout === "cards" && !splitNoteId) setCardEditingNoteId(note.id);
+    setReplaceRequest((current) => ({
+      noteId: note.id,
+      token: (current?.token ?? 0) + 1,
+      query: selectedText.length <= 50 ? selectedText : "",
+    }));
+  }, [activePane, splitNoteId, isMobileViewport, viewLayout, notifyWarning]);
   useWorkspaceShortcuts({
     focusMode,
     hasModalOpen: Boolean(
@@ -1023,6 +1051,7 @@ export function Workspace() {
     toggleTypewriterMode,
     exitFocusMode,
     openCommandMenu,
+    openReplace: openReplaceInCurrentNote,
     toggleViewLayout,
     isCardEditing: !isMobileViewport && viewLayout === "cards" && cardEditingNoteId !== null,
     onExitCardEditing: () => {
@@ -2826,6 +2855,10 @@ export function Workspace() {
                             ? resultSearch.query
                             : inNoteSearchQuery
                         }
+                        replaceRequest={
+                          replaceRequest?.noteId === renderedNote.id ? replaceRequest : null
+                        }
+                        onReplaceRequestHandled={handleReplaceRequestHandled}
                         searchNavigationToken={
                           resultSearch?.id === renderedNote.id ? resultSearch.token : 0
                         }
@@ -2932,6 +2965,10 @@ export function Workspace() {
                         searchQuery={
                           resultSearch?.id === splitRenderedNote.id ? resultSearch.query : ""
                         }
+                        replaceRequest={
+                          replaceRequest?.noteId === splitRenderedNote.id ? replaceRequest : null
+                        }
+                        onReplaceRequestHandled={handleReplaceRequestHandled}
                         searchNavigationToken={
                           resultSearch?.id === splitRenderedNote.id ? resultSearch.token : 0
                         }
@@ -3021,6 +3058,10 @@ export function Workspace() {
                   searchQuery={
                     resultSearch?.id === renderedNote.id ? resultSearch.query : inNoteSearchQuery
                   }
+                  replaceRequest={
+                    replaceRequest?.noteId === renderedNote.id ? replaceRequest : null
+                  }
+                  onReplaceRequestHandled={handleReplaceRequestHandled}
                   searchNavigationToken={
                     resultSearch?.id === renderedNote.id ? resultSearch.token : 0
                   }
@@ -3128,6 +3169,7 @@ export function Workspace() {
         standalone={pwaState.standalone}
         hasSelectedNote={commandNoteReady}
         onSearchInCurrentNote={handleSearchInCurrentNote}
+        onReplaceInCurrentNote={openReplaceInCurrentNote}
         onSearchGlobal={handleSearchGlobal}
         onFocusGlobalSearch={handleFocusGlobalSearch}
         initialQuery={commandInitialQuery}

@@ -21,6 +21,7 @@ export type UseWorkspaceShortcutsOptions = {
   toggleTypewriterMode: () => void;
   exitFocusMode: () => void;
   openCommandMenu: (initialQuery?: string) => void;
+  openReplace?: () => void;
   toggleViewLayout?: () => void;
   isCardEditing?: boolean;
   onExitCardEditing?: () => void;
@@ -45,6 +46,7 @@ export type WorkspaceKeyboardContext = {
     toggleTypewriterMode: () => void;
     exitFocusMode: () => void;
     openCommandMenu: (initialQuery?: string) => void;
+    openReplace?: () => void;
     toggleViewLayout?: () => void;
     onExitCardEditing?: () => void;
     clearSelection?: () => void;
@@ -71,6 +73,7 @@ export function handleWorkspaceKeyDown(event: KeyboardEvent, ctx: WorkspaceKeybo
     toggleTypewriterMode,
     exitFocusMode,
     openCommandMenu,
+    openReplace,
     toggleViewLayout,
     onExitCardEditing,
     clearSelection,
@@ -152,11 +155,15 @@ export function handleWorkspaceKeyDown(event: KeyboardEvent, ctx: WorkspaceKeybo
   } else if (isMod && (event.key === "k" || event.key === "K")) {
     event.preventDefault();
     openCommandMenu("");
-  } else if (isMod && (event.key === "f" || event.key === "F") && !event.shiftKey) {
+  } else if (
+    isMod &&
+    matchesShortcutLetter(event, "f") &&
+    !event.shiftKey &&
+    !event.altKey &&
+    !hasModalOpen
+  ) {
     event.preventDefault();
-    const selectedText = window.getSelection()?.toString().trim() ?? "";
-    const initial = selectedText && selectedText.length <= 50 ? selectedText : "";
-    openCommandMenu(initial);
+    openReplace?.();
   } else if (isMod && event.key === "\\") {
     event.preventDefault();
     toggleSidebar();
@@ -189,6 +196,7 @@ export function useWorkspaceShortcuts(options: UseWorkspaceShortcutsOptions) {
     toggleTypewriterMode,
     exitFocusMode,
     openCommandMenu,
+    openReplace,
     toggleViewLayout,
     isCardEditing = false,
     onExitCardEditing,
@@ -217,6 +225,7 @@ export function useWorkspaceShortcuts(options: UseWorkspaceShortcutsOptions) {
     toggleTypewriterMode,
     exitFocusMode,
     openCommandMenu,
+    openReplace,
     toggleViewLayout,
     onExitCardEditing,
     clearSelection,
@@ -230,6 +239,7 @@ export function useWorkspaceShortcuts(options: UseWorkspaceShortcutsOptions) {
     toggleTypewriterMode,
     exitFocusMode,
     openCommandMenu,
+    openReplace,
     toggleViewLayout,
     onExitCardEditing,
     clearSelection,
