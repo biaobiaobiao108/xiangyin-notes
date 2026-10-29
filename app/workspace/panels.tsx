@@ -55,7 +55,7 @@ import {
   useVirtualNoteList,
   type VirtualNoteListRow,
 } from "./use-virtual-note-list";
-import { collapsedGroupScrollTop, partitionVirtualGroupRows } from "./group-layout";
+import { partitionVirtualGroupRows } from "./group-layout";
 import { useScrollEdges } from "./use-scroll-edges";
 import { MobileCollectionHeader } from "./mobile-collection-header";
 import { type NoteSwipeAction, useSwipeActionGesture, useSwipeActionGroup } from "./swipe-actions";
@@ -1007,8 +1007,18 @@ export const NoteListPanel = memo(function NoteListPanel({
     }
     return byNoteId;
   }, [groups]);
+  // 收起的笔记仍保留测量值，展开时避免先按估算高度排版再跳到实际高度。
+  const retainedRowIds = useMemo(
+    () =>
+      new Set([
+        ...sortedNotes.map((note) => note.id),
+        ...(groups ?? []).map((group) => noteGroupRowId(group.id)),
+      ]),
+    [groups, sortedNotes],
+  );
   const virtualList = useVirtualNoteList(
     virtualRows,
+    retainedRowIds,
     noteListRef,
     noteListElement,
     virtualizationScope,
@@ -1085,24 +1095,7 @@ export const NoteListPanel = memo(function NoteListPanel({
     virtualGroupTransition?.phase,
   ]);
 
-  const toggleGroup = (button: HTMLButtonElement, groupId: string) => {
-    const scroll = noteListRef.current;
-    const section = button.closest<HTMLElement>(".note-list-group");
-    const isCollapsed = collapsedGroups.has(groupId);
-    const closing = !isCollapsed;
-    if (scroll && section) {
-      const scrollRect = scroll.getBoundingClientRect();
-      const sectionRect = section.getBoundingClientRect();
-      const headerRect = button.getBoundingClientRect();
-      const anchorScrollTop = collapsedGroupScrollTop({
-        closing,
-        scrollTop: scroll.scrollTop,
-        scrollEdge: scrollRect.top + scroll.clientTop,
-        sectionTop: sectionRect.top,
-        headerTop: headerRect.top,
-      });
-      if (anchorScrollTop !== null) scroll.scrollTop = anchorScrollTop;
-    }
+  const toggleGroup = (groupId: string) => {
     setCollapsedGroups((current) => toggleGroupInSet(current, groupId));
   };
 
@@ -1112,7 +1105,6 @@ export const NoteListPanel = memo(function NoteListPanel({
       return;
     }
     queuedVirtualGroupIdRef.current = null;
-    if (group.id === virtualStickyGroup?.id) virtualList.scrollToRowStart(noteGroupRowId(group.id));
     const duration = groupMotionDuration();
     const clearTimer = () => {
       if (virtualGroupTransitionTimerRef.current !== null)
@@ -1380,16 +1372,12 @@ export const NoteListPanel = memo(function NoteListPanel({
         height: `${virtualList.totalHeight + (hasLoadMoreRow ? 76 : 0)}px`,
       }
     : undefined;
-  const noteListStyle: CSSProperties | undefined = virtualList.isVirtualized
-    ? { overflowAnchor: "none" }
-    : undefined;
+  const noteListStyle: CSSProperties = { overflowAnchor: "none" };
   const activeMotionGroup = transitionDataChanged ? null : virtualList.transitionGroup;
   const motionGroupHeader = activeMotionGroup
     ? virtualList.visibleRows.find(({ index }) => index === activeMotionGroup.start)
     : undefined;
-  const motionContentTop = activeMotionGroup
-    ? virtualList.rowTop(activeMotionGroup.start + 1) - 4
-    : 0;
+  const motionContentTop = activeMotionGroup ? virtualList.rowTop(activeMotionGroup.start + 1) : 0;
   const motionAfterTop = activeMotionGroup ? virtualList.rowTop(activeMotionGroup.end) : 0;
   const motionRows = activeMotionGroup
     ? partitionVirtualGroupRows(
@@ -1610,7 +1598,7 @@ export const NoteListPanel = memo(function NoteListPanel({
                               className="note-list-group-toggle"
                               aria-expanded={!collapsed}
                               aria-controls={contentId}
-                              onClick={(event) => toggleGroup(event.currentTarget, group.id)}
+                              onClick={() => toggleGroup(group.id)}
                             >
                               <ChevronDown
                                 className="note-list-group-chevron"

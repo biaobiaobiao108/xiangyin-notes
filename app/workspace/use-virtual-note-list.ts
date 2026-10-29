@@ -11,7 +11,7 @@ import {
 } from "react";
 import type { NoteSummary } from "../../shared/types";
 import type { NoteGroup } from "./helpers";
-import { collapsingGroupRange, noteGroupLayoutOffsets, stickyGroupOffset } from "./group-layout";
+import { collapsingGroupRange, stickyGroupOffset } from "./group-layout";
 
 const VIRTUALIZE_AFTER = 140;
 const ESTIMATED_ROW_HEIGHT = 120;
@@ -65,7 +65,7 @@ export function offsetsForRows(rows: readonly VirtualNoteListRow[], heights: Map
         ? 0
         : (heights.get(row.id) ?? estimatedRowHeight(row)));
   }
-  return noteGroupLayoutOffsets(rows, baseOffsets);
+  return baseOffsets;
 }
 
 function indexAtOffset(offsets: readonly number[], offset: number) {
@@ -82,6 +82,7 @@ function indexAtOffset(offsets: readonly number[], offset: number) {
 
 export function useVirtualNoteList(
   rows: readonly VirtualNoteListRow[],
+  retainedRowIds: ReadonlySet<string>,
   scrollRef: RefObject<HTMLDivElement | null>,
   scrollElement: HTMLDivElement | null,
   scope: string,
@@ -100,7 +101,6 @@ export function useVirtualNoteList(
   const rowStylesRef = useRef(new Map<number, CSSProperties>());
   const pendingFocusIdRef = useRef<string | null>(null);
   const contentInsetRef = useRef(0);
-  const stickyHeaderHeightRef = useRef(0);
   const indexById = useMemo(() => new Map(rows.map((row, index) => [row.id, index])), [rows]);
   const indexByIdRef = useRef(indexById);
   indexByIdRef.current = indexById;
@@ -111,13 +111,15 @@ export function useVirtualNoteList(
     [rows, measurementRevision],
   );
   const transitionOffsetsRef = useRef<{ groupId: string; offsets: readonly number[] } | null>(null);
-  if (!animatingGroupId) {
+  if (!animatingGroupId || !isCollapsing) {
     transitionOffsetsRef.current = null;
   } else if (transitionOffsetsRef.current?.groupId !== animatingGroupId) {
     transitionOffsetsRef.current = { groupId: animatingGroupId, offsets };
   }
   const frozenOffsets = transitionOffsetsRef.current?.offsets;
-  const layoutOffsets = frozenOffsets?.length === offsets.length ? frozenOffsets : offsets;
+  // 展开时及时测量新出现的行，避免在动画结束后才从估算高度跳到真实高度。
+  const layoutOffsets =
+    isCollapsing && frozenOffsets?.length === offsets.length ? frozenOffsets : offsets;
   const offsetsRef = useRef<readonly number[]>(layoutOffsets);
   offsetsRef.current = layoutOffsets;
   const isVirtualized = virtualizationCount > VIRTUALIZE_AFTER;
@@ -137,16 +139,16 @@ export function useVirtualNoteList(
   useLayoutEffect(() => {
     const rowsRef = rowElementsRef.current;
     for (const noteId of heightsRef.current.keys()) {
-      if (!indexById.has(noteId)) heightsRef.current.delete(noteId);
+      if (!retainedRowIds.has(noteId)) heightsRef.current.delete(noteId);
     }
     for (const noteId of rowRefCallbacksRef.current.keys()) {
-      if (indexById.has(noteId)) continue;
+      if (retainedRowIds.has(noteId)) continue;
       const element = rowsRef.get(noteId);
       if (element) observerRef.current?.unobserve(element);
       rowsRef.delete(noteId);
       rowRefCallbacksRef.current.delete(noteId);
     }
-  }, [indexById]);
+  }, [retainedRowIds]);
 
   useLayoutEffect(() => {
     const container = scrollElement;
@@ -169,7 +171,6 @@ export function useVirtualNoteList(
         ".note-list-group-header.is-virtual-sticky",
       );
       const headerHeight = header?.getBoundingClientRect().height ?? 0;
-      stickyHeaderHeightRef.current = headerHeight;
       setStickyHeaderHeight((current) =>
         Math.abs(current - headerHeight) < 0.5 ? current : headerHeight,
       );
@@ -205,7 +206,7 @@ export function useVirtualNoteList(
   useLayoutEffect(() => {
     if (!scrollElement || !isVirtualized || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver((entries) => {
-      if (animatingGroupId) return;
+      if (isCollapsing) return;
       const container = scrollElement;
       const oldOffsets = offsetsRef.current;
       const anchorIndex = container
@@ -247,7 +248,7 @@ export function useVirtualNoteList(
       observer.disconnect();
       if (observerRef.current === observer) observerRef.current = null;
     };
-  }, [animatingGroupId, isVirtualized, scrollElement, scrollRef]);
+  }, [isCollapsing, isVirtualized, scrollElement, scrollRef]);
 
   const startIndex = isVirtualized
     ? indexAtOffset(layoutOffsets, Math.max(0, viewport.top - OVERSCAN_PX))
@@ -265,7 +266,7 @@ export function useVirtualNoteList(
     if (!animatingGroupId) return null;
     const start = indexById.get(noteGroupRowId(animatingGroupId));
     const range = collapsingGroupRange(rows, layoutOffsets, start);
-    return range && start !== undefined ? { ...range, start, height: range.height + 4 } : null;
+    return range && start !== undefined ? { ...range, start } : null;
   }, [animatingGroupId, indexById, layoutOffsets, rows]);
   const collapsingGroup = isCollapsing ? animatedGroup : null;
   const shiftedStart = animatedGroup
@@ -349,30 +350,6 @@ export function useVirtualNoteList(
       return style;
     },
     [isVirtualized],
-  );
-
-  const scrollToRowStart = useCallback(
-    (noteId: string) => {
-      const index = indexByIdRef.current.get(noteId);
-      const container = scrollRef.current;
-      if (index === undefined || !container) return;
-      const top = offsetsRef.current[index] ?? 0;
-      const row = rowsRef.current[index];
-      container.scrollTop =
-        row?.kind === "group" && !row.firstGroup
-          ? top + stickyHeaderHeightRef.current
-          : row?.kind === "group"
-            ? 0
-            : top + contentInsetRef.current;
-      setViewport((current) => {
-        const next = {
-          top: container.scrollTop - contentInsetRef.current,
-          height: container.clientHeight || current.height || 800,
-        };
-        return current.top === next.top && current.height === next.height ? current : next;
-      });
-    },
-    [scrollRef],
   );
 
   const onFocusCapture = useCallback((event: ReactFocusEvent<HTMLDivElement>) => {
@@ -491,7 +468,6 @@ export function useVirtualNoteList(
     rowTop: (index: number) => layoutOffsets[index] ?? 0,
     rowStyle,
     getRowRef,
-    scrollToRowStart,
     moveTabFocus,
     onFocusCapture,
     onBlurCapture,

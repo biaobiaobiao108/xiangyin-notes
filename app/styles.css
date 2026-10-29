@@ -550,7 +550,7 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .tasks-scroll-shell:has(.tasks-note-group-header)::before { inset-block-start: 34px; }
 .tasks-scroll-shell::after { inset-block-end: 0; background: linear-gradient(to top, var(--surface), transparent); }
 .tasks-scroll-shell.has-scroll-before::before, .tasks-scroll-shell.has-scroll-after::after { opacity: 1; }
-.tasks-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.tasks-scroll { overflow-anchor: none; flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
 .tasks-list { padding: 0 12px 24px; }
 .tasks-note-group { position: relative; }
 .tasks-note-group-header { position: sticky; top: 0; z-index: 3; margin: 0; background: var(--surface-glass); color: var(--muted); font-size: .77rem; font-weight: 580; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
@@ -815,8 +815,6 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .note-list-group-content { display: grid; grid-template-rows: 1fr; overflow-anchor: none; transition: grid-template-rows var(--motion-group) var(--motion-group-ease); }
 .note-list-group-content.is-collapsed { grid-template-rows: 0fr; }
 .note-list-group-content > ul { min-height: 0; overflow: hidden; padding: 0; }
-/* 间距随内容一起裁切，避免收起时顶部 padding 缩小把笔记向上拉动。 */
-.note-list-group-content > ul::before, .note-list-group-content > ul::after { display: block; height: 4px; content: ""; }
 .note-list-virtual-group-marker { z-index: 3; display: flex; height: 30px; align-items: center; background: var(--surface-glass); color: var(--soft-muted); font-size: 0.72rem; font-weight: 600; letter-spacing: 0.04em; }
 .note-list-virtual-group-marker .note-list-virtual-group-toggle { padding: 8px 14px 4px; }
 .note-list-virtual-group-marker.is-first { height: 0; }

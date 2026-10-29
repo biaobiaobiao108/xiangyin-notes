@@ -133,11 +133,13 @@ export function useVirtualTaskList(
     [groupHeaderHeight, measurementRevision, rows],
   );
   const transitionOffsetsRef = useRef<{ groupId: string; offsets: readonly number[] } | null>(null);
-  if (!animatingGroupId) transitionOffsetsRef.current = null;
+  if (!animatingGroupId || !isCollapsing) transitionOffsetsRef.current = null;
   else if (transitionOffsetsRef.current?.groupId !== animatingGroupId)
     transitionOffsetsRef.current = { groupId: animatingGroupId, offsets };
   const frozenOffsets = transitionOffsetsRef.current?.offsets;
-  const layoutOffsets = frozenOffsets?.length === offsets.length ? frozenOffsets : offsets;
+  // 展开时及时测量新出现的行，避免在动画结束后才从估算高度跳到真实高度。
+  const layoutOffsets =
+    isCollapsing && frozenOffsets?.length === offsets.length ? frozenOffsets : offsets;
   const offsetsRef = useRef<readonly number[]>(offsets);
   offsetsRef.current = layoutOffsets;
   const isVirtualized = taskCount > VIRTUALIZE_AFTER && typeof ResizeObserver !== "undefined";
@@ -224,7 +226,7 @@ export function useVirtualTaskList(
     if (!container) return;
 
     const observer = new ResizeObserver((entries) => {
-      if (animatingGroupId) return;
+      if (isCollapsing) return;
       const oldOffsets = offsetsRef.current;
       const anchorIndex = indexAtOffset(
         oldOffsets,
@@ -273,7 +275,7 @@ export function useVirtualTaskList(
       observer.disconnect();
       if (observerRef.current === observer) observerRef.current = null;
     };
-  }, [animatingGroupId, groupHeaderHeight, isVirtualized, scope, scrollRef]);
+  }, [isCollapsing, groupHeaderHeight, isVirtualized, scope, scrollRef]);
 
   const startIndex = isVirtualized
     ? indexAtOffset(layoutOffsets, Math.max(0, viewport.top - OVERSCAN_PX))
@@ -377,24 +379,6 @@ export function useVirtualTaskList(
     [isVirtualized],
   );
 
-  const scrollToRowStart = useCallback(
-    (rowId: string) => {
-      const index = indexByIdRef.current.get(rowId);
-      const container = scrollRef.current;
-      if (index === undefined || !container) return;
-      const top = offsetsRef.current[index] ?? 0;
-      container.scrollTop = index === 0 ? 0 : top + contentInsetRef.current;
-      setViewport((current) => {
-        const next = {
-          top: container.scrollTop - contentInsetRef.current,
-          height: container.clientHeight || current.height || 800,
-        };
-        return current.top === next.top && current.height === next.height ? current : next;
-      });
-    },
-    [scrollRef],
-  );
-
   const onFocusCapture = useCallback((event: ReactFocusEvent<HTMLDivElement>) => {
     const rowId = (event.target as HTMLElement).closest<HTMLElement>("[data-task-row-id]")?.dataset
       .taskRowId;
@@ -486,7 +470,6 @@ export function useVirtualTaskList(
     rowTop: (index: number) => layoutOffsets[index] ?? 0,
     rowStyle,
     getRowRef,
-    scrollToRowStart,
     onFocusCapture,
     onBlurCapture,
     moveTabFocus,

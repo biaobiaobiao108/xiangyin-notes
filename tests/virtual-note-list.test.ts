@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { NoteSummary } from "../shared/types";
 import type { NoteGroup } from "../app/workspace/helpers";
-import { flattenNoteGroups, noteGroupRowId } from "../app/workspace/use-virtual-note-list";
+import {
+  flattenNoteGroups,
+  noteGroupRowId,
+  offsetsForRows,
+} from "../app/workspace/use-virtual-note-list";
 
 function note(id: string): NoteSummary {
   return {
@@ -72,4 +76,21 @@ describe("virtual note list groups", () => {
 
     expect(rows.map((row) => row.id)).toEqual([noteGroupRowId("group-a"), "note-a1", "note-a2"]);
   });
+});
+
+test("group animation height matches measured notes without extra spacing", () => {
+  const rows = flattenNoteGroups(
+    [group("a", note("a1"), note("a2")), group("b", note("b1"))],
+    new Set(),
+  );
+  const offsets = offsetsForRows(
+    rows,
+    new Map([
+      ["a1", 100],
+      ["a2", 120],
+      ["b1", 80],
+    ]),
+  );
+  expect(offsets).toEqual([0, 0, 100, 220, 250, 330]);
+  expect(offsets[3]! - offsets[1]!).toBe(220);
 });
