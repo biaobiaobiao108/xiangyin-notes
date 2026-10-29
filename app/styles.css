@@ -624,6 +624,8 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .note-list-scroll-shell.has-scroll-after::after {
   opacity: 1;
 }
+.note-list-scroll-shell > .floating-scrollbar--right, .tasks-scroll-shell > .floating-scrollbar--right { inset-inline-end: -3px; }
+.note-list-scroll-shell > .floating-scrollbar--right .floating-scrollbar-thumb:hover, .note-list-scroll-shell > .floating-scrollbar--right .floating-scrollbar-thumb:focus-visible, .tasks-scroll-shell > .floating-scrollbar--right .floating-scrollbar-thumb:hover, .tasks-scroll-shell > .floating-scrollbar--right .floating-scrollbar-thumb:focus-visible { inset-inline-end: 3px; }
 .floating-scrollbar-target { scrollbar-color: transparent transparent; scrollbar-width: none; }
 .floating-scrollbar-target::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .note-list {
