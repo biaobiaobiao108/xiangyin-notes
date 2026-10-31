@@ -3411,10 +3411,21 @@ dialog::backdrop {
 }
 
 .kanban-card-body {
-  padding: 16px 18px 14px;
+  padding: 14px 16px 12px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
+}
+
+.kanban-card .note-card-preview-text {
+  font-size: 0.82rem;
+  line-height: 1.55;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
+
+.kanban-card .note-card-preview-empty {
+  font-size: 0.78rem;
 }
 
 .kanban-card-header {
