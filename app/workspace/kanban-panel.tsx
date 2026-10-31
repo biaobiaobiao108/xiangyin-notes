@@ -352,7 +352,7 @@ const KanbanColumnView = memo(function KanbanColumnView({
   return (
     <div
       ref={columnRef}
-      className={`kanban-column ${isDropTarget ? "is-drop-target" : ""}`}
+      className={`kanban-column kanban-column--${column.id} ${isDropTarget ? "is-drop-target" : ""}`}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -781,9 +781,13 @@ export const KanbanPanel = memo(function KanbanPanel({
                 key={col.id}
                 role="tab"
                 aria-selected={active}
-                className={`kanban-mobile-tab ${active ? "is-active" : ""}`}
+                className={`kanban-mobile-tab kanban-mobile-tab--${col.id} ${active ? "is-active" : ""}`}
                 onClick={() => setActiveMobileColumn(col.id)}
               >
+                <span
+                  className={`kanban-column-dot kanban-column-dot--${col.id}`}
+                  aria-hidden="true"
+                />
                 <span>{col.title}</span>
                 <span className="kanban-mobile-tab-count">{count}</span>
               </button>

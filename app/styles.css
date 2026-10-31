@@ -3149,6 +3149,42 @@ dialog::backdrop {
   box-shadow: var(--shadow-sm);
 }
 
+/* 收集箱（冷灰蓝/雾石青） */
+.kanban-column--inbox {
+  background: light-dark(#edf1f5, #1e2230);
+  border-color: light-dark(rgba(65, 85, 115, 0.08), rgba(140, 170, 215, 0.12));
+}
+
+.kanban-column--inbox.is-drop-target {
+  background: light-dark(#e3e9f0, #252b3e);
+  border-color: light-dark(rgba(65, 85, 115, 0.22), rgba(140, 170, 215, 0.28));
+  box-shadow: var(--shadow-sm);
+}
+
+/* 进行中（柔和暖杏/琥珀茶金） */
+.kanban-column--doing {
+  background: light-dark(#f8f2e6, #2d261e);
+  border-color: light-dark(rgba(145, 105, 45, 0.09), rgba(220, 175, 95, 0.13));
+}
+
+.kanban-column--doing.is-drop-target {
+  background: light-dark(#f2e8d6, #383025);
+  border-color: light-dark(rgba(145, 105, 45, 0.22), rgba(220, 175, 95, 0.3));
+  box-shadow: var(--shadow-sm);
+}
+
+/* 已完成（松柏艾青/柔和竹青） */
+.kanban-column--done {
+  background: light-dark(#ecf3ec, #1c2720);
+  border-color: light-dark(rgba(45, 95, 60, 0.08), rgba(110, 185, 135, 0.12));
+}
+
+.kanban-column--done.is-drop-target {
+  background: light-dark(#dfeee0, #233329);
+  border-color: light-dark(rgba(45, 95, 60, 0.22), rgba(110, 185, 135, 0.3));
+  box-shadow: var(--shadow-sm);
+}
+
 .kanban-column-header {
   display: flex;
   align-items: center;
@@ -3175,15 +3211,15 @@ dialog::backdrop {
 }
 
 .kanban-column-dot--inbox {
-  background: var(--soft-muted);
+  background: light-dark(#637792, #8ba5c7);
 }
 
 .kanban-column-dot--doing {
-  background: var(--accent);
+  background: light-dark(#b3792b, #dfaa5f);
 }
 
 .kanban-column-dot--done {
-  background: light-dark(#2e7d32, #81c784);
+  background: light-dark(#3a7350, #7ec498);
 }
 
 .kanban-column-title {
@@ -3791,6 +3827,18 @@ dialog::backdrop {
   color: var(--ink);
   font-weight: 600;
   box-shadow: var(--shadow-xs);
+}
+
+.kanban-mobile-tab--inbox.is-active {
+  background: light-dark(#edf1f5, #1e2230);
+}
+
+.kanban-mobile-tab--doing.is-active {
+  background: light-dark(#f8f2e6, #2d261e);
+}
+
+.kanban-mobile-tab--done.is-active {
+  background: light-dark(#ecf3ec, #1c2720);
 }
 
 .kanban-mobile-tab-count {
