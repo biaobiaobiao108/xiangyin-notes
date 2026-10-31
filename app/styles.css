@@ -3373,6 +3373,7 @@ dialog::backdrop {
   box-shadow: var(--note-card-shadow);
   cursor: pointer;
   user-select: none;
+  -webkit-touch-callout: none;
   transition: box-shadow var(--motion-fast) var(--motion-ease-out),
               border-color var(--motion-fast) var(--motion-ease-out),
               background-color var(--motion-fast) var(--motion-ease-out);
@@ -3752,6 +3753,141 @@ dialog::backdrop {
   color: var(--muted);
   font-size: 0.84rem;
   margin: 0;
+}
+
+.kanban-move-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(24, 29, 26, 0.32);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  animation: fade-in var(--motion-fast) ease;
+}
+
+.kanban-move-sheet {
+  width: min(100%, 520px);
+  padding: 10px 16px calc(18px + env(safe-area-inset-bottom));
+  border: 1px solid var(--border-soft);
+  border-bottom: 0;
+  border-radius: 20px 20px 0 0;
+  background: var(--surface);
+  box-shadow: var(--shadow-float);
+  animation: kanban-move-sheet-in var(--motion-fast) var(--motion-ease-out) both;
+}
+
+.kanban-move-sheet-grabber {
+  width: 34px;
+  height: 4px;
+  margin: 0 auto 12px;
+  border-radius: 999px;
+  background: var(--border-strong);
+}
+
+.kanban-move-sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 2px 12px;
+}
+
+.kanban-move-sheet-heading {
+  min-width: 0;
+}
+
+.kanban-move-sheet-heading h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.98rem;
+  font-weight: 650;
+}
+
+.kanban-move-sheet-heading p {
+  margin: 3px 0 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kanban-move-sheet-options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.kanban-move-sheet-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 52px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--motion-fast) ease,
+              border-color var(--motion-fast) ease;
+}
+
+.kanban-move-sheet-option:not(:disabled):active {
+  background: var(--surface-muted);
+}
+
+.kanban-move-sheet-option:focus-visible {
+  outline: none;
+  border-color: var(--accent-border-soft);
+  box-shadow: 0 0 0 2px var(--accent-border-soft);
+}
+
+.kanban-move-sheet-option-title {
+  flex: 1;
+  font-size: 0.9rem;
+  font-weight: 550;
+}
+
+.kanban-move-sheet-option:disabled {
+  border-color: var(--border-soft);
+  background: var(--surface-muted);
+  cursor: default;
+}
+
+.kanban-move-sheet-current {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--accent-dark);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+@keyframes kanban-move-sheet-in {
+  from {
+    opacity: 0.7;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kanban-move-sheet-backdrop,
+  .kanban-move-sheet,
+  .kanban-move-sheet-option {
+    animation: none;
+    transition: none;
+  }
 }
 
 /* Mobile Segmented Tabs */

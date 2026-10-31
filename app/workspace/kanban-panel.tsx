@@ -9,8 +9,10 @@ import {
   useState,
   type DragEvent as ReactDragEvent,
   type MouseEvent as ReactMouseEvent,
+  type TouchEvent as ReactTouchEvent,
 } from "react";
 import {
+  Check,
   CheckCircle2,
   ChevronLeft,
   Clock,
@@ -78,6 +80,7 @@ const KanbanCardItem = memo(function KanbanCardItem({
   isMobileViewport,
   onOpen,
   onToggleFavorite,
+  onRequestMoveCard,
   onDragStart,
   onDragEnd,
   isDragging,
@@ -86,6 +89,7 @@ const KanbanCardItem = memo(function KanbanCardItem({
   isMobileViewport?: boolean;
   onOpen: (noteId: string) => void;
   onToggleFavorite?: (note: NoteSummary) => void;
+  onRequestMoveCard: (card: KanbanCard, trigger: HTMLElement) => void;
   onDragStart: (card: KanbanCard, event: ReactDragEvent<HTMLElement>) => void;
   onDragEnd: () => void;
   isDragging: boolean;
@@ -94,8 +98,68 @@ const KanbanCardItem = memo(function KanbanCardItem({
   const displayTitle = note.title.trim() || "未命名笔记";
   const hasThumbnail = Boolean(note.thumbnail?.id);
   const tags = getNoteTags(note);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const suppressClickRef = useRef(false);
+  const suppressClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
 
-  const handleCardClick = () => {
+  const clearLongPress = () => {
+    if (longPressTimerRef.current !== null) clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = null;
+    touchStartRef.current = null;
+  };
+
+  useEffect(
+    () => () => {
+      clearLongPress();
+      if (suppressClickTimerRef.current !== null) clearTimeout(suppressClickTimerRef.current);
+    },
+    [],
+  );
+
+  const handleCardTouchStart = (event: ReactTouchEvent<HTMLElement>) => {
+    if (!isMobileViewport) return;
+    if (event.touches.length !== 1) {
+      clearLongPress();
+      return;
+    }
+    if (
+      event.target instanceof Element &&
+      event.target.closest("button, a, input, textarea, [contenteditable='true']")
+    )
+      return;
+
+    clearLongPress();
+    const touch = event.touches[0];
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+    const cardElement = event.currentTarget;
+    longPressTimerRef.current = setTimeout(() => {
+      longPressTimerRef.current = null;
+      suppressClickRef.current = true;
+      onRequestMoveCard(card, cardElement);
+      suppressClickTimerRef.current = setTimeout(() => {
+        suppressClickRef.current = false;
+        suppressClickTimerRef.current = null;
+      }, 750);
+    }, 500);
+  };
+
+  const handleCardTouchMove = (event: ReactTouchEvent<HTMLElement>) => {
+    const start = touchStartRef.current;
+    const touch = event.touches[0];
+    if (!start || !touch) return;
+    if (Math.hypot(touch.clientX - start.x, touch.clientY - start.y) > 10) clearLongPress();
+  };
+
+  const handleCardClick = (event: ReactMouseEvent<HTMLElement>) => {
+    if (suppressClickRef.current) {
+      event.preventDefault();
+      event.stopPropagation();
+      suppressClickRef.current = false;
+      if (suppressClickTimerRef.current !== null) clearTimeout(suppressClickTimerRef.current);
+      suppressClickTimerRef.current = null;
+      return;
+    }
     onOpen(card.noteId);
   };
 
@@ -116,6 +180,15 @@ const KanbanCardItem = memo(function KanbanCardItem({
       onDragStart={handleDragStart}
       onDragEnd={onDragEnd}
       onClick={handleCardClick}
+      onTouchStart={handleCardTouchStart}
+      onTouchMove={handleCardTouchMove}
+      onTouchEnd={clearLongPress}
+      onTouchCancel={clearLongPress}
+      onContextMenu={(event) => {
+        if (!isMobileViewport) return;
+        event.preventDefault();
+        event.stopPropagation();
+      }}
       className={`kanban-card ${isDragging ? "is-dragging" : ""}`}
       tabIndex={0}
       role="listitem"
@@ -184,6 +257,7 @@ const KanbanColumnView = memo(function KanbanColumnView({
   onDropOnColumn,
   onLoadMore,
   onToggleFavorite,
+  onRequestMoveCard,
 }: {
   column: (typeof COLUMNS)[number];
   columnData: KanbanColumnData;
@@ -197,6 +271,7 @@ const KanbanColumnView = memo(function KanbanColumnView({
   onDropOnColumn: (status: KanbanStatus, targetIndex: number) => void;
   onLoadMore: (status: KanbanStatus) => void;
   onToggleFavorite?: (note: NoteSummary) => void;
+  onRequestMoveCard: (card: KanbanCard, trigger: HTMLElement) => void;
 }) {
   const { cards, total, hasMore, isLoadingMore, loadMoreError } = columnData;
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -351,6 +426,7 @@ const KanbanColumnView = memo(function KanbanColumnView({
                       isMobileViewport={isMobileViewport}
                       onOpen={onOpenNote}
                       onToggleFavorite={onToggleFavorite}
+                      onRequestMoveCard={onRequestMoveCard}
                       onDragStart={onCardDragStart}
                       onDragEnd={onCardDragEnd}
                       isDragging={draggingNoteId === card.noteId}
@@ -496,6 +572,103 @@ function AddExistingNoteModal({
   );
 }
 
+function MoveKanbanCardSheet({
+  card,
+  onClose,
+  onSelect,
+}: {
+  card: KanbanCard;
+  onClose: () => void;
+  onSelect: (status: KanbanStatus) => void;
+}) {
+  const sheetRef = useRef<HTMLElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const title = card.note.title.trim() || "未命名笔记";
+
+  useEffect(() => {
+    closeButtonRef.current?.focus({ preventScroll: true });
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const buttons =
+        sheetRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)");
+      const firstButton = buttons?.[0];
+      const lastButton = buttons?.[buttons.length - 1];
+      if (event.shiftKey && document.activeElement === firstButton) {
+        event.preventDefault();
+        lastButton?.focus();
+      } else if (!event.shiftKey && document.activeElement === lastButton) {
+        event.preventDefault();
+        firstButton?.focus();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [onClose]);
+
+  return (
+    <div className="kanban-move-sheet-backdrop" onClick={onClose}>
+      <section
+        ref={sheetRef}
+        className="kanban-move-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="kanban-move-sheet-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="kanban-move-sheet-grabber" aria-hidden="true" />
+        <header className="kanban-move-sheet-header">
+          <div className="kanban-move-sheet-heading">
+            <h3 id="kanban-move-sheet-title">移动到</h3>
+            <p>{title}</p>
+          </div>
+          <button
+            ref={closeButtonRef}
+            type="button"
+            className="kanban-icon-btn"
+            aria-label="关闭状态选择"
+            onClick={onClose}
+          >
+            <X size={16} />
+          </button>
+        </header>
+        <div className="kanban-move-sheet-options" role="group" aria-label="选择任务状态">
+          {COLUMNS.map((column) => {
+            const isCurrent = column.id === card.status;
+            return (
+              <button
+                key={column.id}
+                type="button"
+                className={`kanban-move-sheet-option kanban-move-sheet-option--${column.id}`}
+                aria-current={isCurrent ? "true" : undefined}
+                disabled={isCurrent}
+                onClick={() => onSelect(column.id)}
+              >
+                <span
+                  className={`kanban-column-dot kanban-column-dot--${column.id}`}
+                  aria-hidden="true"
+                />
+                <span className="kanban-move-sheet-option-title">{column.title}</span>
+                {isCurrent && (
+                  <span className="kanban-move-sheet-current">
+                    <Check size={14} aria-hidden="true" />
+                    <span>当前</span>
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 // Main KanbanPanel Export
 export const KanbanPanel = memo(function KanbanPanel({
   columns,
@@ -515,14 +688,55 @@ export const KanbanPanel = memo(function KanbanPanel({
   const panelRef = useRef<HTMLElement>(null);
   const [activeMobileColumn, setActiveMobileColumn] = useState<KanbanStatus>("inbox");
   const [draggingCard, setDraggingCard] = useState<KanbanDragPayload | null>(null);
+  const [movingCard, setMovingCard] = useState<KanbanCard | null>(null);
   const [addModalStatus, setAddModalStatus] = useState<KanbanStatus | null>(null);
   const [trashOver, setTrashOver] = useState(false);
+  const moveCardRef = useRef<HTMLElement | null>(null);
 
   const allCards = useMemo(() => Object.values(columns).flatMap((col) => col.cards), [columns]);
 
   const totalNotesCount = useMemo(
     () => Object.values(columns).reduce((sum, col) => sum + (col.total ?? 0), 0),
     [columns],
+  );
+
+  const restoreMoveCardFocus = useCallback(() => {
+    requestAnimationFrame(() => {
+      if (moveCardRef.current?.isConnected) {
+        moveCardRef.current.focus({ preventScroll: true });
+        return;
+      }
+      panelRef.current
+        ?.querySelector<HTMLButtonElement>(".kanban-mobile-tab.is-active")
+        ?.focus({ preventScroll: true });
+    });
+  }, []);
+
+  const handleRequestMoveCard = useCallback((card: KanbanCard, trigger: HTMLElement) => {
+    moveCardRef.current = trigger;
+    setMovingCard(card);
+  }, []);
+
+  const closeMoveCardSheet = useCallback(() => {
+    setMovingCard(null);
+    restoreMoveCardFocus();
+  }, [restoreMoveCardFocus]);
+
+  const handleMoveCardToStatus = useCallback(
+    (targetStatus: KanbanStatus) => {
+      if (!movingCard) return;
+      if (targetStatus !== movingCard.status) {
+        const targetCards = columns[targetStatus]?.cards ?? [];
+        onMoveCard(
+          movingCard.noteId,
+          targetStatus,
+          calculateTargetSortOrder(targetCards, 0, movingCard.noteId),
+        );
+      }
+      setMovingCard(null);
+      restoreMoveCardFocus();
+    },
+    [columns, movingCard, onMoveCard, restoreMoveCardFocus],
   );
 
   // Entrance animation
@@ -677,6 +891,7 @@ export const KanbanPanel = memo(function KanbanPanel({
                   onDropOnColumn={handleDropOnColumn}
                   onLoadMore={onLoadMoreColumn}
                   onToggleFavorite={onToggleFavorite}
+                  onRequestMoveCard={handleRequestMoveCard}
                 />
               );
             })()}
@@ -697,6 +912,7 @@ export const KanbanPanel = memo(function KanbanPanel({
               onDropOnColumn={handleDropOnColumn}
               onLoadMore={onLoadMoreColumn}
               onToggleFavorite={onToggleFavorite}
+              onRequestMoveCard={handleRequestMoveCard}
             />
           ))
         )}
@@ -719,6 +935,14 @@ export const KanbanPanel = memo(function KanbanPanel({
             <span className="kanban-corner-label">移到回收站</span>
           </div>
         </div>
+      )}
+
+      {isMobileViewport && movingCard && (
+        <MoveKanbanCardSheet
+          card={movingCard}
+          onClose={closeMoveCardSheet}
+          onSelect={handleMoveCardToStatus}
+        />
       )}
 
       {/* Add Existing Note Dialog */}
