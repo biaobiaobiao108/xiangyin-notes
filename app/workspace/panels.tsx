@@ -886,7 +886,6 @@ type NoteListPanelProps = {
   trashBusy: boolean;
   onClearQuery: () => void;
   onOpenSidebar: () => void;
-  onToggleLayout?: () => void;
   transitionToken: number;
 
   isMobileViewport?: boolean;
@@ -922,7 +921,6 @@ export const NoteListPanel = memo(function NoteListPanel({
   onClearQuery,
   isMobileViewport = false,
   onOpenSidebar,
-  onToggleLayout,
   transitionToken,
   outlineOpen,
   outlineItems,
@@ -1602,8 +1600,6 @@ export const NoteListPanel = memo(function NoteListPanel({
                 shown={notes.length}
                 query={query}
                 onBack={onOpenSidebar}
-                layout="three-column"
-                onToggleLayout={onToggleLayout}
                 onEmptyTrash={onEmptyTrash}
                 trashBusy={trashBusy}
               />

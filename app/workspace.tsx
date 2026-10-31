@@ -234,27 +234,8 @@ export function Workspace() {
       return "three-column";
     }
   });
-  const [mobileViewLayout, setMobileViewLayout] = useState<ViewLayout>(() => {
-    try {
-      return localStorage.getItem("xiangying_mobile_view_layout") === "cards"
-        ? "cards"
-        : "three-column";
-    } catch {
-      return "three-column";
-    }
-  });
   const toggleViewLayout = useCallback(() => {
-    if (window.matchMedia("(max-width: 900px)").matches) {
-      if (mobileViewLayout === "three-column") playListTransition();
-      setMobileViewLayout((current) => {
-        const next = current === "cards" ? "three-column" : "cards";
-        try {
-          localStorage.setItem("xiangying_mobile_view_layout", next);
-        } catch {}
-        return next;
-      });
-      return;
-    }
+    if (window.matchMedia("(max-width: 900px)").matches) return;
     setViewLayout((current) => {
       const next = current === "cards" ? "three-column" : "cards";
       if (next !== "cards") {
@@ -266,7 +247,7 @@ export function Workspace() {
       return next;
     });
     playListTransition();
-  }, [mobileViewLayout, playListTransition]);
+  }, [playListTransition]);
   const [cardEditingNoteId, setCardEditingNoteId] = useState<string | null>(null);
   const cardGridScrollPositionRef = useRef<{ scope: string; top: number }>({ scope: "", top: 0 });
   const mobileEditorVisitedRef = useRef(false);
@@ -2922,7 +2903,7 @@ export function Workspace() {
       document.querySelector<HTMLElement>(selector)?.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(frame);
-  }, [isMobileViewport, isNoteLoading, mobilePage, mobileViewLayout, ready]);
+  }, [isMobileViewport, isNoteLoading, mobilePage, ready]);
   useMobileViewport(isMobileViewport && ready);
 
   const handleWorkspaceContextMenu = (event: ReactMouseEvent<HTMLDivElement>) => {
@@ -3146,6 +3127,7 @@ export function Workspace() {
         buildWorkspaceMenuItems({
           view,
           viewLayout,
+          canToggleLayout: !isMobileViewport,
           query,
           hasSelection: selectedNoteIds.size > 0,
           totalNotes,
@@ -3199,9 +3181,7 @@ export function Workspace() {
     !isNoteLoading,
   );
   const isCardsLayout = !isMobileViewport && viewLayout === "cards";
-  const mobileCards = isMobileViewport && mobileViewLayout === "cards";
-  const showCardsGrid =
-    !tasksOpen && !kanbanOpen && (mobileCards || (isCardsLayout && cardEditingNoteId === null));
+  const showCardsGrid = !tasksOpen && !kanbanOpen && isCardsLayout && cardEditingNoteId === null;
   const editorContentInert = isMobileViewport && mobilePage !== "editor";
   if (mobilePage === "editor") mobileEditorVisitedRef.current = true;
   const mountEditor = !isMobileViewport || mobileEditorVisitedRef.current;
@@ -3328,7 +3308,7 @@ export function Workspace() {
           availableNotes={notes}
         />
       )}
-      {!tasksOpen && !kanbanOpen && !isCardsLayout && !mobileCards && (
+      {!tasksOpen && !kanbanOpen && !isCardsLayout && (
         <NoteListPanel
           notes={notes}
           total={totalNotes}
@@ -3347,7 +3327,6 @@ export function Workspace() {
           onNewNote={listNewNote}
           onClearQuery={handleClearQuery}
           isMobileViewport={isMobileViewport}
-          onToggleLayout={toggleViewLayout}
           onOpenSidebar={handleOpenSidebar}
           transitionToken={listTransitionToken}
           outlineOpen={!isMobileViewport && outlineOpen}
@@ -3378,7 +3357,6 @@ export function Workspace() {
           total={totalNotes}
           hasMore={hasMoreNotes}
           isMobileViewport={isMobileViewport}
-          onToggleLayout={toggleViewLayout}
           selectedIds={selectedNoteIds}
           onOpenNote={handleOpenCardNote}
           onToggleSelectNote={handleToggleCardSelection}
@@ -3779,7 +3757,7 @@ export function Workspace() {
         onMoveNoteToNotebook={(targetNotebookId) => onNoteChange({ notebookId: targetNotebookId })}
         focusMode={focusMode}
         typewriterMode={typewriterMode}
-        viewLayout={isMobileViewport ? mobileViewLayout : viewLayout}
+        viewLayout={isMobileViewport ? "three-column" : viewLayout}
         isSplitActive={Boolean(splitNoteId && !isMobileViewport)}
         canInstallApp={pwaState.canInstall}
         showIosInstallHint={pwaState.showIosInstallHint}

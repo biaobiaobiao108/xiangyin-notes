@@ -1,4 +1,4 @@
-import { ChevronLeft, LayoutGrid, List } from "lucide-react";
+import { ChevronLeft } from "lucide-react";
 import { EmptyTrashButton } from "./empty-trash-button";
 
 type MobileCollectionHeaderProps = {
@@ -7,8 +7,6 @@ type MobileCollectionHeaderProps = {
   shown: number;
   query: string;
   onBack: () => void;
-  layout: "three-column" | "cards";
-  onToggleLayout?: () => void;
   onEmptyTrash?: () => void;
   trashBusy?: boolean;
   active?: boolean;
@@ -20,14 +18,9 @@ export function MobileCollectionHeader({
   shown,
   query,
   onBack,
-  layout,
-  onToggleLayout,
   onEmptyTrash,
   trashBusy = false,
 }: MobileCollectionHeaderProps) {
-  const layoutLabel = layout === "cards" ? "切换为列表视图" : "切换为卡片视图";
-  const LayoutIcon = layout === "cards" ? List : LayoutGrid;
-
   return (
     <header className="list-header mobile-collection-header">
       <button
@@ -46,25 +39,15 @@ export function MobileCollectionHeader({
           {shown < total && <> · 已显示 {shown} 篇</>}
         </p>
       </div>
-      <div className="list-header-controls">
-        {onEmptyTrash && (
+      {onEmptyTrash && (
+        <div className="list-header-controls">
           <EmptyTrashButton
             onClick={onEmptyTrash}
             disabled={trashBusy || total === 0}
             iconSize={20}
           />
-        )}
-        {onToggleLayout && (
-          <button
-            className="icon-button mobile-layout-toggle"
-            type="button"
-            aria-label={layoutLabel}
-            onClick={onToggleLayout}
-          >
-            <LayoutIcon size={20} aria-hidden="true" />
-          </button>
-        )}
-      </div>
+        </div>
+      )}
     </header>
   );
 }

@@ -207,17 +207,16 @@ export function CommandMenu({
             },
           ]
         : []),
-      {
-        id: "toggle-view-layout",
-        label:
-          viewLayout === "cards"
-            ? isMobileViewport
-              ? "切换到列表视图"
-              : "切换到三栏列表视图"
-            : "切换到卡片网格视图",
-        shortcut: `${altKey} V`,
-        icon: LayoutGrid,
-      },
+      ...(!isMobileViewport
+        ? [
+            {
+              id: "toggle-view-layout" as CommandId,
+              label: viewLayout === "cards" ? "切换到三栏列表视图" : "切换到卡片网格视图",
+              shortcut: `${altKey} V`,
+              icon: LayoutGrid,
+            },
+          ]
+        : []),
       {
         id: "toggle-focus-mode",
         label: focusMode ? "退出沉浸模式" : "进入沉浸模式",

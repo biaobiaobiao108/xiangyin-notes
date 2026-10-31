@@ -19,7 +19,6 @@ import { EmptyTrashButton } from "./empty-trash-button";
 import { getNoteTags, relativeDate, sortNotes, viewLabel } from "./helpers";
 import { NOTE_DRAG_MIME_TYPE, setNoteDragImage } from "./note-drag-drop";
 import { NoteTags } from "./note-tags";
-import { MobileCollectionHeader } from "./mobile-collection-header";
 import { useVirtualCardMasonry } from "./use-virtual-card-masonry";
 import { useScrollEdges } from "./use-scroll-edges";
 
@@ -28,7 +27,6 @@ export type NoteCardGridPanelProps = {
   total: number;
   hasMore: boolean;
   isMobileViewport?: boolean;
-  onToggleLayout?: () => void;
   selectedIds: ReadonlySet<string>;
   onOpenNote: (id: string) => void;
   onToggleSelectNote: (
@@ -59,7 +57,6 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
   total,
   hasMore,
   isMobileViewport = false,
-  onToggleLayout,
   selectedIds,
   onOpenNote,
   onToggleSelectNote,
@@ -239,20 +236,6 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
       aria-hidden={inert || undefined}
       inert={inert}
     >
-      {isMobileViewport && onOpenSidebar && (
-        <MobileCollectionHeader
-          active={!inert}
-          heading={query ? "搜索结果" : (currentNotebookName ?? viewLabel(view))}
-          total={total}
-          shown={notes.length}
-          query={query}
-          onBack={onOpenSidebar}
-          layout="cards"
-          onToggleLayout={onToggleLayout}
-          onEmptyTrash={onEmptyTrash}
-          trashBusy={trashBusy}
-        />
-      )}
       <div
         className={`card-grid-scroll-shell${cardGridScrollEdges.before ? " has-scroll-before" : ""}${cardGridScrollEdges.after ? " has-scroll-after" : ""}`}
       >
