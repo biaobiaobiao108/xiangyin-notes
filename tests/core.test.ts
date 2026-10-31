@@ -205,21 +205,30 @@ describe("markdown and search helpers", () => {
     );
   });
 
-  test("omits GFM tables, fenced code, indented code, and supported callouts", () => {
+  test("omits GFM tables, fenced code, indented code, supported callouts, and task list items", () => {
     const callouts = ["NOTE", "TIP", "IMPORTANT", "WARNING", "CAUTION"]
       .map((type) => `> [!${type}]\n> hidden ${type}\n> second line`)
       .join("\n\n");
-    const markdown = `Visible before.\n\n| Name | State |\n| :--- | ---: |\n| Table content | hidden |\n\nVisible after table.\n\n\`\`\`ts\nhidden fenced code\n\`\`\`\n\n~~~txt\nhidden tilde code\n~~~\n\n    hidden indented code\n\nVisible before callouts.\n\n${callouts}\n\nVisible after callouts.`;
+    const markdown = `Visible before.\n\n| Name | State |\n| :--- | ---: |\n| Table content | hidden |\n\nVisible after table.\n\n\`\`\`ts\nhidden fenced code\n\`\`\`\n\n~~~txt\nhidden tilde code\n~~~\n\n    hidden indented code\n\nVisible before callouts.\n\n${callouts}\n\nVisible before tasks.\n\n- [ ] 未完成任务\n- [x] 已完成任务\n* [X] 星号任务\n1. [ ] 编号任务\n[ ] 裸待办事项\n【】 中文待办事项\n\nVisible after tasks.`;
 
     const preview = formatPreview(markdown);
     expect(preview).toContain("Visible before.");
     expect(preview).toContain("Visible after table.");
     expect(preview).toContain("Visible before callouts.");
-    expect(preview).toContain("Visible after callouts.");
+    expect(preview).toContain("Visible before tasks.");
+    expect(preview).toContain("Visible after tasks.");
     expect(preview).not.toContain("Table content");
     expect(preview).not.toContain("hidden fenced code");
     expect(preview).not.toContain("hidden tilde code");
     expect(preview).not.toContain("hidden indented code");
+    expect(preview).not.toContain("[ ]");
+    expect(preview).not.toContain("[x]");
+    expect(preview).not.toContain("未完成任务");
+    expect(preview).not.toContain("已完成任务");
+    expect(preview).not.toContain("星号任务");
+    expect(preview).not.toContain("编号任务");
+    expect(preview).not.toContain("裸待办事项");
+    expect(preview).not.toContain("中文待办事项");
     for (const type of ["NOTE", "TIP", "IMPORTANT", "WARNING", "CAUTION"]) {
       expect(preview).not.toContain(`hidden ${type}`);
     }

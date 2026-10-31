@@ -350,6 +350,8 @@ export async function readJson<T>(request: Request, maxBytes: number): Promise<T
 const NON_BREAKING_SPACE_PATTERN = /\u00a0|&nbsp;|&#0*160;|&#[xX]0*[aA]0;/gu;
 const SPACE_BEFORE_PUNCTUATION_PATTERN = / ([,.;:!?。！？、，；：])/gu;
 const WIKI_LINK_PREVIEW_PATTERN = /\[\[([^\[\]\r\n]*)\]\]|【【([^【】\r\n]*)】】/gu;
+const TASK_LIST_ITEM_PATTERN =
+  /^(?:[ \t]{0,3}>[ \t]?)*[ \t]*(?:(?:[-+*]|\d+[.)])[ \t]+)?(?:\[[ xX ]?\]|【[ \u3000xX]?】)(?:[ \t]|$)/u;
 
 type PreviewInlineToken = {
   type: string;
@@ -386,7 +388,7 @@ function plainTextFromInlineTokens(tokens: PreviewInlineToken[]): string {
  *
  * Block structure is scanned line by line so the work stays bounded (a 1 MB note
  * must not slow down a 100-note list) and so blocks a preview never shows —
- * GFM tables, fenced/indented code, supported callouts — can be skipped without
+ * GFM tables, fenced/indented code, supported callouts, task list items — can be skipped without
  * parsing them. Inline markup is handed to marked, which keeps the preview
  * faithful to the editor's inline grammar instead of a hand-rolled approximation.
  */
@@ -430,12 +432,13 @@ export function formatPreview(markdown: string) {
   };
 
   // Inline parsing is delegated to marked; the block scan above stays in charge of
-  // bounded work and of the blocks a preview never shows (tables, code, callouts).
+  // bounded work and of the blocks a preview never shows (tables, code, callouts, task lists).
   const readPlainText = (start: number, end: number, maximumLength: number) => {
     if (maximumLength <= 0 || end <= start) return "";
     const text = plainTextFromInlineTokens(
       new Lexer({ gfm: true }).inlineTokens(markdown.slice(start, end)),
     )
+      .replace(/^(?:\[[ xX ]?\]|【[ \u3000xX]?】)[ \t\u3000]*/u, "")
       .replace(
         WIKI_LINK_PREVIEW_PATTERN,
         (_match, wiki: string | undefined, fullWidth: string | undefined) => {
@@ -559,6 +562,9 @@ export function formatPreview(markdown: string) {
     );
   };
 
+  const isTaskListItem = (line: { start: number; end: number }) =>
+    TASK_LIST_ITEM_PATTERN.test(markdown.slice(line.start, line.end));
+
   let cursor = 0;
   while (cursor < markdown.length && !stopped) {
     const line = readLine(cursor, !codeFence);
@@ -587,6 +593,8 @@ export function formatPreview(markdown: string) {
         cursor = row.next;
       }
       continue;
+    } else if (isTaskListItem(line)) {
+      flushParagraph();
     } else {
       let bodyStart = contentStart;
       let isBlock = false;
