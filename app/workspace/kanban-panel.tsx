@@ -66,9 +66,10 @@ export type KanbanPanelProps = {
   onCreateNoteInColumn: (status: KanbanStatus) => void;
   onAddExistingNote: (noteId: string, status: KanbanStatus) => void;
   onMoveCard: (noteId: string, targetStatus: KanbanStatus, targetSortOrder: number) => void;
-  onRemoveCard: (noteId: string) => void;
+  onRemoveCard?: (noteId: string) => void;
   onTrashCard: (noteId: string) => void;
   onLoadMoreColumn: (status: KanbanStatus) => void;
+  onToggleFavorite?: (note: NoteSummary) => void;
   onBack?: () => void;
   isMobileViewport?: boolean;
   availableNotes?: NoteSummary[];
@@ -79,6 +80,7 @@ const KanbanCardItem = memo(function KanbanCardItem({
   card,
   isMobileViewport,
   onOpen,
+  onToggleFavorite,
   onDragStart,
   onDragEnd,
   isDragging,
@@ -86,6 +88,7 @@ const KanbanCardItem = memo(function KanbanCardItem({
   card: KanbanCard;
   isMobileViewport?: boolean;
   onOpen: (noteId: string) => void;
+  onToggleFavorite?: (note: NoteSummary) => void;
   onDragStart: (card: KanbanCard, event: ReactDragEvent<HTMLElement>) => void;
   onDragEnd: () => void;
   isDragging: boolean;
@@ -97,6 +100,11 @@ const KanbanCardItem = memo(function KanbanCardItem({
 
   const handleCardClick = () => {
     onOpen(card.noteId);
+  };
+
+  const handleStarClick = (event: ReactMouseEvent) => {
+    event.stopPropagation();
+    onToggleFavorite?.(note);
   };
 
   const handleDragStart = (e: ReactDragEvent<HTMLElement>) => {
@@ -135,11 +143,17 @@ const KanbanCardItem = memo(function KanbanCardItem({
       )}
 
       <div className="kanban-card-body">
-        <div className="kanban-card-header">
+        <div className="kanban-card-header has-favorite-action">
           <h4 className="kanban-card-title">{displayTitle}</h4>
-          {note.isFavorite && (
-            <Star size={14} className="kanban-card-star is-favorite" aria-label="已收藏" />
-          )}
+          <button
+            type="button"
+            className={`note-card-star-btn ${note.isFavorite ? "is-favorite" : ""}`}
+            onClick={handleStarClick}
+            aria-label={note.isFavorite ? "取消收藏" : "加入收藏"}
+            aria-pressed={note.isFavorite}
+          >
+            <Star size={15} fill={note.isFavorite ? "currentColor" : "none"} />
+          </button>
         </div>
 
         <NoteTags tags={tags} variant="card" />
@@ -172,6 +186,7 @@ const KanbanColumnView = memo(function KanbanColumnView({
   onCardDragEnd,
   onDropOnColumn,
   onLoadMore,
+  onToggleFavorite,
 }: {
   column: (typeof COLUMNS)[number];
   columnData: KanbanColumnData;
@@ -184,6 +199,7 @@ const KanbanColumnView = memo(function KanbanColumnView({
   onCardDragEnd: () => void;
   onDropOnColumn: (status: KanbanStatus, targetIndex: number) => void;
   onLoadMore: (status: KanbanStatus) => void;
+  onToggleFavorite?: (note: NoteSummary) => void;
 }) {
   const { cards, total, hasMore, isLoadingMore, loadMoreError } = columnData;
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -320,6 +336,7 @@ const KanbanColumnView = memo(function KanbanColumnView({
                       card={card}
                       isMobileViewport={isMobileViewport}
                       onOpen={onOpenNote}
+                      onToggleFavorite={onToggleFavorite}
                       onDragStart={onCardDragStart}
                       onDragEnd={onCardDragEnd}
                       isDragging={draggingNoteId === card.noteId}
@@ -479,6 +496,7 @@ export const KanbanPanel = memo(function KanbanPanel({
   onRemoveCard,
   onTrashCard,
   onLoadMoreColumn,
+  onToggleFavorite,
   onBack,
   isMobileViewport = false,
   availableNotes = [],
@@ -706,6 +724,7 @@ export const KanbanPanel = memo(function KanbanPanel({
                   onCardDragEnd={handleCardDragEnd}
                   onDropOnColumn={handleDropOnColumn}
                   onLoadMore={onLoadMoreColumn}
+                  onToggleFavorite={onToggleFavorite}
                 />
               );
             })()}
@@ -725,6 +744,7 @@ export const KanbanPanel = memo(function KanbanPanel({
               onCardDragEnd={handleCardDragEnd}
               onDropOnColumn={handleDropOnColumn}
               onLoadMore={onLoadMoreColumn}
+              onToggleFavorite={onToggleFavorite}
             />
           ))
         )}

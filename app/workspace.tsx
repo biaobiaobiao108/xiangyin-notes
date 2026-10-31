@@ -2234,6 +2234,29 @@ export function Workspace() {
     },
     [notifyError, notifyInfo],
   );
+  const handleToggleFavoriteKanbanCard = useCallback(
+    async (target: NoteSummary) => {
+      const isFavorite = !target.isFavorite;
+      setKanbanColumns((prev) => {
+        let changed = false;
+        const next = { ...prev };
+        for (const st of ["inbox", "doing", "done"] as const) {
+          if (next[st].cards.some((c) => c.noteId === target.id)) {
+            next[st] = {
+              ...next[st],
+              cards: next[st].cards.map((c) =>
+                c.noteId === target.id ? { ...c, note: { ...c.note, isFavorite } } : c,
+              ),
+            };
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+      await handleToggleFavoriteNote(target);
+    },
+    [handleToggleFavoriteNote],
+  );
   const selectTask = useCallback(
     (task: TaskSummary) => {
       flushEditorDraftRef.current();
@@ -3168,6 +3191,7 @@ export function Workspace() {
           onRemoveCard={handleRemoveKanbanCard}
           onTrashCard={handleTrashKanbanCard}
           onLoadMoreColumn={loadMoreKanbanColumn}
+          onToggleFavorite={handleToggleFavoriteKanbanCard}
           onBack={isMobileViewport ? backMobilePage : undefined}
           isMobileViewport={isMobileViewport}
           availableNotes={notes}
