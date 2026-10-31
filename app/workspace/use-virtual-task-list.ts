@@ -396,12 +396,12 @@ export function useVirtualTaskList(
   useLayoutEffect(() => {
     const pendingFocus = pendingFocusRef.current;
     if (!pendingFocus) return;
-    const button = scrollRef.current?.querySelector<HTMLButtonElement>(
+    const control = scrollRef.current?.querySelector<HTMLElement>(
       `[data-task-row-id="${CSS.escape(pendingFocus.rowId)}"] [data-task-tab-index="${pendingFocus.tabIndex}"]`,
     );
-    if (!button) return;
+    if (!control) return;
     pendingFocusRef.current = null;
-    button.focus({ preventScroll: true });
+    control.focus({ preventScroll: true });
   }, [scrollRef, visibleRows]);
 
   const moveTabFocus = useCallback(
@@ -435,10 +435,10 @@ export function useVirtualTaskList(
       const nextTabIndex = event.shiftKey ? 1 : 0;
       const container = scrollRef.current;
       if (!container) return;
-      const nextButton = container.querySelector<HTMLButtonElement>(
+      const nextControl = container.querySelector<HTMLElement>(
         `[data-task-row-id="${CSS.escape(nextRow.id)}"] [data-task-tab-index="${nextTabIndex}"]`,
       );
-      if (nextButton) return;
+      if (nextControl) return;
 
       event.preventDefault();
       pendingFocusRef.current = { rowId: nextRow.id, tabIndex: nextTabIndex };

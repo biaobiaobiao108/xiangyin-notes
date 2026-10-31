@@ -582,13 +582,12 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .virtual-group-motion-after, .tasks-virtual-group-after-rows { position: relative; margin: 0; padding: 0; list-style: none; }
 .tasks-item { display: flex; width: 100%; min-height: 42px; gap: 8px; align-items: flex-start; padding: 5px 6px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ink); }
 .tasks-item:hover { background: var(--surface-muted); }
-.tasks-check-button { display: grid; width: 28px; height: 30px; flex: 0 0 28px; place-items: center; padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); cursor: pointer; }
-.tasks-check-button:hover { background: transparent; color: var(--ink); }
-.tasks-check-button.is-done { color: var(--accent); }
-.tasks-check-box { display: grid; width: 17px; height: 17px; flex: 0 0 17px; place-items: center; box-sizing: border-box; margin-top: 1px; border: 1px solid var(--muted); border-radius: 3px; background: var(--surface); color: #fff; }
-.tasks-check-button.is-done .tasks-check-box { border-color: var(--accent); background: var(--accent); }
-.tasks-check-button:disabled { cursor: wait; opacity: .7; }
-.tasks-check-button.is-busy svg { animation: spin var(--motion-spin) linear infinite; }
+.tasks-check-control { position: relative; display: flex; width: 28px; height: 30px; flex: 0 0 28px; align-items: center; justify-content: center; cursor: pointer; }
+.tasks-check-box { width: 17px; height: 17px; margin: 0; accent-color: var(--accent); cursor: inherit; }
+.tasks-check-control.is-disabled { cursor: wait; opacity: .7; }
+.tasks-check-control.is-busy .tasks-check-box { visibility: hidden; }
+.tasks-check-spinner { position: absolute; display: grid; width: 17px; height: 17px; place-items: center; color: var(--muted); pointer-events: none; }
+.tasks-check-control.is-busy svg { animation: spin var(--motion-spin) linear infinite; }
 .tasks-item-copy { display: flex; min-width: 0; min-height: 30px; flex: 1; align-items: center; overflow: hidden; padding: 3px 2px; border: 0; background: transparent; color: inherit; font: inherit; line-height: 1.45; text-align: left; white-space: nowrap; cursor: pointer; }
 .tasks-item-copy:hover:not(:disabled) { color: var(--accent-dark); }
 .tasks-item-copy:disabled { cursor: wait; }

@@ -1,4 +1,4 @@
-import { Check, ChevronDown, ChevronLeft, ListTodo, LoaderCircle } from "lucide-react";
+import { ChevronDown, ChevronLeft, ListTodo, LoaderCircle } from "lucide-react";
 import {
   useEffect,
   useLayoutEffect,
@@ -435,7 +435,7 @@ export function TasksPanel({
       virtualTaskFocusRef.current = null;
       return;
     }
-    const button = listRef.current?.querySelector<HTMLButtonElement>(
+    const control = listRef.current?.querySelector<HTMLElement>(
       `[data-task-row-id="${CSS.escape(focus.rowId)}"] [data-task-tab-index="${focus.tabIndex}"]`,
     );
     const groupButton = listRef.current?.querySelector<HTMLButtonElement>(
@@ -446,7 +446,7 @@ export function TasksPanel({
     );
     const focusTarget = groupButton?.closest("[inert]")
       ? stickyButton
-      : (button ?? groupButton ?? stickyButton);
+      : (control ?? groupButton ?? stickyButton);
     focusTarget?.focus({ preventScroll: true });
     virtualTaskFocusRef.current = null;
   }, [virtualGroupTransition]);
@@ -532,27 +532,34 @@ export function TasksPanel({
           className="tasks-item"
           style={{ paddingInlineStart: `${6 + Math.min(task.depth, 5) * 16}px` }}
         >
-          <button
-            type="button"
+          <label
             className={
-              "tasks-check-button" + (task.done ? " is-done" : "") + (isBusy ? " is-busy" : "")
+              "tasks-check-control" +
+              (isBusy ? " is-busy" : "") +
+              (loading || busyTask !== null ? " is-disabled" : "")
             }
-            data-task-tab-index={options?.virtual ? 0 : undefined}
-            aria-label={
-              isBusy
-                ? "正在更新任务状态"
-                : task.done
-                  ? `标记为未完成：${task.text}`
-                  : `标记为已完成：${task.text}`
-            }
-            aria-pressed={task.done}
-            disabled={loading || busyTask !== null}
-            onClick={() => onToggleTask(task)}
           >
-            <span className="tasks-check-box" aria-hidden="true">
-              {isBusy ? <LoaderCircle size={13} /> : task.done ? <Check size={13} /> : null}
-            </span>
-          </button>
+            <input
+              type="checkbox"
+              className="tasks-check-box"
+              data-task-tab-index={options?.virtual ? 0 : undefined}
+              aria-label={
+                isBusy
+                  ? "正在更新任务状态"
+                  : task.done
+                    ? `标记为未完成：${task.text}`
+                    : `标记为已完成：${task.text}`
+              }
+              checked={task.done}
+              disabled={loading || busyTask !== null}
+              onChange={() => onToggleTask(task)}
+            />
+            {isBusy && (
+              <span className="tasks-check-spinner" aria-hidden="true">
+                <LoaderCircle size={13} />
+              </span>
+            )}
+          </label>
           <button
             type="button"
             className="tasks-item-copy"
