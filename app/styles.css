@@ -3866,5 +3866,8 @@ dialog::backdrop {
 .notebook-drag-preview .notebook-row-wrap,
 .notebook-drag-preview .swipe-action-foreground { background: transparent; color: var(--ink); box-shadow: none; }
 .notebook-drag-preview .swipe-action-buttons { visibility: hidden; }
-.notebook-sort-line { position: fixed; z-index: 1001; pointer-events: none; height: 1px; background: color-mix(in srgb, var(--accent) 38%, var(--surface)); }
+.notebook-sort-line { position: fixed; z-index: 1001; pointer-events: none; height: 1px; color: color-mix(in srgb, var(--accent) 52%, var(--surface)); background: currentColor; }
+.notebook-sort-line::before, .notebook-sort-line::after { content: ""; position: absolute; top: -2px; width: 5px; height: 5px; box-sizing: border-box; border: 1px solid currentColor; border-radius: 50%; background: var(--canvas); }
+.notebook-sort-line::before { left: -2px; }
+.notebook-sort-line::after { right: -2px; }
 .is-sorting-notebooks, .is-sorting-notebooks * { cursor: grabbing !important; user-select: none !important; }
