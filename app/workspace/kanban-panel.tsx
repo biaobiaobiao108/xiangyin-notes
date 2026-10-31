@@ -11,7 +11,6 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import {
-  Archive,
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
@@ -59,15 +58,11 @@ export type KanbanPanelProps = {
   onCreateNoteInColumn: (status: KanbanStatus) => void;
   onAddExistingNote: (noteId: string, status: KanbanStatus) => void;
   onMoveCard: (noteId: string, targetStatus: KanbanStatus, targetSortOrder: number) => void;
-  onArchiveCard: (noteId: string) => void;
-  onUnarchiveCard: (noteId: string, targetStatus: KanbanStatus) => void;
   onRemoveCard: (noteId: string) => void;
   onTrashCard: (noteId: string) => void;
   onBack?: () => void;
   isMobileViewport?: boolean;
   availableNotes?: NoteSummary[];
-  archivedCards?: KanbanCard[];
-  onOpenArchived?: () => void;
 };
 
 // Single Kanban Card Item
@@ -76,7 +71,6 @@ const KanbanCardItem = memo(function KanbanCardItem({
   isMobileViewport,
   onOpen,
   onMoveToStatus,
-  onArchive,
   onRemove,
   onTrash,
   onDragStart,
@@ -87,7 +81,6 @@ const KanbanCardItem = memo(function KanbanCardItem({
   isMobileViewport?: boolean;
   onOpen: (noteId: string) => void;
   onMoveToStatus: (noteId: string, status: KanbanStatus) => void;
-  onArchive: (noteId: string) => void;
   onRemove: (noteId: string) => void;
   onTrash: (noteId: string) => void;
   onDragStart: (card: KanbanCard, event: ReactDragEvent<HTMLElement>) => void;
@@ -198,15 +191,6 @@ const KanbanCardItem = memo(function KanbanCardItem({
                   type="button"
                   onClick={() => {
                     setMenuOpen(false);
-                    onArchive(card.noteId);
-                  }}
-                >
-                  归档
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMenuOpen(false);
                     onRemove(card.noteId);
                   }}
                 >
@@ -263,7 +247,6 @@ const KanbanColumnView = memo(function KanbanColumnView({
   onCreateNote,
   onAddExistingNote,
   onMoveToStatus,
-  onArchiveCard,
   onRemoveCard,
   onTrashCard,
   onCardDragStart,
@@ -278,7 +261,6 @@ const KanbanColumnView = memo(function KanbanColumnView({
   onCreateNote: (status: KanbanStatus) => void;
   onAddExistingNote: (status: KanbanStatus) => void;
   onMoveToStatus: (noteId: string, status: KanbanStatus) => void;
-  onArchiveCard: (noteId: string) => void;
   onRemoveCard: (noteId: string) => void;
   onTrashCard: (noteId: string) => void;
   onCardDragStart: (card: KanbanCard, event: ReactDragEvent<HTMLElement>) => void;
@@ -396,7 +378,6 @@ const KanbanColumnView = memo(function KanbanColumnView({
                       isMobileViewport={isMobileViewport}
                       onOpen={onOpenNote}
                       onMoveToStatus={onMoveToStatus}
-                      onArchive={onArchiveCard}
                       onRemove={onRemoveCard}
                       onTrash={onTrashCard}
                       onDragStart={onCardDragStart}
@@ -524,95 +505,6 @@ function AddExistingNoteModal({
   );
 }
 
-// Archived Drawer Modal
-function KanbanArchivedDrawer({
-  open,
-  archivedCards,
-  onClose,
-  onUnarchive,
-  onTrash,
-}: {
-  open: boolean;
-  archivedCards: KanbanCard[];
-  onClose: () => void;
-  onUnarchive: (noteId: string, targetStatus: KanbanStatus) => void;
-  onTrash: (noteId: string) => void;
-}) {
-  if (!open) return null;
-
-  return (
-    <div className="kanban-dialog-backdrop" onClick={onClose}>
-      <div
-        className="kanban-archived-drawer"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="kanban-archived-title"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="kanban-archived-header">
-          <div className="kanban-archived-title-group">
-            <Archive size={17} />
-            <h3 id="kanban-archived-title">已归档卡片</h3>
-            <span className="kanban-column-count">{archivedCards.length}</span>
-          </div>
-          <button
-            type="button"
-            className="kanban-icon-btn"
-            aria-label="关闭归档面板"
-            onClick={onClose}
-          >
-            <X size={16} />
-          </button>
-        </div>
-
-        <div className="kanban-archived-list">
-          {archivedCards.length === 0 ? (
-            <p className="kanban-dialog-empty">暂无归档卡片</p>
-          ) : (
-            archivedCards.map((card) => (
-              <div key={card.noteId} className="kanban-archived-item">
-                <div className="kanban-archived-item-main">
-                  <div className="kanban-archived-item-title">
-                    {card.note.title || "未命名笔记"}
-                  </div>
-                  <div className="kanban-archived-item-meta">
-                    <span>{card.note.notebookName}</span>
-                    <time>归档于 {relativeDate(card.updatedAt)}</time>
-                  </div>
-                </div>
-                <div className="kanban-archived-item-actions">
-                  <button
-                    type="button"
-                    className="kanban-btn-sm"
-                    onClick={() => onUnarchive(card.noteId, "inbox")}
-                  >
-                    恢复到收集箱
-                  </button>
-                  <button
-                    type="button"
-                    className="kanban-btn-sm"
-                    onClick={() => onUnarchive(card.noteId, "doing")}
-                  >
-                    恢复到进行中
-                  </button>
-                  <button
-                    type="button"
-                    className="kanban-icon-btn is-danger"
-                    aria-label="移入回收站"
-                    onClick={() => onTrash(card.noteId)}
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // Main KanbanPanel Export
 export const KanbanPanel = memo(function KanbanPanel({
   cards,
@@ -624,24 +516,18 @@ export const KanbanPanel = memo(function KanbanPanel({
   onCreateNoteInColumn,
   onAddExistingNote,
   onMoveCard,
-  onArchiveCard,
-  onUnarchiveCard,
   onRemoveCard,
   onTrashCard,
   onBack,
   isMobileViewport = false,
   availableNotes = [],
-  archivedCards = [],
-  onOpenArchived,
 }: KanbanPanelProps) {
   const panelRef = useRef<HTMLElement>(null);
   const [activeMobileColumn, setActiveMobileColumn] = useState<KanbanStatus>("inbox");
   const [draggingCard, setDraggingCard] = useState<KanbanDragPayload | null>(null);
   const [openFilter, setOpenFilter] = useState<"notebook" | null>(null);
   const [addModalStatus, setAddModalStatus] = useState<KanbanStatus | null>(null);
-  const [archivedDrawerOpen, setArchivedDrawerOpen] = useState(false);
   const [trashOver, setTrashOver] = useState(false);
-  const [archiveOver, setArchiveOver] = useState(false);
 
   const notebookTriggerRef = useRef<HTMLButtonElement>(null);
   const notebookMenuRef = useRef<HTMLDivElement>(null);
@@ -654,10 +540,8 @@ export const KanbanPanel = memo(function KanbanPanel({
       ["done", []],
     ]);
     for (const card of cards) {
-      if (card.status !== "archived") {
-        const list = map.get(card.status);
-        if (list) list.push(card);
-      }
+      const list = map.get(card.status);
+      if (list) list.push(card);
     }
     // Sort each column by sortOrder ascending
     for (const list of map.values()) {
@@ -702,7 +586,6 @@ export const KanbanPanel = memo(function KanbanPanel({
   const handleCardDragEnd = useCallback(() => {
     setDraggingCard(null);
     setTrashOver(false);
-    setArchiveOver(false);
   }, []);
 
   const handleDropOnColumn = useCallback(
@@ -757,30 +640,6 @@ export const KanbanPanel = memo(function KanbanPanel({
     setDraggingCard(null);
   };
 
-  // Drop on Corner Archive Zone
-  const handleArchiveDragOver = (e: ReactDragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    e.dataTransfer.dropEffect = "move";
-    setArchiveOver(true);
-  };
-  const handleArchiveDragLeave = (e: ReactDragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setArchiveOver(false);
-  };
-  const handleArchiveDrop = (e: ReactDragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setArchiveOver(false);
-    const payload = parseKanbanDragPayload(e.dataTransfer);
-    const noteIds = parseNoteIdsFromDrag(e.dataTransfer);
-    const targetId = payload?.noteId || noteIds[0] || draggingCard?.noteId;
-    if (targetId) {
-      onArchiveCard(targetId);
-    }
-    setDraggingCard(null);
-  };
-
   const selectedNotebookName = useMemo(() => {
     if (!notebookId) return "全部笔记本";
     const found = notebooks.find((nb) => nb.id === notebookId);
@@ -809,9 +668,7 @@ export const KanbanPanel = memo(function KanbanPanel({
             </button>
           )}
           <h2 className="kanban-heading">看板</h2>
-          <span className="kanban-total-count">
-            {cards.filter((c) => c.status !== "archived").length} 篇笔记
-          </span>
+          <span className="kanban-total-count">{cards.length} 篇笔记</span>
         </div>
 
         <div className="kanban-header-right">
@@ -863,20 +720,6 @@ export const KanbanPanel = memo(function KanbanPanel({
               </div>
             )}
           </div>
-
-          {/* Archived Cards button */}
-          <button
-            type="button"
-            className="kanban-archived-trigger"
-            aria-label="查看已归档卡片"
-            onClick={() => {
-              onOpenArchived?.();
-              setArchivedDrawerOpen(true);
-            }}
-          >
-            <Archive size={15} />
-            <span>已归档 ({archivedCards.length})</span>
-          </button>
         </div>
       </header>
 
@@ -919,7 +762,6 @@ export const KanbanPanel = memo(function KanbanPanel({
                   onCreateNote={onCreateNoteInColumn}
                   onAddExistingNote={(status) => setAddModalStatus(status)}
                   onMoveToStatus={handleMoveToStatus}
-                  onArchiveCard={onArchiveCard}
                   onRemoveCard={onRemoveCard}
                   onTrashCard={onTrashCard}
                   onCardDragStart={handleCardDragStart}
@@ -941,7 +783,6 @@ export const KanbanPanel = memo(function KanbanPanel({
               onCreateNote={onCreateNoteInColumn}
               onAddExistingNote={(status) => setAddModalStatus(status)}
               onMoveToStatus={handleMoveToStatus}
-              onArchiveCard={onArchiveCard}
               onRemoveCard={onRemoveCard}
               onTrashCard={onTrashCard}
               onCardDragStart={handleCardDragStart}
@@ -952,41 +793,23 @@ export const KanbanPanel = memo(function KanbanPanel({
         )}
       </div>
 
-      {/* Corner Drop Zones during drag (左下角移动到回收站，右下角归档) */}
+      {/* Corner Drop Zone during drag (右下角移动到回收站) */}
       {draggingCard !== null && (
-        <>
-          <div
-            className={`kanban-corner-zone kanban-corner-zone--trash ${trashOver ? "is-over" : ""}`}
-            onDragOver={handleTrashDragOver}
-            onDragLeave={handleTrashDragLeave}
-            onDrop={handleTrashDrop}
-            role="region"
-            aria-label="拖拽至此移到回收站"
-          >
-            <div className="kanban-corner-zone-content">
-              <div className="kanban-corner-icon-circle">
-                <Trash2 size={18} className="kanban-corner-icon" />
-              </div>
-              <span className="kanban-corner-label">移到回收站</span>
+        <div
+          className={`kanban-corner-zone kanban-corner-zone--trash ${trashOver ? "is-over" : ""}`}
+          onDragOver={handleTrashDragOver}
+          onDragLeave={handleTrashDragLeave}
+          onDrop={handleTrashDrop}
+          role="region"
+          aria-label="拖拽至此移到回收站"
+        >
+          <div className="kanban-corner-zone-content">
+            <div className="kanban-corner-icon-circle">
+              <Trash2 size={18} className="kanban-corner-icon" />
             </div>
+            <span className="kanban-corner-label">移到回收站</span>
           </div>
-
-          <div
-            className={`kanban-corner-zone kanban-corner-zone--archive ${archiveOver ? "is-over" : ""}`}
-            onDragOver={handleArchiveDragOver}
-            onDragLeave={handleArchiveDragLeave}
-            onDrop={handleArchiveDrop}
-            role="region"
-            aria-label="拖拽至此归档"
-          >
-            <div className="kanban-corner-zone-content">
-              <div className="kanban-corner-icon-circle">
-                <Archive size={18} className="kanban-corner-icon" />
-              </div>
-              <span className="kanban-corner-label">归档</span>
-            </div>
-          </div>
-        </>
+        </div>
       )}
 
       {/* Add Existing Note Dialog */}
@@ -997,15 +820,6 @@ export const KanbanPanel = memo(function KanbanPanel({
         cards={cards}
         onClose={() => setAddModalStatus(null)}
         onSelect={onAddExistingNote}
-      />
-
-      {/* Archived Cards Drawer */}
-      <KanbanArchivedDrawer
-        open={archivedDrawerOpen}
-        archivedCards={archivedCards}
-        onClose={() => setArchivedDrawerOpen(false)}
-        onUnarchive={onUnarchiveCard}
-        onTrash={onTrashCard}
       />
     </section>
   );

@@ -29,6 +29,7 @@ import {
   LayoutGrid,
   LoaderCircle,
   RefreshCw,
+  SquareKanban,
   Star,
   Trash2,
   Undo2,
@@ -206,6 +207,7 @@ export function NoteEditor({
   onPermanentDelete,
   onOpenList,
   onBackToCards,
+  onBackToKanban,
   onUploadImage,
   isMobileViewport = false,
   mobileBackLabel = "笔记列表",
@@ -257,6 +259,7 @@ export function NoteEditor({
   onPermanentDelete?: () => void;
   onOpenList?: () => void;
   onBackToCards?: () => void;
+  onBackToKanban?: () => void;
   onUploadImage?: (
     file: File,
     dimensions: { width: number; height: number },
@@ -2005,7 +2008,18 @@ export function NoteEditor({
       ) : (
         <header className="editor-header">
           <div className="editor-header-start">
-            {onBackToCards && !focusMode && (
+            {onBackToKanban && !focusMode && (
+              <button
+                className="icon-button editor-back-kanban"
+                type="button"
+                aria-label="返回看板"
+                onClick={onBackToKanban}
+                disabled={editorLocked}
+              >
+                <SquareKanban size={18} strokeWidth={1.8} />
+              </button>
+            )}
+            {!onBackToKanban && onBackToCards && !focusMode && (
               <button
                 className="icon-button editor-back-cards"
                 type="button"
@@ -2362,7 +2376,7 @@ export function NoteEditor({
           onClose={onCloseOutline}
         />
       )}
-      {!isMobileViewport && (focusMode || (onBackToCards && outlineOpen)) && (
+      {!isMobileViewport && (focusMode || ((onBackToCards || onBackToKanban) && outlineOpen)) && (
         <CardOutline
           key={note.id}
           outlineItems={outlineItems}

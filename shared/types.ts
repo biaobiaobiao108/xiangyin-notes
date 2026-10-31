@@ -98,7 +98,7 @@ export type NoteBacklinksResponse = {
   truncated: boolean;
 };
 
-export type KanbanStatus = "inbox" | "doing" | "done" | "archived";
+export type KanbanStatus = "inbox" | "doing" | "done";
 
 export type KanbanCard = {
   noteId: string;

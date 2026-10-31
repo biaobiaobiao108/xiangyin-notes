@@ -28,7 +28,7 @@ type KanbanCardRow = NoteRow & {
   card_updated_at: number;
 };
 
-const VALID_STATUSES = new Set<KanbanStatus>(["inbox", "doing", "done", "archived"]);
+const VALID_STATUSES = new Set<KanbanStatus>(["inbox", "doing", "done"]);
 
 function isValidStatus(value: unknown): value is KanbanStatus {
   return typeof value === "string" && VALID_STATUSES.has(value as KanbanStatus);
@@ -110,8 +110,6 @@ export async function handleKanbanRoute(
     if (status) {
       conditions.push("k.status = ?");
       params.push(status);
-    } else {
-      conditions.push("k.status != 'archived'");
     }
 
     const rows = all<KanbanCardRow>(
@@ -128,38 +126,6 @@ export async function handleKanbanRoute(
         FROM ${KANBAN_FROM}
         WHERE ${conditions.join(" AND ")}
         ORDER BY k.sort_order ASC, k.updated_at DESC
-      `,
-      ...params,
-    );
-
-    return json({ cards: rows.map(toKanbanCard) });
-  }
-
-  // GET /api/kanban/archived
-  if (id === "archived" && !subId && method === "GET") {
-    const notebookId = url.searchParams.get("notebookId");
-    const conditions: string[] = ["k.user_id = ?", "n.deleted_at IS NULL", "k.status = 'archived'"];
-    const params: SqlValue[] = [user.id];
-
-    if (notebookId) {
-      conditions.push("n.notebook_id = ?");
-      params.push(notebookId);
-    }
-
-    const rows = all<KanbanCardRow>(
-      database,
-      `
-        SELECT
-          k.note_id AS card_note_id,
-          k.user_id AS card_user_id,
-          k.status AS card_status,
-          k.sort_order AS card_sort_order,
-          k.created_at AS card_created_at,
-          k.updated_at AS card_updated_at,
-          ${NOTE_LIST_SELECT}
-        FROM ${KANBAN_FROM}
-        WHERE ${conditions.join(" AND ")}
-        ORDER BY k.updated_at DESC
       `,
       ...params,
     );

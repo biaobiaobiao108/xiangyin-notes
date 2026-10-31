@@ -50,7 +50,7 @@ async function login() {
 }
 
 describe("Kanban API", () => {
-  test("full kanban lifecycle: add card, move across columns, archive, unarchive, remove", async () => {
+  test("full kanban lifecycle: add card, move across columns, remove, trash and restore", async () => {
     const cookie = await login();
 
     // 1. Create a notebook and two notes
@@ -156,37 +156,8 @@ describe("Kanban API", () => {
     expect(patchedCard.status).toBe("doing");
     expect(patchedCard.sortOrder).toBe(200);
 
-    // 7. Archive card (move note1 to 'archived')
-    const archiveRes = await api(
-      `/api/kanban/cards/${note1.id}`,
-      {
-        method: "PATCH",
-        body: JSON.stringify({ status: "archived" }),
-      },
-      cookie,
-    );
-    expect(archiveRes.status).toBe(200);
-
-    // Check active cards does not include archived note1
-    const listAfterArchive = await api("/api/kanban", { method: "GET" }, cookie);
-    const { cards: activeAfterArchive } = (await listAfterArchive.json()) as {
-      cards: Array<{ noteId: string }>;
-    };
-    expect(activeAfterArchive.length).toBe(1);
-    expect(activeAfterArchive[0].noteId).toBe(note2.id);
-
-    // Check archived cards list
-    const archivedListRes = await api("/api/kanban/archived", { method: "GET" }, cookie);
-    expect(archivedListRes.status).toBe(200);
-    const { cards: archivedCards } = (await archivedListRes.json()) as {
-      cards: Array<{ noteId: string; status: string }>;
-    };
-    expect(archivedCards.length).toBe(1);
-    expect(archivedCards[0].noteId).toBe(note1.id);
-    expect(archivedCards[0].status).toBe("archived");
-
-    // 8. Restore archived card to 'done'
-    const restoreRes = await api(
+    // 7. Move card to 'done'
+    const doneRes = await api(
       `/api/kanban/cards/${note1.id}`,
       {
         method: "PATCH",
@@ -194,9 +165,19 @@ describe("Kanban API", () => {
       },
       cookie,
     );
-    expect(restoreRes.status).toBe(200);
+    expect(doneRes.status).toBe(200);
 
-    // 9. Delete/remove card from kanban (without deleting note)
+    // Filter by status 'done'
+    const doneListRes = await api("/api/kanban?status=done", { method: "GET" }, cookie);
+    expect(doneListRes.status).toBe(200);
+    const { cards: doneCards } = (await doneListRes.json()) as {
+      cards: Array<{ noteId: string; status: string }>;
+    };
+    expect(doneCards.length).toBe(1);
+    expect(doneCards[0].noteId).toBe(note1.id);
+    expect(doneCards[0].status).toBe("done");
+
+    // 8. Delete/remove card from kanban (without deleting note)
     const deleteCardRes = await api(`/api/kanban/cards/${note2.id}`, { method: "DELETE" }, cookie);
     expect(deleteCardRes.status).toBe(200);
 
@@ -211,7 +192,7 @@ describe("Kanban API", () => {
     const note2Check = await api(`/api/notes/${note2.id}`, { method: "GET" }, cookie);
     expect(note2Check.status).toBe(200);
 
-    // 10. Trashing note1 hides it from kanban
+    // 9. Trashing note1 hides it from kanban
     await api(
       "/api/notes/batch",
       {

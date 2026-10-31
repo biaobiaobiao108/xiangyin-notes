@@ -339,7 +339,6 @@ export function Workspace() {
   const [kanbanOpen, setKanbanOpen] = useState(false);
   const [kanbanNotebookId, setKanbanNotebookId] = useState("");
   const [kanbanCards, setKanbanCards] = useState<KanbanCard[]>([]);
-  const [archivedKanbanCards, setArchivedKanbanCards] = useState<KanbanCard[]>([]);
   const [kanbanLoading, setKanbanLoading] = useState(false);
   const [kanbanRefreshToken, setKanbanRefreshToken] = useState(0);
   const kanbanReturnRef = useRef(false);
@@ -453,20 +452,11 @@ export function Workspace() {
     if (!kanbanOpen) return;
     const controller = new AbortController();
     setKanbanLoading(true);
-    Promise.all([
-      api.listKanbanCards(
-        { notebookId: kanbanNotebookId || undefined },
-        { signal: controller.signal },
-      ),
-      api.listArchivedKanbanCards(
-        { notebookId: kanbanNotebookId || undefined },
-        { signal: controller.signal },
-      ),
-    ])
-      .then(([cardsRes, archivedRes]) => {
+    api
+      .listKanbanCards({ notebookId: kanbanNotebookId || undefined }, { signal: controller.signal })
+      .then((cardsRes) => {
         if (controller.signal.aborted) return;
         setKanbanCards(cardsRes.cards);
-        setArchivedKanbanCards(archivedRes.cards);
       })
       .catch((err: unknown) => {
         if (err instanceof Error && err.name === "AbortError") return;
@@ -1987,46 +1977,6 @@ export function Workspace() {
     },
     [notifyError],
   );
-  const handleArchiveKanbanCard = useCallback(
-    async (noteId: string) => {
-      const card = kanbanCards.find((c) => c.noteId === noteId);
-      if (card) {
-        setKanbanCards((current) => current.filter((c) => c.noteId !== noteId));
-        setArchivedKanbanCards((current) => [
-          { ...card, status: "archived", updatedAt: Math.floor(Date.now() / 1000) },
-          ...current,
-        ]);
-      }
-      try {
-        await api.updateKanbanCard(noteId, { status: "archived" });
-        notifyInfo("已归档卡片");
-      } catch {
-        notifyError("归档卡片失败");
-        setKanbanRefreshToken((v) => v + 1);
-      }
-    },
-    [kanbanCards, notifyError, notifyInfo],
-  );
-  const handleUnarchiveKanbanCard = useCallback(
-    async (noteId: string, targetStatus: KanbanStatus) => {
-      const card = archivedKanbanCards.find((c) => c.noteId === noteId);
-      if (card) {
-        setArchivedKanbanCards((current) => current.filter((c) => c.noteId !== noteId));
-        setKanbanCards((current) => [
-          ...current,
-          { ...card, status: targetStatus, updatedAt: Math.floor(Date.now() / 1000) },
-        ]);
-      }
-      try {
-        await api.updateKanbanCard(noteId, { status: targetStatus });
-        notifyInfo("已恢复到看板");
-      } catch {
-        notifyError("恢复卡片失败");
-        setKanbanRefreshToken((v) => v + 1);
-      }
-    },
-    [archivedKanbanCards, notifyError, notifyInfo],
-  );
   const handleRemoveKanbanCard = useCallback(
     async (noteId: string) => {
       setKanbanCards((current) => current.filter((c) => c.noteId !== noteId));
@@ -3013,15 +2963,11 @@ export function Workspace() {
           onCreateNoteInColumn={handleCreateNoteInKanbanColumn}
           onAddExistingNote={handleAddExistingNoteToKanban}
           onMoveCard={handleMoveKanbanCard}
-          onArchiveCard={handleArchiveKanbanCard}
-          onUnarchiveCard={handleUnarchiveKanbanCard}
           onRemoveCard={handleRemoveKanbanCard}
           onTrashCard={handleTrashKanbanCard}
           onBack={isMobileViewport ? backMobilePage : undefined}
           isMobileViewport={isMobileViewport}
           availableNotes={notes}
-          archivedCards={archivedKanbanCards}
-          onOpenArchived={() => setKanbanRefreshToken((v) => v + 1)}
         />
       )}
       {!tasksOpen && !kanbanOpen && !isCardsLayout && !mobileCards && (
@@ -3182,7 +3128,7 @@ export function Workspace() {
                                 ? "搜索结果"
                                 : (currentNotebook?.name ?? viewLabel(view))
                           }
-                          onBackToCards={
+                          onBackToKanban={
                             kanbanReturnRef.current
                               ? () => {
                                   closeSplit();
@@ -3190,12 +3136,15 @@ export function Workspace() {
                                   setKanbanOpen(true);
                                   kanbanReturnRef.current = false;
                                 }
-                              : isCardsLayout && !tasksOpen
-                                ? () => {
-                                    closeSplit();
-                                    setCardEditingNoteId(null);
-                                  }
-                                : undefined
+                              : undefined
+                          }
+                          onBackToCards={
+                            !kanbanReturnRef.current && isCardsLayout && !tasksOpen
+                              ? () => {
+                                  closeSplit();
+                                  setCardEditingNoteId(null);
+                                }
+                              : undefined
                           }
                           onUploadImage={handleUploadImage}
                           focusMode={focusMode}
@@ -3400,7 +3349,7 @@ export function Workspace() {
                             ? "搜索结果"
                             : (currentNotebook?.name ?? viewLabel(view))
                     }
-                    onBackToCards={
+                    onBackToKanban={
                       kanbanReturnRef.current
                         ? () => {
                             closeSplit();
@@ -3408,9 +3357,12 @@ export function Workspace() {
                             setKanbanOpen(true);
                             kanbanReturnRef.current = false;
                           }
-                        : isCardsLayout && !tasksOpen
-                          ? () => setCardEditingNoteId(null)
-                          : undefined
+                        : undefined
+                    }
+                    onBackToCards={
+                      !kanbanReturnRef.current && isCardsLayout && !tasksOpen
+                        ? () => setCardEditingNoteId(null)
+                        : undefined
                     }
                     onUploadImage={handleUploadImage}
                     focusMode={focusMode}
