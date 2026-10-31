@@ -170,6 +170,11 @@ describe("editor metrics", () => {
     expect(parseMarkdownBlockShortcut("[ ] ")).toEqual({ type: "taskList", length: 4 });
     expect(parseMarkdownBlockShortcut("【】 ")).toEqual({ type: "taskList", length: 3 });
     expect(parseMarkdownBlockShortcut("【 】 ")).toEqual({ type: "taskList", length: 4 });
+    expect(parseMarkdownBlockShortcut("【\u3000】 ")).toEqual({ type: "taskList", length: 4 });
+    expect(parseMarkdownBlockShortcut("【\u3000】\u3000")).toEqual({
+      type: "taskList",
+      length: 4,
+    });
     expect(parseMarkdownBlockShortcut("``` ")).toEqual({ type: "codeBlock", length: 4 });
     expect(parseMarkdownBlockShortcut("｀｀｀ ")).toEqual({ type: "codeBlock", length: 4 });
     expect(parseMarkdownBlockShortcut("普通段落 ")).toBeNull();

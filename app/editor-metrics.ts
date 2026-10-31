@@ -62,7 +62,7 @@ export function parseMarkdownBlockShortcut(text: string): MarkdownBlockShortcut 
   if (codeBlockMatch) {
     return { type: "codeBlock", length: codeBlockMatch[0].length };
   }
-  const taskMatch = /^(?:\[(?: |)\]|【(?: |)】)[ \t\u3000]$/u.exec(text);
+  const taskMatch = /^(?:\[(?: |)\]|【[ \u3000]?】)[ \t\u3000]$/u.exec(text);
   if (taskMatch) {
     return { type: "taskList", length: taskMatch[0].length };
   }

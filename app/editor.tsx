@@ -739,6 +739,15 @@ export function NoteEditor({
     return false;
   };
 
+  const executeBlockShortcutAtSelection = (view: Editor["view"]): boolean => {
+    if (view.isDestroyed || !view.state.selection.empty) return false;
+    const { $from } = view.state.selection;
+    if ($from.parent.type.name !== "paragraph") return false;
+    const textBefore = $from.parent.textBetween(0, $from.parentOffset, undefined, "\uFFFC");
+    const shortcut = parseMarkdownBlockShortcut(textBefore);
+    return shortcut ? executeBlockShortcut(view, $from.pos, shortcut) : false;
+  };
+
   const extensions = useMemo(
     () => [
       StarterKit.configure({
@@ -1090,11 +1099,12 @@ export function NoteEditor({
             clearTimeout(imeCleanupTimerRef.current);
             imeCleanupTimerRef.current = null;
           }
-          if (candidate && candidate.emptyAtStart) {
-            imeCleanupTimerRef.current = setTimeout(() => {
-              imeCleanupTimerRef.current = null;
-              try {
-                if (!view || view.isDestroyed) return;
+          if (!candidate?.emptyAtStart) leakedCandidateRef.current = null;
+          imeCleanupTimerRef.current = setTimeout(() => {
+            imeCleanupTimerRef.current = null;
+            try {
+              if (!view || view.isDestroyed) return;
+              if (candidate?.emptyAtStart) {
                 const { state, dispatch } = view;
                 const resolvedPos = Math.min(candidate.blockStartPos, state.doc.content.size);
                 const $pos = state.doc.resolve(resolvedPos);
@@ -1113,13 +1123,12 @@ export function NoteEditor({
                   const tr = state.tr.delete(deleteFrom, deleteTo);
                   dispatch(tr.scrollIntoView());
                 }
-              } finally {
-                leakedCandidateRef.current = null;
               }
-            }, 30);
-          } else {
-            leakedCandidateRef.current = null;
-          }
+              executeBlockShortcutAtSelection(view);
+            } finally {
+              leakedCandidateRef.current = null;
+            }
+          }, 30);
           if (editorInstanceRef.current) {
             surfaceSyncRef.current(editorInstanceRef.current);
             if (typewriterModeRef.current) {
