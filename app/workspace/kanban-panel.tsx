@@ -12,7 +12,6 @@ import {
 } from "react";
 import {
   CheckCircle2,
-  ChevronDown,
   ChevronLeft,
   Clock,
   Inbox,
@@ -22,7 +21,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import type { KanbanCard, KanbanStatus, NoteSummary, Notebook } from "../../shared/types";
+import type { KanbanCard, KanbanStatus, NoteSummary } from "../../shared/types";
 import { playEntranceAnimation } from "../animation";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { getNoteTags, relativeDate } from "./helpers";
@@ -59,9 +58,6 @@ export type KanbanColumnData = {
 
 export type KanbanPanelProps = {
   columns: Record<KanbanStatus, KanbanColumnData>;
-  notebooks: Notebook[];
-  notebookId?: string;
-  onNotebookChange: (id: string) => void;
   loading?: boolean;
   onOpenNote: (noteId: string) => void;
   onCreateNoteInColumn: (status: KanbanStatus) => void;
@@ -502,9 +498,6 @@ function AddExistingNoteModal({
 // Main KanbanPanel Export
 export const KanbanPanel = memo(function KanbanPanel({
   columns,
-  notebooks,
-  notebookId = "",
-  onNotebookChange,
   loading = false,
   onOpenNote,
   onCreateNoteInColumn,
@@ -521,12 +514,8 @@ export const KanbanPanel = memo(function KanbanPanel({
   const panelRef = useRef<HTMLElement>(null);
   const [activeMobileColumn, setActiveMobileColumn] = useState<KanbanStatus>("inbox");
   const [draggingCard, setDraggingCard] = useState<KanbanDragPayload | null>(null);
-  const [openFilter, setOpenFilter] = useState<"notebook" | null>(null);
   const [addModalStatus, setAddModalStatus] = useState<KanbanStatus | null>(null);
   const [trashOver, setTrashOver] = useState(false);
-
-  const notebookTriggerRef = useRef<HTMLButtonElement>(null);
-  const notebookMenuRef = useRef<HTMLDivElement>(null);
 
   const allCards = useMemo(() => Object.values(columns).flatMap((col) => col.cards), [columns]);
 
@@ -612,12 +601,6 @@ export const KanbanPanel = memo(function KanbanPanel({
     setDraggingCard(null);
   };
 
-  const selectedNotebookName = useMemo(() => {
-    if (!notebookId) return "全部笔记本";
-    const found = notebooks.find((nb) => nb.id === notebookId);
-    return found?.name ?? "全部笔记本";
-  }, [notebookId, notebooks]);
-
   return (
     <section
       ref={panelRef}
@@ -625,12 +608,12 @@ export const KanbanPanel = memo(function KanbanPanel({
       aria-label="看板视图"
       aria-busy={loading}
     >
-      {/* Top Header / Toolbar */}
-      <header className="kanban-header">
-        <div className="kanban-header-left">
+      {/* Mobile Top Header (Desktop has no top bar) */}
+      {isMobileViewport && (
+        <header className="list-header kanban-header">
           {onBack && (
             <button
-              className="tasks-back kanban-header-back"
+              className="tasks-back tasks-header-back kanban-header-back"
               type="button"
               onClick={onBack}
               aria-label="返回"
@@ -639,61 +622,12 @@ export const KanbanPanel = memo(function KanbanPanel({
               <span>返回</span>
             </button>
           )}
-          <h2 className="kanban-heading">看板</h2>
-          <span className="kanban-total-count">{totalNotesCount} 篇笔记</span>
-        </div>
-
-        <div className="kanban-header-right">
-          {/* Notebook Filter Dropdown */}
-          <div className="tasks-filter-dropdown kanban-notebook-dropdown">
-            <button
-              ref={notebookTriggerRef}
-              type="button"
-              className="tasks-filter-trigger kanban-filter-trigger"
-              aria-label="筛选笔记本"
-              aria-haspopup="menu"
-              aria-expanded={openFilter === "notebook"}
-              onClick={() => setOpenFilter((cur) => (cur === "notebook" ? null : "notebook"))}
-            >
-              <span>{selectedNotebookName}</span>
-              <ChevronDown size={14} aria-hidden="true" />
-            </button>
-            {openFilter === "notebook" && (
-              <div className="tasks-filter-menu-wrap">
-                <div
-                  ref={notebookMenuRef}
-                  className="tasks-filter-menu floating-scrollbar-target"
-                  role="menu"
-                >
-                  <button
-                    type="button"
-                    className={!notebookId ? "is-selected" : ""}
-                    onClick={() => {
-                      onNotebookChange("");
-                      setOpenFilter(null);
-                    }}
-                  >
-                    <span className="tasks-filter-option-label">全部笔记本</span>
-                  </button>
-                  {notebooks.map((nb) => (
-                    <button
-                      key={nb.id}
-                      type="button"
-                      className={notebookId === nb.id ? "is-selected" : ""}
-                      onClick={() => {
-                        onNotebookChange(nb.id);
-                        setOpenFilter(null);
-                      }}
-                    >
-                      <span className="tasks-filter-option-label">{nb.name}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
+          <div className="list-header-main">
+            <h2>看板</h2>
+            <p className="kanban-count">{totalNotesCount} 篇笔记</p>
           </div>
-        </div>
-      </header>
+        </header>
+      )}
 
       {/* Mobile Segmented Tabs */}
       {isMobileViewport && (

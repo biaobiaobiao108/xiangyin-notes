@@ -339,7 +339,6 @@ export function Workspace() {
   const resultSearchTokenRef = useRef(0);
   const [editingNotebook, setEditingNotebook] = useState<Notebook | null | undefined>(undefined);
   const [kanbanOpen, setKanbanOpen] = useState(false);
-  const [kanbanNotebookId, setKanbanNotebookId] = useState("");
   const [kanbanColumns, setKanbanColumns] = useState<Record<KanbanStatus, KanbanColumnData>>({
     inbox: {
       cards: [],
@@ -486,7 +485,6 @@ export function Workspace() {
       statuses.map((status) =>
         api.listKanbanCards(
           {
-            notebookId: kanbanNotebookId || undefined,
             status,
             limit: KANBAN_PAGE_SIZE,
           },
@@ -532,7 +530,7 @@ export function Workspace() {
         if (!controller.signal.aborted) setKanbanLoading(false);
       });
     return () => controller.abort();
-  }, [kanbanNotebookId, kanbanOpen, kanbanRefreshToken, notifyError]);
+  }, [kanbanOpen, kanbanRefreshToken, notifyError]);
 
   const loadMoreKanbanColumn = useCallback(
     async (status: KanbanStatus) => {
@@ -550,7 +548,6 @@ export function Workspace() {
 
       try {
         const res = await api.listKanbanCards({
-          notebookId: kanbanNotebookId || undefined,
           status,
           limit: KANBAN_PAGE_SIZE,
           cursor: col.nextCursor,
@@ -587,7 +584,7 @@ export function Workspace() {
         }));
       }
     },
-    [kanbanNotebookId, notifyError],
+    [notifyError],
   );
   const [pwaState, setPwaState] = useState<PwaState>({
     standalone: false,
@@ -2201,8 +2198,7 @@ export function Workspace() {
   );
   const handleCreateNoteInKanbanColumn = useCallback(
     async (status: KanbanStatus) => {
-      const targetNbId =
-        kanbanNotebookId || (notebooks.find((nb) => nb.isSystem) ?? notebooks[0])?.id;
+      const targetNbId = (notebooks.find((nb) => nb.isSystem) ?? notebooks[0])?.id;
       if (!targetNbId) {
         notifyError("未找到可用笔记本");
         return;
@@ -2220,7 +2216,7 @@ export function Workspace() {
         notifyError("新建卡片失败");
       }
     },
-    [kanbanNotebookId, notebooks, notifyError, notifyInfo],
+    [notebooks, notifyError, notifyInfo],
   );
   const handleAddExistingNoteToKanban = useCallback(
     async (noteId: string, status: KanbanStatus) => {
@@ -3180,9 +3176,6 @@ export function Workspace() {
       {shouldShowKanbanPanel(kanbanOpen, isMobileViewport, mobilePage) && (
         <KanbanPanel
           columns={kanbanColumns}
-          notebooks={notebooks}
-          notebookId={kanbanNotebookId}
-          onNotebookChange={setKanbanNotebookId}
           loading={kanbanLoading}
           onOpenNote={openKanbanNote}
           onCreateNoteInColumn={handleCreateNoteInKanbanColumn}
