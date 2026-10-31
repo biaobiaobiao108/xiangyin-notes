@@ -3861,7 +3861,10 @@ dialog::backdrop {
 
 
 /* Sorting never inserts a spacer or changes row dimensions. */
-.is-notebook-dragging { opacity: .3; }
-.notebook-drag-preview { z-index: 1000; pointer-events: none; list-style: none; background: var(--surface); color: var(--ink); border-radius: var(--radius-md); box-shadow: var(--shadow-xs); opacity: .95; }
-.notebook-sort-line { position: fixed; z-index: 1001; pointer-events: none; height: 2px; background: color-mix(in srgb, var(--accent) 42%, var(--surface)); border-radius: 1px; }
+.is-notebook-dragging { opacity: .12; }
+.notebook-drag-preview { z-index: 1000; pointer-events: none; list-style: none; background: var(--canvas); color: var(--ink); border-radius: var(--radius-sm); box-shadow: none; }
+.notebook-drag-preview .notebook-row-wrap,
+.notebook-drag-preview .swipe-action-foreground { background: transparent; color: var(--ink); box-shadow: none; }
+.notebook-drag-preview .swipe-action-buttons { visibility: hidden; }
+.notebook-sort-line { position: fixed; z-index: 1001; pointer-events: none; height: 1px; background: color-mix(in srgb, var(--accent) 38%, var(--surface)); }
 .is-sorting-notebooks, .is-sorting-notebooks * { cursor: grabbing !important; user-select: none !important; }
