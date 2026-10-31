@@ -254,12 +254,12 @@ export async function handleKanbanRoute(
   // POST /api/kanban/cards
   if ((!id || id === "cards") && method === "POST") {
     const body = await readJson<{
-      noteId?: string;
+      noteId?: unknown;
       status?: KanbanStatus;
       sortOrder?: number;
     }>(request, 64 * 1024);
 
-    const noteId = body?.noteId?.trim();
+    const noteId = typeof body?.noteId === "string" ? body.noteId.trim() : "";
     if (!noteId) {
       return jsonError(400, "INVALID_ARGUMENT", "noteId 不能为空");
     }

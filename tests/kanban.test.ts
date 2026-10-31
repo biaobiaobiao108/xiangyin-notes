@@ -50,6 +50,19 @@ async function login() {
 }
 
 describe("Kanban API", () => {
+  test("rejects missing, blank, and non-string note IDs", async () => {
+    const cookie = await login();
+    for (const noteId of [undefined, null, "  ", 123, {}, []]) {
+      const response = await api(
+        "/api/kanban/cards",
+        { method: "POST", body: JSON.stringify({ noteId }) },
+        cookie,
+      );
+      expect(response.status).toBe(400);
+      expect((await response.json()).error.code).toBe("INVALID_ARGUMENT");
+    }
+  });
+
   test("full kanban lifecycle: add card, move across columns, remove, trash and restore", async () => {
     const cookie = await login();
 
