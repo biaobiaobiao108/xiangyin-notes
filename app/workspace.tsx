@@ -11,9 +11,20 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 import { useNavigate } from "react-router";
-import { ArrowUpRight, Plus, Settings2, Trash2, X } from "lucide-react";
+import {
+  ArrowUpRight,
+  CheckCircle2,
+  Clock,
+  Inbox,
+  Plus,
+  Settings2,
+  Star,
+  Trash2,
+  X,
+} from "lucide-react";
 import { textFieldMenuItems, useContextMenu, type ContextMenuItem } from "./context-menu";
 import { buildNoteContextMenuItems, buildWorkspaceMenuItems } from "./workspace/note-context-menu";
+import { calculateTargetSortOrder } from "./workspace/kanban-drag";
 import { moveSelectedNotes } from "./workspace/move-selected-notes";
 import { ApiError, api } from "./api";
 import { createUuid } from "./uuid";
@@ -2892,8 +2903,99 @@ export function Workspace() {
       target.closest("dialog, input, textarea, [contenteditable='true'], .editor-panel")
     )
       return;
-    if (target.closest(".tasks-panel, .kanban-panel")) {
+    if (target.closest(".tasks-panel")) {
       event.preventDefault();
+      return;
+    }
+    if (target.closest(".kanban-panel")) {
+      const noteId = target.closest<HTMLElement>("[data-kanban-note-id]")?.dataset.kanbanNoteId;
+      const kanbanCard = noteId
+        ? (["inbox", "doing", "done"] as const)
+            .flatMap((status) => kanbanColumnsRef.current[status].cards)
+            .find((card) => card.noteId === noteId)
+        : undefined;
+      if (kanbanCard) {
+        const items: ContextMenuItem[] = [
+          {
+            label: "打开笔记",
+            icon: ArrowUpRight,
+            onSelect: () => openKanbanNote(kanbanCard.noteId),
+          },
+          {
+            label: kanbanCard.note.isFavorite ? "取消收藏" : "收藏笔记",
+            icon: Star,
+            onSelect: () => handleToggleFavoriteKanbanCard(kanbanCard.note),
+          },
+          ...(
+            [
+              { id: "inbox", title: "收集箱", icon: Inbox },
+              { id: "doing", title: "进行中", icon: Clock },
+              { id: "done", title: "已完成", icon: CheckCircle2 },
+            ] as const
+          )
+            .filter((column) => column.id !== kanbanCard.status)
+            .map((column) => ({
+              label: `移到${column.title}`,
+              icon: column.icon,
+              onSelect: () => {
+                const cards = kanbanColumnsRef.current[column.id].cards;
+                void handleMoveKanbanCard(
+                  kanbanCard.noteId,
+                  column.id,
+                  calculateTargetSortOrder(cards, 0, kanbanCard.noteId),
+                );
+              },
+            })),
+          {
+            label: "从看板移出",
+            icon: X,
+            separator: true,
+            onSelect: () => handleRemoveKanbanCard(kanbanCard.noteId),
+          },
+          {
+            label: "移入回收站",
+            icon: Trash2,
+            danger: true,
+            separator: true,
+            onSelect: () => handleTrashKanbanCard(kanbanCard.noteId),
+          },
+        ];
+        openWorkspaceMenu(event, items, kanbanCard.note.title.trim() || "未命名笔记");
+        if (!event.defaultPrevented) event.preventDefault();
+        return;
+      }
+
+      const columnElement = target.closest<HTMLElement>("[data-kanban-status]");
+      const status = columnElement?.dataset.kanbanStatus as KanbanStatus | undefined;
+      if (status === "inbox" || status === "doing" || status === "done") {
+        const title = { inbox: "收集箱", doing: "进行中", done: "已完成" }[status];
+        openWorkspaceMenu(
+          event,
+          [
+            {
+              label: `在${title}新建笔记`,
+              icon: Plus,
+              onSelect: () => handleCreateNoteInKanbanColumn(status),
+            },
+          ],
+          `${title}列`,
+        );
+        if (!event.defaultPrevented) event.preventDefault();
+        return;
+      }
+
+      openWorkspaceMenu(
+        event,
+        [
+          {
+            label: "在收集箱新建笔记",
+            icon: Plus,
+            onSelect: () => handleCreateNoteInKanbanColumn("inbox"),
+          },
+        ],
+        "看板",
+      );
+      if (!event.defaultPrevented) event.preventDefault();
       return;
     }
     const noteId = target.closest<HTMLElement>("[data-note-id]")?.dataset.noteId;

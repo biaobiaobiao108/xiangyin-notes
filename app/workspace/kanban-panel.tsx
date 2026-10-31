@@ -286,6 +286,7 @@ const KanbanColumnView = memo(function KanbanColumnView({
     <div
       ref={columnRef}
       className={`kanban-column kanban-column--${column.id} ${isDropTarget ? "is-drop-target" : ""}`}
+      data-kanban-status={column.id}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
