@@ -3859,3 +3859,14 @@ dialog::backdrop {
   }
 }
 
+
+/* Sorting never inserts a spacer or changes row dimensions. */
+.notebook-row-wrap { grid-template-columns: 22px minmax(0, 1fr); }
+.notebook-sort-handle { display: grid; place-items: center; align-self: stretch; flex: 0 0 26px; padding: 0; width: 22px; border: 0; background: transparent; color: var(--muted); cursor: grab; touch-action: none; opacity: .45; transition: opacity 140ms; }
+.notebook-sort-handle:hover, .notebook-sort-handle:focus-visible { opacity: 1; color: var(--accent); }
+.notebook-sort-handle:disabled { cursor: default; opacity: .2; }
+.is-notebook-dragging { opacity: .3; }
+.notebook-drag-preview { z-index: 1000; pointer-events: none; list-style: none; background: var(--surface); color: var(--ink); border-radius: var(--radius-md); box-shadow: var(--shadow-xs); opacity: .95; }
+.notebook-sort-line { position: fixed; z-index: 1001; pointer-events: none; height: 2px; background: color-mix(in srgb, var(--accent) 42%, var(--surface)); border-radius: 1px; }
+.is-sorting-notebooks, .is-sorting-notebooks * { cursor: grabbing !important; user-select: none !important; }
+@media (prefers-reduced-motion: reduce) { .notebook-sort-handle { transition: none; } }

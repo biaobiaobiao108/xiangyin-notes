@@ -16,6 +16,7 @@ import {
 } from "react";
 import {
   Archive,
+  GripVertical,
   ChevronDown,
   ChevronLeft,
   LayoutPanelLeft,
@@ -61,6 +62,8 @@ import { partitionVirtualGroupRows } from "./group-layout";
 import { useScrollEdges } from "./use-scroll-edges";
 import { MobileCollectionHeader } from "./mobile-collection-header";
 import { type NoteSwipeAction, useSwipeActionGesture, useSwipeActionGroup } from "./swipe-actions";
+
+import { useNotebookReorder } from "./use-notebook-reorder";
 
 function toggleGroupInSet(current: ReadonlySet<string>, groupId: string) {
   const next = new Set(current);
@@ -203,11 +206,13 @@ const SidebarNavItem = memo(function SidebarNavItem({
 });
 
 const SidebarNotebookRow = memo(function SidebarNotebookRow({
+  sortHandle,
   notebook,
   isActive,
   onSelect,
   onDropNotes,
 }: {
+  sortHandle: ReturnType<ReturnType<typeof useNotebookReorder>>;
   notebook: Notebook;
   isActive: boolean;
   onSelect: () => void;
@@ -216,8 +221,11 @@ const SidebarNotebookRow = memo(function SidebarNotebookRow({
   const NotebookIcon = getNotebookIconComponent(notebook.icon);
   const drop = useSidebarDropTarget(onDropNotes);
   return (
-    <li className="notebook-row-item">
+    <li className="notebook-row-item" data-sort-id={notebook.id}>
       <div className={`notebook-row-wrap ${isActive ? "is-active" : ""} ${drop.className}`.trim()}>
+        <button {...sortHandle}>
+          <GripVertical size={14} />
+        </button>
         <button
           className="notebook-item"
           type="button"
@@ -273,6 +281,8 @@ const CollapsedNotebookButton = memo(function CollapsedNotebookButton({
 });
 
 export const Sidebar = memo(function Sidebar({
+  onReorderNotebooks,
+  reorderingNotebooks,
   view,
   setView,
   notebooks,
@@ -293,6 +303,8 @@ export const Sidebar = memo(function Sidebar({
   kanbanActive = false,
   onOpenKanban,
 }: {
+  onReorderNotebooks: (ids: string[], expectedIds: string[]) => Promise<void>;
+  reorderingNotebooks: boolean;
   view: NoteView;
   setView: (view: NoteView) => void;
   notebooks: Notebook[];
@@ -318,6 +330,12 @@ export const Sidebar = memo(function Sidebar({
   const customNotebooks = useMemo(
     () => notebooks.filter((notebook) => !notebook.isSystem),
     [notebooks],
+  );
+  const sortHandle = useNotebookReorder(
+    notebookListRef,
+    customNotebooks.map((n) => n.id),
+    onReorderNotebooks,
+    reorderingNotebooks,
   );
   const notebookScrollEdges = useScrollEdges(notebookListRef, [customNotebooks.length]);
 
@@ -464,6 +482,7 @@ export const Sidebar = memo(function Sidebar({
               {customNotebooks.map((notebook) => (
                 <SidebarNotebookRow
                   key={notebook.id}
+                  sortHandle={sortHandle(notebook.id)}
                   notebook={notebook}
                   isActive={notebook.id === notebookId}
                   onSelect={() => setNotebookId(notebook.id)}

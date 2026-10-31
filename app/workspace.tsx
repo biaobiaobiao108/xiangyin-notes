@@ -748,12 +748,15 @@ export function Workspace() {
     listRequestRef.current += 1;
     notebooksRequestRef.current += 1;
   }, []);
+  const reorderBusyRef = useRef(false);
+  const [reorderingNotebooks, setReorderingNotebooks] = useState(false);
   const refreshNotebooks = useCallback(async () => {
     const requestId = ++notebooksRequestRef.current;
     try {
       const result = await api.listNotebooks();
       if (
         requestId === notebooksRequestRef.current &&
+        !reorderBusyRef.current &&
         !trashOperationsRef.current.size &&
         !emptyingTrashRef.current
       ) {
@@ -763,6 +766,34 @@ export function Workspace() {
       /* Keep the current list visible until the next request succeeds. */
     }
   }, []);
+  const handleReorderNotebooks = useCallback(
+    async (ids: string[], expectedIds: string[]) => {
+      if (reorderBusyRef.current) return;
+      reorderBusyRef.current = true;
+      setReorderingNotebooks(true);
+      ++notebooksRequestRef.current;
+      try {
+        await api.reorderNotebooks(ids, expectedIds);
+        setNotebooks((current) => {
+          const rank = new Map(ids.map((id, index) => [id, index]));
+          return [...current].sort((a, b) =>
+            a.isSystem
+              ? -1
+              : b.isSystem
+                ? 1
+                : (rank.get(a.id) ?? ids.length) - (rank.get(b.id) ?? ids.length),
+          );
+        });
+      } catch (error) {
+        notifyError(errorMessage(error, "保存笔记本顺序失败，请重试"));
+      } finally {
+        reorderBusyRef.current = false;
+        setReorderingNotebooks(false);
+        void refreshNotebooks();
+      }
+    },
+    [notifyError, refreshNotebooks],
+  );
   const loadNotes = useCallback(async () => {
     if (pendingLinkedNoteRef.current) return;
     nextNotesCursorRef.current = null;
@@ -3207,6 +3238,8 @@ export function Workspace() {
     >
       {!isMobileViewport && (
         <Sidebar
+          onReorderNotebooks={handleReorderNotebooks}
+          reorderingNotebooks={reorderingNotebooks}
           view={view}
           setView={selectView}
           notebooks={notebooks}
@@ -3235,6 +3268,8 @@ export function Workspace() {
           inert={mobilePage !== "home" || tasksOpen || kanbanOpen}
         >
           <MobileNotebookHome
+            onReorderNotebooks={handleReorderNotebooks}
+            reorderingNotebooks={reorderingNotebooks}
             view={view}
             setView={selectView}
             notebooks={notebooks}

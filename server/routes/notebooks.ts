@@ -94,8 +94,52 @@ export async function handleNotebooksRoute(
   const resource = segments[0] ?? "";
   const id = segments[1] ?? "";
   const subresource = segments[2] ?? "";
-
   if (resource !== "notebooks") return null;
+
+  if (id === "reorder" && method === "PATCH") {
+    const payload = await readJson<{ ids?: unknown; expectedIds?: unknown }>(request, 64 * 1024);
+    if (
+      !payload ||
+      !Array.isArray(payload.ids) ||
+      !Array.isArray(payload.expectedIds) ||
+      !payload.ids.every((value) => typeof value === "string") ||
+      !payload.expectedIds.every((value) => typeof value === "string")
+    ) {
+      return jsonError(400, "INVALID_NOTEBOOK_ORDER", "笔记本顺序无效");
+    }
+    const ids = payload.ids as string[];
+    const expectedIds = payload.expectedIds as string[];
+    const transaction = database.transaction(() => {
+      const current = all<{ id: string }>(
+        database,
+        "SELECT id FROM notebooks WHERE user_id = ? AND is_system = 0 ORDER BY sort_order, name, id",
+        user.id,
+      ).map((row) => row.id);
+      if (
+        current.length !== expectedIds.length ||
+        current.some((value, index) => value !== expectedIds[index])
+      )
+        return "stale" as const;
+      if (
+        ids.length !== current.length ||
+        new Set(ids).size !== ids.length ||
+        ids.some((value) => !current.includes(value))
+      )
+        return "invalid" as const;
+      const update = database.query(
+        "UPDATE notebooks SET sort_order = ? WHERE id = ? AND user_id = ? AND is_system = 0",
+      );
+      ids.forEach((notebookId, index) => update.run((index + 1) * 10, notebookId, user.id));
+      return "ok" as const;
+    });
+    const result = transaction();
+    if (result === "stale")
+      return jsonError(409, "NOTEBOOK_ORDER_CHANGED", "笔记本列表已变化，请重试");
+    if (result === "invalid")
+      return jsonError(400, "INVALID_NOTEBOOK_ORDER", "必须提交全部自建笔记本且不能重复");
+    publishWorkspaceChange(options, user.id, { resource: "notebooks" }, request);
+    return json({ ok: true, ids });
+  }
 
   if (!id && method === "GET") {
     const rows = all<NotebookRowWithCount>(
@@ -104,7 +148,7 @@ export async function handleNotebooksRoute(
       SELECT b.id, b.name, b.color, b.icon, b.is_system, b.updated_at,
         (SELECT COUNT(*) FROM notes n WHERE n.notebook_id = b.id AND n.user_id = b.user_id AND n.deleted_at IS NULL) AS count,
         (SELECT COUNT(*) FROM notes n WHERE n.notebook_id = b.id AND n.user_id = b.user_id) AS total_count
-      FROM notebooks b WHERE b.user_id = ? ORDER BY b.sort_order, b.name
+      FROM notebooks b WHERE b.user_id = ? ORDER BY b.is_system DESC, b.sort_order, b.name, b.id
     `,
       user.id,
     );
@@ -151,7 +195,7 @@ export async function handleNotebooksRoute(
     try {
       database
         .query(
-          "INSERT INTO notebooks (id, user_id, name, color, icon, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 10, ?, ?)",
+          "INSERT INTO notebooks (id, user_id, name, color, icon, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, COALESCE((SELECT MAX(sort_order) + 10 FROM notebooks WHERE user_id = ? AND is_system = 0), 10), ?, ?)",
         )
         .run(
           notebookId,
@@ -159,6 +203,7 @@ export async function handleNotebooksRoute(
           (payload.name as string).trim(),
           color as string,
           icon as string,
+          user.id,
           createdAt,
           createdAt,
         );

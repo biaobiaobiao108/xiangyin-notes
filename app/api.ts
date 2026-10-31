@@ -200,6 +200,11 @@ export const api = {
     }),
   deleteNotebook: (id: string) =>
     request<{ ok: true }>(`/api/notebooks/${id}`, { method: "DELETE" }),
+  reorderNotebooks: (ids: string[], expectedIds: string[]) =>
+    request<{ ok: true; ids: string[] }>("/api/notebooks/reorder", {
+      method: "PATCH",
+      body: JSON.stringify({ ids, expectedIds }),
+    }),
   getBacklinks: (noteId: string, options?: RequestOptions) =>
     request<NoteBacklinksResponse>(`/api/notes/${noteId}/backlinks`, options),
   linkMention: (

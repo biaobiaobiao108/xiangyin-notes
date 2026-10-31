@@ -1,6 +1,7 @@
 import { Fragment, memo, useRef, type CSSProperties, type RefObject } from "react";
 import {
   ChevronRight,
+  GripVertical,
   FolderPlus,
   LogOut,
   ListTodo,
@@ -19,7 +20,11 @@ import { useScrollEdges } from "./use-scroll-edges";
 import { useSwipeActionGesture, useSwipeActionGroup } from "./swipe-actions";
 import "./mobile-panels.css";
 
+import { useNotebookReorder } from "./use-notebook-reorder";
+
 export type MobileNotebookHomeProps = {
+  onReorderNotebooks: (ids: string[], expectedIds: string[]) => Promise<void>;
+  reorderingNotebooks: boolean;
   view: NoteView;
   setView: (view: NoteView) => void;
   notebooks: Notebook[];
@@ -35,6 +40,8 @@ export type MobileNotebookHomeProps = {
 };
 
 export const MobileNotebookHome = memo(function MobileNotebookHome({
+  onReorderNotebooks,
+  reorderingNotebooks,
   view,
   setView,
   notebooks,
@@ -52,6 +59,13 @@ export const MobileNotebookHome = memo(function MobileNotebookHome({
   const scrollEdges = useScrollEdges(scrollRef, [notebooks.length]);
   const swipeActions = useSwipeActionGroup(scrollRef, active, active ? "home" : "inactive");
   const customNotebooks = notebooks.filter((notebook) => !notebook.isSystem);
+
+  const sortHandle = useNotebookReorder(
+    scrollRef,
+    customNotebooks.map((n) => n.id),
+    onReorderNotebooks,
+    reorderingNotebooks || !active,
+  );
 
   return (
     <section className="mobile-notebook-home" aria-labelledby="mobile-notebooks-title">
@@ -155,7 +169,17 @@ export const MobileNotebookHome = memo(function MobileNotebookHome({
               <ul>
                 {customNotebooks.map((notebook) => {
                   return (
-                    <li key={notebook.id} className="mobile-notebook-row">
+                    <li
+                      key={notebook.id}
+                      className="mobile-notebook-row"
+                      data-sort-id={notebook.id}
+                    >
+                      <button
+                        {...sortHandle(notebook.id)}
+                        onClick={() => swipeActions.setOpenId(null)}
+                      >
+                        <GripVertical size={16} />
+                      </button>
                       <MobileNotebookLink
                         notebook={notebook}
                         selected={notebook.id === notebookId}

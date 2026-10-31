@@ -133,6 +133,8 @@ describe("notebook actions on mobile", () => {
   test("exposes edit and delete as named icon-only buttons", () => {
     const html = renderToStaticMarkup(
       React.createElement(MobileNotebookHome, {
+        onReorderNotebooks: async () => {},
+        reorderingNotebooks: false,
         view: "all",
         setView: () => {},
         notebooks,
