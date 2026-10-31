@@ -109,3 +109,10 @@ export type KanbanCard = {
   updatedAt: number;
   note: NoteSummary;
 };
+
+export type KanbanCardsResponse = {
+  cards: KanbanCard[];
+  total: number;
+  hasMore: boolean;
+  nextCursor: string | null;
+};

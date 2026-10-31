@@ -10,6 +10,7 @@ import type {
   NoteBacklinksResponse,
   TaskSummary,
   KanbanCard,
+  KanbanCardsResponse,
   KanbanStatus,
 } from "../shared/types";
 import { createUuid } from "./uuid";
@@ -216,14 +217,16 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   listKanbanCards: (
-    params?: { notebookId?: string; status?: KanbanStatus },
+    params?: { notebookId?: string; status?: KanbanStatus; limit?: number; cursor?: string },
     options?: RequestOptions,
   ) => {
     const search = new URLSearchParams();
     if (params?.notebookId) search.set("notebookId", params.notebookId);
     if (params?.status) search.set("status", params.status);
+    if (params?.limit !== undefined) search.set("limit", String(params.limit));
+    if (params?.cursor) search.set("cursor", params.cursor);
     const query = search.toString();
-    return request<{ cards: KanbanCard[] }>(`/api/kanban${query ? `?${query}` : ""}`, options);
+    return request<KanbanCardsResponse>(`/api/kanban${query ? `?${query}` : ""}`, options);
   },
   addKanbanCard: (payload: { noteId: string; status?: KanbanStatus; sortOrder?: number }) =>
     request<{ card: KanbanCard }>("/api/kanban/cards", {

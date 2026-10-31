@@ -34,6 +34,38 @@ function isValidStatus(value: unknown): value is KanbanStatus {
   return typeof value === "string" && VALID_STATUSES.has(value as KanbanStatus);
 }
 
+type KanbanCursor = {
+  sortOrder: number;
+  updatedAt: number;
+  noteId: string;
+};
+
+function encodeKanbanCursor(cursor: KanbanCursor): string {
+  return Buffer.from(JSON.stringify(cursor)).toString("base64url");
+}
+
+function decodeKanbanCursor(value: string | null): KanbanCursor | null | false {
+  if (value === null) return null;
+  if (value.length > 1024) return false;
+  try {
+    const parsed = JSON.parse(
+      Buffer.from(value, "base64url").toString("utf8"),
+    ) as Partial<KanbanCursor>;
+    if (
+      typeof parsed.sortOrder !== "number" ||
+      !Number.isFinite(parsed.sortOrder) ||
+      !Number.isSafeInteger(parsed.updatedAt) ||
+      typeof parsed.noteId !== "string" ||
+      !parsed.noteId
+    ) {
+      return false;
+    }
+    return parsed as KanbanCursor;
+  } catch {
+    return false;
+  }
+}
+
 const KANBAN_FROM = `
   kanban_cards k
   JOIN notes n ON n.id = k.note_id
@@ -99,6 +131,21 @@ export async function handleKanbanRoute(
       return jsonError(400, "INVALID_ARGUMENT", "状态无效");
     }
 
+    const limitValue = url.searchParams.get("limit");
+    let limit: number | null = null;
+    if (limitValue !== null) {
+      const parsed = Number(limitValue);
+      if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > 100) {
+        return jsonError(400, "INVALID_ARGUMENT", "limit 必须为 1 到 100 之间的整数");
+      }
+      limit = parsed;
+    }
+
+    const cursor = decodeKanbanCursor(url.searchParams.get("cursor"));
+    if (cursor === false) {
+      return jsonError(400, "INVALID_ARGUMENT", "看板分页游标无效");
+    }
+
     const conditions: string[] = ["k.user_id = ?", "n.deleted_at IS NULL"];
     const params: SqlValue[] = [user.id];
 
@@ -110,6 +157,72 @@ export async function handleKanbanRoute(
     if (status) {
       conditions.push("k.status = ?");
       params.push(status);
+    }
+
+    const totalRow = first<{ count: number }>(
+      database,
+      `SELECT count(*) AS count FROM ${KANBAN_FROM} WHERE ${conditions.join(" AND ")}`,
+      ...params,
+    );
+    const total = totalRow?.count ?? 0;
+
+    const queryConditions = [...conditions];
+    const queryParams: SqlValue[] = [...params];
+
+    if (cursor) {
+      queryConditions.push(`(
+        k.sort_order > ?
+        OR (k.sort_order = ? AND k.updated_at < ?)
+        OR (k.sort_order = ? AND k.updated_at = ? AND k.note_id > ?)
+      )`);
+      queryParams.push(
+        cursor.sortOrder,
+        cursor.sortOrder,
+        cursor.updatedAt,
+        cursor.sortOrder,
+        cursor.updatedAt,
+        cursor.noteId,
+      );
+    }
+
+    if (limit !== null) {
+      const rows = all<KanbanCardRow>(
+        database,
+        `
+          SELECT
+            k.note_id AS card_note_id,
+            k.user_id AS card_user_id,
+            k.status AS card_status,
+            k.sort_order AS card_sort_order,
+            k.created_at AS card_created_at,
+            k.updated_at AS card_updated_at,
+            ${NOTE_LIST_SELECT}
+          FROM ${KANBAN_FROM}
+          WHERE ${queryConditions.join(" AND ")}
+          ORDER BY k.sort_order ASC, k.updated_at DESC, k.note_id ASC
+          LIMIT ?
+        `,
+        ...queryParams,
+        limit + 1,
+      );
+      const hasMore = rows.length > limit;
+      const pageRows = hasMore ? rows.slice(0, limit) : rows;
+      const lastRow = pageRows[pageRows.length - 1];
+      const nextCursor =
+        hasMore && lastRow
+          ? encodeKanbanCursor({
+              sortOrder: lastRow.card_sort_order,
+              updatedAt: lastRow.card_updated_at,
+              noteId: lastRow.card_note_id,
+            })
+          : null;
+
+      return json({
+        cards: pageRows.map(toKanbanCard),
+        total,
+        hasMore,
+        nextCursor,
+      });
     }
 
     const rows = all<KanbanCardRow>(
@@ -124,13 +237,18 @@ export async function handleKanbanRoute(
           k.updated_at AS card_updated_at,
           ${NOTE_LIST_SELECT}
         FROM ${KANBAN_FROM}
-        WHERE ${conditions.join(" AND ")}
-        ORDER BY k.sort_order ASC, k.updated_at DESC
+        WHERE ${queryConditions.join(" AND ")}
+        ORDER BY k.sort_order ASC, k.updated_at DESC, k.note_id ASC
       `,
-      ...params,
+      ...queryParams,
     );
 
-    return json({ cards: rows.map(toKanbanCard) });
+    return json({
+      cards: rows.map(toKanbanCard),
+      total,
+      hasMore: false,
+      nextCursor: null,
+    });
   }
 
   // POST /api/kanban/cards

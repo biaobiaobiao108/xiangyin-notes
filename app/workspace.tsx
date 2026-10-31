@@ -40,7 +40,7 @@ import { SplitNoteDialog } from "./workspace/split-note-dialog";
 import { EmptyEditor, NoteListPanel, NoteLoadingState, Sidebar } from "./workspace/panels";
 import { NoteCardGridPanel } from "./workspace/note-card-grid";
 import { TasksPanel } from "./workspace/tasks-panel";
-import { KanbanPanel } from "./workspace/kanban-panel";
+import { KanbanPanel, type KanbanColumnData } from "./workspace/kanban-panel";
 import { registerDragOverGuard } from "./workspace/note-drag-drop";
 import { ErrorBoundary, EditorErrorFallback } from "./error-boundary";
 import {
@@ -89,6 +89,8 @@ import { parseTagQuery } from "../shared/tags";
 import { useThemePreference } from "./theme";
 
 export type ViewLayout = "three-column" | "cards";
+
+const KANBAN_PAGE_SIZE = 30;
 
 const LazyImageExportDialog = lazy(() =>
   import("./image-export/dialog").then(({ ImageExportDialog }) => ({ default: ImageExportDialog })),
@@ -338,7 +340,34 @@ export function Workspace() {
   const [editingNotebook, setEditingNotebook] = useState<Notebook | null | undefined>(undefined);
   const [kanbanOpen, setKanbanOpen] = useState(false);
   const [kanbanNotebookId, setKanbanNotebookId] = useState("");
-  const [kanbanCards, setKanbanCards] = useState<KanbanCard[]>([]);
+  const [kanbanColumns, setKanbanColumns] = useState<Record<KanbanStatus, KanbanColumnData>>({
+    inbox: {
+      cards: [],
+      total: 0,
+      hasMore: false,
+      nextCursor: null,
+      isLoadingMore: false,
+      loadMoreError: null,
+    },
+    doing: {
+      cards: [],
+      total: 0,
+      hasMore: false,
+      nextCursor: null,
+      isLoadingMore: false,
+      loadMoreError: null,
+    },
+    done: {
+      cards: [],
+      total: 0,
+      hasMore: false,
+      nextCursor: null,
+      isLoadingMore: false,
+      loadMoreError: null,
+    },
+  });
+  const kanbanColumnsRef = useRef(kanbanColumns);
+  kanbanColumnsRef.current = kanbanColumns;
   const [kanbanLoading, setKanbanLoading] = useState(false);
   const [kanbanRefreshToken, setKanbanRefreshToken] = useState(0);
   const kanbanReturnRef = useRef(false);
@@ -452,11 +481,47 @@ export function Workspace() {
     if (!kanbanOpen) return;
     const controller = new AbortController();
     setKanbanLoading(true);
-    api
-      .listKanbanCards({ notebookId: kanbanNotebookId || undefined }, { signal: controller.signal })
-      .then((cardsRes) => {
+    const statuses: KanbanStatus[] = ["inbox", "doing", "done"];
+    Promise.all(
+      statuses.map((status) =>
+        api.listKanbanCards(
+          {
+            notebookId: kanbanNotebookId || undefined,
+            status,
+            limit: KANBAN_PAGE_SIZE,
+          },
+          { signal: controller.signal },
+        ),
+      ),
+    )
+      .then(([inboxRes, doingRes, doneRes]) => {
         if (controller.signal.aborted) return;
-        setKanbanCards(cardsRes.cards);
+        setKanbanColumns({
+          inbox: {
+            cards: inboxRes.cards,
+            total: inboxRes.total,
+            hasMore: inboxRes.hasMore,
+            nextCursor: inboxRes.nextCursor,
+            isLoadingMore: false,
+            loadMoreError: null,
+          },
+          doing: {
+            cards: doingRes.cards,
+            total: doingRes.total,
+            hasMore: doingRes.hasMore,
+            nextCursor: doingRes.nextCursor,
+            isLoadingMore: false,
+            loadMoreError: null,
+          },
+          done: {
+            cards: doneRes.cards,
+            total: doneRes.total,
+            hasMore: doneRes.hasMore,
+            nextCursor: doneRes.nextCursor,
+            isLoadingMore: false,
+            loadMoreError: null,
+          },
+        });
       })
       .catch((err: unknown) => {
         if (err instanceof Error && err.name === "AbortError") return;
@@ -468,6 +533,62 @@ export function Workspace() {
       });
     return () => controller.abort();
   }, [kanbanNotebookId, kanbanOpen, kanbanRefreshToken, notifyError]);
+
+  const loadMoreKanbanColumn = useCallback(
+    async (status: KanbanStatus) => {
+      const col = kanbanColumnsRef.current[status];
+      if (!col || col.isLoadingMore || !col.hasMore || !col.nextCursor) return;
+
+      setKanbanColumns((prev) => ({
+        ...prev,
+        [status]: {
+          ...prev[status],
+          isLoadingMore: true,
+          loadMoreError: null,
+        },
+      }));
+
+      try {
+        const res = await api.listKanbanCards({
+          notebookId: kanbanNotebookId || undefined,
+          status,
+          limit: KANBAN_PAGE_SIZE,
+          cursor: col.nextCursor,
+        });
+
+        setKanbanColumns((prev) => {
+          const currentCol = prev[status];
+          const existingIds = new Set(currentCol.cards.map((c) => c.noteId));
+          const newCards = res.cards.filter((c) => !existingIds.has(c.noteId));
+          return {
+            ...prev,
+            [status]: {
+              ...currentCol,
+              cards: [...currentCol.cards, ...newCards],
+              total: res.total,
+              hasMore: res.hasMore,
+              nextCursor: res.nextCursor,
+              isLoadingMore: false,
+              loadMoreError: null,
+            },
+          };
+        });
+      } catch {
+        notifyError(
+          `加载更多${status === "inbox" ? "收集箱" : status === "doing" ? "进行中" : "已完成"}卡片失败`,
+        );
+        setKanbanColumns((prev) => ({
+          ...prev,
+          [status]: {
+            ...prev[status],
+            isLoadingMore: false,
+            loadMoreError: "加载失败",
+          },
+        }));
+      }
+    },
+    [kanbanNotebookId, notifyError],
+  );
   const [pwaState, setPwaState] = useState<PwaState>({
     standalone: false,
     canInstall: false,
@@ -1956,18 +2077,71 @@ export function Workspace() {
   );
   const handleMoveKanbanCard = useCallback(
     async (noteId: string, targetStatus: KanbanStatus, targetSortOrder: number) => {
-      setKanbanCards((current) =>
-        current.map((card) =>
-          card.noteId === noteId
-            ? {
-                ...card,
-                status: targetStatus,
-                sortOrder: targetSortOrder,
-                updatedAt: Math.floor(Date.now() / 1000),
-              }
-            : card,
-        ),
-      );
+      let movedCard: KanbanCard | null = null;
+      let sourceStatus: KanbanStatus | null = null;
+      for (const st of ["inbox", "doing", "done"] as const) {
+        const found = kanbanColumnsRef.current[st].cards.find((c) => c.noteId === noteId);
+        if (found) {
+          movedCard = found;
+          sourceStatus = st;
+          break;
+        }
+      }
+
+      if (!movedCard || !sourceStatus) {
+        try {
+          await api.updateKanbanCard(noteId, { status: targetStatus, sortOrder: targetSortOrder });
+          setKanbanRefreshToken((v) => v + 1);
+        } catch {
+          notifyError("更新卡片状态失败");
+        }
+        return;
+      }
+
+      if (sourceStatus === targetStatus) {
+        setKanbanColumns((prev) => {
+          const col = prev[sourceStatus!];
+          const updatedCards = col.cards
+            .map((c) =>
+              c.noteId === noteId
+                ? { ...c, sortOrder: targetSortOrder, updatedAt: Math.floor(Date.now() / 1000) }
+                : c,
+            )
+            .sort((a, b) => a.sortOrder - b.sortOrder);
+          return {
+            ...prev,
+            [sourceStatus!]: {
+              ...col,
+              cards: updatedCards,
+            },
+          };
+        });
+      } else {
+        const updatedCard: KanbanCard = {
+          ...movedCard,
+          status: targetStatus,
+          sortOrder: targetSortOrder,
+          updatedAt: Math.floor(Date.now() / 1000),
+        };
+        setKanbanColumns((prev) => {
+          const sourceCol = prev[sourceStatus!];
+          const targetCol = prev[targetStatus];
+          return {
+            ...prev,
+            [sourceStatus!]: {
+              ...sourceCol,
+              cards: sourceCol.cards.filter((c) => c.noteId !== noteId),
+              total: Math.max(0, sourceCol.total - 1),
+            },
+            [targetStatus]: {
+              ...targetCol,
+              cards: [...targetCol.cards, updatedCard].sort((a, b) => a.sortOrder - b.sortOrder),
+              total: targetCol.total + 1,
+            },
+          };
+        });
+      }
+
       try {
         await api.updateKanbanCard(noteId, { status: targetStatus, sortOrder: targetSortOrder });
       } catch {
@@ -1979,7 +2153,21 @@ export function Workspace() {
   );
   const handleRemoveKanbanCard = useCallback(
     async (noteId: string) => {
-      setKanbanCards((current) => current.filter((c) => c.noteId !== noteId));
+      setKanbanColumns((prev) => {
+        let changed = false;
+        const next = { ...prev };
+        for (const st of ["inbox", "doing", "done"] as const) {
+          if (next[st].cards.some((c) => c.noteId === noteId)) {
+            next[st] = {
+              ...next[st],
+              cards: next[st].cards.filter((c) => c.noteId !== noteId),
+              total: Math.max(0, next[st].total - 1),
+            };
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
       try {
         await api.deleteKanbanCard(noteId);
         notifyInfo("已从看板移出");
@@ -1992,7 +2180,21 @@ export function Workspace() {
   );
   const handleTrashKanbanCard = useCallback(
     (noteId: string) => {
-      setKanbanCards((current) => current.filter((c) => c.noteId !== noteId));
+      setKanbanColumns((prev) => {
+        let changed = false;
+        const next = { ...prev };
+        for (const st of ["inbox", "doing", "done"] as const) {
+          if (next[st].cards.some((c) => c.noteId === noteId)) {
+            next[st] = {
+              ...next[st],
+              cards: next[st].cards.filter((c) => c.noteId !== noteId),
+              total: Math.max(0, next[st].total - 1),
+            };
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
       handleTrashNotes([noteId]);
     },
     [handleTrashNotes],
@@ -2954,7 +3156,7 @@ export function Workspace() {
       )}
       {shouldShowKanbanPanel(kanbanOpen, isMobileViewport, mobilePage) && (
         <KanbanPanel
-          cards={kanbanCards}
+          columns={kanbanColumns}
           notebooks={notebooks}
           notebookId={kanbanNotebookId}
           onNotebookChange={setKanbanNotebookId}
@@ -2965,6 +3167,7 @@ export function Workspace() {
           onMoveCard={handleMoveKanbanCard}
           onRemoveCard={handleRemoveKanbanCard}
           onTrashCard={handleTrashKanbanCard}
+          onLoadMoreColumn={loadMoreKanbanColumn}
           onBack={isMobileViewport ? backMobilePage : undefined}
           isMobileViewport={isMobileViewport}
           availableNotes={notes}

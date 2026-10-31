@@ -3496,6 +3496,45 @@ dialog::backdrop {
   box-shadow: none;
 }
 
+.kanban-column-load-more {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px 14px;
+  color: var(--soft-muted);
+  font-size: 0.76rem;
+}
+
+.kanban-column-load-more-text {
+  color: var(--soft-muted);
+  font-size: 0.76rem;
+}
+
+.kanban-column-load-more-text--idle {
+  opacity: 0.7;
+}
+
+.kanban-column-load-more-btn {
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--accent-dark);
+  font: inherit;
+  font-size: 0.76rem;
+  cursor: pointer;
+  transition: background-color var(--motion-micro) var(--motion-ease-out);
+}
+
+.kanban-column-load-more-btn:hover {
+  background: var(--surface-muted);
+}
+
+.kanban-column-load-more-btn.is-error {
+  color: var(--danger-text, #b91c1c);
+}
+
 /* Corner Drop Zone during Drag (右下角移动到回收站) */
 .kanban-corner-zone {
   position: absolute;

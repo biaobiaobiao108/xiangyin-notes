@@ -223,4 +223,97 @@ describe("Kanban API", () => {
     expect(cardsAfterRestore.length).toBe(1);
     expect(cardsAfterRestore[0].noteId).toBe(note1.id);
   });
+
+  test("kanban column pagination: limit, cursor, total, and hasMore", async () => {
+    const cookie = await login();
+
+    const createNbRes = await api(
+      "/api/notebooks",
+      {
+        method: "POST",
+        body: JSON.stringify({ name: "分页测试", color: "#2d6a4f", icon: "folder" }),
+      },
+      cookie,
+    );
+    const { notebook } = (await createNbRes.json()) as { notebook: { id: string } };
+
+    // Create 3 notes
+    const noteIds: string[] = [];
+    for (let i = 1; i <= 3; i++) {
+      const res = await api(
+        "/api/notes",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            notebookId: notebook.id,
+            title: `卡片 ${i}`,
+            contentMarkdown: `内容 ${i}`,
+          }),
+        },
+        cookie,
+      );
+      const { note } = (await res.json()) as { note: { id: string } };
+      noteIds.push(note.id);
+
+      await api(
+        "/api/kanban/cards",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            noteId: note.id,
+            status: "inbox",
+            sortOrder: i * 100,
+          }),
+        },
+        cookie,
+      );
+    }
+
+    // Page 1: limit=2
+    const page1Res = await api("/api/kanban?status=inbox&limit=2", { method: "GET" }, cookie);
+    expect(page1Res.status).toBe(200);
+    const page1 = (await page1Res.json()) as {
+      cards: Array<{ noteId: string }>;
+      total: number;
+      hasMore: boolean;
+      nextCursor: string | null;
+    };
+    expect(page1.total).toBe(3);
+    expect(page1.cards.length).toBe(2);
+    expect(page1.cards[0].noteId).toBe(noteIds[0]);
+    expect(page1.cards[1].noteId).toBe(noteIds[1]);
+    expect(page1.hasMore).toBe(true);
+    expect(typeof page1.nextCursor).toBe("string");
+
+    // Page 2: with cursor
+    const page2Res = await api(
+      `/api/kanban?status=inbox&limit=2&cursor=${encodeURIComponent(page1.nextCursor!)}`,
+      { method: "GET" },
+      cookie,
+    );
+    expect(page2Res.status).toBe(200);
+    const page2 = (await page2Res.json()) as {
+      cards: Array<{ noteId: string }>;
+      total: number;
+      hasMore: boolean;
+      nextCursor: string | null;
+    };
+    expect(page2.total).toBe(3);
+    expect(page2.cards.length).toBe(1);
+    expect(page2.cards[0].noteId).toBe(noteIds[2]);
+    expect(page2.hasMore).toBe(false);
+    expect(page2.nextCursor).toBeNull();
+
+    // Invalid limit validation
+    const invalidLimitRes = await api("/api/kanban?limit=0", { method: "GET" }, cookie);
+    expect(invalidLimitRes.status).toBe(400);
+
+    // Invalid cursor validation
+    const invalidCursorRes = await api(
+      "/api/kanban?cursor=not-valid-base64-json",
+      { method: "GET" },
+      cookie,
+    );
+    expect(invalidCursorRes.status).toBe(400);
+  });
 });

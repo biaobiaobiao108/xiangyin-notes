@@ -48,8 +48,17 @@ const COLUMNS: ReadonlyArray<{
   { id: "done", title: "已完成", icon: CheckCircle2 },
 ];
 
-export type KanbanPanelProps = {
+export type KanbanColumnData = {
   cards: KanbanCard[];
+  total: number;
+  hasMore: boolean;
+  nextCursor: string | null;
+  isLoadingMore: boolean;
+  loadMoreError: string | null;
+};
+
+export type KanbanPanelProps = {
+  columns: Record<KanbanStatus, KanbanColumnData>;
   notebooks: Notebook[];
   notebookId?: string;
   onNotebookChange: (id: string) => void;
@@ -60,6 +69,7 @@ export type KanbanPanelProps = {
   onMoveCard: (noteId: string, targetStatus: KanbanStatus, targetSortOrder: number) => void;
   onRemoveCard: (noteId: string) => void;
   onTrashCard: (noteId: string) => void;
+  onLoadMoreColumn: (status: KanbanStatus) => void;
   onBack?: () => void;
   isMobileViewport?: boolean;
   availableNotes?: NoteSummary[];
@@ -240,7 +250,7 @@ const KanbanCardItem = memo(function KanbanCardItem({
 // Single Kanban Column
 const KanbanColumnView = memo(function KanbanColumnView({
   column,
-  cards,
+  columnData,
   isMobileViewport,
   draggingNoteId,
   onOpenNote,
@@ -252,9 +262,10 @@ const KanbanColumnView = memo(function KanbanColumnView({
   onCardDragStart,
   onCardDragEnd,
   onDropOnColumn,
+  onLoadMore,
 }: {
   column: (typeof COLUMNS)[number];
-  cards: KanbanCard[];
+  columnData: KanbanColumnData;
   isMobileViewport?: boolean;
   draggingNoteId: string | null;
   onOpenNote: (noteId: string) => void;
@@ -266,13 +277,39 @@ const KanbanColumnView = memo(function KanbanColumnView({
   onCardDragStart: (card: KanbanCard, event: ReactDragEvent<HTMLElement>) => void;
   onCardDragEnd: () => void;
   onDropOnColumn: (status: KanbanStatus, targetIndex: number) => void;
+  onLoadMore: (status: KanbanStatus) => void;
 }) {
+  const { cards, total, hasMore, isLoadingMore, loadMoreError } = columnData;
   const scrollRef = useRef<HTMLDivElement>(null);
   const columnRef = useRef<HTMLDivElement>(null);
+  const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
   const [isDropTarget, setIsDropTarget] = useState(false);
   const [dropIndicatorIndex, setDropIndicatorIndex] = useState<number | null>(null);
 
   const virtual = useVirtualKanbanColumn(cards, scrollRef);
+
+  useEffect(() => {
+    const sentinel = loadMoreSentinelRef.current;
+    const container = scrollRef.current;
+    if (!sentinel || !container || !hasMore || isLoadingMore || loadMoreError) return;
+    if (typeof IntersectionObserver === "undefined") return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (entry?.isIntersecting) {
+          onLoadMore(column.id);
+        }
+      },
+      {
+        root: container,
+        rootMargin: "260px 0px",
+      },
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [column.id, hasMore, isLoadingMore, loadMoreError, onLoadMore]);
 
   const handleDragOver = (e: ReactDragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -327,7 +364,7 @@ const KanbanColumnView = memo(function KanbanColumnView({
             aria-hidden="true"
           />
           <h3 className="kanban-column-title">{column.title}</h3>
-          <span className="kanban-column-count">{cards.length}</span>
+          <span className="kanban-column-count">{total}</span>
         </div>
         <div className="kanban-column-header-actions">
           <button
@@ -394,6 +431,26 @@ const KanbanColumnView = memo(function KanbanColumnView({
           )}
 
           {virtual.paddingBottom > 0 && <div style={{ height: virtual.paddingBottom }} />}
+
+          {hasMore && (
+            <div ref={loadMoreSentinelRef} className="kanban-column-load-more">
+              {loadMoreError ? (
+                <button
+                  type="button"
+                  className="kanban-column-load-more-btn is-error"
+                  onClick={() => onLoadMore(column.id)}
+                >
+                  {loadMoreError}，点击重试
+                </button>
+              ) : isLoadingMore ? (
+                <span className="kanban-column-load-more-text">正在加载更多……</span>
+              ) : (
+                <span className="kanban-column-load-more-text kanban-column-load-more-text--idle">
+                  向下滚动加载更多
+                </span>
+              )}
+            </div>
+          )}
         </div>
         <FloatingScrollbar
           scrollTargetRef={scrollRef}
@@ -507,7 +564,7 @@ function AddExistingNoteModal({
 
 // Main KanbanPanel Export
 export const KanbanPanel = memo(function KanbanPanel({
-  cards,
+  columns,
   notebooks,
   notebookId = "",
   onNotebookChange,
@@ -518,6 +575,7 @@ export const KanbanPanel = memo(function KanbanPanel({
   onMoveCard,
   onRemoveCard,
   onTrashCard,
+  onLoadMoreColumn,
   onBack,
   isMobileViewport = false,
   availableNotes = [],
@@ -532,31 +590,20 @@ export const KanbanPanel = memo(function KanbanPanel({
   const notebookTriggerRef = useRef<HTMLButtonElement>(null);
   const notebookMenuRef = useRef<HTMLDivElement>(null);
 
-  // Group cards by column
-  const cardsByColumn = useMemo(() => {
-    const map = new Map<KanbanStatus, KanbanCard[]>([
-      ["inbox", []],
-      ["doing", []],
-      ["done", []],
-    ]);
-    for (const card of cards) {
-      const list = map.get(card.status);
-      if (list) list.push(card);
-    }
-    // Sort each column by sortOrder ascending
-    for (const list of map.values()) {
-      list.sort((a, b) => a.sortOrder - b.sortOrder);
-    }
-    return map;
-  }, [cards]);
+  const allCards = useMemo(() => Object.values(columns).flatMap((col) => col.cards), [columns]);
+
+  const totalNotesCount = useMemo(
+    () => Object.values(columns).reduce((sum, col) => sum + (col.total ?? 0), 0),
+    [columns],
+  );
 
   // Entrance animation
   useLayoutEffect(() => {
     if (!panelRef.current) return;
-    const columns = panelRef.current.querySelectorAll<HTMLElement>(
+    const columnElements = panelRef.current.querySelectorAll<HTMLElement>(
       ".kanban-column, .kanban-column-mobile-wrap",
     );
-    const animations = [...columns]
+    const animations = [...columnElements]
       .map((col) => playEntranceAnimation(col, "page-content-in"))
       .filter((anim): anim is Animation => anim !== null);
     return () => animations.forEach((anim) => anim.cancel());
@@ -591,7 +638,7 @@ export const KanbanPanel = memo(function KanbanPanel({
   const handleDropOnColumn = useCallback(
     (targetStatus: KanbanStatus, targetIndex: number) => {
       if (!draggingCard) return;
-      const targetColumnCards = cardsByColumn.get(targetStatus) ?? [];
+      const targetColumnCards = columns[targetStatus]?.cards ?? [];
       const newSortOrder = calculateTargetSortOrder(
         targetColumnCards,
         targetIndex,
@@ -600,12 +647,12 @@ export const KanbanPanel = memo(function KanbanPanel({
       onMoveCard(draggingCard.noteId, targetStatus, newSortOrder);
       setDraggingCard(null);
     },
-    [cardsByColumn, draggingCard, onMoveCard],
+    [columns, draggingCard, onMoveCard],
   );
 
   const handleMoveToStatus = useCallback(
     (noteId: string, status: KanbanStatus) => {
-      const targetColumnCards = cardsByColumn.get(status) ?? [];
+      const targetColumnCards = columns[status]?.cards ?? [];
       const newSortOrder = calculateTargetSortOrder(
         targetColumnCards,
         targetColumnCards.length,
@@ -613,7 +660,7 @@ export const KanbanPanel = memo(function KanbanPanel({
       );
       onMoveCard(noteId, status, newSortOrder);
     },
-    [cardsByColumn, onMoveCard],
+    [columns, onMoveCard],
   );
 
   // Drop on Corner Trash Zone
@@ -668,7 +715,7 @@ export const KanbanPanel = memo(function KanbanPanel({
             </button>
           )}
           <h2 className="kanban-heading">看板</h2>
-          <span className="kanban-total-count">{cards.length} 篇笔记</span>
+          <span className="kanban-total-count">{totalNotesCount} 篇笔记</span>
         </div>
 
         <div className="kanban-header-right">
@@ -727,7 +774,7 @@ export const KanbanPanel = memo(function KanbanPanel({
       {isMobileViewport && (
         <div className="kanban-mobile-tabs" role="tablist">
           {COLUMNS.map((col) => {
-            const count = (cardsByColumn.get(col.id) ?? []).length;
+            const count = columns[col.id]?.total ?? 0;
             const active = activeMobileColumn === col.id;
             return (
               <button
@@ -755,7 +802,7 @@ export const KanbanPanel = memo(function KanbanPanel({
                 <KanbanColumnView
                   key={activeCol.id}
                   column={activeCol}
-                  cards={cardsByColumn.get(activeCol.id) ?? []}
+                  columnData={columns[activeCol.id]}
                   isMobileViewport={true}
                   draggingNoteId={draggingCard?.noteId ?? null}
                   onOpenNote={onOpenNote}
@@ -767,6 +814,7 @@ export const KanbanPanel = memo(function KanbanPanel({
                   onCardDragStart={handleCardDragStart}
                   onCardDragEnd={handleCardDragEnd}
                   onDropOnColumn={handleDropOnColumn}
+                  onLoadMore={onLoadMoreColumn}
                 />
               );
             })()}
@@ -776,7 +824,7 @@ export const KanbanPanel = memo(function KanbanPanel({
             <KanbanColumnView
               key={col.id}
               column={col}
-              cards={cardsByColumn.get(col.id) ?? []}
+              columnData={columns[col.id]}
               isMobileViewport={false}
               draggingNoteId={draggingCard?.noteId ?? null}
               onOpenNote={onOpenNote}
@@ -788,6 +836,7 @@ export const KanbanPanel = memo(function KanbanPanel({
               onCardDragStart={handleCardDragStart}
               onCardDragEnd={handleCardDragEnd}
               onDropOnColumn={handleDropOnColumn}
+              onLoadMore={onLoadMoreColumn}
             />
           ))
         )}
@@ -817,7 +866,7 @@ export const KanbanPanel = memo(function KanbanPanel({
         open={addModalStatus !== null}
         targetStatus={addModalStatus ?? "inbox"}
         availableNotes={availableNotes}
-        cards={cards}
+        cards={allCards}
         onClose={() => setAddModalStatus(null)}
         onSelect={onAddExistingNote}
       />
