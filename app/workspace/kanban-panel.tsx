@@ -16,9 +16,7 @@ import {
   ChevronLeft,
   Clock,
   Inbox,
-  MoreHorizontal,
   Plus,
-  RotateCcw,
   Search,
   Star,
   Trash2,
@@ -27,7 +25,8 @@ import {
 import type { KanbanCard, KanbanStatus, NoteSummary, Notebook } from "../../shared/types";
 import { playEntranceAnimation } from "../animation";
 import { FloatingScrollbar } from "../floating-scrollbar";
-import { relativeDate } from "./helpers";
+import { getNoteTags, relativeDate } from "./helpers";
+import { NoteTags } from "./note-tags";
 import {
   calculateTargetSortOrder,
   KANBAN_DRAG_MIME_TYPE,
@@ -80,9 +79,6 @@ const KanbanCardItem = memo(function KanbanCardItem({
   card,
   isMobileViewport,
   onOpen,
-  onMoveToStatus,
-  onRemove,
-  onTrash,
   onDragStart,
   onDragEnd,
   isDragging,
@@ -90,34 +86,16 @@ const KanbanCardItem = memo(function KanbanCardItem({
   card: KanbanCard;
   isMobileViewport?: boolean;
   onOpen: (noteId: string) => void;
-  onMoveToStatus: (noteId: string, status: KanbanStatus) => void;
-  onRemove: (noteId: string) => void;
-  onTrash: (noteId: string) => void;
   onDragStart: (card: KanbanCard, event: ReactDragEvent<HTMLElement>) => void;
   onDragEnd: () => void;
   isDragging: boolean;
 }) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
   const note = card.note;
   const displayTitle = note.title.trim() || "未命名笔记";
   const hasThumbnail = Boolean(note.thumbnail?.id);
+  const tags = getNoteTags(note);
 
-  useEffect(() => {
-    if (!menuOpen) return;
-    const handleOutside = (e: MouseEvent) => {
-      if (!menuRef.current?.contains(e.target as Node)) {
-        setMenuOpen(false);
-      }
-    };
-    document.addEventListener("pointerdown", handleOutside);
-    return () => document.removeEventListener("pointerdown", handleOutside);
-  }, [menuOpen]);
-
-  const handleCardClick = (e: ReactMouseEvent) => {
-    if ((e.target as HTMLElement).closest(".kanban-card-menu-btn, .kanban-card-menu")) {
-      return;
-    }
+  const handleCardClick = () => {
     onOpen(card.noteId);
   };
 
@@ -159,83 +137,17 @@ const KanbanCardItem = memo(function KanbanCardItem({
       <div className="kanban-card-body">
         <div className="kanban-card-header">
           <h4 className="kanban-card-title">{displayTitle}</h4>
-          <div className="kanban-card-actions" ref={menuRef}>
-            {note.isFavorite && (
-              <Star size={13} className="kanban-card-star is-favorite" aria-label="已收藏" />
-            )}
-            <button
-              type="button"
-              className="kanban-card-menu-btn"
-              aria-label="卡片操作菜单"
-              onClick={(e) => {
-                e.stopPropagation();
-                setMenuOpen(!menuOpen);
-              }}
-            >
-              <MoreHorizontal size={14} />
-            </button>
-            {menuOpen && (
-              <div className="kanban-card-menu" role="menu">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    onOpen(card.noteId);
-                  }}
-                >
-                  打开笔记
-                </button>
-                {COLUMNS.filter((c) => c.id !== card.status).map((col) => (
-                  <button
-                    key={col.id}
-                    type="button"
-                    onClick={() => {
-                      setMenuOpen(false);
-                      onMoveToStatus(card.noteId, col.id);
-                    }}
-                  >
-                    移至{col.title}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    onRemove(card.noteId);
-                  }}
-                >
-                  从看板移出
-                </button>
-                <button
-                  type="button"
-                  className="is-danger"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    onTrash(card.noteId);
-                  }}
-                >
-                  移到回收站
-                </button>
-              </div>
-            )}
-          </div>
+          {note.isFavorite && (
+            <Star size={14} className="kanban-card-star is-favorite" aria-label="已收藏" />
+          )}
         </div>
 
-        {note.preview ? <p className="kanban-card-preview">{note.preview}</p> : null}
+        <NoteTags tags={tags} variant="card" />
 
-        {note.tags && note.tags.length > 0 && (
-          <div className="kanban-card-tags">
-            {note.tags.slice(0, 3).map((tag) => (
-              <span key={tag} className="kanban-card-tag">
-                #{tag}
-              </span>
-            ))}
-            {note.tags.length > 3 && (
-              <span className="kanban-card-tag kanban-card-tag--overflow">
-                +{note.tags.length - 3}
-              </span>
-            )}
-          </div>
+        {note.preview ? (
+          <p className="note-card-preview-text">{note.preview}</p>
+        ) : (
+          <p className="note-card-preview-empty">无正文内容</p>
         )}
 
         <div className="kanban-card-footer">
@@ -256,9 +168,6 @@ const KanbanColumnView = memo(function KanbanColumnView({
   onOpenNote,
   onCreateNote,
   onAddExistingNote,
-  onMoveToStatus,
-  onRemoveCard,
-  onTrashCard,
   onCardDragStart,
   onCardDragEnd,
   onDropOnColumn,
@@ -271,9 +180,6 @@ const KanbanColumnView = memo(function KanbanColumnView({
   onOpenNote: (noteId: string) => void;
   onCreateNote: (status: KanbanStatus) => void;
   onAddExistingNote: (status: KanbanStatus) => void;
-  onMoveToStatus: (noteId: string, status: KanbanStatus) => void;
-  onRemoveCard: (noteId: string) => void;
-  onTrashCard: (noteId: string) => void;
   onCardDragStart: (card: KanbanCard, event: ReactDragEvent<HTMLElement>) => void;
   onCardDragEnd: () => void;
   onDropOnColumn: (status: KanbanStatus, targetIndex: number) => void;
@@ -414,9 +320,6 @@ const KanbanColumnView = memo(function KanbanColumnView({
                       card={card}
                       isMobileViewport={isMobileViewport}
                       onOpen={onOpenNote}
-                      onMoveToStatus={onMoveToStatus}
-                      onRemove={onRemoveCard}
-                      onTrash={onTrashCard}
                       onDragStart={onCardDragStart}
                       onDragEnd={onCardDragEnd}
                       isDragging={draggingNoteId === card.noteId}
@@ -650,19 +553,6 @@ export const KanbanPanel = memo(function KanbanPanel({
     [columns, draggingCard, onMoveCard],
   );
 
-  const handleMoveToStatus = useCallback(
-    (noteId: string, status: KanbanStatus) => {
-      const targetColumnCards = columns[status]?.cards ?? [];
-      const newSortOrder = calculateTargetSortOrder(
-        targetColumnCards,
-        targetColumnCards.length,
-        noteId,
-      );
-      onMoveCard(noteId, status, newSortOrder);
-    },
-    [columns, onMoveCard],
-  );
-
   // Drop on Corner Trash Zone
   const handleTrashDragOver = (e: ReactDragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -812,9 +702,6 @@ export const KanbanPanel = memo(function KanbanPanel({
                   onOpenNote={onOpenNote}
                   onCreateNote={onCreateNoteInColumn}
                   onAddExistingNote={(status) => setAddModalStatus(status)}
-                  onMoveToStatus={handleMoveToStatus}
-                  onRemoveCard={onRemoveCard}
-                  onTrashCard={onTrashCard}
                   onCardDragStart={handleCardDragStart}
                   onCardDragEnd={handleCardDragEnd}
                   onDropOnColumn={handleDropOnColumn}
@@ -834,9 +721,6 @@ export const KanbanPanel = memo(function KanbanPanel({
               onOpenNote={onOpenNote}
               onCreateNote={onCreateNoteInColumn}
               onAddExistingNote={(status) => setAddModalStatus(status)}
-              onMoveToStatus={handleMoveToStatus}
-              onRemoveCard={onRemoveCard}
-              onTrashCard={onTrashCard}
               onCardDragStart={handleCardDragStart}
               onCardDragEnd={handleCardDragEnd}
               onDropOnColumn={handleDropOnColumn}
