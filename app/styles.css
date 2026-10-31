@@ -3133,7 +3133,8 @@ dialog::backdrop {
   min-width: 280px;
   height: 100%;
   border-radius: var(--radius-md);
-  background: var(--surface-muted);
+  --kanban-col-bg: var(--surface-muted);
+  background: var(--kanban-col-bg);
   border: 1px solid var(--border-soft);
   box-shadow: none;
   overflow: hidden;
@@ -3143,43 +3144,50 @@ dialog::backdrop {
 }
 
 .kanban-column.is-drop-target {
-  background: var(--surface-hover);
+  --kanban-col-bg: var(--surface-hover);
+  background: var(--kanban-col-bg);
   border-color: var(--border-strong);
   box-shadow: var(--shadow-sm);
 }
 
 /* 收集箱（冷灰蓝/雾石青） */
 .kanban-column--inbox {
-  background: light-dark(#edf1f5, #1e2230);
+  --kanban-col-bg: light-dark(#edf1f5, #1e2230);
+  background: var(--kanban-col-bg);
   border-color: light-dark(rgba(65, 85, 115, 0.08), rgba(140, 170, 215, 0.12));
 }
 
 .kanban-column--inbox.is-drop-target {
-  background: light-dark(#e3e9f0, #252b3e);
+  --kanban-col-bg: light-dark(#e3e9f0, #252b3e);
+  background: var(--kanban-col-bg);
   border-color: light-dark(rgba(65, 85, 115, 0.22), rgba(140, 170, 215, 0.28));
   box-shadow: var(--shadow-sm);
 }
 
 /* 进行中（柔和暖杏/琥珀茶金） */
 .kanban-column--doing {
-  background: light-dark(#f8f2e6, #2d261e);
+  --kanban-col-bg: light-dark(#f8f2e6, #2d261e);
+  background: var(--kanban-col-bg);
   border-color: light-dark(rgba(145, 105, 45, 0.09), rgba(220, 175, 95, 0.13));
 }
 
 .kanban-column--doing.is-drop-target {
-  background: light-dark(#f2e8d6, #383025);
+  --kanban-col-bg: light-dark(#f2e8d6, #383025);
+  background: var(--kanban-col-bg);
   border-color: light-dark(rgba(145, 105, 45, 0.22), rgba(220, 175, 95, 0.3));
   box-shadow: var(--shadow-sm);
 }
 
 /* 已完成（松柏艾青/柔和竹青） */
 .kanban-column--done {
-  background: light-dark(#ecf3ec, #1c2720);
+  --kanban-col-bg: light-dark(#ecf3ec, #1c2720);
+  background: var(--kanban-col-bg);
   border-color: light-dark(rgba(45, 95, 60, 0.08), rgba(110, 185, 135, 0.12));
 }
 
 .kanban-column--done.is-drop-target {
-  background: light-dark(#dfeee0, #233329);
+  --kanban-col-bg: light-dark(#dfeee0, #233329);
+  background: var(--kanban-col-bg);
   border-color: light-dark(rgba(45, 95, 60, 0.22), rgba(110, 185, 135, 0.3));
   box-shadow: var(--shadow-sm);
 }
@@ -3273,6 +3281,33 @@ dialog::backdrop {
   flex: 1 1 0;
   min-height: 0;
   overflow: hidden;
+}
+
+.kanban-column-scroll-shell::before,
+.kanban-column-scroll-shell::after {
+  position: absolute;
+  z-index: 2;
+  inset-inline: 0;
+  height: 28px;
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--motion-fast) var(--motion-ease-out);
+}
+
+.kanban-column-scroll-shell::before {
+  inset-block-start: 0;
+  background: linear-gradient(to bottom, var(--kanban-col-bg), transparent);
+}
+
+.kanban-column-scroll-shell::after {
+  inset-block-end: 0;
+  background: linear-gradient(to top, var(--kanban-col-bg), transparent);
+}
+
+.kanban-column-scroll-shell.has-scroll-before::before,
+.kanban-column-scroll-shell.has-scroll-after::after {
+  opacity: 1;
 }
 
 .kanban-column-scroll {

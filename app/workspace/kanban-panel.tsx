@@ -36,6 +36,7 @@ import {
 } from "./kanban-drag";
 import { NOTE_DRAG_MIME_TYPE, setNoteDragImage } from "./note-drag-drop";
 import { useVirtualKanbanColumn } from "./use-virtual-kanban-column";
+import { useScrollEdges } from "./use-scroll-edges";
 
 const COLUMNS: ReadonlyArray<{
   id: KanbanStatus;
@@ -202,13 +203,27 @@ const KanbanColumnView = memo(function KanbanColumnView({
   onToggleFavorite?: (note: NoteSummary) => void;
 }) {
   const { cards, total, hasMore, isLoadingMore, loadMoreError } = columnData;
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null);
+  const setScrollRef = useCallback((el: HTMLDivElement | null) => {
+    scrollRef.current = el;
+    setScrollElement(el);
+  }, []);
   const columnRef = useRef<HTMLDivElement>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
   const [isDropTarget, setIsDropTarget] = useState(false);
   const [dropIndicatorIndex, setDropIndicatorIndex] = useState<number | null>(null);
 
   const virtual = useVirtualKanbanColumn(cards, scrollRef);
+  const scrollEdges = useScrollEdges(scrollElement, [
+    column.id,
+    cards.length,
+    virtual.paddingTop,
+    virtual.paddingBottom,
+    virtual.isVirtualized,
+    hasMore,
+    isLoadingMore,
+  ]);
 
   useEffect(() => {
     const sentinel = loadMoreSentinelRef.current;
@@ -308,8 +323,10 @@ const KanbanColumnView = memo(function KanbanColumnView({
         </div>
       </div>
 
-      <div className="kanban-column-scroll-shell">
-        <div ref={scrollRef} className="kanban-column-scroll floating-scrollbar-target">
+      <div
+        className={`kanban-column-scroll-shell${scrollEdges.before ? " has-scroll-before" : ""}${scrollEdges.after ? " has-scroll-after" : ""}`}
+      >
+        <div ref={setScrollRef} className="kanban-column-scroll floating-scrollbar-target">
           {virtual.paddingTop > 0 && <div style={{ height: virtual.paddingTop }} />}
 
           {cards.length === 0 ? (
