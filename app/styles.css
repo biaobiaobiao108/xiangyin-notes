@@ -3331,20 +3331,31 @@ dialog::backdrop {
   flex-direction: column;
   border-radius: var(--radius-md);
   background: var(--surface);
-  border: 1px solid var(--border-soft);
-  box-shadow: var(--shadow-2xs);
+  border: 1px solid var(--border);
+  box-shadow: var(--note-card-shadow);
   cursor: pointer;
   user-select: none;
-  transition: transform var(--motion-fast) var(--motion-ease-out),
-              box-shadow var(--motion-fast) var(--motion-ease-out),
-              border-color var(--motion-fast) var(--motion-ease-out);
+  transition: box-shadow var(--motion-fast) var(--motion-ease-out),
+              border-color var(--motion-fast) var(--motion-ease-out),
+              background-color var(--motion-fast) var(--motion-ease-out);
   overflow: hidden;
 }
 
-.kanban-card:hover {
-  border-color: var(--accent-border-soft);
-  box-shadow: var(--shadow-sm);
-  transform: translateY(-1px);
+.kanban-card:focus-visible {
+  outline: none;
+  box-shadow: var(--note-card-hover-shadow), var(--note-card-hover-detail-shadow);
+}
+
+.kanban-card:active {
+  background-color: var(--surface-muted);
+  transition-duration: var(--motion-micro);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .kanban-card:hover:not(.is-dragging) {
+    box-shadow: var(--note-card-hover-shadow), var(--note-card-hover-detail-shadow);
+    z-index: 1;
+  }
 }
 
 .kanban-card.is-dragging {
