@@ -418,6 +418,27 @@ test("refuses an unversioned database containing only a view without changing it
   }
 });
 
+test("creates kanban_cards table and indexes when upgrading to version 8", async () => {
+  const database = await openDatabase(":memory:");
+  try {
+    expect(database.query("PRAGMA user_version").get()).toEqual({
+      user_version: 8,
+    });
+    expect(
+      database
+        .query("SELECT name FROM sqlite_master WHERE type = ? AND name = ?")
+        .get("table", "kanban_cards"),
+    ).toBeTruthy();
+    expect(
+      database
+        .query("SELECT name FROM sqlite_master WHERE type = ? AND name = ?")
+        .get("index", "idx_kanban_cards_user_status"),
+    ).toBeTruthy();
+  } finally {
+    database.close();
+  }
+});
+
 test("refuses an unversioned database containing a sqlite-prefixed user view", async () => {
   const database = new Database(":memory:");
   database.exec("CREATE VIEW sqliteX_view AS SELECT 1 AS value");

@@ -97,3 +97,15 @@ export type NoteBacklinksResponse = {
   unlinkedMentions: UnlinkedMention[];
   truncated: boolean;
 };
+
+export type KanbanStatus = "inbox" | "doing" | "done" | "archived";
+
+export type KanbanCard = {
+  noteId: string;
+  userId: string;
+  status: KanbanStatus;
+  sortOrder: number;
+  createdAt: number;
+  updatedAt: number;
+  note: NoteSummary;
+};

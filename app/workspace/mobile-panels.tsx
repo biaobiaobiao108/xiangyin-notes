@@ -4,6 +4,7 @@ import {
   FolderPlus,
   LogOut,
   ListTodo,
+  SquareKanban,
   Pencil,
   Search,
   SquarePen,
@@ -29,6 +30,7 @@ export type MobileNotebookHomeProps = {
   onDeleteNotebook: (notebook: Notebook) => void;
   onLogout: () => void;
   onOpenTasks?: () => void;
+  onOpenKanban?: () => void;
   active?: boolean;
 };
 
@@ -43,6 +45,7 @@ export const MobileNotebookHome = memo(function MobileNotebookHome({
   onDeleteNotebook,
   onLogout,
   onOpenTasks,
+  onOpenKanban,
   active = true,
 }: MobileNotebookHomeProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -92,6 +95,21 @@ export const MobileNotebookHome = memo(function MobileNotebookHome({
                             <ListTodo size={22} />
                           </span>
                           <span className="mobile-notebook-name">任务</span>
+                          <ChevronRight className="mobile-notebook-chevron" size={18} />
+                        </button>
+                      </li>
+                    )}
+                    {item.id === "trash" && onOpenKanban && (
+                      <li>
+                        <button
+                          type="button"
+                          className="mobile-notebook-link"
+                          onClick={onOpenKanban}
+                        >
+                          <span className="mobile-notebook-icon">
+                            <SquareKanban size={22} />
+                          </span>
+                          <span className="mobile-notebook-name">看板</span>
                           <ChevronRight className="mobile-notebook-chevron" size={18} />
                         </button>
                       </li>

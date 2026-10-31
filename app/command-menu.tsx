@@ -25,6 +25,7 @@ import {
   Moon,
   PanelLeft,
   Search,
+  SquareKanban,
   Sun,
   Trash2,
   X,
@@ -60,6 +61,7 @@ export type CommandId =
   | "restore"
   | "install-app"
   | "move-to-notebook"
+  | "open-kanban"
   | "export-note"
   | "export-image";
 
@@ -154,6 +156,7 @@ export function CommandMenu({
   >(
     () => [
       { id: "new-note", label: "新建笔记", shortcut: "↵", icon: FilePlus2 },
+      { id: "open-kanban" as CommandId, label: "打开看板", shortcut: "", icon: SquareKanban },
       { id: "search-notes" as const, label: "全局搜索笔记", shortcut: "↵", icon: Search },
       ...(hasSelectedNote && canMoveToTrash
         ? [

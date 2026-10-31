@@ -12,7 +12,7 @@ const DEFAULT_SCHEMA_PATH = "./database/schema.sql";
 const BASELINE_SCHEMA_VERSION = 1;
 
 // Increment this when adding the next entry to SCHEMA_MIGRATIONS.
-export const CURRENT_SCHEMA_VERSION = 7;
+export const CURRENT_SCHEMA_VERSION = 8;
 
 type TableCountRow = {
   count: number;
@@ -263,6 +263,24 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
         syncNoteLinks(database, note.user_id, note.id, note.content_markdown, note.updated_at);
         syncNoteTags(database, note.user_id, note.id, note.content_markdown);
       }
+    },
+  },
+  {
+    sourceVersion: 7,
+    targetVersion: 8,
+    migrate: (database) => {
+      database.exec(`
+        CREATE TABLE kanban_cards (
+          note_id TEXT PRIMARY KEY REFERENCES notes(id) ON DELETE CASCADE,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          status TEXT NOT NULL CHECK (status IN ('inbox', 'doing', 'done', 'archived')),
+          sort_order REAL NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX idx_kanban_cards_user_status
+          ON kanban_cards(user_id, status, sort_order);
+      `);
     },
   },
 ];

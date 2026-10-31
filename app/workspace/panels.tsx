@@ -25,6 +25,7 @@ import {
   Plus,
   RotateCcw,
   Search,
+  SquareKanban,
   Star,
   Trash2,
   X,
@@ -289,6 +290,8 @@ export const Sidebar = memo(function Sidebar({
   onTrashNotes,
   tasksActive,
   onOpenTasks,
+  kanbanActive = false,
+  onOpenKanban,
 }: {
   view: NoteView;
   setView: (view: NoteView) => void;
@@ -307,6 +310,8 @@ export const Sidebar = memo(function Sidebar({
   onTrashNotes?: (ids: string[]) => void;
   tasksActive: boolean;
   onOpenTasks: () => void;
+  kanbanActive?: boolean;
+  onOpenKanban?: () => void;
 }) {
   const notebookListRef = useRef<HTMLDivElement>(null);
   const systemInbox = useMemo(() => notebooks.find((notebook) => notebook.isSystem), [notebooks]);
@@ -362,7 +367,7 @@ export const Sidebar = memo(function Sidebar({
       <nav className="main-nav">
         <ul>
           {navItems.map((item) => {
-            const isActive = !tasksActive && view === item.id && !notebookId;
+            const isActive = !tasksActive && !kanbanActive && view === item.id && !notebookId;
             const dropHandler =
               item.id === "inbox" && systemInbox && onMoveNotesToNotebook
                 ? (ids: string[]) => onMoveNotesToNotebook(ids, systemInbox.id)
@@ -372,18 +377,34 @@ export const Sidebar = memo(function Sidebar({
             return (
               <Fragment key={item.id}>
                 {item.id === "trash" && (
-                  <li>
-                    <button
-                      className={"nav-item" + (tasksActive ? " is-active" : "")}
-                      type="button"
-                      data-note-view="tasks"
-                      aria-current={tasksActive ? "page" : undefined}
-                      onClick={onOpenTasks}
-                    >
-                      <ListTodo size={18} />
-                      <span>任务</span>
-                    </button>
-                  </li>
+                  <>
+                    <li>
+                      <button
+                        className={"nav-item" + (tasksActive ? " is-active" : "")}
+                        type="button"
+                        data-note-view="tasks"
+                        aria-current={tasksActive ? "page" : undefined}
+                        onClick={onOpenTasks}
+                      >
+                        <ListTodo size={18} />
+                        <span>任务</span>
+                      </button>
+                    </li>
+                    {onOpenKanban && (
+                      <li>
+                        <button
+                          className={"nav-item" + (kanbanActive ? " is-active" : "")}
+                          type="button"
+                          data-note-view="kanban"
+                          aria-current={kanbanActive ? "page" : undefined}
+                          onClick={onOpenKanban}
+                        >
+                          <SquareKanban size={18} />
+                          <span>看板</span>
+                        </button>
+                      </li>
+                    )}
+                  </>
                 )}
                 <SidebarNavItem
                   item={item}

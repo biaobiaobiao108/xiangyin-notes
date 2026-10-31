@@ -6,12 +6,13 @@ import {
   ListChecks,
   Plus,
   RotateCcw,
+  SquareKanban,
   Star,
   Trash2,
   X,
 } from "lucide-react";
 import type { ContextMenuItem } from "../context-menu";
-import type { NoteSummary, NoteView } from "../../shared/types";
+import type { KanbanStatus, NoteSummary, NoteView } from "../../shared/types";
 import type { NoteSwipeAction } from "./swipe-actions";
 
 export type NoteContextMenuActions = {
@@ -26,6 +27,8 @@ export type NoteContextMenuActions = {
   toggleFavorite: (note: NoteSummary) => void;
   /** 在右侧分屏打开笔记（桌面端可用）。 */
   openInSplit?: (note: NoteSummary) => void;
+  /** 添加到看板某列 */
+  addToKanban?: (note: NoteSummary, status: KanbanStatus) => void;
 };
 
 export type NoteContextMenuInput = {
@@ -103,6 +106,13 @@ export function buildNoteContextMenuItems({
       icon: Star,
       onSelect: () => actions.toggleFavorite(note),
     });
+    if (actions.addToKanban) {
+      items.push({
+        label: "添加到看板",
+        icon: SquareKanban,
+        onSelect: () => actions.addToKanban!(note, "inbox"),
+      });
+    }
   }
 
   items.push({

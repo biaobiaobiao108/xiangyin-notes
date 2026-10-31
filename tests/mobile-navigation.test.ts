@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   MobileNavigationHistory,
   shouldShowTasksPanel,
+  shouldShowKanbanPanel,
   type MobileListContext,
 } from "../app/workspace/use-mobile-navigation";
 
@@ -38,6 +39,14 @@ describe("mobile page navigation", () => {
     expect(shouldShowTasksPanel(true, true, "editor")).toBe(false);
     expect(shouldShowTasksPanel(true, false, "editor")).toBe(true);
     expect(shouldShowTasksPanel(false, true, "home")).toBe(false);
+  });
+  test("kanban panel stays visible while open except in the mobile editor", () => {
+    expect(shouldShowKanbanPanel(true, true, "home")).toBe(true);
+    expect(shouldShowKanbanPanel(true, true, "list")).toBe(true);
+    expect(shouldShowKanbanPanel(true, true, "kanban")).toBe(true);
+    expect(shouldShowKanbanPanel(true, true, "editor")).toBe(false);
+    expect(shouldShowKanbanPanel(true, false, "editor")).toBe(true);
+    expect(shouldShowKanbanPanel(false, true, "home")).toBe(false);
   });
   test("tasks are a history destination so system back returns to home", () => {
     const history = new TestHistory();

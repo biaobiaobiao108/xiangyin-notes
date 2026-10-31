@@ -9,6 +9,8 @@ import type {
   User,
   NoteBacklinksResponse,
   TaskSummary,
+  KanbanCard,
+  KanbanStatus,
 } from "../shared/types";
 import { createUuid } from "./uuid";
 
@@ -213,4 +215,35 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  listKanbanCards: (
+    params?: { notebookId?: string; status?: KanbanStatus },
+    options?: RequestOptions,
+  ) => {
+    const search = new URLSearchParams();
+    if (params?.notebookId) search.set("notebookId", params.notebookId);
+    if (params?.status) search.set("status", params.status);
+    const query = search.toString();
+    return request<{ cards: KanbanCard[] }>(`/api/kanban${query ? `?${query}` : ""}`, options);
+  },
+  listArchivedKanbanCards: (params?: { notebookId?: string }, options?: RequestOptions) => {
+    const search = new URLSearchParams();
+    if (params?.notebookId) search.set("notebookId", params.notebookId);
+    const query = search.toString();
+    return request<{ cards: KanbanCard[] }>(
+      `/api/kanban/archived${query ? `?${query}` : ""}`,
+      options,
+    );
+  },
+  addKanbanCard: (payload: { noteId: string; status?: KanbanStatus; sortOrder?: number }) =>
+    request<{ card: KanbanCard }>("/api/kanban/cards", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updateKanbanCard: (noteId: string, payload: { status?: KanbanStatus; sortOrder?: number }) =>
+    request<{ card: KanbanCard }>(`/api/kanban/cards/${noteId}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+  deleteKanbanCard: (noteId: string) =>
+    request<{ ok: true; noteId: string }>(`/api/kanban/cards/${noteId}`, { method: "DELETE" }),
 };

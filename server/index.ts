@@ -20,6 +20,7 @@ import { handleImportRoute } from "./routes/import";
 import { handleMcpRequest, MCP_PATH } from "./mcp-transport";
 import { handleNotebooksRoute } from "./routes/notebooks";
 import { handleNotesRoute } from "./routes/notes";
+import { handleKanbanRoute } from "./routes/kanban";
 import { handleVersionedApiRoute } from "./routes/versioned-api";
 import {
   REALTIME_PATH,
@@ -50,6 +51,7 @@ const API_RESOURCES = new Set([
   "me",
   "notes",
   "tasks",
+  "kanban",
   "notebooks",
   "assets",
   "trash",
@@ -319,6 +321,9 @@ async function handleApi(request: Request, options: ServerOptions) {
   if (isResponse(user)) return user;
 
   // 3. Domain routes
+  const kanbanResponse = await handleKanbanRoute(ctx, user);
+  if (kanbanResponse) return kanbanResponse;
+
   const notesResponse = await handleNotesRoute(ctx, user, assetRoot);
   if (notesResponse) return notesResponse;
 
