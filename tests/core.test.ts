@@ -234,6 +234,12 @@ describe("markdown and search helpers", () => {
     }
   });
 
+  test("excludes bare task checkboxes that follow paragraphs", () => {
+    const markdown =
+      "这是一段很长的段落内容。\n[ ] 放假宽带说老家\n[ ] 减肥快乐的送积分\n[ ] 发俊林独守空房俊林";
+    expect(formatPreview(markdown)).toBe("这是一段很长的段落内容。");
+  });
+
   test("keeps ordinary quotes and unknown callout markers in previews", () => {
     // 未识别的 callout 只是普通引用，标记按原文字面保留（方括号不再被吞掉）。
     expect(
