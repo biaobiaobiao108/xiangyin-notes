@@ -6,7 +6,7 @@ import {
   type RefObject,
 } from "react";
 
-// Rows stay in document flow throughout the gesture; only the floating copy moves.
+// Keep layout slots fixed; only transforms preview the proposed order.
 export function useNotebookReorder(
   listRef: RefObject<HTMLElement | null>,
   ids: string[],
@@ -50,6 +50,9 @@ export function useNotebookReorder(
     cancelRef.current?.();
     const original = [...ids];
     const startY = event.clientY;
+    const rect = source.getBoundingClientRect();
+    const grabOffset = startY - rect.top;
+    const sourceIndex = original.indexOf(id);
     let y = startY;
     let x = event.clientX;
     let active = false;
@@ -60,7 +63,9 @@ export function useNotebookReorder(
     let target = -1;
     let frame = 0;
     let preview: HTMLElement | null = null;
-    let line: HTMLElement | null = null;
+    let dropping = false;
+    let slots: Array<{ top: number; height: number }> = [];
+    let initialScroll = 0;
     const rows = Array.from(list.querySelectorAll<HTMLElement>("[data-sort-id]"));
     const cleanup = () => {
       clearTimeout(holdTimer);
@@ -70,7 +75,10 @@ export function useNotebookReorder(
       window.removeEventListener("touchmove", preventScroll);
       cancelAnimationFrame(frame);
       preview?.remove();
-      line?.remove();
+      rows.forEach((row) => {
+        row.style.removeProperty("transform");
+        row.classList.remove("is-notebook-sorting");
+      });
       source.classList.remove("is-notebook-dragging");
       document.body.classList.remove("is-sorting-notebooks");
       window.removeEventListener("pointermove", move);
@@ -83,12 +91,31 @@ export function useNotebookReorder(
     const preventScroll = (e: TouchEvent) => {
       if (armed && e.cancelable) e.preventDefault();
     };
-    const cancel = () => cleanup();
+    const cancel = () => {
+      if (active) {
+        rows.forEach((row) =>
+          positions.current.set(row.dataset.sortId!, row.getBoundingClientRect().top),
+        );
+      }
+      cleanup();
+      if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        rows.forEach((row) => {
+          const previous = positions.current.get(row.dataset.sortId!);
+          const top = row.getBoundingClientRect().top;
+          if (previous !== undefined && previous !== top)
+            row.animate(
+              [{ transform: `translateY(${previous - top}px)` }, { transform: "translateY(0)" }],
+              { duration: 180, easing: "cubic-bezier(.2,.7,.2,1)" },
+            );
+        });
+      }
+      positions.current.clear();
+    };
     const key = (e: globalThis.KeyboardEvent) => {
       if (e.key === "Escape" && !e.isComposing && e.keyCode !== 229) {
         e.preventDefault();
         e.stopImmediatePropagation();
-        cleanup();
+        cancel();
       }
     };
     const tick = () => {
@@ -103,48 +130,29 @@ export function useNotebookReorder(
         const speed = y < bounds.top + 28 ? -6 : y > bounds.bottom - 28 ? 6 : 0;
         list.scrollTop += speed;
       }
-      const others = rows.filter((row) => row !== source);
-      target = inside
-        ? others.findIndex((row) => y < row.getBoundingClientRect().top + row.offsetHeight / 2)
-        : -1;
-      if (inside && target === -1) target = others.length;
-      const previewBounds = preview!.getBoundingClientRect();
-      const previewLeft = Math.max(
-        8,
-        Math.min(
-          event.pointerType === "touch" ? x + 16 : bounds.right + 12,
-          window.innerWidth - previewBounds.width - 8,
-        ),
-      );
-      let previewTop = Math.max(
-        8,
-        Math.min(y - previewBounds.height - 16, window.innerHeight - previewBounds.height - 8),
-      );
-      line!.style.display = target < 0 || target === original.indexOf(id) ? "none" : "block";
-      if (target >= 0) {
-        const anchor = others[target] ?? others.at(-1);
-        if (anchor) {
-          const box = anchor.getBoundingClientRect();
-          const top = target === others.length ? box.bottom : box.top;
-          const lineTop = Math.max(bounds.top, Math.min(bounds.bottom, top));
-          line!.style.left = `${bounds.left + 8}px`;
-          line!.style.width = `${bounds.width - 16}px`;
-          line!.style.top = `${lineTop}px`;
-          // Keep the label clear of the insertion marker, including near viewport edges.
-          if (previewTop < lineTop + 8 && previewTop + previewBounds.height > lineTop - 8) {
-            previewTop =
-              lineTop - previewBounds.height - 10 >= 8
-                ? lineTop - previewBounds.height - 10
-                : lineTop + 10;
-          }
-        }
+      const scrollDelta = list.scrollTop - initialScroll;
+      const center = y - grabOffset + rect.height / 2 + scrollDelta;
+      target = inside ? sourceIndex : -1;
+      if (inside) {
+        slots.forEach((slot, index) => {
+          const midpoint = slot.top + slot.height / 2;
+          if (index < sourceIndex && center < midpoint) target = Math.min(target, index);
+          if (index > sourceIndex && center > midpoint) target = Math.max(target, index);
+        });
       }
-      preview!.style.left = `${previewLeft}px`;
-      preview!.style.top = `${previewTop}px`;
+      const destination = target < 0 ? sourceIndex : target;
+      rows.forEach((row, index) => {
+        let nextIndex = index;
+        if (index > sourceIndex && index <= destination) nextIndex--;
+        if (index < sourceIndex && index >= destination) nextIndex++;
+        const offset = slots[nextIndex]!.top - slots[index]!.top;
+        row.style.transform = index === sourceIndex ? "" : `translateY(${offset}px)`;
+      });
+      preview!.style.transform = `translateY(${y - startY}px)`;
       frame = requestAnimationFrame(tick);
     };
     const move = (e: globalThis.PointerEvent) => {
-      if (e.pointerId !== event.pointerId) return;
+      if (dropping || e.pointerId !== event.pointerId) return;
       y = e.clientY;
       x = e.clientX;
       if (!armed && Math.hypot(x - event.clientX, y - startY) > 6) {
@@ -154,44 +162,64 @@ export function useNotebookReorder(
       if (armed && !active && Math.abs(y - startY) >= 5) {
         suppressClick.current = true;
         active = true;
+        initialScroll = list.scrollTop;
+        slots = rows.map((row) => {
+          const box = row.getBoundingClientRect();
+          return { top: box.top, height: box.height };
+        });
+        rows.forEach((row) => row.classList.add("is-notebook-sorting"));
         preview = document.createElement("div");
         preview.setAttribute("aria-hidden", "true");
         preview.className = "notebook-drag-preview";
-        const icon = button.querySelector("svg");
-        const name = button.querySelector(
-          ".mobile-notebook-name, :scope > span:not(.mobile-notebook-icon)",
-        );
-        if (icon) preview.append(icon.cloneNode(true));
-        const label = document.createElement("span");
-        label.textContent = name?.textContent ?? "笔记本";
-        preview.append(label);
+        preview.append(button.cloneNode(true));
+        preview.style.cssText = `left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;height:${rect.height}px`;
         document.body.append(preview);
-        line = document.createElement("div");
-        line.className = "notebook-sort-line";
-        document.body.append(line);
         source.classList.add("is-notebook-dragging");
         document.body.classList.add("is-sorting-notebooks");
         tick();
       }
     };
-    const end = (e: globalThis.PointerEvent) => {
-      if (e.pointerId !== event.pointerId) return;
-      if (active) {
-        y = e.clientY;
-        x = e.clientX;
-        cancelAnimationFrame(frame);
-        tick();
+    const end = async (e: globalThis.PointerEvent) => {
+      if (dropping || e.pointerId !== event.pointerId) return;
+      if (!active) {
+        cleanup();
+        return;
       }
+      y = e.clientY;
+      x = e.clientX;
+      cancelAnimationFrame(frame);
+      tick();
+      cancelAnimationFrame(frame);
+      dropping = true;
+      const destination = target < 0 ? sourceIndex : target;
       const next = original.filter((value) => value !== id);
-      if (active && target >= 0) next.splice(target, 0, id);
-      const changed =
-        active && target >= 0 && next.some((value, index) => value !== original[index]);
-      if (changed)
-        rows.forEach((row) =>
-          positions.current.set(row.dataset.sortId!, row.getBoundingClientRect().top),
-        );
-      cleanup();
-      if (changed) void onReorder(next, original);
+      next.splice(destination, 0, id);
+      const finalTop = slots[destination]!.top - (list.scrollTop - initialScroll);
+      const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const animation = preview!.animate(
+        [
+          { transform: `translateY(${y - startY}px)` },
+          { transform: `translateY(${finalTop - rect.top}px)` },
+        ],
+        { duration: reduced ? 0 : 160, easing: "cubic-bezier(.2,.7,.2,1)", fill: "forwards" },
+      );
+      await animation.finished.catch(() => {});
+      // Escape, a remote list update, or unmount may have ended the gesture.
+      if (cancelRef.current !== cleanup) return;
+      if (destination === sourceIndex) {
+        cancel();
+        return;
+      }
+      rows.forEach((row) =>
+        positions.current.set(
+          row.dataset.sortId!,
+          row === source ? finalTop : row.getBoundingClientRect().top,
+        ),
+      );
+      await onReorder(next, original);
+      // Let React commit the saved order before removing the translated preview.
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      if (cancelRef.current === cleanup) cancel();
     };
     cancelRef.current = cleanup;
     window.addEventListener("touchmove", preventScroll, { passive: false });
