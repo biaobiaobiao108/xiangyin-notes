@@ -50,7 +50,7 @@ export function parseMarkdownBlockShortcut(text: string): MarkdownBlockShortcut 
   // whitespace is the marker. Matching just a prefix can delete the rest of
   // an existing paragraph when executeBlockShortcut removes the block start
   // through the cursor.
-  const headingMatch = /^([#＃]{1,6})[ \t\u3000]$/u.exec(text);
+  const headingMatch = /^([#＃]{1,6})[ \u3000]$/u.exec(text);
   if (headingMatch) {
     return {
       type: "heading",
@@ -58,31 +58,102 @@ export function parseMarkdownBlockShortcut(text: string): MarkdownBlockShortcut 
       length: headingMatch[0].length,
     };
   }
-  const codeBlockMatch = /^(?:```|｀｀｀)[ \t\u3000\n]$/u.exec(text);
+  const codeBlockMatch = /^(?:```|~~~|｀｀｀)[ \u3000]$/u.exec(text);
   if (codeBlockMatch) {
     return { type: "codeBlock", length: codeBlockMatch[0].length };
   }
-  const taskMatch = /^(?:\[(?: |)\]|【[ \u3000]?】)[ \t\u3000]$/u.exec(text);
+  const taskMatch = /^(?:\[(?: |)\]|【[ \u3000]?】)[ \u3000]$/u.exec(text);
   if (taskMatch) {
     return { type: "taskList", length: taskMatch[0].length };
   }
-  const bulletMatch = /^[-+*－][ \t\u3000]$/u.exec(text);
+  const bulletMatch = /^[-+*－][ \u3000]$/u.exec(text);
   if (bulletMatch) {
     return { type: "bulletList", length: bulletMatch[0].length };
   }
-  const orderedMatch = /^(?:1\.|１\.|1、|１、|1。|１。)[ \t\u3000]$/u.exec(text);
+  const orderedMatch = /^(?:1|１)(?:\.|．|、|。)[ \u3000]$/u.exec(text);
   if (orderedMatch) {
     return { type: "orderedList", length: orderedMatch[0].length };
   }
-  const quoteMatch = /^[>＞》〉][ \t\u3000]$/u.exec(text);
+  const quoteMatch = /^[>＞》〉][ \u3000]$/u.exec(text);
   if (quoteMatch) {
     return { type: "blockquote", length: quoteMatch[0].length };
   }
   return null;
 }
 
+function normalizeBlockMarkerLine(line: string): string {
+  const indentation = /^ {0,3}/u.exec(line)?.[0] ?? "";
+  const content = line.slice(indentation.length);
+
+  const quotePrefix = /^(?:[>＞》〉][ \t\u3000]*)+/u.exec(content);
+  if (quotePrefix) {
+    const normalizedPrefix = quotePrefix[0].replace(/[＞》〉]/gu, ">").replaceAll("\u3000", " ");
+    return `${indentation}${normalizedPrefix}${normalizeBlockMarkerLine(content.slice(quotePrefix[0].length))}`;
+  }
+
+  const heading = /^([#＃]{1,6})[ \t\u3000]/u.exec(content);
+  if (heading) {
+    return `${indentation}${heading[1]!.replaceAll("＃", "#")} ${content.slice(heading[0].length)}`;
+  }
+
+  const task = /^(?:\[(?: |)\]|【[ \u3000]?】)[ \t\u3000]/u.exec(content);
+  if (task) return `${indentation}- [ ] ${content.slice(task[0].length)}`;
+
+  const bullet = /^([-+*]|－)[ \t\u3000]/u.exec(content);
+  if (bullet) {
+    const marker = bullet[1] === "－" ? "-" : bullet[1];
+    return `${indentation}${marker} ${content.slice(bullet[0].length)}`;
+  }
+
+  const ordered = /^((?:1|１)(?:\.|．|、|。))[ \t\u3000]/u.exec(content);
+  if (ordered) return `${indentation}1. ${content.slice(ordered[0].length)}`;
+
+  return line;
+}
+
+function normalizeFenceMarker(marker: string) {
+  return marker.replaceAll("｀", "`").replaceAll("～", "~");
+}
+
+/** Converts Chinese block-marker aliases before parsing pasted Markdown, preserving fenced code. */
+export function normalizeChineseMarkdownBlockMarkers(markdown: string): string {
+  const lines = markdown.split(/(\r\n|\n|\r)/u);
+  let openFence: { marker: "`" | "~"; length: number } | null = null;
+
+  for (let index = 0; index < lines.length; index += 2) {
+    const line = lines[index]!;
+
+    if (openFence) {
+      const closingFence = /^ {0,3}(`{3,}|~{3,}|｀{3,}|～{3,})[ \t\u3000]*$/u.exec(line);
+      if (closingFence) {
+        const marker = normalizeFenceMarker(closingFence[1]!);
+        if (marker[0] === openFence.marker && marker.length >= openFence.length) {
+          lines[index] = line.replace(closingFence[1]!, marker);
+          openFence = null;
+        }
+      }
+      continue;
+    }
+
+    const openingFence = /^ {0,3}(`{3,}|~{3,}|｀{3,}|～{3,})(.*)$/u.exec(line);
+    if (openingFence) {
+      const marker = normalizeFenceMarker(openingFence[1]!);
+      const info = openingFence[2]!;
+      if (!(marker.startsWith("`") && info.includes("`"))) {
+        lines[index] = line.replace(openingFence[1]!, marker);
+        openFence = { marker: marker[0] as "`" | "~", length: marker.length };
+        continue;
+      }
+    }
+
+    lines[index] = normalizeBlockMarkerLine(line);
+  }
+
+  return lines.join("");
+}
+
 const MARKDOWN_PASTE_RE =
-  /(?:^|\n)\s{0,3}(?:#{1,6}\s|[-+*]\s|\d+[.)]\s|>\s|```|~~~|-{3,}\s*$)|(?:\*\*[^*\n]+\*\*|__[^_\n]+__|~~[^~\n]+~~|`[^`\n]+`|\[[^\]\n]+\]\([^\)\n]+\))/u;
+  /(?:^|\n)\s{0,3}(?:[#＃]{1,6}[ \t\u3000]|[-+*－][ \t\u3000]|\d+[.)]\s|(?:1|１)(?:\.|．|、|。)[ \t\u3000]|[>＞》〉][ \t\u3000]|(?:\[[ xX]?\]|【[ \u3000]?】)[ \t\u3000]|```|~~~|｀{3,}|～{3,}|-{3,}\s*$)|(?:\*\*[^*\n]+\*\*|__[^_\n]+__|~~[^~\n]+~~|`[^`\n]+`|\[[^\]\n]+\]\([^\)\n]+\))/u;
 
 export function shouldParseMarkdownPaste(text: string, hasHtml: boolean): boolean {
   const trimmed = text.trim();

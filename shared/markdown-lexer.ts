@@ -62,6 +62,8 @@ export function tokenizeCallout<T>(source: string, blockTokens: (body: string) =
 const STAR_STRONG_RE =
   /^\*\*(?!\*|\s)((?:\\.|(?!\*\*)(?:[^\n\r]|\r?\n(?!\r?\n)))+?)(?<!\*|\s)\*\*(?!\*)/u;
 const UND_STRONG_RE = /^__(?!_|\s)((?:\\.|(?!__)(?:[^\n\r]|\r?\n(?!\r?\n)))+?)(?<!_|\s)__(?!_)/u;
+const UND_EM_CJK_RE =
+  /^_(?!_|\s)((?:\\.|(?!_)(?:[^\n\r]|\r?\n(?!\r?\n)))+?)(?<!_|\s)_(?=[\p{Script=Han}\u3000-\u303f\uff01-\uff0f\uff1a-\uff20\uff3b-\uff40\uff5b-\uff65])/u;
 
 export function createXiangyingMarked() {
   return new Marked({
@@ -87,6 +89,32 @@ export function createXiangyingMarked() {
           if (match) {
             return {
               type: "strong",
+              raw: match[0],
+              text: match[1],
+              tokens: this.lexer.inlineTokens(match[1]),
+            };
+          }
+        },
+      },
+      {
+        name: "em",
+        level: "inline",
+        start(src: string) {
+          return src.indexOf("_");
+        },
+        tokenizer(src: string, tokens: any) {
+          if (!src.startsWith("_")) return;
+          const prev = tokens?.[tokens.length - 1];
+          if (prev && prev.type === "text") {
+            const precedingText = prev.raw || prev.text;
+            const endsWithWordCharacter = /[^\s\p{P}\p{S}]$/u.test(precedingText);
+            const endsWithHanCharacter = /\p{Script=Han}$/u.test(precedingText);
+            if (endsWithWordCharacter && !endsWithHanCharacter) return;
+          }
+          const match = UND_EM_CJK_RE.exec(src);
+          if (match) {
+            return {
+              type: "em",
               raw: match[0],
               text: match[1],
               tokens: this.lexer.inlineTokens(match[1]),

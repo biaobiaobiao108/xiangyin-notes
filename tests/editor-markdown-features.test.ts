@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
+import TaskItem from "@tiptap/extension-task-item";
+import TaskList from "@tiptap/extension-task-list";
 import { Markdown } from "@tiptap/markdown";
 import { Schema } from "@tiptap/pm/model";
 import { EditorState, TextSelection } from "@tiptap/pm/state";
 import { createMarkdownExtension } from "../app/editor/markdown-config";
+import { normalizeChineseMarkdownBlockMarkers } from "../app/editor-metrics";
 import { Info, Table2 } from "lucide-react";
 import { formatPreview } from "../server/core";
 import { extractTags, preserveEscapedHashtagsForEditor } from "../shared/tags";
@@ -106,6 +109,34 @@ describe("escaped hashtag Markdown", () => {
       const serialized = (editor as Editor & { getMarkdown: () => string }).getMarkdown();
       expect(serialized).toContain("#\u2060技术");
       expect(extractTags(serialized)).toEqual(["真实标签"]);
+    } finally {
+      editor.destroy();
+    }
+  });
+});
+
+describe("Chinese Markdown block markers", () => {
+  test("parses normalized Chinese markers as native Markdown blocks", () => {
+    const source = "＃ 标题\n\n－ 列表\n\n１． 有序\n\n＞ 引用\n\n【　】 待办";
+    const editor = new Editor({
+      extensions: [
+        StarterKit.configure({ heading: { levels: [1, 2, 3, 4, 5, 6] } }),
+        TaskList,
+        TaskItem.configure({ nested: true }),
+        createMarkdownExtension(),
+      ],
+      content: normalizeChineseMarkdownBlockMarkers(source),
+      contentType: "markdown",
+    });
+
+    try {
+      expect(editor.state.doc.content.content.map((node) => node.type.name)).toEqual([
+        "heading",
+        "bulletList",
+        "orderedList",
+        "blockquote",
+        "taskList",
+      ]);
     } finally {
       editor.destroy();
     }
@@ -1152,6 +1183,34 @@ describe("slash command matching", () => {
 
       const serialized = (editor as Editor & { getMarkdown: () => string }).getMarkdown();
       expect(serialized).toBe("**判断：**已知人物检索可以搜到报道");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  test("parses underscore italic when CJK text follows without a space", () => {
+    const editor = createMarkdownEditor("_斜体_后续中文");
+    try {
+      const paragraph = editor.state.doc.firstChild;
+      expect(paragraph?.childCount).toBe(2);
+      expect(paragraph?.child(0).text).toBe("斜体");
+      expect(paragraph?.child(0).marks.some((mark) => mark.type.name === "italic")).toBe(true);
+      expect(paragraph?.child(1).text).toBe("后续中文");
+      expect(paragraph?.child(1).marks.length).toBe(0);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  test("parses underscore italic between Chinese text and punctuation", () => {
+    const editor = createMarkdownEditor("前文_斜体_，后续中文");
+    try {
+      const paragraph = editor.state.doc.firstChild;
+      expect(paragraph?.childCount).toBe(3);
+      expect(paragraph?.child(0).text).toBe("前文");
+      expect(paragraph?.child(1).text).toBe("斜体");
+      expect(paragraph?.child(1).marks.some((mark) => mark.type.name === "italic")).toBe(true);
+      expect(paragraph?.child(2).text).toBe("，后续中文");
     } finally {
       editor.destroy();
     }

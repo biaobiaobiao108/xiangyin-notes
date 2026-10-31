@@ -7,6 +7,7 @@ import {
   detectLeakedImePrefix,
   getOutlineStructureKey,
   isMarkdownHeadingMarker,
+  normalizeChineseMarkdownBlockMarkers,
   parseMarkdownBlockShortcut,
   parseMarkdownHeadingPrefix,
   shouldParseMarkdownPaste,
@@ -176,8 +177,43 @@ describe("editor metrics", () => {
       length: 4,
     });
     expect(parseMarkdownBlockShortcut("``` ")).toEqual({ type: "codeBlock", length: 4 });
+    expect(parseMarkdownBlockShortcut("~~~ ")).toEqual({ type: "codeBlock", length: 4 });
     expect(parseMarkdownBlockShortcut("｀｀｀ ")).toEqual({ type: "codeBlock", length: 4 });
+    expect(parseMarkdownBlockShortcut("１． ")).toEqual({ type: "orderedList", length: 3 });
+    expect(parseMarkdownBlockShortcut("1． ")).toEqual({ type: "orderedList", length: 3 });
+    expect(parseMarkdownBlockShortcut("#\t")).toBeNull();
+    expect(parseMarkdownBlockShortcut("~~~\t")).toBeNull();
     expect(parseMarkdownBlockShortcut("普通段落 ")).toBeNull();
+  });
+
+  test("normalizes Chinese Markdown block markers without touching fenced code", () => {
+    const markdown = [
+      "｀｀｀txt",
+      "＃ literal code",
+      "【 】 literal code",
+      "｀｀｀",
+      "",
+      "＃ 标题",
+      "－ 列表",
+      "１． 有序列表",
+      "＞ 引用",
+      "》 【　】 待办",
+    ].join("\n");
+
+    expect(normalizeChineseMarkdownBlockMarkers(markdown)).toBe(
+      [
+        "```txt",
+        "＃ literal code",
+        "【 】 literal code",
+        "```",
+        "",
+        "# 标题",
+        "- 列表",
+        "1. 有序列表",
+        "> 引用",
+        "> - [ ] 待办",
+      ].join("\n"),
+    );
   });
 
   test("does not convert a shortcut-looking prefix inside existing paragraph text", () => {
@@ -190,6 +226,11 @@ describe("editor metrics", () => {
   test("detects Markdown clipboard text without overriding ordinary rich text", () => {
     expect(shouldParseMarkdownPaste("普通文本\n下一行", false)).toBe(true);
     expect(shouldParseMarkdownPaste("# 一级标题\n\n- 列表项", true)).toBe(true);
+    expect(
+      shouldParseMarkdownPaste("＃ 标题\n\n－ 列表\n\n１． 有序\n\n＞ 引用\n\n【　】待办", true),
+    ).toBe(true);
+    expect(shouldParseMarkdownPaste("【　】 待办", true)).toBe(true);
+    expect(shouldParseMarkdownPaste("｀｀｀ts\nconst answer = 42\n｀｀｀", true)).toBe(true);
     expect(shouldParseMarkdownPaste("###### 六级标题", true)).toBe(true);
     expect(shouldParseMarkdownPaste("> 引用\n\n```ts\nconst answer = 42\n```", true)).toBe(true);
     expect(shouldParseMarkdownPaste("网页复制的普通富文本", true)).toBe(false);

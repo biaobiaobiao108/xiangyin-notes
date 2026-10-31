@@ -14,7 +14,6 @@ import { createMarkdownExtension } from "./editor/markdown-config";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import Placeholder from "@tiptap/extension-placeholder";
-import { findWrapping } from "@tiptap/pm/transform";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Selection, type Transaction } from "@tiptap/pm/state";
 import { closeHistory } from "@tiptap/pm/history";
@@ -52,11 +51,11 @@ import {
   countEditorText,
   detectLeakedImePrefix,
   getOutlineStructureKey,
+  normalizeChineseMarkdownBlockMarkers,
   parseMarkdownBlockShortcut,
   shouldParseMarkdownPaste,
   shouldUpdateActiveOutlineFromViewport,
   type EditorStats,
-  type MarkdownBlockShortcut,
   type OutlineItem,
 } from "./editor-metrics";
 import {
@@ -76,7 +75,8 @@ import {
 import { FloatingScrollbar } from "./floating-scrollbar";
 import { relativeDate } from "./format";
 import { normalizeImagesInEmptyListItems } from "./image-markdown";
-import { ImeMarkdownSafeExtension, imeMarkdownSafePluginKey } from "./ime-markdown-safe-extension";
+import { ImeMarkdownSafeExtension } from "./ime-markdown-safe-extension";
+import { executeBlockShortcut, executeBlockShortcutAtSelection } from "./editor/markdown-shortcuts";
 import { editorCoreExtensionOptions } from "./editor/editor-config";
 import { EditorFloatingTools } from "./editor/editor-panels";
 import { ImageNode } from "./editor/image-node";
@@ -660,94 +660,6 @@ export function NoteEditor({
     syncFrameRef.current = window.setTimeout(run, wait);
   };
 
-  const executeBlockShortcut = (
-    view: Editor["view"],
-    from: number,
-    shortcut: MarkdownBlockShortcut,
-  ): boolean => {
-    const $from = view.state.doc.resolve(from);
-    const start = $from.start();
-    const end = from;
-    const tr = view.state.tr.delete(start, end);
-
-    if (shortcut.type === "heading") {
-      const headingNode = view.state.schema.nodes.heading;
-      if (!headingNode) return false;
-      tr.setBlockType(start, start, headingNode, { level: shortcut.level });
-      tr.setMeta(imeMarkdownSafePluginKey, { type: "blockConverted", pos: start });
-      view.dispatch(tr.scrollIntoView());
-      return true;
-    }
-
-    if (shortcut.type === "blockquote") {
-      const blockquoteNode = view.state.schema.nodes.blockquote;
-      const range = tr.doc.resolve(start).blockRange();
-      if (!blockquoteNode || !range) return false;
-      const wrapping = findWrapping(range, blockquoteNode);
-      if (!wrapping) return false;
-      tr.wrap(range, wrapping);
-      tr.setMeta(imeMarkdownSafePluginKey, { type: "blockConverted", pos: start });
-      view.dispatch(tr.scrollIntoView());
-      return true;
-    }
-
-    if (shortcut.type === "bulletList") {
-      const bulletListNode = view.state.schema.nodes.bulletList;
-      const range = tr.doc.resolve(start).blockRange();
-      if (!bulletListNode || !range) return false;
-      const wrapping = findWrapping(range, bulletListNode);
-      if (!wrapping) return false;
-      tr.wrap(range, wrapping);
-      tr.setMeta(imeMarkdownSafePluginKey, { type: "blockConverted", pos: start });
-      view.dispatch(tr.scrollIntoView());
-      return true;
-    }
-
-    if (shortcut.type === "orderedList") {
-      const orderedListNode = view.state.schema.nodes.orderedList;
-      const range = tr.doc.resolve(start).blockRange();
-      if (!orderedListNode || !range) return false;
-      const wrapping = findWrapping(range, orderedListNode);
-      if (!wrapping) return false;
-      tr.wrap(range, wrapping);
-      tr.setMeta(imeMarkdownSafePluginKey, { type: "blockConverted", pos: start });
-      view.dispatch(tr.scrollIntoView());
-      return true;
-    }
-
-    if (shortcut.type === "taskList") {
-      const taskListNode = view.state.schema.nodes.taskList;
-      const range = tr.doc.resolve(start).blockRange();
-      if (!taskListNode || !range) return false;
-      const wrapping = findWrapping(range, taskListNode);
-      if (!wrapping) return false;
-      tr.wrap(range, wrapping);
-      tr.setMeta(imeMarkdownSafePluginKey, { type: "blockConverted", pos: start });
-      view.dispatch(tr.scrollIntoView());
-      return true;
-    }
-
-    if (shortcut.type === "codeBlock") {
-      const codeBlockNode = view.state.schema.nodes.codeBlock;
-      if (!codeBlockNode) return false;
-      tr.setBlockType(start, start, codeBlockNode);
-      tr.setMeta(imeMarkdownSafePluginKey, { type: "blockConverted", pos: start });
-      view.dispatch(tr.scrollIntoView());
-      return true;
-    }
-
-    return false;
-  };
-
-  const executeBlockShortcutAtSelection = (view: Editor["view"]): boolean => {
-    if (view.isDestroyed || !view.state.selection.empty) return false;
-    const { $from } = view.state.selection;
-    if ($from.parent.type.name !== "paragraph") return false;
-    const textBefore = $from.parent.textBetween(0, $from.parentOffset, undefined, "\uFFFC");
-    const shortcut = parseMarkdownBlockShortcut(textBefore);
-    return shortcut ? executeBlockShortcut(view, $from.pos, shortcut) : false;
-  };
-
   const extensions = useMemo(
     () => [
       StarterKit.configure({
@@ -981,7 +893,9 @@ export function NoteEditor({
         if (!markdownManager) return false;
         try {
           const parsedDocument = view.state.schema.nodeFromJSON(
-            markdownManager.parse(prepareMarkdownForEditor(text)),
+            markdownManager.parse(
+              prepareMarkdownForEditor(normalizeChineseMarkdownBlockMarkers(text)),
+            ),
           );
           const slice = parsedDocument.slice(0, parsedDocument.content.size);
           view.dispatch(view.state.tr.replaceSelection(slice).setMeta("uiEvent", "paste"));
