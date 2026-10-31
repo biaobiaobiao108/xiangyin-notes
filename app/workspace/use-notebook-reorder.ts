@@ -43,13 +43,13 @@ export function useNotebookReorder(
     if (disabled || ids.length < 2 || event.button !== 0 || !event.isPrimary) return;
     if (event.pointerType !== "touch") event.preventDefault();
     event.stopPropagation();
+    const button = event.currentTarget;
     const list = listRef.current;
     const source = event.currentTarget.closest<HTMLElement>("[data-sort-id]");
     if (!list || !source) return;
     cancelRef.current?.();
     const original = [...ids];
     const startY = event.clientY;
-    const rect = source.getBoundingClientRect();
     let y = startY;
     let x = event.clientX;
     let active = false;
@@ -108,16 +108,39 @@ export function useNotebookReorder(
         ? others.findIndex((row) => y < row.getBoundingClientRect().top + row.offsetHeight / 2)
         : -1;
       if (inside && target === -1) target = others.length;
-      preview!.style.transform = `translateY(${y - startY}px)`;
+      const previewBounds = preview!.getBoundingClientRect();
+      const previewLeft = Math.max(
+        8,
+        Math.min(
+          event.pointerType === "touch" ? x + 16 : bounds.right + 12,
+          window.innerWidth - previewBounds.width - 8,
+        ),
+      );
+      let previewTop = Math.max(
+        8,
+        Math.min(y - previewBounds.height - 16, window.innerHeight - previewBounds.height - 8),
+      );
       line!.style.display = target < 0 || target === original.indexOf(id) ? "none" : "block";
       if (target >= 0) {
         const anchor = others[target] ?? others.at(-1);
         if (anchor) {
           const box = anchor.getBoundingClientRect();
           const top = target === others.length ? box.bottom : box.top;
-          line!.style.cssText += `;left:${bounds.left + 8}px;width:${bounds.width - 16}px;top:${Math.max(bounds.top, Math.min(bounds.bottom, top))}px`;
+          const lineTop = Math.max(bounds.top, Math.min(bounds.bottom, top));
+          line!.style.left = `${bounds.left + 8}px`;
+          line!.style.width = `${bounds.width - 16}px`;
+          line!.style.top = `${lineTop}px`;
+          // Keep the label clear of the insertion marker, including near viewport edges.
+          if (previewTop < lineTop + 8 && previewTop + previewBounds.height > lineTop - 8) {
+            previewTop =
+              lineTop - previewBounds.height - 10 >= 8
+                ? lineTop - previewBounds.height - 10
+                : lineTop + 10;
+          }
         }
       }
+      preview!.style.left = `${previewLeft}px`;
+      preview!.style.top = `${previewTop}px`;
       frame = requestAnimationFrame(tick);
     };
     const move = (e: globalThis.PointerEvent) => {
@@ -131,11 +154,17 @@ export function useNotebookReorder(
       if (armed && !active && Math.abs(y - startY) >= 5) {
         suppressClick.current = true;
         active = true;
-        preview = source.cloneNode(true) as HTMLElement;
-        preview.removeAttribute("id");
+        preview = document.createElement("div");
         preview.setAttribute("aria-hidden", "true");
-        preview.classList.add("notebook-drag-preview");
-        preview.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;height:${rect.height}px`;
+        preview.className = "notebook-drag-preview";
+        const icon = button.querySelector("svg");
+        const name = button.querySelector(
+          ".mobile-notebook-name, :scope > span:not(.mobile-notebook-icon)",
+        );
+        if (icon) preview.append(icon.cloneNode(true));
+        const label = document.createElement("span");
+        label.textContent = name?.textContent ?? "笔记本";
+        preview.append(label);
         document.body.append(preview);
         line = document.createElement("div");
         line.className = "notebook-sort-line";

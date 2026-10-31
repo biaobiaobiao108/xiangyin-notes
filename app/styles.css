@@ -3861,13 +3861,10 @@ dialog::backdrop {
 
 
 /* Sorting never inserts a spacer or changes row dimensions. */
-.is-notebook-dragging { opacity: .12; }
-.notebook-drag-preview { z-index: 1000; pointer-events: none; list-style: none; background: var(--canvas); color: var(--ink); border-radius: var(--radius-sm); box-shadow: none; }
-.notebook-drag-preview .notebook-row-wrap,
-.notebook-drag-preview .swipe-action-foreground { background: transparent; color: var(--ink); box-shadow: none; }
-.notebook-drag-preview .swipe-action-buttons { visibility: hidden; }
-.notebook-sort-line { position: fixed; z-index: 1001; pointer-events: none; height: 1px; color: color-mix(in srgb, var(--accent) 52%, var(--surface)); background: currentColor; }
-.notebook-sort-line::before, .notebook-sort-line::after { content: ""; position: absolute; top: -2px; width: 5px; height: 5px; box-sizing: border-box; border: 1px solid currentColor; border-radius: 50%; background: var(--canvas); }
-.notebook-sort-line::before { left: -2px; }
-.notebook-sort-line::after { right: -2px; }
+.is-notebook-dragging { opacity: .22; }
+.notebook-drag-preview { position: fixed; z-index: 1001; display: flex; align-items: center; gap: 8px; max-width: min(200px, calc(100vw - 16px)); min-height: 30px; padding: 5px 9px; pointer-events: none; background: var(--canvas); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; font-size: .82rem; line-height: 20px; }
+.notebook-drag-preview > svg { width: 15px; height: 15px; flex-shrink: 0; color: var(--muted); }
+.notebook-drag-preview > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notebook-sort-line { position: fixed; z-index: 1000; pointer-events: none; height: 2px; border-radius: 1px; background: color-mix(in srgb, var(--accent) 48%, var(--surface)); }
+.notebook-sort-line::before { content: ""; position: absolute; left: -1px; top: -1px; width: 4px; height: 4px; border-radius: 50%; background: inherit; }
 .is-sorting-notebooks, .is-sorting-notebooks * { cursor: grabbing !important; user-select: none !important; }
