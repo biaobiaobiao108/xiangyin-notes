@@ -16,7 +16,6 @@ import {
 } from "react";
 import {
   Archive,
-  GripVertical,
   ChevronDown,
   ChevronLeft,
   LayoutPanelLeft,
@@ -223,10 +222,8 @@ const SidebarNotebookRow = memo(function SidebarNotebookRow({
   return (
     <li className="notebook-row-item" data-sort-id={notebook.id}>
       <div className={`notebook-row-wrap ${isActive ? "is-active" : ""} ${drop.className}`.trim()}>
-        <button {...sortHandle}>
-          <GripVertical size={14} />
-        </button>
         <button
+          {...sortHandle}
           className="notebook-item"
           type="button"
           aria-label={`${notebook.name}，${notebook.count} 篇笔记`}

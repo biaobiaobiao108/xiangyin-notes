@@ -1,7 +1,6 @@
 import { Fragment, memo, useRef, type CSSProperties, type RefObject } from "react";
 import {
   ChevronRight,
-  GripVertical,
   FolderPlus,
   LogOut,
   ListTodo,
@@ -174,13 +173,8 @@ export const MobileNotebookHome = memo(function MobileNotebookHome({
                       className="mobile-notebook-row"
                       data-sort-id={notebook.id}
                     >
-                      <button
-                        {...sortHandle(notebook.id)}
-                        onClick={() => swipeActions.setOpenId(null)}
-                      >
-                        <GripVertical size={16} />
-                      </button>
                       <MobileNotebookLink
+                        sortHandle={sortHandle(notebook.id)}
                         notebook={notebook}
                         selected={notebook.id === notebookId}
                         onOpen={setNotebookId}
@@ -219,6 +213,7 @@ export const MobileNotebookHome = memo(function MobileNotebookHome({
 });
 
 function MobileNotebookLink({
+  sortHandle,
   notebook,
   selected,
   onOpen,
@@ -227,6 +222,7 @@ function MobileNotebookLink({
   open,
   setOpenId,
 }: {
+  sortHandle: ReturnType<ReturnType<typeof useNotebookReorder>>;
   notebook: Notebook;
   selected: boolean;
   onOpen: (id: string) => void;
@@ -290,6 +286,7 @@ function MobileNotebookLink({
         </button>
       </div>
       <button
+        {...sortHandle}
         ref={foregroundRef}
         type="button"
         className="mobile-notebook-link mobile-notebook-link--editable swipe-action-foreground"
@@ -298,6 +295,7 @@ function MobileNotebookLink({
         aria-expanded={open}
         aria-controls={`notebook-actions-${notebook.id}`}
         onKeyDown={(event) => {
+          sortHandle.onKeyDown(event);
           if (event.key === "F2") {
             event.preventDefault();
             onEdit(notebook);

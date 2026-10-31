@@ -14,6 +14,7 @@ export function useNotebookReorder(
   disabled: boolean,
 ) {
   const cancelRef = useRef<(() => void) | null>(null);
+  const suppressClick = useRef(false);
   const positions = useRef(new Map<string, number>());
   const signature = ids.join("\0");
   useLayoutEffect(() => {
@@ -40,7 +41,7 @@ export function useNotebookReorder(
 
   function handlePointerDown(event: PointerEvent<HTMLButtonElement>, id: string) {
     if (disabled || ids.length < 2 || event.button !== 0 || !event.isPrimary) return;
-    event.preventDefault();
+    if (event.pointerType !== "touch") event.preventDefault();
     event.stopPropagation();
     const list = listRef.current;
     const source = event.currentTarget.closest<HTMLElement>("[data-sort-id]");
@@ -52,12 +53,21 @@ export function useNotebookReorder(
     let y = startY;
     let x = event.clientX;
     let active = false;
+    let armed = event.pointerType !== "touch";
+    const holdTimer = window.setTimeout(() => {
+      armed = true;
+    }, 350);
     let target = -1;
     let frame = 0;
     let preview: HTMLElement | null = null;
     let line: HTMLElement | null = null;
     const rows = Array.from(list.querySelectorAll<HTMLElement>("[data-sort-id]"));
     const cleanup = () => {
+      clearTimeout(holdTimer);
+      setTimeout(() => {
+        suppressClick.current = false;
+      }, 0);
+      window.removeEventListener("touchmove", preventScroll);
       cancelAnimationFrame(frame);
       preview?.remove();
       line?.remove();
@@ -69,6 +79,9 @@ export function useNotebookReorder(
       window.removeEventListener("blur", cancel);
       window.removeEventListener("keydown", key, true);
       cancelRef.current = null;
+    };
+    const preventScroll = (e: TouchEvent) => {
+      if (armed && e.cancelable) e.preventDefault();
     };
     const cancel = () => cleanup();
     const key = (e: globalThis.KeyboardEvent) => {
@@ -111,7 +124,12 @@ export function useNotebookReorder(
       if (e.pointerId !== event.pointerId) return;
       y = e.clientY;
       x = e.clientX;
-      if (!active && Math.abs(y - startY) >= 5) {
+      if (!armed && Math.hypot(x - event.clientX, y - startY) > 6) {
+        cleanup();
+        return;
+      }
+      if (armed && !active && Math.abs(y - startY) >= 5) {
+        suppressClick.current = true;
         active = true;
         preview = source.cloneNode(true) as HTMLElement;
         preview.removeAttribute("id");
@@ -147,6 +165,7 @@ export function useNotebookReorder(
       if (changed) void onReorder(next, original);
     };
     cancelRef.current = cleanup;
+    window.addEventListener("touchmove", preventScroll, { passive: false });
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", end);
     window.addEventListener("pointercancel", cancel);
@@ -169,9 +188,11 @@ export function useNotebookReorder(
   return (id: string) => ({
     onPointerDown: (event: PointerEvent<HTMLButtonElement>) => handlePointerDown(event, id),
     onKeyDown: (event: KeyboardEvent<HTMLButtonElement>) => handleKeyDown(event, id),
-    disabled: disabled || ids.length < 2,
-    "aria-label": "拖动排序，或按 Alt 加上下方向键调整顺序",
-    className: "notebook-sort-handle",
-    type: "button" as const,
+    onClickCapture: (event: import("react").MouseEvent<HTMLButtonElement>) => {
+      if (suppressClick.current) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    },
   });
 }
