@@ -291,7 +291,6 @@ const KanbanColumnView = memo(function KanbanColumnView({
   const [dropIndicatorIndex, setDropIndicatorIndex] = useState<number | null>(null);
 
   const virtual = useVirtualKanbanColumn(cards, scrollRef);
-  const Icon = column.icon;
 
   const handleDragOver = (e: ReactDragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -341,7 +340,10 @@ const KanbanColumnView = memo(function KanbanColumnView({
     >
       <div className="kanban-column-header">
         <div className="kanban-column-title-group">
-          <Icon size={16} className="kanban-column-icon" />
+          <span
+            className={`kanban-column-dot kanban-column-dot--${column.id}`}
+            aria-hidden="true"
+          />
           <h3 className="kanban-column-title">{column.title}</h3>
           <span className="kanban-column-count">{cards.length}</span>
         </div>
@@ -356,7 +358,7 @@ const KanbanColumnView = memo(function KanbanColumnView({
           </button>
           <button
             type="button"
-            className="kanban-icon-btn kanban-icon-btn--primary"
+            className="kanban-icon-btn"
             aria-label={`在${column.title}新建笔记`}
             onClick={() => onCreateNote(column.id)}
           >
@@ -731,14 +733,20 @@ export const KanbanPanel = memo(function KanbanPanel({
     [cardsByColumn, onMoveCard],
   );
 
-  // Drop on Bottom Trash Zone
+  // Drop on Corner Trash Zone
   const handleTrashDragOver = (e: ReactDragEvent<HTMLDivElement>) => {
     e.preventDefault();
+    e.stopPropagation();
     e.dataTransfer.dropEffect = "move";
     setTrashOver(true);
   };
+  const handleTrashDragLeave = (e: ReactDragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setTrashOver(false);
+  };
   const handleTrashDrop = (e: ReactDragEvent<HTMLDivElement>) => {
     e.preventDefault();
+    e.stopPropagation();
     setTrashOver(false);
     const payload = parseKanbanDragPayload(e.dataTransfer);
     const noteIds = parseNoteIdsFromDrag(e.dataTransfer);
@@ -749,14 +757,20 @@ export const KanbanPanel = memo(function KanbanPanel({
     setDraggingCard(null);
   };
 
-  // Drop on Bottom Archive Zone
+  // Drop on Corner Archive Zone
   const handleArchiveDragOver = (e: ReactDragEvent<HTMLDivElement>) => {
     e.preventDefault();
+    e.stopPropagation();
     e.dataTransfer.dropEffect = "move";
     setArchiveOver(true);
   };
+  const handleArchiveDragLeave = (e: ReactDragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setArchiveOver(false);
+  };
   const handleArchiveDrop = (e: ReactDragEvent<HTMLDivElement>) => {
     e.preventDefault();
+    e.stopPropagation();
     setArchiveOver(false);
     const payload = parseKanbanDragPayload(e.dataTransfer);
     const noteIds = parseNoteIdsFromDrag(e.dataTransfer);
@@ -938,29 +952,41 @@ export const KanbanPanel = memo(function KanbanPanel({
         )}
       </div>
 
-      {/* Floating Bottom Drop Zones during drag */}
+      {/* Corner Drop Zones during drag (左下角移动到回收站，右下角归档) */}
       {draggingCard !== null && (
-        <div className="kanban-floating-drop-zones">
+        <>
           <div
-            className={`kanban-drop-zone kanban-drop-zone--trash ${trashOver ? "is-over" : ""}`}
+            className={`kanban-corner-zone kanban-corner-zone--trash ${trashOver ? "is-over" : ""}`}
             onDragOver={handleTrashDragOver}
-            onDragLeave={() => setTrashOver(false)}
+            onDragLeave={handleTrashDragLeave}
             onDrop={handleTrashDrop}
+            role="region"
+            aria-label="拖拽至此移到回收站"
           >
-            <Trash2 size={20} />
-            <span>移动到回收站</span>
+            <div className="kanban-corner-zone-content">
+              <div className="kanban-corner-icon-circle">
+                <Trash2 size={18} className="kanban-corner-icon" />
+              </div>
+              <span className="kanban-corner-label">移到回收站</span>
+            </div>
           </div>
 
           <div
-            className={`kanban-drop-zone kanban-drop-zone--archive ${archiveOver ? "is-over" : ""}`}
+            className={`kanban-corner-zone kanban-corner-zone--archive ${archiveOver ? "is-over" : ""}`}
             onDragOver={handleArchiveDragOver}
-            onDragLeave={() => setArchiveOver(false)}
+            onDragLeave={handleArchiveDragLeave}
             onDrop={handleArchiveDrop}
+            role="region"
+            aria-label="拖拽至此归档"
           >
-            <Archive size={20} />
-            <span>归档</span>
+            <div className="kanban-corner-zone-content">
+              <div className="kanban-corner-icon-circle">
+                <Archive size={18} className="kanban-corner-icon" />
+              </div>
+              <span className="kanban-corner-label">归档</span>
+            </div>
           </div>
-        </div>
+        </>
       )}
 
       {/* Add Existing Note Dialog */}
