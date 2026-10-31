@@ -20,7 +20,6 @@ import {
   ChevronLeft,
   LayoutPanelLeft,
   ListTodo,
-  LogOut,
   Menu,
   Plus,
   RotateCcw,
@@ -292,7 +291,6 @@ export const Sidebar = memo(function Sidebar({
   onCreateNotebook,
   collapsed,
   onCollapse,
-  onLogout,
   onMoveNotesToNotebook,
   onTrashNotes,
   tasksActive,
@@ -314,7 +312,6 @@ export const Sidebar = memo(function Sidebar({
   onCreateNotebook: () => void;
   collapsed: boolean;
   onCollapse: () => void;
-  onLogout: () => void;
   onMoveNotesToNotebook?: (ids: string[], notebookId: string) => void;
   onTrashNotes?: (ids: string[]) => void;
   tasksActive: boolean;
@@ -493,12 +490,6 @@ export const Sidebar = memo(function Sidebar({
             </ul>
           </div>
         </div>
-      </div>
-      <div className="sidebar-bottom">
-        <button className="nav-item" type="button" aria-label="退出登录" onClick={onLogout}>
-          <LogOut size={18} />
-          <span>退出登录</span>
-        </button>
       </div>
     </aside>
   );

@@ -20,6 +20,7 @@ import {
   FolderInput,
   ImageDown,
   LayoutGrid,
+  LogOut,
   Maximize2,
   Monitor,
   Moon,
@@ -43,6 +44,7 @@ import { altKey, modKey } from "./platform";
 import type { ThemePreference } from "./theme";
 
 export type CommandId =
+  | "logout"
   | "new-note"
   | "search-notes"
   | "find-in-note"
@@ -294,6 +296,13 @@ export function CommandMenu({
       ...(canRestore
         ? [{ id: "restore" as const, label: "恢复笔记", shortcut: "↵", icon: Archive }]
         : []),
+      {
+        id: "logout",
+        label: "退出登录",
+        shortcut: "↵",
+        icon: LogOut,
+        keywords: "登出 注销 logout sign out",
+      },
       ...(!standalone && (canInstallApp || showIosInstallHint)
         ? [{ id: "install-app" as const, label: "安装象映笔记", shortcut: "↵", icon: Download }]
         : []),

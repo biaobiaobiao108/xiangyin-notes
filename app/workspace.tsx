@@ -2543,8 +2543,19 @@ export function Workspace() {
       notifyError("复制失败，请检查浏览器剪贴板权限");
     }
   }, []);
+  const logout = useCallback(async () => {
+    await flushPendingSaves("now");
+    if (hasUnsavedWork()) {
+      notifyWarning("仍有内容未保存，请稍后再退出");
+      return;
+    }
+    await api.logout().catch(() => undefined);
+    clearAllDraftRecoveries();
+    navigate(`/login${window.location.search}`, { replace: true });
+  }, [flushPendingSaves, navigate]);
   const command = useCallback(
     (id: CommandId) => {
+      if (id === "logout") void logout();
       if (id === "new-note") void createNoteInInbox();
       if (id === "find-in-note") {
         const selectedText = window.getSelection()?.toString().trim() ?? "";
@@ -2577,6 +2588,7 @@ export function Workspace() {
       }
     },
     [
+      logout,
       copyNoteMarkdown,
       createNoteInInbox,
       handleExportImage,
@@ -2610,16 +2622,6 @@ export function Workspace() {
         `${window.location.pathname}${window.location.hash}`,
       );
   }, [createNoteInInbox, openMobileList, ready]);
-  const logout = useCallback(async () => {
-    await flushPendingSaves("now");
-    if (hasUnsavedWork()) {
-      notifyWarning("仍有内容未保存，请稍后再退出");
-      return;
-    }
-    await api.logout().catch(() => undefined);
-    clearAllDraftRecoveries();
-    navigate(`/login${window.location.search}`, { replace: true });
-  }, [flushPendingSaves, navigate]);
   const updatePwa = useCallback(async () => {
     await flushPendingSaves("now");
     if (hasUnsavedWork()) {
@@ -3252,7 +3254,6 @@ export function Workspace() {
           onCreateNotebook={handleCreateNotebook}
           collapsed={sidebarCollapsed}
           onCollapse={handleCollapseSidebar}
-          onLogout={logout}
           onMoveNotesToNotebook={handleMoveNotesToNotebook}
           onTrashNotes={handleTrashNotes}
           tasksActive={tasksOpen}

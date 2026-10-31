@@ -399,7 +399,6 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
   box-shadow: var(--shadow-xs);
 }
 .notebook-row-wrap .notebook-item { width: 100%; min-width: 0; color: inherit; background: transparent; }
-.sidebar-bottom { display: grid; gap: 10px; margin-top: auto; }
 .sidebar-collapsed .brand-name, .sidebar-collapsed .new-note-button, .sidebar-collapsed .search-box, .sidebar-collapsed .nav-item span, .sidebar-collapsed .notebook-section { display: none; }
 .sidebar-collapsed .sidebar { align-items: center; padding-inline: 10px; }
 .sidebar-collapsed .brand-row { flex-direction: column; justify-content: center; gap: 10px; }
