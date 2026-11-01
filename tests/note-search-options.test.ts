@@ -4,7 +4,6 @@ import { handleRequest } from "../server/index";
 import { waitForOrphanAssetCleanup } from "../server/routes/assets";
 import { ensureEnvironmentUser } from "../server/routes/auth";
 import { createNote } from "../server/routes/notes";
-import { extractShortSearchTerms, syncNoteShortSearchTerms } from "../server/note-search";
 
 async function fixture() {
   const database = await openDatabase(":memory:");
@@ -38,6 +37,15 @@ async function fixture() {
     list: (params: string) =>
       handleRequest(
         new Request(`http://search.test/api/notes?${params}`, { headers: { Cookie: cookie } }),
+        { database, environment },
+      ),
+    update: (noteId: string, payload: unknown) =>
+      handleRequest(
+        new Request(`http://search.test/api/notes/${noteId}`, {
+          method: "PATCH",
+          headers: { Cookie: cookie },
+          body: JSON.stringify(payload),
+        }),
         { database, environment },
       ),
   };
@@ -166,10 +174,113 @@ test("short ASCII searches match indexed mixed-case title terms", async () => {
   }
 });
 
+test("short searches preserve mixed ASCII and CJK substring matching", async () => {
+  const f = await fixture();
+  try {
+    const note = f.create("Docker 笔记", "项目记录和猫狗日常");
+    const cases = [
+      ["d", note],
+      ["DO", note],
+      ["猫", note],
+      ["猫狗", note],
+      ["Docker 猫", note],
+    ] as const;
+
+    for (const [query, expected] of cases) {
+      const result = await (await f.list(`query=${encodeURIComponent(query)}`)).json();
+      expect(result.notes.map((item: { id: string }) => item.id)).toContain(expected);
+    }
+
+    const partial = await (await f.list("query=%E7%8C%AB%E9%B8%A1")).json();
+    expect(partial.notes.map((item: { id: string }) => item.id)).not.toContain(note);
+  } finally {
+    await waitForOrphanAssetCleanup(f.database);
+    f.database.close();
+  }
+});
+
+test("short search finds terms after both content-index boundaries", async () => {
+  const f = await fixture();
+  try {
+    const afterContentLimit = f.create("边界笔记", `${"甲".repeat(40_100)}后缀词`);
+    const afterTermLimit = f.create(
+      "另一篇边界笔记",
+      `${Array.from({ length: 520 }, (_, index) => String.fromCodePoint(0x4e00 + index)).join(" ")}尾部词`,
+    );
+
+    for (const [query, expected] of [
+      ["后缀", afterContentLimit],
+      ["尾部", afterTermLimit],
+    ] as const) {
+      const result = await (
+        await f.list(`query=${encodeURIComponent(query)}&sort=relevance`)
+      ).json();
+      expect(result.notes.map((item: { id: string }) => item.id)).toContain(expected);
+    }
+  } finally {
+    await waitForOrphanAssetCleanup(f.database);
+    f.database.close();
+  }
+});
+
+test("short search results stay inside the signed-in user's notes", async () => {
+  const f = await fixture();
+  try {
+    const otherUser = await ensureEnvironmentUser(f.database, {
+      username: "other-search-owner",
+      password: "another-search-test-password",
+    });
+    const otherInbox = f.database
+      .query("SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1")
+      .get(otherUser.id) as { id: string };
+    const privateMatch = createNote(f.database, otherUser.id, otherInbox.id, "私人笔记", "星云");
+    const ownMatch = f.create("自己的笔记", "星云");
+
+    const result = await (await f.list("query=%E6%98%9F%E4%BA%91&sort=relevance")).json();
+    const ids = result.notes.map((item: { id: string }) => item.id);
+    expect(ids).toContain(ownMatch);
+    expect(ids).not.toContain(privateMatch);
+    expect(result.total).toBe(1);
+  } finally {
+    await waitForOrphanAssetCleanup(f.database);
+    f.database.close();
+  }
+});
+
+test("short-query cursors return every matching note once", async () => {
+  const f = await fixture();
+  try {
+    const expected = new Set([
+      f.create("猫一", "共同内容"),
+      f.create("猫二", "共同内容"),
+      f.create("猫三", "共同内容"),
+    ]);
+    f.create("狗", "无关内容");
+    let cursor = "";
+    const ids: string[] = [];
+    while (true) {
+      const result = await (
+        await f.list(
+          `query=%E7%8C%AB&sort=relevance&limit=1${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+        )
+      ).json();
+      ids.push(...result.notes.map((item: { id: string }) => item.id));
+      if (!result.nextCursor) break;
+      cursor = result.nextCursor;
+    }
+
+    expect(ids).toHaveLength(expected.size);
+    expect(new Set(ids)).toEqual(expected);
+  } finally {
+    await waitForOrphanAssetCleanup(f.database);
+    f.database.close();
+  }
+});
+
 test("short-term indexing and fallback share a Unicode code-point boundary", async () => {
   const f = await fixture();
   try {
-    const note = f.create("表情笔记", `${"😀".repeat(2500)}末尾`);
+    const note = f.create("表情笔记", `${"😀".repeat(40_001)}末尾`);
     const result = await (await f.list("query=末尾")).json();
     expect(result.notes.map((item: { id: string }) => item.id)).toContain(note);
   } finally {
@@ -178,34 +289,31 @@ test("short-term indexing and fallback share a Unicode code-point boundary", asy
   }
 });
 
-test("short-term index updates remove stale terms and preserve shared and unrelated terms", async () => {
+test("short-search updates remove old content matches and retain shared and unrelated notes", async () => {
   const f = await fixture();
   try {
-    const changed = f.create("Docker 手册", "旧词和关联");
-    const untouched = f.create("另一篇笔记", "独立内容");
-    const userId = f.database.query("SELECT user_id FROM notes WHERE id = ?").get(changed) as {
-      user_id: string;
-    };
-    const untouchedTerms = f.database
-      .query("SELECT term FROM note_short_terms WHERE note_id = ? ORDER BY term")
-      .all(untouched);
+    const changed = f.create("Docker 手册", "旧词和共同词");
+    const untouched = f.create("另一篇笔记", "独立内容和共同词");
+    const noteResponse = (await f.database
+      .query("SELECT version FROM notes WHERE id = ?")
+      .get(changed)) as { version: number };
+    const saved = await f.update(changed, {
+      version: noteResponse.version,
+      title: "SQLite 手册",
+      contentMarkdown: "新词和共同词",
+    });
+    expect(saved.status).toBe(200);
 
-    syncNoteShortSearchTerms(f.database, userId.user_id, changed, "SQLite 手册", "新词和关联");
-
-    const actualTerms = f.database
-      .query("SELECT term FROM note_short_terms WHERE note_id = ? ORDER BY term")
-      .all(changed) as Array<{ term: string }>;
-    expect(actualTerms.map(({ term }) => term)).toEqual(
-      [...extractShortSearchTerms("SQLite 手册", "新词和关联")].sort(),
+    const search = async (query: string) =>
+      (await f.list(`query=${encodeURIComponent(query)}`)).json();
+    expect((await search("旧词")).notes.map((note: { id: string }) => note.id)).not.toContain(
+      changed,
     );
-    expect(actualTerms.map(({ term }) => term)).not.toContain("Docker");
-    expect(actualTerms.map(({ term }) => term)).not.toContain("旧词");
-    expect(actualTerms.map(({ term }) => term)).toContain("关联");
-    expect(
-      f.database
-        .query("SELECT term FROM note_short_terms WHERE note_id = ? ORDER BY term")
-        .all(untouched),
-    ).toEqual(untouchedTerms);
+    expect((await search("新词")).notes.map((note: { id: string }) => note.id)).toContain(changed);
+    const common = await search("共同词");
+    expect(new Set(common.notes.map((note: { id: string }) => note.id))).toEqual(
+      new Set([changed, untouched]),
+    );
   } finally {
     await waitForOrphanAssetCleanup(f.database);
     f.database.close();

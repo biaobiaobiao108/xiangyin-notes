@@ -10,6 +10,7 @@ import {
   openDatabase,
   type SchemaMigration,
 } from "../server/db";
+import { shortSearchToken } from "../server/note-search";
 
 test("initializes a fresh database from the single baseline and records its version", async () => {
   const database = await openDatabase(":memory:");
@@ -439,11 +440,11 @@ test("keeps the kanban table and indexes in the current schema", async () => {
   }
 });
 
-test("rebuilds the short-term search index during the version 8 migration", async () => {
+test("rebuilds short-search FTS from notes and drops the legacy term table", async () => {
   const database = new Database(":memory:");
   database.exec(await Bun.file("database/schema.sql").text());
   try {
-    await initializeDatabase(database, { currentSchemaVersion: 8 });
+    await initializeDatabase(database, { currentSchemaVersion: 9 });
     database
       .query(
         "INSERT INTO users (id, username, password_hash, password_salt, created_at) VALUES (?, ?, ?, ?, ?)",
@@ -458,58 +459,37 @@ test("rebuilds the short-term search index during the version 8 migration", asyn
       .query(
         "INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
       )
-      .run("note", "user", "notebook", "Note", "", 1, 1);
+      .run("note", "user", "notebook", "Docker", "正文包含你好和Docker", 1, 1);
     database
       .query("INSERT INTO note_short_terms (note_id, user_id, term) VALUES (?, ?, ?)")
-      .run("note", "user", "Docker");
+      .run("note", "user", "do");
+    database
+      .query("INSERT INTO note_short_terms (note_id, user_id, term) VALUES (?, ?, ?)")
+      .run("note", "user", "旧的派生索引词");
 
     await initializeDatabase(database);
 
-    const indexSql = database
-      .query("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?")
-      .get("idx_note_short_terms_user_term") as { sql: string };
-    expect(indexSql.sql).toContain("term COLLATE NOCASE");
+    const shortFts = (term: string) =>
+      database
+        .query("SELECT rowid FROM notes_short_fts WHERE notes_short_fts MATCH ?")
+        .all(shortSearchToken(term));
+    const row = database.query("SELECT rowid FROM notes WHERE id = ?").get("note") as {
+      rowid: number;
+    };
+    expect(shortFts("do")).toEqual([{ rowid: row.rowid }]);
+    expect(shortFts("你好")).toEqual([{ rowid: row.rowid }]);
+    expect(shortFts("旧")).toEqual([]);
     expect(
-      database.query("SELECT term FROM note_short_terms WHERE note_id = ?").all("note"),
-    ).toEqual([{ term: "Docker" }]);
+      database
+        .query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+        .get("note_short_terms"),
+    ).toBeNull();
     expect(database.query("PRAGMA user_version").get()).toEqual({
       user_version: CURRENT_SCHEMA_VERSION,
     });
 
-    const plan = database
-      .query(
-        "EXPLAIN QUERY PLAN SELECT 1 FROM note_short_terms WHERE user_id = ? AND term = ? COLLATE NOCASE AND note_id = ?",
-      )
-      .all("user", "docker", "note") as Array<{ detail: string }>;
-    const details = plan.map(({ detail }) => detail).join(" ");
-    expect(details).toContain("idx_note_short_terms_user_term");
-    expect(details).toContain("user_id=? AND term=? AND note_id=?");
-  } finally {
-    database.close();
-  }
-});
-
-test("uses the short-term primary key for per-note term reads and deletes", async () => {
-  const database = await openDatabase(":memory:");
-  try {
-    for (const sql of [
-      "SELECT term FROM note_short_terms INDEXED BY sqlite_autoindex_note_short_terms_1 WHERE note_id = ? AND user_id = ?",
-      "DELETE FROM note_short_terms INDEXED BY sqlite_autoindex_note_short_terms_1 WHERE note_id = ? AND term = ? AND user_id = ?",
-      "SELECT 1 FROM note_short_terms bounded_terms INDEXED BY sqlite_autoindex_note_short_terms_1 WHERE bounded_terms.note_id = ? AND bounded_terms.user_id = ? LIMIT 1 OFFSET ?",
-    ]) {
-      const parameters = sql.includes("term = ? AND user_id")
-        ? ["note", "term", "user"]
-        : sql.includes("OFFSET")
-          ? ["note", "user", 499]
-          : ["note", "user"];
-      const plan = database.query(`EXPLAIN QUERY PLAN ${sql}`).all(...parameters) as Array<{
-        detail: string;
-      }>;
-      const details = plan.map(({ detail }) => detail).join(" ");
-      expect(details).toContain("sqlite_autoindex_note_short_terms_1");
-      expect(details).toContain("note_id=?");
-      expect(details).not.toContain("user_id=? AND term=?");
-    }
+    database.query("DELETE FROM notes WHERE id = ?").run("note");
+    expect(shortFts("do")).toEqual([]);
   } finally {
     database.close();
   }

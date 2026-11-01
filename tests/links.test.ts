@@ -832,7 +832,7 @@ describe("Note links, backlinks, and renaming cascade", () => {
     expect(legacyBacklinks.body?.linkedReferences[0].snippet).toContain("[[性能目标]]");
   });
 
-  test("indexes 2-character short titles via note_short_terms for unlinked mentions", async () => {
+  test("finds unlinked mentions of 2-character titles", async () => {
     const auth = await request("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -866,13 +866,7 @@ describe("Note links, backlinks, and renaming cascade", () => {
       cookie,
     );
 
-    // Verify "规范" was indexed in note_short_terms
-    const shortTermRow = database
-      .query("SELECT 1 FROM note_short_terms WHERE term = ?")
-      .get("规范");
-    expect(shortTermRow).toBeDefined();
-
-    // Query backlinks and verify unlinked mention is discovered via short term index
+    // The backlinks API should discover the short-title mention.
     const backlinks = await request(`/api/notes/${target.id}/backlinks`, { method: "GET" }, cookie);
     expect(backlinks.body?.unlinkedMentions).toHaveLength(1);
     expect(backlinks.body?.unlinkedMentions[0].sourceNoteTitle).toBe("开发指南");

@@ -1,46 +1,57 @@
 import type { SqliteDatabase } from "./db";
 
 const INDEXABLE_SHORT_SEARCH_CHARACTER = /[\p{L}\p{N}]/u;
-
-function isIndexableCharacter(value: string) {
-  return INDEXABLE_SHORT_SEARCH_CHARACTER.test(value);
-}
+// Bound temporary token memory for very long notes; overflow is searched with LIKE.
+export const MAX_SHORT_INDEX_CONTENT_CHARACTERS = 40_000;
 
 export function canIndexShortSearchTerm(term: string) {
   const characters = Array.from(term);
-  return characters.length > 0 && characters.length <= 2 && characters.every(isIndexableCharacter);
+  return (
+    characters.length > 0 &&
+    characters.length <= 2 &&
+    characters.every((character) => INDEXABLE_SHORT_SEARCH_CHARACTER.test(character))
+  );
 }
 
-export const MAX_SHORT_TERMS_PER_NOTE = 500;
-export const MAX_SHORT_TERM_CONTENT_CHARS = 4000;
+// SQLite LIKE/NOCASE folds ASCII only. Encoding code points as ASCII tokens
+// preserves those semantics without relying on the FTS tokenizer's Unicode rules.
+function encodeCharacter(character: string) {
+  const codePoint = character.codePointAt(0)!;
+  return (codePoint >= 65 && codePoint <= 90 ? codePoint + 32 : codePoint)
+    .toString(16)
+    .padStart(6, "0");
+}
 
-export function extractShortSearchTerms(titleOrValue: string, contentMarkdown = "") {
+export function shortSearchToken(term: string) {
+  const characters = Array.from(term);
+  return `${characters.length === 1 ? "u" : "b"}${characters.map(encodeCharacter).join("")}`;
+}
+
+export function shortSearchTokens(title: string, contentMarkdown: string) {
   const terms = new Set<string>();
-
-  const addTermsFromText = (text: string, maxCharacters = Number.POSITIVE_INFINITY) => {
-    let previous: string | null = null;
-    let charactersRead = 0;
-    for (const current of text) {
-      if (charactersRead >= maxCharacters) break;
-      charactersRead += 1;
-      if (!isIndexableCharacter(current)) {
-        previous = null;
+  let truncated = false;
+  for (const [text, limit] of [
+    [title, Number.POSITIVE_INFINITY],
+    [contentMarkdown, MAX_SHORT_INDEX_CONTENT_CHARACTERS],
+  ] as const) {
+    let previous = "";
+    let count = 0;
+    for (const character of text) {
+      if (count++ >= limit) {
+        truncated = true;
+        break;
+      }
+      if (!INDEXABLE_SHORT_SEARCH_CHARACTER.test(character)) {
+        previous = "";
         continue;
       }
-      terms.add(current);
-      if (previous) terms.add(previous + current);
-      previous = current;
-      if (terms.size >= MAX_SHORT_TERMS_PER_NOTE) break;
+      const encoded = encodeCharacter(character);
+      terms.add(`u${encoded}`);
+      if (previous) terms.add(`b${previous}${encoded}`);
+      previous = encoded;
     }
-  };
-
-  addTermsFromText(titleOrValue);
-  if (terms.size < MAX_SHORT_TERMS_PER_NOTE && contentMarkdown) {
-    // SQLite length(text) counts Unicode code points, as does for...of here.
-    // Keep the short-term index boundary aligned with the SQL fallback threshold.
-    addTermsFromText(contentMarkdown, MAX_SHORT_TERM_CONTENT_CHARS);
   }
-  return terms;
+  return { tokens: [...terms].join(" "), truncated };
 }
 
 export function syncNoteShortSearchTerms(
@@ -50,32 +61,17 @@ export function syncNoteShortSearchTerms(
   title: string,
   contentMarkdown: string,
 ) {
-  const terms = extractShortSearchTerms(title, contentMarkdown);
-  const previous = database
+  const { tokens, truncated } = shortSearchTokens(title, contentMarkdown);
+  database
     .query(
-      "SELECT term FROM note_short_terms INDEXED BY sqlite_autoindex_note_short_terms_1 WHERE note_id = ? AND user_id = ?",
+      "INSERT OR REPLACE INTO notes_short_fts(rowid, terms) SELECT rowid, ? FROM notes WHERE id = ? AND user_id = ?",
     )
-    .all(noteId, userId) as Array<{ term: string }>;
-  const remove = database.query(
-    "DELETE FROM note_short_terms INDEXED BY sqlite_autoindex_note_short_terms_1 WHERE note_id = ? AND term = ? AND user_id = ?",
-  );
-  for (const { term } of previous) {
-    if (terms.has(term)) terms.delete(term);
-    else remove.run(noteId, term, userId);
-  }
-  if (terms.size === 0) return;
-
-  const termList = Array.from(terms);
-  const BATCH_SIZE = 50;
-  for (let i = 0; i < termList.length; i += BATCH_SIZE) {
-    const chunk = termList.slice(i, i + BATCH_SIZE);
-    const placeholders = chunk.map(() => "(?, ?, ?)").join(",");
-    const params: string[] = [];
-    for (const term of chunk) {
-      params.push(noteId, userId, term);
-    }
+    .run(tokens, noteId, userId);
+  if (truncated) {
     database
-      .query(`INSERT INTO note_short_terms (note_id, user_id, term) VALUES ${placeholders}`)
-      .run(...params);
+      .query("INSERT OR IGNORE INTO notes_short_overflow(note_id, user_id) VALUES (?, ?)")
+      .run(noteId, userId);
+  } else {
+    database.query("DELETE FROM notes_short_overflow WHERE note_id = ?").run(noteId);
   }
 }

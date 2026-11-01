@@ -6,13 +6,14 @@ import { syncNoteTags } from "./core";
 import { syncNoteLinks } from "./note-links";
 import { extractMarkdownTasks } from "../shared/tasks";
 import { extractTags, normalizeTag } from "../shared/tags";
+import { syncNoteShortSearchTerms } from "./note-search";
 
 const DEFAULT_DATABASE_PATH = "./data/xiangying-notes.sqlite";
 const DEFAULT_SCHEMA_PATH = "./database/schema.sql";
 const BASELINE_SCHEMA_VERSION = 1;
 
 // Increment this when adding the next entry to SCHEMA_MIGRATIONS.
-export const CURRENT_SCHEMA_VERSION = 9;
+export const CURRENT_SCHEMA_VERSION = 10;
 
 type TableCountRow = {
   count: number;
@@ -294,6 +295,41 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `);
     },
   },
+  {
+    sourceVersion: 9,
+    targetVersion: 10,
+    migrate: (database) => {
+      database.exec(`
+        CREATE VIRTUAL TABLE notes_short_fts USING fts5(
+          terms, content='', contentless_delete=1, detail=none, tokenize='ascii'
+        );
+        CREATE TABLE notes_short_overflow (
+          note_id TEXT PRIMARY KEY REFERENCES notes(id) ON DELETE CASCADE,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE
+        );
+        CREATE TRIGGER notes_short_fts_delete AFTER DELETE ON notes BEGIN
+          DELETE FROM notes_short_fts WHERE rowid = old.rowid;
+        END;
+      `);
+      const notes = database
+        .query("SELECT id, user_id, title, content_markdown FROM notes ORDER BY rowid")
+        .iterate() as IterableIterator<{
+        id: string;
+        user_id: string;
+        title: string;
+        content_markdown: string;
+      }>;
+      for (const note of notes)
+        syncNoteShortSearchTerms(
+          database,
+          note.user_id,
+          note.id,
+          note.title,
+          note.content_markdown,
+        );
+      database.exec("DROP TABLE note_short_terms;");
+    },
+  },
 ];
 
 export function databasePathFromEnv(env: Record<string, string | undefined> = Bun.env) {
@@ -352,6 +388,7 @@ export function reclaimDatabaseSpace(database: SqliteDatabase) {
   try {
     database.exec(`
       INSERT INTO notes_fts(notes_fts) VALUES('optimize');
+      INSERT INTO notes_short_fts(notes_short_fts) VALUES('optimize');
       PRAGMA incremental_vacuum;
       PRAGMA wal_checkpoint(TRUNCATE);
     `);

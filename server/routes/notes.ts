@@ -62,11 +62,7 @@ export {
   NOTE_RENAME_SOURCE_BATCH_SIZE,
 } from "./note-mutations";
 import { assetPathsForNotes, assetPathsForTrash, removeAssetFiles } from "./assets";
-import {
-  canIndexShortSearchTerm,
-  MAX_SHORT_TERM_CONTENT_CHARS,
-  MAX_SHORT_TERMS_PER_NOTE,
-} from "../note-search";
+import { canIndexShortSearchTerm, shortSearchToken } from "../note-search";
 import { publishWorkspaceChange } from "../realtime";
 import { extractMarkdownTasks, findMarkdownTaskMarker } from "../../shared/tasks";
 
@@ -762,25 +758,14 @@ export async function handleNotesRoute(
       }
 
       for (const short of shortTokens.filter(canIndexShortSearchTerm)) {
-        const escapedQuery = escapeLikePattern(short);
-        conditions.push(`(
-          n.id IN (SELECT st.note_id FROM note_short_terms st WHERE st.user_id = ? AND st.term = ? COLLATE NOCASE)
-          OR (
-            (
-              length(n.content_markdown) >= ?
-              OR EXISTS (SELECT 1 FROM note_short_terms bounded_terms INDEXED BY sqlite_autoindex_note_short_terms_1 WHERE bounded_terms.note_id = n.id AND bounded_terms.user_id = n.user_id LIMIT 1 OFFSET ?)
-            )
-            AND (n.title LIKE ? ESCAPE '!' OR n.content_markdown LIKE ? ESCAPE '!')
-          )
+        conditions.push(`n.rowid IN (
+          SELECT rowid FROM notes_short_fts WHERE notes_short_fts MATCH ?
+          UNION
+          SELECT overflow_note.rowid FROM notes_short_overflow overflow
+          JOIN notes overflow_note ON overflow_note.id = overflow.note_id
+          WHERE overflow.user_id = ? AND overflow_note.content_markdown LIKE ? ESCAPE '!'
         )`);
-        params.push(
-          user.id,
-          short,
-          MAX_SHORT_TERM_CONTENT_CHARS,
-          MAX_SHORT_TERMS_PER_NOTE - 1,
-          `%${escapedQuery}%`,
-          `%${escapedQuery}%`,
-        );
+        params.push(shortSearchToken(short), user.id, `%${escapeLikePattern(short)}%`);
       }
 
       for (const short of shortTokens.filter((term) => !canIndexShortSearchTerm(term))) {
@@ -822,10 +807,12 @@ export async function handleNotesRoute(
       conditions.push(`(${tagConditions.join(tagMode === "any" ? " OR " : " AND ")})`);
       params.push(...normalizedTagFilters);
     }
+    const shortCountWhere = conditions.join(" AND ");
+    const shortCountParams = [...params];
     if (rankShortTerms) {
       // Apply the full candidate scope before materializing scores, including tag filters.
       rankingCte = `WITH search_rank AS MATERIALIZED (
-        SELECT n.id, (${scoreExpression}) AS score
+        SELECT n.rowid AS note_rowid, (${scoreExpression}) AS score
         FROM notes n JOIN notebooks b ON b.id = n.notebook_id
         WHERE ${conditions.join(" AND ")}
       )`;
@@ -833,7 +820,7 @@ export async function handleNotesRoute(
         ...searchTokens.map((token) => `%${escapeLikePattern(token)}%`),
         ...params,
       );
-      from += " JOIN search_rank ON search_rank.id = n.id";
+      from += " JOIN search_rank ON search_rank.note_rowid = n.rowid";
       scoreExpression = "search_rank.score";
       // The materialized candidate set already applies every filter.
       conditions.length = 0;
@@ -868,10 +855,9 @@ export async function handleNotesRoute(
       ? first<{ count: number }>(
           database,
           rankShortTerms
-            ? `${rankingCte} SELECT COUNT(*) AS count FROM search_rank`
+            ? `SELECT COUNT(*) AS count FROM notes n JOIN notebooks b ON b.id = n.notebook_id WHERE ${shortCountWhere}`
             : `${rankingCte} SELECT COUNT(*) AS count FROM ${from} WHERE ${totalWhere}`,
-          ...rankingParams,
-          ...totalParams,
+          ...(rankShortTerms ? shortCountParams : [...rankingParams, ...totalParams]),
         )
       : null;
     const includeMatch = url.searchParams.get("includeMatch") === "1";
@@ -1102,21 +1088,16 @@ export async function handleNotesRoute(
         candidateConditions.push("notes_fts MATCH ?");
         candidateParams.push(ftsTokens.map((p) => `"${p.replaceAll('"', '""')}"`).join(" AND "));
       } else if (canIndexShortSearchTerm(trimmedTitle)) {
-        candidateConditions.push(`(
-          n.id IN (SELECT st.note_id FROM note_short_terms st WHERE st.user_id = ? AND st.term = ? COLLATE NOCASE)
-          OR (
-            (
-              length(n.content_markdown) >= ?
-              OR EXISTS (SELECT 1 FROM note_short_terms bounded_terms INDEXED BY sqlite_autoindex_note_short_terms_1 WHERE bounded_terms.note_id = n.id AND bounded_terms.user_id = n.user_id LIMIT 1 OFFSET ?)
-            )
-            AND n.content_markdown LIKE ? ESCAPE '!'
-          )
+        candidateConditions.push(`n.rowid IN (
+          SELECT rowid FROM notes_short_fts WHERE notes_short_fts MATCH ?
+          UNION
+          SELECT overflow_note.rowid FROM notes_short_overflow overflow
+          JOIN notes overflow_note ON overflow_note.id = overflow.note_id
+          WHERE overflow.user_id = ? AND overflow_note.content_markdown LIKE ? ESCAPE '!'
         )`);
         candidateParams.push(
+          shortSearchToken(trimmedTitle),
           user.id,
-          trimmedTitle,
-          MAX_SHORT_TERM_CONTENT_CHARS,
-          MAX_SHORT_TERMS_PER_NOTE - 1,
           `%${escapeLikePattern(trimmedTitle)}%`,
         );
       } else {

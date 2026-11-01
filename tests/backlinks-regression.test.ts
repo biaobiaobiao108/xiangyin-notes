@@ -2,7 +2,6 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { openDatabase, type SqliteDatabase } from "../server/db";
 import { handleRequest } from "../server/index";
 import { waitForOrphanAssetCleanup } from "../server/routes/assets";
-import { MAX_SHORT_TERM_CONTENT_CHARS, MAX_SHORT_TERMS_PER_NOTE } from "../server/note-search";
 import { BACKLINK_MENTION_LIMIT, BACKLINK_REFERENCE_LIMIT } from "../server/core";
 
 let database: SqliteDatabase;
@@ -144,22 +143,15 @@ test("link mention rejects replacements that would exceed the note content limit
   expect(after.version).toBe(source.version);
 });
 
-for (const limit of ["content", "terms"] as const) {
-  test(`backlinks find a short-title mention beyond the ${limit} index limit`, async () => {
+for (const limit of ["content", "former term-count"] as const) {
+  test(`backlinks find a short-title mention beyond the ${limit} boundary`, async () => {
     const target = await createNote("苹果");
     const prefix =
       limit === "content"
-        ? "甲".repeat(MAX_SHORT_TERM_CONTENT_CHARS + 1)
-        : Array.from({ length: MAX_SHORT_TERMS_PER_NOTE }, (_, index) =>
-            String.fromCodePoint(0x4e00 + index),
-          ).join(" ");
+        ? "甲".repeat(40_100)
+        : Array.from({ length: 600 }, (_, index) => String.fromCodePoint(0x4e00 + index)).join(" ");
     const content = `${prefix}\n苹果在这里`;
     const source = await createNote("来源", content);
-    expect(
-      database
-        .query("SELECT term FROM note_short_terms WHERE note_id = ? AND term = ?")
-        .get(source.id, "苹果"),
-    ).toBeNull();
     const result = await request(`/api/notes/${target.id}/backlinks`);
     expect(result.response.status).toBe(200);
     expect(result.body.truncated).toBe(false);

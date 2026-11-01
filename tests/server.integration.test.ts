@@ -10,7 +10,6 @@ import {
   type SqliteDatabase,
 } from "../server/db";
 import { handleRequest } from "../server/index";
-import { MAX_SHORT_TERM_CONTENT_CHARS, MAX_SHORT_TERMS_PER_NOTE } from "../server/note-search";
 import {
   cleanupOrphanAssetFiles,
   IMAGE_UPLOAD_MAX_BODY_BYTES,
@@ -3337,52 +3336,66 @@ describe("Bun Server API", () => {
     expect(response.status).toBe(404);
   });
 
-  test("limits note_short_terms per note and bounds scanned content length", async () => {
+  test("indexes long note content for short search and synchronizes updates and deletion", async () => {
     const login = await request("/api/auth/login", {
       method: "POST",
       body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
     });
 
-    // Generate 600 distinct 2-char CJK phrases
-    const phrases: string[] = [];
-    for (let i = 0; i < 600; i++) {
-      phrases.push(String.fromCharCode(0x4e00 + i * 2) + String.fromCharCode(0x4e00 + (i * 2 + 1)));
-    }
-    const longContent = phrases.join(" ");
+    const longContent = `${Array.from({ length: 600 }, (_, index) =>
+      String.fromCodePoint(0x4e00 + index),
+    ).join(" ")} ${"甲".repeat(40_100)} 靐靐`;
     const created = await request(
       "/api/notes",
       {
         method: "POST",
-        body: JSON.stringify({ title: "大量索引测试", contentMarkdown: longContent }),
+        body: JSON.stringify({ title: "长正文短词搜索", contentMarkdown: longContent }),
       },
       login.cookie,
     );
 
     expect(created.response.status).toBe(201);
     const noteId = created.body?.note.id;
+    const search = (term: string) =>
+      request(`/api/notes?view=all&query=${encodeURIComponent(term)}`, {}, login.cookie);
+    expect((await search("靐靐")).body?.notes.map((note: { id: string }) => note.id)).toContain(
+      noteId,
+    );
 
-    const termsCount = database
-      .query("SELECT COUNT(*) AS count FROM note_short_terms WHERE note_id = ?")
-      .get(noteId) as { count: number };
-    expect(termsCount.count).toBe(MAX_SHORT_TERMS_PER_NOTE);
-
-    // Also test that characters beyond 4000 are not scanned for short terms
-    const padding = "一".repeat(MAX_SHORT_TERM_CONTENT_CHARS + 50);
-    const beyondTerm = "超限词汇";
-    const noteBeyond = await request(
-      "/api/notes",
+    const updated = await request(
+      `/api/notes/${noteId}`,
       {
-        method: "POST",
-        body: JSON.stringify({ title: "超长笔记", contentMarkdown: `${padding} ${beyondTerm}` }),
+        method: "PATCH",
+        body: JSON.stringify({ version: created.body?.note.version, contentMarkdown: "龘龘" }),
       },
       login.cookie,
     );
-    expect(noteBeyond.response.status).toBe(201);
+    expect(updated.response.status).toBe(200);
+    expect((await search("靐靐")).body?.notes.map((note: { id: string }) => note.id)).not.toContain(
+      noteId,
+    );
+    expect((await search("龘龘")).body?.notes.map((note: { id: string }) => note.id)).toContain(
+      noteId,
+    );
 
-    const beyondTerms = database
-      .query("SELECT term FROM note_short_terms WHERE note_id = ? AND term = ?")
-      .get(noteBeyond.body?.note.id, "超限") as { term: string } | null;
-    expect(beyondTerms).toBeNull();
+    const trashed = await request(
+      `/api/notes/${noteId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ version: updated.body?.note.version, deleted: true }),
+      },
+      login.cookie,
+    );
+    expect(trashed.response.status).toBe(200);
+    const deleted = await request(
+      `/api/notes/${noteId}`,
+      { method: "DELETE", body: JSON.stringify({ version: trashed.body?.note.version }) },
+      login.cookie,
+    );
+    expect(deleted.response.status).toBe(200);
+    expect((await search("龘龘")).body?.notes.map((note: { id: string }) => note.id)).not.toContain(
+      noteId,
+    );
   });
 
   test("reclaims physical SQLite file size on disk after permanently deleting notes", async () => {
