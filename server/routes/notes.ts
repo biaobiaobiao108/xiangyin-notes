@@ -764,19 +764,20 @@ export async function handleNotesRoute(
       for (const short of shortTokens.filter(canIndexShortSearchTerm)) {
         const escapedQuery = escapeLikePattern(short);
         conditions.push(`(
-          EXISTS (SELECT 1 FROM note_short_terms st WHERE st.note_id = n.id AND st.user_id = n.user_id AND st.term = ? COLLATE NOCASE)
+          n.id IN (SELECT st.note_id FROM note_short_terms st WHERE st.user_id = ? AND st.term = ? COLLATE NOCASE)
           OR (
             (
               length(n.content_markdown) >= ?
-              OR (SELECT COUNT(*) FROM note_short_terms bounded_terms WHERE bounded_terms.note_id = n.id AND bounded_terms.user_id = n.user_id) >= ?
+              OR EXISTS (SELECT 1 FROM note_short_terms bounded_terms INDEXED BY sqlite_autoindex_note_short_terms_1 WHERE bounded_terms.note_id = n.id AND bounded_terms.user_id = n.user_id LIMIT 1 OFFSET ?)
             )
             AND (n.title LIKE ? ESCAPE '!' OR n.content_markdown LIKE ? ESCAPE '!')
           )
         )`);
         params.push(
+          user.id,
           short,
           MAX_SHORT_TERM_CONTENT_CHARS,
-          MAX_SHORT_TERMS_PER_NOTE,
+          MAX_SHORT_TERMS_PER_NOTE - 1,
           `%${escapedQuery}%`,
           `%${escapedQuery}%`,
         );
@@ -834,8 +835,11 @@ export async function handleNotesRoute(
       );
       from += " JOIN search_rank ON search_rank.id = n.id";
       scoreExpression = "search_rank.score";
+      // The materialized candidate set already applies every filter.
+      conditions.length = 0;
+      params.length = 0;
     }
-    const totalWhere = conditions.join(" AND ");
+    const totalWhere = conditions.join(" AND ") || "1";
     const totalParams = [...params];
     if (cursor) {
       if (sort === "relevance") {
@@ -858,12 +862,14 @@ export async function handleNotesRoute(
         params.push(cursor.value, cursor.id);
       }
     }
-    const where = conditions.join(" AND ");
+    const where = conditions.join(" AND ") || "1";
     const includeTotal = url.searchParams.get("includeTotal") !== "0";
     const totalRow = includeTotal
       ? first<{ count: number }>(
           database,
-          `${rankingCte} SELECT COUNT(*) AS count FROM ${from} WHERE ${totalWhere}`,
+          rankShortTerms
+            ? `${rankingCte} SELECT COUNT(*) AS count FROM search_rank`
+            : `${rankingCte} SELECT COUNT(*) AS count FROM ${from} WHERE ${totalWhere}`,
           ...rankingParams,
           ...totalParams,
         )
@@ -1097,19 +1103,20 @@ export async function handleNotesRoute(
         candidateParams.push(ftsTokens.map((p) => `"${p.replaceAll('"', '""')}"`).join(" AND "));
       } else if (canIndexShortSearchTerm(trimmedTitle)) {
         candidateConditions.push(`(
-          EXISTS (SELECT 1 FROM note_short_terms st WHERE st.note_id = n.id AND st.user_id = n.user_id AND st.term = ? COLLATE NOCASE)
+          n.id IN (SELECT st.note_id FROM note_short_terms st WHERE st.user_id = ? AND st.term = ? COLLATE NOCASE)
           OR (
             (
               length(n.content_markdown) >= ?
-              OR (SELECT COUNT(*) FROM note_short_terms bounded_terms WHERE bounded_terms.note_id = n.id AND bounded_terms.user_id = n.user_id) >= ?
+              OR EXISTS (SELECT 1 FROM note_short_terms bounded_terms INDEXED BY sqlite_autoindex_note_short_terms_1 WHERE bounded_terms.note_id = n.id AND bounded_terms.user_id = n.user_id LIMIT 1 OFFSET ?)
             )
             AND n.content_markdown LIKE ? ESCAPE '!'
           )
         )`);
         candidateParams.push(
+          user.id,
           trimmedTitle,
           MAX_SHORT_TERM_CONTENT_CHARS,
-          MAX_SHORT_TERMS_PER_NOTE,
+          MAX_SHORT_TERMS_PER_NOTE - 1,
           `%${escapeLikePattern(trimmedTitle)}%`,
         );
       } else {

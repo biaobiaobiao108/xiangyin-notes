@@ -50,10 +50,19 @@ export function syncNoteShortSearchTerms(
   title: string,
   contentMarkdown: string,
 ) {
-  database
-    .query("DELETE FROM note_short_terms WHERE note_id = ? AND user_id = ?")
-    .run(noteId, userId);
   const terms = extractShortSearchTerms(title, contentMarkdown);
+  const previous = database
+    .query(
+      "SELECT term FROM note_short_terms INDEXED BY sqlite_autoindex_note_short_terms_1 WHERE note_id = ? AND user_id = ?",
+    )
+    .all(noteId, userId) as Array<{ term: string }>;
+  const remove = database.query(
+    "DELETE FROM note_short_terms INDEXED BY sqlite_autoindex_note_short_terms_1 WHERE note_id = ? AND term = ? AND user_id = ?",
+  );
+  for (const { term } of previous) {
+    if (terms.has(term)) terms.delete(term);
+    else remove.run(noteId, term, userId);
+  }
   if (terms.size === 0) return;
 
   const termList = Array.from(terms);

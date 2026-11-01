@@ -12,7 +12,7 @@ const DEFAULT_SCHEMA_PATH = "./database/schema.sql";
 const BASELINE_SCHEMA_VERSION = 1;
 
 // Increment this when adding the next entry to SCHEMA_MIGRATIONS.
-export const CURRENT_SCHEMA_VERSION = 8;
+export const CURRENT_SCHEMA_VERSION = 9;
 
 type TableCountRow = {
   count: number;
@@ -280,6 +280,17 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
         );
         CREATE INDEX idx_kanban_cards_user_status
           ON kanban_cards(user_id, status, sort_order);
+      `);
+    },
+  },
+  {
+    sourceVersion: 8,
+    targetVersion: 9,
+    migrate: (database) => {
+      database.exec(`
+        DROP INDEX idx_note_short_terms_user_term;
+        CREATE INDEX idx_note_short_terms_user_term
+          ON note_short_terms(user_id, term COLLATE NOCASE, note_id);
       `);
     },
   },

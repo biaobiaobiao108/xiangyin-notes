@@ -418,11 +418,11 @@ test("refuses an unversioned database containing only a view without changing it
   }
 });
 
-test("creates kanban_cards table and indexes when upgrading to version 8", async () => {
+test("keeps the kanban table and indexes in the current schema", async () => {
   const database = await openDatabase(":memory:");
   try {
     expect(database.query("PRAGMA user_version").get()).toEqual({
-      user_version: 8,
+      user_version: CURRENT_SCHEMA_VERSION,
     });
     expect(
       database
@@ -434,6 +434,82 @@ test("creates kanban_cards table and indexes when upgrading to version 8", async
         .query("SELECT name FROM sqlite_master WHERE type = ? AND name = ?")
         .get("index", "idx_kanban_cards_user_status"),
     ).toBeTruthy();
+  } finally {
+    database.close();
+  }
+});
+
+test("rebuilds the short-term search index during the version 8 migration", async () => {
+  const database = new Database(":memory:");
+  database.exec(await Bun.file("database/schema.sql").text());
+  try {
+    await initializeDatabase(database, { currentSchemaVersion: 8 });
+    database
+      .query(
+        "INSERT INTO users (id, username, password_hash, password_salt, created_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run("user", "owner", "hash", "salt", 1);
+    database
+      .query(
+        "INSERT INTO notebooks (id, user_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run("notebook", "user", "Notes", 1, 1);
+    database
+      .query(
+        "INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run("note", "user", "notebook", "Note", "", 1, 1);
+    database
+      .query("INSERT INTO note_short_terms (note_id, user_id, term) VALUES (?, ?, ?)")
+      .run("note", "user", "Docker");
+
+    await initializeDatabase(database);
+
+    const indexSql = database
+      .query("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?")
+      .get("idx_note_short_terms_user_term") as { sql: string };
+    expect(indexSql.sql).toContain("term COLLATE NOCASE");
+    expect(
+      database.query("SELECT term FROM note_short_terms WHERE note_id = ?").all("note"),
+    ).toEqual([{ term: "Docker" }]);
+    expect(database.query("PRAGMA user_version").get()).toEqual({
+      user_version: CURRENT_SCHEMA_VERSION,
+    });
+
+    const plan = database
+      .query(
+        "EXPLAIN QUERY PLAN SELECT 1 FROM note_short_terms WHERE user_id = ? AND term = ? COLLATE NOCASE AND note_id = ?",
+      )
+      .all("user", "docker", "note") as Array<{ detail: string }>;
+    const details = plan.map(({ detail }) => detail).join(" ");
+    expect(details).toContain("idx_note_short_terms_user_term");
+    expect(details).toContain("user_id=? AND term=? AND note_id=?");
+  } finally {
+    database.close();
+  }
+});
+
+test("uses the short-term primary key for per-note term reads and deletes", async () => {
+  const database = await openDatabase(":memory:");
+  try {
+    for (const sql of [
+      "SELECT term FROM note_short_terms INDEXED BY sqlite_autoindex_note_short_terms_1 WHERE note_id = ? AND user_id = ?",
+      "DELETE FROM note_short_terms INDEXED BY sqlite_autoindex_note_short_terms_1 WHERE note_id = ? AND term = ? AND user_id = ?",
+      "SELECT 1 FROM note_short_terms bounded_terms INDEXED BY sqlite_autoindex_note_short_terms_1 WHERE bounded_terms.note_id = ? AND bounded_terms.user_id = ? LIMIT 1 OFFSET ?",
+    ]) {
+      const parameters = sql.includes("term = ? AND user_id")
+        ? ["note", "term", "user"]
+        : sql.includes("OFFSET")
+          ? ["note", "user", 499]
+          : ["note", "user"];
+      const plan = database.query(`EXPLAIN QUERY PLAN ${sql}`).all(...parameters) as Array<{
+        detail: string;
+      }>;
+      const details = plan.map(({ detail }) => detail).join(" ");
+      expect(details).toContain("sqlite_autoindex_note_short_terms_1");
+      expect(details).toContain("note_id=?");
+      expect(details).not.toContain("user_id=? AND term=?");
+    }
   } finally {
     database.close();
   }

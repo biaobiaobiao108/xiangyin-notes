@@ -4,6 +4,7 @@ import { handleRequest } from "../server/index";
 import { waitForOrphanAssetCleanup } from "../server/routes/assets";
 import { ensureEnvironmentUser } from "../server/routes/auth";
 import { createNote } from "../server/routes/notes";
+import { extractShortSearchTerms, syncNoteShortSearchTerms } from "../server/note-search";
 
 async function fixture() {
   const database = await openDatabase(":memory:");
@@ -171,6 +172,40 @@ test("short-term indexing and fallback share a Unicode code-point boundary", asy
     const note = f.create("表情笔记", `${"😀".repeat(2500)}末尾`);
     const result = await (await f.list("query=末尾")).json();
     expect(result.notes.map((item: { id: string }) => item.id)).toContain(note);
+  } finally {
+    await waitForOrphanAssetCleanup(f.database);
+    f.database.close();
+  }
+});
+
+test("short-term index updates remove stale terms and preserve shared and unrelated terms", async () => {
+  const f = await fixture();
+  try {
+    const changed = f.create("Docker 手册", "旧词和关联");
+    const untouched = f.create("另一篇笔记", "独立内容");
+    const userId = f.database.query("SELECT user_id FROM notes WHERE id = ?").get(changed) as {
+      user_id: string;
+    };
+    const untouchedTerms = f.database
+      .query("SELECT term FROM note_short_terms WHERE note_id = ? ORDER BY term")
+      .all(untouched);
+
+    syncNoteShortSearchTerms(f.database, userId.user_id, changed, "SQLite 手册", "新词和关联");
+
+    const actualTerms = f.database
+      .query("SELECT term FROM note_short_terms WHERE note_id = ? ORDER BY term")
+      .all(changed) as Array<{ term: string }>;
+    expect(actualTerms.map(({ term }) => term)).toEqual(
+      [...extractShortSearchTerms("SQLite 手册", "新词和关联")].sort(),
+    );
+    expect(actualTerms.map(({ term }) => term)).not.toContain("Docker");
+    expect(actualTerms.map(({ term }) => term)).not.toContain("旧词");
+    expect(actualTerms.map(({ term }) => term)).toContain("关联");
+    expect(
+      f.database
+        .query("SELECT term FROM note_short_terms WHERE note_id = ? ORDER BY term")
+        .all(untouched),
+    ).toEqual(untouchedTerms);
   } finally {
     await waitForOrphanAssetCleanup(f.database);
     f.database.close();
