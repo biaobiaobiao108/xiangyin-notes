@@ -62,7 +62,8 @@ export {
   NOTE_RENAME_SOURCE_BATCH_SIZE,
 } from "./note-mutations";
 import { assetPathsForNotes, assetPathsForTrash, removeAssetFiles } from "./assets";
-import { canIndexShortSearchTerm, shortSearchToken } from "../note-search";
+import { shortSearchToken } from "../note-search";
+import { searchContains } from "../search-text";
 import { publishWorkspaceChange } from "../realtime";
 import { extractMarkdownTasks, findMarkdownTaskMarker } from "../../shared/tasks";
 
@@ -745,9 +746,12 @@ export async function handleNotesRoute(
       if (ftsTokens.length > 0) {
         const ftsQuery = ftsTokens.map((part) => `"${part.replaceAll('"', '""')}"`).join(" AND ");
         if (sort === "relevance") {
-          rankingCte =
-            "WITH search_rank AS MATERIALIZED (SELECT rowid, bm25(notes_fts, 8.0, 1.0) AS score FROM notes_fts WHERE notes_fts MATCH ?)";
-          rankingParams.push(ftsQuery);
+          rankingCte = `WITH search_rank AS MATERIALIZED (
+            SELECT notes_fts.rowid, bm25(notes_fts, 8.0, 1.0) AS score
+            FROM notes_fts JOIN notes search_owner ON search_owner.rowid = notes_fts.rowid
+            WHERE search_owner.user_id = ? AND notes_fts MATCH ?
+          )`;
+          rankingParams.push(user.id, ftsQuery);
           from += " JOIN search_rank ON search_rank.rowid = n.rowid";
           scoreExpression = "search_rank.score";
         } else {
@@ -757,28 +761,22 @@ export async function handleNotesRoute(
         }
       }
 
-      for (const short of shortTokens.filter(canIndexShortSearchTerm)) {
+      for (const short of shortTokens) {
         conditions.push(`n.rowid IN (
           SELECT rowid FROM notes_short_fts WHERE notes_short_fts MATCH ?
           UNION
           SELECT overflow_note.rowid FROM notes_short_overflow overflow
           JOIN notes overflow_note ON overflow_note.id = overflow.note_id
-          WHERE overflow.user_id = ? AND overflow_note.content_markdown LIKE ? ESCAPE '!'
+          WHERE overflow.user_id = ? AND search_contains(overflow_note.content_markdown, ?)
         )`);
-        params.push(shortSearchToken(short), user.id, `%${escapeLikePattern(short)}%`);
-      }
-
-      for (const short of shortTokens.filter((term) => !canIndexShortSearchTerm(term))) {
-        const escapedQuery = escapeLikePattern(short);
-        conditions.push("(n.title LIKE ? ESCAPE '!' OR n.content_markdown LIKE ? ESCAPE '!')");
-        params.push(`%${escapedQuery}%`, `%${escapedQuery}%`);
+        params.push(shortSearchToken(short), user.id, short);
       }
     }
     const rankShortTerms = sort === "relevance" && !rankingCte && searchTokens.length > 0;
     if (rankShortTerms) {
       // Short terms bypass FTS; rank title matches ahead of body-only matches.
       scoreExpression = searchTokens
-        .map(() => "(CASE WHEN n.title LIKE ? ESCAPE '!' THEN -8.0 ELSE -1.0 END)")
+        .map(() => "(CASE WHEN search_contains(n.title, ?) THEN -8.0 ELSE -1.0 END)")
         .join(" + ");
     }
     const scope =
@@ -816,10 +814,7 @@ export async function handleNotesRoute(
         FROM notes n JOIN notebooks b ON b.id = n.notebook_id
         WHERE ${conditions.join(" AND ")}
       )`;
-      rankingParams.push(
-        ...searchTokens.map((token) => `%${escapeLikePattern(token)}%`),
-        ...params,
-      );
+      rankingParams.push(...searchTokens, ...params);
       from += " JOIN search_rank ON search_rank.note_rowid = n.rowid";
       scoreExpression = "search_rank.score";
       // The materialized candidate set already applies every filter.
@@ -864,12 +859,8 @@ export async function handleNotesRoute(
     const matchParams: SqlValue[] = [];
     let matchSelect = "";
     if (includeMatch && searchTokens.length) {
-      const positions = searchTokens.map(
-        () => "NULLIF(instr(lower(n.content_markdown), lower(?)), 0)",
-      );
-      const position = `(SELECT MIN(position) FROM (${positions.map((expression) => `SELECT ${expression} AS position`).join(" UNION ALL ")}))`;
-      matchSelect = `, substr(n.content_markdown, max(1, COALESCE(${position}, 1) - 60), 200) AS match_snippet`;
-      matchParams.push(...searchTokens);
+      matchSelect = ", search_snippet(n.content_markdown, ?) AS match_snippet";
+      matchParams.push(JSON.stringify(searchTokens));
     }
     const listStatement = database.query(`
       ${rankingCte} SELECT ${NOTE_LIST_SELECT}, ${scoreExpression} AS relevance_score ${matchSelect}
@@ -886,9 +877,7 @@ export async function handleNotesRoute(
     const notes: NoteSummary[] = pageRows.map((row) => {
       const note = toNote(row, parseIndexedTags(row.tags_json));
       if (!includeMatch) return note;
-      const titleMatched = searchTokens.some((token) =>
-        row.title.toLocaleLowerCase().includes(token.toLocaleLowerCase()),
-      );
+      const titleMatched = searchTokens.some((token) => searchContains(row.title, token));
       const field = searchTokens.length
         ? titleMatched
           ? "title"
@@ -1087,22 +1076,18 @@ export async function handleNotesRoute(
         candidateFrom += " JOIN notes_fts ON notes_fts.rowid = n.rowid";
         candidateConditions.push("notes_fts MATCH ?");
         candidateParams.push(ftsTokens.map((p) => `"${p.replaceAll('"', '""')}"`).join(" AND "));
-      } else if (canIndexShortSearchTerm(trimmedTitle)) {
+      } else if (Array.from(trimmedTitle).length <= 2) {
         candidateConditions.push(`n.rowid IN (
           SELECT rowid FROM notes_short_fts WHERE notes_short_fts MATCH ?
           UNION
           SELECT overflow_note.rowid FROM notes_short_overflow overflow
           JOIN notes overflow_note ON overflow_note.id = overflow.note_id
-          WHERE overflow.user_id = ? AND overflow_note.content_markdown LIKE ? ESCAPE '!'
+          WHERE overflow.user_id = ? AND search_contains(overflow_note.content_markdown, ?)
         )`);
-        candidateParams.push(
-          shortSearchToken(trimmedTitle),
-          user.id,
-          `%${escapeLikePattern(trimmedTitle)}%`,
-        );
+        candidateParams.push(shortSearchToken(trimmedTitle), user.id, trimmedTitle);
       } else {
-        candidateConditions.push("n.content_markdown LIKE ? ESCAPE '!'");
-        candidateParams.push(`%${escapeLikePattern(trimmedTitle)}%`);
+        candidateConditions.push("search_contains(n.content_markdown, ?)");
+        candidateParams.push(trimmedTitle);
       }
 
       const candidateSql = `

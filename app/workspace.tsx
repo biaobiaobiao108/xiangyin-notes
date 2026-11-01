@@ -825,9 +825,11 @@ export function Workspace() {
       );
       playPendingListTransition();
     } catch (reason) {
+      if (controller.signal.aborted || requestId !== listRequestRef.current) return;
       if (reason instanceof Error && reason.name === "AbortError") return;
       if (reason instanceof ApiError && reason.status === 401)
         navigate(`/login${window.location.search}`, { replace: true });
+      else notifyError(errorMessage(reason, "加载笔记列表失败，请重试"));
     } finally {
       if (listAbortRef.current === controller) listAbortRef.current = null;
     }
@@ -836,6 +838,7 @@ export function Workspace() {
     listScope,
     navigate,
     noteSort,
+    notifyError,
     notebookId,
     notebooks,
     notesReloadToken,

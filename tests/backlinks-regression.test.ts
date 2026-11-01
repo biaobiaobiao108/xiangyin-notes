@@ -53,6 +53,16 @@ async function createNote(title: string, contentMarkdown = "") {
   return result.body.note;
 }
 
+test("backlinks find short titles containing spaces and punctuation", async () => {
+  const target = await createNote("a b");
+  const source = await createNote("来源", "mention a b and A.B here");
+  const result = await request(`/api/notes/${target.id}/backlinks`);
+  expect(result.response.status).toBe(200);
+  expect(result.body.unlinkedMentions).toContainEqual(
+    expect.objectContaining({ sourceNoteId: source.id, matchText: "a b" }),
+  );
+});
+
 test("renaming a target preserves nested code examples while updating real wiki links", async () => {
   const target = await createNote("旧标题");
   const examples = "> ~~~md\r\n> [[旧标题]]\r\n> ~~~\r\n\r\n- ~~~md\r\n  [[旧标题]]\r\n  ~~~";

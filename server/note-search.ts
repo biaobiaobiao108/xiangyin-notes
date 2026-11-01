@@ -1,25 +1,16 @@
 import type { SqliteDatabase } from "./db";
 
-const INDEXABLE_SHORT_SEARCH_CHARACTER = /[\p{L}\p{N}]/u;
-// Bound temporary token memory for very long notes; overflow is searched with LIKE.
+// Bound temporary token memory for very long notes; overflow is searched directly.
 export const MAX_SHORT_INDEX_CONTENT_CHARACTERS = 40_000;
 
-export function canIndexShortSearchTerm(term: string) {
-  const characters = Array.from(term);
-  return (
-    characters.length > 0 &&
-    characters.length <= 2 &&
-    characters.every((character) => INDEXABLE_SHORT_SEARCH_CHARACTER.test(character))
-  );
-}
-
-// SQLite LIKE/NOCASE folds ASCII only. Encoding code points as ASCII tokens
-// preserves those semantics without relying on the FTS tokenizer's Unicode rules.
+// Use Unicode simple case folding, matching JavaScript's case-insensitive /u regex.
 function encodeCharacter(character: string) {
-  const codePoint = character.codePointAt(0)!;
-  return (codePoint >= 65 && codePoint <= 90 ? codePoint + 32 : codePoint)
-    .toString(16)
-    .padStart(6, "0");
+  // Unicode simple case folding does not equate dotless i with ASCII I.
+  if (character === "ı") return "000131";
+  const upper = character.toUpperCase();
+  const folded = Array.from(upper).length === 1 ? upper.toLowerCase() : character.toLowerCase();
+  const normalized = Array.from(folded).length === 1 ? folded : character;
+  return normalized.codePointAt(0)!.toString(16).padStart(6, "0");
 }
 
 export function shortSearchToken(term: string) {
@@ -27,7 +18,7 @@ export function shortSearchToken(term: string) {
   return `${characters.length === 1 ? "u" : "b"}${characters.map(encodeCharacter).join("")}`;
 }
 
-export function shortSearchTokens(title: string, contentMarkdown: string) {
+function buildShortSearchTokens(title: string, contentMarkdown: string, legacy: boolean) {
   const terms = new Set<string>();
   let truncated = false;
   for (const [text, limit] of [
@@ -41,11 +32,16 @@ export function shortSearchTokens(title: string, contentMarkdown: string) {
         truncated = true;
         break;
       }
-      if (!INDEXABLE_SHORT_SEARCH_CHARACTER.test(character)) {
+      if (legacy && !/[\p{L}\p{N}]/u.test(character)) {
         previous = "";
         continue;
       }
-      const encoded = encodeCharacter(character);
+      const codePoint = character.codePointAt(0)!;
+      const encoded = legacy
+        ? (codePoint >= 65 && codePoint <= 90 ? codePoint + 32 : codePoint)
+            .toString(16)
+            .padStart(6, "0")
+        : encodeCharacter(character);
       terms.add(`u${encoded}`);
       if (previous) terms.add(`b${previous}${encoded}`);
       previous = encoded;
@@ -60,8 +56,10 @@ export function syncNoteShortSearchTerms(
   noteId: string,
   title: string,
   contentMarkdown: string,
+  // Version 10 remains reproducible for databases upgrading through it.
+  legacy = false,
 ) {
-  const { tokens, truncated } = shortSearchTokens(title, contentMarkdown);
+  const { tokens, truncated } = buildShortSearchTokens(title, contentMarkdown, legacy);
   database
     .query(
       "INSERT OR REPLACE INTO notes_short_fts(rowid, terms) SELECT rowid, ? FROM notes WHERE id = ? AND user_id = ?",

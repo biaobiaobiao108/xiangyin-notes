@@ -7,13 +7,14 @@ import { syncNoteLinks } from "./note-links";
 import { extractMarkdownTasks } from "../shared/tasks";
 import { extractTags, normalizeTag } from "../shared/tags";
 import { syncNoteShortSearchTerms } from "./note-search";
+import { searchContains, searchSnippet } from "./search-text";
 
 const DEFAULT_DATABASE_PATH = "./data/xiangying-notes.sqlite";
 const DEFAULT_SCHEMA_PATH = "./database/schema.sql";
 const BASELINE_SCHEMA_VERSION = 1;
 
 // Increment this when adding the next entry to SCHEMA_MIGRATIONS.
-export const CURRENT_SCHEMA_VERSION = 10;
+export const CURRENT_SCHEMA_VERSION = 11;
 
 type TableCountRow = {
   count: number;
@@ -326,8 +327,32 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
           note.id,
           note.title,
           note.content_markdown,
+          true,
         );
       database.exec("DROP TABLE note_short_terms;");
+    },
+  },
+  {
+    sourceVersion: 10,
+    targetVersion: 11,
+    migrate: (database) => {
+      database.exec("DELETE FROM notes_short_fts; DELETE FROM notes_short_overflow;");
+      const notes = database
+        .query("SELECT id, user_id, title, content_markdown FROM notes ORDER BY rowid")
+        .iterate() as IterableIterator<{
+        id: string;
+        user_id: string;
+        title: string;
+        content_markdown: string;
+      }>;
+      for (const note of notes)
+        syncNoteShortSearchTerms(
+          database,
+          note.user_id,
+          note.id,
+          note.title,
+          note.content_markdown,
+        );
     },
   },
 ];
@@ -458,6 +483,10 @@ export async function initializeDatabase(
   database: SqliteDatabase,
   options: DatabaseInitializationOptions = {},
 ) {
+  database.function("search_contains", (text: string, term: string) =>
+    searchContains(text, term) ? 1 : 0,
+  );
+  database.function("search_snippet", searchSnippet);
   const schemaPath = options.schemaPath ?? DEFAULT_SCHEMA_PATH;
   const migrations = options.migrations ?? SCHEMA_MIGRATIONS;
   const currentSchemaVersion = options.currentSchemaVersion ?? CURRENT_SCHEMA_VERSION;
