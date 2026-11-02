@@ -11,7 +11,7 @@ import {
   rateLimitClientAddress,
   readJson,
 } from "../server/core";
-import { searchContains, searchSnippet } from "../server/search-text";
+import { searchContains, searchSnippet, searchTermNeedsCaseFolding } from "../server/search-text";
 
 describe("security helpers", () => {
   test("creates URL-safe opaque tokens", () => {
@@ -294,6 +294,14 @@ describe("markdown and search helpers", () => {
       expect(searchContains(`term ${index}`, `term ${index}`)).toBe(true);
     expect(searchContains("term 0", "term 0")).toBe(true);
     expect(searchSnippet("prefix Docker suffix", JSON.stringify(["docker"]))).toContain("Docker");
+  });
+
+  test("only routes terms with a case mapping through the regex path", () => {
+    expect(searchTermNeedsCaseFolding("项目")).toBe(false);
+    expect(searchTermNeedsCaseFolding("a")).toBe(true);
+    expect(searchTermNeedsCaseFolding("É")).toBe(true);
+    expect(searchTermNeedsCaseFolding("\u0345")).toBe(true);
+    expect(searchContains("\u0399", "\u0345")).toBe(true);
   });
 
   test("limits JSON request bodies by encoded byte length", async () => {

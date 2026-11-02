@@ -17,6 +17,14 @@ export function searchContains(text: string, term: string) {
   return searchPattern(term).test(text);
 }
 
+// `instr` is case-sensitive. Only use it when no character in the term has a
+// case mapping, so it is equivalent to the case-insensitive regex.
+export function searchTermNeedsCaseFolding(term: string) {
+  return Array.from(term).some(
+    (character) => character.toLowerCase() !== character || character.toUpperCase() !== character,
+  );
+}
+
 export function searchSnippet(text: string, termsJson: string) {
   const terms = JSON.parse(termsJson) as string[];
   let match = -1;

@@ -7,6 +7,7 @@ import {
   type ServerOptions,
 } from "./core";
 import { checkpointDatabase, openDatabase } from "./db";
+import { createSearchExecutor } from "./search-executor";
 import {
   assetRootFromEnv,
   cleanupOrphanAssets,
@@ -373,6 +374,7 @@ export async function handleRequest(request: Request, options: ServerOptions) {
 
 if (import.meta.main) {
   const database = await openDatabase();
+  const searchExecutor = createSearchExecutor(database);
   const realtime = new RealtimeHub(database);
   const port = Number.parseInt(Bun.env.PORT ?? "3000", 10) || 3000;
   const hostname = Bun.env.HOST?.trim() || "localhost";
@@ -389,6 +391,7 @@ if (import.meta.main) {
     async fetch(request, server) {
       const options: ServerOptions = {
         database,
+        searchExecutor,
         environment: Bun.env,
         clientRoot,
         realtime,
@@ -457,6 +460,7 @@ if (import.meta.main) {
         await Promise.race([server.stop(), forceShutdown]);
       } finally {
         if (forceShutdownTimer) clearTimeout(forceShutdownTimer);
+        await searchExecutor?.close();
         try {
           await waitForOrphanAssetCleanup(database);
         } catch (error) {

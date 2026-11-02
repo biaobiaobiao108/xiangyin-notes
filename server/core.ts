@@ -8,6 +8,7 @@ import { extractTags, normalizeTag } from "../shared/tags";
 import type { ImageAssetSummary, Note, NoteSummary, NoteView } from "../shared/types";
 import type { RealtimeHub } from "./realtime";
 import type { SqliteDatabase } from "./db";
+import type { SearchExecutor } from "./search-executor";
 
 export type { SqliteDatabase };
 
@@ -19,6 +20,7 @@ export type SqlValue = string | number | null | Uint8Array | bigint;
 
 export type ServerOptions = {
   database: SqliteDatabase;
+  searchExecutor?: SearchExecutor;
   environment?: Record<string, string | undefined>;
   clientRoot?: string;
   assetRoot?: string;

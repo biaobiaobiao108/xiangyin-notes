@@ -62,7 +62,8 @@ export {
   NOTE_RENAME_SOURCE_BATCH_SIZE,
 } from "./note-mutations";
 import { assetPathsForNotes, assetPathsForTrash, removeAssetFiles } from "./assets";
-import { searchContains } from "../search-text";
+import { searchContains, searchTermNeedsCaseFolding } from "../search-text";
+import { executeSearch } from "../search-executor";
 import { publishWorkspaceChange } from "../realtime";
 import { extractMarkdownTasks, findMarkdownTaskMarker } from "../../shared/tasks";
 
@@ -72,6 +73,12 @@ const TASK_PAGE_SIZE = 100;
 const TASK_PAGE_MAX_SIZE = 200;
 const NOTE_SORTS: NoteSort[] = ["updated", "created", "title"];
 const NOTE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+
+function searchContainsPredicate(column: "n.title" | "n.content_markdown", term: string) {
+  return searchTermNeedsCaseFolding(term)
+    ? `search_contains(${column}, ?)`
+    : `instr(${column}, ?) > 0`;
+}
 
 type TaskCursor = { sortCreatedAt: number; noteId: string; ordinal: number };
 
@@ -999,7 +1006,9 @@ export async function handleNotesRoute(
       }
 
       for (const term of directTokens) {
-        conditions.push("(search_contains(n.title, ?) OR search_contains(n.content_markdown, ?))");
+        conditions.push(
+          `(${searchContainsPredicate("n.title", term)} OR ${searchContainsPredicate("n.content_markdown", term)})`,
+        );
         params.push(term, term);
       }
     }
@@ -1007,7 +1016,10 @@ export async function handleNotesRoute(
     if (rankDirectTerms) {
       // Short terms bypass FTS; rank title matches ahead of body-only matches.
       scoreExpression = directTokens
-        .map(() => "(CASE WHEN search_contains(n.title, ?) THEN -8.0 ELSE -1.0 END)")
+        .map(
+          (term) =>
+            `(CASE WHEN ${searchContainsPredicate("n.title", term)} THEN -8.0 ELSE -1.0 END)`,
+        )
         .join(" + ");
     }
     const scope =
@@ -1092,16 +1104,18 @@ export async function handleNotesRoute(
           })
         : null;
     if (optimizedPlan) {
-      const totalRow = optimizedPlan.countSql
-        ? first<{ count: number }>(database, optimizedPlan.countSql, ...optimizedPlan.countParams)
-        : null;
-      const rows = database.query(optimizedPlan.sql).all(...optimizedPlan.params) as (NoteRow & {
-        tags_json: string;
-        relevance_score: number;
-        match_snippet?: string;
-      })[];
+      const result = await executeSearch(database, options.searchExecutor, {
+        sql: optimizedPlan.sql,
+        params: optimizedPlan.params,
+        countSql: optimizedPlan.countSql,
+        countParams: optimizedPlan.countParams,
+      });
       return respondNoteList(
-        rows,
+        result.rows as (NoteRow & {
+          tags_json: string;
+          relevance_score: number;
+          match_snippet?: string;
+        })[],
         pageLimit,
         sort,
         scope,
@@ -1109,37 +1123,42 @@ export async function handleNotesRoute(
         normalizedTagFilters,
         includeMatch,
         includeTotal,
-        totalRow ? Number(totalRow.count) : null,
+        result.count,
       );
     }
     const where = conditions.join(" AND ") || "1";
-    const totalRow = includeTotal
-      ? first<{ count: number }>(
-          database,
-          rankDirectTerms
-            ? `SELECT COUNT(*) AS count FROM notes n JOIN notebooks b ON b.id = n.notebook_id WHERE ${directCountWhere}`
-            : `${rankingCte} SELECT COUNT(*) AS count FROM ${from} WHERE ${totalWhere}`,
-          ...(rankDirectTerms ? directCountParams : [...rankingParams, ...totalParams]),
-        )
+    const countSql = includeTotal
+      ? rankDirectTerms
+        ? `SELECT COUNT(*) AS count FROM notes n JOIN notebooks b ON b.id = n.notebook_id WHERE ${directCountWhere}`
+        : `${rankingCte} SELECT COUNT(*) AS count FROM ${from} WHERE ${totalWhere}`
       : null;
+    const countParams = includeTotal
+      ? rankDirectTerms
+        ? directCountParams
+        : [...rankingParams, ...totalParams]
+      : [];
     const matchParams: SqlValue[] = [];
     let matchSelect = "";
     if (includeMatch && searchTokens.length) {
       matchSelect = ", search_snippet(n.content_markdown, ?) AS match_snippet";
       matchParams.push(JSON.stringify(searchTokens));
     }
-    const listStatement = database.query(`
+    const listSql = `
       ${rankingCte} SELECT ${NOTE_LIST_SELECT}, ${scoreExpression} AS relevance_score ${matchSelect}
       FROM ${from} WHERE ${where} ORDER BY ${sort === "relevance" ? `${scoreExpression} ASC, n.id ASC` : noteListOrder(sort)} LIMIT ?
-    `);
-    const rows = listStatement.all(
-      ...rankingParams,
-      ...matchParams,
-      ...params,
-      pageLimit + 1,
-    ) as (NoteRow & { tags_json: string; relevance_score: number; match_snippet?: string })[];
+    `;
+    const result = await executeSearch(database, options.searchExecutor, {
+      sql: listSql,
+      params: [...rankingParams, ...matchParams, ...params, pageLimit + 1],
+      countSql,
+      countParams,
+    });
     return respondNoteList(
-      rows,
+      result.rows as (NoteRow & {
+        tags_json: string;
+        relevance_score: number;
+        match_snippet?: string;
+      })[],
       pageLimit,
       sort,
       scope,
@@ -1147,7 +1166,7 @@ export async function handleNotesRoute(
       normalizedTagFilters,
       includeMatch,
       includeTotal,
-      includeTotal ? Number(totalRow?.count ?? 0) : null,
+      result.count,
     );
   }
 
@@ -1311,7 +1330,7 @@ export async function handleNotesRoute(
         candidateConditions.push("notes_fts MATCH ?");
         candidateParams.push(ftsTokens.map((p) => `"${p.replaceAll('"', '""')}"`).join(" AND "));
       } else {
-        candidateConditions.push("search_contains(n.content_markdown, ?)");
+        candidateConditions.push(searchContainsPredicate("n.content_markdown", trimmedTitle));
         candidateParams.push(trimmedTitle);
       }
 
