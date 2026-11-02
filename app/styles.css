@@ -607,9 +607,12 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .tasks-load-more button { padding: 4px 8px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--accent-dark); font: inherit; cursor: pointer; }
 .tasks-load-more button:hover { background: var(--surface-muted); }
 .tasks-back { display: none; }
-.app-shell[data-mobile-page="home"].is-tasks-open > .tasks-panel { display: flex; }
+.app-shell[data-mobile-page="home"].is-tasks-open > .tasks-panel,
+.app-shell[data-mobile-page="list"].is-tasks-open > .tasks-panel { display: flex; }
 .app-shell[data-mobile-page="tasks"] > .tasks-panel { display: flex; grid-column: 1; width: 100%; height: 100%; }
 .app-shell[data-mobile-page="tasks"] > .editor-region { display: none; }
+.app-shell[data-mobile-page="home"].is-kanban-open > .kanban-panel,
+.app-shell[data-mobile-page="list"].is-kanban-open > .kanban-panel { display: flex; }
 .note-list-scroll-shell { position: relative; flex: 1 1 0; min-height: 0; overflow: hidden; }
 .note-list-scroll-shell::before, .note-list-scroll-shell::after {
   position: absolute;
@@ -1916,16 +1919,31 @@ dialog::backdrop {
   .app-shell[data-mobile-page] .sort-dropdown button { min-height: 44px; }
   .app-shell[data-mobile-page] .empty-trash-button { width: 44px; height: 44px; justify-content: center; }
   .app-shell[data-mobile-page] .note-list-panel { background: var(--canvas); }
-  .app-shell[data-mobile-page="home"].is-tasks-open > .tasks-panel, .app-shell[data-mobile-page="tasks"] > .tasks-panel { flex: 1 1 0; width: 100%; height: 0; min-height: 0; }
+  .app-shell[data-mobile-page="home"].is-tasks-open > .tasks-panel,
+  .app-shell[data-mobile-page="list"].is-tasks-open > .tasks-panel,
+  .app-shell[data-mobile-page="tasks"] > .tasks-panel,
+  .app-shell[data-mobile-page="home"].is-kanban-open > .kanban-panel,
+  .app-shell[data-mobile-page="list"].is-kanban-open > .kanban-panel,
+  .app-shell[data-mobile-page="kanban"] > .kanban-panel { flex: 1 1 0; width: 100%; height: 0; min-height: 0; }
+  .app-shell[data-mobile-page].is-tasks-open > .tasks-panel > .tasks-header,
   .app-shell[data-mobile-page="tasks"] > .tasks-panel > .tasks-header,
+  .app-shell[data-mobile-page].is-kanban-open > .kanban-panel > .kanban-header,
   .app-shell[data-mobile-page="kanban"] > .kanban-panel > .kanban-header { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 4px; height: calc(64px + env(safe-area-inset-top)); min-height: calc(64px + env(safe-area-inset-top)); box-sizing: border-box; align-items: center; padding: env(safe-area-inset-top) max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left)); border-bottom: 1px solid var(--line); background: var(--canvas); backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .app-shell[data-mobile-page].is-tasks-open > .tasks-panel > .tasks-header-back,
   .app-shell[data-mobile-page="tasks"] > .tasks-panel > .tasks-header-back,
+  .app-shell[data-mobile-page].is-kanban-open > .kanban-panel > .kanban-header-back,
   .app-shell[data-mobile-page="kanban"] > .kanban-panel > .kanban-header-back { display: inline-flex; grid-column: 1; grid-row: 1; width: 44px; height: 44px; min-height: 44px; align-items: center; justify-content: center; justify-self: start; margin: 0; padding: 0; color: var(--accent); }
+  .app-shell[data-mobile-page].is-tasks-open > .tasks-panel > .tasks-header .list-header-main,
   .app-shell[data-mobile-page="tasks"] > .tasks-panel > .tasks-header .list-header-main,
+  .app-shell[data-mobile-page].is-kanban-open > .kanban-panel > .kanban-header .list-header-main,
   .app-shell[data-mobile-page="kanban"] > .kanban-panel > .kanban-header .list-header-main { grid-column: 2; grid-row: 1; width: 100%; min-width: 0; margin: 0; }
+  .app-shell[data-mobile-page].is-tasks-open > .tasks-panel > .tasks-header h2,
   .app-shell[data-mobile-page="tasks"] > .tasks-panel > .tasks-header h2,
+  .app-shell[data-mobile-page].is-kanban-open > .kanban-panel > .kanban-header h2,
   .app-shell[data-mobile-page="kanban"] > .kanban-panel > .kanban-header h2 { font-size: 20px; font-weight: 650; letter-spacing: -0.025em; margin: 0; }
+  .app-shell[data-mobile-page].is-tasks-open > .tasks-panel > .tasks-header .tasks-count,
   .app-shell[data-mobile-page="tasks"] > .tasks-panel > .tasks-header .tasks-count,
+  .app-shell[data-mobile-page].is-kanban-open > .kanban-panel > .kanban-header .kanban-count,
   .app-shell[data-mobile-page="kanban"] > .kanban-panel > .kanban-header .kanban-count { margin-top: 2px; font-size: 13px; color: var(--muted); margin-bottom: 0; }
   .tasks-panel { flex-basis: auto; }
   .tasks-toolbar { min-height: 52px; gap: 6px; padding: 7px max(16px, env(safe-area-inset-right)) 7px max(16px, env(safe-area-inset-left)); }
@@ -4163,6 +4181,8 @@ dialog::backdrop {
 
 /* Mobile responsive adjustments */
 @media (max-width: 900px) {
+  .app-shell[data-mobile-page="home"].is-kanban-open > .kanban-panel,
+  .app-shell[data-mobile-page="list"].is-kanban-open > .kanban-panel,
   .app-shell[data-mobile-page="kanban"] > .kanban-panel {
     display: flex;
     grid-column: 1;

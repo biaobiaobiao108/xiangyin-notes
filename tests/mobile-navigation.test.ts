@@ -63,6 +63,21 @@ describe("mobile page navigation", () => {
     history.go(1);
     expect(navigation.restore(history.state)?.page).toBe("tasks");
   });
+  test("kanban is a history destination so system back returns to home", () => {
+    const history = new TestHistory();
+    const navigation = new MobileNavigationHistory(history, context, "session");
+    navigation.open("kanban", context);
+    expect(history.entries).toHaveLength(2);
+    expect(navigation.restore(history.state)?.page).toBe("kanban");
+
+    navigation.open("editor", { ...context, noteId: "kanban-note" });
+    navigation.back();
+    expect(navigation.restore(history.state)?.page).toBe("kanban");
+    navigation.back();
+    expect(navigation.restore(history.state)?.page).toBe("home");
+    history.go(1);
+    expect(navigation.restore(history.state)?.page).toBe("kanban");
+  });
   test("home → notebook list → note; browser back and forward retain the list context", () => {
     const history = new TestHistory();
     const navigation = new MobileNavigationHistory(history, context, "session");

@@ -102,15 +102,36 @@ function restoreEditorFocus(
   else return;
   // Safari can still reveal the restored caret and jump back to an off-screen selection.
   if (!scroll || scrollTop === undefined) return;
+  let userInteracted = false;
+  const onUserScroll = () => {
+    userInteracted = true;
+  };
+  scroll.addEventListener("wheel", onUserScroll, { passive: true, once: true });
+  scroll.addEventListener("touchmove", onUserScroll, { passive: true, once: true });
+
   const restoreScroll = () => {
+    if (userInteracted) return;
     if (scroll.scrollTop !== scrollTop) scroll.scrollTop = scrollTop;
   };
   restoreScroll();
+  let timer: number | null = null;
   window.requestAnimationFrame(() => {
     restoreScroll();
-    window.requestAnimationFrame(restoreScroll);
+    window.requestAnimationFrame(() => {
+      restoreScroll();
+      if (timer !== null) {
+        window.clearTimeout(timer);
+        timer = null;
+      }
+      scroll.removeEventListener("wheel", onUserScroll);
+      scroll.removeEventListener("touchmove", onUserScroll);
+    });
   });
-  window.setTimeout(restoreScroll, 50);
+  timer = window.setTimeout(() => {
+    restoreScroll();
+    scroll.removeEventListener("wheel", onUserScroll);
+    scroll.removeEventListener("touchmove", onUserScroll);
+  }, 50);
 }
 
 function blockHandleCenter(block: BlockTarget, scroll: HTMLElement | null): number {

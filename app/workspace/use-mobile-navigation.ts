@@ -27,6 +27,8 @@ export type MobileListContext = {
   sort: NoteSort;
   noteId: string | null;
   searchOrigin: { view: NoteView; notebookId?: string } | null;
+  tasksOpen?: boolean;
+  kanbanOpen?: boolean;
 };
 type NavigationEntry = {
   session: string;
@@ -138,7 +140,9 @@ export function useMobileNavigation(
       setIsMobileViewport(media.matches);
       if (media.matches && !historyRef.current) {
         const navigation = ensureHistory();
-        if (contextRef.current.noteId) navigation.open("editor", contextRef.current);
+        if (contextRef.current.kanbanOpen) navigation.open("kanban", contextRef.current);
+        else if (contextRef.current.tasksOpen) navigation.open("tasks", contextRef.current);
+        else if (contextRef.current.noteId) navigation.open("editor", contextRef.current);
         setMobilePage(navigation.page);
       }
     };
@@ -187,7 +191,6 @@ export function useMobileNavigation(
   );
   const openMobileTasks = useCallback(
     (next?: Partial<MobileListContext>) => {
-      if (!enabledRef.current) return;
       ensureHistory().open("tasks", { ...contextRef.current, ...next });
       setMobilePage("tasks");
     },
@@ -195,7 +198,6 @@ export function useMobileNavigation(
   );
   const openMobileKanban = useCallback(
     (next?: Partial<MobileListContext>) => {
-      if (!enabledRef.current) return;
       ensureHistory().open("kanban", { ...contextRef.current, ...next });
       setMobilePage("kanban");
     },

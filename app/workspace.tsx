@@ -258,6 +258,8 @@ export function Workspace() {
   const cardGridScrollPositionRef = useRef<{ scope: string; top: number }>({ scope: "", top: 0 });
   const mobileEditorVisitedRef = useRef(false);
 
+  const [tasksOpen, setTasksOpen] = useState(false);
+  const [kanbanOpen, setKanbanOpen] = useState(false);
   const editorRegionRef = useRef<HTMLElement | null>(null);
   const mobileRestoreRef = useRef<(context: MobileListContext, page: MobilePage) => void>(
     () => undefined,
@@ -279,6 +281,8 @@ export function Workspace() {
       sort: noteSort,
       noteId: selectedId,
       searchOrigin: searchOriginRef.current,
+      tasksOpen,
+      kanbanOpen,
     },
     (context, page) => mobileRestoreRef.current(context, page),
   );
@@ -294,7 +298,6 @@ export function Workspace() {
   const [commandOpen, setCommandOpen] = useState(false);
   const [commandInitialQuery, setCommandInitialQuery] = useState("");
   const [inNoteSearchQuery, setInNoteSearchQuery] = useState("");
-  const [tasksOpen, setTasksOpen] = useState(false);
   const [taskStatus, setTaskStatus] = useState<"open" | "done" | "all">("open");
   const [taskNotebookId, setTaskNotebookId] = useState("");
   const [taskSnapshot, setTaskSnapshot] = useState<{
@@ -336,7 +339,6 @@ export function Workspace() {
   } | null>(null);
   const resultSearchTokenRef = useRef(0);
   const [editingNotebook, setEditingNotebook] = useState<Notebook | null | undefined>(undefined);
-  const [kanbanOpen, setKanbanOpen] = useState(false);
   const [kanbanColumns, setKanbanColumns] = useState<Record<KanbanStatus, KanbanColumnData>>({
     inbox: {
       cards: [],
@@ -2051,16 +2053,12 @@ export function Workspace() {
     setKanbanOpen(false);
     setTasksOpen(true);
     kanbanReturnRef.current = false;
-    if (isMobileViewport)
-      openMobileTasks({ view: "all", notebookId: undefined, query: "", searchOrigin: null });
-    else openMobileList({ view: "all", notebookId: undefined, query: "", searchOrigin: null });
+    openMobileTasks({ view: "all", notebookId: undefined, query: "", searchOrigin: null });
   }, [
     flushPendingSaves,
     flushSecondaryDraft,
     hasUnsavedWork,
-    isMobileViewport,
     notifyWarning,
-    openMobileList,
     openMobileTasks,
     query,
   ]);
@@ -2077,17 +2075,13 @@ export function Workspace() {
     setTasksOpen(false);
     setKanbanOpen(true);
     kanbanReturnRef.current = false;
-    if (isMobileViewport)
-      openMobileKanban({ view: "all", notebookId: undefined, query: "", searchOrigin: null });
-    else openMobileList({ view: "all", notebookId: undefined, query: "", searchOrigin: null });
+    openMobileKanban({ view: "all", notebookId: undefined, query: "", searchOrigin: null });
   }, [
     flushPendingSaves,
     flushSecondaryDraft,
     hasUnsavedWork,
-    isMobileViewport,
     notifyWarning,
     openMobileKanban,
-    openMobileList,
     query,
   ]);
   const openKanbanNote = useCallback(

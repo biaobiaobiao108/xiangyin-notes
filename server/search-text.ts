@@ -1,12 +1,17 @@
-const SEARCH_PATTERN_CACHE_LIMIT = 64;
+const SEARCH_PATTERN_CACHE_LIMIT = 256;
 // Patterns are non-global, so reused expressions keep no match state.
 const searchPatterns = new Map<string, RegExp>();
 
 function searchPattern(term: string) {
   const cached = searchPatterns.get(term);
-  if (cached) return cached;
+  if (cached) {
+    searchPatterns.delete(term);
+    searchPatterns.set(term, cached);
+    return cached;
+  }
 
-  const pattern = new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "iu");
+  const hasNonAscii = /[^\x00-\x7F]/.test(term);
+  const pattern = new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), hasNonAscii ? "iu" : "i");
   if (searchPatterns.size >= SEARCH_PATTERN_CACHE_LIMIT)
     searchPatterns.delete(searchPatterns.keys().next().value!);
   searchPatterns.set(term, pattern);
@@ -14,6 +19,7 @@ function searchPattern(term: string) {
 }
 
 export function searchContains(text: string, term: string) {
+  if (!text || !term) return false;
   return searchPattern(term).test(text);
 }
 
