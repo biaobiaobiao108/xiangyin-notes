@@ -82,9 +82,13 @@ const HANDLE_FADE_OUT = 180;
 const MIN_LIST_PREVIEW_WIDTH = 160;
 const prefersReducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-function focusEditor(editor: Editor) {
+function focusEditor(editor: Editor, scroll: HTMLElement | null) {
   if (editor.isDestroyed) return;
+  const scrollTop = scroll?.scrollTop;
   editor.view.dom.focus({ preventScroll: true });
+  // Safari can still reveal the restored caret and jump back to an off-screen selection.
+  if (!scroll || scrollTop === undefined || scroll.scrollTop === scrollTop) return;
+  scroll.scrollTop = scrollTop;
 }
 
 function blockAnchorTop(block: BlockTarget): number {
@@ -970,7 +974,7 @@ export function BlockDragHandle({
         }
       } finally {
         dispose();
-        if (moved) focusEditor(editor);
+        if (moved) focusEditor(editor, scrollRef.current);
       }
     };
 
@@ -1059,7 +1063,7 @@ export function BlockDragHandle({
     } finally {
       closeMenu(false);
       clearActiveBlock();
-      if (!editor.isDestroyed) focusEditor(editor);
+      if (!editor.isDestroyed) focusEditor(editor, scrollRef.current);
     }
   };
 
