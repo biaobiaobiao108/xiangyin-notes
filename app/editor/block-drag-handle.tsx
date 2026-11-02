@@ -68,6 +68,9 @@ type DragSession = {
 };
 
 const HANDLE_LEFT = -30;
+const HANDLE_WIDTH = 24;
+const HANDLE_HOVER_LEFT = HANDLE_LEFT - 12;
+const HANDLE_HOVER_RIGHT = HANDLE_LEFT + HANDLE_WIDTH + 6;
 const DRAG_THRESHOLD = 6;
 const PREVIEW_PADDING_X = 10;
 const PREVIEW_PADDING_Y = 7;
@@ -91,19 +94,60 @@ function blockAnchorTop(block: BlockTarget): number {
   return Math.max(rect.top, Math.min(...lineRects.map((line) => line.top)));
 }
 
-function pointerInBlockZone(
-  block: BlockTarget,
+function pointerInHandleGutter(
+  container: HTMLElement,
+  scroll: HTMLElement | null,
   x: number,
   y: number,
-  handleRect: DOMRect | null,
 ): boolean {
-  if (!block.dom) return false;
-  const blockRect = block.dom.getBoundingClientRect();
-  const left = (handleRect?.left ?? blockRect.left - 36) - 8;
-  const right = blockRect.right + 8;
-  const top = Math.min(blockRect.top, handleRect?.top ?? blockRect.top) - 8;
-  const bottom = Math.max(blockRect.bottom, handleRect?.bottom ?? blockRect.bottom) + 8;
-  return x >= left && x <= right && y >= top && y <= bottom;
+  const containerRect = container.getBoundingClientRect();
+  const scrollRect = scroll?.getBoundingClientRect();
+  return (
+    x >= containerRect.left + HANDLE_HOVER_LEFT &&
+    x <= containerRect.left + HANDLE_HOVER_RIGHT &&
+    (!scrollRect || (y >= scrollRect.top && y <= scrollRect.bottom))
+  );
+}
+
+function blockAtHandleGutter(editor: Editor, y: number): BlockTarget | null {
+  const editorDom = editor.view.dom;
+  const rect = editorDom.getBoundingClientRect();
+  const target = document.elementFromPoint(rect.left + 6, y);
+  if (!(target instanceof HTMLElement)) return null;
+  if (target !== editorDom && !editorDom.contains(target)) return null;
+
+  const listRoot = target.closest<HTMLElement>("li, ul, ol");
+  if (listRoot) {
+    const items =
+      listRoot.tagName === "LI"
+        ? [listRoot, ...listRoot.querySelectorAll<HTMLElement>("li")]
+        : Array.from(listRoot.querySelectorAll<HTMLElement>("li"));
+    let listItem: HTMLElement | null = null;
+    let listItemDepth = -1;
+    let listItemHeight = Number.POSITIVE_INFINITY;
+    for (const item of items) {
+      const itemRect = item.getBoundingClientRect();
+      if (y < itemRect.top || y > itemRect.bottom) continue;
+      let depth = 0;
+      for (
+        let parent = item.parentElement;
+        parent && parent !== editorDom;
+        parent = parent.parentElement
+      ) {
+        if (parent.tagName === "LI") depth += 1;
+      }
+      if (depth < listItemDepth) continue;
+      if (depth === listItemDepth && itemRect.height >= listItemHeight) continue;
+      listItem = item;
+      listItemDepth = depth;
+      listItemHeight = itemRect.height;
+    }
+    if (listItem) {
+      return getDraggableBlockFromElement(editor, listItem, { x: rect.left + 6, y });
+    }
+  }
+
+  return getDraggableBlockFromElement(editor, target, { x: rect.left + 6, y });
 }
 
 function textContentRight(element: HTMLElement): number | null {
@@ -314,29 +358,19 @@ export function BlockDragHandle({
         return;
       }
       const target = event.target;
-      if (!(target instanceof HTMLElement)) return;
-      if (handleRef.current?.contains(target) || menuRef.current?.contains(target)) {
+      if (
+        target instanceof Node &&
+        (handleRef.current?.contains(target) || menuRef.current?.contains(target))
+      ) {
         clearHideTimeout();
         return;
       }
-      const block = getDraggableBlockFromElement(editor, target, {
-        x: event.clientX,
-        y: event.clientY,
-      });
+      if (!pointerInHandleGutter(container, scrollRef.current, event.clientX, event.clientY)) {
+        scheduleHide();
+        return;
+      }
+      const block = blockAtHandleGutter(editor, event.clientY);
       if (!block) {
-        const active = activeBlockRef.current;
-        if (
-          active &&
-          pointerInBlockZone(
-            active,
-            event.clientX,
-            event.clientY,
-            handleRef.current?.getBoundingClientRect() ?? null,
-          )
-        ) {
-          clearHideTimeout();
-          return;
-        }
         scheduleHide();
         return;
       }
