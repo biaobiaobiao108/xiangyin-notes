@@ -68,6 +68,7 @@ type DragSession = {
 
 const HANDLE_LEFT = -30;
 const HANDLE_WIDTH = 24;
+const HANDLE_HEIGHT = 28;
 const HANDLE_HOVER_LEFT = HANDLE_LEFT - 12;
 const HANDLE_HOVER_RIGHT = HANDLE_LEFT + HANDLE_WIDTH + 6;
 const DRAG_THRESHOLD = 6;
@@ -91,16 +92,10 @@ function focusEditor(editor: Editor, scroll: HTMLElement | null) {
   scroll.scrollTop = scrollTop;
 }
 
-function blockAnchorTop(block: BlockTarget): number {
+function blockVerticalCenter(block: BlockTarget): number {
   if (!block.dom) return 0;
   const rect = block.dom.getBoundingClientRect();
-  const range = document.createRange();
-  range.selectNodeContents(block.dom);
-  const lineRects = Array.from(range.getClientRects()).filter(
-    (line) => line.width > 0 && line.height > 0,
-  );
-  if (!lineRects.length) return rect.top;
-  return Math.max(rect.top, Math.min(...lineRects.map((line) => line.top)));
+  return rect.top + rect.height / 2;
 }
 
 function pointerInHandleGutter(
@@ -331,11 +326,11 @@ export function BlockDragHandle({
       const container = containerRef.current;
       if (!container || !block.dom) return;
       const containerRect = container.getBoundingClientRect();
-      const anchorTop = blockAnchorTop(block);
+      const centerY = blockVerticalCenter(block);
       activeBlockRef.current = block;
       setActiveBlock(block);
       setHandlePosition({
-        top: anchorTop - containerRect.top - 1,
+        top: centerY - containerRect.top - HANDLE_HEIGHT / 2,
         left: HANDLE_LEFT,
       });
     },
