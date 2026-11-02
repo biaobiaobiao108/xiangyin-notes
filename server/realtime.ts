@@ -1,5 +1,17 @@
-import type { WorkspaceChangeMessage, WorkspaceChangeResource } from "../shared/realtime";
-import { digestHex, getPublicOrigin, jsonError, SESSION_COOKIE, type ServerOptions } from "./core";
+import type {
+  WorkspaceChangeMessage,
+  WorkspaceChangeResource,
+  WorkspaceSyncMessage,
+} from "../shared/realtime";
+import {
+  digestHex,
+  getPublicOrigin,
+  jsonError,
+  now,
+  SESSION_COOKIE,
+  type ServerOptions,
+  type SqliteDatabase,
+} from "./core";
 import { cleanupExpiredSessions, cookieValue, isResponse, requireUser } from "./routes/auth";
 import { createRealtimeSessionRevoker } from "./realtime-revocation";
 
@@ -31,7 +43,7 @@ export function realtimeClientIdFromUrl(request: Request) {
 
 export class RealtimeHub {
   private readonly connections = new Map<string, Set<Bun.ServerWebSocket<RealtimeSocketData>>>();
-  private revision = 0;
+  private readonly revisions = new Map<string, number>();
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   private closeMatching(predicate: (socket: Bun.ServerWebSocket<RealtimeSocketData>) => boolean) {
@@ -70,6 +82,19 @@ export class RealtimeHub {
     }
     userConnections.add(socket);
     this.connections.set(userId, userConnections);
+
+    const syncMessage: WorkspaceSyncMessage = {
+      type: "workspace.sync",
+      revision: this.revisions.get(userId) ?? 0,
+    };
+    try {
+      socket.sendText(JSON.stringify(syncMessage));
+    } catch {
+      this.remove(socket);
+      try {
+        socket.close(1011, "sync failed");
+      } catch {}
+    }
   }
 
   remove(socket: Bun.ServerWebSocket<RealtimeSocketData>) {
@@ -86,12 +111,14 @@ export class RealtimeHub {
     change: { resource: WorkspaceChangeResource; noteId?: string },
     sourceClientId: string | null = null,
   ) {
+    const revision = (this.revisions.get(userId) ?? 0) + 1;
+    this.revisions.set(userId, revision);
     const userConnections = this.connections.get(userId);
     if (!userConnections?.size) return;
 
     const message: WorkspaceChangeMessage = {
       type: "workspace.changed",
-      revision: ++this.revision,
+      revision,
       resource: change.resource,
       ...(change.noteId ? { noteId: change.noteId } : {}),
     };

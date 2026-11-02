@@ -1,4 +1,4 @@
-import { databaseFromBinding, type D1Binding } from "../server/db";
+import { databaseFromBinding, type D1Binding } from "../server/d1";
 import { digestHex, SESSION_COOKIE, type R2BucketBinding, type RealtimeNamespaceBinding } from "../server/core";
 import { handleRequest } from "../server/index";
 import type { WorkspaceChangeMessage } from "../shared/realtime";

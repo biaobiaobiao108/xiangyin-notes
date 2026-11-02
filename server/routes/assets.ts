@@ -76,15 +76,36 @@ export async function removeAssetFiles(bucket: R2BucketBinding, storagePaths: st
 }
 
 /** Remove stale database references and old R2 objects that never got a metadata row. */
-export async function cleanupOrphanAssets(
+const activeOrphanAssetCleanup = new WeakMap<object, Promise<void>>();
+
+export function cleanupOrphanAssets(
   database: SqliteDatabase,
   bucket: R2BucketBinding,
   timestamp = now(),
 ) {
+  const databaseKey = database as object;
+  const active = activeOrphanAssetCleanup.get(databaseKey);
+  if (active) return active;
   const bucketKey = bucket as object;
-  if (timestamp < (nextOrphanAssetCleanupAt.get(bucketKey) ?? 0)) return;
+  if (timestamp < (nextOrphanAssetCleanupAt.get(bucketKey) ?? 0)) return Promise.resolve();
   nextOrphanAssetCleanupAt.set(bucketKey, timestamp + ORPHAN_ASSET_CLEANUP_INTERVAL_SECONDS);
+  const cleanup = runOrphanAssetCleanup(database, bucket, timestamp).finally(() => {
+    if (activeOrphanAssetCleanup.get(databaseKey) === cleanup)
+      activeOrphanAssetCleanup.delete(databaseKey);
+  });
+  activeOrphanAssetCleanup.set(databaseKey, cleanup);
+  return cleanup;
+}
 
+export async function waitForOrphanAssetCleanup(database: SqliteDatabase) {
+  await activeOrphanAssetCleanup.get(database as object);
+}
+
+async function runOrphanAssetCleanup(
+  database: SqliteDatabase,
+  bucket: R2BucketBinding,
+  timestamp: number,
+) {
   const staleAssets = await all<{ id: string; storage_path: string }>(
     database,
     `
@@ -250,7 +271,7 @@ export async function serveImageAsset(
   bucket: R2BucketBinding,
   userId: string,
   assetId: string,
-  cacheControl = "private, max-age=3600",
+  cacheControl = "no-store",
 ) {
   const asset = await first<ImageAssetRow>(
     database,

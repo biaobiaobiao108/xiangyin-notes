@@ -12,6 +12,7 @@ import {
   validText,
 } from "../core";
 import { publishWorkspaceChange } from "../realtime";
+import { syncNoteTasks } from "./note-mutations";
 
 type NotebookRowWithCount = {
   id: string;
@@ -95,8 +96,48 @@ export async function handleNotebooksRoute(
   const resource = segments[0] ?? "";
   const id = segments[1] ?? "";
   const subresource = segments[2] ?? "";
-
   if (resource !== "notebooks") return null;
+
+  if (id === "reorder" && method === "PATCH") {
+    const payload = await readJson<{ ids?: unknown; expectedIds?: unknown }>(request, 64 * 1024);
+    if (
+      !payload ||
+      !Array.isArray(payload.ids) ||
+      !Array.isArray(payload.expectedIds) ||
+      !payload.ids.every((value) => typeof value === "string") ||
+      !payload.expectedIds.every((value) => typeof value === "string")
+    ) {
+      return jsonError(400, "INVALID_NOTEBOOK_ORDER", "笔记本顺序无效");
+    }
+    const ids = payload.ids as string[];
+    const expectedIds = payload.expectedIds as string[];
+    const current = (
+      await all<{ id: string }>(
+        database,
+        "SELECT id FROM notebooks WHERE user_id = ? AND is_system = 0 ORDER BY sort_order, name, id",
+        user.id,
+      )
+    ).map((row) => row.id);
+    if (
+      current.length !== expectedIds.length ||
+      current.some((value, index) => value !== expectedIds[index])
+    )
+      return jsonError(409, "NOTEBOOK_ORDER_CHANGED", "笔记本列表已变化，请重试");
+    if (
+      ids.length !== current.length ||
+      new Set(ids).size !== ids.length ||
+      ids.some((value) => !current.includes(value))
+    )
+      return jsonError(400, "INVALID_NOTEBOOK_ORDER", "必须提交全部自建笔记本且不能重复");
+    await database.batch(
+      ids.map((notebookId, index) => ({
+        sql: "UPDATE notebooks SET sort_order = ? WHERE id = ? AND user_id = ? AND is_system = 0",
+        values: [(index + 1) * 10, notebookId, user.id],
+      })),
+    );
+    publishWorkspaceChange(options, user.id, { resource: "notebooks" }, request);
+    return json({ ok: true, ids });
+  }
 
   if (!id && method === "GET") {
     const rows = await all<NotebookRowWithCount>(
@@ -105,7 +146,7 @@ export async function handleNotebooksRoute(
       SELECT b.id, b.name, b.color, b.icon, b.is_system, b.updated_at,
         (SELECT COUNT(*) FROM notes n WHERE n.notebook_id = b.id AND n.user_id = b.user_id AND n.deleted_at IS NULL) AS count,
         (SELECT COUNT(*) FROM notes n WHERE n.notebook_id = b.id AND n.user_id = b.user_id) AS total_count
-      FROM notebooks b WHERE b.user_id = ? ORDER BY b.sort_order, b.name
+      FROM notebooks b WHERE b.user_id = ? ORDER BY b.is_system DESC, b.sort_order, b.name, b.id
     `,
       user.id,
     );
@@ -152,7 +193,7 @@ export async function handleNotebooksRoute(
     try {
       await database
         .query(
-          "INSERT INTO notebooks (id, user_id, name, color, icon, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 10, ?, ?)",
+          "INSERT INTO notebooks (id, user_id, name, color, icon, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, COALESCE((SELECT MAX(sort_order) + 10 FROM notebooks WHERE user_id = ? AND is_system = 0), 10), ?, ?)",
         )
         .run(
           notebookId,
@@ -160,6 +201,7 @@ export async function handleNotebooksRoute(
           (payload.name as string).trim(),
           color as string,
           icon as string,
+          user.id,
           createdAt,
           createdAt,
         );
@@ -267,7 +309,12 @@ export async function handleNotebooksRoute(
         {
           error: {
             code: "NOTEBOOK_COUNT_MISMATCH",
-            message: `笔记本当前有 ${actualCount} 篇笔记，与 expectedNoteCount=${String(expectedNoteCount)} 不一致，已取消删除`,
+            message:
+              "笔记本当前有 " +
+              actualCount +
+              " 篇笔记，与 expectedNoteCount=" +
+              expectedNoteCount +
+              " 不一致，已取消删除",
             actualCount,
             expectedNoteCount,
           },
@@ -275,28 +322,38 @@ export async function handleNotebooksRoute(
         409,
       );
     }
+    const movedNotes = await all<{
+      id: string;
+      content_markdown: string;
+      created_at: number;
+      deleted_at: number | null;
+    }>(
+      database,
+      "SELECT id, content_markdown, created_at, deleted_at FROM notes WHERE notebook_id = ? AND user_id = ?",
+      current.id,
+      user.id,
+    );
+    for (const note of movedNotes) {
+      await syncNoteTasks(
+        database,
+        user.id,
+        note.id,
+        inbox.id,
+        note.created_at,
+        note.deleted_at === null ? note.content_markdown : "",
+      );
+    }
     const results = await database.batch([
       {
-        sql: `UPDATE notes SET notebook_id = ?, version = version + 1, updated_at = ?
-          WHERE notebook_id = ? AND user_id = ?
-            AND (? IS NULL OR (SELECT COUNT(*) FROM notes WHERE notebook_id = ? AND user_id = ?) = ?)`,
-        values: [
-          inbox.id,
-          now(),
-          current.id,
-          user.id,
-          expectedNoteCount ?? null,
-          current.id,
-          user.id,
-          expectedNoteCount ?? null,
-        ],
+        sql: "UPDATE notes SET notebook_id = ?, version = version + 1, updated_at = ? WHERE notebook_id = ? AND user_id = ?",
+        values: [inbox.id, now(), current.id, user.id],
       },
       {
-        sql: "DELETE FROM notebooks WHERE id = ? AND user_id = ? AND NOT EXISTS (SELECT 1 FROM notes WHERE notebook_id = ? AND user_id = ?)",
-        values: [current.id, user.id, current.id, user.id],
+        sql: "DELETE FROM notebooks WHERE id = ? AND user_id = ?",
+        values: [current.id, user.id],
       },
     ]);
-    const movedCount = results[0]?.changes ?? 0;
+    const movedCount = movedNotes.length;
     if ((results[1]?.changes ?? 0) === 0) {
       const currentCount = Number(
         (

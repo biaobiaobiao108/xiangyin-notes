@@ -14,22 +14,25 @@ import { createMarkdownExtension } from "./editor/markdown-config";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import Placeholder from "@tiptap/extension-placeholder";
-import { findWrapping } from "@tiptap/pm/transform";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import type { Transaction } from "@tiptap/pm/state";
+import { Selection, type Transaction } from "@tiptap/pm/state";
+import { closeHistory } from "@tiptap/pm/history";
 import {
   ArrowLeft,
   ArrowLeftRight,
   CheckCircle,
   ChevronLeft,
   CircleAlert,
+  Columns2,
   ImageDown,
   LayoutGrid,
   LoaderCircle,
   RefreshCw,
+  SquareKanban,
   Star,
   Trash2,
   Undo2,
+  X,
 } from "lucide-react";
 import type { ImageAssetSummary, Note, NoteSummary } from "../shared/types";
 import { preserveEscapedHashtagsForEditor } from "../shared/tags";
@@ -38,6 +41,8 @@ import { BrandMark } from "./brand-mark";
 import {
   cycleSearchMatchIndex,
   findTextMatches,
+  findEditorReplaceMatches,
+  replaceEditorSearchMatches,
   searchHighlightPluginKey,
   SearchHighlightExtension,
 } from "./editor-search";
@@ -46,11 +51,11 @@ import {
   countEditorText,
   detectLeakedImePrefix,
   getOutlineStructureKey,
+  normalizeChineseMarkdownBlockMarkers,
   parseMarkdownBlockShortcut,
   shouldParseMarkdownPaste,
   shouldUpdateActiveOutlineFromViewport,
   type EditorStats,
-  type MarkdownBlockShortcut,
   type OutlineItem,
 } from "./editor-metrics";
 import {
@@ -59,12 +64,19 @@ import {
   type EditorTextBlockStatsCache,
   type EditorTextStatsSnapshot,
 } from "./editor-text-stats";
-import { changedDocumentRange } from "./editor/changed-range";
-import { scrollNoteBoundary } from "./editor/document-navigation";
+import { transactionMayChangeOutline } from "./editor/outline-change";
+import { scrollNoteNavigation } from "./editor/document-navigation";
 import { replaceEditorMarkdown } from "./editor/document-content";
+import {
+  findTaskPosition,
+  TaskNavigationExtension,
+  taskNavigationPluginKey,
+} from "./editor/task-navigation";
 import { FloatingScrollbar } from "./floating-scrollbar";
 import { relativeDate } from "./format";
-import { ImeMarkdownSafeExtension, imeMarkdownSafePluginKey } from "./ime-markdown-safe-extension";
+import { normalizeImagesInEmptyListItems } from "./image-markdown";
+import { ImeMarkdownSafeExtension } from "./ime-markdown-safe-extension";
+import { executeBlockShortcut, executeBlockShortcutAtSelection } from "./editor/markdown-shortcuts";
 import { editorCoreExtensionOptions } from "./editor/editor-config";
 import { EditorFloatingTools } from "./editor/editor-panels";
 import { ImageNode } from "./editor/image-node";
@@ -72,7 +84,10 @@ import { createImageUploadPosition, ImageUploadPositions } from "./editor/image-
 import { TagDecorationExtension } from "./editor/tag-decoration";
 import { BacklinksDialog } from "./editor/backlinks-panel";
 import { WikiLinkNode } from "./editor/wiki-link-node";
-import { WikiLinkSuggestionExtension } from "./editor/wiki-link-suggestion";
+import {
+  WikiLinkSuggestionExtension,
+  type WikiLinkTitleSearch,
+} from "./editor/wiki-link-suggestion";
 import { CalloutNode } from "./editor/callout-node";
 import { NoteLink } from "./editor/note-link";
 import { CodeBlockWithCopy } from "./editor/code-block-copy";
@@ -90,6 +105,7 @@ import {
   MobileEditorOutline,
 } from "./editor/mobile-editor-controls";
 import { mobileCaretBounds, useMobileCaret } from "./editor/use-mobile-caret";
+import { BlockDragHandle } from "./editor/block-drag-handle";
 import { useEditorContextMenu } from "./editor/use-editor-context-menu";
 import { useScrollEdges } from "./workspace/use-scroll-edges";
 import "./editor/mobile-editor.css";
@@ -101,49 +117,6 @@ const MAX_IMAGE_FILES_PER_ACTION = 10;
 const OUTLINE_HEADING_SELECTOR = "h1, h2, h3, h4, h5, h6";
 const EDITOR_SYNC_DEBOUNCE_MS = 180;
 const EDITOR_SYNC_MAX_WAIT_MS = 720;
-
-function rangeTouchesHeading(doc: ProseMirrorNode, from: number, to: number): boolean {
-  const start = Math.max(0, Math.min(from, doc.content.size));
-  const end = Math.max(start, Math.min(to, doc.content.size));
-  const $start = doc.resolve(start);
-  for (let depth = $start.depth; depth > 0; depth -= 1) {
-    if ($start.node(depth).type.name === "heading") return true;
-  }
-  if ($start.nodeAfter?.type.name === "heading" || $start.nodeBefore?.type.name === "heading")
-    return true;
-
-  let touchesHeading = false;
-  if (end > start) {
-    doc.nodesBetween(start, end, (node) => {
-      if (node.type.name === "heading") {
-        touchesHeading = true;
-        return false;
-      }
-      return !touchesHeading;
-    });
-  }
-  return touchesHeading;
-}
-
-function transactionMayChangeOutline(transaction: Transaction): boolean {
-  if (!transaction.docChanged) return false;
-  const range = changedDocumentRange(transaction);
-  if (range && rangeTouchesHeading(transaction.doc, range.from, range.to)) return true;
-
-  for (const map of transaction.mapping.maps) {
-    let touchesHeading = false;
-    map.forEach((oldStart, oldEnd, newStart, newEnd) => {
-      if (
-        rangeTouchesHeading(transaction.before, oldStart, oldEnd) ||
-        rangeTouchesHeading(transaction.doc, newStart, newEnd)
-      ) {
-        touchesHeading = true;
-      }
-    });
-    if (touchesHeading) return true;
-  }
-  return false;
-}
 
 function resizeTitleField(field: HTMLTextAreaElement | null) {
   if (!field) return;
@@ -184,6 +157,10 @@ function isImageFile(file: File) {
   );
 }
 
+function prepareMarkdownForEditor(markdown: string) {
+  return normalizeImagesInEmptyListItems(preserveEscapedHashtagsForEditor(markdown));
+}
+
 async function imageDimensions(file: File) {
   if (typeof createImageBitmap === "function") {
     try {
@@ -210,6 +187,11 @@ export function NoteEditor({
   note,
   contentMarkdown = note.contentMarkdown,
   searchQuery = "",
+  searchNavigationToken = 0,
+  replaceRequest = null,
+  onReplaceRequestHandled,
+  taskNavigation = null,
+  onTaskNavigationMissing,
   saveState,
   isLoading = false,
   reloadToken = 0,
@@ -225,8 +207,8 @@ export function NoteEditor({
   onRestore,
   onPermanentDelete,
   onOpenList,
-  onOpenCommands,
   onBackToCards,
+  onBackToKanban,
   onUploadImage,
   isMobileViewport = false,
   mobileBackLabel = "笔记列表",
@@ -244,13 +226,24 @@ export function NoteEditor({
   availableNotes = [],
   onNavigateWikiLink,
   onCreateAndLinkNote,
+  onSearchWikiLinkTitles,
   onNavigateToNote,
   onMarkdownReaderChange,
   onMarkdownDirtyChange,
+  onToggleSplit,
+  isSplitActive = false,
+  onCloseSplit,
+  isActivePane,
+  onActivatePane,
 }: {
   note: Note;
   contentMarkdown?: string;
   searchQuery?: string;
+  searchNavigationToken?: number;
+  replaceRequest?: { noteId: string; token: number; query: string } | null;
+  onReplaceRequestHandled?: (token: number) => void;
+  taskNavigation?: { noteId: string; ordinal: number; text: string; token: number } | null;
+  onTaskNavigationMissing?: () => void;
   saveState: SaveState;
   isLoading?: boolean;
   reloadToken?: number;
@@ -266,8 +259,8 @@ export function NoteEditor({
   onRestore: () => void;
   onPermanentDelete?: () => void;
   onOpenList?: () => void;
-  onOpenCommands?: () => void;
   onBackToCards?: () => void;
+  onBackToKanban?: () => void;
   onUploadImage?: (
     file: File,
     dimensions: { width: number; height: number },
@@ -288,9 +281,15 @@ export function NoteEditor({
   availableNotes?: NoteSummary[];
   onNavigateWikiLink?: (targetTitle: string) => void;
   onCreateAndLinkNote?: (title: string) => void;
+  onSearchWikiLinkTitles?: WikiLinkTitleSearch;
   onNavigateToNote?: (id: string) => void;
   onMarkdownReaderChange?: (reader: (() => string | null) | null) => void;
   onMarkdownDirtyChange?: (noteId: string, isDirty: boolean) => void;
+  onToggleSplit?: () => void;
+  isSplitActive?: boolean;
+  onCloseSplit?: () => void;
+  isActivePane?: boolean;
+  onActivatePane?: () => void;
 }) {
   const editorScrollRef = useRef<HTMLDivElement>(null);
   const mobileViewportRef = useRef(isMobileViewport);
@@ -320,7 +319,7 @@ export function NoteEditor({
   const activeEditorNoteIdRef = useRef(note.id);
   const initialContentRef = useRef<string | null>(null);
   if (initialContentRef.current === null) {
-    initialContentRef.current = preserveEscapedHashtagsForEditor(contentMarkdown);
+    initialContentRef.current = prepareMarkdownForEditor(contentMarkdown);
   }
   const isPastingRef = useRef(false);
   const smoothScrollToHeadRef = useRef<(view: Editor["view"]) => void>(() => undefined);
@@ -335,6 +334,18 @@ export function NoteEditor({
     imageUploadContextRef.current.reloadToken !== reloadToken
   ) {
     imageUploadContextRef.current = { noteId: note.id, reloadToken };
+  }
+  const imageUploadProgressRef = useRef({
+    context: imageUploadContextRef.current,
+    activeCount: 0,
+    failed: false,
+  });
+  if (imageUploadProgressRef.current.context !== imageUploadContextRef.current) {
+    imageUploadProgressRef.current = {
+      context: imageUploadContextRef.current,
+      activeCount: 0,
+      failed: false,
+    };
   }
   const programmaticOutlineScrollIdRef = useRef<string | null>(null);
   const cancelOutlineSmoothScroll = useCallback(() => {
@@ -364,7 +375,11 @@ export function NoteEditor({
     matchCount: 0,
     totalMatchCount: 0,
   });
-  const searchQueryRef = useRef(searchQuery);
+  const [replaceOpen, setReplaceOpen] = useState(false);
+  const [replaceQuery, setReplaceQuery] = useState("");
+  const [replacementText, setReplacementText] = useState("");
+  const effectiveSearchQuery = replaceOpen ? replaceQuery : searchQuery;
+  const searchQueryRef = useRef(effectiveSearchQuery);
   const searchNavigationRef = useRef(searchNavigation);
   const typewriterModeRef = useRef(typewriterMode);
   const typewriterAnimRef = useRef<number | null>(null);
@@ -396,12 +411,13 @@ export function NoteEditor({
   const availableNotesRef = useRef(availableNotes);
   const onNavigateWikiLinkRef = useRef(onNavigateWikiLink);
   const onCreateAndLinkNoteRef = useRef(onCreateAndLinkNote);
+  const onSearchWikiLinkTitlesRef = useRef(onSearchWikiLinkTitles);
 
   // 最新值与回调统一在 effect 中写入 ref，避免渲染阶段直接赋值在并发渲染下产生非幂等副作用。
   useEffect(() => {
     markdownOwnerRef.current.noteId = note.id;
     markdownOwnerRef.current.reloadToken = reloadToken;
-    searchQueryRef.current = searchQuery;
+    searchQueryRef.current = effectiveSearchQuery;
     searchNavigationRef.current = searchNavigation;
     onChangeRef.current = onChange;
     onMarkdownDirtyChangeRef.current = onMarkdownDirtyChange;
@@ -411,6 +427,7 @@ export function NoteEditor({
     availableNotesRef.current = availableNotes;
     onNavigateWikiLinkRef.current = onNavigateWikiLink;
     onCreateAndLinkNoteRef.current = onCreateAndLinkNote;
+    onSearchWikiLinkTitlesRef.current = onSearchWikiLinkTitles;
   });
 
   const [backlinkCount, setBacklinkCount] = useState(0);
@@ -449,11 +466,36 @@ export function NoteEditor({
         editorInstanceRef.current === editorInstance &&
         !editorInstance?.isDestroyed;
       if (!editorInstance || !uploadImage || editorLocked || note.deletedAt) return;
-      const imageFiles = files.filter(isImageFile).slice(0, MAX_IMAGE_FILES_PER_ACTION);
-      if (!imageFiles.length) return;
+      const MAX_IMAGE_FILE_SIZE = 10 * 1024 * 1024;
+      const imageFiles = files
+        .filter((file) => isImageFile(file) && file.size <= MAX_IMAGE_FILE_SIZE)
+        .slice(0, MAX_IMAGE_FILES_PER_ACTION);
+      if (!imageFiles.length) {
+        if (files.some(isImageFile)) {
+          const progress = imageUploadProgressRef.current;
+          progress.failed = true;
+          if (progress.activeCount === 0) setImageUploadState("error");
+          if (imageUploadTimerRef.current !== null) clearTimeout(imageUploadTimerRef.current);
+          imageUploadTimerRef.current =
+            progress.activeCount === 0
+              ? setTimeout(() => {
+                  imageUploadTimerRef.current = null;
+                  if (imageUploadProgressRef.current === progress && progress.activeCount === 0) {
+                    progress.failed = false;
+                    setImageUploadState("idle");
+                  }
+                }, 3000)
+              : null;
+        }
+        return;
+      }
       const uploadPosition = createImageUploadPosition(editorInstance);
+      const progress = imageUploadProgressRef.current;
+      if (progress.activeCount === 0) progress.failed = false;
+      progress.activeCount += 1;
       setImageUploadState("uploading");
       if (imageUploadTimerRef.current !== null) clearTimeout(imageUploadTimerRef.current);
+      imageUploadTimerRef.current = null;
       try {
         for (const file of imageFiles) {
           const dimensions = await imageDimensions(file);
@@ -483,16 +525,32 @@ export function NoteEditor({
           )
             break;
         }
-        setImageUploadState("idle");
       } catch {
         if (!isCurrentUpload()) return;
-        setImageUploadState("error");
-        imageUploadTimerRef.current = setTimeout(() => {
-          imageUploadTimerRef.current = null;
-          setImageUploadState("idle");
-        }, 3000);
+        progress.failed = true;
       } finally {
         uploadPosition.dispose();
+        if (
+          isCurrentUpload() &&
+          imageUploadProgressRef.current === progress &&
+          progress.context === uploadContext
+        ) {
+          progress.activeCount = Math.max(0, progress.activeCount - 1);
+          if (progress.activeCount === 0) {
+            if (progress.failed) {
+              setImageUploadState("error");
+              imageUploadTimerRef.current = setTimeout(() => {
+                imageUploadTimerRef.current = null;
+                if (imageUploadProgressRef.current === progress && progress.activeCount === 0) {
+                  progress.failed = false;
+                  setImageUploadState("idle");
+                }
+              }, 3000);
+            } else {
+              setImageUploadState("idle");
+            }
+          }
+        }
       }
     },
     [editorLocked, note.deletedAt],
@@ -603,85 +661,6 @@ export function NoteEditor({
     syncFrameRef.current = window.setTimeout(run, wait);
   };
 
-  const executeBlockShortcut = (
-    view: Editor["view"],
-    from: number,
-    shortcut: MarkdownBlockShortcut,
-  ): boolean => {
-    const $from = view.state.doc.resolve(from);
-    const start = $from.start();
-    const end = from;
-    const tr = view.state.tr.delete(start, end);
-
-    if (shortcut.type === "heading") {
-      const headingNode = view.state.schema.nodes.heading;
-      if (!headingNode) return false;
-      tr.setBlockType(start, start, headingNode, { level: shortcut.level });
-      tr.setMeta(imeMarkdownSafePluginKey, { type: "blockConverted", pos: start });
-      view.dispatch(tr.scrollIntoView());
-      return true;
-    }
-
-    if (shortcut.type === "blockquote") {
-      const blockquoteNode = view.state.schema.nodes.blockquote;
-      const range = tr.doc.resolve(start).blockRange();
-      if (!blockquoteNode || !range) return false;
-      const wrapping = findWrapping(range, blockquoteNode);
-      if (!wrapping) return false;
-      tr.wrap(range, wrapping);
-      tr.setMeta(imeMarkdownSafePluginKey, { type: "blockConverted", pos: start });
-      view.dispatch(tr.scrollIntoView());
-      return true;
-    }
-
-    if (shortcut.type === "bulletList") {
-      const bulletListNode = view.state.schema.nodes.bulletList;
-      const range = tr.doc.resolve(start).blockRange();
-      if (!bulletListNode || !range) return false;
-      const wrapping = findWrapping(range, bulletListNode);
-      if (!wrapping) return false;
-      tr.wrap(range, wrapping);
-      tr.setMeta(imeMarkdownSafePluginKey, { type: "blockConverted", pos: start });
-      view.dispatch(tr.scrollIntoView());
-      return true;
-    }
-
-    if (shortcut.type === "orderedList") {
-      const orderedListNode = view.state.schema.nodes.orderedList;
-      const range = tr.doc.resolve(start).blockRange();
-      if (!orderedListNode || !range) return false;
-      const wrapping = findWrapping(range, orderedListNode);
-      if (!wrapping) return false;
-      tr.wrap(range, wrapping);
-      tr.setMeta(imeMarkdownSafePluginKey, { type: "blockConverted", pos: start });
-      view.dispatch(tr.scrollIntoView());
-      return true;
-    }
-
-    if (shortcut.type === "taskList") {
-      const taskListNode = view.state.schema.nodes.taskList;
-      const range = tr.doc.resolve(start).blockRange();
-      if (!taskListNode || !range) return false;
-      const wrapping = findWrapping(range, taskListNode);
-      if (!wrapping) return false;
-      tr.wrap(range, wrapping);
-      tr.setMeta(imeMarkdownSafePluginKey, { type: "blockConverted", pos: start });
-      view.dispatch(tr.scrollIntoView());
-      return true;
-    }
-
-    if (shortcut.type === "codeBlock") {
-      const codeBlockNode = view.state.schema.nodes.codeBlock;
-      if (!codeBlockNode) return false;
-      tr.setBlockType(start, start, codeBlockNode);
-      tr.setMeta(imeMarkdownSafePluginKey, { type: "blockConverted", pos: start });
-      view.dispatch(tr.scrollIntoView());
-      return true;
-    }
-
-    return false;
-  };
-
   const extensions = useMemo(
     () => [
       StarterKit.configure({
@@ -696,6 +675,7 @@ export function NoteEditor({
       NoteLink.configure({ openOnClick: false, autolink: true, linkOnPaste: true }),
       TaskList,
       TaskItem.configure({ nested: true }),
+      TaskNavigationExtension,
       Placeholder.configure({ placeholder: "从一句话开始……" }),
       createMarkdownExtension(),
       CalloutNode,
@@ -705,6 +685,9 @@ export function NoteEditor({
       SlashCommandExtension.configure({ onPickImage: () => imageFileInputRef.current?.click() }),
       WikiLinkSuggestionExtension.configure({
         getNotes: () => availableNotesRef.current,
+        searchTitles: (query, signal) =>
+          onSearchWikiLinkTitlesRef.current?.(query, signal) ??
+          Promise.resolve({ matches: [], exactMatch: false }),
         onCreateNote: (title) => onCreateAndLinkNoteRef.current?.(title),
       }),
       ImeMarkdownSafeExtension,
@@ -911,7 +894,9 @@ export function NoteEditor({
         if (!markdownManager) return false;
         try {
           const parsedDocument = view.state.schema.nodeFromJSON(
-            markdownManager.parse(preserveEscapedHashtagsForEditor(text)),
+            markdownManager.parse(
+              prepareMarkdownForEditor(normalizeChineseMarkdownBlockMarkers(text)),
+            ),
           );
           const slice = parsedDocument.slice(0, parsedDocument.content.size);
           view.dispatch(view.state.tr.replaceSelection(slice).setMeta("uiEvent", "paste"));
@@ -922,11 +907,21 @@ export function NoteEditor({
           return false;
         }
       },
-      handleDrop: (_view: Editor["view"], event: DragEvent, _slice: unknown, moved: boolean) => {
+      handleDrop: (view: Editor["view"], event: DragEvent, _slice: unknown, moved: boolean) => {
         if (moved) return false;
-        const imageFiles = Array.from(event.dataTransfer?.files ?? []).filter(isImageFile);
-        if (!imageFiles.length) return false;
+        const files = Array.from(event.dataTransfer?.files ?? []);
+        if (!files.length) return false;
+        const imageFiles = files.filter(isImageFile);
+        if (!imageFiles.length) {
+          event.preventDefault();
+          return true;
+        }
         event.preventDefault();
+        const coords = view.posAtCoords({ left: event.clientX, top: event.clientY });
+        if (coords) {
+          const tr = view.state.tr.setSelection(Selection.near(view.state.doc.resolve(coords.pos)));
+          view.dispatch(tr);
+        }
         uploadImageFilesRef.current(imageFiles);
         return true;
       },
@@ -1019,11 +1014,12 @@ export function NoteEditor({
             clearTimeout(imeCleanupTimerRef.current);
             imeCleanupTimerRef.current = null;
           }
-          if (candidate && candidate.emptyAtStart) {
-            imeCleanupTimerRef.current = setTimeout(() => {
-              imeCleanupTimerRef.current = null;
-              try {
-                if (!view || view.isDestroyed) return;
+          if (!candidate?.emptyAtStart) leakedCandidateRef.current = null;
+          imeCleanupTimerRef.current = setTimeout(() => {
+            imeCleanupTimerRef.current = null;
+            try {
+              if (!view || view.isDestroyed) return;
+              if (candidate?.emptyAtStart) {
                 const { state, dispatch } = view;
                 const resolvedPos = Math.min(candidate.blockStartPos, state.doc.content.size);
                 const $pos = state.doc.resolve(resolvedPos);
@@ -1042,13 +1038,12 @@ export function NoteEditor({
                   const tr = state.tr.delete(deleteFrom, deleteTo);
                   dispatch(tr.scrollIntoView());
                 }
-              } finally {
-                leakedCandidateRef.current = null;
               }
-            }, 30);
-          } else {
-            leakedCandidateRef.current = null;
-          }
+              executeBlockShortcutAtSelection(view);
+            } finally {
+              leakedCandidateRef.current = null;
+            }
+          }, 30);
           if (editorInstanceRef.current) {
             surfaceSyncRef.current(editorInstanceRef.current);
             if (typewriterModeRef.current) {
@@ -1374,7 +1369,7 @@ export function NoteEditor({
     if (markdownSyncFrameRef.current !== null) window.clearTimeout(markdownSyncFrameRef.current);
     markdownSyncFrameRef.current = null;
     markdownSyncStartedAtRef.current = null;
-    initialContentRef.current = preserveEscapedHashtagsForEditor(contentMarkdown);
+    initialContentRef.current = prepareMarkdownForEditor(contentMarkdown);
     replaceEditorMarkdown(editor, initialContentRef.current);
     editorScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
     if (switchedNote) {
@@ -1429,7 +1424,7 @@ export function NoteEditor({
 
   const moveSearchMatch = useCallback(
     (direction: -1 | 1) => {
-      if (!editor || isLoading || !searchQueryRef.current.trim()) return;
+      if (!editor || isLoading || !searchQueryRef.current) return;
       const state = searchHighlightPluginKey.getState(editor.state);
       if (!state?.matches.length) return;
       const nextIndex = cycleSearchMatchIndex(state.activeIndex, state.matches.length, direction);
@@ -1444,14 +1439,87 @@ export function NoteEditor({
     [editor, isLoading, scrollToActiveSearchMatch],
   );
 
+  const closeReplace = useCallback(() => {
+    setReplaceOpen(false);
+    editor?.commands.focus();
+  }, [editor]);
+
+  const replaceCurrent = useCallback(() => {
+    if (!editor || !editor.isEditable || editorLocked || !replaceQuery) return;
+    const search = searchHighlightPluginKey.getState(editor.state);
+    const match = search?.matches[search.activeIndex];
+    if (!match) return;
+    const transaction = editor.state.tr.insertText(replacementText, match.from, match.to);
+    const matches = findEditorReplaceMatches(transaction.doc, replaceQuery);
+    const nextPosition = match.from + replacementText.length;
+    const nextIndex = matches.findIndex((item) => item.from >= nextPosition);
+    transaction.setMeta(searchHighlightPluginKey, {
+      type: "query",
+      query: replaceQuery,
+      literal: true,
+      activeIndex: nextIndex < 0 ? 0 : nextIndex,
+    });
+    editor.view.dispatch(closeHistory(transaction));
+    editor.view.dispatch(closeHistory(editor.state.tr));
+    requestAnimationFrame(scrollToActiveSearchMatch);
+  }, [editor, editorLocked, replaceQuery, replacementText, scrollToActiveSearchMatch]);
+
+  const replaceAll = useCallback(() => {
+    if (!editor || !editor.isEditable || editorLocked || !replaceQuery) return;
+    const { transaction, count } = replaceEditorSearchMatches(
+      editor.state,
+      replaceQuery,
+      replacementText,
+    );
+    if (!count) return;
+    editor.view.dispatch(closeHistory(transaction));
+    editor.view.dispatch(closeHistory(editor.state.tr));
+  }, [editor, editorLocked, replaceQuery, replacementText]);
+
+  useEffect(() => {
+    if (!searchQuery) setReplaceOpen(false);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    if (!editor || !replaceRequest || replaceRequest.noteId !== note.id) return;
+    setReplaceQuery((current) => replaceRequest.query || (replaceOpen ? current : searchQuery));
+    setReplaceOpen(true);
+    const frame = requestAnimationFrame(() => {
+      const input = editor.view.dom
+        .closest(".editor-panel")
+        ?.querySelector<HTMLInputElement>(".editor-replace-field input[type=search]");
+      input?.focus();
+      input?.select();
+      onReplaceRequestHandled?.(replaceRequest.token);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [editor, note.id, replaceRequest, onReplaceRequestHandled]);
+
+  useEffect(() => {
+    if (!replaceOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.isComposing || event.keyCode === 229) return;
+      if (event.target instanceof Element && event.target.closest("dialog[open], [role='dialog']"))
+        return;
+      const panel = editor?.view.dom.closest(".editor-panel");
+      if (!(event.target instanceof Node) || !panel?.contains(event.target)) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      closeReplace();
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [replaceOpen, editor, closeReplace]);
+
   useEffect(() => {
     if (!editor || isLoading) return;
-    const trimmedQuery = searchQuery.trim();
-    const titleMatches = findTextMatches(note.title, trimmedQuery);
+    const trimmedQuery = replaceOpen ? replaceQuery : searchQuery.trim();
+    const titleMatches = replaceOpen ? [] : findTextMatches(note.title, trimmedQuery);
     editor.view.dispatch(
       editor.state.tr.setMeta(searchHighlightPluginKey, {
         type: "query",
         query: trimmedQuery,
+        literal: replaceOpen,
         activeIndex: 0,
       }),
     );
@@ -1460,7 +1528,7 @@ export function NoteEditor({
       (searchHighlightPluginKey.getState(editor.state)?.totalMatchCount ?? 0) > 0;
 
     const frame = requestAnimationFrame(() => {
-      if (editor.isDestroyed) return;
+      if (editor.isDestroyed || replaceOpen) return;
       const behavior: ScrollBehavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches
         ? "auto"
         : "smooth";
@@ -1486,8 +1554,49 @@ export function NoteEditor({
     note.id,
     reloadToken,
     searchQuery,
+    replaceOpen,
+    replaceQuery,
+    searchNavigationToken,
     syncSearchNavigation,
   ]);
+
+  useEffect(() => {
+    if (!editor || isLoading || !taskNavigation || taskNavigation.noteId !== note.id) return;
+    const position = findTaskPosition(
+      editor.state.doc,
+      taskNavigation.ordinal,
+      taskNavigation.text,
+    );
+    if (position === null) {
+      onTaskNavigationMissing?.();
+      return;
+    }
+    editor.view.dispatch(editor.state.tr.setMeta(taskNavigationPluginKey, position));
+    const frame = requestAnimationFrame(() => {
+      if (editor.isDestroyed) return;
+      const node = editor.view.nodeDOM(position);
+      if (!(node instanceof HTMLElement)) return;
+      const behavior: ScrollBehavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "auto"
+        : "smooth";
+      node.scrollIntoView({ behavior, block: "center", inline: "nearest" });
+    });
+    const clearHighlight = () => {
+      if (!editor.isDestroyed)
+        editor.view.dispatch(editor.state.tr.setMeta(taskNavigationPluginKey, null));
+    };
+    const fadeTimer = window.setTimeout(() => {
+      if (editor.isDestroyed) return;
+      editor.view.dispatch(editor.state.tr.setMeta(taskNavigationPluginKey, { type: "fade" }));
+    }, 3600);
+    const clearTimer = window.setTimeout(clearHighlight, 3900);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.clearTimeout(fadeTimer);
+      window.clearTimeout(clearTimer);
+      clearHighlight();
+    };
+  }, [editor, isLoading, note.id, onTaskNavigationMissing, taskNavigation]);
 
   useEffect(() => {
     const handleSearchKeyDown = (event: KeyboardEvent) => {
@@ -1526,12 +1635,15 @@ export function NoteEditor({
 
     let activeFrame: number | null = null;
     const getCurrentHeadings = () => {
-      const domHeadings = getOutlineHeadingElements(root);
+      // 元素映射有效时直接复用；缺失或被替换后才扫描正文补齐。
+      let domHeadings: HTMLElement[] | undefined;
       const headings = new Map<string, HTMLElement>();
       for (const [index, item] of outlineItemsRef.current.entries()) {
         const mappedElement = outlineHeadingElementsRef.current.get(item.id);
         const element =
-          mappedElement && root.contains(mappedElement) ? mappedElement : domHeadings[index];
+          mappedElement && root.contains(mappedElement)
+            ? mappedElement
+            : (domHeadings ??= getOutlineHeadingElements(root))[index];
         if (element) {
           headings.set(item.id, element);
           if (mappedElement !== element) outlineHeadingElementsRef.current.set(item.id, element);
@@ -1720,9 +1832,11 @@ export function NoteEditor({
   });
   return (
     <section
-      className={`editor-panel ${deferredLoading ? "is-loading" : ""} ${focusMode ? "is-focus-mode" : ""} ${isMobileViewport ? "is-mobile-editor" : ""}`}
+      className={`editor-panel ${deferredLoading ? "is-loading" : ""} ${focusMode ? "is-focus-mode" : ""} ${isMobileViewport ? "is-mobile-editor" : ""} ${isActivePane ? "is-active-pane" : ""}`}
       aria-label="笔记编辑器"
       aria-busy={editorLocked}
+      onPointerDown={onActivatePane}
+      onFocusCapture={onActivatePane}
       onContextMenu={contextMenu.onContextMenu}
       onKeyDown={(event) => {
         if (event.nativeEvent.isComposing || event.keyCode === 229) return;
@@ -1818,7 +1932,18 @@ export function NoteEditor({
       ) : (
         <header className="editor-header">
           <div className="editor-header-start">
-            {onBackToCards && !focusMode && (
+            {onBackToKanban && !focusMode && (
+              <button
+                className="icon-button editor-back-kanban"
+                type="button"
+                aria-label="返回看板"
+                onClick={onBackToKanban}
+                disabled={editorLocked}
+              >
+                <SquareKanban size={18} strokeWidth={1.8} />
+              </button>
+            )}
+            {!onBackToKanban && onBackToCards && !focusMode && (
               <button
                 className="icon-button editor-back-cards"
                 type="button"
@@ -1926,15 +2051,6 @@ export function NoteEditor({
               </button>
             )}
             <button
-              className="icon-button"
-              type="button"
-              aria-label="导出图片"
-              onClick={onExportImage}
-              disabled={editorLocked}
-            >
-              <ImageDown size={19} aria-hidden="true" />
-            </button>
-            <button
               className={`icon-button favorite-toggle ${note.isFavorite ? "is-active" : ""}`}
               type="button"
               aria-label={note.isFavorite ? "取消收藏" : "收藏笔记"}
@@ -1983,6 +2099,27 @@ export function NoteEditor({
                 <Trash2 size={18} strokeWidth={1.8} />
               </button>
             )}
+            {!isMobileViewport && onCloseSplit && (
+              <button
+                className="icon-button close-split-button"
+                type="button"
+                aria-label="关闭分屏"
+                onClick={onCloseSplit}
+              >
+                <X size={18} strokeWidth={1.8} />
+              </button>
+            )}
+            {!isMobileViewport && onToggleSplit && !onCloseSplit && (
+              <button
+                className={`icon-button split-toggle ${isSplitActive ? "is-active" : ""}`}
+                type="button"
+                aria-label={isSplitActive ? "关闭分屏" : "分屏显示"}
+                onClick={onToggleSplit}
+                disabled={editorLocked}
+              >
+                <Columns2 size={18} strokeWidth={1.8} />
+              </button>
+            )}
           </div>
         </header>
       )}
@@ -2014,13 +2151,19 @@ export function NoteEditor({
               return;
             if (target.closest("input, textarea, button, select, [role='dialog'], [role='menu']"))
               return;
-            // 在 ProseMirror 吞掉 Home / End 前处理阅读滚动，保留正文光标与选区。
-            if (scrollNoteBoundary(event.nativeEvent, event.currentTarget)) {
-              event.stopPropagation();
-              if (typewriterAnimRef.current !== null)
-                cancelAnimationFrame(typewriterAnimRef.current);
-              typewriterAnimRef.current = null;
-              typewriterTargetRef.current = null;
+            // 在 ProseMirror 处理前滚动整篇笔记，保留正文光标与选区。
+            if (["Home", "End", "PageUp", "PageDown"].includes(event.key)) {
+              const behavior: ScrollBehavior = window.matchMedia("(prefers-reduced-motion: reduce)")
+                .matches
+                ? "auto"
+                : "smooth";
+              if (scrollNoteNavigation(event.nativeEvent, event.currentTarget, behavior)) {
+                event.stopPropagation();
+                if (typewriterAnimRef.current !== null)
+                  cancelAnimationFrame(typewriterAnimRef.current);
+                typewriterAnimRef.current = null;
+                typewriterTargetRef.current = null;
+              }
             }
           }}
         >
@@ -2070,6 +2213,12 @@ export function NoteEditor({
               placeholder="未命名笔记"
             />
             <EditorContent editor={editor} />
+            <BlockDragHandle
+              editor={editor}
+              containerRef={documentRef}
+              scrollRef={editorScrollRef}
+              disabled={editorLocked || isMobileViewport || Boolean(note.deletedAt)}
+            />
             <TableScrollbars rootRef={documentRef} />
           </div>
         </div>
@@ -2107,6 +2256,24 @@ export function NoteEditor({
         hideOutlineTrigger={focusMode || isMobileViewport}
         searchNavigation={searchNavigation}
         searchQuery={searchQuery}
+        replaceOpen={replaceOpen}
+        replaceQuery={replaceQuery}
+        replacementText={replacementText}
+        replaceMatchNavigation={searchNavigation}
+        onToggleReplace={() => {
+          if (replaceOpen) setReplaceOpen(false);
+          else {
+            setReplaceQuery(searchQuery);
+            setReplacementText("");
+            setReplaceOpen(true);
+          }
+        }}
+        onChangeReplaceQuery={setReplaceQuery}
+        onChangeReplacementText={setReplacementText}
+        onMoveReplaceMatch={moveSearchMatch}
+        onReplaceCurrent={replaceCurrent}
+        onReplaceAll={replaceAll}
+        onCloseReplace={closeReplace}
         deferredLoading={editorLocked}
         onMoveSearchMatch={moveSearchMatch}
         onClearSearch={onClearSearch}
@@ -2118,7 +2285,6 @@ export function NoteEditor({
           outlineOpen={outlineOpen}
           outlineTriggerRef={outlineTriggerRef}
           locked={editorLocked}
-          onOpenCommands={onOpenCommands}
           onToggleOutline={onToggleOutline}
         />
       )}
@@ -2140,7 +2306,7 @@ export function NoteEditor({
           onClose={onCloseOutline}
         />
       )}
-      {!isMobileViewport && (focusMode || (onBackToCards && outlineOpen)) && (
+      {!isMobileViewport && (focusMode || ((onBackToCards || onBackToKanban) && outlineOpen)) && (
         <CardOutline
           key={note.id}
           outlineItems={outlineItems}

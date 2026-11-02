@@ -25,6 +25,9 @@ export type UseNoteSaveQueueOptions = {
   replaceList: (notes: NoteSummary[]) => void;
   setSelectedNote: (note: Note | null) => void;
   setToast: (toast: string) => void;
+  splitSelectedRef?: React.MutableRefObject<Note | null>;
+  setSplitSelectedNote?: (note: Note | null) => void;
+  setSplitSaveState?: (state: SaveState) => void;
 };
 
 export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
@@ -37,6 +40,9 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
     replaceList,
     setSelectedNote,
     setToast,
+    splitSelectedRef,
+    setSplitSelectedNote,
+    setSplitSaveState,
   } = options;
 
   const [saveState, setSaveState] = useState<SaveState>("idle");
@@ -127,6 +133,11 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
               setSelectedNote(selectedRef.current);
               setSaveState(next ? "saving" : "saved");
             }
+            if (splitSelectedRef?.current?.id === noteId) {
+              splitSelectedRef.current = next ?? savedNote;
+              setSplitSelectedNote?.(splitSelectedRef.current);
+              setSplitSaveState?.(next ? "saving" : "saved");
+            }
           }
           return savedVersion;
         } catch (reason) {
@@ -138,6 +149,8 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
           failedSavesRef.current.set(noteId, reason);
           const conflict = reason instanceof ApiError && reason.code === "VERSION_CONFLICT";
           if (activeNoteIdRef.current === noteId) setSaveState(conflict ? "conflict" : "error");
+          if (splitSelectedRef?.current?.id === noteId)
+            setSplitSaveState?.(conflict ? "conflict" : "error");
           if (!trashOperationsRef.current.has(noteId)) {
             setToast(
               conflict
@@ -164,6 +177,9 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
       setSelectedNote,
       setToast,
       trashOperationsRef,
+      splitSelectedRef,
+      setSplitSelectedNote,
+      setSplitSaveState,
     ],
   );
 
@@ -175,6 +191,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
       for (const field of changedFields ?? ALL_SAVE_FIELDS) fields.add(field);
       pendingFieldsRef.current.set(pendingDraft.id, fields);
       if (activeNoteIdRef.current === pendingDraft.id) setSaveState("saving");
+      if (splitSelectedRef?.current?.id === pendingDraft.id) setSplitSaveState?.("saving");
 
       const existingRecoveryTimer = draftRecoveryTimersRef.current.get(pendingDraft.id);
       if (existingRecoveryTimer) clearTimeout(existingRecoveryTimer);
@@ -195,19 +212,24 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
       }, 800);
       saveTimersRef.current.set(pendingDraft.id, timer);
     },
-    [activeNoteIdRef, runSave],
+    [activeNoteIdRef, runSave, setSplitSaveState, splitSelectedRef],
   );
 
-  const saveNoteNow = useCallback(() => {
-    const current = selectedRef.current;
-    const pending = current ? pendingSavesRef.current.get(current.id) : undefined;
-    if (!current || !pending) return;
-    const timer = saveTimersRef.current.get(current.id);
-    if (timer) clearTimeout(timer);
-    saveTimersRef.current.delete(current.id);
-    setSaveState("saving");
-    void runSave(current.id).catch(() => undefined);
-  }, [runSave, selectedRef]);
+  const saveNoteNow = useCallback(
+    (noteId?: string) => {
+      const targetId = noteId ?? selectedRef.current?.id;
+      if (!targetId) return;
+      const pending = pendingSavesRef.current.get(targetId);
+      if (!pending) return;
+      const timer = saveTimersRef.current.get(targetId);
+      if (timer) clearTimeout(timer);
+      saveTimersRef.current.delete(targetId);
+      if (activeNoteIdRef.current === targetId) setSaveState("saving");
+      if (splitSelectedRef?.current?.id === targetId) setSplitSaveState?.("saving");
+      void runSave(targetId).catch(() => undefined);
+    },
+    [activeNoteIdRef, runSave, selectedRef, setSplitSaveState, splitSelectedRef],
+  );
 
   const flushPendingSaves = useCallback(
     async (mode: "now" | "keepalive") => {

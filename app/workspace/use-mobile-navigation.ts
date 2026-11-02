@@ -3,7 +3,23 @@ import { createUuid } from "../uuid";
 import type { NoteView } from "../../shared/types";
 import type { NoteSort } from "./helpers";
 
-export type MobilePage = "home" | "list" | "editor";
+export type MobilePage = "home" | "list" | "editor" | "tasks" | "kanban";
+export function shouldShowTasksPanel(
+  tasksOpen: boolean,
+  isMobileViewport: boolean,
+  page: MobilePage,
+) {
+  return tasksOpen && (!isMobileViewport || page !== "editor");
+}
+
+export function shouldShowKanbanPanel(
+  kanbanOpen: boolean,
+  isMobileViewport: boolean,
+  page: MobilePage,
+) {
+  return kanbanOpen && (!isMobileViewport || page !== "editor");
+}
+
 export type MobileListContext = {
   view: NoteView;
   notebookId?: string;
@@ -30,7 +46,7 @@ function readEntry(state: unknown): NavigationEntry | null {
     !entry ||
     typeof entry.session !== "string" ||
     !entry.session ||
-    !["home", "list", "editor"].includes(entry.page) ||
+    !["home", "list", "editor", "tasks", "kanban"].includes(entry.page) ||
     !Number.isSafeInteger(entry.depth) ||
     entry.depth < 0 ||
     !entry.context ||
@@ -169,6 +185,22 @@ export function useMobileNavigation(
     },
     [ensureHistory],
   );
+  const openMobileTasks = useCallback(
+    (next?: Partial<MobileListContext>) => {
+      if (!enabledRef.current) return;
+      ensureHistory().open("tasks", { ...contextRef.current, ...next });
+      setMobilePage("tasks");
+    },
+    [ensureHistory],
+  );
+  const openMobileKanban = useCallback(
+    (next?: Partial<MobileListContext>) => {
+      if (!enabledRef.current) return;
+      ensureHistory().open("kanban", { ...contextRef.current, ...next });
+      setMobilePage("kanban");
+    },
+    [ensureHistory],
+  );
   const backMobilePage = useCallback(() => {
     if (enabledRef.current) ensureHistory().back();
   }, [ensureHistory]);
@@ -180,6 +212,8 @@ export function useMobileNavigation(
     mobilePage,
     openMobileList,
     openMobileNote,
+    openMobileTasks,
+    openMobileKanban,
     backMobilePage,
     openMobileHome,
   };

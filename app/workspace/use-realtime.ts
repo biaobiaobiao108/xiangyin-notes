@@ -1,6 +1,10 @@
 import { useEffect, useRef } from "react";
 import { realtimeClientId } from "../api";
-import type { WorkspaceChangeMessage, WorkspaceChangeResource } from "../../shared/realtime";
+import type {
+  WorkspaceChangeMessage,
+  WorkspaceChangeResource,
+  WorkspaceSyncMessage,
+} from "../../shared/realtime";
 
 const REALTIME_PATH = "/api/realtime";
 const LIFECYCLE_RECONCILE_COOLDOWN_MS = 1_000;
@@ -22,6 +26,12 @@ function isWorkspaceChangeMessage(value: unknown): value is WorkspaceChangeMessa
     resources.includes(candidate.resource as WorkspaceChangeResource) &&
     (candidate.noteId === undefined || typeof candidate.noteId === "string")
   );
+}
+
+function isWorkspaceSyncMessage(value: unknown): value is WorkspaceSyncMessage {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<WorkspaceSyncMessage>;
+  return candidate.type === "workspace.sync" && Number.isInteger(candidate.revision);
 }
 
 function websocketUrl() {
@@ -48,6 +58,7 @@ export function useWorkspaceRealtime({ ready, onChange }: UseWorkspaceRealtimeOp
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
     let lastLifecycleReconcileAt = 0;
+    let lastSeenRevision: number | null = null;
 
     const clearReconnectTimer = () => {
       if (!reconnectTimer) return;
@@ -131,14 +142,23 @@ export function useWorkspaceRealtime({ ready, onChange }: UseWorkspaceRealtimeOp
         reconnectAttempt = 0;
         clearReconnectTimer();
         clearFallbackTimer();
-        triggerLifecycleSync();
       });
 
       nextSocket.addEventListener("message", (event) => {
         if (socket !== nextSocket) return;
         try {
           const payload: unknown = JSON.parse(typeof event.data === "string" ? event.data : "");
-          if (isWorkspaceChangeMessage(payload)) onChangeRef.current(payload);
+          if (isWorkspaceSyncMessage(payload)) {
+            const changedWhileDisconnected =
+              lastSeenRevision === null || payload.revision !== lastSeenRevision;
+            lastSeenRevision = payload.revision;
+            if (changedWhileDisconnected) onChangeRef.current(undefined);
+            return;
+          }
+          if (isWorkspaceChangeMessage(payload)) {
+            lastSeenRevision = payload.revision;
+            onChangeRef.current(payload);
+          }
         } catch {
           // Ignore malformed or future event types so the connection remains usable.
         }
@@ -159,7 +179,6 @@ export function useWorkspaceRealtime({ ready, onChange }: UseWorkspaceRealtimeOp
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        triggerLifecycleSync();
         scheduleReconnect(true);
         scheduleFallbackReconcile();
         return;
@@ -170,12 +189,10 @@ export function useWorkspaceRealtime({ ready, onChange }: UseWorkspaceRealtimeOp
     };
     const handleFocus = () => {
       if (!isOnlineAndVisible()) return;
-      triggerLifecycleSync();
       scheduleReconnect(true);
     };
     const handleOnline = () => {
       reconnectAttempt = 0;
-      triggerLifecycleSync();
       scheduleReconnect(true);
       scheduleFallbackReconcile();
     };

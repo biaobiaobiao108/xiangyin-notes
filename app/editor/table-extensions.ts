@@ -71,7 +71,7 @@ type MarkdownTableToken = MarkdownToken & { raw?: string };
 
 const ResizableTable = Table.extend({
   parseMarkdown(token, helpers) {
-    const table = Table.config.parseMarkdown!(token, helpers) as JSONContent;
+    const table = this.parent!(token, helpers) as JSONContent;
     const widths = readColumnWidthsFromDelimiter((token as MarkdownTableToken).raw ?? "");
     if (!widths || !table.content) return table;
 

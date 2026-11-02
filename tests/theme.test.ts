@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  applyThemeToDocument,
   readThemePreference,
   resolveTheme,
   THEME_STORAGE_KEY,
@@ -56,5 +57,39 @@ describe("theme preference", () => {
     expect(resolveTheme("system", true)).toBe("dark");
     expect(resolveTheme("light", true)).toBe("light");
     expect(resolveTheme("dark", false)).toBe("dark");
+  });
+
+  test("updates the document color scheme and status bar for system and explicit themes", () => {
+    const colorScheme = { content: "" };
+    const light = { content: "", media: "(prefers-color-scheme: light)" };
+    const dark = { content: "", media: "(prefers-color-scheme: dark)" };
+    const style = { colorScheme: "" };
+    const document = {
+      documentElement: { dataset: {}, style },
+      querySelector: () => colorScheme,
+      querySelectorAll: () => [light, dark],
+    } as unknown as Document;
+
+    applyThemeToDocument(document, "dark", false);
+    expect([style.colorScheme, colorScheme.content, light.content, dark.content]).toEqual([
+      "dark",
+      "dark",
+      "#1a1b26",
+      "#1a1b26",
+    ]);
+    applyThemeToDocument(document, "system", false);
+    expect([style.colorScheme, colorScheme.content, light.content, dark.content]).toEqual([
+      "light",
+      "light dark",
+      "#f6f4ef",
+      "#1a1b26",
+    ]);
+    applyThemeToDocument(document, "system", true);
+    expect([style.colorScheme, colorScheme.content, light.content, dark.content]).toEqual([
+      "dark",
+      "light dark",
+      "#f6f4ef",
+      "#1a1b26",
+    ]);
   });
 });

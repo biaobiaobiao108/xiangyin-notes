@@ -178,3 +178,52 @@ describe("notebook draft flushing", () => {
     expect(queue.pendingSavesRef.current.get(original.id)?.contentMarkdown).toBe("不能丢失的草稿");
   });
 });
+
+describe("split editor save queue integration", () => {
+  test("updates splitSelectedRef and setSplitSelectedNote when split note is saved", async () => {
+    let splitQueue!: ReturnType<typeof useNoteSaveQueue>;
+    const splitNote: Note = { ...original, id: "split-1", title: "分屏笔记", version: 1 };
+    const splitSelectedRef = { current: { ...splitNote } };
+    let splitSelectedUpdated: Note | null = null;
+    let splitSaveState = "idle";
+
+    renderToString(
+      createElement(function SplitHarness() {
+        splitQueue = useNoteSaveQueue({
+          selectedRef,
+          notesRef,
+          activeNoteIdRef: { current: original.id },
+          trashOperationsRef: { current: new Set() },
+          flushEditorDraftRef: { current: () => undefined },
+          replaceList: (notes) => {
+            notesRef.current = notes;
+          },
+          setSelectedNote: () => {},
+          setToast: () => {},
+          splitSelectedRef,
+          setSplitSelectedNote: (note) => {
+            splitSelectedUpdated = note;
+          },
+          setSplitSaveState: (state) => {
+            splitSaveState = state;
+          },
+        });
+        return null;
+      }),
+    );
+
+    let splitStored = { ...splitNote };
+    update.mockImplementationOnce(async (_id, payload) => {
+      splitStored = { ...splitStored, ...payload, version: splitStored.version + 1 };
+      return { note: toNoteSummary(splitStored) };
+    });
+
+    splitQueue.persist({ ...splitNote, contentMarkdown: "分屏编辑后的正文" }, ["contentMarkdown"]);
+    expect(splitSaveState).toBe("saving");
+    await splitQueue.runSave("split-1");
+    expect(splitSaveState).toBe("saved");
+    expect(splitSelectedRef.current.contentMarkdown).toBe("分屏编辑后的正文");
+    expect((splitSelectedUpdated as Note | null)?.contentMarkdown).toBe("分屏编辑后的正文");
+    splitQueue.clearPendingForNote("split-1");
+  });
+});

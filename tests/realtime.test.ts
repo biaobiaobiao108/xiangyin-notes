@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { applyMigrations, openDatabase } from "../server/test-db";
 import type { TestSqliteDatabase } from "../server/test-db";
 import { handleRequest } from "../server/index";
+import { waitForOrphanAssetCleanup } from "../server/routes/assets";
 import {
   REALTIME_CLIENT_ID_HEADER,
   RealtimeHub,
@@ -60,6 +61,12 @@ function fakeSocket(userId: string, clientId: string | null): FakeSocket {
   };
 }
 
+function workspaceChanges(socket: FakeSocket) {
+  return socket.messages
+    .map((message) => JSON.parse(message))
+    .filter((message) => message.type === "workspace.changed");
+}
+
 async function request(
   path: string,
   init: RequestInit = {},
@@ -89,6 +96,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  await waitForOrphanAssetCleanup(database);
   database.close();
   await rm(assetRoot, { recursive: true, force: true });
 });
@@ -106,20 +114,25 @@ describe("RealtimeHub", () => {
     hub.publish("owner", { resource: "notes", noteId: "note-1" }, "browser-1");
     hub.publish("owner", { resource: "notebooks" });
 
-    expect(owner.messages).toHaveLength(1);
-    expect(JSON.parse(owner.messages[0])).toMatchObject({
+    const ownerChanges = workspaceChanges(owner);
+    expect(ownerChanges).toHaveLength(1);
+    expect(ownerChanges[0]).toMatchObject({
       type: "workspace.changed",
       resource: "notebooks",
     });
-    expect(ownerOtherTab.messages).toHaveLength(2);
-    expect(otherUser.messages).toHaveLength(0);
-    expect(JSON.parse(ownerOtherTab.messages[0])).toEqual({
+    const ownerOtherTabMessages = ownerOtherTab.messages.map((message) => JSON.parse(message));
+    expect(ownerOtherTabMessages).toHaveLength(3);
+    expect(ownerOtherTabMessages[0]).toEqual({ type: "workspace.sync", revision: 0 });
+    expect(otherUser.messages.map((message) => JSON.parse(message))).toEqual([
+      { type: "workspace.sync", revision: 0 },
+    ]);
+    expect(ownerOtherTabMessages[1]).toEqual({
       type: "workspace.changed",
       revision: 1,
       resource: "notes",
       noteId: "note-1",
     });
-    expect(JSON.parse(ownerOtherTab.messages[1])).toEqual({
+    expect(ownerOtherTabMessages[2]).toEqual({
       type: "workspace.changed",
       revision: 2,
       resource: "notebooks",
@@ -146,9 +159,14 @@ describe("RealtimeHub", () => {
     expect(sockets[32]!.closed).toBe(false);
 
     // Test faulty socket in publish
+    let syncSent = false;
     const brokenSocket = {
       data: { userId: "faulty-user", clientId: "broken" },
-      sendText() {
+      sendText(message: string) {
+        if (!syncSent && JSON.parse(message).type === "workspace.sync") {
+          syncSent = true;
+          return message.length;
+        }
         throw new Error("broken pipe");
       },
       close() {},
@@ -157,6 +175,19 @@ describe("RealtimeHub", () => {
     expect(hub.getConnectionCount("faulty-user")).toBe(1);
     expect(() => hub.publish("faulty-user", { resource: "notes" })).not.toThrow();
     expect(hub.getConnectionCount("faulty-user")).toBe(0);
+    hub.stop();
+  });
+
+  test("reports changes made while no sockets were connected", () => {
+    const hub = new RealtimeHub();
+    hub.publish("owner", { resource: "notes" });
+    const socket = fakeSocket("owner", "browser-1");
+
+    hub.add(socket.socket);
+
+    expect(socket.messages.map((message) => JSON.parse(message))).toEqual([
+      { type: "workspace.sync", revision: 1 },
+    ]);
     hub.stop();
   });
 });
@@ -208,8 +239,8 @@ describe("Realtime HTTP integration", () => {
       },
     );
     expect(deletion.response.status).toBe(200);
-    expect(owner.messages).toHaveLength(0);
-    expect(other.messages.map((message) => JSON.parse(message).resource)).toEqual([
+    expect(workspaceChanges(owner)).toHaveLength(0);
+    expect(workspaceChanges(other).map((message) => message.resource)).toEqual([
       "notebooks",
       "notes",
     ]);
@@ -340,8 +371,8 @@ describe("Realtime HTTP integration", () => {
       { realtime: hub },
     );
     expect(imported.response.status).toBe(201);
-    expect(socket.messages).toHaveLength(1);
-    const importEvent = JSON.parse(socket.messages[0]!);
+    expect(workspaceChanges(socket)).toHaveLength(1);
+    const importEvent = workspaceChanges(socket)[0];
     expect(importEvent).toMatchObject({ type: "workspace.changed", resource: "notes" });
     // 导入新增了笔记：事件代表成员变化，不带 noteId，客户端整表刷新。
     expect(importEvent).not.toHaveProperty("noteId");
@@ -356,7 +387,7 @@ describe("Realtime HTTP integration", () => {
       { realtime: hub },
     );
     expect(replay.response.status).toBe(200);
-    expect(socket.messages).toHaveLength(1);
+    expect(workspaceChanges(socket)).toHaveLength(1);
 
     const sourceSuppressed = await request(
       "/api/import",
@@ -368,7 +399,7 @@ describe("Realtime HTTP integration", () => {
       { realtime: hub, clientId: "browser-1" },
     );
     expect(sourceSuppressed.response.status).toBe(201);
-    expect(socket.messages).toHaveLength(1);
+    expect(workspaceChanges(socket)).toHaveLength(1);
 
     // Link mention event test
     const targetNote = await request(

@@ -6,9 +6,12 @@ import {
   derivePassword,
   formatPreview,
   hashPassword,
+  noteAssetIds,
+  noteImageSources,
   rateLimitClientAddress,
   readJson,
 } from "../server/core";
+import { searchContains, searchSnippet } from "../server/search-text";
 
 describe("security helpers", () => {
   test("creates URL-safe opaque tokens", () => {
@@ -87,6 +90,40 @@ describe("security helpers", () => {
     const headers4 = new Headers();
     setSessionCookie(headers4, httpsReq, "token123", { COOKIE_SECURE: "false" });
     expect(headers4.get("Set-Cookie")).not.toContain("; Secure");
+  });
+});
+
+describe("Markdown asset references", () => {
+  test("extracts destinations from actual Markdown links and images, not code or plain text", () => {
+    const linkId = "123e4567-e89b-42d3-a456-426614174000";
+    const imageId = "223e4567-e89b-42d3-a456-426614174000";
+    const codeId = "323e4567-e89b-42d3-a456-426614174000";
+    const markdown = [
+      `A plain /api/assets/${codeId} string.`,
+      `[file](/api/assets/${linkId})`,
+      `[remote](https://example.com/api/assets/${codeId})`,
+      `![image](/api/assets/${imageId})`,
+      "```md",
+      `![example](/api/assets/${codeId})`,
+      "```",
+    ].join("\n\n");
+
+    expect(noteAssetIds(markdown)).toEqual([linkId, imageId]);
+    expect(noteImageSources(markdown)).toEqual([`/api/assets/${imageId}`]);
+  });
+
+  test("preserves escaped image alt text and balanced parentheses in destinations", () => {
+    const markdown = String.raw`![escaped \] alt](https://example.com/image(1).png)`;
+
+    expect(noteImageSources(markdown)).toEqual(["https://example.com/image(1).png"]);
+  });
+
+  test("does not treat link-like image alt text as an asset reference", () => {
+    const assetId = "423e4567-e89b-42d3-a456-426614174000";
+    const markdown = String.raw`![alt [fake](/api/assets/${assetId})](https://example.com/a.png)`;
+
+    expect(noteAssetIds(markdown)).toEqual([]);
+    expect(noteImageSources(markdown)).toEqual(["https://example.com/a.png"]);
   });
 });
 
@@ -169,24 +206,39 @@ describe("markdown and search helpers", () => {
     );
   });
 
-  test("omits GFM tables, fenced code, indented code, and supported callouts", () => {
+  test("omits GFM tables, fenced code, indented code, supported callouts, and task list items", () => {
     const callouts = ["NOTE", "TIP", "IMPORTANT", "WARNING", "CAUTION"]
       .map((type) => `> [!${type}]\n> hidden ${type}\n> second line`)
       .join("\n\n");
-    const markdown = `Visible before.\n\n| Name | State |\n| :--- | ---: |\n| Table content | hidden |\n\nVisible after table.\n\n\`\`\`ts\nhidden fenced code\n\`\`\`\n\n~~~txt\nhidden tilde code\n~~~\n\n    hidden indented code\n\nVisible before callouts.\n\n${callouts}\n\nVisible after callouts.`;
+    const markdown = `Visible before.\n\n| Name | State |\n| :--- | ---: |\n| Table content | hidden |\n\nVisible after table.\n\n\`\`\`ts\nhidden fenced code\n\`\`\`\n\n~~~txt\nhidden tilde code\n~~~\n\n    hidden indented code\n\nVisible before callouts.\n\n${callouts}\n\nVisible before tasks.\n\n- [ ] 未完成任务\n- [x] 已完成任务\n* [X] 星号任务\n1. [ ] 编号任务\n[ ] 裸待办事项\n【】 中文待办事项\n\nVisible after tasks.`;
 
     const preview = formatPreview(markdown);
     expect(preview).toContain("Visible before.");
     expect(preview).toContain("Visible after table.");
     expect(preview).toContain("Visible before callouts.");
-    expect(preview).toContain("Visible after callouts.");
+    expect(preview).toContain("Visible before tasks.");
+    expect(preview).toContain("Visible after tasks.");
     expect(preview).not.toContain("Table content");
     expect(preview).not.toContain("hidden fenced code");
     expect(preview).not.toContain("hidden tilde code");
     expect(preview).not.toContain("hidden indented code");
+    expect(preview).not.toContain("[ ]");
+    expect(preview).not.toContain("[x]");
+    expect(preview).not.toContain("未完成任务");
+    expect(preview).not.toContain("已完成任务");
+    expect(preview).not.toContain("星号任务");
+    expect(preview).not.toContain("编号任务");
+    expect(preview).not.toContain("裸待办事项");
+    expect(preview).not.toContain("中文待办事项");
     for (const type of ["NOTE", "TIP", "IMPORTANT", "WARNING", "CAUTION"]) {
       expect(preview).not.toContain(`hidden ${type}`);
     }
+  });
+
+  test("excludes bare task checkboxes that follow paragraphs", () => {
+    const markdown =
+      "这是一段很长的段落内容。\n[ ] 放假宽带说老家\n[ ] 减肥快乐的送积分\n[ ] 发俊林独守空房俊林";
+    expect(formatPreview(markdown)).toBe("这是一段很长的段落内容。");
   });
 
   test("keeps ordinary quotes and unknown callout markers in previews", () => {
@@ -230,6 +282,18 @@ describe("markdown and search helpers", () => {
 
   test("quotes search terms for FTS", () => {
     expect(buildFtsQuery("quiet thinking")).toBe('"quiet" AND "thinking"');
+  });
+
+  test("caches search patterns without changing matching semantics", () => {
+    expect(searchContains("DOCKER 笔记", "docker")).toBe(true);
+    expect(searchContains("a.b", ".")).toBe(true);
+    expect(searchContains("axb", ".")).toBe(false);
+    expect(searchContains("a+b", "a+b")).toBe(true);
+
+    for (let index = 0; index < 80; index += 1)
+      expect(searchContains(`term ${index}`, `term ${index}`)).toBe(true);
+    expect(searchContains("term 0", "term 0")).toBe(true);
+    expect(searchSnippet("prefix Docker suffix", JSON.stringify(["docker"]))).toContain("Docker");
   });
 
   test("limits JSON request bodies by encoded byte length", async () => {

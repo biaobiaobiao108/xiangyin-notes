@@ -1,4 +1,5 @@
 import {
+  Fragment,
   memo,
   useCallback,
   useEffect,
@@ -7,21 +8,23 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type DragEvent as ReactDragEvent,
+  type FocusEvent as ReactFocusEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type RefObject,
 } from "react";
 import {
   Archive,
-  Check,
   ChevronDown,
   ChevronLeft,
   LayoutPanelLeft,
-  LogOut,
+  ListTodo,
   Menu,
   Plus,
   RotateCcw,
   Search,
+  SquareKanban,
   Star,
   Trash2,
   X,
@@ -37,17 +40,50 @@ import { type PwaState } from "../pwa";
 import {
   getNoteTags,
   getNotebookIconComponent,
+  groupNotes,
+  type NoteGroup,
   navItems,
   relativeDate,
   sortNotes,
-  type NoteSort,
   viewLabel,
 } from "./helpers";
+import { NOTE_DRAG_MIME_TYPE, setNoteDragImage, hasNoteDragType } from "./note-drag-drop";
 import { NoteTags } from "./note-tags";
-import { useVirtualNoteList } from "./use-virtual-note-list";
+import {
+  flattenNoteGroups,
+  noteGroupRowId,
+  useVirtualNoteList,
+  type VirtualNoteListRow,
+} from "./use-virtual-note-list";
+import { useGroupCollapseAnchor } from "./use-group-collapse-anchor";
+import { partitionVirtualGroupRows } from "./group-layout";
 import { useScrollEdges } from "./use-scroll-edges";
 import { MobileCollectionHeader } from "./mobile-collection-header";
 import { type NoteSwipeAction, useSwipeActionGesture, useSwipeActionGroup } from "./swipe-actions";
+
+import { useNotebookReorder } from "./use-notebook-reorder";
+
+function toggleGroupInSet(current: ReadonlySet<string>, groupId: string) {
+  const next = new Set(current);
+  if (current.has(groupId)) next.delete(groupId);
+  else next.add(groupId);
+  return next;
+}
+
+type VirtualGroupTransition = {
+  groupId: string;
+  phase: "preparing-collapse" | "preparing-expansion" | "collapsing" | "expanding";
+};
+
+function groupMotionDuration(target: HTMLElement | null) {
+  if (!target) return 0;
+  const value = getComputedStyle(target).getPropertyValue("--motion-group").trim();
+  const duration = Number.parseFloat(value);
+  if (!Number.isFinite(duration)) return 0;
+  if (value.endsWith("ms")) return duration;
+  if (value.endsWith("s")) return duration * 1000;
+  return duration;
+}
 
 export function NoteLoadingState() {
   return (
@@ -71,7 +107,178 @@ export function NoteLoadingState() {
   );
 }
 
+function useSidebarDropTarget(onDropNotes?: (ids: string[]) => void) {
+  const [isOver, setIsOver] = useState(false);
+  const [isSuccess, setIsSuccess] = useState(false);
+  const counterRef = useRef(0);
+
+  const handleDragEnter = useCallback(
+    (event: ReactDragEvent) => {
+      if (!onDropNotes || !hasNoteDragType(event.dataTransfer)) return;
+      event.preventDefault();
+      counterRef.current += 1;
+      if (counterRef.current === 1) setIsOver(true);
+    },
+    [onDropNotes],
+  );
+
+  const handleDragOver = useCallback(
+    (event: ReactDragEvent) => {
+      if (!onDropNotes || !hasNoteDragType(event.dataTransfer)) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+    },
+    [onDropNotes],
+  );
+
+  const handleDragLeave = useCallback(
+    (event: ReactDragEvent) => {
+      if (!onDropNotes || !hasNoteDragType(event.dataTransfer)) return;
+      counterRef.current = Math.max(0, counterRef.current - 1);
+      if (counterRef.current === 0) setIsOver(false);
+    },
+    [onDropNotes],
+  );
+
+  const handleDrop = useCallback(
+    (event: ReactDragEvent) => {
+      if (!onDropNotes) return;
+      counterRef.current = 0;
+      setIsOver(false);
+      const data =
+        event.dataTransfer.getData(NOTE_DRAG_MIME_TYPE) || event.dataTransfer.getData("text/plain");
+      if (!data) return;
+      event.preventDefault();
+      event.stopPropagation();
+      try {
+        const noteIds = JSON.parse(data) as string[];
+        if (Array.isArray(noteIds) && noteIds.length > 0) {
+          setIsSuccess(true);
+          setTimeout(() => setIsSuccess(false), 360);
+          onDropNotes(noteIds);
+        }
+      } catch {}
+    },
+    [onDropNotes],
+  );
+
+  return {
+    className: `${isOver ? "is-drop-target" : ""} ${isSuccess ? "is-drop-success" : ""}`.trim(),
+    onDragEnter: handleDragEnter,
+    onDragOver: handleDragOver,
+    onDragLeave: handleDragLeave,
+    onDrop: handleDrop,
+  };
+}
+
+const SidebarNavItem = memo(function SidebarNavItem({
+  item,
+  isActive,
+  onSelect,
+  onDropNotes,
+}: {
+  item: (typeof navItems)[number];
+  isActive: boolean;
+  onSelect: () => void;
+  onDropNotes?: (ids: string[]) => void;
+}) {
+  const Icon = item.icon;
+  const drop = useSidebarDropTarget(onDropNotes);
+  return (
+    <li>
+      <button
+        className={`nav-item ${isActive ? "is-active" : ""} ${drop.className}`.trim()}
+        type="button"
+        data-note-view={item.id}
+        onClick={onSelect}
+        onDragEnter={drop.onDragEnter}
+        onDragOver={drop.onDragOver}
+        onDragLeave={drop.onDragLeave}
+        onDrop={drop.onDrop}
+      >
+        <Icon size={18} />
+        <span>{item.label}</span>
+      </button>
+    </li>
+  );
+});
+
+const SidebarNotebookRow = memo(function SidebarNotebookRow({
+  sortHandle,
+  notebook,
+  isActive,
+  onSelect,
+  onDropNotes,
+}: {
+  sortHandle: ReturnType<ReturnType<typeof useNotebookReorder>>;
+  notebook: Notebook;
+  isActive: boolean;
+  onSelect: () => void;
+  onDropNotes?: (ids: string[]) => void;
+}) {
+  const NotebookIcon = getNotebookIconComponent(notebook.icon);
+  const drop = useSidebarDropTarget(onDropNotes);
+  return (
+    <li className="notebook-row-item" data-sort-id={notebook.id}>
+      <div className={`notebook-row-wrap ${isActive ? "is-active" : ""} ${drop.className}`.trim()}>
+        <button
+          {...sortHandle}
+          className="notebook-item"
+          type="button"
+          aria-label={`${notebook.name}，${notebook.count} 篇笔记`}
+          onClick={onSelect}
+          data-notebook-id={notebook.id}
+          onDragEnter={drop.onDragEnter}
+          onDragOver={drop.onDragOver}
+          onDragLeave={drop.onDragLeave}
+          onDrop={drop.onDrop}
+        >
+          <NotebookIcon
+            size={16}
+            className="notebook-custom-icon"
+            style={{ color: notebook.color, flexShrink: 0 }}
+          />
+          <span>{notebook.name}</span>
+          <em>{notebook.count}</em>
+        </button>
+      </div>
+    </li>
+  );
+});
+
+const CollapsedNotebookButton = memo(function CollapsedNotebookButton({
+  notebook,
+  isActive,
+  onSelect,
+  onDropNotes,
+}: {
+  notebook: Notebook;
+  isActive: boolean;
+  onSelect: () => void;
+  onDropNotes?: (ids: string[]) => void;
+}) {
+  const NotebookIcon = getNotebookIconComponent(notebook.icon);
+  const drop = useSidebarDropTarget(onDropNotes);
+  return (
+    <button
+      type="button"
+      className={`nav-item collapsed-notebook-item ${isActive ? "is-active" : ""} ${drop.className}`.trim()}
+      onClick={onSelect}
+      data-notebook-id={notebook.id}
+      aria-label={`${notebook.name}，${notebook.count} 篇笔记`}
+      onDragEnter={drop.onDragEnter}
+      onDragOver={drop.onDragOver}
+      onDragLeave={drop.onDragLeave}
+      onDrop={drop.onDrop}
+    >
+      <NotebookIcon size={18} style={{ color: notebook.color }} />
+    </button>
+  );
+});
+
 export const Sidebar = memo(function Sidebar({
+  onReorderNotebooks,
+  reorderingNotebooks,
   view,
   setView,
   notebooks,
@@ -79,13 +286,21 @@ export const Sidebar = memo(function Sidebar({
   setNotebookId,
   query,
   setQuery,
+  onSubmitQuery,
   searchRef,
   onNewInboxNote,
   onCreateNotebook,
   collapsed,
   onCollapse,
-  onLogout,
+  onMoveNotesToNotebook,
+  onTrashNotes,
+  tasksActive,
+  onOpenTasks,
+  kanbanActive = false,
+  onOpenKanban,
 }: {
+  onReorderNotebooks: (ids: string[], expectedIds: string[]) => Promise<void>;
+  reorderingNotebooks: boolean;
   view: NoteView;
   setView: (view: NoteView) => void;
   notebooks: Notebook[];
@@ -93,18 +308,30 @@ export const Sidebar = memo(function Sidebar({
   setNotebookId: (id: string) => void;
   query: string;
   setQuery: (query: string) => void;
+  onSubmitQuery: () => void;
   searchRef: RefObject<HTMLInputElement | null>;
   onNewInboxNote: () => void;
   onCreateNotebook: () => void;
   collapsed: boolean;
   onCollapse: () => void;
-  onLogout: () => void;
+  onMoveNotesToNotebook?: (ids: string[], notebookId: string) => void;
+  onTrashNotes?: (ids: string[]) => void;
+  tasksActive: boolean;
+  onOpenTasks: () => void;
+  kanbanActive?: boolean;
+  onOpenKanban?: () => void;
 }) {
   const notebookListRef = useRef<HTMLDivElement>(null);
-  const collapsedNotebookListRef = useRef<HTMLDivElement>(null);
+  const systemInbox = useMemo(() => notebooks.find((notebook) => notebook.isSystem), [notebooks]);
   const customNotebooks = useMemo(
     () => notebooks.filter((notebook) => !notebook.isSystem),
     [notebooks],
+  );
+  const sortHandle = useNotebookReorder(
+    notebookListRef,
+    customNotebooks.map((n) => n.id),
+    onReorderNotebooks,
+    reorderingNotebooks,
   );
   const notebookScrollEdges = useScrollEdges(notebookListRef, [customNotebooks.length]);
 
@@ -137,8 +364,19 @@ export const Sidebar = memo(function Sidebar({
           ref={searchRef}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="搜索笔记或 #标签……"
-          aria-label="搜索笔记或标签"
+          onKeyDown={(event: ReactKeyboardEvent<HTMLInputElement>) => {
+            if (
+              event.key !== "Enter" ||
+              event.nativeEvent.isComposing ||
+              event.nativeEvent.keyCode === 229
+            )
+              return;
+            event.preventDefault();
+            onSubmitQuery();
+          }}
+          enterKeyHint="search"
+          placeholder="全局搜索笔记或 #标签……"
+          aria-label="全局搜索笔记或标签"
         />
         {query ? (
           <button
@@ -149,26 +387,57 @@ export const Sidebar = memo(function Sidebar({
           >
             <X size={15} />
           </button>
-        ) : (
-          <kbd>{commandMenuShortcutLabel}</kbd>
-        )}
+        ) : null}
       </label>
       <nav className="main-nav">
         <ul>
           {navItems.map((item) => {
-            const Icon = item.icon;
+            const isActive = !tasksActive && !kanbanActive && view === item.id && !notebookId;
+            const dropHandler =
+              item.id === "inbox" && systemInbox && onMoveNotesToNotebook
+                ? (ids: string[]) => onMoveNotesToNotebook(ids, systemInbox.id)
+                : item.id === "trash" && onTrashNotes
+                  ? onTrashNotes
+                  : undefined;
             return (
-              <li key={item.id}>
-                <button
-                  className={`nav-item ${view === item.id && !notebookId ? "is-active" : ""}`}
-                  type="button"
-                  data-note-view={item.id}
-                  onClick={() => setView(item.id)}
-                >
-                  <Icon size={18} />
-                  <span>{item.label}</span>
-                </button>
-              </li>
+              <Fragment key={item.id}>
+                {item.id === "trash" && (
+                  <>
+                    <li>
+                      <button
+                        className={"nav-item" + (tasksActive ? " is-active" : "")}
+                        type="button"
+                        data-note-view="tasks"
+                        aria-current={tasksActive ? "page" : undefined}
+                        onClick={onOpenTasks}
+                      >
+                        <ListTodo size={18} />
+                        <span>任务</span>
+                      </button>
+                    </li>
+                    {onOpenKanban && (
+                      <li>
+                        <button
+                          className={"nav-item" + (kanbanActive ? " is-active" : "")}
+                          type="button"
+                          data-note-view="kanban"
+                          aria-current={kanbanActive ? "page" : undefined}
+                          onClick={onOpenKanban}
+                        >
+                          <SquareKanban size={18} />
+                          <span>看板</span>
+                        </button>
+                      </li>
+                    )}
+                  </>
+                )}
+                <SidebarNavItem
+                  item={item}
+                  isActive={isActive}
+                  onSelect={() => setView(item.id)}
+                  onDropNotes={dropHandler}
+                />
+              </Fragment>
             );
           })}
         </ul>
@@ -176,7 +445,6 @@ export const Sidebar = memo(function Sidebar({
       <div className="collapsed-notebook-shell">
         <div
           id="collapsed-notebook-scroll-region"
-          ref={collapsedNotebookListRef}
           className="collapsed-notebook-list floating-scrollbar-target"
           role="toolbar"
           aria-label="笔记本快捷切换"
@@ -184,29 +452,18 @@ export const Sidebar = memo(function Sidebar({
           {customNotebooks.length > 0 && (
             <div className="collapsed-notebook-divider" aria-hidden="true" />
           )}
-          {customNotebooks.map((notebook) => {
-            const NotebookIcon = getNotebookIconComponent(notebook.icon);
-            const isActive = notebook.id === notebookId;
-            return (
-              <button
-                key={notebook.id}
-                type="button"
-                className={`nav-item collapsed-notebook-item ${isActive ? "is-active" : ""}`}
-                onClick={() => setNotebookId(notebook.id)}
-                data-notebook-id={notebook.id}
-                aria-label={`${notebook.name}，${notebook.count} 篇笔记`}
-              >
-                <NotebookIcon size={18} style={{ color: notebook.color }} />
-              </button>
-            );
-          })}
+          {customNotebooks.map((notebook) => (
+            <CollapsedNotebookButton
+              key={notebook.id}
+              notebook={notebook}
+              isActive={notebook.id === notebookId}
+              onSelect={() => setNotebookId(notebook.id)}
+              onDropNotes={
+                onMoveNotesToNotebook ? (ids) => onMoveNotesToNotebook(ids, notebook.id) : undefined
+              }
+            />
+          ))}
         </div>
-        <FloatingScrollbar
-          scrollTargetRef={collapsedNotebookListRef}
-          controlsId="collapsed-notebook-scroll-region"
-          ariaLabel="笔记本快捷切换滚动条"
-          placement="left"
-        />
       </div>
       <div className="notebook-section">
         <div className="section-heading">
@@ -229,47 +486,23 @@ export const Sidebar = memo(function Sidebar({
             ref={notebookListRef}
           >
             <ul>
-              {customNotebooks.map((notebook) => {
-                const NotebookIcon = getNotebookIconComponent(notebook.icon);
-                return (
-                  <li key={notebook.id} className="notebook-row-item">
-                    <div
-                      className={`notebook-row-wrap ${notebook.id === notebookId ? "is-active" : ""}`}
-                    >
-                      <button
-                        className="notebook-item"
-                        type="button"
-                        aria-label={`${notebook.name}，${notebook.count} 篇笔记`}
-                        onClick={() => setNotebookId(notebook.id)}
-                        data-notebook-id={notebook.id}
-                      >
-                        <NotebookIcon
-                          size={16}
-                          className="notebook-custom-icon"
-                          style={{ color: notebook.color, flexShrink: 0 }}
-                        />
-                        <span>{notebook.name}</span>
-                        <em>{notebook.count}</em>
-                      </button>
-                    </div>
-                  </li>
-                );
-              })}
+              {customNotebooks.map((notebook) => (
+                <SidebarNotebookRow
+                  key={notebook.id}
+                  sortHandle={sortHandle(notebook.id)}
+                  notebook={notebook}
+                  isActive={notebook.id === notebookId}
+                  onSelect={() => setNotebookId(notebook.id)}
+                  onDropNotes={
+                    onMoveNotesToNotebook
+                      ? (ids) => onMoveNotesToNotebook(ids, notebook.id)
+                      : undefined
+                  }
+                />
+              ))}
             </ul>
           </div>
-          <FloatingScrollbar
-            scrollTargetRef={notebookListRef}
-            controlsId="notebook-list-scroll-region"
-            ariaLabel="笔记本列表滚动条"
-            placement="left"
-          />
         </div>
-      </div>
-      <div className="sidebar-bottom">
-        <button className="nav-item" type="button" aria-label="退出登录" onClick={onLogout}>
-          <LogOut size={18} />
-          <span>退出登录</span>
-        </button>
       </div>
     </aside>
   );
@@ -280,16 +513,22 @@ function NoteThumbnail({ note }: { note: NoteSummary }) {
   if (!thumbnail?.url) return null;
   return (
     <span className="note-row-thumbnail" aria-hidden="true">
-      <img src={thumbnail.url} alt="" width={56} height={56} loading="lazy" decoding="async" />
+      <img
+        src={thumbnail.url}
+        alt=""
+        width={76}
+        height={76}
+        loading="lazy"
+        decoding="async"
+        draggable={false}
+      />
     </span>
   );
 }
 
 function NoteRowMeta({ note, showNotebook }: { note: NoteSummary; showNotebook: boolean }) {
-  const tags = getNoteTags(note);
   return (
     <span className="note-row-meta">
-      <NoteTags tags={tags} variant="row" />
       {showNotebook && note.notebookName && (
         <span className="note-row-notebook">{note.notebookName}</span>
       )}
@@ -301,8 +540,10 @@ function NoteRowMeta({ note, showNotebook }: { note: NoteSummary; showNotebook: 
 const NoteListRow = memo(function NoteListRow({
   note,
   isSelected,
+  selectedIds,
   isActive,
   showNotebook,
+  onToggleFavorite,
   onSelect,
   rowRef,
   rowStyle,
@@ -314,11 +555,17 @@ const NoteListRow = memo(function NoteListRow({
   onNoteSwipeAction,
   open,
   setOpenId,
+  isDragging,
+  groupMotion,
+  onDragStart,
+  onDragEnd,
 }: {
   note: NoteSummary;
   isSelected: boolean;
+  selectedIds?: ReadonlySet<string>;
   isActive: boolean;
   showNotebook: boolean;
+  onToggleFavorite: (note: NoteSummary) => void;
   onSelect: (id: string, event: ReactMouseEvent<HTMLButtonElement>) => void;
   rowRef?: (element: HTMLLIElement | null) => void;
   rowStyle?: CSSProperties;
@@ -330,6 +577,10 @@ const NoteListRow = memo(function NoteListRow({
   onNoteSwipeAction: (note: NoteSummary, action: NoteSwipeAction) => void;
   open: boolean;
   setOpenId: (id: string | null) => void;
+  isDragging: boolean;
+  groupMotion?: "collapsing" | "expanding";
+  onDragStart: (note: NoteSummary, event: ReactDragEvent<HTMLButtonElement>) => void;
+  onDragEnd: () => void;
 }) {
   const actionWidth = isTrashView ? 144 : 96;
   const foregroundRef = useRef<HTMLButtonElement>(null);
@@ -341,12 +592,14 @@ const NoteListRow = memo(function NoteListRow({
     onOpenChange: setOpenId,
     foregroundRef,
   });
+
   return (
     <li
       ref={rowRef}
       data-note-id={note.id}
-      className="note-list-item"
+      className={`note-list-item ${isDragging ? "is-dragging" : ""}${groupMotion ? ` is-group-${groupMotion}` : ""}`.trim()}
       style={rowStyle}
+      inert={groupMotion === "collapsing" || undefined}
       aria-posinset={rowIndex + 1}
       aria-setsize={setSize}
     >
@@ -424,7 +677,10 @@ const NoteListRow = memo(function NoteListRow({
         <button
           ref={foregroundRef}
           type="button"
-          className={`note-row swipe-action-foreground ${note.thumbnail ? "has-thumbnail" : ""} ${isSelected ? "is-selected" : ""} ${isActive ? "is-active" : ""}`}
+          draggable={!isMobileViewport}
+          onDragStart={(event) => onDragStart(note, event)}
+          onDragEnd={onDragEnd}
+          className={`note-row swipe-action-foreground ${note.thumbnail ? "has-thumbnail" : ""} ${!isTrashView ? "has-favorite-action" : ""} ${isSelected ? "is-selected" : ""} ${isActive ? "is-active" : ""}`}
           aria-current={isActive ? "page" : undefined}
           aria-pressed={isSelected}
           aria-expanded={isMobileViewport ? open : undefined}
@@ -435,21 +691,28 @@ const NoteListRow = memo(function NoteListRow({
           <span className="note-row-main">
             <span className="note-row-title">
               <span className="note-row-title-text">{note.title || "未命名笔记"}</span>
-              <span className="note-selection-slot" aria-hidden="true">
-                {isSelected && (
-                  <span className="note-selection-mark">
-                    <Check size={11} strokeWidth={2.5} />
-                  </span>
-                )}
-              </span>
-              {note.isFavorite && <Star size={13} fill="currentColor" />}
             </span>
+            <NoteTags tags={getNoteTags(note)} variant="row" />
             <span className="note-row-preview">
               {note.preview || "还没有内容，开始写下第一句话。"}
             </span>
             <NoteRowMeta note={note} showNotebook={showNotebook} />
           </span>
         </button>
+        {!isTrashView && (
+          <button
+            type="button"
+            className={`note-row-star-btn ${note.isFavorite ? "is-favorite" : ""}`}
+            aria-label={note.isFavorite ? "取消收藏" : "加入收藏"}
+            aria-pressed={note.isFavorite}
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleFavorite(note);
+            }}
+          >
+            <Star size={15} fill={note.isFavorite ? "currentColor" : "none"} />
+          </button>
+        )}
       </div>
     </li>
   );
@@ -618,21 +881,14 @@ export function NoteOutlinePanel({
   );
 }
 
-const SORT_OPTIONS: Array<{ value: NoteSort; label: string }> = [
-  { value: "updated", label: "最近更新" },
-  { value: "created", label: "创建时间" },
-  { value: "title", label: "标题排序" },
-];
-
 type NoteListPanelProps = {
   notes: NoteSummary[];
   total: number;
   hasMore?: boolean;
-  sort: NoteSort;
-  setSort: (sort: NoteSort) => void;
   selectedId: string | null;
   selectedIds: ReadonlySet<string>;
   onSelect: (id: string, event: ReactMouseEvent<HTMLButtonElement>) => void;
+  onToggleFavoriteNote: (note: NoteSummary) => void;
   onDeleteSelected: () => void;
   onNoteSwipeAction: (note: NoteSummary, action: NoteSwipeAction) => void;
   view: NoteView;
@@ -643,7 +899,6 @@ type NoteListPanelProps = {
   trashBusy: boolean;
   onClearQuery: () => void;
   onOpenSidebar: () => void;
-  onToggleLayout?: () => void;
   transitionToken: number;
 
   isMobileViewport?: boolean;
@@ -655,19 +910,23 @@ type NoteListPanelProps = {
   onLoadMore?: () => void;
   isLoadingMore?: boolean;
   virtualizationScope: string;
+  onFocusEditor?: () => void;
 
   inert?: boolean;
 };
+
+function noteLoadMoreLabel(shown: number, total: number) {
+  return `加载更多（已显示 ${shown}${total > shown ? ` / ${total}` : ""}）`;
+}
 
 export const NoteListPanel = memo(function NoteListPanel({
   notes,
   total,
   hasMore = total > notes.length,
-  sort,
-  setSort,
   selectedId,
   selectedIds,
   onSelect,
+  onToggleFavoriteNote,
   onDeleteSelected,
   onNoteSwipeAction,
   view,
@@ -679,7 +938,6 @@ export const NoteListPanel = memo(function NoteListPanel({
   onClearQuery,
   isMobileViewport = false,
   onOpenSidebar,
-  onToggleLayout,
   transitionToken,
   outlineOpen,
   outlineItems,
@@ -689,19 +947,17 @@ export const NoteListPanel = memo(function NoteListPanel({
   onLoadMore,
   isLoadingMore = false,
   virtualizationScope,
+  onFocusEditor,
   inert = false,
 }: NoteListPanelProps) {
-  const [sortOpen, setSortOpen] = useState(false);
-  const sortRef = useRef<HTMLDivElement>(null);
-  const sortTriggerRef = useRef<HTMLButtonElement>(null);
-  const sortOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const noteListRef = useRef<HTMLDivElement>(null);
   const [noteListElement, setNoteListElement] = useState<HTMLDivElement | null>(null);
   const setNoteListRef = useCallback((element: HTMLDivElement | null) => {
     noteListRef.current = element;
     setNoteListElement((current) => (current === element ? current : element));
   }, []);
-  const loadMoreSentinelRef = useRef<HTMLLIElement>(null);
+  const { anchorGroupCollapse, isAnchoring } = useGroupCollapseAnchor(noteListRef);
+  const [loadMoreSentinel, setLoadMoreSentinel] = useState<HTMLElement | null>(null);
   const panelRef = useRef<HTMLElement>(null);
   const swipeActions = useSwipeActionGroup(
     noteListRef,
@@ -718,98 +974,423 @@ export const NoteListPanel = memo(function NoteListPanel({
     return () => animation?.cancel();
   }, [transitionToken]);
 
-  useEffect(() => {
-    const sentinel = loadMoreSentinelRef.current;
-    const container = noteListRef.current;
-    if (!sentinel || !container || !hasMore || !onLoadMore || isLoadingMore) return;
-    if (typeof IntersectionObserver === "undefined") return;
+  const [draggingNoteIds, setDraggingNoteIds] = useState<ReadonlySet<string> | null>(null);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
+  const [virtualGroupTransition, setVirtualGroupTransition] =
+    useState<VirtualGroupTransition | null>(null);
+  const dragFrameRef = useRef<number | null>(null);
+  const virtualGroupTransitionTimerRef = useRef<number | null>(null);
+  const queuedVirtualGroupIdRef = useRef<string | null>(null);
+  const focusRestoreRef = useRef<{ noteId: string; selector: string } | null>(null);
+  const transitionDataRef = useRef<{ rowIds: string } | null>(null);
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const entry = entries[0];
-        if (entry?.isIntersecting) {
-          onLoadMore();
-        }
-      },
-      {
-        root: container,
-        rootMargin: "240px",
-      },
-    );
+  const handleRowDragStart = useCallback(
+    (note: NoteSummary, event: ReactDragEvent<HTMLButtonElement>) => {
+      if (isMobileViewport) return;
+      const inSelection = selectedIds.has(note.id);
+      const ids =
+        selectedIds.size > 1
+          ? inSelection
+            ? Array.from(selectedIds)
+            : Array.from(new Set([...selectedIds, note.id]))
+          : selectedIds.size === 1 && !inSelection
+            ? [selectedIds.values().next().value!, note.id]
+            : [note.id];
 
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [hasMore, onLoadMore, isLoadingMore]);
+      const serialized = JSON.stringify(ids);
+      event.dataTransfer.setData(NOTE_DRAG_MIME_TYPE, serialized);
+      event.dataTransfer.setData("text/plain", serialized);
+      event.dataTransfer.effectAllowed = "move";
+      setNoteDragImage(event.dataTransfer, event.currentTarget, ids.length);
 
-  useEffect(() => {
-    if (!sortOpen) return;
-    const selectedOptionIndex = Math.max(
-      0,
-      SORT_OPTIONS.findIndex((option) => option.value === sort),
-    );
-    const focusFrame = requestAnimationFrame(() =>
-      sortOptionRefs.current[selectedOptionIndex]?.focus(),
-    );
-    const closeSortMenu = () => {
-      setSortOpen(false);
-      requestAnimationFrame(() => sortTriggerRef.current?.focus());
-    };
-    const onPointerDown = (event: PointerEvent) => {
-      if (event.target instanceof Node && !sortRef.current?.contains(event.target)) closeSortMenu();
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.isComposing || event.keyCode === 229) return;
-      if (event.key === "Escape") {
-        event.preventDefault();
-        event.stopPropagation();
-        event.stopImmediatePropagation();
-        closeSortMenu();
-      }
-    };
-    document.addEventListener("pointerdown", onPointerDown, true);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      cancelAnimationFrame(focusFrame);
-      document.removeEventListener("pointerdown", onPointerDown, true);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [sort, sortOpen]);
+      // 延迟到下一动画帧设置 is-dragging，避免在 dragstart 事件同微任务内重渲染 DOM 打断 Chromium 的拖拽初始化
+      dragFrameRef.current = requestAnimationFrame(() => {
+        dragFrameRef.current = null;
+        setDraggingNoteIds(new Set(ids));
+      });
+    },
+    [isMobileViewport, selectedIds],
+  );
 
-  const closeSortMenu = () => {
-    setSortOpen(false);
-    requestAnimationFrame(() => sortTriggerRef.current?.focus());
-  };
-  const handleSortOptionKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, index: number) => {
-    if (event.key === "ArrowDown" || event.key === "ArrowRight") {
-      event.preventDefault();
-      sortOptionRefs.current[(index + 1) % SORT_OPTIONS.length]?.focus();
-    } else if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
-      event.preventDefault();
-      sortOptionRefs.current[(index + SORT_OPTIONS.length - 1) % SORT_OPTIONS.length]?.focus();
-    } else if (event.key === "Home") {
-      event.preventDefault();
-      sortOptionRefs.current[0]?.focus();
-    } else if (event.key === "End") {
-      event.preventDefault();
-      sortOptionRefs.current[SORT_OPTIONS.length - 1]?.focus();
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      closeSortMenu();
+  const handleRowDragEnd = useCallback(() => {
+    if (dragFrameRef.current !== null) cancelAnimationFrame(dragFrameRef.current);
+    dragFrameRef.current = null;
+    setDraggingNoteIds(null);
+  }, []);
+
+  const sortedNotes = useMemo(() => sortNotes(notes, "updated"), [notes]);
+  const groups = useMemo(() => {
+    if (query.trim()) return null;
+    return groupNotes(sortedNotes, "updated");
+  }, [query, sortedNotes]);
+  const collapsingGroupId =
+    virtualGroupTransition?.phase === "collapsing" &&
+    collapsedGroups.has(virtualGroupTransition.groupId)
+      ? virtualGroupTransition.groupId
+      : null;
+  const virtualRows = useMemo<VirtualNoteListRow[]>(() => {
+    if (groups) return flattenNoteGroups(groups, collapsedGroups, collapsingGroupId);
+    return sortedNotes.map((note) => ({ id: note.id, kind: "note" as const, note }));
+  }, [collapsedGroups, collapsingGroupId, groups, sortedNotes]);
+  const currentRowIds = (groups ?? [])
+    .flatMap((group) => [noteGroupRowId(group.id), ...group.notes.map((note) => note.id)])
+    .join("\u0000");
+  const transitionDataChanged = Boolean(
+    virtualGroupTransition &&
+    transitionDataRef.current &&
+    transitionDataRef.current.rowIds !== currentRowIds,
+  );
+  const sortedIndexById = useMemo(
+    () => new Map(sortedNotes.map((note, index) => [note.id, index])),
+    [sortedNotes],
+  );
+  const groupByNoteId = useMemo(() => {
+    const byNoteId = new Map<string, NoteGroup>();
+    for (const group of groups ?? []) {
+      for (const note of group.notes) byNoteId.set(note.id, group);
     }
-  };
-
-  const sortedNotes = useMemo(() => sortNotes(notes, sort), [notes, sort]);
+    return byNoteId;
+  }, [groups]);
+  // 收起的笔记仍保留测量值，展开时避免先按估算高度排版再跳到实际高度。
+  const retainedRowIds = useMemo(
+    () =>
+      new Set([
+        ...sortedNotes.map((note) => note.id),
+        ...(groups ?? []).map((group) => noteGroupRowId(group.id)),
+      ]),
+    [groups, sortedNotes],
+  );
   const virtualList = useVirtualNoteList(
-    sortedNotes,
+    virtualRows,
+    retainedRowIds,
     noteListRef,
     noteListElement,
     virtualizationScope,
+    sortedNotes.length,
+    virtualGroupTransition?.groupId ?? null,
+    virtualGroupTransition?.phase === "collapsing",
   );
   const noteListScrollEdges = useScrollEdges(noteListRef, [
     noteListElement,
     sortedNotes.length,
     virtualList.totalHeight,
   ]);
+
+  const currentStickyGroup = useMemo(() => {
+    if (!groups || groups.length === 0) return null;
+    const topRow = virtualList.topVisibleRow;
+    if (!topRow) return groups[0];
+    return topRow.kind === "group" ? topRow.group : groupByNoteId.get(topRow.note.id) || groups[0];
+  }, [groupByNoteId, groups, virtualList.topVisibleRow]);
+  const virtualStickyGroup = currentStickyGroup ?? groups?.[0] ?? null;
+  const virtualStickyTransition =
+    virtualGroupTransition && virtualStickyGroup?.id === virtualGroupTransition.groupId
+      ? virtualGroupTransition.phase
+      : null;
+  const virtualStickyGroupCollapsed =
+    virtualStickyTransition === "collapsing" || virtualStickyTransition === "preparing-expansion"
+      ? true
+      : virtualStickyTransition === "expanding" || virtualStickyTransition === "preparing-collapse"
+        ? false
+        : virtualStickyGroup
+          ? collapsedGroups.has(virtualStickyGroup.id)
+          : false;
+  const canAutoLoadMore =
+    !groups ||
+    groups.some((group) => {
+      return (
+        !collapsedGroups.has(group.id) &&
+        !(
+          virtualGroupTransition?.groupId === group.id &&
+          virtualGroupTransition.phase === "collapsing"
+        )
+      );
+    });
+
+  useEffect(() => {
+    const sentinel = loadMoreSentinel;
+    const container = noteListRef.current;
+    if (
+      !sentinel ||
+      !container ||
+      !hasMore ||
+      !onLoadMore ||
+      isLoadingMore ||
+      !canAutoLoadMore ||
+      virtualGroupTransition !== null ||
+      typeof IntersectionObserver === "undefined"
+    )
+      return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) onLoadMore();
+      },
+      { root: container, rootMargin: "240px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [
+    canAutoLoadMore,
+    loadMoreSentinel,
+    hasMore,
+    isLoadingMore,
+    onLoadMore,
+    sortedNotes.length,
+    virtualGroupTransition?.groupId,
+    virtualGroupTransition?.phase,
+  ]);
+
+  const toggleGroup = (groupId: string, button: HTMLButtonElement) => {
+    anchorGroupCollapse();
+    const scroll = noteListRef.current;
+    const section = button.closest<HTMLElement>(".note-list-group");
+    const content = section?.querySelector<HTMLElement>(".note-list-group-content");
+    if (
+      !collapsedGroups.has(groupId) &&
+      scroll &&
+      section &&
+      content &&
+      button.getBoundingClientRect().top <= scroll.getBoundingClientRect().top + 1
+    ) {
+      anchorGroupCollapse(
+        Math.max(
+          0,
+          scroll.scrollTop +
+            section.getBoundingClientRect().top -
+            scroll.getBoundingClientRect().top,
+        ),
+        content.getBoundingClientRect().height,
+        `#${CSS.escape(content.id)}`,
+      );
+    }
+    setCollapsedGroups((current) => toggleGroupInSet(current, groupId));
+  };
+
+  const toggleVirtualGroup = (group: NoteGroup) => {
+    if (virtualGroupTransition && virtualGroupTransition.groupId !== group.id) {
+      queuedVirtualGroupIdRef.current = group.id;
+      return;
+    }
+    queuedVirtualGroupIdRef.current = null;
+    anchorGroupCollapse();
+    if (!collapsedGroups.has(group.id) && group.id === virtualStickyGroup?.id) {
+      const index = virtualRows.findIndex((row) => row.id === noteGroupRowId(group.id));
+      const end = virtualRows.findIndex((row, i) => i > index && row.kind === "group");
+      const contentTop = virtualList.rowTop(index + 1);
+      anchorGroupCollapse(
+        index === 0 ? 0 : contentTop,
+        virtualList.rowTop(end < 0 ? virtualRows.length : end) - contentTop,
+        ".virtual-group-motion-clip",
+      );
+    }
+    const duration = groupMotionDuration(noteListRef.current);
+    const clearTimer = () => {
+      if (virtualGroupTransitionTimerRef.current !== null)
+        window.clearTimeout(virtualGroupTransitionTimerRef.current);
+      virtualGroupTransitionTimerRef.current = null;
+    };
+    const setCollapsed = (collapsed: boolean) => {
+      setCollapsedGroups((current) => {
+        const next = new Set(current);
+        if (collapsed) next.add(group.id);
+        else next.delete(group.id);
+        return next;
+      });
+    };
+    const rememberTransitionData = () => {
+      transitionDataRef.current = { rowIds: currentRowIds };
+    };
+    const startTransition = (phase: VirtualGroupTransition["phase"], collapsed: boolean) => {
+      clearTimer();
+      if (duration <= 0) {
+        setCollapsed(collapsed);
+        setVirtualGroupTransition(null);
+        return;
+      }
+      setVirtualGroupTransition({ groupId: group.id, phase });
+      setCollapsed(collapsed);
+    };
+
+    if (virtualGroupTransition?.groupId === group.id) {
+      if (virtualGroupTransition.phase === "preparing-collapse") {
+        clearTimer();
+        transitionDataRef.current = null;
+        setVirtualGroupTransition(null);
+        return;
+      }
+      if (virtualGroupTransition.phase === "preparing-expansion") {
+        clearTimer();
+        setCollapsed(true);
+        transitionDataRef.current = null;
+        setVirtualGroupTransition(null);
+        return;
+      }
+      if (virtualGroupTransition.phase === "collapsing") {
+        startTransition("expanding", false);
+        return;
+      }
+      if (virtualGroupTransition.phase === "expanding") {
+        startTransition("collapsing", true);
+        return;
+      }
+    }
+
+    if (collapsedGroups.has(group.id)) {
+      rememberTransitionData();
+      startTransition("preparing-expansion", false);
+      return;
+    }
+
+    if (duration <= 0) {
+      setCollapsed(true);
+      setVirtualGroupTransition(null);
+      return;
+    }
+    rememberTransitionData();
+    startTransition("preparing-collapse", false);
+  };
+
+  useLayoutEffect(() => {
+    const transition = virtualGroupTransition;
+    if (
+      !transition ||
+      (transition.phase !== "preparing-collapse" && transition.phase !== "preparing-expansion")
+    )
+      return;
+    noteListRef.current?.querySelector<HTMLElement>(".virtual-group-motion-clip")?.offsetHeight;
+    const frame = requestAnimationFrame(() => {
+      if (transition.phase === "preparing-collapse") {
+        setCollapsedGroups((current) => new Set(current).add(transition.groupId));
+        setVirtualGroupTransition({ groupId: transition.groupId, phase: "collapsing" });
+      } else {
+        setVirtualGroupTransition({ groupId: transition.groupId, phase: "expanding" });
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [virtualGroupTransition]);
+
+  useLayoutEffect(() => {
+    if (
+      !virtualGroupTransition ||
+      (virtualGroupTransition.phase !== "collapsing" &&
+        virtualGroupTransition.phase !== "expanding")
+    )
+      return;
+    const clip = noteListRef.current?.querySelector<HTMLElement>(".virtual-group-motion-clip");
+    const finish = () => {
+      if (virtualGroupTransitionTimerRef.current !== null)
+        window.clearTimeout(virtualGroupTransitionTimerRef.current);
+      virtualGroupTransitionTimerRef.current = null;
+      transitionDataRef.current = null;
+      setVirtualGroupTransition(null);
+    };
+    const onTransitionEnd = (event: TransitionEvent) => {
+      if (event.target === clip && event.propertyName === "height") finish();
+    };
+    clip?.addEventListener("transitionend", onTransitionEnd);
+    // 快速反向点击也重新安排收尾；无高度差时浏览器不会发 transitionend。
+    virtualGroupTransitionTimerRef.current = window.setTimeout(
+      finish,
+      groupMotionDuration(noteListRef.current) + 50,
+    );
+    return () => {
+      clip?.removeEventListener("transitionend", onTransitionEnd);
+      if (virtualGroupTransitionTimerRef.current !== null)
+        window.clearTimeout(virtualGroupTransitionTimerRef.current);
+      virtualGroupTransitionTimerRef.current = null;
+    };
+  }, [virtualGroupTransition]);
+
+  useLayoutEffect(() => {
+    if (!transitionDataChanged || !virtualGroupTransition) return;
+    if (virtualGroupTransitionTimerRef.current !== null)
+      window.clearTimeout(virtualGroupTransitionTimerRef.current);
+    virtualGroupTransitionTimerRef.current = null;
+    transitionDataRef.current = null;
+    setCollapsedGroups((current) => {
+      const next = new Set(current);
+      if (
+        virtualGroupTransition.phase === "collapsing" ||
+        virtualGroupTransition.phase === "preparing-collapse"
+      )
+        next.add(virtualGroupTransition.groupId);
+      else next.delete(virtualGroupTransition.groupId);
+      return next;
+    });
+    setVirtualGroupTransition(null);
+  }, [transitionDataChanged, virtualGroupTransition]);
+
+  useEffect(() => {
+    if (virtualGroupTransition) return;
+    const queuedGroupId = queuedVirtualGroupIdRef.current;
+    if (!queuedGroupId) return;
+    queuedVirtualGroupIdRef.current = null;
+    const queuedGroup = groups?.find((group) => group.id === queuedGroupId);
+    if (!queuedGroup) return;
+    const frame = requestAnimationFrame(() => toggleVirtualGroup(queuedGroup));
+    return () => cancelAnimationFrame(frame);
+  }, [groups, virtualGroupTransition]);
+
+  useLayoutEffect(() => {
+    if (virtualGroupTransition) return;
+    const focus = focusRestoreRef.current;
+    if (!focus || document.activeElement !== document.body) return;
+    const selector = `[data-note-id="${CSS.escape(focus.noteId)}"] ${focus.selector}`;
+    let target = noteListRef.current?.querySelector<HTMLElement>(selector);
+    if (!target || target.closest("[inert]")) {
+      const groupId = groupByNoteId.get(focus.noteId)?.id;
+      const markerId = groupId ? noteGroupRowId(groupId) : null;
+      target = markerId
+        ? (noteListRef.current?.querySelector<HTMLElement>(
+            `[data-note-id="${CSS.escape(markerId)}"] .note-list-virtual-group-toggle`,
+          ) ?? null)
+        : null;
+    }
+    if (!target || target.closest("[inert]"))
+      target =
+        noteListRef.current?.querySelector<HTMLElement>(
+          ".note-list-group-header.is-virtual-sticky button",
+        ) ?? null;
+    target?.focus({ preventScroll: true });
+    focusRestoreRef.current = null;
+  }, [groupByNoteId, virtualGroupTransition]);
+
+  useEffect(
+    () => () => {
+      if (virtualGroupTransitionTimerRef.current !== null)
+        window.clearTimeout(virtualGroupTransitionTimerRef.current);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (virtualGroupTransition) return;
+    const focus = focusRestoreRef.current;
+    if (!focus || document.activeElement !== document.body) return;
+    const noteRow = noteListRef.current?.querySelector<HTMLElement>(
+      `[data-note-id="${CSS.escape(focus.noteId)}"] ${focus.selector}`,
+    );
+    if (noteRow && !noteRow.closest("[inert]")) {
+      noteRow.focus({ preventScroll: true });
+      focusRestoreRef.current = null;
+    }
+  }, [virtualGroupTransition, virtualList.visibleRows]);
+
+  const keyboardNotes = useMemo(
+    () =>
+      groups
+        ? groups.flatMap((group) =>
+            collapsedGroups.has(group.id) ||
+            (virtualGroupTransition?.groupId === group.id &&
+              virtualGroupTransition.phase === "collapsing")
+              ? []
+              : group.notes,
+          )
+        : sortedNotes,
+    [collapsedGroups, groups, sortedNotes, virtualGroupTransition],
+  );
+
   const handleNoteListKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     virtualList.moveTabFocus(event);
     if (event.defaultPrevented) return;
@@ -820,28 +1401,200 @@ export const NoteListPanel = memo(function NoteListPanel({
       (target.isContentEditable || target.matches("input, textarea, select"))
     )
       return;
-    if ((event.key === "Delete" || event.key === "Backspace") && selectedIds.size > 0) {
+    if (
+      target instanceof HTMLElement &&
+      target.closest(".note-list-group-toggle, .note-list-virtual-group-toggle")
+    )
+      return;
+
+    const isPlainKey = !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey;
+
+    if (isPlainKey && (event.key === "j" || event.key === "J" || event.key === "ArrowDown")) {
+      event.preventDefault();
+      const currentIndex = keyboardNotes.findIndex((n) => n.id === selectedId);
+      const nextIndex =
+        currentIndex >= 0 && currentIndex < keyboardNotes.length - 1 ? currentIndex + 1 : 0;
+      const nextNote = keyboardNotes[nextIndex];
+      if (nextNote) {
+        onSelect(nextNote.id, event as unknown as ReactMouseEvent<HTMLButtonElement>);
+        const row = noteListRef.current?.querySelector<HTMLButtonElement>(
+          `[data-note-id="${CSS.escape(nextNote.id)}"] .note-row`,
+        );
+        row?.focus();
+        row?.scrollIntoView({ block: "nearest" });
+      }
+      return;
+    }
+
+    if (isPlainKey && (event.key === "k" || event.key === "K" || event.key === "ArrowUp")) {
+      event.preventDefault();
+      const currentIndex = keyboardNotes.findIndex((n) => n.id === selectedId);
+      const prevIndex = currentIndex > 0 ? currentIndex - 1 : keyboardNotes.length - 1;
+      const prevNote = keyboardNotes[prevIndex];
+      if (prevNote) {
+        onSelect(prevNote.id, event as unknown as ReactMouseEvent<HTMLButtonElement>);
+        const row = noteListRef.current?.querySelector<HTMLButtonElement>(
+          `[data-note-id="${CSS.escape(prevNote.id)}"] .note-row`,
+        );
+        row?.focus();
+        row?.scrollIntoView({ block: "nearest" });
+      }
+      return;
+    }
+
+    if (isPlainKey && event.key === "Enter") {
+      if (selectedId && onFocusEditor) {
+        event.preventDefault();
+        onFocusEditor();
+        return;
+      }
+    }
+
+    if (isPlainKey && (event.key === "s" || event.key === "S")) {
+      const currentNote = sortedNotes.find((n) => n.id === selectedId);
+      if (currentNote) {
+        event.preventDefault();
+        onToggleFavoriteNote(currentNote);
+        return;
+      }
+    }
+
+    if (
+      (event.key === "Delete" || event.key === "Backspace") &&
+      (selectedIds.size > 0 || selectedId)
+    ) {
       event.preventDefault();
       onDeleteSelected();
+      return;
     }
   };
   const heading = query ? "搜索结果" : (currentNotebookName ?? viewLabel(view));
   const truncated = hasMore;
   const hasLoadMoreRow = hasMore && Boolean(onLoadMore);
   const listSize = Math.max(total, sortedNotes.length);
+  const activeMotionGroup = transitionDataChanged ? null : virtualList.transitionGroup;
+  const motionCollapsed =
+    virtualGroupTransition?.phase === "collapsing" ||
+    virtualGroupTransition?.phase === "preparing-expansion";
   const listStyle: CSSProperties | undefined = virtualList.isVirtualized
     ? {
         position: "relative",
-        height: `${virtualList.totalHeight + (hasLoadMoreRow ? 76 : 0)}px`,
+        height: `${virtualList.totalHeight - (motionCollapsed ? (activeMotionGroup?.height ?? 0) : 0) + (hasLoadMoreRow ? 76 : 0)}px`,
       }
     : undefined;
-  const noteListStyle: CSSProperties | undefined = virtualList.isVirtualized
-    ? { overflowAnchor: "none" }
+  const noteListStyle: CSSProperties = { overflowAnchor: "none" };
+  const motionGroupHeader = activeMotionGroup
+    ? virtualList.visibleRows.find(({ index }) => index === activeMotionGroup.start)
     : undefined;
+  const motionContentTop = activeMotionGroup ? virtualList.rowTop(activeMotionGroup.start + 1) : 0;
+  const motionAfterTop = activeMotionGroup ? virtualList.rowTop(activeMotionGroup.end) : 0;
+  const motionRows = activeMotionGroup
+    ? partitionVirtualGroupRows(
+        virtualList.visibleRows,
+        activeMotionGroup.start,
+        activeMotionGroup.end,
+        motionContentTop,
+        motionAfterTop,
+      )
+    : null;
+  const renderVirtualNote = (note: NoteSummary, rowIndex: number, top: number) => (
+    <NoteListRow
+      key={note.id}
+      note={note}
+      rowIndex={sortedIndexById.get(note.id) ?? rowIndex}
+      setSize={listSize}
+      rowRef={virtualList.getRowRef(note.id)}
+      rowStyle={virtualList.rowStyle(top)}
+      isSelected={selectedIds.has(note.id)}
+      selectedIds={selectedIds}
+      isActive={selectedId === note.id && !isMobileViewport}
+      showNotebook
+      onToggleFavorite={onToggleFavoriteNote}
+      onSelect={onSelect}
+      isMobileViewport={isMobileViewport}
+      isTrashView={view === "trash"}
+      trashBusy={trashBusy}
+      onNoteSwipeAction={onNoteSwipeAction}
+      open={swipeActions.openId === note.id}
+      setOpenId={swipeActions.setOpenId}
+      isDragging={draggingNoteIds?.has(note.id) ?? false}
+      onDragStart={handleRowDragStart}
+      onDragEnd={handleRowDragEnd}
+    />
+  );
+  const renderVirtualGroupMarker = (
+    row: Extract<VirtualNoteListRow, { kind: "group" }>,
+    top: number,
+  ) => {
+    const isStickyMarker = virtualStickyGroup?.id === row.group.id;
+    const isFocusedMarker = virtualList.pinnedRowId === row.id;
+    const hideMarker = isStickyMarker && !isFocusedMarker;
+    const markerTransition =
+      virtualGroupTransition?.groupId === row.group.id ? virtualGroupTransition.phase : null;
+    const markerCollapsed =
+      markerTransition === "collapsing" || markerTransition === "preparing-expansion"
+        ? true
+        : markerTransition === "expanding" || markerTransition === "preparing-collapse"
+          ? false
+          : collapsedGroups.has(row.group.id);
+    return (
+      <li
+        key={row.id}
+        ref={virtualList.getRowRef(row.id)}
+        data-note-id={row.id}
+        className={`note-list-virtual-group-marker${row.firstGroup ? " is-first" : ""}${markerCollapsed ? " is-collapsed" : ""}${hideMarker ? " is-sticky-marker" : ""}`}
+        role="presentation"
+        aria-hidden={hideMarker || undefined}
+        inert={hideMarker || undefined}
+        style={virtualList.rowStyle(top)}
+      >
+        <button
+          type="button"
+          className="note-list-virtual-group-toggle"
+          aria-expanded={!markerCollapsed}
+          aria-controls="note-list-virtual-rows"
+          onClick={() => toggleVirtualGroup(row.group)}
+        >
+          <ChevronDown className="note-list-group-chevron" size={13} aria-hidden="true" />
+          <span className="note-list-group-title">{row.group.title}</span>
+          <span className="note-list-group-count">{row.group.count}</span>
+        </button>
+      </li>
+    );
+  };
+  const handleVirtualListFocusCapture = (event: ReactFocusEvent<HTMLDivElement>) => {
+    virtualList.onFocusCapture(event);
+    const active = event.target;
+    if (!(active instanceof HTMLElement)) {
+      focusRestoreRef.current = null;
+      return;
+    }
+    const row = active.closest<HTMLElement>("[data-note-id]");
+    if (!row?.dataset.noteId || row.dataset.noteId.startsWith("group-marker:")) {
+      focusRestoreRef.current = null;
+      return;
+    }
+    const button = active.closest<HTMLButtonElement>("button");
+    if (!button) {
+      focusRestoreRef.current = null;
+      return;
+    }
+    const selector = button.classList.contains("note-row")
+      ? ".note-row"
+      : button.classList.contains("note-row-star-btn")
+        ? ".note-row-star-btn"
+        : button.classList.contains("swipe-action-button")
+          ? `.swipe-action-button:nth-of-type(${Array.from(button.parentElement?.children ?? []).indexOf(button) + 1})`
+          : null;
+    focusRestoreRef.current = selector ? { noteId: row.dataset.noteId, selector } : null;
+  };
+  const handleVirtualListBlurCapture = (event: ReactFocusEvent<HTMLDivElement>) => {
+    if (!virtualGroupTransition) virtualList.onBlurCapture(event);
+  };
   return (
     <section
       ref={panelRef}
-      className={`note-list-panel ${outlineOpen ? "is-outline-open" : ""}`}
+      className={`note-list-panel ${outlineOpen ? "is-outline-open" : ""}`.trim()}
       aria-label={outlineOpen ? "笔记大纲" : "笔记列表"}
       aria-hidden={inert || undefined}
       inert={inert}
@@ -863,11 +1616,7 @@ export const NoteListPanel = memo(function NoteListPanel({
                 total={total}
                 shown={notes.length}
                 query={query}
-                sort={sort}
-                onSort={setSort}
                 onBack={onOpenSidebar}
-                layout="three-column"
-                onToggleLayout={onToggleLayout}
                 onEmptyTrash={onEmptyTrash}
                 trashBusy={trashBusy}
               />
@@ -902,62 +1651,11 @@ export const NoteListPanel = memo(function NoteListPanel({
                       <Plus size={18} />
                     </button>
                   )}
-
-                  <div className="sort-menu-wrap" ref={sortRef}>
-                    <button
-                      ref={sortTriggerRef}
-                      id="note-sort-trigger"
-                      className="sort-button"
-                      type="button"
-                      aria-haspopup="listbox"
-                      aria-controls="note-sort-options"
-                      aria-expanded={sortOpen}
-                      onClick={() => setSortOpen((open) => !open)}
-                    >
-                      <span className="sort-button-label">
-                        {SORT_OPTIONS.find((option) => option.value === sort)?.label}
-                      </span>
-                      <ChevronDown size={14} className="sort-button-arrow" />
-                    </button>
-                    {sortOpen && (
-                      <div
-                        id="note-sort-options"
-                        className="sort-dropdown"
-                        role="listbox"
-                        aria-label="笔记排序方式"
-                      >
-                        {SORT_OPTIONS.map((option, index) => {
-                          const isSelected = sort === option.value;
-                          return (
-                            <button
-                              ref={(element) => {
-                                sortOptionRefs.current[index] = element;
-                              }}
-                              id={`note-sort-option-${option.value}`}
-                              key={option.value}
-                              type="button"
-                              className={`sort-option ${isSelected ? "is-active" : ""}`}
-                              role="option"
-                              aria-selected={isSelected}
-                              tabIndex={isSelected ? 0 : -1}
-                              onClick={() => {
-                                setSort(option.value);
-                                closeSortMenu();
-                              }}
-                              onKeyDown={(event) => handleSortOptionKeyDown(event, index)}
-                            >
-                              {option.label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
                 </div>
               </header>
             )}
             <div
-              className={`note-list-scroll-shell${noteListScrollEdges.before ? " has-scroll-before" : ""}${noteListScrollEdges.after ? " has-scroll-after" : ""}`}
+              className={`note-list-scroll-shell${noteListScrollEdges.before || isAnchoring ? " has-scroll-before" : ""}${noteListScrollEdges.after ? " has-scroll-after" : ""}`}
             >
               <div
                 id="note-list-scroll-region"
@@ -965,60 +1663,229 @@ export const NoteListPanel = memo(function NoteListPanel({
                 ref={setNoteListRef}
                 style={noteListStyle}
                 onKeyDown={handleNoteListKeyDown}
-                onFocusCapture={virtualList.onFocusCapture}
-                onBlurCapture={virtualList.onBlurCapture}
+                onFocusCapture={handleVirtualListFocusCapture}
+                onBlurCapture={handleVirtualListBlurCapture}
               >
-                <ul className="note-list-items" role="list" style={listStyle}>
-                  {virtualList.visibleRows.map(({ note, index, top }) => (
-                    <NoteListRow
-                      key={note.id}
-                      note={note}
-                      rowIndex={index}
-                      setSize={listSize}
-                      rowRef={
-                        virtualList.isVirtualized ? virtualList.getRowRef(note.id) : undefined
-                      }
-                      rowStyle={virtualList.rowStyle(top)}
-                      isSelected={selectedIds.has(note.id)}
-                      isActive={selectedId === note.id && !isMobileViewport}
-                      showNotebook={!currentNotebookName && view !== "inbox"}
-                      onSelect={onSelect}
-                      isMobileViewport={isMobileViewport}
-                      isTrashView={view === "trash"}
-                      trashBusy={trashBusy}
-                      onNoteSwipeAction={onNoteSwipeAction}
-                      open={swipeActions.openId === note.id}
-                      setOpenId={swipeActions.setOpenId}
-                    />
-                  ))}
-                  {hasLoadMoreRow && (
-                    <li
-                      ref={loadMoreSentinelRef}
-                      className="note-list-load-more-item"
-                      style={
-                        virtualList.isVirtualized
-                          ? {
-                              position: "absolute",
-                              insetInline: 0,
-                              top: 0,
-                              transform: `translateY(${virtualList.totalHeight}px)`,
-                            }
-                          : undefined
-                      }
+                {virtualList.isVirtualized && virtualStickyGroup && (
+                  <div
+                    className="note-list-group-header is-virtual-sticky"
+                    style={{ transform: `translateY(${virtualList.stickyOffset}px)` }}
+                  >
+                    <button
+                      type="button"
+                      className="note-list-virtual-group-toggle"
+                      aria-expanded={!virtualStickyGroupCollapsed}
+                      aria-controls="note-list-virtual-rows"
+                      onClick={() => toggleVirtualGroup(virtualStickyGroup)}
                     >
-                      <button
-                        className="secondary-button note-list-load-more-button"
-                        type="button"
-                        onClick={onLoadMore}
-                        disabled={isLoadingMore}
-                      >
-                        {isLoadingMore
-                          ? "正在加载……"
-                          : `加载更多（已显示 ${notes.length} / ${total}）`}
-                      </button>
-                    </li>
-                  )}
-                </ul>
+                      <ChevronDown
+                        className="note-list-group-chevron"
+                        size={13}
+                        aria-hidden="true"
+                      />
+                      <span className="note-list-group-title">{virtualStickyGroup.title}</span>
+                      <span className="note-list-group-count">{virtualStickyGroup.count}</span>
+                    </button>
+                  </div>
+                )}
+                {!virtualList.isVirtualized && groups ? (
+                  <div className="note-list-groups">
+                    {groups.map((group) => {
+                      const collapsed = collapsedGroups.has(group.id);
+                      const contentId = `note-list-group-${group.id}`;
+                      return (
+                        <section
+                          key={group.id}
+                          className="note-list-group"
+                          aria-label={`${group.title}，共 ${group.count} 篇`}
+                        >
+                          <h2 className="note-list-group-header">
+                            <button
+                              type="button"
+                              className="note-list-group-toggle"
+                              aria-expanded={!collapsed}
+                              aria-controls={contentId}
+                              onClick={(event) => toggleGroup(group.id, event.currentTarget)}
+                            >
+                              <ChevronDown
+                                className="note-list-group-chevron"
+                                size={13}
+                                aria-hidden="true"
+                              />
+                              <span className="note-list-group-title">{group.title}</span>
+                              <span className="note-list-group-count">{group.count}</span>
+                            </button>
+                          </h2>
+                          <div
+                            id={contentId}
+                            className={`note-list-group-content${collapsed ? " is-collapsed" : ""}`}
+                            inert={collapsed}
+                          >
+                            <ul className="note-list-group-items note-list-items" role="list">
+                              {group.notes.map((note) => {
+                                const index = sortedIndexById.get(note.id) ?? -1;
+                                return (
+                                  <NoteListRow
+                                    key={note.id}
+                                    note={note}
+                                    rowIndex={index}
+                                    setSize={listSize}
+                                    isSelected={selectedIds.has(note.id)}
+                                    selectedIds={selectedIds}
+                                    isActive={selectedId === note.id && !isMobileViewport}
+                                    showNotebook
+                                    onToggleFavorite={onToggleFavoriteNote}
+                                    onSelect={onSelect}
+                                    isMobileViewport={isMobileViewport}
+                                    isTrashView={view === "trash"}
+                                    trashBusy={trashBusy}
+                                    onNoteSwipeAction={onNoteSwipeAction}
+                                    open={swipeActions.openId === note.id}
+                                    setOpenId={swipeActions.setOpenId}
+                                    isDragging={draggingNoteIds?.has(note.id) ?? false}
+                                    onDragStart={handleRowDragStart}
+                                    onDragEnd={handleRowDragEnd}
+                                  />
+                                );
+                              })}
+                            </ul>
+                          </div>
+                        </section>
+                      );
+                    })}
+                    {hasLoadMoreRow && (
+                      <div ref={setLoadMoreSentinel} className="note-list-load-more-item">
+                        <button
+                          className="secondary-button note-list-load-more-button"
+                          type="button"
+                          onClick={onLoadMore}
+                          disabled={isLoadingMore}
+                        >
+                          {isLoadingMore ? "正在加载……" : noteLoadMoreLabel(notes.length, total)}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <ul
+                    id={virtualList.isVirtualized ? "note-list-virtual-rows" : undefined}
+                    className={`note-list-items${activeMotionGroup ? " virtual-group-list-motion" : ""}`}
+                    role="list"
+                    style={listStyle}
+                  >
+                    {activeMotionGroup && motionRows && motionGroupHeader?.row.kind === "group" ? (
+                      <>
+                        {motionRows.before.map(({ row, index, top }) =>
+                          row.kind === "group"
+                            ? renderVirtualGroupMarker(row, top)
+                            : renderVirtualNote(row.note, index, top),
+                        )}
+                        {renderVirtualGroupMarker(motionGroupHeader.row, motionGroupHeader.top)}
+                        <li
+                          key={`virtual-group-motion-${virtualGroupTransition?.groupId}`}
+                          className="virtual-group-motion note-list-virtual-group-motion"
+                          role="presentation"
+                          style={virtualList.rowStyle(motionContentTop)}
+                        >
+                          <div
+                            className={`virtual-group-motion-clip note-list-virtual-group-clip${virtualGroupTransition?.phase === "collapsing" || virtualGroupTransition?.phase === "preparing-expansion" ? " is-collapsed" : ""}`}
+                            style={
+                              {
+                                "--group-content-height": `${activeMotionGroup.height}px`,
+                              } as CSSProperties
+                            }
+                            inert={virtualGroupTransition?.phase === "collapsing" || undefined}
+                          >
+                            <div className="virtual-group-motion-clip-content">
+                              <ul
+                                className="note-list-items note-list-virtual-group-content"
+                                role="list"
+                                style={{ height: `${activeMotionGroup.height}px` }}
+                              >
+                                {motionRows.group.map(({ row, index, localTop }) =>
+                                  row.kind === "note"
+                                    ? renderVirtualNote(row.note, index, localTop)
+                                    : null,
+                                )}
+                              </ul>
+                            </div>
+                          </div>
+                          <ul
+                            className="note-list-items virtual-group-motion-after note-list-virtual-group-after"
+                            role="list"
+                            style={{
+                              height: `${Math.max(0, virtualList.totalHeight - motionAfterTop + (hasLoadMoreRow ? 76 : 0))}px`,
+                            }}
+                          >
+                            {motionRows.after.map(({ row, index, localTop }) =>
+                              row.kind === "group"
+                                ? renderVirtualGroupMarker(row, localTop)
+                                : renderVirtualNote(row.note, index, localTop),
+                            )}
+                            {hasLoadMoreRow && (
+                              <li
+                                ref={setLoadMoreSentinel}
+                                className="note-list-load-more-item"
+                                style={{
+                                  position: "absolute",
+                                  insetInline: 0,
+                                  top: 0,
+                                  transform: `translateY(${virtualList.totalHeight - motionAfterTop}px)`,
+                                }}
+                              >
+                                <button
+                                  className="secondary-button note-list-load-more-button"
+                                  type="button"
+                                  onClick={onLoadMore}
+                                  disabled={isLoadingMore}
+                                >
+                                  {isLoadingMore
+                                    ? "正在加载……"
+                                    : noteLoadMoreLabel(notes.length, total)}
+                                </button>
+                              </li>
+                            )}
+                          </ul>
+                        </li>
+                      </>
+                    ) : (
+                      <>
+                        {virtualList.visibleRows.map(({ row, index, top }) =>
+                          row.kind === "group"
+                            ? renderVirtualGroupMarker(row, top)
+                            : renderVirtualNote(row.note, index, top),
+                        )}
+                        {hasLoadMoreRow && (
+                          <li
+                            ref={setLoadMoreSentinel}
+                            className="note-list-load-more-item"
+                            style={
+                              virtualList.isVirtualized
+                                ? {
+                                    position: "absolute",
+                                    insetInline: 0,
+                                    top: 0,
+                                    transform: `translateY(${virtualList.totalHeight}px)`,
+                                  }
+                                : undefined
+                            }
+                          >
+                            <button
+                              className="secondary-button note-list-load-more-button"
+                              type="button"
+                              onClick={onLoadMore}
+                              disabled={isLoadingMore}
+                            >
+                              {isLoadingMore
+                                ? "正在加载……"
+                                : noteLoadMoreLabel(notes.length, total)}
+                            </button>
+                          </li>
+                        )}
+                      </>
+                    )}
+                  </ul>
+                )}
                 {!sortedNotes.length &&
                   (query ? (
                     <div className="list-empty">
@@ -1049,7 +1916,7 @@ export const NoteListPanel = memo(function NoteListPanel({
                 scrollTargetRef={noteListRef}
                 controlsId="note-list-scroll-region"
                 ariaLabel="笔记列表滚动条"
-                placement="left"
+                placement="right"
               />
             </div>
           </>

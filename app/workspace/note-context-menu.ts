@@ -1,16 +1,18 @@
 import {
   ArrowUpRight,
+  Columns2,
   LayoutGrid,
   List,
   ListChecks,
   Plus,
   RotateCcw,
+  SquareKanban,
   Star,
   Trash2,
   X,
 } from "lucide-react";
 import type { ContextMenuItem } from "../context-menu";
-import type { NoteSummary, NoteView } from "../../shared/types";
+import type { KanbanStatus, NoteSummary, NoteView } from "../../shared/types";
 import type { NoteSwipeAction } from "./swipe-actions";
 
 export type NoteContextMenuActions = {
@@ -23,6 +25,10 @@ export type NoteContextMenuActions = {
   restoreSelected: () => void;
   deleteSelected: () => void;
   toggleFavorite: (note: NoteSummary) => void;
+  /** 在右侧分屏打开笔记（桌面端可用）。 */
+  openInSplit?: (note: NoteSummary) => void;
+  /** 添加到看板某列 */
+  addToKanban?: (note: NoteSummary, status: KanbanStatus) => void;
 };
 
 export type NoteContextMenuInput = {
@@ -57,12 +63,24 @@ export function buildNoteContextMenuItems({
         actions.openNote(note);
       },
     },
-    {
-      label: isSelected ? "从多选中移除" : "加入多选",
-      icon: ListChecks,
-      onSelect: () => actions.toggleSelection(note.id),
-    },
   ];
+
+  if (actions.openInSplit) {
+    items.push({
+      label: "在分屏中打开",
+      icon: Columns2,
+      onSelect: () => {
+        actions.clearSelection();
+        actions.openInSplit!(note);
+      },
+    });
+  }
+
+  items.push({
+    label: isSelected ? "从多选中移除" : "加入多选",
+    icon: ListChecks,
+    onSelect: () => actions.toggleSelection(note.id),
+  });
 
   if (selectedIds.size)
     items.push({ label: "退出多选", icon: X, separator: true, onSelect: actions.clearSelection });
@@ -88,6 +106,13 @@ export function buildNoteContextMenuItems({
       icon: Star,
       onSelect: () => actions.toggleFavorite(note),
     });
+    if (actions.addToKanban) {
+      items.push({
+        label: "添加到看板",
+        icon: SquareKanban,
+        onSelect: () => actions.addToKanban!(note, "inbox"),
+      });
+    }
   }
 
   items.push({
@@ -119,6 +144,7 @@ type NoteListLayout = "three-column" | "cards";
 export function buildWorkspaceMenuItems(input: {
   view: NoteView;
   viewLayout: NoteListLayout;
+  canToggleLayout?: boolean;
   query: string;
   hasSelection: boolean;
   totalNotes: number;
@@ -131,14 +157,25 @@ export function buildWorkspaceMenuItems(input: {
     emptyTrash: () => void;
   };
 }): ContextMenuItem[] {
-  const { view, viewLayout, query, hasSelection, totalNotes, busy, actions } = input;
+  const {
+    view,
+    viewLayout,
+    canToggleLayout = true,
+    query,
+    hasSelection,
+    totalNotes,
+    busy,
+    actions,
+  } = input;
   const items: ContextMenuItem[] = [];
   if (view !== "trash") items.push({ label: "新建笔记", icon: Plus, onSelect: actions.newNote });
-  items.push({
-    label: viewLayout === "cards" ? "切换为列表视图" : "切换为卡片视图",
-    icon: viewLayout === "cards" ? List : LayoutGrid,
-    onSelect: actions.toggleLayout,
-  });
+  if (canToggleLayout) {
+    items.push({
+      label: viewLayout === "cards" ? "切换为列表视图" : "切换为卡片视图",
+      icon: viewLayout === "cards" ? List : LayoutGrid,
+      onSelect: actions.toggleLayout,
+    });
+  }
   if (query) items.push({ label: "清空搜索", icon: X, onSelect: actions.clearQuery });
   if (hasSelection) items.push({ label: "取消多选", icon: X, onSelect: actions.clearSelection });
   if (view === "trash") {

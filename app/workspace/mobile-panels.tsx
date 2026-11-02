@@ -1,11 +1,12 @@
-import { memo, useRef, type CSSProperties, type RefObject } from "react";
+import { Fragment, memo, useRef, type CSSProperties, type RefObject } from "react";
 import {
   ChevronRight,
   FolderPlus,
   LogOut,
+  ListTodo,
+  SquareKanban,
   Pencil,
   Search,
-  SlidersHorizontal,
   SquarePen,
   Trash2,
   X,
@@ -14,10 +15,15 @@ import type { Notebook, NoteView } from "../../shared/types";
 import { BrandMark } from "../brand-mark";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { getNotebookIconComponent, navItems } from "./helpers";
+import { useScrollEdges } from "./use-scroll-edges";
 import { useSwipeActionGesture, useSwipeActionGroup } from "./swipe-actions";
 import "./mobile-panels.css";
 
+import { useNotebookReorder } from "./use-notebook-reorder";
+
 export type MobileNotebookHomeProps = {
+  onReorderNotebooks: (ids: string[], expectedIds: string[]) => Promise<void>;
+  reorderingNotebooks: boolean;
   view: NoteView;
   setView: (view: NoteView) => void;
   notebooks: Notebook[];
@@ -27,10 +33,14 @@ export type MobileNotebookHomeProps = {
   onEditNotebook: (notebook: Notebook) => void;
   onDeleteNotebook: (notebook: Notebook) => void;
   onLogout: () => void;
+  onOpenTasks?: () => void;
+  onOpenKanban?: () => void;
   active?: boolean;
 };
 
 export const MobileNotebookHome = memo(function MobileNotebookHome({
+  onReorderNotebooks,
+  reorderingNotebooks,
   view,
   setView,
   notebooks,
@@ -40,29 +50,41 @@ export const MobileNotebookHome = memo(function MobileNotebookHome({
   onEditNotebook,
   onDeleteNotebook,
   onLogout,
+  onOpenTasks,
+  onOpenKanban,
   active = true,
 }: MobileNotebookHomeProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollEdges = useScrollEdges(scrollRef, [notebooks.length]);
   const swipeActions = useSwipeActionGroup(scrollRef, active, active ? "home" : "inactive");
   const customNotebooks = notebooks.filter((notebook) => !notebook.isSystem);
 
+  const sortHandle = useNotebookReorder(
+    scrollRef,
+    customNotebooks.map((n) => n.id),
+    onReorderNotebooks,
+    reorderingNotebooks || !active,
+  );
+
   return (
     <section className="mobile-notebook-home" aria-labelledby="mobile-notebooks-title">
-      <div className="mobile-home-scroll-shell">
+      <h1
+        id="mobile-notebooks-title"
+        className="mobile-home-title"
+        tabIndex={-1}
+        data-mobile-heading
+      >
+        <BrandMark className="mobile-home-brand-mark" />
+        <span>象映笔记</span>
+      </h1>
+      <div
+        className={`mobile-home-scroll-shell${scrollEdges.before ? " has-scroll-before" : ""}${scrollEdges.after ? " has-scroll-after" : ""}`}
+      >
         <div
           ref={scrollRef}
           id="mobile-notebooks-scroll"
           className="mobile-home-scroll floating-scrollbar-target"
         >
-          <h1
-            id="mobile-notebooks-title"
-            className="mobile-home-title"
-            tabIndex={-1}
-            data-mobile-heading
-          >
-            <BrandMark className="mobile-home-brand-mark" />
-            <span>象映笔记</span>
-          </h1>
           <nav aria-label="笔记分类" className="mobile-home-group">
             <ul>
               {navItems.map((item) => {
@@ -74,26 +96,58 @@ export const MobileNotebookHome = memo(function MobileNotebookHome({
                       ? notebooks.reduce((sum, notebook) => sum + notebook.count, 0)
                       : undefined;
                 return (
-                  <li key={item.id}>
-                    <button
-                      type="button"
-                      className="mobile-notebook-link"
-                      aria-label={
-                        count === undefined ? item.label : `${item.label}，${count} 篇笔记`
-                      }
-                      aria-current={view === item.id && !notebookId ? "true" : undefined}
-                      onClick={() => setView(item.id)}
-                    >
-                      <span className="mobile-notebook-icon">
-                        <Icon size={22} />
-                      </span>
-                      <span className="mobile-notebook-name">{item.label}</span>
-                      {count !== undefined && (
-                        <span className="mobile-notebook-count">{count}</span>
-                      )}
-                      <ChevronRight className="mobile-notebook-chevron" size={18} />
-                    </button>
-                  </li>
+                  <Fragment key={item.id}>
+                    {item.id === "trash" && onOpenTasks && (
+                      <li>
+                        <button
+                          type="button"
+                          className="mobile-notebook-link"
+                          onClick={onOpenTasks}
+                        >
+                          <span className="mobile-notebook-icon">
+                            <ListTodo size={22} />
+                          </span>
+                          <span className="mobile-notebook-name">任务</span>
+                          <ChevronRight className="mobile-notebook-chevron" size={18} />
+                        </button>
+                      </li>
+                    )}
+                    {item.id === "trash" && onOpenKanban && (
+                      <li>
+                        <button
+                          type="button"
+                          className="mobile-notebook-link"
+                          onClick={onOpenKanban}
+                        >
+                          <span className="mobile-notebook-icon">
+                            <SquareKanban size={22} />
+                          </span>
+                          <span className="mobile-notebook-name">看板</span>
+                          <ChevronRight className="mobile-notebook-chevron" size={18} />
+                        </button>
+                      </li>
+                    )}
+                    <li>
+                      <button
+                        type="button"
+                        className="mobile-notebook-link"
+                        aria-label={
+                          count === undefined ? item.label : `${item.label}，${count} 篇笔记`
+                        }
+                        aria-current={view === item.id && !notebookId ? "true" : undefined}
+                        onClick={() => setView(item.id)}
+                      >
+                        <span className="mobile-notebook-icon">
+                          <Icon size={22} />
+                        </span>
+                        <span className="mobile-notebook-name">{item.label}</span>
+                        {count !== undefined && (
+                          <span className="mobile-notebook-count">{count}</span>
+                        )}
+                        <ChevronRight className="mobile-notebook-chevron" size={18} />
+                      </button>
+                    </li>
+                  </Fragment>
                 );
               })}
             </ul>
@@ -114,8 +168,13 @@ export const MobileNotebookHome = memo(function MobileNotebookHome({
               <ul>
                 {customNotebooks.map((notebook) => {
                   return (
-                    <li key={notebook.id} className="mobile-notebook-row">
+                    <li
+                      key={notebook.id}
+                      className="mobile-notebook-row"
+                      data-sort-id={notebook.id}
+                    >
                       <MobileNotebookLink
+                        sortHandle={sortHandle(notebook.id)}
                         notebook={notebook}
                         selected={notebook.id === notebookId}
                         onOpen={setNotebookId}
@@ -154,6 +213,7 @@ export const MobileNotebookHome = memo(function MobileNotebookHome({
 });
 
 function MobileNotebookLink({
+  sortHandle,
   notebook,
   selected,
   onOpen,
@@ -162,6 +222,7 @@ function MobileNotebookLink({
   open,
   setOpenId,
 }: {
+  sortHandle: ReturnType<ReturnType<typeof useNotebookReorder>>;
   notebook: Notebook;
   selected: boolean;
   onOpen: (id: string) => void;
@@ -225,6 +286,7 @@ function MobileNotebookLink({
         </button>
       </div>
       <button
+        {...sortHandle}
         ref={foregroundRef}
         type="button"
         className="mobile-notebook-link mobile-notebook-link--editable swipe-action-foreground"
@@ -233,6 +295,7 @@ function MobileNotebookLink({
         aria-expanded={open}
         aria-controls={`notebook-actions-${notebook.id}`}
         onKeyDown={(event) => {
+          sortHandle.onKeyDown(event);
           if (event.key === "F2") {
             event.preventDefault();
             onEdit(notebook);
@@ -254,30 +317,20 @@ function MobileNotebookLink({
 export type MobileBottomBarProps = {
   query: string;
   setQuery: (query: string) => void;
+  onSubmitQuery: () => void;
   onNewNote?: () => void;
   searchRef?: RefObject<HTMLInputElement | null>;
-  label?: string;
-  onOpenCommands: () => void;
 };
 
 export function MobileBottomBar({
   query,
   setQuery,
+  onSubmitQuery,
   onNewNote,
   searchRef,
-  onOpenCommands,
-  label = "搜索笔记或标签",
 }: MobileBottomBarProps) {
   return (
-    <footer className="mobile-bottom-bar" aria-label="搜索与新建笔记">
-      <button
-        className="mobile-compose-button"
-        type="button"
-        aria-label="打开命令面板"
-        onClick={onOpenCommands}
-      >
-        <SlidersHorizontal size={22} aria-hidden="true" />
-      </button>
+    <footer className="mobile-bottom-bar" aria-label="全局搜索与新建笔记">
       <div className="mobile-bottom-search">
         <Search size={21} aria-hidden="true" />
         <input
@@ -285,8 +338,19 @@ export function MobileBottomBar({
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="搜索笔记或 #标签"
-          aria-label={label}
+          onKeyDown={(event) => {
+            if (
+              event.key !== "Enter" ||
+              event.nativeEvent.isComposing ||
+              event.nativeEvent.keyCode === 229
+            )
+              return;
+            event.preventDefault();
+            onSubmitQuery();
+          }}
+          enterKeyHint="search"
+          placeholder="全局搜索笔记或 #标签"
+          aria-label="全局搜索笔记或标签"
         />
         {query && (
           <button

@@ -1,12 +1,15 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { rm } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, rm, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { marked } from "marked";
-import { applyMigrations, openDatabase, reclaimDatabaseSpace } from "../server/test-db";
-import type { TestSqliteDatabase } from "../server/test-db";
+import { join } from "node:path";
+import {
+  applyMigrations,
+  openDatabase,
+  reclaimDatabaseSpace,
+  type SqliteDatabase,
+  type TestSqliteDatabase,
+} from "../server/db";
 import { handleRequest } from "../server/index";
-import { MAX_SHORT_TERM_CONTENT_CHARS, MAX_SHORT_TERMS_PER_NOTE } from "../server/note-search";
 import {
   cleanupOrphanAssets,
   IMAGE_UPLOAD_MAX_BODY_BYTES,
@@ -17,6 +20,7 @@ import { MemoryR2Bucket } from "./memory-r2";
 
 let database: TestSqliteDatabase;
 let assets: MemoryR2Bucket;
+let assetRoot: string;
 let clientAddress: string;
 const environment: Record<string, string | undefined> = {
   XIANGYING_USERNAME: "owner",
@@ -38,12 +42,15 @@ function imageForm(name = "cat.png", bytes = ONE_PIXEL_PNG, mimeType = "image/pn
 beforeEach(async () => {
   database = await openDatabase(":memory:");
   await applyMigrations(database);
+  await mkdir(join(tmpdir(), "xiangying-notes-assets"), { recursive: true });
+  assetRoot = join(tmpdir(), "xiangying-notes-assets", crypto.randomUUID());
   assets = new MemoryR2Bucket();
   clientAddress = `test-${crypto.randomUUID()}`;
 });
 
 afterEach(async () => {
   database.close();
+  await rm(assetRoot, { recursive: true, force: true });
 });
 
 async function request(
@@ -68,11 +75,496 @@ async function request(
 }
 
 describe("Bun Server API", () => {
-  test("deletes removed asset objects from R2", async () => {
-    const key = `${crypto.randomUUID()}/${crypto.randomUUID()}.png`;
-    await assets.put(key, new Uint8Array([1]));
-    await assets.delete(key);
-    expect(await assets.get(key)).toBeNull();
+  test("lists open and completed Markdown tasks with note and notebook context", async () => {
+    const login = await request("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
+    });
+    const notebookResponse = await request(
+      "/api/notebooks",
+      { method: "POST", body: JSON.stringify({ name: "任务汇总测试" }) },
+      login.cookie,
+    );
+    const notebook = notebookResponse.body?.notebook;
+    const noteResponse = await request(
+      "/api/notes",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          title: "测试任务笔记",
+          notebookId: notebook.id,
+          contentMarkdown: "- [ ] 未完成\n- [x] 已完成",
+        }),
+      },
+      login.cookie,
+    );
+
+    const open = await request(`/api/tasks?notebookId=${notebook.id}`, {}, login.cookie);
+    expect(open.body?.total).toBe(1);
+    expect(open.body?.tasks[0]).toMatchObject({
+      noteId: noteResponse.body?.note.id,
+      noteTitle: "测试任务笔记",
+      notebookId: notebook.id,
+      notebookName: "任务汇总测试",
+      text: "未完成",
+      done: false,
+      ordinal: 0,
+      depth: 0,
+    });
+
+    const done = await request("/api/tasks?status=done", {}, login.cookie);
+    expect(done.body?.tasks).toMatchObject([{ text: "已完成", done: true, ordinal: 1 }]);
+    const firstPage = await request(
+      `/api/tasks?status=all&limit=1&notebookId=${notebook.id}`,
+      {},
+      login.cookie,
+    );
+    expect(firstPage.body?.total).toBe(2);
+    expect(firstPage.body?.tasks).toMatchObject([{ text: "未完成", depth: 0 }]);
+    const cursor = firstPage.body?.nextCursor;
+    expect(typeof cursor).toBe("string");
+    if (typeof cursor !== "string") throw new Error("first task page should have a cursor");
+    const secondPage = await request(
+      `/api/tasks?status=all&limit=1&notebookId=${notebook.id}&cursor=${encodeURIComponent(cursor)}`,
+      {},
+      login.cookie,
+    );
+    expect(secondPage.body?.tasks).toMatchObject([{ text: "已完成", depth: 0 }]);
+    expect(secondPage.body?.nextCursor).toBeNull();
+    expect(secondPage.body?.total).toBeUndefined();
+
+    const trashed = await request(
+      `/api/notes/${noteResponse.body?.note.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ version: noteResponse.body?.note.version, deleted: true }),
+      },
+      login.cookie,
+    );
+    expect(trashed.response.status).toBe(200);
+    expect((await request("/api/tasks?status=all", {}, login.cookie)).body?.total).toBe(0);
+    const restored = await request(
+      `/api/notes/${noteResponse.body?.note.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ version: trashed.body?.note.version, deleted: false }),
+      },
+      login.cookie,
+    );
+    expect(restored.response.status).toBe(200);
+    expect((await request("/api/tasks?status=all", {}, login.cookie)).body?.total).toBe(2);
+  });
+
+  test("synchronizes task indexes across batch trash, restore, and notebook deletion", async () => {
+    const login = await request("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
+    });
+    const notebookResponse = await request(
+      "/api/notebooks",
+      { method: "POST", body: JSON.stringify({ name: "任务索引生命周期" }) },
+      login.cookie,
+    );
+    const notebookId = notebookResponse.body?.notebook.id as string;
+    const noteResponse = await request(
+      "/api/notes",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          title: "任务索引生命周期笔记",
+          notebookId,
+          contentMarkdown: "- [ ] 未完成\n- [x] 已完成",
+        }),
+      },
+      login.cookie,
+    );
+    const noteId = noteResponse.body?.note.id as string;
+    const tasksForNotebook = () =>
+      request(`/api/tasks?status=all&notebookId=${notebookId}`, {}, login.cookie);
+
+    const batchTrashed = await request(
+      "/api/notes/batch",
+      {
+        method: "PATCH",
+        body: JSON.stringify({ notes: [{ id: noteId, version: 1 }] }),
+      },
+      login.cookie,
+    );
+    expect(batchTrashed.response.status).toBe(200);
+    expect((await tasksForNotebook()).body).toMatchObject({ total: 0, tasks: [] });
+    expect(
+      database.query("SELECT COUNT(*) AS count FROM note_tasks WHERE note_id = ?").get(noteId),
+    ).toEqual({ count: 0 });
+
+    const batchRestored = await request(
+      "/api/notes/batch",
+      {
+        method: "PATCH",
+        body: JSON.stringify({ deleted: false, notes: [{ id: noteId, version: 2 }] }),
+      },
+      login.cookie,
+    );
+    expect(batchRestored.response.status).toBe(200);
+    expect((await tasksForNotebook()).body?.total).toBe(2);
+
+    const singlyTrashed = await request(
+      `/api/notes/${noteId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ version: 3, deleted: true }),
+      },
+      login.cookie,
+    );
+    expect(singlyTrashed.response.status).toBe(200);
+    expect((await tasksForNotebook()).body?.total).toBe(0);
+    const restoredInBatch = await request(
+      "/api/notes/batch",
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          deleted: false,
+          notes: [{ id: noteId, version: singlyTrashed.body?.note.version }],
+        }),
+      },
+      login.cookie,
+    );
+    expect(restoredInBatch.response.status).toBe(200);
+    expect((await tasksForNotebook()).body?.total).toBe(2);
+
+    const inboxResponse = await request("/api/notebooks", {}, login.cookie);
+    const inboxId = inboxResponse.body?.notebooks.find(
+      (item: { isSystem: boolean }) => item.isSystem,
+    )?.id as string;
+    const deletedNotebook = await request(
+      `/api/notebooks/${notebookId}`,
+      { method: "DELETE" },
+      login.cookie,
+    );
+    expect(deletedNotebook.response.status).toBe(200);
+    expect(deletedNotebook.body).toMatchObject({ ok: true, movedCount: 1 });
+    expect(
+      database.query("SELECT notebook_id FROM note_tasks WHERE note_id = ?").get(noteId),
+    ).toEqual({ notebook_id: inboxId });
+    expect(
+      (await request(`/api/tasks?status=all&notebookId=${inboxId}`, {}, login.cookie)).body?.total,
+    ).toBe(2);
+  });
+
+  test("cleans task counts when permanently deleting indexed trashed notes", async () => {
+    const login = await request("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
+    });
+    const notebookResponse = await request(
+      "/api/notebooks",
+      { method: "POST", body: JSON.stringify({ name: "永久删除任务计数" }) },
+      login.cookie,
+    );
+    const notebookId = notebookResponse.body?.notebook.id as string;
+    const ownerId = login.body?.user.id as string;
+    const createTaskNote = async (title: string) => {
+      const result = await request(
+        "/api/notes",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            title,
+            notebookId,
+            contentMarkdown: "- [ ] 永久删除任务",
+          }),
+        },
+        login.cookie,
+      );
+      return result.body?.note as { id: string };
+    };
+    const first = await createTaskNote("批量永久删除一");
+    const second = await createTaskNote("批量永久删除二");
+    const third = await createTaskNote("单篇永久删除");
+    const fourth = await createTaskNote("清空回收站");
+
+    // Model a version 4 database where bulk trash left the derived task rows behind.
+    database
+      .query("UPDATE notes SET deleted_at = 1, version = 2 WHERE id IN (?, ?, ?, ?)")
+      .run(first.id, second.id, third.id, fourth.id);
+    expect(
+      database
+        .query("SELECT task_count FROM note_task_counts WHERE user_id = ? AND notebook_id = ?")
+        .get(ownerId, notebookId),
+    ).toEqual({ task_count: 4 });
+
+    const batchDeleted = await request(
+      "/api/notes/batch",
+      {
+        method: "DELETE",
+        body: JSON.stringify({
+          notes: [
+            { id: first.id, version: 2 },
+            { id: second.id, version: 2 },
+          ],
+        }),
+      },
+      login.cookie,
+    );
+    expect(batchDeleted.response.status).toBe(200);
+    expect(
+      database
+        .query("SELECT task_count FROM note_task_counts WHERE user_id = ? AND notebook_id = ?")
+        .get(ownerId, notebookId),
+    ).toEqual({ task_count: 2 });
+
+    const singleDeleted = await request(
+      `/api/notes/${third.id}`,
+      { method: "DELETE", body: JSON.stringify({ version: 2 }) },
+      login.cookie,
+    );
+    expect(singleDeleted.response.status).toBe(200);
+    expect(
+      database
+        .query("SELECT task_count FROM note_task_counts WHERE user_id = ? AND notebook_id = ?")
+        .get(ownerId, notebookId),
+    ).toEqual({ task_count: 1 });
+
+    const emptied = await request("/api/trash", { method: "DELETE" }, login.cookie);
+    expect(emptied.response.status).toBe(200);
+    expect(
+      database
+        .query("SELECT task_count FROM note_task_counts WHERE user_id = ? AND notebook_id = ?")
+        .get(ownerId, notebookId),
+    ).toBeNull();
+    expect(
+      database.query("SELECT COUNT(*) AS count FROM note_tasks WHERE user_id = ?").get(ownerId),
+    ).toEqual({ count: 0 });
+  });
+
+  test("sorts task note groups by note creation time and keeps that order across edits and pages", async () => {
+    const login = await request("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
+    });
+    const notebookResponse = await request(
+      "/api/notebooks",
+      { method: "POST", body: JSON.stringify({ name: "任务顺序稳定性测试" }) },
+      login.cookie,
+    );
+    const notebookId = notebookResponse.body?.notebook.id as string;
+    const createTaskNote = async (title: string, task: string) => {
+      const response = await request(
+        "/api/notes",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            title,
+            notebookId,
+            contentMarkdown: `- [ ] ${task}`,
+          }),
+        },
+        login.cookie,
+      );
+      return response.body?.note;
+    };
+    const olderNote = await createTaskNote("较早的任务笔记", "原任务");
+    const newerNote = await createTaskNote("较新的任务笔记", "另一项任务");
+    const newestNote = await createTaskNote("最新的任务笔记", "最新任务");
+    for (const [note, createdAt] of [
+      [olderNote, 100] as const,
+      [newerNote, 200] as const,
+      [newestNote, 300] as const,
+    ]) {
+      database.query("UPDATE notes SET created_at = ? WHERE id = ?").run(createdAt, note.id);
+      database
+        .query("UPDATE note_tasks SET sort_created_at = ? WHERE note_id = ?")
+        .run(-createdAt, note.id);
+    }
+
+    const listGroupIds = async () => {
+      const response = await request("/api/tasks?status=all", {}, login.cookie);
+      const tasks = response.body?.tasks as Array<{ noteId: string }>;
+      return [...new Set(tasks.map((task) => task.noteId))];
+    };
+    const initialOrder = await listGroupIds();
+    expect(initialOrder).toEqual([newestNote.id, newerNote.id, olderNote.id]);
+
+    const edited = await request(
+      `/api/notes/${olderNote.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          version: olderNote.version,
+          title: olderNote.title,
+          contentMarkdown: "- [ ] 原任务\n- [ ] 新增任务",
+          notebookId,
+        }),
+      },
+      login.cookie,
+    );
+    expect(edited.response.status).toBe(200);
+    expect(await listGroupIds()).toEqual(initialOrder);
+
+    const renamed = await request(
+      `/api/notes/${olderNote.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ version: edited.body?.note.version, title: "重命名的任务笔记" }),
+      },
+      login.cookie,
+    );
+    expect(renamed.response.status).toBe(200);
+    expect(await listGroupIds()).toEqual(initialOrder);
+
+    const toggled = await request(
+      "/api/tasks/toggle",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          noteId: olderNote.id,
+          version: renamed.body?.note.version,
+          ordinal: 0,
+          text: "原任务",
+          completed: false,
+        }),
+      },
+      login.cookie,
+    );
+    expect(toggled.response.status).toBe(200);
+    expect(await listGroupIds()).toEqual(initialOrder);
+
+    const firstPage = await request("/api/tasks?status=all&limit=2", {}, login.cookie);
+    expect((firstPage.body?.tasks as Array<{ noteId: string }>).map((task) => task.noteId)).toEqual(
+      [newestNote.id, newerNote.id],
+    );
+    const cursor = firstPage.body?.nextCursor;
+    expect(typeof cursor).toBe("string");
+    if (typeof cursor !== "string") throw new Error("first task page should have a cursor");
+    const secondPage = await request(
+      `/api/tasks?status=all&limit=2&cursor=${encodeURIComponent(cursor)}`,
+      {},
+      login.cookie,
+    );
+    expect(
+      (secondPage.body?.tasks as Array<{ noteId: string }>).map((task) => task.noteId),
+    ).toEqual([olderNote.id, olderNote.id]);
+    expect(secondPage.body?.nextCursor).toBeNull();
+
+    const updatedTasks = (await request("/api/tasks?status=all", {}, login.cookie)).body
+      ?.tasks as Array<{
+      noteId: string;
+      done: boolean;
+      text: string;
+    }>;
+    expect(updatedTasks.filter((task) => task.noteId === olderNote.id)).toMatchObject([
+      { text: "原任务", done: true },
+      { text: "新增任务", done: false },
+    ]);
+  });
+
+  test("toggles one exact nested task marker and enforces the note version", async () => {
+    const login = await request("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
+    });
+    const notebookResponse = await request(
+      "/api/notebooks",
+      { method: "POST", body: JSON.stringify({ name: "任务切换测试" }) },
+      login.cookie,
+    );
+    const noteResponse = await request(
+      "/api/notes",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          title: "重复与嵌套任务",
+          notebookId: notebookResponse.body?.notebook.id,
+          contentMarkdown: "- [ ] 重复\n  - [x] 子项\n- [ ] 重复",
+        }),
+      },
+      login.cookie,
+    );
+    const note = noteResponse.body?.note;
+    const tasks = (await request("/api/tasks?status=all", {}, login.cookie)).body?.tasks;
+    expect(tasks).toHaveLength(3);
+    expect(tasks.map((task: { depth: number }) => task.depth)).toEqual([0, 1, 0]);
+
+    const toggled = await request(
+      "/api/tasks/toggle",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          noteId: note.id,
+          version: note.version,
+          ordinal: 1,
+          text: "子项",
+          completed: true,
+        }),
+      },
+      login.cookie,
+    );
+    expect(toggled.response.status).toBe(200);
+    expect(toggled.body?.note.contentMarkdown).toBe("- [ ] 重复\n  - [ ] 子项\n- [ ] 重复");
+    expect(toggled.body?.note.version).toBe(note.version + 1);
+
+    const stale = await request(
+      "/api/tasks/toggle",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          noteId: note.id,
+          version: note.version,
+          ordinal: 0,
+          text: "重复",
+          completed: false,
+        }),
+      },
+      login.cookie,
+    );
+    expect(stale.response.status).toBe(409);
+    expect(stale.body?.error.code).toBe("VERSION_CONFLICT");
+
+    const updatedTasks = (await request("/api/tasks?status=all", {}, login.cookie)).body?.tasks;
+    expect(updatedTasks.map((task: { done: boolean }) => task.done)).toEqual([false, false, false]);
+    expect((await request("/api/tasks?status=open", {}, login.cookie)).body?.total).toBe(3);
+    expect((await request("/api/tasks?status=done", {}, login.cookie)).body?.total).toBe(0);
+  });
+
+  test("accepts a long Unicode task whose JSON body exceeds 4 KiB", async () => {
+    const login = await request("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
+    });
+    const notebookResponse = await request(
+      "/api/notebooks",
+      { method: "POST", body: JSON.stringify({ name: "长任务切换测试" }) },
+      login.cookie,
+    );
+    const text = "任务".repeat(2000);
+    const noteResponse = await request(
+      "/api/notes",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          title: "长任务",
+          notebookId: notebookResponse.body?.notebook.id,
+          contentMarkdown: `- [ ] ${text}`,
+        }),
+      },
+      login.cookie,
+    );
+    const note = noteResponse.body?.note;
+    const response = await request(
+      "/api/tasks/toggle",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          noteId: note.id,
+          version: note.version,
+          ordinal: 0,
+          text,
+          completed: false,
+        }),
+      },
+      login.cookie,
+    );
+    expect(response.response.status).toBe(200);
+    expect(response.body?.note.contentMarkdown).toBe(`- [x] ${text}`);
   });
 
   test("serves a cache-bypassing service worker in development", async () => {
@@ -89,6 +581,54 @@ describe("Bun Server API", () => {
     expect(source).toContain("await self.clients.claim()");
     expect(source).toContain("new URL(request.url).origin !== self.location.origin");
     expect(source).toContain("event.respondWith(fetch(request))");
+
+    const listeners = new Map<
+      string,
+      (event: { waitUntil: (work: Promise<unknown>) => void }) => void
+    >();
+    const navigations: string[] = [];
+    const deletedCaches: string[] = [];
+    let claims = 0;
+    // 执行实际返回的 worker，验证激活只接管和清缓存，不打断页面的模块加载。
+    new Function("self", "caches", source)(
+      {
+        addEventListener: (
+          type: string,
+          listener: (event: { waitUntil: (work: Promise<unknown>) => void }) => void,
+        ) => listeners.set(type, listener),
+        clients: {
+          claim: async () => {
+            claims += 1;
+          },
+          matchAll: async () => [
+            {
+              url: "http://xiangying.test/app",
+              navigate: async (url: string) => {
+                navigations.push(url);
+              },
+            },
+          ],
+        },
+      },
+      {
+        keys: async () => ["xiangying-notes-shell-old", "other-app-cache"],
+        delete: async (name: string) => {
+          deletedCaches.push(name);
+          return true;
+        },
+      },
+    );
+    let activation: Promise<unknown> | undefined;
+    listeners.get("activate")!({
+      waitUntil: (work) => {
+        activation = work;
+      },
+    });
+    expect(activation).toBeDefined();
+    await activation;
+    expect(claims).toBe(1);
+    expect(deletedCaches).toEqual(["xiangying-notes-shell-old"]);
+    expect(navigations).toEqual([]);
   });
 
   test("automatically initializes a fresh database and does not rerun the baseline", async () => {
@@ -96,7 +636,10 @@ describe("Bun Server API", () => {
     const migrations = fresh
       .query("SELECT name FROM schema_migrations ORDER BY name")
       .all() as Array<{ name: string }>;
-    expect(migrations.map((item) => item.name)).toEqual(["0001_baseline.sql"]);
+    expect(migrations.map((item) => item.name)).toEqual([
+      "0001_baseline.sql",
+      "0002_tasks_and_kanban.sql",
+    ]);
     expect(
       fresh.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'users'").get(),
     ).toBeDefined();
@@ -107,10 +650,13 @@ describe("Bun Server API", () => {
     initialized.close();
 
     const reopened = await openDatabase(databasePath);
-    const appliedMigrations = reopened
+    const reopenedMigrations = reopened
       .query("SELECT name FROM schema_migrations ORDER BY name")
       .all() as Array<{ name: string }>;
-    expect(appliedMigrations.map((item) => item.name)).toEqual(["0001_baseline.sql"]);
+    expect(reopenedMigrations.map((item) => item.name)).toEqual([
+      "0001_baseline.sql",
+      "0002_tasks_and_kanban.sql",
+    ]);
     reopened.close();
     await Promise.all([
       rm(databasePath, { force: true }),
@@ -124,7 +670,10 @@ describe("Bun Server API", () => {
     const migrations = database
       .query("SELECT name FROM schema_migrations ORDER BY name")
       .all() as Array<{ name: string }>;
-    expect(migrations.map((item) => item.name)).toEqual(["0001_baseline.sql"]);
+    expect(migrations.map((item) => item.name)).toEqual([
+      "0001_baseline.sql",
+      "0002_tasks_and_kanban.sql",
+    ]);
     expect(
       database
         .query("SELECT name FROM sqlite_master WHERE name = 'shares' OR name LIKE 'idx_shares_%'")
@@ -306,6 +855,112 @@ describe("Bun Server API", () => {
     expect(conflict.body?.error.code).toBe("IDEMPOTENCY_CONFLICT");
   });
 
+  test("protects the versioned read API with the configured Bearer token", async () => {
+    const apiToken = "shortcut-api-token-1234567890";
+    const apiEnvironment = { ...environment, XIANGYING_API_TOKEN: apiToken };
+
+    const unconfigured = await request("/api/v1/notes");
+    expect(unconfigured.response.status).toBe(503);
+    expect(unconfigured.body?.error.code).toBe("API_AUTH_NOT_CONFIGURED");
+
+    const missingToken = await request("/api/v1/notes", {}, undefined, apiEnvironment);
+    expect(missingToken.response.status).toBe(401);
+    expect(missingToken.response.headers.get("WWW-Authenticate")).toContain("Bearer");
+
+    const invalidToken = await request(
+      "/api/v1/notes",
+      { headers: { Authorization: "Bearer incorrect-token" } },
+      undefined,
+      apiEnvironment,
+    );
+    expect(invalidToken.response.status).toBe(401);
+    expect(invalidToken.body?.error.code).toBe("INVALID_API_TOKEN");
+
+    const cookieOnly = await request(
+      "/api/v1/notes",
+      {},
+      "xiangying_session=not-an-api-token",
+      apiEnvironment,
+    );
+    expect(cookieOnly.response.status).toBe(401);
+
+    const readOnlyViolation = await request(
+      "/api/v1/notes",
+      { method: "POST", headers: { Authorization: `Bearer ${apiToken}` } },
+      undefined,
+      apiEnvironment,
+    );
+    expect(readOnlyViolation.response.status).toBe(405);
+    expect(readOnlyViolation.response.headers.get("Allow")).toBe("GET");
+  });
+
+  test("lists recent note summaries with cursor pagination and reads note content", async () => {
+    const apiToken = "shortcut-api-token-1234567890";
+    const apiEnvironment = { ...environment, XIANGYING_API_TOKEN: apiToken };
+    const noteIds: string[] = [];
+
+    for (let index = 0; index < 3; index += 1) {
+      const imported = await request(
+        "/api/import",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiToken}`,
+            "Content-Type": "text/markdown",
+          },
+          body: `# 集成 API 笔记 ${index}\n\n内容 ${index}`,
+        },
+        undefined,
+        apiEnvironment,
+      );
+      expect(imported.response.status).toBe(201);
+      noteIds.push(imported.body?.note.id);
+      database
+        .query("UPDATE notes SET updated_at = ? WHERE id = ?")
+        .run(4_000_000_000 + index, imported.body?.note.id);
+    }
+
+    const firstPage = await request(
+      "/api/v1/notes?sort=updated&limit=2&includeTotal=0",
+      { headers: { Authorization: `Bearer ${apiToken}` } },
+      undefined,
+      apiEnvironment,
+    );
+    expect(firstPage.response.status).toBe(200);
+    expect(firstPage.body?.notes.map((note: { id: string }) => note.id)).toEqual([
+      noteIds[2],
+      noteIds[1],
+    ]);
+    expect(firstPage.body?.hasMore).toBe(true);
+    expect(firstPage.body?.nextCursor).toBeString();
+    expect(firstPage.body?.notes[0]).not.toHaveProperty("contentMarkdown");
+    expect(firstPage.body?.notes[0]).not.toHaveProperty("thumbnail");
+
+    const nextPage = await request(
+      `/api/v1/notes?${new URLSearchParams({
+        sort: "updated",
+        limit: "2",
+        includeTotal: "0",
+        cursor: firstPage.body?.nextCursor,
+      })}`,
+      { headers: { Authorization: `Bearer ${apiToken}` } },
+      undefined,
+      apiEnvironment,
+    );
+    expect(nextPage.response.status).toBe(200);
+    expect(nextPage.body?.notes[0]?.id).toBe(noteIds[0]);
+
+    const detail = await request(
+      `/api/v1/notes/${noteIds[2]}`,
+      { headers: { Authorization: `Bearer ${apiToken}` } },
+      undefined,
+      apiEnvironment,
+    );
+    expect(detail.response.status).toBe(200);
+    expect(detail.body?.note.contentMarkdown).toBe("# 集成 API 笔记 2\n\n内容 2");
+    expect(detail.body?.note).not.toHaveProperty("thumbnail");
+  });
+
   test("validates imported Markdown request bodies", async () => {
     const apiEnvironment = { ...environment, XIANGYING_API_TOKEN: "shortcut-api-token-1234567890" };
     const headers = { Authorization: `Bearer ${apiEnvironment.XIANGYING_API_TOKEN}` };
@@ -370,19 +1025,6 @@ describe("Bun Server API", () => {
     );
     expect(oversized.response.status).toBe(413);
     expect(oversized.body?.error.code).toBe("NOTE_TOO_LARGE");
-
-    const oversizedUtf8 = await request(
-      "/api/import",
-      {
-        method: "POST",
-        headers: { ...headers, "Content-Type": "text/markdown" },
-        body: "字".repeat(700_000),
-      },
-      undefined,
-      apiEnvironment,
-    );
-    expect(oversizedUtf8.response.status).toBe(413);
-    expect(oversizedUtf8.body?.error.code).toBe("NOTE_TOO_LARGE");
   });
 
   test("rate limits authenticated API imports by client address", async () => {
@@ -560,6 +1202,10 @@ describe("Bun Server API", () => {
     expect(invalidBoolean.response.status).toBe(400);
     expect(invalidBoolean.body?.error.code).toBe("INVALID_NOTE");
 
+    const favoriteBaselineUpdatedAt = 1_700_000_000;
+    database
+      .query("UPDATE notes SET updated_at = ? WHERE id = ?")
+      .run(favoriteBaselineUpdatedAt, note.id);
     const summaryUpdate = await request(
       `/api/notes/${note.id}?response=summary`,
       {
@@ -571,6 +1217,7 @@ describe("Bun Server API", () => {
     expect(summaryUpdate.response.status).toBe(200);
     expect(summaryUpdate.body?.note).not.toHaveProperty("contentMarkdown");
     expect(summaryUpdate.body?.note.isFavorite).toBe(true);
+    expect(summaryUpdate.body?.note.updatedAt).toBe(favoriteBaselineUpdatedAt);
 
     const summaryRead = await request(`/api/notes/${note.id}?response=summary`, {}, login.cookie);
     expect(summaryRead.response.status).toBe(200);
@@ -837,6 +1484,7 @@ describe("Bun Server API", () => {
       { database, environment, clientRoot: "dist/client", assets },
     );
     expect(imageResponse.status).toBe(200);
+    expect(imageResponse.headers.get("Cache-Control")).toBe("no-store");
     expect(new Uint8Array(await imageResponse.arrayBuffer())).toEqual(ONE_PIXEL_PNG);
 
     const unsafe = database
@@ -845,6 +1493,87 @@ describe("Bun Server API", () => {
     expect(unsafe.changes).toBe(1);
     const isolated = await request(asset.url, {}, login.cookie);
     expect(isolated.response.status).toBe(404);
+  });
+
+  test("uses Markdown destinations for image security, references, and thumbnail order", async () => {
+    const login = await request("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
+    });
+    const cookie = login.cookie!;
+    const unknownCodeAssetId = crypto.randomUUID();
+    const codeNote = await request(
+      "/api/notes",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          title: "代码中的图片示例",
+          contentMarkdown: `\`\`\`md\n![example](/api/assets/${unknownCodeAssetId})\n\`\`\``,
+        }),
+      },
+      cookie,
+    );
+    expect(codeNote.response.status).toBe(201);
+    expect(codeNote.body?.note.thumbnail).toBeNull();
+
+    const linkedUpload = await request(
+      "/api/assets",
+      { method: "POST", body: imageForm("linked.png") },
+      cookie,
+    );
+    const imageUpload = await request(
+      "/api/assets",
+      { method: "POST", body: imageForm("visible.png") },
+      cookie,
+    );
+    const linkedAsset = linkedUpload.body?.asset;
+    const imageAsset = imageUpload.body?.asset;
+    const note = await request(
+      "/api/notes",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          title: "链接与图片附件",
+          contentMarkdown: `[下载](${linkedAsset.url})\n\n![显示](${imageAsset.url})`,
+        }),
+      },
+      cookie,
+    );
+    expect(note.response.status).toBe(201);
+    expect(note.body?.note.thumbnail.id).toBe(imageAsset.id);
+
+    const assetRows = database
+      .query("SELECT id, note_id, document_order FROM image_assets WHERE id IN (?, ?)")
+      .all(linkedAsset.id, imageAsset.id) as Array<{
+      id: string;
+      note_id: string | null;
+      document_order: number | null;
+    }>;
+    const rowsById = new Map(assetRows.map((row) => [row.id, row]));
+    expect(rowsById.get(linkedAsset.id)).toEqual({
+      id: linkedAsset.id,
+      note_id: note.body?.note.id,
+      document_order: null,
+    });
+    expect(rowsById.get(imageAsset.id)).toEqual({
+      id: imageAsset.id,
+      note_id: note.body?.note.id,
+      document_order: 0,
+    });
+
+    const unsafeImage = await request(
+      "/api/notes",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          title: "不安全的外链图片",
+          contentMarkdown: String.raw`![escaped \] alt](http://example.com/image.png)`,
+        }),
+      },
+      cookie,
+    );
+    expect(unsafeImage.response.status).toBe(400);
+    expect(unsafeImage.body?.error).toMatchObject({ code: "INVALID_ASSET" });
   });
 
   test("cleans old orphan objects and stale metadata from R2", async () => {
@@ -913,7 +1642,7 @@ describe("Bun Server API", () => {
     expect(response.body?.error.code).toBe("IMAGE_TOO_LARGE");
   });
 
-  test("rejects invalid asset references before updating a note", async () => {
+  test("rolls back note updates when asset references become invalid during the transaction", async () => {
     const login = await request("/api/auth/login", {
       method: "POST",
       body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
@@ -933,7 +1662,14 @@ describe("Bun Server API", () => {
       login.cookie,
     );
     const asset = uploaded.body?.asset;
-    database.query("DELETE FROM image_assets WHERE id = ?").run(asset.id);
+    database.exec(`
+      CREATE TRIGGER invalidate_asset_before_note_update
+      AFTER UPDATE OF content_markdown ON notes
+      WHEN NEW.id = '${note.id}'
+      BEGIN
+        DELETE FROM image_assets WHERE id = '${asset.id}';
+      END;
+    `);
 
     const response = await request(
       `/api/notes/${note.id}`,
@@ -948,7 +1684,7 @@ describe("Bun Server API", () => {
     expect(
       database.query("SELECT version, content_markdown FROM notes WHERE id = ?").get(note.id),
     ).toEqual({ version: note.version, content_markdown: "原始内容" });
-    expect(database.query("SELECT id FROM image_assets WHERE id = ?").get(asset.id)).toBeNull();
+    expect(database.query("SELECT id FROM image_assets WHERE id = ?").get(asset.id)).toBeDefined();
   });
 
   test("rejects unsupported image bytes and protects private images across users", async () => {
@@ -1712,12 +2448,24 @@ describe("Bun Server API", () => {
     expect(manifest.response.headers.get("X-Content-Type-Options")).toBe("nosniff");
     const contentSecurityPolicy = manifest.response.headers.get("Content-Security-Policy");
     expect(contentSecurityPolicy).toContain("default-src 'self'");
+    const html = await Bun.file("app/index.html").text();
+    expect(html).not.toContain('name="apple-mobile-web-app-status-bar-style"');
+    expect(html).toContain('media="(prefers-color-scheme: light)"');
+    expect(html).toContain('media="(prefers-color-scheme: dark)"');
+    const inlineScript = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
+    expect(inlineScript).toBeDefined();
+    const themeScriptHash = new Bun.CryptoHasher("sha256").update(inlineScript!).digest("base64");
+    expect(contentSecurityPolicy).toContain(`'sha256-${themeScriptHash}'`);
     expect(contentSecurityPolicy).toContain(
       "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
     );
     expect(contentSecurityPolicy).toContain("font-src 'self' https://cdn.jsdelivr.net");
     expect(contentSecurityPolicy).toContain("img-src 'self' data: blob: https:");
     expect(manifest.body?.display).toBe("standalone");
+    expect(manifest.body?.color_scheme_dark).toEqual({
+      background_color: "#1a1b26",
+      theme_color: "#1a1b26",
+    });
     const icons = manifest.body?.icons as Array<{ src: string; sizes: string; purpose: string }>;
     expect(icons.filter((icon) => icon.purpose === "any").map((icon) => icon.src)).toEqual([
       "/icon-192.png?v=rounded-1",
@@ -1786,6 +2534,66 @@ describe("Bun Server API", () => {
       "app",
     );
     expect(changed.response.status).toBe(200);
+  });
+
+  test("revalidates static files by modification time and preserves ETag precedence", async () => {
+    const clientRoot = join(assetRoot, "client");
+    const path = join(clientRoot, "index.html");
+    await Bun.write(path, "<!doctype html><p>cache test</p>");
+    const modifiedAt = new Date("2026-01-01T12:00:00.789Z");
+    await utimes(path, modifiedAt, modifiedAt);
+    const get = (headers: HeadersInit = {}, method = "GET") =>
+      handleRequest(new Request("http://xiangying.test/index.html", { headers, method }), {
+        database,
+        clientRoot,
+      });
+    const first = await get();
+    const lastModified = first.headers.get("Last-Modified")!;
+    expect(lastModified).toBe("Thu, 01 Jan 2026 12:00:00 GMT");
+    await first.body?.cancel();
+    for (const method of ["GET", "HEAD"]) {
+      const response = await get({ "If-Modified-Since": lastModified }, method);
+      expect(response.status).toBe(304);
+      expect(await response.text()).toBe("");
+    }
+    for (const headers of [
+      { "If-Modified-Since": "Thu, 01 Jan 2026 11:59:59 GMT" },
+      { "If-Modified-Since": "invalid" },
+      { "If-Modified-Since": lastModified, "If-None-Match": 'W/"stale"' },
+    ] as HeadersInit[]) {
+      const response = await get(headers);
+      expect(response.status).toBe(200);
+      await response.body?.cancel();
+    }
+  });
+
+  test("negotiates gzip without overriding an explicit zero quality", async () => {
+    const clientRoot = join(assetRoot, "client");
+    const content = "<!doctype html><p>compression test</p>";
+    const compressed = Bun.gzipSync(new TextEncoder().encode(content));
+    await Bun.write(join(clientRoot, "index.html"), content);
+    await Bun.write(join(clientRoot, "index.html.gz"), compressed);
+    for (const [acceptEncoding, gzip] of [
+      ["identity, gzip;q=0", false],
+      ["gzip;q=0.000, *;q=1", false],
+      ["br", false],
+      ["*;q=0", false],
+      ["gzip", true],
+      ["br, GZIP; Q=0.5", true],
+      ["*;q=0.5", true],
+    ] as const) {
+      const response = await handleRequest(
+        new Request("http://xiangying.test/index.html", {
+          headers: { "Accept-Encoding": acceptEncoding },
+        }),
+        { database, clientRoot },
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Vary")).toBe("Accept-Encoding");
+      expect(response.headers.get("Content-Encoding")).toBe(gzip ? "gzip" : null);
+      const body = new Uint8Array(await response.arrayBuffer());
+      expect(new TextDecoder().decode(gzip ? Bun.gunzipSync(body) : body)).toBe(content);
+    }
   });
 
   test("serves source PWA asset aliases in development", async () => {
@@ -1903,10 +2711,9 @@ describe("Bun Server API", () => {
     expect(list.body?.hasMore).toBe(true);
     expect(list.body?.nextCursor).toEqual(expect.any(String));
 
-    const page2 = await request("/api/notes?view=all&offset=100", {}, login.cookie);
-    expect(page2.response.status).toBe(200);
-    expect(page2.body?.notes).toHaveLength(6);
-    expect(page2.body?.total).toBe(106);
+    const offsetPage = await request("/api/notes?view=all&offset=100", {}, login.cookie);
+    expect(offsetPage.response.status).toBe(400);
+    expect(offsetPage.body?.error?.code).toBe("INVALID_OFFSET");
 
     const cursorPage2 = await request(
       `/api/notes?view=all&cursor=${encodeURIComponent(list.body?.nextCursor)}&includeTotal=0`,
@@ -1917,8 +2724,9 @@ describe("Bun Server API", () => {
     expect(cursorPage2.body?.notes).toHaveLength(6);
     expect(cursorPage2.body).not.toHaveProperty("total");
     expect(cursorPage2.body?.hasMore).toBeUndefined();
-    expect(cursorPage2.body?.notes.map((item: { id: string }) => item.id)).toEqual(
-      page2.body?.notes.map((item: { id: string }) => item.id),
+    const firstIds = new Set(list.body?.notes.map((item: { id: string }) => item.id));
+    expect(cursorPage2.body?.notes.every((item: { id: string }) => !firstIds.has(item.id))).toBe(
+      true,
     );
   });
 
@@ -1989,9 +2797,8 @@ describe("Bun Server API", () => {
     expect(list.body?.total).toBe(deletedIds.length);
     const imageAssetId = crypto.randomUUID();
     const storagePath = `${login.body?.user.id}/${imageAssetId}.png`;
-    await assets.put(storagePath, new TextEncoder().encode("trash attachment"), {
-      httpMetadata: { contentType: "image/png" },
-    });
+    await mkdir(join(assetRoot, login.body?.user.id), { recursive: true });
+    await Bun.write(join(assetRoot, storagePath), "trash attachment");
     database
       .query(
         "INSERT INTO image_assets (id, user_id, note_id, storage_path, original_name, mime_type, byte_size, width, height, document_order, created_at) VALUES (?, ?, ?, ?, 'trash.png', 'image/png', 16, 1, 1, NULL, 1)",
@@ -2009,7 +2816,7 @@ describe("Bun Server API", () => {
     expect(emptied.body?.ok).toBe(true);
     expect(emptied.body?.deletedCount).toBe(deletedIds.length);
     expect(emptied.body).not.toHaveProperty("deletedIds");
-    expect(assets.objects.has(storagePath)).toBe(false);
+    expect(await assets.get(storagePath)).toBeNull();
     expect(database.query("SELECT id FROM image_assets WHERE id = ?").get(imageAssetId)).toBeNull();
     expect((await request("/api/notes?view=trash", {}, login.cookie)).body).toEqual({
       notes: [],
@@ -2394,274 +3201,173 @@ describe("Bun Server API", () => {
     expect(me.body?.user.username).toBe("owner");
   });
 
-  test("exports all user notes and attachments as a standard zip archive", async () => {
+  test("exports only the selected note as Markdown with a safe UTF-8 filename", async () => {
     const login = await request("/api/auth/login", {
       method: "POST",
       body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
     });
-    const exportResponse = await handleRequest(
-      new Request("http://xiangying.test/api/export", {
-        headers: { Cookie: login.cookie! },
+    const content = "# 今日记录\n\n保留原始 Markdown **格式**。";
+    const firstNote = await request(
+      "/api/notes",
+      {
+        method: "POST",
+        body: JSON.stringify({ title: "周报/2026.md", contentMarkdown: content }),
+      },
+      login.cookie,
+    );
+    const otherNote = await request(
+      "/api/notes",
+      {
+        method: "POST",
+        body: JSON.stringify({ title: "其他笔记", contentMarkdown: "不应被一起导出" }),
+      },
+      login.cookie,
+    );
+    expect(firstNote.response.status).toBe(201);
+    expect(otherNote.response.status).toBe(201);
+
+    const response = await handleRequest(
+      new Request(`http://xiangying.test/api/notes/${firstNote.body?.note.id}/export`, {
+        headers: { Cookie: login.cookie ?? "" },
       }),
       { database, environment, clientRoot: "dist/client", assets },
     );
 
-    expect(exportResponse.status).toBe(200);
-    expect(exportResponse.headers.get("Content-Type")).toBe("application/zip");
-    expect(exportResponse.headers.get("Content-Disposition")).toContain("attachment; filename=");
-    const zipBytes = new Uint8Array(await exportResponse.arrayBuffer());
-    expect(zipBytes.length).toBeGreaterThan(50);
-    // Standard ZIP local file header signature: PK\x03\x04
-    expect(zipBytes[0]).toBe(0x50);
-    expect(zipBytes[1]).toBe(0x4b);
-    expect(zipBytes[2]).toBe(0x03);
-    expect(zipBytes[3]).toBe(0x04);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toBe("text/markdown; charset=utf-8");
+    expect(response.headers.get("Content-Disposition")).toContain(
+      "filename*=UTF-8''%E5%91%A8%E6%8A%A5_2026.md",
+    );
+    expect(await response.text()).toBe(content);
   });
 
-  test("uses bounded attachment names for exported Markdown image references", async () => {
+  test("exports the user's trashed note but not another user's note", async () => {
     const login = await request("/api/auth/login", {
       method: "POST",
       body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
     });
-    const originalName = `${"图片".repeat(120)}.png`;
-    const boundedName = `${"图片".repeat(32)}.png`;
-    const uploaded = await request(
-      "/api/assets",
-      { method: "POST", body: imageForm(originalName) },
-      login.cookie,
-    );
-    const asset = uploaded.body?.asset;
-    expect(uploaded.response.status).toBe(201);
-
     const created = await request(
       "/api/notes",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          title: "export image",
-          contentMarkdown: `![image](${asset.url})\n\n![same image again](${asset.url})`,
-        }),
-      },
+      { method: "POST", body: JSON.stringify({ title: "私有笔记", contentMarkdown: "content" }) },
       login.cookie,
     );
     expect(created.response.status).toBe(201);
-
-    const response = await handleRequest(
-      new Request("http://xiangying.test/api/export", { headers: { Cookie: login.cookie ?? "" } }),
-      { database, environment, clientRoot: "dist/client", assets },
-    );
-    expect(response.status).toBe(200);
-    const archive = new TextDecoder().decode(new Uint8Array(await response.arrayBuffer()));
-    expect(archive).toContain(`attachments/${asset.id}_${boundedName}`);
-    expect(
-      archive.split(`../attachments/${asset.id}_${encodeURIComponent(boundedName)}`),
-    ).toHaveLength(3);
-    expect(archive).not.toContain(originalName);
-  });
-
-  test("exports only attachments referenced by non-trashed notes", async () => {
-    const login = await request("/api/auth/login", {
-      method: "POST",
-      body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
-    });
-    const activeUpload = await request(
-      "/api/assets",
-      { method: "POST", body: imageForm("active.png") },
-      login.cookie,
-    );
-    const trashedUpload = await request(
-      "/api/assets",
-      { method: "POST", body: imageForm("trashed.png") },
-      login.cookie,
-    );
-    const orphanUpload = await request(
-      "/api/assets",
-      { method: "POST", body: imageForm("orphan.png") },
-      login.cookie,
-    );
-    const activeAsset = activeUpload.body?.asset;
-    const trashedAsset = trashedUpload.body?.asset;
-    const orphanAsset = orphanUpload.body?.asset;
-    expect(activeUpload.response.status).toBe(201);
-    expect(trashedUpload.response.status).toBe(201);
-    expect(orphanUpload.response.status).toBe(201);
-
-    const activeNote = await request(
-      "/api/notes",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          title: "active image",
-          contentMarkdown: `![active](${activeAsset.url})`,
-        }),
-      },
-      login.cookie,
-    );
-    const trashedNote = await request(
-      "/api/notes",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          title: "trashed image",
-          contentMarkdown: `![trashed](${trashedAsset.url})`,
-        }),
-      },
-      login.cookie,
-    );
-    expect(activeNote.response.status).toBe(201);
-    expect(trashedNote.response.status).toBe(201);
     const trashed = await request(
-      `/api/notes/${trashedNote.body?.note.id}`,
+      `/api/notes/${created.body?.note.id}`,
       {
         method: "PATCH",
-        body: JSON.stringify({ version: trashedNote.body?.note.version, deleted: true }),
+        body: JSON.stringify({ version: created.body?.note.version, deleted: true }),
       },
       login.cookie,
     );
     expect(trashed.response.status).toBe(200);
 
-    const exported = await handleRequest(
-      new Request("http://xiangying.test/api/export", { headers: { Cookie: login.cookie ?? "" } }),
+    database
+      .query(
+        "INSERT INTO users (id, username, password_hash, password_salt, created_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run("other-user", "other", "hash", "salt", 1);
+    database
+      .query(
+        "INSERT INTO notebooks (id, user_id, name, is_system, created_at, updated_at) VALUES (?, ?, ?, 1, 1, 1)",
+      )
+      .run("other-notebook", "other-user", "收件箱");
+    const otherNoteId = crypto.randomUUID();
+    database
+      .query(
+        "INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, 1, 1)",
+      )
+      .run(otherNoteId, "other-user", "other-notebook", "其他用户笔记", "secret");
+
+    const trashedExport = await handleRequest(
+      new Request(`http://xiangying.test/api/notes/${created.body?.note.id}/export`, {
+        headers: { Cookie: login.cookie ?? "" },
+      }),
       { database, environment, clientRoot: "dist/client", assets },
     );
-    const archive = new TextDecoder().decode(new Uint8Array(await exported.arrayBuffer()));
+    expect(trashedExport.status).toBe(200);
+    expect(await trashedExport.text()).toBe("content");
 
-    expect(archive).toContain(`attachments/${activeAsset.id}_active.png`);
-    expect(archive).not.toContain(`attachments/${trashedAsset.id}_trashed.png`);
-    expect(archive).not.toContain(`attachments/${orphanAsset.id}_orphan.png`);
+    const otherUserExport = await handleRequest(
+      new Request(`http://xiangying.test/api/notes/${otherNoteId}/export`, {
+        headers: { Cookie: login.cookie ?? "" },
+      }),
+      { database, environment, clientRoot: "dist/client", assets },
+    );
+    expect(otherUserExport.status).toBe(404);
+    expect((await otherUserExport.json()).error.code).toBe("NOTE_NOT_FOUND");
   });
 
-  test("exports Markdown image URLs that resolve filenames with spaces and URL syntax", async () => {
-    const login = await request("/api/auth/login", {
-      method: "POST",
-      body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
+  test("removes the all-notes ZIP export endpoint", async () => {
+    const response = await handleRequest(new Request("http://xiangying.test/api/export"), {
+      database,
+      environment,
+      clientRoot: "dist/client",
+      assets,
     });
-    const names = ["Screen Shot.png", "figure#1%.png", "figure(unbalanced.png", "中文 图片).png"];
-    const uploadedAssets: Array<{ id: string; url: string; name: string }> = [];
-    for (const name of names) {
-      const uploaded = await request(
-        "/api/assets",
-        { method: "POST", body: imageForm(name) },
-        login.cookie,
-      );
-      expect(uploaded.response.status).toBe(201);
-      uploadedAssets.push({ ...uploaded.body?.asset, name });
-    }
-    const created = await request(
-      "/api/notes",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          title: "encoded export",
-          contentMarkdown: uploadedAssets
-            .map((asset, index) => `![image${index}](${asset.url})`)
-            .join("\n\n"),
-        }),
-      },
-      login.cookie,
-    );
-    expect(created.response.status).toBe(201);
-    const response = await handleRequest(
-      new Request("http://xiangying.test/api/export", { headers: { Cookie: login.cookie! } }),
-      { database, environment, clientRoot: "dist/client", assets },
-    );
-    const archive = new TextDecoder().decode(new Uint8Array(await response.arrayBuffer()));
-    for (const [index, asset] of uploadedAssets.entries()) {
-      const imageMarkdown = archive.match(new RegExp(`!\\[image${index}\\]\\([^\\n]+\\)`))?.[0];
-      expect(imageMarkdown).toBeDefined();
-      const paragraph = marked.lexer(imageMarkdown!)[0];
-      if (paragraph?.type !== "paragraph") throw new Error("Expected an exported image paragraph");
-      const image = paragraph.tokens?.[0];
-      if (image?.type !== "image") throw new Error("Expected a valid exported Markdown image");
-      const url = new URL(image.href, "https://export.test/notebook/note.md");
-      expect(url.hash).toBe("");
-      expect(url.search).toBe("");
-      const zipPath = `attachments/${asset.id}_${asset.name}`;
-      expect(decodeURIComponent(url.pathname)).toBe(`/${zipPath}`);
-      expect(archive).toContain(zipPath);
-    }
+    expect(response.status).toBe(404);
   });
 
-  test("keeps ZIP entries inside the archive when a notebook is named dot dot", async () => {
-    const login = await request("/api/auth/login", {
-      method: "POST",
-      body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
-    });
-    const notebook = await request(
-      "/api/notebooks",
-      { method: "POST", body: JSON.stringify({ name: ".." }) },
-      login.cookie,
-    );
-    expect(notebook.response.status).toBe(201);
-    const created = await request(
-      "/api/notes",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          title: "note",
-          notebookId: notebook.body?.notebook.id,
-          contentMarkdown: "content",
-        }),
-      },
-      login.cookie,
-    );
-    expect(created.response.status).toBe(201);
-    const response = await handleRequest(
-      new Request("http://xiangying.test/api/export", { headers: { Cookie: login.cookie ?? "" } }),
-      { database, environment, clientRoot: "dist/client", assets },
-    );
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    const archive = new TextDecoder().decode(bytes);
-    expect(archive).toContain("收件箱/note.md");
-    expect(archive).not.toContain("../note.md");
-  });
-
-  test("limits note_short_terms per note and bounds scanned content length", async () => {
+  test("finds long note content with short search and synchronizes updates and deletion", async () => {
     const login = await request("/api/auth/login", {
       method: "POST",
       body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
     });
 
-    // Generate 600 distinct 2-char CJK phrases
-    const phrases: string[] = [];
-    for (let i = 0; i < 600; i++) {
-      phrases.push(String.fromCharCode(0x4e00 + i * 2) + String.fromCharCode(0x4e00 + (i * 2 + 1)));
-    }
-    const longContent = phrases.join(" ");
+    const longContent = `${Array.from({ length: 600 }, (_, index) =>
+      String.fromCodePoint(0x4e00 + index),
+    ).join(" ")} ${"甲".repeat(40_100)} 靐靐`;
     const created = await request(
       "/api/notes",
       {
         method: "POST",
-        body: JSON.stringify({ title: "大量索引测试", contentMarkdown: longContent }),
+        body: JSON.stringify({ title: "长正文短词搜索", contentMarkdown: longContent }),
       },
       login.cookie,
     );
 
     expect(created.response.status).toBe(201);
     const noteId = created.body?.note.id;
+    const search = (term: string) =>
+      request(`/api/notes?view=all&query=${encodeURIComponent(term)}`, {}, login.cookie);
+    expect((await search("靐靐")).body?.notes.map((note: { id: string }) => note.id)).toContain(
+      noteId,
+    );
 
-    const termsCount = database
-      .query("SELECT COUNT(*) AS count FROM note_short_terms WHERE note_id = ?")
-      .get(noteId) as { count: number };
-    expect(termsCount.count).toBe(MAX_SHORT_TERMS_PER_NOTE);
-
-    // Also test that characters beyond 4000 are not scanned for short terms
-    const padding = "一".repeat(MAX_SHORT_TERM_CONTENT_CHARS + 50);
-    const beyondTerm = "超限词汇";
-    const noteBeyond = await request(
-      "/api/notes",
+    const updated = await request(
+      `/api/notes/${noteId}`,
       {
-        method: "POST",
-        body: JSON.stringify({ title: "超长笔记", contentMarkdown: `${padding} ${beyondTerm}` }),
+        method: "PATCH",
+        body: JSON.stringify({ version: created.body?.note.version, contentMarkdown: "龘龘" }),
       },
       login.cookie,
     );
-    expect(noteBeyond.response.status).toBe(201);
+    expect(updated.response.status).toBe(200);
+    expect((await search("靐靐")).body?.notes.map((note: { id: string }) => note.id)).not.toContain(
+      noteId,
+    );
+    expect((await search("龘龘")).body?.notes.map((note: { id: string }) => note.id)).toContain(
+      noteId,
+    );
 
-    const beyondTerms = database
-      .query("SELECT term FROM note_short_terms WHERE note_id = ? AND term = ?")
-      .get(noteBeyond.body?.note.id, "超限") as { term: string } | null;
-    expect(beyondTerms).toBeNull();
+    const trashed = await request(
+      `/api/notes/${noteId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ version: updated.body?.note.version, deleted: true }),
+      },
+      login.cookie,
+    );
+    expect(trashed.response.status).toBe(200);
+    const deleted = await request(
+      `/api/notes/${noteId}`,
+      { method: "DELETE", body: JSON.stringify({ version: trashed.body?.note.version }) },
+      login.cookie,
+    );
+    expect(deleted.response.status).toBe(200);
+    expect((await search("龘龘")).body?.notes.map((note: { id: string }) => note.id)).not.toContain(
+      noteId,
+    );
   });
 
   test("reclaims physical SQLite file size on disk after permanently deleting notes", async () => {

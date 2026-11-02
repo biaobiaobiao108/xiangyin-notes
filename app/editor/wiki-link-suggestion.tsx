@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useId, useImperativeHandle, useRef, useState } from "react";
-import { Extension } from "@tiptap/core";
+import { Extension, type Editor } from "@tiptap/core";
+import type { ResolvedPos } from "@tiptap/pm/model";
 import { Plugin } from "@tiptap/pm/state";
 import { ReactRenderer } from "@tiptap/react";
 import Suggestion, {
@@ -9,12 +10,11 @@ import Suggestion, {
 } from "@tiptap/suggestion";
 import { FilePlus2, FileText } from "lucide-react";
 import type { NoteSummary } from "../../shared/types";
-import { normalizeLinkTitle } from "../../shared/wiki-links";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { suggestionPopupBounds, suggestionViewport } from "./suggestion-popup.helpers";
 
 export function findWikiLinkSuggestionMatch(config: {
-  $position: any;
+  $position: ResolvedPos;
   allowedPrefixes?: string[] | null;
   startOfLine?: boolean;
 }): SuggestionMatch {
@@ -56,6 +56,14 @@ export type WikiLinkSuggestionItem = {
   isCreate?: boolean;
 };
 
+export type WikiLinkTitleSearch = (
+  query: string,
+  signal: AbortSignal,
+) => Promise<{
+  matches: Array<{ title: string; notebookName: string }>;
+  exactMatch: boolean;
+}>;
+
 export type WikiLinkSuggestionListRef = {
   onKeyDown: (props: SuggestionKeyDownProps) => boolean;
 };
@@ -63,7 +71,7 @@ export type WikiLinkSuggestionListRef = {
 type WikiLinkSuggestionListProps = {
   items: WikiLinkSuggestionItem[];
   command: (item: WikiLinkSuggestionItem) => void;
-  editor: any;
+  editor: Editor;
 };
 
 export const WikiLinkSuggestionList = forwardRef<
@@ -286,6 +294,7 @@ export const WikiLinkSuggestionList = forwardRef<
 
 export type WikiLinkSuggestionOptions = {
   getNotes: () => NoteSummary[];
+  searchTitles: WikiLinkTitleSearch;
   onCreateNote?: (title: string) => void;
 };
 
@@ -295,12 +304,14 @@ export const WikiLinkSuggestionExtension = Extension.create<WikiLinkSuggestionOp
   addOptions() {
     return {
       getNotes: () => [],
+      searchTitles: async () => ({ matches: [], exactMatch: false }),
       onCreateNote: undefined,
     };
   },
 
   addProseMirrorPlugins() {
     const getNotes = this.options.getNotes;
+    const searchTitles = this.options.searchTitles;
     const onCreateNote = this.options.onCreateNote;
 
     const imeEscapeGuard = new Plugin({
@@ -367,49 +378,29 @@ export const WikiLinkSuggestionExtension = Extension.create<WikiLinkSuggestionOp
             onCreateNote(item.title);
           }
         },
-        items: ({ query }: { query: string }) => {
+        items: ({ query, signal }: { query: string; signal: AbortSignal }) => {
           const allNotes = (getNotes?.() ?? []).filter((n) => !n.deletedAt);
           const cleanQuery = query.replace(/^(?:\[\[|【【)\s*|\s*(?:\]\]|】】)$/g, "").trim();
-          const normalized = normalizeLinkTitle(cleanQuery);
-
-          let filtered: NoteSummary[];
           if (!cleanQuery) {
-            // Show recent notes
-            filtered = allNotes.slice(0, 7);
-          } else {
-            filtered = allNotes.filter((n) => {
-              const target = normalizeLinkTitle(n.title);
-              return target.includes(normalized);
-            });
-            // Sort exact match first, then prefix, then title length
-            filtered.sort((a, b) => {
-              const aNorm = normalizeLinkTitle(a.title);
-              const bNorm = normalizeLinkTitle(b.title);
-              if (aNorm === normalized) return -1;
-              if (bNorm === normalized) return 1;
-              if (aNorm.startsWith(normalized) && !bNorm.startsWith(normalized)) return -1;
-              if (!aNorm.startsWith(normalized) && bNorm.startsWith(normalized)) return 1;
-              return a.title.length - b.title.length;
-            });
-            filtered = filtered.slice(0, 6);
+            return allNotes.slice(0, 7).map((note) => ({
+              title: note.title.trim() || "未命名笔记",
+              notebookName: note.notebookName,
+              isCreate: false,
+            }));
           }
 
-          const result: WikiLinkSuggestionItem[] = filtered.map((note) => ({
-            title: note.title.trim() || "未命名笔记",
-            notebookName: note.notebookName,
-            isCreate: false,
-          }));
-
-          // If query is typed and no note strictly matches the exact title, add create option
-          if (cleanQuery && !allNotes.some((n) => normalizeLinkTitle(n.title) === normalized)) {
-            result.push({
-              title: cleanQuery,
-              isCreate: true,
-            });
-          }
-
-          return result;
+          return searchTitles(cleanQuery, signal).then(({ matches, exactMatch }) => {
+            const result: WikiLinkSuggestionItem[] = matches.map((match) => ({
+              title: match.title.trim() || "未命名笔记",
+              notebookName: match.notebookName,
+              isCreate: false,
+            }));
+            if (!exactMatch) result.push({ title: cleanQuery, isCreate: true });
+            return result;
+          });
         },
+        minQueryLength: 0,
+        debounce: 150,
         render: () => {
           let component: ReactRenderer<WikiLinkSuggestionListRef> | null = null;
           let popupEl: HTMLDivElement | null = null;

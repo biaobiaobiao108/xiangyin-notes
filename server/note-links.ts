@@ -34,17 +34,20 @@ function activeTitleMap(rows: ActiveNoteTitleRow[]) {
 }
 
 async function activeTitlesForKeys(database: SqliteDatabase, userId: string, keys: Set<string>) {
-  if (keys.size === 0) return [];
-  const placeholders = [...keys].map(() => "?").join(",");
-  return all<ActiveNoteTitleRow>(
-    database,
-    `SELECT id, title
-     FROM notes
-     WHERE user_id = ? AND deleted_at IS NULL AND title_normalized IN (${placeholders})
-     ORDER BY updated_at DESC, id`,
-    userId,
-    ...keys,
-  );
+  const rows: ActiveNoteTitleRow[] = [];
+  for (const key of keys) {
+    const row = (await database
+      .query(
+        `SELECT id, title
+         FROM notes
+         WHERE user_id = ? AND deleted_at IS NULL AND title_normalized = ?
+         ORDER BY updated_at DESC, id
+         LIMIT 1`,
+      )
+      .get(userId, key)) as ActiveNoteTitleRow | null | undefined;
+    if (row) rows.push(row);
+  }
+  return rows;
 }
 
 export async function findActiveNoteIdByTitle(

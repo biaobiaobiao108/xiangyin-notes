@@ -6,10 +6,10 @@ import {
   ImagePlus,
   ListTree,
   MoreHorizontal,
-  SlidersHorizontal,
   Star,
   Trash2,
   Undo2,
+  X,
 } from "lucide-react";
 import type { EditorStats, OutlineItem } from "../editor-metrics";
 import { NoteOutlinePanel } from "../workspace/panels";
@@ -232,27 +232,16 @@ export function MobileEditorFooter({
   outlineOpen,
   outlineTriggerRef,
   locked,
-  onOpenCommands,
   onToggleOutline,
 }: {
   stats: EditorStats;
   outlineOpen: boolean;
   outlineTriggerRef: RefObject<HTMLButtonElement | null>;
   locked: boolean;
-  onOpenCommands?: () => void;
   onToggleOutline: () => void;
 }) {
   return (
     <footer className="mobile-editor-footer" aria-label="笔记工具">
-      <button
-        className="icon-button"
-        type="button"
-        aria-label="打开命令面板"
-        disabled={locked || !onOpenCommands}
-        onClick={onOpenCommands}
-      >
-        <SlidersHorizontal size={22} aria-hidden="true" />
-      </button>
       <EditorStatsPill stats={stats} />
       <button
         ref={outlineTriggerRef}
@@ -286,9 +275,11 @@ export function MobileEditorOutline({
     const previousFocus =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const layer = layerRef.current;
-    (layer?.querySelector<HTMLButtonElement>(".editor-outline-item button") ?? layer)?.focus({
-      preventScroll: true,
-    });
+    const firstItem = layer?.querySelector<HTMLButtonElement>(".editor-outline-item button");
+    const emptyClose = layer?.querySelector<HTMLButtonElement>(
+      ".mobile-editor-outline-empty-close",
+    );
+    (firstItem ?? emptyClose ?? layer)?.focus({ preventScroll: true });
     return () => {
       if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
     };
@@ -309,14 +300,21 @@ export function MobileEditorOutline({
           onClose();
         }
         if (event.key === "Tab") {
-          const items = Array.from(
+          const outlineItems = Array.from(
             layerRef.current?.querySelectorAll<HTMLButtonElement>(".editor-outline-item button") ??
               [],
           );
-          const index = items.indexOf(document.activeElement as HTMLButtonElement);
+          const emptyClose = layerRef.current?.querySelector<HTMLButtonElement>(
+            ".mobile-editor-outline-empty-close",
+          );
+          const focusTargets =
+            outlineItems.length > 0 ? outlineItems : emptyClose ? [emptyClose] : [];
+          if (focusTargets.length === 0) return;
+          const index = focusTargets.indexOf(document.activeElement as HTMLButtonElement);
           event.preventDefault();
-          if (items.length)
-            items[(index + (event.shiftKey ? -1 : 1) + items.length) % items.length]?.focus();
+          focusTargets[
+            (index + (event.shiftKey ? -1 : 1) + focusTargets.length) % focusTargets.length
+          ]?.focus();
         }
       }}
     >
@@ -335,6 +333,16 @@ export function MobileEditorOutline({
           onCloseOutline={onClose}
           isFloating
         />
+        {items.length === 0 && (
+          <button
+            className="icon-button mobile-editor-more mobile-editor-outline-empty-close"
+            type="button"
+            aria-label="关闭笔记大纲"
+            onClick={onClose}
+          >
+            <X size={18} aria-hidden="true" />
+          </button>
+        )}
       </div>
     </div>
   );

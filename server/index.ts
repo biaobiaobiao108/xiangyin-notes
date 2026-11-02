@@ -13,6 +13,8 @@ import { handleImportRoute } from "./routes/import";
 import { handleMcpRequest, MCP_PATH } from "./mcp";
 import { handleNotebooksRoute } from "./routes/notebooks";
 import { handleNotesRoute } from "./routes/notes";
+import { handleKanbanRoute } from "./routes/kanban";
+import { handleVersionedApiRoute } from "./routes/versioned-api";
 import { handleRealtimeRequest, REALTIME_PATH } from "./realtime";
 import { createRealtimeSessionRevoker } from "./realtime-revocation";
 
@@ -37,11 +39,12 @@ const API_RESOURCES = new Set([
   "auth",
   "me",
   "notes",
+  "tasks",
+  "kanban",
   "notebooks",
   "assets",
   "trash",
   "wiki-notes",
-  "export",
   "import",
   "realtime",
 ]);
@@ -55,8 +58,6 @@ self.addEventListener("activate", (event) => {
     const keys = await caches.keys();
     await Promise.all(keys.filter((key) => key.startsWith("xiangying-notes-")).map((key) => caches.delete(key)));
     await self.clients.claim();
-    const clients = await self.clients.matchAll({ type: "window" });
-    await Promise.all(clients.map((client) => client.navigate(client.url)));
   })());
 });
 self.addEventListener("fetch", (event) => {
@@ -69,7 +70,7 @@ self.addEventListener("fetch", (event) => {
 const SECURITY_HEADERS: Record<string, string> = {
   // SHA-256 of the inline theme bootstrap in app/index.html.
   "Content-Security-Policy":
-    "default-src 'self'; script-src 'self' 'sha256-CTW2ndcNC8/ZHOwYB0GdVTGVxtKJtKgBPxnJikeVUA0='; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net; img-src 'self' data: blob: https:; connect-src 'self' ws: wss:; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+    "default-src 'self'; script-src 'self' 'sha256-/IDpDQ/HKDvxE+5KZzluJgVYT56VDUqXVXgKtnDq+fU='; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net; img-src 'self' data: blob: https:; connect-src 'self' ws: wss:; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
   "X-Content-Type-Options": "nosniff",
   "X-Frame-Options": "DENY",
   "Referrer-Policy": "strict-origin-when-cross-origin",
@@ -156,6 +157,19 @@ function invalidCookieMutationOrigin(
   return origin !== requestUrl.origin && origin !== getPublicOrigin(requestUrl, environment);
 }
 
+function acceptsGzipEncoding(header: string | null) {
+  const encodings = (header ?? "").split(",").map((entry) => {
+    const [name, ...parameters] = entry.trim().toLowerCase().split(";");
+    const qualityParameter = parameters.find((parameter) => /^\s*q\s*=/u.test(parameter));
+    const quality = qualityParameter ? Number(qualityParameter.split("=")[1]?.trim()) : 1;
+    return { name: name.trim(), quality };
+  });
+  const encoding =
+    encodings.find((entry) => entry.name === "gzip") ??
+    encodings.find((entry) => entry.name === "*");
+  return encoding !== undefined && encoding.quality > 0 && encoding.quality <= 1;
+}
+
 async function serveStatic(
   request: Request,
   clientRoot: string,
@@ -198,9 +212,7 @@ async function serveStatic(
     return new Response("Forbidden", { status: 403 });
   let file = Bun.file(requestedPath);
   let contentEncoding: string | null = null;
-  const acceptsGzip = /(?:^|,)\s*gzip(?:\s*;|\s|,|$)/iu.test(
-    request.headers.get("Accept-Encoding") ?? "",
-  );
+  const acceptsGzip = acceptsGzipEncoding(request.headers.get("Accept-Encoding"));
   if (acceptsGzip && /\.(?:css|html|js|json|webmanifest)$/iu.test(extname(requestedPath))) {
     const compressedFile = Bun.file(`${requestedPath}.gz`);
     if (await compressedFile.exists()) {
@@ -256,7 +268,10 @@ async function serveStatic(
       return new Response(null, { status: 304, headers });
   } else if (lastModified > 0) {
     const ifModifiedSince = Date.parse(request.headers.get("If-Modified-Since") ?? "");
-    if (Number.isFinite(ifModifiedSince) && Math.floor(ifModifiedSince / 1000) >= lastModified) {
+    if (
+      Number.isFinite(ifModifiedSince) &&
+      Math.floor(ifModifiedSince / 1000) >= Math.floor(lastModified / 1000)
+    ) {
       return new Response(null, { status: 304, headers });
     }
   }
@@ -280,6 +295,8 @@ async function handleApi(request: Request, options: ServerOptions) {
     return jsonError(400, "INVALID_PATH", "请求路径无效");
   }
 
+  if (segments[0] === "v1")
+    return handleVersionedApiRoute({ request, url, method, segments, options });
   if (!API_RESOURCES.has(segments[0] ?? "")) return jsonError(404, "NOT_FOUND", "接口不存在");
 
   await cleanupExpiredSessions(database);
@@ -309,6 +326,9 @@ async function handleApi(request: Request, options: ServerOptions) {
   if (isResponse(user)) return user;
 
   // 3. Domain routes
+  const kanbanResponse = await handleKanbanRoute(ctx, user);
+  if (kanbanResponse) return kanbanResponse;
+
   const notesResponse = await handleNotesRoute(ctx, user);
   if (notesResponse) return notesResponse;
 

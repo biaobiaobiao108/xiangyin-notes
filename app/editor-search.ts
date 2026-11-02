@@ -1,6 +1,6 @@
 import { Extension } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { Plugin, PluginKey, type Transaction } from "@tiptap/pm/state";
+import { Plugin, PluginKey, type EditorState, type Transaction } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { changedDocumentRange, expandRangeToTextNodes } from "./editor/changed-range";
 
@@ -21,12 +21,14 @@ export type SearchMatchSummary<TMatch> = {
 
 export type SearchHighlightState = SearchMatchSummary<EditorSearchMatch> & {
   query: string;
+  literal: boolean;
   activeIndex: number;
   decorations: DecorationSet;
 };
 
 export type SearchHighlightMeta =
-  { type: "query"; query: string; activeIndex?: number } | { type: "activeIndex"; index: number };
+  | { type: "query"; query: string; activeIndex?: number; literal?: boolean }
+  | { type: "activeIndex"; index: number };
 
 export const MAX_SEARCH_HIGHLIGHTS = 500;
 export const searchHighlightPluginKey = new PluginKey<SearchHighlightState>(
@@ -268,6 +270,74 @@ export function findEditorSearchMatches(doc: ProseMirrorNode, query: string): Ed
   return findEditorSearchMatchSummary(doc, query).matches;
 }
 
+/** Finds case-insensitive literal matches across adjacent inline text nodes, without crossing blocks or inline atoms. */
+export function findEditorReplaceMatches(doc: ProseMirrorNode, query: string): EditorSearchMatch[] {
+  const term = query.toLocaleLowerCase("zh-CN");
+  if (!term) return [];
+  const matches: EditorSearchMatch[] = [];
+  doc.descendants((block, blockPosition) => {
+    if (!block.isTextblock) return;
+    let chunk = "";
+    let chunkStart = -1;
+    let previousEnd = -1;
+    const flush = () => {
+      if (!chunk) return;
+      const normalized = chunk.toLocaleLowerCase("zh-CN");
+      const mapper = createSourceOffsetMapper(chunk, normalized);
+      let offset = 0;
+      let previousMatchEnd = 0;
+      while (offset < normalized.length) {
+        const start = normalized.indexOf(term, offset);
+        if (start < 0) break;
+        const end = start + term.length;
+        const sourceStart = mapper?.toSourceStart(start) ?? start;
+        const sourceEnd = mapper?.toSourceEnd(end) ?? end;
+        if (sourceStart >= previousMatchEnd) {
+          matches.push({ from: chunkStart + sourceStart, to: chunkStart + sourceEnd });
+          previousMatchEnd = sourceEnd;
+        }
+        offset = end;
+      }
+      chunk = "";
+      chunkStart = -1;
+      previousEnd = -1;
+    };
+    block.forEach((child, offset) => {
+      const from = blockPosition + 1 + offset;
+      if (!child.isText || !child.text) {
+        flush();
+        return;
+      }
+      if (previousEnd !== from) flush();
+      if (!chunk) chunkStart = from;
+      chunk += child.text;
+      previousEnd = from + child.nodeSize;
+    });
+    flush();
+  });
+  return matches;
+}
+
+export function replaceEditorSearchMatch(
+  transaction: Transaction,
+  match: EditorSearchMatch,
+  replacement: string,
+): Transaction {
+  return transaction.insertText(replacement, match.from, match.to);
+}
+
+export function replaceEditorSearchMatches(
+  state: EditorState,
+  query: string,
+  replacement: string,
+): { transaction: Transaction; count: number } {
+  const matches = findEditorReplaceMatches(state.doc, query);
+  let transaction = state.tr;
+  for (let index = matches.length - 1; index >= 0; index -= 1)
+    transaction = replaceEditorSearchMatch(transaction, matches[index], replacement);
+  return { transaction, count: matches.length };
+}
+
 export function normalizeSearchMatchIndex(index: number, count: number): number {
   if (count <= 0) return 0;
   return ((index % count) + count) % count;
@@ -285,14 +355,22 @@ function createSearchHighlightState(
   doc: ProseMirrorNode,
   query: string,
   requestedIndex = 0,
+  literal = false,
 ): SearchHighlightState {
-  const summary = findEditorSearchMatchSummary(doc, query);
+  const literalMatches = literal ? findEditorReplaceMatches(doc, query) : null;
+  const summary = literal
+    ? {
+        matches: literalMatches!.slice(0, MAX_SEARCH_HIGHLIGHTS),
+        totalMatchCount: literalMatches!.length,
+      }
+    : findEditorSearchMatchSummary(doc, query);
   return createSearchHighlightStateFromMatches(
     doc,
     query,
     summary.matches,
     summary.totalMatchCount,
     requestedIndex,
+    literal,
   );
 }
 
@@ -302,13 +380,14 @@ function createSearchHighlightStateFromMatches(
   matches: EditorSearchMatch[],
   totalMatchCount: number,
   requestedIndex = 0,
+  literal = false,
 ): SearchHighlightState {
   const activeIndex = normalizeSearchMatchIndex(requestedIndex, matches.length);
   const decorations = DecorationSet.create(
     doc,
     matches.map((match, index) => createSearchMatchDecoration(match, index === activeIndex)),
   );
-  return { query, matches, totalMatchCount, activeIndex, decorations };
+  return { query, literal, matches, totalMatchCount, activeIndex, decorations };
 }
 
 function createSearchMatchDecoration(match: EditorSearchMatch, active: boolean) {
@@ -340,6 +419,7 @@ function updateActiveSearchMatch(
 
   return {
     query: previous.query,
+    literal: previous.literal,
     matches: previous.matches,
     totalMatchCount: previous.totalMatchCount,
     activeIndex,
@@ -379,6 +459,8 @@ function findEditorSearchMatchesInRange(
 }
 
 function updateSearchHighlightState(transaction: Transaction, previous: SearchHighlightState) {
+  if (previous.literal)
+    return createSearchHighlightState(transaction.doc, previous.query, previous.activeIndex, true);
   const terms = getSearchTerms(previous.query);
   const rawRange = changedDocumentRange(transaction, searchPadding(terms));
   if (!rawRange)
@@ -455,6 +537,7 @@ export function createSearchHighlightPlugin() {
     state: {
       init: () => ({
         query: "",
+        literal: false,
         matches: [],
         totalMatchCount: 0,
         activeIndex: 0,
@@ -464,7 +547,12 @@ export function createSearchHighlightPlugin() {
         const meta = transaction.getMeta(searchHighlightPluginKey) as
           SearchHighlightMeta | undefined;
         if (meta?.type === "query")
-          return createSearchHighlightState(transaction.doc, meta.query, meta.activeIndex);
+          return createSearchHighlightState(
+            transaction.doc,
+            meta.query,
+            meta.activeIndex,
+            meta.literal,
+          );
         if (meta?.type === "activeIndex")
           return updateActiveSearchMatch(transaction.doc, previous, meta.index);
         if (transaction.docChanged && previous.query)

@@ -34,11 +34,10 @@ function renderNoteList(
     React.createElement(NoteListPanel, {
       notes: [noteSummary()],
       total: 1,
-      sort: "updated",
-      setSort: () => {},
       selectedId: null,
       selectedIds: new Set<string>(),
       onSelect: () => {},
+      onToggleFavoriteNote: () => {},
       onDeleteSelected: () => {},
       onNoteSwipeAction: () => {},
       view: "all",
@@ -134,6 +133,8 @@ describe("notebook actions on mobile", () => {
   test("exposes edit and delete as named icon-only buttons", () => {
     const html = renderToStaticMarkup(
       React.createElement(MobileNotebookHome, {
+        onReorderNotebooks: async () => {},
+        reorderingNotebooks: false,
         view: "all",
         setView: () => {},
         notebooks,

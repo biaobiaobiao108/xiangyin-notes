@@ -1,8 +1,56 @@
+import { extractMarkdownDestinationReferences } from "../shared/markdown-lexer";
+
 export type ParsedImageSource = {
   src: string;
   width: number | null;
   height: number | null;
 };
+
+/**
+ * Marked leaves images after empty list markers as text. Join those image lines
+ * to the marker before Tiptap parses Markdown so the saved image reopens as a node.
+ */
+export function normalizeImagesInEmptyListItems(markdown: string) {
+  const lines = markdown.split(/(\r\n|\n|\r)/u);
+  let probeLines: string[] | null = null;
+  const candidates: Array<{
+    index: number;
+    marker: string;
+    image: string;
+    probeDestination: string;
+  }> = [];
+  const probePrefix = `__xiangying_image_probe_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}__`;
+
+  for (let index = 0; index < lines.length; index += 2) {
+    const line = lines[index] ?? "";
+    const listMarker = /^([ ]*)([-+*]|\d+[.)])(?:[ \t]|&nbsp;)*$/u.exec(line);
+    const imageLine = /^[ \t]+(!\[.*\]\(.*\))[ \t]*$/u.exec(lines[index + 2] ?? "");
+    if (!listMarker || !imageLine) continue;
+
+    probeLines ??= [...lines];
+    const probeDestination = `/${probePrefix}-${candidates.length}`;
+    const marker = `${listMarker[1]}${listMarker[2]}`;
+    candidates.push({ index, marker, image: imageLine[1]!, probeDestination });
+    probeLines[index] = `${marker} ![probe](${probeDestination})`;
+    probeLines[index + 1] = "";
+    probeLines[index + 2] = "";
+  }
+
+  if (!probeLines) return markdown;
+
+  const parsedImages = new Set(
+    extractMarkdownDestinationReferences(probeLines.join(""))
+      .filter((reference) => reference.type === "image")
+      .map((reference) => reference.destination),
+  );
+  for (const candidate of candidates) {
+    if (!parsedImages.has(candidate.probeDestination)) continue;
+    lines[candidate.index] = `${candidate.marker} ${candidate.image}`;
+    lines[candidate.index + 1] = "";
+    lines[candidate.index + 2] = "";
+  }
+  return lines.join("");
+}
 
 export function isExternalImageSource(source: string) {
   const normalized = source.trim().replace(/\\/gu, "/");
@@ -87,4 +135,8 @@ export function serializeImageSource(
 
 export function escapeImageAlt(value: string) {
   return value.replace(/[\\\]]/gu, "\\$&").replace(/\r?\n/gu, " ");
+}
+
+export function unescapeImageAlt(value: string) {
+  return value.replace(/\\\\/gu, "\\");
 }

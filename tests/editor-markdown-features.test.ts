@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
+import TaskItem from "@tiptap/extension-task-item";
+import TaskList from "@tiptap/extension-task-list";
 import { Markdown } from "@tiptap/markdown";
 import { Schema } from "@tiptap/pm/model";
 import { EditorState, TextSelection } from "@tiptap/pm/state";
 import { createMarkdownExtension } from "../app/editor/markdown-config";
+import { normalizeChineseMarkdownBlockMarkers } from "../app/editor-metrics";
 import { Info, Table2 } from "lucide-react";
 import { formatPreview } from "../server/core";
 import { extractTags, preserveEscapedHashtagsForEditor } from "../shared/tags";
@@ -35,6 +38,8 @@ import {
   getActiveTableContext,
   getActiveTableSnapshot,
   getTableEdgeDragDelta,
+  hasTableEdgeDragMoved,
+  previewActiveTableSize,
   restoreActiveTableSnapshot,
   snapTableEdgeDrag,
 } from "../app/editor/table-edge-commands";
@@ -104,6 +109,34 @@ describe("escaped hashtag Markdown", () => {
       const serialized = (editor as Editor & { getMarkdown: () => string }).getMarkdown();
       expect(serialized).toContain("#\u2060技术");
       expect(extractTags(serialized)).toEqual(["真实标签"]);
+    } finally {
+      editor.destroy();
+    }
+  });
+});
+
+describe("Chinese Markdown block markers", () => {
+  test("parses normalized Chinese markers as native Markdown blocks", () => {
+    const source = "＃ 标题\n\n－ 列表\n\n１． 有序\n\n＞ 引用\n\n【　】 待办";
+    const editor = new Editor({
+      extensions: [
+        StarterKit.configure({ heading: { levels: [1, 2, 3, 4, 5, 6] } }),
+        TaskList,
+        TaskItem.configure({ nested: true }),
+        createMarkdownExtension(),
+      ],
+      content: normalizeChineseMarkdownBlockMarkers(source),
+      contentType: "markdown",
+    });
+
+    try {
+      expect(editor.state.doc.content.content.map((node) => node.type.name)).toEqual([
+        "heading",
+        "bulletList",
+        "orderedList",
+        "blockquote",
+        "taskList",
+      ]);
     } finally {
       editor.destroy();
     }
@@ -518,28 +551,109 @@ describe("code block copy", () => {
 });
 
 describe("table edge controls", () => {
-  test("drag distance adds and removes edge rows or columns without crossing one", () => {
-    expect(getTableEdgeDragDelta(27, 3)).toBe(0);
-    expect(getTableEdgeDragDelta(28, 3)).toBe(1);
-    expect(getTableEdgeDragDelta(19, 3, 20)).toBe(0);
-    expect(getTableEdgeDragDelta(20, 3, 20)).toBe(1);
+  test("keeps a returned pointer classified as a drag after its preview resets", () => {
+    const start = { x: 40, y: 60 };
+    let moved = false;
+    const previewDeltas = [96, 0].map((distance) => {
+      moved = hasTableEdgeDragMoved(start, { x: start.x + distance, y: start.y }, moved);
+      return getTableEdgeDragDelta(distance, 3, 96);
+    });
+
+    expect(previewDeltas).toEqual([1, 0]);
+    moved = hasTableEdgeDragMoved(start, { x: 40, y: 60 }, moved);
+    expect(moved).toBe(true);
+    expect(hasTableEdgeDragMoved(start, { x: 43, y: 62 })).toBe(false);
+  });
+
+  test("snaps to the nearest row or column boundary without crossing one", () => {
+    expect(getTableEdgeDragDelta(13, 3)).toBe(0);
+    expect(getTableEdgeDragDelta(14, 3)).toBe(1);
+    expect(getTableEdgeDragDelta(9, 3, 20)).toBe(0);
+    expect(getTableEdgeDragDelta(10, 3, 20)).toBe(1);
     expect(getTableEdgeDragDelta(84, 3)).toBe(3);
     expect(getTableEdgeDragDelta(-56, 3)).toBe(-2);
     expect(getTableEdgeDragDelta(-140, 3)).toBe(-2);
   });
 
   test("maps drag distance to actual row or column size", () => {
-    expect(getTableEdgeDragDelta(119, 3, 120)).toBe(0);
-    expect(getTableEdgeDragDelta(120, 3, 120)).toBe(1);
-    expect(getTableEdgeDragDelta(-239, 3, 120)).toBe(-1);
+    expect(getTableEdgeDragDelta(59, 3, 120)).toBe(0);
+    expect(getTableEdgeDragDelta(60, 3, 120)).toBe(1);
+    expect(getTableEdgeDragDelta(-239, 3, 120)).toBe(-2);
     expect(getTableEdgeDragDelta(-240, 3, 120)).toBe(-2);
   });
 
-  test("snaps the edge handle to whole row or column steps", () => {
-    expect(snapTableEdgeDrag(119, 3, 120)).toEqual({ delta: 0, snappedDistance: 0 });
-    expect(snapTableEdgeDrag(239, 3, 120)).toEqual({ delta: 1, snappedDistance: 120 });
+  test("uses each existing row or column size when shrinking", () => {
+    const existingItemSizes = [40, 120, 80];
+    expect(getTableEdgeDragDelta(-40, 3, 96, existingItemSizes)).toBe(0);
+    expect(getTableEdgeDragDelta(-41, 3, 96, existingItemSizes)).toBe(-1);
+    expect(getTableEdgeDragDelta(-141, 3, 96, existingItemSizes)).toBe(-2);
+    expect(snapTableEdgeDrag(-141, 3, 96, existingItemSizes)).toEqual({
+      delta: -2,
+      snappedDistance: -200,
+    });
+  });
+
+  test("snaps the edge handle to the nearest row or column step", () => {
+    expect(snapTableEdgeDrag(59, 3, 120)).toEqual({ delta: 0, snappedDistance: 0 });
+    expect(snapTableEdgeDrag(60, 3, 120)).toEqual({ delta: 1, snappedDistance: 120 });
+    expect(snapTableEdgeDrag(239, 3, 120)).toEqual({ delta: 2, snappedDistance: 240 });
     expect(snapTableEdgeDrag(240, 3, 120)).toEqual({ delta: 2, snappedDistance: 240 });
     expect(snapTableEdgeDrag(-240, 2, 120)).toEqual({ delta: -1, snappedDistance: -120 });
+  });
+
+  test("rebuilds each drag preview from the original table snapshot", () => {
+    const editor = new Editor({
+      extensions: [
+        StarterKit.configure({ heading: { levels: [1, 2, 3, 4] } }),
+        ...createTableExtensions(),
+        Markdown,
+      ],
+      content: { type: "doc", content: [{ type: "paragraph" }] },
+    });
+    try {
+      editor.commands.insertTable({ rows: 2, cols: 2, withHeaderRow: true });
+      const snapshot = getActiveTableSnapshot(editor)!;
+      expect(previewActiveTableSize(editor, snapshot, "columns", 1)).toBe(true);
+      expect(getActiveTableContext(editor, snapshot.position)?.columns).toBe(3);
+      expect(previewActiveTableSize(editor, snapshot, "columns", 2)).toBe(true);
+      expect(getActiveTableContext(editor, snapshot.position)?.columns).toBe(4);
+      expect(previewActiveTableSize(editor, snapshot, "columns", 0)).toBe(true);
+      expect(getActiveTableContext(editor, snapshot.position)?.columns).toBe(2);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  test("restores a canceled table edge preview without moving the selection", () => {
+    const editor = new Editor({
+      extensions: [
+        StarterKit.configure({ heading: { levels: [1, 2, 3, 4] } }),
+        ...createTableExtensions(),
+        Markdown,
+      ],
+      content: { type: "doc", content: [{ type: "paragraph" }] },
+    });
+    try {
+      editor.commands.insertTable({ rows: 2, cols: 2, withHeaderRow: true });
+      const context = getActiveTableContext(editor)!;
+      editor.commands.setTextSelection(context.position + 4);
+      const selectionBefore = editor.state.selection.from;
+      const snapshot = getActiveTableSnapshot(editor)!;
+
+      expect(previewActiveTableSize(editor, snapshot, "columns", 1)).toBe(true);
+      expect(
+        restoreActiveTableSnapshot(editor, snapshot, {
+          addToHistory: false,
+          emitUpdate: false,
+          closeHistory: true,
+          preserveSelection: true,
+        }),
+      ).toBe(true);
+      expect(editor.state.selection.from).toBe(selectionBefore);
+      expect(getActiveTableContext(editor)?.columns).toBe(2);
+    } finally {
+      editor.destroy();
+    }
   });
 
   test("adjusts the far edge in a single transaction and preserves one row and column", () => {
@@ -1069,6 +1183,34 @@ describe("slash command matching", () => {
 
       const serialized = (editor as Editor & { getMarkdown: () => string }).getMarkdown();
       expect(serialized).toBe("**判断：**已知人物检索可以搜到报道");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  test("parses underscore italic when CJK text follows without a space", () => {
+    const editor = createMarkdownEditor("_斜体_后续中文");
+    try {
+      const paragraph = editor.state.doc.firstChild;
+      expect(paragraph?.childCount).toBe(2);
+      expect(paragraph?.child(0).text).toBe("斜体");
+      expect(paragraph?.child(0).marks.some((mark) => mark.type.name === "italic")).toBe(true);
+      expect(paragraph?.child(1).text).toBe("后续中文");
+      expect(paragraph?.child(1).marks.length).toBe(0);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  test("parses underscore italic between Chinese text and punctuation", () => {
+    const editor = createMarkdownEditor("前文_斜体_，后续中文");
+    try {
+      const paragraph = editor.state.doc.firstChild;
+      expect(paragraph?.childCount).toBe(3);
+      expect(paragraph?.child(0).text).toBe("前文");
+      expect(paragraph?.child(1).text).toBe("斜体");
+      expect(paragraph?.child(1).marks.some((mark) => mark.type.name === "italic")).toBe(true);
+      expect(paragraph?.child(2).text).toBe("，后续中文");
     } finally {
       editor.destroy();
     }

@@ -28,6 +28,19 @@ describe("image export", () => {
       editor.destroy();
     }
   });
+  test("snapshot parser keeps images in deeply nested list items", () => {
+    const editor = createSnapshotEditor(
+      "- outer\n  - middle\n    - \n      ![deep](/api/assets/image.jpg?w=480&h=320)",
+    );
+    try {
+      const json = JSON.stringify(editor.getJSON());
+      expect(json).toContain('"type":"image"');
+      expect(json).toContain('"alt":"deep"');
+      expect(json).toContain('"width":480');
+    } finally {
+      editor.destroy();
+    }
+  });
   test("abort stops waiting for pending image or font decoding", async () => {
     const controller = new AbortController();
     const result = waitForExport(new Promise<void>(() => {}), controller.signal);

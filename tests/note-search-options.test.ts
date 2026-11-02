@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { openDatabase } from "../server/test-db";
 import { handleRequest } from "../server/index";
+import { waitForOrphanAssetCleanup } from "../server/routes/assets";
 import { ensureEnvironmentUser } from "../server/routes/auth";
 import { createNote } from "../server/routes/notes";
 
@@ -38,6 +39,15 @@ async function fixture() {
         new Request(`http://search.test/api/notes?${params}`, { headers: { Cookie: cookie } }),
         { database, environment },
       ),
+    update: (noteId: string, payload: unknown) =>
+      handleRequest(
+        new Request(`http://search.test/api/notes/${noteId}`, {
+          method: "PATCH",
+          headers: { Cookie: cookie },
+          body: JSON.stringify(payload),
+        }),
+        { database, environment },
+      ),
   };
 }
 
@@ -64,6 +74,7 @@ test("multiple tag filters run before pagination, support any/all, and validate 
     expect((await f.list("tags=alpha&tags=bad%20tag")).status).toBe(400);
     expect((await f.list("tagMode=invalid")).status).toBe(400);
   } finally {
+    await waitForOrphanAssetCleanup(f.database);
     f.database.close();
   }
 });
@@ -99,6 +110,7 @@ test("relevance prioritizes title matches, cursors retain scores and reject chan
       (await f.list(`query=needle&sort=relevance&tags=alpha&cursor=${first.nextCursor}`)).status,
     ).toBe(400);
   } finally {
+    await waitForOrphanAssetCleanup(f.database);
     f.database.close();
   }
 });
@@ -126,11 +138,29 @@ test("short-term relevance paginates ties and relevance without a query falls ba
     const plain = await (await f.list("sort=relevance")).json();
     expect(plain.notes.map((note: { id: string }) => note.id)).toEqual([b, a, title]);
   } finally {
+    await waitForOrphanAssetCleanup(f.database);
     f.database.close();
   }
 });
 
-test("short ASCII searches match indexed mixed-case title terms", async () => {
+test("short-term relevance applies tag filters inside its ranked candidate set", async () => {
+  const f = await fixture();
+  try {
+    await f.create("猫标题", "title result #alpha");
+    const matchingBody = await f.create("正文命中", "猫 body result #beta");
+    await f.create("其他正文", "猫 body result #alpha");
+
+    const result = await (await f.list("query=猫&sort=relevance&tags=beta&includeTotal=1")).json();
+
+    expect(result.notes.map((note: { id: string }) => note.id)).toEqual([matchingBody]);
+    expect(result.total).toBe(1);
+  } finally {
+    await waitForOrphanAssetCleanup(f.database);
+    f.database.close();
+  }
+});
+
+test("short ASCII searches match mixed-case title terms", async () => {
   const f = await fixture();
   try {
     const docker = await f.create("Docker", "container notes");
@@ -139,17 +169,276 @@ test("short ASCII searches match indexed mixed-case title terms", async () => {
       expect(result.notes.map((note: { id: string }) => note.id)).toContain(docker);
     }
   } finally {
+    await waitForOrphanAssetCleanup(f.database);
     f.database.close();
   }
 });
 
-test("short-term indexing and fallback share a Unicode code-point boundary", async () => {
+test("short searches preserve mixed ASCII and CJK substring matching", async () => {
   const f = await fixture();
   try {
-    const note = await f.create("表情笔记", `${"😀".repeat(2500)}末尾`);
+    const note = await f.create("Docker 笔记", "项目记录和猫狗日常");
+    const cases = [
+      ["d", note],
+      ["DO", note],
+      ["猫", note],
+      ["猫狗", note],
+      ["Docker 猫", note],
+    ] as const;
+
+    for (const [query, expected] of cases) {
+      const result = await (await f.list(`query=${encodeURIComponent(query)}`)).json();
+      expect(result.notes.map((item: { id: string }) => item.id)).toContain(expected);
+    }
+
+    const partial = await (await f.list("query=%E7%8C%AB%E9%B8%A1")).json();
+    expect(partial.notes.map((item: { id: string }) => item.id)).not.toContain(note);
+  } finally {
+    await waitForOrphanAssetCleanup(f.database);
+    f.database.close();
+  }
+});
+
+test("short search scans the full title and body without a derived index", async () => {
+  const f = await fixture();
+  try {
+    const afterContentLimit = await f.create("边界笔记", `${"甲".repeat(40_100)}后缀词`);
+    const afterTermLimit = await f.create(
+      "另一篇边界笔记",
+      `${Array.from({ length: 520 }, (_, index) => String.fromCodePoint(0x4e00 + index)).join(" ")}尾部词`,
+    );
+
+    for (const [query, expected] of [
+      ["后缀", afterContentLimit],
+      ["尾部", afterTermLimit],
+    ] as const) {
+      const result = await (
+        await f.list(`query=${encodeURIComponent(query)}&sort=relevance`)
+      ).json();
+      expect(result.notes.map((item: { id: string }) => item.id)).toContain(expected);
+    }
+  } finally {
+    await waitForOrphanAssetCleanup(f.database);
+    f.database.close();
+  }
+});
+
+test("short search results stay inside the signed-in user's notes", async () => {
+  const f = await fixture();
+  try {
+    const otherUser = await ensureEnvironmentUser(f.database, {
+      username: "other-search-owner",
+      password: "another-search-test-password",
+    });
+    const otherInbox = f.database
+      .query("SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1")
+      .get(otherUser.id) as { id: string };
+    const privateMatch = createNote(f.database, otherUser.id, otherInbox.id, "私人笔记", "星云");
+    const ownMatch = await f.create("自己的笔记", "星云");
+
+    const result = await (await f.list("query=%E6%98%9F%E4%BA%91&sort=relevance")).json();
+    const ids = result.notes.map((item: { id: string }) => item.id);
+    expect(ids).toContain(ownMatch);
+    expect(ids).not.toContain(privateMatch);
+    expect(result.total).toBe(1);
+  } finally {
+    await waitForOrphanAssetCleanup(f.database);
+    f.database.close();
+  }
+});
+
+test("short-query cursors return every matching note once", async () => {
+  const f = await fixture();
+  try {
+    const expected = new Set([
+      await f.create("猫一", "共同内容"),
+      await f.create("猫二", "共同内容"),
+      await f.create("猫三", "共同内容"),
+    ]);
+    await f.create("狗", "无关内容");
+    let cursor = "";
+    const ids: string[] = [];
+    while (true) {
+      const result = await (
+        await f.list(
+          `query=%E7%8C%AB&sort=relevance&limit=1${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+        )
+      ).json();
+      ids.push(...result.notes.map((item: { id: string }) => item.id));
+      if (!result.nextCursor) break;
+      cursor = result.nextCursor;
+    }
+
+    expect(ids).toHaveLength(expected.size);
+    expect(new Set(ids)).toEqual(expected);
+  } finally {
+    await waitForOrphanAssetCleanup(f.database);
+    f.database.close();
+  }
+});
+
+test("short search handles content beyond the former code-point boundary", async () => {
+  const f = await fixture();
+  try {
+    const note = await f.create("表情笔记", `${"😀".repeat(40_001)}末尾`);
     const result = await (await f.list("query=末尾")).json();
     expect(result.notes.map((item: { id: string }) => item.id)).toContain(note);
   } finally {
+    await waitForOrphanAssetCleanup(f.database);
+    f.database.close();
+  }
+});
+
+test("short-search updates remove old content matches and retain shared and unrelated notes", async () => {
+  const f = await fixture();
+  try {
+    const changed = await f.create("Docker 手册", "旧词和共同词");
+    const untouched = await f.create("另一篇笔记", "独立内容和共同词");
+    const noteResponse = (await f.database
+      .query("SELECT version FROM notes WHERE id = ?")
+      .get(changed)) as { version: number };
+    const saved = await f.update(changed, {
+      version: noteResponse.version,
+      title: "SQLite 手册",
+      contentMarkdown: "新词和共同词",
+    });
+    expect(saved.status).toBe(200);
+
+    const search = async (query: string) =>
+      (await f.list(`query=${encodeURIComponent(query)}`)).json();
+    expect((await search("旧词")).notes.map((note: { id: string }) => note.id)).not.toContain(
+      changed,
+    );
+    expect((await search("新词")).notes.map((note: { id: string }) => note.id)).toContain(changed);
+    const common = await search("共同词");
+    expect(new Set(common.notes.map((note: { id: string }) => note.id))).toEqual(
+      new Set([changed, untouched]),
+    );
+  } finally {
+    await waitForOrphanAssetCleanup(f.database);
+    f.database.close();
+  }
+});
+
+test("optimized search applies view and notebook filters before counting and paging", async () => {
+  const f = await fixture();
+  try {
+    const favorite = await f.create("needle favorite", "needle in inbox");
+    const plain = await f.create("needle plain", "needle in inbox");
+    const otherNotebookId = crypto.randomUUID();
+    f.database
+      .query(
+        "INSERT INTO notebooks (id, user_id, name, created_at, updated_at) VALUES (?, (SELECT user_id FROM notes WHERE id = ?), ?, 1, 1)",
+      )
+      .run(otherNotebookId, favorite, "另一本");
+    const other = await f.create("needle other", "needle in another notebook");
+    f.database.query("UPDATE notes SET notebook_id = ? WHERE id = ?").run(otherNotebookId, other);
+    f.database.query("UPDATE notes SET is_favorite = 1 WHERE id = ?").run(favorite);
+    const trashed = await f.create("needle trashed", "needle in trash");
+    f.database.query("UPDATE notes SET deleted_at = 1, is_favorite = 1 WHERE id = ?").run(trashed);
+
+    const idsFor = async (params: string) => {
+      const body = await (await f.list(`query=needle&${params}`)).json();
+      return body.notes.map((note: { id: string }) => note.id);
+    };
+    expect(new Set(await idsFor("view=favorites"))).toEqual(new Set([favorite]));
+    expect(new Set(await idsFor("view=inbox"))).toEqual(new Set([favorite, plain]));
+    expect(new Set(await idsFor("view=trash"))).toEqual(new Set([trashed]));
+    expect(new Set(await idsFor(`view=all&notebookId=${otherNotebookId}`))).toEqual(
+      new Set([other]),
+    );
+
+    const withoutTotal = await (await f.list("query=needle&view=all&includeTotal=0")).json();
+    expect(withoutTotal).not.toHaveProperty("total");
+  } finally {
+    await waitForOrphanAssetCleanup(f.database);
+    f.database.close();
+  }
+});
+
+test("mixed FTS and short terms paginate updated search without repeating rows", async () => {
+  const f = await fixture();
+  try {
+    const first = await f.create("first", "needle 猫 one");
+    const second = await f.create("second", "needle 猫 two");
+    const third = await f.create("third", "needle 猫 three");
+    await f.create("unrelated", "needle only");
+    f.database.query("UPDATE notes SET updated_at = 100 WHERE id = ?").run(first);
+    f.database.query("UPDATE notes SET updated_at = 200 WHERE id = ?").run(second);
+    f.database.query("UPDATE notes SET updated_at = 300 WHERE id = ?").run(third);
+
+    const seen: string[] = [];
+    let cursor = "";
+    for (let page = 0; page < 3; page += 1) {
+      const result = await (
+        await f.list(
+          `query=${encodeURIComponent("needle 猫")}&sort=updated&limit=1&includeTotal=0${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+        )
+      ).json();
+      expect(result).not.toHaveProperty("total");
+      seen.push(...result.notes.map((note: { id: string }) => note.id));
+      if (!result.nextCursor) break;
+      cursor = result.nextCursor;
+    }
+    expect(seen).toEqual([third, second, first]);
+  } finally {
+    await waitForOrphanAssetCleanup(f.database);
+    f.database.close();
+  }
+});
+
+test("search pagination preserves title and created order", async () => {
+  const f = await fixture();
+  try {
+    const alpha = await f.create("alpha needle", "needle");
+    const beta = await f.create("Beta needle", "needle");
+    const gamma = await f.create("gamma needle", "needle");
+    f.database.query("UPDATE notes SET created_at = 100 WHERE id = ?").run(alpha);
+    f.database.query("UPDATE notes SET created_at = 200 WHERE id = ?").run(beta);
+    f.database.query("UPDATE notes SET created_at = 300 WHERE id = ?").run(gamma);
+
+    const collect = async (sort: string) => {
+      const ids: string[] = [];
+      let cursor = "";
+      for (let page = 0; page < 3; page += 1) {
+        const result = await (
+          await f.list(
+            `query=needle&sort=${sort}&limit=1&includeTotal=0${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+          )
+        ).json();
+        ids.push(...result.notes.map((note: { id: string }) => note.id));
+        if (!result.nextCursor) break;
+        cursor = result.nextCursor;
+      }
+      return ids;
+    };
+
+    expect(await collect("title")).toEqual([alpha, beta, gamma]);
+    expect(await collect("created")).toEqual([gamma, beta, alpha]);
+  } finally {
+    await waitForOrphanAssetCleanup(f.database);
+    f.database.close();
+  }
+});
+
+test("short-term title sorting paginates without repeating rows", async () => {
+  const f = await fixture();
+  try {
+    const second = await f.create("猫 B", "猫");
+    const first = await f.create("猫 A", "猫");
+    const third = await f.create("猫 C", "猫");
+    const result = await (
+      await f.list(`query=${encodeURIComponent("猫")}&sort=title&limit=1&includeTotal=0`)
+    ).json();
+    expect(result.notes.map((note: { id: string }) => note.id)).toEqual([first]);
+    const next = await (
+      await f.list(
+        `query=${encodeURIComponent("猫")}&sort=title&limit=2&includeTotal=0&cursor=${encodeURIComponent(result.nextCursor)}`,
+      )
+    ).json();
+    expect(next.notes.map((note: { id: string }) => note.id)).toEqual([second, third]);
+  } finally {
+    await waitForOrphanAssetCleanup(f.database);
     f.database.close();
   }
 });

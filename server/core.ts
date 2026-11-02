@@ -3,6 +3,7 @@ import { rm } from "node:fs/promises";
 import { isIP } from "node:net";
 import { join } from "node:path";
 import { Lexer } from "marked";
+import { extractMarkdownDestinationReferences } from "../shared/markdown-lexer";
 import { extractTags, normalizeTag } from "../shared/tags";
 import type { ImageAssetSummary, Note, NoteSummary, NoteView } from "../shared/types";
 import type { RealtimeHub } from "./realtime";
@@ -406,6 +407,14 @@ export async function readJson<T>(request: Request, maxBytes: number): Promise<T
 const NON_BREAKING_SPACE_PATTERN = /\u00a0|&nbsp;|&#0*160;|&#[xX]0*[aA]0;/gu;
 const SPACE_BEFORE_PUNCTUATION_PATTERN = / ([,.;:!?。！？、，；：])/gu;
 const WIKI_LINK_PREVIEW_PATTERN = /\[\[([^\[\]\r\n]*)\]\]|【【([^【】\r\n]*)】】/gu;
+const TASK_LIST_ITEM_PATTERN =
+  /^(?:[ \t]{0,3}>[ \t]?)*[ \t]*(?:(?:[-+*]|\d+[.)])[ \t]+)?(?:\[[ xX ]?\]|【[ \u3000xX]?】)(?:[ \t]|$)/u;
+const CALLOUT_START_PATTERN = /^[ \t]*>[ \t]*\[!(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]/iu;
+const HORIZONTAL_RULE_PATTERN = /^[ \t]*(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$/u;
+const TAG_ONLY_LINE_PATTERN = /^[ \t]*#[\p{L}\p{N}_-]+(?:[\t ]+#[\p{L}\p{N}_-]+)*[ \t]*$/u;
+const HEADING_PATTERN = /^[ \t]*#{1,6}[ \t\u3000]/u;
+const LIST_ITEM_PREFIX_PATTERN = /^[ \t]*(?:[-+*]|\d+[.)])[ \t\u3000]+/u;
+const BLOCKQUOTE_PREFIX_PATTERN = /^[ \t]*>[ \t]?/u;
 
 type PreviewInlineToken = {
   type: string;
@@ -440,11 +449,11 @@ function plainTextFromInlineTokens(tokens: PreviewInlineToken[]): string {
 /**
  * Builds the one-line-ish plain text preview shown in note lists.
  *
- * Block structure is scanned line by line so the work stays bounded (a 1 MB note
- * must not slow down a 100-note list) and so blocks a preview never shows —
- * GFM tables, fenced/indented code, supported callouts — can be skipped without
- * parsing them. Inline markup is handed to marked, which keeps the preview
- * faithful to the editor's inline grammar instead of a hand-rolled approximation.
+ * Uses a positive semantic whitelist model: only readable body lines (paragraphs,
+ * headings, and bullet/ordered list items) are extracted into previews. All other
+ * rich structures (task lists, tables, code blocks, callouts, horizontal rules,
+ * tag-only lines) are excluded by default, while scanning line by line so that
+ * work stays bounded for long notes.
  */
 export function formatPreview(markdown: string) {
   const output: string[] = [];
@@ -485,13 +494,10 @@ export function formatPreview(markdown: string) {
     return appendLine(text);
   };
 
-  // Inline parsing is delegated to marked; the block scan above stays in charge of
-  // bounded work and of the blocks a preview never shows (tables, code, callouts).
-  const readPlainText = (start: number, end: number, maximumLength: number) => {
-    if (maximumLength <= 0 || end <= start) return "";
-    const text = plainTextFromInlineTokens(
-      new Lexer({ gfm: true }).inlineTokens(markdown.slice(start, end)),
-    )
+  const readPlainText = (rawText: string, maximumLength: number) => {
+    if (maximumLength <= 0 || !rawText) return "";
+    const text = plainTextFromInlineTokens(new Lexer({ gfm: true }).inlineTokens(rawText))
+      .replace(/^(?:\[[ xX ]?\]|【[ \u3000xX]?】)[ \t\u3000]*/u, "")
       .replace(
         WIKI_LINK_PREVIEW_PATTERN,
         (_match, wiki: string | undefined, fullWidth: string | undefined) => {
@@ -507,24 +513,6 @@ export function formatPreview(markdown: string) {
     return (text.length > maximumLength ? text.slice(0, maximumLength) : text).trim();
   };
 
-  const isHorizontalRule = (start: number, end: number) => {
-    const marker = markdown[start];
-    if (marker !== "-" && marker !== "*" && marker !== "_") return false;
-
-    let markerCount = 0;
-    for (let index = start; index < end; index += 1) {
-      if (markdown[index] === marker) {
-        markerCount += 1;
-      } else if (markdown[index] !== " " && markdown[index] !== "\t") {
-        return false;
-      }
-    }
-    return markerCount >= 3;
-  };
-
-  const isTagOnlyLine = (start: number, end: number) =>
-    /^#[\p{L}\p{N}_-]+(?:[\t ]+#[\p{L}\p{N}_-]+)*$/u.test(markdown.slice(start, end).trim());
-
   const readLine = (start: number, bounded = true) => {
     const newlineIndex = markdown.indexOf("\n", start);
     const fullEnd = newlineIndex === -1 ? markdown.length : newlineIndex;
@@ -538,48 +526,6 @@ export function formatPreview(markdown: string) {
     };
   };
 
-  const leadingWhitespaceEnd = (line: { start: number; end: number }) => {
-    let index = line.start;
-    while (index < line.end && (markdown[index] === " " || markdown[index] === "\t")) index += 1;
-    return index;
-  };
-
-  const getFence = (line: { start: number; end: number }) => {
-    let index = line.start;
-    let indentation = 0;
-    while (index < line.end && markdown[index] === " " && indentation < 4) {
-      indentation += 1;
-      index += 1;
-    }
-    if (indentation > 3 || (markdown[index] !== "`" && markdown[index] !== "~")) return null;
-
-    const marker = markdown[index] as "`" | "~";
-    const markerStart = index;
-    while (index < line.end && markdown[index] === marker) index += 1;
-    const length = index - markerStart;
-    return length >= 3 ? { marker, length, remainderStart: index } : null;
-  };
-
-  const isFenceClose = (
-    line: { start: number; end: number },
-    fence: { marker: "`" | "~"; length: number },
-  ) => {
-    const candidate = getFence(line);
-    if (!candidate || candidate.marker !== fence.marker || candidate.length < fence.length)
-      return false;
-    for (let index = candidate.remainderStart; index < line.end; index += 1) {
-      if (markdown[index] !== " " && markdown[index] !== "\t") return false;
-    }
-    return true;
-  };
-
-  const isPipeTableRow = (line: { start: number; end: number }) => {
-    for (let index = line.start; index < line.end; index += 1) {
-      if (markdown[index] === "|") return true;
-    }
-    return false;
-  };
-
   const isTableDelimiter = (line: { start: number; end: number }) => {
     const text = markdown.slice(line.start, line.end);
     if (!text.includes("|") || text.length >= NOTE_PREVIEW_SCAN_LIMIT) return false;
@@ -590,168 +536,138 @@ export function formatPreview(markdown: string) {
     return cells.length > 0 && cells.every((cell) => /^\s*:?-{1,}:?\s*$/u.test(cell));
   };
 
-  const isPipeTableStart = (line: { start: number; end: number; next: number }) => {
-    if (!isPipeTableRow(line) || line.next >= markdown.length) return false;
-    return isTableDelimiter(readLine(line.next));
-  };
-
-  const isBlockQuoteLine = (line: { start: number; end: number }) => {
-    let index = line.start;
-    let indentation = 0;
-    while (index < line.end && markdown[index] === " " && indentation < 4) {
-      indentation += 1;
-      index += 1;
-    }
-    return indentation <= 3 && markdown[index] === ">";
-  };
-
-  const isKnownCalloutMarker = (line: { start: number; end: number }, contentStart: number) => {
-    if (markdown[contentStart] !== ">") return false;
-    let bodyStart = contentStart + 1;
-    while (bodyStart < line.end && (markdown[bodyStart] === " " || markdown[bodyStart] === "\t"))
-      bodyStart += 1;
-    return /^\[!(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION)\](?:[ \t]+.*)?$/iu.test(
-      markdown.slice(bodyStart, line.end),
-    );
-  };
-
   let cursor = 0;
   while (cursor < markdown.length && !stopped) {
     const line = readLine(cursor, !codeFence);
-    const contentEnd = line.end;
-    const contentStart = leadingWhitespaceEnd(line);
-    const fence = getFence(line);
+    const lineStr = markdown.slice(line.start, line.end);
+    const trimmed = lineStr.trim();
 
+    // 1. 围栏代码块
+    const fenceMatch = /^[ \t]{0,3}(`{3,}|~{3,})/u.exec(lineStr);
     if (codeFence) {
-      if (isFenceClose(line, codeFence)) codeFence = null;
-    } else if (fence) {
+      if (
+        fenceMatch &&
+        fenceMatch[1]![0] === codeFence.marker &&
+        fenceMatch[1]!.length >= codeFence.length
+      ) {
+        codeFence = null;
+      }
+      cursor = line.truncated ? markdown.length : line.next;
+      continue;
+    }
+    if (fenceMatch) {
       flushParagraph();
-      codeFence = { marker: fence.marker, length: fence.length };
-    } else if (contentStart === contentEnd || isTagOnlyLine(contentStart, contentEnd)) {
+      codeFence = { marker: fenceMatch[1]![0] as "`" | "~", length: fenceMatch[1]!.length };
+      cursor = line.truncated ? markdown.length : line.next;
+      continue;
+    }
+
+    // 2. 空行
+    if (!trimmed) {
       flushParagraph();
-    } else if (isHorizontalRule(contentStart, contentEnd)) {
+      cursor = line.truncated ? markdown.length : line.next;
+      continue;
+    }
+
+    // 3. 缩进代码（>= 4 个空格或制表符开头）
+    if (/^(?: {4,}|\t)/u.test(lineStr)) {
       flushParagraph();
-    } else if (contentStart - cursor >= 4 || markdown[cursor] === "\t") {
+      cursor = line.truncated ? markdown.length : line.next;
+      continue;
+    }
+
+    // 4. 富结构黑名单排除（除正向白名单外全部排除）
+    // 4.1 表格行（当前行含 | 且下一行为分隔线时跳过整个表格）
+    if (
+      lineStr.includes("|") &&
+      line.next < markdown.length &&
+      isTableDelimiter(readLine(line.next))
+    ) {
       flushParagraph();
-    } else if (isPipeTableStart(line)) {
-      const delimiter = readLine(line.next);
-      flushParagraph();
-      cursor = delimiter.next;
+      cursor = readLine(line.next).next;
       while (cursor < markdown.length) {
         const row = readLine(cursor, false);
-        if (!isPipeTableRow(row)) break;
+        if (!markdown.slice(row.start, row.end).includes("|")) break;
         cursor = row.next;
       }
       continue;
-    } else {
-      let bodyStart = contentStart;
-      let isBlock = false;
+    }
+    // 4.2 分割线
+    if (HORIZONTAL_RULE_PATTERN.test(lineStr)) {
+      flushParagraph();
+      cursor = line.truncated ? markdown.length : line.next;
+      continue;
+    }
+    // 4.3 纯标签行
+    if (TAG_ONLY_LINE_PATTERN.test(lineStr)) {
+      flushParagraph();
+      cursor = line.truncated ? markdown.length : line.next;
+      continue;
+    }
+    // 4.4 待办任务项
+    if (TASK_LIST_ITEM_PATTERN.test(lineStr)) {
+      flushParagraph();
+      cursor = line.truncated ? markdown.length : line.next;
+      continue;
+    }
+    // 4.5 Callout 提示块，跳过连续引用行
+    if (CALLOUT_START_PATTERN.test(lineStr)) {
+      flushParagraph();
+      cursor = line.next;
+      while (cursor < markdown.length) {
+        const nextLine = readLine(cursor, false);
+        const nextStr = markdown.slice(nextLine.start, nextLine.end);
+        if (!/^[ \t]*>/u.test(nextStr)) break;
+        cursor = nextLine.next;
+      }
+      continue;
+    }
 
-      let headingEnd = contentStart;
-      while (
-        headingEnd < contentEnd &&
-        markdown[headingEnd] === "#" &&
-        headingEnd - contentStart < 6
-      ) {
-        headingEnd += 1;
-      }
-      if (
-        headingEnd > contentStart &&
-        (headingEnd === contentEnd || markdown[headingEnd] === " " || markdown[headingEnd] === "\t")
-      ) {
-        bodyStart = headingEnd;
-        while (
-          bodyStart < contentEnd &&
-          (markdown[bodyStart] === " " || markdown[bodyStart] === "\t")
-        ) {
-          bodyStart += 1;
-        }
-        isBlock = true;
-      } else if (
-        (markdown[contentStart] === "-" ||
-          markdown[contentStart] === "+" ||
-          markdown[contentStart] === "*") &&
-        (markdown[contentStart + 1] === " " || markdown[contentStart + 1] === "\t")
-      ) {
-        bodyStart = contentStart + 2;
-        while (
-          bodyStart < contentEnd &&
-          (markdown[bodyStart] === " " || markdown[bodyStart] === "\t")
-        ) {
-          bodyStart += 1;
-        }
-        isBlock = true;
-      } else {
-        let markerEnd = contentStart;
-        while (markerEnd < contentEnd && markdown[markerEnd] >= "0" && markdown[markerEnd] <= "9") {
-          markerEnd += 1;
-        }
-        if (
-          markerEnd > contentStart &&
-          (markdown[markerEnd] === "." || markdown[markerEnd] === ")") &&
-          (markdown[markerEnd + 1] === " " || markdown[markerEnd + 1] === "\t")
-        ) {
-          bodyStart = markerEnd + 2;
-          while (
-            bodyStart < contentEnd &&
-            (markdown[bodyStart] === " " || markdown[bodyStart] === "\t")
-          ) {
-            bodyStart += 1;
-          }
-          isBlock = true;
-        } else if (markdown[contentStart] === ">") {
-          bodyStart = contentStart + 1;
-          while (
-            bodyStart < contentEnd &&
-            (markdown[bodyStart] === " " || markdown[bodyStart] === "\t")
-          ) {
-            bodyStart += 1;
-          }
-          isBlock = true;
-        }
-      }
+    // 5. 正向语义白名单提取（标题、普通列表项、普通引用、普通正文）
+    const available = NOTE_PREVIEW_LIMIT - outputLength - (output.length > 0 ? 1 : 0);
 
-      if (isBlock) {
-        if (isKnownCalloutMarker(line, contentStart)) {
-          flushParagraph();
-          cursor = line.next;
-          while (cursor < markdown.length) {
-            const quotedLine = readLine(cursor, false);
-            if (!isBlockQuoteLine(quotedLine)) break;
-            cursor = quotedLine.next;
-          }
-          continue;
-        }
-        flushParagraph();
-        const availableLength = NOTE_PREVIEW_LIMIT - outputLength - (output.length > 0 ? 1 : 0);
-        if (availableLength <= 0) {
-          stopped = true;
-        } else {
-          appendLine(readPlainText(bodyStart, contentEnd, availableLength));
-        }
-      } else {
-        const separatorLength = paragraphLength > 0 ? 1 : 0;
-        const availableLength =
-          NOTE_PREVIEW_LIMIT -
-          outputLength -
-          (output.length > 0 ? 1 : 0) -
-          paragraphLength -
-          separatorLength;
-        if (availableLength <= 0) {
-          stopped = true;
-        } else {
-          const text = readPlainText(contentStart, contentEnd, availableLength);
-          if (text) {
-            if (separatorLength > 0) {
-              paragraph.push("\n");
-              paragraphLength += 1;
-            }
-            paragraph.push(text);
-            paragraphLength += text.length;
-            if (paragraphLength >= availableLength + (separatorLength > 0 ? 1 : 0)) stopped = true;
-          }
-        }
+    // 5.1 标题
+    if (HEADING_PATTERN.test(lineStr)) {
+      flushParagraph();
+      const body = lineStr.replace(/^[ \t]*#{1,6}[ \t\u3000]+/u, "");
+      appendLine(readPlainText(body, available));
+      cursor = line.truncated ? markdown.length : line.next;
+      continue;
+    }
+
+    // 5.2 普通列表项（已在 4.4 排除待办复选框）
+    if (LIST_ITEM_PREFIX_PATTERN.test(lineStr)) {
+      flushParagraph();
+      const body = lineStr.replace(LIST_ITEM_PREFIX_PATTERN, "");
+      appendLine(readPlainText(body, available));
+      cursor = line.truncated ? markdown.length : line.next;
+      continue;
+    }
+
+    // 5.3 普通引用行
+    if (BLOCKQUOTE_PREFIX_PATTERN.test(lineStr)) {
+      flushParagraph();
+      const body = lineStr.replace(BLOCKQUOTE_PREFIX_PATTERN, "");
+      appendLine(readPlainText(body, available));
+      cursor = line.truncated ? markdown.length : line.next;
+      continue;
+    }
+
+    // 5.4 普通正文段落
+    const paraAvail = available - paragraphLength - (paragraphLength > 0 ? 1 : 0);
+    if (paraAvail <= 0) {
+      stopped = true;
+      break;
+    }
+    const text = readPlainText(lineStr, paraAvail);
+    if (text) {
+      if (paragraphLength > 0) {
+        paragraph.push("\n");
+        paragraphLength += 1;
       }
+      paragraph.push(text);
+      paragraphLength += text.length;
+      if (paragraphLength >= paraAvail) stopped = true;
     }
 
     cursor = line.truncated ? markdown.length : line.next;
@@ -765,7 +681,7 @@ export function parseSearchTerms(query: string) {
   const parts = query.trim().split(/\s+/).filter(Boolean);
   const tokens: string[] = [];
   const ftsTokens: string[] = [];
-  const shortTokens: string[] = [];
+  const directTokens: string[] = [];
 
   for (const part of parts) {
     const cleaned = part.replaceAll('"', "").trim();
@@ -774,11 +690,11 @@ export function parseSearchTerms(query: string) {
     if (Array.from(cleaned).length >= 3) {
       ftsTokens.push(cleaned);
     } else {
-      shortTokens.push(cleaned);
+      directTokens.push(cleaned);
     }
   }
 
-  return { tokens, ftsTokens, shortTokens };
+  return { tokens, ftsTokens, directTokens };
 }
 
 export function buildFtsQuery(query: string) {
@@ -922,25 +838,33 @@ export async function syncNoteTags(
 }
 
 export const ASSET_REFERENCE_PATTERN =
-  /\/api\/assets\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})(?=[?#)\s]|$)/giu;
-export const MARKDOWN_IMAGE_SOURCE_PATTERN = /!\[[^\]]*\]\(([^)\s]+)(?:\s+[^)]*)?\)/gu;
+  /^\/api\/assets\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})(?=[?#]|$)/iu;
 export const PRIVATE_ASSET_SOURCE_PATTERN =
   /^\/api\/assets\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?=[?#]|$)/iu;
 
-export function noteImageSources(markdown: string) {
-  const sources: string[] = [];
-  for (const match of markdown.matchAll(MARKDOWN_IMAGE_SOURCE_PATTERN)) {
-    if (match[1]) sources.push(match[1]);
+function extractNoteAssetReferences(markdown: string) {
+  const imageSources: string[] = [];
+  const assetIds = new Set<string>();
+  const imageAssetIds = new Set<string>();
+
+  for (const reference of extractMarkdownDestinationReferences(markdown)) {
+    if (reference.type === "image") imageSources.push(reference.destination);
+    const id = ASSET_REFERENCE_PATTERN.exec(reference.destination)?.[1]?.toLowerCase();
+    if (id) {
+      assetIds.add(id);
+      if (reference.type === "image") imageAssetIds.add(id);
+    }
   }
-  return sources;
+
+  return { imageSources, assetIds: [...assetIds], imageAssetIds: [...imageAssetIds] };
+}
+
+export function noteImageSources(markdown: string) {
+  return extractNoteAssetReferences(markdown).imageSources;
 }
 
 export function noteAssetIds(markdown: string) {
-  const ids = new Set<string>();
-  for (const match of markdown.matchAll(ASSET_REFERENCE_PATTERN)) {
-    if (match[1]) ids.add(match[1].toLowerCase());
-  }
-  return [...ids];
+  return extractNoteAssetReferences(markdown).assetIds;
 }
 
 export function validNoteImageSource(source: string) {
@@ -959,9 +883,9 @@ export async function validNoteAssetReferences(
   noteId: string | null,
   contentMarkdown: string,
 ) {
-  if (noteImageSources(contentMarkdown).some((source) => !validNoteImageSource(source)))
-    return false;
-  const ids = noteAssetIds(contentMarkdown);
+  const references = extractNoteAssetReferences(contentMarkdown);
+  if (references.imageSources.some((source) => !validNoteImageSource(source))) return false;
+  const ids = references.assetIds;
   if (!ids.length) return true;
   const assets = await all<Pick<ImageAssetRow, "id" | "note_id">>(
     database,
@@ -979,52 +903,74 @@ export async function validNoteAssetReferences(
   );
 }
 
-export async function syncNoteAssetReferences(
-  database: SqliteDatabase,
+export function noteAssetReferenceStatements(
   userId: string,
   noteId: string,
   contentMarkdown: string,
+  guard?: { sql: string; values: SqlValue[] },
 ) {
-  const ids = noteAssetIds(contentMarkdown);
-  const assets = ids.length
-    ? await all<ImageAssetRow>(
-        database,
-        `SELECT id, user_id, note_id, storage_path, original_name, mime_type, byte_size, width, height, document_order, created_at FROM image_assets WHERE user_id = ? AND id IN (${ids.map(() => "?").join(",")})`,
-        userId,
-        ...ids,
-      )
-    : [];
-  const assetsById = new Map(assets.map((asset) => [asset.id.toLowerCase(), asset]));
-  if (
-    assets.length !== ids.length ||
-    ids.some((id) => {
-      const asset = assetsById.get(id);
-      return !asset || (asset.note_id !== null && asset.note_id !== noteId);
-    })
-  ) {
-    return false;
-  }
-
+  const references = extractNoteAssetReferences(contentMarkdown);
+  const ids = references.assetIds;
+  const imageDocumentOrder = new Map(references.imageAssetIds.map((id, index) => [id, index]));
+  const detachedAssetCondition = ids.length
+    ? `id NOT IN (${ids.map(() => "?").join(",")})`
+    : "1 = 1";
+  const guardSql = guard ? ` AND (${guard.sql})` : "";
+  const guardValues = guard?.values ?? [];
   const statements: { sql: string; values: SqlValue[] }[] = [
     {
       sql:
         "UPDATE image_assets SET note_id = NULL, document_order = NULL WHERE note_id = ? AND user_id = ? AND " +
-        (ids.length ? `id NOT IN (${ids.map(() => "?").join(",")})` : "1 = 1"),
-      values: [noteId, userId, ...ids],
+        detachedAssetCondition +
+        guardSql,
+      values: [noteId, userId, ...ids, ...guardValues],
+    },
+    {
+      sql: `UPDATE image_assets SET document_order = NULL WHERE note_id = ? AND user_id = ?${guardSql}`,
+      values: [noteId, userId, ...guardValues],
+    },
+    {
+      sql: `DELETE FROM note_asset_references WHERE note_id = ? AND user_id = ?${guardSql}`,
+      values: [noteId, userId, ...guardValues],
     },
   ];
-  statements.push({
-    sql: "UPDATE image_assets SET document_order = NULL WHERE note_id = ? AND user_id = ?",
-    values: [noteId, userId],
-  });
-  for (const [documentOrder, id] of ids.entries()) {
+  for (const id of ids) {
     statements.push({
-      sql: "UPDATE image_assets SET note_id = ?, document_order = ? WHERE id = ? AND user_id = ?",
-      values: [noteId, documentOrder, id, userId],
+      sql: `UPDATE image_assets SET note_id = ?, document_order = ? WHERE id = ? AND user_id = ?${guardSql}`,
+      values: [noteId, imageDocumentOrder.get(id) ?? null, id, userId, ...guardValues],
     });
   }
-  await database.batch(statements);
-  return true;
+  for (const id of references.assetIds) {
+    statements.push({
+      sql: `
+        INSERT INTO note_asset_references (note_id, asset_id, user_id, document_order)
+        SELECT ?, asset.id, ?, ?
+        FROM (SELECT ? AS id) expected
+        LEFT JOIN image_assets asset
+          ON asset.id = expected.id
+          AND asset.user_id = ?
+          AND (asset.note_id IS NULL OR asset.note_id = ?)
+        WHERE ${guard?.sql ?? "1 = 1"}
+      `,
+      values: [
+        noteId,
+        userId,
+        imageDocumentOrder.get(id) ?? null,
+        id,
+        userId,
+        noteId,
+        ...guardValues,
+      ],
+    });
+  }
+  return statements;
+}
+
+export function isInvalidNoteAssetReferenceError(error: unknown) {
+  return (
+    error instanceof Error &&
+    /note_asset_references\.asset_id|FOREIGN KEY constraint failed/iu.test(error.message)
+  );
 }
 
 export async function getNote(database: SqliteDatabase, userId: string, noteId: string) {

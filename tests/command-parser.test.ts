@@ -70,13 +70,24 @@ describe("create note command parser", () => {
 });
 
 describe("search prefix parser", () => {
-  test("parses in-note search prefixes", () => {
-    expect(parseSearchPrefixCommand("搜索 关键词")).toEqual({ scope: "in-note", term: "关键词" });
+  test("parses explicit in-note search prefixes", () => {
+    expect(parseSearchPrefixCommand("搜索 关键词")).toEqual({
+      scope: "in-note",
+      term: "关键词",
+    });
+    expect(parseSearchPrefixCommand("搜索：全角冒号")).toEqual({
+      scope: "in-note",
+      term: "全角冒号",
+    });
+    expect(parseSearchPrefixCommand("当前笔记 关键词")).toEqual({
+      scope: "in-note",
+      term: "关键词",
+    });
     expect(parseSearchPrefixCommand("查找:重点 内容")).toEqual({
       scope: "in-note",
       term: "重点 内容",
     });
-    expect(parseSearchPrefixCommand("搜索：全角冒号")).toEqual({
+    expect(parseSearchPrefixCommand("当前笔记：全角冒号")).toEqual({
       scope: "in-note",
       term: "全角冒号",
     });
@@ -88,7 +99,7 @@ describe("search prefix parser", () => {
       scope: "in-note",
       term: "uppercase",
     });
-    expect(parseSearchPrefixCommand("   搜索  缩进文本  ")).toEqual({
+    expect(parseSearchPrefixCommand("   当前笔记  缩进文本  ")).toEqual({
       scope: "in-note",
       term: "缩进文本",
     });
@@ -116,7 +127,7 @@ describe("search prefix parser", () => {
   });
 
   test("returns null when no valid prefix delimiter is present", () => {
-    expect(parseSearchPrefixCommand("搜索")).toBeNull();
+    expect(parseSearchPrefixCommand("当前笔记")).toBeNull();
     expect(parseSearchPrefixCommand("搜索笔记")).toBeNull();
     expect(parseSearchPrefixCommand("全局搜索")).toBeNull();
     expect(parseSearchPrefixCommand("全局搜索笔记")).toBeNull();

@@ -38,6 +38,36 @@ type MenuState = {
   trigger: HTMLElement | null;
 };
 
+const TAB_STOP_SELECTOR =
+  'a[href], area[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), iframe, object, embed, [contenteditable="true"], [tabindex]';
+
+function focusOutsideContextMenu(
+  trigger: HTMLElement | null,
+  menu: HTMLElement | null,
+  backwards: boolean,
+) {
+  const candidates = Array.from(document.querySelectorAll<HTMLElement>(TAB_STOP_SELECTOR)).filter(
+    (element) =>
+      !menu?.contains(element) &&
+      element.tabIndex >= 0 &&
+      !element.matches(":disabled") &&
+      !element.closest("[inert], [hidden], [aria-hidden='true']") &&
+      element.getAttribute("type") !== "hidden" &&
+      getComputedStyle(element).visibility !== "hidden" &&
+      element.getClientRects().length > 0,
+  );
+  const triggerIndex = trigger ? candidates.indexOf(trigger) : -1;
+  const targetIndex =
+    triggerIndex < 0
+      ? backwards
+        ? candidates.length - 1
+        : 0
+      : triggerIndex + (backwards ? -1 : 1);
+  const target = candidates[targetIndex];
+  if (target) target.focus({ preventScroll: true });
+  else if (trigger?.isConnected) trigger.focus({ preventScroll: true });
+}
+
 // One event closes any previous menu, including menus owned by a different region.
 const OPEN_EVENT = "xiangying-context-menu-open";
 
@@ -212,11 +242,18 @@ function ContextMenu({
     };
     const onKey = (event: KeyboardEvent) => {
       if (event.isComposing || event.keyCode === 229) return;
-      if (event.key === "Escape" || event.key === "Tab") {
+      if (event.key === "Escape") {
         event.preventDefault();
         event.stopImmediatePropagation();
         onClose();
         if (state.trigger?.isConnected) state.trigger.focus({ preventScroll: true });
+        return;
+      }
+      if (event.key === "Tab") {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        focusOutsideContextMenu(state.trigger, rootRef.current, event.shiftKey);
+        onClose();
         return;
       }
       if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;

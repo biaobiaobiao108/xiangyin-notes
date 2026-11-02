@@ -2,6 +2,7 @@ node_modules
 dist
 data
 docs
+tests
 electron
 scratch
 .workbuddy
@@ -11,4 +12,3 @@ scratch
 .env.*
 *.log
 *.md
-tests

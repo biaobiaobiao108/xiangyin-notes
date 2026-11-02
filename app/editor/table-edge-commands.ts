@@ -1,7 +1,7 @@
 import type { Editor } from "@tiptap/core";
 import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { closeHistory } from "@tiptap/pm/history";
-import { TextSelection } from "@tiptap/pm/state";
+import { TextSelection, type SelectionBookmark } from "@tiptap/pm/state";
 
 export type TableEdgeAxis = "columns" | "rows";
 
@@ -16,25 +16,60 @@ export type ActiveTableContext = {
 export type TableEdgeSnapshot = Pick<
   ActiveTableContext,
   "node" | "position" | "lastCellTextPosition"
->;
+> & { selectionBookmark: SelectionBookmark };
 
 export type TableEdgeTransactionOptions = {
   addToHistory?: boolean;
   emitUpdate?: boolean;
   closeHistory?: boolean;
+  preserveSelection?: boolean;
 };
 
-export function getTableEdgeDragDelta(distance: number, currentSize: number, step = 28) {
+export function getTableEdgeDragDelta(
+  distance: number,
+  currentSize: number,
+  step = 28,
+  existingItemSizes?: readonly number[],
+) {
   if (!Number.isFinite(distance) || currentSize < 1 || step < 1) return 0;
-  const steps = Math.floor(Math.abs(distance) / step);
-  if (!steps) return 0;
-  const requested = Math.sign(distance) * steps;
-  return requested < 0 ? -Math.min(steps, currentSize - 1) : steps;
+  if (distance >= 0) return Math.round(distance / step);
+
+  let delta = 0;
+  let boundary = 0;
+  let nearestDistance = Math.abs(distance);
+  for (let index = currentSize - 1; index > 0; index -= 1) {
+    boundary -= Math.max(1, existingItemSizes?.[index] || step);
+    const distanceToBoundary = Math.abs(distance - boundary);
+    if (distanceToBoundary >= nearestDistance) break;
+    nearestDistance = distanceToBoundary;
+    delta = index - currentSize;
+  }
+  return delta;
 }
 
-export function snapTableEdgeDrag(distance: number, currentSize: number, step = 28) {
-  const delta = getTableEdgeDragDelta(distance, currentSize, step);
-  return { delta, snappedDistance: delta * step };
+export function snapTableEdgeDrag(
+  distance: number,
+  currentSize: number,
+  step = 28,
+  existingItemSizes?: readonly number[],
+) {
+  const delta = getTableEdgeDragDelta(distance, currentSize, step, existingItemSizes);
+  if (delta >= 0) return { delta, snappedDistance: delta * step };
+
+  let snappedDistance = 0;
+  for (let index = currentSize - 1; index >= currentSize + delta; index -= 1) {
+    snappedDistance -= Math.max(1, existingItemSizes?.[index] || step);
+  }
+  return { delta, snappedDistance };
+}
+
+export function hasTableEdgeDragMoved(
+  start: { x: number; y: number },
+  current: { x: number; y: number },
+  alreadyMoved = false,
+  threshold = 6,
+) {
+  return alreadyMoved || Math.hypot(current.x - start.x, current.y - start.y) >= threshold;
 }
 
 function createTableContext(node: ProseMirrorNode, position: number): ActiveTableContext | null {
@@ -87,6 +122,7 @@ export function getActiveTableSnapshot(
     node: context.node,
     position: context.position,
     lastCellTextPosition: context.lastCellTextPosition,
+    selectionBookmark: editor.state.selection.getBookmark(),
   };
 }
 
@@ -102,13 +138,42 @@ export function restoreActiveTableSnapshot(
     .chain()
     .command(({ tr }) => {
       tr.replaceWith(context.position, context.position + context.node.nodeSize, snapshot.node);
-      tr.setSelection(TextSelection.near(tr.doc.resolve(snapshot.lastCellTextPosition), 1));
+      tr.setSelection(
+        options.preserveSelection
+          ? snapshot.selectionBookmark.resolve(tr.doc)
+          : TextSelection.near(tr.doc.resolve(snapshot.lastCellTextPosition), 1),
+      );
       if (options.addToHistory === false) tr.setMeta("addToHistory", false);
       if (options.emitUpdate === false) tr.setMeta("preventUpdate", true);
       if (options.closeHistory) closeHistory(tr);
       return true;
     })
     .run();
+}
+
+export function previewActiveTableSize(
+  editor: Editor,
+  snapshot: TableEdgeSnapshot,
+  axis: TableEdgeAxis,
+  delta: number,
+) {
+  const context = getActiveTableContext(editor, snapshot.position);
+  if (!context) return false;
+
+  const nextTable = delta
+    ? resizeTableNode(snapshot.node, axis, delta, editor.state.schema)
+    : snapshot.node;
+  if (!nextTable) return false;
+
+  const tr = editor.state.tr.replaceWith(
+    context.position,
+    context.position + context.node.nodeSize,
+    nextTable,
+  );
+  tr.setSelection(editor.state.selection.map(tr.doc, tr.mapping));
+  tr.setMeta("addToHistory", false).setMeta("preventUpdate", true);
+  editor.view.dispatch(tr);
+  return true;
 }
 
 export function adjustActiveTableSize(
@@ -122,24 +187,8 @@ export function adjustActiveTableSize(
   const amount = Math.trunc(delta);
   if (!context || !amount) return false;
 
-  const currentSize = axis === "columns" ? context.columns : context.rows;
-  const operationCount = amount > 0 ? amount : Math.min(currentSize - 1, Math.abs(amount));
-  if (operationCount < 1) return false;
-
-  const schema = editor.state.schema;
-  let nextTable = context.node;
-  for (let index = 0; index < operationCount; index += 1) {
-    const next =
-      axis === "columns"
-        ? amount > 0
-          ? addTrailingColumn(nextTable, schema)
-          : removeTrailingColumn(nextTable)
-        : amount > 0
-          ? addTrailingRow(nextTable, schema)
-          : removeTrailingRow(nextTable);
-    if (!next) return false;
-    nextTable = next;
-  }
+  const nextTable = resizeTableNode(context.node, axis, amount, editor.state.schema);
+  if (!nextTable) return false;
 
   const lastCellPosition = getLastCellTextPosition(context.position, nextTable);
   return editor
@@ -153,6 +202,35 @@ export function adjustActiveTableSize(
       return true;
     })
     .run();
+}
+
+function resizeTableNode(
+  table: ProseMirrorNode,
+  axis: TableEdgeAxis,
+  delta: number,
+  schema: Editor["state"]["schema"],
+) {
+  const amount = Math.trunc(delta);
+  if (!amount) return null;
+
+  const currentSize = axis === "columns" ? (table.firstChild?.childCount ?? 0) : table.childCount;
+  const operationCount = amount > 0 ? amount : Math.min(currentSize - 1, Math.abs(amount));
+  if (operationCount < 1) return null;
+
+  let nextTable = table;
+  for (let index = 0; index < operationCount; index += 1) {
+    const next =
+      axis === "columns"
+        ? amount > 0
+          ? addTrailingColumn(nextTable, schema)
+          : removeTrailingColumn(nextTable)
+        : amount > 0
+          ? addTrailingRow(nextTable, schema)
+          : removeTrailingRow(nextTable);
+    if (!next) return null;
+    nextTable = next;
+  }
+  return nextTable;
 }
 
 function getLastCellTextPosition(tablePosition: number, table: ProseMirrorNode) {

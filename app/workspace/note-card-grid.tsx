@@ -5,18 +5,20 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
+  useState,
+  type DragEvent as ReactDragEvent,
   type MouseEvent as ReactMouseEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { Archive, Check, Menu, Search, Star } from "lucide-react";
-import type { NoteSort, NoteSummary, NoteView, Notebook } from "../../shared/types";
+import { Archive, Menu, Search, Star } from "lucide-react";
+import type { NoteSummary, NoteView, Notebook } from "../../shared/types";
 import { playEntranceAnimation } from "../animation";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { resolveNoteClickAction, type NoteSelectionClick } from "./note-list-selection";
 import { EmptyTrashButton } from "./empty-trash-button";
 import { getNoteTags, relativeDate, sortNotes, viewLabel } from "./helpers";
+import { NOTE_DRAG_MIME_TYPE, setNoteDragImage } from "./note-drag-drop";
 import { NoteTags } from "./note-tags";
-import { MobileCollectionHeader } from "./mobile-collection-header";
 import { useVirtualCardMasonry } from "./use-virtual-card-masonry";
 import { useScrollEdges } from "./use-scroll-edges";
 
@@ -24,10 +26,7 @@ export type NoteCardGridPanelProps = {
   notes: NoteSummary[];
   total: number;
   hasMore: boolean;
-  sort: NoteSort;
-  setSort: (sort: NoteSort) => void;
   isMobileViewport?: boolean;
-  onToggleLayout?: () => void;
   selectedIds: ReadonlySet<string>;
   onOpenNote: (id: string) => void;
   onToggleSelectNote: (
@@ -57,10 +56,7 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
   notes,
   total,
   hasMore,
-  sort,
-  setSort,
   isMobileViewport = false,
-  onToggleLayout,
   selectedIds,
   onOpenNote,
   onToggleSelectNote,
@@ -85,18 +81,56 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
   const panelRef = useRef<HTMLElement>(null);
   const gridScrollRef = useRef<HTMLDivElement>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
-  const sortedNotes = useMemo(() => sortNotes(notes, sort), [notes, sort]);
+  const sortedNotes = useMemo(() => sortNotes(notes, "updated"), [notes]);
   const notebooksById = useMemo(
     () => new Map(notebooks.map((notebook) => [notebook.id, notebook])),
     [notebooks],
   );
   const isTrashView = view === "trash";
-  const showNotebook = !currentNotebookName && view !== "inbox";
+  const showNotebook = true;
   const masonry = useVirtualCardMasonry(sortedNotes, gridScrollRef, isMobileViewport);
   const cardGridScrollEdges = useScrollEdges(gridScrollRef, [
     sortedNotes.length,
     masonry.totalHeight,
   ]);
+
+  const [draggingNoteIds, setDraggingNoteIds] = useState<ReadonlySet<string> | null>(null);
+  const dragFrameRef = useRef<number | null>(null);
+
+  const handleCardDragStart = useCallback(
+    (note: NoteSummary, event: ReactDragEvent<HTMLElement>) => {
+      if (isMobileViewport) return;
+      const inSelection = selectedIds.has(note.id);
+      const ids =
+        selectedIds.size > 1
+          ? inSelection
+            ? Array.from(selectedIds)
+            : Array.from(new Set([...selectedIds, note.id]))
+          : selectedIds.size === 1 && !inSelection
+            ? [selectedIds.values().next().value!, note.id]
+            : [note.id];
+
+      const serialized = JSON.stringify(ids);
+      event.dataTransfer.setData(NOTE_DRAG_MIME_TYPE, serialized);
+      event.dataTransfer.setData("text/plain", serialized);
+      event.dataTransfer.effectAllowed = "move";
+      setNoteDragImage(event.dataTransfer, event.currentTarget, ids.length);
+
+      // 延迟到下一动画帧设置 is-dragging，避免在 dragstart 事件同微任务内重渲染 DOM 打断 Chromium 的拖拽初始化
+      dragFrameRef.current = requestAnimationFrame(() => {
+        dragFrameRef.current = null;
+        setDraggingNoteIds(new Set(ids));
+      });
+    },
+    [isMobileViewport, selectedIds],
+  );
+
+  const handleCardDragEnd = useCallback(() => {
+    if (dragFrameRef.current !== null) cancelAnimationFrame(dragFrameRef.current);
+    dragFrameRef.current = null;
+    setDraggingNoteIds(null);
+  }, []);
+
   const renderCard = useCallback(
     (note: NoteSummary, index: number) => (
       <NoteCardItem
@@ -106,6 +140,7 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
         position={index + 1}
         setSize={Math.max(total, notes.length)}
         isSelected={selectedIds.has(note.id)}
+        selectedIds={selectedIds}
         hasSelectionActive={selectedIds.size > 0}
         showNotebook={showNotebook}
         onOpen={onOpenNote}
@@ -113,9 +148,15 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
         onToggleFavorite={onToggleFavoriteNote}
         notebook={notebooksById.get(note.notebookId)}
         isTrashView={isTrashView}
+        isDragging={draggingNoteIds?.has(note.id) ?? false}
+        onDragStart={handleCardDragStart}
+        onDragEnd={handleCardDragEnd}
       />
     ),
     [
+      draggingNoteIds,
+      handleCardDragEnd,
+      handleCardDragStart,
       isMobileViewport,
       isTrashView,
       notebooksById,
@@ -195,26 +236,9 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
       aria-hidden={inert || undefined}
       inert={inert}
     >
-      {/* 沉浸式瀑布流滚动区域（无多余顶栏） */}
       <div
         className={`card-grid-scroll-shell${cardGridScrollEdges.before ? " has-scroll-before" : ""}${cardGridScrollEdges.after ? " has-scroll-after" : ""}`}
       >
-        {isMobileViewport && onOpenSidebar && (
-          <MobileCollectionHeader
-            active={!inert}
-            heading={query ? "搜索结果" : (currentNotebookName ?? viewLabel(view))}
-            total={total}
-            shown={notes.length}
-            query={query}
-            sort={sort}
-            onSort={setSort}
-            onBack={onOpenSidebar}
-            layout="cards"
-            onToggleLayout={onToggleLayout}
-            onEmptyTrash={onEmptyTrash}
-            trashBusy={trashBusy}
-          />
-        )}
         {!isMobileViewport && onOpenSidebar && (
           <button
             className="icon-button card-grid-mobile-menu mobile-only"
@@ -300,7 +324,9 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
                 onClick={onLoadMore}
                 disabled={isLoadingMore}
               >
-                {isLoadingMore ? "正在加载……" : `加载更多（已显示 ${notes.length} / ${total}）`}
+                {isLoadingMore
+                  ? "正在加载……"
+                  : `加载更多（已显示 ${notes.length}${total > notes.length ? ` / ${total}` : ""}）`}
               </button>
             </div>
           )}
@@ -334,6 +360,10 @@ type NoteCardItemProps = {
   onToggleFavorite: (note: NoteSummary) => void;
   notebook?: Notebook;
   isTrashView: boolean;
+  selectedIds?: ReadonlySet<string>;
+  isDragging: boolean;
+  onDragStart: (note: NoteSummary, event: ReactDragEvent<HTMLElement>) => void;
+  onDragEnd: () => void;
 };
 
 const NoteCardItem = memo(function NoteCardItem({
@@ -342,6 +372,7 @@ const NoteCardItem = memo(function NoteCardItem({
   position,
   setSize,
   isSelected,
+  selectedIds,
   hasSelectionActive,
   showNotebook,
   onOpen,
@@ -349,6 +380,9 @@ const NoteCardItem = memo(function NoteCardItem({
   onToggleFavorite,
   notebook,
   isTrashView,
+  isDragging,
+  onDragStart,
+  onDragEnd,
 }: NoteCardItemProps) {
   const handleCardClick = (event: ReactMouseEvent) => {
     const intent = resolveNoteClickAction(event, { hasSelectionActive, isMobileViewport });
@@ -373,7 +407,10 @@ const NoteCardItem = memo(function NoteCardItem({
   return (
     <article
       data-note-id={note.id}
-      className={`note-card ${isSelected ? "is-selected" : ""} ${hasThumbnail ? "has-thumbnail" : ""}`}
+      draggable={!isMobileViewport}
+      onDragStart={(event) => onDragStart(note, event)}
+      onDragEnd={onDragEnd}
+      className={`note-card ${isSelected ? "is-selected" : ""} ${hasThumbnail ? "has-thumbnail" : ""} ${isDragging ? "is-dragging" : ""}`.trim()}
       onClick={handleCardClick}
       role="listitem"
       aria-posinset={position}
@@ -415,6 +452,7 @@ const NoteCardItem = memo(function NoteCardItem({
               alt=""
               loading="lazy"
               decoding="async"
+              draggable={false}
               className="note-card-cover-image"
             />
           </div>
@@ -425,13 +463,6 @@ const NoteCardItem = memo(function NoteCardItem({
           {/* 顶部标题与收藏星标 */}
           <div className={`note-card-header ${!isTrashView ? "has-favorite-action" : ""}`}>
             <h3 className="note-card-title">{displayTitle}</h3>
-            <span className="note-selection-slot" aria-hidden="true">
-              {isSelected && (
-                <span className="note-selection-mark">
-                  <Check size={11} strokeWidth={2.5} />
-                </span>
-              )}
-            </span>
             {!isTrashView && (
               <button
                 type="button"
@@ -444,6 +475,8 @@ const NoteCardItem = memo(function NoteCardItem({
               </button>
             )}
           </div>
+
+          <NoteTags tags={tags} variant="card" />
 
           {/* 正文摘要：自上而下流畅展示，更高高度 */}
           {note.preview ? (
@@ -464,8 +497,6 @@ const NoteCardItem = memo(function NoteCardItem({
                 <span className="notebook-badge-name">{displayNotebook.name}</span>
               </span>
             )}
-            <NoteTags tags={tags} variant="card" />
-
             <time className="note-card-date">{relativeDate(note.updatedAt)}</time>
           </div>
         </div>

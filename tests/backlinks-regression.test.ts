@@ -2,8 +2,8 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { openDatabase } from "../server/test-db";
 import type { TestSqliteDatabase } from "../server/test-db";
 import { handleRequest } from "../server/index";
-import { MAX_SHORT_TERM_CONTENT_CHARS, MAX_SHORT_TERMS_PER_NOTE } from "../server/note-search";
 import { NOTE_CONTENT_MAX_BYTES } from "../server/core";
+import { waitForOrphanAssetCleanup } from "../server/routes/assets";
 import { BACKLINK_MENTION_LIMIT, BACKLINK_REFERENCE_LIMIT } from "../server/core";
 
 let database: TestSqliteDatabase;
@@ -44,13 +44,40 @@ beforeEach(async () => {
   notebookId = (await request("/api/notebooks")).body.notebooks[0].id;
 });
 
-afterEach(() => database.close());
+afterEach(async () => {
+  await waitForOrphanAssetCleanup(database);
+  database.close();
+});
 
 async function createNote(title: string, contentMarkdown = "") {
   const result = await request("/api/notes", "POST", { notebookId, title, contentMarkdown });
   expect(result.response.status).toBe(201);
   return result.body.note;
 }
+
+test("backlinks find short titles containing spaces and punctuation", async () => {
+  const target = await createNote("a b");
+  const source = await createNote("来源", "mention a b and A.B here");
+  const result = await request(`/api/notes/${target.id}/backlinks`);
+  expect(result.response.status).toBe(200);
+  expect(result.body.unlinkedMentions).toContainEqual(
+    expect.objectContaining({ sourceNoteId: source.id, matchText: "a b" }),
+  );
+});
+
+test("renaming a target preserves nested code examples while updating real wiki links", async () => {
+  const target = await createNote("旧标题");
+  const examples = "> ~~~md\r\n> [[旧标题]]\r\n> ~~~\r\n\r\n- ~~~md\r\n  [[旧标题]]\r\n  ~~~";
+  const source = await createNote("来源", `[[旧标题]]\r\n\r\n${examples}`);
+  const renamed = await request(`/api/notes/${target.id}`, "PATCH", {
+    version: target.version,
+    title: "新标题",
+  });
+  expect(renamed.response.status).toBe(200);
+  const saved = await request(`/api/notes/${source.id}`);
+  expect(saved.body.note.contentMarkdown).toBe(`[[新标题]]\r\n\r\n${examples}`);
+  expect(saved.body.note.version).toBe(source.version + 1);
+});
 
 for (const title of ["苹果", "反链测试"]) {
   test(`repeated backlinks requests work after truncating mentions of ${title}`, async () => {
@@ -147,22 +174,15 @@ test("link mention rejects replacements above the D1 UTF-8 byte limit", async ()
   expect(after.version).toBe(source.version);
 });
 
-for (const limit of ["content", "terms"] as const) {
-  test(`backlinks find a short-title mention beyond the ${limit} index limit`, async () => {
+for (const limit of ["content", "former term-count"] as const) {
+  test(`backlinks find a short-title mention beyond the ${limit} boundary`, async () => {
     const target = await createNote("苹果");
     const prefix =
       limit === "content"
-        ? "甲".repeat(MAX_SHORT_TERM_CONTENT_CHARS + 1)
-        : Array.from({ length: MAX_SHORT_TERMS_PER_NOTE }, (_, index) =>
-            String.fromCodePoint(0x4e00 + index),
-          ).join(" ");
+        ? "甲".repeat(40_100)
+        : Array.from({ length: 600 }, (_, index) => String.fromCodePoint(0x4e00 + index)).join(" ");
     const content = `${prefix}\n苹果在这里`;
     const source = await createNote("来源", content);
-    expect(
-      database
-        .query("SELECT term FROM note_short_terms WHERE note_id = ? AND term = ?")
-        .get(source.id, "苹果"),
-    ).toBeNull();
     const result = await request(`/api/notes/${target.id}/backlinks`);
     expect(result.response.status).toBe(200);
     expect(result.body.truncated).toBe(false);

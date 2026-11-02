@@ -6,3 +6,8 @@ export type WorkspaceChangeMessage = {
   resource: WorkspaceChangeResource;
   noteId?: string;
 };
+
+export type WorkspaceSyncMessage = {
+  type: "workspace.sync";
+  revision: number;
+};

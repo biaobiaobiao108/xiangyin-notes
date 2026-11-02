@@ -2,7 +2,6 @@ import { rm } from "node:fs/promises";
 import { resolve } from "node:path";
 
 await rm(resolve("./dist/client"), { recursive: true, force: true });
-await rm(resolve("./dist/worker"), { recursive: true, force: true });
 
 const clientBuild = await Bun.build({
   entrypoints: ["./app/index.html"],
@@ -26,6 +25,7 @@ await Bun.write(indexPath, indexHtml);
 
 for (const file of [
   "manifest.webmanifest",
+  "favicon.png",
   "icon-192.png",
   "icon-512.png",
   "icon-maskable-512.png",

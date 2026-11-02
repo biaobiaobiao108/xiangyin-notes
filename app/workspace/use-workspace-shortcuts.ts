@@ -21,6 +21,7 @@ export type UseWorkspaceShortcutsOptions = {
   toggleTypewriterMode: () => void;
   exitFocusMode: () => void;
   openCommandMenu: (initialQuery?: string) => void;
+  openReplace?: () => void;
   toggleViewLayout?: () => void;
   isCardEditing?: boolean;
   onExitCardEditing?: () => void;
@@ -28,6 +29,7 @@ export type UseWorkspaceShortcutsOptions = {
   clearSelection?: () => void;
   outlineOpen?: boolean;
   closeOutline?: () => void;
+  returnFocusToList?: () => void;
 };
 
 export type WorkspaceKeyboardContext = {
@@ -44,11 +46,13 @@ export type WorkspaceKeyboardContext = {
     toggleTypewriterMode: () => void;
     exitFocusMode: () => void;
     openCommandMenu: (initialQuery?: string) => void;
+    openReplace?: () => void;
     toggleViewLayout?: () => void;
     onExitCardEditing?: () => void;
     clearSelection?: () => void;
     closeOutline?: () => void;
     clearSearchHighlight?: () => void;
+    returnFocusToList?: () => void;
   };
 };
 
@@ -69,11 +73,13 @@ export function handleWorkspaceKeyDown(event: KeyboardEvent, ctx: WorkspaceKeybo
     toggleTypewriterMode,
     exitFocusMode,
     openCommandMenu,
+    openReplace,
     toggleViewLayout,
     onExitCardEditing,
     clearSelection,
     closeOutline,
     clearSearchHighlight,
+    returnFocusToList,
   } = handlers;
 
   if (event.key === "Escape") {
@@ -126,6 +132,17 @@ export function handleWorkspaceKeyDown(event: KeyboardEvent, ctx: WorkspaceKeybo
       return;
     }
 
+    // 优先级 6: 如果焦点在编辑器内，退回列表
+    if (returnFocusToList) {
+      const activeEl = typeof document !== "undefined" ? document.activeElement : null;
+      if (activeEl?.closest(".editor-panel")) {
+        event.preventDefault();
+        stopEscapePropagation(event);
+        returnFocusToList();
+        return;
+      }
+    }
+
     return;
   }
 
@@ -138,11 +155,15 @@ export function handleWorkspaceKeyDown(event: KeyboardEvent, ctx: WorkspaceKeybo
   } else if (isMod && (event.key === "k" || event.key === "K")) {
     event.preventDefault();
     openCommandMenu("");
-  } else if (isMod && (event.key === "f" || event.key === "F") && !event.shiftKey) {
+  } else if (
+    isMod &&
+    matchesShortcutLetter(event, "f") &&
+    !event.shiftKey &&
+    !event.altKey &&
+    !hasModalOpen
+  ) {
     event.preventDefault();
-    const selectedText = window.getSelection()?.toString().trim() ?? "";
-    const initial = selectedText && selectedText.length <= 50 ? selectedText : "";
-    openCommandMenu(initial);
+    openReplace?.();
   } else if (isMod && event.key === "\\") {
     event.preventDefault();
     toggleSidebar();
@@ -175,6 +196,7 @@ export function useWorkspaceShortcuts(options: UseWorkspaceShortcutsOptions) {
     toggleTypewriterMode,
     exitFocusMode,
     openCommandMenu,
+    openReplace,
     toggleViewLayout,
     isCardEditing = false,
     onExitCardEditing,
@@ -182,6 +204,7 @@ export function useWorkspaceShortcuts(options: UseWorkspaceShortcutsOptions) {
     clearSelection,
     outlineOpen = false,
     closeOutline,
+    returnFocusToList,
   } = options;
 
   const focusModeRef = useRef(focusMode);
@@ -202,11 +225,13 @@ export function useWorkspaceShortcuts(options: UseWorkspaceShortcutsOptions) {
     toggleTypewriterMode,
     exitFocusMode,
     openCommandMenu,
+    openReplace,
     toggleViewLayout,
     onExitCardEditing,
     clearSelection,
     closeOutline,
     clearSearchHighlight,
+    returnFocusToList,
   });
   handlersRef.current = {
     toggleSidebar,
@@ -214,11 +239,13 @@ export function useWorkspaceShortcuts(options: UseWorkspaceShortcutsOptions) {
     toggleTypewriterMode,
     exitFocusMode,
     openCommandMenu,
+    openReplace,
     toggleViewLayout,
     onExitCardEditing,
     clearSelection,
     closeOutline,
     clearSearchHighlight,
+    returnFocusToList,
   };
 
   useEffect(() => {

@@ -10,20 +10,62 @@ import {
   type RefObject,
 } from "react";
 import type { NoteSummary } from "../../shared/types";
+import type { NoteGroup } from "./helpers";
+import { collapsingGroupRange, stickyGroupOffset } from "./group-layout";
 
 const VIRTUALIZE_AFTER = 140;
 const ESTIMATED_ROW_HEIGHT = 120;
+const GROUP_HEADER_HEIGHT = 30;
 const OVERSCAN_PX = 720;
+
+export type VirtualNoteListRow =
+  | { id: string; kind: "note"; note: NoteSummary; groupId?: string }
+  | { id: string; kind: "group"; group: NoteGroup; firstGroup: boolean };
+
+export function noteGroupRowId(groupId: string) {
+  return `group-marker:${groupId}`;
+}
+
+export function flattenNoteGroups(
+  groups: readonly NoteGroup[],
+  collapsedGroupIds: ReadonlySet<string>,
+  collapsingGroupId?: string | null,
+) {
+  const rows: VirtualNoteListRow[] = [];
+  for (const group of groups) {
+    if (group.notes.length === 0) continue;
+    rows.push({
+      id: noteGroupRowId(group.id),
+      kind: "group",
+      group,
+      firstGroup: rows.length === 0,
+    });
+    if (collapsedGroupIds.has(group.id) && collapsingGroupId !== group.id) continue;
+    for (const note of group.notes)
+      rows.push({ id: note.id, kind: "note", note, groupId: group.id });
+  }
+  return rows;
+}
 
 type Viewport = { top: number; height: number };
 
-function offsetsForRows(rows: readonly NoteSummary[], heights: Map<string, number>) {
-  const offsets = new Array<number>(rows.length + 1);
-  offsets[0] = 0;
+function estimatedRowHeight(row: VirtualNoteListRow) {
+  if (row.kind === "group") return row.firstGroup ? 0 : GROUP_HEADER_HEIGHT;
+  return ESTIMATED_ROW_HEIGHT;
+}
+
+export function offsetsForRows(rows: readonly VirtualNoteListRow[], heights: Map<string, number>) {
+  const baseOffsets = new Array<number>(rows.length + 1);
+  baseOffsets[0] = 0;
   for (let index = 0; index < rows.length; index += 1) {
-    offsets[index + 1] = offsets[index] + (heights.get(rows[index]!.id) ?? ESTIMATED_ROW_HEIGHT);
+    const row = rows[index]!;
+    baseOffsets[index + 1] =
+      baseOffsets[index]! +
+      (row.kind === "group" && row.firstGroup
+        ? 0
+        : (heights.get(row.id) ?? estimatedRowHeight(row)));
   }
-  return offsets;
+  return baseOffsets;
 }
 
 function indexAtOffset(offsets: readonly number[], offset: number) {
@@ -39,14 +81,19 @@ function indexAtOffset(offsets: readonly number[], offset: number) {
 }
 
 export function useVirtualNoteList(
-  rows: readonly NoteSummary[],
+  rows: readonly VirtualNoteListRow[],
+  retainedRowIds: ReadonlySet<string>,
   scrollRef: RefObject<HTMLDivElement | null>,
   scrollElement: HTMLDivElement | null,
   scope: string,
+  virtualizationCount = rows.length,
+  animatingGroupId: string | null = null,
+  isCollapsing = false,
 ) {
   const [viewport, setViewport] = useState<Viewport>({ top: 0, height: 800 });
   const [measurementRevision, setMeasurementRevision] = useState(0);
   const [pinnedIndex, setPinnedIndex] = useState<number | null>(null);
+  const [stickyHeaderHeight, setStickyHeaderHeight] = useState(0);
   const heightsRef = useRef(new Map<string, number>());
   const observerRef = useRef<ResizeObserver | null>(null);
   const rowElementsRef = useRef(new Map<string, HTMLLIElement>());
@@ -57,50 +104,78 @@ export function useVirtualNoteList(
   const indexById = useMemo(() => new Map(rows.map((row, index) => [row.id, index])), [rows]);
   const indexByIdRef = useRef(indexById);
   indexByIdRef.current = indexById;
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
   const offsets = useMemo(
     () => offsetsForRows(rows, heightsRef.current),
     [rows, measurementRevision],
   );
-  const offsetsRef = useRef(offsets);
-  offsetsRef.current = offsets;
-  const isVirtualized = rows.length > VIRTUALIZE_AFTER;
+  const transitionOffsetsRef = useRef<{ groupId: string; offsets: readonly number[] } | null>(null);
+  if (!animatingGroupId || !isCollapsing) {
+    transitionOffsetsRef.current = null;
+  } else if (transitionOffsetsRef.current?.groupId !== animatingGroupId) {
+    transitionOffsetsRef.current = { groupId: animatingGroupId, offsets };
+  }
+  const frozenOffsets = transitionOffsetsRef.current?.offsets;
+  // 展开时及时测量新出现的行，避免在动画结束后才从估算高度跳到真实高度。
+  const layoutOffsets =
+    isCollapsing && frozenOffsets?.length === offsets.length ? frozenOffsets : offsets;
+  const offsetsRef = useRef<readonly number[]>(layoutOffsets);
+  offsetsRef.current = layoutOffsets;
+  const isVirtualized = virtualizationCount > VIRTUALIZE_AFTER;
+  const hasGroupRows = rows[0]?.kind === "group";
 
   useLayoutEffect(() => {
     heightsRef.current.clear();
     rowRefCallbacksRef.current.clear();
     rowStylesRef.current.clear();
+    if (scrollElement) scrollElement.scrollTop = 0;
+    setViewport((current) => ({ ...current, top: 0 }));
+    setPinnedIndex(null);
     setMeasurementRevision((revision) => revision + 1);
-  }, [scope]);
+  }, [scope, scrollElement]);
 
   // 同一 scope 内删除或移出笔记后，及时裁掉已不存在的测量值与 ref 回调，避免长期滞留。
   useLayoutEffect(() => {
     const rowsRef = rowElementsRef.current;
     for (const noteId of heightsRef.current.keys()) {
-      if (!indexById.has(noteId)) heightsRef.current.delete(noteId);
+      if (!retainedRowIds.has(noteId)) heightsRef.current.delete(noteId);
     }
     for (const noteId of rowRefCallbacksRef.current.keys()) {
-      if (indexById.has(noteId)) continue;
+      if (retainedRowIds.has(noteId)) continue;
       const element = rowsRef.get(noteId);
       if (element) observerRef.current?.unobserve(element);
       rowsRef.delete(noteId);
       rowRefCallbacksRef.current.delete(noteId);
     }
-  }, [indexById]);
+  }, [retainedRowIds]);
 
   useLayoutEffect(() => {
     const container = scrollElement;
-    if (!container) return;
+    if (!container || !isVirtualized) return;
 
     let scrollFrame = 0;
+    let viewportHeight = container.clientHeight || 800;
     const updateViewport = () => {
-      contentInsetRef.current = Number.parseFloat(getComputedStyle(container).paddingTop) || 0;
       setViewport((current) => {
         const next = {
           top: Math.max(0, container.scrollTop - contentInsetRef.current),
-          height: container.clientHeight || current.height || 800,
+          height: viewportHeight,
         };
         return current.top === next.top && current.height === next.height ? current : next;
       });
+    };
+    const updateGeometry = () => {
+      contentInsetRef.current = Number.parseFloat(getComputedStyle(container).paddingTop) || 0;
+      const header = container.querySelector<HTMLElement>(
+        ".note-list-group-header.is-virtual-sticky",
+      );
+      const headerHeight = header?.getBoundingClientRect().height ?? 0;
+      setStickyHeaderHeight((current) =>
+        Math.abs(current - headerHeight) < 0.5 ? current : headerHeight,
+      );
+      viewportHeight = container.clientHeight || viewportHeight;
+      updateViewport();
     };
     const onScroll = () => {
       if (scrollFrame) return;
@@ -110,21 +185,28 @@ export function useVirtualNoteList(
       });
     };
     const resizeObserver =
-      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updateViewport);
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updateGeometry);
     resizeObserver?.observe(container);
+    const header = container.querySelector<HTMLElement>(
+      ".note-list-group-header.is-virtual-sticky",
+    );
+    if (header) resizeObserver?.observe(header);
     container.addEventListener("scroll", onScroll, { passive: true });
-    updateViewport();
+    window.addEventListener("resize", updateGeometry, { passive: true });
+    updateGeometry();
 
     return () => {
       if (scrollFrame) cancelAnimationFrame(scrollFrame);
       container.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", updateGeometry);
       resizeObserver?.disconnect();
     };
-  }, [scrollElement, scrollRef]);
+  }, [hasGroupRows, isVirtualized, scrollElement, scrollRef]);
 
   useLayoutEffect(() => {
     if (!scrollElement || !isVirtualized || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver((entries) => {
+      if (isCollapsing) return;
       const container = scrollElement;
       const oldOffsets = offsetsRef.current;
       const anchorIndex = container
@@ -148,7 +230,8 @@ export function useVirtualNoteList(
           : undefined;
         const nextHeight = measuredHeight ?? element.getBoundingClientRect().height;
         if (!Number.isFinite(nextHeight) || nextHeight <= 0) continue;
-        const previousHeight = heightsRef.current.get(noteId) ?? ESTIMATED_ROW_HEIGHT;
+        const previousHeight =
+          heightsRef.current.get(noteId) ?? estimatedRowHeight(rowsRef.current[index]!);
         if (Math.abs(previousHeight - nextHeight) < 0.75) continue;
         heightsRef.current.set(noteId, nextHeight);
         if (index < anchorIndex) anchorAdjustment += nextHeight - previousHeight;
@@ -165,29 +248,71 @@ export function useVirtualNoteList(
       observer.disconnect();
       if (observerRef.current === observer) observerRef.current = null;
     };
-  }, [isVirtualized, scrollElement, scrollRef]);
+  }, [isCollapsing, isVirtualized, scrollElement, scrollRef]);
 
   const startIndex = isVirtualized
-    ? indexAtOffset(offsets, Math.max(0, viewport.top - OVERSCAN_PX))
+    ? indexAtOffset(layoutOffsets, Math.max(0, viewport.top - OVERSCAN_PX))
     : 0;
+  const topVisibleIndex = rows.length
+    ? Math.min(indexAtOffset(layoutOffsets, viewport.top - stickyHeaderHeight), rows.length - 1)
+    : -1;
   const endIndex = isVirtualized
     ? Math.min(
         rows.length,
-        indexAtOffset(offsets, viewport.top + viewport.height + OVERSCAN_PX) + 1,
+        indexAtOffset(layoutOffsets, viewport.top + viewport.height + OVERSCAN_PX) + 1,
       )
     : rows.length;
+  const animatedGroup = useMemo(() => {
+    if (!animatingGroupId) return null;
+    const start = indexById.get(noteGroupRowId(animatingGroupId));
+    const range = collapsingGroupRange(rows, layoutOffsets, start);
+    return range && start !== undefined ? { ...range, start } : null;
+  }, [animatingGroupId, indexById, layoutOffsets, rows]);
+  const collapsingGroup = isCollapsing ? animatedGroup : null;
+  const shiftedStart = animatedGroup
+    ? Math.max(
+        animatedGroup.end,
+        indexAtOffset(layoutOffsets, viewport.top + animatedGroup.height - OVERSCAN_PX),
+      )
+    : 0;
+  const shiftedEnd = animatedGroup
+    ? Math.min(
+        rows.length,
+        indexAtOffset(
+          layoutOffsets,
+          viewport.top + viewport.height + animatedGroup.height + OVERSCAN_PX,
+        ) + 1,
+      )
+    : 0;
   const visibleRows = useMemo(() => {
     const indices = new Set<number>();
     for (let index = startIndex; index < endIndex; index += 1) indices.add(index);
+    if (isVirtualized && animatedGroup) {
+      indices.add(animatedGroup.start);
+      for (let index = shiftedStart; index < shiftedEnd; index += 1) indices.add(index);
+    }
     if (pinnedIndex !== null && pinnedIndex >= 0 && pinnedIndex < rows.length)
       indices.add(pinnedIndex);
-    const result: Array<{ note: NoteSummary; index: number; top: number }> = [];
+    const result: Array<{ row: VirtualNoteListRow; index: number; top: number }> = [];
     for (const index of [...indices].sort((left, right) => left - right)) {
-      const note = rows[index];
-      if (note) result.push({ note, index, top: offsets[index]! });
+      const row = rows[index];
+      if (row) result.push({ row, index, top: layoutOffsets[index]! });
     }
     return result;
-  }, [endIndex, offsets, pinnedIndex, rows, startIndex]);
+  }, [
+    animatedGroup,
+    endIndex,
+    isVirtualized,
+    layoutOffsets,
+    pinnedIndex,
+    rows,
+    startIndex,
+    shiftedStart,
+    shiftedEnd,
+  ]);
+  const nextGroupTop = visibleRows.find(
+    ({ row, index }) => index > topVisibleIndex && row.kind === "group",
+  )?.top;
 
   const getRowRef = useCallback((noteId: string) => {
     let callback = rowRefCallbacksRef.current.get(noteId);
@@ -245,7 +370,7 @@ export function useVirtualNoteList(
     const focusId = pendingFocusIdRef.current;
     if (!focusId) return;
     const row = scrollRef.current?.querySelector<HTMLButtonElement>(
-      `[data-note-id="${CSS.escape(focusId)}"] .note-row`,
+      `[data-note-id="${CSS.escape(focusId)}"] .note-row, [data-note-id="${CSS.escape(focusId)}"] .note-list-virtual-group-toggle`,
     );
     if (row) {
       pendingFocusIdRef.current = null;
@@ -268,8 +393,31 @@ export function useVirtualNoteList(
       if (!currentId) return;
       const currentIndex = indexByIdRef.current.get(currentId);
       if (currentIndex === undefined) return;
-      const nextIndex = event.shiftKey ? currentIndex - 1 : currentIndex + 1;
-      const boundaryIndex = event.shiftKey ? startIndex : endIndex - 1;
+      const direction = event.shiftKey ? -1 : 1;
+      const isFocusableRow = (index: number) => {
+        const row = rows[index];
+        return (
+          row !== undefined &&
+          !(row.kind === "group" && index === topVisibleIndex && pinnedIndex !== index)
+        );
+      };
+      let nextIndex = currentIndex + direction;
+      while (nextIndex >= 0 && nextIndex < rows.length && !isFocusableRow(nextIndex))
+        nextIndex += direction;
+      let boundaryIndex: number | null = null;
+      if (event.shiftKey) {
+        for (let index = startIndex; index < endIndex; index += 1) {
+          if (!isFocusableRow(index)) continue;
+          boundaryIndex = index;
+          break;
+        }
+      } else {
+        for (let index = endIndex - 1; index >= startIndex; index -= 1) {
+          if (!isFocusableRow(index)) continue;
+          boundaryIndex = index;
+          break;
+        }
+      }
       const focusedOutsideWindow = currentIndex < startIndex || currentIndex >= endIndex;
       if (
         (!focusedOutsideWindow && currentIndex !== boundaryIndex) ||
@@ -283,21 +431,41 @@ export function useVirtualNoteList(
       if (!container) return;
       pendingFocusIdRef.current = rows[nextIndex]!.id;
       setPinnedIndex(nextIndex);
-      const nextTop = offsets[nextIndex]!;
-      const nextHeight = offsets[nextIndex + 1]! - nextTop;
+      const nextTop = layoutOffsets[nextIndex]!;
+      const nextHeight = layoutOffsets[nextIndex + 1]! - nextTop;
       const targetScrollTop = event.shiftKey
         ? Math.max(0, nextTop - container.clientHeight + nextHeight + 80)
         : Math.max(0, nextTop - 80);
       container.scrollTop = targetScrollTop + contentInsetRef.current;
       setViewport({ top: targetScrollTop, height: container.clientHeight || viewport.height });
     },
-    [endIndex, isVirtualized, offsets, rows, scrollRef, startIndex, viewport.height],
+    [
+      endIndex,
+      isVirtualized,
+      layoutOffsets,
+      pinnedIndex,
+      rows,
+      scrollRef,
+      startIndex,
+      topVisibleIndex,
+      viewport.height,
+    ],
   );
 
   return {
     isVirtualized,
     visibleRows,
-    totalHeight: offsets[offsets.length - 1] ?? 0,
+    pinnedRowId: pinnedIndex === null ? null : (rows[pinnedIndex]?.id ?? null),
+    topVisibleRow: topVisibleIndex < 0 ? undefined : rows[topVisibleIndex],
+    stickyOffset: stickyGroupOffset(
+      nextGroupTop,
+      viewport.top - stickyHeaderHeight,
+      stickyHeaderHeight,
+    ),
+    collapsingGroup,
+    transitionGroup: animatedGroup,
+    totalHeight: layoutOffsets[layoutOffsets.length - 1] ?? 0,
+    rowTop: (index: number) => layoutOffsets[index] ?? 0,
     rowStyle,
     getRowRef,
     moveTabFocus,

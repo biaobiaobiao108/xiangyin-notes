@@ -120,23 +120,69 @@ export function BacklinksDialog({
 }: BacklinksDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
-  const [data, setData] = useState<NoteBacklinksResponse | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [data, setData] = useState<{ noteId: string; response: NoteBacklinksResponse } | null>(
+    null,
+  );
+  const [loadingNoteId, setLoadingNoteId] = useState<string | null>(null);
   const [linkingKey, setLinkingKey] = useState<string | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<{ noteId: string; message: string } | null>(null);
+  const noteIdRef = useRef(noteId);
+  const openRef = useRef(open);
+  const contextGenerationRef = useRef(0);
+  const requestIdRef = useRef(0);
+  const requestControllerRef = useRef<AbortController | null>(null);
+  noteIdRef.current = noteId;
+  openRef.current = open;
 
-  const fetchBacklinks = async () => {
+  const fetchBacklinks = async (
+    requestedNoteId = noteId,
+    contextGeneration = contextGenerationRef.current,
+  ) => {
+    if (
+      contextGenerationRef.current !== contextGeneration ||
+      !openRef.current ||
+      noteIdRef.current !== requestedNoteId
+    )
+      return;
+    const requestId = ++requestIdRef.current;
+    requestControllerRef.current?.abort();
+    const controller = new AbortController();
+    requestControllerRef.current = controller;
+    setLoadingNoteId(requestedNoteId);
     try {
-      setLoading(true);
-      setError("");
-      const res = await api.getBacklinks(noteId);
-      setData(res);
+      setError(null);
+      const res = await api.getBacklinks(requestedNoteId, { signal: controller.signal });
+      if (
+        controller.signal.aborted ||
+        requestId !== requestIdRef.current ||
+        contextGenerationRef.current !== contextGeneration ||
+        !openRef.current ||
+        noteIdRef.current !== requestedNoteId
+      )
+        return;
+      setData({ noteId: requestedNoteId, response: res });
       const totalCount = (res.linkedReferences?.length ?? 0) + (res.unlinkedMentions?.length ?? 0);
       onBacklinkCountChange?.(totalCount);
     } catch {
-      setError("反向链接加载失败，请稍后重试");
+      if (
+        controller.signal.aborted ||
+        requestId !== requestIdRef.current ||
+        contextGenerationRef.current !== contextGeneration ||
+        !openRef.current ||
+        noteIdRef.current !== requestedNoteId
+      )
+        return;
+      setError({ noteId: requestedNoteId, message: "反向链接加载失败，请稍后重试" });
     } finally {
-      setLoading(false);
+      if (
+        requestId === requestIdRef.current &&
+        contextGenerationRef.current === contextGeneration &&
+        openRef.current &&
+        noteIdRef.current === requestedNoteId
+      ) {
+        requestControllerRef.current = null;
+        setLoadingNoteId(null);
+      }
     }
   };
 
@@ -145,6 +191,8 @@ export function BacklinksDialog({
     if (!dialog) return;
 
     if (open) {
+      const contextGeneration = ++contextGenerationRef.current;
+      setLinkingKey(null);
       const returnFocus =
         document.activeElement instanceof HTMLElement ? document.activeElement : null;
       const handleNativeClose = () => onClose();
@@ -153,13 +201,20 @@ export function BacklinksDialog({
       if (!dialog.open) {
         dialog.showModal();
       }
-      void fetchBacklinks();
+      void fetchBacklinks(noteId, contextGeneration);
       return () => {
+        contextGenerationRef.current += 1;
+        requestIdRef.current += 1;
+        requestControllerRef.current?.abort();
+        requestControllerRef.current = null;
+        setLoadingNoteId(null);
+        setLinkingKey(null);
         dialog.removeEventListener("close", handleNativeClose);
         if (dialog.open) dialog.close();
         if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
       };
     } else {
+      contextGenerationRef.current += 1;
       if (dialog.open) dialog.close();
     }
   }, [open, noteId]);
@@ -187,9 +242,15 @@ export function BacklinksDialog({
     matchText: string,
     key: string,
   ) => {
+    const contextGeneration = contextGenerationRef.current;
+    const isCurrent = () =>
+      contextGenerationRef.current === contextGeneration &&
+      openRef.current &&
+      noteIdRef.current === noteId;
+    if (!isCurrent()) return;
     try {
       setLinkingKey(key);
-      setError("");
+      setError(null);
       await api.linkMention(noteId, {
         sourceNoteId,
         sourceVersion,
@@ -197,22 +258,25 @@ export function BacklinksDialog({
         matchEnd: matchStart + matchText.length,
         matchText,
       });
-      await fetchBacklinks();
+      if (isCurrent()) await fetchBacklinks(noteId, contextGeneration);
     } catch (reason) {
+      if (!isCurrent()) return;
       const message =
         reason instanceof ApiError && reason.code === "MENTION_STALE"
           ? reason.message
           : "添加链接失败，请重试";
-      await fetchBacklinks();
-      setError(message);
+      await fetchBacklinks(noteId, contextGeneration);
+      if (isCurrent()) setError({ noteId, message });
     } finally {
-      setLinkingKey(null);
+      if (isCurrent()) setLinkingKey(null);
     }
   };
 
+  const currentData = data?.noteId === noteId ? data.response : null;
+  const currentError = error?.noteId === noteId ? error.message : "";
   const unifiedItems: BacklinkUnifiedItem[] = useMemo(() => {
-    if (!data) return [];
-    const linked: BacklinkUnifiedItem[] = (data.linkedReferences || []).map((item) => ({
+    if (!currentData) return [];
+    const linked: BacklinkUnifiedItem[] = (currentData.linkedReferences || []).map((item) => ({
       kind: "linked",
       id: item.id,
       sourceNoteId: item.sourceNoteId,
@@ -221,7 +285,7 @@ export function BacklinksDialog({
       updatedAt: item.updatedAt,
       snippet: item.snippet,
     }));
-    const unlinked: BacklinkUnifiedItem[] = (data.unlinkedMentions || []).map((item) => ({
+    const unlinked: BacklinkUnifiedItem[] = (currentData.unlinkedMentions || []).map((item) => ({
       kind: "unlinked",
       id: `${item.sourceNoteId}-${item.matchIndex}`,
       sourceNoteId: item.sourceNoteId,
@@ -234,7 +298,7 @@ export function BacklinksDialog({
       sourceVersion: item.sourceVersion,
     }));
     return [...linked, ...unlinked].sort((a, b) => b.updatedAt - a.updatedAt);
-  }, [data]);
+  }, [currentData]);
 
   if (!open) return null;
 
@@ -288,12 +352,12 @@ export function BacklinksDialog({
           ref={bodyRef}
           className="backlinks-dialog-body floating-scrollbar-target"
         >
-          {error && (
+          {currentError && (
             <p className="backlinks-error" role="alert">
-              {error}
+              {currentError}
             </p>
           )}
-          {loading && !data ? (
+          {loadingNoteId === noteId && !currentData ? (
             <div className="backlinks-loading-state">
               <Loader2 size={18} className="spin-icon" />
               <span>正在加载反向链接…</span>
@@ -392,7 +456,7 @@ export function BacklinksDialog({
               })}
             </ul>
           )}
-          {data?.truncated && (
+          {currentData?.truncated && (
             <p className="backlinks-truncated-hint" role="status">
               结果较多，仅显示最近的部分引用。
             </p>

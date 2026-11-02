@@ -12,6 +12,7 @@ import {
   Archive,
   Bookmark,
   Check,
+  Columns2,
   Copy,
   Download,
   FilePlus2,
@@ -19,11 +20,13 @@ import {
   FolderInput,
   ImageDown,
   LayoutGrid,
+  LogOut,
   Maximize2,
   Monitor,
   Moon,
   PanelLeft,
   Search,
+  SquareKanban,
   Sun,
   Trash2,
   X,
@@ -41,9 +44,12 @@ import { altKey, modKey } from "./platform";
 import type { ThemePreference } from "./theme";
 
 export type CommandId =
+  | "logout"
   | "new-note"
   | "search-notes"
   | "find-in-note"
+  | "replace-in-note"
+  | "toggle-split"
   | "toggle-sidebar"
   | "toggle-view-layout"
   | "toggle-focus-mode"
@@ -57,7 +63,8 @@ export type CommandId =
   | "restore"
   | "install-app"
   | "move-to-notebook"
-  | "export-notes"
+  | "open-kanban"
+  | "export-note"
   | "export-image";
 
 type CommandOption = {
@@ -88,11 +95,13 @@ type CommandMenuProps = {
   typewriterMode?: boolean;
   viewLayout?: "three-column" | "cards";
   isMobileViewport?: boolean;
+  isSplitActive?: boolean;
   canInstallApp: boolean;
   showIosInstallHint: boolean;
   standalone: boolean;
   hasSelectedNote?: boolean;
   onSearchInCurrentNote?: (term: string) => void;
+  onReplaceInCurrentNote?: () => void;
   onSearchGlobal?: (term: string) => void;
   onFocusGlobalSearch?: () => void;
   initialQuery?: string;
@@ -113,11 +122,13 @@ export function CommandMenu({
   typewriterMode = false,
   viewLayout = "three-column",
   isMobileViewport = false,
+  isSplitActive = false,
   canInstallApp,
   showIosInstallHint,
   standalone,
   hasSelectedNote = false,
   onSearchInCurrentNote,
+  onReplaceInCurrentNote,
   onSearchGlobal,
   onFocusGlobalSearch,
   initialQuery = "",
@@ -131,7 +142,7 @@ export function CommandMenu({
   const returnFocusRef = useRef<HTMLElement | null>(null);
   const lastMousePositionRef = useRef<{ x: number; y: number } | null>(null);
   const mobileTouchScrollingRef = useRef(false);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(() => initialQuery ?? "");
   const [selected, setSelected] = useState(0);
 
   const commands = useMemo<
@@ -147,6 +158,7 @@ export function CommandMenu({
   >(
     () => [
       { id: "new-note", label: "新建笔记", shortcut: "↵", icon: FilePlus2 },
+      { id: "open-kanban" as CommandId, label: "打开看板", shortcut: "", icon: SquareKanban },
       { id: "search-notes" as const, label: "全局搜索笔记", shortcut: "↵", icon: Search },
       ...(hasSelectedNote && canMoveToTrash
         ? [
@@ -155,6 +167,17 @@ export function CommandMenu({
               label: "移动到笔记本",
               shortcut: "↵",
               icon: FolderInput,
+            },
+          ]
+        : []),
+      ...(hasSelectedNote
+        ? [
+            {
+              id: "replace-in-note" as const,
+              label: "在当前笔记中替换",
+              shortcut: `${modKey} F`,
+              icon: FileSearch,
+              keywords: "替换 查找 replace",
             },
           ]
         : []),
@@ -174,17 +197,26 @@ export function CommandMenu({
         shortcut: `${modKey} \\`,
         icon: PanelLeft,
       },
-      {
-        id: "toggle-view-layout",
-        label:
-          viewLayout === "cards"
-            ? isMobileViewport
-              ? "切换到列表视图"
-              : "切换到三栏列表视图"
-            : "切换到卡片网格视图",
-        shortcut: `${altKey} V`,
-        icon: LayoutGrid,
-      },
+      ...(!isMobileViewport && viewLayout === "cards"
+        ? [
+            {
+              id: "toggle-split" as CommandId,
+              label: isSplitActive ? "关闭分屏" : "分屏显示笔记",
+              shortcut: `${altKey} \\`,
+              icon: Columns2,
+            },
+          ]
+        : []),
+      ...(!isMobileViewport
+        ? [
+            {
+              id: "toggle-view-layout" as CommandId,
+              label: viewLayout === "cards" ? "切换到三栏列表视图" : "切换到卡片网格视图",
+              shortcut: `${altKey} V`,
+              icon: LayoutGrid,
+            },
+          ]
+        : []),
       {
         id: "toggle-focus-mode",
         label: focusMode ? "退出沉浸模式" : "进入沉浸模式",
@@ -235,6 +267,17 @@ export function CommandMenu({
       ...(hasSelectedNote
         ? [
             {
+              id: "export-note" as const,
+              label: "导出当前笔记 Markdown",
+              shortcut: "↵",
+              icon: Download,
+              keywords: "导出 下载 markdown 文件",
+            },
+          ]
+        : []),
+      ...(hasSelectedNote
+        ? [
+            {
               id: "export-image" as const,
               label: "导出图片",
               shortcut: "↵",
@@ -252,7 +295,13 @@ export function CommandMenu({
       ...(canRestore
         ? [{ id: "restore" as const, label: "恢复笔记", shortcut: "↵", icon: Archive }]
         : []),
-      { id: "export-notes" as const, label: "导出全部笔记 (ZIP)", shortcut: "↵", icon: Download },
+      {
+        id: "logout",
+        label: "退出登录",
+        shortcut: "↵",
+        icon: LogOut,
+        keywords: "登出 注销 logout sign out",
+      },
       ...(!standalone && (canInstallApp || showIosInstallHint)
         ? [{ id: "install-app" as const, label: "安装象映笔记", shortcut: "↵", icon: Download }]
         : []),
@@ -472,6 +521,8 @@ export function CommandMenu({
         setSelected(0);
         searchRef.current?.focus();
         return;
+      } else if (option.id === "replace-in-note") {
+        onReplaceInCurrentNote?.();
       } else if (option.id === "move-to-notebook") {
         setQuery("移动至 ");
         setSelected(0);
@@ -487,6 +538,7 @@ export function CommandMenu({
       onCommand,
       onCreateNoteInNotebook,
       onMoveNoteToNotebook,
+      onReplaceInCurrentNote,
       onSearchInCurrentNote,
       onSearchGlobal,
     ],
@@ -594,6 +646,7 @@ export function CommandMenu({
           value={query}
           onChange={(event) => updateQuery(event.target.value)}
           aria-label="搜索命令或笔记内容"
+          placeholder="搜索命令或笔记内容"
           role="combobox"
           aria-autocomplete="list"
           aria-haspopup="listbox"

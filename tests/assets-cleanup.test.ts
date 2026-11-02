@@ -5,6 +5,7 @@ import {
   cleanupOrphanAssets,
   ORPHAN_ASSET_CLEANUP_INTERVAL_SECONDS,
   removeAssetFiles,
+  waitForOrphanAssetCleanup,
 } from "../server/routes/assets";
 import { MemoryR2Bucket } from "./memory-r2";
 
@@ -32,5 +33,17 @@ describe("R2 asset cleanup", () => {
     bucket.objects.get(key)!.uploaded = new Date((now - 25 * 60 * 60) * 1000);
     await cleanupOrphanAssets(database, bucket, now);
     expect(bucket.objects.has(key)).toBe(false);
+  });
+
+  test("coalesces concurrent cleanup and exposes a promise to await before closing the database", async () => {
+    const timestamp = Math.floor(Date.now() / 1000) + ORPHAN_ASSET_CLEANUP_INTERVAL_SECONDS * 20;
+    const first = cleanupOrphanAssets(database, bucket, timestamp);
+    const second = cleanupOrphanAssets(database, bucket, timestamp + 1);
+
+    expect(second).toBe(first);
+    await waitForOrphanAssetCleanup(database);
+    expect(database.query("SELECT COUNT(*) AS count FROM image_assets").get()).toEqual({
+      count: 0,
+    });
   });
 });

@@ -3,6 +3,7 @@ import { sortNotes, type NoteSort } from "../app/workspace/helpers";
 import {
   assignCardMasonryLanes,
   cardLaneConfig,
+  estimateCardHeight,
   positionCardMasonryLanes,
   visibleCardIndexes,
 } from "../app/workspace/card-masonry";
@@ -133,6 +134,69 @@ describe("card view & layout", () => {
     const visible = visibleCardIndexes(refined, 0, 300);
     expect(visible.size).toBeGreaterThan(0);
     expect([...visible].every((index) => index >= 0 && index < sampleNotes.length)).toBe(true);
+  });
+
+  test("estimates immutable note snapshots against their current text and lane configuration", () => {
+    const config = cardLaneConfig(700, 900, false);
+    const original = sampleNotes[0];
+    const originalAssignment = assignCardMasonryLanes([original], config, false)
+      .flat()
+      .find((assignment) => assignment.note.id === original.id)!;
+    expect(originalAssignment.estimatedHeight).toBe(
+      estimateCardHeight(original, config.laneWidth, false),
+    );
+
+    const changedSnapshot = { ...original, title: original.title.repeat(8) };
+    const changedAssignment = assignCardMasonryLanes([changedSnapshot], config, false)
+      .flat()
+      .find((assignment) => assignment.note.id === original.id)!;
+    expect(changedAssignment.estimatedHeight).toBe(
+      estimateCardHeight(changedSnapshot, config.laneWidth, false),
+    );
+    expect(changedAssignment.estimatedHeight).toBeGreaterThan(originalAssignment.estimatedHeight);
+
+    const mobileConfig = cardLaneConfig(350, 350, true);
+    const mobileAssignment = assignCardMasonryLanes([original], mobileConfig, true).flat()[0];
+    expect(mobileAssignment.estimatedHeight).toBe(
+      estimateCardHeight(original, mobileConfig.laneWidth, true),
+    );
+  });
+
+  test("preserves multiline and Unicode card heights while resizing in both layouts", () => {
+    const note: NoteSummary = {
+      ...sampleNotes[0],
+      title: "中文 title 😀\r\n第二行\n",
+      preview: "短段落。\r\n\n" + "中A😀 ".repeat(30),
+    };
+    // 固定原有布局结果，覆盖 CRLF、空行及中英文和表情混排。
+    const cases: Array<[number, number, number]> = [
+      [100, 412, 293],
+      [180, 340, 293],
+      [280, 292, 271],
+      [420, 268, 249],
+    ];
+    for (const [width, desktopHeight, mobileHeight] of [...cases, ...cases.slice().reverse()]) {
+      expect(estimateCardHeight(note, width, false)).toBe(desktopHeight);
+      expect(estimateCardHeight(note, width, true)).toBe(mobileHeight);
+    }
+  });
+
+  test("refreshes cached height when text, cover or layout changes at the same width", () => {
+    const note: NoteSummary = {
+      ...sampleNotes[0],
+      title: "中文 title 😀\r\n第二行\n",
+      preview: "短段落。\r\n\n" + "中A😀 ".repeat(30),
+    };
+    expect(estimateCardHeight(note, 180, false)).toBe(340);
+    note.title = "新标题".repeat(40);
+    note.preview = "";
+    expect(estimateCardHeight(note, 180, false)).toBe(196);
+    note.thumbnail = sampleNotes[1]!.thumbnail;
+    expect(estimateCardHeight(note, 180, false)).toBe(336);
+    expect(estimateCardHeight(note, 180, true)).toBe(299);
+    note.title = "";
+    note.thumbnail = null;
+    expect(estimateCardHeight(note, 180, false)).toBe(148);
   });
 
   test("chooses responsive lane counts without CSS masonry support", () => {

@@ -8,6 +8,10 @@ import type {
   Notebook,
   User,
   NoteBacklinksResponse,
+  TaskSummary,
+  KanbanCard,
+  KanbanCardsResponse,
+  KanbanStatus,
 } from "../shared/types";
 import { createUuid } from "./uuid";
 
@@ -62,7 +66,6 @@ export const api = {
       query?: string;
       notebookId?: string;
       sort?: NoteSort;
-      offset?: number;
       cursor?: string;
       includeTotal?: boolean;
     },
@@ -72,8 +75,6 @@ export const api = {
     if (params.query) search.set("query", params.query);
     if (params.notebookId) search.set("notebookId", params.notebookId);
     if (params.sort) search.set("sort", params.sort);
-    if (params.offset !== undefined && params.offset > 0)
-      search.set("offset", String(params.offset));
     if (params.cursor) search.set("cursor", params.cursor);
     if (params.includeTotal === false) search.set("includeTotal", "0");
     return request<{
@@ -92,6 +93,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  searchWikiNoteTitles: (query: string, signal?: AbortSignal) => {
+    const search = new URLSearchParams({ query });
+    return request<{
+      matches: Array<{ title: string; notebookName: string }>;
+      exactMatch: boolean;
+    }>(`/api/wiki-notes/suggestions?${search.toString()}`, { signal });
+  },
   uploadAsset: (file: File) =>
     request<{ asset: ImageAssetSummary }>("/api/assets", {
       method: "POST",
@@ -150,6 +158,36 @@ export const api = {
     }),
   emptyTrash: () => request<{ ok: true; deletedCount: number }>("/api/trash", { method: "DELETE" }),
   listNotebooks: () => request<{ notebooks: Notebook[] }>("/api/notebooks"),
+  listTasks: (
+    params: {
+      status: "open" | "done" | "all";
+      notebookId?: string;
+      limit?: number;
+      cursor?: string;
+    },
+    options?: RequestOptions,
+  ) => {
+    const search = new URLSearchParams({ status: params.status });
+    if (params.notebookId) search.set("notebookId", params.notebookId);
+    if (params.limit !== undefined) search.set("limit", String(params.limit));
+    if (params.cursor) search.set("cursor", params.cursor);
+    return request<{
+      tasks: TaskSummary[];
+      total?: number;
+      nextCursor: string | null;
+    }>(`/api/tasks?${search.toString()}`, options);
+  },
+  toggleTask: (payload: {
+    noteId: string;
+    version: number;
+    ordinal: number;
+    text: string;
+    completed: boolean;
+  }) =>
+    request<{ note: Note }>("/api/tasks/toggle", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
   createNotebook: (payload: { name: string; color?: string; icon?: string }) =>
     request<{ notebook: Notebook }>("/api/notebooks", {
       method: "POST",
@@ -162,6 +200,11 @@ export const api = {
     }),
   deleteNotebook: (id: string) =>
     request<{ ok: true }>(`/api/notebooks/${id}`, { method: "DELETE" }),
+  reorderNotebooks: (ids: string[], expectedIds: string[]) =>
+    request<{ ok: true; ids: string[] }>("/api/notebooks/reorder", {
+      method: "PATCH",
+      body: JSON.stringify({ ids, expectedIds }),
+    }),
   getBacklinks: (noteId: string, options?: RequestOptions) =>
     request<NoteBacklinksResponse>(`/api/notes/${noteId}/backlinks`, options),
   linkMention: (
@@ -178,4 +221,28 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  listKanbanCards: (
+    params?: { notebookId?: string; status?: KanbanStatus; limit?: number; cursor?: string },
+    options?: RequestOptions,
+  ) => {
+    const search = new URLSearchParams();
+    if (params?.notebookId) search.set("notebookId", params.notebookId);
+    if (params?.status) search.set("status", params.status);
+    if (params?.limit !== undefined) search.set("limit", String(params.limit));
+    if (params?.cursor) search.set("cursor", params.cursor);
+    const query = search.toString();
+    return request<KanbanCardsResponse>(`/api/kanban${query ? `?${query}` : ""}`, options);
+  },
+  addKanbanCard: (payload: { noteId: string; status?: KanbanStatus; sortOrder?: number }) =>
+    request<{ card: KanbanCard }>("/api/kanban/cards", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updateKanbanCard: (noteId: string, payload: { status?: KanbanStatus; sortOrder?: number }) =>
+    request<{ card: KanbanCard }>(`/api/kanban/cards/${noteId}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+  deleteKanbanCard: (noteId: string) =>
+    request<{ ok: true; noteId: string }>(`/api/kanban/cards/${noteId}`, { method: "DELETE" }),
 };

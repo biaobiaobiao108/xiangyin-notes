@@ -1,36 +1,90 @@
 import { Lexer } from "marked";
 
 type MarkdownInterval = { start: number; end: number };
+type BlockToken = {
+  type: string;
+  raw: string;
+  text?: string;
+  tokens?: BlockToken[];
+  items?: BlockToken[];
+};
+
+function sourceLineIntervals(source: string): MarkdownInterval[] {
+  const lines: MarkdownInterval[] = [];
+  let start = 0;
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    if (character !== "\n" && character !== "\r") continue;
+    const end = index + (character === "\r" && source[index + 1] === "\n" ? 2 : 1);
+    lines.push({
+      start,
+      end,
+    });
+    if (end === index + 2) index += 1;
+    start = end;
+  }
+  if (start < source.length)
+    lines.push({
+      start,
+      end: source.length,
+    });
+  return lines;
+}
 
 /** Finds fenced and indented block code using the same Markdown grammar as the editor. */
 export function findCodeFenceIntervals(markdown: string): MarkdownInterval[] {
-  if (!/^[ \t]*(?:`{3}|~{3})|^(?: {4}| {0,3}\t)/m.test(markdown)) return [];
-  // Marked normalizes line endings. Keep only the removed CR offsets so ranges
-  // continue to address the original Markdown, without a per-character map.
-  const removedOffsets: number[] = [];
-  const normalized = markdown.replace(/\r\n|\r/g, (lineEnding, offset: number) => {
-    if (lineEnding.length === 2) removedOffsets.push(offset - removedOffsets.length);
-    return "\n";
-  });
-  const originalOffset = (offset: number) => {
-    let low = 0;
-    let high = removedOffsets.length;
-    while (low < high) {
-      const middle = (low + high) >>> 1;
-      if (removedOffsets[middle] < offset) low = middle + 1;
-      else high = middle;
-    }
-    return offset + low;
-  };
+  if (!/[`~]{3}|\t| {4}/u.test(markdown)) return [];
   const intervals: MarkdownInterval[] = [];
-  let offset = 0;
-  // Block tokenization suffices here; avoid building an inline AST for the body.
-  for (const token of new Lexer().blockTokens(normalized)) {
-    const end = offset + token.raw.length;
-    if (token.type === "code")
-      intervals.push({ start: originalOffset(offset), end: originalOffset(end) });
-    offset = end;
-  }
+  const normalized = markdown.replace(/\r\n|\r/g, "\n");
+  const tokens = new Lexer().blockTokens(normalized);
+  const process = (children: BlockToken[], source: string, lines: MarkdownInterval[]) => {
+    const lineStarts = [0];
+    for (let index = 0; index < source.length; index += 1) {
+      if (source[index] === "\n") lineStarts.push(index + 1);
+    }
+    const lineAt = (offset: number) => {
+      let low = 0;
+      let high = lineStarts.length;
+      while (low < high) {
+        const middle = (low + high) >>> 1;
+        if (lineStarts[middle]! <= offset) low = middle + 1;
+        else high = middle;
+      }
+      return low - 1;
+    };
+    let cursor = 0;
+    for (const token of children) {
+      const start = source.indexOf(token.raw, cursor);
+      if (start === -1) continue;
+      cursor = start + token.raw.length;
+      if (
+        token.type !== "code" &&
+        token.type !== "blockquote" &&
+        token.type !== "list" &&
+        token.type !== "list_item"
+      )
+        continue;
+      const tokenLines = lines.slice(lineAt(start), lineAt(cursor - 1) + 1);
+
+      if (token.type === "code") {
+        intervals.push({
+          start: tokenLines[0]!.start,
+          end: tokenLines[tokenLines.length - 1]!.end,
+        });
+        continue;
+      }
+
+      if (token.type === "list" && token.items) {
+        process(token.items, token.raw, tokenLines);
+      } else if (token.tokens && token.text !== undefined) {
+        // Container text loses prefixes/indentation but preserves physical lines.
+        // Reuse their source ranges instead of duplicating Markdown's strip rules.
+        process(token.tokens, token.text, tokenLines);
+      }
+    }
+  };
+  process(tokens as BlockToken[], normalized, sourceLineIntervals(markdown));
+
   return intervals;
 }
 
@@ -115,11 +169,20 @@ export function extractWikiLinks(markdown: string): WikiLinkMatch[] {
 
   const codeFences = findCodeFenceIntervals(markdown);
   const inlineCodes = findInlineCodeIntervals(markdown, codeFences);
-  const isInsideCode = (start: number, end: number) => {
-    return (
-      codeFences.some((f) => start >= f.start && end <= f.end) ||
-      inlineCodes.some((c) => start >= c.start && end <= c.end)
-    );
+  let codeFenceIndex = 0;
+  let inlineCodeIndex = 0;
+  const isContainedIn = (
+    intervals: MarkdownInterval[],
+    index: number,
+    start: number,
+    end: number,
+  ) => {
+    while (index < intervals.length && intervals[index]!.end <= start) index += 1;
+    const interval = intervals[index];
+    return {
+      index,
+      contains: Boolean(interval && start >= interval.start && end <= interval.end),
+    };
   };
 
   const matches: WikiLinkMatch[] = [];
@@ -134,7 +197,11 @@ export function extractWikiLinks(markdown: string): WikiLinkMatch[] {
     const end = start + raw.length;
 
     if (!target) continue;
-    if (isInsideCode(start, end)) continue;
+    const fenceResult = isContainedIn(codeFences, codeFenceIndex, start, end);
+    codeFenceIndex = fenceResult.index;
+    const inlineResult = isContainedIn(inlineCodes, inlineCodeIndex, start, end);
+    inlineCodeIndex = inlineResult.index;
+    if (fenceResult.contains || inlineResult.contains) continue;
 
     matches.push({
       raw,
@@ -289,18 +356,27 @@ export function findUnlinkedMentionsInMarkdown(
   // Sort intervals by start for fast pruning
   excludedIntervals.sort((a, b) => a.start - b.start);
 
-  // Check if range overlaps with excluded
-  const isExcluded = (start: number, end: number) => {
-    for (const interval of excludedIntervals) {
-      if (interval.start >= end) break;
-      if (start < interval.end && end > interval.start) return true;
+  // Coalesce the union so each candidate can advance through exclusions once.
+  const mergedIntervals: MarkdownInterval[] = [];
+  for (const interval of excludedIntervals) {
+    const previous = mergedIntervals[mergedIntervals.length - 1];
+    if (previous && interval.start <= previous.end) {
+      previous.end = Math.max(previous.end, interval.end);
+    } else {
+      mergedIntervals.push({ ...interval });
     }
-    return false;
-  };
+  }
 
   const results: UnlinkedMentionMatch[] = [];
+  let excludedIndex = 0;
   for (const raw of rawMatches) {
-    if (isExcluded(raw.start, raw.end)) continue;
+    while (
+      excludedIndex < mergedIntervals.length &&
+      mergedIntervals[excludedIndex]!.end <= raw.start
+    )
+      excludedIndex += 1;
+    const interval = mergedIntervals[excludedIndex];
+    if (interval && interval.start < raw.end && raw.start < interval.end) continue;
 
     results.push({
       start: raw.start,

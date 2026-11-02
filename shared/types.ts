@@ -40,6 +40,7 @@ export type NoteSummary = {
   isFavorite: boolean;
   deletedAt: number | null;
   version: number;
+  match?: { field: string; snippet?: string };
   createdAt: number;
   updatedAt: number;
 };
@@ -48,11 +49,24 @@ export type Note = NoteSummary & {
   contentMarkdown: string;
 };
 
+export type TaskSummary = {
+  noteId: string;
+  noteTitle: string;
+  notebookId: string;
+  notebookName: string;
+  version: number;
+  text: string;
+  done: boolean;
+  ordinal: number;
+  depth: number;
+};
+
 export type ApiErrorPayload = {
   error: {
     code: string;
     message: string;
     fields?: Record<string, string>;
+    current?: Note;
   };
 };
 
@@ -82,4 +96,23 @@ export type NoteBacklinksResponse = {
   linkedReferences: NoteLinkSummary[];
   unlinkedMentions: UnlinkedMention[];
   truncated: boolean;
+};
+
+export type KanbanStatus = "inbox" | "doing" | "done";
+
+export type KanbanCard = {
+  noteId: string;
+  userId: string;
+  status: KanbanStatus;
+  sortOrder: number;
+  createdAt: number;
+  updatedAt: number;
+  note: NoteSummary;
+};
+
+export type KanbanCardsResponse = {
+  cards: KanbanCard[];
+  total: number;
+  hasMore: boolean;
+  nextCursor: string | null;
 };

@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { getNote } from "../server/core";
 import { openDatabase } from "../server/test-db";
 import { handleRequest } from "../server/index";
+import { waitForOrphanAssetCleanup } from "../server/routes/assets";
 import { ensureEnvironmentUser } from "../server/routes/auth";
 import { createNote } from "../server/routes/notes";
 
@@ -77,6 +78,7 @@ test("rejects an oversized backlink rewrite and rolls back the entire rename", a
       "[[B]] ".repeat(6000),
     );
   } finally {
+    await waitForOrphanAssetCleanup(database);
     database.close();
   }
 });

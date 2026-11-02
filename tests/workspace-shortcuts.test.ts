@@ -155,6 +155,49 @@ describe("workspace shortcuts Escape handling", () => {
     expect(cardEditingExited).toBe(false);
   });
 
+  test("returns focus to list when Escape is pressed inside editor and no overlay is open", () => {
+    let listFocusReturned = false;
+    const fakeEvent = {
+      key: "Escape",
+      defaultPrevented: false,
+      preventDefault() {},
+      target: {
+        closest: () => null,
+      },
+    } as any;
+
+    const originalDocument = (globalThis as unknown as { document?: unknown }).document;
+    try {
+      (globalThis as unknown as { document: unknown }).document = {
+        activeElement: {
+          closest: (sel: string) => (sel === ".editor-panel" ? true : null),
+        },
+      };
+
+      handleWorkspaceKeyDown(fakeEvent, {
+        focusMode: false,
+        hasModalOpen: false,
+        outlineOpen: false,
+        isCardEditing: false,
+        hasSelection: false,
+        handlers: {
+          toggleSidebar: () => {},
+          toggleFocusMode: () => {},
+          toggleTypewriterMode: () => {},
+          exitFocusMode: () => {},
+          openCommandMenu: () => {},
+          returnFocusToList: () => {
+            listFocusReturned = true;
+          },
+        },
+      });
+
+      expect(listFocusReturned).toBe(true);
+    } finally {
+      (globalThis as unknown as { document?: unknown }).document = originalDocument;
+    }
+  });
+
   test("ignores Escape when user is composing in IME", () => {
     let focusExited = false;
 
@@ -354,4 +397,42 @@ describe("command menu shortcut", () => {
     expect(opened).toBe(true);
     expect(prevented).toBe(true);
   });
+});
+
+test("Ctrl/Cmd+F opens replace and respects modal and composition state", () => {
+  let opened = 0;
+  let prevented = 0;
+  const context = {
+    focusMode: false,
+    hasModalOpen: false,
+    handlers: {
+      toggleSidebar() {},
+      toggleFocusMode() {},
+      toggleTypewriterMode() {},
+      exitFocusMode() {},
+      openCommandMenu() {},
+      openReplace() {
+        opened++;
+      },
+    },
+  };
+  const event = {
+    key: "f",
+    code: "KeyF",
+    ctrlKey: true,
+    metaKey: false,
+    altKey: false,
+    shiftKey: false,
+    defaultPrevented: false,
+    preventDefault() {
+      prevented++;
+    },
+  } as KeyboardEvent;
+  handleWorkspaceKeyDown(event, context);
+  handleWorkspaceKeyDown({ ...event, ctrlKey: false, metaKey: true } as KeyboardEvent, context);
+  handleWorkspaceKeyDown({ ...event, isComposing: true } as KeyboardEvent, context);
+  handleWorkspaceKeyDown({ ...event, keyCode: 229 } as KeyboardEvent, context);
+  handleWorkspaceKeyDown(event, { ...context, hasModalOpen: true });
+  expect(opened).toBe(2);
+  expect(prevented).toBe(2);
 });
