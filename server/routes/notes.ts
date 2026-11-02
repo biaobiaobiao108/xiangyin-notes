@@ -63,7 +63,6 @@ export {
 } from "./note-mutations";
 import { assetPathsForNotes, assetPathsForTrash, removeAssetFiles } from "./assets";
 import { searchContains, searchTermNeedsCaseFolding } from "../search-text";
-import { executeSearch } from "../search-executor";
 import { publishWorkspaceChange } from "../realtime";
 import { extractMarkdownTasks, findMarkdownTaskMarker } from "../../shared/tasks";
 
@@ -1104,18 +1103,16 @@ export async function handleNotesRoute(
           })
         : null;
     if (optimizedPlan) {
-      const result = await executeSearch(database, options.searchExecutor, {
-        sql: optimizedPlan.sql,
-        params: optimizedPlan.params,
-        countSql: optimizedPlan.countSql,
-        countParams: optimizedPlan.countParams,
-      });
+      const totalRow = optimizedPlan.countSql
+        ? first<{ count: number }>(database, optimizedPlan.countSql, ...optimizedPlan.countParams)
+        : null;
+      const rows = database.query(optimizedPlan.sql).all(...optimizedPlan.params) as (NoteRow & {
+        tags_json: string;
+        relevance_score: number;
+        match_snippet?: string;
+      })[];
       return respondNoteList(
-        result.rows as (NoteRow & {
-          tags_json: string;
-          relevance_score: number;
-          match_snippet?: string;
-        })[],
+        rows,
         pageLimit,
         sort,
         scope,
@@ -1123,42 +1120,37 @@ export async function handleNotesRoute(
         normalizedTagFilters,
         includeMatch,
         includeTotal,
-        result.count,
+        totalRow ? Number(totalRow.count) : null,
       );
     }
     const where = conditions.join(" AND ") || "1";
-    const countSql = includeTotal
-      ? rankDirectTerms
-        ? `SELECT COUNT(*) AS count FROM notes n JOIN notebooks b ON b.id = n.notebook_id WHERE ${directCountWhere}`
-        : `${rankingCte} SELECT COUNT(*) AS count FROM ${from} WHERE ${totalWhere}`
+    const totalRow = includeTotal
+      ? first<{ count: number }>(
+          database,
+          rankDirectTerms
+            ? `SELECT COUNT(*) AS count FROM notes n JOIN notebooks b ON b.id = n.notebook_id WHERE ${directCountWhere}`
+            : `${rankingCte} SELECT COUNT(*) AS count FROM ${from} WHERE ${totalWhere}`,
+          ...(rankDirectTerms ? directCountParams : [...rankingParams, ...totalParams]),
+        )
       : null;
-    const countParams = includeTotal
-      ? rankDirectTerms
-        ? directCountParams
-        : [...rankingParams, ...totalParams]
-      : [];
     const matchParams: SqlValue[] = [];
     let matchSelect = "";
     if (includeMatch && searchTokens.length) {
       matchSelect = ", search_snippet(n.content_markdown, ?) AS match_snippet";
       matchParams.push(JSON.stringify(searchTokens));
     }
-    const listSql = `
+    const listStatement = database.query(`
       ${rankingCte} SELECT ${NOTE_LIST_SELECT}, ${scoreExpression} AS relevance_score ${matchSelect}
       FROM ${from} WHERE ${where} ORDER BY ${sort === "relevance" ? `${scoreExpression} ASC, n.id ASC` : noteListOrder(sort)} LIMIT ?
-    `;
-    const result = await executeSearch(database, options.searchExecutor, {
-      sql: listSql,
-      params: [...rankingParams, ...matchParams, ...params, pageLimit + 1],
-      countSql,
-      countParams,
-    });
+    `);
+    const rows = listStatement.all(
+      ...rankingParams,
+      ...matchParams,
+      ...params,
+      pageLimit + 1,
+    ) as (NoteRow & { tags_json: string; relevance_score: number; match_snippet?: string })[];
     return respondNoteList(
-      result.rows as (NoteRow & {
-        tags_json: string;
-        relevance_score: number;
-        match_snippet?: string;
-      })[],
+      rows,
       pageLimit,
       sort,
       scope,
@@ -1166,7 +1158,7 @@ export async function handleNotesRoute(
       normalizedTagFilters,
       includeMatch,
       includeTotal,
-      result.count,
+      includeTotal ? Number(totalRow?.count ?? 0) : null,
     );
   }
 
