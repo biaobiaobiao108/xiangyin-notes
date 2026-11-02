@@ -32,6 +32,8 @@ export type DropCandidate = {
   noop: boolean;
 };
 
+const DROP_EDGE_HYSTERESIS = 8;
+
 function targetFromResolvedPosition(
   editor: Editor,
   dom: HTMLElement,
@@ -202,13 +204,14 @@ export function getSiblingBlocks(editor: Editor, source: BlockTarget): BlockTarg
 
 /**
  * Finds the closest insertion edge from sibling geometry. The original
- * placement is kept when it would be a no-op, so the pointer does not jump to
- * a distant gap while it is still over the source block.
+ * placement is kept until the pointer moves a few pixels past the next edge,
+ * so small pointer movements around a boundary do not make nearby text jump.
  */
 export function calculateDropCandidate(
   slots: readonly BlockSlot[],
   sourceIndex: number,
   pointerY: number,
+  current: DropCandidate | null = null,
 ): DropCandidate | null {
   let best:
     | {
@@ -235,6 +238,19 @@ export function calculateDropCandidate(
   });
 
   if (!best) return null;
+  const currentIndex = current
+    ? slots.findIndex((slot) => slot.block.pos === current.target.pos)
+    : -1;
+  if (current && currentIndex >= 0 && currentIndex !== sourceIndex) {
+    const edge =
+      current.placement === "before" ? slots[currentIndex].top : slots[currentIndex].bottom;
+    if (Math.abs(pointerY - edge) <= best.distance + DROP_EDGE_HYSTERESIS) {
+      best.block = slots[currentIndex].block;
+      best.placement = current.placement;
+      best.gap = currentIndex + (current.placement === "after" ? 1 : 0);
+    }
+  }
+
   const destinationIndex = best.gap > sourceIndex ? best.gap - 1 : best.gap;
   return {
     target: best.block,

@@ -589,6 +589,10 @@ export function BlockDragHandle({
 
     const scrollDelta = () =>
       (scrollRef.current?.scrollTop ?? session.initialScroll) - session.initialScroll;
+    let lastTickTime: number | null = null;
+    let autoScrollDirection = 0;
+    let autoScrollBudget = 0;
+    let lastPreviewOffset: number | null = null;
 
     const pointerInsideEditor = () => {
       const container = containerRef.current;
@@ -604,7 +608,7 @@ export function BlockDragHandle({
       );
     };
 
-    const updatePreview = () => {
+    const updatePreview = (frameScale = 1) => {
       if (!session.active || !session.preview) return;
       const inside = pointerInsideEditor();
       const scroll = scrollRef.current;
@@ -612,16 +616,34 @@ export function BlockDragHandle({
       if (scroll && scrollRect && inside && !session.dropping) {
         const above = session.pointerY - scrollRect.top;
         const below = scrollRect.bottom - session.pointerY;
-        if (above < SCROLL_EDGE) {
-          scroll.scrollTop -= Math.ceil(((SCROLL_EDGE - above) / SCROLL_EDGE) * SCROLL_MAX_STEP);
-        } else if (below < SCROLL_EDGE) {
-          scroll.scrollTop += Math.ceil(((SCROLL_EDGE - below) / SCROLL_EDGE) * SCROLL_MAX_STEP);
+        const direction = above < SCROLL_EDGE ? -1 : below < SCROLL_EDGE ? 1 : 0;
+        if (direction !== autoScrollDirection) autoScrollBudget = 0;
+        autoScrollDirection = direction;
+        if (direction !== 0) {
+          const distance = direction < 0 ? above : below;
+          const strength = Math.min(1, Math.max(0, (SCROLL_EDGE - distance) / SCROLL_EDGE));
+          // Normalize to 60fps and carry fractional steps instead of scrolling once per frame.
+          autoScrollBudget +=
+            direction * strength * SCROLL_MAX_STEP * Math.min(2, Math.max(0.1, frameScale));
+          const pixels = Math.trunc(autoScrollBudget);
+          if (pixels !== 0) {
+            autoScrollBudget -= pixels;
+            scroll.scrollTop += pixels;
+          }
         }
+      } else {
+        autoScrollDirection = 0;
+        autoScrollBudget = 0;
       }
 
       const delta = scrollDelta();
       const candidate = inside
-        ? calculateDropCandidate(session.slots, session.sourceIndex, session.pointerY + delta)
+        ? calculateDropCandidate(
+            session.slots,
+            session.sourceIndex,
+            session.pointerY + delta,
+            session.candidate,
+          )
         : null;
       session.candidate = candidate;
 
@@ -662,12 +684,19 @@ export function BlockDragHandle({
         animateShift(slot.block.dom, shift);
       });
 
-      session.preview.style.transform = `translate3d(0, ${session.pointerY - session.startY}px, 0)`;
+      const previewOffset = session.pointerY - session.startY;
+      if (previewOffset !== lastPreviewOffset) {
+        lastPreviewOffset = previewOffset;
+        session.preview.style.transform = `translate3d(0, ${previewOffset}px, 0)`;
+      }
     };
 
-    const tick = () => {
+    const tick = (time: number) => {
       if (!session.active || session.dropping) return;
-      updatePreview();
+      const elapsed =
+        lastTickTime === null ? 1000 / 60 : Math.min(50, Math.max(1, time - lastTickTime));
+      lastTickTime = time;
+      updatePreview(elapsed / (1000 / 60));
       session.frame = window.requestAnimationFrame(tick);
     };
 
@@ -688,6 +717,7 @@ export function BlockDragHandle({
       window.removeEventListener("pointerup", finishPointer);
       window.removeEventListener("pointercancel", cancelPointer);
       window.removeEventListener("blur", blurWindow);
+      window.removeEventListener("resize", resizeWindow);
       window.removeEventListener("keydown", escapeDrag, true);
       editor.off("transaction", handleTransaction);
     };
@@ -777,6 +807,10 @@ export function BlockDragHandle({
       void cancel(false);
     };
 
+    const resizeWindow = () => {
+      void cancel(false);
+    };
+
     const escapeDrag = (event: KeyboardEvent) => {
       if (event.isComposing || event.keyCode === 229 || event.key !== "Escape") return;
       event.preventDefault();
@@ -811,7 +845,7 @@ export function BlockDragHandle({
       }
       document.body.classList.add("is-sorting-blocks");
       editor.on("transaction", handleTransaction);
-      tick();
+      tick(performance.now());
     };
 
     const animateBack = animateBackToSource;
@@ -964,6 +998,7 @@ export function BlockDragHandle({
     window.addEventListener("pointerup", finishPointer);
     window.addEventListener("pointercancel", cancelPointer);
     window.addEventListener("blur", blurWindow);
+    window.addEventListener("resize", resizeWindow);
     window.addEventListener("keydown", escapeDrag, true);
   };
 

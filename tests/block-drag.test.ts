@@ -250,4 +250,23 @@ describe("block drag geometry", () => {
     expect([0, 1, 2].map((index) => getBlockShift(index, 2, 0, 40))).toEqual([40, 40, 0]);
     expect([0, 1, 2].map((index) => getBlockShift(index, 1, 1, 40))).toEqual([0, 0, 0]);
   });
+
+  test("keeps the current insertion edge through small pointer movements", () => {
+    const initial = calculateDropCandidate(slots, 0, 150);
+    expect(initial).toMatchObject({ destinationIndex: 0, noop: true });
+
+    const nudged = calculateDropCandidate(slots, 0, 154, initial);
+    expect(nudged).toMatchObject({ destinationIndex: 0, noop: true });
+
+    const moved = calculateDropCandidate(slots, 0, 160, nudged);
+    expect(moved).toMatchObject({ destinationIndex: 1, noop: false });
+    expect(calculateDropCandidate(slots, 0, 153, moved)).toMatchObject({
+      destinationIndex: 1,
+      noop: false,
+    });
+    expect(calculateDropCandidate(slots, 0, 140, moved)).toMatchObject({
+      destinationIndex: 0,
+      noop: true,
+    });
+  });
 });
