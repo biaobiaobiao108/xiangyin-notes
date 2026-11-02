@@ -319,3 +319,126 @@ test("short-search updates remove old content matches and retain shared and unre
     f.database.close();
   }
 });
+
+test("optimized search applies view and notebook filters before counting and paging", async () => {
+  const f = await fixture();
+  try {
+    const favorite = f.create("needle favorite", "needle in inbox");
+    const plain = f.create("needle plain", "needle in inbox");
+    const otherNotebookId = crypto.randomUUID();
+    f.database
+      .query(
+        "INSERT INTO notebooks (id, user_id, name, created_at, updated_at) VALUES (?, (SELECT user_id FROM notes WHERE id = ?), ?, 1, 1)",
+      )
+      .run(otherNotebookId, favorite, "另一本");
+    const other = f.create("needle other", "needle in another notebook");
+    f.database.query("UPDATE notes SET notebook_id = ? WHERE id = ?").run(otherNotebookId, other);
+    f.database.query("UPDATE notes SET is_favorite = 1 WHERE id = ?").run(favorite);
+    const trashed = f.create("needle trashed", "needle in trash");
+    f.database.query("UPDATE notes SET deleted_at = 1, is_favorite = 1 WHERE id = ?").run(trashed);
+
+    const idsFor = async (params: string) => {
+      const body = await (await f.list(`query=needle&${params}`)).json();
+      return body.notes.map((note: { id: string }) => note.id);
+    };
+    expect(new Set(await idsFor("view=favorites"))).toEqual(new Set([favorite]));
+    expect(new Set(await idsFor("view=inbox"))).toEqual(new Set([favorite, plain]));
+    expect(new Set(await idsFor("view=trash"))).toEqual(new Set([trashed]));
+    expect(new Set(await idsFor(`view=all&notebookId=${otherNotebookId}`))).toEqual(
+      new Set([other]),
+    );
+
+    const withoutTotal = await (await f.list("query=needle&view=all&includeTotal=0")).json();
+    expect(withoutTotal).not.toHaveProperty("total");
+  } finally {
+    await waitForOrphanAssetCleanup(f.database);
+    f.database.close();
+  }
+});
+
+test("mixed FTS and short terms paginate updated search without repeating rows", async () => {
+  const f = await fixture();
+  try {
+    const first = f.create("first", "needle 猫 one");
+    const second = f.create("second", "needle 猫 two");
+    const third = f.create("third", "needle 猫 three");
+    f.create("unrelated", "needle only");
+    f.database.query("UPDATE notes SET updated_at = 100 WHERE id = ?").run(first);
+    f.database.query("UPDATE notes SET updated_at = 200 WHERE id = ?").run(second);
+    f.database.query("UPDATE notes SET updated_at = 300 WHERE id = ?").run(third);
+
+    const seen: string[] = [];
+    let cursor = "";
+    for (let page = 0; page < 3; page += 1) {
+      const result = await (
+        await f.list(
+          `query=${encodeURIComponent("needle 猫")}&sort=updated&limit=1&includeTotal=0${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+        )
+      ).json();
+      expect(result).not.toHaveProperty("total");
+      seen.push(...result.notes.map((note: { id: string }) => note.id));
+      if (!result.nextCursor) break;
+      cursor = result.nextCursor;
+    }
+    expect(seen).toEqual([third, second, first]);
+  } finally {
+    await waitForOrphanAssetCleanup(f.database);
+    f.database.close();
+  }
+});
+
+test("search pagination preserves title and created order", async () => {
+  const f = await fixture();
+  try {
+    const alpha = f.create("alpha needle", "needle");
+    const beta = f.create("Beta needle", "needle");
+    const gamma = f.create("gamma needle", "needle");
+    f.database.query("UPDATE notes SET created_at = 100 WHERE id = ?").run(alpha);
+    f.database.query("UPDATE notes SET created_at = 200 WHERE id = ?").run(beta);
+    f.database.query("UPDATE notes SET created_at = 300 WHERE id = ?").run(gamma);
+
+    const collect = async (sort: string) => {
+      const ids: string[] = [];
+      let cursor = "";
+      for (let page = 0; page < 3; page += 1) {
+        const result = await (
+          await f.list(
+            `query=needle&sort=${sort}&limit=1&includeTotal=0${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+          )
+        ).json();
+        ids.push(...result.notes.map((note: { id: string }) => note.id));
+        if (!result.nextCursor) break;
+        cursor = result.nextCursor;
+      }
+      return ids;
+    };
+
+    expect(await collect("title")).toEqual([alpha, beta, gamma]);
+    expect(await collect("created")).toEqual([gamma, beta, alpha]);
+  } finally {
+    await waitForOrphanAssetCleanup(f.database);
+    f.database.close();
+  }
+});
+
+test("short-term title sorting paginates without repeating rows", async () => {
+  const f = await fixture();
+  try {
+    const second = f.create("猫 B", "猫");
+    const first = f.create("猫 A", "猫");
+    const third = f.create("猫 C", "猫");
+    const result = await (
+      await f.list(`query=${encodeURIComponent("猫")}&sort=title&limit=1&includeTotal=0`)
+    ).json();
+    expect(result.notes.map((note: { id: string }) => note.id)).toEqual([first]);
+    const next = await (
+      await f.list(
+        `query=${encodeURIComponent("猫")}&sort=title&limit=2&includeTotal=0&cursor=${encodeURIComponent(result.nextCursor)}`,
+      )
+    ).json();
+    expect(next.notes.map((note: { id: string }) => note.id)).toEqual([second, third]);
+  } finally {
+    await waitForOrphanAssetCleanup(f.database);
+    f.database.close();
+  }
+});

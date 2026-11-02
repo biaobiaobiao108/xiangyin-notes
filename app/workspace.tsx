@@ -786,7 +786,13 @@ export function Workspace() {
     listAbortRef.current = controller;
     try {
       const result = await api.listNotes(
-        { view, query: deferredQuery, notebookId, sort: noteSort },
+        {
+          view,
+          query: deferredQuery,
+          notebookId,
+          sort: noteSort,
+          includeTotal: !deferredQuery.trim(),
+        },
         { signal: controller.signal },
       );
       if (

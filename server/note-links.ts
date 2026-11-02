@@ -30,17 +30,21 @@ function activeTitleMap(rows: ActiveNoteTitleRow[]) {
 }
 
 function activeTitlesForKeys(database: SqliteDatabase, userId: string, keys: Set<string>) {
-  if (keys.size === 0) return [];
-  const placeholders = [...keys].map(() => "?").join(",");
-  return all<ActiveNoteTitleRow>(
-    database,
+  const rows: ActiveNoteTitleRow[] = [];
+  const lookup = database.query(
     `SELECT id, title
      FROM notes
-     WHERE user_id = ? AND deleted_at IS NULL AND title_normalized IN (${placeholders})
-     ORDER BY updated_at DESC, id`,
-    userId,
-    ...keys,
+     WHERE user_id = ? AND deleted_at IS NULL AND title_normalized = ?
+     ORDER BY updated_at DESC, id
+     LIMIT 1`,
   );
+  // A single-title lookup uses the title index. The old IN (...) + ORDER BY
+  // form let SQLite scan every note for the user before filtering by title.
+  for (const key of keys) {
+    const row = lookup.get(userId, key) as ActiveNoteTitleRow | null;
+    if (row) rows.push(row);
+  }
+  return rows;
 }
 
 function insertNoteLinks(

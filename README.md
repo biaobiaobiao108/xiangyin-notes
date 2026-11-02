@@ -260,6 +260,14 @@ bun run start
 bun run db:check
 ```
 
+大型知识库升级时会重建搜索派生索引，首次启动可能持续数分钟，期间服务尚未监听端口。Docker 健康检查为启动过程预留了 30 分钟；升级前仍应先备份数据卷，并避免在中途重启容器。迁移和删除笔记后，SQLite 会复用空闲页，但不会立即缩小文件；需要归还磁盘空间时，应在停服维护窗口运行 `bun run db:vacuum`。Docker 部署可按下面的顺序执行，避免服务运行期间同时写入：
+
+```bash
+docker stop xiangying-notes
+docker run --rm -v xiangying-notes-data:/data ghcr.io/biaobiaobiao108/xiangyin-notes:latest bun dist/server/vacuum.js
+docker start xiangying-notes
+```
+
 ### 快捷指令导入
 
 配置 `XIANGYING_API_TOKEN` 后，将快捷指令中的“获取 URL 内容”设为 `POST`，请求地址使用 `https://你的域名/api/import`，请求头添加：

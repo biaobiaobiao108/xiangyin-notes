@@ -902,6 +902,10 @@ type NoteListPanelProps = {
   inert?: boolean;
 };
 
+function noteLoadMoreLabel(shown: number, total: number) {
+  return `加载更多（已显示 ${shown}${total > shown ? ` / ${total}` : ""}）`;
+}
+
 export const NoteListPanel = memo(function NoteListPanel({
   notes,
   total,
@@ -1744,9 +1748,7 @@ export const NoteListPanel = memo(function NoteListPanel({
                           onClick={onLoadMore}
                           disabled={isLoadingMore}
                         >
-                          {isLoadingMore
-                            ? "正在加载……"
-                            : `加载更多（已显示 ${notes.length} / ${total}）`}
+                          {isLoadingMore ? "正在加载……" : noteLoadMoreLabel(notes.length, total)}
                         </button>
                       </div>
                     )}
@@ -1826,7 +1828,7 @@ export const NoteListPanel = memo(function NoteListPanel({
                                 >
                                   {isLoadingMore
                                     ? "正在加载……"
-                                    : `加载更多（已显示 ${notes.length} / ${total}）`}
+                                    : noteLoadMoreLabel(notes.length, total)}
                                 </button>
                               </li>
                             )}
@@ -1863,7 +1865,7 @@ export const NoteListPanel = memo(function NoteListPanel({
                             >
                               {isLoadingMore
                                 ? "正在加载……"
-                                : `加载更多（已显示 ${notes.length} / ${total}）`}
+                                : noteLoadMoreLabel(notes.length, total)}
                             </button>
                           </li>
                         )}

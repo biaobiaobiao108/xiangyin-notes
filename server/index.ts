@@ -6,7 +6,7 @@ import {
   type RouteContext,
   type ServerOptions,
 } from "./core";
-import { openDatabase, reclaimDatabaseSpace } from "./db";
+import { checkpointDatabase, openDatabase } from "./db";
 import {
   assetRootFromEnv,
   cleanupOrphanAssets,
@@ -463,9 +463,9 @@ if (import.meta.main) {
           console.warn("[assets] orphan cleanup failed during shutdown", error);
         }
         try {
-          reclaimDatabaseSpace(database);
+          checkpointDatabase(database);
         } catch (error) {
-          console.warn("[db] space reclaim failed during shutdown", error);
+          console.warn("[db] WAL checkpoint failed during shutdown", error);
         }
         database.close();
         console.log("[server] 服务已关闭");

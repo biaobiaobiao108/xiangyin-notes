@@ -73,3 +73,17 @@ export function syncNoteShortSearchTerms(
     database.query("DELETE FROM notes_short_overflow WHERE note_id = ?").run(noteId);
   }
 }
+
+export function rebuildNoteShortSearchIndex(database: SqliteDatabase) {
+  database.exec("DELETE FROM notes_short_fts; DELETE FROM notes_short_overflow;");
+  const notes = database
+    .query("SELECT id, user_id, title, content_markdown FROM notes ORDER BY rowid")
+    .iterate() as IterableIterator<{
+    id: string;
+    user_id: string;
+    title: string;
+    content_markdown: string;
+  }>;
+  for (const note of notes)
+    syncNoteShortSearchTerms(database, note.user_id, note.id, note.title, note.content_markdown);
+}

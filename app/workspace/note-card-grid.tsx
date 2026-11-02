@@ -324,7 +324,9 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
                 onClick={onLoadMore}
                 disabled={isLoadingMore}
               >
-                {isLoadingMore ? "正在加载……" : `加载更多（已显示 ${notes.length} / ${total}）`}
+                {isLoadingMore
+                  ? "正在加载……"
+                  : `加载更多（已显示 ${notes.length}${total > notes.length ? ` / ${total}` : ""}）`}
               </button>
             </div>
           )}

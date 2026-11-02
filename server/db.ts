@@ -6,7 +6,7 @@ import { syncNoteTags } from "./core";
 import { syncNoteLinks } from "./note-links";
 import { extractMarkdownTasks } from "../shared/tasks";
 import { extractTags, normalizeTag } from "../shared/tags";
-import { syncNoteShortSearchTerms } from "./note-search";
+import { rebuildNoteShortSearchIndex, syncNoteShortSearchTerms } from "./note-search";
 import { searchContains, searchSnippet } from "./search-text";
 
 const DEFAULT_DATABASE_PATH = "./data/xiangying-notes.sqlite";
@@ -14,7 +14,7 @@ const DEFAULT_SCHEMA_PATH = "./database/schema.sql";
 const BASELINE_SCHEMA_VERSION = 1;
 
 // Increment this when adding the next entry to SCHEMA_MIGRATIONS.
-export const CURRENT_SCHEMA_VERSION = 11;
+export const CURRENT_SCHEMA_VERSION = 12;
 
 type TableCountRow = {
   count: number;
@@ -355,6 +355,16 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
         );
     },
   },
+  {
+    sourceVersion: 11,
+    targetVersion: 12,
+    migrate: (database) => {
+      database.exec(`
+        CREATE INDEX idx_notes_short_overflow_user
+          ON notes_short_overflow(user_id, note_id);
+      `);
+    },
+  },
 ];
 
 export function databasePathFromEnv(env: Record<string, string | undefined> = Bun.env) {
@@ -414,15 +424,16 @@ export function reclaimDatabaseSpace(database: SqliteDatabase) {
     database.exec(`
       INSERT INTO notes_fts(notes_fts) VALUES('optimize');
       INSERT INTO notes_short_fts(notes_short_fts) VALUES('optimize');
-      PRAGMA incremental_vacuum;
-      PRAGMA wal_checkpoint(TRUNCATE);
     `);
-  } catch {
-    database.exec(`
-      PRAGMA incremental_vacuum;
-      PRAGMA wal_checkpoint(TRUNCATE);
-    `);
+  } catch (error) {
+    console.warn("[db] FTS optimize failed; continuing space reclaim", error);
   }
+  database.exec("PRAGMA incremental_vacuum;");
+  checkpointDatabase(database);
+}
+
+export function checkpointDatabase(database: SqliteDatabase) {
+  database.exec("PRAGMA wal_checkpoint(TRUNCATE);");
 }
 
 export function applyMigrations(
@@ -579,6 +590,9 @@ export async function openDatabase(
       database.exec("PRAGMA auto_vacuum = INCREMENTAL;");
       database.exec("VACUUM;");
       database.exec("INSERT INTO notes_fts(notes_fts) VALUES('rebuild');");
+      // Full VACUUM is allowed to renumber rowids for tables without an
+      // INTEGER PRIMARY KEY, so rebuild the rowid-keyed short-search index.
+      rebuildNoteShortSearchIndex(database);
     }
     database.exec("PRAGMA journal_mode = WAL;");
     return database;
