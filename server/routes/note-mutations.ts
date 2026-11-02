@@ -10,6 +10,7 @@ import {
   syncNoteAssetReferences,
   syncNoteTags,
   type SqliteDatabase,
+  type SqlValue,
 } from "../core";
 import {
   resolveNoteLinksForTarget,
@@ -19,6 +20,7 @@ import {
   syncStoredNoteTitleKey,
 } from "../note-links";
 import { extractMarkdownTasks } from "../../shared/tasks";
+import { syncNoteShortSearchTerms } from "../note-search";
 
 export const NOTE_RENAME_SOURCE_BATCH_SIZE = 16;
 
@@ -113,6 +115,7 @@ export function createNote(
     if (!syncNoteAssetReferences(database, userId, id, contentMarkdown))
       throw new Error("invalid-note-assets");
     syncNoteTags(database, userId, id, contentMarkdown);
+    syncNoteShortSearchTerms(database, userId, id, title, contentMarkdown);
     syncNoteLinks(database, userId, id, contentMarkdown, createdAt);
     syncNoteTasks(database, userId, id, notebookId, createdAt, contentMarkdown);
     resolveNoteLinksForTarget(database, userId, title, id);
@@ -135,29 +138,34 @@ export function updateNoteInTransaction(
   const contentChanged = current.content_markdown !== contentMarkdown;
   const notebookChanged = current.notebook_id !== notebookId;
   const deletedChanged = current.deleted_at !== deletedAt;
-  const updatedAt =
-    titleChanged || contentChanged || notebookChanged || deletedChanged
-      ? now()
-      : current.updated_at;
+  const updatedAt = titleChanged || contentChanged ? now() : current.updated_at;
   const oldTitle = current.title;
 
+  const fields = [
+    "notebook_id = ?",
+    "is_favorite = ?",
+    "deleted_at = ?",
+    "version = version + 1",
+    "updated_at = ?",
+  ];
+  const values: SqlValue[] = [notebookId, isFavorite, deletedAt, updatedAt];
+  if (titleChanged) {
+    fields.push("title = ?");
+    values.push(title);
+  }
+  if (contentChanged) {
+    fields.push("content_markdown = ?");
+    values.push(contentMarkdown);
+  }
   const updated = database
     .query(
-      "UPDATE notes SET title = ?, content_markdown = ?, notebook_id = ?, is_favorite = ?, deleted_at = ?, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ? AND version = ? RETURNING id",
+      `UPDATE notes SET ${fields.join(", ")} WHERE id = ? AND user_id = ? AND version = ? RETURNING id`,
     )
-    .get(
-      title,
-      contentMarkdown,
-      notebookId,
-      isFavorite,
-      deletedAt,
-      updatedAt,
-      current.id,
-      userId,
-      current.version,
-    ) as { id: string } | null;
+    .get(...values, current.id, userId, current.version) as { id: string } | null;
   if (!updated) return false;
   if (titleChanged) syncStoredNoteTitleKey(database, current.id, title);
+  if (titleChanged || contentChanged)
+    syncNoteShortSearchTerms(database, userId, current.id, title, contentMarkdown);
   if (contentChanged && !syncNoteAssetReferences(database, userId, current.id, contentMarkdown))
     throw new InvalidNoteAssetsError();
   if (contentChanged || notebookChanged || deletedChanged) {
@@ -213,6 +221,7 @@ export function updateNoteInTransaction(
             "UPDATE notes SET content_markdown = ?, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ?",
           )
           .run(replacedContent, updatedAt, refNote.id, userId);
+        syncNoteShortSearchTerms(database, userId, refNote.id, refNote.title, replacedContent);
         syncNoteTags(database, userId, refNote.id, replacedContent);
         syncNoteLinks(database, userId, refNote.id, replacedContent, updatedAt);
         syncNoteTasks(

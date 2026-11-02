@@ -6,7 +6,7 @@ import { syncNoteTags } from "./core";
 import { syncNoteLinks } from "./note-links";
 import { extractMarkdownTasks } from "../shared/tasks";
 import { extractTags, normalizeTag } from "../shared/tags";
-import { syncNoteShortSearchTerms } from "./note-search";
+import { rebuildNoteShortSearchIndex, syncNoteShortSearchTerms } from "./note-search";
 import { searchContains, searchSnippet } from "./search-text";
 
 const DEFAULT_DATABASE_PATH = "./data/xiangying-notes.sqlite";
@@ -14,7 +14,7 @@ const DEFAULT_SCHEMA_PATH = "./database/schema.sql";
 const BASELINE_SCHEMA_VERSION = 1;
 
 // Increment this when adding the next entry to SCHEMA_MIGRATIONS.
-export const CURRENT_SCHEMA_VERSION = 15;
+export const CURRENT_SCHEMA_VERSION = 16;
 export const SEARCH_INDEX_REBUILD_KEY = "search-index-rebuild-required";
 
 type TableCountRow = {
@@ -401,6 +401,38 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       database.exec("DROP INDEX idx_notes_user_deleted_title;");
     },
   },
+  {
+    sourceVersion: 15,
+    targetVersion: 16,
+    migrate: (database) => {
+      database.exec(`
+        CREATE VIRTUAL TABLE notes_short_fts USING fts5(
+          terms, content='', contentless_delete=1, detail=none, tokenize='ascii'
+        );
+        CREATE TABLE notes_short_overflow (
+          note_id TEXT PRIMARY KEY REFERENCES notes(id) ON DELETE CASCADE,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE
+        );
+        CREATE INDEX idx_notes_short_overflow_user
+          ON notes_short_overflow(user_id, note_id);
+        CREATE TRIGGER notes_short_fts_delete AFTER DELETE ON notes BEGIN
+          DELETE FROM notes_short_fts WHERE rowid = old.rowid;
+        END;
+        DROP TRIGGER notes_au;
+        CREATE TRIGGER notes_au AFTER UPDATE OF title, content_markdown ON notes
+        WHEN old.title IS NOT new.title OR old.content_markdown IS NOT new.content_markdown
+        BEGIN
+          INSERT INTO notes_fts(notes_fts, rowid, title, content_markdown) VALUES('delete', old.rowid, old.title, old.content_markdown);
+          INSERT INTO notes_fts(rowid, title, content_markdown) VALUES (new.rowid, new.title, new.content_markdown);
+        END;
+      `);
+      rebuildNoteShortSearchIndex(database);
+      if (!notesFtsIntegrityValid(database)) {
+        database.exec("INSERT INTO notes_fts(notes_fts) VALUES('rebuild');");
+      }
+      database.query("DELETE FROM app_metadata WHERE key = ?").run(SEARCH_INDEX_REBUILD_KEY);
+    },
+  },
 ];
 
 export function databasePathFromEnv(env: Record<string, string | undefined> = Bun.env) {
@@ -457,7 +489,10 @@ function assertSchemaMatches(actual: SqliteDatabase, expected: SqliteDatabase, v
 
 export function reclaimDatabaseSpace(database: SqliteDatabase) {
   try {
-    database.exec("INSERT INTO notes_fts(notes_fts) VALUES('optimize');");
+    database.exec(`
+      INSERT INTO notes_fts(notes_fts) VALUES('optimize');
+      INSERT INTO notes_short_fts(notes_short_fts) VALUES('optimize');
+    `);
   } catch (error) {
     console.warn("[db] FTS optimize failed; continuing space reclaim", error);
   }
@@ -485,10 +520,20 @@ function markSearchIndexesForRebuild(database: SqliteDatabase) {
     .run(SEARCH_INDEX_REBUILD_KEY);
 }
 
+function notesFtsIntegrityValid(database: SqliteDatabase) {
+  try {
+    database.exec("INSERT INTO notes_fts(notes_fts, rank) VALUES('integrity-check', 1);");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function rebuildSearchIndexes(database: SqliteDatabase) {
   database
     .transaction(() => {
       database.exec("INSERT INTO notes_fts(notes_fts) VALUES('rebuild');");
+      rebuildNoteShortSearchIndex(database);
       database.query("DELETE FROM app_metadata WHERE key = ?").run(SEARCH_INDEX_REBUILD_KEY);
     })
     .immediate();
@@ -546,6 +591,22 @@ function createSchemaAtVersion(
     expected.close();
     throw error;
   }
+}
+
+export async function createExpectedSchemaDatabase(
+  version: number,
+  options: DatabaseInitializationOptions = {},
+) {
+  const schemaPath = options.schemaPath ?? DEFAULT_SCHEMA_PATH;
+  const schemaFile = Bun.file(schemaPath);
+  if (!(await schemaFile.exists()))
+    throw new Error(`SQLite schema baseline not found: ${schemaPath}`);
+  return createSchemaAtVersion(
+    await schemaFile.text(),
+    version,
+    options.migrations ?? SCHEMA_MIGRATIONS,
+    options.currentSchemaVersion ?? CURRENT_SCHEMA_VERSION,
+  );
 }
 
 export async function initializeDatabase(

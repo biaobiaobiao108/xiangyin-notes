@@ -25,6 +25,48 @@ export function searchTermNeedsCaseFolding(term: string) {
   );
 }
 
+function quoteFtsTerm(term: string) {
+  return `"${term.replaceAll('"', '""')}"`;
+}
+
+function simpleCaseVariants(character: string) {
+  // Unicode simple case folding does not equate dotless i with ASCII I.
+  if (character === "ı") return [character];
+  const variants = new Set([character]);
+  const pending = [character];
+  while (pending.length) {
+    const current = pending.shift()!;
+    for (const candidate of [current.toLowerCase(), current.toUpperCase()]) {
+      if (Array.from(candidate).length !== 1 || variants.has(candidate)) continue;
+      variants.add(candidate);
+      pending.push(candidate);
+    }
+  }
+  return [...variants];
+}
+
+function ftsTermExpression(term: string) {
+  let variants = [""];
+  let expanded = false;
+  for (const character of term) {
+    const choices =
+      (character.codePointAt(0) ?? 0) > 0x7f ? simpleCaseVariants(character) : [character];
+    if (choices.length > 1) expanded = true;
+    if (variants.length * choices.length > 32) {
+      variants = [...new Set([term, term.toLowerCase(), term.toUpperCase()])];
+      break;
+    }
+    variants = variants.flatMap((prefix) => choices.map((choice) => prefix + choice));
+  }
+  if (!expanded) return quoteFtsTerm(term);
+  return `(${variants.map(quoteFtsTerm).join(" OR ")})`;
+}
+
+/** Builds an AND query while covering simple Unicode case-fold differences in trigram FTS. */
+export function buildFtsMatchQuery(tokens: readonly string[]) {
+  return tokens.map(ftsTermExpression).join(" AND ");
+}
+
 export function searchSnippet(text: string, termsJson: string) {
   const terms = JSON.parse(termsJson) as string[];
   let match = -1;

@@ -32,6 +32,11 @@ export type DropCandidate = {
   noop: boolean;
 };
 
+/** Converts a viewport Y coordinate into the drag session's initial scroll coordinates. */
+export function toDragSessionY(viewportY: number, scrollDelta: number, translationY = 0) {
+  return viewportY - translationY + scrollDelta;
+}
+
 const DROP_EDGE_HYSTERESIS = 8;
 
 function targetFromResolvedPosition(
@@ -202,6 +207,22 @@ export function getSiblingBlocks(editor: Editor, source: BlockTarget): BlockTarg
   return blocks;
 }
 
+/** Resolves the movable block that currently owns the editor selection. */
+export function getDraggableBlockFromSelection(editor: Editor): BlockTarget | null {
+  const { $from } = editor.state.selection;
+  if ($from.depth < 1) return null;
+
+  for (let depth = $from.depth; depth > 0; depth -= 1) {
+    const node = $from.node(depth);
+    if (node.type.name !== "listItem" && node.type.name !== "taskItem") continue;
+    const dom = editor.view.nodeDOM($from.before(depth));
+    return dom instanceof HTMLElement ? targetFromResolvedPosition(editor, dom, "listItem") : null;
+  }
+
+  const dom = editor.view.nodeDOM($from.before(1));
+  return dom instanceof HTMLElement ? topLevelTargetFromDom(editor, dom) : null;
+}
+
 /**
  * Finds the closest insertion edge from sibling geometry. The original
  * placement is kept until the pointer moves a few pixels past the next edge,
@@ -315,10 +336,20 @@ export function moveBlock(
   const { state, view } = editor;
   const sourceNode = state.doc.nodeAt(source.pos);
   if (!sourceNode || !sourceNode.eq(source.node)) return null;
+  const $insertOriginal = state.doc.resolve(insertOriginal);
+  if (
+    !$insertOriginal.parent.canReplaceWith(
+      $insertOriginal.index(),
+      $insertOriginal.index(),
+      sourceNode.type,
+    )
+  )
+    return null;
 
   const selectionInsideSource =
     state.selection.from >= source.pos && state.selection.to <= source.endPos;
-  const transaction = state.tr;
+  view.dispatch(closeHistory(state.tr));
+  const transaction = view.state.tr;
   transaction.delete(source.pos, source.endPos);
   const insertPosition = transaction.mapping.map(insertOriginal, 1);
   const $insert = transaction.doc.resolve(insertPosition);
@@ -335,8 +366,8 @@ export function moveBlock(
       ),
     );
   }
-  closeHistory(transaction);
-  view.dispatch(transaction);
+  view.dispatch(closeHistory(transaction));
+  view.dispatch(closeHistory(view.state.tr));
   return insertPosition;
 }
 
@@ -375,14 +406,14 @@ export function duplicateBlock(editor: Editor, block: BlockTarget): boolean {
   const sourceNode = state.doc.nodeAt(block.pos);
   if (!sourceNode || !sourceNode.eq(block.node)) return false;
 
-  const transaction = state.tr;
-  const $insert = transaction.doc.resolve(block.endPos);
-  if (!$insert.parent.canReplaceWith($insert.index(), $insert.index(), sourceNode.type)) {
+  const $insert = state.doc.resolve(block.endPos);
+  if (!$insert.parent.canReplaceWith($insert.index(), $insert.index(), sourceNode.type))
     return false;
-  }
+  view.dispatch(closeHistory(state.tr));
+  const transaction = view.state.tr;
   transaction.insert(block.endPos, sourceNode.copy(sourceNode.content));
-  closeHistory(transaction);
-  view.dispatch(transaction);
+  view.dispatch(closeHistory(transaction));
+  view.dispatch(closeHistory(view.state.tr));
   return true;
 }
 
@@ -391,7 +422,6 @@ export function deleteBlock(editor: Editor, block: BlockTarget): boolean {
   const sourceNode = state.doc.nodeAt(block.pos);
   if (!sourceNode || !sourceNode.eq(block.node)) return false;
 
-  const transaction = state.tr;
   if (block.kind === "listItem" && block.parent.childCount === 1) {
     const listPos = block.parentStart - 1;
     const list = state.doc.nodeAt(listPos);
@@ -399,9 +429,14 @@ export function deleteBlock(editor: Editor, block: BlockTarget): boolean {
 
     const listEnd = listPos + list.nodeSize;
     const $list = state.doc.resolve(listPos);
+    let replacement: ProseMirrorNode | null = null;
     if ($list.parent.childCount === 1) {
-      const replacement = state.schema.nodes.paragraph?.createAndFill();
+      replacement = state.schema.nodes.paragraph?.createAndFill() ?? null;
       if (!replacement) return false;
+    }
+    view.dispatch(closeHistory(state.tr));
+    const transaction = view.state.tr;
+    if (replacement) {
       transaction.replaceWith(listPos, listEnd, replacement);
     } else {
       transaction.delete(listPos, listEnd);
@@ -409,14 +444,20 @@ export function deleteBlock(editor: Editor, block: BlockTarget): boolean {
     transaction.setSelection(
       Selection.near(transaction.doc.resolve(Math.min(listPos, transaction.doc.content.size))),
     );
-    closeHistory(transaction);
-    view.dispatch(transaction);
+    view.dispatch(closeHistory(transaction));
+    view.dispatch(closeHistory(view.state.tr));
     return true;
   }
 
-  if (block.parent.type.name === "doc" && block.parent.childCount === 1) {
-    const replacement = state.schema.nodes.paragraph?.createAndFill();
-    if (!replacement) return false;
+  const replacement =
+    block.parent.type.name === "doc" && block.parent.childCount === 1
+      ? (state.schema.nodes.paragraph?.createAndFill() ?? null)
+      : null;
+  if (block.parent.type.name === "doc" && block.parent.childCount === 1 && !replacement)
+    return false;
+  view.dispatch(closeHistory(state.tr));
+  const transaction = view.state.tr;
+  if (replacement) {
     transaction.replaceWith(block.pos, block.endPos, replacement);
     transaction.setSelection(Selection.near(transaction.doc.resolve(1)));
   } else {
@@ -425,7 +466,7 @@ export function deleteBlock(editor: Editor, block: BlockTarget): boolean {
       Selection.near(transaction.doc.resolve(Math.min(block.pos, transaction.doc.content.size))),
     );
   }
-  closeHistory(transaction);
-  view.dispatch(transaction);
+  view.dispatch(closeHistory(transaction));
+  view.dispatch(closeHistory(view.state.tr));
   return true;
 }

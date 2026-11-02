@@ -4,6 +4,8 @@ import StarterKit from "@tiptap/starter-kit";
 import TaskItem from "@tiptap/extension-task-item";
 import TaskList from "@tiptap/extension-task-list";
 import { createMarkdownExtension } from "../app/editor/markdown-config";
+import { history, undo } from "@tiptap/pm/history";
+import { EditorState, type Transaction } from "@tiptap/pm/state";
 import {
   calculateDropCandidate,
   deleteBlock,
@@ -11,6 +13,7 @@ import {
   getBlockShift,
   moveBlock,
   moveBlockStep,
+  toDragSessionY,
   type BlockSlot,
   type BlockTarget,
 } from "../app/editor/block-drag-commands";
@@ -190,6 +193,41 @@ describe("block drag commands", () => {
     expect(blockTexts(editor)).toEqual(["行1", "行2", "行3"]);
   });
 
+  test("keeps block operations separate from surrounding typing in undo history", () => {
+    const source = createTestEditor("A\n\nB");
+    let state = EditorState.create({ doc: source.state.doc, plugins: [history()] });
+    const view = {
+      get state() {
+        return state;
+      },
+      dispatch(transaction: Transaction) {
+        state = state.apply(transaction);
+      },
+    };
+    const editor = {
+      get state() {
+        return state;
+      },
+      view,
+      isDestroyed: false,
+    } as unknown as Editor;
+    const dispatch = (transaction: Transaction) => {
+      state = state.apply(transaction);
+    };
+    const text = () => state.doc.textBetween(0, state.doc.content.size, "|");
+
+    dispatch(state.tr.insertText("x", 1));
+    moveBlock(editor, topLevelBlock(editor, 0), topLevelBlock(editor, 1), "after");
+    dispatch(state.tr.insertText("y"));
+
+    expect(text()).toBe("B|yxA");
+    undo(state, dispatch);
+    expect(text()).toBe("B|xA");
+    undo(state, dispatch);
+    expect(text()).toBe("xA|B");
+    source.destroy();
+  });
+
   test("duplicates a block below it", () => {
     const editor = createTestEditor("首段内容\n\n尾段内容");
     expect(duplicateBlock(editor, topLevelBlock(editor, 0))).toBe(true);
@@ -309,5 +347,11 @@ describe("block drag geometry", () => {
       destinationIndex: 0,
       noop: true,
     });
+  });
+
+  test("converts scrolled and animated geometry back to stable session coordinates", () => {
+    expect(toDragSessionY(100, 0)).toBe(100);
+    expect(toDragSessionY(50, 50)).toBe(100);
+    expect(toDragSessionY(50, 50, 20)).toBe(80);
   });
 });

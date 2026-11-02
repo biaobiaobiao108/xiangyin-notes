@@ -11,7 +11,12 @@ import {
   rateLimitClientAddress,
   readJson,
 } from "../server/core";
-import { searchContains, searchSnippet, searchTermNeedsCaseFolding } from "../server/search-text";
+import {
+  buildFtsMatchQuery,
+  searchContains,
+  searchSnippet,
+  searchTermNeedsCaseFolding,
+} from "../server/search-text";
 
 describe("security helpers", () => {
   test("creates URL-safe opaque tokens", () => {
@@ -282,6 +287,11 @@ describe("markdown and search helpers", () => {
 
   test("quotes search terms for FTS", () => {
     expect(buildFtsQuery("quiet thinking")).toBe('"quiet" AND "thinking"');
+    expect(buildFtsMatchQuery(["xᲐy"])).toContain('"xაy"');
+    expect(buildFtsMatchQuery(["xᲐy"])).toContain('"xᲐy"');
+    expect(buildFtsMatchQuery(["ς"])).toContain('"σ"');
+    expect(buildFtsMatchQuery(["ſ"])).toContain('"s"');
+    expect(buildFtsMatchQuery(["xıy"])).toBe('"xıy"');
   });
 
   test("caches search patterns without changing matching semantics", () => {

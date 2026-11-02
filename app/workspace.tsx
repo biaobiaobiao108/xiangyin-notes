@@ -2875,13 +2875,6 @@ export function Workspace() {
   const handleCardGridScrollPositionChange = useCallback((scope: string, top: number) => {
     cardGridScrollPositionRef.current = { scope, top };
   }, []);
-  const handleNoteSort = useCallback(
-    (nextSort: NoteSort) => {
-      clearNoteSelection();
-      setNoteSort(nextSort);
-    },
-    [clearNoteSelection],
-  );
   const handleOpenSidebar = useCallback(() => {
     openMobileHome();
   }, [openMobileHome]);

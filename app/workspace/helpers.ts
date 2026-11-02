@@ -121,12 +121,11 @@ export function mergeRemoteSummary(notes: NoteSummary[], summary: NoteSummary, s
   const index = notes.findIndex((note) => note.id === summary.id);
   if (index === -1) return null;
   if (notes[index]!.version > summary.version) return notes;
+  const previous = notes[index]!;
   const next = [...notes];
-  next[index] = { ...next[index]!, ...summary };
-  if (sort === "updated" && index > 0) {
-    const [patched] = next.splice(index, 1);
-    next.unshift(patched!);
-  }
+  next[index] = { ...previous, ...summary };
+  if (sort === "updated" && summary.updatedAt !== previous.updatedAt)
+    next.sort((a, b) => b.updatedAt - a.updatedAt);
   return next;
 }
 

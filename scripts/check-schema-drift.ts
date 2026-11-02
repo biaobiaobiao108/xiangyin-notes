@@ -12,6 +12,7 @@ import { Database } from "bun:sqlite";
 import {
   CURRENT_SCHEMA_VERSION,
   SEARCH_INDEX_REBUILD_KEY,
+  createExpectedSchemaDatabase,
   databasePathFromEnv,
   openDatabase,
 } from "../server/db";
@@ -24,22 +25,29 @@ if (!existsSync(existingPath)) {
   process.exit(0);
 }
 
-const target = await openDatabase(":memory:");
 const existing = new Database(existingPath, { readonly: true });
+const existingVersion = Number(
+  (existing.query("PRAGMA user_version").get() as { user_version: number } | null)?.user_version ??
+    0,
+);
+const versionUnsupported =
+  !Number.isInteger(existingVersion) ||
+  existingVersion < 1 ||
+  existingVersion > CURRENT_SCHEMA_VERSION;
+const target = versionUnsupported
+  ? await openDatabase(":memory:")
+  : await createExpectedSchemaDatabase(existingVersion);
 
 try {
-  const existingVersion = Number(
-    (existing.query("PRAGMA user_version").get() as { user_version: number } | null)
-      ?.user_version ?? 0,
-  );
-  const versionUnsupported =
-    !Number.isInteger(existingVersion) ||
-    existingVersion < 1 ||
-    existingVersion > CURRENT_SCHEMA_VERSION;
   const existingObjects = snapshotSchema(existing);
   const targetObjects = snapshotSchema(target);
+  const migrationPending = !versionUnsupported && existingVersion < CURRENT_SCHEMA_VERSION;
   let searchIndexRebuildPending = false;
-  if (existingObjects.has("table:app_metadata")) {
+  if (
+    !migrationPending &&
+    existingVersion === CURRENT_SCHEMA_VERSION &&
+    existingObjects.has("table:app_metadata")
+  ) {
     searchIndexRebuildPending = Boolean(
       existing
         .query("SELECT 1 FROM app_metadata WHERE key = ? AND value = '1'")
@@ -50,31 +58,35 @@ try {
   const missing: string[] = [];
   const different: string[] = [];
   const extra: string[] = [];
-  for (const [key, sql] of targetObjects) {
-    const current = existingObjects.get(key);
-    if (current === undefined) missing.push(key);
-    else if (current !== sql) different.push(key);
-  }
-  for (const key of existingObjects.keys()) {
-    if (!targetObjects.has(key)) extra.push(key);
+  if (!versionUnsupported) {
+    for (const [key, sql] of targetObjects) {
+      const current = existingObjects.get(key);
+      if (current === undefined) missing.push(key);
+      else if (current !== sql) different.push(key);
+    }
+    for (const key of existingObjects.keys()) {
+      if (!targetObjects.has(key)) extra.push(key);
+    }
   }
 
   const columnDiffs: string[] = [];
-  for (const [key] of targetObjects) {
-    if (!key.startsWith("table:")) continue;
-    const table = key.slice(6);
-    const columnsOf = (database: Database) =>
-      (database.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map(
-        (column) => column.name,
-      );
-    const targetColumns = columnsOf(target);
-    const existingColumns = columnsOf(existing);
-    const missingColumns = targetColumns.filter((column) => !existingColumns.includes(column));
-    const extraColumns = existingColumns.filter((column) => !targetColumns.includes(column));
-    if (missingColumns.length || extraColumns.length) {
-      columnDiffs.push(
-        `${table}: 缺列 [${missingColumns.join(", ")}] 多列 [${extraColumns.join(", ")}]`,
-      );
+  if (!versionUnsupported) {
+    for (const [key] of targetObjects) {
+      if (!key.startsWith("table:")) continue;
+      const table = key.slice(6);
+      const columnsOf = (database: Database) =>
+        (database.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map(
+          (column) => column.name,
+        );
+      const targetColumns = columnsOf(target);
+      const existingColumns = columnsOf(existing);
+      const missingColumns = targetColumns.filter((column) => !existingColumns.includes(column));
+      const extraColumns = existingColumns.filter((column) => !targetColumns.includes(column));
+      if (missingColumns.length || extraColumns.length) {
+        columnDiffs.push(
+          `${table}: 缺列 [${missingColumns.join(", ")}] 多列 [${extraColumns.join(", ")}]`,
+        );
+      }
     }
   }
 
@@ -87,10 +99,12 @@ try {
     searchIndexRebuildPending;
 
   console.log(
-    `已有库 ${existingPath}：${existingObjects.size} 个对象；当前 schema：${targetObjects.size} 个对象`,
+    `已有库 ${existingPath}：${existingObjects.size} 个对象；版本 ${existingVersion} 的 schema：${targetObjects.size} 个对象`,
   );
   if (versionUnsupported)
     console.log(`不支持的 schema 版本：${existingVersion}（支持 1 至 ${CURRENT_SCHEMA_VERSION}）`);
+  else if (migrationPending)
+    console.log(`待升级：启动服务后将迁移 ${existingVersion} → ${CURRENT_SCHEMA_VERSION}`);
   console.log(
     "缺失对象（当前 schema 有、已有库没有）:",
     missing.length ? missing.join(", ") : "无",
@@ -100,10 +114,18 @@ try {
   console.log("列级差异:", columnDiffs.length ? `\n  - ${columnDiffs.join("\n  - ")}` : "无");
   console.log(
     "搜索索引重建:",
-    searchIndexRebuildPending ? "未完成，启动服务后会继续重建" : "无待完成标记",
+    migrationPending
+      ? "待迁移后重新检查"
+      : searchIndexRebuildPending
+        ? "未完成，启动服务后会继续重建"
+        : "无待完成标记",
   );
   console.log(
-    drifted ? "\n发现漂移或未完成的重建任务：请排查后再启动服务。" : "\n结构与当前 schema 一致。",
+    drifted
+      ? "\n发现漂移或未完成的重建任务：请排查后再启动服务。"
+      : migrationPending
+        ? "\n结构与已有版本一致，可启动服务完成迁移。"
+        : "\n结构与当前 schema 一致。",
   );
 
   process.exitCode = drifted ? 1 : 0;

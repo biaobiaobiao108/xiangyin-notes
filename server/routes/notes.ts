@@ -62,7 +62,8 @@ export {
   NOTE_RENAME_SOURCE_BATCH_SIZE,
 } from "./note-mutations";
 import { assetPathsForNotes, assetPathsForTrash, removeAssetFiles } from "./assets";
-import { searchContains, searchTermNeedsCaseFolding } from "../search-text";
+import { buildFtsMatchQuery, searchContains, searchTermNeedsCaseFolding } from "../search-text";
+import { shortSearchToken } from "../note-search";
 import { publishWorkspaceChange } from "../realtime";
 import { extractMarkdownTasks, findMarkdownTaskMarker } from "../../shared/tasks";
 
@@ -150,7 +151,9 @@ function buildOptimizedNoteListPlan(input: {
   view: NoteView;
   sort: SearchSort;
   notebookIds: string[];
+  searchTokens: string[];
   ftsTokens: string[];
+  shortTokens: string[];
   normalizedTagFilters: string[];
   tagMode: "all" | "any";
   pageLimit: number;
@@ -163,7 +166,9 @@ function buildOptimizedNoteListPlan(input: {
     view,
     sort,
     notebookIds,
+    searchTokens,
     ftsTokens,
+    shortTokens,
     normalizedTagFilters,
     tagMode,
     pageLimit,
@@ -171,41 +176,25 @@ function buildOptimizedNoteListPlan(input: {
     includeTotal,
     includeMatch,
   } = input;
-  if (ftsTokens.length === 0) return null;
+  if (searchTokens.length === 0) return null;
 
-  const activeConditions = view === "trash" ? ["deleted_at IS NOT NULL"] : ["deleted_at IS NULL"];
-  const activeParams: SqlValue[] = [userId];
-  if (view === "favorites") activeConditions.push("is_favorite = 1");
+  const noteConditions = [
+    "n.user_id = ?",
+    ...(view === "trash" ? ["n.deleted_at IS NOT NULL"] : ["n.deleted_at IS NULL"]),
+  ];
+  const noteParams: SqlValue[] = [userId];
+  if (view === "favorites") noteConditions.push("n.is_favorite = 1");
   for (const notebookId of notebookIds) {
-    activeConditions.push("notebook_id = ?");
-    activeParams.push(notebookId);
+    noteConditions.push("n.notebook_id = ?");
+    noteParams.push(notebookId);
   }
   const isRanked = sort === "relevance";
-  const activeIndex =
-    sort === "title"
-      ? "idx_notes_user_deleted_title_nocase"
-      : sort === "created"
-        ? "idx_notes_user_deleted_created"
-        : "idx_notes_user_deleted_updated_id";
-  const activeColumns =
-    sort === "title"
-      ? "rowid, id, user_id, title"
-      : sort === "created"
-        ? "rowid, id, user_id, created_at"
-        : sort === "updated"
-          ? "rowid, id, user_id, updated_at"
-          : "rowid, id, user_id";
-  const activeCte = `active AS MATERIALIZED (
-    SELECT ${activeColumns}
-    FROM notes INDEXED BY ${activeIndex}
-    WHERE user_id = ? AND ${activeConditions.join(" AND ")}
-  )`;
 
   const tagConditions = normalizedTagFilters.map(
     () => `EXISTS (
       SELECT 1 FROM note_tags t
-      WHERE t.note_id = active.id
-        AND t.user_id = active.user_id
+      WHERE t.note_id = n.id
+        AND t.user_id = n.user_id
         AND t.tag_normalized = ?
     )`,
   );
@@ -213,34 +202,62 @@ function buildOptimizedNoteListPlan(input: {
     ? `(${tagConditions.join(tagMode === "any" ? " OR " : " AND ")})`
     : "";
   const tagParams: SqlValue[] = [...normalizedTagFilters];
-  const ftsQuery = ftsTokens.map((part) => `"${part.replaceAll('"', '""')}"`).join(" AND ");
+  const ftsQuery = ftsTokens.length ? buildFtsMatchQuery(ftsTokens) : "";
+
+  const shortCtes: string[] = [];
+  const shortParams: SqlValue[] = [];
+  shortTokens.forEach((term, index) => {
+    shortCtes.push(`short_matches_${index} AS MATERIALIZED (
+      SELECT rowid FROM notes_short_fts WHERE notes_short_fts MATCH ?
+      UNION
+      SELECT overflow_note.rowid FROM notes_short_overflow overflow
+      JOIN notes overflow_note ON overflow_note.id = overflow.note_id
+      WHERE overflow.user_id = ? AND search_contains(overflow_note.content_markdown, ?)
+    )`);
+    shortParams.push(shortSearchToken(term), userId, term);
+  });
+  const shortMatches = (indexes: number[]) =>
+    indexes
+      .map(
+        (index) =>
+          `EXISTS (SELECT 1 FROM short_matches_${index} short_match WHERE short_match.rowid = n.rowid)`,
+      )
+      .join(" AND ");
 
   const sortColumn = sort === "created" ? "created_at" : sort === "title" ? "title" : "updated_at";
-  const rankedCte = isRanked
-    ? `ranked AS MATERIALIZED (
-      SELECT notes_fts.rowid AS note_rowid, active.id AS note_id,
-        bm25(notes_fts, 8.0, 1.0) AS score
-      FROM notes_fts
-      JOIN active ON active.rowid = notes_fts.rowid
-      WHERE notes_fts MATCH ?
-        ${tagWhere ? `AND ${tagWhere}` : ""}
-    )`
+  const shortScoreParams = shortTokens.map((term) => normalizeLinkTitle(term));
+  const shortScore = shortTokens
+    .map(() => "(CASE WHEN instr(n.title_normalized, ?) > 0 THEN -8.0 ELSE 0 END)")
+    .join(" + ");
+  const scoreExpression = isRanked
+    ? [ftsTokens.length ? "bm25(notes_fts, 8.0, 1.0)" : "", shortScore ? `(${shortScore})` : ""]
+        .filter(Boolean)
+        .join(" + ")
     : "";
-  const candidatesCte = isRanked
-    ? ""
-    : `candidates AS MATERIALIZED (
-        SELECT notes_fts.rowid AS note_rowid, active.id AS note_id,
-          active.${sortColumn} AS sort_value
-        FROM notes_fts JOIN active ON active.rowid = notes_fts.rowid
-        WHERE notes_fts MATCH ?
-          ${tagWhere ? `AND ${tagWhere}` : ""}
-      )`;
-  const candidateCte = isRanked ? rankedCte : candidatesCte;
+  const usesFts = ftsTokens.length > 0;
+  const otherShortIndexes = shortTokens.map((_, index) => index).slice(usesFts ? 0 : 1);
+  const conditions = [
+    ...(usesFts ? ["notes_fts MATCH ?"] : []),
+    ...noteConditions,
+    ...(otherShortIndexes.length ? [shortMatches(otherShortIndexes)] : []),
+    ...(tagWhere ? [tagWhere] : []),
+  ];
+  const candidateValue = isRanked
+    ? `${scoreExpression || "0"} AS score`
+    : `n.${sortColumn} AS sort_value`;
+  const candidateFrom = usesFts
+    ? "notes_fts JOIN notes n ON n.rowid = notes_fts.rowid"
+    : "short_matches_0 short_source JOIN notes n ON n.rowid = short_source.rowid";
+  const candidateCte = `candidates AS MATERIALIZED (
+    SELECT n.rowid AS note_rowid, n.id AS note_id, ${candidateValue}
+    FROM ${candidateFrom}
+    WHERE ${conditions.join(" AND ")}
+  )`;
 
   const topCte = isRanked
     ? `top AS MATERIALIZED (
         SELECT note_rowid, note_id, score
-        FROM ranked
+        FROM candidates
         ${cursor ? "WHERE (score > ? OR (score = ? AND note_id > ?))" : ""}
         ORDER BY score ASC, note_id ASC
         LIMIT ?
@@ -265,8 +282,13 @@ function buildOptimizedNoteListPlan(input: {
         LIMIT ?
       )`;
 
-  const withParts = [activeCte, candidateCte, topCte];
-  const sourceParams: SqlValue[] = [ftsQuery, ...tagParams];
+  const withParts = [...shortCtes, candidateCte, topCte];
+  const candidateParams: SqlValue[] = [
+    ...(isRanked && shortTokens.length ? shortScoreParams : []),
+    ...(usesFts ? [ftsQuery] : []),
+    ...noteParams,
+    ...tagParams,
+  ];
   const cursorParams: SqlValue[] = cursor
     ? isRanked || sort === "title"
       ? [cursor.value, cursor.value, cursor.id]
@@ -275,7 +297,7 @@ function buildOptimizedNoteListPlan(input: {
   const matchSelect = includeMatch
     ? ", search_snippet(n.content_markdown, ?) AS match_snippet"
     : "";
-  const detailParams: SqlValue[] = includeMatch ? [JSON.stringify(ftsTokens)] : [];
+  const detailParams: SqlValue[] = includeMatch ? [JSON.stringify(searchTokens)] : [];
   const detailOrder = isRanked
     ? "top.score ASC, n.id ASC"
     : sort === "title"
@@ -290,8 +312,8 @@ function buildOptimizedNoteListPlan(input: {
     LEFT JOIN image_assets a ON a.note_id = n.id AND a.document_order = 0
     ORDER BY ${detailOrder}`;
   const params: SqlValue[] = [
-    ...activeParams,
-    ...sourceParams,
+    ...shortParams,
+    ...candidateParams,
     ...cursorParams,
     pageLimit + 1,
     ...detailParams,
@@ -300,13 +322,9 @@ function buildOptimizedNoteListPlan(input: {
   let countSql: string | null = null;
   let countParams: SqlValue[] = [];
   if (includeTotal) {
-    countSql = `WITH ${activeCte}
-      SELECT COUNT(*) AS count
-      FROM notes_fts
-      JOIN active ON active.rowid = notes_fts.rowid
-      WHERE notes_fts MATCH ?
-        ${tagWhere ? `AND ${tagWhere}` : ""}`;
-    countParams = [...activeParams, ftsQuery, ...tagParams];
+    countSql = `WITH ${[...shortCtes, candidateCte].join(",\n")}
+      SELECT COUNT(*) AS count FROM candidates`;
+    countParams = [...shortParams, ...candidateParams];
   }
 
   return { sql, params, countSql, countParams };
@@ -803,9 +821,8 @@ export async function handleNotesRoute(
           restored = database.transaction(() => {
             const rows = getBatchNoteStates(database, user.id, entries);
             assertBatchNoteStates(rows, entries, "restore");
-            const restoredAt = now();
             const update = database.query(
-              "UPDATE notes SET deleted_at = NULL, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ? AND version = ? AND deleted_at IS NOT NULL",
+              "UPDATE notes SET deleted_at = NULL, version = version + 1 WHERE id = ? AND user_id = ? AND version = ? AND deleted_at IS NOT NULL",
             );
             const rowsById = new Map(rows.map((row) => [row.id, row]));
             for (const entry of entries) {
@@ -818,7 +835,7 @@ export async function handleNotesRoute(
                 note.created_at,
                 note.content_markdown,
               );
-              update.run(restoredAt, entry.id, user.id, entry.version);
+              update.run(entry.id, user.id, entry.version);
             }
             resolveNoteLinksForTitles(
               database,
@@ -842,13 +859,13 @@ export async function handleNotesRoute(
           assertBatchNoteStates(rows, entries, "trash");
           const deletedAt = now();
           const update = database.query(
-            "UPDATE notes SET deleted_at = ?, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ? AND version = ? AND deleted_at IS NULL",
+            "UPDATE notes SET deleted_at = ?, version = version + 1 WHERE id = ? AND user_id = ? AND version = ? AND deleted_at IS NULL",
           );
           const rowsById = new Map(rows.map((row) => [row.id, row]));
           for (const entry of entries) {
             const note = rowsById.get(entry.id)!;
             syncNoteTasks(database, user.id, note.id, note.notebook_id, note.created_at, "");
-            update.run(deletedAt, deletedAt, entry.id, user.id, entry.version);
+            update.run(deletedAt, entry.id, user.id, entry.version);
           }
           resolveNoteLinksForTitles(
             database,
@@ -955,12 +972,8 @@ export async function handleNotesRoute(
       rawSort === "relevance" && !query.trim() ? "updated" : (rawSort as SearchSort);
     const includeTotal = url.searchParams.get("includeTotal") !== "0";
     const includeMatch = url.searchParams.get("includeMatch") === "1";
-    let rankingCte = "";
-    const rankingParams: SqlValue[] = [];
-    let scoreExpression = "0";
     const parsedSearch = query && !tagQuery ? parseSearchTerms(query) : null;
     const searchTokens = parsedSearch?.tokens ?? [];
-    const directTokens = parsedSearch?.directTokens ?? [];
     const filterNotebookIds: string[] = [];
 
     if (view === "trash") conditions.push("n.deleted_at IS NOT NULL");
@@ -983,43 +996,7 @@ export async function handleNotesRoute(
       filterNotebookIds.push(notebookId);
     }
     if (parsedSearch) {
-      const { tokens, ftsTokens, directTokens } = parsedSearch;
-      if (tokens.length === 0) return json({ notes: [], total: 0 });
-
-      if (ftsTokens.length > 0) {
-        const ftsQuery = ftsTokens.map((part) => `"${part.replaceAll('"', '""')}"`).join(" AND ");
-        if (sort === "relevance") {
-          rankingCte = `WITH search_rank AS MATERIALIZED (
-            SELECT notes_fts.rowid, bm25(notes_fts, 8.0, 1.0) AS score
-            FROM notes_fts JOIN notes search_owner ON search_owner.rowid = notes_fts.rowid
-            WHERE search_owner.user_id = ? AND notes_fts MATCH ?
-          )`;
-          rankingParams.push(user.id, ftsQuery);
-          from += " JOIN search_rank ON search_rank.rowid = n.rowid";
-          scoreExpression = "search_rank.score";
-        } else {
-          from += " JOIN notes_fts ON notes_fts.rowid = n.rowid";
-          conditions.push("notes_fts MATCH ?");
-          params.push(ftsQuery);
-        }
-      }
-
-      for (const term of directTokens) {
-        conditions.push(
-          `(${searchContainsPredicate("n.title", term)} OR ${searchContainsPredicate("n.content_markdown", term)})`,
-        );
-        params.push(term, term);
-      }
-    }
-    const rankDirectTerms = sort === "relevance" && !rankingCte && directTokens.length > 0;
-    if (rankDirectTerms) {
-      // Short terms bypass FTS; rank title matches ahead of body-only matches.
-      scoreExpression = directTokens
-        .map(
-          (term) =>
-            `(CASE WHEN ${searchContainsPredicate("n.title", term)} THEN -8.0 ELSE -1.0 END)`,
-        )
-        .join(" + ");
+      if (parsedSearch.tokens.length === 0) return json({ notes: [], total: 0 });
     }
     const scope =
       sort === "relevance"
@@ -1047,61 +1024,23 @@ export async function handleNotesRoute(
       conditions.push(`(${tagConditions.join(tagMode === "any" ? " OR " : " AND ")})`);
       params.push(...normalizedTagFilters);
     }
-    const directCountWhere = conditions.join(" AND ");
-    const directCountParams = [...params];
-    if (rankDirectTerms) {
-      // Apply the full candidate scope before materializing scores, including tag filters.
-      rankingCte = `WITH search_rank AS MATERIALIZED (
-        SELECT n.rowid AS note_rowid, (${scoreExpression}) AS score
-        FROM notes n JOIN notebooks b ON b.id = n.notebook_id
-        WHERE ${conditions.join(" AND ")}
-      )`;
-      rankingParams.push(...directTokens, ...params);
-      from += " JOIN search_rank ON search_rank.note_rowid = n.rowid";
-      scoreExpression = "search_rank.score";
-      // The materialized candidate set already applies every filter.
-      conditions.length = 0;
-      params.length = 0;
-    }
-    const totalWhere = conditions.join(" AND ") || "1";
-    const totalParams = [...params];
-    if (cursor) {
-      if (sort === "relevance") {
-        if (typeof cursor.value !== "number" || !Number.isFinite(cursor.value))
-          return jsonError(400, "INVALID_CURSOR", "笔记列表游标无效");
-        conditions.push(`(${scoreExpression} > ? OR (${scoreExpression} = ? AND n.id > ?))`);
-        params.push(cursor.value, cursor.value, cursor.id);
-      } else if (sort === "title") {
-        if (typeof cursor.value !== "string")
-          return jsonError(400, "INVALID_CURSOR", "笔记列表游标无效");
-        conditions.push(
-          "(n.title COLLATE NOCASE > ? OR (n.title COLLATE NOCASE = ? AND n.id > ?))",
-        );
-        params.push(cursor.value, cursor.value, cursor.id);
-      } else {
-        if (typeof cursor.value !== "number" || !Number.isSafeInteger(cursor.value))
-          return jsonError(400, "INVALID_CURSOR", "笔记列表游标无效");
-        const column = sort === "created" ? "n.created_at" : "n.updated_at";
-        conditions.push(`(${column}, n.id) < (?, ?)`);
-        params.push(cursor.value, cursor.id);
-      }
-    }
-    const optimizedPlan =
-      parsedSearch && parsedSearch.ftsTokens.length > 0 && directTokens.length === 0
-        ? buildOptimizedNoteListPlan({
-            userId: user.id,
-            view: view as NoteView,
-            sort,
-            notebookIds: filterNotebookIds,
-            ftsTokens: parsedSearch.ftsTokens,
-            normalizedTagFilters,
-            tagMode,
-            pageLimit,
-            cursor: cursor ? { value: cursor.value, id: cursor.id } : null,
-            includeTotal,
-            includeMatch,
-          })
-        : null;
+    const optimizedPlan = parsedSearch
+      ? buildOptimizedNoteListPlan({
+          userId: user.id,
+          view: view as NoteView,
+          sort,
+          notebookIds: filterNotebookIds,
+          searchTokens,
+          ftsTokens: parsedSearch.ftsTokens,
+          shortTokens: parsedSearch.directTokens,
+          normalizedTagFilters,
+          tagMode,
+          pageLimit,
+          cursor: cursor ? { value: cursor.value, id: cursor.id } : null,
+          includeTotal,
+          includeMatch,
+        })
+      : null;
     if (optimizedPlan) {
       const totalRow = optimizedPlan.countSql
         ? first<{ count: number }>(database, optimizedPlan.countSql, ...optimizedPlan.countParams)
@@ -1123,14 +1062,35 @@ export async function handleNotesRoute(
         totalRow ? Number(totalRow.count) : null,
       );
     }
+    const totalWhere = conditions.join(" AND ") || "1";
+    const totalParams = [...params];
+    if (cursor) {
+      if (sort === "relevance") {
+        if (typeof cursor.value !== "number" || !Number.isFinite(cursor.value))
+          return jsonError(400, "INVALID_CURSOR", "笔记列表游标无效");
+        conditions.push("(0 > ? OR (0 = ? AND n.id > ?))");
+        params.push(cursor.value, cursor.value, cursor.id);
+      } else if (sort === "title") {
+        if (typeof cursor.value !== "string")
+          return jsonError(400, "INVALID_CURSOR", "笔记列表游标无效");
+        conditions.push(
+          "(n.title COLLATE NOCASE > ? OR (n.title COLLATE NOCASE = ? AND n.id > ?))",
+        );
+        params.push(cursor.value, cursor.value, cursor.id);
+      } else {
+        if (typeof cursor.value !== "number" || !Number.isSafeInteger(cursor.value))
+          return jsonError(400, "INVALID_CURSOR", "笔记列表游标无效");
+        const column = sort === "created" ? "n.created_at" : "n.updated_at";
+        conditions.push(`(${column}, n.id) < (?, ?)`);
+        params.push(cursor.value, cursor.id);
+      }
+    }
     const where = conditions.join(" AND ") || "1";
     const totalRow = includeTotal
       ? first<{ count: number }>(
           database,
-          rankDirectTerms
-            ? `SELECT COUNT(*) AS count FROM notes n JOIN notebooks b ON b.id = n.notebook_id WHERE ${directCountWhere}`
-            : `${rankingCte} SELECT COUNT(*) AS count FROM ${from} WHERE ${totalWhere}`,
-          ...(rankDirectTerms ? directCountParams : [...rankingParams, ...totalParams]),
+          `SELECT COUNT(*) AS count FROM ${from} WHERE ${totalWhere}`,
+          ...totalParams,
         )
       : null;
     const matchParams: SqlValue[] = [];
@@ -1140,15 +1100,14 @@ export async function handleNotesRoute(
       matchParams.push(JSON.stringify(searchTokens));
     }
     const listStatement = database.query(`
-      ${rankingCte} SELECT ${NOTE_LIST_SELECT}, ${scoreExpression} AS relevance_score ${matchSelect}
-      FROM ${from} WHERE ${where} ORDER BY ${sort === "relevance" ? `${scoreExpression} ASC, n.id ASC` : noteListOrder(sort)} LIMIT ?
+      SELECT ${NOTE_LIST_SELECT}, 0 AS relevance_score ${matchSelect}
+      FROM ${from} WHERE ${where} ORDER BY ${sort === "relevance" ? "n.id ASC" : noteListOrder(sort)} LIMIT ?
     `);
-    const rows = listStatement.all(
-      ...rankingParams,
-      ...matchParams,
-      ...params,
-      pageLimit + 1,
-    ) as (NoteRow & { tags_json: string; relevance_score: number; match_snippet?: string })[];
+    const rows = listStatement.all(...matchParams, ...params, pageLimit + 1) as (NoteRow & {
+      tags_json: string;
+      relevance_score: number;
+      match_snippet?: string;
+    })[];
     return respondNoteList(
       rows,
       pageLimit,
@@ -1313,6 +1272,7 @@ export async function handleNotesRoute(
     if (trimmedTitle.length >= 2 && !scanBudgetExhausted) {
       const { ftsTokens } = parseSearchTerms(trimmedTitle);
       const useFts = trimmedTitle.length >= 3 && ftsTokens.length > 0;
+      const useShortIndex = !useFts && Array.from(trimmedTitle).length <= 2;
       let candidateFrom = "notes n JOIN notebooks nb ON n.notebook_id = nb.id";
       const candidateConditions = ["n.user_id = ?", "n.deleted_at IS NULL", "n.id != ?"];
       const candidateParams: SqlValue[] = [user.id, note.id];
@@ -1320,7 +1280,20 @@ export async function handleNotesRoute(
       if (useFts) {
         candidateFrom += " JOIN notes_fts ON notes_fts.rowid = n.rowid";
         candidateConditions.push("notes_fts MATCH ?");
-        candidateParams.push(ftsTokens.map((p) => `"${p.replaceAll('"', '""')}"`).join(" AND "));
+        candidateParams.push(buildFtsMatchQuery(ftsTokens));
+      } else if (useShortIndex) {
+        candidateFrom = `(
+          SELECT rowid FROM notes_short_fts WHERE notes_short_fts MATCH ?
+          UNION
+          SELECT overflow_note.rowid FROM notes_short_overflow overflow
+          JOIN notes overflow_note ON overflow_note.id = overflow.note_id
+          WHERE overflow.user_id = ? AND search_contains(overflow_note.content_markdown, ?)
+        ) short_match
+        JOIN notes n ON n.rowid = short_match.rowid
+        JOIN notebooks nb ON n.notebook_id = nb.id`;
+        candidateConditions.push(searchContainsPredicate("n.content_markdown", trimmedTitle));
+        candidateParams.unshift(shortSearchToken(trimmedTitle), user.id, trimmedTitle);
+        candidateParams.push(trimmedTitle);
       } else {
         candidateConditions.push(searchContainsPredicate("n.content_markdown", trimmedTitle));
         candidateParams.push(trimmedTitle);

@@ -320,7 +320,7 @@ export async function handleNotebooksRoute(
         user.id,
       );
       const updateNote = database.query(
-        "UPDATE notes SET notebook_id = ?, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ?",
+        "UPDATE notes SET notebook_id = ?, version = version + 1 WHERE id = ? AND user_id = ?",
       );
       for (const note of movedNotes) {
         syncNoteTasks(
@@ -331,7 +331,7 @@ export async function handleNotebooksRoute(
           note.created_at,
           note.deleted_at === null ? note.content_markdown : "",
         );
-        updateNote.run(inbox.id, now(), note.id, user.id);
+        updateNote.run(inbox.id, note.id, user.id);
       }
       database.query("DELETE FROM notebooks WHERE id = ? AND user_id = ?").run(current.id, user.id);
       return { movedCount: movedNotes.length, mismatch: false as const };

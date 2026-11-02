@@ -16,10 +16,12 @@ import {
   deleteBlock,
   duplicateBlock,
   getBlockShift,
+  getDraggableBlockFromSelection,
   getDraggableBlockFromElement,
   getSiblingBlocks,
   moveBlock,
   moveBlockStep,
+  toDragSessionY,
   type BlockSlot,
   type BlockTarget,
   type DropCandidate,
@@ -88,14 +90,30 @@ function focusEditor(editor: Editor, scroll: HTMLElement | null) {
   const scrollTop = scroll?.scrollTop;
   editor.view.dom.focus({ preventScroll: true });
   // Safari can still reveal the restored caret and jump back to an off-screen selection.
-  if (!scroll || scrollTop === undefined || scroll.scrollTop === scrollTop) return;
-  scroll.scrollTop = scrollTop;
+  if (!scroll || scrollTop === undefined) return;
+  const restoreScroll = () => {
+    if (scroll.scrollTop !== scrollTop) scroll.scrollTop = scrollTop;
+  };
+  restoreScroll();
+  window.requestAnimationFrame(restoreScroll);
 }
 
-function blockVerticalCenter(block: BlockTarget): number {
+function blockHandleCenter(block: BlockTarget, scroll: HTMLElement | null): number {
   if (!block.dom) return 0;
   const rect = block.dom.getBoundingClientRect();
-  return rect.top + rect.height / 2;
+  const center = rect.top + rect.height / 2;
+  if (!scroll) return center;
+  const scrollRect = scroll.getBoundingClientRect();
+  const inset = HANDLE_HEIGHT / 2 + 4;
+  return Math.min(
+    Math.max(center, scrollRect.top + inset),
+    Math.max(scrollRect.top + inset, scrollRect.bottom - inset),
+  );
+}
+
+function translateY(element: HTMLElement): number {
+  const transform = getComputedStyle(element).transform;
+  return transform && transform !== "none" ? new DOMMatrixReadOnly(transform).m42 : 0;
 }
 
 function pointerInHandleGutter(
@@ -122,10 +140,10 @@ function blockAtHandleGutter(editor: Editor, y: number): BlockTarget | null {
 
   const listRoot = target.closest<HTMLElement>("li, ul, ol");
   if (listRoot) {
-    const items =
-      listRoot.tagName === "LI"
-        ? [listRoot, ...listRoot.querySelectorAll<HTMLElement>("li")]
-        : Array.from(listRoot.querySelectorAll<HTMLElement>("li"));
+    if (listRoot.tagName === "LI") {
+      return getDraggableBlockFromElement(editor, listRoot, { x: rect.left + 6, y });
+    }
+    const items = Array.from(listRoot.querySelectorAll<HTMLElement>("li"));
     let listItem: HTMLElement | null = null;
     let listItemDepth = -1;
     let listItemHeight = Number.POSITIVE_INFINITY;
@@ -178,16 +196,21 @@ function createDragPreview(source: BlockTarget): HTMLElement | null {
   const preview = document.createElement("div");
   preview.className = "block-drag-preview";
   preview.setAttribute("aria-hidden", "true");
+  preview.setAttribute("inert", "");
 
   const content = document.createElement("div");
   content.className = "note-prose block-drag-preview-content";
   const clone = source.dom.cloneNode(true) as HTMLElement;
   clone.style.marginTop = "0";
   clone.style.marginBottom = "0";
-  clone.querySelectorAll<HTMLElement>("[contenteditable], [tabindex]").forEach((element) => {
-    element.removeAttribute("contenteditable");
-    element.removeAttribute("tabindex");
-  });
+  clone
+    .querySelectorAll<HTMLElement>(
+      "[contenteditable], button, input, select, textarea, a[href], [tabindex]",
+    )
+    .forEach((element) => {
+      element.removeAttribute("contenteditable");
+      element.setAttribute("tabindex", "-1");
+    });
   clone.querySelectorAll<HTMLImageElement>("img").forEach((image) => {
     image.draggable = false;
   });
@@ -326,7 +349,7 @@ export function BlockDragHandle({
       const container = containerRef.current;
       if (!container || !block.dom) return;
       const containerRect = container.getBoundingClientRect();
-      const centerY = blockVerticalCenter(block);
+      const centerY = blockHandleCenter(block, scrollRef.current);
       activeBlockRef.current = block;
       setActiveBlock(block);
       setHandlePosition({
@@ -334,7 +357,7 @@ export function BlockDragHandle({
         left: HANDLE_LEFT,
       });
     },
-    [containerRef],
+    [containerRef, scrollRef],
   );
 
   const revealHandle = useCallback(
@@ -423,7 +446,13 @@ export function BlockDragHandle({
     const container = containerRef.current;
     if (!container) return;
 
-    const handlePointerMove = (event: PointerEvent) => {
+    let pointerFrame: number | null = null;
+    let pendingPointer: PointerEvent | null = null;
+    const processPointer = () => {
+      pointerFrame = null;
+      const event = pendingPointer;
+      pendingPointer = null;
+      if (!event) return;
       if (
         dragSessionRef.current ||
         isDraggingRef.current ||
@@ -451,6 +480,10 @@ export function BlockDragHandle({
       }
       revealHandle(block);
     };
+    const handlePointerMove = (event: PointerEvent) => {
+      pendingPointer = event;
+      if (pointerFrame === null) pointerFrame = window.requestAnimationFrame(processPointer);
+    };
 
     const handlePointerLeave = () => {
       if (!menuOpenRef.current && !isDraggingRef.current) scheduleHide();
@@ -462,14 +495,60 @@ export function BlockDragHandle({
         return;
       }
       const current = activeBlockRef.current;
-      if (!current?.dom?.isConnected || isDraggingRef.current) return;
+      if (isDraggingRef.current) return;
+      if (!current?.dom?.isConnected) {
+        clearActiveBlock();
+        return;
+      }
       const fresh = getDraggableBlockFromElement(editor, current.dom);
       if (fresh) updateHandlePosition(fresh);
       else clearActiveBlock();
     };
 
+    const revealFromSelection = () => {
+      if (!editor.view.hasFocus()) return;
+      const block = getDraggableBlockFromSelection(editor);
+      if (block) revealHandle(block);
+    };
+
+    const openMenuFromSelection = () => {
+      const block = getDraggableBlockFromSelection(editor);
+      if (!block) return false;
+      updateHandlePosition(block);
+      window.requestAnimationFrame(() =>
+        window.requestAnimationFrame(() => {
+          handleRef.current?.focus();
+          openMenu();
+        }),
+      );
+      return true;
+    };
+
+    const handleEditorKeyDown = (event: KeyboardEvent) => {
+      if (event.isComposing || event.keyCode === 229 || !editor.view.hasFocus()) return;
+      if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+      if (!openMenuFromSelection()) return;
+      event.preventDefault();
+      event.stopPropagation();
+    };
+
+    const handleEditorBlur = (event: FocusEvent) => {
+      const next = event.relatedTarget;
+      if (
+        next instanceof Node &&
+        (handleRef.current?.contains(next) || menuRef.current?.contains(next))
+      )
+        return;
+      scheduleHide();
+    };
+
     const resizeObserver = new ResizeObserver(refreshHandle);
     resizeObserver.observe(container);
+    editor.on("selectionUpdate", revealFromSelection);
+    editor.view.dom.addEventListener("focus", revealFromSelection);
+    editor.view.dom.addEventListener("blur", handleEditorBlur);
+    editor.view.dom.addEventListener("keydown", handleEditorKeyDown);
+    editor.view.dom.setAttribute("aria-keyshortcuts", "Shift+F10");
     window.addEventListener("pointermove", handlePointerMove, { passive: true });
     window.addEventListener("resize", refreshHandle);
     container.addEventListener("pointerleave", handlePointerLeave);
@@ -479,9 +558,15 @@ export function BlockDragHandle({
     return () => {
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("resize", refreshHandle);
+      editor.off("selectionUpdate", revealFromSelection);
+      editor.view.dom.removeEventListener("focus", revealFromSelection);
+      editor.view.dom.removeEventListener("blur", handleEditorBlur);
+      editor.view.dom.removeEventListener("keydown", handleEditorKeyDown);
+      editor.view.dom.removeAttribute("aria-keyshortcuts");
       container.removeEventListener("pointerleave", handlePointerLeave);
       scrollElement?.removeEventListener("scroll", refreshHandle);
       resizeObserver.disconnect();
+      if (pointerFrame !== null) cancelAnimationFrame(pointerFrame);
       clearHideTimeout();
     };
   }, [
@@ -493,6 +578,7 @@ export function BlockDragHandle({
     editor,
     scheduleHide,
     scrollRef,
+    openMenu,
     updateHandlePosition,
     revealHandle,
   ]);
@@ -592,6 +678,39 @@ export function BlockDragHandle({
 
     const scrollDelta = () =>
       (scrollRef.current?.scrollTop ?? session.initialScroll) - session.initialScroll;
+    const refreshGeometry = () => {
+      const delta = scrollDelta();
+      const originalTop = (block: BlockTarget) => {
+        if (!block.dom) return null;
+        return toDragSessionY(block.dom.getBoundingClientRect().top, delta, translateY(block.dom));
+      };
+      session.siblings.forEach((block, index) => {
+        if (!block.dom) return;
+        const rect = block.dom.getBoundingClientRect();
+        const offset = translateY(block.dom);
+        session.slots[index] = {
+          block,
+          top: toDragSessionY(rect.top, delta, offset),
+          bottom: toDragSessionY(rect.bottom, delta, offset),
+        };
+      });
+
+      const sourceTop = originalTop(session.block);
+      const nextSibling = session.block.dom?.nextElementSibling;
+      if (sourceTop !== null && nextSibling instanceof HTMLElement) {
+        const nextTop = toDragSessionY(
+          nextSibling.getBoundingClientRect().top,
+          delta,
+          translateY(nextSibling),
+        );
+        if (nextTop > sourceTop) session.sourceSpan = nextTop - sourceTop;
+      }
+    };
+    let geometryDirty = false;
+    const resizeObserver = new ResizeObserver(() => {
+      geometryDirty = true;
+    });
+    for (const block of siblings) if (block.dom) resizeObserver.observe(block.dom);
     let lastTickTime: number | null = null;
     let autoScrollDirection = 0;
     let autoScrollBudget = 0;
@@ -640,6 +759,10 @@ export function BlockDragHandle({
       }
 
       const delta = scrollDelta();
+      if (geometryDirty) {
+        refreshGeometry();
+        geometryDirty = false;
+      }
       const candidate = inside
         ? calculateDropCandidate(
             session.slots,
@@ -675,6 +798,11 @@ export function BlockDragHandle({
 
       session.slots.forEach((slot, index) => {
         if (index === session.sourceIndex || !slot.block.dom) return;
+        if (
+          scrollRect &&
+          (slot.bottom - delta < scrollRect.top - 80 || slot.top - delta > scrollRect.bottom + 80)
+        )
+          return;
         const shift =
           candidate && !candidate.noop
             ? getBlockShift(
@@ -719,10 +847,12 @@ export function BlockDragHandle({
       window.removeEventListener("pointermove", movePointer);
       window.removeEventListener("pointerup", finishPointer);
       window.removeEventListener("pointercancel", cancelPointer);
+      window.removeEventListener("lostpointercapture", cancelPointer, true);
       window.removeEventListener("blur", blurWindow);
       window.removeEventListener("resize", resizeWindow);
       window.removeEventListener("keydown", escapeDrag, true);
       editor.off("transaction", handleTransaction);
+      resizeObserver.disconnect();
     };
 
     const dispose = () => {
@@ -1011,6 +1141,7 @@ export function BlockDragHandle({
     window.addEventListener("pointermove", movePointer);
     window.addEventListener("pointerup", finishPointer);
     window.addEventListener("pointercancel", cancelPointer);
+    window.addEventListener("lostpointercapture", cancelPointer, true);
     window.addEventListener("blur", blurWindow);
     window.addEventListener("resize", resizeWindow);
     window.addEventListener("keydown", escapeDrag, true);
@@ -1070,7 +1201,8 @@ export function BlockDragHandle({
       return;
     }
     if (event.key === "Tab") {
-      closeMenu(false);
+      event.preventDefault();
+      closeMenu(true);
       return;
     }
     if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;

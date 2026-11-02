@@ -137,6 +137,17 @@ describe("remote summary merging", () => {
     ]);
   });
 
+  test("keeps the position when a newer version only changes note state", () => {
+    const rows = [summary("a", 30), summary("b", 20), summary("c", 10)];
+    const merged = mergeRemoteSummary(
+      rows,
+      summary("c", 10, { version: 2, isFavorite: true }),
+      "updated",
+    );
+    expect(merged?.map((row) => row.id)).toEqual(["a", "b", "c"]);
+    expect(merged?.[2]).toMatchObject({ version: 2, isFavorite: true, updatedAt: 10 });
+  });
+
   test("returns null when the note is not in the current list", () => {
     expect(mergeRemoteSummary([summary("a", 1)], summary("missing", 2), "updated")).toBeNull();
   });

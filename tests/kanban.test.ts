@@ -104,6 +104,10 @@ describe("Kanban API", () => {
       cookie,
     );
     const { note: note2 } = (await note2Res.json()) as { note: { id: string } };
+    const noteUpdatedAt = 1_700_000_000;
+    database
+      .query("UPDATE notes SET updated_at = ? WHERE id IN (?, ?)")
+      .run(noteUpdatedAt, note1.id, note2.id);
 
     // 2. Add note1 to kanban (defaults to 'inbox')
     const add1Res = await api(
@@ -116,10 +120,11 @@ describe("Kanban API", () => {
     );
     expect(add1Res.status).toBe(201);
     const { card: card1 } = (await add1Res.json()) as {
-      card: { noteId: string; status: string; sortOrder: number };
+      card: { noteId: string; status: string; sortOrder: number; note: { updatedAt: number } };
     };
     expect(card1.noteId).toBe(note1.id);
     expect(card1.status).toBe("inbox");
+    expect(card1.note.updatedAt).toBe(noteUpdatedAt);
 
     // 3. Add note2 directly to 'doing'
     const add2Res = await api(
@@ -164,10 +169,11 @@ describe("Kanban API", () => {
     );
     expect(patchRes.status).toBe(200);
     const { card: patchedCard } = (await patchRes.json()) as {
-      card: { status: string; sortOrder: number };
+      card: { status: string; sortOrder: number; note: { updatedAt: number } };
     };
     expect(patchedCard.status).toBe("doing");
     expect(patchedCard.sortOrder).toBe(200);
+    expect(patchedCard.note.updatedAt).toBe(noteUpdatedAt);
 
     // 7. Move card to 'done'
     const doneRes = await api(
@@ -204,6 +210,9 @@ describe("Kanban API", () => {
     // Note2 still exists in regular notes
     const note2Check = await api(`/api/notes/${note2.id}`, { method: "GET" }, cookie);
     expect(note2Check.status).toBe(200);
+    expect(((await note2Check.json()) as { note: { updatedAt: number } }).note.updatedAt).toBe(
+      noteUpdatedAt,
+    );
 
     // 9. Trashing note1 hides it from kanban
     await api(
@@ -235,6 +244,11 @@ describe("Kanban API", () => {
     };
     expect(cardsAfterRestore.length).toBe(1);
     expect(cardsAfterRestore[0].noteId).toBe(note1.id);
+    const note1Check = await api(`/api/notes/${note1.id}`, { method: "GET" }, cookie);
+    expect(note1Check.status).toBe(200);
+    expect(((await note1Check.json()) as { note: { updatedAt: number } }).note.updatedAt).toBe(
+      noteUpdatedAt,
+    );
   });
 
   test("kanban column pagination: limit, cursor, total, and hasMore", async () => {

@@ -11,6 +11,7 @@ import {
   openDatabase,
   type SchemaMigration,
 } from "../server/db";
+import { shortSearchToken } from "../server/note-search";
 
 test("initializes a fresh database from the single baseline and records its version", async () => {
   const database = await openDatabase(":memory:");
@@ -285,7 +286,7 @@ test("uses targeted indexes for paged notes and foreign-key cleanup", async () =
     expect(names.has("idx_sessions_user")).toBe(true);
     expect(names.has("idx_note_links_source_note")).toBe(true);
     expect(names.has("idx_note_links_target_note")).toBe(true);
-    expect(names.has("idx_notes_short_overflow_user")).toBe(false);
+    expect(names.has("idx_notes_short_overflow_user")).toBe(true);
     expect(names.has("idx_notes_user_deleted_title")).toBe(false);
     expect(names.has("idx_notes_user_deleted_updated")).toBe(false);
     expect(names.has("idx_notes_user_notebook_deleted_updated")).toBe(false);
@@ -467,7 +468,7 @@ test("keeps the kanban table and indexes in the current schema", async () => {
   }
 });
 
-test("upgrading legacy search indexes removes all obsolete derived objects", async () => {
+test("upgrading legacy search indexes replaces them with the current short index", async () => {
   const database = new Database(":memory:");
   database.exec(await Bun.file("database/schema.sql").text());
   try {
@@ -496,19 +497,16 @@ test("upgrading legacy search indexes removes all obsolete derived objects", asy
 
     await initializeDatabase(database);
 
-    const objects = database
-      .query("SELECT type, name FROM sqlite_master WHERE name IN (?, ?, ?, ?, ?, ?, ?, ?)")
-      .all(
-        "note_short_terms",
-        "notes_short_fts",
-        "notes_short_fts_data",
-        "notes_short_fts_idx",
-        "notes_short_fts_docsize",
-        "notes_short_fts_config",
-        "notes_short_overflow",
-        "notes_short_fts_delete",
-      );
-    expect(objects).toEqual([]);
+    expect(
+      database
+        .query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'note_short_terms'")
+        .get(),
+    ).toBeNull();
+    expect(
+      database
+        .query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+        .get("notes_short_fts"),
+    ).toBeTruthy();
     expect(database.query("PRAGMA user_version").get()).toEqual({
       user_version: CURRENT_SCHEMA_VERSION,
     });
@@ -518,6 +516,11 @@ test("upgrading legacy search indexes removes all obsolete derived objects", asy
     };
     expect(
       database.query("SELECT rowid FROM notes_fts WHERE notes_fts MATCH ?").all("正文包含"),
+    ).toEqual([{ rowid: row.rowid }]);
+    expect(
+      database
+        .query("SELECT rowid FROM notes_short_fts WHERE notes_short_fts MATCH ?")
+        .all(shortSearchToken("你好")),
     ).toEqual([{ rowid: row.rowid }]);
     database.query("DELETE FROM notes WHERE id = ?").run("note");
     expect(
@@ -568,6 +571,34 @@ test("db:check rejects a database with a matching schema and unsupported version
     ]);
     expect(exitCode).toBe(1);
     expect(stdout).toContain("不支持的 schema 版本：999");
+    expect(stderr).toBe("");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("db:check compares an old database with its own schema version", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "xiangying-schema-check-versioned-"));
+  const path = join(directory, "notes.sqlite");
+  const database = new Database(path);
+  try {
+    await initializeDatabase(database, { currentSchemaVersion: 15 });
+  } finally {
+    database.close();
+  }
+
+  try {
+    const child = Bun.spawn(["bun", "run", "scripts/check-schema-drift.ts", path], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [exitCode, stdout, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ]);
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("待升级：启动服务后将迁移 15 →");
     expect(stderr).toBe("");
   } finally {
     await rm(directory, { recursive: true, force: true });

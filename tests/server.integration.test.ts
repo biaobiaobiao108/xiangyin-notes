@@ -1275,6 +1275,131 @@ describe("Bun Server API", () => {
     expect(unknownNotebookSubresource.response.status).toBe(404);
   });
 
+  test("keeps note edit time stable across non-content state changes", async () => {
+    const login = await request("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
+    });
+    const sourceNotebook = await request(
+      "/api/notebooks",
+      { method: "POST", body: JSON.stringify({ name: "编辑时间来源" }) },
+      login.cookie,
+    );
+    const targetNotebook = await request(
+      "/api/notebooks",
+      { method: "POST", body: JSON.stringify({ name: "编辑时间目标" }) },
+      login.cookie,
+    );
+    const created = await request(
+      "/api/notes",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          title: "状态变化不改编辑时间",
+          contentMarkdown: "正文不应因状态变化而重写",
+          notebookId: sourceNotebook.body?.notebook.id,
+        }),
+      },
+      login.cookie,
+    );
+    const noteId = created.body?.note.id as string;
+    const baseline = 1_700_000_000;
+    database.query("UPDATE notes SET updated_at = ? WHERE id = ?").run(baseline, noteId);
+
+    const readNote = async () =>
+      (await request(`/api/notes/${noteId}`, {}, login.cookie)).body?.note as
+        { version: number; updatedAt: number; notebookId: string } | undefined;
+    const expectStable = async (version: number) => {
+      expect(await readNote()).toMatchObject({ version, updatedAt: baseline });
+    };
+
+    let response = await request(
+      `/api/notes/${noteId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ version: 1, isFavorite: true }),
+      },
+      login.cookie,
+    );
+    expect(response.response.status).toBe(200);
+    await expectStable(2);
+
+    response = await request(
+      `/api/notes/${noteId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ version: 2, notebookId: targetNotebook.body?.notebook.id }),
+      },
+      login.cookie,
+    );
+    expect(response.response.status).toBe(200);
+    await expectStable(3);
+
+    response = await request(
+      `/api/notes/${noteId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ version: 3, deleted: true }),
+      },
+      login.cookie,
+    );
+    expect(response.response.status).toBe(200);
+    await expectStable(4);
+
+    response = await request(
+      `/api/notes/${noteId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ version: 4, deleted: false }),
+      },
+      login.cookie,
+    );
+    expect(response.response.status).toBe(200);
+    await expectStable(5);
+
+    response = await request(
+      "/api/notes/batch",
+      {
+        method: "PATCH",
+        body: JSON.stringify({ notes: [{ id: noteId, version: 5 }] }),
+      },
+      login.cookie,
+    );
+    expect(response.response.status).toBe(200);
+    await expectStable(6);
+
+    response = await request(
+      "/api/notes/batch",
+      {
+        method: "PATCH",
+        body: JSON.stringify({ deleted: false, notes: [{ id: noteId, version: 6 }] }),
+      },
+      login.cookie,
+    );
+    expect(response.response.status).toBe(200);
+    await expectStable(7);
+
+    response = await request(
+      `/api/notebooks/${targetNotebook.body?.notebook.id}`,
+      { method: "DELETE" },
+      login.cookie,
+    );
+    expect(response.response.status).toBe(200);
+    await expectStable(8);
+
+    response = await request(
+      `/api/notes/${noteId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ version: 8, title: "真正编辑后的标题" }),
+      },
+      login.cookie,
+    );
+    expect(response.response.status).toBe(200);
+    expect(response.body?.note).toMatchObject({ version: 9 });
+    expect(response.body?.note.updatedAt).toBeGreaterThan(baseline);
+  });
+
   test("returns and searches exact body tags without matching headings or code", async () => {
     const login = await request("/api/auth/login", {
       method: "POST",
@@ -3395,6 +3520,49 @@ describe("Bun Server API", () => {
     expect(deleted.response.status).toBe(200);
     expect((await search("龘龘")).body?.notes.map((note: { id: string }) => note.id)).not.toContain(
       noteId,
+    );
+  });
+
+  test("matches Unicode case-fold variants through trigram search", async () => {
+    const login = await request("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
+    });
+    const created = await request(
+      "/api/notes",
+      {
+        method: "POST",
+        body: JSON.stringify({ title: "Unicode 搜索", contentMarkdown: "xაy" }),
+      },
+      login.cookie,
+    );
+    expect(created.response.status).toBe(201);
+
+    const search = await request(
+      `/api/notes?view=all&query=${encodeURIComponent("xᲐy")}`,
+      {},
+      login.cookie,
+    );
+    expect(search.response.status).toBe(200);
+    expect(search.body?.notes.map((note: { id: string }) => note.id)).toContain(
+      created.body?.note.id,
+    );
+
+    const finalSigma = await request(
+      "/api/notes",
+      {
+        method: "POST",
+        body: JSON.stringify({ title: "Sigma 搜索", contentMarkdown: "xςy" }),
+      },
+      login.cookie,
+    );
+    const sigmaSearch = await request(
+      `/api/notes?view=all&query=${encodeURIComponent("xσy")}`,
+      {},
+      login.cookie,
+    );
+    expect(sigmaSearch.body?.notes.map((note: { id: string }) => note.id)).toContain(
+      finalSigma.body?.note.id,
     );
   });
 

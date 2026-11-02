@@ -199,14 +199,20 @@ test("short searches preserve mixed ASCII and CJK substring matching", async () 
   }
 });
 
-test("short search scans the full title and body without a derived index", async () => {
+test("short search covers content beyond the derived index bounds", async () => {
   const f = await fixture();
   try {
     const afterContentLimit = f.create("边界笔记", `${"甲".repeat(40_100)}后缀词`);
     const afterTermLimit = f.create(
       "另一篇边界笔记",
-      `${Array.from({ length: 520 }, (_, index) => String.fromCodePoint(0x4e00 + index)).join(" ")}尾部词`,
+      `${Array.from({ length: 6001 }, (_, index) => String.fromCodePoint(0x4e00 + index)).join(" ")}尾部词`,
     );
+
+    expect(
+      f.database
+        .query("SELECT 1 FROM notes_short_overflow WHERE note_id IN (?, ?)")
+        .all(afterContentLimit, afterTermLimit),
+    ).toHaveLength(2);
 
     for (const [query, expected] of [
       ["后缀", afterContentLimit],
