@@ -13,7 +13,6 @@ import type { Editor } from "@tiptap/core";
 import { ArrowDown, ArrowUp, Copy, Trash2 } from "lucide-react";
 import {
   calculateDropCandidate,
-  canDeleteBlock,
   deleteBlock,
   duplicateBlock,
   getBlockShift,
@@ -82,6 +81,11 @@ const HIDE_DELAY = 220;
 const HANDLE_FADE_OUT = 180;
 const MIN_LIST_PREVIEW_WIDTH = 160;
 const prefersReducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+function focusEditor(editor: Editor) {
+  if (editor.isDestroyed) return;
+  editor.view.dom.focus({ preventScroll: true });
+}
 
 function blockAnchorTop(block: BlockTarget): number {
   if (!block.dom) return 0;
@@ -785,8 +789,11 @@ export function BlockDragHandle({
     };
 
     const animateBackToSource = async () => {
-      await Promise.all([returnPreviewToSource(), resetSiblingShifts(), restoreSource()]);
-      dispose();
+      try {
+        await Promise.all([returnPreviewToSource(), resetSiblingShifts(), restoreSource()]);
+      } finally {
+        dispose();
+      }
     };
 
     const cancel = async (animate: boolean, force = false) => {
@@ -856,106 +863,114 @@ export function BlockDragHandle({
       if (session.frame !== null) cancelAnimationFrame(session.frame);
       session.frame = null;
       updatePreview();
+      let moved = false;
+      try {
+        const candidate = session.candidate;
+        const targetIndex = candidate
+          ? session.slots.findIndex((slot) => slot.block.pos === candidate.target.pos)
+          : -1;
+        if (
+          !candidate ||
+          candidate.noop ||
+          targetIndex < 0 ||
+          editor.state.doc !== session.initialDoc
+        ) {
+          await animateBack();
+          return;
+        }
 
-      const candidate = session.candidate;
-      const targetIndex = candidate
-        ? session.slots.findIndex((slot) => slot.block.pos === candidate.target.pos)
-        : -1;
-      if (
-        !candidate ||
-        candidate.noop ||
-        targetIndex < 0 ||
-        editor.state.doc !== session.initialDoc
-      ) {
-        await animateBack();
-        return;
-      }
+        const preview = session.preview;
+        if (!preview) {
+          await animateBack();
+          return;
+        }
 
-      const preview = session.preview;
-      if (!preview) {
-        await animateBack();
-        return;
-      }
-
-      const previewOffset = session.pointerY - session.startY;
-      const beforeTops = new Map<HTMLElement, number>();
-      session.slots.forEach(({ block }) => {
-        if (!block.dom) return;
-        beforeTops.set(block.dom, block.dom.getBoundingClientRect().top);
-      });
-
-      const movedPosition = moveBlock(editor, session.block, candidate.target, candidate.placement);
-      if (movedPosition === null) {
-        await animateBack();
-        return;
-      }
-
-      const movedDom = editor.view.nodeDOM(movedPosition);
-      if (!(movedDom instanceof HTMLElement)) {
-        dispose();
-        return;
-      }
-
-      session.shiftAnimations.forEach(({ animation }) => animation.cancel());
-      session.shiftAnimations.clear();
-      session.sourceAnimation?.cancel();
-      document.body.classList.remove("is-sorting-blocks");
-      session.sourceAnimation = movedDom.animate([{ opacity: 0 }, { opacity: 0 }], {
-        duration: 1,
-        fill: "forwards",
-      });
-
-      // Measure the committed layout so the preview lands exactly where the block will live.
-      const finalTop = movedDom.getBoundingClientRect().top;
-      const reducedMotion = prefersReducedMotion();
-      if (!reducedMotion) {
-        beforeTops.forEach((beforeTop, element) => {
-          if (!element.isConnected || element === movedDom) return;
-          const afterTop = element.getBoundingClientRect().top;
-          if (Math.abs(beforeTop - afterTop) < 0.5) return;
-          element.animate(
-            [
-              { transform: `translateY(${beforeTop - afterTop}px)` },
-              { transform: "translateY(0)" },
-            ],
-            { duration: 180, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
-          );
+        const previewOffset = session.pointerY - session.startY;
+        const beforeTops = new Map<HTMLElement, number>();
+        session.slots.forEach(({ block }) => {
+          if (!block.dom) return;
+          beforeTops.set(block.dom, block.dom.getBoundingClientRect().top);
         });
-      }
 
-      await animatePreview(preview, previewOffset, finalTop - session.sourceTop, 160);
-      if (session.cancelled) return;
-
-      if (!reducedMotion) {
-        session.sourceAnimation?.cancel();
-        const fadeOut = preview.animate([{ opacity: 0.98 }, { opacity: 0 }], {
-          duration: 90,
-          easing: "cubic-bezier(0.16, 1, 0.3, 1)",
-          fill: "forwards",
-        });
-        const fadeIn = movedDom.animate([{ opacity: 0 }, { opacity: 1 }], {
-          duration: 110,
-          easing: "cubic-bezier(0.16, 1, 0.3, 1)",
-          fill: "forwards",
-        });
-        session.sourceAnimation = fadeIn;
-        await Promise.all([
-          fadeOut.finished.catch(() => undefined),
-          fadeIn.finished.catch(() => undefined),
-        ]);
-        if (session.cancelled) return;
-        fadeOut.cancel();
-        fadeIn.cancel();
-        session.sourceAnimation = null;
-      }
-
-      dispose();
-
-      if (!reducedMotion) {
-        movedDom.animate(
-          [{ backgroundColor: "var(--accent-soft)" }, { backgroundColor: "transparent" }],
-          { duration: 220, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
+        const movedPosition = moveBlock(
+          editor,
+          session.block,
+          candidate.target,
+          candidate.placement,
         );
+        if (movedPosition === null) {
+          await animateBack();
+          return;
+        }
+        moved = true;
+
+        const movedDom = editor.view.nodeDOM(movedPosition);
+        if (!(movedDom instanceof HTMLElement)) return;
+
+        session.shiftAnimations.forEach(({ animation }) => animation.cancel());
+        session.shiftAnimations.clear();
+        session.sourceAnimation?.cancel();
+        document.body.classList.remove("is-sorting-blocks");
+        session.sourceAnimation = movedDom.animate([{ opacity: 0 }, { opacity: 0 }], {
+          duration: 1,
+          fill: "forwards",
+        });
+
+        // Measure the committed layout so the preview lands exactly where the block will live.
+        const finalTop = movedDom.getBoundingClientRect().top;
+        const reducedMotion = prefersReducedMotion();
+        if (!reducedMotion) {
+          beforeTops.forEach((beforeTop, element) => {
+            if (!element.isConnected || element === movedDom) return;
+            const afterTop = element.getBoundingClientRect().top;
+            if (Math.abs(beforeTop - afterTop) < 0.5) return;
+            element.animate(
+              [
+                { transform: `translateY(${beforeTop - afterTop}px)` },
+                { transform: "translateY(0)" },
+              ],
+              { duration: 180, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
+            );
+          });
+        }
+
+        await animatePreview(preview, previewOffset, finalTop - session.sourceTop, 160);
+        if (session.cancelled) return;
+
+        if (!reducedMotion) {
+          session.sourceAnimation?.cancel();
+          const fadeOut = preview.animate([{ opacity: 0.98 }, { opacity: 0 }], {
+            duration: 90,
+            easing: "cubic-bezier(0.16, 1, 0.3, 1)",
+            fill: "forwards",
+          });
+          const fadeIn = movedDom.animate([{ opacity: 0 }, { opacity: 1 }], {
+            duration: 110,
+            easing: "cubic-bezier(0.16, 1, 0.3, 1)",
+            fill: "forwards",
+          });
+          session.sourceAnimation = fadeIn;
+          await Promise.all([
+            fadeOut.finished.catch(() => undefined),
+            fadeIn.finished.catch(() => undefined),
+          ]);
+          if (session.cancelled) return;
+          fadeOut.cancel();
+          fadeIn.cancel();
+          session.sourceAnimation = null;
+        }
+
+        dispose();
+
+        if (!reducedMotion) {
+          movedDom.animate(
+            [{ backgroundColor: "var(--accent-soft)" }, { backgroundColor: "transparent" }],
+            { duration: 220, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
+          );
+        }
+      } finally {
+        dispose();
+        if (moved) focusEditor(editor);
       }
     };
 
@@ -1038,10 +1053,14 @@ export function BlockDragHandle({
 
   const runMenuAction = (action: (block: BlockTarget) => void) => {
     if (!editor || !activeBlockRef.current?.dom) return;
-    const current = getDraggableBlockFromElement(editor, activeBlockRef.current.dom);
-    if (current) action(current);
-    closeMenu(false);
-    clearActiveBlock();
+    try {
+      const current = getDraggableBlockFromElement(editor, activeBlockRef.current.dom);
+      if (current) action(current);
+    } finally {
+      closeMenu(false);
+      clearActiveBlock();
+      if (!editor.isDestroyed) focusEditor(editor);
+    }
   };
 
   const handleMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -1074,7 +1093,6 @@ export function BlockDragHandle({
 
   const canMoveUp = Boolean(activeBlock && activeBlock.index > 0);
   const canMoveDown = Boolean(activeBlock && activeBlock.index < activeBlock.parent.childCount - 1);
-  const canDelete = Boolean(activeBlock && canDeleteBlock(activeBlock));
 
   return (
     <>
@@ -1160,7 +1178,6 @@ export function BlockDragHandle({
               type="button"
               className="block-action-item is-danger"
               role="menuitem"
-              disabled={!canDelete}
               onClick={() =>
                 runMenuAction((block) => {
                   deleteBlock(editor!, block);

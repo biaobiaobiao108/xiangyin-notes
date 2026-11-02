@@ -386,19 +386,34 @@ export function duplicateBlock(editor: Editor, block: BlockTarget): boolean {
   return true;
 }
 
-export function canDeleteBlock(block: BlockTarget): boolean {
-  if (block.kind === "listItem") return block.parent.childCount > 1;
-  return true;
-}
-
 export function deleteBlock(editor: Editor, block: BlockTarget): boolean {
-  if (!canDeleteBlock(block)) return false;
-
   const { state, view } = editor;
   const sourceNode = state.doc.nodeAt(block.pos);
   if (!sourceNode || !sourceNode.eq(block.node)) return false;
 
   const transaction = state.tr;
+  if (block.kind === "listItem" && block.parent.childCount === 1) {
+    const listPos = block.parentStart - 1;
+    const list = state.doc.nodeAt(listPos);
+    if (!list || !list.eq(block.parent)) return false;
+
+    const listEnd = listPos + list.nodeSize;
+    const $list = state.doc.resolve(listPos);
+    if ($list.parent.childCount === 1) {
+      const replacement = state.schema.nodes.paragraph?.createAndFill();
+      if (!replacement) return false;
+      transaction.replaceWith(listPos, listEnd, replacement);
+    } else {
+      transaction.delete(listPos, listEnd);
+    }
+    transaction.setSelection(
+      Selection.near(transaction.doc.resolve(Math.min(listPos, transaction.doc.content.size))),
+    );
+    closeHistory(transaction);
+    view.dispatch(transaction);
+    return true;
+  }
+
   if (block.parent.type.name === "doc" && block.parent.childCount === 1) {
     const replacement = state.schema.nodes.paragraph?.createAndFill();
     if (!replacement) return false;

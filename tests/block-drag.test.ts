@@ -6,7 +6,6 @@ import TaskList from "@tiptap/extension-task-list";
 import { createMarkdownExtension } from "../app/editor/markdown-config";
 import {
   calculateDropCandidate,
-  canDeleteBlock,
   deleteBlock,
   duplicateBlock,
   getBlockShift,
@@ -206,14 +205,56 @@ describe("block drag commands", () => {
     expect(editor.state.doc.child(0).textContent).toBe("");
   });
 
-  test("prevents deleting the only item in a list", () => {
+  test("deletes the only item in a list and leaves an empty paragraph", () => {
     const editor = createTestEditor("- 唯一项目");
     const list = topLevelBlock(editor, 0);
     const item = listItemBlock(editor, list, 0);
 
-    expect(canDeleteBlock(item)).toBe(false);
-    expect(deleteBlock(editor, item)).toBe(false);
-    expect(editor.getMarkdown()).toContain("唯一项目");
+    expect(deleteBlock(editor, item)).toBe(true);
+    expect(editor.state.doc.childCount).toBe(1);
+    expect(editor.state.doc.child(0).type.name).toBe("paragraph");
+    expect(editor.state.doc.child(0).textContent).toBe("");
+  });
+
+  test("deletes a sole list item without removing surrounding blocks", () => {
+    const editor = createTestEditor("前文\n\n- 唯一项目\n\n后文");
+    const list = topLevelBlock(editor, 1);
+    const item = listItemBlock(editor, list, 0);
+
+    expect(deleteBlock(editor, item)).toBe(true);
+    expect(blockTexts(editor)).toEqual(["前文", "后文"]);
+  });
+
+  test("deletes a sole nested list without removing its parent item", () => {
+    const editor = createTestEditor("- 父项\n  - 子项");
+    const outer = topLevelBlock(editor, 0);
+    const parent = listItemBlock(editor, outer, 0);
+    const nestedList = parent.node.child(parent.node.childCount - 1);
+    const nestedPos =
+      parent.pos +
+      1 +
+      Array.from(
+        { length: parent.node.childCount - 1 },
+        (_, index) => parent.node.child(index).nodeSize,
+      ).reduce((sum, size) => sum + size, 0);
+    const nestedItem = listItemBlock(
+      editor,
+      {
+        node: nestedList,
+        pos: nestedPos,
+        endPos: nestedPos + nestedList.nodeSize,
+        parent: parent.node,
+        parentStart: parent.pos + 1,
+        index: parent.node.childCount - 1,
+        dom: null,
+        kind: "listItem",
+      },
+      0,
+    );
+
+    expect(deleteBlock(editor, nestedItem)).toBe(true);
+    expect(editor.state.doc.childCount).toBe(1);
+    expect(editor.state.doc.child(0).textContent).toBe("父项");
   });
 });
 
