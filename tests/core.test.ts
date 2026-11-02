@@ -11,6 +11,7 @@ import {
   rateLimitClientAddress,
   readJson,
 } from "../server/core";
+import { searchContains, searchSnippet } from "../server/search-text";
 
 describe("security helpers", () => {
   test("creates URL-safe opaque tokens", () => {
@@ -281,6 +282,18 @@ describe("markdown and search helpers", () => {
 
   test("quotes search terms for FTS", () => {
     expect(buildFtsQuery("quiet thinking")).toBe('"quiet" AND "thinking"');
+  });
+
+  test("caches search patterns without changing matching semantics", () => {
+    expect(searchContains("DOCKER 笔记", "docker")).toBe(true);
+    expect(searchContains("a.b", ".")).toBe(true);
+    expect(searchContains("axb", ".")).toBe(false);
+    expect(searchContains("a+b", "a+b")).toBe(true);
+
+    for (let index = 0; index < 80; index += 1)
+      expect(searchContains(`term ${index}`, `term ${index}`)).toBe(true);
+    expect(searchContains("term 0", "term 0")).toBe(true);
+    expect(searchSnippet("prefix Docker suffix", JSON.stringify(["docker"]))).toContain("Docker");
   });
 
   test("limits JSON request bodies by encoded byte length", async () => {

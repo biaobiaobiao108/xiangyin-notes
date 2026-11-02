@@ -14,7 +14,7 @@ const DEFAULT_SCHEMA_PATH = "./database/schema.sql";
 const BASELINE_SCHEMA_VERSION = 1;
 
 // Increment this when adding the next entry to SCHEMA_MIGRATIONS.
-export const CURRENT_SCHEMA_VERSION = 14;
+export const CURRENT_SCHEMA_VERSION = 15;
 export const SEARCH_INDEX_REBUILD_KEY = "search-index-rebuild-required";
 
 type TableCountRow = {
@@ -392,6 +392,13 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
         DROP TABLE notes_short_overflow;
         DROP TABLE notes_short_fts;
       `);
+    },
+  },
+  {
+    sourceVersion: 14,
+    targetVersion: 15,
+    migrate: (database) => {
+      database.exec("DROP INDEX idx_notes_user_deleted_title;");
     },
   },
 ];

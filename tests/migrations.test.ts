@@ -286,6 +286,7 @@ test("uses targeted indexes for paged notes and foreign-key cleanup", async () =
     expect(names.has("idx_note_links_source_note")).toBe(true);
     expect(names.has("idx_note_links_target_note")).toBe(true);
     expect(names.has("idx_notes_short_overflow_user")).toBe(false);
+    expect(names.has("idx_notes_user_deleted_title")).toBe(false);
     expect(names.has("idx_notes_user_deleted_updated")).toBe(false);
     expect(names.has("idx_notes_user_notebook_deleted_updated")).toBe(false);
     expect(names.has("idx_note_links_target_title")).toBe(false);
@@ -314,6 +315,31 @@ test("uses targeted indexes for paged notes and foreign-key cleanup", async () =
     expect(sourceLinkPlan.map(({ detail }) => detail).join(" ")).toContain(
       "idx_note_links_source_note",
     );
+  } finally {
+    database.close();
+  }
+});
+
+test("upgrading version 14 removes the unused title index", async () => {
+  const database = new Database(":memory:");
+  try {
+    await initializeDatabase(database, { currentSchemaVersion: 14 });
+    expect(
+      database
+        .query("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?")
+        .get("idx_notes_user_deleted_title"),
+    ).toBeTruthy();
+
+    await initializeDatabase(database);
+
+    expect(
+      database
+        .query("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?")
+        .get("idx_notes_user_deleted_title"),
+    ).toBeNull();
+    expect(database.query("PRAGMA user_version").get()).toEqual({
+      user_version: CURRENT_SCHEMA_VERSION,
+    });
   } finally {
     database.close();
   }
