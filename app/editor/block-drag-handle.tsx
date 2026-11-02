@@ -79,6 +79,7 @@ const SCROLL_MAX_STEP = 14;
 const MENU_WIDTH = 164;
 const MENU_ESTIMATED_HEIGHT = 158;
 const HIDE_DELAY = 220;
+const HANDLE_FADE_OUT = 180;
 const MIN_LIST_PREVIEW_WIDTH = 160;
 const prefersReducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -263,13 +264,18 @@ export function BlockDragHandle({
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [handleVisible, setHandleVisible] = useState(false);
 
   const handleRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const activeBlockRef = useRef<BlockTarget | null>(null);
   const menuOpenRef = useRef(false);
   const isDraggingRef = useRef(false);
+  const handleVisibleRef = useRef(false);
+  const handleWasShownRef = useRef(false);
   const hideTimeoutRef = useRef<number | null>(null);
+  const unmountTimeoutRef = useRef<number | null>(null);
+  const revealFrameRef = useRef<number | null>(null);
   const dragSessionRef = useRef<DragSession | null>(null);
   const cancelDragRef = useRef<(() => void) | null>(null);
 
@@ -277,6 +283,18 @@ export function BlockDragHandle({
     if (hideTimeoutRef.current === null) return;
     window.clearTimeout(hideTimeoutRef.current);
     hideTimeoutRef.current = null;
+  }, []);
+
+  const clearUnmountTimeout = useCallback(() => {
+    if (unmountTimeoutRef.current === null) return;
+    window.clearTimeout(unmountTimeoutRef.current);
+    unmountTimeoutRef.current = null;
+  }, []);
+
+  const cancelRevealFrame = useCallback(() => {
+    if (revealFrameRef.current === null) return;
+    window.cancelAnimationFrame(revealFrameRef.current);
+    revealFrameRef.current = null;
   }, []);
 
   const closeMenu = useCallback((returnFocus: boolean) => {
@@ -289,11 +307,16 @@ export function BlockDragHandle({
 
   const clearActiveBlock = useCallback(() => {
     clearHideTimeout();
+    clearUnmountTimeout();
+    cancelRevealFrame();
     activeBlockRef.current = null;
+    handleVisibleRef.current = false;
+    handleWasShownRef.current = false;
     setActiveBlock(null);
     setHandlePosition(null);
+    setHandleVisible(false);
     closeMenu(false);
-  }, [clearHideTimeout, closeMenu]);
+  }, [cancelRevealFrame, clearHideTimeout, clearUnmountTimeout, closeMenu]);
 
   const updateHandlePosition = useCallback(
     (block: BlockTarget) => {
@@ -311,16 +334,65 @@ export function BlockDragHandle({
     [containerRef],
   );
 
+  const revealHandle = useCallback(
+    (block: BlockTarget) => {
+      clearHideTimeout();
+      clearUnmountTimeout();
+      if (activeBlockRef.current?.pos !== block.pos || !handleRef.current) {
+        updateHandlePosition(block);
+      }
+      if (handleVisibleRef.current || revealFrameRef.current !== null) return;
+      if (prefersReducedMotion()) {
+        handleVisibleRef.current = true;
+        handleWasShownRef.current = true;
+        setHandleVisible(true);
+        return;
+      }
+      if (handleWasShownRef.current && handleRef.current) {
+        handleVisibleRef.current = true;
+        setHandleVisible(true);
+        return;
+      }
+      revealFrameRef.current = window.requestAnimationFrame(() => {
+        revealFrameRef.current = null;
+        if (!activeBlockRef.current) return;
+        revealFrameRef.current = window.requestAnimationFrame(() => {
+          revealFrameRef.current = null;
+          if (!activeBlockRef.current) return;
+          handleRef.current?.getBoundingClientRect();
+          handleVisibleRef.current = true;
+          handleWasShownRef.current = true;
+          setHandleVisible(true);
+        });
+      });
+    },
+    [clearHideTimeout, clearUnmountTimeout, updateHandlePosition],
+  );
+
+  const hideHandle = useCallback(() => {
+    cancelRevealFrame();
+    clearUnmountTimeout();
+    if (!handleVisibleRef.current) return;
+    handleVisibleRef.current = false;
+    setHandleVisible(false);
+    unmountTimeoutRef.current = window.setTimeout(() => {
+      unmountTimeoutRef.current = null;
+      activeBlockRef.current = null;
+      handleWasShownRef.current = false;
+      setActiveBlock(null);
+      setHandlePosition(null);
+    }, HANDLE_FADE_OUT);
+  }, [cancelRevealFrame, clearUnmountTimeout]);
+
   const scheduleHide = useCallback(() => {
-    if (hideTimeoutRef.current !== null) return;
+    cancelRevealFrame();
+    if (hideTimeoutRef.current !== null || unmountTimeoutRef.current !== null) return;
     hideTimeoutRef.current = window.setTimeout(() => {
       hideTimeoutRef.current = null;
       if (isDraggingRef.current || menuOpenRef.current) return;
-      activeBlockRef.current = null;
-      setActiveBlock(null);
-      setHandlePosition(null);
+      hideHandle();
     }, HIDE_DELAY);
-  }, []);
+  }, [cancelRevealFrame, hideHandle]);
 
   const openMenu = useCallback(() => {
     const handle = handleRef.current;
@@ -374,8 +446,7 @@ export function BlockDragHandle({
         scheduleHide();
         return;
       }
-      clearHideTimeout();
-      if (activeBlockRef.current?.pos !== block.pos) updateHandlePosition(block);
+      revealHandle(block);
     };
 
     const handlePointerLeave = () => {
@@ -420,6 +491,7 @@ export function BlockDragHandle({
     scheduleHide,
     scrollRef,
     updateHandlePosition,
+    revealHandle,
   ]);
 
   useEffect(() => {
@@ -463,8 +535,10 @@ export function BlockDragHandle({
     return () => {
       cancelDragRef.current?.();
       clearHideTimeout();
+      clearUnmountTimeout();
+      cancelRevealFrame();
     };
-  }, [clearHideTimeout, editor]);
+  }, [cancelRevealFrame, clearHideTimeout, clearUnmountTimeout, editor]);
 
   const startDragSession = (event: PointerEvent, source: BlockTarget) => {
     if (!editor || editor.isDestroyed) return;
@@ -628,8 +702,11 @@ export function BlockDragHandle({
       isDraggingRef.current = false;
       setIsDragging(false);
       activeBlockRef.current = null;
+      handleVisibleRef.current = false;
+      handleWasShownRef.current = false;
       setActiveBlock(null);
       setHandlePosition(null);
+      setHandleVisible(false);
     };
 
     const returnPreviewToSource = async () => {
@@ -970,7 +1047,7 @@ export function BlockDragHandle({
         <button
           ref={handleRef}
           type="button"
-          className={`block-drag-handle${menuOpen ? " is-active" : ""}${isDragging ? " is-dragging" : ""}`}
+          className={`block-drag-handle${handleVisible ? " is-visible" : ""}${menuOpen ? " is-active" : ""}${isDragging ? " is-dragging" : ""}`}
           style={{ top: `${handlePosition.top}px`, left: `${handlePosition.left}px` }}
           aria-label="拖动或操作当前块"
           aria-haspopup="menu"

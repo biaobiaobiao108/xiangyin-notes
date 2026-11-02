@@ -1227,13 +1227,21 @@ button.save-status:hover { text-decoration: underline; }
   background: transparent;
   color: var(--soft-muted);
   cursor: grab;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-3px) scale(0.96);
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
-  animation: block-handle-in var(--motion-fast) var(--motion-ease-out);
   transition: color var(--motion-fast) var(--motion-ease-out),
               background-color var(--motion-fast) var(--motion-ease-out),
-              opacity var(--motion-micro) var(--motion-ease-out);
+              opacity var(--motion-fast) var(--motion-ease-out),
+              transform var(--motion-fast) var(--motion-ease-out);
+}
+.block-drag-handle.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
 }
 .block-drag-handle:hover {
   color: var(--muted);
@@ -1249,6 +1257,7 @@ button.save-status:hover { text-decoration: underline; }
 .block-drag-handle.is-dragging {
   opacity: 0;
   pointer-events: none;
+  transform: translateX(-3px) scale(0.96);
 }
 .block-drag-handle::before {
   position: absolute;
@@ -1363,10 +1372,6 @@ button.save-status:hover { text-decoration: underline; }
   margin: 3px 0;
   background: var(--line);
 }
-@keyframes block-handle-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
 @keyframes block-preview-in {
   from { opacity: 0; }
   to { opacity: 0.98; }
@@ -1384,7 +1389,6 @@ button.save-status:hover { text-decoration: underline; }
 }
 @media (prefers-reduced-motion: reduce) {
   .block-drag-handle {
-    animation: none;
     transition: none;
   }
   .block-drag-preview,
