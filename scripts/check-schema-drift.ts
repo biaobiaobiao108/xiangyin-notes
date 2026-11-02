@@ -9,7 +9,12 @@
  */
 import { existsSync } from "node:fs";
 import { Database } from "bun:sqlite";
-import { CURRENT_SCHEMA_VERSION, databasePathFromEnv, openDatabase } from "../server/db";
+import {
+  CURRENT_SCHEMA_VERSION,
+  SEARCH_INDEX_REBUILD_KEY,
+  databasePathFromEnv,
+  openDatabase,
+} from "../server/db";
 import { snapshotSchema } from "../server/schema-snapshot";
 
 const existingPath = process.argv[2]?.trim() || databasePathFromEnv(Bun.env);
@@ -33,6 +38,14 @@ try {
     existingVersion > CURRENT_SCHEMA_VERSION;
   const existingObjects = snapshotSchema(existing);
   const targetObjects = snapshotSchema(target);
+  let searchIndexRebuildPending = false;
+  if (existingObjects.has("table:app_metadata")) {
+    searchIndexRebuildPending = Boolean(
+      existing
+        .query("SELECT 1 FROM app_metadata WHERE key = ? AND value = '1'")
+        .get(SEARCH_INDEX_REBUILD_KEY),
+    );
+  }
 
   const missing: string[] = [];
   const different: string[] = [];
@@ -70,7 +83,8 @@ try {
     missing.length > 0 ||
     different.length > 0 ||
     extra.length > 0 ||
-    columnDiffs.length > 0;
+    columnDiffs.length > 0 ||
+    searchIndexRebuildPending;
 
   console.log(
     `已有库 ${existingPath}：${existingObjects.size} 个对象；当前 schema：${targetObjects.size} 个对象`,
@@ -84,7 +98,13 @@ try {
   console.log("多余对象（已有库有、当前 schema 没有）:", extra.length ? extra.join(", ") : "无");
   console.log("定义不一致:", different.length ? different.join(", ") : "无");
   console.log("列级差异:", columnDiffs.length ? `\n  - ${columnDiffs.join("\n  - ")}` : "无");
-  console.log(drifted ? "\n发现漂移：请排查后再启动服务。" : "\n结构与当前 schema 一致。");
+  console.log(
+    "搜索索引重建:",
+    searchIndexRebuildPending ? "未完成，启动服务后会继续重建" : "无待完成标记",
+  );
+  console.log(
+    drifted ? "\n发现漂移或未完成的重建任务：请排查后再启动服务。" : "\n结构与当前 schema 一致。",
+  );
 
   process.exitCode = drifted ? 1 : 0;
 } finally {

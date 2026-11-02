@@ -1,7 +1,8 @@
 import type { SqliteDatabase } from "./db";
 
-// Bound temporary token memory for very long notes; overflow is searched directly.
+// Bound token memory and FTS row size for very long notes; overflow is searched directly.
 export const MAX_SHORT_INDEX_CONTENT_CHARACTERS = 40_000;
+export const MAX_SHORT_INDEX_TOKENS = 12_000;
 
 // Use Unicode simple case folding, matching JavaScript's case-insensitive /u regex.
 function encodeCharacter(character: string) {
@@ -28,6 +29,10 @@ function buildShortSearchTokens(title: string, contentMarkdown: string, legacy: 
     let previous = "";
     let count = 0;
     for (const character of text) {
+      if (terms.size >= MAX_SHORT_INDEX_TOKENS) {
+        truncated = true;
+        break;
+      }
       if (count++ >= limit) {
         truncated = true;
         break;

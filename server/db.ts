@@ -14,7 +14,8 @@ const DEFAULT_SCHEMA_PATH = "./database/schema.sql";
 const BASELINE_SCHEMA_VERSION = 1;
 
 // Increment this when adding the next entry to SCHEMA_MIGRATIONS.
-export const CURRENT_SCHEMA_VERSION = 12;
+export const CURRENT_SCHEMA_VERSION = 13;
+export const SEARCH_INDEX_REBUILD_KEY = "search-index-rebuild-required";
 
 type TableCountRow = {
   count: number;
@@ -365,6 +366,23 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `);
     },
   },
+  {
+    sourceVersion: 12,
+    targetVersion: 13,
+    migrate: (database) => {
+      database.exec(`
+        CREATE TABLE app_metadata (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        );
+      `);
+      // The short-search row format is bounded more tightly now. Rebuild once
+      // so existing databases reclaim the oversized token rows.
+      database
+        .query("INSERT INTO app_metadata (key, value) VALUES (?, ?)")
+        .run(SEARCH_INDEX_REBUILD_KEY, "1");
+    },
+  },
 ];
 
 export function databasePathFromEnv(env: Record<string, string | undefined> = Bun.env) {
@@ -434,6 +452,32 @@ export function reclaimDatabaseSpace(database: SqliteDatabase) {
 
 export function checkpointDatabase(database: SqliteDatabase) {
   database.exec("PRAGMA wal_checkpoint(TRUNCATE);");
+}
+
+function searchIndexRebuildPending(database: SqliteDatabase) {
+  return Boolean(
+    database
+      .query("SELECT 1 FROM app_metadata WHERE key = ? AND value = '1'")
+      .get(SEARCH_INDEX_REBUILD_KEY),
+  );
+}
+
+function markSearchIndexesForRebuild(database: SqliteDatabase) {
+  database
+    .query(
+      "INSERT INTO app_metadata (key, value) VALUES (?, '1') ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    )
+    .run(SEARCH_INDEX_REBUILD_KEY);
+}
+
+function rebuildSearchIndexes(database: SqliteDatabase) {
+  database
+    .transaction(() => {
+      database.exec("INSERT INTO notes_fts(notes_fts) VALUES('rebuild');");
+      rebuildNoteShortSearchIndex(database);
+      database.query("DELETE FROM app_metadata WHERE key = ?").run(SEARCH_INDEX_REBUILD_KEY);
+    })
+    .immediate();
 }
 
 export function applyMigrations(
@@ -584,15 +628,22 @@ export async function openDatabase(
 
     const autoVacuumRow = database.query("PRAGMA auto_vacuum;").get() as
       { auto_vacuum: number } | null | undefined;
-    if (Number(autoVacuumRow?.auto_vacuum ?? 0) !== 2) {
+    const needsAutoVacuum = Number(autoVacuumRow?.auto_vacuum ?? 0) !== 2;
+    const needsSearchRebuild = searchIndexRebuildPending(database);
+    if (needsAutoVacuum) {
       if (resolvedPath !== ":memory:")
         console.warn("[db] 正在启用 auto_vacuum=INCREMENTAL，首次整理可能需要一些时间");
+      // Persist intent before VACUUM: the write can otherwise leave rowids
+      // changed while the process dies before the derived indexes are rebuilt.
+      markSearchIndexesForRebuild(database);
       database.exec("PRAGMA auto_vacuum = INCREMENTAL;");
       database.exec("VACUUM;");
-      database.exec("INSERT INTO notes_fts(notes_fts) VALUES('rebuild');");
+    }
+    if (needsAutoVacuum || needsSearchRebuild) {
       // Full VACUUM is allowed to renumber rowids for tables without an
-      // INTEGER PRIMARY KEY, so rebuild the rowid-keyed short-search index.
-      rebuildNoteShortSearchIndex(database);
+      // INTEGER PRIMARY KEY. Rebuild both rowid-keyed indexes in one
+      // transaction and clear the marker only after they are consistent.
+      rebuildSearchIndexes(database);
     }
     database.exec("PRAGMA journal_mode = WAL;");
     return database;

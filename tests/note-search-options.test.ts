@@ -4,6 +4,7 @@ import { handleRequest } from "../server/index";
 import { waitForOrphanAssetCleanup } from "../server/routes/assets";
 import { ensureEnvironmentUser } from "../server/routes/auth";
 import { createNote } from "../server/routes/notes";
+import { MAX_SHORT_INDEX_TOKENS } from "../server/note-search";
 
 async function fixture() {
   const database = await openDatabase(":memory:");
@@ -199,7 +200,7 @@ test("short searches preserve mixed ASCII and CJK substring matching", async () 
   }
 });
 
-test("short search finds terms after both content-index boundaries", async () => {
+test("short search finds terms after every content-index boundary", async () => {
   const f = await fixture();
   try {
     const afterContentLimit = f.create("边界笔记", `${"甲".repeat(40_100)}后缀词`);
@@ -207,10 +208,17 @@ test("short search finds terms after both content-index boundaries", async () =>
       "另一篇边界笔记",
       `${Array.from({ length: 520 }, (_, index) => String.fromCodePoint(0x4e00 + index)).join(" ")}尾部词`,
     );
+    const afterTokenLimit = f.create(
+      "超长索引笔记",
+      `${Array.from({ length: MAX_SHORT_INDEX_TOKENS }, (_, index) =>
+        String.fromCodePoint(0x4e00 + index),
+      ).join("")}末页词`,
+    );
 
     for (const [query, expected] of [
       ["后缀", afterContentLimit],
       ["尾部", afterTermLimit],
+      ["末页", afterTokenLimit],
     ] as const) {
       const result = await (
         await f.list(`query=${encodeURIComponent(query)}&sort=relevance`)

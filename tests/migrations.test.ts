@@ -6,6 +6,7 @@ import { join } from "node:path";
 import {
   applyMigrations,
   CURRENT_SCHEMA_VERSION,
+  SEARCH_INDEX_REBUILD_KEY,
   initializeDatabase,
   openDatabase,
   type SchemaMigration,
@@ -543,6 +544,33 @@ test("db:check rejects a database with a matching schema and unsupported version
     ]);
     expect(exitCode).toBe(1);
     expect(stdout).toContain("不支持的 schema 版本：999");
+    expect(stderr).toBe("");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("db:check reports an unfinished search-index rebuild", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "xiangying-schema-check-"));
+  const path = join(directory, "notes.sqlite");
+  const database = await openDatabase(path);
+  database
+    .query("INSERT INTO app_metadata (key, value) VALUES (?, '1')")
+    .run(SEARCH_INDEX_REBUILD_KEY);
+  database.close();
+
+  try {
+    const child = Bun.spawn(["bun", "run", "scripts/check-schema-drift.ts", path], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [exitCode, stdout, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ]);
+    expect(exitCode).toBe(1);
+    expect(stdout).toContain("搜索索引重建: 未完成");
     expect(stderr).toBe("");
   } finally {
     await rm(directory, { recursive: true, force: true });
