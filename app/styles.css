@@ -1213,6 +1213,141 @@ button.save-status:hover { text-decoration: underline; }
 .table-edge-drag-handle:focus-visible { box-shadow: 0 0 0 2px var(--focus-ring); }
 .table-edge-drag-handle:disabled { opacity: 0.4; cursor: not-allowed; }
 .table-edge-preview { position: fixed; z-index: 1; padding: 3px 7px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--surface); box-shadow: 0 2px 6px rgba(39, 47, 41, 0.1); color: var(--ink); font-size: 0.68rem; font-weight: 600; white-space: nowrap; pointer-events: none; }
+/* Block Drag & Drop (Notion style) */
+.block-drag-handle {
+  position: absolute;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--soft-muted);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: opacity var(--motion-fast) var(--motion-ease-out),
+              background-color var(--motion-fast) var(--motion-ease-out),
+              color var(--motion-fast) var(--motion-ease-out),
+              border-color var(--motion-fast) var(--motion-ease-out);
+}
+.block-drag-handle:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+  border-color: var(--border-soft);
+}
+.block-drag-handle:active {
+  cursor: grabbing;
+  background: var(--surface-selected);
+  color: var(--ink);
+}
+.block-drag-handle.is-active {
+  background: var(--surface-selected);
+  color: var(--accent-dark);
+  border-color: var(--accent-border-soft);
+}
+.block-drag-handle:focus-visible {
+  box-shadow: 0 0 0 2px var(--focus-ring);
+  outline: none;
+}
+.block-is-dragging {
+  opacity: 0.32 !important;
+  border-radius: var(--radius-sm);
+  background-color: var(--accent-soft) !important;
+  transition: opacity var(--motion-fast) var(--motion-ease-out);
+}
+.block-drop-indicator {
+  position: absolute;
+  z-index: 25;
+  height: 2px;
+  background-color: var(--accent);
+  border-radius: 999px;
+  pointer-events: none;
+  transform: translateY(-1px);
+  box-shadow: 0 0 6px var(--accent-rgb);
+  transition: top 60ms var(--motion-ease-out), left 60ms var(--motion-ease-out), width 60ms var(--motion-ease-out);
+}
+.block-drop-indicator::before {
+  content: "";
+  position: absolute;
+  left: -3px;
+  top: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--accent);
+  box-shadow: 0 0 4px var(--accent-rgb);
+}
+.block-actions-menu {
+  position: absolute;
+  z-index: 35;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 140px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-glass);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: var(--shadow);
+  animation: dropdown-in var(--motion-fast) var(--motion-ease-out);
+  pointer-events: auto;
+}
+.block-action-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 9px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--motion-fast) var(--motion-ease-out),
+              color var(--motion-fast) var(--motion-ease-out),
+              border-color var(--motion-fast) var(--motion-ease-out);
+}
+.block-action-item:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.block-action-item.is-danger {
+  color: var(--danger);
+}
+.block-action-item.is-danger:hover {
+  background: var(--danger-soft);
+  color: var(--danger-hover);
+}
+.block-action-separator {
+  height: 1px;
+  margin: 3px 0;
+  background-color: var(--line);
+}
+@media (hover: none), (pointer: coarse) {
+  .block-drag-handle,
+  .block-actions-menu,
+  .block-drop-indicator {
+    display: none !important;
+  }
+}
+@media print {
+  .block-drag-handle,
+  .block-actions-menu,
+  .block-drop-indicator {
+    display: none !important;
+  }
+}
 .editor-search-nav { display: inline-flex; align-items: center; min-height: 38px; gap: 2px; padding: 3px; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--surface-glass); box-shadow: 0 10px 26px rgba(39, 47, 41, 0.12), 0 2px 6px rgba(39, 47, 41, 0.06); }
 .editor-search-nav-button { display: inline-grid; width: 30px; height: 30px; place-items: center; padding: 0; border: 0; border-radius: 999px; background: transparent; color: var(--muted); cursor: pointer; transition: background-color var(--motion-fast) var(--motion-ease-out), color var(--motion-fast) var(--motion-ease-out), transform var(--motion-fast) var(--motion-ease-out); }
 .editor-search-nav-button:hover { background: var(--accent-soft); color: var(--accent-dark); }
@@ -3002,6 +3137,7 @@ dialog::backdrop {
   .editor-floating-outline,
   .sort-dropdown,
   .slash-command-menu,
+  .block-actions-menu,
   .wiki-link-suggestion-dropdown,
   .command-dialog,
   .notebook-dialog,

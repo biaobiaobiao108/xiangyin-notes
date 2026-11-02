@@ -105,6 +105,7 @@ import {
   MobileEditorOutline,
 } from "./editor/mobile-editor-controls";
 import { mobileCaretBounds, useMobileCaret } from "./editor/use-mobile-caret";
+import { BlockDragHandle } from "./editor/block-drag-handle";
 import { useEditorContextMenu } from "./editor/use-editor-context-menu";
 import { useScrollEdges } from "./workspace/use-scroll-edges";
 import "./editor/mobile-editor.css";
@@ -2212,6 +2213,17 @@ export function NoteEditor({
               placeholder="未命名笔记"
             />
             <EditorContent editor={editor} />
+            <BlockDragHandle
+              editor={editor}
+              containerRef={documentRef}
+              disabled={editorLocked || isMobileViewport || Boolean(note.deletedAt)}
+              onBlockChange={() => {
+                if (editor) {
+                  scheduleMarkdownChange(editor);
+                  surfaceSyncRef.current(editor);
+                }
+              }}
+            />
             <TableScrollbars rootRef={documentRef} />
           </div>
         </div>
