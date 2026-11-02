@@ -726,33 +726,13 @@ export function BlockDragHandle({
         return;
       }
 
-      const targetSlot = session.slots[targetIndex];
-      const gapShift = getBlockShift(
-        targetIndex,
-        session.sourceIndex,
-        candidate.destinationIndex,
-        session.sourceSpan,
-      );
-      const edge = candidate.placement === "before" ? targetSlot.top : targetSlot.bottom;
-      const gapY = edge - scrollDelta() + gapShift;
       const preview = session.preview;
       if (!preview) {
         await animateBack();
         return;
       }
 
-      await animatePreview(
-        preview,
-        session.pointerY - session.startY,
-        gapY - session.sourceTop,
-        140,
-      );
-      if (session.cancelled) return;
-      if (editor.state.doc !== session.initialDoc) {
-        await animateBack();
-        return;
-      }
-
+      const previewOffset = session.pointerY - session.startY;
       const beforeTops = new Map<HTMLElement, number>();
       session.slots.forEach(({ block }) => {
         if (!block.dom) return;
@@ -766,17 +746,24 @@ export function BlockDragHandle({
       }
 
       const movedDom = editor.view.nodeDOM(movedPosition);
-      cleanupVisuals();
-      removeListeners();
-      dragSessionRef.current = null;
-      cancelDragRef.current = null;
-      isDraggingRef.current = false;
-      setIsDragging(false);
-      activeBlockRef.current = null;
-      setActiveBlock(null);
-      setHandlePosition(null);
+      if (!(movedDom instanceof HTMLElement)) {
+        dispose();
+        return;
+      }
 
-      if (!prefersReducedMotion()) {
+      session.shiftAnimations.forEach(({ animation }) => animation.cancel());
+      session.shiftAnimations.clear();
+      session.sourceAnimation?.cancel();
+      document.body.classList.remove("is-sorting-blocks");
+      session.sourceAnimation = movedDom.animate([{ opacity: 0 }, { opacity: 0 }], {
+        duration: 1,
+        fill: "forwards",
+      });
+
+      // Measure the committed layout so the preview lands exactly where the block will live.
+      const finalTop = movedDom.getBoundingClientRect().top;
+      const reducedMotion = prefersReducedMotion();
+      if (!reducedMotion) {
         beforeTops.forEach((beforeTop, element) => {
           if (!element.isConnected || element === movedDom) return;
           const afterTop = element.getBoundingClientRect().top;
@@ -791,13 +778,39 @@ export function BlockDragHandle({
         });
       }
 
-      if (movedDom instanceof HTMLElement) {
-        if (!prefersReducedMotion()) {
-          movedDom.animate(
-            [{ backgroundColor: "var(--accent-soft)" }, { backgroundColor: "transparent" }],
-            { duration: 220, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
-          );
-        }
+      await animatePreview(preview, previewOffset, finalTop - session.sourceTop, 160);
+      if (session.cancelled) return;
+
+      if (!reducedMotion) {
+        session.sourceAnimation?.cancel();
+        const fadeOut = preview.animate([{ opacity: 0.98 }, { opacity: 0 }], {
+          duration: 90,
+          easing: "cubic-bezier(0.16, 1, 0.3, 1)",
+          fill: "forwards",
+        });
+        const fadeIn = movedDom.animate([{ opacity: 0 }, { opacity: 1 }], {
+          duration: 110,
+          easing: "cubic-bezier(0.16, 1, 0.3, 1)",
+          fill: "forwards",
+        });
+        session.sourceAnimation = fadeIn;
+        await Promise.all([
+          fadeOut.finished.catch(() => undefined),
+          fadeIn.finished.catch(() => undefined),
+        ]);
+        if (session.cancelled) return;
+        fadeOut.cancel();
+        fadeIn.cancel();
+        session.sourceAnimation = null;
+      }
+
+      dispose();
+
+      if (!reducedMotion) {
+        movedDom.animate(
+          [{ backgroundColor: "var(--accent-soft)" }, { backgroundColor: "transparent" }],
+          { duration: 220, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
+        );
       }
     };
 
