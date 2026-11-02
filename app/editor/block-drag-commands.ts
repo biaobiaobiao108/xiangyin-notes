@@ -1,327 +1,323 @@
 import type { Editor } from "@tiptap/core";
+import { closeHistory } from "@tiptap/pm/history";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Selection } from "@tiptap/pm/state";
+
+export type BlockKind = "topLevel" | "listItem";
 
 export type BlockTarget = {
   node: ProseMirrorNode;
   pos: number;
   endPos: number;
+  parent: ProseMirrorNode;
+  parentStart: number;
+  index: number;
   dom: HTMLElement | null;
-  depth: number;
-  isListItem: boolean;
+  kind: BlockKind;
 };
 
 export type DropPlacement = "before" | "after";
 
-export type DropTargetInfo = {
+export type BlockSlot = {
   block: BlockTarget;
-  placement: DropPlacement;
-  indicatorY: number;
+  top: number;
+  bottom: number;
 };
 
+export type DropCandidate = {
+  target: BlockTarget;
+  placement: DropPlacement;
+  gap: number;
+  destinationIndex: number;
+  noop: boolean;
+};
+
+function targetFromResolvedPosition(
+  editor: Editor,
+  dom: HTMLElement,
+  kind: BlockKind,
+): BlockTarget | null {
+  try {
+    const pos = editor.view.posAtDOM(dom, 0);
+    const $pos = editor.state.doc.resolve(pos);
+
+    if (kind === "listItem") {
+      for (let depth = $pos.depth; depth > 0; depth -= 1) {
+        const node = $pos.node(depth);
+        if (node.type.name !== "listItem" && node.type.name !== "taskItem") continue;
+        return {
+          node,
+          pos: $pos.before(depth),
+          endPos: $pos.after(depth),
+          parent: $pos.node(depth - 1),
+          parentStart: $pos.start(depth - 1),
+          index: $pos.index(depth - 1),
+          dom,
+          kind,
+        };
+      }
+      return null;
+    }
+
+    if ($pos.depth < 1) return null;
+    return {
+      node: $pos.node(1),
+      pos: $pos.before(1),
+      endPos: $pos.after(1),
+      parent: $pos.node(0),
+      parentStart: $pos.start(0),
+      index: $pos.index(0),
+      dom,
+      kind,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Resolves the draggable block from a DOM node inside the editor view.
+ * Resolves the movable block from a DOM node inside the editor.
+ * List items move as their own block; everything else moves as a top-level node.
  */
 export function getDraggableBlockFromElement(
   editor: Editor,
   targetElement: HTMLElement,
 ): BlockTarget | null {
   const editorDom = editor.view.dom;
-  if (!editorDom.contains(targetElement) || targetElement === editorDom) {
-    return null;
-  }
+  if (!editorDom.contains(targetElement) || targetElement === editorDom) return null;
 
-  // Check if target is inside a list item first (for item-level dragging)
-  const listItemDom = targetElement.closest<HTMLElement>(
-    "li[data-type='taskItem'], li, .task-list-item",
-  );
+  const listItemDom = targetElement.closest<HTMLElement>("li");
   if (listItemDom && editorDom.contains(listItemDom)) {
-    try {
-      const pos = editor.view.posAtDOM(listItemDom, 0);
-      const $pos = editor.state.doc.resolve(pos);
-      for (let depth = $pos.depth; depth > 0; depth -= 1) {
-        const node = $pos.node(depth);
-        if (node.type.name === "listItem" || node.type.name === "taskItem") {
-          const blockPos = $pos.before(depth);
-          return {
-            node,
-            pos: blockPos,
-            endPos: $pos.after(depth),
-            dom: listItemDom,
-            depth,
-            isListItem: true,
-          };
-        }
-      }
-    } catch {
-      // fallback to top-level block
-    }
+    return targetFromResolvedPosition(editor, listItemDom, "listItem");
   }
 
-  // Otherwise, find the direct top-level block (depth = 1)
   let current: HTMLElement | null = targetElement;
-  while (current && current.parentElement && current.parentElement !== editorDom) {
+  while (current.parentElement && current.parentElement !== editorDom) {
     current = current.parentElement;
   }
-  if (!current || current.parentElement !== editorDom) {
-    return null;
-  }
+  if (!current || current.parentElement !== editorDom) return null;
 
-  try {
-    const pos = editor.view.posAtDOM(current, 0);
-    const $pos = editor.state.doc.resolve(pos);
-    if ($pos.depth >= 1) {
-      const node = $pos.node(1);
-      const blockPos = $pos.before(1);
-      return {
-        node,
-        pos: blockPos,
-        endPos: $pos.after(1),
-        dom: current,
-        depth: 1,
-        isListItem: false,
+  return targetFromResolvedPosition(editor, current, "topLevel");
+}
+
+/**
+ * Returns the draggable siblings in document order. Drag operations never
+ * cross a list boundary, so a list item only sees its direct `li` siblings.
+ */
+export function getSiblingBlocks(editor: Editor, source: BlockTarget): BlockTarget[] {
+  const parent = source.dom?.parentElement;
+  if (!parent) return [source];
+
+  const elements =
+    source.kind === "listItem"
+      ? Array.from(parent.children).filter(
+          (element): element is HTMLElement =>
+            element instanceof HTMLElement && element.tagName === "LI",
+        )
+      : Array.from(parent.children).filter(
+          (element): element is HTMLElement => element instanceof HTMLElement,
+        );
+
+  return elements
+    .map((element) => getDraggableBlockFromElement(editor, element))
+    .filter((block): block is BlockTarget => block !== null);
+}
+
+/**
+ * Finds the closest insertion edge from sibling geometry. The original
+ * placement is kept when it would be a no-op, so the pointer does not jump to
+ * a distant gap while it is still over the source block.
+ */
+export function calculateDropCandidate(
+  slots: readonly BlockSlot[],
+  sourceIndex: number,
+  pointerY: number,
+): DropCandidate | null {
+  let best:
+    | {
+        block: BlockTarget;
+        placement: DropPlacement;
+        gap: number;
+        distance: number;
+      }
+    | undefined;
+
+  slots.forEach((slot, targetIndex) => {
+    if (targetIndex === sourceIndex) return;
+    (["before", "after"] as const).forEach((placement) => {
+      const edge = placement === "before" ? slot.top : slot.bottom;
+      const distance = Math.abs(pointerY - edge);
+      if (best && distance >= best.distance) return;
+      best = {
+        block: slot.block,
+        placement,
+        gap: targetIndex + (placement === "after" ? 1 : 0),
+        distance,
       };
-    }
-  } catch {
-    return null;
-  }
+    });
+  });
 
-  return null;
-}
-
-/**
- * Resolves the block target at a given viewport coordinate (x, y).
- */
-export function getDraggableBlockAtCoords(
-  editor: Editor,
-  coords: { x: number; y: number },
-): BlockTarget | null {
-  const element = document.elementFromPoint(coords.x, coords.y);
-  if (element instanceof HTMLElement) {
-    const block = getDraggableBlockFromElement(editor, element);
-    if (block) return block;
-  }
-
-  const posInfo = editor.view.posAtCoords({ left: coords.x, top: coords.y });
-  if (!posInfo) return null;
-
-  try {
-    const $pos = editor.state.doc.resolve(posInfo.pos);
-    // Check list item
-    for (let depth = $pos.depth; depth > 0; depth -= 1) {
-      const node = $pos.node(depth);
-      if (node.type.name === "listItem" || node.type.name === "taskItem") {
-        const blockPos = $pos.before(depth);
-        const dom = editor.view.nodeDOM(blockPos);
-        if (dom instanceof HTMLElement) {
-          return {
-            node,
-            pos: blockPos,
-            endPos: $pos.after(depth),
-            dom,
-            depth,
-            isListItem: true,
-          };
-        }
-      }
-    }
-
-    if ($pos.depth >= 1) {
-      const node = $pos.node(1);
-      const blockPos = $pos.before(1);
-      const dom = editor.view.nodeDOM(blockPos);
-      if (dom instanceof HTMLElement) {
-        return {
-          node,
-          pos: blockPos,
-          endPos: $pos.after(1),
-          dom,
-          depth: 1,
-          isListItem: false,
-        };
-      }
-    }
-  } catch {
-    return null;
-  }
-
-  return null;
-}
-
-/**
- * Calculates drop target placement (before or after) and indicator line coordinate.
- */
-export function calculateDropTarget(targetBlock: BlockTarget, pointerY: number): DropTargetInfo {
-  const rect = targetBlock.dom?.getBoundingClientRect() ?? {
-    top: 0,
-    bottom: 0,
-    height: 0,
-    left: 0,
-    right: 0,
-    width: 0,
-  };
-  const middleY = rect.top + rect.height / 2;
-  const placement: DropPlacement = pointerY < middleY ? "before" : "after";
-  const indicatorY = placement === "before" ? rect.top : rect.bottom;
-
+  if (!best) return null;
+  const destinationIndex = best.gap > sourceIndex ? best.gap - 1 : best.gap;
   return {
-    block: targetBlock,
-    placement,
-    indicatorY,
+    target: best.block,
+    placement: best.placement,
+    gap: best.gap,
+    destinationIndex,
+    noop: destinationIndex === sourceIndex,
   };
 }
 
 /**
- * Moves a source block to before or after a target block within a transaction.
+ * Returns how far a sibling moves while previewing the move. Only the source
+ * block changes position, so every crossed sibling shifts by its occupied span.
+ */
+export function getBlockShift(
+  index: number,
+  sourceIndex: number,
+  destinationIndex: number,
+  sourceSpan: number,
+): number {
+  if (destinationIndex > sourceIndex && index > sourceIndex && index <= destinationIndex) {
+    return -sourceSpan;
+  }
+  if (destinationIndex < sourceIndex && index >= destinationIndex && index < sourceIndex) {
+    return sourceSpan;
+  }
+  return 0;
+}
+
+function insertionPosition(
+  parent: ProseMirrorNode,
+  parentStart: number,
+  gap: number,
+): number | null {
+  if (gap < 0 || gap > parent.childCount) return null;
+  let position = parentStart;
+  for (let index = 0; index < gap; index += 1) {
+    position += parent.child(index).nodeSize;
+  }
+  return position;
+}
+
+/**
+ * Moves a block before or after a sibling. The transaction is isolated from
+ * the current typing history so one undo restores the complete reorder.
  */
 export function moveBlock(
   editor: Editor,
   source: BlockTarget,
   target: BlockTarget,
   placement: DropPlacement,
-): boolean {
-  if (source.pos === target.pos) return false;
+): number | null {
+  if (source.pos === target.pos) return null;
+  if (!source.parent.eq(target.parent)) return null;
+
+  const gap = target.index + (placement === "after" ? 1 : 0);
+  if (gap === source.index || gap === source.index + 1) return null;
+
+  const insertOriginal = insertionPosition(source.parent, source.parentStart, gap);
+  if (insertOriginal === null) return null;
 
   const { state, view } = editor;
-  const { tr } = state;
+  const sourceNode = state.doc.nodeAt(source.pos);
+  if (!sourceNode || !sourceNode.eq(source.node)) return null;
 
-  // Verify positions are still valid and node matches
-  const currentSourceNode = tr.doc.nodeAt(source.pos);
-  if (!currentSourceNode || currentSourceNode.type !== source.node.type) {
-    return false;
+  const selectionInsideSource =
+    state.selection.from >= source.pos && state.selection.to <= source.endPos;
+  const transaction = state.tr;
+  transaction.delete(source.pos, source.endPos);
+  const insertPosition = transaction.mapping.map(insertOriginal, 1);
+  const $insert = transaction.doc.resolve(insertPosition);
+
+  if (!$insert.parent.canReplaceWith($insert.index(), $insert.index(), sourceNode.type)) {
+    return null;
   }
 
-  const rawTargetInsertPos = placement === "before" ? target.pos : target.endPos;
-  const slice = state.doc.slice(source.pos, source.endPos);
-
-  // Delete source block
-  tr.delete(source.pos, source.endPos);
-
-  // Map insertion position after deletion
-  const mappedInsertPos = tr.mapping.map(rawTargetInsertPos);
-
-  try {
-    const $insert = tr.doc.resolve(mappedInsertPos);
-    const parent = $insert.parent;
-    const index = $insert.index();
-
-    if (parent.canReplaceWith(index, index, source.node.type)) {
-      tr.insert(mappedInsertPos, source.node);
-      const newSelectionPos = Math.min(mappedInsertPos + 1, tr.doc.content.size);
-      tr.setSelection(Selection.near(tr.doc.resolve(newSelectionPos)));
-      view.dispatch(tr.scrollIntoView());
-      return true;
-    }
-
-    // Fallback: replace with slice content
-    tr.replaceWith(mappedInsertPos, mappedInsertPos, slice.content);
-    view.dispatch(tr.scrollIntoView());
-    return true;
-  } catch {
-    return false;
+  transaction.insert(insertPosition, sourceNode);
+  if (selectionInsideSource) {
+    transaction.setSelection(
+      Selection.near(
+        transaction.doc.resolve(Math.min(insertPosition + 1, transaction.doc.content.size)),
+      ),
+    );
   }
+  closeHistory(transaction);
+  view.dispatch(transaction);
+  return insertPosition;
 }
 
-/**
- * Duplicates the specified block immediately below it.
- */
-export function duplicateBlock(editor: Editor, block: BlockTarget): boolean {
-  const { state, view } = editor;
-  const { tr } = state;
-  const clone = block.node.copy(block.node.content);
-
-  try {
-    tr.insert(block.endPos, clone);
-    const targetSelectionPos = Math.min(block.endPos + 1, tr.doc.content.size);
-    tr.setSelection(Selection.near(tr.doc.resolve(targetSelectionPos)));
-    view.dispatch(tr.scrollIntoView());
-    return true;
-  } catch {
-    return false;
+function siblingTarget(block: BlockTarget, index: number): BlockTarget | null {
+  if (index < 0 || index >= block.parent.childCount) return null;
+  let pos = block.parentStart;
+  for (let current = 0; current < index; current += 1) {
+    pos += block.parent.child(current).nodeSize;
   }
+  const node = block.parent.child(index);
+  return {
+    node,
+    pos,
+    endPos: pos + node.nodeSize,
+    parent: block.parent,
+    parentStart: block.parentStart,
+    index,
+    dom: null,
+    kind: block.kind,
+  };
 }
 
-/**
- * Moves a block one step up or down relative to its siblings.
- */
 export function moveBlockStep(
   editor: Editor,
   block: BlockTarget,
   direction: "up" | "down",
 ): boolean {
-  const { state, view } = editor;
-  const $pos = state.doc.resolve(block.pos);
-  const parent = $pos.parent;
-  const index = $pos.index();
-
-  if (direction === "up") {
-    if (index === 0) return false;
-    const prevSibling = parent.child(index - 1);
-    const prevPos = block.pos - prevSibling.nodeSize;
-    let prevDom: HTMLElement | null = null;
-    try {
-      const nodeDom = view.nodeDOM(prevPos);
-      if (nodeDom instanceof HTMLElement) prevDom = nodeDom;
-    } catch {
-      // headless environment
-    }
-
-    return moveBlock(
-      editor,
-      block,
-      {
-        node: prevSibling,
-        pos: prevPos,
-        endPos: block.pos,
-        dom: prevDom ?? block.dom,
-        depth: block.depth,
-        isListItem: block.isListItem,
-      },
-      "before",
-    );
-  }
-
-  if (direction === "down") {
-    if (index >= parent.childCount - 1) return false;
-    const nextSibling = parent.child(index + 1);
-    const nextPos = block.endPos;
-    const nextEndPos = nextPos + nextSibling.nodeSize;
-    let nextDom: HTMLElement | null = null;
-    try {
-      const nodeDom = view.nodeDOM(nextPos);
-      if (nodeDom instanceof HTMLElement) nextDom = nodeDom;
-    } catch {
-      // headless environment
-    }
-
-    return moveBlock(
-      editor,
-      block,
-      {
-        node: nextSibling,
-        pos: nextPos,
-        endPos: nextEndPos,
-        dom: nextDom ?? block.dom,
-        depth: block.depth,
-        isListItem: block.isListItem,
-      },
-      "after",
-    );
-  }
-
-  return false;
+  const targetIndex = block.index + (direction === "up" ? -1 : 1);
+  const target = siblingTarget(block, targetIndex);
+  if (!target) return false;
+  return moveBlock(editor, block, target, direction === "up" ? "before" : "after") !== null;
 }
 
-/**
- * Deletes the specified block.
- */
-export function deleteBlock(editor: Editor, block: BlockTarget): boolean {
+export function duplicateBlock(editor: Editor, block: BlockTarget): boolean {
   const { state, view } = editor;
-  const { tr } = state;
+  const sourceNode = state.doc.nodeAt(block.pos);
+  if (!sourceNode || !sourceNode.eq(block.node)) return false;
 
-  tr.delete(block.pos, block.endPos);
-  const targetPos = Math.min(block.pos, tr.doc.content.size);
-  tr.setSelection(Selection.near(tr.doc.resolve(targetPos)));
-  view.dispatch(tr.scrollIntoView());
+  const transaction = state.tr;
+  const $insert = transaction.doc.resolve(block.endPos);
+  if (!$insert.parent.canReplaceWith($insert.index(), $insert.index(), sourceNode.type)) {
+    return false;
+  }
+  transaction.insert(block.endPos, sourceNode.copy(sourceNode.content));
+  closeHistory(transaction);
+  view.dispatch(transaction);
+  return true;
+}
+
+export function canDeleteBlock(block: BlockTarget): boolean {
+  if (block.kind === "listItem") return block.parent.childCount > 1;
+  return true;
+}
+
+export function deleteBlock(editor: Editor, block: BlockTarget): boolean {
+  if (!canDeleteBlock(block)) return false;
+
+  const { state, view } = editor;
+  const sourceNode = state.doc.nodeAt(block.pos);
+  if (!sourceNode || !sourceNode.eq(block.node)) return false;
+
+  const transaction = state.tr;
+  if (block.parent.type.name === "doc" && block.parent.childCount === 1) {
+    const replacement = state.schema.nodes.paragraph?.createAndFill();
+    if (!replacement) return false;
+    transaction.replaceWith(block.pos, block.endPos, replacement);
+    transaction.setSelection(Selection.near(transaction.doc.resolve(1)));
+  } else {
+    transaction.delete(block.pos, block.endPos);
+    transaction.setSelection(
+      Selection.near(transaction.doc.resolve(Math.min(block.pos, transaction.doc.content.size))),
+    );
+  }
+  closeHistory(transaction);
+  view.dispatch(transaction);
   return true;
 }

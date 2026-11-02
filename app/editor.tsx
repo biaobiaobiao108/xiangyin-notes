@@ -2216,13 +2216,8 @@ export function NoteEditor({
             <BlockDragHandle
               editor={editor}
               containerRef={documentRef}
+              scrollRef={editorScrollRef}
               disabled={editorLocked || isMobileViewport || Boolean(note.deletedAt)}
-              onBlockChange={() => {
-                if (editor) {
-                  scheduleMarkdownChange(editor);
-                  surfaceSyncRef.current(editor);
-                }
-              }}
             />
             <TableScrollbars rootRef={documentRef} />
           </div>

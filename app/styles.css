@@ -1213,138 +1213,215 @@ button.save-status:hover { text-decoration: underline; }
 .table-edge-drag-handle:focus-visible { box-shadow: 0 0 0 2px var(--focus-ring); }
 .table-edge-drag-handle:disabled { opacity: 0.4; cursor: not-allowed; }
 .table-edge-preview { position: fixed; z-index: 1; padding: 3px 7px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--surface); box-shadow: 0 2px 6px rgba(39, 47, 41, 0.1); color: var(--ink); font-size: 0.68rem; font-weight: 600; white-space: nowrap; pointer-events: none; }
-/* Block Drag & Drop (Notion style) */
+/* Block drag and drop */
 .block-drag-handle {
   position: absolute;
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 22px;
+  z-index: 20;
+  display: grid;
+  width: 24px;
+  height: 28px;
+  place-items: center;
   padding: 0;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  border: 0;
+  border-radius: 7px;
   background: transparent;
   color: var(--soft-muted);
   cursor: grab;
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
-  transition: opacity var(--motion-fast) var(--motion-ease-out),
+  animation: block-handle-in var(--motion-fast) var(--motion-ease-out);
+  transition: color var(--motion-fast) var(--motion-ease-out),
               background-color var(--motion-fast) var(--motion-ease-out),
-              color var(--motion-fast) var(--motion-ease-out),
-              border-color var(--motion-fast) var(--motion-ease-out);
+              opacity var(--motion-micro) var(--motion-ease-out);
 }
 .block-drag-handle:hover {
-  background: var(--surface-hover);
-  color: var(--ink);
-  border-color: var(--border-soft);
-}
-.block-drag-handle:active {
-  cursor: grabbing;
-  background: var(--surface-selected);
-  color: var(--ink);
+  color: var(--muted);
 }
 .block-drag-handle.is-active {
-  background: var(--surface-selected);
-  color: var(--accent-dark);
-  border-color: var(--accent-border-soft);
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.block-drag-handle:active,
+.block-drag-handle.is-dragging {
+  cursor: grabbing;
+}
+.block-drag-handle.is-dragging {
+  opacity: 0;
+  pointer-events: none;
 }
 .block-drag-handle:focus-visible {
+  color: var(--ink);
   box-shadow: 0 0 0 2px var(--focus-ring);
-  outline: none;
 }
-.block-is-dragging {
-  opacity: 0.32 !important;
-  border-radius: var(--radius-sm);
-  background-color: var(--accent-soft) !important;
-  transition: opacity var(--motion-fast) var(--motion-ease-out);
+.block-drag-dots {
+  display: grid;
+  grid-template-columns: repeat(2, 3px);
+  gap: 3px;
+  pointer-events: none;
+}
+.block-drag-dots > span {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.block-drag-preview {
+  position: fixed;
+  z-index: 1004;
+  overflow: hidden;
+  padding: 7px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  opacity: 0.98;
+  pointer-events: none;
+  animation: block-preview-in var(--motion-fast) var(--motion-ease-out);
+}
+.block-drag-preview-content {
+  width: auto !important;
+  margin-top: 0 !important;
+  animation: block-preview-content-in var(--motion-fast) var(--motion-ease-out);
+  transform-origin: left top;
+}
+.block-drag-preview-content > :first-child,
+.block-drag-preview-content > :last-child {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+.block-drag-preview-content ul,
+.block-drag-preview-content ol {
+  margin-bottom: 0;
 }
 .block-drop-indicator {
-  position: absolute;
-  z-index: 25;
+  position: fixed;
+  z-index: 1003;
+  top: 0;
+  left: 0;
   height: 2px;
-  background-color: var(--accent);
   border-radius: 999px;
+  background: var(--accent);
+  opacity: 0;
   pointer-events: none;
-  transform: translateY(-1px);
-  box-shadow: 0 0 6px var(--accent-rgb);
-  transition: top 60ms var(--motion-ease-out), left 60ms var(--motion-ease-out), width 60ms var(--motion-ease-out);
+  transition: transform 140ms var(--motion-ease-out),
+              width 120ms var(--motion-ease-out),
+              opacity var(--motion-micro) var(--motion-ease-out);
+  will-change: transform;
+}
+.block-drop-indicator.is-visible {
+  opacity: 1;
 }
 .block-drop-indicator::before {
-  content: "";
   position: absolute;
+  top: -2px;
   left: -3px;
-  top: -3px;
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  background-color: var(--accent);
-  box-shadow: 0 0 4px var(--accent-rgb);
+  background: var(--accent);
+  content: "";
+}
+.is-sorting-blocks,
+.is-sorting-blocks * {
+  cursor: grabbing !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
 }
 .block-actions-menu {
-  position: absolute;
-  z-index: 35;
+  position: fixed;
+  z-index: 1005;
   display: flex;
+  box-sizing: border-box;
+  width: 164px;
   flex-direction: column;
   gap: 2px;
-  min-width: 140px;
-  padding: 4px;
-  border: 1px solid var(--border);
+  padding: 5px;
+  border: 1px solid var(--border-soft);
   border-radius: var(--radius-md);
-  background: var(--surface-glass);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  box-shadow: var(--shadow);
+  background: var(--surface-glass-menu);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow: var(--shadow-float);
   animation: dropdown-in var(--motion-fast) var(--motion-ease-out);
-  pointer-events: auto;
 }
 .block-action-item {
   display: flex;
+  min-height: 32px;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   width: 100%;
-  padding: 6px 9px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  padding: 0 9px;
+  border: 0;
+  border-radius: 7px;
   background: transparent;
   color: var(--ink-soft);
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   font-weight: 500;
   text-align: left;
   cursor: pointer;
   transition: background-color var(--motion-fast) var(--motion-ease-out),
-              color var(--motion-fast) var(--motion-ease-out),
-              border-color var(--motion-fast) var(--motion-ease-out);
+              color var(--motion-fast) var(--motion-ease-out);
 }
-.block-action-item:hover {
+.block-action-item:hover:not(:disabled),
+.block-action-item:focus-visible {
   background: var(--surface-hover);
   color: var(--ink);
+}
+.block-action-item:disabled {
+  color: var(--soft-muted);
+  opacity: 0.45;
+  cursor: default;
 }
 .block-action-item.is-danger {
   color: var(--danger);
 }
-.block-action-item.is-danger:hover {
+.block-action-item.is-danger:hover:not(:disabled),
+.block-action-item.is-danger:focus-visible {
   background: var(--danger-soft);
   color: var(--danger-hover);
 }
 .block-action-separator {
   height: 1px;
   margin: 3px 0;
-  background-color: var(--line);
+  background: var(--line);
+}
+@keyframes block-handle-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes block-preview-in {
+  from { opacity: 0; }
+  to { opacity: 0.98; }
+}
+@keyframes block-preview-content-in {
+  from { transform: scale(0.992); }
+  to { transform: scale(1); }
 }
 @media (hover: none), (pointer: coarse) {
   .block-drag-handle,
   .block-actions-menu,
-  .block-drop-indicator {
+  .block-drop-indicator,
+  .block-drag-preview {
     display: none !important;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .block-drag-handle,
+  .block-drop-indicator {
+    animation: none;
+    transition: none;
+  }
+  .block-drag-preview,
+  .block-drag-preview-content {
+    animation: none;
   }
 }
 @media print {
   .block-drag-handle,
   .block-actions-menu,
-  .block-drop-indicator {
+  .block-drop-indicator,
+  .block-drag-preview {
     display: none !important;
   }
 }

@@ -5,12 +5,14 @@ import TaskItem from "@tiptap/extension-task-item";
 import TaskList from "@tiptap/extension-task-list";
 import { createMarkdownExtension } from "../app/editor/markdown-config";
 import {
-  calculateDropTarget,
+  calculateDropCandidate,
+  canDeleteBlock,
   deleteBlock,
   duplicateBlock,
-  getDraggableBlockFromElement,
+  getBlockShift,
   moveBlock,
   moveBlockStep,
+  type BlockSlot,
   type BlockTarget,
 } from "../app/editor/block-drag-commands";
 
@@ -29,223 +31,163 @@ function createTestEditor(content: string) {
   });
 }
 
-describe("block drag and drop commands", () => {
-  test("moves a top-level block after another top-level block", () => {
+function topLevelBlock(editor: Editor, index: number): BlockTarget {
+  const parent = editor.state.doc;
+  let pos = 0;
+  for (let current = 0; current < index; current += 1) {
+    pos += parent.child(current).nodeSize;
+  }
+  const node = parent.child(index);
+  return {
+    node,
+    pos,
+    endPos: pos + node.nodeSize,
+    parent,
+    parentStart: 0,
+    index,
+    dom: null,
+    kind: "topLevel",
+  };
+}
+
+function listItemBlock(editor: Editor, list: BlockTarget, index: number): BlockTarget {
+  let pos = list.pos + 1;
+  for (let current = 0; current < index; current += 1) {
+    pos += list.node.child(current).nodeSize;
+  }
+  const node = list.node.child(index);
+  return {
+    node,
+    pos,
+    endPos: pos + node.nodeSize,
+    parent: list.node,
+    parentStart: list.pos + 1,
+    index,
+    dom: null,
+    kind: "listItem",
+  };
+}
+
+function blockTexts(editor: Editor): string[] {
+  return Array.from(
+    { length: editor.state.doc.childCount },
+    (_, index) => editor.state.doc.child(index).textContent,
+  );
+}
+
+describe("block drag commands", () => {
+  test("moves a top-level block after another block", () => {
     const editor = createTestEditor("第一段\n\n第二段\n\n第三段");
-    const doc = editor.state.doc;
-    expect(doc.childCount).toBe(3);
+    const first = topLevelBlock(editor, 0);
+    const second = topLevelBlock(editor, 1);
 
-    const firstNode = doc.child(0);
-    const secondNode = doc.child(1);
-
-    const sourceBlock: BlockTarget = {
-      node: firstNode,
-      pos: 0,
-      endPos: firstNode.nodeSize,
-      dom: null,
-      depth: 1,
-      isListItem: false,
-    };
-
-    const targetBlock: BlockTarget = {
-      node: secondNode,
-      pos: firstNode.nodeSize,
-      endPos: firstNode.nodeSize + secondNode.nodeSize,
-      dom: null,
-      depth: 1,
-      isListItem: false,
-    };
-
-    const success = moveBlock(editor, sourceBlock, targetBlock, "after");
-    expect(success).toBe(true);
-
-    const updatedDoc = editor.state.doc;
-    expect(updatedDoc.child(0).textContent).toBe("第二段");
-    expect(updatedDoc.child(1).textContent).toBe("第一段");
-    expect(updatedDoc.child(2).textContent).toBe("第三段");
+    expect(moveBlock(editor, first, second, "after")).not.toBeNull();
+    expect(blockTexts(editor)).toEqual(["第二段", "第一段", "第三段"]);
   });
 
-  test("moves a top-level block before another top-level block", () => {
+  test("moves a top-level block before an earlier block", () => {
     const editor = createTestEditor("段落A\n\n段落B\n\n段落C");
-    const doc = editor.state.doc;
-    const thirdNode = doc.child(2);
-    const firstNode = doc.child(0);
+    const third = topLevelBlock(editor, 2);
+    const first = topLevelBlock(editor, 0);
 
-    const sourcePos = doc.child(0).nodeSize + doc.child(1).nodeSize;
-    const sourceBlock: BlockTarget = {
-      node: thirdNode,
-      pos: sourcePos,
-      endPos: sourcePos + thirdNode.nodeSize,
-      dom: null,
-      depth: 1,
-      isListItem: false,
-    };
-
-    const targetBlock: BlockTarget = {
-      node: firstNode,
-      pos: 0,
-      endPos: firstNode.nodeSize,
-      dom: null,
-      depth: 1,
-      isListItem: false,
-    };
-
-    const success = moveBlock(editor, sourceBlock, targetBlock, "before");
-    expect(success).toBe(true);
-
-    const updatedDoc = editor.state.doc;
-    expect(updatedDoc.child(0).textContent).toBe("段落C");
-    expect(updatedDoc.child(1).textContent).toBe("段落A");
-    expect(updatedDoc.child(2).textContent).toBe("段落B");
+    expect(moveBlock(editor, third, first, "before")).not.toBeNull();
+    expect(blockTexts(editor)).toEqual(["段落C", "段落A", "段落B"]);
   });
 
-  test("duplicates a block below it", () => {
-    const editor = createTestEditor("首段内容\n\n尾段内容");
-    const doc = editor.state.doc;
-    const firstNode = doc.child(0);
+  test("rejects no-op and cross-parent moves", () => {
+    const editor = createTestEditor("段落A\n\n段落B\n\n- 列表项");
+    const first = topLevelBlock(editor, 0);
+    const second = topLevelBlock(editor, 1);
+    const list = topLevelBlock(editor, 2);
+    const item = listItemBlock(editor, list, 0);
+    const before = editor.getMarkdown();
 
-    const block: BlockTarget = {
-      node: firstNode,
-      pos: 0,
-      endPos: firstNode.nodeSize,
-      dom: null,
-      depth: 1,
-      isListItem: false,
-    };
+    expect(moveBlock(editor, first, second, "before")).toBeNull();
+    expect(moveBlock(editor, item, first, "before")).toBeNull();
+    expect(moveBlock(editor, first, item, "after")).toBeNull();
+    expect(editor.getMarkdown()).toBe(before);
+  });
 
-    const success = duplicateBlock(editor, block);
-    expect(success).toBe(true);
+  test("moves list items within the same list and keeps nested children", () => {
+    const editor = createTestEditor("- 项目1\n  - 子项\n- 项目2\n- 项目3");
+    const list = topLevelBlock(editor, 0);
+    const first = listItemBlock(editor, list, 0);
+    const second = listItemBlock(editor, list, 1);
 
-    const updatedDoc = editor.state.doc;
-    expect(updatedDoc.childCount).toBe(3);
-    expect(updatedDoc.child(0).textContent).toBe("首段内容");
-    expect(updatedDoc.child(1).textContent).toBe("首段内容");
-    expect(updatedDoc.child(2).textContent).toBe("尾段内容");
+    expect(moveBlock(editor, first, second, "after")).not.toBeNull();
+    const updatedList = editor.state.doc.child(0);
+    expect(updatedList.child(0).textContent).toBe("项目2");
+    expect(updatedList.child(1).textContent).toContain("项目1");
+    expect(updatedList.child(1).textContent).toContain("子项");
+    expect(updatedList.child(2).textContent).toBe("项目3");
   });
 
   test("moves a block step down and up", () => {
     const editor = createTestEditor("行1\n\n行2\n\n行3");
-    const doc = editor.state.doc;
-    const firstNode = doc.child(0);
 
-    const block: BlockTarget = {
-      node: firstNode,
-      pos: 0,
-      endPos: firstNode.nodeSize,
-      dom: null,
-      depth: 1,
-      isListItem: false,
-    };
-
-    // Move down
-    const movedDown = moveBlockStep(editor, block, "down");
-    expect(movedDown).toBe(true);
-    expect(editor.state.doc.child(0).textContent).toBe("行2");
-    expect(editor.state.doc.child(1).textContent).toBe("行1");
-
-    // Move up
-    const reloadedDoc = editor.state.doc;
-    const secondNode = reloadedDoc.child(1);
-    const movedBlock: BlockTarget = {
-      node: secondNode,
-      pos: reloadedDoc.child(0).nodeSize,
-      endPos: reloadedDoc.child(0).nodeSize + secondNode.nodeSize,
-      dom: null,
-      depth: 1,
-      isListItem: false,
-    };
-    const movedUp = moveBlockStep(editor, movedBlock, "up");
-    expect(movedUp).toBe(true);
-    expect(editor.state.doc.child(0).textContent).toBe("行1");
-    expect(editor.state.doc.child(1).textContent).toBe("行2");
+    expect(moveBlockStep(editor, topLevelBlock(editor, 0), "down")).toBe(true);
+    expect(blockTexts(editor)).toEqual(["行2", "行1", "行3"]);
+    expect(moveBlockStep(editor, topLevelBlock(editor, 1), "up")).toBe(true);
+    expect(blockTexts(editor)).toEqual(["行1", "行2", "行3"]);
   });
 
-  test("deletes a block", () => {
-    const editor = createTestEditor("待删除\n\n保留项");
-    const doc = editor.state.doc;
-    const firstNode = doc.child(0);
+  test("duplicates a block below it", () => {
+    const editor = createTestEditor("首段内容\n\n尾段内容");
+    expect(duplicateBlock(editor, topLevelBlock(editor, 0))).toBe(true);
+    expect(blockTexts(editor)).toEqual(["首段内容", "首段内容", "尾段内容"]);
+  });
 
-    const block: BlockTarget = {
-      node: firstNode,
-      pos: 0,
-      endPos: firstNode.nodeSize,
-      dom: null,
-      depth: 1,
-      isListItem: false,
-    };
+  test("deletes a block and keeps the document valid when it is the last block", () => {
+    const editor = createTestEditor("待删除");
+    const block = topLevelBlock(editor, 0);
 
-    const success = deleteBlock(editor, block);
-    expect(success).toBe(true);
+    expect(deleteBlock(editor, block)).toBe(true);
     expect(editor.state.doc.childCount).toBe(1);
-    expect(editor.state.doc.child(0).textContent).toBe("保留项");
+    expect(editor.state.doc.child(0).textContent).toBe("");
   });
 
-  test("calculates drop target indicator correctly", () => {
-    const fakeDom = {
-      getBoundingClientRect: () => ({
-        top: 100,
-        bottom: 140,
-        height: 40,
-        left: 20,
-        right: 200,
-        width: 180,
-      }),
-    } as unknown as HTMLElement;
+  test("prevents deleting the only item in a list", () => {
+    const editor = createTestEditor("- 唯一项目");
+    const list = topLevelBlock(editor, 0);
+    const item = listItemBlock(editor, list, 0);
 
-    const block: BlockTarget = {
-      node: null as any,
-      pos: 0,
-      endPos: 10,
-      dom: fakeDom,
-      depth: 1,
-      isListItem: false,
-    };
+    expect(canDeleteBlock(item)).toBe(false);
+    expect(deleteBlock(editor, item)).toBe(false);
+    expect(editor.getMarkdown()).toContain("唯一项目");
+  });
+});
 
-    // Pointer above middle (middle is 120)
-    const targetTop = calculateDropTarget(block, 110);
-    expect(targetTop.placement).toBe("before");
-    expect(targetTop.indicatorY).toBe(100);
+describe("block drag geometry", () => {
+  const editor = createTestEditor("A\n\nB\n\nC");
+  const blocks = [0, 1, 2].map((index) => topLevelBlock(editor, index));
+  const slots: BlockSlot[] = [
+    { block: blocks[0], top: 100, bottom: 120 },
+    { block: blocks[1], top: 140, bottom: 160 },
+    { block: blocks[2], top: 180, bottom: 200 },
+  ];
 
-    // Pointer below middle
-    const targetBottom = calculateDropTarget(block, 130);
-    expect(targetBottom.placement).toBe("after");
-    expect(targetBottom.indicatorY).toBe(140);
+  test("keeps the original slot while the pointer is over the source block", () => {
+    const candidate = calculateDropCandidate(slots, 1, 150);
+    expect(candidate?.noop).toBe(true);
+    expect(candidate?.destinationIndex).toBe(1);
   });
 
-  test("moves a list item within a list", () => {
-    const editor = createTestEditor("- 项目1\n- 项目2\n- 项目3");
-    const doc = editor.state.doc;
-    const listNode = doc.child(0);
-    expect(listNode.childCount).toBe(3);
+  test("finds insertions above and below the source block", () => {
+    expect(calculateDropCandidate(slots, 1, 90)).toMatchObject({
+      gap: 0,
+      destinationIndex: 0,
+      noop: false,
+    });
+    expect(calculateDropCandidate(slots, 1, 210)).toMatchObject({
+      gap: 3,
+      destinationIndex: 2,
+      noop: false,
+    });
+  });
 
-    // First item is at pos 1 inside the bulletList
-    const item1 = listNode.child(0);
-    const item2 = listNode.child(1);
-
-    const sourceItem: BlockTarget = {
-      node: item1,
-      pos: 1,
-      endPos: 1 + item1.nodeSize,
-      dom: null,
-      depth: 2,
-      isListItem: true,
-    };
-
-    const targetItem: BlockTarget = {
-      node: item2,
-      pos: 1 + item1.nodeSize,
-      endPos: 1 + item1.nodeSize + item2.nodeSize,
-      dom: null,
-      depth: 2,
-      isListItem: true,
-    };
-
-    const moved = moveBlock(editor, sourceItem, targetItem, "after");
-    expect(moved).toBe(true);
-
-    const updatedList = editor.state.doc.child(0);
-    expect(updatedList.child(0).textContent).toBe("项目2");
-    expect(updatedList.child(1).textContent).toBe("项目1");
-    expect(updatedList.child(2).textContent).toBe("项目3");
+  test("shifts only the siblings crossed by the source block", () => {
+    expect([0, 1, 2].map((index) => getBlockShift(index, 0, 2, 40))).toEqual([0, -40, -40]);
+    expect([0, 1, 2].map((index) => getBlockShift(index, 2, 0, 40))).toEqual([40, 40, 0]);
+    expect([0, 1, 2].map((index) => getBlockShift(index, 1, 1, 40))).toEqual([0, 0, 0]);
   });
 });
