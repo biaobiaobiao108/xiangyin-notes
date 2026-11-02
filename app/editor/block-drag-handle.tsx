@@ -50,6 +50,7 @@ type DragSession = {
   startY: number;
   pointerX: number;
   pointerY: number;
+  returnFocus: HTMLElement | null;
   block: BlockTarget;
   siblings: BlockTarget[];
   sourceIndex: number;
@@ -85,17 +86,31 @@ const HANDLE_FADE_OUT = 180;
 const MIN_LIST_PREVIEW_WIDTH = 160;
 const prefersReducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-function focusEditor(editor: Editor, scroll: HTMLElement | null) {
+function restoreEditorFocus(
+  editor: Editor,
+  scroll: HTMLElement | null,
+  returnFocus: HTMLElement | null,
+) {
   if (editor.isDestroyed) return;
+  // Re-focusing the editor can make Safari reveal its old caret, which may be
+  // far above the block the user just dragged. Prefer the pre-action focus.
+  const target = returnFocus?.isConnected ? returnFocus : null;
+  if (document.activeElement === target) return;
   const scrollTop = scroll?.scrollTop;
-  editor.view.dom.focus({ preventScroll: true });
+  if (target) target.focus({ preventScroll: true });
+  else if (!editor.view.hasFocus()) editor.view.dom.focus({ preventScroll: true });
+  else return;
   // Safari can still reveal the restored caret and jump back to an off-screen selection.
   if (!scroll || scrollTop === undefined) return;
   const restoreScroll = () => {
     if (scroll.scrollTop !== scrollTop) scroll.scrollTop = scrollTop;
   };
   restoreScroll();
-  window.requestAnimationFrame(restoreScroll);
+  window.requestAnimationFrame(() => {
+    restoreScroll();
+    window.requestAnimationFrame(restoreScroll);
+  });
+  window.setTimeout(restoreScroll, 50);
 }
 
 function blockHandleCenter(block: BlockTarget, scroll: HTMLElement | null): number {
@@ -296,6 +311,7 @@ export function BlockDragHandle({
   const menuRef = useRef<HTMLDivElement | null>(null);
   const activeBlockRef = useRef<BlockTarget | null>(null);
   const menuOpenRef = useRef(false);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
   const isDraggingRef = useRef(false);
   const handleVisibleRef = useRef(false);
   const handleWasShownRef = useRef(false);
@@ -336,6 +352,7 @@ export function BlockDragHandle({
     clearUnmountTimeout();
     cancelRevealFrame();
     activeBlockRef.current = null;
+    returnFocusRef.current = null;
     handleVisibleRef.current = false;
     handleWasShownRef.current = false;
     setActiveBlock(null);
@@ -514,6 +531,9 @@ export function BlockDragHandle({
     const openMenuFromSelection = () => {
       const block = getDraggableBlockFromSelection(editor);
       if (!block) return false;
+      const active = document.activeElement;
+      returnFocusRef.current =
+        active instanceof HTMLElement && active !== document.body ? active : null;
       updateHandlePosition(block);
       window.requestAnimationFrame(() =>
         window.requestAnimationFrame(() => {
@@ -657,6 +677,7 @@ export function BlockDragHandle({
       startY: event.clientY,
       pointerX: event.clientX,
       pointerY: event.clientY,
+      returnFocus: returnFocusRef.current,
       block: source,
       siblings,
       sourceIndex,
@@ -862,6 +883,7 @@ export function BlockDragHandle({
         dragSessionRef.current = null;
         cancelDragRef.current = null;
       }
+      returnFocusRef.current = null;
       isDraggingRef.current = false;
       setIsDragging(false);
       activeBlockRef.current = null;
@@ -1099,7 +1121,7 @@ export function BlockDragHandle({
         }
       } finally {
         dispose();
-        if (moved) focusEditor(editor, scrollRef.current);
+        if (moved) restoreEditorFocus(editor, scrollRef.current, session.returnFocus);
       }
     };
 
@@ -1158,6 +1180,11 @@ export function BlockDragHandle({
     if (!current?.dom) return;
     const fresh = getDraggableBlockFromElement(editor, current.dom);
     if (!fresh) return;
+    const active = document.activeElement;
+    returnFocusRef.current =
+      active instanceof HTMLElement && active !== document.body && active !== event.currentTarget
+        ? active
+        : null;
     event.preventDefault();
     event.stopPropagation();
     clearHideTimeout();
@@ -1183,13 +1210,14 @@ export function BlockDragHandle({
 
   const runMenuAction = (action: (block: BlockTarget) => void) => {
     if (!editor || !activeBlockRef.current?.dom) return;
+    const returnFocus = returnFocusRef.current;
     try {
       const current = getDraggableBlockFromElement(editor, activeBlockRef.current.dom);
       if (current) action(current);
     } finally {
       closeMenu(false);
       clearActiveBlock();
-      if (!editor.isDestroyed) focusEditor(editor, scrollRef.current);
+      if (!editor.isDestroyed) restoreEditorFocus(editor, scrollRef.current, returnFocus);
     }
   };
 
