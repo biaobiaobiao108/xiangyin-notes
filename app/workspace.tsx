@@ -126,8 +126,13 @@ export function Workspace() {
   const { preference: themePreference, setPreference: setThemePreference } = useThemePreference();
   const [view, setView] = useState<NoteView>("all");
   const [notebookId, setNotebookId] = useState<string>();
-  const [query, setQuery] = useState("");
+  const [query, setQueryState] = useState("");
+  const [queryDraft, setQueryDraft] = useState("");
   const deferredQuery = useDeferredValue(query);
+  const setQuery = useCallback((next: string) => {
+    setQueryDraft(next);
+    setQueryState(next);
+  }, []);
   const [notes, setNotes] = useState<NoteSummary[]>([]);
   const [noteSort, setNoteSort] = useState<NoteSort>("updated");
   const [totalNotes, setTotalNotes] = useState(0);
@@ -2440,6 +2445,16 @@ export function Workspace() {
     },
     [notebookId, openMobileList, query, requestListTransition, view],
   );
+  const handleQueryDraftChange = useCallback(
+    (next: string) => {
+      setQueryDraft(next);
+      if (!next) changeQuery("");
+    },
+    [changeQuery],
+  );
+  const submitQuery = useCallback(() => {
+    changeQuery(queryDraft.trim());
+  }, [changeQuery, queryDraft]);
   const closeCommandMenu = useCallback(() => {
     setCommandOpen(false);
     setCommandInitialQuery("");
@@ -3236,8 +3251,9 @@ export function Workspace() {
           notebooks={notebooks}
           notebookId={notebookId}
           setNotebookId={selectNotebook}
-          query={query}
-          setQuery={changeQuery}
+          query={queryDraft}
+          setQuery={handleQueryDraftChange}
+          onSubmitQuery={submitQuery}
           searchRef={searchRef}
           onNewInboxNote={handleNewInboxNote}
           onCreateNotebook={handleCreateNotebook}
@@ -3741,8 +3757,9 @@ export function Workspace() {
         )}
       {isMobileViewport && mobilePage !== "editor" && (
         <MobileBottomBar
-          query={query}
-          setQuery={changeQuery}
+          query={queryDraft}
+          setQuery={handleQueryDraftChange}
+          onSubmitQuery={submitQuery}
           searchRef={searchRef}
           onNewNote={
             mobilePage === "home"

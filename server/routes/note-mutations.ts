@@ -18,7 +18,6 @@ import {
   syncNoteLinks,
   syncStoredNoteTitleKey,
 } from "../note-links";
-import { syncNoteShortSearchTerms } from "../note-search";
 import { extractMarkdownTasks } from "../../shared/tasks";
 
 export const NOTE_RENAME_SOURCE_BATCH_SIZE = 16;
@@ -114,7 +113,6 @@ export function createNote(
     if (!syncNoteAssetReferences(database, userId, id, contentMarkdown))
       throw new Error("invalid-note-assets");
     syncNoteTags(database, userId, id, contentMarkdown);
-    syncNoteShortSearchTerms(database, userId, id, title, contentMarkdown);
     syncNoteLinks(database, userId, id, contentMarkdown, createdAt);
     syncNoteTasks(database, userId, id, notebookId, createdAt, contentMarkdown);
     resolveNoteLinksForTarget(database, userId, title, id);
@@ -162,8 +160,6 @@ export function updateNoteInTransaction(
   if (titleChanged) syncStoredNoteTitleKey(database, current.id, title);
   if (contentChanged && !syncNoteAssetReferences(database, userId, current.id, contentMarkdown))
     throw new InvalidNoteAssetsError();
-  if (contentChanged || titleChanged)
-    syncNoteShortSearchTerms(database, userId, current.id, title, contentMarkdown);
   if (contentChanged || notebookChanged || deletedChanged) {
     syncNoteTasks(
       database,
@@ -218,7 +214,6 @@ export function updateNoteInTransaction(
           )
           .run(replacedContent, updatedAt, refNote.id, userId);
         syncNoteTags(database, userId, refNote.id, replacedContent);
-        syncNoteShortSearchTerms(database, userId, refNote.id, refNote.title, replacedContent);
         syncNoteLinks(database, userId, refNote.id, replacedContent, updatedAt);
         syncNoteTasks(
           database,

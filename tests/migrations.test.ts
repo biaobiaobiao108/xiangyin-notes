@@ -11,7 +11,6 @@ import {
   openDatabase,
   type SchemaMigration,
 } from "../server/db";
-import { shortSearchToken } from "../server/note-search";
 
 test("initializes a fresh database from the single baseline and records its version", async () => {
   const database = await openDatabase(":memory:");
@@ -286,7 +285,7 @@ test("uses targeted indexes for paged notes and foreign-key cleanup", async () =
     expect(names.has("idx_sessions_user")).toBe(true);
     expect(names.has("idx_note_links_source_note")).toBe(true);
     expect(names.has("idx_note_links_target_note")).toBe(true);
-    expect(names.has("idx_notes_short_overflow_user")).toBe(true);
+    expect(names.has("idx_notes_short_overflow_user")).toBe(false);
     expect(names.has("idx_notes_user_deleted_updated")).toBe(false);
     expect(names.has("idx_notes_user_notebook_deleted_updated")).toBe(false);
     expect(names.has("idx_note_links_target_title")).toBe(false);
@@ -314,13 +313,6 @@ test("uses targeted indexes for paged notes and foreign-key cleanup", async () =
       .all("note") as Array<{ detail: string }>;
     expect(sourceLinkPlan.map(({ detail }) => detail).join(" ")).toContain(
       "idx_note_links_source_note",
-    );
-
-    const overflowPlan = database
-      .query("EXPLAIN QUERY PLAN SELECT note_id FROM notes_short_overflow WHERE user_id = ?")
-      .all("user") as Array<{ detail: string }>;
-    expect(overflowPlan.map(({ detail }) => detail).join(" ")).toContain(
-      "idx_notes_short_overflow_user",
     );
   } finally {
     database.close();
@@ -449,7 +441,7 @@ test("keeps the kanban table and indexes in the current schema", async () => {
   }
 });
 
-test("rebuilds short-search FTS from notes and drops the legacy term table", async () => {
+test("upgrading legacy search indexes removes all obsolete derived objects", async () => {
   const database = new Database(":memory:");
   database.exec(await Bun.file("database/schema.sql").text());
   try {
@@ -478,27 +470,33 @@ test("rebuilds short-search FTS from notes and drops the legacy term table", asy
 
     await initializeDatabase(database);
 
-    const shortFts = (term: string) =>
-      database
-        .query("SELECT rowid FROM notes_short_fts WHERE notes_short_fts MATCH ?")
-        .all(shortSearchToken(term));
-    const row = database.query("SELECT rowid FROM notes WHERE id = ?").get("note") as {
-      rowid: number;
-    };
-    expect(shortFts("do")).toEqual([{ rowid: row.rowid }]);
-    expect(shortFts("你好")).toEqual([{ rowid: row.rowid }]);
-    expect(shortFts("旧")).toEqual([]);
-    expect(
-      database
-        .query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
-        .get("note_short_terms"),
-    ).toBeNull();
+    const objects = database
+      .query("SELECT type, name FROM sqlite_master WHERE name IN (?, ?, ?, ?, ?, ?, ?, ?)")
+      .all(
+        "note_short_terms",
+        "notes_short_fts",
+        "notes_short_fts_data",
+        "notes_short_fts_idx",
+        "notes_short_fts_docsize",
+        "notes_short_fts_config",
+        "notes_short_overflow",
+        "notes_short_fts_delete",
+      );
+    expect(objects).toEqual([]);
     expect(database.query("PRAGMA user_version").get()).toEqual({
       user_version: CURRENT_SCHEMA_VERSION,
     });
 
+    const row = database.query("SELECT rowid FROM notes WHERE id = ?").get("note") as {
+      rowid: number;
+    };
+    expect(
+      database.query("SELECT rowid FROM notes_fts WHERE notes_fts MATCH ?").all("正文包含"),
+    ).toEqual([{ rowid: row.rowid }]);
     database.query("DELETE FROM notes WHERE id = ?").run("note");
-    expect(shortFts("do")).toEqual([]);
+    expect(
+      database.query("SELECT rowid FROM notes_fts WHERE notes_fts MATCH ?").all("正文包含"),
+    ).toEqual([]);
   } finally {
     database.close();
   }

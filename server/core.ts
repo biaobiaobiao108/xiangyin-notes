@@ -624,7 +624,7 @@ export function parseSearchTerms(query: string) {
   const parts = query.trim().split(/\s+/).filter(Boolean);
   const tokens: string[] = [];
   const ftsTokens: string[] = [];
-  const shortTokens: string[] = [];
+  const directTokens: string[] = [];
 
   for (const part of parts) {
     const cleaned = part.replaceAll('"', "").trim();
@@ -633,11 +633,11 @@ export function parseSearchTerms(query: string) {
     if (Array.from(cleaned).length >= 3) {
       ftsTokens.push(cleaned);
     } else {
-      shortTokens.push(cleaned);
+      directTokens.push(cleaned);
     }
   }
 
-  return { tokens, ftsTokens, shortTokens };
+  return { tokens, ftsTokens, directTokens };
 }
 
 export function buildFtsQuery(query: string) {

@@ -4,7 +4,6 @@ import { handleRequest } from "../server/index";
 import { waitForOrphanAssetCleanup } from "../server/routes/assets";
 import { ensureEnvironmentUser } from "../server/routes/auth";
 import { createNote } from "../server/routes/notes";
-import { MAX_SHORT_INDEX_TOKENS } from "../server/note-search";
 
 async function fixture() {
   const database = await openDatabase(":memory:");
@@ -161,7 +160,7 @@ test("short-term relevance applies tag filters inside its ranked candidate set",
   }
 });
 
-test("short ASCII searches match indexed mixed-case title terms", async () => {
+test("short ASCII searches match mixed-case title terms", async () => {
   const f = await fixture();
   try {
     const docker = f.create("Docker", "container notes");
@@ -200,7 +199,7 @@ test("short searches preserve mixed ASCII and CJK substring matching", async () 
   }
 });
 
-test("short search finds terms after every content-index boundary", async () => {
+test("short search scans the full title and body without a derived index", async () => {
   const f = await fixture();
   try {
     const afterContentLimit = f.create("边界笔记", `${"甲".repeat(40_100)}后缀词`);
@@ -208,17 +207,10 @@ test("short search finds terms after every content-index boundary", async () => 
       "另一篇边界笔记",
       `${Array.from({ length: 520 }, (_, index) => String.fromCodePoint(0x4e00 + index)).join(" ")}尾部词`,
     );
-    const afterTokenLimit = f.create(
-      "超长索引笔记",
-      `${Array.from({ length: MAX_SHORT_INDEX_TOKENS }, (_, index) =>
-        String.fromCodePoint(0x4e00 + index),
-      ).join("")}末页词`,
-    );
 
     for (const [query, expected] of [
       ["后缀", afterContentLimit],
       ["尾部", afterTermLimit],
-      ["末页", afterTokenLimit],
     ] as const) {
       const result = await (
         await f.list(`query=${encodeURIComponent(query)}&sort=relevance`)
@@ -285,7 +277,7 @@ test("short-query cursors return every matching note once", async () => {
   }
 });
 
-test("short-term indexing and fallback share a Unicode code-point boundary", async () => {
+test("short search handles content beyond the former code-point boundary", async () => {
   const f = await fixture();
   try {
     const note = f.create("表情笔记", `${"😀".repeat(40_001)}末尾`);

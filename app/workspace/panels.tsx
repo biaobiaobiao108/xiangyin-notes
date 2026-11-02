@@ -286,6 +286,7 @@ export const Sidebar = memo(function Sidebar({
   setNotebookId,
   query,
   setQuery,
+  onSubmitQuery,
   searchRef,
   onNewInboxNote,
   onCreateNotebook,
@@ -307,6 +308,7 @@ export const Sidebar = memo(function Sidebar({
   setNotebookId: (id: string) => void;
   query: string;
   setQuery: (query: string) => void;
+  onSubmitQuery: () => void;
   searchRef: RefObject<HTMLInputElement | null>;
   onNewInboxNote: () => void;
   onCreateNotebook: () => void;
@@ -362,6 +364,17 @@ export const Sidebar = memo(function Sidebar({
           ref={searchRef}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event: ReactKeyboardEvent<HTMLInputElement>) => {
+            if (
+              event.key !== "Enter" ||
+              event.nativeEvent.isComposing ||
+              event.nativeEvent.keyCode === 229
+            )
+              return;
+            event.preventDefault();
+            onSubmitQuery();
+          }}
+          enterKeyHint="search"
           placeholder="全局搜索笔记或 #标签……"
           aria-label="全局搜索笔记或标签"
         />

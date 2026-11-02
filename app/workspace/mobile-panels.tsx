@@ -317,11 +317,18 @@ function MobileNotebookLink({
 export type MobileBottomBarProps = {
   query: string;
   setQuery: (query: string) => void;
+  onSubmitQuery: () => void;
   onNewNote?: () => void;
   searchRef?: RefObject<HTMLInputElement | null>;
 };
 
-export function MobileBottomBar({ query, setQuery, onNewNote, searchRef }: MobileBottomBarProps) {
+export function MobileBottomBar({
+  query,
+  setQuery,
+  onSubmitQuery,
+  onNewNote,
+  searchRef,
+}: MobileBottomBarProps) {
   return (
     <footer className="mobile-bottom-bar" aria-label="全局搜索与新建笔记">
       <div className="mobile-bottom-search">
@@ -331,6 +338,17 @@ export function MobileBottomBar({ query, setQuery, onNewNote, searchRef }: Mobil
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (
+              event.key !== "Enter" ||
+              event.nativeEvent.isComposing ||
+              event.nativeEvent.keyCode === 229
+            )
+              return;
+            event.preventDefault();
+            onSubmitQuery();
+          }}
+          enterKeyHint="search"
           placeholder="全局搜索笔记或 #标签"
           aria-label="全局搜索笔记或标签"
         />

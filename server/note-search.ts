@@ -1,6 +1,7 @@
 import type { SqliteDatabase } from "./db";
 
-// Bound token memory and FTS row size for very long notes; overflow is searched directly.
+// Migration-only helpers reproduce versions 10-13; version 14 removes this
+// derived index. Bounds keep those legacy upgrade paths finite.
 export const MAX_SHORT_INDEX_CONTENT_CHARACTERS = 40_000;
 export const MAX_SHORT_INDEX_TOKENS = 12_000;
 
@@ -77,18 +78,4 @@ export function syncNoteShortSearchTerms(
   } else {
     database.query("DELETE FROM notes_short_overflow WHERE note_id = ?").run(noteId);
   }
-}
-
-export function rebuildNoteShortSearchIndex(database: SqliteDatabase) {
-  database.exec("DELETE FROM notes_short_fts; DELETE FROM notes_short_overflow;");
-  const notes = database
-    .query("SELECT id, user_id, title, content_markdown FROM notes ORDER BY rowid")
-    .iterate() as IterableIterator<{
-    id: string;
-    user_id: string;
-    title: string;
-    content_markdown: string;
-  }>;
-  for (const note of notes)
-    syncNoteShortSearchTerms(database, note.user_id, note.id, note.title, note.content_markdown);
 }

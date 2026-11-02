@@ -3336,7 +3336,7 @@ describe("Bun Server API", () => {
     expect(response.status).toBe(404);
   });
 
-  test("indexes long note content for short search and synchronizes updates and deletion", async () => {
+  test("finds long note content with short search and synchronizes updates and deletion", async () => {
     const login = await request("/api/auth/login", {
       method: "POST",
       body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),

@@ -6,7 +6,7 @@ import { syncNoteTags } from "./core";
 import { syncNoteLinks } from "./note-links";
 import { extractMarkdownTasks } from "../shared/tasks";
 import { extractTags, normalizeTag } from "../shared/tags";
-import { rebuildNoteShortSearchIndex, syncNoteShortSearchTerms } from "./note-search";
+import { syncNoteShortSearchTerms } from "./note-search";
 import { searchContains, searchSnippet } from "./search-text";
 
 const DEFAULT_DATABASE_PATH = "./data/xiangying-notes.sqlite";
@@ -14,7 +14,7 @@ const DEFAULT_SCHEMA_PATH = "./database/schema.sql";
 const BASELINE_SCHEMA_VERSION = 1;
 
 // Increment this when adding the next entry to SCHEMA_MIGRATIONS.
-export const CURRENT_SCHEMA_VERSION = 13;
+export const CURRENT_SCHEMA_VERSION = 14;
 export const SEARCH_INDEX_REBUILD_KEY = "search-index-rebuild-required";
 
 type TableCountRow = {
@@ -383,6 +383,17 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
         .run(SEARCH_INDEX_REBUILD_KEY, "1");
     },
   },
+  {
+    sourceVersion: 13,
+    targetVersion: 14,
+    migrate: (database) => {
+      database.exec(`
+        DROP TRIGGER notes_short_fts_delete;
+        DROP TABLE notes_short_overflow;
+        DROP TABLE notes_short_fts;
+      `);
+    },
+  },
 ];
 
 export function databasePathFromEnv(env: Record<string, string | undefined> = Bun.env) {
@@ -439,10 +450,7 @@ function assertSchemaMatches(actual: SqliteDatabase, expected: SqliteDatabase, v
 
 export function reclaimDatabaseSpace(database: SqliteDatabase) {
   try {
-    database.exec(`
-      INSERT INTO notes_fts(notes_fts) VALUES('optimize');
-      INSERT INTO notes_short_fts(notes_short_fts) VALUES('optimize');
-    `);
+    database.exec("INSERT INTO notes_fts(notes_fts) VALUES('optimize');");
   } catch (error) {
     console.warn("[db] FTS optimize failed; continuing space reclaim", error);
   }
@@ -474,7 +482,6 @@ function rebuildSearchIndexes(database: SqliteDatabase) {
   database
     .transaction(() => {
       database.exec("INSERT INTO notes_fts(notes_fts) VALUES('rebuild');");
-      rebuildNoteShortSearchIndex(database);
       database.query("DELETE FROM app_metadata WHERE key = ?").run(SEARCH_INDEX_REBUILD_KEY);
     })
     .immediate();
@@ -641,8 +648,8 @@ export async function openDatabase(
     }
     if (needsAutoVacuum || needsSearchRebuild) {
       // Full VACUUM is allowed to renumber rowids for tables without an
-      // INTEGER PRIMARY KEY. Rebuild both rowid-keyed indexes in one
-      // transaction and clear the marker only after they are consistent.
+      // INTEGER PRIMARY KEY. Rebuild the rowid-keyed index in one transaction
+      // and clear the marker only after it is consistent.
       rebuildSearchIndexes(database);
     }
     database.exec("PRAGMA journal_mode = WAL;");

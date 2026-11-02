@@ -30,7 +30,6 @@ import {
   type UserRow,
   welcomeMarkdown,
 } from "../core";
-import { syncNoteShortSearchTerms } from "../note-search";
 import { syncStoredNoteTitleKey } from "../note-links";
 
 type RuntimeEnvironment = Record<string, string | undefined>;
@@ -371,7 +370,6 @@ export async function ensureEnvironmentUser(
         .run(noteId, userId, inboxId, "开始记录你的想法", welcomeMarkdown, createdAt, createdAt);
       syncStoredNoteTitleKey(database, noteId, "开始记录你的想法");
       syncNoteTags(database, userId, noteId, welcomeMarkdown);
-      syncNoteShortSearchTerms(database, userId, noteId, "开始记录你的想法", welcomeMarkdown);
     });
     seed();
     return { id: userId, username: credentials.username };
