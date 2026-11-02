@@ -1,5 +1,5 @@
 .image-export-dialog { width: min(860px, calc(100vw - 32px)); max-width: none; padding: 0; overflow: hidden; border: 1px solid var(--border-soft); border-radius: var(--radius-lg); background: var(--surface); color: var(--ink); box-shadow: var(--shadow-float); animation: dialog-in var(--motion-panel) var(--motion-ease-out); }
-.image-export-dialog::backdrop { background: var(--backdrop); backdrop-filter: blur(8px); }
+.image-export-dialog::backdrop { background: var(--backdrop); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
 .image-export-dialog[open] { display: flex; flex-direction: column; max-height: calc(100dvh - 32px); }
 .image-export-heading, .image-export-actions { flex-shrink: 0; }
 .image-export-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 20px 24px; }

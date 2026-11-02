@@ -23,6 +23,7 @@ import {
   X,
 } from "lucide-react";
 import { textFieldMenuItems, useContextMenu, type ContextMenuItem } from "./context-menu";
+import { copyPlainText } from "./editor/code-block-copy";
 import { buildNoteContextMenuItems, buildWorkspaceMenuItems } from "./workspace/note-context-menu";
 import { calculateTargetSortOrder } from "./workspace/kanban-drag";
 import { moveSelectedNotes } from "./workspace/move-selected-notes";
@@ -2520,8 +2521,7 @@ export function Workspace() {
     if (!note) return;
     const markdown = editorMarkdownReaderRef.current?.() ?? note.contentMarkdown;
     try {
-      if (!navigator.clipboard?.writeText) throw new Error("clipboard-unavailable");
-      await navigator.clipboard.writeText(markdown);
+      await copyPlainText(markdown);
       notifyInfo("笔记 Markdown 已复制");
     } catch {
       notifyError("复制失败，请检查浏览器剪贴板权限");

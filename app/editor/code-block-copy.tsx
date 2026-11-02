@@ -8,7 +8,7 @@ import {
 } from "@tiptap/react";
 import { Check, CircleAlert, Copy } from "lucide-react";
 
-export async function copyCodeBlockText(
+export async function copyPlainText(
   text: string,
   clipboard: Pick<Clipboard, "writeText"> | null = typeof navigator === "undefined"
     ? null
@@ -56,6 +56,8 @@ export async function copyCodeBlockText(
 
   if (!copied) throw new Error("Clipboard copy failed");
 }
+
+export const copyCodeBlockText = copyPlainText;
 
 function CodeBlockCopyView({ node }: NodeViewProps) {
   const [status, setStatus] = useState<"idle" | "copied" | "error">("idle");

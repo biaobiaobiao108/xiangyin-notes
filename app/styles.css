@@ -226,6 +226,7 @@ button:disabled { cursor: not-allowed; opacity: 0.52; }
   background: transparent;
   flex-shrink: 0;
   touch-action: none;
+  -webkit-user-select: none;
   user-select: none;
 }
 .split-resizer::after {
@@ -803,6 +804,7 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
   font-size: 0.72rem;
   font-weight: 600;
   letter-spacing: 0.04em;
+  -webkit-user-select: none;
   user-select: none;
 }
 .note-list-group-header:not(.is-virtual-sticky) { padding: 0; }
@@ -1016,7 +1018,7 @@ button.save-status:hover { text-decoration: underline; }
 .note-prose:focus, .note-prose:focus-visible { outline: none; }
 .note-image-node { display: block; width: 100%; margin: 1.2em 0; }
 .note-image-frame { position: relative; display: block; width: min(var(--image-display-width), 100%); max-width: 100%; }
-.note-image { display: block; width: 100%; height: auto; max-width: 100%; border-radius: 10px; box-shadow: 0 5px 18px rgba(39, 47, 41, 0.08); user-select: none; }
+.note-image { display: block; width: 100%; height: auto; max-width: 100%; border-radius: 10px; box-shadow: 0 5px 18px rgba(39, 47, 41, 0.08); -webkit-user-select: none; user-select: none; }
 .note-image-node.is-selected .note-image { outline: none; box-shadow: 0 0 0 3px var(--surface), 0 0 0 5px var(--image-selection), 0 0 0 8px var(--image-selection-soft), 0 5px 18px rgba(39, 47, 41, 0.08); }
 .note-image-resize-handle { position: absolute; right: -22px; bottom: -22px; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: transparent; cursor: nwse-resize; opacity: 0; transform: scale(0.9); transition: opacity var(--motion-fast) var(--motion-ease-out), transform var(--motion-fast) var(--motion-ease-out); touch-action: none; }
 .note-image-resize-handle::after { position: absolute; right: 13px; bottom: 13px; width: 18px; height: 18px; border: 2px solid var(--surface); border-radius: 5px; background: var(--accent); box-shadow: 0 2px 8px rgba(39, 47, 41, 0.22); content: ""; pointer-events: none; }
@@ -1175,7 +1177,7 @@ button.save-status:hover { text-decoration: underline; }
 }
 .editor-floating-row { display: flex; align-items: center; justify-content: flex-end; gap: 8px; max-width: calc(100vw - 32px); pointer-events: auto; }
 .table-edge-controls-overlay { position: fixed; inset: 0; z-index: 1100; pointer-events: none; }
-.table-edge-rail { position: absolute; display: flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 999px; background: transparent; opacity: 0; pointer-events: none; touch-action: none; user-select: none; transition: opacity var(--motion-fast) var(--motion-ease-out); }
+.table-edge-rail { position: absolute; display: flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 999px; background: transparent; opacity: 0; pointer-events: none; touch-action: none; -webkit-user-select: none; user-select: none; transition: opacity var(--motion-fast) var(--motion-ease-out); }
 .table-edge-rail.is-visible, .table-edge-rail:focus-within { opacity: 1; pointer-events: auto; }
 .table-edge-rail--columns { width: 14px; flex-direction: column; }
 .table-edge-rail--rows { height: 14px; flex-direction: row; }
@@ -2654,6 +2656,7 @@ dialog::backdrop {
   cursor: pointer;
   transition: box-shadow var(--motion-fast) var(--motion-ease-out), border-color var(--motion-fast) var(--motion-ease-out), background-color var(--motion-fast) var(--motion-ease-out);
   text-align: left;
+  -webkit-user-select: none;
   user-select: none;
 }
 .note-card-foreground { position: relative; z-index: 1; display: flex; min-width: 0; flex: 1 1 auto; flex-direction: column; background: var(--surface); }
@@ -2695,6 +2698,7 @@ dialog::backdrop {
   object-fit: cover;
   pointer-events: none;
   -webkit-user-drag: none;
+  -webkit-user-select: none;
   user-select: none;
 }
 
@@ -2702,6 +2706,7 @@ dialog::backdrop {
 .note-row img {
   pointer-events: none;
   -webkit-user-drag: none;
+  -webkit-user-select: none;
   user-select: none;
 }
 
@@ -3372,6 +3377,7 @@ dialog::backdrop {
   border: 1px solid var(--border);
   box-shadow: var(--note-card-shadow);
   cursor: pointer;
+  -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
   transition: box-shadow var(--motion-fast) var(--motion-ease-out),
@@ -4010,4 +4016,4 @@ dialog::backdrop {
 .notebook-drag-preview > button { width: 100%; height: 100%; background: transparent; color: inherit; }
 .notebook-drag-preview .swipe-action-foreground { transform: none !important; }
 @media (prefers-reduced-motion: reduce) { .is-notebook-sorting { transition: none; } }
-.is-sorting-notebooks, .is-sorting-notebooks * { cursor: grabbing !important; user-select: none !important; }
+.is-sorting-notebooks, .is-sorting-notebooks * { cursor: grabbing !important; -webkit-user-select: none !important; user-select: none !important; }
