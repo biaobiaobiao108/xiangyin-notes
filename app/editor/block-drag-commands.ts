@@ -75,6 +75,54 @@ function targetFromResolvedPosition(
   }
 }
 
+// Leaf blocks such as <hr> have no interior DOM offset, so resolve them through
+// their parent instead of calling posAtDOM on the element itself.
+function topLevelTargetFromDom(editor: Editor, dom: HTMLElement): BlockTarget | null {
+  const editorDom = editor.view.dom;
+  if (dom.parentElement !== editorDom) return null;
+  const domIndex = Array.prototype.indexOf.call(editorDom.children, dom);
+  if (domIndex < 0) return null;
+
+  try {
+    const pos = editor.view.posAtDOM(editorDom, domIndex);
+    const $pos = editor.state.doc.resolve(pos);
+    if ($pos.depth === 0) {
+      const index = $pos.index(0);
+      const node = $pos.parent.child(index);
+      return {
+        node,
+        pos,
+        endPos: pos + node.nodeSize,
+        parent: $pos.parent,
+        parentStart: 0,
+        index,
+        dom,
+        kind: "topLevel",
+      };
+    }
+
+    return targetFromResolvedPosition(editor, dom, "topLevel");
+  } catch {
+    return null;
+  }
+}
+
+function closestTopLevelBlock(editor: Editor, y: number): BlockTarget | null {
+  const editorDom = editor.view.dom;
+  let closest: HTMLElement | null = null;
+  let closestDistance = Number.POSITIVE_INFINITY;
+  for (const element of Array.from(editorDom.children)) {
+    if (!(element instanceof HTMLElement)) continue;
+    const rect = element.getBoundingClientRect();
+    const distance = y < rect.top ? rect.top - y : y > rect.bottom ? y - rect.bottom : 0;
+    if (distance >= closestDistance) continue;
+    closest = element;
+    closestDistance = distance;
+    if (distance === 0) break;
+  }
+  return closest ? topLevelTargetFromDom(editor, closest) : null;
+}
+
 /**
  * Resolves the movable block from a DOM node inside the editor.
  * List items move as their own block; everything else moves as a top-level node.
@@ -82,13 +130,40 @@ function targetFromResolvedPosition(
 export function getDraggableBlockFromElement(
   editor: Editor,
   targetElement: HTMLElement,
+  point?: { x: number; y: number },
 ): BlockTarget | null {
   const editorDom = editor.view.dom;
-  if (!editorDom.contains(targetElement) || targetElement === editorDom) return null;
+  if (!editorDom.contains(targetElement)) return null;
+  if (targetElement === editorDom) {
+    return point ? closestTopLevelBlock(editor, point.y) : null;
+  }
 
   const listItemDom = targetElement.closest<HTMLElement>("li");
   if (listItemDom && editorDom.contains(listItemDom)) {
     return targetFromResolvedPosition(editor, listItemDom, "listItem");
+  }
+
+  const listDom = targetElement.closest<HTMLElement>("ul, ol");
+  if (listDom && editorDom.contains(listDom)) {
+    const items = Array.from(listDom.children).filter(
+      (element): element is HTMLElement =>
+        element instanceof HTMLElement && element.tagName === "LI",
+    );
+    if (!items.length) return null;
+    if (!point) return targetFromResolvedPosition(editor, items[0], "listItem");
+    let closest = items[0];
+    let closestDistance = Number.POSITIVE_INFINITY;
+    for (const item of items) {
+      const rect = item.getBoundingClientRect();
+      const distance =
+        point.y < rect.top ? rect.top - point.y : point.y > rect.bottom ? point.y - rect.bottom : 0;
+      if (distance < closestDistance) {
+        closest = item;
+        closestDistance = distance;
+        if (distance === 0) break;
+      }
+    }
+    return targetFromResolvedPosition(editor, closest, "listItem");
   }
 
   let current: HTMLElement | null = targetElement;
@@ -97,7 +172,7 @@ export function getDraggableBlockFromElement(
   }
   if (!current || current.parentElement !== editorDom) return null;
 
-  return targetFromResolvedPosition(editor, current, "topLevel");
+  return topLevelTargetFromDom(editor, current);
 }
 
 /**
@@ -105,22 +180,24 @@ export function getDraggableBlockFromElement(
  * cross a list boundary, so a list item only sees its direct `li` siblings.
  */
 export function getSiblingBlocks(editor: Editor, source: BlockTarget): BlockTarget[] {
-  const parent = source.dom?.parentElement;
-  if (!parent) return [source];
-
-  const elements =
-    source.kind === "listItem"
-      ? Array.from(parent.children).filter(
-          (element): element is HTMLElement =>
-            element instanceof HTMLElement && element.tagName === "LI",
-        )
-      : Array.from(parent.children).filter(
-          (element): element is HTMLElement => element instanceof HTMLElement,
-        );
-
-  return elements
-    .map((element) => getDraggableBlockFromElement(editor, element))
-    .filter((block): block is BlockTarget => block !== null);
+  const blocks: BlockTarget[] = [];
+  let position = source.parentStart;
+  for (let index = 0; index < source.parent.childCount; index += 1) {
+    const node = source.parent.child(index);
+    const dom = editor.view.nodeDOM(position);
+    blocks.push({
+      node,
+      pos: position,
+      endPos: position + node.nodeSize,
+      parent: source.parent,
+      parentStart: source.parentStart,
+      index,
+      dom: dom instanceof HTMLElement ? dom : null,
+      kind: source.kind,
+    });
+    position += node.nodeSize;
+  }
+  return blocks;
 }
 
 /**

@@ -1250,6 +1250,11 @@ button.save-status:hover { text-decoration: underline; }
   opacity: 0;
   pointer-events: none;
 }
+.block-drag-handle::before {
+  position: absolute;
+  inset: -6px;
+  content: "";
+}
 .block-drag-handle:focus-visible {
   color: var(--ink);
   box-shadow: 0 0 0 2px var(--focus-ring);
@@ -1277,10 +1282,10 @@ button.save-status:hover { text-decoration: underline; }
   box-shadow: var(--shadow-sm);
   opacity: 0.98;
   pointer-events: none;
+  will-change: transform;
   animation: block-preview-in var(--motion-fast) var(--motion-ease-out);
 }
 .block-drag-preview-content {
-  width: auto !important;
   margin-top: 0 !important;
   animation: block-preview-content-in var(--motion-fast) var(--motion-ease-out);
   transform-origin: left top;
@@ -1293,34 +1298,6 @@ button.save-status:hover { text-decoration: underline; }
 .block-drag-preview-content ul,
 .block-drag-preview-content ol {
   margin-bottom: 0;
-}
-.block-drop-indicator {
-  position: fixed;
-  z-index: 1003;
-  top: 0;
-  left: 0;
-  height: 2px;
-  border-radius: 999px;
-  background: var(--accent);
-  opacity: 0;
-  pointer-events: none;
-  transition: transform 140ms var(--motion-ease-out),
-              width 120ms var(--motion-ease-out),
-              opacity var(--motion-micro) var(--motion-ease-out);
-  will-change: transform;
-}
-.block-drop-indicator.is-visible {
-  opacity: 1;
-}
-.block-drop-indicator::before {
-  position: absolute;
-  top: -2px;
-  left: -3px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  content: "";
 }
 .is-sorting-blocks,
 .is-sorting-blocks * {
@@ -1401,14 +1378,12 @@ button.save-status:hover { text-decoration: underline; }
 @media (hover: none), (pointer: coarse) {
   .block-drag-handle,
   .block-actions-menu,
-  .block-drop-indicator,
   .block-drag-preview {
     display: none !important;
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .block-drag-handle,
-  .block-drop-indicator {
+  .block-drag-handle {
     animation: none;
     transition: none;
   }
@@ -1416,11 +1391,16 @@ button.save-status:hover { text-decoration: underline; }
   .block-drag-preview-content {
     animation: none;
   }
+  .block-actions-menu {
+    animation: none;
+  }
+  .block-action-item {
+    transition: none;
+  }
 }
 @media print {
   .block-drag-handle,
   .block-actions-menu,
-  .block-drop-indicator,
   .block-drag-preview {
     display: none !important;
   }

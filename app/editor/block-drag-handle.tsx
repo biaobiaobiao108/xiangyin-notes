@@ -58,7 +58,6 @@ type DragSession = {
   initialDoc: Editor["state"]["doc"];
   slots: BlockSlot[];
   preview: HTMLElement | null;
-  indicator: HTMLElement | null;
   frame: number | null;
   active: boolean;
   dropping: boolean;
@@ -69,14 +68,15 @@ type DragSession = {
 };
 
 const HANDLE_LEFT = -30;
-const DRAG_THRESHOLD = 4;
+const DRAG_THRESHOLD = 6;
 const PREVIEW_PADDING_X = 10;
 const PREVIEW_PADDING_Y = 7;
 const SCROLL_EDGE = 60;
 const SCROLL_MAX_STEP = 14;
 const MENU_WIDTH = 164;
 const MENU_ESTIMATED_HEIGHT = 158;
-const HIDE_DELAY = 140;
+const HIDE_DELAY = 220;
+const MIN_LIST_PREVIEW_WIDTH = 160;
 const prefersReducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 function blockAnchorTop(block: BlockTarget): number {
@@ -89,6 +89,39 @@ function blockAnchorTop(block: BlockTarget): number {
   );
   if (!lineRects.length) return rect.top;
   return Math.max(rect.top, Math.min(...lineRects.map((line) => line.top)));
+}
+
+function pointerInBlockZone(
+  block: BlockTarget,
+  x: number,
+  y: number,
+  handleRect: DOMRect | null,
+): boolean {
+  if (!block.dom) return false;
+  const blockRect = block.dom.getBoundingClientRect();
+  const left = (handleRect?.left ?? blockRect.left - 36) - 8;
+  const right = blockRect.right + 8;
+  const top = Math.min(blockRect.top, handleRect?.top ?? blockRect.top) - 8;
+  const bottom = Math.max(blockRect.bottom, handleRect?.bottom ?? blockRect.bottom) + 8;
+  return x >= left && x <= right && y >= top && y <= bottom;
+}
+
+function textContentRight(element: HTMLElement): number | null {
+  const range = document.createRange();
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+  let right: number | null = null;
+  let node = walker.nextNode();
+  while (node) {
+    if (node.nodeValue?.trim()) {
+      range.selectNodeContents(node);
+      Array.from(range.getClientRects()).forEach((rect) => {
+        if (rect.width <= 0 || rect.height <= 0) return;
+        right = Math.max(right ?? rect.right, rect.right);
+      });
+    }
+    node = walker.nextNode();
+  }
+  return right;
 }
 
 function createDragPreview(source: BlockTarget): HTMLElement | null {
@@ -116,11 +149,25 @@ function createDragPreview(source: BlockTarget): HTMLElement | null {
     const listClone = source.dom.parentElement.cloneNode(false) as HTMLElement;
     listClone.style.marginTop = "0";
     listClone.style.marginBottom = "0";
+    if (clone instanceof HTMLLIElement && source.dom.parentElement instanceof HTMLOListElement) {
+      const start = Number.parseInt(source.dom.parentElement.getAttribute("start") ?? "1", 10) || 1;
+      clone.value = start + source.index;
+    }
     listClone.appendChild(clone);
     listPadding = Number.parseFloat(getComputedStyle(source.dom.parentElement).paddingLeft) || 0;
-    content.style.width = `${sourceRect.width + listPadding}px`;
+    const contentRight = textContentRight(source.dom);
+    const hasWideContent = Boolean(source.dom.querySelector("img, video, iframe, table, pre"));
+    const visibleWidth = hasWideContent
+      ? sourceRect.width
+      : contentRight === null
+        ? MIN_LIST_PREVIEW_WIDTH
+        : Math.min(
+            sourceRect.width,
+            Math.max(MIN_LIST_PREVIEW_WIDTH, contentRight - sourceRect.left),
+          );
+    content.style.width = `${visibleWidth + listPadding}px`;
     content.appendChild(listClone);
-    preview.style.width = `${sourceRect.width + listPadding + PREVIEW_PADDING_X * 2}px`;
+    preview.style.width = `${visibleWidth + listPadding + PREVIEW_PADDING_X * 2}px`;
     preview.style.left = `${sourceRect.left - listPadding - PREVIEW_PADDING_X}px`;
   } else {
     content.style.width = `${sourceRect.width}px`;
@@ -272,8 +319,24 @@ export function BlockDragHandle({
         clearHideTimeout();
         return;
       }
-      const block = getDraggableBlockFromElement(editor, target);
+      const block = getDraggableBlockFromElement(editor, target, {
+        x: event.clientX,
+        y: event.clientY,
+      });
       if (!block) {
+        const active = activeBlockRef.current;
+        if (
+          active &&
+          pointerInBlockZone(
+            active,
+            event.clientX,
+            event.clientY,
+            handleRef.current?.getBoundingClientRect() ?? null,
+          )
+        ) {
+          clearHideTimeout();
+          return;
+        }
         scheduleHide();
         return;
       }
@@ -367,7 +430,7 @@ export function BlockDragHandle({
       cancelDragRef.current?.();
       clearHideTimeout();
     };
-  }, [clearHideTimeout]);
+  }, [clearHideTimeout, editor]);
 
   const startDragSession = (event: PointerEvent, source: BlockTarget) => {
     if (!editor || editor.isDestroyed) return;
@@ -406,7 +469,6 @@ export function BlockDragHandle({
       initialDoc: editor.state.doc,
       slots,
       preview: null,
-      indicator: null,
       frame: null,
       active: false,
       dropping: false,
@@ -434,20 +496,12 @@ export function BlockDragHandle({
       );
     };
 
-    const setIndicator = (visible: boolean, x = 0, y = 0, width = 0) => {
-      const indicator = session.indicator;
-      if (!indicator) return;
-      indicator.classList.toggle("is-visible", visible);
-      if (!visible) return;
-      indicator.style.width = `${Math.max(0, width)}px`;
-      indicator.style.transform = `translate3d(${x}px, ${y}px, 0)`;
-    };
-
     const updatePreview = () => {
       if (!session.active || !session.preview) return;
+      const inside = pointerInsideEditor();
       const scroll = scrollRef.current;
       const scrollRect = scroll?.getBoundingClientRect();
-      if (scroll && scrollRect && !session.dropping) {
+      if (scroll && scrollRect && inside && !session.dropping) {
         const above = session.pointerY - scrollRect.top;
         const below = scrollRect.bottom - session.pointerY;
         if (above < SCROLL_EDGE) {
@@ -458,35 +512,25 @@ export function BlockDragHandle({
       }
 
       const delta = scrollDelta();
-      const inside = pointerInsideEditor();
       const candidate = inside
         ? calculateDropCandidate(session.slots, session.sourceIndex, session.pointerY + delta)
         : null;
       session.candidate = candidate;
 
-      let targetShift = 0;
-      if (candidate && !candidate.noop) {
-        const targetIndex = session.slots.findIndex(
-          (slot) => slot.block.pos === candidate.target.pos,
-        );
-        targetShift = getBlockShift(
-          targetIndex,
-          session.sourceIndex,
-          candidate.destinationIndex,
-          session.sourceSpan,
-        );
-      }
-
       const animateShift = (element: HTMLElement, shift: number) => {
         const previous = session.shiftAnimations.get(element);
         if (previous?.shift === shift) return;
         if (!previous && shift === 0) return;
-        previous?.animation.cancel();
+        let currentShift = previous?.shift ?? 0;
+        if (previous) {
+          const transform = getComputedStyle(element).transform;
+          if (transform && transform !== "none") {
+            currentShift = new DOMMatrixReadOnly(transform).m42;
+          }
+          previous.animation.cancel();
+        }
         const animation = element.animate(
-          [
-            { transform: `translateY(${previous?.shift ?? 0}px)` },
-            { transform: `translateY(${shift}px)` },
-          ],
+          [{ transform: `translateY(${currentShift}px)` }, { transform: `translateY(${shift}px)` }],
           {
             duration: prefersReducedMotion() ? 0 : 180,
             easing: "cubic-bezier(0.16, 1, 0.3, 1)",
@@ -510,21 +554,6 @@ export function BlockDragHandle({
         animateShift(slot.block.dom, shift);
       });
 
-      if (candidate && !candidate.noop) {
-        const targetSlot = session.slots.find((slot) => slot.block.pos === candidate.target.pos);
-        const targetDom = candidate.target.dom;
-        if (targetSlot && targetDom) {
-          const targetRect = targetDom.getBoundingClientRect();
-          const edge = candidate.placement === "before" ? targetSlot.top : targetSlot.bottom;
-          const indicatorY = edge - delta + targetShift;
-          setIndicator(true, targetRect.left, indicatorY, targetRect.width);
-        } else {
-          setIndicator(false);
-        }
-      } else {
-        setIndicator(false);
-      }
-
       session.preview.style.transform = `translate3d(0, ${session.pointerY - session.startY}px, 0)`;
     };
 
@@ -538,9 +567,7 @@ export function BlockDragHandle({
       if (session.frame !== null) cancelAnimationFrame(session.frame);
       session.frame = null;
       session.preview?.remove();
-      session.indicator?.remove();
       session.preview = null;
-      session.indicator = null;
       session.shiftAnimations.forEach(({ animation }) => animation.cancel());
       session.shiftAnimations.clear();
       session.sourceAnimation?.cancel();
@@ -579,14 +606,56 @@ export function BlockDragHandle({
       await animatePreview(session.preview, session.pointerY - session.startY, returnY, 140);
     };
 
+    const resetSiblingShifts = () => {
+      const animations: Promise<unknown>[] = [];
+      session.shiftAnimations.forEach(({ animation }, element) => {
+        const transform = getComputedStyle(element).transform;
+        const currentShift =
+          transform && transform !== "none" ? new DOMMatrixReadOnly(transform).m42 : 0;
+        animation.cancel();
+        if (!element.isConnected || Math.abs(currentShift) < 0.5) return;
+        animations.push(
+          element
+            .animate(
+              [{ transform: `translateY(${currentShift}px)` }, { transform: "translateY(0)" }],
+              {
+                duration: prefersReducedMotion() ? 0 : 140,
+                easing: "cubic-bezier(0.16, 1, 0.3, 1)",
+              },
+            )
+            .finished.catch(() => undefined),
+        );
+      });
+      session.shiftAnimations.clear();
+      return Promise.all(animations);
+    };
+
+    const restoreSource = () => {
+      session.sourceAnimation?.cancel();
+      session.sourceAnimation = null;
+      if (!session.block.dom || prefersReducedMotion()) return Promise.resolve();
+      const animation = session.block.dom.animate([{ opacity: 0 }, { opacity: 1 }], {
+        duration: 140,
+        easing: "cubic-bezier(0.16, 1, 0.3, 1)",
+        fill: "forwards",
+      });
+      session.sourceAnimation = animation;
+      return animation.finished.catch(() => undefined);
+    };
+
+    const animateBackToSource = async () => {
+      await Promise.all([returnPreviewToSource(), resetSiblingShifts(), restoreSource()]);
+      dispose();
+    };
+
     const cancel = async (animate: boolean, force = false) => {
       if (session.dropping && !force) return;
       session.dropping = true;
       session.cancelled = true;
       if (session.frame !== null) cancelAnimationFrame(session.frame);
       session.frame = null;
-      if (animate && session.active) await returnPreviewToSource();
-      dispose();
+      if (animate && session.active) await animateBackToSource();
+      else dispose();
     };
 
     const cancelPointer = () => {
@@ -616,10 +685,6 @@ export function BlockDragHandle({
         return;
       }
       session.preview = created;
-      session.indicator = document.createElement("div");
-      session.indicator.className = "block-drop-indicator";
-      session.indicator.setAttribute("aria-hidden", "true");
-      document.body.appendChild(session.indicator);
 
       session.active = true;
       isDraggingRef.current = true;
@@ -638,10 +703,7 @@ export function BlockDragHandle({
       tick();
     };
 
-    const animateBack = async () => {
-      await returnPreviewToSource();
-      dispose();
-    };
+    const animateBack = animateBackToSource;
 
     const finishDrop = async () => {
       if (!session.active) return;
@@ -665,14 +727,14 @@ export function BlockDragHandle({
       }
 
       const targetSlot = session.slots[targetIndex];
-      const targetShift = getBlockShift(
+      const gapShift = getBlockShift(
         targetIndex,
         session.sourceIndex,
         candidate.destinationIndex,
         session.sourceSpan,
       );
       const edge = candidate.placement === "before" ? targetSlot.top : targetSlot.bottom;
-      const indicatorY = edge - scrollDelta() + targetShift;
+      const gapY = edge - scrollDelta() + gapShift;
       const preview = session.preview;
       if (!preview) {
         await animateBack();
@@ -682,7 +744,7 @@ export function BlockDragHandle({
       await animatePreview(
         preview,
         session.pointerY - session.startY,
-        indicatorY - session.sourceTop,
+        gapY - session.sourceTop,
         140,
       );
       if (session.cancelled) return;
@@ -795,6 +857,7 @@ export function BlockDragHandle({
     event.preventDefault();
     event.stopPropagation();
     clearHideTimeout();
+    event.currentTarget.setPointerCapture(event.pointerId);
     startDragSession(event.nativeEvent, fresh);
   };
 
@@ -803,6 +866,7 @@ export function BlockDragHandle({
     if (menuOpen) {
       if (event.key === "Escape") {
         event.preventDefault();
+        event.stopPropagation();
         closeMenu(true);
       }
       return;
@@ -824,6 +888,7 @@ export function BlockDragHandle({
   const handleMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (event.key === "Escape") {
       event.preventDefault();
+      event.stopPropagation();
       closeMenu(true);
       return;
     }

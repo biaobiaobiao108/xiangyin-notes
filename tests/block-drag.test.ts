@@ -122,6 +122,66 @@ describe("block drag commands", () => {
     expect(updatedList.child(2).textContent).toBe("项目3");
   });
 
+  test("moves ordered list items without changing the list", () => {
+    const editor = createTestEditor("1. 第一项\n2. 第二项\n3. 第三项");
+    const list = topLevelBlock(editor, 0);
+    const first = listItemBlock(editor, list, 0);
+    const third = listItemBlock(editor, list, 2);
+
+    expect(moveBlock(editor, first, third, "after")).not.toBeNull();
+    expect(editor.state.doc.child(0).type.name).toBe("orderedList");
+    expect(Array.from(editor.state.doc.child(0).content.content)).toHaveLength(3);
+    expect(editor.getMarkdown()).toContain("1. 第二项\n2. 第三项\n3. 第一项");
+  });
+
+  test("moves task list items and preserves their checked state", () => {
+    const editor = createTestEditor("- [x] 已完成\n- [ ] 未完成");
+    const list = topLevelBlock(editor, 0);
+    const first = listItemBlock(editor, list, 0);
+    const second = listItemBlock(editor, list, 1);
+
+    expect(moveBlock(editor, first, second, "after")).not.toBeNull();
+    const updatedList = editor.state.doc.child(0);
+    expect(updatedList.type.name).toBe("taskList");
+    expect(updatedList.child(0).textContent).toBe("未完成");
+    expect((updatedList.child(1).attrs as { checked: boolean }).checked).toBe(true);
+  });
+
+  test("reorders nested list items without moving their parent", () => {
+    const editor = createTestEditor("- 父项一\n  - 子项一\n  - 子项二\n- 父项二");
+    const outer = topLevelBlock(editor, 0);
+    const parent = listItemBlock(editor, outer, 0);
+    const nestedIndex = parent.node.childCount - 1;
+    const nestedPos =
+      parent.pos +
+      1 +
+      Array.from({ length: nestedIndex }, (_, index) => parent.node.child(index).nodeSize).reduce(
+        (sum, size) => sum + size,
+        0,
+      );
+    const nestedNode = parent.node.child(nestedIndex);
+    const nested: BlockTarget = {
+      node: nestedNode,
+      pos: nestedPos,
+      endPos: nestedPos + nestedNode.nodeSize,
+      parent: parent.node,
+      parentStart: parent.pos + 1,
+      index: nestedIndex,
+      dom: null,
+      kind: "listItem",
+    };
+    const first = listItemBlock(editor, nested, 0);
+    const second = listItemBlock(editor, nested, 1);
+
+    expect(moveBlock(editor, first, second, "after")).not.toBeNull();
+    const updatedOuter = editor.state.doc.child(0);
+    expect(updatedOuter.childCount).toBe(2);
+    expect(updatedOuter.child(0).textContent).toContain("父项一");
+    expect(updatedOuter.child(0).textContent).toContain("子项二");
+    expect(updatedOuter.child(0).textContent).toContain("子项一");
+    expect(updatedOuter.child(1).textContent).toBe("父项二");
+  });
+
   test("moves a block step down and up", () => {
     const editor = createTestEditor("行1\n\n行2\n\n行3");
 
