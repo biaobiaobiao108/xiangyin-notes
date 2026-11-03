@@ -798,7 +798,7 @@ export function Workspace() {
           query: deferredQuery,
           notebookId,
           sort: noteSort,
-          includeTotal: !deferredQuery.trim(),
+          includeTotal: true,
         },
         { signal: controller.signal },
       );

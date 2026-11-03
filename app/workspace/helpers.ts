@@ -101,6 +101,10 @@ export function getNoteTags(note: { tags?: string[]; contentMarkdown?: string })
       : [];
 }
 
+export function searchResultLabel(query: string, total: number) {
+  return `包含“${query}”的笔记 · 共 ${total} 篇`;
+}
+
 export type { NoteSort } from "../../shared/types";
 
 export function sortNotes(notes: NoteSummary[], sort: NoteSort) {

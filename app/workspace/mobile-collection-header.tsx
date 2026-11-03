@@ -1,5 +1,6 @@
 import { ChevronLeft } from "lucide-react";
 import { EmptyTrashButton } from "./empty-trash-button";
+import { searchResultLabel } from "./helpers";
 
 type MobileCollectionHeaderProps = {
   heading: string;
@@ -35,7 +36,7 @@ export function MobileCollectionHeader({
       <div className="list-header-main">
         <h2 tabIndex={-1}>{heading}</h2>
         <p>
-          {query ? `包含“${query}”的笔记` : `${total} 篇笔记`}
+          {query ? searchResultLabel(query, total) : `${total} 篇笔记`}
           {shown < total && <> · 已显示 {shown} 篇</>}
         </p>
       </div>

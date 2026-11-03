@@ -44,6 +44,7 @@ import {
   type NoteGroup,
   navItems,
   relativeDate,
+  searchResultLabel,
   sortNotes,
   viewLabel,
 } from "./helpers";
@@ -1633,7 +1634,9 @@ export const NoteListPanel = memo(function NoteListPanel({
                 <div className="list-header-main">
                   <h2 tabIndex={-1}>{heading}</h2>
                   <p>
-                    {query ? `包含“${query}”的笔记` : `${truncated ? total : notes.length} 篇笔记`}
+                    {query
+                      ? searchResultLabel(query, total)
+                      : `${truncated ? total : notes.length} 篇笔记`}
                     {truncated && <> · 已显示最近 {notes.length} 篇</>}
                   </p>
                 </div>

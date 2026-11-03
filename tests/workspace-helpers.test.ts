@@ -5,6 +5,7 @@ import {
   mergeRemoteSummary,
   mergeWikiNoteSummary,
   preserveNewerNoteSummaries,
+  searchResultLabel,
   notebookColorOptions,
   notebookIconOptions,
   shouldKeepActiveNoteInList,
@@ -46,6 +47,10 @@ const note: Note = {
   createdAt: 1,
   updatedAt: 1,
 };
+
+test("labels search results with the total note count", () => {
+  expect(searchResultLabel("良子", 6)).toBe("包含“良子”的笔记 · 共 6 篇");
+});
 
 describe("active note list membership", () => {
   test("never injects an active note into search results", () => {
