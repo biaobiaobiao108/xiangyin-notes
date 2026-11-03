@@ -381,6 +381,50 @@ describe("block drag geometry", () => {
     // Cross sibling downwards: block 3 shifts up by sourceSpan (-80)
     expect(getBlockShift(3, { start: 0, end: 1 }, 2, 80)).toBe(-80);
   });
+
+  test("maintains the opened avoidance slot while dragging inside the hole and does not avoid the block above", () => {
+    const sampleSlots: BlockSlot[] = [
+      { block: blocks[0], top: 100, bottom: 150 },
+      { block: blocks[1], top: 160, bottom: 210 },
+      { block: blocks[2], top: 220, bottom: 260 },
+      { block: { ...blocks[0], index: 3, pos: 300 }, top: 270, bottom: 310 },
+      { block: { ...blocks[0], index: 4, pos: 400 }, top: 320, bottom: 360 },
+    ];
+    const sourceSpan = 100;
+
+    // User dragged down to after slot 3:
+    const movedDown = calculateDropCandidate(
+      sampleSlots,
+      { start: 1, end: 2 },
+      315,
+      null,
+      sourceSpan,
+    );
+    expect(movedDown).toMatchObject({ destinationIndex: 2, noop: false });
+
+    // User now moves UP inside the opened hole (pointer at 250):
+    // It must stay in destinationIndex: 2 and NOT prematurely avoid the block above!
+    const inHole = calculateDropCandidate(
+      sampleSlots,
+      { start: 1, end: 2 },
+      250,
+      movedDown,
+      sourceSpan,
+    );
+    expect(inHole).toMatchObject({ destinationIndex: 2, noop: false });
+
+    // Moving further up into slot 3's visual body (around 180):
+    // Returns to the original slot
+    const backInSlot = calculateDropCandidate(
+      sampleSlots,
+      { start: 1, end: 2 },
+      180,
+      inHole,
+      sourceSpan,
+    );
+    expect(backInSlot?.noop).toBe(true);
+    expect(backInSlot?.destinationIndex).toBe(1);
+  });
 });
 
 describe("multi-block operations", () => {

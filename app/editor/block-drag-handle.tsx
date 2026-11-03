@@ -896,6 +896,7 @@ export function BlockDragHandle({
             { start: session.sourceStart, end: session.sourceEnd },
             session.pointerY + delta,
             session.candidate,
+            session.sourceSpan,
           )
         : null;
       session.candidate = candidate;

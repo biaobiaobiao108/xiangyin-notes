@@ -302,6 +302,7 @@ export function calculateDropCandidate(
   sourceRange: number | BlockIndexRange,
   pointerY: number,
   current: DropCandidate | null = null,
+  sourceSpan = 0,
 ): DropCandidate | null {
   const sourceStart = typeof sourceRange === "number" ? sourceRange : sourceRange.start;
   const sourceEnd = typeof sourceRange === "number" ? sourceRange : sourceRange.end;
@@ -316,10 +317,19 @@ export function calculateDropCandidate(
       }
     | undefined;
 
+  const currentDest = current && !current.noop ? current.destinationIndex : null;
+
   slots.forEach((slot, targetIndex) => {
     if (targetIndex >= sourceStart && targetIndex <= sourceEnd) return;
+    const shift =
+      currentDest !== null && sourceSpan > 0
+        ? getBlockShift(targetIndex, sourceRange, currentDest, sourceSpan)
+        : 0;
+    const vtop = slot.top + shift;
+    const vbottom = slot.bottom + shift;
+
     (["before", "after"] as const).forEach((placement) => {
-      const edge = placement === "before" ? slot.top : slot.bottom;
+      const edge = placement === "before" ? vtop : vbottom;
       const distance = Math.abs(pointerY - edge);
       if (best && distance >= best.distance) return;
       best = {
@@ -336,8 +346,13 @@ export function calculateDropCandidate(
     ? slots.findIndex((slot) => slot.block.pos === current.target.pos)
     : -1;
   if (current && currentIndex >= 0 && (currentIndex < sourceStart || currentIndex > sourceEnd)) {
+    const currShift =
+      currentDest !== null && sourceSpan > 0
+        ? getBlockShift(currentIndex, sourceRange, currentDest, sourceSpan)
+        : 0;
     const edge =
-      current.placement === "before" ? slots[currentIndex].top : slots[currentIndex].bottom;
+      (current.placement === "before" ? slots[currentIndex].top : slots[currentIndex].bottom) +
+      currShift;
     if (Math.abs(pointerY - edge) <= best.distance + DROP_EDGE_HYSTERESIS) {
       best.block = slots[currentIndex].block;
       best.placement = current.placement;
