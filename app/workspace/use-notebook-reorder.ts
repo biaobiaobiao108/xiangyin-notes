@@ -139,8 +139,7 @@ export function useNotebookReorder(
     const preventScroll = (e: TouchEvent) => {
       if (armed && e.cancelable) e.preventDefault();
     };
-    const cancel = () => {
-      if (dropping) return;
+    const finishCancel = () => {
       if (active) {
         rows.forEach((row) =>
           positions.current.set(row.dataset.sortId!, row.getBoundingClientRect().top),
@@ -159,6 +158,9 @@ export function useNotebookReorder(
         });
       }
       positions.current.clear();
+    };
+    const cancel = () => {
+      if (!dropping) finishCancel();
     };
     const key = (e: globalThis.KeyboardEvent) => {
       if (e.key === "Escape" && !e.isComposing && e.keyCode !== 229) {
@@ -250,7 +252,7 @@ export function useNotebookReorder(
           { duration: reduced ? 0 : 160, easing: "cubic-bezier(.2,.7,.2,1)", fill: "forwards" },
         );
         await animation.finished.catch(() => {});
-        if (cancelRef.current === cleanup) cancel();
+        if (cancelRef.current === cleanup) finishCancel();
         return;
       }
       const next = original.filter((value) => value !== id);
@@ -276,7 +278,7 @@ export function useNotebookReorder(
       try {
         await onReorder(next, original);
       } catch {
-        if (cancelRef.current === cleanup) cancel();
+        if (cancelRef.current === cleanup) finishCancel();
         return;
       }
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
