@@ -253,6 +253,11 @@ function buildOptimizedNoteListPlan(input: {
     FROM ${candidateFrom}
     WHERE ${conditions.join(" AND ")}
   )`;
+  const countCandidateParams: SqlValue[] = [
+    ...(usesFts ? [ftsQuery] : []),
+    ...noteParams,
+    ...tagParams,
+  ];
 
   const topCte = isRanked
     ? `top AS MATERIALIZED (
@@ -322,9 +327,11 @@ function buildOptimizedNoteListPlan(input: {
   let countSql: string | null = null;
   let countParams: SqlValue[] = [];
   if (includeTotal) {
-    countSql = `WITH ${[...shortCtes, candidateCte].join(",\n")}
-      SELECT COUNT(*) AS count FROM candidates`;
-    countParams = [...shortParams, ...candidateParams];
+    const countFrom = `${shortCtes.length ? `WITH ${shortCtes.join(",\n")} ` : ""}
+      SELECT COUNT(*) AS count FROM ${candidateFrom}
+      WHERE ${conditions.join(" AND ")}`;
+    countSql = countFrom;
+    countParams = [...shortParams, ...countCandidateParams];
   }
 
   return { sql, params, countSql, countParams };
