@@ -23,6 +23,7 @@ import {
   type BlockSlot,
   type BlockTarget,
 } from "../app/editor/block-drag-commands";
+import { createDragPreview } from "../app/editor/block-drag-handle";
 
 function createTestEditor(content: string) {
   return new Editor({
@@ -507,5 +508,69 @@ describe("multi-block operations", () => {
     expect(selected).toHaveLength(2);
     expect(selected[0].index).toBe(0);
     expect(selected[1].index).toBe(1);
+  });
+
+  test("createDragPreview preserves margins between multiple dragged blocks", () => {
+    const originalDocument = globalThis.document;
+    try {
+      const appendedToBody: unknown[] = [];
+      const createMockEl = (tag: string) => {
+        const style: Record<string, string> = {};
+        const children: unknown[] = [];
+        return {
+          tagName: tag.toUpperCase(),
+          style,
+          className: "",
+          setAttribute() {},
+          removeAttribute() {},
+          getBoundingClientRect: () => ({ left: 50, top: 100, width: 300, height: 40 }),
+          cloneNode: () => createMockEl(tag),
+          querySelectorAll: () => [],
+          appendChild: (c: unknown) => {
+            children.push(c);
+          },
+          children,
+        };
+      };
+
+      const p1 = createMockEl("p");
+      const p2 = createMockEl("p");
+      const p3 = createMockEl("p");
+
+      (globalThis as unknown as { document: unknown }).document = {
+        createElement: (tag: string) => createMockEl(tag),
+        body: {
+          appendChild: (el: unknown) => appendedToBody.push(el),
+        },
+      };
+
+      const sources = [
+        { kind: "topLevel", pos: 0, index: 0, dom: p1 as unknown as HTMLElement },
+        { kind: "topLevel", pos: 10, index: 1, dom: p2 as unknown as HTMLElement },
+        { kind: "topLevel", pos: 20, index: 2, dom: p3 as unknown as HTMLElement },
+      ] as unknown as BlockTarget[];
+
+      const preview = createDragPreview(sources);
+      expect(preview).not.toBeNull();
+      const content = (preview as any).children.find((c: any) =>
+        c.className?.includes("block-drag-preview-content"),
+      ) as any;
+      expect(content).toBeDefined();
+      expect(content.children).toHaveLength(3);
+
+      // First child resets only marginTop, preserving marginBottom so it doesn't merge with the second paragraph
+      expect(content.children[0].style.marginTop).toBe("0");
+      expect(content.children[0].style.marginBottom).toBeUndefined();
+
+      // Intermediate child keeps natural margins
+      expect(content.children[1].style.marginTop).toBeUndefined();
+      expect(content.children[1].style.marginBottom).toBeUndefined();
+
+      // Last child resets marginBottom to align with card padding
+      expect(content.children[2].style.marginTop).toBeUndefined();
+      expect(content.children[2].style.marginBottom).toBe("0");
+    } finally {
+      (globalThis as unknown as { document: unknown }).document = originalDocument;
+    }
   });
 });

@@ -242,7 +242,7 @@ function textContentRight(element: HTMLElement): number | null {
   return right;
 }
 
-function createDragPreview(sources: BlockTarget[]): HTMLElement | null {
+export function createDragPreview(sources: BlockTarget[]): HTMLElement | null {
   const firstSource = sources[0];
   const firstDom = firstSource?.dom;
   if (!firstDom) return null;
@@ -264,11 +264,11 @@ function createDragPreview(sources: BlockTarget[]): HTMLElement | null {
     const listPadding = Number.parseFloat(getComputedStyle(listParent).paddingLeft) || 0;
 
     let maxVisibleWidth = MIN_LIST_PREVIEW_WIDTH;
-    sources.forEach((source) => {
+    sources.forEach((source, index) => {
       if (!source.dom) return;
       const clone = source.dom.cloneNode(true) as HTMLElement;
-      clone.style.marginTop = "0";
-      clone.style.marginBottom = "0";
+      if (index === 0) clone.style.marginTop = "0";
+      if (index === sources.length - 1) clone.style.marginBottom = "0";
       clone
         .querySelectorAll<HTMLElement>(
           "[contenteditable], button, input, select, textarea, a[href], [tabindex]",

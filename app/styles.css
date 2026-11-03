@@ -1322,9 +1322,10 @@ button.save-status:hover { text-decoration: underline; }
   animation: block-preview-content-in var(--motion-fast) var(--motion-ease-out);
   transform-origin: left top;
 }
-.block-drag-preview-content > :first-child,
-.block-drag-preview-content > :last-child {
+.block-drag-preview-content > :first-child {
   margin-top: 0;
+}
+.block-drag-preview-content > :last-child {
   margin-bottom: 0;
 }
 .block-drag-preview-content ul,
