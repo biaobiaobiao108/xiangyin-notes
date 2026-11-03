@@ -426,6 +426,62 @@ describe("block drag geometry", () => {
     expect(backInSlot?.noop).toBe(true);
     expect(backInSlot?.destinationIndex).toBe(1);
   });
+
+  test("maintains candidate stability when dragging a tall multi-line block upwards through trajectory", () => {
+    const sampleSlots: BlockSlot[] = [
+      { block: { ...blocks[0], index: 0, pos: 0 }, top: 100, bottom: 130 },
+      { block: { ...blocks[0], index: 1, pos: 40 }, top: 140, bottom: 170 },
+      { block: { ...blocks[0], index: 2, pos: 80 }, top: 180, bottom: 210 },
+      { block: { ...blocks[0], index: 3, pos: 120 }, top: 220, bottom: 250 },
+      { block: { ...blocks[0], index: 4, pos: 160 }, top: 260, bottom: 350 }, // 3-line block (span 100)
+    ];
+    const sourceSpan = 100;
+
+    // Drag 3-line block (index 4) upwards to before slot 2:
+    const movedToTwo = calculateDropCandidate(
+      sampleSlots,
+      { start: 4, end: 4 },
+      195,
+      null,
+      sourceSpan,
+    );
+    expect(movedToTwo).toMatchObject({ destinationIndex: 2, noop: false });
+
+    // Move up/down within the opened hole (between slot 1 bottom 170 and slot 2 top+100=280):
+    // It must stay solidly in destinationIndex: 2 without jittering trajectory blocks!
+    for (const pointerY of [180, 200, 220, 240, 260]) {
+      const inHole = calculateDropCandidate(
+        sampleSlots,
+        { start: 4, end: 4 },
+        pointerY,
+        movedToTwo,
+        sourceSpan,
+      );
+      expect(inHole).toMatchObject({ destinationIndex: 2, noop: false });
+    }
+
+    // Drag further up to before slot 1:
+    const movedToOne = calculateDropCandidate(
+      sampleSlots,
+      { start: 4, end: 4 },
+      150,
+      movedToTwo,
+      sourceSpan,
+    );
+    expect(movedToOne).toMatchObject({ destinationIndex: 1, noop: false });
+
+    // Hovering inside slot 1 opened hole (between slot 0 bottom 130 and slot 1 top+100=240):
+    for (const pointerY of [145, 170, 190, 210, 230]) {
+      const inHole = calculateDropCandidate(
+        sampleSlots,
+        { start: 4, end: 4 },
+        pointerY,
+        movedToOne,
+        sourceSpan,
+      );
+      expect(inHole).toMatchObject({ destinationIndex: 1, noop: false });
+    }
+  });
 });
 
 describe("multi-block operations", () => {

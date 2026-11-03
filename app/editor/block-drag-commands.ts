@@ -319,6 +319,36 @@ export function calculateDropCandidate(
 
   const currentDest = current && !current.noop ? current.destinationIndex : null;
 
+  // If we already have an active destination, check if pointer is inside the opened hole
+  if (current && !current.noop && currentDest !== null && sourceSpan > 0) {
+    let holeTop = -Infinity;
+    let holeBottom = Infinity;
+    if (currentDest < sourceStart) {
+      if (currentDest > 0) {
+        holeTop = slots[currentDest - 1].bottom;
+      } else if (slots.length > 0) {
+        holeTop = slots[0].top;
+      }
+      if (currentDest < slots.length) {
+        holeBottom = slots[currentDest].top + sourceSpan;
+      }
+    } else {
+      const gap = currentDest + count;
+      if (gap > 0 && gap - 1 < slots.length) {
+        holeTop = slots[gap - 1].bottom - sourceSpan;
+      }
+      if (gap < slots.length) {
+        holeBottom = slots[gap].top;
+      }
+    }
+    if (
+      pointerY >= holeTop - DROP_EDGE_HYSTERESIS &&
+      pointerY <= holeBottom + DROP_EDGE_HYSTERESIS
+    ) {
+      return current;
+    }
+  }
+
   slots.forEach((slot, targetIndex) => {
     if (targetIndex >= sourceStart && targetIndex <= sourceEnd) return;
     const shift =

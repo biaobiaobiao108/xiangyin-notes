@@ -1153,10 +1153,20 @@ export function BlockDragHandle({
         }
 
         const previewOffset = session.pointerY - session.startY;
-        const beforeTops = new Map<HTMLElement, number>();
-        session.slots.forEach(({ block }) => {
+        const siblingShifts = new Map<HTMLElement, { currentShift: number; targetShift: number }>();
+        session.slots.forEach(({ block }, index) => {
           if (!block.dom) return;
-          beforeTops.set(block.dom, block.dom.getBoundingClientRect().top);
+          const targetShift =
+            candidate && !candidate.noop
+              ? getBlockShift(
+                  index,
+                  { start: session.sourceStart, end: session.sourceEnd },
+                  candidate.destinationIndex,
+                  session.sourceSpan,
+                )
+              : 0;
+          const currentShift = translateY(block.dom);
+          siblingShifts.set(block.dom, { currentShift, targetShift });
         });
 
         const movedPosition = moveBlocks(
@@ -1199,14 +1209,14 @@ export function BlockDragHandle({
         const reducedMotion = prefersReducedMotion();
         if (!reducedMotion) {
           const movedDomSet = new Set(movedDoms);
-          beforeTops.forEach((beforeTop, element) => {
+          siblingShifts.forEach(({ currentShift, targetShift }, element) => {
             if (!element.isConnected || movedDomSet.has(element)) return;
-            const afterTop = element.getBoundingClientRect().top;
-            const delta = beforeTop - afterTop;
-            if (Math.abs(delta) < 3) return;
-            const duration = Math.min(160, Math.max(70, Math.abs(delta) * 2.2));
+            const offset = currentShift - targetShift;
+            // Blocks already at their destination do not animate to avoid text jitter
+            if (Math.abs(offset) < 2) return;
+            const duration = Math.min(160, Math.max(70, Math.abs(offset) * 2.2));
             element.animate(
-              [{ transform: `translateY(${delta}px)` }, { transform: "translateY(0)" }],
+              [{ transform: `translateY(${offset}px)` }, { transform: "translateY(0)" }],
               { duration, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
             );
           });
