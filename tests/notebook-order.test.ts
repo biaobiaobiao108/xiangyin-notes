@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase, type SqliteDatabase } from "../server/db";
 import { handleRequest } from "../server/index";
+import { calculateNotebookTargetIndex } from "../app/workspace/use-notebook-reorder";
 
 let database: SqliteDatabase;
 let assetRoot: string;
@@ -120,5 +121,53 @@ describe("notebook ordering", () => {
         snapshot,
       );
     }
+  });
+});
+
+describe("notebook drag target calculation", () => {
+  const sampleSlots = [
+    { top: 100, height: 40 }, // mid 120
+    { top: 140, height: 40 }, // mid 160
+    { top: 180, height: 40 }, // mid 200
+    { top: 220, height: 40 }, // mid 240
+  ];
+
+  test("maintains destination in vacant slot when moving slightly up and does not prematurely avoid item above", () => {
+    // Drag item 0 downwards. Crossing threshold (midpoint 140 + hysteresis 8 = 148) targets slot 1.
+    const movedDown = calculateNotebookTargetIndex(sampleSlots, 0, 0, 150);
+    expect(movedDown).toBe(1);
+
+    // Now pointer is in slot 1 (range 140..180). Moving slightly UP inside slot 1 (e.g. center = 142)
+    // must stay in slot 1 and NOT jump back to slot 0!
+    const moveUpInHole = calculateNotebookTargetIndex(sampleSlots, 0, 1, 142);
+    expect(moveUpInHole).toBe(1);
+
+    // Only moving distinctly into slot 0 past upper threshold (140 - 8 = 132) switches back to 0.
+    const backToZero = calculateNotebookTargetIndex(sampleSlots, 0, 1, 130);
+    expect(backToZero).toBe(0);
+  });
+
+  test("maintains destination when dragging upwards with hysteresis", () => {
+    // Drag item 3 upwards towards slot 2 (midpoint 220 - hysteresis 8 = 212).
+    const movedUp = calculateNotebookTargetIndex(sampleSlots, 3, 3, 210);
+    expect(movedUp).toBe(2);
+
+    // Moving slightly down inside slot 2 (e.g. center = 218) must stay in slot 2.
+    const moveDownInHole = calculateNotebookTargetIndex(sampleSlots, 3, 2, 218);
+    expect(moveDownInHole).toBe(2);
+
+    // Moving past lower threshold (220 + 8 = 228) switches back to 3.
+    const backToThree = calculateNotebookTargetIndex(sampleSlots, 3, 2, 230);
+    expect(backToThree).toBe(3);
+  });
+
+  test("clamps safely when dragging beyond top and bottom boundaries", () => {
+    expect(calculateNotebookTargetIndex(sampleSlots, 1, 1, -50)).toBe(0);
+    expect(calculateNotebookTargetIndex(sampleSlots, 1, 1, 500)).toBe(3);
+  });
+
+  test("handles fast flick directly across multiple slots", () => {
+    // Fast flick from slot 0 to near slot 3 (center = 242)
+    expect(calculateNotebookTargetIndex(sampleSlots, 0, 0, 242)).toBe(3);
   });
 });

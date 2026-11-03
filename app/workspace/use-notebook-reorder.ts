@@ -6,6 +6,54 @@ import {
   type RefObject,
 } from "react";
 
+export function calculateNotebookTargetIndex(
+  slots: Array<{ top: number; height: number }>,
+  sourceIndex: number,
+  currentTarget: number,
+  center: number,
+  hysteresis = 8,
+): number {
+  const count = slots.length;
+  if (count <= 1) return 0;
+  if (currentTarget < 0 || currentTarget >= count) currentTarget = sourceIndex;
+
+  const currentSlot = slots[currentTarget];
+  const currentMid = currentSlot.top + currentSlot.height / 2;
+
+  let upperThreshold = -Infinity;
+  if (currentTarget > 0) {
+    const prevSlot = slots[currentTarget - 1];
+    const prevMid = prevSlot.top + prevSlot.height / 2;
+    const boundary = (prevMid + currentMid) / 2;
+    upperThreshold = boundary - hysteresis;
+  }
+
+  let lowerThreshold = Infinity;
+  if (currentTarget < count - 1) {
+    const nextSlot = slots[currentTarget + 1];
+    const nextMid = nextSlot.top + nextSlot.height / 2;
+    const boundary = (currentMid + nextMid) / 2;
+    lowerThreshold = boundary + hysteresis;
+  }
+
+  if (center >= upperThreshold && center <= lowerThreshold) {
+    return currentTarget;
+  }
+
+  let bestIndex = currentTarget;
+  let minDistance = Infinity;
+  for (let i = 0; i < count; i++) {
+    const mid = slots[i].top + slots[i].height / 2;
+    const dist = Math.abs(center - mid);
+    if (dist < minDistance) {
+      minDistance = dist;
+      bestIndex = i;
+    }
+  }
+
+  return bestIndex;
+}
+
 // Keep layout slots fixed; only transforms preview the proposed order.
 export function useNotebookReorder(
   listRef: RefObject<HTMLElement | null>,
@@ -26,7 +74,7 @@ export function useNotebookReorder(
       const previous = positions.current.get(id);
       if (
         previous !== undefined &&
-        previous !== top &&
+        Math.abs(previous - top) > 0.75 &&
         !matchMedia("(prefers-reduced-motion: reduce)").matches
       ) {
         row.animate(
@@ -60,7 +108,7 @@ export function useNotebookReorder(
     const holdTimer = window.setTimeout(() => {
       armed = true;
     }, 350);
-    let target = -1;
+    let target = sourceIndex;
     let frame = 0;
     let preview: HTMLElement | null = null;
     let dropping = false;
@@ -92,6 +140,7 @@ export function useNotebookReorder(
       if (armed && e.cancelable) e.preventDefault();
     };
     const cancel = () => {
+      if (dropping) return;
       if (active) {
         rows.forEach((row) =>
           positions.current.set(row.dataset.sortId!, row.getBoundingClientRect().top),
@@ -102,7 +151,7 @@ export function useNotebookReorder(
         rows.forEach((row) => {
           const previous = positions.current.get(row.dataset.sortId!);
           const top = row.getBoundingClientRect().top;
-          if (previous !== undefined && previous !== top)
+          if (previous !== undefined && Math.abs(previous - top) > 0.75)
             row.animate(
               [{ transform: `translateY(${previous - top}px)` }, { transform: "translateY(0)" }],
               { duration: 180, easing: "cubic-bezier(.2,.7,.2,1)" },
@@ -121,24 +170,22 @@ export function useNotebookReorder(
     const tick = () => {
       if (!active) return;
       const bounds = list.getBoundingClientRect();
-      const inside =
-        x >= bounds.left - 24 &&
-        x <= bounds.right + 24 &&
-        y >= bounds.top - 24 &&
-        y <= bounds.bottom + 24;
+      const inside = x >= bounds.left - 48 && x <= bounds.right + 48;
       if (inside) {
         const speed = y < bounds.top + 28 ? -6 : y > bounds.bottom - 28 ? 6 : 0;
         list.scrollTop += speed;
       }
       const scrollDelta = list.scrollTop - initialScroll;
       const center = y - grabOffset + rect.height / 2 + scrollDelta;
-      target = inside ? sourceIndex : -1;
       if (inside) {
-        slots.forEach((slot, index) => {
-          const midpoint = slot.top + slot.height / 2;
-          if (index < sourceIndex && center < midpoint) target = Math.min(target, index);
-          if (index > sourceIndex && center > midpoint) target = Math.max(target, index);
-        });
+        target = calculateNotebookTargetIndex(
+          slots,
+          sourceIndex,
+          target >= 0 ? target : sourceIndex,
+          center,
+        );
+      } else {
+        target = sourceIndex;
       }
       const destination = target < 0 ? sourceIndex : target;
       rows.forEach((row, index) => {
@@ -192,6 +239,20 @@ export function useNotebookReorder(
       cancelAnimationFrame(frame);
       dropping = true;
       const destination = target < 0 ? sourceIndex : target;
+      if (destination === sourceIndex) {
+        const returnTop = slots[sourceIndex]!.top - (list.scrollTop - initialScroll);
+        const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+        const animation = preview!.animate(
+          [
+            { transform: `translateY(${y - startY}px)` },
+            { transform: `translateY(${returnTop - rect.top}px)` },
+          ],
+          { duration: reduced ? 0 : 160, easing: "cubic-bezier(.2,.7,.2,1)", fill: "forwards" },
+        );
+        await animation.finished.catch(() => {});
+        if (cancelRef.current === cleanup) cancel();
+        return;
+      }
       const next = original.filter((value) => value !== id);
       next.splice(destination, 0, id);
       const finalTop = slots[destination]!.top - (list.scrollTop - initialScroll);
@@ -206,20 +267,23 @@ export function useNotebookReorder(
       await animation.finished.catch(() => {});
       // Escape, a remote list update, or unmount may have ended the gesture.
       if (cancelRef.current !== cleanup) return;
-      if (destination === sourceIndex) {
-        cancel();
-        return;
-      }
       rows.forEach((row) =>
         positions.current.set(
           row.dataset.sortId!,
           row === source ? finalTop : row.getBoundingClientRect().top,
         ),
       );
-      await onReorder(next, original);
-      // Let React commit the saved order before removing the translated preview.
+      try {
+        await onReorder(next, original);
+      } catch {
+        if (cancelRef.current === cleanup) cancel();
+        return;
+      }
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-      if (cancelRef.current === cleanup) cancel();
+      if (cancelRef.current === cleanup) {
+        cleanup();
+        positions.current.clear();
+      }
     };
     cancelRef.current = cleanup;
     window.addEventListener("touchmove", preventScroll, { passive: false });
@@ -240,6 +304,10 @@ export function useNotebookReorder(
     const next = [...ids];
     next.splice(index, 1);
     next.splice(nextIndex, 0, id);
+    const rows = listRef.current?.querySelectorAll<HTMLElement>("[data-sort-id]");
+    rows?.forEach((row) =>
+      positions.current.set(row.dataset.sortId!, row.getBoundingClientRect().top),
+    );
     void onReorder(next, ids);
   }
   return (id: string) => ({
