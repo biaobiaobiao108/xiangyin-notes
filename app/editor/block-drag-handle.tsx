@@ -1202,13 +1202,12 @@ export function BlockDragHandle({
           beforeTops.forEach((beforeTop, element) => {
             if (!element.isConnected || movedDomSet.has(element)) return;
             const afterTop = element.getBoundingClientRect().top;
-            if (Math.abs(beforeTop - afterTop) < 0.5) return;
+            const delta = beforeTop - afterTop;
+            if (Math.abs(delta) < 3) return;
+            const duration = Math.min(160, Math.max(70, Math.abs(delta) * 2.2));
             element.animate(
-              [
-                { transform: `translateY(${beforeTop - afterTop}px)` },
-                { transform: "translateY(0)" },
-              ],
-              { duration: 180, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
+              [{ transform: `translateY(${delta}px)` }, { transform: "translateY(0)" }],
+              { duration, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
             );
           });
         }
@@ -1220,13 +1219,13 @@ export function BlockDragHandle({
           session.sourceAnimations.forEach((animation) => animation.cancel());
           session.sourceAnimations = [];
           const fadeOut = preview.animate([{ opacity: 0.98 }, { opacity: 0 }], {
-            duration: 90,
+            duration: 80,
             easing: "cubic-bezier(0.16, 1, 0.3, 1)",
             fill: "forwards",
           });
           const fadeInAnims = movedDoms.map((dom) =>
             dom.animate([{ opacity: 0 }, { opacity: 1 }], {
-              duration: 110,
+              duration: 80,
               easing: "cubic-bezier(0.16, 1, 0.3, 1)",
               fill: "forwards",
             }),
@@ -1242,13 +1241,14 @@ export function BlockDragHandle({
           session.sourceAnimations = [];
         }
 
-        dispose();
-
         if (!reducedMotion) {
           for (const dom of movedDoms) {
             dom.animate(
-              [{ backgroundColor: "var(--accent-soft)" }, { backgroundColor: "transparent" }],
-              { duration: 220, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
+              [
+                { backgroundColor: "var(--accent-soft)", borderRadius: "var(--radius-sm)" },
+                { backgroundColor: "transparent", borderRadius: "var(--radius-sm)" },
+              ],
+              { duration: 260, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
             );
           }
         }
