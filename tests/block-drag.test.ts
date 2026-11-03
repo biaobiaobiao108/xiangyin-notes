@@ -9,10 +9,16 @@ import { EditorState, type Transaction } from "@tiptap/pm/state";
 import {
   calculateDropCandidate,
   deleteBlock,
+  deleteBlocks,
   duplicateBlock,
+  duplicateBlocks,
   getBlockShift,
+  getSelectedBlockRange,
   moveBlock,
+  moveBlocks,
   moveBlockStep,
+  moveBlocksStep,
+  selectBlockRange,
   toDragSessionY,
   type BlockSlot,
   type BlockTarget,
@@ -353,5 +359,109 @@ describe("block drag geometry", () => {
     expect(toDragSessionY(100, 0)).toBe(100);
     expect(toDragSessionY(50, 50)).toBe(100);
     expect(toDragSessionY(50, 50, 20)).toBe(80);
+  });
+
+  test("calculates drop candidate and shifts for multi-block source range", () => {
+    const fourSlots: BlockSlot[] = [
+      { block: blocks[0], top: 100, bottom: 120 },
+      { block: blocks[1], top: 130, bottom: 150 },
+      { block: blocks[2], top: 160, bottom: 180 },
+      { block: { ...blocks[2], index: 3, pos: 99 }, top: 190, bottom: 210 },
+    ];
+    const candidate = calculateDropCandidate(fourSlots, { start: 1, end: 2 }, 95);
+    expect(candidate?.destinationIndex).toBe(0);
+    expect(candidate?.noop).toBe(false);
+
+    const noopCandidate = calculateDropCandidate(fourSlots, { start: 1, end: 2 }, 140);
+    expect(noopCandidate?.noop).toBe(true);
+
+    // When moving [1, 2] to index 0, block 0 shifts down by sourceSpan (+80)
+    expect(getBlockShift(0, { start: 1, end: 2 }, 0, 80)).toBe(80);
+    expect(getBlockShift(0, { start: 1, end: 2 }, 1, 80)).toBe(0);
+    // Cross sibling downwards: block 3 shifts up by sourceSpan (-80)
+    expect(getBlockShift(3, { start: 0, end: 1 }, 2, 80)).toBe(-80);
+  });
+});
+
+describe("multi-block operations", () => {
+  test("moves multiple consecutive top-level blocks downwards and upwards", () => {
+    const editor = createTestEditor("段落A\n\n段落B\n\n段落C\n\n段落D\n\n段落E");
+    const b0 = topLevelBlock(editor, 0);
+    const b1 = topLevelBlock(editor, 1);
+    const target = topLevelBlock(editor, 3); // 段落D
+
+    expect(moveBlocks(editor, [b0, b1], target, "after")).not.toBeNull();
+    expect(blockTexts(editor)).toEqual(["段落C", "段落D", "段落A", "段落B", "段落E"]);
+
+    // Move them back up before 段落C
+    const b2 = topLevelBlock(editor, 2);
+    const b3 = topLevelBlock(editor, 3);
+    const first = topLevelBlock(editor, 0);
+    expect(moveBlocks(editor, [b2, b3], first, "before")).not.toBeNull();
+    expect(blockTexts(editor)).toEqual(["段落A", "段落B", "段落C", "段落D", "段落E"]);
+  });
+
+  test("moves multiple list items within the same list", () => {
+    const editor = createTestEditor("- 项1\n- 项2\n- 项3\n- 项4");
+    const list = topLevelBlock(editor, 0);
+    const i0 = listItemBlock(editor, list, 0);
+    const i1 = listItemBlock(editor, list, 1);
+    const target = listItemBlock(editor, list, 3);
+
+    expect(moveBlocks(editor, [i0, i1], target, "after")).not.toBeNull();
+    const updatedList = topLevelBlock(editor, 0);
+    const itemTexts = Array.from(
+      { length: updatedList.node.childCount },
+      (_, i) => updatedList.node.child(i).textContent,
+    );
+    expect(itemTexts).toEqual(["项3", "项4", "项1", "项2"]);
+  });
+
+  test("moves multiple blocks step up and down", () => {
+    const editor = createTestEditor("行1\n\n行2\n\n行3\n\n行4");
+    const b1 = topLevelBlock(editor, 1);
+    const b2 = topLevelBlock(editor, 2);
+
+    expect(moveBlocksStep(editor, [b1, b2], "down")).toBe(true);
+    expect(blockTexts(editor)).toEqual(["行1", "行4", "行2", "行3"]);
+
+    const newB2 = topLevelBlock(editor, 2);
+    const newB3 = topLevelBlock(editor, 3);
+    expect(moveBlocksStep(editor, [newB2, newB3], "up")).toBe(true);
+    expect(blockTexts(editor)).toEqual(["行1", "行2", "行3", "行4"]);
+  });
+
+  test("duplicates multiple blocks below the range", () => {
+    const editor = createTestEditor("首段\n\n次段\n\n尾段");
+    const b0 = topLevelBlock(editor, 0);
+    const b1 = topLevelBlock(editor, 1);
+
+    expect(duplicateBlocks(editor, [b0, b1])).toBe(true);
+    expect(blockTexts(editor)).toEqual(["首段", "次段", "首段", "次段", "尾段"]);
+  });
+
+  test("deletes multiple blocks and keeps doc valid", () => {
+    const editor = createTestEditor("段1\n\n段2\n\n段3\n\n段4");
+    const b1 = topLevelBlock(editor, 1);
+    const b2 = topLevelBlock(editor, 2);
+
+    expect(deleteBlocks(editor, [b1, b2])).toBe(true);
+    expect(blockTexts(editor)).toEqual(["段1", "段4"]);
+  });
+
+  test("selectBlockRange selects across blocks and getSelectedBlockRange resolves them", () => {
+    const editor = createTestEditor("块甲\n\n块乙\n\n块丙");
+    const b0 = topLevelBlock(editor, 0);
+    const b1 = topLevelBlock(editor, 1);
+
+    // When no selection, getSelectedBlockRange returns just the anchor block
+    expect(getSelectedBlockRange(editor, b0)).toHaveLength(1);
+
+    // Select range across b0 and b1
+    expect(selectBlockRange(editor, b0, b1)).toBe(true);
+    const selected = getSelectedBlockRange(editor, b0);
+    expect(selected).toHaveLength(2);
+    expect(selected[0].index).toBe(0);
+    expect(selected[1].index).toBe(1);
   });
 });

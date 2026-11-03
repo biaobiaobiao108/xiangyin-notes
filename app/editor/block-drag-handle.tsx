@@ -14,13 +14,19 @@ import { ArrowDown, ArrowUp, Copy, Trash2 } from "lucide-react";
 import {
   calculateDropCandidate,
   deleteBlock,
+  deleteBlocks,
   duplicateBlock,
+  duplicateBlocks,
   getBlockShift,
   getDraggableBlockFromSelection,
   getDraggableBlockFromElement,
+  getSelectedBlockRange,
   getSiblingBlocks,
   moveBlock,
+  moveBlocks,
   moveBlockStep,
+  moveBlocksStep,
+  selectBlockRange,
   toDragSessionY,
   type BlockSlot,
   type BlockTarget,
@@ -51,9 +57,10 @@ type DragSession = {
   pointerX: number;
   pointerY: number;
   returnFocus: HTMLElement | null;
-  block: BlockTarget;
+  blocks: BlockTarget[];
   siblings: BlockTarget[];
-  sourceIndex: number;
+  sourceStart: number;
+  sourceEnd: number;
   sourceSpan: number;
   sourceTop: number;
   initialScroll: number;
@@ -65,15 +72,15 @@ type DragSession = {
   dropping: boolean;
   cancelled: boolean;
   candidate: DropCandidate | null;
-  sourceAnimation: Animation | null;
+  sourceAnimations: Animation[];
   shiftAnimations: Map<HTMLElement, { animation: Animation; shift: number }>;
 };
 
 const HANDLE_LEFT = -30;
 const HANDLE_WIDTH = 24;
 const HANDLE_HEIGHT = 28;
-const HANDLE_HOVER_LEFT = HANDLE_LEFT - 12;
-const HANDLE_HOVER_RIGHT = HANDLE_LEFT + HANDLE_WIDTH + 6;
+const HANDLE_HOVER_LEFT = HANDLE_LEFT - 14;
+const HANDLE_HOVER_RIGHT = 36;
 const DRAG_THRESHOLD = 6;
 const PREVIEW_PADDING_X = 10;
 const PREVIEW_PADDING_Y = 7;
@@ -86,58 +93,67 @@ const HANDLE_FADE_OUT = 180;
 const MIN_LIST_PREVIEW_WIDTH = 160;
 const prefersReducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-function restoreEditorFocus(
-  editor: Editor,
-  scroll: HTMLElement | null,
-  returnFocus: HTMLElement | null,
-) {
+function restoreEditorFocus(editor: Editor, scroll: HTMLElement | null) {
   if (editor.isDestroyed) return;
-  // Re-focusing the editor can make Safari reveal its old caret, which may be
-  // far above the block the user just dragged. Prefer the pre-action focus.
-  const target = returnFocus?.isConnected ? returnFocus : null;
-  if (document.activeElement === target) return;
   const scrollTop = scroll?.scrollTop;
-  if (target) target.focus({ preventScroll: true });
-  else if (!editor.view.hasFocus()) editor.view.dom.focus({ preventScroll: true });
-  else return;
-  // Safari can still reveal the restored caret and jump back to an off-screen selection.
-  if (!scroll || scrollTop === undefined) return;
-  let userInteracted = false;
-  const onUserScroll = () => {
-    userInteracted = true;
-  };
-  scroll.addEventListener("wheel", onUserScroll, { passive: true, once: true });
-  scroll.addEventListener("touchmove", onUserScroll, { passive: true, once: true });
+  try {
+    if (!editor.view.hasFocus()) {
+      editor.view.focus();
+    }
+  } catch {
+    // Ignore focus errors
+  }
+  if (scroll && scrollTop !== undefined && scroll.scrollTop !== scrollTop) {
+    scroll.scrollTop = scrollTop;
+  }
+}
 
-  const restoreScroll = () => {
-    if (userInteracted) return;
-    if (scroll.scrollTop !== scrollTop) scroll.scrollTop = scrollTop;
-  };
-  restoreScroll();
-  let timer: number | null = null;
-  window.requestAnimationFrame(() => {
-    restoreScroll();
-    window.requestAnimationFrame(() => {
-      restoreScroll();
-      if (timer !== null) {
-        window.clearTimeout(timer);
-        timer = null;
-      }
-      scroll.removeEventListener("wheel", onUserScroll);
-      scroll.removeEventListener("touchmove", onUserScroll);
-    });
+function firstLineCenter(element: HTMLElement): number {
+  const rect = element.getBoundingClientRect();
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      return node.textContent && node.textContent.trim().length > 0
+        ? NodeFilter.FILTER_ACCEPT
+        : NodeFilter.FILTER_SKIP;
+    },
   });
-  timer = window.setTimeout(() => {
-    restoreScroll();
-    scroll.removeEventListener("wheel", onUserScroll);
-    scroll.removeEventListener("touchmove", onUserScroll);
-  }, 50);
+  const textNode = walker.nextNode();
+  if (textNode) {
+    try {
+      const range = document.createRange();
+      range.setStart(textNode, 0);
+      range.setEnd(textNode, Math.min(1, textNode.textContent?.length ?? 1));
+      const rangeRect = range.getBoundingClientRect();
+      if (rangeRect.height > 0) {
+        return rangeRect.top + rangeRect.height / 2;
+      }
+    } catch {
+      // fallback
+    }
+  }
+
+  const firstMedia = element.querySelector<HTMLElement>("img, input, pre, table, hr");
+  if (firstMedia) {
+    const mediaRect = firstMedia.getBoundingClientRect();
+    if (mediaRect.height > 0) {
+      return mediaRect.top + Math.min(14, mediaRect.height / 2);
+    }
+  }
+
+  const style = getComputedStyle(element);
+  const paddingTop = Number.parseFloat(style.paddingTop) || 0;
+  const fontSize = Number.parseFloat(style.fontSize) || 16;
+  const lineHeightRaw = style.lineHeight;
+  const lineHeight =
+    lineHeightRaw === "normal"
+      ? fontSize * 1.5
+      : Number.parseFloat(lineHeightRaw) || fontSize * 1.5;
+  return rect.top + paddingTop + lineHeight / 2;
 }
 
 function blockHandleCenter(block: BlockTarget, scroll: HTMLElement | null): number {
   if (!block.dom) return 0;
-  const rect = block.dom.getBoundingClientRect();
-  const center = rect.top + rect.height / 2;
+  const center = firstLineCenter(block.dom);
   if (!scroll) return center;
   const scrollRect = scroll.getBoundingClientRect();
   const inset = HANDLE_HEIGHT / 2 + 4;
@@ -226,9 +242,12 @@ function textContentRight(element: HTMLElement): number | null {
   return right;
 }
 
-function createDragPreview(source: BlockTarget): HTMLElement | null {
-  if (!source.dom) return null;
-  const sourceRect = source.dom.getBoundingClientRect();
+function createDragPreview(sources: BlockTarget[]): HTMLElement | null {
+  const firstSource = sources[0];
+  const firstDom = firstSource?.dom;
+  if (!firstDom) return null;
+  const firstRect = firstDom.getBoundingClientRect();
+
   const preview = document.createElement("div");
   preview.className = "block-drag-preview";
   preview.setAttribute("aria-hidden", "true");
@@ -236,54 +255,90 @@ function createDragPreview(source: BlockTarget): HTMLElement | null {
 
   const content = document.createElement("div");
   content.className = "note-prose block-drag-preview-content";
-  const clone = source.dom.cloneNode(true) as HTMLElement;
-  clone.style.marginTop = "0";
-  clone.style.marginBottom = "0";
-  clone
-    .querySelectorAll<HTMLElement>(
-      "[contenteditable], button, input, select, textarea, a[href], [tabindex]",
-    )
-    .forEach((element) => {
-      element.removeAttribute("contenteditable");
-      element.setAttribute("tabindex", "-1");
-    });
-  clone.querySelectorAll<HTMLImageElement>("img").forEach((image) => {
-    image.draggable = false;
-  });
 
-  let listPadding = 0;
-  if (source.kind === "listItem" && source.dom.parentElement) {
-    const listClone = source.dom.parentElement.cloneNode(false) as HTMLElement;
+  if (firstSource.kind === "listItem" && firstDom.parentElement) {
+    const listParent = firstDom.parentElement;
+    const listClone = listParent.cloneNode(false) as HTMLElement;
     listClone.style.marginTop = "0";
     listClone.style.marginBottom = "0";
-    if (clone instanceof HTMLLIElement && source.dom.parentElement instanceof HTMLOListElement) {
-      const start = Number.parseInt(source.dom.parentElement.getAttribute("start") ?? "1", 10) || 1;
-      clone.value = start + source.index;
-    }
-    listClone.appendChild(clone);
-    listPadding = Number.parseFloat(getComputedStyle(source.dom.parentElement).paddingLeft) || 0;
-    const contentRight = textContentRight(source.dom);
-    const hasWideContent = Boolean(source.dom.querySelector("img, video, iframe, table, pre"));
-    const visibleWidth = hasWideContent
-      ? sourceRect.width
-      : contentRight === null
-        ? MIN_LIST_PREVIEW_WIDTH
-        : Math.min(
-            sourceRect.width,
-            Math.max(MIN_LIST_PREVIEW_WIDTH, contentRight - sourceRect.left),
-          );
-    content.style.width = `${visibleWidth + listPadding}px`;
+    const listPadding = Number.parseFloat(getComputedStyle(listParent).paddingLeft) || 0;
+
+    let maxVisibleWidth = MIN_LIST_PREVIEW_WIDTH;
+    sources.forEach((source) => {
+      if (!source.dom) return;
+      const clone = source.dom.cloneNode(true) as HTMLElement;
+      clone.style.marginTop = "0";
+      clone.style.marginBottom = "0";
+      clone
+        .querySelectorAll<HTMLElement>(
+          "[contenteditable], button, input, select, textarea, a[href], [tabindex]",
+        )
+        .forEach((element) => {
+          element.removeAttribute("contenteditable");
+          element.setAttribute("tabindex", "-1");
+        });
+      clone.querySelectorAll<HTMLImageElement>("img").forEach((image) => {
+        image.draggable = false;
+      });
+      if (clone instanceof HTMLLIElement && listParent instanceof HTMLOListElement) {
+        const start = Number.parseInt(listParent.getAttribute("start") ?? "1", 10) || 1;
+        clone.value = start + source.index;
+      }
+      listClone.appendChild(clone);
+
+      const sourceRect = source.dom.getBoundingClientRect();
+      const contentRight = textContentRight(source.dom);
+      const hasWideContent = Boolean(source.dom.querySelector("img, video, iframe, table, pre"));
+      const visibleWidth = hasWideContent
+        ? sourceRect.width
+        : contentRight === null
+          ? MIN_LIST_PREVIEW_WIDTH
+          : Math.min(
+              sourceRect.width,
+              Math.max(MIN_LIST_PREVIEW_WIDTH, contentRight - sourceRect.left),
+            );
+      maxVisibleWidth = Math.max(maxVisibleWidth, visibleWidth);
+    });
+
+    content.style.width = `${maxVisibleWidth + listPadding}px`;
     content.appendChild(listClone);
-    preview.style.width = `${visibleWidth + listPadding + PREVIEW_PADDING_X * 2}px`;
-    preview.style.left = `${sourceRect.left - listPadding - PREVIEW_PADDING_X}px`;
+    preview.style.width = `${maxVisibleWidth + listPadding + PREVIEW_PADDING_X * 2}px`;
+    preview.style.left = `${firstRect.left - listPadding - PREVIEW_PADDING_X}px`;
   } else {
-    content.style.width = `${sourceRect.width}px`;
-    content.appendChild(clone);
-    preview.style.width = `${sourceRect.width + PREVIEW_PADDING_X * 2}px`;
-    preview.style.left = `${sourceRect.left - PREVIEW_PADDING_X}px`;
+    const sourceWidth = firstRect.width;
+    sources.forEach((source, index) => {
+      if (!source.dom) return;
+      const clone = source.dom.cloneNode(true) as HTMLElement;
+      if (index === 0) clone.style.marginTop = "0";
+      if (index === sources.length - 1) clone.style.marginBottom = "0";
+      clone
+        .querySelectorAll<HTMLElement>(
+          "[contenteditable], button, input, select, textarea, a[href], [tabindex]",
+        )
+        .forEach((element) => {
+          element.removeAttribute("contenteditable");
+          element.setAttribute("tabindex", "-1");
+        });
+      clone.querySelectorAll<HTMLImageElement>("img").forEach((image) => {
+        image.draggable = false;
+      });
+      content.appendChild(clone);
+    });
+
+    content.style.width = `${sourceWidth}px`;
+    preview.style.width = `${sourceWidth + PREVIEW_PADDING_X * 2}px`;
+    preview.style.left = `${firstRect.left - PREVIEW_PADDING_X}px`;
   }
 
-  preview.style.top = `${sourceRect.top - PREVIEW_PADDING_Y}px`;
+  if (sources.length > 1) {
+    const badge = document.createElement("div");
+    badge.className = "block-drag-count-badge";
+    badge.textContent = String(sources.length);
+    badge.setAttribute("aria-hidden", "true");
+    preview.appendChild(badge);
+  }
+
+  preview.style.top = `${firstRect.top - PREVIEW_PADDING_Y}px`;
   preview.appendChild(content);
   document.body.appendChild(preview);
   return preview;
@@ -507,7 +562,27 @@ export function BlockDragHandle({
         clearHideTimeout();
         return;
       }
-      if (!pointerInHandleGutter(container, scrollRef.current, event.clientX, event.clientY)) {
+      const inGutter = pointerInHandleGutter(
+        container,
+        scrollRef.current,
+        event.clientX,
+        event.clientY,
+      );
+      if (!inGutter) {
+        const activeDom = activeBlockRef.current?.dom;
+        if (activeDom && handleVisibleRef.current) {
+          const blockRect = activeDom.getBoundingClientRect();
+          const containerLeft = container.getBoundingClientRect().left;
+          if (
+            event.clientX >= containerLeft + HANDLE_HOVER_LEFT &&
+            event.clientX <= containerLeft + 64 &&
+            event.clientY >= blockRect.top - 6 &&
+            event.clientY <= blockRect.bottom + 6
+          ) {
+            clearHideTimeout();
+            return;
+          }
+        }
         scheduleHide();
         return;
       }
@@ -541,12 +616,6 @@ export function BlockDragHandle({
       const fresh = getDraggableBlockFromElement(editor, current.dom);
       if (fresh) updateHandlePosition(fresh);
       else clearActiveBlock();
-    };
-
-    const revealFromSelection = () => {
-      if (!editor.view.hasFocus()) return;
-      const block = getDraggableBlockFromSelection(editor);
-      if (block) revealHandle(block);
     };
 
     const openMenuFromSelection = () => {
@@ -585,8 +654,6 @@ export function BlockDragHandle({
 
     const resizeObserver = new ResizeObserver(refreshHandle);
     resizeObserver.observe(container);
-    editor.on("selectionUpdate", revealFromSelection);
-    editor.view.dom.addEventListener("focus", revealFromSelection);
     editor.view.dom.addEventListener("blur", handleEditorBlur);
     editor.view.dom.addEventListener("keydown", handleEditorKeyDown);
     editor.view.dom.setAttribute("aria-keyshortcuts", "Shift+F10");
@@ -599,8 +666,6 @@ export function BlockDragHandle({
     return () => {
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("resize", refreshHandle);
-      editor.off("selectionUpdate", revealFromSelection);
-      editor.view.dom.removeEventListener("focus", revealFromSelection);
       editor.view.dom.removeEventListener("blur", handleEditorBlur);
       editor.view.dom.removeEventListener("keydown", handleEditorKeyDown);
       editor.view.dom.removeAttribute("aria-keyshortcuts");
@@ -673,8 +738,12 @@ export function BlockDragHandle({
   const startDragSession = (event: PointerEvent, source: BlockTarget) => {
     if (!editor || editor.isDestroyed) return;
     const siblings = getSiblingBlocks(editor, source);
-    const sourceIndex = siblings.findIndex((block) => block.pos === source.pos);
-    if (sourceIndex < 0) return;
+    const selectedBlocks = getSelectedBlockRange(editor, source);
+    const sourceStart = siblings.findIndex((block) => block.pos === selectedBlocks[0].pos);
+    const sourceEnd = siblings.findIndex(
+      (block) => block.pos === selectedBlocks[selectedBlocks.length - 1].pos,
+    );
+    if (sourceStart < 0 || sourceEnd < 0) return;
 
     const slots: BlockSlot[] = [];
     for (const block of siblings) {
@@ -683,14 +752,22 @@ export function BlockDragHandle({
       slots.push({ block, top: rect.top, bottom: rect.bottom });
     }
 
-    const sourceRect = source.dom?.getBoundingClientRect();
+    const firstDom = selectedBlocks[0].dom;
+    const lastDom = selectedBlocks[selectedBlocks.length - 1].dom;
     const scrollElement = scrollRef.current;
-    if (!sourceRect || !scrollElement) return;
-    const nextSibling = source.dom?.nextElementSibling;
-    let sourceSpan = nextSibling
-      ? nextSibling.getBoundingClientRect().top - sourceRect.top
-      : sourceRect.height + (Number.parseFloat(getComputedStyle(source.dom!).marginBottom) || 0);
-    if (!Number.isFinite(sourceSpan) || sourceSpan <= 0) sourceSpan = sourceRect.height;
+    if (!firstDom || !lastDom || !scrollElement) return;
+
+    const firstRect = firstDom.getBoundingClientRect();
+    const lastRect = lastDom.getBoundingClientRect();
+    const nextSibling = lastDom.nextElementSibling;
+    let sourceSpan =
+      nextSibling instanceof HTMLElement
+        ? nextSibling.getBoundingClientRect().top - firstRect.top
+        : lastRect.bottom -
+          firstRect.top +
+          (Number.parseFloat(getComputedStyle(lastDom).marginBottom) || 0);
+    if (!Number.isFinite(sourceSpan) || sourceSpan <= 0)
+      sourceSpan = lastRect.bottom - firstRect.top;
 
     const session: DragSession = {
       pointerId: event.pointerId,
@@ -699,11 +776,12 @@ export function BlockDragHandle({
       pointerX: event.clientX,
       pointerY: event.clientY,
       returnFocus: returnFocusRef.current,
-      block: source,
+      blocks: selectedBlocks,
       siblings,
-      sourceIndex,
+      sourceStart,
+      sourceEnd,
       sourceSpan,
-      sourceTop: sourceRect.top,
+      sourceTop: firstRect.top,
       initialScroll: scrollElement.scrollTop,
       initialDoc: editor.state.doc,
       slots,
@@ -713,7 +791,7 @@ export function BlockDragHandle({
       dropping: false,
       cancelled: false,
       candidate: null,
-      sourceAnimation: null,
+      sourceAnimations: [],
       shiftAnimations: new Map(),
     };
     dragSessionRef.current = session;
@@ -722,10 +800,6 @@ export function BlockDragHandle({
       (scrollRef.current?.scrollTop ?? session.initialScroll) - session.initialScroll;
     const refreshGeometry = () => {
       const delta = scrollDelta();
-      const originalTop = (block: BlockTarget) => {
-        if (!block.dom) return null;
-        return toDragSessionY(block.dom.getBoundingClientRect().top, delta, translateY(block.dom));
-      };
       session.siblings.forEach((block, index) => {
         if (!block.dom) return;
         const rect = block.dom.getBoundingClientRect();
@@ -737,15 +811,26 @@ export function BlockDragHandle({
         };
       });
 
-      const sourceTop = originalTop(session.block);
-      const nextSibling = session.block.dom?.nextElementSibling;
-      if (sourceTop !== null && nextSibling instanceof HTMLElement) {
-        const nextTop = toDragSessionY(
-          nextSibling.getBoundingClientRect().top,
+      const firstBlockDom = session.blocks[0]?.dom;
+      const lastBlockDom = session.blocks[session.blocks.length - 1]?.dom;
+      if (firstBlockDom && lastBlockDom) {
+        const firstTop = toDragSessionY(
+          firstBlockDom.getBoundingClientRect().top,
           delta,
-          translateY(nextSibling),
+          translateY(firstBlockDom),
         );
-        if (nextTop > sourceTop) session.sourceSpan = nextTop - sourceTop;
+        const next = lastBlockDom.nextElementSibling;
+        if (next instanceof HTMLElement) {
+          const nextTop = toDragSessionY(next.getBoundingClientRect().top, delta, translateY(next));
+          if (nextTop > firstTop) session.sourceSpan = nextTop - firstTop;
+        } else {
+          const lastBottom = toDragSessionY(
+            lastBlockDom.getBoundingClientRect().bottom,
+            delta,
+            translateY(lastBlockDom),
+          );
+          if (lastBottom > firstTop) session.sourceSpan = lastBottom - firstTop;
+        }
       }
     };
     let geometryDirty = false;
@@ -808,7 +893,7 @@ export function BlockDragHandle({
       const candidate = inside
         ? calculateDropCandidate(
             session.slots,
-            session.sourceIndex,
+            { start: session.sourceStart, end: session.sourceEnd },
             session.pointerY + delta,
             session.candidate,
           )
@@ -839,7 +924,7 @@ export function BlockDragHandle({
       };
 
       session.slots.forEach((slot, index) => {
-        if (index === session.sourceIndex || !slot.block.dom) return;
+        if ((index >= session.sourceStart && index <= session.sourceEnd) || !slot.block.dom) return;
         if (
           scrollRect &&
           (slot.bottom - delta < scrollRect.top - 80 || slot.top - delta > scrollRect.bottom + 80)
@@ -849,7 +934,7 @@ export function BlockDragHandle({
           candidate && !candidate.noop
             ? getBlockShift(
                 index,
-                session.sourceIndex,
+                { start: session.sourceStart, end: session.sourceEnd },
                 candidate.destinationIndex,
                 session.sourceSpan,
               )
@@ -880,8 +965,8 @@ export function BlockDragHandle({
       session.preview = null;
       session.shiftAnimations.forEach(({ animation }) => animation.cancel());
       session.shiftAnimations.clear();
-      session.sourceAnimation?.cancel();
-      session.sourceAnimation = null;
+      session.sourceAnimations.forEach((animation) => animation.cancel());
+      session.sourceAnimations = [];
       document.body.classList.remove("is-sorting-blocks");
     };
 
@@ -917,8 +1002,9 @@ export function BlockDragHandle({
 
     const returnPreviewToSource = async () => {
       if (!session.preview) return;
+      const firstDom = session.blocks[0]?.dom;
       const currentSourceTop =
-        session.block.dom?.getBoundingClientRect().top ?? session.sourceTop - scrollDelta();
+        firstDom?.getBoundingClientRect().top ?? session.sourceTop - scrollDelta();
       const returnY = currentSourceTop - session.sourceTop;
       await animatePreview(session.preview, session.pointerY - session.startY, returnY, 140);
     };
@@ -948,16 +1034,21 @@ export function BlockDragHandle({
     };
 
     const restoreSource = () => {
-      session.sourceAnimation?.cancel();
-      session.sourceAnimation = null;
-      if (!session.block.dom || prefersReducedMotion()) return Promise.resolve();
-      const animation = session.block.dom.animate([{ opacity: 0 }, { opacity: 1 }], {
-        duration: 140,
-        easing: "cubic-bezier(0.16, 1, 0.3, 1)",
-        fill: "forwards",
-      });
-      session.sourceAnimation = animation;
-      return animation.finished.catch(() => undefined);
+      session.sourceAnimations.forEach((animation) => animation.cancel());
+      session.sourceAnimations = [];
+      if (prefersReducedMotion()) return Promise.resolve();
+      const animations: Promise<unknown>[] = [];
+      for (const block of session.blocks) {
+        if (!block.dom) continue;
+        const animation = block.dom.animate([{ opacity: 0 }, { opacity: 1 }], {
+          duration: 140,
+          easing: "cubic-bezier(0.16, 1, 0.3, 1)",
+          fill: "forwards",
+        });
+        session.sourceAnimations.push(animation);
+        animations.push(animation.finished.catch(() => undefined));
+      }
+      return Promise.all(animations);
     };
 
     const animateBackToSource = async () => {
@@ -1003,7 +1094,7 @@ export function BlockDragHandle({
     };
 
     const beginDrag = () => {
-      const created = createDragPreview(session.block);
+      const created = createDragPreview(session.blocks);
       if (!created) {
         void cancel(false);
         return;
@@ -1015,12 +1106,15 @@ export function BlockDragHandle({
       setIsDragging(true);
       closeMenu(false);
       clearHideTimeout();
-      if (session.block.dom) {
-        session.sourceAnimation = session.block.dom.animate([{ opacity: 1 }, { opacity: 0 }], {
+      session.sourceAnimations = [];
+      for (const block of session.blocks) {
+        if (!block.dom) continue;
+        const animation = block.dom.animate([{ opacity: 1 }, { opacity: 0 }], {
           duration: prefersReducedMotion() ? 0 : 160,
           easing: "cubic-bezier(0.16, 1, 0.3, 1)",
           fill: "forwards",
         });
+        session.sourceAnimations.push(animation);
       }
       document.body.classList.add("is-sorting-blocks");
       editor.on("transaction", handleTransaction);
@@ -1064,9 +1158,9 @@ export function BlockDragHandle({
           beforeTops.set(block.dom, block.dom.getBoundingClientRect().top);
         });
 
-        const movedPosition = moveBlock(
+        const movedPosition = moveBlocks(
           editor,
-          session.block,
+          session.blocks,
           candidate.target,
           candidate.placement,
         );
@@ -1076,24 +1170,36 @@ export function BlockDragHandle({
         }
         moved = true;
 
-        const movedDom = editor.view.nodeDOM(movedPosition);
-        if (!(movedDom instanceof HTMLElement)) return;
+        let curPos = movedPosition;
+        const movedDoms: HTMLElement[] = [];
+        for (const block of session.blocks) {
+          const dom = editor.view.nodeDOM(curPos);
+          if (dom instanceof HTMLElement) {
+            movedDoms.push(dom);
+          }
+          curPos += block.node.nodeSize;
+        }
+        if (!movedDoms.length) return;
 
         session.shiftAnimations.forEach(({ animation }) => animation.cancel());
         session.shiftAnimations.clear();
-        session.sourceAnimation?.cancel();
+        session.sourceAnimations.forEach((animation) => animation.cancel());
+        session.sourceAnimations = [];
         document.body.classList.remove("is-sorting-blocks");
-        session.sourceAnimation = movedDom.animate([{ opacity: 0 }, { opacity: 0 }], {
-          duration: 1,
-          fill: "forwards",
-        });
+        session.sourceAnimations = movedDoms.map((dom) =>
+          dom.animate([{ opacity: 0 }, { opacity: 0 }], {
+            duration: 1,
+            fill: "forwards",
+          }),
+        );
 
         // Measure the committed layout so the preview lands exactly where the block will live.
-        const finalTop = movedDom.getBoundingClientRect().top;
+        const finalTop = movedDoms[0].getBoundingClientRect().top;
         const reducedMotion = prefersReducedMotion();
         if (!reducedMotion) {
+          const movedDomSet = new Set(movedDoms);
           beforeTops.forEach((beforeTop, element) => {
-            if (!element.isConnected || element === movedDom) return;
+            if (!element.isConnected || movedDomSet.has(element)) return;
             const afterTop = element.getBoundingClientRect().top;
             if (Math.abs(beforeTop - afterTop) < 0.5) return;
             element.animate(
@@ -1110,39 +1216,44 @@ export function BlockDragHandle({
         if (session.cancelled) return;
 
         if (!reducedMotion) {
-          session.sourceAnimation?.cancel();
+          session.sourceAnimations.forEach((animation) => animation.cancel());
+          session.sourceAnimations = [];
           const fadeOut = preview.animate([{ opacity: 0.98 }, { opacity: 0 }], {
             duration: 90,
             easing: "cubic-bezier(0.16, 1, 0.3, 1)",
             fill: "forwards",
           });
-          const fadeIn = movedDom.animate([{ opacity: 0 }, { opacity: 1 }], {
-            duration: 110,
-            easing: "cubic-bezier(0.16, 1, 0.3, 1)",
-            fill: "forwards",
-          });
-          session.sourceAnimation = fadeIn;
+          const fadeInAnims = movedDoms.map((dom) =>
+            dom.animate([{ opacity: 0 }, { opacity: 1 }], {
+              duration: 110,
+              easing: "cubic-bezier(0.16, 1, 0.3, 1)",
+              fill: "forwards",
+            }),
+          );
+          session.sourceAnimations = fadeInAnims;
           await Promise.all([
             fadeOut.finished.catch(() => undefined),
-            fadeIn.finished.catch(() => undefined),
+            ...fadeInAnims.map((animation) => animation.finished.catch(() => undefined)),
           ]);
           if (session.cancelled) return;
           fadeOut.cancel();
-          fadeIn.cancel();
-          session.sourceAnimation = null;
+          fadeInAnims.forEach((animation) => animation.cancel());
+          session.sourceAnimations = [];
         }
 
         dispose();
 
         if (!reducedMotion) {
-          movedDom.animate(
-            [{ backgroundColor: "var(--accent-soft)" }, { backgroundColor: "transparent" }],
-            { duration: 220, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
-          );
+          for (const dom of movedDoms) {
+            dom.animate(
+              [{ backgroundColor: "var(--accent-soft)" }, { backgroundColor: "transparent" }],
+              { duration: 220, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
+            );
+          }
         }
       } finally {
         dispose();
-        if (moved) restoreEditorFocus(editor, scrollRef.current, session.returnFocus);
+        if (moved) restoreEditorFocus(editor, scrollRef.current);
       }
     };
 
@@ -1172,7 +1283,17 @@ export function BlockDragHandle({
           session.pointerX - session.startX,
           session.pointerY - session.startY,
         );
-        if (moved < DRAG_THRESHOLD) openMenu();
+        if (moved < DRAG_THRESHOLD) {
+          if (upEvent.shiftKey) {
+            const currentSelectionBlock = getDraggableBlockFromSelection(editor);
+            if (currentSelectionBlock && currentSelectionBlock.pos !== session.blocks[0].pos) {
+              if (selectBlockRange(editor, currentSelectionBlock, session.blocks[0])) {
+                return;
+              }
+            }
+          }
+          openMenu();
+        }
         return;
       }
       void finishDrop();
@@ -1229,16 +1350,18 @@ export function BlockDragHandle({
     }
   };
 
-  const runMenuAction = (action: (block: BlockTarget) => void) => {
+  const runMenuAction = (action: (blocks: BlockTarget[]) => void) => {
     if (!editor || !activeBlockRef.current?.dom) return;
-    const returnFocus = returnFocusRef.current;
     try {
       const current = getDraggableBlockFromElement(editor, activeBlockRef.current.dom);
-      if (current) action(current);
+      if (current) {
+        const blocks = getSelectedBlockRange(editor, current);
+        action(blocks);
+      }
     } finally {
       closeMenu(false);
       clearActiveBlock();
-      if (!editor.isDestroyed) restoreEditorFocus(editor, scrollRef.current, returnFocus);
+      if (!editor.isDestroyed) restoreEditorFocus(editor, scrollRef.current);
     }
   };
 
@@ -1271,8 +1394,17 @@ export function BlockDragHandle({
     items[nextIndex]?.focus();
   };
 
-  const canMoveUp = Boolean(activeBlock && activeBlock.index > 0);
-  const canMoveDown = Boolean(activeBlock && activeBlock.index < activeBlock.parent.childCount - 1);
+  const activeSelectedBlocks =
+    editor && activeBlock
+      ? getSelectedBlockRange(editor, activeBlock)
+      : activeBlock
+        ? [activeBlock]
+        : [];
+  const selectedCount = activeSelectedBlocks.length;
+  const firstActive = activeSelectedBlocks[0];
+  const lastActive = activeSelectedBlocks[activeSelectedBlocks.length - 1];
+  const canMoveUp = Boolean(firstActive && firstActive.index > 0);
+  const canMoveDown = Boolean(lastActive && lastActive.index < lastActive.parent.childCount - 1);
 
   return (
     <>
@@ -1317,13 +1449,13 @@ export function BlockDragHandle({
               className="block-action-item"
               role="menuitem"
               onClick={() =>
-                runMenuAction((block) => {
-                  duplicateBlock(editor!, block);
+                runMenuAction((blocks) => {
+                  duplicateBlocks(editor!, blocks);
                 })
               }
             >
               <Copy size={14} strokeWidth={1.8} aria-hidden="true" />
-              <span>复制块</span>
+              <span>{selectedCount > 1 ? `复制 ${selectedCount} 个块` : "复制块"}</span>
             </button>
             <button
               type="button"
@@ -1331,8 +1463,8 @@ export function BlockDragHandle({
               role="menuitem"
               disabled={!canMoveUp}
               onClick={() =>
-                runMenuAction((block) => {
-                  moveBlockStep(editor!, block, "up");
+                runMenuAction((blocks) => {
+                  moveBlocksStep(editor!, blocks, "up");
                 })
               }
             >
@@ -1345,8 +1477,8 @@ export function BlockDragHandle({
               role="menuitem"
               disabled={!canMoveDown}
               onClick={() =>
-                runMenuAction((block) => {
-                  moveBlockStep(editor!, block, "down");
+                runMenuAction((blocks) => {
+                  moveBlocksStep(editor!, blocks, "down");
                 })
               }
             >
@@ -1359,13 +1491,13 @@ export function BlockDragHandle({
               className="block-action-item is-danger"
               role="menuitem"
               onClick={() =>
-                runMenuAction((block) => {
-                  deleteBlock(editor!, block);
+                runMenuAction((blocks) => {
+                  deleteBlocks(editor!, blocks);
                 })
               }
             >
               <Trash2 size={14} strokeWidth={1.8} aria-hidden="true" />
-              <span>删除块</span>
+              <span>{selectedCount > 1 ? `删除 ${selectedCount} 个块` : "删除块"}</span>
             </button>
           </div>,
           document.body,

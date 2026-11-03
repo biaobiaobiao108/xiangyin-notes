@@ -1,7 +1,7 @@
 import type { Editor } from "@tiptap/core";
 import { closeHistory } from "@tiptap/pm/history";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { Selection } from "@tiptap/pm/state";
+import { Selection, TextSelection } from "@tiptap/pm/state";
 
 export type BlockKind = "topLevel" | "listItem";
 
@@ -17,6 +17,11 @@ export type BlockTarget = {
 };
 
 export type DropPlacement = "before" | "after";
+
+export type BlockIndexRange = {
+  start: number;
+  end: number;
+};
 
 export type BlockSlot = {
   block: BlockTarget;
@@ -191,7 +196,13 @@ export function getSiblingBlocks(editor: Editor, source: BlockTarget): BlockTarg
   let position = source.parentStart;
   for (let index = 0; index < source.parent.childCount; index += 1) {
     const node = source.parent.child(index);
-    const dom = editor.view.nodeDOM(position);
+    let dom: HTMLElement | null = null;
+    try {
+      const nodeDom = editor.view.nodeDOM(position);
+      if (nodeDom instanceof HTMLElement) dom = nodeDom;
+    } catch {
+      dom = null;
+    }
     blocks.push({
       node,
       pos: position,
@@ -199,7 +210,7 @@ export function getSiblingBlocks(editor: Editor, source: BlockTarget): BlockTarg
       parent: source.parent,
       parentStart: source.parentStart,
       index,
-      dom: dom instanceof HTMLElement ? dom : null,
+      dom,
       kind: source.kind,
     });
     position += node.nodeSize;
@@ -224,16 +235,78 @@ export function getDraggableBlockFromSelection(editor: Editor): BlockTarget | nu
 }
 
 /**
+ * Resolves the contiguous range of sibling blocks covered by the current
+ * editor selection when the anchor block is part of that selection.
+ * If there is no multi-block selection or the anchor block is not selected,
+ * only the anchor block is returned.
+ */
+export function getSelectedBlockRange(editor: Editor, anchorBlock: BlockTarget): BlockTarget[] {
+  const { state } = editor;
+  const { selection } = state;
+  if (selection.empty) {
+    return [anchorBlock];
+  }
+
+  // If the selection does not intersect anchorBlock, only drag anchorBlock
+  if (selection.from >= anchorBlock.endPos || selection.to <= anchorBlock.pos) {
+    return [anchorBlock];
+  }
+
+  const siblings = getSiblingBlocks(editor, anchorBlock);
+  const selectedSiblings = siblings.filter(
+    (sibling) => selection.from < sibling.endPos && selection.to > sibling.pos,
+  );
+
+  if (selectedSiblings.length <= 1) {
+    return [anchorBlock];
+  }
+
+  // Ensure the selected siblings form a contiguous range
+  const firstIndex = selectedSiblings[0].index;
+  const lastIndex = selectedSiblings[selectedSiblings.length - 1].index;
+  if (lastIndex - firstIndex + 1 !== selectedSiblings.length) {
+    return [anchorBlock];
+  }
+
+  return selectedSiblings;
+}
+
+/** Selects all text spanning from fromBlock to toBlock if they share the same parent. */
+export function selectBlockRange(
+  editor: Editor,
+  fromBlock: BlockTarget,
+  toBlock: BlockTarget,
+): boolean {
+  if (!fromBlock.parent.eq(toBlock.parent)) return false;
+  const startPos = Math.min(fromBlock.pos, toBlock.pos);
+  const endPos = Math.max(fromBlock.endPos, toBlock.endPos);
+  try {
+    const { doc } = editor.state;
+    const $from = doc.resolve(Math.min(startPos + 1, doc.content.size));
+    const $to = doc.resolve(Math.min(Math.max(1, endPos - 1), doc.content.size));
+    const selection = TextSelection.between($from, $to);
+    editor.view.dispatch(editor.state.tr.setSelection(selection));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Finds the closest insertion edge from sibling geometry. The original
  * placement is kept until the pointer moves a few pixels past the next edge,
  * so small pointer movements around a boundary do not make nearby text jump.
  */
 export function calculateDropCandidate(
   slots: readonly BlockSlot[],
-  sourceIndex: number,
+  sourceRange: number | BlockIndexRange,
   pointerY: number,
   current: DropCandidate | null = null,
 ): DropCandidate | null {
+  const sourceStart = typeof sourceRange === "number" ? sourceRange : sourceRange.start;
+  const sourceEnd = typeof sourceRange === "number" ? sourceRange : sourceRange.end;
+  const count = sourceEnd - sourceStart + 1;
+
   let best:
     | {
         block: BlockTarget;
@@ -244,7 +317,7 @@ export function calculateDropCandidate(
     | undefined;
 
   slots.forEach((slot, targetIndex) => {
-    if (targetIndex === sourceIndex) return;
+    if (targetIndex >= sourceStart && targetIndex <= sourceEnd) return;
     (["before", "after"] as const).forEach((placement) => {
       const edge = placement === "before" ? slot.top : slot.bottom;
       const distance = Math.abs(pointerY - edge);
@@ -262,7 +335,7 @@ export function calculateDropCandidate(
   const currentIndex = current
     ? slots.findIndex((slot) => slot.block.pos === current.target.pos)
     : -1;
-  if (current && currentIndex >= 0 && currentIndex !== sourceIndex) {
+  if (current && currentIndex >= 0 && (currentIndex < sourceStart || currentIndex > sourceEnd)) {
     const edge =
       current.placement === "before" ? slots[currentIndex].top : slots[currentIndex].bottom;
     if (Math.abs(pointerY - edge) <= best.distance + DROP_EDGE_HYSTERESIS) {
@@ -272,30 +345,36 @@ export function calculateDropCandidate(
     }
   }
 
-  const destinationIndex = best.gap > sourceIndex ? best.gap - 1 : best.gap;
+  const noop = best.gap >= sourceStart && best.gap <= sourceEnd + 1;
+  const destinationIndex = best.gap > sourceEnd ? best.gap - count : best.gap;
   return {
     target: best.block,
     placement: best.placement,
     gap: best.gap,
     destinationIndex,
-    noop: destinationIndex === sourceIndex,
+    noop,
   };
 }
 
 /**
  * Returns how far a sibling moves while previewing the move. Only the source
- * block changes position, so every crossed sibling shifts by its occupied span.
+ * blocks change position, so every crossed sibling shifts by their occupied span.
  */
 export function getBlockShift(
   index: number,
-  sourceIndex: number,
+  sourceRange: number | BlockIndexRange,
   destinationIndex: number,
   sourceSpan: number,
 ): number {
-  if (destinationIndex > sourceIndex && index > sourceIndex && index <= destinationIndex) {
+  const sourceStart = typeof sourceRange === "number" ? sourceRange : sourceRange.start;
+  const sourceEnd = typeof sourceRange === "number" ? sourceRange : sourceRange.end;
+  const count = sourceEnd - sourceStart + 1;
+
+  const gap = destinationIndex > sourceStart ? destinationIndex + count : destinationIndex;
+  if (gap > sourceEnd + 1 && index > sourceEnd && index < gap) {
     return -sourceSpan;
   }
-  if (destinationIndex < sourceIndex && index >= destinationIndex && index < sourceIndex) {
+  if (gap < sourceStart && index >= gap && index < sourceStart) {
     return sourceSpan;
   }
   return 0;
@@ -315,60 +394,113 @@ function insertionPosition(
 }
 
 /**
- * Moves a block before or after a sibling. The transaction is isolated from
- * the current typing history so one undo restores the complete reorder.
+ * Moves one or more contiguous sibling blocks before or after a target sibling.
+ * The transaction is isolated from typing history and restores selection.
  */
+export function moveBlocks(
+  editor: Editor,
+  sources: BlockTarget[],
+  target: BlockTarget,
+  placement: DropPlacement,
+): number | null {
+  if (!sources.length) return null;
+  const firstSource = sources[0];
+  const lastSource = sources[sources.length - 1];
+
+  for (const source of sources) {
+    if (!source.parent.eq(target.parent)) return null;
+  }
+
+  const sourceStart = firstSource.index;
+  const sourceEnd = lastSource.index;
+  const gap = target.index + (placement === "after" ? 1 : 0);
+  if (gap >= sourceStart && gap <= sourceEnd + 1) return null;
+
+  const insertOriginal = insertionPosition(firstSource.parent, firstSource.parentStart, gap);
+  if (insertOriginal === null) return null;
+
+  const { state, view } = editor;
+  for (const source of sources) {
+    const node = state.doc.nodeAt(source.pos);
+    if (!node || !node.eq(source.node)) return null;
+  }
+
+  const $insertOriginal = state.doc.resolve(insertOriginal);
+  const insertIndex = $insertOriginal.index();
+  for (const source of sources) {
+    if (!$insertOriginal.parent.canReplaceWith(insertIndex, insertIndex, source.node.type)) {
+      return null;
+    }
+  }
+
+  const selectionInsideSources =
+    state.selection.from >= firstSource.pos && state.selection.to <= lastSource.endPos;
+
+  view.dispatch(closeHistory(state.tr));
+  const transaction = view.state.tr;
+
+  const deleteStart = firstSource.pos;
+  const deleteEnd = lastSource.endPos;
+  const sourceNodes = sources.map((s) => s.node);
+
+  transaction.delete(deleteStart, deleteEnd);
+  const insertPosition = transaction.mapping.map(insertOriginal, 1);
+
+  let curPos = insertPosition;
+  for (const node of sourceNodes) {
+    transaction.insert(curPos, node);
+    curPos += node.nodeSize;
+  }
+
+  if (selectionInsideSources) {
+    if (state.selection.empty) {
+      transaction.setSelection(
+        Selection.near(
+          transaction.doc.resolve(Math.min(insertPosition + 1, transaction.doc.content.size)),
+        ),
+      );
+    } else {
+      const offsetFrom = state.selection.from - deleteStart;
+      const offsetTo = state.selection.to - deleteStart;
+      const newFrom = Math.min(
+        Math.max(1, insertPosition + offsetFrom),
+        transaction.doc.content.size,
+      );
+      const newTo = Math.min(Math.max(1, insertPosition + offsetTo), transaction.doc.content.size);
+      try {
+        const $from = transaction.doc.resolve(newFrom);
+        const $to = transaction.doc.resolve(newTo);
+        if ($from.parent.inlineContent && $to.parent.inlineContent) {
+          transaction.setSelection(new TextSelection($from, $to));
+        } else {
+          transaction.setSelection(
+            Selection.near(
+              transaction.doc.resolve(Math.min(insertPosition + 1, transaction.doc.content.size)),
+            ),
+          );
+        }
+      } catch {
+        transaction.setSelection(
+          Selection.near(
+            transaction.doc.resolve(Math.min(insertPosition + 1, transaction.doc.content.size)),
+          ),
+        );
+      }
+    }
+  }
+
+  view.dispatch(closeHistory(transaction));
+  view.dispatch(closeHistory(view.state.tr));
+  return insertPosition;
+}
+
 export function moveBlock(
   editor: Editor,
   source: BlockTarget,
   target: BlockTarget,
   placement: DropPlacement,
 ): number | null {
-  if (source.pos === target.pos) return null;
-  if (!source.parent.eq(target.parent)) return null;
-
-  const gap = target.index + (placement === "after" ? 1 : 0);
-  if (gap === source.index || gap === source.index + 1) return null;
-
-  const insertOriginal = insertionPosition(source.parent, source.parentStart, gap);
-  if (insertOriginal === null) return null;
-
-  const { state, view } = editor;
-  const sourceNode = state.doc.nodeAt(source.pos);
-  if (!sourceNode || !sourceNode.eq(source.node)) return null;
-  const $insertOriginal = state.doc.resolve(insertOriginal);
-  if (
-    !$insertOriginal.parent.canReplaceWith(
-      $insertOriginal.index(),
-      $insertOriginal.index(),
-      sourceNode.type,
-    )
-  )
-    return null;
-
-  const selectionInsideSource =
-    state.selection.from >= source.pos && state.selection.to <= source.endPos;
-  view.dispatch(closeHistory(state.tr));
-  const transaction = view.state.tr;
-  transaction.delete(source.pos, source.endPos);
-  const insertPosition = transaction.mapping.map(insertOriginal, 1);
-  const $insert = transaction.doc.resolve(insertPosition);
-
-  if (!$insert.parent.canReplaceWith($insert.index(), $insert.index(), sourceNode.type)) {
-    return null;
-  }
-
-  transaction.insert(insertPosition, sourceNode);
-  if (selectionInsideSource) {
-    transaction.setSelection(
-      Selection.near(
-        transaction.doc.resolve(Math.min(insertPosition + 1, transaction.doc.content.size)),
-      ),
-    );
-  }
-  view.dispatch(closeHistory(transaction));
-  view.dispatch(closeHistory(view.state.tr));
-  return insertPosition;
+  return moveBlocks(editor, [source], target, placement);
 }
 
 function siblingTarget(block: BlockTarget, index: number): BlockTarget | null {
@@ -390,42 +522,80 @@ function siblingTarget(block: BlockTarget, index: number): BlockTarget | null {
   };
 }
 
+export function moveBlocksStep(
+  editor: Editor,
+  blocks: BlockTarget[],
+  direction: "up" | "down",
+): boolean {
+  if (!blocks.length) return false;
+  const firstBlock = blocks[0];
+  const lastBlock = blocks[blocks.length - 1];
+  const targetIndex = direction === "up" ? firstBlock.index - 1 : lastBlock.index + 1;
+  const target = siblingTarget(firstBlock, targetIndex);
+  if (!target) return false;
+  return moveBlocks(editor, blocks, target, direction === "up" ? "before" : "after") !== null;
+}
+
 export function moveBlockStep(
   editor: Editor,
   block: BlockTarget,
   direction: "up" | "down",
 ): boolean {
-  const targetIndex = block.index + (direction === "up" ? -1 : 1);
-  const target = siblingTarget(block, targetIndex);
-  if (!target) return false;
-  return moveBlock(editor, block, target, direction === "up" ? "before" : "after") !== null;
+  return moveBlocksStep(editor, [block], direction);
 }
 
-export function duplicateBlock(editor: Editor, block: BlockTarget): boolean {
+export function duplicateBlocks(editor: Editor, blocks: BlockTarget[]): boolean {
+  if (!blocks.length) return false;
   const { state, view } = editor;
-  const sourceNode = state.doc.nodeAt(block.pos);
-  if (!sourceNode || !sourceNode.eq(block.node)) return false;
+  const lastBlock = blocks[blocks.length - 1];
 
-  const $insert = state.doc.resolve(block.endPos);
-  if (!$insert.parent.canReplaceWith($insert.index(), $insert.index(), sourceNode.type))
-    return false;
+  for (const block of blocks) {
+    const node = state.doc.nodeAt(block.pos);
+    if (!node || !node.eq(block.node)) return false;
+  }
+
+  const $insert = state.doc.resolve(lastBlock.endPos);
+  const duplicateInsertIndex = $insert.index();
+  for (const block of blocks) {
+    if (
+      !$insert.parent.canReplaceWith(duplicateInsertIndex, duplicateInsertIndex, block.node.type)
+    ) {
+      return false;
+    }
+  }
+
   view.dispatch(closeHistory(state.tr));
   const transaction = view.state.tr;
-  transaction.insert(block.endPos, sourceNode.copy(sourceNode.content));
+  let curPos = lastBlock.endPos;
+  for (const block of blocks) {
+    transaction.insert(curPos, block.node.copy(block.node.content));
+    curPos += block.node.nodeSize;
+  }
   view.dispatch(closeHistory(transaction));
   view.dispatch(closeHistory(view.state.tr));
   return true;
 }
 
-export function deleteBlock(editor: Editor, block: BlockTarget): boolean {
-  const { state, view } = editor;
-  const sourceNode = state.doc.nodeAt(block.pos);
-  if (!sourceNode || !sourceNode.eq(block.node)) return false;
+export function duplicateBlock(editor: Editor, block: BlockTarget): boolean {
+  return duplicateBlocks(editor, [block]);
+}
 
-  if (block.kind === "listItem" && block.parent.childCount === 1) {
-    const listPos = block.parentStart - 1;
+export function deleteBlocks(editor: Editor, blocks: BlockTarget[]): boolean {
+  if (!blocks.length) return false;
+
+  const { state, view } = editor;
+  const firstBlock = blocks[0];
+  const lastBlock = blocks[blocks.length - 1];
+
+  for (const block of blocks) {
+    const node = state.doc.nodeAt(block.pos);
+    if (!node || !node.eq(block.node)) return false;
+  }
+
+  if (firstBlock.kind === "listItem" && blocks.length === firstBlock.parent.childCount) {
+    const listPos = firstBlock.parentStart - 1;
     const list = state.doc.nodeAt(listPos);
-    if (!list || !list.eq(block.parent)) return false;
+    if (!list || !list.eq(firstBlock.parent)) return false;
 
     const listEnd = listPos + list.nodeSize;
     const $list = state.doc.resolve(listPos);
@@ -449,24 +619,28 @@ export function deleteBlock(editor: Editor, block: BlockTarget): boolean {
     return true;
   }
 
-  const replacement =
-    block.parent.type.name === "doc" && block.parent.childCount === 1
-      ? (state.schema.nodes.paragraph?.createAndFill() ?? null)
-      : null;
-  if (block.parent.type.name === "doc" && block.parent.childCount === 1 && !replacement)
-    return false;
+  const isAllDoc =
+    firstBlock.parent.type.name === "doc" && blocks.length === firstBlock.parent.childCount;
+  const replacement = isAllDoc ? (state.schema.nodes.paragraph?.createAndFill() ?? null) : null;
+  if (isAllDoc && !replacement) return false;
   view.dispatch(closeHistory(state.tr));
   const transaction = view.state.tr;
   if (replacement) {
-    transaction.replaceWith(block.pos, block.endPos, replacement);
+    transaction.replaceWith(firstBlock.pos, lastBlock.endPos, replacement);
     transaction.setSelection(Selection.near(transaction.doc.resolve(1)));
   } else {
-    transaction.delete(block.pos, block.endPos);
+    transaction.delete(firstBlock.pos, lastBlock.endPos);
     transaction.setSelection(
-      Selection.near(transaction.doc.resolve(Math.min(block.pos, transaction.doc.content.size))),
+      Selection.near(
+        transaction.doc.resolve(Math.min(firstBlock.pos, transaction.doc.content.size)),
+      ),
     );
   }
   view.dispatch(closeHistory(transaction));
   view.dispatch(closeHistory(view.state.tr));
   return true;
+}
+
+export function deleteBlock(editor: Editor, block: BlockTarget): boolean {
+  return deleteBlocks(editor, [block]);
 }
