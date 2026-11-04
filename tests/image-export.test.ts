@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { imageExportFilename } from "../app/image-export/filename";
 import { collectExportArchive } from "../app/image-export/stream";
-import { createSnapshotEditor, waitForExport } from "../app/image-export/render";
+import {
+  anySignal,
+  createSnapshotEditor,
+  createTimeoutSignal,
+  waitForExport,
+} from "../app/image-export/render";
 
 describe("image export", () => {
   test("preserves Chinese filenames and removes path/control characters", () => {
@@ -74,5 +79,19 @@ describe("image export", () => {
     await expect(result).rejects.toHaveProperty("name", "AbortError");
     expect(cancelled).toBe(true);
     expect(stream.locked).toBe(false);
+  });
+  test("anySignal and createTimeoutSignal safely combine signals across engines", async () => {
+    const c1 = new AbortController();
+    const c2 = new AbortController();
+    const combined = anySignal([c1.signal, c2.signal]);
+    expect(combined.aborted).toBe(false);
+    c2.abort("cancelled-test");
+    expect(combined.aborted).toBe(true);
+    expect(combined.reason).toBe("cancelled-test");
+
+    const timeout = createTimeoutSignal(50);
+    expect(timeout.aborted).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(timeout.aborted).toBe(true);
   });
 });

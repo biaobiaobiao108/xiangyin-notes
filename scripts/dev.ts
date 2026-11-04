@@ -35,9 +35,14 @@ const serverEnvironment: Record<string, string> = {
 };
 
 const processes = [
-  Bun.spawn(["bun", "run", "dev:client"], { stdout: "inherit", stderr: "inherit" }),
+  Bun.spawn(["bun", "run", "dev:client"], {
+    stdin: "inherit",
+    stdout: "inherit",
+    stderr: "inherit",
+  }),
   Bun.spawn(["bun", "--hot", "server/index.ts"], {
     env: serverEnvironment,
+    stdin: "inherit",
     stdout: "inherit",
     stderr: "inherit",
   }),
@@ -69,7 +74,14 @@ process.once("SIGINT", () => {
 process.once("SIGTERM", () => {
   void terminate();
 });
-await Promise.race(processes.map((process) => process.exited));
+const exited = await Promise.race(
+  processes.map((proc, index) =>
+    proc.exited.then((code) => ({ name: index === 0 ? "dev:client" : "server", code })),
+  ),
+);
+if (exited.code !== null && exited.code !== 0) {
+  console.error(`[dev] ${exited.name} 异常退出 (退出码: ${exited.code})`);
+}
 await terminate();
 
 export {};

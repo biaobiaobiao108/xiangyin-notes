@@ -4,6 +4,8 @@ import { FloatingScrollbar } from "../floating-scrollbar";
 import { createZipReadableStream, type ZipStreamEntry } from "../../shared/zip";
 import { paginateNote } from "./pagination";
 import {
+  anySignal,
+  createTimeoutSignal,
   prepareImages,
   renderNoteSnapshot,
   UnavailableImagesError,
@@ -109,10 +111,7 @@ export function ImageExportDialog({
       if (!stage) return;
       stage.replaceChildren();
       try {
-        await waitForExport(
-          document.fonts.ready,
-          AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
-        );
+        await waitForExport(document.fonts.ready, anySignal([signal, createTimeoutSignal(15_000)]));
         signal.throwIfAborted();
         const source = renderNoteSnapshot(snapshot);
         const sourcePage = document.createElement("article");

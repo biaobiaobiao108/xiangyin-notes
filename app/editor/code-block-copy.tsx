@@ -38,9 +38,12 @@ export async function copyPlainText(
   textarea.value = text;
   textarea.setAttribute("readonly", "");
   textarea.style.position = "fixed";
+  textarea.style.fontSize = "16px";
   textarea.style.insetInlineStart = "-9999px";
   document.body.append(textarea);
+  textarea.focus({ preventScroll: true });
   textarea.select();
+  textarea.setSelectionRange(0, textarea.value.length);
 
   let copied = false;
   try {

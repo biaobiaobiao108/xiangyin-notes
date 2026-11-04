@@ -138,7 +138,13 @@
 :root[data-theme="light"] { color-scheme: light; }
 :root[data-theme="dark"] { color-scheme: dark; }
 
-* { box-sizing: border-box; }
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
 html, body, #root { min-height: 100%; margin: 0; }
 body { min-width: 320px; background: var(--canvas); }
 body { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
@@ -148,6 +154,7 @@ button, input { font: inherit; }
 button { color: inherit; }
 button:disabled { cursor: not-allowed; opacity: 0.52; }
 :where([hidden]) { display: none !important; }
+dialog:not([open]) { display: none !important; }
 /* Focus must never draw an outline anywhere in the application, including restored container focus. */
 :focus, :focus-visible { outline: none !important; }
 .visually-hidden { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; margin: -1px !important; overflow: hidden !important; clip: rect(0, 0, 0, 0) !important; white-space: nowrap !important; border: 0 !important; }
@@ -734,6 +741,7 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
   background: transparent;
   text-align: left;
   cursor: pointer;
+  -webkit-touch-callout: none;
   transition: background-color var(--motion-fast) var(--motion-ease-out), border-color var(--motion-fast) var(--motion-ease-out), box-shadow var(--motion-fast) var(--motion-ease-out), scale var(--motion-micro) var(--motion-ease-out);
 }
 .note-list-items > li:has(.note-row) + li:has(.note-row) { border-top: 0; }
@@ -1021,7 +1029,7 @@ button.save-status:hover { text-decoration: underline; }
 .note-prose:focus, .note-prose:focus-visible { outline: none; }
 .note-image-node { display: block; width: 100%; margin: 1.2em 0; }
 .note-image-frame { position: relative; display: block; width: min(var(--image-display-width), 100%); max-width: 100%; }
-.note-image { display: block; width: 100%; height: auto; max-width: 100%; border-radius: 10px; box-shadow: 0 5px 18px rgba(39, 47, 41, 0.08); -webkit-user-select: none; user-select: none; }
+.note-image { display: block; width: 100%; height: auto; max-width: 100%; border-radius: 10px; box-shadow: 0 5px 18px rgba(39, 47, 41, 0.08); -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 .note-image-node.is-selected .note-image { outline: none; box-shadow: 0 0 0 3px var(--surface), 0 0 0 5px var(--image-selection), 0 0 0 8px var(--image-selection-soft), 0 5px 18px rgba(39, 47, 41, 0.08); }
 .note-image-resize-handle { position: absolute; right: -22px; bottom: -22px; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: transparent; cursor: nwse-resize; opacity: 0; transform: scale(0.9); transition: opacity var(--motion-fast) var(--motion-ease-out), transform var(--motion-fast) var(--motion-ease-out); touch-action: none; }
 .note-image-resize-handle::after { position: absolute; right: 13px; bottom: 13px; width: 18px; height: 18px; border: 2px solid var(--surface); border-radius: 5px; background: var(--accent); box-shadow: 0 2px 8px rgba(39, 47, 41, 0.22); content: ""; pointer-events: none; }
@@ -2042,6 +2050,12 @@ dialog::backdrop {
   .notice-dismiss { width: 36px; height: 36px; }
   .toast { grid-template-columns: 18px minmax(0, 1fr) 36px; padding-block: 4px; }
   .update-notice { grid-template-columns: 18px minmax(0, 1fr) auto 36px; }
+  .field input,
+  .dialog-field input,
+  .editor-replace-field input,
+  .kanban-dialog-search input {
+    font-size: 16px;
+  }
 }
 
 /* ==========================================================================
@@ -2893,6 +2907,7 @@ dialog::backdrop {
   text-align: left;
   -webkit-user-select: none;
   user-select: none;
+  -webkit-touch-callout: none;
 }
 .note-card-foreground { position: relative; z-index: 1; display: flex; min-width: 0; flex: 1 1 auto; flex-direction: column; background: var(--surface); }
 
@@ -3896,6 +3911,7 @@ dialog::backdrop {
 .kanban-dialog-box {
   width: min(500px, 92vw);
   max-height: 80vh;
+  max-height: 80dvh;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -3946,12 +3962,19 @@ dialog::backdrop {
   color: var(--ink);
   font: inherit;
   font-size: 0.84rem;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.kanban-dialog-search input::-webkit-search-cancel-button {
+  display: none;
 }
 
 .kanban-dialog-list {
   flex: 1 1 0;
   overflow-y: auto;
   max-height: 50vh;
+  max-height: 50dvh;
   padding: 8px 12px;
   display: flex;
   flex-direction: column;

@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { FloatingScrollbar } from "./floating-scrollbar";
 import { modKey } from "./platform";
+import { copyPlainText } from "./editor/code-block-copy";
 
 export type ContextMenuItem = {
   label: string;
@@ -93,7 +94,7 @@ export function textFieldMenuItems(
   };
   const copy = async (cut = false) => {
     try {
-      await navigator.clipboard.writeText(selected);
+      await copyPlainText(selected);
     } catch {
       throw new Error(`浏览器未允许写入剪贴板，请使用 ${modKey}+C。`);
     }

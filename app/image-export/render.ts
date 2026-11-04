@@ -59,6 +59,33 @@ export function waitForExport<T>(operation: Promise<T>, signal: AbortSignal): Pr
   });
 }
 
+export function createTimeoutSignal(ms: number): AbortSignal {
+  if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
+    return AbortSignal.timeout(ms);
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort(new DOMException("The operation timed out.", "TimeoutError"));
+  }, ms);
+  controller.signal.addEventListener("abort", () => clearTimeout(timer), { once: true });
+  return controller.signal;
+}
+
+export function anySignal(signals: readonly AbortSignal[]): AbortSignal {
+  if (typeof AbortSignal !== "undefined" && typeof AbortSignal.any === "function") {
+    return AbortSignal.any(signals as AbortSignal[]);
+  }
+  const controller = new AbortController();
+  for (const signal of signals) {
+    if (signal.aborted) {
+      controller.abort(signal.reason);
+      return controller.signal;
+    }
+    signal.addEventListener("abort", () => controller.abort(signal.reason), { once: true });
+  }
+  return controller.signal;
+}
+
 export async function prepareImages(
   source: HTMLElement,
   signal: AbortSignal,
@@ -72,7 +99,7 @@ export async function prepareImages(
   try {
     for (const image of source.querySelectorAll("img")) {
       signal.throwIfAborted();
-      const timeout = AbortSignal.any([signal, AbortSignal.timeout(15_000)]);
+      const timeout = anySignal([signal, createTimeoutSignal(15_000)]);
       try {
         const url = new URL(image.getAttribute("src") || "", location.href);
         if (!["http:", "https:", "data:", "blob:"].includes(url.protocol))
