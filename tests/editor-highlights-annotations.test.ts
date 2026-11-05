@@ -85,6 +85,7 @@ describe("annotations", () => {
       const annotations = collectAnnotations(editor.state.doc);
       expect(annotations).toHaveLength(1);
       expect(annotations[0]?.note).toBe('第一行\n第二行 "引用" <标签> & 注解');
+      expect(annotations[0]?.quote).toBe("跨段批注 继续");
     } finally {
       editor.destroy();
     }
@@ -98,6 +99,7 @@ describe("annotations", () => {
       expect(serialized(editor)).toBe(source);
       const annotation = collectAnnotations(editor.state.doc)[0];
       expect(annotation?.note).toBe("说明");
+      expect(annotation?.quote).toBe("前文 雾蓝");
     } finally {
       editor.destroy();
     }

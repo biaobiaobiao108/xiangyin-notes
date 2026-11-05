@@ -229,6 +229,7 @@ export const NoteAnnotation = Mark.create({
 export type AnnotationRecord = {
   id: string;
   note: string;
+  quote: string;
   from: number;
   to: number;
 };
@@ -276,7 +277,16 @@ export function collectAnnotations(doc: ProseMirrorNode): AnnotationRecord[] {
       existing.to = Math.max(existing.to, position + node.nodeSize);
       return;
     }
-    byId.set(id, { id, note, from: position, to: position + node.nodeSize });
+    byId.set(id, { id, note, quote: "", from: position, to: position + node.nodeSize });
   });
-  return [...byId.values()].sort((left, right) => left.from - right.from);
+  return [...byId.values()]
+    .sort((left, right) => left.from - right.from)
+    .map((annotation) => ({
+      ...annotation,
+      quote: doc
+        .textBetween(annotation.from, annotation.to, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 120),
+    }));
 }

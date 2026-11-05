@@ -2,9 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObje
 import { createPortal } from "react-dom";
 import type { Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { ChevronDown, Pencil, Trash2, X } from "lucide-react";
+import { Check, Trash2 } from "lucide-react";
 import { createUuid } from "../uuid";
-import { FloatingScrollbar } from "../floating-scrollbar";
 import {
   collectAnnotations,
   findAnnotationRanges,
@@ -12,10 +11,12 @@ import {
 } from "./highlight-annotation";
 
 type SelectionPoint = { left: number; top: number };
+const RAIL_CARD_WIDTH = 216;
 
 type ComposerState = {
   id: string;
   note: string;
+  quote: string;
   from: number;
   to: number;
   doc: ProseMirrorNode;
@@ -35,6 +36,7 @@ function sameAnnotations(left: AnnotationRecord[], right: AnnotationRecord[]) {
       (item, index) =>
         item.id === right[index]?.id &&
         item.note === right[index]?.note &&
+        item.quote === right[index]?.quote &&
         item.from === right[index]?.from &&
         item.to === right[index]?.to,
     )
@@ -50,33 +52,31 @@ function selectionPoint(editor: Editor, position: number): SelectionPoint {
   }
 }
 
-function clampPopupPoint(left: number, top: number) {
+function clampPopupPoint(left: number, top: number, width = 300, height = 280) {
   return {
-    left: Math.max(12, Math.min(left, window.innerWidth - 312)),
-    top: Math.max(12, Math.min(top, window.innerHeight - 280)),
+    left: Math.max(12, Math.min(left, window.innerWidth - width - 12)),
+    top: Math.max(12, Math.min(top, window.innerHeight - height)),
   };
 }
 
-function AnnotationNoteEditor({
+function AnnotationTextarea({
   fieldId,
-  note: initialNote,
+  value,
   locked,
-  saveLabel,
-  onSave,
+  maxHeight = 220,
+  onChange,
+  onCommit,
   onCancel,
-  onDelete,
 }: {
   fieldId: string;
-  note: string;
+  value: string;
   locked: boolean;
-  saveLabel: string;
-  onSave: (note: string) => void;
+  maxHeight?: number;
+  onChange: (note: string) => void;
+  onCommit: () => void;
   onCancel: () => void;
-  onDelete?: () => void;
 }) {
   const fieldRef = useRef<HTMLTextAreaElement>(null);
-  const [note, setNote] = useState(initialNote);
-  const trimmed = note.trim();
 
   useEffect(() => {
     const field = fieldRef.current;
@@ -85,10 +85,12 @@ function AnnotationNoteEditor({
     field.setSelectionRange(field.value.length, field.value.length);
   }, []);
 
-  const submit = () => {
-    if (locked || !trimmed) return;
-    onSave(trimmed);
-  };
+  useLayoutEffect(() => {
+    const field = fieldRef.current;
+    if (!field) return;
+    field.style.height = "auto";
+    field.style.height = `${Math.min(field.scrollHeight, maxHeight)}px`;
+  }, [maxHeight, value]);
 
   return (
     <>
@@ -99,11 +101,11 @@ function AnnotationNoteEditor({
         ref={fieldRef}
         id={fieldId}
         className="annotation-note-editor-field"
-        value={note}
-        rows={3}
+        value={value}
+        rows={1}
         disabled={locked}
         placeholder="写下批注……"
-        onChange={(event) => setNote(event.target.value)}
+        onChange={(event) => onChange(event.target.value)}
         onKeyDown={(event) => {
           if (event.nativeEvent.isComposing || event.keyCode === 229) return;
           if (event.key === "Escape") {
@@ -114,34 +116,10 @@ function AnnotationNoteEditor({
           }
           if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
             event.preventDefault();
-            submit();
+            if (!locked) onCommit();
           }
         }}
       />
-      <div className="annotation-editor-actions">
-        {onDelete && !locked && (
-          <button
-            className="annotation-icon-button is-danger"
-            type="button"
-            aria-label="删除批注"
-            onClick={onDelete}
-          >
-            <Trash2 size={14} />
-          </button>
-        )}
-        <span className="annotation-composer-spacer" />
-        <button className="annotation-text-button" type="button" onClick={onCancel}>
-          取消
-        </button>
-        <button
-          className="annotation-primary-button"
-          type="button"
-          disabled={locked || !trimmed}
-          onClick={submit}
-        >
-          {saveLabel}
-        </button>
-      </div>
     </>
   );
 }
@@ -160,9 +138,11 @@ function AnnotationComposer({
   onClose: () => void;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
+  const [note, setNote] = useState(state.note);
   const [position, setPosition] = useState(() =>
     clampPopupPoint(state.point.left, state.point.top),
   );
+  const trimmed = note.trim();
 
   useLayoutEffect(() => {
     const root = rootRef.current;
@@ -176,7 +156,7 @@ function AnnotationComposer({
             : 0),
       ),
     );
-  }, [mobile, state.point.left, state.point.top]);
+  }, [mobile, note, state.point.left, state.point.top]);
 
   useEffect(() => {
     const outside = (event: PointerEvent) => {
@@ -208,26 +188,172 @@ function AnnotationComposer({
         aria-modal="true"
         aria-label="添加批注"
       >
-        <AnnotationNoteEditor
-          fieldId={`annotation-note-${state.id}`}
-          note={state.note}
-          locked={locked}
-          saveLabel="添加"
-          onSave={onSave}
-          onCancel={onClose}
-        />
+        {state.quote && (
+          <div className="annotation-card-quote">
+            <span>{state.quote}</span>
+          </div>
+        )}
+        <button
+          className="annotation-composer-submit annotation-icon-button"
+          type="button"
+          aria-label="添加批注"
+          disabled={locked || !trimmed}
+          onClick={() => {
+            if (!locked && trimmed) onSave(trimmed);
+          }}
+        >
+          <Check size={14} />
+        </button>
+        <div className="annotation-card-body annotation-card-body--editing">
+          <AnnotationTextarea
+            fieldId={`annotation-note-${state.id}`}
+            value={note}
+            locked={locked}
+            onChange={setNote}
+            onCommit={() => {
+              if (trimmed) onSave(trimmed);
+            }}
+            onCancel={onClose}
+          />
+        </div>
       </div>
     </>,
     document.body,
   );
 }
 
-function AnnotationBubble({
+function AnnotationCard({
   annotation,
-  expanded,
   editing,
   locked,
-  onToggle,
+  onStartEdit,
+  onFinishEdit,
+  onSaveNote,
+  onDelete,
+  onOutside,
+  variant,
+  register,
+}: {
+  annotation: AnnotationRecord;
+  editing: boolean;
+  locked: boolean;
+  onStartEdit: () => void;
+  onFinishEdit: () => void;
+  onSaveNote: (note: string) => void;
+  onDelete: () => void;
+  onOutside?: () => void;
+  variant: "rail" | "compact";
+  register?: (element: HTMLElement | null) => void;
+}) {
+  const rootRef = useRef<HTMLElement>(null);
+  const textRef = useRef<HTMLButtonElement>(null);
+  const [draft, setDraft] = useState(annotation.note);
+  const draftRef = useRef(draft);
+  const commitRef = useRef<() => void>(() => {});
+  const cancelRef = useRef<() => void>(() => {});
+  const outsideRef = useRef(onOutside);
+  draftRef.current = draft;
+  outsideRef.current = onOutside;
+
+  useEffect(() => {
+    if (editing) setDraft(annotation.note);
+  }, [annotation.note, editing]);
+
+  const commit = (restoreFocus: boolean) => {
+    const next = draftRef.current.trim();
+    if (next && next !== annotation.note.trim()) onSaveNote(next);
+    onFinishEdit();
+    if (restoreFocus) {
+      requestAnimationFrame(() => textRef.current?.focus({ preventScroll: true }));
+    }
+  };
+
+  const cancel = () => {
+    setDraft(annotation.note);
+    onFinishEdit();
+  };
+  commitRef.current = () => commit(false);
+  cancelRef.current = cancel;
+
+  useEffect(() => {
+    if (!editing && !onOutside) return;
+    const outside = (event: PointerEvent) => {
+      if (rootRef.current?.contains(event.target as Node)) return;
+      if (editing) commitRef.current();
+      outsideRef.current?.();
+    };
+    const keydown = (event: KeyboardEvent) => {
+      if (event.isComposing || event.keyCode === 229 || event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (editing) cancelRef.current();
+      outsideRef.current?.();
+    };
+    document.addEventListener("pointerdown", outside, true);
+    window.addEventListener("keydown", keydown, true);
+    return () => {
+      document.removeEventListener("pointerdown", outside, true);
+      window.removeEventListener("keydown", keydown, true);
+    };
+  }, [editing, onOutside]);
+
+  return (
+    <article
+      ref={(element) => {
+        rootRef.current = element;
+        register?.(element);
+      }}
+      className={`annotation-card annotation-card--${variant}${editing ? " is-editing" : ""}`}
+      role={variant === "compact" ? "dialog" : undefined}
+      aria-modal={variant === "compact" ? true : undefined}
+      aria-label={variant === "compact" ? "批注" : undefined}
+    >
+      {annotation.quote && (
+        <div className="annotation-card-quote">
+          <span>{annotation.quote}</span>
+        </div>
+      )}
+      {!locked && (
+        <button
+          className="annotation-card-delete annotation-icon-button is-danger"
+          type="button"
+          aria-label="删除批注"
+          onClick={onDelete}
+        >
+          <Trash2 size={13} />
+        </button>
+      )}
+      {editing ? (
+        <div className="annotation-card-body annotation-card-body--editing">
+          <AnnotationTextarea
+            fieldId={`annotation-inline-${annotation.id}`}
+            value={draft}
+            locked={locked}
+            maxHeight={86}
+            onChange={setDraft}
+            onCommit={() => commit(true)}
+            onCancel={cancel}
+          />
+        </div>
+      ) : (
+        <button
+          ref={textRef}
+          className="annotation-card-body annotation-card-body--read"
+          type="button"
+          disabled={locked}
+          onClick={onStartEdit}
+        >
+          <span className="annotation-card-text">{annotation.note}</span>
+        </button>
+      )}
+    </article>
+  );
+}
+
+function AnnotationBubble({
+  annotation,
+  editing,
+  locked,
   onStartEdit,
   onFinishEdit,
   onSaveNote,
@@ -235,99 +361,26 @@ function AnnotationBubble({
   register,
 }: {
   annotation: AnnotationRecord;
-  expanded: boolean;
   editing: boolean;
   locked: boolean;
-  onToggle: () => void;
   onStartEdit: () => void;
   onFinishEdit: () => void;
   onSaveNote: (note: string) => void;
   onDelete: () => void;
   register: (element: HTMLElement | null) => void;
 }) {
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const canExpand = annotation.note.length > 56 || annotation.note.includes("\n");
-  const isExpanded = expanded && canExpand && !editing;
-  useEffect(() => {
-    if (!isExpanded && scrollRef.current) scrollRef.current.scrollTop = 0;
-  }, [annotation.note, isExpanded]);
   return (
-    <article
-      ref={register}
-      className={`annotation-bubble${isExpanded ? " is-expanded" : ""}${editing ? " is-editing" : ""}`}
-      onClick={(event) => {
-        if (editing || !canExpand || isExpanded) return;
-        if ((event.target as Element).closest("button")) return;
-        onToggle();
-      }}
-    >
-      {!editing && (canExpand || !locked) && (
-        <div className="annotation-card-tools">
-          {canExpand && (
-            <button
-              className="annotation-icon-button"
-              type="button"
-              aria-expanded={isExpanded}
-              aria-label={isExpanded ? "收起批注" : "展开批注"}
-              onClick={onToggle}
-            >
-              <ChevronDown className="annotation-bubble-chevron" size={13} aria-hidden="true" />
-            </button>
-          )}
-          {!locked && (
-            <button
-              className="annotation-icon-button"
-              type="button"
-              aria-label="编辑批注"
-              onClick={onStartEdit}
-            >
-              <Pencil size={13} />
-            </button>
-          )}
-          {!locked && (
-            <button
-              className="annotation-icon-button is-danger"
-              type="button"
-              aria-label="删除批注"
-              onClick={onDelete}
-            >
-              <Trash2 size={13} />
-            </button>
-          )}
-        </div>
-      )}
-      {editing ? (
-        <AnnotationNoteEditor
-          fieldId={`annotation-inline-${annotation.id}`}
-          note={annotation.note}
-          locked={locked}
-          saveLabel="保存"
-          onSave={(note) => {
-            onSaveNote(note);
-            onFinishEdit();
-          }}
-          onCancel={onFinishEdit}
-          onDelete={onDelete}
-        />
-      ) : (
-        <div
-          ref={scrollRef}
-          className="annotation-bubble-scroll floating-scrollbar-target"
-          id={`annotation-bubble-scroll-${annotation.id}`}
-          tabIndex={isExpanded ? 0 : undefined}
-        >
-          <p>{annotation.note}</p>
-        </div>
-      )}
-      {isExpanded && !editing && (
-        <FloatingScrollbar
-          scrollTargetRef={scrollRef}
-          controlsId={`annotation-bubble-scroll-${annotation.id}`}
-          ariaLabel="批注内容滚动条"
-          placement="right"
-        />
-      )}
-    </article>
+    <AnnotationCard
+      annotation={annotation}
+      editing={editing}
+      locked={locked}
+      onStartEdit={onStartEdit}
+      onFinishEdit={onFinishEdit}
+      onSaveNote={onSaveNote}
+      onDelete={onDelete}
+      variant="rail"
+      register={register}
+    />
   );
 }
 
@@ -354,9 +407,6 @@ function CompactAnnotationCard({
   onDelete: () => void;
   onClose: () => void;
 }) {
-  const rootRef = useRef<HTMLDivElement>(null);
-  const closeRef = useRef<HTMLButtonElement>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState(() => clampPopupPoint(point.left + 14, point.top - 8));
 
   useLayoutEffect(() => {
@@ -364,102 +414,23 @@ function CompactAnnotationCard({
     setPosition(clampPopupPoint(point.left + 14, point.top - 8));
   }, [mobile, point.left, point.top]);
 
-  useEffect(() => {
-    if (!editing) closeRef.current?.focus({ preventScroll: true });
-  }, [editing]);
-
-  useEffect(() => {
-    const outside = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) onClose();
-    };
-    const keydown = (event: KeyboardEvent) => {
-      if (event.isComposing || event.keyCode === 229) return;
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      onClose();
-    };
-    document.addEventListener("pointerdown", outside, true);
-    window.addEventListener("keydown", keydown, true);
-    return () => {
-      document.removeEventListener("pointerdown", outside, true);
-      window.removeEventListener("keydown", keydown, true);
-    };
-  }, [onClose]);
-
   return createPortal(
     <>
       <div
-        ref={rootRef}
-        className={`annotation-compact-card${mobile ? " annotation-compact-card--sheet" : ""}${editing ? " is-editing" : ""}`}
+        className={`annotation-compact-anchor${mobile ? " annotation-compact-anchor--sheet" : ""}`}
         style={mobile ? undefined : position}
-        role="dialog"
-        aria-modal="true"
-        aria-label="批注"
       >
-        {!editing && (
-          <div className="annotation-card-tools">
-            {!locked && (
-              <button
-                className="annotation-icon-button"
-                type="button"
-                aria-label="编辑批注"
-                onClick={onStartEdit}
-              >
-                <Pencil size={13} />
-              </button>
-            )}
-            {!locked && (
-              <button
-                className="annotation-icon-button is-danger"
-                type="button"
-                aria-label="删除批注"
-                onClick={onDelete}
-              >
-                <Trash2 size={13} />
-              </button>
-            )}
-            <button
-              ref={closeRef}
-              className="annotation-icon-button"
-              type="button"
-              aria-label="关闭批注"
-              onClick={onClose}
-            >
-              <X size={14} />
-            </button>
-          </div>
-        )}
-        {editing ? (
-          <AnnotationNoteEditor
-            fieldId={`annotation-inline-${annotation.id}`}
-            note={annotation.note}
-            locked={locked}
-            saveLabel="保存"
-            onSave={(note) => {
-              onSaveNote(note);
-              onFinishEdit();
-            }}
-            onCancel={onFinishEdit}
-            onDelete={onDelete}
-          />
-        ) : (
-          <div
-            ref={scrollRef}
-            className="annotation-compact-scroll floating-scrollbar-target"
-            id={`annotation-compact-scroll-${annotation.id}`}
-          >
-            <p className="annotation-compact-note">{annotation.note}</p>
-          </div>
-        )}
-        {!editing && (
-          <FloatingScrollbar
-            scrollTargetRef={scrollRef}
-            controlsId={`annotation-compact-scroll-${annotation.id}`}
-            ariaLabel="批注内容滚动条"
-            placement="right"
-          />
-        )}
+        <AnnotationCard
+          annotation={annotation}
+          editing={editing}
+          locked={locked}
+          onStartEdit={onStartEdit}
+          onFinishEdit={onFinishEdit}
+          onSaveNote={onSaveNote}
+          onDelete={onDelete}
+          onOutside={onClose}
+          variant="compact"
+        />
       </div>
       {mobile && <div className="annotation-sheet-backdrop" aria-hidden="true" />}
     </>,
@@ -509,9 +480,9 @@ function AnnotationLayer({
     const layerRect = layer.getBoundingClientRect();
     const documentElement = editor.view.dom.closest<HTMLElement>(".editor-document");
     const documentRect = documentElement?.getBoundingClientRect();
-    const bubbleWidth = 208;
+    const bubbleWidth = RAIL_CARD_WIDTH;
     if (documentRect) {
-      const fits = layerRect.right - documentRect.right >= bubbleWidth + 30;
+      const fits = layerRect.right - documentRect.right >= bubbleWidth + 20;
       setRailFits((current) => (current === fits ? current : fits));
     }
     const visible: Array<{ id: string; anchor: number }> = [];
@@ -579,7 +550,7 @@ function AnnotationLayer({
       8,
       Math.min(
         layerRect.width - bubbleWidth - 10,
-        (documentRect?.right ?? layerRect.right - 248) - layerRect.left + 20,
+        (documentRect?.right ?? layerRect.right - 248) - layerRect.left + 12,
       ),
     );
     for (const item of positioned) {
@@ -674,10 +645,8 @@ function AnnotationLayer({
             <AnnotationBubble
               key={`bubble-${annotation.id}`}
               annotation={annotation}
-              expanded={expandedId === annotation.id}
               editing={editId === annotation.id}
               locked={locked}
-              onToggle={() => onToggle(annotation.id)}
               onStartEdit={() => onStartEdit(annotation.id)}
               onFinishEdit={onFinishEdit}
               onSaveNote={(note) => onSaveNote(annotation.id, note)}
@@ -783,7 +752,7 @@ export function useEditorAnnotations({
     const update = () => {
       const width = element.clientWidth;
       const documentWidth = Math.min(820, width - 96);
-      setWideEnough(!mobile && (width - documentWidth) / 2 >= 238);
+      setWideEnough(!mobile && (width - documentWidth) / 2 >= RAIL_CARD_WIDTH + 24);
     };
     update();
     const observer = new ResizeObserver(update);
@@ -804,6 +773,11 @@ export function useEditorAnnotations({
       setComposer({
         id: createUuid(),
         note: "",
+        quote: editor.state.doc
+          .textBetween(from, to, " ")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 120),
         from,
         to,
         doc: editor.state.doc,
