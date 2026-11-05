@@ -23,6 +23,7 @@ describe("AutoReadingHUD component", () => {
     expect(html).toContain("继续滚动 (空格键)");
     expect(html).toContain("auto-reading-btn--focus");
     expect(html).toContain("auto-reading-dial");
+    expect(html).toContain("auto-reading-dial-needle");
     expect(html).toContain("1.0x");
     // 确认已剔除口播、解说等特定场景命名
     expect(html).not.toContain("口播");
@@ -75,15 +76,17 @@ describe("AutoReadingHUD component", () => {
     expect(stepUp(3)).toBe(4);
     expect(stepUp(9)).toBe(9);
 
-    // 拖拽吸附算法验证 (STEP_PX = 15)
+    // 物理对准算法验证 (TICK_WIDTH = 28):
+    // 鼠标向左拉动刻度带 (deltaX < 0) -> 右侧更快的刻度滑向中心指针 (升档)
+    // 鼠标向右拉动刻度带 (deltaX > 0) -> 左侧更慢的刻度滑向中心指针 (降档)
     const calcDragIndex = (startIdx: number, deltaX: number) => {
-      return Math.max(0, Math.min(maxIndex, startIdx + Math.round(deltaX / 15)));
+      return Math.max(0, Math.min(maxIndex, startIdx - Math.round(deltaX / 28)));
     };
-    expect(calcDragIndex(3, 16)).toBe(4); // 向右拖动 16px 升 1 档
-    expect(calcDragIndex(3, 32)).toBe(5); // 向右拖动 32px 升 2 档
-    expect(calcDragIndex(3, -20)).toBe(2); // 向左拖动 20px 降 1 档
-    expect(calcDragIndex(3, 200)).toBe(9); // 超出上限 clamp 到 9
-    expect(calcDragIndex(3, -200)).toBe(0); // 超出下限 clamp 到 0
+    expect(calcDragIndex(3, -28)).toBe(4); // 向左拖动 28px 升 1 档
+    expect(calcDragIndex(3, -56)).toBe(5); // 向左拖动 56px 升 2 档
+    expect(calcDragIndex(3, 28)).toBe(2); // 向右拖动 28px 降 1 档
+    expect(calcDragIndex(3, -300)).toBe(9); // 超出上限 clamp 到 9
+    expect(calcDragIndex(3, 300)).toBe(0); // 超出下限 clamp 到 0
   });
 
   it("detects and highlights the paragraph overlapping the 40% focal line", () => {

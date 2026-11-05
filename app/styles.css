@@ -1328,16 +1328,20 @@ button.save-status:hover { text-decoration: underline; }
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  min-width: 96px;
-  height: 28px;
-  padding: 1px 8px;
+  justify-content: flex-end;
+  min-width: 140px;
+  width: 140px;
+  height: 32px;
+  padding: 2px 0 4px;
   overflow: hidden;
   cursor: grab;
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
-  border-radius: 6px;
+  border-radius: 8px;
+  background: var(--surface-subtle);
+  mask-image: linear-gradient(to right, transparent, black 16%, black 84%, transparent);
+  -webkit-mask-image: linear-gradient(to right, transparent, black 16%, black 84%, transparent);
 }
 
 .auto-reading-dial:hover,
@@ -1349,52 +1353,92 @@ button.save-status:hover { text-decoration: underline; }
   cursor: grabbing;
 }
 
-.auto-reading-dial-track {
+/* 拨盘正中央选择指针 */
+.auto-reading-dial-needle {
+  position: absolute;
+  top: 14px;
+  bottom: 3px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  height: 8px;
-  margin-bottom: 2px;
-  transition: transform var(--motion-panel) var(--motion-ease-out);
   pointer-events: none;
 }
 
-.auto-reading-dial-notch {
-  display: inline-block;
-  width: 2px;
-  height: 6px;
-  margin: 0 7px;
-  border-radius: 1px;
-  background: var(--soft-muted);
-  opacity: 0.45;
-  transition: height var(--motion-fast) ease, background-color var(--motion-fast) ease, opacity var(--motion-fast) ease;
+.auto-reading-dial-needle-pip {
+  width: 0;
+  height: 0;
+  border-left: 3px solid transparent;
+  border-right: 3px solid transparent;
+  border-top: 4px solid var(--accent);
+  margin-bottom: 1px;
 }
 
-.auto-reading-dial-notch.is-active {
-  height: 8px;
+.auto-reading-dial-needle-bar {
+  width: 2px;
+  flex: 1;
+  background: var(--accent);
+  border-radius: 1px;
+  box-shadow: 0 0 3px var(--accent);
+}
+
+/* 移动刻度带容器 */
+.auto-reading-dial-track {
+  position: absolute;
+  top: 18px;
+  bottom: 4px;
+  left: 50%;
+  width: 0;
+  height: 10px;
+  pointer-events: none;
+}
+
+/* 刻度线 */
+.auto-reading-dial-tick {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.auto-reading-dial-tick-line {
+  width: 1.5px;
+  height: 6px;
+  background: var(--soft-muted);
+  border-radius: 1px;
+  opacity: 0.55;
+  transition: height var(--motion-fast) ease, opacity var(--motion-fast) ease, background-color var(--motion-fast) ease;
+}
+
+.auto-reading-dial-tick.is-active .auto-reading-dial-tick-line {
+  height: 9px;
   background: var(--accent);
   opacity: 1;
 }
 
+/* 顶部数字读数 */
 .auto-reading-dial-readout {
+  position: absolute;
+  top: 1px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
   pointer-events: none;
 }
 
 .auto-reading-dial-mult {
-  font-size: 0.8rem;
+  font-size: 0.76rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--ink);
   letter-spacing: -0.01em;
-  line-height: 1.1;
-}
-
-.auto-reading-dial-name {
-  font-size: 0.72rem;
-  font-weight: 500;
-  color: var(--muted);
+  line-height: 1;
 }
 
 .auto-reading-divider {

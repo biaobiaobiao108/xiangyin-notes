@@ -181,7 +181,8 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
     });
   }, [scrollTargetRef]);
 
-  const STEP_PX = 15;
+  // 每个刻度之间的物理像素间距
+  const TICK_WIDTH = 28;
 
   const handleDialPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -207,14 +208,16 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
       }
       setDragOffsetPx(deltaX);
 
-      const stepDelta = Math.round(deltaX / STEP_PX);
+      // 物理刻度逻辑：鼠标向左拉刻度带（deltaX < 0），右侧更高的档位滑向中心指针（升档）
+      // 鼠标向右拉刻度带（deltaX > 0），左侧更低的档位滑向中心指针（降档）
+      const stepDelta = Math.round(deltaX / TICK_WIDTH);
       const targetIndex = Math.max(
         0,
-        Math.min(READING_SPEED_PRESETS.length - 1, dragStartRef.current.index + stepDelta),
+        Math.min(READING_SPEED_PRESETS.length - 1, dragStartRef.current.index - stepDelta),
       );
       setPresetIndex(targetIndex);
     },
-    [STEP_PX],
+    [TICK_WIDTH],
   );
 
   const handleDialPointerUp = useCallback(
@@ -226,20 +229,27 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
       setDragOffsetPx(0);
 
       if (!moved) {
-        // 点击左半侧降档，点击右半侧升档
+        // 纯点击：计算点击位置相对于中心指针的距离，直接将该刻度对齐到中心指针
         const rect = e.currentTarget.getBoundingClientRect();
-        const clickX = e.clientX - rect.left;
-        if (clickX < rect.width / 2) {
-          handleSpeedDown();
-        } else {
-          handleSpeedUp();
+        const centerX = rect.width / 2;
+        const offsetFromCenter = e.clientX - rect.left - centerX;
+        const clickedStepDelta = Math.round(offsetFromCenter / TICK_WIDTH);
+        if (clickedStepDelta !== 0) {
+          const target = Math.max(
+            0,
+            Math.min(READING_SPEED_PRESETS.length - 1, index + clickedStepDelta),
+          );
+          setPresetIndex(target);
+          try {
+            localStorage.setItem(STORAGE_SPEED_KEY, String(target));
+          } catch {}
         }
       } else {
         const deltaX = e.clientX - x;
-        const stepDelta = Math.round(deltaX / STEP_PX);
+        const stepDelta = Math.round(deltaX / TICK_WIDTH);
         const finalIndex = Math.max(
           0,
-          Math.min(READING_SPEED_PRESETS.length - 1, index + stepDelta),
+          Math.min(READING_SPEED_PRESETS.length - 1, index - stepDelta),
         );
         setPresetIndex(finalIndex);
         try {
@@ -247,7 +257,7 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
         } catch {}
       }
     },
-    [STEP_PX, handleSpeedDown, handleSpeedUp],
+    [TICK_WIDTH],
   );
 
   const handleDialPointerCancel = useCallback(() => {
@@ -457,8 +467,8 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
   }, [togglePlay, handleSpeedUp, handleSpeedDown, handleRewind, toggleFocusReading]);
 
   // 滚轮刻度位置（以基准档位为中心的平滑横向位移）
-  const baseIndex = dragStartRef.current?.index ?? presetIndex;
-  const trackOffset = (3 - baseIndex) * STEP_PX + (isDragging ? dragOffsetPx : 0);
+  const baseIndex = isDragging && dragStartRef.current ? dragStartRef.current.index : presetIndex;
+  const trackOffset = -(baseIndex * TICK_WIDTH) + (isDragging ? dragOffsetPx : 0);
 
   return (
     <div className="auto-reading-hud" role="region" aria-label="自动阅读控制">
@@ -511,26 +521,38 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
         <div
           className={`auto-reading-dial ${isDragging ? "is-dragging" : ""}`}
           role="status"
-          aria-label={`当前速度 ${currentPreset.multiplier}，可点击或左右拖拽拨盘调节`}
-          title="点击或左右拖拽拨盘微调速度"
+          aria-label={`当前速度 ${currentPreset.multiplier}，正中是指针，拖拽刻度线对准指针调节速度`}
+          title="拖拽刻度带对准中心指针调节速度"
           onPointerDown={handleDialPointerDown}
           onPointerMove={handleDialPointerMove}
           onPointerUp={handleDialPointerUp}
           onPointerCancel={handleDialPointerCancel}
         >
+          {/* 正中央选择指针 */}
+          <div className="auto-reading-dial-needle" aria-hidden="true">
+            <span className="auto-reading-dial-needle-pip" />
+            <span className="auto-reading-dial-needle-bar" />
+          </div>
+
+          {/* 实时移动对齐的刻度带 */}
           <div
             className="auto-reading-dial-track"
             style={{
               transform: `translateX(${trackOffset}px)`,
-              transition: isDragging ? "none" : undefined,
+              transition: isDragging
+                ? "none"
+                : "transform var(--motion-panel) var(--motion-ease-out)",
             }}
             aria-hidden="true"
           >
-            {[-2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((notch) => (
-              <span
-                key={notch}
-                className={`auto-reading-dial-notch ${notch === presetIndex ? "is-active" : ""}`}
-              />
+            {READING_SPEED_PRESETS.map((preset, i) => (
+              <div
+                key={preset.multiplier}
+                className={`auto-reading-dial-tick ${i === presetIndex ? "is-active" : ""}`}
+                style={{ left: `${i * TICK_WIDTH}px` }}
+              >
+                <span className="auto-reading-dial-tick-line" />
+              </div>
             ))}
           </div>
           <div className="auto-reading-dial-readout">
