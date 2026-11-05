@@ -3,6 +3,8 @@ import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { createMarkdownExtension } from "../app/editor/markdown-config";
 import {
+  AnnotationBadgeExtension,
+  createAnnotationBadgeDecorations,
   annotationIdsInRange,
   collectAnnotations,
   NoteAnnotation,
@@ -148,5 +150,61 @@ describe("annotation metadata does not leak into derived Markdown data", () => {
   test("tags and wiki links ignore HTML attribute values", () => {
     expect(extractTags(markdown)).toEqual(["真实标签"]);
     expect(extractWikiLinks(markdown)).toEqual([]);
+  });
+});
+
+describe("annotation inline badges", () => {
+  test("creates widget decorations at annotation end positions with 1-based sequential indices", () => {
+    const source =
+      '<span data-annotation-id="a1" data-note="批注一">第一处批注</span>后续正文<span data-annotation-id="a2" data-note="批注二">第二处批注</span>';
+    const editor = new Editor({
+      extensions: [StarterKit, createMarkdownExtension(), NoteAnnotation, AnnotationBadgeExtension],
+      content: source,
+      contentType: "markdown",
+    });
+    try {
+      const decorations = createAnnotationBadgeDecorations(editor.state.doc);
+      const widgets = decorations.find();
+      expect(widgets).toHaveLength(2);
+      expect(widgets[0]?.spec.key).toBe("annotation-badge-a1");
+      expect(widgets[0]?.spec.side).toBe(-1);
+      expect(widgets[1]?.spec.key).toBe("annotation-badge-a2");
+      expect(widgets[1]?.spec.side).toBe(-1);
+
+      const mockDoc = {
+        createElement: () => {
+          const el = {
+            className: "",
+            dataset: {} as Record<string, string>,
+            children: [] as any[],
+            setAttribute(k: string, v: string) {
+              (this as any)[k] = v;
+            },
+            appendChild(c: any) {
+              this.children.push(c);
+            },
+          };
+          return el;
+        },
+      };
+
+      const originalDocument = globalThis.document;
+      try {
+        (globalThis as unknown as { document: unknown }).document = mockDoc;
+        const badge1 = (widgets[0] as unknown as { type: { toDOM: () => any } }).type.toDOM();
+        expect(badge1.className).toBe("annotation-badge");
+        expect(badge1.dataset.annotationId).toBe("a1");
+        expect(badge1.children[0].textContent).toBe("1");
+
+        const badge2 = (widgets[1] as unknown as { type: { toDOM: () => any } }).type.toDOM();
+        expect(badge2.className).toBe("annotation-badge");
+        expect(badge2.dataset.annotationId).toBe("a2");
+        expect(badge2.children[0].textContent).toBe("2");
+      } finally {
+        (globalThis as unknown as { document: unknown }).document = originalDocument;
+      }
+    } finally {
+      editor.destroy();
+    }
   });
 });

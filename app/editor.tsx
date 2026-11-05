@@ -107,7 +107,11 @@ import {
 import { mobileCaretBounds, useMobileCaret } from "./editor/use-mobile-caret";
 import { BlockDragHandle } from "./editor/block-drag-handle";
 import { useEditorContextMenu } from "./editor/use-editor-context-menu";
-import { NoteAnnotation, NoteHighlight } from "./editor/highlight-annotation";
+import {
+  AnnotationBadgeExtension,
+  NoteAnnotation,
+  NoteHighlight,
+} from "./editor/highlight-annotation";
 import { useEditorAnnotations } from "./editor/annotation-overlay";
 import { useScrollEdges } from "./workspace/use-scroll-edges";
 import { AutoReadingHUD } from "./editor/auto-reading-hud";
@@ -421,6 +425,8 @@ export function NoteEditor({
   const onNavigateWikiLinkRef = useRef(onNavigateWikiLink);
   const onCreateAndLinkNoteRef = useRef(onCreateAndLinkNote);
   const onSearchWikiLinkTitlesRef = useRef(onSearchWikiLinkTitles);
+  const onToggleAnnotationRef = useRef<(id: string) => void>(() => undefined);
+  const onClearAnnotationRef = useRef<() => void>(() => undefined);
 
   // 最新值与回调统一在 effect 中写入 ref，避免渲染阶段直接赋值在并发渲染下产生非幂等副作用。
   useEffect(() => {
@@ -682,6 +688,7 @@ export function NoteEditor({
       InlineMarkExitOnEnter,
       NoteHighlight,
       NoteAnnotation,
+      AnnotationBadgeExtension,
       ...createTableExtensions(),
       NoteLink.configure({ openOnClick: false, autolink: true, linkOnPaste: true }),
       TaskList,
@@ -880,6 +887,27 @@ export function NoteEditor({
             window.open(anchor.href, "_blank", "noopener,noreferrer");
             return true;
           }
+        }
+        const annotationEl = target?.closest<HTMLElement>(
+          ".note-annotation[data-annotation-id], .annotation-badge[data-annotation-id]",
+        );
+        if (
+          annotationEl &&
+          !event.ctrlKey &&
+          !event.metaKey &&
+          !window.getSelection()?.toString().trim()
+        ) {
+          const annotationId = annotationEl.getAttribute("data-annotation-id");
+          if (annotationId) {
+            onToggleAnnotationRef.current(annotationId);
+            return true;
+          }
+        } else if (
+          !target?.closest(
+            ".annotation-card, .annotation-badge, .annotation-composer, [role='dialog'], [role='menu']",
+          )
+        ) {
+          onClearAnnotationRef.current();
         }
         return false;
       },
@@ -1820,8 +1848,11 @@ export function NoteEditor({
     locked: editorLocked,
     deleted: Boolean(note.deletedAt),
     scrollRef: editorScrollRef,
+    layoutMode: onBackToCards ? "cards" : "three-column",
     mobile: isMobileViewport,
   });
+  onToggleAnnotationRef.current = annotations.toggleExpanded;
+  onClearAnnotationRef.current = annotations.clearActive;
   const contextMenu = useEditorContextMenu({
     editor,
     noteId: note.id,
@@ -2170,6 +2201,16 @@ export function NoteEditor({
           id="editor-scroll-region"
           className={`editor-scroll floating-scrollbar-target ${typewriterMode ? "is-typewriter-mode" : ""} ${autoReadingMode ? "is-auto-reading" : ""}`}
           ref={editorScrollRef}
+          onClick={(event) => {
+            const target = event.target as HTMLElement | null;
+            if (
+              !target?.closest(
+                ".annotation-card, .annotation-badge, .note-annotation, [role='dialog'], [role='menu']",
+              )
+            ) {
+              onClearAnnotationRef.current();
+            }
+          }}
           onKeyDownCapture={(event) => {
             const target = event.target;
             if (!(target instanceof HTMLElement) || editor?.view.composing || composingRef.current)
@@ -2245,6 +2286,7 @@ export function NoteEditor({
               disabled={editorLocked || isMobileViewport || Boolean(note.deletedAt)}
             />
             <TableScrollbars rootRef={documentRef} />
+            {annotations.overlay}
           </div>
         </div>
         <FloatingScrollbar
@@ -2254,7 +2296,6 @@ export function NoteEditor({
           ariaLabel="编辑器滚动条"
           placement="right"
         />
-        {annotations.overlay}
         {autoReadingMode && (
           <AutoReadingHUD scrollTargetRef={editorScrollRef} onExit={onExitAutoReadingMode} />
         )}

@@ -1001,7 +1001,7 @@ button.save-status:hover { text-decoration: underline; }
 .editor-scroll-shell.has-scroll-after::after {
   opacity: 1;
 }
-.editor-scroll { height: 100%; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
+.editor-scroll { height: 100%; min-height: 0; overflow-x: clip; overflow-y: auto; overscroll-behavior: contain; }
 /* 浏览器会自动聚焦可滚动容器；正文区域无需整页焦点轮廓。 */
 .editor-scroll:focus, .editor-scroll:focus-visible { outline: none; }
 .editor-document {
@@ -1070,66 +1070,112 @@ button.save-status:hover { text-decoration: underline; }
 .note-prose .note-highlight[data-color="lilac"] { background-color: var(--note-highlight-lilac); }
 .note-prose .note-highlight[data-color="sand"] { background-color: var(--note-highlight-sand); }
 .note-prose .note-annotation {
-  cursor: text;
+  cursor: pointer;
   text-decoration-line: underline;
   text-decoration-style: dotted;
-  text-decoration-thickness: 1px;
+  text-decoration-thickness: 1.5px;
   text-decoration-color: var(--note-annotation-line);
-  text-underline-offset: 0.22em;
+  text-underline-offset: 0.26em;
+  background-color: color-mix(in srgb, var(--accent) 7%, transparent);
+  border-radius: 2px;
+  padding-inline: 1px;
+  transition: background-color var(--motion-fast) var(--motion-ease-out), text-decoration-color var(--motion-fast) var(--motion-ease-out);
 }
 @media (hover: hover) {
-  .note-prose .note-annotation:hover { text-decoration-color: var(--accent); }
+  .note-prose .note-annotation:hover {
+    background-color: color-mix(in srgb, var(--accent) 14%, transparent);
+    text-decoration-color: var(--accent);
+  }
+}
+.note-prose .note-annotation.is-active {
+  background-color: color-mix(in srgb, var(--accent) 18%, transparent);
+  text-decoration-color: var(--accent);
 }
 .annotation-layer { position: absolute; inset: 0; z-index: 4; overflow: visible; pointer-events: none; }
-.annotation-pin { position: absolute; display: grid; width: 18px; height: 18px; place-items: center; padding: 0; border: 0; border-radius: 5px; background: transparent; visibility: hidden; pointer-events: auto; cursor: pointer; opacity: 0.64; transition: opacity var(--motion-fast) var(--motion-ease-out), transform var(--motion-fast) var(--motion-ease-out); }
-.annotation-pin > span { display: block; width: 5px; height: 5px; border: 1px solid var(--note-annotation-surface); border-radius: 999px; background: var(--accent); box-shadow: 0 0 0 1px var(--note-annotation-line), 0 1px 2px rgba(39, 47, 41, 0.12); }
-.annotation-pin:hover, .annotation-pin:focus-visible { opacity: 1; transform: translateY(-1px); }
-.annotation-pin:focus-visible > span { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--focus-ring); }
-.annotation-icon-button { display: grid; width: 26px; height: 26px; place-items: center; padding: 0; border: 0; border-radius: 7px; background: transparent; color: var(--muted); cursor: pointer; transition: background-color var(--motion-fast) var(--motion-ease-out), color var(--motion-fast) var(--motion-ease-out); }
-.annotation-icon-button:hover, .annotation-icon-button:focus-visible { background: var(--accent-soft); color: var(--accent-dark); }
+.annotation-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: 0.35em;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  margin-inline: 2px 3px;
+  box-sizing: border-box;
+  border: 1px solid var(--border-soft);
+  border-radius: 3.5px;
+  background: var(--surface);
+  color: var(--ink-soft);
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 1;
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  pointer-events: auto;
+  user-select: none;
+  -webkit-user-select: none;
+  box-shadow: var(--shadow-2xs);
+  transition: background-color var(--motion-fast) var(--motion-ease-out),
+              border-color var(--motion-fast) var(--motion-ease-out),
+              color var(--motion-fast) var(--motion-ease-out),
+              box-shadow var(--motion-fast) var(--motion-ease-out),
+              transform var(--motion-fast) var(--motion-ease-out);
+}
+.annotation-badge:hover, .annotation-badge:focus-visible {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--accent-dark);
+}
+.annotation-badge:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1.5px var(--surface), 0 0 0 3px var(--focus-ring);
+}
+.annotation-badge.is-active, .annotation-badge.is-editing {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+  box-shadow: 0 0 0 1.5px var(--surface), 0 0 0 3px var(--accent-ring);
+}
+.annotation-icon-button { display: grid; width: 22px; height: 22px; place-items: center; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--muted); cursor: pointer; transition: background-color var(--motion-fast) var(--motion-ease-out), color var(--motion-fast) var(--motion-ease-out); }
+.annotation-icon-button:hover, .annotation-icon-button:focus-visible { background: var(--hover-overlay); color: var(--ink); }
 .annotation-icon-button.is-danger:hover, .annotation-icon-button.is-danger:focus-visible { background: var(--danger-soft); color: var(--danger); }
-.annotation-card { position: relative; box-sizing: border-box; overflow: hidden; border: 1px solid var(--border-soft); border-radius: 11px; background: var(--note-annotation-surface); box-shadow: var(--shadow-sm), var(--shadow-2xs); animation: annotation-pop-in var(--motion-panel) var(--motion-ease-out) both; transition: border-color var(--motion-fast) var(--motion-ease-out), box-shadow var(--motion-fast) var(--motion-ease-out), background-color var(--motion-fast) var(--motion-ease-out); }
-.annotation-card::before { position: absolute; z-index: 2; top: 0; bottom: 0; left: 0; width: 2px; background: var(--accent); content: ""; opacity: 0.34; pointer-events: none; }
-.annotation-card.is-editing { border-color: var(--accent-border); box-shadow: var(--shadow-sm), 0 0 0 3px var(--accent-soft); }
-.annotation-card--rail { position: absolute; z-index: 5; width: 216px; visibility: hidden; pointer-events: auto; transition: top var(--motion-panel) var(--motion-ease-out), border-color var(--motion-fast) var(--motion-ease-out), box-shadow var(--motion-fast) var(--motion-ease-out); }
-.annotation-card--compact { width: 276px; max-width: calc(100vw - 24px); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); }
-.annotation-card-quote { display: block; margin: 0; padding: 7px 34px 6px 13px; overflow: hidden; border-bottom: 1px solid var(--border-soft); background: color-mix(in srgb, var(--accent-soft) 52%, transparent); color: var(--muted); font-size: 0.69rem; line-height: 1.42; letter-spacing: 0.012em; }
+.annotation-card { position: relative; box-sizing: border-box; overflow: hidden; border: 1px solid var(--border-soft); border-radius: 9px; background: var(--surface); box-shadow: var(--shadow-xs), var(--shadow-2xs); animation: annotation-pop-in var(--motion-panel) var(--motion-ease-out) both; transition: border-color var(--motion-fast) var(--motion-ease-out), box-shadow var(--motion-fast) var(--motion-ease-out), background-color var(--motion-fast) var(--motion-ease-out); }
+.annotation-card.is-active { border-color: var(--accent-border); box-shadow: var(--shadow-xs), 0 0 0 2px var(--accent-soft); }
+.annotation-card.is-editing { border-color: var(--accent-border); box-shadow: var(--shadow-xs), 0 0 0 2px var(--accent-soft); }
+.annotation-card-header { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px 0 10px; font-size: 0.72rem; color: var(--muted); }
+.annotation-card-title { font-weight: 600; color: var(--ink-soft); }
+.annotation-card-index { font-weight: 600; font-variant-numeric: tabular-nums; opacity: 0.75; }
+.annotation-card-actions { display: flex; align-items: center; gap: 2px; }
+.annotation-card--rail { position: absolute; left: calc(100% + 24px); z-index: 5; width: 220px; display: block; pointer-events: auto; }
+.annotation-layer:not(.annotation-layer--rail) .annotation-card--rail { display: none; }
+.annotation-card--compact { width: 276px; max-width: calc(100vw - 24px); box-shadow: var(--shadow-md), var(--shadow-xs); }
+.annotation-card-quote { display: block; margin: 5px 8px 1px; padding: 3px 6px; overflow: hidden; border-radius: 4px; background: color-mix(in srgb, var(--canvas) 60%, var(--surface)); color: var(--muted); font-size: 0.71rem; line-height: 1.38; letter-spacing: 0.01em; }
 .annotation-card-quote > span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.annotation-card-body { display: block; width: 100%; margin: 0; padding: 9px 13px 10px; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; }
+.annotation-card-body { display: block; width: 100%; margin: 0; padding: 7px 10px 9px; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; box-sizing: border-box; }
 .annotation-card-body--read { cursor: text; transition: background-color var(--motion-fast) var(--motion-ease-out); }
-.annotation-card-body--read:hover { background: color-mix(in srgb, var(--accent-soft) 20%, transparent); }
+.annotation-card-body--read:hover { background: color-mix(in srgb, var(--accent-soft) 16%, transparent); }
 .annotation-card-body--read:focus-visible { box-shadow: inset 0 0 0 2px var(--focus-soft); }
 .annotation-card-body--read:disabled { cursor: default; }
-.annotation-card-body--editing { background: color-mix(in srgb, var(--accent-soft) 26%, transparent); }
-.annotation-card-text { display: -webkit-box; width: 100%; overflow: hidden; color: var(--ink-soft); font-size: 0.82rem; line-height: 1.62; letter-spacing: 0.01em; white-space: pre-wrap; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 4; transition: color var(--motion-fast) var(--motion-ease-out); }
+.annotation-card-body--editing { background: transparent; }
+.annotation-card-text { display: -webkit-box; width: 100%; overflow: hidden; color: var(--ink); font-size: 0.8125rem; line-height: 1.58; letter-spacing: 0.01em; white-space: pre-wrap; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 5; transition: color var(--motion-fast) var(--motion-ease-out); }
 .annotation-card-body--read:hover .annotation-card-text { color: var(--ink); }
-.annotation-card-delete { position: absolute; z-index: 3; top: 4px; right: 4px; width: 24px; height: 24px; border-radius: 6px; opacity: 0.4; }
-.annotation-card:hover .annotation-card-delete, .annotation-card:focus-within .annotation-card-delete, .annotation-card-delete:focus-visible { opacity: 0.9; }
-.annotation-card-delete:disabled { display: none; }
-@media (hover: none) { .annotation-card-delete { opacity: 0.66; } }
-.annotation-note-editor-field { display: block; width: 100%; min-height: 1.62em; max-height: 220px; box-sizing: border-box; padding: 0; overflow-y: auto; border: 0; border-radius: 0; outline: 0; resize: none; background: transparent; color: var(--ink); font: inherit; font-size: 0.82rem; line-height: 1.62; letter-spacing: 0.01em; caret-color: var(--accent); }
+.annotation-note-editor-field { display: block; width: 100%; min-height: 1.58em; max-height: 160px; box-sizing: border-box; padding: 0; overflow-y: auto; border: 0; border-radius: 0; outline: 0; resize: none; background: transparent; color: var(--ink); font: inherit; font-size: 0.8125rem; line-height: 1.58; letter-spacing: 0.01em; caret-color: var(--accent); touch-action: manipulation; }
 .annotation-note-editor-field:focus { box-shadow: none; }
 .annotation-note-editor-field::placeholder { color: var(--prose-placeholder); }
-.annotation-composer { position: fixed; z-index: 260; width: 304px; max-width: calc(100vw - 24px); overflow: hidden; border: 1px solid var(--border-soft); border-radius: 11px; background: var(--note-annotation-surface); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); box-shadow: var(--shadow-md), var(--shadow-2xs); animation: annotation-pop-in var(--motion-panel) var(--motion-ease-out) both; transition: border-color var(--motion-fast) var(--motion-ease-out), box-shadow var(--motion-fast) var(--motion-ease-out); }
-.annotation-composer::before { position: absolute; z-index: 2; top: 0; bottom: 0; left: 0; width: 2px; background: var(--accent); content: ""; opacity: 0.42; pointer-events: none; }
-.annotation-composer:focus-within { border-color: var(--accent-border); box-shadow: var(--shadow-md), 0 0 0 3px var(--accent-soft); }
-.annotation-composer .annotation-card-body { padding: 9px 13px 11px; }
-.annotation-composer .annotation-note-editor-field { min-height: 52px; }
-.annotation-composer-submit { position: absolute; z-index: 3; top: 4px; right: 4px; width: 24px; height: 24px; border-radius: 6px; color: var(--accent); opacity: 0.78; }
-.annotation-composer-submit:hover:not(:disabled), .annotation-composer-submit:focus-visible:not(:disabled) { opacity: 1; }
-.annotation-composer-submit:disabled { opacity: 0.24; cursor: default; }
+.annotation-card.is-composer { position: fixed; z-index: 260; width: 276px; max-width: calc(100vw - 24px); box-shadow: var(--shadow-md), var(--shadow-xs); }
 .annotation-compact-anchor { position: fixed; z-index: 242; width: 276px; }
 .annotation-sheet-backdrop { position: fixed; inset: 0; z-index: 240; background: var(--mobile-backdrop); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); animation: annotation-fade-in var(--motion-fast) var(--motion-ease-out) both; }
 .annotation-composer--sheet, .annotation-compact-anchor--sheet { position: fixed; z-index: 245; right: max(12px, env(safe-area-inset-right)); bottom: max(12px, env(safe-area-inset-bottom)); left: max(12px, env(safe-area-inset-left)); width: auto; max-width: none; }
 .annotation-compact-anchor--sheet { z-index: 246; }
 .annotation-compact-anchor--sheet .annotation-card--compact { width: auto; max-width: none; animation-name: annotation-sheet-in; }
-.annotation-composer--sheet { animation-name: annotation-sheet-in; }
-@keyframes annotation-pop-in { from { opacity: 0; transform: translateY(4px) scale(0.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
+.annotation-card.is-composer.annotation-composer--sheet { width: auto; max-width: none; animation-name: annotation-sheet-in; }
+@keyframes annotation-pop-in { from { opacity: 0; transform: translateY(3px) scale(0.99); } to { opacity: 1; transform: translateY(0) scale(1); } }
 @keyframes annotation-sheet-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes annotation-fade-in { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
-  .annotation-card, .annotation-composer, .annotation-sheet-backdrop { animation: none !important; }
-  .annotation-pin, .annotation-icon-button, .annotation-card, .annotation-card-body, .annotation-card-text, .annotation-card-delete, .note-prose .note-highlight { transition: none; }
+  .annotation-card, .annotation-sheet-backdrop { animation: none !important; }
+  .annotation-badge, .annotation-icon-button, .annotation-card, .annotation-card-body, .annotation-card-text, .note-prose .note-highlight { transition: none; }
 }
 .note-prose .editor-search-match { border-radius: 0.22em; background: var(--search-match); color: inherit; box-shadow: 0 0.08em 0 var(--search-match-shadow); }
 .note-prose .editor-search-match--active { background: var(--accent); color: var(--accent-contrast); box-shadow: 0 0 0 2px var(--focus-soft); }
@@ -3560,6 +3606,23 @@ dialog::backdrop {
   --card-document-end-space: 32px;
   width: min(var(--card-document-max), calc(100% - var(--card-outline-gutter) - var(--card-document-end-space)));
   margin-inline: max(var(--card-outline-gutter), calc((100% - var(--card-document-max)) / 2)) var(--card-document-end-space);
+}
+
+/* 卡片视图下右侧批注导轨常驻展示时的排版空间预留 */
+.app-shell.layout-cards .editor-panel:has(.annotation-layer--rail) .editor-document {
+  --card-document-max: 820px;
+  --card-rail-gutter: 268px;
+  width: min(var(--card-document-max), calc(100% - var(--card-rail-gutter) - 48px));
+  margin-inline: max(48px, calc((100% - var(--card-document-max) - var(--card-rail-gutter)) / 2)) max(var(--card-rail-gutter), 48px);
+}
+
+/* 同时开启卡片大纲与右侧批注导轨时的空间协调 */
+.app-shell.layout-cards .editor-panel:has(.editor-floating-outline):has(.annotation-layer--rail) .editor-document {
+  --card-document-max: 760px;
+  --card-outline-gutter: 248px;
+  --card-rail-gutter: 268px;
+  width: min(var(--card-document-max), calc(100% - var(--card-outline-gutter) - var(--card-rail-gutter)));
+  margin-inline: max(var(--card-outline-gutter), 24px) max(var(--card-rail-gutter), 24px);
 }
 .editor-floating-outline .note-outline-panel {
   background: transparent;
