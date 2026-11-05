@@ -49,7 +49,9 @@ const processes = [
 ];
 
 let shutdownPromise: Promise<void> | null = null;
+let shuttingDown = false;
 const terminate = () => {
+  shuttingDown = true;
   if (shutdownPromise) return shutdownPromise;
   shutdownPromise = Promise.all(
     processes.map(async (child) => {
@@ -69,9 +71,11 @@ const terminate = () => {
 };
 
 process.once("SIGINT", () => {
+  shuttingDown = true;
   void terminate();
 });
 process.once("SIGTERM", () => {
+  shuttingDown = true;
   void terminate();
 });
 const exited = await Promise.race(
@@ -79,7 +83,9 @@ const exited = await Promise.race(
     proc.exited.then((code) => ({ name: index === 0 ? "dev:client" : "server", code })),
   ),
 );
-if (exited.code !== null && exited.code !== 0) {
+const isExpectedExit =
+  shuttingDown || exited.code === 0 || exited.code === 130 || exited.code === 143;
+if (!isExpectedExit && exited.code !== null) {
   console.error(`[dev] ${exited.name} 异常退出 (退出码: ${exited.code})`);
 }
 await terminate();
