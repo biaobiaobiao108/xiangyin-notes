@@ -216,7 +216,7 @@ function AnnotationComposer({
           </button>
         </div>
         {state.quote && (
-          <div className="annotation-card-quote" title={state.quote}>
+          <div className="annotation-card-quote">
             <span>{state.quote}</span>
           </div>
         )}
@@ -349,7 +349,7 @@ function AnnotationCard({
         )}
       </div>
       {annotation.quote && (
-        <div className="annotation-card-quote" title={annotation.quote}>
+        <div className="annotation-card-quote">
           <span>{annotation.quote}</span>
         </div>
       )}
@@ -517,7 +517,7 @@ function AnnotationLayer({
 
     for (const annotation of annotations) {
       const mark = editor.view.dom.querySelector<HTMLElement>(
-        `.note-annotation[data-annotation-id="${annotation.id}"]`,
+        `.note-annotation[data-annotation-id="${CSS.escape(annotation.id)}"]`,
       );
       if (!mark) continue;
       const rect = mark.getBoundingClientRect();
@@ -591,7 +591,7 @@ function AnnotationLayer({
     let frame = requestAnimationFrame(() => {
       frame = requestAnimationFrame(() => {
         const mark = editor.view.dom.querySelector<HTMLElement>(
-          `.note-annotation[data-annotation-id="${expandedId}"]`,
+          `.note-annotation[data-annotation-id="${CSS.escape(expandedId)}"]`,
         );
         if (!mark) return;
         const rect = mark.getBoundingClientRect();

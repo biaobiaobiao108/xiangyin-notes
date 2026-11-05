@@ -66,7 +66,24 @@ function tokenizeInlineHtmlTag(
   if (!new RegExp(`^${tag}(?:\\s|$)`).test(opening)) return undefined;
   if (requiredAttribute && !new RegExp(`\\b${requiredAttribute}="`).test(opening)) return undefined;
   const closing = `</${tag}>`;
-  const closingStart = source.indexOf(closing, openingEnd + 1);
+  let closingStart = -1;
+  for (let index = openingEnd + 1; index < source.length; index++) {
+    if (source[index] === "`") {
+      const run = /^`+/.exec(source.slice(index))![0];
+      const runs = /`+/g;
+      runs.lastIndex = index + run.length;
+      let end: RegExpExecArray | null;
+      while ((end = runs.exec(source)) && end[0].length !== run.length) {}
+      if (end) {
+        index = end.index + run.length - 1;
+        continue;
+      }
+    }
+    if (source.startsWith(closing, index)) {
+      closingStart = index;
+      break;
+    }
+  }
   if (closingStart === -1) return undefined;
   const raw = source.slice(0, closingStart + closing.length);
   const inner = source.slice(openingEnd + 1, closingStart);

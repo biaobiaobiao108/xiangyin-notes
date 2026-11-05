@@ -27,6 +27,27 @@ function serialized(editor: Editor) {
 }
 
 describe("colored highlights", () => {
+  test("preserves closing tags inside inline code when reopening highlights and annotations", () => {
+    for (const source of [
+      '<mark data-color="sky">`</mark>` 后文</mark>',
+      '<span data-annotation-id="a" data-note="说明">`</span>` 后文</span>',
+    ]) {
+      const editor = createEditor(source);
+      try {
+        expect(editor.state.doc.textContent).toBe(
+          source.includes("</mark>") ? "</mark> 后文" : "</span> 后文",
+        );
+        const reopened = createEditor(serialized(editor));
+        try {
+          expect(reopened.state.doc.toJSON()).toEqual(editor.state.doc.toJSON());
+        } finally {
+          reopened.destroy();
+        }
+      } finally {
+        editor.destroy();
+      }
+    }
+  });
   test("round-trips all six preset colors", () => {
     const source = [
       '<mark data-color="amber">琥珀</mark>',
