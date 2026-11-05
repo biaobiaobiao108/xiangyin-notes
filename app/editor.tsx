@@ -1855,7 +1855,7 @@ export function NoteEditor({
   });
   return (
     <section
-      className={`editor-panel ${deferredLoading ? "is-loading" : ""} ${focusMode ? "is-focus-mode" : ""} ${autoReadingMode ? "is-auto-reading-mode" : ""} ${isMobileViewport ? "is-mobile-editor" : ""} ${isActivePane ? "is-active-pane" : ""} ${annotations.railVisible ? "has-annotation-rail" : ""}`}
+      className={`editor-panel ${deferredLoading ? "is-loading" : ""} ${focusMode ? "is-focus-mode" : ""} ${autoReadingMode ? "is-auto-reading-mode" : ""} ${isMobileViewport ? "is-mobile-editor" : ""} ${isActivePane ? "is-active-pane" : ""}`}
       aria-label="笔记编辑器"
       aria-busy={isLoading || deferredLoading || trashBusy}
       onPointerDown={onActivatePane}

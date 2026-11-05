@@ -117,7 +117,6 @@
   --note-highlight-sand: light-dark(#eadfcf, rgba(184, 158, 120, 0.24));
   --note-annotation-line: light-dark(rgba(54, 94, 78, 0.42), rgba(122, 162, 247, 0.48));
   --note-annotation-surface: light-dark(rgba(250, 249, 246, 0.96), rgba(36, 40, 59, 0.96));
-  --annotation-rail-space: 228px;
   --shadow-2xs: light-dark(0 1px 2px rgba(32, 38, 33, 0.04), 0 1px 2px rgba(0, 0, 0, 0.2));
   --shadow-xs: light-dark(0 2px 5px rgba(32, 38, 33, 0.05), 0 2px 6px rgba(0, 0, 0, 0.25));
   --shadow-sm: light-dark(0 4px 12px rgba(32, 38, 33, 0.06), 0 4px 14px rgba(0, 0, 0, 0.3));
@@ -529,8 +528,8 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .context-menu-swatch-row { display: flex; min-height: 38px; align-items: center; gap: 10px; padding: 5px 10px; color: var(--ink); font-size: 0.8125rem; }
 .context-menu-swatch-row > svg, .context-menu-swatch-row > .context-menu-icon { flex: none; width: 16px; color: var(--muted); }
 .context-menu-swatch-label { flex: none; }
-.context-menu-swatch-options { display: flex; min-width: 0; flex: 1; align-items: center; justify-content: flex-end; gap: 5px; }
-.context-menu-swatch { width: 23px; height: 23px; padding: 0; border: 1px solid light-dark(rgba(32, 38, 33, 0.12), rgba(255, 255, 255, 0.14)); border-radius: 7px; box-shadow: inset 0 0 0 1px light-dark(rgba(255, 255, 255, 0.32), rgba(0, 0, 0, 0.08)); cursor: pointer; transition: transform var(--motion-fast) var(--motion-ease-out), box-shadow var(--motion-fast) var(--motion-ease-out); }
+.context-menu-swatch-options { display: flex; min-width: 0; flex: 1; align-items: center; justify-content: flex-end; gap: 4px; }
+.context-menu-swatch { width: 21px; height: 21px; flex: none; padding: 0; border: 1px solid light-dark(rgba(32, 38, 33, 0.12), rgba(255, 255, 255, 0.14)); border-radius: 6px; box-shadow: inset 0 0 0 1px light-dark(rgba(255, 255, 255, 0.32), rgba(0, 0, 0, 0.08)); cursor: pointer; transition: transform var(--motion-fast) var(--motion-ease-out), box-shadow var(--motion-fast) var(--motion-ease-out); }
 .context-menu-swatch:hover, .context-menu-swatch:focus-visible { transform: translateY(-1px); box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--focus-ring); }
 .context-menu-swatch.is-active { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent); }
 .context-menu-swatch:disabled { opacity: 0.4; cursor: default; }
@@ -1011,13 +1010,6 @@ button.save-status:hover { text-decoration: underline; }
   margin: 0 auto;
   padding: 72px 0 128px;
 }
-.editor-panel.has-annotation-rail .editor-document {
-  --annotation-copy-width: min(820px, calc(100% - 96px - var(--annotation-rail-space)));
-  width: var(--annotation-copy-width);
-  margin-inline:
-    max(32px, calc((100% - var(--annotation-rail-space) - var(--annotation-copy-width)) / 2))
-    var(--annotation-rail-space);
-}
 .editor-scroll.is-typewriter-mode .editor-document,
 .editor-scroll.is-auto-reading .editor-document {
   padding-bottom: max(50vh, 260px);
@@ -1065,8 +1057,8 @@ button.save-status:hover { text-decoration: underline; }
 .note-image-resize-handle:focus-visible::after { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--focus-ring), 0 2px 8px rgba(39, 47, 41, 0.22); }
 .note-image-loading { display: grid; width: min(var(--image-display-width), 100%); min-height: 120px; place-items: center; border: 1px dashed var(--border-strong); border-radius: 10px; background: var(--surface-muted); color: var(--muted); font-size: 0.78rem; }
 .note-prose .note-highlight {
-  padding: 0.02em 0.1em;
-  border-radius: 0.22em;
+  padding: 0;
+  border-radius: 0.18em;
   background-color: var(--note-highlight-amber);
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
@@ -1089,41 +1081,43 @@ button.save-status:hover { text-decoration: underline; }
   .note-prose .note-annotation:hover { text-decoration-color: var(--accent); }
 }
 .annotation-layer { position: absolute; inset: 0; z-index: 4; overflow: visible; pointer-events: none; }
-.annotation-pin { position: absolute; display: grid; width: 24px; height: 24px; place-items: center; padding: 0; border: 0; background: transparent; visibility: hidden; pointer-events: auto; cursor: pointer; opacity: 0.7; transition: opacity var(--motion-fast) var(--motion-ease-out), transform var(--motion-fast) var(--motion-ease-out); }
-.annotation-pin > span { display: block; width: 7px; height: 7px; border: 1px solid var(--surface); border-radius: 999px; background: var(--accent); box-shadow: 0 0 0 1px var(--note-annotation-line); }
-.annotation-pin:hover, .annotation-pin:focus-visible { opacity: 1; transform: scale(1.08); }
+.annotation-pin { position: absolute; display: grid; width: 18px; height: 18px; place-items: center; padding: 0; border: 0; border-radius: 5px; background: transparent; visibility: hidden; pointer-events: auto; cursor: pointer; opacity: 0.72; transition: opacity var(--motion-fast) var(--motion-ease-out), transform var(--motion-fast) var(--motion-ease-out); }
+.annotation-pin > span { display: block; width: 6px; height: 6px; border: 1.5px solid var(--note-annotation-surface); border-radius: 999px; background: var(--accent); box-shadow: 0 0 0 1px var(--note-annotation-line), 0 1px 2px rgba(39, 47, 41, 0.14); }
+.annotation-pin:hover, .annotation-pin:focus-visible { opacity: 1; transform: translateY(-1px); }
 .annotation-pin:focus-visible > span { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--focus-ring); }
-.annotation-bubble { position: absolute; z-index: 5; width: 208px; border: 1px solid var(--border-soft); border-radius: 12px; background: var(--note-annotation-surface); box-shadow: 0 8px 22px rgba(39, 47, 41, 0.08), 0 1px 3px rgba(39, 47, 41, 0.04); visibility: hidden; pointer-events: auto; overflow: hidden; animation: annotation-pop-in var(--motion-panel) var(--motion-ease-out) both; }
-.annotation-bubble::before { position: absolute; top: 23px; left: -12px; width: 10px; height: 1px; background: var(--note-annotation-line); content: ""; }
-.annotation-bubble-body { display: grid; width: 100%; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 3px; padding: 10px 10px 7px 11px; border: 0; background: transparent; color: var(--ink-soft); text-align: left; cursor: pointer; }
-.annotation-bubble-body:focus-visible { box-shadow: inset 0 0 0 2px var(--focus-ring); }
-.annotation-bubble-note { display: -webkit-box; min-width: 0; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 4; white-space: pre-wrap; font-size: 0.78rem; line-height: 1.55; letter-spacing: 0.01em; }
-.annotation-bubble-chevron { margin-top: 3px; color: var(--soft-muted); transition: transform var(--motion-fast) var(--motion-ease-out); }
+.annotation-bubble { position: absolute; z-index: 5; width: 208px; border: 1px solid var(--border-soft); border-radius: 12px; background: var(--note-annotation-surface); box-shadow: 0 8px 22px rgba(39, 47, 41, 0.08), 0 1px 3px rgba(39, 47, 41, 0.04); visibility: hidden; pointer-events: auto; overflow: hidden; transition: top var(--motion-panel) var(--motion-ease-out); animation: annotation-pop-in var(--motion-panel) var(--motion-ease-out) both; }
+.annotation-bubble.is-expanded { border-color: var(--accent-border); }
+.annotation-bubble-main { display: flex; min-width: 0; align-items: flex-start; gap: 2px; padding: 8px 7px 5px 10px; }
+.annotation-bubble-scroll { position: relative; min-width: 0; flex: 1; max-height: 4.93rem; padding-right: 2px; overflow: hidden; transition: max-height var(--motion-panel) var(--motion-ease-out); }
+.annotation-bubble.is-expanded .annotation-bubble-scroll { max-height: 238px; overflow-y: auto; }
+.annotation-bubble-scroll p { margin: 0; white-space: pre-wrap; font-size: 0.78rem; line-height: 1.58; color: var(--ink-soft); letter-spacing: 0.01em; }
+.annotation-bubble-toggle { display: grid; width: 22px; height: 22px; flex: none; place-items: center; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--soft-muted); cursor: pointer; transition: background-color var(--motion-fast) var(--motion-ease-out), color var(--motion-fast) var(--motion-ease-out); }
+.annotation-bubble-toggle:hover, .annotation-bubble-toggle:focus-visible { background: var(--surface-subtle); color: var(--ink); }
+.annotation-bubble-chevron { transition: transform var(--motion-fast) var(--motion-ease-out); }
 .annotation-bubble.is-expanded .annotation-bubble-chevron { transform: rotate(180deg); }
-.annotation-bubble-scroll { max-height: 238px; padding: 0 13px 9px 11px; overflow-y: auto; }
-.annotation-bubble-scroll p { margin: 0; white-space: pre-wrap; font-size: 0.78rem; line-height: 1.58; color: var(--quiet-ink); }
-.annotation-bubble-actions { display: flex; justify-content: flex-end; gap: 1px; padding: 0 5px 5px; opacity: 0; transition: opacity var(--motion-fast) var(--motion-ease-out); }
-.annotation-bubble:hover .annotation-bubble-actions, .annotation-bubble:focus-within .annotation-bubble-actions { opacity: 1; }
+.annotation-bubble-actions { display: flex; justify-content: flex-end; gap: 1px; padding: 0 5px 5px; opacity: 0; pointer-events: none; transition: opacity var(--motion-fast) var(--motion-ease-out); }
+.annotation-bubble:hover .annotation-bubble-actions, .annotation-bubble:focus-within .annotation-bubble-actions { opacity: 1; pointer-events: auto; }
 .annotation-icon-button { display: grid; width: 26px; height: 26px; place-items: center; padding: 0; border: 0; border-radius: 7px; background: transparent; color: var(--muted); cursor: pointer; transition: background-color var(--motion-fast) var(--motion-ease-out), color var(--motion-fast) var(--motion-ease-out); }
 .annotation-icon-button:hover, .annotation-icon-button:focus-visible { background: var(--accent-soft); color: var(--accent-dark); }
 .annotation-icon-button.is-danger:hover, .annotation-icon-button.is-danger:focus-visible { background: var(--danger-soft); color: var(--danger); }
-.annotation-composer { position: fixed; z-index: 260; width: 320px; padding: 11px; border: 1px solid var(--border-strong); border-radius: 13px; background: var(--surface-glass-strong); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); box-shadow: var(--shadow-float); animation: annotation-pop-in var(--motion-panel) var(--motion-ease-out) both; }
-.annotation-composer-heading { display: flex; align-items: center; gap: 7px; padding: 0 1px 9px; color: var(--muted); font-size: 0.76rem; font-weight: 600; }
+.annotation-composer { position: fixed; z-index: 260; width: 304px; padding: 9px 11px 8px; border: 1px solid var(--border-soft); border-radius: 12px; background: var(--surface-glass-strong); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); box-shadow: 0 14px 34px rgba(32, 38, 33, 0.12), 0 2px 7px rgba(32, 38, 33, 0.05); animation: annotation-pop-in var(--motion-panel) var(--motion-ease-out) both; }
+.annotation-composer:focus-within { border-color: var(--accent-border); }
+.annotation-composer-heading { display: flex; align-items: center; gap: 6px; padding: 0 1px 4px; color: var(--soft-muted); font-size: 0.71rem; font-weight: 500; }
 .annotation-composer-heading > span { flex: 1; }
-.annotation-composer-field { display: block; width: 100%; min-height: 92px; max-height: 240px; box-sizing: border-box; padding: 9px 10px; border: 1px solid var(--border); border-radius: 8px; outline: 0; resize: vertical; background: var(--surface); color: var(--ink); font: inherit; font-size: 0.82rem; line-height: 1.58; }
-.annotation-composer-field:focus { border-color: var(--accent-border); box-shadow: 0 0 0 2px var(--focus-soft); }
+.annotation-composer-field { display: block; width: 100%; min-height: 70px; max-height: 220px; box-sizing: border-box; padding: 3px 1px 4px; border: 0; border-radius: 0; outline: 0; resize: none; background: transparent; color: var(--ink); font: inherit; font-size: 0.84rem; line-height: 1.6; }
+.annotation-composer-field:focus { box-shadow: none; }
 .annotation-composer-field::placeholder { color: var(--prose-placeholder); }
-.annotation-composer-actions, .annotation-compact-actions { display: flex; align-items: center; gap: 5px; padding-top: 9px; }
+.annotation-composer-actions, .annotation-compact-actions { display: flex; align-items: center; gap: 4px; margin-top: 2px; padding-top: 6px; border-top: 1px solid var(--border-soft); }
 .annotation-composer-spacer { flex: 1; }
-.annotation-text-button, .annotation-primary-button { display: inline-flex; min-height: 30px; align-items: center; justify-content: center; gap: 5px; padding: 0 9px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font: inherit; font-size: 0.76rem; cursor: pointer; }
+.annotation-text-button, .annotation-primary-button { display: inline-flex; min-height: 28px; align-items: center; justify-content: center; gap: 5px; padding: 0 8px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font: inherit; font-size: 0.75rem; cursor: pointer; }
 .annotation-text-button:hover, .annotation-text-button:focus-visible { background: var(--surface-subtle); color: var(--ink); }
 .annotation-text-button.is-danger { color: var(--danger); }
 .annotation-text-button.is-danger:hover, .annotation-text-button.is-danger:focus-visible { background: var(--danger-soft); }
 .annotation-primary-button { background: var(--accent); color: var(--accent-contrast); font-weight: 600; }
 .annotation-primary-button:hover:not(:disabled), .annotation-primary-button:focus-visible:not(:disabled) { background: var(--accent-dark); }
 .annotation-primary-button:disabled { opacity: 0.42; cursor: default; }
-.annotation-compact-card { position: fixed; z-index: 242; width: 300px; max-height: min(70dvh, 480px); box-sizing: border-box; padding: 12px; border: 1px solid var(--border-strong); border-radius: 13px; background: var(--surface-glass-strong); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); box-shadow: var(--shadow-float); animation: annotation-pop-in var(--motion-panel) var(--motion-ease-out) both; }
-.annotation-compact-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 0.76rem; font-weight: 600; }
+.annotation-compact-card { position: fixed; z-index: 242; width: 296px; max-height: min(70dvh, 480px); box-sizing: border-box; padding: 11px 12px 9px; border: 1px solid var(--border-soft); border-radius: 12px; background: var(--surface-glass-strong); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); box-shadow: 0 14px 34px rgba(32, 38, 33, 0.12), 0 2px 7px rgba(32, 38, 33, 0.05); animation: annotation-pop-in var(--motion-panel) var(--motion-ease-out) both; }
+.annotation-compact-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--soft-muted); font-size: 0.71rem; font-weight: 500; }
 .annotation-compact-scroll { position: relative; max-height: min(45dvh, 300px); margin-top: 8px; overflow-y: auto; }
 .annotation-compact-note { margin: 0; padding-right: 4px; white-space: pre-wrap; color: var(--ink-soft); font-size: 0.84rem; line-height: 1.62; }
 .annotation-sheet-backdrop { position: fixed; inset: 0; z-index: 240; background: var(--mobile-backdrop); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); animation: annotation-fade-in var(--motion-fast) var(--motion-ease-out) both; }
@@ -1134,7 +1128,7 @@ button.save-status:hover { text-decoration: underline; }
 @keyframes annotation-fade-in { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
   .annotation-bubble, .annotation-composer, .annotation-compact-card, .annotation-sheet-backdrop { animation: none !important; }
-  .annotation-pin, .annotation-icon-button, .annotation-bubble, .note-prose .note-highlight { transition: none; }
+  .annotation-pin, .annotation-icon-button, .annotation-bubble, .annotation-bubble-scroll, .note-prose .note-highlight { transition: none; }
 }
 .note-prose .editor-search-match { border-radius: 0.22em; background: var(--search-match); color: inherit; box-shadow: 0 0.08em 0 var(--search-match-shadow); }
 .note-prose .editor-search-match--active { background: var(--accent); color: var(--accent-contrast); box-shadow: 0 0 0 2px var(--focus-soft); }
@@ -3566,16 +3560,6 @@ dialog::backdrop {
   width: min(var(--card-document-max), calc(100% - var(--card-outline-gutter) - var(--card-document-end-space)));
   margin-inline: max(var(--card-outline-gutter), calc((100% - var(--card-document-max)) / 2)) var(--card-document-end-space);
 }
-.app-shell .editor-panel.has-annotation-rail:has(.editor-floating-outline) .editor-document {
-  width: min(
-    var(--card-document-max),
-    calc(100% - var(--card-outline-gutter) - var(--card-document-end-space) - var(--annotation-rail-space))
-  );
-  margin-inline:
-    max(var(--card-outline-gutter), calc((100% - var(--card-document-max) - var(--annotation-rail-space)) / 2))
-    calc(var(--card-document-end-space) + var(--annotation-rail-space));
-}
-
 .editor-floating-outline .note-outline-panel {
   background: transparent;
   border: none;

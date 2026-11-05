@@ -3,6 +3,7 @@ import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { createMarkdownExtension } from "../app/editor/markdown-config";
 import {
+  annotationIdsInRange,
   collectAnnotations,
   NoteAnnotation,
   NoteHighlight,
@@ -97,6 +98,29 @@ describe("annotations", () => {
       expect(serialized(editor)).toBe(source);
       const annotation = collectAnnotations(editor.state.doc)[0];
       expect(annotation?.note).toBe("说明");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  test("reports every annotation touched by a selection", () => {
+    const source =
+      '<span data-annotation-id="a1" data-note="甲">第一段</span><span data-annotation-id="a2" data-note="乙">第二段</span>';
+    const editor = createEditor(source);
+    try {
+      const positions: Array<{ id: string; from: number; to: number }> = [];
+      editor.state.doc.descendants((node, position) => {
+        if (!node.isText) return;
+        const mark = node.marks.find((candidate) => candidate.type.name === "noteAnnotation");
+        if (mark?.attrs.id) positions.push({ id: mark.attrs.id, from: position, to: position + 1 });
+      });
+      const [first, second] = positions;
+      expect(annotationIdsInRange(editor.state.doc, first!.from, first!.to)).toEqual(["a1"]);
+      expect(annotationIdsInRange(editor.state.doc, second!.from, second!.to)).toEqual(["a2"]);
+      expect(annotationIdsInRange(editor.state.doc, first!.from, second!.to).sort()).toEqual([
+        "a1",
+        "a2",
+      ]);
     } finally {
       editor.destroy();
     }
