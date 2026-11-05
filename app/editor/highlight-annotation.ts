@@ -1,8 +1,5 @@
 import { Mark, mergeAttributes, type MarkdownToken } from "@tiptap/core";
-import { Extension } from "@tiptap/core";
 import type { DOMOutputSpec, Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { Plugin, PluginKey } from "@tiptap/pm/state";
-import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { createUuid } from "../uuid";
 
 export const HIGHLIGHT_COLORS = ["amber", "sage", "sky", "rose", "lilac", "sand"] as const;
@@ -293,71 +290,3 @@ export function collectAnnotations(doc: ProseMirrorNode): AnnotationRecord[] {
         .slice(0, 120),
     }));
 }
-
-export const annotationBadgePluginKey = new PluginKey<DecorationSet>("annotationBadges");
-
-export function createAnnotationBadgeDecorations(doc: ProseMirrorNode) {
-  const annotations = collectAnnotations(doc);
-  if (annotations.length === 0) return DecorationSet.empty;
-
-  const decorations: Decoration[] = [];
-  for (let index = 0; index < annotations.length; index += 1) {
-    const annotation = annotations[index]!;
-    decorations.push(
-      Decoration.widget(
-        annotation.to,
-        () => {
-          if (typeof document === "undefined") return null as unknown as HTMLElement;
-          const badge = document.createElement("span");
-          badge.className = "annotation-badge";
-          badge.dataset.annotationId = annotation.id;
-          badge.setAttribute("role", "button");
-          badge.tabIndex = 0;
-          badge.contentEditable = "false";
-          badge.setAttribute(
-            "aria-label",
-            `查看批注 ${index + 1}：${annotation.note.slice(0, 32)}`,
-          );
-          const num = document.createElement("span");
-          num.textContent = String(index + 1);
-          badge.appendChild(num);
-          return badge;
-        },
-        {
-          side: -1,
-          key: `annotation-badge-${annotation.id}`,
-          stopEvent: (event) => {
-            return (
-              event.type === "mousedown" ||
-              event.type === "pointerdown" ||
-              event.type === "click" ||
-              event.type === "dblclick"
-            );
-          },
-        },
-      ),
-    );
-  }
-  return DecorationSet.create(doc, decorations);
-}
-
-export const AnnotationBadgeExtension = Extension.create({
-  name: "annotationBadges",
-  addProseMirrorPlugins() {
-    return [
-      new Plugin<DecorationSet>({
-        key: annotationBadgePluginKey,
-        state: {
-          init: (_config, state) => createAnnotationBadgeDecorations(state.doc),
-          apply: (transaction, previous) => {
-            if (!transaction.docChanged) return previous;
-            return createAnnotationBadgeDecorations(transaction.doc);
-          },
-        },
-        props: {
-          decorations: (state) => annotationBadgePluginKey.getState(state) ?? DecorationSet.empty,
-        },
-      }),
-    ];
-  },
-});

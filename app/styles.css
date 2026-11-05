@@ -1072,75 +1072,39 @@ button.save-status:hover { text-decoration: underline; }
 .note-prose .note-annotation {
   cursor: pointer;
   text-decoration-line: underline;
-  text-decoration-style: dotted;
+  text-decoration-style: dashed;
   text-decoration-thickness: 1.5px;
   text-decoration-color: var(--note-annotation-line);
-  text-underline-offset: 0.26em;
-  background-color: color-mix(in srgb, var(--accent) 7%, transparent);
-  border-radius: 2px;
-  padding-inline: 1px;
-  transition: background-color var(--motion-fast) var(--motion-ease-out), text-decoration-color var(--motion-fast) var(--motion-ease-out);
+  text-underline-offset: 0.28em;
+  background-color: color-mix(in srgb, var(--accent) 9%, transparent);
+  border-radius: 2.5px;
+  padding-inline: 1.5px;
+  transition: background-color var(--motion-fast) var(--motion-ease-out),
+              text-decoration-color var(--motion-fast) var(--motion-ease-out),
+              box-shadow var(--motion-fast) var(--motion-ease-out);
 }
 @media (hover: hover) {
   .note-prose .note-annotation:hover {
-    background-color: color-mix(in srgb, var(--accent) 14%, transparent);
+    background-color: color-mix(in srgb, var(--accent) 16%, transparent);
     text-decoration-color: var(--accent);
   }
 }
-.note-prose .note-annotation.is-active {
-  background-color: color-mix(in srgb, var(--accent) 18%, transparent);
+.note-prose .note-annotation.is-hovered {
+  background-color: color-mix(in srgb, var(--accent) 16%, transparent);
   text-decoration-color: var(--accent);
 }
+.note-prose .note-annotation.is-active {
+  background-color: color-mix(in srgb, var(--accent) 22%, transparent);
+  text-decoration-style: solid;
+  text-decoration-color: var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent);
+}
 .annotation-layer { position: absolute; inset: 0; z-index: 4; overflow: visible; pointer-events: none; }
-.annotation-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  vertical-align: 0.35em;
-  min-width: 14px;
-  height: 14px;
-  padding: 0 3px;
-  margin-inline: 2px 3px;
-  box-sizing: border-box;
-  border: 1px solid var(--border-soft);
-  border-radius: 3.5px;
-  background: var(--surface);
-  color: var(--ink-soft);
-  font-size: 9.5px;
-  font-weight: 600;
-  line-height: 1;
-  font-family: inherit;
-  font-variant-numeric: tabular-nums;
-  cursor: pointer;
-  pointer-events: auto;
-  user-select: none;
-  -webkit-user-select: none;
-  box-shadow: var(--shadow-2xs);
-  transition: background-color var(--motion-fast) var(--motion-ease-out),
-              border-color var(--motion-fast) var(--motion-ease-out),
-              color var(--motion-fast) var(--motion-ease-out),
-              box-shadow var(--motion-fast) var(--motion-ease-out),
-              transform var(--motion-fast) var(--motion-ease-out);
-}
-.annotation-badge:hover, .annotation-badge:focus-visible {
-  background: var(--accent-soft);
-  border-color: var(--accent-border);
-  color: var(--accent-dark);
-}
-.annotation-badge:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 1.5px var(--surface), 0 0 0 3px var(--focus-ring);
-}
-.annotation-badge.is-active, .annotation-badge.is-editing {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-contrast);
-  box-shadow: 0 0 0 1.5px var(--surface), 0 0 0 3px var(--accent-ring);
-}
 .annotation-icon-button { display: grid; width: 22px; height: 22px; place-items: center; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--muted); cursor: pointer; transition: background-color var(--motion-fast) var(--motion-ease-out), color var(--motion-fast) var(--motion-ease-out); }
 .annotation-icon-button:hover, .annotation-icon-button:focus-visible { background: var(--hover-overlay); color: var(--ink); }
 .annotation-icon-button.is-danger:hover, .annotation-icon-button.is-danger:focus-visible { background: var(--danger-soft); color: var(--danger); }
 .annotation-card { position: relative; box-sizing: border-box; overflow: hidden; border: 1px solid var(--border-soft); border-radius: 9px; background: var(--surface); box-shadow: var(--shadow-xs), var(--shadow-2xs); animation: annotation-pop-in var(--motion-panel) var(--motion-ease-out) both; transition: border-color var(--motion-fast) var(--motion-ease-out), box-shadow var(--motion-fast) var(--motion-ease-out), background-color var(--motion-fast) var(--motion-ease-out); }
+.annotation-card.is-hovered { border-color: var(--accent-border); }
 .annotation-card.is-active { border-color: var(--accent-border); box-shadow: var(--shadow-xs), 0 0 0 2px var(--accent-soft); }
 .annotation-card.is-editing { border-color: var(--accent-border); box-shadow: var(--shadow-xs), 0 0 0 2px var(--accent-soft); }
 .annotation-card-header { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px 0 10px; font-size: 0.72rem; color: var(--muted); }
@@ -1175,7 +1139,7 @@ button.save-status:hover { text-decoration: underline; }
 @keyframes annotation-fade-in { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
   .annotation-card, .annotation-sheet-backdrop { animation: none !important; }
-  .annotation-badge, .annotation-icon-button, .annotation-card, .annotation-card-body, .annotation-card-text, .note-prose .note-highlight { transition: none; }
+  .annotation-icon-button, .annotation-card, .annotation-card-body, .annotation-card-text, .note-prose .note-highlight { transition: none; }
 }
 .note-prose .editor-search-match { border-radius: 0.22em; background: var(--search-match); color: inherit; box-shadow: 0 0.08em 0 var(--search-match-shadow); }
 .note-prose .editor-search-match--active { background: var(--accent); color: var(--accent-contrast); box-shadow: 0 0 0 2px var(--focus-soft); }

@@ -131,14 +131,12 @@ function AnnotationTextarea({
 
 function AnnotationComposer({
   state,
-  nextIndex,
   mobile,
   locked,
   onSave,
   onClose,
 }: {
   state: ComposerState;
-  nextIndex: number;
   mobile: boolean;
   locked: boolean;
   onSave: (note: string) => void;
@@ -207,9 +205,7 @@ function AnnotationComposer({
         aria-label="添加批注"
       >
         <div className="annotation-card-header">
-          <span className="annotation-card-index" aria-hidden="true">
-            #{nextIndex}
-          </span>
+          <span className="annotation-card-title">新建批注</span>
           <button
             className="annotation-icon-button"
             type="button"
@@ -245,8 +241,8 @@ function AnnotationComposer({
 
 function AnnotationCard({
   annotation,
-  index,
   active = false,
+  hovered = false,
   editing,
   locked,
   onStartEdit,
@@ -254,12 +250,13 @@ function AnnotationCard({
   onSaveNote,
   onDelete,
   onOutside,
+  onHover,
   variant,
   register,
 }: {
   annotation: AnnotationRecord;
-  index: number;
   active?: boolean;
+  hovered?: boolean;
   editing: boolean;
   locked: boolean;
   onStartEdit: () => void;
@@ -267,6 +264,7 @@ function AnnotationCard({
   onSaveNote: (note: string) => void;
   onDelete: () => void;
   onOutside?: () => void;
+  onHover?: (hovered: boolean) => void;
   variant: "rail" | "compact";
   register?: (element: HTMLElement | null) => void;
 }) {
@@ -328,15 +326,15 @@ function AnnotationCard({
         rootRef.current = element;
         register?.(element);
       }}
-      className={`annotation-card annotation-card--${variant}${active ? " is-active" : ""}${editing ? " is-editing" : ""}`}
+      className={`annotation-card annotation-card--${variant}${active ? " is-active" : ""}${hovered ? " is-hovered" : ""}${editing ? " is-editing" : ""}`}
+      onMouseEnter={() => onHover?.(true)}
+      onMouseLeave={() => onHover?.(false)}
       role={variant === "compact" ? "dialog" : undefined}
       aria-modal={variant === "compact" ? true : undefined}
       aria-label={variant === "compact" ? "批注" : undefined}
     >
       <div className="annotation-card-header">
-        <span className="annotation-card-index" aria-hidden="true">
-          #{index + 1}
-        </span>
+        <span className="annotation-card-title">批注</span>
         {!locked && (
           <div className="annotation-card-actions">
             <button
@@ -384,38 +382,41 @@ function AnnotationCard({
 
 function AnnotationBubble({
   annotation,
-  index,
   active,
+  hovered,
   editing,
   locked,
   onStartEdit,
   onFinishEdit,
   onSaveNote,
   onDelete,
+  onHover,
   register,
 }: {
   annotation: AnnotationRecord;
-  index: number;
   active: boolean;
+  hovered: boolean;
   editing: boolean;
   locked: boolean;
   onStartEdit: () => void;
   onFinishEdit: () => void;
   onSaveNote: (note: string) => void;
   onDelete: () => void;
+  onHover: (hovered: boolean) => void;
   register: (element: HTMLElement | null) => void;
 }) {
   return (
     <AnnotationCard
       annotation={annotation}
-      index={index}
       active={active}
+      hovered={hovered}
       editing={editing}
       locked={locked}
       onStartEdit={onStartEdit}
       onFinishEdit={onFinishEdit}
       onSaveNote={onSaveNote}
       onDelete={onDelete}
+      onHover={onHover}
       variant="rail"
       register={register}
     />
@@ -424,7 +425,6 @@ function AnnotationBubble({
 
 function CompactAnnotationCard({
   annotation,
-  index,
   target,
   mobile,
   locked,
@@ -436,7 +436,6 @@ function CompactAnnotationCard({
   onClose,
 }: {
   annotation: AnnotationRecord;
-  index: number;
   target: { top: number; left: number };
   mobile: boolean;
   locked: boolean;
@@ -455,7 +454,7 @@ function CompactAnnotationCard({
       >
         <AnnotationCard
           annotation={annotation}
-          index={index}
+          active
           editing={editing}
           locked={locked}
           onStartEdit={onStartEdit}
@@ -478,10 +477,12 @@ function AnnotationLayer({
   annotations,
   railVisible,
   expandedId,
+  hoveredId,
   editId,
   locked,
   mobile,
   onToggle,
+  onHover,
   onStartEdit,
   onFinishEdit,
   onSaveNote,
@@ -492,10 +493,12 @@ function AnnotationLayer({
   annotations: AnnotationRecord[];
   railVisible: boolean;
   expandedId: string | null;
+  hoveredId: string | null;
   editId: string | null;
   locked: boolean;
   mobile: boolean;
   onToggle: (id: string) => void;
+  onHover: (id: string | null) => void;
   onStartEdit: (id: string) => void;
   onFinishEdit: () => void;
   onSaveNote: (id: string, note: string) => void;
@@ -513,11 +516,11 @@ function AnnotationLayer({
     const visible: Array<{ id: string; anchor: number }> = [];
 
     for (const annotation of annotations) {
-      const badge = editor.view.dom.querySelector<HTMLElement>(
-        `.annotation-badge[data-annotation-id="${annotation.id}"]`,
+      const mark = editor.view.dom.querySelector<HTMLElement>(
+        `.note-annotation[data-annotation-id="${annotation.id}"]`,
       );
-      if (!badge) continue;
-      const rect = badge.getBoundingClientRect();
+      if (!mark) continue;
+      const rect = mark.getBoundingClientRect();
       const anchor = rect.top - layerRect.top;
       visible.push({ id: annotation.id, anchor });
     }
@@ -587,19 +590,19 @@ function AnnotationLayer({
     }
     let frame = requestAnimationFrame(() => {
       frame = requestAnimationFrame(() => {
-        const badge = editor.view.dom.querySelector<HTMLElement>(
-          `.annotation-badge[data-annotation-id="${expandedId}"]`,
+        const mark = editor.view.dom.querySelector<HTMLElement>(
+          `.note-annotation[data-annotation-id="${expandedId}"]`,
         );
-        if (!badge) return;
-        const rect = badge.getBoundingClientRect();
+        if (!mark) return;
+        const rect = mark.getBoundingClientRect();
         const top =
           rect.bottom + 180 > window.innerHeight - 12
-            ? Math.max(12, rect.top - 180 - 8)
-            : rect.bottom + 8;
+            ? Math.max(12, rect.top - 180 - 6)
+            : rect.bottom + 6;
         setCompact({
           id: expandedId,
           top,
-          left: Math.max(12, Math.min(rect.left - 20, window.innerWidth - 290)),
+          left: Math.max(12, Math.min(rect.left, window.innerWidth - 276 - 12)),
         });
       });
     });
@@ -615,18 +618,19 @@ function AnnotationLayer({
         aria-label="批注"
       >
         {showRail &&
-          annotations.map((annotation, index) => (
+          annotations.map((annotation) => (
             <AnnotationBubble
               key={`bubble-${annotation.id}`}
               annotation={annotation}
-              index={index}
               active={expandedId === annotation.id}
+              hovered={hoveredId === annotation.id}
               editing={editId === annotation.id}
               locked={locked}
               onStartEdit={() => onStartEdit(annotation.id)}
               onFinishEdit={onFinishEdit}
               onSaveNote={(note) => onSaveNote(annotation.id, note)}
               onDelete={() => onDelete(annotation.id)}
+              onHover={(hovered) => onHover(hovered ? annotation.id : null)}
               register={(element) => {
                 if (element) bubbleRefs.current.set(annotation.id, element);
                 else bubbleRefs.current.delete(annotation.id);
@@ -637,7 +641,6 @@ function AnnotationLayer({
       {compactAnnotation && compact && (
         <CompactAnnotationCard
           annotation={compactAnnotation}
-          index={compactIndex}
           target={{ top: compact.top, left: compact.left }}
           mobile={mobile}
           locked={locked}
@@ -681,6 +684,7 @@ export function useEditorAnnotations({
   const [annotations, setAnnotations] = useState<AnnotationRecord[]>([]);
   const [wideEnough, setWideEnough] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
   const [composer, setComposer] = useState<ComposerState | null>(null);
   const annotationsRef = useRef(annotations);
@@ -698,6 +702,7 @@ export function useEditorAnnotations({
   useEffect(() => {
     setComposer(null);
     setExpandedId(null);
+    setHoveredId(null);
     setEditId(null);
     refresh();
   }, [noteId, refresh]);
@@ -861,16 +866,29 @@ export function useEditorAnnotations({
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
     const dom = editor.view.dom;
-    for (const badge of dom.querySelectorAll<HTMLElement>(".annotation-badge")) {
-      const id = badge.dataset.annotationId;
-      badge.classList.toggle("is-active", id === expandedId);
-      badge.classList.toggle("is-editing", id === editId);
-    }
     for (const mark of dom.querySelectorAll<HTMLElement>(".note-annotation")) {
       const id = mark.dataset.annotationId;
       mark.classList.toggle("is-active", id === expandedId);
+      mark.classList.toggle("is-hovered", id === hoveredId);
     }
-  }, [editor, expandedId, editId, annotations]);
+  }, [editor, expandedId, hoveredId, annotations]);
+
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    const dom = editor.view.dom;
+    const onMouseOver = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      const mark = target?.closest<HTMLElement>(".note-annotation[data-annotation-id]");
+      setHoveredId(mark?.getAttribute("data-annotation-id") ?? null);
+    };
+    const onMouseLeave = () => setHoveredId(null);
+    dom.addEventListener("mouseover", onMouseOver);
+    dom.addEventListener("mouseleave", onMouseLeave);
+    return () => {
+      dom.removeEventListener("mouseover", onMouseOver);
+      dom.removeEventListener("mouseleave", onMouseLeave);
+    };
+  }, [editor]);
 
   const overlay =
     editor && annotations.length > 0 ? (
@@ -880,10 +898,12 @@ export function useEditorAnnotations({
         annotations={annotations}
         railVisible={railVisible}
         expandedId={expandedId}
+        hoveredId={hoveredId}
         editId={editId}
         locked={locked || deleted}
         mobile={mobile}
         onToggle={toggleExpanded}
+        onHover={setHoveredId}
         onStartEdit={startEdit}
         onFinishEdit={finishEdit}
         onSaveNote={saveAnnotationNote}
@@ -894,7 +914,6 @@ export function useEditorAnnotations({
   const composerNode = composer ? (
     <AnnotationComposer
       state={composer}
-      nextIndex={annotations.length + 1}
       mobile={mobile}
       locked={locked || deleted}
       onSave={saveComposer}

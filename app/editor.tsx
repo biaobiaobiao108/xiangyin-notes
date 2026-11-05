@@ -107,11 +107,7 @@ import {
 import { mobileCaretBounds, useMobileCaret } from "./editor/use-mobile-caret";
 import { BlockDragHandle } from "./editor/block-drag-handle";
 import { useEditorContextMenu } from "./editor/use-editor-context-menu";
-import {
-  AnnotationBadgeExtension,
-  NoteAnnotation,
-  NoteHighlight,
-} from "./editor/highlight-annotation";
+import { NoteAnnotation, NoteHighlight } from "./editor/highlight-annotation";
 import { useEditorAnnotations } from "./editor/annotation-overlay";
 import { useScrollEdges } from "./workspace/use-scroll-edges";
 import { AutoReadingHUD } from "./editor/auto-reading-hud";
@@ -688,7 +684,6 @@ export function NoteEditor({
       InlineMarkExitOnEnter,
       NoteHighlight,
       NoteAnnotation,
-      AnnotationBadgeExtension,
       ...createTableExtensions(),
       NoteLink.configure({ openOnClick: false, autolink: true, linkOnPaste: true }),
       TaskList,
@@ -888,9 +883,7 @@ export function NoteEditor({
             return true;
           }
         }
-        const annotationEl = target?.closest<HTMLElement>(
-          ".note-annotation[data-annotation-id], .annotation-badge[data-annotation-id]",
-        );
+        const annotationEl = target?.closest<HTMLElement>(".note-annotation[data-annotation-id]");
         if (
           annotationEl &&
           !event.ctrlKey &&
@@ -903,9 +896,7 @@ export function NoteEditor({
             return true;
           }
         } else if (
-          !target?.closest(
-            ".annotation-card, .annotation-badge, .annotation-composer, [role='dialog'], [role='menu']",
-          )
+          !target?.closest(".annotation-card, .annotation-composer, [role='dialog'], [role='menu']")
         ) {
           onClearAnnotationRef.current();
         }
@@ -2204,9 +2195,7 @@ export function NoteEditor({
           onClick={(event) => {
             const target = event.target as HTMLElement | null;
             if (
-              !target?.closest(
-                ".annotation-card, .annotation-badge, .note-annotation, [role='dialog'], [role='menu']",
-              )
+              !target?.closest(".annotation-card, .note-annotation, [role='dialog'], [role='menu']")
             ) {
               onClearAnnotationRef.current();
             }

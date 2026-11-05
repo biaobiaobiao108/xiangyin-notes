@@ -3,10 +3,9 @@ import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { createMarkdownExtension } from "../app/editor/markdown-config";
 import {
-  AnnotationBadgeExtension,
-  createAnnotationBadgeDecorations,
   annotationIdsInRange,
   collectAnnotations,
+  findAnnotationRanges,
   NoteAnnotation,
   NoteHighlight,
 } from "../app/editor/highlight-annotation";
@@ -153,56 +152,24 @@ describe("annotation metadata does not leak into derived Markdown data", () => {
   });
 });
 
-describe("annotation inline badges", () => {
-  test("creates widget decorations at annotation end positions with 1-based sequential indices", () => {
+describe("annotation ranges and text preservation", () => {
+  test("locates ranges for discrete annotations and preserves contiguous text flow", () => {
     const source =
       '<span data-annotation-id="a1" data-note="批注一">第一处批注</span>后续正文<span data-annotation-id="a2" data-note="批注二">第二处批注</span>';
-    const editor = new Editor({
-      extensions: [StarterKit, createMarkdownExtension(), NoteAnnotation, AnnotationBadgeExtension],
-      content: source,
-      contentType: "markdown",
-    });
+    const editor = createEditor(source);
     try {
-      const decorations = createAnnotationBadgeDecorations(editor.state.doc);
-      const widgets = decorations.find();
-      expect(widgets).toHaveLength(2);
-      expect(widgets[0]?.spec.key).toBe("annotation-badge-a1");
-      expect(widgets[0]?.spec.side).toBe(-1);
-      expect(widgets[1]?.spec.key).toBe("annotation-badge-a2");
-      expect(widgets[1]?.spec.side).toBe(-1);
+      const annotations = collectAnnotations(editor.state.doc);
+      expect(annotations).toHaveLength(2);
+      expect(annotations[0]?.quote).toBe("第一处批注");
+      expect(annotations[1]?.quote).toBe("第二处批注");
 
-      const mockDoc = {
-        createElement: () => {
-          const el = {
-            className: "",
-            dataset: {} as Record<string, string>,
-            children: [] as any[],
-            setAttribute(k: string, v: string) {
-              (this as any)[k] = v;
-            },
-            appendChild(c: any) {
-              this.children.push(c);
-            },
-          };
-          return el;
-        },
-      };
+      const ranges1 = findAnnotationRanges(editor.state.doc, "a1");
+      const ranges2 = findAnnotationRanges(editor.state.doc, "a2");
+      expect(ranges1).toHaveLength(1);
+      expect(ranges2).toHaveLength(1);
 
-      const originalDocument = globalThis.document;
-      try {
-        (globalThis as unknown as { document: unknown }).document = mockDoc;
-        const badge1 = (widgets[0] as unknown as { type: { toDOM: () => any } }).type.toDOM();
-        expect(badge1.className).toBe("annotation-badge");
-        expect(badge1.dataset.annotationId).toBe("a1");
-        expect(badge1.children[0].textContent).toBe("1");
-
-        const badge2 = (widgets[1] as unknown as { type: { toDOM: () => any } }).type.toDOM();
-        expect(badge2.className).toBe("annotation-badge");
-        expect(badge2.dataset.annotationId).toBe("a2");
-        expect(badge2.children[0].textContent).toBe("2");
-      } finally {
-        (globalThis as unknown as { document: unknown }).document = originalDocument;
-      }
+      // Document text remains uncorrupted by numbers or synthetic characters
+      expect(editor.state.doc.textContent).toBe("第一处批注后续正文第二处批注");
     } finally {
       editor.destroy();
     }
