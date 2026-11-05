@@ -1333,14 +1333,20 @@ button.save-status:hover { text-decoration: underline; }
   height: 28px;
   padding: 1px 8px;
   overflow: hidden;
-  cursor: pointer;
+  cursor: grab;
+  touch-action: none;
   user-select: none;
   -webkit-user-select: none;
   border-radius: 6px;
 }
 
-.auto-reading-dial:hover {
+.auto-reading-dial:hover,
+.auto-reading-dial.is-dragging {
   background: var(--control-hover);
+}
+
+.auto-reading-dial.is-dragging {
+  cursor: grabbing;
 }
 
 .auto-reading-dial-track {
@@ -1373,16 +1379,16 @@ button.save-status:hover { text-decoration: underline; }
 .auto-reading-dial-readout {
   display: inline-flex;
   align-items: baseline;
-  gap: 5px;
   pointer-events: none;
 }
 
 .auto-reading-dial-mult {
-  font-size: 0.76rem;
+  font-size: 0.8rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--ink);
   letter-spacing: -0.01em;
+  line-height: 1.1;
 }
 
 .auto-reading-dial-name {

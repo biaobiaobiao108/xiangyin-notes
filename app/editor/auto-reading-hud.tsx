@@ -4,17 +4,20 @@ import { ChevronLeft, ChevronRight, Focus, Pause, Play, RotateCcw } from "lucide
 export type SpeedPreset = {
   rate: number; // 滚动速度 (px/s)
   multiplier: string;
-  label: string;
 };
 
-// 基于自然口播语速基准配置的 6 档语速梯队
-export const BROADCAST_SPEED_PRESETS: SpeedPreset[] = [
-  { rate: 20, multiplier: "0.7x", label: "沉稳解说" },
-  { rate: 26, multiplier: "0.9x", label: "舒缓叙述" },
-  { rate: 32, multiplier: "1.0x", label: "标准口播" },
-  { rate: 40, multiplier: "1.3x", label: "生动快语" },
-  { rate: 50, multiplier: "1.6x", label: "高密资讯" },
-  { rate: 65, multiplier: "2.0x", label: "疾速播报" },
+// 覆盖 16~80 px/s 自然朗读节奏的十档纯数字倍率梯度
+export const READING_SPEED_PRESETS: SpeedPreset[] = [
+  { rate: 16, multiplier: "0.5x" },
+  { rate: 22, multiplier: "0.7x" },
+  { rate: 26, multiplier: "0.8x" },
+  { rate: 32, multiplier: "1.0x" }, // 默认基准档位（索引 3）
+  { rate: 38, multiplier: "1.2x" },
+  { rate: 45, multiplier: "1.4x" },
+  { rate: 52, multiplier: "1.6x" },
+  { rate: 58, multiplier: "1.8x" },
+  { rate: 65, multiplier: "2.0x" },
+  { rate: 80, multiplier: "2.5x" },
 ];
 
 const STORAGE_SPEED_KEY = "xiangying_auto_reading_preset_index";
@@ -25,14 +28,14 @@ function loadInitialPresetIndex(): number {
     const saved = localStorage.getItem(STORAGE_SPEED_KEY);
     if (saved !== null) {
       const parsed = parseInt(saved, 10);
-      if (!Number.isNaN(parsed) && parsed >= 0 && parsed < BROADCAST_SPEED_PRESETS.length) {
+      if (!Number.isNaN(parsed) && parsed >= 0 && parsed < READING_SPEED_PRESETS.length) {
         return parsed;
       }
     }
   } catch {
     // Storage access may be restricted
   }
-  return 2; // 默认 1.0x 标准口播
+  return 3; // 默认 1.0x
 }
 
 function loadInitialFocusReading(): boolean {
@@ -100,9 +103,12 @@ export type AutoReadingHUDProps = {
 export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps) {
   const [presetIndex, setPresetIndex] = useState<number>(loadInitialPresetIndex);
   const [focusReading, setFocusReading] = useState<boolean>(loadInitialFocusReading);
-  const [isPlaying, setIsPlaying] = useState<boolean>(true);
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [isDragging, setIsDragging] = useState<boolean>(false);
+  const [dragOffsetPx, setDragOffsetPx] = useState<number>(0);
+  const dragStartRef = useRef<{ x: number; index: number; moved: boolean } | null>(null);
 
-  const currentPreset = BROADCAST_SPEED_PRESETS[presetIndex];
+  const currentPreset = READING_SPEED_PRESETS[presetIndex];
   const speedRef = useRef(currentPreset.rate);
   speedRef.current = currentPreset.rate;
 
@@ -127,7 +133,7 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
 
   const handleSpeedUp = useCallback(() => {
     setPresetIndex((prev) => {
-      const next = Math.min(BROADCAST_SPEED_PRESETS.length - 1, prev + 1);
+      const next = Math.min(READING_SPEED_PRESETS.length - 1, prev + 1);
       try {
         localStorage.setItem(STORAGE_SPEED_KEY, String(next));
       } catch {}
@@ -174,6 +180,81 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
       return next;
     });
   }, [scrollTargetRef]);
+
+  const STEP_PX = 15;
+
+  const handleDialPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (e.button !== 0) return;
+      e.currentTarget.setPointerCapture(e.pointerId);
+      dragStartRef.current = {
+        x: e.clientX,
+        index: presetIndex,
+        moved: false,
+      };
+      setIsDragging(true);
+      setDragOffsetPx(0);
+    },
+    [presetIndex],
+  );
+
+  const handleDialPointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!dragStartRef.current) return;
+      const deltaX = e.clientX - dragStartRef.current.x;
+      if (Math.abs(deltaX) > 3) {
+        dragStartRef.current.moved = true;
+      }
+      setDragOffsetPx(deltaX);
+
+      const stepDelta = Math.round(deltaX / STEP_PX);
+      const targetIndex = Math.max(
+        0,
+        Math.min(READING_SPEED_PRESETS.length - 1, dragStartRef.current.index + stepDelta),
+      );
+      setPresetIndex(targetIndex);
+    },
+    [STEP_PX],
+  );
+
+  const handleDialPointerUp = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!dragStartRef.current) return;
+      const { x, index, moved } = dragStartRef.current;
+      dragStartRef.current = null;
+      setIsDragging(false);
+      setDragOffsetPx(0);
+
+      if (!moved) {
+        // 点击左半侧降档，点击右半侧升档
+        const rect = e.currentTarget.getBoundingClientRect();
+        const clickX = e.clientX - rect.left;
+        if (clickX < rect.width / 2) {
+          handleSpeedDown();
+        } else {
+          handleSpeedUp();
+        }
+      } else {
+        const deltaX = e.clientX - x;
+        const stepDelta = Math.round(deltaX / STEP_PX);
+        const finalIndex = Math.max(
+          0,
+          Math.min(READING_SPEED_PRESETS.length - 1, index + stepDelta),
+        );
+        setPresetIndex(finalIndex);
+        try {
+          localStorage.setItem(STORAGE_SPEED_KEY, String(finalIndex));
+        } catch {}
+      }
+    },
+    [STEP_PX, handleSpeedDown, handleSpeedUp],
+  );
+
+  const handleDialPointerCancel = useCallback(() => {
+    dragStartRef.current = null;
+    setIsDragging(false);
+    setDragOffsetPx(0);
+  }, []);
 
   // 主滚动循环与视线焦点同步
   useEffect(() => {
@@ -376,7 +457,8 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
   }, [togglePlay, handleSpeedUp, handleSpeedDown, handleRewind, toggleFocusReading]);
 
   // 滚轮刻度位置（以基准档位为中心的平滑横向位移）
-  const trackOffset = (2 - presetIndex) * 16;
+  const baseIndex = dragStartRef.current?.index ?? presetIndex;
+  const trackOffset = (3 - baseIndex) * STEP_PX + (isDragging ? dragOffsetPx : 0);
 
   return (
     <div className="auto-reading-hud" role="region" aria-label="自动阅读控制">
@@ -414,7 +496,7 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
       <span className="auto-reading-divider" aria-hidden="true" />
 
       {/* 横向刻度拨盘滚轮控制器 */}
-      <div className="auto-reading-dial-group" role="group" aria-label="口播语速调节">
+      <div className="auto-reading-dial-group" role="group" aria-label="速度调节">
         <button
           type="button"
           className="auto-reading-btn auto-reading-btn--dial-arrow"
@@ -427,26 +509,24 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
         </button>
 
         <div
-          className="auto-reading-dial"
+          className={`auto-reading-dial ${isDragging ? "is-dragging" : ""}`}
           role="status"
-          aria-label={`当前语速 ${currentPreset.multiplier} ${currentPreset.label}，点击左侧减速，点击右侧加速`}
-          title="点击左侧减速，点击右侧加速"
-          onClick={(event) => {
-            const rect = event.currentTarget.getBoundingClientRect();
-            const clickX = event.clientX - rect.left;
-            if (clickX < rect.width / 2) {
-              handleSpeedDown();
-            } else {
-              handleSpeedUp();
-            }
-          }}
+          aria-label={`当前速度 ${currentPreset.multiplier}，可点击或左右拖拽拨盘调节`}
+          title="点击或左右拖拽拨盘微调速度"
+          onPointerDown={handleDialPointerDown}
+          onPointerMove={handleDialPointerMove}
+          onPointerUp={handleDialPointerUp}
+          onPointerCancel={handleDialPointerCancel}
         >
           <div
             className="auto-reading-dial-track"
-            style={{ transform: `translateX(${trackOffset}px)` }}
+            style={{
+              transform: `translateX(${trackOffset}px)`,
+              transition: isDragging ? "none" : undefined,
+            }}
             aria-hidden="true"
           >
-            {[-2, -1, 0, 1, 2, 3, 4, 5, 6, 7].map((notch) => (
+            {[-2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((notch) => (
               <span
                 key={notch}
                 className={`auto-reading-dial-notch ${notch === presetIndex ? "is-active" : ""}`}
@@ -455,7 +535,6 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
           </div>
           <div className="auto-reading-dial-readout">
             <span className="auto-reading-dial-mult">{currentPreset.multiplier}</span>
-            <span className="auto-reading-dial-name">{currentPreset.label}</span>
           </div>
         </div>
 
@@ -464,7 +543,7 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
           className="auto-reading-btn auto-reading-btn--dial-arrow"
           aria-label="加速 (→ 或 +)"
           title="加速 (→ 或 +)"
-          disabled={presetIndex >= BROADCAST_SPEED_PRESETS.length - 1}
+          disabled={presetIndex >= READING_SPEED_PRESETS.length - 1}
           onClick={handleSpeedUp}
         >
           <ChevronRight size={14} strokeWidth={2.4} />

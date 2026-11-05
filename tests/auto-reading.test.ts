@@ -3,12 +3,12 @@ import React from "react";
 import { renderToString } from "react-dom/server";
 import {
   AutoReadingHUD,
-  BROADCAST_SPEED_PRESETS,
+  READING_SPEED_PRESETS,
   updateFocalElement,
 } from "../app/editor/auto-reading-hud";
 
 describe("AutoReadingHUD component", () => {
-  it("renders correctly with controls, dial wheel, focus button, and exit button", () => {
+  it("renders correctly in initial paused state with controls, dial wheel, and pure numbers", () => {
     const dummyRef = { current: null };
     const html = renderToString(
       React.createElement(AutoReadingHUD, {
@@ -19,16 +19,20 @@ describe("AutoReadingHUD component", () => {
 
     expect(html).toContain("auto-reading-hud");
     expect(html).toContain("回正到顶部");
-    expect(html).toContain("暂停滚动");
+    // 默认进入为暂停状态，按钮显示继续滚动（Play 图标）
+    expect(html).toContain("继续滚动 (空格键)");
     expect(html).toContain("auto-reading-btn--focus");
     expect(html).toContain("auto-reading-dial");
     expect(html).toContain("1.0x");
-    expect(html).toContain("标准口播");
+    // 确认已剔除口播、解说等特定场景命名
+    expect(html).not.toContain("口播");
+    expect(html).not.toContain("解说");
+    expect(html).not.toContain("叙述");
     expect(html).toContain("退出");
     expect(html).toContain("Esc");
   });
 
-  it("calculates subpixel scroll progression accurately for 32px/s standard broadcast speed", () => {
+  it("calculates subpixel scroll progression accurately for 32px/s standard speed", () => {
     const baseSpeed = 32; // px/sec
     let accumulator = 0;
     let totalScrolledPx = 0;
@@ -52,25 +56,34 @@ describe("AutoReadingHUD component", () => {
     expect(totalScrolledPx + Math.round(accumulator)).toBe(32);
   });
 
-  it("configures broadcast speed presets with strictly increasing rates", () => {
-    expect(BROADCAST_SPEED_PRESETS.length).toBe(6);
-    for (let i = 1; i < BROADCAST_SPEED_PRESETS.length; i++) {
-      expect(BROADCAST_SPEED_PRESETS[i].rate).toBeGreaterThan(BROADCAST_SPEED_PRESETS[i - 1].rate);
+  it("configures 10 speed presets with strictly increasing rates and 1.0x default", () => {
+    expect(READING_SPEED_PRESETS.length).toBe(10);
+    for (let i = 1; i < READING_SPEED_PRESETS.length; i++) {
+      expect(READING_SPEED_PRESETS[i].rate).toBeGreaterThan(READING_SPEED_PRESETS[i - 1].rate);
     }
-    expect(BROADCAST_SPEED_PRESETS[2].rate).toBe(32);
-    expect(BROADCAST_SPEED_PRESETS[2].multiplier).toBe("1.0x");
-    expect(BROADCAST_SPEED_PRESETS[2].label).toBe("标准口播");
+    expect(READING_SPEED_PRESETS[3].rate).toBe(32);
+    expect(READING_SPEED_PRESETS[3].multiplier).toBe("1.0x");
   });
 
-  it("steps preset index within valid boundaries [0, 5]", () => {
-    const maxIndex = BROADCAST_SPEED_PRESETS.length - 1;
+  it("steps preset index within valid boundaries [0, 9] and supports drag distance snapping", () => {
+    const maxIndex = READING_SPEED_PRESETS.length - 1;
     const stepDown = (idx: number) => Math.max(0, idx - 1);
     const stepUp = (idx: number) => Math.min(maxIndex, idx + 1);
 
     expect(stepDown(0)).toBe(0);
-    expect(stepDown(2)).toBe(1);
-    expect(stepUp(2)).toBe(3);
-    expect(stepUp(5)).toBe(5);
+    expect(stepDown(3)).toBe(2);
+    expect(stepUp(3)).toBe(4);
+    expect(stepUp(9)).toBe(9);
+
+    // 拖拽吸附算法验证 (STEP_PX = 15)
+    const calcDragIndex = (startIdx: number, deltaX: number) => {
+      return Math.max(0, Math.min(maxIndex, startIdx + Math.round(deltaX / 15)));
+    };
+    expect(calcDragIndex(3, 16)).toBe(4); // 向右拖动 16px 升 1 档
+    expect(calcDragIndex(3, 32)).toBe(5); // 向右拖动 32px 升 2 档
+    expect(calcDragIndex(3, -20)).toBe(2); // 向左拖动 20px 降 1 档
+    expect(calcDragIndex(3, 200)).toBe(9); // 超出上限 clamp 到 9
+    expect(calcDragIndex(3, -200)).toBe(0); // 超出下限 clamp 到 0
   });
 
   it("detects and highlights the paragraph overlapping the 40% focal line", () => {
