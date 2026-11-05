@@ -1,4 +1,5 @@
 import { findCodeFenceIntervals } from "./wiki-links";
+import { maskHtmlAttributeValues } from "./markdown-attributes";
 
 const TAG_CHARACTER_PATTERN = /[\p{L}\p{N}_-]/u;
 const TAG_QUERY_PATTERN = /^#([\p{L}\p{N}_-]+)$/u;
@@ -252,19 +253,21 @@ function collectSegmentTagRanges(
 
 /** Finds unescaped body hashtag ranges, excluding fenced and inline code. */
 export function findTagRanges(markdown: string) {
+  const source = maskHtmlAttributeValues(markdown);
   const ranges: TagRange[] = [];
-  for (const segment of collectVisibleSegments(markdown))
-    collectSegmentTagRanges(markdown, segment, ranges);
+  for (const segment of collectVisibleSegments(source))
+    collectSegmentTagRanges(source, segment, ranges);
   return ranges;
 }
 
 /** Preserves escaped hashtag semantics when Markdown is parsed and serialized by the rich-text editor. */
 export function preserveEscapedHashtagsForEditor(markdown: string) {
   if (!markdown.includes("\\#")) return markdown;
+  const source = maskHtmlAttributeValues(markdown);
   const escapedRanges: EscapedTagRange[] = [];
   const ignoredRanges: TagRange[] = [];
-  for (const segment of collectVisibleSegments(markdown))
-    collectSegmentTagRanges(markdown, segment, ignoredRanges, escapedRanges);
+  for (const segment of collectVisibleSegments(source))
+    collectSegmentTagRanges(source, segment, ignoredRanges, escapedRanges);
   if (escapedRanges.length === 0) return markdown;
 
   const parts: string[] = [];

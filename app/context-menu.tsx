@@ -28,6 +28,16 @@ export type ContextMenuItem = {
   disabled?: boolean;
   danger?: boolean;
   separator?: boolean;
+  swatches?: ContextMenuSwatch[];
+  onSelect: () => void | Promise<void>;
+};
+
+export type ContextMenuSwatch = {
+  label: string;
+  value: string;
+  color: string;
+  active?: boolean;
+  disabled?: boolean;
   onSelect: () => void | Promise<void>;
 };
 
@@ -286,11 +296,11 @@ function ContextMenu({
       window.removeEventListener("keydown", onKey, true);
     };
   }, [state, onClose]);
-  const select = (item: ContextMenuItem) => {
+  const run = (action: () => void | Promise<void>) => {
     // Invoke before yielding so Safari clipboard APIs retain the user's activation.
     try {
       if (state.trigger?.isConnected) state.trigger.focus({ preventScroll: true });
-      const result = item.onSelect();
+      const result = action();
       if (result)
         void result.catch((reason: unknown) =>
           onError(reason instanceof Error ? reason.message : "操作失败，请重试。"),
@@ -300,6 +310,7 @@ function ContextMenu({
     }
     onClose();
   };
+  const select = (item: ContextMenuItem) => run(item.onSelect);
   return createPortal(
     <div
       ref={rootRef}
@@ -321,21 +332,47 @@ function ContextMenu({
               {item.separator && index > 0 && (
                 <div className="context-menu-separator" role="separator" />
               )}
-              <button
-                type="button"
-                role="menuitem"
-                className={`context-menu-item${item.danger ? " is-danger" : ""}`}
-                disabled={item.disabled}
-                onClick={() => select(item)}
-              >
-                {Icon ? (
-                  <Icon size={16} aria-hidden="true" />
-                ) : (
-                  <span className="context-menu-icon" />
-                )}
-                <span>{item.label}</span>
-                {item.shortcut && <kbd>{item.shortcut}</kbd>}
-              </button>
+              {item.swatches ? (
+                <div className="context-menu-swatch-row" role="group" aria-label={item.label}>
+                  {Icon ? (
+                    <Icon size={16} aria-hidden="true" />
+                  ) : (
+                    <span className="context-menu-icon" />
+                  )}
+                  <span className="context-menu-swatch-label">{item.label}</span>
+                  <div className="context-menu-swatch-options">
+                    {item.swatches.map((swatch) => (
+                      <button
+                        key={swatch.value}
+                        type="button"
+                        role="menuitemradio"
+                        aria-label={`${swatch.label}高亮`}
+                        aria-checked={Boolean(swatch.active)}
+                        className={`context-menu-swatch${swatch.active ? " is-active" : ""}`}
+                        disabled={swatch.disabled}
+                        style={{ backgroundColor: swatch.color }}
+                        onClick={() => run(swatch.onSelect)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={`context-menu-item${item.danger ? " is-danger" : ""}`}
+                  disabled={item.disabled}
+                  onClick={() => select(item)}
+                >
+                  {Icon ? (
+                    <Icon size={16} aria-hidden="true" />
+                  ) : (
+                    <span className="context-menu-icon" />
+                  )}
+                  <span>{item.label}</span>
+                  {item.shortcut && <kbd>{item.shortcut}</kbd>}
+                </button>
+              )}
             </div>
           );
         })}

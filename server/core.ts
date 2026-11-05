@@ -358,6 +358,15 @@ const TAG_ONLY_LINE_PATTERN = /^[ \t]*#[\p{L}\p{N}_-]+(?:[\t ]+#[\p{L}\p{N}_-]+)
 const HEADING_PATTERN = /^[ \t]*#{1,6}[ \t\u3000]/u;
 const LIST_ITEM_PREFIX_PATTERN = /^[ \t]*(?:[-+*]|\d+[.)])[ \t\u3000]+/u;
 const BLOCKQUOTE_PREFIX_PATTERN = /^[ \t]*>[ \t]?/u;
+const ANNOTATION_OPEN_TAG_PATTERN = /<span\b[^>]*\bdata-annotation-id="[^"]*"[^>]*>/gu;
+
+function stripAnnotationMarkup(markdown: string) {
+  let source = markdown.replace(ANNOTATION_OPEN_TAG_PATTERN, "");
+  const partialStart = source.lastIndexOf("<span");
+  if (partialStart !== -1 && !source.slice(partialStart).includes(">"))
+    source = source.slice(0, partialStart);
+  return source;
+}
 
 type PreviewInlineToken = {
   type: string;
@@ -399,6 +408,7 @@ function plainTextFromInlineTokens(tokens: PreviewInlineToken[]): string {
  * work stays bounded for long notes.
  */
 export function formatPreview(markdown: string) {
+  markdown = stripAnnotationMarkup(markdown);
   const output: string[] = [];
   let outputLength = 0;
   const paragraph: string[] = [];

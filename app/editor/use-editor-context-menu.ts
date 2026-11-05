@@ -9,13 +9,25 @@ import {
   Redo2,
   TextSelect,
   Bold,
+  Eraser,
+  Highlighter,
   Italic,
+  MessageSquarePlus,
+  MessageSquareText,
   RemoveFormatting,
   FileText,
+  Trash2,
 } from "lucide-react";
 import { textFieldMenuItems, useContextMenu, type ContextMenuItem } from "../context-menu";
 import { modKey } from "../platform";
 import { pastePlainTextIntoCodeBlock } from "./code-block-paste";
+import {
+  annotationIdsInRange,
+  HIGHLIGHT_COLORS,
+  HIGHLIGHT_COLOR_LABELS,
+  HIGHLIGHT_COLOR_VALUES,
+  normalizeHighlightColor,
+} from "./highlight-annotation";
 
 function clipboardError(action: "copy" | "paste") {
   return new Error(
@@ -30,6 +42,9 @@ export function useEditorContextMenu({
   deleted,
   onTitleChange,
   noteActions,
+  onAddAnnotation,
+  onEditAnnotation,
+  onDeleteAnnotation,
 }: {
   editor: Editor | null;
   noteId: string;
@@ -37,6 +52,9 @@ export function useEditorContextMenu({
   deleted: boolean;
   onTitleChange: (title: string) => void;
   noteActions: ContextMenuItem[];
+  onAddAnnotation: (from: number, to: number) => void;
+  onEditAnnotation: (id: string) => void;
+  onDeleteAnnotation: (ids: string[]) => void;
 }) {
   const { openMenu, closeMenu, menu } = useContextMenu();
   const contextRef = useRef({ noteId, locked, deleted });
@@ -77,7 +95,8 @@ export function useEditorContextMenu({
       !editor.isDestroyed &&
       editor.state.doc === doc &&
       contextRef.current.noteId === noteId &&
-      !contextRef.current.locked;
+      !contextRef.current.locked &&
+      !contextRef.current.deleted;
     const restore = () => {
       if (!valid()) return false;
       editor.view.dispatch(editor.state.tr.setSelection(selection));
@@ -220,9 +239,106 @@ export function useEditorContextMenu({
         {
           label: "清除文字格式",
           icon: RemoveFormatting,
-          onSelect: command(() => editor.commands.unsetAllMarks()),
+          onSelect: command(() =>
+            editor
+              .chain()
+              .focus()
+              .command(({ tr, state }) => {
+                for (const name of Object.keys(state.schema.marks)) {
+                  if (name === "noteAnnotation") continue;
+                  tr.removeMark(state.selection.from, state.selection.to, state.schema.marks[name]);
+                }
+                return true;
+              })
+              .run(),
+          ),
         },
       );
+    let containsCode = false;
+    doc.nodesBetween(selection.from, selection.to, (node) => {
+      if (
+        node.type.name === "codeBlock" ||
+        (node.isText && node.marks.some((mark) => mark.type.name === "code"))
+      ) {
+        containsCode = true;
+        return false;
+      }
+    });
+    const annotationIds = new Set(annotationIdsInRange(doc, selection.from, selection.to));
+    if (!hasSelection) {
+      const marks = editor.state.storedMarks ?? selection.$from.marks();
+      for (const mark of marks) {
+        if (mark.type.name === "noteAnnotation" && typeof mark.attrs.id === "string")
+          annotationIds.add(mark.attrs.id);
+      }
+      for (const mark of selection.$from.nodeAfter?.marks ?? []) {
+        if (mark.type.name === "noteAnnotation" && typeof mark.attrs.id === "string")
+          annotationIds.add(mark.attrs.id);
+      }
+    }
+
+    if (hasSelection && editable && !containsCode) {
+      const colors = new Set<string>();
+      doc.nodesBetween(selection.from, selection.to, (node) => {
+        if (!node.isText) return;
+        const highlight = node.marks.find((mark) => mark.type.name === "noteHighlight");
+        if (highlight) colors.add(normalizeHighlightColor(highlight.attrs.color));
+      });
+      const activeColor = colors.size === 1 ? [...colors][0] : null;
+      items.push({
+        label: "高亮颜色",
+        icon: Highlighter,
+        separator: true,
+        swatches: HIGHLIGHT_COLORS.map((color) => ({
+          label: HIGHLIGHT_COLOR_LABELS[color],
+          value: color,
+          color: `var(--note-highlight-${color}, ${HIGHLIGHT_COLOR_VALUES[color]})`,
+          active: activeColor === color,
+          onSelect: command(() => editor.chain().focus().setMark("noteHighlight", { color }).run()),
+        })),
+        onSelect: () => {},
+      });
+      if (colors.size > 0) {
+        items.push({
+          label: "清除高亮",
+          icon: Eraser,
+          onSelect: command(() => editor.commands.unsetMark("noteHighlight")),
+        });
+      }
+    }
+
+    if (editable && !containsCode) {
+      if (hasSelection && annotationIds.size === 0) {
+        items.push({
+          label: "添加批注",
+          icon: MessageSquarePlus,
+          separator: true,
+          onSelect: command(() => onAddAnnotation(selection.from, selection.to)),
+        });
+      } else if (annotationIds.size === 1) {
+        const id = [...annotationIds][0]!;
+        items.push(
+          {
+            label: "编辑批注",
+            icon: MessageSquareText,
+            separator: true,
+            onSelect: command(() => onEditAnnotation(id)),
+          },
+          {
+            label: "删除批注",
+            icon: Trash2,
+            onSelect: command(() => onDeleteAnnotation([id])),
+          },
+        );
+      } else if (annotationIds.size > 1) {
+        items.push({
+          label: "删除所选批注",
+          icon: Trash2,
+          separator: true,
+          onSelect: command(() => onDeleteAnnotation([...annotationIds])),
+        });
+      }
+    }
     openMenu(event, items, "正文编辑");
   };
   return { onContextMenu, menu };

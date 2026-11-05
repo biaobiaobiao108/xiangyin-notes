@@ -1,5 +1,6 @@
 import { Marked } from "marked";
 import { decodeWikiLinkComponent, WIKI_LINK_PATTERN } from "./wiki-links";
+import { maskHtmlAttributeValues } from "./markdown-attributes";
 
 export function findWikiLinkStart(source: string) {
   const ascii = source.indexOf("[[");
@@ -136,6 +137,8 @@ const destinationLexer = createXiangyingMarked();
 export function extractMarkdownDestinationReferences(markdown: string) {
   if (!markdown.includes("[")) return [];
 
+  const source = maskHtmlAttributeValues(markdown);
+
   const references: MarkdownDestinationReference[] = [];
   const visited = new WeakSet<object>();
   const visit = (value: unknown) => {
@@ -154,6 +157,6 @@ export function extractMarkdownDestinationReferences(markdown: string) {
     for (const child of Object.values(value)) visit(child);
   };
 
-  visit(destinationLexer.lexer(markdown));
+  visit(destinationLexer.lexer(source));
   return references;
 }

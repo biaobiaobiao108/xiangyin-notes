@@ -14,6 +14,7 @@ import { CodeBlockWithCopy } from "./code-block-copy";
 import { TableScrollbars } from "./table-scrollbars";
 import { createTableExtensions } from "./table-extensions";
 import { normalizeImagesInEmptyListItems } from "../image-markdown";
+import { NoteAnnotation, NoteHighlight } from "./highlight-annotation";
 
 export function prepareMarkdownForReadOnly(markdown: string) {
   return normalizeImagesInEmptyListItems(markdown);
@@ -27,6 +28,8 @@ export function createReadOnlyExtensions() {
       codeBlock: false,
     }),
     CodeBlockWithCopy.configure({ exitOnTripleEnter: false }),
+    NoteHighlight,
+    NoteAnnotation,
     ...createTableExtensions(),
     NoteLink.configure({
       openOnClick: true,

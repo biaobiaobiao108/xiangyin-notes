@@ -107,6 +107,8 @@ import {
 import { mobileCaretBounds, useMobileCaret } from "./editor/use-mobile-caret";
 import { BlockDragHandle } from "./editor/block-drag-handle";
 import { useEditorContextMenu } from "./editor/use-editor-context-menu";
+import { NoteAnnotation, NoteHighlight } from "./editor/highlight-annotation";
+import { useEditorAnnotations } from "./editor/annotation-overlay";
 import { useScrollEdges } from "./workspace/use-scroll-edges";
 import { AutoReadingHUD } from "./editor/auto-reading-hud";
 import "./editor/mobile-editor.css";
@@ -678,6 +680,8 @@ export function NoteEditor({
       CodeBlockWithCopy.configure({ exitOnTripleEnter: false }),
       CodeBlockDoubleEnter,
       InlineMarkExitOnEnter,
+      NoteHighlight,
+      NoteAnnotation,
       ...createTableExtensions(),
       NoteLink.configure({ openOnClick: false, autolink: true, linkOnPaste: true }),
       TaskList,
@@ -1809,12 +1813,24 @@ export function NoteEditor({
         : saveState === "error"
           ? "保存失败，点击重试"
           : "已保存";
+  const annotations = useEditorAnnotations({
+    editor,
+    noteId: note.id,
+    contentVersion: note.version,
+    locked: editorLocked,
+    deleted: Boolean(note.deletedAt),
+    scrollRef: editorScrollRef,
+    mobile: isMobileViewport,
+  });
   const contextMenu = useEditorContextMenu({
     editor,
     noteId: note.id,
     locked: editorLocked,
     deleted: Boolean(note.deletedAt),
     onTitleChange: (title) => onChange({ title }),
+    onAddAnnotation: annotations.openCreate,
+    onEditAnnotation: annotations.openEdit,
+    onDeleteAnnotation: annotations.deleteAnnotations,
     noteActions: [
       { label: "导出图片", icon: ImageDown, disabled: editorLocked, onSelect: onExportImage },
       ...(note.deletedAt
@@ -1839,7 +1855,7 @@ export function NoteEditor({
   });
   return (
     <section
-      className={`editor-panel ${deferredLoading ? "is-loading" : ""} ${focusMode ? "is-focus-mode" : ""} ${autoReadingMode ? "is-auto-reading-mode" : ""} ${isMobileViewport ? "is-mobile-editor" : ""} ${isActivePane ? "is-active-pane" : ""}`}
+      className={`editor-panel ${deferredLoading ? "is-loading" : ""} ${focusMode ? "is-focus-mode" : ""} ${autoReadingMode ? "is-auto-reading-mode" : ""} ${isMobileViewport ? "is-mobile-editor" : ""} ${isActivePane ? "is-active-pane" : ""} ${annotations.railVisible ? "has-annotation-rail" : ""}`}
       aria-label="笔记编辑器"
       aria-busy={isLoading || deferredLoading || trashBusy}
       onPointerDown={onActivatePane}
@@ -2238,6 +2254,7 @@ export function NoteEditor({
           ariaLabel="编辑器滚动条"
           placement="right"
         />
+        {annotations.overlay}
         {autoReadingMode && (
           <AutoReadingHUD scrollTargetRef={editorScrollRef} onExit={onExitAutoReadingMode} />
         )}
@@ -2329,6 +2346,7 @@ export function NoteEditor({
             onClose={onCloseOutline}
           />
         )}
+      {annotations.composer}
     </section>
   );
 }

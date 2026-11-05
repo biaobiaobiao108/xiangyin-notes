@@ -1,4 +1,5 @@
 import { Lexer } from "marked";
+import { maskHtmlAttributeValues } from "./markdown-attributes";
 
 type MarkdownInterval = { start: number; end: number };
 type BlockToken = {
@@ -167,8 +168,9 @@ export function normalizeLinkTitle(title: string) {
 export function extractWikiLinks(markdown: string): WikiLinkMatch[] {
   if (!markdown || (!markdown.includes("[[") && !markdown.includes("【【"))) return [];
 
-  const codeFences = findCodeFenceIntervals(markdown);
-  const inlineCodes = findInlineCodeIntervals(markdown, codeFences);
+  const source = maskHtmlAttributeValues(markdown);
+  const codeFences = findCodeFenceIntervals(source);
+  const inlineCodes = findInlineCodeIntervals(source, codeFences);
   let codeFenceIndex = 0;
   let inlineCodeIndex = 0;
   const isContainedIn = (
@@ -189,8 +191,8 @@ export function extractWikiLinks(markdown: string): WikiLinkMatch[] {
   const regex = new RegExp(WIKI_LINK_PATTERN.source, "g");
   let match: RegExpExecArray | null;
 
-  while ((match = regex.exec(markdown)) !== null) {
-    const raw = match[0];
+  while ((match = regex.exec(source)) !== null) {
+    const raw = markdown.slice(match.index, match.index + match[0].length);
     const target = decodeWikiLinkComponent(match[1] ?? "").trim();
     const alias = match[2] ? decodeWikiLinkComponent(match[2]).trim() : undefined;
     const start = match.index;
@@ -314,6 +316,7 @@ export function findUnlinkedMentionsInMarkdown(
   if (!trimmed || trimmed.length < 2) return [];
 
   const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const source = maskHtmlAttributeValues(markdown);
   // For words composed of letters/digits, use word boundary; for Chinese, direct regex match
   const isLatinWord = /^[a-zA-Z0-9_-]+$/.test(trimmed);
   const regex = new RegExp(isLatinWord ? `\\b${escaped}\\b` : escaped, "gi");
@@ -322,34 +325,34 @@ export function findUnlinkedMentionsInMarkdown(
   // skip all expensive AST / interval parsing completely.
   const rawMatches: Array<{ start: number; end: number; matchText: string }> = [];
   let match: RegExpExecArray | null;
-  while ((match = regex.exec(markdown)) !== null) {
+  while ((match = regex.exec(source)) !== null) {
     rawMatches.push({
       start: match.index,
       end: match.index + match[0].length,
-      matchText: match[0],
+      matchText: markdown.slice(match.index, match.index + match[0].length),
     });
   }
 
   if (rawMatches.length === 0) return [];
 
   // Intervals to exclude: code fences, inline codes, wiki links, markdown links/images
-  const codeBlocks = findCodeFenceIntervals(markdown);
+  const codeBlocks = findCodeFenceIntervals(source);
   const excludedIntervals: MarkdownInterval[] = [
     ...codeBlocks,
-    ...findInlineCodeIntervals(markdown, codeBlocks),
+    ...findInlineCodeIntervals(source, codeBlocks),
   ];
 
   // Exclude existing wiki-links
   const wikiRegex = new RegExp(WIKI_LINK_PATTERN.source, "g");
   let wMatch: RegExpExecArray | null;
-  while ((wMatch = wikiRegex.exec(markdown)) !== null) {
+  while ((wMatch = wikiRegex.exec(source)) !== null) {
     excludedIntervals.push({ start: wMatch.index, end: wMatch.index + wMatch[0].length });
   }
 
   // Exclude markdown links and images [text](url)
   const mdLinkRegex = /!?\[([^\]]*)\]\(([^)]*)\)/g;
   let mdMatch: RegExpExecArray | null;
-  while ((mdMatch = mdLinkRegex.exec(markdown)) !== null) {
+  while ((mdMatch = mdLinkRegex.exec(source)) !== null) {
     excludedIntervals.push({ start: mdMatch.index, end: mdMatch.index + mdMatch[0].length });
   }
 

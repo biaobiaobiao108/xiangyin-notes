@@ -38,10 +38,46 @@ export function renderNoteSnapshot(snapshot: ImageExportSnapshot): HTMLElement {
       const width = Number(image.getAttribute("width"));
       if (width > 0 && Number.isFinite(width)) image.style.width = `${width}px`;
     });
+    appendAnnotationNotes(source);
     return source;
   } finally {
     editor.destroy();
   }
+}
+
+function appendAnnotationNotes(source: HTMLElement) {
+  const annotations = source.querySelectorAll<HTMLElement>("[data-annotation-id][data-note]");
+  const notes: Array<{ id: string; note: string; first: HTMLElement }> = [];
+  const seen = new Set<string>();
+  for (const annotation of annotations) {
+    const id = annotation.dataset.annotationId ?? "";
+    const note = annotation.dataset.note?.trim() ?? "";
+    if (!id || !note || seen.has(id)) continue;
+    seen.add(id);
+    notes.push({ id, note, first: annotation });
+  }
+  if (!notes.length) return;
+
+  notes.forEach(({ first }, index) => {
+    const reference = document.createElement("sup");
+    reference.className = "image-export-annotation-ref";
+    reference.textContent = String(index + 1);
+    reference.setAttribute("aria-hidden", "true");
+    first.insertAdjacentElement("afterend", reference);
+  });
+
+  const section = document.createElement("section");
+  section.className = "image-export-annotations";
+  const heading = document.createElement("h2");
+  heading.textContent = "批注";
+  const list = document.createElement("ol");
+  for (const { note } of notes) {
+    const item = document.createElement("li");
+    item.textContent = note;
+    list.append(item);
+  }
+  section.append(heading, list);
+  source.append(section);
 }
 
 export class UnavailableImagesError extends Error {

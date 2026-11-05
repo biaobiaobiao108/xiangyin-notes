@@ -18,6 +18,21 @@
 .image-export-stage { position: fixed; top: 0; left: -10000px; width: 720px; pointer-events: none; }
 .image-export-page { box-sizing: border-box; display: flow-root; width: 720px; padding: 48px; background: #f6f4ef; color: #202621; color-scheme: light; font-family: system-ui; --canvas: #f6f4ef; --surface: #ffffff; --surface-subtle: #eeece5; --surface-code: #f4f3ee; --surface-code-inline: #eeebe4; --surface-notice: #f9fcfa; --ink: #202621; --ink-soft: #29322d; --quiet-ink: #435048; --muted: #718078; --soft-muted: #a0aaa3; --surface-glass-soft: rgba(250,249,246,.82); --border: rgba(32,38,33,.08); --border-soft: rgba(32,38,33,.08); --accent: #365e4e; --accent-dark: #27473a; --accent-soft: #edf5f0; --accent-border-soft: rgba(54,94,78,.25); --code-ink: #315d45; --code-inline-ink: #8d4b37; --h1-color: #8d5144; --h2-color: #405b4c; --h3-color: #4c606a; --h4-color: #5d5c49; --h5-color: #635666; --h6-color: #667168; --h2-soft: #edf4f0; --h3-soft: #edf3f7; --h2-border: #c9ded3; --danger: #c34b35; --danger-soft: #fbeee9; }
 .image-export-page .note-prose { margin: 0; font-size: 18px; line-height: 1.52; letter-spacing: .012em; overflow-wrap: anywhere; }
+.image-export-page {
+  --note-highlight-amber: #f3e3b5;
+  --note-highlight-sage: #dfe9dc;
+  --note-highlight-sky: #dce8ef;
+  --note-highlight-rose: #f2deda;
+  --note-highlight-lilac: #e6e0ed;
+  --note-highlight-sand: #eadfcf;
+  --note-annotation-line: rgba(54, 94, 78, 0.42);
+}
+.image-export-page .note-prose .note-annotation { text-decoration: underline dotted rgba(54, 94, 78, 0.42); text-underline-offset: 0.22em; }
+.image-export-annotation-ref { margin-inline-start: 2px; color: #718078; font-size: 0.58em; font-weight: 600; vertical-align: super; line-height: 0; }
+.image-export-annotations { margin-top: 32px; padding-top: 18px; border-top: 1px solid rgba(32, 38, 33, 0.1); color: #435048; }
+.image-export-annotations h2 { margin: 0 0 10px; color: #405b4c; font-size: 15px; font-weight: 650; }
+.image-export-annotations ol { margin: 0; padding-inline-start: 22px; font-size: 14px; line-height: 1.65; }
+.image-export-annotations li { margin-block: 5px; white-space: pre-wrap; }
 .image-export-page .image-export-title { margin: 0 0 24px; color: #202621; font-size: 32px; line-height: 1.3; }
 .image-export-page .note-prose img { display: block; max-width: 100%; max-height: 1400px; width: auto; height: auto; object-fit: contain; margin: 16px auto; }
 .image-export-page .note-prose pre { overflow: visible; white-space: pre-wrap; }
