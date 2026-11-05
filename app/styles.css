@@ -1278,7 +1278,7 @@ button.save-status:hover { text-decoration: underline; }
 .note-prose ul[data-type="taskList"] li > label { display: flex; flex: none; align-items: center; height: 1.52em; padding-top: 0; }
 .note-prose ul[data-type="taskList"] li > label input { width: 17px; height: 17px; accent-color: var(--accent); }
 .note-prose ul[data-type="taskList"] li[data-checked="true"] > div > p { color: var(--soft-muted); text-decoration: line-through; }
-.editor-floating-tools { position: absolute; right: 28px; bottom: max(18px, env(safe-area-inset-bottom)); z-index: 3; display: grid; justify-items: end; gap: 10px; pointer-events: none; transition: opacity var(--motion-panel) var(--motion-ease-out), transform var(--motion-panel) var(--motion-ease-out); }
+.editor-floating-tools { position: absolute; right: 28px; bottom: max(18px, env(safe-area-inset-bottom)); z-index: 40; display: grid; justify-items: end; gap: 10px; pointer-events: none; transition: opacity var(--motion-panel) var(--motion-ease-out), transform var(--motion-panel) var(--motion-ease-out); }
 .editor-panel.is-focus-mode .editor-floating-tools {
   opacity: 0;
   transform: translateY(8px);
@@ -1940,7 +1940,7 @@ button.save-status:hover { text-decoration: underline; }
 @keyframes editor-replace-enter { from { opacity: 0; transform: translateY(5px) scale(0.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
 @media (prefers-reduced-motion: reduce) { .editor-replace-panel { animation: none; } }
 
-.editor-stats-pill, .outline-trigger { min-height: 38px; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--surface-glass); box-shadow: 0 10px 26px rgba(39, 47, 41, 0.12), 0 2px 6px rgba(39, 47, 41, 0.06); }
+.editor-stats-pill, .outline-trigger { min-height: 38px; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--surface-glass); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 10px 26px rgba(39, 47, 41, 0.12), 0 2px 6px rgba(39, 47, 41, 0.06); }
 .editor-stats-pill { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 0 14px; color: var(--muted); line-height: 1; text-align: center; white-space: nowrap; }
 .editor-stat { display: inline-flex; align-items: center; gap: 4px; font-size: 0.74rem; line-height: 1.15; }
 .editor-stat strong { color: var(--ink); font-size: 0.82rem; font-variant-numeric: tabular-nums; }
@@ -3572,22 +3572,6 @@ dialog::backdrop {
   margin-inline: max(var(--card-outline-gutter), calc((100% - var(--card-document-max)) / 2)) var(--card-document-end-space);
 }
 
-/* 卡片视图下右侧批注导轨常驻展示时的排版空间预留 */
-.app-shell.layout-cards .editor-panel:has(.annotation-layer--rail) .editor-document {
-  --card-document-max: 820px;
-  --card-rail-gutter: 268px;
-  width: min(var(--card-document-max), calc(100% - var(--card-rail-gutter) - 48px));
-  margin-inline: max(48px, calc((100% - var(--card-document-max) - var(--card-rail-gutter)) / 2)) max(var(--card-rail-gutter), 48px);
-}
-
-/* 同时开启卡片大纲与右侧批注导轨时的空间协调 */
-.app-shell.layout-cards .editor-panel:has(.editor-floating-outline):has(.annotation-layer--rail) .editor-document {
-  --card-document-max: 760px;
-  --card-outline-gutter: 248px;
-  --card-rail-gutter: 268px;
-  width: min(var(--card-document-max), calc(100% - var(--card-outline-gutter) - var(--card-rail-gutter)));
-  margin-inline: max(var(--card-outline-gutter), 24px) max(var(--card-rail-gutter), 24px);
-}
 .editor-floating-outline .note-outline-panel {
   background: transparent;
   border: none;
