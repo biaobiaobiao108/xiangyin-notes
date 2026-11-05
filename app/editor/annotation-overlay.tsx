@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObje
 import { createPortal } from "react-dom";
 import type { Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { ChevronDown, MessageSquareText, Pencil, Trash2, X } from "lucide-react";
+import { ChevronDown, Pencil, Trash2, X } from "lucide-react";
 import { createUuid } from "../uuid";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import {
@@ -14,7 +14,6 @@ import {
 type SelectionPoint = { left: number; top: number };
 
 type ComposerState = {
-  mode: "create" | "edit";
   id: string;
   note: string;
   from: number;
@@ -58,28 +57,112 @@ function clampPopupPoint(left: number, top: number) {
   };
 }
 
+function AnnotationNoteEditor({
+  fieldId,
+  note: initialNote,
+  locked,
+  saveLabel,
+  onSave,
+  onCancel,
+  onDelete,
+}: {
+  fieldId: string;
+  note: string;
+  locked: boolean;
+  saveLabel: string;
+  onSave: (note: string) => void;
+  onCancel: () => void;
+  onDelete?: () => void;
+}) {
+  const fieldRef = useRef<HTMLTextAreaElement>(null);
+  const [note, setNote] = useState(initialNote);
+  const trimmed = note.trim();
+
+  useEffect(() => {
+    const field = fieldRef.current;
+    if (!field) return;
+    field.focus({ preventScroll: true });
+    field.setSelectionRange(field.value.length, field.value.length);
+  }, []);
+
+  const submit = () => {
+    if (locked || !trimmed) return;
+    onSave(trimmed);
+  };
+
+  return (
+    <>
+      <label className="visually-hidden" htmlFor={fieldId}>
+        批注内容
+      </label>
+      <textarea
+        ref={fieldRef}
+        id={fieldId}
+        className="annotation-note-editor-field"
+        value={note}
+        rows={3}
+        disabled={locked}
+        placeholder="写下批注……"
+        onChange={(event) => setNote(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+          if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
+            onCancel();
+            return;
+          }
+          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+            event.preventDefault();
+            submit();
+          }
+        }}
+      />
+      <div className="annotation-editor-actions">
+        {onDelete && !locked && (
+          <button
+            className="annotation-icon-button is-danger"
+            type="button"
+            aria-label="删除批注"
+            onClick={onDelete}
+          >
+            <Trash2 size={14} />
+          </button>
+        )}
+        <span className="annotation-composer-spacer" />
+        <button className="annotation-text-button" type="button" onClick={onCancel}>
+          取消
+        </button>
+        <button
+          className="annotation-primary-button"
+          type="button"
+          disabled={locked || !trimmed}
+          onClick={submit}
+        >
+          {saveLabel}
+        </button>
+      </div>
+    </>
+  );
+}
+
 function AnnotationComposer({
   state,
   mobile,
   locked,
   onSave,
-  onDelete,
   onClose,
 }: {
   state: ComposerState;
   mobile: boolean;
   locked: boolean;
   onSave: (note: string) => void;
-  onDelete: (() => void) | null;
   onClose: () => void;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
-  const fieldRef = useRef<HTMLTextAreaElement>(null);
-  const [note, setNote] = useState(state.note);
   const [position, setPosition] = useState(() =>
     clampPopupPoint(state.point.left, state.point.top),
   );
-  const trimmed = note.trim();
 
   useLayoutEffect(() => {
     const root = rootRef.current;
@@ -94,13 +177,6 @@ function AnnotationComposer({
       ),
     );
   }, [mobile, state.point.left, state.point.top]);
-
-  useEffect(() => {
-    const field = fieldRef.current;
-    if (!field) return;
-    field.focus({ preventScroll: true });
-    field.setSelectionRange(field.value.length, field.value.length);
-  }, []);
 
   useEffect(() => {
     const outside = (event: PointerEvent) => {
@@ -130,59 +206,16 @@ function AnnotationComposer({
         style={mobile ? undefined : position}
         role="dialog"
         aria-modal="true"
-        aria-label={state.mode === "edit" ? "编辑批注" : "添加批注"}
+        aria-label="添加批注"
       >
-        <div className="annotation-composer-heading">
-          <MessageSquareText size={14} aria-hidden="true" />
-          <span>{state.mode === "edit" ? "编辑批注" : "添加批注"}</span>
-          <button
-            className="annotation-icon-button"
-            type="button"
-            aria-label="关闭批注编辑"
-            onClick={onClose}
-          >
-            <X size={14} />
-          </button>
-        </div>
-        <label className="visually-hidden" htmlFor={`annotation-note-${state.id}`}>
-          批注内容
-        </label>
-        <textarea
-          ref={fieldRef}
-          id={`annotation-note-${state.id}`}
-          className="annotation-composer-field"
-          value={note}
-          rows={3}
-          disabled={locked}
-          placeholder="写下批注……"
-          onChange={(event) => setNote(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.nativeEvent.isComposing || event.keyCode === 229) return;
-            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-              event.preventDefault();
-              if (!locked && trimmed) onSave(trimmed);
-            }
-          }}
+        <AnnotationNoteEditor
+          fieldId={`annotation-note-${state.id}`}
+          note={state.note}
+          locked={locked}
+          saveLabel="添加"
+          onSave={onSave}
+          onCancel={onClose}
         />
-        <div className="annotation-composer-actions">
-          {state.mode === "edit" && onDelete && !locked && (
-            <button className="annotation-text-button is-danger" type="button" onClick={onDelete}>
-              删除
-            </button>
-          )}
-          <span className="annotation-composer-spacer" />
-          <button className="annotation-text-button" type="button" onClick={onClose}>
-            取消
-          </button>
-          <button
-            className="annotation-primary-button"
-            type="button"
-            disabled={locked || !trimmed}
-            onClick={() => onSave(trimmed)}
-          >
-            {state.mode === "edit" ? "保存" : "添加"}
-          </button>
-        </div>
       </div>
     </>,
     document.body,
@@ -192,37 +225,91 @@ function AnnotationComposer({
 function AnnotationBubble({
   annotation,
   expanded,
+  editing,
   locked,
   onToggle,
-  onEdit,
+  onStartEdit,
+  onFinishEdit,
+  onSaveNote,
   onDelete,
   register,
 }: {
   annotation: AnnotationRecord;
   expanded: boolean;
+  editing: boolean;
   locked: boolean;
   onToggle: () => void;
-  onEdit: () => void;
+  onStartEdit: () => void;
+  onFinishEdit: () => void;
+  onSaveNote: (note: string) => void;
   onDelete: () => void;
   register: (element: HTMLElement | null) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const canExpand = annotation.note.length > 56 || annotation.note.includes("\n");
-  const isExpanded = expanded && canExpand;
+  const isExpanded = expanded && canExpand && !editing;
   useEffect(() => {
     if (!isExpanded && scrollRef.current) scrollRef.current.scrollTop = 0;
   }, [annotation.note, isExpanded]);
   return (
     <article
       ref={register}
-      className={`annotation-bubble${isExpanded ? " is-expanded" : ""}`}
+      className={`annotation-bubble${isExpanded ? " is-expanded" : ""}${editing ? " is-editing" : ""}`}
       onClick={(event) => {
-        if (!canExpand || isExpanded) return;
+        if (editing || !canExpand || isExpanded) return;
         if ((event.target as Element).closest("button")) return;
         onToggle();
       }}
     >
-      <div className="annotation-bubble-main">
+      {!editing && (canExpand || !locked) && (
+        <div className="annotation-card-tools">
+          {canExpand && (
+            <button
+              className="annotation-icon-button"
+              type="button"
+              aria-expanded={isExpanded}
+              aria-label={isExpanded ? "收起批注" : "展开批注"}
+              onClick={onToggle}
+            >
+              <ChevronDown className="annotation-bubble-chevron" size={13} aria-hidden="true" />
+            </button>
+          )}
+          {!locked && (
+            <button
+              className="annotation-icon-button"
+              type="button"
+              aria-label="编辑批注"
+              onClick={onStartEdit}
+            >
+              <Pencil size={13} />
+            </button>
+          )}
+          {!locked && (
+            <button
+              className="annotation-icon-button is-danger"
+              type="button"
+              aria-label="删除批注"
+              onClick={onDelete}
+            >
+              <Trash2 size={13} />
+            </button>
+          )}
+        </div>
+      )}
+      {editing ? (
+        <AnnotationNoteEditor
+          fieldId={`annotation-inline-${annotation.id}`}
+          note={annotation.note}
+          locked={locked}
+          saveLabel="保存"
+          onSave={(note) => {
+            onSaveNote(note);
+            onFinishEdit();
+          }}
+          onCancel={onFinishEdit}
+          onDelete={onDelete}
+        />
+      ) : (
         <div
           ref={scrollRef}
           className="annotation-bubble-scroll floating-scrollbar-target"
@@ -231,45 +318,14 @@ function AnnotationBubble({
         >
           <p>{annotation.note}</p>
         </div>
-        {canExpand && (
-          <button
-            className="annotation-bubble-toggle"
-            type="button"
-            aria-expanded={isExpanded}
-            aria-label={isExpanded ? "收起批注" : "展开批注"}
-            onClick={onToggle}
-          >
-            <ChevronDown className="annotation-bubble-chevron" size={13} aria-hidden="true" />
-          </button>
-        )}
-      </div>
-      {isExpanded && (
+      )}
+      {isExpanded && !editing && (
         <FloatingScrollbar
           scrollTargetRef={scrollRef}
           controlsId={`annotation-bubble-scroll-${annotation.id}`}
           ariaLabel="批注内容滚动条"
           placement="right"
         />
-      )}
-      {!locked && (
-        <div className="annotation-bubble-actions">
-          <button
-            className="annotation-icon-button"
-            type="button"
-            aria-label="编辑批注"
-            onClick={onEdit}
-          >
-            <Pencil size={13} />
-          </button>
-          <button
-            className="annotation-icon-button is-danger"
-            type="button"
-            aria-label="删除批注"
-            onClick={onDelete}
-          >
-            <Trash2 size={13} />
-          </button>
-        </div>
       )}
     </article>
   );
@@ -280,7 +336,10 @@ function CompactAnnotationCard({
   point,
   mobile,
   locked,
-  onEdit,
+  editing,
+  onStartEdit,
+  onFinishEdit,
+  onSaveNote,
   onDelete,
   onClose,
 }: {
@@ -288,7 +347,10 @@ function CompactAnnotationCard({
   point: SelectionPoint;
   mobile: boolean;
   locked: boolean;
-  onEdit: () => void;
+  editing: boolean;
+  onStartEdit: () => void;
+  onFinishEdit: () => void;
+  onSaveNote: (note: string) => void;
   onDelete: () => void;
   onClose: () => void;
 }) {
@@ -303,8 +365,8 @@ function CompactAnnotationCard({
   }, [mobile, point.left, point.top]);
 
   useEffect(() => {
-    closeRef.current?.focus({ preventScroll: true });
-  }, []);
+    if (!editing) closeRef.current?.focus({ preventScroll: true });
+  }, [editing]);
 
   useEffect(() => {
     const outside = (event: PointerEvent) => {
@@ -329,46 +391,74 @@ function CompactAnnotationCard({
     <>
       <div
         ref={rootRef}
-        className={`annotation-compact-card${mobile ? " annotation-compact-card--sheet" : ""}`}
+        className={`annotation-compact-card${mobile ? " annotation-compact-card--sheet" : ""}${editing ? " is-editing" : ""}`}
         style={mobile ? undefined : position}
         role="dialog"
         aria-modal="true"
         aria-label="批注"
       >
-        <div className="annotation-compact-heading">
-          <span>批注</span>
-          <button
-            ref={closeRef}
-            className="annotation-icon-button"
-            type="button"
-            aria-label="关闭批注"
-            onClick={onClose}
-          >
-            <X size={15} />
-          </button>
-        </div>
-        <div
-          ref={scrollRef}
-          className="annotation-compact-scroll floating-scrollbar-target"
-          id={`annotation-compact-scroll-${annotation.id}`}
-        >
-          <p className="annotation-compact-note">{annotation.note}</p>
-        </div>
-        <FloatingScrollbar
-          scrollTargetRef={scrollRef}
-          controlsId={`annotation-compact-scroll-${annotation.id}`}
-          ariaLabel="批注内容滚动条"
-          placement="right"
-        />
-        {!locked && (
-          <div className="annotation-compact-actions">
-            <button className="annotation-text-button" type="button" onClick={onEdit}>
-              <Pencil size={13} /> 编辑
-            </button>
-            <button className="annotation-text-button is-danger" type="button" onClick={onDelete}>
-              <Trash2 size={13} /> 删除
+        {!editing && (
+          <div className="annotation-card-tools">
+            {!locked && (
+              <button
+                className="annotation-icon-button"
+                type="button"
+                aria-label="编辑批注"
+                onClick={onStartEdit}
+              >
+                <Pencil size={13} />
+              </button>
+            )}
+            {!locked && (
+              <button
+                className="annotation-icon-button is-danger"
+                type="button"
+                aria-label="删除批注"
+                onClick={onDelete}
+              >
+                <Trash2 size={13} />
+              </button>
+            )}
+            <button
+              ref={closeRef}
+              className="annotation-icon-button"
+              type="button"
+              aria-label="关闭批注"
+              onClick={onClose}
+            >
+              <X size={14} />
             </button>
           </div>
+        )}
+        {editing ? (
+          <AnnotationNoteEditor
+            fieldId={`annotation-inline-${annotation.id}`}
+            note={annotation.note}
+            locked={locked}
+            saveLabel="保存"
+            onSave={(note) => {
+              onSaveNote(note);
+              onFinishEdit();
+            }}
+            onCancel={onFinishEdit}
+            onDelete={onDelete}
+          />
+        ) : (
+          <div
+            ref={scrollRef}
+            className="annotation-compact-scroll floating-scrollbar-target"
+            id={`annotation-compact-scroll-${annotation.id}`}
+          >
+            <p className="annotation-compact-note">{annotation.note}</p>
+          </div>
+        )}
+        {!editing && (
+          <FloatingScrollbar
+            scrollTargetRef={scrollRef}
+            controlsId={`annotation-compact-scroll-${annotation.id}`}
+            ariaLabel="批注内容滚动条"
+            placement="right"
+          />
         )}
       </div>
       {mobile && <div className="annotation-sheet-backdrop" aria-hidden="true" />}
@@ -383,10 +473,13 @@ function AnnotationLayer({
   annotations,
   railVisible,
   expandedId,
+  editId,
   locked,
   mobile,
   onToggle,
-  onEdit,
+  onStartEdit,
+  onFinishEdit,
+  onSaveNote,
   onDelete,
 }: {
   editor: Editor;
@@ -394,10 +487,13 @@ function AnnotationLayer({
   annotations: AnnotationRecord[];
   railVisible: boolean;
   expandedId: string | null;
+  editId: string | null;
   locked: boolean;
   mobile: boolean;
   onToggle: (id: string) => void;
-  onEdit: (id: string) => void;
+  onStartEdit: (id: string) => void;
+  onFinishEdit: () => void;
+  onSaveNote: (id: string, note: string) => void;
   onDelete: (id: string) => void;
 }) {
   const layerRef = useRef<HTMLDivElement>(null);
@@ -579,9 +675,12 @@ function AnnotationLayer({
               key={`bubble-${annotation.id}`}
               annotation={annotation}
               expanded={expandedId === annotation.id}
+              editing={editId === annotation.id}
               locked={locked}
               onToggle={() => onToggle(annotation.id)}
-              onEdit={() => onEdit(annotation.id)}
+              onStartEdit={() => onStartEdit(annotation.id)}
+              onFinishEdit={onFinishEdit}
+              onSaveNote={(note) => onSaveNote(annotation.id, note)}
               onDelete={() => onDelete(annotation.id)}
               register={(element) => {
                 if (element) bubbleRefs.current.set(annotation.id, element);
@@ -596,11 +695,10 @@ function AnnotationLayer({
           point={compact.point}
           mobile={mobile}
           locked={locked}
-          onEdit={() => {
-            setCompact(null);
-            onToggle(compactAnnotation.id);
-            onEdit(compactAnnotation.id);
-          }}
+          editing={editId === compactAnnotation.id}
+          onStartEdit={() => onStartEdit(compactAnnotation.id)}
+          onFinishEdit={onFinishEdit}
+          onSaveNote={(note) => onSaveNote(compactAnnotation.id, note)}
           onDelete={() => {
             setCompact(null);
             onDelete(compactAnnotation.id);
@@ -635,6 +733,7 @@ export function useEditorAnnotations({
   const [annotations, setAnnotations] = useState<AnnotationRecord[]>([]);
   const [wideEnough, setWideEnough] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [editId, setEditId] = useState<string | null>(null);
   const [composer, setComposer] = useState<ComposerState | null>(null);
   const annotationsRef = useRef(annotations);
   annotationsRef.current = annotations;
@@ -651,6 +750,7 @@ export function useEditorAnnotations({
   useEffect(() => {
     setComposer(null);
     setExpandedId(null);
+    setEditId(null);
     refresh();
   }, [noteId, refresh]);
 
@@ -692,14 +792,16 @@ export function useEditorAnnotations({
   }, [mobile, scrollRef]);
 
   useEffect(() => {
-    if (locked || deleted) setComposer(null);
+    if (locked || deleted) {
+      setComposer(null);
+      setEditId(null);
+    }
   }, [deleted, locked]);
 
   const openCreate = useCallback(
     (from: number, to: number) => {
       if (!editor || editor.isDestroyed || locked || deleted || from >= to) return;
       setComposer({
-        mode: "create",
         id: createUuid(),
         note: "",
         from,
@@ -712,24 +814,17 @@ export function useEditorAnnotations({
     [deleted, editor, locked, noteId],
   );
 
-  const openEdit = useCallback(
+  const startEdit = useCallback(
     (id: string) => {
       if (!editor || editor.isDestroyed || locked || deleted) return;
       const annotation = annotationsRef.current.find((candidate) => candidate.id === id);
       if (!annotation) return;
-      setComposer({
-        mode: "edit",
-        id,
-        note: annotation.note,
-        from: annotation.from,
-        to: annotation.to,
-        doc: editor.state.doc,
-        noteId,
-        point: selectionPoint(editor, annotation.to),
-      });
+      setExpandedId(id);
+      setEditId(id);
     },
-    [deleted, editor, locked, noteId],
+    [deleted, editor, locked],
   );
+  const finishEdit = useCallback(() => setEditId(null), []);
 
   const deleteAnnotations = useCallback(
     (ids: string[]) => {
@@ -747,6 +842,7 @@ export function useEditorAnnotations({
       if (!changed) return;
       editor.view.dispatch(transaction.scrollIntoView());
       setExpandedId((current) => (current && ids.includes(current) ? null : current));
+      setEditId((current) => (current && ids.includes(current) ? null : current));
     },
     [deleted, editor, locked],
   );
@@ -754,6 +850,23 @@ export function useEditorAnnotations({
   const deleteAnnotation = useCallback(
     (id: string) => deleteAnnotations([id]),
     [deleteAnnotations],
+  );
+
+  const saveAnnotationNote = useCallback(
+    (id: string, note: string) => {
+      if (!editor || editor.isDestroyed || locked || deleted) return;
+      const markType = editor.schema.marks.noteAnnotation;
+      if (!markType) return;
+      let transaction = editor.state.tr;
+      const ranges = findAnnotationRanges(transaction.doc, id);
+      if (!ranges.length) return;
+      note = note.replace(/\r\n?/g, "\n");
+      const mark = markType.create({ id, note });
+      for (const range of ranges) transaction = transaction.addMark(range.from, range.to, mark);
+      editor.view.dispatch(transaction.scrollIntoView());
+      requestAnimationFrame(refresh);
+    },
+    [deleted, editor, locked, refresh],
   );
 
   const saveComposer = useCallback(
@@ -766,25 +879,16 @@ export function useEditorAnnotations({
       note = note.replace(/\r\n?/g, "\n");
       const markType = editor.schema.marks.noteAnnotation;
       if (!markType) return;
-      let transaction = editor.state.tr;
-      const mark = markType.create({ id: composer.id, note });
-      if (composer.mode === "create") {
-        if (composer.from < 0 || composer.to > transaction.doc.content.size) {
-          setComposer(null);
-          return;
-        }
-        transaction = transaction.addMark(composer.from, composer.to, mark);
-      } else {
-        const ranges = findAnnotationRanges(transaction.doc, composer.id);
-        if (!ranges.length) {
-          setComposer(null);
-          return;
-        }
-        for (const range of ranges) transaction = transaction.addMark(range.from, range.to, mark);
+      const transaction = editor.state.tr;
+      if (composer.from < 0 || composer.to > transaction.doc.content.size) {
+        setComposer(null);
+        return;
       }
-      editor.view.dispatch(transaction.scrollIntoView());
+      const mark = markType.create({ id: composer.id, note });
+      editor.view.dispatch(transaction.addMark(composer.from, composer.to, mark).scrollIntoView());
       setComposer(null);
       setExpandedId(composer.id);
+      setEditId(null);
       requestAnimationFrame(refresh);
     },
     [composer, deleted, editor, locked, noteId, refresh],
@@ -792,6 +896,7 @@ export function useEditorAnnotations({
 
   const closeComposer = useCallback(() => setComposer(null), []);
   const toggleExpanded = useCallback((id: string) => {
+    setEditId(null);
     setExpandedId((current) => (current === id ? null : id));
   }, []);
   const railVisible = wideEnough && annotations.length > 0;
@@ -804,10 +909,13 @@ export function useEditorAnnotations({
         annotations={annotations}
         railVisible={railVisible}
         expandedId={expandedId}
+        editId={editId}
         locked={locked || deleted}
         mobile={mobile}
         onToggle={toggleExpanded}
-        onEdit={openEdit}
+        onStartEdit={startEdit}
+        onFinishEdit={finishEdit}
+        onSaveNote={saveAnnotationNote}
         onDelete={deleteAnnotation}
       />
     ) : null;
@@ -818,14 +926,6 @@ export function useEditorAnnotations({
       mobile={mobile}
       locked={locked || deleted}
       onSave={saveComposer}
-      onDelete={
-        composer.mode === "edit"
-          ? () => {
-              deleteAnnotation(composer.id);
-              setComposer(null);
-            }
-          : null
-      }
       onClose={closeComposer}
     />
   ) : null;
@@ -834,7 +934,7 @@ export function useEditorAnnotations({
     overlay,
     composer: composerNode,
     openCreate,
-    openEdit,
+    startEdit,
     deleteAnnotations,
   };
 }

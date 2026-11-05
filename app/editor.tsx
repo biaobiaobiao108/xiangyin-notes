@@ -1829,7 +1829,7 @@ export function NoteEditor({
     deleted: Boolean(note.deletedAt),
     onTitleChange: (title) => onChange({ title }),
     onAddAnnotation: annotations.openCreate,
-    onEditAnnotation: annotations.openEdit,
+    onEditAnnotation: annotations.startEdit,
     onDeleteAnnotation: annotations.deleteAnnotations,
     noteActions: [
       { label: "导出图片", icon: ImageDown, disabled: editorLocked, onSelect: onExportImage },
