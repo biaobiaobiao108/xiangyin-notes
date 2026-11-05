@@ -185,6 +185,26 @@ describe("CommandMenu 键盘优先与鼠标防干扰契约", () => {
     );
     expect(noNoteHtml).not.toContain("开启自动阅读");
     expect(noNoteHtml).not.toContain("退出自动阅读");
+
+    const splitHtml = renderToString(
+      React.createElement(CommandMenu, {
+        open: true,
+        hasSelectedNote: true,
+        autoReadingMode: false,
+        canAutoRead: false,
+        onClose: () => {},
+        onCommand: () => {},
+        onCreateNoteInNotebook: () => {},
+        canRestore: false,
+        canMoveToTrash: true,
+        notebooks: [],
+        canInstallApp: false,
+        showIosInstallHint: false,
+        standalone: false,
+        themePreference: "system",
+      }),
+    );
+    expect(splitHtml).not.toContain("开启自动阅读");
   });
 
   it("仅在卡片视图下提供分屏显示命令，三栏视图下不显示", () => {

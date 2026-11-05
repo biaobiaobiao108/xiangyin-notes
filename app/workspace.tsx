@@ -202,14 +202,6 @@ export function Workspace() {
       return false;
     }
   });
-  const [autoReadingMode, setAutoReadingMode] = useState(false);
-  const toggleAutoReadingMode = useCallback(() => {
-    if (!selectedIdRef.current) return;
-    setAutoReadingMode((current) => !current);
-  }, []);
-  const exitAutoReadingMode = useCallback(() => {
-    setAutoReadingMode(false);
-  }, []);
   const toggleFocusMode = useCallback(() => {
     setFocusMode((current) => {
       const next = !current;
@@ -611,6 +603,17 @@ export function Workspace() {
   const [splitNoteId, setSplitNoteId] = useState<string | null>(null);
   const splitNoteIdRef = useRef<string | null>(null);
   splitNoteIdRef.current = splitNoteId;
+  const [autoReadingMode, setAutoReadingMode] = useState(false);
+  const toggleAutoReadingMode = useCallback(() => {
+    if (splitNoteIdRef.current || !selectedIdRef.current) return;
+    setAutoReadingMode((current) => !current);
+  }, []);
+  const exitAutoReadingMode = useCallback(() => {
+    setAutoReadingMode(false);
+  }, []);
+  useEffect(() => {
+    if (splitNoteId) setAutoReadingMode(false);
+  }, [splitNoteId]);
   const closeSplitRef = useRef<() => void>(() => undefined);
   const [splitSelectedNote, setSplitSelectedNote] = useState<Note | null>(null);
   const splitSelectedRef = useRef<Note | null>(null);
@@ -1000,10 +1003,10 @@ export function Workspace() {
     setAutoReadingMode(false);
   }, [resetOutline, selectedId]);
   useEffect(() => {
-    if (focusMode) {
+    if (focusMode || autoReadingMode) {
       setOutlineOpen(false);
     }
-  }, [focusMode]);
+  }, [autoReadingMode, focusMode]);
   const removeFromList = useCallback(
     (noteId: string) => {
       const ordered = sortNotes(notesRef.current, noteSort);
@@ -1249,6 +1252,7 @@ export function Workspace() {
   useWorkspaceShortcuts({
     focusMode,
     autoReadingMode,
+    autoReadingAvailable: !splitNoteId,
     exitAutoReadingMode,
     toggleAutoReadingMode,
     hasModalOpen: Boolean(
@@ -3509,8 +3513,6 @@ export function Workspace() {
                           }
                           onUploadImage={handleUploadImage}
                           focusMode={focusMode}
-                          autoReadingMode={autoReadingMode && activePane === "primary"}
-                          onExitAutoReadingMode={exitAutoReadingMode}
                           typewriterMode={typewriterMode}
                           outlineOpen={outlineOpen && activePane === "primary"}
                           outlineItems={outlineItems}
@@ -3730,6 +3732,7 @@ export function Workspace() {
                     onUploadImage={handleUploadImage}
                     focusMode={focusMode}
                     autoReadingMode={autoReadingMode}
+                    onToggleAutoReadingMode={toggleAutoReadingMode}
                     onExitAutoReadingMode={exitAutoReadingMode}
                     typewriterMode={typewriterMode}
                     outlineOpen={outlineOpen}
@@ -3787,6 +3790,7 @@ export function Workspace() {
         onMoveNoteToNotebook={(targetNotebookId) => onNoteChange({ notebookId: targetNotebookId })}
         focusMode={focusMode}
         autoReadingMode={autoReadingMode}
+        canAutoRead={!splitNoteId}
         typewriterMode={typewriterMode}
         viewLayout={isMobileViewport ? "three-column" : viewLayout}
         isSplitActive={Boolean(splitNoteId && !isMobileViewport)}

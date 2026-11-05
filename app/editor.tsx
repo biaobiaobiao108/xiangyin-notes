@@ -216,6 +216,7 @@ export function NoteEditor({
   focusMode = false,
   onClearSearch,
   autoReadingMode = false,
+  onToggleAutoReadingMode,
   onExitAutoReadingMode,
   typewriterMode = false,
   outlineOpen,
@@ -272,6 +273,7 @@ export function NoteEditor({
   mobileBackLabel?: string;
   focusMode?: boolean;
   autoReadingMode?: boolean;
+  onToggleAutoReadingMode?: () => void;
   onExitAutoReadingMode?: () => void;
   onClearSearch?: () => void;
   typewriterMode?: boolean;
@@ -1881,6 +1883,8 @@ export function NoteEditor({
           onBack={onOpenList}
           canUpload={Boolean(onUploadImage) && !note.deletedAt && imageUploadState !== "uploading"}
           onUpload={() => imageFileInputRef.current?.click()}
+          autoReadingMode={autoReadingMode}
+          onToggleAutoReading={onToggleAutoReadingMode}
           onExport={onExportImage}
           onFavorite={onToggleFavorite}
           onBacklinks={onNavigateToNote ? () => setBacklinksOpen(true) : undefined}
@@ -2306,7 +2310,7 @@ export function NoteEditor({
           onBacklinkCountChange={setBacklinkCount}
         />
       )}
-      {isMobileViewport && outlineOpen && (
+      {isMobileViewport && !autoReadingMode && outlineOpen && (
         <MobileEditorOutline
           items={outlineItems}
           activeId={activeOutlineId ?? null}
@@ -2314,15 +2318,17 @@ export function NoteEditor({
           onClose={onCloseOutline}
         />
       )}
-      {!isMobileViewport && (focusMode || ((onBackToCards || onBackToKanban) && outlineOpen)) && (
-        <CardOutline
-          key={note.id}
-          outlineItems={outlineItems}
-          activeOutlineId={activeOutlineId ?? null}
-          onNavigate={scrollToOutlineItem}
-          onClose={onCloseOutline}
-        />
-      )}
+      {!isMobileViewport &&
+        !autoReadingMode &&
+        (focusMode || ((onBackToCards || onBackToKanban) && outlineOpen)) && (
+          <CardOutline
+            key={note.id}
+            outlineItems={outlineItems}
+            activeOutlineId={activeOutlineId ?? null}
+            onNavigate={scrollToOutlineItem}
+            onClose={onCloseOutline}
+          />
+        )}
     </section>
   );
 }

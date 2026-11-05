@@ -14,6 +14,7 @@ function stopEscapePropagation(event: KeyboardEvent) {
 export type UseWorkspaceShortcutsOptions = {
   focusMode: boolean;
   autoReadingMode?: boolean;
+  autoReadingAvailable?: boolean;
   exitAutoReadingMode?: () => void;
   toggleAutoReadingMode?: () => void;
   hasModalOpen: boolean;
@@ -38,6 +39,7 @@ export type UseWorkspaceShortcutsOptions = {
 export type WorkspaceKeyboardContext = {
   focusMode: boolean;
   autoReadingMode?: boolean;
+  autoReadingAvailable?: boolean;
   hasModalOpen: boolean;
   hasSearchHighlight?: boolean;
   clearSearchHighlight?: () => void;
@@ -67,6 +69,7 @@ export function handleWorkspaceKeyDown(event: KeyboardEvent, ctx: WorkspaceKeybo
   const {
     handlers,
     autoReadingMode = false,
+    autoReadingAvailable = true,
     focusMode,
     hasModalOpen,
     hasSearchHighlight = false,
@@ -191,6 +194,7 @@ export function handleWorkspaceKeyDown(event: KeyboardEvent, ctx: WorkspaceKeybo
     event.preventDefault();
     toggleTypewriterMode();
   } else if (event.altKey && event.shiftKey && matchesShortcutLetter(event, "r")) {
+    if (!autoReadingAvailable) return;
     event.preventDefault();
     toggleAutoReadingMode?.();
   } else if (
@@ -208,6 +212,7 @@ export function handleWorkspaceKeyDown(event: KeyboardEvent, ctx: WorkspaceKeybo
 export function useWorkspaceShortcuts(options: UseWorkspaceShortcutsOptions) {
   const {
     autoReadingMode = false,
+    autoReadingAvailable = true,
     exitAutoReadingMode,
     toggleAutoReadingMode,
     focusMode,
@@ -233,6 +238,8 @@ export function useWorkspaceShortcuts(options: UseWorkspaceShortcutsOptions) {
   const focusModeRef = useRef(focusMode);
   const autoReadingModeRef = useRef(autoReadingMode);
   autoReadingModeRef.current = autoReadingMode;
+  const autoReadingAvailableRef = useRef(autoReadingAvailable);
+  autoReadingAvailableRef.current = autoReadingAvailable;
   focusModeRef.current = focusMode;
   const isCardEditingRef = useRef(isCardEditing);
   isCardEditingRef.current = isCardEditing;
@@ -282,6 +289,7 @@ export function useWorkspaceShortcuts(options: UseWorkspaceShortcutsOptions) {
       handleWorkspaceKeyDown(event, {
         focusMode: focusModeRef.current,
         autoReadingMode: autoReadingModeRef.current,
+        autoReadingAvailable: autoReadingAvailableRef.current,
         hasModalOpen: hasModalOpenRef.current,
         hasSearchHighlight: hasSearchHighlightRef.current,
         outlineOpen: outlineOpenRef.current,

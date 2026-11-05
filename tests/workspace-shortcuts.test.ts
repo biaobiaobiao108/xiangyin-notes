@@ -341,6 +341,42 @@ describe("workspace shortcuts on macOS keyboard layouts", () => {
     expect(defaultPrevented).toBe(true);
   });
 
+  test("does not toggle auto-reading when the current layout does not support it", () => {
+    let autoReadingToggled = false;
+    let defaultPrevented = false;
+    const event = {
+      key: "R",
+      code: "KeyR",
+      altKey: true,
+      shiftKey: true,
+      ctrlKey: false,
+      metaKey: false,
+      defaultPrevented: false,
+      preventDefault() {
+        defaultPrevented = true;
+      },
+    } as any;
+
+    handleWorkspaceKeyDown(event, {
+      focusMode: false,
+      hasModalOpen: false,
+      autoReadingAvailable: false,
+      handlers: {
+        toggleSidebar() {},
+        toggleFocusMode() {},
+        toggleTypewriterMode() {},
+        toggleAutoReadingMode() {
+          autoReadingToggled = true;
+        },
+        exitFocusMode() {},
+        openCommandMenu() {},
+      },
+    });
+
+    expect(autoReadingToggled).toBe(false);
+    expect(defaultPrevented).toBe(false);
+  });
+
   test("recognizes Option+V by physical key when Safari reports an alternate character", () => {
     let layoutToggled = false;
     let defaultPrevented = false;

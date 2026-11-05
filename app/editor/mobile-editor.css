@@ -153,6 +153,17 @@
     transform: none;
   }
   .is-mobile-editor .editor-floating-tools .editor-stats-pill { display: none; }
+  .is-mobile-editor.is-auto-reading-mode .mobile-editor-header,
+  .is-mobile-editor.is-auto-reading-mode .mobile-editor-footer,
+  .is-mobile-editor.is-auto-reading-mode .mobile-editor-outline-layer {
+    display: none;
+  }
+  .is-mobile-editor.is-auto-reading-mode .editor-document {
+    padding-top: calc(24px + env(safe-area-inset-top));
+  }
+  .is-mobile-editor.is-auto-reading-mode .editor-scroll.is-auto-reading .editor-document {
+    padding-bottom: max(50vh, 260px);
+  }
   .is-mobile-editor .mobile-editor-outline-layer { position: absolute; inset: 0; z-index: 100; }
   .is-mobile-editor .mobile-editor-outline {
     position: absolute;

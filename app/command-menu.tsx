@@ -95,6 +95,7 @@ type CommandMenuProps = {
   onMoveNoteToNotebook?: (notebookId: string) => void;
   focusMode?: boolean;
   autoReadingMode?: boolean;
+  canAutoRead?: boolean;
   typewriterMode?: boolean;
   viewLayout?: "three-column" | "cards";
   isMobileViewport?: boolean;
@@ -123,6 +124,7 @@ export function CommandMenu({
   onMoveNoteToNotebook,
   focusMode = false,
   autoReadingMode = false,
+  canAutoRead = true,
   typewriterMode = false,
   viewLayout = "three-column",
   isMobileViewport = false,
@@ -227,7 +229,7 @@ export function CommandMenu({
         shortcut: `${modKey} ⇧ F`,
         icon: Maximize2,
       },
-      ...(hasSelectedNote
+      ...(hasSelectedNote && canAutoRead
         ? [
             {
               id: "toggle-auto-reading" as const,
@@ -323,6 +325,7 @@ export function CommandMenu({
     ],
     [
       autoReadingMode,
+      canAutoRead,
       canInstallApp,
       canMoveToTrash,
       canRestore,

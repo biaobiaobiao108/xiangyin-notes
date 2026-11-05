@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Focus, Pause, Play, RotateCcw } from "lucide-react";
+import { ChevronLeft, ChevronRight, Focus, Pause, Play, RotateCcw, X } from "lucide-react";
 
 export type SpeedPreset = {
   rate: number; // 滚动速度 (px/s)
@@ -22,6 +22,31 @@ export const READING_SPEED_PRESETS: SpeedPreset[] = [
 
 const STORAGE_SPEED_KEY = "xiangying_auto_reading_preset_index";
 const STORAGE_FOCUS_KEY = "xiangying_auto_reading_focus";
+export const DIAL_TICK_WIDTH = 28;
+
+export function clampPresetIndex(index: number) {
+  return Math.max(0, Math.min(READING_SPEED_PRESETS.length - 1, index));
+}
+
+export function stepPresetIndex(currentIndex: number, delta: number) {
+  return clampPresetIndex(currentIndex + delta);
+}
+
+export function presetIndexForDrag(
+  startIndex: number,
+  deltaX: number,
+  tickWidth = DIAL_TICK_WIDTH,
+) {
+  return clampPresetIndex(startIndex - Math.round(deltaX / tickWidth));
+}
+
+export function presetIndexForTap(
+  currentIndex: number,
+  offsetFromCenter: number,
+  tickWidth = DIAL_TICK_WIDTH,
+) {
+  return clampPresetIndex(currentIndex + Math.round(offsetFromCenter / tickWidth));
+}
 
 function loadInitialPresetIndex(): number {
   try {
@@ -100,6 +125,89 @@ export type AutoReadingHUDProps = {
   onExit?: () => void;
 };
 
+type ReadingKeyActions = {
+  togglePlay: () => void;
+  handleSpeedUp: () => void;
+  handleSpeedDown: () => void;
+  toggleFocusReading: () => void;
+  handleRewind: () => void;
+};
+
+type ReadingKeyEvent = Pick<
+  KeyboardEvent,
+  "key" | "code" | "isComposing" | "keyCode" | "defaultPrevented" | "repeat" | "preventDefault"
+> & { target: EventTarget | null };
+
+function closestTarget(target: EventTarget | null, selector: string) {
+  if (
+    target &&
+    typeof target === "object" &&
+    "closest" in target &&
+    typeof target.closest === "function"
+  ) {
+    return target.closest(selector);
+  }
+  return null;
+}
+
+export function handleReadingKeyDown(event: ReadingKeyEvent, actions: ReadingKeyActions) {
+  if (event.isComposing || event.keyCode === 229 || event.defaultPrevented) return false;
+
+  if (closestTarget(event.target, "dialog[open], [role='dialog'], [role='menu']")) return false;
+  if (
+    closestTarget(
+      event.target,
+      "input:not([readonly]):not([disabled]), textarea:not([readonly]):not([disabled]), [contenteditable='true']",
+    )
+  )
+    return false;
+
+  const isSpace = event.code === "Space" || event.key === " ";
+  if (
+    isSpace &&
+    closestTarget(
+      event.target,
+      "button, a[href], select, [role='button'], [role='menuitem'], [role='option'], [role='switch'], [role='checkbox'], [role='radio']",
+    )
+  )
+    return false;
+
+  if (isSpace) {
+    if (event.repeat) return false;
+    event.preventDefault();
+    actions.togglePlay();
+    return true;
+  }
+
+  if (event.key === "ArrowUp" || event.key === "ArrowRight" || event.key === "+") {
+    event.preventDefault();
+    actions.handleSpeedUp();
+    return true;
+  }
+
+  if (event.key === "ArrowDown" || event.key === "ArrowLeft" || event.key === "-") {
+    event.preventDefault();
+    actions.handleSpeedDown();
+    return true;
+  }
+
+  if (event.key === "f" || event.key === "F") {
+    if (event.repeat) return false;
+    event.preventDefault();
+    actions.toggleFocusReading();
+    return true;
+  }
+
+  if (event.key === "Home" || event.key === "r" || event.key === "R") {
+    if (event.key !== "Home" && event.repeat) return false;
+    event.preventDefault();
+    actions.handleRewind();
+    return true;
+  }
+
+  return false;
+}
+
 export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps) {
   const [presetIndex, setPresetIndex] = useState<number>(loadInitialPresetIndex);
   const [focusReading, setFocusReading] = useState<boolean>(loadInitialFocusReading);
@@ -123,7 +231,7 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
 
   const handleSpeedDown = useCallback(() => {
     setPresetIndex((prev) => {
-      const next = Math.max(0, prev - 1);
+      const next = stepPresetIndex(prev, -1);
       try {
         localStorage.setItem(STORAGE_SPEED_KEY, String(next));
       } catch {}
@@ -133,7 +241,7 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
 
   const handleSpeedUp = useCallback(() => {
     setPresetIndex((prev) => {
-      const next = Math.min(READING_SPEED_PRESETS.length - 1, prev + 1);
+      const next = stepPresetIndex(prev, 1);
       try {
         localStorage.setItem(STORAGE_SPEED_KEY, String(next));
       } catch {}
@@ -157,32 +265,19 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
     if (!container) return;
     subpixelRef.current = 0;
     lastTimeRef.current = null;
-    container.scrollTo({ top: 0, behavior: "smooth" });
-    requestAnimationFrame(() => {
-      updateFocalElement(container, focusReadingRef.current);
+    const reduceMotion =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    container.scrollTo({
+      top: 0,
+      behavior: reduceMotion || isPlayingRef.current ? "auto" : "smooth",
     });
+    updateFocalElement(container, focusReadingRef.current);
   }, [scrollTargetRef]);
 
   const togglePlay = useCallback(() => {
-    setIsPlaying((prev) => {
-      const next = !prev;
-      isPlayingRef.current = next;
-      if (next) {
-        const container = scrollTargetRef.current;
-        if (container) {
-          const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
-          if (container.scrollTop >= maxScroll - 2) {
-            container.scrollTop = 0;
-          }
-        }
-        lastTimeRef.current = null;
-      }
-      return next;
-    });
-  }, [scrollTargetRef]);
-
-  // 每个刻度之间的物理像素间距
-  const TICK_WIDTH = 28;
+    setIsPlaying((current) => !current);
+  }, []);
 
   const handleDialPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -199,66 +294,47 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
     [presetIndex],
   );
 
-  const handleDialPointerMove = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      if (!dragStartRef.current) return;
-      const deltaX = e.clientX - dragStartRef.current.x;
-      if (Math.abs(deltaX) > 3) {
-        dragStartRef.current.moved = true;
-      }
-      setDragOffsetPx(deltaX);
+  const handleDialPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragStartRef.current) return;
+    const deltaX = e.clientX - dragStartRef.current.x;
+    if (Math.abs(deltaX) > 3) {
+      dragStartRef.current.moved = true;
+    }
+    setDragOffsetPx(deltaX);
 
-      // 物理刻度逻辑：鼠标向左拉刻度带（deltaX < 0），右侧更高的档位滑向中心指针（升档）
-      // 鼠标向右拉刻度带（deltaX > 0），左侧更低的档位滑向中心指针（降档）
-      const stepDelta = Math.round(deltaX / TICK_WIDTH);
-      const targetIndex = Math.max(
-        0,
-        Math.min(READING_SPEED_PRESETS.length - 1, dragStartRef.current.index - stepDelta),
-      );
-      setPresetIndex(targetIndex);
-    },
-    [TICK_WIDTH],
-  );
+    // 物理刻度逻辑：鼠标向左拉刻度带（deltaX < 0），右侧更高的档位滑向中心指针（升档）
+    // 鼠标向右拉刻度带（deltaX > 0），左侧更低的档位滑向中心指针（降档）
+    setPresetIndex(presetIndexForDrag(dragStartRef.current.index, deltaX));
+  }, []);
 
-  const handleDialPointerUp = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      if (!dragStartRef.current) return;
-      const { x, index, moved } = dragStartRef.current;
-      dragStartRef.current = null;
-      setIsDragging(false);
-      setDragOffsetPx(0);
+  const handleDialPointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragStartRef.current) return;
+    const { x, index, moved } = dragStartRef.current;
+    dragStartRef.current = null;
+    setIsDragging(false);
+    setDragOffsetPx(0);
 
-      if (!moved) {
-        // 纯点击：计算点击位置相对于中心指针的距离，直接将该刻度对齐到中心指针
-        const rect = e.currentTarget.getBoundingClientRect();
-        const centerX = rect.width / 2;
-        const offsetFromCenter = e.clientX - rect.left - centerX;
-        const clickedStepDelta = Math.round(offsetFromCenter / TICK_WIDTH);
-        if (clickedStepDelta !== 0) {
-          const target = Math.max(
-            0,
-            Math.min(READING_SPEED_PRESETS.length - 1, index + clickedStepDelta),
-          );
-          setPresetIndex(target);
-          try {
-            localStorage.setItem(STORAGE_SPEED_KEY, String(target));
-          } catch {}
-        }
-      } else {
-        const deltaX = e.clientX - x;
-        const stepDelta = Math.round(deltaX / TICK_WIDTH);
-        const finalIndex = Math.max(
-          0,
-          Math.min(READING_SPEED_PRESETS.length - 1, index - stepDelta),
-        );
-        setPresetIndex(finalIndex);
+    if (!moved) {
+      // 纯点击：计算点击位置相对于中心指针的距离，直接将该刻度对齐到中心指针
+      const rect = e.currentTarget.getBoundingClientRect();
+      const centerX = rect.width / 2;
+      const offsetFromCenter = e.clientX - rect.left - centerX;
+      const target = presetIndexForTap(index, offsetFromCenter);
+      if (target !== index) {
+        setPresetIndex(target);
         try {
-          localStorage.setItem(STORAGE_SPEED_KEY, String(finalIndex));
+          localStorage.setItem(STORAGE_SPEED_KEY, String(target));
         } catch {}
       }
-    },
-    [TICK_WIDTH],
-  );
+    } else {
+      const deltaX = e.clientX - x;
+      const finalIndex = presetIndexForDrag(index, deltaX);
+      setPresetIndex(finalIndex);
+      try {
+        localStorage.setItem(STORAGE_SPEED_KEY, String(finalIndex));
+      } catch {}
+    }
+  }, []);
 
   const handleDialPointerCancel = useCallback(() => {
     dragStartRef.current = null;
@@ -266,8 +342,26 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
     setDragOffsetPx(0);
   }, []);
 
-  // 主滚动循环与视线焦点同步
+  // 主滚动循环
   useEffect(() => {
+    if (!isPlaying) {
+      if (animFrameRef.current !== null) {
+        cancelAnimationFrame(animFrameRef.current);
+        animFrameRef.current = null;
+      }
+      lastTimeRef.current = null;
+      return;
+    }
+
+    const container = scrollTargetRef.current;
+    if (container) {
+      const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
+      if (container.scrollTop >= maxScroll - 2) {
+        container.scrollTop = 0;
+      }
+    }
+    lastTimeRef.current = null;
+
     const loop = (timestamp: number) => {
       if (!isPlayingRef.current) {
         lastTimeRef.current = null;
@@ -317,20 +411,10 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
         }
       }
 
-      // 同步更新段落视线焦点
-      updateFocalElement(container, focusReadingRef.current);
       animFrameRef.current = requestAnimationFrame(loop);
     };
 
-    if (isPlaying) {
-      animFrameRef.current = requestAnimationFrame(loop);
-    } else {
-      if (animFrameRef.current !== null) {
-        cancelAnimationFrame(animFrameRef.current);
-        animFrameRef.current = null;
-      }
-      lastTimeRef.current = null;
-    }
+    animFrameRef.current = requestAnimationFrame(loop);
 
     return () => {
       if (animFrameRef.current !== null) {
@@ -341,25 +425,29 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
     };
   }, [isPlaying, scrollTargetRef]);
 
-  // 手动滚动监听：同步累加器并实时刷新聚焦段落
+  // 手动滚动监听：同步累加器；滚动事件负责覆盖鼠标、触控、键盘和滚动条
   useEffect(() => {
     const container = scrollTargetRef.current;
     if (!container) return;
 
-    const onManualScroll = () => {
+    const onManualInput = () => {
       subpixelRef.current = 0;
       lastTimeRef.current = null;
+    };
+    const onScroll = () => {
       updateFocalElement(container, focusReadingRef.current);
     };
 
-    container.addEventListener("wheel", onManualScroll, { passive: true });
-    container.addEventListener("touchmove", onManualScroll, { passive: true });
+    container.addEventListener("wheel", onManualInput, { passive: true });
+    container.addEventListener("touchmove", onManualInput, { passive: true });
+    container.addEventListener("scroll", onScroll, { passive: true });
     // 初始化聚焦
-    updateFocalElement(container, focusReadingRef.current);
+    onScroll();
 
     return () => {
-      container.removeEventListener("wheel", onManualScroll);
-      container.removeEventListener("touchmove", onManualScroll);
+      container.removeEventListener("wheel", onManualInput);
+      container.removeEventListener("touchmove", onManualInput);
+      container.removeEventListener("scroll", onScroll);
       updateFocalElement(container, false);
     };
   }, [scrollTargetRef]);
@@ -377,11 +465,16 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
         active
       ) {
         try {
-          sentinel = await (
+          const requestedSentinel = await (
             navigator as unknown as {
               wakeLock: { request: (type: string) => Promise<{ release: () => Promise<void> }> };
             }
           ).wakeLock.request("screen");
+          if (!active || document.visibilityState !== "visible") {
+            await requestedSentinel.release().catch(() => undefined);
+            return;
+          }
+          sentinel = requestedSentinel;
         } catch {
           // Non-fatal if permission not granted
         }
@@ -421,45 +514,13 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
   // Keyboard navigation within reading mode
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.isComposing || event.keyCode === 229) return;
-      const target = event.target;
-      if (
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        (target instanceof HTMLElement && target.isContentEditable)
-      ) {
-        return;
-      }
-
-      if (event.code === "Space" || event.key === " ") {
-        event.preventDefault();
-        togglePlay();
-        return;
-      }
-
-      if (event.key === "ArrowUp" || event.key === "ArrowRight" || event.key === "+") {
-        event.preventDefault();
-        handleSpeedUp();
-        return;
-      }
-
-      if (event.key === "ArrowDown" || event.key === "ArrowLeft" || event.key === "-") {
-        event.preventDefault();
-        handleSpeedDown();
-        return;
-      }
-
-      if (event.key === "f" || event.key === "F") {
-        event.preventDefault();
-        toggleFocusReading();
-        return;
-      }
-
-      if (event.key === "Home" || event.key === "r" || event.key === "R") {
-        event.preventDefault();
-        handleRewind();
-        return;
-      }
+      handleReadingKeyDown(event, {
+        togglePlay,
+        handleSpeedUp,
+        handleSpeedDown,
+        toggleFocusReading,
+        handleRewind,
+      });
     };
 
     window.addEventListener("keydown", onKeyDown);
@@ -468,7 +529,7 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
 
   // 滚轮刻度位置（以基准档位为中心的平滑横向位移）
   const baseIndex = isDragging && dragStartRef.current ? dragStartRef.current.index : presetIndex;
-  const trackOffset = -(baseIndex * TICK_WIDTH) + (isDragging ? dragOffsetPx : 0);
+  const trackOffset = -(baseIndex * DIAL_TICK_WIDTH) + (isDragging ? dragOffsetPx : 0);
 
   return (
     <div className="auto-reading-hud" role="region" aria-label="自动阅读控制">
@@ -476,7 +537,6 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
         type="button"
         className="auto-reading-btn auto-reading-btn--icon"
         aria-label="回正到顶部 (Home / R)"
-        title="回正到顶部 (Home / R)"
         onClick={handleRewind}
       >
         <RotateCcw size={15} strokeWidth={2} />
@@ -486,7 +546,7 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
         type="button"
         className={`auto-reading-btn auto-reading-btn--icon auto-reading-btn--play ${isPlaying ? "is-playing" : ""}`}
         aria-label={isPlaying ? "暂停滚动 (空格键)" : "继续滚动 (空格键)"}
-        title={isPlaying ? "暂停滚动 (空格键)" : "继续滚动 (空格键)"}
+        aria-pressed={isPlaying}
         onClick={togglePlay}
       >
         {isPlaying ? <Pause size={15} strokeWidth={2.2} /> : <Play size={15} strokeWidth={2.2} />}
@@ -497,7 +557,7 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
         type="button"
         className={`auto-reading-btn auto-reading-btn--icon auto-reading-btn--focus ${focusReading ? "is-active" : ""}`}
         aria-label={focusReading ? "关闭段落聚焦 (F)" : "开启段落聚焦 (F)"}
-        title={focusReading ? "关闭段落聚焦 (F)" : "开启段落聚焦 (F)"}
+        aria-pressed={focusReading}
         onClick={toggleFocusReading}
       >
         <Focus size={15} strokeWidth={2} />
@@ -511,7 +571,6 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
           type="button"
           className="auto-reading-btn auto-reading-btn--dial-arrow"
           aria-label="减速 (← 或 -)"
-          title="减速 (← 或 -)"
           disabled={presetIndex <= 0}
           onClick={handleSpeedDown}
         >
@@ -520,9 +579,15 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
 
         <div
           className={`auto-reading-dial ${isDragging ? "is-dragging" : ""}`}
-          role="status"
-          aria-label={`当前速度 ${currentPreset.multiplier}，正中是指针，拖拽刻度线对准指针调节速度`}
-          title="拖拽刻度带对准中心指针调节速度"
+          role="slider"
+          tabIndex={0}
+          aria-label="阅读速度"
+          aria-valuemin={0}
+          aria-valuemax={READING_SPEED_PRESETS.length - 1}
+          aria-valuenow={presetIndex}
+          aria-valuetext={currentPreset.multiplier}
+          aria-orientation="horizontal"
+          aria-description="拖拽刻度带对准中心指针调节速度"
           onPointerDown={handleDialPointerDown}
           onPointerMove={handleDialPointerMove}
           onPointerUp={handleDialPointerUp}
@@ -549,7 +614,7 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
               <div
                 key={preset.multiplier}
                 className={`auto-reading-dial-tick ${i === presetIndex ? "is-active" : ""}`}
-                style={{ left: `${i * TICK_WIDTH}px` }}
+                style={{ left: `${i * DIAL_TICK_WIDTH}px` }}
               >
                 <span className="auto-reading-dial-tick-line" />
               </div>
@@ -564,7 +629,6 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
           type="button"
           className="auto-reading-btn auto-reading-btn--dial-arrow"
           aria-label="加速 (→ 或 +)"
-          title="加速 (→ 或 +)"
           disabled={presetIndex >= READING_SPEED_PRESETS.length - 1}
           onClick={handleSpeedUp}
         >
@@ -578,10 +642,10 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
         type="button"
         className="auto-reading-btn auto-reading-btn--exit"
         aria-label="退出自动阅读 (Esc)"
-        title="退出自动阅读 (Esc)"
         onClick={onExit}
       >
-        <span>退出</span>
+        <X className="auto-reading-exit-icon" size={16} strokeWidth={2} aria-hidden="true" />
+        <span className="auto-reading-exit-label">退出</span>
         <kbd className="auto-reading-kbd">Esc</kbd>
       </button>
     </div>

@@ -3,9 +3,56 @@ import React from "react";
 import { renderToString } from "react-dom/server";
 import {
   AutoReadingHUD,
+  clampPresetIndex,
+  handleReadingKeyDown,
+  presetIndexForDrag,
+  presetIndexForTap,
   READING_SPEED_PRESETS,
+  stepPresetIndex,
   updateFocalElement,
 } from "../app/editor/auto-reading-hud";
+
+function readingActions() {
+  const calls: string[] = [];
+  return {
+    calls,
+    actions: {
+      togglePlay: () => calls.push("play"),
+      handleSpeedUp: () => calls.push("speed-up"),
+      handleSpeedDown: () => calls.push("speed-down"),
+      toggleFocusReading: () => calls.push("focus"),
+      handleRewind: () => calls.push("rewind"),
+    },
+  };
+}
+
+function readingKeyEvent(target: EventTarget | null, overrides: Record<string, unknown> = {}) {
+  let defaultPrevented = false;
+  const event = {
+    key: " ",
+    code: "Space",
+    isComposing: false,
+    keyCode: 32,
+    repeat: false,
+    target,
+    defaultPrevented: false,
+    preventDefault() {
+      defaultPrevented = true;
+      event.defaultPrevented = true;
+    },
+    ...overrides,
+  };
+  return {
+    event,
+    wasPrevented: () => defaultPrevented,
+  };
+}
+
+function mockTarget(matcher: (selector: string) => boolean) {
+  return {
+    closest: (selector: string) => (matcher(selector) ? ({} as Element) : null),
+  } as unknown as EventTarget;
+}
 
 describe("AutoReadingHUD component", () => {
   it("renders correctly in initial paused state with controls, dial wheel, and pure numbers", () => {
@@ -24,6 +71,8 @@ describe("AutoReadingHUD component", () => {
     expect(html).toContain("auto-reading-btn--focus");
     expect(html).toContain("auto-reading-dial");
     expect(html).toContain("auto-reading-dial-needle");
+    expect(html).toContain('role="slider"');
+    expect(html).toContain('aria-valuenow="3"');
     expect(html).toContain("1.0x");
     // 确认已剔除口播、解说等特定场景命名
     expect(html).not.toContain("口播");
@@ -31,30 +80,7 @@ describe("AutoReadingHUD component", () => {
     expect(html).not.toContain("叙述");
     expect(html).toContain("退出");
     expect(html).toContain("Esc");
-  });
-
-  it("calculates subpixel scroll progression accurately for 32px/s standard speed", () => {
-    const baseSpeed = 32; // px/sec
-    let accumulator = 0;
-    let totalScrolledPx = 0;
-    let prevTime = 0;
-
-    for (let frame = 1; frame <= 60; frame++) {
-      const currentTime = Math.round((frame * 1000) / 60);
-      const elapsed = currentTime - prevTime;
-      prevTime = currentTime;
-
-      const px = (baseSpeed * elapsed) / 1000;
-      accumulator += px;
-      if (accumulator >= 1) {
-        const step = Math.floor(accumulator);
-        accumulator -= step;
-        totalScrolledPx += step;
-      }
-    }
-
-    // Over 60 frames (1000ms), total moved pixels plus remainder should equal 32px
-    expect(totalScrolledPx + Math.round(accumulator)).toBe(32);
+    expect(html).not.toContain('title="');
   });
 
   it("configures 10 speed presets with strictly increasing rates and 1.0x default", () => {
@@ -66,27 +92,62 @@ describe("AutoReadingHUD component", () => {
     expect(READING_SPEED_PRESETS[3].multiplier).toBe("1.0x");
   });
 
-  it("steps preset index within valid boundaries [0, 9] and supports drag distance snapping", () => {
-    const maxIndex = READING_SPEED_PRESETS.length - 1;
-    const stepDown = (idx: number) => Math.max(0, idx - 1);
-    const stepUp = (idx: number) => Math.min(maxIndex, idx + 1);
+  it("steps and clamps preset indexes through the exported helpers", () => {
+    expect(stepPresetIndex(0, -1)).toBe(0);
+    expect(stepPresetIndex(3, -1)).toBe(2);
+    expect(stepPresetIndex(3, 1)).toBe(4);
+    expect(stepPresetIndex(9, 1)).toBe(9);
+    expect(clampPresetIndex(-4)).toBe(0);
+    expect(clampPresetIndex(14)).toBe(9);
+  });
 
-    expect(stepDown(0)).toBe(0);
-    expect(stepDown(3)).toBe(2);
-    expect(stepUp(3)).toBe(4);
-    expect(stepUp(9)).toBe(9);
+  it("maps drag distance and tap offset to the actual dial presets", () => {
+    expect(presetIndexForDrag(3, -28)).toBe(4);
+    expect(presetIndexForDrag(3, -56)).toBe(5);
+    expect(presetIndexForDrag(3, 28)).toBe(2);
+    expect(presetIndexForDrag(3, -300)).toBe(9);
+    expect(presetIndexForDrag(3, 300)).toBe(0);
+    expect(presetIndexForTap(3, 28)).toBe(4);
+    expect(presetIndexForTap(3, -56)).toBe(1);
+  });
 
-    // 物理对准算法验证 (TICK_WIDTH = 28):
-    // 鼠标向左拉动刻度带 (deltaX < 0) -> 右侧更快的刻度滑向中心指针 (升档)
-    // 鼠标向右拉动刻度带 (deltaX > 0) -> 左侧更慢的刻度滑向中心指针 (降档)
-    const calcDragIndex = (startIdx: number, deltaX: number) => {
-      return Math.max(0, Math.min(maxIndex, startIdx - Math.round(deltaX / 28)));
-    };
-    expect(calcDragIndex(3, -28)).toBe(4); // 向左拖动 28px 升 1 档
-    expect(calcDragIndex(3, -56)).toBe(5); // 向左拖动 56px 升 2 档
-    expect(calcDragIndex(3, 28)).toBe(2); // 向右拖动 28px 降 1 档
-    expect(calcDragIndex(3, -300)).toBe(9); // 超出上限 clamp 到 9
-    expect(calcDragIndex(3, 300)).toBe(0); // 超出下限 clamp 到 0
+  it("routes page-level shortcuts without stealing button activation", () => {
+    const page = readingActions();
+    const pageEvent = readingKeyEvent(null);
+    expect(handleReadingKeyDown(pageEvent.event, page.actions)).toBe(true);
+    expect(page.calls).toEqual(["play"]);
+    expect(pageEvent.wasPrevented()).toBe(true);
+
+    const button = readingActions();
+    const buttonEvent = readingKeyEvent(mockTarget((selector) => selector.includes("button")));
+    expect(handleReadingKeyDown(buttonEvent.event, button.actions)).toBe(false);
+    expect(button.calls).toEqual([]);
+    expect(buttonEvent.wasPrevented()).toBe(false);
+  });
+
+  it("keeps shortcuts available from a read-only title but not from editors or dialogs", () => {
+    const title = readingKeyEvent(mockTarget(() => false));
+    const titleActions = readingActions();
+    expect(handleReadingKeyDown(title.event, titleActions.actions)).toBe(true);
+    expect(titleActions.calls).toEqual(["play"]);
+
+    const realInput = readingKeyEvent(mockTarget((selector) => selector.includes("input:not")));
+    expect(handleReadingKeyDown(realInput.event, readingActions().actions)).toBe(false);
+
+    const dialog = readingKeyEvent(mockTarget((selector) => selector.includes("dialog")));
+    expect(handleReadingKeyDown(dialog.event, readingActions().actions)).toBe(false);
+  });
+
+  it("ignores repeated toggle keys but allows held arrow-key speed changes", () => {
+    const repeatedSpace = readingKeyEvent(null, { repeat: true });
+    const spaceActions = readingActions();
+    expect(handleReadingKeyDown(repeatedSpace.event, spaceActions.actions)).toBe(false);
+    expect(spaceActions.calls).toEqual([]);
+
+    const repeatedArrow = readingKeyEvent(null, { key: "ArrowUp", code: "ArrowUp", repeat: true });
+    const arrowActions = readingActions();
+    expect(handleReadingKeyDown(repeatedArrow.event, arrowActions.actions)).toBe(true);
+    expect(arrowActions.calls).toEqual(["speed-up"]);
   });
 
   it("detects and highlights the paragraph overlapping the 40% focal line", () => {

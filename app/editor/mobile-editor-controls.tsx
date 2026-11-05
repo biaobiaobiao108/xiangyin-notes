@@ -6,6 +6,7 @@ import {
   ImagePlus,
   ListTree,
   MoreHorizontal,
+  ScrollText,
   Star,
   Trash2,
   Undo2,
@@ -26,6 +27,8 @@ export function MobileEditorHeader({
   backlinkCount,
   status,
   onBack,
+  autoReadingMode,
+  onToggleAutoReading,
   onExport,
   onFavorite,
   onBacklinks,
@@ -45,6 +48,8 @@ export function MobileEditorHeader({
   backlinkCount: number;
   status: ReactNode;
   onBack?: () => void;
+  autoReadingMode: boolean;
+  onToggleAutoReading?: () => void;
   onExport: () => void;
   onFavorite: () => void;
   onBacklinks?: () => void;
@@ -159,6 +164,12 @@ export function MobileEditorHeader({
             role="menu"
             aria-label="笔记操作"
           >
+            {!deleted && onToggleAutoReading && (
+              <button type="button" role="menuitem" onClick={() => runAction(onToggleAutoReading)}>
+                <ScrollText size={18} />
+                {autoReadingMode ? "退出自动阅读" : "自动阅读"}
+              </button>
+            )}
             {!deleted && (
               <button
                 type="button"
