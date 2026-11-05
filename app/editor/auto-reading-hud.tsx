@@ -1,23 +1,95 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Minus, Pause, Play, Plus, RotateCcw } from "lucide-react";
+import { ChevronLeft, ChevronRight, Focus, Pause, Play, RotateCcw } from "lucide-react";
 
-const SPEED_STEPS = [0.4, 0.6, 0.8, 1.0, 1.2, 1.5, 1.8, 2.2, 2.8, 3.5];
-const BASE_SPEED_PX_PER_SEC = 36;
-const STORAGE_KEY = "xiangying_auto_reading_speed";
+export type SpeedPreset = {
+  rate: number; // 滚动速度 (px/s)
+  multiplier: string;
+  label: string;
+};
 
-function loadInitialSpeed(): number {
+// 基于自然口播语速基准配置的 6 档语速梯队
+export const BROADCAST_SPEED_PRESETS: SpeedPreset[] = [
+  { rate: 20, multiplier: "0.7x", label: "沉稳解说" },
+  { rate: 26, multiplier: "0.9x", label: "舒缓叙述" },
+  { rate: 32, multiplier: "1.0x", label: "标准口播" },
+  { rate: 40, multiplier: "1.3x", label: "生动快语" },
+  { rate: 50, multiplier: "1.6x", label: "高密资讯" },
+  { rate: 65, multiplier: "2.0x", label: "疾速播报" },
+];
+
+const STORAGE_SPEED_KEY = "xiangying_auto_reading_preset_index";
+const STORAGE_FOCUS_KEY = "xiangying_auto_reading_focus";
+
+function loadInitialPresetIndex(): number {
   try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      const parsed = parseFloat(saved);
-      if (!Number.isNaN(parsed) && parsed >= 0.3 && parsed <= 4.0) {
-        return Math.round(parsed * 10) / 10;
+    const saved = localStorage.getItem(STORAGE_SPEED_KEY);
+    if (saved !== null) {
+      const parsed = parseInt(saved, 10);
+      if (!Number.isNaN(parsed) && parsed >= 0 && parsed < BROADCAST_SPEED_PRESETS.length) {
+        return parsed;
       }
     }
   } catch {
     // Storage access may be restricted
   }
-  return 1.0;
+  return 2; // 默认 1.0x 标准口播
+}
+
+function loadInitialFocusReading(): boolean {
+  try {
+    const saved = localStorage.getItem(STORAGE_FOCUS_KEY);
+    if (saved !== null) {
+      return saved === "true";
+    }
+  } catch {
+    // ignore
+  }
+  return true; // 默认开启段落聚焦
+}
+
+/**
+ * 计算视口黄金视线位置（顶部 40% 处），精确定位当前聚焦的正文段落或标题
+ */
+export function updateFocalElement(container: HTMLElement | null, enabled: boolean) {
+  if (!container) return;
+  if (!enabled) {
+    container.classList.remove("is-focus-reading");
+    const current = container.querySelector(".is-reading-focus");
+    if (current) current.classList.remove("is-reading-focus");
+    return;
+  }
+
+  container.classList.add("is-focus-reading");
+  const containerRect = container.getBoundingClientRect();
+  // 黄金视线高度定在视口上部 40% 处（最适宜朗读录音的视线水平）
+  const focalY = containerRect.top + containerRect.height * 0.4;
+
+  const candidates = container.querySelectorAll<HTMLElement>(".note-title-input, .note-prose > *");
+  if (!candidates.length) return;
+
+  let bestElement: HTMLElement | null = null;
+  let minDistance = Number.POSITIVE_INFINITY;
+
+  for (let i = 0; i < candidates.length; i++) {
+    const el = candidates[i];
+    const rect = el.getBoundingClientRect();
+    if (rect.top <= focalY && rect.bottom >= focalY) {
+      bestElement = el;
+      break;
+    }
+    const elCenter = (rect.top + rect.bottom) / 2;
+    const dist = Math.abs(elCenter - focalY);
+    if (dist < minDistance) {
+      minDistance = dist;
+      bestElement = el;
+    }
+  }
+
+  const previous = container.querySelector(".is-reading-focus");
+  if (previous !== bestElement) {
+    if (previous) previous.classList.remove("is-reading-focus");
+    if (bestElement) bestElement.classList.add("is-reading-focus");
+  }
 }
 
 export type AutoReadingHUDProps = {
@@ -26,60 +98,53 @@ export type AutoReadingHUDProps = {
 };
 
 export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps) {
-  const [speed, setSpeed] = useState<number>(loadInitialSpeed);
+  const [presetIndex, setPresetIndex] = useState<number>(loadInitialPresetIndex);
+  const [focusReading, setFocusReading] = useState<boolean>(loadInitialFocusReading);
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
+
+  const currentPreset = BROADCAST_SPEED_PRESETS[presetIndex];
+  const speedRef = useRef(currentPreset.rate);
+  speedRef.current = currentPreset.rate;
+
   const isPlayingRef = useRef(isPlaying);
   isPlayingRef.current = isPlaying;
-  const speedRef = useRef(speed);
-  speedRef.current = speed;
+  const focusReadingRef = useRef(focusReading);
+  focusReadingRef.current = focusReading;
 
   const subpixelRef = useRef(0);
   const lastTimeRef = useRef<number | null>(null);
   const animFrameRef = useRef<number | null>(null);
-  const speedBadgeRef = useRef<HTMLDivElement | null>(null);
-
-  const saveSpeed = useCallback((newSpeed: number) => {
-    try {
-      localStorage.setItem(STORAGE_KEY, newSpeed.toFixed(1));
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  const handleSpeedChange = useCallback(
-    (updater: (prev: number) => number) => {
-      setSpeed((prev) => {
-        const next = Math.max(0.3, Math.min(4.0, updater(prev)));
-        const rounded = Math.round(next * 100) / 100;
-        speedRef.current = rounded;
-        saveSpeed(rounded);
-        return rounded;
-      });
-    },
-    [saveSpeed],
-  );
 
   const handleSpeedDown = useCallback(() => {
-    handleSpeedChange((current) => {
-      for (let i = SPEED_STEPS.length - 1; i >= 0; i--) {
-        if (SPEED_STEPS[i] < current - 0.05) {
-          return SPEED_STEPS[i];
-        }
-      }
-      return Math.max(0.3, current - 0.1);
+    setPresetIndex((prev) => {
+      const next = Math.max(0, prev - 1);
+      try {
+        localStorage.setItem(STORAGE_SPEED_KEY, String(next));
+      } catch {}
+      return next;
     });
-  }, [handleSpeedChange]);
+  }, []);
 
   const handleSpeedUp = useCallback(() => {
-    handleSpeedChange((current) => {
-      for (let i = 0; i < SPEED_STEPS.length; i++) {
-        if (SPEED_STEPS[i] > current + 0.05) {
-          return SPEED_STEPS[i];
-        }
-      }
-      return Math.min(4.0, current + 0.1);
+    setPresetIndex((prev) => {
+      const next = Math.min(BROADCAST_SPEED_PRESETS.length - 1, prev + 1);
+      try {
+        localStorage.setItem(STORAGE_SPEED_KEY, String(next));
+      } catch {}
+      return next;
     });
-  }, [handleSpeedChange]);
+  }, []);
+
+  const toggleFocusReading = useCallback(() => {
+    setFocusReading((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(STORAGE_FOCUS_KEY, String(next));
+      } catch {}
+      updateFocalElement(scrollTargetRef.current, next);
+      return next;
+    });
+  }, [scrollTargetRef]);
 
   const handleRewind = useCallback(() => {
     const container = scrollTargetRef.current;
@@ -87,6 +152,9 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
     subpixelRef.current = 0;
     lastTimeRef.current = null;
     container.scrollTo({ top: 0, behavior: "smooth" });
+    requestAnimationFrame(() => {
+      updateFocalElement(container, focusReadingRef.current);
+    });
   }, [scrollTargetRef]);
 
   const togglePlay = useCallback(() => {
@@ -107,7 +175,7 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
     });
   }, [scrollTargetRef]);
 
-  // Main scroll loop
+  // 主滚动循环与视线焦点同步
   useEffect(() => {
     const loop = (timestamp: number) => {
       if (!isPlayingRef.current) {
@@ -130,7 +198,7 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
       const elapsed = Math.min(100, timestamp - lastTimeRef.current);
       lastTimeRef.current = timestamp;
 
-      const pxToMove = (BASE_SPEED_PX_PER_SEC * speedRef.current * elapsed) / 1000;
+      const pxToMove = (speedRef.current * elapsed) / 1000;
       subpixelRef.current += pxToMove;
 
       const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
@@ -139,6 +207,7 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
         setIsPlaying(false);
         isPlayingRef.current = false;
         lastTimeRef.current = null;
+        updateFocalElement(container, focusReadingRef.current);
         return;
       }
 
@@ -152,10 +221,13 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
           setIsPlaying(false);
           isPlayingRef.current = false;
           lastTimeRef.current = null;
+          updateFocalElement(container, focusReadingRef.current);
           return;
         }
       }
 
+      // 同步更新段落视线焦点
+      updateFocalElement(container, focusReadingRef.current);
       animFrameRef.current = requestAnimationFrame(loop);
     };
 
@@ -178,7 +250,7 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
     };
   }, [isPlaying, scrollTargetRef]);
 
-  // Manual scroll listener: synchronize accumulator when user touches or wheels
+  // 手动滚动监听：同步累加器并实时刷新聚焦段落
   useEffect(() => {
     const container = scrollTargetRef.current;
     if (!container) return;
@@ -186,38 +258,22 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
     const onManualScroll = () => {
       subpixelRef.current = 0;
       lastTimeRef.current = null;
+      updateFocalElement(container, focusReadingRef.current);
     };
 
     container.addEventListener("wheel", onManualScroll, { passive: true });
     container.addEventListener("touchmove", onManualScroll, { passive: true });
+    // 初始化聚焦
+    updateFocalElement(container, focusReadingRef.current);
 
     return () => {
       container.removeEventListener("wheel", onManualScroll);
       container.removeEventListener("touchmove", onManualScroll);
+      updateFocalElement(container, false);
     };
   }, [scrollTargetRef]);
 
-  // Mouse wheel listener on speed badge for smooth continuous adjustment
-  useEffect(() => {
-    const badge = speedBadgeRef.current;
-    if (!badge) return;
-
-    const onWheel = (event: WheelEvent) => {
-      event.preventDefault();
-      event.stopPropagation();
-      const delta = event.deltaY;
-      if (delta < 0) {
-        handleSpeedChange((prev) => prev + 0.05);
-      } else if (delta > 0) {
-        handleSpeedChange((prev) => prev - 0.05);
-      }
-    };
-
-    badge.addEventListener("wheel", onWheel, { passive: false });
-    return () => badge.removeEventListener("wheel", onWheel);
-  }, [handleSpeedChange]);
-
-  // Screen WakeLock API: prevent display sleep while auto-reading
+  // Screen WakeLock API：自动阅读时保持屏幕常亮
   useEffect(() => {
     let sentinel: { release: () => Promise<void> } | null = null;
     let active = true;
@@ -290,15 +346,21 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
         return;
       }
 
-      if (event.key === "ArrowUp" || event.key === "+") {
+      if (event.key === "ArrowUp" || event.key === "ArrowRight" || event.key === "+") {
         event.preventDefault();
         handleSpeedUp();
         return;
       }
 
-      if (event.key === "ArrowDown" || event.key === "-") {
+      if (event.key === "ArrowDown" || event.key === "ArrowLeft" || event.key === "-") {
         event.preventDefault();
         handleSpeedDown();
+        return;
+      }
+
+      if (event.key === "f" || event.key === "F") {
+        event.preventDefault();
+        toggleFocusReading();
         return;
       }
 
@@ -311,9 +373,10 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [togglePlay, handleSpeedUp, handleSpeedDown, handleRewind]);
+  }, [togglePlay, handleSpeedUp, handleSpeedDown, handleRewind, toggleFocusReading]);
 
-  const speedDisplay = `${speed.toFixed(1)}x`;
+  // 滚轮刻度位置（以基准档位为中心的平滑横向位移）
+  const trackOffset = (2 - presetIndex) * 16;
 
   return (
     <div className="auto-reading-hud" role="region" aria-label="自动阅读控制">
@@ -337,37 +400,74 @@ export function AutoReadingHUD({ scrollTargetRef, onExit }: AutoReadingHUDProps)
         {isPlaying ? <Pause size={15} strokeWidth={2.2} /> : <Play size={15} strokeWidth={2.2} />}
       </button>
 
-      <div className="auto-reading-stepper" role="group" aria-label="速度调节">
+      {/* 视线段落聚焦切换 */}
+      <button
+        type="button"
+        className={`auto-reading-btn auto-reading-btn--icon auto-reading-btn--focus ${focusReading ? "is-active" : ""}`}
+        aria-label={focusReading ? "关闭段落聚焦 (F)" : "开启段落聚焦 (F)"}
+        title={focusReading ? "关闭段落聚焦 (F)" : "开启段落聚焦 (F)"}
+        onClick={toggleFocusReading}
+      >
+        <Focus size={15} strokeWidth={2} />
+      </button>
+
+      <span className="auto-reading-divider" aria-hidden="true" />
+
+      {/* 横向刻度拨盘滚轮控制器 */}
+      <div className="auto-reading-dial-group" role="group" aria-label="口播语速调节">
         <button
           type="button"
-          className="auto-reading-btn auto-reading-btn--stepper"
-          aria-label="减速 (↓ 或 -)"
-          title="减速 (↓ 或 -)"
-          disabled={speed <= 0.3}
+          className="auto-reading-btn auto-reading-btn--dial-arrow"
+          aria-label="减速 (← 或 -)"
+          title="减速 (← 或 -)"
+          disabled={presetIndex <= 0}
           onClick={handleSpeedDown}
         >
-          <Minus size={13} strokeWidth={2.4} />
+          <ChevronLeft size={14} strokeWidth={2.4} />
         </button>
 
         <div
-          ref={speedBadgeRef}
-          className="auto-reading-speed-badge"
+          className="auto-reading-dial"
           role="status"
-          aria-label={`当前速度 ${speedDisplay}，可使用鼠标滚轮微调`}
-          title="滚轮可平滑微调速度"
+          aria-label={`当前语速 ${currentPreset.multiplier} ${currentPreset.label}，点击左侧减速，点击右侧加速`}
+          title="点击左侧减速，点击右侧加速"
+          onClick={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect();
+            const clickX = event.clientX - rect.left;
+            if (clickX < rect.width / 2) {
+              handleSpeedDown();
+            } else {
+              handleSpeedUp();
+            }
+          }}
         >
-          <span className="auto-reading-speed-val">{speedDisplay}</span>
+          <div
+            className="auto-reading-dial-track"
+            style={{ transform: `translateX(${trackOffset}px)` }}
+            aria-hidden="true"
+          >
+            {[-2, -1, 0, 1, 2, 3, 4, 5, 6, 7].map((notch) => (
+              <span
+                key={notch}
+                className={`auto-reading-dial-notch ${notch === presetIndex ? "is-active" : ""}`}
+              />
+            ))}
+          </div>
+          <div className="auto-reading-dial-readout">
+            <span className="auto-reading-dial-mult">{currentPreset.multiplier}</span>
+            <span className="auto-reading-dial-name">{currentPreset.label}</span>
+          </div>
         </div>
 
         <button
           type="button"
-          className="auto-reading-btn auto-reading-btn--stepper"
-          aria-label="加速 (↑ 或 +)"
-          title="加速 (↑ 或 +)"
-          disabled={speed >= 4.0}
+          className="auto-reading-btn auto-reading-btn--dial-arrow"
+          aria-label="加速 (→ 或 +)"
+          title="加速 (→ 或 +)"
+          disabled={presetIndex >= BROADCAST_SPEED_PRESETS.length - 1}
           onClick={handleSpeedUp}
         >
-          <Plus size={13} strokeWidth={2.4} />
+          <ChevronRight size={14} strokeWidth={2.4} />
         </button>
       </div>
 

@@ -1201,6 +1201,19 @@ button.save-status:hover { text-decoration: underline; }
   pointer-events: auto;
   transform: translateY(0);
 }
+
+/* 视线段落聚焦：中间段落高亮，其余段落柔和变暗 */
+.editor-scroll.is-focus-reading .note-title-input,
+.editor-scroll.is-focus-reading .note-prose > * {
+  opacity: 0.28;
+  transition: opacity 220ms ease;
+}
+
+.editor-scroll.is-focus-reading .note-title-input.is-reading-focus,
+.editor-scroll.is-focus-reading .note-prose > .is-reading-focus {
+  opacity: 1;
+  color: var(--ink);
+}
 .editor-panel.is-focus-mode .editor-floating-tools:hover,
 .editor-panel.is-focus-mode .editor-floating-tools:focus-within,
 .editor-panel.is-focus-mode:has(.editor-header:hover) .editor-floating-tools,
@@ -1284,45 +1297,98 @@ button.save-status:hover { text-decoration: underline; }
   background: var(--accent-soft);
 }
 
-.auto-reading-stepper {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  background: var(--surface-subtle);
-  border-radius: 9999px;
-  padding: 2px 4px;
-  margin: 0 2px;
+.auto-reading-btn--focus.is-active {
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 
-.auto-reading-btn--stepper {
+.auto-reading-dial-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border-soft);
+  border-radius: 9999px;
+  padding: 2px 4px 2px 3px;
+}
+
+.auto-reading-btn--dial-arrow {
   width: 24px;
   height: 24px;
   color: var(--muted);
 }
 
-.auto-reading-btn--stepper:hover:not(:disabled) {
+.auto-reading-btn--dial-arrow:hover:not(:disabled) {
   color: var(--ink);
   background: var(--surface-hover);
 }
 
-.auto-reading-speed-badge {
-  display: inline-flex;
+.auto-reading-dial {
+  position: relative;
+  display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-width: 44px;
-  height: 24px;
-  padding: 0 4px;
-  cursor: ns-resize;
+  min-width: 96px;
+  height: 28px;
+  padding: 1px 8px;
+  overflow: hidden;
+  cursor: pointer;
   user-select: none;
   -webkit-user-select: none;
+  border-radius: 6px;
 }
 
-.auto-reading-speed-val {
-  font-size: 0.78rem;
-  font-weight: 600;
+.auto-reading-dial:hover {
+  background: var(--control-hover);
+}
+
+.auto-reading-dial-track {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 8px;
+  margin-bottom: 2px;
+  transition: transform var(--motion-panel) var(--motion-ease-out);
+  pointer-events: none;
+}
+
+.auto-reading-dial-notch {
+  display: inline-block;
+  width: 2px;
+  height: 6px;
+  margin: 0 7px;
+  border-radius: 1px;
+  background: var(--soft-muted);
+  opacity: 0.45;
+  transition: height var(--motion-fast) ease, background-color var(--motion-fast) ease, opacity var(--motion-fast) ease;
+}
+
+.auto-reading-dial-notch.is-active {
+  height: 8px;
+  background: var(--accent);
+  opacity: 1;
+}
+
+.auto-reading-dial-readout {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  pointer-events: none;
+}
+
+.auto-reading-dial-mult {
+  font-size: 0.76rem;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--ink);
   letter-spacing: -0.01em;
+}
+
+.auto-reading-dial-name {
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--muted);
 }
 
 .auto-reading-divider {
