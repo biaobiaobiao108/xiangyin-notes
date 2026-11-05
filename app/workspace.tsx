@@ -202,6 +202,14 @@ export function Workspace() {
       return false;
     }
   });
+  const [autoReadingMode, setAutoReadingMode] = useState(false);
+  const toggleAutoReadingMode = useCallback(() => {
+    if (!selectedIdRef.current) return;
+    setAutoReadingMode((current) => !current);
+  }, []);
+  const exitAutoReadingMode = useCallback(() => {
+    setAutoReadingMode(false);
+  }, []);
   const toggleFocusMode = useCallback(() => {
     setFocusMode((current) => {
       const next = !current;
@@ -989,6 +997,7 @@ export function Workspace() {
   useEffect(() => {
     setOutlineOpen(false);
     resetOutline();
+    setAutoReadingMode(false);
   }, [resetOutline, selectedId]);
   useEffect(() => {
     if (focusMode) {
@@ -1239,6 +1248,9 @@ export function Workspace() {
   }, [activePane, splitNoteId, isMobileViewport, viewLayout, notifyWarning]);
   useWorkspaceShortcuts({
     focusMode,
+    autoReadingMode,
+    exitAutoReadingMode,
+    toggleAutoReadingMode,
     hasModalOpen: Boolean(
       commandOpen ||
       imageExportSnapshot ||
@@ -2569,6 +2581,7 @@ export function Workspace() {
       if (id === "toggle-split") handleToggleSplit();
       if (id === "toggle-view-layout") toggleViewLayout();
       if (id === "toggle-focus-mode") toggleFocusMode();
+      if (id === "toggle-auto-reading") toggleAutoReadingMode();
       if (id === "toggle-typewriter-mode") toggleTypewriterMode();
       if (id === "set-theme-light") setThemePreference("light");
       if (id === "set-theme-dark") setThemePreference("dark");
@@ -3227,7 +3240,7 @@ export function Workspace() {
           event.preventDefault();
       }}
       data-mobile-page={isMobileViewport ? mobilePage : undefined}
-      className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${focusMode ? "is-focus-mode" : ""} ${isCardsLayout ? "layout-cards" : ""} ${tasksOpen ? "is-tasks-open" : ""} ${kanbanOpen ? "is-kanban-open" : ""}`}
+      className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${focusMode || autoReadingMode ? "is-focus-mode" : ""} ${autoReadingMode ? "is-auto-reading-mode" : ""} ${isCardsLayout ? "layout-cards" : ""} ${tasksOpen ? "is-tasks-open" : ""} ${kanbanOpen ? "is-kanban-open" : ""}`}
     >
       {!isMobileViewport && (
         <Sidebar
@@ -3496,6 +3509,8 @@ export function Workspace() {
                           }
                           onUploadImage={handleUploadImage}
                           focusMode={focusMode}
+                          autoReadingMode={autoReadingMode && activePane === "primary"}
+                          onExitAutoReadingMode={exitAutoReadingMode}
                           typewriterMode={typewriterMode}
                           outlineOpen={outlineOpen && activePane === "primary"}
                           outlineItems={outlineItems}
@@ -3714,6 +3729,8 @@ export function Workspace() {
                     }
                     onUploadImage={handleUploadImage}
                     focusMode={focusMode}
+                    autoReadingMode={autoReadingMode}
+                    onExitAutoReadingMode={exitAutoReadingMode}
                     typewriterMode={typewriterMode}
                     outlineOpen={outlineOpen}
                     outlineItems={outlineItems}
@@ -3769,6 +3786,7 @@ export function Workspace() {
         currentNotebookId={renderedNote?.notebookId}
         onMoveNoteToNotebook={(targetNotebookId) => onNoteChange({ notebookId: targetNotebookId })}
         focusMode={focusMode}
+        autoReadingMode={autoReadingMode}
         typewriterMode={typewriterMode}
         viewLayout={isMobileViewport ? "three-column" : viewLayout}
         isSplitActive={Boolean(splitNoteId && !isMobileViewport)}

@@ -127,6 +127,66 @@ describe("CommandMenu 键盘优先与鼠标防干扰契约", () => {
     expect(noNoteHtml).not.toContain("在当前笔记中替换");
   });
 
+  it("仅在打开笔记时提供自动阅读命令，并反映当前阅读状态", () => {
+    const readingOffHtml = renderToString(
+      React.createElement(CommandMenu, {
+        open: true,
+        hasSelectedNote: true,
+        autoReadingMode: false,
+        onClose: () => {},
+        onCommand: () => {},
+        onCreateNoteInNotebook: () => {},
+        canRestore: false,
+        canMoveToTrash: true,
+        notebooks: [],
+        canInstallApp: false,
+        showIosInstallHint: false,
+        standalone: false,
+        themePreference: "system",
+      }),
+    );
+    expect(readingOffHtml).toContain("开启自动阅读");
+
+    const readingOnHtml = renderToString(
+      React.createElement(CommandMenu, {
+        open: true,
+        hasSelectedNote: true,
+        autoReadingMode: true,
+        onClose: () => {},
+        onCommand: () => {},
+        onCreateNoteInNotebook: () => {},
+        canRestore: false,
+        canMoveToTrash: true,
+        notebooks: [],
+        canInstallApp: false,
+        showIosInstallHint: false,
+        standalone: false,
+        themePreference: "system",
+      }),
+    );
+    expect(readingOnHtml).toContain("退出自动阅读");
+
+    const noNoteHtml = renderToString(
+      React.createElement(CommandMenu, {
+        open: true,
+        hasSelectedNote: false,
+        autoReadingMode: false,
+        onClose: () => {},
+        onCommand: () => {},
+        onCreateNoteInNotebook: () => {},
+        canRestore: false,
+        canMoveToTrash: true,
+        notebooks: [],
+        canInstallApp: false,
+        showIosInstallHint: false,
+        standalone: false,
+        themePreference: "system",
+      }),
+    );
+    expect(noNoteHtml).not.toContain("开启自动阅读");
+    expect(noNoteHtml).not.toContain("退出自动阅读");
+  });
+
   it("仅在卡片视图下提供分屏显示命令，三栏视图下不显示", () => {
     const cardsHtml = renderToString(
       React.createElement(CommandMenu, {

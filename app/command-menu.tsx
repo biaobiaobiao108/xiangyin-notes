@@ -26,6 +26,7 @@ import {
   Moon,
   PanelLeft,
   Search,
+  ScrollText,
   SquareKanban,
   Sun,
   Trash2,
@@ -53,6 +54,7 @@ export type CommandId =
   | "toggle-sidebar"
   | "toggle-view-layout"
   | "toggle-focus-mode"
+  | "toggle-auto-reading"
   | "toggle-typewriter-mode"
   | "set-theme-light"
   | "set-theme-dark"
@@ -92,6 +94,7 @@ type CommandMenuProps = {
   currentNotebookId?: string;
   onMoveNoteToNotebook?: (notebookId: string) => void;
   focusMode?: boolean;
+  autoReadingMode?: boolean;
   typewriterMode?: boolean;
   viewLayout?: "three-column" | "cards";
   isMobileViewport?: boolean;
@@ -119,6 +122,7 @@ export function CommandMenu({
   currentNotebookId,
   onMoveNoteToNotebook,
   focusMode = false,
+  autoReadingMode = false,
   typewriterMode = false,
   viewLayout = "three-column",
   isMobileViewport = false,
@@ -223,6 +227,17 @@ export function CommandMenu({
         shortcut: `${modKey} ⇧ F`,
         icon: Maximize2,
       },
+      ...(hasSelectedNote
+        ? [
+            {
+              id: "toggle-auto-reading" as const,
+              label: autoReadingMode ? "退出自动阅读" : "开启自动阅读",
+              shortcut: `${altKey} ⇧ R`,
+              icon: ScrollText,
+              keywords: "自动阅读 读稿 提词 录音 teleprompter reading scroll",
+            },
+          ]
+        : []),
       {
         id: "toggle-typewriter-mode",
         label: typewriterMode ? "退出打字机模式" : "开启打字机模式",
@@ -307,6 +322,7 @@ export function CommandMenu({
         : []),
     ],
     [
+      autoReadingMode,
       canInstallApp,
       canMoveToTrash,
       canRestore,

@@ -7,6 +7,52 @@ import {
 import { handleWorkspaceKeyDown } from "../app/workspace/use-workspace-shortcuts";
 
 describe("workspace shortcuts Escape handling", () => {
+  test("exits auto-reading mode before focus mode, outline, and card editing on Escape", () => {
+    const actions: string[] = [];
+    const fakeEvent = {
+      key: "Escape",
+      defaultPrevented: true,
+      preventDefault() {
+        actions.push("prevent");
+      },
+      target: {
+        closest: () => null,
+      },
+    } as any;
+
+    handleWorkspaceKeyDown(fakeEvent, {
+      focusMode: true,
+      autoReadingMode: true,
+      hasModalOpen: false,
+      outlineOpen: true,
+      isCardEditing: true,
+      hasSelection: true,
+      handlers: {
+        toggleSidebar() {},
+        toggleFocusMode() {},
+        toggleTypewriterMode() {},
+        exitFocusMode() {
+          actions.push("focus");
+        },
+        closeOutline() {
+          actions.push("outline");
+        },
+        onExitCardEditing() {
+          actions.push("card-edit");
+        },
+        clearSelection() {
+          actions.push("selection");
+        },
+        openCommandMenu() {},
+        exitAutoReadingMode() {
+          actions.push("auto-reading");
+        },
+      },
+    });
+
+    expect(actions).toEqual(["prevent", "auto-reading"]);
+  });
+
   test("an open outline respects IME, modal and focus-mode precedence", () => {
     const actions: string[] = [];
     const context = {
@@ -260,6 +306,41 @@ describe("workspace shortcuts Escape handling", () => {
 });
 
 describe("workspace shortcuts on macOS keyboard layouts", () => {
+  test("recognizes Option+Shift+R by physical key to toggle auto-reading", () => {
+    let autoReadingToggled = false;
+    let defaultPrevented = false;
+    const event = {
+      key: "‰",
+      code: "KeyR",
+      altKey: true,
+      shiftKey: true,
+      ctrlKey: false,
+      metaKey: false,
+      defaultPrevented: false,
+      preventDefault() {
+        defaultPrevented = true;
+      },
+    } as any;
+
+    handleWorkspaceKeyDown(event, {
+      focusMode: false,
+      hasModalOpen: false,
+      handlers: {
+        toggleSidebar() {},
+        toggleFocusMode() {},
+        toggleTypewriterMode() {},
+        toggleAutoReadingMode() {
+          autoReadingToggled = true;
+        },
+        exitFocusMode() {},
+        openCommandMenu() {},
+      },
+    });
+
+    expect(autoReadingToggled).toBe(true);
+    expect(defaultPrevented).toBe(true);
+  });
+
   test("recognizes Option+V by physical key when Safari reports an alternate character", () => {
     let layoutToggled = false;
     let defaultPrevented = false;

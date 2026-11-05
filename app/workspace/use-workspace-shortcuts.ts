@@ -13,6 +13,9 @@ function stopEscapePropagation(event: KeyboardEvent) {
 
 export type UseWorkspaceShortcutsOptions = {
   focusMode: boolean;
+  autoReadingMode?: boolean;
+  exitAutoReadingMode?: () => void;
+  toggleAutoReadingMode?: () => void;
   hasModalOpen: boolean;
   hasSearchHighlight?: boolean;
   clearSearchHighlight?: () => void;
@@ -34,6 +37,7 @@ export type UseWorkspaceShortcutsOptions = {
 
 export type WorkspaceKeyboardContext = {
   focusMode: boolean;
+  autoReadingMode?: boolean;
   hasModalOpen: boolean;
   hasSearchHighlight?: boolean;
   clearSearchHighlight?: () => void;
@@ -42,9 +46,11 @@ export type WorkspaceKeyboardContext = {
   hasSelection?: boolean;
   handlers: {
     toggleSidebar: () => void;
+    toggleAutoReadingMode?: () => void;
     toggleFocusMode: () => void;
     toggleTypewriterMode: () => void;
     exitFocusMode: () => void;
+    exitAutoReadingMode?: () => void;
     openCommandMenu: (initialQuery?: string) => void;
     openReplace?: () => void;
     toggleViewLayout?: () => void;
@@ -60,6 +66,7 @@ export function handleWorkspaceKeyDown(event: KeyboardEvent, ctx: WorkspaceKeybo
   if (event.isComposing || event.keyCode === 229) return;
   const {
     handlers,
+    autoReadingMode = false,
     focusMode,
     hasModalOpen,
     hasSearchHighlight = false,
@@ -69,9 +76,11 @@ export function handleWorkspaceKeyDown(event: KeyboardEvent, ctx: WorkspaceKeybo
   } = ctx;
   const {
     toggleSidebar,
+    toggleAutoReadingMode,
     toggleFocusMode,
     toggleTypewriterMode,
     exitFocusMode,
+    exitAutoReadingMode,
     openCommandMenu,
     openReplace,
     toggleViewLayout,
@@ -91,6 +100,14 @@ export function handleWorkspaceKeyDown(event: KeyboardEvent, ctx: WorkspaceKeybo
       target.closest("dialog[open], [role='dialog']")
     )
       return;
+
+    // 优先级 0: 自动阅读模式——按 Escape 立即退出自动阅读（不受正文 ProseMirror preventDefault 影响）
+    if (autoReadingMode && exitAutoReadingMode) {
+      event.preventDefault();
+      stopEscapePropagation(event);
+      exitAutoReadingMode();
+      return;
+    }
 
     // 优先级 1: 子级浮层——先清除正文搜索高亮（不受正文 ProseMirror preventDefault 影响）
     if (hasSearchHighlight && clearSearchHighlight) {
@@ -173,6 +190,9 @@ export function handleWorkspaceKeyDown(event: KeyboardEvent, ctx: WorkspaceKeybo
   } else if (event.altKey && event.shiftKey && matchesShortcutLetter(event, "t")) {
     event.preventDefault();
     toggleTypewriterMode();
+  } else if (event.altKey && event.shiftKey && matchesShortcutLetter(event, "r")) {
+    event.preventDefault();
+    toggleAutoReadingMode?.();
   } else if (
     event.altKey &&
     !event.shiftKey &&
@@ -187,6 +207,9 @@ export function handleWorkspaceKeyDown(event: KeyboardEvent, ctx: WorkspaceKeybo
 
 export function useWorkspaceShortcuts(options: UseWorkspaceShortcutsOptions) {
   const {
+    autoReadingMode = false,
+    exitAutoReadingMode,
+    toggleAutoReadingMode,
     focusMode,
     hasModalOpen,
     hasSearchHighlight = false,
@@ -208,6 +231,8 @@ export function useWorkspaceShortcuts(options: UseWorkspaceShortcutsOptions) {
   } = options;
 
   const focusModeRef = useRef(focusMode);
+  const autoReadingModeRef = useRef(autoReadingMode);
+  autoReadingModeRef.current = autoReadingMode;
   focusModeRef.current = focusMode;
   const isCardEditingRef = useRef(isCardEditing);
   isCardEditingRef.current = isCardEditing;
@@ -221,9 +246,11 @@ export function useWorkspaceShortcuts(options: UseWorkspaceShortcutsOptions) {
   outlineOpenRef.current = outlineOpen;
   const handlersRef = useRef({
     toggleSidebar,
+    toggleAutoReadingMode,
     toggleFocusMode,
     toggleTypewriterMode,
     exitFocusMode,
+    exitAutoReadingMode,
     openCommandMenu,
     openReplace,
     toggleViewLayout,
@@ -235,9 +262,11 @@ export function useWorkspaceShortcuts(options: UseWorkspaceShortcutsOptions) {
   });
   handlersRef.current = {
     toggleSidebar,
+    toggleAutoReadingMode,
     toggleFocusMode,
     toggleTypewriterMode,
     exitFocusMode,
+    exitAutoReadingMode,
     openCommandMenu,
     openReplace,
     toggleViewLayout,
@@ -252,6 +281,7 @@ export function useWorkspaceShortcuts(options: UseWorkspaceShortcutsOptions) {
     const onKeyDown = (event: KeyboardEvent) => {
       handleWorkspaceKeyDown(event, {
         focusMode: focusModeRef.current,
+        autoReadingMode: autoReadingModeRef.current,
         hasModalOpen: hasModalOpenRef.current,
         hasSearchHighlight: hasSearchHighlightRef.current,
         outlineOpen: outlineOpenRef.current,

@@ -108,6 +108,7 @@ import { mobileCaretBounds, useMobileCaret } from "./editor/use-mobile-caret";
 import { BlockDragHandle } from "./editor/block-drag-handle";
 import { useEditorContextMenu } from "./editor/use-editor-context-menu";
 import { useScrollEdges } from "./workspace/use-scroll-edges";
+import { AutoReadingHUD } from "./editor/auto-reading-hud";
 import "./editor/mobile-editor.css";
 
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
@@ -214,6 +215,8 @@ export function NoteEditor({
   mobileBackLabel = "笔记列表",
   focusMode = false,
   onClearSearch,
+  autoReadingMode = false,
+  onExitAutoReadingMode,
   typewriterMode = false,
   outlineOpen,
   outlineItems,
@@ -268,6 +271,8 @@ export function NoteEditor({
   isMobileViewport?: boolean;
   mobileBackLabel?: string;
   focusMode?: boolean;
+  autoReadingMode?: boolean;
+  onExitAutoReadingMode?: () => void;
   onClearSearch?: () => void;
   typewriterMode?: boolean;
   outlineOpen: boolean;
@@ -369,7 +374,7 @@ export function NoteEditor({
   const editorTextStatsSnapshotRef = useRef<EditorTextStatsSnapshot | null>(null);
   const [deferredLoading, setDeferredLoading] = useState(false);
   const [imageUploadState, setImageUploadState] = useState<"idle" | "uploading" | "error">("idle");
-  const editorLocked = isLoading || deferredLoading || trashBusy;
+  const editorLocked = isLoading || deferredLoading || trashBusy || autoReadingMode;
   const [searchNavigation, setSearchNavigation] = useState({
     activeIndex: 0,
     matchCount: 0,
@@ -1832,9 +1837,9 @@ export function NoteEditor({
   });
   return (
     <section
-      className={`editor-panel ${deferredLoading ? "is-loading" : ""} ${focusMode ? "is-focus-mode" : ""} ${isMobileViewport ? "is-mobile-editor" : ""} ${isActivePane ? "is-active-pane" : ""}`}
+      className={`editor-panel ${deferredLoading ? "is-loading" : ""} ${focusMode ? "is-focus-mode" : ""} ${autoReadingMode ? "is-auto-reading-mode" : ""} ${isMobileViewport ? "is-mobile-editor" : ""} ${isActivePane ? "is-active-pane" : ""}`}
       aria-label="笔记编辑器"
-      aria-busy={editorLocked}
+      aria-busy={isLoading || deferredLoading || trashBusy}
       onPointerDown={onActivatePane}
       onFocusCapture={onActivatePane}
       onContextMenu={contextMenu.onContextMenu}
@@ -2143,7 +2148,7 @@ export function NoteEditor({
       >
         <div
           id="editor-scroll-region"
-          className={`editor-scroll floating-scrollbar-target ${typewriterMode ? "is-typewriter-mode" : ""}`}
+          className={`editor-scroll floating-scrollbar-target ${typewriterMode ? "is-typewriter-mode" : ""} ${autoReadingMode ? "is-auto-reading" : ""}`}
           ref={editorScrollRef}
           onKeyDownCapture={(event) => {
             const target = event.target;
@@ -2229,6 +2234,9 @@ export function NoteEditor({
           ariaLabel="编辑器滚动条"
           placement="right"
         />
+        {autoReadingMode && (
+          <AutoReadingHUD scrollTargetRef={editorScrollRef} onExit={onExitAutoReadingMode} />
+        )}
       </div>
       {deferredLoading && (
         <div
