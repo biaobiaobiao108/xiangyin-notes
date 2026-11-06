@@ -448,7 +448,8 @@ export async function serveImageAsset(
     // Use the real file size so a truncated or externally modified file cannot hang the response.
     "Content-Length": String(file.size),
     "Content-Disposition": "inline",
-    "Cache-Control": "no-store",
+    // Uploads receive a new ID and are never modified through the application.
+    "Cache-Control": "private, max-age=31536000, immutable",
   });
   return new Response(request.method === "HEAD" ? null : file, { headers });
 }
