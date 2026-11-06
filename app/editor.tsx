@@ -34,7 +34,12 @@ import {
   Undo2,
   X,
 } from "lucide-react";
-import type { ImageAssetSummary, Note, NoteSummary } from "../shared/types";
+import {
+  IMAGE_MAX_BYTES,
+  type ImageAssetSummary,
+  type Note,
+  type NoteSummary,
+} from "../shared/types";
 import { preserveEscapedHashtagsForEditor } from "../shared/tags";
 import { api } from "./api";
 import { BrandMark } from "./brand-mark";
@@ -116,7 +121,6 @@ import "./editor/mobile-editor.css";
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
 type SaveState = "idle" | "saving" | "saved" | "conflict" | "error";
 
-const MAX_IMAGE_FILES_PER_ACTION = 10;
 const OUTLINE_HEADING_SELECTOR = "h1, h2, h3, h4, h5, h6";
 const EDITOR_SYNC_DEBOUNCE_MS = 180;
 const EDITOR_SYNC_MAX_WAIT_MS = 720;
@@ -378,6 +382,7 @@ export function NoteEditor({
   const editorTextStatsSnapshotRef = useRef<EditorTextStatsSnapshot | null>(null);
   const [deferredLoading, setDeferredLoading] = useState(false);
   const [imageUploadState, setImageUploadState] = useState<"idle" | "uploading" | "error">("idle");
+  const [imageUploadMessage, setImageUploadMessage] = useState("");
   const editorLocked = isLoading || deferredLoading || trashBusy || autoReadingMode;
   const [searchNavigation, setSearchNavigation] = useState({
     activeIndex: 0,
@@ -477,10 +482,13 @@ export function NoteEditor({
         editorInstanceRef.current === editorInstance &&
         !editorInstance?.isDestroyed;
       if (!editorInstance || !uploadImage || editorLocked || note.deletedAt) return;
-      const MAX_IMAGE_FILE_SIZE = 10 * 1024 * 1024;
-      const imageFiles = files
-        .filter((file) => isImageFile(file) && file.size <= MAX_IMAGE_FILE_SIZE)
-        .slice(0, MAX_IMAGE_FILES_PER_ACTION);
+      const oversized = files.filter((file) => isImageFile(file) && file.size > IMAGE_MAX_BYTES);
+      const imageFiles = files.filter((file) => isImageFile(file) && file.size <= IMAGE_MAX_BYTES);
+      if (oversized.length)
+        setImageUploadMessage(
+          `超过 25 MiB，未上传：${oversized.map((file) => file.name).join("、")}`,
+        );
+      else setImageUploadMessage("");
       if (!imageFiles.length) {
         if (files.some(isImageFile)) {
           const progress = imageUploadProgressRef.current;
@@ -503,38 +511,47 @@ export function NoteEditor({
       const uploadPosition = createImageUploadPosition(editorInstance);
       const progress = imageUploadProgressRef.current;
       if (progress.activeCount === 0) progress.failed = false;
+      if (oversized.length) progress.failed = true;
       progress.activeCount += 1;
       setImageUploadState("uploading");
       if (imageUploadTimerRef.current !== null) clearTimeout(imageUploadTimerRef.current);
       imageUploadTimerRef.current = null;
       try {
         for (const file of imageFiles) {
-          const dimensions = await imageDimensions(file);
-          if (!isCurrentUpload()) return;
-          const result = await uploadImage(file, dimensions);
-          if (!isCurrentUpload()) return;
-          const maxWidth = Math.max(
-            1,
-            editorInstance.view.dom.closest(".note-prose")?.getBoundingClientRect().width ?? 820,
-          );
-          const width = Math.min(maxWidth, Math.max(1, dimensions.width));
-          const height = Math.max(
-            1,
-            Math.round((width * dimensions.height) / Math.max(1, dimensions.width)),
-          );
-          if (
-            !uploadPosition.insert({
-              type: "image",
-              attrs: {
-                assetId: result.asset.id,
-                src: result.asset.url,
-                alt: result.asset.originalName.replace(/\.[^.]+$/u, "") || "图片",
-                width,
-                height,
-              },
-            })
-          )
-            break;
+          try {
+            const dimensions = await imageDimensions(file);
+            if (!isCurrentUpload()) return;
+            const result = await uploadImage(file, dimensions);
+            if (!isCurrentUpload()) return;
+            const maxWidth = Math.max(
+              1,
+              editorInstance.view.dom.closest(".note-prose")?.getBoundingClientRect().width ?? 820,
+            );
+            const width = Math.min(maxWidth, Math.max(1, dimensions.width));
+            const height = Math.max(
+              1,
+              Math.round((width * dimensions.height) / Math.max(1, dimensions.width)),
+            );
+            if (
+              !uploadPosition.insert({
+                type: "image",
+                attrs: {
+                  assetId: result.asset.id,
+                  src: result.asset.url,
+                  alt: result.asset.originalName.replace(/\.[^.]+$/u, "") || "图片",
+                  width,
+                  height,
+                },
+              })
+            )
+              break;
+          } catch {
+            if (!isCurrentUpload()) return;
+            progress.failed = true;
+            setImageUploadMessage(
+              (message) => `${message}${message ? "；" : ""}上传失败：${file.name}`,
+            );
+          }
         }
       } catch {
         if (!isCurrentUpload()) return;
@@ -576,6 +593,7 @@ export function NoteEditor({
       imageUploadTimerRef.current = null;
     }
     setImageUploadState("idle");
+    setImageUploadMessage("");
   }, [note.id, reloadToken]);
 
   useEffect(
@@ -1962,7 +1980,11 @@ export function NoteEditor({
                 <span
                   className={`save-status save-status--${imageUploadState === "uploading" ? "saving" : "error"} save-status--icon mobile-upload-status`}
                   role="status"
-                  aria-label={imageUploadState === "uploading" ? "正在上传图片" : "图片上传失败"}
+                  aria-label={
+                    imageUploadState === "uploading"
+                      ? "正在上传图片"
+                      : imageUploadMessage || "图片上传失败"
+                  }
                 >
                   <SaveStatusIcon state={imageUploadState === "uploading" ? "saving" : "error"} />
                 </span>
@@ -2074,7 +2096,7 @@ export function NoteEditor({
               <span
                 className="save-status save-status--error save-status--icon"
                 role="alert"
-                aria-label="图片上传失败"
+                aria-label={imageUploadMessage || "图片上传失败"}
               >
                 <SaveStatusIcon state="error" />
               </span>
@@ -2163,6 +2185,19 @@ export function NoteEditor({
             )}
           </div>
         </header>
+      )}
+      {imageUploadMessage && (
+        <div className="editor-upload-error" role="alert">
+          <span>{imageUploadMessage}</span>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="关闭图片上传提示"
+            onClick={() => setImageUploadMessage("")}
+          >
+            <X size={16} />
+          </button>
+        </div>
       )}
       {isMobileViewport && onUploadImage && !note.deletedAt && (
         <input

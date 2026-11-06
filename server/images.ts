@@ -1,7 +1,7 @@
 const PNG_SIGNATURE = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
 const MAX_IMAGE_PIXELS = 40_000_000;
 
-export const IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+export { IMAGE_MAX_BYTES } from "../shared/types";
 export const IMAGE_ALLOWED_MIME_TYPES = new Set([
   "image/jpeg",
   "image/png",

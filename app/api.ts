@@ -208,8 +208,11 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ ids, expectedIds }),
     }),
-  getBacklinks: (noteId: string, options?: RequestOptions) =>
-    request<NoteBacklinksResponse>(`/api/notes/${noteId}/backlinks`, options),
+  getBacklinks: (noteId: string, options?: RequestOptions, cursor?: string) =>
+    request<NoteBacklinksResponse>(
+      `/api/notes/${noteId}/backlinks${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
+      options,
+    ),
   linkMention: (
     targetNoteId: string,
     payload: {

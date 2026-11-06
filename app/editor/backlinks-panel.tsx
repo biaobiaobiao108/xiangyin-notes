@@ -146,6 +146,7 @@ export function BacklinksDialog({
   const fetchBacklinks = async (
     requestedNoteId = noteId,
     contextGeneration = contextGenerationRef.current,
+    cursor?: string,
   ) => {
     if (
       contextGenerationRef.current !== contextGeneration ||
@@ -160,7 +161,7 @@ export function BacklinksDialog({
     setLoadingNoteId(requestedNoteId);
     try {
       setError(null);
-      const res = await api.getBacklinks(requestedNoteId, { signal: controller.signal });
+      const res = await api.getBacklinks(requestedNoteId, { signal: controller.signal }, cursor);
       if (
         controller.signal.aborted ||
         requestId !== requestIdRef.current ||
@@ -169,9 +170,19 @@ export function BacklinksDialog({
         noteIdRef.current !== requestedNoteId
       )
         return;
-      setData({ noteId: requestedNoteId, response: res });
-      const totalCount = (res.linkedReferences?.length ?? 0) + (res.unlinkedMentions?.length ?? 0);
-      onBacklinkCountChange?.(totalCount);
+      setData((current) => {
+        const previous = cursor && current?.noteId === requestedNoteId ? current.response : null;
+        const merged = previous
+          ? {
+              ...res,
+              linkedReferences: [...previous.linkedReferences, ...res.linkedReferences],
+              unlinkedMentions: [...previous.unlinkedMentions, ...res.unlinkedMentions],
+            }
+          : res;
+        return { noteId: requestedNoteId, response: merged };
+      });
+      if (!cursor)
+        onBacklinkCountChange?.(res.linkedReferences.length + res.unlinkedMentions.length);
     } catch {
       if (
         controller.signal.aborted ||
@@ -465,10 +476,17 @@ export function BacklinksDialog({
               })}
             </ul>
           )}
-          {currentData?.truncated && (
-            <p className="backlinks-truncated-hint" role="status">
-              结果较多，仅显示最近的部分引用。
-            </p>
+          {currentData?.nextCursor && (
+            <button
+              type="button"
+              className="text-button"
+              disabled={loadingNoteId === noteId}
+              onClick={() =>
+                void fetchBacklinks(noteId, contextGenerationRef.current, currentData.nextCursor!)
+              }
+            >
+              {loadingNoteId === noteId ? "加载中…" : "加载更多"}
+            </button>
           )}
         </div>
         <FloatingScrollbar

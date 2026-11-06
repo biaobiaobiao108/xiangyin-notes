@@ -398,7 +398,7 @@ async function readImageUploadFile(
       ok: false,
       response:
         body.reason === "too-large"
-          ? jsonError(413, "IMAGE_TOO_LARGE", "图片超过 10 MiB 大小限制")
+          ? jsonError(413, "IMAGE_TOO_LARGE", "图片超过 25 MiB 大小限制")
           : jsonError(400, "INVALID_IMAGE_UPLOAD", "图片上传数据无效"),
     };
   }
@@ -421,7 +421,7 @@ async function readImageUploadFile(
   if (!(entry instanceof File))
     return { ok: false, response: jsonError(400, "INVALID_IMAGE_UPLOAD", "请选择图片文件") };
   if (entry.size <= 0 || entry.size > IMAGE_MAX_BYTES)
-    return { ok: false, response: jsonError(413, "IMAGE_TOO_LARGE", "图片超过 10 MiB 大小限制") };
+    return { ok: false, response: jsonError(413, "IMAGE_TOO_LARGE", "图片超过 25 MiB 大小限制") };
   return { ok: true, file: entry };
 }
 

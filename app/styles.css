@@ -909,6 +909,7 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 }
 
 .editor-panel { position: relative; display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.editor-upload-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 16px; background: var(--danger-soft); color: var(--danger); font-size: 0.8rem; overflow-wrap: anywhere; }
 .editor-switch-overlay { position: absolute; inset: 0; z-index: 4; display: grid; place-items: center; background: var(--editor-switch-backdrop); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); opacity: 0; pointer-events: none; transform: translateY(5px); transition: opacity var(--motion-fast) var(--motion-ease-out), transform var(--motion-fast) var(--motion-ease-out); }
 .editor-panel.is-loading .editor-switch-overlay, .editor-switch-overlay--visible { opacity: 1; pointer-events: auto; transform: translateY(0); }
 .editor-switch-card { display: grid; justify-items: center; gap: 15px; width: min(300px, calc(100% - 48px)); padding: 30px 24px; border: 1px solid var(--editor-switch-border); border-radius: 18px; background: var(--surface-glass-medium); box-shadow: 0 14px 34px rgba(39, 47, 41, 0.07); color: var(--muted); }

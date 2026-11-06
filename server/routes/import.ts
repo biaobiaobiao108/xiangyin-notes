@@ -22,7 +22,7 @@ import { publishWorkspaceChange } from "../realtime";
 
 const IMPORT_API_PATH = "/api/import";
 export const IMPORT_RATE_LIMIT_WINDOW_SECONDS = 60;
-export const IMPORT_RATE_LIMIT_MAX_REQUESTS = 30;
+export const IMPORT_RATE_LIMIT_MAX_REQUESTS = 120;
 
 function importClientKey(
   request: Request,

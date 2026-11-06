@@ -1857,11 +1857,19 @@ describe("Bun Server API", () => {
     expect(unsupported.body?.error.code).toBe("UNSUPPORTED_IMAGE");
     const oversized = await request(
       "/api/assets",
-      { method: "POST", body: imageForm("large.png", new Uint8Array(10 * 1024 * 1024 + 1)) },
+      { method: "POST", body: imageForm("large.png", new Uint8Array(25 * 1024 * 1024 + 1)) },
       login.cookie,
     );
     expect(oversized.response.status).toBe(413);
     expect(oversized.body?.error.code).toBe("IMAGE_TOO_LARGE");
+    const largerImage = new Uint8Array(11 * 1024 * 1024);
+    largerImage.set(ONE_PIXEL_PNG);
+    const accepted = await request(
+      "/api/assets",
+      { method: "POST", body: imageForm("larger.png", largerImage) },
+      login.cookie,
+    );
+    expect(accepted.response.status).toBe(201);
     const remoteImage = await request(
       "/api/notes",
       {

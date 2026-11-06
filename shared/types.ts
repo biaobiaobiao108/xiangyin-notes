@@ -92,10 +92,13 @@ export type UnlinkedMention = {
   updatedAt: number;
 };
 
+export const IMAGE_MAX_BYTES = 25 * 1024 * 1024;
+
 export type NoteBacklinksResponse = {
   linkedReferences: NoteLinkSummary[];
   unlinkedMentions: UnlinkedMention[];
   truncated: boolean;
+  nextCursor?: string | null;
 };
 
 export type KanbanStatus = "inbox" | "doing" | "done";

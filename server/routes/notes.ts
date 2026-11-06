@@ -1177,6 +1177,30 @@ export async function handleNotesRoute(
   if (id && subresource === "backlinks" && method === "GET") {
     const note = getNote(database, user.id, id);
     if (!note) return jsonError(404, "NOTE_NOT_FOUND", "笔记不存在");
+    let linkedOffset = 0;
+    let candidateOffset = 0;
+    let mentionOffset = 0;
+    const cursorValue = url.searchParams.get("cursor");
+    if (cursorValue) {
+      try {
+        const cursor = JSON.parse(Buffer.from(cursorValue, "base64url").toString("utf8"));
+        if (
+          cursor.id !== id ||
+          cursor.title !== note.title ||
+          ![cursor.linked, cursor.candidate, cursor.mention].every(Number.isSafeInteger) ||
+          cursor.linked < -1 ||
+          cursor.candidate < -1 ||
+          cursor.mention < 0 ||
+          cursorValue.length > 2048
+        )
+          throw new Error("invalid cursor");
+        linkedOffset = cursor.linked;
+        candidateOffset = cursor.candidate;
+        mentionOffset = cursor.mention;
+      } catch {
+        return jsonError(400, "INVALID_CURSOR", "反向链接分页游标无效");
+      }
+    }
 
     // 只物化最多 101 条元数据，正文仍按扫描预算逐篇读取。Bun 的缓存语句
     // 在 iterate() 提前 break 后可能无法再次执行，不能把截断游标留给后续请求。
@@ -1191,11 +1215,17 @@ export async function handleNotesRoute(
       JOIN notes n ON nl.source_note_id = n.id AND n.user_id = nl.user_id
       JOIN notebooks nb ON n.notebook_id = nb.id
       WHERE nl.user_id = ? AND nl.target_note_id = ? AND nl.source_note_id != ? AND n.deleted_at IS NULL
-      ORDER BY n.updated_at DESC
-      LIMIT ?
+      ORDER BY n.updated_at DESC, nl.id DESC
+      LIMIT ? OFFSET ?
     `,
       )
-      .all(user.id, note.id, note.id, BACKLINK_REFERENCE_LIMIT + 1) as Array<{
+      .all(
+        user.id,
+        note.id,
+        note.id,
+        linkedOffset < 0 ? 0 : BACKLINK_REFERENCE_LIMIT + 1,
+        Math.max(0, linkedOffset),
+      ) as Array<{
       link_id: string;
       source_note_id: string;
       source_title: string;
@@ -1211,6 +1241,7 @@ export async function handleNotesRoute(
     let truncated = false;
     let scanBudgetExhausted = false;
     let scannedChars = 0;
+    let linkedProcessed = 0;
     for (const row of linkedRows) {
       if (linkedReferences.length >= BACKLINK_REFERENCE_LIMIT) {
         truncated = true;
@@ -1259,11 +1290,14 @@ export async function handleNotesRoute(
         snippet,
         updatedAt: row.source_updated_at,
       });
+      linkedProcessed++;
     }
+    if (linkedOffset >= 0)
+      linkedOffset = linkedProcessed < linkedRows.length ? linkedOffset + linkedProcessed : -1;
 
     const unlinkedMentions: UnlinkedMention[] = [];
     const trimmedTitle = note.title.trim();
-    if (trimmedTitle.length >= 2 && !scanBudgetExhausted) {
+    if (candidateOffset >= 0 && trimmedTitle.length >= 2 && !scanBudgetExhausted) {
       const { ftsTokens } = parseSearchTerms(trimmedTitle);
       const useFts = trimmedTitle.length >= 3 && ftsTokens.length > 0;
       const useShortIndex = !useFts && Array.from(trimmedTitle).length <= 2;
@@ -1302,10 +1336,10 @@ export async function handleNotesRoute(
           nb.name AS notebook_name, n.version, n.updated_at
         FROM ${candidateFrom}
         WHERE ${candidateConditions.join(" AND ")}
-        ORDER BY n.updated_at DESC
-        LIMIT ?
+        ORDER BY n.updated_at DESC, n.id DESC
+        LIMIT ? OFFSET ?
       `;
-      candidateParams.push(BACKLINK_CANDIDATE_LIMIT + 1);
+      candidateParams.push(BACKLINK_CANDIDATE_LIMIT + 1, candidateOffset);
       const candidateRows = database.query(candidateSql).all(...candidateParams) as Array<{
         id: string;
         title: string;
@@ -1318,14 +1352,19 @@ export async function handleNotesRoute(
         "SELECT content_markdown FROM notes WHERE id = ? AND user_id = ?",
       );
       let candidateCount = 0;
+      let candidateHasMore = false;
+      let stoppedWithinCandidate = false;
       mentionLoop: for (const candidate of candidateRows) {
         candidateCount += 1;
         if (candidateCount > BACKLINK_CANDIDATE_LIMIT) {
           truncated = true;
+          candidateHasMore = true;
           break;
         }
         if (candidate.content_char_count > BACKLINK_SCAN_CHAR_LIMIT - scannedChars) {
           truncated = true;
+          candidateCount--;
+          candidateHasMore = true;
           break;
         }
         const source = candidateContentStatement.get(candidate.id, user.id) as {
@@ -1335,12 +1374,23 @@ export async function handleNotesRoute(
         scannedChars += source.content_markdown.length;
         if (scannedChars > BACKLINK_SCAN_CHAR_LIMIT) {
           truncated = true;
+          candidateCount--;
+          candidateHasMore = true;
           break;
         }
         const mentions = findUnlinkedMentionsInMarkdown(source.content_markdown, note.title);
-        for (const m of mentions) {
+        for (
+          let mentionIndex = candidateCount === 1 ? mentionOffset : 0;
+          mentionIndex < mentions.length;
+          mentionIndex++
+        ) {
+          const m = mentions[mentionIndex]!;
           if (unlinkedMentions.length >= BACKLINK_MENTION_LIMIT) {
             truncated = true;
+            candidateOffset += candidateCount - 1;
+            mentionOffset = mentionIndex;
+            candidateHasMore = true;
+            stoppedWithinCandidate = true;
             break mentionLoop;
           }
           unlinkedMentions.push({
@@ -1354,10 +1404,33 @@ export async function handleNotesRoute(
             updatedAt: candidate.updated_at,
           });
         }
+        mentionOffset = 0;
       }
+      if (candidateHasMore && !stoppedWithinCandidate)
+        candidateOffset += Math.min(candidateCount, BACKLINK_CANDIDATE_LIMIT);
+      else if (!candidateHasMore) candidateOffset = -1;
+    } else if (trimmedTitle.length < 2) {
+      candidateOffset = -1;
     }
 
-    const payload: NoteBacklinksResponse = { linkedReferences, unlinkedMentions, truncated };
+    const nextCursor =
+      linkedOffset >= 0 || candidateOffset >= 0
+        ? Buffer.from(
+            JSON.stringify({
+              id,
+              title: note.title,
+              linked: linkedOffset,
+              candidate: candidateOffset,
+              mention: mentionOffset,
+            }),
+          ).toString("base64url")
+        : null;
+    const payload: NoteBacklinksResponse = {
+      linkedReferences,
+      unlinkedMentions,
+      truncated: truncated || Boolean(nextCursor),
+      nextCursor,
+    };
     return json(payload);
   }
 

@@ -119,6 +119,59 @@ test("repeated backlinks requests work after truncating linked references", asyn
   }
 });
 
+test("paginates all linked references and repeated mentions without gaps", async () => {
+  const target = await createNote("分页目标");
+  const source = await createNote(
+    "重复提及",
+    Array.from({ length: BACKLINK_MENTION_LIMIT + 17 }, () => "分页目标").join("\n\n"),
+  );
+  for (let index = 0; index < BACKLINK_REFERENCE_LIMIT + 5; index++)
+    await createNote(`引用 ${index}`, "[[分页目标]]");
+  const links = new Set<string>();
+  const positions = new Set<number>();
+  let cursor: string | null = null;
+  let pages = 0;
+  do {
+    const result = await request(
+      `/api/notes/${target.id}/backlinks${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
+    );
+    expect(result.response.status).toBe(200);
+    for (const link of result.body.linkedReferences) {
+      expect(links.has(link.id)).toBe(false);
+      links.add(link.id);
+    }
+    for (const mention of result.body.unlinkedMentions)
+      if (mention.sourceNoteId === source.id) {
+        expect(positions.has(mention.matchIndex)).toBe(false);
+        positions.add(mention.matchIndex);
+      }
+    cursor = result.body.nextCursor;
+    expect(++pages).toBeLessThan(10);
+  } while (cursor);
+  expect(links.size).toBe(BACKLINK_REFERENCE_LIMIT + 5);
+  expect(positions.size).toBe(BACKLINK_MENTION_LIMIT + 17);
+});
+
+test("continues at the next note when the mention page ends exactly at a note boundary", async () => {
+  const target = await createNote("边界目标");
+  for (let index = 0; index < BACKLINK_MENTION_LIMIT + 1; index++)
+    await createNote(`来源 ${index}`, "边界目标");
+  const first = await request(`/api/notes/${target.id}/backlinks`);
+  expect(first.body.unlinkedMentions).toHaveLength(BACKLINK_MENTION_LIMIT);
+  const second = await request(
+    `/api/notes/${target.id}/backlinks?cursor=${encodeURIComponent(first.body.nextCursor)}`,
+  );
+  expect(second.body.unlinkedMentions).toHaveLength(1);
+  expect(second.body.nextCursor).toBeNull();
+  expect(
+    new Set(
+      [...first.body.unlinkedMentions, ...second.body.unlinkedMentions].map(
+        (item: { sourceNoteId: string }) => item.sourceNoteId,
+      ),
+    ).size,
+  ).toBe(BACKLINK_MENTION_LIMIT + 1);
+});
+
 for (const trashedRole of ["source", "target"] as const) {
   test(`link mention rejects a trashed ${trashedRole} and preserves the source`, async () => {
     const target = await createNote("苹果");
