@@ -4,6 +4,7 @@ import type { Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Check, Trash2, X } from "lucide-react";
 import { createUuid } from "../uuid";
+import { FloatingScrollbar } from "../floating-scrollbar";
 import {
   collectAnnotations,
   findAnnotationRanges,
@@ -12,6 +13,7 @@ import {
 
 type SelectionPoint = { left: number; top: number };
 const RAIL_CARD_WIDTH = 220;
+const COMPACT_CARD_WIDTH = 300;
 
 type ComposerState = {
   id: string;
@@ -27,6 +29,7 @@ type ComposerState = {
 type CompactState = {
   id: string;
   top: number;
+  bottom: number;
   left: number;
 };
 
@@ -102,29 +105,37 @@ function AnnotationTextarea({
       <label className="visually-hidden" htmlFor={fieldId}>
         批注内容
       </label>
-      <textarea
-        ref={fieldRef}
-        id={fieldId}
-        className="annotation-note-editor-field"
-        value={value}
-        rows={1}
-        disabled={locked}
-        placeholder="写下批注……"
-        onChange={(event) => onChange(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.nativeEvent.isComposing || event.keyCode === 229) return;
-          if (event.key === "Escape") {
-            event.preventDefault();
-            event.stopPropagation();
-            onCancel();
-            return;
-          }
-          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-            event.preventDefault();
-            if (!locked) onCommit();
-          }
-        }}
-      />
+      <div className="annotation-note-editor-shell">
+        <textarea
+          ref={fieldRef}
+          id={fieldId}
+          className="annotation-note-editor-field floating-scrollbar-target"
+          value={value}
+          rows={1}
+          disabled={locked}
+          placeholder="写下批注……"
+          onChange={(event) => onChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+            if (event.key === "Escape") {
+              event.preventDefault();
+              event.stopPropagation();
+              onCancel();
+              return;
+            }
+            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+              event.preventDefault();
+              if (!locked) onCommit();
+            }
+          }}
+        />
+        <FloatingScrollbar
+          scrollTargetRef={fieldRef}
+          controlsId={fieldId}
+          ariaLabel="滚动批注内容"
+          placement="right"
+        />
+      </div>
     </>
   );
 }
@@ -280,6 +291,7 @@ function AnnotationCard({
   onHover,
   variant,
   register,
+  pageScrollRef,
 }: {
   annotation: AnnotationRecord;
   active?: boolean;
@@ -295,15 +307,18 @@ function AnnotationCard({
   onHover?: (hovered: boolean) => void;
   variant: "rail" | "compact";
   register?: (element: HTMLElement | null) => void;
+  pageScrollRef?: RefObject<HTMLElement | null>;
 }) {
   const rootRef = useRef<HTMLElement>(null);
   const textRef = useRef<HTMLButtonElement>(null);
+  const readScrollRef = useRef<HTMLDivElement>(null);
   const [draft, setDraft] = useState(annotation.note);
   const draftRef = useRef(draft);
   const commitRef = useRef<() => void>(() => {});
   const cancelRef = useRef<() => void>(() => {});
   const outsideRef = useRef(onOutside);
   const closedRef = useRef(false);
+  const readScrollId = `annotation-read-${annotation.id}`;
   draftRef.current = draft;
   outsideRef.current = onOutside;
 
@@ -368,6 +383,37 @@ function AnnotationCard({
     };
   }, [editing, onOutside]);
 
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const forwardWheel = (event: WheelEvent) => {
+      const page = pageScrollRef?.current;
+      if (!page) return;
+      const scrollBody = root.querySelector<HTMLElement>(
+        ".annotation-card-scroll, .annotation-note-editor-field",
+      );
+      if (
+        scrollBody?.contains(event.target as Node) &&
+        scrollBody.scrollHeight > scrollBody.clientHeight + 1
+      ) {
+        const atTop = scrollBody.scrollTop <= 0;
+        const atBottom =
+          scrollBody.scrollTop + scrollBody.clientHeight >= scrollBody.scrollHeight - 1;
+        if ((event.deltaY < 0 && !atTop) || (event.deltaY > 0 && !atBottom)) return;
+      }
+      event.preventDefault();
+      const delta =
+        event.deltaMode === 1
+          ? event.deltaY * 16
+          : event.deltaMode === 2
+            ? event.deltaY * page.clientHeight
+            : event.deltaY;
+      page.scrollBy({ top: delta, behavior: "auto" });
+    };
+    root.addEventListener("wheel", forwardWheel, { passive: false });
+    return () => root.removeEventListener("wheel", forwardWheel);
+  }, [pageScrollRef]);
+
   return (
     <article
       ref={(element) => {
@@ -401,29 +447,47 @@ function AnnotationCard({
           <span>{annotation.quote}</span>
         </div>
       )}
-      {editing ? (
-        <div className="annotation-card-body annotation-card-body--editing">
-          <AnnotationTextarea
-            fieldId={`annotation-inline-${annotation.id}`}
-            value={draft}
-            locked={locked}
-            maxHeight={160}
-            onChange={updateDraft}
-            onCommit={() => commit(true)}
-            onCancel={cancel}
-          />
-        </div>
-      ) : (
-        <button
-          ref={textRef}
-          className="annotation-card-body annotation-card-body--read"
-          type="button"
-          disabled={locked}
-          onClick={onStartEdit}
-        >
-          <span className="annotation-card-text">{annotation.note}</span>
-        </button>
-      )}
+      <div className="annotation-card-body-swap" key={editing ? "editing" : "reading"}>
+        {editing ? (
+          <div className="annotation-card-body annotation-card-body--editing">
+            <AnnotationTextarea
+              fieldId={`annotation-inline-${annotation.id}`}
+              value={draft}
+              locked={locked}
+              maxHeight={variant === "rail" ? 220 : 280}
+              onChange={updateDraft}
+              onCommit={() => commit(true)}
+              onCancel={cancel}
+            />
+          </div>
+        ) : (
+          <div className="annotation-card-body annotation-card-body--read">
+            <div className="annotation-card-scroll-shell">
+              <div
+                ref={readScrollRef}
+                id={readScrollId}
+                className="annotation-card-scroll floating-scrollbar-target"
+              >
+                <button
+                  ref={textRef}
+                  className="annotation-card-read-button"
+                  type="button"
+                  disabled={locked}
+                  onClick={onStartEdit}
+                >
+                  <span className="annotation-card-text">{annotation.note}</span>
+                </button>
+              </div>
+              <FloatingScrollbar
+                scrollTargetRef={readScrollRef}
+                controlsId={readScrollId}
+                ariaLabel="滚动批注内容"
+                placement="right"
+              />
+            </div>
+          </div>
+        )}
+      </div>
     </article>
   );
 }
@@ -441,6 +505,7 @@ function AnnotationBubble({
   onDelete,
   onHover,
   register,
+  pageScrollRef,
 }: {
   annotation: AnnotationRecord;
   active: boolean;
@@ -454,6 +519,7 @@ function AnnotationBubble({
   onDelete: () => void;
   onHover: (hovered: boolean) => void;
   register: (element: HTMLElement | null) => void;
+  pageScrollRef: RefObject<HTMLElement | null>;
 }) {
   return (
     <AnnotationCard
@@ -470,13 +536,14 @@ function AnnotationBubble({
       onHover={onHover}
       variant="rail"
       register={register}
+      pageScrollRef={pageScrollRef}
     />
   );
 }
 
 function CompactAnnotationCard({
   annotation,
-  target,
+  anchor,
   mobile,
   locked,
   editing,
@@ -486,9 +553,10 @@ function CompactAnnotationCard({
   onDraftChange,
   onDelete,
   onClose,
+  pageScrollRef,
 }: {
   annotation: AnnotationRecord;
-  target: { top: number; left: number };
+  anchor: { top: number; bottom: number; left: number };
   mobile: boolean;
   locked: boolean;
   editing: boolean;
@@ -498,12 +566,57 @@ function CompactAnnotationCard({
   onDraftChange?: (note: string) => void;
   onDelete: () => void;
   onClose: () => void;
+  pageScrollRef: RefObject<HTMLElement | null>;
 }) {
+  const anchorRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState(() => ({
+    top: anchor.bottom + 6,
+    left: Math.max(12, Math.min(anchor.left, window.innerWidth - COMPACT_CARD_WIDTH - 12)),
+  }));
+
+  useLayoutEffect(() => {
+    if (mobile) return;
+    const element = anchorRef.current;
+    if (!element) return;
+    const place = () => {
+      const height = element.offsetHeight;
+      const margin = 12;
+      const gap = 6;
+      const below = anchor.bottom + gap;
+      const above = anchor.top - height - gap;
+      const spaceBelow = window.innerHeight - margin - below;
+      const spaceAbove = anchor.top - gap - margin;
+      const top = Math.max(
+        margin,
+        Math.min(
+          spaceBelow >= height || spaceBelow >= spaceAbove ? below : above,
+          window.innerHeight - height - margin,
+        ),
+      );
+      const left = Math.max(
+        margin,
+        Math.min(anchor.left, window.innerWidth - COMPACT_CARD_WIDTH - margin),
+      );
+      setPosition((current) =>
+        current.top === top && current.left === left ? current : { top, left },
+      );
+    };
+    place();
+    const observer = new ResizeObserver(place);
+    observer.observe(element);
+    window.addEventListener("resize", place);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", place);
+    };
+  }, [anchor.bottom, anchor.left, anchor.top, mobile]);
+
   return createPortal(
     <>
       <div
+        ref={anchorRef}
         className={`annotation-compact-anchor${mobile ? " annotation-compact-anchor--sheet" : ""}`}
-        style={mobile ? undefined : { top: `${target.top}px`, left: `${target.left}px` }}
+        style={mobile ? undefined : { top: `${position.top}px`, left: `${position.left}px` }}
       >
         <AnnotationCard
           annotation={annotation}
@@ -517,6 +630,7 @@ function CompactAnnotationCard({
           onDelete={onDelete}
           onOutside={onClose}
           variant="compact"
+          pageScrollRef={pageScrollRef}
         />
       </div>
       {mobile && <div className="annotation-sheet-backdrop" aria-hidden="true" />}
@@ -536,6 +650,7 @@ function AnnotationLayer({
   locked,
   mobile,
   onToggle,
+  onClear,
   onHover,
   onStartEdit,
   onFinishEdit,
@@ -553,6 +668,7 @@ function AnnotationLayer({
   locked: boolean;
   mobile: boolean;
   onToggle: (id: string) => void;
+  onClear: () => void;
   onHover: (id: string | null) => void;
   onStartEdit: (id: string) => void;
   onFinishEdit: () => void;
@@ -644,26 +760,46 @@ function AnnotationLayer({
       setCompact(null);
       return;
     }
-    let frame = requestAnimationFrame(() => {
+    const scrollElement = scrollRef.current;
+    if (!scrollElement) return;
+    let frame = 0;
+    const update = () => {
+      if (frame) return;
       frame = requestAnimationFrame(() => {
+        frame = 0;
         const mark = editor.view.dom.querySelector<HTMLElement>(
           `.note-annotation[data-annotation-id="${CSS.escape(expandedId)}"]`,
         );
-        if (!mark) return;
+        if (!mark) {
+          setCompact(null);
+          return;
+        }
         const rect = mark.getBoundingClientRect();
-        const top =
-          rect.bottom + 180 > window.innerHeight - 12
-            ? Math.max(12, rect.top - 180 - 6)
-            : rect.bottom + 6;
+        const viewport = scrollElement.getBoundingClientRect();
+        const viewportTop = Math.max(viewport.top, 0);
+        const viewportBottom = Math.min(viewport.bottom, window.innerHeight);
+        if (rect.bottom < viewportTop + 8 || rect.top > viewportBottom - 8) {
+          setCompact(null);
+          onClear();
+          return;
+        }
         setCompact({
           id: expandedId,
-          top,
-          left: Math.max(12, Math.min(rect.left, window.innerWidth - 276 - 12)),
+          top: rect.top,
+          bottom: rect.bottom,
+          left: Math.max(12, Math.min(rect.left, window.innerWidth - COMPACT_CARD_WIDTH - 12)),
         });
       });
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [annotations, editor, expandedId, showRail]);
+    };
+    update();
+    scrollElement.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      scrollElement.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+    };
+  }, [annotations, editor, expandedId, onClear, scrollRef, showRail]);
 
   return (
     <>
@@ -692,6 +828,7 @@ function AnnotationLayer({
                 if (element) bubbleRefs.current.set(annotation.id, element);
                 else bubbleRefs.current.delete(annotation.id);
               }}
+              pageScrollRef={scrollRef}
             />
           ))}
         </div>
@@ -699,7 +836,7 @@ function AnnotationLayer({
       {compactAnnotation && compact && (
         <CompactAnnotationCard
           annotation={compactAnnotation}
-          target={{ top: compact.top, left: compact.left }}
+          anchor={{ top: compact.top, bottom: compact.bottom, left: compact.left }}
           mobile={mobile}
           locked={locked}
           editing={editId === compactAnnotation.id}
@@ -715,6 +852,7 @@ function AnnotationLayer({
             setCompact(null);
             if (expandedId === compactAnnotation.id) onToggle(compactAnnotation.id);
           }}
+          pageScrollRef={scrollRef}
         />
       )}
     </>
@@ -959,7 +1097,7 @@ export function useEditorAnnotations({
     setEditId(null);
     setExpandedId((current) => (current === id ? null : id));
   }, []);
-  const railVisible = !mobile && layoutMode === "cards" && annotations.length > 0;
+  const railVisible = !mobile && layoutMode === "cards" && wideEnough && annotations.length > 0;
 
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
@@ -1001,6 +1139,7 @@ export function useEditorAnnotations({
         locked={locked || deleted}
         mobile={mobile}
         onToggle={toggleExpanded}
+        onClear={clearActive}
         onHover={setHoveredId}
         onStartEdit={startEdit}
         onFinishEdit={finishEdit}
