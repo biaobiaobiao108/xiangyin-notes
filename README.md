@@ -256,7 +256,7 @@ bun run start
 
 `database/schema.sql` 是 v1 schema 基线，通过 `PRAGMA user_version` 标记版本；迁移步骤登记在 `server/db.ts`。首次启动时，空数据库会按迁移流程初始化；已有数据库必须有受支持的版本号，并且结构与对应版本一致，否则服务会停止启动，不会猜测或重建数据库。以后修改 schema 或需要重建派生索引时，在 `server/db.ts` 登记从当前版本到下一版本的迁移步骤；启动时会按顺序逐步执行，每步都在事务中完成并更新版本，再核对最终结构。
 
-正式部署前可以更新基线。正式部署后不要修改已发布的基线或迁移；schema 变更应新增从当前版本到下一版本的迁移，并递增 `CURRENT_SCHEMA_VERSION`。`bun run db:migrate` 可手动触发相同的启动与迁移流程；`bun run db:check` 只读检查数据库结构和搜索索引重建状态：
+数据库结构变更应使用连续迁移，并递增 `CURRENT_SCHEMA_VERSION`。本版本将原 v17 结构归一为新的 v1；旧 v1–v16 数据库不能直接升级，原 v17 数据库需要先转换版本标记。`bun run db:migrate` 可手动触发相同的启动与迁移流程；`bun run db:check` 只读检查数据库结构和搜索索引重建状态：
 
 ```bash
 bun run db:check

@@ -21,7 +21,7 @@ export function shortSearchToken(term: string) {
   return `${characters.length === 1 ? "u" : "b"}${characters.map(encodeCharacter).join("")}`;
 }
 
-export function buildShortSearchTokens(title: string, contentMarkdown: string, legacy = false) {
+export function buildShortSearchTokens(title: string, contentMarkdown: string) {
   const terms = new Set<string>();
   let truncated = false;
   for (const [text, limit] of [
@@ -39,16 +39,7 @@ export function buildShortSearchTokens(title: string, contentMarkdown: string, l
         truncated = true;
         break;
       }
-      if (legacy && !/[\p{L}\p{N}]/u.test(character)) {
-        previous = "";
-        continue;
-      }
-      const codePoint = character.codePointAt(0)!;
-      const encoded = legacy
-        ? (codePoint >= 65 && codePoint <= 90 ? codePoint + 32 : codePoint)
-            .toString(16)
-            .padStart(6, "0")
-        : encodeCharacter(character);
+      const encoded = encodeCharacter(character);
       terms.add(`u${encoded}`);
       if (previous) terms.add(`b${previous}${encoded}`);
       previous = encoded;
@@ -63,10 +54,8 @@ export function syncNoteShortSearchTerms(
   noteId: string,
   title: string,
   contentMarkdown: string,
-  // Version 10 remains reproducible for databases upgrading through it.
-  legacy = false,
 ) {
-  const { tokens, truncated } = buildShortSearchTokens(title, contentMarkdown, legacy);
+  const { tokens, truncated } = buildShortSearchTokens(title, contentMarkdown);
   database
     .query(
       "INSERT OR REPLACE INTO notes_short_fts(rowid, terms) SELECT rowid, ? FROM notes WHERE id = ? AND user_id = ?",
@@ -96,11 +85,11 @@ export function syncNoteSearchIndexes(
   syncNoteShortSearchTerms(database, userId, noteId, title, searchText);
 }
 
-export function rebuildNoteShortSearchIndex(database: SqliteDatabase, useSearchText = false) {
+export function rebuildNoteShortSearchIndex(database: SqliteDatabase) {
   database.exec("DELETE FROM notes_short_fts; DELETE FROM notes_short_overflow;");
   const notes = database
     .query(
-      `SELECT id, user_id, title, ${useSearchText ? "COALESCE(search_text, content_markdown)" : "content_markdown"} AS content_markdown FROM notes ORDER BY rowid`,
+      "SELECT id, user_id, title, COALESCE(search_text, content_markdown) AS content_markdown FROM notes ORDER BY rowid",
     )
     .iterate() as IterableIterator<{
     id: string;

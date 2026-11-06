@@ -1,6 +1,6 @@
 PRAGMA foreign_keys = ON;
 
-CREATE TABLE IF NOT EXISTS users (
+CREATE TABLE users (
   id TEXT PRIMARY KEY,
   username TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
@@ -8,16 +8,14 @@ CREATE TABLE IF NOT EXISTS users (
   created_at INTEGER NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS sessions (
+CREATE TABLE sessions (
   token_hash TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at);
-
-CREATE TABLE IF NOT EXISTS notebooks (
+CREATE TABLE notebooks (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
@@ -30,9 +28,7 @@ CREATE TABLE IF NOT EXISTS notebooks (
   UNIQUE(user_id, name)
 );
 
-CREATE INDEX IF NOT EXISTS idx_notebooks_user_order ON notebooks(user_id, sort_order, name);
-
-CREATE TABLE IF NOT EXISTS notes (
+CREATE TABLE notes (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   notebook_id TEXT NOT NULL REFERENCES notebooks(id) ON DELETE RESTRICT,
@@ -44,38 +40,9 @@ CREATE TABLE IF NOT EXISTS notes (
   version INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
-);
+, search_text TEXT);
 
-CREATE INDEX IF NOT EXISTS idx_notes_user_deleted_updated ON notes(user_id, deleted_at, updated_at DESC);
-CREATE INDEX IF NOT EXISTS idx_notes_user_notebook_deleted_updated ON notes(user_id, notebook_id, deleted_at, updated_at DESC);
-CREATE INDEX IF NOT EXISTS idx_notes_user_deleted_title ON notes(user_id, deleted_at, title);
-CREATE INDEX IF NOT EXISTS idx_notes_notebook_deleted ON notes(notebook_id, deleted_at);
-CREATE INDEX IF NOT EXISTS idx_notes_user_deleted_created ON notes(user_id, deleted_at, created_at DESC, id DESC);
-CREATE INDEX IF NOT EXISTS idx_notes_user_deleted_title_nocase ON notes(user_id, deleted_at, title COLLATE NOCASE, id);
-CREATE INDEX IF NOT EXISTS idx_notes_user_deleted_title_normalized ON notes(user_id, deleted_at, title_normalized, updated_at DESC, id);
-
-CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
-  title,
-  content_markdown,
-  content='notes',
-  content_rowid='rowid',
-  tokenize = 'trigram'
-);
-
-CREATE TRIGGER IF NOT EXISTS notes_ai AFTER INSERT ON notes BEGIN
-  INSERT INTO notes_fts(rowid, title, content_markdown) VALUES (new.rowid, new.title, new.content_markdown);
-END;
-
-CREATE TRIGGER IF NOT EXISTS notes_ad AFTER DELETE ON notes BEGIN
-  INSERT INTO notes_fts(notes_fts, rowid, title, content_markdown) VALUES('delete', old.rowid, old.title, old.content_markdown);
-END;
-
-CREATE TRIGGER IF NOT EXISTS notes_au AFTER UPDATE OF title, content_markdown ON notes BEGIN
-  INSERT INTO notes_fts(notes_fts, rowid, title, content_markdown) VALUES('delete', old.rowid, old.title, old.content_markdown);
-  INSERT INTO notes_fts(rowid, title, content_markdown) VALUES (new.rowid, new.title, new.content_markdown);
-END;
-
-CREATE TABLE IF NOT EXISTS image_assets (
+CREATE TABLE image_assets (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   note_id TEXT REFERENCES notes(id) ON DELETE CASCADE,
@@ -89,11 +56,7 @@ CREATE TABLE IF NOT EXISTS image_assets (
   created_at INTEGER NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_image_assets_note_order ON image_assets(note_id, document_order, created_at);
-CREATE INDEX IF NOT EXISTS idx_image_assets_user ON image_assets(user_id, created_at DESC);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_image_assets_note_thumbnail ON image_assets(note_id) WHERE note_id IS NOT NULL AND document_order = 0;
-
-CREATE TABLE IF NOT EXISTS note_links (
+CREATE TABLE note_links (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   source_note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
@@ -104,12 +67,7 @@ CREATE TABLE IF NOT EXISTS note_links (
   created_at INTEGER NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_note_links_source ON note_links(user_id, source_note_id);
-CREATE INDEX IF NOT EXISTS idx_note_links_target ON note_links(user_id, target_note_id);
-CREATE INDEX IF NOT EXISTS idx_note_links_target_title ON note_links(user_id, target_title);
-CREATE INDEX IF NOT EXISTS idx_note_links_target_title_normalized ON note_links(user_id, target_title_normalized);
-
-CREATE TABLE IF NOT EXISTS note_tags (
+CREATE TABLE note_tags (
   note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   tag_normalized TEXT NOT NULL,
@@ -118,18 +76,7 @@ CREATE TABLE IF NOT EXISTS note_tags (
   PRIMARY KEY(note_id, tag_normalized)
 );
 
-CREATE INDEX IF NOT EXISTS idx_note_tags_tag_user ON note_tags(tag_normalized, user_id, note_id);
-
-CREATE TABLE IF NOT EXISTS note_short_terms (
-  note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
-  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  term TEXT NOT NULL,
-  PRIMARY KEY(note_id, term)
-);
-
-CREATE INDEX IF NOT EXISTS idx_note_short_terms_user_term ON note_short_terms(user_id, term, note_id);
-
-CREATE TABLE IF NOT EXISTS rate_limits (
+CREATE TABLE rate_limits (
   action TEXT NOT NULL,
   key TEXT NOT NULL,
   points INTEGER NOT NULL DEFAULT 0,
@@ -139,7 +86,148 @@ CREATE TABLE IF NOT EXISTS rate_limits (
   PRIMARY KEY(action, key)
 );
 
-CREATE INDEX IF NOT EXISTS idx_rate_limits_action_expiry ON rate_limits(action, blocked_until, window_started_at);
+CREATE TABLE note_tasks (
+          note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          notebook_id TEXT NOT NULL REFERENCES notebooks(id) ON DELETE RESTRICT,
+          ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+          depth INTEGER NOT NULL CHECK (depth >= 0),
+          text TEXT NOT NULL,
+          done INTEGER NOT NULL CHECK (done IN (0, 1)),
+          sort_created_at INTEGER NOT NULL,
+          PRIMARY KEY (note_id, ordinal)
+        );
+
+CREATE TABLE note_task_counts (
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          notebook_id TEXT NOT NULL REFERENCES notebooks(id) ON DELETE CASCADE,
+          done INTEGER NOT NULL CHECK (done IN (0, 1)),
+          task_count INTEGER NOT NULL CHECK (task_count > 0),
+          PRIMARY KEY (user_id, notebook_id, done)
+        );
+
+CREATE TABLE kanban_cards (
+          note_id TEXT PRIMARY KEY REFERENCES notes(id) ON DELETE CASCADE,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          status TEXT NOT NULL CHECK (status IN ('inbox', 'doing', 'done', 'archived')),
+          sort_order REAL NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+
+CREATE TABLE app_metadata (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        );
+
+CREATE VIRTUAL TABLE notes_short_fts USING fts5(
+          terms, content='', contentless_delete=1, detail=none, tokenize='ascii'
+        );
+
+CREATE TABLE notes_short_overflow (
+          note_id TEXT PRIMARY KEY REFERENCES notes(id) ON DELETE CASCADE,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE
+        );
+
+CREATE VIRTUAL TABLE notes_fts USING fts5(
+          title,
+          search_text,
+          content='notes',
+          content_rowid='rowid',
+          tokenize = 'trigram'
+        );
+
+CREATE INDEX idx_sessions_expiry ON sessions(expires_at);
+
+CREATE INDEX idx_notebooks_user_order ON notebooks(user_id, sort_order, name);
+
+CREATE INDEX idx_notes_notebook_deleted ON notes(notebook_id, deleted_at);
+
+CREATE INDEX idx_notes_user_deleted_created ON notes(user_id, deleted_at, created_at DESC, id DESC);
+
+CREATE INDEX idx_notes_user_deleted_title_nocase ON notes(user_id, deleted_at, title COLLATE NOCASE, id);
+
+CREATE INDEX idx_notes_user_deleted_title_normalized ON notes(user_id, deleted_at, title_normalized, updated_at DESC, id);
+
+CREATE INDEX idx_image_assets_note_order ON image_assets(note_id, document_order, created_at);
+
+CREATE INDEX idx_image_assets_user ON image_assets(user_id, created_at DESC);
+
+CREATE UNIQUE INDEX idx_image_assets_note_thumbnail ON image_assets(note_id) WHERE note_id IS NOT NULL AND document_order = 0;
+
+CREATE INDEX idx_note_links_source ON note_links(user_id, source_note_id);
+
+CREATE INDEX idx_note_links_target ON note_links(user_id, target_note_id);
+
+CREATE INDEX idx_note_links_target_title_normalized ON note_links(user_id, target_title_normalized);
+
+CREATE INDEX idx_note_tags_tag_user ON note_tags(tag_normalized, user_id, note_id);
+
+CREATE INDEX idx_rate_limits_action_expiry ON rate_limits(action, blocked_until, window_started_at);
+
+CREATE INDEX idx_note_tasks_user_recent
+          ON note_tasks(user_id, sort_created_at, note_id, ordinal);
+
+CREATE INDEX idx_note_tasks_user_done_recent
+          ON note_tasks(user_id, done, sort_created_at, note_id, ordinal);
+
+CREATE INDEX idx_note_tasks_notebook_recent
+          ON note_tasks(user_id, notebook_id, sort_created_at, note_id, ordinal);
+
+CREATE INDEX idx_note_tasks_notebook_done_recent
+          ON note_tasks(user_id, notebook_id, done, sort_created_at, note_id, ordinal);
+
+CREATE INDEX idx_note_task_counts_user_done
+          ON note_task_counts(user_id, done, notebook_id);
+
+CREATE INDEX idx_notes_user_deleted_updated_id
+          ON notes(user_id, deleted_at, updated_at DESC, id DESC);
+
+CREATE INDEX idx_notes_user_notebook_deleted_updated_id
+          ON notes(user_id, notebook_id, deleted_at, updated_at DESC, id DESC);
+
+CREATE INDEX idx_notes_user_trash_updated
+          ON notes(user_id, updated_at DESC, id DESC)
+          WHERE deleted_at IS NOT NULL;
+
+CREATE INDEX idx_notes_user_favorites_updated
+          ON notes(user_id, updated_at DESC, id DESC)
+          WHERE deleted_at IS NULL AND is_favorite = 1;
+
+CREATE INDEX idx_sessions_user ON sessions(user_id);
+
+CREATE INDEX idx_note_links_source_note ON note_links(source_note_id, user_id);
+
+CREATE INDEX idx_note_links_target_note ON note_links(target_note_id, user_id)
+          WHERE target_note_id IS NOT NULL;
+
+CREATE INDEX idx_kanban_cards_user_status
+          ON kanban_cards(user_id, status, sort_order);
+
+CREATE INDEX idx_notes_short_overflow_user
+          ON notes_short_overflow(user_id, note_id);
+
+CREATE TRIGGER notes_short_fts_delete AFTER DELETE ON notes BEGIN
+          DELETE FROM notes_short_fts WHERE rowid = old.rowid;
+        END;
+
+CREATE TRIGGER notes_ai AFTER INSERT ON notes BEGIN
+          INSERT INTO notes_fts(rowid, title, search_text)
+          VALUES (new.rowid, new.title, COALESCE(new.search_text, new.content_markdown));
+        END;
+
+CREATE TRIGGER notes_ad AFTER DELETE ON notes BEGIN
+          INSERT INTO notes_fts(notes_fts, rowid, title, search_text)
+          VALUES ('delete', old.rowid, old.title, COALESCE(old.search_text, old.content_markdown));
+        END;
+
+CREATE TRIGGER notes_au AFTER UPDATE OF title, search_text ON notes
+        WHEN old.title IS NOT new.title OR old.search_text IS NOT new.search_text
+        BEGIN
+          INSERT INTO notes_fts(notes_fts, rowid, title, search_text)
+          VALUES ('delete', old.rowid, old.title, COALESCE(old.search_text, old.content_markdown));
+          INSERT INTO notes_fts(rowid, title, search_text)
+          VALUES (new.rowid, new.title, COALESCE(new.search_text, new.content_markdown));
+        END;
 
 PRAGMA user_version = 1;
-

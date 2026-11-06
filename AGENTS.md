@@ -48,7 +48,7 @@
 ## 后端与数据
 
 - SQLite 查询使用 prepared statements，不拼接用户输入；私有 API 校验会话和资源归属，更新笔记校验 `version`，冲突返回 `409 VERSION_CONFLICT`。
-- `database/schema.sql` 是当前基线，以 `PRAGMA user_version` 标记版本。空库启动时初始化；已有库只执行已登记、连续且逐步事务化的迁移。遇到未知版本、缺失迁移、迁移失败或 schema 漂移时停止启动，不猜测修复。正式发布后不改基线和历史迁移，只新增迁移。
+- `database/schema.sql` 是当前基线，以 `PRAGMA user_version` 标记版本。空库启动时初始化；已有库只执行已登记、连续且逐步事务化的迁移。遇到未知版本、缺失迁移、迁移失败或 schema 漂移时停止启动，不猜测修复。
 - `bun run db:migrate` 执行同一升级流程；`bun run db:check` 只读检查 schema，发现漂移时以非零状态退出。
 - `notes_fts` 使用外部内容表并由触发器同步；不要额外复制正文。保持 `auto_vacuum=INCREMENTAL`；已有库启用时按 SQLite 要求执行 `VACUUM`。删除操作依赖空闲页复用，不在请求中强制截断数据库。
 - 生产错误返回统一 JSON；详细堆栈只写服务端日志。
