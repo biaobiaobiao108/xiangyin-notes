@@ -183,12 +183,10 @@ export function sourceNoteIdsReferencingTarget(
     `SELECT DISTINCT nl.source_note_id
      FROM note_links nl
      JOIN notes n ON n.id = nl.source_note_id AND n.user_id = nl.user_id
-     WHERE nl.user_id = ? AND nl.target_note_id = ? AND nl.source_note_id != ?
-       AND n.deleted_at IS NULL AND nl.source_note_id > ?
+     WHERE nl.user_id = ? AND nl.target_note_id = ? AND nl.source_note_id > ?
      ORDER BY nl.source_note_id
      LIMIT ?`,
     userId,
-    targetNoteId,
     targetNoteId,
     afterSourceNoteId,
     limit,

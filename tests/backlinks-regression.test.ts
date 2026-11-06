@@ -77,6 +77,18 @@ test("renaming a target preserves nested code examples while updating real wiki 
   expect(saved.body.note.version).toBe(source.version + 1);
 });
 
+test("renaming a note updates its own wiki links", async () => {
+  const note = await createNote("自链接旧标题", "正文 [[自链接旧标题|别名]] 结束");
+  const renamed = await request(`/api/notes/${note.id}`, "PATCH", {
+    version: note.version,
+    title: "自链接新标题",
+  });
+  expect(renamed.response.status).toBe(200);
+  const saved = await request(`/api/notes/${note.id}`);
+  expect(saved.body.note.contentMarkdown).toBe("正文 [[自链接新标题|别名]] 结束");
+  expect(saved.body.note.version).toBe(note.version + 1);
+});
+
 for (const title of ["苹果", "反链测试"]) {
   test(`repeated backlinks requests work after truncating mentions of ${title}`, async () => {
     const target = await createNote(title);

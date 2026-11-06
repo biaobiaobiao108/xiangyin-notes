@@ -1949,30 +1949,24 @@ export function NoteEditor({
                 >
                   <SaveStatusIcon state="conflict" />
                 </button>
-              ) : (
+              ) : saveState !== "idle" ? (
                 <span
                   className={`save-status save-status--${saveState} save-status--icon`}
                   role="status"
-                  aria-label={saveState === "idle" ? "待保存" : saveLabel}
+                  aria-label={saveLabel}
                 >
-                  {saveState !== "idle" && <SaveStatusIcon state={saveState} />}
+                  <SaveStatusIcon state={saveState} />
+                </span>
+              ) : null}
+              {imageUploadState !== "idle" && (
+                <span
+                  className={`save-status save-status--${imageUploadState === "uploading" ? "saving" : "error"} save-status--icon mobile-upload-status`}
+                  role="status"
+                  aria-label={imageUploadState === "uploading" ? "正在上传图片" : "图片上传失败"}
+                >
+                  <SaveStatusIcon state={imageUploadState === "uploading" ? "saving" : "error"} />
                 </span>
               )}
-              <span
-                className={`save-status save-status--${imageUploadState === "uploading" ? "saving" : "error"} save-status--icon mobile-upload-status`}
-                role="status"
-                aria-label={
-                  imageUploadState === "uploading"
-                    ? "正在上传图片"
-                    : imageUploadState === "error"
-                      ? "图片上传失败"
-                      : undefined
-                }
-              >
-                {imageUploadState !== "idle" && (
-                  <SaveStatusIcon state={imageUploadState === "uploading" ? "saving" : "error"} />
-                )}
-              </span>
             </>
           }
         />

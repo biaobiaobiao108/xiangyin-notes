@@ -1,4 +1,5 @@
 import type { SqliteDatabase } from "./db";
+import { searchableTextFromMarkdown } from "./search-text";
 
 // The short index only stores unique unigrams and bigrams per note, keeping
 // one- and two-character searches indexed without duplicating the note body.
@@ -80,10 +81,27 @@ export function syncNoteShortSearchTerms(
   }
 }
 
-export function rebuildNoteShortSearchIndex(database: SqliteDatabase) {
+/** Updates the visible-text search column and the short-term index together. */
+export function syncNoteSearchIndexes(
+  database: SqliteDatabase,
+  userId: string,
+  noteId: string,
+  title: string,
+  contentMarkdown: string,
+) {
+  const searchText = searchableTextFromMarkdown(contentMarkdown);
+  database
+    .query("UPDATE notes SET search_text = ? WHERE id = ? AND user_id = ?")
+    .run(searchText, noteId, userId);
+  syncNoteShortSearchTerms(database, userId, noteId, title, searchText);
+}
+
+export function rebuildNoteShortSearchIndex(database: SqliteDatabase, useSearchText = false) {
   database.exec("DELETE FROM notes_short_fts; DELETE FROM notes_short_overflow;");
   const notes = database
-    .query("SELECT id, user_id, title, content_markdown FROM notes ORDER BY rowid")
+    .query(
+      `SELECT id, user_id, title, ${useSearchText ? "COALESCE(search_text, content_markdown)" : "content_markdown"} AS content_markdown FROM notes ORDER BY rowid`,
+    )
     .iterate() as IterableIterator<{
     id: string;
     user_id: string;

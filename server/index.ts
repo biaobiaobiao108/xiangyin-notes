@@ -206,7 +206,8 @@ async function serveStatic(
 
   const relativePath = pathname.replace(/^[/\\]+/, "");
   const hasExtension = extname(relativePath) !== "";
-  if (!hasExtension && !CLIENT_ROUTES.has(pathname))
+  const routePathname = pathname.length > 1 ? pathname.replace(/\/+$/u, "") : pathname;
+  if (!hasExtension && !CLIENT_ROUTES.has(routePathname))
     return new Response("Not Found", { status: 404 });
   const rootPath = resolve(clientRoot);
   let requestedPath = hasExtension ? resolve(rootPath, relativePath) : join(rootPath, "index.html");

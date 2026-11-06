@@ -617,6 +617,7 @@ export function Workspace() {
   const closeSplitRef = useRef<() => void>(() => undefined);
   const [splitSelectedNote, setSplitSelectedNote] = useState<Note | null>(null);
   const splitSelectedRef = useRef<Note | null>(null);
+  const splitNoteOpeningRef = useRef<Promise<void> | null>(null);
   const [splitIsNoteLoading, setSplitIsNoteLoading] = useState(false);
   const [splitSaveState, setSplitSaveState] = useState<SaveState>("idle");
   const [splitNoteReloadToken, setSplitNoteReloadToken] = useState(0);
@@ -832,20 +833,22 @@ export function Workspace() {
         shouldKeepActiveNoteInList(active, notebooks, view, deferredQuery, notebookId)
           ? [toNoteSummary(active), ...latestNotes]
           : latestNotes;
-      replaceList(notesToDisplay);
-      setTotalNotes(Math.max(result.total ?? 0, notesToDisplay.length));
+      const orderedNotes =
+        noteSort === "title" ? sortNotes(notesToDisplay, noteSort) : notesToDisplay;
+      replaceList(orderedNotes);
+      setTotalNotes(Math.max(result.total ?? 0, orderedNotes.length));
       setHasMoreNotes(Boolean(result.hasMore));
       nextNotesCursorRef.current = result.nextCursor ?? null;
       const currentSelectedId = selectedIdRef.current;
       const nextSelectedId =
-        currentSelectedId && notesToDisplay.some((note) => note.id === currentSelectedId)
+        currentSelectedId && orderedNotes.some((note) => note.id === currentSelectedId)
           ? currentSelectedId
-          : (notesToDisplay[0]?.id ?? null);
+          : (orderedNotes[0]?.id ?? null);
       setSelectedId(nextSelectedId);
       updateNoteSelection(
         pruneNoteSelection(
           noteSelectionRef.current,
-          sortNotes(notesToDisplay, noteSort).map((note) => note.id),
+          sortNotes(orderedNotes, noteSort).map((note) => note.id),
         ),
       );
       playPendingListTransition();
@@ -873,9 +876,11 @@ export function Workspace() {
     view,
   ]);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const loadMoreInFlightRef = useRef(false);
   const loadMoreNotes = useCallback(async () => {
     const cursor = nextNotesCursorRef.current;
-    if (isLoadingMore || !cursor) return;
+    if (loadMoreInFlightRef.current || !cursor) return;
+    loadMoreInFlightRef.current = true;
     const requestId = listRequestRef.current;
     const scope = listScopeRef.current;
     setIsLoadingMore(true);
@@ -899,16 +904,17 @@ export function Workspace() {
       const existingIds = new Set(currentList.map((note) => note.id));
       const nextNotes = result.notes.filter((note) => !existingIds.has(note.id));
       const merged = [...currentList, ...nextNotes];
-      replaceList(merged);
+      replaceList(noteSort === "title" ? sortNotes(merged, noteSort) : merged);
       if (result.total !== undefined) setTotalNotes(Math.max(result.total, merged.length));
       setHasMoreNotes(Boolean(result.hasMore));
       nextNotesCursorRef.current = result.nextCursor ?? null;
     } catch {
       notifyError("加载更多笔记失败，请重试");
     } finally {
+      loadMoreInFlightRef.current = false;
       setIsLoadingMore(false);
     }
-  }, [deferredQuery, isLoadingMore, noteSort, notebookId, replaceList, view]);
+  }, [deferredQuery, noteSort, notebookId, replaceList, view]);
   const reloadNotes = useCallback(() => setNotesReloadToken((value) => value + 1), []);
   useEffect(() => {
     if (!ready) return;
@@ -1588,12 +1594,52 @@ export function Workspace() {
       setSaveState,
     ],
   );
+  const refreshSplitNoteFromRemote = useCallback(
+    (noteId: string) =>
+      refreshSelectedNote(noteId, {
+        selectedRef: splitSelectedRef,
+        activeNoteIdRef: splitNoteIdRef,
+        noteAbortRef: splitAbortRef,
+        noteOpeningRef: splitNoteOpeningRef,
+        noteLoadRequestRef: splitLoadRequestRef,
+        hasPendingWork: (id) =>
+          pendingSavesRef.current.has(id) ||
+          failedSavesRef.current.has(id) ||
+          splitMarkdownDirtyNoteRef.current === id,
+        onConflict: () => {
+          setSplitSaveState("conflict");
+          notifyWarning("分栏中的笔记已在其他设备更新，请先保存或重新载入");
+        },
+        onUpdated: (note, reloadEditor = true) => {
+          setSplitSelectedNote(noteMetadataSnapshot(note));
+          replaceList(
+            notesRef.current.map((n) => (n.id === noteId ? { ...n, ...toNoteSummary(note) } : n)),
+          );
+          if (reloadEditor) {
+            setSplitNoteReloadToken((value) => value + 1);
+            setSplitSaveState("idle");
+          }
+        },
+        onUnauthorized: () => navigate(`/login${window.location.search}`, { replace: true }),
+        onNotFound: () => {
+          if (splitNoteIdRef.current === noteId) closeSplitRef.current();
+        },
+        onError: () => notifyError("同步分栏笔记失败，请稍后重试"),
+      }),
+    [failedSavesRef, navigate, pendingSavesRef, replaceList],
+  );
   const deleteNotebook = useCallback(
     async (id: string) => {
       const target = notebooks.find((notebook) => notebook.id === id);
       if (!target || target.isSystem) throw new Error("无法删除此笔记本");
       await flushNotebookSaves(id);
-      await api.deleteNotebook(id);
+      try {
+        await api.deleteNotebook(id, target.totalCount);
+      } catch (reason) {
+        if (reason instanceof ApiError && reason.code === "NOTEBOOK_COUNT_MISMATCH")
+          void refreshNotebooks();
+        throw reason;
+      }
       const activeNote = selectedRef.current;
       if (activeNote?.notebookId === id) await refreshSelectedNoteFromRemote(activeNote.id);
       setNotebooks((current) => current.filter((notebook) => notebook.id !== id));
@@ -2021,8 +2067,8 @@ export function Workspace() {
         if (activeId && (next.selected || next.noteIds.has(activeId)))
           void refreshSelectedNoteFromRemote(activeId);
         const currentSplitId = splitNoteIdRef.current;
-        if (currentSplitId && next.noteIds.has(currentSplitId)) {
-          void loadSplitNote(currentSplitId);
+        if (currentSplitId && (next.selected || next.noteIds.has(currentSplitId))) {
+          void refreshSplitNoteFromRemote(currentSplitId);
         }
         for (const noteId of next.noteIds) {
           if (!next.notes && noteId !== activeId && noteId !== currentSplitId)
@@ -2033,10 +2079,10 @@ export function Workspace() {
     [
       deferredQuery,
       tasksOpen,
-      loadSplitNote,
       patchNoteFromRemote,
       refreshNotebooks,
       refreshSelectedNoteFromRemote,
+      refreshSplitNoteFromRemote,
       reloadNotes,
     ],
   );

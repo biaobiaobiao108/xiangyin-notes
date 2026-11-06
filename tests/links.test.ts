@@ -214,7 +214,7 @@ describe("Note links, backlinks, and renaming cascade", () => {
     ).toContain(source.id);
   });
 
-  test("renaming a target leaves references in trashed source notes untouched", async () => {
+  test("renaming a target updates references in trashed source notes", async () => {
     const auth = await request("/api/auth/login", {
       method: "POST",
       body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
@@ -260,9 +260,23 @@ describe("Note links, backlinks, and renaming cascade", () => {
     );
     expect(renamed.response.status).toBe(200);
 
-    const unchangedSource = await request(`/api/notes/${source.id}`, { method: "GET" }, cookie);
-    expect(unchangedSource.body?.note.contentMarkdown).toBe("保留 [[原始标题]]");
-    expect(unchangedSource.body?.note.version).toBe(trashed.body?.note.version);
+    const updatedSource = await request(`/api/notes/${source.id}`, { method: "GET" }, cookie);
+    expect(updatedSource.body?.note.contentMarkdown).toBe("保留 [[新标题]]");
+    expect(updatedSource.body?.note.version).toBe(trashed.body?.note.version + 1);
+
+    const restored = await request(
+      `/api/notes/${source.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ version: updatedSource.body!.note.version, deleted: false }),
+      },
+      cookie,
+    );
+    expect(restored.response.status).toBe(200);
+    const backlinks = await request(`/api/notes/${target.id}/backlinks`, { method: "GET" }, cookie);
+    expect(
+      backlinks.body?.linkedReferences.map((link: { sourceNoteId: string }) => link.sourceNoteId),
+    ).toContain(source.id);
   });
 
   test("creates links, queries backlinks and unlinked mentions, and cascades title updates", async () => {

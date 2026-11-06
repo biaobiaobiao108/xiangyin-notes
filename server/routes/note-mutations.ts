@@ -20,7 +20,7 @@ import {
   syncStoredNoteTitleKey,
 } from "../note-links";
 import { extractMarkdownTasks } from "../../shared/tasks";
-import { syncNoteShortSearchTerms } from "../note-search";
+import { syncNoteSearchIndexes } from "../note-search";
 
 export const NOTE_RENAME_SOURCE_BATCH_SIZE = 16;
 
@@ -115,7 +115,7 @@ export function createNote(
     if (!syncNoteAssetReferences(database, userId, id, contentMarkdown))
       throw new Error("invalid-note-assets");
     syncNoteTags(database, userId, id, contentMarkdown);
-    syncNoteShortSearchTerms(database, userId, id, title, contentMarkdown);
+    syncNoteSearchIndexes(database, userId, id, title, contentMarkdown);
     syncNoteLinks(database, userId, id, contentMarkdown, createdAt);
     syncNoteTasks(database, userId, id, notebookId, createdAt, contentMarkdown);
     resolveNoteLinksForTarget(database, userId, title, id);
@@ -135,11 +135,20 @@ export function updateNoteInTransaction(
   deletedAt: number | null,
 ) {
   const titleChanged = current.title !== title;
-  const contentChanged = current.content_markdown !== contentMarkdown;
+  const oldTitle = current.title;
+  let nextContentMarkdown = contentMarkdown;
+  if (titleChanged && oldTitle.trim() && title.trim()) {
+    const replaced = replaceWikiLinkTarget(contentMarkdown, oldTitle, title);
+    if (replaced.count > 0) {
+      if (replaced.content.length > NOTE_CONTENT_MAX_LENGTH)
+        throw new NoteRenameContentTooLargeError();
+      nextContentMarkdown = replaced.content;
+    }
+  }
+  const contentChanged = current.content_markdown !== nextContentMarkdown;
   const notebookChanged = current.notebook_id !== notebookId;
   const deletedChanged = current.deleted_at !== deletedAt;
   const updatedAt = titleChanged || contentChanged ? now() : current.updated_at;
-  const oldTitle = current.title;
 
   const fields = [
     "notebook_id = ?",
@@ -155,7 +164,7 @@ export function updateNoteInTransaction(
   }
   if (contentChanged) {
     fields.push("content_markdown = ?");
-    values.push(contentMarkdown);
+    values.push(nextContentMarkdown);
   }
   const updated = database
     .query(
@@ -165,8 +174,8 @@ export function updateNoteInTransaction(
   if (!updated) return false;
   if (titleChanged) syncStoredNoteTitleKey(database, current.id, title);
   if (titleChanged || contentChanged)
-    syncNoteShortSearchTerms(database, userId, current.id, title, contentMarkdown);
-  if (contentChanged && !syncNoteAssetReferences(database, userId, current.id, contentMarkdown))
+    syncNoteSearchIndexes(database, userId, current.id, title, nextContentMarkdown);
+  if (contentChanged && !syncNoteAssetReferences(database, userId, current.id, nextContentMarkdown))
     throw new InvalidNoteAssetsError();
   if (contentChanged || notebookChanged || deletedChanged) {
     syncNoteTasks(
@@ -175,12 +184,12 @@ export function updateNoteInTransaction(
       current.id,
       notebookId,
       current.created_at,
-      deletedAt === null ? contentMarkdown : "",
+      deletedAt === null ? nextContentMarkdown : "",
     );
   }
   if (contentChanged) {
-    syncNoteTags(database, userId, current.id, contentMarkdown);
-    syncNoteLinks(database, userId, current.id, contentMarkdown, updatedAt);
+    syncNoteTags(database, userId, current.id, nextContentMarkdown);
+    syncNoteLinks(database, userId, current.id, nextContentMarkdown, updatedAt);
   }
 
   if (titleChanged && oldTitle.trim() && title.trim()) {
@@ -202,7 +211,7 @@ export function updateNoteInTransaction(
         `
         SELECT ${NOTE_SELECT}
         FROM ${NOTE_FROM}
-        WHERE n.id IN (${placeholders}) AND n.user_id = ? AND n.deleted_at IS NULL
+        WHERE n.id IN (${placeholders}) AND n.user_id = ?
       `,
         ...sourceNoteIds,
         userId,
@@ -221,7 +230,7 @@ export function updateNoteInTransaction(
             "UPDATE notes SET content_markdown = ?, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ?",
           )
           .run(replacedContent, updatedAt, refNote.id, userId);
-        syncNoteShortSearchTerms(database, userId, refNote.id, refNote.title, replacedContent);
+        syncNoteSearchIndexes(database, userId, refNote.id, refNote.title, replacedContent);
         syncNoteTags(database, userId, refNote.id, replacedContent);
         syncNoteLinks(database, userId, refNote.id, replacedContent, updatedAt);
         syncNoteTasks(

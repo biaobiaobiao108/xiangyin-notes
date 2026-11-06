@@ -8,8 +8,11 @@ export function relativeDate(timestamp: number) {
   if (hours < 24) return `${hours} 小时前`;
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days} 天前`;
+  const date = new Date(timestamp * 1000);
+  const now = new Date();
   return new Intl.DateTimeFormat("zh-CN", {
+    ...(date.getFullYear() === now.getFullYear() ? {} : { year: "numeric" as const }),
     month: "short",
     day: "numeric",
-  }).format(new Date(timestamp * 1000));
+  }).format(date);
 }

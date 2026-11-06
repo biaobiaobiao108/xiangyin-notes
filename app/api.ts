@@ -198,8 +198,11 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(payload),
     }),
-  deleteNotebook: (id: string) =>
-    request<{ ok: true }>(`/api/notebooks/${id}`, { method: "DELETE" }),
+  deleteNotebook: (id: string, expectedNoteCount?: number) =>
+    request<{ ok: true }>(`/api/notebooks/${id}`, {
+      method: "DELETE",
+      ...(expectedNoteCount === undefined ? {} : { body: JSON.stringify({ expectedNoteCount }) }),
+    }),
   reorderNotebooks: (ids: string[], expectedIds: string[]) =>
     request<{ ok: true; ids: string[] }>("/api/notebooks/reorder", {
       method: "PATCH",

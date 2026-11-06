@@ -7,14 +7,14 @@ import { syncNoteLinks } from "./note-links";
 import { extractMarkdownTasks } from "../shared/tasks";
 import { extractTags, normalizeTag } from "../shared/tags";
 import { rebuildNoteShortSearchIndex, syncNoteShortSearchTerms } from "./note-search";
-import { searchContains, searchSnippet } from "./search-text";
+import { searchContains, searchableTextFromMarkdown, searchSnippet } from "./search-text";
 
 const DEFAULT_DATABASE_PATH = "./data/xiangying-notes.sqlite";
 const DEFAULT_SCHEMA_PATH = "./database/schema.sql";
 const BASELINE_SCHEMA_VERSION = 1;
 
 // Increment this when adding the next entry to SCHEMA_MIGRATIONS.
-export const CURRENT_SCHEMA_VERSION = 16;
+export const CURRENT_SCHEMA_VERSION = 17;
 export const SEARCH_INDEX_REBUILD_KEY = "search-index-rebuild-required";
 
 type TableCountRow = {
@@ -433,6 +433,51 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       database.query("DELETE FROM app_metadata WHERE key = ?").run(SEARCH_INDEX_REBUILD_KEY);
     },
   },
+  {
+    sourceVersion: 16,
+    targetVersion: 17,
+    migrate: (database) => {
+      database.exec("ALTER TABLE notes ADD COLUMN search_text TEXT;");
+      const notes = database
+        .query("SELECT id, content_markdown FROM notes ORDER BY rowid")
+        .all() as Array<{ id: string; content_markdown: string }>;
+      const updateSearchText = database.query("UPDATE notes SET search_text = ? WHERE id = ?");
+      for (const note of notes)
+        updateSearchText.run(searchableTextFromMarkdown(note.content_markdown), note.id);
+
+      database.exec(`
+        DROP TRIGGER notes_ai;
+        DROP TRIGGER notes_ad;
+        DROP TRIGGER notes_au;
+        DROP TABLE notes_fts;
+        CREATE VIRTUAL TABLE notes_fts USING fts5(
+          title,
+          search_text,
+          content='notes',
+          content_rowid='rowid',
+          tokenize = 'trigram'
+        );
+        CREATE TRIGGER notes_ai AFTER INSERT ON notes BEGIN
+          INSERT INTO notes_fts(rowid, title, search_text)
+          VALUES (new.rowid, new.title, COALESCE(new.search_text, new.content_markdown));
+        END;
+        CREATE TRIGGER notes_ad AFTER DELETE ON notes BEGIN
+          INSERT INTO notes_fts(notes_fts, rowid, title, search_text)
+          VALUES ('delete', old.rowid, old.title, COALESCE(old.search_text, old.content_markdown));
+        END;
+        CREATE TRIGGER notes_au AFTER UPDATE OF title, search_text ON notes
+        WHEN old.title IS NOT new.title OR old.search_text IS NOT new.search_text
+        BEGIN
+          INSERT INTO notes_fts(notes_fts, rowid, title, search_text)
+          VALUES ('delete', old.rowid, old.title, COALESCE(old.search_text, old.content_markdown));
+          INSERT INTO notes_fts(rowid, title, search_text)
+          VALUES (new.rowid, new.title, COALESCE(new.search_text, new.content_markdown));
+        END;
+      `);
+      rebuildNoteShortSearchIndex(database, true);
+      database.exec("INSERT INTO notes_fts(notes_fts) VALUES('rebuild');");
+    },
+  },
 ];
 
 export function databasePathFromEnv(env: Record<string, string | undefined> = Bun.env) {
@@ -532,8 +577,14 @@ function notesFtsIntegrityValid(database: SqliteDatabase) {
 function rebuildSearchIndexes(database: SqliteDatabase) {
   database
     .transaction(() => {
+      const missingSearchText = database
+        .query("SELECT id, content_markdown FROM notes WHERE search_text IS NULL ORDER BY rowid")
+        .all() as Array<{ id: string; content_markdown: string }>;
+      const updateSearchText = database.query("UPDATE notes SET search_text = ? WHERE id = ?");
+      for (const note of missingSearchText)
+        updateSearchText.run(searchableTextFromMarkdown(note.content_markdown), note.id);
       database.exec("INSERT INTO notes_fts(notes_fts) VALUES('rebuild');");
-      rebuildNoteShortSearchIndex(database);
+      rebuildNoteShortSearchIndex(database, true);
       database.query("DELETE FROM app_metadata WHERE key = ?").run(SEARCH_INDEX_REBUILD_KEY);
     })
     .immediate();

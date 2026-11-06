@@ -130,6 +130,8 @@ export function mergeRemoteSummary(notes: NoteSummary[], summary: NoteSummary, s
   next[index] = { ...previous, ...summary };
   if (sort === "updated" && summary.updatedAt !== previous.updatedAt)
     next.sort((a, b) => b.updatedAt - a.updatedAt);
+  if (sort === "title" && summary.title !== previous.title)
+    next.sort((a, b) => (a.title || "未命名笔记").localeCompare(b.title || "未命名笔记", "zh-CN"));
   return next;
 }
 

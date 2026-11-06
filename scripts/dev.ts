@@ -29,6 +29,7 @@ const serverEnvironment: Record<string, string> = {
   XIANGYING_DEV_AUTO_LOGIN: Bun.env.XIANGYING_DEV_AUTO_LOGIN?.trim() || "true",
   NODE_ENV: "development",
   DATABASE_PATH: Bun.env.DEV_DATABASE_PATH?.trim() || "./data/xiangying-notes-dev.sqlite",
+  ASSETS_PATH: Bun.env.DEV_ASSETS_PATH?.trim() || "./data/attachments-dev",
   COOKIE_SECURE: "false",
   CLIENT_ROOT: "./dist/dev-client",
   HOST: "0.0.0.0",

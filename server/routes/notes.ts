@@ -74,7 +74,10 @@ const TASK_PAGE_MAX_SIZE = 200;
 const NOTE_SORTS: NoteSort[] = ["updated", "created", "title"];
 const NOTE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 
-function searchContainsPredicate(column: "n.title" | "n.content_markdown", term: string) {
+function searchContainsPredicate(
+  column: "n.title" | "n.content_markdown" | "COALESCE(n.search_text, n.content_markdown)",
+  term: string,
+) {
   return searchTermNeedsCaseFolding(term)
     ? `search_contains(${column}, ?)`
     : `instr(${column}, ?) > 0`;
@@ -212,7 +215,7 @@ function buildOptimizedNoteListPlan(input: {
       UNION
       SELECT overflow_note.rowid FROM notes_short_overflow overflow
       JOIN notes overflow_note ON overflow_note.id = overflow.note_id
-      WHERE overflow.user_id = ? AND search_contains(overflow_note.content_markdown, ?)
+      WHERE overflow.user_id = ? AND search_contains(COALESCE(overflow_note.search_text, overflow_note.content_markdown), ?)
     )`);
     shortParams.push(shortSearchToken(term), userId, term);
   });
@@ -300,7 +303,7 @@ function buildOptimizedNoteListPlan(input: {
       : [cursor.value, cursor.id]
     : [];
   const matchSelect = includeMatch
-    ? ", search_snippet(n.content_markdown, ?) AS match_snippet"
+    ? ", search_snippet(COALESCE(n.search_text, n.content_markdown), ?) AS match_snippet"
     : "";
   const detailParams: SqlValue[] = includeMatch ? [JSON.stringify(searchTokens)] : [];
   const detailOrder = isRanked
@@ -1103,7 +1106,8 @@ export async function handleNotesRoute(
     const matchParams: SqlValue[] = [];
     let matchSelect = "";
     if (includeMatch && searchTokens.length) {
-      matchSelect = ", search_snippet(n.content_markdown, ?) AS match_snippet";
+      matchSelect =
+        ", search_snippet(COALESCE(n.search_text, n.content_markdown), ?) AS match_snippet";
       matchParams.push(JSON.stringify(searchTokens));
     }
     const listStatement = database.query(`
@@ -1294,15 +1298,19 @@ export async function handleNotesRoute(
           UNION
           SELECT overflow_note.rowid FROM notes_short_overflow overflow
           JOIN notes overflow_note ON overflow_note.id = overflow.note_id
-          WHERE overflow.user_id = ? AND search_contains(overflow_note.content_markdown, ?)
+          WHERE overflow.user_id = ? AND search_contains(COALESCE(overflow_note.search_text, overflow_note.content_markdown), ?)
         ) short_match
         JOIN notes n ON n.rowid = short_match.rowid
         JOIN notebooks nb ON n.notebook_id = nb.id`;
-        candidateConditions.push(searchContainsPredicate("n.content_markdown", trimmedTitle));
+        candidateConditions.push(
+          searchContainsPredicate("COALESCE(n.search_text, n.content_markdown)", trimmedTitle),
+        );
         candidateParams.unshift(shortSearchToken(trimmedTitle), user.id, trimmedTitle);
         candidateParams.push(trimmedTitle);
       } else {
-        candidateConditions.push(searchContainsPredicate("n.content_markdown", trimmedTitle));
+        candidateConditions.push(
+          searchContainsPredicate("COALESCE(n.search_text, n.content_markdown)", trimmedTitle),
+        );
         candidateParams.push(trimmedTitle);
       }
 

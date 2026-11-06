@@ -31,7 +31,7 @@ import {
   welcomeMarkdown,
 } from "../core";
 import { syncStoredNoteTitleKey } from "../note-links";
-import { syncNoteShortSearchTerms } from "../note-search";
+import { syncNoteSearchIndexes } from "../note-search";
 
 type RuntimeEnvironment = Record<string, string | undefined>;
 const LOGIN_USERNAME_MAX_LENGTH = 128;
@@ -371,7 +371,7 @@ export async function ensureEnvironmentUser(
         .run(noteId, userId, inboxId, "开始记录你的想法", welcomeMarkdown, createdAt, createdAt);
       syncStoredNoteTitleKey(database, noteId, "开始记录你的想法");
       syncNoteTags(database, userId, noteId, welcomeMarkdown);
-      syncNoteShortSearchTerms(database, userId, noteId, "开始记录你的想法", welcomeMarkdown);
+      syncNoteSearchIndexes(database, userId, noteId, "开始记录你的想法", welcomeMarkdown);
     });
     seed();
     return { id: userId, username: credentials.username };

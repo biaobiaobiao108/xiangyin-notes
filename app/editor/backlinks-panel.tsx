@@ -24,12 +24,17 @@ export function cleanSnippetForDisplay(snippet: string): string {
       )
       // Also remove any stray double brackets if any
       .replace(/\[\[|\]\]|【【|】】/g, "")
+      // Snippets are stored from Markdown, so drop any HTML tags such as
+      // annotation spans while keeping their visible text.
+      .replace(/<\/?[a-z][^>]*>/gi, "")
       // Remove leading markdown heading markers
       .replace(/^#{1,6}\s+/, "")
   );
 }
 
-function HighlightSnippet({ snippet, highlight }: { snippet: string; highlight: string }) {
+export type SnippetHighlightPart = { text: string; highlighted: boolean };
+
+export function highlightSnippetParts(snippet: string, highlight: string): SnippetHighlightPart[] {
   const cleanHighlight = cleanDisplayTitle(highlight).trim();
   const candidates = new Set<string>();
   if (cleanHighlight) {
@@ -57,21 +62,25 @@ function HighlightSnippet({ snippet, highlight }: { snippet: string; highlight: 
     .filter(Boolean)
     .sort((a, b) => b.length - a.length);
 
-  if (!sortedCandidates.length) return <span>{cleaned}</span>;
+  if (!sortedCandidates.length) return [{ text: cleaned, highlighted: false }];
 
   const pattern = sortedCandidates.map((c) => c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
-  const regex = new RegExp(`(${pattern})`, "gi");
+  const regex = new RegExp(`(${pattern})`, "i");
   const parts = cleaned.split(regex);
+  return parts.map((text, index) => ({ text, highlighted: index % 2 === 1 }));
+}
 
+function HighlightSnippet({ snippet, highlight }: { snippet: string; highlight: string }) {
+  const parts = highlightSnippetParts(snippet, highlight);
   return (
     <span className="backlink-snippet-text">
       {parts.map((part, index) =>
-        regex.test(part) ? (
+        part.highlighted ? (
           <mark key={index} className="backlink-snippet-mark">
-            {part}
+            {part.text}
           </mark>
         ) : (
-          <span key={index}>{part}</span>
+          <span key={index}>{part.text}</span>
         ),
       )}
     </span>

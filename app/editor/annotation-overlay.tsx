@@ -133,12 +133,14 @@ function AnnotationComposer({
   state,
   mobile,
   locked,
+  onDraftChange,
   onSave,
   onClose,
 }: {
   state: ComposerState;
   mobile: boolean;
   locked: boolean;
+  onDraftChange: (note: string) => void;
   onSave: (note: string) => void;
   onClose: () => void;
 }) {
@@ -150,6 +152,22 @@ function AnnotationComposer({
     clampPopupPoint(state.point.left, state.point.top, 276, 180),
   );
   const trimmed = note.trim();
+  const closedRef = useRef(false);
+
+  const updateNote = (value: string) => {
+    setNote(value);
+    onDraftChange(value);
+  };
+  const close = () => {
+    if (closedRef.current) return;
+    closedRef.current = true;
+    onClose();
+  };
+  const commit = (value: string) => {
+    if (closedRef.current) return;
+    closedRef.current = true;
+    onSave(value);
+  };
 
   useLayoutEffect(() => {
     const root = rootRef.current;
@@ -172,23 +190,31 @@ function AnnotationComposer({
       if (!rootRef.current?.contains(event.target as Node)) {
         const current = noteRef.current.trim();
         if (current && !locked) {
-          onSave(current);
+          commit(current);
         } else {
-          onClose();
+          close();
         }
       }
+    };
+    const focusin = (event: FocusEvent) => {
+      if (rootRef.current?.contains(event.target as Node)) return;
+      const current = noteRef.current.trim();
+      if (current && !locked) commit(current);
+      else close();
     };
     const keydown = (event: KeyboardEvent) => {
       if (event.isComposing || event.keyCode === 229) return;
       if (event.key !== "Escape") return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      onClose();
+      close();
     };
     document.addEventListener("pointerdown", outside, true);
+    document.addEventListener("focusin", focusin, true);
     window.addEventListener("keydown", keydown, true);
     return () => {
       document.removeEventListener("pointerdown", outside, true);
+      document.removeEventListener("focusin", focusin, true);
       window.removeEventListener("keydown", keydown, true);
     };
   }, [locked, onClose, onSave]);
@@ -210,7 +236,7 @@ function AnnotationComposer({
             className="annotation-icon-button"
             type="button"
             aria-label="取消"
-            onClick={onClose}
+            onClick={close}
           >
             <X size={13} />
           </button>
@@ -226,11 +252,11 @@ function AnnotationComposer({
             value={note}
             locked={locked}
             maxHeight={160}
-            onChange={setNote}
+            onChange={updateNote}
             onCommit={() => {
-              if (trimmed) onSave(trimmed);
+              if (trimmed) commit(trimmed);
             }}
-            onCancel={onClose}
+            onCancel={close}
           />
         </div>
       </article>
@@ -248,6 +274,7 @@ function AnnotationCard({
   onStartEdit,
   onFinishEdit,
   onSaveNote,
+  onDraftChange,
   onDelete,
   onOutside,
   onHover,
@@ -262,6 +289,7 @@ function AnnotationCard({
   onStartEdit: () => void;
   onFinishEdit: () => void;
   onSaveNote: (note: string) => void;
+  onDraftChange?: (note: string) => void;
   onDelete: () => void;
   onOutside?: () => void;
   onHover?: (hovered: boolean) => void;
@@ -275,14 +303,25 @@ function AnnotationCard({
   const commitRef = useRef<() => void>(() => {});
   const cancelRef = useRef<() => void>(() => {});
   const outsideRef = useRef(onOutside);
+  const closedRef = useRef(false);
   draftRef.current = draft;
   outsideRef.current = onOutside;
 
   useEffect(() => {
-    if (editing) setDraft(annotation.note);
+    if (editing) {
+      closedRef.current = false;
+      setDraft(annotation.note);
+    }
   }, [annotation.note, editing]);
 
+  const updateDraft = (value: string) => {
+    setDraft(value);
+    onDraftChange?.(value);
+  };
+
   const commit = (restoreFocus: boolean) => {
+    if (closedRef.current) return;
+    closedRef.current = true;
     const next = draftRef.current.trim();
     if (next && next !== annotation.note.trim()) onSaveNote(next);
     onFinishEdit();
@@ -292,6 +331,8 @@ function AnnotationCard({
   };
 
   const cancel = () => {
+    if (closedRef.current) return;
+    closedRef.current = true;
     setDraft(annotation.note);
     onFinishEdit();
   };
@@ -305,6 +346,11 @@ function AnnotationCard({
       if (editing) commitRef.current();
       outsideRef.current?.();
     };
+    const focusin = (event: FocusEvent) => {
+      if (rootRef.current?.contains(event.target as Node)) return;
+      if (editing) commitRef.current();
+      outsideRef.current?.();
+    };
     const keydown = (event: KeyboardEvent) => {
       if (event.isComposing || event.keyCode === 229 || event.key !== "Escape") return;
       event.preventDefault();
@@ -313,9 +359,11 @@ function AnnotationCard({
       outsideRef.current?.();
     };
     document.addEventListener("pointerdown", outside, true);
+    document.addEventListener("focusin", focusin, true);
     window.addEventListener("keydown", keydown, true);
     return () => {
       document.removeEventListener("pointerdown", outside, true);
+      document.removeEventListener("focusin", focusin, true);
       window.removeEventListener("keydown", keydown, true);
     };
   }, [editing, onOutside]);
@@ -360,7 +408,7 @@ function AnnotationCard({
             value={draft}
             locked={locked}
             maxHeight={160}
-            onChange={setDraft}
+            onChange={updateDraft}
             onCommit={() => commit(true)}
             onCancel={cancel}
           />
@@ -389,6 +437,7 @@ function AnnotationBubble({
   onStartEdit,
   onFinishEdit,
   onSaveNote,
+  onDraftChange,
   onDelete,
   onHover,
   register,
@@ -401,6 +450,7 @@ function AnnotationBubble({
   onStartEdit: () => void;
   onFinishEdit: () => void;
   onSaveNote: (note: string) => void;
+  onDraftChange?: (note: string) => void;
   onDelete: () => void;
   onHover: (hovered: boolean) => void;
   register: (element: HTMLElement | null) => void;
@@ -415,6 +465,7 @@ function AnnotationBubble({
       onStartEdit={onStartEdit}
       onFinishEdit={onFinishEdit}
       onSaveNote={onSaveNote}
+      onDraftChange={onDraftChange}
       onDelete={onDelete}
       onHover={onHover}
       variant="rail"
@@ -432,6 +483,7 @@ function CompactAnnotationCard({
   onStartEdit,
   onFinishEdit,
   onSaveNote,
+  onDraftChange,
   onDelete,
   onClose,
 }: {
@@ -443,6 +495,7 @@ function CompactAnnotationCard({
   onStartEdit: () => void;
   onFinishEdit: () => void;
   onSaveNote: (note: string) => void;
+  onDraftChange?: (note: string) => void;
   onDelete: () => void;
   onClose: () => void;
 }) {
@@ -460,6 +513,7 @@ function CompactAnnotationCard({
           onStartEdit={onStartEdit}
           onFinishEdit={onFinishEdit}
           onSaveNote={onSaveNote}
+          onDraftChange={onDraftChange}
           onDelete={onDelete}
           onOutside={onClose}
           variant="compact"
@@ -486,6 +540,7 @@ function AnnotationLayer({
   onStartEdit,
   onFinishEdit,
   onSaveNote,
+  onCardDraftChange,
   onDelete,
 }: {
   editor: Editor;
@@ -502,6 +557,7 @@ function AnnotationLayer({
   onStartEdit: (id: string) => void;
   onFinishEdit: () => void;
   onSaveNote: (id: string, note: string) => void;
+  onCardDraftChange: (id: string, note: string) => void;
   onDelete: (id: string) => void;
 }) {
   const layerRef = useRef<HTMLDivElement>(null);
@@ -611,14 +667,14 @@ function AnnotationLayer({
 
   return (
     <>
-      <div
-        ref={layerRef}
-        className={`annotation-layer${showRail ? " annotation-layer--rail" : ""}`}
-        role="complementary"
-        aria-label="批注"
-      >
-        {showRail &&
-          annotations.map((annotation) => (
+      {showRail && (
+        <div
+          ref={layerRef}
+          className="annotation-layer annotation-layer--rail"
+          role="complementary"
+          aria-label="批注"
+        >
+          {annotations.map((annotation) => (
             <AnnotationBubble
               key={`bubble-${annotation.id}`}
               annotation={annotation}
@@ -629,6 +685,7 @@ function AnnotationLayer({
               onStartEdit={() => onStartEdit(annotation.id)}
               onFinishEdit={onFinishEdit}
               onSaveNote={(note) => onSaveNote(annotation.id, note)}
+              onDraftChange={(note) => onCardDraftChange(annotation.id, note)}
               onDelete={() => onDelete(annotation.id)}
               onHover={(hovered) => onHover(hovered ? annotation.id : null)}
               register={(element) => {
@@ -637,7 +694,8 @@ function AnnotationLayer({
               }}
             />
           ))}
-      </div>
+        </div>
+      )}
       {compactAnnotation && compact && (
         <CompactAnnotationCard
           annotation={compactAnnotation}
@@ -648,6 +706,7 @@ function AnnotationLayer({
           onStartEdit={() => onStartEdit(compactAnnotation.id)}
           onFinishEdit={onFinishEdit}
           onSaveNote={(note) => onSaveNote(compactAnnotation.id, note)}
+          onDraftChange={(note) => onCardDraftChange(compactAnnotation.id, note)}
           onDelete={() => {
             setCompact(null);
             onDelete(compactAnnotation.id);
@@ -689,6 +748,8 @@ export function useEditorAnnotations({
   const [composer, setComposer] = useState<ComposerState | null>(null);
   const annotationsRef = useRef(annotations);
   annotationsRef.current = annotations;
+  const composerDraftRef = useRef("");
+  const editDraftRef = useRef<{ id: string; note: string } | null>(null);
 
   const refresh = useCallback(() => {
     if (!editor || editor.isDestroyed) {
@@ -704,6 +765,8 @@ export function useEditorAnnotations({
     setExpandedId(null);
     setHoveredId(null);
     setEditId(null);
+    composerDraftRef.current = "";
+    editDraftRef.current = null;
     refresh();
   }, [noteId, refresh]);
 
@@ -721,11 +784,9 @@ export function useEditorAnnotations({
         refresh();
       });
     };
-    editor.on("transaction", schedule);
     editor.on("update", schedule);
     return () => {
       if (frame) cancelAnimationFrame(frame);
-      editor.off("transaction", schedule);
       editor.off("update", schedule);
     };
   }, [editor, refresh]);
@@ -754,6 +815,8 @@ export function useEditorAnnotations({
   const openCreate = useCallback(
     (from: number, to: number) => {
       if (!editor || editor.isDestroyed || locked || deleted || from >= to) return;
+      composerDraftRef.current = "";
+      editDraftRef.current = null;
       setComposer({
         id: createUuid(),
         note: "",
@@ -777,12 +840,17 @@ export function useEditorAnnotations({
       if (!editor || editor.isDestroyed || locked || deleted) return;
       const annotation = annotationsRef.current.find((candidate) => candidate.id === id);
       if (!annotation) return;
+      composerDraftRef.current = "";
+      editDraftRef.current = { id, note: annotation.note };
       setExpandedId(id);
       setEditId(id);
     },
     [deleted, editor, locked],
   );
-  const finishEdit = useCallback(() => setEditId(null), []);
+  const finishEdit = useCallback(() => {
+    editDraftRef.current = null;
+    setEditId(null);
+  }, []);
 
   const deleteAnnotations = useCallback(
     (ids: string[]) => {
@@ -844,6 +912,7 @@ export function useEditorAnnotations({
       }
       const mark = markType.create({ id: composer.id, note });
       editor.view.dispatch(transaction.addMark(composer.from, composer.to, mark).scrollIntoView());
+      composerDraftRef.current = "";
       setComposer(null);
       setExpandedId(composer.id);
       setEditId(null);
@@ -852,7 +921,36 @@ export function useEditorAnnotations({
     [composer, deleted, editor, locked, noteId, refresh],
   );
 
-  const closeComposer = useCallback(() => setComposer(null), []);
+  const closeComposer = useCallback(() => {
+    composerDraftRef.current = "";
+    setComposer(null);
+  }, []);
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    const flushDrafts = () => {
+      const composerNote = composerDraftRef.current.trim();
+      if (composer && composerNote && !locked && !deleted) {
+        composerDraftRef.current = "";
+        saveComposer(composerNote);
+      }
+      const editing = editDraftRef.current;
+      if (editing && editing.note.trim() && !locked && !deleted) {
+        editDraftRef.current = null;
+        saveAnnotationNote(editing.id, editing.note);
+      }
+    };
+    const flushWhenHidden = () => {
+      if (document.visibilityState === "hidden") flushDrafts();
+    };
+    document.addEventListener("visibilitychange", flushWhenHidden, true);
+    window.addEventListener("beforeunload", flushDrafts, true);
+    window.addEventListener("pagehide", flushDrafts, true);
+    return () => {
+      document.removeEventListener("visibilitychange", flushWhenHidden, true);
+      window.removeEventListener("beforeunload", flushDrafts, true);
+      window.removeEventListener("pagehide", flushDrafts, true);
+    };
+  }, [composer, deleted, editor, locked, saveAnnotationNote, saveComposer]);
   const clearActive = useCallback(() => {
     setExpandedId(null);
     setEditId(null);
@@ -907,6 +1005,9 @@ export function useEditorAnnotations({
         onStartEdit={startEdit}
         onFinishEdit={finishEdit}
         onSaveNote={saveAnnotationNote}
+        onCardDraftChange={(id, note) => {
+          editDraftRef.current = { id, note };
+        }}
         onDelete={deleteAnnotation}
       />
     ) : null;
@@ -916,6 +1017,9 @@ export function useEditorAnnotations({
       state={composer}
       mobile={mobile}
       locked={locked || deleted}
+      onDraftChange={(note) => {
+        composerDraftRef.current = note;
+      }}
       onSave={saveComposer}
       onClose={closeComposer}
     />

@@ -1,3 +1,5 @@
+import { Lexer } from "marked";
+
 const SEARCH_PATTERN_CACHE_LIMIT = 256;
 // Patterns are non-global, so reused expressions keep no match state.
 const searchPatterns = new Map<string, RegExp>();
@@ -21,6 +23,61 @@ function searchPattern(term: string) {
 export function searchContains(text: string, term: string) {
   if (!text || !term) return false;
   return searchPattern(term).test(text);
+}
+
+type MarkdownTextToken = {
+  type: string;
+  text?: string;
+  tokens?: MarkdownTextToken[];
+  items?: MarkdownTextToken[];
+  header?: MarkdownTextToken[];
+  rows?: MarkdownTextToken[][];
+};
+
+function appendMarkdownText(token: MarkdownTextToken, output: string[]) {
+  if (token.type === "html" || token.type === "image") return;
+  if (token.type === "br" || token.type === "space") {
+    output.push("\n");
+    return;
+  }
+  if (token.type === "table") {
+    const rows = [...(token.header ? [token.header] : []), ...(token.rows ?? [])];
+    for (const row of rows) {
+      for (const cell of row) {
+        for (const child of cell.tokens ?? []) appendMarkdownText(child, output);
+        output.push(" ");
+      }
+      output.push("\n");
+    }
+    return;
+  }
+  if (token.items) {
+    for (const item of token.items) appendMarkdownText(item, output);
+    output.push("\n");
+    return;
+  }
+  if (token.tokens?.length) {
+    for (const child of token.tokens) appendMarkdownText(child, output);
+  } else if (typeof token.text === "string") {
+    output.push(token.text);
+  }
+  if (
+    token.type === "paragraph" ||
+    token.type === "heading" ||
+    token.type === "blockquote" ||
+    token.type === "list_item" ||
+    token.type === "code"
+  )
+    output.push("\n");
+}
+
+/** Plain, visible note text used for search and search snippets. */
+export function searchableTextFromMarkdown(markdown: string) {
+  if (!markdown) return "";
+  const tokens = new Lexer({ gfm: true }).lex(markdown) as MarkdownTextToken[];
+  const output: string[] = [];
+  for (const token of tokens) appendMarkdownText(token, output);
+  return output.join("").replace(/\s+/g, " ").trim();
 }
 
 // `instr` is case-sensitive. Only use it when no character in the term has a
