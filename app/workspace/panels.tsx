@@ -983,6 +983,15 @@ export const NoteListPanel = memo(function NoteListPanel({
   const virtualGroupTransitionTimerRef = useRef<number | null>(null);
   const queuedVirtualGroupIdRef = useRef<string | null>(null);
   const focusRestoreRef = useRef<{ noteId: string; selector: string } | null>(null);
+  useEffect(() => {
+    const clearFocusRestore = (event: PointerEvent) => {
+      if (event.target instanceof Node && !panelRef.current?.contains(event.target)) {
+        focusRestoreRef.current = null;
+      }
+    };
+    document.addEventListener("pointerdown", clearFocusRestore, true);
+    return () => document.removeEventListener("pointerdown", clearFocusRestore, true);
+  }, []);
   const transitionDataRef = useRef<{ rowIds: string } | null>(null);
 
   const handleRowDragStart = useCallback(
