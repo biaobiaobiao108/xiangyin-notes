@@ -44,3 +44,32 @@ test("unrelated edits preserve task and tag indexes while search stays current",
     db.close();
   }
 });
+
+test("unchanged links keep their records while changed snippets are refreshed", async () => {
+  const db = await openDatabase(":memory:");
+  try {
+    db.query("INSERT INTO users VALUES (?, ?, ?, ?, ?)").run("u", "u", "hash", "salt", 1);
+    db.query(
+      "INSERT INTO notebooks (id, user_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+    ).run("b", "u", "book", 1, 1);
+    const target = createNote(db, "u", "b", "目标", "");
+    const body = `链接 [[目标]] 后文 ${"间隔".repeat(100)}`;
+    const id = createNote(db, "u", "b", "来源", body);
+    const readLink = () =>
+      db
+        .query("SELECT id, target_note_id, snippet FROM note_links WHERE source_note_id = ?")
+        .get(id) as { id: string; target_note_id: string; snippet: string };
+    const before = readLink();
+    expect(before.target_note_id).toBe(target);
+    const update = (text: string) =>
+      db.transaction(() =>
+        updateNoteInTransaction(db, getNote(db, "u", id)!, "u", "来源", text, "b", 0, null),
+      )();
+    update(`${body}末尾编辑`);
+    expect(readLink()).toEqual(before);
+    update(`修改 [[目标]] 后文 ${"间隔".repeat(100)}`);
+    expect(readLink().snippet).toContain("修改");
+  } finally {
+    db.close();
+  }
+});

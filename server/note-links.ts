@@ -96,14 +96,52 @@ export function syncNoteLinks(
   contentMarkdown: string,
   createdAt: number,
 ) {
+  const links =
+    contentMarkdown && (contentMarkdown.includes("[[") || contentMarkdown.includes("【【"))
+      ? extractWikiLinks(contentMarkdown)
+      : [];
+  const targetKeys = new Set(links.map((link) => normalizeLinkTitle(link.target)).filter(Boolean));
+  const targets = activeTitleMap(activeTitlesForKeys(database, userId, targetKeys));
+  const seen = new Set<string>();
+  const expected = links.flatMap((link) => {
+    const key = normalizeLinkTitle(link.target);
+    if (!key || seen.has(key)) return [];
+    seen.add(key);
+    return [
+      {
+        key,
+        title: link.target,
+        target: targets.get(key) ?? null,
+        snippet: extractContextSnippet(contentMarkdown, link.start, link.end),
+      },
+    ];
+  });
+  const existing = database
+    .query(
+      "SELECT target_title, target_title_normalized, target_note_id, snippet FROM note_links WHERE user_id = ? AND source_note_id = ?",
+    )
+    .all(userId, sourceNoteId) as Array<{
+    target_title: string;
+    target_title_normalized: string;
+    target_note_id: string | null;
+    snippet: string;
+  }>;
+  const byKey = new Map(existing.map((link) => [link.target_title_normalized, link]));
+  if (
+    existing.length === expected.length &&
+    expected.every((link) => {
+      const old = byKey.get(link.key);
+      return (
+        old?.target_title === link.title &&
+        old.target_note_id === link.target &&
+        old.snippet === link.snippet
+      );
+    })
+  )
+    return;
   database
     .query("DELETE FROM note_links WHERE user_id = ? AND source_note_id = ?")
     .run(userId, sourceNoteId);
-  if (!contentMarkdown || (!contentMarkdown.includes("[[") && !contentMarkdown.includes("【【")))
-    return;
-  const links = extractWikiLinks(contentMarkdown);
-  const targetKeys = new Set(links.map((link) => normalizeLinkTitle(link.target)).filter(Boolean));
-  const targets = activeTitleMap(activeTitlesForKeys(database, userId, targetKeys));
   insertNoteLinks(database, userId, sourceNoteId, contentMarkdown, links, targets, createdAt);
 }
 

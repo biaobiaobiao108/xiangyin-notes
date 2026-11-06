@@ -95,22 +95,27 @@ export function updateFocalElement(container: HTMLElement | null, enabled: boole
   const candidates = container.querySelectorAll<HTMLElement>(".note-title-input, .note-prose > *");
   if (!candidates.length) return;
 
-  let bestElement: HTMLElement | null = null;
-  let minDistance = Number.POSITIVE_INFINITY;
-
-  for (let i = 0; i < candidates.length; i++) {
-    const el = candidates[i];
-    const rect = el.getBoundingClientRect();
-    if (rect.top <= focalY && rect.bottom >= focalY) {
-      bestElement = el;
-      break;
-    }
-    const elCenter = (rect.top + rect.bottom) / 2;
-    const dist = Math.abs(elCenter - focalY);
-    if (dist < minDistance) {
-      minDistance = dist;
-      bestElement = el;
-    }
+  // 正文块按文档顺序垂直排列；二分查找避免长文末尾逐块读取布局。
+  let low = 0;
+  let high = candidates.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (candidates[middle].getBoundingClientRect().bottom < focalY) low = middle + 1;
+    else high = middle;
+  }
+  const next = candidates[low] ?? null;
+  const before = candidates[low - 1] ?? null;
+  const nextRect = next?.getBoundingClientRect();
+  let bestElement = next;
+  if (!nextRect || nextRect.top > focalY) {
+    const beforeRect = before?.getBoundingClientRect();
+    const beforeDistance = beforeRect
+      ? Math.abs((beforeRect.top + beforeRect.bottom) / 2 - focalY)
+      : Infinity;
+    const nextDistance = nextRect
+      ? Math.abs((nextRect.top + nextRect.bottom) / 2 - focalY)
+      : Infinity;
+    if (beforeDistance <= nextDistance) bestElement = before;
   }
 
   const previous = container.querySelector(".is-reading-focus");

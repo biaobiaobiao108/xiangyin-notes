@@ -51,6 +51,29 @@ async function fixture() {
   };
 }
 
+test("search totals stay accurate for empty results and exhausted cursors", async () => {
+  const f = await fixture();
+  try {
+    f.create("needle one", "first");
+    f.create("needle two", "second");
+    const empty = await (await f.list("query=missing&includeTotal=1")).json();
+    expect(empty.notes).toEqual([]);
+    expect(empty.total).toBe(0);
+    const first = await (await f.list("query=needle&limit=1&includeTotal=1")).json();
+    expect(first.total).toBe(2);
+    const second = await (
+      await f.list(
+        `query=needle&limit=1&includeTotal=1&cursor=${encodeURIComponent(first.nextCursor)}`,
+      )
+    ).json();
+    expect(second.total).toBe(2);
+    expect(second.notes).toHaveLength(1);
+  } finally {
+    await waitForOrphanAssetCleanup(f.database);
+    f.database.close();
+  }
+});
+
 test("multiple tag filters run before pagination, support any/all, and validate every tag", async () => {
   const f = await fixture();
   try {

@@ -59,27 +59,41 @@ export function useScrollEdges(
     const resizeObserver =
       typeof ResizeObserver === "undefined" ? null : new ResizeObserver(scheduleScrollEdgeUpdate);
     // 吸顶标题不随正文变高；同时观察正文及 display:contents 分组，跟随收展更新渐隐。
+    const observed = new Set<Element>();
+    const contentParents = new Set<Element>([scrollRoot]);
+    const observeChild = (child: Element) => {
+      observed.add(child);
+      resizeObserver?.observe(child);
+      if (getComputedStyle(child).display !== "contents") return;
+      contentParents.add(child);
+      for (const nested of child.children) observeChild(nested);
+    };
+    resizeObserver?.observe(scrollRoot);
+    for (const child of scrollRoot.children) observeChild(child);
     const mutationObserver =
       typeof MutationObserver === "undefined"
         ? null
-        : new MutationObserver(() => {
-            observeContent();
-            scheduleScrollEdgeUpdate();
+        : new MutationObserver((records) => {
+            let changed = false;
+            for (const record of records) {
+              if (!(record.target instanceof Element) || !contentParents.has(record.target))
+                continue;
+              changed = true;
+              for (const node of record.removedNodes) {
+                if (!(node instanceof Element)) continue;
+                for (const element of observed) {
+                  if (element === node || node.contains(element)) {
+                    resizeObserver?.unobserve(element);
+                    observed.delete(element);
+                    contentParents.delete(element);
+                  }
+                }
+              }
+              for (const node of record.addedNodes) if (node instanceof Element) observeChild(node);
+            }
+            if (changed) scheduleScrollEdgeUpdate();
           });
-    const observeContent = () => {
-      resizeObserver?.disconnect();
-      mutationObserver?.disconnect();
-      resizeObserver?.observe(scrollRoot);
-      const observeChildren = (parent: Element) => {
-        mutationObserver?.observe(parent, { childList: true });
-        for (const child of parent.children) {
-          resizeObserver?.observe(child);
-          if (getComputedStyle(child).display === "contents") observeChildren(child);
-        }
-      };
-      observeChildren(scrollRoot);
-    };
-    observeContent();
+    mutationObserver?.observe(scrollRoot, { childList: true, subtree: true });
     window.addEventListener("resize", scheduleScrollEdgeUpdate, { passive: true });
 
     return () => {

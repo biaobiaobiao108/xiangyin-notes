@@ -206,4 +206,25 @@ describe("AutoReadingHUD component", () => {
     expect(containerClasses.has("is-focus-reading")).toBe(false);
     expect(p1Classes.has("is-reading-focus")).toBe(false);
   });
+
+  it("finds a distant reading block without measuring every preceding block", () => {
+    let measurements = 0;
+    const selected = new Set<number>();
+    const blocks = Array.from({ length: 1000 }, (_, index) => ({
+      classList: { add: () => selected.add(index), remove: () => selected.delete(index) },
+      getBoundingClientRect: () => {
+        measurements++;
+        return { top: index * 20, bottom: index * 20 + 15 };
+      },
+    }));
+    const container = {
+      classList: { add() {}, remove() {} },
+      getBoundingClientRect: () => ({ top: 17600, height: 1000 }),
+      querySelectorAll: () => blocks,
+      querySelector: () => null,
+    } as unknown as HTMLElement;
+    updateFocalElement(container, true);
+    expect([...selected]).toEqual([900]);
+    expect(measurements).toBeLessThan(20);
+  });
 });

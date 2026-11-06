@@ -145,8 +145,6 @@ function noteListOrder(sort: NoteSort) {
 type OptimizedNoteListPlan = {
   sql: string;
   params: SqlValue[];
-  countSql: string | null;
-  countParams: SqlValue[];
 };
 
 function buildOptimizedNoteListPlan(input: {
@@ -256,12 +254,6 @@ function buildOptimizedNoteListPlan(input: {
     FROM ${candidateFrom}
     WHERE ${conditions.join(" AND ")}
   )`;
-  const countCandidateParams: SqlValue[] = [
-    ...(usesFts ? [ftsQuery] : []),
-    ...noteParams,
-    ...tagParams,
-  ];
-
   const topCte = isRanked
     ? `top AS MATERIALIZED (
         SELECT note_rowid, note_id, score
@@ -313,10 +305,10 @@ function buildOptimizedNoteListPlan(input: {
       : "top.sort_value DESC, n.id DESC";
   const relevanceSelect = isRanked ? "top.score AS relevance_score" : "0 AS relevance_score";
   const sql = `WITH ${withParts.join(",\n")}
-    SELECT ${NOTE_LIST_SELECT}, ${relevanceSelect} ${matchSelect}
-    FROM top
-    JOIN notes n ON n.rowid = top.note_rowid
-    JOIN notebooks b ON b.id = n.notebook_id
+    SELECT ${NOTE_LIST_SELECT}, ${relevanceSelect} ${matchSelect}${includeTotal ? ", totals.total AS search_total" : ""}
+    FROM ${includeTotal ? "(SELECT COUNT(*) AS total FROM candidates) totals LEFT JOIN top ON 1 = 1" : "top"}
+    ${includeTotal ? "LEFT JOIN" : "JOIN"} notes n ON n.rowid = top.note_rowid
+    ${includeTotal ? "LEFT JOIN" : "JOIN"} notebooks b ON b.id = n.notebook_id
     LEFT JOIN image_assets a ON a.note_id = n.id AND a.document_order = 0
     ORDER BY ${detailOrder}`;
   const params: SqlValue[] = [
@@ -327,17 +319,7 @@ function buildOptimizedNoteListPlan(input: {
     ...detailParams,
   ];
 
-  let countSql: string | null = null;
-  let countParams: SqlValue[] = [];
-  if (includeTotal) {
-    const countFrom = `${shortCtes.length ? `WITH ${shortCtes.join(",\n")} ` : ""}
-      SELECT COUNT(*) AS count FROM ${candidateFrom}
-      WHERE ${conditions.join(" AND ")}`;
-    countSql = countFrom;
-    countParams = [...shortParams, ...countCandidateParams];
-  }
-
-  return { sql, params, countSql, countParams };
+  return { sql, params };
 }
 
 function respondNoteList(
@@ -1052,14 +1034,15 @@ export async function handleNotesRoute(
         })
       : null;
     if (optimizedPlan) {
-      const totalRow = optimizedPlan.countSql
-        ? first<{ count: number }>(database, optimizedPlan.countSql, ...optimizedPlan.countParams)
-        : null;
-      const rows = database.query(optimizedPlan.sql).all(...optimizedPlan.params) as (NoteRow & {
+      const resultRows = database
+        .query(optimizedPlan.sql)
+        .all(...optimizedPlan.params) as (NoteRow & {
         tags_json: string;
         relevance_score: number;
         match_snippet?: string;
+        search_total?: number;
       })[];
+      const rows = resultRows.filter((row) => row.id !== null);
       return respondNoteList(
         rows,
         pageLimit,
@@ -1069,7 +1052,7 @@ export async function handleNotesRoute(
         normalizedTagFilters,
         includeMatch,
         includeTotal,
-        totalRow ? Number(totalRow.count) : null,
+        includeTotal ? Number(resultRows[0]?.search_total ?? 0) : null,
       );
     }
     const totalWhere = conditions.join(" AND ") || "1";
