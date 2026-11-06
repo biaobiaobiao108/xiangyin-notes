@@ -1104,11 +1104,11 @@ button.save-status:hover { text-decoration: underline; }
 .annotation-card.is-hovered { border-color: var(--accent-border); }
 .annotation-card.is-active { border-color: var(--accent-border); box-shadow: var(--shadow-xs), 0 0 0 2px var(--accent-soft); }
 .annotation-card.is-editing { border-color: var(--accent-border); box-shadow: var(--shadow-xs), 0 0 0 2px var(--accent-soft); }
-.annotation-delete-button, .annotation-close-button { position: absolute; z-index: 6; inset-block-start: 5px; inset-inline-end: 5px; display: grid; width: 26px; height: 26px; place-items: center; padding: 0; border: 1px solid transparent; border-radius: 6px; background: var(--surface-glass-soft); color: var(--muted); opacity: 0; pointer-events: none; cursor: pointer; transition: opacity var(--motion-fast) var(--motion-ease-out), background-color var(--motion-fast) var(--motion-ease-out), border-color var(--motion-fast) var(--motion-ease-out), color var(--motion-fast) var(--motion-ease-out), box-shadow var(--motion-fast) var(--motion-ease-out); }
+.annotation-delete-button, .annotation-close-button { position: absolute; z-index: 6; inset-block-start: 5px; inset-inline-end: 5px; display: grid; width: 26px; height: 26px; place-items: center; padding: 0; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--muted); opacity: 0; pointer-events: none; cursor: pointer; transition: opacity var(--motion-fast) var(--motion-ease-out), border-color var(--motion-fast) var(--motion-ease-out), color var(--motion-fast) var(--motion-ease-out), box-shadow var(--motion-fast) var(--motion-ease-out); }
 .annotation-close-button { opacity: 1; pointer-events: auto; }
 .annotation-card:hover .annotation-delete-button, .annotation-card:hover .annotation-close-button, .annotation-card:focus-within .annotation-delete-button, .annotation-card:focus-within .annotation-close-button { opacity: 1; pointer-events: auto; }
-.annotation-delete-button:hover { background: var(--danger-soft); color: var(--danger); }
-.annotation-close-button:hover { background: var(--hover-overlay); color: var(--ink); }
+.annotation-delete-button:hover { color: var(--danger); }
+.annotation-close-button:hover { color: var(--ink); }
 .annotation-delete-button:focus-visible, .annotation-close-button:focus-visible { border-color: var(--accent-border-soft); color: var(--accent-dark); box-shadow: 0 0 0 2px var(--focus-ring); opacity: 1; pointer-events: auto; }
 .annotation-card--rail { position: absolute; left: calc(100% + 24px); z-index: 5; width: 220px; pointer-events: auto; }
 .annotation-layer:not(.annotation-layer--rail) .annotation-card--rail { display: none; }
