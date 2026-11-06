@@ -20,7 +20,9 @@ import {
   syncStoredNoteTitleKey,
 } from "../note-links";
 import { extractMarkdownTasks } from "../../shared/tasks";
-import { syncNoteSearchIndexes } from "../note-search";
+import { syncNoteSearchIndexes, syncNoteShortSearchTerms } from "../note-search";
+import { searchableTextFromMarkdown } from "../search-text";
+import { Lexer } from "marked";
 
 export const NOTE_RENAME_SOURCE_BATCH_SIZE = 16;
 
@@ -31,6 +33,7 @@ export function syncNoteTasks(
   notebookId: string,
   createdAt: number,
   contentMarkdown: string,
+  parsedTokens?: ReturnType<Lexer["lex"]>,
 ) {
   const deltas = new Map<string, { notebookId: string; done: number; count: number }>();
   const addDelta = (targetNotebookId: string, done: number, count: number) => {
@@ -39,6 +42,32 @@ export function syncNoteTasks(
     if (delta) delta.count += count;
     else deltas.set(key, { notebookId: targetNotebookId, done, count });
   };
+  const tasks = extractMarkdownTasks(contentMarkdown, parsedTokens);
+  const existingTasks = database
+    .query(
+      "SELECT notebook_id, ordinal, depth, text, done FROM note_tasks WHERE note_id = ? ORDER BY ordinal",
+    )
+    .all(noteId) as Array<{
+    notebook_id: string;
+    ordinal: number;
+    depth: number;
+    text: string;
+    done: number;
+  }>;
+  if (
+    existingTasks.length === tasks.length &&
+    tasks.every((task, index) => {
+      const old = existingTasks[index];
+      return (
+        old.notebook_id === notebookId &&
+        old.ordinal === task.ordinal &&
+        old.depth === task.depth &&
+        old.text === task.text &&
+        old.done === Number(task.completed)
+      );
+    })
+  )
+    return;
   const oldCounts = database
     .query(
       "SELECT notebook_id, done, COUNT(*) AS task_count FROM note_tasks WHERE note_id = ? GROUP BY notebook_id, done",
@@ -47,7 +76,6 @@ export function syncNoteTasks(
   for (const oldCount of oldCounts)
     addDelta(oldCount.notebook_id, oldCount.done, -oldCount.task_count);
 
-  const tasks = extractMarkdownTasks(contentMarkdown);
   for (const task of tasks) addDelta(notebookId, task.completed ? 1 : 0, 1);
 
   database.query("DELETE FROM note_tasks WHERE note_id = ?").run(noteId);
@@ -105,19 +133,21 @@ export function createNote(
 ) {
   const id = requestedId ?? crypto.randomUUID();
   const createdAt = now();
+  const tokens = new Lexer({ gfm: true }).lex(contentMarkdown);
+  const searchText = searchableTextFromMarkdown(contentMarkdown, tokens);
   const transaction = database.transaction(() => {
     database
       .query(
-        "INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)",
+        "INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, search_text, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)",
       )
-      .run(id, userId, notebookId, title, contentMarkdown, createdAt, createdAt);
+      .run(id, userId, notebookId, title, contentMarkdown, searchText, createdAt, createdAt);
     syncStoredNoteTitleKey(database, id, title);
     if (!syncNoteAssetReferences(database, userId, id, contentMarkdown))
       throw new Error("invalid-note-assets");
     syncNoteTags(database, userId, id, contentMarkdown);
-    syncNoteSearchIndexes(database, userId, id, title, contentMarkdown);
+    syncNoteShortSearchTerms(database, userId, id, title, searchText);
     syncNoteLinks(database, userId, id, contentMarkdown, createdAt);
-    syncNoteTasks(database, userId, id, notebookId, createdAt, contentMarkdown);
+    syncNoteTasks(database, userId, id, notebookId, createdAt, contentMarkdown, tokens);
     resolveNoteLinksForTarget(database, userId, title, id);
   });
   transaction();
@@ -149,6 +179,18 @@ export function updateNoteInTransaction(
   const notebookChanged = current.notebook_id !== notebookId;
   const deletedChanged = current.deleted_at !== deletedAt;
   const updatedAt = titleChanged || contentChanged ? now() : current.updated_at;
+  const tokens = contentChanged ? new Lexer({ gfm: true }).lex(nextContentMarkdown) : undefined;
+  const searchText = contentChanged
+    ? searchableTextFromMarkdown(nextContentMarkdown, tokens)
+    : titleChanged
+      ? (
+          database
+            .query(
+              "SELECT COALESCE(search_text, content_markdown) AS text FROM notes WHERE id = ? AND user_id = ?",
+            )
+            .get(current.id, userId) as { text: string }
+        ).text
+      : null;
 
   const fields = [
     "notebook_id = ?",
@@ -165,6 +207,8 @@ export function updateNoteInTransaction(
   if (contentChanged) {
     fields.push("content_markdown = ?");
     values.push(nextContentMarkdown);
+    fields.push("search_text = ?");
+    values.push(searchText);
   }
   const updated = database
     .query(
@@ -174,7 +218,7 @@ export function updateNoteInTransaction(
   if (!updated) return false;
   if (titleChanged) syncStoredNoteTitleKey(database, current.id, title);
   if (titleChanged || contentChanged)
-    syncNoteSearchIndexes(database, userId, current.id, title, nextContentMarkdown);
+    syncNoteShortSearchTerms(database, userId, current.id, title, searchText!);
   if (contentChanged && !syncNoteAssetReferences(database, userId, current.id, nextContentMarkdown))
     throw new InvalidNoteAssetsError();
   if (contentChanged || notebookChanged || deletedChanged) {
@@ -185,6 +229,7 @@ export function updateNoteInTransaction(
       notebookId,
       current.created_at,
       deletedAt === null ? nextContentMarkdown : "",
+      deletedAt === null ? tokens : undefined,
     );
   }
   if (contentChanged) {

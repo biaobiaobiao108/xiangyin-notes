@@ -579,7 +579,7 @@ function rebuildSearchIndexes(database: SqliteDatabase) {
     .transaction(() => {
       const missingSearchText = database
         .query("SELECT id, content_markdown FROM notes WHERE search_text IS NULL ORDER BY rowid")
-        .all() as Array<{ id: string; content_markdown: string }>;
+        .iterate() as IterableIterator<{ id: string; content_markdown: string }>;
       const updateSearchText = database.query("UPDATE notes SET search_text = ? WHERE id = ?");
       for (const note of missingSearchText)
         updateSearchText.run(searchableTextFromMarkdown(note.content_markdown), note.id);

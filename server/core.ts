@@ -773,18 +773,34 @@ export function syncNoteTags(
   noteId: string,
   contentMarkdown: string,
 ) {
-  database.query("DELETE FROM note_tags WHERE note_id = ? AND user_id = ?").run(noteId, userId);
-  const insert = database.query(
-    "INSERT INTO note_tags (note_id, user_id, tag_normalized, tag, position) VALUES (?, ?, ?, ?, ?)",
-  );
   const seen = new Set<string>();
-  let position = 0;
+  const tags: Array<{ normalized: string; tag: string }> = [];
   for (const tag of extractTags(contentMarkdown)) {
     const normalized = normalizeTag(tag);
     if (seen.has(normalized)) continue;
     seen.add(normalized);
-    insert.run(noteId, userId, normalized, tag, position++);
+    tags.push({ normalized, tag });
   }
+  const existing = database
+    .query(
+      "SELECT tag_normalized, tag, position FROM note_tags WHERE note_id = ? AND user_id = ? ORDER BY position",
+    )
+    .all(noteId, userId) as Array<{ tag_normalized: string; tag: string; position: number }>;
+  if (
+    existing.length === tags.length &&
+    tags.every(
+      (tag, index) =>
+        existing[index].tag_normalized === tag.normalized &&
+        existing[index].tag === tag.tag &&
+        existing[index].position === index,
+    )
+  )
+    return;
+  database.query("DELETE FROM note_tags WHERE note_id = ? AND user_id = ?").run(noteId, userId);
+  const insert = database.query(
+    "INSERT INTO note_tags (note_id, user_id, tag_normalized, tag, position) VALUES (?, ?, ?, ?, ?)",
+  );
+  tags.forEach((tag, position) => insert.run(noteId, userId, tag.normalized, tag.tag, position));
 }
 
 export const ASSET_REFERENCE_PATTERN =
@@ -862,6 +878,18 @@ export function syncNoteAssetReferences(
   const references = extractNoteAssetReferences(contentMarkdown);
   const ids = references.assetIds;
   const imageDocumentOrder = new Map(references.imageAssetIds.map((id, index) => [id, index]));
+  const currentAssets = database
+    .query("SELECT id, document_order FROM image_assets WHERE note_id = ? AND user_id = ?")
+    .all(noteId, userId) as Array<{ id: string; document_order: number | null }>;
+  if (
+    currentAssets.length === ids.length &&
+    currentAssets.every(
+      (asset) =>
+        ids.includes(asset.id.toLowerCase()) &&
+        asset.document_order === (imageDocumentOrder.get(asset.id.toLowerCase()) ?? null),
+    )
+  )
+    return true;
   const detachedAssetCondition = ids.length
     ? `id NOT IN (${ids.map(() => "?").join(",")})`
     : "1 = 1";

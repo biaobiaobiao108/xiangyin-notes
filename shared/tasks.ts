@@ -50,8 +50,11 @@ function taskItemText(item: MarkdownToken) {
 }
 
 /** Extract Markdown task items in document order, excluding fenced code and inline examples. */
-export function extractMarkdownTasks(markdown: string): MarkdownTask[] {
-  const tokens = marked.lexer(markdown) as unknown as MarkdownToken[];
+export function extractMarkdownTasks(
+  markdown: string,
+  parsedTokens?: ReturnType<typeof marked.lexer>,
+): MarkdownTask[] {
+  const tokens = (parsedTokens ?? marked.lexer(markdown)) as unknown as MarkdownToken[];
   const tasks: MarkdownTask[] = [];
 
   const visit = (children: MarkdownToken[], depth = 0) => {

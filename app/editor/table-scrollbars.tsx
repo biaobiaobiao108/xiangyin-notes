@@ -139,7 +139,19 @@ export function TableScrollbars({ rootRef }: { rootRef: RefObject<HTMLElement | 
     };
 
     syncTargets();
-    const observer = new MutationObserver(scheduleSync);
+    const containsTable = (node: Node) =>
+      node instanceof Element &&
+      (node.matches(".tableWrapper") || node.querySelector(".tableWrapper") !== null);
+    const observer = new MutationObserver((records) => {
+      if (
+        records.some(
+          (record) =>
+            Array.from(record.addedNodes).some(containsTable) ||
+            Array.from(record.removedNodes).some(containsTable),
+        )
+      )
+        scheduleSync();
+    });
     observer.observe(root, { childList: true, subtree: true });
     return () => {
       observer.disconnect();

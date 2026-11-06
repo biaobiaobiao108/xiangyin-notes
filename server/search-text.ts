@@ -72,9 +72,12 @@ function appendMarkdownText(token: MarkdownTextToken, output: string[]) {
 }
 
 /** Plain, visible note text used for search and search snippets. */
-export function searchableTextFromMarkdown(markdown: string) {
+export function searchableTextFromMarkdown(
+  markdown: string,
+  parsedTokens?: ReturnType<Lexer["lex"]>,
+) {
   if (!markdown) return "";
-  const tokens = new Lexer({ gfm: true }).lex(markdown) as MarkdownTextToken[];
+  const tokens = (parsedTokens ?? new Lexer({ gfm: true }).lex(markdown)) as MarkdownTextToken[];
   const output: string[] = [];
   for (const token of tokens) appendMarkdownText(token, output);
   return output.join("").replace(/\s+/g, " ").trim();

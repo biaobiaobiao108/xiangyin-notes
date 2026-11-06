@@ -308,33 +308,38 @@ export async function handleNotebooksRoute(
       if (expectedNoteCount !== undefined && actualCount !== expectedNoteCount) {
         return { movedCount: 0, actualCount, expectedNoteCount, mismatch: true as const };
       }
-      const movedNotes = all<{
-        id: string;
-        content_markdown: string;
-        created_at: number;
-        deleted_at: number | null;
-      }>(
-        database,
-        "SELECT id, content_markdown, created_at, deleted_at FROM notes WHERE notebook_id = ? AND user_id = ?",
-        current.id,
-        user.id,
-      );
       const updateNote = database.query(
         "UPDATE notes SET notebook_id = ?, version = version + 1 WHERE id = ? AND user_id = ?",
       );
-      for (const note of movedNotes) {
-        syncNoteTasks(
+      let movedCount = 0;
+      while (true) {
+        const movedNotes = all<{
+          id: string;
+          content_markdown: string;
+          created_at: number;
+          deleted_at: number | null;
+        }>(
           database,
+          "SELECT id, content_markdown, created_at, deleted_at FROM notes WHERE notebook_id = ? AND user_id = ? LIMIT 100",
+          current.id,
           user.id,
-          note.id,
-          inbox.id,
-          note.created_at,
-          note.deleted_at === null ? note.content_markdown : "",
         );
-        updateNote.run(inbox.id, note.id, user.id);
+        if (!movedNotes.length) break;
+        for (const note of movedNotes) {
+          syncNoteTasks(
+            database,
+            user.id,
+            note.id,
+            inbox.id,
+            note.created_at,
+            note.deleted_at === null ? note.content_markdown : "",
+          );
+          updateNote.run(inbox.id, note.id, user.id);
+        }
+        movedCount += movedNotes.length;
       }
       database.query("DELETE FROM notebooks WHERE id = ? AND user_id = ?").run(current.id, user.id);
-      return { movedCount: movedNotes.length, mismatch: false as const };
+      return { movedCount, mismatch: false as const };
     });
     const outcome = transaction();
     if (outcome.mismatch) {

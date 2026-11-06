@@ -1033,9 +1033,13 @@ export const NoteListPanel = memo(function NoteListPanel({
     if (groups) return flattenNoteGroups(groups, collapsedGroups, collapsingGroupId);
     return sortedNotes.map((note) => ({ id: note.id, kind: "note" as const, note }));
   }, [collapsedGroups, collapsingGroupId, groups, sortedNotes]);
-  const currentRowIds = (groups ?? [])
-    .flatMap((group) => [noteGroupRowId(group.id), ...group.notes.map((note) => note.id)])
-    .join("\u0000");
+  const currentRowIds = useMemo(
+    () =>
+      (groups ?? [])
+        .flatMap((group) => [noteGroupRowId(group.id), ...group.notes.map((note) => note.id)])
+        .join("\u0000"),
+    [groups],
+  );
   const transitionDataChanged = Boolean(
     virtualGroupTransition &&
     transitionDataRef.current &&
