@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import { ArrowLeftRight, ExternalLink, Link2, Loader2, Sparkles, X } from "lucide-react";
 import { ApiError, api } from "../api";
 import { FloatingScrollbar } from "../floating-scrollbar";
@@ -129,9 +136,14 @@ export function BacklinksDialog({
 }: BacklinksDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+  const loadMoreRef = useRef<HTMLButtonElement>(null);
+  const restoreListFocusRef = useRef(false);
   const [data, setData] = useState<{ noteId: string; response: NoteBacklinksResponse } | null>(
     null,
   );
+  const dataRef = useRef(data);
+  dataRef.current = data;
   const [loadingNoteId, setLoadingNoteId] = useState<string | null>(null);
   const [linkingKey, setLinkingKey] = useState<string | null>(null);
   const [error, setError] = useState<{ noteId: string; message: string } | null>(null);
@@ -170,19 +182,19 @@ export function BacklinksDialog({
         noteIdRef.current !== requestedNoteId
       )
         return;
-      setData((current) => {
-        const previous = cursor && current?.noteId === requestedNoteId ? current.response : null;
-        const merged = previous
-          ? {
-              ...res,
-              linkedReferences: [...previous.linkedReferences, ...res.linkedReferences],
-              unlinkedMentions: [...previous.unlinkedMentions, ...res.unlinkedMentions],
-            }
-          : res;
-        return { noteId: requestedNoteId, response: merged };
-      });
-      if (!cursor)
-        onBacklinkCountChange?.(res.linkedReferences.length + res.unlinkedMentions.length);
+      const previous =
+        cursor && dataRef.current?.noteId === requestedNoteId ? dataRef.current.response : null;
+      const merged = previous
+        ? {
+            ...res,
+            linkedReferences: [...previous.linkedReferences, ...res.linkedReferences],
+            unlinkedMentions: [...previous.unlinkedMentions, ...res.unlinkedMentions],
+          }
+        : res;
+      const nextData = { noteId: requestedNoteId, response: merged };
+      dataRef.current = nextData;
+      setData(nextData);
+      onBacklinkCountChange?.(merged.linkedReferences.length + merged.unlinkedMentions.length);
     } catch {
       if (
         controller.signal.aborted ||
@@ -293,6 +305,11 @@ export function BacklinksDialog({
   };
 
   const currentData = data?.noteId === noteId ? data.response : null;
+  useLayoutEffect(() => {
+    if (!restoreListFocusRef.current || loadingNoteId === noteId) return;
+    restoreListFocusRef.current = false;
+    if (!currentData?.nextCursor) listRef.current?.focus({ preventScroll: true });
+  }, [currentData, loadingNoteId, noteId]);
   const currentError = error?.noteId === noteId ? error.message : "";
   const unifiedItems: BacklinkUnifiedItem[] = useMemo(() => {
     if (!currentData) return [];
@@ -390,7 +407,7 @@ export function BacklinksDialog({
               </small>
             </div>
           ) : (
-            <ul className="backlinks-list" role="list">
+            <ul ref={listRef} className="backlinks-list" role="list" tabIndex={-1}>
               {unifiedItems.map((item) => {
                 const isUnlinked = item.kind === "unlinked";
                 const isLinking = isUnlinked && linkingKey === item.id;
@@ -477,16 +494,26 @@ export function BacklinksDialog({
             </ul>
           )}
           {currentData?.nextCursor && (
-            <button
-              type="button"
-              className="text-button"
-              disabled={loadingNoteId === noteId}
-              onClick={() =>
-                void fetchBacklinks(noteId, contextGenerationRef.current, currentData.nextCursor!)
-              }
-            >
-              {loadingNoteId === noteId ? "加载中…" : "加载更多"}
-            </button>
+            <div className="backlinks-load-more">
+              <button
+                ref={loadMoreRef}
+                type="button"
+                className="secondary-button note-list-load-more-button"
+                aria-disabled={loadingNoteId === noteId}
+                aria-busy={loadingNoteId === noteId}
+                onClick={() => {
+                  if (loadingNoteId === noteId) return;
+                  restoreListFocusRef.current = document.activeElement === loadMoreRef.current;
+                  void fetchBacklinks(
+                    noteId,
+                    contextGenerationRef.current,
+                    currentData.nextCursor!,
+                  );
+                }}
+              >
+                {loadingNoteId === noteId ? "加载中…" : "加载更多"}
+              </button>
+            </div>
           )}
         </div>
         <FloatingScrollbar

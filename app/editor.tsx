@@ -2,6 +2,7 @@ import {
   startTransition,
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -338,6 +339,8 @@ export function NoteEditor({
   const smoothScrollToHeadRef = useRef<(view: Editor["view"]) => void>(() => undefined);
   const outlineScrollAnimRef = useRef<number | null>(null);
   const imageFileInputRef = useRef<HTMLInputElement>(null);
+  const imageUploadMessageRef = useRef<HTMLDivElement>(null);
+  const imageUploadMessageId = useId();
   const imageUploadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const uploadImageFilesRef = useRef<(files: File[]) => void>(() => undefined);
   const onUploadImageRef = useRef(onUploadImage);
@@ -2187,11 +2190,28 @@ export function NoteEditor({
         </header>
       )}
       {imageUploadMessage && (
-        <div className="editor-upload-error" role="alert">
-          <span>{imageUploadMessage}</span>
+        <div className="editor-upload-notice toast toast--error">
+          <CircleAlert className="notice-icon" size={18} aria-hidden="true" />
+          <div className="editor-upload-notice-body">
+            <div
+              id={imageUploadMessageId}
+              ref={imageUploadMessageRef}
+              className="notice-copy editor-upload-notice-copy floating-scrollbar-target"
+              role="alert"
+              aria-atomic="true"
+            >
+              {imageUploadMessage}
+            </div>
+            <FloatingScrollbar
+              scrollTargetRef={imageUploadMessageRef}
+              controlsId={imageUploadMessageId}
+              ariaLabel="图片上传提示滚动条"
+              placement="right"
+            />
+          </div>
           <button
             type="button"
-            className="icon-button"
+            className="notice-dismiss"
             aria-label="关闭图片上传提示"
             onClick={() => setImageUploadMessage("")}
           >

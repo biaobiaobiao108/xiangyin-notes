@@ -909,7 +909,6 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 }
 
 .editor-panel { position: relative; display: flex; flex-direction: column; height: 100%; min-height: 0; }
-.editor-upload-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 16px; background: var(--danger-soft); color: var(--danger); font-size: 0.8rem; overflow-wrap: anywhere; }
 .editor-switch-overlay { position: absolute; inset: 0; z-index: 4; display: grid; place-items: center; background: var(--editor-switch-backdrop); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); opacity: 0; pointer-events: none; transform: translateY(5px); transition: opacity var(--motion-fast) var(--motion-ease-out), transform var(--motion-fast) var(--motion-ease-out); }
 .editor-panel.is-loading .editor-switch-overlay, .editor-switch-overlay--visible { opacity: 1; pointer-events: auto; transform: translateY(0); }
 .editor-switch-card { display: grid; justify-items: center; gap: 15px; width: min(300px, calc(100% - 48px)); padding: 30px 24px; border: 1px solid var(--editor-switch-border); border-radius: 18px; background: var(--surface-glass-medium); box-shadow: 0 14px 34px rgba(39, 47, 41, 0.07); color: var(--muted); }
@@ -2248,6 +2247,9 @@ dialog::backdrop {
 .system-notices > * { pointer-events: auto; }
 .toast, .update-notice { display: grid; grid-template-columns: 18px minmax(0, 1fr) 28px; align-items: center; gap: 10px; width: fit-content; max-width: 100%; padding: 8px 8px 8px 12px; border: 1px solid var(--border-soft); border-radius: var(--radius-md); background: var(--surface-glass); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); box-shadow: var(--shadow-sm); color: var(--ink); font-size: 0.8125rem; line-height: 1.5; animation: toast-in var(--motion-panel) var(--motion-ease-out) both; }
 .notice-copy { min-width: 0; overflow-wrap: anywhere; }
+.editor-upload-notice { position: absolute; right: 16px; bottom: 76px; z-index: 60; max-width: min(340px, calc(100% - 32px)); }
+.editor-upload-notice-body { position: relative; min-width: 0; }
+.editor-upload-notice-copy { max-height: min(180px, 25dvh); overflow-y: auto; padding-right: 8px; }
 .notice-icon, .update-notice > svg { color: var(--accent); }
 .toast--error .notice-icon { color: var(--danger); }
 .toast--warning .notice-icon { color: var(--ink); }
@@ -3043,6 +3045,9 @@ dialog::backdrop {
   flex-direction: column;
   gap: 8px;
 }
+.backlinks-load-more { display: flex; justify-content: center; padding: 10px 0 4px; }
+.backlinks-load-more .note-list-load-more-button { min-width: 96px; }
+.backlinks-load-more button[aria-disabled="true"] { cursor: default; color: var(--soft-muted); }
 
 .backlink-card {
   padding: 10px 14px;
