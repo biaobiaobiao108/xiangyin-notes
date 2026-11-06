@@ -2610,10 +2610,15 @@ export function Workspace() {
       notifyWarning("仍有内容未保存，请稍后再退出");
       return;
     }
-    await api.logout().catch(() => undefined);
+    try {
+      await api.logout();
+    } catch {
+      notifyError("退出登录失败，请检查网络后重试");
+      return;
+    }
     clearAllDraftRecoveries();
     navigate(`/login${window.location.search}`, { replace: true });
-  }, [flushPendingSaves, navigate]);
+  }, [flushPendingSaves, hasUnsavedWork, navigate, notifyError, notifyWarning]);
   const command = useCallback(
     (id: CommandId) => {
       if (id === "logout") void logout();
