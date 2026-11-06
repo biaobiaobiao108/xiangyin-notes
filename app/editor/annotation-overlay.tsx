@@ -285,17 +285,9 @@ function AnnotationComposer({
         aria-modal="true"
         aria-label="添加批注"
       >
-        <div className="annotation-card-header">
-          <span className="annotation-card-title">新建批注</span>
-          <button
-            className="annotation-icon-button"
-            type="button"
-            aria-label="取消"
-            onClick={close}
-          >
-            <X size={13} />
-          </button>
-        </div>
+        <button className="annotation-close-button" type="button" aria-label="取消" onClick={close}>
+          <X size={13} />
+        </button>
         {state.quote && (
           <div className="annotation-card-quote">
             <span>{state.quote}</span>
@@ -472,21 +464,16 @@ function AnnotationCard({
       aria-modal={variant === "compact" ? true : undefined}
       aria-label={variant === "compact" ? "批注" : undefined}
     >
-      <div className="annotation-card-header">
-        <span className="annotation-card-title">批注</span>
-        {!locked && (
-          <div className="annotation-card-actions">
-            <button
-              className="annotation-icon-button is-danger"
-              type="button"
-              aria-label="删除批注"
-              onClick={onDelete}
-            >
-              <Trash2 size={12} />
-            </button>
-          </div>
-        )}
-      </div>
+      {!locked && (
+        <button
+          className="annotation-delete-button"
+          type="button"
+          aria-label="删除批注"
+          onClick={onDelete}
+        >
+          <Trash2 size={13} />
+        </button>
+      )}
       {annotation.quote && (
         <div className="annotation-card-quote">
           <span>{annotation.quote}</span>

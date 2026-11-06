@@ -1100,21 +1100,21 @@ button.save-status:hover { text-decoration: underline; }
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent);
 }
 .annotation-layer { position: absolute; inset: 0; z-index: 4; overflow: visible; pointer-events: none; }
-.annotation-icon-button { display: grid; width: 22px; height: 22px; place-items: center; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--muted); cursor: pointer; transition: background-color var(--motion-fast) var(--motion-ease-out), color var(--motion-fast) var(--motion-ease-out); }
-.annotation-icon-button:hover, .annotation-icon-button:focus-visible { background: var(--hover-overlay); color: var(--ink); }
-.annotation-icon-button.is-danger:hover, .annotation-icon-button.is-danger:focus-visible { background: var(--danger-soft); color: var(--danger); }
 .annotation-card { position: relative; display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden; border: 1px solid var(--border-soft); border-radius: 9px; background: var(--surface); box-shadow: var(--shadow-xs), var(--shadow-2xs); animation: annotation-pop-in var(--motion-panel) var(--motion-ease-out) both; transition: border-color var(--motion-fast) var(--motion-ease-out), box-shadow var(--motion-fast) var(--motion-ease-out), background-color var(--motion-fast) var(--motion-ease-out); }
 .annotation-card.is-hovered { border-color: var(--accent-border); }
 .annotation-card.is-active { border-color: var(--accent-border); box-shadow: var(--shadow-xs), 0 0 0 2px var(--accent-soft); }
 .annotation-card.is-editing { border-color: var(--accent-border); box-shadow: var(--shadow-xs), 0 0 0 2px var(--accent-soft); }
-.annotation-card-header { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px 0 10px; font-size: 0.72rem; color: var(--muted); }
-.annotation-card-title { font-weight: 600; color: var(--ink-soft); }
-.annotation-card-index { font-weight: 600; font-variant-numeric: tabular-nums; opacity: 0.75; }
-.annotation-card-actions { display: flex; align-items: center; gap: 2px; }
+.annotation-delete-button, .annotation-close-button { position: absolute; z-index: 6; inset-block-start: 5px; inset-inline-end: 5px; display: grid; width: 26px; height: 26px; place-items: center; padding: 0; border: 1px solid transparent; border-radius: 6px; background: var(--surface-glass-soft); color: var(--muted); opacity: 0; pointer-events: none; cursor: pointer; transition: opacity var(--motion-fast) var(--motion-ease-out), background-color var(--motion-fast) var(--motion-ease-out), border-color var(--motion-fast) var(--motion-ease-out), color var(--motion-fast) var(--motion-ease-out), box-shadow var(--motion-fast) var(--motion-ease-out); }
+.annotation-close-button { opacity: 1; pointer-events: auto; }
+.annotation-card:hover .annotation-delete-button, .annotation-card:hover .annotation-close-button, .annotation-card:focus-within .annotation-delete-button, .annotation-card:focus-within .annotation-close-button { opacity: 1; pointer-events: auto; }
+.annotation-delete-button:hover { background: var(--danger-soft); color: var(--danger); }
+.annotation-close-button:hover { background: var(--hover-overlay); color: var(--ink); }
+.annotation-delete-button:focus-visible, .annotation-close-button:focus-visible { border-color: var(--accent-border-soft); color: var(--accent-dark); box-shadow: 0 0 0 2px var(--focus-ring); opacity: 1; pointer-events: auto; }
 .annotation-card--rail { position: absolute; left: calc(100% + 24px); z-index: 5; width: 220px; pointer-events: auto; }
 .annotation-layer:not(.annotation-layer--rail) .annotation-card--rail { display: none; }
 .annotation-card--compact { width: 300px; max-width: calc(100vw - 24px); box-shadow: var(--shadow-md), var(--shadow-xs); }
 .annotation-card-quote { display: block; margin: 5px 8px 1px; padding: 3px 6px; overflow: hidden; border-radius: 4px; background: color-mix(in srgb, var(--canvas) 60%, var(--surface)); color: var(--muted); font-size: 0.71rem; line-height: 1.38; letter-spacing: 0.01em; }
+.annotation-card:has(.annotation-delete-button) .annotation-card-quote, .annotation-card:has(.annotation-close-button) .annotation-card-quote { padding-right: 30px; }
 .annotation-card-quote > span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .annotation-card-body-swap { display: flex; min-height: 0; flex-direction: column; animation: annotation-body-in var(--motion-fast) var(--motion-ease-out) both; }
 .annotation-card-body { display: flex; min-height: 0; width: 100%; margin: 0; padding: 0; flex-direction: column; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; box-sizing: border-box; }
@@ -1155,8 +1155,9 @@ button.save-status:hover { text-decoration: underline; }
 @media (prefers-reduced-motion: reduce) {
   .annotation-card, .annotation-sheet-backdrop { animation: none !important; }
   .annotation-card-body-swap { animation: none !important; }
-  .annotation-icon-button, .annotation-card, .annotation-card-body, .annotation-card-text, .note-prose .note-highlight { transition: none; }
+  .annotation-delete-button, .annotation-close-button, .annotation-card, .annotation-card-body, .annotation-card-text, .note-prose .note-highlight { transition: none; }
 }
+@media (hover: none), (pointer: coarse) { .annotation-delete-button, .annotation-close-button { opacity: 1; pointer-events: auto; } }
 .note-prose .editor-search-match { border-radius: 0.22em; background: var(--search-match); color: inherit; box-shadow: 0 0.08em 0 var(--search-match-shadow); }
 .note-prose .editor-search-match--active { background: var(--accent); color: var(--accent-contrast); box-shadow: 0 0 0 2px var(--focus-soft); }
 .note-prose .task-navigation-highlight { border-radius: 5px; background-color: light-dark(rgba(101, 116, 106, 0.13), rgba(184, 198, 187, 0.14)); animation: task-navigation-fade-in 220ms var(--motion-ease-out) both; }
