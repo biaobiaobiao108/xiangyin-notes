@@ -5,6 +5,7 @@ import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Check, Trash2, X } from "lucide-react";
 import { createUuid } from "../uuid";
 import { FloatingScrollbar } from "../floating-scrollbar";
+import { computeScrollEdges, type ScrollEdges } from "../workspace/use-scroll-edges";
 import {
   collectAnnotations,
   findAnnotationRanges,
@@ -63,6 +64,43 @@ function clampPopupPoint(left: number, top: number, width = 300, height = 280) {
   };
 }
 
+function useScrollFade(targetRef: RefObject<HTMLElement | null>, dependencies: readonly unknown[]) {
+  const [edges, setEdges] = useState<ScrollEdges>({ before: false, after: false });
+
+  useLayoutEffect(() => {
+    const target = targetRef.current;
+    if (!target) return;
+    let frame = 0;
+    let previous: ScrollEdges | null = null;
+    const update = () => {
+      frame = 0;
+      const next = computeScrollEdges(target.scrollTop, target.scrollHeight, target.clientHeight);
+      if (previous && previous.before === next.before && previous.after === next.after) return;
+      previous = next;
+      setEdges((current) =>
+        current.before === next.before && current.after === next.after ? current : next,
+      );
+    };
+    const schedule = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(update);
+    };
+    update();
+    target.addEventListener("scroll", schedule, { passive: true });
+    const observer = new ResizeObserver(schedule);
+    observer.observe(target);
+    const content = target.firstElementChild;
+    if (content) observer.observe(content);
+    return () => {
+      target.removeEventListener("scroll", schedule);
+      observer.disconnect();
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [targetRef, ...dependencies]);
+
+  return edges;
+}
+
 function AnnotationTextarea({
   fieldId,
   value,
@@ -100,35 +138,41 @@ function AnnotationTextarea({
     field.style.height = `${Math.min(field.scrollHeight, maxHeight)}px`;
   }, [maxHeight, value]);
 
+  const edges = useScrollFade(fieldRef, [value, maxHeight]);
+
   return (
     <>
       <label className="visually-hidden" htmlFor={fieldId}>
         批注内容
       </label>
       <div className="annotation-note-editor-shell">
-        <textarea
-          ref={fieldRef}
-          id={fieldId}
-          className="annotation-note-editor-field floating-scrollbar-target"
-          value={value}
-          rows={1}
-          disabled={locked}
-          placeholder="写下批注……"
-          onChange={(event) => onChange(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.nativeEvent.isComposing || event.keyCode === 229) return;
-            if (event.key === "Escape") {
-              event.preventDefault();
-              event.stopPropagation();
-              onCancel();
-              return;
-            }
-            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-              event.preventDefault();
-              if (!locked) onCommit();
-            }
-          }}
-        />
+        <div
+          className={`annotation-note-editor-scroll${edges.before ? " has-scroll-before" : ""}${edges.after ? " has-scroll-after" : ""}`}
+        >
+          <textarea
+            ref={fieldRef}
+            id={fieldId}
+            className="annotation-note-editor-field floating-scrollbar-target"
+            value={value}
+            rows={1}
+            disabled={locked}
+            placeholder="写下批注……"
+            onChange={(event) => onChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+              if (event.key === "Escape") {
+                event.preventDefault();
+                event.stopPropagation();
+                onCancel();
+                return;
+              }
+              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                event.preventDefault();
+                if (!locked) onCommit();
+              }
+            }}
+          />
+        </div>
         <FloatingScrollbar
           scrollTargetRef={fieldRef}
           controlsId={fieldId}
@@ -319,6 +363,7 @@ function AnnotationCard({
   const outsideRef = useRef(onOutside);
   const closedRef = useRef(false);
   const readScrollId = `annotation-read-${annotation.id}`;
+  const readEdges = useScrollFade(readScrollRef, [annotation.note, editing]);
   draftRef.current = draft;
   outsideRef.current = onOutside;
 
@@ -463,20 +508,22 @@ function AnnotationCard({
         ) : (
           <div className="annotation-card-body annotation-card-body--read">
             <div className="annotation-card-scroll-shell">
-              <div
-                ref={readScrollRef}
-                id={readScrollId}
-                className="annotation-card-scroll floating-scrollbar-target"
-              >
-                <button
-                  ref={textRef}
-                  className="annotation-card-read-button"
-                  type="button"
-                  disabled={locked}
-                  onClick={onStartEdit}
+              <div className="annotation-card-read-shell">
+                <div
+                  ref={readScrollRef}
+                  id={readScrollId}
+                  className={`annotation-card-scroll floating-scrollbar-target${readEdges.before ? " has-scroll-before" : ""}${readEdges.after ? " has-scroll-after" : ""}`}
                 >
-                  <span className="annotation-card-text">{annotation.note}</span>
-                </button>
+                  <button
+                    ref={textRef}
+                    className="annotation-card-read-button"
+                    type="button"
+                    disabled={locked}
+                    onClick={onStartEdit}
+                  >
+                    <span className="annotation-card-text">{annotation.note}</span>
+                  </button>
+                </div>
               </div>
               <FloatingScrollbar
                 scrollTargetRef={readScrollRef}
