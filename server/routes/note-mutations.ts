@@ -284,7 +284,7 @@ export function updateNoteInTransaction(
           refNote.id,
           refNote.notebook_id,
           refNote.created_at,
-          replacedContent,
+          refNote.deleted_at === null ? replacedContent : "",
         );
       }
     }

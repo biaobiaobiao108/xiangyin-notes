@@ -5,6 +5,54 @@ import { handleRequest } from "../server/index";
 import { waitForOrphanAssetCleanup } from "../server/routes/assets";
 import { ensureEnvironmentUser } from "../server/routes/auth";
 import { createNote } from "../server/routes/notes";
+import { updateNote } from "../server/routes/note-mutations";
+
+test("renaming a target keeps trashed backlink tasks out of counts until restoration", async () => {
+  const database = await openDatabase(":memory:");
+  try {
+    const user = await ensureEnvironmentUser(database, { username: "review", password: "review" });
+    const inbox = database
+      .query("SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1")
+      .get(user.id) as { id: string };
+    const targetId = createNote(database, user.id, inbox.id, "Target", "target");
+    const sourceId = createNote(database, user.id, inbox.id, "Source", "[[Target]]\n- [ ] task");
+    const update = (id: string, title: string | null, deletedAt: number | null) => {
+      const note = getNote(database, user.id, id)!;
+      expect(
+        updateNote(
+          database,
+          note,
+          user.id,
+          title ?? note.title,
+          note.content_markdown,
+          note.notebook_id,
+          note.is_favorite,
+          deletedAt,
+        ),
+      ).toBe(true);
+    };
+    const counts = () =>
+      database
+        .query(
+          "SELECT COALESCE(SUM(task_count), 0) AS total FROM note_task_counts WHERE user_id = ?",
+        )
+        .get(user.id);
+
+    update(sourceId, null, 1);
+    expect(counts()).toEqual({ total: 0 });
+    update(targetId, "Renamed", null);
+    expect(getNote(database, user.id, sourceId)?.content_markdown).toBe("[[Renamed]]\n- [ ] task");
+    expect(counts()).toEqual({ total: 0 });
+    expect(
+      database.query("SELECT COUNT(*) AS total FROM note_tasks WHERE note_id = ?").get(sourceId),
+    ).toEqual({ total: 0 });
+    update(sourceId, null, null);
+    expect(counts()).toEqual({ total: 1 });
+  } finally {
+    await waitForOrphanAssetCleanup(database);
+    database.close();
+  }
+});
 
 test("rejects an oversized backlink rewrite and rolls back the entire rename", async () => {
   const database = await openDatabase(":memory:");
