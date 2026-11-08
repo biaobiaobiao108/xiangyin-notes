@@ -459,8 +459,8 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
   padding: 0 20px;
   border-bottom: 1px solid var(--line);
   background: var(--surface-glass);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 .list-header-main { min-width: 0; margin-right: auto; }
 .list-header h2 { min-width: 0; margin: 0; overflow: hidden; font-size: 1.04rem; font-weight: 600; letter-spacing: -0.01em; text-overflow: ellipsis; white-space: nowrap; }
@@ -519,7 +519,7 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
   animation: dialog-in var(--motion-fast) var(--motion-ease-out) both;
 }
 
-.context-menu { position: fixed; z-index: 200; width: min(268px, calc(100vw - 16px)); padding: 5px; border: 1px solid var(--border-soft); border-radius: var(--radius-md); background: var(--surface-glass-menu); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); box-shadow: var(--shadow-float); animation: dialog-in var(--motion-fast) var(--motion-ease-out) both; }
+.context-menu { position: fixed; z-index: 200; width: min(268px, calc(100vw - 16px)); padding: 5px; border: 1px solid var(--border-soft); border-radius: var(--radius-md); background: var(--surface-glass-menu); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); box-shadow: var(--shadow-float); animation: dialog-in var(--motion-fast) var(--motion-ease-out) both; }
 .context-menu-scroll { max-height: calc(100dvh - 28px); overflow-y: auto; }
 .context-menu-item { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 34px; padding: 7px 10px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ink); text-align: left; font-size: 0.8125rem; line-height: 1.4; }
 .context-menu-item > svg, .context-menu-icon { flex: none; width: 16px; color: var(--muted); }
@@ -574,7 +574,7 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .tasks-filter-trigger > svg { flex: none; color: var(--soft-muted); }
 .tasks-filter-trigger:hover, .tasks-filter-trigger[aria-expanded="true"] { border-color: var(--accent-border-soft); background: var(--surface); color: var(--ink); }
 .tasks-filter-menu-wrap { position: absolute; z-index: 30; top: calc(100% + 7px); left: 0; width: 100%; max-height: min(360px, 55vh); }
-.tasks-filter-menu { position: relative; display: grid; width: 100%; max-height: inherit; gap: 2px; overflow-x: hidden; overflow-y: auto; padding: 5px; border: 1px solid var(--border-soft); border-radius: var(--radius-md); background: var(--surface-glass-menu); box-shadow: var(--shadow-float); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); animation: dropdown-in var(--motion-fast) var(--motion-ease-out) both; }
+.tasks-filter-menu { position: relative; display: grid; width: 100%; max-height: inherit; gap: 2px; overflow-x: hidden; overflow-y: auto; padding: 5px; border: 1px solid var(--border-soft); border-radius: var(--radius-md); background: var(--surface-glass-menu); box-shadow: var(--shadow-float); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); animation: dropdown-in var(--motion-fast) var(--motion-ease-out) both; }
 .tasks-filter-menu button { display: flex; width: 100%; min-width: 0; min-height: 34px; align-items: center; gap: 8px; padding: 7px 10px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ink); font: inherit; font-size: .8125rem; text-align: left; cursor: pointer; }
 .tasks-filter-menu button > .tasks-filter-option-label { width: auto; height: auto; min-width: 0; flex: 1 1 auto; overflow: hidden; color: inherit; text-overflow: ellipsis; white-space: nowrap; }
 .tasks-filter-menu button:hover:not(.is-selected), .tasks-filter-menu button:focus-visible:not(.is-selected) { background: var(--surface-muted); }
@@ -928,8 +928,8 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
   justify-content: normal;
   padding: 0 34px;
   background: var(--surface-glass);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--line);
   transition: opacity var(--motion-panel) var(--motion-ease-out), transform var(--motion-panel) var(--motion-ease-out);
 }
@@ -955,7 +955,26 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .editor-header-title:hover { opacity: 1; color: var(--ink); }
 .editor-meta { display: flex; align-items: center; min-width: 0; gap: 8px; color: var(--soft-muted); font-size: 0.76rem; white-space: nowrap; }
 .editor-meta strong { color: var(--muted); font-weight: 500; }
-.editor-actions { justify-content: flex-end; gap: 4px; min-width: 0; }
+.editor-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
+}
+.editor-actions .icon-button {
+  flex-shrink: 0;
+}
+.editor-actions .danger-button,
+.editor-actions button[aria-label="移入回收站"] {
+  margin-left: 2px;
+  color: var(--muted);
+}
+.editor-actions .danger-button:hover,
+.editor-actions button[aria-label="移入回收站"]:hover {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
 .save-status { display: inline-flex; align-items: center; gap: 7px; margin-right: 10px; color: var(--soft-muted); font-size: 0.74rem; }
 .save-status--icon { display: inline-grid; width: 28px; height: 28px; flex: 0 0 28px; place-items: center; gap: 0; margin-right: 6px; padding: 0; border: 1px solid transparent; border-radius: 8px; font-size: 0; line-height: 1; }
 .save-status-icon { display: block; flex: none; }
@@ -1362,8 +1381,8 @@ button.save-status:hover { text-decoration: underline; }
   border-radius: 9999px;
   max-width: calc(100vw - 24px);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.05);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   user-select: none;
   -webkit-user-select: none;
   animation: auto-reading-hud-in var(--motion-panel) var(--motion-ease-out);
@@ -1852,8 +1871,8 @@ button.save-status:hover { text-decoration: underline; }
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-md);
   background: var(--surface-glass-menu);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   box-shadow: var(--shadow-float);
   animation: dropdown-in var(--motion-fast) var(--motion-ease-out);
 }
@@ -2252,7 +2271,7 @@ dialog::backdrop {
 
 .system-notices { position: fixed; right: 24px; bottom: 80px; z-index: 80; display: grid; justify-items: end; gap: 8px; width: min(340px, calc(100% - 48px)); pointer-events: none; }
 .system-notices > * { pointer-events: auto; }
-.toast, .update-notice { display: grid; grid-template-columns: 18px minmax(0, 1fr) 28px; align-items: center; gap: 10px; width: fit-content; max-width: 100%; padding: 8px 8px 8px 12px; border: 1px solid var(--border-soft); border-radius: var(--radius-md); background: var(--surface-glass); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); box-shadow: var(--shadow-sm); color: var(--ink); font-size: 0.8125rem; line-height: 1.5; animation: toast-in var(--motion-panel) var(--motion-ease-out) both; }
+.toast, .update-notice { display: grid; grid-template-columns: 18px minmax(0, 1fr) 28px; align-items: center; gap: 10px; width: fit-content; max-width: 100%; padding: 8px 8px 8px 12px; border: 1px solid var(--border-soft); border-radius: var(--radius-md); background: var(--surface-glass); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); box-shadow: var(--shadow-sm); color: var(--ink); font-size: 0.8125rem; line-height: 1.5; animation: toast-in var(--motion-panel) var(--motion-ease-out) both; }
 .notice-copy { min-width: 0; overflow-wrap: anywhere; }
 .editor-upload-notice { position: absolute; right: 16px; bottom: 76px; z-index: 60; max-width: min(340px, calc(100% - 32px)); }
 .editor-upload-notice-body { position: relative; min-width: 0; }
@@ -4303,8 +4322,8 @@ dialog::backdrop {
   pointer-events: auto;
   cursor: copy;
   background: var(--surface-glass);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   box-shadow: var(--shadow-sm);
   transition: transform var(--motion-fast) var(--motion-ease-out),
               background-color var(--motion-fast) ease,

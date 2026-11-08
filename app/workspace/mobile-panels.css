@@ -2,7 +2,7 @@
 
 @media (max-width: 900px) {
   .mobile-notebook-home { display: flex; flex-direction: column; position: relative; height: 100%; min-height: 0; min-width: 0; background: var(--canvas); color: var(--ink); }
-  .mobile-compose-button { display: inline-flex; align-items: center; justify-content: center; width: 46px; height: 46px; flex-shrink: 0; padding: 0; border: 0; border-radius: 999px; color: var(--accent); background: var(--surface-glass-soft); box-shadow: var(--shadow-xs); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
+  .mobile-compose-button { display: inline-flex; align-items: center; justify-content: center; width: 46px; height: 46px; flex-shrink: 0; padding: 0; border: 0; border-radius: 999px; color: var(--accent); background: var(--surface-glass-soft); box-shadow: var(--shadow-xs); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
   .mobile-compose-button:active, .mobile-plain-button:active { scale: 0.94; }
   .mobile-compose-button:focus-visible, .mobile-plain-button:focus-visible, .mobile-search-clear:focus-visible { background: var(--accent-soft); }
   .mobile-home-scroll-shell { flex: 1; min-height: 0; position: relative; overflow: hidden; }
@@ -47,7 +47,7 @@
   .mobile-notebooks-empty p { margin: 0 0 12px; }
   .mobile-notebooks-empty button { min-height: 44px; padding: 0 16px; border: 0; border-radius: var(--radius-sm); background: var(--accent-soft); color: var(--accent); font-size: 15px; }
   .mobile-bottom-bar { position: absolute; inset: auto 0 0; display: flex; align-items: center; gap: 12px; min-width: 0; padding: 12px max(18px, env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left)); z-index: 5; background: transparent; border: 0; }
-  .mobile-bottom-search { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; min-height: 50px; padding: 0 0 0 16px; background: var(--surface-glass-soft); border: 0; border-radius: 999px; color: var(--muted); box-shadow: var(--shadow-xs); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
+  .mobile-bottom-search { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; min-height: 50px; padding: 0 0 0 16px; background: var(--surface-glass-soft); border: 0; border-radius: 999px; color: var(--muted); box-shadow: var(--shadow-xs); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
   .mobile-bottom-search > svg { flex-shrink: 0; }
   .mobile-bottom-search:focus-within { background: var(--surface-glass-medium); color: var(--accent); }
   .mobile-bottom-search input { width: 100%; min-width: 0; min-height: 48px; padding: 0 12px 0 0; border: 0; outline: none; color: var(--ink); background: transparent; font-size: 16px; -webkit-appearance: none; appearance: none; }
