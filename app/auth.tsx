@@ -27,7 +27,7 @@ export function SetupPage() {
 
   return (
     <AuthLayout
-      title="配置你的安静空间"
+      title="配置服务凭据"
       description="象映笔记使用本地 Bun 服务的环境变量管理唯一登录凭据。"
     >
       <section className="config-panel" aria-live="polite">
@@ -105,7 +105,7 @@ export function LoginPage() {
     }
   };
   return (
-    <AuthLayout title="欢迎回来" description="继续记录那些值得留下的东西。">
+    <AuthLayout title="登录" description="输入配置的环境变量凭据以访问笔记。">
       <form className="auth-form" onSubmit={submit}>
         <Field
           label="用户名"
@@ -230,7 +230,7 @@ function AuthLayout({
         </div>
         {children}
       </div>
-      <p className="auth-footnote">你的笔记，只属于你的空间。</p>
+      <p className="auth-footnote">本地优先 · 私密存储</p>
     </main>
   );
 }

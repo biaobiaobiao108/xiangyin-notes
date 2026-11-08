@@ -74,7 +74,7 @@ const slashCommands: SlashCommandItem[] = [
   {
     id: "heading-1",
     label: "一级标题",
-    description: "将当前段落设为 H1",
+    description: "#",
     keywords: ["h1", "heading 1", "title", "标题 1"],
     icon: Heading1,
     action: "heading",
@@ -84,7 +84,7 @@ const slashCommands: SlashCommandItem[] = [
   {
     id: "heading-2",
     label: "二级标题",
-    description: "将当前段落设为 H2",
+    description: "##",
     keywords: ["h2", "heading 2", "subtitle", "标题 2"],
     icon: Heading2,
     action: "heading",
@@ -94,7 +94,7 @@ const slashCommands: SlashCommandItem[] = [
   {
     id: "heading-3",
     label: "三级标题",
-    description: "将当前段落设为 H3",
+    description: "###",
     keywords: ["h3", "heading 3", "标题 3"],
     icon: Heading3,
     action: "heading",
@@ -104,7 +104,7 @@ const slashCommands: SlashCommandItem[] = [
   {
     id: "heading-4",
     label: "四级标题",
-    description: "将当前段落设为 H4",
+    description: "####",
     keywords: ["h4", "heading 4", "标题 4"],
     icon: Heading4,
     action: "heading",
@@ -114,7 +114,7 @@ const slashCommands: SlashCommandItem[] = [
   {
     id: "heading-5",
     label: "五级标题",
-    description: "将当前段落设为 H5",
+    description: "#####",
     keywords: ["h5", "heading 5", "标题 5"],
     icon: Heading5,
     action: "heading",
@@ -124,7 +124,7 @@ const slashCommands: SlashCommandItem[] = [
   {
     id: "heading-6",
     label: "六级标题",
-    description: "将当前段落设为 H6",
+    description: "######",
     keywords: ["h6", "heading 6", "标题 6"],
     icon: Heading6,
     action: "heading",
@@ -134,7 +134,7 @@ const slashCommands: SlashCommandItem[] = [
   {
     id: "bold",
     label: "加粗",
-    description: "从光标处开始加粗",
+    description: "**文本**",
     keywords: ["bold", "strong", "加粗", "粗体"],
     icon: Bold,
     action: "bold",
@@ -143,7 +143,7 @@ const slashCommands: SlashCommandItem[] = [
   {
     id: "italic",
     label: "斜体",
-    description: "从光标处开始使用斜体",
+    description: "*文本*",
     keywords: ["italic", "emphasis", "斜体"],
     icon: Italic,
     action: "italic",
@@ -152,7 +152,7 @@ const slashCommands: SlashCommandItem[] = [
   {
     id: "strike",
     label: "删除线",
-    description: "从光标处开始添加删除线",
+    description: "~~文本~~",
     keywords: ["strike", "strikethrough", "删除线"],
     icon: Strikethrough,
     action: "strike",
@@ -161,7 +161,7 @@ const slashCommands: SlashCommandItem[] = [
   {
     id: "underline",
     label: "下划线",
-    description: "从光标处开始添加下划线",
+    description: "<u>文本</u>",
     keywords: ["underline", "下划线"],
     icon: Underline,
     action: "underline",
@@ -179,7 +179,7 @@ const slashCommands: SlashCommandItem[] = [
   {
     id: "paragraph",
     label: "正文段落",
-    description: "转换为普通段落",
+    description: "普通段落",
     keywords: ["paragraph", "text", "正文"],
     icon: Pilcrow,
     action: "paragraph",
@@ -242,7 +242,7 @@ const slashCommands: SlashCommandItem[] = [
   {
     id: "table",
     label: "表格",
-    description: "插入 3 × 3 表格",
+    description: "3 × 3 表格",
     keywords: ["table", "grid", "表格"],
     icon: Table2,
     action: "table",
@@ -251,7 +251,7 @@ const slashCommands: SlashCommandItem[] = [
   {
     id: "callout-note",
     label: "提示块 · 说明",
-    description: "插入 NOTE 提示块",
+    description: "[!NOTE]",
     keywords: ["callout", "note", "提示", "说明"],
     icon: Info,
     action: "callout",
@@ -261,7 +261,7 @@ const slashCommands: SlashCommandItem[] = [
   {
     id: "callout-tip",
     label: "提示块 · 建议",
-    description: "插入 TIP 提示块",
+    description: "[!TIP]",
     keywords: ["callout", "tip", "建议"],
     icon: Lightbulb,
     action: "callout",
@@ -271,7 +271,7 @@ const slashCommands: SlashCommandItem[] = [
   {
     id: "callout-important",
     label: "提示块 · 重要",
-    description: "插入 IMPORTANT 提示块",
+    description: "[!IMPORTANT]",
     keywords: ["callout", "important", "重要"],
     icon: Bookmark,
     action: "callout",
@@ -281,7 +281,7 @@ const slashCommands: SlashCommandItem[] = [
   {
     id: "callout-warning",
     label: "提示块 · 警告",
-    description: "插入 WARNING 提示块",
+    description: "[!WARNING]",
     keywords: ["callout", "warning", "警告"],
     icon: TriangleAlert,
     action: "callout",
@@ -291,7 +291,7 @@ const slashCommands: SlashCommandItem[] = [
   {
     id: "callout-caution",
     label: "提示块 · 注意",
-    description: "插入 CAUTION 提示块",
+    description: "[!CAUTION]",
     keywords: ["callout", "caution", "注意"],
     icon: ShieldAlert,
     action: "callout",
@@ -301,7 +301,7 @@ const slashCommands: SlashCommandItem[] = [
   {
     id: "image",
     label: "图片",
-    description: "选择图片并上传",
+    description: "上传图片",
     keywords: ["image", "picture", "photo", "图片"],
     icon: ImagePlus,
     action: "image",

@@ -5,13 +5,13 @@ import {
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { AlertTriangle, RefreshCw, X } from "lucide-react";
+import { X } from "lucide-react";
 import type { Notebook } from "../../shared/types";
 import { errorMessage, notebookColorOptions, notebookIconOptions } from "./helpers";
 
 export type ConfirmRequest = {
   id: number;
-  eyebrow: string;
+  eyebrow?: string;
   title: string;
   description: string;
   confirmLabel: string;
@@ -87,10 +87,6 @@ export function ConfirmDialog({
     >
       <div className="dialog-heading">
         <div>
-          <span className={`dialog-eyebrow ${request.danger ? "is-danger" : ""}`}>
-            {request.danger ? <AlertTriangle size={15} /> : <RefreshCw size={15} />}
-            {request.eyebrow}
-          </span>
           <h2 id="confirm-dialog-title">{request.title}</h2>
           <p id="confirm-dialog-description">{request.description}</p>
           {error && (

@@ -25,7 +25,7 @@
   .mobile-notebook-link:active { background: var(--accent-soft); }
   .mobile-notebook-icon { color: var(--accent); display: inline-flex; align-items: center; justify-content: center; width: 26px; flex-shrink: 0; }
   .mobile-notebook-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 17px; }
-  .mobile-notebook-count { color: var(--muted); font-size: 15px; font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .mobile-notebook-count { color: var(--muted); font-size: 15px; font-variant-numeric: tabular-nums; }
   .mobile-notebook-chevron { color: var(--muted); opacity: 0.6; flex-shrink: 0; }
   .mobile-home-section-heading { display: flex; justify-content: space-between; align-items: center; margin: 24px 0 8px; }
   .mobile-home-section-heading h2 { margin: 0; font-size: 18px; font-weight: 600; }
