@@ -32,7 +32,7 @@
 
 | 角色 | 字体族声明 (Font Family) | 回退机制 | 字重规范 | 用途说明 |
 | --- | --- | --- | --- | --- |
-| 正文与界面 UI | `-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif` | 优先 Apple/Windows 原生最佳中西文字族 | 400 (常规), 500 (中粗), 600 (标题粗) | 全站正文、标题、导航、按钮、表单与大纲 |
+| 正文与界面 UI | `-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif` | 优先 Apple/Windows 原生最佳中西文字族 | 400 (常规), 500 (中粗), 600 (标题粗) | 全站正文、标题、导航、按钮、表单与大纲 |
 | 纯代码与等宽表格 | `ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace` | 操作系统等宽核心字族 | 400, 500 | 仅用于围栏代码块、行内代码与快捷键徽标；**严禁用作普通中文元数据时间** |
 
 使用 `font-variant-numeric: tabular-nums` 保障列表更新时间与计数字符宽度严密对齐。
