@@ -237,12 +237,22 @@ export async function paginateNote(
     }
     const clone = node.cloneNode(true) as HTMLElement;
     if (tryAppend(clone, ancestors)) return;
-    // Preserve ordinary blocks intact whenever they can fit on a fresh page.
+    // Preserve ordinary blocks intact whenever they can fit on a fresh page,
+    // but avoid abandoning a largely empty page when a long, splittable block
+    // (such as a multi-line code block or long paragraph) has plenty of room to start.
     const precedingHeading = prose.lastElementChild?.matches("h1, h2, h3, h4, h5, h6");
+    const remainingHeight =
+      IMAGE_PAGE_HEIGHT -
+      IMAGE_PAGE_PADDING -
+      (prose.getBoundingClientRect().bottom - page.getBoundingClientRect().top);
+    const canSplitText = ["P", "PRE"].includes(node.tagName);
+    const shouldKeepIntact = canSplitText
+      ? remainingHeight < 160 || node.getBoundingClientRect().height < 220
+      : node.getBoundingClientRect().height <= IMAGE_PAGE_HEIGHT - IMAGE_PAGE_PADDING * 2;
     if (
       !precedingHeading &&
       (prose.textContent?.length || prose.querySelector("img, hr, table")) &&
-      node.getBoundingClientRect().height <= IMAGE_PAGE_HEIGHT - IMAGE_PAGE_PADDING * 2
+      shouldKeepIntact
     ) {
       newPage();
       if (tryAppend(clone, ancestors)) return;
