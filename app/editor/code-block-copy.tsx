@@ -95,9 +95,15 @@ function CodeBlockCopyView({ node }: NodeViewProps) {
 
   const Icon = status === "copied" ? Check : status === "error" ? CircleAlert : Copy;
   const label = status === "copied" ? "代码已复制" : status === "error" ? "复制失败" : "复制代码";
+  const language = typeof node.attrs?.language === "string" ? node.attrs.language.trim() : "";
 
   return (
     <NodeViewWrapper as="pre" className="code-block-node-view" style={{ whiteSpace: "pre-wrap" }}>
+      {language ? (
+        <span className="code-block-language" contentEditable={false} aria-hidden="true">
+          {language}
+        </span>
+      ) : null}
       <button
         className={`code-block-copy-button ${status === "idle" ? "" : `is-${status}`}`}
         type="button"

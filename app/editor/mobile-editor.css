@@ -144,7 +144,7 @@
     padding-bottom: calc(96px + var(--mobile-keyboard-inset, 0px) + var(--mobile-bottom-safe-area, env(safe-area-inset-bottom)));
   }
   .is-mobile-editor .note-title-input { font-size: clamp(26px, 6.5vw, 34px); }
-  .is-mobile-editor .note-prose { font-size: 1.125rem; }
+  .is-mobile-editor .note-prose { font-size: 1rem; }
   .is-mobile-editor .editor-floating-tools,
   .is-mobile-editor.is-focus-mode .editor-floating-tools {
     right: max(18px, env(safe-area-inset-right));

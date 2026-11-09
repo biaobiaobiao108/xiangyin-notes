@@ -33,7 +33,7 @@
 | 角色 | 字体族声明 (Font Family) | 回退机制 | 字重规范 | 用途说明 |
 | --- | --- | --- | --- | --- |
 | 正文与界面 UI | `-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif` | 优先 Apple/Windows 原生最佳中西文字族 | 400 (常规), 500 (中粗), 600 (标题粗) | 全站正文、标题、导航、按钮、表单与大纲 |
-| 纯代码与等宽表格 | `ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace` | 操作系统等宽核心字族 | 400, 500 | 仅用于围栏代码块、行内代码与快捷键徽标；**严禁用作普通中文元数据时间** |
+| 纯代码与等宽表格 | `ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace` | 操作系统等宽核心字族 | 400, 500 | 仅用于围栏代码块、行内代码与快捷键徽标；**严禁用作普通中文元数据时间** |
 
 使用 `font-variant-numeric: tabular-nums` 保障列表更新时间与计数字符宽度严密对齐。
 
@@ -41,11 +41,18 @@
 
 | 角色 | Token / 类名 | 字号 | 行高 | 字重 | 用途与约束 |
 | --- | --- | --- | --- | --- | --- |
-| 文档主标题 | `.note-prose h1` | 28px ~ 32px | 1.28 | 650 | 笔记正文首行第一标题 |
+| 文档主标题 | `.note-prose h1` | 1.85rem (~29.6px) | 1.22 | 700 | 笔记正文首行第一标题，统领全文 |
 | 栏目主标题 | `.list-header h2` | 20px | 1.35 | 600 | 侧栏/列表顶栏标题（如“全部笔记”、“任务”） |
-| 二级标题 | `.note-prose h2` | 20px | 1.35 | 600 | 正文二级标题 |
+| 二级标题 | `.note-prose h2` | 1.45rem (~23.2px) | 1.30 | 650 | 章节大纲二级标题 |
+| 三级标题 | `.note-prose h3` | 1.25rem (~20.0px) | 1.35 | 600 | 正文小节三级标题 |
+| 四级标题 | `.note-prose h4` | 1.12rem (~17.9px) | 1.38 | 600 | 结构细分标题，字号必须显著大于正文 |
+| 五级标题 | `.note-prose h5` | 1.05rem (~16.8px) | 1.40 | 600 | 紧凑小标题，等同正文字号但加粗区分 |
+| 六级标题 | `.note-prose h6` | 1.00rem (~16.0px) | 1.40 | 600 | 次级墨色小标，严禁字号小于正文导致倒挂 |
 | 列表项标题 | `.note-row-title-text` | 15px | 1.42 | 600 | 笔记列表中单篇笔记标题 |
-| 正文阅读 | `.note-prose p` | 15px (移动端 16px) | 1.72 | 400 | Markdown 正文黄金书写行距 |
+| 正文阅读 | `.note-prose p` | 1.05rem (~16.8px, 移动端 16px) | 1.72 | 400 | Markdown 正文黄金书写行距，启用美观换行与中西排印优化 |
+| 围栏代码块 | `.note-prose pre` | 0.94rem (~15.0px) | 1.68 | 400 | 操作系统原生等宽字体，右上角配备语言徽标与静音复制按钮 |
+| 行内代码 | `.note-prose code` | 0.88em | 1.4 | 400 | 严格继承原生等宽字体族，朱砂赭温润底色与微弱边框 |
+| 表格文字 | `.note-prose table` | 0.94rem (~15.0px) | 1.55 | 400/600 | 平滑衔接正文字阶，避免落差过大 |
 | 摘要预览 | `.note-row-preview` | 13px | 1.55 | 400 | 笔记列表中正文首段摘要 |
 | 元数据与标签 | `.note-row-meta`, `.note-row-tag` | 12px | 1.4 | 500 | 分类、更新相对时间与井号标签 |
 | 微型提示 | `.command-section-label` | 11px | 1.2 | 600 | 命令菜单分组与辅助微标 |
@@ -105,3 +112,4 @@
 4. **禁止滥用高斯模糊 (`slop:lazy-cool`)**：全站禁止随处叠加 `backdrop-filter: blur(18px)`，纸面质感优先保持实体清爽。
 5. **禁止同屏标题回荡 (`slop:echo`)**：桌面端顶栏与编辑器正文首行同一标题不得同屏并存大面积重复显示。
 6. **禁止装饰性等宽字体 (`slop:mono-costume`)**：中文相对时间、列表标题不得滥用 monospace。
+7. **禁止彩虹标题配色 (`slop:calibrated-look`)**：Markdown H1~H6 严禁每级赋予不同粉彩色相（红、绿、蓝、黄、紫、灰），全站标题统一回归深墨（`--ink` / `--quiet-ink`），完全依托字阶、字重与版面留白呈现视觉层级。
