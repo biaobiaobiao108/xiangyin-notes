@@ -45,8 +45,12 @@ export async function paginateNote(
     page.className = "image-export-page";
     Object.assign(page.style, {
       width: `${IMAGE_PAGE_WIDTH}px`,
+      height: `${IMAGE_PAGE_HEIGHT}px`,
+      minHeight: `${IMAGE_PAGE_HEIGHT}px`,
+      maxHeight: `${IMAGE_PAGE_HEIGHT}px`,
       padding: `${IMAGE_PAGE_PADDING}px`,
       boxSizing: "border-box",
+      overflow: "hidden",
     });
     prose = source.cloneNode(false) as HTMLElement;
     prose.removeAttribute("contenteditable");
@@ -237,32 +241,6 @@ export async function paginateNote(
     }
     const clone = node.cloneNode(true) as HTMLElement;
     if (tryAppend(clone, ancestors)) return;
-    // Preserve ordinary blocks intact whenever they can fit on a fresh page,
-    // but avoid abandoning a largely empty page when a long, splittable block
-    // (such as a multi-line code block or long paragraph) has plenty of room to start.
-    const precedingHeading = prose.lastElementChild?.matches("h1, h2, h3, h4, h5, h6");
-    const remainingHeight =
-      IMAGE_PAGE_HEIGHT -
-      IMAGE_PAGE_PADDING -
-      (prose.getBoundingClientRect().bottom - page.getBoundingClientRect().top);
-    const canSplitText = ["P", "PRE"].includes(node.tagName);
-    const shouldKeepIntact = canSplitText
-      ? remainingHeight < 160 || node.getBoundingClientRect().height < 220
-      : node.getBoundingClientRect().height <= IMAGE_PAGE_HEIGHT - IMAGE_PAGE_PADDING * 2;
-    if (
-      !precedingHeading &&
-      (prose.textContent?.length || prose.querySelector("img, hr, table")) &&
-      shouldKeepIntact
-    ) {
-      newPage();
-      if (tryAppend(clone, ancestors)) return;
-    }
-    if (node.tagName === "TABLE") return appendTable(node as HTMLTableElement, ancestors);
-    if (
-      ["P", "PRE", "H1", "H2", "H3", "H4", "H5", "H6"].includes(node.tagName) &&
-      node.textContent?.length
-    )
-      return appendText(node, ancestors);
     if (
       ["UL", "OL", "LI", "BLOCKQUOTE", "DIV", "SECTION", "ASIDE"].includes(node.tagName) &&
       node.children.length
@@ -283,9 +261,42 @@ export async function paginateNote(
       }
       return;
     }
+
+    if (node.tagName === "TABLE") return appendTable(node as HTMLTableElement, ancestors);
+
+    if (
+      ["P", "PRE", "H1", "H2", "H3", "H4", "H5", "H6"].includes(node.tagName) &&
+      node.textContent?.length
+    ) {
+      const remainingHeight =
+        IMAGE_PAGE_HEIGHT -
+        IMAGE_PAGE_PADDING -
+        (prose.getBoundingClientRect().bottom - page.getBoundingClientRect().top);
+      // If the current page is nearly full (< 80px, barely room for 1 line)
+      // or if the block is very short (< 100px) and there is already content on the page,
+      // start a fresh page to avoid an awkward orphan single-line fragment.
+      if (
+        (prose.textContent?.length || prose.querySelector("img, hr, table")) &&
+        (remainingHeight < 80 || node.getBoundingClientRect().height < 100)
+      ) {
+        newPage();
+        if (tryAppend(clone, ancestors)) return;
+      }
+      return appendText(node, ancestors);
+    }
+
     if (prose.textContent?.length || prose.querySelector("img, hr, table")) newPage();
-    if (!tryAppend(clone, ancestors))
+    if (!tryAppend(clone, ancestors)) {
+      if (clone.tagName === "IMG" || clone.querySelector("img")) {
+        const img =
+          clone.tagName === "IMG" ? (clone as HTMLImageElement) : clone.querySelector("img")!;
+        img.style.maxHeight = `${IMAGE_PAGE_HEIGHT - IMAGE_PAGE_PADDING * 2}px`;
+        img.style.width = "auto";
+        img.style.objectFit = "contain";
+        if (tryAppend(clone, ancestors)) return;
+      }
       throw new Error("有图片或内容块超过一页，请缩小该内容后导出。");
+    }
   };
 
   newPage();
@@ -297,30 +308,37 @@ export async function paginateNote(
         const next = blocks.slice(index + 1).find((item) => item instanceof HTMLElement);
         if (next) {
           const heading = block.cloneNode(true);
-          let following = next.cloneNode(true);
-          if (
-            next instanceof HTMLElement &&
-            next.getBoundingClientRect().height > IMAGE_PAGE_HEIGHT - IMAGE_PAGE_PADDING * 2
-          ) {
-            const walker = document.createTreeWalker(next, NodeFilter.SHOW_TEXT);
-            let first = walker.nextNode() as Text | null;
-            while (first && !first.data.trim()) first = walker.nextNode() as Text | null;
-            if (first) {
-              const range = document.createRange();
-              range.setStart(next, 0);
-              range.setEnd(first, safeTextBoundary(first.data, Math.min(first.length, 32)));
-              following = next.cloneNode(false);
-              following.appendChild(range.cloneContents());
-            }
+          let followingProbe: HTMLElement;
+          const walker = document.createTreeWalker(next, NodeFilter.SHOW_TEXT);
+          let firstText = walker.nextNode() as Text | null;
+          while (firstText && !firstText.data.trim()) firstText = walker.nextNode() as Text | null;
+          if (firstText) {
+            const range = document.createRange();
+            range.setStart(next, 0);
+            range.setEnd(
+              firstText,
+              safeTextBoundary(firstText.data, Math.min(firstText.length, 36)),
+            );
+            followingProbe = next.cloneNode(false) as HTMLElement;
+            followingProbe.appendChild(range.cloneContents());
+          } else {
+            followingProbe = next.cloneNode(false) as HTMLElement;
+            followingProbe.style.height = "40px";
           }
-          prose.append(heading, following);
+          prose.append(heading, followingProbe);
           const togetherFits = fits();
-          heading.parentNode?.removeChild(heading);
-          following.parentNode?.removeChild(following);
+          (heading as HTMLElement).remove();
+          followingProbe.remove();
           if (!togetherFits) newPage();
         }
       }
       await appendFlow(block);
+    }
+    if (pages.length === 1) {
+      page.style.height = "auto";
+      page.style.minHeight = "0";
+      page.style.maxHeight = "none";
+      page.style.overflow = "visible";
     }
     return pages;
   } catch (error) {
