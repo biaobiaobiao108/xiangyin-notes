@@ -16,7 +16,7 @@ import { playEntranceAnimation } from "../animation";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { resolveNoteClickAction, type NoteSelectionClick } from "./note-list-selection";
 import { EmptyTrashButton } from "./empty-trash-button";
-import { getNoteTags, relativeDate, sortNotes, viewLabel } from "./helpers";
+import { getNoteTags, relativeDate, sortNotes } from "./helpers";
 import { NOTE_DRAG_MIME_TYPE, setNoteDragImage } from "./note-drag-drop";
 import { NoteTags } from "./note-tags";
 import { useVirtualCardMasonry } from "./use-virtual-card-masonry";
@@ -35,7 +35,6 @@ export type NoteCardGridPanelProps = {
   ) => void;
   onDeleteSelected: () => void;
   view: NoteView;
-  currentNotebookName?: string;
   query: string;
   onClearQuery: () => void;
   notebooks: Notebook[];
@@ -62,7 +61,6 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
   onToggleSelectNote,
   onDeleteSelected,
   view,
-  currentNotebookName,
   query,
   onClearQuery,
   notebooks,
@@ -140,7 +138,6 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
         position={index + 1}
         setSize={Math.max(total, notes.length)}
         isSelected={selectedIds.has(note.id)}
-        selectedIds={selectedIds}
         hasSelectionActive={selectedIds.size > 0}
         showNotebook={showNotebook}
         onOpen={onOpenNote}
@@ -360,7 +357,6 @@ type NoteCardItemProps = {
   onToggleFavorite: (note: NoteSummary) => void;
   notebook?: Notebook;
   isTrashView: boolean;
-  selectedIds?: ReadonlySet<string>;
   isDragging: boolean;
   onDragStart: (note: NoteSummary, event: ReactDragEvent<HTMLElement>) => void;
   onDragEnd: () => void;
@@ -372,7 +368,6 @@ const NoteCardItem = memo(function NoteCardItem({
   position,
   setSize,
   isSelected,
-  selectedIds,
   hasSelectionActive,
   showNotebook,
   onOpen,

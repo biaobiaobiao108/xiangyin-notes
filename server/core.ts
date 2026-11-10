@@ -1,7 +1,5 @@
 import { createHash } from "node:crypto";
-import { rm } from "node:fs/promises";
 import { isIP } from "node:net";
-import { join } from "node:path";
 import { Lexer } from "marked";
 import { extractMarkdownDestinationReferences } from "../shared/markdown-lexer";
 import { extractTags, normalizeTag } from "../shared/tags";
@@ -730,8 +728,8 @@ export const NOTE_LIST_SELECT = `
 
 export const NOTE_FROM = `
   notes n
-  JOIN notebooks b ON b.id = n.notebook_id
-  LEFT JOIN image_assets a ON a.note_id = n.id AND a.document_order = 0
+  JOIN notebooks b ON b.id = n.notebook_id AND b.user_id = n.user_id
+  LEFT JOIN image_assets a ON a.note_id = n.id AND a.user_id = n.user_id AND a.document_order = 0
 `;
 
 export function toNote(row: NoteRow, explicitTags?: string[]): NoteSummary {
@@ -975,7 +973,7 @@ export function findNotesByTitlePattern(
     SELECT n.id, n.title, n.version, b.name AS notebook_name,
       substr(n.content_markdown, 1, ${NOTE_PREVIEW_SCAN_LIMIT}) AS content_markdown,
       n.created_at, n.updated_at
-    FROM notes n JOIN notebooks b ON b.id = n.notebook_id
+    FROM notes n JOIN notebooks b ON b.id = n.notebook_id AND b.user_id = n.user_id
     WHERE n.user_id = ? ${includeDeleted ? "" : "AND n.deleted_at IS NULL "}AND n.title LIKE ? ESCAPE '!'
     ORDER BY CASE WHEN n.title = ? COLLATE NOCASE THEN 0 ELSE 1 END, n.updated_at DESC, n.id DESC
     LIMIT 6

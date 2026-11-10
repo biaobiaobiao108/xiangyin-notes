@@ -4,7 +4,6 @@ import {
   first,
   json,
   jsonError,
-  NOTE_FROM,
   NOTE_LIST_SELECT,
   now,
   parseIndexedTags,
@@ -68,9 +67,9 @@ function decodeKanbanCursor(value: string | null): KanbanCursor | null | false {
 
 const KANBAN_FROM = `
   kanban_cards k
-  JOIN notes n ON n.id = k.note_id
-  JOIN notebooks b ON b.id = n.notebook_id
-  LEFT JOIN image_assets a ON a.note_id = n.id AND a.document_order = 0
+  JOIN notes n ON n.id = k.note_id AND n.user_id = k.user_id
+  JOIN notebooks b ON b.id = n.notebook_id AND b.user_id = n.user_id
+  LEFT JOIN image_assets a ON a.note_id = n.id AND a.user_id = n.user_id AND a.document_order = 0
 `;
 
 function toKanbanCard(row: KanbanCardRow): KanbanCard {

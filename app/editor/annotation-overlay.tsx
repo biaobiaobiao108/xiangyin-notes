@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObje
 import { createPortal } from "react-dom";
 import type { Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { Check, Trash2, X } from "lucide-react";
+import { Trash2, X } from "lucide-react";
 import { createUuid } from "../uuid";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { computeScrollEdges, type ScrollEdges } from "../workspace/use-scroll-edges";
@@ -785,10 +785,6 @@ function AnnotationLayer({
   const compactAnnotation = compact
     ? (annotations.find((annotation) => annotation.id === compact.id) ?? null)
     : null;
-  const compactIndex = compact
-    ? annotations.findIndex((annotation) => annotation.id === compact.id)
-    : -1;
-
   useEffect(() => {
     if (showRail || !expandedId) {
       setCompact(null);

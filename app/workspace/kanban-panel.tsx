@@ -65,7 +65,6 @@ export type KanbanPanelProps = {
   onCreateNoteInColumn: (status: KanbanStatus) => void;
   onAddExistingNote: (noteId: string, status: KanbanStatus) => void;
   onMoveCard: (noteId: string, targetStatus: KanbanStatus, targetSortOrder: number) => void;
-  onRemoveCard?: (noteId: string) => void;
   onTrashCard: (noteId: string) => void;
   onLoadMoreColumn: (status: KanbanStatus) => void;
   onToggleFavorite?: (note: NoteSummary) => void;
@@ -677,7 +676,6 @@ export const KanbanPanel = memo(function KanbanPanel({
   onCreateNoteInColumn,
   onAddExistingNote,
   onMoveCard,
-  onRemoveCard,
   onTrashCard,
   onLoadMoreColumn,
   onToggleFavorite,

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { sortNotes, type NoteSort } from "../app/workspace/helpers";
+import { sortNotes } from "../app/workspace/helpers";
 import {
   assignCardMasonryLanes,
   cardLaneConfig,

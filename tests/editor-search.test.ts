@@ -3,7 +3,6 @@ import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { createMarkdownExtension } from "../app/editor/markdown-config";
 import { Schema } from "@tiptap/pm/model";
-import { EditorState } from "@tiptap/pm/state";
 import { history } from "@tiptap/pm/history";
 import {
   cycleSearchMatchIndex,

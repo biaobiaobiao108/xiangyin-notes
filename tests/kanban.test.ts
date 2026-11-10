@@ -63,6 +63,130 @@ describe("Kanban API", () => {
     }
   });
 
+  test("does not return cards whose note or notebook belongs to another user", async () => {
+    const cookie = await login();
+    const owner = database.query("SELECT id FROM users WHERE username = ?").get("owner") as {
+      id: string;
+    };
+    const foreignUserId = crypto.randomUUID();
+    const foreignNotebookId = crypto.randomUUID();
+    const foreignNoteId = crypto.randomUUID();
+    const mismatchedNotebookNoteId = crypto.randomUUID();
+
+    database
+      .query(
+        "INSERT INTO users (id, username, password_hash, password_salt, created_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run(foreignUserId, "foreign-user", "hash", "salt", 1);
+    database
+      .query(
+        "INSERT INTO notebooks (id, user_id, name, color, icon, is_system, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?)",
+      )
+      .run(foreignNotebookId, foreignUserId, "外来笔记本", "#2d6a4f", "folder", 1, 1);
+    database
+      .query(
+        "INSERT INTO notes (id, user_id, notebook_id, title, title_normalized, content_markdown, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)",
+      )
+      .run(
+        foreignNoteId,
+        foreignUserId,
+        foreignNotebookId,
+        "外来笔记",
+        "外来笔记",
+        "不应出现在当前用户的看板中",
+        1,
+        1,
+      );
+    database
+      .query(
+        "INSERT INTO kanban_cards (note_id, user_id, status, sort_order, created_at, updated_at) VALUES (?, ?, 'inbox', 100, 1, 1)",
+      )
+      .run(foreignNoteId, owner.id);
+
+    database
+      .query(
+        "INSERT INTO notes (id, user_id, notebook_id, title, title_normalized, content_markdown, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)",
+      )
+      .run(
+        mismatchedNotebookNoteId,
+        owner.id,
+        foreignNotebookId,
+        "归属异常笔记",
+        "归属异常笔记",
+        "",
+        1,
+        1,
+      );
+    database
+      .query(
+        "INSERT INTO kanban_cards (note_id, user_id, status, sort_order, created_at, updated_at) VALUES (?, ?, 'inbox', 200, 1, 1)",
+      )
+      .run(mismatchedNotebookNoteId, owner.id);
+
+    const response = await api("/api/kanban", { method: "GET" }, cookie);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      cards: [],
+      total: 0,
+      hasMore: false,
+      nextCursor: null,
+    });
+  });
+
+  test("does not use another user's image asset as a card thumbnail", async () => {
+    const cookie = await login();
+    const owner = database.query("SELECT id FROM users WHERE username = ?").get("owner") as {
+      id: string;
+    };
+    const inbox = database
+      .query("SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1")
+      .get(owner.id) as { id: string };
+    const foreignUserId = crypto.randomUUID();
+    const noteId = crypto.randomUUID();
+    const assetId = crypto.randomUUID();
+
+    database
+      .query(
+        "INSERT INTO users (id, username, password_hash, password_salt, created_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run(foreignUserId, "foreign-user", "hash", "salt", 1);
+    database
+      .query(
+        "INSERT INTO notes (id, user_id, notebook_id, title, title_normalized, content_markdown, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)",
+      )
+      .run(noteId, owner.id, inbox.id, "缩略图隔离", "缩略图隔离", "", 1, 1);
+    database
+      .query(
+        "INSERT INTO kanban_cards (note_id, user_id, status, sort_order, created_at, updated_at) VALUES (?, ?, 'inbox', 100, 1, 1)",
+      )
+      .run(noteId, owner.id);
+    database
+      .query(
+        "INSERT INTO image_assets (id, user_id, note_id, storage_path, original_name, mime_type, byte_size, width, height, document_order, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)",
+      )
+      .run(
+        assetId,
+        foreignUserId,
+        noteId,
+        `${foreignUserId}/${assetId}.png`,
+        "foreign.png",
+        "image/png",
+        128,
+        16,
+        8,
+        1,
+      );
+
+    const response = await api("/api/kanban", { method: "GET" }, cookie);
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      cards: Array<{ noteId: string; note: { thumbnail: unknown } }>;
+    };
+    expect(body.cards).toHaveLength(1);
+    expect(body.cards[0]?.noteId).toBe(noteId);
+    expect(body.cards[0]?.note.thumbnail).toBeNull();
+  });
+
   test("full kanban lifecycle: add card, move across columns, remove, trash and restore", async () => {
     const cookie = await login();
 

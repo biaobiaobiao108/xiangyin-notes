@@ -577,7 +577,6 @@ export function TasksPanel({
 
   const renderVirtualRow = (
     row: (typeof virtualList.visibleRows)[number]["row"],
-    index: number,
     top: number,
     inset = 12,
     inert = false,
@@ -872,14 +871,8 @@ export function TasksPanel({
                             virtualGroupTransition?.phase === "preparing-expansion";
                           return (
                             <>
-                              {partition.before.map(({ row, index, top }) =>
-                                renderVirtualRow(row, index, top),
-                              )}
-                              {renderVirtualRow(
-                                groupHeader.row,
-                                groupHeader.index,
-                                groupHeader.top,
-                              )}
+                              {partition.before.map(({ row, top }) => renderVirtualRow(row, top))}
+                              {renderVirtualRow(groupHeader.row, groupHeader.top)}
                               <li
                                 key={`animated-group-${groupHeader.row.groupId}`}
                                 className="virtual-group-motion tasks-virtual-group-motion"
@@ -900,8 +893,8 @@ export function TasksPanel({
                                       style={{ height: `${group.height}px` }}
                                       role="list"
                                     >
-                                      {partition.group.map(({ row, index, localTop }) =>
-                                        renderVirtualRow(row, index, localTop, 0),
+                                      {partition.group.map(({ row, localTop }) =>
+                                        renderVirtualRow(row, localTop, 0),
                                       )}
                                     </ul>
                                   </div>
@@ -912,8 +905,8 @@ export function TasksPanel({
                                     style={{ height: `${afterHeight + (hasMore ? 72 : 24)}px` }}
                                     role="list"
                                   >
-                                    {partition.after.map(({ row, index, localTop }) =>
-                                      renderVirtualRow(row, index, localTop, 0),
+                                    {partition.after.map(({ row, localTop }) =>
+                                      renderVirtualRow(row, localTop, 0),
                                     )}
                                     {hasMore && (
                                       <li
@@ -936,9 +929,7 @@ export function TasksPanel({
                             </>
                           );
                         })()
-                      : virtualList.visibleRows.map(({ row, index, top }) =>
-                          renderVirtualRow(row, index, top),
-                        )}
+                      : virtualList.visibleRows.map(({ row, top }) => renderVirtualRow(row, top))}
                     {hasMore && !virtualList.transitionGroup && (
                       <li
                         ref={(element) => {

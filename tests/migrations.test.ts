@@ -12,7 +12,6 @@ import {
   type SchemaMigration,
 } from "../server/db";
 import { LEGACY_PASSWORD_ITERATIONS } from "../server/core";
-import { shortSearchToken } from "../server/note-search";
 
 test("initializes a fresh database from the single baseline and records its version", async () => {
   const database = await openDatabase(":memory:");

@@ -2617,10 +2617,9 @@ describe("Bun Server API", () => {
     expect(inlineScript).toBeDefined();
     const themeScriptHash = new Bun.CryptoHasher("sha256").update(inlineScript!).digest("base64");
     expect(contentSecurityPolicy).toContain(`'sha256-${themeScriptHash}'`);
-    expect(contentSecurityPolicy).toContain(
-      "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
-    );
-    expect(contentSecurityPolicy).toContain("font-src 'self' https://cdn.jsdelivr.net");
+    expect(contentSecurityPolicy).toContain("style-src 'self' 'unsafe-inline'");
+    expect(contentSecurityPolicy).toContain("font-src 'self'");
+    expect(contentSecurityPolicy).not.toContain("cdn.jsdelivr.net");
     expect(contentSecurityPolicy).toContain("img-src 'self' data: blob: https:");
     expect(manifest.body?.display).toBe("standalone");
     expect(manifest.body?.color_scheme_dark).toEqual({

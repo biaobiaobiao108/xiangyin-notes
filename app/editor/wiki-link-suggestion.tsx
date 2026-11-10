@@ -3,11 +3,7 @@ import { Extension, type Editor } from "@tiptap/core";
 import type { ResolvedPos } from "@tiptap/pm/model";
 import { Plugin } from "@tiptap/pm/state";
 import { ReactRenderer } from "@tiptap/react";
-import Suggestion, {
-  type SuggestionKeyDownProps,
-  type SuggestionMatch,
-  type SuggestionOptions,
-} from "@tiptap/suggestion";
+import Suggestion, { type SuggestionKeyDownProps, type SuggestionMatch } from "@tiptap/suggestion";
 import { FilePlus2, FileText } from "lucide-react";
 import type { NoteSummary } from "../../shared/types";
 import { FloatingScrollbar } from "../floating-scrollbar";

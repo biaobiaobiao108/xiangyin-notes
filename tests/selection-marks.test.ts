@@ -61,7 +61,6 @@ function renderCards(selectedIds: Set<string>): string {
       onToggleSelectNote: () => {},
       onDeleteSelected: () => {},
       view: "all",
-      currentNotebookName: "笔记本",
       query: "",
       onClearQuery: () => {},
       notebooks: [

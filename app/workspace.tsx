@@ -85,7 +85,7 @@ import { viewLabel } from "./workspace/helpers";
 import { parseTagQuery } from "../shared/tags";
 import { useThemePreference } from "./theme";
 import { createWorkspaceContextMenuHandler } from "./workspace/workspace-context-menu";
-import { useWorkspacePreferences, type ViewLayout } from "./workspace/use-workspace-preferences";
+import { useWorkspacePreferences } from "./workspace/use-workspace-preferences";
 import { useWorkspaceTaskData } from "./workspace/use-workspace-task-data";
 import { useWorkspaceKanbanData } from "./workspace/use-workspace-kanban-data";
 
@@ -263,7 +263,6 @@ export function Workspace() {
     tasksMoreLoading,
     tasksMoreError,
     loadMoreTasks,
-    taskRefreshToken,
     setTaskRefreshToken,
     taskNavigation,
     setTaskNavigation,
@@ -295,7 +294,6 @@ export function Workspace() {
     setKanbanColumns,
     kanbanColumnsRef,
     kanbanLoading,
-    kanbanRefreshToken,
     setKanbanRefreshToken,
     loadMoreKanbanColumn,
   } = useWorkspaceKanbanData(kanbanOpen, notifyError);
@@ -1449,13 +1447,6 @@ export function Workspace() {
     [clearNoteSelection, loadNotes, refreshNotebooks, notifyError, runSave],
   );
 
-  const handleMoveSelectedToNotebook = useCallback(
-    (targetNotebookId: string) => {
-      return handleMoveNotesToNotebook([...noteSelectionRef.current.ids], targetNotebookId);
-    },
-    [handleMoveNotesToNotebook],
-  );
-
   const handleTrashNotes = useCallback(
     (ids: string[]) => {
       if (!ids.length) return;
@@ -2258,16 +2249,6 @@ export function Workspace() {
     },
     [changeQuery, closeCommandMenu, openMobileList],
   );
-  const handleFocusGlobalSearch = useCallback(() => {
-    setSidebarCollapsed(false);
-    setCardEditingNoteId(null);
-    openMobileList();
-    closeCommandMenu();
-    requestAnimationFrame(() => {
-      searchRef.current?.focus();
-      searchRef.current?.select();
-    });
-  }, [closeCommandMenu, openMobileList]);
   const handleClearInNoteSearch = useCallback(() => {
     setInNoteSearchQuery("");
     setResultSearch(null);
@@ -2897,7 +2878,6 @@ export function Workspace() {
           onCreateNoteInColumn={handleCreateNoteInKanbanColumn}
           onAddExistingNote={handleAddExistingNoteToKanban}
           onMoveCard={handleMoveKanbanCard}
-          onRemoveCard={handleRemoveKanbanCard}
           onTrashCard={handleTrashKanbanCard}
           onLoadMoreColumn={loadMoreKanbanColumn}
           onToggleFavorite={handleToggleFavoriteKanbanCard}
@@ -2960,7 +2940,6 @@ export function Workspace() {
           onToggleSelectNote={handleToggleCardSelection}
           onDeleteSelected={deleteSelectedNotes}
           view={view}
-          currentNotebookName={currentNotebook?.name}
           query={query}
           onClearQuery={handleClearQuery}
           notebooks={notebooks}
@@ -3370,7 +3349,6 @@ export function Workspace() {
         onSearchInCurrentNote={handleSearchInCurrentNote}
         onReplaceInCurrentNote={openReplaceInCurrentNote}
         onSearchGlobal={handleSearchGlobal}
-        onFocusGlobalSearch={handleFocusGlobalSearch}
         initialQuery={commandInitialQuery}
         themePreference={themePreference}
       />

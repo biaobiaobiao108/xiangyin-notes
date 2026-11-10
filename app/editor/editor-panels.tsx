@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
+import type { RefObject } from "react";
 import { ArrowLeftRight, ChevronDown, ChevronUp, ListTree, X } from "lucide-react";
 import type { Editor } from "@tiptap/core";
 import type { EditorStats } from "../editor-metrics";

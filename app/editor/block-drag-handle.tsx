@@ -13,18 +13,14 @@ import type { Editor } from "@tiptap/core";
 import { ArrowDown, ArrowUp, Copy, Trash2 } from "lucide-react";
 import {
   calculateDropCandidate,
-  deleteBlock,
   deleteBlocks,
-  duplicateBlock,
   duplicateBlocks,
   getBlockShift,
   getDraggableBlockFromSelection,
   getDraggableBlockFromElement,
   getSelectedBlockRange,
   getSiblingBlocks,
-  moveBlock,
   moveBlocks,
-  moveBlockStep,
   moveBlocksStep,
   selectBlockRange,
   toDragSessionY,
@@ -77,7 +73,6 @@ type DragSession = {
 };
 
 const HANDLE_LEFT = -30;
-const HANDLE_WIDTH = 24;
 const HANDLE_HEIGHT = 28;
 const HANDLE_HOVER_LEFT = HANDLE_LEFT - 14;
 const HANDLE_HOVER_RIGHT = 36;

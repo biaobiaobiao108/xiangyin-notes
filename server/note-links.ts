@@ -1,17 +1,10 @@
 import type { SqliteDatabase } from "./db";
-import { all, type SqlValue } from "./core";
+import { all } from "./core";
 import { extractContextSnippet, extractWikiLinks, normalizeLinkTitle } from "../shared/wiki-links";
 
 type ActiveNoteTitleRow = {
   id: string;
   title: string;
-};
-
-type NoteLinkRow = {
-  source_note_id: string;
-  target_title: string;
-  target_note_id: string | null;
-  snippet?: string;
 };
 
 export function syncStoredNoteTitleKey(database: SqliteDatabase, noteId: string, title: string) {

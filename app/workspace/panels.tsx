@@ -36,7 +36,6 @@ import { EmptyTrashButton } from "./empty-trash-button";
 import type { OutlineItem } from "../editor-metrics";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { commandMenuShortcutLabel } from "../platform";
-import { type PwaState } from "../pwa";
 import {
   getNoteTags,
   getNotebookIconComponent,
@@ -541,7 +540,6 @@ function NoteRowMeta({ note, showNotebook }: { note: NoteSummary; showNotebook: 
 const NoteListRow = memo(function NoteListRow({
   note,
   isSelected,
-  selectedIds,
   isActive,
   showNotebook,
   onToggleFavorite,
@@ -563,7 +561,6 @@ const NoteListRow = memo(function NoteListRow({
 }: {
   note: NoteSummary;
   isSelected: boolean;
-  selectedIds?: ReadonlySet<string>;
   isActive: boolean;
   showNotebook: boolean;
   onToggleFavorite: (note: NoteSummary) => void;
@@ -1520,7 +1517,6 @@ export const NoteListPanel = memo(function NoteListPanel({
       rowRef={virtualList.getRowRef(note.id)}
       rowStyle={virtualList.rowStyle(top)}
       isSelected={selectedIds.has(note.id)}
-      selectedIds={selectedIds}
       isActive={selectedId === note.id && !isMobileViewport}
       showNotebook
       onToggleFavorite={onToggleFavoriteNote}
@@ -1747,7 +1743,6 @@ export const NoteListPanel = memo(function NoteListPanel({
                                     rowIndex={index}
                                     setSize={listSize}
                                     isSelected={selectedIds.has(note.id)}
-                                    selectedIds={selectedIds}
                                     isActive={selectedId === note.id && !isMobileViewport}
                                     showNotebook
                                     onToggleFavorite={onToggleFavoriteNote}

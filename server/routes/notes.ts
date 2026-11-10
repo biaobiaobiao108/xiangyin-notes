@@ -29,7 +29,6 @@ import {
   NOTE_BODY_MAX_BYTES,
   NOTE_CONTENT_MAX_LENGTH,
   NOTE_FROM,
-  NOTE_SELECT,
   NOTE_LIST_SELECT,
   NOTE_PAGE_SIZE,
   NOTE_VIEWS,
@@ -308,8 +307,8 @@ function buildOptimizedNoteListPlan(input: {
     SELECT ${NOTE_LIST_SELECT}, ${relevanceSelect} ${matchSelect}${includeTotal ? ", totals.total AS search_total" : ""}
     FROM ${includeTotal ? "(SELECT COUNT(*) AS total FROM candidates) totals LEFT JOIN top ON 1 = 1" : "top"}
     ${includeTotal ? "LEFT JOIN" : "JOIN"} notes n ON n.rowid = top.note_rowid
-    ${includeTotal ? "LEFT JOIN" : "JOIN"} notebooks b ON b.id = n.notebook_id
-    LEFT JOIN image_assets a ON a.note_id = n.id AND a.document_order = 0
+    ${includeTotal ? "LEFT JOIN" : "JOIN"} notebooks b ON b.id = n.notebook_id AND b.user_id = n.user_id
+    LEFT JOIN image_assets a ON a.note_id = n.id AND a.user_id = n.user_id AND a.document_order = 0
     ORDER BY ${detailOrder}`;
   const params: SqlValue[] = [
     ...shortParams,

@@ -1,14 +1,8 @@
-import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  initializeDatabase,
-  CURRENT_SCHEMA_VERSION,
-  SEARCH_INDEX_REBUILD_KEY,
-  openDatabase,
-} from "../server/db";
+import { SEARCH_INDEX_REBUILD_KEY, openDatabase } from "../server/db";
 import { buildShortSearchTokens, shortSearchToken } from "../server/note-search";
 
 test("stores each distinct short term once per note", () => {

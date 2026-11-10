@@ -126,15 +126,6 @@ function markSearchIndexesForRebuild(database: SqliteDatabase) {
     .run(SEARCH_INDEX_REBUILD_KEY);
 }
 
-function notesFtsIntegrityValid(database: SqliteDatabase) {
-  try {
-    database.exec("INSERT INTO notes_fts(notes_fts, rank) VALUES('integrity-check', 1);");
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function rebuildSearchIndexes(database: SqliteDatabase) {
   database
     .transaction(() => {

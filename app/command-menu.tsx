@@ -107,7 +107,6 @@ type CommandMenuProps = {
   onSearchInCurrentNote?: (term: string) => void;
   onReplaceInCurrentNote?: () => void;
   onSearchGlobal?: (term: string) => void;
-  onFocusGlobalSearch?: () => void;
   initialQuery?: string;
   themePreference: ThemePreference;
 };
@@ -136,7 +135,6 @@ export function CommandMenu({
   onSearchInCurrentNote,
   onReplaceInCurrentNote,
   onSearchGlobal,
-  onFocusGlobalSearch,
   initialQuery = "",
   themePreference,
 }: CommandMenuProps) {

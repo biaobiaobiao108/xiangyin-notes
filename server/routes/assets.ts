@@ -1,7 +1,6 @@
 import type { Dirent } from "node:fs";
 import { lstat, mkdir, open, readdir, rename, unlink } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import type { ImageAssetSummary } from "../../shared/types";
 import {
   all,
   first,

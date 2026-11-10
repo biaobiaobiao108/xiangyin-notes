@@ -225,7 +225,7 @@ export async function noteByTitle(
     options.database,
     `
     SELECT n.id, n.title, n.version, b.name AS notebook_name, n.notebook_id, substr(n.content_markdown, 1, 4000) AS content_markdown, n.created_at, n.updated_at
-    FROM notes n JOIN notebooks b ON b.id = n.notebook_id
+    FROM notes n JOIN notebooks b ON b.id = n.notebook_id AND b.user_id = n.user_id
     WHERE n.user_id = ? AND n.title = ? COLLATE NOCASE
       ${includeDeleted ? "" : "AND n.deleted_at IS NULL"}
       ${notebookId === undefined ? "" : "AND n.notebook_id = ?"}

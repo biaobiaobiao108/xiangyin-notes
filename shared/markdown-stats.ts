@@ -35,7 +35,7 @@ statsMarked.use({
 function decodeMarkdownText(text: string) {
   return text.replace(
     /&(?:#(\d{1,7})|#[xX]([0-9a-fA-F]{1,6})|(lt|gt|quot|amp));/g,
-    (entity, decimal, hex, name) => {
+    (_entity, decimal, hex, name) => {
       if (decimal !== undefined || hex !== undefined) {
         const codePoint = decimal !== undefined ? Number(decimal) : Number.parseInt(hex, 16);
         if (

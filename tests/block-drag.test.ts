@@ -59,7 +59,7 @@ function topLevelBlock(editor: Editor, index: number): BlockTarget {
   };
 }
 
-function listItemBlock(editor: Editor, list: BlockTarget, index: number): BlockTarget {
+function listItemBlock(list: BlockTarget, index: number): BlockTarget {
   let pos = list.pos + 1;
   for (let current = 0; current < index; current += 1) {
     pos += list.node.child(current).nodeSize;
@@ -108,7 +108,7 @@ describe("block drag commands", () => {
     const first = topLevelBlock(editor, 0);
     const second = topLevelBlock(editor, 1);
     const list = topLevelBlock(editor, 2);
-    const item = listItemBlock(editor, list, 0);
+    const item = listItemBlock(list, 0);
     const before = editor.getMarkdown();
 
     expect(moveBlock(editor, first, second, "before")).toBeNull();
@@ -120,8 +120,8 @@ describe("block drag commands", () => {
   test("moves list items within the same list and keeps nested children", () => {
     const editor = createTestEditor("- 项目1\n  - 子项\n- 项目2\n- 项目3");
     const list = topLevelBlock(editor, 0);
-    const first = listItemBlock(editor, list, 0);
-    const second = listItemBlock(editor, list, 1);
+    const first = listItemBlock(list, 0);
+    const second = listItemBlock(list, 1);
 
     expect(moveBlock(editor, first, second, "after")).not.toBeNull();
     const updatedList = editor.state.doc.child(0);
@@ -134,8 +134,8 @@ describe("block drag commands", () => {
   test("moves ordered list items without changing the list", () => {
     const editor = createTestEditor("1. 第一项\n2. 第二项\n3. 第三项");
     const list = topLevelBlock(editor, 0);
-    const first = listItemBlock(editor, list, 0);
-    const third = listItemBlock(editor, list, 2);
+    const first = listItemBlock(list, 0);
+    const third = listItemBlock(list, 2);
 
     expect(moveBlock(editor, first, third, "after")).not.toBeNull();
     expect(editor.state.doc.child(0).type.name).toBe("orderedList");
@@ -146,8 +146,8 @@ describe("block drag commands", () => {
   test("moves task list items and preserves their checked state", () => {
     const editor = createTestEditor("- [x] 已完成\n- [ ] 未完成");
     const list = topLevelBlock(editor, 0);
-    const first = listItemBlock(editor, list, 0);
-    const second = listItemBlock(editor, list, 1);
+    const first = listItemBlock(list, 0);
+    const second = listItemBlock(list, 1);
 
     expect(moveBlock(editor, first, second, "after")).not.toBeNull();
     const updatedList = editor.state.doc.child(0);
@@ -159,7 +159,7 @@ describe("block drag commands", () => {
   test("reorders nested list items without moving their parent", () => {
     const editor = createTestEditor("- 父项一\n  - 子项一\n  - 子项二\n- 父项二");
     const outer = topLevelBlock(editor, 0);
-    const parent = listItemBlock(editor, outer, 0);
+    const parent = listItemBlock(outer, 0);
     const nestedIndex = parent.node.childCount - 1;
     const nestedPos =
       parent.pos +
@@ -179,8 +179,8 @@ describe("block drag commands", () => {
       dom: null,
       kind: "listItem",
     };
-    const first = listItemBlock(editor, nested, 0);
-    const second = listItemBlock(editor, nested, 1);
+    const first = listItemBlock(nested, 0);
+    const second = listItemBlock(nested, 1);
 
     expect(moveBlock(editor, first, second, "after")).not.toBeNull();
     const updatedOuter = editor.state.doc.child(0);
@@ -253,7 +253,7 @@ describe("block drag commands", () => {
   test("deletes the only item in a list and leaves an empty paragraph", () => {
     const editor = createTestEditor("- 唯一项目");
     const list = topLevelBlock(editor, 0);
-    const item = listItemBlock(editor, list, 0);
+    const item = listItemBlock(list, 0);
 
     expect(deleteBlock(editor, item)).toBe(true);
     expect(editor.state.doc.childCount).toBe(1);
@@ -264,7 +264,7 @@ describe("block drag commands", () => {
   test("deletes a sole list item without removing surrounding blocks", () => {
     const editor = createTestEditor("前文\n\n- 唯一项目\n\n后文");
     const list = topLevelBlock(editor, 1);
-    const item = listItemBlock(editor, list, 0);
+    const item = listItemBlock(list, 0);
 
     expect(deleteBlock(editor, item)).toBe(true);
     expect(blockTexts(editor)).toEqual(["前文", "后文"]);
@@ -273,7 +273,7 @@ describe("block drag commands", () => {
   test("deletes a sole nested list without removing its parent item", () => {
     const editor = createTestEditor("- 父项\n  - 子项");
     const outer = topLevelBlock(editor, 0);
-    const parent = listItemBlock(editor, outer, 0);
+    const parent = listItemBlock(outer, 0);
     const nestedList = parent.node.child(parent.node.childCount - 1);
     const nestedPos =
       parent.pos +
@@ -283,7 +283,6 @@ describe("block drag commands", () => {
         (_, index) => parent.node.child(index).nodeSize,
       ).reduce((sum, size) => sum + size, 0);
     const nestedItem = listItemBlock(
-      editor,
       {
         node: nestedList,
         pos: nestedPos,
@@ -505,9 +504,9 @@ describe("multi-block operations", () => {
   test("moves multiple list items within the same list", () => {
     const editor = createTestEditor("- 项1\n- 项2\n- 项3\n- 项4");
     const list = topLevelBlock(editor, 0);
-    const i0 = listItemBlock(editor, list, 0);
-    const i1 = listItemBlock(editor, list, 1);
-    const target = listItemBlock(editor, list, 3);
+    const i0 = listItemBlock(list, 0);
+    const i1 = listItemBlock(list, 1);
+    const target = listItemBlock(list, 3);
 
     expect(moveBlocks(editor, [i0, i1], target, "after")).not.toBeNull();
     const updatedList = topLevelBlock(editor, 0);

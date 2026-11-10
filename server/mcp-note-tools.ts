@@ -259,7 +259,7 @@ export function registerMcpNoteTools(
         n.is_favorite, n.deleted_at, n.version, n.created_at, n.updated_at,
         COALESCE((SELECT json_group_array(tag) FROM (SELECT tag FROM note_tags WHERE note_id = n.id ORDER BY position)), '[]') AS tags_json
       FROM notes n
-      JOIN notebooks b ON b.id = n.notebook_id
+      JOIN notebooks b ON b.id = n.notebook_id AND b.user_id = n.user_id
       WHERE n.user_id = ? AND n.id IN (${noteIds.map(() => "?").join(",")})
     `,
         user.id,
