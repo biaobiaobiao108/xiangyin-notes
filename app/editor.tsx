@@ -18,23 +18,7 @@ import Placeholder from "@tiptap/extension-placeholder";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Selection, type Transaction } from "@tiptap/pm/state";
 import { closeHistory } from "@tiptap/pm/history";
-import {
-  ArrowLeft,
-  ArrowLeftRight,
-  CheckCircle,
-  ChevronLeft,
-  CircleAlert,
-  Columns2,
-  ImageDown,
-  LayoutGrid,
-  LoaderCircle,
-  RefreshCw,
-  SquareKanban,
-  Star,
-  Trash2,
-  Undo2,
-  X,
-} from "lucide-react";
+import { CircleAlert, ImageDown, Star, Trash2, Undo2, X } from "lucide-react";
 import {
   IMAGE_MAX_BYTES,
   type ImageAssetSummary,
@@ -70,6 +54,7 @@ import {
   type EditorTextBlockStatsCache,
   type EditorTextStatsSnapshot,
 } from "./editor-text-stats";
+import { EditorHeader, type EditorSaveState as SaveState } from "./editor/editor-header";
 import { transactionMayChangeOutline } from "./editor/outline-change";
 import { scrollNoteNavigation } from "./editor/document-navigation";
 import { replaceEditorMarkdown } from "./editor/document-content";
@@ -79,7 +64,6 @@ import {
   taskNavigationPluginKey,
 } from "./editor/task-navigation";
 import { FloatingScrollbar } from "./floating-scrollbar";
-import { relativeDate } from "./format";
 import { normalizeImagesInEmptyListItems } from "./image-markdown";
 import { ImeMarkdownSafeExtension } from "./ime-markdown-safe-extension";
 import { executeBlockShortcut, executeBlockShortcutAtSelection } from "./editor/markdown-shortcuts";
@@ -105,11 +89,7 @@ import { TableScrollbars } from "./editor/table-scrollbars";
 import { createTableExtensions } from "./editor/table-extensions";
 import { playEntranceAnimation } from "./animation";
 import { CardOutline } from "./editor/card-outline";
-import {
-  MobileEditorHeader,
-  MobileEditorFooter,
-  MobileEditorOutline,
-} from "./editor/mobile-editor-controls";
+import { MobileEditorFooter, MobileEditorOutline } from "./editor/mobile-editor-controls";
 import { mobileCaretBounds, useMobileCaret } from "./editor/use-mobile-caret";
 import { BlockDragHandle } from "./editor/block-drag-handle";
 import { useEditorContextMenu } from "./editor/use-editor-context-menu";
@@ -120,7 +100,6 @@ import { AutoReadingHUD } from "./editor/auto-reading-hud";
 import "./editor/mobile-editor.css";
 
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
-type SaveState = "idle" | "saving" | "saved" | "conflict" | "error";
 
 const OUTLINE_HEADING_SELECTOR = "h1, h2, h3, h4, h5, h6";
 const EDITOR_SYNC_DEBOUNCE_MS = 180;
@@ -130,26 +109,6 @@ function resizeTitleField(field: HTMLTextAreaElement | null) {
   if (!field) return;
   field.style.height = "auto";
   field.style.height = `${field.scrollHeight}px`;
-}
-
-function SaveStatusIcon({ state }: { state: Exclude<SaveState, "idle"> }) {
-  const iconProps = {
-    className: "save-status-icon",
-    size: 16,
-    strokeWidth: 1.9,
-    "aria-hidden": true,
-  } as const;
-  switch (state) {
-    case "saving":
-      return <LoaderCircle {...iconProps} />;
-    case "conflict":
-      return <RefreshCw {...iconProps} />;
-    case "error":
-      return <CircleAlert {...iconProps} />;
-    case "saved":
-    default:
-      return <CheckCircle {...iconProps} />;
-  }
 }
 
 function getOutlineHeadingElements(root: HTMLElement): HTMLElement[] {
@@ -1929,266 +1888,40 @@ export function NoteEditor({
         }
       }}
     >
-      {isMobileViewport ? (
-        <MobileEditorHeader
-          noteId={note.id}
-          title={note.title.trim() || "未命名笔记"}
-          backLabel={mobileBackLabel}
-          locked={editorLocked}
-          trashBusy={trashBusy}
-          deleted={Boolean(note.deletedAt)}
-          favorite={note.isFavorite}
-          backlinkCount={backlinkCount}
-          onBack={onOpenList}
-          canUpload={Boolean(onUploadImage) && !note.deletedAt && imageUploadState !== "uploading"}
-          onUpload={() => imageFileInputRef.current?.click()}
-          autoReadingMode={autoReadingMode}
-          onToggleAutoReading={onToggleAutoReadingMode}
-          onExport={onExportImage}
-          onFavorite={onToggleFavorite}
-          onBacklinks={onNavigateToNote ? () => setBacklinksOpen(true) : undefined}
-          onTrash={onMoveToTrash}
-          onRestore={onRestore}
-          onPermanentDelete={onPermanentDelete}
-          status={
-            <>
-              {saveState === "error" ? (
-                <button
-                  className="save-status save-status--error save-status--icon"
-                  type="button"
-                  aria-label="重试保存"
-                  onClick={handleSaveNow}
-                >
-                  <SaveStatusIcon state="error" />
-                </button>
-              ) : saveState === "conflict" ? (
-                <button
-                  className="save-status save-status--conflict save-status--icon"
-                  type="button"
-                  aria-label="重新载入最新版本"
-                  onClick={onReloadNote}
-                >
-                  <SaveStatusIcon state="conflict" />
-                </button>
-              ) : saveState !== "idle" ? (
-                <span
-                  className={`save-status save-status--${saveState} save-status--icon`}
-                  role="status"
-                  aria-label={saveLabel}
-                >
-                  <SaveStatusIcon state={saveState} />
-                </span>
-              ) : null}
-              {imageUploadState !== "idle" && (
-                <span
-                  className={`save-status save-status--${imageUploadState === "uploading" ? "saving" : "error"} save-status--icon mobile-upload-status`}
-                  role="status"
-                  aria-label={
-                    imageUploadState === "uploading"
-                      ? "正在上传图片"
-                      : imageUploadMessage || "图片上传失败"
-                  }
-                >
-                  <SaveStatusIcon state={imageUploadState === "uploading" ? "saving" : "error"} />
-                </span>
-              )}
-            </>
-          }
-        />
-      ) : (
-        <header className="editor-header">
-          <div className="editor-header-start">
-            {onBackToKanban && !focusMode && (
-              <button
-                className="icon-button editor-back-kanban"
-                type="button"
-                aria-label="返回看板"
-                onClick={onBackToKanban}
-                disabled={editorLocked}
-              >
-                <SquareKanban size={18} strokeWidth={1.8} />
-              </button>
-            )}
-            {!onBackToKanban && onBackToCards && !focusMode && (
-              <button
-                className="icon-button editor-back-cards"
-                type="button"
-                aria-label="返回卡片视图"
-                onClick={onBackToCards}
-                disabled={editorLocked}
-              >
-                <LayoutGrid size={18} strokeWidth={1.8} />
-              </button>
-            )}
-            {onOpenList && !focusMode && (
-              <button
-                className="icon-button mobile-only editor-back"
-                type="button"
-                aria-label="返回笔记列表"
-                onClick={onOpenList}
-                disabled={editorLocked}
-              >
-                <ChevronLeft size={20} />
-              </button>
-            )}
-            <div className="editor-meta" aria-label={`最后编辑于${relativeDate(note.updatedAt)}`}>
-              <span>最后编辑于 {relativeDate(note.updatedAt)}</span>
-            </div>
-          </div>
-          <div
-            className="editor-header-title"
-            aria-label={`当前文档：${note.title.trim() || "未命名笔记"}`}
-          >
-            {note.title.trim() || "未命名笔记"}
-          </div>
-          <div className="editor-actions">
-            {saveState === "error" ? (
-              <button
-                className="save-status save-status--error save-status--action save-status--icon"
-                type="button"
-                aria-label="重试保存"
-                onClick={handleSaveNow}
-              >
-                <SaveStatusIcon state="error" />
-              </button>
-            ) : saveState === "conflict" ? (
-              <button
-                className="save-status save-status--conflict save-status--action save-status--icon"
-                type="button"
-                aria-label="重新载入最新版本"
-                onClick={onReloadNote}
-              >
-                <SaveStatusIcon state="conflict" />
-              </button>
-            ) : saveState === "idle" ? null : (
-              <span
-                className={`save-status save-status--${saveState} save-status--icon`}
-                role="status"
-                aria-label={saveLabel}
-                aria-live="polite"
-              >
-                <SaveStatusIcon state={saveState} />
-              </span>
-            )}
-            {onUploadImage && !note.deletedAt && (
-              <input
-                ref={imageFileInputRef}
-                className="visually-hidden"
-                type="file"
-                accept="image/jpeg,image/png,image/webp,image/gif"
-                multiple
-                tabIndex={-1}
-                aria-label="选择要上传的图片文件"
-                onChange={(event) => {
-                  uploadImageFilesRef.current(Array.from(event.target.files ?? []));
-                  event.target.value = "";
-                }}
-              />
-            )}
-            {imageUploadState === "uploading" && (
-              <span
-                className="save-status save-status--saving save-status--icon"
-                role="status"
-                aria-label="正在上传图片"
-                aria-live="polite"
-              >
-                <SaveStatusIcon state="saving" />
-              </span>
-            )}
-            {imageUploadState === "error" && (
-              <span
-                className="save-status save-status--error save-status--icon"
-                role="alert"
-                aria-label={imageUploadMessage || "图片上传失败"}
-              >
-                <SaveStatusIcon state="error" />
-              </span>
-            )}
-            {!note.deletedAt && onNavigateToNote && (
-              <button
-                className={`icon-button ${backlinksOpen ? "is-active" : ""}`}
-                type="button"
-                aria-label={`反向链接${backlinkCount > 0 ? ` (${backlinkCount})` : ""}`}
-                onClick={() => setBacklinksOpen(true)}
-                disabled={editorLocked}
-              >
-                <ArrowLeftRight size={18} strokeWidth={1.8} />
-                {backlinkCount > 0 && <span className="icon-badge">{backlinkCount}</span>}
-              </button>
-            )}
-            <button
-              className={`icon-button favorite-toggle ${note.isFavorite ? "is-active" : ""}`}
-              type="button"
-              aria-label={note.isFavorite ? "取消收藏" : "收藏笔记"}
-              aria-pressed={note.isFavorite}
-              onClick={onToggleFavorite}
-              disabled={editorLocked}
-            >
-              <Star
-                size={19}
-                strokeWidth={1.8}
-                fill={note.isFavorite ? "currentColor" : "none"}
-                aria-hidden="true"
-              />
-            </button>
-            {note.deletedAt ? (
-              <>
-                <button
-                  className="icon-button"
-                  type="button"
-                  aria-label="恢复笔记"
-                  onClick={onRestore}
-                  disabled={editorLocked || trashBusy}
-                >
-                  <Undo2 size={18} strokeWidth={1.8} />
-                </button>
-                {onPermanentDelete && (
-                  <button
-                    className="icon-button danger-button"
-                    type="button"
-                    aria-label="彻底删除"
-                    onClick={onPermanentDelete}
-                    disabled={editorLocked || trashBusy}
-                  >
-                    <Trash2 size={18} strokeWidth={1.8} />
-                  </button>
-                )}
-              </>
-            ) : (
-              <button
-                className="icon-button"
-                type="button"
-                aria-label="移入回收站"
-                onClick={onMoveToTrash}
-                disabled={editorLocked || trashBusy}
-              >
-                <Trash2 size={18} strokeWidth={1.8} />
-              </button>
-            )}
-            {!isMobileViewport && onCloseSplit && (
-              <button
-                className="icon-button close-split-button"
-                type="button"
-                aria-label="关闭分屏"
-                onClick={onCloseSplit}
-              >
-                <X size={18} strokeWidth={1.8} />
-              </button>
-            )}
-            {!isMobileViewport && onToggleSplit && !onCloseSplit && (
-              <button
-                className={`icon-button split-toggle ${isSplitActive ? "is-active" : ""}`}
-                type="button"
-                aria-label={isSplitActive ? "关闭分屏" : "分屏显示"}
-                onClick={onToggleSplit}
-                disabled={editorLocked}
-              >
-                <Columns2 size={18} strokeWidth={1.8} />
-              </button>
-            )}
-          </div>
-        </header>
-      )}
+      <EditorHeader
+        isMobileViewport={isMobileViewport}
+        note={note}
+        mobileBackLabel={mobileBackLabel}
+        editorLocked={editorLocked}
+        trashBusy={trashBusy}
+        backlinkCount={backlinkCount}
+        backlinksOpen={backlinksOpen}
+        saveState={saveState}
+        saveLabel={saveLabel}
+        imageUploadState={imageUploadState}
+        imageUploadMessage={imageUploadMessage}
+        imageFileInputRef={imageFileInputRef}
+        uploadImageFilesRef={uploadImageFilesRef}
+        focusMode={focusMode}
+        autoReadingMode={autoReadingMode}
+        isSplitActive={isSplitActive}
+        onUploadImage={onUploadImage}
+        onCloseSplit={onCloseSplit}
+        onToggleSplit={onToggleSplit}
+        onBackToKanban={onBackToKanban}
+        onBackToCards={onBackToCards}
+        onOpenList={onOpenList}
+        onNavigateToNote={onNavigateToNote}
+        onOpenBacklinks={() => setBacklinksOpen(true)}
+        onToggleFavorite={onToggleFavorite}
+        onMoveToTrash={onMoveToTrash}
+        onRestore={onRestore}
+        onPermanentDelete={onPermanentDelete}
+        onToggleAutoReadingMode={onToggleAutoReadingMode}
+        onExportImage={onExportImage}
+        onSaveNow={handleSaveNow}
+        onReloadNote={onReloadNote}
+      />
       {imageUploadMessage && (
         <div className="editor-upload-notice toast toast--error">
           <CircleAlert className="notice-icon" size={18} aria-hidden="true" />

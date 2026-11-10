@@ -1,0 +1,146 @@
+/* Mobile Segmented Tabs */
+.kanban-mobile-tabs {
+  display: flex;
+  padding: 8px 12px;
+  gap: 6px;
+  background: var(--canvas);
+  border-bottom: 1px solid var(--border-soft);
+  flex: none;
+}
+
+.kanban-mobile-tab {
+  flex: 1 1 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--surface-muted);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--motion-fast) ease;
+}
+
+.kanban-mobile-tab.is-active {
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: var(--shadow-xs);
+}
+
+.kanban-mobile-tab--inbox.is-active {
+  background: light-dark(#edf1f5, #1e2230);
+}
+
+.kanban-mobile-tab--doing.is-active {
+  background: light-dark(#f8f2e6, #2d261e);
+}
+
+.kanban-mobile-tab--done.is-active {
+  background: light-dark(#ecf3ec, #1c2720);
+}
+
+.kanban-mobile-tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--surface-chip);
+  font-size: 0.7rem;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+.kanban-column-mobile-wrap {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Mobile responsive adjustments */
+@media (max-width: 900px) {
+  .app-shell[data-mobile-page="home"].is-kanban-open > .kanban-panel,
+  .app-shell[data-mobile-page="list"].is-kanban-open > .kanban-panel,
+  .app-shell[data-mobile-page="kanban"] > .kanban-panel {
+    display: flex;
+    grid-column: 1;
+    width: 100%;
+    height: 100%;
+  }
+
+  .app-shell[data-mobile-page="kanban"] > .editor-region {
+    display: none;
+  }
+
+  .kanban-board {
+    display: flex;
+    flex-direction: column;
+    padding: 10px 12px 16px;
+  }
+
+  .kanban-column {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .kanban-corner-zone {
+    width: 120px;
+    height: 120px;
+  }
+
+  .kanban-corner-zone--trash .kanban-corner-zone-content {
+    right: 14px;
+    bottom: 14px;
+  }
+
+  .kanban-corner-icon-circle {
+    width: 32px;
+    height: 32px;
+  }
+
+  .kanban-corner-label {
+    font-size: 0.72rem;
+  }
+}
+
+
+/* Sorting never inserts a spacer or changes row dimensions. */
+.is-notebook-dragging { visibility: hidden; }
+.is-notebook-sorting { transition: transform 180ms cubic-bezier(.2,.7,.2,1); }
+.notebook-drag-preview { position: fixed; z-index: 1001; pointer-events: none; background: var(--surface); color: var(--ink); border-radius: var(--radius-md); box-shadow: var(--shadow-md); border: 1px solid var(--border-soft); }
+.notebook-drag-preview > button { width: 100%; height: 100%; background: transparent; color: inherit; }
+.notebook-drag-preview .swipe-action-foreground { transform: none !important; }
+@media (prefers-reduced-motion: reduce) { .is-notebook-sorting { transition: none; } }
+.is-sorting-notebooks, .is-sorting-notebooks * { cursor: grabbing !important; -webkit-user-select: none !important; user-select: none !important; }
+
+/* Better Design: Interaction Kit tactile feedback */
+button:active:not(:disabled),
+.primary-button:active:not(:disabled),
+.secondary-button:active:not(:disabled),
+.icon-button:active:not(:disabled),
+.nav-item:active,
+.notebook-item:active,
+.note-row:active {
+  transform: scale(0.985);
+  transition-duration: var(--motion-micro);
+}
+@media (prefers-reduced-motion: reduce) {
+  button:active:not(:disabled),
+  .primary-button:active:not(:disabled),
+  .secondary-button:active:not(:disabled),
+  .icon-button:active:not(:disabled),
+  .nav-item:active,
+  .notebook-item:active,
+  .note-row:active {
+    transform: none !important;
+  }
+}

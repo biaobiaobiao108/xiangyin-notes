@@ -1,0 +1,531 @@
+/* Card Grid Layout & Apple Notes style Masonry cards */
+.app-shell.layout-cards {
+  grid-template-columns: 252px minmax(0, 1fr);
+}
+.app-shell.layout-cards.sidebar-collapsed {
+  grid-template-columns: 72px minmax(0, 1fr);
+}
+.app-shell.layout-cards.is-tasks-open { grid-template-columns: 252px minmax(300px, 360px) minmax(0, 1fr); }
+.app-shell.layout-cards.sidebar-collapsed.is-tasks-open { grid-template-columns: 72px minmax(300px, 360px) minmax(0, 1fr); }
+.app-shell.layout-cards.is-focus-mode {
+  grid-template-columns: 0px minmax(0, 1fr);
+}
+.app-shell.layout-cards.is-focus-mode .sidebar {
+  transform: translateX(-24px);
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  border-right-color: transparent;
+  transition: transform var(--motion-layout) var(--motion-ease-out),
+              opacity var(--motion-panel) ease,
+              border-color var(--motion-panel) ease,
+              visibility 0s linear var(--motion-layout);
+}
+.app-shell.layout-cards .editor-region {
+  grid-column: 2;
+}
+.app-shell.layout-cards.is-tasks-open .editor-region { grid-column: 3; }
+
+.app-shell.layout-cards .editor-panel {
+  animation: card-editor-in var(--motion-content) var(--motion-ease-out) both;
+}
+
+.app-shell.layout-cards .editor-panel .editor-document--entering {
+  animation: none;
+}
+
+@keyframes card-editor-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.note-card-grid-panel {
+  grid-column: 2;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100vh;
+  height: 100dvh;
+  background: var(--surface);
+  overflow: hidden;
+}
+/* Scroll Shell & Masonry Flow */
+.card-grid-scroll-shell {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.card-grid-scroll-shell::before,
+.card-grid-scroll-shell::after {
+  position: absolute;
+  z-index: 2;
+  inset-inline: 0;
+  height: 32px;
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--motion-fast) var(--motion-ease-out);
+}
+.card-grid-scroll-shell::before {
+  inset-block-start: 0;
+  background: linear-gradient(to bottom, var(--surface), transparent);
+}
+.card-grid-scroll-shell::after {
+  inset-block-end: 0;
+  background: linear-gradient(to top, var(--surface), transparent);
+}
+.card-grid-scroll-shell.has-scroll-before::before,
+.card-grid-scroll-shell.has-scroll-after::after {
+  opacity: 1;
+}
+
+.card-grid-mobile-menu {
+  position: absolute;
+  top: max(14px, env(safe-area-inset-top));
+  left: 14px;
+  z-index: 5;
+  background: var(--surface-glass-menu);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--border-soft);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.card-grid-empty-trash {
+  position: absolute;
+  top: max(14px, env(safe-area-inset-top));
+  right: 24px;
+  z-index: 5;
+  margin: 0;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--surface-glass-strong);
+  white-space: nowrap;
+}
+
+.card-grid-container {
+  height: 100%;
+  overflow-y: auto;
+  padding: 28px 32px 56px;
+}
+
+.card-grid-container.has-trash-action {
+  padding-top: 58px;
+}
+
+.card-masonry {
+  position: relative;
+  width: 100%;
+  max-width: 1240px;
+  margin: 0 auto;
+}
+
+.card-masonry-slot {
+  position: absolute;
+  inset-block-start: 0;
+  min-width: 0;
+}
+
+.card-masonry-slot > .note-card {
+  margin-block-end: 0;
+  transition: box-shadow var(--motion-fast) var(--motion-ease-out), border-color var(--motion-fast) var(--motion-ease-out), background-color var(--motion-fast) var(--motion-ease-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .card-masonry-slot:hover > .note-card {
+    z-index: 1;
+  }
+}
+
+/* Individual Note Card */
+.note-card {
+  margin-bottom: 18px;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  /* Compact vertical bleed stays visible near the scrollport edge in Safari. */
+  box-shadow: var(--note-card-shadow);
+  overflow: hidden;
+  cursor: pointer;
+  transition: box-shadow var(--motion-fast) var(--motion-ease-out), border-color var(--motion-fast) var(--motion-ease-out), background-color var(--motion-fast) var(--motion-ease-out);
+  text-align: left;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.note-card-foreground { position: relative; z-index: 1; display: flex; min-width: 0; flex: 1 1 auto; flex-direction: column; background: var(--surface); }
+
+.note-card:focus-visible {
+  outline: none;
+  box-shadow: var(--note-card-hover-shadow), var(--note-card-hover-detail-shadow);
+}
+
+.note-card:active {
+  background-color: var(--surface-muted);
+  transition-duration: var(--motion-micro);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .note-card:hover {
+    box-shadow: var(--note-card-hover-shadow), var(--note-card-hover-detail-shadow);
+  }
+}
+
+.note-card.is-selected {
+  border-color: var(--multi-selection-border);
+  background: var(--multi-selection-soft);
+  box-shadow: 0 0 0 1px var(--multi-selection-border), var(--note-card-shadow);
+}
+.note-card.is-selected .note-card-foreground { background: var(--multi-selection-soft); }
+
+.note-card-cover {
+  height: 140px;
+  width: 100%;
+  overflow: hidden;
+  background: var(--cover-surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.note-card-cover-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+  -webkit-user-drag: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.note-card img,
+.note-row img {
+  pointer-events: none;
+  -webkit-user-drag: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.note-card-body {
+  padding: 20px 22px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: transparent;
+}
+
+.note-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.note-card-title {
+  margin: 0;
+  font-size: 1.06rem;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1.42;
+  letter-spacing: 0;
+  flex: 1;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: clip;
+  overflow-wrap: anywhere;
+}
+
+.note-card-star-btn {
+  border: none;
+  background: transparent;
+  padding: 2px;
+  color: var(--soft-muted);
+  cursor: pointer;
+  border-radius: 4px;
+  display: inline-flex;
+  flex: none;
+  transition: color var(--motion-fast) var(--motion-ease-out);
+}
+
+.note-card-star-btn:hover {
+  color: var(--ink);
+}
+
+.note-card-star-btn.is-favorite {
+  color: var(--accent);
+}
+
+.note-card-preview-text {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.68;
+  color: var(--muted);
+  letter-spacing: 0.005em;
+  white-space: pre-line;
+  display: -webkit-box;
+  -webkit-line-clamp: 10;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.note-card-preview-empty {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--soft-muted);
+  font-style: italic;
+}
+
+.note-card-footer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 10px;
+  margin-top: 4px;
+  padding-top: 10px;
+  font-size: 0.76rem;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+}
+
+.note-card-notebook-badge {
+  display: inline-flex;
+  grid-column: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  color: var(--ink);
+  font-size: 0.74rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.note-card-notebook-badge .notebook-color-dot { flex: none; }
+.note-card-notebook-badge .notebook-badge-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.note-card-tag {
+  font-size: 0.72rem;
+}
+
+.note-card-tag--overflow {
+  font-size: 0.68rem;
+}
+
+.note-card-date {
+  grid-column: 2;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.editor-back-cards {
+  margin-right: 4px;
+}
+
+/* Frameless floating outline for card editing. Keep a reading gutter beside it. */
+.editor-floating-outline {
+  position: absolute;
+  top: 78px;
+  left: 16px;
+  bottom: 96px;
+  width: 216px;
+  z-index: 30;
+  animation: outlineFadeIn var(--motion-panel) var(--motion-ease-out) both;
+}
+
+.app-shell .editor-panel:has(.editor-floating-outline) .editor-document {
+  --card-document-max: 820px;
+  --card-outline-gutter: 248px;
+  --card-document-end-space: 32px;
+  width: min(var(--card-document-max), calc(100% - var(--card-outline-gutter) - var(--card-document-end-space)));
+  margin-inline: max(var(--card-outline-gutter), calc((100% - var(--card-document-max)) / 2)) var(--card-document-end-space);
+}
+
+.editor-floating-outline .note-outline-panel {
+  background: transparent;
+  border: none;
+  height: 100%;
+}
+
+.editor-floating-outline .note-outline-scroll {
+  flex: none;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 14px 0;
+  scroll-snap-type: y mandatory;
+  scroll-padding-block: 14px;
+  clip-path: inset(14px 0);
+}
+
+.editor-floating-outline .note-outline-scroll-shell {
+  display: flex;
+  align-items: center;
+}
+
+.editor-floating-outline .editor-outline-item { scroll-snap-align: start; }
+
+.editor-floating-outline .note-outline-scroll > nav,
+.editor-floating-outline .note-outline-scroll > .editor-outline-empty {
+  flex-shrink: 0;
+  margin-block: auto;
+}
+@keyframes outlineFadeIn {
+  from { opacity: 0; transform: translateX(-8px) scale(0.98); }
+  to { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+@media (max-width: 1180px) {
+  .app-shell .editor-panel:has(.editor-floating-outline) .editor-document {
+    --card-document-max: 760px;
+  }
+}
+
+@media (max-width: 768px) {
+  .editor-floating-outline { top: 62px; left: 6px; width: 140px; bottom: 88px; }
+  .app-shell .editor-panel:has(.editor-floating-outline) .editor-document {
+    --card-outline-gutter: 160px;
+    --card-document-end-space: 20px;
+  }
+  .editor-floating-outline .editor-outline-item button {
+    padding-left: calc(6px + var(--outline-indent) * 0.6);
+  }
+}
+@media (max-width: 900px) {
+  .card-grid-container.has-trash-action {
+    padding-top: max(72px, calc(env(safe-area-inset-top) + 64px));
+  }
+  .app-shell[data-mobile-page="home"] > .note-card-grid-panel,
+  .app-shell[data-mobile-page="editor"] > .note-card-grid-panel { display: none; }
+  .is-mobile-card-grid { flex: 1 1 0; height: 0; min-height: 0; background: var(--canvas); }
+  .is-mobile-card-grid .card-grid-scroll-shell::before { background: linear-gradient(to bottom, var(--canvas), transparent); }
+  .is-mobile-card-grid .card-grid-scroll-shell::after { background: linear-gradient(to top, var(--canvas), transparent); }
+  .card-grid-mobile-menu { left: max(14px, env(safe-area-inset-left)); }
+  .card-grid-empty-trash { right: max(24px, env(safe-area-inset-right)); }
+  .is-mobile-card-grid .card-grid-container,
+  .is-mobile-card-grid .card-grid-container.has-trash-action { padding: 14px max(14px, env(safe-area-inset-right)) calc(96px + env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left)); overscroll-behavior: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; }
+  .is-mobile-card-grid .note-card { position: relative; min-width: 0; margin-bottom: 0; border-color: var(--border-soft); transition-timing-function: var(--motion-ease-out); }
+  .is-mobile-card-grid .note-card.is-selected { border-color: var(--multi-selection-border); }
+  .is-mobile-card-grid .note-card.is-selected .note-card-foreground { background: var(--multi-selection-soft); }
+  .is-mobile-card-grid .note-card.is-selected:has(.note-card-open:focus-visible) { background: var(--multi-selection-soft); }
+  .is-mobile-card-grid .note-card.is-selected:has(.note-card-open:focus-visible) > .note-card-foreground { background: var(--multi-selection-soft); }
+  .is-mobile-card-grid .note-card-foreground { min-height: 100%; }
+  .is-mobile-card-grid .note-card:has(.note-card-open:focus-visible) > .note-card-foreground { background: var(--accent-soft); }
+  .is-mobile-card-grid .note-card-open { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; padding: 0; border: 0; border-radius: inherit; background: transparent; touch-action: pan-y; }
+  .is-mobile-card-grid .note-card:has(.note-card-open:focus-visible) { background: var(--accent-soft); }
+  .is-mobile-card-grid .note-card-body { padding: 14px 12px 12px; gap: 10px; }
+  .is-mobile-card-grid .note-card-header { position: relative; }
+  .is-mobile-card-grid .note-card-header.has-favorite-action { padding-right: 44px; }
+  .is-mobile-card-grid .note-card-title { min-width: 0; font-size: 1rem; }
+  .is-mobile-card-grid .note-card-star-btn { position: absolute; top: -10px; right: -10px; z-index: 2; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 999px; }
+  .is-mobile-card-grid .note-card-preview-text { font-size: 0.8125rem; line-height: 1.65; -webkit-line-clamp: 6; }
+  .is-mobile-card-grid .note-card-cover { height: 116px; }
+  .is-mobile-card-grid .note-card-footer { margin-top: 0; padding-top: 8px; }
+  .is-mobile-card-grid .note-card-date { text-align: right; font-size: 0.6875rem; }
+  .mobile-collection-header .sort-button-label,
+  .mobile-collection-header .sort-button-arrow { display: none; }
+  .app-shell[data-mobile-page] .mobile-collection-header .sort-button,
+  .app-shell[data-mobile-page] .mobile-layout-toggle { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; flex: 0 0 44px; }
+  .mobile-collection-header .list-header-controls { flex-shrink: 0; gap: 2px; }
+}
+
+@supports (line-clamp: 3) {
+  .is-mobile-card-grid .note-card-header.has-favorite-action { padding-right: 0; }
+  .is-mobile-card-grid .note-card-title {
+    display: block;
+    width: 100%;
+    line-clamp: 3;
+    -webkit-line-clamp: unset;
+    overflow: hidden;
+  }
+  .is-mobile-card-grid .note-card-title::before {
+    content: "";
+    float: right;
+    width: 44px;
+    height: 1.42em;
+  }
+}
+.card-grid-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 72px 20px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.card-grid-empty strong {
+  color: var(--ink);
+  font-size: 1.05rem;
+}
+
+.card-grid-empty span {
+  font-size: 0.85rem;
+  max-width: 320px;
+  line-height: 1.5;
+}
+
+.card-grid-load-more {
+  display: flex;
+  justify-content: center;
+  padding: 20px 0 10px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-micro: 0ms;
+    --motion-fast: 0ms;
+    --motion-content: 0ms;
+    --motion-group: 0ms;
+    --motion-note-group: 0ms;
+    --motion-panel: 0ms;
+    --motion-layout: 0ms;
+    --motion-spin: 0ms;
+    --motion-pulse: 0ms;
+  }
+
+  .app-shell.layout-cards .editor-panel,
+  .editor-document--entering,
+  .empty-editor,
+  .note-outline-panel,
+  .editor-floating-outline,
+  .sort-dropdown,
+  .slash-command-menu,
+  .block-actions-menu,
+  .wiki-link-suggestion-dropdown,
+  .command-dialog,
+  .notebook-dialog,
+  .confirm-dialog,
+  .app-error-card,
+  .link-dialog,
+  .backlinks-dialog,
+  .update-notice,
+  .toast {
+    animation: none !important;
+  }
+
+  .save-status--saving .save-status-icon,
+  .loading-ring {
+    animation: none !important;
+  }
+
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+/* 吸顶标题下的内容持续移动，使用实色避免 WebKit 每帧重新采样背景模糊。 */
+.note-list-group-header, .tasks-note-group-header { background: var(--surface); backdrop-filter: none; -webkit-backdrop-filter: none; }

@@ -22,7 +22,7 @@
 
 | 平台 | 核心样式文件 | 变量前缀与命名约定 |
 | --- | --- | --- |
-| Web 前端 | `app/styles.css` | `--canvas`, `--surface`, `--ink`, `--accent`, `--radius-*`, `--motion-*` |
+| Web 前端 | `app/styles.css`（按界面域引用 `app/styles/*.css`） | `--canvas`, `--surface`, `--ink`, `--accent`, `--radius-*`, `--motion-*` |
 
 单位约定：桌面与移动端统一使用标准 CSS px 与 rem，局部比例采用纯比例因子或视口安全区宏（`env(safe-area-inset-*)`）。
 

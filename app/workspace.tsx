@@ -9,23 +9,9 @@ import {
   useState,
   type MouseEvent as ReactMouseEvent,
 } from "react";
-import { flushSync } from "react-dom";
 import { useNavigate } from "react-router";
-import {
-  ArrowUpRight,
-  CheckCircle2,
-  Clock,
-  Inbox,
-  Plus,
-  Settings2,
-  Star,
-  Trash2,
-  X,
-} from "lucide-react";
-import { textFieldMenuItems, useContextMenu, type ContextMenuItem } from "./context-menu";
+import { useContextMenu } from "./context-menu";
 import { copyPlainText } from "./editor/code-block-copy";
-import { buildNoteContextMenuItems, buildWorkspaceMenuItems } from "./workspace/note-context-menu";
-import { calculateTargetSortOrder } from "./workspace/kanban-drag";
 import { moveSelectedNotes } from "./workspace/move-selected-notes";
 import { ApiError, api } from "./api";
 import { createUuid } from "./uuid";
@@ -52,7 +38,7 @@ import { SplitNoteDialog } from "./workspace/split-note-dialog";
 import { EmptyEditor, NoteListPanel, NoteLoadingState, Sidebar } from "./workspace/panels";
 import { NoteCardGridPanel } from "./workspace/note-card-grid";
 import { TasksPanel } from "./workspace/tasks-panel";
-import { KanbanPanel, type KanbanColumnData } from "./workspace/kanban-panel";
+import { KanbanPanel } from "./workspace/kanban-panel";
 import { registerDragOverGuard } from "./workspace/note-drag-drop";
 import { ErrorBoundary, EditorErrorFallback } from "./error-boundary";
 import {
@@ -92,17 +78,18 @@ import {
   type MobilePage,
 } from "./workspace/use-mobile-navigation";
 import { useMobileViewport } from "./workspace/use-mobile-viewport";
-import { reloadTaskPages } from "./workspace/task-pages";
 import { useNotices } from "./workspace/use-notices";
 import { SystemNotices } from "./workspace/system-notices";
 import { MobileNotebookHome, MobileBottomBar } from "./workspace/mobile-panels";
 import { viewLabel } from "./workspace/helpers";
 import { parseTagQuery } from "../shared/tags";
 import { useThemePreference } from "./theme";
+import { createWorkspaceContextMenuHandler } from "./workspace/workspace-context-menu";
+import { useWorkspacePreferences, type ViewLayout } from "./workspace/use-workspace-preferences";
+import { useWorkspaceTaskData } from "./workspace/use-workspace-task-data";
+import { useWorkspaceKanbanData } from "./workspace/use-workspace-kanban-data";
 
-export type ViewLayout = "three-column" | "cards";
-
-const KANBAN_PAGE_SIZE = 30;
+export type { ViewLayout } from "./workspace/use-workspace-preferences";
 
 const LazyImageExportDialog = lazy(() =>
   import("./image-export/dialog").then(({ ImageExportDialog }) => ({ default: ImageExportDialog })),
@@ -194,52 +181,18 @@ export function Workspace() {
   const searchRef = useRef<HTMLInputElement>(null);
   const searchOriginRef = useRef<{ view: NoteView; notebookId?: string } | null>(null);
   const [isNoteLoading, setIsNoteLoading] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [focusMode, setFocusMode] = useState(() => {
-    try {
-      return localStorage.getItem("xiangying_focus_mode") === "true";
-    } catch {
-      return false;
-    }
-  });
-  const toggleFocusMode = useCallback(() => {
-    setFocusMode((current) => {
-      const next = !current;
-      try {
-        localStorage.setItem("xiangying_focus_mode", String(next));
-      } catch {}
-      return next;
-    });
-  }, []);
-  const [typewriterMode, setTypewriterMode] = useState(() => {
-    try {
-      return localStorage.getItem("xiangying_typewriter_mode") === "true";
-    } catch {
-      return false;
-    }
-  });
-  const toggleTypewriterMode = useCallback(() => {
-    setTypewriterMode((current) => {
-      const next = !current;
-      try {
-        localStorage.setItem("xiangying_typewriter_mode", String(next));
-      } catch {}
-      return next;
-    });
-  }, []);
-  const exitFocusMode = useCallback(() => {
-    setFocusMode(false);
-    try {
-      localStorage.setItem("xiangying_focus_mode", "false");
-    } catch {}
-  }, []);
-  const [viewLayout, setViewLayout] = useState<ViewLayout>(() => {
-    try {
-      return (localStorage.getItem("xiangying_view_layout") as ViewLayout) || "three-column";
-    } catch {
-      return "three-column";
-    }
-  });
+  const {
+    sidebarCollapsed,
+    setSidebarCollapsed,
+    toggleSidebar,
+    focusMode,
+    toggleFocusMode,
+    exitFocusMode,
+    typewriterMode,
+    toggleTypewriterMode,
+    viewLayout,
+    setViewLayout,
+  } = useWorkspacePreferences();
   const toggleViewLayout = useCallback(() => {
     if (window.matchMedia("(max-width: 900px)").matches) return;
     setViewLayout((current) => {
@@ -298,40 +251,29 @@ export function Workspace() {
   const [commandOpen, setCommandOpen] = useState(false);
   const [commandInitialQuery, setCommandInitialQuery] = useState("");
   const [inNoteSearchQuery, setInNoteSearchQuery] = useState("");
-  const [taskStatus, setTaskStatus] = useState<"open" | "done" | "all">("open");
-  const [taskNotebookId, setTaskNotebookId] = useState("");
-  const [taskSnapshot, setTaskSnapshot] = useState<{
-    queryKey: string;
-    tasks: TaskSummary[];
-    total: number;
-    nextCursor: string | null;
-  } | null>(null);
-  const taskSnapshotRef = useRef(taskSnapshot);
-  const taskRequestGenerationRef = useRef(0);
-  const taskMoreInFlightRef = useRef(false);
-  const [tasksMoreLoading, setTasksMoreLoading] = useState(false);
-  const [tasksMoreError, setTasksMoreError] = useState<string | null>(null);
-  const [taskLoadError, setTaskLoadError] = useState<{
-    queryKey: string;
-    message: string;
-  } | null>(null);
-  const taskQueryKey = JSON.stringify([taskStatus, taskNotebookId]);
-  const currentTaskSnapshot = taskSnapshot?.queryKey === taskQueryKey ? taskSnapshot : null;
-  const hasTaskSnapshot = currentTaskSnapshot !== null;
-  const tasks = currentTaskSnapshot?.tasks ?? [];
-  const tasksLoading = tasksOpen && !hasTaskSnapshot && taskLoadError?.queryKey !== taskQueryKey;
-  const tasksError = taskLoadError?.queryKey === taskQueryKey ? taskLoadError.message : null;
-  const [taskRefreshToken, setTaskRefreshToken] = useState(0);
-  const [taskNavigation, setTaskNavigation] = useState<{
-    noteId: string;
-    ordinal: number;
-    text: string;
-    token: number;
-  } | null>(null);
-  const taskNavigationTokenRef = useRef(0);
-  const [taskMutationNoteId, setTaskMutationNoteId] = useState<string | null>(null);
-  const [taskMutationOrdinal, setTaskMutationOrdinal] = useState<number | null>(null);
-  const taskMutationsInFlightRef = useRef(new Set<string>());
+  const {
+    taskStatus,
+    setTaskStatus,
+    taskNotebookId,
+    setTaskNotebookId,
+    currentTaskSnapshot,
+    tasks,
+    tasksLoading,
+    tasksError,
+    tasksMoreLoading,
+    tasksMoreError,
+    loadMoreTasks,
+    taskRefreshToken,
+    setTaskRefreshToken,
+    taskNavigation,
+    setTaskNavigation,
+    taskNavigationTokenRef,
+    taskMutationNoteId,
+    setTaskMutationNoteId,
+    taskMutationOrdinal,
+    setTaskMutationOrdinal,
+    taskMutationsInFlightRef,
+  } = useWorkspaceTaskData(tasksOpen);
   const [resultSearch, setResultSearch] = useState<{
     id: string;
     query: string;
@@ -339,36 +281,6 @@ export function Workspace() {
   } | null>(null);
   const resultSearchTokenRef = useRef(0);
   const [editingNotebook, setEditingNotebook] = useState<Notebook | null | undefined>(undefined);
-  const [kanbanColumns, setKanbanColumns] = useState<Record<KanbanStatus, KanbanColumnData>>({
-    inbox: {
-      cards: [],
-      total: 0,
-      hasMore: false,
-      nextCursor: null,
-      isLoadingMore: false,
-      loadMoreError: null,
-    },
-    doing: {
-      cards: [],
-      total: 0,
-      hasMore: false,
-      nextCursor: null,
-      isLoadingMore: false,
-      loadMoreError: null,
-    },
-    done: {
-      cards: [],
-      total: 0,
-      hasMore: false,
-      nextCursor: null,
-      isLoadingMore: false,
-      loadMoreError: null,
-    },
-  });
-  const kanbanColumnsRef = useRef(kanbanColumns);
-  kanbanColumnsRef.current = kanbanColumns;
-  const [kanbanLoading, setKanbanLoading] = useState(false);
-  const [kanbanRefreshToken, setKanbanRefreshToken] = useState(0);
   const kanbanReturnRef = useRef(false);
   const {
     notice,
@@ -378,214 +290,21 @@ export function Workspace() {
     dismiss: dismissNotice,
     setPaused: pauseNotice,
   } = useNotices();
+  const {
+    kanbanColumns,
+    setKanbanColumns,
+    kanbanColumnsRef,
+    kanbanLoading,
+    kanbanRefreshToken,
+    setKanbanRefreshToken,
+    loadMoreKanbanColumn,
+  } = useWorkspaceKanbanData(kanbanOpen, notifyError);
   const [ready, setReady] = useState(false);
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
   const [noteReloadToken, setNoteReloadToken] = useState(0);
   const setSelectedNoteMetadata = useCallback((note: Note | null) => {
     setSelectedNote(note ? noteMetadataSnapshot(note) : null);
   }, []);
-  useEffect(() => {
-    if (!tasksOpen) return;
-    const controller = new AbortController();
-    const requestGeneration = ++taskRequestGenerationRef.current;
-    const queryKey = JSON.stringify([taskStatus, taskNotebookId]);
-    taskMoreInFlightRef.current = false;
-    setTasksMoreLoading(false);
-    setTasksMoreError(null);
-    setTaskLoadError((current) => (current?.queryKey === queryKey ? null : current));
-    const previous = taskSnapshotRef.current;
-    const loadedCount = previous?.queryKey === queryKey ? previous.tasks.length : 0;
-    void reloadTaskPages(
-      (cursor, limit) =>
-        api.listTasks(
-          { status: taskStatus, notebookId: taskNotebookId || undefined, cursor, limit },
-          { signal: controller.signal },
-        ),
-      loadedCount,
-    )
-      .then((result) => {
-        if (controller.signal.aborted || taskRequestGenerationRef.current !== requestGeneration)
-          return;
-        const snapshot = {
-          queryKey,
-          tasks: result.tasks,
-          total: result.total ?? result.tasks.length,
-          nextCursor: result.nextCursor,
-        };
-        taskSnapshotRef.current = snapshot;
-        setTaskSnapshot(snapshot);
-      })
-      .catch((reason: unknown) => {
-        if (reason instanceof Error && reason.name === "AbortError") return;
-        if (
-          controller.signal.aborted ||
-          taskRequestGenerationRef.current !== requestGeneration ||
-          taskSnapshotRef.current?.queryKey === queryKey
-        )
-          return;
-        setTaskLoadError({ queryKey, message: "加载任务失败，请重试" });
-      });
-    return () => controller.abort();
-  }, [taskNotebookId, taskRefreshToken, taskStatus, tasksOpen]);
-
-  const loadMoreTasks = useCallback(() => {
-    const snapshot = taskSnapshotRef.current;
-    if (
-      !tasksOpen ||
-      !snapshot ||
-      snapshot.queryKey !== taskQueryKey ||
-      !snapshot.nextCursor ||
-      taskMoreInFlightRef.current
-    )
-      return;
-
-    const requestGeneration = taskRequestGenerationRef.current;
-    taskMoreInFlightRef.current = true;
-    setTasksMoreLoading(true);
-    setTasksMoreError(null);
-    void api
-      .listTasks({
-        status: taskStatus,
-        notebookId: taskNotebookId || undefined,
-        cursor: snapshot.nextCursor,
-      })
-      .then((result) => {
-        if (taskRequestGenerationRef.current !== requestGeneration) return;
-        const current = taskSnapshotRef.current;
-        if (!current || current.queryKey !== snapshot.queryKey) return;
-        const known = new Set(current.tasks.map((task) => `${task.noteId}:${task.ordinal}`));
-        const next = {
-          ...current,
-          tasks: [
-            ...current.tasks,
-            ...result.tasks.filter((task) => !known.has(`${task.noteId}:${task.ordinal}`)),
-          ],
-          nextCursor: result.nextCursor,
-        };
-        taskSnapshotRef.current = next;
-        setTaskSnapshot(next);
-      })
-      .catch((reason: unknown) => {
-        if (reason instanceof Error && reason.name === "AbortError") return;
-        if (taskRequestGenerationRef.current === requestGeneration)
-          setTasksMoreError("加载更多任务失败，请重试");
-      })
-      .finally(() => {
-        if (taskRequestGenerationRef.current !== requestGeneration) return;
-        taskMoreInFlightRef.current = false;
-        setTasksMoreLoading(false);
-      });
-  }, [taskNotebookId, taskQueryKey, taskStatus, tasksOpen]);
-  useEffect(() => {
-    if (!kanbanOpen) return;
-    const controller = new AbortController();
-    setKanbanLoading(true);
-    const statuses: KanbanStatus[] = ["inbox", "doing", "done"];
-    Promise.all(
-      statuses.map((status) =>
-        api.listKanbanCards(
-          {
-            status,
-            limit: KANBAN_PAGE_SIZE,
-          },
-          { signal: controller.signal },
-        ),
-      ),
-    )
-      .then(([inboxRes, doingRes, doneRes]) => {
-        if (controller.signal.aborted) return;
-        setKanbanColumns({
-          inbox: {
-            cards: inboxRes.cards,
-            total: inboxRes.total,
-            hasMore: inboxRes.hasMore,
-            nextCursor: inboxRes.nextCursor,
-            isLoadingMore: false,
-            loadMoreError: null,
-          },
-          doing: {
-            cards: doingRes.cards,
-            total: doingRes.total,
-            hasMore: doingRes.hasMore,
-            nextCursor: doingRes.nextCursor,
-            isLoadingMore: false,
-            loadMoreError: null,
-          },
-          done: {
-            cards: doneRes.cards,
-            total: doneRes.total,
-            hasMore: doneRes.hasMore,
-            nextCursor: doneRes.nextCursor,
-            isLoadingMore: false,
-            loadMoreError: null,
-          },
-        });
-      })
-      .catch((err: unknown) => {
-        if (err instanceof Error && err.name === "AbortError") return;
-        if (controller.signal.aborted) return;
-        notifyError("加载看板数据失败，请重试");
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setKanbanLoading(false);
-      });
-    return () => controller.abort();
-  }, [kanbanOpen, kanbanRefreshToken, notifyError]);
-
-  const loadMoreKanbanColumn = useCallback(
-    async (status: KanbanStatus) => {
-      const col = kanbanColumnsRef.current[status];
-      if (!col || col.isLoadingMore || !col.hasMore || !col.nextCursor) return;
-
-      setKanbanColumns((prev) => ({
-        ...prev,
-        [status]: {
-          ...prev[status],
-          isLoadingMore: true,
-          loadMoreError: null,
-        },
-      }));
-
-      try {
-        const res = await api.listKanbanCards({
-          status,
-          limit: KANBAN_PAGE_SIZE,
-          cursor: col.nextCursor,
-        });
-
-        setKanbanColumns((prev) => {
-          const currentCol = prev[status];
-          const existingIds = new Set(currentCol.cards.map((c) => c.noteId));
-          const newCards = res.cards.filter((c) => !existingIds.has(c.noteId));
-          return {
-            ...prev,
-            [status]: {
-              ...currentCol,
-              cards: [...currentCol.cards, ...newCards],
-              total: res.total,
-              hasMore: res.hasMore,
-              nextCursor: res.nextCursor,
-              isLoadingMore: false,
-              loadMoreError: null,
-            },
-          };
-        });
-      } catch {
-        notifyError(
-          `加载更多${status === "inbox" ? "收集箱" : status === "doing" ? "进行中" : "已完成"}卡片失败`,
-        );
-        setKanbanColumns((prev) => ({
-          ...prev,
-          [status]: {
-            ...prev[status],
-            isLoadingMore: false,
-            loadMoreError: "加载失败",
-          },
-        }));
-      }
-    },
-    [notifyError],
-  );
   const [pwaState, setPwaState] = useState<PwaState>({
     standalone: false,
     canInstall: false,
@@ -2833,15 +2552,6 @@ export function Workspace() {
       }),
     [deleteNotebook, requestConfirm],
   );
-  const handleCollapseSidebar = useCallback(() => {
-    const toggle = () => setSidebarCollapsed((value) => !value);
-    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (reducedMotion || typeof document.startViewTransition !== "function") {
-      toggle();
-      return;
-    }
-    document.startViewTransition(() => flushSync(toggle));
-  }, []);
   const handleSelectListNote = useCallback(
     (id: string, event: ReactMouseEvent<HTMLButtonElement>) => {
       if (event.altKey && !isMobileViewport) {
@@ -2985,244 +2695,52 @@ export function Workspace() {
   }, [isMobileViewport, isNoteLoading, mobilePage, ready]);
   useMobileViewport(isMobileViewport && ready);
 
-  const handleWorkspaceContextMenu = (event: ReactMouseEvent<HTMLDivElement>) => {
-    const target = event.target;
-    if (target instanceof HTMLInputElement && target === searchRef.current) {
-      openWorkspaceMenu(event, textFieldMenuItems(target, changeQuery), "搜索文本");
-      return;
-    }
-    if (
-      !(target instanceof Element) ||
-      target.closest("dialog, input, textarea, [contenteditable='true'], .editor-panel")
-    )
-      return;
-    if (target.closest(".tasks-panel")) {
-      event.preventDefault();
-      return;
-    }
-    if (target.closest(".kanban-panel")) {
-      const noteId = target.closest<HTMLElement>("[data-kanban-note-id]")?.dataset.kanbanNoteId;
-      const kanbanCard = noteId
-        ? (["inbox", "doing", "done"] as const)
-            .flatMap((status) => kanbanColumnsRef.current[status].cards)
-            .find((card) => card.noteId === noteId)
-        : undefined;
-      if (kanbanCard) {
-        const items: ContextMenuItem[] = [
-          {
-            label: "打开笔记",
-            icon: ArrowUpRight,
-            onSelect: () => openKanbanNote(kanbanCard.noteId),
-          },
-          {
-            label: kanbanCard.note.isFavorite ? "取消收藏" : "收藏笔记",
-            icon: Star,
-            onSelect: () => handleToggleFavoriteKanbanCard(kanbanCard.note),
-          },
-          ...(
-            [
-              { id: "inbox", title: "收集箱", icon: Inbox },
-              { id: "doing", title: "进行中", icon: Clock },
-              { id: "done", title: "已完成", icon: CheckCircle2 },
-            ] as const
-          )
-            .filter((column) => column.id !== kanbanCard.status)
-            .map((column) => ({
-              label: `移到${column.title}`,
-              icon: column.icon,
-              onSelect: () => {
-                const cards = kanbanColumnsRef.current[column.id].cards;
-                void handleMoveKanbanCard(
-                  kanbanCard.noteId,
-                  column.id,
-                  calculateTargetSortOrder(cards, 0, kanbanCard.noteId),
-                );
-              },
-            })),
-          {
-            label: "从看板移出",
-            icon: X,
-            separator: true,
-            onSelect: () => handleRemoveKanbanCard(kanbanCard.noteId),
-          },
-          {
-            label: "移入回收站",
-            icon: Trash2,
-            danger: true,
-            separator: true,
-            onSelect: () => handleTrashKanbanCard(kanbanCard.noteId),
-          },
-        ];
-        openWorkspaceMenu(event, items, kanbanCard.note.title.trim() || "未命名笔记");
-        if (!event.defaultPrevented) event.preventDefault();
-        return;
-      }
-
-      const columnElement = target.closest<HTMLElement>("[data-kanban-status]");
-      const status = columnElement?.dataset.kanbanStatus as KanbanStatus | undefined;
-      if (status === "inbox" || status === "doing" || status === "done") {
-        const title = { inbox: "收集箱", doing: "进行中", done: "已完成" }[status];
-        openWorkspaceMenu(
-          event,
-          [
-            {
-              label: `在${title}新建笔记`,
-              icon: Plus,
-              onSelect: () => handleCreateNoteInKanbanColumn(status),
-            },
-          ],
-          `${title}列`,
-        );
-        if (!event.defaultPrevented) event.preventDefault();
-        return;
-      }
-
-      openWorkspaceMenu(
-        event,
-        [
-          {
-            label: "在收集箱新建笔记",
-            icon: Plus,
-            onSelect: () => handleCreateNoteInKanbanColumn("inbox"),
-          },
-        ],
-        "看板",
-      );
-      if (!event.defaultPrevented) event.preventDefault();
-      return;
-    }
-    const noteId = target.closest<HTMLElement>("[data-note-id]")?.dataset.noteId;
-    const targetNote = noteId ? notesRef.current.find((note) => note.id === noteId) : undefined;
-    if (targetNote) {
-      const busy = pendingTrashCount > 0 || emptyingTrash;
-      openWorkspaceMenu(
-        event,
-        buildNoteContextMenuItems({
-          note: targetNote,
-          view,
-          selectedIds: selectedNoteIds,
-          busy,
-          actions: {
-            clearSelection: clearNoteSelection,
-            openNote: (note) => {
-              if (viewLayout === "cards") handleOpenCardNote(note.id);
-              else selectNote(note.id);
-            },
-            openInSplit:
-              !isMobileViewport && viewLayout === "cards"
-                ? (note) => openInSplit(note.id)
-                : undefined,
-            toggleSelection: (noteId) => handleToggleCardSelection(noteId, { ctrlKey: true }),
-            swipeAction: handleNoteSwipeAction,
-            restoreSelected: restoreSelectedNotes,
-            deleteSelected: deleteSelectedNotes,
-            toggleFavorite: handleToggleFavoriteNote,
-            addToKanban: (note, status) => {
-              void handleAddExistingNoteToKanban(note.id, status);
-            },
-          },
-        }),
-        targetNote.title || "未命名笔记",
-      );
-      return;
-    }
-    const targetNotebookId = target.closest<HTMLElement>("[data-notebook-id]")?.dataset.notebookId;
-    const targetNotebook = notebooks.find((notebook) => notebook.id === targetNotebookId);
-    if (targetNotebook) {
-      openWorkspaceMenu(
-        event,
-        [
-          {
-            label: "打开笔记本",
-            icon: ArrowUpRight,
-            onSelect: () => selectNotebook(targetNotebook.id),
-          },
-          {
-            label: "在此新建笔记",
-            icon: Plus,
-            onSelect: () =>
-              createNoteInNotebook({
-                notebookId: targetNotebook.id,
-                notebookName: targetNotebook.name,
-                title: "未命名笔记",
-              }),
-          },
-          {
-            label: "笔记本设置",
-            icon: Settings2,
-            separator: true,
-            onSelect: () => handleEditNotebook(targetNotebook),
-          },
-          ...(!targetNotebook.isSystem
-            ? [
-                {
-                  label: "删除笔记本",
-                  icon: Trash2,
-                  danger: true,
-                  separator: true,
-                  onSelect: () => handleDeleteNotebook(targetNotebook),
-                },
-              ]
-            : []),
-        ],
-        targetNotebook.name,
-      );
-      return;
-    }
-    if (target.closest(".sidebar")) {
-      const targetView = target.closest<HTMLElement>("[data-note-view]")?.dataset.noteView as
-        NoteView | undefined;
-      const items: ContextMenuItem[] = [];
-      if (targetView)
-        items.push({
-          label: `打开${viewLabel(targetView)}`,
-          icon: ArrowUpRight,
-          onSelect: () => selectView(targetView),
-        });
-      items.push(
-        { label: "新建笔记", icon: Plus, onSelect: handleNewInboxNote },
-        { label: "新建笔记本", icon: Plus, onSelect: handleCreateNotebook },
-        {
-          label: sidebarCollapsed ? "展开侧栏" : "收起侧栏",
-          icon: Settings2,
-          separator: true,
-          onSelect: handleCollapseSidebar,
-        },
-      );
-      openWorkspaceMenu(event, items, "导航");
-      return;
-    }
-    if (target.closest(".note-list-panel, .note-card-grid-panel, .empty-editor")) {
-      if (target.closest(".note-outline-panel")) {
-        openWorkspaceMenu(
-          event,
-          [{ label: "关闭大纲", icon: X, onSelect: closeOutline }],
-          "笔记大纲",
-        );
-        return;
-      }
-      openWorkspaceMenu(
-        event,
-        buildWorkspaceMenuItems({
-          view,
-          viewLayout,
-          canToggleLayout: !isMobileViewport,
-          query,
-          hasSelection: selectedNoteIds.size > 0,
-          totalNotes,
-          busy: pendingTrashCount > 0 || emptyingTrash,
-          actions: {
-            newNote: handleNewNote,
-            toggleLayout: toggleViewLayout,
-            clearQuery: handleClearQuery,
-            clearSelection: clearNoteSelection,
-            emptyTrash,
-          },
-        }),
-        "笔记工作区",
-      );
-    }
-  };
+  const handleWorkspaceContextMenu = createWorkspaceContextMenuHandler({
+    openWorkspaceMenu,
+    searchRef,
+    changeQuery,
+    openKanbanNote,
+    handleToggleFavoriteKanbanCard,
+    kanbanColumnsRef,
+    handleMoveKanbanCard,
+    handleRemoveKanbanCard,
+    handleTrashKanbanCard,
+    handleCreateNoteInKanbanColumn,
+    notesRef,
+    pendingTrashCount,
+    emptyingTrash,
+    view,
+    selectedNoteIds,
+    clearNoteSelection,
+    viewLayout,
+    handleOpenCardNote,
+    selectNote,
+    isMobileViewport,
+    openInSplit,
+    handleToggleCardSelection,
+    handleNoteSwipeAction,
+    restoreSelectedNotes,
+    deleteSelectedNotes,
+    handleToggleFavoriteNote,
+    handleAddExistingNoteToKanban,
+    notebooks,
+    selectNotebook,
+    createNoteInNotebook,
+    handleEditNotebook,
+    handleDeleteNotebook,
+    sidebarCollapsed,
+    handleNewInboxNote,
+    handleCreateNotebook,
+    selectView,
+    handleCollapseSidebar: toggleSidebar,
+    closeOutline,
+    query,
+    totalNotes,
+    handleNewNote,
+    toggleViewLayout,
+    handleClearQuery,
+    emptyTrash,
+  });
 
   if (!ready)
     return (
@@ -3313,7 +2831,7 @@ export function Workspace() {
           onNewInboxNote={handleNewInboxNote}
           onCreateNotebook={handleCreateNotebook}
           collapsed={sidebarCollapsed}
-          onCollapse={handleCollapseSidebar}
+          onCollapse={toggleSidebar}
           onMoveNotesToNotebook={handleMoveNotesToNotebook}
           onTrashNotes={handleTrashNotes}
           tasksActive={tasksOpen}
