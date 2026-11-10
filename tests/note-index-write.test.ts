@@ -6,7 +6,9 @@ import { createNote, updateNoteInTransaction } from "../server/routes/note-mutat
 test("unrelated edits preserve task and tag indexes while search stays current", async () => {
   const db = await openDatabase(":memory:");
   try {
-    db.query("INSERT INTO users VALUES (?, ?, ?, ?, ?)").run("u", "u", "hash", "salt", 1);
+    db.query(
+      "INSERT INTO users (id, username, password_hash, password_salt, created_at) VALUES (?, ?, ?, ?, ?)",
+    ).run("u", "u", "hash", "salt", 1);
     db.query(
       "INSERT INTO notebooks (id, user_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
     ).run("b", "u", "book", 1, 1);
@@ -48,7 +50,9 @@ test("unrelated edits preserve task and tag indexes while search stays current",
 test("unchanged links keep their records while changed snippets are refreshed", async () => {
   const db = await openDatabase(":memory:");
   try {
-    db.query("INSERT INTO users VALUES (?, ?, ?, ?, ?)").run("u", "u", "hash", "salt", 1);
+    db.query(
+      "INSERT INTO users (id, username, password_hash, password_salt, created_at) VALUES (?, ?, ?, ?, ?)",
+    ).run("u", "u", "hash", "salt", 1);
     db.query(
       "INSERT INTO notebooks (id, user_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
     ).run("b", "u", "book", 1, 1);

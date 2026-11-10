@@ -11,6 +11,7 @@ import {
   openDatabase,
   type SchemaMigration,
 } from "../server/db";
+import { LEGACY_PASSWORD_ITERATIONS } from "../server/core";
 import { shortSearchToken } from "../server/note-search";
 
 test("initializes a fresh database from the single baseline and records its version", async () => {
@@ -24,6 +25,36 @@ test("initializes a fresh database from the single baseline and records its vers
         .query("SELECT name FROM sqlite_master WHERE type = ? AND name = ?")
         .get("table", "users"),
     ).toBeTruthy();
+  } finally {
+    database.close();
+  }
+});
+
+test("migrates version 1 users to tracked password iterations", async () => {
+  const database = new Database(":memory:");
+  database.exec(await Bun.file("database/schema.sql").text());
+  database
+    .query(
+      "INSERT INTO users (id, username, password_hash, password_salt, created_at) VALUES (?, ?, ?, ?, ?)",
+    )
+    .run("legacy-user", "owner", "legacy-hash", "legacy-salt", 1);
+
+  try {
+    await initializeDatabase(database);
+    expect(database.query("PRAGMA user_version").get()).toEqual({
+      user_version: CURRENT_SCHEMA_VERSION,
+    });
+    expect(
+      (
+        database.query("PRAGMA table_info(users)").all() as Array<{
+          name: string;
+          dflt_value: string;
+        }>
+      ).find((column) => column.name === "password_iterations"),
+    ).toMatchObject({ dflt_value: String(LEGACY_PASSWORD_ITERATIONS) });
+    expect(
+      database.query("SELECT password_iterations FROM users WHERE id = ?").get("legacy-user"),
+    ).toEqual({ password_iterations: LEGACY_PASSWORD_ITERATIONS });
   } finally {
     database.close();
   }

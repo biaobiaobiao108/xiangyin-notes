@@ -100,7 +100,8 @@ export const SESSION_COOKIE = "xiangying_session";
 export const SESSION_TTL = 60 * 60 * 24 * 30;
 export const SESSION_COOKIE_TTL = 60 * 60 * 24 * 400;
 export const SESSION_REFRESH_WINDOW = 60 * 60 * 24 * 7;
-export const PASSWORD_ITERATIONS = 100_000;
+export const PASSWORD_ITERATIONS = 600_000;
+export const LEGACY_PASSWORD_ITERATIONS = 100_000;
 export const NOTE_PAGE_SIZE = 100;
 export const BACKLINK_REFERENCE_LIMIT = 100;
 export const BACKLINK_MENTION_LIMIT = 100;
@@ -153,7 +154,11 @@ export async function digestHex(value: string) {
   return Buffer.from(digest).toString("hex");
 }
 
-export async function derivePassword(password: string, saltHex: string) {
+export async function derivePassword(
+  password: string,
+  saltHex: string,
+  iterations = PASSWORD_ITERATIONS,
+) {
   const passwordKey = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(password),
@@ -166,7 +171,7 @@ export async function derivePassword(password: string, saltHex: string) {
     {
       name: "PBKDF2",
       salt,
-      iterations: PASSWORD_ITERATIONS,
+      iterations,
       hash: "SHA-256",
     },
     passwordKey,
@@ -179,7 +184,7 @@ export async function hashPassword(password: string) {
   const saltBytes = crypto.getRandomValues(new Uint8Array(16));
   const salt = Buffer.from(saltBytes).toString("hex");
   const hash = await derivePassword(password, salt);
-  return { hash, salt };
+  return { hash, salt, iterations: PASSWORD_ITERATIONS };
 }
 
 export function constantTimeEqual(a: string, b: string) {

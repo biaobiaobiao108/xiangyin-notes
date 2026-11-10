@@ -9,8 +9,7 @@ const DEFAULT_DATABASE_PATH = "./data/xiangying-notes.sqlite";
 const DEFAULT_SCHEMA_PATH = "./database/schema.sql";
 const BASELINE_SCHEMA_VERSION = 1;
 
-// Increment this when adding the next entry to SCHEMA_MIGRATIONS.
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 2;
 export const SEARCH_INDEX_REBUILD_KEY = "search-index-rebuild-required";
 
 type TableCountRow = {
@@ -31,8 +30,16 @@ export type DatabaseInitializationOptions = {
   currentSchemaVersion?: number;
 };
 
-// Future migrations start from the consolidated version 1 baseline.
-const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [];
+const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
+  {
+    sourceVersion: 1,
+    targetVersion: 2,
+    migrate: (database) =>
+      database.exec(
+        "ALTER TABLE users ADD COLUMN password_iterations INTEGER NOT NULL DEFAULT 100000",
+      ),
+  },
+];
 
 export function databasePathFromEnv(env: Record<string, string | undefined> = Bun.env) {
   return env.DATABASE_PATH?.trim() || DEFAULT_DATABASE_PATH;

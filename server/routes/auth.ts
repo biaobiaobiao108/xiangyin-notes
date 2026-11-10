@@ -17,6 +17,7 @@ import {
   LOGIN_MAX_FAILURES,
   LOGIN_WINDOW_SECONDS,
   now,
+  PASSWORD_ITERATIONS,
   rateLimitClientAddress,
   readJson,
   type RouteContext,
@@ -53,6 +54,12 @@ type CredentialCheck = {
   revocationNotified: boolean;
 };
 
+type StoredPassword = UserRow & {
+  password_hash: string;
+  password_salt: string;
+  password_iterations: number;
+};
+
 const credentialChecks = new WeakMap<SqliteDatabase, CredentialCheck>();
 
 async function syncEnvironmentPassword(
@@ -73,31 +80,41 @@ async function syncEnvironmentPassword(
 
   const task = (async () => {
     await previous?.task;
-    const existing = first<UserRow & { password_hash: string; password_salt: string }>(
+    const existing = first<StoredPassword>(
       database,
-      "SELECT id, username, password_hash, password_salt FROM users WHERE username = ?",
+      "SELECT id, username, password_hash, password_salt, password_iterations FROM users WHERE username = ?",
       credentials.username,
     );
     if (!existing) return null;
-    const derived = await derivePassword(credentials.password, existing.password_salt);
-    if (constantTimeEqual(derived, existing.password_hash)) return null;
+    const derived = await derivePassword(
+      credentials.password,
+      existing.password_salt,
+      existing.password_iterations,
+    );
+    const passwordMatches = constantTimeEqual(derived, existing.password_hash);
+    if (passwordMatches && existing.password_iterations >= PASSWORD_ITERATIONS) return null;
 
     const replacement = await hashPassword(credentials.password);
     return database.transaction(() => {
       const updated = database
         .query(
-          "UPDATE users SET password_hash = ?, password_salt = ? WHERE id = ? AND password_hash = ? AND password_salt = ?",
+          "UPDATE users SET password_hash = ?, password_salt = ?, password_iterations = ? WHERE id = ? AND password_hash = ? AND password_salt = ? AND password_iterations = ?",
         )
         .run(
           replacement.hash,
           replacement.salt,
+          replacement.iterations,
           existing.id,
           existing.password_hash,
           existing.password_salt,
+          existing.password_iterations,
         );
-      if (updated.changes)
+      if (!updated.changes) return null;
+      if (!passwordMatches) {
         database.query("DELETE FROM sessions WHERE user_id = ?").run(existing.id);
-      return updated.changes ? existing.id : null;
+        return existing.id;
+      }
+      return null;
     })();
   })();
   const check = { signature, task, revocationNotified: false };
@@ -356,9 +373,16 @@ export async function ensureEnvironmentUser(
     const seed = database.transaction(() => {
       database
         .query(
-          "INSERT INTO users (id, username, password_hash, password_salt, created_at) VALUES (?, ?, ?, ?, ?)",
+          "INSERT INTO users (id, username, password_hash, password_salt, password_iterations, created_at) VALUES (?, ?, ?, ?, ?, ?)",
         )
-        .run(userId, credentials.username, password.hash, password.salt, createdAt);
+        .run(
+          userId,
+          credentials.username,
+          password.hash,
+          password.salt,
+          password.iterations,
+          createdAt,
+        );
       database
         .query(
           "INSERT INTO notebooks (id, user_id, name, color, is_system, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, 1, 0, ?, ?)",

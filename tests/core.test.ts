@@ -8,6 +8,7 @@ import {
   hashPassword,
   noteAssetIds,
   noteImageSources,
+  PASSWORD_ITERATIONS,
   rateLimitClientAddress,
   readJson,
 } from "../server/core";
@@ -29,6 +30,7 @@ describe("security helpers", () => {
     const first = await hashPassword("a long passphrase for testing");
     const second = await hashPassword("a long passphrase for testing");
     expect(first.salt).not.toBe(second.salt);
+    expect(first.iterations).toBe(PASSWORD_ITERATIONS);
     expect(await derivePassword("a long passphrase for testing", first.salt)).toBe(first.hash);
     expect(await derivePassword("wrong passphrase", first.salt)).not.toBe(first.hash);
     expect(constantTimeEqual(first.hash, first.hash)).toBe(true);
