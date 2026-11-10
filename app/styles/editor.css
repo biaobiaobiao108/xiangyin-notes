@@ -401,7 +401,14 @@
 .note-prose ul[data-type="taskList"] li > div { min-width: 0; flex: 1; }
 .note-prose ul[data-type="taskList"] li > label { display: flex; flex: none; align-items: center; height: 1.72em; padding-top: 0; user-select: none; }
 .note-prose ul[data-type="taskList"] li > label input { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; border-radius: 4px; }
-.note-prose ul[data-type="taskList"] li[data-checked="true"] > div { color: var(--soft-muted); text-decoration: line-through; }
+.note-prose ul[data-type="taskList"] li[data-checked="true"] > div {
+  color: var(--soft-muted);
+  /* Underline offset stays aligned when inline code uses a smaller font. */
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-skip-ink: none;
+  text-underline-offset: -0.4em;
+}
 .note-prose ul[data-type="taskList"] li[data-checked="true"] > div p,
 .note-prose ul[data-type="taskList"] li[data-checked="true"] > div strong,
 .note-prose ul[data-type="taskList"] li[data-checked="true"] > div code,
