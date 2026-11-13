@@ -61,6 +61,38 @@ function readDraft(key: string) {
   }
 }
 
+export function invalidateMemoListRequest(
+  requestRef: { current: number },
+  abortRef: { current: AbortController | null },
+) {
+  abortRef.current?.abort();
+  abortRef.current = null;
+  requestRef.current += 1;
+}
+
+export function mergeMemoPagePreservingLoadedItems(current: Memo[], firstPage: Memo[]) {
+  const merged = new Map(current.map((memo) => [memo.id, memo]));
+  for (const memo of firstPage) merged.set(memo.id, memo);
+  return [...merged.values()].sort(
+    (left, right) => right.createdAt - left.createdAt || right.id.localeCompare(left.id),
+  );
+}
+
+export function reconcileMemoListRefresh(
+  current: Memo[],
+  firstPage: Memo[],
+  currentCursor: string | null,
+  freshCursor: string | null,
+  preserveLoadedPages: boolean,
+) {
+  if (!preserveLoadedPages || current.length <= firstPage.length)
+    return { memos: firstPage, nextCursor: freshCursor };
+  return {
+    memos: mergeMemoPagePreservingLoadedItems(current, firstPage),
+    nextCursor: currentCursor,
+  };
+}
+
 export function MemoWorkspaceProvider({
   active,
   userKey,
@@ -98,11 +130,16 @@ export function MemoWorkspaceProvider({
   const listAbortRef = useRef<AbortController | null>(null);
   const facetAbortRef = useRef<AbortController | null>(null);
   const loadMoreBusyRef = useRef(false);
+  const listRequestPendingRef = useRef(false);
+  const preserveLoadedPagesRef = useRef(false);
   const loadedListScopeRef = useRef("");
+  const currentListScopeRef = useRef("");
   const memosRef = useRef<Memo[]>([]);
+  const nextCursorRef = useRef<string | null>(nextCursor);
   const activeRef = useRef(active);
   activeRef.current = active;
   memosRef.current = memos;
+  nextCursorRef.current = nextCursor;
 
   const unauthorized = useCallback(
     (reason: unknown) => {
@@ -137,6 +174,7 @@ export function MemoWorkspaceProvider({
     () => JSON.stringify([query, tag, listBounds?.from ?? null, listBounds?.to ?? null]),
     [listBounds, query, tag],
   );
+  currentListScopeRef.current = listScope;
 
   const refresh = useCallback(() => {
     if (memosRef.current.length === 0) setLoading(true);
@@ -144,6 +182,16 @@ export function MemoWorkspaceProvider({
     setFacetRefreshToken((value) => value + 1);
   }, []);
   const refreshFacets = useCallback(() => setFacetRefreshToken((value) => value + 1), []);
+  const invalidateListRequest = useCallback(() => {
+    const shouldReload = listRequestPendingRef.current || loadMoreBusyRef.current;
+    preserveLoadedPagesRef.current = shouldReload && !query && !tag && memosRef.current.length > 0;
+    invalidateMemoListRequest(listRequestRef, listAbortRef);
+    loadMoreBusyRef.current = false;
+    listRequestPendingRef.current = false;
+    setLoading(false);
+    setLoadingMore(false);
+    return shouldReload;
+  }, [query, tag]);
 
   useEffect(() => {
     if (!active || !facetBounds) return;
@@ -189,10 +237,12 @@ export function MemoWorkspaceProvider({
     const controller = new AbortController();
     listAbortRef.current = controller;
     const requestId = ++listRequestRef.current;
+    listRequestPendingRef.current = true;
     loadMoreBusyRef.current = false;
     const scopeChanged = loadedListScopeRef.current !== listScope;
     loadedListScopeRef.current = listScope;
     if (scopeChanged) {
+      preserveLoadedPagesRef.current = false;
       setLoading(true);
       setMemos([]);
       setNextCursor(null);
@@ -212,8 +262,23 @@ export function MemoWorkspaceProvider({
       )
       .then((result) => {
         if (requestId !== listRequestRef.current) return;
-        setMemos(result.memos);
-        setNextCursor(result.nextCursor);
+        const preserveLoadedPages =
+          preserveLoadedPagesRef.current && !scopeChanged && !query && !tag;
+        preserveLoadedPagesRef.current = false;
+        if (preserveLoadedPages) {
+          const refreshed = reconcileMemoListRefresh(
+            memosRef.current,
+            result.memos,
+            nextCursorRef.current,
+            result.nextCursor,
+            true,
+          );
+          setMemos(refreshed.memos);
+          setNextCursor(refreshed.nextCursor);
+        } else {
+          setMemos(result.memos);
+          setNextCursor(result.nextCursor);
+        }
       })
       .catch((reason) => {
         if (controller.signal.aborted) return;
@@ -221,7 +286,10 @@ export function MemoWorkspaceProvider({
         unauthorized(reason);
       })
       .finally(() => {
-        if (requestId === listRequestRef.current) setLoading(false);
+        if (requestId === listRequestRef.current) {
+          listRequestPendingRef.current = false;
+          setLoading(false);
+        }
       });
     return () => controller.abort();
   }, [active, listBounds, listScope, query, tag, refreshToken, unauthorized]);
@@ -253,19 +321,27 @@ export function MemoWorkspaceProvider({
       setMoreError(errorMessage(reason, "更多随记加载失败"));
       unauthorized(reason);
     } finally {
-      if (requestId === listRequestRef.current) setLoadingMore(false);
-      loadMoreBusyRef.current = false;
+      if (requestId === listRequestRef.current) {
+        setLoadingMore(false);
+        loadMoreBusyRef.current = false;
+      }
     }
   }, [listBounds, loadingMore, nextCursor, query, tag, unauthorized]);
 
   const createMemo = useCallback(
     async (contentMarkdown: string, date?: string | null) => {
+      const scopeAtStart = listScope;
       try {
         const result = await api.createMemo({
           contentMarkdown,
           ...(date ? { createdAt: selectedDayCreateTime(date) } : {}),
         });
+        const shouldReload = invalidateListRequest();
         setDraft("");
+        if (scopeAtStart !== currentListScopeRef.current) {
+          refresh();
+          return result.memo;
+        }
         const inDateRange =
           !listBounds ||
           (result.memo.createdAt >= listBounds.from && result.memo.createdAt < listBounds.to);
@@ -276,21 +352,38 @@ export function MemoWorkspaceProvider({
           ]);
           refreshFacets();
         } else refresh();
+        if (shouldReload && !query && !tag && inDateRange) refresh();
         return result.memo;
       } catch (reason) {
         unauthorized(reason);
         throw reason;
       }
     },
-    [listBounds, query, refresh, refreshFacets, setDraft, tag, unauthorized],
+    [
+      invalidateListRequest,
+      listBounds,
+      listScope,
+      query,
+      refresh,
+      refreshFacets,
+      setDraft,
+      tag,
+      unauthorized,
+    ],
   );
 
   const updateMemo = useCallback(
     async (memo: Memo, contentMarkdown: string) => {
+      const scopeAtStart = listScope;
       try {
         const result = await api.updateMemo(memo.id, { version: memo.version, contentMarkdown });
+        const shouldReload = invalidateListRequest();
+        if (scopeAtStart !== currentListScopeRef.current) {
+          refresh();
+          return result.memo;
+        }
         setMemos((current) => current.map((item) => (item.id === memo.id ? result.memo : item)));
-        if (query || tag) refresh();
+        if (query || tag || shouldReload) refresh();
         else refreshFacets();
         return result.memo;
       } catch (reason) {
@@ -298,21 +391,28 @@ export function MemoWorkspaceProvider({
         throw reason;
       }
     },
-    [query, refresh, refreshFacets, tag, unauthorized],
+    [invalidateListRequest, listScope, query, refresh, refreshFacets, tag, unauthorized],
   );
 
   const deleteMemo = useCallback(
     async (memo: Memo) => {
+      const scopeAtStart = listScope;
       try {
         await api.deleteMemo(memo.id, memo.version);
+        const shouldReload = invalidateListRequest();
+        if (scopeAtStart !== currentListScopeRef.current) {
+          refresh();
+          return;
+        }
         setMemos((current) => current.filter((item) => item.id !== memo.id));
         refreshFacets();
+        if (shouldReload) refresh();
       } catch (reason) {
         unauthorized(reason);
         throw reason;
       }
     },
-    [refreshFacets, unauthorized],
+    [invalidateListRequest, listScope, refresh, refreshFacets, unauthorized],
   );
 
   const value: MemoWorkspaceValue = {

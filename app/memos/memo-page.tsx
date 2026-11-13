@@ -18,6 +18,7 @@ import {
   flattenMemoGroups,
   includePinnedMemo,
   memoRowId,
+  useMemoPageScroller,
   useVirtualMemoList,
 } from "./use-virtual-memo-list";
 
@@ -130,10 +131,12 @@ function MemoList({
   editingMemo,
   setEditingMemo,
   scrollRef,
+  pageScrollRef,
 }: {
   editingMemo: Memo | null;
   setEditingMemo: (memo: Memo | null) => void;
   scrollRef: RefObject<HTMLDivElement | null>;
+  pageScrollRef: RefObject<HTMLElement | null>;
 }) {
   const {
     memos,
@@ -152,6 +155,7 @@ function MemoList({
     setQueryDraft,
     setSelectedDate,
   } = useMemoWorkspace();
+  const pageScroller = useMemoPageScroller();
   const visibleMemos = useMemo(() => includePinnedMemo(memos, editingMemo), [editingMemo, memos]);
   const groups = useMemo(() => groupedByLocalDate(visibleMemos), [visibleMemos]);
   const rows = useMemo(() => flattenMemoGroups(groups), [groups]);
@@ -166,6 +170,8 @@ function MemoList({
   const virtualList = useVirtualMemoList(
     rows,
     scrollRef,
+    pageScrollRef,
+    pageScroller,
     scope,
     visibleMemos.length,
     pinnedRowId,
@@ -191,11 +197,21 @@ function MemoList({
       (entries) => {
         if (entries[0]?.isIntersecting) void loadMore();
       },
-      { root, rootMargin: "360px" },
+      { root: pageScroller ? pageScrollRef.current : root, rootMargin: "360px" },
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [canAutoLoad, hasMore, loadMore, loadMoreSentinel, loadingMore, moreError, scrollRef]);
+  }, [
+    canAutoLoad,
+    hasMore,
+    loadMore,
+    loadMoreSentinel,
+    loadingMore,
+    moreError,
+    pageScrollRef,
+    pageScroller,
+    scrollRef,
+  ]);
 
   if (loading && !editingMemo) {
     return (
@@ -290,6 +306,7 @@ function MemoList({
       {virtualList.isVirtualized ? (
         <>
           <div
+            ref={virtualList.listRef}
             className="memo-virtual-list"
             role="list"
             aria-label="随记时间线"
@@ -548,6 +565,7 @@ export function MemoPage({
                 editingMemo={editingMemo}
                 setEditingMemo={setEditingMemo}
                 scrollRef={scrollRef}
+                pageScrollRef={pageRef}
               />
             </section>
           </div>

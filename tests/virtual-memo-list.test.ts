@@ -4,6 +4,7 @@ import {
   memoDayRowId,
   memoRowId,
   memoRowOffsets,
+  memoUsesPageScroller,
   shouldVirtualizeMemoList,
 } from "../app/memos/use-virtual-memo-list";
 import { flattenMemoGroups } from "../app/memos/use-virtual-memo-list";
@@ -21,6 +22,11 @@ function memo(id: string, createdAt: number): Memo {
 }
 
 describe("virtual memo timeline rows", () => {
+  test("uses the page scroller at the responsive layout breakpoint", () => {
+    expect(memoUsesPageScroller(1320)).toBe(true);
+    expect(memoUsesPageScroller(1321)).toBe(false);
+  });
+
   test("keeps the timeline rendering mode stable while a virtualized memo is edited", () => {
     expect(shouldVirtualizeMemoList(30, true)).toBe(true);
     expect(shouldVirtualizeMemoList(1, true, true)).toBe(true);

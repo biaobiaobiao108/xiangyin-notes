@@ -42,6 +42,24 @@ export function memoRowId(id: string) {
   return `memo:${id}`;
 }
 
+export function memoUsesPageScroller(viewportWidth: number) {
+  return viewportWidth <= 1320;
+}
+
+export function useMemoPageScroller() {
+  const [pageScroller, setPageScroller] = useState(() => memoUsesPageScroller(window.innerWidth));
+
+  useLayoutEffect(() => {
+    const query = window.matchMedia("(max-width: 1320px)");
+    const update = () => setPageScroller(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+
+  return pageScroller;
+}
+
 export function flattenMemoGroups(groups: readonly MemoGroup[]) {
   const rows: MemoVirtualRow[] = [];
   for (const group of groups) {
@@ -90,6 +108,8 @@ function indexAtOffset(offsets: readonly number[], offset: number) {
 export function useVirtualMemoList(
   rows: readonly MemoVirtualRow[],
   scrollRef: RefObject<HTMLDivElement | null>,
+  pageScrollRef: RefObject<HTMLElement | null>,
+  pageScroller: boolean,
   scope: string,
   memoCount: number,
   pinnedRowId: string | null,
@@ -101,6 +121,7 @@ export function useVirtualMemoList(
   const elementsRef = useRef(new Map<string, HTMLElement>());
   const refCallbacksRef = useRef(new Map<string, (element: HTMLElement | null) => void>());
   const observerRef = useRef<ResizeObserver | null>(null);
+  const listElementRef = useRef<HTMLDivElement | null>(null);
   const rowStylesRef = useRef(new Map<number, CSSProperties>());
   const indexById = useMemo(() => new Map(rows.map((row, index) => [row.id, index])), [rows]);
   const indexByIdRef = useRef(indexById);
@@ -118,15 +139,15 @@ export function useVirtualMemoList(
   );
   const offsetsRef = useRef(offsets);
   offsetsRef.current = offsets;
+  const container = pageScroller ? pageScrollRef.current : scrollRef.current;
 
   useLayoutEffect(() => {
     heightsRef.current.clear();
     rowStylesRef.current.clear();
-    const container = scrollRef.current;
     if (container) container.scrollTop = 0;
     setViewport((current) => (current.top === 0 ? current : { ...current, top: 0 }));
     setMeasurementRevision((revision) => revision + 1);
-  }, [scope, scrollRef]);
+  }, [scope]);
 
   useLayoutEffect(() => {
     const presentIds = new Set(rows.map((row) => row.id));
@@ -142,13 +163,16 @@ export function useVirtualMemoList(
   }, [rows]);
 
   useLayoutEffect(() => {
-    const container = scrollRef.current;
     if (!container || !isVirtualized) return;
     let frame = 0;
     let viewportHeight = container.clientHeight || 800;
     const update = () => {
+      const list = listElementRef.current;
+      const top = list
+        ? Math.max(0, container.getBoundingClientRect().top - list.getBoundingClientRect().top)
+        : Math.max(0, container.scrollTop);
       setViewport((current) => {
-        const next = { top: Math.max(0, container.scrollTop), height: viewportHeight };
+        const next = { top, height: viewportHeight };
         return current.top === next.top && current.height === next.height ? current : next;
       });
     };
@@ -174,13 +198,16 @@ export function useVirtualMemoList(
       container.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", onResize);
     };
-  }, [isVirtualized, scope, scrollRef]);
+  }, [container, isVirtualized, scope]);
 
   useLayoutEffect(() => {
-    const container = scrollRef.current;
     if (!container || !isVirtualized || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver((entries) => {
-      const anchorIndex = indexAtOffset(offsetsRef.current, container.scrollTop);
+      const list = listElementRef.current;
+      const viewportTop = list
+        ? Math.max(0, container.getBoundingClientRect().top - list.getBoundingClientRect().top)
+        : container.scrollTop;
+      const anchorIndex = indexAtOffset(offsetsRef.current, viewportTop);
       let anchorAdjustment = 0;
       let changed = false;
       for (const entry of entries) {
@@ -215,7 +242,7 @@ export function useVirtualMemoList(
       observer.disconnect();
       if (observerRef.current === observer) observerRef.current = null;
     };
-  }, [isVirtualized, scope, scrollRef]);
+  }, [container, isVirtualized, scope]);
 
   const getRowRef = useCallback((rowId: string) => {
     let callback = refCallbacksRef.current.get(rowId);
@@ -281,5 +308,6 @@ export function useVirtualMemoList(
     totalHeight: offsets[offsets.length - 1] ?? 0,
     rowStyle,
     getRowRef,
+    listRef: listElementRef,
   };
 }
