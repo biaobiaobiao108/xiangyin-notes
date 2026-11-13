@@ -95,32 +95,6 @@
   margin-bottom: 16px;
 }
 
-.memo-back-button {
-  display: grid;
-  width: 36px;
-  height: 36px;
-  flex: none;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--accent);
-  transition:
-    background-color var(--motion-fast) var(--motion-ease-out),
-    color var(--motion-fast) var(--motion-ease-out),
-    transform var(--motion-panel) var(--motion-spring);
-}
-
-.memo-back-button:hover {
-  background: var(--surface-hover);
-  color: var(--accent-dark);
-}
-
-.memo-back-button:active {
-  transition-duration: 0ms;
-}
-
 .memo-search {
   display: flex;
   align-items: center;
@@ -1013,7 +987,6 @@
   transform: scale(0.985);
 }
 
-.memo-page .memo-back-button:active:not(:disabled),
 .memo-page .memo-card-delete:active:not(:disabled),
 .memo-page .memo-calendar-nav button:active:not(:disabled) {
   transform: scale(0.94);
@@ -1113,6 +1086,11 @@
 }
 
 @media (max-width: 900px) {
+  .app-shell[data-mobile-page] .memo-mobile-header {
+    position: sticky;
+    top: 0;
+  }
+
   .memo-page {
     flex: 1 1 0;
     width: 100%;

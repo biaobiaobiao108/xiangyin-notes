@@ -468,6 +468,23 @@ export function MemoPage({
   return (
     <main ref={pageRef} id="memo-page-scroll-region" className="memo-page" aria-label="随记">
       <h1 className="visually-hidden">随记</h1>
+      {isMobileViewport && (
+        <header className="list-header mobile-collection-header memo-mobile-header">
+          {onBack && (
+            <button
+              className="mobile-list-back"
+              type="button"
+              onClick={onBack}
+              aria-label="返回笔记本首页"
+            >
+              <ChevronLeft size={22} aria-hidden="true" />
+            </button>
+          )}
+          <div className="list-header-main">
+            <h2>随记</h2>
+          </div>
+        </header>
+      )}
       <div className="memo-layout">
         <div
           className={`memo-scroll-shell ${scrollEdges.before ? "has-scroll-before" : ""} ${scrollEdges.after ? "has-scroll-after" : ""}`.trim()}
@@ -479,16 +496,6 @@ export function MemoPage({
           >
             <section className="memo-feed" aria-label="随记时间线">
               <div className="memo-feed-tools">
-                {isMobileViewport && onBack && (
-                  <button
-                    className="memo-back-button"
-                    type="button"
-                    onClick={onBack}
-                    aria-label="返回"
-                  >
-                    <ChevronLeft size={20} />
-                  </button>
-                )}
                 <label className="memo-search">
                   <Search size={17} aria-hidden="true" />
                   <input
