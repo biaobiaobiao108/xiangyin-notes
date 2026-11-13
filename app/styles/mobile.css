@@ -123,7 +123,7 @@
 .is-sorting-notebooks, .is-sorting-notebooks * { cursor: grabbing !important; -webkit-user-select: none !important; user-select: none !important; }
 
 /* Better Design: Interaction Kit tactile feedback */
-button:active:not(:disabled),
+button:active:not(:disabled):not(.floating-scrollbar-thumb),
 .primary-button:active:not(:disabled),
 .secondary-button:active:not(:disabled),
 .icon-button:active:not(:disabled),
@@ -134,7 +134,7 @@ button:active:not(:disabled),
   transition-duration: var(--motion-micro);
 }
 @media (prefers-reduced-motion: reduce) {
-  button:active:not(:disabled),
+  button:active:not(:disabled):not(.floating-scrollbar-thumb),
   .primary-button:active:not(:disabled),
   .secondary-button:active:not(:disabled),
   .icon-button:active:not(:disabled),

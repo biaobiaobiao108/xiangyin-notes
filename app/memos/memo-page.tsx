@@ -345,6 +345,7 @@ function MemoList({
 function MemoTagFilters() {
   const memo = useMemoWorkspace();
   const listRef = useRef<HTMLDivElement>(null);
+  const scrollEdges = useScrollEdges(listRef, [memo.tagCounts.length, memo.tag]);
   return (
     <section className="memo-tag-section" aria-label="随记标签">
       <header>
@@ -356,7 +357,9 @@ function MemoTagFilters() {
         )}
       </header>
       {memo.tagCounts.length > 0 ? (
-        <div className="memo-tag-list-shell">
+        <div
+          className={`memo-tag-list-shell ${scrollEdges.before ? "has-scroll-before" : ""} ${scrollEdges.after ? "has-scroll-after" : ""}`.trim()}
+        >
           <div ref={listRef} id="memo-tag-list" className="memo-tag-list floating-scrollbar-target">
             {memo.tagCounts.map((item) => (
               <button
@@ -418,6 +421,7 @@ export function MemoPage({
   onBack?: () => void;
 }) {
   const memo = useMemoWorkspace();
+  const pageRef = useRef<HTMLElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
@@ -433,17 +437,17 @@ export function MemoPage({
   );
 
   return (
-    <main className="memo-page" aria-label="随记">
+    <main ref={pageRef} id="memo-page-scroll-region" className="memo-page" aria-label="随记">
       <h1 className="visually-hidden">随记</h1>
-      <div
-        className={`memo-scroll-shell ${scrollEdges.before ? "has-scroll-before" : ""} ${scrollEdges.after ? "has-scroll-after" : ""}`.trim()}
-      >
+      <div className="memo-layout">
         <div
-          ref={scrollRef}
-          className="memo-scroll floating-scrollbar-target"
-          id="memo-scroll-region"
+          className={`memo-scroll-shell ${scrollEdges.before ? "has-scroll-before" : ""} ${scrollEdges.after ? "has-scroll-after" : ""}`.trim()}
         >
-          <div className="memo-layout">
+          <div
+            ref={scrollRef}
+            className="memo-scroll floating-scrollbar-target"
+            id="memo-scroll-region"
+          >
             <section className="memo-feed" aria-label="随记时间线">
               <div className="memo-feed-tools">
                 {isMobileViewport && onBack && (
@@ -506,16 +510,22 @@ export function MemoPage({
               />
               <MemoList editingId={editingId} setEditingId={setEditingId} scrollRef={scrollRef} />
             </section>
-            <MemoRail />
           </div>
+          <FloatingScrollbar
+            scrollTargetRef={scrollRef}
+            controlsId="memo-scroll-region"
+            ariaLabel="随记滚动条"
+            placement="right"
+          />
         </div>
-        <FloatingScrollbar
-          scrollTargetRef={scrollRef}
-          controlsId="memo-scroll-region"
-          ariaLabel="随记滚动条"
-          placement="right"
-        />
+        <MemoRail />
       </div>
+      <FloatingScrollbar
+        scrollTargetRef={pageRef}
+        controlsId="memo-page-scroll-region"
+        ariaLabel="随记页面滚动条"
+        placement="right"
+      />
       {notice && (
         <div className="memo-toast" role="status" aria-live="polite">
           {notice}

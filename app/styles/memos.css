@@ -1,6 +1,9 @@
 .memo-page {
   grid-column: 2 / -1;
   display: flex;
+  position: relative;
+  height: 100dvh;
+  max-height: 100dvh;
   min-width: 0;
   min-height: 0;
   flex-direction: column;
@@ -46,6 +49,7 @@
 
 .memo-scroll {
   height: 100%;
+  padding-bottom: 72px;
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -60,10 +64,16 @@
   display: grid;
   width: min(1020px, calc(100% - 64px));
   margin: 0 auto;
-  padding: 32px 0 72px;
+  min-height: 0;
+  height: 100%;
+  padding: 32px 0 0;
   grid-template-columns: minmax(0, 740px) minmax(220px, 248px);
   gap: 32px;
-  align-items: start;
+  align-items: stretch;
+}
+
+.memo-layout > .memo-scroll-shell {
+  min-height: 0;
 }
 
 .memo-feed {
@@ -640,17 +650,14 @@
 }
 
 .memo-page-rail {
-  position: sticky;
-  top: 32px;
   display: flex;
-  max-height: calc(100dvh - 64px);
   min-width: 0;
-  align-self: start;
+  min-height: 0;
   flex-direction: column;
   gap: 32px;
+  padding: 52px 0 32px;
   overflow: hidden;
   overflow: clip;
-  padding-top: 52px;
 }
 
 .memo-mini-calendar {
@@ -878,6 +885,33 @@
   overflow: hidden;
 }
 
+.memo-tag-list-shell::before,
+.memo-tag-list-shell::after {
+  position: absolute;
+  z-index: 2;
+  inset-inline: 0;
+  height: 24px;
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--motion-fast) var(--motion-ease-out);
+}
+
+.memo-tag-list-shell::before {
+  inset-block-start: 0;
+  background: linear-gradient(to bottom, var(--canvas), transparent);
+}
+
+.memo-tag-list-shell::after {
+  inset-block-end: 0;
+  background: linear-gradient(to top, var(--canvas), transparent);
+}
+
+.memo-tag-list-shell.has-scroll-before::before,
+.memo-tag-list-shell.has-scroll-after::after {
+  opacity: 1;
+}
+
 .memo-tag-list-shell > .floating-scrollbar--right {
   inset-inline-end: 0;
 }
@@ -969,7 +1003,7 @@
   text-underline-offset: 3px;
 }
 
-.memo-page :where(button:active:not(:disabled)) {
+.memo-page :where(button:active:not(:disabled)):not(.floating-scrollbar-thumb) {
   transform: scale(0.985);
 }
 
@@ -1002,21 +1036,58 @@
 }
 
 @media (max-width: 1320px) {
+  .memo-page {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: none;
+  }
+
+  .memo-page::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+
+  .memo-page > .floating-scrollbar--right {
+    position: fixed;
+    inset-block: 8px;
+    inset-inline-end: 0;
+  }
+
   .memo-layout {
+    display: flex;
     width: min(760px, calc(100% - 48px));
-    grid-template-columns: minmax(0, 1fr);
+    flex: none;
+    flex-direction: column;
+    height: auto;
     gap: 32px;
+    padding-bottom: 72px;
+  }
+
+  .memo-layout > .memo-scroll-shell {
+    height: auto;
+    flex: none;
+    overflow: visible;
+  }
+
+  .memo-scroll {
+    display: block;
+    flex: none;
+    height: auto;
+    padding-bottom: 0;
+    overflow: visible;
+  }
+
+  .memo-scroll-shell > .floating-scrollbar {
+    display: none;
   }
 
   .memo-page-rail {
-    position: static;
     display: grid;
-    max-height: none;
     grid-template-columns: minmax(0, 280px) minmax(0, 1fr);
     align-items: start;
     overflow: visible;
-    padding-top: 24px;
-    padding-left: 0;
+    padding: 24px 0 0;
     border-top: 1px solid var(--border-soft);
     border-left: 0;
   }
@@ -1106,7 +1177,7 @@
     animation: none;
   }
 
-  .memo-page button:active:not(:disabled) {
+  .memo-page button:active:not(:disabled):not(.floating-scrollbar-thumb) {
     transform: none;
   }
 
