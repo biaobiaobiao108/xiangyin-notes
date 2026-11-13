@@ -3,6 +3,7 @@ import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import { ApiError, api } from "../app/api";
 import { useNoteSaveQueue } from "../app/workspace/use-note-save-queue";
+import { latestSelectedNoteSnapshot } from "../app/workspace/selected-note-sync";
 import { toNoteSummary } from "../app/workspace/helpers";
 import type { Note, NoteSummary } from "../shared/types";
 
@@ -25,6 +26,8 @@ const original: Note = {
 let queue: ReturnType<typeof useNoteSaveQueue>;
 let selectedRef: { current: Note | null };
 let notesRef: { current: NoteSummary[] };
+let splitSelectedRef: { current: Note | null };
+let splitNoteIdRef: { current: string | null };
 let stored: Note;
 let update: ReturnType<typeof spyOn<typeof api, "updateNote">>;
 let get: ReturnType<typeof spyOn<typeof api, "getNote">>;
@@ -41,6 +44,8 @@ beforeEach(() => {
   stored = { ...original };
   selectedRef = { current: { ...original } };
   notesRef = { current: [toNoteSummary(original)] };
+  splitSelectedRef = { current: null };
+  splitNoteIdRef = { current: null };
   update = spyOn(api, "updateNote").mockImplementation(async (_id, payload) => {
     if (payload.version !== stored.version) throw new ApiError(409, "VERSION_CONFLICT", "版本冲突");
     stored = { ...stored, ...payload, version: stored.version + 1 };
@@ -62,6 +67,8 @@ beforeEach(() => {
         },
         setSelectedNote: () => {},
         setToast: () => {},
+        splitSelectedRef,
+        splitNoteIdRef,
       });
       return null;
     }),
@@ -76,6 +83,27 @@ afterEach(() => {
 });
 
 describe("favorite operations and the save queue", () => {
+  test("keeps a completed save when an older split load finishes afterwards", async () => {
+    splitNoteIdRef.current = original.id;
+    selectedRef.current = null;
+    const draft = { ...original, contentMarkdown: "分栏加载时保存的正文" };
+    queue.persist(draft, ["contentMarkdown"]);
+    await queue.runSave(original.id);
+
+    expect(queue.pendingSavesRef.current.has(original.id)).toBe(false);
+    const loaded = latestSelectedNoteSnapshot(original, splitSelectedRef.current);
+    expect(loaded.contentMarkdown).toBe(draft.contentMarkdown);
+    expect(loaded.version).toBe(2);
+  });
+
+  test("does not replace the split snapshot after its target changes", async () => {
+    splitNoteIdRef.current = "another-note";
+    splitSelectedRef.current = { ...original, id: "another-note" };
+    queue.persist({ ...original, contentMarkdown: "后台保存" }, ["contentMarkdown"]);
+    await queue.runSave(original.id);
+    expect(splitSelectedRef.current.id).toBe("another-note");
+  });
+
   test("returns the persisted version after flushing a pending draft", async () => {
     queue.persist({ ...original, contentMarkdown: "删除前保存的正文" }, ["contentMarkdown"]);
 
@@ -201,6 +229,7 @@ describe("split editor save queue integration", () => {
           setSelectedNote: () => {},
           setToast: () => {},
           splitSelectedRef,
+          splitNoteIdRef: { current: splitNote.id },
           setSplitSelectedNote: (note) => {
             splitSelectedUpdated = note;
           },

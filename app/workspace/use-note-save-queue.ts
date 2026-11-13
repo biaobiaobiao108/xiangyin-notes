@@ -26,6 +26,7 @@ export type UseNoteSaveQueueOptions = {
   setSelectedNote: (note: Note | null) => void;
   setToast: (toast: string) => void;
   splitSelectedRef?: React.MutableRefObject<Note | null>;
+  splitNoteIdRef?: React.MutableRefObject<string | null>;
   setSplitSelectedNote?: (note: Note | null) => void;
   setSplitSaveState?: (state: SaveState) => void;
 };
@@ -41,6 +42,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
     setSelectedNote,
     setToast,
     splitSelectedRef,
+    splitNoteIdRef,
     setSplitSelectedNote,
     setSplitSaveState,
   } = options;
@@ -133,7 +135,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
               setSelectedNote(selectedRef.current);
               setSaveState(next ? "saving" : "saved");
             }
-            if (splitSelectedRef?.current?.id === noteId) {
+            if (splitSelectedRef && splitNoteIdRef?.current === noteId) {
               splitSelectedRef.current = next ?? savedNote;
               setSplitSelectedNote?.(splitSelectedRef.current);
               setSplitSaveState?.(next ? "saving" : "saved");
@@ -178,6 +180,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
       setToast,
       trashOperationsRef,
       splitSelectedRef,
+      splitNoteIdRef,
       setSplitSelectedNote,
       setSplitSaveState,
     ],

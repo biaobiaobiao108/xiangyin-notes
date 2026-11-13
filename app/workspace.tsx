@@ -387,6 +387,7 @@ export function Workspace() {
     setSelectedNote: setSelectedNoteMetadata,
     setToast: notifyError,
     splitSelectedRef,
+    splitNoteIdRef,
     setSplitSelectedNote: setSplitSelectedNoteMetadata,
     setSplitSaveState,
   });
@@ -1523,12 +1524,15 @@ export function Workspace() {
       try {
         const result = await api.getNote(id, { signal: controller.signal });
         if (requestId !== splitLoadRequestRef.current || splitNoteIdRef.current !== id) return;
-        let loadedNote = result.note;
+        let loadedNote = discardRecovery
+          ? result.note
+          : latestSelectedNoteSnapshot(result.note, splitSelectedRef.current);
         if (discardRecovery) {
           clearPendingForNote(id);
         } else if (!pendingNote && !pendingSavesRef.current.has(id)) {
           const recoveredDraft = await readDraftRecovery(id);
           if (requestId !== splitLoadRequestRef.current || splitNoteIdRef.current !== id) return;
+          loadedNote = latestSelectedNoteSnapshot(loadedNote, splitSelectedRef.current);
           if (recoveredDraft && !pendingSavesRef.current.has(id)) {
             pendingSavesRef.current.set(id, recoveredDraft);
             if (recoveredDraft.version === loadedNote.version) {
@@ -1544,6 +1548,8 @@ export function Workspace() {
           }
         }
         const latestPendingNote = pendingSavesRef.current.get(id);
+        if (!discardRecovery)
+          loadedNote = latestSelectedNoteSnapshot(loadedNote, splitSelectedRef.current);
         if (latestPendingNote) loadedNote = { ...loadedNote, ...latestPendingNote };
         splitSelectedRef.current = loadedNote;
         setSplitSelectedNote(noteMetadataSnapshot(loadedNote));
