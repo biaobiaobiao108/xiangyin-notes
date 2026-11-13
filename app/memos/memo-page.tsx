@@ -14,18 +14,25 @@ import {
   timeLabel,
 } from "./memo-date";
 import { useMemoWorkspace } from "./memo-workspace";
-import { flattenMemoGroups, memoRowId, useVirtualMemoList } from "./use-virtual-memo-list";
+import {
+  flattenMemoGroups,
+  includePinnedMemo,
+  memoRowId,
+  useVirtualMemoList,
+} from "./use-virtual-memo-list";
 
 function MemoCard({
   memo,
   onEdit,
   editing,
+  editingVersion,
   onFinishEdit,
   onDelete,
 }: {
   memo: Memo;
   onEdit: () => void;
   editing: boolean;
+  editingVersion: number | null;
   onFinishEdit: () => void;
   onDelete: (memo: Memo) => Promise<void>;
 }) {
@@ -91,13 +98,16 @@ function MemoCard({
       </header>
       {editing ? (
         <MemoComposer
-          key={`${memo.id}:${memo.version}`}
+          key={memo.id}
           initialMarkdown={memo.contentMarkdown}
           placeholder="修改这条随记"
           ariaLabel="编辑随记"
           autoFocus
           onSubmit={async (markdown) => {
-            await updateMemo(memo, markdown);
+            await updateMemo(
+              editingVersion === null ? memo : { ...memo, version: editingVersion },
+              markdown,
+            );
             onFinishEdit();
           }}
           onCancel={onFinishEdit}
@@ -117,12 +127,12 @@ function MemoCard({
 }
 
 function MemoList({
-  editingId,
-  setEditingId,
+  editingMemo,
+  setEditingMemo,
   scrollRef,
 }: {
-  editingId: string | null;
-  setEditingId: (id: string | null) => void;
+  editingMemo: Memo | null;
+  setEditingMemo: (memo: Memo | null) => void;
   scrollRef: RefObject<HTMLDivElement | null>;
 }) {
   const {
@@ -142,19 +152,36 @@ function MemoList({
     setQueryDraft,
     setSelectedDate,
   } = useMemoWorkspace();
-  const groups = useMemo(() => groupedByLocalDate(memos), [memos]);
+  const visibleMemos = useMemo(() => includePinnedMemo(memos, editingMemo), [editingMemo, memos]);
+  const groups = useMemo(() => groupedByLocalDate(visibleMemos), [visibleMemos]);
   const rows = useMemo(() => flattenMemoGroups(groups), [groups]);
   const scope = JSON.stringify([query, tag, selectedDate]);
   const [focusedMemoId, setFocusedMemoId] = useState<string | null>(null);
-  const pinnedRowId = editingId
-    ? memoRowId(editingId)
+  const [editingWasVirtualized, setEditingWasVirtualized] = useState(false);
+  const pinnedRowId = editingMemo
+    ? memoRowId(editingMemo.id)
     : focusedMemoId
       ? memoRowId(focusedMemoId)
       : null;
-  const virtualList = useVirtualMemoList(rows, scrollRef, scope, memos.length, pinnedRowId);
+  const virtualList = useVirtualMemoList(
+    rows,
+    scrollRef,
+    scope,
+    visibleMemos.length,
+    pinnedRowId,
+    editingMemo ? editingWasVirtualized : null,
+  );
   const [loadMoreSentinel, setLoadMoreSentinel] = useState<HTMLElement | null>(null);
   const canAutoLoad = typeof IntersectionObserver !== "undefined";
   const filtered = Boolean(query || tag || selectedDate);
+  const beginEdit = (memo: Memo) => {
+    setEditingWasVirtualized(virtualList.isVirtualized);
+    setEditingMemo(memo);
+  };
+  const finishEdit = () => {
+    setEditingWasVirtualized(false);
+    setEditingMemo(null);
+  };
 
   useEffect(() => {
     const sentinel = loadMoreSentinel;
@@ -170,7 +197,7 @@ function MemoList({
     return () => observer.disconnect();
   }, [canAutoLoad, hasMore, loadMore, loadMoreSentinel, loadingMore, moreError, scrollRef]);
 
-  if (loading) {
+  if (loading && !editingMemo) {
     return (
       <div className="memo-skeleton-list" aria-busy="true" aria-label="正在加载随记">
         {[0, 1, 2].map((item) => (
@@ -184,7 +211,7 @@ function MemoList({
     );
   }
 
-  if (error && memos.length === 0) {
+  if (error && memos.length === 0 && !editingMemo) {
     return (
       <div className="memo-state memo-state--error" role="alert">
         <strong>随记没有加载出来</strong>
@@ -219,12 +246,13 @@ function MemoList({
   const renderMemoCard = (memo: Memo) => (
     <MemoCard
       memo={memo}
-      editing={editingId === memo.id}
-      onEdit={() => setEditingId(memo.id)}
-      onFinishEdit={() => setEditingId(null)}
+      editing={editingMemo?.id === memo.id}
+      editingVersion={editingMemo?.id === memo.id ? editingMemo.version : null}
+      onEdit={() => beginEdit(memo)}
+      onFinishEdit={finishEdit}
       onDelete={async (target) => {
         await deleteMemo(target);
-        if (editingId === target.id) setEditingId(null);
+        if (editingMemo?.id === target.id) finishEdit();
       }}
     />
   );
@@ -323,12 +351,13 @@ function MemoList({
                   <MemoCard
                     key={memo.id}
                     memo={memo}
-                    editing={editingId === memo.id}
-                    onEdit={() => setEditingId(memo.id)}
-                    onFinishEdit={() => setEditingId(null)}
+                    editing={editingMemo?.id === memo.id}
+                    editingVersion={editingMemo?.id === memo.id ? editingMemo.version : null}
+                    onEdit={() => beginEdit(memo)}
+                    onFinishEdit={finishEdit}
                     onDelete={async (target) => {
                       await deleteMemo(target);
-                      if (editingId === target.id) setEditingId(null);
+                      if (editingMemo?.id === target.id) finishEdit();
                     }}
                   />
                 ))}
@@ -423,7 +452,7 @@ export function MemoPage({
   const memo = useMemoWorkspace();
   const pageRef = useRef<HTMLElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingMemo, setEditingMemo] = useState<Memo | null>(null);
   const [notice, setNotice] = useState("");
   const scrollEdges = useScrollEdges(scrollRef, [memo.memos.length, memo.loading]);
 
@@ -508,7 +537,11 @@ export function MemoPage({
                 onDraftChange={memo.setDraft}
                 onSubmit={submit}
               />
-              <MemoList editingId={editingId} setEditingId={setEditingId} scrollRef={scrollRef} />
+              <MemoList
+                editingMemo={editingMemo}
+                setEditingMemo={setEditingMemo}
+                scrollRef={scrollRef}
+              />
             </section>
           </div>
           <FloatingScrollbar

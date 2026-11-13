@@ -642,6 +642,7 @@ export function Workspace() {
       setHasMoreNotes(Boolean(result.hasMore));
       nextNotesCursorRef.current = result.nextCursor ?? null;
     } catch {
+      if (requestId !== listRequestRef.current || scope !== listScopeRef.current) return;
       notifyError("加载更多笔记失败，请重试");
     } finally {
       loadMoreInFlightRef.current = false;

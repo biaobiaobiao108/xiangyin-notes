@@ -14,12 +14,25 @@ const ESTIMATED_DAY_HEIGHT = 44;
 const ESTIMATED_MEMO_HEIGHT = 160;
 const OVERSCAN_PX = 720;
 
+export function shouldVirtualizeMemoList(
+  memoCount: number,
+  hasResizeObserver: boolean,
+  virtualizationOverride: boolean | null = null,
+) {
+  return hasResizeObserver && (virtualizationOverride ?? memoCount > VIRTUALIZE_AFTER);
+}
+
 export type MemoVirtualRow =
   | { id: string; kind: "day"; date: string; first: boolean }
   | { id: string; kind: "memo"; memo: Memo };
 
 type MemoGroup = { date: string; items: Memo[] };
 type Viewport = { top: number; height: number };
+
+export function includePinnedMemo(memos: readonly Memo[], pinnedMemo: Memo | null) {
+  if (!pinnedMemo || memos.some((memo) => memo.id === pinnedMemo.id)) return [...memos];
+  return [...memos, pinnedMemo].sort((left, right) => right.createdAt - left.createdAt);
+}
 
 export function memoDayRowId(date: string) {
   return `day:${date}`;
@@ -80,6 +93,7 @@ export function useVirtualMemoList(
   scope: string,
   memoCount: number,
   pinnedRowId: string | null,
+  virtualizationOverride: boolean | null = null,
 ) {
   const [viewport, setViewport] = useState<Viewport>({ top: 0, height: 800 });
   const [measurementRevision, setMeasurementRevision] = useState(0);
@@ -93,7 +107,11 @@ export function useVirtualMemoList(
   indexByIdRef.current = indexById;
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
-  const isVirtualized = memoCount > VIRTUALIZE_AFTER && typeof ResizeObserver !== "undefined";
+  const isVirtualized = shouldVirtualizeMemoList(
+    memoCount,
+    typeof ResizeObserver !== "undefined",
+    virtualizationOverride,
+  );
   const offsets = useMemo(
     () => memoRowOffsets(rows, heightsRef.current),
     [measurementRevision, rows],

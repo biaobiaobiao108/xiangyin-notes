@@ -93,6 +93,9 @@ export function MemoComposer({
       }
       savingRef.current = true;
       setSaving(true);
+      // Freeze the editor before yielding to the network so the saved snapshot
+      // cannot diverge from text that would be cleared or unmounted on success.
+      instance.setEditable(false, false);
       setError("");
       try {
         await onSubmitRef.current(markdown);
@@ -105,6 +108,7 @@ export function MemoComposer({
       } finally {
         savingRef.current = false;
         setSaving(false);
+        if (!instance.isDestroyed) instance.setEditable(true, false);
       }
     },
     [clearDraft],
