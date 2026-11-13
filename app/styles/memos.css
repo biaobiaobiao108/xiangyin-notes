@@ -470,38 +470,6 @@
   display: none;
 }
 
-.memo-card-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 8px;
-}
-
-.memo-card-tags button {
-  min-height: 28px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: var(--accent-soft);
-  color: var(--accent-dark);
-  font: inherit;
-  font-size: 0.72rem;
-  transition:
-    background-color var(--motion-fast) var(--motion-ease-out),
-    color var(--motion-fast) var(--motion-ease-out),
-    transform var(--motion-panel) var(--motion-spring);
-}
-
-.memo-card-tags button:hover {
-  background: var(--surface-selected);
-  color: var(--ink);
-}
-
-.memo-page .memo-card-tags button:active:not(:disabled) {
-  background: var(--accent);
-  color: var(--accent-contrast);
-}
-
 .memo-card-error {
   margin: 8px 0 0;
   color: var(--danger);
@@ -682,6 +650,7 @@
   gap: 32px;
   overflow: hidden;
   overflow: clip;
+  padding-top: 52px;
 }
 
 .memo-mini-calendar {
@@ -918,6 +887,7 @@
   min-height: 0;
   flex: 1 1 auto;
   gap: 2px;
+  padding-inline-end: 16px;
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -1020,8 +990,7 @@
   transition-duration: 0ms;
 }
 
-.memo-page .memo-tag-list button:active:not(:disabled),
-.memo-page .memo-card-tags button:active:not(:disabled) {
+.memo-page .memo-tag-list button:active:not(:disabled) {
   transform: scale(0.98);
   transition-duration: 0ms;
 }
@@ -1056,6 +1025,7 @@
     min-height: auto;
     flex: none;
     max-height: none;
+    padding-inline-end: 0;
     overflow: visible;
   }
 

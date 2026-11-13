@@ -21,14 +21,12 @@ function MemoCard({
   onEdit,
   editing,
   onFinishEdit,
-  onTagClick,
   onDelete,
 }: {
   memo: Memo;
   onEdit: () => void;
   editing: boolean;
   onFinishEdit: () => void;
-  onTagClick: (tag: string) => void;
   onDelete: (memo: Memo) => Promise<void>;
 }) {
   const { updateMemo } = useMemoWorkspace();
@@ -108,15 +106,6 @@ function MemoCard({
         <div className="memo-card-content">
           <ReadOnlyMarkdown markdown={memo.contentMarkdown} />
         </div>
-      )}
-      {memo.tags.length > 0 && (
-        <footer className="memo-card-tags" aria-label="随记标签">
-          {memo.tags.map((tag) => (
-            <button key={tag} type="button" onClick={() => onTagClick(tag)}>
-              #{tag}
-            </button>
-          ))}
-        </footer>
       )}
       {deleteError && (
         <p className="memo-card-error" role="alert">
@@ -233,7 +222,6 @@ function MemoList({
       editing={editingId === memo.id}
       onEdit={() => setEditingId(memo.id)}
       onFinishEdit={() => setEditingId(null)}
-      onTagClick={setTag}
       onDelete={async (target) => {
         await deleteMemo(target);
         if (editingId === target.id) setEditingId(null);
@@ -338,7 +326,6 @@ function MemoList({
                     editing={editingId === memo.id}
                     onEdit={() => setEditingId(memo.id)}
                     onFinishEdit={() => setEditingId(null)}
-                    onTagClick={setTag}
                     onDelete={async (target) => {
                       await deleteMemo(target);
                       if (editingId === target.id) setEditingId(null);
