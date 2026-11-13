@@ -14,16 +14,11 @@ import {
   browserTimeZone,
   currentMonthKey,
   dayBounds,
-  localDateKey,
   monthBounds,
   selectedDayCreateTime,
 } from "./memo-date";
 
-export type MemoViewMode = "timeline" | "calendar";
-
 type MemoWorkspaceValue = {
-  mode: MemoViewMode;
-  setMode: (mode: MemoViewMode) => void;
   queryDraft: string;
   setQueryDraft: (query: string) => void;
   query: string;
@@ -33,10 +28,6 @@ type MemoWorkspaceValue = {
   setMiniMonth: (month: string) => void;
   selectedDate: string | null;
   setSelectedDate: (date: string | null) => void;
-  calendarMonth: string;
-  setCalendarMonth: (month: string) => void;
-  calendarDate: string | null;
-  setCalendarDate: (date: string | null) => void;
   dayCounts: Record<string, number>;
   tagCounts: MemoTagCount[];
   facetsLoading: boolean;
@@ -83,14 +74,11 @@ export function MemoWorkspaceProvider({
   onUnauthorized: () => void;
   children: ReactNode;
 }) {
-  const [mode, setMode] = useState<MemoViewMode>("timeline");
   const [queryDraft, setQueryDraft] = useState("");
   const [query, setQuery] = useState("");
   const [tag, setTag] = useState<string | null>(null);
   const [miniMonth, setMiniMonth] = useState(() => currentMonthKey());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [calendarMonth, setCalendarMonth] = useState(() => currentMonthKey());
-  const [calendarDate, setCalendarDate] = useState<string | null>(() => localDateKey(Date.now()));
   const [dayCounts, setDayCounts] = useState<Record<string, number>>({});
   const [tagCounts, setTagCounts] = useState<MemoTagCount[]>([]);
   const [facetsLoading, setFacetsLoading] = useState(false);
@@ -143,10 +131,8 @@ export function MemoWorkspaceProvider({
     return () => clearTimeout(timer);
   }, [queryDraft]);
 
-  const facetMonth = mode === "calendar" ? calendarMonth : miniMonth;
-  const facetBounds = useMemo(() => monthBounds(facetMonth), [facetMonth]);
-  const listDate = mode === "calendar" ? calendarDate : selectedDate;
-  const listBounds = useMemo(() => (listDate ? dayBounds(listDate) : null), [listDate]);
+  const facetBounds = useMemo(() => monthBounds(miniMonth), [miniMonth]);
+  const listBounds = useMemo(() => (selectedDate ? dayBounds(selectedDate) : null), [selectedDate]);
   const listScope = useMemo(
     () => JSON.stringify([query, tag, listBounds?.from ?? null, listBounds?.to ?? null]),
     [listBounds, query, tag],
@@ -330,8 +316,6 @@ export function MemoWorkspaceProvider({
   );
 
   const value: MemoWorkspaceValue = {
-    mode,
-    setMode,
     queryDraft,
     setQueryDraft,
     query,
@@ -341,10 +325,6 @@ export function MemoWorkspaceProvider({
     setMiniMonth,
     selectedDate,
     setSelectedDate,
-    calendarMonth,
-    setCalendarMonth,
-    calendarDate,
-    setCalendarDate,
     dayCounts,
     tagCounts,
     facetsLoading,

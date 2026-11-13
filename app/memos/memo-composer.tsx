@@ -1,24 +1,11 @@
 import type { Editor } from "@tiptap/core";
 import { EditorContent, useEditor } from "@tiptap/react";
-import {
-  forwardRef,
-  useCallback,
-  useEffect,
-  useImperativeHandle,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createCommonEditorExtensions } from "../editor/common-extensions";
 import { editorCoreExtensionOptions } from "../editor/editor-config";
 
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
-
-export type MemoComposerHandle = {
-  focus: () => void;
-  clear: () => void;
-  getMarkdown: () => string;
-};
+type SubmitReason = "shortcut" | "blur";
 
 export type MemoComposerProps = {
   initialMarkdown?: string;
@@ -26,6 +13,7 @@ export type MemoComposerProps = {
   ariaLabel: string;
   autoFocus?: boolean;
   className?: string;
+  resetOnSubmit?: boolean;
   onDraftChange?: (markdown: string) => void;
   onSubmit: (markdown: string) => Promise<void>;
   onCancel?: () => void;
@@ -35,32 +23,32 @@ function messageOf(reason: unknown) {
   return reason instanceof Error && reason.message ? reason.message : "保存失败，请重试";
 }
 
-export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(function MemoComposer(
-  {
-    initialMarkdown = "",
-    placeholder,
-    ariaLabel,
-    autoFocus = false,
-    className = "",
-    onDraftChange,
-    onSubmit,
-    onCancel,
-  },
-  ref,
-) {
+export function MemoComposer({
+  initialMarkdown = "",
+  placeholder,
+  ariaLabel,
+  autoFocus = false,
+  className = "",
+  resetOnSubmit = false,
+  onDraftChange,
+  onSubmit,
+  onCancel,
+}: MemoComposerProps) {
   const editorRef = useRef<EditorWithMarkdown | null>(null);
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingDraftRef = useRef<string | null>(null);
   const onSubmitRef = useRef(onSubmit);
   const onDraftChangeRef = useRef(onDraftChange);
   const onCancelRef = useRef(onCancel);
+  const resetOnSubmitRef = useRef(resetOnSubmit);
   const savingRef = useRef(false);
-  const [empty, setEmpty] = useState(!initialMarkdown.trim());
+  const closingRef = useRef(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   onSubmitRef.current = onSubmit;
   onDraftChangeRef.current = onDraftChange;
   onCancelRef.current = onCancel;
+  resetOnSubmitRef.current = resetOnSubmit;
 
   const extensions = useMemo(() => createCommonEditorExtensions({ placeholder }), [placeholder]);
   const editorProps = useMemo(
@@ -83,6 +71,51 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
     }, 180);
   }, []);
 
+  const clearDraft = useCallback((instance: EditorWithMarkdown) => {
+    if (draftTimerRef.current) {
+      clearTimeout(draftTimerRef.current);
+      draftTimerRef.current = null;
+    }
+    pendingDraftRef.current = null;
+    instance.commands.clearContent(false);
+    setError("");
+    onDraftChangeRef.current?.("");
+  }, []);
+
+  const submit = useCallback(
+    async (reason: SubmitReason) => {
+      const instance = editorRef.current;
+      if (!instance || instance.isDestroyed || savingRef.current || closingRef.current) return;
+      const markdown = instance.getMarkdown();
+      if (!markdown.trim()) {
+        if (reason === "shortcut") instance.commands.focus("end");
+        return;
+      }
+      savingRef.current = true;
+      setSaving(true);
+      setError("");
+      try {
+        await onSubmitRef.current(markdown);
+        if (resetOnSubmitRef.current) {
+          clearDraft(instance);
+          if (reason === "shortcut") instance.commands.focus("end");
+        }
+      } catch (reason) {
+        setError(messageOf(reason));
+      } finally {
+        savingRef.current = false;
+        setSaving(false);
+      }
+    },
+    [clearDraft],
+  );
+
+  const cancel = useCallback(() => {
+    if (!onCancelRef.current || savingRef.current) return;
+    closingRef.current = true;
+    onCancelRef.current();
+  }, []);
+
   const editor = useEditor({
     extensions,
     coreExtensionOptions: editorCoreExtensionOptions,
@@ -94,10 +127,11 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
     },
     onUpdate: ({ editor: instance }) => {
       const markdown = (instance as EditorWithMarkdown).getMarkdown();
-      const nextEmpty = !instance.getText().trim();
-      setEmpty((previous) => (previous === nextEmpty ? previous : nextEmpty));
-      if (error) setError("");
+      setError((current) => (current ? "" : current));
       queueDraft(markdown);
+    },
+    onBlur: () => {
+      void submit("blur");
     },
   });
   editorRef.current = editor as EditorWithMarkdown | null;
@@ -116,97 +150,27 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
     [],
   );
 
-  const clear = useCallback(() => {
-    const instance = editorRef.current;
-    if (!instance || instance.isDestroyed) return;
-    if (draftTimerRef.current) {
-      clearTimeout(draftTimerRef.current);
-      draftTimerRef.current = null;
-    }
-    pendingDraftRef.current = null;
-    instance.commands.clearContent(false);
-    setEmpty(true);
-    setError("");
-    onDraftChangeRef.current?.("");
-    instance.commands.focus("start");
-  }, []);
-
-  useImperativeHandle(
-    ref,
-    () => ({
-      focus: () => editorRef.current?.commands.focus("end"),
-      clear,
-      getMarkdown: () => editorRef.current?.getMarkdown() ?? "",
-    }),
-    [clear],
-  );
-
-  const submit = useCallback(async () => {
-    const instance = editorRef.current;
-    if (!instance || instance.isDestroyed || savingRef.current) return;
-    const markdown = instance.getMarkdown();
-    if (!markdown.trim()) {
-      instance.commands.focus("end");
-      return;
-    }
-    savingRef.current = true;
-    setSaving(true);
-    setError("");
-    try {
-      await onSubmitRef.current(markdown);
-    } catch (reason) {
-      setError(messageOf(reason));
-    } finally {
-      savingRef.current = false;
-      setSaving(false);
-    }
-  }, []);
-
   return (
     <div
       className={`memo-composer ${className}`.trim()}
+      aria-busy={saving}
       onKeyDown={(event) => {
         if (event.nativeEvent.isComposing || event.keyCode === 229) return;
         if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
           event.preventDefault();
-          void submit();
+          void submit("shortcut");
         } else if (event.key === "Escape" && onCancelRef.current) {
           event.preventDefault();
-          onCancelRef.current();
+          cancel();
         }
       }}
     >
       <EditorContent editor={editor} />
-      {(!empty || saving || error) && (
-        <div className="memo-composer-actions">
-          {error && (
-            <span className="memo-composer-error" role="alert">
-              {error}
-            </span>
-          )}
-          <div className="memo-composer-buttons">
-            {onCancel && (
-              <button
-                className="memo-text-button"
-                type="button"
-                onClick={onCancel}
-                disabled={saving}
-              >
-                取消
-              </button>
-            )}
-            <button
-              className="memo-save-button"
-              type="button"
-              onClick={() => void submit()}
-              disabled={saving || empty}
-              aria-keyshortcuts="Control+Enter Meta+Enter"
-            >
-              {saving ? "保存中…" : "保存"}
-            </button>
-          </div>
-        </div>
+      {error && (
+        <p className="memo-composer-error" role="alert">
+          {error}
+        </p>
       )}
     </div>
   );
-});
+}

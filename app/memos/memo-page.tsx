@@ -1,11 +1,11 @@
-import { CalendarDays, ChevronLeft, List, Search, Trash2, X } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { ChevronLeft, Search, Trash2, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { Memo } from "../../shared/types";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { ReadOnlyMarkdown } from "../editor/read-only-markdown";
 import { useScrollEdges } from "../workspace/use-scroll-edges";
-import { MemoComposer, type MemoComposerHandle } from "./memo-composer";
-import { MiniCalendar, MonthCalendar } from "./memo-calendar";
+import { MemoComposer } from "./memo-composer";
+import { MiniCalendar } from "./memo-calendar";
 import {
   dayHeading,
   groupedByLocalDate,
@@ -14,6 +14,7 @@ import {
   timeLabel,
 } from "./memo-date";
 import { useMemoWorkspace } from "./memo-workspace";
+import { flattenMemoGroups, memoRowId, useVirtualMemoList } from "./use-virtual-memo-list";
 
 function MemoCard({
   memo,
@@ -59,6 +60,7 @@ function MemoCard({
   return (
     <article
       className={`memo-card ${editing ? "is-editing" : ""}`.trim()}
+      data-memo-id={memo.id}
       tabIndex={editing ? -1 : 0}
       aria-label={`${dayHeading(localDateKey(memo.createdAt))} ${timeLabel(memo.createdAt)} 的随记，按 Enter 编辑`}
       onDoubleClick={(event) => beginEdit(event.target)}
@@ -105,7 +107,7 @@ function MemoCard({
           <ReadOnlyMarkdown markdown={memo.contentMarkdown} />
         </div>
       )}
-      {!editing && memo.tags.length > 0 && (
+      {memo.tags.length > 0 && (
         <footer className="memo-card-tags" aria-label="随记标签">
           {memo.tags.map((tag) => (
             <button key={tag} type="button" onClick={() => onTagClick(tag)}>
@@ -126,9 +128,11 @@ function MemoCard({
 function MemoList({
   editingId,
   setEditingId,
+  scrollRef,
 }: {
   editingId: string | null;
   setEditingId: (id: string | null) => void;
+  scrollRef: RefObject<HTMLDivElement | null>;
 }) {
   const {
     memos,
@@ -143,13 +147,37 @@ function MemoList({
     setTag,
     query,
     tag,
-    mode,
     selectedDate,
     setQueryDraft,
     setSelectedDate,
   } = useMemoWorkspace();
-  const groups = groupedByLocalDate(memos);
-  const filtered = Boolean(query || tag || (mode === "timeline" && selectedDate));
+  const groups = useMemo(() => groupedByLocalDate(memos), [memos]);
+  const rows = useMemo(() => flattenMemoGroups(groups), [groups]);
+  const scope = JSON.stringify([query, tag, selectedDate]);
+  const [focusedMemoId, setFocusedMemoId] = useState<string | null>(null);
+  const pinnedRowId = editingId
+    ? memoRowId(editingId)
+    : focusedMemoId
+      ? memoRowId(focusedMemoId)
+      : null;
+  const virtualList = useVirtualMemoList(rows, scrollRef, scope, memos.length, pinnedRowId);
+  const [loadMoreSentinel, setLoadMoreSentinel] = useState<HTMLElement | null>(null);
+  const canAutoLoad = typeof IntersectionObserver !== "undefined";
+  const filtered = Boolean(query || tag || selectedDate);
+
+  useEffect(() => {
+    const sentinel = loadMoreSentinel;
+    const root = scrollRef.current;
+    if (!sentinel || !root || !hasMore || !canAutoLoad || loadingMore || moreError) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) void loadMore();
+      },
+      { root, rootMargin: "360px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [canAutoLoad, hasMore, loadMore, loadMoreSentinel, loadingMore, moreError, scrollRef]);
 
   if (loading) {
     return (
@@ -180,9 +208,7 @@ function MemoList({
   if (groups.length === 0) {
     return (
       <div className="memo-state">
-        <strong>
-          {filtered ? "没有找到随记" : mode === "calendar" ? "这一天还没有随记" : "还没有随记"}
-        </strong>
+        <strong>{filtered ? "没有找到随记" : "还没有随记"}</strong>
         {filtered && (
           <button
             type="button"
@@ -199,6 +225,40 @@ function MemoList({
     );
   }
 
+  const renderMemoCard = (memo: Memo) => (
+    <MemoCard
+      memo={memo}
+      editing={editingId === memo.id}
+      onEdit={() => setEditingId(memo.id)}
+      onFinishEdit={() => setEditingId(null)}
+      onTagClick={setTag}
+      onDelete={async (target) => {
+        await deleteMemo(target);
+        if (editingId === target.id) setEditingId(null);
+      }}
+    />
+  );
+  const loadMoreFooter = hasMore ? (
+    <div ref={setLoadMoreSentinel} className="memo-load-sentinel" aria-live="polite">
+      {loadingMore ? (
+        <span role="status">正在加载更多随记…</span>
+      ) : moreError ? (
+        <>
+          <span role="alert">{moreError}</span>
+          <button type="button" onClick={() => void loadMore()}>
+            重试
+          </button>
+        </>
+      ) : !canAutoLoad ? (
+        <button type="button" onClick={() => void loadMore()}>
+          加载更多
+        </button>
+      ) : (
+        <span className="visually-hidden">继续向下滚动以加载更多随记</span>
+      )}
+    </div>
+  ) : null;
+
   return (
     <div className="memo-timeline">
       {error && (
@@ -209,45 +269,146 @@ function MemoList({
           </button>
         </div>
       )}
-      {groups.map((group) => (
-        <section className="memo-day" key={group.date} aria-label={dayHeading(group.date)}>
-          <h2>
-            <time dateTime={group.date}>{timelineDateLabel(group.date)}</time>
-          </h2>
-          <div className="memo-day-items">
-            {group.items.map((memo) => (
-              <MemoCard
-                key={memo.id}
-                memo={memo}
-                editing={editingId === memo.id}
-                onEdit={() => setEditingId(memo.id)}
-                onFinishEdit={() => setEditingId(null)}
-                onTagClick={setTag}
-                onDelete={async (target) => {
-                  await deleteMemo(target);
-                  if (editingId === target.id) setEditingId(null);
-                }}
-              />
-            ))}
+      {virtualList.isVirtualized ? (
+        <>
+          <div
+            className="memo-virtual-list"
+            role="list"
+            aria-label="随记时间线"
+            style={{ height: `${virtualList.totalHeight}px` }}
+            onFocusCapture={(event) => {
+              const rowId = (event.target as HTMLElement).closest<HTMLElement>("[data-memo-id]")
+                ?.dataset.memoId;
+              setFocusedMemoId(rowId ?? null);
+            }}
+            onBlurCapture={(event) => {
+              const next = event.relatedTarget;
+              const rowId =
+                next instanceof HTMLElement
+                  ? next.closest<HTMLElement>("[data-memo-id]")?.dataset.memoId
+                  : undefined;
+              setFocusedMemoId(rowId ?? null);
+            }}
+          >
+            {virtualList.visibleRows.map(({ row, top }) =>
+              row.kind === "day" ? (
+                <div
+                  key={row.id}
+                  ref={virtualList.getRowRef(row.id)}
+                  data-memo-row-id={row.id}
+                  className={`memo-virtual-day ${row.first ? "is-first" : ""}`.trim()}
+                  style={virtualList.rowStyle(top)}
+                  role="listitem"
+                  aria-label={dayHeading(row.date)}
+                >
+                  <h2>
+                    <time dateTime={row.date}>{timelineDateLabel(row.date)}</time>
+                  </h2>
+                </div>
+              ) : (
+                <div
+                  key={row.id}
+                  ref={virtualList.getRowRef(row.id)}
+                  data-memo-row-id={row.id}
+                  className="memo-virtual-row"
+                  style={virtualList.rowStyle(top)}
+                  role="listitem"
+                >
+                  {renderMemoCard(row.memo)}
+                </div>
+              ),
+            )}
           </div>
-        </section>
-      ))}
-      {moreError && (
-        <p className="memo-more-error" role="alert">
-          {moreError}
-        </p>
-      )}
-      {hasMore && (
-        <button
-          className="memo-load-more"
-          type="button"
-          onClick={() => void loadMore()}
-          disabled={loadingMore}
-        >
-          {loadingMore ? "加载中…" : moreError ? "重试加载" : "加载更多"}
-        </button>
+          {loadMoreFooter}
+        </>
+      ) : (
+        <>
+          {groups.map((group) => (
+            <section className="memo-day" key={group.date} aria-label={dayHeading(group.date)}>
+              <h2>
+                <time dateTime={group.date}>{timelineDateLabel(group.date)}</time>
+              </h2>
+              <div className="memo-day-items">
+                {group.items.map((memo) => (
+                  <MemoCard
+                    key={memo.id}
+                    memo={memo}
+                    editing={editingId === memo.id}
+                    onEdit={() => setEditingId(memo.id)}
+                    onFinishEdit={() => setEditingId(null)}
+                    onTagClick={setTag}
+                    onDelete={async (target) => {
+                      await deleteMemo(target);
+                      if (editingId === target.id) setEditingId(null);
+                    }}
+                  />
+                ))}
+              </div>
+            </section>
+          ))}
+          {loadMoreFooter}
+        </>
       )}
     </div>
+  );
+}
+
+function MemoTagFilters() {
+  const memo = useMemoWorkspace();
+  return (
+    <section className="memo-tag-section" aria-label="随记标签">
+      <header>
+        <h2>标签</h2>
+        {memo.tag && (
+          <button type="button" onClick={() => memo.setTag(null)}>
+            全部
+          </button>
+        )}
+      </header>
+      {memo.tagCounts.length > 0 ? (
+        <div className="memo-tag-list">
+          {memo.tagCounts.map((item) => (
+            <button
+              key={item.tag}
+              type="button"
+              className={memo.tag === item.tag ? "is-active" : ""}
+              aria-pressed={memo.tag === item.tag}
+              onClick={() => memo.setTag(memo.tag === item.tag ? null : item.tag)}
+            >
+              <span>#{item.tag}</span>
+              <em>{item.count}</em>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <p>还没有标签</p>
+      )}
+    </section>
+  );
+}
+
+function MemoRail() {
+  const memo = useMemoWorkspace();
+  return (
+    <aside className="memo-page-rail" aria-label="随记日历与标签">
+      <MiniCalendar
+        month={memo.miniMonth}
+        counts={memo.dayCounts}
+        selectedDate={memo.selectedDate}
+        loading={memo.facetsLoading}
+        error={memo.facetsError}
+        onMonthChange={(month) => {
+          memo.setMiniMonth(month);
+          if (memo.selectedDate && memo.selectedDate.slice(0, 7) !== month)
+            memo.setSelectedDate(null);
+        }}
+        onSelectDate={(date) => {
+          if (date) memo.setMiniMonth(date.slice(0, 7));
+          memo.setSelectedDate(date);
+        }}
+      />
+      <MemoTagFilters />
+    </aside>
   );
 }
 
@@ -260,147 +421,95 @@ export function MemoPage({
 }) {
   const memo = useMemoWorkspace();
   const scrollRef = useRef<HTMLDivElement>(null);
-  const composerRef = useRef<MemoComposerHandle>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
   const scrollEdges = useScrollEdges(scrollRef, [memo.memos.length, memo.loading]);
-  const selectedCalendarDate = memo.calendarDate ?? localDateKey(Date.now());
 
   const submit = useCallback(
     async (markdown: string) => {
-      await memo.createMemo(
-        markdown,
-        memo.mode === "calendar" ? selectedCalendarDate : memo.selectedDate,
-      );
-      composerRef.current?.clear();
+      await memo.createMemo(markdown, memo.selectedDate);
       setNotice("随记已保存");
       window.setTimeout(() => setNotice(""), 1600);
     },
-    [memo, selectedCalendarDate],
+    [memo],
   );
 
   return (
     <main className="memo-page" aria-label="随记">
-      <header className="memo-page-header">
-        {isMobileViewport && onBack && (
-          <button className="memo-back-button" type="button" onClick={onBack} aria-label="返回">
-            <ChevronLeft size={20} />
-          </button>
-        )}
-        <h1>随记</h1>
-        <div className="memo-view-switch" role="group" aria-label="随记视图">
-          <button
-            type="button"
-            className={memo.mode === "timeline" ? "is-active" : ""}
-            aria-pressed={memo.mode === "timeline"}
-            aria-label="时间线"
-            onClick={() => memo.setMode("timeline")}
-          >
-            <List size={17} aria-hidden="true" />
-            <span>时间线</span>
-          </button>
-          <button
-            type="button"
-            className={memo.mode === "calendar" ? "is-active" : ""}
-            aria-pressed={memo.mode === "calendar"}
-            aria-label="日历"
-            onClick={() => {
-              const nextMonth = memo.selectedDate?.slice(0, 7) ?? memo.miniMonth;
-              memo.setCalendarMonth(nextMonth);
-              memo.setCalendarDate(memo.selectedDate ?? localDateKey(Date.now()));
-              memo.setMode("calendar");
-            }}
-          >
-            <CalendarDays size={17} aria-hidden="true" />
-            <span>日历</span>
-          </button>
-        </div>
-      </header>
-
-      <div className="memo-filter-bar">
-        <label className="memo-search">
-          <Search size={17} aria-hidden="true" />
-          <input
-            type="search"
-            value={memo.queryDraft}
-            onChange={(event) => memo.setQueryDraft(event.target.value)}
-            placeholder="搜索随记"
-            aria-label="搜索随记"
-          />
-          {memo.queryDraft && (
-            <button type="button" aria-label="清空搜索" onClick={() => memo.setQueryDraft("")}>
-              <X size={15} />
-            </button>
-          )}
-        </label>
-        {memo.tag && (
-          <button className="memo-filter-chip" type="button" onClick={() => memo.setTag(null)}>
-            #{memo.tag}
-            <X size={13} aria-hidden="true" />
-          </button>
-        )}
-        {memo.mode === "timeline" && memo.selectedDate && (
-          <button
-            className="memo-filter-chip"
-            type="button"
-            onClick={() => memo.setSelectedDate(null)}
-          >
-            {timelineDateLabel(memo.selectedDate)}
-            <X size={13} aria-hidden="true" />
-          </button>
-        )}
-      </div>
-
+      <h1 className="visually-hidden">随记</h1>
       <div
-        ref={scrollRef}
         className={`memo-scroll-shell ${scrollEdges.before ? "has-scroll-before" : ""} ${scrollEdges.after ? "has-scroll-after" : ""}`.trim()}
       >
-        <div className="memo-scroll floating-scrollbar-target" id="memo-scroll-region">
-          {memo.mode === "timeline" ? (
-            <div className="memo-feed">
+        <div
+          ref={scrollRef}
+          className="memo-scroll floating-scrollbar-target"
+          id="memo-scroll-region"
+        >
+          <div className="memo-layout">
+            <section className="memo-feed" aria-label="随记时间线">
+              <div className="memo-feed-tools">
+                {isMobileViewport && onBack && (
+                  <button
+                    className="memo-back-button"
+                    type="button"
+                    onClick={onBack}
+                    aria-label="返回"
+                  >
+                    <ChevronLeft size={20} />
+                  </button>
+                )}
+                <label className="memo-search">
+                  <Search size={17} aria-hidden="true" />
+                  <input
+                    type="search"
+                    value={memo.queryDraft}
+                    onChange={(event) => memo.setQueryDraft(event.target.value)}
+                    placeholder="搜索随记"
+                    aria-label="搜索随记"
+                  />
+                  {memo.queryDraft && (
+                    <button
+                      type="button"
+                      aria-label="清空搜索"
+                      onClick={() => memo.setQueryDraft("")}
+                    >
+                      <X size={15} />
+                    </button>
+                  )}
+                </label>
+                {memo.tag && (
+                  <button
+                    className="memo-filter-chip"
+                    type="button"
+                    onClick={() => memo.setTag(null)}
+                  >
+                    #{memo.tag}
+                    <X size={13} aria-hidden="true" />
+                  </button>
+                )}
+                {memo.selectedDate && (
+                  <button
+                    className="memo-filter-chip"
+                    type="button"
+                    onClick={() => memo.setSelectedDate(null)}
+                  >
+                    {timelineDateLabel(memo.selectedDate)}
+                    <X size={13} aria-hidden="true" />
+                  </button>
+                )}
+              </div>
               <MemoComposer
-                ref={composerRef}
                 initialMarkdown={memo.draft}
                 placeholder={memo.selectedDate ? "记下这一天……" : "记下此刻……"}
                 ariaLabel="新建随记"
+                resetOnSubmit
                 onDraftChange={memo.setDraft}
                 onSubmit={submit}
               />
-              <MemoList editingId={editingId} setEditingId={setEditingId} />
-            </div>
-          ) : (
-            <div className="memo-calendar-layout">
-              <MonthCalendar
-                month={memo.calendarMonth}
-                counts={memo.dayCounts}
-                selectedDate={memo.calendarDate}
-                loading={memo.facetsLoading}
-                error={memo.facetsError}
-                onMonthChange={(month) => {
-                  memo.setCalendarMonth(month);
-                  memo.setCalendarDate(`${month}-01`);
-                }}
-                onSelectDate={(date) => {
-                  const next = date ?? localDateKey(Date.now());
-                  if (next.slice(0, 7) !== memo.calendarMonth)
-                    memo.setCalendarMonth(next.slice(0, 7));
-                  memo.setCalendarDate(next);
-                }}
-              />
-              <section className="memo-calendar-day" aria-label={dayHeading(selectedCalendarDate)}>
-                <header>
-                  <h2>{dayHeading(selectedCalendarDate)}</h2>
-                </header>
-                <MemoComposer
-                  key={`calendar:${selectedCalendarDate}`}
-                  placeholder="记下这一天……"
-                  ariaLabel={`在${dayHeading(selectedCalendarDate)}新建随记`}
-                  onSubmit={submit}
-                />
-                <MemoList editingId={editingId} setEditingId={setEditingId} />
-              </section>
-            </div>
-          )}
+              <MemoList editingId={editingId} setEditingId={setEditingId} scrollRef={scrollRef} />
+            </section>
+            <MemoRail />
+          </div>
         </div>
         <FloatingScrollbar
           scrollTargetRef={scrollRef}
@@ -415,54 +524,5 @@ export function MemoPage({
         </div>
       )}
     </main>
-  );
-}
-
-export function MemoSidebar() {
-  const memo = useMemoWorkspace();
-  return (
-    <div className="memo-sidebar-context">
-      <MiniCalendar
-        month={memo.miniMonth}
-        counts={memo.dayCounts}
-        selectedDate={memo.selectedDate}
-        loading={memo.facetsLoading}
-        error={memo.facetsError}
-        onMonthChange={memo.setMiniMonth}
-        onSelectDate={(date) => {
-          memo.setMode("timeline");
-          if (date) memo.setMiniMonth(date.slice(0, 7));
-          memo.setSelectedDate(date);
-        }}
-      />
-      <section className="memo-tag-section" aria-label="随记标签">
-        <header>
-          <h2>标签</h2>
-          {memo.tag && (
-            <button type="button" onClick={() => memo.setTag(null)}>
-              全部
-            </button>
-          )}
-        </header>
-        {memo.tagCounts.length > 0 ? (
-          <div className="memo-tag-list">
-            {memo.tagCounts.map((item) => (
-              <button
-                key={item.tag}
-                type="button"
-                className={memo.tag === item.tag ? "is-active" : ""}
-                aria-pressed={memo.tag === item.tag}
-                onClick={() => memo.setTag(memo.tag === item.tag ? null : item.tag)}
-              >
-                <span>#{item.tag}</span>
-                <em>{item.count}</em>
-              </button>
-            ))}
-          </div>
-        ) : (
-          <p>还没有标签</p>
-        )}
-      </section>
-    </div>
   );
 }
