@@ -77,15 +77,17 @@ function MemoCard({
         }
       }}
     >
-      <button
-        className="memo-card-delete"
-        type="button"
-        aria-label="删除随记"
-        disabled={deleting || editing}
-        onClick={() => void remove()}
-      >
-        <Trash2 size={16} aria-hidden="true" />
-      </button>
+      <span className="memo-card-delete-zone">
+        <button
+          className="memo-card-delete"
+          type="button"
+          aria-label="删除随记"
+          disabled={deleting || editing}
+          onClick={() => void remove()}
+        >
+          <Trash2 size={16} aria-hidden="true" />
+        </button>
+      </span>
       <header className="memo-card-header">
         <time dateTime={new Date(memo.createdAt).toISOString()}>{timeLabel(memo.createdAt)}</time>
       </header>
@@ -355,6 +357,7 @@ function MemoList({
 
 function MemoTagFilters() {
   const memo = useMemoWorkspace();
+  const listRef = useRef<HTMLDivElement>(null);
   return (
     <section className="memo-tag-section" aria-label="随记标签">
       <header>
@@ -366,19 +369,27 @@ function MemoTagFilters() {
         )}
       </header>
       {memo.tagCounts.length > 0 ? (
-        <div className="memo-tag-list">
-          {memo.tagCounts.map((item) => (
-            <button
-              key={item.tag}
-              type="button"
-              className={memo.tag === item.tag ? "is-active" : ""}
-              aria-pressed={memo.tag === item.tag}
-              onClick={() => memo.setTag(memo.tag === item.tag ? null : item.tag)}
-            >
-              <span>#{item.tag}</span>
-              <em>{item.count}</em>
-            </button>
-          ))}
+        <div className="memo-tag-list-shell">
+          <div ref={listRef} id="memo-tag-list" className="memo-tag-list floating-scrollbar-target">
+            {memo.tagCounts.map((item) => (
+              <button
+                key={item.tag}
+                type="button"
+                className={memo.tag === item.tag ? "is-active" : ""}
+                aria-pressed={memo.tag === item.tag}
+                onClick={() => memo.setTag(memo.tag === item.tag ? null : item.tag)}
+              >
+                <span>#{item.tag}</span>
+                <em>{item.count}</em>
+              </button>
+            ))}
+          </div>
+          <FloatingScrollbar
+            scrollTargetRef={listRef}
+            controlsId="memo-tag-list"
+            ariaLabel="随记标签滚动条"
+            placement="right"
+          />
         </div>
       ) : (
         <p>还没有标签</p>

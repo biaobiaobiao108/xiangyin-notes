@@ -347,6 +347,7 @@
   animation: page-content-in var(--motion-panel) var(--motion-ease-out) both;
   transition:
     background-color var(--motion-micro) var(--motion-ease-out),
+    filter var(--motion-micro) var(--motion-ease-out),
     scale var(--motion-panel) var(--motion-spring);
 }
 
@@ -360,6 +361,7 @@
 
 .memo-card:not(.is-editing):active {
   scale: 0.992;
+  filter: brightness(0.985);
 }
 
 .memo-card-header {
@@ -404,11 +406,18 @@
   margin-bottom: 0;
 }
 
-.memo-card-delete {
+.memo-card-delete-zone {
   position: absolute;
   z-index: 2;
-  top: 8px;
-  right: 8px;
+  top: 4px;
+  right: 4px;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+}
+
+.memo-card-delete {
   display: grid;
   width: 32px;
   height: 32px;
@@ -418,11 +427,21 @@
   border-radius: 50%;
   background: transparent;
   color: var(--danger);
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.92);
   transition:
     background-color var(--motion-fast) var(--motion-ease-out),
     color var(--motion-fast) var(--motion-ease-out),
     opacity var(--motion-fast) var(--motion-ease-out),
     transform var(--motion-panel) var(--motion-spring);
+}
+
+.memo-card-delete-zone:hover .memo-card-delete,
+.memo-card-delete:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: scale(1);
 }
 
 .memo-card-delete:hover,
@@ -439,6 +458,16 @@
 .memo-card-delete:disabled {
   cursor: default;
   opacity: 0;
+  pointer-events: none;
+}
+
+.memo-card-delete-zone:hover .memo-card-delete:disabled {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.memo-card.is-editing .memo-card-delete-zone {
+  display: none;
 }
 
 .memo-card-tags {
@@ -646,10 +675,13 @@
   position: sticky;
   top: 32px;
   display: flex;
+  max-height: calc(100dvh - 64px);
   min-width: 0;
   align-self: start;
   flex-direction: column;
   gap: 32px;
+  overflow: hidden;
+  overflow: clip;
 }
 
 .memo-mini-calendar {
@@ -826,8 +858,10 @@
 .memo-tag-section {
   display: flex;
   min-width: 0;
+  min-height: 0;
   flex-direction: column;
   gap: 8px;
+  flex: 1 1 auto;
 }
 
 .memo-tag-section > header {
@@ -866,9 +900,27 @@
   font-size: 0.74rem;
 }
 
+.memo-tag-list-shell {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.memo-tag-list-shell > .floating-scrollbar--right {
+  inset-inline-end: 0;
+}
+
 .memo-tag-list {
   display: grid;
+  min-height: 0;
+  flex: 1 1 auto;
   gap: 2px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .memo-tag-list button {
@@ -990,12 +1042,26 @@
   .memo-page-rail {
     position: static;
     display: grid;
+    max-height: none;
     grid-template-columns: minmax(0, 280px) minmax(0, 1fr);
     align-items: start;
+    overflow: visible;
     padding-top: 24px;
     padding-left: 0;
     border-top: 1px solid var(--border-soft);
     border-left: 0;
+  }
+
+  .memo-tag-list {
+    min-height: auto;
+    flex: none;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .memo-tag-list-shell {
+    display: block;
+    overflow: visible;
   }
 }
 
@@ -1037,8 +1103,6 @@
   }
 
   .memo-card-delete {
-    top: 4px;
-    right: 4px;
     width: 40px;
     height: 40px;
   }
@@ -1058,6 +1122,14 @@
   }
 }
 
+@media (hover: none), (pointer: coarse) {
+  .memo-card-delete {
+    opacity: 1;
+    pointer-events: auto;
+    transform: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .memo-card,
   .memo-toast {
@@ -1070,7 +1142,6 @@
 
   .memo-card:not(.is-editing):active {
     scale: none;
-    filter: brightness(0.98);
   }
 
   .memo-skeleton span,
