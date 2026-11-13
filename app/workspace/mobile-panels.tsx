@@ -4,11 +4,11 @@ import {
   FolderPlus,
   LogOut,
   ListTodo,
+  NotebookPen,
   SquareKanban,
   Pencil,
   Search,
   SquarePen,
-  StickyNote,
   Trash2,
   X,
 } from "lucide-react";
@@ -154,7 +154,7 @@ export const MobileNotebookHome = memo(function MobileNotebookHome({
                       <li>
                         <button type="button" className="mobile-notebook-link" onClick={onOpenMemo}>
                           <span className="mobile-notebook-icon">
-                            <StickyNote size={22} />
+                            <NotebookPen size={22} />
                           </span>
                           <span className="mobile-notebook-name">随记</span>
                           <ChevronRight className="mobile-notebook-chevron" size={18} />

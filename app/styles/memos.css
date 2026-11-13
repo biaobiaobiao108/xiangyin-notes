@@ -20,6 +20,11 @@
   min-height: 0;
 }
 
+.memo-scroll-shell > .floating-scrollbar--right {
+  /* Keep the 6px thumb 8px clear of the timeline cards. */
+  inset-inline-end: -17px;
+}
+
 .memo-scroll-shell::before,
 .memo-scroll-shell::after {
   position: absolute;

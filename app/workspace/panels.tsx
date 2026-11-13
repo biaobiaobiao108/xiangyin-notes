@@ -21,11 +21,11 @@ import {
   LayoutPanelLeft,
   ListTodo,
   Menu,
+  NotebookPen,
   Plus,
   RotateCcw,
   Search,
   SquareKanban,
-  StickyNote,
   Star,
   Trash2,
   X,
@@ -452,7 +452,7 @@ export const Sidebar = memo(function Sidebar({
                       aria-current={memoActive ? "page" : undefined}
                       onClick={onOpenMemo}
                     >
-                      <StickyNote size={18} />
+                      <NotebookPen size={18} />
                       <span>随记</span>
                     </button>
                   </li>
