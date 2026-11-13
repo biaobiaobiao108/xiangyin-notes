@@ -12,6 +12,8 @@ import type {
   KanbanCard,
   KanbanCardsResponse,
   KanbanStatus,
+  Memo,
+  MemoFacets,
 } from "../shared/types";
 import { createUuid } from "./uuid";
 
@@ -88,6 +90,64 @@ export const api = {
     request<{ note: Note }>(`/api/notes/${id}`, options),
   getNoteSummary: (id: string, options?: RequestOptions) =>
     request<{ note: NoteSummary }>(`/api/notes/${id}?response=summary`, options),
+  listMemos: (
+    params: {
+      query?: string;
+      tag?: string;
+      from?: number;
+      to?: number;
+      cursor?: string;
+      limit?: number;
+    },
+    options?: RequestOptions,
+  ) => {
+    const search = new URLSearchParams();
+    if (params.query) search.set("query", params.query);
+    if (params.tag) search.set("tag", params.tag);
+    if (params.from !== undefined) search.set("from", String(params.from));
+    if (params.to !== undefined) search.set("to", String(params.to));
+    if (params.cursor) search.set("cursor", params.cursor);
+    if (params.limit !== undefined) search.set("limit", String(params.limit));
+    const query = search.toString();
+    return request<{ memos: Memo[]; nextCursor: string | null }>(
+      `/api/memos${query ? `?${query}` : ""}`,
+      options,
+    );
+  },
+  getMemoFacets: (
+    params: {
+      from: number;
+      to: number;
+      timeZone: string;
+      query?: string;
+      tag?: string;
+    },
+    options?: RequestOptions,
+  ) => {
+    const search = new URLSearchParams({
+      from: String(params.from),
+      to: String(params.to),
+      timeZone: params.timeZone,
+    });
+    if (params.query) search.set("query", params.query);
+    if (params.tag) search.set("tag", params.tag);
+    return request<MemoFacets>(`/api/memos/facets?${search.toString()}`, options);
+  },
+  createMemo: (payload: { id?: string; contentMarkdown: string; createdAt?: number }) =>
+    request<{ memo: Memo }>("/api/memos", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updateMemo: (id: string, payload: { version: number; contentMarkdown: string }) =>
+    request<{ memo: Memo }>(`/api/memos/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+  deleteMemo: (id: string, version: number) =>
+    request<{ ok: true }>(`/api/memos/${id}`, {
+      method: "DELETE",
+      body: JSON.stringify({ version }),
+    }),
   ensureWikiNote: (payload: { title: string; notebookId: string }) =>
     request<{ note: Note; created: boolean }>("/api/wiki-notes/ensure", {
       method: "POST",

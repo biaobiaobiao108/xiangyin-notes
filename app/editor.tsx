@@ -10,11 +10,6 @@ import {
 } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import type { Editor } from "@tiptap/core";
-import StarterKit from "@tiptap/starter-kit";
-import { createMarkdownExtension } from "./editor/markdown-config";
-import TaskList from "@tiptap/extension-task-list";
-import TaskItem from "@tiptap/extension-task-item";
-import Placeholder from "@tiptap/extension-placeholder";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Selection, type Transaction } from "@tiptap/pm/state";
 import { closeHistory } from "@tiptap/pm/history";
@@ -65,13 +60,12 @@ import {
 } from "./editor/task-navigation";
 import { FloatingScrollbar } from "./floating-scrollbar";
 import { normalizeImagesInEmptyListItems } from "./image-markdown";
-import { ImeMarkdownSafeExtension } from "./ime-markdown-safe-extension";
 import { executeBlockShortcut, executeBlockShortcutAtSelection } from "./editor/markdown-shortcuts";
 import { editorCoreExtensionOptions } from "./editor/editor-config";
+import { createCommonEditorExtensions } from "./editor/common-extensions";
 import { EditorFloatingTools } from "./editor/editor-panels";
 import { ImageNode } from "./editor/image-node";
 import { createImageUploadPosition, ImageUploadPositions } from "./editor/image-upload-position";
-import { TagDecorationExtension } from "./editor/tag-decoration";
 import { BacklinksDialog } from "./editor/backlinks-panel";
 import { WikiLinkNode } from "./editor/wiki-link-node";
 import {
@@ -79,14 +73,9 @@ import {
   type WikiLinkTitleSearch,
 } from "./editor/wiki-link-suggestion";
 import { CalloutNode } from "./editor/callout-node";
-import { NoteLink } from "./editor/note-link";
-import { CodeBlockWithCopy } from "./editor/code-block-copy";
-import { CodeBlockDoubleEnter } from "./editor/code-block-enter";
-import { InlineMarkExitOnEnter } from "./editor/inline-mark-exit";
 import { pastePlainTextIntoCodeBlock } from "./editor/code-block-paste";
 import { SlashCommandExtension } from "./editor/slash-command-menu";
 import { TableScrollbars } from "./editor/table-scrollbars";
-import { createTableExtensions } from "./editor/table-extensions";
 import { playEntranceAnimation } from "./animation";
 import { CardOutline } from "./editor/card-outline";
 import { MobileEditorFooter, MobileEditorOutline } from "./editor/mobile-editor-controls";
@@ -654,23 +643,10 @@ export function NoteEditor({
 
   const extensions = useMemo(
     () => [
-      StarterKit.configure({
-        heading: { levels: [1, 2, 3, 4, 5, 6] },
-        link: false,
-        codeBlock: false,
-      }),
-      CodeBlockWithCopy.configure({ exitOnTripleEnter: false }),
-      CodeBlockDoubleEnter,
-      InlineMarkExitOnEnter,
+      ...createCommonEditorExtensions({ placeholder: "从一句话开始……" }),
       NoteHighlight,
       NoteAnnotation,
-      ...createTableExtensions(),
-      NoteLink.configure({ openOnClick: false, autolink: true, linkOnPaste: true }),
-      TaskList,
-      TaskItem.configure({ nested: true }),
       TaskNavigationExtension,
-      Placeholder.configure({ placeholder: "从一句话开始……" }),
-      createMarkdownExtension(),
       CalloutNode,
       ImageNode,
       ImageUploadPositions,
@@ -683,8 +659,6 @@ export function NoteEditor({
           Promise.resolve({ matches: [], exactMatch: false }),
         onCreateNote: (title) => onCreateAndLinkNoteRef.current?.(title),
       }),
-      ImeMarkdownSafeExtension,
-      TagDecorationExtension,
       SearchHighlightExtension,
     ],
     [],

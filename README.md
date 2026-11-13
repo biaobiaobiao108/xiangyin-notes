@@ -281,6 +281,27 @@ Content-Type: text/markdown
 
 请求正文放入要保存的 Markdown 文本。每次导入都会在收件箱新建一篇笔记。请通过 HTTPS 调用，并把令牌放在请求头里，不要放进网址。
 
+### 快捷指令写入随记
+
+同一个 `XIANGYING_API_TOKEN` 也可以把快捷指令内容直接写成随记。请求地址使用 `https://你的域名/api/memos/import`：
+
+```text
+POST /api/memos/import
+Authorization: Bearer 你的令牌
+Content-Type: text/markdown
+```
+
+请求正文直接放 Markdown，标签仍使用正文里的 `#标签`。也可以发送 JSON：
+
+```json
+{
+  "contentMarkdown": "今天的随记 #想法",
+  "createdAt": 1767225600000
+}
+```
+
+`createdAt` 可省略，使用毫秒时间戳。建议快捷指令为每次请求添加唯一的 `Idempotency-Key` 请求头，例如 `shortcuts-<当前时间>`，这样网络重试不会重复写入。该接口只写入随记，不读取或修改笔记，也不提供 MCP 能力；请通过 HTTPS 调用并只在请求头中携带令牌。
+
 ### 只读集成 API
 
 集成 API 使用 `XIANGYING_API_TOKEN` 的 Bearer 令牌认证。读取最近更新的笔记摘要：
@@ -297,7 +318,7 @@ GET https://你的域名/api/v1/notes/笔记ID
 Authorization: Bearer 你的令牌
 ```
 
-该令牌也允许调用 `/api/import` 导入笔记，因此应按凭据妥善保管，通过 HTTPS 发送，并放在请求头中，不要放进网址。
+该令牌也允许调用 `/api/import` 导入笔记，以及调用 `/api/memos/import` 写入随记，因此应按凭据妥善保管，通过 HTTPS 发送，并放在请求头中，不要放进网址。
 
 ## 常用快捷键
 

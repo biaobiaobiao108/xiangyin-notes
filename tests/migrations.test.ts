@@ -7,6 +7,7 @@ import {
   applyMigrations,
   CURRENT_SCHEMA_VERSION,
   SEARCH_INDEX_REBUILD_KEY,
+  createExpectedSchemaDatabase,
   initializeDatabase,
   openDatabase,
   type SchemaMigration,
@@ -54,6 +55,29 @@ test("migrates version 1 users to tracked password iterations", async () => {
     expect(
       database.query("SELECT password_iterations FROM users WHERE id = ?").get("legacy-user"),
     ).toEqual({ password_iterations: LEGACY_PASSWORD_ITERATIONS });
+  } finally {
+    database.close();
+  }
+});
+
+test("migrates version 2 databases to the memo schema", async () => {
+  const database = await createExpectedSchemaDatabase(2);
+  try {
+    expect(database.query("PRAGMA user_version").get()).toEqual({ user_version: 2 });
+    await initializeDatabase(database);
+    expect(database.query("PRAGMA user_version").get()).toEqual({
+      user_version: CURRENT_SCHEMA_VERSION,
+    });
+    expect(
+      database
+        .query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'memos'")
+        .get(),
+    ).toBeTruthy();
+    expect(
+      database
+        .query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'memos_fts'")
+        .get(),
+    ).toBeTruthy();
   } finally {
     database.close();
   }
@@ -228,6 +252,46 @@ test("keeps the kanban table and indexes in the current schema", async () => {
         .query("SELECT name FROM sqlite_master WHERE type = ? AND name = ?")
         .get("index", "idx_kanban_cards_user_status"),
     ).toBeTruthy();
+  } finally {
+    database.close();
+  }
+});
+
+test("keeps the memo source, tag index, and FTS triggers in the current schema", async () => {
+  const database = await openDatabase(":memory:");
+  try {
+    const objects = new Map(
+      (
+        database
+          .query("SELECT type, name FROM sqlite_master WHERE name NOT GLOB 'sqlite_*'")
+          .all() as Array<{
+          type: string;
+          name: string;
+        }>
+      ).map((row) => [`${row.type}:${row.name}`, row]),
+    );
+    expect(objects.has("table:memos")).toBe(true);
+    expect(objects.has("table:memo_tags")).toBe(true);
+    expect(objects.has("table:memos_fts")).toBe(true);
+    expect(objects.has("index:idx_memos_user_created")).toBe(true);
+    expect(objects.has("index:idx_memo_tags_tag_user")).toBe(true);
+    expect(objects.has("trigger:memos_ai")).toBe(true);
+    expect(objects.has("trigger:memos_ad")).toBe(true);
+    expect(objects.has("trigger:memos_au")).toBe(true);
+
+    database
+      .query(
+        "INSERT INTO users (id, username, password_hash, password_salt, password_iterations, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+      )
+      .run("memo-user", "memo-owner", "hash", "salt", 600000, 1);
+    database
+      .query(
+        "INSERT INTO memos (id, user_id, content_markdown, search_text, version, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?)",
+      )
+      .run("memo-1", "memo-user", "remember alpha", "remember alpha", 1, 1);
+    expect(
+      database.query("SELECT rowid FROM memos_fts WHERE memos_fts MATCH ?").all("alpha"),
+    ).toHaveLength(1);
   } finally {
     database.close();
   }

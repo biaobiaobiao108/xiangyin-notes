@@ -25,6 +25,7 @@ import {
   RotateCcw,
   Search,
   SquareKanban,
+  StickyNote,
   Star,
   Trash2,
   X,
@@ -60,6 +61,7 @@ import { partitionVirtualGroupRows } from "./group-layout";
 import { useScrollEdges } from "./use-scroll-edges";
 import { MobileCollectionHeader } from "./mobile-collection-header";
 import { type NoteSwipeAction, useSwipeActionGesture, useSwipeActionGroup } from "./swipe-actions";
+import { MemoSidebar } from "../memos/memo-page";
 
 import { useNotebookReorder } from "./use-notebook-reorder";
 
@@ -296,6 +298,8 @@ export const Sidebar = memo(function Sidebar({
   onTrashNotes,
   tasksActive,
   onOpenTasks,
+  memoActive,
+  onOpenMemo,
   kanbanActive = false,
   onOpenKanban,
 }: {
@@ -318,6 +322,8 @@ export const Sidebar = memo(function Sidebar({
   onTrashNotes?: (ids: string[]) => void;
   tasksActive: boolean;
   onOpenTasks: () => void;
+  memoActive: boolean;
+  onOpenMemo: () => void;
   kanbanActive?: boolean;
   onOpenKanban?: () => void;
 }) {
@@ -349,50 +355,55 @@ export const Sidebar = memo(function Sidebar({
           <LayoutPanelLeft size={18} />
         </button>
       </div>
-      <button
-        className="primary-button new-note-button"
-        type="button"
-        aria-label="在收件箱中新建笔记"
-        onClick={onNewInboxNote}
-      >
-        <Plus size={18} />
-        新建笔记
-      </button>
-      <label className="search-box">
-        <Search size={17} />
-        <input
-          ref={searchRef}
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={(event: ReactKeyboardEvent<HTMLInputElement>) => {
-            if (
-              event.key !== "Enter" ||
-              event.nativeEvent.isComposing ||
-              event.nativeEvent.keyCode === 229
-            )
-              return;
-            event.preventDefault();
-            onSubmitQuery();
-          }}
-          enterKeyHint="search"
-          placeholder="全局搜索笔记或 #标签……"
-          aria-label="全局搜索笔记或标签"
-        />
-        {query ? (
+      {!memoActive && (
+        <>
           <button
-            className="search-clear"
+            className="primary-button new-note-button"
             type="button"
-            aria-label="清空搜索"
-            onClick={() => setQuery("")}
+            aria-label="在收件箱中新建笔记"
+            onClick={onNewInboxNote}
           >
-            <X size={15} />
+            <Plus size={18} />
+            新建笔记
           </button>
-        ) : null}
-      </label>
+          <label className="search-box">
+            <Search size={17} />
+            <input
+              ref={searchRef}
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event: ReactKeyboardEvent<HTMLInputElement>) => {
+                if (
+                  event.key !== "Enter" ||
+                  event.nativeEvent.isComposing ||
+                  event.nativeEvent.keyCode === 229
+                )
+                  return;
+                event.preventDefault();
+                onSubmitQuery();
+              }}
+              enterKeyHint="search"
+              placeholder="全局搜索笔记或 #标签……"
+              aria-label="全局搜索笔记或标签"
+            />
+            {query ? (
+              <button
+                className="search-clear"
+                type="button"
+                aria-label="清空搜索"
+                onClick={() => setQuery("")}
+              >
+                <X size={15} />
+              </button>
+            ) : null}
+          </label>
+        </>
+      )}
       <nav className="main-nav">
         <ul>
           {navItems.map((item) => {
-            const isActive = !tasksActive && !kanbanActive && view === item.id && !notebookId;
+            const isActive =
+              !tasksActive && !kanbanActive && !memoActive && view === item.id && !notebookId;
             const dropHandler =
               item.id === "inbox" && systemInbox && onMoveNotesToNotebook
                 ? (ids: string[]) => onMoveNotesToNotebook(ids, systemInbox.id)
@@ -437,59 +448,42 @@ export const Sidebar = memo(function Sidebar({
                   onSelect={() => setView(item.id)}
                   onDropNotes={dropHandler}
                 />
+                {item.id === "favorites" && (
+                  <li>
+                    <button
+                      className={"nav-item" + (memoActive ? " is-active" : "")}
+                      type="button"
+                      data-note-view="memos"
+                      aria-current={memoActive ? "page" : undefined}
+                      onClick={onOpenMemo}
+                    >
+                      <StickyNote size={18} />
+                      <span>随记</span>
+                    </button>
+                  </li>
+                )}
               </Fragment>
             );
           })}
         </ul>
       </nav>
-      <div className="collapsed-notebook-shell">
-        <div
-          id="collapsed-notebook-scroll-region"
-          className="collapsed-notebook-list floating-scrollbar-target"
-          role="toolbar"
-          aria-label="笔记本快捷切换"
-        >
-          {customNotebooks.length > 0 && (
-            <div className="collapsed-notebook-divider" aria-hidden="true" />
-          )}
-          {customNotebooks.map((notebook) => (
-            <CollapsedNotebookButton
-              key={notebook.id}
-              notebook={notebook}
-              isActive={notebook.id === notebookId}
-              onSelect={() => setNotebookId(notebook.id)}
-              onDropNotes={
-                onMoveNotesToNotebook ? (ids) => onMoveNotesToNotebook(ids, notebook.id) : undefined
-              }
-            />
-          ))}
-        </div>
-      </div>
-      <div className="notebook-section">
-        <div className="section-heading">
-          <span>笔记本</span>
-          <button
-            className="icon-button tiny-button"
-            type="button"
-            aria-label="新建笔记本"
-            onClick={onCreateNotebook}
-          >
-            <Plus size={16} />
-          </button>
-        </div>
-        <div
-          className={`notebook-list-scroll-shell${notebookScrollEdges.before ? " has-scroll-before" : ""}${notebookScrollEdges.after ? " has-scroll-after" : ""}`}
-        >
-          <div
-            id="notebook-list-scroll-region"
-            className="notebook-list-scroll floating-scrollbar-target"
-            ref={notebookListRef}
-          >
-            <ul>
+      {memoActive ? (
+        <MemoSidebar />
+      ) : (
+        <>
+          <div className="collapsed-notebook-shell">
+            <div
+              id="collapsed-notebook-scroll-region"
+              className="collapsed-notebook-list floating-scrollbar-target"
+              role="toolbar"
+              aria-label="笔记本快捷切换"
+            >
+              {customNotebooks.length > 0 && (
+                <div className="collapsed-notebook-divider" aria-hidden="true" />
+              )}
               {customNotebooks.map((notebook) => (
-                <SidebarNotebookRow
+                <CollapsedNotebookButton
                   key={notebook.id}
-                  sortHandle={sortHandle(notebook.id)}
                   notebook={notebook}
                   isActive={notebook.id === notebookId}
                   onSelect={() => setNotebookId(notebook.id)}
@@ -500,10 +494,49 @@ export const Sidebar = memo(function Sidebar({
                   }
                 />
               ))}
-            </ul>
+            </div>
           </div>
-        </div>
-      </div>
+          <div className="notebook-section">
+            <div className="section-heading">
+              <span>笔记本</span>
+              <button
+                className="icon-button tiny-button"
+                type="button"
+                aria-label="新建笔记本"
+                onClick={onCreateNotebook}
+              >
+                <Plus size={16} />
+              </button>
+            </div>
+            <div
+              className={`notebook-list-scroll-shell${notebookScrollEdges.before ? " has-scroll-before" : ""}${notebookScrollEdges.after ? " has-scroll-after" : ""}`}
+            >
+              <div
+                id="notebook-list-scroll-region"
+                className="notebook-list-scroll floating-scrollbar-target"
+                ref={notebookListRef}
+              >
+                <ul>
+                  {customNotebooks.map((notebook) => (
+                    <SidebarNotebookRow
+                      key={notebook.id}
+                      sortHandle={sortHandle(notebook.id)}
+                      notebook={notebook}
+                      isActive={notebook.id === notebookId}
+                      onSelect={() => setNotebookId(notebook.id)}
+                      onDropNotes={
+                        onMoveNotesToNotebook
+                          ? (ids) => onMoveNotesToNotebook(ids, notebook.id)
+                          : undefined
+                      }
+                    />
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </aside>
   );
 });

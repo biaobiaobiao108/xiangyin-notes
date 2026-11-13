@@ -9,6 +9,10 @@ const FTS_SHADOW_TABLES = new Set([
   "notes_short_fts_idx",
   "notes_short_fts_docsize",
   "notes_short_fts_config",
+  "memos_fts_data",
+  "memos_fts_idx",
+  "memos_fts_docsize",
+  "memos_fts_config",
 ]);
 
 export function snapshotSchema(database: Database) {

@@ -8,6 +8,7 @@ import {
   Pencil,
   Search,
   SquarePen,
+  StickyNote,
   Trash2,
   X,
 } from "lucide-react";
@@ -34,6 +35,7 @@ export type MobileNotebookHomeProps = {
   onDeleteNotebook: (notebook: Notebook) => void;
   onLogout: () => void;
   onOpenTasks?: () => void;
+  onOpenMemo?: () => void;
   onOpenKanban?: () => void;
   active?: boolean;
 };
@@ -51,6 +53,7 @@ export const MobileNotebookHome = memo(function MobileNotebookHome({
   onDeleteNotebook,
   onLogout,
   onOpenTasks,
+  onOpenMemo,
   onOpenKanban,
   active = true,
 }: MobileNotebookHomeProps) {
@@ -147,6 +150,17 @@ export const MobileNotebookHome = memo(function MobileNotebookHome({
                         <ChevronRight className="mobile-notebook-chevron" size={18} />
                       </button>
                     </li>
+                    {item.id === "favorites" && onOpenMemo && (
+                      <li>
+                        <button type="button" className="mobile-notebook-link" onClick={onOpenMemo}>
+                          <span className="mobile-notebook-icon">
+                            <StickyNote size={22} />
+                          </span>
+                          <span className="mobile-notebook-name">随记</span>
+                          <ChevronRight className="mobile-notebook-chevron" size={18} />
+                        </button>
+                      </li>
+                    )}
                   </Fragment>
                 );
               })}

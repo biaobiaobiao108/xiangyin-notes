@@ -20,6 +20,7 @@ import { handleImportRoute } from "./routes/import";
 import { handleMcpRequest, MCP_PATH } from "./mcp-transport";
 import { handleNotebooksRoute } from "./routes/notebooks";
 import { handleNotesRoute } from "./routes/notes";
+import { handleMemoImportRoute, handleMemosRoute } from "./routes/memos";
 import { handleKanbanRoute } from "./routes/kanban";
 import { handleVersionedApiRoute } from "./routes/versioned-api";
 import {
@@ -50,6 +51,7 @@ const API_RESOURCES = new Set([
   "auth",
   "me",
   "notes",
+  "memos",
   "tasks",
   "kanban",
   "notebooks",
@@ -154,7 +156,12 @@ function invalidCookieMutationOrigin(
   if (request.method === "GET" || request.method === "HEAD" || request.method === "OPTIONS")
     return false;
   const pathname = new URL(request.url).pathname;
-  if (pathname === "/api/import" || pathname === "/api/auth/login" || pathname === "/api/setup")
+  if (
+    pathname === "/api/import" ||
+    pathname === "/api/memos/import" ||
+    pathname === "/api/auth/login" ||
+    pathname === "/api/setup"
+  )
     return false;
 
   const fetchSite = request.headers.get("Sec-Fetch-Site");
@@ -317,6 +324,9 @@ async function handleApi(request: Request, options: ServerOptions) {
   const importResponse = await handleImportRoute(ctx);
   if (importResponse) return importResponse;
 
+  const memoImportResponse = await handleMemoImportRoute(ctx);
+  if (memoImportResponse) return memoImportResponse;
+
   // 2. Authenticated barrier
   const user = await requireUser(database, environment, request, options.realtime);
   if (isResponse(user)) return user;
@@ -327,6 +337,9 @@ async function handleApi(request: Request, options: ServerOptions) {
 
   const notesResponse = await handleNotesRoute(ctx, user, assetRoot);
   if (notesResponse) return notesResponse;
+
+  const memosResponse = await handleMemosRoute(ctx, user);
+  if (memosResponse) return memosResponse;
 
   const notebooksResponse = await handleNotebooksRoute(ctx, user);
   if (notebooksResponse) return notebooksResponse;

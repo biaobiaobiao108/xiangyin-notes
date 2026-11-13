@@ -3,6 +3,7 @@ import {
   MobileNavigationHistory,
   shouldShowTasksPanel,
   shouldShowKanbanPanel,
+  shouldShowMemoPage,
   type MobileListContext,
 } from "../app/workspace/use-mobile-navigation";
 
@@ -48,6 +49,12 @@ describe("mobile page navigation", () => {
     expect(shouldShowKanbanPanel(true, false, "editor")).toBe(true);
     expect(shouldShowKanbanPanel(false, true, "home")).toBe(false);
   });
+  test("memo page is a mobile destination only while the memo page is open", () => {
+    expect(shouldShowMemoPage(true, false, "home")).toBe(true);
+    expect(shouldShowMemoPage(true, true, "memos")).toBe(true);
+    expect(shouldShowMemoPage(true, true, "home")).toBe(false);
+    expect(shouldShowMemoPage(false, true, "memos")).toBe(false);
+  });
   test("tasks are a history destination so system back returns to home", () => {
     const history = new TestHistory();
     const navigation = new MobileNavigationHistory(history, context, "session");
@@ -77,6 +84,18 @@ describe("mobile page navigation", () => {
     expect(navigation.restore(history.state)?.page).toBe("home");
     history.go(1);
     expect(navigation.restore(history.state)?.page).toBe("kanban");
+  });
+  test("memos are a history destination so system back returns to home", () => {
+    const history = new TestHistory();
+    const navigation = new MobileNavigationHistory(history, context, "session");
+    navigation.open("memos", { ...context, memosOpen: true });
+    expect(history.entries).toHaveLength(2);
+    expect(navigation.restore(history.state)?.page).toBe("memos");
+
+    navigation.back();
+    expect(navigation.restore(history.state)?.page).toBe("home");
+    history.go(1);
+    expect(navigation.restore(history.state)?.page).toBe("memos");
   });
   test("home → notebook list → note; browser back and forward retain the list context", () => {
     const history = new TestHistory();

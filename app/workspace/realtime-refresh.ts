@@ -3,12 +3,13 @@ import type { WorkspaceChangeMessage } from "../../shared/realtime";
 export type RealtimeRefreshPlan = {
   notebooks: boolean;
   notes: boolean;
+  memos: boolean;
   selected: boolean;
   noteIds: Set<string>;
 };
 
 export function emptyRealtimeRefreshPlan(): RealtimeRefreshPlan {
-  return { notebooks: false, notes: false, selected: false, noteIds: new Set() };
+  return { notebooks: false, notes: false, memos: false, selected: false, noteIds: new Set() };
 }
 
 /**
@@ -26,7 +27,12 @@ export function accumulateRealtimeRefresh(
   if (!message) {
     plan.notebooks = true;
     plan.notes = true;
+    plan.memos = true;
     plan.selected = true;
+    return plan;
+  }
+  if (message.resource === "memos") {
+    plan.memos = true;
     return plan;
   }
   if (message.resource === "notebooks") {

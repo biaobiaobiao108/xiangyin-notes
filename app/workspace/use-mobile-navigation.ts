@@ -3,7 +3,7 @@ import { createUuid } from "../uuid";
 import type { NoteView } from "../../shared/types";
 import type { NoteSort } from "./helpers";
 
-export type MobilePage = "home" | "list" | "editor" | "tasks" | "kanban";
+export type MobilePage = "home" | "list" | "editor" | "tasks" | "kanban" | "memos";
 export function shouldShowTasksPanel(
   tasksOpen: boolean,
   isMobileViewport: boolean,
@@ -20,6 +20,14 @@ export function shouldShowKanbanPanel(
   return kanbanOpen && (!isMobileViewport || page !== "editor");
 }
 
+export function shouldShowMemoPage(
+  memosOpen: boolean,
+  isMobileViewport: boolean,
+  page: MobilePage,
+) {
+  return memosOpen && (!isMobileViewport || page === "memos");
+}
+
 export type MobileListContext = {
   view: NoteView;
   notebookId?: string;
@@ -29,6 +37,7 @@ export type MobileListContext = {
   searchOrigin: { view: NoteView; notebookId?: string } | null;
   tasksOpen?: boolean;
   kanbanOpen?: boolean;
+  memosOpen?: boolean;
 };
 type NavigationEntry = {
   session: string;
@@ -48,7 +57,7 @@ function readEntry(state: unknown): NavigationEntry | null {
     !entry ||
     typeof entry.session !== "string" ||
     !entry.session ||
-    !["home", "list", "editor", "tasks", "kanban"].includes(entry.page) ||
+    !["home", "list", "editor", "tasks", "kanban", "memos"].includes(entry.page) ||
     !Number.isSafeInteger(entry.depth) ||
     entry.depth < 0 ||
     !entry.context ||
@@ -142,6 +151,7 @@ export function useMobileNavigation(
         const navigation = ensureHistory();
         if (contextRef.current.kanbanOpen) navigation.open("kanban", contextRef.current);
         else if (contextRef.current.tasksOpen) navigation.open("tasks", contextRef.current);
+        else if (contextRef.current.memosOpen) navigation.open("memos", contextRef.current);
         else if (contextRef.current.noteId) navigation.open("editor", contextRef.current);
         setMobilePage(navigation.page);
       }
@@ -160,6 +170,9 @@ export function useMobileNavigation(
     context.sort,
     context.noteId,
     context.searchOrigin,
+    context.tasksOpen,
+    context.kanbanOpen,
+    context.memosOpen,
     isMobileViewport,
     ensureHistory,
   ]);
@@ -203,6 +216,13 @@ export function useMobileNavigation(
     },
     [ensureHistory],
   );
+  const openMobileMemos = useCallback(
+    (next?: Partial<MobileListContext>) => {
+      ensureHistory().open("memos", { ...contextRef.current, ...next });
+      setMobilePage("memos");
+    },
+    [ensureHistory],
+  );
   const backMobilePage = useCallback(() => {
     if (enabledRef.current) ensureHistory().back();
   }, [ensureHistory]);
@@ -216,6 +236,7 @@ export function useMobileNavigation(
     openMobileNote,
     openMobileTasks,
     openMobileKanban,
+    openMobileMemos,
     backMobilePage,
     openMobileHome,
   };

@@ -1,0 +1,597 @@
+.memo-page {
+  grid-column: 2 / -1;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--canvas);
+  color: var(--ink);
+  animation: page-content-in var(--motion-content) var(--motion-ease-out);
+  view-transition-name: workspace-editor;
+}
+
+.memo-page-header {
+  display: grid;
+  flex: none;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  min-height: 62px;
+  padding: 0 max(24px, calc((100% - 1120px) / 2));
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.memo-page-header h1 {
+  margin: 0;
+  font-size: 1.04rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.memo-back-button {
+  display: none;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--accent);
+  transition: background-color var(--motion-fast) var(--motion-ease-out), color var(--motion-fast) var(--motion-ease-out), transform var(--motion-panel) var(--motion-spring);
+}
+
+.memo-back-button:hover { background: var(--surface-hover); color: var(--accent-dark); }
+.memo-back-button:active { transition-duration: 0ms; }
+
+.memo-view-switch {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--radius-md);
+  background: var(--surface-muted);
+}
+
+.memo-view-switch button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 500;
+  transition: background-color var(--motion-fast) var(--motion-ease-out), color var(--motion-fast) var(--motion-ease-out), transform var(--motion-panel) var(--motion-spring);
+}
+
+.memo-view-switch button:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+
+.memo-view-switch button.is-active {
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.memo-view-switch button.is-active:hover { background: var(--surface-hover); }
+
+.memo-page .memo-view-switch button:active {
+  background: var(--surface-selected);
+  color: var(--ink);
+  transform: scale(0.96);
+  transition-duration: 0ms;
+}
+
+.memo-filter-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  min-height: 50px;
+  padding: 8px max(24px, calc((100% - 1120px) / 2));
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--canvas);
+}
+
+.memo-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: min(100%, 360px);
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-muted);
+  color: var(--muted);
+  transition: background-color var(--motion-fast) var(--motion-ease-out);
+}
+
+.memo-search:focus-within {
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.memo-search input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--quiet-ink);
+  font: inherit;
+  font-size: 0.82rem;
+  transition: color var(--motion-fast) var(--motion-ease-out);
+}
+
+.memo-search:focus-within input { color: var(--ink); }
+.memo-search input:focus-visible { background: var(--surface); }
+
+.memo-search input::placeholder { color: var(--soft-muted); }
+
+.memo-search button {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  transition: background-color var(--motion-fast) var(--motion-ease-out), color var(--motion-fast) var(--motion-ease-out), transform var(--motion-panel) var(--motion-spring);
+}
+
+.memo-search button:hover { background: var(--surface-hover); color: var(--ink); }
+.memo-page .memo-search button:active { background: var(--surface-selected); color: var(--ink); transform: scale(0.94); transition-duration: 0ms; }
+
+.memo-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+  font: inherit;
+  font-size: 0.76rem;
+  transition: background-color var(--motion-fast) var(--motion-ease-out), color var(--motion-fast) var(--motion-ease-out), transform var(--motion-panel) var(--motion-spring);
+}
+
+.memo-filter-chip:hover { background: var(--surface-selected); color: var(--ink); }
+.memo-page .memo-filter-chip:active { background: var(--surface-selected); color: var(--ink); transform: scale(0.96); transition-duration: 0ms; }
+
+.memo-scroll-shell {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.memo-scroll-shell::before,
+.memo-scroll-shell::after {
+  position: absolute;
+  z-index: 2;
+  inset-inline: 0;
+  height: 24px;
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--motion-fast) var(--motion-ease-out);
+}
+
+.memo-scroll-shell::before { inset-block-start: 0; background: linear-gradient(to bottom, var(--canvas), transparent); }
+.memo-scroll-shell::after { inset-block-end: 0; background: linear-gradient(to top, var(--canvas), transparent); }
+.memo-scroll-shell.has-scroll-before::before,
+.memo-scroll-shell.has-scroll-after::after { opacity: 1; }
+
+.memo-scroll {
+  height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+
+.memo-scroll::-webkit-scrollbar { display: none; }
+
+.memo-feed {
+  width: min(760px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 24px 0 72px;
+}
+
+.memo-composer {
+  position: relative;
+  width: 100%;
+  padding: 16px 16px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-muted);
+  transition: background-color var(--motion-fast) var(--motion-ease-out), transform var(--motion-micro) var(--motion-ease-out);
+}
+
+.memo-composer:focus-within { background: var(--surface); }
+
+.memo-card.is-editing .memo-composer {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.memo-composer .ProseMirror,
+.memo-composer-prose {
+  min-height: 32px;
+  max-height: none;
+  padding: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 1rem;
+  line-height: 1.68;
+  caret-color: var(--accent);
+  transition: background-color var(--motion-fast) var(--motion-ease-out);
+}
+
+.memo-composer .ProseMirror:focus-visible { background: var(--surface); }
+
+.memo-composer .ProseMirror p { margin: 0 0 0.65em; }
+.memo-composer .ProseMirror p:last-child { margin-bottom: 0; }
+
+.memo-composer .ProseMirror p.is-editor-empty:first-child::before {
+  height: 0;
+  float: left;
+  color: var(--prose-placeholder);
+  content: attr(data-placeholder);
+  pointer-events: none;
+}
+
+.memo-composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.memo-composer-error {
+  min-width: 0;
+  flex: 1;
+  color: var(--danger);
+  font-size: 0.76rem;
+  line-height: 1.4;
+}
+
+.memo-composer-buttons {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.memo-text-button,
+.memo-save-button {
+  min-height: 32px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  transition: background-color var(--motion-fast) var(--motion-ease-out), color var(--motion-fast) var(--motion-ease-out), transform var(--motion-panel) var(--motion-spring);
+}
+
+.memo-text-button { background: transparent; color: var(--muted); }
+.memo-save-button { background: var(--accent); color: var(--accent-contrast); }
+.memo-text-button:hover:not(:disabled) { background: var(--surface-hover); color: var(--ink); }
+.memo-save-button:hover:not(:disabled) { background: var(--accent-dark); }
+.memo-page .memo-text-button:active:not(:disabled),
+.memo-page .memo-save-button:active:not(:disabled) { background: var(--accent-dark); color: var(--accent-contrast); transform: scale(0.96); transition-duration: 0ms; }
+.memo-save-button:disabled { cursor: not-allowed; opacity: 0.55; }
+
+.memo-timeline { margin-top: 24px; }
+.memo-day + .memo-day { margin-top: 24px; }
+
+.memo-day > h2 {
+  margin: 0 0 8px;
+  color: var(--quiet-ink);
+  font-size: 0.76rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.memo-day-items { display: grid; gap: 10px; }
+
+.memo-card {
+  position: relative;
+  padding: 16px 44px 16px 16px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  animation: page-content-in var(--motion-panel) var(--motion-ease-out) both;
+  transition: background-color var(--motion-fast) var(--motion-ease-out), transform var(--motion-panel) var(--motion-spring);
+}
+
+.memo-card:hover { background: var(--surface-hover); }
+.memo-page .memo-card:active { background: var(--surface-selected); transform: scale(0.992); transition-duration: 0ms; }
+.memo-card:focus-visible { background: var(--surface-selected); }
+.memo-card.is-editing { padding-right: 16px; background: var(--surface); }
+
+.memo-card-header {
+  display: flex;
+  min-height: 20px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.memo-card-header time {
+  color: var(--soft-muted);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.memo-card-content { min-width: 0; }
+.memo-card-content .markdown-render-shell { width: 100%; }
+.memo-card-content .note-prose { font-size: 0.98rem; line-height: 1.65; }
+.memo-card-content .note-prose > :first-child { margin-top: 0; }
+.memo-card-content .note-prose > :last-child { margin-bottom: 0; }
+
+.memo-card-delete {
+  position: absolute;
+  z-index: 2;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--danger);
+  transition: background-color var(--motion-fast) var(--motion-ease-out), color var(--motion-fast) var(--motion-ease-out), opacity var(--motion-fast) var(--motion-ease-out), transform var(--motion-panel) var(--motion-spring);
+}
+
+.memo-card-delete:hover,
+.memo-card-delete:focus-visible { background: var(--danger-soft); color: var(--danger); }
+.memo-page .memo-card-delete:active:not(:disabled) { background: var(--danger); color: var(--danger-contrast); transition-duration: 0ms; }
+.memo-card-delete:disabled { cursor: default; opacity: 0; }
+
+.memo-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.memo-card-tags button {
+  min-height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+  font: inherit;
+  font-size: 0.72rem;
+  transition: background-color var(--motion-fast) var(--motion-ease-out), color var(--motion-fast) var(--motion-ease-out), transform var(--motion-panel) var(--motion-spring);
+}
+
+.memo-card-tags button:hover { background: var(--surface-selected); color: var(--ink); }
+.memo-page .memo-card-tags button:active { background: var(--accent); color: var(--accent-contrast); transform: scale(0.96); transition-duration: 0ms; }
+
+.memo-card-error,
+.memo-more-error {
+  margin: 8px 0 0;
+  color: var(--danger);
+  font-size: 0.74rem;
+}
+
+.memo-inline-error {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 0.76rem;
+}
+
+.memo-inline-error span { min-width: 0; flex: 1; }
+.memo-inline-error button { min-height: 28px; padding: 0 8px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--danger); font: inherit; font-weight: 600; transition: background-color var(--motion-fast) var(--motion-ease-out), color var(--motion-fast) var(--motion-ease-out), transform var(--motion-panel) var(--motion-spring); }
+.memo-inline-error button:hover { background: var(--surface); color: var(--danger-hover); }
+.memo-page .memo-inline-error button:active { background: var(--surface-selected); color: var(--danger-hover); transform: scale(0.96); transition-duration: 0ms; }
+
+.memo-load-more {
+  display: block;
+  min-height: 36px;
+  margin: 20px auto 0;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+  color: var(--quiet-ink);
+  font: inherit;
+  font-size: 0.78rem;
+  transition: background-color var(--motion-fast) var(--motion-ease-out), color var(--motion-fast) var(--motion-ease-out), transform var(--motion-panel) var(--motion-spring);
+}
+
+.memo-load-more:hover { background: var(--surface-selected); color: var(--ink); }
+.memo-page .memo-load-more:active { background: var(--surface); color: var(--ink); transform: scale(0.96); transition-duration: 0ms; }
+
+.memo-state {
+  display: grid;
+  min-height: 150px;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 24px;
+  border-top: 1px solid var(--border-soft);
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  text-align: center;
+}
+
+.memo-state strong { color: var(--ink); font-size: 0.9rem; }
+.memo-state span { max-width: 420px; font-size: 0.78rem; line-height: 1.5; }
+.memo-state button { min-height: 32px; padding: 0 12px; border: 0; border-radius: var(--radius-sm); background: var(--accent-soft); color: var(--accent-dark); font: inherit; font-size: 0.8rem; transition: background-color var(--motion-fast) var(--motion-ease-out), color var(--motion-fast) var(--motion-ease-out), transform var(--motion-panel) var(--motion-spring); }
+.memo-state button:hover { background: var(--surface-selected); color: var(--ink); }
+.memo-page .memo-state button:active { background: var(--accent); color: var(--accent-contrast); transform: scale(0.96); transition-duration: 0ms; }
+.memo-state--error { color: var(--danger); }
+
+.memo-skeleton-list { display: grid; gap: 12px; margin-top: 24px; }
+.memo-skeleton { display: grid; gap: 12px; padding: 16px; border-radius: var(--radius-lg); background: var(--surface); }
+.memo-skeleton span,
+.memo-skeleton strong,
+.memo-skeleton i { display: block; height: 10px; border-radius: 999px; background: var(--surface-selected); animation: memo-skeleton-pulse 1.5s ease-in-out infinite alternate; }
+.memo-skeleton span { width: 24%; }
+.memo-skeleton strong { width: 78%; height: 16px; }
+.memo-skeleton i { width: 48%; }
+
+@keyframes memo-skeleton-pulse { from { opacity: 0.42; } to { opacity: 0.8; } }
+
+.memo-sidebar-context { display: flex; min-height: 0; flex: 1 1 0; flex-direction: column; gap: 16px; overflow-y: auto; padding-top: 4px; border-top: 1px solid var(--line); }
+.sidebar-collapsed .memo-sidebar-context { display: none; }
+.memo-mini-calendar { flex: none; padding: 4px 2px 0; }
+.memo-calendar-heading,
+.memo-month-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.memo-calendar-heading strong { font-size: 0.8rem; font-weight: 600; }
+.memo-calendar-nav { display: flex; align-items: center; gap: 2px; }
+.memo-calendar-nav button,
+.memo-calendar-today { display: grid; min-width: 28px; min-height: 28px; place-items: center; padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); font: inherit; transition: background-color var(--motion-fast) var(--motion-ease-out), color var(--motion-fast) var(--motion-ease-out), transform var(--motion-panel) var(--motion-spring); }
+.memo-calendar-nav button:hover,
+.memo-calendar-today:hover { background: var(--surface-hover); color: var(--ink); }
+.memo-page .memo-calendar-nav button:active,
+.memo-page .memo-calendar-today:active,
+.memo-sidebar-context .memo-calendar-nav button:active,
+.memo-sidebar-context .memo-calendar-today:active { background: var(--surface-selected); color: var(--ink); transform: scale(0.94); transition-duration: 0ms; }
+.memo-calendar-today { display: inline-flex; padding-inline: 8px; font-size: 0.74rem; }
+.memo-weekdays { display: grid; grid-template-columns: repeat(7, 1fr); margin-top: 8px; color: var(--soft-muted); font-size: 0.65rem; text-align: center; }
+.memo-mini-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; margin-top: 3px; }
+.memo-mini-day { position: relative; display: grid; min-width: 0; aspect-ratio: 1; place-items: center; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--quiet-ink); font: inherit; font-size: 0.72rem; font-variant-numeric: tabular-nums; transition: background-color var(--motion-fast) var(--motion-ease-out), color var(--motion-fast) var(--motion-ease-out), transform var(--motion-panel) var(--motion-spring); }
+.memo-mini-day:hover { background: var(--surface-hover); color: var(--ink); }
+.memo-sidebar-context .memo-mini-day:active { background: var(--accent-soft); color: var(--accent-dark); transform: scale(0.9); transition-duration: 0ms; }
+.memo-mini-day.is-outside { color: var(--soft-muted); }
+.memo-mini-day.is-today { color: var(--accent-dark); font-weight: 700; }
+.memo-mini-day.is-selected { background: var(--accent-soft); color: var(--accent-dark); font-weight: 700; }
+.memo-mini-day i { position: absolute; bottom: 3px; width: 3px; height: 3px; border-radius: 50%; background: currentColor; }
+.memo-calendar-clear { display: inline-flex; align-items: center; gap: 5px; width: 100%; min-height: 30px; margin-top: 6px; padding: 0 6px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); font: inherit; font-size: 0.72rem; transition: background-color var(--motion-fast) var(--motion-ease-out), color var(--motion-fast) var(--motion-ease-out), transform var(--motion-panel) var(--motion-spring); }
+.memo-calendar-clear:hover, .memo-calendar-clear:focus-visible { background: var(--surface-hover); color: var(--ink); }
+.memo-sidebar-context .memo-calendar-clear:active { background: var(--surface-selected); color: var(--ink); transform: scale(0.96); transition-duration: 0ms; }
+.memo-facets-error { margin: 8px 0 0; color: var(--danger); font-size: 0.72rem; line-height: 1.4; }
+
+.memo-tag-section { display: flex; min-height: 0; flex-direction: column; gap: 8px; padding: 0 2px 12px; }
+.memo-tag-section > header { display: flex; align-items: center; justify-content: space-between; }
+.memo-tag-section h2 { margin: 0; color: var(--muted); font-size: 0.76rem; font-weight: 600; }
+.memo-tag-section > header button { border: 0; background: transparent; color: var(--accent); font: inherit; font-size: 0.72rem; transition: background-color var(--motion-fast) var(--motion-ease-out), color var(--motion-fast) var(--motion-ease-out), transform var(--motion-panel) var(--motion-spring); }
+.memo-tag-section > header button:hover { background: var(--surface-hover); color: var(--ink); }
+.memo-sidebar-context .memo-tag-section > header button:active { background: var(--surface-selected); color: var(--ink); transform: scale(0.96); transition-duration: 0ms; }
+.memo-tag-section > p { margin: 4px 0; color: var(--soft-muted); font-size: 0.74rem; }
+.memo-tag-list { display: grid; gap: 2px; }
+.memo-tag-list button { display: flex; align-items: center; min-height: 32px; gap: 8px; padding: 0 8px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--quiet-ink); font: inherit; font-size: 0.78rem; text-align: left; transition: background-color var(--motion-fast) var(--motion-ease-out), color var(--motion-fast) var(--motion-ease-out), transform var(--motion-panel) var(--motion-spring); }
+.memo-sidebar-context .memo-tag-list button:active { background: var(--surface-selected); color: var(--ink); transform: scale(0.98); transition-duration: 0ms; }
+.memo-tag-list button span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.memo-tag-list button em { margin-left: auto; color: var(--soft-muted); font-size: 0.7rem; font-style: normal; font-variant-numeric: tabular-nums; }
+.memo-tag-list button:hover, .memo-tag-list button:focus-visible { background: var(--surface-hover); color: var(--ink); }
+.memo-tag-list button.is-active { background: var(--accent-soft); color: var(--accent-dark); font-weight: 600; }
+
+.memo-calendar-layout { display: grid; width: min(1120px, calc(100% - 48px)); margin: 0 auto; padding: 24px 0 72px; grid-template-columns: minmax(0, 1fr) minmax(300px, 360px); gap: 20px; align-items: start; }
+.memo-month-calendar { min-width: 0; padding: 16px; border: 1px solid var(--border-soft); border-radius: var(--radius-lg); background: var(--surface); }
+.memo-month-heading { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; }
+.memo-month-heading h2 { margin: 0; font-size: 1rem; font-weight: 650; text-align: center; }
+.memo-month-weekdays { margin-top: 12px; }
+.memo-month-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; margin-top: 5px; }
+.memo-month-day { display: flex; min-width: 0; min-height: 76px; flex-direction: column; align-items: flex-start; justify-content: space-between; padding: 8px; border: 0; border-radius: var(--radius-md); background: var(--surface-muted); color: var(--ink); font: inherit; text-align: left; transition: background-color var(--motion-fast) var(--motion-ease-out), color var(--motion-fast) var(--motion-ease-out), transform var(--motion-panel) var(--motion-spring); }
+.memo-month-day:hover { background: var(--surface-hover); }
+.memo-page .memo-month-day:active { background: var(--surface-selected); transform: scale(0.97); transition-duration: 0ms; }
+.memo-page .memo-month-day:focus-visible { background: var(--surface); color: var(--accent-dark); font-weight: 600; }
+.memo-month-day.is-outside { color: var(--soft-muted); }
+.memo-month-day.is-today { background: var(--accent-soft); }
+.memo-month-day.is-selected { background: var(--surface-selected); }
+.memo-month-day.is-selected .memo-month-day-number::after { display: inline-block; width: 5px; height: 5px; margin-left: 5px; border-radius: 50%; background: var(--accent); content: ""; vertical-align: middle; }
+.memo-month-day-number { font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+.memo-month-day-count { color: var(--muted); font-size: 0.72rem; font-variant-numeric: tabular-nums; }
+.memo-calendar-day { display: flex; min-width: 0; flex-direction: column; gap: 14px; padding: 16px; border-radius: var(--radius-lg); background: var(--surface-muted); }
+.memo-calendar-day > header h2 { margin: 0; color: var(--ink); font-size: 0.92rem; font-weight: 650; }
+.memo-calendar-day .memo-timeline, .memo-calendar-day .memo-skeleton-list { margin-top: 0; }
+.memo-calendar-day .memo-day > h2 { display: none; }
+.memo-calendar-day .memo-state { min-height: 150px; margin-top: 0; background: var(--surface); }
+
+.memo-toast { position: fixed; right: 24px; bottom: 24px; z-index: 20; padding: 8px 12px; border-radius: var(--radius-md); background: var(--ink); color: var(--canvas); font-size: 0.78rem; animation: page-content-in var(--motion-panel) var(--motion-ease-out) both; }
+
+/* The memo surface expresses state with tone and ink, never with an outer focus ring. */
+.memo-page button:focus-visible,
+.memo-sidebar-context button:focus-visible {
+  outline: none;
+  box-shadow: none;
+  background: var(--surface-selected);
+  color: var(--ink);
+}
+
+.memo-page :where(button:active:not(:disabled)),
+.memo-sidebar-context :where(button:active:not(:disabled)) { transform: scale(0.985); }
+
+.memo-page .memo-back-button:active:not(:disabled),
+.memo-page .memo-card-delete:active:not(:disabled) { transform: scale(0.94); }
+.memo-save-button:focus-visible { background: var(--accent-dark); color: var(--accent-contrast); }
+.memo-card-delete:focus-visible { background: var(--danger-soft); color: var(--danger); }
+
+@media (max-width: 1180px) {
+  .memo-calendar-layout { grid-template-columns: minmax(0, 1fr); }
+  .memo-calendar-day { order: 2; }
+  .memo-month-day { min-height: 62px; }
+}
+
+@media (max-width: 900px) {
+  .memo-page { flex: 1 1 0; width: 100%; height: 0; min-height: 0; }
+  .memo-page-header { grid-template-columns: 44px minmax(0, 1fr) auto; gap: 0; min-height: calc(58px + env(safe-area-inset-top)); padding: env(safe-area-inset-top) max(12px, env(safe-area-inset-right)) 0 max(8px, env(safe-area-inset-left)); }
+  .memo-back-button { display: grid; }
+  .memo-page-header h1 { font-size: 1.05rem; }
+  .memo-view-switch button span { display: none; }
+  .memo-view-switch button { width: 40px; height: 36px; justify-content: center; padding: 0; }
+  .memo-filter-bar { min-height: 48px; padding: 8px 16px; overflow-x: auto; }
+  .memo-search { flex: 1 0 min(270px, 70vw); }
+  .memo-filter-chip { flex: none; }
+  .memo-feed { width: calc(100% - 32px); padding: 16px 0 calc(32px + env(safe-area-inset-bottom)); }
+  .memo-composer { padding: 12px 16px; border-radius: var(--radius-md); }
+  .memo-card { padding: 12px 44px 12px 16px; border-radius: var(--radius-md); }
+  .memo-card.is-editing { padding-right: 16px; }
+  .memo-card-delete { top: 4px; right: 4px; width: 40px; height: 40px; }
+  .memo-calendar-layout { width: calc(100% - 32px); padding: 16px 0 calc(32px + env(safe-area-inset-bottom)); gap: 16px; }
+  .memo-month-calendar { padding: 12px; border-radius: var(--radius-md); }
+  .memo-month-heading { gap: 4px; }
+  .memo-month-heading h2 { font-size: 0.9rem; }
+  .memo-month-grid { gap: 2px; }
+  .memo-month-day { min-height: 44px; padding: 5px; }
+  .memo-month-day-number { font-size: 0.74rem; }
+  .memo-month-day-count { font-size: 0.64rem; }
+  .memo-calendar-day { padding: 12px; border-radius: var(--radius-md); }
+  .memo-toast { right: 16px; bottom: calc(16px + env(safe-area-inset-bottom)); left: 16px; text-align: center; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .memo-card,
+  .memo-toast { animation: none; }
+  .memo-page .memo-card:active { transform: none; }
+  .memo-skeleton span,
+  .memo-skeleton strong,
+  .memo-skeleton i { animation: none; }
+}

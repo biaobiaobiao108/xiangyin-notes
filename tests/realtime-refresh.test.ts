@@ -50,10 +50,23 @@ describe("workspace realtime refresh plan", () => {
     expect(plan.notes).toBe(true);
   });
 
+  test("memo changes refresh only the memo surface", () => {
+    const plan = accumulateRealtimeRefresh(emptyRealtimeRefreshPlan(), {
+      type: "workspace.changed",
+      revision: 7,
+      resource: "memos",
+    });
+    expect(plan.memos).toBe(true);
+    expect(plan.notes).toBe(false);
+    expect(plan.notebooks).toBe(false);
+    expect(plan.selected).toBe(false);
+  });
+
   test("a lifecycle reconcile without a message refreshes everything", () => {
     const plan = accumulateRealtimeRefresh(emptyRealtimeRefreshPlan());
     expect(plan.notebooks).toBe(true);
     expect(plan.notes).toBe(true);
+    expect(plan.memos).toBe(true);
     expect(plan.selected).toBe(true);
   });
 

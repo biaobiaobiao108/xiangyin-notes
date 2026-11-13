@@ -49,6 +49,30 @@ export type Note = NoteSummary & {
   contentMarkdown: string;
 };
 
+export type Memo = {
+  id: string;
+  contentMarkdown: string;
+  tags: string[];
+  version: number;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type MemoTagCount = {
+  tag: string;
+  count: number;
+};
+
+export type MemoDayCount = {
+  date: string;
+  count: number;
+};
+
+export type MemoFacets = {
+  days: MemoDayCount[];
+  tags: MemoTagCount[];
+};
+
 export type TaskSummary = {
   noteId: string;
   noteTitle: string;
@@ -66,7 +90,7 @@ export type ApiErrorPayload = {
     code: string;
     message: string;
     fields?: Record<string, string>;
-    current?: Note;
+    current?: Note | Memo;
   };
 };
 

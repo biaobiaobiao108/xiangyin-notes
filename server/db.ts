@@ -9,7 +9,7 @@ const DEFAULT_DATABASE_PATH = "./data/xiangying-notes.sqlite";
 const DEFAULT_SCHEMA_PATH = "./database/schema.sql";
 const BASELINE_SCHEMA_VERSION = 1;
 
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 3;
 export const SEARCH_INDEX_REBUILD_KEY = "search-index-rebuild-required";
 
 type TableCountRow = {
@@ -38,6 +38,66 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       database.exec(
         "ALTER TABLE users ADD COLUMN password_iterations INTEGER NOT NULL DEFAULT 100000",
       ),
+  },
+  {
+    sourceVersion: 2,
+    targetVersion: 3,
+    migrate: (database) =>
+      database.exec(`
+        CREATE TABLE memos (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          content_markdown TEXT NOT NULL,
+          search_text TEXT NOT NULL,
+          version INTEGER NOT NULL DEFAULT 1,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+
+        CREATE TABLE memo_tags (
+          memo_id TEXT NOT NULL REFERENCES memos(id) ON DELETE CASCADE,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          tag_normalized TEXT NOT NULL,
+          tag TEXT NOT NULL,
+          position INTEGER NOT NULL,
+          PRIMARY KEY(memo_id, tag_normalized)
+        );
+
+        CREATE VIRTUAL TABLE memos_fts USING fts5(
+          search_text,
+          content='memos',
+          content_rowid='rowid',
+          tokenize = 'trigram'
+        );
+
+        CREATE INDEX idx_memos_user_created
+          ON memos(user_id, created_at DESC, id DESC);
+
+        CREATE INDEX idx_memo_tags_tag_user
+          ON memo_tags(tag_normalized, user_id, memo_id);
+
+        CREATE INDEX idx_memo_tags_user_memo
+          ON memo_tags(user_id, memo_id);
+
+        CREATE TRIGGER memos_ai AFTER INSERT ON memos BEGIN
+          INSERT INTO memos_fts(rowid, search_text)
+          VALUES (new.rowid, new.search_text);
+        END;
+
+        CREATE TRIGGER memos_ad AFTER DELETE ON memos BEGIN
+          INSERT INTO memos_fts(memos_fts, rowid, search_text)
+          VALUES ('delete', old.rowid, old.search_text);
+        END;
+
+        CREATE TRIGGER memos_au AFTER UPDATE OF search_text ON memos
+        WHEN old.search_text IS NOT new.search_text
+        BEGIN
+          INSERT INTO memos_fts(memos_fts, rowid, search_text)
+          VALUES ('delete', old.rowid, old.search_text);
+          INSERT INTO memos_fts(rowid, search_text)
+          VALUES (new.rowid, new.search_text);
+        END;
+      `),
   },
 ];
 
@@ -98,6 +158,7 @@ export function reclaimDatabaseSpace(database: SqliteDatabase) {
     database.exec(`
       INSERT INTO notes_fts(notes_fts) VALUES('optimize');
       INSERT INTO notes_short_fts(notes_short_fts) VALUES('optimize');
+      INSERT INTO memos_fts(memos_fts) VALUES('optimize');
     `);
   } catch (error) {
     console.warn("[db] FTS optimize failed; continuing space reclaim", error);
@@ -144,7 +205,23 @@ function rebuildSearchIndexes(database: SqliteDatabase) {
           updateSearchText.run(searchableTextFromMarkdown(note.content_markdown), note.id);
         lastId = notes[notes.length - 1]!.id;
       }
+      const missingMemoSearchText = database.query(
+        "SELECT id, content_markdown FROM memos WHERE search_text = '' AND id > ? ORDER BY id LIMIT 100",
+      );
+      const updateMemoSearchText = database.query("UPDATE memos SET search_text = ? WHERE id = ?");
+      let lastMemoId = "";
+      while (true) {
+        const memos = missingMemoSearchText.all(lastMemoId) as Array<{
+          id: string;
+          content_markdown: string;
+        }>;
+        if (!memos.length) break;
+        for (const memo of memos)
+          updateMemoSearchText.run(searchableTextFromMarkdown(memo.content_markdown), memo.id);
+        lastMemoId = memos[memos.length - 1]!.id;
+      }
       database.exec("INSERT INTO notes_fts(notes_fts) VALUES('rebuild');");
+      database.exec("INSERT INTO memos_fts(memos_fts) VALUES('rebuild');");
       rebuildNoteShortSearchIndex(database);
       database.query("DELETE FROM app_metadata WHERE key = ?").run(SEARCH_INDEX_REBUILD_KEY);
     })
