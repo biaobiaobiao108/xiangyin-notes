@@ -226,14 +226,10 @@ export async function handleNotebooksRoute(
       icon?: unknown;
       expectedUpdatedAt?: unknown;
     }>(request, 64 * 1024);
-    const expectedUpdatedAt = payload?.expectedUpdatedAt;
-    if (
-      expectedUpdatedAt !== undefined &&
-      (!Number.isSafeInteger(expectedUpdatedAt) || (expectedUpdatedAt as number) < 0)
-    ) {
-      return jsonError(400, "INVALID_NOTEBOOK_VERSION", "expectedUpdatedAt 无效");
+    const expected = payload?.expectedUpdatedAt;
+    if (typeof expected !== "number" || !Number.isSafeInteger(expected) || expected < 0) {
+      return jsonError(400, "INVALID_NOTEBOOK_VERSION", "expectedUpdatedAt 必填且必须是非负整数");
     }
-    const expected = expectedUpdatedAt as number | undefined;
     const name = payload?.name === undefined ? current.name : payload.name;
     const color = payload?.color === undefined ? current.color : payload.color;
     const icon = payload?.icon === undefined ? current.icon || "folder" : payload.icon;
@@ -267,9 +263,7 @@ export async function handleNotebooksRoute(
       );
     try {
       const update = database.query(
-        expected === undefined
-          ? "UPDATE notebooks SET name = ?, color = ?, icon = ?, updated_at = ? WHERE id = ? AND user_id = ?"
-          : "UPDATE notebooks SET name = ?, color = ?, icon = ?, updated_at = ? WHERE id = ? AND user_id = ? AND updated_at = ?",
+        "UPDATE notebooks SET name = ?, color = ?, icon = ?, updated_at = ? WHERE id = ? AND user_id = ? AND updated_at = ?",
       );
       const updated = update.run(
         (name as string).trim(),
@@ -278,7 +272,7 @@ export async function handleNotebooksRoute(
         now(),
         current.id,
         user.id,
-        ...(expected === undefined ? [] : [expected]),
+        expected,
       );
       if (!updated.changes)
         return jsonError(409, "NOTEBOOK_CHANGED", "笔记本已在其他设备更新，请刷新后重试");

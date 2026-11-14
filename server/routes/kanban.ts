@@ -320,14 +320,10 @@ export async function handleKanbanRoute(
       expectedUpdatedAt?: unknown;
     }>(request, 64 * 1024);
 
-    const expectedUpdatedAt = body?.expectedUpdatedAt;
-    if (
-      expectedUpdatedAt !== undefined &&
-      (!Number.isSafeInteger(expectedUpdatedAt) || (expectedUpdatedAt as number) < 0)
-    ) {
-      return jsonError(400, "INVALID_ARGUMENT", "expectedUpdatedAt 无效");
+    const expected = body?.expectedUpdatedAt;
+    if (typeof expected !== "number" || !Number.isSafeInteger(expected) || expected < 0) {
+      return jsonError(400, "INVALID_ARGUMENT", "expectedUpdatedAt 必填且必须是非负整数");
     }
-    const expected = expectedUpdatedAt as number | undefined;
 
     const existing = first<{ status: KanbanStatus; sort_order: number; updated_at: number }>(
       database,
@@ -357,18 +353,9 @@ export async function handleKanbanRoute(
 
     const timestamp = now();
     const update = database.query(
-      expected === undefined
-        ? "UPDATE kanban_cards SET status = ?, sort_order = ?, updated_at = ? WHERE note_id = ? AND user_id = ?"
-        : "UPDATE kanban_cards SET status = ?, sort_order = ?, updated_at = ? WHERE note_id = ? AND user_id = ? AND updated_at = ?",
+      "UPDATE kanban_cards SET status = ?, sort_order = ?, updated_at = ? WHERE note_id = ? AND user_id = ? AND updated_at = ?",
     );
-    const updated = update.run(
-      newStatus,
-      newSortOrder,
-      timestamp,
-      noteId,
-      user.id,
-      ...(expected === undefined ? [] : [expected]),
-    );
+    const updated = update.run(newStatus, newSortOrder, timestamp, noteId, user.id, expected);
     if (!updated.changes) {
       return jsonError(409, "KANBAN_CARD_CHANGED", "看板卡片已在其他设备更新，请刷新后重试");
     }

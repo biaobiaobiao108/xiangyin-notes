@@ -1446,6 +1446,7 @@ describe("remote MCP endpoint", () => {
       {
         notebookId: notebook.id,
         color: "#xyz",
+        expectedUpdatedAt: notebook.updatedAt,
       },
       6,
       environment,
@@ -1501,6 +1502,7 @@ describe("remote MCP endpoint", () => {
         notebookId: notebook.id,
         name: "MCP 项目资料（已重命名）",
         color: "#62776a",
+        expectedUpdatedAt: notebook.updatedAt,
       },
       3,
       environment,

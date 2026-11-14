@@ -88,10 +88,15 @@ export function registerMcpNotebookTools(
             .enum(VALID_NOTEBOOK_ICONS)
             .optional()
             .describe("笔记本图标标识，例如 folder、book 或 bookmark"),
+          expectedUpdatedAt: z
+            .number()
+            .int()
+            .min(0)
+            .describe("读取笔记本时的 updatedAt；不一致时返回 NOTEBOOK_CHANGED"),
         })
         .strict(),
     },
-    async ({ notebookId, notebookName, name, color, icon }) => {
+    async ({ notebookId, notebookName, name, color, icon, expectedUpdatedAt }) => {
       if (!user)
         return responseValue(
           { error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } },
@@ -121,6 +126,7 @@ export function registerMcpNotebookTools(
         ...(name === undefined ? {} : { name }),
         ...(color === undefined ? {} : { color }),
         ...(icon === undefined ? {} : { icon }),
+        expectedUpdatedAt,
       };
       const result = await notebooksRoute(options, user, "PATCH", payload, notebookId);
       return result.status === 200 ? responseValue(result.body) : routeError(result);

@@ -130,6 +130,16 @@ describe("notebook ordering", () => {
       .query("UPDATE notebooks SET updated_at = ? WHERE id = ?")
       .run(1_700_000_000, notebookId);
 
+    const missingVersion = await api(
+      `/api/notebooks/${notebookId}`,
+      { method: "PATCH", body: JSON.stringify({ name: "缺少版本" }) },
+      cookie,
+    );
+    expect(missingVersion.status).toBe(400);
+    expect(((await missingVersion.json()) as { error: { code: string } }).error.code).toBe(
+      "INVALID_NOTEBOOK_VERSION",
+    );
+
     const first = await api(
       `/api/notebooks/${notebookId}`,
       {

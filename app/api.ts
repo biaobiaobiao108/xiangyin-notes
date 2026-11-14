@@ -255,7 +255,7 @@ export const api = {
     }),
   updateNotebook: (
     id: string,
-    payload: { name?: string; color?: string; icon?: string; expectedUpdatedAt?: number },
+    payload: { name?: string; color?: string; icon?: string; expectedUpdatedAt: number },
   ) =>
     request<{ notebook: Notebook }>(`/api/notebooks/${id}`, {
       method: "PATCH",
@@ -312,7 +312,7 @@ export const api = {
     payload: {
       status?: KanbanStatus;
       sortOrder?: number;
-      expectedUpdatedAt?: number;
+      expectedUpdatedAt: number;
     },
   ) =>
     request<{ card: KanbanCard }>(`/api/kanban/cards/${noteId}`, {

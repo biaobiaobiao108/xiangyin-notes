@@ -168,12 +168,8 @@ export function useWorkspaceKanbanData({
       }
 
       if (!movedCard || !sourceStatus) {
-        try {
-          await api.updateKanbanCard(noteId, { status: targetStatus, sortOrder: targetSortOrder });
-          setKanbanRefreshToken((value) => value + 1);
-        } catch {
-          notifyError("更新卡片状态失败");
-        }
+        notifyError("卡片状态已变化，请刷新后重试");
+        setKanbanRefreshToken((value) => value + 1);
         return;
       }
 

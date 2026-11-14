@@ -244,7 +244,13 @@ describe("Kanban API", () => {
     );
     expect(add1Res.status).toBe(201);
     const { card: card1 } = (await add1Res.json()) as {
-      card: { noteId: string; status: string; sortOrder: number; note: { updatedAt: number } };
+      card: {
+        noteId: string;
+        status: string;
+        sortOrder: number;
+        updatedAt: number;
+        note: { updatedAt: number };
+      };
     };
     expect(card1.noteId).toBe(note1.id);
     expect(card1.status).toBe("inbox");
@@ -287,13 +293,17 @@ describe("Kanban API", () => {
       `/api/kanban/cards/${note1.id}`,
       {
         method: "PATCH",
-        body: JSON.stringify({ status: "doing", sortOrder: 200 }),
+        body: JSON.stringify({
+          status: "doing",
+          sortOrder: 200,
+          expectedUpdatedAt: card1.updatedAt,
+        }),
       },
       cookie,
     );
     expect(patchRes.status).toBe(200);
     const { card: patchedCard } = (await patchRes.json()) as {
-      card: { status: string; sortOrder: number; note: { updatedAt: number } };
+      card: { status: string; sortOrder: number; updatedAt: number; note: { updatedAt: number } };
     };
     expect(patchedCard.status).toBe("doing");
     expect(patchedCard.sortOrder).toBe(200);
@@ -304,7 +314,7 @@ describe("Kanban API", () => {
       `/api/kanban/cards/${note1.id}`,
       {
         method: "PATCH",
-        body: JSON.stringify({ status: "done" }),
+        body: JSON.stringify({ status: "done", expectedUpdatedAt: patchedCard.updatedAt }),
       },
       cookie,
     );
@@ -404,6 +414,16 @@ describe("Kanban API", () => {
     database
       .query("UPDATE kanban_cards SET updated_at = ? WHERE note_id = ?")
       .run(1_700_000_000, note.id);
+
+    const missingVersion = await api(
+      `/api/kanban/cards/${note.id}`,
+      { method: "PATCH", body: JSON.stringify({ status: "doing" }) },
+      cookie,
+    );
+    expect(missingVersion.status).toBe(400);
+    expect(((await missingVersion.json()) as { error: { code: string } }).error.code).toBe(
+      "INVALID_ARGUMENT",
+    );
 
     const first = await api(
       `/api/kanban/cards/${note.id}`,
