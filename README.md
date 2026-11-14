@@ -345,7 +345,7 @@ macOS 上把 `Ctrl` 换成 `⌘`，把 `Alt` 换成 `⌥`。
 
 ## 项目信息
 
-象映笔记使用 Bun、TypeScript、React、Bun Server 和 SQLite 构建。开发时运行 `bun run dev`，类型检查、测试和构建命令分别是 `bun run typecheck`、`bun test` 和 `bun run build`。
+象映笔记使用 Bun、TypeScript、React、Bun Server 和 SQLite 构建。开发时运行 `bun run dev`，类型检查、测试和构建命令分别是 `bun run typecheck`、`bun test` 和 `bun run build`；内容性能基准使用 `bun run bench:content`。
 
 当前仓库未声明独立开源许可证。若要公开分发或二次开发，请先确认项目的授权范围。
 
