@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { KanbanStatus } from "../../shared/types";
+import type { KanbanCard, KanbanStatus, NoteSummary, Notebook } from "../../shared/types";
 import { api } from "../api";
 import type { KanbanColumnData } from "./kanban-panel";
 
@@ -16,10 +16,23 @@ function emptyColumn(): KanbanColumnData {
   };
 }
 
-export function useWorkspaceKanbanData(
-  kanbanOpen: boolean,
-  notifyError: (message: string) => void,
-) {
+type UseWorkspaceKanbanDataOptions = {
+  kanbanOpen: boolean;
+  notebooks: Notebook[];
+  notifyError: (message: string) => void;
+  notifyInfo: (message: string) => void;
+  onTrashNotes: (noteIds: string[]) => void;
+  onToggleFavoriteNote: (note: NoteSummary) => Promise<void>;
+};
+
+export function useWorkspaceKanbanData({
+  kanbanOpen,
+  notebooks,
+  notifyError,
+  notifyInfo,
+  onTrashNotes,
+  onToggleFavoriteNote,
+}: UseWorkspaceKanbanDataOptions) {
   const [kanbanColumns, setKanbanColumns] = useState<Record<KanbanStatus, KanbanColumnData>>({
     inbox: emptyColumn(),
     doing: emptyColumn(),
@@ -141,6 +154,194 @@ export function useWorkspaceKanbanData(
     [notifyError],
   );
 
+  const handleMoveCard = useCallback(
+    async (noteId: string, targetStatus: KanbanStatus, targetSortOrder: number) => {
+      let movedCard: KanbanCard | null = null;
+      let sourceStatus: KanbanStatus | null = null;
+      for (const status of ["inbox", "doing", "done"] as const) {
+        const found = kanbanColumnsRef.current[status].cards.find((card) => card.noteId === noteId);
+        if (found) {
+          movedCard = found;
+          sourceStatus = status;
+          break;
+        }
+      }
+
+      if (!movedCard || !sourceStatus) {
+        try {
+          await api.updateKanbanCard(noteId, { status: targetStatus, sortOrder: targetSortOrder });
+          setKanbanRefreshToken((value) => value + 1);
+        } catch {
+          notifyError("更新卡片状态失败");
+        }
+        return;
+      }
+
+      if (sourceStatus === targetStatus) {
+        setKanbanColumns((previous) => {
+          const column = previous[sourceStatus!];
+          const updatedCards = column.cards
+            .map((card) =>
+              card.noteId === noteId
+                ? { ...card, sortOrder: targetSortOrder, updatedAt: Math.floor(Date.now() / 1000) }
+                : card,
+            )
+            .sort((a, b) => a.sortOrder - b.sortOrder);
+          return {
+            ...previous,
+            [sourceStatus!]: {
+              ...column,
+              cards: updatedCards,
+            },
+          };
+        });
+      } else {
+        const updatedCard: KanbanCard = {
+          ...movedCard,
+          status: targetStatus,
+          sortOrder: targetSortOrder,
+          updatedAt: Math.floor(Date.now() / 1000),
+        };
+        setKanbanColumns((previous) => {
+          const sourceColumn = previous[sourceStatus!];
+          const targetColumn = previous[targetStatus];
+          return {
+            ...previous,
+            [sourceStatus!]: {
+              ...sourceColumn,
+              cards: sourceColumn.cards.filter((card) => card.noteId !== noteId),
+              total: Math.max(0, sourceColumn.total - 1),
+            },
+            [targetStatus]: {
+              ...targetColumn,
+              cards: [...targetColumn.cards, updatedCard].sort((a, b) => a.sortOrder - b.sortOrder),
+              total: targetColumn.total + 1,
+            },
+          };
+        });
+      }
+
+      try {
+        await api.updateKanbanCard(noteId, { status: targetStatus, sortOrder: targetSortOrder });
+      } catch {
+        notifyError("更新卡片状态失败");
+        setKanbanRefreshToken((value) => value + 1);
+      }
+    },
+    [notifyError],
+  );
+
+  const handleRemoveCard = useCallback(
+    async (noteId: string) => {
+      setKanbanColumns((previous) => {
+        let changed = false;
+        const next = { ...previous };
+        for (const status of ["inbox", "doing", "done"] as const) {
+          if (next[status].cards.some((card) => card.noteId === noteId)) {
+            next[status] = {
+              ...next[status],
+              cards: next[status].cards.filter((card) => card.noteId !== noteId),
+              total: Math.max(0, next[status].total - 1),
+            };
+            changed = true;
+          }
+        }
+        return changed ? next : previous;
+      });
+      try {
+        await api.deleteKanbanCard(noteId);
+        notifyInfo("已从看板移出");
+      } catch {
+        notifyError("移出卡片失败");
+        setKanbanRefreshToken((value) => value + 1);
+      }
+    },
+    [notifyError, notifyInfo],
+  );
+
+  const handleTrashCard = useCallback(
+    (noteId: string) => {
+      setKanbanColumns((previous) => {
+        let changed = false;
+        const next = { ...previous };
+        for (const status of ["inbox", "doing", "done"] as const) {
+          if (next[status].cards.some((card) => card.noteId === noteId)) {
+            next[status] = {
+              ...next[status],
+              cards: next[status].cards.filter((card) => card.noteId !== noteId),
+              total: Math.max(0, next[status].total - 1),
+            };
+            changed = true;
+          }
+        }
+        return changed ? next : previous;
+      });
+      onTrashNotes([noteId]);
+    },
+    [onTrashNotes],
+  );
+
+  const handleCreateNoteInColumn = useCallback(
+    async (status: KanbanStatus) => {
+      const targetNotebookId = (notebooks.find((notebook) => notebook.isSystem) ?? notebooks[0])
+        ?.id;
+      if (!targetNotebookId) {
+        notifyError("未找到可用笔记本");
+        return;
+      }
+      try {
+        const { note } = await api.createNote({
+          notebookId: targetNotebookId,
+          title: "未命名笔记",
+          contentMarkdown: "",
+        });
+        await api.addKanbanCard({ noteId: note.id, status });
+        setKanbanRefreshToken((value) => value + 1);
+        notifyInfo("已新建笔记并加入看板");
+      } catch {
+        notifyError("新建卡片失败");
+      }
+    },
+    [notebooks, notifyError, notifyInfo],
+  );
+
+  const handleAddExistingNote = useCallback(
+    async (noteId: string, status: KanbanStatus) => {
+      try {
+        await api.addKanbanCard({ noteId, status });
+        setKanbanRefreshToken((value) => value + 1);
+        notifyInfo("已添加到看板");
+      } catch {
+        notifyError("添加到看板失败");
+      }
+    },
+    [notifyError, notifyInfo],
+  );
+
+  const handleToggleFavoriteCard = useCallback(
+    async (target: NoteSummary) => {
+      const isFavorite = !target.isFavorite;
+      setKanbanColumns((previous) => {
+        let changed = false;
+        const next = { ...previous };
+        for (const status of ["inbox", "doing", "done"] as const) {
+          if (next[status].cards.some((card) => card.noteId === target.id)) {
+            next[status] = {
+              ...next[status],
+              cards: next[status].cards.map((card) =>
+                card.noteId === target.id ? { ...card, note: { ...card.note, isFavorite } } : card,
+              ),
+            };
+            changed = true;
+          }
+        }
+        return changed ? next : previous;
+      });
+      await onToggleFavoriteNote(target);
+    },
+    [onToggleFavoriteNote],
+  );
+
   return {
     kanbanColumns,
     setKanbanColumns,
@@ -149,5 +350,11 @@ export function useWorkspaceKanbanData(
     kanbanRefreshToken,
     setKanbanRefreshToken,
     loadMoreKanbanColumn,
+    handleMoveCard,
+    handleRemoveCard,
+    handleTrashCard,
+    handleCreateNoteInColumn,
+    handleAddExistingNote,
+    handleToggleFavoriteCard,
   };
 }

@@ -19,16 +19,7 @@ import { CommandId, CommandMenu } from "./command-menu";
 import type { CreateNoteCommand } from "./command-parser";
 import { applyPwaUpdate, installPwa, subscribePwa, type PwaState } from "./pwa";
 import type { WorkspaceChangeMessage } from "../shared/realtime";
-import type { ImageExportSnapshot } from "./image-export/render";
-import type {
-  Note,
-  NoteSummary,
-  NoteView,
-  Notebook,
-  TaskSummary,
-  KanbanCard,
-  KanbanStatus,
-} from "../shared/types";
+import type { Note, NoteSummary, NoteView, Notebook, TaskSummary } from "../shared/types";
 import { resolveTaskOrdinal } from "../shared/tasks";
 import { useOutlineState } from "./workspace/use-outline-state";
 import { ConfirmDialog, NotebookDialog, type ConfirmRequest } from "./workspace/dialogs";
@@ -90,6 +81,7 @@ import { useWorkspacePreferences } from "./workspace/use-workspace-preferences";
 import { useWorkspaceTaskData } from "./workspace/use-workspace-task-data";
 import { useWorkspaceKanbanData } from "./workspace/use-workspace-kanban-data";
 import { useWorkspaceNotebookData } from "./workspace/use-workspace-notebook-data";
+import { useWorkspaceExport } from "./workspace/use-workspace-export";
 import { MemoPage } from "./memos/memo-page";
 import { MemoWorkspaceProvider } from "./memos/memo-workspace";
 import { useWorkspaceSession } from "./workspace/use-workspace-session";
@@ -255,7 +247,6 @@ export function Workspace() {
     });
   }, [focusMode]);
   const closeOutline = useCallback(() => setOutlineOpen(false), []);
-  const [imageExportSnapshot, setImageExportSnapshot] = useState<ImageExportSnapshot | null>(null);
   const [commandOpen, setCommandOpen] = useState(false);
   const [commandInitialQuery, setCommandInitialQuery] = useState("");
   const [inNoteSearchQuery, setInNoteSearchQuery] = useState("");
@@ -305,14 +296,6 @@ export function Workspace() {
     handleReorderNotebooks,
     invalidateNotebookRequests,
   } = useWorkspaceNotebookData({ trashOperationsRef, emptyingTrashRef, notifyError });
-  const {
-    kanbanColumns,
-    setKanbanColumns,
-    kanbanColumnsRef,
-    kanbanLoading,
-    setKanbanRefreshToken,
-    loadMoreKanbanColumn,
-  } = useWorkspaceKanbanData(kanbanOpen, notifyError);
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
   const [noteReloadToken, setNoteReloadToken] = useState(0);
   const setSelectedNoteMetadata = useCallback((note: Note | null) => {
@@ -405,6 +388,21 @@ export function Workspace() {
     splitNoteIdRef,
     setSplitSelectedNote: setSplitSelectedNoteMetadata,
     setSplitSaveState,
+  });
+  const {
+    imageExportSnapshot,
+    handleExportNote,
+    handleExportLibrary,
+    handleExportImage,
+    closeImageExport,
+  } = useWorkspaceExport({
+    selectedRef,
+    isNoteLoading,
+    flushEditorDraftRef,
+    flushPendingSaves,
+    hasUnsavedWork,
+    notifyWarning,
+    notifyError,
   });
   const taskSaveStateRef = useRef({ saveState, splitSaveState });
   useEffect(() => {
@@ -1415,6 +1413,25 @@ export function Workspace() {
     },
     [removeFromList, saveFavorite, notifyError, view],
   );
+  const {
+    kanbanColumns,
+    kanbanColumnsRef,
+    kanbanLoading,
+    loadMoreKanbanColumn,
+    handleMoveCard: handleMoveKanbanCard,
+    handleRemoveCard: handleRemoveKanbanCard,
+    handleTrashCard: handleTrashKanbanCard,
+    handleCreateNoteInColumn: handleCreateNoteInKanbanColumn,
+    handleAddExistingNote: handleAddExistingNoteToKanban,
+    handleToggleFavoriteCard: handleToggleFavoriteKanbanCard,
+  } = useWorkspaceKanbanData({
+    kanbanOpen,
+    notebooks,
+    notifyError,
+    notifyInfo,
+    onTrashNotes: handleTrashNotes,
+    onToggleFavoriteNote: handleToggleFavoriteNote,
+  });
 
   const reloadSelectedNote = useCallback(async () => {
     const current = selectedRef.current;
@@ -1854,187 +1871,6 @@ export function Workspace() {
     },
     [closeSplit, flushSecondaryDraft, openMobileNote, selectNote, splitNoteId, viewLayout],
   );
-  const handleMoveKanbanCard = useCallback(
-    async (noteId: string, targetStatus: KanbanStatus, targetSortOrder: number) => {
-      let movedCard: KanbanCard | null = null;
-      let sourceStatus: KanbanStatus | null = null;
-      for (const st of ["inbox", "doing", "done"] as const) {
-        const found = kanbanColumnsRef.current[st].cards.find((c) => c.noteId === noteId);
-        if (found) {
-          movedCard = found;
-          sourceStatus = st;
-          break;
-        }
-      }
-
-      if (!movedCard || !sourceStatus) {
-        try {
-          await api.updateKanbanCard(noteId, { status: targetStatus, sortOrder: targetSortOrder });
-          setKanbanRefreshToken((v) => v + 1);
-        } catch {
-          notifyError("更新卡片状态失败");
-        }
-        return;
-      }
-
-      if (sourceStatus === targetStatus) {
-        setKanbanColumns((prev) => {
-          const col = prev[sourceStatus!];
-          const updatedCards = col.cards
-            .map((c) =>
-              c.noteId === noteId
-                ? { ...c, sortOrder: targetSortOrder, updatedAt: Math.floor(Date.now() / 1000) }
-                : c,
-            )
-            .sort((a, b) => a.sortOrder - b.sortOrder);
-          return {
-            ...prev,
-            [sourceStatus!]: {
-              ...col,
-              cards: updatedCards,
-            },
-          };
-        });
-      } else {
-        const updatedCard: KanbanCard = {
-          ...movedCard,
-          status: targetStatus,
-          sortOrder: targetSortOrder,
-          updatedAt: Math.floor(Date.now() / 1000),
-        };
-        setKanbanColumns((prev) => {
-          const sourceCol = prev[sourceStatus!];
-          const targetCol = prev[targetStatus];
-          return {
-            ...prev,
-            [sourceStatus!]: {
-              ...sourceCol,
-              cards: sourceCol.cards.filter((c) => c.noteId !== noteId),
-              total: Math.max(0, sourceCol.total - 1),
-            },
-            [targetStatus]: {
-              ...targetCol,
-              cards: [...targetCol.cards, updatedCard].sort((a, b) => a.sortOrder - b.sortOrder),
-              total: targetCol.total + 1,
-            },
-          };
-        });
-      }
-
-      try {
-        await api.updateKanbanCard(noteId, { status: targetStatus, sortOrder: targetSortOrder });
-      } catch {
-        notifyError("更新卡片状态失败");
-        setKanbanRefreshToken((v) => v + 1);
-      }
-    },
-    [notifyError],
-  );
-  const handleRemoveKanbanCard = useCallback(
-    async (noteId: string) => {
-      setKanbanColumns((prev) => {
-        let changed = false;
-        const next = { ...prev };
-        for (const st of ["inbox", "doing", "done"] as const) {
-          if (next[st].cards.some((c) => c.noteId === noteId)) {
-            next[st] = {
-              ...next[st],
-              cards: next[st].cards.filter((c) => c.noteId !== noteId),
-              total: Math.max(0, next[st].total - 1),
-            };
-            changed = true;
-          }
-        }
-        return changed ? next : prev;
-      });
-      try {
-        await api.deleteKanbanCard(noteId);
-        notifyInfo("已从看板移出");
-      } catch {
-        notifyError("移出卡片失败");
-        setKanbanRefreshToken((v) => v + 1);
-      }
-    },
-    [notifyError, notifyInfo],
-  );
-  const handleTrashKanbanCard = useCallback(
-    (noteId: string) => {
-      setKanbanColumns((prev) => {
-        let changed = false;
-        const next = { ...prev };
-        for (const st of ["inbox", "doing", "done"] as const) {
-          if (next[st].cards.some((c) => c.noteId === noteId)) {
-            next[st] = {
-              ...next[st],
-              cards: next[st].cards.filter((c) => c.noteId !== noteId),
-              total: Math.max(0, next[st].total - 1),
-            };
-            changed = true;
-          }
-        }
-        return changed ? next : prev;
-      });
-      handleTrashNotes([noteId]);
-    },
-    [handleTrashNotes],
-  );
-  const handleCreateNoteInKanbanColumn = useCallback(
-    async (status: KanbanStatus) => {
-      const targetNbId = (notebooks.find((nb) => nb.isSystem) ?? notebooks[0])?.id;
-      if (!targetNbId) {
-        notifyError("未找到可用笔记本");
-        return;
-      }
-      try {
-        const { note } = await api.createNote({
-          notebookId: targetNbId,
-          title: "未命名笔记",
-          contentMarkdown: "",
-        });
-        await api.addKanbanCard({ noteId: note.id, status });
-        setKanbanRefreshToken((v) => v + 1);
-        notifyInfo("已新建笔记并加入看板");
-      } catch {
-        notifyError("新建卡片失败");
-      }
-    },
-    [notebooks, notifyError, notifyInfo],
-  );
-  const handleAddExistingNoteToKanban = useCallback(
-    async (noteId: string, status: KanbanStatus) => {
-      try {
-        await api.addKanbanCard({ noteId, status });
-        setKanbanRefreshToken((v) => v + 1);
-        notifyInfo("已添加到看板");
-      } catch {
-        notifyError("添加到看板失败");
-      }
-    },
-    [notifyError, notifyInfo],
-  );
-  const handleToggleFavoriteKanbanCard = useCallback(
-    async (target: NoteSummary) => {
-      const isFavorite = !target.isFavorite;
-      setKanbanColumns((prev) => {
-        let changed = false;
-        const next = { ...prev };
-        for (const st of ["inbox", "doing", "done"] as const) {
-          if (next[st].cards.some((c) => c.noteId === target.id)) {
-            next[st] = {
-              ...next[st],
-              cards: next[st].cards.map((c) =>
-                c.noteId === target.id ? { ...c, note: { ...c.note, isFavorite } } : c,
-              ),
-            };
-            changed = true;
-          }
-        }
-        return changed ? next : prev;
-      });
-      await handleToggleFavoriteNote(target);
-    },
-    [handleToggleFavoriteNote],
-  );
   const selectTask = useCallback(
     (task: TaskSummary) => {
       flushEditorDraftRef.current();
@@ -2245,57 +2081,6 @@ export function Workspace() {
     },
     [deferredQuery],
   );
-  const handleExportNote = useCallback(async () => {
-    const note = selectedRef.current;
-    if (!note || isNoteLoading) return;
-
-    try {
-      flushEditorDraftRef.current();
-      await flushPendingSaves("now");
-      if (hasUnsavedWork()) {
-        notifyWarning("仍有内容未保存，请保存成功后再导出");
-        return;
-      }
-      const a = document.createElement("a");
-      a.href = `/api/notes/${encodeURIComponent(note.id)}/export`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    } catch {
-      notifyError("导出失败，请检查网络后重试");
-    }
-  }, [flushPendingSaves, hasUnsavedWork, isNoteLoading]);
-  const handleExportLibrary = useCallback(async () => {
-    try {
-      flushEditorDraftRef.current();
-      await flushPendingSaves("now");
-      if (hasUnsavedWork()) {
-        notifyWarning("仍有内容未保存，请保存成功后再导出");
-        return;
-      }
-      const params = new URLSearchParams({
-        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      });
-      const exportUrl = `/api/export/library?${params}`;
-      const response = await fetch(exportUrl, { method: "HEAD" });
-      if (!response.ok) throw new Error(`Export check failed: ${response.status}`);
-      const a = document.createElement("a");
-      a.href = exportUrl;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    } catch {
-      notifyError("整库导出失败，请检查网络、附件和服务端日志后重试");
-    }
-  }, [flushPendingSaves, hasUnsavedWork, notifyError, notifyWarning]);
-  const handleExportImage = useCallback(() => {
-    flushEditorDraftRef.current();
-    const note = selectedRef.current;
-    if (!note || isNoteLoading) return;
-    setImageExportSnapshot({ title: note.title, contentMarkdown: note.contentMarkdown });
-  }, [isNoteLoading]);
-  const closeImageExport = useCallback(() => setImageExportSnapshot(null), []);
-
   const copyNoteMarkdown = useCallback(async () => {
     const note = selectedRef.current;
     if (!note) return;
