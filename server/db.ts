@@ -9,7 +9,7 @@ const DEFAULT_DATABASE_PATH = "./data/xiangying-notes.sqlite";
 const DEFAULT_SCHEMA_PATH = "./database/schema.sql";
 const BASELINE_SCHEMA_VERSION = 1;
 
-export const CURRENT_SCHEMA_VERSION = 4;
+export const CURRENT_SCHEMA_VERSION = 5;
 export const SEARCH_INDEX_REBUILD_KEY = "search-index-rebuild-required";
 
 type TableCountRow = {
@@ -106,6 +106,15 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       database.exec(`
         DROP INDEX IF EXISTS idx_note_links_source;
         DROP INDEX IF EXISTS idx_note_links_target;
+      `),
+  },
+  {
+    sourceVersion: 4,
+    targetVersion: 5,
+    migrate: (database) =>
+      database.exec(`
+        CREATE INDEX IF NOT EXISTS idx_memo_tags_user_tag
+          ON memo_tags(user_id, tag_normalized, tag);
       `),
   },
 ];

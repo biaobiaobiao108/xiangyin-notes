@@ -111,6 +111,29 @@ test("removes superseded note_links indexes when upgrading version 3", async () 
   }
 });
 
+test("adds the memo tag covering index when upgrading version 4", async () => {
+  const database = await createExpectedSchemaDatabase(4);
+  try {
+    const before = database
+      .query("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?")
+      .get("idx_memo_tags_user_tag");
+    expect(before).toBeNull();
+
+    await initializeDatabase(database);
+
+    expect(database.query("PRAGMA user_version").get()).toEqual({
+      user_version: CURRENT_SCHEMA_VERSION,
+    });
+    expect(
+      database
+        .query("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?")
+        .get("idx_memo_tags_user_tag"),
+    ).toBeTruthy();
+  } finally {
+    database.close();
+  }
+});
+
 test("uses targeted indexes for paged notes and foreign-key cleanup", async () => {
   const database = await openDatabase(":memory:");
   try {
@@ -305,6 +328,7 @@ test("keeps the memo source, tag index, and FTS triggers in the current schema",
     expect(objects.has("table:memos_fts")).toBe(true);
     expect(objects.has("index:idx_memos_user_created")).toBe(true);
     expect(objects.has("index:idx_memo_tags_tag_user")).toBe(true);
+    expect(objects.has("index:idx_memo_tags_user_tag")).toBe(true);
     expect(objects.has("trigger:memos_ai")).toBe(true);
     expect(objects.has("trigger:memos_ad")).toBe(true);
     expect(objects.has("trigger:memos_au")).toBe(true);
