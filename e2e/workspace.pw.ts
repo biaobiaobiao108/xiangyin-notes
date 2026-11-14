@@ -82,6 +82,18 @@ test("new note creation locks the previous editor until the new note is ready", 
   await expect(sidebar.getByRole("button", { name: "在收件箱中新建笔记" })).toBeEnabled();
 });
 
+test("image upload inserts an asset into the current note", async ({ page }) => {
+  await login(page);
+  const fileInput = page.getByLabel("选择要上传的图片文件");
+  await expect(fileInput).toHaveCount(1);
+  await fileInput.setInputFiles("app/favicon.png");
+
+  const image = page.locator(".note-prose img").first();
+  await expect(image).toBeVisible();
+  await expect(image).toHaveAttribute("src", /^\/api\/assets\//);
+  await expect(page.locator(".editor-upload-notice")).toHaveCount(0);
+});
+
 test("workspace does not overflow at supported responsive widths", async ({ page }) => {
   await login(page);
   for (const viewport of [

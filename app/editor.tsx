@@ -2,7 +2,6 @@ import {
   startTransition,
   useCallback,
   useEffect,
-  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -13,12 +12,7 @@ import type { Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Selection, type Transaction } from "@tiptap/pm/state";
 import { CircleAlert, ImageDown, Star, Trash2, Undo2, X } from "lucide-react";
-import {
-  IMAGE_MAX_BYTES,
-  type ImageAssetSummary,
-  type Note,
-  type NoteSummary,
-} from "../shared/types";
+import { type ImageAssetSummary, type Note, type NoteSummary } from "../shared/types";
 import { preserveEscapedHashtagsForEditor } from "../shared/tags";
 import { api } from "./api";
 import { BrandMark } from "./brand-mark";
@@ -64,7 +58,7 @@ import { editorCoreExtensionOptions } from "./editor/editor-config";
 import { createCommonEditorExtensions } from "./editor/common-extensions";
 import { EditorFloatingTools } from "./editor/editor-panels";
 import { ImageNode } from "./editor/image-node";
-import { createImageUploadPosition, ImageUploadPositions } from "./editor/image-upload-position";
+import { ImageUploadPositions } from "./editor/image-upload-position";
 import { BacklinksDialog } from "./editor/backlinks-panel";
 import { WikiLinkNode } from "./editor/wiki-link-node";
 import {
@@ -83,9 +77,11 @@ import { BlockDragHandle } from "./editor/block-drag-handle";
 import { useEditorContextMenu } from "./editor/use-editor-context-menu";
 import { NoteAnnotation, NoteHighlight } from "./editor/highlight-annotation";
 import { useEditorAnnotations } from "./editor/annotation-overlay";
+import { isImageFile } from "./editor/image-files";
 import { useScrollEdges } from "./workspace/use-scroll-edges";
 import { AutoReadingHUD } from "./editor/auto-reading-hud";
 import { useEditorSearch } from "./editor/use-editor-search";
+import { useEditorImageUpload } from "./editor/use-editor-image-upload";
 import "./editor/mobile-editor.css";
 
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
@@ -106,37 +102,8 @@ function getOutlineHeadingElements(root: HTMLElement): HTMLElement[] {
   );
 }
 
-function isImageFile(file: File) {
-  return (
-    /^image\/(?:jpeg|png|webp|gif)$/u.test(file.type) ||
-    /\.(?:jpe?g|png|webp|gif)$/iu.test(file.name)
-  );
-}
-
 function prepareMarkdownForEditor(markdown: string) {
   return normalizeImagesInEmptyListItems(preserveEscapedHashtagsForEditor(markdown));
-}
-
-async function imageDimensions(file: File) {
-  if (typeof createImageBitmap === "function") {
-    try {
-      const bitmap = await createImageBitmap(file);
-      const dimensions = { width: bitmap.width, height: bitmap.height };
-      bitmap.close();
-      return dimensions;
-    } catch {
-      // Fall through to the HTMLImageElement path for browsers that cannot decode this file type with ImageBitmap.
-    }
-  }
-  const objectUrl = URL.createObjectURL(file);
-  try {
-    const image = new Image();
-    image.src = objectUrl;
-    await image.decode();
-    return { width: image.naturalWidth, height: image.naturalHeight };
-  } finally {
-    URL.revokeObjectURL(objectUrl);
-  }
 }
 
 export function NoteEditor({
@@ -319,31 +286,6 @@ export function NoteEditor({
   const isPastingRef = useRef(false);
   const smoothScrollToHeadRef = useRef<(view: Editor["view"]) => void>(() => undefined);
   const outlineScrollAnimRef = useRef<number | null>(null);
-  const imageFileInputRef = useRef<HTMLInputElement>(null);
-  const imageUploadMessageRef = useRef<HTMLDivElement>(null);
-  const imageUploadMessageId = useId();
-  const imageUploadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const uploadImageFilesRef = useRef<(files: File[]) => void>(() => undefined);
-  const onUploadImageRef = useRef(onUploadImage);
-  const imageUploadContextRef = useRef({ noteId: note.id, reloadToken });
-  if (
-    imageUploadContextRef.current.noteId !== note.id ||
-    imageUploadContextRef.current.reloadToken !== reloadToken
-  ) {
-    imageUploadContextRef.current = { noteId: note.id, reloadToken };
-  }
-  const imageUploadProgressRef = useRef({
-    context: imageUploadContextRef.current,
-    activeCount: 0,
-    failed: false,
-  });
-  if (imageUploadProgressRef.current.context !== imageUploadContextRef.current) {
-    imageUploadProgressRef.current = {
-      context: imageUploadContextRef.current,
-      activeCount: 0,
-      failed: false,
-    };
-  }
   const programmaticOutlineScrollIdRef = useRef<string | null>(null);
   const cancelOutlineSmoothScroll = useCallback(() => {
     if (outlineScrollAnimRef.current !== null) {
@@ -365,9 +307,23 @@ export function NoteEditor({
   ]);
   const editorTextStatsSnapshotRef = useRef<EditorTextStatsSnapshot | null>(null);
   const [deferredLoading, setDeferredLoading] = useState(false);
-  const [imageUploadState, setImageUploadState] = useState<"idle" | "uploading" | "error">("idle");
-  const [imageUploadMessage, setImageUploadMessage] = useState("");
   const editorLocked = isLoading || deferredLoading || trashBusy || autoReadingMode;
+  const {
+    imageFileInputRef,
+    imageUploadMessageRef,
+    imageUploadMessageId,
+    uploadImageFilesRef,
+    imageUploadState,
+    imageUploadMessage,
+    clearImageUploadMessage,
+  } = useEditorImageUpload({
+    editorInstanceRef,
+    noteId: note.id,
+    reloadToken,
+    deleted: Boolean(note.deletedAt),
+    locked: editorLocked,
+    onUploadImage,
+  });
   const typewriterModeRef = useRef(typewriterMode);
   const typewriterAnimRef = useRef<number | null>(null);
   const typewriterTargetRef = useRef<number | null>(null);
@@ -408,7 +364,6 @@ export function NoteEditor({
     markdownOwnerRef.current.reloadToken = reloadToken;
     onChangeRef.current = onChange;
     onMarkdownDirtyChangeRef.current = onMarkdownDirtyChange;
-    onUploadImageRef.current = onUploadImage;
     typewriterModeRef.current = typewriterMode;
     outlineItemsRef.current = outlineItems;
     availableNotesRef.current = availableNotes;
@@ -442,137 +397,6 @@ export function NoteEditor({
       controller.abort();
     };
   }, [note.id, note.deletedAt]);
-
-  const uploadImageFiles = useCallback(
-    async (files: File[]) => {
-      const editorInstance = editorInstanceRef.current;
-      const uploadImage = onUploadImageRef.current;
-      const uploadContext = imageUploadContextRef.current;
-      const isCurrentUpload = () =>
-        imageUploadContextRef.current === uploadContext &&
-        editorInstanceRef.current === editorInstance &&
-        !editorInstance?.isDestroyed;
-      if (!editorInstance || !uploadImage || editorLocked || note.deletedAt) return;
-      const oversized = files.filter((file) => isImageFile(file) && file.size > IMAGE_MAX_BYTES);
-      const imageFiles = files.filter((file) => isImageFile(file) && file.size <= IMAGE_MAX_BYTES);
-      if (oversized.length)
-        setImageUploadMessage(
-          `超过 25 MiB，未上传：${oversized.map((file) => file.name).join("、")}`,
-        );
-      else setImageUploadMessage("");
-      if (!imageFiles.length) {
-        if (files.some(isImageFile)) {
-          const progress = imageUploadProgressRef.current;
-          progress.failed = true;
-          if (progress.activeCount === 0) setImageUploadState("error");
-          if (imageUploadTimerRef.current !== null) clearTimeout(imageUploadTimerRef.current);
-          imageUploadTimerRef.current =
-            progress.activeCount === 0
-              ? setTimeout(() => {
-                  imageUploadTimerRef.current = null;
-                  if (imageUploadProgressRef.current === progress && progress.activeCount === 0) {
-                    progress.failed = false;
-                    setImageUploadState("idle");
-                  }
-                }, 3000)
-              : null;
-        }
-        return;
-      }
-      const uploadPosition = createImageUploadPosition(editorInstance);
-      const progress = imageUploadProgressRef.current;
-      if (progress.activeCount === 0) progress.failed = false;
-      if (oversized.length) progress.failed = true;
-      progress.activeCount += 1;
-      setImageUploadState("uploading");
-      if (imageUploadTimerRef.current !== null) clearTimeout(imageUploadTimerRef.current);
-      imageUploadTimerRef.current = null;
-      try {
-        for (const file of imageFiles) {
-          try {
-            const dimensions = await imageDimensions(file);
-            if (!isCurrentUpload()) return;
-            const result = await uploadImage(file, dimensions);
-            if (!isCurrentUpload()) return;
-            const maxWidth = Math.max(
-              1,
-              editorInstance.view.dom.closest(".note-prose")?.getBoundingClientRect().width ?? 820,
-            );
-            const width = Math.min(maxWidth, Math.max(1, dimensions.width));
-            const height = Math.max(
-              1,
-              Math.round((width * dimensions.height) / Math.max(1, dimensions.width)),
-            );
-            if (
-              !uploadPosition.insert({
-                type: "image",
-                attrs: {
-                  assetId: result.asset.id,
-                  src: result.asset.url,
-                  alt: result.asset.originalName.replace(/\.[^.]+$/u, "") || "图片",
-                  width,
-                  height,
-                },
-              })
-            )
-              break;
-          } catch {
-            if (!isCurrentUpload()) return;
-            progress.failed = true;
-            setImageUploadMessage(
-              (message) => `${message}${message ? "；" : ""}上传失败：${file.name}`,
-            );
-          }
-        }
-      } catch {
-        if (!isCurrentUpload()) return;
-        progress.failed = true;
-      } finally {
-        uploadPosition.dispose();
-        if (
-          isCurrentUpload() &&
-          imageUploadProgressRef.current === progress &&
-          progress.context === uploadContext
-        ) {
-          progress.activeCount = Math.max(0, progress.activeCount - 1);
-          if (progress.activeCount === 0) {
-            if (progress.failed) {
-              setImageUploadState("error");
-              imageUploadTimerRef.current = setTimeout(() => {
-                imageUploadTimerRef.current = null;
-                if (imageUploadProgressRef.current === progress && progress.activeCount === 0) {
-                  progress.failed = false;
-                  setImageUploadState("idle");
-                }
-              }, 3000);
-            } else {
-              setImageUploadState("idle");
-            }
-          }
-        }
-      }
-    },
-    [editorLocked, note.deletedAt],
-  );
-  uploadImageFilesRef.current = (files) => {
-    void uploadImageFiles(files);
-  };
-
-  useLayoutEffect(() => {
-    if (imageUploadTimerRef.current !== null) {
-      clearTimeout(imageUploadTimerRef.current);
-      imageUploadTimerRef.current = null;
-    }
-    setImageUploadState("idle");
-    setImageUploadMessage("");
-  }, [note.id, reloadToken]);
-
-  useEffect(
-    () => () => {
-      if (imageUploadTimerRef.current !== null) clearTimeout(imageUploadTimerRef.current);
-    },
-    [],
-  );
 
   const syncEditorSurface = (instance: Editor, syncOutline: boolean) => {
     const snapshot = getEditorDocumentTextSnapshot(
@@ -1906,7 +1730,7 @@ export function NoteEditor({
             type="button"
             className="notice-dismiss"
             aria-label="关闭图片上传提示"
-            onClick={() => setImageUploadMessage("")}
+            onClick={clearImageUploadMessage}
           >
             <X size={16} />
           </button>

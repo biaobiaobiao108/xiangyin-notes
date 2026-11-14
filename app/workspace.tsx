@@ -16,7 +16,6 @@ import { moveSelectedNotes } from "./workspace/move-selected-notes";
 import { ApiError, api } from "./api";
 import { createUuid } from "./uuid";
 import { CommandId, CommandMenu } from "./command-menu";
-import type { CreateNoteCommand } from "./command-parser";
 import { applyPwaUpdate, installPwa, subscribePwa, type PwaState } from "./pwa";
 import type { WorkspaceChangeMessage } from "../shared/realtime";
 import type { Note, NoteSummary, NoteView, Notebook, TaskSummary } from "../shared/types";
@@ -35,22 +34,15 @@ import { ErrorBoundary, EditorErrorFallback } from "./error-boundary";
 import {
   errorMessage,
   mergeRemoteSummary,
-  mergeWikiNoteSummary,
+  noteMetadataSnapshot,
   preserveNewerNoteSummaries,
   shouldKeepActiveNoteInList,
   sortNotes,
   toNoteSummary,
   type NoteSort,
 } from "./workspace/helpers";
-import {
-  applyNoteSelectionClick,
-  noteSelectionAnchor,
-  pruneNoteSelection,
-  resolveNoteClickAction,
-  type NoteSelectionClick,
-  type NoteSelectionState,
-} from "./workspace/note-list-selection";
-import { normalizeLinkTitle } from "../shared/wiki-links";
+import { resolveNoteClickAction, type NoteSelectionClick } from "./workspace/note-list-selection";
+import { useNoteSelection } from "./workspace/use-note-selection";
 import { useNoteSaveQueue, type SaveState } from "./workspace/use-note-save-queue";
 import { useWorkspaceRealtime } from "./workspace/use-realtime";
 import {
@@ -84,6 +76,10 @@ import { useWorkspaceNotebookData } from "./workspace/use-workspace-notebook-dat
 import { useWorkspaceExport } from "./workspace/use-workspace-export";
 import { MemoWorkspaceProvider } from "./memos/memo-workspace";
 import { useWorkspaceSession } from "./workspace/use-workspace-session";
+import { useWorkspaceNoteCreation } from "./workspace/use-workspace-note-creation";
+import { useWorkspaceWikiLinks } from "./workspace/use-workspace-wiki-links";
+import { useSelectedNoteLoader } from "./workspace/use-selected-note-loader";
+import { useWorkspaceNoteChange } from "./workspace/use-workspace-note-change";
 
 export type { ViewLayout } from "./workspace/use-workspace-preferences";
 
@@ -98,10 +94,6 @@ const LazyNoteEditor = lazy(() =>
 const LazyMemoPage = lazy(() =>
   import("./memos/memo-page").then(({ MemoPage }) => ({ default: MemoPage })),
 );
-
-function noteMetadataSnapshot(note: Note): Note {
-  return { ...note, contentMarkdown: "" };
-}
 
 function focusNoteRowAfterRemoval(noteId: string) {
   requestAnimationFrame(() => {
@@ -155,9 +147,6 @@ export function Workspace() {
   const editorMarkdownDirtyNoteRef = useRef<string | null>(null);
   const flushEditorDraftRef = useRef<() => void>(() => undefined);
   const notesRef = useRef<NoteSummary[]>([]);
-  const pendingWikiCreationsRef = useRef<Map<string, Promise<NoteSummary | null>>>(new Map());
-  const noteCreationRef = useRef(false);
-  const [creatingNote, setCreatingNote] = useState(false);
   const listRequestRef = useRef(0);
   const listAbortRef = useRef<AbortController | null>(null);
   const nextNotesCursorRef = useRef<string | null>(null);
@@ -169,11 +158,17 @@ export function Workspace() {
   const listScopeRef = useRef(listScope);
   if (listScopeRef.current !== listScope) nextNotesCursorRef.current = null;
   listScopeRef.current = listScope;
+  const {
+    selectedNoteIds,
+    noteSelectionRef,
+    clearNoteSelection,
+    setNoteSelectionAnchor,
+    toggleNoteSelection,
+    pruneNoteSelectionTo,
+  } = useNoteSelection(listScope);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectedIdRef = useRef<string | null>(null);
   selectedIdRef.current = selectedId;
-  const [selectedNoteIds, setSelectedNoteIds] = useState<ReadonlySet<string>>(() => new Set());
-  const noteSelectionRef = useRef<NoteSelectionState>({ ids: new Set(), anchorId: null });
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [outlineOpen, setOutlineOpen] = useState(false);
   const {
@@ -447,27 +442,6 @@ export function Workspace() {
       returnFocus: document.activeElement instanceof HTMLElement ? document.activeElement : null,
     });
   }, []);
-  const updateNoteSelection = useCallback((next: NoteSelectionState) => {
-    const normalized = { ids: new Set(next.ids), anchorId: next.anchorId };
-    noteSelectionRef.current = normalized;
-    setSelectedNoteIds(normalized.ids);
-  }, []);
-  const clearNoteSelection = useCallback(() => {
-    updateNoteSelection({ ids: new Set(), anchorId: null });
-  }, [updateNoteSelection]);
-  const setNoteSelectionAnchor = useCallback(
-    (id: string) => {
-      updateNoteSelection(noteSelectionAnchor(id));
-    },
-    [updateNoteSelection],
-  );
-  const previousListScopeRef = useRef(listScope);
-  useEffect(() => {
-    if (previousListScopeRef.current === listScope) return;
-    previousListScopeRef.current = listScope;
-    clearNoteSelection();
-  }, [clearNoteSelection, listScope]);
-
   useEffect(() => subscribePwa(setPwaState), []);
   const requestListTransition = useCallback(() => {
     listTransitionIntentRef.current += 1;
@@ -530,12 +504,7 @@ export function Workspace() {
           ? currentSelectedId
           : (orderedNotes[0]?.id ?? null);
       setSelectedId(nextSelectedId);
-      updateNoteSelection(
-        pruneNoteSelection(
-          noteSelectionRef.current,
-          sortNotes(orderedNotes, noteSort).map((note) => note.id),
-        ),
-      );
+      pruneNoteSelectionTo(sortNotes(orderedNotes, noteSort).map((note) => note.id));
       playPendingListTransition();
     } catch (reason) {
       if (controller.signal.aborted || requestId !== listRequestRef.current) return;
@@ -557,7 +526,7 @@ export function Workspace() {
     notesReloadToken,
     playPendingListTransition,
     replaceList,
-    updateNoteSelection,
+    pruneNoteSelectionTo,
     view,
   ]);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -785,120 +754,29 @@ export function Workspace() {
     },
     [clearNoteSelection, noteSort, replaceList, selectNote],
   );
-  const loadSelectedNote = useCallback(
-    async (id: string) => {
-      noteAbortRef.current?.abort();
-      const controller = new AbortController();
-      noteAbortRef.current = controller;
-      setEditorFocusNoteId((current) => (current === id ? current : null));
-      const requestId = ++noteLoadRequestRef.current;
-      let previousNote = selectedRef.current;
-      if (previousNote?.id !== id) {
-        flushEditorDraftRef.current();
-        previousNote = selectedRef.current;
-      }
-      const pendingNote = pendingSavesRef.current.get(id);
-      const failedSave = failedSavesRef.current.get(id);
-      activeNoteIdRef.current = id;
-      setIsNoteLoading(true);
-      setSaveState(
-        failedSave
-          ? failedSave instanceof ApiError && failedSave.code === "VERSION_CONFLICT"
-            ? "conflict"
-            : "error"
-          : pendingNote
-            ? "saving"
-            : "idle",
-      );
-      try {
-        const result = await api.getNote(id, { signal: controller.signal });
-        if (requestId !== noteLoadRequestRef.current || activeNoteIdRef.current !== id) return;
-        let loadedNote = latestSelectedNoteSnapshot(result.note, selectedRef.current);
-        // The load can outlive a queued save; do not recover the same draft after
-        // that save has already succeeded and started clearing its recovery copy.
-        if (!pendingNote && !pendingSavesRef.current.has(id)) {
-          const recoveredDraft = await readDraftRecovery(id);
-          if (requestId !== noteLoadRequestRef.current || activeNoteIdRef.current !== id) return;
-          loadedNote = latestSelectedNoteSnapshot(loadedNote, selectedRef.current);
-          if (recoveredDraft && !pendingSavesRef.current.has(id)) {
-            pendingSavesRef.current.set(id, recoveredDraft);
-            if (recoveredDraft.version === loadedNote.version) {
-              notifyWarning("已恢复一份未保存草稿");
-            } else {
-              failedSavesRef.current.set(
-                id,
-                new ApiError(409, "VERSION_CONFLICT", "恢复的草稿与服务器版本不同"),
-              );
-              setSaveState("conflict");
-              notifyWarning("已保留未保存草稿；服务器版本已变化，请先复制需要的修改再重新载入");
-            }
-          }
-        }
-        const latestPendingNote = pendingSavesRef.current.get(id);
-        loadedNote = latestSelectedNoteSnapshot(loadedNote, selectedRef.current);
-        const nextNote = latestPendingNote ? { ...loadedNote, ...latestPendingNote } : loadedNote;
-        selectedRef.current = nextNote;
-        setSelectedNote(noteMetadataSnapshot(nextNote));
-        setIsNoteLoading(false);
-        // A draft kept from an earlier failure or a note switch is retried instead of staying stuck on "saving".
-        const retryDraft = latestPendingNote;
-        if (retryDraft && !failedSavesRef.current.has(id) && !trashOperationsRef.current.has(id))
-          persistRef.current(retryDraft);
-      } catch (reason) {
-        if (requestId !== noteLoadRequestRef.current || activeNoteIdRef.current !== id) return;
-        if (reason instanceof Error && reason.name === "AbortError") return;
-        setIsNoteLoading(false);
-        if (reason instanceof ApiError && reason.status === 401) {
-          navigate(`/login${window.location.search}`, { replace: true });
-          return;
-        }
-        if (previousNote) {
-          const restoredNote = previousNote;
-          const previousFailure = failedSavesRef.current.get(restoredNote.id);
-          setSaveState(
-            previousFailure
-              ? previousFailure instanceof ApiError && previousFailure.code === "VERSION_CONFLICT"
-                ? "conflict"
-                : "error"
-              : pendingSavesRef.current.has(restoredNote.id)
-                ? "saving"
-                : "idle",
-          );
-          activeNoteIdRef.current = restoredNote.id;
-          selectedRef.current = restoredNote;
-          setSelectedId(restoredNote.id);
-          setSelectedNote(noteMetadataSnapshot(restoredNote));
-          setCardEditingNoteId((current) => (current === id ? restoredNote.id : current));
-        } else {
-          activeNoteIdRef.current = null;
-          selectedRef.current = null;
-          setSelectedId(null);
-          setSelectedNote(null);
-        }
-        notifyError("无法打开这篇笔记");
-      } finally {
-        if (noteAbortRef.current === controller) noteAbortRef.current = null;
-      }
-    },
-    [failedSavesRef, navigate],
-  );
-  useEffect(() => {
-    if (!ready || !selectedId) {
-      flushEditorDraftRef.current();
-      noteAbortRef.current?.abort();
-      noteOpeningRef.current = null;
-      activeNoteIdRef.current = null;
-      selectedRef.current = null;
-      setIsNoteLoading(false);
-      setSelectedNote(null);
-      return;
-    }
-    const opening = loadSelectedNote(selectedId);
-    noteOpeningRef.current = opening;
-    void opening.finally(() => {
-      if (noteOpeningRef.current === opening) noteOpeningRef.current = null;
-    });
-  }, [loadSelectedNote, ready, selectedId]);
+  useSelectedNoteLoader({
+    ready,
+    selectedId,
+    selectedRef,
+    activeNoteIdRef,
+    noteLoadRequestRef,
+    noteAbortRef,
+    noteOpeningRef,
+    pendingSavesRef,
+    failedSavesRef,
+    trashOperationsRef,
+    persistRef,
+    flushEditorDraftRef,
+    setEditorFocusNoteId,
+    setIsNoteLoading,
+    setSaveState,
+    setSelectedNote,
+    setSelectedId,
+    setCardEditingNoteId,
+    notifyWarning,
+    notifyError,
+    navigate,
+  });
   useEffect(() => {
     if (!ready) return;
     nextNotesCursorRef.current = null;
@@ -1001,90 +879,26 @@ export function Workspace() {
     },
   });
 
-  const onNoteChange = useCallback(
-    (patch: { title?: string; contentMarkdown?: string; notebookId?: string }) => {
-      const current = selectedRef.current;
-      if (!current || trashOperationsRef.current.has(current.id)) return;
-      if (
-        (patch.title === undefined || patch.title === current.title) &&
-        (patch.contentMarkdown === undefined ||
-          patch.contentMarkdown === current.contentMarkdown) &&
-        (patch.notebookId === undefined || patch.notebookId === current.notebookId)
-      )
-        return;
-      const targetNotebook = patch.notebookId
-        ? notebooks.find((nb) => nb.id === patch.notebookId)
-        : undefined;
-      const next = {
-        ...current,
-        ...patch,
-        ...(targetNotebook ? { notebookName: targetNotebook.name } : {}),
-      };
-      selectedRef.current = next;
-      const contentOnlyChange =
-        patch.contentMarkdown !== undefined &&
-        patch.title === undefined &&
-        patch.notebookId === undefined;
-      if (!contentOnlyChange) {
-        setSelectedNote(noteMetadataSnapshot(next));
-        const summaryPatch: Partial<NoteSummary> = {
-          ...(patch.title !== undefined ? { title: patch.title } : {}),
-          ...(patch.notebookId !== undefined ? { notebookId: patch.notebookId } : {}),
-          ...(targetNotebook ? { notebookName: targetNotebook.name } : {}),
-        };
-        replaceList(
-          notesRef.current.map((note) =>
-            note.id === current.id ? { ...note, ...summaryPatch } : note,
-          ),
-        );
-      }
-
-      if (patch.notebookId && patch.notebookId !== current.notebookId) {
-        if (targetNotebook) {
-          invalidateCollections();
-          searchOriginRef.current = null;
-          setQuery("");
-          const targetView: NoteView = targetNotebook.isSystem ? "inbox" : "all";
-          const targetNotebookId = targetNotebook.isSystem ? undefined : targetNotebook.id;
-          requestListTransition();
-          setView(targetView);
-          setNotebookId(targetNotebookId);
-          replaceList([toNoteSummary(next)]);
-          setTotalNotes(Math.max(1, targetNotebook.count + 1));
-          setNotebooks((items) =>
-            items.map((notebook) => {
-              if (notebook.id === current.notebookId)
-                return { ...notebook, count: Math.max(0, notebook.count - 1) };
-              if (notebook.id === targetNotebook.id)
-                return { ...notebook, count: notebook.count + 1 };
-              return notebook;
-            }),
-          );
-        }
-        void saveImmediately(next, false, ["notebookId"])
-          .then(() => {
-            refreshNotebooks();
-            reloadNotes();
-          })
-          .catch(() => {
-            refreshNotebooks();
-            reloadNotes();
-          });
-      } else {
-        persist(next, Object.keys(patch) as Array<"title" | "contentMarkdown" | "notebookId">);
-      }
-    },
-    [
-      invalidateCollections,
-      notebooks,
-      persist,
-      refreshNotebooks,
-      reloadNotes,
-      replaceList,
-      requestListTransition,
-      saveImmediately,
-    ],
-  );
+  const onNoteChange = useWorkspaceNoteChange({
+    selectedRef,
+    notesRef,
+    notebooks,
+    trashOperationsRef,
+    replaceList,
+    setSelectedNote,
+    setNotebooks,
+    setView,
+    setNotebookId,
+    setQuery,
+    setTotalNotes,
+    searchOriginRef,
+    invalidateCollections,
+    requestListTransition,
+    saveImmediately,
+    persist,
+    refreshNotebooks,
+    reloadNotes,
+  });
   const registerEditorMarkdownReader = useCallback((reader: (() => string | null) | null) => {
     editorMarkdownReaderRef.current = reader;
   }, []);
@@ -1141,65 +955,17 @@ export function Workspace() {
     },
     [openMobileNote, playListTransition],
   );
-  const createNoteWithLock = useCallback(
-    async (
-      payload: Parameters<typeof api.createNote>[0],
-      target: (note: Note) => { view: NoteView; notebookId?: string },
-    ) => {
-      if (noteCreationRef.current) return null;
-      noteCreationRef.current = true;
-      setCreatingNote(true);
-      flushEditorDraftRef.current();
-      try {
-        const result = await api.createNote(payload);
-        revealCreatedNote(result.note, target(result.note));
-        void refreshNotebooks();
-        return result.note;
-      } catch (reason) {
-        if (reason instanceof ApiError && reason.status === 401)
-          navigate(`/login${window.location.search}`, { replace: true });
-        notifyError(errorMessage(reason, "创建笔记失败，请稍后重试"));
-        return null;
-      } finally {
-        noteCreationRef.current = false;
-        setCreatingNote(false);
-      }
-    },
-    [navigate, notifyError, refreshNotebooks, revealCreatedNote],
-  );
-  const createNoteHere = useCallback(async () => {
-    const currentNotebook = notebookId
-      ? notebooks.find((notebook) => notebook.id === notebookId)
-      : undefined;
-    const inbox = notebooks.find((notebook) => notebook.isSystem);
-    const staysInView = Boolean(currentNotebook) || view === "all" || view === "inbox";
-    await createNoteWithLock(
-      currentNotebook ? { notebookId: currentNotebook.id } : { notebookId: inbox?.id },
-      () => ({
-        view: currentNotebook || !staysInView ? "all" : view,
-        notebookId: currentNotebook?.id,
-      }),
-    );
-  }, [createNoteWithLock, notebookId, notebooks, view]);
-  const createNoteInInbox = useCallback(async () => {
-    const inbox = notebooks.find((notebook) => notebook.isSystem);
-    await createNoteWithLock(inbox ? { notebookId: inbox.id } : {}, (note) => ({
-      view: "inbox",
-      notebookId: note.notebookId,
-    }));
-  }, [createNoteWithLock, notebooks]);
-  const createNoteInNotebook = useCallback(
-    async (commandToCreate: CreateNoteCommand) => {
-      await createNoteWithLock(
-        {
-          notebookId: commandToCreate.notebookId,
-          title: commandToCreate.title,
-        },
-        () => ({ view: "all", notebookId: commandToCreate.notebookId }),
-      );
-    },
-    [createNoteWithLock],
-  );
+  const { creatingNote, createNoteHere, createNoteInInbox, createNoteInNotebook } =
+    useWorkspaceNoteCreation({
+      view,
+      notebookId,
+      notebooks,
+      revealCreatedNote,
+      flushEditorDraft: flushActiveEditorDraft,
+      refreshNotebooks,
+      notifyError,
+      navigate,
+    });
   const createNotebook = useCallback(() => setEditingNotebook(null), []);
   const saveNotebook = useCallback(
     (saved: Notebook) => {
@@ -2242,119 +2008,25 @@ export function Workspace() {
     applyPwaUpdate();
   }, [flushPendingSaves, hasUnsavedWork]);
 
-  const ensureWikiNoteExists = useCallback(
-    async (title: string): Promise<NoteSummary | null> => {
-      const cleanTitle = title.replace(/^(?:\[\[|【【)\s*|\s*(?:\]\]|】】)$/g, "").trim();
-      const normalized = normalizeLinkTitle(cleanTitle);
-      if (!normalized) return null;
-      const inFlight = pendingWikiCreationsRef.current.get(normalized);
-      if (inFlight) {
-        return await inFlight;
-      }
-      const defaultNotebook = notebookId
-        ? notebooks.find((n) => n.id === notebookId)
-        : (notebooks.find((n) => n.isSystem) ?? notebooks[0]);
-      if (!defaultNotebook) return null;
-      const scope = listScopeRef.current;
-      const creationPromise = (async () => {
-        try {
-          const result = await api.ensureWikiNote({
-            title: cleanTitle,
-            notebookId: defaultNotebook.id,
-          });
-
-          const summary: NoteSummary = {
-            id: result.note.id,
-            title: result.note.title,
-            preview: result.note.preview,
-            tags: result.note.tags,
-            thumbnail: result.note.thumbnail,
-            notebookId: result.note.notebookId,
-            notebookName: result.note.notebookName,
-            isFavorite: result.note.isFavorite,
-            deletedAt: result.note.deletedAt,
-            version: result.note.version,
-            createdAt: result.note.createdAt,
-            updatedAt: result.note.updatedAt,
-          };
-
-          if (scope === listScopeRef.current) {
-            const currentNotes = notesRef.current;
-            const merged = mergeWikiNoteSummary(
-              currentNotes,
-              summary,
-              notebooks,
-              view,
-              deferredQuery,
-              notebookId,
-            );
-            if (merged) {
-              replaceList(merged);
-              if (result.created && merged.length > currentNotes.length)
-                setTotalNotes((prev) => prev + 1);
-            }
-          }
-          if (result.created) {
-            void refreshNotebooks();
-          }
-
-          return summary;
-        } catch {
-          return null;
-        } finally {
-          pendingWikiCreationsRef.current.delete(normalized);
-        }
-      })();
-
-      pendingWikiCreationsRef.current.set(normalized, creationPromise);
-      return await creationPromise;
-    },
-    [deferredQuery, notebookId, notebooks, refreshNotebooks, replaceList, view],
-  );
-
-  const handleNavigateWikiLinkPrimary = useCallback(
-    async (targetTitle: string) => {
-      const note = await ensureWikiNoteExists(targetTitle);
-      if (note) {
-        if (splitNoteId === note.id) {
-          setActivePane("secondary");
-          return;
-        }
-        selectNote(note.id);
-      } else {
-        notifyError("打开或创建笔记失败，请重试");
-      }
-    },
-    [ensureWikiNoteExists, notifyError, selectNote, splitNoteId],
-  );
-
-  const handleNavigateWikiLinkSplit = useCallback(
-    async (targetTitle: string) => {
-      const note = await ensureWikiNoteExists(targetTitle);
-      if (note) {
-        if (selectedId === note.id) {
-          setActivePane("primary");
-          return;
-        }
-        if (splitNoteId && splitNoteId !== note.id) {
-          flushSecondaryDraft();
-        }
-        setSplitNoteId(note.id);
-        setActivePane("secondary");
-      } else {
-        notifyError("打开或创建笔记失败，请重试");
-      }
-    },
-    [ensureWikiNoteExists, flushSecondaryDraft, notifyError, selectedId, splitNoteId],
-  );
-
-  const handleCreateAndLinkNote = useCallback(
-    async (title: string) => {
-      await ensureWikiNoteExists(title);
-    },
-    [ensureWikiNoteExists],
-  );
-
+  const { handleNavigateWikiLinkPrimary, handleNavigateWikiLinkSplit, handleCreateAndLinkNote } =
+    useWorkspaceWikiLinks({
+      view,
+      notebookId,
+      notebooks,
+      deferredQuery,
+      listScopeRef,
+      notesRef,
+      replaceList,
+      setTotalNotes,
+      refreshNotebooks,
+      selectedId,
+      splitNoteId,
+      selectNote,
+      setActivePane,
+      setSplitNoteId,
+      flushSecondaryDraft,
+      notifyError,
+    });
   const handleNewNote = useCallback(() => {
     void createNoteHere();
   }, [createNoteHere]);
@@ -2390,12 +2062,7 @@ export function Workspace() {
         hasSelectionActive: noteSelectionRef.current.ids.size > 0,
       });
       if (intent.action === "toggle") {
-        updateNoteSelection(
-          applyNoteSelectionClick(noteSelectionRef.current, orderedIds, {
-            id,
-            ...intent.modifiers,
-          }),
-        );
+        toggleNoteSelection(orderedIds, id, intent.modifiers);
         return;
       }
       if (splitNoteId && !isMobileViewport) {
@@ -2440,7 +2107,7 @@ export function Workspace() {
       selectedId,
       setNoteSelectionAnchor,
       splitNoteId,
-      updateNoteSelection,
+      toggleNoteSelection,
     ],
   );
   const handleOpenCardNote = useCallback(
@@ -2455,19 +2122,13 @@ export function Workspace() {
   );
   const handleToggleCardSelection = useCallback(
     (id: string, modifiers: Pick<NoteSelectionClick, "metaKey" | "ctrlKey" | "shiftKey">) => {
-      const nextSelection = applyNoteSelectionClick(
-        noteSelectionRef.current,
+      toggleNoteSelection(
         sortNotes(notesRef.current, noteSort).map((note) => note.id),
-        {
-          id,
-          metaKey: modifiers.metaKey,
-          ctrlKey: modifiers.ctrlKey,
-          shiftKey: modifiers.shiftKey,
-        },
+        id,
+        modifiers,
       );
-      updateNoteSelection(nextSelection);
     },
-    [noteSort, updateNoteSelection],
+    [noteSort, toggleNoteSelection],
   );
   const handleCardGridScrollPositionChange = useCallback((scope: string, top: number) => {
     cardGridScrollPositionRef.current = { scope, top };

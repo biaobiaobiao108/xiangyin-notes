@@ -89,6 +89,10 @@ export function toNoteSummary(note: Note): NoteSummary {
   return summary;
 }
 
+export function noteMetadataSnapshot(note: Note): Note {
+  return { ...note, contentMarkdown: "" };
+}
+
 export function errorMessage(reason: unknown, fallback: string) {
   return reason instanceof ApiError && reason.message ? reason.message : fallback;
 }
