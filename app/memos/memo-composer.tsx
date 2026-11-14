@@ -19,6 +19,7 @@ import {
   handleMarkdownBlockShortcutInput,
 } from "../editor/markdown-shortcuts";
 import { normalizeChineseMarkdownBlockMarkers, shouldParseMarkdownPaste } from "../editor-metrics";
+import { WikiLinkNode } from "../editor/wiki-link-node";
 import { buildMemoComposerMenuItems } from "./memo-context-menu";
 
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
@@ -59,6 +60,10 @@ function messageOf(reason: unknown) {
   return reason instanceof Error && reason.message ? reason.message : "保存失败，请重试";
 }
 
+export function createMemoEditorExtensions(placeholder?: string) {
+  return [...createCommonEditorExtensions({ placeholder }), WikiLinkNode];
+}
+
 export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(function MemoComposer(
   {
     initialMarkdown = "",
@@ -96,7 +101,7 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
     },
   }));
 
-  const extensions = useMemo(() => createCommonEditorExtensions({ placeholder }), [placeholder]);
+  const extensions = useMemo(() => createMemoEditorExtensions(placeholder), [placeholder]);
 
   const queueDraft = useCallback((markdown: string) => {
     if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
@@ -182,6 +187,22 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
     [cancel, submit],
   );
 
+  const replaceSelectionWithChineseMarkdown = useCallback((view: Editor["view"], text: string) => {
+    if (!shouldParseMarkdownPaste(text, false)) return false;
+    const instance = editorRef.current;
+    if (!instance?.markdown) return false;
+    try {
+      const parsedDocument = view.state.schema.nodeFromJSON(
+        instance.markdown.parse(normalizeChineseMarkdownBlockMarkers(text)),
+      );
+      const slice = parsedDocument.slice(0, parsedDocument.content.size);
+      view.dispatch(view.state.tr.replaceSelection(slice).setMeta("uiEvent", "paste"));
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
   const editorProps = useMemo(
     () => ({
       attributes: {
@@ -194,18 +215,7 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
         const text = event.clipboardData?.getData("text/plain") ?? "";
         const html = event.clipboardData?.getData("text/html") ?? "";
         if (!shouldParseMarkdownPaste(text, Boolean(html))) return false;
-        const instance = editorRef.current;
-        if (!instance?.markdown) return false;
-        try {
-          const parsedDocument = view.state.schema.nodeFromJSON(
-            instance.markdown.parse(normalizeChineseMarkdownBlockMarkers(text)),
-          );
-          const slice = parsedDocument.slice(0, parsedDocument.content.size);
-          view.dispatch(view.state.tr.replaceSelection(slice).setMeta("uiEvent", "paste"));
-          return true;
-        } catch {
-          return false;
-        }
+        return replaceSelectionWithChineseMarkdown(view, text);
       },
       handleDOMEvents: {
         compositionend: (view: Editor["view"]) => {
@@ -217,7 +227,7 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
       },
       handleKeyDown: handleKeyDownInEditor,
     }),
-    [ariaLabel, handleKeyDownInEditor],
+    [ariaLabel, handleKeyDownInEditor, replaceSelectionWithChineseMarkdown],
   );
 
   const handleContextMenu = useCallback(
@@ -277,15 +287,17 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
           throw new Error("浏览器未允许读取剪贴板");
         }
         if (!restore() || !instance.isEditable) return;
-        if (plain || !html) {
+        if (plain) {
           if (text) instance.commands.insertContent(text);
-        } else {
-          const data = new DataTransfer();
-          if (text) data.setData("text/plain", text);
-          if (html) data.setData("text/html", html);
-          const clipboardEvent = new ClipboardEvent("paste", { clipboardData: data });
-          instance.view.pasteHTML(html, clipboardEvent);
+          return;
         }
+        const data = new DataTransfer();
+        if (text) data.setData("text/plain", text);
+        if (html) data.setData("text/html", html);
+        const clipboardEvent = new ClipboardEvent("paste", { clipboardData: data });
+        if (html) instance.view.pasteHTML(html, clipboardEvent);
+        else if (text && !replaceSelectionWithChineseMarkdown(instance.view, text))
+          instance.view.pasteText(text, clipboardEvent);
       };
 
       const command = (run: () => unknown) => () => {
@@ -316,7 +328,7 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
 
       openMenu(event, items, onCancelRef.current ? "编辑随记" : "新建随记");
     },
-    [cancel, openMenu, submit],
+    [cancel, openMenu, replaceSelectionWithChineseMarkdown, submit],
   );
 
   const editor = useEditor({

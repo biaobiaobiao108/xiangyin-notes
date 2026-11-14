@@ -1,6 +1,10 @@
 import { useMemo } from "react";
 import type { RendererObject } from "marked";
-import { createXiangyingMarked } from "../../shared/markdown-lexer";
+import {
+  createXiangyingMarked,
+  findWikiLinkStart,
+  tokenizeWikiLink,
+} from "../../shared/markdown-lexer";
 import { findTagRanges } from "../../shared/tags";
 
 const HTML_ESCAPES: Record<string, string> = {
@@ -74,6 +78,20 @@ const renderer: RendererObject = {
 };
 
 const memoMarked = createXiangyingMarked();
+memoMarked.use({
+  extensions: [
+    {
+      name: "wikiLink",
+      level: "inline",
+      start: findWikiLinkStart,
+      tokenizer: tokenizeWikiLink,
+      renderer(token) {
+        const { target, alias } = token as unknown as { target: string; alias?: string };
+        return `<span class="memo-wiki-link">${escapeHtml(alias || target)}</span>`;
+      },
+    },
+  ],
+});
 memoMarked.use({ renderer });
 
 export function renderMemoMarkdown(markdown: string) {

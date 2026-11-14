@@ -38,6 +38,13 @@ describe("memo Markdown rendering", () => {
     expect(html).toContain('<span class="memo-tag">#读书</span>');
   });
 
+  test("renders Chinese wiki links by their target or alias", () => {
+    const html = renderMemoMarkdown("参考 【【目标笔记】】 与 【【技术架构｜架构设计】】");
+    expect(html).toContain('<span class="memo-wiki-link">目标笔记</span>');
+    expect(html).toContain('<span class="memo-wiki-link">架构设计</span>');
+    expect(html).not.toContain("【【");
+  });
+
   test("does not tag code, URL fragments, image alt text, or escaped hashtags", () => {
     const html = renderMemoMarkdown(
       "`#code` https://example.com/a#fragment ![#alt](https://example.com/a.png) \\#escaped",

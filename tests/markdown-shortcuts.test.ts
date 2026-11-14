@@ -7,6 +7,8 @@ import {
   executeBlockShortcutAtSelection,
   handleMarkdownBlockShortcutInput,
 } from "../app/editor/markdown-shortcuts";
+import { normalizeChineseMarkdownBlockMarkers } from "../app/editor-metrics";
+import { createMemoEditorExtensions } from "../app/memos/memo-composer";
 
 function createEditor(text: string) {
   return new Editor({
@@ -18,6 +20,16 @@ function createEditor(text: string) {
     content: {
       type: "doc",
       content: [{ type: "paragraph", content: [{ type: "text", text }] }],
+    },
+  });
+}
+
+function createMemoEditor(text: string) {
+  return new Editor({
+    extensions: createMemoEditorExtensions(),
+    content: {
+      type: "doc",
+      content: [{ type: "paragraph", content: text ? [{ type: "text", text }] : [] }],
     },
   });
 }
@@ -38,24 +50,102 @@ describe("Markdown shortcuts committed by an input method", () => {
 });
 
 describe("Markdown block shortcuts typed in the editor", () => {
-  test.each([["【】"], ["【 】"], ["【\u3000】"]])(
-    "converts %s followed by a space into a task list",
-    (marker) => {
-      const editor = createEditor(marker);
-      try {
-        const cursor = marker.length + 1;
-        editor.commands.setTextSelection(cursor);
-        expect(handleMarkdownBlockShortcutInput(editor.view, cursor, cursor, " ")).toBe(true);
-        expect(editor.state.doc.firstChild?.type.name).toBe("taskList");
-        expect(editor.state.doc.firstChild?.firstChild?.type.name).toBe("taskItem");
-      } finally {
-        editor.destroy();
-      }
-    },
-  );
+  test.each([
+    ["＃", " ", "heading", 1],
+    ["＃＃＃", " ", "heading", 3],
+    ["－", " ", "bulletList", null],
+    ["１．", " ", "orderedList", null],
+    ["＞", " ", "blockquote", null],
+    ["》", "\u3000", "blockquote", null],
+    ["〉", " ", "blockquote", null],
+    ["｀｀｀", " ", "codeBlock", null],
+    ["【】", " ", "taskList", null],
+    ["【 】", "\u3000", "taskList", null],
+    ["【\u3000】", " ", "taskList", null],
+  ])("converts the Chinese block marker %s", (marker, separator, expectedType, headingLevel) => {
+    const editor = createMemoEditor(marker);
+    try {
+      const cursor = marker.length + 1;
+      editor.commands.setTextSelection(cursor);
+      expect(handleMarkdownBlockShortcutInput(editor.view, cursor, cursor, separator)).toBe(true);
+      expect(editor.state.doc.firstChild?.type.name).toBe(expectedType);
+      if (headingLevel !== null)
+        expect(editor.state.doc.firstChild?.attrs.level).toBe(headingLevel);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  test("parses and serializes Chinese wiki links through the memo editor extensions", () => {
+    const editor = new Editor({
+      extensions: createMemoEditorExtensions(),
+      content: "参考 【【目标笔记】】 与 【【其他笔记｜显示别名】】",
+      contentType: "markdown",
+    });
+    try {
+      const wikiLinks: Array<{ target: string; alias: string | null }> = [];
+      editor.state.doc.descendants((node) => {
+        if (node.type.name === "wikiLink")
+          wikiLinks.push({
+            target: node.attrs.target as string,
+            alias: node.attrs.alias as string | null,
+          });
+      });
+      expect(wikiLinks).toEqual([
+        { target: "目标笔记", alias: null },
+        { target: "其他笔记", alias: "显示别名" },
+      ]);
+      expect((editor as Editor & { getMarkdown: () => string }).getMarkdown()).toBe(
+        "参考 [[目标笔记]] 与 [[其他笔记|显示别名]]",
+      );
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  test("parses Chinese block markers pasted into the memo editor", () => {
+    const source =
+      "＃ 标题\n\n－ 列表\n\n１． 有序列表\n\n＞ 引用\n\n【】 待办\n\n｀｀｀\n代码\n｀｀｀";
+    const editor = new Editor({
+      extensions: createMemoEditorExtensions(),
+      content: normalizeChineseMarkdownBlockMarkers(source),
+      contentType: "markdown",
+    });
+    try {
+      expect(
+        Array.from(
+          { length: editor.state.doc.childCount },
+          (_, index) => editor.state.doc.child(index).type.name,
+        ),
+      ).toEqual(["heading", "bulletList", "orderedList", "blockquote", "taskList", "codeBlock"]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  test("keeps CJK bold and italic parsing on the memo editor path", () => {
+    const editor = new Editor({
+      extensions: createMemoEditorExtensions(),
+      content: "**判断：**已知人物，前文_斜体_，后续",
+      contentType: "markdown",
+    });
+    try {
+      const marks: string[] = [];
+      editor.state.doc.descendants((node) => {
+        for (const mark of node.marks) marks.push(`${mark.type.name}:${node.text ?? ""}`);
+      });
+      expect(marks).toContain("bold:判断：");
+      expect(marks).toContain("italic:斜体");
+      expect((editor as Editor & { getMarkdown: () => string }).getMarkdown()).toBe(
+        "**判断：**已知人物，前文*斜体*，后续",
+      );
+    } finally {
+      editor.destroy();
+    }
+  });
 
   test("does not convert while an input method is composing", () => {
-    const editor = createEditor("【】");
+    const editor = createMemoEditor("【】");
     try {
       const cursor = 4;
       editor.commands.setTextSelection(cursor);
