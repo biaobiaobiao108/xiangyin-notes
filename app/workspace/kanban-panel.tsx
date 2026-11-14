@@ -77,25 +77,23 @@ export type KanbanPanelProps = {
 // Single Kanban Card Item
 const KanbanCardItem = memo(function KanbanCardItem({
   card,
-  index,
+  cardRef,
   isMobileViewport,
   onOpen,
   onToggleFavorite,
   onRequestMoveCard,
   onDragStart,
   onDragEnd,
-  onNavigate,
   isDragging,
 }: {
   card: KanbanCard;
-  index: number;
+  cardRef?: (element: HTMLElement | null) => void;
   isMobileViewport?: boolean;
   onOpen: (noteId: string) => void;
   onToggleFavorite?: (note: NoteSummary) => void;
   onRequestMoveCard: (card: KanbanCard, trigger: HTMLElement) => void;
   onDragStart: (card: KanbanCard, event: ReactDragEvent<HTMLElement>) => void;
   onDragEnd: () => void;
-  onNavigate?: (direction: -1 | 1) => boolean;
   isDragging: boolean;
 }) {
   const note = card.note;
@@ -179,8 +177,8 @@ const KanbanCardItem = memo(function KanbanCardItem({
 
   return (
     <article
+      ref={cardRef}
       data-kanban-note-id={card.noteId}
-      data-kanban-index={index}
       draggable={!isMobileViewport}
       onDragStart={handleDragStart}
       onDragEnd={onDragEnd}
@@ -198,19 +196,7 @@ const KanbanCardItem = memo(function KanbanCardItem({
       tabIndex={0}
       role="listitem"
       aria-label={`${displayTitle}，看板卡片`}
-      onKeyDown={(event) => {
-        if (
-          event.key === "Tab" &&
-          !event.altKey &&
-          !event.ctrlKey &&
-          !event.metaKey &&
-          onNavigate?.(event.shiftKey ? -1 : 1)
-        ) {
-          event.preventDefault();
-          return;
-        }
-        handleKanbanCardKeyDown(event, () => onOpen(card.noteId));
-      }}
+      onKeyDown={(event) => handleKanbanCardKeyDown(event, () => onOpen(card.noteId))}
     >
       {hasThumbnail && (
         <div className="kanban-card-cover">
@@ -292,7 +278,7 @@ const KanbanColumnView = memo(function KanbanColumnView({
     scrollRef.current = el;
     setScrollElement(el);
   }, []);
-  const virtual = useVirtualKanbanColumn(cards, scrollRef, scrollElement);
+  const virtual = useVirtualKanbanColumn(cards, scrollRef);
   const columnRef = useRef<HTMLDivElement>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
   const [isDropTarget, setIsDropTarget] = useState(false);
@@ -301,7 +287,8 @@ const KanbanColumnView = memo(function KanbanColumnView({
   const scrollEdges = useScrollEdges(scrollElement, [
     column.id,
     cards.length,
-    virtual.totalHeight,
+    virtual.paddingTop,
+    virtual.paddingBottom,
     virtual.isVirtualized,
     hasMore,
     isLoadingMore,
@@ -339,13 +326,16 @@ const KanbanColumnView = memo(function KanbanColumnView({
     if (!scrollEl) return;
 
     // Calculate which card boundary cursor is closest to
-    const cardElements = Array.from(scrollEl.querySelectorAll<HTMLElement>("[data-kanban-index]"));
-    let targetIndex = virtual.isVirtualized ? virtual.endIndex : cards.length;
+    const cardElements = Array.from(
+      scrollEl.querySelectorAll<HTMLElement>("[data-kanban-note-id]"),
+    );
+    let targetIndex = virtual.isVirtualized
+      ? virtual.startIndex + cardElements.length
+      : cards.length;
     for (let i = 0; i < cardElements.length; i++) {
       const rect = cardElements[i].getBoundingClientRect();
       if (e.clientY < rect.top + rect.height / 2) {
-        const index = Number(cardElements[i].dataset.kanbanIndex);
-        if (Number.isInteger(index)) targetIndex = index;
+        targetIndex = virtual.isVirtualized ? virtual.startIndex + i : i;
         break;
       }
     }
@@ -409,6 +399,13 @@ const KanbanColumnView = memo(function KanbanColumnView({
         className={`kanban-column-scroll-shell${scrollEdges.before ? " has-scroll-before" : ""}${scrollEdges.after ? " has-scroll-after" : ""}`}
       >
         <div ref={setScrollRef} className="kanban-column-scroll floating-scrollbar-target">
+          {virtual.paddingTop > 0 && (
+            <div
+              className="kanban-virtual-spacer"
+              style={{ height: virtual.paddingTop }}
+              aria-hidden="true"
+            />
+          )}
           {cards.length === 0 ? (
             <div className="kanban-column-empty">
               <p>暂无卡片</p>
@@ -422,69 +419,38 @@ const KanbanColumnView = memo(function KanbanColumnView({
               </button>
             </div>
           ) : (
-            <div
-              ref={virtual.setListRef}
-              className={`kanban-card-list${virtual.isVirtualized ? " is-virtualized" : ""}`}
-              style={virtual.isVirtualized ? { height: virtual.totalHeight } : undefined}
-            >
-              {virtual.isVirtualized ? (
-                <>
-                  {virtual.visibleCards.map(({ card, index, top }) => (
-                    <div
-                      key={card.noteId}
-                      ref={virtual.getCardRef(card.noteId)}
-                      data-kanban-virtual-id={card.noteId}
-                      className="kanban-virtual-card"
-                      style={virtual.rowStyle(top)}
-                    >
-                      <KanbanCardItem
-                        card={card}
-                        index={index}
-                        isMobileViewport={isMobileViewport}
-                        onOpen={onOpenNote}
-                        onToggleFavorite={onToggleFavorite}
-                        onRequestMoveCard={onRequestMoveCard}
-                        onDragStart={onCardDragStart}
-                        onDragEnd={onCardDragEnd}
-                        onNavigate={(direction) => virtual.focusCard(index + direction)}
-                        isDragging={draggingNoteId === card.noteId}
-                      />
-                    </div>
-                  ))}
-                  {isDropTarget && dropIndicatorIndex !== null && (
-                    <div
-                      className="kanban-drop-indicator kanban-drop-indicator--virtual"
-                      style={{ top: virtual.indicatorTop(dropIndicatorIndex) }}
+            <div className={`kanban-card-list${virtual.isVirtualized ? " is-virtualized" : ""}`}>
+              {virtual.visibleCards.map((card, idx) => {
+                const actualIndex = virtual.startIndex + idx;
+                const showIndicatorBefore = isDropTarget && dropIndicatorIndex === actualIndex;
+                return (
+                  <Fragment key={card.noteId}>
+                    {showIndicatorBefore && <div className="kanban-drop-indicator" />}
+                    <KanbanCardItem
+                      card={card}
+                      cardRef={virtual.getCardRef(card.noteId)}
+                      isMobileViewport={isMobileViewport}
+                      onOpen={onOpenNote}
+                      onToggleFavorite={onToggleFavorite}
+                      onRequestMoveCard={onRequestMoveCard}
+                      onDragStart={onCardDragStart}
+                      onDragEnd={onCardDragEnd}
+                      isDragging={draggingNoteId === card.noteId}
                     />
-                  )}
-                </>
-              ) : (
-                <>
-                  {cards.map((card, idx) => {
-                    const showIndicatorBefore = isDropTarget && dropIndicatorIndex === idx;
-                    return (
-                      <Fragment key={card.noteId}>
-                        {showIndicatorBefore && <div className="kanban-drop-indicator" />}
-                        <KanbanCardItem
-                          card={card}
-                          index={idx}
-                          isMobileViewport={isMobileViewport}
-                          onOpen={onOpenNote}
-                          onToggleFavorite={onToggleFavorite}
-                          onRequestMoveCard={onRequestMoveCard}
-                          onDragStart={onCardDragStart}
-                          onDragEnd={onCardDragEnd}
-                          isDragging={draggingNoteId === card.noteId}
-                        />
-                      </Fragment>
-                    );
-                  })}
-                  {isDropTarget &&
-                    dropIndicatorIndex !== null &&
-                    dropIndicatorIndex >= cards.length && <div className="kanban-drop-indicator" />}
-                </>
-              )}
+                  </Fragment>
+                );
+              })}
+              {isDropTarget &&
+                dropIndicatorIndex !== null &&
+                dropIndicatorIndex >= cards.length && <div className="kanban-drop-indicator" />}
             </div>
+          )}
+          {virtual.paddingBottom > 0 && (
+            <div
+              className="kanban-virtual-spacer"
+              style={{ height: virtual.paddingBottom }}
+              aria-hidden="true"
+            />
           )}
 
           {hasMore && (
