@@ -38,6 +38,7 @@ import {
 import { NOTE_DRAG_MIME_TYPE, setNoteDragImage } from "./note-drag-drop";
 import { useVirtualKanbanColumn } from "./use-virtual-kanban-column";
 import { useScrollEdges } from "./use-scroll-edges";
+import { handleKanbanCardKeyDown } from "./kanban-card-keyboard";
 
 const COLUMNS: ReadonlyArray<{
   id: KanbanStatus;
@@ -192,12 +193,7 @@ const KanbanCardItem = memo(function KanbanCardItem({
       tabIndex={0}
       role="listitem"
       aria-label={`${displayTitle}，看板卡片`}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onOpen(card.noteId);
-        }
-      }}
+      onKeyDown={(event) => handleKanbanCardKeyDown(event, () => onOpen(card.noteId))}
     >
       {hasThumbnail && (
         <div className="kanban-card-cover">

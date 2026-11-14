@@ -8,6 +8,9 @@
  * 启动时也会执行同样的结构检查；本命令可在启动前只读检查数据库文件。
  */
 import { existsSync } from "node:fs";
+import { open } from "node:fs/promises";
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { Database } from "bun:sqlite";
 import {
   CURRENT_SCHEMA_VERSION,
@@ -25,7 +28,38 @@ if (!existsSync(existingPath)) {
   process.exit(0);
 }
 
-const existing = new Database(existingPath, { readonly: true });
+async function isWalDatabaseWithoutSidecars(path: string) {
+  if (hasWalSidecars(path)) return false;
+  const file = await open(path, "r");
+  try {
+    const header = new Uint8Array(20);
+    const { bytesRead } = await file.read(header, 0, header.length, 0);
+    // SQLite database header bytes 18 and 19 are both 2 for WAL mode.
+    return bytesRead === header.length && header[18] === 2 && header[19] === 2;
+  } finally {
+    await file.close();
+  }
+}
+
+function hasWalSidecars(path: string) {
+  return existsSync(`${path}-wal`) || existsSync(`${path}-shm`);
+}
+
+const useImmutableReadOnly = await isWalDatabaseWithoutSidecars(existingPath);
+// A cleanly closed WAL database has all committed pages in the main file. Bun's
+// readonly open cannot create the missing -shm file, while immutable mode can
+// inspect that main file without creating or changing any database sidecars.
+const existingFilename = useImmutableReadOnly
+  ? `${pathToFileURL(resolve(existingPath)).href}?immutable=1`
+  : existingPath;
+const existing = new Database(existingFilename, { readonly: true });
+if (useImmutableReadOnly && hasWalSidecars(existingPath)) {
+  existing.close();
+  console.error(
+    "[db:check] 检查期间 WAL 辅助文件已出现；immutable 只读视图不会读取新 WAL。请先停止服务，再重新检查。",
+  );
+  process.exit(1);
+}
 const existingVersion = Number(
   (existing.query("PRAGMA user_version").get() as { user_version: number } | null)?.user_version ??
     0,
@@ -100,6 +134,7 @@ try {
     }
   }
 
+  const walSidecarsAppearedDuringCheck = useImmutableReadOnly && hasWalSidecars(existingPath);
   const drifted =
     versionUnsupported ||
     missing.length > 0 ||
@@ -108,7 +143,8 @@ try {
     columnDiffs.length > 0 ||
     searchIndexRebuildPending ||
     !integrityOk ||
-    foreignKeyViolations.length > 0;
+    foreignKeyViolations.length > 0 ||
+    walSidecarsAppearedDuringCheck;
 
   console.log(
     `已有库 ${existingPath}：${existingObjects.size} 个对象；版本 ${existingVersion} 的 schema：${targetObjects.size} 个对象`,
@@ -141,6 +177,11 @@ try {
           .join("\n  - ")}${foreignKeyViolations.length > 20 ? "\n  - 其余违规已省略" : ""}`
       : "正常",
   );
+  if (walSidecarsAppearedDuringCheck)
+    console.log(
+      "WAL 状态:",
+      "检查期间辅助文件出现；immutable 视图可能未包含 WAL 内容，请先停止服务后重试。",
+    );
   console.log(
     "搜索索引重建:",
     migrationPending

@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -366,6 +366,65 @@ test("db:check reports an unfinished search-index rebuild", async () => {
     expect(stdout).toContain("搜索索引重建: 未完成");
     expect(stderr).toBe("");
   } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("db:check opens a clean WAL database without creating sidecars or changing it", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "xiangying-schema-check-"));
+  const path = join(directory, "notes.sqlite");
+  const database = await openDatabase(path);
+  database.close();
+
+  try {
+    expect(await Bun.file(`${path}-wal`).exists()).toBe(false);
+    expect(await Bun.file(`${path}-shm`).exists()).toBe(false);
+    const before = await stat(path);
+    const child = Bun.spawn(["bun", "run", "scripts/check-schema-drift.ts", path], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [exitCode, stdout, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ]);
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("SQLite 完整性: 正常");
+    expect(stdout).toContain("外键检查: 正常");
+    expect(stderr).toBe("");
+    expect(await Bun.file(`${path}-wal`).exists()).toBe(false);
+    expect(await Bun.file(`${path}-shm`).exists()).toBe(false);
+    expect(await stat(path)).toMatchObject({ size: before.size, mtimeMs: before.mtimeMs });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("db:check reads committed data from an active WAL without using an immutable view", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "xiangying-schema-check-"));
+  const path = join(directory, "notes.sqlite");
+  const database = await openDatabase(path);
+  database
+    .query("INSERT INTO app_metadata (key, value) VALUES (?, '1')")
+    .run(SEARCH_INDEX_REBUILD_KEY);
+
+  try {
+    expect(await Bun.file(`${path}-wal`).exists()).toBe(true);
+    const child = Bun.spawn(["bun", "run", "scripts/check-schema-drift.ts", path], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [exitCode, stdout, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ]);
+    expect(exitCode).toBe(1);
+    expect(stdout).toContain("搜索索引重建: 未完成");
+    expect(stderr).toBe("");
+  } finally {
+    database.close();
     await rm(directory, { recursive: true, force: true });
   }
 });

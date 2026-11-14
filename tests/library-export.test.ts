@@ -9,7 +9,7 @@ import { createNote } from "../server/routes/notes";
 
 test("library export includes owned notes, trash, memos, attachments and metadata", async () => {
   const root = await mkdtemp(join(tmpdir(), "xiangyin-export-test-"));
-  const database = await openDatabase(":memory:");
+  const database = await openDatabase(join(root, "library.sqlite"));
   try {
     const user = await ensureEnvironmentUser(database, {
       username: "owner",
@@ -75,6 +75,8 @@ test("library export includes owned notes, trash, memos, attachments and metadat
     const response = await handleExportRoute(ctx, user);
     if (!response) throw new Error("missing export response");
     expect(response.status).toBe(200);
+    database.query("UPDATE notes SET content_markdown = 'changed later' WHERE id = ?").run(noteId);
+    database.query("UPDATE memos SET content_markdown = 'changed later' WHERE id = ?").run(memoId);
     const zip = join(root, "library.zip");
     await Bun.write(zip, response);
     const read = async (name: string) => {
@@ -111,6 +113,20 @@ test("library export includes owned notes, trash, memos, attachments and metadat
     );
     expect(await read(previous.file)).toContain("上个月");
     expect(await read(metadata.assets[0].file)).toBe("\u0001\u0002\u0003");
+    const cancelled = await handleExportRoute(ctx, user);
+    if (!cancelled?.body) throw new Error("missing export stream");
+    database.query("UPDATE notes SET content_markdown = 'after snapshot' WHERE id = ?").run(noteId);
+    const beforeCancel = database.query("PRAGMA wal_checkpoint(PASSIVE)").get() as {
+      log: number;
+      checkpointed: number;
+    };
+    expect(beforeCancel.checkpointed).toBeLessThan(beforeCancel.log);
+    await cancelled.body.cancel();
+    const afterCancel = database.query("PRAGMA wal_checkpoint(PASSIVE)").get() as {
+      log: number;
+      checkpointed: number;
+    };
+    expect(afterCancel.checkpointed).toBe(afterCancel.log);
     await rm(join(root, storagePath));
     const failure = await handleExportRoute({ ...ctx, method: "HEAD" }, user);
     expect(failure?.status).toBe(500);

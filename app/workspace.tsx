@@ -89,6 +89,7 @@ import { createWorkspaceContextMenuHandler } from "./workspace/workspace-context
 import { useWorkspacePreferences } from "./workspace/use-workspace-preferences";
 import { useWorkspaceTaskData } from "./workspace/use-workspace-task-data";
 import { useWorkspaceKanbanData } from "./workspace/use-workspace-kanban-data";
+import { useWorkspaceNotebookData } from "./workspace/use-workspace-notebook-data";
 import { MemoPage } from "./memos/memo-page";
 import { MemoWorkspaceProvider } from "./memos/memo-workspace";
 import { useWorkspaceSession } from "./workspace/use-workspace-session";
@@ -150,7 +151,6 @@ export function Workspace() {
   const listRequestRef = useRef(0);
   const listAbortRef = useRef<AbortController | null>(null);
   const nextNotesCursorRef = useRef<string | null>(null);
-  const notebooksRequestRef = useRef(0);
   const trashOperationsRef = useRef(new Set<string>());
   const [pendingTrashCount, setPendingTrashCount] = useState(0);
   const emptyingTrashRef = useRef(false);
@@ -159,7 +159,6 @@ export function Workspace() {
   const listScopeRef = useRef(listScope);
   if (listScopeRef.current !== listScope) nextNotesCursorRef.current = null;
   listScopeRef.current = listScope;
-  const [notebooks, setNotebooks] = useState<Notebook[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectedIdRef = useRef<string | null>(null);
   selectedIdRef.current = selectedId;
@@ -298,6 +297,14 @@ export function Workspace() {
     dismiss: dismissNotice,
     setPaused: pauseNotice,
   } = useNotices();
+  const {
+    notebooks,
+    setNotebooks,
+    reorderingNotebooks,
+    refreshNotebooks,
+    handleReorderNotebooks,
+    invalidateNotebookRequests,
+  } = useWorkspaceNotebookData({ trashOperationsRef, emptyingTrashRef, notifyError });
   const {
     kanbanColumns,
     setKanbanColumns,
@@ -450,54 +457,8 @@ export function Workspace() {
   }, [playListTransition]);
   const invalidateCollections = useCallback(() => {
     listRequestRef.current += 1;
-    notebooksRequestRef.current += 1;
-  }, []);
-  const reorderBusyRef = useRef(false);
-  const [reorderingNotebooks, setReorderingNotebooks] = useState(false);
-  const refreshNotebooks = useCallback(async () => {
-    const requestId = ++notebooksRequestRef.current;
-    try {
-      const result = await api.listNotebooks();
-      if (
-        requestId === notebooksRequestRef.current &&
-        !reorderBusyRef.current &&
-        !trashOperationsRef.current.size &&
-        !emptyingTrashRef.current
-      ) {
-        setNotebooks(result.notebooks);
-      }
-    } catch {
-      /* Keep the current list visible until the next request succeeds. */
-    }
-  }, []);
-  const handleReorderNotebooks = useCallback(
-    async (ids: string[], expectedIds: string[]) => {
-      if (reorderBusyRef.current) return;
-      reorderBusyRef.current = true;
-      setReorderingNotebooks(true);
-      ++notebooksRequestRef.current;
-      try {
-        await api.reorderNotebooks(ids, expectedIds);
-        setNotebooks((current) => {
-          const rank = new Map(ids.map((id, index) => [id, index]));
-          return [...current].sort((a, b) =>
-            a.isSystem
-              ? -1
-              : b.isSystem
-                ? 1
-                : (rank.get(a.id) ?? ids.length) - (rank.get(b.id) ?? ids.length),
-          );
-        });
-      } catch (error) {
-        notifyError(errorMessage(error, "保存笔记本顺序失败，请重试"));
-      } finally {
-        reorderBusyRef.current = false;
-        setReorderingNotebooks(false);
-        void refreshNotebooks();
-      }
-    },
-    [notifyError, refreshNotebooks],
-  );
+    invalidateNotebookRequests();
+  }, [invalidateNotebookRequests]);
   const loadNotes = useCallback(async () => {
     if (pendingLinkedNoteRef.current) return;
     nextNotesCursorRef.current = null;
@@ -909,12 +870,6 @@ export function Workspace() {
       if (noteOpeningRef.current === opening) noteOpeningRef.current = null;
     });
   }, [loadSelectedNote, ready, selectedId]);
-  useEffect(
-    () => () => {
-      notebooksRequestRef.current += 1;
-    },
-    [],
-  );
   useEffect(() => {
     if (!ready) return;
     nextNotesCursorRef.current = null;
