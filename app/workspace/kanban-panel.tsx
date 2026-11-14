@@ -264,7 +264,7 @@ const KanbanColumnView = memo(function KanbanColumnView({
   draggingNoteId: string | null;
   onOpenNote: (noteId: string) => void;
   onCreateNote: (status: KanbanStatus) => void;
-  onAddExistingNote: (status: KanbanStatus) => void;
+  onAddExistingNote: (status: KanbanStatus, trigger: HTMLButtonElement) => void;
   onCardDragStart: (card: KanbanCard, event: ReactDragEvent<HTMLElement>) => void;
   onCardDragEnd: () => void;
   onDropOnColumn: (status: KanbanStatus, targetIndex: number) => void;
@@ -379,7 +379,7 @@ const KanbanColumnView = memo(function KanbanColumnView({
             type="button"
             className="kanban-icon-btn"
             aria-label={`添加现有笔记到${column.title}`}
-            onClick={() => onAddExistingNote(column.id)}
+            onClick={(event) => onAddExistingNote(column.id, event.currentTarget)}
           >
             <Search size={14} />
           </button>
@@ -473,11 +473,27 @@ const KanbanColumnView = memo(function KanbanColumnView({
 });
 
 // Add Existing Note Modal Dialog
+export function getDialogTabTarget(
+  focusableElements: readonly HTMLElement[],
+  activeElement: Element | null,
+  shiftKey: boolean,
+) {
+  if (focusableElements.length === 0) return null;
+  const currentIndex = focusableElements.indexOf(activeElement as HTMLElement);
+  const first = focusableElements[0];
+  const last = focusableElements[focusableElements.length - 1];
+  if (currentIndex < 0) return shiftKey ? last : first;
+  const nextIndex =
+    (currentIndex + (shiftKey ? -1 : 1) + focusableElements.length) % focusableElements.length;
+  return focusableElements[nextIndex];
+}
+
 function AddExistingNoteModal({
   open,
   targetStatus,
   availableNotes,
   cards,
+  returnFocus,
   onClose,
   onSelect,
 }: {
@@ -485,6 +501,7 @@ function AddExistingNoteModal({
   targetStatus: KanbanStatus;
   availableNotes: NoteSummary[];
   cards: KanbanCard[];
+  returnFocus: HTMLElement | null;
   onClose: () => void;
   onSelect: (noteId: string, status: KanbanStatus) => void;
 }) {
@@ -493,11 +510,18 @@ function AddExistingNoteModal({
   const existingNoteIds = useMemo(() => new Set(cards.map((c) => c.noteId)), [cards]);
 
   useEffect(() => {
-    if (open) {
-      setSearch("");
-      setTimeout(() => inputRef.current?.focus(), 50);
-    }
-  }, [open]);
+    if (!open) return;
+    setSearch("");
+    const previousFocus =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusTimer = window.setTimeout(() => inputRef.current?.focus(), 50);
+    return () => {
+      window.clearTimeout(focusTimer);
+      const target =
+        returnFocus?.isConnected && !returnFocus.matches(":disabled") ? returnFocus : previousFocus;
+      if (target?.isConnected) target.focus({ preventScroll: true });
+    };
+  }, [open, returnFocus]);
 
   const candidates = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -519,6 +543,35 @@ function AddExistingNoteModal({
         aria-modal="true"
         aria-labelledby="kanban-add-note-title"
         onClick={(e) => e.stopPropagation()}
+        onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing || event.keyCode === 229) {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              event.stopPropagation();
+            }
+            return;
+          }
+          if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
+            onClose();
+            return;
+          }
+          if (event.key !== "Tab") return;
+          const focusableElements = Array.from(
+            event.currentTarget.querySelectorAll<HTMLElement>(
+              'button:not(:disabled), input:not(:disabled), a[href], [tabindex]:not([tabindex="-1"])',
+            ),
+          );
+          const target = getDialogTabTarget(
+            focusableElements,
+            document.activeElement,
+            event.shiftKey,
+          );
+          if (!target) return;
+          event.preventDefault();
+          target.focus();
+        }}
       >
         <div className="kanban-dialog-header">
           <h3 id="kanban-add-note-title">添加笔记到“{targetCol?.title ?? "看板"}”</h3>
@@ -688,6 +741,7 @@ export const KanbanPanel = memo(function KanbanPanel({
   const [draggingCard, setDraggingCard] = useState<KanbanDragPayload | null>(null);
   const [movingCard, setMovingCard] = useState<KanbanCard | null>(null);
   const [addModalStatus, setAddModalStatus] = useState<KanbanStatus | null>(null);
+  const addNoteTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [trashOver, setTrashOver] = useState(false);
   const moveCardRef = useRef<HTMLElement | null>(null);
 
@@ -883,7 +937,10 @@ export const KanbanPanel = memo(function KanbanPanel({
                   draggingNoteId={draggingCard?.noteId ?? null}
                   onOpenNote={onOpenNote}
                   onCreateNote={onCreateNoteInColumn}
-                  onAddExistingNote={(status) => setAddModalStatus(status)}
+                  onAddExistingNote={(status, trigger) => {
+                    addNoteTriggerRef.current = trigger;
+                    setAddModalStatus(status);
+                  }}
                   onCardDragStart={handleCardDragStart}
                   onCardDragEnd={handleCardDragEnd}
                   onDropOnColumn={handleDropOnColumn}
@@ -904,7 +961,10 @@ export const KanbanPanel = memo(function KanbanPanel({
               draggingNoteId={draggingCard?.noteId ?? null}
               onOpenNote={onOpenNote}
               onCreateNote={onCreateNoteInColumn}
-              onAddExistingNote={(status) => setAddModalStatus(status)}
+              onAddExistingNote={(status, trigger) => {
+                addNoteTriggerRef.current = trigger;
+                setAddModalStatus(status);
+              }}
               onCardDragStart={handleCardDragStart}
               onCardDragEnd={handleCardDragEnd}
               onDropOnColumn={handleDropOnColumn}
@@ -949,6 +1009,7 @@ export const KanbanPanel = memo(function KanbanPanel({
         targetStatus={addModalStatus ?? "inbox"}
         availableNotes={availableNotes}
         cards={allCards}
+        returnFocus={addNoteTriggerRef.current}
         onClose={() => setAddModalStatus(null)}
         onSelect={onAddExistingNote}
       />

@@ -25,7 +25,7 @@ test("exports one note without changing its Markdown links", async () => {
       .join("\n\n");
     const noteId = createNote(database, user.id, inbox.id, "Markdown export", markdown);
     const request = new Request(`http://xiangying.test/api/notes/${noteId}/export`);
-    const response = handleExportRoute(
+    const response = await handleExportRoute(
       {
         request,
         url: new URL(request.url),

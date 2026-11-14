@@ -91,6 +91,7 @@ import { useWorkspaceTaskData } from "./workspace/use-workspace-task-data";
 import { useWorkspaceKanbanData } from "./workspace/use-workspace-kanban-data";
 import { MemoPage } from "./memos/memo-page";
 import { MemoWorkspaceProvider } from "./memos/memo-workspace";
+import { useWorkspaceSession } from "./workspace/use-workspace-session";
 
 export type { ViewLayout } from "./workspace/use-workspace-preferences";
 
@@ -108,6 +109,7 @@ function noteMetadataSnapshot(note: Note): Note {
 
 export function Workspace() {
   const navigate = useNavigate();
+  const { ready, currentUserKey, handleUnauthorized } = useWorkspaceSession();
   const { openMenu: openWorkspaceMenu, menu: workspaceMenu } = useContextMenu();
   const [initialLinkedNoteId] = useState(() =>
     new URLSearchParams(window.location.search).get("note"),
@@ -218,7 +220,6 @@ export function Workspace() {
   const [kanbanOpen, setKanbanOpen] = useState(false);
   const [memosOpen, setMemosOpen] = useState(false);
   const [memoRefreshToken, setMemoRefreshToken] = useState(0);
-  const [currentUserKey, setCurrentUserKey] = useState("");
   const editorRegionRef = useRef<HTMLElement | null>(null);
   const mobileRestoreRef = useRef<(context: MobileListContext, page: MobilePage) => void>(
     () => undefined,
@@ -305,7 +306,6 @@ export function Workspace() {
     setKanbanRefreshToken,
     loadMoreKanbanColumn,
   } = useWorkspaceKanbanData(kanbanOpen, notifyError);
-  const [ready, setReady] = useState(false);
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
   const [noteReloadToken, setNoteReloadToken] = useState(0);
   const setSelectedNoteMetadata = useCallback((note: Note | null) => {
@@ -441,36 +441,6 @@ export function Workspace() {
   }, [clearNoteSelection, listScope]);
 
   useEffect(() => subscribePwa(setPwaState), []);
-  const handleUnauthorized = useCallback(
-    () => navigate(`/login${window.location.search}`, { replace: true }),
-    [navigate],
-  );
-  useEffect(() => {
-    let disposed = false;
-    void api
-      .bootstrap()
-      .then(async (status) => {
-        if (!status.configured) {
-          navigate(`/setup${window.location.search}`, { replace: true });
-          return;
-        }
-        try {
-          const session = await api.me();
-          if (!disposed) {
-            setCurrentUserKey(session.user.username);
-            setReady(true);
-          }
-        } catch {
-          if (!disposed) navigate(`/login${window.location.search}`, { replace: true });
-        }
-      })
-      .catch(() => {
-        if (!disposed) navigate(`/login${window.location.search}`, { replace: true });
-      });
-    return () => {
-      disposed = true;
-    };
-  }, [navigate]);
   const requestListTransition = useCallback(() => {
     listTransitionIntentRef.current += 1;
   }, []);
@@ -2340,6 +2310,25 @@ export function Workspace() {
       notifyError("导出失败，请检查网络后重试");
     }
   }, [flushPendingSaves, hasUnsavedWork, isNoteLoading]);
+  const handleExportLibrary = useCallback(async () => {
+    try {
+      flushEditorDraftRef.current();
+      await flushPendingSaves("now");
+      if (hasUnsavedWork()) {
+        notifyWarning("仍有内容未保存，请保存成功后再导出");
+        return;
+      }
+      const response = await fetch("/api/export/library", { method: "HEAD" });
+      if (!response.ok) throw new Error(`Export check failed: ${response.status}`);
+      const a = document.createElement("a");
+      a.href = "/api/export/library";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch {
+      notifyError("整库导出失败，请检查网络、附件和服务端日志后重试");
+    }
+  }, [flushPendingSaves, hasUnsavedWork, notifyError, notifyWarning]);
   const handleExportImage = useCallback(() => {
     flushEditorDraftRef.current();
     const note = selectedRef.current;
@@ -2403,6 +2392,7 @@ export function Workspace() {
       if (id === "restore") restoreFromTrash();
       if (id === "export-image") handleExportImage();
       if (id === "export-note") void handleExportNote();
+      if (id === "export-library") void handleExportLibrary();
       if (id === "install-app") {
         if (pwaState.canInstall) void installPwa();
         else if (pwaState.showIosInstallHint && !pwaState.standalone)
@@ -2415,6 +2405,7 @@ export function Workspace() {
       createNoteInInbox,
       handleExportImage,
       handleExportNote,
+      handleExportLibrary,
       isMobileViewport,
       moveToTrash,
       openKanban,

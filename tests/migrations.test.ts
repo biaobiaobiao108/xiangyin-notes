@@ -369,3 +369,56 @@ test("db:check reports an unfinished search-index rebuild", async () => {
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("db:check reports SQLite and foreign-key integrity", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "xiangying-schema-check-"));
+  const path = join(directory, "notes.sqlite");
+  const database = await openDatabase(path);
+  database.query("INSERT INTO app_metadata (key, value) VALUES (?, ?)").run("db-check-test", "1");
+  database.close();
+
+  try {
+    const healthy = Bun.spawn(["bun", "run", "scripts/check-schema-drift.ts", path], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [healthyExitCode, healthyStdout, healthyStderr] = await Promise.all([
+      healthy.exited,
+      new Response(healthy.stdout).text(),
+      new Response(healthy.stderr).text(),
+    ]);
+    expect(healthyExitCode).toBe(0);
+    expect(healthyStdout).toContain("SQLite 完整性: 正常");
+    expect(healthyStdout).toContain("外键检查: 正常");
+    expect(healthyStderr).toBe("");
+
+    const corrupted = new Database(path);
+    try {
+      corrupted.exec("PRAGMA foreign_keys = OFF");
+      corrupted
+        .query(
+          "INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
+        )
+        .run("orphan-session", "missing-user", 1, 2);
+    } finally {
+      corrupted.close();
+    }
+
+    const child = Bun.spawn(["bun", "run", "scripts/check-schema-drift.ts", path], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [exitCode, stdout, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ]);
+    expect(exitCode).toBe(1);
+    expect(stdout).toContain("外键检查: 发现 1 条违规");
+    expect(stdout).toContain("sessions rowid=1 → users");
+    expect(stdout).toContain("请先备份数据库并排查");
+    expect(stderr).toBe("");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

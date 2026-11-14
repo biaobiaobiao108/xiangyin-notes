@@ -67,6 +67,7 @@ export type CommandId =
   | "move-to-notebook"
   | "open-kanban"
   | "export-note"
+  | "export-library"
   | "export-image";
 
 type CommandOption = {
@@ -279,6 +280,13 @@ export function CommandMenu({
             },
           ]
         : []),
+      {
+        id: "export-library",
+        label: "导出全部笔记和随记",
+        shortcut: "↵",
+        icon: Download,
+        keywords: "整库 导出 下载 备份 zip 附件",
+      },
       ...(hasSelectedNote
         ? [
             {

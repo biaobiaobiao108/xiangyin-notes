@@ -12,7 +12,6 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import type { Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Selection, type Transaction } from "@tiptap/pm/state";
-import { closeHistory } from "@tiptap/pm/history";
 import { CircleAlert, ImageDown, Star, Trash2, Undo2, X } from "lucide-react";
 import {
   IMAGE_MAX_BYTES,
@@ -23,14 +22,7 @@ import {
 import { preserveEscapedHashtagsForEditor } from "../shared/tags";
 import { api } from "./api";
 import { BrandMark } from "./brand-mark";
-import {
-  cycleSearchMatchIndex,
-  findTextMatches,
-  findEditorReplaceMatches,
-  replaceEditorSearchMatches,
-  searchHighlightPluginKey,
-  SearchHighlightExtension,
-} from "./editor-search";
+import { SearchHighlightExtension } from "./editor-search";
 import {
   buildOutlineItems,
   countEditorText,
@@ -86,6 +78,7 @@ import { NoteAnnotation, NoteHighlight } from "./editor/highlight-annotation";
 import { useEditorAnnotations } from "./editor/annotation-overlay";
 import { useScrollEdges } from "./workspace/use-scroll-edges";
 import { AutoReadingHUD } from "./editor/auto-reading-hud";
+import { useEditorSearch } from "./editor/use-editor-search";
 import "./editor/mobile-editor.css";
 
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
@@ -335,17 +328,6 @@ export function NoteEditor({
   const [imageUploadState, setImageUploadState] = useState<"idle" | "uploading" | "error">("idle");
   const [imageUploadMessage, setImageUploadMessage] = useState("");
   const editorLocked = isLoading || deferredLoading || trashBusy || autoReadingMode;
-  const [searchNavigation, setSearchNavigation] = useState({
-    activeIndex: 0,
-    matchCount: 0,
-    totalMatchCount: 0,
-  });
-  const [replaceOpen, setReplaceOpen] = useState(false);
-  const [replaceQuery, setReplaceQuery] = useState("");
-  const [replacementText, setReplacementText] = useState("");
-  const effectiveSearchQuery = replaceOpen ? replaceQuery : searchQuery;
-  const searchQueryRef = useRef(effectiveSearchQuery);
-  const searchNavigationRef = useRef(searchNavigation);
   const typewriterModeRef = useRef(typewriterMode);
   const typewriterAnimRef = useRef<number | null>(null);
   const typewriterTargetRef = useRef<number | null>(null);
@@ -384,8 +366,6 @@ export function NoteEditor({
   useEffect(() => {
     markdownOwnerRef.current.noteId = note.id;
     markdownOwnerRef.current.reloadToken = reloadToken;
-    searchQueryRef.current = effectiveSearchQuery;
-    searchNavigationRef.current = searchNavigation;
     onChangeRef.current = onChange;
     onMarkdownDirtyChangeRef.current = onMarkdownDirtyChange;
     onUploadImageRef.current = onUploadImage;
@@ -1124,26 +1104,41 @@ export function NoteEditor({
     isMobileViewport,
   );
 
+  const search = useEditorSearch({
+    editor,
+    noteId: note.id,
+    title: note.title,
+    searchQuery,
+    searchNavigationToken,
+    reloadToken,
+    replaceRequest,
+    onReplaceRequestHandled,
+    isLoading,
+    editorLocked,
+    isMobileViewport,
+    editorScrollRef,
+    titleInputRef,
+    onClearSearch,
+  });
+  const {
+    searchNavigation,
+    replaceOpen,
+    replaceQuery,
+    replacementText,
+    setReplaceQuery,
+    setReplacementText,
+    syncSearchNavigation,
+    moveSearchMatch,
+    replaceCurrent,
+    replaceAll,
+    closeReplace,
+    toggleReplace,
+  } = search;
+
   const handleSaveNow = useCallback(() => {
     flushMarkdownChange();
     onSaveNow();
   }, [flushMarkdownChange, onSaveNow]);
-
-  const syncSearchNavigation = useCallback((instance: Editor) => {
-    const state = searchHighlightPluginKey.getState(instance.state);
-    const next = {
-      activeIndex: state?.activeIndex ?? 0,
-      matchCount: state?.matches.length ?? 0,
-      totalMatchCount: state?.totalMatchCount ?? 0,
-    };
-    setSearchNavigation((current) =>
-      current.activeIndex === next.activeIndex &&
-      current.matchCount === next.matchCount &&
-      current.totalMatchCount === next.totalMatchCount
-        ? current
-        : next,
-    );
-  }, []);
 
   const syncActiveOutlineFromSelection = useCallback(
     (instance: Editor) => {
@@ -1396,154 +1391,6 @@ export function NoteEditor({
     onFocusHandled,
   ]);
 
-  const scrollToActiveSearchMatch = useCallback(() => {
-    if (!editor || editor.isDestroyed) return;
-    const behavior: ScrollBehavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches
-      ? "auto"
-      : "smooth";
-    editor.view.dom
-      .querySelector<HTMLElement>(".editor-search-match--active")
-      ?.scrollIntoView({ behavior, block: "center", inline: "nearest" });
-  }, [editor]);
-
-  const moveSearchMatch = useCallback(
-    (direction: -1 | 1) => {
-      if (!editor || isLoading || !searchQueryRef.current) return;
-      const state = searchHighlightPluginKey.getState(editor.state);
-      if (!state?.matches.length) return;
-      const nextIndex = cycleSearchMatchIndex(state.activeIndex, state.matches.length, direction);
-      editor.view.dispatch(
-        editor.state.tr.setMeta(searchHighlightPluginKey, {
-          type: "activeIndex",
-          index: nextIndex,
-        }),
-      );
-      requestAnimationFrame(scrollToActiveSearchMatch);
-    },
-    [editor, isLoading, scrollToActiveSearchMatch],
-  );
-
-  const closeReplace = useCallback(() => {
-    setReplaceOpen(false);
-    editor?.commands.focus();
-  }, [editor]);
-
-  const replaceCurrent = useCallback(() => {
-    if (!editor || !editor.isEditable || editorLocked || !replaceQuery) return;
-    const search = searchHighlightPluginKey.getState(editor.state);
-    const match = search?.matches[search.activeIndex];
-    if (!match) return;
-    const transaction = editor.state.tr.insertText(replacementText, match.from, match.to);
-    const matches = findEditorReplaceMatches(transaction.doc, replaceQuery);
-    const nextPosition = match.from + replacementText.length;
-    const nextIndex = matches.findIndex((item) => item.from >= nextPosition);
-    transaction.setMeta(searchHighlightPluginKey, {
-      type: "query",
-      query: replaceQuery,
-      literal: true,
-      activeIndex: nextIndex < 0 ? 0 : nextIndex,
-    });
-    editor.view.dispatch(closeHistory(transaction));
-    editor.view.dispatch(closeHistory(editor.state.tr));
-    requestAnimationFrame(scrollToActiveSearchMatch);
-  }, [editor, editorLocked, replaceQuery, replacementText, scrollToActiveSearchMatch]);
-
-  const replaceAll = useCallback(() => {
-    if (!editor || !editor.isEditable || editorLocked || !replaceQuery) return;
-    const { transaction, count } = replaceEditorSearchMatches(
-      editor.state,
-      replaceQuery,
-      replacementText,
-    );
-    if (!count) return;
-    editor.view.dispatch(closeHistory(transaction));
-    editor.view.dispatch(closeHistory(editor.state.tr));
-  }, [editor, editorLocked, replaceQuery, replacementText]);
-
-  useEffect(() => {
-    if (!searchQuery) setReplaceOpen(false);
-  }, [searchQuery]);
-
-  useEffect(() => {
-    if (!editor || !replaceRequest || replaceRequest.noteId !== note.id) return;
-    setReplaceQuery((current) => replaceRequest.query || (replaceOpen ? current : searchQuery));
-    setReplaceOpen(true);
-    const frame = requestAnimationFrame(() => {
-      const input = editor.view.dom
-        .closest(".editor-panel")
-        ?.querySelector<HTMLInputElement>(".editor-replace-field input[type=search]");
-      input?.focus();
-      input?.select();
-      onReplaceRequestHandled?.(replaceRequest.token);
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [editor, note.id, replaceRequest, onReplaceRequestHandled]);
-
-  useEffect(() => {
-    if (!replaceOpen) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.isComposing || event.keyCode === 229) return;
-      if (event.target instanceof Element && event.target.closest("dialog[open], [role='dialog']"))
-        return;
-      const panel = editor?.view.dom.closest(".editor-panel");
-      if (!(event.target instanceof Node) || !panel?.contains(event.target)) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      closeReplace();
-    };
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [replaceOpen, editor, closeReplace]);
-
-  useEffect(() => {
-    if (!editor || isLoading) return;
-    const trimmedQuery = replaceOpen ? replaceQuery : searchQuery.trim();
-    const titleMatches = replaceOpen ? [] : findTextMatches(note.title, trimmedQuery);
-    editor.view.dispatch(
-      editor.state.tr.setMeta(searchHighlightPluginKey, {
-        type: "query",
-        query: trimmedQuery,
-        literal: replaceOpen,
-        activeIndex: 0,
-      }),
-    );
-    syncSearchNavigation(editor);
-    const hasBodyMatches =
-      (searchHighlightPluginKey.getState(editor.state)?.totalMatchCount ?? 0) > 0;
-
-    const frame = requestAnimationFrame(() => {
-      if (editor.isDestroyed || replaceOpen) return;
-      const behavior: ScrollBehavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches
-        ? "auto"
-        : "smooth";
-      if (titleMatches.length > 0) {
-        editorScrollRef.current?.scrollTo({ top: 0, behavior });
-        const titleInput = titleInputRef.current;
-        if (titleInput && !isMobileViewport) {
-          titleInput.focus({ preventScroll: true });
-          titleInput.setSelectionRange(titleMatches[0].start, titleMatches[0].end);
-        }
-        return;
-      }
-      if (!hasBodyMatches) return;
-      editor.view.dom
-        .querySelector<HTMLElement>(".editor-search-match--active")
-        ?.scrollIntoView({ behavior, block: "center", inline: "nearest" });
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [
-    editor,
-    isLoading,
-    isMobileViewport,
-    note.id,
-    reloadToken,
-    searchQuery,
-    replaceOpen,
-    replaceQuery,
-    searchNavigationToken,
-    syncSearchNavigation,
-  ]);
-
   useEffect(() => {
     if (!editor || isLoading || !taskNavigation || taskNavigation.noteId !== note.id) return;
     const position = findTaskPosition(
@@ -1581,29 +1428,6 @@ export function NoteEditor({
       clearHighlight();
     };
   }, [editor, isLoading, note.id, onTaskNavigationMissing, taskNavigation]);
-
-  useEffect(() => {
-    const handleSearchKeyDown = (event: KeyboardEvent) => {
-      if (event.isComposing || event.keyCode === 229) return;
-      if (event.target instanceof Element && event.target.closest("dialog[open]")) return;
-      if (event.key === "F3") {
-        if (event.defaultPrevented) return;
-        if (!searchQueryRef.current.trim() || searchNavigationRef.current.totalMatchCount === 0)
-          return;
-        event.preventDefault();
-        moveSearchMatch(event.shiftKey ? -1 : 1);
-      } else if (event.key === "Escape") {
-        // 搜索高亮清除作为 Escape 第 1 层由工作区统一处理，这里保留同规则兜底。
-        if (searchQueryRef.current.trim() && onClearSearch) {
-          event.preventDefault();
-          event.stopImmediatePropagation();
-          onClearSearch();
-        }
-      }
-    };
-    window.addEventListener("keydown", handleSearchKeyDown);
-    return () => window.removeEventListener("keydown", handleSearchKeyDown);
-  }, [moveSearchMatch, onClearSearch]);
 
   useEffect(() => {
     if (isLoading) onCloseOutline();
@@ -2075,14 +1899,7 @@ export function NoteEditor({
         replaceQuery={replaceQuery}
         replacementText={replacementText}
         replaceMatchNavigation={searchNavigation}
-        onToggleReplace={() => {
-          if (replaceOpen) setReplaceOpen(false);
-          else {
-            setReplaceQuery(searchQuery);
-            setReplacementText("");
-            setReplaceOpen(true);
-          }
-        }}
+        onToggleReplace={toggleReplace}
         onChangeReplaceQuery={setReplaceQuery}
         onChangeReplacementText={setReplacementText}
         onMoveReplaceMatch={moveSearchMatch}

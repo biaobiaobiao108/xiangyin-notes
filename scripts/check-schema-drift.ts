@@ -39,6 +39,16 @@ const target = versionUnsupported
   : await createExpectedSchemaDatabase(existingVersion);
 
 try {
+  const integrityRows = existing.query("PRAGMA quick_check").all() as Array<{
+    quick_check: string;
+  }>;
+  const integrityOk = integrityRows.length === 1 && integrityRows[0]?.quick_check === "ok";
+  const foreignKeyViolations = existing.query("PRAGMA foreign_key_check").all() as Array<{
+    table: string;
+    rowid: number | null;
+    parent: string;
+    fkid: number;
+  }>;
   const existingObjects = snapshotSchema(existing);
   const targetObjects = snapshotSchema(target);
   const migrationPending = !versionUnsupported && existingVersion < CURRENT_SCHEMA_VERSION;
@@ -96,7 +106,9 @@ try {
     different.length > 0 ||
     extra.length > 0 ||
     columnDiffs.length > 0 ||
-    searchIndexRebuildPending;
+    searchIndexRebuildPending ||
+    !integrityOk ||
+    foreignKeyViolations.length > 0;
 
   console.log(
     `已有库 ${existingPath}：${existingObjects.size} 个对象；版本 ${existingVersion} 的 schema：${targetObjects.size} 个对象`,
@@ -113,6 +125,23 @@ try {
   console.log("定义不一致:", different.length ? different.join(", ") : "无");
   console.log("列级差异:", columnDiffs.length ? `\n  - ${columnDiffs.join("\n  - ")}` : "无");
   console.log(
+    "SQLite 完整性:",
+    integrityOk
+      ? "正常"
+      : `异常\n  - ${integrityRows.map((row) => row.quick_check).join("\n  - ")}`,
+  );
+  console.log(
+    "外键检查:",
+    foreignKeyViolations.length
+      ? `发现 ${foreignKeyViolations.length} 条违规\n  - ${foreignKeyViolations
+          .slice(0, 20)
+          .map(
+            ({ table, rowid, parent, fkid }) => `${table} rowid=${rowid} → ${parent} (fk ${fkid})`,
+          )
+          .join("\n  - ")}${foreignKeyViolations.length > 20 ? "\n  - 其余违规已省略" : ""}`
+      : "正常",
+  );
+  console.log(
     "搜索索引重建:",
     migrationPending
       ? "待迁移后重新检查"
@@ -122,7 +151,7 @@ try {
   );
   console.log(
     drifted
-      ? "\n发现漂移或未完成的重建任务：请排查后再启动服务。"
+      ? "\n发现 schema 漂移、数据库完整性问题或未完成的重建任务：请先备份数据库并排查；不要删除或重建数据卷。"
       : migrationPending
         ? "\n结构与已有版本一致，可启动服务完成迁移。"
         : "\n结构与当前 schema 一致。",

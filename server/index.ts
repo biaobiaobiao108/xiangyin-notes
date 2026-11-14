@@ -59,6 +59,7 @@ const API_RESOURCES = new Set([
   "trash",
   "wiki-notes",
   "import",
+  "export",
   "realtime",
 ]);
 
@@ -315,6 +316,8 @@ async function handleApi(request: Request, options: ServerOptions) {
   const ctx: RouteContext = { request, url, method, segments, options };
   if (segments[0] === "v1") return handleVersionedApiRoute(ctx, assetRoot);
   if (!API_RESOURCES.has(segments[0] ?? "")) return jsonError(404, "NOT_FOUND", "接口不存在");
+  if (segments[0] === "export" && url.pathname !== "/api/export/library")
+    return jsonError(404, "NOT_FOUND", "接口不存在");
 
   cleanupExpiredSessions(database);
   // 1. Unauthenticated routes (Health, Auth, Bootstrap, Setup)

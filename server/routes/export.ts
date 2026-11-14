@@ -1,4 +1,5 @@
 import { first, jsonError, type RouteContext, type UserRow } from "../core";
+import { handleLibraryExport } from "./library-export";
 
 type ExportNoteRow = {
   title: string;
@@ -26,8 +27,13 @@ function encodeFilename(value: string) {
   );
 }
 
-export function handleExportRoute(ctx: RouteContext, user: UserRow): Response | null {
+export function handleExportRoute(
+  ctx: RouteContext,
+  user: UserRow,
+): Response | null | Promise<Response> {
   const { url, method, segments, options } = ctx;
+  if (url.pathname === "/api/export/library" && (method === "GET" || method === "HEAD"))
+    return handleLibraryExport(ctx, user);
   if (
     method !== "GET" ||
     url.pathname !== `/api/notes/${segments[1]}/export` ||

@@ -4,6 +4,25 @@ import { renderToString } from "react-dom/server";
 import { CommandMenu } from "../app/command-menu";
 
 describe("CommandMenu 键盘优先与鼠标防干扰契约", () => {
+  it("未选中笔记时也可找到整库导出命令", () => {
+    const html = renderToString(
+      React.createElement(CommandMenu, {
+        open: true,
+        onClose: () => {},
+        onCommand: () => {},
+        onCreateNoteInNotebook: () => {},
+        canRestore: false,
+        canMoveToTrash: false,
+        notebooks: [],
+        canInstallApp: false,
+        showIosInstallHint: false,
+        standalone: false,
+        initialQuery: "整库",
+        themePreference: "system",
+      }),
+    );
+    expect(html).toContain("导出全部笔记和随记");
+  });
   it("触屏布局不渲染键盘活动项高亮，但保留命令选择语义", () => {
     const html = renderToString(
       React.createElement(CommandMenu, {

@@ -75,6 +75,25 @@ async function request(
 }
 
 describe("Bun Server API", () => {
+  test("requires a session for library exports and allows authenticated download", async () => {
+    const unauthorized = await request("/api/export/library");
+    expect(unauthorized.response.status).toBe(401);
+    const login = await request("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
+    });
+    const check = await request("/api/export/library", { method: "HEAD" }, login.cookie);
+    expect(check.response.status).toBe(200);
+    const download = await handleRequest(
+      new Request("http://xiangying.test/api/export/library", {
+        headers: { Cookie: login.cookie! },
+      }),
+      { database, environment, assetRoot, clientAddress },
+    );
+    expect(download.status).toBe(200);
+    expect(download.headers.get("Content-Type")).toBe("application/zip");
+    expect((await download.arrayBuffer()).byteLength).toBeGreaterThan(0);
+  });
   test("lists open and completed Markdown tasks with note and notebook context", async () => {
     const login = await request("/api/auth/login", {
       method: "POST",
