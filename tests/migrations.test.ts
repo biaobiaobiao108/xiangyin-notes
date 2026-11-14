@@ -336,7 +336,7 @@ test("db:check rejects a database with a matching schema and unsupported version
       new Response(child.stderr).text(),
     ]);
     expect(exitCode).toBe(1);
-    expect(stdout).toContain("不支持的 schema 版本：999");
+    expect(stdout, stderr).toContain("不支持的 schema 版本：999");
     expect(stderr).toBe("");
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -363,7 +363,7 @@ test("db:check reports an unfinished search-index rebuild", async () => {
       new Response(child.stderr).text(),
     ]);
     expect(exitCode).toBe(1);
-    expect(stdout).toContain("搜索索引重建: 未完成");
+    expect(stdout, stderr).toContain("搜索索引重建: 未完成");
     expect(stderr).toBe("");
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -372,7 +372,7 @@ test("db:check reports an unfinished search-index rebuild", async () => {
 
 test("db:check opens a clean WAL database without creating sidecars or changing it", async () => {
   const directory = await mkdtemp(join(tmpdir(), "xiangying-schema-check-"));
-  const path = join(directory, "notes.sqlite");
+  const path = join(directory, "笔记 #%.sqlite");
   const database = await openDatabase(path);
   database.close();
 
@@ -389,7 +389,7 @@ test("db:check opens a clean WAL database without creating sidecars or changing 
       new Response(child.stdout).text(),
       new Response(child.stderr).text(),
     ]);
-    expect(exitCode).toBe(0);
+    expect(exitCode, stderr).toBe(0);
     expect(stdout).toContain("SQLite 完整性: 正常");
     expect(stdout).toContain("外键检查: 正常");
     expect(stderr).toBe("");
@@ -446,7 +446,7 @@ test("db:check reports SQLite and foreign-key integrity", async () => {
       new Response(healthy.stdout).text(),
       new Response(healthy.stderr).text(),
     ]);
-    expect(healthyExitCode).toBe(0);
+    expect(healthyExitCode, healthyStderr).toBe(0);
     expect(healthyStdout).toContain("SQLite 完整性: 正常");
     expect(healthyStdout).toContain("外键检查: 正常");
     expect(healthyStderr).toBe("");

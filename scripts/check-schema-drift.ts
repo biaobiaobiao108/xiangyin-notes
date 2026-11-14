@@ -11,7 +11,7 @@ import { existsSync } from "node:fs";
 import { open } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { Database } from "bun:sqlite";
+import { constants, Database } from "bun:sqlite";
 import {
   CURRENT_SCHEMA_VERSION,
   SEARCH_INDEX_REBUILD_KEY,
@@ -52,7 +52,13 @@ const useImmutableReadOnly = await isWalDatabaseWithoutSidecars(existingPath);
 const existingFilename = useImmutableReadOnly
   ? `${pathToFileURL(resolve(existingPath)).href}?immutable=1`
   : existingPath;
-const existing = new Database(existingFilename, { readonly: true });
+// Explicitly enable URI parsing: SQLite builds differ in their default URI setting.
+const existing = new Database(
+  existingFilename,
+  useImmutableReadOnly
+    ? constants.SQLITE_OPEN_READONLY | constants.SQLITE_OPEN_URI
+    : constants.SQLITE_OPEN_READONLY,
+);
 if (useImmutableReadOnly && hasWalSidecars(existingPath)) {
   existing.close();
   console.error(
