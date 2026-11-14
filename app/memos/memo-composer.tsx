@@ -19,6 +19,17 @@ import { buildMemoComposerMenuItems } from "./memo-context-menu";
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
 type SubmitReason = "shortcut" | "blur";
 
+export function isMemoSubmitShortcut(event: {
+  key: string;
+  ctrlKey?: boolean;
+  metaKey?: boolean;
+  isComposing?: boolean;
+  keyCode?: number;
+}): boolean {
+  if (event.isComposing || event.keyCode === 229) return false;
+  return event.key === "Enter" && Boolean(event.ctrlKey || event.metaKey);
+}
+
 export type MemoComposerHandle = {
   focus: () => void;
 };
@@ -77,15 +88,6 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
   }));
 
   const extensions = useMemo(() => createCommonEditorExtensions({ placeholder }), [placeholder]);
-  const editorProps = useMemo(
-    () => ({
-      attributes: {
-        class: "memo-composer-prose note-prose",
-        "aria-label": ariaLabel,
-      },
-    }),
-    [ariaLabel],
-  );
 
   const queueDraft = useCallback((markdown: string) => {
     if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
@@ -127,7 +129,7 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
         await onSubmitRef.current(markdown);
         if (resetOnSubmitRef.current) {
           clearDraft(instance);
-          if (reason === "shortcut") instance.commands.focus("end");
+          if (reason === "shortcut") instance.commands.blur();
         }
       } catch (reason) {
         setError(messageOf(reason));
@@ -145,6 +147,36 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
     closingRef.current = true;
     onCancelRef.current();
   }, []);
+
+  const handleKeyDownInEditor = useCallback(
+    (_view: unknown, event: KeyboardEvent) => {
+      if (isMemoSubmitShortcut(event)) {
+        event.preventDefault();
+        event.stopPropagation();
+        void submit("shortcut");
+        return true;
+      }
+      if (event.key === "Escape" && onCancelRef.current) {
+        event.preventDefault();
+        event.stopPropagation();
+        cancel();
+        return true;
+      }
+      return false;
+    },
+    [cancel, submit],
+  );
+
+  const editorProps = useMemo(
+    () => ({
+      attributes: {
+        class: "memo-composer-prose note-prose",
+        "aria-label": ariaLabel,
+      },
+      handleKeyDown: handleKeyDownInEditor,
+    }),
+    [ariaLabel, handleKeyDownInEditor],
+  );
 
   const handleContextMenu = useCallback(
     (event: ReactMouseEvent<HTMLElement>) => {
@@ -280,8 +312,7 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
       className={`memo-composer ${className}`.trim()}
       aria-busy={saving}
       onKeyDown={(event) => {
-        if (event.nativeEvent.isComposing || event.keyCode === 229) return;
-        if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+        if (isMemoSubmitShortcut(event.nativeEvent)) {
           event.preventDefault();
           void submit("shortcut");
         } else if (event.key === "Escape" && onCancelRef.current) {

@@ -454,7 +454,7 @@ export function buildMemoComposerMenuItems({
       items.push({
         label: "保存修改",
         icon: Check,
-        shortcut: `${modKey} ↵`,
+        shortcut: "Ctrl ↵",
         separator: true,
         onSelect: actions.submit,
       });

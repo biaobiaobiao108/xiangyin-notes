@@ -6,6 +6,7 @@ import {
   buildMemoFeedMenuItems,
   buildMemoTagMenuItems,
 } from "../app/memos/memo-context-menu";
+import { isMemoSubmitShortcut } from "../app/memos/memo-composer";
 import { createWorkspaceContextMenuHandler } from "../app/workspace/workspace-context-menu";
 import type { ContextMenuItem } from "../app/context-menu";
 import type { Memo } from "../shared/types";
@@ -489,6 +490,23 @@ describe("memo composer context menu", () => {
     find(items, "保存修改").onSelect();
     find(items, "取消编辑").onSelect();
     expect(calls).toEqual(["save", "cancel"]);
+  });
+
+  test("isMemoSubmitShortcut recognises Ctrl+Enter across platforms and ignores plain or IME Enter", () => {
+    // Windows Ctrl+Enter
+    expect(isMemoSubmitShortcut({ key: "Enter", ctrlKey: true, metaKey: false })).toBe(true);
+    // Mac physical Control+Enter
+    expect(isMemoSubmitShortcut({ key: "Enter", ctrlKey: true, metaKey: false })).toBe(true);
+    // Mac Command+Enter
+    expect(isMemoSubmitShortcut({ key: "Enter", ctrlKey: false, metaKey: true })).toBe(true);
+
+    // Plain Enter (inserts regular newline)
+    expect(isMemoSubmitShortcut({ key: "Enter", ctrlKey: false, metaKey: false })).toBe(false);
+    // Other keys
+    expect(isMemoSubmitShortcut({ key: "s", ctrlKey: true, metaKey: false })).toBe(false);
+    // IME composition state
+    expect(isMemoSubmitShortcut({ key: "Enter", ctrlKey: true, isComposing: true })).toBe(false);
+    expect(isMemoSubmitShortcut({ key: "Enter", ctrlKey: true, keyCode: 229 })).toBe(false);
   });
 });
 
