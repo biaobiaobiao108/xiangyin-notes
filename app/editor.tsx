@@ -29,7 +29,6 @@ import {
   detectLeakedImePrefix,
   getOutlineStructureKey,
   normalizeChineseMarkdownBlockMarkers,
-  parseMarkdownBlockShortcut,
   shouldParseMarkdownPaste,
   shouldUpdateActiveOutlineFromViewport,
   type EditorStats,
@@ -57,7 +56,10 @@ import {
 } from "./editor/task-navigation";
 import { FloatingScrollbar } from "./floating-scrollbar";
 import { normalizeImagesInEmptyListItems } from "./image-markdown";
-import { executeBlockShortcut, executeBlockShortcutAtSelection } from "./editor/markdown-shortcuts";
+import {
+  executeBlockShortcutAtSelection,
+  handleMarkdownBlockShortcutInput,
+} from "./editor/markdown-shortcuts";
 import { editorCoreExtensionOptions } from "./editor/editor-config";
 import { createCommonEditorExtensions } from "./editor/common-extensions";
 import { EditorFloatingTools } from "./editor/editor-panels";
@@ -969,19 +971,7 @@ export function NoteEditor({
         return false;
       },
       handleTextInput: (view: Editor["view"], from: number, to: number, text: string) => {
-        if (
-          (text !== " " && text !== "\u3000") ||
-          from !== to ||
-          composingRef.current ||
-          view.composing
-        )
-          return false;
-        const $from = view.state.doc.resolve(from);
-        if ($from.parent.type.name !== "paragraph") return false;
-        const textBefore = $from.parent.textBetween(0, $from.parentOffset, undefined, "\uFFFC");
-        const shortcut = parseMarkdownBlockShortcut(`${textBefore} `);
-        if (!shortcut) return false;
-        return executeBlockShortcut(view, from, shortcut);
+        return handleMarkdownBlockShortcutInput(view, from, to, text, composingRef.current);
       },
       handleDOMEvents: {
         compositionstart: (view: Editor["view"]) => {

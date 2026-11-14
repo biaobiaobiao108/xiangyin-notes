@@ -51,3 +51,21 @@ export function executeBlockShortcutAtSelection(view: EditorView): boolean {
   const shortcut = parseMarkdownBlockShortcut(textBefore);
   return shortcut ? executeBlockShortcut(view, $from.pos, shortcut) : false;
 }
+
+/** Applies a supported block marker when its trailing whitespace is typed. */
+export function handleMarkdownBlockShortcutInput(
+  view: EditorView,
+  from: number,
+  to: number,
+  text: string,
+  composing = false,
+): boolean {
+  if (composing || view.composing || (text !== " " && text !== "\u3000") || from !== to) {
+    return false;
+  }
+  const $from = view.state.doc.resolve(from);
+  if ($from.parent.type.name !== "paragraph") return false;
+  const textBefore = $from.parent.textBetween(0, $from.parentOffset, undefined, "\uFFFC");
+  const shortcut = parseMarkdownBlockShortcut(`${textBefore} `);
+  return shortcut ? executeBlockShortcut(view, from, shortcut) : false;
+}

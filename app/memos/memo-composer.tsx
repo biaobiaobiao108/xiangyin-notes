@@ -14,6 +14,11 @@ import { createCommonEditorExtensions } from "../editor/common-extensions";
 import { editorCoreExtensionOptions } from "../editor/editor-config";
 import { useContextMenu } from "../context-menu";
 import { copyPlainText } from "../editor/code-block-copy";
+import {
+  executeBlockShortcutAtSelection,
+  handleMarkdownBlockShortcutInput,
+} from "../editor/markdown-shortcuts";
+import { normalizeChineseMarkdownBlockMarkers, shouldParseMarkdownPaste } from "../editor-metrics";
 import { buildMemoComposerMenuItems } from "./memo-context-menu";
 
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
@@ -182,6 +187,33 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
       attributes: {
         class: "memo-composer-prose note-prose",
         "aria-label": ariaLabel,
+      },
+      handleTextInput: (view: Editor["view"], from: number, to: number, text: string) =>
+        handleMarkdownBlockShortcutInput(view, from, to, text),
+      handlePaste: (view: Editor["view"], event: ClipboardEvent) => {
+        const text = event.clipboardData?.getData("text/plain") ?? "";
+        const html = event.clipboardData?.getData("text/html") ?? "";
+        if (!shouldParseMarkdownPaste(text, Boolean(html))) return false;
+        const instance = editorRef.current;
+        if (!instance?.markdown) return false;
+        try {
+          const parsedDocument = view.state.schema.nodeFromJSON(
+            instance.markdown.parse(normalizeChineseMarkdownBlockMarkers(text)),
+          );
+          const slice = parsedDocument.slice(0, parsedDocument.content.size);
+          view.dispatch(view.state.tr.replaceSelection(slice).setMeta("uiEvent", "paste"));
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      handleDOMEvents: {
+        compositionend: (view: Editor["view"]) => {
+          window.setTimeout(() => {
+            if (!view.isDestroyed) executeBlockShortcutAtSelection(view);
+          }, 30);
+          return false;
+        },
       },
       handleKeyDown: handleKeyDownInEditor,
     }),
