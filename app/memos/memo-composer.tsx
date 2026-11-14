@@ -20,6 +20,7 @@ import {
 } from "../editor/markdown-shortcuts";
 import { normalizeChineseMarkdownBlockMarkers, shouldParseMarkdownPaste } from "../editor-metrics";
 import { WikiLinkNode } from "../editor/wiki-link-node";
+import { TableScrollbars } from "../editor/table-scrollbars";
 import { buildMemoComposerMenuItems } from "./memo-context-menu";
 
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
@@ -78,6 +79,7 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
   },
   ref,
 ) {
+  const rootRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<EditorWithMarkdown | null>(null);
   const { openMenu, menu } = useContextMenu();
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -367,6 +369,7 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
 
   return (
     <div
+      ref={rootRef}
       className={`memo-composer ${className}`.trim()}
       aria-busy={saving}
       onKeyDown={(event) => {
@@ -396,6 +399,7 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
       onContextMenu={handleContextMenu}
     >
       <EditorContent editor={editor} />
+      <TableScrollbars rootRef={rootRef} />
       {error && (
         <p className="memo-composer-error" role="alert">
           {error}

@@ -246,10 +246,6 @@
   min-height: calc(1em * var(--memo-prose-leading));
 }
 
-.memo-composer .ProseMirror p {
-  margin: 0 0 1.12em;
-}
-
 .memo-composer .ProseMirror > :last-child {
   margin-bottom: 0;
 }
