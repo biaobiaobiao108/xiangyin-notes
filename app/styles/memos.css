@@ -375,13 +375,6 @@
   min-width: 0;
 }
 
-.memo-markdown .memo-wiki-link {
-  color: var(--accent-dark);
-  text-decoration: underline;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 3px;
-}
-
 .memo-composer .editor-wiki-link {
   cursor: text;
 }

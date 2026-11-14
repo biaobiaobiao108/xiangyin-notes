@@ -49,9 +49,31 @@ describe("memo Markdown rendering", () => {
 
   test("renders Chinese wiki links by their target or alias", () => {
     const html = renderMemoMarkdown("参考 【【目标笔记】】 与 【【技术架构｜架构设计】】");
-    expect(html).toContain('<span class="memo-wiki-link">目标笔记</span>');
-    expect(html).toContain('<span class="memo-wiki-link">架构设计</span>');
+    expect(html).toContain('<span class="editor-wiki-link">目标笔记</span>');
+    expect(html).toContain('<span class="editor-wiki-link">架构设计</span>');
     expect(html).not.toContain("【【");
+  });
+
+  test("uses the same task list structure as the note editor", () => {
+    const html = renderMemoMarkdown("- [ ] 未完成\n- [x] 已完成 **重点**");
+    expect(html).toContain('<ul data-type="taskList">');
+    expect(html).toContain('<li data-checked="false" data-type="taskItem">');
+    expect(html).toContain('<li data-checked="true" data-type="taskItem">');
+    expect(html).toContain("<label><input");
+    expect(html).toContain("<div><p>已完成 <strong>重点</strong></p></div>");
+    expect(html).not.toContain("**重点**");
+  });
+
+  test("wraps tables in the note table scroll shell", () => {
+    const html = renderMemoMarkdown("| 列一 | 列二 |\n| --- | --- |\n| 内容 | 示例 |");
+    expect(html).toContain('<div class="table-scroll-shell"><table>');
+    expect(html).toContain("<th>列一</th>");
+  });
+
+  test("labels fenced code blocks like the note editor", () => {
+    const html = renderMemoMarkdown("```ts\nconst value = 1;\n```");
+    expect(html).toContain('<span class="code-block-language" aria-hidden="true">ts</span>');
+    expect(html).toContain('<code class="language-ts">const value = 1;');
   });
 
   test("does not tag code, URL fragments, image alt text, or escaped hashtags", () => {
