@@ -1065,7 +1065,7 @@ describe("remote MCP endpoint", () => {
     }
   });
 
-  test("authenticates with a path token or bearer header and rejects cookies and the import token", async () => {
+  test("authenticates only with a path token and rejects bearer headers, cookies, and the import token", async () => {
     const unconfigured = await request(`${MCP_PATH}/${token}`, { method: "POST" });
     expect(unconfigured.response.status).toBe(503);
     expect(unconfigured.body?.error.code).toBe("MCP_AUTH_NOT_CONFIGURED");
@@ -1091,19 +1091,12 @@ describe("remote MCP endpoint", () => {
     );
     expect(nestedTokenPath.response.status).toBe(401);
 
-    const baseRequest = modernMcpRequest("tools/list", 90);
-    const headerRequest = new Request("http://xiangying.test" + MCP_PATH, {
-      method: "POST",
-      headers: new Headers(baseRequest.headers),
-      body: await baseRequest.text(),
-    });
-    headerRequest.headers.set("Authorization", `Bearer ${token}`);
-    const headerOnly = await handleRequest(headerRequest, {
-      database,
-      environment: configuredEnvironment,
-      assetRoot,
-    });
-    expect(headerOnly.status).toBe(200);
+    const headerOnly = await request(
+      MCP_PATH,
+      { method: "POST", headers: { Authorization: `Bearer ${token}` } },
+      configuredEnvironment,
+    );
+    expect(headerOnly.response.status).toBe(401);
 
     const apiToken = await request(
       `${MCP_PATH}/shortcut-import-token-1234567890`,

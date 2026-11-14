@@ -345,7 +345,8 @@
 }
 
 .memo-card.is-editing {
-  background: var(--accent-soft);
+  border-color: var(--accent);
+  background: var(--surface);
 }
 
 .memo-card:not(.is-editing):active {

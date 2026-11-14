@@ -345,6 +345,24 @@
   gap: 10px;
 }
 
+.kanban-card-list.is-virtualized {
+  position: relative;
+  display: block;
+  flex: none;
+  gap: 0;
+}
+
+.kanban-virtual-card {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+}
+
+.kanban-card-list.is-virtualized .kanban-card {
+  content-visibility: visible;
+  contain-intrinsic-size: none;
+}
+
 /* Kanban Card */
 .kanban-card {
   position: relative;
@@ -479,6 +497,14 @@
   background: var(--accent-border-soft);
   margin: 4px 0;
   box-shadow: none;
+}
+
+.kanban-drop-indicator--virtual {
+  position: absolute;
+  z-index: 2;
+  inset-inline: 0;
+  margin: 0;
+  pointer-events: none;
 }
 
 .kanban-column-load-more {

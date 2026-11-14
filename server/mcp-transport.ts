@@ -58,12 +58,6 @@ function pathToken(request: Request) {
   }
 }
 
-function bearerToken(request: Request) {
-  const authorization = request.headers.get("Authorization")?.trim();
-  const match = authorization ? /^Bearer\s+(\S+)$/iu.exec(authorization) : null;
-  return match?.[1] ?? null;
-}
-
 const nextMcpRateLimitCleanupAt = new WeakMap<SqliteDatabase, number>();
 
 function checkMcpRateLimit(database: SqliteDatabase, key: string) {
@@ -331,13 +325,9 @@ export async function handleMcpRequest(request: Request, options: ServerOptions)
   if (!expectedToken)
     return jsonError(503, "MCP_AUTH_NOT_CONFIGURED", "请先配置 XIANGYING_MCP_TOKEN");
 
-  const suppliedToken = pathToken(request) ?? bearerToken(request);
+  const suppliedToken = pathToken(request);
   if (!suppliedToken || !constantTimeEqual(suppliedToken, expectedToken)) {
-    return jsonError(
-      401,
-      "INVALID_MCP_TOKEN",
-      "MCP 令牌无效或缺失（支持 /mcp/<令牌> 或 Authorization: Bearer）",
-    );
+    return jsonError(401, "INVALID_MCP_TOKEN", "MCP URL 令牌无效或缺失");
   }
 
   const originError = validateOrigin(request, environment);

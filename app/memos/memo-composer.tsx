@@ -30,6 +30,10 @@ export function isMemoSubmitShortcut(event: {
   return event.key === "Enter" && Boolean(event.ctrlKey || event.metaKey);
 }
 
+export function normalizeMemoComposerContent(markdown: string) {
+  return markdown.replace(/(?:\r?\n)+$/u, "");
+}
+
 export type MemoComposerHandle = {
   focus: () => void;
 };
@@ -280,7 +284,7 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
   const editor = useEditor({
     extensions,
     coreExtensionOptions: editorCoreExtensionOptions,
-    content: initialMarkdown,
+    content: normalizeMemoComposerContent(initialMarkdown),
     contentType: "markdown",
     editorProps,
     onCreate: ({ editor: instance }) => {

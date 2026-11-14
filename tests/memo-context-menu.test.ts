@@ -6,7 +6,7 @@ import {
   buildMemoFeedMenuItems,
   buildMemoTagMenuItems,
 } from "../app/memos/memo-context-menu";
-import { isMemoSubmitShortcut } from "../app/memos/memo-composer";
+import { isMemoSubmitShortcut, normalizeMemoComposerContent } from "../app/memos/memo-composer";
 import { createWorkspaceContextMenuHandler } from "../app/workspace/workspace-context-menu";
 import type { ContextMenuItem } from "../app/context-menu";
 import type { Memo } from "../shared/types";
@@ -507,6 +507,12 @@ describe("memo composer context menu", () => {
     // IME composition state
     expect(isMemoSubmitShortcut({ key: "Enter", ctrlKey: true, isComposing: true })).toBe(false);
     expect(isMemoSubmitShortcut({ key: "Enter", ctrlKey: true, keyCode: 229 })).toBe(false);
+  });
+
+  test("normalizes trailing blank lines so editing matches the rendered memo height", () => {
+    expect(normalizeMemoComposerContent("标题\n\n正文\n\n")).toBe("标题\n\n正文");
+    expect(normalizeMemoComposerContent("标题\r\n\r\n正文\r\n")).toBe("标题\r\n\r\n正文");
+    expect(normalizeMemoComposerContent("标题\n\n正文")).toBe("标题\n\n正文");
   });
 });
 
