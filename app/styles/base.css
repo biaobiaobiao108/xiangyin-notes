@@ -70,7 +70,7 @@
   --saved: light-dark(#66806d, #73ab90);
   --feedback-border: light-dark(#bad3c5, rgba(90, 158, 125, 0.38));
   --notice-border: light-dark(#c6d8cd, rgba(90, 158, 125, 0.38));
-  --focus-ring: light-dark(rgba(54, 94, 78, 0.32), rgba(78, 138, 110, 0.42));
+  --focus-ring: light-dark(#365e4e, #7dbb9a);
   --focus-soft: light-dark(rgba(54, 94, 78, 0.09), rgba(78, 138, 110, 0.16));
   --focus-soft-subtle: light-dark(rgba(54, 94, 78, 0.06), rgba(78, 138, 110, 0.1));
   --loading-track: light-dark(#e2e6e1, #303538);
@@ -208,6 +208,19 @@ button {
 button:disabled {
   cursor: not-allowed;
   opacity: 0.52;
+}
+.spin-icon {
+  animation: spin var(--motion-spin) linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  :where(button, [role="button"], a[href]):hover,
+  :where(button, [role="button"], a[href]):active {
+    transform: none !important;
+    scale: none !important;
+  }
+  .spin-icon {
+    animation: none !important;
+  }
 }
 :where([hidden]) {
   display: none !important;

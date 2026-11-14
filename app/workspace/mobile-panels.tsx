@@ -2,6 +2,7 @@ import { Fragment, memo, useRef, type CSSProperties, type RefObject } from "reac
 import {
   ChevronRight,
   FolderPlus,
+  LoaderCircle,
   LogOut,
   ListTodo,
   NotebookPen,
@@ -333,6 +334,7 @@ export type MobileBottomBarProps = {
   setQuery: (query: string) => void;
   onSubmitQuery: () => void;
   onNewNote?: () => void;
+  creatingNote?: boolean;
   searchRef?: RefObject<HTMLInputElement | null>;
 };
 
@@ -341,6 +343,7 @@ export function MobileBottomBar({
   setQuery,
   onSubmitQuery,
   onNewNote,
+  creatingNote = false,
   searchRef,
 }: MobileBottomBarProps) {
   return (
@@ -381,10 +384,16 @@ export function MobileBottomBar({
         <button
           type="button"
           className="mobile-compose-button"
-          aria-label="新建笔记"
+          aria-label={creatingNote ? "正在新建笔记" : "新建笔记"}
+          aria-busy={creatingNote || undefined}
+          disabled={creatingNote}
           onClick={onNewNote}
         >
-          <SquarePen size={24} />
+          {creatingNote ? (
+            <LoaderCircle className="spin-icon" size={24} aria-hidden="true" />
+          ) : (
+            <SquarePen size={24} aria-hidden="true" />
+          )}
         </button>
       )}
     </footer>

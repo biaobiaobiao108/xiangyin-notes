@@ -42,6 +42,12 @@ jobs:
       - name: Build application
         run: bun run build
 
+      - name: Install Chromium for browser checks
+        run: bunx playwright install --with-deps chromium
+
+      - name: Browser, focus and responsive checks
+        run: bun run test:e2e
+
       - name: Test
         run: bun test --check
 

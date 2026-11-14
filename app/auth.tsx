@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { ArrowRight, Eye, EyeOff, RefreshCw } from "lucide-react";
 import { useNavigate } from "react-router";
 import { ApiError, api } from "./api";
@@ -73,6 +73,7 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
+  const errorRef = useRef<HTMLParagraphElement>(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     void api
@@ -91,6 +92,9 @@ export function LoginPage() {
       })
       .catch(() => undefined);
   }, [navigate]);
+  useEffect(() => {
+    if (error) errorRef.current?.focus({ preventScroll: true });
+  }, [error]);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setError("");
@@ -106,7 +110,7 @@ export function LoginPage() {
   };
   return (
     <AuthLayout title="登录" description="输入配置的环境变量凭据以访问笔记。">
-      <form className="auth-form" onSubmit={submit}>
+      <form className="auth-form" aria-busy={busy || undefined} onSubmit={submit}>
         <Field
           label="用户名"
           value={username}
@@ -123,7 +127,7 @@ export function LoginPage() {
           autoComplete="current-password"
         />
         {error && (
-          <p className="form-error" role="alert">
+          <p ref={errorRef} className="form-error" role="alert" tabIndex={-1}>
             {error}
           </p>
         )}
@@ -136,7 +140,7 @@ export function LoginPage() {
   );
 }
 
-function Field({
+export function Field({
   label,
   value,
   onChange,
@@ -151,8 +155,8 @@ function Field({
 }) {
   const id = label === "用户名" ? "auth-username" : "auth-field";
   return (
-    <label className="field">
-      <span>{label}</span>
+    <div className="field">
+      <label htmlFor={id}>{label}</label>
       <input
         id={id}
         name="username"
@@ -162,11 +166,11 @@ function Field({
         placeholder={placeholder}
         autoComplete={autoComplete}
       />
-    </label>
+    </div>
   );
 }
 
-function PasswordField({
+export function PasswordField({
   label,
   value,
   onChange,
@@ -181,18 +185,19 @@ function PasswordField({
   onToggle: () => void;
   autoComplete?: string;
 }) {
+  const id = autoComplete === "current-password" ? "current-password" : "auth-password";
   return (
-    <label className="field">
-      <span>{label}</span>
+    <div className="field">
+      <label htmlFor={id}>{label}</label>
       <span className="password-input">
         <input
-          id={autoComplete === "current-password" ? "current-password" : "auth-password"}
+          id={id}
           name="password"
           required
           type={show ? "text" : "password"}
           value={value}
           onChange={(event) => onChange(event.target.value)}
-          placeholder="至少 12 个字符"
+          placeholder="你的密码"
           autoComplete={autoComplete}
         />
         <button
@@ -204,7 +209,7 @@ function PasswordField({
           {show ? <EyeOff size={17} /> : <Eye size={17} />}
         </button>
       </span>
-    </label>
+    </div>
   );
 }
 

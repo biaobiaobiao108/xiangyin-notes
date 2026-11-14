@@ -2,10 +2,57 @@ import { expect, test } from "bun:test";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, posix } from "node:path";
+import { inflateRawSync } from "node:zlib";
 import { openDatabase } from "../server/db";
 import { ensureEnvironmentUser } from "../server/routes/auth";
 import { handleExportRoute } from "../server/routes/export";
 import { createNote } from "../server/routes/notes";
+
+function readZipEntries(archive: Uint8Array) {
+  const view = new DataView(archive.buffer, archive.byteOffset, archive.byteLength);
+  let endOfCentralDirectory = -1;
+  const earliestOffset = Math.max(0, archive.byteLength - 22 - 0xffff);
+  for (let offset = archive.byteLength - 22; offset >= earliestOffset; offset -= 1) {
+    if (view.getUint32(offset, true) === 0x06054b50) {
+      endOfCentralDirectory = offset;
+      break;
+    }
+  }
+  if (endOfCentralDirectory < 0) throw new Error("ZIP end of central directory not found");
+
+  const entryCount = view.getUint16(endOfCentralDirectory + 10, true);
+  let cursor = view.getUint32(endOfCentralDirectory + 16, true);
+  const entries = new Map<string, Uint8Array>();
+  for (let index = 0; index < entryCount; index += 1) {
+    if (view.getUint32(cursor, true) !== 0x02014b50)
+      throw new Error("Invalid ZIP central directory entry");
+    const method = view.getUint16(cursor + 10, true);
+    const compressedSize = view.getUint32(cursor + 20, true);
+    const nameLength = view.getUint16(cursor + 28, true);
+    const extraLength = view.getUint16(cursor + 30, true);
+    const commentLength = view.getUint16(cursor + 32, true);
+    const localOffset = view.getUint32(cursor + 42, true);
+    const name = new TextDecoder().decode(archive.slice(cursor + 46, cursor + 46 + nameLength));
+
+    if (view.getUint32(localOffset, true) !== 0x04034b50)
+      throw new Error("Invalid ZIP local file header");
+    const localNameLength = view.getUint16(localOffset + 26, true);
+    const localExtraLength = view.getUint16(localOffset + 28, true);
+    const dataOffset = localOffset + 30 + localNameLength + localExtraLength;
+    const compressed = archive.slice(dataOffset, dataOffset + compressedSize);
+    const contents =
+      method === 0
+        ? compressed
+        : method === 8
+          ? new Uint8Array(inflateRawSync(compressed))
+          : (() => {
+              throw new Error(`Unsupported ZIP compression method ${method}`);
+            })();
+    entries.set(name, contents);
+    cursor += 46 + nameLength + extraLength + commentLength;
+  }
+  return entries;
+}
 
 test("library export includes owned notes, trash, memos, attachments and metadata", async () => {
   const root = await mkdtemp(join(tmpdir(), "xiangyin-export-test-"));
@@ -93,15 +140,11 @@ test("library export includes owned notes, trash, memos, attachments and metadat
     database.query("UPDATE memos SET content_markdown = 'changed later' WHERE id = ?").run(memoId);
     const zip = join(root, "library.zip");
     await Bun.write(zip, response);
+    const entries = readZipEntries(new Uint8Array(await Bun.file(zip).arrayBuffer()));
     const read = async (name: string) => {
-      const suffix = /[0-9a-f-]{36}|\d{4}-\d{2}\.md/u.exec(name)?.[0];
-      const process = Bun.spawn(["unzip", "-p", zip, suffix ? `*${suffix}*` : name], {
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-      const value = await new Response(process.stdout).text();
-      expect(await process.exited).toBe(0);
-      return value;
+      const contents = entries.get(name);
+      if (!contents) throw new Error(`Missing ZIP entry: ${name}`);
+      return new TextDecoder().decode(contents);
     };
     const metadata = JSON.parse(await read("metadata.json"));
     expect(metadata.notes.some((note: { id: string }) => note.id === noteId)).toBe(true);
@@ -126,10 +169,9 @@ test("library export includes owned notes, trash, memos, attachments and metadat
     expect(await read(noteFor(longNote).file)).toBe("长文件名正文");
     for (const component of noteFor(longNote).file.split("/"))
       expect(new TextEncoder().encode(component).length).toBeLessThanOrEqual(255);
-    const listing = Bun.spawn(["unzip", "-Z1", zip], { stdout: "pipe", stderr: "pipe" });
-    const listingText = await new Response(listing.stdout).text();
-    expect(await listing.exited).toBe(0);
-    expect(listingText).toContain("_CON/");
+    expect(
+      [...entries.keys()].some((name) => name.startsWith(`${folderFor(emptyNotebook)}/`)),
+    ).toBe(true);
     expect(metadata.timeZone).toBe("Asia/Shanghai");
     const first = metadata.memos.find((memo: { id: string }) => memo.id === memoId);
     const second = metadata.memos.find((memo: { id: string }) => memo.id === laterMemoId);

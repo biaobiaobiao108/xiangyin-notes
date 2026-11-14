@@ -156,7 +156,8 @@ export function Workspace() {
   const flushEditorDraftRef = useRef<() => void>(() => undefined);
   const notesRef = useRef<NoteSummary[]>([]);
   const pendingWikiCreationsRef = useRef<Map<string, Promise<NoteSummary | null>>>(new Map());
-  const inboxNoteCreationRef = useRef(false);
+  const noteCreationRef = useRef(false);
+  const [creatingNote, setCreatingNote] = useState(false);
   const listRequestRef = useRef(0);
   const listAbortRef = useRef<AbortController | null>(null);
   const nextNotesCursorRef = useRef<string | null>(null);
@@ -1140,55 +1141,64 @@ export function Workspace() {
     },
     [openMobileNote, playListTransition],
   );
+  const createNoteWithLock = useCallback(
+    async (
+      payload: Parameters<typeof api.createNote>[0],
+      target: (note: Note) => { view: NoteView; notebookId?: string },
+    ) => {
+      if (noteCreationRef.current) return null;
+      noteCreationRef.current = true;
+      setCreatingNote(true);
+      flushEditorDraftRef.current();
+      try {
+        const result = await api.createNote(payload);
+        revealCreatedNote(result.note, target(result.note));
+        void refreshNotebooks();
+        return result.note;
+      } catch (reason) {
+        if (reason instanceof ApiError && reason.status === 401)
+          navigate(`/login${window.location.search}`, { replace: true });
+        notifyError(errorMessage(reason, "创建笔记失败，请稍后重试"));
+        return null;
+      } finally {
+        noteCreationRef.current = false;
+        setCreatingNote(false);
+      }
+    },
+    [navigate, notifyError, refreshNotebooks, revealCreatedNote],
+  );
   const createNoteHere = useCallback(async () => {
     const currentNotebook = notebookId
       ? notebooks.find((notebook) => notebook.id === notebookId)
       : undefined;
     const inbox = notebooks.find((notebook) => notebook.isSystem);
     const staysInView = Boolean(currentNotebook) || view === "all" || view === "inbox";
-    try {
-      const result = await api.createNote(
-        currentNotebook ? { notebookId: currentNotebook.id } : { notebookId: inbox?.id },
-      );
-      revealCreatedNote(result.note, {
+    await createNoteWithLock(
+      currentNotebook ? { notebookId: currentNotebook.id } : { notebookId: inbox?.id },
+      () => ({
         view: currentNotebook || !staysInView ? "all" : view,
         notebookId: currentNotebook?.id,
-      });
-      void refreshNotebooks();
-    } catch (reason) {
-      notifyError(errorMessage(reason, "创建笔记失败"));
-    }
-  }, [notebookId, notebooks, refreshNotebooks, revealCreatedNote, view]);
+      }),
+    );
+  }, [createNoteWithLock, notebookId, notebooks, view]);
   const createNoteInInbox = useCallback(async () => {
-    if (inboxNoteCreationRef.current) return;
     const inbox = notebooks.find((notebook) => notebook.isSystem);
-    inboxNoteCreationRef.current = true;
-    try {
-      const result = await api.createNote(inbox ? { notebookId: inbox.id } : {});
-      revealCreatedNote(result.note, { view: "inbox", notebookId: result.note.notebookId });
-      void refreshNotebooks();
-    } catch (reason) {
-      notifyError(errorMessage(reason, "创建笔记失败"));
-    } finally {
-      inboxNoteCreationRef.current = false;
-    }
-  }, [notebooks, refreshNotebooks, revealCreatedNote]);
+    await createNoteWithLock(inbox ? { notebookId: inbox.id } : {}, (note) => ({
+      view: "inbox",
+      notebookId: note.notebookId,
+    }));
+  }, [createNoteWithLock, notebooks]);
   const createNoteInNotebook = useCallback(
     async (commandToCreate: CreateNoteCommand) => {
-      try {
-        const result = await api.createNote({
+      await createNoteWithLock(
+        {
           notebookId: commandToCreate.notebookId,
           title: commandToCreate.title,
-        });
-        revealCreatedNote(result.note, { view: "all", notebookId: commandToCreate.notebookId });
-        void refreshNotebooks();
-      } catch (reason) {
-        if (reason instanceof ApiError && reason.status === 401)
-          navigate(`/login${window.location.search}`, { replace: true });
-        notifyError(errorMessage(reason, "创建笔记失败，请稍后重试"));
-      }
+        },
+        () => ({ view: "all", notebookId: commandToCreate.notebookId }),
+      );
     },
-    [navigate, notebooks, refreshNotebooks, revealCreatedNote],
+    [createNoteWithLock],
   );
   const createNotebook = useCallback(() => setEditingNotebook(null), []);
   const saveNotebook = useCallback(
@@ -2659,6 +2669,7 @@ export function Workspace() {
             onSubmitQuery={submitQuery}
             searchRef={searchRef}
             onNewInboxNote={handleNewInboxNote}
+            creatingNote={creatingNote}
             onCreateNotebook={handleCreateNotebook}
             collapsed={sidebarCollapsed}
             onCollapse={toggleSidebar}
@@ -2763,6 +2774,7 @@ export function Workspace() {
             onEmptyTrash={view === "trash" ? emptyTrash : undefined}
             trashBusy={pendingTrashCount > 0 || emptyingTrash}
             onNewNote={listNewNote}
+            creatingNote={creatingNote}
             onClearQuery={handleClearQuery}
             isMobileViewport={isMobileViewport}
             onOpenSidebar={handleOpenSidebar}
@@ -2877,7 +2889,12 @@ export function Workspace() {
                             onMarkdownReaderChange={registerEditorMarkdownReader}
                             onMarkdownDirtyChange={registerEditorMarkdownDirty}
                             saveState={saveState}
-                            isLoading={isNoteLoading || taskMutationNoteId === renderedNote.id}
+                            isLoading={
+                              isNoteLoading ||
+                              creatingNote ||
+                              taskMutationNoteId === renderedNote.id
+                            }
+                            loadingLabel={creatingNote ? "正在新建笔记…" : undefined}
                             trashBusy={
                               emptyingTrash ||
                               (pendingTrashCount > 0 &&
@@ -2952,6 +2969,7 @@ export function Workspace() {
                       <EmptyEditor
                         isTrash={view === "trash"}
                         onNewNote={handleNewNote}
+                        creatingNote={creatingNote}
                         onOpenList={handleOpenList}
                         transitionToken={listTransitionToken}
                       />
@@ -3015,8 +3033,11 @@ export function Workspace() {
                             }}
                             saveState={splitSaveState}
                             isLoading={
-                              splitIsNoteLoading || taskMutationNoteId === splitRenderedNote.id
+                              splitIsNoteLoading ||
+                              creatingNote ||
+                              taskMutationNoteId === splitRenderedNote.id
                             }
+                            loadingLabel={creatingNote ? "正在新建笔记…" : undefined}
                             trashBusy={
                               emptyingTrash ||
                               (pendingTrashCount > 0 &&
@@ -3103,7 +3124,10 @@ export function Workspace() {
                       onMarkdownReaderChange={registerEditorMarkdownReader}
                       onMarkdownDirtyChange={registerEditorMarkdownDirty}
                       saveState={saveState}
-                      isLoading={isNoteLoading || taskMutationNoteId === renderedNote.id}
+                      isLoading={
+                        isNoteLoading || creatingNote || taskMutationNoteId === renderedNote.id
+                      }
+                      loadingLabel={creatingNote ? "正在新建笔记…" : undefined}
                       trashBusy={
                         emptyingTrash ||
                         (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))
@@ -3172,6 +3196,7 @@ export function Workspace() {
                 <EmptyEditor
                   isTrash={view === "trash"}
                   onNewNote={handleNewNote}
+                  creatingNote={creatingNote}
                   onOpenList={handleOpenList}
                   transitionToken={listTransitionToken}
                 />
@@ -3184,6 +3209,7 @@ export function Workspace() {
             setQuery={handleQueryDraftChange}
             onSubmitQuery={submitQuery}
             searchRef={searchRef}
+            creatingNote={creatingNote}
             onNewNote={
               mobilePage === "home"
                 ? handleNewInboxNote

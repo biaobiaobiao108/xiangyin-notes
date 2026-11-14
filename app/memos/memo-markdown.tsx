@@ -59,21 +59,17 @@ const renderer: RendererObject = {
   html({ text }) {
     return escapeHtml(text);
   },
-  link({ href, title, tokens }) {
+  link({ href, tokens }) {
     const safeHref = safeLinkHref(href);
     const label = this.parser.parseInline(tokens);
     if (!safeHref) return label;
-    return `<a href="${escapeHtml(safeHref)}"${
-      title ? ` title="${escapeHtml(title)}"` : ""
-    } target="_blank" rel="noopener noreferrer">${label}</a>`;
+    return `<a href="${escapeHtml(safeHref)}" target="_blank" rel="noopener noreferrer">${label}</a>`;
   },
-  image({ href, title, text }) {
+  image({ href, text }) {
     const safeHref = safeImageHref(href);
     if (!safeHref)
       return `<span class="memo-image-placeholder">${escapeHtml(text || "图片")}</span>`;
-    return `<img src="${escapeHtml(safeHref)}" alt="${escapeHtml(text || "")}"${
-      title ? ` title="${escapeHtml(title)}"` : ""
-    } loading="lazy">`;
+    return `<img src="${escapeHtml(safeHref)}" alt="${escapeHtml(text || "")}" loading="lazy">`;
   },
 };
 

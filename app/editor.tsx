@@ -150,6 +150,7 @@ export function NoteEditor({
   onTaskNavigationMissing,
   saveState,
   isLoading = false,
+  loadingLabel = "正在打开笔记…",
   reloadToken = 0,
   focusRequested = false,
   trashBusy = false,
@@ -205,6 +206,7 @@ export function NoteEditor({
   onTaskNavigationMissing?: () => void;
   saveState: SaveState;
   isLoading?: boolean;
+  loadingLabel?: string;
   reloadToken?: number;
   focusRequested?: boolean;
   trashBusy?: boolean;
@@ -2078,7 +2080,7 @@ export function NoteEditor({
               <span />
               <span />
             </div>
-            <strong>正在打开笔记…</strong>
+            <strong>{loadingLabel}</strong>
           </div>
         </div>
       )}

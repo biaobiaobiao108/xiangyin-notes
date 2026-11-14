@@ -19,6 +19,7 @@ import {
   ChevronDown,
   ChevronLeft,
   LayoutPanelLeft,
+  LoaderCircle,
   ListTodo,
   Menu,
   NotebookPen,
@@ -290,6 +291,7 @@ export const Sidebar = memo(function Sidebar({
   onSubmitQuery,
   searchRef,
   onNewInboxNote,
+  creatingNote = false,
   onCreateNotebook,
   collapsed,
   onCollapse,
@@ -314,6 +316,7 @@ export const Sidebar = memo(function Sidebar({
   onSubmitQuery: () => void;
   searchRef: RefObject<HTMLInputElement | null>;
   onNewInboxNote: () => void;
+  creatingNote?: boolean;
   onCreateNotebook: () => void;
   collapsed: boolean;
   onCollapse: () => void;
@@ -357,11 +360,17 @@ export const Sidebar = memo(function Sidebar({
       <button
         className="primary-button new-note-button"
         type="button"
-        aria-label="在收件箱中新建笔记"
+        aria-label={creatingNote ? "正在新建笔记" : "在收件箱中新建笔记"}
+        aria-busy={creatingNote || undefined}
+        disabled={creatingNote}
         onClick={onNewInboxNote}
       >
-        <Plus size={18} />
-        新建笔记
+        {creatingNote ? (
+          <LoaderCircle className="spin-icon" size={18} aria-hidden="true" />
+        ) : (
+          <Plus size={18} aria-hidden="true" />
+        )}
+        {creatingNote ? "正在新建…" : "新建笔记"}
       </button>
       <label className="search-box">
         <Search size={17} />
@@ -913,6 +922,7 @@ type NoteListPanelProps = {
   query: string;
   currentNotebookName?: string;
   onNewNote?: () => void;
+  creatingNote?: boolean;
   onEmptyTrash?: () => void;
   trashBusy: boolean;
   onClearQuery: () => void;
@@ -951,6 +961,7 @@ export const NoteListPanel = memo(function NoteListPanel({
   query,
   currentNotebookName,
   onNewNote,
+  creatingNote = false,
   onEmptyTrash,
   trashBusy,
   onClearQuery,
@@ -1669,10 +1680,18 @@ export const NoteListPanel = memo(function NoteListPanel({
                   <button
                     className="icon-button list-new-note-button"
                     type="button"
-                    aria-label={`在${currentNotebookName}中新建笔记`}
+                    aria-label={
+                      creatingNote ? "正在新建笔记" : `在${currentNotebookName}中新建笔记`
+                    }
+                    aria-busy={creatingNote || undefined}
+                    disabled={creatingNote}
                     onClick={onNewNote}
                   >
-                    <Plus size={18} />
+                    {creatingNote ? (
+                      <LoaderCircle className="spin-icon" size={18} aria-hidden="true" />
+                    ) : (
+                      <Plus size={18} aria-hidden="true" />
+                    )}
                   </button>
                 )}
               </div>
@@ -1946,11 +1965,13 @@ export const NoteListPanel = memo(function NoteListPanel({
 export function EmptyEditor({
   isTrash,
   onNewNote,
+  creatingNote = false,
   onOpenList,
   transitionToken,
 }: {
   isTrash: boolean;
   onNewNote: () => void;
+  creatingNote?: boolean;
   onOpenList: () => void;
   transitionToken: number;
 }) {
@@ -1969,9 +1990,19 @@ export function EmptyEditor({
       <p>{isTrash ? "没有需要清理或恢复的笔记。" : "创建一篇笔记，记录此刻值得留下的东西。"}</p>
       {!isTrash && (
         <>
-          <button className="primary-button" type="button" onClick={onNewNote}>
-            <Plus size={18} />
-            新建笔记
+          <button
+            className="primary-button"
+            type="button"
+            aria-busy={creatingNote || undefined}
+            disabled={creatingNote}
+            onClick={onNewNote}
+          >
+            {creatingNote ? (
+              <LoaderCircle className="spin-icon" size={18} aria-hidden="true" />
+            ) : (
+              <Plus size={18} aria-hidden="true" />
+            )}
+            {creatingNote ? "正在新建…" : "新建笔记"}
           </button>
           <span className="empty-shortcut">或按 {commandMenuShortcutLabel} 打开命令菜单</span>
         </>

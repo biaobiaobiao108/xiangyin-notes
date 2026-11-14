@@ -32,6 +32,15 @@ describe("memo Markdown rendering", () => {
     expect(internal).toContain('loading="lazy"');
   });
 
+  test("does not render Markdown titles as hover tooltips", () => {
+    const html = renderMemoMarkdown(
+      '[链接](https://example.com "链接标题") ![图片](/api/assets/00000000-0000-4000-8000-000000000000 "图片标题")',
+    );
+    expect(html).not.toContain(" title=");
+    expect(html).not.toContain("链接标题");
+    expect(html).not.toContain("图片标题");
+  });
+
   test("renders body hashtags with the memo tag treatment", () => {
     const html = renderMemoMarkdown("今天 #工作，明天 #读书。");
     expect(html).toContain('<span class="memo-tag">#工作</span>');

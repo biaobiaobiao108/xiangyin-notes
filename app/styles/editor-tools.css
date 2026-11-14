@@ -1215,6 +1215,9 @@ dialog::backdrop {
   background: var(--surface);
   color: var(--ink);
   font-size: 0.9rem;
+  transition:
+    border-color var(--motion-fast) var(--motion-ease-out),
+    box-shadow var(--motion-fast) var(--motion-ease-out);
 }
 .field input:focus {
   border-color: var(--accent);
@@ -1239,10 +1242,19 @@ dialog::backdrop {
   background: transparent;
   color: var(--muted);
   cursor: pointer;
+  transition:
+    background-color var(--motion-fast) var(--motion-ease-out),
+    color var(--motion-fast) var(--motion-ease-out),
+    box-shadow var(--motion-fast) var(--motion-ease-out),
+    transform var(--motion-fast) var(--motion-ease-out);
 }
 .password-toggle:hover {
   background: var(--surface-muted);
   color: var(--ink);
+}
+.password-toggle:active {
+  background: var(--accent-soft);
+  transform: scale(0.94);
 }
 .form-hint,
 .form-error {

@@ -2,6 +2,8 @@ node_modules
 dist
 .workbuddy
 scratch
+playwright-report
+test-results
 .wrangler
 .wrangler.local.jsonc
 .wrangler.remote.jsonc
