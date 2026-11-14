@@ -9,6 +9,7 @@ import {
   reclaimDatabaseSpace,
   type SqliteDatabase,
 } from "../server/db";
+import { LOGIN_ADDRESS_MAX_FAILURES } from "../server/core";
 import { handleRequest } from "../server/index";
 import {
   cleanupOrphanAssetFiles,
@@ -19,6 +20,7 @@ import {
   waitForOrphanAssetCleanup,
 } from "../server/routes/assets";
 import { IMPORT_RATE_LIMIT_MAX_REQUESTS } from "../server/routes/import";
+import { loginClientKey, recordFailedLogin } from "../server/routes/auth";
 
 let database: SqliteDatabase;
 let assetRoot: string;
@@ -3364,13 +3366,20 @@ describe("Bun Server API", () => {
   });
 
   test("limits password spraying across changing usernames from one client address", async () => {
-    for (let attempt = 0; attempt < 100; attempt += 1) {
-      const failed = await request("/api/auth/login", {
-        method: "POST",
-        body: JSON.stringify({ username: `unknown-${attempt}`, password: "wrong passphrase 1234" }),
-      });
-      expect(failed.response.status).toBe(401);
-    }
+    const addressKey = loginClientKey(
+      new Request("http://xiangying.test/api/auth/login", { method: "POST" }),
+      environment,
+      clientAddress,
+    );
+    const startedAt = Math.floor(Date.now() / 1000);
+    for (let attempt = 0; attempt < LOGIN_ADDRESS_MAX_FAILURES - 1; attempt += 1)
+      recordFailedLogin(database, addressKey, startedAt, "login_address");
+
+    const failed = await request("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "unknown-0", password: "wrong passphrase 1234" }),
+    });
+    expect(failed.response.status).toBe(401);
 
     const blocked = await request("/api/auth/login", {
       method: "POST",
