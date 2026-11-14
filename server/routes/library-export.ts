@@ -69,6 +69,22 @@ function textEntry(name: string, content: string): ZipStreamEntry {
 
 export async function handleLibraryExport(ctx: RouteContext, user: UserRow): Promise<Response> {
   const { database } = ctx.options;
+  const timeZone = ctx.url.searchParams.get("timeZone") || "UTC";
+  let formatter: Intl.DateTimeFormat;
+  try {
+    formatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
+    });
+  } catch {
+    return jsonError(400, "INVALID_TIME_ZONE", "导出时区无效");
+  }
   // Read synchronously before the first await so each table describes the same database state.
   const snapshot = database.transaction(() => ({
     notebooks: all<{
@@ -92,7 +108,7 @@ export async function handleLibraryExport(ctx: RouteContext, user: UserRow): Pro
     ),
     memos: all<LibraryMemo>(
       database,
-      "SELECT id, content_markdown, version, created_at, updated_at FROM memos WHERE user_id = ? ORDER BY id",
+      "SELECT id, content_markdown, version, created_at, updated_at FROM memos WHERE user_id = ? ORDER BY created_at, id",
       user.id,
     ),
     kanban: all<{
@@ -141,20 +157,32 @@ export async function handleLibraryExport(ctx: RouteContext, user: UserRow): Pro
     file: `笔记/${note.id} ${safeName(note.title)}.md`,
     markdown: portableMarkdown(content_markdown, assetNames),
   }));
-  const memoEntries = snapshot.memos.map(({ content_markdown, ...memo }) => ({
-    ...memo,
-    file: `随记/${memo.id}.md`,
-    markdown: portableMarkdown(content_markdown, assetNames),
+  const memoMonths = new Map<string, string[]>();
+  const memoMetadata = snapshot.memos.map(({ content_markdown, ...memo }) => {
+    const parts = Object.fromEntries(
+      formatter.formatToParts(memo.created_at).map(({ type, value }) => [type, value]),
+    );
+    const month = `${parts.year}-${parts.month}`;
+    const time = `${month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
+    const items = memoMonths.get(month) ?? [];
+    items.push(`## ${time}\n\n${portableMarkdown(content_markdown, assetNames)}\n`);
+    memoMonths.set(month, items);
+    return { ...memo, file: `随记/${month}.md`, index: items.length };
+  });
+  const memoEntries = [...memoMonths].map(([month, items]) => ({
+    file: `随记/${month}.md`,
+    markdown: `# ${month} 随记\n\n${items.join("\n---\n\n")}`,
   }));
   const metadata = JSON.stringify(
     {
       format: "xiangyin-notes-library",
-      version: 1,
+      version: 2,
       exportedAt: new Date().toISOString(),
+      timeZone,
       notebooks: snapshot.notebooks,
       kanban: snapshot.kanban,
       notes: noteEntries.map(({ markdown: _markdown, ...note }) => note),
-      memos: memoEntries.map(({ markdown: _markdown, ...memo }) => memo),
+      memos: memoMetadata,
       assets: snapshot.assets.map(({ storage_path: _storagePath, ...asset }) => ({
         ...asset,
         file: `附件/${assetNames.get(asset.id.toLowerCase())}`,
@@ -163,8 +191,7 @@ export async function handleLibraryExport(ctx: RouteContext, user: UserRow): Pro
     null,
     2,
   );
-  const readme =
-    "象映笔记整库导出\n\n笔记和随记为 Markdown 文件，图片保存在附件目录。笔记包含回收站内容；笔记本、看板、收藏、回收站状态及时间等信息保存在 metadata.json。正文中的本地图片路径已改为相对路径，代码中的原文保持不变。Wiki 链接和外部图片链接保持原样。\n\n此压缩包用于阅读与迁移，不是完整数据库备份，也不能直接导入象映笔记。未提交到服务的草稿不包含在内。\n";
+  const readme = `象映笔记整库导出\n\n笔记为独立 Markdown 文件，随记按创建时间在 ${timeZone} 时区归入每月一个 Markdown 文件，同一文件中按时间排列。每条随记的原始时间和文件内顺序保存在 metadata.json。图片保存在附件目录。笔记包含回收站内容；笔记本、看板、收藏、回收站状态及时间等信息保存在 metadata.json。正文中的本地图片路径已改为相对路径，代码中的原文保持不变。Wiki 链接和外部图片链接保持原样。\n\n此压缩包用于阅读与迁移，不是完整数据库备份，也不能直接导入象映笔记。未提交到服务的草稿不包含在内。\n`;
   const encoder = new TextEncoder();
   const entriesCount = noteEntries.length + memoEntries.length + files.length + 2;
   // Include room for ZIP headers and central directory; ZIP64 is not supported.

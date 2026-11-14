@@ -2318,10 +2318,14 @@ export function Workspace() {
         notifyWarning("仍有内容未保存，请保存成功后再导出");
         return;
       }
-      const response = await fetch("/api/export/library", { method: "HEAD" });
+      const params = new URLSearchParams({
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      });
+      const exportUrl = `/api/export/library?${params}`;
+      const response = await fetch(exportUrl, { method: "HEAD" });
       if (!response.ok) throw new Error(`Export check failed: ${response.status}`);
       const a = document.createElement("a");
-      a.href = "/api/export/library";
+      a.href = exportUrl;
       document.body.appendChild(a);
       a.click();
       a.remove();
