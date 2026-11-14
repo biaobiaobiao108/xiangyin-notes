@@ -14,7 +14,13 @@ import {
   ORPHAN_ASSET_CLEANUP_INTERVAL_SECONDS,
   waitForOrphanAssetCleanup,
 } from "./routes/assets";
-import { cleanupExpiredSessions, handleAuthRoute, isResponse, requireUser } from "./routes/auth";
+import {
+  cleanupExpiredSessions,
+  getAuthCredentials,
+  handleAuthRoute,
+  isResponse,
+  requireUser,
+} from "./routes/auth";
 import { handleExportRoute } from "./routes/export";
 import { handleImportRoute } from "./routes/import";
 import { handleMcpRequest, MCP_PATH } from "./mcp-transport";
@@ -84,7 +90,7 @@ self.addEventListener("fetch", (event) => {
 const SECURITY_HEADERS: Record<string, string> = {
   // SHA-256 of the inline theme bootstrap in app/index.html.
   "Content-Security-Policy":
-    "default-src 'self'; script-src 'self' 'sha256-/IDpDQ/HKDvxE+5KZzluJgVYT56VDUqXVXgKtnDq+fU='; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: https:; connect-src 'self' ws: wss:; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+    "default-src 'self'; script-src 'self' 'sha256-8tdUv/vkv1znh6HXt4BQi9QHfpsZlFIpgFnYEVFhH/Q='; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: https:; connect-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
   "X-Content-Type-Options": "nosniff",
   "X-Frame-Options": "DENY",
   "Referrer-Policy": "strict-origin-when-cross-origin",
@@ -357,6 +363,8 @@ async function handleApi(request: Request, options: ServerOptions) {
 }
 
 export async function handleRequest(request: Request, options: ServerOptions) {
+  const startedAt = performance.now();
+  const requestId = crypto.randomUUID();
   try {
     const url = new URL(request.url);
     const environment = options.environment ?? {};
@@ -368,7 +376,23 @@ export async function handleRequest(request: Request, options: ServerOptions) {
     } else {
       response = await serveStatic(request, options.clientRoot ?? DEFAULT_CLIENT_ROOT, environment);
     }
-    return withSecurityHeaders(response, environment, request, options.clientAddress);
+    const secured = withSecurityHeaders(response, environment, request, options.clientAddress);
+    secured.headers.set("X-Request-Id", requestId);
+    if (
+      (environment.NODE_ENV === "production" || environment.NODE_ENV === "development") &&
+      (url.pathname.startsWith("/api/") || isMcpPath(url.pathname))
+    ) {
+      console.log(
+        JSON.stringify({
+          requestId,
+          method: request.method,
+          path: redactSensitivePath(url.pathname),
+          status: secured.status,
+          durationMs: Math.round((performance.now() - startedAt) * 10) / 10,
+        }),
+      );
+    }
+    return secured;
   } catch (error) {
     const url = new URL(request.url);
     console.error(`[request] ${request.method} ${redactSensitivePath(url.pathname)}`, error);
@@ -390,6 +414,20 @@ export async function handleRequest(request: Request, options: ServerOptions) {
 
 if (import.meta.main) {
   const database = await openDatabase();
+  const credentials = getAuthCredentials(Bun.env);
+  if (!credentials) {
+    if (Bun.env.NODE_ENV === "production")
+      throw new Error("XIANGYING_USERNAME 和 XIANGYING_PASSWORD 未配置，服务无法启动。");
+    console.warn("[config] 未配置登录凭据；登录页面会提示先设置环境变量。");
+  }
+  if (
+    Bun.env.PUBLIC_URL?.trim().toLowerCase().startsWith("https://") &&
+    Bun.env.COOKIE_SECURE?.trim().toLowerCase() !== "true"
+  ) {
+    console.warn(
+      "[config] PUBLIC_URL 使用 HTTPS，但 COOKIE_SECURE 未设为 true；请确认反向代理会覆盖 X-Forwarded-Proto。",
+    );
+  }
   const realtime = new RealtimeHub(database);
   const port = Number.parseInt(Bun.env.PORT ?? "3000", 10) || 3000;
   const hostname = Bun.env.HOST?.trim() || "localhost";

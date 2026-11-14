@@ -1,17 +1,21 @@
 import { createMcpHandler, type AuthInfo, type McpHttpHandler } from "@modelcontextprotocol/server";
 import {
   constantTimeEqual,
+  digestHex,
   getPublicOrigin,
   jsonError,
   NOTE_BODY_MAX_BYTES,
   NOTE_CONTENT_MAX_LENGTH,
+  now,
   type ServerOptions,
   type SqliteDatabase,
 } from "./core";
-import { ensureEnvironmentUser, getAuthCredentials } from "./routes/auth";
+import { cleanupExpiredRateLimits, ensureEnvironmentUser, getAuthCredentials } from "./routes/auth";
 import { createNoteMcpServer } from "./mcp";
 
 export const MCP_PATH = "/mcp";
+export const MCP_RATE_LIMIT_WINDOW_SECONDS = 60;
+export const MCP_RATE_LIMIT_MAX_REQUESTS = 240;
 
 const MCP_CONTENT_FIELDS = new Map([
   ["create_note", "contentMarkdown"],
@@ -52,6 +56,62 @@ function pathToken(request: Request) {
   } catch {
     return null;
   }
+}
+
+function bearerToken(request: Request) {
+  const authorization = request.headers.get("Authorization")?.trim();
+  const match = authorization ? /^Bearer\s+(\S+)$/iu.exec(authorization) : null;
+  return match?.[1] ?? null;
+}
+
+const nextMcpRateLimitCleanupAt = new WeakMap<SqliteDatabase, number>();
+
+function checkMcpRateLimit(database: SqliteDatabase, key: string) {
+  const timestamp = now();
+  const nextCleanupAt = nextMcpRateLimitCleanupAt.get(database) ?? 0;
+  if (timestamp >= nextCleanupAt) {
+    nextMcpRateLimitCleanupAt.set(database, timestamp + MCP_RATE_LIMIT_WINDOW_SECONDS);
+    cleanupExpiredRateLimits(database, timestamp);
+    database
+      .query("DELETE FROM rate_limits WHERE action = 'mcp' AND updated_at < ?")
+      .run(timestamp - 3600);
+  }
+
+  return database.transaction((): { retryAfter: number } | null => {
+    const row = database
+      .query("SELECT points, window_started_at FROM rate_limits WHERE action = 'mcp' AND key = ?")
+      .get(key) as { points: number; window_started_at: number } | null | undefined;
+
+    if (!row || timestamp - row.window_started_at >= MCP_RATE_LIMIT_WINDOW_SECONDS) {
+      database
+        .query(
+          `
+        INSERT INTO rate_limits (action, key, points, window_started_at, blocked_until, updated_at)
+        VALUES ('mcp', ?, 1, ?, 0, ?)
+        ON CONFLICT(action, key) DO UPDATE SET
+          points = 1,
+          window_started_at = excluded.window_started_at,
+          blocked_until = 0,
+          updated_at = excluded.updated_at
+      `,
+        )
+        .run(key, timestamp, timestamp);
+      return null;
+    }
+
+    if (row.points >= MCP_RATE_LIMIT_MAX_REQUESTS) {
+      return {
+        retryAfter: Math.max(1, row.window_started_at + MCP_RATE_LIMIT_WINDOW_SECONDS - timestamp),
+      };
+    }
+
+    database
+      .query(
+        "UPDATE rate_limits SET points = points + 1, updated_at = ? WHERE action = 'mcp' AND key = ?",
+      )
+      .run(timestamp, key);
+    return null;
+  })();
 }
 
 function validateOrigin(request: Request, environment: Record<string, string | undefined>) {
@@ -271,13 +331,24 @@ export async function handleMcpRequest(request: Request, options: ServerOptions)
   if (!expectedToken)
     return jsonError(503, "MCP_AUTH_NOT_CONFIGURED", "请先配置 XIANGYING_MCP_TOKEN");
 
-  const suppliedToken = pathToken(request);
+  const suppliedToken = pathToken(request) ?? bearerToken(request);
   if (!suppliedToken || !constantTimeEqual(suppliedToken, expectedToken)) {
-    return jsonError(401, "INVALID_MCP_TOKEN", "MCP URL 令牌无效或缺失");
+    return jsonError(
+      401,
+      "INVALID_MCP_TOKEN",
+      "MCP 令牌无效或缺失（支持 /mcp/<令牌> 或 Authorization: Bearer）",
+    );
   }
 
   const originError = validateOrigin(request, environment);
   if (originError) return originError;
+
+  const rateLimitKey = `${options.clientAddress ?? "unknown"}:${(await digestHex(suppliedToken)).slice(0, 32)}`;
+  const rateLimit = checkMcpRateLimit(options.database, rateLimitKey);
+  if (rateLimit)
+    return jsonError(429, "TOO_MANY_MCP_REQUESTS", "MCP 请求过于频繁，请稍后再试", {
+      "Retry-After": String(rateLimit.retryAfter),
+    });
 
   const credentials = getAuthCredentials(environment);
   if (!credentials)

@@ -282,7 +282,6 @@ function AnnotationComposer({
         className={`annotation-card annotation-card--compact is-editing is-composer${mobile ? " annotation-composer--sheet" : ""}`}
         style={mobile ? undefined : position}
         role="dialog"
-        aria-modal="true"
         aria-label="添加批注"
       >
         <button className="annotation-close-button" type="button" aria-label="取消" onClick={close}>
@@ -461,7 +460,6 @@ function AnnotationCard({
       onMouseEnter={() => onHover?.(true)}
       onMouseLeave={() => onHover?.(false)}
       role={variant === "compact" ? "dialog" : undefined}
-      aria-modal={variant === "compact" ? true : undefined}
       aria-label={variant === "compact" ? "批注" : undefined}
     >
       {!locked && (

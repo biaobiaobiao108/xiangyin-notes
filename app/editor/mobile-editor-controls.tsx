@@ -8,6 +8,7 @@ import {
   MoreHorizontal,
   ScrollText,
   Star,
+  Code2,
   Trash2,
   Undo2,
   X,
@@ -28,6 +29,8 @@ export function MobileEditorHeader({
   status,
   onBack,
   autoReadingMode,
+  sourceMode,
+  onToggleSourceMode,
   onToggleAutoReading,
   onExport,
   onFavorite,
@@ -49,6 +52,8 @@ export function MobileEditorHeader({
   status: ReactNode;
   onBack?: () => void;
   autoReadingMode: boolean;
+  sourceMode: boolean;
+  onToggleSourceMode: () => void;
   onToggleAutoReading?: () => void;
   onExport: () => void;
   onFavorite: () => void;
@@ -181,6 +186,15 @@ export function MobileEditorHeader({
                 上传图片
               </button>
             )}
+            <button
+              type="button"
+              role="menuitem"
+              disabled={locked}
+              onClick={() => runAction(onToggleSourceMode)}
+            >
+              <Code2 size={18} />
+              {sourceMode ? "富文本编辑" : "源码模式"}
+            </button>
             <button type="button" role="menuitem" onClick={() => runAction(onFavorite)}>
               <Star size={18} fill={favorite ? "currentColor" : "none"} />
               {favorite ? "取消收藏" : "收藏笔记"}

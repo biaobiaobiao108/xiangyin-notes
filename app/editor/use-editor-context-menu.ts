@@ -21,6 +21,7 @@ import {
 import { textFieldMenuItems, useContextMenu, type ContextMenuItem } from "../context-menu";
 import { modKey } from "../platform";
 import { pastePlainTextIntoCodeBlock } from "./code-block-paste";
+import { copyPlainText } from "./code-block-copy";
 import {
   annotationIdsInRange,
   HIGHLIGHT_COLORS,
@@ -115,7 +116,11 @@ export function useEditorContextMenu({
           ]);
         } else await navigator.clipboard.writeText(text);
       } catch {
-        throw clipboardError("copy");
+        try {
+          await copyPlainText(text);
+        } catch {
+          throw clipboardError("copy");
+        }
       }
       if (cut && restore() && editor.isEditable) editor.commands.deleteSelection();
     };

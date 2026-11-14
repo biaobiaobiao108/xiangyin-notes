@@ -370,6 +370,20 @@
   min-width: 0;
 }
 
+.memo-markdown {
+  min-width: 0;
+}
+
+.memo-image-placeholder {
+  display: inline-flex;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-muted);
+  color: var(--soft-muted);
+  font-size: 0.86em;
+}
+
 .memo-card-content .markdown-render-shell {
   width: 100%;
 }
@@ -835,7 +849,7 @@
 .memo-tag-section > header button {
   border: 0;
   background: transparent;
-  color: var(--accent);
+  color: var(--accent-ink);
   font: inherit;
   font-size: 0.72rem;
   transition:

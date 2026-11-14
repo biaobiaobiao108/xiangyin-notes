@@ -10,8 +10,11 @@ import {
 import {
   AlignVerticalSpaceAround,
   Archive,
+  ArrowDownAZ,
   Bookmark,
+  CalendarDays,
   Check,
+  Clock3,
   Columns2,
   Copy,
   Download,
@@ -53,6 +56,9 @@ export type CommandId =
   | "toggle-split"
   | "toggle-sidebar"
   | "toggle-view-layout"
+  | "sort-notes-updated"
+  | "sort-notes-created"
+  | "sort-notes-title"
   | "toggle-focus-mode"
   | "toggle-auto-reading"
   | "toggle-typewriter-mode"
@@ -222,6 +228,24 @@ export function CommandMenu({
             },
           ]
         : []),
+      {
+        id: "sort-notes-updated",
+        label: "按更新时间排序",
+        shortcut: "",
+        icon: Clock3,
+      },
+      {
+        id: "sort-notes-created",
+        label: "按创建时间排序",
+        shortcut: "",
+        icon: CalendarDays,
+      },
+      {
+        id: "sort-notes-title",
+        label: "按标题排序",
+        shortcut: "",
+        icon: ArrowDownAZ,
+      },
       {
         id: "toggle-focus-mode",
         label: focusMode ? "退出沉浸模式" : "进入沉浸模式",

@@ -37,10 +37,12 @@ for (const file of [
 
 const clientRoot = resolve("./dist/client");
 const precacheUrls = new Set(["/", "/app", "/index.html", "/manifest.webmanifest"]);
-for await (const file of new Bun.Glob("**/*").scan({ cwd: clientRoot, onlyFiles: true })) {
-  if (/\.(?:js|css)$/u.test(file) && file !== "sw.js") {
-    precacheUrls.add(`/${file.replaceAll("\\", "/")}`);
-  }
+for (const match of indexHtml.matchAll(/(?:src|href)="([^"]+)"/gu)) {
+  const source = match[1]!;
+  if (source.startsWith("http:") || source.startsWith("https:") || source.startsWith("data:"))
+    continue;
+  const pathname = source.startsWith("./") ? `/${source.slice(2)}` : source;
+  if (pathname.startsWith("/")) precacheUrls.add(pathname);
 }
 
 const workerBuild = await Bun.build({

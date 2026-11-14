@@ -11,6 +11,7 @@ import {
   PASSWORD_ITERATIONS,
   rateLimitClientAddress,
   readJson,
+  validNoteLinkDestination,
 } from "../server/core";
 import {
   buildFtsMatchQuery,
@@ -101,6 +102,28 @@ describe("security helpers", () => {
 });
 
 describe("Markdown asset references", () => {
+  test("allows safe link schemes and rejects executable destinations", () => {
+    for (const destination of [
+      "https://example.com/a",
+      "http://example.com",
+      "mailto:a@example.com",
+      "tel:+8613800000000",
+      "#section",
+      "/api/notes",
+      "../note",
+      "//example.com/path",
+    ])
+      expect(validNoteLinkDestination(destination)).toBe(true);
+    for (const destination of [
+      "javascript:alert(1)",
+      "JavaScript:alert(1)",
+      "data:text/html,<script>alert(1)</script>",
+      "vbscript:msgbox(1)",
+      "file:///etc/passwd",
+    ])
+      expect(validNoteLinkDestination(destination)).toBe(false);
+  });
+
   test("extracts destinations from actual Markdown links and images, not code or plain text", () => {
     const linkId = "123e4567-e89b-42d3-a456-426614174000";
     const imageId = "223e4567-e89b-42d3-a456-426614174000";

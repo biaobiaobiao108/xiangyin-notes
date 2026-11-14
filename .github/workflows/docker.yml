@@ -44,6 +44,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
+      - name: Verify package version matches release tag
+        shell: bash
+        run: |
+          package_version="$(jq -r .version package.json)"
+          if [[ "v${package_version}" != "${GITHUB_REF_NAME}" ]]; then
+            echo "package.json version ${package_version} does not match release tag ${GITHUB_REF_NAME}" >&2
+            exit 1
+          fi
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
         with:

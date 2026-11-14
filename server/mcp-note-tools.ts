@@ -11,7 +11,6 @@ import {
   noteTagsSchema,
   validMcpTags,
   invalidMcpTagsError,
-  countUnicodeCharacters,
   withPreviewLimit,
   withoutNotePreview,
   appendMarkdownTags,
@@ -243,7 +242,7 @@ export function registerMcpNoteTools(
       const rows = all<{
         id: string;
         title: string;
-        content_markdown: string;
+        content_length: number;
         notebook_id: string;
         notebook_name: string;
         is_favorite: number;
@@ -255,7 +254,8 @@ export function registerMcpNoteTools(
       }>(
         options.database,
         `
-      SELECT n.id, n.title, n.content_markdown, n.notebook_id, b.name AS notebook_name,
+      SELECT n.id, n.title, length(n.content_markdown) AS content_length,
+        n.notebook_id, b.name AS notebook_name,
         n.is_favorite, n.deleted_at, n.version, n.created_at, n.updated_at,
         COALESCE((SELECT json_group_array(tag) FROM (SELECT tag FROM note_tags WHERE note_id = n.id ORDER BY position)), '[]') AS tags_json
       FROM notes n
@@ -266,6 +266,9 @@ export function registerMcpNoteTools(
         ...noteIds,
       );
       const rowsById = new Map(rows.map((row) => [row.id, row]));
+      const contentStatement = options.database.query(
+        "SELECT content_markdown FROM notes WHERE id = ? AND user_id = ?",
+      );
 
       const notes: Record<string, unknown>[] = [];
       const notFoundIds: string[] = [];
@@ -284,11 +287,19 @@ export function registerMcpNoteTools(
           notFoundIds.push(noteId);
           continue;
         }
-        const contentCharacters = countUnicodeCharacters(row.content_markdown);
+        const contentCharacters = row.content_length;
         if (totalContentCharacters + contentCharacters > maxTotalCharacters) {
           oversizedIds.push(noteId);
           continue;
         }
+        const contentRow = contentStatement.get(noteId, user.id) as {
+          content_markdown: string;
+        } | null;
+        if (!contentRow) {
+          notFoundIds.push(noteId);
+          continue;
+        }
+        const contentMarkdown = contentRow.content_markdown;
         notes.push({
           id: row.id,
           notebookId: row.notebook_id,
@@ -300,7 +311,7 @@ export function registerMcpNoteTools(
           version: row.version,
           createdAt: row.created_at,
           updatedAt: row.updated_at,
-          contentMarkdown: row.content_markdown,
+          contentMarkdown,
         });
         totalContentCharacters += contentCharacters;
       }

@@ -42,6 +42,11 @@ import {
   type EditorTextStatsSnapshot,
 } from "./editor-text-stats";
 import { EditorHeader, type EditorSaveState as SaveState } from "./editor/editor-header";
+import {
+  markdownSourceModeNotice,
+  markdownSourceModeReason,
+  type MarkdownSourceReason,
+} from "./editor/markdown-source-mode";
 import { transactionMayChangeOutline } from "./editor/outline-change";
 import { scrollNoteNavigation } from "./editor/document-navigation";
 import { replaceEditorMarkdown } from "./editor/document-content";
@@ -276,6 +281,37 @@ export function NoteEditor({
   if (initialContentRef.current === null) {
     initialContentRef.current = prepareMarkdownForEditor(contentMarkdown);
   }
+  const [sourceModeState, setSourceModeState] = useState<{
+    noteId: string;
+    source: boolean;
+    seed?: string;
+    reason?: MarkdownSourceReason;
+  } | null>(null);
+  const automaticSourceReason = useMemo(
+    () => markdownSourceModeReason(contentMarkdown),
+    [contentMarkdown],
+  );
+  const sourceMode =
+    sourceModeState?.noteId === note.id ? sourceModeState.source : Boolean(automaticSourceReason);
+  const sourceModeRef = useRef(sourceMode);
+  sourceModeRef.current = sourceMode;
+  const sourceReason: MarkdownSourceReason | null =
+    sourceModeState?.noteId === note.id && sourceModeState.source
+      ? (sourceModeState.reason ?? null)
+      : automaticSourceReason;
+  const sourceSeed = sourceModeState?.noteId === note.id ? sourceModeState.seed : undefined;
+  const sourceInitial = sourceSeed ?? contentMarkdown;
+  const sourceTextRef = useRef(sourceInitial);
+  const sourceDirtyRef = useRef(false);
+  const sourceContextRef = useRef({ noteId: note.id, reloadToken, seed: sourceSeed });
+  const sourceSyncTimerRef = useRef<number | null>(null);
+  const sourceSyncStartedAtRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!automaticSourceReason || sourceModeState?.noteId === note.id) return;
+    setSourceModeState({ noteId: note.id, source: true, reason: automaticSourceReason });
+  }, [automaticSourceReason, note.id, sourceModeState?.noteId]);
+
   const isPastingRef = useRef(false);
   const smoothScrollToHeadRef = useRef<(view: Editor["view"]) => void>(() => undefined);
   const outlineScrollAnimRef = useRef<number | null>(null);
@@ -1034,19 +1070,68 @@ export function NoteEditor({
   );
   surfaceSyncRef.current = scheduleEditorSurfaceSync;
 
-  const flushMarkdownChange = useCallback((source?: Editor) => {
-    if (markdownSyncFrameRef.current !== null) {
-      window.clearTimeout(markdownSyncFrameRef.current);
-      markdownSyncFrameRef.current = null;
+  const flushSourceMarkdownChange = useCallback(() => {
+    if (sourceSyncTimerRef.current !== null) {
+      window.clearTimeout(sourceSyncTimerRef.current);
+      sourceSyncTimerRef.current = null;
     }
-    markdownSyncStartedAtRef.current = null;
-    if (!markdownDirtyRef.current) return;
-    const instance = (source ?? editorInstanceRef.current) as EditorWithMarkdown | null;
-    if (!instance || instance.isDestroyed) return;
-    markdownDirtyRef.current = false;
+    sourceSyncStartedAtRef.current = null;
+    if (!sourceDirtyRef.current) return;
+    sourceDirtyRef.current = false;
     onMarkdownDirtyChangeRef.current?.(markdownOwnerRef.current.noteId, false);
-    onChangeRef.current({ contentMarkdown: instance.getMarkdown() });
+    onChangeRef.current({ contentMarkdown: sourceTextRef.current });
   }, []);
+
+  const flushMarkdownChange = useCallback(
+    (source?: Editor) => {
+      if (markdownSyncFrameRef.current !== null) {
+        window.clearTimeout(markdownSyncFrameRef.current);
+        markdownSyncFrameRef.current = null;
+      }
+      markdownSyncStartedAtRef.current = null;
+      if (sourceModeRef.current) {
+        flushSourceMarkdownChange();
+        return;
+      }
+      if (!markdownDirtyRef.current) return;
+      const instance = (source ?? editorInstanceRef.current) as EditorWithMarkdown | null;
+      if (!instance || instance.isDestroyed) return;
+      markdownDirtyRef.current = false;
+      onMarkdownDirtyChangeRef.current?.(markdownOwnerRef.current.noteId, false);
+      onChangeRef.current({ contentMarkdown: instance.getMarkdown() });
+    },
+    [flushSourceMarkdownChange],
+  );
+
+  const scheduleSourceMarkdownChange = useCallback(() => {
+    const wasDirty = sourceDirtyRef.current;
+    sourceDirtyRef.current = true;
+    const noteId = markdownOwnerRef.current.noteId;
+    if (!wasDirty) onMarkdownDirtyChangeRef.current?.(noteId, true);
+    const currentReloadToken = markdownOwnerRef.current.reloadToken;
+    const now = performance.now();
+    const startedAt = sourceSyncStartedAtRef.current ?? now;
+    sourceSyncStartedAtRef.current = startedAt;
+    if (sourceSyncTimerRef.current !== null) window.clearTimeout(sourceSyncTimerRef.current);
+    const wait = Math.min(
+      EDITOR_SYNC_DEBOUNCE_MS,
+      Math.max(0, startedAt + EDITOR_SYNC_MAX_WAIT_MS - now),
+    );
+    sourceSyncTimerRef.current = window.setTimeout(() => {
+      sourceSyncTimerRef.current = null;
+      sourceSyncStartedAtRef.current = null;
+      if (!sourceDirtyRef.current) return;
+      if (
+        noteId !== markdownOwnerRef.current.noteId ||
+        currentReloadToken !== markdownOwnerRef.current.reloadToken
+      ) {
+        sourceDirtyRef.current = false;
+        onMarkdownDirtyChangeRef.current?.(noteId, false);
+        return;
+      }
+      flushSourceMarkdownChange();
+    }, wait);
+  }, [flushSourceMarkdownChange]);
 
   const scheduleMarkdownChange = useCallback(
     (instance: Editor) => {
@@ -1082,12 +1167,15 @@ export function NoteEditor({
   );
 
   const editor = useEditor({
-    editable: !note.deletedAt && !isLoading && !trashBusy,
+    editable: !sourceMode && !note.deletedAt && !isLoading && !trashBusy,
     extensions,
     coreExtensionOptions: editorCoreExtensionOptions,
-    content: initialContentRef.current,
+    content: sourceMode ? "" : initialContentRef.current,
     contentType: "markdown",
-    editorProps,
+    editorProps: {
+      ...editorProps,
+      attributes: { ...editorProps.attributes, "aria-label": "笔记正文" },
+    },
     onUpdate: ({ editor: instance, transaction }) => {
       scheduleMarkdownChange(instance);
       if (typewriterModeRef.current && !instance.view.composing && !composingRef.current) {
@@ -1139,6 +1227,71 @@ export function NoteEditor({
     flushMarkdownChange();
     onSaveNow();
   }, [flushMarkdownChange, onSaveNow]);
+
+  const enterSourceMode = useCallback(() => {
+    const markdown =
+      editor && !editor.isDestroyed
+        ? (editor as EditorWithMarkdown).getMarkdown()
+        : contentMarkdown;
+    markdownDirtyRef.current = false;
+    sourceTextRef.current = markdown;
+    sourceDirtyRef.current = false;
+    onChangeRef.current({ contentMarkdown: markdown });
+    setSourceModeState({ noteId: note.id, source: true, seed: markdown });
+    if (autoReadingMode) onExitAutoReadingMode?.();
+    onCloseOutline();
+    onOutlineItemsChange([]);
+    onOutlineActiveChange(null);
+  }, [
+    autoReadingMode,
+    contentMarkdown,
+    editor,
+    note.id,
+    onCloseOutline,
+    onExitAutoReadingMode,
+    onOutlineActiveChange,
+    onOutlineItemsChange,
+  ]);
+
+  const exitSourceMode = useCallback(() => {
+    if (sourceSyncTimerRef.current !== null) {
+      window.clearTimeout(sourceSyncTimerRef.current);
+      sourceSyncTimerRef.current = null;
+    }
+    sourceSyncStartedAtRef.current = null;
+    const markdown = sourceTextRef.current;
+    onChangeRef.current({ contentMarkdown: markdown });
+    setSourceModeState({ noteId: note.id, source: false });
+    sourceDirtyRef.current = false;
+    markdownDirtyRef.current = false;
+    if (editor && !editor.isDestroyed) {
+      replaceEditorMarkdown(editor, prepareMarkdownForEditor(markdown));
+      scheduleEditorSurfaceSync(editor);
+      editor.commands.focus("start");
+    }
+    onMarkdownDirtyChangeRef.current?.(note.id, false);
+  }, [editor, note.id, scheduleEditorSurfaceSync]);
+
+  const toggleSourceMode = useCallback(() => {
+    if (sourceModeRef.current) exitSourceMode();
+    else enterSourceMode();
+  }, [enterSourceMode, exitSourceMode]);
+
+  useEffect(() => {
+    if (!sourceMode) return;
+    const context = sourceContextRef.current;
+    if (
+      context.noteId === note.id &&
+      context.reloadToken === reloadToken &&
+      context.seed === sourceSeed &&
+      sourceDirtyRef.current
+    )
+      return;
+    sourceContextRef.current = { noteId: note.id, reloadToken, seed: sourceSeed };
+    sourceTextRef.current = sourceInitial;
+    sourceDirtyRef.current = false;
+    onMarkdownDirtyChangeRef.current?.(note.id, false);
+  }, [note.id, reloadToken, sourceInitial, sourceMode, sourceSeed]);
 
   const syncActiveOutlineFromSelection = useCallback(
     (instance: Editor) => {
@@ -1203,10 +1356,12 @@ export function NoteEditor({
 
   useEffect(() => {
     if (!editor) return;
-    const readCurrentMarkdown = () =>
-      editor.isDestroyed || !markdownDirtyRef.current
+    const readCurrentMarkdown = () => {
+      if (sourceModeRef.current) return sourceDirtyRef.current ? sourceTextRef.current : null;
+      return editor.isDestroyed || !markdownDirtyRef.current
         ? null
         : (editor as EditorWithMarkdown).getMarkdown();
+    };
     onMarkdownReaderChange?.(readCurrentMarkdown);
     return () => onMarkdownReaderChange?.(null);
   }, [editor, onMarkdownReaderChange]);
@@ -1298,6 +1453,9 @@ export function NoteEditor({
       if (markdownSyncFrameRef.current !== null) window.clearTimeout(markdownSyncFrameRef.current);
       markdownSyncFrameRef.current = null;
       markdownSyncStartedAtRef.current = null;
+      if (sourceSyncTimerRef.current !== null) window.clearTimeout(sourceSyncTimerRef.current);
+      sourceSyncTimerRef.current = null;
+      sourceSyncStartedAtRef.current = null;
       if (imeCleanupTimerRef.current !== null) clearTimeout(imeCleanupTimerRef.current);
       imeCleanupTimerRef.current = null;
       leakedCandidateRef.current = null;
@@ -1319,8 +1477,8 @@ export function NoteEditor({
 
   useEffect(() => {
     if (!editor) return;
-    editor.setEditable(!note.deletedAt && !editorLocked, false);
-  }, [editor, editorLocked, note.deletedAt]);
+    editor.setEditable(!sourceMode && !note.deletedAt && !editorLocked, false);
+  }, [editor, editorLocked, note.deletedAt, sourceMode]);
 
   const appliedReloadTokenRef = useRef(reloadToken);
   useEffect(() => {
@@ -1348,8 +1506,18 @@ export function NoteEditor({
     if (markdownSyncFrameRef.current !== null) window.clearTimeout(markdownSyncFrameRef.current);
     markdownSyncFrameRef.current = null;
     markdownSyncStartedAtRef.current = null;
+    if (sourceSyncTimerRef.current !== null) window.clearTimeout(sourceSyncTimerRef.current);
+    sourceSyncTimerRef.current = null;
+    sourceSyncStartedAtRef.current = null;
+    sourceDirtyRef.current = false;
     initialContentRef.current = prepareMarkdownForEditor(contentMarkdown);
-    replaceEditorMarkdown(editor, initialContentRef.current);
+    if (sourceModeRef.current) {
+      sourceTextRef.current = contentMarkdown;
+      sourceDirtyRef.current = false;
+      editor.commands.setContent("", { emitUpdate: false });
+    } else {
+      replaceEditorMarkdown(editor, initialContentRef.current);
+    }
     editorScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
     if (switchedNote) {
       const doc = documentRef.current;
@@ -1703,6 +1871,8 @@ export function NoteEditor({
         focusMode={focusMode}
         autoReadingMode={autoReadingMode}
         isSplitActive={isSplitActive}
+        sourceMode={sourceMode}
+        onToggleSourceMode={toggleSourceMode}
         onUploadImage={onUploadImage}
         onCloseSplit={onCloseSplit}
         onToggleSplit={onToggleSplit}
@@ -1847,15 +2017,51 @@ export function NoteEditor({
               aria-label="笔记标题"
               placeholder="未命名笔记"
             />
-            <EditorContent editor={editor} />
-            <BlockDragHandle
-              editor={editor}
-              containerRef={documentRef}
-              scrollRef={editorScrollRef}
-              disabled={editorLocked || isMobileViewport || Boolean(note.deletedAt)}
-            />
-            <TableScrollbars rootRef={documentRef} />
-            {annotations.overlay}
+            <h1 className="visually-hidden">{note.title.trim() || "未命名笔记"}</h1>
+            {sourceMode ? (
+              <div className="markdown-source-shell">
+                <div className="markdown-source-notice" role="status">
+                  <span>
+                    {sourceReason
+                      ? markdownSourceModeNotice(sourceReason)
+                      : "源码模式：保存时按 Markdown 原文写回。"}
+                  </span>
+                  <button
+                    className="text-button"
+                    type="button"
+                    onClick={toggleSourceMode}
+                    disabled={Boolean(note.deletedAt)}
+                  >
+                    切换到富文本
+                  </button>
+                </div>
+                <textarea
+                  key={`${note.id}:${reloadToken}:${sourceSeed ? "seed" : "auto"}`}
+                  className="markdown-source-input"
+                  defaultValue={sourceInitial}
+                  readOnly={Boolean(note.deletedAt) || editorLocked}
+                  spellCheck={false}
+                  aria-label="笔记 Markdown 源码"
+                  onInput={(event) => {
+                    const value = event.currentTarget.value;
+                    sourceTextRef.current = value;
+                    scheduleSourceMarkdownChange();
+                  }}
+                />
+              </div>
+            ) : (
+              <>
+                <EditorContent editor={editor} />
+                <BlockDragHandle
+                  editor={editor}
+                  containerRef={documentRef}
+                  scrollRef={editorScrollRef}
+                  disabled={editorLocked || isMobileViewport || Boolean(note.deletedAt)}
+                />
+                <TableScrollbars rootRef={documentRef} />
+                {annotations.overlay}
+              </>
+            )}
           </div>
         </div>
         <FloatingScrollbar
@@ -1865,7 +2071,7 @@ export function NoteEditor({
           ariaLabel="编辑器滚动条"
           placement="right"
         />
-        {autoReadingMode && (
+        {autoReadingMode && !sourceMode && (
           <AutoReadingHUD scrollTargetRef={editorScrollRef} onExit={onExitAutoReadingMode} />
         )}
       </div>
@@ -1886,40 +2092,44 @@ export function NoteEditor({
           </div>
         </div>
       )}
-      <EditorFloatingTools
-        editor={editor}
-        outlineTriggerRef={outlineTriggerRef}
-        outlineOpen={outlineOpen}
-        editorStats={editorStats}
-        onToggleOutline={onToggleOutline}
-        hideOutlineTrigger={focusMode || isMobileViewport}
-        searchNavigation={searchNavigation}
-        searchQuery={searchQuery}
-        replaceOpen={replaceOpen}
-        replaceQuery={replaceQuery}
-        replacementText={replacementText}
-        replaceMatchNavigation={searchNavigation}
-        onToggleReplace={toggleReplace}
-        onChangeReplaceQuery={setReplaceQuery}
-        onChangeReplacementText={setReplacementText}
-        onMoveReplaceMatch={moveSearchMatch}
-        onReplaceCurrent={replaceCurrent}
-        onReplaceAll={replaceAll}
-        onCloseReplace={closeReplace}
-        deferredLoading={editorLocked}
-        onMoveSearchMatch={moveSearchMatch}
-        onClearSearch={onClearSearch}
-      />
-      {contextMenu.menu}
-      {isMobileViewport && (
-        <MobileEditorFooter
-          stats={editorStats}
-          outlineOpen={outlineOpen}
-          outlineTriggerRef={outlineTriggerRef}
-          locked={editorLocked}
-          onToggleOutline={onToggleOutline}
-        />
+      {!sourceMode && (
+        <>
+          <EditorFloatingTools
+            editor={editor}
+            outlineTriggerRef={outlineTriggerRef}
+            outlineOpen={outlineOpen}
+            editorStats={editorStats}
+            onToggleOutline={onToggleOutline}
+            hideOutlineTrigger={focusMode || isMobileViewport}
+            searchNavigation={searchNavigation}
+            searchQuery={searchQuery}
+            replaceOpen={replaceOpen}
+            replaceQuery={replaceQuery}
+            replacementText={replacementText}
+            replaceMatchNavigation={searchNavigation}
+            onToggleReplace={toggleReplace}
+            onChangeReplaceQuery={setReplaceQuery}
+            onChangeReplacementText={setReplacementText}
+            onMoveReplaceMatch={moveSearchMatch}
+            onReplaceCurrent={replaceCurrent}
+            onReplaceAll={replaceAll}
+            onCloseReplace={closeReplace}
+            deferredLoading={editorLocked}
+            onMoveSearchMatch={moveSearchMatch}
+            onClearSearch={onClearSearch}
+          />
+          {isMobileViewport && (
+            <MobileEditorFooter
+              stats={editorStats}
+              outlineOpen={outlineOpen}
+              outlineTriggerRef={outlineTriggerRef}
+              locked={editorLocked}
+              onToggleOutline={onToggleOutline}
+            />
+          )}
+        </>
       )}
+      {contextMenu.menu}
       {!note.deletedAt && onNavigateToNote && (
         <BacklinksDialog
           open={backlinksOpen}

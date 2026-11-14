@@ -5,8 +5,12 @@
 .app-shell.layout-cards.sidebar-collapsed {
   grid-template-columns: 72px minmax(0, 1fr);
 }
-.app-shell.layout-cards.is-tasks-open { grid-template-columns: 252px minmax(300px, 360px) minmax(0, 1fr); }
-.app-shell.layout-cards.sidebar-collapsed.is-tasks-open { grid-template-columns: 72px minmax(300px, 360px) minmax(0, 1fr); }
+.app-shell.layout-cards.is-tasks-open {
+  grid-template-columns: 252px minmax(300px, 360px) minmax(0, 1fr);
+}
+.app-shell.layout-cards.sidebar-collapsed.is-tasks-open {
+  grid-template-columns: 72px minmax(300px, 360px) minmax(0, 1fr);
+}
 .app-shell.layout-cards.is-focus-mode {
   grid-template-columns: 0px minmax(0, 1fr);
 }
@@ -16,15 +20,18 @@
   pointer-events: none;
   visibility: hidden;
   border-right-color: transparent;
-  transition: transform var(--motion-layout) var(--motion-ease-out),
-              opacity var(--motion-panel) ease,
-              border-color var(--motion-panel) ease,
-              visibility 0s linear var(--motion-layout);
+  transition:
+    transform var(--motion-layout) var(--motion-ease-out),
+    opacity var(--motion-panel) ease,
+    border-color var(--motion-panel) ease,
+    visibility 0s linear var(--motion-layout);
 }
 .app-shell.layout-cards .editor-region {
   grid-column: 2;
 }
-.app-shell.layout-cards.is-tasks-open .editor-region { grid-column: 3; }
+.app-shell.layout-cards.is-tasks-open .editor-region {
+  grid-column: 3;
+}
 
 .app-shell.layout-cards .editor-panel {
   animation: card-editor-in var(--motion-content) var(--motion-ease-out) both;
@@ -135,7 +142,10 @@
 
 .card-masonry-slot > .note-card {
   margin-block-end: 0;
-  transition: box-shadow var(--motion-fast) var(--motion-ease-out), border-color var(--motion-fast) var(--motion-ease-out), background-color var(--motion-fast) var(--motion-ease-out);
+  transition:
+    box-shadow var(--motion-fast) var(--motion-ease-out),
+    border-color var(--motion-fast) var(--motion-ease-out),
+    background-color var(--motion-fast) var(--motion-ease-out);
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -156,13 +166,24 @@
   box-shadow: var(--note-card-shadow);
   overflow: hidden;
   cursor: pointer;
-  transition: box-shadow var(--motion-fast) var(--motion-ease-out), border-color var(--motion-fast) var(--motion-ease-out), background-color var(--motion-fast) var(--motion-ease-out);
+  transition:
+    box-shadow var(--motion-fast) var(--motion-ease-out),
+    border-color var(--motion-fast) var(--motion-ease-out),
+    background-color var(--motion-fast) var(--motion-ease-out);
   text-align: left;
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
 }
-.note-card-foreground { position: relative; z-index: 1; display: flex; min-width: 0; flex: 1 1 auto; flex-direction: column; background: var(--surface); }
+.note-card-foreground {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  background: var(--surface);
+}
 
 .note-card:focus-visible {
   outline: none;
@@ -183,9 +204,13 @@
 .note-card.is-selected {
   border-color: var(--multi-selection-border);
   background: var(--multi-selection-soft);
-  box-shadow: 0 0 0 1px var(--multi-selection-border), var(--note-card-shadow);
+  box-shadow:
+    0 0 0 1px var(--multi-selection-border),
+    var(--note-card-shadow);
 }
-.note-card.is-selected .note-card-foreground { background: var(--multi-selection-soft); }
+.note-card.is-selected .note-card-foreground {
+  background: var(--multi-selection-soft);
+}
 
 .note-card-cover {
   height: 140px;
@@ -308,7 +333,9 @@
   white-space: nowrap;
 }
 
-.note-card-notebook-badge .notebook-color-dot { flex: none; }
+.note-card-notebook-badge .notebook-color-dot {
+  flex: none;
+}
 .note-card-notebook-badge .notebook-badge-name {
   min-width: 0;
   overflow: hidden;
@@ -348,8 +375,12 @@
   --card-document-max: 820px;
   --card-outline-gutter: 248px;
   --card-document-end-space: 32px;
-  width: min(var(--card-document-max), calc(100% - var(--card-outline-gutter) - var(--card-document-end-space)));
-  margin-inline: max(var(--card-outline-gutter), calc((100% - var(--card-document-max)) / 2)) var(--card-document-end-space);
+  width: min(
+    var(--card-document-max),
+    calc(100% - var(--card-outline-gutter) - var(--card-document-end-space))
+  );
+  margin-inline: max(var(--card-outline-gutter), calc((100% - var(--card-document-max)) / 2))
+    var(--card-document-end-space);
 }
 
 .editor-floating-outline .note-outline-panel {
@@ -374,7 +405,9 @@
   align-items: center;
 }
 
-.editor-floating-outline .editor-outline-item { scroll-snap-align: start; }
+.editor-floating-outline .editor-outline-item {
+  scroll-snap-align: start;
+}
 
 .editor-floating-outline .note-outline-scroll > nav,
 .editor-floating-outline .note-outline-scroll > .editor-outline-empty {
@@ -382,8 +415,14 @@
   margin-block: auto;
 }
 @keyframes outlineFadeIn {
-  from { opacity: 0; transform: translateX(-8px) scale(0.98); }
-  to { opacity: 1; transform: translateX(0) scale(1); }
+  from {
+    opacity: 0;
+    transform: translateX(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
 }
 
 @media (max-width: 1180px) {
@@ -393,7 +432,12 @@
 }
 
 @media (max-width: 768px) {
-  .editor-floating-outline { top: 62px; left: 6px; width: 140px; bottom: 88px; }
+  .editor-floating-outline {
+    top: 62px;
+    left: 6px;
+    width: 140px;
+    bottom: 88px;
+  }
   .app-shell .editor-panel:has(.editor-floating-outline) .editor-document {
     --card-outline-gutter: 160px;
     --card-document-end-space: 20px;
@@ -407,41 +451,142 @@
     padding-top: max(72px, calc(env(safe-area-inset-top) + 64px));
   }
   .app-shell[data-mobile-page="home"] > .note-card-grid-panel,
-  .app-shell[data-mobile-page="editor"] > .note-card-grid-panel { display: none; }
-  .is-mobile-card-grid { flex: 1 1 0; height: 0; min-height: 0; background: var(--canvas); }
-  .is-mobile-card-grid .card-grid-scroll-shell::before { background: linear-gradient(to bottom, var(--canvas), transparent); }
-  .is-mobile-card-grid .card-grid-scroll-shell::after { background: linear-gradient(to top, var(--canvas), transparent); }
-  .card-grid-mobile-menu { left: max(14px, env(safe-area-inset-left)); }
-  .card-grid-empty-trash { right: max(24px, env(safe-area-inset-right)); }
+  .app-shell[data-mobile-page="editor"] > .note-card-grid-panel {
+    display: none;
+  }
+  .is-mobile-card-grid {
+    flex: 1 1 0;
+    height: 0;
+    min-height: 0;
+    background: var(--canvas);
+  }
+  .is-mobile-card-grid .card-grid-scroll-shell::before {
+    background: linear-gradient(to bottom, var(--canvas), transparent);
+  }
+  .is-mobile-card-grid .card-grid-scroll-shell::after {
+    background: linear-gradient(to top, var(--canvas), transparent);
+  }
+  .card-grid-mobile-menu {
+    left: max(14px, env(safe-area-inset-left));
+  }
+  .card-grid-empty-trash {
+    right: max(24px, env(safe-area-inset-right));
+  }
   .is-mobile-card-grid .card-grid-container,
-  .is-mobile-card-grid .card-grid-container.has-trash-action { padding: 14px max(14px, env(safe-area-inset-right)) calc(96px + env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left)); overscroll-behavior: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; }
-  .is-mobile-card-grid .note-card { position: relative; min-width: 0; margin-bottom: 0; border-color: var(--border-soft); transition-timing-function: var(--motion-ease-out); }
-  .is-mobile-card-grid .note-card.is-selected { border-color: var(--multi-selection-border); }
-  .is-mobile-card-grid .note-card.is-selected .note-card-foreground { background: var(--multi-selection-soft); }
-  .is-mobile-card-grid .note-card.is-selected:has(.note-card-open:focus-visible) { background: var(--multi-selection-soft); }
-  .is-mobile-card-grid .note-card.is-selected:has(.note-card-open:focus-visible) > .note-card-foreground { background: var(--multi-selection-soft); }
-  .is-mobile-card-grid .note-card-foreground { min-height: 100%; }
-  .is-mobile-card-grid .note-card:has(.note-card-open:focus-visible) > .note-card-foreground { background: var(--accent-soft); }
-  .is-mobile-card-grid .note-card-open { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; padding: 0; border: 0; border-radius: inherit; background: transparent; touch-action: pan-y; }
-  .is-mobile-card-grid .note-card:has(.note-card-open:focus-visible) { background: var(--accent-soft); }
-  .is-mobile-card-grid .note-card-body { padding: 14px 12px 12px; gap: 10px; }
-  .is-mobile-card-grid .note-card-header { position: relative; }
-  .is-mobile-card-grid .note-card-header.has-favorite-action { padding-right: 44px; }
-  .is-mobile-card-grid .note-card-title { min-width: 0; font-size: 1rem; }
-  .is-mobile-card-grid .note-card-star-btn { position: absolute; top: -10px; right: -10px; z-index: 2; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 999px; }
-  .is-mobile-card-grid .note-card-preview-text { font-size: 0.8125rem; line-height: 1.65; -webkit-line-clamp: 6; }
-  .is-mobile-card-grid .note-card-cover { height: 116px; }
-  .is-mobile-card-grid .note-card-footer { margin-top: 0; padding-top: 8px; }
-  .is-mobile-card-grid .note-card-date { text-align: right; font-size: 0.6875rem; }
+  .is-mobile-card-grid .card-grid-container.has-trash-action {
+    padding: 14px max(14px, env(safe-area-inset-right)) calc(96px + env(safe-area-inset-bottom))
+      max(14px, env(safe-area-inset-left));
+    overscroll-behavior: contain;
+    touch-action: pan-y;
+    -webkit-overflow-scrolling: touch;
+  }
+  .is-mobile-card-grid .note-card {
+    position: relative;
+    min-width: 0;
+    margin-bottom: 0;
+    border-color: var(--border-soft);
+    transition-timing-function: var(--motion-ease-out);
+  }
+  .is-mobile-card-grid .note-card.is-selected {
+    border-color: var(--multi-selection-border);
+  }
+  .is-mobile-card-grid .note-card.is-selected .note-card-foreground {
+    background: var(--multi-selection-soft);
+  }
+  .is-mobile-card-grid .note-card.is-selected:has(.note-card-open:focus-visible) {
+    background: var(--multi-selection-soft);
+  }
+  .is-mobile-card-grid
+    .note-card.is-selected:has(.note-card-open:focus-visible)
+    > .note-card-foreground {
+    background: var(--multi-selection-soft);
+  }
+  .is-mobile-card-grid .note-card-foreground {
+    min-height: 100%;
+  }
+  .is-mobile-card-grid .note-card:has(.note-card-open:focus-visible) > .note-card-foreground {
+    background: var(--accent-soft);
+  }
+  .is-mobile-card-grid .note-card-open {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    border-radius: inherit;
+    background: transparent;
+    touch-action: pan-y;
+  }
+  .is-mobile-card-grid .note-card:has(.note-card-open:focus-visible) {
+    background: var(--accent-soft);
+  }
+  .is-mobile-card-grid .note-card-body {
+    padding: 14px 12px 12px;
+    gap: 10px;
+  }
+  .is-mobile-card-grid .note-card-header {
+    position: relative;
+  }
+  .is-mobile-card-grid .note-card-header.has-favorite-action {
+    padding-right: 44px;
+  }
+  .is-mobile-card-grid .note-card-title {
+    min-width: 0;
+    font-size: 1rem;
+  }
+  .is-mobile-card-grid .note-card-star-btn {
+    position: absolute;
+    top: -10px;
+    right: -10px;
+    z-index: 2;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 999px;
+  }
+  .is-mobile-card-grid .note-card-preview-text {
+    font-size: 0.8125rem;
+    line-height: 1.65;
+    -webkit-line-clamp: 6;
+  }
+  .is-mobile-card-grid .note-card-cover {
+    height: 116px;
+  }
+  .is-mobile-card-grid .note-card-footer {
+    margin-top: 0;
+    padding-top: 8px;
+  }
+  .is-mobile-card-grid .note-card-date {
+    text-align: right;
+    font-size: 0.6875rem;
+  }
   .mobile-collection-header .sort-button-label,
-  .mobile-collection-header .sort-button-arrow { display: none; }
+  .mobile-collection-header .sort-button-arrow {
+    display: none;
+  }
   .app-shell[data-mobile-page] .mobile-collection-header .sort-button,
-  .app-shell[data-mobile-page] .mobile-layout-toggle { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; flex: 0 0 44px; }
-  .mobile-collection-header .list-header-controls { flex-shrink: 0; gap: 2px; }
+  .app-shell[data-mobile-page] .mobile-layout-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    flex: 0 0 44px;
+  }
+  .mobile-collection-header .list-header-controls {
+    flex-shrink: 0;
+    gap: 2px;
+  }
 }
 
 @supports (line-clamp: 3) {
-  .is-mobile-card-grid .note-card-header.has-favorite-action { padding-right: 0; }
+  .is-mobile-card-grid .note-card-header.has-favorite-action {
+    padding-right: 0;
+  }
   .is-mobile-card-grid .note-card-title {
     display: block;
     width: 100%;
@@ -528,4 +673,9 @@
 }
 
 /* 吸顶标题下的内容持续移动，使用实色避免 WebKit 每帧重新采样背景模糊。 */
-.note-list-group-header, .tasks-note-group-header { background: var(--surface); backdrop-filter: none; -webkit-backdrop-filter: none; }
+.note-list-group-header,
+.tasks-note-group-header {
+  background: var(--surface);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}

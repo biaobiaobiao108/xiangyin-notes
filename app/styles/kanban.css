@@ -41,7 +41,8 @@
   min-height: calc(64px + env(safe-area-inset-top));
   box-sizing: border-box;
   align-items: center;
-  padding: env(safe-area-inset-top) max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left));
+  padding: env(safe-area-inset-top) max(12px, env(safe-area-inset-right)) 0
+    max(12px, env(safe-area-inset-left));
   border-bottom: 1px solid var(--line);
   background: var(--canvas);
 }
@@ -118,9 +119,10 @@
   border: 1px solid var(--border-soft);
   box-shadow: none;
   overflow: hidden;
-  transition: background-color var(--motion-fast) ease,
-              border-color var(--motion-fast) ease,
-              box-shadow var(--motion-fast) ease;
+  transition:
+    background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease,
+    box-shadow var(--motion-fast) ease;
 }
 
 .kanban-column.is-drop-target {
@@ -243,7 +245,9 @@
   background: transparent;
   color: var(--soft-muted);
   cursor: pointer;
-  transition: background-color var(--motion-fast) ease, color var(--motion-fast) ease;
+  transition:
+    background-color var(--motion-fast) ease,
+    color var(--motion-fast) ease;
 }
 
 .kanban-icon-btn:hover {
@@ -323,7 +327,10 @@
   font: inherit;
   font-size: 0.78rem;
   cursor: pointer;
-  transition: all var(--motion-fast) ease;
+  transition:
+    border-color var(--motion-fast) ease,
+    color var(--motion-fast) ease,
+    background-color var(--motion-fast) ease;
 }
 
 .kanban-empty-create-btn:hover {
@@ -351,10 +358,13 @@
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
-  transition: box-shadow var(--motion-fast) var(--motion-ease-out),
-              border-color var(--motion-fast) var(--motion-ease-out),
-              background-color var(--motion-fast) var(--motion-ease-out);
+  transition:
+    box-shadow var(--motion-fast) var(--motion-ease-out),
+    border-color var(--motion-fast) var(--motion-ease-out),
+    background-color var(--motion-fast) var(--motion-ease-out);
   overflow: hidden;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 136px;
 }
 
 .kanban-card:focus-visible {
@@ -524,10 +534,11 @@
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   box-shadow: var(--shadow-sm);
-  transition: transform var(--motion-fast) var(--motion-ease-out),
-              background-color var(--motion-fast) ease,
-              border-color var(--motion-fast) ease,
-              box-shadow var(--motion-fast) ease;
+  transition:
+    transform var(--motion-fast) var(--motion-ease-out),
+    background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease,
+    box-shadow var(--motion-fast) ease;
 }
 
 .kanban-corner-zone--trash {
@@ -569,10 +580,11 @@
   background: var(--surface);
   border: 1px solid var(--border-soft);
   box-shadow: var(--shadow-2xs);
-  transition: transform var(--motion-fast) var(--motion-ease-out),
-              background-color var(--motion-fast) ease,
-              border-color var(--motion-fast) ease,
-              box-shadow var(--motion-fast) ease;
+  transition:
+    transform var(--motion-fast) var(--motion-ease-out),
+    background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease,
+    box-shadow var(--motion-fast) ease;
 }
 
 .kanban-corner-zone.is-over .kanban-corner-icon-circle {
@@ -820,8 +832,9 @@
   font: inherit;
   text-align: left;
   cursor: pointer;
-  transition: background-color var(--motion-fast) ease,
-              border-color var(--motion-fast) ease;
+  transition:
+    background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease;
 }
 
 .kanban-move-sheet-option:not(:disabled):active {

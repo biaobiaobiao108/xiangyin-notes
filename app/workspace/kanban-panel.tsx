@@ -36,7 +36,6 @@ import {
   type KanbanDragPayload,
 } from "./kanban-drag";
 import { NOTE_DRAG_MIME_TYPE, setNoteDragImage } from "./note-drag-drop";
-import { useVirtualKanbanColumn } from "./use-virtual-kanban-column";
 import { useScrollEdges } from "./use-scroll-edges";
 import { handleKanbanCardKeyDown } from "./kanban-card-keyboard";
 
@@ -280,13 +279,9 @@ const KanbanColumnView = memo(function KanbanColumnView({
   const [isDropTarget, setIsDropTarget] = useState(false);
   const [dropIndicatorIndex, setDropIndicatorIndex] = useState<number | null>(null);
 
-  const virtual = useVirtualKanbanColumn(cards, scrollRef);
   const scrollEdges = useScrollEdges(scrollElement, [
     column.id,
     cards.length,
-    virtual.paddingTop,
-    virtual.paddingBottom,
-    virtual.isVirtualized,
     hasMore,
     isLoadingMore,
   ]);
@@ -330,7 +325,7 @@ const KanbanColumnView = memo(function KanbanColumnView({
     for (let i = 0; i < cardElements.length; i++) {
       const rect = cardElements[i].getBoundingClientRect();
       if (e.clientY < rect.top + rect.height / 2) {
-        targetIndex = virtual.isVirtualized ? virtual.startIndex + i : i;
+        targetIndex = i;
         break;
       }
     }
@@ -394,8 +389,6 @@ const KanbanColumnView = memo(function KanbanColumnView({
         className={`kanban-column-scroll-shell${scrollEdges.before ? " has-scroll-before" : ""}${scrollEdges.after ? " has-scroll-after" : ""}`}
       >
         <div ref={setScrollRef} className="kanban-column-scroll floating-scrollbar-target">
-          {virtual.paddingTop > 0 && <div style={{ height: virtual.paddingTop }} />}
-
           {cards.length === 0 ? (
             <div className="kanban-column-empty">
               <p>暂无卡片</p>
@@ -410,8 +403,8 @@ const KanbanColumnView = memo(function KanbanColumnView({
             </div>
           ) : (
             <div className="kanban-card-list">
-              {virtual.visibleCards.map((card, idx) => {
-                const actualIndex = virtual.isVirtualized ? virtual.startIndex + idx : idx;
+              {cards.map((card, idx) => {
+                const actualIndex = idx;
                 const showIndicatorBefore = isDropTarget && dropIndicatorIndex === actualIndex;
                 return (
                   <Fragment key={card.noteId}>
@@ -434,8 +427,6 @@ const KanbanColumnView = memo(function KanbanColumnView({
                 dropIndicatorIndex >= cards.length && <div className="kanban-drop-indicator" />}
             </div>
           )}
-
-          {virtual.paddingBottom > 0 && <div style={{ height: virtual.paddingBottom }} />}
 
           {hasMore && (
             <div ref={loadMoreSentinelRef} className="kanban-column-load-more">

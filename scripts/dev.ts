@@ -35,6 +35,12 @@ const serverEnvironment: Record<string, string> = {
   HOST: "0.0.0.0",
 };
 
+if (lanAddresses.length > 0 && serverEnvironment.XIANGYING_DEV_AUTO_LOGIN === "true") {
+  console.warn(
+    "[dev] 开发自动登录已开启，且服务监听 0.0.0.0；同一网络内的其他设备可无需密码进入。仅在可信网络中使用。",
+  );
+}
+
 const processes = [
   Bun.spawn(["bun", "run", "dev:client"], {
     stdin: "inherit",

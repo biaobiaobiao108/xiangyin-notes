@@ -16,7 +16,7 @@ import { playEntranceAnimation } from "../animation";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { resolveNoteClickAction, type NoteSelectionClick } from "./note-list-selection";
 import { EmptyTrashButton } from "./empty-trash-button";
-import { getNoteTags, relativeDate, sortNotes } from "./helpers";
+import { getNoteTags, relativeDate, sortNotes, type NoteSort } from "./helpers";
 import { NOTE_DRAG_MIME_TYPE, setNoteDragImage } from "./note-drag-drop";
 import { NoteTags } from "./note-tags";
 import { useVirtualCardMasonry } from "./use-virtual-card-masonry";
@@ -37,6 +37,7 @@ export type NoteCardGridPanelProps = {
   view: NoteView;
   query: string;
   onClearQuery: () => void;
+  sort?: NoteSort;
   notebooks: Notebook[];
   onToggleFavoriteNote: (note: NoteSummary) => void;
   onEmptyTrash?: () => void;
@@ -63,6 +64,7 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
   view,
   query,
   onClearQuery,
+  sort = "updated",
   notebooks,
   onToggleFavoriteNote,
   onEmptyTrash,
@@ -79,7 +81,7 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
   const panelRef = useRef<HTMLElement>(null);
   const gridScrollRef = useRef<HTMLDivElement>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
-  const sortedNotes = useMemo(() => sortNotes(notes, "updated"), [notes]);
+  const sortedNotes = useMemo(() => sortNotes(notes, sort), [notes, sort]);
   const notebooksById = useMemo(
     () => new Map(notebooks.map((notebook) => [notebook.id, notebook])),
     [notebooks],

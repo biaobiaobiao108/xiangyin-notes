@@ -813,11 +813,13 @@ export const PRIVATE_ASSET_SOURCE_PATTERN =
 
 function extractNoteAssetReferences(markdown: string) {
   const imageSources: string[] = [];
+  const linkDestinations: string[] = [];
   const assetIds = new Set<string>();
   const imageAssetIds = new Set<string>();
 
   for (const reference of extractMarkdownDestinationReferences(markdown)) {
     if (reference.type === "image") imageSources.push(reference.destination);
+    else linkDestinations.push(reference.destination);
     const id = ASSET_REFERENCE_PATTERN.exec(reference.destination)?.[1]?.toLowerCase();
     if (id) {
       assetIds.add(id);
@@ -825,7 +827,12 @@ function extractNoteAssetReferences(markdown: string) {
     }
   }
 
-  return { imageSources, assetIds: [...assetIds], imageAssetIds: [...imageAssetIds] };
+  return {
+    imageSources,
+    linkDestinations,
+    assetIds: [...assetIds],
+    imageAssetIds: [...imageAssetIds],
+  };
 }
 
 export function noteImageSources(markdown: string) {
@@ -846,6 +853,19 @@ export function validNoteImageSource(source: string) {
   }
 }
 
+const SAFE_LINK_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:"]);
+
+export function validNoteLinkDestination(destination: string) {
+  const value = destination.trim();
+  if (!value || value.startsWith("#") || value.startsWith("//")) return true;
+  if (!/^[a-z][a-z0-9+.-]*:/iu.test(value)) return true;
+  try {
+    return SAFE_LINK_PROTOCOLS.has(new URL(value).protocol);
+  } catch {
+    return false;
+  }
+}
+
 export function validNoteAssetReferences(
   database: SqliteDatabase,
   userId: string,
@@ -854,6 +874,8 @@ export function validNoteAssetReferences(
 ) {
   const references = extractNoteAssetReferences(contentMarkdown);
   if (references.imageSources.some((source) => !validNoteImageSource(source))) return false;
+  if (references.linkDestinations.some((destination) => !validNoteLinkDestination(destination)))
+    return false;
   const ids = references.assetIds;
   if (!ids.length) return true;
   const assets = all<Pick<ImageAssetRow, "id" | "note_id">>(

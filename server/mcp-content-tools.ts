@@ -22,6 +22,8 @@ import {
   type McpToolContext,
 } from "./mcp-helpers";
 
+const MAX_OUTLINE_HEADINGS = 500;
+
 export function registerMcpContentTools(
   server: McpServer,
   { options, user, responseValue }: McpToolContext,
@@ -224,12 +226,16 @@ export function registerMcpContentTools(
       );
       if (result.status !== 200) return routeError(result);
       const note = result.body.note as Record<string, unknown>;
+      const headings = getMarkdownOutline(note.contentMarkdown as string);
       return responseValue({
         note: conciseWriteNote(note),
         version: note.version,
-        headings: getMarkdownOutline(note.contentMarkdown as string).map(
-          ({ sectionId, level, text }) => ({ sectionId, level, text }),
-        ),
+        headings: headings
+          .slice(0, MAX_OUTLINE_HEADINGS)
+          .map(({ sectionId, level, text }) => ({ sectionId, level, text })),
+        ...(headings.length > MAX_OUTLINE_HEADINGS
+          ? { truncated: true, totalHeadings: headings.length }
+          : {}),
       });
     },
   );

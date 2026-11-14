@@ -272,7 +272,7 @@ export function updateNoteInTransaction(
           throw new NoteRenameContentTooLargeError();
         database
           .query(
-            "UPDATE notes SET content_markdown = ?, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ?",
+            "UPDATE notes SET content_markdown = ?, version = version + 1, updated_at = CASE WHEN deleted_at IS NULL THEN ? ELSE updated_at END WHERE id = ? AND user_id = ?",
           )
           .run(replacedContent, updatedAt, refNote.id, userId);
         syncNoteSearchIndexes(database, userId, refNote.id, refNote.title, replacedContent);

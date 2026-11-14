@@ -11,10 +11,11 @@ import { registerMcpNoteTools } from "./mcp-note-tools";
 import { registerMcpNoteEditTools } from "./mcp-note-edit-tools";
 import { registerMcpNoteBatchTools } from "./mcp-note-batch-tools";
 import type { ServerOptions } from "./core";
+import packageJson from "../package.json";
 
 export function createNoteMcpServer(options: ServerOptions, context: McpRequestContext) {
   const server = new McpServer(
-    { name: "xiangying-notes", version: "0.1.0" },
+    { name: "xiangying-notes", version: packageJson.version },
     {
       instructions: MCP_SERVER_INSTRUCTIONS,
     },

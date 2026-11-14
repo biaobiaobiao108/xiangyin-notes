@@ -809,32 +809,35 @@ export async function handleNotesRoute(
       if (payload?.deleted === false) {
         let restored: { restoredIds: string[] };
         try {
-          restored = database.transaction(() => {
-            const rows = getBatchNoteStates(database, user.id, entries);
-            assertBatchNoteStates(rows, entries, "restore");
-            const update = database.query(
-              "UPDATE notes SET deleted_at = NULL, version = version + 1 WHERE id = ? AND user_id = ? AND version = ? AND deleted_at IS NOT NULL",
-            );
-            const rowsById = new Map(rows.map((row) => [row.id, row]));
-            for (const entry of entries) {
-              const note = rowsById.get(entry.id)!;
-              syncNoteTasks(
+          restored = database
+            .transaction(() => {
+              const rows = getBatchNoteStates(database, user.id, entries);
+              assertBatchNoteStates(rows, entries, "restore");
+              const update = database.query(
+                "UPDATE notes SET deleted_at = NULL, version = version + 1 WHERE id = ? AND user_id = ? AND version = ? AND deleted_at IS NOT NULL",
+              );
+              const rowsById = new Map(rows.map((row) => [row.id, row]));
+              for (const entry of entries) {
+                const note = rowsById.get(entry.id)!;
+                syncNoteTasks(
+                  database,
+                  user.id,
+                  note.id,
+                  note.notebook_id,
+                  note.created_at,
+                  note.content_markdown,
+                );
+                if (!update.run(entry.id, user.id, entry.version).changes)
+                  throw new BatchNoteConflictError([entry.id]);
+              }
+              resolveNoteLinksForTitles(
                 database,
                 user.id,
-                note.id,
-                note.notebook_id,
-                note.created_at,
-                note.content_markdown,
+                rows.map((row) => row.title),
               );
-              update.run(entry.id, user.id, entry.version);
-            }
-            resolveNoteLinksForTitles(
-              database,
-              user.id,
-              rows.map((row) => row.title),
-            );
-            return { restoredIds: entries.map((entry) => entry.id) };
-          })();
+              return { restoredIds: entries.map((entry) => entry.id) };
+            })
+            .immediate();
         } catch (error) {
           if (error instanceof BatchNoteConflictError) return batchConflictResponse(error);
           throw error;
@@ -845,26 +848,29 @@ export async function handleNotesRoute(
 
       let moved: { deletedIds: string[] };
       try {
-        moved = database.transaction(() => {
-          const rows = getBatchNoteStates(database, user.id, entries);
-          assertBatchNoteStates(rows, entries, "trash");
-          const deletedAt = now();
-          const update = database.query(
-            "UPDATE notes SET deleted_at = ?, version = version + 1 WHERE id = ? AND user_id = ? AND version = ? AND deleted_at IS NULL",
-          );
-          const rowsById = new Map(rows.map((row) => [row.id, row]));
-          for (const entry of entries) {
-            const note = rowsById.get(entry.id)!;
-            syncNoteTasks(database, user.id, note.id, note.notebook_id, note.created_at, "");
-            update.run(deletedAt, entry.id, user.id, entry.version);
-          }
-          resolveNoteLinksForTitles(
-            database,
-            user.id,
-            rows.map((row) => row.title),
-          );
-          return { deletedIds: entries.map((entry) => entry.id) };
-        })();
+        moved = database
+          .transaction(() => {
+            const rows = getBatchNoteStates(database, user.id, entries);
+            assertBatchNoteStates(rows, entries, "trash");
+            const deletedAt = now();
+            const update = database.query(
+              "UPDATE notes SET deleted_at = ?, version = version + 1 WHERE id = ? AND user_id = ? AND version = ? AND deleted_at IS NULL",
+            );
+            const rowsById = new Map(rows.map((row) => [row.id, row]));
+            for (const entry of entries) {
+              const note = rowsById.get(entry.id)!;
+              syncNoteTasks(database, user.id, note.id, note.notebook_id, note.created_at, "");
+              if (!update.run(deletedAt, entry.id, user.id, entry.version).changes)
+                throw new BatchNoteConflictError([entry.id]);
+            }
+            resolveNoteLinksForTitles(
+              database,
+              user.id,
+              rows.map((row) => row.title),
+            );
+            return { deletedIds: entries.map((entry) => entry.id) };
+          })
+          .immediate();
       } catch (error) {
         if (error instanceof BatchNoteConflictError) return batchConflictResponse(error);
         throw error;
@@ -875,23 +881,28 @@ export async function handleNotesRoute(
 
     let deleted: { deletedIds: string[]; assetPaths: string[] };
     try {
-      deleted = database.transaction(() => {
-        const rows = getBatchNoteStates(database, user.id, entries);
-        assertBatchNoteStates(rows, entries, "permanent");
-        const deletedIds = entries.map((entry) => entry.id);
-        const assetPaths = assetPathsForNotes(database, user.id, deletedIds);
-        for (const note of rows)
-          syncNoteTasks(database, user.id, note.id, note.notebook_id, note.created_at, "");
-        const deleteLinks = database.query(
-          "DELETE FROM note_links WHERE user_id = ? AND source_note_id = ?",
-        );
-        for (const noteId of deletedIds) deleteLinks.run(user.id, noteId);
-        const placeholders = deletedIds.map(() => "?").join(",");
-        database
-          .query(`DELETE FROM notes WHERE user_id = ? AND id IN (${placeholders})`)
-          .run(user.id, ...deletedIds);
-        return { deletedIds, assetPaths };
-      })();
+      deleted = database
+        .transaction(() => {
+          const rows = getBatchNoteStates(database, user.id, entries);
+          assertBatchNoteStates(rows, entries, "permanent");
+          const deletedIds = entries.map((entry) => entry.id);
+          const assetPaths = assetPathsForNotes(database, user.id, deletedIds);
+          for (const note of rows)
+            syncNoteTasks(database, user.id, note.id, note.notebook_id, note.created_at, "");
+          const deleteLinks = database.query(
+            "DELETE FROM note_links WHERE user_id = ? AND source_note_id = ?",
+          );
+          const deleteNote = database.query(
+            "DELETE FROM notes WHERE id = ? AND user_id = ? AND version = ? AND deleted_at IS NOT NULL",
+          );
+          for (const entry of entries) {
+            if (!deleteNote.run(entry.id, user.id, entry.version).changes)
+              throw new BatchNoteConflictError([entry.id]);
+            deleteLinks.run(user.id, entry.id);
+          }
+          return { deletedIds, assetPaths };
+        })
+        .immediate();
     } catch (error) {
       if (error instanceof BatchNoteConflictError) return batchConflictResponse(error);
       throw error;

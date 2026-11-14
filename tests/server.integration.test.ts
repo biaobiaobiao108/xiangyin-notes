@@ -22,6 +22,7 @@ import { IMPORT_RATE_LIMIT_MAX_REQUESTS } from "../server/routes/import";
 
 let database: SqliteDatabase;
 let assetRoot: string;
+let staticRoot: string;
 let clientAddress: string;
 const environment: Record<string, string | undefined> = {
   XIANGYING_USERNAME: "owner",
@@ -44,6 +45,9 @@ beforeEach(async () => {
   database = await openDatabase(":memory:");
   await applyMigrations(database);
   assetRoot = join(tmpdir(), `xiangying-notes-assets-${crypto.randomUUID()}`);
+  staticRoot = join(tmpdir(), `xiangying-notes-static-${crypto.randomUUID()}`);
+  await mkdir(staticRoot, { recursive: true });
+  await Bun.write(join(staticRoot, "sw.js"), "self.addEventListener('install', () => {});\n");
   clientAddress = `test-${crypto.randomUUID()}`;
 });
 
@@ -51,6 +55,7 @@ afterEach(async () => {
   await waitForOrphanAssetCleanup(database);
   database.close();
   await rm(assetRoot, { recursive: true, force: true });
+  await rm(staticRoot, { recursive: true, force: true });
 });
 
 async function request(
@@ -719,7 +724,11 @@ describe("Bun Server API", () => {
     const health = await request("/api/health");
     expect(health.response.status).toBe(200);
     expect(health.response.headers.get("Cache-Control")).toBe("no-store");
-    expect(health.body).toEqual({ status: "ok", database: "ok" });
+    expect(health.body).toEqual({
+      status: "ok",
+      database: "ok",
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+    });
   });
 
   test("does not expose removed offline sync endpoints", async () => {
@@ -2642,8 +2651,8 @@ describe("Bun Server API", () => {
     expect(contentSecurityPolicy).toContain("img-src 'self' data: blob: https:");
     expect(manifest.body?.display).toBe("standalone");
     expect(manifest.body?.color_scheme_dark).toEqual({
-      background_color: "#1a1b26",
-      theme_color: "#1a1b26",
+      background_color: "#161819",
+      theme_color: "#161819",
     });
     const icons = manifest.body?.icons as Array<{ src: string; sizes: string; purpose: string }>;
     expect(icons.filter((icon) => icon.purpose === "any").map((icon) => icon.src)).toEqual([
@@ -2673,7 +2682,14 @@ describe("Bun Server API", () => {
       expect(asset.response.headers.get("Cache-Control")).toBe("no-cache");
     }
 
-    const worker = await request("/sw.js");
+    const worker = await request(
+      "/sw.js",
+      {},
+      undefined,
+      environment,
+      "http://xiangying.test",
+      staticRoot,
+    );
     expect(worker.response.status).toBe(200);
     expect(worker.response.headers.get("Content-Type")).toContain("javascript");
     expect(worker.response.headers.get("Cache-Control")).toBe("no-cache");

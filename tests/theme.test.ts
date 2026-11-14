@@ -74,22 +74,22 @@ describe("theme preference", () => {
     expect([style.colorScheme, colorScheme.content, light.content, dark.content]).toEqual([
       "dark",
       "dark",
-      "#1a1b26",
-      "#1a1b26",
+      "#161819",
+      "#161819",
     ]);
     applyThemeToDocument(document, "system", false);
     expect([style.colorScheme, colorScheme.content, light.content, dark.content]).toEqual([
       "light",
       "light dark",
       "#f6f4ef",
-      "#1a1b26",
+      "#161819",
     ]);
     applyThemeToDocument(document, "system", true);
     expect([style.colorScheme, colorScheme.content, light.content, dark.content]).toEqual([
       "dark",
       "light dark",
       "#f6f4ef",
-      "#1a1b26",
+      "#161819",
     ]);
   });
 });

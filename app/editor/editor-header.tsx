@@ -4,6 +4,7 @@ import {
   CheckCircle,
   ChevronLeft,
   CircleAlert,
+  Code2,
   Columns2,
   LayoutGrid,
   LoaderCircle,
@@ -37,6 +38,8 @@ type EditorHeaderProps = {
   focusMode: boolean;
   autoReadingMode: boolean;
   isSplitActive: boolean;
+  sourceMode: boolean;
+  onToggleSourceMode: () => void;
   onUploadImage?: (
     file: File,
     dimensions: { width: number; height: number },
@@ -95,6 +98,8 @@ export function EditorHeader({
   focusMode,
   autoReadingMode,
   isSplitActive,
+  sourceMode,
+  onToggleSourceMode,
   onUploadImage,
   onCloseSplit,
   onToggleSplit,
@@ -128,6 +133,8 @@ export function EditorHeader({
       canUpload={Boolean(onUploadImage) && !note.deletedAt && imageUploadState !== "uploading"}
       onUpload={() => imageFileInputRef.current?.click()}
       autoReadingMode={autoReadingMode}
+      sourceMode={sourceMode}
+      onToggleSourceMode={onToggleSourceMode}
       onToggleAutoReading={onToggleAutoReadingMode}
       onExport={onExportImage}
       onFavorite={onToggleFavorite}
@@ -289,6 +296,16 @@ export function EditorHeader({
             <SaveStatusIcon state="error" />
           </span>
         )}
+        <button
+          className={`icon-button ${sourceMode ? "is-active" : ""}`}
+          type="button"
+          aria-label={sourceMode ? "切换到富文本编辑" : "切换到源码模式"}
+          aria-pressed={sourceMode}
+          onClick={onToggleSourceMode}
+          disabled={editorLocked}
+        >
+          <Code2 size={18} strokeWidth={1.8} aria-hidden="true" />
+        </button>
         {!note.deletedAt && onNavigateToNote && (
           <button
             className={`icon-button ${backlinksOpen ? "is-active" : ""}`}

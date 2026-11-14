@@ -82,7 +82,6 @@ import { useWorkspaceTaskData } from "./workspace/use-workspace-task-data";
 import { useWorkspaceKanbanData } from "./workspace/use-workspace-kanban-data";
 import { useWorkspaceNotebookData } from "./workspace/use-workspace-notebook-data";
 import { useWorkspaceExport } from "./workspace/use-workspace-export";
-import { MemoPage } from "./memos/memo-page";
 import { MemoWorkspaceProvider } from "./memos/memo-workspace";
 import { useWorkspaceSession } from "./workspace/use-workspace-session";
 
@@ -96,13 +95,31 @@ const LazyNoteEditor = lazy(() =>
   import("./editor").then(({ NoteEditor }) => ({ default: memo(NoteEditor) })),
 );
 
+const LazyMemoPage = lazy(() =>
+  import("./memos/memo-page").then(({ MemoPage }) => ({ default: MemoPage })),
+);
+
 function noteMetadataSnapshot(note: Note): Note {
   return { ...note, contentMarkdown: "" };
 }
 
+function focusNoteRowAfterRemoval(noteId: string) {
+  requestAnimationFrame(() => {
+    const row = document.querySelector<HTMLButtonElement>(
+      `[data-note-id="${CSS.escape(noteId)}"] .note-row`,
+    );
+    if (row) {
+      row.focus();
+      return;
+    }
+    document.getElementById("note-list-scroll-region")?.focus();
+  });
+}
+
 export function Workspace() {
   const navigate = useNavigate();
-  const { ready, currentUserKey, handleUnauthorized } = useWorkspaceSession();
+  const { ready, currentUserKey, handleUnauthorized, connectionError, retry } =
+    useWorkspaceSession();
   const { openMenu: openWorkspaceMenu, menu: workspaceMenu } = useContextMenu();
   const [initialLinkedNoteId] = useState(() =>
     new URLSearchParams(window.location.search).get("note"),
@@ -680,6 +697,9 @@ export function Workspace() {
   }, [autoReadingMode, focusMode]);
   const removeFromList = useCallback(
     (noteId: string) => {
+      const restoreFocus =
+        document.activeElement instanceof Element &&
+        Boolean(document.activeElement.closest(".note-list-panel"));
       const ordered = sortNotes(notesRef.current, noteSort);
       const index = ordered.findIndex((note) => note.id === noteId);
       if (index === -1) return;
@@ -689,6 +709,7 @@ export function Workspace() {
         const nextId = ordered[index + 1]?.id ?? ordered[index - 1]?.id ?? null;
         selectNote(nextId);
         setCardEditingNoteId((current) => (current === noteId ? nextId : current));
+        if (restoreFocus && nextId) focusNoteRowAfterRemoval(nextId);
       }
       if (splitNoteIdRef.current === noteId) {
         closeSplitRef.current();
@@ -722,6 +743,9 @@ export function Workspace() {
   );
   const removeManyFromList = useCallback(
     (noteIds: string[]) => {
+      const restoreFocus =
+        document.activeElement instanceof Element &&
+        Boolean(document.activeElement.closest(".note-list-panel"));
       const deletedIds = new Set(noteIds);
       const currentList = notesRef.current;
       const ordered = sortNotes(currentList, noteSort);
@@ -750,6 +774,7 @@ export function Workspace() {
         setCardEditingNoteId((current) =>
           current && deletedIds.has(current) ? nextActiveId : current,
         );
+        if (restoreFocus && nextActiveId) focusNoteRowAfterRemoval(nextActiveId);
       }
     },
     [clearNoteSelection, noteSort, replaceList, selectNote],
@@ -955,6 +980,10 @@ export function Workspace() {
       if (kanbanReturnRef.current) {
         setKanbanOpen(true);
         kanbanReturnRef.current = false;
+        return;
+      }
+      if (isMobileViewport) {
+        backMobilePage();
         return;
       }
       if (viewLayout === "three-column" && selectedId) {
@@ -2123,6 +2152,9 @@ export function Workspace() {
       }
       if (id === "toggle-split") handleToggleSplit();
       if (id === "toggle-view-layout") toggleViewLayout();
+      if (id === "sort-notes-updated") setNoteSort("updated");
+      if (id === "sort-notes-created") setNoteSort("created");
+      if (id === "sort-notes-title") setNoteSort("title");
       if (id === "toggle-focus-mode") toggleFocusMode();
       if (id === "toggle-auto-reading") toggleAutoReadingMode();
       if (id === "toggle-typewriter-mode") toggleTypewriterMode();
@@ -2513,6 +2545,15 @@ export function Workspace() {
     emptyTrash,
   });
 
+  if (connectionError)
+    return (
+      <main className="app-loading" role="alert">
+        <span>{connectionError}</span>
+        <button className="secondary-button" type="button" onClick={retry}>
+          重试
+        </button>
+      </main>
+    );
   if (!ready)
     return (
       <main className="app-loading">
@@ -2645,10 +2686,12 @@ export function Workspace() {
           </div>
         )}
         {shouldShowMemoPage(memosOpen, isMobileViewport, mobilePage) && (
-          <MemoPage
-            isMobileViewport={isMobileViewport}
-            onBack={isMobileViewport ? backMobilePage : undefined}
-          />
+          <Suspense fallback={<NoteLoadingState />}>
+            <LazyMemoPage
+              isMobileViewport={isMobileViewport}
+              onBack={isMobileViewport ? backMobilePage : undefined}
+            />
+          </Suspense>
         )}
         {shouldShowTasksPanel(tasksOpen, isMobileViewport, mobilePage) && (
           <TasksPanel
@@ -2746,6 +2789,7 @@ export function Workspace() {
             onDeleteSelected={deleteSelectedNotes}
             view={view}
             query={query}
+            sort={noteSort}
             onClearQuery={handleClearQuery}
             notebooks={notebooks}
             onToggleFavoriteNote={handleToggleFavoriteNote}

@@ -452,6 +452,29 @@ export function useVirtualNoteList(
     ],
   );
 
+  const focusRow = useCallback(
+    (noteId: string) => {
+      const index = indexByIdRef.current.get(noteId);
+      if (index === undefined) return;
+      pendingFocusIdRef.current = noteId;
+      setPinnedIndex(index);
+      const container = scrollRef.current;
+      if (!container) return;
+      const top = offsetsRef.current[index] ?? 0;
+      const row = rowsRef.current[index];
+      const bottom =
+        offsetsRef.current[index + 1] ??
+        top + (row ? estimatedRowHeight(row) : ESTIMATED_ROW_HEIGHT);
+      const visibleTop = container.scrollTop - contentInsetRef.current;
+      const visibleBottom = visibleTop + container.clientHeight;
+      if (top >= visibleTop && bottom <= visibleBottom) return;
+      const target = Math.max(0, top - 80);
+      container.scrollTop = target + contentInsetRef.current;
+      setViewport({ top: target, height: container.clientHeight || viewport.height });
+    },
+    [scrollRef, viewport.height],
+  );
+
   return {
     isVirtualized,
     visibleRows,
@@ -469,6 +492,7 @@ export function useVirtualNoteList(
     rowStyle,
     getRowRef,
     moveTabFocus,
+    focusRow,
     onFocusCapture,
     onBlurCapture,
   };

@@ -35,6 +35,7 @@ import { syncNoteSearchIndexes } from "../note-search";
 
 type RuntimeEnvironment = Record<string, string | undefined>;
 const LOGIN_USERNAME_MAX_LENGTH = 128;
+const MAX_SESSIONS_PER_USER = 50;
 
 type LoginAttempt = {
   windowStartedAt: number;
@@ -454,6 +455,27 @@ export async function requireUser(
   );
 }
 
+function pruneUserSessions(database: SqliteDatabase, userId: string) {
+  const row = database
+    .query("SELECT COUNT(*) AS count FROM sessions WHERE user_id = ?")
+    .get(userId) as { count: number };
+  const excess = Number(row.count) - MAX_SESSIONS_PER_USER;
+  if (excess <= 0) return;
+  database
+    .query(
+      `
+    DELETE FROM sessions
+    WHERE token_hash IN (
+      SELECT token_hash FROM sessions
+      WHERE user_id = ?
+      ORDER BY created_at ASC, token_hash ASC
+      LIMIT ?
+    )
+  `,
+    )
+    .run(userId, excess);
+}
+
 export function isResponse(value: UserRow | Response): value is Response {
   return value instanceof Response;
 }
@@ -464,7 +486,12 @@ export async function handleAuthRoute(ctx: RouteContext): Promise<Response | nul
 
   if (method === "GET" && url.pathname === "/api/health") {
     first(database, "SELECT 1 AS ok");
-    return json({ status: "ok", database: "ok" });
+    const version = first<{ user_version: number }>(database, "PRAGMA user_version");
+    return json({
+      status: "ok",
+      database: "ok",
+      schemaVersion: Number(version?.user_version ?? 0),
+    });
   }
 
   if (method === "GET" && url.pathname === "/api/bootstrap") {
@@ -483,6 +510,7 @@ export async function handleAuthRoute(ctx: RouteContext): Promise<Response | nul
           "INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
         )
         .run(await digestHex(session), user.id, createdAt, createdAt + SESSION_TTL);
+      pruneUserSessions(database, user.id);
       const headers = new Headers();
       setSessionCookie(headers, request, session, environment, SESSION_COOKIE_TTL, clientAddress);
       return json({ configured: true }, 200, headers);
@@ -519,10 +547,24 @@ export async function handleAuthRoute(ctx: RouteContext): Promise<Response | nul
       return jsonError(429, "TOO_MANY_LOGIN_ATTEMPTS", "登录尝试过于频繁，请稍后再试", {
         "Retry-After": String(retryAfter),
       });
-    if (
-      !constantTimeEqual(payload.username, credentials.username) ||
-      !constantTimeEqual(payload.password, credentials.password)
-    ) {
+    const user = await ensureEnvironmentUser(database, credentials, options.realtime);
+    const storedPassword = first<StoredPassword>(
+      database,
+      "SELECT id, username, password_hash, password_salt, password_iterations FROM users WHERE id = ?",
+      user.id,
+    );
+    const usernameMatches = constantTimeEqual(payload.username, credentials.username);
+    const passwordMatches = storedPassword
+      ? constantTimeEqual(
+          await derivePassword(
+            payload.password,
+            storedPassword.password_salt,
+            storedPassword.password_iterations,
+          ),
+          storedPassword.password_hash,
+        )
+      : false;
+    if (!usernameMatches || !passwordMatches) {
       const userResult = recordFailedLogin(database, attemptKey, timestamp);
       const addressResult = recordFailedLogin(database, addressKey, timestamp, "login_address");
       if (!userResult.recorded || !addressResult.recorded) {
@@ -539,7 +581,6 @@ export async function handleAuthRoute(ctx: RouteContext): Promise<Response | nul
     resetLoginAttempt(database, attemptKey);
     resetLoginAttempt(database, addressKey, "login_address");
 
-    const user = await ensureEnvironmentUser(database, credentials, options.realtime);
     const session = createOpaqueToken();
     const createdAt = now();
     database
@@ -547,6 +588,7 @@ export async function handleAuthRoute(ctx: RouteContext): Promise<Response | nul
         "INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
       )
       .run(await digestHex(session), user.id, createdAt, createdAt + SESSION_TTL);
+    pruneUserSessions(database, user.id);
     const headers = new Headers();
     setSessionCookie(headers, request, session, environment, SESSION_COOKIE_TTL, clientAddress);
     return json({ user }, 200, headers);

@@ -2,7 +2,9 @@
   color-scheme: light dark;
   color: var(--ink);
   background: var(--canvas);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   --canvas: light-dark(#f6f4ef, #161819);
@@ -45,6 +47,7 @@
   --border-soft: light-dark(rgba(32, 38, 33, 0.05), rgba(235, 240, 235, 0.05));
   --line: light-dark(rgba(32, 38, 33, 0.06), rgba(235, 240, 235, 0.06));
   --accent: light-dark(#365e4e, #4e8a6e);
+  --accent-ink: light-dark(#365e4e, #7dbb9a);
   --accent-dark: light-dark(#27473a, #65ab8a);
   --accent-soft: light-dark(#edf5f0, rgba(78, 138, 110, 0.16));
   --multi-selection-soft: light-dark(#edf3f7, rgba(78, 138, 110, 0.14));
@@ -127,8 +130,14 @@
   --shadow-float: light-dark(0 14px 38px rgba(32, 38, 33, 0.1), 0 16px 42px rgba(0, 0, 0, 0.52));
   --shadow: var(--shadow-float);
   --note-card-shadow: light-dark(0 1px 3px rgba(32, 38, 33, 0.04), 0 2px 6px rgba(0, 0, 0, 0.2));
-  --note-card-hover-shadow: light-dark(0 4px 12px rgba(32, 38, 33, 0.08), 0 6px 16px rgba(0, 0, 0, 0.3));
-  --note-card-hover-detail-shadow: light-dark(0 2px 6px rgba(32, 38, 33, 0.03), 0 2px 6px rgba(0, 0, 0, 0.15));
+  --note-card-hover-shadow: light-dark(
+    0 4px 12px rgba(32, 38, 33, 0.08),
+    0 6px 16px rgba(0, 0, 0, 0.3)
+  );
+  --note-card-hover-detail-shadow: light-dark(
+    0 2px 6px rgba(32, 38, 33, 0.03),
+    0 2px 6px rgba(0, 0, 0, 0.15)
+  );
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 14px;
@@ -147,10 +156,17 @@
   --motion-spring: cubic-bezier(0.175, 0.885, 0.32, 1.08);
 }
 
-:root[data-theme="light"] { color-scheme: light; }
-:root[data-theme="dark"] { color-scheme: dark; }
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
 
-* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
 html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
@@ -161,19 +177,89 @@ html {
     -moz-osx-font-smoothing: grayscale;
   }
 }
-html, body, #root { min-height: 100%; margin: 0; }
-body { min-width: 320px; background: var(--canvas); }
-body { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
-.mobile-status-color { display: none; }
-html:has(.app-shell), body:has(.app-shell) { overflow: hidden; }
-button, input { font: inherit; }
-button { color: inherit; }
-button:disabled { cursor: not-allowed; opacity: 0.52; }
-:where([hidden]) { display: none !important; }
-dialog:not([open]) { display: none !important; }
+html,
+body,
+#root {
+  min-height: 100%;
+  margin: 0;
+}
+body {
+  min-width: 320px;
+  background: var(--canvas);
+}
+body {
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+    env(safe-area-inset-left);
+}
+.mobile-status-color {
+  display: none;
+}
+html:has(.app-shell),
+body:has(.app-shell) {
+  overflow: hidden;
+}
+button,
+input {
+  font: inherit;
+}
+button {
+  color: inherit;
+}
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+:where([hidden]) {
+  display: none !important;
+}
+dialog:not([open]) {
+  display: none !important;
+}
 /* Focus must never draw an outline anywhere in the application, including restored container focus. */
-:focus, :focus-visible { outline: none !important; }
-.visually-hidden { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; margin: -1px !important; overflow: hidden !important; clip: rect(0, 0, 0, 0) !important; white-space: nowrap !important; border: 0 !important; }
+:focus,
+:focus-visible {
+  outline: none !important;
+}
+
+@media (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+.visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+.browser-unsupported {
+  display: grid;
+  min-height: 100dvh;
+  place-content: center;
+  gap: 8px;
+  padding: 24px;
+  color: #202621;
+  background: #f6f4ef;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+  text-align: center;
+}
+
+.browser-unsupported strong {
+  font-size: 1.1rem;
+}
+
+.browser-unsupported span {
+  color: #59675f;
+  font-size: 0.9rem;
+}
 
 .app-shell {
   display: grid;
@@ -187,5 +273,9 @@ dialog:not([open]) { display: none !important; }
   background: var(--canvas);
   transition: grid-template-columns var(--motion-layout) var(--motion-ease-out);
 }
-.app-shell.sidebar-collapsed { grid-template-columns: 72px minmax(300px, 360px) minmax(0, 1fr); }
-.app-shell.is-focus-mode { grid-template-columns: 0px minmax(0px, 0px) minmax(0, 1fr); }
+.app-shell.sidebar-collapsed {
+  grid-template-columns: 72px minmax(300px, 360px) minmax(0, 1fr);
+}
+.app-shell.is-focus-mode {
+  grid-template-columns: 0px minmax(0px, 0px) minmax(0, 1fr);
+}

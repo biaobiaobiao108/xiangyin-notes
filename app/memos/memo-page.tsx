@@ -12,7 +12,7 @@ import {
 } from "react";
 import type { Memo } from "../../shared/types";
 import { FloatingScrollbar } from "../floating-scrollbar";
-import { ReadOnlyMarkdown } from "../editor/read-only-markdown";
+import { MemoMarkdown } from "./memo-markdown";
 import { useScrollEdges } from "../workspace/use-scroll-edges";
 import { MemoComposer, type MemoComposerHandle } from "./memo-composer";
 import { MiniCalendar } from "./memo-calendar";
@@ -133,7 +133,7 @@ function MemoCard({
         />
       ) : (
         <div className="memo-card-content">
-          <ReadOnlyMarkdown markdown={memo.contentMarkdown} />
+          <MemoMarkdown markdown={memo.contentMarkdown} />
         </div>
       )}
       {deleteError && (

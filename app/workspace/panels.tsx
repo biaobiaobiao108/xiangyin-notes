@@ -1448,11 +1448,7 @@ export const NoteListPanel = memo(function NoteListPanel({
       const nextNote = keyboardNotes[nextIndex];
       if (nextNote) {
         onSelect(nextNote.id, event as unknown as ReactMouseEvent<HTMLButtonElement>);
-        const row = noteListRef.current?.querySelector<HTMLButtonElement>(
-          `[data-note-id="${CSS.escape(nextNote.id)}"] .note-row`,
-        );
-        row?.focus();
-        row?.scrollIntoView({ block: "nearest" });
+        virtualList.focusRow(nextNote.id);
       }
       return;
     }
@@ -1464,11 +1460,7 @@ export const NoteListPanel = memo(function NoteListPanel({
       const prevNote = keyboardNotes[prevIndex];
       if (prevNote) {
         onSelect(prevNote.id, event as unknown as ReactMouseEvent<HTMLButtonElement>);
-        const row = noteListRef.current?.querySelector<HTMLButtonElement>(
-          `[data-note-id="${CSS.escape(prevNote.id)}"] .note-row`,
-        );
-        row?.focus();
-        row?.scrollIntoView({ block: "nearest" });
+        virtualList.focusRow(prevNote.id);
       }
       return;
     }
@@ -1630,328 +1622,322 @@ export const NoteListPanel = memo(function NoteListPanel({
       inert={inert}
     >
       <div className="note-list-content">
-        {outlineOpen ? (
+        {outlineOpen && (
           <NoteOutlinePanel
             outlineItems={outlineItems}
             activeOutlineId={activeOutlineId}
             onScrollToOutlineItem={onScrollToOutlineItem}
             onCloseOutline={onCloseOutline}
           />
-        ) : (
-          <>
-            {isMobileViewport ? (
-              <MobileCollectionHeader
-                active={!inert}
-                heading={heading}
-                total={total}
-                shown={notes.length}
-                query={query}
-                onBack={onOpenSidebar}
-                onEmptyTrash={onEmptyTrash}
-                trashBusy={trashBusy}
-              />
-            ) : (
-              <header className="list-header">
-                <button
-                  className="icon-button mobile-only"
-                  type="button"
-                  aria-label="打开导航"
-                  onClick={onOpenSidebar}
-                >
-                  <Menu size={20} />
-                </button>
-                <div className="list-header-main">
-                  <h2 tabIndex={-1}>{heading}</h2>
-                  <p>
-                    {query
-                      ? searchResultLabel(query, total)
-                      : `${truncated ? total : notes.length} 篇笔记`}
-                    {truncated && <> · 已显示最近 {notes.length} 篇</>}
-                  </p>
-                </div>
-                <div className="list-header-controls">
-                  {onEmptyTrash && (
-                    <EmptyTrashButton onClick={onEmptyTrash} disabled={trashBusy || total === 0} />
-                  )}
-                  {onNewNote && !isMobileViewport && (
-                    <button
-                      className="icon-button list-new-note-button"
-                      type="button"
-                      aria-label={`在${currentNotebookName}中新建笔记`}
-                      onClick={onNewNote}
-                    >
-                      <Plus size={18} />
-                    </button>
-                  )}
-                </div>
-              </header>
-            )}
-            <div
-              className={`note-list-scroll-shell${noteListScrollEdges.before || isAnchoring ? " has-scroll-before" : ""}${noteListScrollEdges.after ? " has-scroll-after" : ""}`}
-            >
-              <div
-                id="note-list-scroll-region"
-                className="note-list floating-scrollbar-target"
-                ref={setNoteListRef}
-                style={noteListStyle}
-                onKeyDown={handleNoteListKeyDown}
-                onFocusCapture={handleVirtualListFocusCapture}
-                onBlurCapture={handleVirtualListBlurCapture}
+        )}
+        <div className="note-list-body" hidden={outlineOpen} inert={outlineOpen || undefined}>
+          {isMobileViewport ? (
+            <MobileCollectionHeader
+              active={!inert}
+              heading={heading}
+              total={total}
+              shown={notes.length}
+              query={query}
+              onBack={onOpenSidebar}
+              onEmptyTrash={onEmptyTrash}
+              trashBusy={trashBusy}
+            />
+          ) : (
+            <header className="list-header">
+              <button
+                className="icon-button mobile-only"
+                type="button"
+                aria-label="打开导航"
+                onClick={onOpenSidebar}
               >
-                {virtualList.isVirtualized && virtualStickyGroup && (
-                  <div
-                    className="note-list-group-header is-virtual-sticky"
-                    style={{ transform: `translateY(${virtualList.stickyOffset}px)` }}
-                  >
-                    <button
-                      type="button"
-                      className="note-list-virtual-group-toggle"
-                      aria-expanded={!virtualStickyGroupCollapsed}
-                      aria-controls="note-list-virtual-rows"
-                      onClick={() => toggleVirtualGroup(virtualStickyGroup)}
-                    >
-                      <ChevronDown
-                        className="note-list-group-chevron"
-                        size={13}
-                        aria-hidden="true"
-                      />
-                      <span className="note-list-group-title">{virtualStickyGroup.title}</span>
-                      <span className="note-list-group-count">{virtualStickyGroup.count}</span>
-                    </button>
-                  </div>
+                <Menu size={20} />
+              </button>
+              <div className="list-header-main">
+                <h2 tabIndex={-1}>{heading}</h2>
+                <p>
+                  {query
+                    ? searchResultLabel(query, total)
+                    : `${truncated ? total : notes.length} 篇笔记`}
+                  {truncated && <> · 已显示最近 {notes.length} 篇</>}
+                </p>
+              </div>
+              <div className="list-header-controls">
+                {onEmptyTrash && (
+                  <EmptyTrashButton onClick={onEmptyTrash} disabled={trashBusy || total === 0} />
                 )}
-                {!virtualList.isVirtualized && groups ? (
-                  <div className="note-list-groups">
-                    {groups.map((group) => {
-                      const collapsed = collapsedGroups.has(group.id);
-                      const contentId = `note-list-group-${group.id}`;
-                      return (
-                        <section
-                          key={group.id}
-                          className="note-list-group"
-                          aria-label={`${group.title}，共 ${group.count} 篇`}
-                        >
-                          <h2 className="note-list-group-header">
-                            <button
-                              type="button"
-                              className="note-list-group-toggle"
-                              aria-expanded={!collapsed}
-                              aria-controls={contentId}
-                              onClick={(event) => toggleGroup(group.id, event.currentTarget)}
-                            >
-                              <ChevronDown
-                                className="note-list-group-chevron"
-                                size={13}
-                                aria-hidden="true"
-                              />
-                              <span className="note-list-group-title">{group.title}</span>
-                              <span className="note-list-group-count">{group.count}</span>
-                            </button>
-                          </h2>
-                          <div
-                            id={contentId}
-                            className={`note-list-group-content${collapsed ? " is-collapsed" : ""}`}
-                            inert={collapsed}
+                {onNewNote && !isMobileViewport && (
+                  <button
+                    className="icon-button list-new-note-button"
+                    type="button"
+                    aria-label={`在${currentNotebookName}中新建笔记`}
+                    onClick={onNewNote}
+                  >
+                    <Plus size={18} />
+                  </button>
+                )}
+              </div>
+            </header>
+          )}
+          <div
+            className={`note-list-scroll-shell${noteListScrollEdges.before || isAnchoring ? " has-scroll-before" : ""}${noteListScrollEdges.after ? " has-scroll-after" : ""}`}
+          >
+            <div
+              id="note-list-scroll-region"
+              className="note-list floating-scrollbar-target"
+              ref={setNoteListRef}
+              tabIndex={-1}
+              style={noteListStyle}
+              onKeyDown={handleNoteListKeyDown}
+              onFocusCapture={handleVirtualListFocusCapture}
+              onBlurCapture={handleVirtualListBlurCapture}
+            >
+              {virtualList.isVirtualized && virtualStickyGroup && (
+                <div
+                  className="note-list-group-header is-virtual-sticky"
+                  style={{ transform: `translateY(${virtualList.stickyOffset}px)` }}
+                >
+                  <button
+                    type="button"
+                    className="note-list-virtual-group-toggle"
+                    aria-expanded={!virtualStickyGroupCollapsed}
+                    aria-controls="note-list-virtual-rows"
+                    onClick={() => toggleVirtualGroup(virtualStickyGroup)}
+                  >
+                    <ChevronDown className="note-list-group-chevron" size={13} aria-hidden="true" />
+                    <span className="note-list-group-title">{virtualStickyGroup.title}</span>
+                    <span className="note-list-group-count">{virtualStickyGroup.count}</span>
+                  </button>
+                </div>
+              )}
+              {!virtualList.isVirtualized && groups ? (
+                <div className="note-list-groups">
+                  {groups.map((group) => {
+                    const collapsed = collapsedGroups.has(group.id);
+                    const contentId = `note-list-group-${group.id}`;
+                    return (
+                      <section
+                        key={group.id}
+                        className="note-list-group"
+                        aria-label={`${group.title}，共 ${group.count} 篇`}
+                      >
+                        <h2 className="note-list-group-header">
+                          <button
+                            type="button"
+                            className="note-list-group-toggle"
+                            aria-expanded={!collapsed}
+                            aria-controls={contentId}
+                            onClick={(event) => toggleGroup(group.id, event.currentTarget)}
                           >
-                            <ul className="note-list-group-items note-list-items" role="list">
-                              {group.notes.map((note) => {
-                                const index = sortedIndexById.get(note.id) ?? -1;
-                                return (
-                                  <NoteListRow
-                                    key={note.id}
-                                    note={note}
-                                    rowIndex={index}
-                                    setSize={listSize}
-                                    isSelected={selectedIds.has(note.id)}
-                                    isActive={selectedId === note.id && !isMobileViewport}
-                                    showNotebook
-                                    onToggleFavorite={onToggleFavoriteNote}
-                                    onSelect={onSelect}
-                                    isMobileViewport={isMobileViewport}
-                                    isTrashView={view === "trash"}
-                                    trashBusy={trashBusy}
-                                    onNoteSwipeAction={onNoteSwipeAction}
-                                    open={swipeActions.openId === note.id}
-                                    setOpenId={swipeActions.setOpenId}
-                                    isDragging={draggingNoteIds?.has(note.id) ?? false}
-                                    onDragStart={handleRowDragStart}
-                                    onDragEnd={handleRowDragEnd}
-                                  />
-                                );
-                              })}
+                            <ChevronDown
+                              className="note-list-group-chevron"
+                              size={13}
+                              aria-hidden="true"
+                            />
+                            <span className="note-list-group-title">{group.title}</span>
+                            <span className="note-list-group-count">{group.count}</span>
+                          </button>
+                        </h2>
+                        <div
+                          id={contentId}
+                          className={`note-list-group-content${collapsed ? " is-collapsed" : ""}`}
+                          inert={collapsed}
+                        >
+                          <ul className="note-list-group-items note-list-items" role="list">
+                            {group.notes.map((note) => {
+                              const index = sortedIndexById.get(note.id) ?? -1;
+                              return (
+                                <NoteListRow
+                                  key={note.id}
+                                  note={note}
+                                  rowIndex={index}
+                                  setSize={listSize}
+                                  isSelected={selectedIds.has(note.id)}
+                                  isActive={selectedId === note.id && !isMobileViewport}
+                                  showNotebook
+                                  onToggleFavorite={onToggleFavoriteNote}
+                                  onSelect={onSelect}
+                                  isMobileViewport={isMobileViewport}
+                                  isTrashView={view === "trash"}
+                                  trashBusy={trashBusy}
+                                  onNoteSwipeAction={onNoteSwipeAction}
+                                  open={swipeActions.openId === note.id}
+                                  setOpenId={swipeActions.setOpenId}
+                                  isDragging={draggingNoteIds?.has(note.id) ?? false}
+                                  onDragStart={handleRowDragStart}
+                                  onDragEnd={handleRowDragEnd}
+                                />
+                              );
+                            })}
+                          </ul>
+                        </div>
+                      </section>
+                    );
+                  })}
+                  {hasLoadMoreRow && (
+                    <div ref={setLoadMoreSentinel} className="note-list-load-more-item">
+                      <button
+                        className="secondary-button note-list-load-more-button"
+                        type="button"
+                        onClick={onLoadMore}
+                        disabled={isLoadingMore}
+                      >
+                        {isLoadingMore ? "正在加载……" : noteLoadMoreLabel(notes.length, total)}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <ul
+                  id={virtualList.isVirtualized ? "note-list-virtual-rows" : undefined}
+                  className={`note-list-items${activeMotionGroup ? " virtual-group-list-motion" : ""}`}
+                  role="list"
+                  style={listStyle}
+                >
+                  {activeMotionGroup && motionRows && motionGroupHeader?.row.kind === "group" ? (
+                    <>
+                      {motionRows.before.map(({ row, index, top }) =>
+                        row.kind === "group"
+                          ? renderVirtualGroupMarker(row, top)
+                          : renderVirtualNote(row.note, index, top),
+                      )}
+                      {renderVirtualGroupMarker(motionGroupHeader.row, motionGroupHeader.top)}
+                      <li
+                        key={`virtual-group-motion-${virtualGroupTransition?.groupId}`}
+                        className="virtual-group-motion note-list-virtual-group-motion"
+                        role="presentation"
+                        style={virtualList.rowStyle(motionContentTop)}
+                      >
+                        <div
+                          className={`virtual-group-motion-clip note-list-virtual-group-clip${virtualGroupTransition?.phase === "collapsing" || virtualGroupTransition?.phase === "preparing-expansion" ? " is-collapsed" : ""}`}
+                          style={
+                            {
+                              "--group-content-height": `${activeMotionGroup.height}px`,
+                            } as CSSProperties
+                          }
+                          inert={virtualGroupTransition?.phase === "collapsing" || undefined}
+                        >
+                          <div className="virtual-group-motion-clip-content">
+                            <ul
+                              className="note-list-items note-list-virtual-group-content"
+                              role="list"
+                              style={{ height: `${activeMotionGroup.height}px` }}
+                            >
+                              {motionRows.group.map(({ row, index, localTop }) =>
+                                row.kind === "note"
+                                  ? renderVirtualNote(row.note, index, localTop)
+                                  : null,
+                              )}
                             </ul>
                           </div>
-                        </section>
-                      );
-                    })}
-                    {hasLoadMoreRow && (
-                      <div ref={setLoadMoreSentinel} className="note-list-load-more-item">
-                        <button
-                          className="secondary-button note-list-load-more-button"
-                          type="button"
-                          onClick={onLoadMore}
-                          disabled={isLoadingMore}
+                        </div>
+                        <ul
+                          className="note-list-items virtual-group-motion-after note-list-virtual-group-after"
+                          role="list"
+                          style={{
+                            height: `${Math.max(0, virtualList.totalHeight - motionAfterTop + (hasLoadMoreRow ? 76 : 0))}px`,
+                          }}
                         >
-                          {isLoadingMore ? "正在加载……" : noteLoadMoreLabel(notes.length, total)}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <ul
-                    id={virtualList.isVirtualized ? "note-list-virtual-rows" : undefined}
-                    className={`note-list-items${activeMotionGroup ? " virtual-group-list-motion" : ""}`}
-                    role="list"
-                    style={listStyle}
-                  >
-                    {activeMotionGroup && motionRows && motionGroupHeader?.row.kind === "group" ? (
-                      <>
-                        {motionRows.before.map(({ row, index, top }) =>
-                          row.kind === "group"
-                            ? renderVirtualGroupMarker(row, top)
-                            : renderVirtualNote(row.note, index, top),
-                        )}
-                        {renderVirtualGroupMarker(motionGroupHeader.row, motionGroupHeader.top)}
-                        <li
-                          key={`virtual-group-motion-${virtualGroupTransition?.groupId}`}
-                          className="virtual-group-motion note-list-virtual-group-motion"
-                          role="presentation"
-                          style={virtualList.rowStyle(motionContentTop)}
-                        >
-                          <div
-                            className={`virtual-group-motion-clip note-list-virtual-group-clip${virtualGroupTransition?.phase === "collapsing" || virtualGroupTransition?.phase === "preparing-expansion" ? " is-collapsed" : ""}`}
-                            style={
-                              {
-                                "--group-content-height": `${activeMotionGroup.height}px`,
-                              } as CSSProperties
-                            }
-                            inert={virtualGroupTransition?.phase === "collapsing" || undefined}
-                          >
-                            <div className="virtual-group-motion-clip-content">
-                              <ul
-                                className="note-list-items note-list-virtual-group-content"
-                                role="list"
-                                style={{ height: `${activeMotionGroup.height}px` }}
+                          {motionRows.after.map(({ row, index, localTop }) =>
+                            row.kind === "group"
+                              ? renderVirtualGroupMarker(row, localTop)
+                              : renderVirtualNote(row.note, index, localTop),
+                          )}
+                          {hasLoadMoreRow && (
+                            <li
+                              ref={setLoadMoreSentinel}
+                              className="note-list-load-more-item"
+                              style={{
+                                position: "absolute",
+                                insetInline: 0,
+                                top: 0,
+                                transform: `translateY(${virtualList.totalHeight - motionAfterTop}px)`,
+                              }}
+                            >
+                              <button
+                                className="secondary-button note-list-load-more-button"
+                                type="button"
+                                onClick={onLoadMore}
+                                disabled={isLoadingMore}
                               >
-                                {motionRows.group.map(({ row, index, localTop }) =>
-                                  row.kind === "note"
-                                    ? renderVirtualNote(row.note, index, localTop)
-                                    : null,
-                                )}
-                              </ul>
-                            </div>
-                          </div>
-                          <ul
-                            className="note-list-items virtual-group-motion-after note-list-virtual-group-after"
-                            role="list"
-                            style={{
-                              height: `${Math.max(0, virtualList.totalHeight - motionAfterTop + (hasLoadMoreRow ? 76 : 0))}px`,
-                            }}
-                          >
-                            {motionRows.after.map(({ row, index, localTop }) =>
-                              row.kind === "group"
-                                ? renderVirtualGroupMarker(row, localTop)
-                                : renderVirtualNote(row.note, index, localTop),
-                            )}
-                            {hasLoadMoreRow && (
-                              <li
-                                ref={setLoadMoreSentinel}
-                                className="note-list-load-more-item"
-                                style={{
+                                {isLoadingMore
+                                  ? "正在加载……"
+                                  : noteLoadMoreLabel(notes.length, total)}
+                              </button>
+                            </li>
+                          )}
+                        </ul>
+                      </li>
+                    </>
+                  ) : (
+                    <>
+                      {virtualList.visibleRows.map(({ row, index, top }) =>
+                        row.kind === "group"
+                          ? renderVirtualGroupMarker(row, top)
+                          : renderVirtualNote(row.note, index, top),
+                      )}
+                      {hasLoadMoreRow && (
+                        <li
+                          ref={setLoadMoreSentinel}
+                          className="note-list-load-more-item"
+                          style={
+                            virtualList.isVirtualized
+                              ? {
                                   position: "absolute",
                                   insetInline: 0,
                                   top: 0,
-                                  transform: `translateY(${virtualList.totalHeight - motionAfterTop}px)`,
-                                }}
-                              >
-                                <button
-                                  className="secondary-button note-list-load-more-button"
-                                  type="button"
-                                  onClick={onLoadMore}
-                                  disabled={isLoadingMore}
-                                >
-                                  {isLoadingMore
-                                    ? "正在加载……"
-                                    : noteLoadMoreLabel(notes.length, total)}
-                                </button>
-                              </li>
-                            )}
-                          </ul>
-                        </li>
-                      </>
-                    ) : (
-                      <>
-                        {virtualList.visibleRows.map(({ row, index, top }) =>
-                          row.kind === "group"
-                            ? renderVirtualGroupMarker(row, top)
-                            : renderVirtualNote(row.note, index, top),
-                        )}
-                        {hasLoadMoreRow && (
-                          <li
-                            ref={setLoadMoreSentinel}
-                            className="note-list-load-more-item"
-                            style={
-                              virtualList.isVirtualized
-                                ? {
-                                    position: "absolute",
-                                    insetInline: 0,
-                                    top: 0,
-                                    transform: `translateY(${virtualList.totalHeight}px)`,
-                                  }
-                                : undefined
-                            }
+                                  transform: `translateY(${virtualList.totalHeight}px)`,
+                                }
+                              : undefined
+                          }
+                        >
+                          <button
+                            className="secondary-button note-list-load-more-button"
+                            type="button"
+                            onClick={onLoadMore}
+                            disabled={isLoadingMore}
                           >
-                            <button
-                              className="secondary-button note-list-load-more-button"
-                              type="button"
-                              onClick={onLoadMore}
-                              disabled={isLoadingMore}
-                            >
-                              {isLoadingMore
-                                ? "正在加载……"
-                                : noteLoadMoreLabel(notes.length, total)}
-                            </button>
-                          </li>
-                        )}
-                      </>
-                    )}
-                  </ul>
-                )}
-                {!sortedNotes.length &&
-                  (query ? (
-                    <div className="list-empty">
-                      <span className="empty-icon">
-                        <Search size={23} />
-                      </span>
-                      <strong>没有找到匹配的笔记</strong>
-                      <span>试试更短的关键词，或清空搜索查看全部内容。</span>
-                      <button className="secondary-button" type="button" onClick={onClearQuery}>
-                        清空搜索
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="list-empty">
-                      <span className="empty-icon">
-                        <Archive size={23} />
-                      </span>
-                      <strong>{view === "trash" ? "回收站是空的" : "这里还没有笔记"}</strong>
-                      <span>
-                        {view === "trash"
-                          ? "移入回收站的笔记会显示在这里。"
-                          : "按下“新建笔记”，让一个想法有地方落脚。"}
-                      </span>
-                    </div>
-                  ))}
-              </div>
-              <FloatingScrollbar
-                scrollTargetRef={noteListRef}
-                controlsId="note-list-scroll-region"
-                ariaLabel="笔记列表滚动条"
-                placement="right"
-              />
+                            {isLoadingMore ? "正在加载……" : noteLoadMoreLabel(notes.length, total)}
+                          </button>
+                        </li>
+                      )}
+                    </>
+                  )}
+                </ul>
+              )}
+              {!sortedNotes.length &&
+                (query ? (
+                  <div className="list-empty">
+                    <span className="empty-icon">
+                      <Search size={23} />
+                    </span>
+                    <strong>没有找到匹配的笔记</strong>
+                    <span>试试更短的关键词，或清空搜索查看全部内容。</span>
+                    <button className="secondary-button" type="button" onClick={onClearQuery}>
+                      清空搜索
+                    </button>
+                  </div>
+                ) : (
+                  <div className="list-empty">
+                    <span className="empty-icon">
+                      <Archive size={23} />
+                    </span>
+                    <strong>{view === "trash" ? "回收站是空的" : "这里还没有笔记"}</strong>
+                    <span>
+                      {view === "trash"
+                        ? "移入回收站的笔记会显示在这里。"
+                        : "按下“新建笔记”，让一个想法有地方落脚。"}
+                    </span>
+                  </div>
+                ))}
             </div>
-          </>
-        )}
+            <FloatingScrollbar
+              scrollTargetRef={noteListRef}
+              controlsId="note-list-scroll-region"
+              ariaLabel="笔记列表滚动条"
+              placement="right"
+            />
+          </div>
+        </div>
       </div>
     </section>
   );

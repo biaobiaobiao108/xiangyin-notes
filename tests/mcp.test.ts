@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyMigrations, openDatabase, type SqliteDatabase } from "../server/db";
 import { handleRequest, redactSensitivePath } from "../server/index";
-import { MCP_PATH } from "../server/mcp-transport";
+import { MCP_PATH, MCP_RATE_LIMIT_MAX_REQUESTS } from "../server/mcp-transport";
 import { createNote } from "../server/routes/notes";
 import { NOTE_BODY_MAX_BYTES } from "../server/core";
 
@@ -1065,7 +1065,7 @@ describe("remote MCP endpoint", () => {
     }
   });
 
-  test("authenticates with a path token and ignores Authorization, cookies, and the import token", async () => {
+  test("authenticates with a path token or bearer header and rejects cookies and the import token", async () => {
     const unconfigured = await request(`${MCP_PATH}/${token}`, { method: "POST" });
     expect(unconfigured.response.status).toBe(503);
     expect(unconfigured.body?.error.code).toBe("MCP_AUTH_NOT_CONFIGURED");
@@ -1091,12 +1091,19 @@ describe("remote MCP endpoint", () => {
     );
     expect(nestedTokenPath.response.status).toBe(401);
 
-    const headerOnly = await request(
-      MCP_PATH,
-      { method: "POST", headers: { Authorization: `Bearer ${token}` } },
-      configuredEnvironment,
-    );
-    expect(headerOnly.response.status).toBe(401);
+    const baseRequest = modernMcpRequest("tools/list", 90);
+    const headerRequest = new Request("http://xiangying.test" + MCP_PATH, {
+      method: "POST",
+      headers: new Headers(baseRequest.headers),
+      body: await baseRequest.text(),
+    });
+    headerRequest.headers.set("Authorization", `Bearer ${token}`);
+    const headerOnly = await handleRequest(headerRequest, {
+      database,
+      environment: configuredEnvironment,
+      assetRoot,
+    });
+    expect(headerOnly.status).toBe(200);
 
     const apiToken = await request(
       `${MCP_PATH}/shortcut-import-token-1234567890`,
@@ -1123,6 +1130,26 @@ describe("remote MCP endpoint", () => {
       configuredEnvironment,
     );
     expect(cookieOnly.response.status).toBe(401);
+  });
+
+  test("rate limits MCP requests per client and token", async () => {
+    const configuredEnvironment = {
+      ...credentials,
+      XIANGYING_MCP_TOKEN: token,
+    };
+    let lastStatus = 0;
+    let retryAfter: string | null = null;
+    for (let index = 0; index <= MCP_RATE_LIMIT_MAX_REQUESTS; index += 1) {
+      const result = await request(
+        `${MCP_PATH}/${token}`,
+        { method: "POST" },
+        configuredEnvironment,
+      );
+      lastStatus = result.response.status;
+      retryAfter = result.response.headers.get("Retry-After");
+    }
+    expect(lastStatus).toBe(429);
+    expect(retryAfter).not.toBeNull();
   });
 
   test("validates Origin when present and accepts native clients without Origin", async () => {

@@ -75,7 +75,7 @@ export function applyThemeToDocument(
   document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]').forEach((meta) => {
     const theme =
       preference === "system" ? (meta.media.includes("dark") ? "dark" : "light") : resolvedTheme;
-    meta.content = theme === "dark" ? "#1a1b26" : "#f6f4ef";
+    meta.content = theme === "dark" ? "#161819" : "#f6f4ef";
   });
 }
 

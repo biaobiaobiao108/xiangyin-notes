@@ -207,7 +207,11 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
             await copyPlainText(text);
           }
         } catch {
-          throw new Error("浏览器未允许写入剪贴板");
+          try {
+            await copyPlainText(text);
+          } catch {
+            throw new Error("浏览器未允许写入剪贴板");
+          }
         }
         if (cut && restore() && instance.isEditable) instance.commands.deleteSelection();
       };
