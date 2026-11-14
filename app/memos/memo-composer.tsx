@@ -1,11 +1,27 @@
 import type { Editor } from "@tiptap/core";
 import { EditorContent, useEditor } from "@tiptap/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import { createCommonEditorExtensions } from "../editor/common-extensions";
 import { editorCoreExtensionOptions } from "../editor/editor-config";
+import { useContextMenu } from "../context-menu";
+import { copyPlainText } from "../editor/code-block-copy";
+import { buildMemoComposerMenuItems } from "./memo-context-menu";
 
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
 type SubmitReason = "shortcut" | "blur";
+
+export type MemoComposerHandle = {
+  focus: () => void;
+};
 
 export type MemoComposerProps = {
   initialMarkdown?: string;
@@ -23,18 +39,22 @@ function messageOf(reason: unknown) {
   return reason instanceof Error && reason.message ? reason.message : "保存失败，请重试";
 }
 
-export function MemoComposer({
-  initialMarkdown = "",
-  placeholder,
-  ariaLabel,
-  autoFocus = false,
-  className = "",
-  resetOnSubmit = false,
-  onDraftChange,
-  onSubmit,
-  onCancel,
-}: MemoComposerProps) {
+export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(function MemoComposer(
+  {
+    initialMarkdown = "",
+    placeholder,
+    ariaLabel,
+    autoFocus = false,
+    className = "",
+    resetOnSubmit = false,
+    onDraftChange,
+    onSubmit,
+    onCancel,
+  },
+  ref,
+) {
   const editorRef = useRef<EditorWithMarkdown | null>(null);
+  const { openMenu, menu } = useContextMenu();
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingDraftRef = useRef<string | null>(null);
   const onSubmitRef = useRef(onSubmit);
@@ -49,6 +69,12 @@ export function MemoComposer({
   onDraftChangeRef.current = onDraftChange;
   onCancelRef.current = onCancel;
   resetOnSubmitRef.current = resetOnSubmit;
+
+  useImperativeHandle(ref, () => ({
+    focus: () => {
+      editorRef.current?.commands.focus("end");
+    },
+  }));
 
   const extensions = useMemo(() => createCommonEditorExtensions({ placeholder }), [placeholder]);
   const editorProps = useMemo(
@@ -120,6 +146,101 @@ export function MemoComposer({
     onCancelRef.current();
   }, []);
 
+  const handleContextMenu = useCallback(
+    (event: ReactMouseEvent<HTMLElement>) => {
+      const instance = editorRef.current;
+      if (!instance || instance.isDestroyed || instance.view.composing) return;
+      const { selection } = instance.state;
+      const editable = instance.isEditable && !savingRef.current;
+      const hasSelection = !selection.empty;
+
+      const restore = () => {
+        if (instance.isDestroyed || !instance.isEditable) return false;
+        instance.view.dispatch(instance.state.tr.setSelection(selection));
+        instance.view.focus();
+        return true;
+      };
+
+      const copy = async (cut = false) => {
+        const { dom, text } = instance.view.serializeForClipboard(selection.content());
+        try {
+          if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
+            await navigator.clipboard.write([
+              new ClipboardItem({
+                "text/plain": new Blob([text], { type: "text/plain" }),
+                "text/html": new Blob([dom.innerHTML], { type: "text/html" }),
+              }),
+            ]);
+          } else {
+            await copyPlainText(text);
+          }
+        } catch {
+          throw new Error("浏览器未允许写入剪贴板");
+        }
+        if (cut && restore() && instance.isEditable) instance.commands.deleteSelection();
+      };
+
+      const paste = async (plain = false) => {
+        let text = "";
+        let html = "";
+        try {
+          if (!plain && navigator.clipboard?.read) {
+            const items = await navigator.clipboard.read();
+            for (const item of items) {
+              if (item.types.includes("text/plain"))
+                text = await (await item.getType("text/plain")).text();
+              if (item.types.includes("text/html"))
+                html = await (await item.getType("text/html")).text();
+            }
+          } else if (navigator.clipboard?.readText) {
+            text = await navigator.clipboard.readText();
+          }
+        } catch {
+          throw new Error("浏览器未允许读取剪贴板");
+        }
+        if (!restore() || !instance.isEditable) return;
+        if (plain || !html) {
+          if (text) instance.commands.insertContent(text);
+        } else {
+          const data = new DataTransfer();
+          if (text) data.setData("text/plain", text);
+          if (html) data.setData("text/html", html);
+          const clipboardEvent = new ClipboardEvent("paste", { clipboardData: data });
+          instance.view.pasteHTML(html, clipboardEvent);
+        }
+      };
+
+      const command = (run: () => unknown) => () => {
+        if (restore()) run();
+      };
+
+      const items = buildMemoComposerMenuItems({
+        canUndo: instance.can().undo(),
+        canRedo: instance.can().redo(),
+        hasSelection,
+        editable,
+        isEditingMemo: Boolean(onCancelRef.current),
+        actions: {
+          undo: command(() => instance.commands.undo()),
+          redo: command(() => instance.commands.redo()),
+          cut: () => copy(true),
+          copy: () => copy(false),
+          paste: () => paste(false),
+          pastePlain: () => paste(true),
+          selectAll: command(() => instance.commands.selectAll()),
+          toggleBold: command(() => instance.commands.toggleBold()),
+          toggleItalic: command(() => instance.commands.toggleItalic()),
+          clearFormatting: command(() => instance.chain().focus().unsetAllMarks().run()),
+          submit: () => void submit("shortcut"),
+          cancel: onCancelRef.current ? () => cancel() : undefined,
+        },
+      });
+
+      openMenu(event, items, onCancelRef.current ? "编辑随记" : "新建随记");
+    },
+    [cancel, openMenu, submit],
+  );
+
   const editor = useEditor({
     extensions,
     coreExtensionOptions: editorCoreExtensionOptions,
@@ -166,8 +287,24 @@ export function MemoComposer({
         } else if (event.key === "Escape" && onCancelRef.current) {
           event.preventDefault();
           cancel();
+        } else if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+          const instance = editorRef.current;
+          if (!instance || instance.isDestroyed) return;
+          event.preventDefault();
+          event.stopPropagation();
+          const coords = instance.view.coordsAtPos(instance.state.selection.from);
+          handleContextMenu({
+            clientX: coords.left,
+            clientY: coords.bottom + 4,
+            currentTarget: event.currentTarget,
+            target: event.target,
+            preventDefault() {},
+            stopPropagation() {},
+            defaultPrevented: false,
+          } as unknown as ReactMouseEvent<HTMLElement>);
         }
       }}
+      onContextMenu={handleContextMenu}
     >
       <EditorContent editor={editor} />
       {error && (
@@ -175,6 +312,7 @@ export function MemoComposer({
           {error}
         </p>
       )}
+      {menu}
     </div>
   );
-}
+});

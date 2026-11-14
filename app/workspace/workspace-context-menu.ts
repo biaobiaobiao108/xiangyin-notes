@@ -130,7 +130,7 @@ export function createWorkspaceContextMenuHandler({
     }
     if (
       !(target instanceof Element) ||
-      target.closest("dialog, input, textarea, [contenteditable='true'], .editor-panel")
+      target.closest("dialog, input, textarea, [contenteditable='true'], .editor-panel, .memo-page")
     )
       return;
     if (target.closest(".tasks-panel")) {

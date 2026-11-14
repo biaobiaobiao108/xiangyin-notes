@@ -1,10 +1,20 @@
-import { ChevronLeft, Search, Trash2, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { ChevronLeft, Copy, Plus, Search, Trash2, X } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+  type MutableRefObject,
+  type RefObject,
+} from "react";
 import type { Memo } from "../../shared/types";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { ReadOnlyMarkdown } from "../editor/read-only-markdown";
 import { useScrollEdges } from "../workspace/use-scroll-edges";
-import { MemoComposer } from "./memo-composer";
+import { MemoComposer, type MemoComposerHandle } from "./memo-composer";
 import { MiniCalendar } from "./memo-calendar";
 import {
   dayHeading,
@@ -21,6 +31,14 @@ import {
   useMemoPageScroller,
   useVirtualMemoList,
 } from "./use-virtual-memo-list";
+import { textFieldMenuItems, useContextMenu } from "../context-menu";
+import { copyPlainText } from "../editor/code-block-copy";
+import {
+  buildMemoCalendarMenuItems,
+  buildMemoCardMenuItems,
+  buildMemoFeedMenuItems,
+  buildMemoTagMenuItems,
+} from "./memo-context-menu";
 
 function MemoCard({
   memo,
@@ -132,11 +150,13 @@ function MemoList({
   setEditingMemo,
   scrollRef,
   pageScrollRef,
+  onBeginEditRef,
 }: {
   editingMemo: Memo | null;
   setEditingMemo: (memo: Memo | null) => void;
   scrollRef: RefObject<HTMLDivElement | null>;
   pageScrollRef: RefObject<HTMLElement | null>;
+  onBeginEditRef?: MutableRefObject<((memo: Memo) => void) | null>;
 }) {
   const {
     memos,
@@ -188,6 +208,13 @@ function MemoList({
     setEditingWasVirtualized(false);
     setEditingMemo(null);
   };
+
+  useEffect(() => {
+    if (onBeginEditRef) onBeginEditRef.current = beginEdit;
+    return () => {
+      if (onBeginEditRef) onBeginEditRef.current = null;
+    };
+  });
 
   useEffect(() => {
     const sentinel = loadMoreSentinel;
@@ -331,6 +358,7 @@ function MemoList({
                   key={row.id}
                   ref={virtualList.getRowRef(row.id)}
                   data-memo-row-id={row.id}
+                  data-memo-day={row.date}
                   className={`memo-virtual-day ${row.first ? "is-first" : ""}`.trim()}
                   style={virtualList.rowStyle(top)}
                   role="listitem"
@@ -359,7 +387,12 @@ function MemoList({
       ) : (
         <>
           {groups.map((group) => (
-            <section className="memo-day" key={group.date} aria-label={dayHeading(group.date)}>
+            <section
+              className="memo-day"
+              key={group.date}
+              data-memo-day={group.date}
+              aria-label={dayHeading(group.date)}
+            >
               <h2>
                 <time dateTime={group.date}>{timelineDateLabel(group.date)}</time>
               </h2>
@@ -411,6 +444,7 @@ function MemoTagFilters() {
               <button
                 key={item.tag}
                 type="button"
+                data-tag={item.tag}
                 className={memo.tag === item.tag ? "is-active" : ""}
                 aria-pressed={memo.tag === item.tag}
                 onClick={() => memo.setTag(memo.tag === item.tag ? null : item.tag)}
@@ -469,6 +503,9 @@ export function MemoPage({
   const memo = useMemoWorkspace();
   const pageRef = useRef<HTMLElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<MemoComposerHandle>(null);
+  const beginEditRef = useRef<((memo: Memo) => void) | null>(null);
+  const { openMenu, menu } = useContextMenu();
   const [editingMemo, setEditingMemo] = useState<Memo | null>(null);
   const [notice, setNotice] = useState("");
   const scrollEdges = useScrollEdges(scrollRef, [memo.memos.length, memo.loading]);
@@ -482,8 +519,302 @@ export function MemoPage({
     [memo],
   );
 
+  const focusComposer = useCallback(() => {
+    scrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+    pageRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+    composerRef.current?.focus();
+  }, []);
+
+  const handleContextMenu = useCallback(
+    (event: ReactMouseEvent<HTMLElement>) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest("dialog, [role='dialog']")) return;
+
+      if (target instanceof HTMLInputElement && target.type === "search") {
+        openMenu(
+          event,
+          textFieldMenuItems(target, (val) => memo.setQueryDraft(val)),
+          "搜索随记",
+        );
+        return;
+      }
+
+      if (target.closest(".memo-composer-prose")) return;
+
+      const cardEl = target.closest<HTMLElement>("[data-memo-id]");
+      if (cardEl) {
+        const memoId = cardEl.dataset.memoId;
+        const targetMemo =
+          memo.memos.find((m) => m.id === memoId) ??
+          (editingMemo?.id === memoId ? editingMemo : undefined);
+        if (targetMemo) {
+          const selection = window.getSelection();
+          const isSelInCard =
+            selection &&
+            cardEl.contains(selection.anchorNode) &&
+            !selection.isCollapsed &&
+            Boolean(selection.toString().trim());
+          const selectedText = isSelInCard ? selection!.toString() : undefined;
+          const linkEl = target.closest<HTMLAnchorElement>("a[href]");
+          const linkUrl = linkEl?.href;
+
+          const items = buildMemoCardMenuItems({
+            memo: targetMemo,
+            isEditing: editingMemo?.id === targetMemo.id,
+            selectedDate: memo.selectedDate,
+            activeTag: memo.tag,
+            selectedText,
+            linkUrl,
+            actions: {
+              startEdit: (m) => {
+                beginEditRef.current?.(m) ?? setEditingMemo(m);
+              },
+              copyContent: async (text) => {
+                await copyPlainText(text);
+              },
+              filterDate: (date) => {
+                memo.setSelectedDate(date);
+                if (date) memo.setMiniMonth(date.slice(0, 7));
+              },
+              filterTag: (tag) => {
+                memo.setTag(tag);
+              },
+              deleteMemo: async (m) => {
+                await memo.deleteMemo(m);
+                if (editingMemo?.id === m.id) setEditingMemo(null);
+              },
+              openLink: (url) => {
+                window.open(url, "_blank", "noopener,noreferrer");
+              },
+            },
+          });
+
+          openMenu(event, items, `${timeLabel(targetMemo.createdAt)} 随记`);
+          return;
+        }
+      }
+
+      const filterChip = target.closest<HTMLElement>("[data-filter-type]");
+      if (filterChip) {
+        const filterType = filterChip.dataset.filterType;
+        if (filterType === "tag" && memo.tag) {
+          const currentTag = memo.tag;
+          openMenu(
+            event,
+            [
+              {
+                label: `清除 #${currentTag} 标签筛选`,
+                icon: X,
+                onSelect: () => memo.setTag(null),
+              },
+              {
+                label: "复制标签名",
+                icon: Copy,
+                separator: true,
+                onSelect: () => copyPlainText(`#${currentTag}`),
+              },
+            ],
+            `#${currentTag}`,
+          );
+          return;
+        }
+        if (filterType === "date" && memo.selectedDate) {
+          const currentDate = memo.selectedDate;
+          openMenu(
+            event,
+            [
+              {
+                label: `清除 ${timelineDateLabel(currentDate)} 日期筛选`,
+                icon: X,
+                onSelect: () => memo.setSelectedDate(null),
+              },
+              {
+                label: `在${timelineDateLabel(currentDate)}新建随记`,
+                icon: Plus,
+                separator: true,
+                onSelect: () => focusComposer(),
+              },
+            ],
+            timelineDateLabel(currentDate),
+          );
+          return;
+        }
+      }
+
+      const dayEl = target.closest<HTMLElement>("[data-memo-day]");
+      if (dayEl) {
+        const dayDate = dayEl.dataset.memoDay;
+        if (dayDate) {
+          const today = localDateKey(Date.now());
+          const items = buildMemoCalendarMenuItems({
+            date: dayDate,
+            today,
+            selectedDate: memo.selectedDate,
+            actions: {
+              selectDate: (date) => {
+                memo.setSelectedDate(date);
+                if (date) memo.setMiniMonth(date.slice(0, 7));
+              },
+              newMemoOnDate: (date) => {
+                memo.setSelectedDate(date);
+                memo.setMiniMonth(date.slice(0, 7));
+                focusComposer();
+              },
+              goToToday: () => {
+                memo.setSelectedDate(today);
+                memo.setMiniMonth(today.slice(0, 7));
+              },
+            },
+          });
+          openMenu(event, items, dayHeading(dayDate));
+          return;
+        }
+      }
+
+      const cellEl = target.closest<HTMLElement>("[data-date]");
+      if (cellEl) {
+        const cellDate = cellEl.dataset.date;
+        if (cellDate) {
+          const today = localDateKey(Date.now());
+          const items = buildMemoCalendarMenuItems({
+            date: cellDate,
+            today,
+            selectedDate: memo.selectedDate,
+            actions: {
+              selectDate: (date) => {
+                memo.setSelectedDate(date);
+                if (date) memo.setMiniMonth(date.slice(0, 7));
+              },
+              newMemoOnDate: (date) => {
+                memo.setSelectedDate(date);
+                memo.setMiniMonth(date.slice(0, 7));
+                focusComposer();
+              },
+              goToToday: () => {
+                memo.setSelectedDate(today);
+                memo.setMiniMonth(today.slice(0, 7));
+              },
+            },
+          });
+          openMenu(event, items, dayHeading(cellDate));
+          return;
+        }
+      }
+
+      if (target.closest(".memo-mini-calendar")) {
+        const today = localDateKey(Date.now());
+        const items = buildMemoCalendarMenuItems({
+          today,
+          selectedDate: memo.selectedDate,
+          actions: {
+            selectDate: (date) => memo.setSelectedDate(date),
+            newMemoOnDate: (date) => {
+              memo.setSelectedDate(date);
+              memo.setMiniMonth(date.slice(0, 7));
+              focusComposer();
+            },
+            goToToday: () => {
+              memo.setSelectedDate(today);
+              memo.setMiniMonth(today.slice(0, 7));
+            },
+          },
+        });
+        openMenu(event, items, "随记月历");
+        return;
+      }
+
+      const tagEl = target.closest<HTMLElement>("[data-tag]");
+      if (tagEl) {
+        const tagName = tagEl.dataset.tag;
+        if (tagName) {
+          const items = buildMemoTagMenuItems({
+            tag: tagName,
+            activeTag: memo.tag,
+            actions: {
+              selectTag: (tag) => memo.setTag(tag),
+              copyTagName: async (tag) => {
+                await copyPlainText(tag);
+              },
+            },
+          });
+          openMenu(event, items, `#${tagName}`);
+          return;
+        }
+      }
+
+      if (target.closest(".memo-tag-section")) {
+        const items = buildMemoTagMenuItems({
+          activeTag: memo.tag,
+          actions: {
+            selectTag: (tag) => memo.setTag(tag),
+            copyTagName: async () => {},
+          },
+        });
+        if (items.length > 0) {
+          openMenu(event, items, "随记标签");
+          return;
+        }
+      }
+
+      if (target.closest(".memo-feed, .memo-scroll, .memo-layout, .memo-page")) {
+        const items = buildMemoFeedMenuItems({
+          hasQuery: Boolean(memo.queryDraft),
+          hasTag: Boolean(memo.tag),
+          hasDate: Boolean(memo.selectedDate),
+          activeTag: memo.tag,
+          selectedDate: memo.selectedDate,
+          actions: {
+            newMemo: focusComposer,
+            refresh: () => memo.refresh(),
+            clearQuery: () => memo.setQueryDraft(""),
+            clearTag: () => memo.setTag(null),
+            clearDate: () => memo.setSelectedDate(null),
+            clearAllFilters: () => {
+              memo.setQueryDraft("");
+              memo.setTag(null);
+              memo.setSelectedDate(null);
+            },
+          },
+        });
+        openMenu(event, items, "随记");
+      }
+    },
+    [editingMemo, focusComposer, memo, openMenu],
+  );
+
+  const handleKeyDown = useCallback((event: ReactKeyboardEvent<HTMLElement>) => {
+    if (
+      event.nativeEvent.isComposing ||
+      event.keyCode === 229 ||
+      !(event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))
+    )
+      return;
+    const target = event.target;
+    if (!(target instanceof HTMLElement) || target.closest("dialog, [contenteditable='true']"))
+      return;
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = target.getBoundingClientRect();
+    target.dispatchEvent(
+      new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        clientX: rect.left + 12,
+        clientY: rect.top + 12,
+      }),
+    );
+  }, []);
+
   return (
-    <main ref={pageRef} id="memo-page-scroll-region" className="memo-page" aria-label="随记">
+    <main
+      ref={pageRef}
+      id="memo-page-scroll-region"
+      className="memo-page"
+      aria-label="随记"
+      onContextMenu={handleContextMenu}
+      onKeyDown={handleKeyDown}
+    >
       <h1 className="visually-hidden">随记</h1>
       {isMobileViewport && (
         <header className="list-header mobile-collection-header memo-mobile-header">
@@ -536,6 +867,7 @@ export function MemoPage({
                   <button
                     className="memo-filter-chip"
                     type="button"
+                    data-filter-type="tag"
                     onClick={() => memo.setTag(null)}
                   >
                     #{memo.tag}
@@ -546,6 +878,7 @@ export function MemoPage({
                   <button
                     className="memo-filter-chip"
                     type="button"
+                    data-filter-type="date"
                     onClick={() => memo.setSelectedDate(null)}
                   >
                     {timelineDateLabel(memo.selectedDate)}
@@ -554,6 +887,7 @@ export function MemoPage({
                 )}
               </div>
               <MemoComposer
+                ref={composerRef}
                 initialMarkdown={memo.draft}
                 placeholder={memo.selectedDate ? "记下这一天……" : "记下此刻……"}
                 ariaLabel="新建随记"
@@ -566,6 +900,7 @@ export function MemoPage({
                 setEditingMemo={setEditingMemo}
                 scrollRef={scrollRef}
                 pageScrollRef={pageRef}
+                onBeginEditRef={beginEditRef}
               />
             </section>
           </div>
@@ -589,6 +924,7 @@ export function MemoPage({
           {notice}
         </div>
       )}
+      {menu}
     </main>
   );
 }
