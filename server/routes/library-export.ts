@@ -35,18 +35,36 @@ type LibraryAsset = {
 };
 
 function safeName(name: string) {
-  const result = Array.from(
-    name
-      .trim()
-      .replace(/[\\/:*?"<>|\x00-\x1f]/gu, "_")
-      .replace(/[. ]+$/u, ""),
-  )
-    .slice(0, 80)
-    .join("");
+  const characters = Array.from(name.trim().replace(/[\\/:*?"<>|\x00-\x1f]/gu, "_")).slice(0, 80);
+  const encoder = new TextEncoder();
+  let result = "";
+  let bytes = 0;
+  for (const character of characters) {
+    const size = encoder.encode(character).length;
+    if (bytes + size > 180) break;
+    result += character;
+    bytes += size;
+  }
+  result = result.replace(/[. ]+$/u, "");
   return result || "未命名笔记";
 }
 
-function portableMarkdown(markdown: string, assetNames: Map<string, string>) {
+function notebookFolders(notebooks: Array<{ id: string; name: string }>) {
+  const used = new Set<string>();
+  return new Map(
+    notebooks.map(({ id, name }) => {
+      let base = safeName(name).replace(/[. ]+$/u, "") || "未命名笔记本";
+      if (/^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/iu.test(base)) base = `_${base}`;
+      let folder = base;
+      let suffix = 2;
+      while (used.has(folder.normalize("NFC").toLowerCase())) folder = `${base} (${suffix++})`;
+      used.add(folder.normalize("NFC").toLowerCase());
+      return [id, `笔记/${folder}`] as const;
+    }),
+  );
+}
+
+function portableMarkdown(markdown: string, assetNames: Map<string, string>, assetPrefix: string) {
   if (!assetNames.size || !markdown.toLowerCase().includes("/api/assets/")) return markdown;
   const blocks = findCodeFenceIntervals(markdown);
   const excluded = [...blocks, ...findInlineCodeIntervals(markdown, blocks)];
@@ -55,7 +73,7 @@ function portableMarkdown(markdown: string, assetNames: Map<string, string>) {
     (match, id: string, offset: number) => {
       if (excluded.some((range) => offset >= range.start && offset < range.end)) return match;
       const name = assetNames.get(id.toLowerCase());
-      return name ? `../附件/${name}` : match;
+      return name ? `${assetPrefix}/${name}` : match;
     },
   );
 }
@@ -176,9 +194,12 @@ export async function handleLibraryExport(ctx: RouteContext, user: UserRow): Pro
         "附件不可读取，无法完成整库导出，请检查服务端日志",
       );
     }
+    const folders = notebookFolders(snapshot.notebooks);
+    if (snapshot.notes.some((note) => !folders.has(note.notebook_id)))
+      return jsonError(500, "EXPORT_NOTEBOOK_MISSING", "笔记所属笔记本不可用，无法完成整库导出");
     const noteEntries = snapshot.notes.map(({ content_markdown: _content, ...note }) => ({
       ...note,
-      file: `笔记/${note.id} ${safeName(note.title)}.md`,
+      file: `${folders.get(note.notebook_id)}/${note.id} ${safeName(note.title)}.md`,
     }));
     const memoMonths = new Map<string, Array<{ id: string; time: string; content: string }>>();
     const memoMetadata = snapshot.memos.map(({ content_markdown, ...memo }) => {
@@ -199,7 +220,10 @@ export async function handleLibraryExport(ctx: RouteContext, user: UserRow): Pro
         version: 2,
         exportedAt: new Date().toISOString(),
         timeZone,
-        notebooks: snapshot.notebooks,
+        notebooks: snapshot.notebooks.map((notebook) => ({
+          ...notebook,
+          folder: folders.get(notebook.id),
+        })),
         kanban: snapshot.kanban,
         notes: noteEntries,
         memos: memoMetadata,
@@ -211,14 +235,18 @@ export async function handleLibraryExport(ctx: RouteContext, user: UserRow): Pro
       null,
       2,
     );
-    const readme = `象映笔记整库导出\n\n笔记为独立 Markdown 文件，随记按创建时间在 ${timeZone} 时区归入每月一个 Markdown 文件，同一文件中按时间排列。每条随记的原始时间和文件内顺序保存在 metadata.json。图片保存在附件目录。笔记包含回收站内容；笔记本、看板、收藏、回收站状态及时间等信息保存在 metadata.json。正文中的本地图片路径已改为相对路径，代码中的原文保持不变。Wiki 链接和外部图片链接保持原样。\n\n此压缩包用于阅读与迁移，不是完整数据库备份，也不能直接导入象映笔记。未提交到服务的草稿不包含在内。\n`;
+    const readme = `象映笔记整库导出\n\n笔记按笔记本分别存放，每篇为独立 Markdown 文件；回收站笔记也在所属笔记本目录中。随记按创建时间在 ${timeZone} 时区归入每月一个 Markdown 文件，同一文件中按时间排列。每条随记的原始时间和文件内顺序保存在 metadata.json。图片保存在附件目录。笔记本、看板、收藏、回收站状态及时间等信息保存在 metadata.json。正文中的本地图片路径已改为相对路径，代码中的原文保持不变。Wiki 链接和外部图片链接保持原样。\n\n此压缩包用于阅读与迁移，不是完整数据库备份，也不能直接导入象映笔记。未提交到服务的草稿不包含在内。\n`;
     const encoder = new TextEncoder();
-    const entriesCount = noteEntries.length + memoMonths.size + files.length + 2;
+    const entriesCount = folders.size + noteEntries.length + memoMonths.size + files.length + 2;
     // Allow for longer local image paths, monthly headings, ZIP headers and the central directory.
     const estimatedSize =
       files.reduce((sum, file) => sum + file.size + 1024, 0) +
-      Math.ceil(snapshot.textBytes.total * 1.1) +
-      noteEntries.length * 1024 +
+      Math.ceil(snapshot.textBytes.total * 1.15) +
+      [...folders.values()].reduce(
+        (sum, path) => sum + 2 * encoder.encode(`${path}/`).length + 128,
+        0,
+      ) +
+      noteEntries.reduce((sum, note) => sum + 2 * encoder.encode(note.file).length + 128, 0) +
       snapshot.memos.length * 128 +
       memoMonths.size * 1024 +
       encoder.encode(metadata).length +
@@ -237,12 +265,13 @@ export async function handleLibraryExport(ctx: RouteContext, user: UserRow): Pro
     async function* entries(): AsyncGenerator<ZipStreamEntry> {
       yield textEntry("说明.txt", readme);
       yield textEntry("metadata.json", metadata);
+      for (const folder of folders.values()) yield textEntry(`${folder}/`, "");
       for (let index = 0; index < noteEntries.length; index++) {
         const note = snapshot.notes[index]!;
         const body = useSnapshotConnection
           ? (noteBody.get(note.id, user.id) as { content_markdown: string }).content_markdown
           : note.content_markdown;
-        const content = portableMarkdown(body, assetNames);
+        const content = portableMarkdown(body, assetNames, "../../附件");
         note.content_markdown = "";
         yield textEntry(noteEntries[index]!.file, content);
       }
@@ -257,7 +286,7 @@ export async function handleLibraryExport(ctx: RouteContext, user: UserRow): Pro
                 ? (memoBody.get(item.id, user.id) as { content_markdown: string }).content_markdown
                 : item.content;
               yield encoder.encode(
-                `${index ? "\n---\n\n" : ""}## ${item.time}\n\n${portableMarkdown(body, assetNames)}\n`,
+                `${index ? "\n---\n\n" : ""}## ${item.time}\n\n${portableMarkdown(body, assetNames, "../附件")}\n`,
               );
               item.content = "";
             }
