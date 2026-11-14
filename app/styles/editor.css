@@ -700,10 +700,11 @@
     animation: none;
   }
 }
-.note-prose .editor-tag {
+.note-prose .editor-tag,
+.note-prose .memo-tag {
   display: inline;
-  padding: 0.08em 0.22em;
-  border-radius: 0.28em;
+  padding: 0.04em 0.26em 0.03em;
+  border-radius: 3px;
   background: var(--tag-soft);
   color: var(--tag-color);
   font-weight: 600;

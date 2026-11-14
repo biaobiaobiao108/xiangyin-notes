@@ -94,8 +94,8 @@
   --code-inline-ink: light-dark(#8d4b37, #cf7563);
   --danger-contrast: light-dark(#ffffff, #161819);
   --tag-color: light-dark(#405b4c, #7aa88f);
-  --tag-soft: light-dark(#edf4f0, rgba(78, 138, 110, 0.12));
-  --tag-border: light-dark(#c9ded3, rgba(78, 138, 110, 0.38));
+  --tag-soft: light-dark(#e6f0ea, rgba(78, 138, 110, 0.18));
+  --tag-border: light-dark(#c2d9cc, rgba(78, 138, 110, 0.42));
   /* Atelier heading inks: unified deep ink, relying on typographic scale rather than rainbow hues. */
   --h1-color: var(--ink);
   --h1-soft: light-dark(#faeee9, rgba(219, 90, 68, 0.12));

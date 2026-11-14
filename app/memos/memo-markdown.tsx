@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { RendererObject } from "marked";
 import { createXiangyingMarked } from "../../shared/markdown-lexer";
+import { findTagRanges } from "../../shared/tags";
 
 const HTML_ESCAPES: Record<string, string> = {
   "&": "&amp;",
@@ -32,7 +33,25 @@ function safeImageHref(value: string | null | undefined) {
   return PRIVATE_ASSET_SOURCE.test(href) ? href : null;
 }
 
+function renderMemoText(text: string) {
+  const ranges = findTagRanges(text);
+  if (ranges.length === 0) return escapeHtml(text);
+
+  let html = "";
+  let cursor = 0;
+  for (const range of ranges) {
+    html += escapeHtml(text.slice(cursor, range.start));
+    html += `<span class="memo-tag">${escapeHtml(text.slice(range.start, range.end))}</span>`;
+    cursor = range.end;
+  }
+  html += escapeHtml(text.slice(cursor));
+  return html;
+}
+
 const renderer: RendererObject = {
+  text({ text }) {
+    return renderMemoText(text);
+  },
   html({ text }) {
     return escapeHtml(text);
   },

@@ -31,4 +31,17 @@ describe("memo Markdown rendering", () => {
     expect(internal).toContain("<img");
     expect(internal).toContain('loading="lazy"');
   });
+
+  test("renders body hashtags with the memo tag treatment", () => {
+    const html = renderMemoMarkdown("今天 #工作，明天 #读书。");
+    expect(html).toContain('<span class="memo-tag">#工作</span>');
+    expect(html).toContain('<span class="memo-tag">#读书</span>');
+  });
+
+  test("does not tag code, URL fragments, image alt text, or escaped hashtags", () => {
+    const html = renderMemoMarkdown(
+      "`#code` https://example.com/a#fragment ![#alt](https://example.com/a.png) \\#escaped",
+    );
+    expect(html).not.toContain("memo-tag");
+  });
 });
