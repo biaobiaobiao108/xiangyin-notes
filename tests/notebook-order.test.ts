@@ -122,6 +122,48 @@ describe("notebook ordering", () => {
       );
     }
   });
+
+  test("rejects stale notebook metadata updates", async () => {
+    const cookie = await login();
+    const notebookId = await createNotebook(cookie, "并发测试");
+    database
+      .query("UPDATE notebooks SET updated_at = ? WHERE id = ?")
+      .run(1_700_000_000, notebookId);
+
+    const first = await api(
+      `/api/notebooks/${notebookId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ name: "并发测试（新）", expectedUpdatedAt: 1_700_000_000 }),
+      },
+      cookie,
+    );
+    expect(first.status).toBe(200);
+    const updated = ((await first.json()) as { notebook: { updatedAt: number } }).notebook;
+
+    const stale = await api(
+      `/api/notebooks/${notebookId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ name: "过期修改", expectedUpdatedAt: 1_700_000_000 }),
+      },
+      cookie,
+    );
+    expect(stale.status).toBe(409);
+    expect(((await stale.json()) as { error: { code: string } }).error.code).toBe(
+      "NOTEBOOK_CHANGED",
+    );
+
+    const current = await api(
+      `/api/notebooks/${notebookId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ name: "最终名称", expectedUpdatedAt: updated.updatedAt }),
+      },
+      cookie,
+    );
+    expect(current.status).toBe(200);
+  });
 });
 
 describe("notebook drag target calculation", () => {

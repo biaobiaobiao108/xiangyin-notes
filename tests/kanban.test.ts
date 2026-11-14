@@ -375,6 +375,71 @@ describe("Kanban API", () => {
     );
   });
 
+  test("rejects stale kanban card moves", async () => {
+    const cookie = await login();
+    const createNbRes = await api(
+      "/api/notebooks",
+      { method: "POST", body: JSON.stringify({ name: "并发看板", color: "#2d6a4f" }) },
+      cookie,
+    );
+    const notebook = ((await createNbRes.json()) as { notebook: { id: string } }).notebook;
+    const createNoteRes = await api(
+      "/api/notes",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          notebookId: notebook.id,
+          title: "并发卡片",
+          contentMarkdown: "用于验证看板乐观锁",
+        }),
+      },
+      cookie,
+    );
+    const note = ((await createNoteRes.json()) as { note: { id: string } }).note;
+    await api(
+      "/api/kanban/cards",
+      { method: "POST", body: JSON.stringify({ noteId: note.id }) },
+      cookie,
+    );
+    database
+      .query("UPDATE kanban_cards SET updated_at = ? WHERE note_id = ?")
+      .run(1_700_000_000, note.id);
+
+    const first = await api(
+      `/api/kanban/cards/${note.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ status: "doing", expectedUpdatedAt: 1_700_000_000 }),
+      },
+      cookie,
+    );
+    expect(first.status).toBe(200);
+    const updated = ((await first.json()) as { card: { updatedAt: number } }).card;
+
+    const stale = await api(
+      `/api/kanban/cards/${note.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ status: "done", expectedUpdatedAt: 1_700_000_000 }),
+      },
+      cookie,
+    );
+    expect(stale.status).toBe(409);
+    expect(((await stale.json()) as { error: { code: string } }).error.code).toBe(
+      "KANBAN_CARD_CHANGED",
+    );
+
+    const current = await api(
+      `/api/kanban/cards/${note.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ status: "done", expectedUpdatedAt: updated.updatedAt }),
+      },
+      cookie,
+    );
+    expect(current.status).toBe(200);
+  });
+
   test("kanban column pagination: limit, cursor, total, and hasMore", async () => {
     const cookie = await login();
 

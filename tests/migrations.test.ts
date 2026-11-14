@@ -83,6 +83,34 @@ test("migrates version 2 databases to the memo schema", async () => {
   }
 });
 
+test("removes superseded note_links indexes when upgrading version 3", async () => {
+  const database = await createExpectedSchemaDatabase(3);
+  try {
+    const before = database
+      .query("SELECT name FROM sqlite_master WHERE type = 'index'")
+      .all() as Array<{ name: string }>;
+    expect(before.some(({ name }) => name === "idx_note_links_source")).toBe(true);
+    expect(before.some(({ name }) => name === "idx_note_links_target")).toBe(true);
+    await initializeDatabase(database);
+    expect(database.query("PRAGMA user_version").get()).toEqual({
+      user_version: CURRENT_SCHEMA_VERSION,
+    });
+    const names = new Set(
+      (
+        database.query("SELECT name FROM sqlite_master WHERE type = 'index'").all() as Array<{
+          name: string;
+        }>
+      ).map(({ name }) => name),
+    );
+    expect(names.has("idx_note_links_source")).toBe(false);
+    expect(names.has("idx_note_links_target")).toBe(false);
+    expect(names.has("idx_note_links_source_note")).toBe(true);
+    expect(names.has("idx_note_links_target_note")).toBe(true);
+  } finally {
+    database.close();
+  }
+});
+
 test("uses targeted indexes for paged notes and foreign-key cleanup", async () => {
   const database = await openDatabase(":memory:");
   try {
@@ -100,6 +128,8 @@ test("uses targeted indexes for paged notes and foreign-key cleanup", async () =
     expect(names.has("idx_sessions_user")).toBe(true);
     expect(names.has("idx_note_links_source_note")).toBe(true);
     expect(names.has("idx_note_links_target_note")).toBe(true);
+    expect(names.has("idx_note_links_source")).toBe(false);
+    expect(names.has("idx_note_links_target")).toBe(false);
     expect(names.has("idx_notes_short_overflow_user")).toBe(true);
     expect(names.has("idx_notes_user_deleted_title")).toBe(false);
     expect(names.has("idx_notes_user_deleted_updated")).toBe(false);

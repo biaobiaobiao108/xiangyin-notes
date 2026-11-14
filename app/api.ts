@@ -253,7 +253,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
-  updateNotebook: (id: string, payload: { name?: string; color?: string; icon?: string }) =>
+  updateNotebook: (
+    id: string,
+    payload: { name?: string; color?: string; icon?: string; expectedUpdatedAt?: number },
+  ) =>
     request<{ notebook: Notebook }>(`/api/notebooks/${id}`, {
       method: "PATCH",
       body: JSON.stringify(payload),
@@ -304,7 +307,14 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
-  updateKanbanCard: (noteId: string, payload: { status?: KanbanStatus; sortOrder?: number }) =>
+  updateKanbanCard: (
+    noteId: string,
+    payload: {
+      status?: KanbanStatus;
+      sortOrder?: number;
+      expectedUpdatedAt?: number;
+    },
+  ) =>
     request<{ card: KanbanCard }>(`/api/kanban/cards/${noteId}`, {
       method: "PATCH",
       body: JSON.stringify(payload),

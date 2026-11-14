@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { KanbanCard, KanbanStatus, NoteSummary, Notebook } from "../../shared/types";
-import { api } from "../api";
+import { api, ApiError } from "../api";
 import type { KanbanColumnData } from "./kanban-panel";
 
 const KANBAN_PAGE_SIZE = 30;
@@ -222,9 +222,27 @@ export function useWorkspaceKanbanData({
       }
 
       try {
-        await api.updateKanbanCard(noteId, { status: targetStatus, sortOrder: targetSortOrder });
-      } catch {
-        notifyError("更新卡片状态失败");
+        const result = await api.updateKanbanCard(noteId, {
+          status: targetStatus,
+          sortOrder: targetSortOrder,
+          expectedUpdatedAt: movedCard.updatedAt,
+        });
+        setKanbanColumns((previous) => {
+          const next = { ...previous };
+          for (const status of ["inbox", "doing", "done"] as const) {
+            if (!next[status].cards.some((card) => card.noteId === noteId)) continue;
+            next[status] = {
+              ...next[status],
+              cards: next[status].cards.map((card) =>
+                card.noteId === noteId ? result.card : card,
+              ),
+            };
+          }
+          return next;
+        });
+      } catch (error) {
+        const conflict = error instanceof ApiError && error.status === 409;
+        notifyError(conflict ? "卡片已在其他设备更新，已刷新" : "更新卡片状态失败");
         setKanbanRefreshToken((value) => value + 1);
       }
     },

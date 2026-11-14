@@ -220,10 +220,20 @@ export async function handleNotebooksRoute(
   if (id && !subresource && method === "PATCH") {
     const current = getNotebook(database, user.id, id);
     if (!current) return jsonError(404, "NOTEBOOK_NOT_FOUND", "笔记本不存在");
-    const payload = await readJson<{ name?: unknown; color?: unknown; icon?: unknown }>(
-      request,
-      64 * 1024,
-    );
+    const payload = await readJson<{
+      name?: unknown;
+      color?: unknown;
+      icon?: unknown;
+      expectedUpdatedAt?: unknown;
+    }>(request, 64 * 1024);
+    const expectedUpdatedAt = payload?.expectedUpdatedAt;
+    if (
+      expectedUpdatedAt !== undefined &&
+      (!Number.isSafeInteger(expectedUpdatedAt) || (expectedUpdatedAt as number) < 0)
+    ) {
+      return jsonError(400, "INVALID_NOTEBOOK_VERSION", "expectedUpdatedAt 无效");
+    }
+    const expected = expectedUpdatedAt as number | undefined;
     const name = payload?.name === undefined ? current.name : payload.name;
     const color = payload?.color === undefined ? current.color : payload.color;
     const icon = payload?.icon === undefined ? current.icon || "folder" : payload.icon;
@@ -256,11 +266,22 @@ export async function handleNotebooksRoute(
         400,
       );
     try {
-      database
-        .query(
-          "UPDATE notebooks SET name = ?, color = ?, icon = ?, updated_at = ? WHERE id = ? AND user_id = ?",
-        )
-        .run((name as string).trim(), color as string, icon as string, now(), current.id, user.id);
+      const update = database.query(
+        expected === undefined
+          ? "UPDATE notebooks SET name = ?, color = ?, icon = ?, updated_at = ? WHERE id = ? AND user_id = ?"
+          : "UPDATE notebooks SET name = ?, color = ?, icon = ?, updated_at = ? WHERE id = ? AND user_id = ? AND updated_at = ?",
+      );
+      const updated = update.run(
+        (name as string).trim(),
+        color as string,
+        icon as string,
+        now(),
+        current.id,
+        user.id,
+        ...(expected === undefined ? [] : [expected]),
+      );
+      if (!updated.changes)
+        return jsonError(409, "NOTEBOOK_CHANGED", "笔记本已在其他设备更新，请刷新后重试");
     } catch (error) {
       if (isNotebookNameConflict(error))
         return jsonError(409, "NOTEBOOK_EXISTS", "已经有同名笔记本");

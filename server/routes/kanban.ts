@@ -317,11 +317,21 @@ export async function handleKanbanRoute(
     const body = await readJson<{
       status?: KanbanStatus;
       sortOrder?: number;
+      expectedUpdatedAt?: unknown;
     }>(request, 64 * 1024);
 
-    const existing = first<{ status: KanbanStatus; sort_order: number }>(
+    const expectedUpdatedAt = body?.expectedUpdatedAt;
+    if (
+      expectedUpdatedAt !== undefined &&
+      (!Number.isSafeInteger(expectedUpdatedAt) || (expectedUpdatedAt as number) < 0)
+    ) {
+      return jsonError(400, "INVALID_ARGUMENT", "expectedUpdatedAt 无效");
+    }
+    const expected = expectedUpdatedAt as number | undefined;
+
+    const existing = first<{ status: KanbanStatus; sort_order: number; updated_at: number }>(
       database,
-      "SELECT status, sort_order FROM kanban_cards WHERE note_id = ? AND user_id = ?",
+      "SELECT status, sort_order, updated_at FROM kanban_cards WHERE note_id = ? AND user_id = ?",
       noteId,
       user.id,
     );
@@ -346,11 +356,22 @@ export async function handleKanbanRoute(
     }
 
     const timestamp = now();
-    database
-      .query(
-        "UPDATE kanban_cards SET status = ?, sort_order = ?, updated_at = ? WHERE note_id = ? AND user_id = ?",
-      )
-      .run(newStatus, newSortOrder, timestamp, noteId, user.id);
+    const update = database.query(
+      expected === undefined
+        ? "UPDATE kanban_cards SET status = ?, sort_order = ?, updated_at = ? WHERE note_id = ? AND user_id = ?"
+        : "UPDATE kanban_cards SET status = ?, sort_order = ?, updated_at = ? WHERE note_id = ? AND user_id = ? AND updated_at = ?",
+    );
+    const updated = update.run(
+      newStatus,
+      newSortOrder,
+      timestamp,
+      noteId,
+      user.id,
+      ...(expected === undefined ? [] : [expected]),
+    );
+    if (!updated.changes) {
+      return jsonError(409, "KANBAN_CARD_CHANGED", "看板卡片已在其他设备更新，请刷新后重试");
+    }
 
     const card = getKanbanCard(database, user.id, noteId);
     if (options.realtime) {

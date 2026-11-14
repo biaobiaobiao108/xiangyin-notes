@@ -1230,6 +1230,7 @@ export function Workspace() {
             name: notebook.name,
             color: notebook.color,
             icon: notebook.icon,
+            expectedUpdatedAt: existing.updatedAt,
           })
         : await api.createNotebook({
             name: notebook.name,
