@@ -61,7 +61,7 @@ function messageOf(reason: unknown) {
 }
 
 export function createMemoEditorExtensions(placeholder?: string) {
-  return [...createCommonEditorExtensions({ placeholder }), WikiLinkNode];
+  return [...createCommonEditorExtensions({ placeholder, trailingNode: false }), WikiLinkNode];
 }
 
 export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(function MemoComposer(

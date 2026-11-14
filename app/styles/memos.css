@@ -243,7 +243,7 @@
 }
 
 .memo-feed > .memo-composer .ProseMirror {
-  min-height: 48px;
+  min-height: calc(1em * var(--memo-prose-leading));
 }
 
 .memo-composer .ProseMirror p {

@@ -34,6 +34,12 @@ function createMemoEditor(text: string) {
   });
 }
 
+function expectNoTrailingNode(editor: Editor) {
+  expect(
+    editor.extensionManager.extensions.some((extension) => extension.name === "trailingNode"),
+  ).toBe(false);
+}
+
 describe("Markdown shortcuts committed by an input method", () => {
   test("converts a full-width task marker from the selection after composition", () => {
     const marker = "【\u3000】\u3000";
@@ -65,6 +71,7 @@ describe("Markdown block shortcuts typed in the editor", () => {
   ])("converts the Chinese block marker %s", (marker, separator, expectedType, headingLevel) => {
     const editor = createMemoEditor(marker);
     try {
+      expectNoTrailingNode(editor);
       const cursor = marker.length + 1;
       editor.commands.setTextSelection(cursor);
       expect(handleMarkdownBlockShortcutInput(editor.view, cursor, cursor, separator)).toBe(true);
@@ -147,6 +154,7 @@ describe("Markdown block shortcuts typed in the editor", () => {
   test("does not convert while an input method is composing", () => {
     const editor = createMemoEditor("【】");
     try {
+      expectNoTrailingNode(editor);
       const cursor = 4;
       editor.commands.setTextSelection(cursor);
       expect(handleMarkdownBlockShortcutInput(editor.view, cursor, cursor, " ", true)).toBe(false);

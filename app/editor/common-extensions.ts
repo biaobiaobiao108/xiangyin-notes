@@ -14,18 +14,21 @@ import { ImeMarkdownSafeExtension } from "../ime-markdown-safe-extension";
 type CommonEditorExtensionOptions = {
   placeholder?: string;
   openLinksOnClick?: boolean;
+  trailingNode?: boolean;
 };
 
 /** The Markdown editing contract shared by notes and short-form memos. */
 export function createCommonEditorExtensions({
   placeholder,
   openLinksOnClick = false,
+  trailingNode = true,
 }: CommonEditorExtensionOptions = {}) {
   return [
     StarterKit.configure({
       heading: { levels: [1, 2, 3, 4, 5, 6] },
       link: false,
       codeBlock: false,
+      ...(trailingNode ? {} : { trailingNode: false }),
     }),
     CodeBlockWithCopy.configure({ exitOnTripleEnter: false }),
     CodeBlockDoubleEnter,
