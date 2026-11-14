@@ -60,7 +60,12 @@ export {
   updateNoteInTransaction,
   NOTE_RENAME_SOURCE_BATCH_SIZE,
 } from "./note-mutations";
-import { assetPathsForNotes, assetPathsForTrash, removeAssetFiles } from "./assets";
+import {
+  assetPathsForNotes,
+  assetPathsForTrash,
+  detachMemoReferencedAssets,
+  removeAssetFiles,
+} from "./assets";
 import { buildFtsMatchQuery, searchContains, searchTermNeedsCaseFolding } from "../search-text";
 import { shortSearchToken } from "../note-search";
 import { publishWorkspaceChange } from "../realtime";
@@ -720,7 +725,6 @@ export async function handleNotesRoute(
     (url.pathname === "/api/trash" || (resource === "notes" && id === "trash"))
   ) {
     const emptyTrash = database.transaction(() => {
-      const assetPaths = assetPathsForTrash(database, user.id);
       const trashedNotes = all<{
         id: string;
         notebook_id: string;
@@ -730,6 +734,12 @@ export async function handleNotesRoute(
         "SELECT id, notebook_id, created_at FROM notes WHERE user_id = ? AND deleted_at IS NOT NULL",
         user.id,
       );
+      detachMemoReferencedAssets(
+        database,
+        user.id,
+        trashedNotes.map((note) => note.id),
+      );
+      const assetPaths = assetPathsForTrash(database, user.id);
       for (const note of trashedNotes)
         syncNoteTasks(database, user.id, note.id, note.notebook_id, note.created_at, "");
       const deletedCount = trashedNotes.length;
@@ -886,6 +896,7 @@ export async function handleNotesRoute(
           const rows = getBatchNoteStates(database, user.id, entries);
           assertBatchNoteStates(rows, entries, "permanent");
           const deletedIds = entries.map((entry) => entry.id);
+          detachMemoReferencedAssets(database, user.id, deletedIds);
           const assetPaths = assetPathsForNotes(database, user.id, deletedIds);
           for (const note of rows)
             syncNoteTasks(database, user.id, note.id, note.notebook_id, note.created_at, "");
@@ -1132,6 +1143,7 @@ export async function handleNotesRoute(
       title?: unknown;
       contentMarkdown?: unknown;
       notebookId?: unknown;
+      kanbanStatus?: unknown;
     }>(request, NOTE_BODY_MAX_BYTES);
     if (!payload) return jsonError(400, "INVALID_JSON", "请求体无效或超出大小限制");
     const rawTitle = payload?.title === undefined ? "未命名笔记" : payload.title;
@@ -1141,6 +1153,11 @@ export async function handleNotesRoute(
     if (!validText(rawTitle, 200) || !validText(contentMarkdown, 1_000_000))
       return jsonError(413, "NOTE_TOO_LARGE", "笔记标题或正文超出长度限制");
     const title = normalizeNoteTitle(rawTitle as string);
+    if (
+      payload.kanbanStatus !== undefined &&
+      !["inbox", "doing", "done"].includes(payload.kanbanStatus as string)
+    )
+      return jsonError(400, "INVALID_ARGUMENT", "看板状态无效");
     const notebookId =
       typeof payload?.notebookId === "string"
         ? payload.notebookId
@@ -1165,14 +1182,34 @@ export async function handleNotesRoute(
         return jsonError(409, "NOTE_EXISTS", "指定 ID 的笔记已存在");
       }
     }
-    const noteId = createNote(
-      database,
-      user.id,
-      notebookId,
-      title,
-      contentMarkdown as string,
-      requestedId,
-    );
+    const noteId = database.transaction(() => {
+      const createdId = createNote(
+        database,
+        user.id,
+        notebookId,
+        title,
+        contentMarkdown as string,
+        requestedId,
+      );
+      if (payload.kanbanStatus !== undefined) {
+        const timestamp = now();
+        database
+          .query(
+            `INSERT INTO kanban_cards (note_id, user_id, status, sort_order, created_at, updated_at)
+          VALUES (?, ?, ?, COALESCE((SELECT MAX(sort_order) FROM kanban_cards WHERE user_id = ? AND status = ?), 0) + 1000, ?, ?)`,
+          )
+          .run(
+            createdId,
+            user.id,
+            payload.kanbanStatus as string,
+            user.id,
+            payload.kanbanStatus as string,
+            timestamp,
+            timestamp,
+          );
+      }
+      return createdId;
+    })();
     const note = getNote(database, user.id, noteId);
     // 新笔记会改变列表成员，广播不带 noteId，让其他客户端整表刷新。
     publishWorkspaceChange(options, user.id, { resource: "notes" }, request);
@@ -1653,7 +1690,15 @@ export async function handleNotesRoute(
       { resource: "notes", ...(current.title === title ? { noteId: current.id } : {}) },
       request,
     );
-    return json({ note: note ? (summaryResponse ? summarizeNote(note) : toFullNote(note)) : null });
+    const rewrittenBody = note && note.content_markdown !== contentMarkdown;
+    return json({
+      note: note
+        ? summaryResponse && !rewrittenBody
+          ? summarizeNote(note)
+          : toFullNote(note)
+        : null,
+      ...(rewrittenBody ? { previousTitle: current.title } : {}),
+    });
   }
 
   // Delete note permanently
@@ -1669,6 +1714,7 @@ export async function handleNotesRoute(
         if (note.version !== payload.version) return { kind: "conflict" as const, note };
         if (note.deleted_at === null) return { kind: "not-trashed" as const };
 
+        detachMemoReferencedAssets(database, user.id, [note.id]);
         const assetPaths = assetPathsForNotes(database, user.id, [note.id]);
         syncNoteTasks(database, user.id, note.id, note.notebook_id, note.created_at, "");
         const deleted = database

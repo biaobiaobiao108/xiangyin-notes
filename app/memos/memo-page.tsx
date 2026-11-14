@@ -58,6 +58,26 @@ function MemoCard({
   const { updateMemo } = useMemoWorkspace();
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+  const draftKey = `xiangying:memo-edit:${memo.id}`;
+  const readEditDraft = () => {
+    try {
+      const value = JSON.parse(localStorage.getItem(draftKey) ?? "null");
+      return value && typeof value.markdown === "string" && Number.isSafeInteger(value.version)
+        ? (value as { markdown: string; version: number })
+        : null;
+    } catch {
+      return null;
+    }
+  };
+  const editDraft = editing ? readEditDraft() : null;
+  const editVersion = editDraft?.version ?? editingVersion ?? memo.version;
+  const writeEditDraft = (markdown: string) => {
+    try {
+      if (markdown)
+        localStorage.setItem(draftKey, JSON.stringify({ markdown, version: editVersion }));
+      else localStorage.removeItem(draftKey);
+    } catch {}
+  };
 
   const beginEdit = (target?: EventTarget | null) => {
     if (
@@ -118,18 +138,20 @@ function MemoCard({
       {editing ? (
         <MemoComposer
           key={memo.id}
-          initialMarkdown={memo.contentMarkdown}
+          initialMarkdown={editDraft?.markdown ?? memo.contentMarkdown}
           placeholder="修改这条随记"
           ariaLabel="编辑随记"
           autoFocus
           onSubmit={async (markdown) => {
-            await updateMemo(
-              editingVersion === null ? memo : { ...memo, version: editingVersion },
-              markdown,
-            );
+            await updateMemo({ ...memo, version: editVersion }, markdown);
+            writeEditDraft("");
             onFinishEdit();
           }}
-          onCancel={onFinishEdit}
+          onDraftChange={writeEditDraft}
+          onCancel={() => {
+            writeEditDraft("");
+            onFinishEdit();
+          }}
         />
       ) : (
         <div className="memo-card-content">

@@ -174,6 +174,7 @@ export const api = {
     title?: string;
     contentMarkdown?: string;
     notebookId?: string;
+    kanbanStatus?: KanbanStatus;
   }) => request<{ note: Note }>("/api/notes", { method: "POST", body: JSON.stringify(payload) }),
   updateNote: (
     id: string,
@@ -190,7 +191,7 @@ export const api = {
     const { response: responseMode, ...requestOptions } = options ?? {};
     const path =
       responseMode === "summary" ? `/api/notes/${id}?response=summary` : `/api/notes/${id}`;
-    return request<{ note: Note | NoteSummary }>(path, {
+    return request<{ note: Note | NoteSummary; previousTitle?: string }>(path, {
       method: "PATCH",
       body: JSON.stringify(payload),
       ...requestOptions,
@@ -319,6 +320,9 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(payload),
     }),
-  deleteKanbanCard: (noteId: string) =>
-    request<{ ok: true; noteId: string }>(`/api/kanban/cards/${noteId}`, { method: "DELETE" }),
+  deleteKanbanCard: (noteId: string, expectedUpdatedAt: number) =>
+    request<{ ok: true; noteId: string }>(`/api/kanban/cards/${noteId}`, {
+      method: "DELETE",
+      body: JSON.stringify({ expectedUpdatedAt }),
+    }),
 };

@@ -42,9 +42,11 @@ export function useWorkspaceKanbanData({
   kanbanColumnsRef.current = kanbanColumns;
   const [kanbanLoading, setKanbanLoading] = useState(false);
   const [kanbanRefreshToken, setKanbanRefreshToken] = useState(0);
+  const requestGenerationRef = useRef(0);
 
   useEffect(() => {
     if (!kanbanOpen) return;
+    const generation = ++requestGenerationRef.current;
     const controller = new AbortController();
     setKanbanLoading(true);
     const statuses: KanbanStatus[] = ["inbox", "doing", "done"];
@@ -60,7 +62,7 @@ export function useWorkspaceKanbanData({
       ),
     )
       .then(([inboxRes, doingRes, doneRes]) => {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || generation !== requestGenerationRef.current) return;
         setKanbanColumns({
           inbox: {
             cards: inboxRes.cards,
@@ -96,13 +98,17 @@ export function useWorkspaceKanbanData({
       .finally(() => {
         if (!controller.signal.aborted) setKanbanLoading(false);
       });
-    return () => controller.abort();
+    return () => {
+      requestGenerationRef.current++;
+      controller.abort();
+    };
   }, [kanbanOpen, kanbanRefreshToken, notifyError]);
 
   const loadMoreKanbanColumn = useCallback(
     async (status: KanbanStatus) => {
       const column = kanbanColumnsRef.current[status];
       if (!column || column.isLoadingMore || !column.hasMore || !column.nextCursor) return;
+      const generation = requestGenerationRef.current;
 
       setKanbanColumns((previous) => ({
         ...previous,
@@ -119,6 +125,7 @@ export function useWorkspaceKanbanData({
           limit: KANBAN_PAGE_SIZE,
           cursor: column.nextCursor,
         });
+        if (generation !== requestGenerationRef.current) return;
 
         setKanbanColumns((previous) => {
           const currentColumn = previous[status];
@@ -138,6 +145,7 @@ export function useWorkspaceKanbanData({
           };
         });
       } catch {
+        if (generation !== requestGenerationRef.current) return;
         notifyError(
           `加载更多${status === "inbox" ? "收集箱" : status === "doing" ? "进行中" : "已完成"}卡片失败`,
         );
@@ -247,6 +255,10 @@ export function useWorkspaceKanbanData({
 
   const handleRemoveCard = useCallback(
     async (noteId: string) => {
+      const card = Object.values(kanbanColumnsRef.current)
+        .flatMap((column) => column.cards)
+        .find((item) => item.noteId === noteId);
+      if (!card) return;
       setKanbanColumns((previous) => {
         let changed = false;
         const next = { ...previous };
@@ -263,7 +275,7 @@ export function useWorkspaceKanbanData({
         return changed ? next : previous;
       });
       try {
-        await api.deleteKanbanCard(noteId);
+        await api.deleteKanbanCard(noteId, card.updatedAt);
         notifyInfo("已从看板移出");
       } catch {
         notifyError("移出卡片失败");
@@ -315,12 +327,12 @@ export function useWorkspaceKanbanData({
         return;
       }
       try {
-        const { note } = await api.createNote({
+        await api.createNote({
           notebookId: targetNotebookId,
           title: "未命名笔记",
           contentMarkdown: "",
+          kanbanStatus: status,
         });
-        await api.addKanbanCard({ noteId: note.id, status });
         setKanbanRefreshToken((value) => value + 1);
         notifyInfo("已新建笔记并加入看板");
       } catch {

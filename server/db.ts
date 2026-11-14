@@ -9,7 +9,7 @@ const DEFAULT_DATABASE_PATH = "./data/xiangying-notes.sqlite";
 const DEFAULT_SCHEMA_PATH = "./database/schema.sql";
 const BASELINE_SCHEMA_VERSION = 1;
 
-export const CURRENT_SCHEMA_VERSION = 5;
+export const CURRENT_SCHEMA_VERSION = 6;
 export const SEARCH_INDEX_REBUILD_KEY = "search-index-rebuild-required";
 
 type TableCountRow = {
@@ -116,6 +116,11 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
         CREATE INDEX IF NOT EXISTS idx_memo_tags_user_tag
           ON memo_tags(user_id, tag_normalized, tag);
       `),
+  },
+  {
+    sourceVersion: 5,
+    targetVersion: 6,
+    migrate: (database) => database.exec("ALTER TABLE image_assets ADD COLUMN orphaned_at INTEGER"),
   },
 ];
 

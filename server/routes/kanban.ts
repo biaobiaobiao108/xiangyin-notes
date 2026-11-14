@@ -291,18 +291,18 @@ export async function handleKanbanRoute(
     }
 
     const timestamp = now();
-    database
+    const inserted = database
       .query(
         `
           INSERT INTO kanban_cards (note_id, user_id, status, sort_order, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, ?)
-          ON CONFLICT(note_id) DO UPDATE SET
-            status = excluded.status,
-            sort_order = excluded.sort_order,
-            updated_at = excluded.updated_at
+          ON CONFLICT(note_id) DO NOTHING
         `,
       )
       .run(noteId, user.id, status, sortOrder, timestamp, timestamp);
+
+    if (!inserted.changes)
+      return jsonError(409, "KANBAN_CARD_EXISTS", "笔记已在看板中，请刷新后重试");
 
     const card = getKanbanCard(database, user.id, noteId);
     if (options.realtime) {
@@ -351,7 +351,7 @@ export async function handleKanbanRoute(
       newSortOrder = body.sortOrder;
     }
 
-    const timestamp = now();
+    const timestamp = Math.max(now(), expected + 1);
     const update = database.query(
       "UPDATE kanban_cards SET status = ?, sort_order = ?, updated_at = ? WHERE note_id = ? AND user_id = ? AND updated_at = ?",
     );
@@ -370,9 +370,14 @@ export async function handleKanbanRoute(
   // DELETE /api/kanban/cards/:noteId
   if (id === "cards" && subId && method === "DELETE") {
     const noteId = subId;
-    database
-      .query("DELETE FROM kanban_cards WHERE note_id = ? AND user_id = ?")
-      .run(noteId, user.id);
+    const body = await readJson<{ expectedUpdatedAt?: unknown }>(request, 1024);
+    if (!Number.isSafeInteger(body?.expectedUpdatedAt) || (body!.expectedUpdatedAt as number) < 0)
+      return jsonError(400, "INVALID_ARGUMENT", "expectedUpdatedAt 必填且必须是非负整数");
+    const deleted = database
+      .query("DELETE FROM kanban_cards WHERE note_id = ? AND user_id = ? AND updated_at = ?")
+      .run(noteId, user.id, body!.expectedUpdatedAt as number);
+    if (!deleted.changes)
+      return jsonError(409, "KANBAN_CARD_CHANGED", "看板卡片已变化，请刷新后重试");
 
     if (options.realtime) {
       publishWorkspaceChange(options, user.id, { resource: "notes", noteId }, request);

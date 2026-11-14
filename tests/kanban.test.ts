@@ -267,7 +267,7 @@ describe("Kanban API", () => {
     );
     expect(add2Res.status).toBe(201);
     const { card: card2 } = (await add2Res.json()) as {
-      card: { noteId: string; status: string; sortOrder: number };
+      card: { noteId: string; status: string; sortOrder: number; updatedAt: number };
     };
     expect(card2.noteId).toBe(note2.id);
     expect(card2.status).toBe("doing");
@@ -331,7 +331,11 @@ describe("Kanban API", () => {
     expect(doneCards[0].status).toBe("done");
 
     // 8. Delete/remove card from kanban (without deleting note)
-    const deleteCardRes = await api(`/api/kanban/cards/${note2.id}`, { method: "DELETE" }, cookie);
+    const deleteCardRes = await api(
+      `/api/kanban/cards/${note2.id}`,
+      { method: "DELETE", body: JSON.stringify({ expectedUpdatedAt: card2.updatedAt }) },
+      cookie,
+    );
     expect(deleteCardRes.status).toBe(200);
 
     const listAfterDelete = await api("/api/kanban", { method: "GET" }, cookie);

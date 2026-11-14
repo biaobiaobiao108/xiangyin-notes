@@ -218,8 +218,6 @@ export async function handleNotebooksRoute(
   }
 
   if (id && !subresource && method === "PATCH") {
-    const current = getNotebook(database, user.id, id);
-    if (!current) return jsonError(404, "NOTEBOOK_NOT_FOUND", "笔记本不存在");
     const payload = await readJson<{
       name?: unknown;
       color?: unknown;
@@ -230,6 +228,8 @@ export async function handleNotebooksRoute(
     if (typeof expected !== "number" || !Number.isSafeInteger(expected) || expected < 0) {
       return jsonError(400, "INVALID_NOTEBOOK_VERSION", "expectedUpdatedAt 必填且必须是非负整数");
     }
+    const current = getNotebook(database, user.id, id);
+    if (!current) return jsonError(404, "NOTEBOOK_NOT_FOUND", "笔记本不存在");
     const name = payload?.name === undefined ? current.name : payload.name;
     const color = payload?.color === undefined ? current.color : payload.color;
     const icon = payload?.icon === undefined ? current.icon || "folder" : payload.icon;
@@ -269,7 +269,7 @@ export async function handleNotebooksRoute(
         (name as string).trim(),
         color as string,
         icon as string,
-        now(),
+        Math.max(now(), expected + 1),
         current.id,
         user.id,
         expected,

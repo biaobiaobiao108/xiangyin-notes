@@ -94,6 +94,27 @@ export function assetPathsForTrash(database: SqliteDatabase, userId: string) {
   ).map((asset) => asset.storage_path);
 }
 
+// A memo can refer to an image originally uploaded for a note. Keep such images
+// when that note is permanently deleted, and let the orphan sweep reclaim them
+// only after the final memo reference disappears.
+export function detachMemoReferencedAssets(
+  database: SqliteDatabase,
+  userId: string,
+  noteIds: string[],
+) {
+  for (let offset = 0; offset < noteIds.length; offset += 500) {
+    const batch = noteIds.slice(offset, offset + 500);
+    database
+      .query(
+        `UPDATE image_assets SET note_id = NULL, document_order = NULL, orphaned_at = ?
+    WHERE user_id = ? AND note_id IN (${batch.map(() => "?").join(",")})
+      AND EXISTS (SELECT 1 FROM memos m WHERE m.user_id = image_assets.user_id
+        AND instr(lower(m.content_markdown), '/api/assets/' || lower(image_assets.id)) > 0)`,
+      )
+      .run(now(), userId, ...batch);
+  }
+}
+
 function pendingAssetDeletePath(assetRoot: string, storagePath: string) {
   const marker = Buffer.from(storagePath, "utf8").toString("base64url");
   return join(resolve(assetRoot), PENDING_ASSET_DELETE_DIRECTORY, marker);
@@ -284,12 +305,14 @@ async function runOrphanAssetCleanup(
     `
     SELECT a.id, a.storage_path
     FROM image_assets a
-    WHERE a.created_at <= ?
+    WHERE COALESCE(a.orphaned_at, a.created_at) <= ?
       AND (a.note_id IS NULL OR NOT EXISTS (
         SELECT 1 FROM notes n
         WHERE n.id = a.note_id
           AND instr(lower(n.content_markdown), '/api/assets/' || lower(a.id)) > 0
       ))
+      AND NOT EXISTS (SELECT 1 FROM memos m WHERE m.user_id = a.user_id
+        AND instr(lower(m.content_markdown), '/api/assets/' || lower(a.id)) > 0)
     LIMIT 100
   `,
     timestamp - ORPHAN_ASSET_TTL_SECONDS,
@@ -303,14 +326,18 @@ async function runOrphanAssetCleanup(
     const statement = database.query(`
       DELETE FROM image_assets
       WHERE id = ?
+        AND COALESCE(orphaned_at, created_at) <= ?
         AND (note_id IS NULL OR NOT EXISTS (
           SELECT 1 FROM notes n
           WHERE n.id = image_assets.note_id
             AND instr(lower(n.content_markdown), '/api/assets/' || lower(image_assets.id)) > 0
         ))
+        AND NOT EXISTS (SELECT 1 FROM memos m WHERE m.user_id = image_assets.user_id
+          AND instr(lower(m.content_markdown), '/api/assets/' || lower(image_assets.id)) > 0)
     `);
     for (const asset of staleAssets) {
-      if (statement.run(asset.id).changes) deletedPaths.push(asset.storage_path);
+      if (statement.run(asset.id, timestamp - ORPHAN_ASSET_TTL_SECONDS).changes)
+        deletedPaths.push(asset.storage_path);
     }
     return deletedPaths;
   });

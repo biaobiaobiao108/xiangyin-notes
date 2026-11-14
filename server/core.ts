@@ -922,13 +922,13 @@ export function syncNoteAssetReferences(
     .query(
       `
     UPDATE image_assets
-    SET note_id = NULL, document_order = NULL
+    SET note_id = NULL, document_order = NULL, orphaned_at = ?
     WHERE note_id = ?
       AND user_id = ?
       AND ${detachedAssetCondition}
   `,
     )
-    .run(noteId, userId, ...ids);
+    .run(now(), noteId, userId, ...ids);
   const assets = ids.length
     ? all<ImageAssetRow>(
         database,
@@ -953,7 +953,9 @@ export function syncNoteAssetReferences(
     .run(noteId, userId);
   for (const id of ids) {
     database
-      .query("UPDATE image_assets SET note_id = ?, document_order = ? WHERE id = ? AND user_id = ?")
+      .query(
+        "UPDATE image_assets SET note_id = ?, document_order = ?, orphaned_at = NULL WHERE id = ? AND user_id = ?",
+      )
       .run(noteId, imageDocumentOrder.get(id) ?? null, id, userId);
   }
   return true;

@@ -314,7 +314,7 @@ export function MemoWorkspaceProvider({
         cursor: nextCursor,
       });
       if (requestId !== listRequestRef.current) return;
-      setMemos((current) => [...current, ...result.memos]);
+      setMemos((current) => mergeMemoPagePreservingLoadedItems(current, result.memos));
       setNextCursor(result.nextCursor);
     } catch (reason) {
       if (requestId !== listRequestRef.current) return;
@@ -346,10 +346,7 @@ export function MemoWorkspaceProvider({
           !listBounds ||
           (result.memo.createdAt >= listBounds.from && result.memo.createdAt < listBounds.to);
         if (!query && !tag && inDateRange) {
-          setMemos((current) => [
-            result.memo,
-            ...current.filter((item) => item.id !== result.memo.id),
-          ]);
+          setMemos((current) => mergeMemoPagePreservingLoadedItems(current, [result.memo]));
           refreshFacets();
         } else refresh();
         if (shouldReload && !query && !tag && inDateRange) refresh();

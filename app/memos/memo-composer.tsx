@@ -131,6 +131,9 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
       setError("");
       try {
         await onSubmitRef.current(markdown);
+        if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+        draftTimerRef.current = null;
+        pendingDraftRef.current = null;
         if (resetOnSubmitRef.current) {
           clearDraft(instance);
           if (reason === "shortcut") instance.commands.blur();
@@ -149,6 +152,9 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
   const cancel = useCallback(() => {
     if (!onCancelRef.current || savingRef.current) return;
     closingRef.current = true;
+    if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    draftTimerRef.current = null;
+    pendingDraftRef.current = null;
     onCancelRef.current();
   }, []);
 

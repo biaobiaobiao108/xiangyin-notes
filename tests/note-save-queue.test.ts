@@ -83,6 +83,30 @@ afterEach(() => {
 });
 
 describe("favorite operations and the save queue", () => {
+  test("rebases edits made during a rename on the server-rewritten self link", async () => {
+    const response = deferred<{ note: Note; previousTitle: string }>();
+    let calls = 0;
+    update.mockImplementation(async (_id, payload) => {
+      calls++;
+      if (calls === 1) return response.promise;
+      expect(payload.version).toBe(2);
+      expect(payload.contentMarkdown).toBe("[[新名]] 和新内容");
+      return {
+        note: { ...original, title: "新名", contentMarkdown: payload.contentMarkdown!, version: 3 },
+      };
+    });
+    const before = { ...original, title: "新名", contentMarkdown: "[[旧名]]" };
+    queue.persist(before, ["title"]);
+    const saving = queue.runSave(original.id);
+    queue.persist({ ...before, contentMarkdown: "[[旧名]] 和新内容" }, ["contentMarkdown"]);
+    response.resolve({
+      note: { ...before, contentMarkdown: "[[新名]]", version: 2 },
+      previousTitle: "旧名",
+    });
+    await saving;
+    expect(selectedRef.current?.contentMarkdown).toBe("[[新名]] 和新内容");
+    expect(calls).toBe(2);
+  });
   test("keeps a completed save when an older split load finishes afterwards", async () => {
     splitNoteIdRef.current = original.id;
     selectedRef.current = null;

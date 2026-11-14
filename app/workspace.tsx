@@ -378,6 +378,10 @@ export function Workspace() {
     setSplitSelectedNote(note ? noteMetadataSnapshot(note) : null);
   }, []);
   const [splitPickerOpen, setSplitPickerOpen] = useState(false);
+  const handleRewrittenContent = useCallback((noteId: string) => {
+    if (activeNoteIdRef.current === noteId) setNoteReloadToken((value) => value + 1);
+    if (splitNoteIdRef.current === noteId) setSplitNoteReloadToken((value) => value + 1);
+  }, []);
   const {
     saveState,
     setSaveState,
@@ -405,6 +409,7 @@ export function Workspace() {
     splitNoteIdRef,
     setSplitSelectedNote: setSplitSelectedNoteMetadata,
     setSplitSaveState,
+    onRewrittenContent: handleRewrittenContent,
   });
   const {
     imageExportSnapshot,
@@ -1448,6 +1453,7 @@ export function Workspace() {
     kanbanColumns,
     kanbanColumnsRef,
     kanbanLoading,
+    setKanbanRefreshToken,
     loadMoreKanbanColumn,
     handleMoveCard: handleMoveKanbanCard,
     handleRemoveCard: handleRemoveKanbanCard,
@@ -1767,10 +1773,13 @@ export function Workspace() {
         const next = pendingRealtimeRefreshRef.current;
         pendingRealtimeRefreshRef.current = emptyRealtimeRefreshPlan();
         if (next.memos && memosOpen) setMemoRefreshToken((value) => value + 1);
+        if (next.notes || next.noteIds.size || next.notebooks) {
+          if (tasksOpen) setTaskRefreshToken((value) => value + 1);
+          if (kanbanOpen) setKanbanRefreshToken((value) => value + 1);
+        }
         if (next.notebooks) void refreshNotebooks();
         if (next.notes) {
           reloadNotes();
-          if (tasksOpen) setTaskRefreshToken((value) => value + 1);
         }
         const activeId = activeNoteIdRef.current;
         if (activeId && (next.selected || next.noteIds.has(activeId)))
@@ -1789,6 +1798,7 @@ export function Workspace() {
       deferredQuery,
       memosOpen,
       tasksOpen,
+      kanbanOpen,
       patchNoteFromRemote,
       refreshNotebooks,
       refreshSelectedNoteFromRemote,

@@ -3,6 +3,7 @@ import { ApiError, api } from "../api";
 import type { Note, NoteSummary } from "../../shared/types";
 import { clearDraftRecovery, writeDraftRecovery } from "./draft-recovery";
 import { errorMessage, toNoteDraft, toNoteSummary, type NoteDraft } from "./helpers";
+import { replaceWikiLinkTarget } from "../../shared/wiki-links";
 
 const KEEPALIVE_BODY_MAX_BYTES = 48 * 1024;
 const ALL_SAVE_FIELDS = [
@@ -29,6 +30,7 @@ export type UseNoteSaveQueueOptions = {
   splitNoteIdRef?: React.MutableRefObject<string | null>;
   setSplitSelectedNote?: (note: Note | null) => void;
   setSplitSaveState?: (state: SaveState) => void;
+  onRewrittenContent?: (noteId: string) => void;
 };
 
 export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
@@ -45,6 +47,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
     splitNoteIdRef,
     setSplitSelectedNote,
     setSplitSaveState,
+    onRewrittenContent,
   } = options;
 
   const [saveState, setSaveState] = useState<SaveState>("idle");
@@ -99,6 +102,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
               keepalive: keepaliveRequest,
               response: "summary",
             });
+            if (result.previousTitle) flushEditorDraftRef.current();
             const savedNote: Note =
               "contentMarkdown" in result.note
                 ? result.note
@@ -107,10 +111,20 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
             const savedSummary = toNoteSummary(savedNote);
 
             const latest = pendingSavesRef.current.get(noteId);
-            const next =
+            let next =
               latest && latest !== draft
                 ? { ...savedNote, ...latest, version: savedNote.version }
                 : undefined;
+            if (next && result.previousTitle) {
+              next = {
+                ...next,
+                contentMarkdown: replaceWikiLinkTarget(
+                  next.contentMarkdown,
+                  result.previousTitle,
+                  savedNote.title,
+                ).content,
+              };
+            }
 
             if (next) pendingSavesRef.current.set(noteId, next);
             else pendingSavesRef.current.delete(noteId);
@@ -140,6 +154,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
               setSplitSelectedNote?.(splitSelectedRef.current);
               setSplitSaveState?.(next ? "saving" : "saved");
             }
+            if (result.previousTitle) onRewrittenContent?.(noteId);
           }
           return savedVersion;
         } catch (reason) {
@@ -183,6 +198,8 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
       splitNoteIdRef,
       setSplitSelectedNote,
       setSplitSaveState,
+      flushEditorDraftRef,
+      onRewrittenContent,
     ],
   );
 
