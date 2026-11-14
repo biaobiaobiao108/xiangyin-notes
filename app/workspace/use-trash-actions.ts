@@ -173,7 +173,7 @@ export function useTrashActions(options: UseTrashActionsOptions) {
   );
 
   const performBatchDelete = useCallback(
-    async (noteIds: string[], permanent: boolean) => {
+    async (noteIds: string[], permanent: boolean, versions?: ReadonlyMap<string, number>) => {
       flushEditorDraftRef.current();
       const ids = [...new Set(noteIds)];
       if (!ids.length) return;
@@ -184,8 +184,21 @@ export function useTrashActions(options: UseTrashActionsOptions) {
       setPendingTrashCount(trashOperationsRef.current.size);
       invalidateCollections();
       try {
-        await Promise.all(ids.map((id) => runSave(id)));
-        const entries = getBatchEntries(ids);
+        const savedVersions = new Map<string, number>();
+        await Promise.all(
+          ids.map(async (id) => {
+            const savedVersion = await runSave(id);
+            if (savedVersion !== undefined) savedVersions.set(id, savedVersion);
+          }),
+        );
+        const entries = versions
+          ? ids.map((id) => {
+              const version = savedVersions.get(id) ?? versions.get(id);
+              if (version === undefined)
+                throw new ApiError(409, "NOTE_SELECTION_STALE", "笔记版本不可用，请刷新后重试");
+              return { id, version };
+            })
+          : getBatchEntries(ids);
         if (entries.length !== ids.length)
           throw new ApiError(409, "NOTE_SELECTION_STALE", "选中的笔记已不在当前列表，请重新选择");
         const result = permanent
@@ -214,6 +227,11 @@ export function useTrashActions(options: UseTrashActionsOptions) {
       setPendingTrashCount,
       trashOperationsRef,
     ],
+  );
+
+  const trashNote = useCallback(
+    (note: NoteSummary) => performBatchDelete([note.id], false, new Map([[note.id, note.version]])),
+    [performBatchDelete],
   );
 
   const performBatchRestore = useCallback(
@@ -498,6 +516,7 @@ export function useTrashActions(options: UseTrashActionsOptions) {
   return {
     moveToTrash,
     restoreFromTrash,
+    trashNote,
     deleteSelectedNotes,
     restoreSelectedNotes,
     permanentDeleteNote,

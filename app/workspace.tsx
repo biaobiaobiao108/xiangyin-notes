@@ -1368,6 +1368,7 @@ export function Workspace() {
   const {
     moveToTrash,
     restoreFromTrash,
+    trashNote,
     deleteSelectedNotes,
     restoreSelectedNotes,
     permanentDeleteNote,
@@ -1459,7 +1460,7 @@ export function Workspace() {
     notebooks,
     notifyError,
     notifyInfo,
-    onTrashNotes: handleTrashNotes,
+    onTrashCard: trashNote,
     onToggleFavoriteNote: handleToggleFavoriteNote,
   });
 

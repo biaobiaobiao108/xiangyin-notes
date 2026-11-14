@@ -21,7 +21,7 @@ type UseWorkspaceKanbanDataOptions = {
   notebooks: Notebook[];
   notifyError: (message: string) => void;
   notifyInfo: (message: string) => void;
-  onTrashNotes: (noteIds: string[]) => void;
+  onTrashCard: (note: NoteSummary) => Promise<void>;
   onToggleFavoriteNote: (note: NoteSummary) => Promise<void>;
 };
 
@@ -30,7 +30,7 @@ export function useWorkspaceKanbanData({
   notebooks,
   notifyError,
   notifyInfo,
-  onTrashNotes,
+  onTrashCard,
   onToggleFavoriteNote,
 }: UseWorkspaceKanbanDataOptions) {
   const [kanbanColumns, setKanbanColumns] = useState<Record<KanbanStatus, KanbanColumnData>>({
@@ -274,7 +274,12 @@ export function useWorkspaceKanbanData({
   );
 
   const handleTrashCard = useCallback(
-    (noteId: string) => {
+    async (noteId: string) => {
+      const card = (["inbox", "doing", "done"] as const)
+        .flatMap((status) => kanbanColumnsRef.current[status].cards)
+        .find((candidate) => candidate.noteId === noteId);
+      if (!card) return;
+
       setKanbanColumns((previous) => {
         let changed = false;
         const next = { ...previous };
@@ -290,9 +295,15 @@ export function useWorkspaceKanbanData({
         }
         return changed ? next : previous;
       });
-      onTrashNotes([noteId]);
+      try {
+        await onTrashCard(card.note);
+        notifyInfo("已移入回收站");
+      } catch {
+        notifyError("移入回收站失败，请重试");
+        setKanbanRefreshToken((value) => value + 1);
+      }
     },
-    [onTrashNotes],
+    [notifyError, notifyInfo, onTrashCard],
   );
 
   const handleCreateNoteInColumn = useCallback(
