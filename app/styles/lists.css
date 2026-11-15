@@ -229,35 +229,19 @@
   position: sticky;
   top: 0;
   z-index: 3;
+  display: flex;
+  min-height: 34px;
+  box-sizing: border-box;
+  align-items: center;
+  gap: 6px;
   margin: 0;
+  padding: 2px 8px;
   background: var(--surface-glass);
   color: var(--muted);
   font-size: 0.77rem;
   font-weight: 580;
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-}
-.tasks-note-group-toggle {
-  display: flex;
-  width: 100%;
-  min-height: 34px;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 8px;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  -webkit-tap-highlight-color: transparent;
-  cursor: pointer;
-}
-.tasks-note-group-chevron {
-  flex: none;
-  transition: transform var(--motion-fast) var(--motion-ease-out);
-}
-.tasks-note-group-toggle[aria-expanded="false"] .tasks-note-group-chevron {
-  transform: rotate(-90deg);
 }
 .tasks-note-title {
   flex: 1;
@@ -276,20 +260,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.tasks-note-group-content {
-  overflow: hidden;
-  display: grid;
-  grid-template-rows: 1fr;
-  overflow-anchor: none;
-  transition: grid-template-rows var(--motion-group) var(--motion-group-ease);
-}
-.tasks-note-group-content.is-collapsed {
-  grid-template-rows: 0fr;
-}
-.tasks-note-group-content > ul {
-  min-height: 0;
-  overflow: hidden;
-}
 .tasks-note-group ul {
   margin: 0;
   padding: 0;
@@ -297,10 +267,7 @@
 }
 .tasks-virtual-sticky-header {
   height: 34px;
-  padding-inline: 12px;
-}
-.tasks-virtual-sticky-header .tasks-note-group-toggle {
-  height: 100%;
+  padding-inline: 20px;
 }
 .tasks-virtual-list {
   position: relative;
@@ -316,7 +283,11 @@
 }
 .tasks-virtual-group-marker {
   z-index: 3;
+  display: flex;
   height: 34px;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
   background: var(--surface-glass);
   color: var(--muted);
   font-size: 0.77rem;
@@ -328,9 +299,6 @@
 .tasks-virtual-group-marker.is-sticky-marker {
   visibility: hidden;
 }
-.tasks-virtual-group-marker.is-collapsed .tasks-note-group-chevron {
-  transform: rotate(-90deg);
-}
 .tasks-virtual-group-marker small {
   overflow: hidden;
   max-width: 42%;
@@ -341,37 +309,8 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.virtual-group-list-motion {
-  transition: height var(--motion-group) var(--motion-group-ease);
-}
 #note-list-virtual-rows {
   padding: 0;
-}
-.virtual-group-motion-clip {
-  height: var(--group-content-height);
-  overflow: hidden;
-  contain: layout paint;
-  transition: height var(--motion-group) var(--motion-group-ease);
-}
-.virtual-group-motion-clip.is-collapsed {
-  height: 0;
-}
-.virtual-group-motion-clip-content {
-  min-height: 0;
-  overflow: hidden;
-}
-.tasks-virtual-group-content {
-  position: relative;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.virtual-group-motion-after,
-.tasks-virtual-group-after-rows {
-  position: relative;
-  margin: 0;
-  padding: 0;
-  list-style: none;
 }
 .tasks-item {
   display: flex;
@@ -1174,58 +1113,8 @@
   -webkit-user-select: none;
   user-select: none;
 }
-.note-list-group-header:not(.is-virtual-sticky) {
-  padding: 0;
-}
-.note-list-group-toggle {
-  display: flex;
-  width: 100%;
-  min-width: 0;
-  height: 100%;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 14px 4px;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-.note-list-virtual-group-toggle {
-  display: flex;
-  width: 100%;
-  min-width: 0;
-  height: 100%;
-  align-items: center;
-  gap: 6px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-.note-list-group-toggle:focus-visible,
-.note-list-virtual-group-toggle:focus-visible {
-  box-shadow: inset 0 0 0 2px var(--focus-ring);
-}
-.note-list-group-chevron {
-  flex: none;
-  transition: transform var(--motion-fast) var(--motion-ease-out);
-}
-.note-list-group-toggle[aria-expanded="false"] .note-list-group-chevron,
-.note-list-virtual-group-toggle[aria-expanded="false"] .note-list-group-chevron {
-  transform: rotate(-90deg);
-}
 .note-list-group-title {
   color: var(--muted);
-}
-.note-list-group-toggle .note-list-group-title,
-.note-list-virtual-group-toggle .note-list-group-title {
   min-width: 0;
   flex: 1;
   overflow: hidden;
@@ -1238,38 +1127,19 @@
   color: var(--soft-muted);
   opacity: 0.8;
 }
-.note-list-panel:not(.tasks-panel) {
-  --motion-group: var(--motion-note-group);
-  --motion-group-ease: cubic-bezier(0.35, 0, 0.25, 1);
-}
-.note-list-group-content {
-  overflow: hidden;
-  display: grid;
-  grid-template-rows: 1fr;
-  overflow-anchor: none;
-  transition: grid-template-rows var(--motion-group) var(--motion-group-ease);
-}
-.note-list-group-content.is-collapsed {
-  grid-template-rows: 0fr;
-}
-.note-list-group-content > ul {
-  min-height: 0;
-  overflow: hidden;
-  padding: 0;
-}
 .note-list-virtual-group-marker {
   z-index: 3;
   display: flex;
   height: 30px;
+  box-sizing: border-box;
   align-items: center;
+  gap: 6px;
+  padding: 8px 14px 4px;
   background: var(--surface-glass);
   color: var(--soft-muted);
   font-size: 0.72rem;
   font-weight: 600;
   letter-spacing: 0.04em;
-}
-.note-list-virtual-group-marker .note-list-virtual-group-toggle {
-  padding: 8px 14px 4px;
 }
 .note-list-virtual-group-marker.is-first {
   height: 0;
@@ -1277,14 +1147,9 @@
 .note-list-virtual-group-marker.is-sticky-marker {
   visibility: hidden;
 }
-.note-list .note-list-virtual-group-content,
-.note-list .note-list-virtual-group-after {
-  position: relative;
-  margin: 0;
+.note-list .note-list-group-items {
   padding: 0;
-  list-style: none;
 }
-
 /* 多选拖影沿用笔记卡片本身的样式。 */
 .note-drag-ghost-shell {
   position: fixed;

@@ -145,9 +145,6 @@
   --motion-micro: 90ms;
   --motion-fast: 160ms;
   --motion-content: 180ms;
-  --motion-group: 320ms;
-  --motion-note-group: 420ms;
-  --motion-group-ease: cubic-bezier(0.4, 0, 0.2, 1);
   --motion-panel: 220ms;
   --motion-layout: 280ms;
   --motion-spin: 800ms;

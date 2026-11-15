@@ -1,7 +1,6 @@
 import { ChevronDown, ChevronLeft, ListTodo, LoaderCircle } from "lucide-react";
 import {
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -10,34 +9,15 @@ import {
 } from "react";
 import type { Notebook, TaskSummary } from "../../shared/types";
 import { FloatingScrollbar } from "../floating-scrollbar";
-import { useGroupCollapseAnchor } from "./use-group-collapse-anchor";
-import { partitionVirtualGroupRows } from "./group-layout";
 import { useScrollEdges } from "./use-scroll-edges";
 import {
   flattenTaskGroups,
-  taskGroupRowId,
   taskGroupRowIds,
   taskRowId,
   useVirtualTaskList,
 } from "./use-virtual-task-list";
 
 type TaskStatus = "open" | "done" | "all";
-type VirtualGroupTransition = {
-  groupId: string;
-  phase: "preparing-collapse" | "preparing-expansion" | "collapsing" | "expanding";
-};
-
-function groupMotionDuration() {
-  const value = getComputedStyle(document.documentElement)
-    .getPropertyValue("--motion-group")
-    .trim();
-  const duration = Number.parseFloat(value);
-  if (!Number.isFinite(duration)) return 0;
-  if (value.endsWith("ms")) return duration;
-  if (value.endsWith("s")) return duration * 1000;
-  return duration;
-}
-
 export function TasksPanel({
   tasks,
   total,
@@ -85,17 +65,6 @@ export function TasksPanel({
   const notebookTriggerRef = useRef<HTMLButtonElement>(null);
   const statusTriggerRef = useRef<HTMLButtonElement>(null);
   const [openFilter, setOpenFilter] = useState<"status" | "notebook" | null>(null);
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
-  const [virtualGroupTransition, setVirtualGroupTransition] =
-    useState<VirtualGroupTransition | null>(null);
-  const virtualGroupTransitionTimerRef = useRef<number | null>(null);
-  const queuedVirtualGroupIdRef = useRef<string | null>(null);
-  const transitionTaskLayoutRef = useRef<string | null>(null);
-  const virtualTaskFocusRef = useRef<{
-    rowId: string;
-    tabIndex: number;
-    groupId: string;
-  } | null>(null);
   const notebookNames = useMemo(
     () => new Map(notebooks.map((notebook) => [notebook.id, notebook.name])),
     [notebooks],
@@ -117,24 +86,7 @@ export function TasksPanel({
     }
     return groups;
   }, [taskGroups]);
-  const taskLayoutKey = useMemo(
-    () =>
-      JSON.stringify(
-        tasks.map((task) => [
-          taskRowId(task),
-          task.text,
-          task.depth,
-          task.noteTitle,
-          notebookNames.get(task.notebookId) ?? "",
-        ]),
-      ),
-    [notebookNames, tasks],
-  );
-  const retainedTransitionGroupId = virtualGroupTransition?.groupId ?? null;
-  const taskRows = useMemo(
-    () => flattenTaskGroups(taskGroups, collapsedGroups, retainedTransitionGroupId),
-    [collapsedGroups, retainedTransitionGroupId, taskGroups],
-  );
+  const taskRows = useMemo(() => flattenTaskGroups(taskGroups), [taskGroups]);
   const retainedRowIds = useMemo(() => taskGroupRowIds(taskGroups), [taskGroups]);
   const virtualList = useVirtualTaskList(
     taskRows,
@@ -142,8 +94,6 @@ export function TasksPanel({
     listRef,
     `${status}:${notebookId}`,
     tasks.length,
-    virtualGroupTransition?.groupId ?? null,
-    virtualGroupTransition?.phase === "collapsing",
   );
   const scrollEdges = useScrollEdges(listRef, [
     loading,
@@ -157,32 +107,6 @@ export function TasksPanel({
   const activeVirtualGroup = activeVirtualGroupId
     ? taskGroupsById.get(activeVirtualGroupId)
     : undefined;
-  const activeVirtualGroupTransition =
-    virtualGroupTransition && virtualGroupTransition.groupId === activeVirtualGroupId
-      ? virtualGroupTransition.phase
-      : null;
-  const activeVirtualGroupCollapsed =
-    activeVirtualGroupTransition === "collapsing" ||
-    activeVirtualGroupTransition === "preparing-expansion"
-      ? true
-      : activeVirtualGroupTransition === "expanding" ||
-          activeVirtualGroupTransition === "preparing-collapse"
-        ? false
-        : activeVirtualGroupId
-          ? collapsedGroups.has(activeVirtualGroupId)
-          : false;
-  const canAutoLoadMore =
-    taskGroups.length === 0 ||
-    taskGroups.some((group) => {
-      const groupId = group[0]!.noteId;
-      return (
-        !collapsedGroups.has(groupId) &&
-        !(
-          virtualGroupTransition?.groupId === groupId &&
-          virtualGroupTransition.phase === "collapsing"
-        )
-      );
-    });
   const selectedNotebookName =
     notebooks.find((notebook) => notebook.id === notebookId)?.name ?? "全部笔记本";
   const selectedStatusLabel = { open: "未完成", done: "已完成", all: "全部" }[status];
@@ -196,8 +120,6 @@ export function TasksPanel({
       loading ||
       loadingMore ||
       loadMoreError ||
-      !canAutoLoadMore ||
-      virtualGroupTransition !== null ||
       typeof IntersectionObserver === "undefined"
     )
       return;
@@ -209,249 +131,8 @@ export function TasksPanel({
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [
-    canAutoLoadMore,
-    hasMore,
-    loading,
-    loadingMore,
-    loadMoreError,
-    onLoadMore,
-    tasks.length,
-    virtualGroupTransition,
-  ]);
+  }, [hasMore, loading, loadingMore, loadMoreError, onLoadMore, tasks.length]);
 
-  const { anchorGroupCollapse, isAnchoring } = useGroupCollapseAnchor(listRef);
-  const toggleGroup = (groupId: string, button?: HTMLButtonElement) => {
-    if (virtualList.isVirtualized) {
-      if (virtualGroupTransition && virtualGroupTransition.groupId !== groupId) {
-        queuedVirtualGroupIdRef.current = groupId;
-        return;
-      }
-      if (virtualGroupTransitionTimerRef.current !== null)
-        window.clearTimeout(virtualGroupTransitionTimerRef.current);
-      virtualGroupTransitionTimerRef.current = null;
-      anchorGroupCollapse();
-      if (!collapsedGroups.has(groupId) && groupId === activeVirtualGroupId) {
-        const index = taskRows.findIndex((row) => row.id === taskGroupRowId(groupId));
-        const end = taskRows.findIndex((row, i) => i > index && row.kind === "group");
-        const contentTop = virtualList.rowTop(index + 1);
-        anchorGroupCollapse(
-          index === 0 ? 0 : virtualList.rowTop(index) + virtualList.groupHeaderHeight,
-          virtualList.rowTop(end < 0 ? taskRows.length : end) - contentTop,
-          ".virtual-group-motion-clip",
-        );
-      }
-      const duration = groupMotionDuration();
-      const setCollapsed = (collapsed: boolean) =>
-        setCollapsedGroups((current) => {
-          const next = new Set(current);
-          if (collapsed) next.add(groupId);
-          else next.delete(groupId);
-          return next;
-        });
-      const startTransition = (phase: VirtualGroupTransition["phase"]) => {
-        if (duration <= 0) {
-          setCollapsed(phase === "preparing-collapse" || phase === "collapsing");
-          setVirtualGroupTransition(null);
-          return;
-        }
-        if (!virtualGroupTransition) transitionTaskLayoutRef.current = taskLayoutKey;
-        setVirtualGroupTransition({ groupId, phase });
-      };
-
-      const transition =
-        virtualGroupTransition?.groupId === groupId ? virtualGroupTransition : null;
-      if (transition?.phase === "preparing-collapse") {
-        setVirtualGroupTransition(null);
-        return;
-      }
-      if (transition?.phase === "preparing-expansion") {
-        setCollapsed(true);
-        setVirtualGroupTransition(null);
-        return;
-      }
-      if (transition?.phase === "collapsing") {
-        setCollapsed(false);
-        startTransition("expanding");
-        return;
-      }
-      if (transition?.phase === "expanding") {
-        setCollapsed(true);
-        startTransition("collapsing");
-        return;
-      }
-      if (collapsedGroups.has(groupId)) startTransition("preparing-expansion");
-      else startTransition("preparing-collapse");
-      return;
-    }
-
-    anchorGroupCollapse();
-    const scroll = listRef.current;
-    const section = button?.closest<HTMLElement>(".tasks-note-group");
-    const content = section?.querySelector<HTMLElement>(".tasks-note-group-content");
-    if (
-      !collapsedGroups.has(groupId) &&
-      scroll &&
-      section &&
-      content &&
-      button &&
-      button.getBoundingClientRect().top <= scroll.getBoundingClientRect().top + 1
-    ) {
-      anchorGroupCollapse(
-        Math.max(
-          0,
-          scroll.scrollTop +
-            section.getBoundingClientRect().top -
-            scroll.getBoundingClientRect().top,
-        ),
-        content.getBoundingClientRect().height,
-        `#${CSS.escape(content.id)}`,
-      );
-    }
-    const isCollapsed = collapsedGroups.has(groupId);
-    setCollapsedGroups((current) => {
-      const next = new Set(current);
-      if (isCollapsed) next.delete(groupId);
-      else next.add(groupId);
-      return next;
-    });
-  };
-
-  useLayoutEffect(() => {
-    const transition = virtualGroupTransition;
-    if (
-      !transition ||
-      (transition.phase !== "preparing-collapse" && transition.phase !== "preparing-expansion")
-    )
-      return;
-    listRef.current?.querySelector<HTMLElement>(".virtual-group-motion-clip")?.offsetHeight;
-    const frame = requestAnimationFrame(() => {
-      const collapsing = transition.phase === "preparing-collapse";
-      setCollapsedGroups((current) => {
-        const next = new Set(current);
-        if (collapsing) next.add(transition.groupId);
-        else next.delete(transition.groupId);
-        return next;
-      });
-      setVirtualGroupTransition({
-        groupId: transition.groupId,
-        phase: collapsing ? "collapsing" : "expanding",
-      });
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [virtualGroupTransition]);
-
-  useLayoutEffect(() => {
-    if (
-      !virtualGroupTransition ||
-      (virtualGroupTransition.phase !== "collapsing" &&
-        virtualGroupTransition.phase !== "expanding")
-    )
-      return;
-    const clip = listRef.current?.querySelector<HTMLElement>(".virtual-group-motion-clip");
-    const finish = () => {
-      if (virtualGroupTransitionTimerRef.current !== null)
-        window.clearTimeout(virtualGroupTransitionTimerRef.current);
-      virtualGroupTransitionTimerRef.current = null;
-      captureVirtualTaskFocus();
-      setVirtualGroupTransition(null);
-    };
-    const onTransitionEnd = (event: TransitionEvent) => {
-      if (event.target === clip && event.propertyName === "height") finish();
-    };
-    clip?.addEventListener("transitionend", onTransitionEnd);
-    // 快速反向点击也重新安排收尾；无高度差时浏览器不会发 transitionend。
-    virtualGroupTransitionTimerRef.current = window.setTimeout(finish, groupMotionDuration() + 50);
-    return () => {
-      clip?.removeEventListener("transitionend", onTransitionEnd);
-      if (virtualGroupTransitionTimerRef.current !== null)
-        window.clearTimeout(virtualGroupTransitionTimerRef.current);
-      virtualGroupTransitionTimerRef.current = null;
-    };
-  }, [virtualGroupTransition]);
-
-  useLayoutEffect(() => {
-    if (!virtualGroupTransition || transitionTaskLayoutRef.current === taskLayoutKey) return;
-    if (virtualGroupTransitionTimerRef.current !== null)
-      window.clearTimeout(virtualGroupTransitionTimerRef.current);
-    virtualGroupTransitionTimerRef.current = null;
-    const collapsed =
-      virtualGroupTransition.phase === "preparing-collapse" ||
-      virtualGroupTransition.phase === "collapsing";
-    setCollapsedGroups((current) => {
-      const next = new Set(current);
-      if (collapsed) next.add(virtualGroupTransition.groupId);
-      else next.delete(virtualGroupTransition.groupId);
-      return next;
-    });
-    transitionTaskLayoutRef.current = taskLayoutKey;
-    setVirtualGroupTransition(null);
-  }, [taskLayoutKey, virtualGroupTransition]);
-
-  useEffect(() => {
-    if (virtualGroupTransition) return;
-    const queuedGroupId = queuedVirtualGroupIdRef.current;
-    if (!queuedGroupId) return;
-    queuedVirtualGroupIdRef.current = null;
-    const frame = requestAnimationFrame(() => toggleGroup(queuedGroupId));
-    return () => cancelAnimationFrame(frame);
-  }, [virtualGroupTransition]);
-
-  useEffect(() => {
-    if (virtualGroupTransitionTimerRef.current !== null)
-      window.clearTimeout(virtualGroupTransitionTimerRef.current);
-    virtualGroupTransitionTimerRef.current = null;
-    queuedVirtualGroupIdRef.current = null;
-    transitionTaskLayoutRef.current = null;
-    setVirtualGroupTransition(null);
-  }, [status, notebookId]);
-  useEffect(
-    () => () => {
-      if (virtualGroupTransitionTimerRef.current !== null)
-        window.clearTimeout(virtualGroupTransitionTimerRef.current);
-    },
-    [],
-  );
-  const captureVirtualTaskFocus = () => {
-    const active = document.activeElement;
-    if (active === document.body) return;
-    if (!(active instanceof HTMLElement)) return;
-    const row = active.closest<HTMLElement>("[data-task-row-id]");
-    const rowId = row?.dataset.taskRowId;
-    const tabIndex = Number(
-      active.closest<HTMLElement>("[data-task-tab-index]")?.dataset.taskTabIndex,
-    );
-    const groupId = rowId?.startsWith("task:")
-      ? rowId.split(":")[1]
-      : rowId?.replace(/^group:/, "");
-    if (rowId && groupId && Number.isInteger(tabIndex))
-      virtualTaskFocusRef.current = { rowId, groupId, tabIndex };
-    else virtualTaskFocusRef.current = null;
-  };
-
-  useLayoutEffect(() => {
-    if (virtualGroupTransition) return;
-    const focus = virtualTaskFocusRef.current;
-    if (!focus) return;
-    if (document.activeElement !== document.body) {
-      virtualTaskFocusRef.current = null;
-      return;
-    }
-    const control = listRef.current?.querySelector<HTMLElement>(
-      `[data-task-row-id="${CSS.escape(focus.rowId)}"] [data-task-tab-index="${focus.tabIndex}"]`,
-    );
-    const groupButton = listRef.current?.querySelector<HTMLButtonElement>(
-      `[data-task-row-id="${CSS.escape(taskGroupRowId(focus.groupId))}"] button`,
-    );
-    const stickyButton = listRef.current?.querySelector<HTMLButtonElement>(
-      ".tasks-virtual-sticky-header button",
-    );
-    const focusTarget = groupButton?.closest("[inert]")
-      ? stickyButton
-      : (control ?? groupButton ?? stickyButton);
-    focusTarget?.focus({ preventScroll: true });
-    virtualTaskFocusRef.current = null;
-  }, [virtualGroupTransition]);
   useEffect(() => {
     if (!openFilter) return;
     const frame = requestAnimationFrame(() => {
@@ -581,7 +262,6 @@ export function TasksPanel({
     row: (typeof virtualList.visibleRows)[number]["row"],
     top: number,
     inset = 12,
-    inert = false,
   ) => {
     if (row.kind === "task")
       return renderTaskItem(row.task, {
@@ -590,40 +270,20 @@ export function TasksPanel({
         rowStyle: virtualList.rowStyle(top, inset),
       });
 
-    const isStickyMarker = row.groupId === activeVirtualGroupId;
-    const isFocusedMarker = virtualList.pinnedRowId === row.id;
-    const hideMarker = isStickyMarker && !isFocusedMarker;
-    const markerTransition =
-      virtualGroupTransition?.groupId === row.groupId ? virtualGroupTransition.phase : null;
-    const markerCollapsed =
-      markerTransition === "collapsing" || markerTransition === "preparing-expansion"
-        ? true
-        : markerTransition === "expanding" || markerTransition === "preparing-collapse"
-          ? false
-          : collapsedGroups.has(row.groupId);
+    const hideMarker = row.groupId === activeVirtualGroupId;
     return (
       <li
         key={row.id}
         ref={virtualList.getRowRef(row.id)}
         data-task-row-id={row.id}
-        className={`tasks-virtual-group-marker${row.firstGroup ? " is-first" : ""}${markerCollapsed ? " is-collapsed" : ""}${hideMarker ? " is-sticky-marker" : ""}`}
+        className={`tasks-virtual-group-marker${row.firstGroup ? " is-first" : ""}${hideMarker ? " is-sticky-marker" : ""}`}
         aria-hidden={hideMarker || undefined}
-        inert={inert || hideMarker || undefined}
         style={virtualList.rowStyle(top, inset)}
       >
-        <button
-          type="button"
-          className="tasks-note-group-toggle"
-          aria-expanded={!markerCollapsed}
-          aria-controls="tasks-virtual-list"
-          onClick={() => toggleGroup(row.groupId)}
-        >
-          <ChevronDown className="tasks-note-group-chevron" size={14} aria-hidden="true" />
-          <span className="tasks-note-title">{row.task.noteTitle}</span>
-          {notebookNames.has(row.task.notebookId) ? (
-            <small>{notebookNames.get(row.task.notebookId)}</small>
-          ) : null}
-        </button>
+        <span className="tasks-note-title">{row.task.noteTitle}</span>
+        {notebookNames.has(row.task.notebookId) ? (
+          <small>{notebookNames.get(row.task.notebookId)}</small>
+        ) : null}
       </li>
     );
   };
@@ -638,18 +298,15 @@ export function TasksPanel({
           重试
         </button>
       </>
-    ) : !canAutoLoadMore ? (
+    ) : typeof IntersectionObserver === "undefined" ? (
       <button type="button" onClick={onLoadMore}>
         加载更多任务
       </button>
     ) : null;
 
-  const motionCollapsed =
-    virtualGroupTransition?.phase === "collapsing" ||
-    virtualGroupTransition?.phase === "preparing-expansion";
   const virtualListStyle: CSSProperties | undefined = virtualList.isVirtualized
     ? {
-        height: `${virtualList.totalHeight - (motionCollapsed ? (virtualList.transitionGroup?.height ?? 0) : 0) + (hasMore ? 72 : 24)}px`,
+        height: `${virtualList.totalHeight + (hasMore ? 72 : 24)}px`,
       }
     : undefined;
 
@@ -792,17 +449,14 @@ export function TasksPanel({
       </div>
       <div className="note-list-content">
         <div
-          className={`tasks-scroll-shell${scrollEdges.before || isAnchoring ? " has-scroll-before" : ""}${scrollEdges.after ? " has-scroll-after" : ""}`}
+          className={`tasks-scroll-shell${scrollEdges.before ? " has-scroll-before" : ""}${scrollEdges.after ? " has-scroll-after" : ""}`}
         >
           <div
             id="tasks-scroll-region"
             className="tasks-scroll floating-scrollbar-target"
             ref={listRef}
             onKeyDown={virtualList.moveTabFocus}
-            onFocusCapture={(event) => {
-              virtualList.onFocusCapture(event);
-              captureVirtualTaskFocus();
-            }}
+            onFocusCapture={virtualList.onFocusCapture}
             onBlurCapture={virtualList.onBlurCapture}
           >
             {loading && tasks.length === 0 ? (
@@ -824,118 +478,20 @@ export function TasksPanel({
                       className="tasks-note-group-header tasks-virtual-sticky-header"
                       style={{ transform: `translateY(${virtualList.stickyOffset}px)` }}
                     >
-                      <button
-                        type="button"
-                        className="tasks-note-group-toggle"
-                        aria-expanded={!activeVirtualGroupCollapsed}
-                        aria-controls="tasks-virtual-list"
-                        onClick={() => toggleGroup(activeVirtualGroup[0]!.noteId)}
-                      >
-                        <ChevronDown
-                          className="tasks-note-group-chevron"
-                          size={14}
-                          aria-hidden="true"
-                        />
-                        <span className="tasks-note-title">{activeVirtualGroup[0]!.noteTitle}</span>
-                        {notebookNames.has(activeVirtualGroup[0]!.notebookId) ? (
-                          <small>{notebookNames.get(activeVirtualGroup[0]!.notebookId)}</small>
-                        ) : null}
-                      </button>
+                      <span className="tasks-note-title">{activeVirtualGroup[0]!.noteTitle}</span>
+                      {notebookNames.has(activeVirtualGroup[0]!.notebookId) ? (
+                        <small>{notebookNames.get(activeVirtualGroup[0]!.notebookId)}</small>
+                      ) : null}
                     </h2>
                   )}
                   <ul
                     id="tasks-virtual-list"
-                    className={`tasks-virtual-list${virtualList.transitionGroup ? " virtual-group-list-motion" : ""}${virtualGroupTransition ? ` is-${virtualGroupTransition.phase}` : ""}`}
+                    className="tasks-virtual-list"
                     role="list"
                     style={virtualListStyle}
                   >
-                    {virtualList.transitionGroup
-                      ? (() => {
-                          const group = virtualList.transitionGroup!;
-                          const partition = partitionVirtualGroupRows(
-                            virtualList.visibleRows,
-                            group.start,
-                            group.end,
-                            virtualList.rowTop(group.start + 1),
-                            virtualList.rowTop(group.end),
-                          );
-                          const groupHeader = virtualList.visibleRows.find(
-                            ({ index }) => index === group.start,
-                          );
-                          if (!groupHeader || groupHeader.row.kind !== "group") return null;
-                          const headerHeight = groupHeader.row.firstGroup
-                            ? 0
-                            : virtualList.groupHeaderHeight;
-                          const contentTop = groupHeader.top + headerHeight;
-                          const afterHeight = Math.max(
-                            0,
-                            virtualList.totalHeight - contentTop - group.height,
-                          );
-                          const clipCollapsed =
-                            collapsedGroups.has(groupHeader.row.groupId) ||
-                            virtualGroupTransition?.phase === "preparing-expansion";
-                          return (
-                            <>
-                              {partition.before.map(({ row, top }) => renderVirtualRow(row, top))}
-                              {renderVirtualRow(groupHeader.row, groupHeader.top)}
-                              <li
-                                key={`animated-group-${groupHeader.row.groupId}`}
-                                className="virtual-group-motion tasks-virtual-group-motion"
-                                style={virtualList.rowStyle(contentTop)}
-                              >
-                                <div
-                                  className={`virtual-group-motion-clip tasks-virtual-group-clip${clipCollapsed ? " is-collapsed" : ""}`}
-                                  style={
-                                    {
-                                      "--group-content-height": `${group.height}px`,
-                                    } as CSSProperties
-                                  }
-                                  inert={clipCollapsed || undefined}
-                                >
-                                  <div className="virtual-group-motion-clip-content">
-                                    <ul
-                                      className="tasks-virtual-group-content"
-                                      style={{ height: `${group.height}px` }}
-                                      role="list"
-                                    >
-                                      {partition.group.map(({ row, localTop }) =>
-                                        renderVirtualRow(row, localTop, 0),
-                                      )}
-                                    </ul>
-                                  </div>
-                                </div>
-                                <div className="virtual-group-motion-after tasks-virtual-group-after">
-                                  <ul
-                                    className="tasks-virtual-group-after-rows"
-                                    style={{ height: `${afterHeight + (hasMore ? 72 : 24)}px` }}
-                                    role="list"
-                                  >
-                                    {partition.after.map(({ row, localTop }) =>
-                                      renderVirtualRow(row, localTop, 0),
-                                    )}
-                                    {hasMore && (
-                                      <li
-                                        ref={(element) => {
-                                          loadMoreRef.current = element;
-                                        }}
-                                        className="tasks-load-more"
-                                        style={{
-                                          position: "absolute",
-                                          insetInline: 0,
-                                          top: afterHeight + 12,
-                                        }}
-                                      >
-                                        {renderLoadMoreContent()}
-                                      </li>
-                                    )}
-                                  </ul>
-                                </div>
-                              </li>
-                            </>
-                          );
-                        })()
-                      : virtualList.visibleRows.map(({ row, top }) => renderVirtualRow(row, top))}
-                    {hasMore && !virtualList.transitionGroup && (
+                    {virtualList.visibleRows.map(({ row, top }) => renderVirtualRow(row, top))}
+                    {hasMore && (
                       <li
                         ref={(element) => {
                           loadMoreRef.current = element;
@@ -945,7 +501,7 @@ export function TasksPanel({
                           position: "absolute",
                           insetInline: 12,
                           top: 0,
-                          transform: `translateY(${virtualList.totalHeight - (virtualList.collapsingGroup?.height ?? 0)}px)`,
+                          transform: `translateY(${virtualList.totalHeight}px)`,
                         }}
                       >
                         {renderLoadMoreContent()}
@@ -957,34 +513,15 @@ export function TasksPanel({
                 <div className="tasks-list">
                   {taskGroups.map((group) => {
                     const firstTask = group[0]!;
-                    const collapsed = collapsedGroups.has(firstTask.noteId);
-                    const groupId = `tasks-note-${firstTask.noteId}`;
                     return (
                       <section className="tasks-note-group" key={firstTask.noteId}>
                         <h2 className="tasks-note-group-header">
-                          <button
-                            type="button"
-                            className="tasks-note-group-toggle"
-                            aria-expanded={!collapsed}
-                            aria-controls={groupId}
-                            onClick={(event) => toggleGroup(firstTask.noteId, event.currentTarget)}
-                          >
-                            <ChevronDown
-                              className="tasks-note-group-chevron"
-                              size={14}
-                              aria-hidden="true"
-                            />
-                            <span className="tasks-note-title">{firstTask.noteTitle}</span>
-                            {notebookNames.has(firstTask.notebookId) ? (
-                              <small>{notebookNames.get(firstTask.notebookId)}</small>
-                            ) : null}
-                          </button>
+                          <span className="tasks-note-title">{firstTask.noteTitle}</span>
+                          {notebookNames.has(firstTask.notebookId) ? (
+                            <small>{notebookNames.get(firstTask.notebookId)}</small>
+                          ) : null}
                         </h2>
-                        <div
-                          id={groupId}
-                          className={`tasks-note-group-content${collapsed ? " is-collapsed" : ""}`}
-                          inert={collapsed}
-                        >
+                        <div className="tasks-note-group-content">
                           <ul>{group.map((task) => renderTaskItem(task))}</ul>
                         </div>
                       </section>

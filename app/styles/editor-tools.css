@@ -1723,7 +1723,7 @@ dialog::backdrop {
   .app-shell[data-mobile-page] .tasks-scroll-shell:has(.tasks-note-group-header)::before {
     inset-block-start: 44px;
   }
-  .app-shell[data-mobile-page] .tasks-note-group-toggle {
+  .app-shell[data-mobile-page] .tasks-note-group-header {
     min-height: 44px;
   }
   .app-shell[data-mobile-page] .tasks-scroll-shell::after,
