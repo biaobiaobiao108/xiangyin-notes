@@ -314,9 +314,10 @@ export const api = {
       status?: KanbanStatus;
       sortOrder?: number;
       expectedUpdatedAt: number;
+      beforeNoteId?: string | null;
     },
   ) =>
-    request<{ card: KanbanCard }>(`/api/kanban/cards/${noteId}`, {
+    request<{ card: KanbanCard; reordered?: boolean }>(`/api/kanban/cards/${noteId}`, {
       method: "PATCH",
       body: JSON.stringify(payload),
     }),

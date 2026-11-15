@@ -22,7 +22,7 @@ import type { Note, NoteSummary, NoteView, Notebook, TaskSummary } from "../shar
 import { resolveTaskOrdinal } from "../shared/tasks";
 import { useOutlineState } from "./workspace/use-outline-state";
 import { ConfirmDialog, NotebookDialog, type ConfirmRequest } from "./workspace/dialogs";
-import { clearAllDraftRecoveries, readDraftRecovery } from "./workspace/draft-recovery";
+import { readDraftRecovery } from "./workspace/draft-recovery";
 import { SplitResizer, DEFAULT_SPLIT_RATIO } from "./workspace/split-resizer";
 import { SplitNoteDialog } from "./workspace/split-note-dialog";
 import { EmptyEditor, NoteListPanel, NoteLoadingState, Sidebar } from "./workspace/panels";
@@ -1150,6 +1150,7 @@ export function Workspace() {
     moveToTrash,
     restoreFromTrash,
     trashNote,
+    trashNotes,
     deleteSelectedNotes,
     restoreSelectedNotes,
     permanentDeleteNote,
@@ -1205,12 +1206,9 @@ export function Workspace() {
   const handleTrashNotes = useCallback(
     (ids: string[]) => {
       if (!ids.length) return;
-      for (const id of ids) {
-        const note = notesRef.current.find((n) => n.id === id);
-        if (note) handleNoteSwipeAction(note, "trash");
-      }
+      void trashNotes(ids);
     },
-    [handleNoteSwipeAction],
+    [trashNotes],
   );
 
   const handleToggleFavoriteNote = useCallback(
@@ -1921,7 +1919,6 @@ export function Workspace() {
       notifyError("退出登录失败，请检查网络后重试");
       return;
     }
-    clearAllDraftRecoveries();
     navigate(`/login${window.location.search}`, { replace: true });
   }, [flushPendingSaves, hasUnsavedWork, navigate, notifyError, notifyWarning]);
   const command = useCallback(
@@ -2394,6 +2391,7 @@ export function Workspace() {
                 : null
             }
             error={tasksError}
+            onRetry={() => setTaskRefreshToken((value) => value + 1)}
             onNotebookChange={setTaskNotebookId}
             onStatusChange={setTaskStatus}
             onSelectTask={selectTask}

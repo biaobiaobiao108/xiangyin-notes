@@ -234,6 +234,17 @@ export function useTrashActions(options: UseTrashActionsOptions) {
     [performBatchDelete],
   );
 
+  const trashNotes = useCallback(
+    async (ids: string[]) => {
+      try {
+        await performBatchDelete(ids, false);
+      } catch (reason) {
+        notifyError(errorMessage(reason, "批量移入回收站失败，请重试"));
+      }
+    },
+    [notifyError, performBatchDelete],
+  );
+
   const performBatchRestore = useCallback(
     async (noteIds: string[]) => {
       flushEditorDraftRef.current();
@@ -517,6 +528,7 @@ export function useTrashActions(options: UseTrashActionsOptions) {
     moveToTrash,
     restoreFromTrash,
     trashNote,
+    trashNotes,
     deleteSelectedNotes,
     restoreSelectedNotes,
     permanentDeleteNote,

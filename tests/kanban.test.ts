@@ -50,6 +50,59 @@ async function login() {
 }
 
 describe("Kanban API", () => {
+  test("rebalances equal sort values and places the card before its requested neighbor", async () => {
+    const cookie = await login();
+    const user = database.query("SELECT id FROM users WHERE username = 'owner'").get() as {
+      id: string;
+    };
+    const notebook = database
+      .query("SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1")
+      .get(user.id) as { id: string };
+    const ids = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
+    for (const id of ids) {
+      database
+        .query(
+          "INSERT INTO notes (id,user_id,notebook_id,title,title_normalized,content_markdown,version,created_at,updated_at) VALUES (?,?,?,?,?,'',1,1,1)",
+        )
+        .run(id, user.id, notebook.id, id, id);
+      database
+        .query(
+          "INSERT INTO kanban_cards (note_id,user_id,status,sort_order,created_at,updated_at) VALUES (?,?,'inbox',?,1,1)",
+        )
+        .run(id, user.id, id === ids[2] ? 2 : 1);
+    }
+    const response = await api(
+      `/api/kanban/cards/${ids[2]}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          status: "inbox",
+          sortOrder: 1,
+          expectedUpdatedAt: 1,
+          beforeNoteId: ids[1],
+        }),
+      },
+      cookie,
+    );
+    expect(response.status).toBe(200);
+    expect((await response.json()).reordered).toBe(true);
+    const rows = database
+      .query("SELECT note_id, sort_order FROM kanban_cards WHERE user_id = ? ORDER BY sort_order")
+      .all(user.id) as Array<{ note_id: string; sort_order: number }>;
+    expect(rows.findIndex((row) => row.note_id === ids[2]) + 1).toBe(
+      rows.findIndex((row) => row.note_id === ids[1]),
+    );
+    expect(new Set(rows.map((row) => row.sort_order)).size).toBe(3);
+    const stale = await api(
+      `/api/kanban/cards/${ids[2]}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ sortOrder: 1, expectedUpdatedAt: 1, beforeNoteId: ids[1] }),
+      },
+      cookie,
+    );
+    expect(stale.status).toBe(409);
+  });
   test("rejects missing, blank, and non-string note IDs", async () => {
     const cookie = await login();
     for (const noteId of [undefined, null, "  ", 123, {}, []]) {

@@ -37,6 +37,14 @@ export function isMemoSubmitShortcut(event: {
   return event.key === "Enter" && Boolean(event.ctrlKey || event.metaKey);
 }
 
+export function isMemoCancelShortcut(event: {
+  key: string;
+  isComposing?: boolean;
+  keyCode?: number;
+}) {
+  return event.key === "Escape" && !event.isComposing && event.keyCode !== 229;
+}
+
 export function normalizeMemoComposerContent(markdown: string) {
   return markdown.replace(/(?:\r?\n)+$/u, "");
 }
@@ -178,7 +186,7 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
         void submit("shortcut");
         return true;
       }
-      if (event.key === "Escape" && onCancelRef.current) {
+      if (isMemoCancelShortcut(event) && onCancelRef.current) {
         event.preventDefault();
         event.stopPropagation();
         cancel();
@@ -376,7 +384,7 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
         if (isMemoSubmitShortcut(event.nativeEvent)) {
           event.preventDefault();
           void submit("shortcut");
-        } else if (event.key === "Escape" && onCancelRef.current) {
+        } else if (isMemoCancelShortcut(event.nativeEvent) && onCancelRef.current) {
           event.preventDefault();
           cancel();
         } else if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {

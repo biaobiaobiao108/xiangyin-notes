@@ -6,7 +6,17 @@ import {
   buildMemoFeedMenuItems,
   buildMemoTagMenuItems,
 } from "../app/memos/memo-context-menu";
-import { isMemoSubmitShortcut, normalizeMemoComposerContent } from "../app/memos/memo-composer";
+import {
+  isMemoCancelShortcut,
+  isMemoSubmitShortcut,
+  normalizeMemoComposerContent,
+} from "../app/memos/memo-composer";
+
+test("Escape does not cancel a memo while an input method is composing", () => {
+  expect(isMemoCancelShortcut({ key: "Escape" })).toBe(true);
+  expect(isMemoCancelShortcut({ key: "Escape", isComposing: true })).toBe(false);
+  expect(isMemoCancelShortcut({ key: "Escape", keyCode: 229 })).toBe(false);
+});
 import { createWorkspaceContextMenuHandler } from "../app/workspace/workspace-context-menu";
 import type { ContextMenuItem } from "../app/context-menu";
 import type { Memo } from "../shared/types";

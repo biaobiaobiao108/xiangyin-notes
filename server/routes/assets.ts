@@ -40,6 +40,31 @@ const TEMPORARY_ASSET_FILE_NAME = new RegExp(
 // suppress another's (tests and any multi-database process would share it).
 const nextOrphanAssetCleanupAt = new WeakMap<SqliteDatabase, number>();
 const activeOrphanAssetCleanup = new WeakMap<SqliteDatabase, Promise<void>>();
+const exportedAssets = new Map<string, number>();
+
+export function retainExportAssets(assetRoot: string, storagePaths: string[]) {
+  const paths = [
+    ...new Set(
+      storagePaths
+        .map((path) => assetFilePath(assetRoot, path))
+        .filter((path): path is string => path !== null),
+    ),
+  ];
+  for (const path of paths) exportedAssets.set(path, (exportedAssets.get(path) ?? 0) + 1);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    for (const path of paths) {
+      const count = exportedAssets.get(path) ?? 0;
+      if (count <= 1) exportedAssets.delete(path);
+      else exportedAssets.set(path, count - 1);
+    }
+    void retryPendingAssetDeletions(assetRoot).catch((error) =>
+      console.warn("[assets] failed to retry deferred export deletions", error),
+    );
+  };
+}
 
 export function assetRootFromEnv(environment: RuntimeEnvironment = Bun.env) {
   const configured = environment.ASSETS_PATH?.trim();
@@ -151,6 +176,7 @@ export async function removeAssetFiles(assetRoot: string, storagePaths: string[]
     } catch (error) {
       console.warn("[assets] failed to queue asset deletion", filePath, error);
     }
+    if (exportedAssets.has(filePath)) continue;
     try {
       await Bun.file(filePath).unlink();
       if (markerPath) await unlink(markerPath).catch(() => undefined);
@@ -198,6 +224,7 @@ export async function retryPendingAssetDeletions(
       await unlink(markerPath).catch(() => undefined);
       continue;
     }
+    if (exportedAssets.has(filePath)) continue;
     if (!(await unlinkAssetAndMarker(filePath, markerPath))) {
       console.warn("[assets] pending asset deletion will be retried", filePath);
     }
@@ -238,6 +265,7 @@ export async function cleanupOrphanAssetFiles(
       const temporaryMatch = TEMPORARY_ASSET_FILE_NAME.exec(file.name);
       if (!temporaryMatch && !ASSET_FILE_NAME.test(file.name)) continue;
       const filePath = join(ownerPath, file.name);
+      if (exportedAssets.has(filePath)) continue;
       let details: Awaited<ReturnType<typeof lstat>>;
       try {
         details = await lstat(filePath);

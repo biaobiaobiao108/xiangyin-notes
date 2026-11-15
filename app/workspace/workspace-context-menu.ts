@@ -36,6 +36,7 @@ type WorkspaceContextMenuOptions = {
     noteId: string,
     status: KanbanStatus,
     sortOrder: number,
+    beforeNoteId: string | null,
   ) => void | Promise<void>;
   handleRemoveKanbanCard: (noteId: string) => void;
   handleTrashKanbanCard: (noteId: string) => void;
@@ -173,6 +174,7 @@ export function createWorkspaceContextMenuHandler({
                   kanbanCard.noteId,
                   column.id,
                   calculateTargetSortOrder(cards, 0, kanbanCard.noteId),
+                  cards.find((card) => card.noteId !== kanbanCard.noteId)?.noteId ?? null,
                 );
               },
             })),

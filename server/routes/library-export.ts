@@ -4,7 +4,7 @@ import { Database } from "bun:sqlite";
 import { findCodeFenceIntervals, findInlineCodeIntervals } from "../../shared/wiki-links";
 import { createZipReadableStream, type ZipStreamEntry } from "../../shared/zip";
 import { all, jsonError, type RouteContext, type UserRow } from "../core";
-import { assetFilePath, assetRootFromEnv } from "./assets";
+import { assetFilePath, assetRootFromEnv, retainExportAssets } from "./assets";
 
 type LibraryNote = {
   id: string;
@@ -110,10 +110,12 @@ export async function handleLibraryExport(ctx: RouteContext, user: UserRow): Pro
     ? new Database(originalDatabase.filename, { readonly: true })
     : originalDatabase;
   let snapshotClosed = false;
+  let releaseAssets: (() => void) | undefined;
   const closeSnapshot = () => {
-    if (!useSnapshotConnection || snapshotClosed) return;
+    if (snapshotClosed) return;
     snapshotClosed = true;
-    database.close();
+    releaseAssets?.();
+    if (useSnapshotConnection) database.close();
   };
   let streamOwnsSnapshot = false;
   try {
@@ -171,6 +173,11 @@ export async function handleLibraryExport(ctx: RouteContext, user: UserRow): Pro
     });
     const snapshot = useSnapshotConnection ? readSnapshot() : database.transaction(readSnapshot)();
     const root = ctx.options.assetRoot ?? assetRootFromEnv(ctx.options.environment);
+    if (ctx.method !== "HEAD")
+      releaseAssets = retainExportAssets(
+        root,
+        snapshot.assets.map((asset) => asset.storage_path),
+      );
     const assetNames = new Map<string, string>();
     const files: Array<{ name: string; path: string; size: number }> = [];
     try {

@@ -163,7 +163,12 @@ export function useWorkspaceKanbanData({
   );
 
   const handleMoveCard = useCallback(
-    async (noteId: string, targetStatus: KanbanStatus, targetSortOrder: number) => {
+    async (
+      noteId: string,
+      targetStatus: KanbanStatus,
+      targetSortOrder: number,
+      beforeNoteId: string | null,
+    ) => {
       let movedCard: KanbanCard | null = null;
       let sourceStatus: KanbanStatus | null = null;
       for (const status of ["inbox", "doing", "done"] as const) {
@@ -230,7 +235,12 @@ export function useWorkspaceKanbanData({
           status: targetStatus,
           sortOrder: targetSortOrder,
           expectedUpdatedAt: movedCard.updatedAt,
+          beforeNoteId,
         });
+        if (result.reordered) {
+          setKanbanRefreshToken((value) => value + 1);
+          return;
+        }
         setKanbanColumns((previous) => {
           const next = { ...previous };
           for (const status of ["inbox", "doing", "done"] as const) {
@@ -357,24 +367,8 @@ export function useWorkspaceKanbanData({
 
   const handleToggleFavoriteCard = useCallback(
     async (target: NoteSummary) => {
-      const isFavorite = !target.isFavorite;
-      setKanbanColumns((previous) => {
-        let changed = false;
-        const next = { ...previous };
-        for (const status of ["inbox", "doing", "done"] as const) {
-          if (next[status].cards.some((card) => card.noteId === target.id)) {
-            next[status] = {
-              ...next[status],
-              cards: next[status].cards.map((card) =>
-                card.noteId === target.id ? { ...card, note: { ...card.note, isFavorite } } : card,
-              ),
-            };
-            changed = true;
-          }
-        }
-        return changed ? next : previous;
-      });
       await onToggleFavoriteNote(target);
+      setKanbanRefreshToken((value) => value + 1);
     },
     [onToggleFavoriteNote],
   );

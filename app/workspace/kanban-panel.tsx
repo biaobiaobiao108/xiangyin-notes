@@ -65,7 +65,12 @@ export type KanbanPanelProps = {
   onOpenNote: (noteId: string) => void;
   onCreateNoteInColumn: (status: KanbanStatus) => void;
   onAddExistingNote: (noteId: string, status: KanbanStatus) => void;
-  onMoveCard: (noteId: string, targetStatus: KanbanStatus, targetSortOrder: number) => void;
+  onMoveCard: (
+    noteId: string,
+    targetStatus: KanbanStatus,
+    targetSortOrder: number,
+    beforeNoteId: string | null,
+  ) => void;
   onTrashCard: (noteId: string) => void;
   onLoadMoreColumn: (status: KanbanStatus) => void;
   onToggleFavorite?: (note: NoteSummary) => void;
@@ -795,6 +800,7 @@ export const KanbanPanel = memo(function KanbanPanel({
           movingCard.noteId,
           targetStatus,
           calculateTargetSortOrder(targetCards, 0, movingCard.noteId),
+          targetCards.find((card) => card.noteId !== movingCard.noteId)?.noteId ?? null,
         );
       }
       setMovingCard(null);
@@ -850,7 +856,13 @@ export const KanbanPanel = memo(function KanbanPanel({
         targetIndex,
         draggingCard.noteId,
       );
-      onMoveCard(draggingCard.noteId, targetStatus, newSortOrder);
+      const remaining = targetColumnCards.filter((card) => card.noteId !== draggingCard.noteId);
+      onMoveCard(
+        draggingCard.noteId,
+        targetStatus,
+        newSortOrder,
+        remaining[targetIndex]?.noteId ?? null,
+      );
       setDraggingCard(null);
     },
     [columns, draggingCard, onMoveCard],

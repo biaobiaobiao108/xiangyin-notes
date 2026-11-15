@@ -54,6 +54,7 @@ export function TasksPanel({
   onSelectTask,
   onToggleTask,
   onLoadMore,
+  onRetry,
   busyTask = null,
   onBack,
 }: {
@@ -72,6 +73,7 @@ export function TasksPanel({
   onSelectTask: (task: TaskSummary) => void;
   onToggleTask: (task: TaskSummary) => void;
   onLoadMore: () => void;
+  onRetry: () => void;
   busyTask: { noteId: string; ordinal: number } | null;
   onBack?: () => void;
 }) {
@@ -808,9 +810,12 @@ export function TasksPanel({
                 正在加载任务…
               </p>
             ) : error ? (
-              <p className="tasks-empty" role="alert">
-                {error}
-              </p>
+              <div className="tasks-empty" role="alert">
+                <p>{error}</p>
+                <button type="button" onClick={onRetry}>
+                  重试
+                </button>
+              </div>
             ) : tasks.length ? (
               virtualList.isVirtualized ? (
                 <>

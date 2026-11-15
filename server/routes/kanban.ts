@@ -318,6 +318,7 @@ export async function handleKanbanRoute(
       status?: KanbanStatus;
       sortOrder?: number;
       expectedUpdatedAt?: unknown;
+      beforeNoteId?: unknown;
     }>(request, 64 * 1024);
 
     const expected = body?.expectedUpdatedAt;
@@ -352,6 +353,64 @@ export async function handleKanbanRoute(
     }
 
     const timestamp = Math.max(now(), expected + 1);
+    if (
+      body?.beforeNoteId !== undefined &&
+      body.beforeNoteId !== null &&
+      typeof body.beforeNoteId !== "string"
+    )
+      return jsonError(400, "INVALID_ARGUMENT", "排序位置无效");
+    const collision =
+      body?.beforeNoteId !== undefined &&
+      first(
+        database,
+        "SELECT note_id FROM kanban_cards WHERE user_id = ? AND status = ? AND sort_order = ? AND note_id != ? LIMIT 1",
+        user.id,
+        newStatus,
+        newSortOrder,
+        noteId,
+      );
+    if (collision) {
+      const reordered = database
+        .transaction(() => {
+          const current = first<{ updated_at: number }>(
+            database,
+            "SELECT updated_at FROM kanban_cards WHERE note_id = ? AND user_id = ?",
+            noteId,
+            user.id,
+          );
+          if (!current || current.updated_at !== expected) return false;
+          const cards = all<{ note_id: string; updated_at: number }>(
+            database,
+            "SELECT note_id, updated_at FROM kanban_cards WHERE user_id = ? AND status = ? AND note_id != ? ORDER BY sort_order ASC, updated_at DESC, note_id ASC",
+            user.id,
+            newStatus,
+            noteId,
+          );
+          const index =
+            body.beforeNoteId === null
+              ? cards.length
+              : cards.findIndex((card) => card.note_id === body.beforeNoteId);
+          if (index < 0) return false;
+          cards.splice(index, 0, { note_id: noteId, updated_at: expected });
+          const updateOrder = database.query(
+            "UPDATE kanban_cards SET status = ?, sort_order = ?, updated_at = ? WHERE note_id = ? AND user_id = ?",
+          );
+          cards.forEach((card, position) =>
+            updateOrder.run(
+              newStatus,
+              (position + 1) * 1000,
+              Math.max(now(), card.updated_at + 1),
+              card.note_id,
+              user.id,
+            ),
+          );
+          return true;
+        })
+        .immediate();
+      if (!reordered) return jsonError(409, "KANBAN_CARD_CHANGED", "看板卡片已变化，请刷新后重试");
+      publishWorkspaceChange(options, user.id, { resource: "notes", noteId }, request);
+      return json({ card: getKanbanCard(database, user.id, noteId), reordered: true });
+    }
     const update = database.query(
       "UPDATE kanban_cards SET status = ?, sort_order = ?, updated_at = ? WHERE note_id = ? AND user_id = ? AND updated_at = ?",
     );

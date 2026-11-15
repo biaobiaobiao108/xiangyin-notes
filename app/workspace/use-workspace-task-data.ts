@@ -72,11 +72,7 @@ export function useWorkspaceTaskData(tasksOpen: boolean) {
       })
       .catch((reason: unknown) => {
         if (reason instanceof Error && reason.name === "AbortError") return;
-        if (
-          controller.signal.aborted ||
-          taskRequestGenerationRef.current !== requestGeneration ||
-          taskSnapshotRef.current?.queryKey === queryKey
-        )
+        if (controller.signal.aborted || taskRequestGenerationRef.current !== requestGeneration)
           return;
         setTaskLoadError({ queryKey, message: "加载任务失败，请重试" });
       });

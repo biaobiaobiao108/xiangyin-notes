@@ -7,6 +7,7 @@ import { openDatabase } from "../server/db";
 import { ensureEnvironmentUser } from "../server/routes/auth";
 import { handleExportRoute } from "../server/routes/export";
 import { createNote } from "../server/routes/notes";
+import { removeAssetFiles, retryPendingAssetDeletions } from "../server/routes/assets";
 
 function readZipEntries(archive: Uint8Array) {
   const view = new DataView(archive.buffer, archive.byteOffset, archive.byteLength);
@@ -53,6 +54,51 @@ function readZipEntries(archive: Uint8Array) {
   }
   return entries;
 }
+
+test("export retains attachments deleted while its stream is active", async () => {
+  const root = await mkdtemp(join(tmpdir(), "xiangyin-export-retain-"));
+  const database = await openDatabase(join(root, "library.sqlite"));
+  try {
+    const user = await ensureEnvironmentUser(database, {
+      username: "owner",
+      password: "test-password",
+    });
+    const inbox = database
+      .query("SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1")
+      .get(user.id) as { id: string };
+    const noteId = createNote(database, user.id, inbox.id, "测试", "");
+    const assetId = crypto.randomUUID();
+    const storagePath = `${user.id}/${assetId}.png`;
+    await mkdir(join(root, user.id));
+    await Bun.write(join(root, storagePath), "image bytes");
+    database
+      .query(
+        "INSERT INTO image_assets (id,user_id,note_id,storage_path,original_name,mime_type,byte_size,width,height,created_at) VALUES (?,?,?,?,?,'image/png',11,1,1,1)",
+      )
+      .run(assetId, user.id, noteId, storagePath, "image.png");
+    const request = new Request("http://localhost/api/export/library");
+    const response = await handleExportRoute(
+      {
+        request,
+        url: new URL(request.url),
+        method: "GET",
+        segments: ["export", "library"],
+        options: { database, assetRoot: root },
+      },
+      user,
+    );
+    if (!response) throw new Error("missing response");
+    await removeAssetFiles(root, [storagePath]);
+    expect(await Bun.file(join(root, storagePath)).exists()).toBe(true);
+    const entries = readZipEntries(new Uint8Array(await response.arrayBuffer()));
+    expect(new TextDecoder().decode(entries.get(`附件/${assetId}.png`))).toBe("image bytes");
+    await retryPendingAssetDeletions(root);
+    expect(await Bun.file(join(root, storagePath)).exists()).toBe(false);
+  } finally {
+    database.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test("library export includes owned notes, trash, memos, attachments and metadata", async () => {
   const root = await mkdtemp(join(tmpdir(), "xiangyin-export-test-"));
