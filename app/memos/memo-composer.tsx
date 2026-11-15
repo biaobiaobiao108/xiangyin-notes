@@ -14,6 +14,7 @@ import { createCommonEditorExtensions } from "../editor/common-extensions";
 import { editorCoreExtensionOptions } from "../editor/editor-config";
 import { useContextMenu } from "../context-menu";
 import { copyPlainText } from "../editor/code-block-copy";
+import { pastePlainTextIntoCodeBlock } from "../editor/code-block-paste";
 import {
   executeBlockShortcutAtSelection,
   handleMarkdownBlockShortcutInput,
@@ -224,6 +225,7 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
       handlePaste: (view: Editor["view"], event: ClipboardEvent) => {
         const text = event.clipboardData?.getData("text/plain") ?? "";
         const html = event.clipboardData?.getData("text/html") ?? "";
+        if (pastePlainTextIntoCodeBlock(view, text)) return true;
         if (!shouldParseMarkdownPaste(text, Boolean(html))) return false;
         return replaceSelectionWithChineseMarkdown(view, text);
       },
@@ -297,6 +299,7 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
           throw new Error("浏览器未允许读取剪贴板");
         }
         if (!restore() || !instance.isEditable) return;
+        if (pastePlainTextIntoCodeBlock(instance.view, text)) return;
         if (plain) {
           if (text) instance.commands.insertContent(text);
           return;
@@ -355,7 +358,9 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
       setError((current) => (current ? "" : current));
       queueDraft(markdown);
     },
-    onBlur: () => {
+    onBlur: ({ event }) => {
+      if (event.relatedTarget instanceof Element && event.relatedTarget.closest(".context-menu"))
+        return;
       void submit("blur");
     },
   });
