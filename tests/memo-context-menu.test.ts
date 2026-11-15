@@ -7,10 +7,34 @@ import {
   buildMemoTagMenuItems,
 } from "../app/memos/memo-context-menu";
 import {
+  handleEmptyMemoPaste,
   isMemoCancelShortcut,
   isMemoSubmitShortcut,
   normalizeMemoComposerContent,
 } from "../app/memos/memo-composer";
+
+test("empty clipboard paste is consumed without interfering with supported clipboard content", () => {
+  const paste = (values: Record<string, string>, files = 0) => {
+    let prevented = false;
+    const event = {
+      clipboardData: {
+        types: Object.keys(values),
+        files: { length: files },
+        getData: (type: string) => values[type] ?? "",
+      },
+      preventDefault: () => {
+        prevented = true;
+      },
+    } as unknown as ClipboardEvent;
+    return [handleEmptyMemoPaste(event), prevented];
+  };
+  expect(paste({})).toEqual([true, true]);
+  expect(paste({ "text/plain": "" })).toEqual([true, true]);
+  expect(paste({ "text/plain": "文本" })).toEqual([false, false]);
+  expect(paste({ "text/uri-list": "https://example.com" })).toEqual([false, false]);
+  expect(paste({}, 1)).toEqual([false, false]);
+  expect(paste({ "application/custom": "data" })).toEqual([false, false]);
+});
 
 test("Escape does not cancel a memo while an input method is composing", () => {
   expect(isMemoCancelShortcut({ key: "Escape" })).toBe(true);

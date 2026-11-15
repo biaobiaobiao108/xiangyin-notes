@@ -46,6 +46,18 @@ export function isMemoCancelShortcut(event: {
   return event.key === "Escape" && !event.isComposing && event.keyCode !== 229;
 }
 
+export function handleEmptyMemoPaste(event: ClipboardEvent) {
+  const data = event.clipboardData;
+  if (!data || data.files.length) return false;
+  const textTypes = ["text/plain", "text/html", "text/uri-list", "Text"];
+  if (Array.from(data.types).some((type) => !textTypes.includes(type))) return false;
+  if (textTypes.some((type) => data.getData(type))) return false;
+  // ProseMirror otherwise focuses a hidden textarea to capture the paste,
+  // which would cause the memo's blur handler to save and close the editor.
+  event.preventDefault();
+  return true;
+}
+
 export function normalizeMemoComposerContent(markdown: string) {
   return markdown.replace(/(?:\r?\n)+$/u, "");
 }
@@ -230,6 +242,7 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
         return replaceSelectionWithChineseMarkdown(view, text);
       },
       handleDOMEvents: {
+        paste: (_view: Editor["view"], event: ClipboardEvent) => handleEmptyMemoPaste(event),
         compositionend: (view: Editor["view"]) => {
           window.setTimeout(() => {
             if (!view.isDestroyed) executeBlockShortcutAtSelection(view);
