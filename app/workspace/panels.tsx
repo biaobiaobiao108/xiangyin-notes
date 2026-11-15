@@ -44,13 +44,12 @@ import { NOTE_DRAG_MIME_TYPE, setNoteDragImage } from "./note-drag-drop";
 import { NoteTags } from "./note-tags";
 import {
   flattenNoteGroups,
-  ESTIMATED_ROW_HEIGHT,
   noteGroupRowId,
   useVirtualNoteList,
   type VirtualNoteListRow,
 } from "./use-virtual-note-list";
 import { useGroupCollapseAnchor } from "./use-group-collapse-anchor";
-import { partitionVirtualGroupRows, shouldAnimateVirtualGroup } from "./group-layout";
+import { partitionVirtualGroupRows } from "./group-layout";
 import { useScrollEdges } from "./use-scroll-edges";
 import { MobileCollectionHeader } from "./mobile-collection-header";
 import { type NoteSwipeAction, useSwipeActionGesture, useSwipeActionGroup } from "./swipe-actions";
@@ -618,25 +617,17 @@ export const NoteListPanel = memo(function NoteListPanel({
     }
     queuedVirtualGroupIdRef.current = null;
     anchorGroupCollapse();
-    const scroll = noteListRef.current;
-    const animate = shouldAnimateVirtualGroup(
-      group.notes.length * ESTIMATED_ROW_HEIGHT,
-      scroll?.clientHeight ?? 0,
-    );
-    const duration = animate ? groupMotionDuration(scroll) : 0;
     if (!collapsedGroups.has(group.id) && group.id === virtualStickyGroup?.id) {
       const index = virtualRows.findIndex((row) => row.id === noteGroupRowId(group.id));
       const end = virtualRows.findIndex((row, i) => i > index && row.kind === "group");
       const contentTop = virtualList.rowTop(index + 1);
-      const targetTop = index === 0 ? 0 : contentTop;
-      if (duration > 0)
-        anchorGroupCollapse(
-          targetTop,
-          virtualList.rowTop(end < 0 ? virtualRows.length : end) - contentTop,
-          ".virtual-group-motion-clip",
-        );
-      else if (scroll) scroll.scrollTop = Math.min(scroll.scrollTop, targetTop);
+      anchorGroupCollapse(
+        index === 0 ? 0 : contentTop,
+        virtualList.rowTop(end < 0 ? virtualRows.length : end) - contentTop,
+        ".virtual-group-motion-clip",
+      );
     }
+    const duration = groupMotionDuration(noteListRef.current);
     const clearTimer = () => {
       if (virtualGroupTransitionTimerRef.current !== null)
         window.clearTimeout(virtualGroupTransitionTimerRef.current);

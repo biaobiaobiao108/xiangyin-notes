@@ -11,11 +11,10 @@ import {
 import type { Notebook, TaskSummary } from "../../shared/types";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { useGroupCollapseAnchor } from "./use-group-collapse-anchor";
-import { partitionVirtualGroupRows, shouldAnimateVirtualGroup } from "./group-layout";
+import { partitionVirtualGroupRows } from "./group-layout";
 import { useScrollEdges } from "./use-scroll-edges";
 import {
   flattenTaskGroups,
-  ESTIMATED_TASK_HEIGHT,
   taskGroupRowId,
   taskGroupRowIds,
   taskRowId,
@@ -232,26 +231,17 @@ export function TasksPanel({
         window.clearTimeout(virtualGroupTransitionTimerRef.current);
       virtualGroupTransitionTimerRef.current = null;
       anchorGroupCollapse();
-      const scroll = listRef.current;
-      const animate = shouldAnimateVirtualGroup(
-        (taskGroupsById.get(groupId)?.length ?? 0) * ESTIMATED_TASK_HEIGHT,
-        scroll?.clientHeight ?? 0,
-      );
-      const duration = animate ? groupMotionDuration() : 0;
       if (!collapsedGroups.has(groupId) && groupId === activeVirtualGroupId) {
         const index = taskRows.findIndex((row) => row.id === taskGroupRowId(groupId));
         const end = taskRows.findIndex((row, i) => i > index && row.kind === "group");
         const contentTop = virtualList.rowTop(index + 1);
-        const targetTop =
-          index === 0 ? 0 : virtualList.rowTop(index) + virtualList.groupHeaderHeight;
-        if (duration > 0)
-          anchorGroupCollapse(
-            targetTop,
-            virtualList.rowTop(end < 0 ? taskRows.length : end) - contentTop,
-            ".virtual-group-motion-clip",
-          );
-        else if (scroll) scroll.scrollTop = Math.min(scroll.scrollTop, targetTop);
+        anchorGroupCollapse(
+          index === 0 ? 0 : virtualList.rowTop(index) + virtualList.groupHeaderHeight,
+          virtualList.rowTop(end < 0 ? taskRows.length : end) - contentTop,
+          ".virtual-group-motion-clip",
+        );
       }
+      const duration = groupMotionDuration();
       const setCollapsed = (collapsed: boolean) =>
         setCollapsedGroups((current) => {
           const next = new Set(current);

@@ -13,7 +13,7 @@ import type { TaskSummary } from "../../shared/types";
 import { collapsingGroupRange, stickyGroupOffset } from "./group-layout";
 
 const VIRTUALIZE_AFTER = 140;
-export const ESTIMATED_TASK_HEIGHT = 52;
+const ESTIMATED_TASK_HEIGHT = 52;
 const OVERSCAN_PX = 640;
 
 export type TaskVirtualRow = {

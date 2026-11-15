@@ -32,14 +32,19 @@ export function useGroupCollapseAnchor(scrollRef: RefObject<HTMLDivElement | nul
     if (initialTop <= targetTop) return;
     initialScrollTopRef.current = initialTop;
     setIsAnchoring(true);
+    let content: HTMLElement | null = null;
     const update = () => {
-      const content = scroll.querySelector<HTMLElement>(contentSelector);
+      if (!content?.isConnected) content = scroll.querySelector<HTMLElement>(contentSelector);
       const height = content?.getBoundingClientRect().height ?? 0;
-      scroll.scrollTop = Math.max(targetTop, initialTop - contentHeight + height);
+      const nextTop = Math.min(
+        Math.max(0, scroll.scrollHeight - scroll.clientHeight),
+        Math.max(targetTop, initialTop - contentHeight + height),
+      );
+      scroll.scrollTop = nextTop;
       const inner = content?.firstElementChild;
       if (inner instanceof HTMLElement && height > 0) {
         // 滚动距离回收时抵消内容位移，避免已经滚过的首条内容重新露出。
-        inner.style.transform = `translateY(${scroll.scrollTop - initialTop}px)`;
+        inner.style.transform = `translateY(${nextTop - initialTop}px)`;
         translatedContentRef.current = inner;
         frameRef.current = requestAnimationFrame(update);
       } else cancel();

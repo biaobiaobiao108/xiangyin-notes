@@ -7,11 +7,6 @@ export function stickyGroupOffset(
   return Math.min(0, Math.max(-headerHeight, nextGroupTop - viewportTop - headerHeight));
 }
 
-// 大范围高度动画会让浏览器逐帧重排虚拟列表，超过两个视口时直接切换。
-export function shouldAnimateVirtualGroup(estimatedHeight: number, viewportHeight: number) {
-  return viewportHeight > 0 && estimatedHeight <= viewportHeight * 2;
-}
-
 export function collapsingGroupRange(
   rows: readonly { kind: string }[],
   offsets: readonly number[],
