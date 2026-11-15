@@ -67,7 +67,11 @@ function withoutCheckboxes(tokens: Token[]): Token[] {
 }
 
 function wrapMemoTables(html: string) {
-  return html.replace(TABLE_PATTERN, (table) => `<div class="table-scroll-shell">${table}</div>`);
+  return html.replace(
+    TABLE_PATTERN,
+    (table) =>
+      `<div class="table-scroll-shell">${table.replace("<thead>", "<tbody>").replace(/<\/thead>\s*<tbody>/u, "")}</div>`,
+  );
 }
 
 const renderer: RendererObject = {

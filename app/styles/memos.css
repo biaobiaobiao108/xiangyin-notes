@@ -391,6 +391,7 @@
 
 .memo-card-content .note-prose {
   margin: 0;
+  color: var(--ink);
   font-size: var(--memo-prose-size);
   line-height: var(--memo-prose-leading);
 }
@@ -408,6 +409,30 @@
 .memo-card-content .note-prose > :last-child,
 .memo-card .memo-composer-prose > :last-child {
   margin-bottom: 0;
+}
+
+/* React node views wrap code blocks; make their margins participate in the
+   same flow as the directly rendered preview blocks. */
+.memo-card .memo-composer-prose .node-codeBlock {
+  display: contents;
+}
+
+.memo-card .memo-composer-prose > .node-codeBlock:first-child > pre,
+.memo-card .memo-composer-prose blockquote > .node-codeBlock:first-child > pre {
+  margin-top: 0;
+}
+
+.memo-card .memo-composer-prose > .node-codeBlock:last-child > pre,
+.memo-card .memo-composer-prose blockquote > .node-codeBlock:last-child > pre {
+  margin-bottom: 0;
+}
+
+.memo-card-content .note-prose pre code::before {
+  content: "";
+  float: right;
+  width: 68px;
+  height: 22px;
+  pointer-events: none;
 }
 
 .memo-card-delete-zone {

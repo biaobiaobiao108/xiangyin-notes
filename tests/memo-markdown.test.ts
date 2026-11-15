@@ -67,6 +67,8 @@ describe("memo Markdown rendering", () => {
   test("wraps tables in the note table scroll shell", () => {
     const html = renderMemoMarkdown("| 列一 | 列二 |\n| --- | --- |\n| 内容 | 示例 |");
     expect(html).toContain('<div class="table-scroll-shell"><table>');
+    expect(html).toContain("<tbody>");
+    expect(html).not.toContain("<thead>");
     expect(html).toContain("<th>列一</th>");
   });
 
