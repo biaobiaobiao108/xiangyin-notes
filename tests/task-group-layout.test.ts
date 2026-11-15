@@ -2,8 +2,15 @@ import { describe, expect, test } from "bun:test";
 import {
   collapsingGroupRange,
   partitionVirtualGroupRows,
+  shouldAnimateVirtualGroup,
   stickyGroupOffset,
 } from "../app/workspace/group-layout";
+
+test("limits virtual group height animation to two viewports", () => {
+  expect(shouldAnimateVirtualGroup(1200, 600)).toBe(true);
+  expect(shouldAnimateVirtualGroup(1201, 600)).toBe(false);
+  expect(shouldAnimateVirtualGroup(100, 0)).toBe(false);
+});
 
 test("computes the space removed by a collapsing group without its header", () => {
   const rows = [

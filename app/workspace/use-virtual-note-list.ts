@@ -14,7 +14,7 @@ import type { NoteGroup } from "./helpers";
 import { collapsingGroupRange, stickyGroupOffset } from "./group-layout";
 
 const VIRTUALIZE_AFTER = 140;
-const ESTIMATED_ROW_HEIGHT = 120;
+export const ESTIMATED_ROW_HEIGHT = 120;
 const GROUP_HEADER_HEIGHT = 30;
 const OVERSCAN_PX = 720;
 
