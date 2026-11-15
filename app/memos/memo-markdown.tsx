@@ -115,7 +115,7 @@ const renderer: RendererObject = {
         )}</p>${nestedLists.map((token) => this.parser.parse([token])).join("")}`;
     return `<li data-checked="${checked}" data-type="taskItem"><label><input${
       checked ? ' checked=""' : ""
-    } type="checkbox"><span></span></label><div>${body}</div></li>\n`;
+    } type="checkbox" disabled><span></span></label><div>${body}</div></li>\n`;
   },
   html({ text }) {
     return escapeHtml(text);

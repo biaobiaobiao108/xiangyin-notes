@@ -59,7 +59,7 @@ describe("memo Markdown rendering", () => {
     expect(html).toContain('<ul data-type="taskList">');
     expect(html).toContain('<li data-checked="false" data-type="taskItem">');
     expect(html).toContain('<li data-checked="true" data-type="taskItem">');
-    expect(html).toContain("<label><input");
+    expect(html).toContain('type="checkbox" disabled');
     expect(html).toContain("<div><p>已完成 <strong>重点</strong></p></div>");
     expect(html).not.toContain("**重点**");
   });

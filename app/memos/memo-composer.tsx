@@ -259,12 +259,18 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
     (event: ReactMouseEvent<HTMLElement>) => {
       const instance = editorRef.current;
       if (!instance || instance.isDestroyed || instance.view.composing) return;
-      const { selection } = instance.state;
+      const { selection, doc } = instance.state;
       const editable = instance.isEditable && !savingRef.current;
       const hasSelection = !selection.empty;
 
       const restore = () => {
-        if (instance.isDestroyed || !instance.isEditable) return false;
+        if (
+          instance.isDestroyed ||
+          !instance.isEditable ||
+          instance.state.doc !== doc ||
+          !instance.state.selection.eq(selection)
+        )
+          return false;
         instance.view.dispatch(instance.state.tr.setSelection(selection));
         instance.view.focus();
         return true;
@@ -290,7 +296,10 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
             throw new Error("浏览器未允许写入剪贴板");
           }
         }
-        if (cut && restore() && instance.isEditable) instance.commands.deleteSelection();
+        if (cut) {
+          if (!restore()) throw new Error("随记已更改，请重新选择后剪切");
+          instance.commands.deleteSelection();
+        }
       };
 
       const paste = async (plain = false) => {
@@ -311,7 +320,7 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
         } catch {
           throw new Error("浏览器未允许读取剪贴板");
         }
-        if (!restore() || !instance.isEditable) return;
+        if (!restore()) throw new Error("随记已更改，请重新选择位置后粘贴");
         if (pastePlainTextIntoCodeBlock(instance.view, text)) return;
         if (plain) {
           if (text) instance.commands.insertContent(text);

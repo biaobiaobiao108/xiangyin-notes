@@ -143,8 +143,16 @@ function MemoCard({
           ariaLabel="编辑随记"
           autoFocus
           onSubmit={async (markdown) => {
+            const draftAtSubmit = readEditDraft();
             await updateMemo({ ...memo, version: editVersion }, markdown);
-            writeEditDraft("");
+            const currentDraft = readEditDraft();
+            if (
+              currentDraft &&
+              currentDraft.version === editVersion &&
+              (currentDraft.markdown === markdown ||
+                currentDraft.markdown === draftAtSubmit?.markdown)
+            )
+              writeEditDraft("");
             onFinishEdit();
           }}
           onDraftChange={writeEditDraft}
@@ -204,6 +212,8 @@ function MemoList({
   const scope = JSON.stringify([query, tag, selectedDate]);
   const [focusedMemoId, setFocusedMemoId] = useState<string | null>(null);
   const [editingWasVirtualized, setEditingWasVirtualized] = useState(false);
+  const editingSessionRef = useRef(0);
+  const editingSession = editingSessionRef.current;
   const pinnedRowId = editingMemo
     ? memoRowId(editingMemo.id)
     : focusedMemoId
@@ -223,10 +233,13 @@ function MemoList({
   const canAutoLoad = typeof IntersectionObserver !== "undefined";
   const filtered = Boolean(query || tag || selectedDate);
   const beginEdit = (memo: Memo) => {
+    editingSessionRef.current += 1;
     setEditingWasVirtualized(virtualList.isVirtualized);
     setEditingMemo(memo);
   };
-  const finishEdit = () => {
+  const finishEdit = (session: number) => {
+    if (editingSessionRef.current !== session) return;
+    editingSessionRef.current += 1;
     setEditingWasVirtualized(false);
     setEditingMemo(null);
   };
@@ -314,10 +327,10 @@ function MemoList({
       editing={editingMemo?.id === memo.id}
       editingVersion={editingMemo?.id === memo.id ? editingMemo.version : null}
       onEdit={() => beginEdit(memo)}
-      onFinishEdit={finishEdit}
+      onFinishEdit={() => finishEdit(editingSession)}
       onDelete={async (target) => {
         await deleteMemo(target);
-        if (editingMemo?.id === target.id) finishEdit();
+        if (editingMemo?.id === target.id) finishEdit(editingSession);
       }}
     />
   );
@@ -426,10 +439,10 @@ function MemoList({
                     editing={editingMemo?.id === memo.id}
                     editingVersion={editingMemo?.id === memo.id ? editingMemo.version : null}
                     onEdit={() => beginEdit(memo)}
-                    onFinishEdit={finishEdit}
+                    onFinishEdit={() => finishEdit(editingSession)}
                     onDelete={async (target) => {
                       await deleteMemo(target);
-                      if (editingMemo?.id === target.id) finishEdit();
+                      if (editingMemo?.id === target.id) finishEdit(editingSession);
                     }}
                   />
                 ))}
