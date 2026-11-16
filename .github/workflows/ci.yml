@@ -67,11 +67,13 @@ jobs:
           restore_volume=xiangying-notes-ci-restore
           backup_file="$(mktemp)"
           cookie_jar="$(mktemp)"
+          image_file="$(mktemp)"
+          restored_image="$(mktemp)"
           cleanup() {
             docker rm --force "$container_name" >/dev/null 2>&1 || true
             docker volume rm "$volume_name" >/dev/null 2>&1 || true
             docker volume rm "$restore_volume" >/dev/null 2>&1 || true
-            rm -f "$cookie_jar" "$backup_file"
+            rm -f "$cookie_jar" "$backup_file" "$image_file" "$restored_image"
           }
           trap cleanup EXIT
           docker volume create "$volume_name" >/dev/null
@@ -101,9 +103,15 @@ jobs:
             --header 'Content-Type: application/json' \
             --data '{"username":"ci","password":"ci-smoke-password"}' \
             http://127.0.0.1:3030/api/auth/login >/dev/null
+          printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=' | base64 --decode > "$image_file"
+          asset_response="$(curl --fail --silent --show-error --cookie "$cookie_jar" \
+            --form "file=@${image_file};filename=restore.png;type=image/png" \
+            http://127.0.0.1:3030/api/assets)"
+          asset_url="$(jq -er '.asset.url' <<<"$asset_response")"
+          note_body="$(jq -n --arg url "$asset_url" '{title:"CI persistence smoke",contentMarkdown:("persisted across restart\n\n![restore](" + $url + ")")}')"
           note_response="$(curl --fail --silent --show-error --cookie "$cookie_jar" \
             --header 'Content-Type: application/json' \
-            --data '{"title":"CI persistence smoke","contentMarkdown":"persisted across restart"}' \
+            --data "$note_body" \
             http://127.0.0.1:3030/api/notes)"
           note_id="$(jq -er '.note.id' <<<"$note_response")"
           docker rm --force "$container_name" >/dev/null
@@ -130,7 +138,7 @@ jobs:
           fi
           curl --fail --silent --show-error --cookie "$cookie_jar" \
             "http://127.0.0.1:3030/api/notes/$note_id" \
-            | jq -e '.note.contentMarkdown == "persisted across restart"' >/dev/null
+            | jq -e --arg url "$asset_url" '.note.contentMarkdown == ("persisted across restart\n\n![restore](" + $url + ")")' >/dev/null
           # Back up a stopped volume and restore it into a fresh volume, as documented.
           docker stop "$container_name" >/dev/null
           docker run --rm --volume "$volume_name:/data:ro" busybox:latest \
@@ -153,4 +161,7 @@ jobs:
           done
           curl --fail --silent --show-error --cookie "$cookie_jar" \
             "http://127.0.0.1:3030/api/notes/$note_id" \
-            | jq -e '.note.contentMarkdown == "persisted across restart"' >/dev/null
+            | jq -e --arg url "$asset_url" '.note.contentMarkdown == ("persisted across restart\n\n![restore](" + $url + ")")' >/dev/null
+          curl --fail --silent --show-error --cookie "$cookie_jar" \
+            "http://127.0.0.1:3030$asset_url" > "$restored_image"
+          cmp "$image_file" "$restored_image"
