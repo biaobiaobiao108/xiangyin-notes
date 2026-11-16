@@ -10,20 +10,16 @@ import {
 import { EditorContent, useEditor } from "@tiptap/react";
 import type { Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { Selection, type Transaction } from "@tiptap/pm/state";
+import type { Transaction } from "@tiptap/pm/state";
 import { CircleAlert, ImageDown, Star, Trash2, Undo2, X } from "lucide-react";
 import { type ImageAssetSummary, type Note, type NoteSummary } from "../shared/types";
-import { preserveEscapedHashtagsForEditor } from "../shared/tags";
 import { api } from "./api";
 import { BrandMark } from "./brand-mark";
 import { SearchHighlightExtension } from "./editor-search";
 import {
   buildOutlineItems,
   countEditorText,
-  detectLeakedImePrefix,
   getOutlineStructureKey,
-  normalizeChineseMarkdownBlockMarkers,
-  shouldParseMarkdownPaste,
   shouldUpdateActiveOutlineFromViewport,
   type EditorStats,
   type OutlineItem,
@@ -44,11 +40,6 @@ import {
   taskNavigationPluginKey,
 } from "./editor/task-navigation";
 import { FloatingScrollbar } from "./floating-scrollbar";
-import { normalizeImagesInEmptyListItems } from "./image-markdown";
-import {
-  executeBlockShortcutAtSelection,
-  handleMarkdownBlockShortcutInput,
-} from "./editor/markdown-shortcuts";
 import { editorCoreExtensionOptions } from "./editor/editor-config";
 import { createCommonEditorExtensions } from "./editor/common-extensions";
 import { EditorFloatingTools } from "./editor/editor-panels";
@@ -61,18 +52,19 @@ import {
   type WikiLinkTitleSearch,
 } from "./editor/wiki-link-suggestion";
 import { CalloutNode } from "./editor/callout-node";
-import { pastePlainTextIntoCodeBlock } from "./editor/code-block-paste";
 import { SlashCommandExtension } from "./editor/slash-command-menu";
 import { TableScrollbars } from "./editor/table-scrollbars";
 import { playEntranceAnimation } from "./animation";
 import { CardOutline } from "./editor/card-outline";
 import { MobileEditorFooter, MobileEditorOutline } from "./editor/mobile-editor-controls";
-import { mobileCaretBounds, useMobileCaret } from "./editor/use-mobile-caret";
+import { useMobileCaret } from "./editor/use-mobile-caret";
+import { useEditorCaretScroll } from "./editor/use-editor-caret-scroll";
+import { useEditorProps } from "./editor/use-editor-props";
+import { prepareMarkdownForEditor } from "./editor/prepare-markdown";
 import { BlockDragHandle } from "./editor/block-drag-handle";
 import { useEditorContextMenu } from "./editor/use-editor-context-menu";
 import { NoteAnnotation, NoteHighlight } from "./editor/highlight-annotation";
 import { useEditorAnnotations } from "./editor/annotation-overlay";
-import { isImageFile } from "./editor/image-files";
 import { useScrollEdges } from "./workspace/use-scroll-edges";
 import { AutoReadingHUD } from "./editor/auto-reading-hud";
 import { useEditorSearch } from "./editor/use-editor-search";
@@ -95,10 +87,6 @@ function getOutlineHeadingElements(root: HTMLElement): HTMLElement[] {
   return Array.from(root.querySelectorAll<HTMLElement>(OUTLINE_HEADING_SELECTOR)).filter(
     (element) => Boolean(element.textContent?.trim()),
   );
-}
-
-function prepareMarkdownForEditor(markdown: string) {
-  return normalizeImagesInEmptyListItems(preserveEscapedHashtagsForEditor(markdown));
 }
 
 export function NoteEditor({
@@ -473,382 +461,35 @@ export function NoteEditor({
     [],
   );
 
-  const smoothScrollToHead = useCallback((view: Editor["view"]) => {
-    if (mobileViewportRef.current) {
-      mobileCaretScrollRef.current();
-      return;
-    }
-    requestAnimationFrame(() => {
-      const scrollContainer = editorScrollRef.current;
-      if (!scrollContainer) return;
-      try {
-        const head = view.state.selection.head;
-        const coords = view.coordsAtPos(head);
-        const containerRect = scrollContainer.getBoundingClientRect();
-        const paddingBottom = 64;
-        const isBelow = coords.bottom > containerRect.bottom - paddingBottom;
-        const isAbove = coords.top < containerRect.top + 24;
-
-        if (isBelow) {
-          const diff = coords.bottom - (containerRect.bottom - paddingBottom);
-          const maxScroll = Math.max(
-            0,
-            scrollContainer.scrollHeight - scrollContainer.clientHeight,
-          );
-          const targetScrollTop = Math.min(maxScroll, scrollContainer.scrollTop + diff);
-          const prefersReducedMotion = window.matchMedia(
-            "(prefers-reduced-motion: reduce)",
-          ).matches;
-          if (prefersReducedMotion) {
-            scrollContainer.scrollTop = targetScrollTop;
-          } else {
-            scrollContainer.scrollTo({
-              top: targetScrollTop,
-              behavior: "smooth",
-            });
-          }
-        } else if (isAbove) {
-          const diff = containerRect.top + 24 - coords.top;
-          const targetScrollTop = Math.max(0, scrollContainer.scrollTop - diff);
-          const prefersReducedMotion = window.matchMedia(
-            "(prefers-reduced-motion: reduce)",
-          ).matches;
-          if (prefersReducedMotion) {
-            scrollContainer.scrollTop = targetScrollTop;
-          } else {
-            scrollContainer.scrollTo({
-              top: targetScrollTop,
-              behavior: "smooth",
-            });
-          }
-        }
-      } catch {
-        // coordsAtPos may throw if editor position is not yet rendered
-      }
-    });
-  }, []);
+  const { smoothScrollToHead, alignTypewriter } = useEditorCaretScroll({
+    mobileViewportRef,
+    mobileCaretScrollRef,
+    editorScrollRef,
+    typewriterModeRef,
+    typewriterAnimRef,
+    typewriterTargetRef,
+  });
   smoothScrollToHeadRef.current = smoothScrollToHead;
-
-  const alignTypewriter = useCallback((target: Editor | Editor["view"], immediate = false) => {
-    if (!typewriterModeRef.current) return;
-    const view = "view" in target ? target.view : target;
-    if (!view || view.isDestroyed || !view.hasFocus()) return;
-
-    requestAnimationFrame(() => {
-      const scrollContainer = editorScrollRef.current;
-      if (!scrollContainer || !view || view.isDestroyed || !view.hasFocus()) return;
-
-      try {
-        const head = view.state.selection.head;
-        const coords = view.coordsAtPos(head);
-        const containerRect = scrollContainer.getBoundingClientRect();
-        const cursorCenterY = (coords.top + coords.bottom) / 2;
-        const bounds = mobileViewportRef.current
-          ? mobileCaretBounds(scrollContainer)
-          : { top: containerRect.top, bottom: containerRect.bottom };
-        if (
-          mobileViewportRef.current &&
-          window.visualViewport &&
-          Math.abs(window.visualViewport.scale - 1) > 0.01
-        )
-          return;
-        const targetY = bounds.top + (bounds.bottom - bounds.top) * 0.6;
-        const delta = cursorCenterY - targetY;
-        const maxScroll = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
-        const targetScrollTop = Math.min(
-          maxScroll,
-          Math.max(0, Math.round(scrollContainer.scrollTop + delta)),
-        );
-
-        // Negligible distance: prevent jitter on same-line typing
-        if (Math.abs(scrollContainer.scrollTop - targetScrollTop) < 2) {
-          return;
-        }
-
-        // Already animating to this target position: do not restart
-        if (
-          typewriterTargetRef.current !== null &&
-          Math.abs(typewriterTargetRef.current - targetScrollTop) < 2
-        ) {
-          return;
-        }
-
-        const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-        if (prefersReducedMotion || immediate) {
-          if (typewriterAnimRef.current !== null) {
-            cancelAnimationFrame(typewriterAnimRef.current);
-            typewriterAnimRef.current = null;
-          }
-          scrollContainer.scrollTop = targetScrollTop;
-          typewriterTargetRef.current = null;
-          return;
-        }
-
-        if (typewriterAnimRef.current !== null) {
-          cancelAnimationFrame(typewriterAnimRef.current);
-          typewriterAnimRef.current = null;
-        }
-
-        const startTop = scrollContainer.scrollTop;
-        const distance = targetScrollTop - startTop;
-        const duration = 160;
-        const startTime = performance.now();
-        const easeOutQuart = (t: number) => 1 - Math.pow(1 - t, 4);
-
-        const step = (now: number) => {
-          const elapsed = now - startTime;
-          const progress = Math.min(1, elapsed / duration);
-          const eased = easeOutQuart(progress);
-          scrollContainer.scrollTop = Math.round(startTop + distance * eased);
-
-          if (progress < 1) {
-            typewriterAnimRef.current = requestAnimationFrame(step);
-          } else {
-            scrollContainer.scrollTop = targetScrollTop;
-            typewriterAnimRef.current = null;
-            typewriterTargetRef.current = null;
-          }
-        };
-
-        typewriterTargetRef.current = targetScrollTop;
-        typewriterAnimRef.current = requestAnimationFrame(step);
-      } catch {
-        // coordsAtPos may throw if selection position is not yet rendered
-      }
-    });
-  }, []);
   const alignTypewriterRef = useRef(alignTypewriter);
   alignTypewriterRef.current = alignTypewriter;
 
-  const editorProps = useMemo(
-    () => ({
-      attributes: { class: "note-prose" },
-      handleClick: (_view: Editor["view"], _pos: number, event: MouseEvent) => {
-        const target = event.target as HTMLElement | null;
-        if (event.ctrlKey || event.metaKey || mobileViewportRef.current) {
-          const wikiLinkEl = target?.closest(".editor-wiki-link");
-          if (wikiLinkEl) {
-            event.preventDefault();
-            event.stopPropagation();
-            const targetTitle = wikiLinkEl.getAttribute("data-wiki-link");
-            if (targetTitle && onNavigateWikiLinkRef.current) {
-              onNavigateWikiLinkRef.current(targetTitle);
-              return true;
-            }
-          }
-        }
-        if (event.ctrlKey || event.metaKey) {
-          const anchor = target?.closest("a");
-          if (anchor?.href) {
-            event.preventDefault();
-            event.stopPropagation();
-            window.open(anchor.href, "_blank", "noopener,noreferrer");
-            return true;
-          }
-        }
-        const annotationEl = target?.closest<HTMLElement>(".note-annotation[data-annotation-id]");
-        if (
-          annotationEl &&
-          !event.ctrlKey &&
-          !event.metaKey &&
-          !window.getSelection()?.toString().trim()
-        ) {
-          const annotationId = annotationEl.getAttribute("data-annotation-id");
-          if (annotationId) {
-            onToggleAnnotationRef.current(annotationId);
-            return true;
-          }
-        } else if (
-          !target?.closest(".annotation-card, .annotation-composer, [role='dialog'], [role='menu']")
-        ) {
-          onClearAnnotationRef.current();
-        }
-        return false;
-      },
-      handlePaste: (view: Editor["view"], event: ClipboardEvent) => {
-        const imageFiles = Array.from(event.clipboardData?.files ?? []).filter(isImageFile);
-        if (imageFiles.length) {
-          event.preventDefault();
-          uploadImageFilesRef.current(imageFiles);
-          return true;
-        }
-        const text = event.clipboardData?.getData("text/plain") ?? "";
-        if (pastePlainTextIntoCodeBlock(view, text)) {
-          event.preventDefault();
-          return true;
-        }
-        isPastingRef.current = true;
-        window.setTimeout(() => {
-          isPastingRef.current = false;
-        }, 200);
-        const html = event.clipboardData?.getData("text/html") ?? "";
-        if (!shouldParseMarkdownPaste(text, Boolean(html))) return false;
-        const markdownManager = editorInstanceRef.current?.markdown;
-        if (!markdownManager) return false;
-        try {
-          const parsedDocument = view.state.schema.nodeFromJSON(
-            markdownManager.parse(
-              prepareMarkdownForEditor(normalizeChineseMarkdownBlockMarkers(text)),
-            ),
-          );
-          const slice = parsedDocument.slice(0, parsedDocument.content.size);
-          view.dispatch(view.state.tr.replaceSelection(slice).setMeta("uiEvent", "paste"));
-          isPastingRef.current = false;
-          smoothScrollToHeadRef.current(view);
-          return true;
-        } catch {
-          return false;
-        }
-      },
-      handleDrop: (view: Editor["view"], event: DragEvent, _slice: unknown, moved: boolean) => {
-        if (moved) return false;
-        const files = Array.from(event.dataTransfer?.files ?? []);
-        if (!files.length) return false;
-        const imageFiles = files.filter(isImageFile);
-        if (!imageFiles.length) {
-          event.preventDefault();
-          return true;
-        }
-        event.preventDefault();
-        const coords = view.posAtCoords({ left: event.clientX, top: event.clientY });
-        if (coords) {
-          const tr = view.state.tr.setSelection(Selection.near(view.state.doc.resolve(coords.pos)));
-          view.dispatch(tr);
-        }
-        uploadImageFilesRef.current(imageFiles);
-        return true;
-      },
-      handleScrollToSelection: (view: Editor["view"]) => {
-        if (isPastingRef.current) {
-          isPastingRef.current = false;
-          smoothScrollToHeadRef.current(view);
-          return true;
-        }
-        if (typewriterModeRef.current) {
-          alignTypewriterRef.current(view);
-          return true;
-        }
-        if (mobileViewportRef.current) {
-          mobileCaretScrollRef.current();
-          return true;
-        }
-        return false;
-      },
-      handleKeyDown: (view: Editor["view"], event: KeyboardEvent) => {
-        if (event.isComposing || event.keyCode === 229 || event.key === "Process") {
-          composingRef.current = true;
-          if (!leakedCandidateRef.current) {
-            const { $from } = view.state.selection;
-            if (
-              $from.parent.content.size === 0 ||
-              ($from.parentOffset === 0 && $from.parent.textContent.length === 0)
-            ) {
-              let key = "";
-              if (event.code && event.code.startsWith("Key")) {
-                key = event.code.slice(3).toLowerCase();
-              } else if (event.code && event.code.startsWith("Digit")) {
-                key = event.code.slice(5);
-              } else if (event.key && event.key.length === 1 && event.key !== "Process") {
-                key = event.key.toLowerCase();
-              }
-              leakedCandidateRef.current = {
-                key,
-                blockStartPos: $from.start(),
-                emptyAtStart: true,
-              };
-            }
-          }
-        }
-        return false;
-      },
-      handleTextInput: (view: Editor["view"], from: number, to: number, text: string) => {
-        return handleMarkdownBlockShortcutInput(view, from, to, text, composingRef.current);
-      },
-      handleDOMEvents: {
-        compositionstart: (view: Editor["view"]) => {
-          composingRef.current = true;
-          if (imeCleanupTimerRef.current !== null) {
-            clearTimeout(imeCleanupTimerRef.current);
-            imeCleanupTimerRef.current = null;
-          }
-          const { $from } = view.state.selection;
-          const text = $from.parent.textContent;
-          if (!leakedCandidateRef.current) {
-            if (
-              $from.parent.content.size === 0 ||
-              ($from.parentOffset === 0 && text.length === 0)
-            ) {
-              leakedCandidateRef.current = {
-                key: "",
-                blockStartPos: $from.start(),
-                emptyAtStart: true,
-              };
-            }
-          }
-          return false;
-        },
-        compositionend: (view: Editor["view"], event: Event) => {
-          composingRef.current = false;
-          const candidate = leakedCandidateRef.current;
-          const committedText = (event as CompositionEvent).data;
-          if (imeCleanupTimerRef.current !== null) {
-            clearTimeout(imeCleanupTimerRef.current);
-            imeCleanupTimerRef.current = null;
-          }
-          if (!candidate?.emptyAtStart) leakedCandidateRef.current = null;
-          imeCleanupTimerRef.current = setTimeout(() => {
-            imeCleanupTimerRef.current = null;
-            try {
-              if (!view || view.isDestroyed) return;
-              if (candidate?.emptyAtStart) {
-                const { state, dispatch } = view;
-                const resolvedPos = Math.min(candidate.blockStartPos, state.doc.content.size);
-                const $pos = state.doc.resolve(resolvedPos);
-                const block = $pos.parent;
-                const blockStart = $pos.start();
-                const blockText = block.textContent;
-
-                const leakedLen = detectLeakedImePrefix(
-                  blockText,
-                  candidate.key || null,
-                  committedText,
-                );
-                if (leakedLen && leakedLen > 0) {
-                  const deleteFrom = blockStart;
-                  const deleteTo = blockStart + leakedLen;
-                  const tr = state.tr.delete(deleteFrom, deleteTo);
-                  dispatch(tr.scrollIntoView());
-                }
-              }
-              executeBlockShortcutAtSelection(view);
-            } finally {
-              leakedCandidateRef.current = null;
-            }
-          }, 30);
-          if (editorInstanceRef.current) {
-            surfaceSyncRef.current(editorInstanceRef.current);
-            if (typewriterModeRef.current) {
-              alignTypewriterRef.current(editorInstanceRef.current);
-            }
-          }
-          return false;
-        },
-        compositioncancel: () => {
-          composingRef.current = false;
-          leakedCandidateRef.current = null;
-          if (imeCleanupTimerRef.current !== null) {
-            clearTimeout(imeCleanupTimerRef.current);
-            imeCleanupTimerRef.current = null;
-          }
-          if (editorInstanceRef.current) {
-            surfaceSyncRef.current(editorInstanceRef.current);
-          }
-          return false;
-        },
-      },
-    }),
-    [],
-  );
+  const editorProps = useEditorProps({
+    mobileViewportRef,
+    onNavigateWikiLinkRef,
+    onToggleAnnotationRef,
+    onClearAnnotationRef,
+    uploadImageFilesRef,
+    editorInstanceRef,
+    isPastingRef,
+    smoothScrollToHeadRef,
+    typewriterModeRef,
+    alignTypewriterRef,
+    mobileCaretScrollRef,
+    composingRef,
+    leakedCandidateRef,
+    imeCleanupTimerRef,
+    surfaceSyncRef,
+  });
   surfaceSyncRef.current = scheduleEditorSurfaceSync;
 
   const flushMarkdownChange = useCallback((source?: Editor) => {
