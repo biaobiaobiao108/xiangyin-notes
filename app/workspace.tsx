@@ -2371,6 +2371,11 @@ export function Workspace() {
             <LazyMemoPage
               isMobileViewport={isMobileViewport}
               onBack={isMobileViewport ? backMobilePage : undefined}
+              onConverted={(note) => {
+                revealCreatedNote(note, { view: "inbox", notebookId: note.notebookId });
+                void refreshNotebooks();
+                notifyInfo("随记已转为笔记，原随记已移除");
+              }}
             />
           </Suspense>
         )}

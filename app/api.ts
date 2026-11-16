@@ -143,6 +143,11 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(payload),
     }),
+  convertMemo: (id: string, version: number) =>
+    request<{ note: Note }>(`/api/memos/${id}/convert`, {
+      method: "POST",
+      body: JSON.stringify({ version }),
+    }),
   deleteMemo: (id: string, version: number) =>
     request<{ ok: true }>(`/api/memos/${id}`, {
       method: "DELETE",

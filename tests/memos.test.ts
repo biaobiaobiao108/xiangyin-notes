@@ -76,6 +76,85 @@ async function createMemo(cookie: string, contentMarkdown: string, createdAt?: n
 }
 
 describe("Memo API", () => {
+  test("converts a memo atomically into an inbox note with indexed content", async () => {
+    const cookie = await login();
+    const markdown = "转换正文 #项目\n\n- [ ] 待办";
+    const created = await createMemo(cookie, markdown);
+    const memo = created.body!.memo;
+    const convert = (version: number) =>
+      request(
+        `/api/memos/${memo.id}/convert`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ version }),
+        },
+        cookie,
+      );
+    const stale = await convert(2);
+    expect(stale.response.status).toBe(409);
+    expect((await request("/api/memos", {}, cookie)).body?.memos).toHaveLength(1);
+    const result = await convert(1);
+    expect(result.response.status).toBe(201);
+    expect(result.body?.note).toMatchObject({ title: "", contentMarkdown: markdown, version: 1 });
+    const notebook = database
+      .query("SELECT is_system FROM notebooks WHERE id = ?")
+      .get(result.body!.note.notebookId) as { is_system: number };
+    expect(notebook.is_system).toBe(1);
+    expect((await request("/api/memos", {}, cookie)).body?.memos).toHaveLength(0);
+    expect(
+      (await request(`/api/notes?view=all&query=${encodeURIComponent("转换正文")}`, {}, cookie))
+        .body?.notes,
+    ).toHaveLength(1);
+    expect((await convert(1)).response.status).toBe(404);
+    expect(
+      (await request(`/api/notes?view=all&query=${encodeURIComponent("转换正文")}`, {}, cookie))
+        .body?.notes,
+    ).toHaveLength(1);
+  });
+
+  test("rejects invalid attachments without removing the memo", async () => {
+    const cookie = await login();
+    const memo = (
+      await createMemo(cookie, "![图片](/api/assets/00000000-0000-4000-8000-000000000000)")
+    ).body!.memo;
+    const result = await request(
+      `/api/memos/${memo.id}/convert`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version: memo.version }),
+      },
+      cookie,
+    );
+    expect(result.response.status).toBe(400);
+    expect(result.body?.error.code).toBe("INVALID_ASSET");
+    expect((await request("/api/memos", {}, cookie)).body?.memos).toHaveLength(1);
+  });
+
+  test("rolls back the new note if removing the memo fails", async () => {
+    const cookie = await login();
+    const memo = (await createMemo(cookie, "保留原文")).body!.memo;
+    database.exec(
+      "CREATE TRIGGER reject_conversion BEFORE DELETE ON memos BEGIN SELECT RAISE(ABORT, 'test failure'); END",
+    );
+    const result = await request(
+      `/api/memos/${memo.id}/convert`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version: memo.version }),
+      },
+      cookie,
+    );
+    expect(result.response.status).toBe(500);
+    expect((await request("/api/memos", {}, cookie)).body?.memos).toHaveLength(1);
+    expect(
+      (await request(`/api/notes?view=all&query=${encodeURIComponent("保留原文")}`, {}, cookie))
+        .body?.notes,
+    ).toHaveLength(0);
+  });
+
   test("creates, searches, filters, updates, facets, paginates, and deletes memos", async () => {
     const cookie = await login();
     const firstTime = Date.UTC(2026, 0, 1, 10, 0);

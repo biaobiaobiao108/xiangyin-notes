@@ -1,4 +1,4 @@
-import { CalendarDays, ChevronLeft, Copy, Plus, Search, Trash2, X } from "lucide-react";
+import { CalendarDays, ChevronLeft, Copy, FileText, Plus, Search, Trash2, X } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -10,7 +10,7 @@ import {
   type MutableRefObject,
   type RefObject,
 } from "react";
-import type { Memo } from "../../shared/types";
+import type { Memo, Note } from "../../shared/types";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { MemoMarkdown } from "./memo-markdown";
 import { useScrollEdges } from "../workspace/use-scroll-edges";
@@ -47,6 +47,7 @@ function MemoCard({
   editingVersion,
   onFinishEdit,
   onDelete,
+  onConvert,
 }: {
   memo: Memo;
   onEdit: () => void;
@@ -54,6 +55,7 @@ function MemoCard({
   editingVersion: number | null;
   onFinishEdit: () => void;
   onDelete: (memo: Memo) => Promise<void>;
+  onConvert: (memo: Memo) => Promise<void>;
 }) {
   const { updateMemo } = useMemoWorkspace();
   const [deleting, setDeleting] = useState(false);
@@ -121,6 +123,20 @@ function MemoCard({
         }
       }}
     >
+      <button
+        className="memo-card-convert"
+        type="button"
+        aria-label="转为笔记"
+        disabled={deleting || editing}
+        onClick={() => {
+          setDeleteError("");
+          void onConvert(memo).catch((reason) =>
+            setDeleteError(reason instanceof Error ? reason.message : "转换失败"),
+          );
+        }}
+      >
+        <FileText size={16} aria-hidden="true" />
+      </button>
       <span className="memo-card-delete-zone">
         <button
           className="memo-card-delete"
@@ -181,12 +197,14 @@ function MemoList({
   scrollRef,
   pageScrollRef,
   onBeginEditRef,
+  onConvert,
 }: {
   editingMemo: Memo | null;
   setEditingMemo: (memo: Memo | null) => void;
   scrollRef: RefObject<HTMLDivElement | null>;
   pageScrollRef: RefObject<HTMLElement | null>;
   onBeginEditRef?: MutableRefObject<((memo: Memo) => void) | null>;
+  onConvert: (memo: Memo) => Promise<void>;
 }) {
   const {
     memos,
@@ -328,6 +346,7 @@ function MemoList({
       editingVersion={editingMemo?.id === memo.id ? editingMemo.version : null}
       onEdit={() => beginEdit(memo)}
       onFinishEdit={() => finishEdit(editingSession)}
+      onConvert={onConvert}
       onDelete={async (target) => {
         await deleteMemo(target);
         if (editingMemo?.id === target.id) finishEdit(editingSession);
@@ -440,6 +459,7 @@ function MemoList({
                     editingVersion={editingMemo?.id === memo.id ? editingMemo.version : null}
                     onEdit={() => beginEdit(memo)}
                     onFinishEdit={() => finishEdit(editingSession)}
+                    onConvert={onConvert}
                     onDelete={async (target) => {
                       await deleteMemo(target);
                       if (editingMemo?.id === target.id) finishEdit(editingSession);
@@ -545,9 +565,11 @@ function MemoRail({ onSelect, panel = false }: { onSelect?: () => void; panel?: 
 export function MemoPage({
   isMobileViewport,
   onBack,
+  onConverted,
 }: {
   isMobileViewport: boolean;
   onBack?: () => void;
+  onConverted: (note: Note) => void;
 }) {
   const memo = useMemoWorkspace();
   const pageRef = useRef<HTMLElement>(null);
@@ -576,6 +598,23 @@ export function MemoPage({
       window.setTimeout(() => setNotice(""), 1600);
     },
     [memo],
+  );
+
+  const convertingRef = useRef(false);
+  const convertMemo = useCallback(
+    async (target: Memo) => {
+      if (convertingRef.current) return;
+      if (localStorage.getItem(`xiangying:memo-edit:${target.id}`))
+        throw new Error("这条随记有未保存的编辑草稿，请先打开并处理草稿");
+      convertingRef.current = true;
+      try {
+        const note = await memo.convertMemo(target);
+        onConverted(note);
+      } finally {
+        convertingRef.current = false;
+      }
+    },
+    [memo, onConverted],
   );
 
   const focusComposer = useCallback(() => {
@@ -639,6 +678,7 @@ export function MemoPage({
               filterTag: (tag) => {
                 memo.setTag(tag);
               },
+              convertMemo,
               deleteMemo: async (m) => {
                 await memo.deleteMemo(m);
                 if (editingMemo?.id === m.id) setEditingMemo(null);
@@ -839,7 +879,7 @@ export function MemoPage({
         openMenu(event, items, "随记");
       }
     },
-    [editingMemo, focusComposer, memo, openMenu],
+    [convertMemo, editingMemo, focusComposer, memo, openMenu],
   );
 
   const handleKeyDown = useCallback(
@@ -1008,6 +1048,7 @@ export function MemoPage({
                 scrollRef={scrollRef}
                 pageScrollRef={pageRef}
                 onBeginEditRef={beginEditRef}
+                onConvert={convertMemo}
               />
             </section>
           </div>

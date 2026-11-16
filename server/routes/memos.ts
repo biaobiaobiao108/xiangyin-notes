@@ -1,6 +1,9 @@
 import {
   all,
   first,
+  getNote,
+  toFullNote,
+  validNoteAssetReferences,
   json,
   jsonError,
   NOTE_BODY_MAX_BYTES,
@@ -15,6 +18,7 @@ import {
   type UserRow,
   validText,
 } from "../core";
+import { createNote } from "./note-mutations";
 import { ensureEnvironmentUser, getAuthCredentials, cleanupExpiredRateLimits } from "./auth";
 import { requireApiToken } from "../api-token";
 import { publishWorkspaceChange } from "../realtime";
@@ -537,6 +541,58 @@ export function handleMemosRoute(
     return jsonError(405, "METHOD_NOT_ALLOWED", "随记列表只支持 GET 或 POST", {
       Allow: "GET, POST",
     });
+  }
+
+  if (segments.length === 3 && segments[2] === "convert" && method === "POST") {
+    const memoId = segments[1];
+    if (!MEMO_ID_PATTERN.test(memoId)) return jsonError(400, "INVALID_MEMO_ID", "随记 ID 无效");
+    return (async () => {
+      const payload = await readJson<{ version?: unknown }>(ctx.request, 1024);
+      if (!payload || !Number.isSafeInteger(payload.version) || (payload.version as number) < 1)
+        return jsonError(400, "VERSION_REQUIRED", "转换随记必须携带版本号");
+      const database = ctx.options.database;
+      const result = database
+        .transaction(() => {
+          const current = getMemo(database, user.id, memoId);
+          if (!current) return { kind: "missing" as const };
+          if (current.version !== payload.version) return { kind: "conflict" as const, current };
+          const inbox = first<{ id: string }>(
+            database,
+            "SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1 LIMIT 1",
+            user.id,
+          );
+          if (!inbox) return { kind: "no_inbox" as const };
+          if (!validNoteAssetReferences(database, user.id, null, current.content_markdown))
+            return { kind: "invalid_asset" as const };
+          const noteId = createNote(database, user.id, inbox.id, "", current.content_markdown);
+          const deleted = database
+            .query("DELETE FROM memos WHERE id = ? AND user_id = ? AND version = ?")
+            .run(memoId, user.id, current.version);
+          if (!deleted.changes) throw new Error("memo-conversion-delete-failed");
+          return { kind: "converted" as const, noteId };
+        })
+        .immediate();
+      if (result.kind === "missing") return jsonError(404, "MEMO_NOT_FOUND", "随记不存在");
+      if (result.kind === "conflict")
+        return json(
+          {
+            error: {
+              code: "VERSION_CONFLICT",
+              message: "这条随记已更新，请刷新后重试",
+              current: memoFromRow(result.current),
+            },
+          },
+          409,
+        );
+      if (result.kind === "no_inbox") return jsonError(400, "NO_NOTEBOOK", "没有可用的收件箱");
+      if (result.kind === "invalid_asset")
+        return jsonError(400, "INVALID_ASSET", "图片引用无效或附件当前不可用，随记未被删除");
+      const note = getNote(database, user.id, result.noteId);
+      if (!note) throw new Error("memo-conversion-note-missing");
+      publishWorkspaceChange(ctx.options, user.id, { resource: "memos" }, ctx.request);
+      publishWorkspaceChange(ctx.options, user.id, { resource: "notes" }, ctx.request);
+      return json({ note: toFullNote(note) }, 201);
+    })();
   }
 
   if (segments.length === 2) {

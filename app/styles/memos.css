@@ -462,6 +462,10 @@
   pointer-events: none;
 }
 
+.memo-card-convert {
+  display: none;
+}
+
 .memo-card-delete-zone {
   position: absolute;
   z-index: 2;
@@ -1280,6 +1284,31 @@
 }
 
 @media (hover: none), (pointer: coarse) {
+  .memo-card-header {
+    min-height: 32px;
+    padding-right: 80px;
+  }
+
+  .memo-card-convert {
+    position: absolute;
+    z-index: 2;
+    top: 4px;
+    right: 48px;
+    display: grid;
+    width: 40px;
+    height: 40px;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--muted);
+  }
+
+  .memo-card.is-editing .memo-card-convert {
+    display: none;
+  }
+
   .memo-card-delete {
     opacity: 1;
     pointer-events: auto;

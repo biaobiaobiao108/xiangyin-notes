@@ -90,6 +90,9 @@ describe("memo card context menu", () => {
         filterTag: (t) => {
           calls.push(`tag:${t}`);
         },
+        convertMemo: (m) => {
+          calls.push(`convert:${m.id}`);
+        },
         deleteMemo: (m) => {
           calls.push(`delete:${m.id}`);
         },
@@ -101,6 +104,10 @@ describe("memo card context menu", () => {
     expect(labels(items)).toContain(`按此日期筛选 (${timelineDateLabel(memoDate)})`);
     expect(labels(items)).toContain("按 #工作 筛选");
     expect(labels(items)).toContain("按 #灵感 筛选");
+    expect(labels(items)).toContain("转为笔记");
+    find(items, "转为笔记").onSelect();
+    expect(calls).toContain("convert:memo-1");
+    calls.length = 0;
     expect(labels(items)).toContain("删除随记");
 
     find(items, "编辑随记").onSelect();
@@ -136,9 +143,11 @@ describe("memo card context menu", () => {
         filterDate: () => {},
         filterTag: () => {},
         deleteMemo: () => {},
+        convertMemo: () => {},
       },
     });
 
+    expect(find(items, "转为笔记").disabled).toBe(true);
     expect(labels(items)).not.toContain("编辑随记");
     expect(find(items, "删除随记").disabled).toBe(true);
   });

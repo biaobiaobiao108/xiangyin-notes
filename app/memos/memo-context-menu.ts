@@ -38,6 +38,7 @@ export type MemoCardContextMenuInput = {
     filterDate: (date: string | null) => void;
     filterTag: (tag: string | null) => void;
     deleteMemo: (memo: Memo) => void | Promise<void>;
+    convertMemo?: (memo: Memo) => void | Promise<void>;
     openLink?: (url: string) => void;
   };
 };
@@ -131,6 +132,16 @@ export function buildMemoCardMenuItems({
         });
       }
     }
+  }
+
+  if (actions.convertMemo) {
+    items.push({
+      label: "转为笔记",
+      icon: FileText,
+      separator: true,
+      disabled: isEditing,
+      onSelect: () => actions.convertMemo!(memo),
+    });
   }
 
   items.push({

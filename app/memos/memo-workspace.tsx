@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { Memo, MemoDayCount, MemoTagCount } from "../../shared/types";
+import type { Memo, MemoDayCount, MemoTagCount, Note } from "../../shared/types";
 import { api, ApiError } from "../api";
 import {
   browserTimeZone,
@@ -45,6 +45,7 @@ type MemoWorkspaceValue = {
   createMemo: (contentMarkdown: string, date?: string | null) => Promise<Memo>;
   updateMemo: (memo: Memo, contentMarkdown: string) => Promise<Memo>;
   deleteMemo: (memo: Memo) => Promise<void>;
+  convertMemo: (memo: Memo) => Promise<Note>;
 };
 
 const MemoWorkspaceContext = createContext<MemoWorkspaceValue | null>(null);
@@ -412,6 +413,23 @@ export function MemoWorkspaceProvider({
     [invalidateListRequest, listScope, refresh, refreshFacets, unauthorized],
   );
 
+  const convertMemo = useCallback(
+    async (memo: Memo) => {
+      try {
+        const result = await api.convertMemo(memo.id, memo.version);
+        const shouldReload = invalidateListRequest();
+        setMemos((current) => current.filter((item) => item.id !== memo.id));
+        refreshFacets();
+        if (shouldReload || query || tag) refresh();
+        return result.note;
+      } catch (reason) {
+        unauthorized(reason);
+        throw reason;
+      }
+    },
+    [invalidateListRequest, query, tag, refresh, refreshFacets, unauthorized],
+  );
+
   const value: MemoWorkspaceValue = {
     queryDraft,
     setQueryDraft,
@@ -439,6 +457,7 @@ export function MemoWorkspaceProvider({
     createMemo,
     updateMemo,
     deleteMemo,
+    convertMemo,
   };
 
   return <MemoWorkspaceContext.Provider value={value}>{children}</MemoWorkspaceContext.Provider>;
