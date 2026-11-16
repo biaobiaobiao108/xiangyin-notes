@@ -1163,12 +1163,20 @@
     animation: page-content-in var(--motion-fast) var(--motion-ease-out);
   }
 
+  .memo-filter-panel .memo-tag-section {
+    height: 0;
+    min-height: 100%;
+  }
+
   .memo-filter-panel .memo-tag-list-shell {
+    display: flex;
     overflow: hidden;
   }
 
   .memo-filter-panel .memo-tag-list {
-    max-height: 160px;
+    min-height: 0;
+    max-height: none;
+    flex: 1 1 0;
     padding-inline-end: 16px;
     overflow-y: auto;
   }
@@ -1233,6 +1241,16 @@
   .memo-page-rail {
     grid-template-columns: minmax(0, 1fr);
     gap: 24px;
+  }
+
+  .memo-filter-panel .memo-tag-section {
+    height: auto;
+    min-height: 0;
+  }
+
+  .memo-filter-panel .memo-tag-list {
+    max-height: 160px;
+    flex: none;
   }
 }
 
