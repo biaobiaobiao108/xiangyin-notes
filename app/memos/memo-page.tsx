@@ -9,11 +9,13 @@ import {
   type MouseEvent as ReactMouseEvent,
   type MutableRefObject,
   type RefObject,
+  type CSSProperties,
 } from "react";
 import type { Memo, Note } from "../../shared/types";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { MemoMarkdown } from "./memo-markdown";
 import { useScrollEdges } from "../workspace/use-scroll-edges";
+import { useSwipeActionGesture, useSwipeActionGroup } from "../workspace/swipe-actions";
 import { MemoComposer, type MemoComposerHandle } from "./memo-composer";
 import { MiniCalendar } from "./memo-calendar";
 import {
@@ -48,6 +50,9 @@ function MemoCard({
   onFinishEdit,
   onDelete,
   onConvert,
+  mobile,
+  swipeOpen,
+  setSwipeOpenId,
 }: {
   memo: Memo;
   onEdit: () => void;
@@ -56,10 +61,22 @@ function MemoCard({
   onFinishEdit: () => void;
   onDelete: (memo: Memo) => Promise<void>;
   onConvert: (memo: Memo) => Promise<void>;
+  mobile: boolean;
+  swipeOpen: boolean;
+  setSwipeOpenId: (id: string | null) => void;
 }) {
   const { updateMemo } = useMemoWorkspace();
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+  const foregroundRef = useRef<HTMLElement>(null);
+  const gesture = useSwipeActionGesture({
+    enabled: mobile && !editing && !deleting,
+    itemId: memo.id,
+    open: swipeOpen,
+    actionWidth: 144,
+    onOpenChange: setSwipeOpenId,
+    foregroundRef,
+  });
   const draftKey = `xiangying:memo-edit:${memo.id}`;
   const readEditDraft = () => {
     try {
@@ -104,90 +121,146 @@ function MemoCard({
   };
 
   return (
-    <article
-      className={`memo-card ${editing ? "is-editing" : ""}`.trim()}
-      data-memo-id={memo.id}
-      tabIndex={editing ? -1 : 0}
-      aria-label={`${dayHeading(localDateKey(memo.createdAt))} ${timeLabel(memo.createdAt)} 的随记，按 Enter 编辑`}
-      onDoubleClick={(event) => beginEdit(event.target)}
-      onKeyDown={(event) => {
-        if (editing || event.nativeEvent.isComposing || event.keyCode === 229) return;
-        if (event.key === "Enter" || event.key === "F2") {
-          if (
-            event.target instanceof Element &&
-            event.target.closest("a,button,input,textarea,select,[contenteditable='true']")
-          )
-            return;
-          event.preventDefault();
-          onEdit();
-        }
-      }}
+    <div
+      className={`swipe-action-row memo-card-swipe${swipeOpen ? " is-swipe-open" : ""}`}
+      style={
+        { "--swipe-action-width": "144px", "--swipe-action-button-width": "72px" } as CSSProperties
+      }
+      {...gesture}
     >
-      <button
-        className="memo-card-convert"
-        type="button"
-        aria-label="转为笔记"
-        disabled={deleting || editing}
-        onClick={() => {
-          setDeleteError("");
-          void onConvert(memo).catch((reason) =>
-            setDeleteError(reason instanceof Error ? reason.message : "转换失败"),
-          );
-        }}
-      >
-        <FileText size={16} aria-hidden="true" />
-      </button>
-      <span className="memo-card-delete-zone">
-        <button
-          className="memo-card-delete"
-          type="button"
-          aria-label="删除随记"
-          disabled={deleting || editing}
-          onClick={() => void remove()}
+      {mobile && !editing && (
+        <div
+          className="swipe-action-buttons"
+          role="group"
+          aria-label="随记操作"
+          aria-hidden={!swipeOpen}
+          inert={!swipeOpen}
         >
-          <Trash2 size={16} aria-hidden="true" />
-        </button>
-      </span>
-      <header className="memo-card-header">
-        <time dateTime={new Date(memo.createdAt).toISOString()}>{timeLabel(memo.createdAt)}</time>
-      </header>
-      {editing ? (
-        <MemoComposer
-          key={memo.id}
-          initialMarkdown={editDraft?.markdown ?? memo.contentMarkdown}
-          placeholder="修改这条随记"
-          ariaLabel="编辑随记"
-          autoFocus
-          onSubmit={async (markdown) => {
-            const draftAtSubmit = readEditDraft();
-            await updateMemo({ ...memo, version: editVersion }, markdown);
-            const currentDraft = readEditDraft();
-            if (
-              currentDraft &&
-              currentDraft.version === editVersion &&
-              (currentDraft.markdown === markdown ||
-                currentDraft.markdown === draftAtSubmit?.markdown)
-            )
-              writeEditDraft("");
-            onFinishEdit();
-          }}
-          onDraftChange={writeEditDraft}
-          onCancel={() => {
-            writeEditDraft("");
-            onFinishEdit();
-          }}
-        />
-      ) : (
-        <div className="memo-card-content">
-          <MemoMarkdown markdown={memo.contentMarkdown} />
+          <button
+            type="button"
+            className="swipe-action-button"
+            tabIndex={swipeOpen ? 0 : -1}
+            aria-label="转为笔记"
+            disabled={deleting}
+            onClick={() => {
+              setSwipeOpenId(null);
+              setDeleteError("");
+              void onConvert(memo).catch((reason) =>
+                setDeleteError(reason instanceof Error ? reason.message : "转换失败"),
+              );
+            }}
+          >
+            <span className="swipe-action-icon">
+              <FileText size={17} aria-hidden="true" />
+            </span>
+          </button>
+          <button
+            type="button"
+            className="swipe-action-button is-danger"
+            tabIndex={swipeOpen ? 0 : -1}
+            aria-label="删除随记"
+            disabled={deleting}
+            onClick={() => {
+              setSwipeOpenId(null);
+              void remove();
+            }}
+          >
+            <span className="swipe-action-icon">
+              <Trash2 size={17} aria-hidden="true" />
+            </span>
+          </button>
         </div>
       )}
-      {deleteError && (
-        <p className="memo-card-error" role="alert">
-          {deleteError}
-        </p>
-      )}
-    </article>
+      <article
+        ref={foregroundRef}
+        className={`memo-card swipe-action-foreground ${editing ? "is-editing" : ""}`.trim()}
+        data-memo-id={memo.id}
+        tabIndex={editing ? -1 : 0}
+        aria-label={`${dayHeading(localDateKey(memo.createdAt))} ${timeLabel(memo.createdAt)} 的随记，按 Enter 编辑`}
+        onDoubleClick={(event) => beginEdit(event.target)}
+        onKeyDown={(event) => {
+          if (editing || event.nativeEvent.isComposing || event.keyCode === 229) return;
+          if (event.key === "Enter" || event.key === "F2") {
+            if (
+              event.target instanceof Element &&
+              event.target.closest("a,button,input,textarea,select,[contenteditable='true']")
+            )
+              return;
+            event.preventDefault();
+            onEdit();
+          }
+        }}
+      >
+        {!mobile && (
+          <button
+            className="memo-card-convert"
+            type="button"
+            aria-label="转为笔记"
+            disabled={deleting || editing}
+            onClick={() => {
+              setDeleteError("");
+              void onConvert(memo).catch((reason) =>
+                setDeleteError(reason instanceof Error ? reason.message : "转换失败"),
+              );
+            }}
+          >
+            <FileText size={16} aria-hidden="true" />
+          </button>
+        )}
+        {!mobile && (
+          <span className="memo-card-delete-zone">
+            <button
+              className="memo-card-delete"
+              type="button"
+              aria-label="删除随记"
+              disabled={deleting || editing}
+              onClick={() => void remove()}
+            >
+              <Trash2 size={16} aria-hidden="true" />
+            </button>
+          </span>
+        )}
+        <header className="memo-card-header">
+          <time dateTime={new Date(memo.createdAt).toISOString()}>{timeLabel(memo.createdAt)}</time>
+        </header>
+        {editing ? (
+          <MemoComposer
+            key={memo.id}
+            initialMarkdown={editDraft?.markdown ?? memo.contentMarkdown}
+            placeholder="修改这条随记"
+            ariaLabel="编辑随记"
+            autoFocus
+            onSubmit={async (markdown) => {
+              const draftAtSubmit = readEditDraft();
+              await updateMemo({ ...memo, version: editVersion }, markdown);
+              const currentDraft = readEditDraft();
+              if (
+                currentDraft &&
+                currentDraft.version === editVersion &&
+                (currentDraft.markdown === markdown ||
+                  currentDraft.markdown === draftAtSubmit?.markdown)
+              )
+                writeEditDraft("");
+              onFinishEdit();
+            }}
+            onDraftChange={writeEditDraft}
+            onCancel={() => {
+              writeEditDraft("");
+              onFinishEdit();
+            }}
+          />
+        ) : (
+          <div className="memo-card-content">
+            <MemoMarkdown markdown={memo.contentMarkdown} />
+          </div>
+        )}
+        {deleteError && (
+          <p className="memo-card-error" role="alert">
+            {deleteError}
+          </p>
+        )}
+      </article>
+    </div>
   );
 }
 
@@ -198,6 +271,7 @@ function MemoList({
   pageScrollRef,
   onBeginEditRef,
   onConvert,
+  isMobileViewport,
 }: {
   editingMemo: Memo | null;
   setEditingMemo: (memo: Memo | null) => void;
@@ -205,6 +279,7 @@ function MemoList({
   pageScrollRef: RefObject<HTMLElement | null>;
   onBeginEditRef?: MutableRefObject<((memo: Memo) => void) | null>;
   onConvert: (memo: Memo) => Promise<void>;
+  isMobileViewport: boolean;
 }) {
   const {
     memos,
@@ -228,6 +303,11 @@ function MemoList({
   const groups = useMemo(() => groupedByLocalDate(visibleMemos), [visibleMemos]);
   const rows = useMemo(() => flattenMemoGroups(groups), [groups]);
   const scope = JSON.stringify([query, tag, selectedDate]);
+  const swipeActions = useSwipeActionGroup(
+    pageScroller ? pageScrollRef : scrollRef,
+    isMobileViewport,
+    scope,
+  );
   const [focusedMemoId, setFocusedMemoId] = useState<string | null>(null);
   const [editingWasVirtualized, setEditingWasVirtualized] = useState(false);
   const editingSessionRef = useRef(0);
@@ -251,6 +331,7 @@ function MemoList({
   const canAutoLoad = typeof IntersectionObserver !== "undefined";
   const filtered = Boolean(query || tag || selectedDate);
   const beginEdit = (memo: Memo) => {
+    swipeActions.close();
     editingSessionRef.current += 1;
     setEditingWasVirtualized(virtualList.isVirtualized);
     setEditingMemo(memo);
@@ -347,6 +428,9 @@ function MemoList({
       onEdit={() => beginEdit(memo)}
       onFinishEdit={() => finishEdit(editingSession)}
       onConvert={onConvert}
+      mobile={isMobileViewport}
+      swipeOpen={swipeActions.openId === memo.id}
+      setSwipeOpenId={swipeActions.setOpenId}
       onDelete={async (target) => {
         await deleteMemo(target);
         if (editingMemo?.id === target.id) finishEdit(editingSession);
@@ -460,6 +544,9 @@ function MemoList({
                     onEdit={() => beginEdit(memo)}
                     onFinishEdit={() => finishEdit(editingSession)}
                     onConvert={onConvert}
+                    mobile={isMobileViewport}
+                    swipeOpen={swipeActions.openId === memo.id}
+                    setSwipeOpenId={swipeActions.setOpenId}
                     onDelete={async (target) => {
                       await deleteMemo(target);
                       if (editingMemo?.id === target.id) finishEdit(editingSession);
@@ -1043,6 +1130,7 @@ export function MemoPage({
                 onSubmit={submit}
               />
               <MemoList
+                isMobileViewport={isMobileViewport}
                 editingMemo={editingMemo}
                 setEditingMemo={setEditingMemo}
                 scrollRef={scrollRef}

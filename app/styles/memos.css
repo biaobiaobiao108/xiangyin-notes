@@ -1212,6 +1212,23 @@
 }
 
 @media (max-width: 900px) {
+  .memo-card-swipe {
+    animation: page-content-in var(--motion-panel) var(--motion-ease-out) both;
+  }
+
+  .memo-card-swipe > .memo-card {
+    animation: none;
+    transition:
+      transform var(--motion-fast) var(--motion-ease-out),
+      background-color var(--motion-micro) var(--motion-ease-out),
+      filter var(--motion-micro) var(--motion-ease-out),
+      scale var(--motion-panel) var(--motion-spring);
+  }
+
+  .memo-virtual-row .memo-card-swipe {
+    animation: none;
+  }
+
   .app-shell[data-mobile-page] .memo-mobile-header {
     position: sticky;
     top: 0;
@@ -1283,7 +1300,7 @@
   }
 }
 
-@media (hover: none), (pointer: coarse) {
+@media (min-width: 901px) and (hover: none), (min-width: 901px) and (pointer: coarse) {
   .memo-card-header {
     min-height: 32px;
     padding-right: 80px;
@@ -1318,12 +1335,17 @@
 
 @media (prefers-reduced-motion: reduce) {
   .memo-card,
+  .memo-card-swipe,
   .memo-toast {
     animation: none;
   }
 
   .memo-filter-collapse,
   .memo-filter-collapse.is-open {
+    transition: none;
+  }
+
+  .memo-card-swipe > .memo-card {
     transition: none;
   }
 
