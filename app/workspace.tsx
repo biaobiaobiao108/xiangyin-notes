@@ -13,10 +13,8 @@ import { useContextMenu } from "./context-menu";
 import { copyPlainText } from "./editor/code-block-copy";
 import { moveSelectedNotes } from "./workspace/move-selected-notes";
 import { ApiError, api } from "./api";
-import { createUuid } from "./uuid";
 import { CommandId, CommandMenu } from "./command-menu";
 import { applyPwaUpdate, installPwa, subscribePwa, type PwaState } from "./pwa";
-import type { WorkspaceChangeMessage } from "../shared/realtime";
 import type { Note, NoteSummary, NoteView, Notebook } from "../shared/types";
 import { useOutlineState } from "./workspace/use-outline-state";
 import { ConfirmDialog, NotebookDialog, type ConfirmRequest } from "./workspace/dialogs";
@@ -36,12 +34,7 @@ import {
 } from "./workspace/helpers";
 import { useNoteSelection } from "./workspace/use-note-selection";
 import { useNoteSaveQueue, type SaveState } from "./workspace/use-note-save-queue";
-import { useWorkspaceRealtime } from "./workspace/use-realtime";
-import {
-  accumulateRealtimeRefresh,
-  emptyRealtimeRefreshPlan,
-  type RealtimeRefreshPlan,
-} from "./workspace/realtime-refresh";
+import { emptyRealtimeRefreshPlan, type RealtimeRefreshPlan } from "./workspace/realtime-refresh";
 import { refreshSelectedNote } from "./workspace/selected-note-sync";
 import { useWorkspaceShortcuts } from "./workspace/use-workspace-shortcuts";
 import { useTrashActions } from "./workspace/use-trash-actions";
@@ -58,7 +51,6 @@ import { useNotices } from "./workspace/use-notices";
 import { SystemNotices } from "./workspace/system-notices";
 import { MobileNotebookHome, MobileBottomBar } from "./workspace/mobile-panels";
 import { viewLabel } from "./workspace/helpers";
-import { parseTagQuery } from "../shared/tags";
 import { useThemePreference } from "./theme";
 import { createWorkspaceContextMenuHandler } from "./workspace/workspace-context-menu";
 import { useWorkspacePreferences } from "./workspace/use-workspace-preferences";
@@ -73,6 +65,9 @@ import { useWorkspaceWikiLinks } from "./workspace/use-workspace-wiki-links";
 import { useSelectedNoteLoader } from "./workspace/use-selected-note-loader";
 import { useWorkspaceNoteInteractions } from "./workspace/use-workspace-note-interactions";
 import { useWorkspaceListChanges } from "./workspace/use-workspace-list-changes";
+import { useWorkspaceRealtimeRefresh } from "./workspace/use-workspace-realtime-refresh";
+import { useWorkspaceSearch } from "./workspace/use-workspace-search";
+import { useWorkspaceNotebookEditor } from "./workspace/use-workspace-notebook-editor";
 import { useWorkspaceNavigation } from "./workspace/use-workspace-navigation";
 import { useWorkspaceTaskActions } from "./workspace/use-workspace-task-actions";
 import { useWorkspaceSplit } from "./workspace/use-workspace-split";
@@ -795,62 +790,16 @@ export function Workspace() {
       notifyError,
       navigate,
     });
-  const createNotebook = useCallback(() => setEditingNotebook(null), []);
-  const saveNotebook = useCallback(
-    (saved: Notebook) => {
-      setNotebooks((current) => {
-        const exists = current.some((nb) => nb.id === saved.id);
-        return exists
-          ? current.map((nb) => (nb.id === saved.id ? { ...nb, ...saved } : nb))
-          : [...current, saved];
-      });
-      if (editingNotebook) {
-        const current = selectedRef.current;
-        if (current?.notebookId === saved.id) {
-          const next = { ...current, notebookName: saved.name };
-          selectedRef.current = next;
-          setSelectedNote(noteMetadataSnapshot(next));
-        }
-      } else {
-        setNotebookId(saved.id);
-        setView("all");
-        openMobileList({ view: "all", notebookId: saved.id, query: "", searchOrigin: null });
-      }
-      setEditingNotebook(undefined);
-    },
-    [openMobileList, editingNotebook],
-  );
-  const saveNotebookDraft = useCallback(
-    async (draft: { name: string; color: string; icon: string }) => {
-      const existing = editingNotebook ?? undefined;
-      const timestamp = Math.floor(Date.now() / 1000);
-      const notebook: Notebook = existing
-        ? { ...existing, name: draft.name, color: draft.color, icon: draft.icon }
-        : {
-            id: createUuid(),
-            name: draft.name,
-            color: draft.color,
-            icon: draft.icon,
-            isSystem: false,
-            count: 0,
-            updatedAt: timestamp,
-          };
-      const result = existing
-        ? await api.updateNotebook(notebook.id, {
-            name: notebook.name,
-            color: notebook.color,
-            icon: notebook.icon,
-            expectedUpdatedAt: existing.updatedAt,
-          })
-        : await api.createNotebook({
-            name: notebook.name,
-            color: notebook.color,
-            icon: notebook.icon,
-          });
-      return result.notebook;
-    },
-    [editingNotebook],
-  );
+  const { createNotebook, saveNotebook, saveNotebookDraft } = useWorkspaceNotebookEditor({
+    editingNotebook,
+    setEditingNotebook,
+    setNotebooks,
+    selectedRef,
+    setSelectedNote,
+    setNotebookId,
+    setView,
+    openMobileList,
+  });
   const refreshSelectedNoteFromRemote = useCallback(
     (noteId: string) =>
       refreshSelectedNote(noteId, {
@@ -1165,53 +1114,25 @@ export function Workspace() {
       closeSplit();
     }
   }, [closeSplit, handleNoteSwipeAction]);
-  const handleRealtimeChange = useCallback(
-    (message?: WorkspaceChangeMessage) => {
-      accumulateRealtimeRefresh(
-        pendingRealtimeRefreshRef.current,
-        message,
-        Boolean(deferredQuery.trim()),
-      );
-      if (realtimeRefreshTimerRef.current !== null) return;
-      realtimeRefreshTimerRef.current = setTimeout(() => {
-        realtimeRefreshTimerRef.current = null;
-        const next = pendingRealtimeRefreshRef.current;
-        pendingRealtimeRefreshRef.current = emptyRealtimeRefreshPlan();
-        if (next.memos && memosOpen) setMemoRefreshToken((value) => value + 1);
-        if (next.notes || next.noteIds.size || next.notebooks) {
-          if (tasksOpen) setTaskRefreshToken((value) => value + 1);
-          if (kanbanOpen) setKanbanRefreshToken((value) => value + 1);
-        }
-        if (next.notebooks) void refreshNotebooks();
-        if (next.notes) {
-          reloadNotes();
-        }
-        const activeId = activeNoteIdRef.current;
-        if (activeId && (next.selected || next.noteIds.has(activeId)))
-          void refreshSelectedNoteFromRemote(activeId);
-        const currentSplitId = splitNoteIdRef.current;
-        if (currentSplitId && (next.selected || next.noteIds.has(currentSplitId))) {
-          void refreshSplitNoteFromRemote(currentSplitId);
-        }
-        for (const noteId of next.noteIds) {
-          if (!next.notes && noteId !== activeId && noteId !== currentSplitId)
-            void patchNoteFromRemote(noteId);
-        }
-      }, 50);
-    },
-    [
-      deferredQuery,
-      memosOpen,
-      tasksOpen,
-      kanbanOpen,
-      patchNoteFromRemote,
-      refreshNotebooks,
-      refreshSelectedNoteFromRemote,
-      refreshSplitNoteFromRemote,
-      reloadNotes,
-    ],
-  );
-  useWorkspaceRealtime({ ready, onChange: handleRealtimeChange });
+  useWorkspaceRealtimeRefresh({
+    ready,
+    pendingRealtimeRefreshRef,
+    realtimeRefreshTimerRef,
+    deferredQuery,
+    memosOpen,
+    tasksOpen,
+    kanbanOpen,
+    setMemoRefreshToken,
+    setTaskRefreshToken,
+    setKanbanRefreshToken,
+    refreshNotebooks,
+    reloadNotes,
+    activeNoteIdRef,
+    splitNoteIdRef,
+    refreshSelectedNoteFromRemote,
+    refreshSplitNoteFromRemote,
+    patchNoteFromRemote,
+  });
   const {
     selectView,
     openTasks,
@@ -1284,50 +1205,26 @@ export function Workspace() {
     notesRef,
     replaceList,
   });
-  const closeCommandMenu = useCallback(() => {
-    setCommandOpen(false);
-    setCommandInitialQuery("");
-  }, []);
-  const handleSearchInCurrentNote = useCallback((term: string) => {
-    const normalized = term.trim();
-    if (!normalized) return;
-    if (!selectedRef.current) {
-      notifyWarning("当前未打开笔记，无法在单篇笔记内查找");
-      return;
-    }
-    setResultSearch(null);
-    setInNoteSearchQuery(normalized);
-  }, []);
-  const handleSearchGlobal = useCallback(
-    (term: string) => {
-      const normalized = term.trim();
-      if (!normalized) return;
-      setInNoteSearchQuery("");
-      setResultSearch(null);
-      changeQuery(normalized);
-      setSidebarCollapsed(false);
-      setCardEditingNoteId(null);
-      openMobileList();
-      closeCommandMenu();
-    },
-    [changeQuery, closeCommandMenu, openMobileList],
-  );
-  const handleClearInNoteSearch = useCallback(() => {
-    setInNoteSearchQuery("");
-    setResultSearch(null);
-  }, []);
-  const locateSearchResult = useCallback(
-    (id: string) => {
-      const term = deferredQuery.trim();
-      setInNoteSearchQuery("");
-      setResultSearch(
-        term && !parseTagQuery(term)
-          ? { id, query: term, token: ++resultSearchTokenRef.current }
-          : null,
-      );
-    },
-    [deferredQuery],
-  );
+  const {
+    closeCommandMenu,
+    handleSearchInCurrentNote,
+    handleSearchGlobal,
+    handleClearInNoteSearch,
+    locateSearchResult,
+  } = useWorkspaceSearch({
+    setCommandOpen,
+    setCommandInitialQuery,
+    selectedRef,
+    notifyWarning,
+    setResultSearch,
+    setInNoteSearchQuery,
+    changeQuery,
+    setSidebarCollapsed,
+    setCardEditingNoteId,
+    openMobileList,
+    deferredQuery,
+    resultSearchTokenRef,
+  });
   const copyNoteMarkdown = useCallback(async () => {
     const note = selectedRef.current;
     if (!note) return;
