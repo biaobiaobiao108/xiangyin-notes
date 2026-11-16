@@ -947,7 +947,7 @@ export function MemoPage({
                     type="button"
                     aria-label="日期和标签筛选"
                     aria-expanded={filtersOpen}
-                    aria-controls={filtersOpen ? "memo-filter-panel" : undefined}
+                    aria-controls="memo-filter-panel"
                     onClick={() => setFiltersOpen((open) => !open)}
                   >
                     <CalendarDays size={18} aria-hidden="true" />
@@ -976,14 +976,22 @@ export function MemoPage({
                   </button>
                 )}
               </div>
-              {narrow && filtersOpen && (
-                <MemoRail
-                  panel
-                  onSelect={() => {
-                    setFiltersOpen(false);
-                    filterButtonRef.current?.focus({ preventScroll: true });
-                  }}
-                />
+              {narrow && (
+                <div
+                  className={`memo-filter-collapse ${filtersOpen ? "is-open" : ""}`.trim()}
+                  inert={!filtersOpen}
+                  aria-hidden={!filtersOpen}
+                >
+                  <div className="memo-filter-collapse-inner">
+                    <MemoRail
+                      panel
+                      onSelect={() => {
+                        setFiltersOpen(false);
+                        filterButtonRef.current?.focus({ preventScroll: true });
+                      }}
+                    />
+                  </div>
+                </div>
               )}
               <MemoComposer
                 ref={composerRef}

@@ -1155,12 +1155,37 @@
     display: block;
     overflow: visible;
   }
+  .memo-filter-collapse {
+    display: grid;
+    grid-template-rows: 0fr;
+    opacity: 0;
+    visibility: hidden;
+    transition:
+      grid-template-rows var(--motion-panel) var(--motion-ease-out),
+      opacity var(--motion-panel) var(--motion-ease-out),
+      visibility 0s linear var(--motion-panel);
+  }
+
+  .memo-filter-collapse.is-open {
+    grid-template-rows: 1fr;
+    opacity: 1;
+    visibility: visible;
+    transition:
+      grid-template-rows var(--motion-panel) var(--motion-ease-out),
+      opacity var(--motion-panel) var(--motion-ease-out),
+      visibility 0s;
+  }
+
+  .memo-filter-collapse-inner {
+    min-height: 0;
+    overflow: hidden;
+  }
+
   .memo-filter-panel {
     gap: 24px;
     margin-bottom: 16px;
     padding: 0;
     border: 0;
-    animation: page-content-in var(--motion-fast) var(--motion-ease-out);
   }
 
   .memo-filter-panel .memo-tag-section {
@@ -1264,9 +1289,13 @@
 
 @media (prefers-reduced-motion: reduce) {
   .memo-card,
-  .memo-toast,
-  .memo-filter-panel {
+  .memo-toast {
     animation: none;
+  }
+
+  .memo-filter-collapse,
+  .memo-filter-collapse.is-open {
+    transition: none;
   }
 
   .memo-page button:active:not(:disabled):not(.floating-scrollbar-thumb) {
