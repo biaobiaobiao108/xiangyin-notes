@@ -71,6 +71,7 @@ function MemoCard({
   const [copyNotice, setCopyNotice] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+  const composerRef = useRef<MemoComposerHandle>(null);
   const foregroundRef = useRef<HTMLElement>(null);
   const gesture = useSwipeActionGesture({
     enabled: mobile && !editing && !deleting,
@@ -83,8 +84,20 @@ function MemoCard({
   const readEditDraft = () => readMemoEditDraft(memo.id);
   const editDraft = editing ? readEditDraft() : null;
   const editVersion = editDraft?.version ?? editingVersion ?? memo.version;
+  const conflictMemo = conflict ?? (editDraft?.conflict ? memo : null);
   const writeEditDraft = (markdown: string) => {
-    writeMemoEditDraft(memo.id, markdown ? { markdown, version: editVersion } : null);
+    const current = readEditDraft();
+    const isConflict = Boolean(current?.conflict || conflict);
+    writeMemoEditDraft(
+      memo.id,
+      markdown || isConflict
+        ? {
+            markdown,
+            version: current?.version ?? editVersion,
+            ...(isConflict ? { conflict: true } : {}),
+          }
+        : null,
+    );
   };
 
   const beginEdit = (target?: EventTarget | null) => {
@@ -215,6 +228,7 @@ function MemoCard({
         {editing ? (
           <>
             <MemoComposer
+              ref={composerRef}
               key={memo.id}
               initialMarkdown={editDraft?.markdown ?? memo.contentMarkdown}
               placeholder="修改这条随记"
@@ -222,6 +236,8 @@ function MemoCard({
               autoFocus
               onSubmit={async (markdown) => {
                 const draftAtSubmit = readEditDraft();
+                if (draftAtSubmit?.conflict || conflict)
+                  throw new Error("请先处理冲突草稿，再保存随记。");
                 const submittedDraft = draftAtSubmit?.markdown === markdown ? draftAtSubmit : null;
                 try {
                   await updateMemo({ ...memo, version: editVersion }, markdown);
@@ -249,11 +265,11 @@ function MemoCard({
               }}
               onDraftChange={writeEditDraft}
               onCancel={() => {
-                if (!conflict) writeEditDraft("");
+                if (!conflictMemo && !readEditDraft()?.conflict) writeEditDraft("");
                 onFinishEdit();
               }}
             />
-            {conflict && (
+            {conflictMemo && (
               <section className="memo-conflict" aria-label="随记保存冲突">
                 <p>这条随记已在别处更新。草稿已保留，请选择如何处理。</p>
                 <div className="memo-conflict-actions">
@@ -271,6 +287,7 @@ function MemoCard({
                   <button
                     type="button"
                     onClick={() => {
+                      composerRef.current?.discardPendingDraft();
                       writeMemoEditDraft(memo.id, null);
                       setConflict(null);
                       setCopyNotice("");
@@ -288,7 +305,7 @@ function MemoCard({
                 )}
                 <details>
                   <summary>查看最新随记</summary>
-                  <MemoMarkdown markdown={conflict.contentMarkdown} />
+                  <MemoMarkdown markdown={conflictMemo.contentMarkdown} />
                 </details>
               </section>
             )}

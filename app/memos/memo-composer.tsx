@@ -64,6 +64,7 @@ export function normalizeMemoComposerContent(markdown: string) {
 
 export type MemoComposerHandle = {
   focus: () => void;
+  discardPendingDraft: () => void;
 };
 
 export type MemoComposerProps = {
@@ -121,6 +122,11 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
   useImperativeHandle(ref, () => ({
     focus: () => {
       editorRef.current?.commands.focus("end");
+    },
+    discardPendingDraft: () => {
+      if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+      draftTimerRef.current = null;
+      pendingDraftRef.current = null;
     },
   }));
 
@@ -381,7 +387,10 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
       queueDraft(markdown);
     },
     onBlur: ({ event }) => {
-      if (event.relatedTarget instanceof Element && event.relatedTarget.closest(".context-menu"))
+      if (
+        event.relatedTarget instanceof Element &&
+        event.relatedTarget.closest(".context-menu, .memo-conflict")
+      )
         return;
       void submit("blur");
     },
