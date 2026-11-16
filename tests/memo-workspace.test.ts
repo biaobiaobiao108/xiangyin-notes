@@ -2,15 +2,33 @@ import { describe, expect, test } from "bun:test";
 import {
   invalidateMemoListRequest,
   mergeMemoPagePreservingLoadedItems,
+  memoConflictCurrent,
   reconcileMemoListRefresh,
 } from "../app/memos/memo-workspace";
 import type { Memo } from "../shared/types";
+import { ApiError } from "../app/api";
 
 function memo(id: string, createdAt: number, contentMarkdown = id): Memo {
   return { id, createdAt, updatedAt: createdAt, contentMarkdown, tags: [], version: 1 };
 }
 
 describe("memo list request invalidation", () => {
+  test("extracts the server version only from a valid memo conflict", () => {
+    const latest = memo("one", 4, "saved content");
+    expect(
+      memoConflictCurrent(
+        new ApiError(409, "VERSION_CONFLICT", "冲突", { error: { current: latest } }),
+      ),
+    ).toEqual(latest);
+    expect(
+      memoConflictCurrent(
+        new ApiError(409, "VERSION_CONFLICT", "冲突", { error: { current: { id: "one" } } }),
+      ),
+    ).toBeNull();
+    expect(
+      memoConflictCurrent(new ApiError(500, "OTHER", "错误", { error: { current: latest } })),
+    ).toBeNull();
+  });
   test("aborts pending list requests and advances the request version", () => {
     const controller = new AbortController();
     const requestRef = { current: 4 };

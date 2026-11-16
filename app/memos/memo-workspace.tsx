@@ -54,6 +54,23 @@ function errorMessage(reason: unknown, fallback: string) {
   return reason instanceof ApiError && reason.message ? reason.message : fallback;
 }
 
+export function memoConflictCurrent(reason: unknown): Memo | null {
+  if (!(reason instanceof ApiError) || reason.code !== "VERSION_CONFLICT") return null;
+  const error = reason.details?.error as { current?: unknown } | undefined;
+  const current = error?.current as Partial<Memo> | null | undefined;
+  if (
+    !current ||
+    typeof current.id !== "string" ||
+    typeof current.contentMarkdown !== "string" ||
+    !Number.isSafeInteger(current.version) ||
+    !Array.isArray(current.tags) ||
+    typeof current.createdAt !== "number" ||
+    typeof current.updatedAt !== "number"
+  )
+    return null;
+  return current as Memo;
+}
+
 function readDraft(key: string) {
   try {
     return localStorage.getItem(key) ?? "";
@@ -374,7 +391,14 @@ export function MemoWorkspaceProvider({
     async (memo: Memo, contentMarkdown: string) => {
       const scopeAtStart = listScope;
       try {
-        const result = await api.updateMemo(memo.id, { version: memo.version, contentMarkdown });
+        const result = await api
+          .updateMemo(memo.id, { version: memo.version, contentMarkdown })
+          .catch((reason: unknown) => {
+            const current = memoConflictCurrent(reason);
+            if (current && current.id === memo.id && current.contentMarkdown === contentMarkdown)
+              return { memo: current };
+            throw reason;
+          });
         const shouldReload = invalidateListRequest();
         if (scopeAtStart !== currentListScopeRef.current) {
           refresh();
@@ -396,6 +420,8 @@ export function MemoWorkspaceProvider({
     async (memo: Memo) => {
       const scopeAtStart = listScope;
       try {
+        if (localStorage.getItem(`xiangying:memo-edit:${memo.id}`))
+          throw new Error("这条随记有未保存的编辑草稿，请先打开并处理草稿");
         await api.deleteMemo(memo.id, memo.version);
         const shouldReload = invalidateListRequest();
         if (scopeAtStart !== currentListScopeRef.current) {

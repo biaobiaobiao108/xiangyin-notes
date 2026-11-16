@@ -25,7 +25,7 @@ import {
   timelineDateLabel,
   timeLabel,
 } from "./memo-date";
-import { useMemoWorkspace } from "./memo-workspace";
+import { memoConflictCurrent, useMemoWorkspace } from "./memo-workspace";
 import {
   flattenMemoGroups,
   includePinnedMemo,
@@ -65,7 +65,8 @@ function MemoCard({
   swipeOpen: boolean;
   setSwipeOpenId: (id: string | null) => void;
 }) {
-  const { updateMemo } = useMemoWorkspace();
+  const { updateMemo, refresh } = useMemoWorkspace();
+  const [conflict, setConflict] = useState<Memo | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   const foregroundRef = useRef<HTMLElement>(null);
@@ -224,31 +225,50 @@ function MemoCard({
           <time dateTime={new Date(memo.createdAt).toISOString()}>{timeLabel(memo.createdAt)}</time>
         </header>
         {editing ? (
-          <MemoComposer
-            key={memo.id}
-            initialMarkdown={editDraft?.markdown ?? memo.contentMarkdown}
-            placeholder="修改这条随记"
-            ariaLabel="编辑随记"
-            autoFocus
-            onSubmit={async (markdown) => {
-              const draftAtSubmit = readEditDraft();
-              await updateMemo({ ...memo, version: editVersion }, markdown);
-              const currentDraft = readEditDraft();
-              if (
-                currentDraft &&
-                currentDraft.version === editVersion &&
-                (currentDraft.markdown === markdown ||
-                  currentDraft.markdown === draftAtSubmit?.markdown)
-              )
+          <>
+            <MemoComposer
+              key={memo.id}
+              initialMarkdown={editDraft?.markdown ?? memo.contentMarkdown}
+              placeholder="修改这条随记"
+              ariaLabel="编辑随记"
+              autoFocus
+              onSubmit={async (markdown) => {
+                const draftAtSubmit = readEditDraft();
+                try {
+                  await updateMemo({ ...memo, version: editVersion }, markdown);
+                } catch (reason) {
+                  const current = memoConflictCurrent(reason);
+                  if (current) {
+                    setConflict(current);
+                    throw new Error("随记已更新。请复制上方草稿，再按 Escape 退出并编辑最新内容。");
+                  }
+                  throw reason;
+                }
+                const currentDraft = readEditDraft();
+                if (
+                  currentDraft &&
+                  currentDraft.version === editVersion &&
+                  (currentDraft.markdown === markdown ||
+                    currentDraft.markdown === draftAtSubmit?.markdown)
+                )
+                  writeEditDraft("");
+                onFinishEdit();
+              }}
+              onDraftChange={writeEditDraft}
+              onCancel={() => {
                 writeEditDraft("");
-              onFinishEdit();
-            }}
-            onDraftChange={writeEditDraft}
-            onCancel={() => {
-              writeEditDraft("");
-              onFinishEdit();
-            }}
-          />
+                if (conflict) refresh();
+                setConflict(null);
+                onFinishEdit();
+              }}
+            />
+            {conflict && (
+              <details>
+                <summary>查看最新随记</summary>
+                <MemoMarkdown markdown={conflict.contentMarkdown} />
+              </details>
+            )}
+          </>
         ) : (
           <div className="memo-card-content">
             <MemoMarkdown markdown={memo.contentMarkdown} />
