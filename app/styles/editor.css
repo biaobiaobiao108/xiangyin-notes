@@ -892,10 +892,13 @@
 .note-prose pre code::before {
   content: "";
   float: right;
-  width: 144px;
+  width: 32px;
   max-width: 60%;
   height: 30px;
   pointer-events: none;
+}
+.note-prose pre .code-block-language ~ code::before {
+  width: 144px;
 }
 .note-prose .code-block-language {
   position: absolute;
