@@ -454,14 +454,6 @@
   margin-bottom: 0;
 }
 
-.memo-card-content .note-prose pre code::before {
-  content: "";
-  float: right;
-  width: 68px;
-  height: 22px;
-  pointer-events: none;
-}
-
 .memo-card-convert {
   display: none;
 }

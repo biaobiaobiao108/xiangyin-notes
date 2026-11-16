@@ -853,7 +853,7 @@
   overflow-wrap: anywhere;
   white-space: pre-wrap;
   margin-block: 1.25em;
-  padding: 48px 20px 18px;
+  padding: 16px 20px 18px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface-code);
@@ -889,19 +889,27 @@
   color: inherit;
   font: inherit;
 }
+.note-prose pre code::before {
+  content: "";
+  float: right;
+  width: 144px;
+  max-width: 60%;
+  height: 30px;
+  pointer-events: none;
+}
 .note-prose .code-block-language {
   position: absolute;
   inset-block-start: 8px;
   inset-inline-end: 42px;
   z-index: 1;
-  display: inline-flex;
-  align-items: center;
+  display: block;
   height: 30px;
-  max-width: calc(100% - 50px);
+  max-width: min(96px, calc(60% - 24px));
   overflow: hidden;
   padding: 0 6px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.72rem;
+  line-height: 30px;
   font-weight: 500;
   color: var(--muted);
   user-select: none;
