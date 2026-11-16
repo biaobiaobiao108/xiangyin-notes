@@ -1,4 +1,4 @@
-import { ChevronLeft, Copy, Plus, Search, Trash2, X } from "lucide-react";
+import { CalendarDays, ChevronLeft, Copy, Plus, Search, Trash2, X } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -456,7 +456,7 @@ function MemoList({
   );
 }
 
-function MemoTagFilters() {
+function MemoTagFilters({ onSelect }: { onSelect?: () => void }) {
   const memo = useMemoWorkspace();
   const listRef = useRef<HTMLDivElement>(null);
   const scrollEdges = useScrollEdges(listRef, [memo.tagCounts.length, memo.tag]);
@@ -465,7 +465,13 @@ function MemoTagFilters() {
       <header>
         <h2>标签</h2>
         {memo.tag && (
-          <button type="button" onClick={() => memo.setTag(null)}>
+          <button
+            type="button"
+            onClick={() => {
+              memo.setTag(null);
+              onSelect?.();
+            }}
+          >
             全部
           </button>
         )}
@@ -482,7 +488,10 @@ function MemoTagFilters() {
                 data-tag={item.tag}
                 className={memo.tag === item.tag ? "is-active" : ""}
                 aria-pressed={memo.tag === item.tag}
-                onClick={() => memo.setTag(memo.tag === item.tag ? null : item.tag)}
+                onClick={() => {
+                  memo.setTag(memo.tag === item.tag ? null : item.tag);
+                  onSelect?.();
+                }}
               >
                 <span>#{item.tag}</span>
                 <em>{item.count}</em>
@@ -503,10 +512,14 @@ function MemoTagFilters() {
   );
 }
 
-function MemoRail() {
+function MemoRail({ onSelect, panel = false }: { onSelect?: () => void; panel?: boolean }) {
   const memo = useMemoWorkspace();
   return (
-    <aside className="memo-page-rail" aria-label="随记日历与标签">
+    <aside
+      id={panel ? "memo-filter-panel" : undefined}
+      className={`memo-page-rail ${panel ? "memo-filter-panel" : ""}`.trim()}
+      aria-label="随记日历与标签"
+    >
       <MiniCalendar
         month={memo.miniMonth}
         counts={memo.dayCounts}
@@ -521,9 +534,10 @@ function MemoRail() {
         onSelectDate={(date) => {
           if (date) memo.setMiniMonth(date.slice(0, 7));
           memo.setSelectedDate(date);
+          onSelect?.();
         }}
       />
-      <MemoTagFilters />
+      <MemoTagFilters onSelect={onSelect} />
     </aside>
   );
 }
@@ -543,6 +557,16 @@ export function MemoPage({
   const { openMenu, menu } = useContextMenu();
   const [editingMemo, setEditingMemo] = useState<Memo | null>(null);
   const [notice, setNotice] = useState("");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const filterButtonRef = useRef<HTMLButtonElement>(null);
+  const [narrow, setNarrow] = useState(() => window.matchMedia("(max-width: 1320px)").matches);
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 1320px)");
+    const update = () => setNarrow(media.matches);
+    media.addEventListener("change", update);
+    update();
+    return () => media.removeEventListener("change", update);
+  }, []);
   const scrollEdges = useScrollEdges(scrollRef, [memo.memos.length, memo.loading]);
 
   const submit = useCallback(
@@ -818,28 +842,46 @@ export function MemoPage({
     [editingMemo, focusComposer, memo, openMenu],
   );
 
-  const handleKeyDown = useCallback((event: ReactKeyboardEvent<HTMLElement>) => {
-    if (
-      event.nativeEvent.isComposing ||
-      event.keyCode === 229 ||
-      !(event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))
-    )
-      return;
-    const target = event.target;
-    if (!(target instanceof HTMLElement) || target.closest("dialog, [contenteditable='true']"))
-      return;
-    event.preventDefault();
-    event.stopPropagation();
-    const rect = target.getBoundingClientRect();
-    target.dispatchEvent(
-      new MouseEvent("contextmenu", {
-        bubbles: true,
-        cancelable: true,
-        clientX: rect.left + 12,
-        clientY: rect.top + 12,
-      }),
-    );
-  }, []);
+  const handleKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLElement>) => {
+      if (
+        event.key === "Escape" &&
+        !event.nativeEvent.isComposing &&
+        event.keyCode !== 229 &&
+        narrow &&
+        filtersOpen &&
+        event.target instanceof Element &&
+        event.target.closest("#memo-filter-panel")
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        setFiltersOpen(false);
+        filterButtonRef.current?.focus();
+        return;
+      }
+      if (
+        event.nativeEvent.isComposing ||
+        event.keyCode === 229 ||
+        !(event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))
+      )
+        return;
+      const target = event.target;
+      if (!(target instanceof HTMLElement) || target.closest("dialog, [contenteditable='true']"))
+        return;
+      event.preventDefault();
+      event.stopPropagation();
+      const rect = target.getBoundingClientRect();
+      target.dispatchEvent(
+        new MouseEvent("contextmenu", {
+          bubbles: true,
+          cancelable: true,
+          clientX: rect.left + 12,
+          clientY: rect.top + 12,
+        }),
+      );
+    },
+    [narrow, filtersOpen],
+  );
 
   return (
     <main
@@ -898,6 +940,19 @@ export function MemoPage({
                     </button>
                   )}
                 </label>
+                {narrow && (
+                  <button
+                    ref={filterButtonRef}
+                    className="memo-filter-toggle"
+                    type="button"
+                    aria-label="日期和标签筛选"
+                    aria-expanded={filtersOpen}
+                    aria-controls={filtersOpen ? "memo-filter-panel" : undefined}
+                    onClick={() => setFiltersOpen((open) => !open)}
+                  >
+                    <CalendarDays size={18} aria-hidden="true" />
+                  </button>
+                )}
                 {memo.tag && (
                   <button
                     className="memo-filter-chip"
@@ -921,6 +976,15 @@ export function MemoPage({
                   </button>
                 )}
               </div>
+              {narrow && filtersOpen && (
+                <MemoRail
+                  panel
+                  onSelect={() => {
+                    setFiltersOpen(false);
+                    filterButtonRef.current?.focus({ preventScroll: true });
+                  }}
+                />
+              )}
               <MemoComposer
                 ref={composerRef}
                 initialMarkdown={memo.draft}
@@ -946,7 +1010,7 @@ export function MemoPage({
             placement="right"
           />
         </div>
-        <MemoRail />
+        {!narrow && <MemoRail />}
       </div>
       <FloatingScrollbar
         scrollTargetRef={pageRef}
