@@ -7,7 +7,6 @@ import {
   useEffect,
   useRef,
   useState,
-  type MouseEvent as ReactMouseEvent,
 } from "react";
 import { useNavigate } from "react-router";
 import { useContextMenu } from "./context-menu";
@@ -31,14 +30,10 @@ import { registerDragOverGuard } from "./workspace/note-drag-drop";
 import { ErrorBoundary, EditorErrorFallback } from "./error-boundary";
 import {
   errorMessage,
-  mergeRemoteSummary,
   noteMetadataSnapshot,
-  shouldKeepActiveNoteInList,
-  sortNotes,
   toNoteSummary,
   type NoteSort,
 } from "./workspace/helpers";
-import { resolveNoteClickAction, type NoteSelectionClick } from "./workspace/note-list-selection";
 import { useNoteSelection } from "./workspace/use-note-selection";
 import { useNoteSaveQueue, type SaveState } from "./workspace/use-note-save-queue";
 import { useWorkspaceRealtime } from "./workspace/use-realtime";
@@ -76,6 +71,9 @@ import { useWorkspaceSession } from "./workspace/use-workspace-session";
 import { useWorkspaceNoteCreation } from "./workspace/use-workspace-note-creation";
 import { useWorkspaceWikiLinks } from "./workspace/use-workspace-wiki-links";
 import { useSelectedNoteLoader } from "./workspace/use-selected-note-loader";
+import { useWorkspaceNoteInteractions } from "./workspace/use-workspace-note-interactions";
+import { useWorkspaceListChanges } from "./workspace/use-workspace-list-changes";
+import { useWorkspaceNavigation } from "./workspace/use-workspace-navigation";
 import { useWorkspaceTaskActions } from "./workspace/use-workspace-task-actions";
 import { useWorkspaceSplit } from "./workspace/use-workspace-split";
 import { useWorkspaceNoteList } from "./workspace/use-workspace-note-list";
@@ -94,19 +92,6 @@ const LazyNoteEditor = lazy(() =>
 const LazyMemoPage = lazy(() =>
   import("./memos/memo-page").then(({ MemoPage }) => ({ default: MemoPage })),
 );
-
-function focusNoteRowAfterRemoval(noteId: string) {
-  requestAnimationFrame(() => {
-    const row = document.querySelector<HTMLButtonElement>(
-      `[data-note-id="${CSS.escape(noteId)}"] .note-row`,
-    );
-    if (row) {
-      row.focus();
-      return;
-    }
-    document.getElementById("note-list-scroll-region")?.focus();
-  });
-}
 
 export function Workspace() {
   const navigate = useNavigate();
@@ -581,90 +566,23 @@ export function Workspace() {
       setOutlineOpen(false);
     }
   }, [autoReadingMode, focusMode]);
-  const removeFromList = useCallback(
-    (noteId: string) => {
-      const restoreFocus =
-        document.activeElement instanceof Element &&
-        Boolean(document.activeElement.closest(".note-list-panel"));
-      const ordered = sortNotes(notesRef.current, noteSort);
-      const index = ordered.findIndex((note) => note.id === noteId);
-      if (index === -1) return;
-      replaceList(notesRef.current.filter((note) => note.id !== noteId));
-      setTotalNotes((value) => Math.max(0, value - 1));
-      if (activeNoteIdRef.current === noteId) {
-        const nextId = ordered[index + 1]?.id ?? ordered[index - 1]?.id ?? null;
-        selectNote(nextId);
-        setCardEditingNoteId((current) => (current === noteId ? nextId : current));
-        if (restoreFocus && nextId) focusNoteRowAfterRemoval(nextId);
-      }
-      if (splitNoteIdRef.current === noteId) {
-        closeSplitRef.current();
-      }
-    },
-    [noteSort, replaceList, selectNote],
-  );
-  // Realtime updates for a single note refresh only that row, so a remote save
-  // never collapses the loaded pages back to the first page.
-  const patchNoteFromRemote = useCallback(
-    async (noteId: string) => {
-      const scope = listScopeRef.current;
-      if (!notesRef.current.some((note) => note.id === noteId)) return;
-      try {
-        const summary = (await api.getNoteSummary(noteId)).note;
-        if (scope !== listScopeRef.current) return;
-        const current = notesRef.current.find((note) => note.id === noteId);
-        if (!current || current.version > summary.version) return;
-        if (!shouldKeepActiveNoteInList(summary, notebooks, view, deferredQuery, notebookId)) {
-          removeFromList(noteId);
-          return;
-        }
-        const merged = mergeRemoteSummary(notesRef.current, summary, noteSort);
-        if (merged) replaceList(merged);
-      } catch (reason) {
-        if (scope !== listScopeRef.current) return;
-        if (reason instanceof ApiError && reason.status === 404) removeFromList(noteId);
-      }
-    },
-    [deferredQuery, noteSort, notebookId, notebooks, removeFromList, replaceList, view],
-  );
-  const removeManyFromList = useCallback(
-    (noteIds: string[]) => {
-      const restoreFocus =
-        document.activeElement instanceof Element &&
-        Boolean(document.activeElement.closest(".note-list-panel"));
-      const deletedIds = new Set(noteIds);
-      const currentList = notesRef.current;
-      const ordered = sortNotes(currentList, noteSort);
-      const visibleDeletedCount = currentList.filter((note) => deletedIds.has(note.id)).length;
-      const activeId = activeNoteIdRef.current;
-      const activeIndex = activeId ? ordered.findIndex((note) => note.id === activeId) : -1;
-      const activeWasDeleted = Boolean(activeId && deletedIds.has(activeId));
-      const nextActiveId =
-        activeWasDeleted && activeIndex >= 0
-          ? (ordered.slice(activeIndex + 1).find((note) => !deletedIds.has(note.id))?.id ??
-            ordered
-              .slice(0, activeIndex)
-              .reverse()
-              .find((note) => !deletedIds.has(note.id))?.id ??
-            null)
-          : null;
-
-      replaceList(currentList.filter((note) => !deletedIds.has(note.id)));
-      setTotalNotes((value) => Math.max(0, value - visibleDeletedCount));
-      clearNoteSelection();
-      if (splitNoteIdRef.current && deletedIds.has(splitNoteIdRef.current)) {
-        closeSplitRef.current();
-      }
-      if (activeWasDeleted) {
-        selectNote(nextActiveId);
-        setCardEditingNoteId((current) =>
-          current && deletedIds.has(current) ? nextActiveId : current,
-        );
-        if (restoreFocus && nextActiveId) focusNoteRowAfterRemoval(nextActiveId);
-      }
-    },
-    [clearNoteSelection, noteSort, replaceList, selectNote],
-  );
+  const { removeFromList, patchNoteFromRemote, removeManyFromList } = useWorkspaceListChanges({
+    notesRef,
+    noteSort,
+    replaceList,
+    setTotalNotes,
+    activeNoteIdRef,
+    selectNote,
+    setCardEditingNoteId,
+    splitNoteIdRef,
+    closeSplitRef,
+    listScopeRef,
+    notebooks,
+    view,
+    deferredQuery,
+    notebookId,
+    clearNoteSelection,
+  });
   useSelectedNoteLoader({
     ready,
     selectedId,
@@ -1294,111 +1212,47 @@ export function Workspace() {
     ],
   );
   useWorkspaceRealtime({ ready, onChange: handleRealtimeChange });
-  const selectView = useCallback(
-    (next: NoteView) => {
-      setTasksOpen(false);
-      setKanbanOpen(false);
-      setMemosOpen(false);
-      kanbanReturnRef.current = false;
-      if (view !== next || notebookId || query) requestListTransition();
-      searchOriginRef.current = null;
-      setQuery("");
-      setView(next);
-      setNotebookId(undefined);
-      setCardEditingNoteId(null);
-      openMobileList({ view: next, notebookId: undefined, query: "", searchOrigin: null });
-    },
-    [openMobileList, notebookId, query, requestListTransition, view],
-  );
-  const openTasks = useCallback(async () => {
-    flushSecondaryDraft();
-    await flushPendingSaves("now");
-    if (hasUnsavedWork()) {
-      notifyWarning("仍有内容未保存，请保存成功后再查看任务");
-      return;
-    }
-    if (query) setQuery("");
-    setView("all");
-    setNotebookId(undefined);
-    setKanbanOpen(false);
-    setMemosOpen(false);
-    setTasksOpen(true);
-    kanbanReturnRef.current = false;
-    openMobileTasks({ view: "all", notebookId: undefined, query: "", searchOrigin: null });
-  }, [
-    flushPendingSaves,
-    flushSecondaryDraft,
-    hasUnsavedWork,
-    notifyWarning,
+  const {
+    selectView,
+    openTasks,
+    openKanban,
+    openMemos,
+    openKanbanNote,
+    selectNotebook,
+    changeQuery,
+    handleQueryDraftChange,
+    submitQuery,
+  } = useWorkspaceNavigation({
+    view,
+    notebookId,
+    query,
+    queryDraft,
+    setView,
+    setNotebookId,
+    setQuery,
+    setQueryDraft,
+    setTasksOpen,
+    setKanbanOpen,
+    setMemosOpen,
+    setCardEditingNoteId,
+    kanbanReturnRef,
+    searchOriginRef,
+    requestListTransition,
+    openMobileList,
     openMobileTasks,
-    query,
-  ]);
-  const openKanban = useCallback(async () => {
-    flushSecondaryDraft();
-    await flushPendingSaves("now");
-    if (hasUnsavedWork()) {
-      notifyWarning("仍有内容未保存，请保存成功后再查看看板");
-      return;
-    }
-    if (query) setQuery("");
-    setView("all");
-    setNotebookId(undefined);
-    setTasksOpen(false);
-    setMemosOpen(false);
-    setKanbanOpen(true);
-    kanbanReturnRef.current = false;
-    openMobileKanban({ view: "all", notebookId: undefined, query: "", searchOrigin: null });
-  }, [
-    flushPendingSaves,
-    flushSecondaryDraft,
-    hasUnsavedWork,
-    notifyWarning,
     openMobileKanban,
-    query,
-  ]);
-  const openMemos = useCallback(async () => {
-    flushSecondaryDraft();
-    await flushPendingSaves("now");
-    if (hasUnsavedWork()) {
-      notifyWarning("仍有内容未保存，请保存成功后再查看随记");
-      return;
-    }
-    if (query) setQuery("");
-    setView("all");
-    setNotebookId(undefined);
-    setTasksOpen(false);
-    setKanbanOpen(false);
-    setMemosOpen(true);
-    kanbanReturnRef.current = false;
-    openMobileMemos({ view: "all", notebookId: undefined, query: "", searchOrigin: null });
-  }, [
-    flushPendingSaves,
+    openMobileMemos,
+    openMobileNote,
     flushSecondaryDraft,
+    flushPendingSaves,
     hasUnsavedWork,
     notifyWarning,
-    openMobileMemos,
-    query,
-  ]);
-  const openKanbanNote = useCallback(
-    (noteId: string) => {
-      flushEditorDraftRef.current();
-      flushSecondaryDraft();
-      kanbanReturnRef.current = true;
-      setKanbanOpen(false);
-      setQuery("");
-      setView("all");
-      setNotebookId(undefined);
-      if (splitNoteId) closeSplit();
-      if (viewLayout === "cards") {
-        setCardEditingNoteId(noteId);
-      } else {
-        setCardEditingNoteId(null);
-      }
-      selectNote(noteId);
-      openMobileNote({ view: "all", notebookId: undefined, query: "", noteId });
-    },
-    [closeSplit, flushSecondaryDraft, openMobileNote, selectNote, splitNoteId, viewLayout],
-  );
+    flushEditorDraftRef,
+    splitNoteId,
+    closeSplit,
+    viewLayout,
+    selectNote,
+  });
   const { selectTask, handleToggleTask, handleTaskNavigationMissing } = useWorkspaceTaskActions({
     flushEditorDraftRef,
     flushSecondaryDraft,
@@ -1430,68 +1284,6 @@ export function Workspace() {
     notesRef,
     replaceList,
   });
-  const selectNotebook = useCallback(
-    (notebookIdToSelect: string) => {
-      setTasksOpen(false);
-      setKanbanOpen(false);
-      setMemosOpen(false);
-      kanbanReturnRef.current = false;
-      if (notebookId !== notebookIdToSelect || view !== "all" || query) requestListTransition();
-      searchOriginRef.current = null;
-      setQuery("");
-      setNotebookId(notebookIdToSelect);
-      setView("all");
-      setCardEditingNoteId(null);
-      openMobileList({
-        view: "all",
-        notebookId: notebookIdToSelect,
-        query: "",
-        searchOrigin: null,
-      });
-    },
-    [openMobileList, notebookId, query, requestListTransition, view],
-  );
-  const changeQuery = useCallback(
-    (next: string) => {
-      setTasksOpen(false);
-      setKanbanOpen(false);
-      setMemosOpen(false);
-      kanbanReturnRef.current = false;
-      if (next) {
-        if (!query) {
-          requestListTransition();
-          searchOriginRef.current = { view, notebookId };
-        }
-        setQuery(next);
-        setView("all");
-        setNotebookId(undefined);
-        openMobileList({
-          view: "all",
-          notebookId: undefined,
-          query: next,
-          searchOrigin: searchOriginRef.current,
-        });
-        return;
-      }
-      if (query) requestListTransition();
-      const origin = searchOriginRef.current;
-      searchOriginRef.current = null;
-      setQuery("");
-      setView(origin?.view ?? "all");
-      setNotebookId(origin?.notebookId);
-    },
-    [notebookId, openMobileList, query, requestListTransition, view],
-  );
-  const handleQueryDraftChange = useCallback(
-    (next: string) => {
-      setQueryDraft(next);
-      if (!next) changeQuery("");
-    },
-    [changeQuery],
-  );
-  const submitQuery = useCallback(() => {
-    changeQuery(queryDraft.trim());
-  }, [changeQuery, queryDraft]);
   const closeCommandMenu = useCallback(() => {
     setCommandOpen(false);
     setCommandInitialQuery("");
@@ -1686,87 +1478,27 @@ export function Workspace() {
       }),
     [deleteNotebook, requestConfirm],
   );
-  const handleSelectListNote = useCallback(
-    (id: string, event: ReactMouseEvent<HTMLButtonElement>) => {
-      if (event.altKey && !isMobileViewport) {
-        event.preventDefault();
-        openInSplit(id);
-        locateSearchResult(id);
-        return;
-      }
-      const orderedIds = sortNotes(notesRef.current, noteSort).map((note) => note.id);
-      const intent = resolveNoteClickAction(event, {
-        hasSelectionActive: noteSelectionRef.current.ids.size > 0,
-      });
-      if (intent.action === "toggle") {
-        toggleNoteSelection(orderedIds, id, intent.modifiers);
-        return;
-      }
-      if (splitNoteId && !isMobileViewport) {
-        if (activePane === "secondary") {
-          if (id === selectedId) {
-            setActivePane("primary");
-            setEditorFocusNoteId(id);
-            locateSearchResult(id);
-            return;
-          }
-          if (splitNoteId && splitNoteId !== id) {
-            flushSecondaryDraft();
-          }
-          setSplitNoteId(id);
-          locateSearchResult(id);
-          return;
-        } else {
-          if (id === splitNoteId) {
-            setActivePane("secondary");
-            locateSearchResult(id);
-            return;
-          }
-          selectNote(id);
-          locateSearchResult(id);
-          setNoteSelectionAnchor(id);
-          return;
-        }
-      }
-      selectNote(id);
-      locateSearchResult(id);
-      setNoteSelectionAnchor(id);
-      openMobileNote({ noteId: id });
-    },
-    [
-      activePane,
+  const { handleSelectListNote, handleOpenCardNote, handleToggleCardSelection } =
+    useWorkspaceNoteInteractions({
       isMobileViewport,
-      locateSearchResult,
-      noteSort,
       openInSplit,
-      openMobileNote,
-      selectNote,
-      selectedId,
-      setNoteSelectionAnchor,
-      splitNoteId,
+      locateSearchResult,
+      notesRef,
+      noteSort,
+      noteSelectionRef,
       toggleNoteSelection,
-    ],
-  );
-  const handleOpenCardNote = useCallback(
-    (id: string) => {
-      selectNote(id);
-      locateSearchResult(id);
-      setNoteSelectionAnchor(id);
-      setCardEditingNoteId(id);
-      openMobileNote({ noteId: id });
-    },
-    [locateSearchResult, openMobileNote, selectNote, setNoteSelectionAnchor],
-  );
-  const handleToggleCardSelection = useCallback(
-    (id: string, modifiers: Pick<NoteSelectionClick, "metaKey" | "ctrlKey" | "shiftKey">) => {
-      toggleNoteSelection(
-        sortNotes(notesRef.current, noteSort).map((note) => note.id),
-        id,
-        modifiers,
-      );
-    },
-    [noteSort, toggleNoteSelection],
-  );
+      splitNoteId,
+      activePane,
+      selectedId,
+      setActivePane,
+      setEditorFocusNoteId,
+      flushSecondaryDraft,
+      setSplitNoteId,
+      selectNote,
+      setNoteSelectionAnchor,
+      openMobileNote,
+      setCardEditingNoteId,
+    });
   const handleCardGridScrollPositionChange = useCallback((scope: string, top: number) => {
     cardGridScrollPositionRef.current = { scope, top };
   }, []);
