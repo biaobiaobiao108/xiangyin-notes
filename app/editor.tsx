@@ -1,12 +1,4 @@
-import {
-  startTransition,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import type { Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
@@ -17,19 +9,12 @@ import { api } from "./api";
 import { BrandMark } from "./brand-mark";
 import { SearchHighlightExtension } from "./editor-search";
 import {
-  buildOutlineItems,
   countEditorText,
   getOutlineStructureKey,
-  shouldUpdateActiveOutlineFromViewport,
   type EditorStats,
   type OutlineItem,
 } from "./editor-metrics";
-import {
-  getEditorDocumentTextSnapshot,
-  updateEditorDocumentText,
-  type EditorTextBlockStatsCache,
-  type EditorTextStatsSnapshot,
-} from "./editor-text-stats";
+import { type EditorTextBlockStatsCache, type EditorTextStatsSnapshot } from "./editor-text-stats";
 import { EditorHeader, type EditorSaveState as SaveState } from "./editor/editor-header";
 import { transactionMayChangeOutline } from "./editor/outline-change";
 import { scrollNoteNavigation } from "./editor/document-navigation";
@@ -59,6 +44,11 @@ import { CardOutline } from "./editor/card-outline";
 import { MobileEditorFooter, MobileEditorOutline } from "./editor/mobile-editor-controls";
 import { useMobileCaret } from "./editor/use-mobile-caret";
 import { useEditorCaretScroll } from "./editor/use-editor-caret-scroll";
+import {
+  getOutlineHeadingElements,
+  useEditorOutlineNavigation,
+} from "./editor/use-editor-outline-navigation";
+import { useEditorSurfaceSync } from "./editor/use-editor-surface-sync";
 import { useEditorProps } from "./editor/use-editor-props";
 import { prepareMarkdownForEditor } from "./editor/prepare-markdown";
 import { BlockDragHandle } from "./editor/block-drag-handle";
@@ -81,12 +71,6 @@ function resizeTitleField(field: HTMLTextAreaElement | null) {
   if (!field) return;
   field.style.height = "auto";
   field.style.height = `${field.scrollHeight}px`;
-}
-
-function getOutlineHeadingElements(root: HTMLElement): HTMLElement[] {
-  return Array.from(root.querySelectorAll<HTMLElement>(OUTLINE_HEADING_SELECTOR)).filter(
-    (element) => Boolean(element.textContent?.trim()),
-  );
 }
 
 export function NoteEditor({
@@ -351,92 +335,17 @@ export function NoteEditor({
     };
   }, [note.id, note.deletedAt]);
 
-  const syncEditorSurface = (instance: Editor, syncOutline: boolean) => {
-    const snapshot = getEditorDocumentTextSnapshot(
-      instance.state.doc,
-      editorTextStatsSnapshotRef.current,
-      editorTextBlockStatsRef.current,
-    );
-    editorTextStatsSnapshotRef.current = snapshot;
-    const nextStats = snapshot.stats;
-    startTransition(() => {
-      setEditorStats((current) =>
-        current.wordCount === nextStats.wordCount &&
-        current.characterCount === nextStats.characterCount
-          ? current
-          : nextStats,
-      );
-    });
-
-    if (!syncOutline) return;
-    const headingElements = Array.from(
-      instance.view.dom.querySelectorAll<HTMLElement>(OUTLINE_HEADING_SELECTOR),
-    );
-    const outlineHeadingElements = headingElements.filter((element) =>
-      Boolean(element.textContent?.trim()),
-    );
-    const generatedItems = buildOutlineItems(
-      outlineHeadingElements.map((element) => ({
-        level: Number(element.tagName.slice(1)) as 1 | 2 | 3 | 4 | 5 | 6,
-        title: element.textContent?.trim() ?? "",
-      })),
-    );
-    const previousIds = new Map<HTMLElement, string>();
-    for (const [id, element] of outlineHeadingElementsRef.current) previousIds.set(element, id);
-    const usedIds = new Set<string>();
-    const nextItems = generatedItems.map((item, index) => {
-      const previousId = previousIds.get(outlineHeadingElements[index]);
-      const baseId = previousId ?? item.id;
-      let id = baseId;
-      let suffix = 2;
-      while (usedIds.has(id)) id = `${baseId}-${suffix++}`;
-      usedIds.add(id);
-      return id === item.id ? item : { ...item, id };
-    });
-    outlineHeadingElementsRef.current = new Map(
-      nextItems.map((item, index) => [item.id, outlineHeadingElements[index]] as const),
-    );
-    startTransition(() => onOutlineItemsChange(nextItems));
-  };
-  const scheduleEditorSurfaceSync = (
-    instance: Editor,
-    outlineMayHaveChanged = true,
-    transaction?: Transaction,
-  ) => {
-    if (transaction) {
-      editorTextStatsSnapshotRef.current = updateEditorDocumentText(
-        transaction,
-        editorTextStatsSnapshotRef.current,
-        editorTextBlockStatsRef.current,
-      );
-    } else if (editorTextStatsSnapshotRef.current?.doc !== instance.state.doc) {
-      editorTextStatsSnapshotRef.current = getEditorDocumentTextSnapshot(
-        instance.state.doc,
-        editorTextStatsSnapshotRef.current,
-        editorTextBlockStatsRef.current,
-      );
-    }
-    syncOutlineDirtyRef.current ||= outlineMayHaveChanged;
-    if (syncFrameRef.current !== null) {
-      window.clearTimeout(syncFrameRef.current);
-    }
-    const now = performance.now();
-    const startedAt = syncStartedAtRef.current ?? now;
-    syncStartedAtRef.current = startedAt;
-    const wait = Math.min(
-      EDITOR_SYNC_DEBOUNCE_MS,
-      Math.max(0, startedAt + EDITOR_SYNC_MAX_WAIT_MS - now),
-    );
-    const run = () => {
-      syncFrameRef.current = null;
-      syncStartedAtRef.current = null;
-      if (instance.isDestroyed || instance.view.composing || composingRef.current) return;
-      const syncOutline = syncOutlineDirtyRef.current;
-      syncOutlineDirtyRef.current = false;
-      syncEditorSurface(instance, syncOutline);
-    };
-    syncFrameRef.current = window.setTimeout(run, wait);
-  };
+  const scheduleEditorSurfaceSync = useEditorSurfaceSync({
+    editorTextStatsSnapshotRef,
+    editorTextBlockStatsRef,
+    setEditorStats,
+    outlineHeadingElementsRef,
+    onOutlineItemsChange,
+    syncOutlineDirtyRef,
+    syncFrameRef,
+    syncStartedAtRef,
+    composingRef,
+  });
 
   const extensions = useMemo(
     () => [
@@ -895,169 +804,20 @@ export function NoteEditor({
     if (isLoading) onCloseOutline();
   }, [isLoading, onCloseOutline]);
 
-  useEffect(() => {
-    const root = editorScrollRef.current;
-    outlineFallbackSyncRef.current = null;
-    if (!root || outlineItemsRef.current.length === 0) {
-      onOutlineActiveChange(null);
-      return;
-    }
-
-    let activeFrame: number | null = null;
-    const getCurrentHeadings = () => {
-      // 元素映射有效时直接复用；缺失或被替换后才扫描正文补齐。
-      let domHeadings: HTMLElement[] | undefined;
-      const headings = new Map<string, HTMLElement>();
-      for (const [index, item] of outlineItemsRef.current.entries()) {
-        const mappedElement = outlineHeadingElementsRef.current.get(item.id);
-        const element =
-          mappedElement && root.contains(mappedElement)
-            ? mappedElement
-            : (domHeadings ??= getOutlineHeadingElements(root))[index];
-        if (element) {
-          headings.set(item.id, element);
-          if (mappedElement !== element) outlineHeadingElementsRef.current.set(item.id, element);
-        }
-      }
-      return headings;
-    };
-    const updateActiveHeading = () => {
-      if (programmaticOutlineScrollIdRef.current) return;
-      const editorFocused = Boolean(editor && !editor.isDestroyed && editor.view.hasFocus());
-      if (
-        !shouldUpdateActiveOutlineFromViewport(
-          editorFocused,
-          outlineSelectionSynchronizedRef.current,
-        )
-      )
-        return;
-      const currentHeadings = getCurrentHeadings();
-      const rootTop = root.getBoundingClientRect().top;
-      const activationLine = rootTop + 32;
-      let currentId: string | null = null;
-      const maxScrollTop = Math.max(0, root.scrollHeight - root.clientHeight);
-      const items = outlineItemsRef.current;
-      for (const item of items) {
-        const element = currentHeadings.get(item.id);
-        if (element && element.getBoundingClientRect().top <= activationLine) currentId = item.id;
-        else if (currentId) break;
-      }
-      if (!currentId && root.scrollTop >= maxScrollTop - 1) {
-        currentId = items[items.length - 1]?.id ?? null;
-      }
-      const nextId = currentId ?? items[0]?.id ?? null;
-      onOutlineActiveChange(nextId);
-    };
-    const scheduleActiveHeading = () => {
-      if (activeFrame !== null) return;
-      activeFrame = requestAnimationFrame(() => {
-        activeFrame = null;
-        updateActiveHeading();
-      });
-    };
-    outlineFallbackSyncRef.current = scheduleActiveHeading;
-
-    const handleUserScroll = (event?: Event) => {
-      cancelOutlineSmoothScroll();
-      if (
-        event?.type === "pointerdown" &&
-        event.target instanceof Element &&
-        event.target.closest("h1, h2, h3, h4, h5, h6")
-      )
-        return;
-      outlineSelectionSynchronizedRef.current = false;
-      scheduleActiveHeading();
-    };
-
-    const observer =
-      typeof IntersectionObserver === "undefined"
-        ? null
-        : new IntersectionObserver(scheduleActiveHeading, {
-            root,
-            rootMargin: "-12% 0px -68% 0px",
-            threshold: [0, 1],
-          });
-    for (const element of getCurrentHeadings().values()) {
-      observer?.observe(element);
-    }
-    root.addEventListener("scroll", scheduleActiveHeading, { passive: true });
-    root.addEventListener("wheel", handleUserScroll, { passive: true });
-    root.addEventListener("touchstart", handleUserScroll, { passive: true });
-    root.addEventListener("pointerdown", handleUserScroll, { passive: true });
-    scheduleActiveHeading();
-    return () => {
-      observer?.disconnect();
-      root.removeEventListener("scroll", scheduleActiveHeading);
-      root.removeEventListener("wheel", handleUserScroll);
-      root.removeEventListener("touchstart", handleUserScroll);
-      root.removeEventListener("pointerdown", handleUserScroll);
-      if (activeFrame !== null) cancelAnimationFrame(activeFrame);
-      if (outlineFallbackSyncRef.current === scheduleActiveHeading)
-        outlineFallbackSyncRef.current = null;
-      cancelOutlineSmoothScroll();
-    };
-  }, [cancelOutlineSmoothScroll, editor, onOutlineActiveChange, outlineStructureKey]);
-
-  const scrollToOutlineItem = useCallback(
-    (id: string) => {
-      const scrollRoot = editorScrollRef.current;
-      if (!scrollRoot) return;
-
-      const mappedElement = outlineHeadingElementsRef.current.get(id);
-      const element =
-        mappedElement && scrollRoot.contains(mappedElement)
-          ? mappedElement
-          : getOutlineHeadingElements(scrollRoot)[outlineItems.findIndex((item) => item.id === id)];
-      if (!element) return;
-
-      cancelOutlineSmoothScroll();
-
-      const rootRect = scrollRoot.getBoundingClientRect();
-      const elementRect = element.getBoundingClientRect();
-      const maxScrollTop = Math.max(0, scrollRoot.scrollHeight - scrollRoot.clientHeight);
-      const targetTop = Math.min(
-        maxScrollTop,
-        Math.max(0, scrollRoot.scrollTop + elementRect.top - rootRect.top - 24),
-      );
-
-      onOutlineActiveChange(id);
-      programmaticOutlineScrollIdRef.current = id;
-
-      const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      const startTop = scrollRoot.scrollTop;
-      const distance = targetTop - startTop;
-
-      if (prefersReducedMotion || Math.abs(distance) < 2) {
-        scrollRoot.scrollTop = targetTop;
-        programmaticOutlineScrollIdRef.current = null;
-        return;
-      }
-
-      // 参照搜索导航的平滑过渡动画，并针对大纲跳转场景进行速度加快与敏捷调校（160ms ~ 240ms），
-      // 配合 quartic ease-out 缓动曲线，比浏览器原生固定约 400~600ms 的平滑滚动更加轻快且视觉连贯。
-      const duration = Math.min(240, Math.max(160, Math.round(Math.abs(distance) * 0.08 + 140)));
-      const startTime = performance.now();
-      const easeOutQuart = (t: number) => 1 - Math.pow(1 - t, 4);
-
-      const step = (now: number) => {
-        const elapsed = now - startTime;
-        const progress = Math.min(1, elapsed / duration);
-        const eased = easeOutQuart(progress);
-        scrollRoot.scrollTop = Math.round(startTop + distance * eased);
-
-        if (progress < 1) {
-          outlineScrollAnimRef.current = requestAnimationFrame(step);
-        } else {
-          scrollRoot.scrollTop = targetTop;
-          outlineScrollAnimRef.current = null;
-          programmaticOutlineScrollIdRef.current = null;
-        }
-      };
-
-      outlineScrollAnimRef.current = requestAnimationFrame(step);
-    },
-    [cancelOutlineSmoothScroll, onOutlineActiveChange, outlineItems],
-  );
+  const scrollToOutlineItem = useEditorOutlineNavigation({
+    editor,
+    editorScrollRef,
+    outlineFallbackSyncRef,
+    outlineItemsRef,
+    outlineHeadingElementsRef,
+    outlineSelectionSynchronizedRef,
+    programmaticOutlineScrollIdRef,
+    outlineScrollAnimRef,
+    outlineItems,
+    outlineStructureKey,
+    cancelOutlineSmoothScroll,
+    onOutlineActiveChange,
+  });
 
   useEffect(() => {
     onOutlineNavigationReady(scrollToOutlineItem);

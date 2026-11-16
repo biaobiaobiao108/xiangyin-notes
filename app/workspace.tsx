@@ -18,11 +18,9 @@ import { createUuid } from "./uuid";
 import { CommandId, CommandMenu } from "./command-menu";
 import { applyPwaUpdate, installPwa, subscribePwa, type PwaState } from "./pwa";
 import type { WorkspaceChangeMessage } from "../shared/realtime";
-import type { Note, NoteSummary, NoteView, Notebook, TaskSummary } from "../shared/types";
-import { resolveTaskOrdinal } from "../shared/tasks";
+import type { Note, NoteSummary, NoteView, Notebook } from "../shared/types";
 import { useOutlineState } from "./workspace/use-outline-state";
 import { ConfirmDialog, NotebookDialog, type ConfirmRequest } from "./workspace/dialogs";
-import { readDraftRecovery } from "./workspace/draft-recovery";
 import { SplitResizer, DEFAULT_SPLIT_RATIO } from "./workspace/split-resizer";
 import { SplitNoteDialog } from "./workspace/split-note-dialog";
 import { EmptyEditor, NoteListPanel, NoteLoadingState, Sidebar } from "./workspace/panels";
@@ -49,7 +47,7 @@ import {
   emptyRealtimeRefreshPlan,
   type RealtimeRefreshPlan,
 } from "./workspace/realtime-refresh";
-import { latestSelectedNoteSnapshot, refreshSelectedNote } from "./workspace/selected-note-sync";
+import { refreshSelectedNote } from "./workspace/selected-note-sync";
 import { useWorkspaceShortcuts } from "./workspace/use-workspace-shortcuts";
 import { useTrashActions } from "./workspace/use-trash-actions";
 import {
@@ -78,6 +76,8 @@ import { useWorkspaceSession } from "./workspace/use-workspace-session";
 import { useWorkspaceNoteCreation } from "./workspace/use-workspace-note-creation";
 import { useWorkspaceWikiLinks } from "./workspace/use-workspace-wiki-links";
 import { useSelectedNoteLoader } from "./workspace/use-selected-note-loader";
+import { useWorkspaceTaskActions } from "./workspace/use-workspace-task-actions";
+import { useWorkspaceSplit } from "./workspace/use-workspace-split";
 import { useWorkspaceNoteList } from "./workspace/use-workspace-note-list";
 import { useWorkspaceNoteChange } from "./workspace/use-workspace-note-change";
 
@@ -1184,249 +1184,51 @@ export function Workspace() {
     });
   }, [reloadSelectedNote, requestConfirm]);
 
-  const loadSplitNote = useCallback(
-    async (id: string, discardRecovery = false) => {
-      if (splitNoteIdRef.current !== id) return;
-      splitAbortRef.current?.abort();
-      const controller = new AbortController();
-      splitAbortRef.current = controller;
-      splitLoadRequestRef.current += 1;
-      const requestId = splitLoadRequestRef.current;
-      setSplitIsNoteLoading(true);
-      const pendingNote = pendingSavesRef.current.get(id);
-      const failedSave = failedSavesRef.current.get(id);
-      setSplitSaveState(
-        failedSave
-          ? failedSave instanceof ApiError && failedSave.code === "VERSION_CONFLICT"
-            ? "conflict"
-            : "error"
-          : pendingNote
-            ? "saving"
-            : "idle",
-      );
-      try {
-        const result = await api.getNote(id, { signal: controller.signal });
-        if (requestId !== splitLoadRequestRef.current || splitNoteIdRef.current !== id) return;
-        let loadedNote = discardRecovery
-          ? result.note
-          : latestSelectedNoteSnapshot(result.note, splitSelectedRef.current);
-        if (discardRecovery) {
-          clearPendingForNote(id);
-        } else if (!pendingNote && !pendingSavesRef.current.has(id)) {
-          const recoveredDraft = await readDraftRecovery(id);
-          if (requestId !== splitLoadRequestRef.current || splitNoteIdRef.current !== id) return;
-          loadedNote = latestSelectedNoteSnapshot(loadedNote, splitSelectedRef.current);
-          if (recoveredDraft && !pendingSavesRef.current.has(id)) {
-            pendingSavesRef.current.set(id, recoveredDraft);
-            if (recoveredDraft.version === loadedNote.version) {
-              notifyWarning("已恢复一份未保存草稿");
-            } else {
-              failedSavesRef.current.set(
-                id,
-                new ApiError(409, "VERSION_CONFLICT", "恢复的草稿与服务器版本不同"),
-              );
-              setSplitSaveState("conflict");
-              notifyWarning("已保留未保存草稿；服务器版本已变化，请先复制需要的修改再重新载入");
-            }
-          }
-        }
-        const latestPendingNote = pendingSavesRef.current.get(id);
-        if (!discardRecovery)
-          loadedNote = latestSelectedNoteSnapshot(loadedNote, splitSelectedRef.current);
-        if (latestPendingNote) loadedNote = { ...loadedNote, ...latestPendingNote };
-        splitSelectedRef.current = loadedNote;
-        setSplitSelectedNote(noteMetadataSnapshot(loadedNote));
-        setSplitIsNoteLoading(false);
-        if (discardRecovery) {
-          setSplitSaveState("idle");
-          setSplitNoteReloadToken((value) => value + 1);
-        }
-        if (
-          latestPendingNote &&
-          !failedSavesRef.current.has(id) &&
-          !trashOperationsRef.current.has(id)
-        )
-          persistRef.current(latestPendingNote);
-      } catch (reason) {
-        if (requestId !== splitLoadRequestRef.current) return;
-        if (reason instanceof Error && reason.name === "AbortError") return;
-        setSplitIsNoteLoading(false);
-        setSplitNoteId(null);
-        setSplitSelectedNote(null);
-        splitSelectedRef.current = null;
-        setActivePane("primary");
-      }
-    },
-    [clearPendingForNote, failedSavesRef, notifyWarning, pendingSavesRef, setSplitSaveState],
-  );
-  const requestSplitConflictReload = useCallback(
-    (noteId: string) => {
-      if (splitSelectedRef.current?.id !== noteId) return;
-      requestConfirm({
-        eyebrow: "版本冲突",
-        title: "重新载入最新版本？",
-        description: "重新载入会使用服务器上的最新内容替换分栏中的内容，本地尚未保存的修改将丢失。",
-        confirmLabel: "重新载入",
-        onConfirm: () => void loadSplitNote(noteId, true),
-      });
-    },
-    [loadSplitNote, requestConfirm],
-  );
-
-  useEffect(() => {
-    if (!ready || !splitNoteId) {
-      splitLoadRequestRef.current += 1;
-      splitAbortRef.current?.abort();
-      setSplitIsNoteLoading(false);
-      setSplitSelectedNote(null);
-      splitSelectedRef.current = null;
-      setSplitSaveState("idle");
-      return;
-    }
-    void loadSplitNote(splitNoteId);
-  }, [loadSplitNote, ready, splitNoteId]);
-
-  const flushSecondaryDraft = useCallback(() => {
-    const split = splitSelectedRef.current;
-    if (split && !trashOperationsRef.current.has(split.id)) {
-      const md = splitMarkdownReaderRef.current?.();
-      if (md != null && md !== split.contentMarkdown) {
-        const next = { ...split, contentMarkdown: md };
-        splitSelectedRef.current = next;
-        persistRef.current(next, ["contentMarkdown"]);
-      }
-    }
-  }, []);
-
-  const closeSplit = useCallback(() => {
-    flushSecondaryDraft();
-    splitLoadRequestRef.current += 1;
-    splitAbortRef.current?.abort();
-    setResultSearch((current) => (current?.id === splitNoteIdRef.current ? null : current));
-    setSplitNoteId(null);
-    setSplitSelectedNote(null);
-    splitSelectedRef.current = null;
-    setSplitSaveState("idle");
-    setActivePane("primary");
-  }, [flushSecondaryDraft]);
-  closeSplitRef.current = closeSplit;
-
-  const openInSplit = useCallback(
-    (noteId: string) => {
-      if (isMobileViewport || viewLayout !== "cards") return;
-      if (cardEditingNoteId === null) {
-        if (selectedId && selectedId !== noteId) {
-          setCardEditingNoteId(selectedId);
-          if (splitNoteId && splitNoteId !== noteId) flushSecondaryDraft();
-          setSplitNoteId(noteId);
-          setActivePane("secondary");
-          return;
-        }
-        selectNote(noteId);
-        setCardEditingNoteId(noteId);
-        setSplitPickerOpen(true);
-        return;
-      }
-      if (noteId === selectedId) {
-        setActivePane("primary");
-        setEditorFocusNoteId(noteId);
-        return;
-      }
-      if (noteId === splitNoteId) {
-        setActivePane("secondary");
-        return;
-      }
-      if (window.innerWidth < 1200) {
-        setSidebarCollapsed(true);
-      }
-      if (splitNoteId && splitNoteId !== noteId) flushSecondaryDraft();
-      setSplitNoteId(noteId);
-      setActivePane("secondary");
-    },
-    [
-      cardEditingNoteId,
-      flushSecondaryDraft,
-      isMobileViewport,
-      selectNote,
-      selectedId,
-      splitNoteId,
-      viewLayout,
-    ],
-  );
-
-  const handleToggleSplit = useCallback(() => {
-    if (splitNoteId) {
-      closeSplit();
-    } else {
-      setSplitPickerOpen(true);
-    }
-  }, [closeSplit, splitNoteId]);
-
-  const handleSelectSplitNote = useCallback(
-    (noteId: string) => {
-      setSplitPickerOpen(false);
-      if (viewLayout !== "cards") return;
-      if (cardEditingNoteId === null) {
-        const primaryId = selectedId ?? noteId;
-        setCardEditingNoteId(primaryId);
-        if (primaryId === noteId) return;
-      }
-      if (noteId === selectedId) {
-        setActivePane("primary");
-        setEditorFocusNoteId(noteId);
-        return;
-      }
-      if (window.innerWidth < 1200) {
-        setSidebarCollapsed(true);
-      }
-      if (splitNoteId && splitNoteId !== noteId) flushSecondaryDraft();
-      setSplitNoteId(noteId);
-      setActivePane("secondary");
-    },
-    [cardEditingNoteId, flushSecondaryDraft, selectedId, splitNoteId, viewLayout],
-  );
-
-  const onSplitNoteChange = useCallback(
-    (patch: { title?: string; contentMarkdown?: string; notebookId?: string }) => {
-      const current = splitSelectedRef.current;
-      if (!current || trashOperationsRef.current.has(current.id)) return;
-      if (
-        (patch.title === undefined || patch.title === current.title) &&
-        (patch.contentMarkdown === undefined ||
-          patch.contentMarkdown === current.contentMarkdown) &&
-        (patch.notebookId === undefined || patch.notebookId === current.notebookId)
-      )
-        return;
-      const targetNotebook = patch.notebookId
-        ? notebooks.find((nb) => nb.id === patch.notebookId)
-        : undefined;
-      const next = {
-        ...current,
-        ...patch,
-        ...(targetNotebook ? { notebookName: targetNotebook.name } : {}),
-      };
-      splitSelectedRef.current = next;
-      const contentOnlyChange =
-        patch.contentMarkdown !== undefined &&
-        patch.title === undefined &&
-        patch.notebookId === undefined;
-      if (!contentOnlyChange) {
-        setSplitSelectedNote(noteMetadataSnapshot(next));
-        const summaryPatch: Partial<NoteSummary> = {
-          ...(patch.title !== undefined ? { title: patch.title } : {}),
-          ...(patch.notebookId !== undefined ? { notebookId: patch.notebookId } : {}),
-          ...(targetNotebook ? { notebookName: targetNotebook.name } : {}),
-        };
-        replaceList(
-          notesRef.current.map((note) =>
-            note.id === current.id ? { ...note, ...summaryPatch } : note,
-          ),
-        );
-      }
-      persist(next, Object.keys(patch) as Array<"title" | "contentMarkdown" | "notebookId">);
-    },
-    [notebooks, persist, replaceList],
-  );
+  const {
+    requestSplitConflictReload,
+    flushSecondaryDraft,
+    closeSplit,
+    openInSplit,
+    handleToggleSplit,
+    handleSelectSplitNote,
+    onSplitNoteChange,
+  } = useWorkspaceSplit({
+    ready,
+    splitNoteId,
+    splitNoteIdRef,
+    splitSelectedRef,
+    splitLoadRequestRef,
+    splitAbortRef,
+    splitMarkdownReaderRef,
+    closeSplitRef,
+    pendingSavesRef,
+    failedSavesRef,
+    clearPendingForNote,
+    persistRef,
+    persist,
+    trashOperationsRef,
+    notesRef,
+    notebooks,
+    setSplitIsNoteLoading,
+    setSplitSaveState,
+    setSplitNoteId,
+    setSplitSelectedNote,
+    setSplitNoteReloadToken,
+    setActivePane,
+    setResultSearch,
+    requestConfirm,
+    notifyWarning,
+    isMobileViewport,
+    viewLayout,
+    cardEditingNoteId,
+    selectedId,
+    setCardEditingNoteId,
+    selectNote,
+    setSplitPickerOpen,
+    setEditorFocusNoteId,
+    setSidebarCollapsed,
+    replaceList,
+  });
 
   const handleSplitMoveToTrash = useCallback(() => {
     if (splitSelectedRef.current) {
@@ -1597,110 +1399,37 @@ export function Workspace() {
     },
     [closeSplit, flushSecondaryDraft, openMobileNote, selectNote, splitNoteId, viewLayout],
   );
-  const selectTask = useCallback(
-    (task: TaskSummary) => {
-      flushEditorDraftRef.current();
-      flushSecondaryDraft();
-      const currentTaskNote =
-        selectedRef.current?.id === task.noteId
-          ? selectedRef.current
-          : splitSelectedRef.current?.id === task.noteId
-            ? splitSelectedRef.current
-            : null;
-      const ordinal = currentTaskNote
-        ? resolveTaskOrdinal(currentTaskNote.contentMarkdown, task.ordinal, task.text)
-        : task.ordinal;
-      setQuery("");
-      setView("all");
-      setNotebookId(undefined);
-      if (splitNoteId) closeSplit();
-      setCardEditingNoteId(viewLayout === "cards" ? task.noteId : null);
-      selectNote(task.noteId);
-      if (ordinal === null) {
-        setTaskNavigation(null);
-        setTaskRefreshToken((value) => value + 1);
-      } else {
-        setTaskNavigation({
-          noteId: task.noteId,
-          ordinal,
-          text: task.text,
-          token: ++taskNavigationTokenRef.current,
-        });
-      }
-      openMobileNote({ view: "all", notebookId: undefined, query: "", noteId: task.noteId });
-    },
-    [closeSplit, flushSecondaryDraft, openMobileNote, selectNote, splitNoteId, viewLayout],
-  );
-  const handleToggleTask = useCallback(
-    async (task: TaskSummary) => {
-      if (taskMutationsInFlightRef.current.size > 0) return;
-      taskMutationsInFlightRef.current.add(task.noteId);
-      setTaskMutationNoteId(task.noteId);
-      setTaskMutationOrdinal(task.ordinal);
-      try {
-        flushEditorDraftRef.current();
-        flushSecondaryDraft();
-        await flushPendingSaves("now");
-        if (hasUnsavedWork()) {
-          notifyWarning("笔记仍有内容未保存，请保存成功后再切换任务状态");
-          return;
-        }
-
-        const { note: latestNote } = await api.getNote(task.noteId, {});
-        if (latestNote.version !== task.version) {
-          setTaskRefreshToken((value) => value + 1);
-          notifyWarning("笔记内容刚刚保存，任务列表已刷新，请再点一次");
-          return;
-        }
-
-        const { note } = await api.toggleTask({
-          noteId: task.noteId,
-          version: task.version,
-          ordinal: task.ordinal,
-          text: task.text,
-          completed: task.done,
-        });
-
-        if (selectedRef.current?.id === note.id) {
-          selectedRef.current = note;
-          setSelectedNote(noteMetadataSnapshot(note));
-          setNoteReloadToken((value) => value + 1);
-        }
-        if (splitSelectedRef.current?.id === note.id) {
-          splitSelectedRef.current = note;
-          setSplitSelectedNote(noteMetadataSnapshot(note));
-          setSplitNoteReloadToken((value) => value + 1);
-        }
-        replaceList(
-          notesRef.current.map((item) => (item.id === note.id ? toNoteSummary(note) : item)),
-        );
-        setTaskRefreshToken((value) => value + 1);
-      } catch (error) {
-        if (error instanceof ApiError && error.code === "VERSION_CONFLICT") {
-          notifyWarning("笔记已在其他位置修改，请重新加载后再切换任务状态");
-          setTaskRefreshToken((value) => value + 1);
-        } else {
-          notifyError(errorMessage(error, "切换任务状态失败"));
-        }
-      } finally {
-        taskMutationsInFlightRef.current.delete(task.noteId);
-        setTaskMutationNoteId(null);
-        setTaskMutationOrdinal(null);
-      }
-    },
-    [
-      flushPendingSaves,
-      flushSecondaryDraft,
-      hasUnsavedWork,
-      notifyError,
-      notifyWarning,
-      replaceList,
-    ],
-  );
-  const handleTaskNavigationMissing = useCallback(() => {
-    setTaskNavigation(null);
-    setTaskRefreshToken((value) => value + 1);
-  }, []);
+  const { selectTask, handleToggleTask, handleTaskNavigationMissing } = useWorkspaceTaskActions({
+    flushEditorDraftRef,
+    flushSecondaryDraft,
+    selectedRef,
+    splitSelectedRef,
+    setQuery,
+    setView,
+    setNotebookId,
+    splitNoteId,
+    closeSplit,
+    setCardEditingNoteId,
+    viewLayout,
+    selectNote,
+    setTaskNavigation,
+    setTaskRefreshToken,
+    taskNavigationTokenRef,
+    openMobileNote,
+    taskMutationsInFlightRef,
+    setTaskMutationNoteId,
+    setTaskMutationOrdinal,
+    flushPendingSaves,
+    hasUnsavedWork,
+    notifyWarning,
+    notifyError,
+    setSelectedNote,
+    setNoteReloadToken,
+    setSplitSelectedNote,
+    setSplitNoteReloadToken,
+    notesRef,
+    replaceList,
+  });
   const selectNotebook = useCallback(
     (notebookIdToSelect: string) => {
       setTasksOpen(false);
