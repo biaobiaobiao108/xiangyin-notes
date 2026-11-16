@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, type MouseEvent } from "react";
+import { copyCodeBlockText } from "../editor/code-block-copy";
 import type { RendererObject, Token, Tokens } from "marked";
 import {
   createXiangyingMarked,
@@ -23,6 +24,7 @@ const SAFE_LINK_PROTOCOL = /^(?:https?:|mailto:|tel:)/iu;
 const EXPLICIT_PROTOCOL = /^[a-z][a-z0-9+.-]*:/iu;
 const PRIVATE_ASSET_SOURCE =
   /^\/api\/assets\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?=[?#]|$)/iu;
+const COPY_BUTTON = `<button class="code-block-copy-button" type="button" aria-label="复制代码"><svg data-copy-icon="idle" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg><svg data-copy-icon="copied" hidden xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg><svg data-copy-icon="error" hidden xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v4m0 4h.01"></path></svg><span class="visually-hidden" aria-live="polite"></span></button>`;
 const TABLE_PATTERN = /<table>[\s\S]*?<\/table>/gu;
 
 function safeLinkHref(value: string | null | undefined) {
@@ -126,7 +128,7 @@ const renderer: RendererObject = {
       language
         ? `<span class="code-block-language" aria-hidden="true">${escapeHtml(language)}</span>`
         : ""
-    }<code${language ? ` class="language-${escapeHtml(language)}"` : ""}>${escapeHtml(text)}\n</code></pre>\n`;
+    }${COPY_BUTTON}<code${language ? ` class="language-${escapeHtml(language)}"` : ""}>${escapeHtml(text)}\n</code></pre>\n`;
   },
   link({ href, tokens }) {
     const safeHref = safeLinkHref(href);
@@ -165,9 +167,61 @@ export function renderMemoMarkdown(markdown: string) {
 
 export function MemoMarkdown({ markdown }: { markdown: string }) {
   const html = useMemo(() => renderMemoMarkdown(markdown), [markdown]);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const timersRef = useRef(new Map<HTMLButtonElement, number>());
+
+  useEffect(() => {
+    const timers = timersRef.current;
+    return () => {
+      for (const timer of timers.values()) window.clearTimeout(timer);
+      timers.clear();
+    };
+  }, [html]);
+
+  const onClick = async (event: MouseEvent<HTMLDivElement>) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const button = target.closest<HTMLButtonElement>("button.code-block-copy-button");
+    if (!button || !event.currentTarget.contains(button)) return;
+    event.stopPropagation();
+    const code = button.parentElement?.querySelector("code");
+    if (!code) return;
+    const text = code.textContent ?? "";
+    let status: "copied" | "error";
+    try {
+      await copyCodeBlockText(text.endsWith("\n") ? text.slice(0, -1) : text);
+      status = "copied";
+    } catch {
+      status = "error";
+    }
+    if (!rootRef.current?.contains(button)) return;
+    const update = (next: "idle" | "copied" | "error") => {
+      const label = next === "copied" ? "代码已复制" : next === "error" ? "复制失败" : "复制代码";
+      button.classList.toggle("is-copied", next === "copied");
+      button.classList.toggle("is-error", next === "error");
+      button.setAttribute("aria-label", label);
+      const announcement = button.querySelector("[aria-live]");
+      if (announcement) announcement.textContent = next === "idle" ? "" : label;
+      button.querySelectorAll<SVGElement>("[data-copy-icon]").forEach((icon) => {
+        icon.toggleAttribute("hidden", icon.dataset.copyIcon !== next);
+      });
+    };
+    update(status);
+    const previous = timersRef.current.get(button);
+    if (previous !== undefined) window.clearTimeout(previous);
+    timersRef.current.set(
+      button,
+      window.setTimeout(() => {
+        timersRef.current.delete(button);
+        update("idle");
+      }, 1600),
+    );
+  };
   return (
     <div
+      ref={rootRef}
       className="note-prose read-only-prose memo-markdown"
+      onClick={onClick}
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );

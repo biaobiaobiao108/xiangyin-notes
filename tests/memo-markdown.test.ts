@@ -76,6 +76,8 @@ describe("memo Markdown rendering", () => {
     const html = renderMemoMarkdown("```ts\nconst value = 1;\n```");
     expect(html).toContain('<span class="code-block-language" aria-hidden="true">ts</span>');
     expect(html).toContain('<code class="language-ts">const value = 1;');
+    expect(html).toContain('class="code-block-copy-button"');
+    expect(html).toContain('aria-label="复制代码"');
   });
 
   test("does not tag code, URL fragments, image alt text, or escaped hashtags", () => {
