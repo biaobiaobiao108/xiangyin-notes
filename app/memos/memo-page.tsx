@@ -1,5 +1,6 @@
 import { CalendarDays, ChevronLeft, Copy, FileText, Plus, Search, Trash2, X } from "lucide-react";
 import {
+  type CSSProperties,
   useCallback,
   useEffect,
   useMemo,
@@ -9,7 +10,6 @@ import {
   type MouseEvent as ReactMouseEvent,
   type MutableRefObject,
   type RefObject,
-  type CSSProperties,
 } from "react";
 import type { Memo, Note } from "../../shared/types";
 import { FloatingScrollbar } from "../floating-scrollbar";
@@ -35,6 +35,7 @@ import {
 } from "./use-virtual-memo-list";
 import { textFieldMenuItems, useContextMenu } from "../context-menu";
 import { copyPlainText } from "../editor/code-block-copy";
+import { hasMemoEditDraft, readMemoEditDraft, writeMemoEditDraft } from "./memo-edit-draft";
 import {
   buildMemoCalendarMenuItems,
   buildMemoCardMenuItems,
@@ -67,6 +68,7 @@ function MemoCard({
 }) {
   const { updateMemo, refresh } = useMemoWorkspace();
   const [conflict, setConflict] = useState<Memo | null>(null);
+  const [copyNotice, setCopyNotice] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   const foregroundRef = useRef<HTMLElement>(null);
@@ -78,25 +80,11 @@ function MemoCard({
     onOpenChange: setSwipeOpenId,
     foregroundRef,
   });
-  const draftKey = `xiangying:memo-edit:${memo.id}`;
-  const readEditDraft = () => {
-    try {
-      const value = JSON.parse(localStorage.getItem(draftKey) ?? "null");
-      return value && typeof value.markdown === "string" && Number.isSafeInteger(value.version)
-        ? (value as { markdown: string; version: number })
-        : null;
-    } catch {
-      return null;
-    }
-  };
+  const readEditDraft = () => readMemoEditDraft(memo.id);
   const editDraft = editing ? readEditDraft() : null;
   const editVersion = editDraft?.version ?? editingVersion ?? memo.version;
   const writeEditDraft = (markdown: string) => {
-    try {
-      if (markdown)
-        localStorage.setItem(draftKey, JSON.stringify({ markdown, version: editVersion }));
-      else localStorage.removeItem(draftKey);
-    } catch {}
+    writeMemoEditDraft(memo.id, markdown ? { markdown, version: editVersion } : null);
   };
 
   const beginEdit = (target?: EventTarget | null) => {
@@ -234,39 +222,75 @@ function MemoCard({
               autoFocus
               onSubmit={async (markdown) => {
                 const draftAtSubmit = readEditDraft();
+                const submittedDraft = draftAtSubmit?.markdown === markdown ? draftAtSubmit : null;
                 try {
                   await updateMemo({ ...memo, version: editVersion }, markdown);
                 } catch (reason) {
                   const current = memoConflictCurrent(reason);
                   if (current) {
+                    writeMemoEditDraft(memo.id, {
+                      markdown: submittedDraft?.markdown ?? markdown,
+                      version: current.version,
+                      conflict: true,
+                    });
                     setConflict(current);
-                    throw new Error("随记已更新。请复制上方草稿，再按 Escape 退出并编辑最新内容。");
+                    throw new Error("随记已更新。请复制草稿并丢弃冲突版本，或继续编辑最新内容。");
                   }
                   throw reason;
                 }
                 const currentDraft = readEditDraft();
                 if (
-                  currentDraft &&
-                  currentDraft.version === editVersion &&
+                  currentDraft?.version === editVersion &&
                   (currentDraft.markdown === markdown ||
-                    currentDraft.markdown === draftAtSubmit?.markdown)
+                    currentDraft.markdown === submittedDraft?.markdown)
                 )
                   writeEditDraft("");
                 onFinishEdit();
               }}
               onDraftChange={writeEditDraft}
               onCancel={() => {
-                writeEditDraft("");
-                if (conflict) refresh();
-                setConflict(null);
+                if (!conflict) writeEditDraft("");
                 onFinishEdit();
               }}
             />
             {conflict && (
-              <details>
-                <summary>查看最新随记</summary>
-                <MemoMarkdown markdown={conflict.contentMarkdown} />
-              </details>
+              <section className="memo-conflict" aria-label="随记保存冲突">
+                <p>这条随记已在别处更新。草稿已保留，请选择如何处理。</p>
+                <div className="memo-conflict-actions">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void copyPlainText(editDraft?.markdown ?? "").then(() => {
+                        setCopyNotice("草稿已复制");
+                        window.setTimeout(() => setCopyNotice(""), 1600);
+                      });
+                    }}
+                  >
+                    复制草稿
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      writeMemoEditDraft(memo.id, null);
+                      setConflict(null);
+                      setCopyNotice("");
+                      refresh();
+                      onFinishEdit();
+                    }}
+                  >
+                    丢弃草稿并编辑最新内容
+                  </button>
+                </div>
+                {copyNotice && (
+                  <p className="memo-conflict-notice" role="status">
+                    {copyNotice}
+                  </p>
+                )}
+                <details>
+                  <summary>查看最新随记</summary>
+                  <MemoMarkdown markdown={conflict.contentMarkdown} />
+                </details>
+              </section>
             )}
           </>
         ) : (
@@ -711,8 +735,11 @@ export function MemoPage({
   const convertMemo = useCallback(
     async (target: Memo) => {
       if (convertingRef.current) return;
-      if (localStorage.getItem(`xiangying:memo-edit:${target.id}`))
-        throw new Error("这条随记有未保存的编辑草稿，请先打开并处理草稿");
+      const draft = readMemoEditDraft(target.id);
+      if (draft?.conflict) throw new Error("这条随记有未处理的冲突草稿，请先打开并处理草稿");
+      if (draft) throw new Error("这条随记有未保存的编辑草稿，请先打开并处理草稿");
+      if (hasMemoEditDraft(target.id))
+        throw new Error("无法读取这条随记的本地草稿，请先打开并处理草稿");
       convertingRef.current = true;
       try {
         const note = await memo.convertMemo(target);

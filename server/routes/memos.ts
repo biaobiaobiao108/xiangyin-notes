@@ -19,7 +19,7 @@ import {
   validText,
 } from "../core";
 import { createNote } from "./note-mutations";
-import { ensureEnvironmentUser, getAuthCredentials, cleanupExpiredRateLimits } from "./auth";
+import { cleanupExpiredRateLimits, ensureEnvironmentUser, getAuthCredentials } from "./auth";
 import { requireApiToken } from "../api-token";
 import { publishWorkspaceChange } from "../realtime";
 import { buildFtsMatchQuery, searchableTextFromMarkdown } from "../search-text";
@@ -38,6 +38,7 @@ const MEMO_QUERY_MAX_LENGTH = 200;
 const MEMO_QUERY_MAX_TERMS = 12;
 const MEMO_QUERY_TERM_MAX_LENGTH = 64;
 const MEMO_IDEMPOTENCY_KEY_PATTERN = /^[\x21-\x7e]{1,128}$/u;
+const MEMO_CREATED_AT_TOLERANCE_MS = 24 * 60 * 60 * 1000;
 
 type MemoRow = {
   id: string;
@@ -141,6 +142,13 @@ function validateContent(value: unknown) {
 
 function validateCreatedAt(value: unknown): value is number {
   return Number.isSafeInteger(value) && (value as number) >= 0 && (value as number) <= 8.64e15;
+}
+
+export function validateMemoCreatedAtPayload(value: unknown, timestamp = Date.now()) {
+  if (value === undefined) return timestamp;
+  return validateCreatedAt(value) && Math.abs(value - timestamp) <= MEMO_CREATED_AT_TOLERANCE_MS
+    ? value
+    : null;
 }
 
 function parseTimestamp(value: string | null) {
@@ -393,8 +401,7 @@ function parseMemoId(value: unknown) {
 }
 
 function validateCreatedAtPayload(value: unknown) {
-  if (value === undefined) return Date.now();
-  return validateCreatedAt(value) ? value : null;
+  return validateMemoCreatedAtPayload(value);
 }
 
 function memoMutation(ctx: RouteContext, user: UserRow, memoId: string) {

@@ -536,6 +536,47 @@
   font-size: 0.74rem;
 }
 
+.memo-conflict {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.memo-conflict > p {
+  margin: 0 0 8px;
+}
+
+.memo-conflict-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.memo-conflict-actions button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+}
+
+.memo-conflict-notice {
+  margin: 8px 0 0;
+  color: var(--accent-dark);
+}
+
+.memo-conflict details {
+  margin-top: 8px;
+}
+
+.memo-conflict summary {
+  cursor: pointer;
+}
+
 .memo-inline-error {
   display: flex;
   align-items: center;

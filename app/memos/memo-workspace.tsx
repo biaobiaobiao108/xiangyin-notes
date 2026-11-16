@@ -17,6 +17,7 @@ import {
   monthBounds,
   selectedDayCreateTime,
 } from "./memo-date";
+import { hasMemoEditDraft, readMemoEditDraft } from "./memo-edit-draft";
 
 type MemoWorkspaceValue = {
   queryDraft: string;
@@ -420,8 +421,11 @@ export function MemoWorkspaceProvider({
     async (memo: Memo) => {
       const scopeAtStart = listScope;
       try {
-        if (localStorage.getItem(`xiangying:memo-edit:${memo.id}`))
-          throw new Error("这条随记有未保存的编辑草稿，请先打开并处理草稿");
+        const draft = readMemoEditDraft(memo.id);
+        if (draft?.conflict) throw new Error("这条随记有未处理的冲突草稿，请先打开并处理草稿");
+        if (draft) throw new Error("这条随记有未保存的编辑草稿，请先打开并处理草稿");
+        if (hasMemoEditDraft(memo.id))
+          throw new Error("无法读取这条随记的本地草稿，请先打开并处理草稿");
         await api.deleteMemo(memo.id, memo.version);
         const shouldReload = invalidateListRequest();
         if (scopeAtStart !== currentListScopeRef.current) {

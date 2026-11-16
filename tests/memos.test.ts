@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase, type SqliteDatabase } from "../server/db";
 import { handleRequest } from "../server/index";
+import { validateMemoCreatedAtPayload } from "../server/routes/memos";
+import { localDateKey } from "../app/memos/memo-date";
 import type { RealtimeHub } from "../server/realtime";
 
 const environment: Record<string, string | undefined> = {
@@ -76,6 +78,16 @@ async function createMemo(cookie: string, contentMarkdown: string, createdAt?: n
 }
 
 describe("Memo API", () => {
+  test("bounds client-supplied creation time to a sane window", () => {
+    const now = Date.UTC(2026, 0, 10, 12, 0);
+    expect(validateMemoCreatedAtPayload(undefined, now)).toBe(now);
+    expect(validateMemoCreatedAtPayload(now - 60_000, now)).toBe(now - 60_000);
+    expect(validateMemoCreatedAtPayload(now + 60_000, now)).toBe(now + 60_000);
+    expect(validateMemoCreatedAtPayload(now - 24 * 60 * 60 * 1000 - 1, now)).toBeNull();
+    expect(validateMemoCreatedAtPayload(now + 24 * 60 * 60 * 1000 + 1, now)).toBeNull();
+    expect(validateMemoCreatedAtPayload("2026-01-10", now)).toBeNull();
+  });
+
   test("converts a memo atomically into an inbox note with indexed content", async () => {
     const cookie = await login();
     const markdown = "转换正文 #项目\n\n- [ ] 待办";
@@ -157,9 +169,11 @@ describe("Memo API", () => {
 
   test("creates, searches, filters, updates, facets, paginates, and deletes memos", async () => {
     const cookie = await login();
-    const firstTime = Date.UTC(2026, 0, 1, 10, 0);
-    const secondTime = Date.UTC(2026, 0, 1, 23, 30);
-    const thirdTime = Date.UTC(2026, 0, 2, 2, 0);
+    const now = Date.now();
+    const midnight = new Date(now).setHours(0, 0, 0, 0);
+    const firstTime = midnight - 24 * 60 * 60 * 1000 + 10 * 60 * 60 * 1000;
+    const secondTime = midnight + 23 * 60 * 60 * 1000;
+    const thirdTime = midnight + 24 * 60 * 60 * 1000 + 2 * 60 * 60 * 1000;
     const first = await createMemo(cookie, "alpha 第一条 #工作 #项目", firstTime);
     const second = await createMemo(cookie, "beta 第二条 #工作", secondTime);
     const third = await createMemo(cookie, "gamma 第三条 #生活", thirdTime);
@@ -205,15 +219,15 @@ describe("Memo API", () => {
     ]);
 
     const facets = await request(
-      `/api/memos/facets?from=${Date.UTC(2026, 0, 1)}&to=${Date.UTC(2026, 0, 3)}&timeZone=Asia%2FShanghai&tag=${encodeURIComponent("工作")}`,
+      `/api/memos/facets?from=${firstTime - 60_000}&to=${thirdTime + 60_000}&timeZone=Asia%2FShanghai&tag=${encodeURIComponent("工作")}`,
       {},
       cookie,
     );
     expect(facets.response.status).toBe(200);
     expect(facets.body).toMatchObject({
       days: [
-        { date: "2026-01-01", count: 1 },
-        { date: "2026-01-02", count: 1 },
+        { date: localDateKey(firstTime), count: 1 },
+        { date: localDateKey(thirdTime), count: 1 },
       ],
       tags: [
         { tag: "工作", count: 2 },
@@ -327,7 +341,7 @@ describe("Memo API", () => {
     expect(conflict.response.status).toBe(409);
     expect(conflict.body?.error.code).toBe("IDEMPOTENCY_CONFLICT");
 
-    const createdAt = Date.UTC(2025, 11, 31, 12, 0);
+    const createdAt = Date.now();
     const jsonImport = await request("/api/memos/import", {
       method: "POST",
       headers: {
