@@ -276,10 +276,10 @@ function MemoCard({
                   <button
                     type="button"
                     onClick={() => {
-                      void copyPlainText(editDraft?.markdown ?? "").then(() => {
-                        setCopyNotice("草稿已复制");
-                        window.setTimeout(() => setCopyNotice(""), 1600);
-                      });
+                      void copyPlainText(composerRef.current?.getMarkdown() ?? "")
+                        .then(() => setCopyNotice("草稿已复制"))
+                        .catch(() => setCopyNotice("复制失败，请重试"))
+                        .finally(() => window.setTimeout(() => setCopyNotice(""), 1600));
                     }}
                   >
                     复制草稿

@@ -65,6 +65,7 @@ export function normalizeMemoComposerContent(markdown: string) {
 export type MemoComposerHandle = {
   focus: () => void;
   discardPendingDraft: () => void;
+  getMarkdown: () => string;
 };
 
 export type MemoComposerProps = {
@@ -128,6 +129,7 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
       draftTimerRef.current = null;
       pendingDraftRef.current = null;
     },
+    getMarkdown: () => editorRef.current?.getMarkdown() ?? "",
   }));
 
   const extensions = useMemo(() => createMemoEditorExtensions(placeholder), [placeholder]);
@@ -162,6 +164,12 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
         if (reason === "shortcut") instance.commands.focus("end");
         return;
       }
+      if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+      draftTimerRef.current = null;
+      if (pendingDraftRef.current !== null) {
+        onDraftChangeRef.current?.(pendingDraftRef.current);
+        pendingDraftRef.current = null;
+      }
       savingRef.current = true;
       setSaving(true);
       // Freeze the editor before yielding to the network so the saved snapshot
@@ -173,7 +181,7 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
         if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
         draftTimerRef.current = null;
         pendingDraftRef.current = null;
-        if (resetOnSubmitRef.current) {
+        if (resetOnSubmitRef.current && !instance.isDestroyed) {
           clearDraft(instance);
           if (reason === "shortcut") instance.commands.blur();
         }
@@ -193,6 +201,7 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
     closingRef.current = true;
     if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
     draftTimerRef.current = null;
+    if (pendingDraftRef.current !== null) onDraftChangeRef.current?.(pendingDraftRef.current);
     pendingDraftRef.current = null;
     onCancelRef.current();
   }, []);

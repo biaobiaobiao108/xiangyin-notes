@@ -144,6 +144,14 @@ export function MemoWorkspaceProvider({
   const [facetRefreshToken, setFacetRefreshToken] = useState(0);
   const draftKey = `xiangying:memo-draft:${userKey || "default"}`;
   const [draft, setDraftState] = useState(() => readDraft(draftKey));
+  const draftRevisionRef = useRef(0);
+  const creationRef = useRef<{
+    id: string;
+    markdown: string;
+    date: string | null;
+    createdAt?: number;
+    inFlight: boolean;
+  } | null>(null);
   const listRequestRef = useRef(0);
   const facetRequestRef = useRef(0);
   const listAbortRef = useRef<AbortController | null>(null);
@@ -168,11 +176,14 @@ export function MemoWorkspaceProvider({
   );
 
   useEffect(() => {
+    draftRevisionRef.current += 1;
+    creationRef.current = null;
     setDraftState(readDraft(draftKey));
   }, [draftKey]);
 
   const setDraft = useCallback(
     (markdown: string) => {
+      draftRevisionRef.current += 1;
       setDraftState(markdown);
       try {
         if (markdown) localStorage.setItem(draftKey, markdown);
@@ -350,13 +361,34 @@ export function MemoWorkspaceProvider({
   const createMemo = useCallback(
     async (contentMarkdown: string, date?: string | null) => {
       const scopeAtStart = listScope;
+      const revisionAtStart = draftRevisionRef.current;
+      const selectedDate = date ?? null;
+      let creation = creationRef.current;
+      if (
+        !creation ||
+        creation.inFlight ||
+        creation.markdown !== contentMarkdown ||
+        creation.date !== selectedDate
+      ) {
+        creation = {
+          id: crypto.randomUUID(),
+          markdown: contentMarkdown,
+          date: selectedDate,
+          inFlight: false,
+          ...(selectedDate ? { createdAt: selectedDayCreateTime(selectedDate) } : {}),
+        };
+        creationRef.current = creation;
+      }
+      creation.inFlight = true;
       try {
         const result = await api.createMemo({
+          id: creation.id,
           contentMarkdown,
-          ...(date ? { createdAt: selectedDayCreateTime(date) } : {}),
+          ...(creation.createdAt !== undefined ? { createdAt: creation.createdAt } : {}),
         });
+        if (creationRef.current === creation) creationRef.current = null;
         const shouldReload = invalidateListRequest();
-        setDraft("");
+        if (draftRevisionRef.current === revisionAtStart) setDraft("");
         if (scopeAtStart !== currentListScopeRef.current) {
           refresh();
           return result.memo;
@@ -371,6 +403,7 @@ export function MemoWorkspaceProvider({
         if (shouldReload && !query && !tag && inDateRange) refresh();
         return result.memo;
       } catch (reason) {
+        creation.inFlight = false;
         unauthorized(reason);
         throw reason;
       }

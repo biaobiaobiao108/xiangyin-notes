@@ -38,7 +38,6 @@ const MEMO_QUERY_MAX_LENGTH = 200;
 const MEMO_QUERY_MAX_TERMS = 12;
 const MEMO_QUERY_TERM_MAX_LENGTH = 64;
 const MEMO_IDEMPOTENCY_KEY_PATTERN = /^[\x21-\x7e]{1,128}$/u;
-const MEMO_CREATED_AT_TOLERANCE_MS = 24 * 60 * 60 * 1000;
 
 type MemoRow = {
   id: string;
@@ -146,9 +145,7 @@ function validateCreatedAt(value: unknown): value is number {
 
 export function validateMemoCreatedAtPayload(value: unknown, timestamp = Date.now()) {
   if (value === undefined) return timestamp;
-  return validateCreatedAt(value) && Math.abs(value - timestamp) <= MEMO_CREATED_AT_TOLERANCE_MS
-    ? value
-    : null;
+  return validateCreatedAt(value) ? value : null;
 }
 
 function parseTimestamp(value: string | null) {
@@ -531,6 +528,14 @@ export function handleMemosRoute(
         if (createdAt === null) return jsonError(400, "INVALID_CREATED_AT", "创建时间无效");
         if (!validateContent(payload.contentMarkdown))
           return jsonError(413, "MEMO_TOO_LARGE", "随记正文不能为空且不能超过长度限制");
+        const existing = getMemo(ctx.options.database, user.id, memoId);
+        if (
+          existing &&
+          existing.version === 1 &&
+          existing.content_markdown === payload.contentMarkdown &&
+          (payload.createdAt === undefined || existing.created_at === createdAt)
+        )
+          return json({ memo: memoFromRow(existing) }, 200);
         if (first(ctx.options.database, "SELECT 1 FROM memos WHERE id = ?", memoId))
           return jsonError(409, "MEMO_EXISTS", "指定 ID 的随记已存在");
         createMemo(

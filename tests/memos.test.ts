@@ -78,14 +78,41 @@ async function createMemo(cookie: string, contentMarkdown: string, createdAt?: n
 }
 
 describe("Memo API", () => {
-  test("bounds client-supplied creation time to a sane window", () => {
+  test("accepts valid historical creation times and rejects invalid dates", () => {
     const now = Date.UTC(2026, 0, 10, 12, 0);
     expect(validateMemoCreatedAtPayload(undefined, now)).toBe(now);
     expect(validateMemoCreatedAtPayload(now - 60_000, now)).toBe(now - 60_000);
     expect(validateMemoCreatedAtPayload(now + 60_000, now)).toBe(now + 60_000);
-    expect(validateMemoCreatedAtPayload(now - 24 * 60 * 60 * 1000 - 1, now)).toBeNull();
-    expect(validateMemoCreatedAtPayload(now + 24 * 60 * 60 * 1000 + 1, now)).toBeNull();
+    expect(validateMemoCreatedAtPayload(now - 7 * 24 * 60 * 60 * 1000, now)).toBe(
+      now - 7 * 24 * 60 * 60 * 1000,
+    );
+    expect(validateMemoCreatedAtPayload(-1, now)).toBeNull();
+    expect(validateMemoCreatedAtPayload(8.64e15 + 1, now)).toBeNull();
     expect(validateMemoCreatedAtPayload("2026-01-10", now)).toBeNull();
+  });
+
+  test("replays a matching creation ID and rejects a different payload", async () => {
+    const cookie = await login();
+    const id = crypto.randomUUID();
+    const createdAt = Date.now() - 7 * 86400000;
+    const create = (contentMarkdown: string, time = createdAt) =>
+      request(
+        "/api/memos",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, contentMarkdown, createdAt: time }),
+        },
+        cookie,
+      );
+    const first = await create("历史随记");
+    expect(first.response.status).toBe(201);
+    const replay = await create("历史随记");
+    expect(replay.response.status).toBe(200);
+    expect(replay.body?.memo).toEqual(first.body?.memo);
+    expect((await create("其他内容")).response.status).toBe(409);
+    expect((await create("历史随记", createdAt + 1)).response.status).toBe(409);
+    expect((await request("/api/memos", {}, cookie)).body?.memos).toHaveLength(1);
   });
 
   test("converts a memo atomically into an inbox note with indexed content", async () => {
