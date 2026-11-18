@@ -184,6 +184,11 @@ test("library export includes owned notes, trash, memos, attachments and metadat
     expect(response.status).toBe(200);
     database.query("UPDATE notes SET content_markdown = 'changed later' WHERE id = ?").run(noteId);
     database.query("UPDATE memos SET content_markdown = 'changed later' WHERE id = ?").run(memoId);
+    const whileStreaming = database
+      .query<{ log: number; checkpointed: number }, []>("PRAGMA wal_checkpoint(PASSIVE)")
+      .get()!;
+    expect(whileStreaming.log).toBeGreaterThan(0);
+    expect(whileStreaming.checkpointed).toBe(whileStreaming.log);
     const zip = join(root, "library.zip");
     await Bun.write(zip, response);
     const entries = readZipEntries(new Uint8Array(await Bun.file(zip).arrayBuffer()));
@@ -245,7 +250,7 @@ test("library export includes owned notes, trash, memos, attachments and metadat
       log: number;
       checkpointed: number;
     };
-    expect(beforeCancel.checkpointed).toBeLessThan(beforeCancel.log);
+    expect(beforeCancel.checkpointed).toBe(beforeCancel.log);
     await cancelled.body.cancel();
     const afterCancel = database.query("PRAGMA wal_checkpoint(PASSIVE)").get() as {
       log: number;

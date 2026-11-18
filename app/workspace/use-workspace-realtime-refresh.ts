@@ -63,12 +63,17 @@ export function useWorkspaceRealtimeRefresh({
           if (kanbanOpen) setKanbanRefreshToken((value) => value + 1);
         }
         if (next.notebooks) void refreshNotebooks();
-        if (next.notes) {
-          reloadNotes();
-        }
         const activeId = activeNoteIdRef.current;
-        if (activeId && (next.selected || next.noteIds.has(activeId)))
-          void refreshSelectedNoteFromRemote(activeId);
+        const activeRefresh =
+          activeId && (next.selected || next.noteIds.has(activeId))
+            ? refreshSelectedNoteFromRemote(activeId)
+            : null;
+        if (next.notes) {
+          // The list can retain the active note. Refresh its membership before
+          // using that snapshot when a remote change moves it out of the view.
+          if (activeRefresh) void activeRefresh.finally(reloadNotes);
+          else reloadNotes();
+        }
         const currentSplitId = splitNoteIdRef.current;
         if (currentSplitId && (next.selected || next.noteIds.has(currentSplitId))) {
           void refreshSplitNoteFromRemote(currentSplitId);

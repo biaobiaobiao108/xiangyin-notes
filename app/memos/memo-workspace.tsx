@@ -10,6 +10,7 @@ import {
 } from "react";
 import type { Memo, MemoDayCount, MemoTagCount, Note } from "../../shared/types";
 import { api, ApiError } from "../api";
+import { createUuid } from "../uuid";
 import {
   browserTimeZone,
   currentMonthKey,
@@ -371,7 +372,7 @@ export function MemoWorkspaceProvider({
         creation.date !== selectedDate
       ) {
         creation = {
-          id: crypto.randomUUID(),
+          id: createUuid(),
           markdown: contentMarkdown,
           date: selectedDate,
           inFlight: false,

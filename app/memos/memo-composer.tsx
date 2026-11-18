@@ -120,40 +120,46 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
   onCancelRef.current = onCancel;
   resetOnSubmitRef.current = resetOnSubmit;
 
+  const discardPendingDraft = useCallback(() => {
+    if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    draftTimerRef.current = null;
+    pendingDraftRef.current = null;
+  }, []);
+
+  const flushPendingDraft = useCallback(() => {
+    const markdown = pendingDraftRef.current;
+    discardPendingDraft();
+    if (markdown !== null) onDraftChangeRef.current?.(markdown);
+  }, [discardPendingDraft]);
+
   useImperativeHandle(ref, () => ({
     focus: () => {
       editorRef.current?.commands.focus("end");
     },
-    discardPendingDraft: () => {
-      if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
-      draftTimerRef.current = null;
-      pendingDraftRef.current = null;
-    },
+    discardPendingDraft,
     getMarkdown: () => editorRef.current?.getMarkdown() ?? "",
   }));
 
   const extensions = useMemo(() => createMemoEditorExtensions(placeholder), [placeholder]);
 
-  const queueDraft = useCallback((markdown: string) => {
-    if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
-    pendingDraftRef.current = markdown;
-    draftTimerRef.current = setTimeout(() => {
-      draftTimerRef.current = null;
-      pendingDraftRef.current = null;
-      onDraftChangeRef.current?.(markdown);
-    }, 180);
-  }, []);
+  const queueDraft = useCallback(
+    (markdown: string) => {
+      if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+      pendingDraftRef.current = markdown;
+      draftTimerRef.current = setTimeout(flushPendingDraft, 180);
+    },
+    [flushPendingDraft],
+  );
 
-  const clearDraft = useCallback((instance: EditorWithMarkdown) => {
-    if (draftTimerRef.current) {
-      clearTimeout(draftTimerRef.current);
-      draftTimerRef.current = null;
-    }
-    pendingDraftRef.current = null;
-    instance.commands.clearContent(false);
-    setError("");
-    onDraftChangeRef.current?.("");
-  }, []);
+  const clearDraft = useCallback(
+    (instance: EditorWithMarkdown) => {
+      discardPendingDraft();
+      instance.commands.clearContent(false);
+      setError("");
+      onDraftChangeRef.current?.("");
+    },
+    [discardPendingDraft],
+  );
 
   const submit = useCallback(
     async (reason: SubmitReason) => {
@@ -164,12 +170,7 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
         if (reason === "shortcut") instance.commands.focus("end");
         return;
       }
-      if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
-      draftTimerRef.current = null;
-      if (pendingDraftRef.current !== null) {
-        onDraftChangeRef.current?.(pendingDraftRef.current);
-        pendingDraftRef.current = null;
-      }
+      flushPendingDraft();
       savingRef.current = true;
       setSaving(true);
       // Freeze the editor before yielding to the network so the saved snapshot
@@ -178,9 +179,7 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
       setError("");
       try {
         await onSubmitRef.current(markdown);
-        if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
-        draftTimerRef.current = null;
-        pendingDraftRef.current = null;
+        discardPendingDraft();
         if (resetOnSubmitRef.current && !instance.isDestroyed) {
           clearDraft(instance);
           if (reason === "shortcut") instance.commands.blur();
@@ -193,18 +192,15 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
         if (!instance.isDestroyed) instance.setEditable(true, false);
       }
     },
-    [clearDraft],
+    [clearDraft, discardPendingDraft, flushPendingDraft],
   );
 
   const cancel = useCallback(() => {
     if (!onCancelRef.current || savingRef.current) return;
     closingRef.current = true;
-    if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
-    draftTimerRef.current = null;
-    if (pendingDraftRef.current !== null) onDraftChangeRef.current?.(pendingDraftRef.current);
-    pendingDraftRef.current = null;
+    flushPendingDraft();
     onCancelRef.current();
-  }, []);
+  }, [flushPendingDraft]);
 
   const handleKeyDownInEditor = useCallback(
     (_view: unknown, event: KeyboardEvent) => {
@@ -406,19 +402,18 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
   });
   editorRef.current = editor as EditorWithMarkdown | null;
 
-  useEffect(
-    () => () => {
-      if (!draftTimerRef.current) return;
-      clearTimeout(draftTimerRef.current);
-      draftTimerRef.current = null;
-      // Preserve the last keystrokes when the memo surface is closed or switched.
-      if (pendingDraftRef.current !== null) {
-        onDraftChangeRef.current?.(pendingDraftRef.current);
-        pendingDraftRef.current = null;
-      }
-    },
-    [],
-  );
+  useEffect(() => {
+    const flushWhenHidden = () => {
+      if (document.visibilityState === "hidden") flushPendingDraft();
+    };
+    document.addEventListener("visibilitychange", flushWhenHidden);
+    window.addEventListener("pagehide", flushPendingDraft);
+    return () => {
+      document.removeEventListener("visibilitychange", flushWhenHidden);
+      window.removeEventListener("pagehide", flushPendingDraft);
+      flushPendingDraft();
+    };
+  }, [flushPendingDraft]);
 
   return (
     <div

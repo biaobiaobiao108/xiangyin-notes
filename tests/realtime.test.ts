@@ -100,6 +100,56 @@ afterEach(async () => {
   await rm(assetRoot, { recursive: true, force: true });
 });
 
+test("note updates refresh remote collections only when list membership can change", async () => {
+  const login = await request("/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({
+      username: environment.XIANGYING_USERNAME,
+      password: environment.XIANGYING_PASSWORD,
+    }),
+  });
+  expect(login.response.status).toBe(200);
+  const hub = new RealtimeHub();
+  const listener = fakeSocket(login.body?.user.id, "remote-tab");
+  hub.add(listener.socket);
+  const options = { cookie: login.cookie, realtime: hub, clientId: "writing-tab" };
+  const notebook = await request(
+    "/api/notebooks",
+    { method: "POST", body: JSON.stringify({ name: "目标笔记本" }) },
+    options,
+  );
+  const created = await request(
+    "/api/notes",
+    { method: "POST", body: JSON.stringify({ title: "实时同步" }) },
+    options,
+  );
+  expect(notebook.response.status).toBe(201);
+  expect(created.response.status).toBe(201);
+  let note = created.body?.note;
+  for (const [patch, resource, refreshOne] of [
+    [{ contentMarkdown: "新正文" }, "notes", true],
+    [{ isFavorite: true }, "notes", false],
+    [{ isFavorite: false }, "notes", false],
+    [{ notebookId: notebook.body?.notebook.id }, "notebooks", false],
+    [{ deleted: true }, "notebooks", false],
+    [{ deleted: false }, "notebooks", false],
+  ] as const) {
+    const before = workspaceChanges(listener).length;
+    const updated = await request(
+      `/api/notes/${note.id}`,
+      { method: "PATCH", body: JSON.stringify({ version: note.version, ...patch }) },
+      options,
+    );
+    expect(updated.response.status).toBe(200);
+    note = updated.body?.note;
+    const events = workspaceChanges(listener).slice(before);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ resource });
+    expect(events[0].noteId).toBe(refreshOne ? note.id : undefined);
+  }
+  hub.stop();
+});
+
 describe("RealtimeHub", () => {
   test("publishes only to the target user and excludes the source client", () => {
     const hub = new RealtimeHub();

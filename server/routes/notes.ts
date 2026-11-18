@@ -381,7 +381,7 @@ export async function handleNotesRoute(
           if (error instanceof BatchNoteConflictError) return batchConflictResponse(error);
           throw error;
         }
-        publishWorkspaceChange(options, user.id, { resource: "notes" }, request);
+        publishWorkspaceChange(options, user.id, { resource: "notebooks" }, request);
         return json({ ok: true, restoredIds: restored.restoredIds });
       }
 
@@ -414,7 +414,7 @@ export async function handleNotesRoute(
         if (error instanceof BatchNoteConflictError) return batchConflictResponse(error);
         throw error;
       }
-      publishWorkspaceChange(options, user.id, { resource: "notes" }, request);
+      publishWorkspaceChange(options, user.id, { resource: "notebooks" }, request);
       return json({ ok: true, deletedIds: moved.deletedIds });
     }
 
@@ -1168,13 +1168,11 @@ export async function handleNotesRoute(
     )
       return jsonError(400, "INVALID_ASSET", "图片引用无效、不受支持或附件当前不可用");
     const summaryResponse = url.searchParams.get("response") === "summary";
-    const hasChanges =
-      current.title !== title ||
-      contentChanged ||
-      current.notebook_id !== notebookId ||
-      current.is_favorite !== isFavorite ||
-      current.deleted_at !== deletedAt;
-    if (!hasChanges)
+    const notebookCountsChanged =
+      current.notebook_id !== notebookId || current.deleted_at !== deletedAt;
+    const refreshList =
+      notebookCountsChanged || current.is_favorite !== isFavorite || current.title !== title;
+    if (!refreshList && !contentChanged)
       return json({ note: summaryResponse ? summarizeNote(current) : toFullNote(current) });
     let updated: boolean;
     try {
@@ -1216,7 +1214,10 @@ export async function handleNotesRoute(
     publishWorkspaceChange(
       options,
       user.id,
-      { resource: "notes", ...(current.title === title ? { noteId: current.id } : {}) },
+      {
+        resource: notebookCountsChanged ? "notebooks" : "notes",
+        ...(refreshList ? {} : { noteId: current.id }),
+      },
       request,
     );
     const rewrittenBody = note && note.content_markdown !== contentMarkdown;

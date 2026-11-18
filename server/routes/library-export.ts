@@ -105,8 +105,8 @@ export async function handleLibraryExport(ctx: RouteContext, user: UserRow): Pro
     return jsonError(400, "INVALID_TIME_ZONE", "导出时区无效");
   }
   const originalDatabase = ctx.options.database;
-  const useSnapshotConnection = ctx.method !== "HEAD" && originalDatabase.filename !== ":memory:";
-  const database = useSnapshotConnection
+  const stageContent = ctx.method !== "HEAD" && originalDatabase.filename !== ":memory:";
+  const database = stageContent
     ? new Database(originalDatabase.filename, { readonly: true })
     : originalDatabase;
   let snapshotClosed = false;
@@ -115,12 +115,12 @@ export async function handleLibraryExport(ctx: RouteContext, user: UserRow): Pro
     if (snapshotClosed) return;
     snapshotClosed = true;
     releaseAssets?.();
-    if (useSnapshotConnection) database.close();
+    if (stageContent) database.close();
   };
   let streamOwnsSnapshot = false;
   try {
-    if (useSnapshotConnection) database.exec("BEGIN");
-    const deferContent = ctx.method === "HEAD" || useSnapshotConnection;
+    if (stageContent) database.exec("PRAGMA temp_store = FILE");
+    const deferContent = ctx.method === "HEAD" || stageContent;
     // Read synchronously before the first await so each table describes the same database state.
     const readSnapshot = () => ({
       notebooks: all<{
@@ -171,7 +171,31 @@ export async function handleLibraryExport(ctx: RouteContext, user: UserRow): Pro
         user.id,
       ),
     });
-    const snapshot = useSnapshotConnection ? readSnapshot() : database.transaction(readSnapshot)();
+    const snapshot = database.transaction(() => {
+      const snapshot = readSnapshot();
+      if (Math.ceil(snapshot.textBytes.total * 1.15) >= 0xffffffff) return null;
+      if (stageContent) {
+        // Copy only the exported bodies into SQLite's temporary storage. End
+        // the live database read before streaming to a slow client.
+        database.exec(`
+          CREATE TEMP TABLE export_notes (id TEXT PRIMARY KEY, content_markdown TEXT) WITHOUT ROWID;
+          CREATE TEMP TABLE export_memos (id TEXT PRIMARY KEY, content_markdown TEXT) WITHOUT ROWID;
+        `);
+        database
+          .query(
+            "INSERT INTO temp.export_notes SELECT id, content_markdown FROM main.notes WHERE user_id = ?",
+          )
+          .run(user.id);
+        database
+          .query(
+            "INSERT INTO temp.export_memos SELECT id, content_markdown FROM main.memos WHERE user_id = ?",
+          )
+          .run(user.id);
+      }
+      return snapshot;
+    })();
+    if (!snapshot)
+      return jsonError(413, "EXPORT_TOO_LARGE", "整库内容超过 ZIP 导出大小限制，请使用数据库备份");
     const root = ctx.options.assetRoot ?? assetRootFromEnv(ctx.options.environment);
     if (ctx.method !== "HEAD")
       releaseAssets = retainExportAssets(
@@ -202,9 +226,10 @@ export async function handleLibraryExport(ctx: RouteContext, user: UserRow): Pro
       );
     }
     const folders = notebookFolders(snapshot.notebooks);
-    if (snapshot.notes.some((note) => !folders.has(note.notebook_id)))
+    const notes = snapshot.notes;
+    if (notes.some((note) => !folders.has(note.notebook_id)))
       return jsonError(500, "EXPORT_NOTEBOOK_MISSING", "笔记所属笔记本不可用，无法完成整库导出");
-    const noteEntries = snapshot.notes.map(({ content_markdown: _content, ...note }) => ({
+    const noteEntries = notes.map(({ content_markdown: _content, ...note }) => ({
       ...note,
       file: `${folders.get(note.notebook_id)}/${note.id} ${safeName(note.title)}.md`,
     }));
@@ -263,21 +288,23 @@ export async function handleLibraryExport(ctx: RouteContext, user: UserRow): Pro
       return jsonError(413, "EXPORT_TOO_LARGE", "整库内容超过 ZIP 导出大小限制，请使用数据库备份");
     if (ctx.method === "HEAD")
       return new Response(null, { status: 200, headers: { "Cache-Control": "no-store" } });
-    const noteBody = database.query(
-      "SELECT content_markdown FROM notes WHERE id = ? AND user_id = ?",
-    );
-    const memoBody = database.query(
-      "SELECT content_markdown FROM memos WHERE id = ? AND user_id = ?",
-    );
+    const noteBody = stageContent
+      ? database.query<{ content_markdown: string }, [string]>(
+          "SELECT content_markdown FROM temp.export_notes WHERE id = ?",
+        )
+      : null;
+    const memoBody = stageContent
+      ? database.query<{ content_markdown: string }, [string]>(
+          "SELECT content_markdown FROM temp.export_memos WHERE id = ?",
+        )
+      : null;
     async function* entries(): AsyncGenerator<ZipStreamEntry> {
       yield textEntry("说明.txt", readme);
       yield textEntry("metadata.json", metadata);
       for (const folder of folders.values()) yield textEntry(`${folder}/`, "");
       for (let index = 0; index < noteEntries.length; index++) {
-        const note = snapshot.notes[index]!;
-        const body = useSnapshotConnection
-          ? (noteBody.get(note.id, user.id) as { content_markdown: string }).content_markdown
-          : note.content_markdown;
+        const note = notes[index]!;
+        const body = noteBody ? noteBody.get(note.id)!.content_markdown : note.content_markdown;
         const content = portableMarkdown(body, assetNames, "../../附件");
         note.content_markdown = "";
         yield textEntry(noteEntries[index]!.file, content);
@@ -289,9 +316,7 @@ export async function handleLibraryExport(ctx: RouteContext, user: UserRow): Pro
             yield encoder.encode(`# ${month} 随记\n\n`);
             for (let index = 0; index < items.length; index++) {
               const item = items[index]!;
-              const body = useSnapshotConnection
-                ? (memoBody.get(item.id, user.id) as { content_markdown: string }).content_markdown
-                : item.content;
+              const body = memoBody ? memoBody.get(item.id)!.content_markdown : item.content;
               yield encoder.encode(
                 `${index ? "\n---\n\n" : ""}## ${item.time}\n\n${portableMarkdown(body, assetNames, "../附件")}\n`,
               );
