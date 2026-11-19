@@ -285,13 +285,6 @@
   pointer-events: none;
 }
 
-.memo-composer-error {
-  margin: 8px 0 0;
-  color: var(--danger);
-  font-size: 0.76rem;
-  line-height: 1.4;
-}
-
 .memo-timeline {
   margin-top: 24px;
 }

@@ -172,7 +172,11 @@ docker run -d \
   ghcr.io/biaobiaobiao108/xiangyin-notes:latest
 ```
 
-打开 `http://127.0.0.1:3001/app` 确认笔记和图片都可用后，执行 `docker stop xiangying-notes-restore && docker rm xiangying-notes-restore && docker rm xiangying-notes`，再按原启动参数重建正式容器，将 `/data` 挂载到 `xiangying-notes-restore` 数据卷。确认恢复后的服务稳定前，请保留原来的 `xiangying-notes-data` 数据卷。若本机运行使用默认路径，停服后备份整个 `data/` 目录即可；设置了自定义 `DATABASE_PATH` 或 `ASSETS_PATH` 时，需同时备份这两个路径。
+临时实例请使用备份时的登录用户名。上例按默认数据布局恢复。如果原实例有自定义数据库或附件路径，先确认归档包含两者，再将恢复后的路径传给临时实例。
+
+打开 `http://127.0.0.1:3001/app`，核对笔记本、笔记正文、图片、反向链接、随记、看板和回收站。可以在临时实例中恢复一篇已删除的笔记，确认正文仍可读取。验证完成后，先从原备份重新解压到另一个新卷，以免将验收操作带入正式实例。然后执行 `docker stop xiangying-notes-restore && docker rm xiangying-notes-restore && docker rm xiangying-notes`，再按原启动参数重建正式容器，将 `/data` 挂载到最终恢复卷。确认恢复后的服务稳定前，请保留原来的 `xiangying-notes-data` 数据卷。
+
+若本机运行使用默认路径，停服后把整个 `data/` 归档到目录之外。恢复时解包到空目录，用 `DATABASE_PATH` 和 `ASSETS_PATH` 同时指向恢复后的数据库和附件目录，再用独立端口验收。设置了自定义路径时，备份必须包含这两个位置。
 
 ### Agent 接入（MCP）
 
@@ -344,6 +348,8 @@ macOS 上把 `Ctrl` 换成 `⌘`，把 `Alt` 换成 `⌥`。
 ## 项目信息
 
 象映笔记使用 Bun、TypeScript、React、Bun Server 和 SQLite 构建。开发时运行 `bun run dev`，类型检查、测试和构建命令分别是 `bun run typecheck`、`bun test` 和 `bun run build`；内容性能基准使用 `bun run bench:content`。
+
+生产构建完成后，可使用全局 Playwright 1.64.1 运行 `bun run test:browser`，需要安装 Chromium 和 WebKit。运行 `bun run bench:browser` 可用 Chromium 测试约 50 KB 和 250 KB 的混合 Markdown 长文，输出编辑器打开、大纲定位、单次输入到下一帧及首开 JS/CSS 体积的中位数。两条命令均启动隔离数据库。如果 Playwright 安装在其他位置，可用 `PLAYWRIGHT_MODULE` 指定其 `index.mjs` 的绝对路径。
 
 当前仓库未声明独立开源许可证。若要公开分发或二次开发，请先确认项目的授权范围。
 

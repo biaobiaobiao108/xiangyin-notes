@@ -41,19 +41,29 @@ function emit(partial: Partial<PwaState>) {
   for (const listener of listeners) listener(state);
 }
 
+function waitingUpdate(currentRegistration: ServiceWorkerRegistration) {
+  const { active, waiting } = currentRegistration;
+  if (active && waiting?.state === "installed" && waiting !== active) return waiting;
+  return null;
+}
+
 function watchRegistration(nextRegistration: ServiceWorkerRegistration) {
   registration = nextRegistration;
+  const refreshUpdate = () => {
+    const updateAvailable = waitingUpdate(nextRegistration) !== null;
+    if (state.updateAvailable !== updateAvailable) emit({ updateAvailable });
+  };
   const watchWorker = (worker: ServiceWorker | null) => {
-    if (!worker) return;
-    worker.addEventListener("statechange", () => {
-      if (worker.state === "installed" && navigator.serviceWorker.controller)
-        emit({ updateAvailable: true });
-    });
+    worker?.addEventListener("statechange", refreshUpdate);
   };
   watchWorker(nextRegistration.installing);
-  nextRegistration.addEventListener("updatefound", () => watchWorker(nextRegistration.installing));
-  if (nextRegistration.waiting && navigator.serviceWorker.controller)
-    emit({ updateAvailable: true });
+  watchWorker(nextRegistration.waiting);
+  nextRegistration.addEventListener("updatefound", () => {
+    watchWorker(nextRegistration.installing ?? nextRegistration.waiting);
+    refreshUpdate();
+  });
+  navigator.serviceWorker.addEventListener("controllerchange", refreshUpdate);
+  refreshUpdate();
 }
 
 export async function registerPwa() {
@@ -98,10 +108,17 @@ export async function installPwa() {
 }
 
 export function applyPwaUpdate() {
-  if (!registration?.waiting) return false;
-  const waiting = registration.waiting;
-  const reload = () => window.location.reload();
-  navigator.serviceWorker.addEventListener("controllerchange", reload, { once: true });
+  const waiting = registration && waitingUpdate(registration);
+  if (!waiting) {
+    if (state.updateAvailable) emit({ updateAvailable: false });
+    return false;
+  }
+  // This tab asked to update after checking for unsaved work. Other tabs only
+  // refresh their banner state when the new worker takes control.
+  const serviceWorker = navigator.serviceWorker;
+  serviceWorker.addEventListener("controllerchange", () => window.location.reload(), {
+    once: true,
+  });
   waiting.postMessage({ type: "SKIP_WAITING" });
   return true;
 }

@@ -460,24 +460,22 @@ export function buildMemoComposerMenuItems({
     }
   }
 
-  if (isEditingMemo) {
-    if (actions.submit) {
-      items.push({
-        label: "保存修改",
-        icon: Check,
-        shortcut: "Ctrl ↵",
-        separator: true,
-        onSelect: actions.submit,
-      });
-    }
-    if (actions.cancel) {
-      items.push({
-        label: "取消编辑",
-        icon: X,
-        shortcut: "Esc",
-        onSelect: actions.cancel,
-      });
-    }
+  if (actions.submit) {
+    items.push({
+      label: isEditingMemo ? "保存修改" : "保存随记",
+      icon: Check,
+      shortcut: `${modKey} ↵`,
+      separator: true,
+      onSelect: actions.submit,
+    });
+  }
+  if (isEditingMemo && actions.cancel) {
+    items.push({
+      label: "取消编辑",
+      icon: X,
+      shortcut: "Esc",
+      onSelect: actions.cancel,
+    });
   }
 
   return items;

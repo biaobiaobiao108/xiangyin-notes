@@ -22,8 +22,6 @@ import { SplitResizer, DEFAULT_SPLIT_RATIO } from "./workspace/split-resizer";
 import { SplitNoteDialog } from "./workspace/split-note-dialog";
 import { EmptyEditor, NoteListPanel, NoteLoadingState, Sidebar } from "./workspace/panels";
 import { NoteCardGridPanel } from "./workspace/note-card-grid";
-import { TasksPanel } from "./workspace/tasks-panel";
-import { KanbanPanel } from "./workspace/kanban-panel";
 import { registerDragOverGuard } from "./workspace/note-drag-drop";
 import { ErrorBoundary, EditorErrorFallback } from "./error-boundary";
 import {
@@ -86,6 +84,14 @@ const LazyNoteEditor = lazy(() =>
 
 const LazyMemoPage = lazy(() =>
   import("./memos/memo-page").then(({ MemoPage }) => ({ default: MemoPage })),
+);
+
+const LazyTasksPanel = lazy(() =>
+  import("./workspace/tasks-panel").then(({ TasksPanel }) => ({ default: TasksPanel })),
+);
+
+const LazyKanbanPanel = lazy(() =>
+  import("./workspace/kanban-panel").then(({ KanbanPanel }) => ({ default: KanbanPanel })),
 );
 
 export function Workspace() {
@@ -1755,46 +1761,50 @@ export function Workspace() {
           </Suspense>
         )}
         {shouldShowTasksPanel(tasksOpen, isMobileViewport, mobilePage) && (
-          <TasksPanel
-            tasks={tasks}
-            total={currentTaskSnapshot?.total ?? 0}
-            hasMore={currentTaskSnapshot !== null && currentTaskSnapshot.nextCursor !== null}
-            loadingMore={tasksMoreLoading}
-            loadMoreError={tasksMoreError}
-            notebooks={notebooks}
-            notebookId={taskNotebookId}
-            status={taskStatus}
-            loading={tasksLoading}
-            busyTask={
-              taskMutationNoteId !== null && taskMutationOrdinal !== null
-                ? { noteId: taskMutationNoteId, ordinal: taskMutationOrdinal }
-                : null
-            }
-            error={tasksError}
-            onRetry={() => setTaskRefreshToken((value) => value + 1)}
-            onNotebookChange={setTaskNotebookId}
-            onStatusChange={setTaskStatus}
-            onSelectTask={selectTask}
-            onToggleTask={handleToggleTask}
-            onLoadMore={loadMoreTasks}
-            onBack={isMobileViewport ? backMobilePage : undefined}
-          />
+          <Suspense fallback={<NoteLoadingState panel="任务" />}>
+            <LazyTasksPanel
+              tasks={tasks}
+              total={currentTaskSnapshot?.total ?? 0}
+              hasMore={currentTaskSnapshot !== null && currentTaskSnapshot.nextCursor !== null}
+              loadingMore={tasksMoreLoading}
+              loadMoreError={tasksMoreError}
+              notebooks={notebooks}
+              notebookId={taskNotebookId}
+              status={taskStatus}
+              loading={tasksLoading}
+              busyTask={
+                taskMutationNoteId !== null && taskMutationOrdinal !== null
+                  ? { noteId: taskMutationNoteId, ordinal: taskMutationOrdinal }
+                  : null
+              }
+              error={tasksError}
+              onRetry={() => setTaskRefreshToken((value) => value + 1)}
+              onNotebookChange={setTaskNotebookId}
+              onStatusChange={setTaskStatus}
+              onSelectTask={selectTask}
+              onToggleTask={handleToggleTask}
+              onLoadMore={loadMoreTasks}
+              onBack={isMobileViewport ? backMobilePage : undefined}
+            />
+          </Suspense>
         )}
         {shouldShowKanbanPanel(kanbanOpen, isMobileViewport, mobilePage) && (
-          <KanbanPanel
-            columns={kanbanColumns}
-            loading={kanbanLoading}
-            onOpenNote={openKanbanNote}
-            onCreateNoteInColumn={handleCreateNoteInKanbanColumn}
-            onAddExistingNote={handleAddExistingNoteToKanban}
-            onMoveCard={handleMoveKanbanCard}
-            onTrashCard={handleTrashKanbanCard}
-            onLoadMoreColumn={loadMoreKanbanColumn}
-            onToggleFavorite={handleToggleFavoriteKanbanCard}
-            onBack={isMobileViewport ? backMobilePage : undefined}
-            isMobileViewport={isMobileViewport}
-            availableNotes={notes}
-          />
+          <Suspense fallback={<NoteLoadingState panel="看板" />}>
+            <LazyKanbanPanel
+              columns={kanbanColumns}
+              loading={kanbanLoading}
+              onOpenNote={openKanbanNote}
+              onCreateNoteInColumn={handleCreateNoteInKanbanColumn}
+              onAddExistingNote={handleAddExistingNoteToKanban}
+              onMoveCard={handleMoveKanbanCard}
+              onTrashCard={handleTrashKanbanCard}
+              onLoadMoreColumn={loadMoreKanbanColumn}
+              onToggleFavorite={handleToggleFavoriteKanbanCard}
+              onBack={isMobileViewport ? backMobilePage : undefined}
+              isMobileViewport={isMobileViewport}
+              availableNotes={notes}
+            />
+          </Suspense>
         )}
         {!tasksOpen && !kanbanOpen && !memosOpen && !isCardsLayout && (
           <NoteListPanel

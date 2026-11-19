@@ -77,12 +77,9 @@ export type MemoComposerProps = {
   resetOnSubmit?: boolean;
   onDraftChange?: (markdown: string) => void;
   onSubmit: (markdown: string) => Promise<void>;
+  onSaveError: (reason: unknown) => void;
   onCancel?: () => void;
 };
-
-function messageOf(reason: unknown) {
-  return reason instanceof Error && reason.message ? reason.message : "保存失败，请重试";
-}
 
 export function createMemoEditorExtensions(placeholder?: string) {
   return [...createCommonEditorExtensions({ placeholder, trailingNode: false }), WikiLinkNode];
@@ -98,6 +95,7 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
     resetOnSubmit = false,
     onDraftChange,
     onSubmit,
+    onSaveError,
     onCancel,
   },
   ref,
@@ -108,14 +106,15 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingDraftRef = useRef<string | null>(null);
   const onSubmitRef = useRef(onSubmit);
+  const onSaveErrorRef = useRef(onSaveError);
   const onDraftChangeRef = useRef(onDraftChange);
   const onCancelRef = useRef(onCancel);
   const resetOnSubmitRef = useRef(resetOnSubmit);
   const savingRef = useRef(false);
   const closingRef = useRef(false);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
   onSubmitRef.current = onSubmit;
+  onSaveErrorRef.current = onSaveError;
   onDraftChangeRef.current = onDraftChange;
   onCancelRef.current = onCancel;
   resetOnSubmitRef.current = resetOnSubmit;
@@ -155,7 +154,6 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
     (instance: EditorWithMarkdown) => {
       discardPendingDraft();
       instance.commands.clearContent(false);
-      setError("");
       onDraftChangeRef.current?.("");
     },
     [discardPendingDraft],
@@ -176,7 +174,6 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
       // Freeze the editor before yielding to the network so the saved snapshot
       // cannot diverge from text that would be cleared or unmounted on success.
       instance.setEditable(false, false);
-      setError("");
       try {
         await onSubmitRef.current(markdown);
         discardPendingDraft();
@@ -185,7 +182,7 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
           if (reason === "shortcut") instance.commands.blur();
         }
       } catch (reason) {
-        setError(messageOf(reason));
+        onSaveErrorRef.current(reason);
       } finally {
         savingRef.current = false;
         setSaving(false);
@@ -367,7 +364,7 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
           toggleBold: command(() => instance.commands.toggleBold()),
           toggleItalic: command(() => instance.commands.toggleItalic()),
           clearFormatting: command(() => instance.chain().focus().unsetAllMarks().run()),
-          submit: () => void submit("shortcut"),
+          submit: editable && !instance.isEmpty ? () => void submit("shortcut") : undefined,
           cancel: onCancelRef.current ? () => cancel() : undefined,
         },
       });
@@ -388,7 +385,6 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
     },
     onUpdate: ({ editor: instance }) => {
       const markdown = (instance as EditorWithMarkdown).getMarkdown();
-      setError((current) => (current ? "" : current));
       queueDraft(markdown);
     },
     onBlur: ({ event }) => {
@@ -448,11 +444,6 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
     >
       <EditorContent editor={editor} />
       <TableScrollbars rootRef={rootRef} />
-      {error && (
-        <p className="memo-composer-error" role="alert">
-          {error}
-        </p>
-      )}
       {menu}
     </div>
   );

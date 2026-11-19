@@ -43,12 +43,15 @@ import {
   buildMemoTagMenuItems,
 } from "./memo-context-menu";
 
+type MemoNotice = { message: string; error?: boolean };
+
 function MemoCard({
   memo,
   onEdit,
   editing,
   editingVersion,
   onFinishEdit,
+  onSaveNotice,
   onDelete,
   onConvert,
   mobile,
@@ -60,6 +63,7 @@ function MemoCard({
   editing: boolean;
   editingVersion: number | null;
   onFinishEdit: () => void;
+  onSaveNotice: (notice: MemoNotice) => void;
   onDelete: (memo: Memo) => Promise<void>;
   onConvert: (memo: Memo) => Promise<void>;
   mobile: boolean;
@@ -234,6 +238,9 @@ function MemoCard({
               placeholder="修改这条随记"
               ariaLabel="编辑随记"
               autoFocus
+              onSaveError={(reason) => {
+                if (!memoConflictCurrent(reason)) onSaveNotice(memoSaveFailure(reason));
+              }}
               onSubmit={async (markdown) => {
                 const draftAtSubmit = readEditDraft();
                 if (draftAtSubmit?.conflict || conflict)
@@ -250,7 +257,6 @@ function MemoCard({
                       conflict: true,
                     });
                     setConflict(current);
-                    throw new Error("随记已更新。请复制草稿并丢弃冲突版本，或继续编辑最新内容。");
                   }
                   throw reason;
                 }
@@ -262,6 +268,7 @@ function MemoCard({
                 )
                   writeEditDraft("");
                 onFinishEdit();
+                onSaveNotice({ message: "随记已保存" });
               }}
               onDraftChange={writeEditDraft}
               onCancel={() => {
@@ -325,6 +332,16 @@ function MemoCard({
   );
 }
 
+function memoSaveFailure(reason: unknown): MemoNotice {
+  const detail =
+    reason instanceof TypeError
+      ? "请检查网络后重试。"
+      : reason instanceof Error && reason.message
+        ? reason.message
+        : "请重试。";
+  return { message: `随记未保存，草稿仍可编辑。${detail}`, error: true };
+}
+
 function MemoList({
   editingMemo,
   setEditingMemo,
@@ -332,6 +349,7 @@ function MemoList({
   pageScrollRef,
   onBeginEditRef,
   onConvert,
+  onSaveNotice,
   isMobileViewport,
 }: {
   editingMemo: Memo | null;
@@ -340,6 +358,7 @@ function MemoList({
   pageScrollRef: RefObject<HTMLElement | null>;
   onBeginEditRef?: MutableRefObject<((memo: Memo) => void) | null>;
   onConvert: (memo: Memo) => Promise<void>;
+  onSaveNotice: (notice: MemoNotice) => void;
   isMobileViewport: boolean;
 }) {
   const {
@@ -488,6 +507,7 @@ function MemoList({
       editingVersion={editingMemo?.id === memo.id ? editingMemo.version : null}
       onEdit={() => beginEdit(memo)}
       onFinishEdit={() => finishEdit(editingSession)}
+      onSaveNotice={onSaveNotice}
       onConvert={onConvert}
       mobile={isMobileViewport}
       swipeOpen={swipeActions.openId === memo.id}
@@ -604,6 +624,7 @@ function MemoList({
                     editingVersion={editingMemo?.id === memo.id ? editingMemo.version : null}
                     onEdit={() => beginEdit(memo)}
                     onFinishEdit={() => finishEdit(editingSession)}
+                    onSaveNotice={onSaveNotice}
                     onConvert={onConvert}
                     mobile={isMobileViewport}
                     swipeOpen={swipeActions.openId === memo.id}
@@ -726,7 +747,14 @@ export function MemoPage({
   const beginEditRef = useRef<((memo: Memo) => void) | null>(null);
   const { openMenu, menu } = useContextMenu();
   const [editingMemo, setEditingMemo] = useState<Memo | null>(null);
-  const [notice, setNotice] = useState("");
+  const [notice, setNotice] = useState<MemoNotice | null>(() =>
+    memo.draft.trim() ? { message: "已恢复未提交的随记草稿" } : null,
+  );
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(null), notice.error ? 8000 : 2200);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const filterButtonRef = useRef<HTMLButtonElement>(null);
   const [narrow, setNarrow] = useState(() => window.matchMedia("(max-width: 1320px)").matches);
@@ -742,8 +770,7 @@ export function MemoPage({
   const submit = useCallback(
     async (markdown: string) => {
       await memo.createMemo(markdown, memo.selectedDate);
-      setNotice("随记已保存");
-      window.setTimeout(() => setNotice(""), 1600);
+      setNotice({ message: "随记已保存" });
     },
     [memo],
   );
@@ -1192,6 +1219,7 @@ export function MemoPage({
                 resetOnSubmit
                 onDraftChange={memo.setDraft}
                 onSubmit={submit}
+                onSaveError={(reason) => setNotice(memoSaveFailure(reason))}
               />
               <MemoList
                 isMobileViewport={isMobileViewport}
@@ -1201,6 +1229,7 @@ export function MemoPage({
                 pageScrollRef={pageRef}
                 onBeginEditRef={beginEditRef}
                 onConvert={convertMemo}
+                onSaveNotice={setNotice}
               />
             </section>
           </div>
@@ -1220,8 +1249,8 @@ export function MemoPage({
         placement="right"
       />
       {notice && (
-        <div className="memo-toast" role="status" aria-live="polite">
-          {notice}
+        <div className="memo-toast" role={notice.error ? "alert" : "status"}>
+          {notice.message}
         </div>
       )}
       {menu}

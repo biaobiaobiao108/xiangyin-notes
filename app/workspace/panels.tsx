@@ -54,9 +54,13 @@ import { type NoteSwipeAction, useSwipeActionGesture, useSwipeActionGroup } from
 import { NoteOutlinePanel } from "./note-outline-panel";
 export { NoteOutlinePanel } from "./note-outline-panel";
 export { Sidebar } from "./sidebar";
-export function NoteLoadingState() {
+export function NoteLoadingState({ panel }: { panel?: string } = {}) {
   return (
-    <section className="editor-panel editor-loading-shell" aria-label="笔记编辑器" aria-busy="true">
+    <section
+      className="editor-panel editor-loading-shell"
+      aria-label={panel ?? "笔记编辑器"}
+      aria-busy="true"
+    >
       <div
         className="editor-switch-overlay editor-switch-overlay--visible"
         role="status"
@@ -69,7 +73,7 @@ export function NoteLoadingState() {
             <span />
             <span />
           </div>
-          <strong>正在打开笔记…</strong>
+          <strong>{panel ? `正在加载${panel}…` : "正在打开笔记…"}</strong>
         </div>
       </div>
     </section>
