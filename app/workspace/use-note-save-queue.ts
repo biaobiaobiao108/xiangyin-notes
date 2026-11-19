@@ -21,6 +21,8 @@ export type UseNoteSaveQueueOptions = {
   selectedRef: React.MutableRefObject<Note | null>;
   notesRef: React.MutableRefObject<NoteSummary[]>;
   activeNoteIdRef: React.MutableRefObject<string | null>;
+  noteOpeningRef?: React.MutableRefObject<Promise<void> | null>;
+  splitNoteOpeningRef?: React.MutableRefObject<Promise<void> | null>;
   trashOperationsRef: React.MutableRefObject<Set<string>>;
   flushEditorDraftRef: React.MutableRefObject<() => void>;
   replaceList: (notes: NoteSummary[]) => void;
@@ -38,6 +40,8 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
     selectedRef,
     notesRef,
     activeNoteIdRef,
+    noteOpeningRef,
+    splitNoteOpeningRef,
     trashOperationsRef,
     flushEditorDraftRef,
     replaceList,
@@ -56,6 +60,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
   const pendingSavesRef = useRef(new Map<string, NoteDraft>());
   const pendingFieldsRef = useRef(new Map<string, Set<SaveField>>());
   const inFlightSavesRef = useRef(new Map<string, Promise<number | undefined>>());
+  const notebookMovesRef = useRef(new Map<string, Promise<unknown>>());
   const failedSavesRef = useRef(new Map<string, unknown>());
 
   const hasUnsavedWork = useCallback(() => {
@@ -65,6 +70,8 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
 
   const runSave = useCallback(
     async (noteId: string, keepalive = false): Promise<number | undefined> => {
+      const move = notebookMovesRef.current.get(noteId);
+      if (move) await move.catch(() => undefined);
       const running = inFlightSavesRef.current.get(noteId);
       if (running) return running;
 
@@ -333,6 +340,88 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
     [saveImmediately, selectedRef],
   );
 
+  const moveNoteToNotebook = useCallback(
+    async (id: string, notebookId: string) => {
+      const currentNote = () =>
+        (selectedRef.current?.id === id ? selectedRef.current : undefined) ??
+        (splitSelectedRef?.current?.id === id ? splitSelectedRef.current : undefined) ??
+        notesRef.current.find((note) => note.id === id);
+      const fallback = currentNote() ?? (await api.getNoteSummary(id)).note;
+      if (activeNoteIdRef.current === id || splitNoteIdRef?.current === id)
+        flushEditorDraftRef.current();
+      const savedVersion = await runSave(id);
+
+      const current = currentNote() ?? fallback;
+      const version = savedVersion ?? current.version;
+      if (current.deletedAt !== null || trashOperationsRef.current.has(id))
+        throw new ApiError(409, "NOTE_MOVE_UNAVAILABLE", "这篇笔记当前无法移动");
+      if (current.notebookId === notebookId) return false;
+
+      const task = api
+        .updateNote(id, { version, notebookId }, { response: "summary" })
+        .then(async ({ note }) => {
+          // A read already in flight may still return the previous notebook and version.
+          await Promise.all([
+            activeNoteIdRef.current === id ? noteOpeningRef?.current : null,
+            splitNoteIdRef?.current === id ? splitNoteOpeningRef?.current : null,
+          ]);
+          const summary = "contentMarkdown" in note ? toNoteSummary(note) : note;
+          const draft = pendingSavesRef.current.get(id);
+          const localDraft = draft?.version === version ? draft : undefined;
+          if (localDraft) {
+            pendingSavesRef.current.set(id, {
+              ...localDraft,
+              notebookId: summary.notebookId,
+              version: summary.version,
+            });
+          }
+          const fields = pendingFieldsRef.current.get(id);
+          const applySummary = <T extends NoteSummary>(local: T): T =>
+            local.id === id && local.version < summary.version
+              ? {
+                  ...local,
+                  ...summary,
+                  ...(localDraft && fields?.has("title") ? { title: localDraft.title } : {}),
+                  ...(localDraft && fields?.has("isFavorite")
+                    ? { isFavorite: localDraft.isFavorite }
+                    : {}),
+                }
+              : local;
+          if (selectedRef.current?.id === id && activeNoteIdRef.current === id) {
+            selectedRef.current = applySummary(selectedRef.current);
+            setSelectedNote(selectedRef.current);
+          }
+          if (splitSelectedRef?.current?.id === id && splitNoteIdRef?.current === id) {
+            splitSelectedRef.current = applySummary(splitSelectedRef.current);
+            setSplitSelectedNote?.(splitSelectedRef.current);
+          }
+          replaceList(notesRef.current.map(applySummary));
+        });
+      notebookMovesRef.current.set(id, task);
+      try {
+        await task;
+        return true;
+      } finally {
+        notebookMovesRef.current.delete(id);
+      }
+    },
+    [
+      activeNoteIdRef,
+      flushEditorDraftRef,
+      noteOpeningRef,
+      notesRef,
+      replaceList,
+      runSave,
+      selectedRef,
+      setSelectedNote,
+      setSplitSelectedNote,
+      splitNoteIdRef,
+      splitNoteOpeningRef,
+      splitSelectedRef,
+      trashOperationsRef,
+    ],
+  );
+
   const flushNotebookSaves = useCallback(
     async (notebookId: string) => {
       flushEditorDraftRef.current();
@@ -402,6 +491,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
     runSave,
     saveImmediately,
     saveFavorite,
+    moveNoteToNotebook,
     flushNotebookSaves,
     saveNoteNow,
     cancelSaveTimer,

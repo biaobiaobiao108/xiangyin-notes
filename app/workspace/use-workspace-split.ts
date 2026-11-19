@@ -19,6 +19,7 @@ type Options = {
   splitNoteIdRef: Ref<string | null>;
   splitSelectedRef: Ref<Note | null>;
   splitLoadRequestRef: Ref<number>;
+  splitNoteOpeningRef: Ref<Promise<void> | null>;
   splitAbortRef: Ref<AbortController | null>;
   splitMarkdownReaderRef: Ref<(() => string | null) | null>;
   closeSplitRef: Ref<() => void>;
@@ -57,6 +58,7 @@ export function useWorkspaceSplit({
   splitNoteIdRef,
   splitSelectedRef,
   splitLoadRequestRef,
+  splitNoteOpeningRef,
   splitAbortRef,
   splitMarkdownReaderRef,
   closeSplitRef,
@@ -88,7 +90,7 @@ export function useWorkspaceSplit({
   setSidebarCollapsed,
   replaceList,
 }: Options) {
-  const loadSplitNote = useCallback(
+  const fetchSplitNote = useCallback(
     async (id: string, discardRecovery = false) => {
       if (splitNoteIdRef.current !== id) return;
       splitAbortRef.current?.abort();
@@ -162,6 +164,18 @@ export function useWorkspaceSplit({
       }
     },
     [clearPendingForNote, failedSavesRef, notifyWarning, pendingSavesRef, setSplitSaveState],
+  );
+  const loadSplitNote = useCallback(
+    async (id: string, discardRecovery = false) => {
+      const opening = fetchSplitNote(id, discardRecovery);
+      splitNoteOpeningRef.current = opening;
+      try {
+        await opening;
+      } finally {
+        if (splitNoteOpeningRef.current === opening) splitNoteOpeningRef.current = null;
+      }
+    },
+    [fetchSplitNote, splitNoteOpeningRef],
   );
   const requestSplitConflictReload = useCallback(
     (noteId: string) => {

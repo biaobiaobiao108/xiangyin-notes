@@ -32,10 +32,9 @@ import {
   calculateTargetSortOrder,
   KANBAN_DRAG_MIME_TYPE,
   parseKanbanDragPayload,
-  parseNoteIdsFromDrag,
   type KanbanDragPayload,
 } from "./kanban-drag";
-import { NOTE_DRAG_MIME_TYPE, setNoteDragImage } from "./note-drag-drop";
+import { NOTE_DRAG_MIME_TYPE, parseNoteIdsFromDrag, setNoteDragImage } from "./note-drag-drop";
 import { useScrollEdges } from "./use-scroll-edges";
 import { handleKanbanCardKeyDown } from "./kanban-card-keyboard";
 import { useVirtualKanbanColumn } from "./use-virtual-kanban-column";

@@ -395,15 +395,7 @@ export const NoteListPanel = memo(function NoteListPanel({
   const handleRowDragStart = useCallback(
     (note: NoteSummary, event: ReactDragEvent<HTMLButtonElement>) => {
       if (isMobileViewport) return;
-      const inSelection = selectedIds.has(note.id);
-      const ids =
-        selectedIds.size > 1
-          ? inSelection
-            ? Array.from(selectedIds)
-            : Array.from(new Set([...selectedIds, note.id]))
-          : selectedIds.size === 1 && !inSelection
-            ? [selectedIds.values().next().value!, note.id]
-            : [note.id];
+      const ids = selectedIds.has(note.id) ? Array.from(selectedIds) : [note.id];
 
       const serialized = JSON.stringify(ids);
       event.dataTransfer.setData(NOTE_DRAG_MIME_TYPE, serialized);

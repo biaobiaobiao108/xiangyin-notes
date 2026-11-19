@@ -145,7 +145,7 @@ export function NoteEditor({
   focusRequested?: boolean;
   trashBusy?: boolean;
   onFocusHandled?: () => void;
-  onChange: (patch: { title?: string; contentMarkdown?: string; notebookId?: string }) => void;
+  onChange: (patch: { title?: string; contentMarkdown?: string }) => void;
   onSaveNow: () => void;
   onReloadNote: () => void;
   onExportImage: () => void;

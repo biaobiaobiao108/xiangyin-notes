@@ -22,13 +22,13 @@ import {
 import type { NoteView, Notebook } from "../../shared/types";
 import { BrandMark } from "../brand-mark";
 import { getNotebookIconComponent, navItems } from "./helpers";
-import { NOTE_DRAG_MIME_TYPE, hasNoteDragType } from "./note-drag-drop";
+import { hasNoteDragType, parseNoteIdsFromDrag } from "./note-drag-drop";
 import { useNotebookReorder } from "./use-notebook-reorder";
 import { useScrollEdges } from "./use-scroll-edges";
 
-function useSidebarDropTarget(onDropNotes?: (ids: string[]) => void) {
+function useSidebarDropTarget(onDropNotes?: (ids: string[]) => Promise<void>) {
   const [isOver, setIsOver] = useState(false);
-  const [isSuccess, setIsSuccess] = useState(false);
+  const [pendingDrops, setPendingDrops] = useState(0);
   const counterRef = useRef(0);
 
   const handleDragEnter = useCallback(
@@ -50,39 +50,30 @@ function useSidebarDropTarget(onDropNotes?: (ids: string[]) => void) {
     [onDropNotes],
   );
 
-  const handleDragLeave = useCallback(
-    (event: ReactDragEvent) => {
-      if (!onDropNotes || !hasNoteDragType(event.dataTransfer)) return;
-      counterRef.current = Math.max(0, counterRef.current - 1);
-      if (counterRef.current === 0) setIsOver(false);
-    },
-    [onDropNotes],
-  );
+  const handleDragLeave = useCallback(() => {
+    if (counterRef.current === 0) return;
+    counterRef.current -= 1;
+    if (counterRef.current === 0) setIsOver(false);
+  }, []);
 
   const handleDrop = useCallback(
     (event: ReactDragEvent) => {
-      if (!onDropNotes) return;
+      if (!onDropNotes || !hasNoteDragType(event.dataTransfer)) return;
       counterRef.current = 0;
       setIsOver(false);
-      const data =
-        event.dataTransfer.getData(NOTE_DRAG_MIME_TYPE) || event.dataTransfer.getData("text/plain");
-      if (!data) return;
       event.preventDefault();
       event.stopPropagation();
-      try {
-        const noteIds = JSON.parse(data) as string[];
-        if (Array.isArray(noteIds) && noteIds.length > 0) {
-          setIsSuccess(true);
-          setTimeout(() => setIsSuccess(false), 360);
-          onDropNotes(noteIds);
-        }
-      } catch {}
+      const noteIds = parseNoteIdsFromDrag(event.dataTransfer);
+      if (!noteIds.length) return;
+      setPendingDrops((count) => count + 1);
+      void onDropNotes(noteIds).finally(() => setPendingDrops((count) => count - 1));
     },
     [onDropNotes],
   );
 
   return {
-    className: `${isOver ? "is-drop-target" : ""} ${isSuccess ? "is-drop-success" : ""}`.trim(),
+    className: isOver || pendingDrops ? "is-drop-target" : "",
+    busy: pendingDrops > 0,
     onDragEnter: handleDragEnter,
     onDragOver: handleDragOver,
     onDragLeave: handleDragLeave,
@@ -99,7 +90,7 @@ const SidebarNavItem = memo(function SidebarNavItem({
   item: (typeof navItems)[number];
   isActive: boolean;
   onSelect: () => void;
-  onDropNotes?: (ids: string[]) => void;
+  onDropNotes?: (ids: string[]) => Promise<void>;
 }) {
   const Icon = item.icon;
   const drop = useSidebarDropTarget(onDropNotes);
@@ -113,6 +104,7 @@ const SidebarNavItem = memo(function SidebarNavItem({
         onDragEnter={drop.onDragEnter}
         onDragOver={drop.onDragOver}
         onDragLeave={drop.onDragLeave}
+        aria-busy={drop.busy || undefined}
         onDrop={drop.onDrop}
       >
         <Icon size={18} />
@@ -133,7 +125,7 @@ const SidebarNotebookRow = memo(function SidebarNotebookRow({
   notebook: Notebook;
   isActive: boolean;
   onSelect: () => void;
-  onDropNotes?: (ids: string[]) => void;
+  onDropNotes?: (ids: string[]) => Promise<void>;
 }) {
   const NotebookIcon = getNotebookIconComponent(notebook.icon);
   const drop = useSidebarDropTarget(onDropNotes);
@@ -150,6 +142,7 @@ const SidebarNotebookRow = memo(function SidebarNotebookRow({
           onDragEnter={drop.onDragEnter}
           onDragOver={drop.onDragOver}
           onDragLeave={drop.onDragLeave}
+          aria-busy={drop.busy || undefined}
           onDrop={drop.onDrop}
         >
           <NotebookIcon
@@ -174,7 +167,7 @@ const CollapsedNotebookButton = memo(function CollapsedNotebookButton({
   notebook: Notebook;
   isActive: boolean;
   onSelect: () => void;
-  onDropNotes?: (ids: string[]) => void;
+  onDropNotes?: (ids: string[]) => Promise<void>;
 }) {
   const NotebookIcon = getNotebookIconComponent(notebook.icon);
   const drop = useSidebarDropTarget(onDropNotes);
@@ -188,6 +181,7 @@ const CollapsedNotebookButton = memo(function CollapsedNotebookButton({
       onDragEnter={drop.onDragEnter}
       onDragOver={drop.onDragOver}
       onDragLeave={drop.onDragLeave}
+      aria-busy={drop.busy || undefined}
       onDrop={drop.onDrop}
     >
       <NotebookIcon size={18} style={{ color: notebook.color }} />
@@ -237,8 +231,8 @@ export const Sidebar = memo(function Sidebar({
   onCreateNotebook: () => void;
   collapsed: boolean;
   onCollapse: () => void;
-  onMoveNotesToNotebook?: (ids: string[], notebookId: string) => void;
-  onTrashNotes?: (ids: string[]) => void;
+  onMoveNotesToNotebook?: (ids: string[], notebookId: string) => Promise<void>;
+  onTrashNotes?: (ids: string[]) => Promise<void>;
   tasksActive: boolean;
   onOpenTasks: () => void;
   memoActive: boolean;

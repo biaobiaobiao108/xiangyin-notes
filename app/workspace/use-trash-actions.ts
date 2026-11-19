@@ -237,12 +237,21 @@ export function useTrashActions(options: UseTrashActionsOptions) {
   const trashNotes = useCallback(
     async (ids: string[]) => {
       try {
-        await performBatchDelete(ids, false);
+        const versions = new Map(getBatchEntries(ids).map(({ id, version }) => [id, version]));
+        await Promise.all(
+          [...new Set(ids)]
+            .filter((id) => !versions.has(id))
+            .map(async (id) => {
+              const { note } = await api.getNoteSummary(id);
+              versions.set(id, note.version);
+            }),
+        );
+        await performBatchDelete(ids, false, versions);
       } catch (reason) {
         notifyError(errorMessage(reason, "批量移入回收站失败，请重试"));
       }
     },
-    [notifyError, performBatchDelete],
+    [getBatchEntries, notifyError, performBatchDelete],
   );
 
   const performBatchRestore = useCallback(

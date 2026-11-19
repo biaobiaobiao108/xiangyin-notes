@@ -100,15 +100,7 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
   const handleCardDragStart = useCallback(
     (note: NoteSummary, event: ReactDragEvent<HTMLElement>) => {
       if (isMobileViewport) return;
-      const inSelection = selectedIds.has(note.id);
-      const ids =
-        selectedIds.size > 1
-          ? inSelection
-            ? Array.from(selectedIds)
-            : Array.from(new Set([...selectedIds, note.id]))
-          : selectedIds.size === 1 && !inSelection
-            ? [selectedIds.values().next().value!, note.id]
-            : [note.id];
+      const ids = selectedIds.has(note.id) ? Array.from(selectedIds) : [note.id];
 
       const serialized = JSON.stringify(ids);
       event.dataTransfer.setData(NOTE_DRAG_MIME_TYPE, serialized);

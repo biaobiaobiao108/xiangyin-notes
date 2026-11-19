@@ -2,61 +2,36 @@ import { describe, expect, test } from "bun:test";
 import { moveSelectedNotes } from "../app/workspace/move-selected-notes";
 
 describe("move selected notes", () => {
-  test("flushes and saves drafts before moving with the saved versions", async () => {
-    const calls: string[] = [];
-    const versions = new Map([
-      ["note-1", 1],
-      ["note-2", 3],
-    ]);
-
-    const result = await moveSelectedNotes(["note-1", "note-2"], {
-      flushEditorDraft: () => calls.push("flush"),
-      saveNote: async (id) => {
-        calls.push(`save:${id}`);
-        versions.set(id, versions.get(id)! + 1);
-      },
-      getVersion: (id) => versions.get(id),
-      moveNote: async (id, version) => calls.push(`move:${id}:v${version}`),
-      refresh: () => calls.push("refresh"),
-    });
-
-    expect(result).toEqual({});
-    expect(calls).toEqual([
-      "flush",
-      "save:note-1",
-      "save:note-2",
-      "move:note-1:v2",
-      "move:note-2:v4",
-      "refresh",
-    ]);
-  });
-
-  test("refreshes after partial move failures and reports the failure", async () => {
-    const failure = new Error("version conflict");
+  test("flushes and saves drafts before moving", async () => {
     const calls: string[] = [];
     const result = await moveSelectedNotes(["note-1", "note-2"], {
       flushEditorDraft: () => calls.push("flush"),
       saveNote: async (id) => calls.push(`save:${id}`),
-      getVersion: () => 2,
       moveNote: async (id) => {
         calls.push(`move:${id}`);
-        if (id === "note-2") throw failure;
+        return true;
       },
-      refresh: () => calls.push("refresh"),
     });
 
-    expect(result).toEqual({ error: failure, failed: true });
-    expect(calls).toEqual([
-      "flush",
-      "save:note-1",
-      "save:note-2",
-      "move:note-1",
-      "move:note-2",
-      "refresh",
-    ]);
+    expect(result).toEqual({ movedIds: ["note-1", "note-2"], failures: [] });
+    expect(calls).toEqual(["flush", "save:note-1", "save:note-2", "move:note-1", "move:note-2"]);
   });
 
-  test("does not move notes after a save fails and refreshes successful saves", async () => {
+  test("reports confirmed moves alongside any failures and skips unchanged notes", async () => {
+    const failure = new Error("version conflict");
+    const result = await moveSelectedNotes(["note-1", "note-2", "note-3"], {
+      flushEditorDraft: () => {},
+      saveNote: async () => {},
+      moveNote: async (id) => {
+        if (id === "note-2") throw failure;
+        return id === "note-1";
+      },
+    });
+
+    expect(result).toEqual({ movedIds: ["note-1"], failures: [failure] });
+  });
+
+  test("does not move notes after a save fails", async () => {
     const failure = new Error("save conflict");
     const calls: string[] = [];
     const result = await moveSelectedNotes(["note-1", "note-2"], {
@@ -65,35 +40,13 @@ describe("move selected notes", () => {
         calls.push(`save:${id}`);
         if (id === "note-2") throw failure;
       },
-      getVersion: () => 2,
-      moveNote: async (id) => calls.push(`move:${id}`),
-      refresh: () => calls.push("refresh"),
-    });
-
-    expect(result).toEqual({ error: failure, failed: true });
-    expect(calls).toEqual(["flush", "save:note-1", "save:note-2", "refresh"]);
-  });
-
-  test("does not silently skip notes whose version disappears after saving", async () => {
-    const calls: string[] = [];
-    const versions = new Map([
-      ["note-1", 2],
-      ["note-2", 4],
-    ]);
-    const result = await moveSelectedNotes(["note-1", "note-2"], {
-      flushEditorDraft: () => calls.push("flush"),
-      saveNote: async (id) => {
-        calls.push(`save:${id}`);
-        if (id === "note-2") versions.delete(id);
+      moveNote: async (id) => {
+        calls.push(`move:${id}`);
+        return true;
       },
-      getVersion: (id) => versions.get(id),
-      moveNote: async (id) => calls.push(`move:${id}`),
-      refresh: () => calls.push("refresh"),
     });
 
-    expect(result.failed).toBe(true);
-    expect(result.error).toBeInstanceOf(Error);
-    expect((result.error as Error).message).toContain("note-2");
-    expect(calls).toEqual(["flush", "save:note-1", "save:note-2", "refresh"]);
+    expect(result).toEqual({ movedIds: [], failures: [failure] });
+    expect(calls).toEqual(["flush", "save:note-1", "save:note-2"]);
   });
 });

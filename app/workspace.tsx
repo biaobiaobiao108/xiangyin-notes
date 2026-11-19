@@ -373,6 +373,7 @@ export function Workspace() {
     runSave,
     saveImmediately,
     saveFavorite,
+    moveNoteToNotebook,
     flushNotebookSaves,
     saveNoteNow,
     flushPendingSaves,
@@ -382,6 +383,8 @@ export function Workspace() {
     selectedRef,
     notesRef,
     activeNoteIdRef,
+    noteOpeningRef,
+    splitNoteOpeningRef,
     trashOperationsRef,
     flushEditorDraftRef,
     replaceList,
@@ -712,22 +715,10 @@ export function Workspace() {
   const onNoteChange = useWorkspaceNoteChange({
     selectedRef,
     notesRef,
-    notebooks,
     trashOperationsRef,
     replaceList,
     setSelectedNote,
-    setNotebooks,
-    setView,
-    setNotebookId,
-    setQuery,
-    setTotalNotes,
-    searchOriginRef,
-    invalidateCollections,
-    requestListTransition,
-    saveImmediately,
     persist,
-    refreshNotebooks,
-    reloadNotes,
   });
   const registerEditorMarkdownReader = useCallback((reader: (() => string | null) | null) => {
     editorMarkdownReaderRef.current = reader;
@@ -964,37 +955,6 @@ export function Workspace() {
     },
     ui: { setPendingTrashCount, setEmptyingTrash, setNotebooks, requestConfirm, notifyError },
   });
-  const handleMoveNotesToNotebook = useCallback(
-    async (ids: string[], targetNotebookId: string) => {
-      if (!ids.length) return;
-      const result = await moveSelectedNotes(ids, {
-        flushEditorDraft: () => flushEditorDraftRef.current(),
-        saveNote: runSave,
-        getVersion: (id) => notesRef.current.find((note) => note.id === id)?.version,
-        moveNote: (id, version) =>
-          api.updateNote(id, { version, notebookId: targetNotebookId }, { response: "summary" }),
-        refresh: () => {
-          void loadNotes();
-          void refreshNotebooks();
-        },
-      });
-      if ("failed" in result) {
-        notifyError(errorMessage(result.error, "移动笔记失败"));
-      } else {
-        clearNoteSelection();
-      }
-    },
-    [clearNoteSelection, loadNotes, refreshNotebooks, notifyError, runSave],
-  );
-
-  const handleTrashNotes = useCallback(
-    (ids: string[]) => {
-      if (!ids.length) return;
-      void trashNotes(ids);
-    },
-    [trashNotes],
-  );
-
   const handleToggleFavoriteNote = useCallback(
     async (target: NoteSummary) => {
       const isFavorite = !target.isFavorite;
@@ -1027,6 +987,109 @@ export function Workspace() {
     onTrashCard: trashNote,
     onToggleFavoriteNote: handleToggleFavoriteNote,
   });
+
+  const movingNoteIdsRef = useRef(new Set<string>());
+  const handleMoveNotesToNotebook = useCallback(
+    async (ids: string[], targetNotebookId: string, followNote = false) => {
+      const movers = movingNoteIdsRef.current;
+      const targets = [...new Set(ids)];
+      if (!targets.length) return;
+      if (targets.some((id) => movers.has(id) || trashOperationsRef.current.has(id))) {
+        notifyInfo("正在处理这篇笔记，请稍后重试");
+        return;
+      }
+      const target = notebooks.find((notebook) => notebook.id === targetNotebookId);
+      if (!target) {
+        notifyError("找不到目标笔记本");
+        return;
+      }
+
+      const scope = listScopeRef.current;
+      targets.forEach((id) => movers.add(id));
+      try {
+        const { movedIds, failures } = await moveSelectedNotes(targets, {
+          flushEditorDraft: () => flushEditorDraftRef.current(),
+          saveNote: runSave,
+          moveNote: (id) => moveNoteToNotebook(id, target.id),
+        });
+
+        if (movedIds.length || failures.length) {
+          invalidateCollections();
+          void refreshNotebooks();
+          reloadNotes();
+          if (movedIds.length && kanbanOpen) setKanbanRefreshToken((value) => value + 1);
+          if (movedIds.length && tasksOpen) setTaskRefreshToken((value) => value + 1);
+        }
+        if (scope === listScopeRef.current && movedIds.length) {
+          const current = selectedRef.current;
+          if (
+            followNote &&
+            current &&
+            movedIds.includes(current.id) &&
+            activeNoteIdRef.current === current.id
+          ) {
+            searchOriginRef.current = null;
+            setQuery("");
+            requestListTransition();
+            setView(target.isSystem ? "inbox" : "all");
+            setNotebookId(target.isSystem ? undefined : target.id);
+            replaceList([toNoteSummary(current)]);
+            setTotalNotes(target.count + 1);
+          } else if (notebookId ? notebookId !== target.id : view === "inbox" && !target.isSystem) {
+            removeManyFromList(movedIds);
+          } else if (!failures.length) {
+            clearNoteSelection();
+          }
+        }
+
+        if (failures.length) {
+          const message = errorMessage(failures[0], "移动笔记失败，请重试");
+          notifyError(
+            movedIds.length
+              ? `已移动 ${movedIds.length} 篇，${failures.length} 篇未移动。${message}`
+              : message,
+          );
+        } else if (movedIds.length) {
+          notifyInfo(`已将 ${movedIds.length} 篇笔记移至「${target.name}」`);
+        } else {
+          notifyInfo(`笔记已在「${target.name}」`);
+        }
+      } finally {
+        targets.forEach((id) => movers.delete(id));
+      }
+    },
+    [
+      clearNoteSelection,
+      invalidateCollections,
+      kanbanOpen,
+      moveNoteToNotebook,
+      notebookId,
+      notebooks,
+      notifyError,
+      notifyInfo,
+      refreshNotebooks,
+      reloadNotes,
+      removeManyFromList,
+      replaceList,
+      requestListTransition,
+      runSave,
+      setKanbanRefreshToken,
+      setQuery,
+      tasksOpen,
+      view,
+    ],
+  );
+
+  const handleTrashNotes = useCallback(
+    async (ids: string[]) => {
+      if (ids.some((id) => movingNoteIdsRef.current.has(id))) {
+        notifyInfo("笔记正在移动，请稍后重试");
+        return;
+      }
+      await trashNotes(ids);
+    },
+    [notifyInfo, trashNotes],
+  );
 
   const reloadSelectedNote = useCallback(async () => {
     const current = selectedRef.current;
@@ -1071,6 +1134,7 @@ export function Workspace() {
     splitNoteIdRef,
     splitSelectedRef,
     splitLoadRequestRef,
+    splitNoteOpeningRef,
     splitAbortRef,
     splitMarkdownReaderRef,
     closeSplitRef,
@@ -2064,9 +2128,10 @@ export function Workspace() {
           canMoveToTrash={Boolean(commandNoteReady && renderedNote && !renderedNote.deletedAt)}
           notebooks={notebooks}
           currentNotebookId={renderedNote?.notebookId}
-          onMoveNoteToNotebook={(targetNotebookId) =>
-            onNoteChange({ notebookId: targetNotebookId })
-          }
+          onMoveNoteToNotebook={(targetNotebookId) => {
+            const id = selectedRef.current?.id;
+            if (id) void handleMoveNotesToNotebook([id], targetNotebookId, true);
+          }}
           focusMode={focusMode}
           autoReadingMode={autoReadingMode}
           canAutoRead={!splitNoteId}

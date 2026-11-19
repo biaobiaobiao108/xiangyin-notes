@@ -280,3 +280,53 @@ describe("split editor save queue integration", () => {
     splitQueue.clearPendingForNote("split-1");
   });
 });
+
+describe("moving notes between notebooks", () => {
+  test("updates both open editors and the list with the confirmed notebook and version", async () => {
+    splitNoteIdRef.current = original.id;
+    splitSelectedRef.current = { ...original };
+    expect(await queue.moveNoteToNotebook(original.id, "inbox")).toBe(true);
+
+    for (const note of [selectedRef.current, splitSelectedRef.current, notesRef.current[0]]) {
+      expect(note?.notebookId).toBe("inbox");
+      expect(note?.version).toBe(2);
+    }
+    expect(selectedRef.current?.contentMarkdown).toBe(original.contentMarkdown);
+    expect(await queue.moveNoteToNotebook(original.id, "inbox")).toBe(false);
+    expect(update).toHaveBeenCalledTimes(1);
+  });
+
+  test("saves edits made during a move using the confirmed version", async () => {
+    const started = deferred<void>();
+    const response = deferred<{ note: NoteSummary }>();
+    update.mockImplementationOnce(async () => {
+      started.resolve();
+      return response.promise;
+    });
+
+    const moving = queue.moveNoteToNotebook(original.id, "inbox");
+    await started.promise;
+    const draft = { ...original, title: "编辑中的标题", contentMarkdown: "移动时输入的正文" };
+    queue.persist(draft, ["title", "contentMarkdown"]);
+    const saving = queue.runSave(original.id);
+    stored = { ...original, notebookId: "inbox", notebookName: "收件箱", version: 2 };
+    response.resolve({ note: toNoteSummary(stored) });
+
+    await moving;
+    await saving;
+    expect(stored).toMatchObject({
+      notebookId: "inbox",
+      title: draft.title,
+      contentMarkdown: draft.contentMarkdown,
+      version: 3,
+    });
+  });
+
+  test("leaves local notebook and version intact if the move is rejected", async () => {
+    stored.version += 1;
+    await expect(queue.moveNoteToNotebook(original.id, "inbox")).rejects.toThrow("版本冲突");
+    expect(selectedRef.current).toEqual(original);
+    expect(notesRef.current).toEqual([toNoteSummary(original)]);
+    expect(queue.pendingSavesRef.current.size).toBe(0);
+  });
+});

@@ -45,7 +45,7 @@ describe("列表视图与卡片视图专属功能与拖拽交互", () => {
       globalThis.requestAnimationFrame = originalFrame;
     }
   });
-  it("支持拖拽数据的标准 MIME 类型并提供全局 dragover 保护避免禁止光标", () => {
+  it("支持拖拽数据的标准 MIME 类型并识别本应用的拖拽类型", () => {
     expect(NOTE_DRAG_MIME_TYPE).toBe("application/x-xiangying-note-ids");
 
     // 验证不同环境下的 DataTransfer.types 识别
@@ -63,7 +63,7 @@ describe("列表视图与卡片视图专属功能与拖拽交互", () => {
     expect(hasNoteDragType(emptyDt)).toBe(false);
   });
 
-  it("在捕获阶段接受笔记拖拽并在卸载时移除监听器", () => {
+  it("在捕获阶段保留笔记拖拽，由合法放置目标设置光标", () => {
     const originalWindow = globalThis.window;
     const target = new EventTarget();
     (globalThis as unknown as { window: unknown }).window = target;
@@ -76,7 +76,7 @@ describe("列表视图与卡片视图专属功能与拖拽交互", () => {
       });
       target.dispatchEvent(event);
       expect(event.defaultPrevented).toBe(true);
-      expect((event as DragEvent).dataTransfer?.dropEffect).toBe("move");
+      expect((event as DragEvent).dataTransfer?.dropEffect).toBe("none");
       const unrelated = new Event("dragenter", { cancelable: true });
       Object.defineProperty(unrelated, "dataTransfer", { value: { types: ["text/plain"] } });
       target.dispatchEvent(unrelated);

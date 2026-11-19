@@ -22,6 +22,21 @@ export function hasNoteDragType(dataTransfer: DataTransfer | null): boolean {
   );
 }
 
+export function parseNoteIdsFromDrag(dataTransfer: DataTransfer | null): string[] {
+  if (!dataTransfer) return [];
+  const raw = dataTransfer.getData(NOTE_DRAG_MIME_TYPE);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed)) {
+      return parsed.filter((id): id is string => typeof id === "string" && Boolean(id));
+    }
+  } catch {
+    return [];
+  }
+  return [];
+}
+
 export function setNoteDragImage(dataTransfer: DataTransfer, source: HTMLElement, count: number) {
   if (count <= 1) return;
   const wrapper = document.createElement("div");
@@ -60,7 +75,8 @@ export function registerDragOverGuard(): () => void {
     if (hasNoteDragType(event.dataTransfer)) {
       event.preventDefault();
       if (event.dataTransfer) {
-        event.dataTransfer.dropEffect = "move";
+        // Valid destinations set their own drop effect during bubbling.
+        event.dataTransfer.dropEffect = "none";
       }
     }
   };

@@ -1,5 +1,4 @@
 import type { KanbanCard, KanbanStatus } from "../../shared/types";
-import { NOTE_DRAG_MIME_TYPE } from "./note-drag-drop";
 
 export const KANBAN_DRAG_MIME_TYPE = "application/x-xiangying-kanban-card";
 
@@ -29,21 +28,6 @@ export function parseKanbanDragPayload(
     return null;
   }
   return null;
-}
-
-export function parseNoteIdsFromDrag(dataTransfer: DataTransfer | null): string[] {
-  if (!dataTransfer) return [];
-  const raw = dataTransfer.getData(NOTE_DRAG_MIME_TYPE);
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (Array.isArray(parsed)) {
-      return parsed.filter((id): id is string => typeof id === "string" && Boolean(id));
-    }
-  } catch {
-    return [];
-  }
-  return [];
 }
 
 /**
