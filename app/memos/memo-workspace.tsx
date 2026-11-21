@@ -73,12 +73,37 @@ export function memoConflictCurrent(reason: unknown): Memo | null {
   return current as Memo;
 }
 
-function readDraft(key: string) {
+const MEMO_SUBMISSION_FORMAT = "xiangying.memo-submission.v1";
+
+type MemoSubmission = {
+  id: string;
+  markdown: string;
+  createdAt?: number;
+};
+
+function readDraft(key: string): { markdown: string; submission?: MemoSubmission } {
+  let markdown: string;
   try {
-    return localStorage.getItem(key) ?? "";
+    markdown = localStorage.getItem(key) ?? "";
   } catch {
-    return "";
+    return { markdown: "" };
   }
+  // Existing drafts are stored as plain Markdown.
+  if (markdown.startsWith(`{"format":"${MEMO_SUBMISSION_FORMAT}",`)) {
+    try {
+      const record = JSON.parse(markdown) as Partial<MemoSubmission>;
+      if (
+        typeof record.id === "string" &&
+        typeof record.markdown === "string" &&
+        (record.createdAt === undefined || Number.isSafeInteger(record.createdAt))
+      ) {
+        return { markdown: record.markdown, submission: record as MemoSubmission };
+      }
+    } catch {
+      return { markdown };
+    }
+  }
+  return { markdown };
 }
 
 export function invalidateMemoListRequest(
@@ -144,15 +169,9 @@ export function MemoWorkspaceProvider({
   const [refreshToken, setRefreshToken] = useState(0);
   const [facetRefreshToken, setFacetRefreshToken] = useState(0);
   const draftKey = `xiangying:memo-draft:${userKey || "default"}`;
-  const [draft, setDraftState] = useState(() => readDraft(draftKey));
+  const [draft, setDraftState] = useState(() => readDraft(draftKey).markdown);
   const draftRevisionRef = useRef(0);
-  const creationRef = useRef<{
-    id: string;
-    markdown: string;
-    date: string | null;
-    createdAt?: number;
-    inFlight: boolean;
-  } | null>(null);
+  const submissionRef = useRef<MemoSubmission | undefined>(undefined);
   const listRequestRef = useRef(0);
   const facetRequestRef = useRef(0);
   const listAbortRef = useRef<AbortController | null>(null);
@@ -178,14 +197,17 @@ export function MemoWorkspaceProvider({
 
   useEffect(() => {
     draftRevisionRef.current += 1;
-    creationRef.current = null;
-    setDraftState(readDraft(draftKey));
+    const recovered = readDraft(draftKey);
+    submissionRef.current = recovered.submission;
+    setDraftState(recovered.markdown);
   }, [draftKey]);
 
   const setDraft = useCallback(
     (markdown: string) => {
       draftRevisionRef.current += 1;
       setDraftState(markdown);
+      if (submissionRef.current?.markdown === markdown) return;
+      submissionRef.current = undefined;
       try {
         if (markdown) localStorage.setItem(draftKey, markdown);
         else localStorage.removeItem(draftKey);
@@ -363,33 +385,46 @@ export function MemoWorkspaceProvider({
     async (contentMarkdown: string, date?: string | null) => {
       const scopeAtStart = listScope;
       const revisionAtStart = draftRevisionRef.current;
-      const selectedDate = date ?? null;
-      let creation = creationRef.current;
-      if (
-        !creation ||
-        creation.inFlight ||
-        creation.markdown !== contentMarkdown ||
-        creation.date !== selectedDate
-      ) {
-        creation = {
+      const stored = readDraft(draftKey).submission;
+      // The editor may normalize a draft on reload. An edit clears this ref in setDraft.
+      const submission = submissionRef.current ??
+        (stored?.markdown === contentMarkdown ? stored : undefined) ?? {
           id: createUuid(),
           markdown: contentMarkdown,
-          date: selectedDate,
-          inFlight: false,
-          ...(selectedDate ? { createdAt: selectedDayCreateTime(selectedDate) } : {}),
+          ...(date ? { createdAt: selectedDayCreateTime(date) } : {}),
         };
-        creationRef.current = creation;
+      submissionRef.current = submission;
+      // Persist the exact payload before sending it so refresh can retry the same creation.
+      try {
+        localStorage.setItem(
+          draftKey,
+          JSON.stringify({ format: MEMO_SUBMISSION_FORMAT, ...submission }),
+        );
+      } catch (error) {
+        console.warn("[memos] 无法将提交记录写入本地草稿", error);
       }
-      creation.inFlight = true;
       try {
         const result = await api.createMemo({
-          id: creation.id,
-          contentMarkdown,
-          ...(creation.createdAt !== undefined ? { createdAt: creation.createdAt } : {}),
+          id: submission.id,
+          contentMarkdown: submission.markdown,
+          createdAt: submission.createdAt,
         });
-        if (creationRef.current === creation) creationRef.current = null;
+        if (submissionRef.current?.id === submission.id) submissionRef.current = undefined;
         const shouldReload = invalidateListRequest();
-        if (draftRevisionRef.current === revisionAtStart) setDraft("");
+        if (draftRevisionRef.current === revisionAtStart) {
+          setDraftState("");
+          const current = readDraft(draftKey);
+          if (
+            current.submission?.id === submission.id ||
+            (!current.submission && current.markdown === submission.markdown)
+          ) {
+            try {
+              localStorage.removeItem(draftKey);
+            } catch (error) {
+              console.warn("[memos] 无法清除已提交的本地草稿", error);
+            }
+          }
+        }
         if (scopeAtStart !== currentListScopeRef.current) {
           refresh();
           return result.memo;
@@ -404,19 +439,18 @@ export function MemoWorkspaceProvider({
         if (shouldReload && !query && !tag && inDateRange) refresh();
         return result.memo;
       } catch (reason) {
-        creation.inFlight = false;
         unauthorized(reason);
         throw reason;
       }
     },
     [
+      draftKey,
       invalidateListRequest,
       listBounds,
       listScope,
       query,
       refresh,
       refreshFacets,
-      setDraft,
       tag,
       unauthorized,
     ],

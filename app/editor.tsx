@@ -459,7 +459,8 @@ export function NoteEditor({
       attributes: { ...editorProps.attributes, "aria-label": "笔记正文" },
     },
     onUpdate: ({ editor: instance, transaction }) => {
-      scheduleMarkdownChange(instance);
+      // The trailing-node plugin can append an empty paragraph on a selection-only update.
+      if (transaction.docChanged) scheduleMarkdownChange(instance);
       if (typewriterModeRef.current && !instance.view.composing && !composingRef.current) {
         alignTypewriterRef.current(instance);
       }

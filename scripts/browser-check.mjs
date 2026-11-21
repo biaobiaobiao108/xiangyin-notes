@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cp, mkdtemp, rm } from "node:fs/promises";
+import { cp, mkdtemp, rename, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { loadPlaywright, login, startApp } from "./browser-support.mjs";
@@ -40,6 +40,21 @@ async function checkEditing(browser, app, errors) {
   try {
     const page = checkPage(await context.newPage(), errors);
     await login(app, page);
+    const markdown = "# 原始格式\n\n* 列表第一项 __粗体__\n* 列表第二项\n";
+    const untouched = await createNote(context.request, app.url, {
+      title: "打开时保留 Markdown 格式",
+      contentMarkdown: markdown,
+    });
+    await openNote(page, app.url, untouched);
+    const passiveEditor = page.locator(editorSelector);
+    await passiveEditor.locator("li").last().click();
+    await passiveEditor.press("ArrowDown");
+    await page.waitForTimeout(1200);
+    const afterOpen = await readNote(context.request, app.url, untouched.id);
+    assert.equal(afterOpen.version, untouched.version);
+    assert.equal(afterOpen.contentMarkdown, markdown);
+    console.log("通过 · 打开笔记和移动光标保持原始 Markdown 与版本");
+
     const existing = await createNote(context.request, app.url, {
       title: "已有测试笔记",
       contentMarkdown: "原正文保持原样",
@@ -139,7 +154,10 @@ async function checkEditing(browser, app, errors) {
 }
 
 async function checkMemos(browser, app, errors) {
-  const context = await browser.newContext({ serviceWorkers: "block" });
+  const context = await browser.newContext({
+    serviceWorkers: "block",
+    viewport: { width: 1440, height: 900 },
+  });
   try {
     const memoPage = checkPage(await context.newPage(), errors);
     await login(app, memoPage);
@@ -197,6 +215,49 @@ async function checkMemos(browser, app, errors) {
       .waitFor();
     console.log("通过 · 随记刷新恢复、失焦失败保留草稿、菜单重试、编辑与预览排版一致");
 
+    // The server commits the creation, but the client never receives its response.
+    const retryDraft = "服务端已写入但浏览器未收到响应";
+    const day = memoPage.locator(".memo-mini-day:not(.is-outside)").first();
+    await day.click();
+    await memo.fill(retryDraft);
+    // Reopening the editor strips the trailing empty paragraph from its rendered document.
+    await memo.press("End");
+    await memo.press("Enter");
+    let originalSubmission;
+    const loseResponse = async (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      originalSubmission = route.request().postDataJSON();
+      try {
+        const response = await route.fetch();
+        assert.equal(response.status(), 201);
+      } finally {
+        await route.abort();
+      }
+    };
+    await memoPage.route(memoPath, loseResponse);
+    await memo.press("Control+Enter");
+    await memoPage
+      .getByRole("alert")
+      .getByText(/随记未保存，草稿仍可编辑/)
+      .waitFor();
+    await memoPage.unroute(memoPath, loseResponse);
+    assert.equal(typeof originalSubmission?.createdAt, "number");
+    assert.equal(originalSubmission.contentMarkdown, retryDraft + "\n\n");
+    await memoPage.reload();
+    await openMemos();
+    await memo.getByText(retryDraft, { exact: true }).waitFor();
+    const retried = memoPage.waitForResponse(
+      (response) => response.url() === memoPath && response.request().method() === "POST",
+    );
+    await memo.press("Control+Enter");
+    const replay = await retried;
+    assert.equal(replay.status(), 200);
+    assert.deepEqual(replay.request().postDataJSON(), originalSubmission);
+    await memoPage.getByText("随记已保存", { exact: true }).waitFor();
+    const { memos } = await (await context.request.get(memoPath)).json();
+    assert.equal(memos.filter((item) => item.contentMarkdown.trimEnd() === retryDraft).length, 1);
+    console.log("通过 · 随记响应丢失后刷新重试保留 ID 与创建时间");
+
     for (const [panel, region] of [
       ["任务", "任务"],
       ["看板", "看板视图"],
@@ -214,7 +275,32 @@ async function checkMemos(browser, app, errors) {
   }
 }
 
-async function checkPwa(engine, app, clientRoot, errors) {
+async function makeNextClientBuild(clientRoot, nextRoot) {
+  await cp(clientRoot, nextRoot, { recursive: true });
+  const chunks = new Map();
+  for await (const name of new Bun.Glob("chunk-*.js").scan({ cwd: clientRoot, onlyFiles: true })) {
+    chunks.set(name, "chunk-" + crypto.randomUUID().slice(0, 8) + ".js");
+  }
+  const chunkPattern = /chunk-[a-z0-9]{8}\.js/g;
+  for (const name of ["index.html", "sw.js", ...chunks.keys()]) {
+    let source = (await Bun.file(join(clientRoot, name)).text()).replace(
+      chunkPattern,
+      (chunk) => chunks.get(chunk) ?? chunk,
+    );
+    if (name === "sw.js")
+      source = source.replace(/xiangying-notes-shell-[a-z0-9]+/, "xiangying-notes-shell-next");
+    const path = join(nextRoot, chunks.get(name) ?? name);
+    await Bun.write(path, source);
+    await Bun.write(path + ".gz", Bun.gzipSync(source));
+    if (chunks.has(name)) {
+      await rm(join(nextRoot, name));
+      await rm(join(nextRoot, name + ".gz"));
+    }
+  }
+  return chunks;
+}
+
+async function checkPwa(engine, app, clientRoot, nextRoot, oldChunks, errors) {
   const browser = await engine.launch();
   try {
     const context = await browser.newContext();
@@ -229,13 +315,10 @@ async function checkPwa(engine, app, clientRoot, errors) {
     await second.waitForFunction(() => navigator.serviceWorker.controller?.state === "activated");
     assert.equal(await banner(second).isVisible(), false);
 
-    const worker = join(clientRoot, "sw.js");
-    const original = await Bun.file(worker).text();
-    const updated = original + "\n// browser check " + crypto.randomUUID() + "\n";
+    const previousRoot = clientRoot + "-previous";
+    await rename(clientRoot, previousRoot);
     try {
-      await Bun.write(worker, updated);
-      await Bun.write(worker + ".gz", Bun.gzipSync(updated));
-      // Check a real change to the worker served by the production app.
+      await rename(nextRoot, clientRoot);
       await first.evaluate(async () => (await navigator.serviceWorker.getRegistration()).update());
       await Promise.all([banner(first).waitFor(), banner(second).waitFor()]);
       await second.evaluate(() => {
@@ -254,10 +337,19 @@ async function checkPwa(engine, app, clientRoot, errors) {
         banner(second).waitFor({ state: "hidden" }),
       ]);
       assert.equal(await second.evaluate(() => window.browserCheckTabStayedOpen), true);
-      console.log("通过 · " + engine.name() + " 首次安装、更新激活、其他标签页清除提示");
+      const lazyChunk = second.waitForResponse((response) =>
+        oldChunks.has(new URL(response.url()).pathname.slice(1)),
+      );
+      await second.getByRole("button", { name: "看板", exact: true }).click();
+      await second.getByRole("region", { name: "看板视图", exact: true }).waitFor();
+      const oldChunk = await lazyChunk;
+      assert.equal(oldChunk.status(), 200);
+      assert.equal((await context.request.get(oldChunk.url())).status(), 404);
+      console.log("通过 · " + engine.name() + " PWA 更新后旧标签页首次打开看板");
     } finally {
-      await Bun.write(worker, original);
-      await Bun.write(worker + ".gz", Bun.gzipSync(original));
+      if (await Bun.file(join(clientRoot, "index.html")).exists())
+        await rename(clientRoot, nextRoot);
+      await rename(previousRoot, clientRoot);
     }
   } finally {
     await browser.close();
@@ -269,6 +361,8 @@ const errors = [];
 try {
   const clientRoot = join(directory, "client");
   await cp(resolve("dist/client"), clientRoot, { recursive: true });
+  const nextRoot = join(directory, "client-next");
+  const oldChunks = await makeNextClientBuild(clientRoot, nextRoot);
   const app = await startApp({ clientRoot });
   try {
     const browser = await chromium.launch();
@@ -278,8 +372,8 @@ try {
     } finally {
       await browser.close();
     }
-    await checkPwa(chromium, app, clientRoot, errors);
-    await checkPwa(webkit, app, clientRoot, errors);
+    await checkPwa(chromium, app, clientRoot, nextRoot, oldChunks, errors);
+    await checkPwa(webkit, app, clientRoot, nextRoot, oldChunks, errors);
     assert.deepEqual(errors, []);
   } finally {
     await app.close();

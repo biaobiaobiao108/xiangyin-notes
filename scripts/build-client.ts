@@ -1,5 +1,5 @@
 import { rm } from "node:fs/promises";
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 
 await rm(resolve("./dist/client"), { recursive: true, force: true });
 
@@ -37,6 +37,9 @@ for (const file of [
 
 const clientRoot = resolve("./dist/client");
 const precacheUrls = new Set(["/", "/app", "/index.html", "/manifest.webmanifest"]);
+for (const output of clientBuild.outputs) {
+  if (/\.(?:js|css)$/u.test(output.path)) precacheUrls.add(`/${basename(output.path)}`);
+}
 for (const match of indexHtml.matchAll(/(?:src|href)="([^"]+)"/gu)) {
   const source = match[1]!;
   if (source.startsWith("http:") || source.startsWith("https:") || source.startsWith("data:"))

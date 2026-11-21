@@ -150,15 +150,6 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
     [flushPendingDraft],
   );
 
-  const clearDraft = useCallback(
-    (instance: EditorWithMarkdown) => {
-      discardPendingDraft();
-      instance.commands.clearContent(false);
-      onDraftChangeRef.current?.("");
-    },
-    [discardPendingDraft],
-  );
-
   const submit = useCallback(
     async (reason: SubmitReason) => {
       const instance = editorRef.current;
@@ -178,7 +169,7 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
         await onSubmitRef.current(markdown);
         discardPendingDraft();
         if (resetOnSubmitRef.current && !instance.isDestroyed) {
-          clearDraft(instance);
+          instance.commands.clearContent(false);
           if (reason === "shortcut") instance.commands.blur();
         }
       } catch (reason) {
@@ -189,7 +180,7 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
         if (!instance.isDestroyed) instance.setEditable(true, false);
       }
     },
-    [clearDraft, discardPendingDraft, flushPendingDraft],
+    [discardPendingDraft, flushPendingDraft],
   );
 
   const cancel = useCallback(() => {

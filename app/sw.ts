@@ -1,5 +1,7 @@
 const CACHE_NAME = "__XIANGYING_CACHE_NAME__";
 const PRECACHE_URLS = JSON.parse("__XIANGYING_PRECACHE_URLS_JSON__") as string[];
+const SHELL_CACHE_PREFIX = "xiangying-notes-shell-";
+const HASHED_CHUNK = /-[a-z0-9]{8}\.(?:js|css)$/i;
 
 type Extendable = { waitUntil(promise: Promise<unknown>): void };
 type FetchEventLike = Extendable & {
@@ -16,35 +18,27 @@ const worker = globalThis as unknown as WorkerLike;
 
 worker.addEventListener("install", (event) => {
   (event as Extendable).waitUntil(
-    caches.open(CACHE_NAME).then(async (cache) => {
-      await Promise.all(
-        PRECACHE_URLS.map(async (url) => {
-          // Hashed assets are immutable; reuse an earlier shell's copy on update.
-          const previous = /-[a-z0-9]{8}\.(?:js|css)$/i.test(url)
-            ? await caches.match(url)
-            : undefined;
-          if (previous) await cache.put(url, previous);
-          else await cache.add(url);
-        }),
-      );
-    }),
+    (async () => {
+      const cache = await caches.open(CACHE_NAME);
+      try {
+        await cache.addAll(PRECACHE_URLS);
+      } catch (error) {
+        await caches.delete(CACHE_NAME);
+        throw error;
+      }
+    })(),
   );
 });
 
 worker.addEventListener("activate", (event) => {
   (event as Extendable).waitUntil(
-    Promise.all([
-      caches
-        .keys()
-        .then((keys) =>
-          Promise.all(
-            keys
-              .filter((key) => key.startsWith("xiangying-notes-") && key !== CACHE_NAME)
-              .map((key) => caches.delete(key)),
-          ),
-        ),
-      worker.clients.claim(),
-    ]),
+    (async () => {
+      const shells = (await caches.keys()).filter((key) => key.startsWith(SHELL_CACHE_PREFIX));
+      // Tabs running the previous build may still request chunks for the first time.
+      const obsolete = shells.slice(0, Math.max(0, shells.indexOf(CACHE_NAME) - 1));
+      await Promise.all(obsolete.map((key) => caches.delete(key)));
+      await worker.clients.claim();
+    })(),
   );
 });
 
@@ -88,9 +82,7 @@ worker.addEventListener("fetch", (event) => {
         .catch(async () => {
           finishCacheWrite();
           return (
-            (await caches.match(request)) ??
-            (await caches.match("/index.html")) ??
-            (await caches.match("/")) ??
+            (await caches.match("/index.html", { cacheName: CACHE_NAME })) ??
             new Response("离线时暂时无法打开应用", { status: 503 })
           );
         }),
@@ -109,7 +101,7 @@ worker.addEventListener("fetch", (event) => {
   fetchEvent.waitUntil(cacheWrite);
   fetchEvent.respondWith(
     caches
-      .match(request)
+      .match(request, HASHED_CHUNK.test(url.pathname) ? undefined : { cacheName: CACHE_NAME })
       .then((cached) => {
         if (cached) {
           finishCacheWrite();
