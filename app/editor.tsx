@@ -203,6 +203,7 @@ export function NoteEditor({
   const markdownSyncFrameRef = useRef<number | null>(null);
   const markdownSyncStartedAtRef = useRef<number | null>(null);
   const markdownDirtyRef = useRef(false);
+  const serializedMarkdownRef = useRef<{ doc: ProseMirrorNode; markdown: string } | null>(null);
   const editorTextBlockStatsRef = useRef<EditorTextBlockStatsCache>(
     new WeakMap<ProseMirrorNode, EditorStats>(),
   );
@@ -244,7 +245,9 @@ export function NoteEditor({
   ]);
   const editorTextStatsSnapshotRef = useRef<EditorTextStatsSnapshot | null>(null);
   const [deferredLoading, setDeferredLoading] = useState(false);
-  const editorLocked = isLoading || deferredLoading || trashBusy || autoReadingMode;
+  const loadingLocked = isLoading || deferredLoading;
+  const bodyEditable = !note.deletedAt && !trashBusy && !autoReadingMode;
+  const editorLocked = loadingLocked || trashBusy || autoReadingMode;
   const {
     imageFileInputRef,
     imageUploadMessageRef,
@@ -401,22 +404,37 @@ export function NoteEditor({
   });
   surfaceSyncRef.current = scheduleEditorSurfaceSync;
 
-  const flushMarkdownChange = useCallback((source?: Editor) => {
-    if (markdownSyncFrameRef.current !== null) {
-      window.clearTimeout(markdownSyncFrameRef.current);
-      markdownSyncFrameRef.current = null;
-    }
-    markdownSyncStartedAtRef.current = null;
-    if (!markdownDirtyRef.current) return;
-    const instance = (source ?? editorInstanceRef.current) as EditorWithMarkdown | null;
-    if (!instance || instance.isDestroyed) return;
-    markdownDirtyRef.current = false;
-    onMarkdownDirtyChangeRef.current?.(markdownOwnerRef.current.noteId, false);
-    onChangeRef.current({ contentMarkdown: instance.getMarkdown() });
+  const readDirtyMarkdown = useCallback((instance: Editor) => {
+    if (instance.isDestroyed || !markdownDirtyRef.current) return null;
+    const doc = instance.state.doc;
+    const cached = serializedMarkdownRef.current;
+    if (cached?.doc === doc) return cached.markdown;
+    const markdown = (instance as EditorWithMarkdown).getMarkdown();
+    serializedMarkdownRef.current = { doc, markdown };
+    return markdown;
   }, []);
+
+  const flushMarkdownChange = useCallback(
+    (source?: Editor) => {
+      if (markdownSyncFrameRef.current !== null) {
+        window.clearTimeout(markdownSyncFrameRef.current);
+        markdownSyncFrameRef.current = null;
+      }
+      markdownSyncStartedAtRef.current = null;
+      const instance = source ?? editorInstanceRef.current;
+      const markdown = instance ? readDirtyMarkdown(instance) : null;
+      if (markdown === null) return;
+      serializedMarkdownRef.current = null;
+      markdownDirtyRef.current = false;
+      onMarkdownDirtyChangeRef.current?.(markdownOwnerRef.current.noteId, false);
+      onChangeRef.current({ contentMarkdown: markdown });
+    },
+    [readDirtyMarkdown],
+  );
 
   const scheduleMarkdownChange = useCallback(
     (instance: Editor) => {
+      serializedMarkdownRef.current = null;
       const wasDirty = markdownDirtyRef.current;
       markdownDirtyRef.current = true;
       const noteId = markdownOwnerRef.current.noteId;
@@ -438,6 +456,7 @@ export function NoteEditor({
           noteId !== markdownOwnerRef.current.noteId ||
           currentReloadToken !== markdownOwnerRef.current.reloadToken
         ) {
+          serializedMarkdownRef.current = null;
           markdownDirtyRef.current = false;
           onMarkdownDirtyChangeRef.current?.(noteId, false);
           return;
@@ -449,7 +468,7 @@ export function NoteEditor({
   );
 
   const editor = useEditor({
-    editable: !note.deletedAt && !isLoading && !trashBusy,
+    editable: bodyEditable,
     extensions,
     coreExtensionOptions: editorCoreExtensionOptions,
     content: initialContentRef.current,
@@ -574,14 +593,9 @@ export function NoteEditor({
 
   useEffect(() => {
     if (!editor) return;
-    const readCurrentMarkdown = () => {
-      return editor.isDestroyed || !markdownDirtyRef.current
-        ? null
-        : (editor as EditorWithMarkdown).getMarkdown();
-    };
-    onMarkdownReaderChange?.(readCurrentMarkdown);
+    onMarkdownReaderChange?.(() => readDirtyMarkdown(editor));
     return () => onMarkdownReaderChange?.(null);
-  }, [editor, onMarkdownReaderChange]);
+  }, [editor, onMarkdownReaderChange, readDirtyMarkdown]);
 
   useEffect(() => {
     if (!editor) return;
@@ -690,9 +704,8 @@ export function NoteEditor({
   }, [isLoading]);
 
   useEffect(() => {
-    if (!editor) return;
-    editor.setEditable(!note.deletedAt && !editorLocked, false);
-  }, [editor, editorLocked, note.deletedAt]);
+    if (editor && editor.isEditable !== bodyEditable) editor.setEditable(bodyEditable, false);
+  }, [editor, bodyEditable]);
 
   const appliedReloadTokenRef = useRef(reloadToken);
   useEffect(() => {
@@ -716,6 +729,7 @@ export function NoteEditor({
     outlineHeadingElementsRef.current.clear();
     outlineSelectionSynchronizedRef.current = false;
     setEditorStats(countEditorText(""));
+    serializedMarkdownRef.current = null;
     markdownDirtyRef.current = false;
     if (markdownSyncFrameRef.current !== null) window.clearTimeout(markdownSyncFrameRef.current);
     markdownSyncFrameRef.current = null;
@@ -1071,7 +1085,8 @@ export function NoteEditor({
               placeholder="未命名笔记"
             />
             <h1 className="visually-hidden">{note.title.trim() || "未命名笔记"}</h1>
-            <EditorContent editor={editor} />
+            {/* 临时加载锁通过 inert 阻止交互，避免 Safari 因 contenteditable 变化重排整篇正文。 */}
+            <EditorContent editor={editor} inert={loadingLocked} />
             <BlockDragHandle
               editor={editor}
               containerRef={documentRef}
