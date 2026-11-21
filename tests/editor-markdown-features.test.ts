@@ -55,6 +55,7 @@ import {
 } from "../app/editor/slash-command-menu";
 import { createTableExtensions } from "../app/editor/table-extensions";
 import { TagDecorationExtension, tagDecorationPluginKey } from "../app/editor/tag-decoration";
+import { LongTextWrap, longTextWrapKey } from "../app/editor/long-text-wrap";
 
 function createMarkdownEditor(content: string) {
   return new Editor({
@@ -69,6 +70,7 @@ function createMarkdownEditor(content: string) {
       createMarkdownExtension(),
       CalloutNode,
       TagDecorationExtension,
+      LongTextWrap,
     ],
     content,
     contentType: "markdown",
@@ -177,6 +179,38 @@ describe("hashtag editor decorations", () => {
       const addedTag = tagDecorationPluginKey.getState(state)!.find().at(-1)!;
       state = state.apply(state.tr.delete(addedTag.from, addedTag.to));
       expect(decoratedTags()).toEqual(expectedTags);
+    } finally {
+      editor.destroy();
+    }
+  });
+});
+
+describe("long text wrapping", () => {
+  test("applies display-only wrapping to long runs and updates it after editing", () => {
+    const ordinary = "computeTotalPrice()";
+    const identifier = "DashboardConfigurationSettings";
+    const longRun = "a".repeat(40);
+    const markdown = `${ordinary} \`${identifier}\` ${longRun}`;
+    const editor = createMarkdownEditor(markdown);
+    try {
+      const plugin = editor.extensionManager.plugins.find(
+        ({ spec }) => spec.key === longTextWrapKey,
+      )!;
+      let state = EditorState.create({ doc: editor.state.doc, plugins: [plugin] });
+      const wrappedRuns = () =>
+        longTextWrapKey
+          .getState(state)!
+          .find()
+          .map(({ from, to }) => state.doc.textBetween(from, to));
+
+      expect(wrappedRuns()).toEqual([identifier, longRun]);
+      expect(editor.getMarkdown()).toBe(markdown);
+
+      const { to } = longTextWrapKey.getState(state)!.find().at(-1)!;
+      state = state.apply(state.tr.delete(to - 1, to));
+      expect(wrappedRuns()).toEqual([identifier]);
+      state = state.apply(state.tr.insertText("b", to - 1));
+      expect(wrappedRuns()).toEqual([identifier, `${longRun.slice(1)}b`]);
     } finally {
       editor.destroy();
     }

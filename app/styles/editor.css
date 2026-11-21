@@ -130,10 +130,15 @@
   font-size: 1.05rem;
   line-height: 1.72;
   letter-spacing: 0.012em;
-  overflow-wrap: anywhere;
-  text-wrap: pretty;
   text-spacing-trim: trim-start;
   -webkit-font-smoothing: antialiased;
+}
+.note-prose,
+.note-prose.ProseMirror {
+  overflow-wrap: anywhere;
+}
+.note-prose .long-text-run {
+  line-break: anywhere;
 }
 .note-prose:focus,
 .note-prose:focus-visible {
@@ -850,7 +855,6 @@
 .note-prose pre {
   position: relative;
   overflow: clip;
-  word-break: break-all;
   white-space: pre-wrap;
   margin-block: 1.25em;
   padding: 16px 20px 18px;
@@ -868,6 +872,10 @@
     monospace;
   tab-size: 2;
   -moz-tab-size: 2;
+}
+.note-prose pre:has(> .code-block-copy-button) {
+  /* Keep the toolbar above the code so every text line gets the same width. */
+  padding-block-start: 44px;
 }
 .note-prose code {
   padding: 0.15em 0.38em;
@@ -888,17 +896,6 @@
   background: transparent;
   color: inherit;
   font: inherit;
-}
-.note-prose pre code::before {
-  content: "";
-  float: right;
-  width: 32px;
-  max-width: 60%;
-  height: 30px;
-  pointer-events: none;
-}
-.note-prose pre .code-block-language ~ code::before {
-  width: 144px;
 }
 .note-prose .code-block-language {
   position: absolute;
@@ -985,6 +982,7 @@
 .note-prose .table-scroll-shell {
   position: relative;
   display: block;
+  container-type: inline-size;
   max-width: 100%;
   margin-block: 1.18em;
   overflow-x: auto;
@@ -1021,9 +1019,20 @@
   border-inline-end: 1px solid var(--border-soft);
   border-block-end: 1px solid var(--border-soft);
   overflow-wrap: anywhere;
-  white-space: normal;
+  white-space: break-spaces;
   text-align: start;
   vertical-align: top;
+}
+.note-prose .table-scroll-shell table:not(:has(> colgroup > col[style^="width:"])) :is(th, td) {
+  /* Preserve useful column widths without sizing the whole table to one long value. */
+  max-inline-size: clamp(18ch, 60cqi, 36ch);
+  overflow-wrap: break-word;
+}
+.note-prose
+  .table-scroll-shell
+  table:not(:has(> colgroup > col[style^="width:"]))
+  :is(th, td):has(.long-text-run) {
+  min-inline-size: clamp(6rem, 50cqi, 24ch);
 }
 .note-prose .table-scroll-shell .column-resize-handle {
   position: absolute;
@@ -1122,11 +1131,6 @@
 .note-prose .table-scroll-shell th p,
 .note-prose .table-scroll-shell td p {
   margin: 0;
-}
-.note-prose .table-scroll-shell th code,
-.note-prose .table-scroll-shell td code {
-  overflow-wrap: anywhere;
-  white-space: normal;
 }
 .note-prose .note-callout {
   display: grid;

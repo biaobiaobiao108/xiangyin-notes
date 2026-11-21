@@ -72,6 +72,27 @@ describe("memo Markdown rendering", () => {
     expect(html).toContain("<th>列一</th>");
   });
 
+  test("keeps the editor's saved column widths in preview", () => {
+    const html = renderMemoMarkdown(
+      "| 列一 | 列二 |\n| ------------- | -------------------- |\n| 内容 | 示例 |",
+    );
+    expect(html).toContain('<table style="width: 276px">');
+    expect(html).toContain(
+      '<colgroup><col style="width: 96px"><col style="width: 180px"></colgroup>',
+    );
+  });
+
+  test("adds display breaks to long runs without changing their contents", () => {
+    const hash = "0123456789abcdef".repeat(4);
+    const html = renderMemoMarkdown(
+      `hash = ${hash}\n\n~~~ts\nconst result = computeTotalPrice();\nhash = ${hash}\n~~~`,
+    );
+    expect(html.match(new RegExp(`<span class="long-text-run">${hash}</span>`, "gu"))).toHaveLength(
+      2,
+    );
+    expect(html).toContain("const result = computeTotalPrice();");
+  });
+
   test("labels fenced code blocks like the note editor", () => {
     const html = renderMemoMarkdown("```ts\nconst value = 1;\n```");
     expect(html).toContain('<span class="code-block-language" aria-hidden="true">ts</span>');

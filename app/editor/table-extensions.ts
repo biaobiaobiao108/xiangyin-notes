@@ -14,7 +14,7 @@ const PIXELS_PER_WIDTH_DASH = 12;
 
 // GFM accepts any delimiter length. Long runs preserve editable column widths
 // in Markdown without adding HTML or changing the table's visible content.
-function readColumnWidthsFromDelimiter(markdown: string) {
+export function readColumnWidthsFromDelimiter(markdown: string) {
   const delimiter = markdown.replace(/\r/gu, "").split("\n")[1];
   if (!delimiter) return null;
 

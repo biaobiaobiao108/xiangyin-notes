@@ -420,6 +420,9 @@
   font-size: var(--memo-prose-size);
   line-height: var(--memo-prose-leading);
 }
+.memo-markdown :is(p, h1, h2, h3, h4, h5, h6, li:not([data-type="taskItem"])) {
+  white-space: break-spaces;
+}
 
 .memo-card-content .note-prose > :first-child,
 .memo-card .memo-composer-prose > :first-child {

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, type MouseEvent } from "react";
 import { copyCodeBlockText } from "../editor/code-block-copy";
+import { readColumnWidthsFromDelimiter } from "../editor/table-extensions";
 import type { RendererObject, Token, Tokens } from "marked";
 import {
   createXiangyingMarked,
@@ -7,6 +8,7 @@ import {
   tokenizeWikiLink,
 } from "../../shared/markdown-lexer";
 import { findTagRanges } from "../../shared/tags";
+import { findLongTextRuns } from "../../shared/long-text-wrap";
 
 const HTML_ESCAPES: Record<string, string> = {
   "&": "&amp;",
@@ -20,12 +22,22 @@ function escapeHtml(value: string) {
   return value.replace(/[&<>"']/gu, (character) => HTML_ESCAPES[character]!);
 }
 
+function renderWrappedText(text: string, inlineCode = false) {
+  let html = "";
+  let cursor = 0;
+  for (const run of findLongTextRuns(text, inlineCode)) {
+    html += escapeHtml(text.slice(cursor, run.index));
+    html += `<span class="long-text-run">${escapeHtml(run[0])}</span>`;
+    cursor = run.index + run[0].length;
+  }
+  return html + escapeHtml(text.slice(cursor));
+}
+
 const SAFE_LINK_PROTOCOL = /^(?:https?:|mailto:|tel:)/iu;
 const EXPLICIT_PROTOCOL = /^[a-z][a-z0-9+.-]*:/iu;
 const PRIVATE_ASSET_SOURCE =
   /^\/api\/assets\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?=[?#]|$)/iu;
 const COPY_BUTTON = `<button class="code-block-copy-button" type="button" aria-label="复制代码"><svg data-copy-icon="idle" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg><svg data-copy-icon="copied" hidden xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg><svg data-copy-icon="error" hidden xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v4m0 4h.01"></path></svg><span class="visually-hidden" aria-live="polite"></span></button>`;
-const TABLE_PATTERN = /<table>[\s\S]*?<\/table>/gu;
 
 function safeLinkHref(value: string | null | undefined) {
   const href = value?.trim() ?? "";
@@ -42,16 +54,16 @@ function safeImageHref(value: string | null | undefined) {
 
 function renderMemoText(text: string) {
   const ranges = findTagRanges(text);
-  if (ranges.length === 0) return escapeHtml(text);
+  if (ranges.length === 0) return renderWrappedText(text);
 
   let html = "";
   let cursor = 0;
   for (const range of ranges) {
-    html += escapeHtml(text.slice(cursor, range.start));
-    html += `<span class="memo-tag">${escapeHtml(text.slice(range.start, range.end))}</span>`;
+    html += renderWrappedText(text.slice(cursor, range.start));
+    html += `<span class="memo-tag">${renderWrappedText(text.slice(range.start, range.end))}</span>`;
     cursor = range.end;
   }
-  html += escapeHtml(text.slice(cursor));
+  html += renderWrappedText(text.slice(cursor));
   return html;
 }
 
@@ -66,14 +78,6 @@ function withoutCheckboxes(tokens: Token[]): Token[] {
       } as Token,
     ];
   });
-}
-
-function wrapMemoTables(html: string) {
-  return html.replace(
-    TABLE_PATTERN,
-    (table) =>
-      `<div class="table-scroll-shell">${table.replace("<thead>", "<tbody>").replace(/<\/thead>\s*<tbody>/u, "")}</div>`,
-  );
 }
 
 const renderer: RendererObject = {
@@ -122,13 +126,29 @@ const renderer: RendererObject = {
   html({ text }) {
     return escapeHtml(text);
   },
+  table({ raw, header, rows }) {
+    const widths = readColumnWidthsFromDelimiter(raw);
+    const columns = widths
+      ? `<colgroup>${widths.map((width) => `<col style="width: ${width}px">`).join("")}</colgroup>`
+      : "";
+    const width = widths
+      ? ` style="width: ${widths.reduce((total, value) => total + value, 0)}px"`
+      : "";
+    const body = [header, ...rows]
+      .map((row) => this.tablerow({ text: row.map((cell) => this.tablecell(cell)).join("") }))
+      .join("");
+    return `<div class="table-scroll-shell"><table${width}>${columns}<tbody>${body}</tbody></table></div>\n`;
+  },
   code({ text, lang }) {
     const language = lang?.trim().split(/\s+/u)[0] ?? "";
     return `<pre>${
       language
         ? `<span class="code-block-language" aria-hidden="true">${escapeHtml(language)}</span>`
         : ""
-    }${COPY_BUTTON}<code${language ? ` class="language-${escapeHtml(language)}"` : ""}>${escapeHtml(text)}\n</code></pre>\n`;
+    }${COPY_BUTTON}<code${language ? ` class="language-${escapeHtml(language)}"` : ""}>${renderWrappedText(text)}\n</code></pre>\n`;
+  },
+  codespan({ text }) {
+    return `<code>${renderWrappedText(text, true)}</code>`;
   },
   link({ href, tokens }) {
     const safeHref = safeLinkHref(href);
@@ -154,7 +174,7 @@ memoMarked.use({
       tokenizer: tokenizeWikiLink,
       renderer(token) {
         const { target, alias } = token as unknown as { target: string; alias?: string };
-        return `<span class="editor-wiki-link">${escapeHtml(alias || target)}</span>`;
+        return `<span class="editor-wiki-link">${renderWrappedText(alias || target)}</span>`;
       },
     },
   ],
@@ -162,7 +182,7 @@ memoMarked.use({
 memoMarked.use({ renderer });
 
 export function renderMemoMarkdown(markdown: string) {
-  return wrapMemoTables(memoMarked.parse(markdown) as string);
+  return memoMarked.parse(markdown) as string;
 }
 
 export function MemoMarkdown({ markdown }: { markdown: string }) {

@@ -1,5 +1,6 @@
 import { Editor } from "@tiptap/core";
 import { createReadOnlyExtensions, prepareMarkdownForReadOnly } from "../editor/read-only-markdown";
+import { findLongTextRuns } from "../../shared/long-text-wrap";
 
 export type ImageExportSnapshot = { title: string; contentMarkdown: string };
 
@@ -39,9 +40,37 @@ export function renderNoteSnapshot(snapshot: ImageExportSnapshot): HTMLElement {
       if (width > 0 && Number.isFinite(width)) image.style.width = `${width}px`;
     });
     appendAnnotationNotes(source);
+    addLongTextBreaks(source);
     return source;
   } finally {
     editor.destroy();
+  }
+}
+
+function addLongTextBreaks(source: HTMLElement) {
+  const walker = document.createTreeWalker(source, NodeFilter.SHOW_TEXT);
+  const textNodes: Text[] = [];
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if ((node as Text).length >= 28) textNodes.push(node as Text);
+  }
+  for (const node of textNodes) {
+    const text = node.data;
+    const inlineCode = node.parentElement?.matches("code") && !node.parentElement.closest("pre");
+    const runs = findLongTextRuns(text, inlineCode);
+    let cursor = 0;
+    let content: DocumentFragment | undefined;
+    for (const run of runs) {
+      content ??= document.createDocumentFragment();
+      content.append(text.slice(cursor, run.index));
+      const span = document.createElement("span");
+      span.className = "long-text-run";
+      span.textContent = run[0];
+      content.append(span);
+      cursor = run.index + run[0].length;
+    }
+    if (!content) continue;
+    content.append(text.slice(cursor));
+    node.replaceWith(content);
   }
 }
 

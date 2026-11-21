@@ -9,6 +9,7 @@ import { NoteLink } from "./note-link";
 import { createMarkdownExtension } from "./markdown-config";
 import { createTableExtensions } from "./table-extensions";
 import { TagDecorationExtension } from "./tag-decoration";
+import { LongTextWrap } from "./long-text-wrap";
 import { ImeMarkdownSafeExtension } from "../ime-markdown-safe-extension";
 
 type CommonEditorExtensionOptions = {
@@ -60,5 +61,6 @@ export function createCommonEditorExtensions({
     createMarkdownExtension(),
     ImeMarkdownSafeExtension,
     TagDecorationExtension,
+    LongTextWrap,
   ];
 }

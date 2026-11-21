@@ -169,7 +169,6 @@
   }
   .is-mobile-editor .note-prose {
     font-size: 1.125rem;
-    text-wrap: wrap;
   }
   .is-mobile-editor .editor-floating-tools,
   .is-mobile-editor.is-focus-mode .editor-floating-tools {
