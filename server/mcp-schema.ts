@@ -2,10 +2,13 @@ import { z } from "zod";
 import { NOTE_TAG_MAX_LENGTH } from "../shared/tags";
 
 export const MCP_SERVER_INSTRUCTIONS = [
-  "象映笔记管理 Markdown 笔记、笔记本和看板。用 search_notes 查找笔记，再用 get_note 按 noteId 读正文。只需一个章节时，可先读 get_note_outline，再用 get_note_section。",
-  "普通保存用 save_note，默认在目标笔记本内防止重复标题。允许同名或新建时直接入板用 create_note，入板时传 kanbanStatus。分类可按 notebookName 指定，用 ensure_notebook 获取或创建笔记本。用 manage_note 管理收藏、标签和回收站，通过 search_notes 的 view=trash 查找已删除笔记。",
-  "用 list_kanban_cards 查看卡片，再用 manage_kanban_card 加入、移动或移出。移动和移出需要将卡片的 updatedAt 传为 expectedUpdatedAt。更新笔记本也用 expectedUpdatedAt，取笔记本自己的 updatedAt。",
-  "从 structuredContent 读取结果，检查 ok 和 error.code。批量操作查看 results，按失败项处理。更新已有笔记时，从 note.version 取得 expectedVersion。遇到版本或位置冲突，先重读相应资源，核对改动后再决定是否重试。",
+  "象映笔记管理 Markdown 笔记、笔记本和看板。",
+  "查找和读取笔记。search_notes 搜索（view=trash 查回收站），get_note 读单篇正文，get_notes_batch 按 ID 批读。get_note_outline 定位章节，get_note_section 读指定章节。",
+  "保存和编辑。save_note 是普通保存入口，默认在目标笔记本内防重名。允许同名时用 create_note，传 kanbanStatus 可直接入板。update_note 改标题或完整正文，append_to_note 在文末追加，insert_into_note 按锚点插入，replace_in_note 替换片段，replace_note_section 替换整节。",
+  "整理笔记。manage_note 移动、收藏、改标签、移入或恢复回收站，batch_update_notes 批量管理多篇。",
+  "笔记本。list_notebooks 列出笔记本，ensure_notebook 按名称获取或创建，create_notebook 创建且重名时报错，update_notebook 改名称、颜色或图标，delete_notebook 删除笔记本并把笔记移入收件箱。",
+  "看板。list_kanban_cards 查卡片，manage_kanban_card 加入、移动、排序或移出。",
+  "从 structuredContent 读取结果，检查 ok 和 error.code，批量操作查看逐项 results。更新笔记用 note.version 作为 expectedVersion。更新笔记本、移动或移出卡片时，用该资源的 updatedAt 作为 expectedUpdatedAt。遇到版本或位置冲突，先重读对应资源再决定是否重试。",
 ].join("\n\n");
 
 // Keep published JSON Schemas within the broadly supported regular-expression

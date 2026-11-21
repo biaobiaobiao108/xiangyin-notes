@@ -1587,11 +1587,12 @@ describe("remote MCP endpoint", () => {
     });
     expect(discovered.response.status).toBe(200);
     const instructions = resultOf(discovered.body!).instructions;
-    expect(instructions).toMatch(/search_notes.+get_note/);
+    const listed = await callMcp(modernMcpRequest("tools/list", 2));
+    const tools = resultOf(listed.body!).tools as { name: string }[];
+    for (const { name } of tools) expect(instructions).toMatch(new RegExp(`\\b${name}\\b`));
     expect(instructions).toMatch(/save_note.+create_note.+kanbanStatus/);
-    expect(instructions).toMatch(/list_kanban_cards.+manage_kanban_card.+expectedUpdatedAt/);
     expect(instructions).toMatch(/structuredContent.+ok.+error\.code/);
-    expect(instructions).toMatch(/note\.version.+expectedVersion.+先重读/);
+    expect(instructions).toMatch(/note\.version.+expectedVersion.+expectedUpdatedAt.+先重读/);
   });
 
   test("keeps tag and color validation on the server without publishing regex patterns", async () => {
