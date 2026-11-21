@@ -46,12 +46,14 @@ test("older IndexedDB completions cannot remove, overwrite or restore a newer re
   const local = new Map<string, string>();
   const indexed = new Map<string, string>();
   const writes: Array<{ transaction: IDBTransaction; key: string; value: string }> = [];
+  let finishRead: (() => void) | undefined;
+  let holdRead = false;
   let localWritesFail = false;
   const flush = async () => {
     for (let index = 0; index < 8; index += 1) await Promise.resolve();
   };
   const database = {
-    transaction() {
+    transaction(_store: string, mode: IDBTransactionMode) {
       const transaction = {
         oncomplete: null,
         onerror: null,
@@ -72,7 +74,9 @@ test("older IndexedDB completions cannot remove, overwrite or restore a newer re
             },
             get(key: string) {
               const request = { result: indexed.get(key), onsuccess: null as (() => void) | null };
-              queueMicrotask(() => request.onsuccess?.());
+              const finish = () => request.onsuccess?.();
+              if (holdRead && mode === "readonly") finishRead = finish;
+              else queueMicrotask(finish);
               return request;
             },
           };
@@ -196,6 +200,16 @@ test("older IndexedDB completions cannot remove, overwrite or restore a newer re
     await flush();
     expect(indexed.has(indexedSharedDraft.id)).toBe(true);
     expect(await readDraftRecovery(indexedSharedDraft.id)).toEqual(indexedSharedDraft);
+
+    writeDraftRecovery(draft);
+    holdRead = true;
+    const pendingRead = readDraftRecovery(draft.id);
+    await flush();
+    expect(finishRead).toBeFunction();
+    clearDraftRecovery(draft.id);
+    expect(local.has(draftRecoveryStorageKey(draft.id))).toBe(false);
+    finishRead!();
+    expect(await pendingRead).toBeNull();
   } finally {
     if (windowDescriptor) Object.defineProperty(globalThis, "window", windowDescriptor);
     else Reflect.deleteProperty(globalThis, "window");

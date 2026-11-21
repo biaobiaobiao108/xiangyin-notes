@@ -14,11 +14,12 @@ async function request(path: string, method = "GET", body?: unknown) {
   const headers = new Headers();
   if (cookie) headers.set("Cookie", cookie);
   if (body !== undefined) headers.set("Content-Type", "application/json");
+  const requestBody = body instanceof ReadableStream ? body : JSON.stringify(body);
   const response = await handleRequest(
     new Request(`http://localhost${path}`, {
       method,
       headers,
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      body: requestBody,
     }),
     { database, environment, assetRoot: root, clientAddress: "127.0.0.1" },
   );
@@ -45,6 +46,49 @@ afterEach(async () => {
 });
 
 describe("review regressions", () => {
+  test("rejects an unchanged PATCH based on a version superseded while reading the body", async () => {
+    const created = await request("/api/notes", "POST", {
+      title: "并发保存",
+      contentMarkdown: "旧正文",
+    });
+    const { id, version } = created.body.note;
+    const path = `/api/notes/${id}?response=summary`;
+    const bodyRead = Promise.withResolvers<void>();
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const body = new ReadableStream<Uint8Array>(
+      {
+        start(streamController) {
+          controller = streamController;
+        },
+        pull() {
+          bodyRead.resolve();
+        },
+      },
+      { highWaterMark: 0 },
+    );
+    const delayed = request(path, "PATCH", body);
+    await bodyRead.promise;
+    const saved = await request(path, "PATCH", { version, contentMarkdown: "新正文" });
+    controller.enqueue(
+      new TextEncoder().encode(JSON.stringify({ version, contentMarkdown: "旧正文" })),
+    );
+    controller.close();
+
+    expect(saved.response.status).toBe(200);
+    const stale = await delayed;
+    expect(stale.response.status).toBe(409);
+    expect(stale.body.error).toMatchObject({
+      code: "VERSION_CONFLICT",
+      current: { version: version + 1, contentMarkdown: "新正文" },
+    });
+    const unchanged = await request(path, "PATCH", {
+      version: version + 1,
+      contentMarkdown: "新正文",
+    });
+    expect(unchanged.response.status).toBe(200);
+    expect(unchanged.body.note.version).toBe(version + 1);
+  });
+
   test("returns rewritten body even when a rename requested a summary", async () => {
     const created = await request("/api/notes", "POST", {
       title: "旧名",

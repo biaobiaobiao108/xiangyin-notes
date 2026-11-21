@@ -1083,8 +1083,6 @@ export async function handleNotesRoute(
 
   // Patch note
   if (id && !subresource && method === "PATCH") {
-    const current = getNote(database, user.id, id);
-    if (!current) return jsonError(404, "NOTE_NOT_FOUND", "笔记不存在");
     const payload = await readJson<{
       version?: unknown;
       title?: unknown;
@@ -1093,6 +1091,8 @@ export async function handleNotesRoute(
       isFavorite?: unknown;
       deleted?: unknown;
     }>(request, NOTE_BODY_MAX_BYTES);
+    const current = getNote(database, user.id, id);
+    if (!current) return jsonError(404, "NOTE_NOT_FOUND", "笔记不存在");
     if (!payload || !Number.isInteger(payload.version))
       return jsonError(400, "VERSION_REQUIRED", "保存笔记必须携带版本号");
     if (payload.version !== current.version)

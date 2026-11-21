@@ -29,7 +29,6 @@ import { FloatingScrollbar } from "../floating-scrollbar";
 import { getNoteTags, relativeDate } from "./helpers";
 import { NoteTags } from "./note-tags";
 import {
-  calculateTargetSortOrder,
   KANBAN_DRAG_MIME_TYPE,
   parseKanbanDragPayload,
   type KanbanDragPayload,
@@ -64,12 +63,7 @@ export type KanbanPanelProps = {
   onOpenNote: (noteId: string) => void;
   onCreateNoteInColumn: (status: KanbanStatus) => void;
   onAddExistingNote: (noteId: string, status: KanbanStatus) => void;
-  onMoveCard: (
-    noteId: string,
-    targetStatus: KanbanStatus,
-    targetSortOrder: number,
-    beforeNoteId: string | null,
-  ) => void;
+  onMoveCard: (noteId: string, targetStatus: KanbanStatus, beforeNoteId: string | null) => void;
   onTrashCard: (noteId: string) => void;
   onLoadMoreColumn: (status: KanbanStatus) => void;
   onToggleFavorite?: (note: NoteSummary) => void;
@@ -321,15 +315,10 @@ const KanbanColumnView = memo(function KanbanColumnView({
     return () => observer.disconnect();
   }, [column.id, hasMore, isLoadingMore, loadMoreError, onLoadMore]);
 
-  const handleDragOver = (e: ReactDragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    setIsDropTarget(true);
-
+  const getDropIndex = (clientY: number) => {
     const scrollEl = scrollRef.current;
-    if (!scrollEl) return;
+    if (!scrollEl) return cards.length;
 
-    // Calculate which card boundary cursor is closest to
     const cardElements = Array.from(
       scrollEl.querySelectorAll<HTMLElement>("[data-kanban-note-id]"),
     );
@@ -338,12 +327,19 @@ const KanbanColumnView = memo(function KanbanColumnView({
       : cards.length;
     for (let i = 0; i < cardElements.length; i++) {
       const rect = cardElements[i].getBoundingClientRect();
-      if (e.clientY < rect.top + rect.height / 2) {
+      if (clientY < rect.top + rect.height / 2) {
         targetIndex = virtual.isVirtualized ? virtual.startIndex + i : i;
         break;
       }
     }
-    setDropIndicatorIndex(Math.min(cards.length, Math.max(0, targetIndex)));
+    return Math.min(cards.length, targetIndex);
+  };
+
+  const handleDragOver = (e: ReactDragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setIsDropTarget(true);
+    setDropIndicatorIndex(getDropIndex(e.clientY));
   };
 
   const handleDragLeave = (e: ReactDragEvent<HTMLDivElement>) => {
@@ -356,9 +352,8 @@ const KanbanColumnView = memo(function KanbanColumnView({
   const handleDrop = (e: ReactDragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDropTarget(false);
-    const index = dropIndicatorIndex ?? cards.length;
     setDropIndicatorIndex(null);
-    onDropOnColumn(column.id, index);
+    onDropOnColumn(column.id, getDropIndex(e.clientY));
   };
 
   return (
@@ -755,6 +750,7 @@ export const KanbanPanel = memo(function KanbanPanel({
   const panelRef = useRef<HTMLElement>(null);
   const [activeMobileColumn, setActiveMobileColumn] = useState<KanbanStatus>("inbox");
   const [draggingCard, setDraggingCard] = useState<KanbanDragPayload | null>(null);
+  const draggingCardRef = useRef<KanbanDragPayload | null>(null);
   const [movingCard, setMovingCard] = useState<KanbanCard | null>(null);
   const [addModalStatus, setAddModalStatus] = useState<KanbanStatus | null>(null);
   const addNoteTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -795,12 +791,7 @@ export const KanbanPanel = memo(function KanbanPanel({
       if (!movingCard) return;
       if (targetStatus !== movingCard.status) {
         const targetCards = columns[targetStatus]?.cards ?? [];
-        onMoveCard(
-          movingCard.noteId,
-          targetStatus,
-          calculateTargetSortOrder(targetCards, 0, movingCard.noteId),
-          targetCards.find((card) => card.noteId !== movingCard.noteId)?.noteId ?? null,
-        );
+        onMoveCard(movingCard.noteId, targetStatus, targetCards[0]?.noteId ?? null);
       }
       setMovingCard(null);
       restoreMoveCardFocus();
@@ -825,8 +816,6 @@ export const KanbanPanel = memo(function KanbanPanel({
       if (isMobileViewport) return;
       const payload: KanbanDragPayload = {
         noteId: card.noteId,
-        sourceStatus: card.status,
-        sortOrder: card.sortOrder,
       };
       event.dataTransfer.setData(KANBAN_DRAG_MIME_TYPE, JSON.stringify(payload));
       event.dataTransfer.setData(NOTE_DRAG_MIME_TYPE, JSON.stringify([card.noteId]));
@@ -834,37 +823,33 @@ export const KanbanPanel = memo(function KanbanPanel({
       event.dataTransfer.effectAllowed = "move";
       setNoteDragImage(event.dataTransfer, event.currentTarget, 1);
 
+      // WebKit can dispatch drop before the next animation frame.
+      draggingCardRef.current = payload;
       requestAnimationFrame(() => {
-        setDraggingCard(payload);
+        if (draggingCardRef.current === payload) setDraggingCard(payload);
       });
     },
     [isMobileViewport],
   );
 
   const handleCardDragEnd = useCallback(() => {
+    draggingCardRef.current = null;
     setDraggingCard(null);
     setTrashOver(false);
   }, []);
 
   const handleDropOnColumn = useCallback(
     (targetStatus: KanbanStatus, targetIndex: number) => {
-      if (!draggingCard) return;
+      const dragged = draggingCardRef.current;
+      if (!dragged) return;
       const targetColumnCards = columns[targetStatus]?.cards ?? [];
-      const newSortOrder = calculateTargetSortOrder(
-        targetColumnCards,
-        targetIndex,
-        draggingCard.noteId,
-      );
-      const remaining = targetColumnCards.filter((card) => card.noteId !== draggingCard.noteId);
-      onMoveCard(
-        draggingCard.noteId,
-        targetStatus,
-        newSortOrder,
-        remaining[targetIndex]?.noteId ?? null,
-      );
-      setDraggingCard(null);
+      const nextCard = targetColumnCards
+        .slice(targetIndex)
+        .find((card) => card.noteId !== dragged.noteId);
+      handleCardDragEnd();
+      onMoveCard(dragged.noteId, targetStatus, nextCard?.noteId ?? null);
     },
-    [columns, draggingCard, onMoveCard],
+    [columns, handleCardDragEnd, onMoveCard],
   );
 
   // Drop on Corner Trash Zone
@@ -881,14 +866,13 @@ export const KanbanPanel = memo(function KanbanPanel({
   const handleTrashDrop = (e: ReactDragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
-    setTrashOver(false);
     const payload = parseKanbanDragPayload(e.dataTransfer);
     const noteIds = parseNoteIdsFromDrag(e.dataTransfer);
-    const targetId = payload?.noteId || noteIds[0] || draggingCard?.noteId;
+    const targetId = payload?.noteId || noteIds[0] || draggingCardRef.current?.noteId;
+    handleCardDragEnd();
     if (targetId) {
       onTrashCard(targetId);
     }
-    setDraggingCard(null);
   };
 
   return (

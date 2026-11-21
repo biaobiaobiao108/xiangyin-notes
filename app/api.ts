@@ -316,10 +316,9 @@ export const api = {
   updateKanbanCard: (
     noteId: string,
     payload: {
-      status?: KanbanStatus;
-      sortOrder?: number;
+      status: KanbanStatus;
       expectedUpdatedAt: number;
-      beforeNoteId?: string | null;
+      beforeNoteId: string | null;
     },
   ) =>
     request<{ card: KanbanCard; reordered?: boolean }>(`/api/kanban/cards/${noteId}`, {

@@ -275,6 +275,62 @@ async function checkMemos(browser, app, errors) {
   }
 }
 
+async function checkKanbanMoves(browser, app, errors, status) {
+  const context = await browser.newContext({ serviceWorkers: "block" });
+  try {
+    const page = checkPage(await context.newPage(), errors);
+    await login(app, page);
+    const notes = [];
+    for (const title of ["看板首项", "拖放卡片", "排序参照", "看板末项"]) {
+      notes.push(await createNote(context.request, app.url, { title, kanbanStatus: status }));
+    }
+    const [first, dragged, anchor, last] = notes;
+    await page.getByRole("button", { name: "看板", exact: true }).click();
+    const cardSelector = `[data-kanban-status="${status}"] [data-kanban-note-id]`;
+    const cards = page.locator(cardSelector);
+    const card = (note) => cards.filter({ hasText: note.title });
+    const cardPath = app.url + "/api/kanban/cards/" + dragged.id;
+    const waitForMove = () =>
+      page.waitForResponse(
+        (response) => response.url() === cardPath && response.request().method() === "PATCH",
+      );
+    const move = waitForMove();
+    await card(dragged).dragTo(card(last), { targetPosition: { x: 24, y: 8 } });
+    const moved = await move;
+    assert.equal(moved.status(), 200);
+    assert.equal(moved.request().postDataJSON().beforeNoteId, last.id);
+    assert.equal(moved.request().postDataJSON().sortOrder, undefined);
+    await page.waitForFunction(
+      ({ selector, order }) =>
+        [...document.querySelectorAll(selector)]
+          .map((element) => element.getAttribute("data-kanban-note-id"))
+          .join() === order,
+      { selector: cardSelector, order: [first.id, anchor.id, dragged.id, last.id].join() },
+    );
+
+    await page.route(cardPath, async (route) => {
+      const trashed = await context.request.patch(app.url + "/api/notes/" + dragged.id, {
+        data: { version: dragged.version, deleted: true },
+      });
+      assert.ok(trashed.ok(), await trashed.text());
+      await route.continue();
+    });
+    const lateMove = waitForMove();
+    await card(dragged).dragTo(card(anchor), { targetPosition: { x: 24, y: 8 } });
+    assert.equal((await lateMove).status(), 409);
+    await page.getByText("卡片或排序位置已变化，正在刷新看板", { exact: true }).waitFor();
+    await card(dragged).waitFor({ state: "hidden" });
+    await card(anchor).waitFor();
+    console.log(
+      "通过 · " +
+        browser.browserType().name() +
+        " 看板同列拖放按参照排序，卡片移入回收站后拒绝迟到的拖放",
+    );
+  } finally {
+    await context.close();
+  }
+}
+
 async function makeNextClientBuild(clientRoot, nextRoot) {
   await cp(clientRoot, nextRoot, { recursive: true });
   const chunks = new Map();
@@ -369,8 +425,15 @@ try {
     try {
       await checkEditing(browser, app, errors);
       await checkMemos(browser, app, errors);
+      await checkKanbanMoves(browser, app, errors, "doing");
     } finally {
       await browser.close();
+    }
+    const webkitBrowser = await webkit.launch();
+    try {
+      await checkKanbanMoves(webkitBrowser, app, errors, "done");
+    } finally {
+      await webkitBrowser.close();
     }
     await checkPwa(chromium, app, clientRoot, nextRoot, oldChunks, errors);
     await checkPwa(webkit, app, clientRoot, nextRoot, oldChunks, errors);

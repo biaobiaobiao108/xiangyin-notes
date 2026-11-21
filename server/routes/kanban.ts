@@ -171,15 +171,26 @@ function moveKanbanCard(
   database: SqliteDatabase,
   userId: string,
   noteId: string,
-  status: KanbanStatus,
   expectedUpdatedAt: number,
-  beforeNoteId: string | null,
+  placement: { status?: KanbanStatus; sortOrder?: number; beforeNoteId?: string | null },
 ) {
   return database
     .transaction(() => {
       const card = getKanbanCard(database, userId, noteId);
       if (!card || card.updatedAt !== expectedUpdatedAt)
         return jsonError(409, "KANBAN_CARD_CHANGED", "看板卡片已变化，请刷新后重试");
+
+      const status = placement.status ?? card.status;
+      const { beforeNoteId } = placement;
+      const updatePosition = (sortOrder: number) => {
+        database
+          .query(
+            "UPDATE kanban_cards SET status = ?, sort_order = ?, updated_at = ? WHERE note_id = ? AND user_id = ?",
+          )
+          .run(status, sortOrder, Math.max(now(), expectedUpdatedAt + 1), noteId, userId);
+        return json({ card: getKanbanCard(database, userId, noteId) });
+      };
+      if (beforeNoteId === undefined) return updatePosition(placement.sortOrder ?? card.sortOrder);
 
       const column = `
       SELECT k.note_id, k.sort_order, k.updated_at
@@ -215,14 +226,8 @@ function moveKanbanCard(
         Number.isFinite(sortOrder) &&
         (!previous || sortOrder > previous.sort_order) &&
         (!anchor || sortOrder < anchor.sort_order)
-      ) {
-        database
-          .query(
-            "UPDATE kanban_cards SET status = ?, sort_order = ?, updated_at = ? WHERE note_id = ? AND user_id = ?",
-          )
-          .run(status, sortOrder, Math.max(now(), expectedUpdatedAt + 1), noteId, userId);
-        return json({ card: getKanbanCard(database, userId, noteId) });
-      }
+      )
+        return updatePosition(sortOrder);
 
       const cards = all<OrderedCard>(
         database,
@@ -457,90 +462,19 @@ export async function handleKanbanRoute(
     const beforeNoteId = body?.beforeNoteId;
     if (beforeNoteId !== undefined && beforeNoteId !== null && typeof beforeNoteId !== "string")
       return jsonError(400, "INVALID_ARGUMENT", "排序位置无效");
-    if (body?.sortOrder === undefined && beforeNoteId !== undefined && body?.status !== undefined) {
-      if (beforeNoteId === noteId || beforeNoteId === "")
-        return jsonError(400, "INVALID_ARGUMENT", "请指定另一张卡片作为排序参照");
-      const result = moveKanbanCard(database, user.id, noteId, body.status, expected, beforeNoteId);
-      if (result.ok)
-        publishWorkspaceChange(options, user.id, { resource: "notes", noteId }, request);
-      return result;
-    }
+    if (beforeNoteId === noteId || beforeNoteId === "")
+      return jsonError(400, "INVALID_ARGUMENT", "请指定另一张卡片作为排序参照");
+    const sortOrder = body?.sortOrder;
+    if (sortOrder !== undefined && (typeof sortOrder !== "number" || !Number.isFinite(sortOrder)))
+      return jsonError(400, "INVALID_ARGUMENT", "排序值无效");
 
-    const existing = first<{ status: KanbanStatus; sort_order: number; updated_at: number }>(
-      database,
-      "SELECT status, sort_order, updated_at FROM kanban_cards WHERE note_id = ? AND user_id = ? AND status != 'archived'",
-      noteId,
-      user.id,
-    );
-    if (!existing) {
-      return jsonError(404, "NOT_FOUND", "看板卡片不存在");
-    }
-
-    const newStatus = body?.status ?? existing.status;
-
-    let newSortOrder = existing.sort_order;
-    if (body?.sortOrder !== undefined) {
-      if (typeof body.sortOrder !== "number" || !Number.isFinite(body.sortOrder)) {
-        return jsonError(400, "INVALID_ARGUMENT", "排序值无效");
-      }
-      newSortOrder = body.sortOrder;
-    }
-
-    const timestamp = Math.max(now(), expected + 1);
-    const collision =
-      body?.beforeNoteId !== undefined &&
-      first(
-        database,
-        "SELECT note_id FROM kanban_cards WHERE user_id = ? AND status = ? AND sort_order = ? AND note_id != ? LIMIT 1",
-        user.id,
-        newStatus,
-        newSortOrder,
-        noteId,
-      );
-    if (collision) {
-      const reordered = database
-        .transaction(() => {
-          const current = first<{ updated_at: number }>(
-            database,
-            "SELECT updated_at FROM kanban_cards WHERE note_id = ? AND user_id = ? AND status != 'archived'",
-            noteId,
-            user.id,
-          );
-          if (!current || current.updated_at !== expected) return false;
-          const cards = all<{ note_id: string; updated_at: number }>(
-            database,
-            "SELECT note_id, updated_at FROM kanban_cards WHERE user_id = ? AND status = ? AND note_id != ? ORDER BY sort_order ASC, updated_at DESC, note_id ASC",
-            user.id,
-            newStatus,
-            noteId,
-          );
-          const index =
-            body.beforeNoteId === null
-              ? cards.length
-              : cards.findIndex((card) => card.note_id === body.beforeNoteId);
-          if (index < 0) return false;
-          cards.splice(index, 0, { note_id: noteId, updated_at: expected });
-          orderKanbanColumn(database, user.id, newStatus, cards);
-          return true;
-        })
-        .immediate();
-      if (!reordered) return jsonError(409, "KANBAN_CARD_CHANGED", "看板卡片已变化，请刷新后重试");
-      publishWorkspaceChange(options, user.id, { resource: "notes", noteId }, request);
-      return json({ card: getKanbanCard(database, user.id, noteId), reordered: true });
-    }
-    const update = database.query(
-      "UPDATE kanban_cards SET status = ?, sort_order = ?, updated_at = ? WHERE note_id = ? AND user_id = ? AND updated_at = ? AND status != 'archived'",
-    );
-    const updated = update.run(newStatus, newSortOrder, timestamp, noteId, user.id, expected);
-    if (!updated.changes) {
-      return jsonError(409, "KANBAN_CARD_CHANGED", "看板卡片已在其他设备更新，请刷新后重试");
-    }
-
-    const card = getKanbanCard(database, user.id, noteId);
-    if (options.realtime) {
-      publishWorkspaceChange(options, user.id, { resource: "notes", noteId }, request);
-    }
-    return json({ card });
+    const result = moveKanbanCard(database, user.id, noteId, expected, {
+      status: body?.status,
+      sortOrder,
+      beforeNoteId,
+    });
+    if (result.ok) publishWorkspaceChange(options, user.id, { resource: "notes", noteId }, request);
+    return result;
   }
 
   // DELETE /api/kanban/cards/:noteId

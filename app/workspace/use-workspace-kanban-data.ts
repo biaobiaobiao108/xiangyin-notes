@@ -5,6 +5,14 @@ import type { KanbanColumnData } from "./kanban-panel";
 
 const KANBAN_PAGE_SIZE = 30;
 
+function compareKanbanCards(left: KanbanCard, right: KanbanCard) {
+  return (
+    left.sortOrder - right.sortOrder ||
+    right.updatedAt - left.updatedAt ||
+    Number(left.noteId > right.noteId) - Number(left.noteId < right.noteId)
+  );
+}
+
 function emptyColumn(): KanbanColumnData {
   return {
     cards: [],
@@ -135,7 +143,7 @@ export function useWorkspaceKanbanData({
             ...previous,
             [status]: {
               ...currentColumn,
-              cards: [...currentColumn.cards, ...newCards],
+              cards: [...currentColumn.cards, ...newCards].sort(compareKanbanCards),
               total: result.total,
               hasMore: result.hasMore,
               nextCursor: result.nextCursor,
@@ -163,100 +171,58 @@ export function useWorkspaceKanbanData({
   );
 
   const handleMoveCard = useCallback(
-    async (
-      noteId: string,
-      targetStatus: KanbanStatus,
-      targetSortOrder: number,
-      beforeNoteId: string | null,
-    ) => {
-      let movedCard: KanbanCard | null = null;
-      let sourceStatus: KanbanStatus | null = null;
-      for (const status of ["inbox", "doing", "done"] as const) {
-        const found = kanbanColumnsRef.current[status].cards.find((card) => card.noteId === noteId);
-        if (found) {
-          movedCard = found;
-          sourceStatus = status;
-          break;
-        }
-      }
-
-      if (!movedCard || !sourceStatus) {
+    async (noteId: string, targetStatus: KanbanStatus, beforeNoteId: string | null) => {
+      const card = Object.values(kanbanColumnsRef.current)
+        .flatMap((column) => column.cards)
+        .find((card) => card.noteId === noteId);
+      if (!card) {
         notifyError("卡片状态已变化，请刷新后重试");
         setKanbanRefreshToken((value) => value + 1);
         return;
       }
 
-      if (sourceStatus === targetStatus) {
-        setKanbanColumns((previous) => {
-          const column = previous[sourceStatus!];
-          const updatedCards = column.cards
-            .map((card) =>
-              card.noteId === noteId
-                ? { ...card, sortOrder: targetSortOrder, updatedAt: Math.floor(Date.now() / 1000) }
-                : card,
-            )
-            .sort((a, b) => a.sortOrder - b.sortOrder);
-          return {
-            ...previous,
-            [sourceStatus!]: {
-              ...column,
-              cards: updatedCards,
-            },
-          };
-        });
-      } else {
-        const updatedCard: KanbanCard = {
-          ...movedCard,
-          status: targetStatus,
-          sortOrder: targetSortOrder,
-          updatedAt: Math.floor(Date.now() / 1000),
-        };
-        setKanbanColumns((previous) => {
-          const sourceColumn = previous[sourceStatus!];
-          const targetColumn = previous[targetStatus];
-          return {
-            ...previous,
-            [sourceStatus!]: {
-              ...sourceColumn,
-              cards: sourceColumn.cards.filter((card) => card.noteId !== noteId),
-              total: Math.max(0, sourceColumn.total - 1),
-            },
-            [targetStatus]: {
-              ...targetColumn,
-              cards: [...targetColumn.cards, updatedCard].sort((a, b) => a.sortOrder - b.sortOrder),
-              total: targetColumn.total + 1,
-            },
-          };
-        });
-      }
-
+      const sourceStatus = card.status;
+      const generation = requestGenerationRef.current;
       try {
         const result = await api.updateKanbanCard(noteId, {
           status: targetStatus,
-          sortOrder: targetSortOrder,
-          expectedUpdatedAt: movedCard.updatedAt,
+          expectedUpdatedAt: card.updatedAt,
           beforeNoteId,
         });
-        if (result.reordered) {
+        const columns = kanbanColumnsRef.current;
+        if (
+          result.reordered ||
+          generation !== requestGenerationRef.current ||
+          columns[sourceStatus].isLoadingMore ||
+          columns[targetStatus].isLoadingMore
+        ) {
           setKanbanRefreshToken((value) => value + 1);
           return;
         }
         setKanbanColumns((previous) => {
-          const next = { ...previous };
-          for (const status of ["inbox", "doing", "done"] as const) {
-            if (!next[status].cards.some((card) => card.noteId === noteId)) continue;
-            next[status] = {
-              ...next[status],
-              cards: next[status].cards.map((card) =>
-                card.noteId === noteId ? result.card : card,
-              ),
-            };
+          const source = previous[sourceStatus];
+          const current = source.cards.find((item) => item.noteId === noteId);
+          if (current?.updatedAt !== card.updatedAt) return previous;
+
+          const destination = previous[targetStatus];
+          const destinationCards = destination.cards.filter((item) => item.noteId !== noteId);
+          const cards = [...destinationCards, result.card].sort(compareKanbanCards);
+          if (sourceStatus === targetStatus) {
+            return { ...previous, [targetStatus]: { ...destination, cards } };
           }
-          return next;
+          return {
+            ...previous,
+            [sourceStatus]: {
+              ...source,
+              cards: source.cards.filter((item) => item.noteId !== noteId),
+              total: Math.max(0, source.total - 1),
+            },
+            [targetStatus]: { ...destination, cards, total: destination.total + 1 },
+          };
         });
       } catch (error) {
         const conflict = error instanceof ApiError && error.status === 409;
-        notifyError(conflict ? "卡片已在其他设备更新，已刷新" : "更新卡片状态失败");
+        notifyError(conflict ? "卡片或排序位置已变化，正在刷新看板" : "更新卡片状态失败");
         setKanbanRefreshToken((value) => value + 1);
       }
     },

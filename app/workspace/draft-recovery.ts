@@ -338,7 +338,8 @@ export async function readDraftRecovery(noteId: string) {
     if (local.readable && operation.isCurrent())
       rememberRecovery(noteId, "local", local.serialized);
     const indexedSerialized = await readIndexedDraft(noteId);
-    if (operation.isCurrent()) rememberRecovery(noteId, "indexed", indexedSerialized);
+    if (!operation.isCurrent()) return null;
+    rememberRecovery(noteId, "indexed", indexedSerialized);
 
     const localRecord = local.serialized
       ? parseDraftRecoveryRecord(local.serialized, noteId)

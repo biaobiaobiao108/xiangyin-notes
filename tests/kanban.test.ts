@@ -50,6 +50,91 @@ async function login() {
 }
 
 describe("Kanban API", () => {
+  test("resolves a requested neighbor after another client reorders the target column", async () => {
+    const cookie = await login();
+    const createCard = async (title: string, kanbanStatus: string) => {
+      const response = await api(
+        "/api/notes",
+        { method: "POST", body: JSON.stringify({ title, kanbanStatus }) },
+        cookie,
+      );
+      expect(response.status).toBe(201);
+      return (await response.json()).card as { noteId: string; updatedAt: number };
+    };
+    const first = await createCard("A", "doing");
+    const anchor = await createCard("B", "doing");
+    const moved = await createCard("X", "inbox");
+    const patchCard = (noteId: string, body: object) =>
+      api(`/api/kanban/cards/${noteId}`, { method: "PATCH", body: JSON.stringify(body) }, cookie);
+
+    const reordered = await patchCard(anchor.noteId, {
+      status: "doing",
+      beforeNoteId: first.noteId,
+      expectedUpdatedAt: anchor.updatedAt,
+    });
+    expect(reordered.status).toBe(200);
+
+    const response = await patchCard(moved.noteId, {
+      status: "doing",
+      sortOrder: 1500,
+      beforeNoteId: anchor.noteId,
+      expectedUpdatedAt: moved.updatedAt,
+    });
+    expect(response.status).toBe(200);
+    const listed = await api("/api/kanban?status=doing", { method: "GET" }, cookie);
+    expect((await listed.json()).cards.map((card: { noteId: string }) => card.noteId)).toEqual([
+      moved.noteId,
+      anchor.noteId,
+      first.noteId,
+    ]);
+
+    const { card } = await response.json();
+    const missingAnchor = await patchCard(moved.noteId, {
+      status: "inbox",
+      sortOrder: 1,
+      beforeNoteId: anchor.noteId,
+      expectedUpdatedAt: card.updatedAt,
+    });
+    expect(missingAnchor.status).toBe(409);
+    expect((await missingAnchor.json()).error.code).toBe("KANBAN_POSITION_CHANGED");
+  });
+
+  test("rejects moves of trashed notes and preserves the card when the note is restored", async () => {
+    const cookie = await login();
+    const created = await api(
+      "/api/notes",
+      { method: "POST", body: JSON.stringify({ title: "回收站卡片", kanbanStatus: "doing" }) },
+      cookie,
+    );
+    expect(created.status).toBe(201);
+    const { note, card } = await created.json();
+    const patch = (path: string, body: object) =>
+      api(path, { method: "PATCH", body: JSON.stringify(body) }, cookie);
+    const path = `/api/notes/${note.id}`;
+    const trashed = await patch(path, { version: note.version, deleted: true });
+    expect(trashed.status).toBe(200);
+
+    for (const position of [{ sortOrder: 42 }, { beforeNoteId: null }]) {
+      const moved = await patch(`/api/kanban/cards/${note.id}`, {
+        status: "inbox",
+        expectedUpdatedAt: card.updatedAt,
+        ...position,
+      });
+      expect(moved.status).toBe(409);
+      expect((await moved.json()).error.code).toBe("KANBAN_CARD_CHANGED");
+    }
+
+    const restored = await patch(path, {
+      version: (await trashed.json()).note.version,
+      deleted: false,
+    });
+    expect(restored.status).toBe(200);
+    const listed = await api(`/api/kanban?noteId=${note.id}`, { method: "GET" }, cookie);
+    expect((await listed.json()).cards).toMatchObject([
+      { noteId: note.id, status: "doing", updatedAt: card.updatedAt },
+    ]);
+  });
+
   test("rebalances equal sort values and places the card before its requested neighbor", async () => {
     const cookie = await login();
     const user = database.query("SELECT id FROM users WHERE username = 'owner'").get() as {
@@ -58,7 +143,7 @@ describe("Kanban API", () => {
     const notebook = database
       .query("SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1")
       .get(user.id) as { id: string };
-    const ids = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
+    const ids = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()].sort();
     for (const id of ids) {
       database
         .query(

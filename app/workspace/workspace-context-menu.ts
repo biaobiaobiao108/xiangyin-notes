@@ -13,7 +13,6 @@ import {
 import type { KanbanStatus, NoteSummary, NoteView, Notebook } from "../../shared/types";
 import type { CreateNoteCommand } from "../command-parser";
 import { textFieldMenuItems, type ContextMenuItem } from "../context-menu";
-import { calculateTargetSortOrder } from "./kanban-drag";
 import type { KanbanColumnData } from "./kanban-panel";
 import { buildNoteContextMenuItems, buildWorkspaceMenuItems } from "./note-context-menu";
 import type { NoteSwipeAction } from "./swipe-actions";
@@ -35,7 +34,6 @@ type WorkspaceContextMenuOptions = {
   handleMoveKanbanCard: (
     noteId: string,
     status: KanbanStatus,
-    sortOrder: number,
     beforeNoteId: string | null,
   ) => void | Promise<void>;
   handleRemoveKanbanCard: (noteId: string) => void;
@@ -170,12 +168,7 @@ export function createWorkspaceContextMenuHandler({
               icon: column.icon,
               onSelect: () => {
                 const cards = kanbanColumnsRef.current[column.id].cards;
-                void handleMoveKanbanCard(
-                  kanbanCard.noteId,
-                  column.id,
-                  calculateTargetSortOrder(cards, 0, kanbanCard.noteId),
-                  cards.find((card) => card.noteId !== kanbanCard.noteId)?.noteId ?? null,
-                );
+                void handleMoveKanbanCard(kanbanCard.noteId, column.id, cards[0]?.noteId ?? null);
               },
             })),
           {
