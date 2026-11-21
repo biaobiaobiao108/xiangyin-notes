@@ -191,7 +191,7 @@ XIANGYING_MCP_TOKEN=上一步生成的随机令牌
 PUBLIC_URL=https://notes.example.com
 ```
 
-在 MCP 客户端中将服务地址填写为 `https://notes.example.com/mcp/<URL 编码后的令牌>`，无需额外配置 Bearer 请求头；MCP 只接受路径令牌，旧的 `Authorization` 认证方式不再生效。令牌仍从 `XIANGYING_MCP_TOKEN` 环境变量读取，拥有整个笔记库的搜索、读取、创建、更新、笔记本和回收站管理权限，请只配置给可信客户端。令牌位于 URL 路径中，可能出现在代理访问日志；请为 `/mcp/<令牌>` 配置路径脱敏，并只通过 HTTPS 访问。修改令牌后需要重新创建容器，令牌不会因单纯重启容器而从 `.env` 重新读取。
+在 MCP 客户端中将服务地址填写为 `https://notes.example.com/mcp/<URL 编码后的令牌>`，无需额外配置 Bearer 请求头；MCP 只接受路径令牌，旧的 `Authorization` 认证方式不再生效。令牌仍从 `XIANGYING_MCP_TOKEN` 环境变量读取，拥有整个笔记库的搜索、读取、创建、更新以及笔记本、回收站和看板管理权限，请只配置给可信客户端。令牌位于 URL 路径中，可能出现在代理访问日志；请为 `/mcp/<令牌>` 配置路径脱敏，并只通过 HTTPS 访问。修改令牌后需要重新创建容器，令牌不会因单纯重启容器而从 `.env` 重新读取。
 
 反向代理需要将 `/mcp/<令牌>` 转发到应用容器，保留 MCP 协议请求头和 POST 请求体，并允许 `text/event-stream` 响应及时传递。使用 Nginx 时为该路径关闭响应缓冲（`proxy_buffering off`）；其他代理使用对应流式响应设置。
 
@@ -201,6 +201,11 @@ MCP 推荐工具：
 - 搜索与读取：`search_notes`、`get_note`、`get_notes_batch`、`get_note_outline`、`get_note_section`。
 - 写入：`save_note`、`create_note`、`update_note`、`append_to_note`、`replace_in_note`、`insert_into_note`、`replace_note_section`。
 - 管理：`manage_note`、`batch_update_notes`。回收站搜索统一用 `search_notes({view:"trash"})`。
+- 看板：`list_kanban_cards`、`manage_kanban_card`。`create_note` 也支持新建时直接入板。
+
+看板的 `inbox`、`doing`、`done` 分别对应收集箱、进行中、已完成。`list_kanban_cards` 支持按 `status`、`notebookId` 或 `noteId` 筛选，默认每页 20 张，最多 100 张。翻页沿用筛选条件，把上一页的 `nextCursor` 传给 `cursor`。返回卡片标题和状态，笔记正文通过 `get_note` 读取。
+
+`manage_kanban_card` 用 `action:"add"` 加入已有笔记，省略 `status` 时放进收集箱。重复加入返回已有卡片和 `created:false`。`action:"move"` 可跨列移动或在同一列排序，必须传目标 `status`，可传 `beforeNoteId` 指定插到该卡片前，省略时放到列尾。`action:"remove"` 将卡片移出看板，原笔记仍保留。移动和移出都需要将卡片的 `updatedAt` 作为 `expectedUpdatedAt`，遇到 `KANBAN_CARD_CHANGED` 或 `KANBAN_POSITION_CHANGED` 时重新读取后再决定是否重试。调用 `create_note` 时传入 `kanbanStatus`，可在同一事务内创建笔记和卡片，返回 `note` 和 `card`。
 
 按名称操作笔记本无需先查 ID。涉及笔记本的工具同时接受 `notebookId` / `notebookName`，二者同时存在时以 ID 为准；无效 ID 不回退到名称。`ensure_notebook({name})` 获取或创建并返回 `created`，已有笔记本的颜色、图标不被修改。以下调用可一次创建缺失的笔记本并保存文案：
 

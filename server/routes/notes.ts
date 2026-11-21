@@ -69,6 +69,7 @@ import { buildFtsMatchQuery, searchTermNeedsCaseFolding } from "../search-text";
 import { shortSearchToken } from "../note-search";
 import { publishWorkspaceChange } from "../realtime";
 import { handleTasksRoute } from "./tasks";
+import { insertKanbanCard, isValidKanbanStatus } from "./kanban";
 
 import {
   buildOptimizedNoteListPlan,
@@ -682,10 +683,8 @@ export async function handleNotesRoute(
     if (!validText(rawTitle, 200) || !validText(contentMarkdown, 1_000_000))
       return jsonError(413, "NOTE_TOO_LARGE", "笔记标题或正文超出长度限制");
     const title = normalizeNoteTitle(rawTitle as string);
-    if (
-      payload.kanbanStatus !== undefined &&
-      !["inbox", "doing", "done"].includes(payload.kanbanStatus as string)
-    )
+    const kanbanStatus = payload.kanbanStatus;
+    if (kanbanStatus !== undefined && !isValidKanbanStatus(kanbanStatus))
       return jsonError(400, "INVALID_ARGUMENT", "看板状态无效");
     const notebookId =
       typeof payload?.notebookId === "string"
@@ -711,8 +710,8 @@ export async function handleNotesRoute(
         return jsonError(409, "NOTE_EXISTS", "指定 ID 的笔记已存在");
       }
     }
-    const noteId = database.transaction(() => {
-      const createdId = createNote(
+    const { noteId, card } = database.transaction(() => {
+      const noteId = createNote(
         database,
         user.id,
         notebookId,
@@ -720,31 +719,19 @@ export async function handleNotesRoute(
         contentMarkdown as string,
         requestedId,
       );
-      if (payload.kanbanStatus !== undefined) {
-        const timestamp = now();
-        database
-          .query(
-            `INSERT INTO kanban_cards (note_id, user_id, status, sort_order, created_at, updated_at)
-          VALUES (?, ?, ?, COALESCE((SELECT MAX(sort_order) FROM kanban_cards WHERE user_id = ? AND status = ?), 0) + 1000, ?, ?)`,
-          )
-          .run(
-            createdId,
-            user.id,
-            payload.kanbanStatus as string,
-            user.id,
-            payload.kanbanStatus as string,
-            timestamp,
-            timestamp,
-          );
-      }
-      return createdId;
+      const card =
+        kanbanStatus === undefined
+          ? undefined
+          : insertKanbanCard(database, user.id, noteId, kanbanStatus);
+      if (card === null) throw new Error("New note already has a Kanban card");
+      return { noteId, card };
     })();
     const note = getNote(database, user.id, noteId);
     // 新笔记会改变列表成员，广播不带 noteId，让其他客户端整表刷新。
     publishWorkspaceChange(options, user.id, { resource: "notes" }, request);
     const summaryResponse = url.searchParams.get("response") === "summary";
     return json(
-      { note: note ? (summaryResponse ? summarizeNote(note) : toFullNote(note)) : null },
+      { note: note ? (summaryResponse ? summarizeNote(note) : toFullNote(note)) : null, card },
       201,
     );
   }

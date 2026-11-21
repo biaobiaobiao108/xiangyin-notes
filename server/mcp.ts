@@ -10,6 +10,7 @@ import { registerMcpNotebookTools } from "./mcp-notebook-tools";
 import { registerMcpNoteTools } from "./mcp-note-tools";
 import { registerMcpNoteEditTools } from "./mcp-note-edit-tools";
 import { registerMcpNoteBatchTools } from "./mcp-note-batch-tools";
+import { registerMcpKanbanTools } from "./mcp-kanban-tools";
 import type { ServerOptions } from "./core";
 import packageJson from "../package.json";
 
@@ -62,6 +63,7 @@ export function createNoteMcpServer(options: ServerOptions, context: McpRequestC
   registerMcpNoteTools(server, tools);
   registerMcpNoteEditTools(server, tools);
   registerMcpNoteBatchTools(server, tools);
+  registerMcpKanbanTools(server, tools);
 
   return server;
 }

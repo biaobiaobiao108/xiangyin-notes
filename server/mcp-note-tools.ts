@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
+import { KANBAN_STATUSES } from "./routes/kanban";
 import {
   all,
   NOTE_CONTENT_MAX_LENGTH,
@@ -341,7 +342,7 @@ export function registerMcpNoteTools(
     {
       title: "创建笔记",
       description:
-        "创建 Markdown 笔记并追加 tags，允许同名；省略笔记本放入收件箱。常规保存或需防重名时用 save_note。 图片仅接受 HTTPS 地址或当前用户可用于该笔记的已上传附件，MCP 不上传图片。",
+        "创建 Markdown 笔记并追加 tags，允许同名；省略笔记本放入收件箱。可指定 kanbanStatus 同时加入看板。常规保存或需防重名时用 save_note。图片仅接受 HTTPS 地址或当前用户可用于该笔记的已上传附件。",
       inputSchema: z
         .object({
           title: z.string().min(1).max(200),
@@ -354,6 +355,10 @@ export function registerMcpNoteTools(
             ),
           notebookId: z.string().min(1).max(200).optional(),
           notebookName: z.string().trim().min(1).max(40).optional(),
+          kanbanStatus: z
+            .enum(KANBAN_STATUSES)
+            .optional()
+            .describe("新笔记的看板列，省略时只创建笔记"),
           tags: noteTagsSchema
             .optional()
             .describe(
@@ -371,6 +376,7 @@ export function registerMcpNoteTools(
       contentMarkdown = "",
       notebookId,
       notebookName,
+      kanbanStatus,
       tags = [],
       includeContent = false,
     }) => {
@@ -388,6 +394,7 @@ export function registerMcpNoteTools(
         title,
         contentMarkdown: appendMarkdownTags(contentMarkdown, tags),
         ...(notebookId === undefined ? {} : { notebookId }),
+        ...(kanbanStatus === undefined ? {} : { kanbanStatus }),
       };
       const result = await notesRoute(
         options,

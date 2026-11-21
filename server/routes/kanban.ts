@@ -27,10 +27,14 @@ type KanbanCardRow = NoteRow & {
   card_updated_at: number;
 };
 
-const VALID_STATUSES = new Set<KanbanStatus>(["inbox", "doing", "done"]);
+export const KANBAN_STATUSES = [
+  "inbox",
+  "doing",
+  "done",
+] as const satisfies readonly KanbanStatus[];
 
-function isValidStatus(value: unknown): value is KanbanStatus {
-  return typeof value === "string" && VALID_STATUSES.has(value as KanbanStatus);
+export function isValidKanbanStatus(value: unknown): value is KanbanStatus {
+  return KANBAN_STATUSES.some((status) => status === value);
 }
 
 type KanbanCursor = {
@@ -101,12 +105,142 @@ function getKanbanCard(
         k.updated_at AS card_updated_at,
         ${NOTE_LIST_SELECT}
       FROM ${KANBAN_FROM}
-      WHERE k.user_id = ? AND k.note_id = ? AND n.deleted_at IS NULL
+      WHERE k.user_id = ? AND k.note_id = ? AND k.status != 'archived' AND n.deleted_at IS NULL
     `,
     userId,
     noteId,
   );
   return row ? toKanbanCard(row) : null;
+}
+
+export function insertKanbanCard(
+  database: SqliteDatabase,
+  userId: string,
+  noteId: string,
+  status: KanbanStatus,
+  sortOrder?: number,
+) {
+  const updatedAt = now();
+  const inserted = database
+    .query(
+      `
+      INSERT INTO kanban_cards (note_id, user_id, status, sort_order, created_at, updated_at)
+      VALUES (?, ?, ?, COALESCE(?, (
+        SELECT COALESCE(MAX(sort_order), 0) + 1000
+        FROM kanban_cards WHERE user_id = ? AND status = ?
+      )), ?, ?)
+      ON CONFLICT(note_id) DO UPDATE SET
+        status = excluded.status,
+        sort_order = excluded.sort_order,
+        created_at = excluded.created_at,
+        updated_at = MAX(excluded.updated_at, kanban_cards.updated_at + 1)
+      WHERE kanban_cards.user_id = excluded.user_id AND kanban_cards.status = 'archived'
+      RETURNING updated_at
+    `,
+    )
+    .get(noteId, userId, status, sortOrder ?? null, userId, status, updatedAt, updatedAt) as {
+    updated_at: number;
+  } | null;
+  return inserted ? { noteId, status, updatedAt: inserted.updated_at } : null;
+}
+
+type OrderedCard = { note_id: string; sort_order: number; updated_at: number };
+
+function orderKanbanColumn(
+  database: SqliteDatabase,
+  userId: string,
+  status: KanbanStatus,
+  cards: Pick<OrderedCard, "note_id" | "updated_at">[],
+) {
+  const update = database.query(
+    "UPDATE kanban_cards SET status = ?, sort_order = ?, updated_at = ? WHERE note_id = ? AND user_id = ?",
+  );
+  const timestamp = now();
+  cards.forEach((card, position) =>
+    update.run(
+      status,
+      (position + 1) * 1000,
+      Math.max(timestamp, card.updated_at + 1),
+      card.note_id,
+      userId,
+    ),
+  );
+}
+
+function moveKanbanCard(
+  database: SqliteDatabase,
+  userId: string,
+  noteId: string,
+  status: KanbanStatus,
+  expectedUpdatedAt: number,
+  beforeNoteId: string | null,
+) {
+  return database
+    .transaction(() => {
+      const card = getKanbanCard(database, userId, noteId);
+      if (!card || card.updatedAt !== expectedUpdatedAt)
+        return jsonError(409, "KANBAN_CARD_CHANGED", "看板卡片已变化，请刷新后重试");
+
+      const column = `
+      SELECT k.note_id, k.sort_order, k.updated_at
+      FROM kanban_cards k JOIN notes n ON n.id = k.note_id AND n.user_id = k.user_id
+      JOIN notebooks b ON b.id = n.notebook_id AND b.user_id = n.user_id
+      WHERE k.user_id = ? AND k.status = ? AND k.note_id != ? AND n.deleted_at IS NULL
+    `;
+      const params = [userId, status, noteId];
+      const anchor =
+        beforeNoteId === null
+          ? null
+          : first<OrderedCard>(database, `${column} AND k.note_id = ?`, ...params, beforeNoteId);
+      if (beforeNoteId !== null && !anchor)
+        return jsonError(409, "KANBAN_POSITION_CHANGED", "参照卡片不在目标列，请刷新后重试");
+
+      const reverseOrder = "ORDER BY k.sort_order DESC, k.updated_at ASC, k.note_id DESC LIMIT 1";
+      const previous = anchor
+        ? first<OrderedCard>(
+            database,
+            `${column} AND (k.sort_order, -k.updated_at, k.note_id) < (?, ?, ?) ${reverseOrder}`,
+            ...params,
+            anchor.sort_order,
+            -anchor.updated_at,
+            anchor.note_id,
+          )
+        : first<OrderedCard>(database, `${column} ${reverseOrder}`, ...params);
+      const sortOrder = anchor
+        ? previous
+          ? previous.sort_order / 2 + anchor.sort_order / 2
+          : anchor.sort_order - 1000
+        : (previous?.sort_order ?? 0) + 1000;
+      if (
+        Number.isFinite(sortOrder) &&
+        (!previous || sortOrder > previous.sort_order) &&
+        (!anchor || sortOrder < anchor.sort_order)
+      ) {
+        database
+          .query(
+            "UPDATE kanban_cards SET status = ?, sort_order = ?, updated_at = ? WHERE note_id = ? AND user_id = ?",
+          )
+          .run(status, sortOrder, Math.max(now(), expectedUpdatedAt + 1), noteId, userId);
+        return json({ card: getKanbanCard(database, userId, noteId) });
+      }
+
+      const cards = all<OrderedCard>(
+        database,
+        `${column} ORDER BY k.sort_order ASC, k.updated_at DESC, k.note_id ASC`,
+        ...params,
+      );
+      const index = anchor
+        ? cards.findIndex((entry) => entry.note_id === anchor.note_id)
+        : cards.length;
+      cards.splice(index, 0, {
+        note_id: noteId,
+        sort_order: sortOrder,
+        updated_at: expectedUpdatedAt,
+      });
+      orderKanbanColumn(database, userId, status, cards);
+      return json({ card: getKanbanCard(database, userId, noteId), reordered: true });
+    })
+    .immediate();
 }
 
 export async function handleKanbanRoute(
@@ -124,9 +258,10 @@ export async function handleKanbanRoute(
   // GET /api/kanban or GET /api/kanban/cards
   if ((!id || id === "cards") && method === "GET") {
     const notebookId = url.searchParams.get("notebookId");
+    const noteId = url.searchParams.get("noteId");
     const status = url.searchParams.get("status");
 
-    if (status && !isValidStatus(status)) {
+    if (status && !isValidKanbanStatus(status)) {
       return jsonError(400, "INVALID_ARGUMENT", "状态无效");
     }
 
@@ -153,9 +288,16 @@ export async function handleKanbanRoute(
       params.push(notebookId);
     }
 
+    if (noteId) {
+      conditions.push("k.note_id = ?");
+      params.push(noteId);
+    }
+
     if (status) {
       conditions.push("k.status = ?");
       params.push(status);
+    } else {
+      conditions.push("k.status != 'archived'");
     }
 
     const totalRow = first<{ count: number }>(
@@ -264,51 +406,34 @@ export async function handleKanbanRoute(
     }
 
     const status: KanbanStatus = body?.status ?? "inbox";
-    if (!isValidStatus(status)) {
+    if (!isValidKanbanStatus(status)) {
       return jsonError(400, "INVALID_ARGUMENT", "状态无效");
     }
 
-    // Verify note exists and belongs to user
-    const note = first<{ id: string }>(
-      database,
-      "SELECT id FROM notes WHERE id = ? AND user_id = ? AND deleted_at IS NULL",
-      noteId,
-      user.id,
-    );
-    if (!note) {
-      return jsonError(404, "NOT_FOUND", "笔记不存在或已删除");
-    }
-
-    let sortOrder = body?.sortOrder;
-    if (typeof sortOrder !== "number" || !Number.isFinite(sortOrder)) {
-      const maxRow = first<{ max_order: number | null }>(
-        database,
-        "SELECT MAX(sort_order) AS max_order FROM kanban_cards WHERE user_id = ? AND status = ?",
-        user.id,
-        status,
-      );
-      sortOrder = (maxRow?.max_order ?? 0) + 1000;
-    }
-
-    const timestamp = now();
-    const inserted = database
-      .query(
-        `
-          INSERT INTO kanban_cards (note_id, user_id, status, sort_order, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?)
-          ON CONFLICT(note_id) DO NOTHING
-        `,
-      )
-      .run(noteId, user.id, status, sortOrder, timestamp, timestamp);
-
-    if (!inserted.changes)
-      return jsonError(409, "KANBAN_CARD_EXISTS", "笔记已在看板中，请刷新后重试");
-
-    const card = getKanbanCard(database, user.id, noteId);
-    if (options.realtime) {
+    const result = database
+      .transaction(() => {
+        const note = first(
+          database,
+          `SELECT n.id FROM notes n JOIN notebooks b ON b.id = n.notebook_id AND b.user_id = n.user_id
+           WHERE n.id = ? AND n.user_id = ? AND n.deleted_at IS NULL`,
+          noteId,
+          user.id,
+        );
+        if (!note) return jsonError(404, "NOT_FOUND", "笔记不存在或已删除");
+        const requestedOrder = body?.sortOrder;
+        const sortOrder = Number.isFinite(requestedOrder) ? requestedOrder : undefined;
+        const inserted = insertKanbanCard(database, user.id, noteId, status, sortOrder);
+        const card = getKanbanCard(database, user.id, noteId);
+        if (!card) return jsonError(404, "NOT_FOUND", "看板卡片不存在");
+        return inserted
+          ? json({ card }, 201)
+          : json({ error: { code: "KANBAN_CARD_EXISTS", message: "笔记已在看板中" }, card }, 409);
+      })
+      .immediate();
+    if (result.status === 201) {
       publishWorkspaceChange(options, user.id, { resource: "notes", noteId }, request);
     }
-    return json({ card }, 201);
+    return result;
   }
 
   // PATCH /api/kanban/cards/:noteId
@@ -326,9 +451,24 @@ export async function handleKanbanRoute(
       return jsonError(400, "INVALID_ARGUMENT", "expectedUpdatedAt 必填且必须是非负整数");
     }
 
+    if (body?.status !== undefined && !isValidKanbanStatus(body.status)) {
+      return jsonError(400, "INVALID_ARGUMENT", "状态无效");
+    }
+    const beforeNoteId = body?.beforeNoteId;
+    if (beforeNoteId !== undefined && beforeNoteId !== null && typeof beforeNoteId !== "string")
+      return jsonError(400, "INVALID_ARGUMENT", "排序位置无效");
+    if (body?.sortOrder === undefined && beforeNoteId !== undefined && body?.status !== undefined) {
+      if (beforeNoteId === noteId || beforeNoteId === "")
+        return jsonError(400, "INVALID_ARGUMENT", "请指定另一张卡片作为排序参照");
+      const result = moveKanbanCard(database, user.id, noteId, body.status, expected, beforeNoteId);
+      if (result.ok)
+        publishWorkspaceChange(options, user.id, { resource: "notes", noteId }, request);
+      return result;
+    }
+
     const existing = first<{ status: KanbanStatus; sort_order: number; updated_at: number }>(
       database,
-      "SELECT status, sort_order, updated_at FROM kanban_cards WHERE note_id = ? AND user_id = ?",
+      "SELECT status, sort_order, updated_at FROM kanban_cards WHERE note_id = ? AND user_id = ? AND status != 'archived'",
       noteId,
       user.id,
     );
@@ -336,13 +476,7 @@ export async function handleKanbanRoute(
       return jsonError(404, "NOT_FOUND", "看板卡片不存在");
     }
 
-    let newStatus = existing.status;
-    if (body?.status !== undefined) {
-      if (!isValidStatus(body.status)) {
-        return jsonError(400, "INVALID_ARGUMENT", "状态无效");
-      }
-      newStatus = body.status;
-    }
+    const newStatus = body?.status ?? existing.status;
 
     let newSortOrder = existing.sort_order;
     if (body?.sortOrder !== undefined) {
@@ -353,12 +487,6 @@ export async function handleKanbanRoute(
     }
 
     const timestamp = Math.max(now(), expected + 1);
-    if (
-      body?.beforeNoteId !== undefined &&
-      body.beforeNoteId !== null &&
-      typeof body.beforeNoteId !== "string"
-    )
-      return jsonError(400, "INVALID_ARGUMENT", "排序位置无效");
     const collision =
       body?.beforeNoteId !== undefined &&
       first(
@@ -374,7 +502,7 @@ export async function handleKanbanRoute(
         .transaction(() => {
           const current = first<{ updated_at: number }>(
             database,
-            "SELECT updated_at FROM kanban_cards WHERE note_id = ? AND user_id = ?",
+            "SELECT updated_at FROM kanban_cards WHERE note_id = ? AND user_id = ? AND status != 'archived'",
             noteId,
             user.id,
           );
@@ -392,18 +520,7 @@ export async function handleKanbanRoute(
               : cards.findIndex((card) => card.note_id === body.beforeNoteId);
           if (index < 0) return false;
           cards.splice(index, 0, { note_id: noteId, updated_at: expected });
-          const updateOrder = database.query(
-            "UPDATE kanban_cards SET status = ?, sort_order = ?, updated_at = ? WHERE note_id = ? AND user_id = ?",
-          );
-          cards.forEach((card, position) =>
-            updateOrder.run(
-              newStatus,
-              (position + 1) * 1000,
-              Math.max(now(), card.updated_at + 1),
-              card.note_id,
-              user.id,
-            ),
-          );
+          orderKanbanColumn(database, user.id, newStatus, cards);
           return true;
         })
         .immediate();
@@ -412,7 +529,7 @@ export async function handleKanbanRoute(
       return json({ card: getKanbanCard(database, user.id, noteId), reordered: true });
     }
     const update = database.query(
-      "UPDATE kanban_cards SET status = ?, sort_order = ?, updated_at = ? WHERE note_id = ? AND user_id = ? AND updated_at = ?",
+      "UPDATE kanban_cards SET status = ?, sort_order = ?, updated_at = ? WHERE note_id = ? AND user_id = ? AND updated_at = ? AND status != 'archived'",
     );
     const updated = update.run(newStatus, newSortOrder, timestamp, noteId, user.id, expected);
     if (!updated.changes) {
@@ -432,10 +549,20 @@ export async function handleKanbanRoute(
     const body = await readJson<{ expectedUpdatedAt?: unknown }>(request, 1024);
     if (!Number.isSafeInteger(body?.expectedUpdatedAt) || (body!.expectedUpdatedAt as number) < 0)
       return jsonError(400, "INVALID_ARGUMENT", "expectedUpdatedAt 必填且必须是非负整数");
-    const deleted = database
-      .query("DELETE FROM kanban_cards WHERE note_id = ? AND user_id = ? AND updated_at = ?")
+    // Keep the last token so a stale removal cannot affect a re-added card.
+    const removed = database
+      .query(
+        `
+        UPDATE kanban_cards SET status = 'archived'
+        WHERE note_id = ? AND user_id = ? AND updated_at = ? AND status != 'archived'
+        AND EXISTS (
+          SELECT 1 FROM notes n JOIN notebooks b ON b.id = n.notebook_id AND b.user_id = n.user_id
+          WHERE n.id = kanban_cards.note_id AND n.user_id = kanban_cards.user_id AND n.deleted_at IS NULL
+        )
+      `,
+      )
       .run(noteId, user.id, body!.expectedUpdatedAt as number);
-    if (!deleted.changes)
+    if (!removed.changes)
       return jsonError(409, "KANBAN_CARD_CHANGED", "看板卡片已变化，请刷新后重试");
 
     if (options.realtime) {

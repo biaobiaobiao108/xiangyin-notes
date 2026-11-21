@@ -12,6 +12,7 @@ import {
 import { assetRootFromEnv } from "./routes/assets";
 import { getNotebook, toNotebook, handleNotebooksRoute } from "./routes/notebooks";
 import { handleNotesRoute } from "./routes/notes";
+import { handleKanbanRoute } from "./routes/kanban";
 import { extractTags, findTrailingTagFooterStart, removeTagsFromMarkdown } from "../shared/tags";
 import { countMarkdownStats } from "../shared/markdown-stats";
 import { appendMarkdownTags, normalizeMcpError, type RouteResult } from "./mcp-response";
@@ -104,6 +105,23 @@ export async function notebooksRoute(
   const segments = notebookId === undefined ? ["notebooks"] : ["notebooks", notebookId];
   const context = createRouteContext(options, method, path, segments, payload);
   return routeResult(await handleNotebooksRoute(context, user));
+}
+
+export async function kanbanRoute(
+  options: ServerOptions,
+  user: UserRow,
+  method: "GET" | "POST" | "PATCH" | "DELETE",
+  params: { noteId?: string; query?: URLSearchParams; payload?: unknown },
+) {
+  const segments = ["kanban", "cards"];
+  let path = "/api/kanban/cards";
+  if (params.noteId !== undefined) {
+    segments.push(params.noteId);
+    path += `/${encodeURIComponent(params.noteId)}`;
+  }
+  if (params.query) path += `?${params.query}`;
+  const context = createRouteContext(options, method, path, segments, params.payload);
+  return routeResult(await handleKanbanRoute(context, user));
 }
 
 export function appendToMarkdown(markdown: string, addition: string) {

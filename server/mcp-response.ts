@@ -90,6 +90,8 @@ const BUSINESS_RECOVERY_ACTIONS: Record<string, string> = {
   NOT_FOUND: "使用 search_notes 查找目标笔记，再以正确的 ID 操作。",
   NOTEBOOK_COUNT_MISMATCH: "重新读取笔记本 totalCount，核实后更新 expectedNoteCount。",
   SYSTEM_NOTEBOOK: "选择其他笔记本；系统收件箱不能删除。",
+  KANBAN_CARD_CHANGED: "用 list_kanban_cards 按 noteId 重新读取卡片及 updatedAt，核实后重试。",
+  KANBAN_POSITION_CHANGED: "用 list_kanban_cards 重读目标列，选择当前列中的参照卡片后重试。",
 };
 
 function businessError(value: unknown, includeStats = true): Record<string, unknown> {
@@ -140,6 +142,7 @@ function resultSummary(value: Record<string, unknown>) {
   if (value.section) return "已返回目标章节数据。";
   if (Array.isArray(value.notes)) return `已返回 ${value.notes.length} 篇笔记。`;
   if (Array.isArray(value.notebooks)) return `已返回 ${value.notebooks.length} 个笔记本。`;
+  if (Array.isArray(value.cards)) return `已返回 ${value.cards.length} 张看板卡片。`;
   if (value.note) return value.created === true ? "已创建笔记。" : "已返回笔记数据。";
   if (value.notebook) return value.created === true ? "已创建笔记本。" : "已返回笔记本数据。";
   if (value.wouldDeleteNotebook !== undefined)

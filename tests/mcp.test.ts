@@ -133,6 +133,8 @@ function toolData(responseBody: Record<string, any>) {
         "SECTION_NOT_FOUND",
         "NOTEBOOK_COUNT_MISMATCH",
         "SYSTEM_NOTEBOOK",
+        "KANBAN_CARD_CHANGED",
+        "KANBAN_POSITION_CHANGED",
       ].includes(data.error.code)
     ) {
       expect(data.error.recoverable).toBe(true);
@@ -181,6 +183,190 @@ function toolData(responseBody: Record<string, any>) {
 }
 
 describe("remote MCP endpoint", () => {
+  test("creates a note on the board and manages an existing note without changing its contents", async () => {
+    const created = toolData(
+      (
+        await callTool("create_note", {
+          title: "看板笔记",
+          contentMarkdown: "保留正文",
+          kanbanStatus: "doing",
+        })
+      ).body!,
+    );
+    const noteId = created.note.id;
+    expect(created.note.contentMarkdown).toBeUndefined();
+    expect(created.card).toMatchObject({ noteId, status: "doing" });
+    expect(typeof created.card.updatedAt).toBe("number");
+    const other = toolData((await callTool("create_note", { title: "普通笔记" })).body!);
+    expect(other.card).toBeUndefined();
+    const added = toolData(
+      (await callTool("manage_kanban_card", { action: "add", noteId: other.note.id })).body!,
+    );
+    expect(added).toMatchObject({
+      created: true,
+      card: { noteId: other.note.id, status: "inbox" },
+    });
+    const duplicate = toolData(
+      (
+        await callTool("manage_kanban_card", {
+          action: "add",
+          noteId,
+          status: "done",
+        })
+      ).body!,
+    );
+    expect(duplicate).toMatchObject({
+      created: false,
+      card: { ...created.card, title: "看板笔记" },
+    });
+
+    const removed = toolData(
+      (
+        await callTool("manage_kanban_card", {
+          action: "remove",
+          noteId,
+          expectedUpdatedAt: created.card.updatedAt,
+        })
+      ).body!,
+    );
+    expect(removed).toMatchObject({ ok: true, removed: true, noteId });
+    const listing = toolData((await callTool("list_kanban_cards", { noteId })).body!);
+    expect(listing).toMatchObject({ cards: [], total: 0, hasMore: false, nextCursor: null });
+    const read = toolData((await callTool("get_note", { noteId })).body!);
+    expect(read.note).toMatchObject({ version: created.note.version, contentMarkdown: "保留正文" });
+    const readded = toolData(
+      (await callTool("manage_kanban_card", { action: "add", noteId })).body!,
+    );
+    expect(readded.created).toBe(true);
+    expect(readded.card.updatedAt).toBeGreaterThan(created.card.updatedAt);
+    const retry = toolData(
+      (
+        await callTool("manage_kanban_card", {
+          action: "remove",
+          noteId,
+          expectedUpdatedAt: created.card.updatedAt,
+        })
+      ).body!,
+    );
+    expect(retry.error.code).toBe("KANBAN_CARD_CHANGED");
+  });
+
+  test("positions cards on the server and paginates the resulting column order", async () => {
+    const createCard = async (title: string, status: string) =>
+      toolData((await callTool("create_note", { title, kanbanStatus: status })).body!).card;
+    const first = await createCard("第一张", "doing");
+    const second = await createCard("第二张", "doing");
+    const incoming = await createCard("待移入", "inbox");
+    const move = async (card: { noteId: string; updatedAt: number }, beforeNoteId?: string) =>
+      toolData(
+        (
+          await callTool("manage_kanban_card", {
+            action: "move",
+            noteId: card.noteId,
+            status: "doing",
+            beforeNoteId,
+            expectedUpdatedAt: card.updatedAt,
+          })
+        ).body!,
+      );
+
+    const wrongColumn = await move(first, incoming.noteId);
+    expect(wrongColumn.error.code).toBe("KANBAN_POSITION_CHANGED");
+    const atEnd = await move(incoming);
+    expect(atEnd.card.status).toBe("doing");
+    expect(atEnd.card.updatedAt).toBeGreaterThan(incoming.updatedAt);
+    const afterAppend = toolData((await callTool("list_kanban_cards", { status: "doing" })).body!);
+    expect(afterAppend.cards.map((card: { noteId: string }) => card.noteId)).toEqual([
+      first.noteId,
+      second.noteId,
+      incoming.noteId,
+    ]);
+    expect((await move(incoming, second.noteId)).error.code).toBe("KANBAN_CARD_CHANGED");
+
+    // Old boards can contain equal ranks. Insert between these tied cards.
+    database
+      .query("UPDATE kanban_cards SET sort_order = 1000, updated_at = ? WHERE note_id = ?")
+      .run(first.updatedAt + 1, first.noteId);
+    database
+      .query("UPDATE kanban_cards SET sort_order = 1000, updated_at = ? WHERE note_id = ?")
+      .run(first.updatedAt, second.noteId);
+    const beforeSecond = await move(atEnd.card, second.noteId);
+    expect(beforeSecond.ok).toBe(true);
+    const filter = { status: "doing", notebookId: beforeSecond.card.notebookId, limit: 2 };
+    const page = toolData((await callTool("list_kanban_cards", filter)).body!);
+    expect(page).toMatchObject({ total: 3, hasMore: true });
+    expect(typeof page.nextCursor).toBe("string");
+    expect(page.cards.map((card: { noteId: string }) => card.noteId)).toEqual([
+      first.noteId,
+      incoming.noteId,
+    ]);
+    const next = toolData(
+      (await callTool("list_kanban_cards", { ...filter, cursor: page.nextCursor })).body!,
+    );
+    expect(next).toMatchObject({
+      cards: [{ noteId: second.noteId }],
+      total: 3,
+      hasMore: false,
+      nextCursor: null,
+    });
+    const staleRemoval = toolData(
+      (
+        await callTool("manage_kanban_card", {
+          action: "remove",
+          noteId: incoming.noteId,
+          expectedUpdatedAt: atEnd.card.updatedAt,
+        })
+      ).body!,
+    );
+    expect(staleRemoval.error.code).toBe("KANBAN_CARD_CHANGED");
+  });
+
+  test("validates card actions and keeps other users' cards private", async () => {
+    const environment = { ...credentials, XIANGYING_USERNAME: "other", XIANGYING_MCP_TOKEN: token };
+    const foreign = toolData(
+      (
+        await callTool(
+          "create_note",
+          {
+            title: "另一用户的笔记",
+            kanbanStatus: "inbox",
+          },
+          1,
+          environment,
+        )
+      ).body!,
+    ).card;
+    const { noteId, updatedAt } = foreign;
+    expect(toolData((await callTool("list_kanban_cards", { noteId })).body!).cards).toEqual([]);
+    const add = toolData((await callTool("manage_kanban_card", { action: "add", noteId })).body!);
+    expect(add.error.code).toBe("NOT_FOUND");
+    const badAction = toolData(
+      (
+        await callTool("manage_kanban_card", {
+          action: "remove",
+          noteId,
+          status: "doing",
+          expectedUpdatedAt: updatedAt,
+        })
+      ).body!,
+    );
+    expect(badAction.error.code).toBe("INVALID_ARGUMENT");
+    for (const input of [{ action: "move", status: "doing" }, { action: "remove" }]) {
+      const result = toolData(
+        (
+          await callTool("manage_kanban_card", {
+            ...input,
+            noteId,
+            expectedUpdatedAt: updatedAt,
+          })
+        ).body!,
+      );
+      expect(result.error.code).toBe("KANBAN_CARD_CHANGED");
+    }
+    const list = toolData((await callTool("list_kanban_cards", { noteId }, 2, environment)).body!);
+    expect(list.cards).toMatchObject([foreign]);
+  });
+
   test("returns source characters, rendered characters and words without requiring the full body", async () => {
     const markdown =
       "# 标题\n\n你好，**world**！ 👩‍💻\n\n[链接](https://example.com)\n\n![图](https://images.example/a.png)";
@@ -1245,6 +1431,8 @@ describe("remote MCP endpoint", () => {
         "append_to_note",
         "insert_into_note",
         "batch_update_notes",
+        "list_kanban_cards",
+        "manage_kanban_card",
       ].sort(),
     );
     const assertClosedSchemas = (schema: Record<string, any>) => {

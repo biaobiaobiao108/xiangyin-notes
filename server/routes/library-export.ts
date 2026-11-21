@@ -162,7 +162,7 @@ export async function handleLibraryExport(ctx: RouteContext, user: UserRow): Pro
         updated_at: number;
       }>(
         database,
-        "SELECT note_id, status, sort_order, created_at, updated_at FROM kanban_cards WHERE user_id = ? ORDER BY note_id",
+        "SELECT note_id, status, sort_order, created_at, updated_at FROM kanban_cards WHERE user_id = ? AND status != 'archived' ORDER BY note_id",
         user.id,
       ),
       assets: all<LibraryAsset>(
