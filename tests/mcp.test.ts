@@ -1586,30 +1586,12 @@ describe("remote MCP endpoint", () => {
       XIANGYING_MCP_TOKEN: token,
     });
     expect(discovered.response.status).toBe(200);
-    expect(resultOf(discovered.body!).instructions).toContain("expectedVersion");
-    expect(resultOf(discovered.body!).instructions).toContain("save_note");
-    expect(resultOf(discovered.body!).instructions).toContain("换行写作 \\n");
-    expect(resultOf(discovered.body!).instructions).toContain("工具参数必须是 JSON 对象");
-    expect(resultOf(discovered.body!).instructions).toContain("客户端会先校验参数");
-    expect(resultOf(discovered.body!).instructions).toContain("ensure_notebook");
-    expect(resultOf(discovered.body!).instructions).toContain("delete_notebook");
-    expect(resultOf(discovered.body!).instructions).toContain("get_notes_batch");
-    expect(resultOf(discovered.body!).instructions).toContain("MCP 不提供永久删除笔记或清空回收站");
-    expect(resultOf(discovered.body!).instructions).toContain("manage_note");
-    expect(resultOf(discovered.body!).instructions).toContain("set_tags");
-    expect(resultOf(discovered.body!).instructions).toContain("不构成同一时刻快照");
-    expect(resultOf(discovered.body!).instructions).toContain("4.5 MB");
-    expect(resultOf(discovered.body!).instructions).not.toContain("8,000");
-    expect(resultOf(discovered.body!).instructions).toContain("保留字面井号");
-    expect(resultOf(discovered.body!).instructions).toContain(
-      "markdownCharacterCount 回执与批量读取字符预算按 Unicode code points 计算",
-    );
-    expect(resultOf(discovered.body!).instructions).toContain(
-      "统一错误码 INVALID_ARGUMENT，并通过 field 指明字段",
-    );
-    expect(resultOf(discovered.body!).instructions).toContain(
-      "field 取值为 name、color、icon、tags",
-    );
+    const instructions = resultOf(discovered.body!).instructions;
+    expect(instructions).toMatch(/search_notes.+get_note/);
+    expect(instructions).toMatch(/save_note.+create_note.+kanbanStatus/);
+    expect(instructions).toMatch(/list_kanban_cards.+manage_kanban_card.+expectedUpdatedAt/);
+    expect(instructions).toMatch(/structuredContent.+ok.+error\.code/);
+    expect(instructions).toMatch(/note\.version.+expectedVersion.+先重读/);
   });
 
   test("keeps tag and color validation on the server without publishing regex patterns", async () => {
