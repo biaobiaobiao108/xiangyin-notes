@@ -354,7 +354,7 @@ macOS 上把 `Ctrl` 换成 `⌘`，把 `Alt` 换成 `⌥`。
 
 象映笔记使用 Bun、TypeScript、React、Bun Server 和 SQLite 构建。开发时运行 `bun run dev`，类型检查、测试和构建命令分别是 `bun run typecheck`、`bun test` 和 `bun run build`；内容性能基准使用 `bun run bench:content`。
 
-生产构建完成后，可使用全局 Playwright 1.64.1 运行 `bun run test:browser`，需要安装 Chromium 和 WebKit。运行 `bun run bench:browser` 可用 Chromium 测试约 50 KB 和 250 KB 的混合 Markdown 长文，输出编辑器打开、大纲定位、单次输入到下一帧及首开 JS/CSS 体积的中位数。两条命令均启动隔离数据库。如果 Playwright 安装在其他位置，可用 `PLAYWRIGHT_MODULE` 指定其 `index.mjs` 的绝对路径。
+生产构建完成后，可使用全局 Playwright 1.64.1 和 Chromium 运行 `bun run bench:browser`。基准使用隔离数据库，测试约 50 KB 和 250 KB 的混合 Markdown 长文，输出编辑器打开、大纲定位、单次输入到下一帧及首开 JS/CSS 体积的中位数。如果 Playwright 安装在其他位置，可用 `PLAYWRIGHT_MODULE` 指定其 `index.mjs` 的绝对路径。
 
 当前仓库未声明独立开源许可证。若要公开分发或二次开发，请先确认项目的授权范围。
 

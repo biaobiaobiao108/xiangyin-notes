@@ -13,9 +13,8 @@ export async function loadPlaywright() {
   return import(pathToFileURL(modulePath).href);
 }
 
-export async function startApp({ dataRoot, clientRoot = resolve("dist/client") } = {}) {
-  const temporaryData = !dataRoot;
-  dataRoot ??= await mkdtemp(join(tmpdir(), "xiangyin-browser-"));
+export async function startApp({ clientRoot = resolve("dist/client") } = {}) {
+  const dataRoot = await mkdtemp(join(tmpdir(), "xiangyin-browser-"));
   const reservation = Bun.listen({
     hostname: "127.0.0.1",
     port: 0,
@@ -24,7 +23,7 @@ export async function startApp({ dataRoot, clientRoot = resolve("dist/client") }
   const port = reservation.port;
   reservation.stop();
   const url = new URL("http://127.0.0.1:" + port);
-  const username = "browser-check";
+  const username = "browser-benchmark";
   const password = crypto.randomUUID();
   const child = Bun.spawn([process.execPath, "dist/server/index.js"], {
     env: {
@@ -56,8 +55,7 @@ export async function startApp({ dataRoot, clientRoot = resolve("dist/client") }
         clearTimeout(forceStop);
       }
     }
-    if (temporaryData)
-      await rm(dataRoot, { recursive: true, force: true, maxRetries: 8, retryDelay: 200 });
+    await rm(dataRoot, { recursive: true, force: true, maxRetries: 8, retryDelay: 200 });
   }
   try {
     for (let attempt = 0; attempt < 100 && child.exitCode === null; attempt++) {
@@ -75,12 +73,4 @@ export async function startApp({ dataRoot, clientRoot = resolve("dist/client") }
     await close();
     throw error;
   }
-}
-
-export async function login(app, page) {
-  await page.goto(app.url + "/login");
-  await page.getByLabel("用户名").fill(app.username);
-  await page.getByLabel("密码", { exact: true }).fill(app.password);
-  await page.getByRole("button", { name: "进入笔记" }).click();
-  await page.getByRole("button", { name: "在收件箱中新建笔记", exact: true }).first().waitFor();
 }

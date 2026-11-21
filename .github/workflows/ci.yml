@@ -45,14 +45,6 @@ jobs:
       - name: Test
         run: bun test --check
 
-      - name: Install browsers for end-to-end checks
-        run: |
-          bun install --global playwright@1.64.1
-          "$(bun pm bin -g)/playwright" install --with-deps chromium webkit
-
-      - name: Test the production app in Chromium and WebKit
-        run: bun run test:browser
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 

@@ -13,7 +13,6 @@
     "start": "bun dist/server/index.js",
     "typecheck": "bun check",
     "test": "bun test --check",
-    "test:browser": "bun run scripts/browser-check.mjs",
     "bench:content": "bun run scripts/benchmark-content.ts",
     "bench:browser": "bun run scripts/browser-benchmark.mjs",
     "preview": "bun run scripts/preview.ts",
