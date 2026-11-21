@@ -200,6 +200,8 @@ async function checkMemos(browser, app, errors) {
     );
     await memoPage.getByText("应可恢复并重试的随记", { exact: true }).waitFor();
     const card = memoPage.locator(".memo-card").filter({ hasText: "应可恢复并重试的随记" });
+    const memoId = await card.getAttribute("data-memo-id");
+    assert.ok(memoId);
     const typography = (paragraph) =>
       paragraph.evaluate((element) => {
         const style = getComputedStyle(element);
@@ -212,15 +214,31 @@ async function checkMemos(browser, app, errors) {
     const preview = card.locator(".note-prose p").first();
     const previewLayout = await typography(preview);
     await preview.dblclick();
-    const edit = memoPage.locator('[contenteditable="true"][aria-label="编辑随记"]');
+    const editSelector = '[contenteditable="true"][aria-label="编辑随记"]';
+    const edit = memoPage.locator(editSelector);
     assert.deepEqual(await typography(edit.locator("p").first()), previewLayout);
-    await edit.fill("修改后的随记已经保存");
-    await edit.press("Control+Enter");
+    // Tiptap focuses the inline editor on a later frame; wait before selecting text.
+    await memoPage.waitForFunction(
+      (selector) => document.activeElement?.matches(selector),
+      editSelector,
+    );
+    const editedMarkdown = "修改后的随记已经保存";
+    await memoPage.keyboard.press("ControlOrMeta+a");
+    await memoPage.keyboard.insertText(editedMarkdown);
+    const saveEdit = memoPage.waitForResponse(
+      (response) =>
+        response.url() === memoPath + "/" + memoId && response.request().method() === "PATCH",
+    );
+    await memoPage.keyboard.press("Control+Enter");
+    const savedEdit = await saveEdit;
+    assert.equal(savedEdit.request().postDataJSON().contentMarkdown, editedMarkdown);
+    assert.equal(savedEdit.status(), 200, await savedEdit.text());
+    assert.equal((await savedEdit.json()).memo.contentMarkdown, editedMarkdown);
     await edit.waitFor({ state: "hidden" });
     await memoPage.getByText("随记已保存", { exact: true }).waitFor();
     await memoPage
-      .locator(".memo-card-content .note-prose")
-      .getByText("修改后的随记已经保存", { exact: true })
+      .locator(`.memo-card[data-memo-id="${memoId}"] .memo-card-content .note-prose`)
+      .getByText(editedMarkdown, { exact: true })
       .waitFor();
     console.log("通过 · 随记刷新恢复、失焦失败保留草稿、菜单重试、编辑与预览排版一致");
 
