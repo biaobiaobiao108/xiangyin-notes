@@ -13,9 +13,10 @@ import {
   type SqlValue,
 } from "../core";
 import {
-  resolveNoteLinksForTarget,
+  findActiveNoteIdByTitle,
+  hasOtherActiveNoteWithTitle,
   resolveNoteLinksForTitles,
-  sourceNoteIdsReferencingTarget,
+  sourceNoteIdsReferencingTitle,
   syncNoteLinks,
   syncStoredNoteTitleKey,
 } from "../note-links";
@@ -148,7 +149,7 @@ export function createNote(
     syncNoteShortSearchTerms(database, userId, id, title, searchText);
     syncNoteLinks(database, userId, id, contentMarkdown, createdAt);
     syncNoteTasks(database, userId, id, notebookId, createdAt, contentMarkdown, tokens);
-    resolveNoteLinksForTarget(database, userId, title, id);
+    resolveNoteLinksForTitles(database, userId, [title]);
   });
   transaction();
   return id;
@@ -166,8 +167,13 @@ export function updateNoteInTransaction(
 ) {
   const titleChanged = current.title !== title;
   const oldTitle = current.title;
+  // Determine which note the old title opens before changing its name or sort position.
+  const rewriteLinks =
+    titleChanged &&
+    title.trim() !== "" &&
+    findActiveNoteIdByTitle(database, userId, oldTitle) === current.id;
   let nextContentMarkdown = contentMarkdown;
-  if (titleChanged && oldTitle.trim() && title.trim()) {
+  if (rewriteLinks) {
     const replaced = replaceWikiLinkTarget(contentMarkdown, oldTitle, title);
     if (replaced.count > 0) {
       if (replaced.content.length > NOTE_CONTENT_MAX_LENGTH)
@@ -237,12 +243,25 @@ export function updateNoteInTransaction(
     syncNoteLinks(database, userId, current.id, nextContentMarkdown, updatedAt);
   }
 
-  if (titleChanged && oldTitle.trim() && title.trim()) {
+  let linkedNotesRewritten = false;
+  const titlesToResolve = new Set<string>();
+  if (titleChanged || deletedChanged) {
+    titlesToResolve.add(oldTitle);
+    titlesToResolve.add(title);
+  } else if (
+    updatedAt !== current.updated_at &&
+    deletedAt === null &&
+    hasOtherActiveNoteWithTitle(database, userId, current.id, title)
+  ) {
+    titlesToResolve.add(title);
+  }
+  if (rewriteLinks) {
     let afterSourceNoteId = "";
     while (true) {
-      const sourceNoteIds = sourceNoteIdsReferencingTarget(
+      const sourceNoteIds = sourceNoteIdsReferencingTitle(
         database,
         userId,
+        oldTitle,
         current.id,
         afterSourceNoteId,
         NOTE_RENAME_SOURCE_BATCH_SIZE,
@@ -270,6 +289,13 @@ export function updateNoteInTransaction(
         if (count === 0) continue;
         if (replacedContent.length > NOTE_CONTENT_MAX_LENGTH)
           throw new NoteRenameContentTooLargeError();
+        linkedNotesRewritten = true;
+        if (
+          refNote.deleted_at === null &&
+          refNote.updated_at !== updatedAt &&
+          hasOtherActiveNoteWithTitle(database, userId, refNote.id, refNote.title)
+        )
+          titlesToResolve.add(refNote.title);
         database
           .query(
             "UPDATE notes SET content_markdown = ?, version = version + 1, updated_at = CASE WHEN deleted_at IS NULL THEN ? ELSE updated_at END WHERE id = ? AND user_id = ?",
@@ -289,11 +315,9 @@ export function updateNoteInTransaction(
       }
     }
   }
-  if (titleChanged || deletedChanged) {
-    resolveNoteLinksForTitles(database, userId, [oldTitle, title]);
-  }
+  if (titlesToResolve.size) resolveNoteLinksForTitles(database, userId, titlesToResolve);
 
-  return true;
+  return { linkedNotesRewritten };
 }
 
 export function updateNote(

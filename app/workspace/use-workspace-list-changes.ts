@@ -6,6 +6,7 @@ import {
   shouldKeepActiveNoteInList,
   sortNotes,
   type NoteSort,
+  type NoteUpdatedPosition,
 } from "./helpers";
 type Ref<T> = { current: T };
 type Setter<T> = Dispatch<SetStateAction<T>>;
@@ -34,6 +35,9 @@ export function useWorkspaceListChanges({
   splitNoteIdRef,
   closeSplitRef,
   listScopeRef,
+  listScope,
+  nextNotesCursorRef,
+  updatedPageBoundaryRef,
   notebooks,
   view,
   deferredQuery,
@@ -50,6 +54,9 @@ export function useWorkspaceListChanges({
   splitNoteIdRef: Ref<string | null>;
   closeSplitRef: Ref<() => void>;
   listScopeRef: Ref<string>;
+  listScope: string;
+  nextNotesCursorRef: Ref<string | null>;
+  updatedPageBoundaryRef: Ref<NoteUpdatedPosition | null>;
   notebooks: Notebook[];
   view: NoteView;
   deferredQuery: string;
@@ -78,29 +85,47 @@ export function useWorkspaceListChanges({
     },
     [noteSort, replaceList, selectNote],
   );
-  // Realtime updates for a single note refresh only that row, so a remote save
-  // never collapses the loaded pages back to the first page.
   const patchNoteFromRemote = useCallback(
     async (noteId: string) => {
-      const scope = listScopeRef.current;
-      if (!notesRef.current.some((note) => note.id === noteId)) return;
+      if (listScope !== listScopeRef.current) return;
+      const startBoundary =
+        noteSort === "updated" && nextNotesCursorRef.current
+          ? updatedPageBoundaryRef.current
+          : null;
+      if (!startBoundary && !notesRef.current.some((note) => note.id === noteId)) return;
       try {
         const summary = (await api.getNoteSummary(noteId)).note;
-        if (scope !== listScopeRef.current) return;
+        if (listScope !== listScopeRef.current) return;
         const current = notesRef.current.find((note) => note.id === noteId);
-        if (!current || current.version > summary.version) return;
+        if (current && current.version > summary.version) return;
         if (!shouldKeepActiveNoteInList(summary, notebooks, view, deferredQuery, notebookId)) {
           removeFromList(noteId);
           return;
         }
-        const merged = mergeRemoteSummary(notesRef.current, summary, noteSort);
+        const pageBoundary = nextNotesCursorRef.current
+          ? updatedPageBoundaryRef.current
+          : startBoundary;
+        const merged = mergeRemoteSummary(notesRef.current, summary, noteSort, pageBoundary);
         if (merged) replaceList(merged);
       } catch (reason) {
-        if (scope !== listScopeRef.current) return;
+        if (listScope !== listScopeRef.current) return;
         if (reason instanceof ApiError && reason.status === 404) removeFromList(noteId);
       }
     },
-    [deferredQuery, noteSort, notebookId, notebooks, removeFromList, replaceList, view],
+    [
+      deferredQuery,
+      listScope,
+      listScopeRef,
+      nextNotesCursorRef,
+      noteSort,
+      notebookId,
+      notebooks,
+      notesRef,
+      removeFromList,
+      replaceList,
+      updatedPageBoundaryRef,
+      view,
+    ],
   );
   const removeManyFromList = useCallback(
     (noteIds: string[]) => {

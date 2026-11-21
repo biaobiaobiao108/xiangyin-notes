@@ -29,7 +29,7 @@ test("renaming a target keeps trashed backlink tasks out of counts until restora
           note.is_favorite,
           deletedAt,
         ),
-      ).toBe(true);
+      ).not.toBe(false);
     };
     const counts = () =>
       database

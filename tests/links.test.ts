@@ -430,7 +430,7 @@ describe("Note links, backlinks, and renaming cascade", () => {
     expect(backlinksB3.body?.linkedReferences[0].sourceNoteId).toBe(noteC.id);
   });
 
-  test("keeps duplicate-title links bound to their original target during a rename", async () => {
+  test("keeps wiki navigation, backlinks, and renames aligned when titles are duplicated", async () => {
     const auth = await request("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -448,6 +448,7 @@ describe("Note links, backlinks, and renaming cascade", () => {
       cookie,
     );
     const first = firstResponse.body?.note as Note;
+    database.query("UPDATE notes SET updated_at = 1 WHERE id = ?").run(first.id);
     const sourceResponse = await request(
       "/api/notes",
       {
@@ -463,28 +464,52 @@ describe("Note links, backlinks, and renaming cascade", () => {
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "重复标题", contentMarkdown: "第二个目标" }),
+        body: JSON.stringify({ title: "重复标题", contentMarkdown: "第二个目标\n\n[[重复标题]]" }),
       },
       cookie,
     );
     const duplicate = duplicateResponse.body?.note as Note;
 
+    const ensureTarget = () =>
+      request(
+        "/api/wiki-notes/ensure",
+        {
+          method: "POST",
+          body: JSON.stringify({ title: "重复标题", notebookId: first.notebookId }),
+        },
+        cookie,
+      );
+    expect((await ensureTarget()).body?.note.id).toBe(duplicate.id);
+
     expect(
       database
         .query("SELECT target_note_id FROM note_links WHERE source_note_id = ?")
         .get(source.id),
-    ).toEqual({ target_note_id: first.id });
+    ).toEqual({ target_note_id: duplicate.id });
+    const backlinks = await request(
+      `/api/notes/${duplicate.id}/backlinks`,
+      { method: "GET" },
+      cookie,
+    );
+    expect(backlinks.body?.linkedReferences).toMatchObject([{ sourceNoteId: source.id }]);
 
     const renamed = await request(
-      `/api/notes/${duplicate.id}`,
+      `/api/notes/${first.id}`,
       {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ version: duplicate.version, title: "重复标题二" }),
+        body: JSON.stringify({
+          version: first.version,
+          title: "重复标题二",
+          contentMarkdown: "改名时写入的链接 [[重复标题]]",
+        }),
       },
       cookie,
     );
     expect(renamed.response.status).toBe(200);
+    expect(renamed.body?.note.contentMarkdown).toBe("改名时写入的链接 [[重复标题]]");
+    expect(renamed.body).not.toHaveProperty("linkedNotesRewritten");
+    expect((await ensureTarget()).body?.note.id).toBe(duplicate.id);
 
     const unchangedSource = await request(`/api/notes/${source.id}`, { method: "GET" }, cookie);
     expect(unchangedSource.body?.note.contentMarkdown).toBe("请查看 [[重复标题]]。");
@@ -492,14 +517,19 @@ describe("Note links, backlinks, and renaming cascade", () => {
       database
         .query("SELECT target_note_id, target_title FROM note_links WHERE source_note_id = ?")
         .get(source.id),
-    ).toEqual({ target_note_id: first.id, target_title: "重复标题" });
+    ).toEqual({ target_note_id: duplicate.id, target_title: "重复标题" });
 
-    const duplicateBacklinks = await request(
-      `/api/notes/${duplicate.id}/backlinks`,
-      { method: "GET" },
+    const renamedTarget = await request(
+      `/api/notes/${duplicate.id}?response=summary`,
+      { method: "PATCH", body: JSON.stringify({ version: duplicate.version, title: "真实目标" }) },
       cookie,
     );
-    expect(duplicateBacklinks.body?.linkedReferences).toHaveLength(0);
+    expect(renamedTarget.body).toMatchObject({
+      note: { contentMarkdown: "第二个目标\n\n[[真实目标]]" },
+      linkedNotesRewritten: true,
+    });
+    const updatedSource = await request(`/api/notes/${source.id}`, { method: "GET" }, cookie);
+    expect(updatedSource.body?.note.contentMarkdown).toBe("请查看 [[真实目标]]。");
   });
 
   test("matches links with case and space tolerance and links to newly created target note", async () => {

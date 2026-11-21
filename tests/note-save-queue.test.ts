@@ -31,6 +31,7 @@ let splitNoteIdRef: { current: string | null };
 let stored: Note;
 let update: ReturnType<typeof spyOn<typeof api, "updateNote">>;
 let get: ReturnType<typeof spyOn<typeof api, "getNote">>;
+let linkedNoteRefreshes: { sourceId: string; savedVersion: number | undefined }[];
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -46,6 +47,7 @@ beforeEach(() => {
   notesRef = { current: [toNoteSummary(original)] };
   splitSelectedRef = { current: null };
   splitNoteIdRef = { current: null };
+  linkedNoteRefreshes = [];
   update = spyOn(api, "updateNote").mockImplementation(async (_id, payload) => {
     if (payload.version !== stored.version) throw new ApiError(409, "VERSION_CONFLICT", "版本冲突");
     stored = { ...stored, ...payload, version: stored.version + 1 };
@@ -69,6 +71,9 @@ beforeEach(() => {
         setToast: () => {},
         splitSelectedRef,
         splitNoteIdRef,
+        onLinkedNotesRewritten: (sourceId) => {
+          linkedNoteRefreshes.push({ sourceId, savedVersion: selectedRef.current?.version });
+        },
       });
       return null;
     }),
@@ -83,6 +88,15 @@ afterEach(() => {
 });
 
 describe("favorite operations and the save queue", () => {
+  test("reconciles other notes after a rename response has applied the saved version", async () => {
+    update.mockResolvedValueOnce({
+      note: toNoteSummary({ ...original, title: "新标题", version: 2 }),
+      linkedNotesRewritten: true,
+    });
+    queue.persist({ ...original, title: "新标题" }, ["title"]);
+    await queue.runSave(original.id);
+    expect(linkedNoteRefreshes).toEqual([{ sourceId: original.id, savedVersion: 2 }]);
+  });
   test("rebases edits made during a rename on the server-rewritten self link", async () => {
     const response = deferred<{ note: Note; previousTitle: string }>();
     let calls = 0;

@@ -1161,7 +1161,7 @@ export async function handleNotesRoute(
       notebookCountsChanged || current.is_favorite !== isFavorite || current.title !== title;
     if (!refreshList && !contentChanged)
       return json({ note: summaryResponse ? summarizeNote(current) : toFullNote(current) });
-    let updated: boolean;
+    let updated: ReturnType<typeof updateNote>;
     try {
       updated = updateNote(
         database,
@@ -1215,6 +1215,7 @@ export async function handleNotesRoute(
           : toFullNote(note)
         : null,
       ...(rewrittenBody ? { previousTitle: current.title } : {}),
+      ...(updated.linkedNotesRewritten ? { linkedNotesRewritten: true } : {}),
     });
   }
 

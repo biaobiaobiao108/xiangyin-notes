@@ -121,19 +121,31 @@ export function sortNotes(notes: NoteSummary[], sort: NoteSort) {
   );
 }
 
-/**
- * 把单篇远端摘要合并进当前列表。返回 null 表示该笔记不在当前列表里。
- * `updated` 排序下服务端会把刚更新的笔记排在前面，这里同步置顶以保持顺序可信。
- */
-export function mergeRemoteSummary(notes: NoteSummary[], summary: NoteSummary, sort: NoteSort) {
+export type NoteUpdatedPosition = Pick<NoteSummary, "id" | "updatedAt">;
+
+function compareUpdatedPosition(a: NoteUpdatedPosition, b: NoteUpdatedPosition) {
+  return b.updatedAt - a.updatedAt || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
+}
+
+export function mergeRemoteSummary(
+  notes: NoteSummary[],
+  summary: NoteSummary,
+  sort: NoteSort,
+  pageBoundary?: NoteUpdatedPosition | null,
+) {
   const index = notes.findIndex((note) => note.id === summary.id);
-  if (index === -1) return null;
+  if (index === -1) {
+    // Keep the original page cursor. The promoted row now sorts before it.
+    return sort === "updated" && pageBoundary && compareUpdatedPosition(summary, pageBoundary) < 0
+      ? [...notes, summary].sort(compareUpdatedPosition)
+      : null;
+  }
   if (notes[index]!.version > summary.version) return notes;
   const previous = notes[index]!;
   const next = [...notes];
   next[index] = { ...previous, ...summary };
   if (sort === "updated" && summary.updatedAt !== previous.updatedAt)
-    next.sort((a, b) => b.updatedAt - a.updatedAt);
+    next.sort(compareUpdatedPosition);
   if (sort === "title" && summary.title !== previous.title)
     next.sort((a, b) => (a.title || "未命名笔记").localeCompare(b.title || "未命名笔记", "zh-CN"));
   return next;

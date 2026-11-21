@@ -3,13 +3,14 @@ import { dirname, resolve } from "node:path";
 import { Database } from "bun:sqlite";
 import { snapshotSchema } from "./schema-snapshot";
 import { rebuildNoteShortSearchIndex } from "./note-search";
+import { resolveNoteLinksForUser } from "./note-links";
 import { searchContains, searchableTextFromMarkdown, searchSnippet } from "./search-text";
 
 const DEFAULT_DATABASE_PATH = "./data/xiangying-notes.sqlite";
 const DEFAULT_SCHEMA_PATH = "./database/schema.sql";
 const BASELINE_SCHEMA_VERSION = 1;
 
-export const CURRENT_SCHEMA_VERSION = 6;
+export const CURRENT_SCHEMA_VERSION = 7;
 export const SEARCH_INDEX_REBUILD_KEY = "search-index-rebuild-required";
 
 type TableCountRow = {
@@ -121,6 +122,14 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     sourceVersion: 5,
     targetVersion: 6,
     migrate: (database) => database.exec("ALTER TABLE image_assets ADD COLUMN orphaned_at INTEGER"),
+  },
+  {
+    sourceVersion: 6,
+    targetVersion: 7,
+    migrate: (database) => {
+      const users = database.query<{ id: string }, []>("SELECT id FROM users").all();
+      for (const user of users) resolveNoteLinksForUser(database, user.id);
+    },
   },
 ];
 

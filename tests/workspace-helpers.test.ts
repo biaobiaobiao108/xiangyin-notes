@@ -153,8 +153,25 @@ describe("remote summary merging", () => {
     expect(merged?.[2]).toMatchObject({ version: 2, isFavorite: true, updatedAt: 10 });
   });
 
-  test("returns null when the note is not in the current list", () => {
+  test("does not insert unfamiliar rows without a page boundary", () => {
     expect(mergeRemoteSummary([summary("a", 1)], summary("missing", 2), "updated")).toBeNull();
+  });
+
+  test("promotes an unloaded note above the page boundary for updated sort only", () => {
+    const boundary = summary("b", 20);
+    const rows = [summary("a", 30), boundary];
+    const newer = summary("newer", 40);
+    expect(mergeRemoteSummary(rows, newer, "updated", boundary)).toEqual([newer, ...rows]);
+    expect(mergeRemoteSummary(rows, newer, "created", boundary)).toBeNull();
+    expect(mergeRemoteSummary(rows, newer, "title", boundary)).toBeNull();
+    expect(mergeRemoteSummary(rows, summary("older", 10), "updated", boundary)).toBeNull();
+    const sameSecond = summary("c", 20);
+    expect(mergeRemoteSummary(rows, sameSecond, "updated", boundary)).toEqual([
+      rows[0]!,
+      sameSecond,
+      boundary,
+    ]);
+    expect(mergeRemoteSummary(rows, summary("aa", 20), "updated", boundary)).toBeNull();
   });
 
   test("ignores a delayed summary after a newer save without changing row order", () => {

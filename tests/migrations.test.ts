@@ -13,6 +13,38 @@ import {
   type SchemaMigration,
 } from "../server/db";
 import { LEGACY_PASSWORD_ITERATIONS } from "../server/core";
+import { createNote } from "../server/routes/note-mutations";
+
+test("realigns legacy duplicate-title backlinks without changing note bodies or versions", async () => {
+  const database = await createExpectedSchemaDatabase(6);
+  try {
+    database.exec(`
+      INSERT INTO users (id, username, password_hash, password_salt, created_at)
+        VALUES ('user', 'owner', '', '', 1);
+      INSERT INTO notebooks (id, user_id, name, created_at, updated_at)
+        VALUES ('book', 'user', '笔记本', 1, 1);
+    `);
+    const oldTarget = createNote(database, "user", "book", "目标", "以前的目标");
+    database.query("UPDATE notes SET updated_at = 1 WHERE id = ?").run(oldTarget);
+    const newTarget = createNote(database, "user", "book", "目标", "现在的目标");
+    const source = createNote(database, "user", "book", "来源", "[[目标]]");
+    database
+      .query("UPDATE note_links SET target_note_id = ? WHERE source_note_id = ?")
+      .run(oldTarget, source);
+
+    await initializeDatabase(database);
+
+    expect(database.query("PRAGMA user_version").get()).toEqual({ user_version: 7 });
+    expect(
+      database.query("SELECT target_note_id FROM note_links WHERE source_note_id = ?").get(source),
+    ).toEqual({ target_note_id: newTarget });
+    expect(
+      database.query("SELECT content_markdown, version FROM notes WHERE id = ?").get(source),
+    ).toEqual({ content_markdown: "[[目标]]", version: 1 });
+  } finally {
+    database.close();
+  }
+});
 
 test("initializes a fresh database from the single baseline and records its version", async () => {
   const database = await openDatabase(":memory:");

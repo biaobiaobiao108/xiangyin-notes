@@ -33,6 +33,7 @@ export type UseNoteSaveQueueOptions = {
   setSplitSelectedNote?: (note: Note | null) => void;
   setSplitSaveState?: (state: SaveState) => void;
   onRewrittenContent?: (noteId: string) => void;
+  onLinkedNotesRewritten?: (noteId: string) => void;
 };
 
 export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
@@ -52,6 +53,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
     setSplitSelectedNote,
     setSplitSaveState,
     onRewrittenContent,
+    onLinkedNotesRewritten,
   } = options;
 
   const [saveState, setSaveState] = useState<SaveState>("idle");
@@ -162,6 +164,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
               setSplitSaveState?.(next ? "saving" : "saved");
             }
             if (result.previousTitle) onRewrittenContent?.(noteId);
+            if (result.linkedNotesRewritten) onLinkedNotesRewritten?.(noteId);
           }
           return savedVersion;
         } catch (reason) {
@@ -207,6 +210,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
       setSplitSaveState,
       flushEditorDraftRef,
       onRewrittenContent,
+      onLinkedNotesRewritten,
     ],
   );
 

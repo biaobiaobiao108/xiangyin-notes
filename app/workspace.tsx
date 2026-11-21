@@ -360,6 +360,10 @@ export function Workspace() {
     setSplitSelectedNote(note ? noteMetadataSnapshot(note) : null);
   }, []);
   const [splitPickerOpen, setSplitPickerOpen] = useState(false);
+  const refreshLinkedNotesRef = useRef<(sourceId: string) => void>(() => undefined);
+  const handleLinkedNotesRewritten = useCallback((sourceId: string) => {
+    refreshLinkedNotesRef.current(sourceId);
+  }, []);
   const handleRewrittenContent = useCallback((noteId: string) => {
     if (activeNoteIdRef.current === noteId) setNoteReloadToken((value) => value + 1);
     if (splitNoteIdRef.current === noteId) setSplitNoteReloadToken((value) => value + 1);
@@ -395,6 +399,7 @@ export function Workspace() {
     setSplitSelectedNote: setSplitSelectedNoteMetadata,
     setSplitSaveState,
     onRewrittenContent: handleRewrittenContent,
+    onLinkedNotesRewritten: handleLinkedNotesRewritten,
   });
   const {
     imageExportSnapshot,
@@ -443,34 +448,35 @@ export function Workspace() {
     listRequestRef.current += 1;
     invalidateNotebookRequests();
   }, [invalidateNotebookRequests]);
-  const { loadNotes, loadMoreNotes, isLoadingMore, reloadNotes } = useWorkspaceNoteList({
-    view,
-    notebookId,
-    deferredQuery,
-    noteSort,
-    listScope,
-    notebooks,
-    notesReloadToken,
-    pendingLinkedNoteRef,
-    nextNotesCursorRef,
-    listRequestRef,
-    listAbortRef,
-    listScopeRef,
-    trashOperationsRef,
-    emptyingTrashRef,
-    selectedRef,
-    selectedIdRef,
-    notesRef,
-    setHasMoreNotes,
-    setTotalNotes,
-    setSelectedId,
-    setNotesReloadToken,
-    replaceList,
-    pruneNoteSelectionTo,
-    playPendingListTransition,
-    notifyError,
-    navigate,
-  });
+  const { loadNotes, loadMoreNotes, isLoadingMore, reloadNotes, updatedPageBoundaryRef } =
+    useWorkspaceNoteList({
+      view,
+      notebookId,
+      deferredQuery,
+      noteSort,
+      listScope,
+      notebooks,
+      notesReloadToken,
+      pendingLinkedNoteRef,
+      nextNotesCursorRef,
+      listRequestRef,
+      listAbortRef,
+      listScopeRef,
+      trashOperationsRef,
+      emptyingTrashRef,
+      selectedRef,
+      selectedIdRef,
+      notesRef,
+      setHasMoreNotes,
+      setTotalNotes,
+      setSelectedId,
+      setNotesReloadToken,
+      replaceList,
+      pruneNoteSelectionTo,
+      playPendingListTransition,
+      notifyError,
+      navigate,
+    });
   useEffect(() => {
     if (!ready) return;
     void refreshNotebooks();
@@ -581,6 +587,9 @@ export function Workspace() {
     splitNoteIdRef,
     closeSplitRef,
     listScopeRef,
+    listScope,
+    nextNotesCursorRef,
+    updatedPageBoundaryRef,
     notebooks,
     view,
     deferredQuery,
@@ -1203,6 +1212,16 @@ export function Workspace() {
     refreshSplitNoteFromRemote,
     patchNoteFromRemote,
   });
+  refreshLinkedNotesRef.current = (sourceId) => {
+    const activeId = activeNoteIdRef.current;
+    if (activeId && activeId !== sourceId) {
+      void refreshSelectedNoteFromRemote(activeId).finally(reloadNotes);
+    } else reloadNotes();
+    const splitId = splitNoteIdRef.current;
+    if (splitId && splitId !== sourceId) void refreshSplitNoteFromRemote(splitId);
+    if (tasksOpen) setTaskRefreshToken((value) => value + 1);
+    if (kanbanOpen) setKanbanRefreshToken((value) => value + 1);
+  };
   const {
     selectView,
     openTasks,

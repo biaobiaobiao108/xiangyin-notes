@@ -8,6 +8,7 @@ import {
   sortNotes,
   toNoteSummary,
   type NoteSort,
+  type NoteUpdatedPosition,
 } from "./helpers";
 
 type Ref<T> = { current: T };
@@ -68,6 +69,7 @@ export function useWorkspaceNoteList({
   notifyError,
   navigate,
 }: Options) {
+  const updatedPageBoundaryRef = useRef<NoteUpdatedPosition | null>(null);
   const loadNotes = useCallback(async () => {
     if (pendingLinkedNoteRef.current) return;
     nextNotesCursorRef.current = null;
@@ -112,6 +114,7 @@ export function useWorkspaceNoteList({
       setTotalNotes(Math.max(result.total ?? 0, orderedNotes.length));
       setHasMoreNotes(Boolean(result.hasMore));
       nextNotesCursorRef.current = result.nextCursor ?? null;
+      updatedPageBoundaryRef.current = result.notes.at(-1) ?? null;
       const currentSelectedId = selectedIdRef.current;
       const nextSelectedId =
         currentSelectedId && orderedNotes.some((note) => note.id === currentSelectedId)
@@ -176,6 +179,7 @@ export function useWorkspaceNoteList({
       if (result.total !== undefined) setTotalNotes(Math.max(result.total, merged.length));
       setHasMoreNotes(Boolean(result.hasMore));
       nextNotesCursorRef.current = result.nextCursor ?? null;
+      updatedPageBoundaryRef.current = result.notes.at(-1) ?? null;
     } catch {
       if (requestId !== listRequestRef.current || scope !== listScopeRef.current) return;
       notifyError("加载更多笔记失败，请重试");
@@ -185,5 +189,5 @@ export function useWorkspaceNoteList({
     }
   }, [deferredQuery, noteSort, notebookId, replaceList, view]);
   const reloadNotes = useCallback(() => setNotesReloadToken((value) => value + 1), []);
-  return { loadNotes, loadMoreNotes, isLoadingMore, reloadNotes };
+  return { loadNotes, loadMoreNotes, isLoadingMore, reloadNotes, updatedPageBoundaryRef };
 }

@@ -82,6 +82,26 @@ export function findActiveNoteIdByTitle(database: SqliteDatabase, userId: string
   return match?.id ?? null;
 }
 
+export function hasOtherActiveNoteWithTitle(
+  database: SqliteDatabase,
+  userId: string,
+  noteId: string,
+  title: string,
+) {
+  const key = normalizeLinkTitle(title);
+  return (
+    key !== "" &&
+    database
+      .query(
+        `
+    SELECT 1 FROM notes
+    WHERE user_id = ? AND deleted_at IS NULL AND title_normalized = ? AND id != ? LIMIT 1
+  `,
+      )
+      .get(userId, key, noteId) !== null
+  );
+}
+
 export function syncNoteLinks(
   database: SqliteDatabase,
   userId: string,
@@ -161,50 +181,23 @@ export function resolveNoteLinksForUser(database: SqliteDatabase, userId: string
 export function resolveNoteLinksForTitles(
   database: SqliteDatabase,
   userId: string,
-  titles: string[],
+  titles: Iterable<string>,
 ) {
-  const normalizedTargets = new Set(
-    titles.map((title) => normalizeLinkTitle(title)).filter(Boolean),
-  );
-  if (normalizedTargets.size === 0) return;
-  const placeholders = [...normalizedTargets].map(() => "?").join(",");
-  database
-    .query(
-      `
-    UPDATE note_links
-    SET target_note_id = (
-      SELECT n.id
-      FROM notes n
-      WHERE n.user_id = note_links.user_id
-        AND n.deleted_at IS NULL
-        AND n.title_normalized = note_links.target_title_normalized
-      ORDER BY n.updated_at DESC, n.id
-      LIMIT 1
-    )
-    WHERE user_id = ? AND target_title_normalized IN (${placeholders})
-  `,
-    )
-    .run(userId, ...normalizedTargets);
+  const normalizedTargets = new Set(Array.from(titles, normalizeLinkTitle).filter(Boolean));
+  const update = database.query(`
+    UPDATE note_links SET target_note_id = ?
+    WHERE user_id = ? AND target_title_normalized = ? AND target_note_id IS NOT ?
+  `);
+  for (const key of normalizedTargets) {
+    const targetId = findActiveNoteIdByTitle(database, userId, key);
+    update.run(targetId, userId, key, targetId);
+  }
 }
 
-export function resolveNoteLinksForTarget(
+export function sourceNoteIdsReferencingTitle(
   database: SqliteDatabase,
   userId: string,
-  title: string,
-  targetNoteId: string,
-) {
-  const normalized = normalizeLinkTitle(title);
-  if (!normalized) return;
-  database
-    .query(
-      "UPDATE note_links SET target_note_id = ? WHERE user_id = ? AND target_note_id IS NULL AND target_title_normalized = ?",
-    )
-    .run(targetNoteId, userId, normalized);
-}
-
-export function sourceNoteIdsReferencingTarget(
-  database: SqliteDatabase,
-  userId: string,
+  targetTitle: string,
   targetNoteId: string,
   afterSourceNoteId: string,
   limit: number,
@@ -214,10 +207,12 @@ export function sourceNoteIdsReferencingTarget(
     `SELECT DISTINCT nl.source_note_id
      FROM note_links nl
      JOIN notes n ON n.id = nl.source_note_id AND n.user_id = nl.user_id
-     WHERE nl.user_id = ? AND nl.target_note_id = ? AND nl.source_note_id > ?
+     WHERE nl.user_id = ? AND nl.target_title_normalized = ?
+       AND nl.source_note_id != ? AND nl.source_note_id > ?
      ORDER BY nl.source_note_id
      LIMIT ?`,
     userId,
+    normalizeLinkTitle(targetTitle),
     targetNoteId,
     afterSourceNoteId,
     limit,

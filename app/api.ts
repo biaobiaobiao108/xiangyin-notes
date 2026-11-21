@@ -196,7 +196,11 @@ export const api = {
     const { response: responseMode, ...requestOptions } = options ?? {};
     const path =
       responseMode === "summary" ? `/api/notes/${id}?response=summary` : `/api/notes/${id}`;
-    return request<{ note: Note | NoteSummary; previousTitle?: string }>(path, {
+    return request<{
+      note: Note | NoteSummary;
+      previousTitle?: string;
+      linkedNotesRewritten?: boolean;
+    }>(path, {
       method: "PATCH",
       body: JSON.stringify(payload),
       ...requestOptions,
