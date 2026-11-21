@@ -35,6 +35,15 @@ async function openNote(page, baseUrl, note) {
   await page.locator(editorSelector).waitFor();
 }
 
+async function placeCaretAtEnd(editor) {
+  await editor.evaluate((element) => {
+    element.focus();
+    const selection = element.ownerDocument.getSelection();
+    const lastBlock = element.lastElementChild ?? element;
+    selection.collapse(lastBlock, lastBlock.childNodes.length);
+  });
+}
+
 async function checkEditing(browser, app, errors) {
   const context = await browser.newContext({ serviceWorkers: "block" });
   try {
@@ -88,7 +97,7 @@ async function checkEditing(browser, app, errors) {
     const editor = page.locator(editorSelector);
     await editor.fill("第一段写在新笔记");
     await page.locator(titleSelector).fill("新笔记浏览器回归");
-    await editor.press("End");
+    await placeCaretAtEnd(editor);
     await page.keyboard.insertText("，切换前最后输入");
     const updated = page.waitForResponse(
       (response) =>
@@ -221,7 +230,7 @@ async function checkMemos(browser, app, errors) {
     await day.click();
     await memo.fill(retryDraft);
     // Reopening the editor strips the trailing empty paragraph from its rendered document.
-    await memo.press("End");
+    await placeCaretAtEnd(memo);
     await memo.press("Enter");
     let originalSubmission;
     const loseResponse = async (route) => {
