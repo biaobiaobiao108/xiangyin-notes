@@ -2,8 +2,16 @@ import { Markdown } from "@tiptap/markdown";
 import { type marked } from "marked";
 import { createXiangyingMarked } from "../../shared/markdown-lexer";
 
-export const xiangyingMarked = createXiangyingMarked();
+const XiangyingMarkdown = Markdown.extend({
+  addOptions() {
+    return {
+      ...this.parent!(),
+      // Tiptap registers tokenizers on this instance when it creates a manager.
+      marked: createXiangyingMarked() as unknown as typeof marked,
+    };
+  },
+});
 
 export function createMarkdownExtension() {
-  return Markdown.configure({ marked: xiangyingMarked as unknown as typeof marked });
+  return XiangyingMarkdown;
 }

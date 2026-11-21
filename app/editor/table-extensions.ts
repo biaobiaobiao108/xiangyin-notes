@@ -69,7 +69,25 @@ function renderTableMarkdownWithWidths(node: JSONContent, helpers: MarkdownRende
 
 type MarkdownTableToken = MarkdownToken & { raw?: string };
 
+const tableTokenizer = Table.config.markdownTokenizer!;
+
+function isTableDelimiter(line: string | undefined) {
+  return line !== undefined && line.includes("|") && /^[ \t|:]*-[ \t|:-]*$/u.test(line);
+}
+
 const ResizableTable = Table.extend({
+  markdownTokenizer: {
+    ...tableTokenizer,
+    start(source) {
+      const [header, delimiter] = source.split("\n", 2);
+      return header.includes("|") && isTableDelimiter(delimiter) ? 0 : -1;
+    },
+    tokenize(source, tokens, lexer) {
+      const [, delimiter] = source.split("\n", 2);
+      if (!isTableDelimiter(delimiter)) return undefined;
+      return tableTokenizer.tokenize(source, tokens, lexer);
+    },
+  },
   parseMarkdown(token, helpers) {
     const table = this.parent!(token, helpers) as JSONContent;
     const widths = readColumnWidthsFromDelimiter((token as MarkdownTableToken).raw ?? "");

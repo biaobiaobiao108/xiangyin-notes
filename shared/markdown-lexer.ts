@@ -20,6 +20,7 @@ export function tokenizeWikiLink(source: string) {
 }
 
 export function findCalloutStart(source: string) {
+  if (!source.includes(">")) return -1;
   return source.search(/^ {0,3}>[ \t]*\[!(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]/im);
 }
 

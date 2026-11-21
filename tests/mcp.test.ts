@@ -849,6 +849,67 @@ describe("remote MCP endpoint", () => {
     expect(stale.error.current.contentMarkdown).toBeUndefined();
   });
 
+  test("skips full-note statistics throughout an opt-in section edit", async () => {
+    const markdown = "## 甲\n\n旧内容\n\n## 乙\n\n保留内容\n";
+    const note = toolData(
+      (await callTool("create_note", { title: "章节统计", contentMarkdown: markdown })).body!,
+    ).note;
+    const withoutStats = (metadata: Record<string, unknown>) => {
+      for (const key of ["markdownCharacterCount", "textCharacterCount", "wordCount"])
+        expect(metadata).not.toHaveProperty(key);
+    };
+
+    const outline = toolData(
+      (await callTool("get_note_outline", { noteId: note.id, includeStats: false })).body!,
+    );
+    withoutStats(outline.note);
+    const section = toolData(
+      (
+        await callTool("get_note_section", {
+          noteId: note.id,
+          sectionId: outline.headings[0].sectionId,
+          includeStats: false,
+        })
+      ).body!,
+    );
+    withoutStats(section.note);
+    expect(section.version).toBe(note.version);
+    expect(section.section.contentMarkdown).toBe("## 甲\n\n旧内容\n\n");
+
+    const input = {
+      noteId: note.id,
+      heading: "甲",
+      contentMarkdown: "## 甲\n\n替换内容",
+      expectedVersion: section.version,
+      includeStats: false,
+    };
+    const replaced = toolData((await callTool("replace_note_section", input)).body!).note;
+    withoutStats(replaced);
+    expect(replaced.version).toBe(note.version + 1);
+    expect(replaced).not.toHaveProperty("contentMarkdown");
+    const stale = toolData((await callTool("replace_note_section", input)).body!).error;
+    expect(stale.code).toBe("VERSION_CONFLICT");
+    expect(stale.currentVersion).toBe(replaced.version);
+    withoutStats(stale.current);
+    expect(stale.current).not.toHaveProperty("contentMarkdown");
+
+    const full = toolData(
+      (
+        await callTool("replace_note_section", {
+          ...input,
+          expectedVersion: replaced.version,
+          includeContent: true,
+        })
+      ).body!,
+    ).note;
+    withoutStats(full);
+    expect(full.contentMarkdown).toBe(markdown.replace("旧内容", "替换内容"));
+    const defaultResult = toolData(
+      (await callTool("get_note_section", { noteId: note.id, heading: "甲" })).body!,
+    );
+    expect(defaultResult.note.wordCount).toBeGreaterThan(0);
+  });
+
   test("requires disambiguation for repeated headings and supports selecting an occurrence", async () => {
     const note = toolData(
       (

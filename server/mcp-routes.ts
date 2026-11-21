@@ -77,11 +77,13 @@ export async function notesRoute(
   segments: string[],
   urlPath: string,
   payload?: unknown,
+  includeStats = true,
 ) {
   const context = createRouteContext(options, method, urlPath, segments, payload);
   const assetRoot = options.assetRoot ?? assetRootFromEnv(options.environment);
   return routeResult(
     await handleNotesRoute(context, user, assetRoot, (note) => {
+      if (!includeStats) return toNote(note);
       // Capture statistics from the exact response version before yielding to
       // another writer. Only MCP summaries pay for parsing the whole document.
       const stats = countMarkdownStats(note.content_markdown);
@@ -130,6 +132,7 @@ export type NoteUpdateInput = {
   removeTags?: string[];
   replaceTags?: string[];
   includeContent?: boolean;
+  includeStats?: boolean;
 };
 
 export async function updateNoteRoute(
@@ -202,7 +205,15 @@ export async function updateNoteRoute(
     ...(input.deleted === undefined ? {} : { deleted: input.deleted }),
   };
   const path = `/api/notes/${encodeURIComponent(input.noteId)}${input.includeContent ? "" : "?response=summary"}`;
-  return notesRoute(options, user, "PATCH", ["notes", input.noteId], path, payload);
+  return notesRoute(
+    options,
+    user,
+    "PATCH",
+    ["notes", input.noteId],
+    path,
+    payload,
+    input.includeStats,
+  );
 }
 
 export async function noteByTitle(

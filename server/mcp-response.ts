@@ -92,7 +92,7 @@ const BUSINESS_RECOVERY_ACTIONS: Record<string, string> = {
   SYSTEM_NOTEBOOK: "选择其他笔记本；系统收件箱不能删除。",
 };
 
-function businessError(value: unknown): Record<string, unknown> {
+function businessError(value: unknown, includeStats = true): Record<string, unknown> {
   const normalized = normalizeMcpError(
     value && typeof value === "object" && !Array.isArray(value)
       ? (value as Record<string, unknown>)
@@ -111,7 +111,7 @@ function businessError(value: unknown): Record<string, unknown> {
       suggestedAction = "使用 get_note 读取最新正文，修正 oldText、anchor 或 occurrence 后重试。";
     }
   }
-  const current = compactConflictNote(error.current);
+  const current = compactConflictNote(error.current, includeStats);
   const currentVersion =
     current &&
     typeof current === "object" &&
@@ -150,10 +150,13 @@ function resultSummary(value: Record<string, unknown>) {
 export function rawResponseValue(
   value: Record<string, unknown>,
   isError = false,
-  options: { writeResult?: boolean; includeContent?: boolean } = {},
+  options: { writeResult?: boolean; includeContent?: boolean; includeStats?: boolean } = {},
 ) {
   const sanitized: Record<string, unknown> = withoutThumbnailMetadata(value, options);
-  const error = sanitized.error === undefined ? undefined : businessError(sanitized.error);
+  const error =
+    sanitized.error === undefined
+      ? undefined
+      : businessError(sanitized.error, options.includeStats);
   const results = Array.isArray(sanitized.results)
     ? sanitized.results.map((entry) => {
         if (!entry || typeof entry !== "object" || Array.isArray(entry)) return entry;
@@ -222,7 +225,11 @@ function withMcpMetadata(value: unknown): unknown {
   return result;
 }
 
-function withNoteStatistics(note: Record<string, unknown>) {
+function withNoteStatistics(note: Record<string, unknown>, includeStats = true) {
+  if (!includeStats) {
+    const { markdownCharacterCount, textCharacterCount, wordCount, ...metadata } = note;
+    return metadata;
+  }
   if (typeof note.contentMarkdown !== "string") return note;
   if (
     typeof note.markdownCharacterCount === "number" &&
@@ -236,11 +243,13 @@ function withNoteStatistics(note: Record<string, unknown>) {
 
 function withoutThumbnailMetadata(
   value: Record<string, unknown>,
-  options: { writeResult?: boolean; includeContent?: boolean },
+  options: { writeResult?: boolean; includeContent?: boolean; includeStats?: boolean },
 ) {
   const omitThumbnail = (note: unknown) => {
     if (!note || typeof note !== "object" || Array.isArray(note)) return note;
-    const sanitized = { ...withNoteStatistics(note as Record<string, unknown>) };
+    const sanitized = {
+      ...withNoteStatistics(note as Record<string, unknown>, options.includeStats),
+    };
     delete sanitized.thumbnail;
     if (options.writeResult) {
       delete sanitized.preview;
@@ -258,7 +267,7 @@ function withoutThumbnailMetadata(
         ? {}
         : { notes }),
     ...(error && typeof error === "object" && "current" in error
-      ? { error: { ...error, current: compactConflictNote(error.current) } }
+      ? { error: { ...error, current: compactConflictNote(error.current, options.includeStats) } }
       : error === undefined
         ? {}
         : { error }),
@@ -276,9 +285,9 @@ export function withoutNotePreview(value: Record<string, unknown>) {
   return result;
 }
 
-export function compactConflictNote(value: unknown) {
+export function compactConflictNote(value: unknown, includeStats = true) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return value;
-  const note = { ...withNoteStatistics(value as Record<string, unknown>) };
+  const note = { ...withNoteStatistics(value as Record<string, unknown>, includeStats) };
   delete note.contentMarkdown;
   delete note.thumbnail;
   return note;
@@ -313,9 +322,9 @@ export function withPreviewLimit(notes: Record<string, unknown>[], previewLength
   return notes.map((note) => ({ ...note, preview: previewAtLength(note.preview, previewLength) }));
 }
 
-export function conciseWriteNote(value: unknown) {
+export function conciseWriteNote(value: unknown, includeStats = true) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return value;
-  const note = withNoteStatistics(value as Record<string, unknown>);
+  const note = withNoteStatistics(value as Record<string, unknown>, includeStats);
   return {
     id: note.id,
     title: note.title,
@@ -325,9 +334,13 @@ export function conciseWriteNote(value: unknown) {
     isFavorite: note.isFavorite,
     deletedAt: note.deletedAt,
     version: note.version,
-    markdownCharacterCount: note.markdownCharacterCount,
-    textCharacterCount: note.textCharacterCount,
-    wordCount: note.wordCount,
+    ...(includeStats
+      ? {
+          markdownCharacterCount: note.markdownCharacterCount,
+          textCharacterCount: note.textCharacterCount,
+          wordCount: note.wordCount,
+        }
+      : {}),
     createdAt: note.createdAt,
     updatedAt: note.updatedAt,
   };
@@ -348,13 +361,13 @@ export function invalidMcpTagsError(tags: readonly string[]) {
   );
 }
 
-export function routeError(result: RouteResult) {
+export function routeError(result: RouteResult, includeStats = true) {
   const error = result.body.error;
   const normalizedError =
     error && typeof error === "object"
       ? (error as Record<string, unknown>)
       : { code: "MCP_OPERATION_FAILED", message: "笔记操作失败" };
-  return responseValue({ error: normalizeMcpError(normalizedError) }, true);
+  return responseValue({ error: normalizeMcpError(normalizedError) }, true, { includeStats });
 }
 
 export function normalizeMcpError(error: Record<string, unknown>): Record<string, unknown> {
@@ -387,7 +400,7 @@ export function noteInTrashError() {
   );
 }
 
-export function noteWriteError(result: RouteResult) {
+export function noteWriteError(result: RouteResult, includeStats = true) {
   const error = result.body.error;
   if (
     error &&
@@ -420,7 +433,7 @@ export function noteWriteError(result: RouteResult) {
       true,
     );
   }
-  return routeError(result);
+  return routeError(result, includeStats);
 }
 
 export type McpToolContext = {

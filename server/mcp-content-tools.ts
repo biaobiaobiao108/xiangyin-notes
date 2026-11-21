@@ -203,15 +203,18 @@ export function registerMcpContentTools(
     heading: z.string().min(1).max(2000).optional(),
     occurrence: z.number().int().positive().optional(),
   };
+  const includeStatsOption = z.boolean().optional().describe("返回全文字数统计，默认 true");
   server.registerTool(
     "get_note_outline",
     {
       title: "读取笔记大纲",
       description:
-        "读取 Markdown 文档级标题结构和 version；sectionId 在正文修改后失效，不返回正文。",
-      inputSchema: z.object({ noteId: sectionSelector.noteId }).strict(),
+        "读取 Markdown 文档级标题结构和 version；sectionId 在正文修改后失效，不返回正文。仅定位章节时可用 includeStats=false。",
+      inputSchema: z
+        .object({ noteId: sectionSelector.noteId, includeStats: includeStatsOption })
+        .strict(),
     },
-    async ({ noteId }) => {
+    async ({ noteId, includeStats = true }) => {
       if (!user)
         return responseValue(
           { error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } },
@@ -228,7 +231,7 @@ export function registerMcpContentTools(
       const note = result.body.note as Record<string, unknown>;
       const headings = getMarkdownOutline(note.contentMarkdown as string);
       return responseValue({
-        note: conciseWriteNote(note),
+        note: conciseWriteNote(note, includeStats),
         version: note.version,
         headings: headings
           .slice(0, MAX_OUTLINE_HEADINGS)
@@ -244,10 +247,10 @@ export function registerMcpContentTools(
     {
       title: "读取笔记章节",
       description:
-        "按 sectionId 或精确 heading 读取章节，包含标题和子章节；重复标题用 occurrence 指定。",
-      inputSchema: z.object(sectionSelector).strict(),
+        "按 sectionId 或精确 heading 读取章节，包含标题和子章节；重复标题用 occurrence 指定。局部编辑时可用 includeStats=false。",
+      inputSchema: z.object({ ...sectionSelector, includeStats: includeStatsOption }).strict(),
     },
-    async ({ noteId, ...selector }) => {
+    async ({ noteId, includeStats = true, ...selector }) => {
       if (!user)
         return responseValue(
           { error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } },
@@ -267,7 +270,7 @@ export function registerMcpContentTools(
       if ("error" in located) return responseValue({ error: located.error }, true);
       const { start, end, ...section } = located.section;
       return responseValue({
-        note: conciseWriteNote(note),
+        note: conciseWriteNote(note, includeStats),
         version: note.version,
         section: { ...section, contentMarkdown: body.slice(start, end) },
       });
@@ -278,13 +281,14 @@ export function registerMcpContentTools(
     {
       title: "替换笔记章节",
       description:
-        "替换整个章节（包括标题及子章节），保留其他正文；重复标题需 occurrence，建议将读取的 version 作为 expectedVersion。 图片仅接受 HTTPS 地址或当前用户可用于该笔记的已上传附件，MCP 不上传图片。",
+        "替换整个章节（包括标题及子章节），保留其他正文；重复标题需 occurrence，建议将读取的 version 作为 expectedVersion。仅需保存结果和新版本时可用 includeStats=false。图片仅接受 HTTPS 地址或当前用户可用于该笔记的已上传附件，MCP 不上传图片。",
       inputSchema: z
         .object({
           ...sectionSelector,
           contentMarkdown: z.string().max(NOTE_CONTENT_MAX_LENGTH),
           expectedVersion: z.number().int().positive().optional(),
           includeContent: z.boolean().optional(),
+          includeStats: includeStatsOption,
         })
         .strict(),
     },
@@ -293,6 +297,7 @@ export function registerMcpContentTools(
       contentMarkdown,
       expectedVersion: version,
       includeContent = false,
+      includeStats = true,
       ...selector
     }) => {
       if (!user)
@@ -319,6 +324,7 @@ export function registerMcpContentTools(
             },
           },
           true,
+          { includeStats },
         );
       if (isDeletedNote(note)) return noteInTrashError();
       const body = note.contentMarkdown as string;
@@ -340,10 +346,11 @@ export function registerMcpContentTools(
         version: note.version as number,
         contentMarkdown: markdown,
         includeContent,
+        includeStats,
       });
       return result.status === 200
-        ? responseValue(result.body, false, { writeResult: true, includeContent })
-        : noteWriteError(result);
+        ? responseValue(result.body, false, { writeResult: true, includeContent, includeStats })
+        : noteWriteError(result, includeStats);
     },
   );
 }

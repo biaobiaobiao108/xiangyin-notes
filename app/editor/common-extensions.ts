@@ -17,6 +17,18 @@ type CommonEditorExtensionOptions = {
   trailingNode?: boolean;
 };
 
+const taskListTokenizer = TaskList.config.markdownTokenizer!;
+const MarkdownTaskList = TaskList.extend({
+  markdownTokenizer: {
+    ...taskListTokenizer,
+    tokenize(source, tokens, lexer) {
+      // The upstream parser skips leading blank lines, then splits the entire source.
+      if (!/^(?:[^\S\n]*\n)*[^\S\n]*[-+*][^\S\n]+\[[ xX]\][^\S\n]+/u.test(source)) return undefined;
+      return taskListTokenizer.tokenize(source, tokens, lexer);
+    },
+  },
+});
+
 /** The Markdown editing contract shared by notes and short-form memos. */
 export function createCommonEditorExtensions({
   placeholder,
@@ -42,7 +54,7 @@ export function createCommonEditorExtensions({
         ? { HTMLAttributes: { rel: "noopener noreferrer", target: "_blank" } }
         : {}),
     }),
-    TaskList,
+    MarkdownTaskList,
     TaskItem.configure({ nested: true }),
     ...(placeholder ? [Placeholder.configure({ placeholder })] : []),
     createMarkdownExtension(),
