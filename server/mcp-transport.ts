@@ -14,6 +14,7 @@ import { cleanupExpiredRateLimits, ensureEnvironmentUser, getAuthCredentials } f
 import { createNoteMcpServer } from "./mcp";
 
 export const MCP_PATH = "/mcp";
+export const MCP_POST_IDLE_TIMEOUT_SECONDS = 60;
 export const MCP_RATE_LIMIT_WINDOW_SECONDS = 60;
 export const MCP_RATE_LIMIT_MAX_REQUESTS = 240;
 
@@ -185,7 +186,7 @@ function invalidMcpArguments(id: unknown, message: string) {
 
 async function readMcpBody(request: Request) {
   const reader = request.clone().body?.getReader();
-  if (!reader) return { value: "", tooLarge: false };
+  if (!reader) return { kind: "complete", value: "" } as const;
   const chunks: Uint8Array[] = [];
   let totalBytes = 0;
   try {
@@ -198,10 +199,15 @@ async function readMcpBody(request: Request) {
         // Stop both branches without delaying the size-limit response.
         void reader.cancel().catch(() => {});
         void request.body?.cancel().catch(() => {});
-        return { value: "", tooLarge: true };
+        return { kind: "tooLarge" } as const;
       }
       chunks.push(value);
     }
+  } catch (error) {
+    if (!request.signal.aborted && !(error instanceof DOMException && error.name === "AbortError"))
+      throw error;
+    console.warn("[mcp] request body interrupted", { receivedBytes: totalBytes });
+    return { kind: "interrupted" } as const;
   } finally {
     reader.releaseLock();
   }
@@ -211,15 +217,20 @@ async function readMcpBody(request: Request) {
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return { value: new TextDecoder().decode(bytes), tooLarge: false };
+  return { kind: "complete", value: new TextDecoder().decode(bytes) } as const;
 }
 
 async function normalizeMcpRequest(
   request: Request,
 ): Promise<{ request: Request; error?: Response }> {
   if (request.method !== "POST" || !request.body) return { request };
-  const { value: rawBody, tooLarge } = await readMcpBody(request);
-  if (tooLarge)
+  const body = await readMcpBody(request);
+  if (body.kind === "interrupted")
+    return {
+      request,
+      error: jsonError(408, "MCP_UPLOAD_INTERRUPTED", "MCP 请求体上传中断，工具尚未执行"),
+    };
+  if (body.kind === "tooLarge")
     return {
       request,
       error: invalidMcpArguments(
@@ -227,7 +238,7 @@ async function normalizeMcpRequest(
         "MCP 请求体超过 4.5 MB 传输上限；请拆分本次参数或把新增正文分段调用 append_to_note。普通笔记在单次请求未超限时应优先直接创建；分段写入仍受单篇笔记正文总长度上限约束。",
       ),
     };
-  const outer = escapeUnescapedControlsInJsonStrings(rawBody);
+  const outer = escapeUnescapedControlsInJsonStrings(body.value);
   let message: Record<string, unknown>;
   try {
     const parsed = JSON.parse(outer.value) as unknown;

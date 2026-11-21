@@ -3577,6 +3577,31 @@ describe("remote MCP endpoint", () => {
     ).toBe(contentMarkdown);
   });
 
+  test("does not execute an MCP write if its upload is interrupted", async () => {
+    const title = "Interrupted MCP upload";
+    const template = modernMcpRequest(
+      "tools/call",
+      1,
+      { name: "create_note", arguments: { title, contentMarkdown: "Uncommitted" } },
+      "create_note",
+    );
+    const bytes = new TextEncoder().encode(await template.text());
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(bytes.subarray(0, bytes.length - 5));
+      },
+      pull(controller) {
+        controller.error(new DOMException("The connection was closed.", "AbortError"));
+      },
+    });
+    const result = await callMcp(
+      new Request(template.url, { method: "POST", headers: template.headers, body }),
+    );
+    expect(result.response.status).toBe(408);
+    expect(result.body?.error.code).toBe("MCP_UPLOAD_INTERRUPTED");
+    expect(database.query("SELECT 1 FROM notes WHERE title = ?").get(title)).toBeNull();
+  });
+
   test("rejects an open oversized MCP stream without waiting for source cancellation", async () => {
     let sourceCancelled = false;
     let finishCancellation!: () => void;

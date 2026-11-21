@@ -23,7 +23,7 @@ import {
 } from "./routes/auth";
 import { handleExportRoute } from "./routes/export";
 import { handleImportRoute } from "./routes/import";
-import { handleMcpRequest, MCP_PATH } from "./mcp-transport";
+import { handleMcpRequest, MCP_PATH, MCP_POST_IDLE_TIMEOUT_SECONDS } from "./mcp-transport";
 import { handleNotebooksRoute } from "./routes/notebooks";
 import { handleNotesRoute } from "./routes/notes";
 import { handleMemoImportRoute, handleMemosRoute } from "./routes/memos";
@@ -449,12 +449,16 @@ if (import.meta.main) {
         realtime,
         clientAddress: server.requestIP(request)?.address,
       };
-      if (new URL(request.url).pathname === REALTIME_PATH) {
+      const pathname = new URL(request.url).pathname;
+      if (pathname === REALTIME_PATH) {
         const realtimeResponse = await upgradeRealtimeRequest(request, server, options);
         if (realtimeResponse)
           return withSecurityHeaders(realtimeResponse, Bun.env, request, options.clientAddress);
         return undefined;
       }
+      // A slow MCP upload may pause before the full request body reaches the tool.
+      if (request.method === "POST" && isMcpPath(pathname))
+        server.timeout(request, MCP_POST_IDLE_TIMEOUT_SECONDS);
       return handleRequest(request, options);
     },
     websocket: {
