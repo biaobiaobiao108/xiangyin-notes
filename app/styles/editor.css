@@ -850,7 +850,7 @@
 .note-prose pre {
   position: relative;
   overflow: clip;
-  overflow-wrap: anywhere;
+  word-break: break-all;
   white-space: pre-wrap;
   margin-block: 1.25em;
   padding: 16px 20px 18px;
