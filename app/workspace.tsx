@@ -129,7 +129,7 @@ export function Workspace() {
     listTransitionConsumedRef.current = listTransitionIntentRef.current;
     setListTransitionToken((value) => value + 1);
   }, []);
-  const editorMarkdownReaderRef = useRef<(() => string | null) | null>(null);
+  const editorMarkdownReaderRef = useRef<((noteId: string) => string | null) | null>(null);
   const editorMarkdownDirtyNoteRef = useRef<string | null>(null);
   const flushEditorDraftRef = useRef<() => void>(() => undefined);
   const notesRef = useRef<NoteSummary[]>([]);
@@ -352,7 +352,7 @@ export function Workspace() {
   } = useOutlineState();
   const splitLoadRequestRef = useRef(0);
   const splitAbortRef = useRef<AbortController | null>(null);
-  const splitMarkdownReaderRef = useRef<(() => string | null) | null>(null);
+  const splitMarkdownReaderRef = useRef<((noteId: string) => string | null) | null>(null);
   const splitMarkdownDirtyNoteRef = useRef<string | null>(null);
   const [splitEditorFocusNoteId, setSplitEditorFocusNoteId] = useState<string | null>(null);
   const handleSplitEditorFocus = useCallback(() => setSplitEditorFocusNoteId(null), []);
@@ -729,9 +729,12 @@ export function Workspace() {
     setSelectedNote,
     persist,
   });
-  const registerEditorMarkdownReader = useCallback((reader: (() => string | null) | null) => {
-    editorMarkdownReaderRef.current = reader;
-  }, []);
+  const registerEditorMarkdownReader = useCallback(
+    (reader: ((noteId: string) => string | null) | null) => {
+      editorMarkdownReaderRef.current = reader;
+    },
+    [],
+  );
   const registerEditorMarkdownDirty = useCallback((noteId: string, isDirty: boolean) => {
     if (isDirty) editorMarkdownDirtyNoteRef.current = noteId;
     else if (editorMarkdownDirtyNoteRef.current === noteId)
@@ -740,7 +743,7 @@ export function Workspace() {
   const flushActiveEditorDraft = useCallback(() => {
     const current = selectedRef.current;
     if (current && !trashOperationsRef.current.has(current.id)) {
-      const markdown = editorMarkdownReaderRef.current?.();
+      const markdown = editorMarkdownReaderRef.current?.(current.id);
       if (markdown != null && markdown !== current.contentMarkdown) {
         const next = { ...current, contentMarkdown: markdown };
         selectedRef.current = next;
@@ -749,7 +752,7 @@ export function Workspace() {
     }
     const split = splitSelectedRef.current;
     if (split && !trashOperationsRef.current.has(split.id)) {
-      const markdown = splitMarkdownReaderRef.current?.();
+      const markdown = splitMarkdownReaderRef.current?.(split.id);
       if (markdown != null && markdown !== split.contentMarkdown) {
         const next = { ...split, contentMarkdown: markdown };
         splitSelectedRef.current = next;
@@ -1317,7 +1320,7 @@ export function Workspace() {
   const copyNoteMarkdown = useCallback(async () => {
     const note = selectedRef.current;
     if (!note) return;
-    const markdown = editorMarkdownReaderRef.current?.() ?? note.contentMarkdown;
+    const markdown = editorMarkdownReaderRef.current?.(note.id) ?? note.contentMarkdown;
     try {
       await copyPlainText(markdown);
       notifyInfo("笔记 Markdown 已复制");

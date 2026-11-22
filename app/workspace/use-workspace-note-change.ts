@@ -20,9 +20,9 @@ export function useWorkspaceNoteChange({
   persist: (note: Note | NoteDraft, fields: (keyof EditorPatch)[]) => void;
 }) {
   return useCallback(
-    (patch: EditorPatch) => {
+    (noteId: string, patch: EditorPatch) => {
       const current = selectedRef.current;
-      if (!current || trashOperationsRef.current.has(current.id)) return;
+      if (!current || current.id !== noteId || trashOperationsRef.current.has(noteId)) return;
       const { title = current.title, contentMarkdown = current.contentMarkdown } = patch;
       if (title === current.title && contentMarkdown === current.contentMarkdown) return;
 

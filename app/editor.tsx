@@ -145,7 +145,7 @@ export function NoteEditor({
   focusRequested?: boolean;
   trashBusy?: boolean;
   onFocusHandled?: () => void;
-  onChange: (patch: { title?: string; contentMarkdown?: string }) => void;
+  onChange: (noteId: string, patch: { title?: string; contentMarkdown?: string }) => void;
   onSaveNow: () => void;
   onReloadNote: () => void;
   onExportImage: () => void;
@@ -181,7 +181,7 @@ export function NoteEditor({
   onCreateAndLinkNote?: (title: string) => void;
   onSearchWikiLinkTitles?: WikiLinkTitleSearch;
   onNavigateToNote?: (id: string) => void;
-  onMarkdownReaderChange?: (reader: (() => string | null) | null) => void;
+  onMarkdownReaderChange?: (reader: ((noteId: string) => string | null) | null) => void;
   onMarkdownDirtyChange?: (noteId: string, isDirty: boolean) => void;
   onToggleSplit?: () => void;
   isSplitActive?: boolean;
@@ -426,8 +426,9 @@ export function NoteEditor({
       if (markdown === null) return;
       serializedMarkdownRef.current = null;
       markdownDirtyRef.current = false;
-      onMarkdownDirtyChangeRef.current?.(markdownOwnerRef.current.noteId, false);
-      onChangeRef.current({ contentMarkdown: markdown });
+      const { noteId } = markdownOwnerRef.current;
+      onMarkdownDirtyChangeRef.current?.(noteId, false);
+      onChangeRef.current(noteId, { contentMarkdown: markdown });
     },
     [readDirtyMarkdown],
   );
@@ -487,6 +488,19 @@ export function NoteEditor({
       surfaceSyncRef.current(instance, transactionMayChangeOutline(transaction), transaction);
     },
   });
+
+  useLayoutEffect(() => {
+    if (!editor) return;
+    return () => {
+      // Dispose before EditorContent clears its node views and redraws the outgoing document.
+      try {
+        flushMarkdownChange(editor);
+      } finally {
+        editor.destroy();
+      }
+    };
+  }, [editor, flushMarkdownChange]);
+
   mobileCaretScrollRef.current = useMobileCaret(
     editor,
     editorScrollRef,
@@ -593,7 +607,9 @@ export function NoteEditor({
 
   useEffect(() => {
     if (!editor) return;
-    onMarkdownReaderChange?.(() => readDirtyMarkdown(editor));
+    onMarkdownReaderChange?.((noteId) =>
+      noteId === markdownOwnerRef.current.noteId ? readDirtyMarkdown(editor) : null,
+    );
     return () => onMarkdownReaderChange?.(null);
   }, [editor, onMarkdownReaderChange, readDirtyMarkdown]);
 
@@ -674,7 +690,6 @@ export function NoteEditor({
     if (!editor) return;
     scheduleEditorSurfaceSync(editor);
     return () => {
-      flushMarkdownChange(editor);
       if (syncFrameRef.current !== null) {
         window.clearTimeout(syncFrameRef.current);
       }
@@ -690,7 +705,7 @@ export function NoteEditor({
       composingRef.current = false;
       outlineHeadingElementsRef.current.clear();
     };
-  }, [editor, flushMarkdownChange]);
+  }, [editor]);
 
   useEffect(() => {
     if (!isLoading) {
@@ -864,7 +879,7 @@ export function NoteEditor({
     noteId: note.id,
     locked: editorLocked,
     deleted: Boolean(note.deletedAt),
-    onTitleChange: (title) => onChange({ title }),
+    onTitleChange: (title) => onChange(note.id, { title }),
     onAddAnnotation: annotations.openCreate,
     onEditAnnotation: annotations.startEdit,
     onDeleteAnnotation: annotations.deleteAnnotations,
@@ -1066,10 +1081,10 @@ export function NoteEditor({
               value={note.title}
               maxLength={200}
               readOnly={Boolean(note.deletedAt) || editorLocked}
-              onChange={(event) => onChange({ title: event.target.value })}
+              onChange={(event) => onChange(note.id, { title: event.target.value })}
               onBlur={() => {
                 const trimmed = note.title.trim();
-                if (trimmed !== note.title) onChange({ title: trimmed });
+                if (trimmed !== note.title) onChange(note.id, { title: trimmed });
               }}
               onKeyDown={(event) => {
                 if (

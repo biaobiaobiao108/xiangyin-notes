@@ -103,6 +103,7 @@ export function useSelectedNoteLoader({
         const latestPendingNote = pendingSavesRef.current.get(id);
         loadedNote = latestSelectedNoteSnapshot(loadedNote, selectedRef.current);
         const nextNote = latestPendingNote ? { ...loadedNote, ...latestPendingNote } : loadedNote;
+        if (selectedRef.current?.id !== id) flushEditorDraftRef.current();
         selectedRef.current = nextNote;
         setSelectedNote(noteMetadataSnapshot(nextNote));
         setIsNoteLoading(false);

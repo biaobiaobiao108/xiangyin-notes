@@ -533,6 +533,7 @@ export function BlockDragHandle({
     }
     const container = containerRef.current;
     if (!container) return;
+    const editorDom = editor.view.dom;
 
     let pointerFrame: number | null = null;
     let pendingPointer: PointerEvent | null = null;
@@ -649,9 +650,9 @@ export function BlockDragHandle({
 
     const resizeObserver = new ResizeObserver(refreshHandle);
     resizeObserver.observe(container);
-    editor.view.dom.addEventListener("blur", handleEditorBlur);
-    editor.view.dom.addEventListener("keydown", handleEditorKeyDown);
-    editor.view.dom.setAttribute("aria-keyshortcuts", "Shift+F10");
+    editorDom.addEventListener("blur", handleEditorBlur);
+    editorDom.addEventListener("keydown", handleEditorKeyDown);
+    editorDom.setAttribute("aria-keyshortcuts", "Shift+F10");
     window.addEventListener("pointermove", handlePointerMove, { passive: true });
     window.addEventListener("resize", refreshHandle);
     container.addEventListener("pointerleave", handlePointerLeave);
@@ -661,9 +662,9 @@ export function BlockDragHandle({
     return () => {
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("resize", refreshHandle);
-      editor.view.dom.removeEventListener("blur", handleEditorBlur);
-      editor.view.dom.removeEventListener("keydown", handleEditorKeyDown);
-      editor.view.dom.removeAttribute("aria-keyshortcuts");
+      editorDom.removeEventListener("blur", handleEditorBlur);
+      editorDom.removeEventListener("keydown", handleEditorKeyDown);
+      editorDom.removeAttribute("aria-keyshortcuts");
       container.removeEventListener("pointerleave", handlePointerLeave);
       scrollElement?.removeEventListener("scroll", refreshHandle);
       resizeObserver.disconnect();

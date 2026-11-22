@@ -21,7 +21,7 @@ type Options = {
   splitLoadRequestRef: Ref<number>;
   splitNoteOpeningRef: Ref<Promise<void> | null>;
   splitAbortRef: Ref<AbortController | null>;
-  splitMarkdownReaderRef: Ref<(() => string | null) | null>;
+  splitMarkdownReaderRef: Ref<((noteId: string) => string | null) | null>;
   closeSplitRef: Ref<() => void>;
   pendingSavesRef: Queue["pendingSavesRef"];
   failedSavesRef: Queue["failedSavesRef"];
@@ -90,6 +90,18 @@ export function useWorkspaceSplit({
   setSidebarCollapsed,
   replaceList,
 }: Options) {
+  const flushSecondaryDraft = useCallback(() => {
+    const split = splitSelectedRef.current;
+    if (split && !trashOperationsRef.current.has(split.id)) {
+      const md = splitMarkdownReaderRef.current?.(split.id);
+      if (md != null && md !== split.contentMarkdown) {
+        const next = { ...split, contentMarkdown: md };
+        splitSelectedRef.current = next;
+        persistRef.current(next, ["contentMarkdown"]);
+      }
+    }
+  }, []);
+
   const fetchSplitNote = useCallback(
     async (id: string, discardRecovery = false) => {
       if (splitNoteIdRef.current !== id) return;
@@ -140,6 +152,7 @@ export function useWorkspaceSplit({
         if (!discardRecovery)
           loadedNote = latestSelectedNoteSnapshot(loadedNote, splitSelectedRef.current);
         if (latestPendingNote) loadedNote = { ...loadedNote, ...latestPendingNote };
+        if (splitSelectedRef.current?.id !== id) flushSecondaryDraft();
         splitSelectedRef.current = loadedNote;
         setSplitSelectedNote(noteMetadataSnapshot(loadedNote));
         setSplitIsNoteLoading(false);
@@ -156,6 +169,7 @@ export function useWorkspaceSplit({
       } catch (reason) {
         if (requestId !== splitLoadRequestRef.current) return;
         if (reason instanceof Error && reason.name === "AbortError") return;
+        flushSecondaryDraft();
         setSplitIsNoteLoading(false);
         setSplitNoteId(null);
         setSplitSelectedNote(null);
@@ -163,7 +177,14 @@ export function useWorkspaceSplit({
         setActivePane("primary");
       }
     },
-    [clearPendingForNote, failedSavesRef, notifyWarning, pendingSavesRef, setSplitSaveState],
+    [
+      clearPendingForNote,
+      failedSavesRef,
+      flushSecondaryDraft,
+      notifyWarning,
+      pendingSavesRef,
+      setSplitSaveState,
+    ],
   );
   const loadSplitNote = useCallback(
     async (id: string, discardRecovery = false) => {
@@ -203,18 +224,6 @@ export function useWorkspaceSplit({
     }
     void loadSplitNote(splitNoteId);
   }, [loadSplitNote, ready, splitNoteId]);
-
-  const flushSecondaryDraft = useCallback(() => {
-    const split = splitSelectedRef.current;
-    if (split && !trashOperationsRef.current.has(split.id)) {
-      const md = splitMarkdownReaderRef.current?.();
-      if (md != null && md !== split.contentMarkdown) {
-        const next = { ...split, contentMarkdown: md };
-        splitSelectedRef.current = next;
-        persistRef.current(next, ["contentMarkdown"]);
-      }
-    }
-  }, []);
 
   const closeSplit = useCallback(() => {
     flushSecondaryDraft();
@@ -305,9 +314,9 @@ export function useWorkspaceSplit({
   );
 
   const onSplitNoteChange = useCallback(
-    (patch: { title?: string; contentMarkdown?: string; notebookId?: string }) => {
+    (noteId: string, patch: { title?: string; contentMarkdown?: string; notebookId?: string }) => {
       const current = splitSelectedRef.current;
-      if (!current || trashOperationsRef.current.has(current.id)) return;
+      if (!current || current.id !== noteId || trashOperationsRef.current.has(noteId)) return;
       if (
         (patch.title === undefined || patch.title === current.title) &&
         (patch.contentMarkdown === undefined ||
