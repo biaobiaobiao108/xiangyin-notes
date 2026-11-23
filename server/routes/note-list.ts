@@ -195,8 +195,11 @@ export function buildOptimizedNoteListPlan(input: {
       ? [cursor.value, cursor.value, cursor.id]
       : [cursor.value, cursor.id]
     : [];
+  // The totals LEFT JOIN can return a row with no note when the page is empty.
   const matchSelect = includeMatch
-    ? ", search_snippet(COALESCE(n.search_text, n.content_markdown), ?) AS match_snippet"
+    ? `, CASE WHEN n.id IS NOT NULL
+        THEN search_snippet(COALESCE(n.search_text, n.content_markdown), ?)
+      END AS match_snippet`
     : "";
   const detailParams: SqlValue[] = includeMatch ? [JSON.stringify(searchTokens)] : [];
   const detailOrder = isRanked

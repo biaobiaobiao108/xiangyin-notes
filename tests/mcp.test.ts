@@ -3802,6 +3802,22 @@ describe("remote MCP endpoint", () => {
     expect(toolData(conflict.body!).error.current.thumbnail).toBeUndefined();
   });
 
+  test("keyword searches with no matches return an empty result", async () => {
+    await callTool("create_note", { title: "会议记录", contentMarkdown: "正文关键词" });
+
+    const hit = await callTool("search_notes", { query: "关键词" }, 2);
+    expect(toolData(hit.body!)).toMatchObject({
+      total: 1,
+      notes: [{ match: { field: "content", snippet: "正文关键词" } }],
+    });
+
+    for (const [index, query] of ["未命中", "无"].entries()) {
+      const miss = await callTool("search_notes", { query }, index + 3);
+      expect(resultOf(miss.body!).isError).toBeUndefined();
+      expect(toolData(miss.body!)).toMatchObject({ ok: true, notes: [], total: 0 });
+    }
+  });
+
   test("search returns a cursor and loads a non-overlapping next page", async () => {
     const environment = { ...credentials, XIANGYING_MCP_TOKEN: token };
     await callTool("list_notebooks", {}, 1, environment);
