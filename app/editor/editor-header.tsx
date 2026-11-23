@@ -5,6 +5,7 @@ import {
   ChevronLeft,
   CircleAlert,
   Columns2,
+  FilePlus,
   LayoutGrid,
   LoaderCircle,
   RefreshCw,
@@ -17,8 +18,7 @@ import {
 import type { ImageAssetSummary, Note } from "../../shared/types";
 import { relativeDate } from "../format";
 import { MobileEditorHeader } from "./mobile-editor-controls";
-
-export type EditorSaveState = "idle" | "saving" | "saved" | "conflict" | "error";
+import type { SaveState } from "../workspace/use-note-save-queue";
 
 type EditorHeaderProps = {
   isMobileViewport: boolean;
@@ -28,7 +28,7 @@ type EditorHeaderProps = {
   trashBusy: boolean;
   backlinkCount: number;
   backlinksOpen: boolean;
-  saveState: EditorSaveState;
+  saveState: SaveState;
   saveLabel: string;
   imageUploadState: "idle" | "uploading" | "error";
   imageUploadMessage: string;
@@ -58,7 +58,7 @@ type EditorHeaderProps = {
   onReloadNote: () => void;
 };
 
-function SaveStatusIcon({ state }: { state: Exclude<EditorSaveState, "idle"> }) {
+function SaveStatusIcon({ state }: { state: Exclude<SaveState, "idle"> }) {
   const iconProps = {
     className: "save-status-icon",
     size: 16,
@@ -70,6 +70,8 @@ function SaveStatusIcon({ state }: { state: Exclude<EditorSaveState, "idle"> }) 
       return <LoaderCircle {...iconProps} />;
     case "conflict":
       return <RefreshCw {...iconProps} />;
+    case "missing":
+      return <FilePlus {...iconProps} />;
     case "error":
       return <CircleAlert {...iconProps} />;
     case "saved":
@@ -112,7 +114,30 @@ export function EditorHeader({
   onSaveNow,
   onReloadNote,
 }: EditorHeaderProps) {
-  const handleSaveNow = onSaveNow;
+  const saveAction =
+    saveState === "missing"
+      ? { label: "另存为新笔记", onClick: onSaveNow }
+      : saveState === "error"
+        ? { label: "重试保存", onClick: onSaveNow }
+        : saveState === "conflict"
+          ? { label: "重新载入最新版本", onClick: onReloadNote }
+          : null;
+  const saveStatusClass = `save-status save-status--${saveState === "missing" ? "error" : saveState} save-status--icon`;
+  const saveStatus =
+    saveState === "idle" ? null : saveAction ? (
+      <button
+        className={saveStatusClass}
+        type="button"
+        aria-label={saveAction.label}
+        onClick={saveAction.onClick}
+      >
+        <SaveStatusIcon state={saveState} />
+      </button>
+    ) : (
+      <span className={saveStatusClass} role="status" aria-label={saveLabel}>
+        <SaveStatusIcon state={saveState} />
+      </span>
+    );
 
   return isMobileViewport ? (
     <MobileEditorHeader
@@ -137,33 +162,7 @@ export function EditorHeader({
       onPermanentDelete={onPermanentDelete}
       status={
         <>
-          {saveState === "error" ? (
-            <button
-              className="save-status save-status--error save-status--icon"
-              type="button"
-              aria-label="重试保存"
-              onClick={handleSaveNow}
-            >
-              <SaveStatusIcon state="error" />
-            </button>
-          ) : saveState === "conflict" ? (
-            <button
-              className="save-status save-status--conflict save-status--icon"
-              type="button"
-              aria-label="重新载入最新版本"
-              onClick={onReloadNote}
-            >
-              <SaveStatusIcon state="conflict" />
-            </button>
-          ) : saveState !== "idle" ? (
-            <span
-              className={`save-status save-status--${saveState} save-status--icon`}
-              role="status"
-              aria-label={saveLabel}
-            >
-              <SaveStatusIcon state={saveState} />
-            </span>
-          ) : null}
+          {saveStatus}
           {imageUploadState !== "idle" && (
             <span
               className={`save-status save-status--${imageUploadState === "uploading" ? "saving" : "error"} save-status--icon mobile-upload-status`}
@@ -216,8 +215,10 @@ export function EditorHeader({
             <ChevronLeft size={20} />
           </button>
         )}
-        <div className="editor-meta" aria-label={`最后编辑于${relativeDate(note.updatedAt)}`}>
-          <span>最后编辑于 {relativeDate(note.updatedAt)}</span>
+        <div className="editor-meta">
+          <span>
+            {saveState === "missing" ? "本地草稿" : `最后编辑于 ${relativeDate(note.updatedAt)}`}
+          </span>
         </div>
       </div>
       <div
@@ -227,34 +228,7 @@ export function EditorHeader({
         {note.title.trim() || "未命名笔记"}
       </div>
       <div className="editor-actions">
-        {saveState === "error" ? (
-          <button
-            className="save-status save-status--error save-status--action save-status--icon"
-            type="button"
-            aria-label="重试保存"
-            onClick={handleSaveNow}
-          >
-            <SaveStatusIcon state="error" />
-          </button>
-        ) : saveState === "conflict" ? (
-          <button
-            className="save-status save-status--conflict save-status--action save-status--icon"
-            type="button"
-            aria-label="重新载入最新版本"
-            onClick={onReloadNote}
-          >
-            <SaveStatusIcon state="conflict" />
-          </button>
-        ) : saveState === "idle" ? null : (
-          <span
-            className={`save-status save-status--${saveState} save-status--icon`}
-            role="status"
-            aria-label={saveLabel}
-            aria-live="polite"
-          >
-            <SaveStatusIcon state={saveState} />
-          </span>
-        )}
+        {saveStatus}
         {onUploadImage && !note.deletedAt && (
           <input
             ref={imageFileInputRef}

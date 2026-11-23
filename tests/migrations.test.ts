@@ -14,6 +14,7 @@ import {
 } from "../server/db";
 import { LEGACY_PASSWORD_ITERATIONS } from "../server/core";
 import { createNote } from "../server/routes/note-mutations";
+import { getImportRequest, importContentHash } from "../server/import-idempotency";
 
 test("realigns legacy duplicate-title backlinks without changing note bodies or versions", async () => {
   const database = await createExpectedSchemaDatabase(6);
@@ -34,7 +35,9 @@ test("realigns legacy duplicate-title backlinks without changing note bodies or 
 
     await initializeDatabase(database);
 
-    expect(database.query("PRAGMA user_version").get()).toEqual({ user_version: 7 });
+    expect(database.query("PRAGMA user_version").get()).toEqual({
+      user_version: CURRENT_SCHEMA_VERSION,
+    });
     expect(
       database.query("SELECT target_note_id FROM note_links WHERE source_note_id = ?").get(source),
     ).toEqual({ target_note_id: newTarget });
@@ -57,6 +60,40 @@ test("initializes a fresh database from the single baseline and records its vers
         .query("SELECT name FROM sqlite_master WHERE type = ? AND name = ?")
         .get("table", "users"),
     ).toBeTruthy();
+  } finally {
+    database.close();
+  }
+});
+
+test("retains legacy import keys independently of the existing note and memo rows", async () => {
+  const database = await createExpectedSchemaDatabase(7);
+  try {
+    database.exec(`
+      INSERT INTO users (id, username, password_hash, password_salt, created_at)
+        VALUES ('user', 'owner', '', '', 1);
+      INSERT INTO notebooks (id, user_id, name, created_at, updated_at)
+        VALUES ('book', 'user', '笔记本', 1, 1);
+    `);
+    const noteId = "531fe512-5360-5167-946c-3158f378593a";
+    const memoId = "531fe512-5360-5167-a46c-3158f378593a";
+    const ordinaryId = createNote(database, "user", "book", "普通笔记", "普通正文");
+    createNote(database, "user", "book", "导入笔记", "笔记正文", noteId);
+    database
+      .query(
+        "INSERT INTO memos (id, user_id, content_markdown, search_text, created_at, updated_at) VALUES (?, 'user', ?, '', 1, 1)",
+      )
+      .run(memoId, "随记正文");
+
+    await initializeDatabase(database);
+    database.query("DELETE FROM notes WHERE id = ?").run(noteId);
+    database.query("DELETE FROM memos WHERE id = ?").run(memoId);
+    expect(getImportRequest(database, "user", "note", noteId)?.content_hash).toBe(
+      importContentHash("笔记正文"),
+    );
+    expect(getImportRequest(database, "user", "memo", memoId)?.content_hash).toBe(
+      importContentHash("随记正文"),
+    );
+    expect(getImportRequest(database, "user", "note", ordinaryId)).toBeNull();
   } finally {
     database.close();
   }

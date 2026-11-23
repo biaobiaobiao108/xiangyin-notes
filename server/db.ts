@@ -5,12 +5,13 @@ import { snapshotSchema } from "./schema-snapshot";
 import { rebuildNoteShortSearchIndex } from "./note-search";
 import { resolveNoteLinksForUser } from "./note-links";
 import { searchContains, searchableTextFromMarkdown, searchSnippet } from "./search-text";
+import { importContentHash, recordImportRequest } from "./import-idempotency";
 
 const DEFAULT_DATABASE_PATH = "./data/xiangying-notes.sqlite";
 const DEFAULT_SCHEMA_PATH = "./database/schema.sql";
 const BASELINE_SCHEMA_VERSION = 1;
 
-export const CURRENT_SCHEMA_VERSION = 7;
+export const CURRENT_SCHEMA_VERSION = 8;
 export const SEARCH_INDEX_REBUILD_KEY = "search-index-rebuild-required";
 
 type TableCountRow = {
@@ -129,6 +130,38 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     migrate: (database) => {
       const users = database.query<{ id: string }, []>("SELECT id FROM users").all();
       for (const user of users) resolveNoteLinksForUser(database, user.id);
+    },
+  },
+  {
+    sourceVersion: 7,
+    targetVersion: 8,
+    migrate: (database) => {
+      database.exec(`
+        CREATE TABLE import_requests (
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          resource TEXT NOT NULL CHECK(resource IN ('note', 'memo')),
+          resource_id TEXT NOT NULL,
+          content_hash TEXT NOT NULL,
+          PRIMARY KEY(user_id, resource, resource_id)
+        ) WITHOUT ROWID;
+      `);
+      // Legacy import endpoints used deterministic version-5 UUIDs and kept no request body.
+      for (const [table, resource] of [
+        ["notes", "note"],
+        ["memos", "memo"],
+      ] as const) {
+        const rows = database.query<{ id: string; user_id: string; content_markdown: string }, []>(
+          `SELECT id, user_id, content_markdown FROM ${table} WHERE substr(id, 15, 1) = '5'`,
+        );
+        for (const row of rows.iterate())
+          recordImportRequest(
+            database,
+            row.user_id,
+            resource,
+            row.id,
+            importContentHash(row.content_markdown),
+          );
+      }
     },
   },
 ];

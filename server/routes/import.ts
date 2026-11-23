@@ -19,6 +19,13 @@ import { requireApiToken } from "../api-token";
 import { cleanupExpiredRateLimits, getAuthCredentials, ensureEnvironmentUser } from "./auth";
 import { createNote } from "./notes";
 import { publishWorkspaceChange } from "../realtime";
+import {
+  deletedImport,
+  getImportRequest,
+  importConflict,
+  importContentHash,
+  recordImportRequest,
+} from "../import-idempotency";
 
 const IMPORT_API_PATH = "/api/import";
 export const IMPORT_RATE_LIMIT_WINDOW_SECONDS = 60;
@@ -119,19 +126,6 @@ async function deterministicImportNoteId(userId: string, idempotencyKey: string)
   return noteId;
 }
 
-function replayIdempotentImport(
-  database: RouteContext["options"]["database"],
-  userId: string,
-  noteId: string,
-  contentMarkdown: string,
-) {
-  const existing = getNote(database, userId, noteId);
-  if (!existing) return null;
-  if (existing.content_markdown !== contentMarkdown)
-    return jsonError(409, "IDEMPOTENCY_CONFLICT", "Idempotency-Key 已用于其他笔记内容");
-  return json({ ok: true, note: toNote(existing) }, 200, { "Idempotent-Replayed": "true" });
-}
-
 function formatImportTitle(timestamp: number) {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Shanghai",
@@ -222,50 +216,58 @@ export async function handleImportRoute(ctx: RouteContext): Promise<Response | n
   if (!contentMarkdown.trim()) return jsonError(400, "EMPTY_NOTE", "笔记正文不能为空");
 
   const user = await ensureEnvironmentUser(options.database, credentials);
-  const inbox = first<{ id: string }>(
-    options.database,
-    "SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1 LIMIT 1",
-    user.id,
-  );
-  if (!inbox) return jsonError(500, "NO_INBOX", "找不到收件箱");
+  const { database } = options;
   const requestedId = idempotencyKey
     ? await deterministicImportNoteId(user.id, idempotencyKey)
     : undefined;
-  if (requestedId) {
-    const replay = replayIdempotentImport(options.database, user.id, requestedId, contentMarkdown);
-    if (replay) return replay;
-  }
-  // A replay's attachments are already bound to the original note. Validate
-  // unattached assets only when this request is actually creating a new note.
-  if (!validNoteAssetReferences(options.database, user.id, null, contentMarkdown))
-    return jsonError(400, "INVALID_ASSET", "图片引用无效、不受支持或附件当前不可用");
-
-  let noteId: string;
+  const contentHash = requestedId ? importContentHash(contentMarkdown) : null;
+  let response: Response;
   try {
-    noteId = createNote(
-      options.database,
-      user.id,
-      inbox.id,
-      formatImportTitle(Math.floor(Date.now() / 1000)),
-      contentMarkdown,
-      requestedId,
-    );
+    response = database
+      .transaction(() => {
+        if (requestedId && contentHash) {
+          const receipt = getImportRequest(database, user.id, "note", requestedId);
+          if (receipt && receipt.content_hash !== contentHash) return importConflict("note");
+          const existing = getNote(database, user.id, requestedId);
+          if (existing) {
+            if (!receipt) {
+              if (existing.content_markdown !== contentMarkdown) return importConflict("note");
+              recordImportRequest(database, user.id, "note", requestedId, contentHash);
+            }
+            return json({ ok: true, note: toNote(existing) }, 200, {
+              "Idempotent-Replayed": "true",
+            });
+          }
+          if (receipt) return deletedImport("note");
+        }
+
+        const inbox = first<{ id: string }>(
+          database,
+          "SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1 LIMIT 1",
+          user.id,
+        );
+        if (!inbox) return jsonError(500, "NO_INBOX", "找不到收件箱");
+        if (!validNoteAssetReferences(database, user.id, null, contentMarkdown))
+          return jsonError(400, "INVALID_ASSET", "图片引用无效、不受支持或附件当前不可用");
+        const noteId = createNote(
+          database,
+          user.id,
+          inbox.id,
+          formatImportTitle(Math.floor(Date.now() / 1000)),
+          contentMarkdown,
+          requestedId,
+        );
+        if (contentHash) recordImportRequest(database, user.id, "note", noteId, contentHash);
+        const note = getNote(database, user.id, noteId);
+        return json({ ok: true, note: note ? toNote(note) : null }, 201);
+      })
+      .immediate();
   } catch (error) {
-    if (requestedId) {
-      const replay = replayIdempotentImport(
-        options.database,
-        user.id,
-        requestedId,
-        contentMarkdown,
-      );
-      if (replay) return replay;
-    }
     if (error instanceof Error && error.message === "invalid-note-assets")
       return jsonError(400, "INVALID_ASSET", "图片引用无效、不受支持或附件当前不可用");
     throw error;
   }
-  const note = getNote(options.database, user.id, noteId);
-  // 导入会新增笔记，广播不带 noteId，让其他客户端整表刷新。
-  publishWorkspaceChange(options, user.id, { resource: "notes" }, request);
-  return json({ ok: true, note: note ? toNote(note) : null }, 201);
+  if (response.status === 201)
+    publishWorkspaceChange(options, user.id, { resource: "notes" }, request);
+  return response;
 }

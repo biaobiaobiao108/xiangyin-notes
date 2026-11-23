@@ -29,6 +29,7 @@ type Options = {
   emptyingTrashRef: Ref<boolean>;
   selectedRef: Ref<Note | null>;
   selectedIdRef: Ref<string | null>;
+  isMissingDraft: (noteId: string) => boolean;
   notesRef: Ref<NoteSummary[]>;
   setHasMoreNotes: Dispatch<SetStateAction<boolean>>;
   setTotalNotes: Dispatch<SetStateAction<number>>;
@@ -58,6 +59,7 @@ export function useWorkspaceNoteList({
   emptyingTrashRef,
   selectedRef,
   selectedIdRef,
+  isMissingDraft,
   notesRef,
   setHasMoreNotes,
   setTotalNotes,
@@ -105,7 +107,8 @@ export function useWorkspaceNoteList({
       const notesToDisplay =
         active &&
         !latestNotes.some((note) => note.id === active.id) &&
-        shouldKeepActiveNoteInList(active, notebooks, view, deferredQuery, notebookId)
+        (isMissingDraft(active.id) ||
+          shouldKeepActiveNoteInList(active, notebooks, view, deferredQuery, notebookId))
           ? [toNoteSummary(active), ...latestNotes]
           : latestNotes;
       const orderedNotes =
@@ -134,6 +137,7 @@ export function useWorkspaceNoteList({
     }
   }, [
     deferredQuery,
+    isMissingDraft,
     listScope,
     navigate,
     noteSort,

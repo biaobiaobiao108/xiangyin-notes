@@ -52,6 +52,7 @@ import {
   NoteRenameContentTooLargeError,
   syncNoteTasks,
   updateNote,
+  updateNoteInTransaction,
 } from "./note-mutations";
 export {
   createNote,
@@ -83,6 +84,8 @@ const NOTE_BATCH_LIMIT = 500;
 const NOTE_BATCH_BODY_MAX_BYTES = 64 * 1024;
 const NOTE_SORTS: NoteSort[] = ["updated", "created", "title"];
 const NOTE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+
+class StaleMentionTargetError extends Error {}
 
 function searchContainsPredicate(
   column: "n.title" | "n.content_markdown" | "COALESCE(n.search_text, n.content_markdown)",
@@ -999,11 +1002,6 @@ export async function handleNotesRoute(
 
   // Link mention
   if (id && subresource === "link-mention" && method === "POST") {
-    const targetNote = getNote(database, user.id, id);
-    if (!targetNote) return jsonError(404, "NOTE_NOT_FOUND", "目标笔记不存在");
-    if (targetNote.deleted_at !== null)
-      return jsonError(409, "NOTE_IN_TRASH", "回收站中的笔记只读，请先恢复笔记后再修改");
-
     const payload = await readJson<{
       sourceNoteId?: unknown;
       sourceVersion?: unknown;
@@ -1023,50 +1021,67 @@ export async function handleNotesRoute(
       return jsonError(400, "INVALID_MENTION_PAYLOAD", "提及参数无效");
     }
 
-    const sourceNote = getNote(database, user.id, payload.sourceNoteId);
-    if (!sourceNote) return jsonError(404, "SOURCE_NOTE_NOT_FOUND", "来源笔记不存在");
-    if (sourceNote.deleted_at !== null)
-      return jsonError(409, "NOTE_IN_TRASH", "回收站中的笔记只读，请先恢复笔记后再修改");
-    if (sourceNote.version !== payload.sourceVersion)
-      return jsonError(409, "MENTION_STALE", "来源笔记已更新，请重新选择提及");
-
+    const sourceNoteId = payload.sourceNoteId;
+    const matchText = payload.matchText;
     const matchStart = payload.matchStart as number;
     const matchEnd = payload.matchEnd as number;
-    if (matchStart < 0 || matchEnd > sourceNote.content_markdown.length || matchStart >= matchEnd) {
-      return jsonError(400, "INVALID_MENTION_RANGE", "提及范围无效");
-    }
-    const currentMatch = sourceNote.content_markdown.slice(matchStart, matchEnd);
-    const isCurrentMention =
-      currentMatch === payload.matchText &&
-      normalizeLinkTitle(currentMatch) === normalizeLinkTitle(targetNote.title) &&
-      findUnlinkedMentionsInMarkdown(sourceNote.content_markdown, targetNote.title).some(
-        (mention) => mention.start === matchStart && mention.end === matchEnd,
-      );
-    if (!isCurrentMention) return jsonError(409, "MENTION_STALE", "提及位置已变化，请重新选择");
 
-    const newContent = linkMentionInMarkdown(
-      sourceNote.content_markdown,
-      matchStart,
-      matchEnd,
-      targetNote.title,
-    );
-    if (!validText(newContent, NOTE_CONTENT_MAX_LENGTH))
-      return jsonError(413, "NOTE_TOO_LARGE", "笔记标题或正文超出长度限制");
-    if (
-      !updateNote(
-        database,
-        sourceNote,
-        user.id,
-        sourceNote.title,
-        newContent,
-        sourceNote.notebook_id,
-        sourceNote.is_favorite,
-        sourceNote.deleted_at,
-      )
-    ) {
-      return jsonError(409, "VERSION_CONFLICT", "来源笔记已被更新，请重试");
+    let failure: Response | null;
+    try {
+      failure = database
+        .transaction(() => {
+          const targetNote = getNote(database, user.id, id);
+          if (!targetNote) return jsonError(404, "NOTE_NOT_FOUND", "目标笔记不存在");
+          const sourceNote = getNote(database, user.id, sourceNoteId);
+          if (!sourceNote) return jsonError(404, "SOURCE_NOTE_NOT_FOUND", "来源笔记不存在");
+          if (targetNote.deleted_at !== null || sourceNote.deleted_at !== null)
+            return jsonError(409, "NOTE_IN_TRASH", "回收站中的笔记只读，请先恢复笔记后再修改");
+          if (sourceNote.version !== payload.sourceVersion)
+            return jsonError(409, "MENTION_STALE", "来源笔记已更新，请重新选择提及");
+
+          const content = sourceNote.content_markdown;
+          if (matchStart < 0 || matchEnd > content.length || matchStart >= matchEnd)
+            return jsonError(400, "INVALID_MENTION_RANGE", "提及范围无效");
+          const currentMatch = content.slice(matchStart, matchEnd);
+          if (
+            currentMatch !== matchText ||
+            normalizeLinkTitle(currentMatch) !== normalizeLinkTitle(targetNote.title) ||
+            !findUnlinkedMentionsInMarkdown(content, targetNote.title).some(
+              (mention) => mention.start === matchStart && mention.end === matchEnd,
+            )
+          )
+            return jsonError(409, "MENTION_STALE", "提及或目标标题已变化，请重新选择");
+
+          const resolvesToTarget = () =>
+            findActiveNoteIdByTitle(database, user.id, targetNote.title) === targetNote.id;
+          if (!resolvesToTarget()) throw new StaleMentionTargetError();
+          const newContent = linkMentionInMarkdown(content, matchStart, matchEnd, targetNote.title);
+          if (!validText(newContent, NOTE_CONTENT_MAX_LENGTH))
+            return jsonError(413, "NOTE_TOO_LARGE", "笔记标题或正文超出长度限制");
+          if (
+            !updateNoteInTransaction(
+              database,
+              sourceNote,
+              user.id,
+              sourceNote.title,
+              newContent,
+              sourceNote.notebook_id,
+              sourceNote.is_favorite,
+              sourceNote.deleted_at,
+            )
+          )
+            return jsonError(409, "VERSION_CONFLICT", "来源笔记已被更新，请重试");
+          // Saving the source can change which note wins a duplicate-title lookup.
+          if (!resolvesToTarget()) throw new StaleMentionTargetError();
+          return null;
+        })
+        .immediate();
+    } catch (error) {
+      if (!(error instanceof StaleMentionTargetError)) throw error;
+      return jsonError(409, "MENTION_STALE", "同名笔记已使链接目标变化，请重新选择");
     }
-    publishWorkspaceChange(options, user.id, { resource: "notes", noteId: sourceNote.id }, request);
+    if (failure) return failure;
+    publishWorkspaceChange(options, user.id, { resource: "notes", noteId: sourceNoteId }, request);
 
     return json({ ok: true });
   }

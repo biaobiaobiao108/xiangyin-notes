@@ -317,6 +317,8 @@ Content-Type: text/markdown
 
 `createdAt` 可省略，使用毫秒时间戳。建议快捷指令为每次请求添加唯一的 `Idempotency-Key` 请求头，例如 `shortcuts-<当前时间>`，这样网络重试不会重复写入。该接口只写入随记，不读取或修改笔记，也不提供 MCP 能力；请通过 HTTPS 调用并只在请求头中携带令牌。
 
+笔记与随记导入都支持 `Idempotency-Key`。使用原始 Markdown 重试时，内容仍存在则返回当前版本（`200`），已永久删除则返回 `410 IMPORTED_RESOURCE_DELETED`。同一个键提交不同 Markdown 会返回 `409 IDEMPOTENCY_CONFLICT`。升级时，旧导入使用数据库中仍存在的正文登记幂等记录。升级前已删除的导入记录无法补登。
+
 ### 只读集成 API
 
 集成 API 使用 `XIANGYING_API_TOKEN` 的 Bearer 令牌认证。读取最近更新的笔记摘要：

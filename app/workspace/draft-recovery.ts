@@ -1,4 +1,5 @@
 import type { NoteDraft } from "./helpers";
+import type { Note } from "../../shared/types";
 
 export const DRAFT_RECOVERY_KEY_PREFIX = "xiangying_note_draft_recovery:";
 // 正文上限是 1,000,000 个 UTF-16 code units，按最坏情况转成 UTF-8 后仍要留出
@@ -205,11 +206,11 @@ async function readIndexedDraft(noteId: string) {
 
 async function deleteIndexedDraft(
   noteId: string,
-  expectedFingerprints: Set<string>,
+  matches: (serialized: string) => boolean,
   isCurrent: () => boolean,
 ) {
   const database = await openDraftDatabase();
-  if (!database || !isCurrent() || expectedFingerprints.size === 0) return false;
+  if (!database || !isCurrent()) return false;
   return await new Promise<boolean>((resolve) => {
     let removed = false;
     try {
@@ -217,12 +218,7 @@ async function deleteIndexedDraft(
       const store = transaction.objectStore(DRAFT_STORE_NAME);
       const request = store.get(noteId);
       request.onsuccess = () => {
-        if (
-          !isCurrent() ||
-          typeof request.result !== "string" ||
-          !expectedFingerprints.has(fingerprint(request.result))
-        )
-          return;
+        if (!isCurrent() || typeof request.result !== "string" || !matches(request.result)) return;
         store.delete(noteId);
         removed = true;
       };
@@ -314,7 +310,11 @@ export function writeDraftRecovery(draft: NoteDraft) {
     window.localStorage.setItem(draftRecoveryStorageKey(draft.id), serialized);
     rememberRecovery(draft.id, "local", serialized);
     const expected = new Set([...operation.pendingFingerprints, serializedFingerprint]);
-    void deleteIndexedDraft(draft.id, expected, operation.isCurrent)
+    void deleteIndexedDraft(
+      draft.id,
+      (value) => expected.has(fingerprint(value)),
+      operation.isCurrent,
+    )
       .then((removed) => {
         if (removed && operation.isCurrent()) rememberRecovery(draft.id, "indexed", null);
       })
@@ -358,7 +358,27 @@ export async function readDraftRecovery(noteId: string) {
   }
 }
 
-export function clearDraftRecovery(noteId: string) {
+export async function readMissingNoteDraft(
+  noteId: string,
+  draft?: NoteDraft,
+  snapshot?: Note | null,
+): Promise<Note | null> {
+  const recovered = draft ?? (await readDraftRecovery(noteId));
+  if (!recovered) return null;
+  return {
+    notebookName: "本地草稿",
+    preview: "",
+    tags: [],
+    thumbnail: null,
+    createdAt: 0,
+    updatedAt: 0,
+    ...(snapshot?.id === noteId ? snapshot : null),
+    ...recovered,
+    deletedAt: null,
+  };
+}
+
+export function clearDraftRecovery(noteId: string, savedDraft?: NoteDraft) {
   if (typeof window === "undefined") return;
   const known = knownRecoveries.get(noteId);
   const pendingFingerprints = pendingOperations.get(noteId)?.fingerprint
@@ -372,21 +392,45 @@ export function clearDraftRecovery(noteId: string) {
   const indexedExpected = new Set(
     [known?.indexed, ...pendingFingerprints].filter((value): value is string => Boolean(value)),
   );
-  if (localExpected.size > 0) {
+  // Another tab may have stored the same draft again with a different recovery timestamp.
+  const matchesSavedDraft = savedDraft
+    ? (serialized: string) => {
+        const draft = parseDraftRecovery(serialized, noteId);
+        return (
+          draft !== null &&
+          draft.version === savedDraft.version &&
+          draft.title === savedDraft.title &&
+          draft.contentMarkdown === savedDraft.contentMarkdown &&
+          draft.notebookId === savedDraft.notebookId &&
+          draft.isFavorite === savedDraft.isFavorite &&
+          draft.deletedAt === savedDraft.deletedAt
+        );
+      }
+    : null;
+  if (matchesSavedDraft || localExpected.size > 0) {
     try {
       const serialized = window.localStorage.getItem(key);
-      if (serialized && localExpected.has(fingerprint(serialized))) {
+      if (
+        serialized &&
+        (matchesSavedDraft
+          ? matchesSavedDraft(serialized)
+          : localExpected.has(fingerprint(serialized)))
+      ) {
         window.localStorage.removeItem(key);
       }
       // A missing or changed value makes the previous fingerprint stale too.
       rememberRecovery(noteId, "local", null);
     } catch {}
   }
-  if (indexedExpected.size === 0) {
+  if (!matchesSavedDraft && indexedExpected.size === 0) {
     operation.finish();
     return;
   }
-  void deleteIndexedDraft(noteId, indexedExpected, operation.isCurrent)
+  void deleteIndexedDraft(
+    noteId,
+    matchesSavedDraft ?? ((value) => indexedExpected.has(fingerprint(value))),
+    operation.isCurrent,
+  )
     .then((removed) => {
       if (removed && operation.isCurrent()) {
         invalidateRecoveryReads(noteId);

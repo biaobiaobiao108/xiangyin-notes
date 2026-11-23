@@ -201,6 +201,20 @@ test("older IndexedDB completions cannot remove, overwrite or restore a newer re
     expect(indexed.has(indexedSharedDraft.id)).toBe(true);
     expect(await readDraftRecovery(indexedSharedDraft.id)).toEqual(indexedSharedDraft);
 
+    // Saving a recovered draft clears copies of that same draft even if another
+    // tab refreshed its timestamp. A different draft from that tab is retained.
+    const rewritten = { ...sharedDraft, __xiangyingRecoveryUpdatedAt: 100 };
+    const newer = { ...sharedDraft, contentMarkdown: "另一标签页的新正文" };
+    local.set(sharedKey, JSON.stringify(rewritten));
+    indexed.set(sharedDraft.id, JSON.stringify(newer));
+    clearDraftRecovery(sharedDraft.id, sharedDraft);
+    await flush();
+    expect(local.has(sharedKey)).toBe(false);
+    expect(await readDraftRecovery(sharedDraft.id)).toEqual(newer);
+    clearDraftRecovery(sharedDraft.id, newer);
+    await flush();
+    expect(indexed.has(sharedDraft.id)).toBe(false);
+
     writeDraftRecovery(draft);
     holdRead = true;
     const pendingRead = readDraftRecovery(draft.id);

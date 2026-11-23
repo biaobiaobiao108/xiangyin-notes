@@ -12,6 +12,7 @@ export type SelectedNoteSyncOptions = {
   hasPendingWork: (noteId: string) => boolean;
   onUpdated: (note: Note, reloadEditor?: boolean) => void;
   onConflict: () => void;
+  onMissingWithDraft: (noteId: string, reason: ApiError) => void;
   onUnauthorized: () => void;
   onNotFound: (noteId: string) => void;
   onError: () => void;
@@ -79,14 +80,15 @@ export async function refreshSelectedNote(noteId: string, options: SelectedNoteS
     selectedRef.current = result.note;
     options.onUpdated(result.note);
   } catch (reason) {
+    if (requestId !== noteLoadRequestRef.current || activeNoteIdRef.current !== noteId) return;
     if (reason instanceof Error && reason.name === "AbortError") return;
     if (reason instanceof ApiError && reason.status === 401) {
       options.onUnauthorized();
       return;
     }
-    if (reason instanceof ApiError && reason.status === 404 && activeNoteIdRef.current === noteId) {
+    if (reason instanceof ApiError && reason.status === 404) {
       if (options.hasPendingWork(noteId)) {
-        options.onConflict();
+        options.onMissingWithDraft(noteId, reason);
         return;
       }
       options.onNotFound(noteId);

@@ -15,7 +15,16 @@ const ALL_SAVE_FIELDS = [
 ] as const;
 type SaveField = (typeof ALL_SAVE_FIELDS)[number];
 
-export type SaveState = "idle" | "saving" | "saved" | "conflict" | "error";
+export type SaveState = "idle" | "saving" | "saved" | "conflict" | "missing" | "error";
+
+export function isMissingNoteError(reason: unknown): reason is ApiError {
+  return reason instanceof ApiError && reason.status === 404 && reason.code === "NOTE_NOT_FOUND";
+}
+
+export function noteSaveFailureState(reason: unknown) {
+  if (isMissingNoteError(reason)) return "missing";
+  return reason instanceof ApiError && reason.code === "VERSION_CONFLICT" ? "conflict" : "error";
+}
 
 export type UseNoteSaveQueueOptions = {
   selectedRef: React.MutableRefObject<Note | null>;
@@ -65,6 +74,39 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
   const notebookMovesRef = useRef(new Map<string, Promise<unknown>>());
   const failedSavesRef = useRef(new Map<string, unknown>());
 
+  const recordSaveFailure = useCallback(
+    (noteId: string, reason: unknown) => {
+      const previous = failedSavesRef.current.get(noteId);
+      failedSavesRef.current.set(noteId, reason);
+      const state = noteSaveFailureState(reason);
+      if (activeNoteIdRef.current === noteId) setSaveState(state);
+      if (splitSelectedRef?.current?.id === noteId) setSplitSaveState?.(state);
+      if (state === "missing") {
+        const draft = pendingSavesRef.current.get(noteId);
+        if (draft) writeDraftRecovery(draft);
+        if (isMissingNoteError(previous)) return;
+      }
+      if (!trashOperationsRef.current.has(noteId)) {
+        setToast(
+          state === "missing"
+            ? "原笔记已删除，可以将本地草稿另存为新笔记"
+            : state === "conflict"
+              ? "这篇笔记已在别处更新，请重新载入"
+              : errorMessage(reason, "保存失败，请检查网络后重试"),
+        );
+      }
+    },
+    [activeNoteIdRef, setSplitSaveState, setToast, splitSelectedRef, trashOperationsRef],
+  );
+
+  const markNoteMissing = useCallback(
+    (noteId: string, reason: ApiError) => {
+      flushEditorDraftRef.current();
+      if (pendingSavesRef.current.has(noteId)) recordSaveFailure(noteId, reason);
+    },
+    [flushEditorDraftRef, recordSaveFailure],
+  );
+
   const hasUnsavedWork = useCallback(() => {
     flushEditorDraftRef.current();
     return pendingSavesRef.current.size > 0 || failedSavesRef.current.size > 0;
@@ -74,6 +116,8 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
     async (noteId: string, keepalive = false): Promise<number | undefined> => {
       const move = notebookMovesRef.current.get(noteId);
       if (move) await move.catch(() => undefined);
+      const failure = failedSavesRef.current.get(noteId);
+      if (isMissingNoteError(failure)) throw failure;
       const running = inFlightSavesRef.current.get(noteId);
       if (running) return running;
 
@@ -111,6 +155,8 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
               keepalive: keepaliveRequest,
               response: "summary",
             });
+            const failure = failedSavesRef.current.get(noteId);
+            if (isMissingNoteError(failure)) throw failure;
             if (result.previousTitle) flushEditorDraftRef.current();
             const savedNote: Note =
               "contentMarkdown" in result.note
@@ -168,24 +214,16 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
           }
           return savedVersion;
         } catch (reason) {
+          if (!pendingSavesRef.current.has(noteId)) throw reason;
           if (fieldsForRequest) {
             const pendingFields = pendingFieldsRef.current.get(noteId) ?? new Set<SaveField>();
             for (const field of fieldsForRequest) pendingFields.add(field);
             pendingFieldsRef.current.set(noteId, pendingFields);
           }
-          failedSavesRef.current.set(noteId, reason);
-          const conflict = reason instanceof ApiError && reason.code === "VERSION_CONFLICT";
-          if (activeNoteIdRef.current === noteId) setSaveState(conflict ? "conflict" : "error");
-          if (splitSelectedRef?.current?.id === noteId)
-            setSplitSaveState?.(conflict ? "conflict" : "error");
-          if (!trashOperationsRef.current.has(noteId)) {
-            setToast(
-              conflict
-                ? "这篇笔记已在别处更新，请重新载入"
-                : errorMessage(reason, "保存失败，请检查网络后重试"),
-            );
-          }
-          throw reason;
+          const failure = failedSavesRef.current.get(noteId);
+          const latestFailure = isMissingNoteError(failure) ? failure : reason;
+          recordSaveFailure(noteId, latestFailure);
+          throw latestFailure;
         }
       })();
 
@@ -202,8 +240,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
       replaceList,
       selectedRef,
       setSelectedNote,
-      setToast,
-      trashOperationsRef,
+      recordSaveFailure,
       splitSelectedRef,
       splitNoteIdRef,
       setSplitSelectedNote,
@@ -221,8 +258,11 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
       const fields = pendingFieldsRef.current.get(pendingDraft.id) ?? new Set<SaveField>();
       for (const field of changedFields ?? ALL_SAVE_FIELDS) fields.add(field);
       pendingFieldsRef.current.set(pendingDraft.id, fields);
-      if (activeNoteIdRef.current === pendingDraft.id) setSaveState("saving");
-      if (splitSelectedRef?.current?.id === pendingDraft.id) setSplitSaveState?.("saving");
+      const missing = isMissingNoteError(failedSavesRef.current.get(pendingDraft.id));
+      if (!missing) {
+        if (activeNoteIdRef.current === pendingDraft.id) setSaveState("saving");
+        if (splitSelectedRef?.current?.id === pendingDraft.id) setSplitSaveState?.("saving");
+      }
 
       const existingRecoveryTimer = draftRecoveryTimersRef.current.get(pendingDraft.id);
       if (existingRecoveryTimer) clearTimeout(existingRecoveryTimer);
@@ -235,6 +275,10 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
 
       const existingTimer = saveTimersRef.current.get(pendingDraft.id);
       if (existingTimer) clearTimeout(existingTimer);
+      if (missing) {
+        saveTimersRef.current.delete(pendingDraft.id);
+        return;
+      }
       const timer = setTimeout(() => {
         saveTimersRef.current.delete(pendingDraft.id);
         const requestDraft = pendingSavesRef.current.get(pendingDraft.id);
@@ -251,7 +295,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
       const targetId = noteId ?? selectedRef.current?.id;
       if (!targetId) return;
       const pending = pendingSavesRef.current.get(targetId);
-      if (!pending) return;
+      if (!pending || isMissingNoteError(failedSavesRef.current.get(targetId))) return;
       const timer = saveTimersRef.current.get(targetId);
       if (timer) clearTimeout(timer);
       saveTimersRef.current.delete(targetId);
@@ -287,13 +331,13 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
 
   const retryFailedSaves = useCallback(async () => {
     const ids = [...failedSavesRef.current.entries()]
-      .filter(([, reason]) => !(reason instanceof ApiError && reason.code === "VERSION_CONFLICT"))
+      .filter(([, reason]) => noteSaveFailureState(reason) === "error")
       .map(([id]) => id)
       .filter((id) => pendingSavesRef.current.has(id));
     await Promise.all(ids.map((id) => runSave(id).catch(() => undefined)));
   }, [runSave]);
 
-  const clearPendingForNote = useCallback((noteId: string) => {
+  const clearPendingForNote = useCallback((noteId: string, savedDraft?: NoteDraft) => {
     const timer = saveTimersRef.current.get(noteId);
     if (timer) clearTimeout(timer);
     saveTimersRef.current.delete(noteId);
@@ -305,7 +349,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
     pendingSavesRef.current.delete(noteId);
     pendingFieldsRef.current.delete(noteId);
     failedSavesRef.current.delete(noteId);
-    clearDraftRecovery(noteId);
+    clearDraftRecovery(noteId, savedDraft);
   }, []);
 
   const cancelSaveTimer = useCallback((noteId: string) => {
@@ -317,6 +361,8 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
   const saveImmediately = useCallback(
     async (draft: Note | NoteDraft, keepalive = false, changedFields?: SaveField[]) => {
       const pendingDraft = toNoteDraft(draft);
+      const failure = failedSavesRef.current.get(pendingDraft.id);
+      if (isMissingNoteError(failure)) throw failure;
       cancelSaveTimer(pendingDraft.id);
       pendingSavesRef.current.set(pendingDraft.id, pendingDraft);
       const fields = pendingFieldsRef.current.get(pendingDraft.id) ?? new Set<SaveField>();
@@ -502,6 +548,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
     flushPendingSaves,
     retryFailedSaves,
     hasUnsavedWork,
+    markNoteMissing,
     clearPendingForNote,
   };
 }

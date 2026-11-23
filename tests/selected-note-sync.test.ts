@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
-import { api } from "../app/api";
+import { ApiError, api } from "../app/api";
 import {
   latestSelectedNoteSnapshot,
   refreshSelectedNote,
@@ -43,6 +43,7 @@ beforeEach(() => {
     hasPendingWork: () => pendingWork,
     onUpdated: mock(() => {}),
     onConflict: mock(() => {}),
+    onMissingWithDraft: mock(() => {}),
     onUnauthorized: mock(() => {}),
     onNotFound: mock(() => {}),
     onError: mock(() => {}),
@@ -52,6 +53,17 @@ beforeEach(() => {
 afterEach(() => get.mockRestore());
 
 describe("selected note remote synchronization", () => {
+  test("reports a permanently deleted note with a draft as recoverable", async () => {
+    const missing = new ApiError(404, "NOTE_NOT_FOUND", "笔记不存在");
+    pendingWork = true;
+    get.mockRejectedValueOnce(missing);
+    await refreshSelectedNote(original.id, options);
+    expect(options.onMissingWithDraft).toHaveBeenCalledWith(original.id, missing);
+    expect(options.onConflict).not.toHaveBeenCalled();
+    expect(options.onNotFound).not.toHaveBeenCalled();
+    expect(options.selectedRef.current).toEqual(original);
+  });
+
   test("waits for a deep-link foreground load instead of aborting it on websocket reconciliation", async () => {
     const foregroundController = new AbortController();
     options.noteAbortRef.current = foregroundController;

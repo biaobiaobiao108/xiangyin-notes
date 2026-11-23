@@ -2,7 +2,9 @@ import { useCallback, useRef, useState } from "react";
 import type { CreateNoteCommand } from "../command-parser";
 import { ApiError, api } from "../api";
 import type { Note, NoteView, Notebook } from "../../shared/types";
-import { errorMessage } from "./helpers";
+import { createUuid } from "../uuid";
+import { errorMessage, type NoteDraft } from "./helpers";
+import { isMissingNoteError } from "./use-note-save-queue";
 
 type CreationTarget = { view: NoteView; notebookId?: string };
 
@@ -26,6 +28,7 @@ export function useWorkspaceNoteCreation({
   navigate: (path: string, options?: { replace?: boolean }) => void;
 }) {
   const noteCreationRef = useRef(false);
+  const recoveryNoteIdsRef = useRef(new Map<string, string>());
   const [creatingNote, setCreatingNote] = useState(false);
 
   const createNoteWithLock = useCallback(
@@ -90,5 +93,57 @@ export function useWorkspaceNoteCreation({
     [createNoteWithLock],
   );
 
-  return { creatingNote, createNoteHere, createNoteInInbox, createNoteInNotebook };
+  const createRecoveredNote = useCallback(
+    async (draft: NoteDraft) => {
+      let id = recoveryNoteIdsRef.current.get(draft.id);
+      // A response may be lost after SQLite commits. Check the same ID before creating another note.
+      if (id) {
+        try {
+          const { note } = await api.getNote(id);
+          if (
+            note.deletedAt === null &&
+            note.title === (draft.title.trim() ? draft.title : "") &&
+            note.contentMarkdown === draft.contentMarkdown
+          ) {
+            recoveryNoteIdsRef.current.delete(draft.id);
+            return note;
+          }
+          id = undefined;
+        } catch (error) {
+          if (!isMissingNoteError(error)) throw error;
+        }
+      }
+      id ??= createUuid();
+      recoveryNoteIdsRef.current.set(draft.id, id);
+      const notebookId = notebooks.find((notebook) => notebook.id === draft.notebookId)?.id;
+      const payload = { id, title: draft.title, contentMarkdown: draft.contentMarkdown };
+      const create = async () => {
+        try {
+          return await api.createNote({ ...payload, notebookId });
+        } catch (error) {
+          if (notebookId && error instanceof ApiError && error.code === "NOTEBOOK_NOT_FOUND")
+            return api.createNote(payload);
+          throw error;
+        }
+      };
+      try {
+        const { note } = await create();
+        recoveryNoteIdsRef.current.delete(draft.id);
+        return note;
+      } catch (error) {
+        if (error instanceof ApiError && error.code === "INVALID_ASSET")
+          throw new Error("草稿中的图片附件已不可用。请移除相关引用后另存，或先复制 Markdown。");
+        throw error;
+      }
+    },
+    [notebooks],
+  );
+
+  return {
+    creatingNote,
+    createNoteHere,
+    createNoteInInbox,
+    createNoteInNotebook,
+    createRecoveredNote,
+  };
 }

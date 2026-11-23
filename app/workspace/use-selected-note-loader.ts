@@ -1,10 +1,10 @@
 import { useCallback, useEffect } from "react";
 import type { Note } from "../../shared/types";
 import { ApiError, api } from "../api";
-import { readDraftRecovery } from "./draft-recovery";
-import { noteMetadataSnapshot, type NoteDraft } from "./helpers";
+import { readDraftRecovery, readMissingNoteDraft } from "./draft-recovery";
+import { noteMetadataSnapshot, toNoteDraft, type NoteDraft } from "./helpers";
 import { latestSelectedNoteSnapshot } from "./selected-note-sync";
-import type { SaveState } from "./use-note-save-queue";
+import { isMissingNoteError, noteSaveFailureState, type SaveState } from "./use-note-save-queue";
 
 export function useSelectedNoteLoader({
   ready,
@@ -16,6 +16,7 @@ export function useSelectedNoteLoader({
   noteOpeningRef,
   pendingSavesRef,
   failedSavesRef,
+  markNoteMissing,
   trashOperationsRef,
   persistRef,
   flushEditorDraftRef,
@@ -38,6 +39,7 @@ export function useSelectedNoteLoader({
   noteOpeningRef: React.MutableRefObject<Promise<void> | null>;
   pendingSavesRef: React.MutableRefObject<Map<string, NoteDraft>>;
   failedSavesRef: React.MutableRefObject<Map<string, unknown>>;
+  markNoteMissing: (noteId: string, reason: ApiError) => void;
   trashOperationsRef: React.MutableRefObject<Set<string>>;
   persistRef: React.MutableRefObject<(note: Note | NoteDraft) => void>;
   flushEditorDraftRef: React.MutableRefObject<() => void>;
@@ -67,15 +69,7 @@ export function useSelectedNoteLoader({
       const failedSave = failedSavesRef.current.get(id);
       activeNoteIdRef.current = id;
       setIsNoteLoading(true);
-      setSaveState(
-        failedSave
-          ? failedSave instanceof ApiError && failedSave.code === "VERSION_CONFLICT"
-            ? "conflict"
-            : "error"
-          : pendingNote
-            ? "saving"
-            : "idle",
-      );
+      setSaveState(failedSave ? noteSaveFailureState(failedSave) : pendingNote ? "saving" : "idle");
       try {
         const result = await api.getNote(id, { signal: controller.signal });
         if (requestId !== noteLoadRequestRef.current || activeNoteIdRef.current !== id) return;
@@ -114,6 +108,23 @@ export function useSelectedNoteLoader({
       } catch (reason) {
         if (requestId !== noteLoadRequestRef.current || activeNoteIdRef.current !== id) return;
         if (reason instanceof Error && reason.name === "AbortError") return;
+        if (isMissingNoteError(reason)) {
+          const draft = await readMissingNoteDraft(
+            id,
+            pendingSavesRef.current.get(id),
+            selectedRef.current,
+          );
+          if (requestId !== noteLoadRequestRef.current || activeNoteIdRef.current !== id) return;
+          if (draft) {
+            if (selectedRef.current?.id !== id) flushEditorDraftRef.current();
+            pendingSavesRef.current.set(id, toNoteDraft(draft));
+            selectedRef.current = draft;
+            setSelectedNote(noteMetadataSnapshot(draft));
+            markNoteMissing(id, reason);
+            setIsNoteLoading(false);
+            return;
+          }
+        }
         setIsNoteLoading(false);
         if (reason instanceof ApiError && reason.status === 401) {
           navigate(`/login${window.location.search}`, { replace: true });
@@ -124,9 +135,7 @@ export function useSelectedNoteLoader({
           const previousFailure = failedSavesRef.current.get(restoredNote.id);
           setSaveState(
             previousFailure
-              ? previousFailure instanceof ApiError && previousFailure.code === "VERSION_CONFLICT"
-                ? "conflict"
-                : "error"
+              ? noteSaveFailureState(previousFailure)
               : pendingSavesRef.current.has(restoredNote.id)
                 ? "saving"
                 : "idle",
@@ -151,6 +160,7 @@ export function useSelectedNoteLoader({
       activeNoteIdRef,
       failedSavesRef,
       flushEditorDraftRef,
+      markNoteMissing,
       navigate,
       noteAbortRef,
       noteLoadRequestRef,

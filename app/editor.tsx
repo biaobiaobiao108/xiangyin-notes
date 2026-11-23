@@ -15,7 +15,8 @@ import {
   type OutlineItem,
 } from "./editor-metrics";
 import { type EditorTextBlockStatsCache, type EditorTextStatsSnapshot } from "./editor-text-stats";
-import { EditorHeader, type EditorSaveState as SaveState } from "./editor/editor-header";
+import { EditorHeader } from "./editor/editor-header";
+import type { SaveState } from "./workspace/use-note-save-queue";
 import { transactionMayChangeOutline } from "./editor/outline-change";
 import { scrollNoteNavigation } from "./editor/document-navigation";
 import { replaceEditorMarkdown } from "./editor/document-content";

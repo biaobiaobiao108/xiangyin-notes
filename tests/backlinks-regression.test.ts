@@ -218,6 +218,85 @@ test("link mention rejects replacements that would exceed the note content limit
   expect(after.version).toBe(source.version);
 });
 
+test("link mention rechecks the target after reading a delayed request body", async () => {
+  const oldTitle = "原目标";
+  const target = await createNote(oldTitle);
+  const source = await createNote("来源", oldTitle);
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  let onRead!: () => void;
+  const reading = new Promise<void>((resolve) => {
+    onRead = resolve;
+  });
+  const body = new ReadableStream<Uint8Array>(
+    {
+      start: (stream) => {
+        controller = stream;
+      },
+      pull: () => onRead(),
+    },
+    { highWaterMark: 0 },
+  );
+  const linking = handleRequest(
+    new Request(`http://xiangying.test/api/notes/${target.id}/link-mention`, {
+      method: "POST",
+      headers: { Cookie: cookie, "Content-Type": "application/json" },
+      body,
+    }),
+    { database, environment },
+  );
+  await Promise.race([
+    reading,
+    linking.then(() => {
+      throw new Error("Request finished before reading the body");
+    }),
+  ]);
+  const renamed = await request(`/api/notes/${target.id}`, "PATCH", {
+    title: "改名后的目标",
+    version: target.version,
+  });
+  expect(renamed.response.status).toBe(200);
+  await createNote(oldTitle, "另一篇笔记");
+  controller.enqueue(
+    new TextEncoder().encode(
+      JSON.stringify({
+        sourceNoteId: source.id,
+        sourceVersion: source.version,
+        matchStart: 0,
+        matchEnd: oldTitle.length,
+        matchText: oldTitle,
+      }),
+    ),
+  );
+  controller.close();
+
+  const response = await linking;
+  expect(response.status).toBe(409);
+  expect((await response.json()).error.code).toBe("MENTION_STALE");
+  const { body: latest } = await request(`/api/notes/${source.id}`);
+  expect(latest.note).toMatchObject({ contentMarkdown: oldTitle, version: source.version });
+});
+
+test("link mention rolls back if saving a same-title source would change the target", async () => {
+  const title = "同名笔记";
+  const source = await createNote(title, title);
+  const target = await createNote(title);
+  const updateTime = database.query("UPDATE notes SET updated_at = ? WHERE id = ?");
+  updateTime.run(1, source.id);
+  updateTime.run(2, target.id);
+
+  const linking = await request(`/api/notes/${target.id}/link-mention`, "POST", {
+    sourceNoteId: source.id,
+    sourceVersion: source.version,
+    matchStart: 0,
+    matchEnd: title.length,
+    matchText: title,
+  });
+  expect(linking.response.status).toBe(409);
+  expect(linking.body.error.code).toBe("MENTION_STALE");
+  const { body: latest } = await request(`/api/notes/${source.id}`);
+  expect(latest.note).toMatchObject({ contentMarkdown: title, version: source.version });
+});
+
 for (const limit of ["content", "former term-count"] as const) {
   test(`backlinks find a short-title mention beyond the ${limit} boundary`, async () => {
     const target = await createNote("苹果");

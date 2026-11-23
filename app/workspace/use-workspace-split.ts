@@ -1,11 +1,16 @@
 import { useCallback, useEffect, type Dispatch, type SetStateAction } from "react";
 import type { Note, NoteSummary, Notebook } from "../../shared/types";
 import { ApiError, api } from "../api";
-import { readDraftRecovery } from "./draft-recovery";
+import { readDraftRecovery, readMissingNoteDraft } from "./draft-recovery";
 import { latestSelectedNoteSnapshot } from "./selected-note-sync";
-import { noteMetadataSnapshot } from "./helpers";
+import { noteMetadataSnapshot, toNoteDraft } from "./helpers";
 import type { ConfirmRequest } from "./dialogs";
-import type { useNoteSaveQueue, SaveState } from "./use-note-save-queue";
+import {
+  isMissingNoteError,
+  noteSaveFailureState,
+  type useNoteSaveQueue,
+  type SaveState,
+} from "./use-note-save-queue";
 import type { ViewLayout } from "./use-workspace-preferences";
 
 type Ref<T> = { current: T };
@@ -25,6 +30,7 @@ type Options = {
   closeSplitRef: Ref<() => void>;
   pendingSavesRef: Queue["pendingSavesRef"];
   failedSavesRef: Queue["failedSavesRef"];
+  markNoteMissing: Queue["markNoteMissing"];
   clearPendingForNote: Queue["clearPendingForNote"];
   persistRef: Ref<Queue["persist"]>;
   persist: Queue["persist"];
@@ -64,6 +70,7 @@ export function useWorkspaceSplit({
   closeSplitRef,
   pendingSavesRef,
   failedSavesRef,
+  markNoteMissing,
   clearPendingForNote,
   persistRef,
   persist,
@@ -114,13 +121,7 @@ export function useWorkspaceSplit({
       const pendingNote = pendingSavesRef.current.get(id);
       const failedSave = failedSavesRef.current.get(id);
       setSplitSaveState(
-        failedSave
-          ? failedSave instanceof ApiError && failedSave.code === "VERSION_CONFLICT"
-            ? "conflict"
-            : "error"
-          : pendingNote
-            ? "saving"
-            : "idle",
+        failedSave ? noteSaveFailureState(failedSave) : pendingNote ? "saving" : "idle",
       );
       try {
         const result = await api.getNote(id, { signal: controller.signal });
@@ -169,6 +170,23 @@ export function useWorkspaceSplit({
       } catch (reason) {
         if (requestId !== splitLoadRequestRef.current) return;
         if (reason instanceof Error && reason.name === "AbortError") return;
+        if (isMissingNoteError(reason)) {
+          const draft = await readMissingNoteDraft(
+            id,
+            pendingSavesRef.current.get(id),
+            splitSelectedRef.current,
+          );
+          if (requestId !== splitLoadRequestRef.current || splitNoteIdRef.current !== id) return;
+          if (draft) {
+            if (splitSelectedRef.current?.id !== id) flushSecondaryDraft();
+            pendingSavesRef.current.set(id, toNoteDraft(draft));
+            splitSelectedRef.current = draft;
+            setSplitSelectedNote(noteMetadataSnapshot(draft));
+            markNoteMissing(id, reason);
+            setSplitIsNoteLoading(false);
+            return;
+          }
+        }
         flushSecondaryDraft();
         setSplitIsNoteLoading(false);
         setSplitNoteId(null);
@@ -181,6 +199,7 @@ export function useWorkspaceSplit({
       clearPendingForNote,
       failedSavesRef,
       flushSecondaryDraft,
+      markNoteMissing,
       notifyWarning,
       pendingSavesRef,
       setSplitSaveState,

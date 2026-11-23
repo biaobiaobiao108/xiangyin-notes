@@ -27,11 +27,16 @@ import { ErrorBoundary, EditorErrorFallback } from "./error-boundary";
 import {
   errorMessage,
   noteMetadataSnapshot,
+  toNoteDraft,
   toNoteSummary,
   type NoteSort,
 } from "./workspace/helpers";
 import { useNoteSelection } from "./workspace/use-note-selection";
-import { useNoteSaveQueue, type SaveState } from "./workspace/use-note-save-queue";
+import {
+  isMissingNoteError,
+  useNoteSaveQueue,
+  type SaveState,
+} from "./workspace/use-note-save-queue";
 import { emptyRealtimeRefreshPlan, type RealtimeRefreshPlan } from "./workspace/realtime-refresh";
 import { refreshSelectedNote } from "./workspace/selected-note-sync";
 import { useWorkspaceShortcuts } from "./workspace/use-workspace-shortcuts";
@@ -71,6 +76,7 @@ import { useWorkspaceTaskActions } from "./workspace/use-workspace-task-actions"
 import { useWorkspaceSplit } from "./workspace/use-workspace-split";
 import { useWorkspaceNoteList } from "./workspace/use-workspace-note-list";
 import { useWorkspaceNoteChange } from "./workspace/use-workspace-note-change";
+import { readMissingNoteDraft } from "./workspace/draft-recovery";
 
 export type { ViewLayout } from "./workspace/use-workspace-preferences";
 
@@ -382,6 +388,7 @@ export function Workspace() {
     saveNoteNow,
     flushPendingSaves,
     hasUnsavedWork,
+    markNoteMissing,
     clearPendingForNote,
   } = useNoteSaveQueue({
     selectedRef,
@@ -448,6 +455,10 @@ export function Workspace() {
     listRequestRef.current += 1;
     invalidateNotebookRequests();
   }, [invalidateNotebookRequests]);
+  const isMissingDraft = useCallback(
+    (noteId: string) => isMissingNoteError(failedSavesRef.current.get(noteId)),
+    [failedSavesRef],
+  );
   const { loadNotes, loadMoreNotes, isLoadingMore, reloadNotes, updatedPageBoundaryRef } =
     useWorkspaceNoteList({
       view,
@@ -466,6 +477,7 @@ export function Workspace() {
       emptyingTrashRef,
       selectedRef,
       selectedIdRef,
+      isMissingDraft,
       notesRef,
       setHasMoreNotes,
       setTotalNotes,
@@ -531,6 +543,14 @@ export function Workspace() {
     );
     void api
       .getNote(initialLinkedNoteId, { signal: controller.signal })
+      .catch(async (error) => {
+        if (!isMissingNoteError(error) || controller.signal.aborted) throw error;
+        const note = await readMissingNoteDraft(initialLinkedNoteId);
+        if (!note || controller.signal.aborted) throw error;
+        pendingSavesRef.current.set(note.id, toNoteDraft(note));
+        markNoteMissing(note.id, error);
+        return { note };
+      })
       .then(({ note }) => {
         if (controller.signal.aborted) return;
         invalidateCollections();
@@ -565,7 +585,16 @@ export function Workspace() {
         reloadNotes();
       });
     return () => controller.abort();
-  }, [openMobileNote, initialLinkedNoteId, invalidateCollections, ready, reloadNotes, selectNote]);
+  }, [
+    openMobileNote,
+    initialLinkedNoteId,
+    invalidateCollections,
+    markNoteMissing,
+    pendingSavesRef,
+    ready,
+    reloadNotes,
+    selectNote,
+  ]);
   useEffect(() => {
     setOutlineOpen(false);
     resetOutline();
@@ -606,6 +635,7 @@ export function Workspace() {
     noteOpeningRef,
     pendingSavesRef,
     failedSavesRef,
+    markNoteMissing,
     trashOperationsRef,
     persistRef,
     flushEditorDraftRef,
@@ -788,17 +818,55 @@ export function Workspace() {
     },
     [openMobileNote, playListTransition],
   );
-  const { creatingNote, createNoteHere, createNoteInInbox, createNoteInNotebook } =
-    useWorkspaceNoteCreation({
-      view,
-      notebookId,
-      notebooks,
-      revealCreatedNote,
-      flushEditorDraft: flushActiveEditorDraft,
+  const {
+    creatingNote,
+    createNoteHere,
+    createNoteInInbox,
+    createNoteInNotebook,
+    createRecoveredNote,
+  } = useWorkspaceNoteCreation({
+    view,
+    notebookId,
+    notebooks,
+    revealCreatedNote,
+    flushEditorDraft: flushActiveEditorDraft,
+    refreshNotebooks,
+    notifyError,
+    navigate,
+  });
+  const requestDraftRecovery = useCallback(
+    (noteId: string) => {
+      if (!isMissingNoteError(failedSavesRef.current.get(noteId))) return;
+      requestConfirm({
+        title: "另存为新笔记？",
+        description: "原笔记已被永久删除。将此设备上的草稿保存为一篇新笔记。",
+        confirmLabel: "另存为新笔记",
+        onConfirm: async () => {
+          flushEditorDraftRef.current();
+          const draft = pendingSavesRef.current.get(noteId);
+          if (!draft) throw new Error("找不到本地草稿");
+          const saved = await createRecoveredNote(draft);
+          if (splitNoteIdRef.current === noteId) closeSplitRef.current();
+          revealCreatedNote(saved, { view: "all", notebookId: saved.notebookId });
+          clearPendingForNote(noteId, draft);
+          removeFromList(noteId);
+          void refreshNotebooks();
+          notifyInfo("草稿已另存为新笔记");
+        },
+      });
+    },
+    [
+      clearPendingForNote,
+      createRecoveredNote,
+      failedSavesRef,
+      notifyInfo,
+      pendingSavesRef,
       refreshNotebooks,
-      notifyError,
-      navigate,
-    });
+      removeFromList,
+      requestConfirm,
+      revealCreatedNote,
+    ],
+  );
   const { createNotebook, saveNotebook, saveNotebookDraft } = useWorkspaceNotebookEditor({
     editingNotebook,
     setEditingNotebook,
@@ -825,6 +893,7 @@ export function Workspace() {
           setSaveState("conflict");
           notifyWarning("当前笔记已在其他设备更新，请先保存或重新载入");
         },
+        onMissingWithDraft: markNoteMissing,
         onUpdated: (note, reloadEditor = true) => {
           setSelectedNote(noteMetadataSnapshot(note));
           replaceList(
@@ -844,6 +913,7 @@ export function Workspace() {
       }),
     [
       failedSavesRef,
+      markNoteMissing,
       navigate,
       pendingSavesRef,
       removeFromList,
@@ -868,6 +938,7 @@ export function Workspace() {
           setSplitSaveState("conflict");
           notifyWarning("分栏中的笔记已在其他设备更新，请先保存或重新载入");
         },
+        onMissingWithDraft: markNoteMissing,
         onUpdated: (note, reloadEditor = true) => {
           setSplitSelectedNote(noteMetadataSnapshot(note));
           replaceList(
@@ -884,7 +955,7 @@ export function Workspace() {
         },
         onError: () => notifyError("同步分栏笔记失败，请稍后重试"),
       }),
-    [failedSavesRef, navigate, pendingSavesRef, replaceList],
+    [failedSavesRef, markNoteMissing, navigate, pendingSavesRef, replaceList],
   );
   const deleteNotebook = useCallback(
     async (id: string) => {
@@ -1152,6 +1223,7 @@ export function Workspace() {
     closeSplitRef,
     pendingSavesRef,
     failedSavesRef,
+    markNoteMissing,
     clearPendingForNote,
     persistRef,
     persist,
@@ -1678,7 +1750,9 @@ export function Workspace() {
             focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen}
             onFocusHandled={handleEditorFocus}
             onChange={onNoteChange}
-            onSaveNow={saveNoteNow}
+            onSaveNow={
+              saveState === "missing" ? () => requestDraftRecovery(renderedNote.id) : saveNoteNow
+            }
             onReloadNote={requestConflictReload}
             onExportImage={handleExportImage}
             onToggleFavorite={toggleFavorite}
@@ -2072,7 +2146,11 @@ export function Workspace() {
                             }
                             onFocusHandled={handleSplitEditorFocus}
                             onChange={onSplitNoteChange}
-                            onSaveNow={() => saveNoteNow(splitRenderedNote.id)}
+                            onSaveNow={() =>
+                              splitSaveState === "missing"
+                                ? requestDraftRecovery(splitRenderedNote.id)
+                                : saveNoteNow(splitRenderedNote.id)
+                            }
                             onReloadNote={() => requestSplitConflictReload(splitRenderedNote.id)}
                             onExportImage={handleExportImage}
                             onToggleFavorite={() =>

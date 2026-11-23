@@ -88,6 +88,34 @@ afterEach(() => {
 });
 
 describe("favorite operations and the save queue", () => {
+  test("keeps the latest draft and stops remote retries when its note was permanently deleted", async () => {
+    const missing = new ApiError(404, "NOTE_NOT_FOUND", "笔记不存在");
+    update.mockRejectedValueOnce(missing);
+    queue.persist({ ...original, contentMarkdown: "第一版草稿" }, ["contentMarkdown"]);
+    await expect(queue.runSave(original.id)).rejects.toBe(missing);
+    queue.persist({ ...original, contentMarkdown: "更新的草稿" }, ["contentMarkdown"]);
+    queue.saveNoteNow();
+    await queue.retryFailedSaves();
+    await expect(queue.runSave(original.id)).rejects.toBe(missing);
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(queue.pendingSavesRef.current.get(original.id)?.contentMarkdown).toBe("更新的草稿");
+  });
+
+  test("preserves a draft when a remote deletion overtakes its in-flight save response", async () => {
+    const response = deferred<{ note: NoteSummary }>();
+    update.mockImplementationOnce(() => response.promise);
+    const draft = { ...original, contentMarkdown: "尚未转存的草稿" };
+    queue.persist(draft, ["contentMarkdown"]);
+    const saving = queue.runSave(original.id);
+    const missing = new ApiError(404, "NOTE_NOT_FOUND", "笔记不存在");
+    queue.markNoteMissing(original.id, missing);
+    response.resolve({ note: toNoteSummary({ ...draft, version: 2 }) });
+    await expect(saving).rejects.toBe(missing);
+    expect(queue.pendingSavesRef.current.get(original.id)?.contentMarkdown).toBe(
+      draft.contentMarkdown,
+    );
+  });
+
   test("reconciles other notes after a rename response has applied the saved version", async () => {
     update.mockResolvedValueOnce({
       note: toNoteSummary({ ...original, title: "新标题", version: 2 }),

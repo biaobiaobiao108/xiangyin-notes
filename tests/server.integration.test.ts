@@ -81,6 +81,78 @@ async function request(
   return { response, body, cookie: response.headers.get("Set-Cookie")?.split(";", 1)[0] };
 }
 
+for (const { endpoint, collection, field } of [
+  { endpoint: "/api/import", collection: "/api/notes", field: "note" },
+  { endpoint: "/api/memos/import", collection: "/api/memos", field: "memo" },
+]) {
+  test(`${endpoint} replays the original request after editing or deleting its result`, async () => {
+    const token = "shortcut-api-token-1234567890";
+    const importEnvironment = { ...environment, XIANGYING_API_TOKEN: token };
+    const { cookie } = await request("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({
+        username: environment.XIANGYING_USERNAME,
+        password: environment.XIANGYING_PASSWORD,
+      }),
+    });
+    const importContent = (body: string) =>
+      request(
+        endpoint,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "text/markdown",
+            "Idempotency-Key": "shortcut-retry",
+          },
+          body,
+        },
+        undefined,
+        importEnvironment,
+      );
+    const original = "原始导入正文";
+    const results = await Promise.all([importContent(original), importContent(original)]);
+    expect(results.map(({ response }) => response.status).sort()).toEqual([200, 201]);
+    const saved = results[0].body?.[field];
+    expect(results[1].body?.[field].id).toBe(saved.id);
+    const path = `${collection}/${saved.id}`;
+    const change = (method: string, body: Record<string, unknown>) =>
+      request(path, { method, body: JSON.stringify(body) }, cookie);
+    const editedMarkdown = "导入后修改的正文";
+    const edited = await change("PATCH", {
+      version: saved.version,
+      contentMarkdown: editedMarkdown,
+    });
+    expect(edited.response.status).toBe(200);
+    const replay = await importContent(original);
+    expect(replay.response.status).toBe(200);
+    expect(replay.response.headers.get("Idempotent-Replayed")).toBe("true");
+    expect(replay.body?.[field]).toMatchObject({
+      id: saved.id,
+      version: edited.body?.[field].version,
+    });
+    if (field === "memo") expect(replay.body?.memo.contentMarkdown).toBe(editedMarkdown);
+    expect((await importContent(editedMarkdown)).body?.error.code).toBe("IDEMPOTENCY_CONFLICT");
+
+    let version = edited.body?.[field].version;
+    if (field === "note") {
+      const trashed = await change("PATCH", { version, deleted: true });
+      expect(trashed.response.status).toBe(200);
+      version = trashed.body?.note.version;
+    }
+    expect((await change("DELETE", { version })).response.status).toBe(200);
+    const gone = await importContent(original);
+    expect(gone.response.status).toBe(410);
+    expect(gone.response.headers.get("Idempotent-Replayed")).toBe("true");
+    expect(gone.body?.error.code).toBe("IMPORTED_RESOURCE_DELETED");
+    expect(
+      database
+        .query(`SELECT id FROM ${field === "note" ? "notes" : "memos"} WHERE id = ?`)
+        .get(saved.id),
+    ).toBeNull();
+  });
+}
+
 describe("Bun Server API", () => {
   test("requires a session for library exports and allows authenticated download", async () => {
     const unauthorized = await request("/api/export/library");

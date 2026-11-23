@@ -22,6 +22,13 @@ import { createNote } from "./note-mutations";
 import { cleanupExpiredRateLimits, ensureEnvironmentUser, getAuthCredentials } from "./auth";
 import { requireApiToken } from "../api-token";
 import { publishWorkspaceChange } from "../realtime";
+import {
+  deletedImport,
+  getImportRequest,
+  importConflict,
+  importContentHash,
+  recordImportRequest,
+} from "../import-idempotency";
 import { buildFtsMatchQuery, searchableTextFromMarkdown } from "../search-text";
 import { extractTags, normalizeTag, parseTagQuery } from "../../shared/tags";
 import type { Memo, MemoDayCount, MemoFacets, MemoTagCount } from "../../shared/types";
@@ -749,15 +756,30 @@ export async function handleMemoImportRoute(ctx: RouteContext): Promise<Response
   const memoId = idempotencyKey
     ? await deterministicMemoId(user.id, idempotencyKey)
     : crypto.randomUUID();
-  const existing = getMemo(options.database, user.id, memoId);
-  if (existing) {
-    if (existing.content_markdown !== contentMarkdown)
-      return jsonError(409, "IDEMPOTENCY_CONFLICT", "Idempotency-Key 已用于其他随记内容");
-    return json({ memo: memoFromRow(existing) }, 200, { "Idempotent-Replayed": "true" });
-  }
+  const { database } = options;
+  const markdown = contentMarkdown as string;
+  const contentHash = idempotencyKey ? importContentHash(markdown) : null;
+  const response = database
+    .transaction(() => {
+      const receipt = contentHash ? getImportRequest(database, user.id, "memo", memoId) : null;
+      if (receipt && receipt.content_hash !== contentHash) return importConflict("memo");
+      const existing = getMemo(database, user.id, memoId);
+      if (existing) {
+        if (!receipt && contentHash) {
+          if (existing.content_markdown !== markdown) return importConflict("memo");
+          recordImportRequest(database, user.id, "memo", memoId, contentHash);
+        }
+        return json({ memo: memoFromRow(existing) }, 200, { "Idempotent-Replayed": "true" });
+      }
+      if (receipt) return deletedImport("memo");
 
-  createMemo(options.database, user.id, contentMarkdown as string, memoId, created);
-  publishWorkspaceChange(options, user.id, { resource: "memos" }, request);
-  const memo = getMemo(options.database, user.id, memoId);
-  return json({ memo: memo ? memoFromRow(memo) : null }, 201);
+      createMemo(database, user.id, markdown, memoId, created);
+      if (contentHash) recordImportRequest(database, user.id, "memo", memoId, contentHash);
+      const memo = getMemo(database, user.id, memoId);
+      return json({ memo: memo ? memoFromRow(memo) : null }, 201);
+    })
+    .immediate();
+  if (response.status === 201)
+    publishWorkspaceChange(options, user.id, { resource: "memos" }, request);
+  return response;
 }
