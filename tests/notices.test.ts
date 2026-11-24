@@ -1,4 +1,7 @@
 import { expect, test } from "bun:test";
+import React from "react";
+import { renderToString } from "react-dom/server";
+import { SystemNotices } from "../app/workspace/system-notices";
 import { nextNotice, noticeDuration, type Notice } from "../app/workspace/use-notices";
 
 const error: Notice = { id: 1, message: "保存失败，请重试", kind: "error" };
@@ -18,4 +21,34 @@ test("important and long notices allow enough reading time", () => {
   expect(noticeDuration({ ...error, kind: "warning" })).toBe(8000);
   expect(noticeDuration({ id: 2, kind: "info", message: "已复制" })).toBe(3500);
   expect(noticeDuration({ ...error, message: "长提示".repeat(100) })).toBe(15000);
+});
+
+test("notice container does not put an aria-label on an unnamed generic element", () => {
+  const html = renderToString(
+    React.createElement(SystemNotices, {
+      notice: null,
+      onDismiss() {},
+      onPause() {},
+      updateAvailable: false,
+      onUpdate() {},
+    }),
+  );
+
+  expect(html).toContain('class="system-notices"');
+  expect(html).not.toContain('aria-label="应用提示"');
+});
+
+test("active notices keep their live-region semantics", () => {
+  const html = renderToString(
+    React.createElement(SystemNotices, {
+      notice: error,
+      onDismiss() {},
+      onPause() {},
+      updateAvailable: false,
+      onUpdate() {},
+    }),
+  );
+
+  expect(html).toContain('role="alert"');
+  expect(html).toContain("保存失败，请重试");
 });

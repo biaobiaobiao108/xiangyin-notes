@@ -306,11 +306,9 @@ export function useVirtualNoteList(
   }, []);
   const onBlurCapture = useCallback((event: ReactFocusEvent<HTMLDivElement>) => {
     const nextTarget = event.relatedTarget;
-    const noteId =
-      nextTarget instanceof HTMLElement
-        ? nextTarget.closest<HTMLElement>("[data-note-id]")?.dataset.noteId
-        : undefined;
-    setPinnedIndex(noteId ? (indexByIdRef.current.get(noteId) ?? null) : null);
+    // 同一列表内的下一次 focus 会更新 pin；在焦点交接期间重渲染会打断 Tab。
+    if (nextTarget instanceof HTMLElement && nextTarget.closest("[data-note-id]")) return;
+    setPinnedIndex(null);
   }, []);
 
   useLayoutEffect(() => {

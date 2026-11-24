@@ -52,7 +52,7 @@
   --accent-soft: light-dark(#edf5f0, rgba(78, 138, 110, 0.16));
   --multi-selection-soft: light-dark(#edf3f7, rgba(78, 138, 110, 0.14));
   --multi-selection-border: light-dark(#bad3c5, rgba(78, 138, 110, 0.38));
-  --accent-contrast: light-dark(#ffffff, #161819);
+  --accent-contrast: light-dark(#ffffff, #0d100e);
   --accent-rgb: light-dark(rgba(54, 94, 78, 0.2), rgba(78, 138, 110, 0.2));
   --accent-ring: light-dark(rgba(54, 94, 78, 0.32), rgba(78, 138, 110, 0.38));
   --selection-ring: light-dark(rgba(54, 94, 78, 0.24), rgba(78, 138, 110, 0.32));

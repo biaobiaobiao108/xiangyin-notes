@@ -22,7 +22,7 @@ export function SystemNotices({
   const Icon =
     notice?.kind === "error" ? CircleAlert : notice?.kind === "warning" ? TriangleAlert : Info;
   return (
-    <div className="system-notices" aria-label="应用提示">
+    <div className="system-notices">
       {updateAvailable && !updateDismissed && (
         <div className="update-notice" role="status">
           <RefreshCw size={18} aria-hidden="true" />
