@@ -213,19 +213,6 @@ function MemoCard({
             <FileText size={16} aria-hidden="true" />
           </button>
         )}
-        {!mobile && (
-          <span className="memo-card-delete-zone">
-            <button
-              className="memo-card-delete"
-              type="button"
-              aria-label="删除随记"
-              disabled={deleting || editing}
-              onClick={() => void remove()}
-            >
-              <Trash2 size={16} aria-hidden="true" />
-            </button>
-          </span>
-        )}
         <header className="memo-card-header">
           <time dateTime={new Date(memo.createdAt).toISOString()}>{timeLabel(memo.createdAt)}</time>
         </header>

@@ -345,7 +345,7 @@
   --memo-prose-size: 0.98rem;
   --memo-prose-leading: 1.65;
   position: relative;
-  padding: 16px 44px 16px 16px;
+  padding: 16px;
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-lg);
   background: var(--surface);
@@ -451,70 +451,6 @@
 }
 
 .memo-card-convert {
-  display: none;
-}
-
-.memo-card-delete-zone {
-  position: absolute;
-  z-index: 2;
-  top: 4px;
-  right: 4px;
-  display: grid;
-  width: 44px;
-  height: 44px;
-  place-items: center;
-}
-
-.memo-card-delete {
-  display: grid;
-  width: 32px;
-  height: 32px;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: transparent;
-  color: var(--danger);
-  opacity: 0;
-  pointer-events: none;
-  transform: scale(0.92);
-  transition:
-    background-color var(--motion-fast) var(--motion-ease-out),
-    color var(--motion-fast) var(--motion-ease-out),
-    opacity var(--motion-fast) var(--motion-ease-out),
-    transform var(--motion-panel) var(--motion-spring);
-}
-
-.memo-card-delete-zone:hover .memo-card-delete,
-.memo-card-delete:focus-visible {
-  opacity: 1;
-  pointer-events: auto;
-  transform: scale(1);
-}
-
-.memo-card-delete:hover,
-.memo-card-delete:focus-visible {
-  background: var(--danger-soft);
-  color: var(--danger);
-}
-
-.memo-page .memo-card-delete:active:not(:disabled) {
-  background: var(--danger);
-  color: var(--danger-contrast);
-}
-
-.memo-card-delete:disabled {
-  cursor: default;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.memo-card-delete-zone:hover .memo-card-delete:disabled {
-  opacity: 0;
-  pointer-events: none;
-}
-
-.memo-card.is-editing .memo-card-delete-zone {
   display: none;
 }
 
@@ -1087,7 +1023,6 @@
   transform: scale(0.985);
 }
 
-.memo-page .memo-card-delete:active:not(:disabled),
 .memo-page .memo-calendar-nav button:active:not(:disabled) {
   transform: scale(0.94);
 }
@@ -1106,12 +1041,6 @@
 .memo-page .memo-tag-list button:active:not(:disabled) {
   transform: scale(0.98);
   transition-duration: 0ms;
-}
-
-.memo-card-delete:focus-visible {
-  background: var(--danger-soft);
-  color: var(--danger);
-  text-decoration: none;
 }
 
 @media (max-width: 1320px) {
@@ -1295,13 +1224,8 @@
   }
 
   .memo-card {
-    padding: 12px 44px 12px 16px;
+    padding: 12px 16px;
     border-radius: var(--radius-md);
-  }
-
-  .memo-card-delete {
-    width: 40px;
-    height: 40px;
   }
 
   .memo-toast {
@@ -1332,14 +1256,14 @@
 @media (min-width: 901px) and (hover: none), (min-width: 901px) and (pointer: coarse) {
   .memo-card-header {
     min-height: 32px;
-    padding-right: 80px;
+    padding-right: 48px;
   }
 
   .memo-card-convert {
     position: absolute;
     z-index: 2;
     top: 4px;
-    right: 48px;
+    right: 4px;
     display: grid;
     width: 40px;
     height: 40px;
@@ -1353,12 +1277,6 @@
 
   .memo-card.is-editing .memo-card-convert {
     display: none;
-  }
-
-  .memo-card-delete {
-    opacity: 1;
-    pointer-events: auto;
-    transform: none;
   }
 }
 
