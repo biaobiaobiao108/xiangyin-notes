@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { parseDraftRecovery, serializeDraftRecovery } from "../app/workspace/draft-recovery";
+import {
+  noteMatchesDraft,
+  parseDraftRecovery,
+  serializeDraftRecovery,
+} from "../app/workspace/draft-recovery";
 import type { NoteDraft } from "../app/workspace/helpers";
+import type { Note } from "../shared/types";
 
 const draft: NoteDraft = {
   id: "note-1",
@@ -30,6 +35,25 @@ describe("draft recovery serialization", () => {
     expect(
       serializeDraftRecovery({ ...draft, contentMarkdown: "字".repeat(3_000_000) }),
     ).toBeNull();
+  });
+
+  test("recognizes a committed draft and preserves differently edited drafts", () => {
+    const committed: Note = {
+      ...draft,
+      version: draft.version + 1,
+      notebookName: "收件箱",
+      preview: "",
+      tags: [],
+      thumbnail: null,
+      createdAt: 1,
+      updatedAt: 2,
+    };
+    expect(noteMatchesDraft(committed, draft)).toBe(true);
+    expect(noteMatchesDraft(committed, { ...draft, contentMarkdown: "后来编辑的正文" })).toBe(
+      false,
+    );
+    expect(noteMatchesDraft(committed, { ...draft, notebookId: "other" })).toBe(false);
+    expect(noteMatchesDraft(committed, { ...draft, version: committed.version + 1 })).toBe(false);
   });
 });
 

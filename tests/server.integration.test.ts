@@ -623,7 +623,7 @@ describe("Bun Server API", () => {
     expect((await request("/api/tasks?status=done", {}, login.cookie)).body?.total).toBe(0);
   });
 
-  test("accepts a long Unicode task whose JSON body exceeds 4 KiB", async () => {
+  test("toggles a long Unicode task nested on the same line as its parent", async () => {
     const login = await request("/api/auth/login", {
       method: "POST",
       body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
@@ -633,7 +633,7 @@ describe("Bun Server API", () => {
       { method: "POST", body: JSON.stringify({ name: "长任务切换测试" }) },
       login.cookie,
     );
-    const text = "任务".repeat(2000);
+    const text = "任务".repeat(11000);
     const noteResponse = await request(
       "/api/notes",
       {
@@ -641,28 +641,31 @@ describe("Bun Server API", () => {
         body: JSON.stringify({
           title: "长任务",
           notebookId: notebookResponse.body?.notebook.id,
-          contentMarkdown: `- [ ] ${text}`,
+          contentMarkdown: `- > - [ ] ${text}\r- [ ] 另一项`,
         }),
       },
       login.cookie,
     );
     const note = noteResponse.body?.note;
+    const { body } = await request("/api/tasks?status=all", {}, login.cookie);
+    const task = body?.tasks[0];
+    expect(task).toMatchObject({ noteId: note.id, ordinal: 0, text, done: false });
     const response = await request(
       "/api/tasks/toggle",
       {
         method: "POST",
         body: JSON.stringify({
-          noteId: note.id,
-          version: note.version,
-          ordinal: 0,
-          text,
-          completed: false,
+          noteId: task.noteId,
+          version: task.version,
+          ordinal: task.ordinal,
+          text: task.text,
+          completed: task.done,
         }),
       },
       login.cookie,
     );
     expect(response.response.status).toBe(200);
-    expect(response.body?.note.contentMarkdown).toBe(`- [x] ${text}`);
+    expect(response.body?.note.contentMarkdown).toBe(`- > - [x] ${text}\r- [ ] 另一项`);
   });
 
   test("retries asset file deletions that failed after their database rows were removed", async () => {

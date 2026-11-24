@@ -532,6 +532,38 @@ describe("Note links, backlinks, and renaming cascade", () => {
     expect(updatedSource.body?.note.contentMarkdown).toBe("请查看 [[真实目标]]。");
   });
 
+  test("rejects an ambiguous rename without changing the note or its incoming links", async () => {
+    const { cookie } = await request("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
+    });
+    const create = async (title: string, contentMarkdown: string) =>
+      (
+        await request(
+          "/api/notes",
+          { method: "POST", body: JSON.stringify({ title, contentMarkdown }) },
+          cookie,
+        )
+      ).body?.note as Note;
+    const other = await create("新名", "已有笔记");
+    database.query("UPDATE notes SET updated_at = ? WHERE id = ?").run(4_000_000_000, other.id);
+    const target = await create("旧名", "");
+    const source = await create("来源", "引用 [[旧名]]");
+
+    const renamed = await request(
+      `/api/notes/${target.id}`,
+      { method: "PATCH", body: JSON.stringify({ title: "新名", version: target.version }) },
+      cookie,
+    );
+
+    expect(renamed.response.status).toBe(409);
+    expect(renamed.body?.error.code).toBe("NOTE_RENAME_LINK_CONFLICT");
+    expect((await request(`/api/notes/${target.id}`, {}, cookie)).body?.note).toEqual(target);
+    expect((await request(`/api/notes/${source.id}`, {}, cookie)).body?.note).toEqual(source);
+    const backlinks = await request(`/api/notes/${target.id}/backlinks`, {}, cookie);
+    expect(backlinks.body?.linkedReferences).toMatchObject([{ sourceNoteId: source.id }]);
+  });
+
   test("matches links with case and space tolerance and links to newly created target note", async () => {
     const auth = await request("/api/auth/login", {
       method: "POST",

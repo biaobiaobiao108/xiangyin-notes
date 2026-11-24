@@ -96,6 +96,18 @@ export function draftRecoveryStorageKey(noteId: string) {
   return `${DRAFT_RECOVERY_KEY_PREFIX}${noteId}`;
 }
 
+export function noteMatchesDraft(note: Note, draft: NoteDraft) {
+  return (
+    note.id === draft.id &&
+    note.version >= draft.version &&
+    note.title === (draft.title.trim() ? draft.title : "") &&
+    note.contentMarkdown === draft.contentMarkdown &&
+    note.notebookId === draft.notebookId &&
+    note.isFavorite === draft.isFavorite &&
+    Boolean(note.deletedAt) === Boolean(draft.deletedAt)
+  );
+}
+
 export function serializeDraftRecovery(draft: NoteDraft) {
   try {
     const serialized = JSON.stringify(draft);

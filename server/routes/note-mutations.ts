@@ -1,4 +1,4 @@
-import { replaceWikiLinkTarget } from "../../shared/wiki-links";
+import { normalizeLinkTitle, replaceWikiLinkTarget } from "../../shared/wiki-links";
 import {
   all,
   InvalidNoteAssetsError,
@@ -124,6 +124,8 @@ export class NoteRenameContentTooLargeError extends Error {
   }
 }
 
+export class NoteRenameLinkConflictError extends Error {}
+
 export function createNote(
   database: SqliteDatabase,
   userId: string,
@@ -175,6 +177,13 @@ export function updateNoteInTransaction(
   let nextContentMarkdown = contentMarkdown;
   if (rewriteLinks) {
     const replaced = replaceWikiLinkTarget(contentMarkdown, oldTitle, title);
+    if (
+      normalizeLinkTitle(oldTitle) !== normalizeLinkTitle(title) &&
+      hasOtherActiveNoteWithTitle(database, userId, current.id, title) &&
+      (replaced.count > 0 ||
+        sourceNoteIdsReferencingTitle(database, userId, oldTitle, current.id, "", 1).length > 0)
+    )
+      throw new NoteRenameLinkConflictError();
     if (replaced.count > 0) {
       if (replaced.content.length > NOTE_CONTENT_MAX_LENGTH)
         throw new NoteRenameContentTooLargeError();

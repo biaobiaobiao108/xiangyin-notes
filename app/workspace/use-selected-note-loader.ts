@@ -1,7 +1,12 @@
 import { useCallback, useEffect } from "react";
 import type { Note } from "../../shared/types";
 import { ApiError, api } from "../api";
-import { readDraftRecovery, readMissingNoteDraft } from "./draft-recovery";
+import {
+  clearDraftRecovery,
+  noteMatchesDraft,
+  readDraftRecovery,
+  readMissingNoteDraft,
+} from "./draft-recovery";
 import { noteMetadataSnapshot, toNoteDraft, type NoteDraft } from "./helpers";
 import { latestSelectedNoteSnapshot } from "./selected-note-sync";
 import { isMissingNoteError, noteSaveFailureState, type SaveState } from "./use-note-save-queue";
@@ -80,7 +85,9 @@ export function useSelectedNoteLoader({
           const recoveredDraft = await readDraftRecovery(id);
           if (requestId !== noteLoadRequestRef.current || activeNoteIdRef.current !== id) return;
           loadedNote = latestSelectedNoteSnapshot(loadedNote, selectedRef.current);
-          if (recoveredDraft && !pendingSavesRef.current.has(id)) {
+          if (recoveredDraft && noteMatchesDraft(result.note, recoveredDraft)) {
+            clearDraftRecovery(id, recoveredDraft);
+          } else if (recoveredDraft && !pendingSavesRef.current.has(id)) {
             pendingSavesRef.current.set(id, recoveredDraft);
             if (recoveredDraft.version === loadedNote.version) {
               notifyWarning("已恢复一份未保存草稿");

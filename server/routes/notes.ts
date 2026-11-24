@@ -50,6 +50,7 @@ import { findActiveNoteIdByTitle, resolveNoteLinksForTitles } from "../note-link
 import {
   createNote,
   NoteRenameContentTooLargeError,
+  NoteRenameLinkConflictError,
   syncNoteTasks,
   updateNote,
   updateNoteInTransaction,
@@ -1196,6 +1197,12 @@ export async function handleNotesRoute(
           413,
           "NOTE_TOO_LARGE",
           "重命名会使引用这篇笔记的正文超出长度限制，请缩短标题或减少双向链接后重试",
+        );
+      if (error instanceof NoteRenameLinkConflictError)
+        return jsonError(
+          409,
+          "NOTE_RENAME_LINK_CONFLICT",
+          "已有同名笔记，请使用其他标题以保留双向链接",
         );
       throw error;
     }

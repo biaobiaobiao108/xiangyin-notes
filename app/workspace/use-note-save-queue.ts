@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api } from "../api";
 import type { Note, NoteSummary } from "../../shared/types";
-import { clearDraftRecovery, writeDraftRecovery } from "./draft-recovery";
+import { clearDraftRecovery, noteMatchesDraft, writeDraftRecovery } from "./draft-recovery";
 import { errorMessage, toNoteDraft, toNoteSummary, type NoteDraft } from "./helpers";
 import { replaceWikiLinkTarget } from "../../shared/wiki-links";
 
@@ -14,6 +14,7 @@ const ALL_SAVE_FIELDS = [
   "deleted",
 ] as const;
 type SaveField = (typeof ALL_SAVE_FIELDS)[number];
+type SaveAttempt = { draft: NoteDraft; fields: Set<SaveField> };
 
 export type SaveState = "idle" | "saving" | "saved" | "conflict" | "missing" | "error";
 
@@ -71,6 +72,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
   const pendingSavesRef = useRef(new Map<string, NoteDraft>());
   const pendingFieldsRef = useRef(new Map<string, Set<SaveField>>());
   const inFlightSavesRef = useRef(new Map<string, Promise<number | undefined>>());
+  const unconfirmedSavesRef = useRef(new Map<string, SaveAttempt>());
   const notebookMovesRef = useRef(new Map<string, Promise<unknown>>());
   const failedSavesRef = useRef(new Map<string, unknown>());
 
@@ -123,22 +125,17 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
 
       const task = (async () => {
         let savedVersion: number | undefined;
-        let fieldsForRequest: Set<SaveField> | null = null;
+        let attempt: SaveAttempt | undefined;
         try {
           while (pendingSavesRef.current.has(noteId)) {
-            const draft = pendingSavesRef.current.get(noteId)!;
-            const fields =
-              pendingFieldsRef.current.get(noteId) ?? new Set<SaveField>(ALL_SAVE_FIELDS);
-            pendingFieldsRef.current.delete(noteId);
-            fieldsForRequest = fields;
-            const payload: {
-              version: number;
-              title?: string;
-              contentMarkdown?: string;
-              notebookId?: string;
-              isFavorite?: boolean;
-              deleted?: boolean;
-            } = {
+            const unconfirmed = unconfirmedSavesRef.current.get(noteId);
+            attempt = unconfirmed ?? {
+              draft: pendingSavesRef.current.get(noteId)!,
+              fields: pendingFieldsRef.current.get(noteId) ?? new Set<SaveField>(ALL_SAVE_FIELDS),
+            };
+            if (!unconfirmed) pendingFieldsRef.current.delete(noteId);
+            const { draft, fields } = attempt;
+            const payload: Parameters<typeof api.updateNote>[1] = {
               version: draft.version,
             };
             if (fields.has("title")) payload.title = draft.title;
@@ -151,12 +148,21 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
               keepalive &&
               new TextEncoder().encode(JSON.stringify(payload)).byteLength <=
                 KEEPALIVE_BODY_MAX_BYTES;
-            const result = await api.updateNote(noteId, payload, {
-              keepalive: keepaliveRequest,
-              response: "summary",
-            });
+            const result = await api
+              .updateNote(noteId, payload, { keepalive: keepaliveRequest, response: "summary" })
+              .catch((reason: unknown): Awaited<ReturnType<typeof api.updateNote>> => {
+                if (reason instanceof ApiError && reason.code === "VERSION_CONFLICT") {
+                  const current = reason.details?.error as { current?: Note } | undefined;
+                  if (current?.current && noteMatchesDraft(current.current, draft))
+                    return { note: current.current };
+                }
+                throw reason;
+              });
+            if (!result?.note) throw new Error("保存响应缺少笔记");
             const failure = failedSavesRef.current.get(noteId);
             if (isMissingNoteError(failure)) throw failure;
+            unconfirmedSavesRef.current.delete(noteId);
+            attempt = undefined;
             if (result.previousTitle) flushEditorDraftRef.current();
             const savedNote: Note =
               "contentMarkdown" in result.note
@@ -215,13 +221,19 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
           return savedVersion;
         } catch (reason) {
           if (!pendingSavesRef.current.has(noteId)) throw reason;
-          if (fieldsForRequest) {
-            const pendingFields = pendingFieldsRef.current.get(noteId) ?? new Set<SaveField>();
-            for (const field of fieldsForRequest) pendingFields.add(field);
-            pendingFieldsRef.current.set(noteId, pendingFields);
-          }
           const failure = failedSavesRef.current.get(noteId);
           const latestFailure = isMissingNoteError(failure) ? failure : reason;
+          if (attempt) {
+            if (!(latestFailure instanceof ApiError) || latestFailure.status >= 500) {
+              // Keep the exact request so a retry can confirm it before sending newer edits.
+              unconfirmedSavesRef.current.set(noteId, attempt);
+            } else {
+              unconfirmedSavesRef.current.delete(noteId);
+              const pendingFields = pendingFieldsRef.current.get(noteId) ?? new Set<SaveField>();
+              for (const field of attempt.fields) pendingFields.add(field);
+              pendingFieldsRef.current.set(noteId, pendingFields);
+            }
+          }
           recordSaveFailure(noteId, latestFailure);
           throw latestFailure;
         }
@@ -348,6 +360,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
 
     pendingSavesRef.current.delete(noteId);
     pendingFieldsRef.current.delete(noteId);
+    unconfirmedSavesRef.current.delete(noteId);
     failedSavesRef.current.delete(noteId);
     clearDraftRecovery(noteId, savedDraft);
   }, []);

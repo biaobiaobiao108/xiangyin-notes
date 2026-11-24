@@ -1,7 +1,12 @@
 import { useCallback, useEffect, type Dispatch, type SetStateAction } from "react";
 import type { Note, NoteSummary, Notebook } from "../../shared/types";
 import { ApiError, api } from "../api";
-import { readDraftRecovery, readMissingNoteDraft } from "./draft-recovery";
+import {
+  clearDraftRecovery,
+  noteMatchesDraft,
+  readDraftRecovery,
+  readMissingNoteDraft,
+} from "./draft-recovery";
 import { latestSelectedNoteSnapshot } from "./selected-note-sync";
 import { noteMetadataSnapshot, toNoteDraft } from "./helpers";
 import type { ConfirmRequest } from "./dialogs";
@@ -135,7 +140,9 @@ export function useWorkspaceSplit({
           const recoveredDraft = await readDraftRecovery(id);
           if (requestId !== splitLoadRequestRef.current || splitNoteIdRef.current !== id) return;
           loadedNote = latestSelectedNoteSnapshot(loadedNote, splitSelectedRef.current);
-          if (recoveredDraft && !pendingSavesRef.current.has(id)) {
+          if (recoveredDraft && noteMatchesDraft(result.note, recoveredDraft)) {
+            clearDraftRecovery(id, recoveredDraft);
+          } else if (recoveredDraft && !pendingSavesRef.current.has(id)) {
             pendingSavesRef.current.set(id, recoveredDraft);
             if (recoveredDraft.version === loadedNote.version) {
               notifyWarning("已恢复一份未保存草稿");

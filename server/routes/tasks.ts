@@ -5,6 +5,7 @@ import {
   getNote,
   json,
   jsonError,
+  NOTE_CONTENT_MAX_LENGTH,
   readJson,
   toFullNote,
   type RouteContext,
@@ -15,6 +16,8 @@ import { updateNote } from "./note-mutations";
 
 const TASK_PAGE_SIZE = 100;
 const TASK_PAGE_MAX_SIZE = 200;
+// JSON can use six bytes per UTF-16 code unit, plus the task locator fields.
+const TASK_TOGGLE_MAX_BYTES = 6 * NOTE_CONTENT_MAX_LENGTH + 1024;
 const NOTE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 
 type TaskCursor = { sortCreatedAt: number; noteId: string; ordinal: number };
@@ -174,7 +177,7 @@ export async function handleTasksRoute(ctx: RouteContext, user: UserRow): Promis
       ordinal?: unknown;
       text?: unknown;
       completed?: unknown;
-    }>(request, 64 * 1024);
+    }>(request, TASK_TOGGLE_MAX_BYTES);
     if (
       !payload ||
       typeof payload.noteId !== "string" ||
@@ -184,7 +187,7 @@ export async function handleTasksRoute(ctx: RouteContext, user: UserRow): Promis
       !Number.isSafeInteger(payload.ordinal) ||
       (payload.ordinal as number) < 0 ||
       typeof payload.text !== "string" ||
-      payload.text.length > 10000 ||
+      payload.text.length > NOTE_CONTENT_MAX_LENGTH ||
       typeof payload.completed !== "boolean"
     )
       return jsonError(400, "INVALID_ARGUMENT", "任务定位信息无效");

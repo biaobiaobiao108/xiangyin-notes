@@ -177,6 +177,54 @@ describe("favorite operations and the save queue", () => {
     await expect(queue.runSave(original.id)).resolves.toBeUndefined();
   });
 
+  test("confirms a save whose response was lost before sending newer edits", async () => {
+    update.mockImplementationOnce(async (_id, payload) => {
+      stored = { ...stored, ...payload, version: 2 };
+      throw new TypeError("网络连接中断");
+    });
+    const first = { ...original, contentMarkdown: "已提交的版本" };
+    queue.persist(first, ["contentMarkdown"]);
+    await expect(queue.runSave(original.id)).rejects.toThrow("网络连接中断");
+
+    const next = { ...first, contentMarkdown: "断线后继续编辑" };
+    queue.persist(next, ["contentMarkdown"]);
+    update.mockRejectedValueOnce(
+      new ApiError(409, "VERSION_CONFLICT", "版本冲突", { error: { current: stored } }),
+    );
+    await queue.retryFailedSaves();
+
+    expect(update.mock.calls.map(([, payload]) => payload)).toEqual([
+      { version: 1, contentMarkdown: first.contentMarkdown },
+      { version: 1, contentMarkdown: first.contentMarkdown },
+      { version: 2, contentMarkdown: next.contentMarkdown },
+    ]);
+    expect(selectedRef.current).toMatchObject({
+      version: 3,
+      contentMarkdown: next.contentMarkdown,
+    });
+    expect(queue.hasUnsavedWork()).toBe(false);
+  });
+
+  test("preserves the latest draft when the server changed after a response was lost", async () => {
+    update.mockRejectedValueOnce(new TypeError("网络连接中断"));
+    const draft = { ...original, contentMarkdown: "本地编辑" };
+    queue.persist(draft, ["contentMarkdown"]);
+    await expect(queue.runSave(original.id)).rejects.toThrow("网络连接中断");
+
+    const current = { ...draft, version: 2, contentMarkdown: "远端编辑" };
+    update.mockRejectedValueOnce(
+      new ApiError(409, "VERSION_CONFLICT", "版本冲突", { error: { current } }),
+    );
+    await queue.retryFailedSaves();
+
+    expect(queue.pendingSavesRef.current.get(original.id)?.contentMarkdown).toBe(
+      draft.contentMarkdown,
+    );
+    expect(queue.failedSavesRef.current.get(original.id)).toMatchObject({
+      code: "VERSION_CONFLICT",
+    });
+  });
+
   test("saves an unsaved body together with a card favorite", async () => {
     const draft = { ...original, contentMarkdown: "未保存的正文" };
     selectedRef.current = draft;

@@ -137,4 +137,13 @@ describe("Markdown task extraction", () => {
     ]);
     expect(updated).toContain("> - [ ] fake");
   });
+
+  test("locates an inline nested list task after a lone carriage return", () => {
+    const markdown = "- [ ] 第一项\r- - [ ] 子项";
+    const marker = findMarkdownTaskMarker(markdown, 1);
+    expect(marker).not.toBeNull();
+    expect(markdown.slice(0, marker!.start) + "[x]" + markdown.slice(marker!.end)).toBe(
+      "- [ ] 第一项\r- - [x] 子项",
+    );
+  });
 });

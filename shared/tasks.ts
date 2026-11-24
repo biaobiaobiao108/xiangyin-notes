@@ -91,15 +91,18 @@ export function resolveTaskOrdinal(markdown: string, ordinal: number, text: stri
 
 /** Locate a task marker in source order, excluding fenced and indented code. */
 export function findMarkdownTaskMarker(markdown: string, ordinal: number) {
-  const lines = markdown.match(/[^\n]*(?:\n|$)/gu) ?? [];
+  const lines = markdown.match(/[^\r\n]*(?:\r\n|\r|\n|$)/gu) ?? [];
   let offset = 0;
   const markers: Array<{ start: number; end: number; checked: boolean; sentinel: string }> = [];
   const nonce = crypto.randomUUID().replaceAll("-", "");
   const augmented: string[] = [];
 
   for (const lineWithEnding of lines) {
-    const line = lineWithEnding.replace(/\r?\n$/u, "");
-    const match = /^(?:[ \t]{0,3}>[ \t]?)*[ \t]*(?:[-+*]|\d+[.)])[ \t]+\[([ xX])\]/u.exec(line);
+    const line = lineWithEnding.replace(/(?:\r\n|\r|\n)$/u, "");
+    // A quote or an outer list item can share the task's physical line.
+    // Marked below decides which candidates are actual task markers.
+    const match =
+      /^[ \t]*(?:>[ \t]*|(?:[-+*]|\d+[.)])[ \t]+)*(?:[-+*]|\d+[.)])[ \t]+\[([ xX])\]/u.exec(line);
     if (match) {
       const markerStart = match[0].lastIndexOf("[");
       const markerEnd = markerStart + 3;
