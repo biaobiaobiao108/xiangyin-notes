@@ -2,9 +2,15 @@ import assert from "node:assert/strict";
 import { resolve } from "node:path";
 import { loadPlaywright, startApp } from "./browser-support.mjs";
 
-const { chromium } = await loadPlaywright();
+const playwright = await loadPlaywright();
+const browserEngine = (process.env.BROWSER_ENGINE ?? "chromium").trim().toLowerCase();
+const browserType =
+  browserEngine === "chromium" || browserEngine === "webkit" ? playwright[browserEngine] : null;
+if (!browserType || typeof browserType.launch !== "function") {
+  throw new Error(`不支持的 BROWSER_ENGINE: ${browserEngine}（仅支持 chromium / webkit）`);
+}
 const app = await startApp({ clientRoot: resolve(process.argv[2] ?? "dist/client") });
-const browser = await chromium.launch();
+const browser = await browserType.launch();
 
 const TITLE_SELECTOR = '[aria-label="笔记标题"]';
 const EDITOR_SELECTOR = '[aria-label="笔记正文"][contenteditable="true"]';
@@ -338,7 +344,7 @@ try {
   await mobilePage.locator("#mobile-notebooks-title").waitFor();
 
   assert.equal(pageErrors.length, 0, `Uncaught page errors: ${pageErrors.map(String).join("; ")}`);
-  console.log("Browser E2E passed (11 scenarios, 0 page errors).");
+  console.log(`Browser E2E (${browserEngine}) passed (11 scenarios, 0 page errors).`);
 } catch (error) {
   const titleVal = await page
     .locator(TITLE_SELECTOR)

@@ -49,11 +49,18 @@ jobs:
         run: |
           mkdir -p /tmp/pw-ci
           npm --prefix /tmp/pw-ci install --no-save playwright
-          /tmp/pw-ci/node_modules/.bin/playwright install --with-deps chromium
+          /tmp/pw-ci/node_modules/.bin/playwright install --with-deps chromium webkit
 
-      - name: Browser E2E
+      - name: Browser E2E (Chromium)
         env:
           PLAYWRIGHT_MODULE: /tmp/pw-ci/node_modules/playwright/index.mjs
+          BROWSER_ENGINE: chromium
+        run: bun run e2e
+
+      - name: Browser E2E (WebKit)
+        env:
+          PLAYWRIGHT_MODULE: /tmp/pw-ci/node_modules/playwright/index.mjs
+          BROWSER_ENGINE: webkit
         run: bun run e2e
 
       - name: Set up Docker Buildx
