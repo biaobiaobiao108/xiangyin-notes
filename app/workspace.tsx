@@ -361,6 +361,7 @@ export function Workspace() {
     saveImmediately,
     saveFavorite,
     moveNoteToNotebook,
+    toggleNoteTask,
     flushNotebookSaves,
     saveNoteNow,
     flushPendingSaves,
@@ -1097,14 +1098,9 @@ export function Workspace() {
     applyTaskToggle,
     flushPendingSaves,
     hasUnsavedWork,
+    toggleNoteTask,
     notifyWarning,
     notifyError,
-    setSelectedNote,
-    setNoteReloadToken,
-    setSplitSelectedNote,
-    setSplitNoteReloadToken,
-    notesRef,
-    replaceList,
   });
   const {
     closeCommandMenu,

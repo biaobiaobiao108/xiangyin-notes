@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api } from "../api";
-import type { Note, NoteSummary } from "../../shared/types";
+import type { Note, NoteSummary, TaskSummary } from "../../shared/types";
+import { mergeTaskToggleIntoDraft } from "../../shared/tasks";
 import {
   clearDraftRecovery,
   noteMatchesDraft,
@@ -87,7 +88,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
   const pendingFieldsRef = useRef(new Map<string, Set<SaveField>>());
   const inFlightSavesRef = useRef(new Map<string, Promise<number | undefined>>());
   const unconfirmedSavesRef = useRef(new Map<string, SaveAttempt>());
-  const notebookMovesRef = useRef(new Map<string, Promise<unknown>>());
+  const noteMutationsRef = useRef(new Map<string, Promise<unknown>>());
   const failedSavesRef = useRef(new Map<string, unknown>());
 
   const recordSaveFailure = useCallback(
@@ -134,8 +135,10 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
 
   const runSave = useCallback(
     async (noteId: string, keepalive = false): Promise<number | undefined> => {
-      const move = notebookMovesRef.current.get(noteId);
-      if (move) await move.catch(() => undefined);
+      let mutation: Promise<unknown> | undefined;
+      while ((mutation = noteMutationsRef.current.get(noteId))) {
+        await mutation.catch(() => undefined);
+      }
       const failure = failedSavesRef.current.get(noteId);
       if (isMissingNoteError(failure)) throw failure;
       const running = inFlightSavesRef.current.get(noteId);
@@ -536,12 +539,12 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
           }
           replaceList(notesRef.current.map(applySummary));
         });
-      notebookMovesRef.current.set(id, task);
+      noteMutationsRef.current.set(id, task);
       try {
         await task;
         return true;
       } finally {
-        notebookMovesRef.current.delete(id);
+        if (noteMutationsRef.current.get(id) === task) noteMutationsRef.current.delete(id);
       }
     },
     [
@@ -558,6 +561,107 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
       splitNoteOpeningRef,
       splitSelectedRef,
       trashOperationsRef,
+    ],
+  );
+
+  const toggleNoteTask = useCallback(
+    async (task: TaskSummary) => {
+      const id = task.noteId;
+      const previousMutation = noteMutationsRef.current.get(id);
+      // Keep autosaves behind the task write until drafts use its new version.
+      const mutation = (async () => {
+        if (previousMutation) await previousMutation.catch(() => undefined);
+        const { note } = await api.toggleTask({
+          noteId: id,
+          version: task.version,
+          ordinal: task.ordinal,
+          text: task.text,
+          completed: task.done,
+        });
+        await Promise.all([
+          activeNoteIdRef.current === id ? noteOpeningRef?.current : null,
+          splitNoteIdRef?.current === id ? splitNoteOpeningRef?.current : null,
+        ]);
+        flushEditorDraftRef.current();
+        const draft = pendingSavesRef.current.get(id);
+        const fields = pendingFieldsRef.current.get(id);
+        let next: Note = note;
+        if (draft) {
+          const contentMarkdown =
+            draft.version !== task.version
+              ? null
+              : fields?.has("contentMarkdown") || !fields
+                ? mergeTaskToggleIntoDraft(
+                    note.contentMarkdown,
+                    draft.contentMarkdown,
+                    task.ordinal,
+                  )
+                : note.contentMarkdown;
+          if (contentMarkdown === null) {
+            writeDraftRecovery(draft);
+            recordSaveFailure(
+              id,
+              new ApiError(409, "VERSION_CONFLICT", "任务已更新，本地编辑与服务器版本冲突"),
+            );
+            return note.version;
+          }
+          const rebased = { ...draft, version: note.version, contentMarkdown };
+          pendingSavesRef.current.set(id, rebased);
+          writeDraftRecovery(rebased);
+          next = { ...note, ...rebased };
+        }
+        const summary = toNoteSummary(next);
+        replaceList(
+          notesRef.current.map((item) =>
+            item.id === id && item.version < note.version ? { ...item, ...summary } : item,
+          ),
+        );
+        let reloadEditor = false;
+        const selected = selectedRef.current;
+        if (
+          activeNoteIdRef.current === id &&
+          selected?.id === id &&
+          selected.version <= note.version
+        ) {
+          reloadEditor ||= selected.contentMarkdown !== next.contentMarkdown;
+          selectedRef.current = next;
+          setSelectedNote(next);
+        }
+        const split = splitSelectedRef?.current;
+        if (
+          splitSelectedRef &&
+          splitNoteIdRef?.current === id &&
+          split?.id === id &&
+          split.version <= note.version
+        ) {
+          reloadEditor ||= split.contentMarkdown !== next.contentMarkdown;
+          splitSelectedRef.current = next;
+          setSplitSelectedNote?.(next);
+        }
+        if (reloadEditor) onRewrittenContent?.(id);
+        return note.version;
+      })();
+      noteMutationsRef.current.set(id, mutation);
+      try {
+        return await mutation;
+      } finally {
+        if (noteMutationsRef.current.get(id) === mutation) noteMutationsRef.current.delete(id);
+      }
+    },
+    [
+      activeNoteIdRef,
+      flushEditorDraftRef,
+      noteOpeningRef,
+      notesRef,
+      onRewrittenContent,
+      recordSaveFailure,
+      replaceList,
+      selectedRef,
+      setSelectedNote,
+      setSplitSelectedNote,
+      splitNoteIdRef,
+      splitNoteOpeningRef,
+      splitSelectedRef,
     ],
   );
 
@@ -631,6 +735,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
     saveImmediately,
     saveFavorite,
     moveNoteToNotebook,
+    toggleNoteTask,
     flushNotebookSaves,
     saveNoteNow,
     cancelSaveTimer,

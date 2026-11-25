@@ -379,11 +379,14 @@ export function WorkspaceEditorArea({
       aria-hidden={editorContentInert || undefined}
       inert={editorContentInert}
     >
-      {splitNoteId && !isMobileViewport ? (
+      <div
+        className={isSplitEditor ? "split-pane split-pane-primary" : "editor-primary-pane"}
+        style={isSplitEditor ? { flex: `${splitRatio} 1 0%` } : undefined}
+      >
+        {primaryEditor ?? (isNoteLoading ? <NoteLoadingState /> : emptyFallback)}
+      </div>
+      {isSplitEditor && (
         <>
-          <div className="split-pane split-pane-primary" style={{ flex: `${splitRatio} 1 0%` }}>
-            {primaryEditor ?? (isNoteLoading ? <NoteLoadingState /> : emptyFallback)}
-          </div>
           <SplitResizer
             splitRatio={splitRatio}
             onSplitRatioChange={setSplitRatio}
@@ -486,8 +489,6 @@ export function WorkspaceEditorArea({
             ) : null}
           </div>
         </>
-      ) : (
-        (primaryEditor ?? (isNoteLoading ? <NoteLoadingState /> : emptyFallback))
       )}
     </main>
   );

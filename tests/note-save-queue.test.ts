@@ -5,7 +5,7 @@ import { ApiError, api } from "../app/api";
 import { useNoteSaveQueue } from "../app/workspace/use-note-save-queue";
 import { latestSelectedNoteSnapshot } from "../app/workspace/selected-note-sync";
 import { toNoteSummary } from "../app/workspace/helpers";
-import type { Note, NoteSummary } from "../shared/types";
+import type { Note, NoteSummary, TaskSummary } from "../shared/types";
 
 const original: Note = {
   id: "note-1",
@@ -320,6 +320,74 @@ describe("favorite operations and the save queue", () => {
     expect(stored.contentMarkdown).toBe("远端正文");
     expect(queue.pendingSavesRef.current.get(original.id)?.contentMarkdown).toBe("本地草稿");
     expect(queue.hasUnsavedWork()).toBe(true);
+  });
+});
+
+describe("task toggles and the save queue", () => {
+  const task: TaskSummary = {
+    noteId: original.id,
+    noteTitle: original.title,
+    notebookId: original.notebookId,
+    notebookName: original.notebookName,
+    version: original.version,
+    text: "核对清单",
+    done: false,
+    ordinal: 0,
+    depth: 0,
+  };
+  const originalMarkdown = "原文\n\n- [ ] 核对清单";
+
+  test("waits for the toggle and saves intervening edits with the checked marker", async () => {
+    const response = deferred<{ note: Note }>();
+    const toggle = spyOn(api, "toggleTask").mockReturnValue(response.promise);
+    try {
+      selectedRef.current = { ...original, contentMarkdown: originalMarkdown };
+      const toggling = queue.toggleNoteTask(task);
+      const draft = { ...selectedRef.current, contentMarkdown: `${originalMarkdown}\n\n新增正文` };
+      selectedRef.current = draft;
+      queue.persist(draft, ["contentMarkdown"]);
+      const saving = queue.runSave(task.noteId);
+      expect(update).not.toHaveBeenCalled();
+
+      stored = { ...original, version: 2, contentMarkdown: "原文\n\n- [x] 核对清单" };
+      response.resolve({ note: stored });
+      await expect(toggling).resolves.toBe(2);
+      await expect(saving).resolves.toBe(3);
+      expect(update).toHaveBeenCalledWith(
+        task.noteId,
+        { version: 2, contentMarkdown: "原文\n\n- [x] 核对清单\n\n新增正文" },
+        { keepalive: false, response: "summary" },
+      );
+      expect(selectedRef.current?.contentMarkdown).toBe(stored.contentMarkdown);
+    } finally {
+      toggle.mockRestore();
+    }
+  });
+
+  test("keeps the local draft when the task itself was edited during the toggle", async () => {
+    const response = deferred<{ note: Note }>();
+    const toggle = spyOn(api, "toggleTask").mockReturnValue(response.promise);
+    try {
+      selectedRef.current = { ...original, contentMarkdown: originalMarkdown };
+      const toggling = queue.toggleNoteTask(task);
+      const draft = { ...selectedRef.current, contentMarkdown: "原文\n\n- [ ] 新的任务文字" };
+      selectedRef.current = draft;
+      queue.persist(draft, ["contentMarkdown"]);
+
+      stored = { ...original, version: 2, contentMarkdown: "原文\n\n- [x] 核对清单" };
+      response.resolve({ note: stored });
+      await expect(toggling).resolves.toBe(2);
+      expect(queue.failedSavesRef.current.get(task.noteId)).toMatchObject({
+        code: "VERSION_CONFLICT",
+      });
+      expect(queue.pendingSavesRef.current.get(task.noteId)?.contentMarkdown).toBe(
+        draft.contentMarkdown,
+      );
+      expect(selectedRef.current).toBe(draft);
+      expect(update).not.toHaveBeenCalled();
+    } finally {
+      toggle.mockRestore();
+    }
   });
 });
 

@@ -54,8 +54,8 @@
   position: relative;
   overflow: hidden;
 }
-.split-pane-primary {
-  position: relative;
+.editor-primary-pane {
+  display: contents;
 }
 .split-pane-secondary {
   position: relative;

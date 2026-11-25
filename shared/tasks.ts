@@ -142,3 +142,38 @@ export function findMarkdownTaskMarker(markdown: string, ordinal: number) {
     return null;
   return { start: marker.start, end: marker.end, checked: marker.checked };
 }
+
+/** Apply a saved checkbox change to a draft whose task list still matches. */
+export function mergeTaskToggleIntoDraft(
+  savedMarkdown: string,
+  draftMarkdown: string,
+  ordinal: number,
+) {
+  if (savedMarkdown === draftMarkdown) return draftMarkdown;
+  const savedTasks = extractMarkdownTasks(savedMarkdown);
+  const draftTasks = extractMarkdownTasks(draftMarkdown);
+  const target = savedTasks[ordinal];
+  if (
+    !target ||
+    savedTasks.length !== draftTasks.length ||
+    savedTasks.some((task, index) => {
+      const draft = draftTasks[index]!;
+      return (
+        task.text !== draft.text ||
+        task.depth !== draft.depth ||
+        (index !== ordinal && task.completed !== draft.completed)
+      );
+    })
+  )
+    return null;
+  const draftTask = draftTasks[ordinal]!;
+  if (draftTask.completed === target.completed) return draftMarkdown;
+  if (savedTasks.some((task) => task.ordinal !== ordinal && task.text === target.text)) return null;
+  const marker = findMarkdownTaskMarker(draftMarkdown, ordinal);
+  if (!marker || marker.checked !== draftTask.completed) return null;
+  return (
+    draftMarkdown.slice(0, marker.start) +
+    (target.completed ? "[x]" : "[ ]") +
+    draftMarkdown.slice(marker.end)
+  );
+}

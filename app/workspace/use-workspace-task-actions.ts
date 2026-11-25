@@ -1,8 +1,8 @@
 import { useCallback, type Dispatch, type SetStateAction } from "react";
-import type { Note, NoteSummary, NoteView, TaskSummary } from "../../shared/types";
+import type { Note, NoteView, TaskSummary } from "../../shared/types";
 import { resolveTaskOrdinal } from "../../shared/tasks";
-import { ApiError, api } from "../api";
-import { errorMessage, noteMetadataSnapshot, toNoteSummary } from "./helpers";
+import { ApiError } from "../api";
+import { errorMessage } from "./helpers";
 import type { useWorkspaceTaskData } from "./use-workspace-task-data";
 import type { useNoteSaveQueue } from "./use-note-save-queue";
 import type { useMobileNavigation } from "./use-mobile-navigation";
@@ -35,14 +35,9 @@ export function useWorkspaceTaskActions({
   applyTaskToggle,
   flushPendingSaves,
   hasUnsavedWork,
+  toggleNoteTask,
   notifyWarning,
   notifyError,
-  setSelectedNote,
-  setNoteReloadToken,
-  setSplitSelectedNote,
-  setSplitNoteReloadToken,
-  notesRef,
-  replaceList,
 }: {
   flushEditorDraftRef: Ref<() => void>;
   flushSecondaryDraft: () => void;
@@ -65,14 +60,9 @@ export function useWorkspaceTaskActions({
   applyTaskToggle: Tasks["applyTaskToggle"];
   flushPendingSaves: Queue["flushPendingSaves"];
   hasUnsavedWork: Queue["hasUnsavedWork"];
+  toggleNoteTask: Queue["toggleNoteTask"];
   notifyWarning: (message: string) => void;
   notifyError: (message: string) => void;
-  setSelectedNote: Setter<Note | null>;
-  setNoteReloadToken: Setter<number>;
-  setSplitSelectedNote: Setter<Note | null>;
-  setSplitNoteReloadToken: Setter<number>;
-  notesRef: Ref<NoteSummary[]>;
-  replaceList: (notes: NoteSummary[]) => void;
 }) {
   const selectTask = useCallback(
     (task: TaskSummary) => {
@@ -113,40 +103,13 @@ export function useWorkspaceTaskActions({
       if (taskMutationsInFlightRef.current.has(task.noteId)) return;
       setTaskBusy(task.noteId, task.ordinal);
       try {
-        if (splitSelectedRef.current?.id === task.noteId) flushSecondaryDraft();
         await flushPendingSaves("now", task.noteId);
         if (hasUnsavedWork(task.noteId)) {
           notifyWarning("这篇笔记仍有内容未保存，请保存成功后再切换任务状态");
           return;
         }
 
-        const { note } = await api.toggleTask({
-          noteId: task.noteId,
-          version: task.version,
-          ordinal: task.ordinal,
-          text: task.text,
-          completed: task.done,
-        });
-
-        if (selectedRef.current?.id === note.id && selectedRef.current.version < note.version) {
-          selectedRef.current = note;
-          setSelectedNote(noteMetadataSnapshot(note));
-          setNoteReloadToken((value) => value + 1);
-        }
-        if (
-          splitSelectedRef.current?.id === note.id &&
-          splitSelectedRef.current.version < note.version
-        ) {
-          splitSelectedRef.current = note;
-          setSplitSelectedNote(noteMetadataSnapshot(note));
-          setSplitNoteReloadToken((value) => value + 1);
-        }
-        replaceList(
-          notesRef.current.map((item) =>
-            item.id === note.id && item.version < note.version ? toNoteSummary(note) : item,
-          ),
-        );
-        applyTaskToggle(task, note.version);
+        applyTaskToggle(task, await toggleNoteTask(task));
       } catch (error) {
         if (error instanceof ApiError && error.code === "VERSION_CONFLICT") {
           notifyWarning("笔记已在其他位置修改，请重新加载后再切换任务状态");
@@ -162,11 +125,12 @@ export function useWorkspaceTaskActions({
       applyTaskToggle,
       setTaskBusy,
       flushPendingSaves,
-      flushSecondaryDraft,
       hasUnsavedWork,
       notifyError,
       notifyWarning,
-      replaceList,
+      setTaskRefreshToken,
+      taskMutationsInFlightRef,
+      toggleNoteTask,
     ],
   );
   const handleTaskNavigationMissing = useCallback(() => {
