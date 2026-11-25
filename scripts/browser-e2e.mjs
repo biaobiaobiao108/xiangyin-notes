@@ -27,7 +27,11 @@ async function loginThroughUi(page) {
 }
 
 const pageErrors = [];
-const context = await browser.newContext({ serviceWorkers: "block", reducedMotion: "reduce" });
+const context = await browser.newContext({
+  viewport: { width: 1440, height: 900 },
+  serviceWorkers: "block",
+  reducedMotion: "reduce",
+});
 let stage = "初始化";
 const page = attachErrorGuard(await context.newPage(), pageErrors);
 
@@ -140,7 +144,7 @@ try {
 
   // 5. 全局搜索定位
   stage = "5. 全局搜索定位";
-  const searchInput = page.getByRole("searchbox", { name: "全局搜索笔记或标签" });
+  const searchInput = page.locator('aside.sidebar input[aria-label="全局搜索笔记或标签"]');
   await searchInput.fill("远端已更新的正文内容");
   await searchInput.press("Enter");
   await page.locator(".note-row", { hasText: "E2E 端到端测试笔记" }).waitFor();
@@ -172,15 +176,16 @@ try {
       new URL(response.url()).pathname === "/api/notes" && response.request().method() === "POST",
   );
   await page.getByRole("button", { name: "在收集箱新建笔记" }).click();
-  assert.equal((await kanbanCreate).status(), 201);
-  const kanbanNoteId = (await kanbanCreate.json()).note.id;
+  const kanbanCreateResponse = await kanbanCreate;
+  assert.equal(kanbanCreateResponse.status(), 201);
+  const kanbanNoteId = (await kanbanCreateResponse.json()).note.id;
 
   const sourceCard = page.locator(`[data-kanban-note-id="${kanbanNoteId}"]`);
   const doingColumn = page.locator('[data-kanban-status="doing"]');
   await sourceCard.waitFor();
   const moveCard = page.waitForResponse(
     (response) =>
-      new URL(response.url()).pathname === `/api/kanban/${kanbanNoteId}` &&
+      new URL(response.url()).pathname === `/api/kanban/cards/${kanbanNoteId}` &&
       response.request().method() === "PATCH",
   );
   await sourceCard.dragTo(doingColumn);
