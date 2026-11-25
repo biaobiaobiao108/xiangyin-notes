@@ -9,6 +9,7 @@ import { TextSelection } from "@tiptap/pm/state";
 import { searchHighlightPluginKey } from "../editor-search";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { DiagramPreview } from "../mermaid/diagram-preview";
+import { useDiagramActivation } from "../mermaid/use-diagram-activation";
 import { useDiagramHeight } from "../mermaid/use-diagram-height";
 
 export function MermaidCodeBlock({
@@ -78,6 +79,7 @@ export function MermaidCodeBlock({
     if (sourceRef.current) sourceRef.current.scrollTop = 0;
     editor.commands.focus(start + 1, { scrollIntoView: false });
   };
+  const diagramActivation = useDiagramActivation(openSource, true);
 
   const closeSource = useEffectEvent(() => {
     setEdit(false);
@@ -144,17 +146,11 @@ export function MermaidCodeBlock({
           className={editable ? "mermaid-rendered is-editable" : "mermaid-rendered"}
           contentEditable={false}
           inert={showSource}
+          {...(editable ? diagramActivation : undefined)}
           onMouseDownCapture={
             editable
               ? (event) => {
                   if (event.button === 0) event.preventDefault();
-                }
-              : undefined
-          }
-          onClick={
-            editable
-              ? (event) => {
-                  if (!(event.target as Element).closest("button")) openSource();
                 }
               : undefined
           }

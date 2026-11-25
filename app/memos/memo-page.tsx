@@ -121,7 +121,7 @@ function MemoCard({
     if (
       target instanceof Element &&
       target.closest(
-        "a,button,input,textarea,select,summary,[contenteditable='true'],[role='button']",
+        "a,button,input,textarea,select,summary,[contenteditable='true'],[role='button'],[role='scrollbar']",
       )
     )
       return;

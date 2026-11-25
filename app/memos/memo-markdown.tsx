@@ -2,6 +2,7 @@ import { useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } fr
 import { createPortal } from "react-dom";
 import { DiagramPreview } from "../mermaid/diagram-preview";
 import { useDiagramHeight } from "../mermaid/use-diagram-height";
+import { useDiagramActivation } from "../mermaid/use-diagram-activation";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { normalizeMemoComposerContent, preserveMemoBlankParagraphs } from "./memo-markdown-spacing";
 import { isMermaidLanguage, mermaidTokenSource } from "../mermaid/protocol";
@@ -223,6 +224,7 @@ function MemoDiagram({
   const scrollRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const sourceId = useId();
+  const diagramActivation = useDiagramActivation(() => setShowSource(true), false);
   useDiagramHeight(bodyRef, previewRef);
 
   useLayoutEffect(() => {
@@ -246,9 +248,7 @@ function MemoDiagram({
         className="mermaid-rendered is-editable"
         ref={previewRef}
         inert={showSource}
-        onClick={(event) => {
-          if (!(event.target as Element).closest("button")) setShowSource(true);
-        }}
+        {...diagramActivation}
       >
         <button
           ref={triggerRef}
