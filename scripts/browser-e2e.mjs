@@ -28,14 +28,16 @@ async function loginThroughUi(page) {
 
 const pageErrors = [];
 const context = await browser.newContext({ serviceWorkers: "block", reducedMotion: "reduce" });
+let stage = "初始化";
+const page = attachErrorGuard(await context.newPage(), pageErrors);
 
 try {
-  const page = attachErrorGuard(await context.newPage(), pageErrors);
-
   // 1. 登录并进入工作区
+  stage = "1. 登录并进入工作区";
   await loginThroughUi(page);
 
   // 2. 新建笔记、中文输入法组合编辑与自动保存
+  stage = "2. 新建笔记与中文输入法保存";
   const createPromise = page.waitForResponse(
     (response) =>
       new URL(response.url()).pathname === "/api/notes" && response.request().method() === "POST",
@@ -60,19 +62,25 @@ try {
     (response) =>
       new URL(response.url()).pathname === `/api/notes/${created.id}` &&
       response.request().method() === "PATCH" &&
-      response.status() === 200,
+      response.status() === 200 &&
+      (response.request().postDataJSON()?.contentMarkdown ?? "").includes("输入法保存验证"),
   );
   await page.keyboard.insertText("输入法保存验证 #端到端");
   await savePromise;
 
+  stage = "2b. 刷新页面验证持久化";
   await page.goto(`${app.url}/app?note=${created.id}`);
   await page.waitForFunction(
     ({ selector, expected }) => document.querySelector(selector)?.value === expected,
     { selector: TITLE_SELECTOR, expected: "E2E 端到端测试笔记" },
   );
-  assert.match(await editor.innerText(), /输入法保存验证/u);
+  await page.waitForFunction(
+    ({ selector }) => document.querySelector(selector)?.textContent?.includes("输入法保存验证"),
+    { selector: EDITOR_SELECTOR },
+  );
 
   // 3. 离线断网状态感知与联网恢复自动同步
+  stage = "3. 离线断网草稿保护与恢复同步";
   await context.setOffline(true);
   await page.evaluate(() => window.dispatchEvent(new Event("offline")));
   await page.locator(".toast--offline").waitFor();
@@ -93,17 +101,10 @@ try {
   await page.locator(".toast--offline").waitFor({ state: "detached" });
 
   // 4. 版本冲突检测与确认重新载入
+  stage = "4. 版本冲突检测与确认重载";
   const latestResp = await context.request.get(`${app.url}/api/notes/${created.id}`);
   assert.equal(latestResp.status(), 200);
   const latestNote = (await latestResp.json()).note;
-
-  const remoteUpdate = await context.request.patch(`${app.url}/api/notes/${created.id}`, {
-    data: {
-      version: latestNote.version,
-      contentMarkdown: "远端已更新的正文内容",
-    },
-  });
-  assert.equal(remoteUpdate.status(), 200);
 
   await editor.click();
   const conflictSave = page.waitForResponse(
@@ -113,10 +114,24 @@ try {
       response.status() === 409,
   );
   await page.keyboard.insertText(" 本地冲突内容");
+  const remoteUpdate = await context.request.patch(`${app.url}/api/notes/${created.id}`, {
+    data: {
+      version: latestNote.version,
+      contentMarkdown: "远端已更新的正文内容",
+    },
+  });
+  assert.equal(remoteUpdate.status(), 200);
   assert.equal((await conflictSave).status(), 409);
 
   await page.getByRole("button", { name: "重新载入最新版本" }).click();
-  await page.getByRole("button", { name: "重新载入" }).click();
+  const reloadNoteResponse = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === `/api/notes/${created.id}` &&
+      response.request().method() === "GET" &&
+      response.status() === 200,
+  );
+  await page.getByRole("button", { name: "重新载入", exact: true }).click();
+  assert.equal((await reloadNoteResponse).status(), 200);
   await page.waitForFunction(
     ({ selector }) =>
       document.querySelector(selector)?.textContent?.includes("远端已更新的正文内容"),
@@ -124,6 +139,7 @@ try {
   );
 
   // 5. 全局搜索定位
+  stage = "5. 全局搜索定位";
   const searchInput = page.getByRole("searchbox", { name: "全局搜索笔记或标签" });
   await searchInput.fill("远端已更新的正文内容");
   await searchInput.press("Enter");
@@ -131,6 +147,7 @@ try {
   await page.getByRole("button", { name: "清空搜索" }).click();
 
   // 6. 随记发布与标签筛选
+  stage = "6. 随记发布与标签筛选";
   await page.getByRole("button", { name: "随记" }).click();
   const memoComposer = page.locator(MEMO_SELECTOR);
   await memoComposer.waitFor();
@@ -147,6 +164,7 @@ try {
   await page.getByText("随记验证条目").waitFor();
 
   // 7. 看板新建卡片与跨列拖拽
+  stage = "7. 看板新建卡片与跨列拖拽";
   await page.getByRole("button", { name: "看板" }).click();
   await page.getByRole("region", { name: "看板视图" }).waitFor();
   const kanbanCreate = page.waitForResponse(
@@ -171,6 +189,19 @@ try {
 
   assert.equal(pageErrors.length, 0, `Uncaught page errors: ${pageErrors.map(String).join("; ")}`);
   console.log("Browser E2E passed (7 scenarios, 0 page errors).");
+} catch (error) {
+  const titleVal = await page
+    .locator(TITLE_SELECTOR)
+    .inputValue()
+    .catch(() => "<missing>");
+  const editorText = await page
+    .locator(EDITOR_SELECTOR)
+    .innerText()
+    .catch(() => "<missing>");
+  throw new Error(
+    `E2E 阶段「${stage}」失败 (url=${page.url()}, title=${JSON.stringify(titleVal)}, editor=${JSON.stringify(editorText.slice(0, 120))})`,
+    { cause: error },
+  );
 } finally {
   await context.close();
   await browser.close();

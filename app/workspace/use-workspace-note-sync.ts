@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useRef,
   type Dispatch,
   type MutableRefObject,
   type SetStateAction,
@@ -109,6 +110,23 @@ export function useWorkspaceNoteSync({
   notifyError,
   navigate,
 }: UseWorkspaceNoteSyncOptions) {
+  const deepLinkActionsRef = useRef({
+    invalidateCollections,
+    markNoteMissing,
+    notifyError,
+    openMobileNote,
+    reloadNotes,
+    selectNote,
+  });
+  deepLinkActionsRef.current = {
+    invalidateCollections,
+    markNoteMissing,
+    notifyError,
+    openMobileNote,
+    reloadNotes,
+    selectNote,
+  };
+
   useEffect(() => {
     if (!ready || !initialLinkedNoteId || !pendingLinkedNoteRef.current) return;
     const controller = new AbortController();
@@ -128,20 +146,20 @@ export function useWorkspaceNoteSync({
         const note = await readMissingNoteDraft(initialLinkedNoteId);
         if (!note || controller.signal.aborted) throw error;
         pendingSavesRef.current.set(note.id, toNoteDraft(note));
-        markNoteMissing(note.id, error);
+        deepLinkActionsRef.current.markNoteMissing(note.id, error);
         return { note };
       })
       .then(({ note }) => {
         if (controller.signal.aborted) return;
-        invalidateCollections();
+        deepLinkActionsRef.current.invalidateCollections();
         selectedRef.current = note;
         setSelectedNote(noteMetadataSnapshot(note));
         setView(note.deletedAt !== null ? "trash" : "all");
         setNotebookId(note.deletedAt !== null ? undefined : note.notebookId);
         setQuery("");
-        selectNote(note.id);
+        deepLinkActionsRef.current.selectNote(note.id);
         setCardEditingNoteId(note.id);
-        openMobileNote({
+        deepLinkActionsRef.current.openMobileNote({
           view: note.deletedAt !== null ? "trash" : "all",
           notebookId: note.deletedAt !== null ? undefined : note.notebookId,
           query: "",
@@ -150,7 +168,8 @@ export function useWorkspaceNoteSync({
         });
       })
       .catch((error) => {
-        if (!controller.signal.aborted) notifyError(errorMessage(error, "无法打开链接中的笔记"));
+        if (!controller.signal.aborted)
+          deepLinkActionsRef.current.notifyError(errorMessage(error, "无法打开链接中的笔记"));
       })
       .finally(() => {
         if (controller.signal.aborted) return;
@@ -162,20 +181,14 @@ export function useWorkspaceNoteSync({
           "",
           `${url.pathname}${url.search}${url.hash}`,
         );
-        reloadNotes();
+        deepLinkActionsRef.current.reloadNotes();
       });
     return () => controller.abort();
   }, [
     initialLinkedNoteId,
-    invalidateCollections,
-    markNoteMissing,
-    notifyError,
-    openMobileNote,
     pendingLinkedNoteRef,
     pendingSavesRef,
     ready,
-    reloadNotes,
-    selectNote,
     selectedRef,
     setCardEditingNoteId,
     setNotebookId,
