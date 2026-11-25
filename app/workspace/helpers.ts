@@ -19,7 +19,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { ApiError } from "../api";
-import type { Note, NoteSort, NoteSummary, NoteView, Notebook } from "../../shared/types";
+import type { Note, NoteSummary, NoteView, Notebook } from "../../shared/types";
 import { extractTags } from "../../shared/tags";
 
 export const navItems: Array<{ id: NoteView; label: string; icon: typeof Inbox }> = [
@@ -110,16 +110,8 @@ export function searchResultLabel(query: string, total: number) {
   return `包含“${query}”的笔记 · 共 ${total} 篇`;
 }
 
-export type { NoteSort } from "../../shared/types";
-
-export function sortNotes(notes: NoteSummary[], sort: NoteSort) {
-  return [...notes].sort((a, b) =>
-    sort === "created"
-      ? b.createdAt - a.createdAt
-      : sort === "title"
-        ? (a.title || "未命名笔记").localeCompare(b.title || "未命名笔记", "zh-CN")
-        : b.updatedAt - a.updatedAt,
-  );
+export function sortNotes(notes: NoteSummary[]) {
+  return [...notes].sort(compareUpdatedPosition);
 }
 
 export type NoteUpdatedPosition = Pick<NoteSummary, "id" | "updatedAt">;
@@ -131,13 +123,12 @@ function compareUpdatedPosition(a: NoteUpdatedPosition, b: NoteUpdatedPosition) 
 export function mergeRemoteSummary(
   notes: NoteSummary[],
   summary: NoteSummary,
-  sort: NoteSort,
   pageBoundary?: NoteUpdatedPosition | null,
 ) {
   const index = notes.findIndex((note) => note.id === summary.id);
   if (index === -1) {
     // Keep the original page cursor. The promoted row now sorts before it.
-    return sort === "updated" && pageBoundary && compareUpdatedPosition(summary, pageBoundary) < 0
+    return pageBoundary && compareUpdatedPosition(summary, pageBoundary) < 0
       ? [...notes, summary].sort(compareUpdatedPosition)
       : null;
   }
@@ -145,10 +136,7 @@ export function mergeRemoteSummary(
   const previous = notes[index]!;
   const next = [...notes];
   next[index] = { ...previous, ...summary };
-  if (sort === "updated" && summary.updatedAt !== previous.updatedAt)
-    next.sort(compareUpdatedPosition);
-  if (sort === "title" && summary.title !== previous.title)
-    next.sort((a, b) => (a.title || "未命名笔记").localeCompare(b.title || "未命名笔记", "zh-CN"));
+  if (summary.updatedAt !== previous.updatedAt) next.sort(compareUpdatedPosition);
   return next;
 }
 
@@ -207,47 +195,6 @@ export type NoteGroup = {
   notes: NoteSummary[];
 };
 
-const PINYIN_COLLATOR = new Intl.Collator("zh-Hans-u-co-pinyin");
-const PINYIN_STARTS: Array<[string, string]> = [
-  ["A", "啊"],
-  ["B", "八"],
-  ["C", "嚓"],
-  ["D", "哒"],
-  ["E", "妸"],
-  ["F", "发"],
-  ["G", "旮"],
-  ["H", "哈"],
-  ["J", "讥"],
-  ["K", "咔"],
-  ["L", "垃"],
-  ["M", "妈"],
-  ["N", "拿"],
-  ["O", "噢"],
-  ["P", "趴"],
-  ["Q", "七"],
-  ["R", "然"],
-  ["S", "仨"],
-  ["T", "他"],
-  ["W", "哇"],
-  ["X", "夕"],
-  ["Y", "丫"],
-  ["Z", "匝"],
-];
-
-export function getInitialLetter(char: string): string {
-  if (!char) return "#";
-  const upper = char.toUpperCase();
-  if (upper >= "A" && upper <= "Z") return upper;
-  if (/[\u4e00-\u9fa5]/.test(char)) {
-    for (let i = PINYIN_STARTS.length - 1; i >= 0; i--) {
-      if (PINYIN_COLLATOR.compare(char, PINYIN_STARTS[i]![1]) >= 0) {
-        return PINYIN_STARTS[i]![0];
-      }
-    }
-  }
-  return "#";
-}
-
 export function getTimelineGroupTitle(timestampSeconds: number, nowMs = Date.now()): string {
   const timestampMs = timestampSeconds * 1000;
   const nowDate = new Date(nowMs);
@@ -287,20 +234,13 @@ export function getTimelineGroupTitle(timestampSeconds: number, nowMs = Date.now
   return "更早";
 }
 
-export function groupNotes(notes: NoteSummary[], sort: NoteSort, nowMs = Date.now()): NoteGroup[] {
+export function groupNotes(notes: NoteSummary[], nowMs = Date.now()): NoteGroup[] {
   if (notes.length === 0) return [];
   const groups: NoteGroup[] = [];
   const groupMap = new Map<string, NoteGroup>();
 
   for (const note of notes) {
-    let title: string;
-    if (sort === "title") {
-      const firstChar = (note.title || "未命名笔记").trim()[0] || "";
-      title = getInitialLetter(firstChar);
-    } else {
-      const timestamp = sort === "created" ? note.createdAt : note.updatedAt;
-      title = getTimelineGroupTitle(timestamp, nowMs);
-    }
+    const title = getTimelineGroupTitle(note.updatedAt, nowMs);
 
     let group = groupMap.get(title);
     if (!group) {

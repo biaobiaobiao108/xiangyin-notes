@@ -7,7 +7,6 @@ import {
   shouldKeepActiveNoteInList,
   sortNotes,
   toNoteSummary,
-  type NoteSort,
   type NoteUpdatedPosition,
 } from "./helpers";
 
@@ -16,7 +15,6 @@ type Options = {
   view: NoteView;
   notebookId?: string;
   deferredQuery: string;
-  noteSort: NoteSort;
   listScope: string;
   notebooks: Notebook[];
   notesReloadToken: number;
@@ -46,7 +44,6 @@ export function useWorkspaceNoteList({
   view,
   notebookId,
   deferredQuery,
-  noteSort,
   listScope,
   notebooks,
   notesReloadToken,
@@ -86,7 +83,6 @@ export function useWorkspaceNoteList({
           view,
           query: deferredQuery,
           notebookId,
-          sort: noteSort,
           includeTotal: true,
         },
         { signal: controller.signal },
@@ -99,11 +95,7 @@ export function useWorkspaceNoteList({
       )
         return;
       const active = selectedRef.current;
-      const latestNotes = preserveNewerNoteSummaries(result.notes, notesRef.current).filter(
-        (note) =>
-          deferredQuery.trim() ||
-          shouldKeepActiveNoteInList(note, notebooks, view, deferredQuery, notebookId),
-      );
+      const latestNotes = preserveNewerNoteSummaries(result.notes, notesRef.current);
       const notesToDisplay =
         active &&
         !latestNotes.some((note) => note.id === active.id) &&
@@ -111,8 +103,7 @@ export function useWorkspaceNoteList({
           shouldKeepActiveNoteInList(active, notebooks, view, deferredQuery, notebookId))
           ? [toNoteSummary(active), ...latestNotes]
           : latestNotes;
-      const orderedNotes =
-        noteSort === "title" ? sortNotes(notesToDisplay, noteSort) : notesToDisplay;
+      const orderedNotes = sortNotes(notesToDisplay);
       replaceList(orderedNotes);
       setTotalNotes(Math.max(result.total ?? 0, orderedNotes.length));
       setHasMoreNotes(Boolean(result.hasMore));
@@ -124,7 +115,7 @@ export function useWorkspaceNoteList({
           ? currentSelectedId
           : (orderedNotes[0]?.id ?? null);
       setSelectedId(nextSelectedId);
-      pruneNoteSelectionTo(sortNotes(orderedNotes, noteSort).map((note) => note.id));
+      pruneNoteSelectionTo(orderedNotes.map((note) => note.id));
       playPendingListTransition();
     } catch (reason) {
       if (controller.signal.aborted || requestId !== listRequestRef.current) return;
@@ -140,7 +131,6 @@ export function useWorkspaceNoteList({
     isMissingDraft,
     listScope,
     navigate,
-    noteSort,
     notifyError,
     notebookId,
     notebooks,
@@ -164,7 +154,6 @@ export function useWorkspaceNoteList({
         view,
         query: deferredQuery,
         notebookId,
-        sort: noteSort,
         cursor,
         includeTotal: false,
       });
@@ -179,7 +168,7 @@ export function useWorkspaceNoteList({
       const existingIds = new Set(currentList.map((note) => note.id));
       const nextNotes = result.notes.filter((note) => !existingIds.has(note.id));
       const merged = [...currentList, ...nextNotes];
-      replaceList(noteSort === "title" ? sortNotes(merged, noteSort) : merged);
+      replaceList(sortNotes(merged));
       if (result.total !== undefined) setTotalNotes(Math.max(result.total, merged.length));
       setHasMoreNotes(Boolean(result.hasMore));
       nextNotesCursorRef.current = result.nextCursor ?? null;
@@ -191,7 +180,7 @@ export function useWorkspaceNoteList({
       loadMoreInFlightRef.current = false;
       setIsLoadingMore(false);
     }
-  }, [deferredQuery, noteSort, notebookId, replaceList, view]);
+  }, [deferredQuery, notebookId, replaceList, view]);
   const reloadNotes = useCallback(() => setNotesReloadToken((value) => value + 1), []);
   return { loadNotes, loadMoreNotes, isLoadingMore, reloadNotes, updatedPageBoundaryRef };
 }

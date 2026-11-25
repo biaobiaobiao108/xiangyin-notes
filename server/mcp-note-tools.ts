@@ -182,7 +182,7 @@ export function registerMcpNoteTools(
         user,
         "GET",
         ["notes", noteId as string],
-        `/api/notes/${encodeURIComponent(noteId as string)}`,
+        `/api/notes/${encodeURIComponent(noteId as string)}${includeContent ? "" : "?response=summary"}`,
       );
       if (result.status !== 200) return routeError(result);
       const body = includeContent ? withoutNotePreview(result.body) : result.body;

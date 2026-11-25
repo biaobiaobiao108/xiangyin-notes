@@ -416,7 +416,7 @@ test("mixed FTS and short terms paginate updated search without repeating rows",
   }
 });
 
-test("search pagination preserves title and created order", async () => {
+test("search pagination preserves created order", async () => {
   const f = await fixture();
   try {
     const alpha = f.create("alpha needle", "needle");
@@ -442,7 +442,6 @@ test("search pagination preserves title and created order", async () => {
       return ids;
     };
 
-    expect(await collect("title")).toEqual([alpha, beta, gamma]);
     expect(await collect("created")).toEqual([gamma, beta, alpha]);
   } finally {
     await waitForOrphanAssetCleanup(f.database);
@@ -450,22 +449,25 @@ test("search pagination preserves title and created order", async () => {
   }
 });
 
-test("short-term title sorting paginates without repeating rows", async () => {
+test("short-term created sorting paginates without repeating rows", async () => {
   const f = await fixture();
   try {
     const second = f.create("猫 B", "猫");
     const first = f.create("猫 A", "猫");
     const third = f.create("猫 C", "猫");
+    f.database.query("UPDATE notes SET created_at = 100 WHERE id = ?").run(first);
+    f.database.query("UPDATE notes SET created_at = 200 WHERE id = ?").run(second);
+    f.database.query("UPDATE notes SET created_at = 300 WHERE id = ?").run(third);
     const result = await (
-      await f.list(`query=${encodeURIComponent("猫")}&sort=title&limit=1&includeTotal=0`)
+      await f.list(`query=${encodeURIComponent("猫")}&sort=created&limit=1&includeTotal=0`)
     ).json();
-    expect(result.notes.map((note: { id: string }) => note.id)).toEqual([first]);
+    expect(result.notes.map((note: { id: string }) => note.id)).toEqual([third]);
     const next = await (
       await f.list(
-        `query=${encodeURIComponent("猫")}&sort=title&limit=2&includeTotal=0&cursor=${encodeURIComponent(result.nextCursor)}`,
+        `query=${encodeURIComponent("猫")}&sort=created&limit=2&includeTotal=0&cursor=${encodeURIComponent(result.nextCursor)}`,
       )
     ).json();
-    expect(next.notes.map((note: { id: string }) => note.id)).toEqual([second, third]);
+    expect(next.notes.map((note: { id: string }) => note.id)).toEqual([second, first]);
   } finally {
     await waitForOrphanAssetCleanup(f.database);
     f.database.close();

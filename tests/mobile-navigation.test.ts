@@ -27,7 +27,6 @@ class TestHistory {
 const context: MobileListContext = {
   view: "all",
   query: "",
-  sort: "updated",
   noteId: null,
   searchOrigin: null,
 };
@@ -103,7 +102,6 @@ describe("mobile page navigation", () => {
     const list = {
       ...context,
       notebookId: "work",
-      sort: "title" as const,
       query: "#设计",
       searchOrigin: { view: "all" as const, notebookId: "work" },
     };
@@ -129,13 +127,13 @@ describe("mobile page navigation", () => {
     navigation.back();
     expect(navigation.restore(history.state)?.page).toBe("home");
   });
-  test("typing search and sorting replace the list entry without growing history", () => {
+  test("typing search replaces the list entry without growing history", () => {
     const history = new TestHistory();
     const navigation = new MobileNavigationHistory(history, context, "session");
     navigation.open("list", context);
     for (const query of ["设", "设计", "设计笔记", ""])
       navigation.open("list", { ...context, query });
-    navigation.update({ ...context, sort: "created" });
+    navigation.update({ ...context, query: "设计" });
     expect(history.entries).toHaveLength(2);
     expect((history.state as { idx: number; key: string; usr: unknown }).idx).toBe(2);
     expect((history.state as { key: string }).key).toBe("router-key");

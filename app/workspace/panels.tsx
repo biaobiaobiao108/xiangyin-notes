@@ -418,10 +418,10 @@ export const NoteListPanel = memo(function NoteListPanel({
     setDraggingNoteIds(null);
   }, []);
 
-  const sortedNotes = useMemo(() => sortNotes(notes, "updated"), [notes]);
+  const sortedNotes = useMemo(() => sortNotes(notes), [notes]);
   const groups = useMemo(() => {
     if (query.trim()) return null;
-    return groupNotes(sortedNotes, "updated");
+    return groupNotes(sortedNotes);
   }, [query, sortedNotes]);
   const virtualRows = useMemo<VirtualNoteListRow[]>(() => {
     if (groups) return flattenNoteGroups(groups);

@@ -14,6 +14,7 @@ import { pathToFileURL } from "node:url";
 import { constants, Database } from "bun:sqlite";
 import {
   CURRENT_SCHEMA_VERSION,
+  MIN_SUPPORTED_SCHEMA_VERSION,
   SEARCH_INDEX_REBUILD_KEY,
   createExpectedSchemaDatabase,
   databasePathFromEnv,
@@ -72,7 +73,7 @@ const existingVersion = Number(
 );
 const versionUnsupported =
   !Number.isInteger(existingVersion) ||
-  existingVersion < 1 ||
+  existingVersion < MIN_SUPPORTED_SCHEMA_VERSION ||
   existingVersion > CURRENT_SCHEMA_VERSION;
 const target = versionUnsupported
   ? await openDatabase(":memory:")
@@ -156,7 +157,9 @@ try {
     `已有库 ${existingPath}：${existingObjects.size} 个对象；版本 ${existingVersion} 的 schema：${targetObjects.size} 个对象`,
   );
   if (versionUnsupported)
-    console.log(`不支持的 schema 版本：${existingVersion}（支持 1 至 ${CURRENT_SCHEMA_VERSION}）`);
+    console.log(
+      `不支持的 schema 版本：${existingVersion}（支持 ${MIN_SUPPORTED_SCHEMA_VERSION} 至 ${CURRENT_SCHEMA_VERSION}）`,
+    );
   else if (migrationPending)
     console.log(`待升级：启动服务后将迁移 ${existingVersion} → ${CURRENT_SCHEMA_VERSION}`);
   console.log(

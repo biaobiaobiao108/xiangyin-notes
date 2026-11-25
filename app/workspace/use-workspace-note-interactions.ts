@@ -6,7 +6,7 @@ import {
 } from "react";
 import type { NoteSummary } from "../../shared/types";
 import { resolveNoteClickAction, type NoteSelectionClick } from "./note-list-selection";
-import { sortNotes, type NoteSort } from "./helpers";
+import { sortNotes } from "./helpers";
 import type { useNoteSelection } from "./use-note-selection";
 import type { useMobileNavigation } from "./use-mobile-navigation";
 type Ref<T> = { current: T };
@@ -18,7 +18,6 @@ export function useWorkspaceNoteInteractions({
   openInSplit,
   locateSearchResult,
   notesRef,
-  noteSort,
   noteSelectionRef,
   toggleNoteSelection,
   splitNoteId,
@@ -37,7 +36,6 @@ export function useWorkspaceNoteInteractions({
   openInSplit: (id: string) => void;
   locateSearchResult: (id: string) => void;
   notesRef: Ref<NoteSummary[]>;
-  noteSort: NoteSort;
   noteSelectionRef: Selection["noteSelectionRef"];
   toggleNoteSelection: Selection["toggleNoteSelection"];
   splitNoteId: string | null;
@@ -60,7 +58,7 @@ export function useWorkspaceNoteInteractions({
         locateSearchResult(id);
         return;
       }
-      const orderedIds = sortNotes(notesRef.current, noteSort).map((note) => note.id);
+      const orderedIds = sortNotes(notesRef.current).map((note) => note.id);
       const intent = resolveNoteClickAction(event, {
         hasSelectionActive: noteSelectionRef.current.ids.size > 0,
       });
@@ -103,7 +101,6 @@ export function useWorkspaceNoteInteractions({
       activePane,
       isMobileViewport,
       locateSearchResult,
-      noteSort,
       openInSplit,
       openMobileNote,
       selectNote,
@@ -126,12 +123,12 @@ export function useWorkspaceNoteInteractions({
   const handleToggleCardSelection = useCallback(
     (id: string, modifiers: Pick<NoteSelectionClick, "metaKey" | "ctrlKey" | "shiftKey">) => {
       toggleNoteSelection(
-        sortNotes(notesRef.current, noteSort).map((note) => note.id),
+        sortNotes(notesRef.current).map((note) => note.id),
         id,
         modifiers,
       );
     },
-    [noteSort, toggleNoteSelection],
+    [toggleNoteSelection],
   );
   return { handleSelectListNote, handleOpenCardNote, handleToggleCardSelection };
 }

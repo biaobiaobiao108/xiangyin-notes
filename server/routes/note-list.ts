@@ -39,7 +39,6 @@ export function decodeNoteListCursor(value: string | null, sort: SearchSort) {
 
 export function noteListOrder(sort: NoteSort) {
   if (sort === "created") return "n.created_at DESC, n.id DESC";
-  if (sort === "title") return "n.title COLLATE NOCASE ASC, n.id ASC";
   return "n.updated_at DESC, n.id DESC";
 }
 
@@ -126,7 +125,7 @@ export function buildOptimizedNoteListPlan(input: {
       )
       .join(" AND ");
 
-  const sortColumn = sort === "created" ? "created_at" : sort === "title" ? "title" : "updated_at";
+  const sortColumn = sort === "created" ? "created_at" : "updated_at";
   const shortScoreParams = shortTokens.map((term) => normalizeLinkTitle(term));
   const shortScore = shortTokens
     .map(() => "(CASE WHEN instr(n.title_normalized, ?) > 0 THEN -8.0 ELSE 0 END)")
@@ -163,19 +162,7 @@ export function buildOptimizedNoteListPlan(input: {
         ORDER BY score ASC, note_id ASC
         LIMIT ?
       )`
-    : sort === "title"
-      ? `top AS MATERIALIZED (
-        SELECT note_rowid, note_id, sort_value
-        FROM candidates
-        ${
-          cursor
-            ? "WHERE (sort_value COLLATE NOCASE > ? OR (sort_value COLLATE NOCASE = ? AND note_id > ?))"
-            : ""
-        }
-        ORDER BY sort_value COLLATE NOCASE ASC, note_id ASC
-        LIMIT ?
-      )`
-      : `top AS MATERIALIZED (
+    : `top AS MATERIALIZED (
         SELECT note_rowid, note_id, sort_value
         FROM candidates
         ${cursor ? "WHERE (sort_value, note_id) < (?, ?)" : ""}
@@ -191,7 +178,7 @@ export function buildOptimizedNoteListPlan(input: {
     ...tagParams,
   ];
   const cursorParams: SqlValue[] = cursor
-    ? isRanked || sort === "title"
+    ? isRanked
       ? [cursor.value, cursor.value, cursor.id]
       : [cursor.value, cursor.id]
     : [];
@@ -202,11 +189,7 @@ export function buildOptimizedNoteListPlan(input: {
       END AS match_snippet`
     : "";
   const detailParams: SqlValue[] = includeMatch ? [JSON.stringify(searchTokens)] : [];
-  const detailOrder = isRanked
-    ? "top.score ASC, n.id ASC"
-    : sort === "title"
-      ? "top.sort_value COLLATE NOCASE ASC, n.id ASC"
-      : "top.sort_value DESC, n.id DESC";
+  const detailOrder = isRanked ? "top.score ASC, n.id ASC" : "top.sort_value DESC, n.id DESC";
   const relevanceSelect = isRanked ? "top.score AS relevance_score" : "0 AS relevance_score";
   const sql = `WITH ${withParts.join(",\n")}
     SELECT ${NOTE_LIST_SELECT}, ${relevanceSelect} ${matchSelect}${includeTotal ? ", totals.total AS search_total" : ""}
@@ -266,11 +249,9 @@ export function respondNoteList(
           value:
             sort === "relevance"
               ? lastRow.relevance_score
-              : sort === "title"
-                ? lastRow.title
-                : sort === "created"
-                  ? lastRow.created_at
-                  : lastRow.updated_at,
+              : sort === "created"
+                ? lastRow.created_at
+                : lastRow.updated_at,
           id: lastRow.id,
           ...(scope ? { scope } : {}),
         })

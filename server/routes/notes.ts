@@ -1,4 +1,5 @@
 import { normalizeTag, parseTagQuery } from "../../shared/tags";
+import { SQLiteError } from "bun:sqlite";
 import type {
   NoteBacklinksResponse,
   NoteLinkSummary,
@@ -83,10 +84,14 @@ import {
 
 const NOTE_BATCH_LIMIT = 500;
 const NOTE_BATCH_BODY_MAX_BYTES = 64 * 1024;
-const NOTE_SORTS: NoteSort[] = ["updated", "created", "title"];
+const NOTE_SORTS: NoteSort[] = ["updated", "created"];
 const NOTE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 
 class StaleMentionTargetError extends Error {}
+
+function isPrimaryKeyConflict(error: unknown) {
+  return error instanceof SQLiteError && error.code === "SQLITE_CONSTRAINT_PRIMARYKEY";
+}
 
 function searchContainsPredicate(
   column: "n.title" | "n.content_markdown" | "COALESCE(n.search_text, n.content_markdown)",
@@ -618,13 +623,6 @@ export async function handleNotesRoute(
           return jsonError(400, "INVALID_CURSOR", "笔记列表游标无效");
         conditions.push("(0 > ? OR (0 = ? AND n.id > ?))");
         params.push(cursor.value, cursor.value, cursor.id);
-      } else if (sort === "title") {
-        if (typeof cursor.value !== "string")
-          return jsonError(400, "INVALID_CURSOR", "笔记列表游标无效");
-        conditions.push(
-          "(n.title COLLATE NOCASE > ? OR (n.title COLLATE NOCASE = ? AND n.id > ?))",
-        );
-        params.push(cursor.value, cursor.value, cursor.id);
       } else {
         if (typeof cursor.value !== "number" || !Number.isSafeInteger(cursor.value))
           return jsonError(400, "INVALID_CURSOR", "笔记列表游标无效");
@@ -714,22 +712,32 @@ export async function handleNotesRoute(
         return jsonError(409, "NOTE_EXISTS", "指定 ID 的笔记已存在");
       }
     }
-    const { noteId, card } = database.transaction(() => {
-      const noteId = createNote(
-        database,
-        user.id,
-        notebookId,
-        title,
-        contentMarkdown as string,
-        requestedId,
-      );
-      const card =
-        kanbanStatus === undefined
-          ? undefined
-          : insertKanbanCard(database, user.id, noteId, kanbanStatus);
-      if (card === null) throw new Error("New note already has a Kanban card");
-      return { noteId, card };
-    })();
+    let noteId: string;
+    let card: ReturnType<typeof insertKanbanCard> | undefined;
+    try {
+      ({ noteId, card } = database
+        .transaction(() => {
+          const noteId = createNote(
+            database,
+            user.id,
+            notebookId,
+            title,
+            contentMarkdown as string,
+            requestedId,
+          );
+          const card =
+            kanbanStatus === undefined
+              ? undefined
+              : insertKanbanCard(database, user.id, noteId, kanbanStatus);
+          if (card === null) throw new Error("New note already has a Kanban card");
+          return { noteId, card };
+        })
+        .immediate());
+    } catch (error) {
+      if (requestedId && isPrimaryKeyConflict(error))
+        return jsonError(409, "NOTE_EXISTS", "指定 ID 的笔记已存在");
+      throw error;
+    }
     const note = getNote(database, user.id, noteId);
     // 新笔记会改变列表成员，广播不带 noteId，让其他客户端整表刷新。
     publishWorkspaceChange(options, user.id, { resource: "notes" }, request);

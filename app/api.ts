@@ -2,7 +2,6 @@ import type {
   ApiErrorPayload,
   ImageAssetSummary,
   Note,
-  NoteSort,
   NoteSummary,
   NoteView,
   Notebook,
@@ -67,7 +66,6 @@ export const api = {
       view: NoteView;
       query?: string;
       notebookId?: string;
-      sort?: NoteSort;
       cursor?: string;
       includeTotal?: boolean;
     },
@@ -76,7 +74,6 @@ export const api = {
     const search = new URLSearchParams({ view: params.view });
     if (params.query) search.set("query", params.query);
     if (params.notebookId) search.set("notebookId", params.notebookId);
-    if (params.sort) search.set("sort", params.sort);
     if (params.cursor) search.set("cursor", params.cursor);
     if (params.includeTotal === false) search.set("includeTotal", "0");
     return request<{

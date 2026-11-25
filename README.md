@@ -340,7 +340,7 @@ GET https://你的域名/api/v1/notes?sort=updated&limit=10&includeTotal=0
 Authorization: Bearer 你的令牌
 ```
 
-列表默认只返回未删除笔记；`sort` 支持 `updated`、`created`、`title`，`limit` 为 1 到 100。响应包含 `notes`；有下一页时还会返回 `hasMore: true` 和可继续请求的 `nextCursor`。摘要包含标题、预览、标签、笔记本和时间等元数据，不包含正文；时间字段使用 Unix 秒。读取单篇笔记正文：
+列表默认只返回未删除笔记；`sort` 支持 `updated`、`created`，`limit` 为 1 到 100。响应包含 `notes`；有下一页时还会返回 `hasMore: true` 和可继续请求的 `nextCursor`。摘要包含标题、预览、标签、笔记本和时间等元数据，不包含正文；时间字段使用 Unix 秒。读取单篇笔记正文：
 
 ```text
 GET https://你的域名/api/v1/notes/笔记ID

@@ -29,7 +29,6 @@ import {
   noteMetadataSnapshot,
   toNoteDraft,
   toNoteSummary,
-  type NoteSort,
 } from "./workspace/helpers";
 import { useNoteSelection } from "./workspace/use-note-selection";
 import {
@@ -120,7 +119,6 @@ export function Workspace() {
     setQueryState(next);
   }, []);
   const [notes, setNotes] = useState<NoteSummary[]>([]);
-  const [noteSort, setNoteSort] = useState<NoteSort>("updated");
   const [totalNotes, setTotalNotes] = useState(0);
   const [hasMoreNotes, setHasMoreNotes] = useState(false);
   const [notesReloadToken, setNotesReloadToken] = useState(0);
@@ -146,7 +144,7 @@ export function Workspace() {
   const [pendingTrashCount, setPendingTrashCount] = useState(0);
   const emptyingTrashRef = useRef(false);
   const [emptyingTrash, setEmptyingTrash] = useState(false);
-  const listScope = JSON.stringify([view, notebookId, deferredQuery, noteSort]);
+  const listScope = JSON.stringify([view, notebookId, deferredQuery]);
   const listScopeRef = useRef(listScope);
   if (listScopeRef.current !== listScope) nextNotesCursorRef.current = null;
   listScopeRef.current = listScope;
@@ -235,7 +233,6 @@ export function Workspace() {
       view,
       notebookId,
       query,
-      sort: noteSort,
       noteId: selectedId,
       searchOrigin: searchOriginRef.current,
       tasksOpen,
@@ -463,7 +460,6 @@ export function Workspace() {
       view,
       notebookId,
       deferredQuery,
-      noteSort,
       listScope,
       notebooks,
       notesReloadToken,
@@ -524,7 +520,6 @@ export function Workspace() {
     setView(context.view);
     setNotebookId(context.notebookId);
     setQuery(context.query);
-    setNoteSort(context.sort);
     searchOriginRef.current = context.searchOrigin;
     if (page === "editor" && context.noteId) selectNote(context.noteId);
   };
@@ -606,7 +601,6 @@ export function Workspace() {
   }, [autoReadingMode, focusMode]);
   const { removeFromList, patchNoteFromRemote, removeManyFromList } = useWorkspaceListChanges({
     notesRef,
-    noteSort,
     replaceList,
     setTotalNotes,
     activeNoteIdRef,
@@ -1014,7 +1008,7 @@ export function Workspace() {
     handleNoteSwipeAction,
     emptyTrash,
   } = useTrashActions({
-    state: { view, noteSort, totalNotes, pendingTrashCount },
+    state: { view, totalNotes, pendingTrashCount },
     refs: {
       selectedRef,
       notesRef,
@@ -1429,9 +1423,6 @@ export function Workspace() {
       }
       if (id === "toggle-split") handleToggleSplit();
       if (id === "toggle-view-layout") toggleViewLayout();
-      if (id === "sort-notes-updated") setNoteSort("updated");
-      if (id === "sort-notes-created") setNoteSort("created");
-      if (id === "sort-notes-title") setNoteSort("title");
       if (id === "toggle-focus-mode") toggleFocusMode();
       if (id === "toggle-auto-reading") toggleAutoReadingMode();
       if (id === "toggle-typewriter-mode") toggleTypewriterMode();
@@ -1535,7 +1526,6 @@ export function Workspace() {
       openInSplit,
       locateSearchResult,
       notesRef,
-      noteSort,
       noteSelectionRef,
       toggleNoteSelection,
       splitNoteId,
@@ -2012,7 +2002,6 @@ export function Workspace() {
             onDeleteSelected={deleteSelectedNotes}
             view={view}
             query={query}
-            sort={noteSort}
             onClearQuery={handleClearQuery}
             notebooks={notebooks}
             onToggleFavoriteNote={handleToggleFavoriteNote}

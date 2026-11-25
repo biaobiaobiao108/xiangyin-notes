@@ -119,6 +119,24 @@ describe("Memo API", () => {
     expect((await request("/api/memos", {}, cookie)).body?.memos).toHaveLength(1);
   });
 
+  test("serializes concurrent same-ID memo creation without a server error", async () => {
+    const cookie = await login();
+    const id = crypto.randomUUID();
+    const create = () =>
+      request(
+        "/api/memos",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, contentMarkdown: "并发随记" }),
+        },
+        cookie,
+      );
+    const results = await Promise.all([create(), create()]);
+    expect(results.map(({ response }) => response.status).sort()).toEqual([200, 201]);
+    expect((await request("/api/memos", {}, cookie)).body?.memos).toHaveLength(1);
+  });
+
   test("converts a memo atomically into an inbox note with indexed content", async () => {
     const cookie = await login();
     const markdown = "转换正文 #项目\n\n- [ ] 待办";
@@ -369,6 +387,42 @@ describe("Memo API", () => {
     expect(deleted.response.status).toBe(200);
     expect((await request("/api/memos", {}, cookie)).body?.memos).toHaveLength(2);
     expect((await request("/api/memos?query=beta", {}, cookie)).body?.memos).toHaveLength(0);
+  });
+
+  test("finds short terms past the short-index content limit", async () => {
+    const cookie = await login();
+    const contentMarkdown = `${"a".repeat(40_100)}猫猫`;
+    const created = await createMemo(cookie, contentMarkdown);
+    expect(created.response.status).toBe(201);
+    const search = await request(`/api/memos?query=${encodeURIComponent("猫猫")}`, {}, cookie);
+    expect(search.response.status).toBe(200);
+    expect(search.body?.memos.map((memo: { id: string }) => memo.id)).toEqual([
+      created.body?.memo.id,
+    ]);
+  });
+
+  test("counts facet days across daylight saving changes", async () => {
+    const cookie = await login();
+    for (const createdAt of [
+      Date.parse("2026-03-07T04:30:00Z"),
+      Date.parse("2026-03-07T05:30:00Z"),
+      Date.parse("2026-03-08T04:30:00Z"),
+      Date.parse("2026-03-08T07:30:00Z"),
+      Date.parse("2026-03-09T04:30:00Z"),
+    ])
+      expect((await createMemo(cookie, "dst", createdAt)).response.status).toBe(201);
+    const facets = await request(
+      `/api/memos/facets?from=${Date.parse("2026-03-06T05:00:00Z")}&to=${Date.parse("2026-03-10T04:00:00Z")}&timeZone=America%2FNew_York`,
+      {},
+      cookie,
+    );
+    expect(facets.response.status).toBe(200);
+    expect(facets.body?.days).toEqual([
+      { date: "2026-03-06", count: 1 },
+      { date: "2026-03-07", count: 2 },
+      { date: "2026-03-08", count: 1 },
+      { date: "2026-03-09", count: 1 },
+    ]);
   });
 
   test("keeps memos private to their user", async () => {

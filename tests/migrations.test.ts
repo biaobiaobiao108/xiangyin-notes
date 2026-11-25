@@ -6,44 +6,23 @@ import { join } from "node:path";
 import {
   applyMigrations,
   CURRENT_SCHEMA_VERSION,
+  MIN_SUPPORTED_SCHEMA_VERSION,
   SEARCH_INDEX_REBUILD_KEY,
   createExpectedSchemaDatabase,
   initializeDatabase,
   openDatabase,
   type SchemaMigration,
 } from "../server/db";
-import { LEGACY_PASSWORD_ITERATIONS } from "../server/core";
-import { createNote } from "../server/routes/note-mutations";
-import { getImportRequest, importContentHash } from "../server/import-idempotency";
 
-test("realigns legacy duplicate-title backlinks without changing note bodies or versions", async () => {
-  const database = await createExpectedSchemaDatabase(6);
+test("rejects existing databases below the supported schema version", async () => {
+  const database = await createExpectedSchemaDatabase(MIN_SUPPORTED_SCHEMA_VERSION - 1);
   try {
-    database.exec(`
-      INSERT INTO users (id, username, password_hash, password_salt, created_at)
-        VALUES ('user', 'owner', '', '', 1);
-      INSERT INTO notebooks (id, user_id, name, created_at, updated_at)
-        VALUES ('book', 'user', '笔记本', 1, 1);
-    `);
-    const oldTarget = createNote(database, "user", "book", "目标", "以前的目标");
-    database.query("UPDATE notes SET updated_at = 1 WHERE id = ?").run(oldTarget);
-    const newTarget = createNote(database, "user", "book", "目标", "现在的目标");
-    const source = createNote(database, "user", "book", "来源", "[[目标]]");
-    database
-      .query("UPDATE note_links SET target_note_id = ? WHERE source_note_id = ?")
-      .run(oldTarget, source);
-
-    await initializeDatabase(database);
-
+    await expect(initializeDatabase(database)).rejects.toThrow(
+      `schema version ${MIN_SUPPORTED_SCHEMA_VERSION - 1} is unsupported`,
+    );
     expect(database.query("PRAGMA user_version").get()).toEqual({
-      user_version: CURRENT_SCHEMA_VERSION,
+      user_version: MIN_SUPPORTED_SCHEMA_VERSION - 1,
     });
-    expect(
-      database.query("SELECT target_note_id FROM note_links WHERE source_note_id = ?").get(source),
-    ).toEqual({ target_note_id: newTarget });
-    expect(
-      database.query("SELECT content_markdown, version FROM notes WHERE id = ?").get(source),
-    ).toEqual({ content_markdown: "[[目标]]", version: 1 });
   } finally {
     database.close();
   }
@@ -65,138 +44,17 @@ test("initializes a fresh database from the single baseline and records its vers
   }
 });
 
-test("retains legacy import keys independently of the existing note and memo rows", async () => {
-  const database = await createExpectedSchemaDatabase(7);
+test("upgrades the supported previous schema to the current version", async () => {
+  const database = await createExpectedSchemaDatabase(MIN_SUPPORTED_SCHEMA_VERSION);
   try {
-    database.exec(`
-      INSERT INTO users (id, username, password_hash, password_salt, created_at)
-        VALUES ('user', 'owner', '', '', 1);
-      INSERT INTO notebooks (id, user_id, name, created_at, updated_at)
-        VALUES ('book', 'user', '笔记本', 1, 1);
-    `);
-    const noteId = "531fe512-5360-5167-946c-3158f378593a";
-    const memoId = "531fe512-5360-5167-a46c-3158f378593a";
-    const ordinaryId = createNote(database, "user", "book", "普通笔记", "普通正文");
-    createNote(database, "user", "book", "导入笔记", "笔记正文", noteId);
-    database
-      .query(
-        "INSERT INTO memos (id, user_id, content_markdown, search_text, created_at, updated_at) VALUES (?, 'user', ?, '', 1, 1)",
-      )
-      .run(memoId, "随记正文");
-
-    await initializeDatabase(database);
-    database.query("DELETE FROM notes WHERE id = ?").run(noteId);
-    database.query("DELETE FROM memos WHERE id = ?").run(memoId);
-    expect(getImportRequest(database, "user", "note", noteId)?.content_hash).toBe(
-      importContentHash("笔记正文"),
-    );
-    expect(getImportRequest(database, "user", "memo", memoId)?.content_hash).toBe(
-      importContentHash("随记正文"),
-    );
-    expect(getImportRequest(database, "user", "note", ordinaryId)).toBeNull();
-  } finally {
-    database.close();
-  }
-});
-
-test("migrates version 1 users to tracked password iterations", async () => {
-  const database = new Database(":memory:");
-  database.exec(await Bun.file("database/schema.sql").text());
-  database
-    .query(
-      "INSERT INTO users (id, username, password_hash, password_salt, created_at) VALUES (?, ?, ?, ?, ?)",
-    )
-    .run("legacy-user", "owner", "legacy-hash", "legacy-salt", 1);
-
-  try {
-    await initializeDatabase(database);
-    expect(database.query("PRAGMA user_version").get()).toEqual({
-      user_version: CURRENT_SCHEMA_VERSION,
-    });
-    expect(
-      (
-        database.query("PRAGMA table_info(users)").all() as Array<{
-          name: string;
-          dflt_value: string;
-        }>
-      ).find((column) => column.name === "password_iterations"),
-    ).toMatchObject({ dflt_value: String(LEGACY_PASSWORD_ITERATIONS) });
-    expect(
-      database.query("SELECT password_iterations FROM users WHERE id = ?").get("legacy-user"),
-    ).toEqual({ password_iterations: LEGACY_PASSWORD_ITERATIONS });
-  } finally {
-    database.close();
-  }
-});
-
-test("migrates version 2 databases to the memo schema", async () => {
-  const database = await createExpectedSchemaDatabase(2);
-  try {
-    expect(database.query("PRAGMA user_version").get()).toEqual({ user_version: 2 });
     await initializeDatabase(database);
     expect(database.query("PRAGMA user_version").get()).toEqual({
       user_version: CURRENT_SCHEMA_VERSION,
     });
     expect(
       database
-        .query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'memos'")
+        .query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'memos_short_fts'")
         .get(),
-    ).toBeTruthy();
-    expect(
-      database
-        .query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'memos_fts'")
-        .get(),
-    ).toBeTruthy();
-  } finally {
-    database.close();
-  }
-});
-
-test("removes superseded note_links indexes when upgrading version 3", async () => {
-  const database = await createExpectedSchemaDatabase(3);
-  try {
-    const before = database
-      .query("SELECT name FROM sqlite_master WHERE type = 'index'")
-      .all() as Array<{ name: string }>;
-    expect(before.some(({ name }) => name === "idx_note_links_source")).toBe(true);
-    expect(before.some(({ name }) => name === "idx_note_links_target")).toBe(true);
-    await initializeDatabase(database);
-    expect(database.query("PRAGMA user_version").get()).toEqual({
-      user_version: CURRENT_SCHEMA_VERSION,
-    });
-    const names = new Set(
-      (
-        database.query("SELECT name FROM sqlite_master WHERE type = 'index'").all() as Array<{
-          name: string;
-        }>
-      ).map(({ name }) => name),
-    );
-    expect(names.has("idx_note_links_source")).toBe(false);
-    expect(names.has("idx_note_links_target")).toBe(false);
-    expect(names.has("idx_note_links_source_note")).toBe(true);
-    expect(names.has("idx_note_links_target_note")).toBe(true);
-  } finally {
-    database.close();
-  }
-});
-
-test("adds the memo tag covering index when upgrading version 4", async () => {
-  const database = await createExpectedSchemaDatabase(4);
-  try {
-    const before = database
-      .query("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?")
-      .get("idx_memo_tags_user_tag");
-    expect(before).toBeNull();
-
-    await initializeDatabase(database);
-
-    expect(database.query("PRAGMA user_version").get()).toEqual({
-      user_version: CURRENT_SCHEMA_VERSION,
-    });
-    expect(
-      database
-        .query("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?")
-        .get("idx_memo_tags_user_tag"),
     ).toBeTruthy();
   } finally {
     database.close();
@@ -395,12 +253,15 @@ test("keeps the memo source, tag index, and FTS triggers in the current schema",
     expect(objects.has("table:memos")).toBe(true);
     expect(objects.has("table:memo_tags")).toBe(true);
     expect(objects.has("table:memos_fts")).toBe(true);
+    expect(objects.has("table:memos_short_fts")).toBe(true);
+    expect(objects.has("table:memos_short_overflow")).toBe(true);
     expect(objects.has("index:idx_memos_user_created")).toBe(true);
     expect(objects.has("index:idx_memo_tags_tag_user")).toBe(true);
     expect(objects.has("index:idx_memo_tags_user_tag")).toBe(true);
     expect(objects.has("trigger:memos_ai")).toBe(true);
     expect(objects.has("trigger:memos_ad")).toBe(true);
     expect(objects.has("trigger:memos_au")).toBe(true);
+    expect(objects.has("trigger:memos_short_fts_delete")).toBe(true);
 
     database
       .query(

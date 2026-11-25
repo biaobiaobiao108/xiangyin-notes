@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { Database } from "bun:sqlite";
 import { snapshotSchema } from "./schema-snapshot";
 import { rebuildNoteShortSearchIndex } from "./note-search";
+import { rebuildMemoShortSearchIndex } from "./memo-search";
 import { resolveNoteLinksForUser } from "./note-links";
 import { searchContains, searchableTextFromMarkdown, searchSnippet } from "./search-text";
 import { importContentHash, recordImportRequest } from "./import-idempotency";
@@ -11,7 +12,8 @@ const DEFAULT_DATABASE_PATH = "./data/xiangying-notes.sqlite";
 const DEFAULT_SCHEMA_PATH = "./database/schema.sql";
 const BASELINE_SCHEMA_VERSION = 1;
 
-export const CURRENT_SCHEMA_VERSION = 8;
+export const MIN_SUPPORTED_SCHEMA_VERSION = 8;
+export const CURRENT_SCHEMA_VERSION = 9;
 export const SEARCH_INDEX_REBUILD_KEY = "search-index-rebuild-required";
 
 type TableCountRow = {
@@ -30,6 +32,7 @@ export type DatabaseInitializationOptions = {
   schemaPath?: string;
   migrations?: readonly SchemaMigration[];
   currentSchemaVersion?: number;
+  minimumSchemaVersion?: number;
 };
 
 const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
@@ -164,6 +167,30 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       }
     },
   },
+  {
+    sourceVersion: 8,
+    targetVersion: 9,
+    migrate: (database) => {
+      database.exec(`
+        CREATE VIRTUAL TABLE memos_short_fts USING fts5(
+          terms, content='', contentless_delete=1, detail=none, tokenize='ascii'
+        );
+
+        CREATE TABLE memos_short_overflow (
+          memo_id TEXT PRIMARY KEY REFERENCES memos(id) ON DELETE CASCADE,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX idx_memos_short_overflow_user
+          ON memos_short_overflow(user_id, memo_id);
+
+        CREATE TRIGGER memos_short_fts_delete AFTER DELETE ON memos BEGIN
+          DELETE FROM memos_short_fts WHERE rowid = old.rowid;
+        END;
+      `);
+      rebuildMemoShortSearchIndex(database);
+    },
+  },
 ];
 
 export function databasePathFromEnv(env: Record<string, string | undefined> = Bun.env) {
@@ -185,9 +212,9 @@ function isEmptyDatabase(database: SqliteDatabase) {
   return Number(row?.count ?? 0) === 0;
 }
 
-function schemaVersionError(version: number, currentVersion: number) {
+function schemaVersionError(version: number, currentVersion: number, minimumVersion: number) {
   return new Error(
-    `SQLite schema version ${version} is unsupported; this application supports versions ${BASELINE_SCHEMA_VERSION} through ${currentVersion}.`,
+    `SQLite schema version ${version} is unsupported; this application supports versions ${minimumVersion} through ${currentVersion}.`,
   );
 }
 
@@ -223,6 +250,7 @@ export function reclaimDatabaseSpace(database: SqliteDatabase) {
     database.exec(`
       INSERT INTO notes_fts(notes_fts) VALUES('optimize');
       INSERT INTO notes_short_fts(notes_short_fts) VALUES('optimize');
+      INSERT INTO memos_short_fts(memos_short_fts) VALUES('optimize');
       INSERT INTO memos_fts(memos_fts) VALUES('optimize');
     `);
   } catch (error) {
@@ -288,6 +316,7 @@ function rebuildSearchIndexes(database: SqliteDatabase) {
       database.exec("INSERT INTO notes_fts(notes_fts) VALUES('rebuild');");
       database.exec("INSERT INTO memos_fts(memos_fts) VALUES('rebuild');");
       rebuildNoteShortSearchIndex(database);
+      rebuildMemoShortSearchIndex(database);
       database.query("DELETE FROM app_metadata WHERE key = ?").run(SEARCH_INDEX_REBUILD_KEY);
     })
     .immediate();
@@ -300,7 +329,7 @@ export function applyMigrations(
 ) {
   let version = readSchemaVersion(database);
   if (version > currentSchemaVersion || version < BASELINE_SCHEMA_VERSION) {
-    throw schemaVersionError(version, currentSchemaVersion);
+    throw schemaVersionError(version, currentSchemaVersion, BASELINE_SCHEMA_VERSION);
   }
 
   while (version < currentSchemaVersion) {
@@ -313,7 +342,7 @@ export function applyMigrations(
       const currentVersion = readSchemaVersion(database);
       if (currentVersion === migration.targetVersion) return;
       if (currentVersion !== migration.sourceVersion)
-        throw schemaVersionError(currentVersion, currentSchemaVersion);
+        throw schemaVersionError(currentVersion, currentSchemaVersion, BASELINE_SCHEMA_VERSION);
       migration.migrate(database);
       database.exec(`PRAGMA user_version = ${migration.targetVersion};`);
     });
@@ -321,7 +350,8 @@ export function applyMigrations(
     version = readSchemaVersion(database);
   }
 
-  if (version !== currentSchemaVersion) throw schemaVersionError(version, currentSchemaVersion);
+  if (version !== currentSchemaVersion)
+    throw schemaVersionError(version, currentSchemaVersion, BASELINE_SCHEMA_VERSION);
 }
 
 function createSchemaAtVersion(
@@ -338,7 +368,8 @@ function createSchemaAtVersion(
         `database/schema.sql must set PRAGMA user_version = ${BASELINE_SCHEMA_VERSION}.`,
       );
     }
-    if (version > currentSchemaVersion) throw schemaVersionError(version, currentSchemaVersion);
+    if (version > currentSchemaVersion)
+      throw schemaVersionError(version, currentSchemaVersion, BASELINE_SCHEMA_VERSION);
     applyMigrations(expected, migrations, version);
     return expected;
   } catch (error) {
@@ -374,13 +405,17 @@ export async function initializeDatabase(
   const schemaPath = options.schemaPath ?? DEFAULT_SCHEMA_PATH;
   const migrations = options.migrations ?? SCHEMA_MIGRATIONS;
   const currentSchemaVersion = options.currentSchemaVersion ?? CURRENT_SCHEMA_VERSION;
+  const minimumSchemaVersion = options.minimumSchemaVersion ?? MIN_SUPPORTED_SCHEMA_VERSION;
   const schemaFile = Bun.file(schemaPath);
   if (!(await schemaFile.exists()))
     throw new Error(`SQLite schema baseline not found: ${schemaPath}`);
   const schemaSql = await schemaFile.text();
 
   let version = readSchemaVersion(database);
-  if (version > currentSchemaVersion) throw schemaVersionError(version, currentSchemaVersion);
+  if (version > currentSchemaVersion)
+    throw schemaVersionError(version, currentSchemaVersion, minimumSchemaVersion);
+  if (version !== 0 && version < minimumSchemaVersion)
+    throw schemaVersionError(version, currentSchemaVersion, minimumSchemaVersion);
 
   if (isEmptyDatabase(database) && version === 0) {
     const expectedBaseline = createSchemaAtVersion(
@@ -393,7 +428,11 @@ export async function initializeDatabase(
       const initialize = database.transaction(() => {
         if (!isEmptyDatabase(database)) return;
         if (readSchemaVersion(database) !== 0)
-          throw schemaVersionError(readSchemaVersion(database), currentSchemaVersion);
+          throw schemaVersionError(
+            readSchemaVersion(database),
+            currentSchemaVersion,
+            minimumSchemaVersion,
+          );
         database.exec(schemaSql);
         assertSchemaMatches(database, expectedBaseline, BASELINE_SCHEMA_VERSION);
       });
@@ -403,11 +442,11 @@ export async function initializeDatabase(
       expectedBaseline.close();
     }
   } else if (version === 0) {
-    throw schemaVersionError(version, currentSchemaVersion);
+    throw schemaVersionError(version, currentSchemaVersion, minimumSchemaVersion);
   }
 
   if (version < BASELINE_SCHEMA_VERSION || version > currentSchemaVersion) {
-    throw schemaVersionError(version, currentSchemaVersion);
+    throw schemaVersionError(version, currentSchemaVersion, minimumSchemaVersion);
   }
 
   const expectedAtStoredVersion = createSchemaAtVersion(

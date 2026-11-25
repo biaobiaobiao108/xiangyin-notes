@@ -34,6 +34,12 @@ describe("memo Markdown rendering", () => {
     expect(html).toContain('rel="noopener noreferrer"');
   });
 
+  test("blocks unsafe link protocols split by control characters", () => {
+    const html = renderMemoMarkdown("[危险](<java\tscript:alert(1)>)");
+    expect(html).not.toContain('href="java');
+    expect(html).not.toContain("javascript:");
+  });
+
   test("never auto-loads external images", () => {
     const external = renderMemoMarkdown("![外站](https://example.com/a.png)");
     expect(external).not.toContain("<img");

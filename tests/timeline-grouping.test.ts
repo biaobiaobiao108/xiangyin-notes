@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { getInitialLetter, getTimelineGroupTitle, groupNotes } from "../app/workspace/helpers";
+import { getTimelineGroupTitle, groupNotes } from "../app/workspace/helpers";
 import type { NoteSummary } from "../shared/types";
 
 function createMockSummary(partial: Partial<NoteSummary>): NoteSummary {
@@ -19,18 +19,7 @@ function createMockSummary(partial: Partial<NoteSummary>): NoteSummary {
   };
 }
 
-describe("时间轴分组与标题分组算法", () => {
-  it("正确识别拼音首字母与大写英文字母", () => {
-    expect(getInitialLetter("A")).toBe("A");
-    expect(getInitialLetter("b")).toBe("B");
-    expect(getInitialLetter("周")).toBe("Z");
-    expect(getInitialLetter("孙")).toBe("S");
-    expect(getInitialLetter("大")).toBe("D");
-    expect(getInitialLetter("测")).toBe("C");
-    expect(getInitialLetter("1")).toBe("#");
-    expect(getInitialLetter("【")).toBe("#");
-  });
-
+describe("时间轴分组算法", () => {
   it("正确划分时间段", () => {
     // 假设当前时间是 2026-10-30 15:00:00 (周五)
     const fixedNowMs = new Date("2026-10-30T15:00:00+08:00").getTime();
@@ -69,7 +58,7 @@ describe("时间轴分组与标题分组算法", () => {
       }),
     ];
 
-    const groups = groupNotes(notes, "updated", fixedNowMs);
+    const groups = groupNotes(notes, fixedNowMs);
     expect(groups.length).toBe(3);
     expect(groups[0]?.title).toBe("今天");
     expect(groups[0]?.count).toBe(2);
@@ -94,18 +83,5 @@ describe("时间轴分组与标题分组算法", () => {
     const later = new Date(2026, 9, 30, 12).getTime();
     expect(getTimelineGroupTitle(new Date(2026, 9, 19, 12).getTime() / 1000, later)).toBe("上周");
     expect(getTimelineGroupTitle(new Date(2026, 7, 1, 12).getTime() / 1000, later)).toBe("今年内");
-  });
-
-  it("对笔记列表按标题首字母分组", () => {
-    const notes = [
-      createMockSummary({ id: "1", title: "Apple" }),
-      createMockSummary({ id: "2", title: "Banana" }),
-      createMockSummary({ id: "3", title: "周文强" }),
-      createMockSummary({ id: "4", title: "张三" }),
-    ];
-
-    const groups = groupNotes(notes, "title");
-    expect(groups.map((g) => g.title)).toEqual(["A", "B", "Z"]);
-    expect(groups.find((g) => g.title === "Z")?.count).toBe(2);
   });
 });

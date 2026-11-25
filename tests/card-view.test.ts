@@ -69,22 +69,9 @@ describe("card view & layout", () => {
     },
   ];
 
-  test("sorts notes correctly for card grid display", () => {
-    // Sort by updated time (descending)
-    const sortedByUpdated = sortNotes(sampleNotes, "updated");
+  test("sorts card grid notes by updated time", () => {
+    const sortedByUpdated = sortNotes(sampleNotes);
     expect(sortedByUpdated.map((n) => n.id)).toEqual(["note-2", "note-1", "note-3"]);
-
-    // Sort by created time (descending)
-    const sortedByCreated = sortNotes(sampleNotes, "created");
-    expect(sortedByCreated.map((n) => n.id)).toEqual(["note-2", "note-1", "note-3"]);
-
-    // Sort by title (alphabetical zh-CN)
-    const sortedByTitle = sortNotes(sampleNotes, "title");
-    expect(sortedByTitle.map((n) => n.title)).toEqual([
-      "关于文人笔记的思考",
-      "每日代办事项",
-      "象映设计规范",
-    ]);
   });
 
   test("assigns variable-height cards to masonry lanes and virtualizes by measured positions", () => {

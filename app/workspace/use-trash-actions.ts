@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import type { Note, NoteSummary, NoteView, Notebook } from "../../shared/types";
-import type { NoteSort, NoteDraft } from "./helpers";
+import type { NoteDraft } from "./helpers";
 import { errorMessage, sortNotes, toNoteDraft } from "./helpers";
 import { ApiError, api } from "../api";
 import type { ConfirmRequest } from "./dialogs";
@@ -14,7 +14,6 @@ type SaveQueue = ReturnType<typeof useNoteSaveQueue>;
 type UseTrashActionsOptions = {
   state: {
     view: NoteView;
-    noteSort: NoteSort;
     totalNotes: number;
     pendingTrashCount: number;
   };
@@ -49,7 +48,7 @@ type UseTrashActionsOptions = {
 
 export function useTrashActions(options: UseTrashActionsOptions) {
   const { state, refs, saveQueue, list, ui } = options;
-  const { view, noteSort, totalNotes, pendingTrashCount } = state;
+  const { view, totalNotes, pendingTrashCount } = state;
   const {
     selectedRef,
     notesRef,
@@ -165,11 +164,11 @@ export function useTrashActions(options: UseTrashActionsOptions) {
   const getBatchEntries = useCallback(
     (noteIds: string[]) => {
       const selected = new Set(noteIds);
-      return sortNotes(notesRef.current, noteSort)
+      return sortNotes(notesRef.current)
         .filter((note) => selected.has(note.id))
         .map((note) => ({ id: note.id, version: note.version }));
     },
-    [noteSort, notesRef],
+    [notesRef],
   );
 
   const performBatchDelete = useCallback(

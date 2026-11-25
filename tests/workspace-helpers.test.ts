@@ -123,62 +123,44 @@ describe("remote summary merging", () => {
 
   test("patches one row and moves it to the top under the updated sort", () => {
     const rows = [summary("a", 30), summary("b", 20), summary("c", 10)];
-    const merged = mergeRemoteSummary(rows, summary("c", 40, { title: "改过" }), "updated");
+    const merged = mergeRemoteSummary(rows, summary("c", 40, { title: "改过" }));
     expect(merged?.map((row) => row.id)).toEqual(["c", "a", "b"]);
     expect(merged?.[0]?.title).toBe("改过");
     // 原数组不被就地修改。
     expect(rows.map((row) => row.id)).toEqual(["a", "b", "c"]);
   });
 
-  test("keeps the position for created and title sorts", () => {
-    const rows = [summary("a", 30), summary("b", 20)];
-    expect(mergeRemoteSummary(rows, summary("b", 40), "created")?.map((row) => row.id)).toEqual([
-      "a",
-      "b",
-    ]);
-    expect(mergeRemoteSummary(rows, summary("b", 40), "title")?.map((row) => row.id)).toEqual([
-      "a",
-      "b",
-    ]);
-  });
-
   test("keeps the position when a newer version only changes note state", () => {
     const rows = [summary("a", 30), summary("b", 20), summary("c", 10)];
-    const merged = mergeRemoteSummary(
-      rows,
-      summary("c", 10, { version: 2, isFavorite: true }),
-      "updated",
-    );
+    const merged = mergeRemoteSummary(rows, summary("c", 10, { version: 2, isFavorite: true }));
     expect(merged?.map((row) => row.id)).toEqual(["a", "b", "c"]);
     expect(merged?.[2]).toMatchObject({ version: 2, isFavorite: true, updatedAt: 10 });
   });
 
   test("does not insert unfamiliar rows without a page boundary", () => {
-    expect(mergeRemoteSummary([summary("a", 1)], summary("missing", 2), "updated")).toBeNull();
+    expect(mergeRemoteSummary([summary("a", 1)], summary("missing", 2))).toBeNull();
   });
 
   test("promotes an unloaded note above the page boundary for updated sort only", () => {
     const boundary = summary("b", 20);
     const rows = [summary("a", 30), boundary];
     const newer = summary("newer", 40);
-    expect(mergeRemoteSummary(rows, newer, "updated", boundary)).toEqual([newer, ...rows]);
-    expect(mergeRemoteSummary(rows, newer, "created", boundary)).toBeNull();
-    expect(mergeRemoteSummary(rows, newer, "title", boundary)).toBeNull();
-    expect(mergeRemoteSummary(rows, summary("older", 10), "updated", boundary)).toBeNull();
+    expect(mergeRemoteSummary(rows, newer, boundary)).toEqual([newer, ...rows]);
+    expect(mergeRemoteSummary(rows, summary("older", 10), boundary)).toBeNull();
     const sameSecond = summary("c", 20);
-    expect(mergeRemoteSummary(rows, sameSecond, "updated", boundary)).toEqual([
+    expect(mergeRemoteSummary(rows, sameSecond, boundary)).toEqual([
       rows[0]!,
       sameSecond,
       boundary,
     ]);
-    expect(mergeRemoteSummary(rows, summary("aa", 20), "updated", boundary)).toBeNull();
+    expect(mergeRemoteSummary(rows, summary("aa", 20), boundary)).toBeNull();
   });
 
   test("ignores a delayed summary after a newer save without changing row order", () => {
     const latest = summary("b", 40, { title: "保存后的标题", preview: "新正文", version: 2 });
     const rows = [summary("a", 50), latest];
     const stale = summary("b", 20, { title: "旧标题", version: 1 });
-    expect(mergeRemoteSummary(rows, stale, "updated")).toBe(rows);
+    expect(mergeRemoteSummary(rows, stale)).toBe(rows);
     expect(rows[1]).toBe(latest);
   });
 

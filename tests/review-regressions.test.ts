@@ -46,6 +46,17 @@ afterEach(async () => {
 });
 
 describe("review regressions", () => {
+  test("returns one conflict instead of a server error for concurrent same-ID note creation", async () => {
+    const id = crypto.randomUUID();
+    const create = (title: string) =>
+      request("/api/notes", "POST", { id, title, contentMarkdown: title });
+    const results = await Promise.all([create("并发甲"), create("并发乙")]);
+    expect(results.map(({ response }) => response.status).sort()).toEqual([201, 409]);
+    expect(database.query("SELECT COUNT(*) AS count FROM notes WHERE id = ?").get(id)).toEqual({
+      count: 1,
+    });
+  });
+
   test("rejects an unchanged PATCH based on a version superseded while reading the body", async () => {
     const created = await request("/api/notes", "POST", {
       title: "并发保存",

@@ -36,6 +36,8 @@ import {
   recordImportRequest,
 } from "../import-idempotency";
 import { buildFtsMatchQuery, searchableTextFromMarkdown } from "../search-text";
+import { shortSearchToken } from "../note-search";
+import { syncMemoShortSearchTerms } from "../memo-search";
 import { extractTags, normalizeTag, parseTagQuery } from "../../shared/tags";
 import type { Memo, MemoDayCount, MemoFacets, MemoTagCount } from "../../shared/types";
 
@@ -51,6 +53,7 @@ const MEMO_QUERY_MAX_LENGTH = 200;
 const MEMO_QUERY_MAX_TERMS = 12;
 const MEMO_QUERY_TERM_MAX_LENGTH = 64;
 const MEMO_IDEMPOTENCY_KEY_PATTERN = /^[\x21-\x7e]{1,128}$/u;
+const MEMO_FACET_MAX_RANGE_MS = 370 * 24 * 60 * 60 * 1000;
 
 type MemoRow = {
   id: string;
@@ -74,7 +77,6 @@ type MemoFilter = {
 
 type ParsedMemoQuery = {
   terms: string[];
-  ftsQuery: string;
 };
 
 const MEMO_SELECT = `
@@ -176,7 +178,7 @@ function parseLimit(value: string | null) {
 
 function parseMemoQuery(value: string | null): ParsedMemoQuery | null {
   const query = value?.trim() ?? "";
-  if (!query) return { terms: [], ftsQuery: "" };
+  if (!query) return { terms: [] };
   if (query.length > MEMO_QUERY_MAX_LENGTH) return null;
   const terms = query.split(/\s+/u).filter(Boolean);
   if (
@@ -185,10 +187,7 @@ function parseMemoQuery(value: string | null): ParsedMemoQuery | null {
     terms.some((term) => term.length > MEMO_QUERY_TERM_MAX_LENGTH)
   )
     return null;
-  return {
-    terms,
-    ftsQuery: terms.every((term) => Array.from(term).length >= 3) ? buildFtsMatchQuery(terms) : "",
-  };
+  return { terms };
 }
 
 function parseMemoTag(value: string | null) {
@@ -199,14 +198,20 @@ function parseMemoTag(value: string | null) {
 }
 
 function addMemoQueryFilter(filter: MemoFilter, query: ParsedMemoQuery) {
-  if (query.ftsQuery) {
-    filter.where.push("m.rowid IN (SELECT rowid FROM memos_fts WHERE memos_fts MATCH ?)");
-    filter.params.push(query.ftsQuery);
-    return;
-  }
   for (const term of query.terms) {
-    filter.where.push("search_contains(m.search_text, ?)");
-    filter.params.push(term);
+    if (Array.from(term).length >= 3) {
+      filter.where.push("m.rowid IN (SELECT rowid FROM memos_fts WHERE memos_fts MATCH ?)");
+      filter.params.push(buildFtsMatchQuery([term]));
+      continue;
+    }
+    filter.where.push(`(
+      m.rowid IN (SELECT rowid FROM memos_short_fts WHERE memos_short_fts MATCH ?)
+      OR EXISTS (
+        SELECT 1 FROM memos_short_overflow so
+        WHERE so.memo_id = m.id AND so.user_id = m.user_id AND search_contains(m.search_text, ?)
+      )
+    )`);
+    filter.params.push(shortSearchToken(term), term);
   }
 }
 
@@ -325,12 +330,83 @@ function parseTimeZone(value: string | null) {
   }
 }
 
+function zonedDateParts(timestamp: number, formatter: Intl.DateTimeFormat) {
+  const parts = formatter.formatToParts(new Date(timestamp));
+  const value = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((part) => part.type === type)?.value);
+  return {
+    year: value("year"),
+    month: value("month"),
+    day: value("day"),
+    hour: value("hour"),
+    minute: value("minute"),
+    second: value("second"),
+  };
+}
+
+function zonedMidnight(
+  year: number,
+  monthIndex: number,
+  day: number,
+  formatter: Intl.DateTimeFormat,
+) {
+  const target = Date.UTC(year, monthIndex, day);
+  let guess = target;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const parts = zonedDateParts(guess, formatter);
+    const represented = Date.UTC(
+      parts.year,
+      parts.month - 1,
+      parts.day,
+      parts.hour,
+      parts.minute,
+      parts.second,
+    );
+    const next = target - (represented - Math.floor(guess / 1000) * 1000);
+    if (next === guess) break;
+    guess = next;
+  }
+  return guess;
+}
+
+function calendarDaysInRange(from: number, to: number, timeZone: string) {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  });
+  const first = zonedDateParts(from, formatter);
+  let cursor = new Date(Date.UTC(first.year, first.month - 1, first.day));
+  let start = from;
+  const days: Array<{ date: string; start: number; end: number }> = [];
+  while (start < to) {
+    const next = new Date(cursor.getTime() + 24 * 60 * 60 * 1000);
+    const end = Math.min(
+      to,
+      zonedMidnight(next.getUTCFullYear(), next.getUTCMonth(), next.getUTCDate(), formatter),
+    );
+    if (end <= start) break;
+    const date = `${cursor.getUTCFullYear()}-${String(cursor.getUTCMonth() + 1).padStart(2, "0")}-${String(cursor.getUTCDate()).padStart(2, "0")}`;
+    days.push({ date, start, end });
+    start = end;
+    cursor = next;
+  }
+  return days;
+}
+
 function memoFacets(ctx: RouteContext, user: UserRow) {
   const { url, options } = ctx;
   const from = parseTimestamp(url.searchParams.get("from"));
   const to = parseTimestamp(url.searchParams.get("to"));
   if (from === undefined || to === undefined || from === false || to === false || from >= to)
     return jsonError(400, "INVALID_DATE_RANGE", "日期范围必须是有效的毫秒时间戳区间");
+  if (to - from > MEMO_FACET_MAX_RANGE_MS)
+    return jsonError(400, "INVALID_DATE_RANGE", "日历统计范围不能超过一年");
   const query = parseMemoQuery(url.searchParams.get("query"));
   if (!query) return jsonError(400, "INVALID_QUERY", "搜索词无效或过长");
   const tag = parseMemoTag(url.searchParams.get("tag"));
@@ -338,29 +414,24 @@ function memoFacets(ctx: RouteContext, user: UserRow) {
   const timeZone = parseTimeZone(url.searchParams.get("timeZone"));
   if (!timeZone) return jsonError(400, "INVALID_TIME_ZONE", "timeZone 必须是有效的 IANA 时区");
 
-  const filter = buildMemoFilter(user.id, query, tag, from, to);
-  const rows = all<{ created_at: number }>(
+  const daysInRange = calendarDaysInRange(from, to, timeZone);
+  const filter = buildMemoFilter(user.id, query, tag);
+  const dayValues = daysInRange.map(() => "(?, ?, ?)").join(", ");
+  const rows = all<{ date: string; count: number }>(
     options.database,
-    `SELECT m.created_at FROM memos m WHERE ${filter.where.join(" AND ")}`,
+    `
+      WITH days(date, start_at, end_at) AS (VALUES ${dayValues})
+      SELECT days.date AS date, COUNT(m.id) AS count
+      FROM days
+      JOIN memos m ON m.created_at >= days.start_at AND m.created_at < days.end_at
+      WHERE ${filter.where.join(" AND ")}
+      GROUP BY days.date
+      ORDER BY days.date
+    `,
+    ...daysInRange.flatMap((day) => [day.date, day.start, day.end]),
     ...filter.params,
   );
-  const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
-  const counts = new Map<string, number>();
-  for (const row of rows) {
-    const parts = formatter.formatToParts(new Date(row.created_at));
-    const value = (type: "year" | "month" | "day") =>
-      parts.find((part) => part.type === type)?.value ?? "";
-    const date = `${value("year")}-${value("month")}-${value("day")}`;
-    counts.set(date, (counts.get(date) ?? 0) + 1);
-  }
-  const days: MemoDayCount[] = [...counts.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, count]) => ({ date, count }));
+  const days: MemoDayCount[] = rows.map((row) => ({ date: row.date, count: Number(row.count) }));
   const tagRows = all<{ tag: string; count: number }>(
     options.database,
     `
@@ -385,19 +456,14 @@ function createMemo(
 ) {
   return database
     .transaction(() => {
+      const searchText = searchableTextFromMarkdown(contentMarkdown);
       database
         .query(
           "INSERT INTO memos (id, user_id, content_markdown, search_text, version, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?)",
         )
-        .run(
-          memoId,
-          userId,
-          contentMarkdown,
-          searchableTextFromMarkdown(contentMarkdown),
-          createdAt,
-          createdAt,
-        );
+        .run(memoId, userId, contentMarkdown, searchText, createdAt, createdAt);
       syncMemoTags(database, userId, memoId, contentMarkdown);
+      syncMemoShortSearchTerms(database, userId, memoId, searchText);
     })
     .immediate();
 }
@@ -436,13 +502,14 @@ function memoMutation(ctx: RouteContext, user: UserRow, memoId: string) {
           if (current.content_markdown === payload.contentMarkdown)
             return { kind: "unchanged" as const, current };
           const updatedAt = Math.max(current.created_at, Date.now());
+          const searchText = searchableTextFromMarkdown(payload.contentMarkdown as string);
           const updated = options.database
             .query(
               "UPDATE memos SET content_markdown = ?, search_text = ?, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ? AND version = ?",
             )
             .run(
               payload.contentMarkdown as string,
-              searchableTextFromMarkdown(payload.contentMarkdown as string),
+              searchText,
               updatedAt,
               memoId,
               user.id,
@@ -454,6 +521,7 @@ function memoMutation(ctx: RouteContext, user: UserRow, memoId: string) {
               current: getMemo(options.database, user.id, memoId),
             };
           syncMemoTags(options.database, user.id, memoId, payload.contentMarkdown as string);
+          syncMemoShortSearchTerms(options.database, user.id, memoId, searchText);
           return { kind: "updated" as const };
         })
         .immediate();
@@ -541,25 +609,27 @@ export function handleMemosRoute(
         if (createdAt === null) return jsonError(400, "INVALID_CREATED_AT", "创建时间无效");
         if (!validateContent(payload.contentMarkdown))
           return jsonError(413, "MEMO_TOO_LARGE", "随记正文不能为空且不能超过长度限制");
-        const existing = getMemo(ctx.options.database, user.id, memoId);
-        if (
-          existing &&
-          existing.version === 1 &&
-          existing.content_markdown === payload.contentMarkdown &&
-          (payload.createdAt === undefined || existing.created_at === createdAt)
-        )
-          return json({ memo: memoFromRow(existing) }, 200);
-        if (first(ctx.options.database, "SELECT 1 FROM memos WHERE id = ?", memoId))
+        const database = ctx.options.database;
+        const result = database
+          .transaction(() => {
+            const existing = getMemo(database, user.id, memoId);
+            if (
+              existing &&
+              existing.version === 1 &&
+              existing.content_markdown === payload.contentMarkdown &&
+              (payload.createdAt === undefined || existing.created_at === createdAt)
+            )
+              return { kind: "replayed" as const, memo: existing };
+            if (existing) return { kind: "conflict" as const };
+            createMemo(database, user.id, payload.contentMarkdown as string, memoId, createdAt);
+            return { kind: "created" as const };
+          })
+          .immediate();
+        if (result.kind === "replayed") return json({ memo: memoFromRow(result.memo) }, 200);
+        if (result.kind === "conflict")
           return jsonError(409, "MEMO_EXISTS", "指定 ID 的随记已存在");
-        createMemo(
-          ctx.options.database,
-          user.id,
-          payload.contentMarkdown as string,
-          memoId,
-          createdAt,
-        );
         publishWorkspaceChange(ctx.options, user.id, { resource: "memos" }, ctx.request);
-        const memo = getMemo(ctx.options.database, user.id, memoId);
+        const memo = getMemo(database, user.id, memoId);
         return json({ memo: memo ? memoFromRow(memo) : null }, 201);
       })();
     }

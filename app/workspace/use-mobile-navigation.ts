@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createUuid } from "../uuid";
 import type { NoteView } from "../../shared/types";
-import type { NoteSort } from "./helpers";
 
 export type MobilePage = "home" | "list" | "editor" | "tasks" | "kanban" | "memos";
 export function shouldShowTasksPanel(
@@ -32,7 +31,6 @@ export type MobileListContext = {
   view: NoteView;
   notebookId?: string;
   query: string;
-  sort: NoteSort;
   noteId: string | null;
   searchOrigin: { view: NoteView; notebookId?: string } | null;
   tasksOpen?: boolean;
@@ -167,7 +165,6 @@ export function useMobileNavigation(
     context.view,
     context.notebookId,
     context.query,
-    context.sort,
     context.noteId,
     context.searchOrigin,
     context.tasksOpen,

@@ -5,7 +5,6 @@ import {
   mergeRemoteSummary,
   shouldKeepActiveNoteInList,
   sortNotes,
-  type NoteSort,
   type NoteUpdatedPosition,
 } from "./helpers";
 type Ref<T> = { current: T };
@@ -26,7 +25,6 @@ function focusNoteRowAfterRemoval(noteId: string) {
 
 export function useWorkspaceListChanges({
   notesRef,
-  noteSort,
   replaceList,
   setTotalNotes,
   activeNoteIdRef,
@@ -45,7 +43,6 @@ export function useWorkspaceListChanges({
   clearNoteSelection,
 }: {
   notesRef: Ref<NoteSummary[]>;
-  noteSort: NoteSort;
   replaceList: (notes: NoteSummary[]) => void;
   setTotalNotes: Setter<number>;
   activeNoteIdRef: Ref<string | null>;
@@ -68,7 +65,7 @@ export function useWorkspaceListChanges({
       const restoreFocus =
         document.activeElement instanceof Element &&
         Boolean(document.activeElement.closest(".note-list-panel"));
-      const ordered = sortNotes(notesRef.current, noteSort);
+      const ordered = sortNotes(notesRef.current);
       const index = ordered.findIndex((note) => note.id === noteId);
       if (index === -1) return;
       replaceList(notesRef.current.filter((note) => note.id !== noteId));
@@ -83,15 +80,12 @@ export function useWorkspaceListChanges({
         closeSplitRef.current();
       }
     },
-    [noteSort, replaceList, selectNote],
+    [replaceList, selectNote],
   );
   const patchNoteFromRemote = useCallback(
     async (noteId: string) => {
       if (listScope !== listScopeRef.current) return;
-      const startBoundary =
-        noteSort === "updated" && nextNotesCursorRef.current
-          ? updatedPageBoundaryRef.current
-          : null;
+      const startBoundary = nextNotesCursorRef.current ? updatedPageBoundaryRef.current : null;
       if (!startBoundary && !notesRef.current.some((note) => note.id === noteId)) return;
       try {
         const summary = (await api.getNoteSummary(noteId)).note;
@@ -105,7 +99,7 @@ export function useWorkspaceListChanges({
         const pageBoundary = nextNotesCursorRef.current
           ? updatedPageBoundaryRef.current
           : startBoundary;
-        const merged = mergeRemoteSummary(notesRef.current, summary, noteSort, pageBoundary);
+        const merged = mergeRemoteSummary(notesRef.current, summary, pageBoundary);
         if (merged) replaceList(merged);
       } catch (reason) {
         if (listScope !== listScopeRef.current) return;
@@ -117,7 +111,6 @@ export function useWorkspaceListChanges({
       listScope,
       listScopeRef,
       nextNotesCursorRef,
-      noteSort,
       notebookId,
       notebooks,
       notesRef,
@@ -134,7 +127,7 @@ export function useWorkspaceListChanges({
         Boolean(document.activeElement.closest(".note-list-panel"));
       const deletedIds = new Set(noteIds);
       const currentList = notesRef.current;
-      const ordered = sortNotes(currentList, noteSort);
+      const ordered = sortNotes(currentList);
       const visibleDeletedCount = currentList.filter((note) => deletedIds.has(note.id)).length;
       const activeId = activeNoteIdRef.current;
       const activeIndex = activeId ? ordered.findIndex((note) => note.id === activeId) : -1;
@@ -163,7 +156,7 @@ export function useWorkspaceListChanges({
         if (restoreFocus && nextActiveId) focusNoteRowAfterRemoval(nextActiveId);
       }
     },
-    [clearNoteSelection, noteSort, replaceList, selectNote],
+    [clearNoteSelection, replaceList, selectNote],
   );
   return { removeFromList, patchNoteFromRemote, removeManyFromList };
 }
