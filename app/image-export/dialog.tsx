@@ -73,6 +73,10 @@ export function ImageExportDialog({
       pagesRef.current = [];
       const stage = stageRef.current;
       if (!stage) return;
+      // Mermaid images are rasterized during preparation. Keep the preview and all captures in that theme.
+      const colorScheme = getComputedStyle(document.documentElement).colorScheme;
+      stage.style.colorScheme = colorScheme;
+      if (previewRef.current) previewRef.current.style.colorScheme = colorScheme;
       stage.replaceChildren();
       try {
         await waitForExport(document.fonts.ready, anySignal([signal, createTimeoutSignal(15_000)]));
