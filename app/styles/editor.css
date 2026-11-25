@@ -874,13 +874,8 @@
   -moz-tab-size: 2;
 }
 .note-prose pre:has(> .code-block-copy-button) {
-  /* Reserve inline clearance for the floating copy button without adding an empty top bar. */
+  /* Reserve inline clearance for the floating copy button without adding a top bar. */
   padding-inline-end: 46px;
-}
-.note-prose pre:has(> .code-block-language) {
-  /* Reserve the top row only when a language label is present. */
-  padding-block-start: 38px;
-  padding-inline-end: 20px;
 }
 .note-prose code {
   padding: 0.15em 0.38em;
@@ -905,16 +900,21 @@
 .note-prose .code-block-language {
   position: absolute;
   inset-block-start: 8px;
-  inset-inline-end: 42px;
+  inset-inline-end: 8px;
   z-index: 1;
   display: block;
   height: 30px;
   max-width: min(96px, calc(60% - 24px));
   overflow: hidden;
-  padding: 0 6px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: var(--surface-glass-soft);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.72rem;
-  line-height: 30px;
+  line-height: 28px;
   font-weight: 500;
   color: var(--muted);
   user-select: none;
@@ -922,7 +922,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   letter-spacing: 0.02em;
-  opacity: 0.8;
+  transition: transform var(--motion-fast) var(--motion-ease-out);
 }
 .note-prose .code-block-copy-button {
   position: absolute;
@@ -937,6 +937,8 @@
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   background: var(--surface-glass-soft);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
   color: var(--muted);
   opacity: 0;
   pointer-events: none;
@@ -946,6 +948,11 @@
     color var(--motion-fast) var(--motion-ease-out),
     background-color var(--motion-fast) var(--motion-ease-out),
     border-color var(--motion-fast) var(--motion-ease-out);
+}
+.note-prose pre:has(> .code-block-copy-button):hover .code-block-language,
+.note-prose pre:has(> .code-block-copy-button):focus-within .code-block-language,
+.note-prose pre:has(> .code-block-copy-button:is(.is-copied, .is-error)) .code-block-language {
+  transform: translateX(-34px);
 }
 .note-prose pre:hover .code-block-copy-button,
 .note-prose pre:focus-within .code-block-copy-button {
@@ -974,12 +981,16 @@
   pointer-events: auto;
 }
 @media (hover: none), (pointer: coarse) {
+  .note-prose pre:has(> .code-block-copy-button) .code-block-language {
+    transform: translateX(-34px);
+  }
   .note-prose pre .code-block-copy-button {
     opacity: 1;
     pointer-events: auto;
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  .note-prose .code-block-language,
   .note-prose .code-block-copy-button {
     transition: none;
   }
