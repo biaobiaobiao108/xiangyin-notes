@@ -4,6 +4,7 @@ import {
   type ContextType,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -106,6 +107,15 @@ function MemoCard({
         : null,
     );
   };
+
+  useLayoutEffect(() => {
+    const card = foregroundRef.current;
+    if (!card?.style.minBlockSize) return;
+    const frame = requestAnimationFrame(() => {
+      card.style.minBlockSize = "";
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [editing]);
 
   const beginEdit = (target?: EventTarget | null) => {
     if (
@@ -417,14 +427,27 @@ function MemoList({
   const [loadMoreSentinel, setLoadMoreSentinel] = useState<HTMLElement | null>(null);
   const canAutoLoad = typeof IntersectionObserver !== "undefined";
   const filtered = Boolean(query || tag || selectedDate);
+  const holdCardHeight = (id: string) => {
+    const card = scrollRef.current?.querySelector<HTMLElement>(
+      `[data-memo-id="${CSS.escape(id)}"]`,
+    );
+    if (!card?.querySelector(".mermaid-body")) return;
+    // Replacing the preview briefly shrinks the card. Keep Safari from
+    // clamping the scroll position before the new preview restores its height.
+    card.style.minBlockSize = `${card.offsetHeight}px`;
+  };
   const beginEdit = (memo: Memo) => {
+    if (editingMemo?.id === memo.id) return;
+    if (editingMemo) holdCardHeight(editingMemo.id);
+    holdCardHeight(memo.id);
     swipeActions.close();
     editingSessionRef.current += 1;
     setEditingWasVirtualized(virtualList.isVirtualized);
     setEditingMemo(memo);
   };
   const finishEdit = (session: number) => {
-    if (editingSessionRef.current !== session) return;
+    if (editingSessionRef.current !== session || !editingMemo) return;
+    holdCardHeight(editingMemo.id);
     editingSessionRef.current += 1;
     setEditingWasVirtualized(false);
     setEditingMemo(null);
