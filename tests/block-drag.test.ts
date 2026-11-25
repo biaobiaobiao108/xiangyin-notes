@@ -24,6 +24,7 @@ import {
   type BlockTarget,
 } from "../app/editor/block-drag-commands";
 import { createDragPreview } from "../app/editor/block-drag-handle";
+import { blockHandleCenter } from "../app/editor/block-drag-dom";
 
 function createTestEditor(content: string) {
   return new Editor({
@@ -650,6 +651,220 @@ describe("multi-block operations", () => {
       expect(content.children[2].style.marginBottom).toBe("0");
     } finally {
       (globalThis as unknown as { document: unknown }).document = originalDocument;
+    }
+  });
+
+  test("positions drag handle at top diagram image instead of mermaid controls or inert source", () => {
+    const originalDocument = globalThis.document;
+    const originalNodeFilter = globalThis.NodeFilter;
+    const originalElement = globalThis.Element;
+    try {
+      class MockNode {
+        parentElement: MockElement | null = null;
+      }
+      class MockText extends MockNode {
+        textContent: string;
+        top: number;
+        height: number;
+        constructor(textContent: string, top: number, height = 18) {
+          super();
+          this.textContent = textContent;
+          this.top = top;
+          this.height = height;
+        }
+      }
+      class MockElement extends MockNode {
+        tagName: string;
+        children: MockNode[] = [];
+        attributes = new Set<string>();
+        classes: Set<string>;
+        rect: { top: number; height: number };
+        classList = {
+          contains: (name: string) => this.classes.has(name),
+        };
+        constructor(
+          tag: string,
+          options: {
+            classes?: string[];
+            inert?: boolean;
+            top?: number;
+            height?: number;
+            children?: MockNode[];
+          } = {},
+        ) {
+          super();
+          this.tagName = tag.toUpperCase();
+          this.classes = new Set(options.classes ?? []);
+          if (options.inert) this.attributes.add("inert");
+          this.rect = { top: options.top ?? 0, height: options.height ?? 0 };
+          for (const child of options.children ?? []) {
+            child.parentElement = this;
+            this.children.push(child);
+          }
+        }
+        hasAttribute(name: string) {
+          return this.attributes.has(name);
+        }
+        getBoundingClientRect() {
+          return this.rect;
+        }
+        querySelectorAll(selector: string) {
+          const tags = new Set(selector.split(",").map((s) => s.trim().toUpperCase()));
+          const matches: MockElement[] = [];
+          const visit = (el: MockElement) => {
+            for (const child of el.children) {
+              if (child instanceof MockElement) {
+                if (tags.has(child.tagName)) matches.push(child);
+                visit(child);
+              }
+            }
+          };
+          visit(this);
+          return matches;
+        }
+      }
+
+      const collectTextNodes = (root: MockElement): MockText[] => {
+        const result: MockText[] = [];
+        const visit = (node: MockNode) => {
+          if (node instanceof MockText) {
+            result.push(node);
+          } else if (node instanceof MockElement) {
+            for (const child of node.children) visit(child);
+          }
+        };
+        visit(root);
+        return result;
+      };
+
+      (globalThis as unknown as { Element: unknown }).Element = MockElement;
+      (globalThis as unknown as { NodeFilter: unknown }).NodeFilter = {
+        SHOW_TEXT: 4,
+        FILTER_ACCEPT: 1,
+        FILTER_SKIP: 3,
+      };
+      (globalThis as unknown as { document: unknown }).document = {
+        createTreeWalker(
+          root: MockElement,
+          _whatToShow: number,
+          filter: { acceptNode: (node: unknown) => number },
+        ) {
+          const nodes = collectTextNodes(root);
+          let index = 0;
+          return {
+            nextNode() {
+              while (index < nodes.length) {
+                const candidate = nodes[index++];
+                if (filter.acceptNode(candidate) === 1) return candidate;
+              }
+              return null;
+            },
+          };
+        },
+        createRange() {
+          let target: MockText | null = null;
+          return {
+            setStart(node: MockText) {
+              target = node;
+            },
+            setEnd() {},
+            getBoundingClientRect() {
+              return target ? { top: target.top, height: target.height } : { top: 0, height: 0 };
+            },
+          };
+        },
+      };
+
+      const buildMermaidBlock = ({
+        showSource,
+        withSizeButton,
+      }: {
+        showSource: boolean;
+        withSizeButton: boolean;
+      }) => {
+        const previewChildren: MockNode[] = [
+          new MockElement("img", { classes: ["mermaid-image"], top: 109, height: 320 }),
+        ];
+        if (withSizeButton) {
+          previewChildren.push(
+            new MockElement("button", {
+              classes: ["mermaid-action", "mermaid-size"],
+              children: [new MockText("原始尺寸", 435, 20)],
+            }),
+          );
+        }
+        return new MockElement("div", {
+          classes: ["mermaid-code-block"],
+          top: 100,
+          height: 360,
+          children: [
+            new MockElement("div", {
+              classes: ["mermaid-body"],
+              top: 100,
+              height: 360,
+              children: [
+                new MockElement("div", {
+                  classes: ["mermaid-rendered"],
+                  inert: showSource,
+                  children: [
+                    new MockElement("div", {
+                      classes: ["mermaid-preview"],
+                      children: previewChildren,
+                    }),
+                  ],
+                }),
+                new MockElement("div", {
+                  classes: ["mermaid-source"],
+                  inert: !showSource,
+                  children: [
+                    new MockElement("pre", {
+                      classes: ["code-block-node-view"],
+                      top: 100,
+                      height: 360,
+                      children: [
+                        new MockElement("button", {
+                          classes: ["code-block-copy-button"],
+                          children: [
+                            new MockElement("span", {
+                              classes: ["visually-hidden"],
+                              children: [new MockText("复制代码", 122, 18)],
+                            }),
+                          ],
+                        }),
+                        new MockElement("code", {
+                          children: [new MockText("sequenceDiagram\n  A->>B: hi", 109, 25)],
+                        }),
+                      ],
+                    }),
+                  ],
+                }),
+              ],
+            }),
+          ],
+        });
+      };
+
+      const diagramOnly = buildMermaidBlock({ showSource: false, withSizeButton: false });
+      expect(
+        blockHandleCenter({ dom: diagramOnly as unknown as HTMLElement } as BlockTarget, null),
+      ).toBe(123);
+
+      const diagramWithSizeButton = buildMermaidBlock({ showSource: false, withSizeButton: true });
+      expect(
+        blockHandleCenter(
+          { dom: diagramWithSizeButton as unknown as HTMLElement } as BlockTarget,
+          null,
+        ),
+      ).toBe(123);
+
+      const sourceEditing = buildMermaidBlock({ showSource: true, withSizeButton: true });
+      expect(
+        blockHandleCenter({ dom: sourceEditing as unknown as HTMLElement } as BlockTarget, null),
+      ).toBe(121.5);
+    } finally {
+      (globalThis as unknown as { document: unknown }).document = originalDocument;
+      (globalThis as unknown as { NodeFilter: unknown }).NodeFilter = originalNodeFilter;
+      (globalThis as unknown as { Element: unknown }).Element = originalElement;
     }
   });
 });
