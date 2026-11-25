@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { KanbanCard, KanbanStatus, NoteSummary, Notebook } from "../../shared/types";
+import type {
+  KanbanCard,
+  KanbanPlacement,
+  KanbanStatus,
+  NoteSummary,
+  Notebook,
+} from "../../shared/types";
 import { api, ApiError } from "../api";
 import type { KanbanColumnData } from "./kanban-panel";
 
@@ -29,6 +35,7 @@ type UseWorkspaceKanbanDataOptions = {
   notebooks: Notebook[];
   notifyError: (message: string) => void;
   notifyInfo: (message: string) => void;
+  refreshNotebooks: () => Promise<unknown>;
   onTrashCard: (note: NoteSummary) => Promise<void>;
   onToggleFavoriteNote: (note: NoteSummary) => Promise<void>;
 };
@@ -38,6 +45,7 @@ export function useWorkspaceKanbanData({
   notebooks,
   notifyError,
   notifyInfo,
+  refreshNotebooks,
   onTrashCard,
   onToggleFavoriteNote,
 }: UseWorkspaceKanbanDataOptions) {
@@ -171,7 +179,7 @@ export function useWorkspaceKanbanData({
   );
 
   const handleMoveCard = useCallback(
-    async (noteId: string, targetStatus: KanbanStatus, beforeNoteId: string | null) => {
+    async (noteId: string, targetStatus: KanbanStatus, placement: KanbanPlacement) => {
       const card = Object.values(kanbanColumnsRef.current)
         .flatMap((column) => column.cards)
         .find((card) => card.noteId === noteId);
@@ -187,7 +195,7 @@ export function useWorkspaceKanbanData({
         const result = await api.updateKanbanCard(noteId, {
           status: targetStatus,
           expectedUpdatedAt: card.updatedAt,
-          beforeNoteId,
+          ...placement,
         });
         const columns = kanbanColumnsRef.current;
         if (
@@ -310,12 +318,13 @@ export function useWorkspaceKanbanData({
           kanbanStatus: status,
         });
         setKanbanRefreshToken((value) => value + 1);
+        void refreshNotebooks();
         notifyInfo("已新建笔记并加入看板");
       } catch {
         notifyError("新建卡片失败");
       }
     },
-    [notebooks, notifyError, notifyInfo],
+    [notebooks, notifyError, notifyInfo, refreshNotebooks],
   );
 
   const handleAddExistingNote = useCallback(

@@ -144,7 +144,7 @@ docker rm xiangying-notes
 docker run -d --name xiangying-notes --restart unless-stopped -p 3000:3000 --env-file .env -v xiangying-notes-data:/data ghcr.io/biaobiaobiao108/xiangyin-notes:latest
 ```
 
-schema 基线为 v1，后续结构变更通过 `server/db.ts` 中登记的连续迁移完成；空数据库会按迁移流程初始化，受支持的旧版本会逐步升级。非空但版本未标记或不受支持的数据库不会被自动接管。每步迁移都在事务中完成。版本未知、迁移失败或 schema 漂移时，服务会停止启动，原数据库不会被重建。遇到启动错误时先保留数据卷并查看日志，可用 `bun run db:check <数据库路径>` 只读检查结构。不要删除或重建 `xiangying-notes-data` 数据卷来处理迁移错误。
+schema 基线为 v1，后续结构变更通过 `server/db.ts` 中登记的连续迁移完成；空数据库会按迁移流程初始化，受支持的旧版本会逐步升级。非空但版本未标记或不受支持的数据库不会被自动接管。新库的初始化与迁移在同一个事务中完成，已有库升级会逐步提交事务。旧版在首次初始化途中留下的库，经核对结构且确认没有账号数据后可继续初始化。版本未知、迁移失败或 schema 漂移时，服务会停止启动，原数据库不会被重建。遇到启动错误时先保留数据卷并查看日志，可用 `bun run db:check <数据库路径>` 只读检查结构。不要删除或重建 `xiangying-notes-data` 数据卷来处理迁移错误。
 
 如果通过 HTTPS 反向代理从公网访问，请把 `PUBLIC_URL` 设置为实际访问的 HTTPS 根地址，并根据代理情况启用 `TRUST_PROXY=true` 和 `COOKIE_SECURE=true`。启用 `TRUST_PROXY` 时还要通过 `TRUSTED_PROXY_ADDRESSES` 配置应用实际看到的反向代理 IP（逗号分隔）；应用只信任这些代理转发的客户端 IP。反向代理应覆盖 `X-Forwarded-For` / `X-Real-IP`，并阻止公网绕过代理直连应用。仅在本机或局域网使用 HTTP 时，`COOKIE_SECURE` 保持默认的 `false`。
 
@@ -279,9 +279,9 @@ bun run start
 
 ### 数据库初始化与升级
 
-`database/schema.sql` 是 v1 schema 基线，通过 `PRAGMA user_version` 标记版本；迁移步骤登记在 `server/db.ts`。首次启动时，空数据库会按迁移流程初始化；已有数据库必须有受支持的版本号，并且结构与对应版本一致，否则服务会停止启动，不会猜测或重建数据库。以后修改 schema 或需要重建派生索引时，在 `server/db.ts` 登记从当前版本到下一版本的迁移步骤；启动时会按顺序逐步执行，每步都在事务中完成并更新版本，再核对最终结构。
+`database/schema.sql` 是 v1 schema 基线，通过 `PRAGMA user_version` 标记版本；迁移步骤登记在 `server/db.ts`。首次启动时，空数据库在一个事务中初始化并迁移到当前版本。升级已有库时，服务先检查版本号和对应的结构，再依次执行迁移。每步迁移单独提交并更新版本，最后核对结构。新增结构变更或需要重建派生索引时，在 `server/db.ts` 登记从当前版本到下一版本的迁移步骤。
 
-数据库结构变更应使用连续迁移，并递增 `CURRENT_SCHEMA_VERSION`。当前基线为 v1，当前版本为 v8，已登记 1 → 2（密码迭代次数）、2 → 3（随记）、3 → 4（移除重复链接索引）、4 → 5（随记标签覆盖索引）、5 → 6（图片附件孤立清理时间）、6 → 7（重建笔记双链关系）和 7 → 8（导入幂等记录）迁移；旧版 v17 结构已归一为 v1，不能再按旧版本号直接升级。`bun run db:migrate` 可手动触发相同的启动与迁移流程；`bun run db:check` 只读检查数据库结构、SQLite 完整性、外键一致性和搜索索引重建状态：
+数据库结构变更应使用连续迁移，并递增 `CURRENT_SCHEMA_VERSION`。当前基线为 v1，当前版本为 v10，已登记 1 → 2（密码迭代次数）、2 → 3（随记）、3 → 4（移除重复链接索引）、4 → 5（随记标签覆盖索引）、5 → 6（图片附件孤立清理时间）、6 → 7（重建笔记双链关系）、7 → 8（导入幂等记录）、8 → 9（随记短词搜索索引）和 9 → 10（随记转换回执）迁移；旧版 v17 结构已归一为 v1，不能再按旧版本号直接升级。`bun run db:migrate` 可手动触发相同的启动与迁移流程；`bun run db:check` 只读检查数据库结构、SQLite 完整性、外键一致性和搜索索引重建状态：
 
 ```bash
 bun run db:check

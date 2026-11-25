@@ -268,6 +268,6 @@ export async function handleImportRoute(ctx: RouteContext): Promise<Response | n
     throw error;
   }
   if (response.status === 201)
-    publishWorkspaceChange(options, user.id, { resource: "notes" }, request);
+    publishWorkspaceChange(options, user.id, { resource: "notebooks" }, request);
   return response;
 }

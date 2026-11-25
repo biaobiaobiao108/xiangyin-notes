@@ -11,6 +11,7 @@ import type {
   KanbanCard,
   KanbanCardsResponse,
   KanbanStatus,
+  KanbanPlacement,
   Memo,
   MemoFacets,
 } from "../shared/types";
@@ -316,11 +317,7 @@ export const api = {
     }),
   updateKanbanCard: (
     noteId: string,
-    payload: {
-      status: KanbanStatus;
-      expectedUpdatedAt: number;
-      beforeNoteId: string | null;
-    },
+    payload: KanbanPlacement & { status: KanbanStatus; expectedUpdatedAt: number },
   ) =>
     request<{ card: KanbanCard; reordered?: boolean }>(`/api/kanban/cards/${noteId}`, {
       method: "PATCH",

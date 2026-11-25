@@ -100,6 +100,60 @@ test("export retains attachments deleted while its stream is active", async () =
   }
 });
 
+test("omits missing orphan files but reports missing files referenced by saved Markdown", async () => {
+  const root = await mkdtemp(join(tmpdir(), "xiangyin-export-missing-"));
+  const database = await openDatabase(join(root, "library.sqlite"));
+  try {
+    const user = await ensureEnvironmentUser(database, {
+      username: "owner",
+      password: "test-password",
+    });
+    const inbox = database
+      .query<{ id: string }, [string]>(
+        "SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1",
+      )
+      .get(user.id)!;
+    const id = crypto.randomUUID();
+    database
+      .query(
+        "INSERT INTO image_assets (id,user_id,storage_path,original_name,mime_type,byte_size,width,height,created_at) VALUES (?,?,?,'pending.png','image/png',11,1,1,1)",
+      )
+      .run(id, user.id, `${user.id}/${id}.png`);
+    const exportLibrary = (method: "GET" | "HEAD") => {
+      const request = new Request("http://localhost/api/export/library", { method });
+      return handleExportRoute(
+        {
+          request,
+          url: new URL(request.url),
+          method,
+          segments: ["export", "library"],
+          options: { database, assetRoot: root },
+        },
+        user,
+      );
+    };
+
+    expect((await exportLibrary("HEAD"))?.status).toBe(200);
+    const exported = (await exportLibrary("GET"))!;
+    expect(exported.status).toBe(200);
+    const entries = readZipEntries(new Uint8Array(await exported.arrayBuffer()));
+    const metadata = JSON.parse(new TextDecoder().decode(entries.get("metadata.json")));
+    expect(metadata.assets).toEqual([]);
+
+    const noteId = createNote(database, user.id, inbox.id, "附件", "");
+    database
+      .query("UPDATE notes SET content_markdown = ? WHERE id = ?")
+      .run(`![图片](/api/assets/${id})`, noteId);
+    expect((await exportLibrary("HEAD"))?.status).toBe(500);
+    const rejected = (await exportLibrary("GET"))!;
+    expect(rejected.status).toBe(500);
+    expect((await rejected.json()).error.code).toBe("EXPORT_ASSET_UNAVAILABLE");
+  } finally {
+    database.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("library export includes owned notes, trash, memos, attachments and metadata", async () => {
   const root = await mkdtemp(join(tmpdir(), "xiangyin-export-test-"));
   const database = await openDatabase(join(root, "library.sqlite"));
@@ -259,8 +313,11 @@ test("library export includes owned notes, trash, memos, attachments and metadat
     };
     expect(afterCancel.checkpointed).toBe(afterCancel.log);
     await rm(join(root, storagePath));
-    const failure = await handleExportRoute({ ...ctx, method: "HEAD" }, user);
-    expect(failure?.status).toBe(500);
+    const headAfterRemovingUnreferencedFile = await handleExportRoute(
+      { ...ctx, method: "HEAD" },
+      user,
+    );
+    expect(headAfterRemovingUnreferencedFile?.status).toBe(200);
     const badUrl = new URL("http://localhost/api/export/library?timeZone=invalid");
     const badTimeZone = await handleExportRoute({ ...ctx, url: badUrl }, user);
     expect(badTimeZone?.status).toBe(400);

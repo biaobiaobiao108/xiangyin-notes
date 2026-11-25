@@ -16,6 +16,7 @@ import {
   CURRENT_SCHEMA_VERSION,
   MIN_SUPPORTED_SCHEMA_VERSION,
   SEARCH_INDEX_REBUILD_KEY,
+  canResumeEmptyInitialization,
   createExpectedSchemaDatabase,
   databasePathFromEnv,
   openDatabase,
@@ -73,7 +74,8 @@ const existingVersion = Number(
 );
 const versionUnsupported =
   !Number.isInteger(existingVersion) ||
-  existingVersion < MIN_SUPPORTED_SCHEMA_VERSION ||
+  (existingVersion < MIN_SUPPORTED_SCHEMA_VERSION &&
+    !canResumeEmptyInitialization(existing, existingVersion)) ||
   existingVersion > CURRENT_SCHEMA_VERSION;
 const target = versionUnsupported
   ? await openDatabase(":memory:")

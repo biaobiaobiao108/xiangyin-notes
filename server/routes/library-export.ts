@@ -5,6 +5,7 @@ import { createZipReadableStream, type ZipStreamEntry } from "../../shared/zip";
 import {
   all,
   jsonError,
+  noteAssetIds,
   rewriteMarkdownAssetDestinations,
   type RouteContext,
   type UserRow,
@@ -203,8 +204,9 @@ export async function handleLibraryExport(ctx: RouteContext, user: UserRow): Pro
       );
     const assetNames = new Map<string, string>();
     const files: Array<{ name: string; path: string; size: number }> = [];
-    try {
-      for (const asset of snapshot.assets) {
+    const unavailableAssets = new Map<string, unknown>();
+    for (const asset of snapshot.assets) {
+      try {
         const path = assetFilePath(root, asset.storage_path);
         if (!path) throw new Error("Invalid attachment path");
         const info = await stat(path);
@@ -215,14 +217,35 @@ export async function handleLibraryExport(ctx: RouteContext, user: UserRow): Pro
         const name = `${asset.id}${extension}`;
         assetNames.set(asset.id.toLowerCase(), name);
         files.push({ name, path, size: info.size });
+      } catch (error) {
+        unavailableAssets.set(asset.id.toLowerCase(), error);
       }
-    } catch (error) {
-      console.error("[export] 无法读取附件，已取消整库导出", error);
-      return jsonError(
-        500,
-        "EXPORT_ASSET_UNAVAILABLE",
-        "附件不可读取，无法完成整库导出，请检查服务端日志",
-      );
+    }
+    if (unavailableAssets.size > 0) {
+      // An unfinished or orphaned upload should only block export if saved Markdown uses it.
+      const rows = stageContent
+        ? database
+            .query<{ content_markdown: string }, []>(
+              "SELECT content_markdown FROM temp.export_notes UNION ALL SELECT content_markdown FROM temp.export_memos",
+            )
+            .iterate()
+        : ctx.method === "HEAD"
+          ? database
+              .query<{ content_markdown: string }, [string, string]>(
+                "SELECT content_markdown FROM notes WHERE user_id = ? UNION ALL SELECT content_markdown FROM memos WHERE user_id = ?",
+              )
+              .iterate(user.id, user.id)
+          : [...snapshot.notes, ...snapshot.memos];
+      for (const { content_markdown: markdown } of rows) {
+        const referenced = noteAssetIds(markdown).find((id) => unavailableAssets.has(id));
+        if (!referenced) continue;
+        console.error("[export] 无法读取附件，已取消整库导出", unavailableAssets.get(referenced));
+        return jsonError(
+          500,
+          "EXPORT_ASSET_UNAVAILABLE",
+          "附件不可读取，无法完成整库导出，请检查服务端日志",
+        );
+      }
     }
     const folders = notebookFolders(snapshot.notebooks);
     const notes = snapshot.notes;
@@ -258,10 +281,10 @@ export async function handleLibraryExport(ctx: RouteContext, user: UserRow): Pro
         kanban: snapshot.kanban,
         notes: noteEntries,
         memos: memoMetadata,
-        assets: snapshot.assets.map(({ storage_path: _storagePath, ...asset }) => ({
-          ...asset,
-          file: `附件/${assetNames.get(asset.id.toLowerCase())}`,
-        })),
+        assets: snapshot.assets.flatMap(({ storage_path: _storagePath, ...asset }) => {
+          const name = assetNames.get(asset.id.toLowerCase());
+          return name ? [{ ...asset, file: `附件/${name}` }] : [];
+        }),
       },
       null,
       2,

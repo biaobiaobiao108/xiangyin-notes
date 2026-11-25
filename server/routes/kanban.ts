@@ -172,7 +172,12 @@ function moveKanbanCard(
   userId: string,
   noteId: string,
   expectedUpdatedAt: number,
-  placement: { status?: KanbanStatus; sortOrder?: number; beforeNoteId?: string | null },
+  placement: {
+    status?: KanbanStatus;
+    sortOrder?: number;
+    beforeNoteId?: string | null;
+    afterNoteId?: string;
+  },
 ) {
   return database
     .transaction(() => {
@@ -181,7 +186,7 @@ function moveKanbanCard(
         return jsonError(409, "KANBAN_CARD_CHANGED", "看板卡片已变化，请刷新后重试");
 
       const status = placement.status ?? card.status;
-      const { beforeNoteId } = placement;
+      const { beforeNoteId, afterNoteId } = placement;
       const updatePosition = (sortOrder: number) => {
         database
           .query(
@@ -190,7 +195,8 @@ function moveKanbanCard(
           .run(status, sortOrder, Math.max(now(), expectedUpdatedAt + 1), noteId, userId);
         return json({ card: getKanbanCard(database, userId, noteId) });
       };
-      if (beforeNoteId === undefined) return updatePosition(placement.sortOrder ?? card.sortOrder);
+      if (beforeNoteId === undefined && afterNoteId === undefined)
+        return updatePosition(placement.sortOrder ?? card.sortOrder);
 
       const column = `
       SELECT k.note_id, k.sort_order, k.updated_at
@@ -199,24 +205,31 @@ function moveKanbanCard(
       WHERE k.user_id = ? AND k.status = ? AND k.note_id != ? AND n.deleted_at IS NULL
     `;
       const params = [userId, status, noteId];
-      const anchor =
-        beforeNoteId === null
-          ? null
-          : first<OrderedCard>(database, `${column} AND k.note_id = ?`, ...params, beforeNoteId);
-      if (beforeNoteId !== null && !anchor)
+      const referenceId = afterNoteId ?? beforeNoteId;
+      const reference = referenceId
+        ? first<OrderedCard>(database, `${column} AND k.note_id = ?`, ...params, referenceId)
+        : null;
+      if (referenceId && !reference)
         return jsonError(409, "KANBAN_POSITION_CHANGED", "参照卡片不在目标列，请刷新后重试");
 
-      const reverseOrder = "ORDER BY k.sort_order DESC, k.updated_at ASC, k.note_id DESC LIMIT 1";
-      const previous = anchor
-        ? first<OrderedCard>(
-            database,
-            `${column} AND (k.sort_order, -k.updated_at, k.note_id) < (?, ?, ?) ${reverseOrder}`,
-            ...params,
-            anchor.sort_order,
-            -anchor.updated_at,
-            anchor.note_id,
-          )
-        : first<OrderedCard>(database, `${column} ${reverseOrder}`, ...params);
+      const forwardOrder = "ORDER BY k.sort_order ASC, k.updated_at DESC, k.note_id ASC";
+      const reverseOrder = "ORDER BY k.sort_order DESC, k.updated_at ASC, k.note_id DESC";
+      const neighbor = (card: OrderedCard, forward: boolean) =>
+        first<OrderedCard>(
+          database,
+          `${column} AND (k.sort_order, -k.updated_at, k.note_id) ${forward ? ">" : "<"} (?, ?, ?)
+           ${forward ? forwardOrder : reverseOrder} LIMIT 1`,
+          ...params,
+          card.sort_order,
+          -card.updated_at,
+          card.note_id,
+        );
+      const anchor = reference && afterNoteId ? neighbor(reference, true) : reference;
+      const previous = reference
+        ? afterNoteId
+          ? reference
+          : neighbor(reference, false)
+        : first<OrderedCard>(database, `${column} ${reverseOrder} LIMIT 1`, ...params);
       const sortOrder = anchor
         ? previous
           ? previous.sort_order / 2 + anchor.sort_order / 2
@@ -229,11 +242,7 @@ function moveKanbanCard(
       )
         return updatePosition(sortOrder);
 
-      const cards = all<OrderedCard>(
-        database,
-        `${column} ORDER BY k.sort_order ASC, k.updated_at DESC, k.note_id ASC`,
-        ...params,
-      );
+      const cards = all<OrderedCard>(database, `${column} ${forwardOrder}`, ...params);
       const index = anchor
         ? cards.findIndex((entry) => entry.note_id === anchor.note_id)
         : cards.length;
@@ -449,6 +458,7 @@ export async function handleKanbanRoute(
       sortOrder?: number;
       expectedUpdatedAt?: unknown;
       beforeNoteId?: unknown;
+      afterNoteId?: unknown;
     }>(request, 64 * 1024);
 
     const expected = body?.expectedUpdatedAt;
@@ -462,7 +472,18 @@ export async function handleKanbanRoute(
     const beforeNoteId = body?.beforeNoteId;
     if (beforeNoteId !== undefined && beforeNoteId !== null && typeof beforeNoteId !== "string")
       return jsonError(400, "INVALID_ARGUMENT", "排序位置无效");
-    if (beforeNoteId === noteId || beforeNoteId === "")
+    const afterNoteId = body?.afterNoteId;
+    if (
+      afterNoteId !== undefined &&
+      (typeof afterNoteId !== "string" || beforeNoteId !== undefined)
+    )
+      return jsonError(400, "INVALID_ARGUMENT", "排序位置无效");
+    if (
+      beforeNoteId === noteId ||
+      beforeNoteId === "" ||
+      afterNoteId === noteId ||
+      afterNoteId === ""
+    )
       return jsonError(400, "INVALID_ARGUMENT", "请指定另一张卡片作为排序参照");
     const sortOrder = body?.sortOrder;
     if (sortOrder !== undefined && (typeof sortOrder !== "number" || !Number.isFinite(sortOrder)))
@@ -472,6 +493,7 @@ export async function handleKanbanRoute(
       status: body?.status,
       sortOrder,
       beforeNoteId,
+      afterNoteId,
     });
     if (result.ok) publishWorkspaceChange(options, user.id, { resource: "notes", noteId }, request);
     return result;

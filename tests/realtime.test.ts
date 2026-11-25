@@ -125,6 +125,7 @@ test("note updates refresh remote collections only when list membership can chan
   );
   expect(notebook.response.status).toBe(201);
   expect(created.response.status).toBe(201);
+  expect(workspaceChanges(listener).at(-1)).toMatchObject({ resource: "notebooks" });
   let note = created.body?.note;
   for (const [patch, resource, refreshOne] of [
     [{ contentMarkdown: "新正文" }, "notes", true],
@@ -422,7 +423,7 @@ describe("Realtime HTTP integration", () => {
     expect(imported.response.status).toBe(201);
     expect(workspaceChanges(socket)).toHaveLength(1);
     const importEvent = workspaceChanges(socket)[0];
-    expect(importEvent).toMatchObject({ type: "workspace.changed", resource: "notes" });
+    expect(importEvent).toMatchObject({ type: "workspace.changed", resource: "notebooks" });
     // 导入新增了笔记：事件代表成员变化，不带 noteId，客户端整表刷新。
     expect(importEvent).not.toHaveProperty("noteId");
 

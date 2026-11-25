@@ -15,7 +15,13 @@ import { moveSelectedNotes } from "./workspace/move-selected-notes";
 import { ApiError, api } from "./api";
 import { CommandId, CommandMenu } from "./command-menu";
 import { installPwa, subscribePwa, type PwaState } from "./pwa";
-import type { Note, NoteSummary, NoteView, Notebook } from "../shared/types";
+import {
+  NOTE_BATCH_LIMIT,
+  type Note,
+  type NoteSummary,
+  type NoteView,
+  type Notebook,
+} from "../shared/types";
 import { useOutlineState } from "./workspace/use-outline-state";
 import { ConfirmDialog, NotebookDialog, type ConfirmRequest } from "./workspace/dialogs";
 import { SplitResizer, DEFAULT_SPLIT_RATIO } from "./workspace/split-resizer";
@@ -122,6 +128,11 @@ export function Workspace() {
   const [totalNotes, setTotalNotes] = useState(0);
   const [hasMoreNotes, setHasMoreNotes] = useState(false);
   const [notesReloadToken, setNotesReloadToken] = useState(0);
+  const searchActiveRef = useRef(false);
+  searchActiveRef.current = Boolean(deferredQuery.trim());
+  const handleSearchableFieldsSaved = useCallback(() => {
+    if (searchActiveRef.current) setNotesReloadToken((value) => value + 1);
+  }, []);
   const [listTransitionToken, setListTransitionToken] = useState(0);
 
   useEffect(() => {
@@ -401,6 +412,7 @@ export function Workspace() {
     splitNoteIdRef,
     setSplitSelectedNote: setSplitSelectedNoteMetadata,
     setSplitSaveState,
+    onSearchableFieldsSaved: handleSearchableFieldsSaved,
     onRewrittenContent: handleRewrittenContent,
     onLinkedNotesRewritten: handleLinkedNotesRewritten,
   });
@@ -1061,6 +1073,7 @@ export function Workspace() {
     notifyError,
     notifyInfo,
     onTrashCard: trashNote,
+    refreshNotebooks,
     onToggleFavoriteNote: handleToggleFavoriteNote,
   });
 
@@ -1520,6 +1533,14 @@ export function Workspace() {
       }),
     [deleteNotebook, requestConfirm],
   );
+  const handleToggleNoteSelection = useCallback<typeof toggleNoteSelection>(
+    (...args) => {
+      if (toggleNoteSelection(...args)) return true;
+      notifyError(`一次最多选择 ${NOTE_BATCH_LIMIT} 篇笔记`);
+      return false;
+    },
+    [notifyError, toggleNoteSelection],
+  );
   const { handleSelectListNote, handleOpenCardNote, handleToggleCardSelection } =
     useWorkspaceNoteInteractions({
       isMobileViewport,
@@ -1527,7 +1548,7 @@ export function Workspace() {
       locateSearchResult,
       notesRef,
       noteSelectionRef,
-      toggleNoteSelection,
+      toggleNoteSelection: handleToggleNoteSelection,
       splitNoteId,
       activePane,
       selectedId,

@@ -304,6 +304,8 @@ export async function handleNotebooksRoute(
     const payload = request.body
       ? await readJson<{ expectedNoteCount?: unknown }>(request, 64 * 1024)
       : null;
+    if (request.body && (!payload || typeof payload !== "object" || Array.isArray(payload)))
+      return jsonError(400, "INVALID_NOTEBOOK_DELETE_BODY", "删除笔记本的请求内容无效");
     const expectedNoteCount = payload?.expectedNoteCount;
     if (
       expectedNoteCount !== undefined &&

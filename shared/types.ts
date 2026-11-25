@@ -29,6 +29,8 @@ export type Notebook = {
   updatedAt: number;
 };
 
+export const NOTE_BATCH_LIMIT = 10_000;
+
 export type NoteSummary = {
   id: string;
   title: string;
@@ -126,6 +128,10 @@ export type NoteBacklinksResponse = {
 };
 
 export type KanbanStatus = "inbox" | "doing" | "done";
+
+export type KanbanPlacement =
+  | { beforeNoteId: string | null; afterNoteId?: never }
+  | { beforeNoteId?: never; afterNoteId: string };
 
 export type KanbanCard = {
   noteId: string;

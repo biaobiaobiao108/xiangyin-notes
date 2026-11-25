@@ -11,6 +11,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { createCommonEditorExtensions } from "../editor/common-extensions";
+import { ImageNode } from "../editor/image-node";
 import { editorCoreExtensionOptions } from "../editor/editor-config";
 import { useContextMenu } from "../context-menu";
 import { copyPlainText } from "../editor/code-block-copy";
@@ -80,7 +81,11 @@ export type MemoComposerProps = {
 };
 
 export function createMemoEditorExtensions(placeholder?: string) {
-  return [...createCommonEditorExtensions({ placeholder, trailingNode: false }), WikiLinkNode];
+  return [
+    ...createCommonEditorExtensions({ placeholder, trailingNode: false }),
+    WikiLinkNode,
+    ImageNode,
+  ];
 }
 
 export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(function MemoComposer(

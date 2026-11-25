@@ -330,75 +330,6 @@ function parseTimeZone(value: string | null) {
   }
 }
 
-function zonedDateParts(timestamp: number, formatter: Intl.DateTimeFormat) {
-  const parts = formatter.formatToParts(new Date(timestamp));
-  const value = (type: Intl.DateTimeFormatPartTypes) =>
-    Number(parts.find((part) => part.type === type)?.value);
-  return {
-    year: value("year"),
-    month: value("month"),
-    day: value("day"),
-    hour: value("hour"),
-    minute: value("minute"),
-    second: value("second"),
-  };
-}
-
-function zonedMidnight(
-  year: number,
-  monthIndex: number,
-  day: number,
-  formatter: Intl.DateTimeFormat,
-) {
-  const target = Date.UTC(year, monthIndex, day);
-  let guess = target;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const parts = zonedDateParts(guess, formatter);
-    const represented = Date.UTC(
-      parts.year,
-      parts.month - 1,
-      parts.day,
-      parts.hour,
-      parts.minute,
-      parts.second,
-    );
-    const next = target - (represented - Math.floor(guess / 1000) * 1000);
-    if (next === guess) break;
-    guess = next;
-  }
-  return guess;
-}
-
-function calendarDaysInRange(from: number, to: number, timeZone: string) {
-  const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23",
-  });
-  const first = zonedDateParts(from, formatter);
-  let cursor = new Date(Date.UTC(first.year, first.month - 1, first.day));
-  let start = from;
-  const days: Array<{ date: string; start: number; end: number }> = [];
-  while (start < to) {
-    const next = new Date(cursor.getTime() + 24 * 60 * 60 * 1000);
-    const end = Math.min(
-      to,
-      zonedMidnight(next.getUTCFullYear(), next.getUTCMonth(), next.getUTCDate(), formatter),
-    );
-    if (end <= start) break;
-    const date = `${cursor.getUTCFullYear()}-${String(cursor.getUTCMonth() + 1).padStart(2, "0")}-${String(cursor.getUTCDate()).padStart(2, "0")}`;
-    days.push({ date, start, end });
-    start = end;
-    cursor = next;
-  }
-  return days;
-}
-
 function memoFacets(ctx: RouteContext, user: UserRow) {
   const { url, options } = ctx;
   const from = parseTimestamp(url.searchParams.get("from"));
@@ -414,24 +345,28 @@ function memoFacets(ctx: RouteContext, user: UserRow) {
   const timeZone = parseTimeZone(url.searchParams.get("timeZone"));
   if (!timeZone) return jsonError(400, "INVALID_TIME_ZONE", "timeZone 必须是有效的 IANA 时区");
 
-  const daysInRange = calendarDaysInRange(from, to, timeZone);
-  const filter = buildMemoFilter(user.id, query, tag);
-  const dayValues = daysInRange.map(() => "(?, ?, ?)").join(", ");
-  const rows = all<{ date: string; count: number }>(
-    options.database,
-    `
-      WITH days(date, start_at, end_at) AS (VALUES ${dayValues})
-      SELECT days.date AS date, COUNT(m.id) AS count
-      FROM days
-      JOIN memos m ON m.created_at >= days.start_at AND m.created_at < days.end_at
-      WHERE ${filter.where.join(" AND ")}
-      GROUP BY days.date
-      ORDER BY days.date
-    `,
-    ...daysInRange.flatMap((day) => [day.date, day.start, day.end]),
-    ...filter.params,
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const filter = buildMemoFilter(user.id, query, tag, from, to);
+  const timestamps = options.database.query<{ created_at: number }, SqlValue[]>(
+    `SELECT m.created_at FROM memos m WHERE ${filter.where.join(" AND ")}`,
   );
-  const days: MemoDayCount[] = rows.map((row) => ({ date: row.date, count: Number(row.count) }));
+  const counts = new Map<string, number>();
+  for (const { created_at } of timestamps.iterate(...filter.params)) {
+    const parts = formatter.formatToParts(created_at);
+    const year = parts.find((part) => part.type === "year")!.value;
+    const month = parts.find((part) => part.type === "month")!.value;
+    const day = parts.find((part) => part.type === "day")!.value;
+    const date = `${year}-${month}-${day}`;
+    counts.set(date, (counts.get(date) ?? 0) + 1);
+  }
+  const days: MemoDayCount[] = Array.from(counts, ([date, count]) => ({ date, count })).sort(
+    (left, right) => left.date.length - right.date.length || left.date.localeCompare(right.date),
+  );
   const tagRows = all<{ tag: string; count: number }>(
     options.database,
     `
@@ -462,6 +397,9 @@ function createMemo(
           "INSERT INTO memos (id, user_id, content_markdown, search_text, version, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?)",
         )
         .run(memoId, userId, contentMarkdown, searchText, createdAt, createdAt);
+      database
+        .query("DELETE FROM memo_conversions WHERE user_id = ? AND memo_id = ?")
+        .run(userId, memoId);
       syncMemoTags(database, userId, memoId, contentMarkdown);
       syncMemoShortSearchTerms(database, userId, memoId, searchText);
     })
@@ -650,7 +588,18 @@ export function handleMemosRoute(
       const copiedPaths: string[] = [];
       const convert = database.transaction(() => {
         const current = getMemo(database, user.id, memoId);
-        if (!current) return { kind: "missing" as const };
+        if (!current) {
+          const previous = first<{ note_id: string }>(
+            database,
+            "SELECT note_id FROM memo_conversions WHERE user_id = ? AND memo_id = ? AND memo_version = ?",
+            user.id,
+            memoId,
+            payload.version as number,
+          );
+          return previous
+            ? { kind: "replayed" as const, noteId: previous.note_id }
+            : { kind: "missing" as const };
+        }
         if (current.version !== payload.version) return { kind: "conflict" as const, current };
         const inbox = first<{ id: string }>(
           database,
@@ -696,6 +645,11 @@ export function handleMemosRoute(
           .query("DELETE FROM memos WHERE id = ? AND user_id = ? AND version = ?")
           .run(memoId, user.id, current.version);
         if (!deleted.changes) throw new Error("memo-conversion-delete-failed");
+        database
+          .query(
+            "INSERT INTO memo_conversions (user_id, memo_id, memo_version, note_id) VALUES (?, ?, ?, ?)",
+          )
+          .run(user.id, memoId, current.version, noteId);
         return { kind: "converted" as const, noteId };
       });
       let result: ReturnType<typeof convert.immediate>;
@@ -722,8 +676,9 @@ export function handleMemosRoute(
       if (result.kind === "no_inbox") return jsonError(400, "NO_NOTEBOOK", "没有可用的收件箱");
       const note = getNote(database, user.id, result.noteId);
       if (!note) throw new Error("memo-conversion-note-missing");
+      if (result.kind === "replayed") return json({ note: toFullNote(note) });
       publishWorkspaceChange(ctx.options, user.id, { resource: "memos" }, ctx.request);
-      publishWorkspaceChange(ctx.options, user.id, { resource: "notes" }, ctx.request);
+      publishWorkspaceChange(ctx.options, user.id, { resource: "notebooks" }, ctx.request);
       return json({ note: toFullNote(note) }, 201);
     })();
   }

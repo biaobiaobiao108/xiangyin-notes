@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { NOTE_BATCH_LIMIT } from "../../shared/types";
 import {
   applyNoteSelectionClick,
   noteSelectionAnchor,
@@ -31,9 +32,13 @@ export function useNoteSelection(listScope: string) {
       id: string,
       modifiers: Pick<NoteSelectionClick, "metaKey" | "ctrlKey" | "shiftKey">,
     ) => {
-      updateNoteSelection(
-        applyNoteSelectionClick(noteSelectionRef.current, orderedIds, { id, ...modifiers }),
-      );
+      const next = applyNoteSelectionClick(noteSelectionRef.current, orderedIds, {
+        id,
+        ...modifiers,
+      });
+      if (next.ids.size > NOTE_BATCH_LIMIT) return false;
+      updateNoteSelection(next);
+      return true;
     },
     [updateNoteSelection],
   );

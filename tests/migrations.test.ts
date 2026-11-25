@@ -14,14 +14,62 @@ import {
   type SchemaMigration,
 } from "../server/db";
 
-test("rejects existing databases below the supported schema version", async () => {
+test("rejects populated databases below the supported schema version", async () => {
   const database = await createExpectedSchemaDatabase(MIN_SUPPORTED_SCHEMA_VERSION - 1);
   try {
+    database
+      .query(
+        "INSERT INTO users (id, username, password_hash, password_salt, created_at) VALUES ('owner', 'owner', 'hash', 'salt', 1)",
+      )
+      .run();
     await expect(initializeDatabase(database)).rejects.toThrow(
       `schema version ${MIN_SUPPORTED_SCHEMA_VERSION - 1} is unsupported`,
     );
     expect(database.query("PRAGMA user_version").get()).toEqual({
       user_version: MIN_SUPPORTED_SCHEMA_VERSION - 1,
+    });
+  } finally {
+    database.close();
+  }
+});
+
+test("resumes an interrupted initialization from an older empty schema", async () => {
+  const database = await createExpectedSchemaDatabase(1);
+  try {
+    await initializeDatabase(database);
+    expect(database.query("PRAGMA user_version").get()).toEqual({
+      user_version: CURRENT_SCHEMA_VERSION,
+    });
+  } finally {
+    database.close();
+  }
+});
+
+test("rolls back the baseline and completed steps when a fresh initialization fails", async () => {
+  const database = new Database(":memory:");
+  const migrations: SchemaMigration[] = [
+    {
+      sourceVersion: 1,
+      targetVersion: 2,
+      migrate: (db) => db.exec("CREATE TABLE first_step(id INTEGER)"),
+    },
+    {
+      sourceVersion: 2,
+      targetVersion: 3,
+      migrate: () => {
+        throw new Error("interrupted");
+      },
+    },
+  ];
+  try {
+    await expect(
+      initializeDatabase(database, { migrations, currentSchemaVersion: 3 }),
+    ).rejects.toThrow("interrupted");
+    expect(database.query("PRAGMA user_version").get()).toEqual({ user_version: 0 });
+    expect(database.query("SELECT name FROM sqlite_schema").all()).toEqual([]);
+    await initializeDatabase(database);
+    expect(database.query("PRAGMA user_version").get()).toEqual({
+      user_version: CURRENT_SCHEMA_VERSION,
     });
   } finally {
     database.close();

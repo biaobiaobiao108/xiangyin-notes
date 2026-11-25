@@ -47,6 +47,7 @@ export type UseNoteSaveQueueOptions = {
   splitNoteIdRef?: React.MutableRefObject<string | null>;
   setSplitSelectedNote?: (note: Note | null) => void;
   setSplitSaveState?: (state: SaveState) => void;
+  onSearchableFieldsSaved?: () => void;
   onRewrittenContent?: (noteId: string) => void;
   onLinkedNotesRewritten?: (noteId: string) => void;
 };
@@ -67,6 +68,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
     splitNoteIdRef,
     setSplitSelectedNote,
     setSplitSaveState,
+    onSearchableFieldsSaved,
     onRewrittenContent,
     onLinkedNotesRewritten,
   } = options;
@@ -130,6 +132,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
 
       const task = (async () => {
         let savedVersion: number | undefined;
+        let searchableFieldsSaved = false;
         let attempt: SaveAttempt | undefined;
         try {
           while (pendingSavesRef.current.has(noteId)) {
@@ -189,6 +192,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
                 ? result.note
                 : { ...result.note, contentMarkdown: draft.contentMarkdown };
             savedVersion = savedNote.version;
+            searchableFieldsSaved ||= fields.has("title") || fields.has("contentMarkdown");
             const savedSummary = toNoteSummary(savedNote);
 
             const latest = pendingSavesRef.current.get(noteId);
@@ -261,6 +265,8 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
           }
           recordSaveFailure(noteId, latestFailure);
           throw latestFailure;
+        } finally {
+          if (searchableFieldsSaved) onSearchableFieldsSaved?.();
         }
       })();
 
@@ -283,6 +289,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
       setSplitSelectedNote,
       setSplitSaveState,
       flushEditorDraftRef,
+      onSearchableFieldsSaved,
       onRewrittenContent,
       onLinkedNotesRewritten,
     ],

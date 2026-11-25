@@ -167,7 +167,10 @@ describe("Memo API", () => {
       (await request(`/api/notes?view=all&query=${encodeURIComponent("转换正文")}`, {}, cookie))
         .body?.notes,
     ).toHaveLength(1);
-    expect((await convert(1)).response.status).toBe(404);
+    const replay = await convert(1);
+    expect(replay.response.status).toBe(200);
+    expect(replay.body?.note?.id).toBe(result.body?.note?.id);
+    expect((await convert(2)).response.status).toBe(404);
     expect(
       (await request(`/api/notes?view=all&query=${encodeURIComponent("转换正文")}`, {}, cookie))
         .body?.notes,
@@ -422,6 +425,23 @@ describe("Memo API", () => {
       { date: "2026-03-07", count: 2 },
       { date: "2026-03-08", count: 1 },
       { date: "2026-03-09", count: 1 },
+    ]);
+  });
+
+  test("does not count the previous day when a time zone skips midnight", async () => {
+    const cookie = await login();
+    for (const instant of ["2024-03-30T21:30:00Z", "2024-03-30T22:30:00Z"])
+      expect((await createMemo(cookie, "dst", Date.parse(instant))).response.status).toBe(201);
+    const params = new URLSearchParams({
+      from: String(Date.parse("2024-03-30T00:00:00Z")),
+      to: String(Date.parse("2024-04-01T00:00:00Z")),
+      timeZone: "Asia/Beirut",
+    });
+    const facets = await request(`/api/memos/facets?${params}`, {}, cookie);
+    expect(facets.response.status).toBe(200);
+    expect(facets.body?.days).toEqual([
+      { date: "2024-03-30", count: 1 },
+      { date: "2024-03-31", count: 1 },
     ]);
   });
 

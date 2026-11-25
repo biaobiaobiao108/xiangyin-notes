@@ -10,7 +10,13 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import type { KanbanStatus, NoteSummary, NoteView, Notebook } from "../../shared/types";
+import type {
+  KanbanPlacement,
+  KanbanStatus,
+  NoteSummary,
+  NoteView,
+  Notebook,
+} from "../../shared/types";
 import type { CreateNoteCommand } from "../command-parser";
 import { textFieldMenuItems, type ContextMenuItem } from "../context-menu";
 import type { KanbanColumnData } from "./kanban-panel";
@@ -34,7 +40,7 @@ type WorkspaceContextMenuOptions = {
   handleMoveKanbanCard: (
     noteId: string,
     status: KanbanStatus,
-    beforeNoteId: string | null,
+    placement: KanbanPlacement,
   ) => void | Promise<void>;
   handleRemoveKanbanCard: (noteId: string) => void;
   handleTrashKanbanCard: (noteId: string) => void;
@@ -168,7 +174,9 @@ export function createWorkspaceContextMenuHandler({
               icon: column.icon,
               onSelect: () => {
                 const cards = kanbanColumnsRef.current[column.id].cards;
-                void handleMoveKanbanCard(kanbanCard.noteId, column.id, cards[0]?.noteId ?? null);
+                void handleMoveKanbanCard(kanbanCard.noteId, column.id, {
+                  beforeNoteId: cards[0]?.noteId ?? null,
+                });
               },
             })),
           {

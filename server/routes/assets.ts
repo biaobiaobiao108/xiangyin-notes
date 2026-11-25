@@ -98,9 +98,9 @@ export function assetPathsForNotes(database: SqliteDatabase, userId: string, not
   if (!noteIds.length) return [] as string[];
   return all<{ storage_path: string }>(
     database,
-    `SELECT storage_path FROM image_assets WHERE user_id = ? AND note_id IN (${noteIds.map(() => "?").join(",")})`,
+    "SELECT storage_path FROM image_assets WHERE user_id = ? AND note_id IN (SELECT value FROM json_each(?))",
     userId,
-    ...noteIds,
+    JSON.stringify(noteIds),
   ).map((asset) => asset.storage_path);
 }
 
@@ -395,9 +395,9 @@ export async function uploadImageAsset(
   if (!filePath) return jsonError(500, "ASSET_STORAGE_ERROR", "图片存储路径无效");
   await mkdir(dirname(filePath), { recursive: true });
   const temporaryPath = `${filePath}.uploading-${crypto.randomUUID()}`;
-  let databaseRowInserted = false;
   try {
     await Bun.write(temporaryPath, bytes);
+    await rename(temporaryPath, filePath);
     database
       .query(
         "INSERT INTO image_assets (id, user_id, storage_path, original_name, mime_type, byte_size, width, height, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -413,8 +413,6 @@ export async function uploadImageAsset(
         inspection.height,
         now(),
       );
-    databaseRowInserted = true;
-    await rename(temporaryPath, filePath);
   } catch (error) {
     await Bun.file(temporaryPath)
       .unlink()
@@ -422,13 +420,6 @@ export async function uploadImageAsset(
     await Bun.file(filePath)
       .unlink()
       .catch(() => undefined);
-    if (databaseRowInserted) {
-      try {
-        database.query("DELETE FROM image_assets WHERE id = ? AND user_id = ?").run(id, user.id);
-      } catch (cleanupError) {
-        console.warn("[assets] failed to roll back an interrupted upload record", id, cleanupError);
-      }
-    }
     throw error;
   }
 

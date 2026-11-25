@@ -23,7 +23,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import type { KanbanCard, KanbanStatus, NoteSummary } from "../../shared/types";
+import type { KanbanCard, KanbanPlacement, KanbanStatus, NoteSummary } from "../../shared/types";
 import { playEntranceAnimation } from "../animation";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { getNoteTags, relativeDate } from "./helpers";
@@ -63,7 +63,7 @@ export type KanbanPanelProps = {
   onOpenNote: (noteId: string) => void;
   onCreateNoteInColumn: (status: KanbanStatus) => void;
   onAddExistingNote: (noteId: string, status: KanbanStatus) => void;
-  onMoveCard: (noteId: string, targetStatus: KanbanStatus, beforeNoteId: string | null) => void;
+  onMoveCard: (noteId: string, targetStatus: KanbanStatus, placement: KanbanPlacement) => void;
   onTrashCard: (noteId: string) => void;
   onLoadMoreColumn: (status: KanbanStatus) => void;
   onToggleFavorite?: (note: NoteSummary) => void;
@@ -791,7 +791,9 @@ export const KanbanPanel = memo(function KanbanPanel({
       if (!movingCard) return;
       if (targetStatus !== movingCard.status) {
         const targetCards = columns[targetStatus]?.cards ?? [];
-        onMoveCard(movingCard.noteId, targetStatus, targetCards[0]?.noteId ?? null);
+        onMoveCard(movingCard.noteId, targetStatus, {
+          beforeNoteId: targetCards[0]?.noteId ?? null,
+        });
       }
       setMovingCard(null);
       restoreMoveCardFocus();
@@ -842,12 +844,26 @@ export const KanbanPanel = memo(function KanbanPanel({
     (targetStatus: KanbanStatus, targetIndex: number) => {
       const dragged = draggingCardRef.current;
       if (!dragged) return;
-      const targetColumnCards = columns[targetStatus]?.cards ?? [];
-      const nextCard = targetColumnCards
+      const target = columns[targetStatus];
+      const nextCard = target.cards
         .slice(targetIndex)
         .find((card) => card.noteId !== dragged.noteId);
+      // The last loaded card is not necessarily the last card in the column.
+      const lastCard = target.cards.at(-1);
+      const previousCard =
+        target.hasMore && !nextCard
+          ? lastCard?.noteId === dragged.noteId
+            ? target.cards.at(-2)
+            : lastCard
+          : undefined;
       handleCardDragEnd();
-      onMoveCard(dragged.noteId, targetStatus, nextCard?.noteId ?? null);
+      onMoveCard(
+        dragged.noteId,
+        targetStatus,
+        previousCard
+          ? { afterNoteId: previousCard.noteId }
+          : { beforeNoteId: nextCard?.noteId ?? null },
+      );
     },
     [columns, handleCardDragEnd, onMoveCard],
   );

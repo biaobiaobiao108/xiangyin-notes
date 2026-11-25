@@ -89,11 +89,31 @@ describe("Kanban API", () => {
     ]);
 
     const { card } = await response.json();
+    const firstPage = await api("/api/kanban?status=doing&limit=2", {}, cookie);
+    const page = await firstPage.json();
+    expect(page.hasMore).toBe(true);
+    expect(page.cards.map((item: { noteId: string }) => item.noteId)).toEqual([
+      moved.noteId,
+      anchor.noteId,
+    ]);
+    const afterAnchor = await patchCard(moved.noteId, {
+      status: "doing",
+      afterNoteId: anchor.noteId,
+      expectedUpdatedAt: card.updatedAt,
+    });
+    expect(afterAnchor.status).toBe(200);
+    const allCards = await api("/api/kanban?status=doing", {}, cookie);
+    expect((await allCards.json()).cards.map((item: { noteId: string }) => item.noteId)).toEqual([
+      anchor.noteId,
+      moved.noteId,
+      first.noteId,
+    ]);
+
     const missingAnchor = await patchCard(moved.noteId, {
       status: "inbox",
       sortOrder: 1,
       beforeNoteId: anchor.noteId,
-      expectedUpdatedAt: card.updatedAt,
+      expectedUpdatedAt: (await afterAnchor.json()).card.updatedAt,
     });
     expect(missingAnchor.status).toBe(409);
     expect((await missingAnchor.json()).error.code).toBe("KANBAN_POSITION_CHANGED");

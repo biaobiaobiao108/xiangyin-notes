@@ -13,7 +13,7 @@ const DEFAULT_SCHEMA_PATH = "./database/schema.sql";
 const BASELINE_SCHEMA_VERSION = 1;
 
 export const MIN_SUPPORTED_SCHEMA_VERSION = 8;
-export const CURRENT_SCHEMA_VERSION = 9;
+export const CURRENT_SCHEMA_VERSION = 10;
 export const SEARCH_INDEX_REBUILD_KEY = "search-index-rebuild-required";
 
 type TableCountRow = {
@@ -190,6 +190,20 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `);
       rebuildMemoShortSearchIndex(database);
     },
+  },
+  {
+    sourceVersion: 9,
+    targetVersion: 10,
+    migrate: (database) =>
+      database.exec(`
+        CREATE TABLE memo_conversions (
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          memo_id TEXT NOT NULL,
+          memo_version INTEGER NOT NULL,
+          note_id TEXT NOT NULL UNIQUE REFERENCES notes(id) ON DELETE CASCADE,
+          PRIMARY KEY(user_id, memo_id, memo_version)
+        ) WITHOUT ROWID;
+      `),
   },
 ];
 
@@ -394,6 +408,20 @@ export async function createExpectedSchemaDatabase(
   );
 }
 
+// Older builds could commit part of a fresh initialization before the first user existed.
+export function canResumeEmptyInitialization(database: SqliteDatabase, version: number) {
+  return (
+    Number.isInteger(version) &&
+    version >= BASELINE_SCHEMA_VERSION &&
+    version < MIN_SUPPORTED_SCHEMA_VERSION &&
+    Boolean(
+      database.query("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'users'").get(),
+    ) &&
+    !database.query("SELECT 1 FROM users LIMIT 1").get() &&
+    !database.query("PRAGMA foreign_key_check").get()
+  );
+}
+
 export async function initializeDatabase(
   database: SqliteDatabase,
   options: DatabaseInitializationOptions = {},
@@ -414,7 +442,11 @@ export async function initializeDatabase(
   let version = readSchemaVersion(database);
   if (version > currentSchemaVersion)
     throw schemaVersionError(version, currentSchemaVersion, minimumSchemaVersion);
-  if (version !== 0 && version < minimumSchemaVersion)
+  if (
+    version !== 0 &&
+    version < minimumSchemaVersion &&
+    !canResumeEmptyInitialization(database, version)
+  )
     throw schemaVersionError(version, currentSchemaVersion, minimumSchemaVersion);
 
   if (isEmptyDatabase(database) && version === 0) {
@@ -435,6 +467,8 @@ export async function initializeDatabase(
           );
         database.exec(schemaSql);
         assertSchemaMatches(database, expectedBaseline, BASELINE_SCHEMA_VERSION);
+        // A fresh database must never be left at an intermediate, unsupported version.
+        applyMigrations(database, migrations, currentSchemaVersion);
       });
       initialize.immediate();
       version = readSchemaVersion(database);

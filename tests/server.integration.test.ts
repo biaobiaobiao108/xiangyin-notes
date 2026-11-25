@@ -1431,11 +1431,18 @@ describe("Bun Server API", () => {
     expect(response.response.status).toBe(200);
     await expectStable(7);
 
-    response = await request(
-      `/api/notebooks/${targetNotebook.body?.notebook.id}`,
-      { method: "DELETE" },
-      login.cookie,
-    );
+    const notebookPath = `/api/notebooks/${targetNotebook.body?.notebook.id}`;
+    for (const body of ["{", "null", "[]"]) {
+      const invalidDelete = await request(notebookPath, { method: "DELETE", body }, login.cookie);
+      expect(invalidDelete.response.status).toBe(400);
+      expect(invalidDelete.body?.error.code).toBe("INVALID_NOTEBOOK_DELETE_BODY");
+      const unchanged = await request(`/api/notes/${noteId}`, {}, login.cookie);
+      expect(unchanged.body?.note).toMatchObject({
+        notebookId: targetNotebook.body?.notebook.id,
+        version: 7,
+      });
+    }
+    response = await request(notebookPath, { method: "DELETE" }, login.cookie);
     expect(response.response.status).toBe(200);
     await expectStable(8);
 
@@ -2266,6 +2273,40 @@ describe("Bun Server API", () => {
     expect(database.query("SELECT note_id FROM image_assets WHERE id = ?").get(asset.id)).toEqual({
       note_id: null,
     });
+  });
+
+  test("trashes, restores, and permanently deletes more than 500 notes in one request each", async () => {
+    const login = await request("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
+    });
+    const userId = login.body?.user.id as string;
+    const inbox = database
+      .query<{ id: string }, [string]>(
+        "SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1",
+      )
+      .get(userId)!;
+    const ids = Array.from({ length: 501 }, () => crypto.randomUUID());
+    const insert = database.query(
+      "INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, created_at, updated_at) VALUES (?, ?, ?, '', '', 1, 1)",
+    );
+    database.transaction(() => {
+      for (const id of ids) insert.run(id, userId, inbox.id);
+    })();
+    for (const [method, deleted, version] of [
+      ["PATCH", true, 1],
+      ["PATCH", false, 2],
+      ["PATCH", true, 3],
+      ["DELETE", true, 4],
+    ] as const) {
+      const response = await request(
+        "/api/notes/batch",
+        { method, body: JSON.stringify({ deleted, notes: ids.map((id) => ({ id, version })) }) },
+        login.cookie,
+      );
+      expect(response.response.status).toBe(200);
+      expect(response.body?.[deleted ? "deletedIds" : "restoredIds"]).toEqual(ids);
+    }
   });
 
   test("moves a batch of notes to trash atomically with version checks", async () => {

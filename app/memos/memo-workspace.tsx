@@ -514,12 +514,20 @@ export function MemoWorkspaceProvider({
   const convertMemo = useCallback(
     async (memo: Memo) => {
       try {
-        const result = await api.convertMemo(memo.id, memo.version);
+        const attempt = async () => {
+          const result = await api.convertMemo(memo.id, memo.version);
+          if (!result?.note) throw new Error("转换响应缺少笔记");
+          return result.note;
+        };
+        const note = await attempt().catch((reason: unknown) => {
+          if (reason instanceof ApiError && reason.status < 500) throw reason;
+          return attempt();
+        });
         const shouldReload = invalidateListRequest();
         setMemos((current) => current.filter((item) => item.id !== memo.id));
         refreshFacets();
         if (shouldReload || query || tag) refresh();
-        return result.note;
+        return note;
       } catch (reason) {
         unauthorized(reason);
         throw reason;

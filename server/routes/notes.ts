@@ -1,3 +1,4 @@
+import { NOTE_BATCH_LIMIT } from "../../shared/types";
 import { normalizeTag, parseTagQuery } from "../../shared/tags";
 import { SQLiteError } from "bun:sqlite";
 import type {
@@ -82,8 +83,7 @@ import {
   type SearchSort,
 } from "./note-list";
 
-const NOTE_BATCH_LIMIT = 500;
-const NOTE_BATCH_BODY_MAX_BYTES = 64 * 1024;
+const NOTE_BATCH_BODY_MAX_BYTES = 2 * 1024 * 1024;
 const NOTE_SORTS: NoteSort[] = ["updated", "created"];
 const NOTE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 
@@ -114,7 +114,6 @@ type BatchNoteState = {
   version: number;
   notebook_id: string;
   created_at: number;
-  content_markdown: string;
 };
 
 class BatchNoteConflictError extends Error {
@@ -155,12 +154,12 @@ function parseBatchNoteEntries(payload: unknown): BatchNoteEntry[] | null {
 }
 
 function getBatchNoteStates(database: SqliteDatabase, userId: string, entries: BatchNoteEntry[]) {
-  const placeholders = entries.map(() => "?").join(",");
   return all<BatchNoteState>(
     database,
-    `SELECT id, title, deleted_at, version, notebook_id, created_at, content_markdown FROM notes WHERE user_id = ? AND id IN (${placeholders})`,
+    `SELECT id, title, deleted_at, version, notebook_id, created_at
+     FROM notes WHERE user_id = ? AND id IN (SELECT value FROM json_each(?))`,
     userId,
-    ...entries.map((entry) => entry.id),
+    JSON.stringify(entries.map((entry) => entry.id)),
   );
 }
 
@@ -287,7 +286,7 @@ export async function handleNotesRoute(
     });
     const emptiedTrash = emptyTrash();
     if (emptiedTrash.deletedCount > 0)
-      publishWorkspaceChange(options, user.id, { resource: "notes" }, request);
+      publishWorkspaceChange(options, user.id, { resource: "notebooks" }, request);
     await removeAssetFiles(assetRoot, emptiedTrash.assetPaths);
     return json({ ok: true, deletedCount: emptiedTrash.deletedCount });
   }
@@ -328,8 +327,9 @@ export async function handleNotesRoute(
     });
     const ensured = ensureNote.immediate();
     if (!ensured) return jsonError(500, "NOTE_CREATE_FAILED", "笔记创建失败");
-    // 新笔记会改变列表成员，广播不带 noteId，让其他客户端整表刷新。
-    if (ensured.created) publishWorkspaceChange(options, user.id, { resource: "notes" }, request);
+    // 新笔记会改变列表成员和笔记本计数。
+    if (ensured.created)
+      publishWorkspaceChange(options, user.id, { resource: "notebooks" }, request);
     return ensured.created
       ? json({ note: ensured.note, created: true }, 201)
       : json({ note: ensured.note, created: false });
@@ -351,6 +351,8 @@ export async function handleNotesRoute(
     ) {
       return jsonError(400, "INVALID_BATCH_NOTES", "批量回收站状态无效");
     }
+    if (Array.isArray(payload?.notes) && payload.notes.length > NOTE_BATCH_LIMIT)
+      return jsonError(413, "TOO_MANY_BATCH_NOTES", `一次最多处理 ${NOTE_BATCH_LIMIT} 篇笔记`);
     const entries = parseBatchNoteEntries(payload);
     if (!entries) return jsonError(400, "INVALID_BATCH_NOTES", "批量操作的笔记参数无效");
 
@@ -365,6 +367,9 @@ export async function handleNotesRoute(
               const update = database.query(
                 "UPDATE notes SET deleted_at = NULL, version = version + 1 WHERE id = ? AND user_id = ? AND version = ? AND deleted_at IS NOT NULL",
               );
+              const readBody = database.query<{ content_markdown: string }, [string, string]>(
+                "SELECT content_markdown FROM notes WHERE id = ? AND user_id = ?",
+              );
               const rowsById = new Map(rows.map((row) => [row.id, row]));
               for (const entry of entries) {
                 const note = rowsById.get(entry.id)!;
@@ -374,7 +379,7 @@ export async function handleNotesRoute(
                   note.id,
                   note.notebook_id,
                   note.created_at,
-                  note.content_markdown,
+                  readBody.get(note.id, user.id)!.content_markdown,
                 );
                 if (!update.run(entry.id, user.id, entry.version).changes)
                   throw new BatchNoteConflictError([entry.id]);
@@ -457,7 +462,7 @@ export async function handleNotesRoute(
       if (error instanceof BatchNoteConflictError) return batchConflictResponse(error);
       throw error;
     }
-    publishWorkspaceChange(options, user.id, { resource: "notes" }, request);
+    publishWorkspaceChange(options, user.id, { resource: "notebooks" }, request);
     await removeAssetFiles(assetRoot, deleted.assetPaths);
     return json({ ok: true, deletedIds: deleted.deletedIds });
   }
@@ -739,8 +744,8 @@ export async function handleNotesRoute(
       throw error;
     }
     const note = getNote(database, user.id, noteId);
-    // 新笔记会改变列表成员，广播不带 noteId，让其他客户端整表刷新。
-    publishWorkspaceChange(options, user.id, { resource: "notes" }, request);
+    // 新笔记会改变列表成员和笔记本计数。
+    publishWorkspaceChange(options, user.id, { resource: "notebooks" }, request);
     const summaryResponse = url.searchParams.get("response") === "summary";
     return json(
       { note: note ? (summaryResponse ? summarizeNote(note) : toFullNote(note)) : null, card },
@@ -1291,7 +1296,12 @@ export async function handleNotesRoute(
         409,
       );
     }
-    publishWorkspaceChange(options, user.id, { resource: "notes", noteId: result.noteId }, request);
+    publishWorkspaceChange(
+      options,
+      user.id,
+      { resource: "notebooks", noteId: result.noteId },
+      request,
+    );
     await removeAssetFiles(assetRoot, result.assetPaths);
     return json({ ok: true });
   }

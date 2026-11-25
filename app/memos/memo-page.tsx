@@ -38,7 +38,7 @@ import {
 } from "./use-virtual-memo-list";
 import { textFieldMenuItems, useContextMenu } from "../context-menu";
 import { copyPlainText } from "../editor/code-block-copy";
-import { hasMemoEditDraft, readMemoEditDraft, writeMemoEditDraft } from "./memo-edit-draft";
+import { beginMemoDraftSession, hasMemoEditDraft, readMemoEditDraft } from "./memo-edit-draft";
 import {
   buildMemoCalendarMenuItems,
   buildMemoCardMenuItems,
@@ -89,23 +89,37 @@ function MemoCard({
     onOpenChange: setSwipeOpenId,
     foregroundRef,
   });
-  const readEditDraft = () => readMemoEditDraft(memo.id);
-  const editDraft = editing ? readEditDraft() : null;
+  const [draftSession, setDraftSession] = useState<ReturnType<typeof beginMemoDraftSession> | null>(
+    null,
+  );
+  if (editing && !draftSession) {
+    setDraftSession(beginMemoDraftSession(memo.id));
+    setConflict(null);
+  } else if (!editing && draftSession) {
+    setDraftSession(null);
+  }
+  const editDraft = draftSession?.initial;
   const editVersion = editDraft?.version ?? editingVersion ?? memo.version;
   const conflictMemo = conflict ?? (editDraft?.conflict ? memo : null);
   const writeEditDraft = (markdown: string) => {
-    const current = readEditDraft();
-    const isConflict = Boolean(current?.conflict || conflict);
-    writeMemoEditDraft(
-      memo.id,
-      markdown || isConflict
+    draftSession?.write(
+      markdown || conflictMemo
         ? {
             markdown,
-            version: current?.version ?? editVersion,
-            ...(isConflict ? { conflict: true } : {}),
+            version: conflictMemo?.version ?? editVersion,
+            ...(conflictMemo ? { conflict: true } : {}),
           }
         : null,
     );
+  };
+
+  const discardRecoveredDraft = () => {
+    composerRef.current?.discardPendingDraft();
+    draftSession?.clear({ includeInitial: true });
+    setConflict(null);
+    setCopyNotice("");
+    refresh();
+    onFinishEdit();
   };
 
   useLayoutEffect(() => {
@@ -247,23 +261,21 @@ function MemoCard({
                   if (!memoConflictCurrent(reason)) onSaveNotice(memoSaveFailure(reason));
                 }}
                 onSubmit={async (markdown, unchangedSource) => {
-                  const draftAtSubmit = readEditDraft();
-                  if (draftAtSubmit?.conflict || conflict)
-                    throw new Error("请先处理冲突草稿，再保存随记。");
+                  if (conflictMemo) throw new Error("请先处理冲突草稿，再保存随记。");
                   if (unchangedSource === memo.contentMarkdown) {
-                    writeEditDraft("");
+                    draftSession?.clear({
+                      includeInitial: unchangedSource === editDraft?.markdown,
+                    });
                     onFinishEdit();
                     return;
                   }
-                  const submittedDraft =
-                    draftAtSubmit?.markdown === markdown ? draftAtSubmit : null;
                   try {
                     await updateMemo({ ...memo, version: editVersion }, markdown);
                   } catch (reason) {
                     const current = memoConflictCurrent(reason);
                     if (current) {
-                      writeMemoEditDraft(memo.id, {
-                        markdown: submittedDraft?.markdown ?? markdown,
+                      draftSession?.write({
+                        markdown,
                         version: current.version,
                         conflict: true,
                       });
@@ -271,19 +283,13 @@ function MemoCard({
                     }
                     throw reason;
                   }
-                  const currentDraft = readEditDraft();
-                  if (
-                    currentDraft?.version === editVersion &&
-                    (currentDraft.markdown === markdown ||
-                      currentDraft.markdown === submittedDraft?.markdown)
-                  )
-                    writeEditDraft("");
+                  draftSession?.clear({ includeInitial: true });
                   onFinishEdit();
                   onSaveNotice({ message: "随记已保存" });
                 }}
                 onDraftChange={writeEditDraft}
                 onCancel={() => {
-                  if (!conflictMemo && !readEditDraft()?.conflict) writeEditDraft("");
+                  if (!conflictMemo) draftSession?.clear();
                   onFinishEdit();
                   requestAnimationFrame(() =>
                     foregroundRef.current?.focus({ preventScroll: true }),
@@ -306,17 +312,7 @@ function MemoCard({
                   >
                     复制草稿
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      composerRef.current?.discardPendingDraft();
-                      writeMemoEditDraft(memo.id, null);
-                      setConflict(null);
-                      setCopyNotice("");
-                      refresh();
-                      onFinishEdit();
-                    }}
-                  >
+                  <button type="button" onClick={discardRecoveredDraft}>
                     丢弃草稿并编辑最新内容
                   </button>
                 </div>
@@ -330,6 +326,13 @@ function MemoCard({
                   <MemoMarkdown markdown={conflictMemo.contentMarkdown} />
                 </details>
               </section>
+            )}
+            {editDraft && !conflictMemo && (
+              <div className="memo-conflict memo-conflict-actions">
+                <button type="button" onClick={discardRecoveredDraft}>
+                  丢弃已恢复草稿
+                </button>
+              </div>
             )}
           </>
         ) : (

@@ -24,6 +24,7 @@ import {
 } from "../app/editor/code-block-enter";
 import { handleInlineMarkExitOnEnter, InlineMarkExitOnEnter } from "../app/editor/inline-mark-exit";
 import { ImageNode } from "../app/editor/image-node";
+import { createMemoEditorExtensions } from "../app/memos/memo-composer";
 import {
   createSearchHighlightPlugin,
   findEditorSearchMatchSummary,
@@ -89,6 +90,27 @@ function createSearchState(text: string) {
   const doc = schema.node("doc", null, [schema.node("paragraph", null, [schema.text(text)])]);
   return EditorState.create({ doc, plugins: [createSearchHighlightPlugin()] });
 }
+
+test("keeps a memo image when nearby text is edited", () => {
+  const image = "![原图](/api/assets/00000000-0000-4000-8000-000000000000)";
+  const editor = new Editor({
+    element: null,
+    extensions: createMemoEditorExtensions(),
+    contentType: "markdown",
+    content: `旧文字\n\n${image}`,
+  });
+  try {
+    editor.commands.command(({ tr }) => {
+      tr.insertText("新文字", 1, 4);
+      return true;
+    });
+    expect((editor as Editor & { getMarkdown: () => string }).getMarkdown()).toBe(
+      `新文字\n\n${image}`,
+    );
+  } finally {
+    editor.destroy();
+  }
+});
 
 describe("escaped hashtag Markdown", () => {
   test("keeps escaped hashtags out of tag metadata after editor round-tripping", () => {
