@@ -258,7 +258,7 @@ try {
   await page.locator('aside.sidebar button:has-text("全部笔记")').click();
   await page.locator(`.note-list-panel [data-note-id="${taskNoteId}"] .note-row`).click();
   await page.keyboard.press("Alt+v");
-  await page.locator(".app-shell.layout-cards .note-card-grid").waitFor();
+  await page.locator(".app-shell.layout-cards .note-card-grid-panel").waitFor();
   await page.locator(`.note-card[data-note-id="${taskNoteId}"]`).click();
   await page.getByRole("button", { name: "分屏显示" }).click();
   await page.locator('[aria-labelledby="split-note-dialog-title"]').waitFor();
@@ -276,7 +276,7 @@ try {
     ),
   );
   await page.keyboard.press("Escape");
-  await page.locator(".app-shell.layout-cards .note-card-grid").waitFor();
+  await page.locator(".app-shell.layout-cards .note-card-grid-panel").waitFor();
   await page.locator(`.note-card[data-note-id="${taskNoteId}"]`).focus();
   await page.keyboard.press("Alt+v");
   await page.locator(".note-list-panel").waitFor();
@@ -284,6 +284,10 @@ try {
   // 10. 移入回收站与立即恢复
   stage = "10. 移入回收站与恢复";
   await page.locator(`.note-list-panel [data-note-id="${taskNoteId}"] .note-row`).click();
+  await page.waitForFunction(
+    ({ selector, expected }) => document.querySelector(selector)?.value === expected,
+    { selector: TITLE_SELECTOR, expected: "E2E 任务测试笔记" },
+  );
   const trashSave = page.waitForResponse(
     (response) =>
       new URL(response.url()).pathname === `/api/notes/${taskNoteId}` &&
