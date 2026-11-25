@@ -1,13 +1,7 @@
-import {
-  MERMAID_SOURCE_LIMIT,
-  type DiagramFailure,
-  type DiagramLayout,
-  type DiagramRequest,
-  type DiagramResponse,
-  type DiagramResult,
-} from "./protocol";
+import { MERMAID_SOURCE_LIMIT, type DiagramLayout, type DiagramResult } from "./protocol";
 
-const RENDER_TIMEOUT_MS = 5_000;
+type DiagramFailure = { code: string; message: string; line: number; column: number };
+
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 const colorRoles = {
   bg: "--surface",
@@ -41,89 +35,15 @@ export function diagramErrorMessage(reason: unknown) {
 }
 
 export function canRetryDiagram(reason: unknown) {
-  return (
-    !(reason instanceof DiagramError) ||
-    ["worker", "timeout", "render"].includes(reason.failure.code)
-  );
+  return !(reason instanceof DiagramError) || reason.failure.code === "render";
 }
 
-type Job = {
-  request: DiagramRequest;
-  signal: AbortSignal;
-  resolve: (result: DiagramResult) => void;
-  reject: (reason: unknown) => void;
-  abort: () => void;
-};
-
-const queue: Job[] = [];
-let worker: Worker | undefined;
-let active: Job | undefined;
-let timeout: ReturnType<typeof setTimeout> | undefined;
-
-function takeActive() {
-  clearTimeout(timeout);
-  const job = active;
-  active = undefined;
-  job?.signal.removeEventListener("abort", job.abort);
-  return job;
-}
-
-function resetWorker(reason: unknown) {
-  worker?.terminate();
-  worker = undefined;
-  takeActive()?.reject(reason);
-  pump();
-}
-
-function pump() {
-  while (!active && queue.length) {
-    const job = queue.shift()!;
-    active = job;
-    try {
-      if (!worker) {
-        const instance = new Worker("/mermaid-worker.js", { type: "module" });
-        worker = instance;
-        instance.onmessage = ({ data }: MessageEvent<DiagramResponse>) => {
-          if (worker !== instance) return;
-          const completed = takeActive();
-          if ("result" in data) completed?.resolve(data.result);
-          else completed?.reject(new DiagramError(data.failure));
-          pump();
-        };
-        instance.onerror = (event) => {
-          if (worker !== instance) return;
-          event.preventDefault();
-          const error = new DiagramError({
-            code: "worker",
-            message: "图表渲染器加载失败，请重试",
-            line: 0,
-            column: 0,
-          });
-          const waiting = queue.splice(0);
-          resetWorker(error);
-          for (const pending of waiting) {
-            pending.signal.removeEventListener("abort", pending.abort);
-            pending.reject(error);
-          }
-        };
-      }
-      worker.postMessage(job.request);
-      timeout = setTimeout(() => {
-        resetWorker(
-          new DiagramError({ code: "timeout", message: "图表渲染超时", line: 0, column: 0 }),
-        );
-      }, RENDER_TIMEOUT_MS);
-    } catch (reason) {
-      takeActive()?.reject(reason);
-      worker?.terminate();
-      worker = undefined;
-    }
-  }
-}
-
-export async function renderDiagram(request: DiagramRequest, signal: AbortSignal) {
+export async function renderDiagram(
+  { source, width, fontFamily, fontFamilyMono }: DiagramLayout & { source: string },
+  signal: AbortSignal,
+): Promise<DiagramResult> {
   signal.throwIfAborted();
-  if (request.source.length > MERMAID_SOURCE_LIMIT) {
+  if (source.length > MERMAID_SOURCE_LIMIT) {
     throw new DiagramError({
       code: "limit",
       message: "图表源码超过 50,000 字符",
@@ -131,27 +51,38 @@ export async function renderDiagram(request: DiagramRequest, signal: AbortSignal
       column: 0,
     });
   }
-  return new Promise<DiagramResult>((resolve, reject) => {
-    const job: Job = {
-      request,
-      signal,
-      resolve,
-      reject,
-      abort: () => {
-        // Keep a running render if other diagrams are waiting. Its result will be discarded.
-        if (active === job) {
-          if (!queue.length) resetWorker(signal.reason);
-        } else {
-          const index = queue.indexOf(job);
-          if (index >= 0) queue.splice(index, 1);
-        }
-        reject(signal.reason);
-      },
-    };
-    signal.addEventListener("abort", job.abort, { once: true });
-    queue.push(job);
-    pump();
+
+  const { PeleError, render } = await import("pele").catch(() => {
+    throw new DiagramError({
+      code: "load",
+      message: "图表渲染器加载失败，请刷新页面",
+      line: 0,
+      column: 0,
+    });
   });
+  signal.throwIfAborted();
+
+  try {
+    const diagram = render(source, {
+      maxWidth: width,
+      fontFamily,
+      fontFamilyMono,
+      idPrefix: "xiangying-diagram",
+      autoDirection: false,
+      links: false,
+      images: false,
+      limit: MERMAID_SOURCE_LIMIT,
+      maxEdges: 5_000,
+      outputLimit: 4_000_000,
+    });
+    return { svg: diagram.svg, width: diagram.width, height: diagram.height };
+  } catch (error) {
+    if (error instanceof PeleError) {
+      const { code, message, line, column } = error;
+      throw new DiagramError({ code, message, line, column });
+    }
+    throw new DiagramError({ code: "render", message: "图表渲染失败", line: 0, column: 0 });
+  }
 }
 
 export function measureDiagram(container: HTMLElement): DiagramLayout {

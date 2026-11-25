@@ -266,7 +266,6 @@ async function serveStatic(
   const basename = relativePath.toLowerCase();
   const mutablePwaAsset =
     basename === "sw.js" ||
-    basename === "mermaid-worker.js" ||
     basename === "manifest.webmanifest" ||
     /^(?:favicon\.png|apple-touch-icon\.png|icon-(?:192|512|maskable-(?:512|1024))\.png)$/u.test(
       basename,

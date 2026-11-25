@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "bun run scripts/dev.ts",
     "format": "bun fmt \"app/**/*.ts\" \"app/**/*.tsx\" \"app/**/*.css\" \"server/**/*.ts\" \"shared/**/*.ts\" \"scripts/**/*.ts\" \"scripts/**/*.mjs\" \"tests/**/*.ts\" package.json tsconfig.json",
-    "dev:client": "bun build ./app/index.html ./app/mermaid/mermaid-worker.ts --outdir ./dist/dev-client --target browser --format esm --splitting --entry-naming=[name].[ext] --watch",
+    "dev:client": "bun build ./app/index.html --outdir ./dist/dev-client --target browser --format esm --splitting --entry-naming=[name].[ext] --watch",
     "build:client": "bun run scripts/build-client.ts",
     "build:server": "bun build ./server/index.ts ./server/migrate.ts ./server/vacuum.ts ./scripts/check-schema-drift.ts --outdir ./dist/server --target bun --format esm --production --minify --entry-naming=\"[name].[ext]\"",
     "build": "bun run build:client && bun run build:server",

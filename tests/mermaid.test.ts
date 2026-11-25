@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { Editor } from "@tiptap/core";
 import { createReadOnlyExtensions } from "../app/editor/read-only-markdown";
 import { isMermaidLanguage, MERMAID_EXAMPLE } from "../app/mermaid/protocol";
+import { renderDiagram } from "../app/mermaid/render";
 import { renderMemoMarkdown } from "../app/memos/memo-markdown";
-import { render } from "pele";
 
 function parseMarkdown(markdown: string) {
   return new Editor({
@@ -71,15 +71,22 @@ describe("Mermaid Markdown", () => {
     );
   });
 
-  test("the pinned renderer draws Chinese labels and applies the app's no-link policy", () => {
-    const { svg, links } = render(`${MERMAID_EXAMPLE}\nclick A "https://example.com"`, {
-      maxWidth: 320,
-      links: false,
-      images: false,
-    });
+  test("the app renderer draws Chinese labels and omits links", async () => {
+    const source = `${MERMAID_EXAMPLE}\nclick A "https://example.com"`;
+    const layout = { width: 320, fontFamily: "sans-serif", fontFamilyMono: "monospace" };
+    const { svg, width, height } = await renderDiagram(
+      { ...layout, source },
+      new AbortController().signal,
+    );
     expect(svg).toContain("开始");
     expect(svg).toContain("完成");
     expect(svg).not.toContain("https://example.com");
-    expect(links).toEqual([]);
+    expect(width).toBeGreaterThan(0);
+    expect(height).toBeGreaterThan(0);
+
+    const controller = new AbortController();
+    const canceled = renderDiagram({ ...layout, source }, controller.signal);
+    controller.abort(new Error("preview removed"));
+    await expect(canceled).rejects.toThrow("preview removed");
   });
 });

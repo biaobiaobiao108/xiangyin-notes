@@ -17,7 +17,4 @@ export type DiagramLayout = {
   fontFamilyMono: string;
 };
 
-export type DiagramRequest = DiagramLayout & { source: string };
 export type DiagramResult = { svg: string; width: number; height: number };
-export type DiagramFailure = { code: string; message: string; line: number; column: number };
-export type DiagramResponse = { result: DiagramResult } | { failure: DiagramFailure };
