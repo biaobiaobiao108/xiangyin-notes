@@ -230,12 +230,19 @@ try {
   assert.equal((await tasksLoad).status(), 200);
   const taskCompleteSave = page.waitForResponse(
     (response) =>
-      new URL(response.url()).pathname === `/api/notes/${taskNoteId}` &&
-      response.request().method() === "PATCH" &&
+      new URL(response.url()).pathname === "/api/tasks/toggle" &&
+      response.request().method() === "POST" &&
       response.status() === 200,
   );
   await page.getByRole("checkbox", { name: "标记为已完成：E2E 任务联动验证" }).click();
   await taskCompleteSave;
+  const doneTasksLoad = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api/tasks" && response.request().method() === "GET",
+  );
+  await page.getByRole("button", { name: "筛选任务状态" }).click();
+  await page.locator('#tasks-status-filter-menu [role="menuitemradio"]:has-text("已完成")').click();
+  assert.equal((await doneTasksLoad).status(), 200);
   await page.getByRole("checkbox", { name: "标记为未完成：E2E 任务联动验证" }).waitFor();
   await page
     .getByRole("button", { name: "打开笔记 E2E 任务测试笔记 并定位任务：E2E 任务联动验证" })
