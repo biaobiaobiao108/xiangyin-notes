@@ -689,6 +689,7 @@ describe("multi-block operations", () => {
             classes?: string[];
             inert?: boolean;
             dragHandleIgnore?: boolean;
+            dragHandleAnchor?: boolean;
             top?: number;
             height?: number;
             children?: MockNode[];
@@ -700,6 +701,7 @@ describe("multi-block operations", () => {
           this.classes = new Set(options.classes ?? []);
           if (options.inert) this.attributes.add("inert");
           if (options.dragHandleIgnore) this.attributes.add("data-drag-handle-ignore");
+          if (options.dragHandleAnchor) this.attributes.add("data-drag-handle-anchor");
           this.rect = { top: options.top ?? 0, height: options.height ?? 0 };
           for (const child of options.children ?? []) {
             child.parentElement = this;
@@ -709,8 +711,24 @@ describe("multi-block operations", () => {
         hasAttribute(name: string) {
           return this.attributes.has(name);
         }
+        closest(selector: string) {
+          const target = selector.toUpperCase();
+          for (let cur: MockElement | null = this; cur; cur = cur.parentElement) {
+            if (cur.tagName === target) return cur;
+          }
+          return null;
+        }
+        contains(other: MockNode) {
+          for (let cur: MockNode | null = other; cur; cur = cur.parentElement) {
+            if (cur === this) return true;
+          }
+          return false;
+        }
         getBoundingClientRect() {
           return this.rect;
+        }
+        querySelector(selector: string) {
+          return this.querySelectorAll(selector)[0] ?? null;
         }
         querySelectorAll(selector: string) {
           const tags = new Set(selector.split(",").map((s) => s.trim().toUpperCase()));
@@ -877,35 +895,126 @@ describe("multi-block operations", () => {
         blockHandleCenter({ dom: sourceEditing as unknown as HTMLElement } as BlockTarget, null),
       ).toBe(121.5);
 
-      // Regular code block with language badge also aligns to the first line of code
-      const codeBlock = new MockElement("pre", {
-        classes: ["code-block-node-view"],
-        top: 200,
-        height: 120,
+      // Regular code blocks (with or without language badge) align with their top toolbar row
+      const buildCodeBlock = (withLanguage: boolean) =>
+        new MockElement("pre", {
+          classes: ["code-block-node-view"],
+          top: 200,
+          height: 120,
+          children: [
+            ...(withLanguage
+              ? [
+                  new MockElement("span", {
+                    classes: ["code-block-language"],
+                    dragHandleIgnore: true,
+                    children: [new MockText("ts", 209, 30)],
+                  }),
+                ]
+              : []),
+            new MockElement("button", {
+              classes: ["code-block-copy-button"],
+              dragHandleAnchor: true,
+              top: 209,
+              height: 30,
+              children: [
+                new MockElement("span", {
+                  classes: ["visually-hidden"],
+                  children: [new MockText("复制代码", 222, 18)],
+                }),
+              ],
+            }),
+            new MockElement("code", {
+              children: [new MockText("const x = 1;", 244, 25)],
+            }),
+          ],
+        });
+      expect(
+        blockHandleCenter(
+          { dom: buildCodeBlock(true) as unknown as HTMLElement } as BlockTarget,
+          null,
+        ),
+      ).toBe(223);
+      expect(
+        blockHandleCenter(
+          { dom: buildCodeBlock(false) as unknown as HTMLElement } as BlockTarget,
+          null,
+        ),
+      ).toBe(223);
+
+      // Horizontal rule centers vertically on the rule line itself
+      const hrBlock = new MockElement("hr", { top: 300, height: 1 });
+      expect(
+        blockHandleCenter({ dom: hrBlock as unknown as HTMLElement } as BlockTarget, null),
+      ).toBe(300.5);
+
+      // Unloaded external image placeholder aligns to the top of its frame, not centered hint text
+      const unloadedImage = new MockElement("div", {
+        classes: ["note-image-node"],
+        top: 400,
+        height: 240,
         children: [
           new MockElement("span", {
-            classes: ["code-block-language"],
-            dragHandleIgnore: true,
-            children: [new MockText("ts", 208, 30)],
-          }),
-          new MockElement("button", {
-            classes: ["code-block-copy-button"],
-            dragHandleIgnore: true,
+            classes: ["note-image-frame"],
+            top: 400,
+            height: 240,
             children: [
               new MockElement("span", {
-                classes: ["visually-hidden"],
-                children: [new MockText("复制代码", 222, 18)],
+                classes: ["note-image-loading"],
+                dragHandleAnchor: true,
+                top: 400,
+                height: 240,
+                children: [new MockText("外链图片不会自动加载", 510, 20)],
               }),
             ],
-          }),
-          new MockElement("code", {
-            children: [new MockText("const x = 1;", 244, 25)],
           }),
         ],
       });
       expect(
-        blockHandleCenter({ dom: codeBlock as unknown as HTMLElement } as BlockTarget, null),
-      ).toBe(256.5);
+        blockHandleCenter({ dom: unloadedImage as unknown as HTMLElement } as BlockTarget, null),
+      ).toBe(414);
+
+      // Table with empty header row stays aligned to the top/first row instead of jumping to row 2
+      const tableWithEmptyHeader = new MockElement("div", {
+        classes: ["tableWrapper", "table-scroll-shell"],
+        top: 500,
+        height: 120,
+        children: [
+          new MockElement("table", {
+            top: 500,
+            height: 120,
+            children: [
+              new MockElement("tbody", {
+                children: [
+                  new MockElement("tr", {
+                    top: 500,
+                    height: 45,
+                    children: [new MockElement("th", { children: [new MockElement("p")] })],
+                  }),
+                  new MockElement("tr", {
+                    top: 545,
+                    height: 45,
+                    children: [
+                      new MockElement("td", {
+                        children: [
+                          new MockElement("p", {
+                            children: [new MockText("第二行内容", 555, 22)],
+                          }),
+                        ],
+                      }),
+                    ],
+                  }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      });
+      expect(
+        blockHandleCenter(
+          { dom: tableWithEmptyHeader as unknown as HTMLElement } as BlockTarget,
+          null,
+        ),
+      ).toBe(514);
     } finally {
       (globalThis as unknown as { document: unknown }).document = originalDocument;
       (globalThis as unknown as { NodeFilter: unknown }).NodeFilter = originalNodeFilter;

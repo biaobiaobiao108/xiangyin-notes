@@ -59,12 +59,21 @@ export function restoreEditorFocus(editor: Editor, scroll: HTMLElement | null) {
 const NODE_ELEMENT = 1;
 const NODE_TEXT = 3;
 
-function isIgnoredHandleElement(element: Element): boolean {
-  return (
+function isIgnoredHandleElement(element: Element, root: HTMLElement): boolean {
+  if (
     element.hasAttribute("inert") ||
     element.hasAttribute("data-drag-handle-ignore") ||
     element.classList.contains("visually-hidden")
-  );
+  ) {
+    return true;
+  }
+  if (element.tagName === "TR") {
+    const table = element.closest("table");
+    if (table && root.contains(table) && table.querySelector("tr") !== element) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function hasIgnoredAncestor(element: HTMLElement, root: HTMLElement): boolean {
@@ -73,21 +82,27 @@ function hasIgnoredAncestor(element: HTMLElement, root: HTMLElement): boolean {
     current && current !== root;
     current = current.parentElement
   ) {
-    if (isIgnoredHandleElement(current)) return true;
+    if (isIgnoredHandleElement(current, root)) return true;
   }
   return false;
 }
 
 function firstLineCenter(element: HTMLElement): number {
   const rect = element.getBoundingClientRect();
+  if (element.tagName === "HR" && rect.height > 0) {
+    return rect.top + rect.height / 2;
+  }
+
   const walker = document.createTreeWalker(
     element,
     NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
     {
       acceptNode(node) {
         if (node.nodeType === NODE_ELEMENT) {
-          return isIgnoredHandleElement(node as Element)
-            ? NodeFilter.FILTER_REJECT
+          const el = node as Element;
+          if (isIgnoredHandleElement(el, element)) return NodeFilter.FILTER_REJECT;
+          return el.hasAttribute("data-drag-handle-anchor")
+            ? NodeFilter.FILTER_ACCEPT
             : NodeFilter.FILTER_SKIP;
         }
         if (node.nodeType === NODE_TEXT) {
@@ -99,19 +114,28 @@ function firstLineCenter(element: HTMLElement): number {
       },
     },
   );
-  const textNode = walker.nextNode();
-  if (textNode) {
-    try {
-      const range = document.createRange();
-      range.setStart(textNode, 0);
-      range.setEnd(textNode, Math.min(1, textNode.textContent?.length ?? 1));
-      const rangeRect = range.getBoundingClientRect();
-      if (rangeRect.height > 0) {
-        return rangeRect.top + rangeRect.height / 2;
+
+  let anchorNode = walker.nextNode();
+  while (anchorNode) {
+    if (anchorNode.nodeType === NODE_ELEMENT) {
+      const anchorRect = (anchorNode as Element).getBoundingClientRect();
+      if (anchorRect.height > 0) {
+        return anchorRect.top + Math.min(14, anchorRect.height / 2);
       }
-    } catch {
-      // fallback
+    } else {
+      try {
+        const range = document.createRange();
+        range.setStart(anchorNode, 0);
+        range.setEnd(anchorNode, Math.min(1, anchorNode.textContent?.length ?? 1));
+        const rangeRect = range.getBoundingClientRect();
+        if (rangeRect.height > 0) {
+          return rangeRect.top + rangeRect.height / 2;
+        }
+      } catch {
+        // fallback
+      }
     }
+    anchorNode = walker.nextNode();
   }
 
   for (const media of element.querySelectorAll<HTMLElement>("img, input, pre, table, hr")) {

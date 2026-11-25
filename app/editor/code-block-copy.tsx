@@ -99,13 +99,15 @@ function CodeBlockCopyView(props: NodeViewProps) {
   const Icon = status === "copied" ? Check : status === "error" ? CircleAlert : Copy;
   const label = status === "copied" ? "代码已复制" : status === "error" ? "复制失败" : "复制代码";
   const language = typeof node.attrs?.language === "string" ? node.attrs.language.trim() : "";
+  const isMermaid = isMermaidLanguage(language);
 
   const copyButton = (
     <button
       className={`code-block-copy-button ${status === "idle" ? "" : `is-${status}`}`}
       type="button"
       contentEditable={false}
-      data-drag-handle-ignore=""
+      data-drag-handle-anchor={isMermaid ? undefined : ""}
+      data-drag-handle-ignore={isMermaid ? "" : undefined}
       aria-label={label}
       onMouseDown={(event) => event.preventDefault()}
       onClick={() => void copy()}
@@ -116,7 +118,7 @@ function CodeBlockCopyView(props: NodeViewProps) {
       </span>
     </button>
   );
-  if (isMermaidLanguage(language)) return <MermaidCodeBlock {...props} copyButton={copyButton} />;
+  if (isMermaid) return <MermaidCodeBlock {...props} copyButton={copyButton} />;
 
   return (
     <NodeViewWrapper as="pre" className="code-block-node-view" style={{ whiteSpace: "pre-wrap" }}>

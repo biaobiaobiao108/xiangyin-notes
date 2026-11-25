@@ -190,6 +190,7 @@ function ResizableImageView({ node, selected, editor, updateAttributes }: NodeVi
           <span
             className="note-image-loading"
             role="group"
+            data-drag-handle-anchor=""
             style={{ aspectRatio: `${Math.round(width)} / ${Math.round(height)}` }}
           >
             <span>外链图片不会自动加载</span>
