@@ -857,7 +857,7 @@
   overflow: clip;
   white-space: pre-wrap;
   margin-block: 1.25em;
-  padding: 16px 20px 18px;
+  padding: 14px 20px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface-code);
@@ -874,8 +874,13 @@
   -moz-tab-size: 2;
 }
 .note-prose pre:has(> .code-block-copy-button) {
-  /* Keep the toolbar above the code so every text line gets the same width. */
-  padding-block-start: 44px;
+  /* Reserve inline clearance for the floating copy button without adding an empty top bar. */
+  padding-inline-end: 46px;
+}
+.note-prose pre:has(> .code-block-language) {
+  /* Reserve the top row only when a language label is present. */
+  padding-block-start: 38px;
+  padding-inline-end: 20px;
 }
 .note-prose code {
   padding: 0.15em 0.38em;
