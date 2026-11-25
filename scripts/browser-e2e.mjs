@@ -38,13 +38,7 @@ let mobileContext = null;
 let stage = "初始化";
 const page = attachErrorGuard(await context.newPage(), pageErrors);
 
-try {
-  // 1. 登录并进入工作区
-  stage = "1. 登录并进入工作区";
-  await loginThroughUi(page);
-
-  // 2. 新建笔记、中文输入法组合编辑与自动保存
-  stage = "2. 新建笔记与中文输入法保存";
+async function createInboxNote(page) {
   const createPromise = page.waitForResponse(
     (response) =>
       new URL(response.url()).pathname === "/api/notes" && response.request().method() === "POST",
@@ -52,7 +46,24 @@ try {
   await page.getByRole("button", { name: "在收件箱中新建笔记" }).click();
   const createResponse = await createPromise;
   assert.equal(createResponse.status(), 201);
-  const created = (await createResponse.json()).note;
+  const note = (await createResponse.json()).note;
+  // 等待单篇详情加载完成且新建后的默认正文聚焦落地，避免 titleField.fill 时焦点被抢回正文。
+  await page.waitForFunction(
+    () =>
+      document.querySelector('[aria-label="笔记编辑器"]')?.getAttribute("aria-busy") === "false" &&
+      document.activeElement?.getAttribute("aria-label") === "笔记正文",
+  );
+  return note;
+}
+
+try {
+  // 1. 登录并进入工作区
+  stage = "1. 登录并进入工作区";
+  await loginThroughUi(page);
+
+  // 2. 新建笔记、中文输入法组合编辑与自动保存
+  stage = "2. 新建笔记与中文输入法保存";
+  const created = await createInboxNote(page);
 
   const titleField = page.locator(TITLE_SELECTOR);
   await titleField.fill("E2E 端到端测试笔记");
@@ -198,14 +209,7 @@ try {
   // 8. 斜杠命令插入任务、任务面板勾选与编辑器联动
   stage = "8. 斜杠命令与任务面板联动";
   await page.locator('aside.sidebar button:has-text("全部笔记")').click();
-  const taskNoteCreate = page.waitForResponse(
-    (response) =>
-      new URL(response.url()).pathname === "/api/notes" && response.request().method() === "POST",
-  );
-  await page.getByRole("button", { name: "在收件箱中新建笔记" }).click();
-  const taskNoteCreateResponse = await taskNoteCreate;
-  assert.equal(taskNoteCreateResponse.status(), 201);
-  const taskNoteId = (await taskNoteCreateResponse.json()).note.id;
+  const taskNoteId = (await createInboxNote(page)).id;
 
   await titleField.fill("E2E 任务测试笔记");
   await editor.click();
