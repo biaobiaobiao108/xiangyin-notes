@@ -10,6 +10,60 @@ export function getOutlineHeadingElements(root: HTMLElement): HTMLElement[] {
   );
 }
 
+/** Resolves the active outline heading from the current editor selection when mapped in DOM. */
+export function syncEditorActiveOutline(
+  instance: Editor,
+  root: HTMLElement | null,
+  items: OutlineItem[],
+  headingElements: Map<string, HTMLElement>,
+  onOutlineActiveChange: (id: string | null) => void,
+): boolean {
+  if (!root || items.length === 0) return false;
+
+  const { $from } = instance.state.selection;
+  let previousHeadingElement: HTMLElement | null = null;
+  let previousHeadingIndex = -1;
+  for (let depth = $from.depth; depth > 0; depth -= 1) {
+    if ($from.node(depth).type.name !== "heading") continue;
+    const headingDom = instance.view.nodeDOM($from.before(depth));
+    const headingElement =
+      headingDom instanceof HTMLElement
+        ? headingDom.closest<HTMLElement>(OUTLINE_HEADING_SELECTOR)
+        : null;
+    if (headingElement?.textContent?.trim()) previousHeadingElement = headingElement;
+    break;
+  }
+  if (!previousHeadingElement) {
+    let low = 0;
+    let high = items.length - 1;
+    try {
+      while (low <= high) {
+        const middle = Math.floor((low + high) / 2);
+        const element = headingElements.get(items[middle].id);
+        if (!element || !root.contains(element)) return false;
+        if (instance.view.posAtDOM(element, 0) <= $from.pos) {
+          previousHeadingElement = element;
+          previousHeadingIndex = middle;
+          low = middle + 1;
+        } else {
+          high = middle - 1;
+        }
+      }
+    } catch {
+      return false;
+    }
+  }
+  if (!previousHeadingElement || !root.contains(previousHeadingElement)) return false;
+  const item =
+    previousHeadingIndex >= 0
+      ? items[previousHeadingIndex]
+      : (items.find((candidate) => headingElements.get(candidate.id) === previousHeadingElement) ??
+        items[getOutlineHeadingElements(root).indexOf(previousHeadingElement)]);
+  if (!item) return false;
+  onOutlineActiveChange(item.id);
+  return true;
+}
+
 export function useEditorOutlineNavigation({
   editor,
   editorScrollRef,

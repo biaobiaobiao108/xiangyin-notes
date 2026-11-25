@@ -1,10 +1,8 @@
-import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { useContextMenu } from "./context-menu";
-import { copyPlainText } from "./editor/code-block-copy";
 import { api } from "./api";
-import { CommandId, CommandMenu } from "./command-menu";
-import { installPwa, subscribePwa, type PwaState } from "./pwa";
+import { subscribePwa, type PwaState } from "./pwa";
 import {
   NOTE_BATCH_LIMIT,
   type Note,
@@ -13,10 +11,9 @@ import {
   type Notebook,
 } from "../shared/types";
 import { useOutlineState } from "./workspace/use-outline-state";
-import { ConfirmDialog, NotebookDialog, type ConfirmRequest } from "./workspace/dialogs";
+import { type ConfirmRequest } from "./workspace/dialogs";
 import { DEFAULT_SPLIT_RATIO } from "./workspace/split-resizer";
-import { SplitNoteDialog } from "./workspace/split-note-dialog";
-import { NoteListPanel, NoteLoadingState, Sidebar } from "./workspace/panels";
+import { NoteListPanel, Sidebar } from "./workspace/panels";
 import { NoteCardGridPanel } from "./workspace/note-card-grid";
 import { registerDragOverGuard } from "./workspace/note-drag-drop";
 import { noteMetadataSnapshot, toNoteSummary, viewLabel } from "./workspace/helpers";
@@ -31,16 +28,12 @@ import { useWorkspaceShortcuts } from "./workspace/use-workspace-shortcuts";
 import { useTrashActions } from "./workspace/use-trash-actions";
 import {
   useMobileNavigation,
-  shouldShowTasksPanel,
-  shouldShowKanbanPanel,
-  shouldShowMemoPage,
   type MobileListContext,
   type MobilePage,
 } from "./workspace/use-mobile-navigation";
 import { useMobileViewport } from "./workspace/use-mobile-viewport";
 import { useNotices } from "./workspace/use-notices";
-import { SystemNotices } from "./workspace/system-notices";
-import { MobileNotebookHome, MobileBottomBar } from "./workspace/mobile-panels";
+import { MobileBottomBar } from "./workspace/mobile-panels";
 import { useThemePreference } from "./theme";
 import { createWorkspaceContextMenuHandler } from "./workspace/workspace-context-menu";
 import { useWorkspacePreferences } from "./workspace/use-workspace-preferences";
@@ -67,24 +60,11 @@ import { WorkspaceEditorArea } from "./workspace/workspace-editor-area";
 import { useWorkspaceNoteSync } from "./workspace/use-workspace-note-sync";
 import { useWorkspaceCollectionActions } from "./workspace/use-workspace-collection-actions";
 import { useWorkspaceOffline } from "./workspace/use-workspace-offline";
+import { useWorkspaceCommands } from "./workspace/use-workspace-commands";
+import { WorkspaceCollections } from "./workspace/workspace-collections";
+import { WorkspaceDialogs } from "./workspace/workspace-dialogs";
 
 export type { ViewLayout } from "./workspace/use-workspace-preferences";
-
-const LazyImageExportDialog = lazy(() =>
-  import("./image-export/dialog").then(({ ImageExportDialog }) => ({ default: ImageExportDialog })),
-);
-
-const LazyMemoPage = lazy(() =>
-  import("./memos/memo-page").then(({ MemoPage }) => ({ default: MemoPage })),
-);
-
-const LazyTasksPanel = lazy(() =>
-  import("./workspace/tasks-panel").then(({ TasksPanel }) => ({ default: TasksPanel })),
-);
-
-const LazyKanbanPanel = lazy(() =>
-  import("./workspace/kanban-panel").then(({ KanbanPanel }) => ({ default: KanbanPanel })),
-);
 
 export function Workspace() {
   const navigate = useNavigate();
@@ -299,7 +279,6 @@ export function Workspace() {
   });
   const realtimeRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingRealtimeRefreshRef = useRef<RealtimeRefreshPlan>(emptyRealtimeRefreshPlan());
-  const shortcutHandledRef = useRef(false);
   const confirmIdRef = useRef(0);
   const replaceList = useCallback((next: NoteSummary[]) => {
     notesRef.current = next;
@@ -600,33 +579,6 @@ export function Workspace() {
     },
     [],
   );
-  const openCommandMenu = useCallback((initialQuery = "") => {
-    setCommandInitialQuery(initialQuery);
-    setCommandOpen(true);
-  }, []);
-  const handleReplaceRequestHandled = useCallback((token: number) => {
-    setReplaceRequest((current) => (current?.token === token ? null : current));
-  }, []);
-  const openReplaceInCurrentNote = useCallback(() => {
-    const note =
-      activePane === "secondary" && splitNoteId ? splitSelectedRef.current : selectedRef.current;
-    if (!note) {
-      notifyWarning("当前未打开笔记，无法查找替换");
-      return;
-    }
-    const selection = window.getSelection();
-    const selectedText = selection?.anchorNode?.parentElement?.closest(".editor-panel")
-      ? selection.toString()
-      : "";
-    setCommandOpen(false);
-    setTasksOpen(false);
-    if (!isMobileViewport && viewLayout === "cards" && !splitNoteId) setCardEditingNoteId(note.id);
-    setReplaceRequest((current) => ({
-      noteId: note.id,
-      token: (current?.token ?? 0) + 1,
-      query: selectedText.length <= 50 ? selectedText : "",
-    }));
-  }, [activePane, splitNoteId, isMobileViewport, viewLayout, notifyWarning]);
 
   const onNoteChange = useWorkspaceNoteChange({
     selectedRef,
@@ -937,6 +889,90 @@ export function Workspace() {
     replaceList,
   });
 
+  const handleReplaceRequestHandled = useCallback((token: number) => {
+    setReplaceRequest((current) => (current?.token === token ? null : current));
+  }, []);
+  const {
+    selectView,
+    openTasks,
+    openKanban,
+    openMemos,
+    openKanbanNote,
+    selectNotebook,
+    changeQuery,
+    handleQueryDraftChange,
+    submitQuery,
+  } = useWorkspaceNavigation({
+    view,
+    notebookId,
+    query,
+    queryDraft,
+    setView,
+    setNotebookId,
+    setQuery,
+    setQueryDraft,
+    setTasksOpen,
+    setKanbanOpen,
+    setMemosOpen,
+    setCardEditingNoteId,
+    kanbanReturnRef,
+    searchOriginRef,
+    requestListTransition,
+    openMobileList,
+    openMobileTasks,
+    openMobileKanban,
+    openMobileMemos,
+    openMobileNote,
+    flushSecondaryDraft,
+    flushPendingSaves,
+    hasUnsavedWork,
+    notifyWarning,
+    flushEditorDraftRef,
+    splitNoteId,
+    closeSplit,
+    viewLayout,
+    selectNote,
+  });
+  const { openCommandMenu, openReplaceInCurrentNote, logout, command } = useWorkspaceCommands({
+    ready,
+    selectedRef,
+    splitSelectedRef,
+    editorMarkdownReaderRef,
+    searchRef,
+    activePane,
+    splitNoteId,
+    isMobileViewport,
+    viewLayout,
+    pwaState,
+    flushPendingSaves,
+    hasUnsavedWork,
+    createNoteInInbox,
+    openMobileList,
+    openMobileHome,
+    openKanban,
+    handleToggleSplit,
+    toggleViewLayout,
+    toggleFocusMode,
+    toggleAutoReadingMode,
+    toggleTypewriterMode,
+    toggleFavorite,
+    moveToTrash,
+    restoreFromTrash,
+    handleExportImage,
+    handleExportNote,
+    handleExportLibrary,
+    setSidebarCollapsed,
+    setThemePreference,
+    setCommandOpen,
+    setCommandInitialQuery,
+    setTasksOpen,
+    setCardEditingNoteId,
+    setReplaceRequest,
+    notifyInfo,
+    notifyWarning,
+    notifyError,
+    navigate,
+  });
   useWorkspaceShortcuts({
     focusMode,
     autoReadingMode,
@@ -1039,47 +1075,6 @@ export function Workspace() {
     if (tasksOpen) setTaskRefreshToken((value) => value + 1);
     if (kanbanOpen) setKanbanRefreshToken((value) => value + 1);
   };
-  const {
-    selectView,
-    openTasks,
-    openKanban,
-    openMemos,
-    openKanbanNote,
-    selectNotebook,
-    changeQuery,
-    handleQueryDraftChange,
-    submitQuery,
-  } = useWorkspaceNavigation({
-    view,
-    notebookId,
-    query,
-    queryDraft,
-    setView,
-    setNotebookId,
-    setQuery,
-    setQueryDraft,
-    setTasksOpen,
-    setKanbanOpen,
-    setMemosOpen,
-    setCardEditingNoteId,
-    kanbanReturnRef,
-    searchOriginRef,
-    requestListTransition,
-    openMobileList,
-    openMobileTasks,
-    openMobileKanban,
-    openMobileMemos,
-    openMobileNote,
-    flushSecondaryDraft,
-    flushPendingSaves,
-    hasUnsavedWork,
-    notifyWarning,
-    flushEditorDraftRef,
-    splitNoteId,
-    closeSplit,
-    viewLayout,
-    selectNote,
-  });
   const { selectTask, handleToggleTask, handleTaskNavigationMissing } = useWorkspaceTaskActions({
     flushEditorDraftRef,
     flushSecondaryDraft,
@@ -1131,107 +1126,6 @@ export function Workspace() {
     deferredQuery,
     resultSearchTokenRef,
   });
-  const copyNoteMarkdown = useCallback(async () => {
-    const note = selectedRef.current;
-    if (!note) return;
-    const markdown = editorMarkdownReaderRef.current?.(note.id) ?? note.contentMarkdown;
-    try {
-      await copyPlainText(markdown);
-      notifyInfo("笔记 Markdown 已复制");
-    } catch {
-      notifyError("复制失败，请检查浏览器剪贴板权限");
-    }
-  }, [notifyError, notifyInfo]);
-  const logout = useCallback(async () => {
-    await flushPendingSaves("now");
-    if (hasUnsavedWork()) {
-      notifyWarning("仍有内容未保存，请稍后再退出");
-      return;
-    }
-    try {
-      await api.logout();
-    } catch {
-      notifyError("退出登录失败，请检查网络后重试");
-      return;
-    }
-    navigate(`/login${window.location.search}`, { replace: true });
-  }, [flushPendingSaves, hasUnsavedWork, navigate, notifyError, notifyWarning]);
-  const command = useCallback(
-    (id: CommandId) => {
-      if (id === "logout") void logout();
-      if (id === "new-note") void createNoteInInbox();
-      if (id === "find-in-note") {
-        const selectedText = window.getSelection()?.toString().trim() ?? "";
-        const initial = selectedText && selectedText.length <= 50 ? selectedText : "";
-        setCommandInitialQuery(initial);
-        setCommandOpen(true);
-      }
-      if (id === "toggle-sidebar") {
-        if (isMobileViewport) openMobileHome();
-        else setSidebarCollapsed((value) => !value);
-      }
-      if (id === "toggle-split") handleToggleSplit();
-      if (id === "toggle-view-layout") toggleViewLayout();
-      if (id === "toggle-focus-mode") toggleFocusMode();
-      if (id === "toggle-auto-reading") toggleAutoReadingMode();
-      if (id === "toggle-typewriter-mode") toggleTypewriterMode();
-      if (id === "set-theme-light") setThemePreference("light");
-      if (id === "set-theme-dark") setThemePreference("dark");
-      if (id === "set-theme-system") setThemePreference("system");
-      if (id === "copy-note-markdown") void copyNoteMarkdown();
-      if (id === "favorite") toggleFavorite();
-      if (id === "open-kanban") void openKanban();
-      if (id === "trash") moveToTrash();
-      if (id === "restore") restoreFromTrash();
-      if (id === "export-image") handleExportImage();
-      if (id === "export-note") void handleExportNote();
-      if (id === "export-library") void handleExportLibrary();
-      if (id === "install-app") {
-        if (pwaState.canInstall) void installPwa();
-        else if (pwaState.showIosInstallHint && !pwaState.standalone)
-          notifyInfo("请在 Safari 中点击分享，再选择“添加到主屏幕”");
-      }
-    },
-    [
-      logout,
-      copyNoteMarkdown,
-      createNoteInInbox,
-      handleExportImage,
-      handleExportNote,
-      handleExportLibrary,
-      handleToggleSplit,
-      isMobileViewport,
-      moveToTrash,
-      notifyInfo,
-      openKanban,
-      openMobileHome,
-      pwaState,
-      restoreFromTrash,
-      setSidebarCollapsed,
-      setThemePreference,
-      toggleAutoReadingMode,
-      toggleFavorite,
-      toggleFocusMode,
-      toggleTypewriterMode,
-      toggleViewLayout,
-    ],
-  );
-  useEffect(() => {
-    if (!ready || shortcutHandledRef.current) return;
-    const action = new URLSearchParams(window.location.search).get("action");
-    if (action === "new-note") void createNoteInInbox();
-    if (action === "search") {
-      openMobileList();
-      requestAnimationFrame(() => searchRef.current?.focus());
-    }
-    shortcutHandledRef.current = true;
-    if (action)
-      window.history.replaceState(
-        window.history.state,
-        "",
-        `${window.location.pathname}${window.location.hash}`,
-      );
-  }, [createNoteInInbox, openMobileList, ready]);
   const { handleNavigateWikiLinkPrimary, handleNavigateWikiLinkSplit, handleCreateAndLinkNote } =
     useWorkspaceWikiLinks({
       view,
@@ -1523,90 +1417,63 @@ export function Workspace() {
             onOpenKanban={openKanban}
           />
         )}
-        {isMobileViewport && (
-          <div
-            className="mobile-home-region"
-            hidden={mobilePage !== "home" || tasksOpen || kanbanOpen || memosOpen}
-            inert={mobilePage !== "home" || tasksOpen || kanbanOpen || memosOpen}
-          >
-            <MobileNotebookHome
-              onReorderNotebooks={handleReorderNotebooks}
-              reorderingNotebooks={reorderingNotebooks}
-              view={view}
-              setView={selectView}
-              notebooks={notebooks}
-              notebookId={notebookId}
-              setNotebookId={selectNotebook}
-              onCreateNotebook={handleCreateNotebook}
-              onEditNotebook={handleEditNotebook}
-              onDeleteNotebook={handleDeleteNotebook}
-              onLogout={logout}
-              onOpenTasks={openTasks}
-              onOpenMemo={openMemos}
-              onOpenKanban={openKanban}
-              active={mobilePage === "home"}
-            />
-          </div>
-        )}
-        {shouldShowMemoPage(memosOpen, isMobileViewport, mobilePage) && (
-          <Suspense fallback={<NoteLoadingState />}>
-            <LazyMemoPage
-              isMobileViewport={isMobileViewport}
-              onBack={isMobileViewport ? backMobilePage : undefined}
-              onConverted={(note) => {
-                revealCreatedNote(note, { view: "inbox", notebookId: note.notebookId });
-                void refreshNotebooks();
-                notifyInfo("随记已转为笔记，原随记已移除");
-              }}
-            />
-          </Suspense>
-        )}
-        {shouldShowTasksPanel(tasksOpen, isMobileViewport, mobilePage) && (
-          <Suspense fallback={<NoteLoadingState panel="任务" />}>
-            <LazyTasksPanel
-              tasks={tasks}
-              total={currentTaskSnapshot?.total ?? 0}
-              hasMore={currentTaskSnapshot !== null && currentTaskSnapshot.nextCursor !== null}
-              loadingMore={tasksMoreLoading}
-              loadMoreError={tasksMoreError}
-              notebooks={notebooks}
-              notebookId={taskNotebookId}
-              status={taskStatus}
-              loading={tasksLoading}
-              busyTask={
-                taskMutationNoteId !== null && taskMutationOrdinal !== null
-                  ? { noteId: taskMutationNoteId, ordinal: taskMutationOrdinal }
-                  : null
-              }
-              error={tasksError}
-              onRetry={() => setTaskRefreshToken((value) => value + 1)}
-              onNotebookChange={setTaskNotebookId}
-              onStatusChange={setTaskStatus}
-              onSelectTask={selectTask}
-              onToggleTask={handleToggleTask}
-              onLoadMore={loadMoreTasks}
-              onBack={isMobileViewport ? backMobilePage : undefined}
-            />
-          </Suspense>
-        )}
-        {shouldShowKanbanPanel(kanbanOpen, isMobileViewport, mobilePage) && (
-          <Suspense fallback={<NoteLoadingState panel="看板" />}>
-            <LazyKanbanPanel
-              columns={kanbanColumns}
-              loading={kanbanLoading}
-              onOpenNote={openKanbanNote}
-              onCreateNoteInColumn={handleCreateNoteInKanbanColumn}
-              onAddExistingNote={handleAddExistingNoteToKanban}
-              onMoveCard={handleMoveKanbanCard}
-              onTrashCard={handleTrashKanbanCard}
-              onLoadMoreColumn={loadMoreKanbanColumn}
-              onToggleFavorite={handleToggleFavoriteKanbanCard}
-              onBack={isMobileViewport ? backMobilePage : undefined}
-              isMobileViewport={isMobileViewport}
-              availableNotes={notes}
-            />
-          </Suspense>
-        )}
+        <WorkspaceCollections
+          isMobileViewport={isMobileViewport}
+          mobilePage={mobilePage}
+          memosOpen={memosOpen}
+          tasksOpen={tasksOpen}
+          kanbanOpen={kanbanOpen}
+          view={view}
+          notebooks={notebooks}
+          notebookId={notebookId}
+          reorderingNotebooks={reorderingNotebooks}
+          notes={notes}
+          tasks={tasks}
+          tasksTotal={currentTaskSnapshot?.total ?? 0}
+          hasMoreTasks={currentTaskSnapshot !== null && currentTaskSnapshot.nextCursor !== null}
+          tasksMoreLoading={tasksMoreLoading}
+          tasksMoreError={tasksMoreError}
+          taskNotebookId={taskNotebookId}
+          taskStatus={taskStatus}
+          tasksLoading={tasksLoading}
+          busyTask={
+            taskMutationNoteId !== null && taskMutationOrdinal !== null
+              ? { noteId: taskMutationNoteId, ordinal: taskMutationOrdinal }
+              : null
+          }
+          tasksError={tasksError}
+          kanbanColumns={kanbanColumns}
+          kanbanLoading={kanbanLoading}
+          onReorderNotebooks={handleReorderNotebooks}
+          onSelectView={selectView}
+          onSelectNotebook={selectNotebook}
+          onCreateNotebook={handleCreateNotebook}
+          onEditNotebook={handleEditNotebook}
+          onDeleteNotebook={handleDeleteNotebook}
+          onLogout={logout}
+          onOpenTasks={openTasks}
+          onOpenMemos={openMemos}
+          onOpenKanban={openKanban}
+          onBackMobilePage={backMobilePage}
+          onMemoConverted={(note) => {
+            revealCreatedNote(note, { view: "inbox", notebookId: note.notebookId });
+            void refreshNotebooks();
+            notifyInfo("随记已转为笔记，原随记已移除");
+          }}
+          onRetryTasks={() => setTaskRefreshToken((value) => value + 1)}
+          onTaskNotebookChange={setTaskNotebookId}
+          onTaskStatusChange={setTaskStatus}
+          onSelectTask={selectTask}
+          onToggleTask={handleToggleTask}
+          onLoadMoreTasks={loadMoreTasks}
+          onOpenKanbanNote={openKanbanNote}
+          onCreateKanbanNote={handleCreateNoteInKanbanColumn}
+          onAddExistingKanbanNote={handleAddExistingNoteToKanban}
+          onMoveKanbanCard={handleMoveKanbanCard}
+          onTrashKanbanCard={handleTrashKanbanCard}
+          onLoadMoreKanbanColumn={loadMoreKanbanColumn}
+          onToggleFavoriteKanbanCard={handleToggleFavoriteKanbanCard}
+        />
         {!tasksOpen && !kanbanOpen && !memosOpen && !isCardsLayout && (
           <NoteListPanel
             notes={notes}
@@ -1812,82 +1679,59 @@ export function Workspace() {
             }
           />
         )}
-        <CommandMenu
+        <WorkspaceDialogs
           isMobileViewport={isMobileViewport}
-          open={commandOpen}
-          onClose={closeCommandMenu}
+          commandOpen={commandOpen}
+          commandInitialQuery={commandInitialQuery}
+          commandNoteReady={commandNoteReady}
+          renderedNote={renderedNote}
+          notebooks={notebooks}
+          focusMode={focusMode}
+          autoReadingMode={autoReadingMode}
+          splitNoteId={splitNoteId}
+          typewriterMode={typewriterMode}
+          viewLayout={viewLayout}
+          pwaState={pwaState}
+          themePreference={themePreference}
+          imageExportSnapshot={imageExportSnapshot}
+          editingNotebook={editingNotebook}
+          confirmRequest={confirmRequest}
+          splitPickerOpen={splitPickerOpen}
+          notes={notes}
+          selectedId={selectedId}
+          notice={notice}
+          offline={isOffline}
+          workspaceMenu={workspaceMenu}
+          onCloseCommandMenu={closeCommandMenu}
           onCommand={command}
           onCreateNoteInNotebook={createNoteInNotebook}
-          canRestore={Boolean(commandNoteReady && renderedNote?.deletedAt)}
-          canMoveToTrash={Boolean(commandNoteReady && renderedNote && !renderedNote.deletedAt)}
-          notebooks={notebooks}
-          currentNotebookId={renderedNote?.notebookId}
-          onMoveNoteToNotebook={(targetNotebookId) => {
+          onMoveCurrentNoteToNotebook={(targetNotebookId) => {
             const id = selectedRef.current?.id;
             if (id) void handleMoveNotesToNotebook([id], targetNotebookId, true);
           }}
-          focusMode={focusMode}
-          autoReadingMode={autoReadingMode}
-          canAutoRead={!splitNoteId}
-          typewriterMode={typewriterMode}
-          viewLayout={isMobileViewport ? "three-column" : viewLayout}
-          isSplitActive={Boolean(splitNoteId && !isMobileViewport)}
-          canInstallApp={pwaState.canInstall}
-          showIosInstallHint={pwaState.showIosInstallHint}
-          standalone={pwaState.standalone}
-          hasSelectedNote={commandNoteReady}
           onSearchInCurrentNote={handleSearchInCurrentNote}
           onReplaceInCurrentNote={openReplaceInCurrentNote}
           onSearchGlobal={handleSearchGlobal}
-          initialQuery={commandInitialQuery}
-          themePreference={themePreference}
+          onCloseImageExport={closeImageExport}
+          onCloseNotebookDialog={() => setEditingNotebook(undefined)}
+          onSaveNotebookDraft={saveNotebookDraft}
+          onSavedNotebook={saveNotebook}
+          onRequestDeleteNotebook={(target) =>
+            requestConfirm({
+              eyebrow: "删除笔记本",
+              title: `删除笔记本“${target.name}”？`,
+              description: "笔记本中的笔记会自动移入收件箱，笔记内容不会被删除。",
+              confirmLabel: "删除笔记本",
+              danger: true,
+              onConfirm: () => deleteNotebook(target.id),
+            })
+          }
+          onCloseConfirm={() => setConfirmRequest(null)}
+          onCloseSplitPicker={() => setSplitPickerOpen(false)}
+          onSelectSplitNote={handleSelectSplitNote}
+          onDismissNotice={dismissNotice}
+          onPauseNotice={pauseNotice}
         />
-
-        {imageExportSnapshot && (
-          <Suspense fallback={null}>
-            <LazyImageExportDialog snapshot={imageExportSnapshot} onClose={closeImageExport} />
-          </Suspense>
-        )}
-        {editingNotebook !== undefined && (
-          <NotebookDialog
-            key={editingNotebook?.id ?? "new"}
-            notebook={editingNotebook}
-            onClose={() => setEditingNotebook(undefined)}
-            onSave={saveNotebookDraft}
-            onSaved={saveNotebook}
-            onRequestDelete={(target) =>
-              requestConfirm({
-                eyebrow: "删除笔记本",
-                title: `删除笔记本“${target.name}”？`,
-                description: "笔记本中的笔记会自动移入收件箱，笔记内容不会被删除。",
-                confirmLabel: "删除笔记本",
-                danger: true,
-                onConfirm: () => deleteNotebook(target.id),
-              })
-            }
-          />
-        )}
-        {confirmRequest && (
-          <ConfirmDialog
-            key={confirmRequest.id}
-            request={confirmRequest}
-            onClose={() => setConfirmRequest(null)}
-          />
-        )}
-        <SplitNoteDialog
-          open={splitPickerOpen}
-          onClose={() => setSplitPickerOpen(false)}
-          onSelectNote={handleSelectSplitNote}
-          notes={notes}
-          excludeNoteId={selectedId}
-        />
-        <SystemNotices
-          notice={notice}
-          offline={isOffline}
-          onDismiss={dismissNotice}
-          onPause={pauseNotice}
-        />
-        {workspaceMenu}
       </div>
     </MemoWorkspaceProvider>
   );

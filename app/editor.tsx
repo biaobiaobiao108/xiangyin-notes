@@ -46,10 +46,12 @@ import { MobileEditorFooter, MobileEditorOutline } from "./editor/mobile-editor-
 import { useMobileCaret } from "./editor/use-mobile-caret";
 import { useEditorCaretScroll } from "./editor/use-editor-caret-scroll";
 import {
-  getOutlineHeadingElements,
+  syncEditorActiveOutline,
   useEditorOutlineNavigation,
 } from "./editor/use-editor-outline-navigation";
 import { useEditorSurfaceSync } from "./editor/use-editor-surface-sync";
+import { useEditorMarkdownSync } from "./editor/use-editor-markdown-sync";
+import { useEditorTypewriter } from "./editor/use-editor-typewriter";
 import { useEditorProps } from "./editor/use-editor-props";
 import { prepareMarkdownForEditor } from "./editor/prepare-markdown";
 import { BlockDragHandle } from "./editor/block-drag-handle";
@@ -61,12 +63,6 @@ import { AutoReadingHUD } from "./editor/auto-reading-hud";
 import { useEditorSearch } from "./editor/use-editor-search";
 import { useEditorImageUpload } from "./editor/use-editor-image-upload";
 import "./editor/mobile-editor.css";
-
-type EditorWithMarkdown = Editor & { getMarkdown: () => string };
-
-const OUTLINE_HEADING_SELECTOR = "h1, h2, h3, h4, h5, h6";
-const EDITOR_SYNC_DEBOUNCE_MS = 180;
-const EDITOR_SYNC_MAX_WAIT_MS = 720;
 
 function resizeTitleField(field: HTMLTextAreaElement | null) {
   if (!field) return;
@@ -201,10 +197,6 @@ export function NoteEditor({
   const syncFrameRef = useRef<number | null>(null);
   const syncStartedAtRef = useRef<number | null>(null);
   const syncOutlineDirtyRef = useRef(false);
-  const markdownSyncFrameRef = useRef<number | null>(null);
-  const markdownSyncStartedAtRef = useRef<number | null>(null);
-  const markdownDirtyRef = useRef(false);
-  const serializedMarkdownRef = useRef<{ doc: ProseMirrorNode; markdown: string } | null>(null);
   const editorTextBlockStatsRef = useRef<EditorTextBlockStatsCache>(
     new WeakMap<ProseMirrorNode, EditorStats>(),
   );
@@ -383,8 +375,16 @@ export function NoteEditor({
     typewriterTargetRef,
   });
   smoothScrollToHeadRef.current = smoothScrollToHead;
-  const alignTypewriterRef = useRef(alignTypewriter);
-  alignTypewriterRef.current = alignTypewriter;
+  const { alignTypewriterRef, cancelTypewriterAnimation } = useEditorTypewriter({
+    noteId: note.id,
+    typewriterMode,
+    editorScrollRef,
+    editorInstanceRef,
+    typewriterModeRef,
+    typewriterAnimRef,
+    typewriterTargetRef,
+    alignTypewriter,
+  });
 
   const editorProps = useEditorProps({
     mobileViewportRef,
@@ -405,69 +405,18 @@ export function NoteEditor({
   });
   surfaceSyncRef.current = scheduleEditorSurfaceSync;
 
-  const readDirtyMarkdown = useCallback((instance: Editor) => {
-    if (instance.isDestroyed || !markdownDirtyRef.current) return null;
-    const doc = instance.state.doc;
-    const cached = serializedMarkdownRef.current;
-    if (cached?.doc === doc) return cached.markdown;
-    const markdown = (instance as EditorWithMarkdown).getMarkdown();
-    serializedMarkdownRef.current = { doc, markdown };
-    return markdown;
-  }, []);
-
-  const flushMarkdownChange = useCallback(
-    (source?: Editor) => {
-      if (markdownSyncFrameRef.current !== null) {
-        window.clearTimeout(markdownSyncFrameRef.current);
-        markdownSyncFrameRef.current = null;
-      }
-      markdownSyncStartedAtRef.current = null;
-      const instance = source ?? editorInstanceRef.current;
-      const markdown = instance ? readDirtyMarkdown(instance) : null;
-      if (markdown === null) return;
-      serializedMarkdownRef.current = null;
-      markdownDirtyRef.current = false;
-      const { noteId } = markdownOwnerRef.current;
-      onMarkdownDirtyChangeRef.current?.(noteId, false);
-      onChangeRef.current(noteId, { contentMarkdown: markdown });
-    },
-    [readDirtyMarkdown],
-  );
-
-  const scheduleMarkdownChange = useCallback(
-    (instance: Editor) => {
-      serializedMarkdownRef.current = null;
-      const wasDirty = markdownDirtyRef.current;
-      markdownDirtyRef.current = true;
-      const noteId = markdownOwnerRef.current.noteId;
-      if (!wasDirty) onMarkdownDirtyChangeRef.current?.(noteId, true);
-      const currentReloadToken = markdownOwnerRef.current.reloadToken;
-      const now = performance.now();
-      const startedAt = markdownSyncStartedAtRef.current ?? now;
-      markdownSyncStartedAtRef.current = startedAt;
-      if (markdownSyncFrameRef.current !== null) window.clearTimeout(markdownSyncFrameRef.current);
-      const wait = Math.min(
-        EDITOR_SYNC_DEBOUNCE_MS,
-        Math.max(0, startedAt + EDITOR_SYNC_MAX_WAIT_MS - now),
-      );
-      markdownSyncFrameRef.current = window.setTimeout(() => {
-        markdownSyncFrameRef.current = null;
-        markdownSyncStartedAtRef.current = null;
-        if (instance.isDestroyed || !markdownDirtyRef.current) return;
-        if (
-          noteId !== markdownOwnerRef.current.noteId ||
-          currentReloadToken !== markdownOwnerRef.current.reloadToken
-        ) {
-          serializedMarkdownRef.current = null;
-          markdownDirtyRef.current = false;
-          onMarkdownDirtyChangeRef.current?.(noteId, false);
-          return;
-        }
-        flushMarkdownChange(instance);
-      }, wait);
-    },
-    [flushMarkdownChange],
-  );
+  const {
+    readDirtyMarkdown,
+    flushMarkdownChange,
+    scheduleMarkdownChange,
+    clearMarkdownSyncTimer,
+    resetMarkdownDirtyState,
+  } = useEditorMarkdownSync({
+    editorInstanceRef,
+    markdownOwnerRef,
+    onChangeRef,
+    onMarkdownDirtyChangeRef,
+  });
 
   const editor = useEditor({
     editable: bodyEditable,
@@ -546,56 +495,14 @@ export function NoteEditor({
   }, [flushMarkdownChange, onSaveNow]);
 
   const syncActiveOutlineFromSelection = useCallback(
-    (instance: Editor) => {
-      const root = editorScrollRef.current;
-      const items = outlineItemsRef.current;
-      if (!root || items.length === 0) return false;
-
-      const { $from } = instance.state.selection;
-      let previousHeadingElement: HTMLElement | null = null;
-      let previousHeadingIndex = -1;
-      for (let depth = $from.depth; depth > 0; depth -= 1) {
-        if ($from.node(depth).type.name !== "heading") continue;
-        const headingDom = instance.view.nodeDOM($from.before(depth));
-        const headingElement =
-          headingDom instanceof HTMLElement
-            ? headingDom.closest<HTMLElement>(OUTLINE_HEADING_SELECTOR)
-            : null;
-        if (headingElement?.textContent?.trim()) previousHeadingElement = headingElement;
-        break;
-      }
-      if (!previousHeadingElement) {
-        let low = 0;
-        let high = items.length - 1;
-        try {
-          while (low <= high) {
-            const middle = Math.floor((low + high) / 2);
-            const element = outlineHeadingElementsRef.current.get(items[middle].id);
-            if (!element || !root.contains(element)) return false;
-            if (instance.view.posAtDOM(element, 0) <= $from.pos) {
-              previousHeadingElement = element;
-              previousHeadingIndex = middle;
-              low = middle + 1;
-            } else {
-              high = middle - 1;
-            }
-          }
-        } catch {
-          return false;
-        }
-      }
-      if (!previousHeadingElement || !root.contains(previousHeadingElement)) return false;
-      const item =
-        previousHeadingIndex >= 0
-          ? items[previousHeadingIndex]
-          : (items.find(
-              (candidate) =>
-                outlineHeadingElementsRef.current.get(candidate.id) === previousHeadingElement,
-            ) ?? items[getOutlineHeadingElements(root).indexOf(previousHeadingElement)]);
-      if (!item) return false;
-      onOutlineActiveChange(item.id);
-      return true;
-    },
+    (instance: Editor) =>
+      syncEditorActiveOutline(
+        instance,
+        editorScrollRef.current,
+        outlineItemsRef.current,
+        outlineHeadingElementsRef.current,
+        onOutlineActiveChange,
+      ),
     [onOutlineActiveChange],
   );
 
@@ -639,55 +546,6 @@ export function NoteEditor({
   }, [editor, syncActiveOutlineFromSelection, syncSearchNavigation]);
 
   useEffect(() => {
-    if (typewriterMode && editorInstanceRef.current?.view.hasFocus()) {
-      alignTypewriterRef.current(editorInstanceRef.current);
-    } else if (!typewriterMode) {
-      if (typewriterAnimRef.current !== null) {
-        cancelAnimationFrame(typewriterAnimRef.current);
-        typewriterAnimRef.current = null;
-        typewriterTargetRef.current = null;
-      }
-    }
-  }, [typewriterMode]);
-
-  useEffect(() => {
-    const scrollContainer = editorScrollRef.current;
-    if (!scrollContainer) return;
-    const onManualScroll = () => {
-      if (typewriterAnimRef.current !== null) {
-        cancelAnimationFrame(typewriterAnimRef.current);
-        typewriterAnimRef.current = null;
-        typewriterTargetRef.current = null;
-      }
-    };
-    scrollContainer.addEventListener("wheel", onManualScroll, { passive: true });
-    scrollContainer.addEventListener("touchmove", onManualScroll, { passive: true });
-    return () => {
-      scrollContainer.removeEventListener("wheel", onManualScroll);
-      scrollContainer.removeEventListener("touchmove", onManualScroll);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (typewriterAnimRef.current !== null) {
-      cancelAnimationFrame(typewriterAnimRef.current);
-      typewriterAnimRef.current = null;
-      typewriterTargetRef.current = null;
-    }
-  }, [note.id]);
-
-  useEffect(
-    () => () => {
-      if (typewriterAnimRef.current !== null) {
-        cancelAnimationFrame(typewriterAnimRef.current);
-        typewriterAnimRef.current = null;
-        typewriterTargetRef.current = null;
-      }
-    },
-    [],
-  );
-
-  useEffect(() => {
     if (!editor) return;
     scheduleEditorSurfaceSync(editor);
     return () => {
@@ -697,16 +555,14 @@ export function NoteEditor({
       syncFrameRef.current = null;
       syncStartedAtRef.current = null;
       syncOutlineDirtyRef.current = false;
-      if (markdownSyncFrameRef.current !== null) window.clearTimeout(markdownSyncFrameRef.current);
-      markdownSyncFrameRef.current = null;
-      markdownSyncStartedAtRef.current = null;
+      clearMarkdownSyncTimer();
       if (imeCleanupTimerRef.current !== null) clearTimeout(imeCleanupTimerRef.current);
       imeCleanupTimerRef.current = null;
       leakedCandidateRef.current = null;
       composingRef.current = false;
       outlineHeadingElementsRef.current.clear();
     };
-  }, [editor]);
+  }, [clearMarkdownSyncTimer, editor]);
 
   useEffect(() => {
     if (!isLoading) {
@@ -745,11 +601,7 @@ export function NoteEditor({
     outlineHeadingElementsRef.current.clear();
     outlineSelectionSynchronizedRef.current = false;
     setEditorStats(countEditorText(""));
-    serializedMarkdownRef.current = null;
-    markdownDirtyRef.current = false;
-    if (markdownSyncFrameRef.current !== null) window.clearTimeout(markdownSyncFrameRef.current);
-    markdownSyncFrameRef.current = null;
-    markdownSyncStartedAtRef.current = null;
+    resetMarkdownDirtyState();
     initialContentRef.current = prepareMarkdownForEditor(contentMarkdown);
     replaceEditorMarkdown(editor, initialContentRef.current);
     editorScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
@@ -1047,10 +899,7 @@ export function NoteEditor({
                 : "smooth";
               if (scrollNoteNavigation(event.nativeEvent, event.currentTarget, behavior)) {
                 event.stopPropagation();
-                if (typewriterAnimRef.current !== null)
-                  cancelAnimationFrame(typewriterAnimRef.current);
-                typewriterAnimRef.current = null;
-                typewriterTargetRef.current = null;
+                if (typewriterAnimRef.current !== null) cancelTypewriterAnimation();
               }
             }
           }}

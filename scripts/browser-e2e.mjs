@@ -15,15 +15,17 @@ function attachErrorGuard(page, errors) {
   return page;
 }
 
-async function loginThroughUi(page) {
+async function loginThroughUi(page, { waitForEditor = true } = {}) {
   await page.goto(`${app.url}/app`);
   await page.waitForURL(/\/login/);
   await page.getByLabel("用户名").fill(app.username);
   await page.getByLabel("密码", { exact: true }).fill(app.password);
   await page.getByRole("button", { name: "进入笔记" }).click();
   await page.waitForURL(/\/app/);
-  await page.getByRole("complementary", { name: "主导航" }).waitFor();
-  await page.locator(TITLE_SELECTOR).waitFor();
+  if (waitForEditor) {
+    await page.getByRole("complementary", { name: "主导航" }).waitFor();
+    await page.locator(TITLE_SELECTOR).waitFor();
+  }
 }
 
 const pageErrors = [];
@@ -32,6 +34,7 @@ const context = await browser.newContext({
   serviceWorkers: "block",
   reducedMotion: "reduce",
 });
+let mobileContext = null;
 let stage = "初始化";
 const page = attachErrorGuard(await context.newPage(), pageErrors);
 
@@ -192,8 +195,135 @@ try {
   assert.equal((await moveCard).status(), 200);
   await doingColumn.locator(`[data-kanban-note-id="${kanbanNoteId}"]`).waitFor();
 
+  // 8. 斜杠命令插入任务、任务面板勾选与编辑器联动
+  stage = "8. 斜杠命令与任务面板联动";
+  await page.locator('aside.sidebar button:has-text("全部笔记")').click();
+  const taskNoteCreate = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api/notes" && response.request().method() === "POST",
+  );
+  await page.getByRole("button", { name: "在收件箱中新建笔记" }).click();
+  const taskNoteCreateResponse = await taskNoteCreate;
+  assert.equal(taskNoteCreateResponse.status(), 201);
+  const taskNoteId = (await taskNoteCreateResponse.json()).note.id;
+
+  await titleField.fill("E2E 任务测试笔记");
+  await editor.click();
+  await page.keyboard.type("/todo");
+  await page.locator('.slash-command-menu [role="option"]:has-text("任务清单")').waitFor();
+  const taskNoteSave = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === `/api/notes/${taskNoteId}` &&
+      response.request().method() === "PATCH" &&
+      response.status() === 200 &&
+      (response.request().postDataJSON()?.contentMarkdown ?? "").includes("E2E 任务联动验证"),
+  );
+  await page.keyboard.press("Enter");
+  await page.keyboard.insertText("E2E 任务联动验证");
+  await taskNoteSave;
+
+  const tasksLoad = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api/tasks" && response.request().method() === "GET",
+  );
+  await page.locator('aside.sidebar button:has-text("任务")').click();
+  assert.equal((await tasksLoad).status(), 200);
+  const taskCompleteSave = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === `/api/notes/${taskNoteId}` &&
+      response.request().method() === "PATCH" &&
+      response.status() === 200,
+  );
+  await page.getByRole("checkbox", { name: "标记为已完成：E2E 任务联动验证" }).click();
+  await taskCompleteSave;
+  await page.getByRole("checkbox", { name: "标记为未完成：E2E 任务联动验证" }).waitFor();
+  await page
+    .getByRole("button", { name: "打开笔记 E2E 任务测试笔记 并定位任务：E2E 任务联动验证" })
+    .click();
+  await page.waitForFunction(
+    ({ selector, expected }) => document.querySelector(selector)?.value === expected,
+    { selector: TITLE_SELECTOR, expected: "E2E 任务测试笔记" },
+  );
+  assert.equal(await editor.locator('input[type="checkbox"]').first().isChecked(), true);
+
+  // 9. 卡片网格视图与双栏分屏对照
+  stage = "9. 卡片视图与双栏分屏";
+  await page.locator('aside.sidebar button:has-text("全部笔记")').click();
+  await page.locator(`.note-list-panel [data-note-id="${taskNoteId}"] .note-row`).click();
+  await page.keyboard.press("Alt+v");
+  await page.locator(".app-shell.layout-cards .note-card-grid").waitFor();
+  await page.locator(`.note-card[data-note-id="${taskNoteId}"]`).click();
+  await page.getByRole("button", { name: "分屏显示" }).click();
+  await page.locator('[aria-labelledby="split-note-dialog-title"]').waitFor();
+  await page
+    .locator(
+      '[aria-labelledby="split-note-dialog-title"] [role="option"]:has-text("E2E 端到端测试笔记")',
+    )
+    .click();
+  await page.waitForFunction(
+    () => document.querySelectorAll('[aria-label="笔记编辑器"]').length === 2,
+  );
+  await page.waitForFunction(() =>
+    Array.from(document.querySelectorAll('[aria-label="笔记正文"][contenteditable="true"]')).some(
+      (el) => el.textContent?.includes("远端已更新的正文内容"),
+    ),
+  );
+  await page.keyboard.press("Escape");
+  await page.locator(".app-shell.layout-cards .note-card-grid").waitFor();
+  await page.locator(`.note-card[data-note-id="${taskNoteId}"]`).focus();
+  await page.keyboard.press("Alt+v");
+  await page.locator(".note-list-panel").waitFor();
+
+  // 10. 移入回收站与立即恢复
+  stage = "10. 移入回收站与恢复";
+  await page.locator(`.note-list-panel [data-note-id="${taskNoteId}"] .note-row`).click();
+  const trashSave = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === `/api/notes/${taskNoteId}` &&
+      response.request().method() === "PATCH" &&
+      response.status() === 200,
+  );
+  await page.getByRole("button", { name: "移入回收站" }).click();
+  await trashSave;
+  await page.locator('aside.sidebar button:has-text("回收站")').click();
+  await page.locator(`.note-list-panel [data-note-id="${taskNoteId}"] .note-row`).click();
+  await page.locator(".trashed-banner").waitFor();
+  const restoreSave = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === `/api/notes/${taskNoteId}` &&
+      response.request().method() === "PATCH" &&
+      response.status() === 200,
+  );
+  await page.getByRole("button", { name: "立即恢复" }).click();
+  await restoreSave;
+  await page.locator(".trashed-banner").waitFor({ state: "detached" });
+
+  // 11. 移动端视口导航、编辑与浏览器返回栈
+  stage = "11. 移动端视口导航与返回栈";
+  mobileContext = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    serviceWorkers: "block",
+    reducedMotion: "reduce",
+  });
+  const mobilePage = attachErrorGuard(await mobileContext.newPage(), pageErrors);
+  await loginThroughUi(mobilePage, { waitForEditor: false });
+  await mobilePage.locator("#mobile-notebooks-title").waitFor();
+  await mobilePage.locator('nav[aria-label="笔记分类"] button:has-text("全部笔记")').click();
+  await mobilePage.locator('.app-shell[data-mobile-page="list"]').waitFor();
+  await mobilePage.locator('.note-row:has-text("E2E 端到端测试笔记")').first().click();
+  await mobilePage.locator('.app-shell[data-mobile-page="editor"]').waitFor();
+  await mobilePage.waitForFunction(
+    ({ selector, expected }) => document.querySelector(selector)?.value === expected,
+    { selector: TITLE_SELECTOR, expected: "E2E 端到端测试笔记" },
+  );
+  await mobilePage.locator("button.mobile-editor-back").click();
+  await mobilePage.locator('.app-shell[data-mobile-page="list"]').waitFor();
+  await mobilePage.goBack();
+  await mobilePage.locator('.app-shell[data-mobile-page="home"]').waitFor();
+  await mobilePage.locator("#mobile-notebooks-title").waitFor();
+
   assert.equal(pageErrors.length, 0, `Uncaught page errors: ${pageErrors.map(String).join("; ")}`);
-  console.log("Browser E2E passed (7 scenarios, 0 page errors).");
+  console.log("Browser E2E passed (11 scenarios, 0 page errors).");
 } catch (error) {
   const titleVal = await page
     .locator(TITLE_SELECTOR)
@@ -208,6 +338,7 @@ try {
     { cause: error },
   );
 } finally {
+  if (mobileContext) await mobileContext.close();
   await context.close();
   await browser.close();
   await app.close();
