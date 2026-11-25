@@ -27,6 +27,26 @@
   opacity: 0;
 }
 
+.mermaid-rendered.is-editable {
+  position: relative;
+  cursor: pointer;
+}
+
+.mermaid-edit-trigger {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  pointer-events: none;
+}
+
+.mermaid-edit-trigger:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--focus-ring);
+}
+
 .mermaid-source {
   position: absolute;
   inset: 0;

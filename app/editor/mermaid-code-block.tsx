@@ -1,4 +1,12 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useEffectEvent,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   NodeViewContent,
   NodeViewWrapper,
@@ -19,8 +27,9 @@ export function MermaidCodeBlock({
   const [edit, setEdit] = useState(false);
   const [showReadOnlySource, setShowReadOnlySource] = useState(false);
   const [dismissedMatch, setDismissedMatch] = useState<number | null>(null);
+  const [dismissedSelection, setDismissedSelection] = useState<string | null>(null);
   const [previewSource, setPreviewSource] = useState(node.textContent);
-  const toggleRef = useRef<HTMLButtonElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const sourceRef = useRef<HTMLDivElement>(null);
@@ -30,30 +39,37 @@ export function MermaidCodeBlock({
     selector: ({ editor: current }) => {
       const start = getPos();
       if (typeof start !== "number" || start < 0 || start >= current.state.doc.content.size)
-        return { caretInside: false, match: null };
+        return { selection: null, match: null };
       const documentNode = current.state.doc.nodeAt(start);
-      if (documentNode?.type.name !== "codeBlock") return { caretInside: false, match: null };
+      if (documentNode?.type.name !== "codeBlock") return { selection: null, match: null };
       const end = start + documentNode.nodeSize;
       const selection = current.state.selection;
-      const caretInside =
+      const selectionInside =
         current.isFocused &&
         selection instanceof TextSelection &&
-        selection.empty &&
         selection.from > start &&
-        selection.from < end;
+        selection.to < end;
       const search = searchHighlightPluginKey.getState(current.state);
       const match = search?.matches[search.activeIndex]?.from;
-      return { caretInside, match: match != null && match > start && match < end ? match : null };
+      return {
+        selection: selectionInside ? `${selection.anchor}:${selection.head}` : null,
+        match: match != null && match > start && match < end ? match : null,
+      };
     },
   });
   const revealSearch = position.match !== null && position.match !== dismissedMatch;
-  const showSource = editor.isEditable
-    ? edit || position.caretInside || revealSearch
-    : showReadOnlySource;
+  const revealSelection = position.selection !== null && position.selection !== dismissedSelection;
+  const editable = editor.isEditable;
+  const showSource = editable ? edit || revealSelection || revealSearch : showReadOnlySource;
 
   useEffect(() => {
     if (position.match === null) setDismissedMatch(null);
   }, [position.match]);
+
+  useEffect(() => {
+    if (dismissedSelection !== null && position.selection !== dismissedSelection)
+      setDismissedSelection(null);
+  }, [position.selection, dismissedSelection]);
 
   const source = node.textContent;
   useEffect(() => {
@@ -64,54 +80,119 @@ export function MermaidCodeBlock({
     const body = bodyRef.current;
     const preview = previewRef.current;
     if (!body || !preview) return;
+    let frame = 0;
     const observer = new ResizeObserver(([entry]) => {
-      if (entry) body.style.setProperty("--mermaid-body-height", `${entry.contentRect.height}px`);
+      if (!entry) return;
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        body.style.setProperty("--mermaid-body-height", `${entry.contentRect.height}px`);
+      });
     });
     observer.observe(preview);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+    };
   }, []);
 
-  const toggle = () => {
-    if (!editor.isEditable) {
-      setShowReadOnlySource(!showReadOnlySource);
-      return;
-    }
-    if (showSource) {
-      setEdit(false);
-      setDismissedMatch(position.match);
-      toggleRef.current?.focus({ preventScroll: true });
-      return;
-    }
-    setEdit(true);
+  const openSource = () => {
     const start = getPos();
-    if (typeof start === "number") {
-      if (sourceRef.current) sourceRef.current.scrollTop = 0;
-      editor.commands.focus(start + 1, { scrollIntoView: false });
-    }
+    if (typeof start !== "number") return;
+    setEdit(true);
+    if (sourceRef.current) sourceRef.current.scrollTop = 0;
+    editor.commands.focus(start + 1, { scrollIntoView: false });
   };
+
+  const closeSource = useEffectEvent(() => {
+    setEdit(false);
+    setDismissedMatch(position.match);
+    setDismissedSelection(position.selection);
+  });
+
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!editable || !showSource || !body) return;
+    const editorDom = editor.view.dom;
+    const { ownerDocument } = body;
+    const closeOutside = (event: Event) => {
+      if (body.contains(event.target as Node)) return;
+      if (event.type === "focusin" && event.target === editorDom) return;
+      closeSource();
+    };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (
+        event.key !== "Escape" ||
+        event.defaultPrevented ||
+        event.isComposing ||
+        event.keyCode === 229
+      )
+        return;
+      if (!body.contains(event.target as Node)) {
+        const start = getPos();
+        const { $head } = editor.state.selection;
+        if (event.target !== editorDom || !$head.depth || $head.before() !== start) return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      closeSource();
+      // Wait for the preview to become interactive before returning keyboard focus to it.
+      requestAnimationFrame(() => triggerRef.current?.focus({ preventScroll: true }));
+    };
+    ownerDocument.addEventListener("click", closeOutside, true);
+    ownerDocument.addEventListener("focusin", closeOutside);
+    editorDom.addEventListener("keydown", handleEscape, true);
+    return () => {
+      ownerDocument.removeEventListener("click", closeOutside, true);
+      ownerDocument.removeEventListener("focusin", closeOutside);
+      editorDom.removeEventListener("keydown", handleEscape, true);
+    };
+  }, [editable, editor, getPos, showSource]);
 
   return (
     <NodeViewWrapper className="mermaid-code-block">
-      <div className="mermaid-toolbar" contentEditable={false}>
-        <button
-          ref={toggleRef}
-          className="mermaid-action"
-          type="button"
-          aria-expanded={showSource}
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={toggle}
-        >
-          {showSource
-            ? editor.isEditable
-              ? "完成"
-              : "显示图表"
-            : editor.isEditable
-              ? "编辑图表"
-              : "查看源码"}
-        </button>
-      </div>
+      {!editable ? (
+        <div className="mermaid-toolbar" contentEditable={false}>
+          <button
+            className="mermaid-action"
+            type="button"
+            aria-expanded={showSource}
+            onClick={() => setShowReadOnlySource((value) => !value)}
+          >
+            {showSource ? "显示图表" : "查看源码"}
+          </button>
+        </div>
+      ) : null}
       <div ref={bodyRef} className="mermaid-body">
-        <div ref={previewRef} className="mermaid-rendered" inert={showSource}>
+        <div
+          ref={previewRef}
+          className={editable ? "mermaid-rendered is-editable" : "mermaid-rendered"}
+          contentEditable={false}
+          inert={showSource}
+          onMouseDownCapture={
+            editable
+              ? (event) => {
+                  if (event.button === 0) event.preventDefault();
+                }
+              : undefined
+          }
+          onClick={
+            editable
+              ? (event) => {
+                  if (!(event.target as Element).closest("button")) openSource();
+                }
+              : undefined
+          }
+        >
+          {editable ? (
+            <button
+              ref={triggerRef}
+              className="mermaid-edit-trigger"
+              type="button"
+              aria-label="编辑图表"
+              aria-controls={sourceId}
+              onClick={openSource}
+            />
+          ) : null}
           <DiagramPreview source={previewSource} keepPrevious />
         </div>
         <div className="mermaid-source" inert={!showSource}>
