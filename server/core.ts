@@ -811,6 +811,41 @@ export const ASSET_REFERENCE_PATTERN =
 export const PRIVATE_ASSET_SOURCE_PATTERN =
   /^\/api\/assets\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?=[?#]|$)/iu;
 
+export function rewriteMarkdownAssetDestinations(
+  markdown: string,
+  replacement: (assetId: string) => string | undefined,
+) {
+  const candidates = /\\?\/api\\?\/assets\\?\/([0-9a-f-]{36})(?![0-9a-z-])/giu;
+  const edits = new Map<string, { start: number; end: number; value: string }>();
+  const prefix = crypto.randomUUID().slice(0, 24);
+  const markedSource = markdown.replace(candidates, (raw, id: string, start: number) => {
+    const value = replacement(id.toLowerCase());
+    if (value === undefined) return raw;
+    // Keep the Markdown syntax and vary just the UUID so the lexer identifies
+    // the exact occurrence used as a destination, even when the same URL is prose.
+    const marker = prefix + edits.size.toString(16).padStart(12, "0");
+    edits.set(marker, { start, end: start + raw.length, value });
+    return raw.slice(0, -36) + marker;
+  });
+  if (!edits.size) return markdown;
+
+  const destinations = new Set<string>();
+  for (const { destination } of extractMarkdownDestinationReferences(markedSource, true)) {
+    const id = ASSET_REFERENCE_PATTERN.exec(destination)?.[1]?.toLowerCase();
+    if (id && edits.has(id)) destinations.add(id);
+  }
+  if (!destinations.size) return markdown;
+
+  const parts: string[] = [];
+  let offset = 0;
+  for (const [marker, { start, end, value }] of edits) {
+    if (!destinations.has(marker)) continue;
+    parts.push(markdown.slice(offset, start), value);
+    offset = end;
+  }
+  return parts.join("") + markdown.slice(offset);
+}
+
 function extractNoteAssetReferences(markdown: string) {
   const imageSources: string[] = [];
   const linkDestinations: string[] = [];

@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api } from "../api";
 import type { Note, NoteSummary } from "../../shared/types";
-import { clearDraftRecovery, noteMatchesDraft, writeDraftRecovery } from "./draft-recovery";
+import {
+  clearDraftRecovery,
+  noteMatchesDraft,
+  rewrittenDraftTitle,
+  writeDraftRecovery,
+} from "./draft-recovery";
 import { errorMessage, toNoteDraft, toNoteSummary, type NoteDraft } from "./helpers";
 import { replaceWikiLinkTarget } from "../../shared/wiki-links";
 
@@ -152,9 +157,24 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
               .updateNote(noteId, payload, { keepalive: keepaliveRequest, response: "summary" })
               .catch((reason: unknown): Awaited<ReturnType<typeof api.updateNote>> => {
                 if (reason instanceof ApiError && reason.code === "VERSION_CONFLICT") {
-                  const current = reason.details?.error as { current?: Note } | undefined;
-                  if (current?.current && noteMatchesDraft(current.current, draft))
-                    return { note: current.current };
+                  const current = (reason.details?.error as { current?: Note } | undefined)
+                    ?.current;
+                  if (current) {
+                    const previousTitle = unconfirmed
+                      ? rewrittenDraftTitle(current, draft)
+                      : undefined;
+                    if (previousTitle)
+                      return { note: current, previousTitle, linkedNotesRewritten: true };
+                    if (noteMatchesDraft(current, draft)) {
+                      const confirmedRename =
+                        unconfirmed &&
+                        fields.has("title") &&
+                        draft.previousTitle !== undefined &&
+                        draft.previousTitle !== current.title &&
+                        current.version === draft.version + 1;
+                      return { note: current, linkedNotesRewritten: Boolean(confirmedRename) };
+                    }
+                  }
                 }
                 throw reason;
               });
@@ -174,7 +194,12 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
             const latest = pendingSavesRef.current.get(noteId);
             let next =
               latest && latest !== draft
-                ? { ...savedNote, ...latest, version: savedNote.version }
+                ? {
+                    ...savedNote,
+                    ...latest,
+                    version: savedNote.version,
+                    previousTitle: latest.title === savedNote.title ? undefined : savedNote.title,
+                  }
                 : undefined;
             if (next && result.previousTitle) {
               next = {
@@ -264,8 +289,11 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
   );
 
   const persist = useCallback(
-    (draft: Note | NoteDraft, changedFields?: SaveField[]) => {
+    (draft: Note | NoteDraft, changedFields?: SaveField[], previousTitle?: string) => {
       const pendingDraft = toNoteDraft(draft);
+      const pending = pendingSavesRef.current.get(pendingDraft.id);
+      pendingDraft.previousTitle =
+        pending?.previousTitle ?? pendingDraft.previousTitle ?? previousTitle;
       pendingSavesRef.current.set(pendingDraft.id, pendingDraft);
       const fields = pendingFieldsRef.current.get(pendingDraft.id) ?? new Set<SaveField>();
       for (const field of changedFields ?? ALL_SAVE_FIELDS) fields.add(field);
@@ -374,6 +402,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
   const saveImmediately = useCallback(
     async (draft: Note | NoteDraft, keepalive = false, changedFields?: SaveField[]) => {
       const pendingDraft = toNoteDraft(draft);
+      pendingDraft.previousTitle ??= pendingSavesRef.current.get(pendingDraft.id)?.previousTitle;
       const failure = failedSavesRef.current.get(pendingDraft.id);
       if (isMissingNoteError(failure)) throw failure;
       cancelSaveTimer(pendingDraft.id);

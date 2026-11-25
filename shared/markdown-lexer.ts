@@ -135,7 +135,7 @@ export type MarkdownDestinationReference = {
 
 const destinationLexer = createXiangyingMarked();
 
-export function extractMarkdownDestinationReferences(markdown: string) {
+export function extractMarkdownDestinationReferences(markdown: string, includeDefinitions = false) {
   if (!markdown.includes("[")) return [];
 
   const source = maskHtmlAttributeValues(markdown);
@@ -158,6 +158,11 @@ export function extractMarkdownDestinationReferences(markdown: string) {
     for (const child of Object.values(value)) visit(child);
   };
 
-  visit(destinationLexer.lexer(source));
+  const tokens = destinationLexer.lexer(source);
+  visit(tokens);
+  if (includeDefinitions) {
+    for (const { href } of Object.values(tokens.links))
+      references.push({ type: "link", destination: href });
+  }
   return references;
 }

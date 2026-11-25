@@ -1,7 +1,12 @@
+import { constants, copyFileSync } from "node:fs";
+import { extname } from "node:path";
 import {
   all,
   first,
   getNote,
+  InvalidNoteAssetsError,
+  noteAssetIds,
+  rewriteMarkdownAssetDestinations,
   toFullNote,
   validNoteAssetReferences,
   json,
@@ -19,6 +24,7 @@ import {
   validText,
 } from "../core";
 import { createNote } from "./note-mutations";
+import { assetFilePath, assetRootFromEnv, removeAssetFiles } from "./assets";
 import { cleanupExpiredRateLimits, ensureEnvironmentUser, getAuthCredentials } from "./auth";
 import { requireApiToken } from "../api-token";
 import { publishWorkspaceChange } from "../realtime";
@@ -570,27 +576,67 @@ export function handleMemosRoute(
       if (!payload || !Number.isSafeInteger(payload.version) || (payload.version as number) < 1)
         return jsonError(400, "VERSION_REQUIRED", "转换随记必须携带版本号");
       const database = ctx.options.database;
-      const result = database
-        .transaction(() => {
-          const current = getMemo(database, user.id, memoId);
-          if (!current) return { kind: "missing" as const };
-          if (current.version !== payload.version) return { kind: "conflict" as const, current };
-          const inbox = first<{ id: string }>(
-            database,
-            "SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1 LIMIT 1",
-            user.id,
-          );
-          if (!inbox) return { kind: "no_inbox" as const };
-          if (!validNoteAssetReferences(database, user.id, null, current.content_markdown))
-            return { kind: "invalid_asset" as const };
-          const noteId = createNote(database, user.id, inbox.id, "", current.content_markdown);
-          const deleted = database
-            .query("DELETE FROM memos WHERE id = ? AND user_id = ? AND version = ?")
-            .run(memoId, user.id, current.version);
-          if (!deleted.changes) throw new Error("memo-conversion-delete-failed");
-          return { kind: "converted" as const, noteId };
-        })
-        .immediate();
+      const root = ctx.options.assetRoot ?? assetRootFromEnv(ctx.options.environment);
+      const copiedPaths: string[] = [];
+      const convert = database.transaction(() => {
+        const current = getMemo(database, user.id, memoId);
+        if (!current) return { kind: "missing" as const };
+        if (current.version !== payload.version) return { kind: "conflict" as const, current };
+        const inbox = first<{ id: string }>(
+          database,
+          "SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1 LIMIT 1",
+          user.id,
+        );
+        if (!inbox) return { kind: "no_inbox" as const };
+        const replacements = new Map<string, string>();
+        const findOwnedAsset = database.query<{ storage_path: string }, [string, string]>(
+          "SELECT storage_path FROM image_assets WHERE id = ? AND user_id = ? AND note_id IS NOT NULL",
+        );
+        const duplicateAsset = database.query(
+          `INSERT INTO image_assets (id, user_id, storage_path, original_name, mime_type, byte_size, width, height, created_at)
+             SELECT ?, user_id, ?, original_name, mime_type, byte_size, width, height, ?
+             FROM image_assets WHERE id = ? AND user_id = ?`,
+        );
+        for (const id of noteAssetIds(current.content_markdown)) {
+          const asset = findOwnedAsset.get(id, user.id);
+          if (!asset) continue;
+          const copyId = crypto.randomUUID();
+          const copyPath = `${user.id}/${copyId}${extname(asset.storage_path)}`;
+          const from = assetFilePath(root, asset.storage_path);
+          const to = assetFilePath(root, copyPath);
+          if (!from || !to) throw new InvalidNoteAssetsError();
+          try {
+            copyFileSync(from, to, constants.COPYFILE_FICLONE | constants.COPYFILE_EXCL);
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === "ENOENT")
+              throw new InvalidNoteAssetsError();
+            throw error;
+          }
+          copiedPaths.push(copyPath);
+          duplicateAsset.run(copyId, copyPath, now(), id, user.id);
+          replacements.set(id, `/api/assets/${copyId}`);
+        }
+        const contentMarkdown = replacements.size
+          ? rewriteMarkdownAssetDestinations(current.content_markdown, (id) => replacements.get(id))
+          : current.content_markdown;
+        if (!validNoteAssetReferences(database, user.id, null, contentMarkdown))
+          throw new InvalidNoteAssetsError();
+        const noteId = createNote(database, user.id, inbox.id, "", contentMarkdown);
+        const deleted = database
+          .query("DELETE FROM memos WHERE id = ? AND user_id = ? AND version = ?")
+          .run(memoId, user.id, current.version);
+        if (!deleted.changes) throw new Error("memo-conversion-delete-failed");
+        return { kind: "converted" as const, noteId };
+      });
+      let result: ReturnType<typeof convert.immediate>;
+      try {
+        result = convert.immediate();
+      } catch (error) {
+        if (copiedPaths.length) await removeAssetFiles(root, copiedPaths);
+        if (error instanceof InvalidNoteAssetsError)
+          return jsonError(400, "INVALID_ASSET", "图片引用无效或附件当前不可用，随记未被删除");
+        throw error;
+      }
       if (result.kind === "missing") return jsonError(404, "MEMO_NOT_FOUND", "随记不存在");
       if (result.kind === "conflict")
         return json(
@@ -604,8 +650,6 @@ export function handleMemosRoute(
           409,
         );
       if (result.kind === "no_inbox") return jsonError(400, "NO_NOTEBOOK", "没有可用的收件箱");
-      if (result.kind === "invalid_asset")
-        return jsonError(400, "INVALID_ASSET", "图片引用无效或附件当前不可用，随记未被删除");
       const note = getNote(database, user.id, result.noteId);
       if (!note) throw new Error("memo-conversion-note-missing");
       publishWorkspaceChange(ctx.options, user.id, { resource: "memos" }, ctx.request);

@@ -70,7 +70,7 @@ export function getNotebookIconComponent(iconId?: string) {
 export type NoteDraft = Pick<
   Note,
   "id" | "version" | "title" | "contentMarkdown" | "notebookId" | "isFavorite" | "deletedAt"
->;
+> & { previousTitle?: string };
 
 export function toNoteDraft(note: Note | NoteDraft): NoteDraft {
   return {
@@ -81,6 +81,7 @@ export function toNoteDraft(note: Note | NoteDraft): NoteDraft {
     notebookId: note.notebookId,
     isFavorite: note.isFavorite,
     deletedAt: note.deletedAt,
+    ...("previousTitle" in note ? { previousTitle: note.previousTitle } : {}),
   };
 }
 

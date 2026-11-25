@@ -102,7 +102,9 @@ export function findMarkdownTaskMarker(markdown: string, ordinal: number) {
     // A quote or an outer list item can share the task's physical line.
     // Marked below decides which candidates are actual task markers.
     const match =
-      /^[ \t]*(?:>[ \t]*|(?:[-+*]|\d+[.)])[ \t]+)*(?:[-+*]|\d+[.)])[ \t]+\[([ xX])\]/u.exec(line);
+      /^[ \t]*(?:>[ \t]*|(?:[-+*]|\d+[.)])[ \t]+)*(?:[-+*]|\d+[.)])[ \t]+\[([ xX])\](?=[ \t]+\S)/u.exec(
+        line,
+      );
     if (match) {
       const markerStart = match[0].lastIndexOf("[");
       const markerEnd = markerStart + 3;

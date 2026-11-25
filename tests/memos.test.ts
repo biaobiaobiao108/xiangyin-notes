@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase, type SqliteDatabase } from "../server/db";
@@ -15,14 +16,17 @@ const environment: Record<string, string | undefined> = {
 
 let database: SqliteDatabase;
 let clientAddress: string;
+let assetRoot: string;
 
 beforeEach(async () => {
   database = await openDatabase(":memory:");
   clientAddress = `memo-test-${crypto.randomUUID()}`;
+  assetRoot = await mkdtemp(join(tmpdir(), "xiangying-memos-test-assets-"));
 });
 
-afterEach(() => {
+afterEach(async () => {
   database.close();
+  await rm(assetRoot, { recursive: true, force: true });
 });
 
 async function request(
@@ -39,7 +43,7 @@ async function request(
     {
       database,
       environment: targetEnvironment,
-      assetRoot: join(tmpdir(), "xiangying-memos-test-assets"),
+      assetRoot,
       clientAddress,
       realtime,
     },
@@ -169,6 +173,69 @@ describe("Memo API", () => {
     expect(result.response.status).toBe(400);
     expect(result.body?.error.code).toBe("INVALID_ASSET");
     expect((await request("/api/memos", {}, cookie)).body?.memos).toHaveLength(1);
+  });
+
+  test("copies an attachment already owned by another note when converting a memo", async () => {
+    const cookie = await login();
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=",
+      "base64",
+    );
+    const form = new FormData();
+    form.append("file", new File([new Uint8Array(png)], "sample.png", { type: "image/png" }));
+    const upload = await request("/api/assets", { method: "POST", body: form }, cookie);
+    expect(upload.response.status).toBe(201);
+    const originalUrl = upload.body!.asset.url;
+    const create = await request(
+      "/api/notes",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "原笔记", contentMarkdown: `![样本](${originalUrl})` }),
+      },
+      cookie,
+    );
+    expect(create.response.status).toBe(201);
+    const original = create.body!.note;
+    const memo = (await createMemo(cookie, `![样本](${originalUrl})\n\n原路径 ${originalUrl}`))
+      .body!.memo;
+    const convert = () =>
+      request(
+        `/api/memos/${memo.id}/convert`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ version: memo.version }),
+        },
+        cookie,
+      );
+
+    const directory = join(assetRoot, (await readdir(assetRoot))[0]!);
+    const originalFiles = await readdir(directory);
+    database.exec(
+      "CREATE TRIGGER reject_conversion BEFORE DELETE ON memos BEGIN SELECT RAISE(ABORT, 'test failure'); END",
+    );
+    expect((await convert()).response.status).toBe(500);
+    expect(await readdir(directory)).toEqual(originalFiles);
+    expect((await request("/api/memos", {}, cookie)).body?.memos).toHaveLength(1);
+    database.exec("DROP TRIGGER reject_conversion");
+
+    const conversion = await convert();
+    expect(conversion.response.status).toBe(201);
+    const note = conversion.body!.note;
+    const copy = database
+      .query<{ id: string; storage_path: string }, [string]>(
+        "SELECT id, storage_path FROM image_assets WHERE note_id = ?",
+      )
+      .get(note.id)!;
+    expect(note.contentMarkdown).toBe(`![样本](/api/assets/${copy.id})\n\n原路径 ${originalUrl}`);
+    expect(`/api/assets/${copy.id}`).not.toBe(originalUrl);
+    expect(Buffer.from(await Bun.file(join(assetRoot, copy.storage_path)).arrayBuffer())).toEqual(
+      png,
+    );
+    expect((await request(`/api/notes/${original.id}`, {}, cookie)).body?.note).toEqual(original);
+    expect((await request(originalUrl, {}, cookie)).response.status).toBe(200);
+    expect((await request("/api/memos", {}, cookie)).body?.memos).toHaveLength(0);
   });
 
   test("rolls back the new note if removing the memo fails", async () => {

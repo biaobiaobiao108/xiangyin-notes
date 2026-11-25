@@ -236,10 +236,15 @@ function MemoCard({
                 onSaveError={(reason) => {
                   if (!memoConflictCurrent(reason)) onSaveNotice(memoSaveFailure(reason));
                 }}
-                onSubmit={async (markdown) => {
+                onSubmit={async (markdown, unchangedSource) => {
                   const draftAtSubmit = readEditDraft();
                   if (draftAtSubmit?.conflict || conflict)
                     throw new Error("请先处理冲突草稿，再保存随记。");
+                  if (unchangedSource === memo.contentMarkdown) {
+                    writeEditDraft("");
+                    onFinishEdit();
+                    return;
+                  }
                   const submittedDraft =
                     draftAtSubmit?.markdown === markdown ? draftAtSubmit : null;
                   try {
@@ -270,6 +275,9 @@ function MemoCard({
                 onCancel={() => {
                   if (!conflictMemo && !readEditDraft()?.conflict) writeEditDraft("");
                   onFinishEdit();
+                  requestAnimationFrame(() =>
+                    foregroundRef.current?.focus({ preventScroll: true }),
+                  );
                 }}
               />
             </MemoDiagramPreviews.Provider>

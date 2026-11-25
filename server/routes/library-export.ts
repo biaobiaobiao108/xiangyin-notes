@@ -1,9 +1,14 @@
 import { stat } from "node:fs/promises";
 import { extname } from "node:path";
 import { Database } from "bun:sqlite";
-import { findCodeFenceIntervals, findInlineCodeIntervals } from "../../shared/wiki-links";
 import { createZipReadableStream, type ZipStreamEntry } from "../../shared/zip";
-import { all, jsonError, type RouteContext, type UserRow } from "../core";
+import {
+  all,
+  jsonError,
+  rewriteMarkdownAssetDestinations,
+  type RouteContext,
+  type UserRow,
+} from "../core";
 import { assetFilePath, assetRootFromEnv, retainExportAssets } from "./assets";
 
 type LibraryNote = {
@@ -65,17 +70,11 @@ function notebookFolders(notebooks: Array<{ id: string; name: string }>) {
 }
 
 function portableMarkdown(markdown: string, assetNames: Map<string, string>, assetPrefix: string) {
-  if (!assetNames.size || !markdown.toLowerCase().includes("/api/assets/")) return markdown;
-  const blocks = findCodeFenceIntervals(markdown);
-  const excluded = [...blocks, ...findInlineCodeIntervals(markdown, blocks)];
-  return markdown.replace(
-    /(?<![\w/:.])\/api\/assets\/([0-9a-f-]{36})(?![0-9a-z-])/giu,
-    (match, id: string, offset: number) => {
-      if (excluded.some((range) => offset >= range.start && offset < range.end)) return match;
-      const name = assetNames.get(id.toLowerCase());
-      return name ? `${assetPrefix}/${name}` : match;
-    },
-  );
+  if (!assetNames.size) return markdown;
+  return rewriteMarkdownAssetDestinations(markdown, (id) => {
+    const name = assetNames.get(id);
+    return name ? `${assetPrefix}/${name}` : undefined;
+  });
 }
 
 function textEntry(name: string, content: string): ZipStreamEntry {

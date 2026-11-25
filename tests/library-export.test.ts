@@ -132,7 +132,8 @@ test("library export includes owned notes, trash, memos, attachments and metadat
     );
     const assetId = crypto.randomUUID();
     const source = `/api/assets/${assetId}`;
-    const markdown = `![图片](${source}?w=100)\n\n\`${source}\`\n\n\`\`\`\n${source}\n\`\`\`\n\n![外部](https://elsewhere.example${source})`;
+    const unchanged = `路径 ${source}\n\n[${source}](https://elsewhere.example/)\n\n\`${source}\`\n\n\`\`\`\n${source}\n\`\`\`\n\n![外部](https://elsewhere.example${source})`;
+    const markdown = `![图片](${source}?w=100)\n\n${unchanged}\n\n[引用图片][图片引用]\n\n[图片引用]: <${source}>`;
     const noteId = createNote(database, user.id, inbox.id, "重复标题", "");
     const trashId = createNote(database, user.id, inbox.id, "重复标题", "回收站正文");
     database.query("UPDATE notes SET deleted_at = 123, is_favorite = 1 WHERE id = ?").run(trashId);
@@ -236,7 +237,7 @@ test("library export includes owned notes, trash, memos, attachments and metadat
       metadata.assets[0].file,
     );
     expect(await read(file)).toBe(
-      `![图片](../../附件/${assetId}.png?w=100)\n\n\`${source}\`\n\n\`\`\`\n${source}\n\`\`\`\n\n![外部](https://elsewhere.example${source})`,
+      `![图片](../../附件/${assetId}.png?w=100)\n\n${unchanged}\n\n[引用图片][图片引用]\n\n[图片引用]: <../../附件/${assetId}.png>`,
     );
     expect(await read(first.file)).toBe(
       "# 2026-11 随记\n\n## 2026-11-01 00:30:00\n\n随记正文\n\n---\n\n## 2026-11-15 10:00:00\n\n另一条随记\n",

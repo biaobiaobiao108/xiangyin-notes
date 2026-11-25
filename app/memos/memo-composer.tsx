@@ -22,6 +22,7 @@ import {
 import { normalizeChineseMarkdownBlockMarkers, shouldParseMarkdownPaste } from "../editor-metrics";
 import { WikiLinkNode } from "../editor/wiki-link-node";
 import { TableScrollbars } from "../editor/table-scrollbars";
+import { isMermaidLanguage } from "../mermaid/protocol";
 import { buildMemoComposerMenuItems } from "./memo-context-menu";
 import { normalizeMemoComposerContent } from "./memo-markdown-spacing";
 
@@ -73,7 +74,7 @@ export type MemoComposerProps = {
   className?: string;
   resetOnSubmit?: boolean;
   onDraftChange?: (markdown: string) => void;
-  onSubmit: (markdown: string) => Promise<void>;
+  onSubmit: (markdown: string, unchangedSource?: string) => Promise<void>;
   onSaveError: (reason: unknown) => void;
   onCancel?: () => void;
 };
@@ -99,6 +100,8 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
 ) {
   const rootRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<EditorWithMarkdown | null>(null);
+  const initialDocumentRef = useRef<Editor["state"]["doc"] | null>(null);
+  const initialSourceRef = useRef(initialMarkdown);
   const { openMenu, menu } = useContextMenu();
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingDraftRef = useRef<string | null>(null);
@@ -163,7 +166,10 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
       // cannot diverge from text that would be cleared or unmounted on success.
       instance.setEditable(false, false);
       try {
-        await onSubmitRef.current(markdown);
+        const unchangedSource = initialDocumentRef.current?.eq(instance.state.doc)
+          ? initialSourceRef.current
+          : undefined;
+        await onSubmitRef.current(markdown, unchangedSource);
         discardPendingDraft();
         if (resetOnSubmitRef.current && !instance.isDestroyed) {
           instance.commands.clearContent(false);
@@ -369,7 +375,24 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
     contentType: "markdown",
     editorProps,
     onCreate: ({ editor: instance }) => {
-      if (autoFocus) instance.commands.focus("end");
+      initialDocumentRef.current = instance.state.doc;
+      if (!autoFocus) return;
+      const { $from } = instance.state.selection;
+      // Focusing the source of a diagram would open it during the card transition.
+      if (
+        $from.parent.type.name === "codeBlock" &&
+        isMermaidLanguage($from.parent.attrs.language)
+      ) {
+        const block = instance.view.nodeDOM($from.before());
+        if (block instanceof HTMLElement) {
+          const trigger = block.querySelector<HTMLButtonElement>(".mermaid-edit-trigger");
+          if (trigger) {
+            trigger.focus({ preventScroll: true });
+            return;
+          }
+        }
+      }
+      instance.view.focus();
     },
     onUpdate: ({ editor: instance }) => {
       const markdown = (instance as EditorWithMarkdown).getMarkdown();

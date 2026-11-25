@@ -138,6 +138,17 @@ describe("Markdown task extraction", () => {
     expect(updated).toContain("> - [ ] fake");
   });
 
+  test("does not turn a blank checkbox into a task while locating the real marker", () => {
+    const markdown = "- [ ]   \n\n- [ ] 正常任务";
+    expect(extractMarkdownTasks(markdown).map((task) => task.text)).toEqual(["正常任务"]);
+    const marker = findMarkdownTaskMarker(markdown, 0);
+    expect(marker).toEqual({
+      start: markdown.lastIndexOf("[ ]"),
+      end: markdown.lastIndexOf("[ ]") + 3,
+      checked: false,
+    });
+  });
+
   test("locates an inline nested list task after a lone carriage return", () => {
     const markdown = "- [ ] 第一项\r- - [ ] 子项";
     const marker = findMarkdownTaskMarker(markdown, 1);

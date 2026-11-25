@@ -225,6 +225,32 @@ describe("favorite operations and the save queue", () => {
     });
   });
 
+  test("confirms a lost rename response with rewritten links and saves subsequent edits", async () => {
+    const before = { ...original, title: "新名", contentMarkdown: `[[${original.title}]]` };
+    update.mockImplementationOnce(async () => {
+      stored = { ...before, contentMarkdown: "[[新名]]", version: 2 };
+      throw new TypeError("网络连接中断");
+    });
+    queue.persist(before, ["title"], original.title);
+    await expect(queue.runSave(original.id)).rejects.toThrow("网络连接中断");
+
+    queue.persist({ ...before, contentMarkdown: `${before.contentMarkdown} 新编辑` }, [
+      "contentMarkdown",
+    ]);
+    update.mockRejectedValueOnce(
+      new ApiError(409, "VERSION_CONFLICT", "版本冲突", { error: { current: stored } }),
+    );
+    await queue.retryFailedSaves();
+
+    expect(update.mock.calls.map(([, payload]) => payload)).toEqual([
+      { version: 1, title: "新名" },
+      { version: 1, title: "新名" },
+      { version: 2, contentMarkdown: "[[新名]] 新编辑" },
+    ]);
+    expect(selectedRef.current).toMatchObject({ version: 3, contentMarkdown: "[[新名]] 新编辑" });
+    expect(queue.hasUnsavedWork()).toBe(false);
+  });
+
   test("saves an unsaved body together with a card favorite", async () => {
     const draft = { ...original, contentMarkdown: "未保存的正文" };
     selectedRef.current = draft;
