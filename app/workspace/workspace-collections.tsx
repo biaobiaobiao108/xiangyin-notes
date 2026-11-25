@@ -49,7 +49,7 @@ export type WorkspaceCollectionsProps = {
   taskNotebookId: string;
   taskStatus: "open" | "done" | "all";
   tasksLoading: boolean;
-  busyTask: { noteId: string; ordinal: number } | null;
+  busyTasks: ReadonlyMap<string, number>;
   tasksError: string | null;
   kanbanColumns: Record<KanbanStatus, KanbanColumnData>;
   kanbanLoading: boolean;
@@ -104,7 +104,7 @@ export function WorkspaceCollections({
   taskNotebookId,
   taskStatus,
   tasksLoading,
-  busyTask,
+  busyTasks,
   tasksError,
   kanbanColumns,
   kanbanLoading,
@@ -182,7 +182,7 @@ export function WorkspaceCollections({
             notebookId={taskNotebookId}
             status={taskStatus}
             loading={tasksLoading}
-            busyTask={busyTask}
+            busyTasks={busyTasks}
             error={tasksError}
             onRetry={onRetryTasks}
             onNotebookChange={onTaskNotebookChange}

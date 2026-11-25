@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
-import type { Editor } from "@tiptap/core";
+import type { Editor, JSONContent } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { Transaction } from "@tiptap/pm/state";
 import { CircleAlert, ImageDown, Star, Trash2, Undo2, X } from "lucide-react";
@@ -98,6 +98,10 @@ export function NoteEditor({
   onBackToCards,
   onBackToKanban,
   onUploadImage,
+  onDeferImage,
+  onBackgroundImageError,
+  deferredImages,
+  insertDeferredImages,
   isMobileViewport = false,
   mobileBackLabel = "笔记列表",
   focusMode = false,
@@ -157,6 +161,10 @@ export function NoteEditor({
     file: File,
     dimensions: { width: number; height: number },
   ) => Promise<{ asset: ImageAssetSummary }>;
+  onDeferImage: (noteId: string, image: JSONContent) => void;
+  onBackgroundImageError: (filename: string) => void;
+  deferredImages?: readonly JSONContent[];
+  insertDeferredImages: (noteId: string, insert: (images: JSONContent[]) => boolean) => void;
   isMobileViewport?: boolean;
   mobileBackLabel?: string;
   focusMode?: boolean;
@@ -256,6 +264,8 @@ export function NoteEditor({
     deleted: Boolean(note.deletedAt),
     locked: editorLocked,
     onUploadImage,
+    onDeferImage,
+    onBackgroundImageError,
   });
   const typewriterModeRef = useRef(typewriterMode);
   const typewriterAnimRef = useRef<number | null>(null);
@@ -625,6 +635,34 @@ export function NoteEditor({
     onOutlineItemsChange,
     onOutlineNavigationReady,
     reloadToken,
+  ]);
+
+  useEffect(() => {
+    if (!editor || editorLocked || note.deletedAt || !deferredImages?.length) return;
+    // Tiptap mounts React node views synchronously when inserting images.
+    const timer = setTimeout(() => {
+      if (editor.isDestroyed) return;
+      insertDeferredImages(note.id, (images) => {
+        if (
+          !editor.commands.insertContentAt(editor.state.doc.content.size, images, {
+            updateSelection: false,
+          })
+        ) {
+          return false;
+        }
+        flushMarkdownChange(editor);
+        return true;
+      });
+    });
+    return () => clearTimeout(timer);
+  }, [
+    deferredImages,
+    editor,
+    editorLocked,
+    flushMarkdownChange,
+    insertDeferredImages,
+    note.deletedAt,
+    note.id,
   ]);
 
   useEffect(() => {

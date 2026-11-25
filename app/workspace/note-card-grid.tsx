@@ -24,6 +24,8 @@ import { useScrollEdges } from "./use-scroll-edges";
 
 export type NoteCardGridPanelProps = {
   notes: NoteSummary[];
+  listStatus: "loading" | "error" | "ready";
+  onRetryList: () => void;
   total: number;
   hasMore: boolean;
   isMobileViewport?: boolean;
@@ -53,6 +55,8 @@ export type NoteCardGridPanelProps = {
 
 export const NoteCardGridPanel = memo(function NoteCardGridPanel({
   notes,
+  listStatus,
+  onRetryList,
   total,
   hasMore,
   isMobileViewport = false,
@@ -256,7 +260,20 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
           onBlurCapture={masonry.onBlurCapture}
           onScroll={(event) => onScrollPositionChange(scrollScope, event.currentTarget.scrollTop)}
         >
-          {sortedNotes.length > 0 ? (
+          {listStatus !== "ready" ? (
+            <div className="card-grid-empty">
+              {listStatus === "loading" ? (
+                <span role="status">{query ? "正在搜索…" : "正在加载笔记…"}</span>
+              ) : (
+                <>
+                  <span role="alert">加载笔记失败</span>
+                  <button className="secondary-button" type="button" onClick={onRetryList}>
+                    重试
+                  </button>
+                </>
+              )}
+            </div>
+          ) : sortedNotes.length > 0 ? (
             <div
               className="card-masonry"
               role="list"

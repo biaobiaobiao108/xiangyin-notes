@@ -13,6 +13,7 @@ export function useWorkspaceNavigation({
   notebookId,
   query,
   queryDraft,
+  navigationIntentRef,
   setView,
   setNotebookId,
   setQuery,
@@ -43,6 +44,7 @@ export function useWorkspaceNavigation({
   notebookId?: string;
   query: string;
   queryDraft: string;
+  navigationIntentRef: Ref<number>;
   setView: Setter<NoteView>;
   setNotebookId: Setter<string | undefined>;
   setQuery: (value: string) => void;
@@ -71,6 +73,7 @@ export function useWorkspaceNavigation({
 }) {
   const selectView = useCallback(
     (next: NoteView) => {
+      navigationIntentRef.current += 1;
       setTasksOpen(false);
       setKanbanOpen(false);
       setMemosOpen(false);
@@ -85,77 +88,50 @@ export function useWorkspaceNavigation({
     },
     [openMobileList, notebookId, query, requestListTransition, view],
   );
-  const openTasks = useCallback(async () => {
-    flushSecondaryDraft();
-    await flushPendingSaves("now");
-    if (hasUnsavedWork()) {
-      notifyWarning("仍有内容未保存，请保存成功后再查看任务");
-      return;
-    }
-    if (query) setQuery("");
-    setView("all");
-    setNotebookId(undefined);
-    setKanbanOpen(false);
-    setMemosOpen(false);
-    setTasksOpen(true);
-    kanbanReturnRef.current = false;
-    openMobileTasks({ view: "all", notebookId: undefined, query: "", searchOrigin: null });
-  }, [
-    flushPendingSaves,
-    flushSecondaryDraft,
-    hasUnsavedWork,
-    notifyWarning,
-    openMobileTasks,
-    query,
-  ]);
-  const openKanban = useCallback(async () => {
-    flushSecondaryDraft();
-    await flushPendingSaves("now");
-    if (hasUnsavedWork()) {
-      notifyWarning("仍有内容未保存，请保存成功后再查看看板");
-      return;
-    }
-    if (query) setQuery("");
-    setView("all");
-    setNotebookId(undefined);
-    setTasksOpen(false);
-    setMemosOpen(false);
-    setKanbanOpen(true);
-    kanbanReturnRef.current = false;
-    openMobileKanban({ view: "all", notebookId: undefined, query: "", searchOrigin: null });
-  }, [
-    flushPendingSaves,
-    flushSecondaryDraft,
-    hasUnsavedWork,
-    notifyWarning,
-    openMobileKanban,
-    query,
-  ]);
-  const openMemos = useCallback(async () => {
-    flushSecondaryDraft();
-    await flushPendingSaves("now");
-    if (hasUnsavedWork()) {
-      notifyWarning("仍有内容未保存，请保存成功后再查看随记");
-      return;
-    }
-    if (query) setQuery("");
-    setView("all");
-    setNotebookId(undefined);
-    setTasksOpen(false);
-    setKanbanOpen(false);
-    setMemosOpen(true);
-    kanbanReturnRef.current = false;
-    openMobileMemos({ view: "all", notebookId: undefined, query: "", searchOrigin: null });
-  }, [
-    flushPendingSaves,
-    flushSecondaryDraft,
-    hasUnsavedWork,
-    notifyWarning,
-    openMobileMemos,
-    query,
-  ]);
+  const openCollection = useCallback(
+    async (collection: "tasks" | "kanban" | "memos") => {
+      const intent = ++navigationIntentRef.current;
+      flushSecondaryDraft();
+      await flushPendingSaves("now");
+      if (intent !== navigationIntentRef.current) return;
+      if (hasUnsavedWork()) {
+        const label = { tasks: "任务", kanban: "看板", memos: "随记" }[collection];
+        notifyWarning(`仍有内容未保存，请保存成功后再查看${label}`);
+        return;
+      }
+      setQuery("");
+      setView("all");
+      setNotebookId(undefined);
+      setTasksOpen(collection === "tasks");
+      setKanbanOpen(collection === "kanban");
+      setMemosOpen(collection === "memos");
+      kanbanReturnRef.current = false;
+      const openMobile = {
+        tasks: openMobileTasks,
+        kanban: openMobileKanban,
+        memos: openMobileMemos,
+      };
+      openMobile[collection]({ view: "all", notebookId: undefined, query: "", searchOrigin: null });
+    },
+    [
+      flushPendingSaves,
+      flushSecondaryDraft,
+      hasUnsavedWork,
+      kanbanReturnRef,
+      navigationIntentRef,
+      notifyWarning,
+      openMobileTasks,
+      openMobileKanban,
+      openMobileMemos,
+      setQuery,
+    ],
+  );
+  const openTasks = useCallback(() => openCollection("tasks"), [openCollection]);
+  const openKanban = useCallback(() => openCollection("kanban"), [openCollection]);
+  const openMemos = useCallback(() => openCollection("memos"), [openCollection]);
   const openKanbanNote = useCallback(
     (noteId: string) => {
+      navigationIntentRef.current += 1;
       flushEditorDraftRef.current();
       flushSecondaryDraft();
       kanbanReturnRef.current = true;
@@ -176,6 +152,7 @@ export function useWorkspaceNavigation({
   );
   const selectNotebook = useCallback(
     (notebookIdToSelect: string) => {
+      navigationIntentRef.current += 1;
       setTasksOpen(false);
       setKanbanOpen(false);
       setMemosOpen(false);
@@ -197,6 +174,7 @@ export function useWorkspaceNavigation({
   );
   const changeQuery = useCallback(
     (next: string) => {
+      navigationIntentRef.current += 1;
       setTasksOpen(false);
       setKanbanOpen(false);
       setMemosOpen(false);

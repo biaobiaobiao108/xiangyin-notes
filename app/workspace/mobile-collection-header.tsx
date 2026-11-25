@@ -6,6 +6,7 @@ type MobileCollectionHeaderProps = {
   heading: string;
   total: number;
   shown: number;
+  showCount?: boolean;
   query: string;
   onBack: () => void;
   onEmptyTrash?: () => void;
@@ -17,6 +18,7 @@ export function MobileCollectionHeader({
   heading,
   total,
   shown,
+  showCount = true,
   query,
   onBack,
   onEmptyTrash,
@@ -35,10 +37,12 @@ export function MobileCollectionHeader({
       </button>
       <div className="list-header-main">
         <h2 tabIndex={-1}>{heading}</h2>
-        <p>
-          {query ? searchResultLabel(query, total) : `${total} 篇笔记`}
-          {shown < total && <> · 已显示 {shown} 篇</>}
-        </p>
+        {showCount && (
+          <p>
+            {query ? searchResultLabel(query, total) : `${total} 篇笔记`}
+            {shown < total && <> · 已显示 {shown} 篇</>}
+          </p>
+        )}
       </div>
       {onEmptyTrash && (
         <div className="list-header-controls">

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import type { Editor } from "@tiptap/core";
+import type { Editor, JSONContent } from "@tiptap/core";
 import { IMAGE_MAX_BYTES, type ImageAssetSummary } from "../../shared/types";
 import { imageDimensions, isImageFile } from "./image-files";
 import { createImageUploadPosition } from "./image-upload-position";
@@ -16,6 +16,8 @@ export function useEditorImageUpload({
   deleted,
   locked,
   onUploadImage,
+  onDeferImage,
+  onBackgroundImageError,
 }: {
   editorInstanceRef: { current: Editor | null };
   noteId: string;
@@ -23,12 +25,16 @@ export function useEditorImageUpload({
   deleted: boolean;
   locked: boolean;
   onUploadImage?: UploadImage;
+  onDeferImage: (noteId: string, image: JSONContent) => void;
+  onBackgroundImageError: (filename: string) => void;
 }) {
   const imageFileInputRef = useRef<HTMLInputElement>(null);
   const imageUploadMessageRef = useRef<HTMLDivElement>(null);
   const imageUploadMessageId = useId();
   const imageUploadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const uploadImageFilesRef = useRef<(files: File[]) => void>(() => undefined);
+  const uploadLockedRef = useRef(false);
+  uploadLockedRef.current = locked || deleted;
   const onUploadImageRef = useRef(onUploadImage);
   const imageUploadContextRef = useRef({ noteId, reloadToken });
   if (
@@ -101,52 +107,50 @@ export function useEditorImageUpload({
       setImageUploadState("uploading");
       if (imageUploadTimerRef.current !== null) clearTimeout(imageUploadTimerRef.current);
       imageUploadTimerRef.current = null;
+      const maxWidth = Math.max(
+        1,
+        editorInstance.view.dom.closest(".note-prose")?.getBoundingClientRect().width ?? 820,
+      );
       try {
         for (const file of imageFiles) {
           try {
             const dimensions = await imageDimensions(file);
-            if (!isCurrentUpload()) return;
             const result = await uploadImage(file, dimensions);
-            if (!isCurrentUpload()) return;
-            const maxWidth = Math.max(
-              1,
-              editorInstance.view.dom.closest(".note-prose")?.getBoundingClientRect().width ?? 820,
-            );
             const width = Math.min(maxWidth, Math.max(1, dimensions.width));
             const height = Math.max(
               1,
               Math.round((width * dimensions.height) / Math.max(1, dimensions.width)),
             );
-            if (
-              !uploadPosition.insert({
-                type: "image",
-                attrs: {
-                  assetId: result.asset.id,
-                  src: result.asset.url,
-                  alt: result.asset.originalName.replace(/\.[^.]+$/u, "") || "图片",
-                  width,
-                  height,
-                },
-              })
-            )
-              break;
+            const image = {
+              type: "image",
+              attrs: {
+                assetId: result.asset.id,
+                src: result.asset.url,
+                alt: result.asset.originalName.replace(/\.[^.]+$/u, "") || "图片",
+                width,
+                height,
+              },
+            };
+            if (!isCurrentUpload() || !uploadPosition.insert(image)) {
+              onDeferImage(uploadContext.noteId, image);
+            }
           } catch {
-            if (!isCurrentUpload()) return;
-            progress.failed = true;
-            setImageUploadMessage(
-              (message) => `${message}${message ? "；" : ""}上传失败：${file.name}`,
-            );
+            if (!isCurrentUpload()) {
+              onBackgroundImageError(file.name);
+            } else {
+              progress.failed = true;
+              setImageUploadMessage(
+                (message) => `${message}${message ? "；" : ""}上传失败：${file.name}`,
+              );
+            }
           }
         }
-      } catch {
-        if (!isCurrentUpload()) return;
-        progress.failed = true;
       } finally {
         uploadPosition.dispose();
         if (
-          isCurrentUpload() &&
           imageUploadProgressRef.current === progress &&
-          progress.context === uploadContext
+          editorInstanceRef.current === editorInstance &&
+          !editorInstance.isDestroyed
         ) {
           progress.activeCount = Math.max(0, progress.activeCount - 1);
           if (progress.activeCount === 0) {
@@ -166,7 +170,7 @@ export function useEditorImageUpload({
         }
       }
     },
-    [deleted, editorInstanceRef, locked],
+    [deleted, editorInstanceRef, locked, onBackgroundImageError, onDeferImage],
   );
   uploadImageFilesRef.current = (files) => {
     void uploadImageFiles(files);

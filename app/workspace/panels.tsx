@@ -287,6 +287,8 @@ const NoteListRow = memo(function NoteListRow({
 
 type NoteListPanelProps = {
   notes: NoteSummary[];
+  listStatus: "loading" | "error" | "ready";
+  onRetryList: () => void;
   total: number;
   hasMore?: boolean;
   selectedId: string | null;
@@ -326,6 +328,8 @@ function noteLoadMoreLabel(shown: number, total: number) {
 
 export const NoteListPanel = memo(function NoteListPanel({
   notes,
+  listStatus,
+  onRetryList,
   total,
   hasMore = total > notes.length,
   selectedId,
@@ -672,6 +676,7 @@ export const NoteListPanel = memo(function NoteListPanel({
               heading={heading}
               total={total}
               shown={notes.length}
+              showCount={listStatus === "ready"}
               query={query}
               onBack={onOpenSidebar}
               onEmptyTrash={onEmptyTrash}
@@ -689,12 +694,14 @@ export const NoteListPanel = memo(function NoteListPanel({
               </button>
               <div className="list-header-main">
                 <h2 tabIndex={-1}>{heading}</h2>
-                <p>
-                  {query
-                    ? searchResultLabel(query, total)
-                    : `${truncated ? total : notes.length} 篇笔记`}
-                  {truncated && <> · 已显示最近 {notes.length} 篇</>}
-                </p>
+                {listStatus === "ready" && (
+                  <p>
+                    {query
+                      ? searchResultLabel(query, total)
+                      : `${truncated ? total : notes.length} 篇笔记`}
+                    {truncated && <> · 已显示最近 {notes.length} 篇</>}
+                  </p>
+                )}
               </div>
               <div className="list-header-controls">
                 {onEmptyTrash && (
@@ -842,7 +849,22 @@ export const NoteListPanel = memo(function NoteListPanel({
                   </>
                 </ul>
               )}
-              {!sortedNotes.length &&
+              {listStatus !== "ready" && (
+                <div className="list-empty">
+                  {listStatus === "loading" ? (
+                    <span role="status">{query ? "正在搜索…" : "正在加载笔记…"}</span>
+                  ) : (
+                    <>
+                      <span role="alert">加载笔记失败</span>
+                      <button className="secondary-button" type="button" onClick={onRetryList}>
+                        重试
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+              {listStatus === "ready" &&
+                !sortedNotes.length &&
                 (query ? (
                   <div className="list-empty">
                     <span className="empty-icon">

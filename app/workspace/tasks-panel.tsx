@@ -35,7 +35,7 @@ export function TasksPanel({
   onToggleTask,
   onLoadMore,
   onRetry,
-  busyTask = null,
+  busyTasks,
   onBack,
 }: {
   tasks: TaskSummary[];
@@ -54,7 +54,7 @@ export function TasksPanel({
   onToggleTask: (task: TaskSummary) => void;
   onLoadMore: () => void;
   onRetry: () => void;
-  busyTask: { noteId: string; ordinal: number } | null;
+  busyTasks: ReadonlyMap<string, number>;
   onBack?: () => void;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
@@ -202,7 +202,9 @@ export function TasksPanel({
       rowStyle?: CSSProperties;
     },
   ) => {
-    const isBusy = busyTask?.noteId === task.noteId && busyTask.ordinal === task.ordinal;
+    const busyOrdinal = busyTasks.get(task.noteId);
+    const isBusy = busyOrdinal === task.ordinal;
+    const toggleDisabled = loading || busyOrdinal !== undefined;
     return (
       <li
         key={task.noteId + ":" + task.ordinal}
@@ -219,7 +221,7 @@ export function TasksPanel({
             className={
               "tasks-check-control" +
               (isBusy ? " is-busy" : "") +
-              (loading || busyTask !== null ? " is-disabled" : "")
+              (toggleDisabled ? " is-disabled" : "")
             }
           >
             <input
@@ -234,7 +236,7 @@ export function TasksPanel({
                     : `标记为已完成：${task.text}`
               }
               checked={task.done}
-              disabled={loading || busyTask !== null}
+              disabled={toggleDisabled}
               onChange={() => onToggleTask(task)}
             />
             {isBusy && (
@@ -247,7 +249,7 @@ export function TasksPanel({
             type="button"
             className="tasks-item-copy"
             data-task-tab-index={options?.virtual ? 1 : undefined}
-            disabled={loading || busyTask !== null}
+            disabled={loading}
             onClick={() => onSelectTask(task)}
             aria-label={`打开笔记 ${task.noteTitle} 并定位任务：${task.text}`}
           >
@@ -314,7 +316,7 @@ export function TasksPanel({
     <section
       className="note-list-panel tasks-panel"
       aria-labelledby="tasks-heading"
-      aria-busy={loading || busyTask !== null}
+      aria-busy={loading}
     >
       <header className="list-header tasks-header">
         {onBack && (

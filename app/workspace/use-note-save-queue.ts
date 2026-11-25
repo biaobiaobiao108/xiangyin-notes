@@ -123,10 +123,14 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
     [flushEditorDraftRef, recordSaveFailure],
   );
 
-  const hasUnsavedWork = useCallback(() => {
-    flushEditorDraftRef.current();
-    return pendingSavesRef.current.size > 0 || failedSavesRef.current.size > 0;
-  }, [flushEditorDraftRef]);
+  const hasUnsavedWork = useCallback(
+    (noteId?: string) => {
+      flushEditorDraftRef.current();
+      if (noteId) return pendingSavesRef.current.has(noteId) || failedSavesRef.current.has(noteId);
+      return pendingSavesRef.current.size > 0 || failedSavesRef.current.size > 0;
+    },
+    [flushEditorDraftRef],
+  );
 
   const runSave = useCallback(
     async (noteId: string, keepalive = false): Promise<number | undefined> => {
@@ -377,12 +381,12 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
   );
 
   const flushPendingSaves = useCallback(
-    async (mode: "now" | "keepalive") => {
+    async (mode: "now" | "keepalive", noteId?: string) => {
       flushEditorDraftRef.current();
       if (mode === "keepalive") {
         for (const draft of pendingSavesRef.current.values()) writeDraftRecovery(draft);
       }
-      const ids = [...pendingSavesRef.current.keys()];
+      const ids = noteId ? [noteId] : [...pendingSavesRef.current.keys()];
       if (!ids.length) return;
       await Promise.all(
         ids.map(async (id) => {

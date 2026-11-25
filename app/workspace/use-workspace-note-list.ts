@@ -68,9 +68,12 @@ export function useWorkspaceNoteList({
   notifyError,
   navigate,
 }: Options) {
+  const [loadedScope, setLoadedScope] = useState<string | null>(null);
+  const [failedScope, setFailedScope] = useState<string | null>(null);
   const updatedPageBoundaryRef = useRef<NoteUpdatedPosition | null>(null);
   const loadNotes = useCallback(async () => {
     if (pendingLinkedNoteRef.current) return;
+    setFailedScope(null);
     nextNotesCursorRef.current = null;
     setHasMoreNotes(false);
     const requestId = ++listRequestRef.current;
@@ -105,6 +108,7 @@ export function useWorkspaceNoteList({
           : latestNotes;
       const orderedNotes = sortNotes(notesToDisplay);
       replaceList(orderedNotes);
+      setLoadedScope(listScope);
       setTotalNotes(Math.max(result.total ?? 0, orderedNotes.length));
       setHasMoreNotes(Boolean(result.hasMore));
       nextNotesCursorRef.current = result.nextCursor ?? null;
@@ -122,7 +126,10 @@ export function useWorkspaceNoteList({
       if (reason instanceof Error && reason.name === "AbortError") return;
       if (reason instanceof ApiError && reason.status === 401)
         navigate(`/login${window.location.search}`, { replace: true });
-      else notifyError(errorMessage(reason, "加载笔记列表失败，请重试"));
+      else {
+        setFailedScope(listScope);
+        notifyError(errorMessage(reason, "加载笔记列表失败，请重试"));
+      }
     } finally {
       if (listAbortRef.current === controller) listAbortRef.current = null;
     }
@@ -182,5 +189,13 @@ export function useWorkspaceNoteList({
     }
   }, [deferredQuery, notebookId, replaceList, view]);
   const reloadNotes = useCallback(() => setNotesReloadToken((value) => value + 1), []);
-  return { loadNotes, loadMoreNotes, isLoadingMore, reloadNotes, updatedPageBoundaryRef };
+  return {
+    loadNotes,
+    loadMoreNotes,
+    isLoadingMore,
+    reloadNotes,
+    updatedPageBoundaryRef,
+    loadedScope,
+    failedScope,
+  };
 }

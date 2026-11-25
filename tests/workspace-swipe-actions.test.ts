@@ -33,6 +33,8 @@ function renderNoteList(
   return renderToStaticMarkup(
     React.createElement(NoteListPanel, {
       notes: [noteSummary()],
+      listStatus: "ready",
+      onRetryList: () => {},
       total: 1,
       selectedId: null,
       selectedIds: new Set<string>(),
@@ -114,6 +116,27 @@ describe("note list swipe actions", () => {
     expect(html).toContain('aria-controls="note-actions-note-1"');
     expect(html).toContain('aria-expanded="false"');
     expect(html).toContain('role="group" aria-label="未命名笔记的操作"');
+  });
+});
+
+describe("note list search states", () => {
+  test("only shows the result count and empty state once the search returns", () => {
+    const query = "测试关键词";
+    const pending = renderNoteList({ query, notes: [], total: 0, listStatus: "loading" });
+    expect(pending).toContain("正在搜索…");
+    expect(pending).not.toContain("没有找到匹配的笔记");
+    expect(pending).not.toContain("共 0 篇");
+
+    const empty = renderNoteList({ query, notes: [], total: 0 });
+    expect(empty).toContain("没有找到匹配的笔记");
+    expect(empty).not.toContain("正在搜索…");
+  });
+
+  test("gives a failed search a retry action", () => {
+    const html = renderNoteList({ query: "测试关键词", notes: [], total: 0, listStatus: "error" });
+    expect(html).toContain('role="alert">加载笔记失败');
+    expect(html).toContain(">重试</button>");
+    expect(html).not.toContain("没有找到匹配的笔记");
   });
 });
 

@@ -8,6 +8,7 @@ export function useWorkspaceTaskData(tasksOpen: boolean) {
   const [taskNotebookId, setTaskNotebookId] = useState("");
   const [taskSnapshot, setTaskSnapshot] = useState<{
     queryKey: string;
+    status: "open" | "done" | "all";
     tasks: TaskSummary[];
     total: number;
     nextCursor: string | null;
@@ -35,9 +36,33 @@ export function useWorkspaceTaskData(tasksOpen: boolean) {
     token: number;
   } | null>(null);
   const taskNavigationTokenRef = useRef(0);
-  const [taskMutationNoteId, setTaskMutationNoteId] = useState<string | null>(null);
-  const [taskMutationOrdinal, setTaskMutationOrdinal] = useState<number | null>(null);
-  const taskMutationsInFlightRef = useRef(new Set<string>());
+  const [busyTasks, setBusyTasks] = useState<ReadonlyMap<string, number>>(() => new Map());
+  const taskMutationsInFlightRef = useRef(new Map<string, number>());
+  const setTaskBusy = useCallback((noteId: string, ordinal: number | null) => {
+    const pending = taskMutationsInFlightRef.current;
+    if (ordinal === null) pending.delete(noteId);
+    else pending.set(noteId, ordinal);
+    setBusyTasks(new Map(pending));
+  }, []);
+  const applyTaskToggle = useCallback((task: TaskSummary, version: number) => {
+    // An older list response may have been requested before this write.
+    taskRequestGenerationRef.current += 1;
+    const current = taskSnapshotRef.current;
+    if (current) {
+      let removed = 0;
+      const updated = current.tasks.flatMap((row) => {
+        if (row.noteId !== task.noteId || row.version !== task.version) return [row];
+        if (row.ordinal !== task.ordinal) return [{ ...row, version }];
+        if (current.status === "all") return [{ ...row, version, done: !task.done }];
+        removed += 1;
+        return [];
+      });
+      const next = { ...current, tasks: updated, total: current.total - removed };
+      taskSnapshotRef.current = next;
+      setTaskSnapshot(next);
+    }
+    setTaskRefreshToken((value) => value + 1);
+  }, []);
 
   useEffect(() => {
     if (!tasksOpen) return;
@@ -63,6 +88,7 @@ export function useWorkspaceTaskData(tasksOpen: boolean) {
           return;
         const snapshot = {
           queryKey,
+          status: taskStatus,
           tasks: result.tasks,
           total: result.total ?? result.tasks.length,
           nextCursor: result.nextCursor,
@@ -145,10 +171,9 @@ export function useWorkspaceTaskData(tasksOpen: boolean) {
     taskNavigation,
     setTaskNavigation,
     taskNavigationTokenRef,
-    taskMutationNoteId,
-    setTaskMutationNoteId,
-    taskMutationOrdinal,
-    setTaskMutationOrdinal,
+    busyTasks,
+    setTaskBusy,
+    applyTaskToggle,
     taskMutationsInFlightRef,
   };
 }

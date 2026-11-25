@@ -1,3 +1,4 @@
+import type { JSONContent } from "@tiptap/core";
 import { useCallback, useDeferredValue, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { useContextMenu } from "./context-menu";
@@ -66,6 +67,8 @@ import { WorkspaceDialogs } from "./workspace/workspace-dialogs";
 
 export type { ViewLayout } from "./workspace/use-workspace-preferences";
 
+const EMPTY_NOTE_LIST: NoteSummary[] = [];
+
 export function Workspace() {
   const navigate = useNavigate();
   const { ready, currentUserKey, handleUnauthorized, connectionError, retry } =
@@ -76,6 +79,7 @@ export function Workspace() {
   );
   const pendingLinkedNoteRef = useRef(initialLinkedNoteId);
   const { preference: themePreference, setPreference: setThemePreference } = useThemePreference();
+  const navigationIntentRef = useRef(0);
   const [view, setView] = useState<NoteView>("all");
   const [notebookId, setNotebookId] = useState<string>();
   const [query, setQueryState] = useState("");
@@ -116,7 +120,11 @@ export function Workspace() {
   const [pendingTrashCount, setPendingTrashCount] = useState(0);
   const emptyingTrashRef = useRef(false);
   const [emptyingTrash, setEmptyingTrash] = useState(false);
-  const listScope = JSON.stringify([view, notebookId, deferredQuery]);
+  const requestedListScope = JSON.stringify([view, notebookId, query]);
+  const listScope =
+    query === deferredQuery
+      ? requestedListScope
+      : JSON.stringify([view, notebookId, deferredQuery]);
   const listScopeRef = useRef(listScope);
   if (listScopeRef.current !== listScope) nextNotesCursorRef.current = null;
   listScopeRef.current = listScope;
@@ -127,7 +135,7 @@ export function Workspace() {
     setNoteSelectionAnchor,
     toggleNoteSelection,
     pruneNoteSelectionTo,
-  } = useNoteSelection(listScope);
+  } = useNoteSelection(requestedListScope);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectedIdRef = useRef<string | null>(null);
   selectedIdRef.current = selectedId;
@@ -237,10 +245,9 @@ export function Workspace() {
     taskNavigation,
     setTaskNavigation,
     taskNavigationTokenRef,
-    taskMutationNoteId,
-    setTaskMutationNoteId,
-    taskMutationOrdinal,
-    setTaskMutationOrdinal,
+    busyTasks,
+    setTaskBusy,
+    applyTaskToggle,
     taskMutationsInFlightRef,
   } = useWorkspaceTaskData(tasksOpen);
   const [resultSearch, setResultSearch] = useState<{
@@ -425,35 +432,51 @@ export function Workspace() {
     (noteId: string) => isMissingNoteError(failedSavesRef.current.get(noteId)),
     [failedSavesRef],
   );
-  const { loadNotes, loadMoreNotes, isLoadingMore, reloadNotes, updatedPageBoundaryRef } =
-    useWorkspaceNoteList({
-      view,
-      notebookId,
-      deferredQuery,
-      listScope,
-      notebooks,
-      notesReloadToken,
-      pendingLinkedNoteRef,
-      nextNotesCursorRef,
-      listRequestRef,
-      listAbortRef,
-      listScopeRef,
-      trashOperationsRef,
-      emptyingTrashRef,
-      selectedRef,
-      selectedIdRef,
-      isMissingDraft,
-      notesRef,
-      setHasMoreNotes,
-      setTotalNotes,
-      setSelectedId,
-      setNotesReloadToken,
-      replaceList,
-      pruneNoteSelectionTo,
-      playPendingListTransition,
-      notifyError,
-      navigate,
-    });
+  const {
+    loadNotes,
+    loadMoreNotes,
+    isLoadingMore,
+    reloadNotes,
+    updatedPageBoundaryRef,
+    loadedScope,
+    failedScope,
+  } = useWorkspaceNoteList({
+    view,
+    notebookId,
+    deferredQuery,
+    listScope,
+    notebooks,
+    notesReloadToken,
+    pendingLinkedNoteRef,
+    nextNotesCursorRef,
+    listRequestRef,
+    listAbortRef,
+    listScopeRef,
+    trashOperationsRef,
+    emptyingTrashRef,
+    selectedRef,
+    selectedIdRef,
+    isMissingDraft,
+    notesRef,
+    setHasMoreNotes,
+    setTotalNotes,
+    setSelectedId,
+    setNotesReloadToken,
+    replaceList,
+    pruneNoteSelectionTo,
+    playPendingListTransition,
+    notifyError,
+    navigate,
+  });
+  const listStatus =
+    deferredQuery !== query
+      ? "loading"
+      : loadedScope === listScope
+        ? "ready"
+        : failedScope === listScope
+          ? "error"
+          : "loading";
+  const visibleNotes = listStatus === "ready" ? notes : EMPTY_NOTE_LIST;
   useEffect(() => {
     if (!ready) return;
     void refreshNotebooks();
@@ -475,6 +498,7 @@ export function Workspace() {
 
   const selectNote = useCallback(
     (id: string | null) => {
+      navigationIntentRef.current += 1;
       if (id) setMemosOpen(false);
       setInNoteSearchQuery("");
       setResultSearch(null);
@@ -496,6 +520,7 @@ export function Workspace() {
     [clearNoteSelection, setTaskNavigation],
   );
   mobileRestoreRef.current = (context, page) => {
+    navigationIntentRef.current += 1;
     flushEditorDraftRef.current();
     setOutlineOpen(false);
     setTasksOpen(page === "tasks");
@@ -572,6 +597,7 @@ export function Workspace() {
   }, [loadNotes, ready]);
   useEffect(
     () => () => {
+      navigationIntentRef.current += 1;
       listAbortRef.current?.abort();
       noteLoadRequestRef.current += 1;
       noteAbortRef.current?.abort();
@@ -907,6 +933,7 @@ export function Workspace() {
     notebookId,
     query,
     queryDraft,
+    navigationIntentRef,
     setView,
     setNotebookId,
     setQuery,
@@ -1093,8 +1120,8 @@ export function Workspace() {
     taskNavigationTokenRef,
     openMobileNote,
     taskMutationsInFlightRef,
-    setTaskMutationNoteId,
-    setTaskMutationOrdinal,
+    setTaskBusy,
+    applyTaskToggle,
     flushPendingSaves,
     hasUnsavedWork,
     notifyWarning,
@@ -1199,9 +1226,11 @@ export function Workspace() {
     cardGridScrollPositionRef.current = { scope, top };
   }, []);
   const handleOpenSidebar = useCallback(() => {
+    navigationIntentRef.current += 1;
     openMobileHome();
   }, [openMobileHome]);
   const handleOpenList = useCallback(() => {
+    navigationIntentRef.current += 1;
     if (kanbanReturnRef.current) {
       flushEditorDraftRef.current();
       closeOutline();
@@ -1221,6 +1250,58 @@ export function Workspace() {
       setCardEditingNoteId(null);
     }
   }, [backMobilePage, closeOutline, isMobileViewport, viewLayout]);
+  const deferredImagesRef = useRef(new Map<string, JSONContent[]>());
+  const [deferredImages, setDeferredImages] = useState<ReadonlyMap<string, JSONContent[]>>(
+    () => new Map(),
+  );
+  const deferredImagesKey = `xiangying_deferred_images:${currentUserKey}`;
+  useEffect(() => {
+    if (!currentUserKey) return;
+    try {
+      const stored = sessionStorage.getItem(deferredImagesKey);
+      if (stored) {
+        const pending = new Map<string, JSONContent[]>(JSON.parse(stored));
+        deferredImagesRef.current = pending;
+        setDeferredImages(new Map(pending));
+      }
+    } catch {
+      notifyWarning("无法恢复待插入的图片，请检查浏览器存储");
+    }
+  }, [currentUserKey, deferredImagesKey, notifyWarning]);
+  const updateDeferredImages = useCallback(() => {
+    const pending = deferredImagesRef.current;
+    setDeferredImages(new Map(pending));
+    try {
+      if (pending.size) sessionStorage.setItem(deferredImagesKey, JSON.stringify([...pending]));
+      else sessionStorage.removeItem(deferredImagesKey);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [deferredImagesKey]);
+  const onDeferImage = useCallback(
+    (noteId: string, image: JSONContent) => {
+      const pending = deferredImagesRef.current;
+      pending.set(noteId, [...(pending.get(noteId) ?? []), image]);
+      if (updateDeferredImages()) notifyInfo("图片已上传，将补入原笔记文末");
+      else notifyWarning("图片已上传，请在刷新前返回原笔记以插入图片");
+    },
+    [notifyInfo, notifyWarning, updateDeferredImages],
+  );
+  const insertDeferredImages = useCallback(
+    (noteId: string, insert: (images: JSONContent[]) => boolean) => {
+      const pending = deferredImagesRef.current;
+      const images = pending.get(noteId);
+      if (!images?.length || !insert(images)) return;
+      pending.delete(noteId);
+      updateDeferredImages();
+    },
+    [updateDeferredImages],
+  );
+  const onBackgroundImageError = useCallback(
+    (filename: string) => notifyWarning(`图片上传失败：${filename}`),
+    [notifyWarning],
+  );
   const handleUploadImage = useCallback((file: File) => api.uploadAsset(file), []);
   const handleScrollToOutlineItem = useCallback(
     (id: string) => outlineNavigateRef.current?.(id),
@@ -1436,11 +1517,7 @@ export function Workspace() {
           taskNotebookId={taskNotebookId}
           taskStatus={taskStatus}
           tasksLoading={tasksLoading}
-          busyTask={
-            taskMutationNoteId !== null && taskMutationOrdinal !== null
-              ? { noteId: taskMutationNoteId, ordinal: taskMutationOrdinal }
-              : null
-          }
+          busyTasks={busyTasks}
           tasksError={tasksError}
           kanbanColumns={kanbanColumns}
           kanbanLoading={kanbanLoading}
@@ -1476,9 +1553,11 @@ export function Workspace() {
         />
         {!tasksOpen && !kanbanOpen && !memosOpen && !isCardsLayout && (
           <NoteListPanel
-            notes={notes}
-            total={totalNotes}
-            hasMore={hasMoreNotes}
+            notes={visibleNotes}
+            listStatus={listStatus}
+            onRetryList={reloadNotes}
+            total={listStatus === "ready" ? totalNotes : 0}
+            hasMore={listStatus === "ready" && hasMoreNotes}
             selectedId={selectedId}
             selectedIds={selectedNoteIds}
             onSelect={handleSelectListNote}
@@ -1520,9 +1599,11 @@ export function Workspace() {
         )}
         {showCardsGrid && (
           <NoteCardGridPanel
-            notes={notes}
-            total={totalNotes}
-            hasMore={hasMoreNotes}
+            notes={visibleNotes}
+            listStatus={listStatus}
+            onRetryList={reloadNotes}
+            total={listStatus === "ready" ? totalNotes : 0}
+            hasMore={listStatus === "ready" && hasMoreNotes}
             isMobileViewport={isMobileViewport}
             selectedIds={selectedNoteIds}
             onOpenNote={handleOpenCardNote}
@@ -1589,7 +1670,7 @@ export function Workspace() {
               isNoteLoading={isNoteLoading}
               splitIsNoteLoading={splitIsNoteLoading}
               creatingNote={creatingNote}
-              taskMutationNoteId={taskMutationNoteId}
+              busyTasks={busyTasks}
               emptyingTrash={emptyingTrash}
               pendingTrashCount={pendingTrashCount}
               trashOperationsRef={trashOperationsRef}
@@ -1636,6 +1717,10 @@ export function Workspace() {
                   : undefined
               }
               handleUploadImage={handleUploadImage}
+              deferredImages={deferredImages}
+              onDeferImage={onDeferImage}
+              onBackgroundImageError={onBackgroundImageError}
+              insertDeferredImages={insertDeferredImages}
               focusMode={focusMode}
               autoReadingMode={autoReadingMode}
               toggleAutoReadingMode={toggleAutoReadingMode}

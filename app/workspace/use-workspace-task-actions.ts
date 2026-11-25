@@ -31,8 +31,8 @@ export function useWorkspaceTaskActions({
   taskNavigationTokenRef,
   openMobileNote,
   taskMutationsInFlightRef,
-  setTaskMutationNoteId,
-  setTaskMutationOrdinal,
+  setTaskBusy,
+  applyTaskToggle,
   flushPendingSaves,
   hasUnsavedWork,
   notifyWarning,
@@ -61,8 +61,8 @@ export function useWorkspaceTaskActions({
   taskNavigationTokenRef: Tasks["taskNavigationTokenRef"];
   openMobileNote: ReturnType<typeof useMobileNavigation>["openMobileNote"];
   taskMutationsInFlightRef: Tasks["taskMutationsInFlightRef"];
-  setTaskMutationNoteId: Tasks["setTaskMutationNoteId"];
-  setTaskMutationOrdinal: Tasks["setTaskMutationOrdinal"];
+  setTaskBusy: Tasks["setTaskBusy"];
+  applyTaskToggle: Tasks["applyTaskToggle"];
   flushPendingSaves: Queue["flushPendingSaves"];
   hasUnsavedWork: Queue["hasUnsavedWork"];
   notifyWarning: (message: string) => void;
@@ -110,23 +110,13 @@ export function useWorkspaceTaskActions({
   );
   const handleToggleTask = useCallback(
     async (task: TaskSummary) => {
-      if (taskMutationsInFlightRef.current.size > 0) return;
-      taskMutationsInFlightRef.current.add(task.noteId);
-      setTaskMutationNoteId(task.noteId);
-      setTaskMutationOrdinal(task.ordinal);
+      if (taskMutationsInFlightRef.current.has(task.noteId)) return;
+      setTaskBusy(task.noteId, task.ordinal);
       try {
-        flushEditorDraftRef.current();
-        flushSecondaryDraft();
-        await flushPendingSaves("now");
-        if (hasUnsavedWork()) {
-          notifyWarning("笔记仍有内容未保存，请保存成功后再切换任务状态");
-          return;
-        }
-
-        const { note: latestNote } = await api.getNote(task.noteId, {});
-        if (latestNote.version !== task.version) {
-          setTaskRefreshToken((value) => value + 1);
-          notifyWarning("笔记内容刚刚保存，任务列表已刷新，请再点一次");
+        if (splitSelectedRef.current?.id === task.noteId) flushSecondaryDraft();
+        await flushPendingSaves("now", task.noteId);
+        if (hasUnsavedWork(task.noteId)) {
+          notifyWarning("这篇笔记仍有内容未保存，请保存成功后再切换任务状态");
           return;
         }
 
@@ -138,20 +128,25 @@ export function useWorkspaceTaskActions({
           completed: task.done,
         });
 
-        if (selectedRef.current?.id === note.id) {
+        if (selectedRef.current?.id === note.id && selectedRef.current.version < note.version) {
           selectedRef.current = note;
           setSelectedNote(noteMetadataSnapshot(note));
           setNoteReloadToken((value) => value + 1);
         }
-        if (splitSelectedRef.current?.id === note.id) {
+        if (
+          splitSelectedRef.current?.id === note.id &&
+          splitSelectedRef.current.version < note.version
+        ) {
           splitSelectedRef.current = note;
           setSplitSelectedNote(noteMetadataSnapshot(note));
           setSplitNoteReloadToken((value) => value + 1);
         }
         replaceList(
-          notesRef.current.map((item) => (item.id === note.id ? toNoteSummary(note) : item)),
+          notesRef.current.map((item) =>
+            item.id === note.id && item.version < note.version ? toNoteSummary(note) : item,
+          ),
         );
-        setTaskRefreshToken((value) => value + 1);
+        applyTaskToggle(task, note.version);
       } catch (error) {
         if (error instanceof ApiError && error.code === "VERSION_CONFLICT") {
           notifyWarning("笔记已在其他位置修改，请重新加载后再切换任务状态");
@@ -160,12 +155,12 @@ export function useWorkspaceTaskActions({
           notifyError(errorMessage(error, "切换任务状态失败"));
         }
       } finally {
-        taskMutationsInFlightRef.current.delete(task.noteId);
-        setTaskMutationNoteId(null);
-        setTaskMutationOrdinal(null);
+        setTaskBusy(task.noteId, null);
       }
     },
     [
+      applyTaskToggle,
+      setTaskBusy,
       flushPendingSaves,
       flushSecondaryDraft,
       hasUnsavedWork,

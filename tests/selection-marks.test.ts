@@ -26,6 +26,8 @@ function renderList(selectedIds: Set<string>, selectedId: string | null = null):
   return renderToStaticMarkup(
     React.createElement(NoteListPanel, {
       notes: [noteSummary()],
+      listStatus: "ready",
+      onRetryList: () => {},
       total: 1,
       selectedId,
       selectedIds,
@@ -54,6 +56,8 @@ function renderCards(selectedIds: Set<string>): string {
   return renderToStaticMarkup(
     React.createElement(NoteCardGridPanel, {
       notes: [noteSummary()],
+      listStatus: "ready",
+      onRetryList: () => {},
       total: 1,
       hasMore: false,
       selectedIds,

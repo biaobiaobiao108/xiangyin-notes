@@ -1,3 +1,4 @@
+import type { JSONContent } from "@tiptap/core";
 import { lazy, memo, Suspense, type MutableRefObject, type RefObject } from "react";
 import type { ImageAssetSummary, Note, NoteSummary, NoteView } from "../../shared/types";
 import { api } from "../api";
@@ -49,6 +50,10 @@ type WorkspaceEditorPaneProps = {
   onBackToKanban?: () => void;
   onBackToCards?: () => void;
   onUploadImage: (file: File) => Promise<{ asset: ImageAssetSummary }>;
+  deferredImages?: readonly JSONContent[];
+  onDeferImage: (noteId: string, image: JSONContent) => void;
+  onBackgroundImageError: (filename: string) => void;
+  insertDeferredImages: (noteId: string, insert: (images: JSONContent[]) => boolean) => void;
   focusMode: boolean;
   autoReadingMode?: boolean;
   onToggleAutoReadingMode?: () => void;
@@ -119,7 +124,7 @@ export type WorkspaceEditorAreaProps = {
   isNoteLoading: boolean;
   splitIsNoteLoading: boolean;
   creatingNote: boolean;
-  taskMutationNoteId: string | null;
+  busyTasks: ReadonlyMap<string, number>;
   emptyingTrash: boolean;
   pendingTrashCount: number;
   trashOperationsRef: MutableRefObject<Set<string>>;
@@ -150,6 +155,10 @@ export type WorkspaceEditorAreaProps = {
   onBackToKanban?: () => void;
   onBackToCards?: () => void;
   handleUploadImage: (file: File) => Promise<{ asset: ImageAssetSummary }>;
+  deferredImages: ReadonlyMap<string, JSONContent[]>;
+  onDeferImage: (noteId: string, image: JSONContent) => void;
+  onBackgroundImageError: (filename: string) => void;
+  insertDeferredImages: (noteId: string, insert: (images: JSONContent[]) => boolean) => void;
   focusMode: boolean;
   autoReadingMode: boolean;
   toggleAutoReadingMode: () => void;
@@ -212,7 +221,7 @@ export function WorkspaceEditorArea({
   isNoteLoading,
   splitIsNoteLoading,
   creatingNote,
-  taskMutationNoteId,
+  busyTasks,
   emptyingTrash,
   pendingTrashCount,
   trashOperationsRef,
@@ -243,6 +252,10 @@ export function WorkspaceEditorArea({
   onBackToKanban,
   onBackToCards,
   handleUploadImage,
+  deferredImages,
+  onDeferImage,
+  onBackgroundImageError,
+  insertDeferredImages,
   focusMode,
   autoReadingMode,
   toggleAutoReadingMode,
@@ -290,8 +303,14 @@ export function WorkspaceEditorArea({
         onMarkdownReaderChange={registerEditorMarkdownReader}
         onMarkdownDirtyChange={registerEditorMarkdownDirty}
         saveState={saveState}
-        isLoading={isNoteLoading || creatingNote || taskMutationNoteId === renderedNote.id}
-        loadingLabel={creatingNote ? "正在新建笔记…" : undefined}
+        isLoading={isNoteLoading || creatingNote || busyTasks.has(renderedNote.id)}
+        loadingLabel={
+          creatingNote
+            ? "正在新建笔记…"
+            : busyTasks.has(renderedNote.id)
+              ? "正在更新任务…"
+              : undefined
+        }
         trashBusy={
           emptyingTrash ||
           (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))
@@ -315,6 +334,10 @@ export function WorkspaceEditorArea({
         onBackToKanban={onBackToKanban}
         onBackToCards={onBackToCards}
         onUploadImage={handleUploadImage}
+        deferredImages={deferredImages.get(renderedNote.id)}
+        onDeferImage={onDeferImage}
+        onBackgroundImageError={onBackgroundImageError}
+        insertDeferredImages={insertDeferredImages}
         focusMode={focusMode}
         autoReadingMode={isSplitEditor ? false : autoReadingMode}
         onToggleAutoReadingMode={toggleAutoReadingMode}
@@ -403,9 +426,15 @@ export function WorkspaceEditorArea({
                 }}
                 saveState={splitSaveState}
                 isLoading={
-                  splitIsNoteLoading || creatingNote || taskMutationNoteId === splitRenderedNote.id
+                  splitIsNoteLoading || creatingNote || busyTasks.has(splitRenderedNote.id)
                 }
-                loadingLabel={creatingNote ? "正在新建笔记…" : undefined}
+                loadingLabel={
+                  creatingNote
+                    ? "正在新建笔记…"
+                    : busyTasks.has(splitRenderedNote.id)
+                      ? "正在更新任务…"
+                      : undefined
+                }
                 trashBusy={
                   emptyingTrash ||
                   (pendingTrashCount > 0 && trashOperationsRef.current.has(splitRenderedNote.id))
@@ -431,6 +460,10 @@ export function WorkspaceEditorArea({
                 isMobileViewport={false}
                 mobileBackLabel=""
                 onUploadImage={handleUploadImage}
+                deferredImages={deferredImages.get(splitRenderedNote.id)}
+                onDeferImage={onDeferImage}
+                onBackgroundImageError={onBackgroundImageError}
+                insertDeferredImages={insertDeferredImages}
                 focusMode={focusMode}
                 typewriterMode={typewriterMode}
                 outlineOpen={outlineOpen && activePane === "secondary"}
