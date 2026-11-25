@@ -139,6 +139,8 @@ export function useEditorNoteLifecycle({
 }: UseEditorNoteLifecycleOptions) {
   const [backlinkCount, setBacklinkCount] = useState(0);
   const [deferredLoading, setDeferredLoading] = useState(false);
+  const scheduleEditorSurfaceSyncRef = useRef(scheduleEditorSurfaceSync);
+  scheduleEditorSurfaceSyncRef.current = scheduleEditorSurfaceSync;
 
   useLayoutEffect(() => {
     resizeTitleField(titleInputRef.current);
@@ -230,7 +232,7 @@ export function useEditorNoteLifecycle({
 
   useEffect(() => {
     if (!editor) return;
-    scheduleEditorSurfaceSync(editor);
+    scheduleEditorSurfaceSyncRef.current(editor);
     return () => {
       if (syncFrameRef.current !== null) {
         window.clearTimeout(syncFrameRef.current);
@@ -245,18 +247,7 @@ export function useEditorNoteLifecycle({
       composingRef.current = false;
       outlineHeadingElementsRef.current.clear();
     };
-  }, [
-    clearMarkdownSyncTimer,
-    composingRef,
-    editor,
-    imeCleanupTimerRef,
-    leakedCandidateRef,
-    outlineHeadingElementsRef,
-    scheduleEditorSurfaceSync,
-    syncFrameRef,
-    syncOutlineDirtyRef,
-    syncStartedAtRef,
-  ]);
+  }, [clearMarkdownSyncTimer, editor]);
 
   useEffect(() => {
     if (!isLoading) {
@@ -304,34 +295,21 @@ export function useEditorNoteLifecycle({
       if (doc && !doc.closest(".app-shell.layout-cards"))
         enteringAnimation = playEntranceAnimation(doc, "note-fade-in");
     }
-    scheduleEditorSurfaceSync(editor);
+    scheduleEditorSurfaceSyncRef.current(editor);
     return () => {
       onMarkdownDirtyChangeRef.current?.(note.id, false);
       enteringAnimation?.cancel();
     };
   }, [
-    activeEditorNoteIdRef,
     cancelOutlineSmoothScroll,
-    composingRef,
     contentMarkdown,
-    documentRef,
     editor,
-    editorScrollRef,
-    imeCleanupTimerRef,
-    initialContentRef,
-    leakedCandidateRef,
     note.id,
     onCloseOutline,
-    onMarkdownDirtyChangeRef,
     onOutlineActiveChange,
     onOutlineItemsChange,
     onOutlineNavigationReady,
-    outlineHeadingElementsRef,
-    outlineSelectionSynchronizedRef,
     reloadToken,
-    resetMarkdownDirtyState,
-    scheduleEditorSurfaceSync,
-    setEditorStats,
   ]);
 
   useEffect(() => {
