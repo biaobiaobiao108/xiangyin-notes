@@ -3,10 +3,9 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import type { Editor, JSONContent } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { Transaction } from "@tiptap/pm/state";
-import { CircleAlert, ImageDown, Star, Trash2, Undo2, X } from "lucide-react";
+import { ImageDown, Star, Trash2, Undo2 } from "lucide-react";
 import { type ImageAssetSummary, type Note, type NoteSummary } from "../shared/types";
-import { api } from "./api";
-import { BrandMark } from "./brand-mark";
+import { dispatchKeyboardContextMenu } from "./context-menu";
 import { SearchHighlightExtension } from "./editor-search";
 import {
   countEditorText,
@@ -16,15 +15,11 @@ import {
 } from "./editor-metrics";
 import { type EditorTextBlockStatsCache, type EditorTextStatsSnapshot } from "./editor-text-stats";
 import { EditorHeader } from "./editor/editor-header";
+import { EditorSwitchOverlay, EditorUploadNotice } from "./editor/editor-overlays";
 import type { SaveState } from "./workspace/use-note-save-queue";
 import { transactionMayChangeOutline } from "./editor/outline-change";
 import { scrollNoteNavigation } from "./editor/document-navigation";
-import { replaceEditorMarkdown } from "./editor/document-content";
-import {
-  findTaskPosition,
-  TaskNavigationExtension,
-  taskNavigationPluginKey,
-} from "./editor/task-navigation";
+import { TaskNavigationExtension } from "./editor/task-navigation";
 import { FloatingScrollbar } from "./floating-scrollbar";
 import { editorCoreExtensionOptions } from "./editor/editor-config";
 import { createCommonEditorExtensions } from "./editor/common-extensions";
@@ -40,7 +35,6 @@ import {
 import { CalloutNode } from "./editor/callout-node";
 import { SlashCommandExtension } from "./editor/slash-command-menu";
 import { TableScrollbars } from "./editor/table-scrollbars";
-import { playEntranceAnimation } from "./animation";
 import { CardOutline } from "./editor/card-outline";
 import { MobileEditorFooter, MobileEditorOutline } from "./editor/mobile-editor-controls";
 import { useMobileCaret } from "./editor/use-mobile-caret";
@@ -62,13 +56,8 @@ import { useScrollEdges } from "./workspace/use-scroll-edges";
 import { AutoReadingHUD } from "./editor/auto-reading-hud";
 import { useEditorSearch } from "./editor/use-editor-search";
 import { useEditorImageUpload } from "./editor/use-editor-image-upload";
+import { useEditorNoteLifecycle } from "./editor/use-editor-note-lifecycle";
 import "./editor/mobile-editor.css";
-
-function resizeTitleField(field: HTMLTextAreaElement | null) {
-  if (!field) return;
-  field.style.height = "auto";
-  field.style.height = `${field.scrollHeight}px`;
-}
 
 export function NoteEditor({
   note,
@@ -245,10 +234,8 @@ export function NoteEditor({
     editorStats.characterCount,
   ]);
   const editorTextStatsSnapshotRef = useRef<EditorTextStatsSnapshot | null>(null);
-  const [deferredLoading, setDeferredLoading] = useState(false);
-  const loadingLocked = isLoading || deferredLoading;
   const bodyEditable = !note.deletedAt && !trashBusy && !autoReadingMode;
-  const editorLocked = loadingLocked || trashBusy || autoReadingMode;
+  const [backlinksOpen, setBacklinksOpen] = useState(false);
   const {
     imageFileInputRef,
     imageUploadMessageRef,
@@ -262,7 +249,7 @@ export function NoteEditor({
     noteId: note.id,
     reloadToken,
     deleted: Boolean(note.deletedAt),
-    locked: editorLocked,
+    locked: isLoading || trashBusy || autoReadingMode,
     onUploadImage,
     onDeferImage,
     onBackgroundImageError,
@@ -275,24 +262,6 @@ export function NoteEditor({
   const outlineItemsRef = useRef(outlineItems);
   const outlineSelectionSynchronizedRef = useRef(false);
   const outlineStructureKey = getOutlineStructureKey(outlineItems);
-
-  useLayoutEffect(() => {
-    resizeTitleField(titleInputRef.current);
-  }, [note.id, note.title]);
-
-  useEffect(() => {
-    const field = titleInputRef.current;
-    if (!field) return;
-    let width: number | undefined;
-    const observer = new ResizeObserver((entries) => {
-      const nextWidth = entries[0]?.contentRect.width;
-      if (nextWidth === undefined || nextWidth === width) return;
-      width = nextWidth;
-      resizeTitleField(field);
-    });
-    observer.observe(field);
-    return () => observer.disconnect();
-  }, [note.id]);
 
   const availableNotesRef = useRef(availableNotes);
   const onNavigateWikiLinkRef = useRef(onNavigateWikiLink);
@@ -314,32 +283,6 @@ export function NoteEditor({
     onCreateAndLinkNoteRef.current = onCreateAndLinkNote;
     onSearchWikiLinkTitlesRef.current = onSearchWikiLinkTitles;
   });
-
-  const [backlinkCount, setBacklinkCount] = useState(0);
-  const [backlinksOpen, setBacklinksOpen] = useState(false);
-
-  useEffect(() => {
-    if (note.deletedAt || !note.id) {
-      setBacklinkCount(0);
-      return;
-    }
-    let active = true;
-    const controller = new AbortController();
-    setBacklinkCount(0);
-    void api
-      .getBacklinks(note.id, { signal: controller.signal })
-      .then((response) => {
-        if (active)
-          setBacklinkCount(response.linkedReferences.length + response.unlinkedMentions.length);
-      })
-      .catch((reason) => {
-        if (reason instanceof Error && reason.name === "AbortError") return;
-      });
-    return () => {
-      active = false;
-      controller.abort();
-    };
-  }, [note.id, note.deletedAt]);
 
   const scheduleEditorSurfaceSync = useEditorSurfaceSync({
     editorTextStatsSnapshotRef,
@@ -478,7 +421,7 @@ export function NoteEditor({
     replaceRequest,
     onReplaceRequestHandled,
     isLoading,
-    editorLocked,
+    editorLocked: isLoading || trashBusy || autoReadingMode,
     isMobileViewport,
     editorScrollRef,
     titleInputRef,
@@ -516,214 +459,57 @@ export function NoteEditor({
     [onOutlineActiveChange],
   );
 
-  useEffect(() => {
-    editorInstanceRef.current = editor;
-    return () => {
-      if (editorInstanceRef.current === editor) editorInstanceRef.current = null;
-    };
-  }, [editor]);
-
-  useEffect(() => {
-    if (!editor) return;
-    onMarkdownReaderChange?.((noteId) =>
-      noteId === markdownOwnerRef.current.noteId ? readDirtyMarkdown(editor) : null,
-    );
-    return () => onMarkdownReaderChange?.(null);
-  }, [editor, onMarkdownReaderChange, readDirtyMarkdown]);
-
-  useEffect(() => {
-    if (!editor) return;
-    const handleTransaction = ({ editor: instance }: { editor: Editor }) => {
-      syncSearchNavigation(instance);
-    };
-    const handleSelection = ({ editor: instance }: { editor: Editor }) => {
-      const selectionSynchronized = syncActiveOutlineFromSelection(instance);
-      outlineSelectionSynchronizedRef.current = selectionSynchronized;
-      if (!selectionSynchronized) {
-        outlineFallbackSyncRef.current?.();
-      }
-      if (typewriterModeRef.current) {
-        alignTypewriterRef.current(instance);
-      }
-    };
-    editor.on("transaction", handleTransaction);
-    editor.on("selectionUpdate", handleSelection);
-    syncSearchNavigation(editor);
-    return () => {
-      editor.off("transaction", handleTransaction);
-      editor.off("selectionUpdate", handleSelection);
-    };
-  }, [editor, syncActiveOutlineFromSelection, syncSearchNavigation]);
-
-  useEffect(() => {
-    if (!editor) return;
-    scheduleEditorSurfaceSync(editor);
-    return () => {
-      if (syncFrameRef.current !== null) {
-        window.clearTimeout(syncFrameRef.current);
-      }
-      syncFrameRef.current = null;
-      syncStartedAtRef.current = null;
-      syncOutlineDirtyRef.current = false;
-      clearMarkdownSyncTimer();
-      if (imeCleanupTimerRef.current !== null) clearTimeout(imeCleanupTimerRef.current);
-      imeCleanupTimerRef.current = null;
-      leakedCandidateRef.current = null;
-      composingRef.current = false;
-      outlineHeadingElementsRef.current.clear();
-    };
-  }, [clearMarkdownSyncTimer, editor]);
-
-  useEffect(() => {
-    if (!isLoading) {
-      setDeferredLoading(false);
-      return;
-    }
-    const timer = setTimeout(() => {
-      setDeferredLoading(true);
-    }, 150);
-    return () => clearTimeout(timer);
-  }, [isLoading]);
-
-  useEffect(() => {
-    if (editor && editor.isEditable !== bodyEditable) editor.setEditable(bodyEditable, false);
-  }, [editor, bodyEditable]);
-
-  const appliedReloadTokenRef = useRef(reloadToken);
-  useEffect(() => {
-    if (!editor) return;
-    const switchedNote = activeEditorNoteIdRef.current !== note.id;
-    if (!switchedNote && appliedReloadTokenRef.current === reloadToken) return;
-    let enteringAnimation: Animation | null = null;
-    onMarkdownDirtyChangeRef.current?.(activeEditorNoteIdRef.current, false);
-    appliedReloadTokenRef.current = reloadToken;
-    activeEditorNoteIdRef.current = note.id;
-    onMarkdownDirtyChangeRef.current?.(note.id, false);
-    if (imeCleanupTimerRef.current !== null) clearTimeout(imeCleanupTimerRef.current);
-    imeCleanupTimerRef.current = null;
-    leakedCandidateRef.current = null;
-    composingRef.current = false;
-    cancelOutlineSmoothScroll();
-    onCloseOutline();
-    onOutlineItemsChange([]);
-    onOutlineActiveChange(null);
-    onOutlineNavigationReady(null);
-    outlineHeadingElementsRef.current.clear();
-    outlineSelectionSynchronizedRef.current = false;
-    setEditorStats(countEditorText(""));
-    resetMarkdownDirtyState();
-    initialContentRef.current = prepareMarkdownForEditor(contentMarkdown);
-    replaceEditorMarkdown(editor, initialContentRef.current);
-    editorScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
-    if (switchedNote) {
-      const doc = documentRef.current;
-      if (doc && !doc.closest(".app-shell.layout-cards"))
-        enteringAnimation = playEntranceAnimation(doc, "note-fade-in");
-    }
-    scheduleEditorSurfaceSync(editor);
-    return () => {
-      onMarkdownDirtyChangeRef.current?.(note.id, false);
-      enteringAnimation?.cancel();
-    };
-  }, [
-    cancelOutlineSmoothScroll,
+  const { backlinkCount, setBacklinkCount, deferredLoading } = useEditorNoteLifecycle({
+    editor,
+    note,
     contentMarkdown,
-    editor,
-    note.id,
-    onCloseOutline,
-    onOutlineActiveChange,
-    onOutlineItemsChange,
-    onOutlineNavigationReady,
     reloadToken,
-  ]);
-
-  useEffect(() => {
-    if (!editor || editorLocked || note.deletedAt || !deferredImages?.length) return;
-    // Tiptap mounts React node views synchronously when inserting images.
-    const timer = setTimeout(() => {
-      if (editor.isDestroyed) return;
-      insertDeferredImages(note.id, (images) => {
-        if (
-          !editor.commands.insertContentAt(editor.state.doc.content.size, images, {
-            updateSelection: false,
-          })
-        ) {
-          return false;
-        }
-        flushMarkdownChange(editor);
-        return true;
-      });
-    });
-    return () => clearTimeout(timer);
-  }, [
-    deferredImages,
-    editor,
-    editorLocked,
-    flushMarkdownChange,
-    insertDeferredImages,
-    note.deletedAt,
-    note.id,
-  ]);
-
-  useEffect(() => {
-    if (!editor || !focusRequested || isLoading || note.deletedAt) return;
-    if (isMobileViewport) {
-      onFocusHandled?.();
-      return;
-    }
-    // Apply focus after the new note's content and editable state are ready.
-    if (editor.commands.focus("start")) onFocusHandled?.();
-  }, [
-    editor,
-    focusRequested,
     isLoading,
+    bodyEditable,
+    editorLocked: isLoading || trashBusy || autoReadingMode,
+    focusRequested,
     isMobileViewport,
-    note.id,
-    note.deletedAt,
+    deferredImages,
+    taskNavigation,
     onFocusHandled,
-  ]);
-
-  useEffect(() => {
-    if (!editor || isLoading || !taskNavigation || taskNavigation.noteId !== note.id) return;
-    const position = findTaskPosition(
-      editor.state.doc,
-      taskNavigation.ordinal,
-      taskNavigation.text,
-    );
-    if (position === null) {
-      onTaskNavigationMissing?.();
-      return;
-    }
-    editor.view.dispatch(editor.state.tr.setMeta(taskNavigationPluginKey, position));
-    const frame = requestAnimationFrame(() => {
-      if (editor.isDestroyed) return;
-      const node = editor.view.nodeDOM(position);
-      if (!(node instanceof HTMLElement)) return;
-      const behavior: ScrollBehavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches
-        ? "auto"
-        : "smooth";
-      node.scrollIntoView({ behavior, block: "center", inline: "nearest" });
-    });
-    const clearHighlight = () => {
-      if (!editor.isDestroyed)
-        editor.view.dispatch(editor.state.tr.setMeta(taskNavigationPluginKey, null));
-    };
-    const fadeTimer = window.setTimeout(() => {
-      if (editor.isDestroyed) return;
-      editor.view.dispatch(editor.state.tr.setMeta(taskNavigationPluginKey, { type: "fade" }));
-    }, 3600);
-    const clearTimer = window.setTimeout(clearHighlight, 3900);
-    return () => {
-      cancelAnimationFrame(frame);
-      window.clearTimeout(fadeTimer);
-      window.clearTimeout(clearTimer);
-      clearHighlight();
-    };
-  }, [editor, isLoading, note.id, onTaskNavigationMissing, taskNavigation]);
-
-  useEffect(() => {
-    if (isLoading) onCloseOutline();
-  }, [isLoading, onCloseOutline]);
+    onTaskNavigationMissing,
+    onCloseOutline,
+    onOutlineItemsChange,
+    onOutlineActiveChange,
+    onOutlineNavigationReady,
+    onMarkdownReaderChange,
+    onMarkdownDirtyChangeRef,
+    insertDeferredImages,
+    readDirtyMarkdown,
+    flushMarkdownChange,
+    clearMarkdownSyncTimer,
+    resetMarkdownDirtyState,
+    scheduleEditorSurfaceSync,
+    syncSearchNavigation,
+    syncActiveOutlineFromSelection,
+    cancelOutlineSmoothScroll,
+    setEditorStats,
+    editorInstanceRef,
+    editorScrollRef,
+    documentRef,
+    titleInputRef,
+    initialContentRef,
+    activeEditorNoteIdRef,
+    syncFrameRef,
+    syncStartedAtRef,
+    syncOutlineDirtyRef,
+    imeCleanupTimerRef,
+    leakedCandidateRef,
+    composingRef,
+    outlineHeadingElementsRef,
+    outlineSelectionSynchronizedRef,
+    outlineFallbackSyncRef,
+    typewriterModeRef,
+    alignTypewriterRef,
+    markdownOwnerRef,
+  });
+  const loadingLocked = isLoading || deferredLoading;
+  const editorLocked = loadingLocked || trashBusy || autoReadingMode;
 
   const scrollToOutlineItem = useEditorOutlineNavigation({
     editor,
@@ -805,25 +591,13 @@ export function NoteEditor({
       onFocusCapture={onActivatePane}
       onContextMenu={contextMenu.onContextMenu}
       onKeyDown={(event) => {
-        if (event.nativeEvent.isComposing || event.keyCode === 229) return;
-        if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
-          const target = event.target;
-          if (target instanceof HTMLElement && !target.closest("dialog, [role='menu']")) {
-            const rect = target.getBoundingClientRect();
-            if (
-              !target.dispatchEvent(
-                new MouseEvent("contextmenu", {
-                  bubbles: true,
-                  cancelable: true,
-                  clientX: rect.left + 12,
-                  clientY: rect.top + 12,
-                }),
-              )
-            )
-              event.preventDefault();
-          }
-        }
-        if ((event.ctrlKey || event.metaKey) && event.key === "s") {
+        dispatchKeyboardContextMenu(event, "dialog, [role='menu']");
+        if (
+          !event.nativeEvent.isComposing &&
+          event.keyCode !== 229 &&
+          (event.ctrlKey || event.metaKey) &&
+          event.key === "s"
+        ) {
           event.preventDefault();
           handleSaveNow();
         }
@@ -864,34 +638,12 @@ export function NoteEditor({
         onReloadNote={onReloadNote}
       />
       {imageUploadMessage && (
-        <div className="editor-upload-notice toast toast--error">
-          <CircleAlert className="notice-icon" size={18} aria-hidden="true" />
-          <div className="editor-upload-notice-body">
-            <div
-              id={imageUploadMessageId}
-              ref={imageUploadMessageRef}
-              className="notice-copy editor-upload-notice-copy floating-scrollbar-target"
-              role="alert"
-              aria-atomic="true"
-            >
-              {imageUploadMessage}
-            </div>
-            <FloatingScrollbar
-              scrollTargetRef={imageUploadMessageRef}
-              controlsId={imageUploadMessageId}
-              ariaLabel="图片上传提示滚动条"
-              placement="right"
-            />
-          </div>
-          <button
-            type="button"
-            className="notice-dismiss"
-            aria-label="关闭图片上传提示"
-            onClick={clearImageUploadMessage}
-          >
-            <X size={16} />
-          </button>
-        </div>
+        <EditorUploadNotice
+          message={imageUploadMessage}
+          messageId={imageUploadMessageId}
+          messageRef={imageUploadMessageRef}
+          onDismiss={clearImageUploadMessage}
+        />
       )}
       {isMobileViewport && onUploadImage && !note.deletedAt && (
         <input
@@ -1011,23 +763,7 @@ export function NoteEditor({
           <AutoReadingHUD scrollTargetRef={editorScrollRef} onExit={onExitAutoReadingMode} />
         )}
       </div>
-      {deferredLoading && (
-        <div
-          className="editor-switch-overlay editor-switch-overlay--visible"
-          role="status"
-          aria-live="polite"
-        >
-          <div className="editor-switch-card">
-            <BrandMark className="editor-switch-mark" />
-            <div className="editor-switch-lines" aria-hidden="true">
-              <span />
-              <span />
-              <span />
-            </div>
-            <strong>{loadingLabel}</strong>
-          </div>
-        </div>
-      )}
+      {deferredLoading && <EditorSwitchOverlay label={loadingLabel} />}
       <EditorFloatingTools
         editor={editor}
         outlineTriggerRef={outlineTriggerRef}

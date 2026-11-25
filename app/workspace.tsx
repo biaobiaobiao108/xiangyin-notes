@@ -1,8 +1,6 @@
-import type { JSONContent } from "@tiptap/core";
 import { useCallback, useDeferredValue, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { useContextMenu } from "./context-menu";
-import { api } from "./api";
+import { dispatchKeyboardContextMenu, useContextMenu } from "./context-menu";
 import { subscribePwa, type PwaState } from "./pwa";
 import {
   NOTE_BATCH_LIMIT,
@@ -13,17 +11,12 @@ import {
 } from "../shared/types";
 import { useOutlineState } from "./workspace/use-outline-state";
 import { type ConfirmRequest } from "./workspace/dialogs";
-import { DEFAULT_SPLIT_RATIO } from "./workspace/split-resizer";
 import { NoteListPanel, Sidebar } from "./workspace/panels";
 import { NoteCardGridPanel } from "./workspace/note-card-grid";
 import { registerDragOverGuard } from "./workspace/note-drag-drop";
 import { noteMetadataSnapshot, toNoteSummary, viewLabel } from "./workspace/helpers";
 import { useNoteSelection } from "./workspace/use-note-selection";
-import {
-  isMissingNoteError,
-  useNoteSaveQueue,
-  type SaveState,
-} from "./workspace/use-note-save-queue";
+import { isMissingNoteError, useNoteSaveQueue } from "./workspace/use-note-save-queue";
 import { emptyRealtimeRefreshPlan, type RealtimeRefreshPlan } from "./workspace/realtime-refresh";
 import { useWorkspaceShortcuts } from "./workspace/use-workspace-shortcuts";
 import { useTrashActions } from "./workspace/use-trash-actions";
@@ -62,6 +55,9 @@ import { useWorkspaceNoteSync } from "./workspace/use-workspace-note-sync";
 import { useWorkspaceCollectionActions } from "./workspace/use-workspace-collection-actions";
 import { useWorkspaceOffline } from "./workspace/use-workspace-offline";
 import { useWorkspaceCommands } from "./workspace/use-workspace-commands";
+import { useDeferredImages } from "./workspace/use-deferred-images";
+import { useWorkspaceEditorDrafts } from "./workspace/use-workspace-editor-drafts";
+import { useWorkspaceSplitState } from "./workspace/use-workspace-split-state";
 import { WorkspaceCollections } from "./workspace/workspace-collections";
 import { WorkspaceDialogs } from "./workspace/workspace-dialogs";
 
@@ -109,9 +105,6 @@ export function Workspace() {
     listTransitionConsumedRef.current = listTransitionIntentRef.current;
     setListTransitionToken((value) => value + 1);
   }, []);
-  const editorMarkdownReaderRef = useRef<((noteId: string) => string | null) | null>(null);
-  const editorMarkdownDirtyNoteRef = useRef<string | null>(null);
-  const flushEditorDraftRef = useRef<() => void>(() => undefined);
   const notesRef = useRef<NoteSummary[]>([]);
   const listRequestRef = useRef(0);
   const listAbortRef = useRef<AbortController | null>(null);
@@ -291,52 +284,65 @@ export function Workspace() {
     notesRef.current = next;
     setNotes(next);
   }, []);
-  const [splitNoteId, setSplitNoteId] = useState<string | null>(null);
-  const splitNoteIdRef = useRef<string | null>(null);
-  splitNoteIdRef.current = splitNoteId;
-  const [autoReadingMode, setAutoReadingMode] = useState(false);
-  const toggleAutoReadingMode = useCallback(() => {
-    if (splitNoteIdRef.current || !selectedIdRef.current) return;
-    setAutoReadingMode((current) => !current);
-  }, []);
-  const exitAutoReadingMode = useCallback(() => {
-    setAutoReadingMode(false);
-  }, []);
-  useEffect(() => {
-    if (splitNoteId) setAutoReadingMode(false);
-  }, [splitNoteId]);
-  const closeSplitRef = useRef<() => void>(() => undefined);
-  const [splitSelectedNote, setSplitSelectedNote] = useState<Note | null>(null);
-  const splitSelectedRef = useRef<Note | null>(null);
-  const splitNoteOpeningRef = useRef<Promise<void> | null>(null);
-  const [splitIsNoteLoading, setSplitIsNoteLoading] = useState(false);
-  const [splitSaveState, setSplitSaveState] = useState<SaveState>("idle");
-  const [splitNoteReloadToken, setSplitNoteReloadToken] = useState(0);
+  const {
+    splitNoteId,
+    setSplitNoteId,
+    splitNoteIdRef,
+    autoReadingMode,
+    setAutoReadingMode,
+    toggleAutoReadingMode,
+    exitAutoReadingMode,
+    closeSplitRef,
+    splitSelectedNote,
+    setSplitSelectedNote,
+    splitSelectedRef,
+    splitNoteOpeningRef,
+    splitIsNoteLoading,
+    setSplitIsNoteLoading,
+    splitSaveState,
+    setSplitSaveState,
+    splitNoteReloadToken,
+    setSplitNoteReloadToken,
+    activePane,
+    setActivePane,
+    splitRatio,
+    setSplitRatio,
+    splitOutlineItems,
+    splitActiveOutlineId,
+    splitOutlineNavigateRef,
+    handleSplitOutlineItemsChange,
+    handleSplitOutlineActiveChange,
+    handleSplitOutlineNavigationReady,
+    splitLoadRequestRef,
+    splitAbortRef,
+    splitMarkdownReaderRef,
+    splitMarkdownDirtyNoteRef,
+    splitEditorFocusNoteId,
+    handleSplitEditorFocus,
+    setSplitSelectedNoteMetadata,
+    splitPickerOpen,
+    setSplitPickerOpen,
+  } = useWorkspaceSplitState(selectedIdRef);
   const [replaceRequest, setReplaceRequest] = useState<{
     noteId: string;
     token: number;
     query: string;
   } | null>(null);
-  const [activePane, setActivePane] = useState<"primary" | "secondary">("primary");
-  const [splitRatio, setSplitRatio] = useState(DEFAULT_SPLIT_RATIO);
+  const persistRef = useRef<ReturnType<typeof useNoteSaveQueue>["persist"]>(() => undefined);
   const {
-    items: splitOutlineItems,
-    activeId: splitActiveOutlineId,
-    navigateRef: splitOutlineNavigateRef,
-    onItemsChange: handleSplitOutlineItemsChange,
-    onActiveChange: handleSplitOutlineActiveChange,
-    onNavigationReady: handleSplitOutlineNavigationReady,
-  } = useOutlineState();
-  const splitLoadRequestRef = useRef(0);
-  const splitAbortRef = useRef<AbortController | null>(null);
-  const splitMarkdownReaderRef = useRef<((noteId: string) => string | null) | null>(null);
-  const splitMarkdownDirtyNoteRef = useRef<string | null>(null);
-  const [splitEditorFocusNoteId, setSplitEditorFocusNoteId] = useState<string | null>(null);
-  const handleSplitEditorFocus = useCallback(() => setSplitEditorFocusNoteId(null), []);
-  const setSplitSelectedNoteMetadata = useCallback((note: Note | null) => {
-    setSplitSelectedNote(note ? noteMetadataSnapshot(note) : null);
-  }, []);
-  const [splitPickerOpen, setSplitPickerOpen] = useState(false);
+    editorMarkdownReaderRef,
+    editorMarkdownDirtyNoteRef,
+    flushEditorDraftRef,
+    registerEditorMarkdownReader,
+    registerEditorMarkdownDirty,
+    flushActiveEditorDraft,
+  } = useWorkspaceEditorDrafts({
+    selectedRef,
+    splitSelectedRef,
+    splitMarkdownReaderRef,
+    trashOperationsRef,
+    persistRef,
+  });
   const refreshLinkedNotesRef = useRef<(sourceId: string) => void>(() => undefined);
   const handleLinkedNotesRewritten = useCallback((sourceId: string) => {
     refreshLinkedNotesRef.current(sourceId);
@@ -405,7 +411,6 @@ export function Workspace() {
     taskSaveStateRef.current = { saveState, splitSaveState };
     if (tasksOpen && didSave) setTaskRefreshToken((value) => value + 1);
   }, [saveState, setTaskRefreshToken, splitSaveState, tasksOpen]);
-  const persistRef = useRef(persist);
   persistRef.current = persist;
 
   const requestConfirm = useCallback((request: Omit<ConfirmRequest, "id">) => {
@@ -614,38 +619,6 @@ export function Workspace() {
     setSelectedNote,
     persist,
   });
-  const registerEditorMarkdownReader = useCallback(
-    (reader: ((noteId: string) => string | null) | null) => {
-      editorMarkdownReaderRef.current = reader;
-    },
-    [],
-  );
-  const registerEditorMarkdownDirty = useCallback((noteId: string, isDirty: boolean) => {
-    if (isDirty) editorMarkdownDirtyNoteRef.current = noteId;
-    else if (editorMarkdownDirtyNoteRef.current === noteId)
-      editorMarkdownDirtyNoteRef.current = null;
-  }, []);
-  const flushActiveEditorDraft = useCallback(() => {
-    const current = selectedRef.current;
-    if (current && !trashOperationsRef.current.has(current.id)) {
-      const markdown = editorMarkdownReaderRef.current?.(current.id);
-      if (markdown != null && markdown !== current.contentMarkdown) {
-        const next = { ...current, contentMarkdown: markdown };
-        selectedRef.current = next;
-        persistRef.current(next, ["contentMarkdown"]);
-      }
-    }
-    const split = splitSelectedRef.current;
-    if (split && !trashOperationsRef.current.has(split.id)) {
-      const markdown = splitMarkdownReaderRef.current?.(split.id);
-      if (markdown != null && markdown !== split.contentMarkdown) {
-        const next = { ...split, contentMarkdown: markdown };
-        splitSelectedRef.current = next;
-        persistRef.current(next, ["contentMarkdown"]);
-      }
-    }
-  }, []);
-  flushEditorDraftRef.current = flushActiveEditorDraft;
   const revealCreatedNote = useCallback(
     (note: Note, target: { view: NoteView; notebookId?: string }) => {
       flushEditorDraftRef.current();
@@ -1250,59 +1223,13 @@ export function Workspace() {
       setCardEditingNoteId(null);
     }
   }, [backMobilePage, closeOutline, isMobileViewport, viewLayout]);
-  const deferredImagesRef = useRef(new Map<string, JSONContent[]>());
-  const [deferredImages, setDeferredImages] = useState<ReadonlyMap<string, JSONContent[]>>(
-    () => new Map(),
-  );
-  const deferredImagesKey = `xiangying_deferred_images:${currentUserKey}`;
-  useEffect(() => {
-    if (!currentUserKey) return;
-    try {
-      const stored = sessionStorage.getItem(deferredImagesKey);
-      if (stored) {
-        const pending = new Map<string, JSONContent[]>(JSON.parse(stored));
-        deferredImagesRef.current = pending;
-        setDeferredImages(new Map(pending));
-      }
-    } catch {
-      notifyWarning("无法恢复待插入的图片，请检查浏览器存储");
-    }
-  }, [currentUserKey, deferredImagesKey, notifyWarning]);
-  const updateDeferredImages = useCallback(() => {
-    const pending = deferredImagesRef.current;
-    setDeferredImages(new Map(pending));
-    try {
-      if (pending.size) sessionStorage.setItem(deferredImagesKey, JSON.stringify([...pending]));
-      else sessionStorage.removeItem(deferredImagesKey);
-      return true;
-    } catch {
-      return false;
-    }
-  }, [deferredImagesKey]);
-  const onDeferImage = useCallback(
-    (noteId: string, image: JSONContent) => {
-      const pending = deferredImagesRef.current;
-      pending.set(noteId, [...(pending.get(noteId) ?? []), image]);
-      if (updateDeferredImages()) notifyInfo("图片已上传，将补入原笔记文末");
-      else notifyWarning("图片已上传，请在刷新前返回原笔记以插入图片");
-    },
-    [notifyInfo, notifyWarning, updateDeferredImages],
-  );
-  const insertDeferredImages = useCallback(
-    (noteId: string, insert: (images: JSONContent[]) => boolean) => {
-      const pending = deferredImagesRef.current;
-      const images = pending.get(noteId);
-      if (!images?.length || !insert(images)) return;
-      pending.delete(noteId);
-      updateDeferredImages();
-    },
-    [updateDeferredImages],
-  );
-  const onBackgroundImageError = useCallback(
-    (filename: string) => notifyWarning(`图片上传失败：${filename}`),
-    [notifyWarning],
-  );
-  const handleUploadImage = useCallback((file: File) => api.uploadAsset(file), []);
+  const {
+    deferredImages,
+    onDeferImage,
+    insertDeferredImages,
+    onBackgroundImageError,
+    handleUploadImage,
+  } = useDeferredImages({ currentUserKey, notifyInfo, notifyWarning });
   const handleScrollToOutlineItem = useCallback(
     (id: string) => outlineNavigateRef.current?.(id),
     [outlineNavigateRef],
@@ -1441,32 +1368,12 @@ export function Workspace() {
     >
       <div
         onContextMenu={handleWorkspaceContextMenu}
-        onKeyDown={(event) => {
-          if (
-            event.nativeEvent.isComposing ||
-            event.keyCode === 229 ||
-            !(event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))
+        onKeyDown={(event) =>
+          dispatchKeyboardContextMenu(
+            event,
+            "dialog, input, textarea, [contenteditable='true'], .editor-panel",
           )
-            return;
-          const target = event.target;
-          if (
-            !(target instanceof HTMLElement) ||
-            target.closest("dialog, input, textarea, [contenteditable='true'], .editor-panel")
-          )
-            return;
-          const rect = target.getBoundingClientRect();
-          if (
-            !target.dispatchEvent(
-              new MouseEvent("contextmenu", {
-                bubbles: true,
-                cancelable: true,
-                clientX: rect.left + 12,
-                clientY: rect.top + 12,
-              }),
-            )
-          )
-            event.preventDefault();
-        }}
+        }
         data-mobile-page={isMobileViewport ? mobilePage : undefined}
         className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${focusMode || autoReadingMode ? "is-focus-mode" : ""} ${autoReadingMode ? "is-auto-reading-mode" : ""} ${isCardsLayout ? "layout-cards" : ""} ${tasksOpen ? "is-tasks-open" : ""} ${kanbanOpen ? "is-kanban-open" : ""} ${memosOpen ? "is-memos-open" : ""}`}
       >

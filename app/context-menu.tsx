@@ -4,6 +4,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent,
   type ReactNode,
 } from "react";
@@ -40,6 +41,30 @@ export type ContextMenuSwatch = {
   disabled?: boolean;
   onSelect: () => void | Promise<void>;
 };
+
+/** 将 ContextMenu / Shift+F10 键盘事件转为对应元素上的 contextmenu 事件。 */
+export function dispatchKeyboardContextMenu(
+  event: ReactKeyboardEvent<HTMLElement>,
+  ignoreSelector: string,
+) {
+  if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+  if (!(event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) return;
+  const target = event.target;
+  if (!(target instanceof HTMLElement) || target.closest(ignoreSelector)) return;
+  const rect = target.getBoundingClientRect();
+  if (
+    !target.dispatchEvent(
+      new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        clientX: rect.left + 12,
+        clientY: rect.top + 12,
+      }),
+    )
+  ) {
+    event.preventDefault();
+  }
+}
 
 type MenuState = {
   x: number;
