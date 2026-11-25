@@ -1,6 +1,7 @@
 import { CalendarDays, ChevronLeft, Copy, FileText, Plus, Search, Trash2, X } from "lucide-react";
 import {
   type CSSProperties,
+  type ContextType,
   useCallback,
   useEffect,
   useMemo,
@@ -14,6 +15,7 @@ import {
 import type { Memo, Note } from "../../shared/types";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { MemoMarkdown } from "./memo-markdown";
+import { MemoDiagramPreviews } from "../mermaid/diagram-preview";
 import { useScrollEdges } from "../workspace/use-scroll-edges";
 import { useSwipeActionGesture, useSwipeActionGroup } from "../workspace/swipe-actions";
 import { MemoComposer, type MemoComposerHandle } from "./memo-composer";
@@ -76,6 +78,7 @@ function MemoCard({
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   const composerRef = useRef<MemoComposerHandle>(null);
+  const diagramPreviews = useRef<NonNullable<ContextType<typeof MemoDiagramPreviews>>>(new Map());
   const foregroundRef = useRef<HTMLElement>(null);
   const gesture = useSwipeActionGesture({
     enabled: mobile && !editing && !deleting,
@@ -222,51 +225,54 @@ function MemoCard({
         </header>
         {editing ? (
           <>
-            <MemoComposer
-              ref={composerRef}
-              key={memo.id}
-              initialMarkdown={editDraft?.markdown ?? memo.contentMarkdown}
-              placeholder="修改这条随记"
-              ariaLabel="编辑随记"
-              autoFocus
-              onSaveError={(reason) => {
-                if (!memoConflictCurrent(reason)) onSaveNotice(memoSaveFailure(reason));
-              }}
-              onSubmit={async (markdown) => {
-                const draftAtSubmit = readEditDraft();
-                if (draftAtSubmit?.conflict || conflict)
-                  throw new Error("请先处理冲突草稿，再保存随记。");
-                const submittedDraft = draftAtSubmit?.markdown === markdown ? draftAtSubmit : null;
-                try {
-                  await updateMemo({ ...memo, version: editVersion }, markdown);
-                } catch (reason) {
-                  const current = memoConflictCurrent(reason);
-                  if (current) {
-                    writeMemoEditDraft(memo.id, {
-                      markdown: submittedDraft?.markdown ?? markdown,
-                      version: current.version,
-                      conflict: true,
-                    });
-                    setConflict(current);
+            <MemoDiagramPreviews.Provider value={diagramPreviews.current}>
+              <MemoComposer
+                ref={composerRef}
+                key={memo.id}
+                initialMarkdown={editDraft?.markdown ?? memo.contentMarkdown}
+                placeholder="修改这条随记"
+                ariaLabel="编辑随记"
+                autoFocus
+                onSaveError={(reason) => {
+                  if (!memoConflictCurrent(reason)) onSaveNotice(memoSaveFailure(reason));
+                }}
+                onSubmit={async (markdown) => {
+                  const draftAtSubmit = readEditDraft();
+                  if (draftAtSubmit?.conflict || conflict)
+                    throw new Error("请先处理冲突草稿，再保存随记。");
+                  const submittedDraft =
+                    draftAtSubmit?.markdown === markdown ? draftAtSubmit : null;
+                  try {
+                    await updateMemo({ ...memo, version: editVersion }, markdown);
+                  } catch (reason) {
+                    const current = memoConflictCurrent(reason);
+                    if (current) {
+                      writeMemoEditDraft(memo.id, {
+                        markdown: submittedDraft?.markdown ?? markdown,
+                        version: current.version,
+                        conflict: true,
+                      });
+                      setConflict(current);
+                    }
+                    throw reason;
                   }
-                  throw reason;
-                }
-                const currentDraft = readEditDraft();
-                if (
-                  currentDraft?.version === editVersion &&
-                  (currentDraft.markdown === markdown ||
-                    currentDraft.markdown === submittedDraft?.markdown)
-                )
-                  writeEditDraft("");
-                onFinishEdit();
-                onSaveNotice({ message: "随记已保存" });
-              }}
-              onDraftChange={writeEditDraft}
-              onCancel={() => {
-                if (!conflictMemo && !readEditDraft()?.conflict) writeEditDraft("");
-                onFinishEdit();
-              }}
-            />
+                  const currentDraft = readEditDraft();
+                  if (
+                    currentDraft?.version === editVersion &&
+                    (currentDraft.markdown === markdown ||
+                      currentDraft.markdown === submittedDraft?.markdown)
+                  )
+                    writeEditDraft("");
+                  onFinishEdit();
+                  onSaveNotice({ message: "随记已保存" });
+                }}
+                onDraftChange={writeEditDraft}
+                onCancel={() => {
+                  if (!conflictMemo && !readEditDraft()?.conflict) writeEditDraft("");
+                  onFinishEdit();
+                }}
+              />
+            </MemoDiagramPreviews.Provider>
             {conflictMemo && (
               <section className="memo-conflict" aria-label="随记保存冲突">
                 <p>这条随记已在别处更新。草稿已保留，请选择如何处理。</p>
@@ -310,7 +316,9 @@ function MemoCard({
           </>
         ) : (
           <div className="memo-card-content">
-            <MemoMarkdown markdown={memo.contentMarkdown} />
+            <MemoDiagramPreviews.Provider value={diagramPreviews.current}>
+              <MemoMarkdown markdown={memo.contentMarkdown} />
+            </MemoDiagramPreviews.Provider>
           </div>
         )}
         {deleteError && (

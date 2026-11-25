@@ -1,12 +1,4 @@
-import {
-  useEffect,
-  useEffectEvent,
-  useId,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useEffect, useEffectEvent, useId, useRef, useState, type ReactNode } from "react";
 import {
   NodeViewContent,
   NodeViewWrapper,
@@ -17,6 +9,7 @@ import { TextSelection } from "@tiptap/pm/state";
 import { searchHighlightPluginKey } from "../editor-search";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { DiagramPreview } from "../mermaid/diagram-preview";
+import { useDiagramHeight } from "../mermaid/use-diagram-height";
 
 export function MermaidCodeBlock({
   node,
@@ -76,24 +69,7 @@ export function MermaidCodeBlock({
     if (!showSource) setPreviewSource(source);
   }, [showSource, source]);
 
-  useLayoutEffect(() => {
-    const body = bodyRef.current;
-    const preview = previewRef.current;
-    if (!body || !preview) return;
-    let frame = 0;
-    const observer = new ResizeObserver(([entry]) => {
-      if (!entry) return;
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        body.style.setProperty("--mermaid-body-height", `${entry.contentRect.height}px`);
-      });
-    });
-    observer.observe(preview);
-    return () => {
-      observer.disconnect();
-      cancelAnimationFrame(frame);
-    };
-  }, []);
+  useDiagramHeight(bodyRef, previewRef);
 
   const openSource = () => {
     const start = getPos();

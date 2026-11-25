@@ -154,6 +154,10 @@
   margin-block-start: 4px;
 }
 
+.memo-mermaid:has(.memo-mermaid-frame) > details {
+  display: none;
+}
+
 @media (pointer: coarse) {
   .mermaid-action {
     min-block-size: 44px;

@@ -440,12 +440,19 @@
   display: contents;
 }
 
+/* The composer temporarily becomes read-only while the save is in flight. */
+.memo-composer-prose .mermaid-toolbar {
+  display: none;
+}
+
 .memo-card .memo-composer-prose > .node-codeBlock:first-child > pre,
+.memo-card .memo-composer-prose > .node-codeBlock:first-child > .mermaid-code-block,
 .memo-card .memo-composer-prose blockquote > .node-codeBlock:first-child > pre {
   margin-top: 0;
 }
 
 .memo-card .memo-composer-prose > .node-codeBlock:last-child > pre,
+.memo-card .memo-composer-prose > .node-codeBlock:last-child > .mermaid-code-block,
 .memo-card .memo-composer-prose blockquote > .node-codeBlock:last-child > pre {
   margin-bottom: 0;
 }

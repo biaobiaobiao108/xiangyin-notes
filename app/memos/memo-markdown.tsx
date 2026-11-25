@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { DiagramPreview } from "../mermaid/diagram-preview";
+import { useDiagramHeight } from "../mermaid/use-diagram-height";
+import { FloatingScrollbar } from "../floating-scrollbar";
 import { isMermaidLanguage, mermaidTokenSource } from "../mermaid/protocol";
 import { copyCodeBlockText } from "../editor/code-block-copy";
 import { readColumnWidthsFromDelimiter } from "../editor/table-extensions";
@@ -191,6 +193,95 @@ export function renderMemoMarkdown(markdown: string) {
   return memoMarked.parse(markdown) as string;
 }
 
+function MemoDiagram({
+  source,
+  onCopy,
+}: {
+  source: string;
+  onCopy: (event: MouseEvent<HTMLDivElement>) => void;
+}) {
+  const [showSource, setShowSource] = useState(false);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const sourceId = useId();
+  useDiagramHeight(bodyRef, previewRef);
+
+  useLayoutEffect(() => {
+    if (!showSource) return;
+    scrollRef.current?.focus({ preventScroll: true });
+    const closeOutside = (event: Event) => {
+      if (event.target instanceof Node && !bodyRef.current?.contains(event.target))
+        setShowSource(false);
+    };
+    document.addEventListener("click", closeOutside, true);
+    document.addEventListener("focusin", closeOutside);
+    return () => {
+      document.removeEventListener("click", closeOutside, true);
+      document.removeEventListener("focusin", closeOutside);
+    };
+  }, [showSource]);
+
+  return (
+    <div className="mermaid-body memo-mermaid-frame" ref={bodyRef} onClick={onCopy}>
+      <div
+        className="mermaid-rendered is-editable"
+        ref={previewRef}
+        inert={showSource}
+        onClick={(event) => {
+          if (!(event.target as Element).closest("button")) setShowSource(true);
+        }}
+      >
+        <button
+          ref={triggerRef}
+          type="button"
+          className="mermaid-edit-trigger"
+          aria-label="查看源码"
+          aria-controls={sourceId}
+          onClick={() => setShowSource(true)}
+        />
+        <DiagramPreview source={source} />
+      </div>
+      <div
+        className="mermaid-source"
+        inert={!showSource}
+        onKeyDown={(event) => {
+          if (event.key !== "Escape" || event.nativeEvent.isComposing || event.keyCode === 229)
+            return;
+          event.stopPropagation();
+          setShowSource(false);
+          requestAnimationFrame(() => triggerRef.current?.focus({ preventScroll: true }));
+        }}
+      >
+        <div
+          id={sourceId}
+          ref={scrollRef}
+          className="mermaid-source-scroll floating-scrollbar-target"
+          tabIndex={-1}
+          role="region"
+          aria-label="Mermaid 源码"
+        >
+          <pre
+            className="code-block-node-view"
+            dangerouslySetInnerHTML={{
+              __html: `${COPY_BUTTON}<code>${escapeHtml(source)}\n</code>`,
+            }}
+          />
+        </div>
+        {showSource ? (
+          <FloatingScrollbar
+            scrollTargetRef={scrollRef}
+            controlsId={sourceId}
+            ariaLabel="滚动图表源码"
+            placement="right"
+          />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 export function MemoMarkdown({ markdown }: { markdown: string }) {
   const html = useMemo(() => renderMemoMarkdown(markdown), [markdown]);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -200,7 +291,7 @@ export function MemoMarkdown({ markdown }: { markdown: string }) {
     blocks: { element: HTMLElement; source: string }[];
   }>();
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const blocks = Array.from(
       rootRef.current?.querySelectorAll<HTMLElement>("[data-mermaid-preview]") ?? [],
       (element) => ({
@@ -265,7 +356,7 @@ export function MemoMarkdown({ markdown }: { markdown: string }) {
       />
       {diagrams?.html === html
         ? diagrams.blocks.map(({ element, source }, index) =>
-            createPortal(<DiagramPreview source={source} />, element, index),
+            createPortal(<MemoDiagram source={source} onCopy={onClick} />, element, index),
           )
         : null}
     </>

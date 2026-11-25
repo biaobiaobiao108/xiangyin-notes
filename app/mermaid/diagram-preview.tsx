@@ -1,4 +1,13 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useEffectEvent,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import {
   canRetryDiagram,
@@ -9,8 +18,25 @@ import {
 } from "./render";
 import type { DiagramLayout, DiagramResult } from "./protocol";
 
-type Preview =
-  { source: string; result: DiagramResult } | { source: string; error: string; retry: boolean };
+type Rendered = { source: string; result: DiagramResult; layout: DiagramLayout };
+type Preview = Rendered | { source: string; error: string; retry: boolean };
+
+export const MemoDiagramPreviews = createContext<Map<
+  number,
+  {
+    preview: Preview;
+    naturalSize: boolean;
+    count: number;
+  }
+> | null>(null);
+
+function sameLayout(left: DiagramLayout | undefined, right: DiagramLayout) {
+  return (
+    left?.width === right.width &&
+    left.fontFamily === right.fontFamily &&
+    left.fontFamilyMono === right.fontFamilyMono
+  );
+}
 
 export function DiagramPreview({
   source,
@@ -29,6 +55,43 @@ export function DiagramPreview({
   const [imageError, setImageError] = useState<Preview>();
   const [attempt, setAttempt] = useState(0);
   const [naturalSize, setNaturalSize] = useState(false);
+  const memoPreviews = useContext(MemoDiagramPreviews);
+
+  const memoPosition = () => {
+    const root = rootRef.current;
+    const block = root?.closest(".memo-mermaid, .mermaid-code-block");
+    const prose = block?.closest(".note-prose");
+    if (!block || !prose) return;
+    const diagrams = Array.from(prose.querySelectorAll(".memo-mermaid, .mermaid-code-block"));
+    return { index: diagrams.indexOf(block), count: diagrams.length };
+  };
+  const restoreMemoPreview = useEffectEvent(() => {
+    const root = rootRef.current;
+    if (!memoPreviews || !root) return;
+    const position = memoPosition();
+    if (!position) return;
+    // The reader and composer mount different trees. Keep the prior diagram visible
+    // while its edited source renders, and prefer a source match when blocks move.
+    const current = memoPreviews.get(position.index);
+    const last =
+      current?.preview.source === source
+        ? current
+        : (Array.from(memoPreviews.values()).find(({ preview }) => preview.source === source) ??
+          (current?.count === position.count ? current : undefined));
+    if (!last || ("error" in last.preview && last.preview.source !== source)) return;
+    setLayout(measureDiagram(root));
+    setPreview(last.preview);
+    setNaturalSize(last.naturalSize);
+  });
+  useLayoutEffect(() => {
+    restoreMemoPreview();
+  }, [memoPreviews]);
+
+  useLayoutEffect(() => {
+    if (!memoPreviews || !preview || preview.source !== source) return;
+    const position = memoPosition();
+    if (position) memoPreviews.set(position.index, { preview, naturalSize, count: position.count });
+  }, [memoPreviews, preview, naturalSize, source]);
 
   useEffect(() => {
     const root = rootRef.current;
@@ -49,13 +112,7 @@ export function DiagramPreview({
     let timer: ReturnType<typeof setTimeout>;
     const measure = () => {
       const next = measureDiagram(root);
-      setLayout((current) =>
-        current?.width === next.width &&
-        current.fontFamily === next.fontFamily &&
-        current.fontFamilyMono === next.fontFamilyMono
-          ? current
-          : next,
-      );
+      setLayout((current) => (sameLayout(current, next) ? current : next));
     };
     const observer = new ResizeObserver(() => {
       clearTimeout(timer);
@@ -69,12 +126,17 @@ export function DiagramPreview({
     };
   }, [visible]);
 
+  const hasRenderedLayout = useEffectEvent(
+    (next: DiagramLayout) =>
+      preview?.source === source && "result" in preview && sameLayout(preview.layout, next),
+  );
   useEffect(() => {
     if (!visible || !layout?.width || !source.trim()) return;
+    if (hasRenderedLayout(layout)) return;
     const controller = new AbortController();
     void renderDiagram({ ...layout, source }, controller.signal).then(
       (result) => {
-        if (!controller.signal.aborted) setPreview({ source, result });
+        if (!controller.signal.aborted) setPreview({ source, result, layout });
       },
       (reason) => {
         if (!controller.signal.aborted)
@@ -112,7 +174,7 @@ export function DiagramPreview({
     };
   }, [preview]);
 
-  const current = keepPrevious || preview?.source === source ? preview : undefined;
+  const current = keepPrevious || memoPreviews || preview?.source === source ? preview : undefined;
   const result = current && "result" in current ? current.result : undefined;
   const currentImage = current && image?.preview === current ? image : undefined;
   const error =
