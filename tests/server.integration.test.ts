@@ -49,7 +49,6 @@ beforeEach(async () => {
   assetRoot = join(tmpdir(), `xiangying-notes-assets-${crypto.randomUUID()}`);
   staticRoot = join(tmpdir(), `xiangying-notes-static-${crypto.randomUUID()}`);
   await mkdir(staticRoot, { recursive: true });
-  await Bun.write(join(staticRoot, "sw.js"), "self.addEventListener('install', () => {});\n");
   clientAddress = `test-${crypto.randomUUID()}`;
 });
 
@@ -692,68 +691,16 @@ describe("Bun Server API", () => {
     }
   });
 
-  test("serves a cache-bypassing service worker in development", async () => {
-    const devEnvironment = { ...environment, NODE_ENV: "development" };
-    const response = await handleRequest(new Request("http://xiangying.test/sw.js"), {
-      database,
-      environment: devEnvironment,
-      clientRoot: "dist/client",
-      assetRoot,
-    });
-    const source = await response.text();
-    expect(response.status).toBe(200);
-    expect(response.headers.get("Cache-Control")).toBe("no-cache");
-    expect(source).toContain("await self.clients.claim()");
-    expect(source).toContain("new URL(request.url).origin !== self.location.origin");
-    expect(source).toContain("event.respondWith(fetch(request))");
-
-    const listeners = new Map<
-      string,
-      (event: { waitUntil: (work: Promise<unknown>) => void }) => void
-    >();
-    const navigations: string[] = [];
-    const deletedCaches: string[] = [];
-    let claims = 0;
-    // 执行实际返回的 worker，验证激活只接管和清缓存，不打断页面的模块加载。
-    new Function("self", "caches", source)(
-      {
-        addEventListener: (
-          type: string,
-          listener: (event: { waitUntil: (work: Promise<unknown>) => void }) => void,
-        ) => listeners.set(type, listener),
-        clients: {
-          claim: async () => {
-            claims += 1;
-          },
-          matchAll: async () => [
-            {
-              url: "http://xiangying.test/app",
-              navigate: async (url: string) => {
-                navigations.push(url);
-              },
-            },
-          ],
-        },
-      },
-      {
-        keys: async () => ["xiangying-notes-shell-old", "other-app-cache"],
-        delete: async (name: string) => {
-          deletedCaches.push(name);
-          return true;
-        },
-      },
-    );
-    let activation: Promise<unknown> | undefined;
-    listeners.get("activate")!({
-      waitUntil: (work) => {
-        activation = work;
-      },
-    });
-    expect(activation).toBeDefined();
-    await activation;
-    expect(claims).toBe(1);
-    expect(deletedCaches).toEqual(["xiangying-notes-shell-old"]);
-    expect(navigations).toEqual([]);
+  test("no longer serves a service worker in development or production", async () => {
+    for (const NODE_ENV of ["development", "production"]) {
+      const response = await handleRequest(new Request("http://xiangying.test/sw.js"), {
+        database,
+        environment: { ...environment, NODE_ENV },
+        clientRoot: staticRoot,
+        assetRoot,
+      });
+      expect(response.status).toBe(404);
+    }
   });
 
   test("automatically initializes a fresh database and does not rerun the baseline", async () => {
@@ -2758,18 +2705,6 @@ describe("Bun Server API", () => {
       expect(asset.response.headers.get("Content-Type")).toContain("image/png");
       expect(asset.response.headers.get("Cache-Control")).toBe("no-cache");
     }
-
-    const worker = await request(
-      "/sw.js",
-      {},
-      undefined,
-      environment,
-      "http://xiangying.test",
-      staticRoot,
-    );
-    expect(worker.response.status).toBe(200);
-    expect(worker.response.headers.get("Content-Type")).toContain("javascript");
-    expect(worker.response.headers.get("Cache-Control")).toBe("no-cache");
   });
 
   test("revalidates static files with ETag instead of resending them", async () => {

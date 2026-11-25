@@ -14,7 +14,7 @@ import { copyPlainText } from "./editor/code-block-copy";
 import { moveSelectedNotes } from "./workspace/move-selected-notes";
 import { ApiError, api } from "./api";
 import { CommandId, CommandMenu } from "./command-menu";
-import { applyPwaUpdate, installPwa, subscribePwa, type PwaState } from "./pwa";
+import { installPwa, subscribePwa, type PwaState } from "./pwa";
 import type { Note, NoteSummary, NoteView, Notebook } from "../shared/types";
 import { useOutlineState } from "./workspace/use-outline-state";
 import { ConfirmDialog, NotebookDialog, type ConfirmRequest } from "./workspace/dialogs";
@@ -310,7 +310,6 @@ export function Workspace() {
     standalone: false,
     canInstall: false,
     showIosInstallHint: false,
-    updateAvailable: false,
   });
   const realtimeRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingRealtimeRefreshRef = useRef<RealtimeRefreshPlan>(emptyRealtimeRefreshPlan());
@@ -1489,15 +1488,6 @@ export function Workspace() {
         `${window.location.pathname}${window.location.hash}`,
       );
   }, [createNoteInInbox, openMobileList, ready]);
-  const updatePwa = useCallback(async () => {
-    await flushPendingSaves("now");
-    if (hasUnsavedWork()) {
-      notifyWarning("仍有编辑内容未保存，更新已暂缓");
-      return;
-    }
-    applyPwaUpdate();
-  }, [flushPendingSaves, hasUnsavedWork]);
-
   const { handleNavigateWikiLinkPrimary, handleNavigateWikiLinkSplit, handleCreateAndLinkNote } =
     useWorkspaceWikiLinks({
       view,
@@ -2287,13 +2277,7 @@ export function Workspace() {
           notes={notes}
           excludeNoteId={selectedId}
         />
-        <SystemNotices
-          notice={notice}
-          onDismiss={dismissNotice}
-          onPause={pauseNotice}
-          updateAvailable={pwaState.updateAvailable}
-          onUpdate={() => void updatePwa()}
-        />
+        <SystemNotices notice={notice} onDismiss={dismissNotice} onPause={pauseNotice} />
         {workspaceMenu}
       </div>
     </MemoWorkspaceProvider>

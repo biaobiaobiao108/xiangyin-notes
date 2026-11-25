@@ -2,7 +2,6 @@ export type PwaState = {
   standalone: boolean;
   canInstall: boolean;
   showIosInstallHint: boolean;
-  updateAvailable: boolean;
 };
 
 type BeforeInstallPromptEvent = Event & {
@@ -13,12 +12,10 @@ type BeforeInstallPromptEvent = Event & {
 type Listener = (state: PwaState) => void;
 
 let deferredPrompt: BeforeInstallPromptEvent | null = null;
-let registration: ServiceWorkerRegistration | null = null;
 let state: PwaState = {
   standalone: false,
   canInstall: false,
   showIosInstallHint: false,
-  updateAvailable: false,
 };
 const listeners = new Set<Listener>();
 
@@ -41,32 +38,23 @@ function emit(partial: Partial<PwaState>) {
   for (const listener of listeners) listener(state);
 }
 
-function waitingUpdate(currentRegistration: ServiceWorkerRegistration) {
-  const { active, waiting } = currentRegistration;
-  if (active && waiting?.state === "installed" && waiting !== active) return waiting;
-  return null;
+async function removeLegacyServiceWorker() {
+  const serviceWorkers = navigator.serviceWorker;
+  const scriptUrl = new URL("/sw.js", location.origin).href;
+  const registration = await serviceWorkers?.getRegistration("/");
+  const worker = registration?.active ?? registration?.waiting ?? registration?.installing;
+  if (registration && worker?.scriptURL === scriptUrl) {
+    await registration.unregister();
+  }
+  // A controlled page keeps using the old worker until it navigates away.
+  if (typeof caches === "undefined" || serviceWorkers?.controller?.scriptURL === scriptUrl) return;
+  const keys = await caches.keys();
+  await Promise.all(
+    keys.filter((key) => key.startsWith("xiangying-notes-shell-")).map((key) => caches.delete(key)),
+  );
 }
 
-function watchRegistration(nextRegistration: ServiceWorkerRegistration) {
-  registration = nextRegistration;
-  const refreshUpdate = () => {
-    const updateAvailable = waitingUpdate(nextRegistration) !== null;
-    if (state.updateAvailable !== updateAvailable) emit({ updateAvailable });
-  };
-  const watchWorker = (worker: ServiceWorker | null) => {
-    worker?.addEventListener("statechange", refreshUpdate);
-  };
-  watchWorker(nextRegistration.installing);
-  watchWorker(nextRegistration.waiting);
-  nextRegistration.addEventListener("updatefound", () => {
-    watchWorker(nextRegistration.installing ?? nextRegistration.waiting);
-    refreshUpdate();
-  });
-  navigator.serviceWorker.addEventListener("controllerchange", refreshUpdate);
-  refreshUpdate();
-}
-
-export async function registerPwa() {
+export function initializePwa() {
   if (typeof window === "undefined") return;
   emit({ standalone: isStandalone(), showIosInstallHint: isIos() && !isStandalone() });
   window.addEventListener("beforeinstallprompt", (event) => {
@@ -79,15 +67,9 @@ export async function registerPwa() {
     deferredPrompt = null;
     emit({ canInstall: false, standalone: true });
   });
-  if ("serviceWorker" in navigator) {
-    try {
-      const nextRegistration = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
-      watchRegistration(nextRegistration);
-      nextRegistration.update().catch(() => undefined);
-    } catch {
-      // PWA is progressive enhancement; the site remains fully usable without it.
-    }
-  }
+  void removeLegacyServiceWorker().catch((error: unknown) => {
+    console.warn("无法清理旧版象映笔记的离线缓存", error);
+  });
 }
 
 export function subscribePwa(listener: Listener) {
@@ -105,20 +87,4 @@ export async function installPwa() {
   deferredPrompt = null;
   emit({ canInstall: false });
   return choice.outcome === "accepted";
-}
-
-export function applyPwaUpdate() {
-  const waiting = registration && waitingUpdate(registration);
-  if (!waiting) {
-    if (state.updateAvailable) emit({ updateAvailable: false });
-    return false;
-  }
-  // This tab asked to update after checking for unsaved work. Other tabs only
-  // refresh their banner state when the new worker takes control.
-  const serviceWorker = navigator.serviceWorker;
-  serviceWorker.addEventListener("controllerchange", () => window.location.reload(), {
-    once: true,
-  });
-  waiting.postMessage({ type: "SKIP_WAITING" });
-  return true;
 }

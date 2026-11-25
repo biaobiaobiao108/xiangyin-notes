@@ -1,5 +1,5 @@
 import { rm } from "node:fs/promises";
-import { basename, resolve } from "node:path";
+import { resolve } from "node:path";
 
 await rm(resolve("./dist/client"), { recursive: true, force: true });
 
@@ -38,38 +38,6 @@ for (const file of [
 }
 
 const clientRoot = resolve("./dist/client");
-const precacheUrls = new Set(["/", "/app", "/index.html", "/manifest.webmanifest"]);
-for (const output of clientBuild.outputs) {
-  if (/\.(?:js|css)$/u.test(output.path)) precacheUrls.add(`/${basename(output.path)}`);
-}
-for (const match of indexHtml.matchAll(/(?:src|href)="([^"]+)"/gu)) {
-  const source = match[1]!;
-  if (source.startsWith("http:") || source.startsWith("https:") || source.startsWith("data:"))
-    continue;
-  const pathname = source.startsWith("./") ? `/${source.slice(2)}` : source;
-  if (pathname.startsWith("/")) precacheUrls.add(pathname);
-}
-
-const workerBuild = await Bun.build({
-  entrypoints: ["./app/sw.ts"],
-  outdir: "./dist/client",
-  target: "browser",
-  format: "iife",
-  minify: true,
-});
-if (!workerBuild.success) throw new AggregateError(workerBuild.logs, "Service worker build failed");
-if (workerBuild.outputs.length !== 1)
-  throw new Error("Service worker build did not produce exactly one output");
-const workerSource = await workerBuild.outputs[0].text();
-const cacheName = `xiangying-notes-shell-${Date.now().toString(36)}`;
-const precachePlaceholder = JSON.stringify("__XIANGYING_PRECACHE_URLS_JSON__");
-if (!workerSource.includes(precachePlaceholder))
-  throw new Error("Service worker precache placeholder was not found");
-const workerWithPrecache = workerSource
-  .replaceAll("__XIANGYING_CACHE_NAME__", cacheName)
-  .replace(precachePlaceholder, JSON.stringify(JSON.stringify([...precacheUrls])));
-await Bun.write("./dist/client/sw.js", workerWithPrecache);
-
 for await (const generatedFile of new Bun.Glob("icon-192-*.png").scan({
   cwd: clientRoot,
   onlyFiles: true,

@@ -1,10 +1,10 @@
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router";
 import { App } from "./app";
-import { registerPwa } from "./pwa";
+import { initializePwa } from "./pwa";
 import "./styles.css";
 
-void registerPwa();
+initializePwa();
 const root = document.getElementById("root")!;
 if (typeof CSS === "undefined" || !CSS.supports("color", "light-dark(#000, #fff)")) {
   root.innerHTML =

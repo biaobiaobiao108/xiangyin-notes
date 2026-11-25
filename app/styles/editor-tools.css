@@ -928,8 +928,7 @@ dialog::backdrop {
 .system-notices > * {
   pointer-events: auto;
 }
-.toast,
-.update-notice {
+.toast {
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr) 28px;
   align-items: center;
@@ -968,8 +967,7 @@ dialog::backdrop {
   overflow-y: auto;
   padding-right: 8px;
 }
-.notice-icon,
-.update-notice > svg {
+.notice-icon {
   color: var(--accent);
 }
 .toast--error .notice-icon {
@@ -993,23 +991,6 @@ dialog::backdrop {
 .notice-dismiss:focus-visible {
   color: var(--ink);
   background: var(--accent-soft);
-}
-.update-notice {
-  grid-template-columns: 18px minmax(0, 1fr) auto 28px;
-}
-.update-notice strong {
-  font-size: 0.8125rem;
-  font-weight: 600;
-}
-.update-notice p {
-  margin: 1px 0 0;
-  color: var(--muted);
-  font-size: 0.75rem;
-}
-.update-notice-action {
-  margin: 0;
-  padding: 4px 8px;
-  font-size: 0.8125rem;
 }
 .dialog-error {
   margin: 12px 0 0;
@@ -1938,20 +1919,14 @@ dialog::backdrop {
     );
     transform: translateY(-100%);
   }
-  .toast,
-  .update-notice {
-    max-width: min(360px, 100%);
-  }
   .notice-dismiss {
     width: 36px;
     height: 36px;
   }
   .toast {
+    max-width: min(360px, 100%);
     grid-template-columns: 18px minmax(0, 1fr) 36px;
     padding-block: 4px;
-  }
-  .update-notice {
-    grid-template-columns: 18px minmax(0, 1fr) auto 36px;
   }
   .field input,
   .dialog-field input,

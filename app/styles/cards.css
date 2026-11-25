@@ -655,7 +655,6 @@
   .app-error-card,
   .link-dialog,
   .backlinks-dialog,
-  .update-notice,
   .toast {
     animation: none !important;
   }

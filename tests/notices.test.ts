@@ -29,8 +29,6 @@ test("notice container does not put an aria-label on an unnamed generic element"
       notice: null,
       onDismiss() {},
       onPause() {},
-      updateAvailable: false,
-      onUpdate() {},
     }),
   );
 
@@ -44,8 +42,6 @@ test("active notices keep their live-region semantics", () => {
       notice: error,
       onDismiss() {},
       onPause() {},
-      updateAvailable: false,
-      onUpdate() {},
     }),
   );
 

@@ -69,24 +69,6 @@ const API_RESOURCES = new Set([
   "realtime",
 ]);
 
-const DEV_SERVICE_WORKER_SOURCE = `
-self.addEventListener("install", (event) => {
-  event.waitUntil(self.skipWaiting());
-});
-self.addEventListener("activate", (event) => {
-  event.waitUntil((async () => {
-    const keys = await caches.keys();
-    await Promise.all(keys.filter((key) => key.startsWith("xiangying-notes-")).map((key) => caches.delete(key)));
-    await self.clients.claim();
-  })());
-});
-self.addEventListener("fetch", (event) => {
-  const request = event.request;
-  if (request.method !== "GET" || new URL(request.url).origin !== self.location.origin) return;
-  event.respondWith(fetch(request));
-});
-`;
-
 const SECURITY_HEADERS: Record<string, string> = {
   // SHA-256 of the inline theme bootstrap in app/index.html.
   "Content-Security-Policy":
@@ -209,15 +191,6 @@ async function serveStatic(
   if (pathname.includes("\0") || pathname.split(/[\\/]/).includes(".."))
     return new Response("Forbidden", { status: 403 });
 
-  if (pathname === "/sw.js" && environment.NODE_ENV === "development") {
-    return new Response(request.method === "HEAD" ? null : DEV_SERVICE_WORKER_SOURCE, {
-      headers: {
-        "Cache-Control": "no-cache",
-        "Content-Type": "text/javascript; charset=utf-8",
-      },
-    });
-  }
-
   const relativePath = pathname.replace(/^[/\\]+/, "");
   const hasExtension = extname(relativePath) !== "";
   const routePathname = pathname.length > 1 ? pathname.replace(/\/+$/u, "") : pathname;
@@ -265,7 +238,6 @@ async function serveStatic(
   }
   const basename = relativePath.toLowerCase();
   const mutablePwaAsset =
-    basename === "sw.js" ||
     basename === "manifest.webmanifest" ||
     /^(?:favicon\.png|apple-touch-icon\.png|icon-(?:192|512|maskable-(?:512|1024))\.png)$/u.test(
       basename,
@@ -277,8 +249,7 @@ async function serveStatic(
       : "no-cache",
   );
 
-  // Revalidation: `no-cache` entries (index.html, sw.js) are requested on every
-  // navigation, so answer them with 304 instead of resending the whole file.
+  // Revalidate the app shell without resending an unchanged file.
   const lastModified = Math.floor(Number(file.lastModified ?? 0));
   if (Number.isFinite(lastModified) && lastModified > 0)
     headers.set("Last-Modified", new Date(lastModified).toUTCString());
