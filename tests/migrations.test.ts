@@ -15,19 +15,57 @@ import {
 } from "../server/db";
 
 test("rejects populated databases below the supported schema version", async () => {
-  const database = await createExpectedSchemaDatabase(MIN_SUPPORTED_SCHEMA_VERSION - 1);
+  const database = await createExpectedSchemaDatabase(7);
   try {
     database
       .query(
         "INSERT INTO users (id, username, password_hash, password_salt, created_at) VALUES ('owner', 'owner', 'hash', 'salt', 1)",
       )
       .run();
-    await expect(initializeDatabase(database)).rejects.toThrow(
-      `schema version ${MIN_SUPPORTED_SCHEMA_VERSION - 1} is unsupported`,
+    await expect(initializeDatabase(database, { minimumSchemaVersion: 8 })).rejects.toThrow(
+      "schema version 7 is unsupported",
     );
     expect(database.query("PRAGMA user_version").get()).toEqual({
-      user_version: MIN_SUPPORTED_SCHEMA_VERSION - 1,
+      user_version: 7,
     });
+  } finally {
+    database.close();
+  }
+});
+
+test("upgrades populated v6 databases to the current schema version", async () => {
+  const database = await createExpectedSchemaDatabase(6);
+  try {
+    database
+      .query(
+        "INSERT INTO users (id, username, password_hash, password_salt, created_at) VALUES ('owner', 'owner', 'hash', 'salt', 1)",
+      )
+      .run();
+    database
+      .query(
+        "INSERT INTO notebooks (id, user_id, name, color, is_system, sort_order, created_at, updated_at) VALUES ('inbox', 'owner', '收集箱', '#4c7a6b', 1, 0, 1, 1)",
+      )
+      .run();
+    database
+      .query(
+        "INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, is_favorite, deleted_at, version, created_at, updated_at) VALUES ('note-1', 'owner', 'inbox', '旧版笔记', '正文内容', 0, NULL, 1, 1, 1)",
+      )
+      .run();
+    await initializeDatabase(database);
+    expect(database.query("PRAGMA user_version").get()).toEqual({
+      user_version: CURRENT_SCHEMA_VERSION,
+    });
+    expect(
+      database.query("SELECT title, content_markdown FROM notes WHERE id = 'note-1'").get(),
+    ).toEqual({
+      title: "旧版笔记",
+      content_markdown: "正文内容",
+    });
+    expect(
+      database
+        .query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'memos'")
+        .get(),
+    ).toEqual({ name: "memos" });
   } finally {
     database.close();
   }

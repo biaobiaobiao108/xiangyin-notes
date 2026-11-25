@@ -9,7 +9,7 @@ import {
   reclaimDatabaseSpace,
   type SqliteDatabase,
 } from "../server/db";
-import { LOGIN_ADDRESS_MAX_FAILURES } from "../server/core";
+import { LOGIN_ADDRESS_MAX_FAILURES, NOTE_BODY_MAX_BYTES } from "../server/core";
 import { handleRequest } from "../server/index";
 import {
   cleanupOrphanAssetFiles,
@@ -1265,6 +1265,20 @@ describe("Bun Server API", () => {
     );
     expect(invalidBoolean.response.status).toBe(400);
     expect(invalidBoolean.body?.error.code).toBe("INVALID_NOTE");
+
+    const oversizedPatch = await request(
+      `/api/notes/${note.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          version: updated.body?.note.version,
+          contentMarkdown: "a".repeat(NOTE_BODY_MAX_BYTES + 1),
+        }),
+      },
+      login.cookie,
+    );
+    expect(oversizedPatch.response.status).toBe(413);
+    expect(oversizedPatch.body?.error.code).toBe("NOTE_TOO_LARGE");
 
     const favoriteBaselineUpdatedAt = 1_700_000_000;
     database

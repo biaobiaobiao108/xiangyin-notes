@@ -12,7 +12,7 @@ const DEFAULT_DATABASE_PATH = "./data/xiangying-notes.sqlite";
 const DEFAULT_SCHEMA_PATH = "./database/schema.sql";
 const BASELINE_SCHEMA_VERSION = 1;
 
-export const MIN_SUPPORTED_SCHEMA_VERSION = 8;
+export const MIN_SUPPORTED_SCHEMA_VERSION = BASELINE_SCHEMA_VERSION;
 export const CURRENT_SCHEMA_VERSION = 10;
 export const SEARCH_INDEX_REBUILD_KEY = "search-index-rebuild-required";
 
@@ -409,11 +409,15 @@ export async function createExpectedSchemaDatabase(
 }
 
 // Older builds could commit part of a fresh initialization before the first user existed.
-export function canResumeEmptyInitialization(database: SqliteDatabase, version: number) {
+export function canResumeEmptyInitialization(
+  database: SqliteDatabase,
+  version: number,
+  minimumSchemaVersion = MIN_SUPPORTED_SCHEMA_VERSION,
+) {
   return (
     Number.isInteger(version) &&
     version >= BASELINE_SCHEMA_VERSION &&
-    version < MIN_SUPPORTED_SCHEMA_VERSION &&
+    version < minimumSchemaVersion &&
     Boolean(
       database.query("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'users'").get(),
     ) &&
@@ -445,7 +449,7 @@ export async function initializeDatabase(
   if (
     version !== 0 &&
     version < minimumSchemaVersion &&
-    !canResumeEmptyInitialization(database, version)
+    !canResumeEmptyInitialization(database, version, minimumSchemaVersion)
   )
     throw schemaVersionError(version, currentSchemaVersion, minimumSchemaVersion);
 

@@ -14,7 +14,7 @@ import { buildFtsMatchQuery, searchContains } from "../search-text";
 export type SearchSort = NoteSort | "relevance";
 type NoteListCursor = {
   sort: SearchSort;
-  value: number | string;
+  value: number;
   id: string;
   scope?: string;
 };
@@ -30,7 +30,9 @@ export function decodeNoteListCursor(value: string | null, sort: SearchSort) {
       Buffer.from(value, "base64url").toString("utf8"),
     ) as Partial<NoteListCursor>;
     if (parsed.sort !== sort || typeof parsed.id !== "string" || !parsed.id) return null;
-    if (typeof parsed.value !== "number" && typeof parsed.value !== "string") return null;
+    if (typeof parsed.value !== "number") return null;
+    if (sort === "relevance" ? !Number.isFinite(parsed.value) : !Number.isSafeInteger(parsed.value))
+      return null;
     return parsed as NoteListCursor;
   } catch {
     return null;

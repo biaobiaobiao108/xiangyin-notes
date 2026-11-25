@@ -39,6 +39,7 @@ import {
   now,
   parseSearchTerms,
   readJson,
+  readJsonResult,
   type RouteContext,
   type SqliteDatabase,
   type SqlValue,
@@ -793,7 +794,7 @@ export async function handleNotesRoute(
         n.updated_at AS source_updated_at, nb.name AS notebook_name, nl.target_title, nl.target_note_id
       FROM note_links nl
       JOIN notes n ON nl.source_note_id = n.id AND n.user_id = nl.user_id
-      JOIN notebooks nb ON n.notebook_id = nb.id
+      JOIN notebooks nb ON n.notebook_id = nb.id AND nb.user_id = n.user_id
       WHERE nl.user_id = ? AND nl.target_note_id = ? AND nl.source_note_id != ? AND n.deleted_at IS NULL
       ORDER BY n.updated_at DESC, nl.id DESC
       LIMIT ? OFFSET ?
@@ -881,7 +882,8 @@ export async function handleNotesRoute(
       const { ftsTokens } = parseSearchTerms(trimmedTitle);
       const useFts = trimmedTitle.length >= 3 && ftsTokens.length > 0;
       const useShortIndex = !useFts && Array.from(trimmedTitle).length <= 2;
-      let candidateFrom = "notes n JOIN notebooks nb ON n.notebook_id = nb.id";
+      let candidateFrom =
+        "notes n JOIN notebooks nb ON n.notebook_id = nb.id AND nb.user_id = n.user_id";
       const candidateConditions = ["n.user_id = ?", "n.deleted_at IS NULL", "n.id != ?"];
       const candidateParams: SqlValue[] = [user.id, note.id];
 
@@ -898,7 +900,7 @@ export async function handleNotesRoute(
           WHERE overflow.user_id = ? AND search_contains(COALESCE(overflow_note.search_text, overflow_note.content_markdown), ?)
         ) short_match
         JOIN notes n ON n.rowid = short_match.rowid
-        JOIN notebooks nb ON n.notebook_id = nb.id`;
+        JOIN notebooks nb ON n.notebook_id = nb.id AND nb.user_id = n.user_id`;
         candidateConditions.push(
           searchContainsPredicate("COALESCE(n.search_text, n.content_markdown)", trimmedTitle),
         );
@@ -1112,7 +1114,7 @@ export async function handleNotesRoute(
 
   // Patch note
   if (id && !subresource && method === "PATCH") {
-    const payload = await readJson<{
+    const bodyResult = await readJsonResult<{
       version?: unknown;
       title?: unknown;
       contentMarkdown?: unknown;
@@ -1120,6 +1122,9 @@ export async function handleNotesRoute(
       isFavorite?: unknown;
       deleted?: unknown;
     }>(request, NOTE_BODY_MAX_BYTES);
+    if (!bodyResult.ok && bodyResult.reason === "too-large")
+      return jsonError(413, "NOTE_TOO_LARGE", "笔记正文超过大小限制");
+    const payload = bodyResult.ok ? bodyResult.value : null;
     const current = getNote(database, user.id, id);
     if (!current) return jsonError(404, "NOTE_NOT_FOUND", "笔记不存在");
     if (!payload || !Number.isInteger(payload.version))

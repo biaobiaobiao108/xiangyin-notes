@@ -76,6 +76,37 @@ describe("security helpers", () => {
         "127.0.0.1",
       ),
     ).toBe("127.0.0.1");
+
+    const spoofedLeftmostRequest = new Request("http://example.test", {
+      headers: { "X-Forwarded-For": "203.0.113.55, 198.51.100.9, 10.0.0.2" },
+    });
+    expect(
+      rateLimitClientAddress(
+        spoofedLeftmostRequest,
+        {
+          TRUST_PROXY: "true",
+          TRUSTED_PROXY_ADDRESSES: "127.0.0.1, 10.0.0.2",
+        },
+        "127.0.0.1",
+      ),
+    ).toBe("198.51.100.9");
+
+    const realIpPreferredRequest = new Request("http://example.test", {
+      headers: {
+        "X-Forwarded-For": "203.0.113.55",
+        "X-Real-IP": "198.51.100.12",
+      },
+    });
+    expect(
+      rateLimitClientAddress(
+        realIpPreferredRequest,
+        {
+          TRUST_PROXY: "true",
+          TRUSTED_PROXY_ADDRESSES: "127.0.0.1",
+        },
+        "127.0.0.1",
+      ),
+    ).toBe("198.51.100.12");
   });
 
   test("sets secure cookie flag based on protocol and environment", async () => {

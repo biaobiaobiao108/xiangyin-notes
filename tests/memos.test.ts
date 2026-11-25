@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { NOTE_CONTENT_MAX_LENGTH } from "../server/core";
 import { openDatabase, type SqliteDatabase } from "../server/db";
 import { handleRequest } from "../server/index";
 import { validateMemoCreatedAtPayload } from "../server/routes/memos";
@@ -550,5 +551,66 @@ describe("Memo API", () => {
     );
     expect(created.response.status).toBe(201);
     expect(changes.at(-1)).toMatchObject({ resource: "memos" });
+  });
+
+  test("distinguishes empty memo content from oversized memo content", async () => {
+    const cookie = await login();
+    const emptyCreate = await request(
+      "/api/memos",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contentMarkdown: "   " }),
+      },
+      cookie,
+    );
+    expect(emptyCreate.response.status).toBe(400);
+    expect(emptyCreate.body).toMatchObject({ error: { code: "EMPTY_MEMO" } });
+
+    const oversizedCreate = await request(
+      "/api/memos",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contentMarkdown: "a".repeat(NOTE_CONTENT_MAX_LENGTH + 1) }),
+      },
+      cookie,
+    );
+    expect(oversizedCreate.response.status).toBe(413);
+    expect(oversizedCreate.body).toMatchObject({ error: { code: "MEMO_TOO_LARGE" } });
+
+    const created = await createMemo(cookie, "待更新内容");
+    expect(created.response.status).toBe(201);
+    const memoId = created.body?.memo.id as string;
+    const memoVersion = created.body?.memo.version as number;
+    const emptyPatch = await request(
+      `/api/memos/${memoId}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contentMarkdown: "",
+          version: memoVersion,
+        }),
+      },
+      cookie,
+    );
+    expect(emptyPatch.response.status).toBe(400);
+    expect(emptyPatch.body).toMatchObject({ error: { code: "EMPTY_MEMO" } });
+
+    const oversizedPatch = await request(
+      `/api/memos/${memoId}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contentMarkdown: "a".repeat(NOTE_CONTENT_MAX_LENGTH + 1),
+          version: memoVersion,
+        }),
+      },
+      cookie,
+    );
+    expect(oversizedPatch.response.status).toBe(413);
+    expect(oversizedPatch.body).toMatchObject({ error: { code: "MEMO_TOO_LARGE" } });
   });
 });

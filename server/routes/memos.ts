@@ -148,10 +148,12 @@ function syncMemoTags(
   tags.forEach((tag, position) => insert.run(memoId, userId, tag.normalized, tag.tag, position));
 }
 
-function validateContent(value: unknown) {
-  return (
-    typeof value === "string" && value.trim() !== "" && validText(value, NOTE_CONTENT_MAX_LENGTH)
-  );
+function memoContentError(value: unknown) {
+  if (typeof value !== "string" || value.trim() === "")
+    return jsonError(400, "EMPTY_MEMO", "随记正文不能为空");
+  if (!validText(value, NOTE_CONTENT_MAX_LENGTH))
+    return jsonError(413, "MEMO_TOO_LARGE", "随记正文超过 1000000 个字符限制");
+  return null;
 }
 
 function validateCreatedAt(value: unknown): value is number {
@@ -429,8 +431,8 @@ function memoMutation(ctx: RouteContext, user: UserRow, memoId: string) {
       if (!payload) return jsonError(400, "INVALID_JSON", "请求体无效或超出大小限制");
       if (!Number.isSafeInteger(payload.version) || (payload.version as number) < 1)
         return jsonError(400, "VERSION_REQUIRED", "更新随记必须携带版本号");
-      if (!validateContent(payload.contentMarkdown))
-        return jsonError(413, "MEMO_TOO_LARGE", "随记正文不能为空且不能超过长度限制");
+      const contentError = memoContentError(payload.contentMarkdown);
+      if (contentError) return contentError;
 
       const result = options.database
         .transaction(() => {
@@ -545,8 +547,8 @@ export function handleMemosRoute(
         if (memoId === null) return jsonError(400, "INVALID_MEMO_ID", "随记 ID 必须是 UUID");
         const createdAt = validateCreatedAtPayload(payload.createdAt);
         if (createdAt === null) return jsonError(400, "INVALID_CREATED_AT", "创建时间无效");
-        if (!validateContent(payload.contentMarkdown))
-          return jsonError(413, "MEMO_TOO_LARGE", "随记正文不能为空且不能超过长度限制");
+        const contentError = memoContentError(payload.contentMarkdown);
+        if (contentError) return contentError;
         const database = ctx.options.database;
         const result = database
           .transaction(() => {
@@ -813,8 +815,8 @@ export async function handleMemoImportRoute(ctx: RouteContext): Promise<Response
       return jsonError(400, "INVALID_JSON", "请求体不是有效的 JSON");
     }
   }
-  if (!validateContent(contentMarkdown))
-    return jsonError(413, "MEMO_TOO_LARGE", "随记正文不能为空且不能超过长度限制");
+  const contentError = memoContentError(contentMarkdown);
+  if (contentError) return contentError;
   const created = validateCreatedAtPayload(createdAt);
   if (created === null) return jsonError(400, "INVALID_CREATED_AT", "创建时间无效");
   const user = await ensureEnvironmentUser(options.database, credentials);

@@ -191,10 +191,24 @@ export function constantTimeEqual(a: string, b: string) {
   return crypto.timingSafeEqual(hashA, hashB);
 }
 
-function normalizedIp(value: string | undefined) {
+function normalizedIp(value: string | null | undefined) {
   const address = value?.trim().toLowerCase() ?? "";
   if (address.startsWith("::ffff:") && isIP(address.slice(7)) === 4) return address.slice(7);
   return isIP(address) ? address : null;
+}
+
+function forwardedClientIp(
+  header: string | null,
+  trustedProxies: ReadonlySet<string>,
+): string | null {
+  if (!header) return null;
+  const entries = header.split(",").map((entry) => entry.trim());
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const ip = normalizedIp(entries[index]);
+    if (!ip) return null;
+    if (!trustedProxies.has(ip)) return ip;
+  }
+  return null;
 }
 
 export function rateLimitClientAddress(
@@ -215,9 +229,15 @@ export function rateLimitClientAddress(
   );
   if (!trustedProxies.has(peerAddress)) return directAddress;
 
-  const forwarded = request.headers.get("X-Forwarded-For")?.split(",", 1)[0]?.trim();
-  const realIp = request.headers.get("X-Real-IP")?.trim();
-  return normalizedIp(forwarded) ?? normalizedIp(realIp) ?? directAddress;
+  // Prefer proxy-overwritten X-Real-IP, or the rightmost untrusted hop in X-Forwarded-For,
+  // so clients cannot spoof the leftmost entry when an upstream proxy appends.
+  const realIp = normalizedIp(request.headers.get("X-Real-IP"));
+  if (realIp && !trustedProxies.has(realIp)) return realIp;
+  return (
+    forwardedClientIp(request.headers.get("X-Forwarded-For"), trustedProxies) ??
+    realIp ??
+    directAddress
+  );
 }
 
 export function isSecureRequest(
@@ -335,19 +355,31 @@ export async function readBodyBytes(request: Request, maxBytes: number): Promise
 
 const JSON_CONTENT_TYPE_RE = /^application\/(?:[\w.+-]+\+)?json\s*(?:;.*)?$/iu;
 
-export async function readJson<T>(request: Request, maxBytes: number): Promise<T | null> {
+export type ReadJsonResult<T> =
+  { ok: true; value: T } | { ok: false; reason: "invalid" | "too-large" };
+
+export async function readJsonResult<T>(
+  request: Request,
+  maxBytes: number,
+): Promise<ReadJsonResult<T>> {
   // Reject non-JSON bodies (defence in depth against cross-site form posts).
   // A missing Content-Type is still accepted so existing clients keep working.
   const contentType = request.headers.get("Content-Type")?.trim();
-  if (contentType && !JSON_CONTENT_TYPE_RE.test(contentType)) return null;
+  if (contentType && !JSON_CONTENT_TYPE_RE.test(contentType))
+    return { ok: false, reason: "invalid" };
   const body = await readBodyBytes(request, maxBytes);
-  if (!body.ok) return null;
+  if (!body.ok) return body;
 
   try {
-    return JSON.parse(new TextDecoder().decode(body.bytes)) as T;
+    return { ok: true, value: JSON.parse(new TextDecoder().decode(body.bytes)) as T };
   } catch {
-    return null;
+    return { ok: false, reason: "invalid" };
   }
+}
+
+export async function readJson<T>(request: Request, maxBytes: number): Promise<T | null> {
+  const result = await readJsonResult<T>(request, maxBytes);
+  return result.ok ? result.value : null;
 }
 
 const NON_BREAKING_SPACE_PATTERN = /\u00a0|&nbsp;|&#0*160;|&#[xX]0*[aA]0;/gu;

@@ -48,6 +48,139 @@ import {
 
 type MemoNotice = { message: string; error?: boolean };
 
+function MemoCardEditor({
+  memo,
+  editingVersion,
+  diagramPreviews,
+  foregroundRef,
+  onFinishEdit,
+  onSaveNotice,
+}: {
+  memo: Memo;
+  editingVersion: number | null;
+  diagramPreviews: NonNullable<ContextType<typeof MemoDiagramPreviews>>;
+  foregroundRef: RefObject<HTMLElement | null>;
+  onFinishEdit: () => void;
+  onSaveNotice: (notice: MemoNotice) => void;
+}) {
+  const { updateMemo, refresh } = useMemoWorkspace();
+  const [draftSession] = useState(() => beginMemoDraftSession(memo.id));
+  const [conflict, setConflict] = useState<Memo | null>(null);
+  const [copyNotice, setCopyNotice] = useState("");
+  const composerRef = useRef<MemoComposerHandle>(null);
+  const editDraft = draftSession.initial;
+  const editVersion = editDraft?.version ?? editingVersion ?? memo.version;
+  const conflictMemo = conflict ?? (editDraft?.conflict ? memo : null);
+  const writeEditDraft = (markdown: string) => {
+    draftSession.write(
+      markdown || conflictMemo
+        ? {
+            markdown,
+            version: conflictMemo?.version ?? editVersion,
+            ...(conflictMemo ? { conflict: true } : {}),
+          }
+        : null,
+    );
+  };
+
+  const discardRecoveredDraft = () => {
+    composerRef.current?.discardPendingDraft();
+    draftSession.clear({ includeInitial: true });
+    setConflict(null);
+    setCopyNotice("");
+    refresh();
+    onFinishEdit();
+  };
+
+  return (
+    <>
+      <MemoDiagramPreviews.Provider value={diagramPreviews}>
+        <MemoComposer
+          ref={composerRef}
+          key={memo.id}
+          initialMarkdown={editDraft?.markdown ?? memo.contentMarkdown}
+          placeholder="修改这条随记"
+          ariaLabel="编辑随记"
+          autoFocus
+          onSaveError={(reason) => {
+            if (!memoConflictCurrent(reason)) onSaveNotice(memoSaveFailure(reason));
+          }}
+          onSubmit={async (markdown, unchangedSource) => {
+            if (conflictMemo) throw new Error("请先处理冲突草稿，再保存随记。");
+            if (unchangedSource === memo.contentMarkdown) {
+              draftSession.clear({
+                includeInitial: unchangedSource === editDraft?.markdown,
+              });
+              onFinishEdit();
+              return;
+            }
+            try {
+              await updateMemo({ ...memo, version: editVersion }, markdown);
+            } catch (reason) {
+              const current = memoConflictCurrent(reason);
+              if (current) {
+                draftSession.write({
+                  markdown,
+                  version: current.version,
+                  conflict: true,
+                });
+                setConflict(current);
+              }
+              throw reason;
+            }
+            draftSession.clear({ includeInitial: true });
+            onFinishEdit();
+            onSaveNotice({ message: "随记已保存" });
+          }}
+          onDraftChange={writeEditDraft}
+          onCancel={() => {
+            if (!conflictMemo) draftSession.clear();
+            onFinishEdit();
+            requestAnimationFrame(() => foregroundRef.current?.focus({ preventScroll: true }));
+          }}
+        />
+      </MemoDiagramPreviews.Provider>
+      {conflictMemo && (
+        <section className="memo-conflict" aria-label="随记保存冲突">
+          <p>这条随记已在别处更新。草稿已保留，请选择如何处理。</p>
+          <div className="memo-conflict-actions">
+            <button
+              type="button"
+              onClick={() => {
+                void copyPlainText(composerRef.current?.getMarkdown() ?? "")
+                  .then(() => setCopyNotice("草稿已复制"))
+                  .catch(() => setCopyNotice("复制失败，请重试"))
+                  .finally(() => window.setTimeout(() => setCopyNotice(""), 1600));
+              }}
+            >
+              复制草稿
+            </button>
+            <button type="button" onClick={discardRecoveredDraft}>
+              丢弃草稿并编辑最新内容
+            </button>
+          </div>
+          {copyNotice && (
+            <p className="memo-conflict-notice" role="status">
+              {copyNotice}
+            </p>
+          )}
+          <details>
+            <summary>查看最新随记</summary>
+            <MemoMarkdown markdown={conflictMemo.contentMarkdown} />
+          </details>
+        </section>
+      )}
+      {editDraft && !conflictMemo && (
+        <div className="memo-conflict memo-conflict-actions">
+          <button type="button" onClick={discardRecoveredDraft}>
+            丢弃已恢复草稿
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
+
 function MemoCard({
   memo,
   onEdit,
@@ -73,12 +206,8 @@ function MemoCard({
   swipeOpen: boolean;
   setSwipeOpenId: (id: string | null) => void;
 }) {
-  const { updateMemo, refresh } = useMemoWorkspace();
-  const [conflict, setConflict] = useState<Memo | null>(null);
-  const [copyNotice, setCopyNotice] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
-  const composerRef = useRef<MemoComposerHandle>(null);
   const diagramPreviews = useRef<NonNullable<ContextType<typeof MemoDiagramPreviews>>>(new Map());
   const foregroundRef = useRef<HTMLElement>(null);
   const gesture = useSwipeActionGesture({
@@ -89,38 +218,6 @@ function MemoCard({
     onOpenChange: setSwipeOpenId,
     foregroundRef,
   });
-  const [draftSession, setDraftSession] = useState<ReturnType<typeof beginMemoDraftSession> | null>(
-    null,
-  );
-  if (editing && !draftSession) {
-    setDraftSession(beginMemoDraftSession(memo.id));
-    setConflict(null);
-  } else if (!editing && draftSession) {
-    setDraftSession(null);
-  }
-  const editDraft = draftSession?.initial;
-  const editVersion = editDraft?.version ?? editingVersion ?? memo.version;
-  const conflictMemo = conflict ?? (editDraft?.conflict ? memo : null);
-  const writeEditDraft = (markdown: string) => {
-    draftSession?.write(
-      markdown || conflictMemo
-        ? {
-            markdown,
-            version: conflictMemo?.version ?? editVersion,
-            ...(conflictMemo ? { conflict: true } : {}),
-          }
-        : null,
-    );
-  };
-
-  const discardRecoveredDraft = () => {
-    composerRef.current?.discardPendingDraft();
-    draftSession?.clear({ includeInitial: true });
-    setConflict(null);
-    setCopyNotice("");
-    refresh();
-    onFinishEdit();
-  };
 
   useLayoutEffect(() => {
     const card = foregroundRef.current;
@@ -248,93 +345,15 @@ function MemoCard({
           <time dateTime={new Date(memo.createdAt).toISOString()}>{timeLabel(memo.createdAt)}</time>
         </header>
         {editing ? (
-          <>
-            <MemoDiagramPreviews.Provider value={diagramPreviews.current}>
-              <MemoComposer
-                ref={composerRef}
-                key={memo.id}
-                initialMarkdown={editDraft?.markdown ?? memo.contentMarkdown}
-                placeholder="修改这条随记"
-                ariaLabel="编辑随记"
-                autoFocus
-                onSaveError={(reason) => {
-                  if (!memoConflictCurrent(reason)) onSaveNotice(memoSaveFailure(reason));
-                }}
-                onSubmit={async (markdown, unchangedSource) => {
-                  if (conflictMemo) throw new Error("请先处理冲突草稿，再保存随记。");
-                  if (unchangedSource === memo.contentMarkdown) {
-                    draftSession?.clear({
-                      includeInitial: unchangedSource === editDraft?.markdown,
-                    });
-                    onFinishEdit();
-                    return;
-                  }
-                  try {
-                    await updateMemo({ ...memo, version: editVersion }, markdown);
-                  } catch (reason) {
-                    const current = memoConflictCurrent(reason);
-                    if (current) {
-                      draftSession?.write({
-                        markdown,
-                        version: current.version,
-                        conflict: true,
-                      });
-                      setConflict(current);
-                    }
-                    throw reason;
-                  }
-                  draftSession?.clear({ includeInitial: true });
-                  onFinishEdit();
-                  onSaveNotice({ message: "随记已保存" });
-                }}
-                onDraftChange={writeEditDraft}
-                onCancel={() => {
-                  if (!conflictMemo) draftSession?.clear();
-                  onFinishEdit();
-                  requestAnimationFrame(() =>
-                    foregroundRef.current?.focus({ preventScroll: true }),
-                  );
-                }}
-              />
-            </MemoDiagramPreviews.Provider>
-            {conflictMemo && (
-              <section className="memo-conflict" aria-label="随记保存冲突">
-                <p>这条随记已在别处更新。草稿已保留，请选择如何处理。</p>
-                <div className="memo-conflict-actions">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void copyPlainText(composerRef.current?.getMarkdown() ?? "")
-                        .then(() => setCopyNotice("草稿已复制"))
-                        .catch(() => setCopyNotice("复制失败，请重试"))
-                        .finally(() => window.setTimeout(() => setCopyNotice(""), 1600));
-                    }}
-                  >
-                    复制草稿
-                  </button>
-                  <button type="button" onClick={discardRecoveredDraft}>
-                    丢弃草稿并编辑最新内容
-                  </button>
-                </div>
-                {copyNotice && (
-                  <p className="memo-conflict-notice" role="status">
-                    {copyNotice}
-                  </p>
-                )}
-                <details>
-                  <summary>查看最新随记</summary>
-                  <MemoMarkdown markdown={conflictMemo.contentMarkdown} />
-                </details>
-              </section>
-            )}
-            {editDraft && !conflictMemo && (
-              <div className="memo-conflict memo-conflict-actions">
-                <button type="button" onClick={discardRecoveredDraft}>
-                  丢弃已恢复草稿
-                </button>
-              </div>
-            )}
-          </>
+          <MemoCardEditor
+            key={memo.id}
+            memo={memo}
+            editingVersion={editingVersion}
+            diagramPreviews={diagramPreviews.current}
+            foregroundRef={foregroundRef}
+            onFinishEdit={onFinishEdit}
+            onSaveNotice={onSaveNotice}
+          />
         ) : (
           <div className="memo-card-content">
             <MemoDiagramPreviews.Provider value={diagramPreviews.current}>

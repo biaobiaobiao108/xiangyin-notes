@@ -473,3 +473,33 @@ test("short-term created sorting paginates without repeating rows", async () => 
     f.database.close();
   }
 });
+
+test("rejects search cursors with invalid numeric values", async () => {
+  const f = await fixture();
+  try {
+    f.create("猫", "猫");
+    const encodeCursor = (payload: Record<string, unknown>) =>
+      encodeURIComponent(Buffer.from(JSON.stringify(payload)).toString("base64url"));
+
+    const stringValueResponse = await f.list(
+      `query=${encodeURIComponent("猫")}&sort=updated&cursor=${encodeCursor({ sort: "updated", value: "100 OR 1=1", id: "n1" })}`,
+    );
+    expect(stringValueResponse.status).toBe(400);
+    expect((await stringValueResponse.json()).error.code).toBe("INVALID_CURSOR");
+
+    const floatTimestampResponse = await f.list(
+      `query=${encodeURIComponent("猫")}&sort=created&cursor=${encodeCursor({ sort: "created", value: 1.5, id: "n1" })}`,
+    );
+    expect(floatTimestampResponse.status).toBe(400);
+    expect((await floatTimestampResponse.json()).error.code).toBe("INVALID_CURSOR");
+
+    const nullRelevanceResponse = await f.list(
+      `query=${encodeURIComponent("猫")}&sort=relevance&cursor=${encodeCursor({ sort: "relevance", value: null, id: "n1", scope: "any" })}`,
+    );
+    expect(nullRelevanceResponse.status).toBe(400);
+    expect((await nullRelevanceResponse.json()).error.code).toBe("INVALID_CURSOR");
+  } finally {
+    await waitForOrphanAssetCleanup(f.database);
+    f.database.close();
+  }
+});
