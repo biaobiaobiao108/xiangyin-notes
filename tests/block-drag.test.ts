@@ -5,7 +5,7 @@ import TaskItem from "@tiptap/extension-task-item";
 import TaskList from "@tiptap/extension-task-list";
 import { createMarkdownExtension } from "../app/editor/markdown-config";
 import { history, undo } from "@tiptap/pm/history";
-import { EditorState, type Transaction } from "@tiptap/pm/state";
+import { EditorState, NodeSelection, type Transaction } from "@tiptap/pm/state";
 import {
   calculateDropCandidate,
   deleteBlock,
@@ -101,6 +101,30 @@ describe("block drag commands", () => {
 
     expect(moveBlock(editor, third, first, "before")).not.toBeNull();
     expect(blockTexts(editor)).toEqual(["段落C", "段落A", "段落B"]);
+  });
+
+  test.each([0, 1])("keeps Mermaid at block selection after moving chart %i", (index) => {
+    const charts = ["A", "B", "C"].map(
+      (label) => `\`\`\`mermaid\nflowchart TD\n  ${label}\n\`\`\``,
+    );
+    const editor = createTestEditor(charts.join("\n\n"));
+    try {
+      const first = editor.state.doc.child(0);
+      const from = topLevelBlock(editor, index);
+      const destination = topLevelBlock(editor, 2);
+      expect(moveBlock(editor, from, destination, "after")).not.toBeNull();
+
+      const selection = editor.state.selection;
+      expect(selection).toBeInstanceOf(NodeSelection);
+      expect((selection as NodeSelection).node).toBe(first);
+      expect(blockTexts(editor)).toEqual(
+        (index === 0 ? ["B", "C", "A"] : ["A", "C", "B"]).map(
+          (label) => `flowchart TD\n  ${label}`,
+        ),
+      );
+    } finally {
+      editor.destroy();
+    }
   });
 
   test("rejects no-op and cross-parent moves", () => {

@@ -1,7 +1,8 @@
 import type { Editor } from "@tiptap/core";
 import { closeHistory } from "@tiptap/pm/history";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { Selection, TextSelection } from "@tiptap/pm/state";
+import { NodeSelection, Selection, TextSelection } from "@tiptap/pm/state";
+import { isMermaidLanguage } from "../mermaid/protocol";
 
 export type BlockKind = "topLevel" | "listItem";
 
@@ -532,6 +533,17 @@ export function moveBlocks(
         );
       }
     }
+  }
+
+  const selection = transaction.selection;
+  if (
+    selection instanceof TextSelection &&
+    selection.$from.sameParent(selection.$to) &&
+    selection.$from.parent.type.name === "codeBlock" &&
+    isMermaidLanguage(selection.$from.parent.attrs.language)
+  ) {
+    // Restoring focus to a text selection in a Mermaid block reveals its source.
+    transaction.setSelection(NodeSelection.create(transaction.doc, selection.$from.before()));
   }
 
   view.dispatch(closeHistory(transaction));

@@ -10,7 +10,9 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import type { Editor } from "@tiptap/core";
+import { NodeSelection } from "@tiptap/pm/state";
 import { ArrowDown, ArrowUp, Copy, Trash2 } from "lucide-react";
+import { isMermaidLanguage } from "../mermaid/protocol";
 import {
   calculateDropCandidate,
   deleteBlocks,
@@ -90,6 +92,26 @@ const prefersReducedMotion = () => window.matchMedia("(prefers-reduced-motion: r
 
 function restoreEditorFocus(editor: Editor, scroll: HTMLElement | null) {
   if (editor.isDestroyed) return;
+  const { selection } = editor.state;
+  if (
+    selection instanceof NodeSelection &&
+    selection.node.type.name === "codeBlock" &&
+    isMermaidLanguage(selection.node.attrs.language)
+  ) {
+    // Wait for the moved React node view to mount. Focusing the editor itself
+    // can turn the node selection into a source caret in WebKit.
+    requestAnimationFrame(() => {
+      if (editor.isDestroyed || !editor.state.selection.eq(selection)) return;
+      const dom = editor.view.nodeDOM(selection.from);
+      const trigger =
+        dom instanceof HTMLElement
+          ? dom.querySelector<HTMLButtonElement>(".mermaid-edit-trigger")
+          : null;
+      if (trigger && !trigger.closest("[inert]")) trigger.focus({ preventScroll: true });
+    });
+    return;
+  }
+
   const scrollTop = scroll?.scrollTop;
   try {
     if (!editor.view.hasFocus()) {
