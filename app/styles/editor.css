@@ -909,9 +909,7 @@
   padding: 0 8px;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
-  background: var(--surface-glass-soft);
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
+  background: var(--surface-glass-strong);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.72rem;
   line-height: 28px;
@@ -936,9 +934,7 @@
   padding: 0;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
-  background: var(--surface-glass-soft);
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
+  background: var(--surface-glass-strong);
   color: var(--muted);
   opacity: 0;
   pointer-events: none;
