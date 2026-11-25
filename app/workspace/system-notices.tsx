@@ -1,12 +1,14 @@
-import { CircleAlert, Info, TriangleAlert, X } from "lucide-react";
+import { CircleAlert, Info, TriangleAlert, WifiOff, X } from "lucide-react";
 import type { Notice, NoticePauseSource } from "./use-notices";
 
 export function SystemNotices({
   notice,
+  offline = false,
   onDismiss,
   onPause,
 }: {
   notice: Notice | null;
+  offline?: boolean;
   onDismiss: () => void;
   onPause: (paused: boolean, source: NoticePauseSource) => void;
 }) {
@@ -14,6 +16,12 @@ export function SystemNotices({
     notice?.kind === "error" ? CircleAlert : notice?.kind === "warning" ? TriangleAlert : Info;
   return (
     <div className="system-notices">
+      {offline && (
+        <div className="toast toast--warning toast--offline" role="status" aria-live="polite">
+          <WifiOff className="notice-icon" size={18} aria-hidden="true" />
+          <span className="notice-copy">网络已断开，修改已暂存本地草稿</span>
+        </div>
+      )}
       {notice && (
         <div
           key={notice.id}

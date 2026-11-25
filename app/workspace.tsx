@@ -1,18 +1,8 @@
-import {
-  lazy,
-  memo,
-  Suspense,
-  useCallback,
-  useDeferredValue,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { useContextMenu } from "./context-menu";
 import { copyPlainText } from "./editor/code-block-copy";
-import { moveSelectedNotes } from "./workspace/move-selected-notes";
-import { ApiError, api } from "./api";
+import { api } from "./api";
 import { CommandId, CommandMenu } from "./command-menu";
 import { installPwa, subscribePwa, type PwaState } from "./pwa";
 import {
@@ -24,18 +14,12 @@ import {
 } from "../shared/types";
 import { useOutlineState } from "./workspace/use-outline-state";
 import { ConfirmDialog, NotebookDialog, type ConfirmRequest } from "./workspace/dialogs";
-import { SplitResizer, DEFAULT_SPLIT_RATIO } from "./workspace/split-resizer";
+import { DEFAULT_SPLIT_RATIO } from "./workspace/split-resizer";
 import { SplitNoteDialog } from "./workspace/split-note-dialog";
-import { EmptyEditor, NoteListPanel, NoteLoadingState, Sidebar } from "./workspace/panels";
+import { NoteListPanel, NoteLoadingState, Sidebar } from "./workspace/panels";
 import { NoteCardGridPanel } from "./workspace/note-card-grid";
 import { registerDragOverGuard } from "./workspace/note-drag-drop";
-import { ErrorBoundary, EditorErrorFallback } from "./error-boundary";
-import {
-  errorMessage,
-  noteMetadataSnapshot,
-  toNoteDraft,
-  toNoteSummary,
-} from "./workspace/helpers";
+import { noteMetadataSnapshot, toNoteSummary, viewLabel } from "./workspace/helpers";
 import { useNoteSelection } from "./workspace/use-note-selection";
 import {
   isMissingNoteError,
@@ -43,7 +27,6 @@ import {
   type SaveState,
 } from "./workspace/use-note-save-queue";
 import { emptyRealtimeRefreshPlan, type RealtimeRefreshPlan } from "./workspace/realtime-refresh";
-import { refreshSelectedNote } from "./workspace/selected-note-sync";
 import { useWorkspaceShortcuts } from "./workspace/use-workspace-shortcuts";
 import { useTrashActions } from "./workspace/use-trash-actions";
 import {
@@ -58,7 +41,6 @@ import { useMobileViewport } from "./workspace/use-mobile-viewport";
 import { useNotices } from "./workspace/use-notices";
 import { SystemNotices } from "./workspace/system-notices";
 import { MobileNotebookHome, MobileBottomBar } from "./workspace/mobile-panels";
-import { viewLabel } from "./workspace/helpers";
 import { useThemePreference } from "./theme";
 import { createWorkspaceContextMenuHandler } from "./workspace/workspace-context-menu";
 import { useWorkspacePreferences } from "./workspace/use-workspace-preferences";
@@ -81,16 +63,15 @@ import { useWorkspaceTaskActions } from "./workspace/use-workspace-task-actions"
 import { useWorkspaceSplit } from "./workspace/use-workspace-split";
 import { useWorkspaceNoteList } from "./workspace/use-workspace-note-list";
 import { useWorkspaceNoteChange } from "./workspace/use-workspace-note-change";
-import { readMissingNoteDraft } from "./workspace/draft-recovery";
+import { WorkspaceEditorArea } from "./workspace/workspace-editor-area";
+import { useWorkspaceNoteSync } from "./workspace/use-workspace-note-sync";
+import { useWorkspaceCollectionActions } from "./workspace/use-workspace-collection-actions";
+import { useWorkspaceOffline } from "./workspace/use-workspace-offline";
 
 export type { ViewLayout } from "./workspace/use-workspace-preferences";
 
 const LazyImageExportDialog = lazy(() =>
   import("./image-export/dialog").then(({ ImageExportDialog }) => ({ default: ImageExportDialog })),
-);
-
-const LazyNoteEditor = lazy(() =>
-  import("./editor").then(({ NoteEditor }) => ({ default: memo(NoteEditor) })),
 );
 
 const LazyMemoPage = lazy(() =>
@@ -216,7 +197,7 @@ export function Workspace() {
       return next;
     });
     playListTransition();
-  }, [playListTransition]);
+  }, [playListTransition, setViewLayout]);
   const [cardEditingNoteId, setCardEditingNoteId] = useState<string | null>(null);
   const cardGridScrollPositionRef = useRef<{ scope: string; top: number }>({ scope: "", top: 0 });
   const mobileEditorVisitedRef = useRef(false);
@@ -254,10 +235,7 @@ export function Workspace() {
   );
   const toggleOutline = useCallback(() => {
     if (focusMode) return;
-    setOutlineOpen((current) => {
-      const next = !current;
-      return next;
-    });
+    setOutlineOpen((current) => !current);
   }, [focusMode]);
   const closeOutline = useCallback(() => setOutlineOpen(false), []);
   const [commandOpen, setCommandOpen] = useState(false);
@@ -394,6 +372,7 @@ export function Workspace() {
     flushNotebookSaves,
     saveNoteNow,
     flushPendingSaves,
+    flushDraftRecoveries,
     hasUnsavedWork,
     markNoteMissing,
     clearPendingForNote,
@@ -439,7 +418,7 @@ export function Workspace() {
       (splitSaveState === "saved" && previous.splitSaveState !== "saved");
     taskSaveStateRef.current = { saveState, splitSaveState };
     if (tasksOpen && didSave) setTaskRefreshToken((value) => value + 1);
-  }, [saveState, splitSaveState, tasksOpen]);
+  }, [saveState, setTaskRefreshToken, splitSaveState, tasksOpen]);
   const persistRef = useRef(persist);
   persistRef.current = persist;
 
@@ -501,6 +480,20 @@ export function Workspace() {
     void refreshNotebooks();
     reloadNotes();
   }, [ready, refreshNotebooks, reloadNotes]);
+
+  const isOffline = useWorkspaceOffline({
+    onOffline: useCallback(() => {
+      flushDraftRecoveries();
+      notifyWarning("网络已断开，本地草稿会继续保留");
+    }, [flushDraftRecoveries, notifyWarning]),
+    onOnline: useCallback(() => {
+      if (!ready) return;
+      notifyInfo(hasUnsavedWork() ? "网络已恢复，正在同步未保存草稿" : "网络已恢复");
+      void refreshNotebooks();
+      reloadNotes();
+    }, [hasUnsavedWork, notifyInfo, ready, refreshNotebooks, reloadNotes]),
+  });
+
   const selectNote = useCallback(
     (id: string | null) => {
       if (id) setMemosOpen(false);
@@ -521,7 +514,7 @@ export function Workspace() {
         setCardEditingNoteId(null);
       }
     },
-    [clearNoteSelection],
+    [clearNoteSelection, setTaskNavigation],
   );
   mobileRestoreRef.current = (context, page) => {
     flushEditorDraftRef.current();
@@ -535,72 +528,6 @@ export function Workspace() {
     searchOriginRef.current = context.searchOrigin;
     if (page === "editor" && context.noteId) selectNote(context.noteId);
   };
-  useEffect(() => {
-    if (!ready || !initialLinkedNoteId || !pendingLinkedNoteRef.current) return;
-    const controller = new AbortController();
-    // Consume the link before creating page entries so returning to the list
-    // and refreshing does not reopen the linked note.
-    const linkedUrl = new URL(window.location.href);
-    linkedUrl.searchParams.delete("note");
-    window.history.replaceState(
-      window.history.state,
-      "",
-      `${linkedUrl.pathname}${linkedUrl.search}${linkedUrl.hash}`,
-    );
-    void api
-      .getNote(initialLinkedNoteId, { signal: controller.signal })
-      .catch(async (error) => {
-        if (!isMissingNoteError(error) || controller.signal.aborted) throw error;
-        const note = await readMissingNoteDraft(initialLinkedNoteId);
-        if (!note || controller.signal.aborted) throw error;
-        pendingSavesRef.current.set(note.id, toNoteDraft(note));
-        markNoteMissing(note.id, error);
-        return { note };
-      })
-      .then(({ note }) => {
-        if (controller.signal.aborted) return;
-        invalidateCollections();
-        selectedRef.current = note;
-        setSelectedNote(noteMetadataSnapshot(note));
-        setView(note.deletedAt !== null ? "trash" : "all");
-        setNotebookId(note.deletedAt !== null ? undefined : note.notebookId);
-        setQuery("");
-        selectNote(note.id);
-        setCardEditingNoteId(note.id);
-        openMobileNote({
-          view: note.deletedAt !== null ? "trash" : "all",
-          notebookId: note.deletedAt !== null ? undefined : note.notebookId,
-          query: "",
-          noteId: note.id,
-          searchOrigin: null,
-        });
-      })
-      .catch((error) => {
-        if (!controller.signal.aborted) notifyError(errorMessage(error, "无法打开链接中的笔记"));
-      })
-      .finally(() => {
-        if (controller.signal.aborted) return;
-        pendingLinkedNoteRef.current = null;
-        const url = new URL(window.location.href);
-        url.searchParams.delete("note");
-        window.history.replaceState(
-          window.history.state,
-          "",
-          `${url.pathname}${url.search}${url.hash}`,
-        );
-        reloadNotes();
-      });
-    return () => controller.abort();
-  }, [
-    openMobileNote,
-    initialLinkedNoteId,
-    invalidateCollections,
-    markNoteMissing,
-    pendingSavesRef,
-    ready,
-    reloadNotes,
-    selectNote,
-  ]);
   useEffect(() => {
     setOutlineOpen(false);
     resetOutline();
@@ -700,61 +627,6 @@ export function Workspace() {
       query: selectedText.length <= 50 ? selectedText : "",
     }));
   }, [activePane, splitNoteId, isMobileViewport, viewLayout, notifyWarning]);
-  useWorkspaceShortcuts({
-    focusMode,
-    autoReadingMode,
-    autoReadingAvailable: !splitNoteId,
-    exitAutoReadingMode,
-    toggleAutoReadingMode,
-    hasModalOpen: Boolean(
-      commandOpen ||
-      imageExportSnapshot ||
-      editingNotebook !== undefined ||
-      confirmRequest ||
-      splitPickerOpen,
-    ),
-    // Escape 第 1 层：正文搜索高亮清除优先于退出沉浸模式。
-    hasSearchHighlight: Boolean(inNoteSearchQuery.trim() || resultSearch),
-    clearSearchHighlight: () => handleClearInNoteSearch(),
-    toggleSidebar: () =>
-      isMobileViewport ? openMobileHome() : setSidebarCollapsed((value) => !value),
-    toggleFocusMode,
-    toggleTypewriterMode,
-    exitFocusMode,
-    openCommandMenu,
-    openReplace: openReplaceInCurrentNote,
-    toggleViewLayout,
-    isCardEditing: !isMobileViewport && viewLayout === "cards" && cardEditingNoteId !== null,
-    onExitCardEditing: () => {
-      closeSplit();
-      setCardEditingNoteId(null);
-      if (kanbanReturnRef.current) {
-        setKanbanOpen(true);
-        kanbanReturnRef.current = false;
-      }
-    },
-    hasSelection: selectedNoteIds.size > 0,
-    clearSelection: clearNoteSelection,
-    outlineOpen,
-    closeOutline,
-    returnFocusToList: () => {
-      if (kanbanReturnRef.current) {
-        setKanbanOpen(true);
-        kanbanReturnRef.current = false;
-        return;
-      }
-      if (isMobileViewport) {
-        backMobilePage();
-        return;
-      }
-      if (viewLayout === "three-column" && selectedId) {
-        const row = document.querySelector<HTMLButtonElement>(
-          `[data-note-id="${CSS.escape(selectedId)}"] .note-row`,
-        );
-        row?.focus();
-      }
-    },
-  });
 
   const onNoteChange = useWorkspaceNoteChange({
     selectedRef,
@@ -821,7 +693,14 @@ export function Workspace() {
       setCardEditingNoteId(note.id);
       openMobileNote({ ...target, query: "", noteId: note.id, searchOrigin: null });
     },
-    [openMobileNote, playListTransition],
+    [
+      clearPendingForNote,
+      invalidateCollections,
+      openMobileNote,
+      playListTransition,
+      replaceList,
+      setQuery,
+    ],
   );
   const {
     creatingNote,
@@ -839,39 +718,6 @@ export function Workspace() {
     notifyError,
     navigate,
   });
-  const requestDraftRecovery = useCallback(
-    (noteId: string) => {
-      if (!isMissingNoteError(failedSavesRef.current.get(noteId))) return;
-      requestConfirm({
-        title: "另存为新笔记？",
-        description: "原笔记已被永久删除。将此设备上的草稿保存为一篇新笔记。",
-        confirmLabel: "另存为新笔记",
-        onConfirm: async () => {
-          flushEditorDraftRef.current();
-          const draft = pendingSavesRef.current.get(noteId);
-          if (!draft) throw new Error("找不到本地草稿");
-          const saved = await createRecoveredNote(draft);
-          if (splitNoteIdRef.current === noteId) closeSplitRef.current();
-          revealCreatedNote(saved, { view: "all", notebookId: saved.notebookId });
-          clearPendingForNote(noteId, draft);
-          removeFromList(noteId);
-          void refreshNotebooks();
-          notifyInfo("草稿已另存为新笔记");
-        },
-      });
-    },
-    [
-      clearPendingForNote,
-      createRecoveredNote,
-      failedSavesRef,
-      notifyInfo,
-      pendingSavesRef,
-      refreshNotebooks,
-      removeFromList,
-      requestConfirm,
-      revealCreatedNote,
-    ],
-  );
   const { createNotebook, saveNotebook, saveNotebookDraft } = useWorkspaceNotebookEditor({
     editingNotebook,
     setEditingNotebook,
@@ -882,133 +728,53 @@ export function Workspace() {
     setView,
     openMobileList,
   });
-  const refreshSelectedNoteFromRemote = useCallback(
-    (noteId: string) =>
-      refreshSelectedNote(noteId, {
-        selectedRef,
-        activeNoteIdRef,
-        noteAbortRef,
-        noteOpeningRef,
-        noteLoadRequestRef,
-        hasPendingWork: (id) =>
-          pendingSavesRef.current.has(id) ||
-          failedSavesRef.current.has(id) ||
-          editorMarkdownDirtyNoteRef.current === id,
-        onConflict: () => {
-          setSaveState("conflict");
-          notifyWarning("当前笔记已在其他设备更新，请先保存或重新载入");
-        },
-        onMissingWithDraft: markNoteMissing,
-        onUpdated: (note, reloadEditor = true) => {
-          setSelectedNote(noteMetadataSnapshot(note));
-          replaceList(
-            notesRef.current.map((n) => (n.id === noteId ? { ...n, ...toNoteSummary(note) } : n)),
-          );
-          if (reloadEditor) {
-            setNoteReloadToken((value) => value + 1);
-            setSaveState("idle");
-          }
-        },
-        onUnauthorized: () => navigate(`/login${window.location.search}`, { replace: true }),
-        onNotFound: (id) => {
-          if (notesRef.current.some((note) => note.id === id)) removeFromList(id);
-          else if (activeNoteIdRef.current === id) selectNote(null);
-        },
-        onError: () => notifyError("同步当前笔记失败，请稍后重试"),
-      }),
-    [
-      failedSavesRef,
-      markNoteMissing,
-      navigate,
-      pendingSavesRef,
-      removeFromList,
-      replaceList,
-      selectNote,
-      setSaveState,
-    ],
-  );
-  const refreshSplitNoteFromRemote = useCallback(
-    (noteId: string) =>
-      refreshSelectedNote(noteId, {
-        selectedRef: splitSelectedRef,
-        activeNoteIdRef: splitNoteIdRef,
-        noteAbortRef: splitAbortRef,
-        noteOpeningRef: splitNoteOpeningRef,
-        noteLoadRequestRef: splitLoadRequestRef,
-        hasPendingWork: (id) =>
-          pendingSavesRef.current.has(id) ||
-          failedSavesRef.current.has(id) ||
-          splitMarkdownDirtyNoteRef.current === id,
-        onConflict: () => {
-          setSplitSaveState("conflict");
-          notifyWarning("分栏中的笔记已在其他设备更新，请先保存或重新载入");
-        },
-        onMissingWithDraft: markNoteMissing,
-        onUpdated: (note, reloadEditor = true) => {
-          setSplitSelectedNote(noteMetadataSnapshot(note));
-          replaceList(
-            notesRef.current.map((n) => (n.id === noteId ? { ...n, ...toNoteSummary(note) } : n)),
-          );
-          if (reloadEditor) {
-            setSplitNoteReloadToken((value) => value + 1);
-            setSplitSaveState("idle");
-          }
-        },
-        onUnauthorized: () => navigate(`/login${window.location.search}`, { replace: true }),
-        onNotFound: () => {
-          if (splitNoteIdRef.current === noteId) closeSplitRef.current();
-        },
-        onError: () => notifyError("同步分栏笔记失败，请稍后重试"),
-      }),
-    [failedSavesRef, markNoteMissing, navigate, pendingSavesRef, replaceList],
-  );
-  const deleteNotebook = useCallback(
-    async (id: string) => {
-      const target = notebooks.find((notebook) => notebook.id === id);
-      if (!target || target.isSystem) throw new Error("无法删除此笔记本");
-      await flushNotebookSaves(id);
-      try {
-        await api.deleteNotebook(id, target.totalCount);
-      } catch (reason) {
-        if (reason instanceof ApiError && reason.code === "NOTEBOOK_COUNT_MISMATCH")
-          void refreshNotebooks();
-        throw reason;
-      }
-      const activeNote = selectedRef.current;
-      if (activeNote?.notebookId === id) await refreshSelectedNoteFromRemote(activeNote.id);
-      setNotebooks((current) => current.filter((notebook) => notebook.id !== id));
-      if (notebookId === id) setNotebookId(undefined);
-      refreshNotebooks();
-      void loadNotes();
-      setEditingNotebook(undefined);
-    },
-    [
-      flushNotebookSaves,
-      loadNotes,
-      notebookId,
-      notebooks,
-      refreshNotebooks,
-      refreshSelectedNoteFromRemote,
-    ],
-  );
-  const toggleFavorite = useCallback(() => {
-    const current = selectedRef.current;
-    if (!current) return;
-    const next = { ...current, isFavorite: !current.isFavorite };
-    selectedRef.current = next;
-    setSelectedNote(noteMetadataSnapshot(next));
-    if (view !== "favorites" || next.isFavorite) {
-      persist(next);
-      return;
-    }
 
-    const scope = listScopeRef.current;
-    void saveImmediately(next, false, ["isFavorite"])
-      .then(() => {
-        if (scope === listScopeRef.current) removeFromList(current.id);
-      })
-      .catch(() => undefined);
-  }, [persist, removeFromList, saveImmediately, view]);
+  const { refreshSelectedNoteFromRemote, refreshSplitNoteFromRemote, requestConflictReload } =
+    useWorkspaceNoteSync({
+      ready,
+      initialLinkedNoteId,
+      pendingLinkedNoteRef,
+      selectedRef,
+      activeNoteIdRef,
+      noteAbortRef,
+      noteOpeningRef,
+      noteLoadRequestRef,
+      splitSelectedRef,
+      splitNoteIdRef,
+      splitAbortRef,
+      splitNoteOpeningRef,
+      splitLoadRequestRef,
+      pendingSavesRef,
+      failedSavesRef,
+      editorMarkdownDirtyNoteRef,
+      splitMarkdownDirtyNoteRef,
+      notesRef,
+      replaceList,
+      setSelectedNote,
+      setSplitSelectedNote,
+      setNoteReloadToken,
+      setSplitNoteReloadToken,
+      setSaveState,
+      setSplitSaveState,
+      setIsNoteLoading,
+      setView,
+      setNotebookId,
+      setQuery,
+      setCardEditingNoteId,
+      selectNote,
+      openMobileNote,
+      closeSplitRef,
+      markNoteMissing,
+      clearPendingForNote,
+      removeFromList,
+      invalidateCollections,
+      reloadNotes,
+      requestConfirm,
+      notifyWarning,
+      notifyError,
+      navigate,
+    });
+
   const {
     moveToTrash,
     restoreFromTrash,
@@ -1043,18 +809,7 @@ export function Workspace() {
     },
     ui: { setPendingTrashCount, setEmptyingTrash, setNotebooks, requestConfirm, notifyError },
   });
-  const handleToggleFavoriteNote = useCallback(
-    async (target: NoteSummary) => {
-      const isFavorite = !target.isFavorite;
-      try {
-        await saveFavorite(target.id, isFavorite);
-        if (view === "favorites" && !isFavorite) removeFromList(target.id);
-      } catch (reason) {
-        notifyError(errorMessage(reason, "操作失败"));
-      }
-    },
-    [removeFromList, saveFavorite, notifyError, view],
-  );
+
   const {
     kanbanColumns,
     kanbanColumnsRef,
@@ -1074,140 +829,65 @@ export function Workspace() {
     notifyInfo,
     onTrashCard: trashNote,
     refreshNotebooks,
-    onToggleFavoriteNote: handleToggleFavoriteNote,
+    onToggleFavoriteNote: (target) => handleToggleFavoriteNote(target),
   });
 
-  const movingNoteIdsRef = useRef(new Set<string>());
-  const handleMoveNotesToNotebook = useCallback(
-    async (ids: string[], targetNotebookId: string, followNote = false) => {
-      const movers = movingNoteIdsRef.current;
-      const targets = [...new Set(ids)];
-      if (!targets.length) return;
-      if (targets.some((id) => movers.has(id) || trashOperationsRef.current.has(id))) {
-        notifyInfo("正在处理这篇笔记，请稍后重试");
-        return;
-      }
-      const target = notebooks.find((notebook) => notebook.id === targetNotebookId);
-      if (!target) {
-        notifyError("找不到目标笔记本");
-        return;
-      }
-
-      const scope = listScopeRef.current;
-      targets.forEach((id) => movers.add(id));
-      try {
-        const { movedIds, failures } = await moveSelectedNotes(targets, {
-          flushEditorDraft: () => flushEditorDraftRef.current(),
-          saveNote: runSave,
-          moveNote: (id) => moveNoteToNotebook(id, target.id),
-        });
-
-        if (movedIds.length || failures.length) {
-          invalidateCollections();
-          void refreshNotebooks();
-          reloadNotes();
-          if (movedIds.length && kanbanOpen) setKanbanRefreshToken((value) => value + 1);
-          if (movedIds.length && tasksOpen) setTaskRefreshToken((value) => value + 1);
-        }
-        if (scope === listScopeRef.current && movedIds.length) {
-          const current = selectedRef.current;
-          if (
-            followNote &&
-            current &&
-            movedIds.includes(current.id) &&
-            activeNoteIdRef.current === current.id
-          ) {
-            searchOriginRef.current = null;
-            setQuery("");
-            requestListTransition();
-            setView(target.isSystem ? "inbox" : "all");
-            setNotebookId(target.isSystem ? undefined : target.id);
-            replaceList([toNoteSummary(current)]);
-            setTotalNotes(target.count + 1);
-          } else if (notebookId ? notebookId !== target.id : view === "inbox" && !target.isSystem) {
-            removeManyFromList(movedIds);
-          } else if (!failures.length) {
-            clearNoteSelection();
-          }
-        }
-
-        if (failures.length) {
-          const message = errorMessage(failures[0], "移动笔记失败，请重试");
-          notifyError(
-            movedIds.length
-              ? `已移动 ${movedIds.length} 篇，${failures.length} 篇未移动。${message}`
-              : message,
-          );
-        } else if (movedIds.length) {
-          notifyInfo(`已将 ${movedIds.length} 篇笔记移至「${target.name}」`);
-        } else {
-          notifyInfo(`笔记已在「${target.name}」`);
-        }
-      } finally {
-        targets.forEach((id) => movers.delete(id));
-      }
-    },
-    [
-      clearNoteSelection,
-      invalidateCollections,
-      kanbanOpen,
-      moveNoteToNotebook,
-      notebookId,
-      notebooks,
-      notifyError,
-      notifyInfo,
-      refreshNotebooks,
-      reloadNotes,
-      removeManyFromList,
-      replaceList,
-      requestListTransition,
-      runSave,
-      setKanbanRefreshToken,
-      setQuery,
-      tasksOpen,
-      view,
-    ],
-  );
-
-  const handleTrashNotes = useCallback(
-    async (ids: string[]) => {
-      if (ids.some((id) => movingNoteIdsRef.current.has(id))) {
-        notifyInfo("笔记正在移动，请稍后重试");
-        return;
-      }
-      await trashNotes(ids);
-    },
-    [notifyInfo, trashNotes],
-  );
-
-  const reloadSelectedNote = useCallback(async () => {
-    const current = selectedRef.current;
-    if (!current) return;
-    setIsNoteLoading(true);
-    try {
-      const result = await api.getNote(current.id);
-      if (selectedRef.current?.id !== result.note.id) return;
-      clearPendingForNote(current.id);
-      selectedRef.current = result.note;
-      setSelectedNote(noteMetadataSnapshot(result.note));
-      setNoteReloadToken((value) => value + 1);
-      setSaveState("idle");
-    } catch {
-      notifyError("重新载入失败，请重试");
-    } finally {
-      setIsNoteLoading(false);
-    }
-  }, [clearPendingForNote, setSaveState]);
-  const requestConflictReload = useCallback(() => {
-    requestConfirm({
-      eyebrow: "版本冲突",
-      title: "重新载入最新版本？",
-      description:
-        "这篇笔记已在别处更新。重新载入会使用服务器上的最新内容替换当前编辑，本地尚未保存的修改将丢失。",
-      confirmLabel: "重新载入",
-      onConfirm: () => void reloadSelectedNote(),
-    });
-  }, [reloadSelectedNote, requestConfirm]);
+  const {
+    requestDraftRecovery,
+    deleteNotebook,
+    toggleFavorite,
+    handleToggleFavoriteNote,
+    handleMoveNotesToNotebook,
+    handleTrashNotes,
+  } = useWorkspaceCollectionActions({
+    view,
+    notebookId,
+    notebooks,
+    kanbanOpen,
+    tasksOpen,
+    selectedRef,
+    activeNoteIdRef,
+    splitNoteIdRef,
+    listScopeRef,
+    trashOperationsRef,
+    pendingSavesRef,
+    failedSavesRef,
+    flushEditorDraftRef,
+    searchOriginRef,
+    closeSplitRef,
+    setNotebooks,
+    setNotebookId,
+    setView,
+    setQuery,
+    setTotalNotes,
+    setSelectedNote,
+    setEditingNotebook,
+    setKanbanRefreshToken,
+    setTaskRefreshToken,
+    replaceList,
+    removeFromList,
+    removeManyFromList,
+    clearNoteSelection,
+    requestListTransition,
+    invalidateCollections,
+    refreshNotebooks,
+    reloadNotes,
+    loadNotes,
+    refreshSelectedNoteFromRemote,
+    persist,
+    runSave,
+    saveImmediately,
+    saveFavorite,
+    moveNoteToNotebook,
+    flushNotebookSaves,
+    clearPendingForNote,
+    createRecoveredNote,
+    revealCreatedNote,
+    trashNotes,
+    requestConfirm,
+    notifyInfo,
+    notifyError,
+  });
 
   const {
     requestSplitConflictReload,
@@ -1255,6 +935,62 @@ export function Workspace() {
     setEditorFocusNoteId,
     setSidebarCollapsed,
     replaceList,
+  });
+
+  useWorkspaceShortcuts({
+    focusMode,
+    autoReadingMode,
+    autoReadingAvailable: !splitNoteId,
+    exitAutoReadingMode,
+    toggleAutoReadingMode,
+    hasModalOpen: Boolean(
+      commandOpen ||
+      imageExportSnapshot ||
+      editingNotebook !== undefined ||
+      confirmRequest ||
+      splitPickerOpen,
+    ),
+    // Escape 第 1 层：正文搜索高亮清除优先于退出沉浸模式。
+    hasSearchHighlight: Boolean(inNoteSearchQuery.trim() || resultSearch),
+    clearSearchHighlight: () => handleClearInNoteSearch(),
+    toggleSidebar: () =>
+      isMobileViewport ? openMobileHome() : setSidebarCollapsed((value) => !value),
+    toggleFocusMode,
+    toggleTypewriterMode,
+    exitFocusMode,
+    openCommandMenu,
+    openReplace: openReplaceInCurrentNote,
+    toggleViewLayout,
+    isCardEditing: !isMobileViewport && viewLayout === "cards" && cardEditingNoteId !== null,
+    onExitCardEditing: () => {
+      closeSplit();
+      setCardEditingNoteId(null);
+      if (kanbanReturnRef.current) {
+        setKanbanOpen(true);
+        kanbanReturnRef.current = false;
+      }
+    },
+    hasSelection: selectedNoteIds.size > 0,
+    clearSelection: clearNoteSelection,
+    outlineOpen,
+    closeOutline,
+    returnFocusToList: () => {
+      if (kanbanReturnRef.current) {
+        setKanbanOpen(true);
+        kanbanReturnRef.current = false;
+        return;
+      }
+      if (isMobileViewport) {
+        backMobilePage();
+        return;
+      }
+      if (viewLayout === "three-column" && selectedId) {
+        const row = document.querySelector<HTMLButtonElement>(
+          `[data-note-id="${CSS.escape(selectedId)}"] .note-row`,
+        );
+        row?.focus();
+      }
+    },
   });
 
   const handleSplitMoveToTrash = useCallback(() => {
@@ -1405,7 +1141,7 @@ export function Workspace() {
     } catch {
       notifyError("复制失败，请检查浏览器剪贴板权限");
     }
-  }, []);
+  }, [notifyError, notifyInfo]);
   const logout = useCallback(async () => {
     await flushPendingSaves("now");
     if (hasUnsavedWork()) {
@@ -1463,13 +1199,17 @@ export function Workspace() {
       handleExportImage,
       handleExportNote,
       handleExportLibrary,
+      handleToggleSplit,
       isMobileViewport,
       moveToTrash,
+      notifyInfo,
       openKanban,
       openMobileHome,
       pwaState,
       restoreFromTrash,
+      setSidebarCollapsed,
       setThemePreference,
+      toggleAutoReadingMode,
       toggleFavorite,
       toggleFocusMode,
       toggleTypewriterMode,
@@ -1585,13 +1325,12 @@ export function Workspace() {
     }
     if (viewLayout === "cards") {
       setCardEditingNoteId(null);
-      return;
     }
   }, [backMobilePage, closeOutline, isMobileViewport, viewLayout]);
   const handleUploadImage = useCallback((file: File) => api.uploadAsset(file), []);
   const handleScrollToOutlineItem = useCallback(
     (id: string) => outlineNavigateRef.current?.(id),
-    [],
+    [outlineNavigateRef],
   );
   const handleClearQuery = useCallback(() => changeQuery(""), [changeQuery]);
   useEffect(() => {
@@ -1710,112 +1449,13 @@ export function Workspace() {
   const mountEditor = !isMobileViewport || mobileEditorVisitedRef.current;
 
   const isSplitEditor = Boolean(splitNoteId && !isMobileViewport);
-  const primaryEditor =
-    mountEditor && renderedNote ? (
-      <ErrorBoundary
-        key={renderedNote.id}
-        fallback={(error, reset) => <EditorErrorFallback error={error} reset={reset} />}
-      >
-        <Suspense fallback={<NoteLoadingState />}>
-          <LazyNoteEditor
-            note={renderedNote}
-            contentMarkdown={renderedNoteContent}
-            availableNotes={notes}
-            onNavigateWikiLink={handleNavigateWikiLinkPrimary}
-            onCreateAndLinkNote={handleCreateAndLinkNote}
-            onSearchWikiLinkTitles={api.searchWikiNoteTitles}
-            onNavigateToNote={selectNote}
-            searchQuery={
-              resultSearch?.id === renderedNote.id ? resultSearch.query : inNoteSearchQuery
-            }
-            replaceRequest={replaceRequest?.noteId === renderedNote.id ? replaceRequest : null}
-            onReplaceRequestHandled={handleReplaceRequestHandled}
-            searchNavigationToken={resultSearch?.id === renderedNote.id ? resultSearch.token : 0}
-            taskNavigation={taskNavigation?.noteId === renderedNote.id ? taskNavigation : null}
-            onTaskNavigationMissing={handleTaskNavigationMissing}
-            onClearSearch={
-              inNoteSearchQuery || resultSearch?.id === renderedNote.id
-                ? handleClearInNoteSearch
-                : undefined
-            }
-            onMarkdownReaderChange={registerEditorMarkdownReader}
-            onMarkdownDirtyChange={registerEditorMarkdownDirty}
-            saveState={saveState}
-            isLoading={isNoteLoading || creatingNote || taskMutationNoteId === renderedNote.id}
-            loadingLabel={creatingNote ? "正在新建笔记…" : undefined}
-            trashBusy={
-              emptyingTrash ||
-              (pendingTrashCount > 0 && trashOperationsRef.current.has(renderedNote.id))
-            }
-            reloadToken={noteReloadToken}
-            focusRequested={editorFocusNoteId === renderedNote.id && !commandOpen}
-            onFocusHandled={handleEditorFocus}
-            onChange={onNoteChange}
-            onSaveNow={
-              saveState === "missing" ? () => requestDraftRecovery(renderedNote.id) : saveNoteNow
-            }
-            onReloadNote={requestConflictReload}
-            onExportImage={handleExportImage}
-            onToggleFavorite={toggleFavorite}
-            onMoveToTrash={moveToTrash}
-            onRestore={restoreFromTrash}
-            onPermanentDelete={permanentDeleteNote}
-            onOpenList={handleOpenList}
-            isMobileViewport={isSplitEditor ? false : isMobileViewport}
-            mobileBackLabel={
-              kanbanReturnRef.current
-                ? "看板"
-                : !isSplitEditor && tasksOpen
-                  ? "任务"
-                  : query
-                    ? "搜索结果"
-                    : (currentNotebook?.name ?? viewLabel(view))
-            }
-            onBackToKanban={
-              kanbanReturnRef.current
-                ? () => {
-                    closeSplit();
-                    setCardEditingNoteId(null);
-                    setKanbanOpen(true);
-                    kanbanReturnRef.current = false;
-                  }
-                : undefined
-            }
-            onBackToCards={
-              !kanbanReturnRef.current && isCardsLayout && !tasksOpen
-                ? () => {
-                    if (isSplitEditor) closeSplit();
-                    setCardEditingNoteId(null);
-                  }
-                : undefined
-            }
-            onUploadImage={handleUploadImage}
-            focusMode={focusMode}
-            autoReadingMode={isSplitEditor ? false : autoReadingMode}
-            onToggleAutoReadingMode={toggleAutoReadingMode}
-            onExitAutoReadingMode={exitAutoReadingMode}
-            typewriterMode={typewriterMode}
-            outlineOpen={outlineOpen && (!isSplitEditor || activePane === "primary")}
-            outlineItems={outlineItems}
-            activeOutlineId={activeOutlineId}
-            onToggleOutline={() => {
-              if (isSplitEditor) setActivePane("primary");
-              toggleOutline();
-            }}
-            onCloseOutline={closeOutline}
-            onOutlineItemsChange={handleOutlineItemsChange}
-            onOutlineActiveChange={handleOutlineActiveChange}
-            onOutlineNavigationReady={handleOutlineNavigationReady}
-            onToggleSplit={
-              !isMobileViewport && viewLayout === "cards" ? handleToggleSplit : undefined
-            }
-            isSplitActive={isSplitEditor}
-            isActivePane={isSplitEditor ? activePane === "primary" : undefined}
-            onActivatePane={isSplitEditor ? () => setActivePane("primary") : undefined}
-          />
-        </Suspense>
-      </ErrorBoundary>
-    ) : null;
+  const mobileBackLabel = kanbanReturnRef.current
+    ? "看板"
+    : !isSplitEditor && tasksOpen
+      ? "任务"
+      : query
+        ? "搜索结果"
+        : (currentNotebook?.name ?? viewLabel(view));
 
   return (
     <MemoWorkspaceProvider
@@ -2045,162 +1685,116 @@ export function Workspace() {
         {!memosOpen &&
           (!showCardsGrid || isMobileViewport) &&
           (!kanbanOpen || (isMobileViewport && mobilePage === "editor")) && (
-            <main
-              ref={editorRegionRef}
-              className={`editor-region ${splitNoteId && !isMobileViewport ? "is-split" : ""}`}
-              tabIndex={-1}
-              aria-hidden={editorContentInert || undefined}
-              inert={editorContentInert}
-            >
-              {splitNoteId && !isMobileViewport ? (
-                <>
-                  <div
-                    className="split-pane split-pane-primary"
-                    style={{ flex: `${splitRatio} 1 0%` }}
-                  >
-                    {primaryEditor ? (
-                      primaryEditor
-                    ) : isNoteLoading ? (
-                      <NoteLoadingState />
-                    ) : (
-                      <EmptyEditor
-                        isTrash={view === "trash"}
-                        onNewNote={handleNewNote}
-                        creatingNote={creatingNote}
-                        onOpenList={handleOpenList}
-                        transitionToken={listTransitionToken}
-                      />
-                    )}
-                  </div>
-                  <SplitResizer
-                    splitRatio={splitRatio}
-                    onSplitRatioChange={setSplitRatio}
-                    containerRef={editorRegionRef}
-                  />
-                  <div
-                    className="split-pane split-pane-secondary"
-                    style={{ flex: `${1 - splitRatio} 1 0%` }}
-                  >
-                    {splitRenderedNote ? (
-                      <ErrorBoundary
-                        key={splitRenderedNote.id}
-                        fallback={(error, reset) => (
-                          <EditorErrorFallback error={error} reset={reset} />
-                        )}
-                      >
-                        <Suspense fallback={<NoteLoadingState />}>
-                          <LazyNoteEditor
-                            note={splitRenderedNote}
-                            contentMarkdown={splitRenderedNoteContent}
-                            availableNotes={notes}
-                            onNavigateWikiLink={handleNavigateWikiLinkSplit}
-                            onCreateAndLinkNote={handleCreateAndLinkNote}
-                            onSearchWikiLinkTitles={api.searchWikiNoteTitles}
-                            onNavigateToNote={(id) => openInSplit(id)}
-                            searchQuery={
-                              resultSearch?.id === splitRenderedNote.id ? resultSearch.query : ""
-                            }
-                            replaceRequest={
-                              replaceRequest?.noteId === splitRenderedNote.id
-                                ? replaceRequest
-                                : null
-                            }
-                            onReplaceRequestHandled={handleReplaceRequestHandled}
-                            searchNavigationToken={
-                              resultSearch?.id === splitRenderedNote.id ? resultSearch.token : 0
-                            }
-                            taskNavigation={
-                              taskNavigation?.noteId === splitRenderedNote.id
-                                ? taskNavigation
-                                : null
-                            }
-                            onTaskNavigationMissing={handleTaskNavigationMissing}
-                            onClearSearch={
-                              resultSearch?.id === splitRenderedNote.id
-                                ? handleClearInNoteSearch
-                                : undefined
-                            }
-                            onMarkdownReaderChange={(reader) => {
-                              splitMarkdownReaderRef.current = reader;
-                            }}
-                            onMarkdownDirtyChange={(noteId, isDirty) => {
-                              if (isDirty) splitMarkdownDirtyNoteRef.current = noteId;
-                              else if (splitMarkdownDirtyNoteRef.current === noteId)
-                                splitMarkdownDirtyNoteRef.current = null;
-                            }}
-                            saveState={splitSaveState}
-                            isLoading={
-                              splitIsNoteLoading ||
-                              creatingNote ||
-                              taskMutationNoteId === splitRenderedNote.id
-                            }
-                            loadingLabel={creatingNote ? "正在新建笔记…" : undefined}
-                            trashBusy={
-                              emptyingTrash ||
-                              (pendingTrashCount > 0 &&
-                                trashOperationsRef.current.has(splitRenderedNote.id))
-                            }
-                            reloadToken={splitNoteReloadToken}
-                            focusRequested={
-                              splitEditorFocusNoteId === splitRenderedNote.id && !commandOpen
-                            }
-                            onFocusHandled={handleSplitEditorFocus}
-                            onChange={onSplitNoteChange}
-                            onSaveNow={() =>
-                              splitSaveState === "missing"
-                                ? requestDraftRecovery(splitRenderedNote.id)
-                                : saveNoteNow(splitRenderedNote.id)
-                            }
-                            onReloadNote={() => requestSplitConflictReload(splitRenderedNote.id)}
-                            onExportImage={handleExportImage}
-                            onToggleFavorite={() =>
-                              void handleToggleFavoriteNote(toNoteSummary(splitRenderedNote))
-                            }
-                            onMoveToTrash={handleSplitMoveToTrash}
-                            onRestore={handleSplitRestore}
-                            onPermanentDelete={handleSplitPermanentDelete}
-                            onOpenList={handleOpenList}
-                            isMobileViewport={false}
-                            mobileBackLabel=""
-                            onUploadImage={handleUploadImage}
-                            focusMode={focusMode}
-                            typewriterMode={typewriterMode}
-                            outlineOpen={outlineOpen && activePane === "secondary"}
-                            outlineItems={splitOutlineItems}
-                            activeOutlineId={splitActiveOutlineId}
-                            onToggleOutline={() => {
-                              setActivePane("secondary");
-                              toggleOutline();
-                            }}
-                            onCloseOutline={closeOutline}
-                            onOutlineItemsChange={handleSplitOutlineItemsChange}
-                            onOutlineActiveChange={handleSplitOutlineActiveChange}
-                            onOutlineNavigationReady={handleSplitOutlineNavigationReady}
-                            onCloseSplit={closeSplit}
-                            isActivePane={activePane === "secondary"}
-                            onActivatePane={() => setActivePane("secondary")}
-                          />
-                        </Suspense>
-                      </ErrorBoundary>
-                    ) : splitIsNoteLoading ? (
-                      <NoteLoadingState />
-                    ) : null}
-                  </div>
-                </>
-              ) : primaryEditor ? (
-                primaryEditor
-              ) : isNoteLoading ? (
-                <NoteLoadingState />
-              ) : (
-                <EmptyEditor
-                  isTrash={view === "trash"}
-                  onNewNote={handleNewNote}
-                  creatingNote={creatingNote}
-                  onOpenList={handleOpenList}
-                  transitionToken={listTransitionToken}
-                />
-              )}
-            </main>
+            <WorkspaceEditorArea
+              editorRegionRef={editorRegionRef}
+              editorContentInert={editorContentInert}
+              mountEditor={mountEditor}
+              renderedNote={renderedNote}
+              renderedNoteContent={renderedNoteContent}
+              splitRenderedNote={splitRenderedNote}
+              splitRenderedNoteContent={splitRenderedNoteContent}
+              splitNoteId={splitNoteId}
+              isMobileViewport={isMobileViewport}
+              isSplitEditor={isSplitEditor}
+              splitRatio={splitRatio}
+              setSplitRatio={setSplitRatio}
+              activePane={activePane}
+              setActivePane={setActivePane}
+              notes={notes}
+              handleNavigateWikiLinkPrimary={handleNavigateWikiLinkPrimary}
+              handleNavigateWikiLinkSplit={handleNavigateWikiLinkSplit}
+              handleCreateAndLinkNote={handleCreateAndLinkNote}
+              selectNote={selectNote}
+              openInSplit={openInSplit}
+              resultSearch={resultSearch}
+              inNoteSearchQuery={inNoteSearchQuery}
+              replaceRequest={replaceRequest}
+              handleReplaceRequestHandled={handleReplaceRequestHandled}
+              taskNavigation={taskNavigation}
+              handleTaskNavigationMissing={handleTaskNavigationMissing}
+              handleClearInNoteSearch={handleClearInNoteSearch}
+              registerEditorMarkdownReader={registerEditorMarkdownReader}
+              registerEditorMarkdownDirty={registerEditorMarkdownDirty}
+              splitMarkdownReaderRef={splitMarkdownReaderRef}
+              splitMarkdownDirtyNoteRef={splitMarkdownDirtyNoteRef}
+              saveState={saveState}
+              splitSaveState={splitSaveState}
+              isNoteLoading={isNoteLoading}
+              splitIsNoteLoading={splitIsNoteLoading}
+              creatingNote={creatingNote}
+              taskMutationNoteId={taskMutationNoteId}
+              emptyingTrash={emptyingTrash}
+              pendingTrashCount={pendingTrashCount}
+              trashOperationsRef={trashOperationsRef}
+              noteReloadToken={noteReloadToken}
+              splitNoteReloadToken={splitNoteReloadToken}
+              editorFocusNoteId={editorFocusNoteId}
+              splitEditorFocusNoteId={splitEditorFocusNoteId}
+              commandOpen={commandOpen}
+              handleEditorFocus={handleEditorFocus}
+              handleSplitEditorFocus={handleSplitEditorFocus}
+              onNoteChange={onNoteChange}
+              onSplitNoteChange={onSplitNoteChange}
+              requestDraftRecovery={requestDraftRecovery}
+              saveNoteNow={saveNoteNow}
+              requestConflictReload={requestConflictReload}
+              requestSplitConflictReload={requestSplitConflictReload}
+              handleExportImage={handleExportImage}
+              toggleFavorite={toggleFavorite}
+              handleToggleFavoriteNote={handleToggleFavoriteNote}
+              moveToTrash={moveToTrash}
+              restoreFromTrash={restoreFromTrash}
+              permanentDeleteNote={permanentDeleteNote}
+              handleSplitMoveToTrash={handleSplitMoveToTrash}
+              handleSplitRestore={handleSplitRestore}
+              handleSplitPermanentDelete={handleSplitPermanentDelete}
+              handleOpenList={handleOpenList}
+              mobileBackLabel={mobileBackLabel}
+              onBackToKanban={
+                kanbanReturnRef.current
+                  ? () => {
+                      closeSplit();
+                      setCardEditingNoteId(null);
+                      setKanbanOpen(true);
+                      kanbanReturnRef.current = false;
+                    }
+                  : undefined
+              }
+              onBackToCards={
+                !kanbanReturnRef.current && isCardsLayout && !tasksOpen
+                  ? () => {
+                      if (isSplitEditor) closeSplit();
+                      setCardEditingNoteId(null);
+                    }
+                  : undefined
+              }
+              handleUploadImage={handleUploadImage}
+              focusMode={focusMode}
+              autoReadingMode={autoReadingMode}
+              toggleAutoReadingMode={toggleAutoReadingMode}
+              exitAutoReadingMode={exitAutoReadingMode}
+              typewriterMode={typewriterMode}
+              outlineOpen={outlineOpen}
+              outlineItems={outlineItems}
+              activeOutlineId={activeOutlineId}
+              splitOutlineItems={splitOutlineItems}
+              splitActiveOutlineId={splitActiveOutlineId}
+              toggleOutline={toggleOutline}
+              closeOutline={closeOutline}
+              handleOutlineItemsChange={handleOutlineItemsChange}
+              handleOutlineActiveChange={handleOutlineActiveChange}
+              handleOutlineNavigationReady={handleOutlineNavigationReady}
+              handleSplitOutlineItemsChange={handleSplitOutlineItemsChange}
+              handleSplitOutlineActiveChange={handleSplitOutlineActiveChange}
+              handleSplitOutlineNavigationReady={handleSplitOutlineNavigationReady}
+              handleToggleSplit={
+                !isMobileViewport && viewLayout === "cards" ? handleToggleSplit : undefined
+              }
+              closeSplit={closeSplit}
+              view={view}
+              handleNewNote={handleNewNote}
+              listTransitionToken={listTransitionToken}
+            />
           )}
         {isMobileViewport && mobilePage !== "editor" && mobilePage !== "memos" && (
           <MobileBottomBar
@@ -2287,7 +1881,12 @@ export function Workspace() {
           notes={notes}
           excludeNoteId={selectedId}
         />
-        <SystemNotices notice={notice} onDismiss={dismissNotice} onPause={pauseNotice} />
+        <SystemNotices
+          notice={notice}
+          offline={isOffline}
+          onDismiss={dismissNotice}
+          onPause={pauseNotice}
+        />
         {workspaceMenu}
       </div>
     </MemoWorkspaceProvider>

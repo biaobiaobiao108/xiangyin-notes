@@ -446,3 +446,43 @@ describe("moving notes between notebooks", () => {
     expect(queue.pendingSavesRef.current.size).toBe(0);
   });
 });
+
+describe("offline draft protection and recovery retry", () => {
+  test("does not send requests while offline and retries once back online", async () => {
+    const previousDescriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+    Object.defineProperty(globalThis, "navigator", {
+      configurable: true,
+      value: { ...(previousDescriptor?.value ?? {}), onLine: false },
+    });
+    try {
+      const draft = { ...original, contentMarkdown: "离线编辑的正文" };
+      queue.persist(draft, ["contentMarkdown"]);
+      await expect(queue.runSave(original.id)).rejects.toThrow("网络已断开");
+      expect(update).toHaveBeenCalledTimes(0);
+      expect(queue.pendingSavesRef.current.get(original.id)?.contentMarkdown).toBe(
+        "离线编辑的正文",
+      );
+
+      Object.defineProperty(globalThis, "navigator", {
+        configurable: true,
+        value: { ...(previousDescriptor?.value ?? {}), onLine: true },
+      });
+      expect(await queue.retryFailedSaves()).toBe(1);
+      expect(update).toHaveBeenCalledTimes(1);
+      expect(stored.contentMarkdown).toBe("离线编辑的正文");
+      expect(stored.version).toBe(2);
+    } finally {
+      if (previousDescriptor) Object.defineProperty(globalThis, "navigator", previousDescriptor);
+      else Reflect.deleteProperty(globalThis, "navigator");
+    }
+  });
+
+  test("never auto-retries version conflict saves on online recovery", async () => {
+    stored.version += 1;
+    queue.persist({ ...original, contentMarkdown: "冲突正文" }, ["contentMarkdown"]);
+    await expect(queue.runSave(original.id)).rejects.toThrow("版本冲突");
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(await queue.retryFailedSaves()).toBe(0);
+    expect(update).toHaveBeenCalledTimes(1);
+  });
+});

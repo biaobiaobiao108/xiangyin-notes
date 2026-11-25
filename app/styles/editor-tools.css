@@ -947,6 +947,10 @@ dialog::backdrop {
   line-height: 1.5;
   animation: toast-in var(--motion-panel) var(--motion-ease-out) both;
 }
+.toast--offline {
+  grid-template-columns: 18px minmax(0, 1fr);
+  padding-right: 12px;
+}
 .notice-copy {
   min-width: 0;
   overflow-wrap: anywhere;

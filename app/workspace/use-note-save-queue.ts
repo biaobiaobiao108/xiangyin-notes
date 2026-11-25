@@ -23,6 +23,13 @@ type SaveAttempt = { draft: NoteDraft; fields: Set<SaveField> };
 
 export type SaveState = "idle" | "saving" | "saved" | "conflict" | "missing" | "error";
 
+class OfflineSaveError extends Error {
+  constructor() {
+    super("网络已断开，修改已保存在本地草稿");
+    this.name = "OfflineSaveError";
+  }
+}
+
 export function isMissingNoteError(reason: unknown): reason is ApiError {
   return reason instanceof ApiError && reason.status === 404 && reason.code === "NOTE_NOT_FOUND";
 }
@@ -134,6 +141,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
         let savedVersion: number | undefined;
         let searchableFieldsSaved = false;
         let attempt: SaveAttempt | undefined;
+        let requestSent = false;
         try {
           while (pendingSavesRef.current.has(noteId)) {
             const unconfirmed = unconfirmedSavesRef.current.get(noteId);
@@ -143,6 +151,10 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
             };
             if (!unconfirmed) pendingFieldsRef.current.delete(noteId);
             const { draft, fields } = attempt;
+            if (typeof navigator !== "undefined" && navigator.onLine === false) {
+              requestSent = false;
+              throw new OfflineSaveError();
+            }
             const payload: Parameters<typeof api.updateNote>[1] = {
               version: draft.version,
             };
@@ -156,6 +168,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
               keepalive &&
               new TextEncoder().encode(JSON.stringify(payload)).byteLength <=
                 KEEPALIVE_BODY_MAX_BYTES;
+            requestSent = true;
             const result = await api
               .updateNote(noteId, payload, { keepalive: keepaliveRequest, response: "summary" })
               .catch((reason: unknown): Awaited<ReturnType<typeof api.updateNote>> => {
@@ -250,10 +263,20 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
           return savedVersion;
         } catch (reason) {
           if (!pendingSavesRef.current.has(noteId)) throw reason;
+          const latestPending = pendingSavesRef.current.get(noteId);
+          if (latestPending) {
+            const recoveryTimer = draftRecoveryTimersRef.current.get(noteId);
+            if (recoveryTimer) clearTimeout(recoveryTimer);
+            draftRecoveryTimersRef.current.delete(noteId);
+            writeDraftRecovery(latestPending);
+          }
           const failure = failedSavesRef.current.get(noteId);
           const latestFailure = isMissingNoteError(failure) ? failure : reason;
           if (attempt) {
-            if (!(latestFailure instanceof ApiError) || latestFailure.status >= 500) {
+            if (
+              requestSent &&
+              (!(latestFailure instanceof ApiError) || latestFailure.status >= 500)
+            ) {
               // Keep the exact request so a retry can confirm it before sending newer edits.
               unconfirmedSavesRef.current.set(noteId, attempt);
             } else {
@@ -376,12 +399,25 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
     [flushEditorDraftRef, runSave],
   );
 
+  const flushDraftRecoveries = useCallback(() => {
+    flushEditorDraftRef.current();
+    for (const [noteId, draft] of pendingSavesRef.current.entries()) {
+      const recoveryTimer = draftRecoveryTimersRef.current.get(noteId);
+      if (recoveryTimer) clearTimeout(recoveryTimer);
+      draftRecoveryTimersRef.current.delete(noteId);
+      writeDraftRecovery(draft);
+    }
+  }, [flushEditorDraftRef]);
+
   const retryFailedSaves = useCallback(async () => {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) return 0;
     const ids = [...failedSavesRef.current.entries()]
       .filter(([, reason]) => noteSaveFailureState(reason) === "error")
       .map(([id]) => id)
       .filter((id) => pendingSavesRef.current.has(id));
+    if (!ids.length) return 0;
     await Promise.all(ids.map((id) => runSave(id).catch(() => undefined)));
+    return ids.length;
   }, [runSave]);
 
   const clearPendingForNote = useCallback((noteId: string, savedDraft?: NoteDraft) => {
@@ -595,6 +631,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
     saveNoteNow,
     cancelSaveTimer,
     flushPendingSaves,
+    flushDraftRecoveries,
     retryFailedSaves,
     hasUnsavedWork,
     markNoteMissing,

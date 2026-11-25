@@ -48,3 +48,17 @@ test("active notices keep their live-region semantics", () => {
   expect(html).toContain('role="alert"');
   expect(html).toContain("保存失败，请重试");
 });
+
+test("renders offline status banner without blocking active notices", () => {
+  const html = renderToString(
+    React.createElement(SystemNotices, {
+      notice: null,
+      offline: true,
+      onDismiss() {},
+      onPause() {},
+    }),
+  );
+
+  expect(html).toContain("toast--offline");
+  expect(html).toContain("网络已断开，修改已暂存本地草稿");
+});
