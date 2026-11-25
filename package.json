@@ -15,6 +15,7 @@
     "test": "bun test --check",
     "bench:content": "bun run scripts/benchmark-content.ts",
     "bench:browser": "bun run scripts/browser-benchmark.mjs",
+    "e2e": "bun run scripts/browser-e2e.mjs",
     "preview": "bun run scripts/preview.ts",
     "db:migrate": "bun run scripts/migrate.ts",
     "db:check": "bun run scripts/check-schema-drift.ts",

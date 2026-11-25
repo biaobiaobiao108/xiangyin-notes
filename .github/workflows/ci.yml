@@ -45,6 +45,17 @@ jobs:
       - name: Test
         run: bun test --check
 
+      - name: Install Playwright for CI E2E
+        run: |
+          mkdir -p /tmp/pw-ci
+          npm --prefix /tmp/pw-ci install --no-save playwright
+          /tmp/pw-ci/node_modules/.bin/playwright install --with-deps chromium
+
+      - name: Browser E2E
+        env:
+          PLAYWRIGHT_MODULE: /tmp/pw-ci/node_modules/playwright/index.mjs
+        run: bun run e2e
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
