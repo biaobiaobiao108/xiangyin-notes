@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import {
   canRetryDiagram,
@@ -12,7 +12,13 @@ import type { DiagramLayout, DiagramResult } from "./protocol";
 type Preview =
   { source: string; result: DiagramResult } | { source: string; error: string; retry: boolean };
 
-export function DiagramPreview({ source }: { source: string }) {
+export function DiagramPreview({
+  source,
+  keepPrevious = false,
+}: {
+  source: string;
+  keepPrevious?: boolean;
+}) {
   const rootRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const scrollId = useId();
@@ -82,9 +88,9 @@ export function DiagramPreview({ source }: { source: string }) {
     return () => controller.abort();
   }, [source, visible, layout, attempt]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const root = rootRef.current;
-    if (!root || !preview || !("result" in preview) || preview.source !== source) return;
+    if (!root || !preview || !("result" in preview)) return;
     let imageUrl: string | undefined;
     const applyTheme = () => {
       try {
@@ -104,9 +110,9 @@ export function DiagramPreview({ source }: { source: string }) {
       theme.disconnect();
       if (imageUrl) URL.revokeObjectURL(imageUrl);
     };
-  }, [preview, source]);
+  }, [preview]);
 
-  const current = preview?.source === source ? preview : undefined;
+  const current = keepPrevious || preview?.source === source ? preview : undefined;
   const result = current && "result" in current ? current.result : undefined;
   const currentImage = current && image?.preview === current ? image : undefined;
   const error =

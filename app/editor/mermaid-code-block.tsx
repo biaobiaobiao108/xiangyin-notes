@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import {
   NodeViewContent,
   NodeViewWrapper,
@@ -7,6 +7,7 @@ import {
 } from "@tiptap/react";
 import { TextSelection } from "@tiptap/pm/state";
 import { searchHighlightPluginKey } from "../editor-search";
+import { FloatingScrollbar } from "../floating-scrollbar";
 import { DiagramPreview } from "../mermaid/diagram-preview";
 
 export function MermaidCodeBlock({
@@ -18,7 +19,12 @@ export function MermaidCodeBlock({
   const [edit, setEdit] = useState(false);
   const [showReadOnlySource, setShowReadOnlySource] = useState(false);
   const [dismissedMatch, setDismissedMatch] = useState<number | null>(null);
+  const [previewSource, setPreviewSource] = useState(node.textContent);
   const toggleRef = useRef<HTMLButtonElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
+  const sourceRef = useRef<HTMLDivElement>(null);
+  const sourceId = useId();
   const position = useEditorState({
     editor,
     selector: ({ editor: current }) => {
@@ -49,6 +55,22 @@ export function MermaidCodeBlock({
     if (position.match === null) setDismissedMatch(null);
   }, [position.match]);
 
+  const source = node.textContent;
+  useEffect(() => {
+    if (!showSource) setPreviewSource(source);
+  }, [showSource, source]);
+
+  useLayoutEffect(() => {
+    const body = bodyRef.current;
+    const preview = previewRef.current;
+    if (!body || !preview) return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) body.style.setProperty("--mermaid-body-height", `${entry.contentRect.height}px`);
+    });
+    observer.observe(preview);
+    return () => observer.disconnect();
+  }, []);
+
   const toggle = () => {
     if (!editor.isEditable) {
       setShowReadOnlySource(!showReadOnlySource);
@@ -62,7 +84,10 @@ export function MermaidCodeBlock({
     }
     setEdit(true);
     const start = getPos();
-    if (typeof start === "number") editor.commands.focus(start + 1);
+    if (typeof start === "number") {
+      if (sourceRef.current) sourceRef.current.scrollTop = 0;
+      editor.commands.focus(start + 1, { scrollIntoView: false });
+    }
   };
 
   return (
@@ -85,11 +110,31 @@ export function MermaidCodeBlock({
               : "查看源码"}
         </button>
       </div>
-      {!showSource ? <DiagramPreview source={node.textContent} /> : null}
-      <pre className="code-block-node-view" hidden={!showSource} style={{ whiteSpace: "pre-wrap" }}>
-        {copyButton}
-        <NodeViewContent<"code"> as="code" />
-      </pre>
+      <div ref={bodyRef} className="mermaid-body">
+        <div ref={previewRef} className="mermaid-rendered" inert={showSource}>
+          <DiagramPreview source={previewSource} keepPrevious />
+        </div>
+        <div className="mermaid-source" inert={!showSource}>
+          <div
+            ref={sourceRef}
+            id={sourceId}
+            className="mermaid-source-scroll floating-scrollbar-target"
+          >
+            <pre className="code-block-node-view">
+              {copyButton}
+              <NodeViewContent<"code"> as="code" />
+            </pre>
+          </div>
+          {showSource ? (
+            <FloatingScrollbar
+              scrollTargetRef={sourceRef}
+              controlsId={sourceId}
+              ariaLabel="滚动图表源码"
+              placement="right"
+            />
+          ) : null}
+        </div>
+      </div>
     </NodeViewWrapper>
   );
 }
