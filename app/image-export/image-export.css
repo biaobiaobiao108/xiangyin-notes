@@ -233,6 +233,15 @@
   overflow: visible;
   white-space: pre-wrap;
 }
+.image-export-page .note-prose .image-export-diagram {
+  display: block;
+  height: auto;
+  margin-inline: auto;
+  object-fit: contain;
+}
+.image-export-diagram-error {
+  color: var(--danger);
+}
 .image-export-page .note-prose .tableWrapper,
 .image-export-page .note-prose .table-scroll-shell {
   overflow: visible;

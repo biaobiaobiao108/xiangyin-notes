@@ -13,6 +13,17 @@ const clientBuild = await Bun.build({
 });
 if (!clientBuild.success) throw new AggregateError(clientBuild.logs, "Client build failed");
 
+const diagramBuild = await Bun.build({
+  entrypoints: ["./app/mermaid/mermaid-worker.ts"],
+  outdir: "./dist/client",
+  target: "browser",
+  format: "esm",
+  minify: true,
+});
+if (!diagramBuild.success)
+  throw new AggregateError(diagramBuild.logs, "Mermaid worker build failed");
+await Bun.write("./dist/client/pele-license.txt", Bun.file("./node_modules/pele/LICENSE"));
+
 const indexPath = "./dist/client/index.html";
 let indexHtml = await Bun.file(indexPath).text();
 indexHtml = indexHtml

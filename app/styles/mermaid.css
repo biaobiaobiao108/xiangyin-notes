@@ -1,0 +1,103 @@
+.note-prose .mermaid-code-block,
+.memo-mermaid {
+  min-inline-size: 0;
+  margin-block: 12px;
+}
+
+.mermaid-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-block-end: 4px;
+}
+
+.mermaid-code-block > pre[hidden] {
+  display: none;
+}
+
+.note-prose .mermaid-code-block > pre {
+  margin-block: 0;
+}
+
+.mermaid-preview {
+  container-type: inline-size;
+  min-inline-size: 0;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.mermaid-viewport {
+  position: relative;
+}
+
+.mermaid-scroll {
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.mermaid-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.mermaid-scroll .mermaid-image {
+  display: block;
+  max-inline-size: 100%;
+  block-size: auto;
+  margin: 0 auto;
+}
+
+.mermaid-scroll .mermaid-image.is-natural-size {
+  max-inline-size: none;
+  margin-inline: 0;
+}
+
+.mermaid-action {
+  min-block-size: 28px;
+  padding-inline: 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--quiet-ink);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.mermaid-action:hover,
+.mermaid-action:focus-visible {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+
+.mermaid-action:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--focus-ring);
+}
+
+.mermaid-size {
+  display: block;
+  margin-inline-start: auto;
+}
+
+.mermaid-status {
+  min-block-size: 32px;
+  padding-inline: 8px;
+  color: var(--quiet-ink);
+  font-size: 0.875em;
+  overflow-wrap: anywhere;
+}
+
+.mermaid-error {
+  color: var(--danger);
+}
+
+.memo-mermaid summary {
+  inline-size: fit-content;
+  margin-block-start: 4px;
+}
+
+@media (pointer: coarse) {
+  .mermaid-action {
+    min-block-size: 44px;
+  }
+}

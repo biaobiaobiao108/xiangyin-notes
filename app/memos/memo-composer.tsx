@@ -378,14 +378,6 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
       const markdown = (instance as EditorWithMarkdown).getMarkdown();
       queueDraft(markdown);
     },
-    onBlur: ({ event }) => {
-      if (
-        event.relatedTarget instanceof Element &&
-        event.relatedTarget.closest(".context-menu, .memo-conflict")
-      )
-        return;
-      void submit("blur");
-    },
   });
   editorRef.current = editor as EditorWithMarkdown | null;
 
@@ -407,6 +399,15 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
       ref={rootRef}
       className={`memo-composer ${className}`.trim()}
       aria-busy={saving}
+      onBlur={(event) => {
+        const next = event.relatedTarget;
+        if (
+          next instanceof Element &&
+          (event.currentTarget.contains(next) || next.closest(".context-menu, .memo-conflict"))
+        )
+          return;
+        void submit("blur");
+      }}
       onKeyDown={(event) => {
         if (isMemoSubmitShortcut(event.nativeEvent)) {
           event.preventDefault();

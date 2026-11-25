@@ -1,6 +1,14 @@
 import { Editor } from "@tiptap/core";
 import { createReadOnlyExtensions, prepareMarkdownForReadOnly } from "../editor/read-only-markdown";
 import { findLongTextRuns } from "../../shared/long-text-wrap";
+import {
+  diagramErrorMessage,
+  diagramImage,
+  measureDiagram,
+  renderDiagram,
+} from "../mermaid/render";
+import { isMermaidLanguage } from "../mermaid/protocol";
+import { IMAGE_PAGE_HEIGHT, IMAGE_PAGE_PADDING } from "./pagination";
 
 export type ImageExportSnapshot = { title: string; contentMarkdown: string };
 
@@ -151,6 +159,43 @@ export function anySignal(signals: readonly AbortSignal[]): AbortSignal {
   return controller.signal;
 }
 
+async function prepareDiagrams(source: HTMLElement, signal: AbortSignal, urls: string[]) {
+  for (const code of source.querySelectorAll<HTMLElement>("pre > code")) {
+    const language = [...code.classList].find((name) => name.startsWith("language-"));
+    if (!isMermaidLanguage(language?.slice("language-".length))) continue;
+
+    signal.throwIfAborted();
+    const pre = code.parentElement!;
+    const markdown = code.textContent ?? "";
+    let url: string | undefined;
+    try {
+      const container = pre.parentElement!;
+      const layout = measureDiagram(container);
+      const result = await renderDiagram({ ...layout, source: markdown }, signal);
+      const themed = diagramImage(result, container);
+      url = themed.url;
+      const image = new Image();
+      image.className = "image-export-diagram";
+      image.alt = themed.alt;
+      const height = IMAGE_PAGE_HEIGHT - IMAGE_PAGE_PADDING * 2;
+      const scale = Math.min(1, layout.width / result.width, height / result.height);
+      image.width = Math.max(1, Math.floor(result.width * scale));
+      image.height = Math.max(1, Math.floor(result.height * scale));
+      image.src = url;
+      await waitForExport(image.decode(), anySignal([signal, createTimeoutSignal(5_000)]));
+      urls.push(url);
+      pre.replaceWith(image);
+    } catch (reason) {
+      if (url) URL.revokeObjectURL(url);
+      signal.throwIfAborted();
+      const description = document.createElement("span");
+      description.className = "image-export-diagram-error";
+      description.textContent = `图表无法渲染 · ${diagramErrorMessage(reason)}\n`;
+      pre.prepend(description);
+    }
+  }
+}
+
 export async function prepareImages(
   source: HTMLElement,
   signal: AbortSignal,
@@ -162,7 +207,10 @@ export async function prepareImages(
     urls.forEach((url) => URL.revokeObjectURL(url));
   };
   try {
-    for (const image of source.querySelectorAll("img")) {
+    await prepareDiagrams(source, signal, urls);
+    for (const image of source.querySelectorAll<HTMLImageElement>(
+      "img:not(.image-export-diagram)",
+    )) {
       signal.throwIfAborted();
       const timeout = anySignal([signal, createTimeoutSignal(15_000)]);
       try {

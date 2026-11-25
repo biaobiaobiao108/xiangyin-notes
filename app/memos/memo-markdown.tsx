@@ -1,4 +1,7 @@
-import { useEffect, useMemo, useRef, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { createPortal } from "react-dom";
+import { DiagramPreview } from "../mermaid/diagram-preview";
+import { isMermaidLanguage, mermaidTokenSource } from "../mermaid/protocol";
 import { copyCodeBlockText } from "../editor/code-block-copy";
 import { readColumnWidthsFromDelimiter } from "../editor/table-extensions";
 import type { RendererObject, Token, Tokens } from "marked";
@@ -139,8 +142,11 @@ const renderer: RendererObject = {
       .join("");
     return `<div class="table-scroll-shell"><table${width}>${columns}<tbody>${body}</tbody></table></div>\n`;
   },
-  code({ text, lang }) {
+  code({ text, lang, raw }) {
     const language = lang?.trim().split(/\s+/u)[0] ?? "";
+    if (isMermaidLanguage(language)) {
+      return `<div class="memo-mermaid"><div data-mermaid-preview></div><details><summary class="mermaid-action">查看源码</summary><pre>${COPY_BUTTON}<code>${escapeHtml(mermaidTokenSource(text, raw))}\n</code></pre></details></div>\n`;
+    }
     return `<pre>${
       language
         ? `<span class="code-block-language" aria-hidden="true">${escapeHtml(language)}</span>`
@@ -189,8 +195,20 @@ export function MemoMarkdown({ markdown }: { markdown: string }) {
   const html = useMemo(() => renderMemoMarkdown(markdown), [markdown]);
   const rootRef = useRef<HTMLDivElement>(null);
   const timersRef = useRef(new Map<HTMLButtonElement, number>());
+  const [diagrams, setDiagrams] = useState<{
+    html: string;
+    blocks: { element: HTMLElement; source: string }[];
+  }>();
 
   useEffect(() => {
+    const blocks = Array.from(
+      rootRef.current?.querySelectorAll<HTMLElement>("[data-mermaid-preview]") ?? [],
+      (element) => ({
+        element,
+        source: element.parentElement?.querySelector("code")?.textContent?.slice(0, -1) ?? "",
+      }),
+    );
+    setDiagrams(blocks.length ? { html, blocks } : undefined);
     const timers = timersRef.current;
     return () => {
       for (const timer of timers.values()) window.clearTimeout(timer);
@@ -238,11 +256,18 @@ export function MemoMarkdown({ markdown }: { markdown: string }) {
     );
   };
   return (
-    <div
-      ref={rootRef}
-      className="note-prose read-only-prose memo-markdown"
-      onClick={onClick}
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
+    <>
+      <div
+        ref={rootRef}
+        className="note-prose read-only-prose memo-markdown"
+        onClick={onClick}
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+      {diagrams?.html === html
+        ? diagrams.blocks.map(({ element, source }, index) =>
+            createPortal(<DiagramPreview source={source} />, element, index),
+          )
+        : null}
+    </>
   );
 }

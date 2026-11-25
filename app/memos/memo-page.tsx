@@ -107,7 +107,9 @@ function MemoCard({
   const beginEdit = (target?: EventTarget | null) => {
     if (
       target instanceof Element &&
-      target.closest("a,button,input,textarea,select,[contenteditable='true'],[role='button']")
+      target.closest(
+        "a,button,input,textarea,select,summary,[contenteditable='true'],[role='button']",
+      )
     )
       return;
     onEdit();
@@ -189,7 +191,9 @@ function MemoCard({
           if (event.key === "Enter" || event.key === "F2") {
             if (
               event.target instanceof Element &&
-              event.target.closest("a,button,input,textarea,select,[contenteditable='true']")
+              event.target.closest(
+                "a,button,input,textarea,select,summary,[contenteditable='true']",
+              )
             )
               return;
             event.preventDefault();

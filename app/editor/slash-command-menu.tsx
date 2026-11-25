@@ -23,6 +23,7 @@ import {
   ListOrdered,
   ListTodo,
   Minus,
+  Network,
   Pilcrow,
   Quote,
   ShieldAlert,
@@ -36,6 +37,7 @@ import { Plugin, PluginKey } from "@tiptap/pm/state";
 import type { CalloutType } from "./callout-node";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { suggestionPopupBounds, suggestionViewport } from "./suggestion-popup.helpers";
+import { MERMAID_EXAMPLE } from "../mermaid/protocol";
 
 type SlashAction =
   | "paragraph"
@@ -45,6 +47,7 @@ type SlashAction =
   | "taskList"
   | "blockquote"
   | "codeBlock"
+  | "mermaid"
   | "horizontalRule"
   | "callout"
   | "table"
@@ -202,6 +205,15 @@ const slashCommands: SlashCommandItem[] = [
     icon: Code2,
     action: "codeBlock",
     group: "text",
+  },
+  {
+    id: "mermaid",
+    label: "Mermaid 图表",
+    description: "从流程图示例开始",
+    keywords: ["mermaid", "diagram", "chart", "图表", "流程图"],
+    icon: Network,
+    action: "mermaid",
+    group: "insert",
   },
   {
     id: "horizontal-rule",
@@ -780,6 +792,12 @@ export function insertSlashCommand(
       break;
     case "codeBlock":
       chain.toggleCodeBlock();
+      break;
+    case "mermaid":
+      chain.setCodeBlock({ language: "mermaid" }).command(({ tr }) => {
+        tr.insertText(MERMAID_EXAMPLE);
+        return true;
+      });
       break;
     case "horizontalRule":
       chain.setHorizontalRule();
