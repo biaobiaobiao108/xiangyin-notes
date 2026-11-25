@@ -56,36 +56,49 @@ export function restoreEditorFocus(editor: Editor, scroll: HTMLElement | null) {
   }
 }
 
-function isIgnoredHandleAnchor(node: Node, root: HTMLElement): boolean {
+const NODE_ELEMENT = 1;
+const NODE_TEXT = 3;
+
+function isIgnoredHandleElement(element: Element): boolean {
+  return (
+    element.hasAttribute("inert") ||
+    element.hasAttribute("data-drag-handle-ignore") ||
+    element.classList.contains("visually-hidden")
+  );
+}
+
+function hasIgnoredAncestor(element: HTMLElement, root: HTMLElement): boolean {
   for (
-    let current =
-      typeof Element !== "undefined" && node instanceof Element ? node : node.parentElement;
+    let current: Element | null = element;
     current && current !== root;
     current = current.parentElement
   ) {
-    if (
-      current.hasAttribute("inert") ||
-      current.classList.contains("visually-hidden") ||
-      current.classList.contains("mermaid-size")
-    ) {
-      return true;
-    }
+    if (isIgnoredHandleElement(current)) return true;
   }
   return false;
 }
 
 function firstLineCenter(element: HTMLElement): number {
   const rect = element.getBoundingClientRect();
-  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, {
-    acceptNode(node) {
-      if (!node.textContent || node.textContent.trim().length === 0) {
+  const walker = document.createTreeWalker(
+    element,
+    NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
+    {
+      acceptNode(node) {
+        if (node.nodeType === NODE_ELEMENT) {
+          return isIgnoredHandleElement(node as Element)
+            ? NodeFilter.FILTER_REJECT
+            : NodeFilter.FILTER_SKIP;
+        }
+        if (node.nodeType === NODE_TEXT) {
+          return node.textContent && node.textContent.trim().length > 0
+            ? NodeFilter.FILTER_ACCEPT
+            : NodeFilter.FILTER_SKIP;
+        }
         return NodeFilter.FILTER_SKIP;
-      }
-      return isIgnoredHandleAnchor(node, element)
-        ? NodeFilter.FILTER_SKIP
-        : NodeFilter.FILTER_ACCEPT;
+      },
     },
-  });
+  );
   const textNode = walker.nextNode();
   if (textNode) {
     try {
@@ -101,12 +114,9 @@ function firstLineCenter(element: HTMLElement): number {
     }
   }
 
-  const mediaCandidates = element.querySelectorAll<HTMLElement>("img, input, pre, table, hr");
-  const firstMedia = Array.from(mediaCandidates).find(
-    (media) => !isIgnoredHandleAnchor(media, element),
-  );
-  if (firstMedia) {
-    const mediaRect = firstMedia.getBoundingClientRect();
+  for (const media of element.querySelectorAll<HTMLElement>("img, input, pre, table, hr")) {
+    if (hasIgnoredAncestor(media, element)) continue;
+    const mediaRect = media.getBoundingClientRect();
     if (mediaRect.height > 0) {
       return mediaRect.top + Math.min(14, mediaRect.height / 2);
     }

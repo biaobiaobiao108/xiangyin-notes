@@ -235,6 +235,7 @@ export function DiagramPreview({
               className="mermaid-action mermaid-size"
               type="button"
               aria-pressed={naturalSize}
+              data-drag-handle-ignore=""
               onClick={() => setNaturalSize(!naturalSize)}
             >
               {naturalSize ? "适合宽度" : "原始尺寸"}

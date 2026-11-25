@@ -105,6 +105,7 @@ function CodeBlockCopyView(props: NodeViewProps) {
       className={`code-block-copy-button ${status === "idle" ? "" : `is-${status}`}`}
       type="button"
       contentEditable={false}
+      data-drag-handle-ignore=""
       aria-label={label}
       onMouseDown={(event) => event.preventDefault()}
       onClick={() => void copy()}
@@ -120,7 +121,12 @@ function CodeBlockCopyView(props: NodeViewProps) {
   return (
     <NodeViewWrapper as="pre" className="code-block-node-view" style={{ whiteSpace: "pre-wrap" }}>
       {language ? (
-        <span className="code-block-language" contentEditable={false} aria-hidden="true">
+        <span
+          className="code-block-language"
+          contentEditable={false}
+          aria-hidden="true"
+          data-drag-handle-ignore=""
+        >
           {language}
         </span>
       ) : null}

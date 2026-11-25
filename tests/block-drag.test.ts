@@ -657,9 +657,9 @@ describe("multi-block operations", () => {
   test("positions drag handle at top diagram image instead of mermaid controls or inert source", () => {
     const originalDocument = globalThis.document;
     const originalNodeFilter = globalThis.NodeFilter;
-    const originalElement = globalThis.Element;
     try {
       class MockNode {
+        nodeType = 0;
         parentElement: MockElement | null = null;
       }
       class MockText extends MockNode {
@@ -668,6 +668,7 @@ describe("multi-block operations", () => {
         height: number;
         constructor(textContent: string, top: number, height = 18) {
           super();
+          this.nodeType = 3;
           this.textContent = textContent;
           this.top = top;
           this.height = height;
@@ -687,15 +688,18 @@ describe("multi-block operations", () => {
           options: {
             classes?: string[];
             inert?: boolean;
+            dragHandleIgnore?: boolean;
             top?: number;
             height?: number;
             children?: MockNode[];
           } = {},
         ) {
           super();
+          this.nodeType = 1;
           this.tagName = tag.toUpperCase();
           this.classes = new Set(options.classes ?? []);
           if (options.inert) this.attributes.add("inert");
+          if (options.dragHandleIgnore) this.attributes.add("data-drag-handle-ignore");
           this.rect = { top: options.top ?? 0, height: options.height ?? 0 };
           for (const child of options.children ?? []) {
             child.parentElement = this;
@@ -724,38 +728,42 @@ describe("multi-block operations", () => {
         }
       }
 
-      const collectTextNodes = (root: MockElement): MockText[] => {
-        const result: MockText[] = [];
-        const visit = (node: MockNode) => {
-          if (node instanceof MockText) {
-            result.push(node);
-          } else if (node instanceof MockElement) {
-            for (const child of node.children) visit(child);
-          }
-        };
-        visit(root);
-        return result;
-      };
+      const SHOW_ELEMENT = 1;
+      const SHOW_TEXT = 4;
+      const FILTER_ACCEPT = 1;
+      const FILTER_REJECT = 2;
+      const FILTER_SKIP = 3;
+      const visitedNodes: MockNode[] = [];
 
-      (globalThis as unknown as { Element: unknown }).Element = MockElement;
       (globalThis as unknown as { NodeFilter: unknown }).NodeFilter = {
-        SHOW_TEXT: 4,
-        FILTER_ACCEPT: 1,
-        FILTER_SKIP: 3,
+        SHOW_ELEMENT,
+        SHOW_TEXT,
+        FILTER_ACCEPT,
+        FILTER_REJECT,
+        FILTER_SKIP,
       };
       (globalThis as unknown as { document: unknown }).document = {
         createTreeWalker(
           root: MockElement,
-          _whatToShow: number,
+          whatToShow: number,
           filter: { acceptNode: (node: unknown) => number },
         ) {
-          const nodes = collectTextNodes(root);
-          let index = 0;
+          const stack: MockNode[] = [...root.children].reverse();
           return {
             nextNode() {
-              while (index < nodes.length) {
-                const candidate = nodes[index++];
-                if (filter.acceptNode(candidate) === 1) return candidate;
+              while (stack.length > 0) {
+                const node = stack.pop()!;
+                visitedNodes.push(node);
+                const matchesMask =
+                  (node.nodeType === 1 && (whatToShow & SHOW_ELEMENT) !== 0) ||
+                  (node.nodeType === 3 && (whatToShow & SHOW_TEXT) !== 0);
+                const decision = matchesMask ? filter.acceptNode(node) : FILTER_SKIP;
+                if (decision === FILTER_ACCEPT) return node;
+                if (decision === FILTER_SKIP && node instanceof MockElement) {
+                  for (let i = node.children.length - 1; i >= 0; i -= 1) {
+                    stack.push(node.children[i]!);
+                  }
+                }
               }
               return null;
             },
@@ -789,6 +797,7 @@ describe("multi-block operations", () => {
           previewChildren.push(
             new MockElement("button", {
               classes: ["mermaid-action", "mermaid-size"],
+              dragHandleIgnore: true,
               children: [new MockText("原始尺寸", 435, 20)],
             }),
           );
@@ -824,6 +833,7 @@ describe("multi-block operations", () => {
                       children: [
                         new MockElement("button", {
                           classes: ["code-block-copy-button"],
+                          dragHandleIgnore: true,
                           children: [
                             new MockElement("span", {
                               classes: ["visually-hidden"],
@@ -845,26 +855,60 @@ describe("multi-block operations", () => {
       };
 
       const diagramOnly = buildMermaidBlock({ showSource: false, withSizeButton: false });
+      visitedNodes.length = 0;
       expect(
         blockHandleCenter({ dom: diagramOnly as unknown as HTMLElement } as BlockTarget, null),
       ).toBe(123);
+      // Verify inert .mermaid-source subtree was pruned without visiting its inner text nodes
+      expect(visitedNodes.some((node) => node instanceof MockText)).toBe(false);
 
       const diagramWithSizeButton = buildMermaidBlock({ showSource: false, withSizeButton: true });
+      visitedNodes.length = 0;
       expect(
         blockHandleCenter(
           { dom: diagramWithSizeButton as unknown as HTMLElement } as BlockTarget,
           null,
         ),
       ).toBe(123);
+      expect(visitedNodes.some((node) => node instanceof MockText)).toBe(false);
 
       const sourceEditing = buildMermaidBlock({ showSource: true, withSizeButton: true });
       expect(
         blockHandleCenter({ dom: sourceEditing as unknown as HTMLElement } as BlockTarget, null),
       ).toBe(121.5);
+
+      // Regular code block with language badge also aligns to the first line of code
+      const codeBlock = new MockElement("pre", {
+        classes: ["code-block-node-view"],
+        top: 200,
+        height: 120,
+        children: [
+          new MockElement("span", {
+            classes: ["code-block-language"],
+            dragHandleIgnore: true,
+            children: [new MockText("ts", 208, 30)],
+          }),
+          new MockElement("button", {
+            classes: ["code-block-copy-button"],
+            dragHandleIgnore: true,
+            children: [
+              new MockElement("span", {
+                classes: ["visually-hidden"],
+                children: [new MockText("复制代码", 222, 18)],
+              }),
+            ],
+          }),
+          new MockElement("code", {
+            children: [new MockText("const x = 1;", 244, 25)],
+          }),
+        ],
+      });
+      expect(
+        blockHandleCenter({ dom: codeBlock as unknown as HTMLElement } as BlockTarget, null),
+      ).toBe(256.5);
     } finally {
       (globalThis as unknown as { document: unknown }).document = originalDocument;
       (globalThis as unknown as { NodeFilter: unknown }).NodeFilter = originalNodeFilter;
-      (globalThis as unknown as { Element: unknown }).Element = originalElement;
     }
   });
 });
