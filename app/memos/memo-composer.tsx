@@ -23,6 +23,7 @@ import { normalizeChineseMarkdownBlockMarkers, shouldParseMarkdownPaste } from "
 import { WikiLinkNode } from "../editor/wiki-link-node";
 import { TableScrollbars } from "../editor/table-scrollbars";
 import { buildMemoComposerMenuItems } from "./memo-context-menu";
+import { normalizeMemoComposerContent } from "./memo-markdown-spacing";
 
 type EditorWithMarkdown = Editor & { getMarkdown: () => string };
 type SubmitReason = "shortcut" | "blur";
@@ -56,10 +57,6 @@ export function handleEmptyMemoPaste(event: ClipboardEvent) {
   // which would cause the memo's blur handler to save and close the editor.
   event.preventDefault();
   return true;
-}
-
-export function normalizeMemoComposerContent(markdown: string) {
-  return markdown.replace(/(?:\r?\n)+$/u, "");
 }
 
 export type MemoComposerHandle = {

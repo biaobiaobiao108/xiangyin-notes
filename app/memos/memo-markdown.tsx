@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { DiagramPreview } from "../mermaid/diagram-preview";
 import { useDiagramHeight } from "../mermaid/use-diagram-height";
 import { FloatingScrollbar } from "../floating-scrollbar";
+import { normalizeMemoComposerContent, preserveMemoBlankParagraphs } from "./memo-markdown-spacing";
 import { isMermaidLanguage, mermaidTokenSource } from "../mermaid/protocol";
 import { copyCodeBlockText } from "../editor/code-block-copy";
 import { readColumnWidthsFromDelimiter } from "../editor/table-extensions";
@@ -86,6 +87,15 @@ function withoutCheckboxes(tokens: Token[]): Token[] {
 }
 
 const renderer: RendererObject = {
+  paragraph({ tokens }) {
+    const marker = tokens.length === 1 && tokens[0].type === "text" ? tokens[0] : undefined;
+    if (marker && [marker.raw, marker.text].some((text) => text === "&nbsp;" || text === "\u00a0"))
+      return "<p><br></p>\n";
+    return `<p>${this.parser.parseInline(tokens)}</p>\n`;
+  },
+  blockquote({ tokens }) {
+    return `<blockquote>\n${this.parser.parse(preserveMemoBlankParagraphs(tokens))}</blockquote>\n`;
+  },
   text(token) {
     if ("tokens" in token && Array.isArray(token.tokens) && token.tokens.length)
       return this.parser.parseInline(token.tokens);
@@ -114,7 +124,8 @@ const renderer: RendererObject = {
       .join("");
   },
   listitem(item) {
-    if (!item.task) return `<li>${this.parser.parse(item.tokens)}</li>\n`;
+    if (!item.task)
+      return `<li>${this.parser.parse(preserveMemoBlankParagraphs(item.tokens))}</li>\n`;
 
     const checked = Boolean(item.checked);
     const contentTokens = withoutCheckboxes(item.tokens);
@@ -188,6 +199,12 @@ memoMarked.use({
   ],
 });
 memoMarked.use({ renderer });
+memoMarked.use({
+  hooks: {
+    preprocess: normalizeMemoComposerContent,
+    processAllTokens: preserveMemoBlankParagraphs,
+  },
+});
 
 export function renderMemoMarkdown(markdown: string) {
   return memoMarked.parse(markdown) as string;

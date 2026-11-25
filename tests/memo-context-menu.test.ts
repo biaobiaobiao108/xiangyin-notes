@@ -10,8 +10,8 @@ import {
   handleEmptyMemoPaste,
   isMemoCancelShortcut,
   isMemoSubmitShortcut,
-  normalizeMemoComposerContent,
 } from "../app/memos/memo-composer";
+import { normalizeMemoComposerContent } from "../app/memos/memo-markdown-spacing";
 
 test("empty clipboard paste is consumed without interfering with supported clipboard content", () => {
   const paste = (values: Record<string, string>, files = 0) => {

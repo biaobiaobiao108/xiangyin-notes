@@ -9,6 +9,20 @@ describe("memo Markdown rendering", () => {
     expect(html).toContain("<li>一项</li>");
   });
 
+  test("preserves additional empty paragraphs before Mermaid or other blocks", () => {
+    const html = renderMemoMarkdown(
+      "第一段 \r\n\r\n第二段 \r\n\r\n\r\n\r\n\\`\\`\\`mermaid\r\n\r\n```mermaid\r\nflowchart TD\r\n\r\n  A --> B\r\n```\r\n\r\n",
+    );
+    expect(html.match(/<p><br><\/p>/gu)).toHaveLength(1);
+    expect(html).toContain("<p>第二段 </p>\n<p><br></p>\n<p>```mermaid</p>");
+    expect(html).toContain("<code>flowchart TD\n\n  A --&gt; B\n</code>");
+  });
+
+  test("preserves the editor's explicit empty paragraph markers without escaping them as text", () => {
+    const html = renderMemoMarkdown("上方\n\n\n\n&nbsp;\n\n\u00a0\n\n下方");
+    expect(html).toBe("<p>上方</p>\n<p><br></p>\n<p><br></p>\n<p><br></p>\n<p>下方</p>\n");
+  });
+
   test("escapes raw HTML and blocks unsafe link protocols", () => {
     const html = renderMemoMarkdown(
       "<script>alert(1)</script>\n\n[危险](javascript:alert(1))\n\n[正常](https://example.com)",
