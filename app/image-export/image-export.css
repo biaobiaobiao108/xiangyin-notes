@@ -62,12 +62,9 @@
 .image-export-preview::-webkit-scrollbar {
   display: none;
 }
-.image-export-preview-image {
-  display: block;
-  width: min(100%, 720px);
-  height: auto;
-  margin: auto;
-  border-radius: 24px;
+.image-export-preview-page > .image-export-page {
+  zoom: var(--preview-scale, 1);
+  margin-inline: auto;
   box-shadow: var(--shadow-sm);
 }
 .image-export-message {
@@ -125,6 +122,7 @@
     "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
   --canvas: #f6f4ef;
   --surface: #ffffff;
+  --surface-muted: #f2efe8;
   --surface-subtle: #eeece5;
   --surface-code: #f4f3ee;
   --surface-code-inline: #eeebe4;

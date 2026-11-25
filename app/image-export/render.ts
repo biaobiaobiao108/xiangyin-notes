@@ -8,7 +8,6 @@ import {
   renderDiagram,
 } from "../mermaid/render";
 import { isMermaidLanguage } from "../mermaid/protocol";
-import { IMAGE_PAGE_HEIGHT, IMAGE_PAGE_PADDING } from "./pagination";
 
 export type ImageExportSnapshot = { title: string; contentMarkdown: string };
 
@@ -159,6 +158,34 @@ export function anySignal(signals: readonly AbortSignal[]): AbortSignal {
   return controller.signal;
 }
 
+async function imageToPng(
+  image: HTMLImageElement,
+  width: number,
+  height: number,
+  signal: AbortSignal,
+) {
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(width));
+  canvas.height = Math.max(1, Math.round(height));
+  try {
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("canvas-unavailable");
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    return await waitForExport(
+      new Promise<Blob>((resolve, reject) =>
+        canvas.toBlob(
+          (result) => (result ? resolve(result) : reject(new Error("image-conversion-failed"))),
+          "image/png",
+        ),
+      ),
+      signal,
+    );
+  } finally {
+    canvas.width = 0;
+    canvas.height = 0;
+  }
+}
+
 async function prepareDiagrams(source: HTMLElement, signal: AbortSignal, urls: string[]) {
   for (const code of source.querySelectorAll<HTMLElement>("pre > code")) {
     const language = [...code.classList].find((name) => name.startsWith("language-"));
@@ -167,31 +194,39 @@ async function prepareDiagrams(source: HTMLElement, signal: AbortSignal, urls: s
     signal.throwIfAborted();
     const pre = code.parentElement!;
     const markdown = code.textContent ?? "";
-    let url: string | undefined;
+    let svgUrl: string | undefined;
     try {
       const container = pre.parentElement!;
       const layout = measureDiagram(container);
       const result = await renderDiagram({ ...layout, source: markdown }, signal);
       const themed = diagramImage(result, container);
-      url = themed.url;
-      const image = new Image();
+      svgUrl = themed.url;
+      const svg = new Image();
+      svg.src = svgUrl;
+      const timeout = anySignal([signal, createTimeoutSignal(5_000)]);
+      await waitForExport(svg.decode(), timeout);
+
+      // Give pagination the scaled dimensions and pass only a raster image to the page renderer.
+      const scale = Math.min(1, layout.width / result.width, 1400 / result.height);
+      const width = Math.max(1, Math.floor(result.width * scale));
+      const height = Math.max(1, Math.floor(result.height * scale));
+      const png = await imageToPng(svg, width * 2, height * 2, timeout);
+      const image = new Image(width, height);
       image.className = "image-export-diagram";
       image.alt = themed.alt;
-      const height = IMAGE_PAGE_HEIGHT - IMAGE_PAGE_PADDING * 2;
-      const scale = Math.min(1, layout.width / result.width, height / result.height);
-      image.width = Math.max(1, Math.floor(result.width * scale));
-      image.height = Math.max(1, Math.floor(result.height * scale));
-      image.src = url;
-      await waitForExport(image.decode(), anySignal([signal, createTimeoutSignal(5_000)]));
-      urls.push(url);
+      image.style.width = `${width}px`;
+      image.src = URL.createObjectURL(png);
+      urls.push(image.src);
+      await waitForExport(image.decode(), timeout);
       pre.replaceWith(image);
     } catch (reason) {
-      if (url) URL.revokeObjectURL(url);
       signal.throwIfAborted();
       const description = document.createElement("span");
       description.className = "image-export-diagram-error";
       description.textContent = `图表无法渲染 · ${diagramErrorMessage(reason)}\n`;
       pre.prepend(description);
+    } finally {
+      if (svgUrl) URL.revokeObjectURL(svgUrl);
     }
   }
 }
@@ -241,31 +276,16 @@ export async function prepareImages(
             if (remote.naturalWidth * remote.naturalHeight > 20_000_000)
               throw new Error("image-too-large");
             const ratio = Math.min(1, 1248 / remote.naturalWidth, 2800 / remote.naturalHeight);
-            const canvas = document.createElement("canvas");
-            canvas.width = Math.max(1, Math.round(remote.naturalWidth * ratio));
-            canvas.height = Math.max(1, Math.round(remote.naturalHeight * ratio));
-            try {
-              const context = canvas.getContext("2d");
-              if (!context) throw new Error("canvas-unavailable");
-              context.drawImage(remote, 0, 0, canvas.width, canvas.height);
-              const blob = await waitForExport(
-                new Promise<Blob>((resolve, reject) =>
-                  canvas.toBlob(
-                    (result) =>
-                      result ? resolve(result) : reject(new Error("image-conversion-failed")),
-                    "image/png",
-                  ),
-                ),
-                timeout,
-              );
-              const localUrl = URL.createObjectURL(blob);
-              urls.push(localUrl);
-              image.src = localUrl;
-              await waitForExport(image.decode(), timeout);
-            } finally {
-              canvas.width = 0;
-              canvas.height = 0;
-            }
+            const blob = await imageToPng(
+              remote,
+              remote.naturalWidth * ratio,
+              remote.naturalHeight * ratio,
+              timeout,
+            );
+            const localUrl = URL.createObjectURL(blob);
+            urls.push(localUrl);
+            image.src = localUrl;
+            await waitForExport(image.decode(), timeout);
           } finally {
             remote.src = "";
           }

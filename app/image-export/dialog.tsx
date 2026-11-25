@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ChevronLeft, ChevronRight, Download, ImageDown, X } from "lucide-react";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { createZipReadableStream, type ZipStreamEntry } from "../../shared/zip";
-import { paginateNote } from "./pagination";
+import { IMAGE_PAGE_WIDTH, paginateNote } from "./pagination";
 import {
   anySignal,
   createTimeoutSignal,
@@ -12,6 +13,7 @@ import {
   waitForExport,
   type ImageExportSnapshot,
 } from "./render";
+import { renderPageImage } from "./capture";
 import { imageExportFilename } from "./filename";
 import { collectExportArchive } from "./stream";
 import "./image-export.css";
@@ -27,70 +29,32 @@ export function ImageExportDialog({
   const dialogRef = useRef<HTMLDialogElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
   const pagesRef = useRef<HTMLElement[]>([]);
   const controllerRef = useRef<AbortController | null>(null);
   const releaseImagesRef = useRef<(() => void) | null>(null);
-  const previewUrlRef = useRef<string | null>(null);
-  const downloadUrlsRef = useRef(new Set<string>());
-  const downloadTimersRef = useRef(new Set<ReturnType<typeof setTimeout>>());
-  const pageIndexRef = useRef(0);
   const [pageCount, setPageCount] = useState(0);
   const [pageIndex, setPageIndex] = useState(0);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("正在排版……");
   const [error, setError] = useState("");
   const [missingImages, setMissingImages] = useState(false);
 
-  const clearPreview = useCallback(() => {
-    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
-    previewUrlRef.current = null;
-    setPreviewUrl(null);
-  }, []);
-  const renderPage = useCallback(async (index: number, signal: AbortSignal) => {
-    signal.throwIfAborted();
+  const showPage = useCallback((index: number) => {
     const page = pagesRef.current[index];
-    if (!page) throw new Error("页面尚未就绪");
-    const { default: html2canvas } = await import("html2canvas");
-    signal.throwIfAborted();
-    const canvas = await html2canvas(page, {
-      scale: 2,
-      backgroundColor: null,
-      logging: false,
-      useCORS: true,
-      foreignObjectRendering: false,
-      imageTimeout: 15000,
-    });
-    try {
-      signal.throwIfAborted();
-      const blob = await new Promise<Blob>((resolve, reject) =>
-        canvas.toBlob(
-          (result) => (result ? resolve(result) : reject(new Error("图片生成失败"))),
-          "image/png",
-        ),
-      );
-      signal.throwIfAborted();
-      return blob;
-    } finally {
-      canvas.width = 0;
-      canvas.height = 0;
-    }
+    if (!page) return;
+    previewRef.current?.replaceChildren(page);
+    setPageIndex(index);
+    setStatus(`第 ${index + 1} / ${pagesRef.current.length} 页`);
+    scrollRef.current?.scrollTo({ top: 0 });
   }, []);
-  const showPage = useCallback(
-    async (index: number, signal: AbortSignal) => {
-      const blob = await renderPage(index, signal);
-      signal.throwIfAborted();
-      clearPreview();
-      const url = URL.createObjectURL(blob);
-      previewUrlRef.current = url;
-      setPreviewUrl(url);
-      pageIndexRef.current = index;
-      setPageIndex(index);
-      setStatus(`第 ${index + 1} / ${pagesRef.current.length} 页`);
-      scrollRef.current?.scrollTo({ top: 0 });
-    },
-    [clearPreview, renderPage],
-  );
+
+  const renderPage = (index: number, signal: AbortSignal) => {
+    const page = pagesRef.current[index];
+    const stage = stageRef.current;
+    if (!page || !stage) throw new Error("页面尚未就绪");
+    return renderPageImage(page, stage, signal);
+  };
 
   const prepare = useCallback(
     async (allowPlaceholders = false) => {
@@ -103,7 +67,7 @@ export function ImageExportDialog({
       setMissingImages(false);
       setStatus("正在排版……");
       setPageCount(0);
-      clearPreview();
+      previewRef.current?.replaceChildren();
       releaseImagesRef.current?.();
       releaseImagesRef.current = null;
       pagesRef.current = [];
@@ -120,9 +84,9 @@ export function ImageExportDialog({
         stage.append(sourcePage);
         releaseImagesRef.current = await prepareImages(source, signal, allowPlaceholders);
         pagesRef.current = await paginateNote(source, stage, signal);
-        sourcePage.remove();
+        stage.replaceChildren();
         setPageCount(pagesRef.current.length);
-        await showPage(0, signal);
+        showPage(0);
       } catch (reason) {
         if (signal.aborted) return;
         setMissingImages(reason instanceof UnavailableImagesError);
@@ -137,7 +101,7 @@ export function ImageExportDialog({
         if (controllerRef.current === controller) setBusy(false);
       }
     },
-    [clearPreview, showPage, snapshot],
+    [showPage, snapshot],
   );
 
   useEffect(() => {
@@ -145,14 +109,23 @@ export function ImageExportDialog({
     if (!dialog) return;
     const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     dialog.showModal();
+    const preview = previewRef.current;
+    const observer = new ResizeObserver(([entry]) => {
+      if (preview && entry) {
+        preview.style.setProperty(
+          "--preview-scale",
+          String(Math.min(1, entry.contentRect.width / IMAGE_PAGE_WIDTH)),
+        );
+      }
+    });
+    if (scrollRef.current) observer.observe(scrollRef.current);
     void prepare();
     return () => {
       controllerRef.current?.abort();
       controllerRef.current = null;
       releaseImagesRef.current?.();
-      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
-      downloadTimersRef.current.forEach(clearTimeout);
-      downloadUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+      observer.disconnect();
+      preview?.replaceChildren();
       pagesRef.current = [];
       if (dialog.open) dialog.close();
       if (trigger?.isConnected) trigger.focus({ preventScroll: true });
@@ -161,19 +134,14 @@ export function ImageExportDialog({
 
   const download = (blob: Blob, name: string) => {
     const url = URL.createObjectURL(blob);
-    downloadUrlsRef.current.add(url);
     const link = document.createElement("a");
     link.href = url;
     link.download = name;
-    document.body.append(link);
+    // Modal dialogs make the rest of the document inert.
+    dialogRef.current?.append(link);
     link.click();
     link.remove();
-    const timer = setTimeout(() => {
-      URL.revokeObjectURL(url);
-      downloadUrlsRef.current.delete(url);
-      downloadTimersRef.current.delete(timer);
-    }, 30_000);
-    downloadTimersRef.current.add(timer);
+    setTimeout(() => URL.revokeObjectURL(url), 30_000);
   };
   const run = async (operation: (signal: AbortSignal) => Promise<void>) => {
     if (busy) return;
@@ -189,7 +157,7 @@ export function ImageExportDialog({
     } finally {
       if (controllerRef.current === controller) {
         setBusy(false);
-        setStatus(`第 ${pageIndexRef.current + 1} / ${pagesRef.current.length} 页`);
+        setStatus(`第 ${pageIndex + 1} / ${pagesRef.current.length} 页`);
       }
     }
   };
@@ -261,48 +229,49 @@ export function ImageExportDialog({
           className="image-export-preview"
           aria-busy={busy}
         >
-          {previewUrl ? (
-            <img
-              className="image-export-preview-image"
-              src={previewUrl}
-              alt={`${snapshot.title}，第 ${pageIndex + 1} 页导出预览`}
-            />
-          ) : (
+          <div
+            role={pageCount ? "img" : undefined}
+            aria-label={pageCount ? `${snapshot.title}，第 ${pageIndex + 1} 页导出预览` : undefined}
+          >
+            <div ref={previewRef} className="image-export-preview-page" inert />
+          </div>
+          {!pageCount && (
             <p className="image-export-message" role="status">
               {status}
             </p>
           )}
-          {error && (
-            <div className="image-export-error" role="alert">
-              <p>{error}</p>
-              <button
-                className="secondary-button"
-                type="button"
-                disabled={busy}
-                onClick={() => void prepare()}
-              >
-                重试
-              </button>
-              {missingImages && (
-                <button
-                  className="secondary-button"
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void prepare(true)}
-                >
-                  用占位块继续
-                </button>
-              )}
-            </div>
-          )}
         </div>
         <FloatingScrollbar
           scrollTargetRef={scrollRef}
+          contentRef={previewRef}
           controlsId="image-export-scroll"
           ariaLabel="图片预览滚动条"
           placement="right"
         />
       </div>
+      {error && (
+        <div className="image-export-error" role="alert">
+          <p>{error}</p>
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={busy}
+            onClick={() => void prepare()}
+          >
+            重试
+          </button>
+          {missingImages && (
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={busy}
+              onClick={() => void prepare(true)}
+            >
+              用占位块继续
+            </button>
+          )}
+        </div>
+      )}
       <footer className="image-export-actions">
         <div className="image-export-pagination">
           <button
@@ -310,7 +279,7 @@ export function ImageExportDialog({
             type="button"
             aria-label="上一页预览"
             disabled={busy || pageIndex === 0 || !pageCount}
-            onClick={() => void run((signal) => showPage(pageIndex - 1, signal))}
+            onClick={() => showPage(pageIndex - 1)}
           >
             <ChevronLeft size={18} />
           </button>
@@ -322,7 +291,7 @@ export function ImageExportDialog({
             type="button"
             aria-label="下一页预览"
             disabled={busy || pageIndex >= pageCount - 1}
-            onClick={() => void run((signal) => showPage(pageIndex + 1, signal))}
+            onClick={() => showPage(pageIndex + 1)}
           >
             <ChevronRight size={18} />
           </button>
@@ -336,9 +305,10 @@ export function ImageExportDialog({
           <button
             className={pageCount > 1 ? "secondary-button" : "primary-button"}
             type="button"
-            disabled={busy || !pageCount || !previewUrl}
+            disabled={busy || !pageCount}
             onClick={() =>
               void run(async (signal) => {
+                setStatus(`正在生成第 ${pageIndex + 1} 页……`);
                 download(
                   await renderPage(pageIndex, signal),
                   imageExportFilename(snapshot.title, pageCount > 1 ? pageIndex : undefined),
@@ -362,7 +332,10 @@ export function ImageExportDialog({
           )}
         </div>
       </footer>
-      <div ref={stageRef} className="image-export-stage" aria-hidden="true" inert />
+      {createPortal(
+        <div ref={stageRef} className="image-export-stage" aria-hidden="true" inert />,
+        document.body,
+      )}
     </dialog>
   );
 }
