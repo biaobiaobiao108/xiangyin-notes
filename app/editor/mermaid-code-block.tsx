@@ -158,7 +158,8 @@ export function MermaidCodeBlock({
           onMouseDownCapture={
             editable
               ? (event) => {
-                  if (event.button === 0) event.preventDefault();
+                  // Do not let a non-editable diagram restore a stale editor selection.
+                  if (event.button === 0 || event.button === 2) event.preventDefault();
                 }
               : undefined
           }
