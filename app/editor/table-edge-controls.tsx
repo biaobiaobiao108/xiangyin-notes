@@ -192,6 +192,51 @@ function positionPreview(output: HTMLOutputElement, pointer: { x: number; y: num
   output.style.top = `${Math.max(margin, top)}px`;
 }
 
+function resolveWheelDelta(delta: number, deltaMode: number, pageSize: number) {
+  if (deltaMode === 1) return delta * 16;
+  if (deltaMode === 2) return delta * pageSize;
+  return delta;
+}
+
+function scrollNearestAncestor(
+  start: HTMLElement,
+  axis: "x" | "y",
+  delta: number,
+  deltaMode: number,
+) {
+  if (delta === 0) return false;
+  let current: HTMLElement | null = start;
+  while (current) {
+    const style = window.getComputedStyle(current);
+    const overflow = axis === "x" ? style.overflowX : style.overflowY;
+    const isScrollableOverflow =
+      overflow === "auto" || overflow === "scroll" || overflow === "overlay";
+    const isScrollingRoot =
+      current === document.scrollingElement && overflow !== "hidden" && overflow !== "clip";
+    const maxScroll =
+      axis === "x"
+        ? current.scrollWidth - current.clientWidth
+        : current.scrollHeight - current.clientHeight;
+    if ((isScrollableOverflow || isScrollingRoot) && maxScroll > 1) {
+      const pageSize = axis === "x" ? current.clientWidth : current.clientHeight;
+      const pixelDelta = resolveWheelDelta(delta, deltaMode, pageSize);
+      const offset = axis === "x" ? current.scrollLeft : current.scrollTop;
+      const canScroll =
+        pixelDelta < 0 ? offset > 0 : pixelDelta > 0 ? offset < maxScroll - 1 : false;
+      if (canScroll) {
+        current.scrollBy(
+          axis === "x"
+            ? { left: pixelDelta, behavior: "auto" }
+            : { top: pixelDelta, behavior: "auto" },
+        );
+        return true;
+      }
+    }
+    current = current.parentElement;
+  }
+  return false;
+}
+
 function TableEdgeRail({
   editor,
   axis,
@@ -462,6 +507,9 @@ export function TableEdgeControls({
   const [visibleRails, setVisibleRails] = useState({ columns: false, rows: false });
   const pointerPositionRef = useRef<{ x: number; y: number } | null>(null);
   const dragTablePositionRef = useRef<number | null>(null);
+  const overlayRef = useRef<HTMLDivElement | null>(null);
+  const tablePositionRef = useRef<number | null>(null);
+  tablePositionRef.current = position?.tablePosition ?? null;
   const onDragPositionChange = useCallback((tablePosition: number | null) => {
     dragTablePositionRef.current = tablePosition;
   }, []);
@@ -641,9 +689,26 @@ export function TableEdgeControls({
     };
   }, [editor]);
 
+  const hasOverlay = position !== null;
+  useEffect(() => {
+    const overlay = overlayRef.current;
+    if (!overlay || !hasOverlay) return;
+    const forwardWheel = (event: WheelEvent) => {
+      if (event.ctrlKey || dragTablePositionRef.current !== null || editor.isDestroyed) return;
+      const tablePos = tablePositionRef.current;
+      const shell = tablePos === null ? null : getTableShellAtPosition(editor, tablePos);
+      const start = shell ?? editor.view.dom;
+      const scrolledX = scrollNearestAncestor(start, "x", event.deltaX, event.deltaMode);
+      const scrolledY = scrollNearestAncestor(start, "y", event.deltaY, event.deltaMode);
+      if (scrolledX || scrolledY) event.preventDefault();
+    };
+    overlay.addEventListener("wheel", forwardWheel, { passive: false });
+    return () => overlay.removeEventListener("wheel", forwardWheel);
+  }, [editor, hasOverlay]);
+
   if (typeof document === "undefined" || !position) return null;
   return createPortal(
-    <div className="table-edge-controls-overlay" aria-label="表格边缘操作">
+    <div ref={overlayRef} className="table-edge-controls-overlay" aria-label="表格边缘操作">
       <TableEdgeRail
         editor={editor}
         axis="columns"
