@@ -295,22 +295,6 @@
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
-.note-tags-measure {
-  position: absolute;
-  width: 0;
-  height: 0;
-  overflow: hidden;
-  visibility: hidden;
-  pointer-events: none;
-}
-.note-tags-ruler {
-  display: flex;
-  width: max-content;
-}
-.note-tags-ruler > span {
-  flex: none;
-  max-width: 16em;
-}
 .note-list-load-more-item {
   padding: 10px 20px 20px;
   list-style: none;

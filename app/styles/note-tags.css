@@ -1,0 +1,48 @@
+.note-row-tags,
+.note-card-tags {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 12px;
+  font-size: 0.7rem;
+}
+
+.note-row-tag,
+.note-card-tag {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: min(100%, 16em);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--accent-ink);
+  font-weight: 500;
+}
+
+.note-row-tag--overflow,
+.note-card-tag--overflow {
+  flex: none;
+  max-width: 100%;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.note-tags-measure {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.note-tags-ruler {
+  display: flex;
+  width: max-content;
+}
+
+.note-tags-ruler > span {
+  flex: none;
+  max-width: 16em;
+}
