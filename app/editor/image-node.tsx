@@ -15,6 +15,7 @@ import {
   serializeImageSource,
   unescapeImageAlt,
 } from "../image-markdown";
+import { copyRasterImage, useImageActions } from "../image-actions";
 
 type ImageNodeAttrs = {
   assetId: string | null;
@@ -38,6 +39,14 @@ function imageDimensions(node: NodeViewProps["node"]) {
   return { width, height };
 }
 
+function renderedNoteImage(root: HTMLElement, target: EventTarget | null) {
+  if (!(target instanceof Element)) return null;
+  const node = target.closest(".note-image-node");
+  if (!node || !root.contains(node)) return null;
+  const image = node.querySelector<HTMLImageElement>("img.note-image");
+  return image?.src && image.naturalWidth > 0 ? image : null;
+}
+
 function ResizableImageView({ node, selected, editor, updateAttributes }: NodeViewProps) {
   const attrs = node.attrs as ImageNodeAttrs;
   const source = parseImageSource(attrs.src);
@@ -49,6 +58,7 @@ function ResizableImageView({ node, selected, editor, updateAttributes }: NodeVi
       : null
     : source.src;
   const { width, height } = imageDimensions(node);
+  const nodeRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{
     startX: number;
@@ -59,6 +69,15 @@ function ResizableImageView({ node, selected, editor, updateAttributes }: NodeVi
     animationFrame: number | null;
     pointerId: number;
   } | null>(null);
+  const imageActions = useImageActions({
+    rootRef: nodeRef,
+    menuLabel: "图片",
+    copyLabel: "复制图片",
+    fallbackAlt: "图片",
+    resolveImage: renderedNoteImage,
+    copyImage: copyRasterImage,
+    focusTarget: () => editor.view.dom,
+  });
 
   const setFrameWidth = (nextWidth: number) => {
     frameRef.current?.style.setProperty("--image-display-width", `${Math.round(nextWidth)}px`);
@@ -173,7 +192,12 @@ function ResizableImageView({ node, selected, editor, updateAttributes }: NodeVi
 
   const frameStyle = { "--image-display-width": `${Math.round(width)}px` } as CSSProperties;
   return (
-    <NodeViewWrapper className={`note-image-node ${selected ? "is-selected" : ""}`}>
+    <NodeViewWrapper
+      ref={nodeRef}
+      className={`note-image-node ${selected ? "is-selected" : ""}`}
+      onContextMenu={imageActions.onContextMenu}
+      onKeyDown={imageActions.onKeyDown}
+    >
       <span ref={frameRef} className="note-image-frame" style={frameStyle}>
         {imageSource ? (
           <img
@@ -220,6 +244,7 @@ function ResizableImageView({ node, selected, editor, updateAttributes }: NodeVi
           />
         )}
       </span>
+      {imageActions.menu}
     </NodeViewWrapper>
   );
 }

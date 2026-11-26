@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
-  buildDiagramImageMenuItems,
-  diagramCopyGeometry,
-  writeDiagramClipboard,
+  buildImageMenuItems,
+  imageCopyGeometry,
+  writeImageClipboard,
   type ClipboardItemConstructor,
-} from "../app/mermaid/image-actions";
+} from "../app/image-actions";
+import { diagramCopyGeometry } from "../app/mermaid/image-actions";
 
 function fakeClipboardItem(supported = true) {
   let created: { data: Record<string, Blob | Promise<Blob>> } | undefined;
@@ -21,10 +22,10 @@ function fakeClipboardItem(supported = true) {
   return { Type, created: () => created };
 }
 
-describe("Mermaid image actions", () => {
+describe("Image actions", () => {
   test("builds exactly the copy and expand commands", async () => {
     const calls: string[] = [];
-    const items = buildDiagramImageMenuItems({
+    const items = buildImageMenuItems("复制图片", {
       copy: () => {
         calls.push("copy");
       },
@@ -33,7 +34,7 @@ describe("Mermaid image actions", () => {
       },
     });
 
-    expect(items.map((item) => item.label)).toEqual(["复制为图片", "展开显示"]);
+    expect(items.map((item) => item.label)).toEqual(["复制图片", "展开显示"]);
     await items[0]!.onSelect();
     await items[1]!.onSelect();
     expect(calls).toEqual(["copy", "expand"]);
@@ -53,6 +54,20 @@ describe("Mermaid image actions", () => {
     expect(huge.width * huge.height).toBeLessThanOrEqual(16_000_000);
   });
 
+  test("copies ordinary images at their original resolution", () => {
+    expect(imageCopyGeometry(480, 320)).toEqual({
+      width: 480,
+      height: 320,
+      padding: 0,
+      scale: 1,
+    });
+
+    const huge = imageCopyGeometry(10_000, 10_000);
+    expect(huge.width).toBeLessThanOrEqual(4096);
+    expect(huge.height).toBeLessThanOrEqual(4096);
+    expect(huge.width * huge.height).toBeLessThanOrEqual(16_000_000);
+  });
+
   test("starts clipboard writing before the PNG promise resolves", async () => {
     let resolvePng!: (blob: Blob) => void;
     const png = new Promise<Blob>((resolve) => {
@@ -60,7 +75,7 @@ describe("Mermaid image actions", () => {
     });
     const item = fakeClipboardItem();
     let writeStarted = false;
-    const result = writeDiagramClipboard(() => png, {
+    const result = writeImageClipboard(() => png, {
       ClipboardItemType: item.Type,
       clipboard: {
         async write(items) {
@@ -78,7 +93,7 @@ describe("Mermaid image actions", () => {
 
   test("reports unsupported and denied image clipboard writes", async () => {
     await expect(
-      writeDiagramClipboard(() => Promise.resolve(new Blob()), {
+      writeImageClipboard(() => Promise.resolve(new Blob()), {
         ClipboardItemType: null,
         clipboard: { write: async () => {} },
       }),
@@ -86,7 +101,7 @@ describe("Mermaid image actions", () => {
 
     const item = fakeClipboardItem();
     await expect(
-      writeDiagramClipboard(() => Promise.resolve(new Blob()), {
+      writeImageClipboard(() => Promise.resolve(new Blob()), {
         ClipboardItemType: item.Type,
         clipboard: {
           async write() {
@@ -94,6 +109,6 @@ describe("Mermaid image actions", () => {
           },
         },
       }),
-    ).rejects.toThrow("浏览器未允许复制图表图片");
+    ).rejects.toThrow("浏览器未允许复制图片");
   });
 });
