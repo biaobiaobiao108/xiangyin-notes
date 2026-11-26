@@ -78,13 +78,12 @@ describe("Markdown statistics", () => {
     const editor = countHeadlessDocument(markdown);
     expect(actual.textCharacterCount).toBe(editor.characterCount);
     expect(actual.wordCount).toBe(editor.wordCount);
-    expect(actual.markdownCharacterCount).toBe(Array.from(markdown).length);
+    expect(actual).not.toHaveProperty("markdownCharacterCount");
   });
 
-  test("counts raw code points including syntax and whitespace separately", () => {
+  test("counts rendered graphemes and words while excluding syntax and whitespace", () => {
     const markdown = "# e\u0301 😀\n";
     expect(countMarkdownStats(markdown)).toEqual({
-      markdownCharacterCount: 7,
       textCharacterCount: 2,
       wordCount: 2,
     });

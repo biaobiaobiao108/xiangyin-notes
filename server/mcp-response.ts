@@ -230,15 +230,11 @@ function withMcpMetadata(value: unknown): unknown {
 
 function withNoteStatistics(note: Record<string, unknown>, includeStats = true) {
   if (!includeStats) {
-    const { markdownCharacterCount, textCharacterCount, wordCount, ...metadata } = note;
+    const { textCharacterCount, wordCount, ...metadata } = note;
     return metadata;
   }
   if (typeof note.contentMarkdown !== "string") return note;
-  if (
-    typeof note.markdownCharacterCount === "number" &&
-    typeof note.textCharacterCount === "number" &&
-    typeof note.wordCount === "number"
-  )
+  if (typeof note.textCharacterCount === "number" && typeof note.wordCount === "number")
     return note;
   const stats = countMarkdownStats(note.contentMarkdown);
   return { ...note, ...stats };
@@ -339,7 +335,6 @@ export function conciseWriteNote(value: unknown, includeStats = true) {
     version: note.version,
     ...(includeStats
       ? {
-          markdownCharacterCount: note.markdownCharacterCount,
           textCharacterCount: note.textCharacterCount,
           wordCount: note.wordCount,
         }

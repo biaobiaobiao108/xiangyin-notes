@@ -462,8 +462,14 @@
   .editor-stat {
     font-size: 0.7rem;
   }
-  .editor-stat strong {
-    font-size: 0.78rem;
+  .editor-stat.is-primary .editor-stat-value {
+    font-size: 0.8rem;
+  }
+  .editor-stat.is-secondary .editor-stat-value {
+    font-size: 0.71rem;
+  }
+  .editor-stat.is-secondary .editor-stat-label {
+    font-size: 0.66rem;
   }
   .outline-trigger {
     padding-inline: 11px;

@@ -151,15 +151,29 @@
 }
 .editor-stat {
   display: inline-flex;
-  align-items: center;
+  align-items: baseline;
   gap: 4px;
   font-size: 0.74rem;
   line-height: 1.15;
 }
-.editor-stat strong {
+.editor-stat.is-primary .editor-stat-value {
   color: var(--ink);
-  font-size: 0.82rem;
+  font-size: 0.84rem;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
+}
+.editor-stat.is-primary .editor-stat-label {
+  color: var(--quiet-ink);
+}
+.editor-stat.is-secondary .editor-stat-value {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.editor-stat.is-secondary .editor-stat-label {
+  color: var(--soft-muted);
+  font-size: 0.7rem;
 }
 .editor-stat-divider {
   color: var(--border-strong);

@@ -9,6 +9,7 @@ export const MCP_SERVER_INSTRUCTIONS = [
   "整理笔记。manage_note 移动、收藏、改标签、移入或恢复回收站，batch_update_notes 批量管理多篇。",
   "笔记本。list_notebooks 列出笔记本，ensure_notebook 按名称获取或创建，create_notebook 创建且重名时报错，update_notebook 改名称、颜色或图标，delete_notebook 删除笔记本并把笔记移入收件箱。",
   "看板。list_kanban_cards 查卡片，manage_kanban_card 加入、移动、排序或移出。",
+  "统计口径：wordCount 与 textCharacterCount 均基于渲染后正文（不含 Markdown 语法、链接地址、图片说明与空白，非源码长度）。wordCount 为阅读词数（每个汉字或 emoji 算 1 词，连续字母/数字算 1 词，不含标点）；textCharacterCount 为非空白字素数（含标点，组合 emoji 算 1 个）。",
   "从 structuredContent 读取结果，检查 ok 和 error.code，批量操作查看逐项 results。更新笔记用 note.version 作为 expectedVersion。更新笔记本、移动或移出卡片时，用该资源的 updatedAt 作为 expectedUpdatedAt。遇到版本或位置冲突，先重读对应资源再决定是否重试。",
 ].join("\n\n");
 

@@ -267,16 +267,16 @@ export function EditorStatsPill({ stats }: { stats: EditorStats }) {
       className="editor-stats-pill"
       aria-label={`字数 ${stats.wordCount}，字符数 ${stats.characterCount}`}
     >
-      <span className="editor-stat">
-        <strong>{stats.wordCount}</strong>
-        <span>字数</span>
+      <span className="editor-stat is-primary">
+        <strong className="editor-stat-value">{stats.wordCount}</strong>
+        <span className="editor-stat-label">字数</span>
       </span>
       <span className="editor-stat-divider" aria-hidden="true">
         ·
       </span>
-      <span className="editor-stat">
-        <strong>{stats.characterCount}</strong>
-        <span>字符</span>
+      <span className="editor-stat is-secondary">
+        <span className="editor-stat-value">{stats.characterCount}</span>
+        <span className="editor-stat-label">字符</span>
       </span>
     </div>
   );

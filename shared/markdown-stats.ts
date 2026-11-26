@@ -11,7 +11,6 @@ import { countTextStats } from "./text-stats";
 import { preserveEscapedHashtagsForEditor } from "./tags";
 
 export type MarkdownStats = {
-  markdownCharacterCount: number;
   textCharacterCount: number;
   wordCount: number;
 };
@@ -209,15 +208,12 @@ function inlineText(tokens: readonly Token[]): string {
 }
 
 /**
- * Raw size counts Unicode code points including syntax and whitespace. Body size
- * counts non-whitespace graphemes, with the same word rules as the editor.
+ * Body size counts non-whitespace graphemes, with the same word rules as the editor.
  * Each paragraph/code block/table cell is counted independently. Image alt text,
  * link destinations, list markers and callout markers do not contribute.
  * HTML tokens use Bun's HTML parser; no editor, DOM or browser is instantiated.
  */
 export function countMarkdownStats(markdown: string): MarkdownStats {
-  let markdownCharacterCount = 0;
-  for (const _character of markdown) markdownCharacterCount += 1;
   let textCharacterCount = 0;
   let wordCount = 0;
   const addText = (text: string) => {
@@ -257,5 +253,5 @@ export function countMarkdownStats(markdown: string): MarkdownStats {
     }
   };
   visit(statsMarked.lexer(preserveEscapedHashtagsForEditor(markdown)));
-  return { markdownCharacterCount, textCharacterCount, wordCount };
+  return { textCharacterCount, wordCount };
 }

@@ -203,7 +203,12 @@ export function registerMcpContentTools(
     heading: z.string().min(1).max(2000).optional(),
     occurrence: z.number().int().positive().optional(),
   };
-  const includeStatsOption = z.boolean().optional().describe("返回全文字数统计，默认 true");
+  const includeStatsOption = z
+    .boolean()
+    .optional()
+    .describe(
+      "返回全文字数统计（wordCount 为阅读词数、textCharacterCount 为正文非空白字素数，均不含 Markdown 语法与源码长度），默认 true",
+    );
   server.registerTool(
     "get_note_outline",
     {

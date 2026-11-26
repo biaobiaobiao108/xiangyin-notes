@@ -124,7 +124,7 @@ export function registerMcpNoteTools(
     {
       title: "读取笔记",
       description:
-        "按 ID 或精确标题读取；标题匹配忽略 ASCII 大小写并裁剪查询参数首尾空白，仅改变查询大小写或空白不能消歧。模糊查找用 search_notes，长笔记局部读取用 get_note_section；只取版本用 includeContent=false。歧义最多返回 5 个候选，matchCount 上限 6、可能为总数下限；truncated 表示候选未列全。",
+        "按 ID 或精确标题读取；标题匹配忽略 ASCII 大小写并裁剪查询参数首尾空白，仅改变查询大小写或空白不能消歧。模糊查找用 search_notes，长笔记局部读取用 get_note_section；只取版本用 includeContent=false。统计字段 wordCount（阅读词数：汉字/emoji 单计、连续字母数字连计、不含标点）与 textCharacterCount（正文非空白字素数，含标点）均不含 Markdown 语法与链接地址，非源码长度。歧义最多返回 5 个候选，matchCount 上限 6、可能为总数下限；truncated 表示候选未列全。",
       inputSchema: z
         .object({
           noteId: z.string().min(1).max(200).optional(),
@@ -224,7 +224,9 @@ export function registerMcpNoteTools(
             .min(1)
             .max(100_000)
             .optional()
-            .describe("正文总 Unicode 字符预算，默认 20,000，最大 100,000"),
+            .describe(
+              "正文总 Unicode 字符预算（按 Markdown 源码长度计），默认 20,000，最大 100,000",
+            ),
         })
         .strict(),
     },
