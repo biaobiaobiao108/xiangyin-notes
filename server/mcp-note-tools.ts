@@ -44,7 +44,11 @@ export function registerMcpNoteTools(
           notebookId: z.string().min(1).max(200).optional().describe("仅搜索指定笔记本"),
           notebookName: z.string().trim().min(1).max(40).optional(),
           view: z.enum(NOTE_VIEWS).optional().describe("笔记视图，默认 all；trash 搜索回收站"),
-          cursor: z.string().max(2048).optional().describe("上一次搜索结果返回的 nextCursor"),
+          cursor: z
+            .string()
+            .max(2048)
+            .optional()
+            .describe("上一次搜索的 nextCursor；收到 SEARCH_CURSOR_STALE 时省略游标重新搜索"),
           limit: z
             .number()
             .int()

@@ -7,6 +7,7 @@ import {
   applyMigrations,
   CURRENT_SCHEMA_VERSION,
   MIN_SUPPORTED_SCHEMA_VERSION,
+  NOTE_SEARCH_REVISION_KEY,
   SEARCH_INDEX_REBUILD_KEY,
   createExpectedSchemaDatabase,
   initializeDatabase,
@@ -148,6 +149,39 @@ test("v12 indexes only aliases in stored link text and preserves note versions",
     expect(
       database.query("SELECT rowid FROM notes_fts WHERE notes_fts MATCH ?").all('"旧标题"'),
     ).toEqual([]);
+  } finally {
+    database.close();
+  }
+});
+
+test("v13 tracks note search changes in the same transaction as the write", async () => {
+  const database = await createExpectedSchemaDatabase(12);
+  try {
+    database.exec(`
+      INSERT INTO users (id, username, password_hash, password_salt, created_at)
+        VALUES ('owner', 'owner', 'hash', 'salt', 1);
+      INSERT INTO notebooks (id, user_id, name, created_at, updated_at)
+        VALUES ('inbox', 'owner', '收件箱', 1, 1);
+      INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, search_text, version, created_at, updated_at)
+        VALUES ('note', 'owner', 'inbox', '旧笔记', '原文', '原文', 7, 1, 2);
+    `);
+    await initializeDatabase(database);
+    const revision = () =>
+      database
+        .query<{ value: string }, [string]>("SELECT value FROM app_metadata WHERE key = ?")
+        .get(NOTE_SEARCH_REVISION_KEY)?.value;
+    const initial = revision();
+    expect(initial).toBeString();
+    expect(database.query("SELECT content_markdown, version FROM notes").get()).toEqual({
+      content_markdown: "原文",
+      version: 7,
+    });
+    database.exec("BEGIN; UPDATE notes SET is_favorite = 1 WHERE id = 'note'");
+    expect(revision()).not.toBe(initial);
+    database.exec("ROLLBACK");
+    expect(revision()).toBe(initial);
+    database.exec("UPDATE notes SET is_favorite = 1 WHERE id = 'note'");
+    expect(revision()).not.toBe(initial);
   } finally {
     database.close();
   }

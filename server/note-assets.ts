@@ -121,7 +121,16 @@ export function noteImageSources(markdown: string) {
 }
 
 export function noteAssetIds(markdown: string) {
+  if (!/assets/iu.test(markdown)) return [];
   return extractNoteAssetReferences(markdown).assetIds;
+}
+
+export function referencedAssetIds(rows: Iterable<{ content_markdown: string }>) {
+  const ids = new Set<string>();
+  for (const { content_markdown } of rows) {
+    for (const id of noteAssetIds(content_markdown)) ids.add(id);
+  }
+  return ids;
 }
 
 export function validNoteImageSource(source: string) {

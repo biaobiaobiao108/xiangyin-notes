@@ -18,8 +18,9 @@ const DEFAULT_SCHEMA_PATH = "./database/schema.sql";
 const BASELINE_SCHEMA_VERSION = 1;
 
 export const MIN_SUPPORTED_SCHEMA_VERSION = BASELINE_SCHEMA_VERSION;
-export const CURRENT_SCHEMA_VERSION = 12;
+export const CURRENT_SCHEMA_VERSION = 13;
 export const SEARCH_INDEX_REBUILD_KEY = "search-index-rebuild-required";
+export const NOTE_SEARCH_REVISION_KEY = "note-search-revision";
 
 type TableCountRow = {
   count: number;
@@ -290,6 +291,27 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
         }
         lastId = notes.at(-1)!.id;
       }
+    },
+  },
+  {
+    sourceVersion: 12,
+    targetVersion: 13,
+    migrate: (database) => {
+      // BM25 uses corpus-wide statistics. Even an unrelated note can move the
+      // score boundary in a cursor. Keep the revision in the same transaction.
+      database.exec(`
+        INSERT INTO app_metadata (key, value) VALUES ('${NOTE_SEARCH_REVISION_KEY}', '0');
+        CREATE TRIGGER note_search_revision_insert AFTER INSERT ON notes BEGIN
+          UPDATE app_metadata SET value = CAST(value AS INTEGER) + 1 WHERE key = '${NOTE_SEARCH_REVISION_KEY}';
+        END;
+        CREATE TRIGGER note_search_revision_delete AFTER DELETE ON notes BEGIN
+          UPDATE app_metadata SET value = CAST(value AS INTEGER) + 1 WHERE key = '${NOTE_SEARCH_REVISION_KEY}';
+        END;
+        CREATE TRIGGER note_search_revision_update
+        AFTER UPDATE OF title, content_markdown, search_text, notebook_id, is_favorite, deleted_at ON notes BEGIN
+          UPDATE app_metadata SET value = CAST(value AS INTEGER) + 1 WHERE key = '${NOTE_SEARCH_REVISION_KEY}';
+        END;
+      `);
     },
   },
 ];

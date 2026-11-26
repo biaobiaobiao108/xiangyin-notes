@@ -22,6 +22,8 @@ import {
   inspectImage,
 } from "../images";
 
+import { referencedAssetIds } from "../note-assets";
+
 type RuntimeEnvironment = Record<string, string | undefined>;
 
 export const ORPHAN_ASSET_TTL_SECONDS = 24 * 60 * 60;
@@ -127,16 +129,31 @@ export function detachMemoReferencedAssets(
   userId: string,
   noteIds: string[],
 ) {
-  for (let offset = 0; offset < noteIds.length; offset += 500) {
-    const batch = noteIds.slice(offset, offset + 500);
+  if (!noteIds.length) return;
+  const assets = all<{ id: string }>(
+    database,
+    "SELECT id FROM image_assets WHERE user_id = ? AND note_id IN (SELECT value FROM json_each(?))",
+    userId,
+    JSON.stringify(noteIds),
+  );
+  if (!assets.length) return;
+  const referenced = referencedAssetIds(
+    database
+      .query<{ content_markdown: string }, [string]>(
+        "SELECT content_markdown FROM memos WHERE user_id = ?",
+      )
+      .iterate(userId),
+  );
+  const keep = assets.filter(({ id }) => referenced.has(id.toLowerCase())).map(({ id }) => id);
+  if (keep.length) {
     database
       .query(
-        `UPDATE image_assets SET note_id = NULL, document_order = NULL, orphaned_at = ?
-    WHERE user_id = ? AND note_id IN (${batch.map(() => "?").join(",")})
-      AND EXISTS (SELECT 1 FROM memos m WHERE m.user_id = image_assets.user_id
-        AND instr(lower(m.content_markdown), '/api/assets/' || lower(image_assets.id)) > 0)`,
+        `
+        UPDATE image_assets SET note_id = NULL, document_order = NULL, orphaned_at = ?
+        WHERE user_id = ? AND id IN (SELECT value FROM json_each(?))
+      `,
       )
-      .run(now(), userId, ...batch);
+      .run(now(), userId, JSON.stringify(keep));
   }
 }
 
@@ -326,50 +343,37 @@ async function runOrphanAssetCleanup(
   // Pending markers represent file deletes that outlived their database rows.
   // Retry them even when this sweep finds no stale rows to delete.
   await retryPendingAssetDeletions(assetRoot);
-  // Asset ids are UUIDs and references in Markdown are matched case-insensitively elsewhere,
-  // so the orphan check must lowercase both sides or referenced images would be deleted.
-  const staleAssets = all<{ id: string; storage_path: string }>(
-    database,
-    `
-    SELECT a.id, a.storage_path
-    FROM image_assets a
-    WHERE COALESCE(a.orphaned_at, a.created_at) <= ?
-      AND (a.note_id IS NULL OR NOT EXISTS (
-        SELECT 1 FROM notes n
-        WHERE n.id = a.note_id
-          AND instr(lower(n.content_markdown), '/api/assets/' || lower(a.id)) > 0
-      ))
-      AND NOT EXISTS (SELECT 1 FROM memos m WHERE m.user_id = a.user_id
-        AND instr(lower(m.content_markdown), '/api/assets/' || lower(a.id)) > 0)
-    LIMIT 100
-  `,
-    timestamp - ORPHAN_ASSET_TTL_SECONDS,
-  );
-  if (!staleAssets.length) {
-    await cleanupOrphanAssetFiles(database, assetRoot, timestamp);
-    return;
-  }
-  const deleteStaleAssets = database.transaction(() => {
-    const deletedPaths: string[] = [];
-    const statement = database.query(`
-      DELETE FROM image_assets
-      WHERE id = ?
-        AND COALESCE(orphaned_at, created_at) <= ?
-        AND (note_id IS NULL OR NOT EXISTS (
-          SELECT 1 FROM notes n
-          WHERE n.id = image_assets.note_id
-            AND instr(lower(n.content_markdown), '/api/assets/' || lower(image_assets.id)) > 0
-        ))
-        AND NOT EXISTS (SELECT 1 FROM memos m WHERE m.user_id = image_assets.user_id
-          AND instr(lower(m.content_markdown), '/api/assets/' || lower(image_assets.id)) > 0)
-    `);
-    for (const asset of staleAssets) {
-      if (statement.run(asset.id, timestamp - ORPHAN_ASSET_TTL_SECONDS).changes)
-        deletedPaths.push(asset.storage_path);
-    }
-    return deletedPaths;
-  });
-  const stalePaths = deleteStaleAssets();
+  const stalePaths = database
+    .transaction(() => {
+      const cutoff = timestamp - ORPHAN_ASSET_TTL_SECONDS;
+      const candidates = database.query<
+        { id: string; user_id: string; storage_path: string },
+        [number]
+      >(
+        "SELECT id, user_id, storage_path FROM image_assets WHERE COALESCE(orphaned_at, created_at) <= ? ORDER BY user_id, id",
+      );
+      const bodies = database.query<{ content_markdown: string }, [string, string]>(
+        "SELECT content_markdown FROM notes WHERE user_id = ? UNION ALL SELECT content_markdown FROM memos WHERE user_id = ?",
+      );
+      let ownerId: string | undefined;
+      let referenced = new Set<string>();
+      const stale: Array<{ id: string; storage_path: string }> = [];
+      for (const asset of candidates.iterate(cutoff)) {
+        if (asset.user_id !== ownerId) {
+          ownerId = asset.user_id;
+          referenced = referencedAssetIds(bodies.iterate(ownerId, ownerId));
+        }
+        if (!referenced.has(asset.id.toLowerCase())) stale.push(asset);
+        if (stale.length === 100) break;
+      }
+      if (stale.length) {
+        database
+          .query("DELETE FROM image_assets WHERE id IN (SELECT value FROM json_each(?))")
+          .run(JSON.stringify(stale.map(({ id }) => id)));
+      }
+      return stale.map(({ storage_path }) => storage_path);
+    })
+    .immediate();
   await removeAssetFiles(assetRoot, stalePaths);
   await cleanupOrphanAssetFiles(database, assetRoot, timestamp);
 }

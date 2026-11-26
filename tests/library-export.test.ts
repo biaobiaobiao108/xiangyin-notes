@@ -76,6 +76,9 @@ test("export retains attachments deleted while its stream is active", async () =
         "INSERT INTO image_assets (id,user_id,note_id,storage_path,original_name,mime_type,byte_size,width,height,created_at) VALUES (?,?,?,?,?,'image/png',11,1,1,1)",
       )
       .run(assetId, user.id, noteId, storagePath, "image.png");
+    database
+      .query("UPDATE notes SET content_markdown = ? WHERE id = ?")
+      .run(`![图片](/api/assets/${assetId})`, noteId);
     const request = new Request("http://localhost/api/export/library");
     const response = await handleExportRoute(
       {
@@ -100,7 +103,7 @@ test("export retains attachments deleted while its stream is active", async () =
   }
 });
 
-test("omits missing orphan files but reports missing files referenced by saved Markdown", async () => {
+test("exports only saved references and reports both missing attachment files and missing rows", async () => {
   const root = await mkdtemp(join(tmpdir(), "xiangyin-export-missing-"));
   const database = await openDatabase(join(root, "library.sqlite"));
   try {
@@ -119,6 +122,14 @@ test("omits missing orphan files but reports missing files referenced by saved M
         "INSERT INTO image_assets (id,user_id,storage_path,original_name,mime_type,byte_size,width,height,created_at) VALUES (?,?,?,'pending.png','image/png',11,1,1,1)",
       )
       .run(id, user.id, `${user.id}/${id}.png`);
+    const unpublishedId = crypto.randomUUID();
+    const unpublishedPath = `${user.id}/${unpublishedId}.png`;
+    await Bun.write(join(root, unpublishedPath), "image bytes");
+    database
+      .query(
+        "INSERT INTO image_assets (id,user_id,storage_path,original_name,mime_type,byte_size,width,height,created_at) VALUES (?,?,?,'unpublished.png','image/png',11,1,1,1)",
+      )
+      .run(unpublishedId, user.id, unpublishedPath);
     const exportLibrary = (method: "GET" | "HEAD") => {
       const request = new Request("http://localhost/api/export/library", { method });
       return handleExportRoute(
@@ -139,6 +150,7 @@ test("omits missing orphan files but reports missing files referenced by saved M
     const entries = readZipEntries(new Uint8Array(await exported.arrayBuffer()));
     const metadata = JSON.parse(new TextDecoder().decode(entries.get("metadata.json")));
     expect(metadata.assets).toEqual([]);
+    expect(entries.has(`附件/${unpublishedId}.png`)).toBe(false);
 
     const noteId = createNote(database, user.id, inbox.id, "附件", "");
     database
@@ -148,6 +160,11 @@ test("omits missing orphan files but reports missing files referenced by saved M
     const rejected = (await exportLibrary("GET"))!;
     expect(rejected.status).toBe(500);
     expect((await rejected.json()).error.code).toBe("EXPORT_ASSET_UNAVAILABLE");
+    database.query("DELETE FROM image_assets WHERE id = ?").run(id);
+    expect((await exportLibrary("HEAD"))?.status).toBe(500);
+    const missingRow = (await exportLibrary("GET"))!;
+    expect(missingRow.status).toBe(500);
+    expect((await missingRow.json()).error.code).toBe("EXPORT_ASSET_UNAVAILABLE");
   } finally {
     database.close();
     await rm(root, { recursive: true, force: true });
@@ -187,7 +204,8 @@ test("library export includes owned notes, trash, memos, attachments and metadat
     const assetId = crypto.randomUUID();
     const source = `/api/assets/${assetId}`;
     const unchanged = `路径 ${source}\n\n[${source}](https://elsewhere.example/)\n\n\`${source}\`\n\n\`\`\`\n${source}\n\`\`\`\n\n![外部](https://elsewhere.example${source})`;
-    const markdown = `![图片](${source}?w=100)\n\n${unchanged}\n\n[引用图片][图片引用]\n\n[图片引用]: <${source}>`;
+    const escapedSource = source.replaceAll("/", "\\/");
+    const markdown = `![图片](${escapedSource}?w=100)\n\n${unchanged}\n\n[引用图片][图片引用]\n\n[图片引用]: <${source}>`;
     const noteId = createNote(database, user.id, inbox.id, "重复标题", "");
     const trashId = createNote(database, user.id, inbox.id, "重复标题", "回收站正文");
     database.query("UPDATE notes SET deleted_at = 123, is_favorite = 1 WHERE id = ?").run(trashId);

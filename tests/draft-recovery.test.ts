@@ -70,6 +70,7 @@ test("older IndexedDB completions cannot remove, overwrite or restore a newer re
   } = await import("../app/workspace/draft-recovery");
   const windowDescriptor = Object.getOwnPropertyDescriptor(globalThis, "window");
   const indexedDbDescriptor = Object.getOwnPropertyDescriptor(globalThis, "indexedDB");
+  const keyRangeDescriptor = Object.getOwnPropertyDescriptor(globalThis, "IDBKeyRange");
   const local = new Map<string, string>();
   const indexed = new Map<string, string>();
   const writes: Array<{ transaction: IDBTransaction; key: string; value: string }> = [];
@@ -106,6 +107,24 @@ test("older IndexedDB completions cannot remove, overwrite or restore a newer re
               else queueMicrotask(finish);
               return request;
             },
+            openCursor({ lower, upper }: { lower: string; upper: string }) {
+              const entries = [...indexed].filter(([key]) => key >= lower && key <= upper);
+              const request = {
+                result: null as { key: string; value: string; continue: () => void } | null,
+                onsuccess: null as (() => void) | null,
+              };
+              const next = () => {
+                const entry = entries.shift();
+                request.result = entry
+                  ? { key: entry[0], value: entry[1], continue: () => queueMicrotask(next) }
+                  : null;
+                request.onsuccess?.();
+                if (!entry) (transaction as unknown as IDBTransaction).oncomplete?.({} as Event);
+              };
+              if (holdRead) finishRead = next;
+              else queueMicrotask(next);
+              return request;
+            },
           };
         },
       };
@@ -138,6 +157,10 @@ test("older IndexedDB completions cannot remove, overwrite or restore a newer re
         return request;
       },
     },
+  });
+  Object.defineProperty(globalThis, "IDBKeyRange", {
+    configurable: true,
+    value: { bound: (lower: string, upper: string) => ({ lower, upper }) },
   });
   const large = { ...draft, contentMarkdown: "字".repeat(50_000) };
   const completeWrite = (successful: boolean) => {
@@ -208,7 +231,7 @@ test("older IndexedDB completions cannot remove, overwrite or restore a newer re
     // Another tab can write after this tab observed an empty slot. Clearing a
     // successful save from this tab must not erase that unobserved recovery.
     const sharedDraft = { ...draft, id: "shared-note", title: "另一标签页未保存的内容" };
-    const sharedKey = draftRecoveryStorageKey("owner", sharedDraft.id);
+    const sharedKey = `${DRAFT_RECOVERY_KEY_PREFIX}owner:${sharedDraft.id}`;
     expect(await readDraftRecovery("owner", sharedDraft.id)).toBeNull();
     local.set(sharedKey, JSON.stringify(sharedDraft));
     clearDraftRecovery("owner", sharedDraft.id);
@@ -222,7 +245,7 @@ test("older IndexedDB completions cannot remove, overwrite or restore a newer re
       title: "另一标签页的较大草稿",
     };
     expect(await readDraftRecovery("owner", indexedSharedDraft.id)).toBeNull();
-    const indexedSharedKey = draftRecoveryStorageKey("owner", indexedSharedDraft.id);
+    const indexedSharedKey = `${DRAFT_RECOVERY_KEY_PREFIX}owner:${indexedSharedDraft.id}:another-session`;
     indexed.set(indexedSharedKey, JSON.stringify(indexedSharedDraft));
     clearDraftRecovery("owner", indexedSharedDraft.id);
     await flush();
@@ -261,6 +284,7 @@ test("older IndexedDB completions cannot remove, overwrite or restore a newer re
     expect(await readMissingNoteDraft("owner", draft.id)).toBeNull();
     const owned: Note = {
       ...draft,
+      contentMarkdown: "服务器正文",
       notebookName: "笔记本",
       preview: "",
       tags: [],
@@ -269,7 +293,7 @@ test("older IndexedDB completions cannot remove, overwrite or restore a newer re
       updatedAt: 1,
     };
     expect(await readOwnedNoteDraft("other", { ...owned, notebookId: "different" })).toBeNull();
-    expect(await readOwnedNoteDraft("owner", owned)).toEqual(draft);
+    expect(await readOwnedNoteDraft("owner", owned)).toEqual({ draft, otherDraft: false });
     expect(local.has(legacyKey)).toBe(false);
     expect(await readMissingNoteDraft("other", draft.id)).toBeNull();
     expect((await readMissingNoteDraft("owner", draft.id))?.contentMarkdown).toBe(
@@ -288,10 +312,31 @@ test("older IndexedDB completions cannot remove, overwrite or restore a newer re
     expect(await indexedWrite).toBe(true);
     expect(await readDraftRecovery("other", indexedDraft.id)).toBeNull();
     expect(await readDraftRecovery("owner", indexedDraft.id)).toEqual(indexedDraft);
+
+    const parallelNote = { ...owned, id: "parallel-note" };
+    const remoteTab = { ...draft, id: parallelNote.id, contentMarkdown: "另一标签页独立草稿" };
+    const thisTab = { ...remoteTab, contentMarkdown: "本标签页独立草稿" };
+    const remoteKey = `${DRAFT_RECOVERY_KEY_PREFIX}owner:${parallelNote.id}:another-session`;
+    indexed.set(remoteKey, JSON.stringify(remoteTab));
+    writeDraftRecovery("owner", thisTab);
+    expect(await readOwnedNoteDraft("owner", parallelNote)).toEqual({
+      draft: thisTab,
+      otherDraft: true,
+    });
+    clearDraftRecovery("owner", parallelNote.id, thisTab);
+    expect(await readOwnedNoteDraft("owner", { ...parallelNote, ...thisTab })).toEqual({
+      draft: remoteTab,
+      otherDraft: false,
+    });
+    clearDraftRecovery("owner", parallelNote.id);
+    await flush();
+    expect(await readDraftRecovery("owner", parallelNote.id)).toBeNull();
   } finally {
     if (windowDescriptor) Object.defineProperty(globalThis, "window", windowDescriptor);
     else Reflect.deleteProperty(globalThis, "window");
     if (indexedDbDescriptor) Object.defineProperty(globalThis, "indexedDB", indexedDbDescriptor);
     else Reflect.deleteProperty(globalThis, "indexedDB");
+    if (keyRangeDescriptor) Object.defineProperty(globalThis, "IDBKeyRange", keyRangeDescriptor);
+    else Reflect.deleteProperty(globalThis, "IDBKeyRange");
   }
 });

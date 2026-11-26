@@ -17,6 +17,7 @@ type NoteListCursor = {
   value: number;
   id: string;
   scope?: string;
+  revision?: string;
 };
 
 function encodeNoteListCursor(cursor: NoteListCursor) {
@@ -311,6 +312,7 @@ export function respondNoteList(
   includeMatch: boolean,
   includeTotal: boolean,
   total: number | null,
+  revision?: string,
 ) {
   const hasMore = rows.length > pageLimit;
   const pageRows = hasMore ? rows.slice(0, pageLimit) : rows;
@@ -346,6 +348,7 @@ export function respondNoteList(
                 : lastRow.updated_at,
           id: lastRow.id,
           ...(scope ? { scope } : {}),
+          ...(revision !== undefined ? { revision } : {}),
         })
       : undefined;
   return json({

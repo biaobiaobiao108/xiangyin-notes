@@ -5,11 +5,14 @@ import { join } from "node:path";
 import { openDatabase, type SqliteDatabase } from "../server/db";
 import {
   cleanupOrphanAssets,
+  detachMemoReferencedAssets,
   ORPHAN_ASSET_CLEANUP_INTERVAL_SECONDS,
   ORPHAN_ASSET_TTL_SECONDS,
   removeAssetFiles,
   waitForOrphanAssetCleanup,
 } from "../server/routes/assets";
+import { ensureEnvironmentUser } from "../server/routes/auth";
+import { createNote } from "../server/routes/notes";
 
 let database: SqliteDatabase;
 let assetRoot: string;
@@ -25,6 +28,48 @@ afterEach(async () => {
 });
 
 describe("orphan asset cleanup", () => {
+  test("keeps escaped Markdown attachments in notes and memos while removing unreferenced uploads", async () => {
+    const user = await ensureEnvironmentUser(database, {
+      username: "owner",
+      password: "test-password",
+    });
+    const inbox = database
+      .query<{ id: string }, [string]>(
+        "SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1",
+      )
+      .get(user.id)!;
+    const insert = database.query(
+      "INSERT INTO image_assets (id,user_id,storage_path,original_name,mime_type,byte_size,width,height,created_at) VALUES (?,?,?,'image.png','image/png',11,1,1,1)",
+    );
+    const addImage = async () => {
+      const id = crypto.randomUUID();
+      const storagePath = `${user.id}/${id}.png`;
+      await Bun.write(join(assetRoot, storagePath), "image bytes");
+      insert.run(id, user.id, storagePath);
+      return { id, file: Bun.file(join(assetRoot, storagePath)) };
+    };
+    const attached = await addImage();
+    const memoOnly = await addImage();
+    const unused = await addImage();
+    const image = (id: string) => String.raw`![图片](\/api\/assets\/${id})`;
+    const noteId = createNote(database, user.id, inbox.id, "带图片的笔记", image(attached.id));
+    database
+      .query(
+        "INSERT INTO memos (id,user_id,content_markdown,search_text,created_at,updated_at) VALUES (?,?,?,'',1,1)",
+      )
+      .run(crypto.randomUUID(), user.id, `${image(attached.id)}\n${image(memoOnly.id)}`);
+    await cleanupOrphanAssets(database, assetRoot, ORPHAN_ASSET_TTL_SECONDS + 100);
+    expect(await attached.file.exists()).toBe(true);
+    expect(await memoOnly.file.exists()).toBe(true);
+    expect(await unused.file.exists()).toBe(false);
+    detachMemoReferencedAssets(database, user.id, [noteId]);
+    expect(
+      database.query("SELECT note_id FROM image_assets WHERE id = ?").get(attached.id),
+    ).toEqual({
+      note_id: null,
+    });
+  });
+
   test("retries pending deletion markers when the database has no stale asset rows", async () => {
     const storagePath = "blocked/retry.png";
     const targetPath = join(assetRoot, storagePath);

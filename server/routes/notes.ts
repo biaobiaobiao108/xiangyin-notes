@@ -27,6 +27,7 @@ import {
   validNoteAssetReferences,
   validText,
 } from "../core";
+import { NOTE_SEARCH_REVISION_KEY } from "../db";
 import { publishWorkspaceChange } from "../realtime";
 import { assetPathsForNotes, detachMemoReferencedAssets, removeAssetFiles } from "./assets";
 import { insertKanbanCard, isValidKanbanStatus } from "./kanban";
@@ -187,9 +188,20 @@ export async function handleNotesRoute(
       conditions.push(`(${tagConditions.join(tagMode === "any" ? " OR " : " AND ")})`);
       params.push(...normalizedTagFilters);
     }
-    // The title preflight and page query share a read snapshot.
-    const resultRows = parsedSearch
+    // Read the cursor revision, title matches and ranked rows from one snapshot.
+    const searchResult = parsedSearch
       ? database.transaction(() => {
+          const revision =
+            sort === "relevance"
+              ? first<{ value: string }>(
+                  database,
+                  "SELECT value FROM app_metadata WHERE key = ?",
+                  NOTE_SEARCH_REVISION_KEY,
+                )!.value
+              : undefined;
+          if (cursor && sort === "relevance" && cursor.revision !== revision) {
+            return jsonError(409, "SEARCH_CURSOR_STALE", "笔记搜索索引已变化，请从第一页重新搜索");
+          }
           const plan = buildOptimizedNoteListPlan({
             userId: user.id,
             view: view as NoteView,
@@ -212,15 +224,18 @@ export async function handleNotesRoute(
             ),
           });
           if (!plan) return null;
-          return database.query(plan.sql).all(...plan.params) as (NoteRow & {
+          const resultRows = database.query(plan.sql).all(...plan.params) as (NoteRow & {
             tags_json: string;
             relevance_score: number;
             match_snippet?: string;
             search_total?: number;
           })[];
+          return { resultRows, revision };
         })()
       : null;
-    if (resultRows) {
+    if (searchResult instanceof Response) return searchResult;
+    if (searchResult) {
+      const { resultRows, revision } = searchResult;
       const rows = resultRows.filter((row) => row.id !== null);
       return respondNoteList(
         rows,
@@ -232,6 +247,7 @@ export async function handleNotesRoute(
         includeMatch,
         includeTotal,
         includeTotal ? Number(resultRows[0]?.search_total ?? 0) : null,
+        revision,
       );
     }
     const totalWhere = conditions.join(" AND ") || "1";

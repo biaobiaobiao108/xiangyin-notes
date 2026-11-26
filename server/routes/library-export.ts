@@ -5,11 +5,11 @@ import { createZipReadableStream, type ZipStreamEntry } from "../../shared/zip";
 import {
   all,
   jsonError,
-  noteAssetIds,
   rewriteMarkdownAssetDestinations,
   type RouteContext,
   type UserRow,
 } from "../core";
+import { referencedAssetIds } from "../note-assets";
 import { assetFilePath, assetRootFromEnv, retainExportAssets } from "./assets";
 
 type LibraryNote = {
@@ -165,15 +165,26 @@ export async function handleLibraryExport(ctx: RouteContext, user: UserRow): Pro
         "SELECT note_id, status, sort_order, created_at, updated_at FROM kanban_cards WHERE user_id = ? AND status != 'archived' ORDER BY note_id",
         user.id,
       ),
-      assets: all<LibraryAsset>(
-        database,
-        "SELECT id, note_id, storage_path, original_name, mime_type, byte_size, created_at FROM image_assets WHERE user_id = ? ORDER BY id",
-        user.id,
-      ),
     });
     const snapshot = database.transaction(() => {
       const snapshot = readSnapshot();
       if (Math.ceil(snapshot.textBytes.total * 1.15) >= 0xffffffff) return null;
+      const bodies = database
+        .query<{ content_markdown: string }, [string, string]>(
+          "SELECT content_markdown FROM notes WHERE user_id = ? UNION ALL SELECT content_markdown FROM memos WHERE user_id = ?",
+        )
+        .iterate(user.id, user.id);
+      const references = referencedAssetIds(bodies);
+      const assets = all<LibraryAsset>(
+        database,
+        `SELECT id, note_id, storage_path, original_name, mime_type, byte_size, created_at
+         FROM image_assets WHERE user_id = ? AND lower(id) IN (SELECT value FROM json_each(?)) ORDER BY id`,
+        user.id,
+        JSON.stringify([...references]),
+      );
+      if (new Set(assets.map(({ id }) => id.toLowerCase())).size !== references.size) {
+        return { missingAssets: true } as const;
+      }
       if (stageContent) {
         // Copy only the exported bodies into SQLite's temporary storage. End
         // the live database read before streaming to a slow client.
@@ -192,10 +203,14 @@ export async function handleLibraryExport(ctx: RouteContext, user: UserRow): Pro
           )
           .run(user.id);
       }
-      return snapshot;
+      return { ...snapshot, assets };
     })();
     if (!snapshot)
       return jsonError(413, "EXPORT_TOO_LARGE", "整库内容超过 ZIP 导出大小限制，请使用数据库备份");
+    if ("missingAssets" in snapshot) {
+      console.error("[export] 已保存的正文引用了缺失的附件记录");
+      return jsonError(500, "EXPORT_ASSET_UNAVAILABLE", "附件记录缺失，无法完成整库导出");
+    }
     const root = ctx.options.assetRoot ?? assetRootFromEnv(ctx.options.environment);
     if (ctx.method !== "HEAD")
       releaseAssets = retainExportAssets(
@@ -204,7 +219,6 @@ export async function handleLibraryExport(ctx: RouteContext, user: UserRow): Pro
       );
     const assetNames = new Map<string, string>();
     const files: Array<{ name: string; path: string; size: number }> = [];
-    const unavailableAssets = new Map<string, unknown>();
     for (const asset of snapshot.assets) {
       try {
         const path = assetFilePath(root, asset.storage_path);
@@ -218,28 +232,7 @@ export async function handleLibraryExport(ctx: RouteContext, user: UserRow): Pro
         assetNames.set(asset.id.toLowerCase(), name);
         files.push({ name, path, size: info.size });
       } catch (error) {
-        unavailableAssets.set(asset.id.toLowerCase(), error);
-      }
-    }
-    if (unavailableAssets.size > 0) {
-      // An unfinished or orphaned upload should only block export if saved Markdown uses it.
-      const rows = stageContent
-        ? database
-            .query<{ content_markdown: string }, []>(
-              "SELECT content_markdown FROM temp.export_notes UNION ALL SELECT content_markdown FROM temp.export_memos",
-            )
-            .iterate()
-        : ctx.method === "HEAD"
-          ? database
-              .query<{ content_markdown: string }, [string, string]>(
-                "SELECT content_markdown FROM notes WHERE user_id = ? UNION ALL SELECT content_markdown FROM memos WHERE user_id = ?",
-              )
-              .iterate(user.id, user.id)
-          : [...snapshot.notes, ...snapshot.memos];
-      for (const { content_markdown: markdown } of rows) {
-        const referenced = noteAssetIds(markdown).find((id) => unavailableAssets.has(id));
-        if (!referenced) continue;
-        console.error("[export] 无法读取附件，已取消整库导出", unavailableAssets.get(referenced));
+        console.error("[export] 无法读取附件，已取消整库导出", error);
         return jsonError(
           500,
           "EXPORT_ASSET_UNAVAILABLE",

@@ -1,12 +1,7 @@
 import { useCallback, useEffect } from "react";
 import type { Note } from "../../shared/types";
 import { ApiError, api } from "../api";
-import {
-  clearDraftRecovery,
-  noteMatchesDraft,
-  readOwnedNoteDraft,
-  readMissingNoteDraft,
-} from "./draft-recovery";
+import { readOwnedNoteDraft, readMissingNoteDraft } from "./draft-recovery";
 import { noteMetadataSnapshot, toNoteDraft, type NoteDraft } from "./helpers";
 import { latestSelectedNoteSnapshot } from "./selected-note-sync";
 import { isMissingNoteError, noteSaveFailureState, type SaveState } from "./use-note-save-queue";
@@ -85,22 +80,24 @@ export function useSelectedNoteLoader({
         // The load can outlive a queued save; do not recover the same draft after
         // that save has already succeeded and started clearing its recovery copy.
         if (!pendingNote && !pendingSavesRef.current.has(id)) {
-          const recoveredDraft = await readOwnedNoteDraft(userId, result.note);
+          const recovery = await readOwnedNoteDraft(userId, result.note);
           if (requestId !== noteLoadRequestRef.current || activeNoteIdRef.current !== id) return;
           loadedNote = latestSelectedNoteSnapshot(loadedNote, selectedRef.current);
-          if (recoveredDraft && noteMatchesDraft(result.note, recoveredDraft)) {
-            clearDraftRecovery(userId, id, recoveredDraft);
-          } else if (recoveredDraft && !pendingSavesRef.current.has(id)) {
+          if (recovery && !pendingSavesRef.current.has(id)) {
+            const { draft: recoveredDraft, otherDraft } = recovery;
+            const remainingDrafts = otherDraft ? "。重新打开笔记可继续处理其他草稿" : "";
             pendingSavesRef.current.set(id, recoveredDraft);
             if (recoveredDraft.version === loadedNote.version) {
-              notifyWarning("已恢复一份未保存草稿");
+              notifyWarning(`已恢复一份未保存草稿${remainingDrafts}`);
             } else {
               failedSavesRef.current.set(
                 id,
                 new ApiError(409, "VERSION_CONFLICT", "恢复的草稿与服务器版本不同"),
               );
               setSaveState("conflict");
-              notifyWarning("已保留未保存草稿；服务器版本已变化，请先复制需要的修改再重新载入");
+              notifyWarning(
+                `已保留未保存草稿；服务器版本已变化，请先复制需要的修改再重新载入${remainingDrafts}`,
+              );
             }
           }
         }

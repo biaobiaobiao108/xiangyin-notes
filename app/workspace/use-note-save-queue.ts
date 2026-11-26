@@ -211,7 +211,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
             draftRecoveryTimersRef.current.delete(noteId);
 
             if (next) writeDraftRecovery(userId, next);
-            else clearDraftRecovery(userId, noteId);
+            else clearDraftRecovery(userId, noteId, draft);
 
             failedSavesRef.current.delete(noteId);
             const nextSummary = next ? toNoteSummary(next) : undefined;

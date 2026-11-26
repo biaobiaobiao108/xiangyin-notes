@@ -138,6 +138,28 @@ test("relevance prioritizes title matches, cursors retain scores and reject chan
   }
 });
 
+test("rejects a relevance cursor when unrelated notes change the FTS corpus", async () => {
+  const f = await fixture();
+  try {
+    const firstId = f.create("first", "quartz");
+    const secondId = f.create("second", "quartz quartz quartz extra words");
+    const query = "query=quartz&sort=relevance";
+    const first = await (await f.list(`${query}&limit=1`)).json();
+    expect(first.nextCursor).toBeString();
+    f.create("unrelated", "separate unrelated text");
+    const stale = await f.list(`${query}&limit=1&cursor=${first.nextCursor}`);
+    expect(stale.status).toBe(409);
+    expect((await stale.json()).error.code).toBe("SEARCH_CURSOR_STALE");
+    const fresh = await (await f.list(`${query}&limit=2`)).json();
+    expect(new Set(fresh.notes.map((note: { id: string }) => note.id))).toEqual(
+      new Set([firstId, secondId]),
+    );
+  } finally {
+    await waitForOrphanAssetCleanup(f.database);
+    f.database.close();
+  }
+});
+
 test("short-term relevance paginates ties and relevance without a query falls back to updated", async () => {
   const f = await fixture();
   try {
