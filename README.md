@@ -366,7 +366,7 @@ macOS 上把 `Ctrl` 换成 `⌘`，把 `Alt` 换成 `⌥`。
 
 ## 项目信息
 
-象映笔记使用 Bun、TypeScript、React、Bun Server 和 SQLite 构建。开发时运行 `bun run dev`，类型检查、测试和构建命令分别是 `bun run typecheck`、`bun test` 和 `bun run build`；内容性能基准使用 `bun run bench:content`。
+象映笔记使用 Bun、TypeScript、React、Bun Server 和 SQLite 构建。开发时运行 `bun run dev`，类型检查、测试和构建命令分别是 `bun run typecheck`、`bun test` 和 `bun run build`；`bun run css:budget` 检查样式总量预算，内容性能基准使用 `bun run bench:content`。
 
 生产构建完成后，可使用全局 Playwright 1.64.1 和 Chromium 运行 `bun run bench:browser`，或运行 `bun run e2e` 执行核心路径浏览器回归测试（CI 会自动安装 Chromium 并执行）。如果 Playwright 安装在其他位置，可用 `PLAYWRIGHT_MODULE` 指定其 `index.mjs` 的绝对路径。
 

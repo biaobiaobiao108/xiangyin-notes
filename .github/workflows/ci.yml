@@ -41,6 +41,9 @@ jobs:
       - name: Build application
         run: bun run build
 
+      - name: CSS budget
+        run: bun run css:budget
+
       - name: Test
         run: bun test --check
 

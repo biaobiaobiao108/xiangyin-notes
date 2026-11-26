@@ -12,6 +12,7 @@
     "build": "bun run build:client && bun run build:server",
     "start": "bun dist/server/index.js",
     "typecheck": "bun check",
+    "css:budget": "bun run scripts/check-css-budget.ts",
     "test": "bun test --check",
     "bench:content": "bun run scripts/benchmark-content.ts",
     "bench:browser": "bun run scripts/browser-benchmark.mjs",
