@@ -48,18 +48,21 @@ describe("Image lightbox zoom", () => {
       right: false,
       top: false,
       bottom: false,
+      visible: { left: 33, top: 116.5, width: 734, height: 367 },
     });
     expect(imageClippedEdges(base, stage, 200, { x: 0, y: 0 })).toEqual({
       left: true,
       right: true,
       top: true,
       bottom: true,
+      visible: { left: 0, top: 0, width: 800, height: 600 },
     });
     expect(imageClippedEdges(base, stage, 200, { x: 368, y: 101 })).toEqual({
       left: false,
       right: true,
       top: false,
       bottom: true,
+      visible: { left: 34, top: 34, width: 766, height: 566 },
     });
   });
 });

@@ -50,15 +50,16 @@
 
 .image-lightbox-edge--left,
 .image-lightbox-edge--right {
-  inset-block: 0;
-  inline-size: clamp(32px, 4vw, 64px);
+  inset-block-start: var(--image-lightbox-edge-top, 0);
+  inline-size: clamp(12px, 1.5vw, 20px);
+  block-size: var(--image-lightbox-edge-height, 0);
 }
 
 .image-lightbox-edge--left {
   inset-inline-start: 0;
   background: linear-gradient(
     to right,
-    color-mix(in srgb, var(--canvas) 82%, transparent),
+    color-mix(in srgb, var(--canvas) 64%, transparent),
     transparent
   );
 }
@@ -67,22 +68,23 @@
   inset-inline-end: 0;
   background: linear-gradient(
     to left,
-    color-mix(in srgb, var(--canvas) 82%, transparent),
+    color-mix(in srgb, var(--canvas) 64%, transparent),
     transparent
   );
 }
 
 .image-lightbox-edge--top,
 .image-lightbox-edge--bottom {
-  inset-inline: 0;
-  block-size: clamp(32px, 4vw, 64px);
+  inset-inline-start: var(--image-lightbox-edge-left, 0);
+  inline-size: var(--image-lightbox-edge-width, 0);
+  block-size: clamp(12px, 1.5vw, 20px);
 }
 
 .image-lightbox-edge--top {
   inset-block-start: 0;
   background: linear-gradient(
     to bottom,
-    color-mix(in srgb, var(--canvas) 82%, transparent),
+    color-mix(in srgb, var(--canvas) 64%, transparent),
     transparent
   );
 }
@@ -91,7 +93,7 @@
   inset-block-end: 0;
   background: linear-gradient(
     to top,
-    color-mix(in srgb, var(--canvas) 82%, transparent),
+    color-mix(in srgb, var(--canvas) 64%, transparent),
     transparent
   );
 }

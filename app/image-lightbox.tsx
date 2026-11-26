@@ -90,12 +90,27 @@ export function imageClippedEdges(base: Size, stage: Size, zoomPercent: number, 
   const scale = clampImageZoom(zoomPercent) / 100;
   const horizontalGap = (stage.width - base.width * scale) / 2;
   const verticalGap = (stage.height - base.height * scale) / 2;
+  const frameInset = (FRAME_CHROME / 2) * scale;
+  const contentLeft = horizontalGap + pan.x + frameInset;
+  const contentTop = verticalGap + pan.y + frameInset;
+  const contentRight = horizontalGap + pan.x + base.width * scale - frameInset;
+  const contentBottom = verticalGap + pan.y + base.height * scale - frameInset;
+  const visibleLeft = Math.max(0, contentLeft);
+  const visibleTop = Math.max(0, contentTop);
+  const visibleRight = Math.min(stage.width, contentRight);
+  const visibleBottom = Math.min(stage.height, contentBottom);
   const threshold = 0.5;
   return {
-    left: horizontalGap + pan.x < -threshold,
-    right: horizontalGap - pan.x < -threshold,
-    top: verticalGap + pan.y < -threshold,
-    bottom: verticalGap - pan.y < -threshold,
+    left: contentLeft < -threshold,
+    right: contentRight > stage.width + threshold,
+    top: contentTop < -threshold,
+    bottom: contentBottom > stage.height + threshold,
+    visible: {
+      left: visibleLeft,
+      top: visibleTop,
+      width: Math.max(0, visibleRight - visibleLeft),
+      height: Math.max(0, visibleBottom - visibleTop),
+    },
   };
 }
 
@@ -127,6 +142,10 @@ export function ImageLightbox({
     if (!frame || !stage) return;
     frame.style.transform = `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom / 100})`;
     const clipped = imageClippedEdges(baseSizeRef.current, stageSizeRef.current, zoom, pan);
+    stage.style.setProperty("--image-lightbox-edge-left", `${clipped.visible.left}px`);
+    stage.style.setProperty("--image-lightbox-edge-top", `${clipped.visible.top}px`);
+    stage.style.setProperty("--image-lightbox-edge-width", `${clipped.visible.width}px`);
+    stage.style.setProperty("--image-lightbox-edge-height", `${clipped.visible.height}px`);
     stage.classList.toggle("is-clipped-left", clipped.left);
     stage.classList.toggle("is-clipped-right", clipped.right);
     stage.classList.toggle("is-clipped-top", clipped.top);
