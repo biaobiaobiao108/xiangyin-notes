@@ -1,16 +1,14 @@
 import {
   useCallback,
-  useEffect,
-  useId,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type RefObject,
 } from "react";
-import { createPortal } from "react-dom";
-import { Copy, Maximize2, X } from "lucide-react";
+import { Copy, Maximize2 } from "lucide-react";
 import { dispatchKeyboardContextMenu, useContextMenu, type ContextMenuItem } from "./context-menu";
+import { ImageLightbox, type ImageViewerState } from "./image-lightbox";
 
 const MAX_COPY_SIDE = 4096;
 const MAX_COPY_PIXELS = 16_000_000;
@@ -24,14 +22,6 @@ type ImageCopyOptions = {
   padding?: number;
   scale?: number;
   background?: string | null;
-};
-
-type ImageViewerState = {
-  src: string;
-  alt: string;
-  width: number;
-  height: number;
-  trigger: HTMLElement | null;
 };
 
 export function imageCopyGeometry(
@@ -154,59 +144,6 @@ export function writeImageClipboard(
 
 export function copyRasterImage(image: HTMLImageElement) {
   return writeImageClipboard(() => imagePngBlob(image));
-}
-
-function ImageLightbox({ state, onClose }: { state: ImageViewerState; onClose: () => void }) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const headingId = useId();
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    dialog.showModal();
-    dialog.querySelector<HTMLButtonElement>(".image-lightbox-close")?.focus({
-      preventScroll: true,
-    });
-    return () => {
-      if (dialog.open) dialog.close();
-    };
-  }, []);
-
-  return createPortal(
-    <dialog
-      ref={dialogRef}
-      className="image-lightbox"
-      aria-labelledby={headingId}
-      onCancel={(event) => {
-        event.preventDefault();
-        onClose();
-      }}
-      onClick={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-    >
-      <h2 id={headingId} className="visually-hidden">
-        图片预览
-      </h2>
-      <button
-        className="icon-button image-lightbox-close"
-        type="button"
-        aria-label="关闭图片预览"
-        onClick={onClose}
-      >
-        <X size={18} aria-hidden="true" />
-      </button>
-      <img
-        className="image-lightbox-image"
-        src={state.src}
-        alt={state.alt}
-        width={state.width}
-        height={state.height}
-        draggable={false}
-      />
-    </dialog>,
-    document.body,
-  );
 }
 
 export function useImageActions({

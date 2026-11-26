@@ -1,11 +1,12 @@
 .image-lightbox {
   inset: 0;
   display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 16px;
   inline-size: 100vw;
   block-size: 100dvh;
   max-inline-size: none;
   max-block-size: none;
-  place-items: center;
   margin: auto;
   padding: 16px;
   border: 0;
@@ -13,25 +14,101 @@
   overflow: hidden;
 }
 
-.image-lightbox-image {
-  display: block;
-  max-inline-size: 100%;
-  max-block-size: 100%;
-  inline-size: auto;
-  block-size: auto;
+.image-lightbox-stage {
+  position: relative;
+  display: grid;
+  inline-size: 100%;
+  block-size: 100%;
+  min-inline-size: 0;
+  min-block-size: 0;
+  place-items: center;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  touch-action: none;
+}
+
+.image-lightbox-stage:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--focus-ring);
+}
+
+.image-lightbox-enter {
+  display: grid;
+  inline-size: 100%;
+  block-size: 100%;
+  place-items: center;
+  pointer-events: none;
+  animation: image-lightbox-in var(--motion-panel) var(--motion-ease-out) both;
+}
+
+.image-lightbox-frame {
+  display: grid;
+  inline-size: var(--image-lightbox-base-width, 1px);
+  block-size: var(--image-lightbox-base-height, 1px);
   padding: 16px;
+  place-items: center;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface);
   box-shadow: var(--shadow-float);
-  animation: image-lightbox-in var(--motion-panel) var(--motion-ease-out) both;
+  transform-origin: center;
+  transition: transform var(--motion-fast) var(--motion-ease-out);
+  pointer-events: auto;
+  user-select: none;
+}
+
+.image-lightbox-frame.is-pannable {
+  cursor: grab;
+}
+
+.image-lightbox-frame.is-dragging {
+  cursor: grabbing;
+  transition: none;
+  will-change: transform;
+}
+
+.image-lightbox-image {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.image-lightbox-toolbar {
+  display: flex;
+  align-items: center;
+  justify-self: center;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.image-lightbox-zoom {
+  min-inline-size: 52px;
+  color: var(--quiet-ink);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.image-lightbox-fit {
+  min-block-size: 36px;
+  padding-inline: 10px;
+  white-space: nowrap;
 }
 
 .image-lightbox-close {
   position: fixed;
   inset-block-start: 16px;
   inset-inline-end: 16px;
-  z-index: 1;
+  z-index: 2;
   background: var(--surface);
   box-shadow: var(--shadow-sm);
 }
@@ -48,7 +125,11 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .image-lightbox-image {
+  .image-lightbox-enter {
     animation: none;
+  }
+
+  .image-lightbox-frame {
+    transition: none;
   }
 }
