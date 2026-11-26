@@ -11,6 +11,7 @@ import { FloatingScrollbar } from "../floating-scrollbar";
 import { DiagramPreview } from "../mermaid/diagram-preview";
 import { useDiagramActivation } from "../mermaid/use-diagram-activation";
 import { useDiagramHeight } from "../mermaid/use-diagram-height";
+import { useMermaidImageActions } from "../mermaid/image-actions";
 
 export function MermaidCodeBlock({
   node,
@@ -24,10 +25,12 @@ export function MermaidCodeBlock({
   const [dismissedSelection, setDismissedSelection] = useState<string | null>(null);
   const [previewSource, setPreviewSource] = useState(node.textContent);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const sourceRef = useRef<HTMLDivElement>(null);
   const sourceId = useId();
+  const imageActions = useMermaidImageActions(rootRef);
   const position = useEditorState({
     editor,
     selector: ({ editor: current }) => {
@@ -127,7 +130,12 @@ export function MermaidCodeBlock({
   }, [editable, editor, getPos, showSource]);
 
   return (
-    <NodeViewWrapper className="mermaid-code-block">
+    <NodeViewWrapper
+      ref={rootRef}
+      className="mermaid-code-block"
+      onContextMenu={imageActions.onContextMenu}
+      onKeyDown={imageActions.onKeyDown}
+    >
       {!editable ? (
         <div className="mermaid-toolbar" contentEditable={false}>
           <button
@@ -188,6 +196,7 @@ export function MermaidCodeBlock({
           ) : null}
         </div>
       </div>
+      {imageActions.menu}
     </NodeViewWrapper>
   );
 }

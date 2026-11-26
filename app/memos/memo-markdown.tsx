@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { DiagramPreview } from "../mermaid/diagram-preview";
 import { useDiagramHeight } from "../mermaid/use-diagram-height";
 import { useDiagramActivation } from "../mermaid/use-diagram-activation";
+import { useMermaidImageActions } from "../mermaid/image-actions";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { normalizeMemoComposerContent, preserveMemoBlankParagraphs } from "./memo-markdown-spacing";
 import { isMermaidLanguage, mermaidTokenSource } from "../mermaid/protocol";
@@ -228,6 +229,7 @@ function MemoDiagram({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const sourceId = useId();
   const diagramActivation = useDiagramActivation(() => setShowSource(true), false);
+  const imageActions = useMermaidImageActions(bodyRef);
   useDiagramHeight(bodyRef, previewRef);
 
   useLayoutEffect(() => {
@@ -246,7 +248,13 @@ function MemoDiagram({
   }, [showSource]);
 
   return (
-    <div className="mermaid-body memo-mermaid-frame" ref={bodyRef} onClick={onCopy}>
+    <div
+      ref={bodyRef}
+      className="mermaid-body memo-mermaid-frame"
+      onClick={onCopy}
+      onContextMenu={imageActions.onContextMenu}
+      onKeyDown={imageActions.onKeyDown}
+    >
       <div
         className="mermaid-rendered is-editable"
         ref={previewRef}
@@ -298,6 +306,7 @@ function MemoDiagram({
           />
         ) : null}
       </div>
+      {imageActions.menu}
     </div>
   );
 }
