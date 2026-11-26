@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   clampImagePan,
   clampImageZoom,
+  imageClippedEdges,
   imageLightboxFit,
   imagePanBounds,
   imageZoomStep,
@@ -37,5 +38,28 @@ describe("Image lightbox zoom", () => {
     const bounds = imagePanBounds(base, stage, 200);
     expect(bounds).toEqual({ x: 368, y: 101 });
     expect(clampImagePan({ x: 400, y: -200 }, bounds)).toEqual({ x: 368, y: -101 });
+  });
+
+  test("marks only the clipped edges as content is panned", () => {
+    const base = { width: 768, height: 401 };
+    const stage = { width: 800, height: 600 };
+    expect(imageClippedEdges(base, stage, 100, { x: 0, y: 0 })).toEqual({
+      left: false,
+      right: false,
+      top: false,
+      bottom: false,
+    });
+    expect(imageClippedEdges(base, stage, 200, { x: 0, y: 0 })).toEqual({
+      left: true,
+      right: true,
+      top: true,
+      bottom: true,
+    });
+    expect(imageClippedEdges(base, stage, 200, { x: 368, y: 101 })).toEqual({
+      left: false,
+      right: true,
+      top: false,
+      bottom: true,
+    });
   });
 });

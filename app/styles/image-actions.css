@@ -40,6 +40,69 @@
   animation: image-lightbox-in var(--motion-panel) var(--motion-ease-out) both;
 }
 
+.image-lightbox-edge {
+  position: absolute;
+  z-index: 1;
+  opacity: 0;
+  transition: opacity var(--motion-fast) var(--motion-ease-out);
+  pointer-events: none;
+}
+
+.image-lightbox-edge--left,
+.image-lightbox-edge--right {
+  inset-block: 0;
+  inline-size: clamp(32px, 4vw, 64px);
+}
+
+.image-lightbox-edge--left {
+  inset-inline-start: 0;
+  background: linear-gradient(
+    to right,
+    color-mix(in srgb, var(--canvas) 82%, transparent),
+    transparent
+  );
+}
+
+.image-lightbox-edge--right {
+  inset-inline-end: 0;
+  background: linear-gradient(
+    to left,
+    color-mix(in srgb, var(--canvas) 82%, transparent),
+    transparent
+  );
+}
+
+.image-lightbox-edge--top,
+.image-lightbox-edge--bottom {
+  inset-inline: 0;
+  block-size: clamp(32px, 4vw, 64px);
+}
+
+.image-lightbox-edge--top {
+  inset-block-start: 0;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--canvas) 82%, transparent),
+    transparent
+  );
+}
+
+.image-lightbox-edge--bottom {
+  inset-block-end: 0;
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--canvas) 82%, transparent),
+    transparent
+  );
+}
+
+.image-lightbox-stage.is-clipped-left .image-lightbox-edge--left,
+.image-lightbox-stage.is-clipped-right .image-lightbox-edge--right,
+.image-lightbox-stage.is-clipped-top .image-lightbox-edge--top,
+.image-lightbox-stage.is-clipped-bottom .image-lightbox-edge--bottom {
+  opacity: 1;
+}
+
 .image-lightbox-frame {
   display: grid;
   inline-size: var(--image-lightbox-base-width, 1px);
@@ -98,10 +161,11 @@
   text-align: center;
 }
 
-.image-lightbox-fit {
-  min-block-size: 36px;
-  padding-inline: 10px;
-  white-space: nowrap;
+.image-lightbox-divider {
+  inline-size: 1px;
+  block-size: 20px;
+  margin-inline: 4px;
+  background: var(--border);
 }
 
 .image-lightbox-close {
@@ -130,6 +194,10 @@
   }
 
   .image-lightbox-frame {
+    transition: none;
+  }
+
+  .image-lightbox-edge {
     transition: none;
   }
 }

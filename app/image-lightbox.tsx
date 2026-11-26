@@ -86,6 +86,19 @@ export function clampImagePan(pan: Point, bounds: Point) {
   };
 }
 
+export function imageClippedEdges(base: Size, stage: Size, zoomPercent: number, pan: Point) {
+  const scale = clampImageZoom(zoomPercent) / 100;
+  const horizontalGap = (stage.width - base.width * scale) / 2;
+  const verticalGap = (stage.height - base.height * scale) / 2;
+  const threshold = 0.5;
+  return {
+    left: horizontalGap + pan.x < -threshold,
+    right: horizontalGap - pan.x < -threshold,
+    top: verticalGap + pan.y < -threshold,
+    bottom: verticalGap - pan.y < -threshold,
+  };
+}
+
 export function ImageLightbox({
   state,
   onClose,
@@ -108,10 +121,16 @@ export function ImageLightbox({
   const [dragging, setDragging] = useState(false);
   const headingId = useId();
 
-  const applyTransform = useCallback((zoom: number, pan: Point) => {
+  const applyViewState = useCallback((zoom: number, pan: Point) => {
     const frame = frameRef.current;
-    if (!frame) return;
+    const stage = stageRef.current;
+    if (!frame || !stage) return;
     frame.style.transform = `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom / 100})`;
+    const clipped = imageClippedEdges(baseSizeRef.current, stageSizeRef.current, zoom, pan);
+    stage.classList.toggle("is-clipped-left", clipped.left);
+    stage.classList.toggle("is-clipped-right", clipped.right);
+    stage.classList.toggle("is-clipped-top", clipped.top);
+    stage.classList.toggle("is-clipped-bottom", clipped.bottom);
   }, []);
 
   const setView = useCallback(
@@ -122,11 +141,11 @@ export function ImageLightbox({
       const canPan = bounds.x > 0 || bounds.y > 0;
       zoomRef.current = zoom;
       panRef.current = pan;
-      applyTransform(zoom, pan);
+      applyViewState(zoom, pan);
       setZoomPercent((current) => (current === zoom ? current : zoom));
       setPannable((current) => (current === canPan ? current : canPan));
     },
-    [applyTransform],
+    [applyViewState],
   );
 
   const measureStage = useCallback(() => {
@@ -172,7 +191,7 @@ export function ImageLightbox({
     if (pendingPanRef.current) {
       panRef.current = pendingPanRef.current;
       pendingPanRef.current = null;
-      applyTransform(zoomRef.current, panRef.current);
+      applyViewState(zoomRef.current, panRef.current);
     }
     const frame = frameRef.current;
     frame?.style.removeProperty("transition");
@@ -215,7 +234,7 @@ export function ImageLightbox({
       const pan = pendingPanRef.current;
       if (!pan) return;
       panRef.current = pan;
-      applyTransform(zoomRef.current, pan);
+      applyViewState(zoomRef.current, pan);
     });
   };
 
@@ -292,6 +311,10 @@ export function ImageLightbox({
             />
           </div>
         </div>
+        <div className="image-lightbox-edge image-lightbox-edge--left" aria-hidden="true" />
+        <div className="image-lightbox-edge image-lightbox-edge--right" aria-hidden="true" />
+        <div className="image-lightbox-edge image-lightbox-edge--top" aria-hidden="true" />
+        <div className="image-lightbox-edge image-lightbox-edge--bottom" aria-hidden="true" />
       </div>
       <div className="image-lightbox-toolbar" role="group" aria-label="图片缩放">
         <button
@@ -315,13 +338,14 @@ export function ImageLightbox({
         >
           <Plus size={17} aria-hidden="true" />
         </button>
+        <span className="image-lightbox-divider" aria-hidden="true" />
         <button
-          className="secondary-button image-lightbox-fit"
+          className="icon-button"
           type="button"
+          aria-label="适合窗口"
           onClick={() => setView(100, { x: 0, y: 0 })}
         >
-          <Scan size={15} aria-hidden="true" />
-          适合窗口
+          <Scan size={17} aria-hidden="true" />
         </button>
       </div>
     </dialog>,
