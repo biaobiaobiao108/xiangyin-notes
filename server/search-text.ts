@@ -71,6 +71,10 @@ function appendMarkdownText(token: MarkdownTextToken, output: string[]) {
     output.push("\n");
 }
 
+export function normalizeSearchWhitespace(text: string) {
+  return text.replace(/\s+/g, " ").trim();
+}
+
 /** Plain, visible note text used for search and search snippets. */
 export function searchableTextFromMarkdown(
   markdown: string,
@@ -80,7 +84,7 @@ export function searchableTextFromMarkdown(
   const tokens = (parsedTokens ?? new Lexer({ gfm: true }).lex(markdown)) as MarkdownTextToken[];
   const output: string[] = [];
   for (const token of tokens) appendMarkdownText(token, output);
-  return output.join("").replace(/\s+/g, " ").trim();
+  return normalizeSearchWhitespace(output.join(""));
 }
 
 // `instr` is case-sensitive. Only use it when no character in the term has a

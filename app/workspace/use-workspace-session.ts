@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { api, ApiError } from "../api";
+import type { User } from "../../shared/types";
 
 export function useWorkspaceSession() {
   const navigate = useNavigate();
   const [ready, setReady] = useState(false);
-  const [currentUserKey, setCurrentUserKey] = useState("");
+  const [user, setUser] = useState<User | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [retryToken, setRetryToken] = useState(0);
 
@@ -31,7 +32,7 @@ export function useWorkspaceSession() {
         try {
           const session = await api.me();
           if (!disposed) {
-            setCurrentUserKey(session.user.username);
+            setUser(session.user);
             setReady(true);
           }
         } catch (error) {
@@ -55,5 +56,5 @@ export function useWorkspaceSession() {
     };
   }, [navigate, retryToken]);
 
-  return { ready, currentUserKey, handleUnauthorized, connectionError, retry };
+  return { ready, user, handleUnauthorized, connectionError, retry };
 }

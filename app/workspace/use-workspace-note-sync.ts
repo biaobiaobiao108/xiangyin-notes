@@ -22,6 +22,7 @@ import { isMissingNoteError, type SaveState } from "./use-note-save-queue";
 import type { MobileListContext } from "./use-mobile-navigation";
 
 export type UseWorkspaceNoteSyncOptions = {
+  userId: string | null;
   ready: boolean;
   initialLinkedNoteId: string | null;
   pendingLinkedNoteRef: MutableRefObject<string | null>;
@@ -67,6 +68,7 @@ export type UseWorkspaceNoteSyncOptions = {
 };
 
 export function useWorkspaceNoteSync({
+  userId,
   ready,
   initialLinkedNoteId,
   pendingLinkedNoteRef,
@@ -128,7 +130,7 @@ export function useWorkspaceNoteSync({
   };
 
   useEffect(() => {
-    if (!ready || !initialLinkedNoteId || !pendingLinkedNoteRef.current) return;
+    if (!ready || !userId || !initialLinkedNoteId || !pendingLinkedNoteRef.current) return;
     const controller = new AbortController();
     // Consume the link before creating page entries so returning to the list
     // and refreshing does not reopen the linked note.
@@ -143,7 +145,7 @@ export function useWorkspaceNoteSync({
       .getNote(initialLinkedNoteId, { signal: controller.signal })
       .catch(async (error) => {
         if (!isMissingNoteError(error) || controller.signal.aborted) throw error;
-        const note = await readMissingNoteDraft(initialLinkedNoteId);
+        const note = await readMissingNoteDraft(userId, initialLinkedNoteId);
         if (!note || controller.signal.aborted) throw error;
         pendingSavesRef.current.set(note.id, toNoteDraft(note));
         deepLinkActionsRef.current.markNoteMissing(note.id, error);
@@ -186,6 +188,7 @@ export function useWorkspaceNoteSync({
     return () => controller.abort();
   }, [
     initialLinkedNoteId,
+    userId,
     pendingLinkedNoteRef,
     pendingSavesRef,
     ready,

@@ -67,9 +67,10 @@ const EMPTY_NOTE_LIST: NoteSummary[] = [];
 
 export function Workspace() {
   const navigate = useNavigate();
-  const { ready, currentUserKey, handleUnauthorized, connectionError, retry } =
-    useWorkspaceSession();
+  const { ready, user, handleUnauthorized, connectionError, retry } = useWorkspaceSession();
   const { openMenu: openWorkspaceMenu, menu: workspaceMenu } = useContextMenu();
+  const currentUserKey = user?.username ?? "";
+  const userId = user?.id ?? null;
   const [initialLinkedNoteId] = useState(() =>
     new URLSearchParams(window.location.search).get("note"),
   );
@@ -362,7 +363,7 @@ export function Workspace() {
     saveFavorite,
     moveNoteToNotebook,
     toggleNoteTask,
-    flushNotebookSaves,
+    deleteNotebookAndMoveNotes,
     saveNoteNow,
     flushPendingSaves,
     flushDraftRecoveries,
@@ -370,6 +371,7 @@ export function Workspace() {
     markNoteMissing,
     clearPendingForNote,
   } = useNoteSaveQueue({
+    userId,
     selectedRef,
     notesRef,
     activeNoteIdRef,
@@ -568,6 +570,7 @@ export function Workspace() {
     clearNoteSelection,
   });
   useSelectedNoteLoader({
+    userId,
     ready,
     selectedId,
     selectedRef,
@@ -683,6 +686,7 @@ export function Workspace() {
 
   const { refreshSelectedNoteFromRemote, refreshSplitNoteFromRemote, requestConflictReload } =
     useWorkspaceNoteSync({
+      userId,
       ready,
       initialLinkedNoteId,
       pendingLinkedNoteRef,
@@ -826,12 +830,14 @@ export function Workspace() {
     reloadNotes,
     loadNotes,
     refreshSelectedNoteFromRemote,
+    refreshSplitNoteFromRemote,
+    splitSelectedRef,
     persist,
     runSave,
     saveImmediately,
     saveFavorite,
     moveNoteToNotebook,
-    flushNotebookSaves,
+    deleteNotebookAndMoveNotes,
     clearPendingForNote,
     createRecoveredNote,
     revealCreatedNote,
@@ -850,6 +856,7 @@ export function Workspace() {
     handleSelectSplitNote,
     onSplitNoteChange,
   } = useWorkspaceSplit({
+    userId,
     ready,
     splitNoteId,
     splitNoteIdRef,

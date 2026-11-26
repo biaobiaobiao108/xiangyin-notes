@@ -14,6 +14,7 @@ import {
 } from "../core";
 import {
   findActiveNoteIdByTitle,
+  hasLinksToTitle,
   hasOtherActiveNoteWithTitle,
   resolveNoteLinksForTitles,
   sourceNoteIdsReferencingTitle,
@@ -174,6 +175,14 @@ export function updateNoteInTransaction(
     titleChanged &&
     title.trim() !== "" &&
     findActiveNoteIdByTitle(database, userId, oldTitle) === current.id;
+  if (
+    titleChanged &&
+    deletedAt === null &&
+    normalizeLinkTitle(oldTitle) !== normalizeLinkTitle(title) &&
+    hasOtherActiveNoteWithTitle(database, userId, current.id, title) &&
+    hasLinksToTitle(database, userId, title)
+  )
+    throw new NoteRenameLinkConflictError();
   let nextContentMarkdown = contentMarkdown;
   if (rewriteLinks) {
     const replaced = replaceWikiLinkTarget(contentMarkdown, oldTitle, title);

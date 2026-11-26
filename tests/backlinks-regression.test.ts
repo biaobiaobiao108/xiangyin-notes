@@ -63,6 +63,40 @@ test("backlinks find short titles containing spaces and punctuation", async () =
   );
 });
 
+test.each(["版本  计划", "a\tb", "release  schedule"])(
+  "finds a literal unlinked mention when the title contains unusual whitespace: %s",
+  async (title) => {
+    const target = await createNote(title);
+    const source = await createNote("来源", `请跟进 ${title} 的进展`);
+    const result = await request(`/api/notes/${target.id}/backlinks`);
+    expect(result.response.status).toBe(200);
+    expect(result.body.unlinkedMentions).toContainEqual(
+      expect.objectContaining({ sourceNoteId: source.id, matchText: title }),
+    );
+  },
+);
+
+test("renaming into an occupied title preserves the destination's existing incoming links", async () => {
+  const target = await createNote("目标");
+  const source = await createNote("来源", "[[目标]]");
+  const other = await createNote("待改名");
+  database.query("UPDATE notes SET updated_at = 1 WHERE id = ?").run(target.id);
+
+  const renamed = await request(`/api/notes/${other.id}`, "PATCH", {
+    version: other.version,
+    title: target.title,
+  });
+
+  expect(renamed.response.status).toBe(409);
+  expect(renamed.body.error.code).toBe("NOTE_RENAME_LINK_CONFLICT");
+  const backlinks = await request(`/api/notes/${target.id}/backlinks`);
+  expect(backlinks.body.linkedReferences).toContainEqual(
+    expect.objectContaining({ sourceNoteId: source.id, targetNoteId: target.id }),
+  );
+  const unchanged = await request(`/api/notes/${other.id}`);
+  expect(unchanged.body.note).toMatchObject({ title: other.title, version: other.version });
+});
+
 test("renaming a target preserves nested code examples while updating real wiki links", async () => {
   const target = await createNote("旧标题");
   const examples = "> ~~~md\r\n> [[旧标题]]\r\n> ~~~\r\n\r\n- ~~~md\r\n  [[旧标题]]\r\n  ~~~";

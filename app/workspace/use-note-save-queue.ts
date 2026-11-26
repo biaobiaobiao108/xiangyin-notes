@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api } from "../api";
-import type { Note, NoteSummary, TaskSummary } from "../../shared/types";
+import type { Note, NoteSummary, Notebook, TaskSummary } from "../../shared/types";
 import { mergeTaskToggleIntoDraft } from "../../shared/tasks";
 import {
   clearDraftRecovery,
@@ -41,6 +41,7 @@ export function noteSaveFailureState(reason: unknown) {
 }
 
 export type UseNoteSaveQueueOptions = {
+  userId: string | null;
   selectedRef: React.MutableRefObject<Note | null>;
   notesRef: React.MutableRefObject<NoteSummary[]>;
   activeNoteIdRef: React.MutableRefObject<string | null>;
@@ -62,6 +63,7 @@ export type UseNoteSaveQueueOptions = {
 
 export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
   const {
+    userId,
     selectedRef,
     notesRef,
     activeNoteIdRef,
@@ -100,7 +102,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
       if (splitSelectedRef?.current?.id === noteId) setSplitSaveState?.(state);
       if (state === "missing") {
         const draft = pendingSavesRef.current.get(noteId);
-        if (draft) writeDraftRecovery(draft);
+        if (draft) writeDraftRecovery(userId, draft);
         if (isMissingNoteError(previous)) return;
       }
       if (!trashOperationsRef.current.has(noteId)) {
@@ -113,7 +115,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
         );
       }
     },
-    [activeNoteIdRef, setSplitSaveState, setToast, splitSelectedRef, trashOperationsRef],
+    [activeNoteIdRef, setSplitSaveState, setToast, splitSelectedRef, trashOperationsRef, userId],
   );
 
   const markNoteMissing = useCallback(
@@ -243,8 +245,8 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
             if (recoveryTimer) clearTimeout(recoveryTimer);
             draftRecoveryTimersRef.current.delete(noteId);
 
-            if (next) writeDraftRecovery(next);
-            else clearDraftRecovery(noteId);
+            if (next) writeDraftRecovery(userId, next);
+            else clearDraftRecovery(userId, noteId);
 
             failedSavesRef.current.delete(noteId);
             const nextSummary = next ? toNoteSummary(next) : undefined;
@@ -275,7 +277,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
             const recoveryTimer = draftRecoveryTimersRef.current.get(noteId);
             if (recoveryTimer) clearTimeout(recoveryTimer);
             draftRecoveryTimersRef.current.delete(noteId);
-            writeDraftRecovery(latestPending);
+            writeDraftRecovery(userId, latestPending);
           }
           const failure = failedSavesRef.current.get(noteId);
           const latestFailure = isMissingNoteError(failure) ? failure : reason;
@@ -322,6 +324,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
       onSearchableFieldsSaved,
       onRewrittenContent,
       onLinkedNotesRewritten,
+      userId,
     ],
   );
 
@@ -346,7 +349,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
       const recoveryTimer = setTimeout(() => {
         draftRecoveryTimersRef.current.delete(pendingDraft.id);
         const latestDraft = pendingSavesRef.current.get(pendingDraft.id);
-        if (latestDraft) writeDraftRecovery(latestDraft);
+        if (latestDraft) writeDraftRecovery(userId, latestDraft);
       }, 1200);
       draftRecoveryTimersRef.current.set(pendingDraft.id, recoveryTimer);
 
@@ -364,7 +367,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
       }, 800);
       saveTimersRef.current.set(pendingDraft.id, timer);
     },
-    [activeNoteIdRef, runSave, setSplitSaveState, splitSelectedRef],
+    [activeNoteIdRef, runSave, setSplitSaveState, splitSelectedRef, userId],
   );
 
   const saveNoteNow = useCallback(
@@ -387,7 +390,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
     async (mode: "now" | "keepalive", noteId?: string) => {
       flushEditorDraftRef.current();
       if (mode === "keepalive") {
-        for (const draft of pendingSavesRef.current.values()) writeDraftRecovery(draft);
+        for (const draft of pendingSavesRef.current.values()) writeDraftRecovery(userId, draft);
       }
       const ids = noteId ? [noteId] : [...pendingSavesRef.current.keys()];
       if (!ids.length) return;
@@ -403,7 +406,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
         }),
       );
     },
-    [flushEditorDraftRef, runSave],
+    [flushEditorDraftRef, runSave, userId],
   );
 
   const flushDraftRecoveries = useCallback(() => {
@@ -412,9 +415,9 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
       const recoveryTimer = draftRecoveryTimersRef.current.get(noteId);
       if (recoveryTimer) clearTimeout(recoveryTimer);
       draftRecoveryTimersRef.current.delete(noteId);
-      writeDraftRecovery(draft);
+      writeDraftRecovery(userId, draft);
     }
-  }, [flushEditorDraftRef]);
+  }, [flushEditorDraftRef, userId]);
 
   const retryFailedSaves = useCallback(async () => {
     if (typeof navigator !== "undefined" && navigator.onLine === false) return 0;
@@ -427,21 +430,24 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
     return ids.length;
   }, [runSave]);
 
-  const clearPendingForNote = useCallback((noteId: string, savedDraft?: NoteDraft) => {
-    const timer = saveTimersRef.current.get(noteId);
-    if (timer) clearTimeout(timer);
-    saveTimersRef.current.delete(noteId);
+  const clearPendingForNote = useCallback(
+    (noteId: string, savedDraft?: NoteDraft) => {
+      const timer = saveTimersRef.current.get(noteId);
+      if (timer) clearTimeout(timer);
+      saveTimersRef.current.delete(noteId);
 
-    const recoveryTimer = draftRecoveryTimersRef.current.get(noteId);
-    if (recoveryTimer) clearTimeout(recoveryTimer);
-    draftRecoveryTimersRef.current.delete(noteId);
+      const recoveryTimer = draftRecoveryTimersRef.current.get(noteId);
+      if (recoveryTimer) clearTimeout(recoveryTimer);
+      draftRecoveryTimersRef.current.delete(noteId);
 
-    pendingSavesRef.current.delete(noteId);
-    pendingFieldsRef.current.delete(noteId);
-    unconfirmedSavesRef.current.delete(noteId);
-    failedSavesRef.current.delete(noteId);
-    clearDraftRecovery(noteId, savedDraft);
-  }, []);
+      pendingSavesRef.current.delete(noteId);
+      pendingFieldsRef.current.delete(noteId);
+      unconfirmedSavesRef.current.delete(noteId);
+      failedSavesRef.current.delete(noteId);
+      clearDraftRecovery(userId, noteId, savedDraft);
+    },
+    [userId],
+  );
 
   const cancelSaveTimer = useCallback((noteId: string) => {
     const timer = saveTimersRef.current.get(noteId);
@@ -598,7 +604,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
                   )
                 : note.contentMarkdown;
           if (contentMarkdown === null) {
-            writeDraftRecovery(draft);
+            writeDraftRecovery(userId, draft);
             recordSaveFailure(
               id,
               new ApiError(409, "VERSION_CONFLICT", "任务已更新，本地编辑与服务器版本冲突"),
@@ -607,7 +613,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
           }
           const rebased = { ...draft, version: note.version, contentMarkdown };
           pendingSavesRef.current.set(id, rebased);
-          writeDraftRecovery(rebased);
+          writeDraftRecovery(userId, rebased);
           next = { ...note, ...rebased };
         }
         const summary = toNoteSummary(next);
@@ -662,18 +668,86 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
       splitNoteIdRef,
       splitNoteOpeningRef,
       splitSelectedRef,
+      userId,
     ],
   );
 
-  const flushNotebookSaves = useCallback(
-    async (notebookId: string) => {
-      flushEditorDraftRef.current();
-      const ids = [...pendingSavesRef.current.values()]
-        .filter((draft) => draft.notebookId === notebookId)
-        .map((draft) => draft.id);
-      await Promise.all(ids.map((id) => runSave(id)));
+  const deleteNotebookAndMoveNotes = useCallback(
+    async (notebookId: string, expectedNoteCount: number | undefined, inbox: Notebook) => {
+      while (true) {
+        flushEditorDraftRef.current();
+        const drafts = [...pendingSavesRef.current.values()].filter(
+          (draft) => draft.notebookId === notebookId,
+        );
+        if (drafts.length === 0) break;
+        await Promise.all(drafts.map((draft) => runSave(draft.id)));
+      }
+      const trackedIds = [
+        ...new Set(
+          [selectedRef.current, splitSelectedRef?.current]
+            .filter((note): note is Note => note?.notebookId === notebookId)
+            .map((note) => note.id),
+        ),
+      ];
+      // Hold autosaves for the open notes until the move can rebase their drafts.
+      const previousMutations = trackedIds.map((id) => noteMutationsRef.current.get(id));
+      const mutation = (async () => {
+        await Promise.all(previousMutations.map((previous) => previous?.catch(() => undefined)));
+        const { movedNotes } = await api.deleteNotebook(notebookId, expectedNoteCount, trackedIds);
+        flushEditorDraftRef.current();
+        for (const move of movedNotes ?? []) {
+          const matchesMove = (note: Note | NoteDraft | undefined | null) =>
+            note?.id === move.id &&
+            note.notebookId === notebookId &&
+            note.version === move.previousVersion;
+          const patch = {
+            notebookId: inbox.id,
+            notebookName: inbox.name,
+            version: move.version,
+          };
+          const draft = pendingSavesRef.current.get(move.id);
+          if (draft && matchesMove(draft)) {
+            const rebased = { ...draft, notebookId: inbox.id, version: move.version };
+            pendingSavesRef.current.set(move.id, rebased);
+            writeDraftRecovery(userId, rebased);
+          }
+          const primary = selectedRef.current;
+          if (primary && activeNoteIdRef.current === move.id && matchesMove(primary)) {
+            selectedRef.current = { ...primary, ...patch };
+            setSelectedNote(selectedRef.current);
+          }
+          const secondary = splitSelectedRef?.current;
+          if (
+            splitSelectedRef &&
+            secondary &&
+            splitNoteIdRef?.current === move.id &&
+            matchesMove(secondary)
+          ) {
+            splitSelectedRef.current = { ...secondary, ...patch };
+            setSplitSelectedNote?.(splitSelectedRef.current);
+          }
+        }
+      })();
+      for (const id of trackedIds) noteMutationsRef.current.set(id, mutation);
+      try {
+        await mutation;
+      } finally {
+        for (const id of trackedIds) {
+          if (noteMutationsRef.current.get(id) === mutation) noteMutationsRef.current.delete(id);
+        }
+      }
     },
-    [flushEditorDraftRef, runSave],
+    [
+      activeNoteIdRef,
+      flushEditorDraftRef,
+      runSave,
+      selectedRef,
+      setSelectedNote,
+      setSplitSelectedNote,
+      splitNoteIdRef,
+      splitSelectedRef,
+      userId,
+    ],
   );
 
   // Listen for beforeunload warning
@@ -715,14 +789,14 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
   // Flush and cleanup timers on unmount
   useEffect(
     () => () => {
-      for (const draft of pendingSavesRef.current.values()) writeDraftRecovery(draft);
+      for (const draft of pendingSavesRef.current.values()) writeDraftRecovery(userId, draft);
       void flushPendingSaves("keepalive");
       for (const timer of saveTimersRef.current.values()) clearTimeout(timer);
       saveTimersRef.current.clear();
       for (const timer of draftRecoveryTimersRef.current.values()) clearTimeout(timer);
       draftRecoveryTimersRef.current.clear();
     },
-    [flushPendingSaves],
+    [flushPendingSaves, userId],
   );
 
   return {
@@ -736,7 +810,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
     saveFavorite,
     moveNoteToNotebook,
     toggleNoteTask,
-    flushNotebookSaves,
+    deleteNotebookAndMoveNotes,
     saveNoteNow,
     cancelSaveTimer,
     flushPendingSaves,

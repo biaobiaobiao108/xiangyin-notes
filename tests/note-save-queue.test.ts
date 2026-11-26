@@ -59,6 +59,7 @@ beforeEach(() => {
   renderToString(
     createElement(function Harness() {
       queue = useNoteSaveQueue({
+        userId: "owner",
         selectedRef,
         notesRef,
         activeNoteIdRef: { current: original.id },
@@ -391,14 +392,30 @@ describe("task toggles and the save queue", () => {
   });
 });
 
-describe("notebook draft flushing", () => {
+describe("deleting a notebook while editing notes", () => {
+  const inbox = {
+    id: "inbox",
+    name: "收件箱",
+    isSystem: true,
+    count: 0,
+    color: "#000000",
+    icon: "folder",
+    updatedAt: 1,
+  };
+
+  let remove: ReturnType<typeof spyOn<typeof api, "deleteNotebook">>;
+  beforeEach(() => {
+    remove = spyOn(api, "deleteNotebook").mockResolvedValue({ ok: true });
+  });
+  afterEach(() => remove.mockRestore());
+
   test("saves all drafts in a notebook without dropping drafts from other notebooks", async () => {
     queue.persist({ ...original, contentMarkdown: "删除笔记本前的编辑" }, ["contentMarkdown"]);
     queue.persist({ ...original, id: "note-2", notebookId: "other", contentMarkdown: "其他草稿" }, [
       "contentMarkdown",
     ]);
 
-    await queue.flushNotebookSaves("work");
+    await queue.deleteNotebookAndMoveNotes("work", 1, inbox);
 
     expect(stored.contentMarkdown).toBe("删除笔记本前的编辑");
     expect(queue.pendingSavesRef.current.has(original.id)).toBe(false);
@@ -410,8 +427,69 @@ describe("notebook draft flushing", () => {
     queue.persist({ ...original, contentMarkdown: "不能丢失的草稿" }, ["contentMarkdown"]);
     update.mockRejectedValueOnce(new Error("offline"));
 
-    await expect(queue.flushNotebookSaves("work")).rejects.toThrow("offline");
+    await expect(queue.deleteNotebookAndMoveNotes("work", 1, inbox)).rejects.toThrow("offline");
     expect(queue.pendingSavesRef.current.get(original.id)?.contentMarkdown).toBe("不能丢失的草稿");
+    expect(remove).not.toHaveBeenCalled();
+  });
+
+  test("queues edits made during deletion and keeps the split editor on the moved version", async () => {
+    const split = { ...original, id: "split-1" };
+    splitSelectedRef.current = split;
+    splitNoteIdRef.current = split.id;
+    stored = split;
+    const started = deferred<void>();
+    const response = deferred<Awaited<ReturnType<typeof api.deleteNotebook>>>();
+    remove.mockImplementationOnce(() => {
+      started.resolve();
+      return response.promise;
+    });
+
+    const deleting = queue.deleteNotebookAndMoveNotes("work", 2, inbox);
+    await started.promise;
+    expect(remove).toHaveBeenCalledWith("work", 2, [original.id, split.id]);
+    const draft = { ...split, contentMarkdown: "删除笔记本时在分屏中输入" };
+    splitSelectedRef.current = draft;
+    queue.persist(draft, ["contentMarkdown"]);
+    const saving = queue.runSave(split.id);
+    expect(update).not.toHaveBeenCalled();
+
+    stored = { ...split, notebookId: inbox.id, notebookName: inbox.name, version: 2 };
+    response.resolve({
+      ok: true,
+      movedNotes: [original.id, split.id].map((id) => ({ id, previousVersion: 1, version: 2 })),
+    });
+
+    await deleting;
+    await expect(saving).resolves.toBe(3);
+    expect(selectedRef.current).toMatchObject({ notebookId: inbox.id, version: 2 });
+    expect(splitSelectedRef.current).toMatchObject({
+      notebookId: inbox.id,
+      version: 3,
+      contentMarkdown: draft.contentMarkdown,
+    });
+    expect(update.mock.calls[0]?.[1].version).toBe(2);
+  });
+
+  test("leaves a stale draft on its original version if the server moved a newer note", async () => {
+    const started = deferred<void>();
+    const response = deferred<Awaited<ReturnType<typeof api.deleteNotebook>>>();
+    remove.mockImplementationOnce(() => {
+      started.resolve();
+      return response.promise;
+    });
+    const deleting = queue.deleteNotebookAndMoveNotes("work", 1, inbox);
+    await started.promise;
+    queue.persist({ ...original, contentMarkdown: "待保留草稿" }, ["contentMarkdown"]);
+
+    response.resolve({
+      ok: true,
+      movedNotes: [{ id: original.id, previousVersion: 2, version: 3 }],
+    });
+    await deleting;
+    expect(queue.pendingSavesRef.current.get(original.id)).toMatchObject({
+      version: 1,
+      contentMarkdown: "待保留草稿",
+    });
   });
 });
 
@@ -426,6 +504,7 @@ describe("split editor save queue integration", () => {
     renderToString(
       createElement(function SplitHarness() {
         splitQueue = useNoteSaveQueue({
+          userId: "owner",
           selectedRef,
           notesRef,
           activeNoteIdRef: { current: original.id },

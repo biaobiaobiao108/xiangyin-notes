@@ -302,7 +302,10 @@ export async function handleNotebooksRoute(
     );
     if (!inbox) return jsonError(500, "NO_INBOX", "找不到收件箱");
     const payload = request.body
-      ? await readJson<{ expectedNoteCount?: unknown }>(request, 64 * 1024)
+      ? await readJson<{ expectedNoteCount?: unknown; trackedNoteIds?: unknown }>(
+          request,
+          64 * 1024,
+        )
       : null;
     if (request.body && (!payload || typeof payload !== "object" || Array.isArray(payload)))
       return jsonError(400, "INVALID_NOTEBOOK_DELETE_BODY", "删除笔记本的请求内容无效");
@@ -313,6 +316,14 @@ export async function handleNotebooksRoute(
     ) {
       return jsonError(400, "INVALID_NOTEBOOK_COUNT", "预期笔记数量无效");
     }
+    const trackedNoteIds = payload?.trackedNoteIds;
+    if (
+      trackedNoteIds !== undefined &&
+      (!Array.isArray(trackedNoteIds) ||
+        trackedNoteIds.length > 2 ||
+        trackedNoteIds.some((noteId) => typeof noteId !== "string" || noteId.length > 64))
+    )
+      return jsonError(400, "INVALID_NOTEBOOK_DELETE_BODY", "跟踪的笔记无效");
     const transaction = database.transaction(() => {
       const actualCount = Number(
         first<{ count: number }>(
@@ -328,16 +339,20 @@ export async function handleNotebooksRoute(
       const updateNote = database.query(
         "UPDATE notes SET notebook_id = ?, version = version + 1 WHERE id = ? AND user_id = ?",
       );
+      const movedNotesForClient: Array<{ id: string; previousVersion: number; version: number }> =
+        [];
+      const trackedIds = new Set(trackedNoteIds as string[] | undefined);
       let movedCount = 0;
       while (true) {
         const movedNotes = all<{
           id: string;
           content_markdown: string;
           created_at: number;
+          version: number;
           deleted_at: number | null;
         }>(
           database,
-          "SELECT id, content_markdown, created_at, deleted_at FROM notes WHERE notebook_id = ? AND user_id = ? LIMIT 100",
+          "SELECT id, content_markdown, created_at, deleted_at, version FROM notes WHERE notebook_id = ? AND user_id = ? LIMIT 100",
           current.id,
           user.id,
         );
@@ -352,11 +367,17 @@ export async function handleNotebooksRoute(
             note.deleted_at === null ? note.content_markdown : "",
           );
           updateNote.run(inbox.id, note.id, user.id);
+          if (trackedIds.has(note.id))
+            movedNotesForClient.push({
+              id: note.id,
+              previousVersion: note.version,
+              version: note.version + 1,
+            });
         }
         movedCount += movedNotes.length;
       }
       database.query("DELETE FROM notebooks WHERE id = ? AND user_id = ?").run(current.id, user.id);
-      return { movedCount, mismatch: false as const };
+      return { movedCount, movedNotesForClient, mismatch: false as const };
     });
     const outcome = transaction();
     if (outcome.mismatch) {
@@ -376,7 +397,12 @@ export async function handleNotebooksRoute(
     publishWorkspaceChange(options, user.id, { resource: "notebooks" }, request);
     // Moving notes bumps their version, so clients must refresh before saving again.
     if (movedCount) publishWorkspaceChange(options, user.id, { resource: "notes" }, request);
-    return json({ ok: true, movedCount, versionsInvalidated: movedCount > 0 });
+    return json({
+      ok: true,
+      movedCount,
+      versionsInvalidated: movedCount > 0,
+      ...(trackedNoteIds ? { movedNotes: outcome.movedNotesForClient } : {}),
+    });
   }
 
   return null;

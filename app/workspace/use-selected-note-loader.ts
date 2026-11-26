@@ -4,7 +4,7 @@ import { ApiError, api } from "../api";
 import {
   clearDraftRecovery,
   noteMatchesDraft,
-  readDraftRecovery,
+  readOwnedNoteDraft,
   readMissingNoteDraft,
   rewrittenDraftTitle,
 } from "./draft-recovery";
@@ -13,6 +13,7 @@ import { latestSelectedNoteSnapshot } from "./selected-note-sync";
 import { isMissingNoteError, noteSaveFailureState, type SaveState } from "./use-note-save-queue";
 
 export function useSelectedNoteLoader({
+  userId,
   ready,
   selectedId,
   selectedRef,
@@ -36,6 +37,7 @@ export function useSelectedNoteLoader({
   notifyError,
   navigate,
 }: {
+  userId: string | null;
   ready: boolean;
   selectedId: string | null;
   selectedRef: React.MutableRefObject<Note | null>;
@@ -61,6 +63,7 @@ export function useSelectedNoteLoader({
 }) {
   const loadSelectedNote = useCallback(
     async (id: string) => {
+      if (!userId) return;
       noteAbortRef.current?.abort();
       const controller = new AbortController();
       noteAbortRef.current = controller;
@@ -83,7 +86,7 @@ export function useSelectedNoteLoader({
         // The load can outlive a queued save; do not recover the same draft after
         // that save has already succeeded and started clearing its recovery copy.
         if (!pendingNote && !pendingSavesRef.current.has(id)) {
-          const recoveredDraft = await readDraftRecovery(id);
+          const recoveredDraft = await readOwnedNoteDraft(userId, result.note);
           if (requestId !== noteLoadRequestRef.current || activeNoteIdRef.current !== id) return;
           loadedNote = latestSelectedNoteSnapshot(loadedNote, selectedRef.current);
           if (
@@ -91,7 +94,7 @@ export function useSelectedNoteLoader({
             (noteMatchesDraft(result.note, recoveredDraft) ||
               rewrittenDraftTitle(result.note, recoveredDraft))
           ) {
-            clearDraftRecovery(id, recoveredDraft);
+            clearDraftRecovery(userId, id, recoveredDraft);
           } else if (recoveredDraft && !pendingSavesRef.current.has(id)) {
             pendingSavesRef.current.set(id, recoveredDraft);
             if (recoveredDraft.version === loadedNote.version) {
@@ -122,6 +125,7 @@ export function useSelectedNoteLoader({
         if (reason instanceof Error && reason.name === "AbortError") return;
         if (isMissingNoteError(reason)) {
           const draft = await readMissingNoteDraft(
+            userId,
             id,
             pendingSavesRef.current.get(id),
             selectedRef.current,
@@ -169,6 +173,7 @@ export function useSelectedNoteLoader({
       }
     },
     [
+      userId,
       activeNoteIdRef,
       failedSavesRef,
       flushEditorDraftRef,

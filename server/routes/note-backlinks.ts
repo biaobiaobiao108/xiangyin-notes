@@ -30,7 +30,11 @@ import {
 import { findActiveNoteIdByTitle } from "../note-links";
 import { shortSearchToken } from "../note-search";
 import { publishWorkspaceChange } from "../realtime";
-import { buildFtsMatchQuery, searchTermNeedsCaseFolding } from "../search-text";
+import {
+  buildFtsMatchQuery,
+  normalizeSearchWhitespace,
+  searchTermNeedsCaseFolding,
+} from "../search-text";
 import { createNote, updateNoteInTransaction } from "./note-mutations";
 
 class StaleMentionTargetError extends Error {}
@@ -266,11 +270,11 @@ export async function handleNoteBacklinksRoute(
       linkedOffset = linkedProcessed < linkedRows.length ? linkedOffset + linkedProcessed : -1;
 
     const unlinkedMentions: UnlinkedMention[] = [];
-    const trimmedTitle = note.title.trim();
-    if (candidateOffset >= 0 && trimmedTitle.length >= 2 && !scanBudgetExhausted) {
-      const { ftsTokens } = parseSearchTerms(trimmedTitle);
-      const useFts = trimmedTitle.length >= 3 && ftsTokens.length > 0;
-      const useShortIndex = !useFts && Array.from(trimmedTitle).length <= 2;
+    const searchTitle = normalizeSearchWhitespace(note.title);
+    if (candidateOffset >= 0 && searchTitle.length >= 2 && !scanBudgetExhausted) {
+      const { ftsTokens } = parseSearchTerms(searchTitle);
+      const useFts = searchTitle.length >= 3 && ftsTokens.length > 0;
+      const useShortIndex = !useFts && Array.from(searchTitle).length <= 2;
       let candidateFrom =
         "notes n JOIN notebooks nb ON n.notebook_id = nb.id AND nb.user_id = n.user_id";
       const candidateConditions = ["n.user_id = ?", "n.deleted_at IS NULL", "n.id != ?"];
@@ -291,15 +295,15 @@ export async function handleNoteBacklinksRoute(
         JOIN notes n ON n.rowid = short_match.rowid
         JOIN notebooks nb ON n.notebook_id = nb.id AND nb.user_id = n.user_id`;
         candidateConditions.push(
-          searchContainsPredicate("COALESCE(n.search_text, n.content_markdown)", trimmedTitle),
+          searchContainsPredicate("COALESCE(n.search_text, n.content_markdown)", searchTitle),
         );
-        candidateParams.unshift(shortSearchToken(trimmedTitle), user.id, trimmedTitle);
-        candidateParams.push(trimmedTitle);
+        candidateParams.unshift(shortSearchToken(searchTitle), user.id, searchTitle);
+        candidateParams.push(searchTitle);
       } else {
         candidateConditions.push(
-          searchContainsPredicate("COALESCE(n.search_text, n.content_markdown)", trimmedTitle),
+          searchContainsPredicate("COALESCE(n.search_text, n.content_markdown)", searchTitle),
         );
-        candidateParams.push(trimmedTitle);
+        candidateParams.push(searchTitle);
       }
 
       const candidateSql = `
@@ -380,7 +384,7 @@ export async function handleNoteBacklinksRoute(
       if (candidateHasMore && !stoppedWithinCandidate)
         candidateOffset += Math.min(candidateCount, BACKLINK_CANDIDATE_LIMIT);
       else if (!candidateHasMore) candidateOffset = -1;
-    } else if (trimmedTitle.length < 2) {
+    } else if (searchTitle.length < 2) {
       candidateOffset = -1;
     }
 

@@ -61,6 +61,9 @@ test("older IndexedDB completions cannot remove, overwrite or restore a newer re
   const {
     writeDraftRecovery,
     readDraftRecovery,
+    readMissingNoteDraft,
+    readOwnedNoteDraft,
+    DRAFT_RECOVERY_KEY_PREFIX,
     clearDraftRecovery,
     clearAllDraftRecoveries,
     draftRecoveryStorageKey,
@@ -147,107 +150,144 @@ test("older IndexedDB completions cannot remove, overwrite or restore a newer re
     }
   };
   try {
-    writeDraftRecovery(large);
+    writeDraftRecovery("owner", large);
     await flush();
     expect(writes).toHaveLength(1);
-    writeDraftRecovery(draft);
+    writeDraftRecovery("owner", draft);
     // Finish the old transaction before the newer IndexedDB delete runs.
     completeWrite(true);
     await flush();
-    expect(await readDraftRecovery(draft.id)).toEqual(draft);
-    expect(indexed.has(draft.id)).toBe(false);
+    expect(await readDraftRecovery("owner", draft.id)).toEqual(draft);
+    expect(indexed.has(draftRecoveryStorageKey("owner", draft.id))).toBe(false);
 
-    writeDraftRecovery(large);
+    writeDraftRecovery("owner", large);
     await flush();
-    writeDraftRecovery({ ...draft, title: "更新后的草稿" });
+    writeDraftRecovery("owner", { ...draft, title: "更新后的草稿" });
     completeWrite(false);
     await flush();
-    expect((await readDraftRecovery(draft.id))?.title).toBe("更新后的草稿");
+    expect((await readDraftRecovery("owner", draft.id))?.title).toBe("更新后的草稿");
 
-    writeDraftRecovery(large);
+    writeDraftRecovery("owner", large);
     await flush();
-    clearDraftRecovery(draft.id);
+    clearDraftRecovery("owner", draft.id);
     completeWrite(false);
     await flush();
-    expect(await readDraftRecovery(draft.id)).toBeNull();
+    expect(await readDraftRecovery("owner", draft.id)).toBeNull();
 
-    writeDraftRecovery(large);
+    writeDraftRecovery("owner", large);
     await flush();
     clearAllDraftRecoveries();
-    writeDraftRecovery(draft);
+    writeDraftRecovery("owner", draft);
     completeWrite(true);
     await flush();
-    expect(local.has(draftRecoveryStorageKey(draft.id))).toBe(true);
-    expect(await readDraftRecovery(draft.id)).toEqual(draft);
+    expect(local.has(draftRecoveryStorageKey("owner", draft.id))).toBe(true);
+    expect(await readDraftRecovery("owner", draft.id)).toEqual(draft);
 
     // Supersede a write while the database-open promise is still pending.
-    writeDraftRecovery(large);
-    writeDraftRecovery(draft);
+    writeDraftRecovery("owner", large);
+    writeDraftRecovery("owner", draft);
     await flush();
     expect(writes).toHaveLength(0);
-    expect(await readDraftRecovery(draft.id)).toEqual(draft);
+    expect(await readDraftRecovery("owner", draft.id)).toEqual(draft);
 
     // A quota fallback must replace a stale localStorage copy once IndexedDB
     // has durably accepted the newer draft.
     const quotaDraft = { ...draft, id: "quota-note", title: "较新的草稿" };
-    const quotaKey = draftRecoveryStorageKey(quotaDraft.id);
+    const quotaKey = draftRecoveryStorageKey("owner", quotaDraft.id);
     local.set(quotaKey, JSON.stringify({ ...quotaDraft, title: "旧草稿" }));
     localWritesFail = true;
-    writeDraftRecovery(quotaDraft);
+    writeDraftRecovery("owner", quotaDraft);
     await flush();
     expect(writes).toHaveLength(1);
     completeWrite(true);
     await flush();
     expect(local.has(quotaKey)).toBe(false);
-    expect(await readDraftRecovery(quotaDraft.id)).toEqual(quotaDraft);
+    expect(await readDraftRecovery("owner", quotaDraft.id)).toEqual(quotaDraft);
     localWritesFail = false;
 
     // Another tab can write after this tab observed an empty slot. Clearing a
     // successful save from this tab must not erase that unobserved recovery.
     const sharedDraft = { ...draft, id: "shared-note", title: "另一标签页未保存的内容" };
-    const sharedKey = draftRecoveryStorageKey(sharedDraft.id);
-    expect(await readDraftRecovery(sharedDraft.id)).toBeNull();
+    const sharedKey = draftRecoveryStorageKey("owner", sharedDraft.id);
+    expect(await readDraftRecovery("owner", sharedDraft.id)).toBeNull();
     local.set(sharedKey, JSON.stringify(sharedDraft));
-    clearDraftRecovery(sharedDraft.id);
+    clearDraftRecovery("owner", sharedDraft.id);
     await flush();
     expect(local.get(sharedKey)).toBe(JSON.stringify(sharedDraft));
-    expect(await readDraftRecovery(sharedDraft.id)).toEqual(sharedDraft);
+    expect(await readDraftRecovery("owner", sharedDraft.id)).toEqual(sharedDraft);
 
     const indexedSharedDraft = {
       ...draft,
       id: "indexed-shared-note",
       title: "另一标签页的较大草稿",
     };
-    expect(await readDraftRecovery(indexedSharedDraft.id)).toBeNull();
-    indexed.set(indexedSharedDraft.id, JSON.stringify(indexedSharedDraft));
-    clearDraftRecovery(indexedSharedDraft.id);
+    expect(await readDraftRecovery("owner", indexedSharedDraft.id)).toBeNull();
+    const indexedSharedKey = draftRecoveryStorageKey("owner", indexedSharedDraft.id);
+    indexed.set(indexedSharedKey, JSON.stringify(indexedSharedDraft));
+    clearDraftRecovery("owner", indexedSharedDraft.id);
     await flush();
-    expect(indexed.has(indexedSharedDraft.id)).toBe(true);
-    expect(await readDraftRecovery(indexedSharedDraft.id)).toEqual(indexedSharedDraft);
+    expect(indexed.has(indexedSharedKey)).toBe(true);
+    expect(await readDraftRecovery("owner", indexedSharedDraft.id)).toEqual(indexedSharedDraft);
 
     // Saving a recovered draft clears copies of that same draft even if another
     // tab refreshed its timestamp. A different draft from that tab is retained.
     const rewritten = { ...sharedDraft, __xiangyingRecoveryUpdatedAt: 100 };
     const newer = { ...sharedDraft, contentMarkdown: "另一标签页的新正文" };
     local.set(sharedKey, JSON.stringify(rewritten));
-    indexed.set(sharedDraft.id, JSON.stringify(newer));
-    clearDraftRecovery(sharedDraft.id, sharedDraft);
+    indexed.set(sharedKey, JSON.stringify(newer));
+    clearDraftRecovery("owner", sharedDraft.id, sharedDraft);
     await flush();
     expect(local.has(sharedKey)).toBe(false);
-    expect(await readDraftRecovery(sharedDraft.id)).toEqual(newer);
-    clearDraftRecovery(sharedDraft.id, newer);
+    expect(await readDraftRecovery("owner", sharedDraft.id)).toEqual(newer);
+    clearDraftRecovery("owner", sharedDraft.id, newer);
     await flush();
-    expect(indexed.has(sharedDraft.id)).toBe(false);
+    expect(indexed.has(sharedKey)).toBe(false);
 
-    writeDraftRecovery(draft);
+    writeDraftRecovery("owner", draft);
     holdRead = true;
-    const pendingRead = readDraftRecovery(draft.id);
+    const pendingRead = readDraftRecovery("owner", draft.id);
     await flush();
     expect(finishRead).toBeFunction();
-    clearDraftRecovery(draft.id);
-    expect(local.has(draftRecoveryStorageKey(draft.id))).toBe(false);
+    clearDraftRecovery("owner", draft.id);
+    expect(local.has(draftRecoveryStorageKey("owner", draft.id))).toBe(false);
+
+    holdRead = false;
     finishRead!();
     expect(await pendingRead).toBeNull();
+
+    const legacyKey = `${DRAFT_RECOVERY_KEY_PREFIX}${draft.id}`;
+    local.set(legacyKey, JSON.stringify(draft));
+    expect(await readMissingNoteDraft("other", draft.id)).toBeNull();
+    expect(await readMissingNoteDraft("owner", draft.id)).toBeNull();
+    const owned: Note = {
+      ...draft,
+      notebookName: "笔记本",
+      preview: "",
+      tags: [],
+      thumbnail: null,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    expect(await readOwnedNoteDraft("other", { ...owned, notebookId: "different" })).toBeNull();
+    expect(await readOwnedNoteDraft("owner", owned)).toEqual(draft);
+    expect(local.has(legacyKey)).toBe(false);
+    expect(await readMissingNoteDraft("other", draft.id)).toBeNull();
+    expect((await readMissingNoteDraft("owner", draft.id))?.contentMarkdown).toBe(
+      draft.contentMarkdown,
+    );
+
+    writeDraftRecovery("other", { ...draft, contentMarkdown: "另一账号的草稿" });
+    clearDraftRecovery("owner", draft.id);
+    expect(await readDraftRecovery("owner", draft.id)).toBeNull();
+    expect((await readDraftRecovery("other", draft.id))?.contentMarkdown).toBe("另一账号的草稿");
+
+    const indexedDraft = { ...draft, id: "large-draft", contentMarkdown: large.contentMarkdown };
+    const indexedWrite = writeDraftRecovery("owner", indexedDraft);
+    await flush();
+    completeWrite(true);
+    expect(await indexedWrite).toBe(true);
+    expect(await readDraftRecovery("other", indexedDraft.id)).toBeNull();
+    expect(await readDraftRecovery("owner", indexedDraft.id)).toEqual(indexedDraft);
   } finally {
     if (windowDescriptor) Object.defineProperty(globalThis, "window", windowDescriptor);
     else Reflect.deleteProperty(globalThis, "window");

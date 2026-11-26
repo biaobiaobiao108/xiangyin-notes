@@ -6,11 +6,11 @@ import {
   type SetStateAction,
 } from "react";
 import type { Note, NoteSummary, NoteView, Notebook } from "../../shared/types";
-import { ApiError, api } from "../api";
+import { ApiError } from "../api";
 import type { ConfirmRequest } from "./dialogs";
 import { errorMessage, noteMetadataSnapshot, toNoteSummary, type NoteDraft } from "./helpers";
 import { moveSelectedNotes } from "./move-selected-notes";
-import { isMissingNoteError } from "./use-note-save-queue";
+import { isMissingNoteError, type useNoteSaveQueue } from "./use-note-save-queue";
 
 export type UseWorkspaceCollectionActionsOptions = {
   view: NoteView;
@@ -19,6 +19,7 @@ export type UseWorkspaceCollectionActionsOptions = {
   kanbanOpen: boolean;
   tasksOpen: boolean;
   selectedRef: MutableRefObject<Note | null>;
+  splitSelectedRef: MutableRefObject<Note | null>;
   activeNoteIdRef: MutableRefObject<string | null>;
   splitNoteIdRef: MutableRefObject<string | null>;
   listScopeRef: MutableRefObject<string>;
@@ -47,6 +48,7 @@ export type UseWorkspaceCollectionActionsOptions = {
   reloadNotes: () => void;
   loadNotes: () => Promise<void>;
   refreshSelectedNoteFromRemote: (noteId: string) => Promise<void>;
+  refreshSplitNoteFromRemote: (noteId: string) => Promise<void>;
   persist: (
     draft: Note | NoteDraft,
     changedFields?: Array<"title" | "contentMarkdown" | "notebookId" | "isFavorite" | "deleted">,
@@ -59,7 +61,7 @@ export type UseWorkspaceCollectionActionsOptions = {
   ) => Promise<number | undefined>;
   saveFavorite: (noteId: string, isFavorite: boolean) => Promise<void>;
   moveNoteToNotebook: (id: string, notebookId: string) => Promise<boolean>;
-  flushNotebookSaves: (notebookId: string) => Promise<void>;
+  deleteNotebookAndMoveNotes: ReturnType<typeof useNoteSaveQueue>["deleteNotebookAndMoveNotes"];
   clearPendingForNote: (noteId: string, savedDraft?: NoteDraft) => void;
   createRecoveredNote: (draft: NoteDraft) => Promise<Note>;
   revealCreatedNote: (note: Note, target: { view: NoteView; notebookId?: string }) => void;
@@ -76,6 +78,7 @@ export function useWorkspaceCollectionActions({
   kanbanOpen,
   tasksOpen,
   selectedRef,
+  splitSelectedRef,
   activeNoteIdRef,
   splitNoteIdRef,
   listScopeRef,
@@ -104,12 +107,13 @@ export function useWorkspaceCollectionActions({
   reloadNotes,
   loadNotes,
   refreshSelectedNoteFromRemote,
+  refreshSplitNoteFromRemote,
   persist,
   runSave,
   saveImmediately,
   saveFavorite,
   moveNoteToNotebook,
-  flushNotebookSaves,
+  deleteNotebookAndMoveNotes,
   clearPendingForNote,
   createRecoveredNote,
   revealCreatedNote,
@@ -161,16 +165,21 @@ export function useWorkspaceCollectionActions({
     async (id: string) => {
       const target = notebooks.find((notebook) => notebook.id === id);
       if (!target || target.isSystem) throw new Error("无法删除此笔记本");
-      await flushNotebookSaves(id);
+      const inbox = notebooks.find((notebook) => notebook.isSystem);
+      if (!inbox) throw new Error("找不到收件箱");
       try {
-        await api.deleteNotebook(id, target.totalCount);
+        await deleteNotebookAndMoveNotes(id, target.totalCount, inbox);
       } catch (reason) {
         if (reason instanceof ApiError && reason.code === "NOTEBOOK_COUNT_MISMATCH")
           void refreshNotebooks();
         throw reason;
       }
       const activeNote = selectedRef.current;
-      if (activeNote?.notebookId === id) await refreshSelectedNoteFromRemote(activeNote.id);
+      const splitNote = splitSelectedRef.current;
+      await Promise.all([
+        activeNote?.notebookId === id ? refreshSelectedNoteFromRemote(activeNote.id) : null,
+        splitNote?.notebookId === id ? refreshSplitNoteFromRemote(splitNote.id) : null,
+      ]);
       setNotebooks((current) => current.filter((notebook) => notebook.id !== id));
       if (notebookId === id) setNotebookId(undefined);
       void refreshNotebooks();
@@ -178,13 +187,15 @@ export function useWorkspaceCollectionActions({
       setEditingNotebook(undefined);
     },
     [
-      flushNotebookSaves,
+      deleteNotebookAndMoveNotes,
       loadNotes,
       notebookId,
       notebooks,
       refreshNotebooks,
       refreshSelectedNoteFromRemote,
+      refreshSplitNoteFromRemote,
       selectedRef,
+      splitSelectedRef,
       setEditingNotebook,
       setNotebookId,
       setNotebooks,

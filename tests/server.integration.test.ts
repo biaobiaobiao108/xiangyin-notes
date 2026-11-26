@@ -334,11 +334,19 @@ describe("Bun Server API", () => {
     )?.id as string;
     const deletedNotebook = await request(
       `/api/notebooks/${notebookId}`,
-      { method: "DELETE" },
+      {
+        method: "DELETE",
+        body: JSON.stringify({ expectedNoteCount: 1, trackedNoteIds: [noteId] }),
+      },
       login.cookie,
     );
     expect(deletedNotebook.response.status).toBe(200);
-    expect(deletedNotebook.body).toMatchObject({ ok: true, movedCount: 1 });
+    const previousVersion = 5;
+    expect(deletedNotebook.body).toMatchObject({
+      ok: true,
+      movedCount: 1,
+      movedNotes: [{ id: noteId, previousVersion, version: previousVersion + 1 }],
+    });
     expect(
       database.query("SELECT notebook_id FROM note_tasks WHERE note_id = ?").get(noteId),
     ).toEqual({ notebook_id: inboxId });

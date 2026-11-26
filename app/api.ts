@@ -269,10 +269,13 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(payload),
     }),
-  deleteNotebook: (id: string, expectedNoteCount?: number) =>
-    request<{ ok: true }>(`/api/notebooks/${id}`, {
+  deleteNotebook: (id: string, expectedNoteCount?: number, trackedNoteIds?: string[]) =>
+    request<{
+      ok: true;
+      movedNotes?: Array<{ id: string; previousVersion: number; version: number }>;
+    }>(`/api/notebooks/${id}`, {
       method: "DELETE",
-      ...(expectedNoteCount === undefined ? {} : { body: JSON.stringify({ expectedNoteCount }) }),
+      body: JSON.stringify({ expectedNoteCount, trackedNoteIds }),
     }),
   reorderNotebooks: (ids: string[], expectedIds: string[]) =>
     request<{ ok: true; ids: string[] }>("/api/notebooks/reorder", {

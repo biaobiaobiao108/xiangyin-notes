@@ -4,7 +4,7 @@ import { ApiError, api } from "../api";
 import {
   clearDraftRecovery,
   noteMatchesDraft,
-  readDraftRecovery,
+  readOwnedNoteDraft,
   readMissingNoteDraft,
   rewrittenDraftTitle,
 } from "./draft-recovery";
@@ -25,6 +25,7 @@ type Queue = ReturnType<typeof useNoteSaveQueue>;
 type SearchResult = { id: string; query: string; token: number } | null;
 
 type Options = {
+  userId: string | null;
   ready: boolean;
   splitNoteId: string | null;
   splitNoteIdRef: Ref<string | null>;
@@ -65,6 +66,7 @@ type Options = {
 };
 
 export function useWorkspaceSplit({
+  userId,
   ready,
   splitNoteId,
   splitNoteIdRef,
@@ -117,7 +119,7 @@ export function useWorkspaceSplit({
 
   const fetchSplitNote = useCallback(
     async (id: string, discardRecovery = false) => {
-      if (splitNoteIdRef.current !== id) return;
+      if (!userId || splitNoteIdRef.current !== id) return;
       splitAbortRef.current?.abort();
       const controller = new AbortController();
       splitAbortRef.current = controller;
@@ -138,7 +140,7 @@ export function useWorkspaceSplit({
         if (discardRecovery) {
           clearPendingForNote(id);
         } else if (!pendingNote && !pendingSavesRef.current.has(id)) {
-          const recoveredDraft = await readDraftRecovery(id);
+          const recoveredDraft = await readOwnedNoteDraft(userId, result.note);
           if (requestId !== splitLoadRequestRef.current || splitNoteIdRef.current !== id) return;
           loadedNote = latestSelectedNoteSnapshot(loadedNote, splitSelectedRef.current);
           if (
@@ -146,7 +148,7 @@ export function useWorkspaceSplit({
             (noteMatchesDraft(result.note, recoveredDraft) ||
               rewrittenDraftTitle(result.note, recoveredDraft))
           ) {
-            clearDraftRecovery(id, recoveredDraft);
+            clearDraftRecovery(userId, id, recoveredDraft);
           } else if (recoveredDraft && !pendingSavesRef.current.has(id)) {
             pendingSavesRef.current.set(id, recoveredDraft);
             if (recoveredDraft.version === loadedNote.version) {
@@ -184,6 +186,7 @@ export function useWorkspaceSplit({
         if (reason instanceof Error && reason.name === "AbortError") return;
         if (isMissingNoteError(reason)) {
           const draft = await readMissingNoteDraft(
+            userId,
             id,
             pendingSavesRef.current.get(id),
             splitSelectedRef.current,
@@ -208,6 +211,7 @@ export function useWorkspaceSplit({
       }
     },
     [
+      userId,
       clearPendingForNote,
       failedSavesRef,
       flushSecondaryDraft,

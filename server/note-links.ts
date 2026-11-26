@@ -194,6 +194,14 @@ export function resolveNoteLinksForTitles(
   }
 }
 
+export function hasLinksToTitle(database: SqliteDatabase, userId: string, title: string) {
+  return (
+    database
+      .query("SELECT 1 FROM note_links WHERE user_id = ? AND target_title_normalized = ? LIMIT 1")
+      .get(userId, normalizeLinkTitle(title)) !== null
+  );
+}
+
 export function sourceNoteIdsReferencingTitle(
   database: SqliteDatabase,
   userId: string,
