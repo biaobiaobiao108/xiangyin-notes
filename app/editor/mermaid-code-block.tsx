@@ -109,11 +109,15 @@ export function MermaidCodeBlock({
         event.keyCode === 229
       )
         return;
-      if (!body.contains(event.target as Node) && event.target !== ownerDocument.body) {
-        const start = getPos();
-        const { $head } = editor.state.selection;
-        if (event.target !== editorDom || !$head.depth || $head.before() !== start) return;
-      }
+      const target = event.target;
+      if (
+        target instanceof Element &&
+        !body.contains(target) &&
+        target.closest(
+          "dialog[open], [role='dialog'], [role='menu'], [role='listbox'], input, textarea",
+        )
+      )
+        return;
       event.preventDefault();
       event.stopPropagation();
       closeSource();
