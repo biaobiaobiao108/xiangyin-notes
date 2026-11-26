@@ -1,3 +1,4 @@
+/* NoteTags 运行时拼接 note-{row|card}-tag(s)，两套类名都必须保留。 */
 .note-row-tags,
 .note-card-tags {
   position: relative;
@@ -45,4 +46,10 @@
 .note-tags-ruler > span {
   flex: none;
   max-width: 16em;
+}
+
+@media (max-width: 900px) {
+  .app-shell[data-mobile-page] .note-row-tags {
+    font-size: 0.8125rem;
+  }
 }

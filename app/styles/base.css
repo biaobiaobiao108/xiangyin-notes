@@ -58,6 +58,8 @@
   --accent-border-soft: light-dark(rgba(54, 94, 78, 0.25), rgba(78, 138, 110, 0.32));
   --accent-border-strong: light-dark(rgba(39, 71, 58, 0.54), rgba(78, 138, 110, 0.65));
   --danger: light-dark(#b9412c, #e87860);
+  --danger-text: #b91c1c;
+  --vermilion: #d96245;
   --danger-hover: light-dark(#9c3622, #ec7c64);
   --danger-primary-hover: light-dark(#a63c28, #ec7c64);
   --danger-soft: light-dark(#fbeee9, rgba(219, 90, 68, 0.16));
@@ -86,6 +88,7 @@
   --danger-contrast: light-dark(#ffffff, #161819);
   --tag-color: light-dark(#405b4c, #7aa88f);
   --tag-soft: light-dark(#edf4f0, rgba(78, 138, 110, 0.12));
+  --h3-soft: light-dark(#edf3f7, rgba(130, 155, 168, 0.1));
   --note-highlight-amber: light-dark(#f3e3b5, rgba(216, 178, 92, 0.24));
   --note-highlight-sage: light-dark(#dfe9dc, rgba(126, 166, 121, 0.22));
   --note-highlight-sky: light-dark(#dce8ef, rgba(109, 167, 199, 0.22));

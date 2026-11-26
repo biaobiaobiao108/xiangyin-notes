@@ -334,8 +334,7 @@
     margin-bottom: calc(72px + env(safe-area-inset-bottom));
   }
   .app-shell[data-mobile-page] .tasks-scroll-shell,
-  .app-shell[data-mobile-page] .note-list-scroll-shell,
-  .is-mobile-editor .editor-scroll-shell {
+  .app-shell[data-mobile-page] .note-list-scroll-shell {
     --scroll-edge-color: var(--canvas);
   }
   .app-shell[data-mobile-page] .tasks-note-group-header,

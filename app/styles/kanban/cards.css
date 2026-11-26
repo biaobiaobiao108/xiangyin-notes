@@ -164,7 +164,7 @@
 }
 
 .kanban-column-load-more-btn.is-error {
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 /* Corner Drop Zone during Drag (右下角移动到回收站) */
