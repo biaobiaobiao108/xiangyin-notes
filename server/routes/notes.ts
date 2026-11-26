@@ -8,6 +8,7 @@ import {
   json,
   jsonError,
   NOTE_BODY_MAX_BYTES,
+  NOTE_CONTENT_MAX_LENGTH,
   NOTE_FROM,
   NOTE_LIST_SELECT,
   NOTE_PAGE_SIZE,
@@ -300,7 +301,7 @@ export async function handleNotesRoute(
     const contentMarkdown = payload?.contentMarkdown === undefined ? "" : payload.contentMarkdown;
     if (typeof rawTitle !== "string" || typeof contentMarkdown !== "string")
       return jsonError(400, "INVALID_NOTE", "笔记标题或正文格式无效");
-    if (!validText(rawTitle, 200) || !validText(contentMarkdown, 1_000_000))
+    if (!validText(rawTitle, 200) || !validText(contentMarkdown, NOTE_CONTENT_MAX_LENGTH))
       return jsonError(413, "NOTE_TOO_LARGE", "笔记标题或正文超出长度限制");
     const title = normalizeNoteTitle(rawTitle as string);
     const kanbanStatus = payload.kanbanStatus;
@@ -439,7 +440,7 @@ export async function handleNotesRoute(
       typeof notebookId !== "string"
     )
       return jsonError(400, "INVALID_NOTE", "笔记标题、正文或笔记本格式无效");
-    if (!validText(rawTitle, 200) || !validText(contentMarkdown, 1_000_000))
+    if (!validText(rawTitle, 200) || !validText(contentMarkdown, NOTE_CONTENT_MAX_LENGTH))
       return jsonError(413, "NOTE_TOO_LARGE", "笔记标题或正文超出长度限制");
     const title = normalizeNoteTitle(rawTitle as string);
     if (
