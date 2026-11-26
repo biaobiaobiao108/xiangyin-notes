@@ -33,11 +33,8 @@
     min-height: 0;
     background: var(--canvas);
   }
-  .is-mobile-card-grid .card-grid-scroll-shell::before {
-    background: linear-gradient(to bottom, var(--canvas), transparent);
-  }
-  .is-mobile-card-grid .card-grid-scroll-shell::after {
-    background: linear-gradient(to top, var(--canvas), transparent);
+  .is-mobile-card-grid .card-grid-scroll-shell {
+    --scroll-edge-color: var(--canvas);
   }
   .card-grid-mobile-menu {
     left: max(14px, env(safe-area-inset-left));

@@ -226,39 +226,18 @@
 }
 
 .memo-tag-list-shell {
-  position: relative;
   display: flex;
   min-height: 0;
   flex-direction: column;
   flex: 1 1 auto;
   overflow: hidden;
+  --scroll-edge-color: var(--canvas);
 }
 
 .memo-tag-list-shell::before,
 .memo-tag-list-shell::after {
-  position: absolute;
   z-index: 2;
-  inset-inline: 0;
   height: 24px;
-  content: "";
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--motion-fast) var(--motion-ease-out);
-}
-
-.memo-tag-list-shell::before {
-  inset-block-start: 0;
-  background: linear-gradient(to bottom, var(--canvas), transparent);
-}
-
-.memo-tag-list-shell::after {
-  inset-block-end: 0;
-  background: linear-gradient(to top, var(--canvas), transparent);
-}
-
-.memo-tag-list-shell.has-scroll-before::before,
-.memo-tag-list-shell.has-scroll-after::after {
-  opacity: 1;
 }
 
 .memo-tag-list-shell > .floating-scrollbar--right {

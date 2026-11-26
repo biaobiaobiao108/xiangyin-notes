@@ -26,6 +26,16 @@
 
 单位约定：桌面与移动端统一使用标准 CSS px 与 rem，局部比例采用纯比例因子或视口安全区宏（`env(safe-area-inset-*)`）。
 
+**样式文件组织**：`app/styles.css` 是唯一入口，import 顺序按「基础 → 基元 → 布局 → 列表 → 编辑器 → 工具 → 功能 → 响应式」排列，新增文件必须插入对应域内，不能靠 `!important` 跨域覆盖。
+
+- `styles/base.css`：Token、reset 与全局可访问性。
+- `styles/scroll-edge.css`：滚动容器边缘渐隐基元，使用 `.scroll-edge` 与 `--scroll-edge-color`。
+- `styles/shell/`、`styles/lists/`、`styles/editor/`、`styles/editor-tools/`：工作区与编辑器的布局、组件和状态。
+- `styles/links/`、`styles/cards/`、`styles/kanban/`、`styles/memos/`：各功能域。
+- `app/editor/*.css`、`app/workspace/*.css`、`app/image-export/*.css`：只在对应组件加载的局部样式。
+
+单文件不超过 600 行；新增样式优先复用现有组件类、Token 和 `.scroll-edge` 等基元。`bun run css:budget` 检查总行数、gzip 体积、单文件行数和 `!important` 数量，阈值只下调不放宽。布局同时受视口和分屏容器宽度影响时，优先使用容器查询，不用新增视口断点。
+
 ## 3. 字体系统 (Fonts)
 
 本项目不引入本地第三方大字体包，充分依托各客户端平台最高品质的自带字体栈：

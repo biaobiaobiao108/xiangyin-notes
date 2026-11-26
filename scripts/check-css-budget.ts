@@ -6,8 +6,8 @@
  */
 import { Glob } from "bun";
 
-const MAX_TOTAL_LINES = 11_600;
-const MAX_GZIP_BYTES = 43 * 1024;
+const MAX_TOTAL_LINES = 11_500;
+const MAX_GZIP_BYTES = 41 * 1024;
 const MAX_FILE_LINES = 600;
 const MAX_IMPORTANT = 53;
 

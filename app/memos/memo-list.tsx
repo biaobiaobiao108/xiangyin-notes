@@ -353,7 +353,7 @@ function MemoTagFilters({ onSelect }: { onSelect?: () => void }) {
       </header>
       {memo.tagCounts.length > 0 ? (
         <div
-          className={`memo-tag-list-shell ${scrollEdges.before ? "has-scroll-before" : ""} ${scrollEdges.after ? "has-scroll-after" : ""}`.trim()}
+          className={`memo-tag-list-shell scroll-edge ${scrollEdges.before ? "has-scroll-before" : ""} ${scrollEdges.after ? "has-scroll-after" : ""}`.trim()}
         >
           <div ref={listRef} id="memo-tag-list" className="memo-tag-list floating-scrollbar-target">
             {memo.tagCounts.map((item) => (

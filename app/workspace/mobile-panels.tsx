@@ -82,7 +82,7 @@ export const MobileNotebookHome = memo(function MobileNotebookHome({
         <span>象映笔记</span>
       </h1>
       <div
-        className={`mobile-home-scroll-shell${scrollEdges.before ? " has-scroll-before" : ""}${scrollEdges.after ? " has-scroll-after" : ""}`}
+        className={`mobile-home-scroll-shell scroll-edge${scrollEdges.before ? " has-scroll-before" : ""}${scrollEdges.after ? " has-scroll-after" : ""}`}
       >
         <div
           ref={scrollRef}
