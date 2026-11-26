@@ -168,15 +168,19 @@ export function useImageActions({
   const viewerRef = useRef<ImageViewerState | undefined>(undefined);
   viewerRef.current = viewer;
 
-  const closeViewer = useCallback(() => {
-    const trigger =
-      viewerRef.current?.trigger ??
-      (focusTarget && rootRef.current ? focusTarget(rootRef.current) : null);
-    setViewer(undefined);
-    requestAnimationFrame(() => {
-      if (trigger?.isConnected) trigger.focus({ preventScroll: true });
-    });
-  }, [focusTarget, rootRef]);
+  const closeViewer = useCallback(
+    (restoreFocus = true) => {
+      const trigger =
+        viewerRef.current?.trigger ??
+        (focusTarget && rootRef.current ? focusTarget(rootRef.current) : null);
+      setViewer(undefined);
+      if (!restoreFocus) return;
+      requestAnimationFrame(() => {
+        if (trigger?.isConnected) trigger.focus({ preventScroll: true });
+      });
+    },
+    [focusTarget, rootRef],
+  );
 
   const onContextMenu = (event: ReactMouseEvent<HTMLElement>) => {
     const root = rootRef.current;

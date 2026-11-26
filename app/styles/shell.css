@@ -846,6 +846,9 @@ kbd {
 .context-menu-item:focus-visible {
   background: var(--accent-soft);
 }
+.context-menu-item:focus-visible {
+  box-shadow: none;
+}
 .context-menu-item.is-danger,
 .context-menu-item.is-danger > svg {
   color: var(--danger);

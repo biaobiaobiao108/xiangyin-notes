@@ -119,7 +119,7 @@ export function ImageLightbox({
   onClose,
 }: {
   state: ImageViewerState;
-  onClose: () => void;
+  onClose: (restoreFocus?: boolean) => void;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -281,7 +281,7 @@ export function ImageLightbox({
       aria-labelledby={headingId}
       onCancel={(event) => {
         event.preventDefault();
-        onClose();
+        onClose(true);
       }}
       onClick={(event) => {
         if (
@@ -289,7 +289,7 @@ export function ImageLightbox({
           event.target === stageRef.current ||
           event.target === frameRef.current?.parentElement
         )
-          onClose();
+          onClose(false);
       }}
     >
       <h2 id={headingId} className="visually-hidden">
@@ -299,7 +299,7 @@ export function ImageLightbox({
         className="icon-button image-lightbox-close"
         type="button"
         aria-label="关闭图片预览"
-        onClick={onClose}
+        onClick={(event) => onClose(event.detail === 0)}
       >
         <X size={18} aria-hidden="true" />
       </button>

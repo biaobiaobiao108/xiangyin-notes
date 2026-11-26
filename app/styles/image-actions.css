@@ -12,6 +12,8 @@
   border: 0;
   background: transparent;
   overflow: hidden;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .image-lightbox-stage {
@@ -118,6 +120,7 @@
   transform-origin: center;
   transition: transform var(--motion-fast) var(--motion-ease-out);
   pointer-events: auto;
+  -webkit-user-select: none;
   user-select: none;
 }
 

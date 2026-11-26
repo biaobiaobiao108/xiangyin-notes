@@ -42,6 +42,15 @@ export type ContextMenuSwatch = {
   onSelect: () => void | Promise<void>;
 };
 
+const keyboardContextMenuEvents = new WeakSet<Event>();
+
+function isKeyboardContextMenu(event: globalThis.MouseEvent) {
+  if (keyboardContextMenuEvents.has(event)) return true;
+  if (!event.isTrusted) return false;
+  const pointerType = "pointerType" in event ? (event as PointerEvent).pointerType : "";
+  return event.button === 0 && !event.ctrlKey && pointerType === "";
+}
+
 /** 将 ContextMenu / Shift+F10 键盘事件转为对应元素上的 contextmenu 事件。 */
 export function dispatchKeyboardContextMenu(
   event: ReactKeyboardEvent<HTMLElement>,
@@ -52,16 +61,14 @@ export function dispatchKeyboardContextMenu(
   const target = event.target;
   if (!(target instanceof HTMLElement) || target.closest(ignoreSelector)) return;
   const rect = target.getBoundingClientRect();
-  if (
-    !target.dispatchEvent(
-      new MouseEvent("contextmenu", {
-        bubbles: true,
-        cancelable: true,
-        clientX: rect.left + 12,
-        clientY: rect.top + 12,
-      }),
-    )
-  ) {
+  const contextEvent = new MouseEvent("contextmenu", {
+    bubbles: true,
+    cancelable: true,
+    clientX: rect.left + 12,
+    clientY: rect.top + 12,
+  });
+  keyboardContextMenuEvents.add(contextEvent);
+  if (!target.dispatchEvent(contextEvent)) {
     event.preventDefault();
   }
 }
@@ -72,6 +79,7 @@ type MenuState = {
   items: ContextMenuItem[];
   label: string;
   trigger: HTMLElement | null;
+  focusFirstItem: boolean;
 };
 
 const TAB_STOP_SELECTOR =
@@ -222,6 +230,7 @@ export function useContextMenu() {
         items,
         label,
         trigger,
+        focusFirstItem: isKeyboardContextMenu(event.nativeEvent),
       });
     },
     [],
@@ -269,7 +278,13 @@ function ContextMenu({
       left: Math.max(8, Math.min(state.x, window.innerWidth - root.offsetWidth - 8)),
       top: Math.max(8, Math.min(state.y, window.innerHeight - root.offsetHeight - 8)),
     });
-    root.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus({ preventScroll: true });
+    if (state.focusFirstItem) {
+      root
+        .querySelector<HTMLButtonElement>("button:not(:disabled)")
+        ?.focus({ preventScroll: true });
+    } else {
+      scrollRef.current?.focus({ preventScroll: true });
+    }
   }, [state]);
   useEffect(() => {
     const dismiss = () => onClose();
@@ -300,9 +315,9 @@ function ContextMenu({
       );
       const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
       const next =
-        event.key === "Home"
+        event.key === "Home" || (current < 0 && event.key === "ArrowDown")
           ? 0
-          : event.key === "End"
+          : event.key === "End" || (current < 0 && event.key === "ArrowUp")
             ? buttons.length - 1
             : (current + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length;
       buttons[next]?.focus({ preventScroll: true });
@@ -348,6 +363,7 @@ function ContextMenu({
         ref={scrollRef}
         className="context-menu-scroll floating-scrollbar-target"
         role="menu"
+        tabIndex={-1}
         aria-label={state.label}
       >
         {state.items.map((item, index) => {

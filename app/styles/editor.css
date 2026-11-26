@@ -2074,6 +2074,9 @@
   background: var(--surface-hover);
   color: var(--ink);
 }
+.block-action-item:focus-visible {
+  box-shadow: none;
+}
 .block-action-item:disabled {
   color: var(--soft-muted);
   opacity: 0.45;
