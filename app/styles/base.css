@@ -86,7 +86,6 @@
   --danger-contrast: light-dark(#ffffff, #161819);
   --tag-color: light-dark(#405b4c, #7aa88f);
   --tag-soft: light-dark(#edf4f0, rgba(78, 138, 110, 0.12));
-  --tag-border: light-dark(#c9ded3, rgba(78, 138, 110, 0.38));
   --note-highlight-amber: light-dark(#f3e3b5, rgba(216, 178, 92, 0.24));
   --note-highlight-sage: light-dark(#dfe9dc, rgba(126, 166, 121, 0.22));
   --note-highlight-sky: light-dark(#dce8ef, rgba(109, 167, 199, 0.22));
