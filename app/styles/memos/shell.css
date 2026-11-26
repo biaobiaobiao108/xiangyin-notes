@@ -1,0 +1,342 @@
+.memo-page {
+  grid-column: 2 / -1;
+  display: flex;
+  position: relative;
+  height: 100dvh;
+  max-height: 100dvh;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--canvas);
+  color: var(--ink);
+  animation: page-content-in var(--motion-content) var(--motion-ease-out);
+  view-transition-name: workspace-editor;
+}
+
+.memo-scroll-shell {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.memo-scroll-shell > .floating-scrollbar--right {
+  /* Keep the 6px thumb 8px clear of the timeline cards. */
+  inset-inline-end: -17px;
+}
+
+.memo-scroll-shell::before,
+.memo-scroll-shell::after {
+  position: absolute;
+  z-index: 2;
+  inset-inline: 0;
+  height: 24px;
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--motion-fast) var(--motion-ease-out);
+}
+
+.memo-scroll-shell::before {
+  inset-block-start: 0;
+  background: linear-gradient(to bottom, var(--canvas), transparent);
+}
+
+.memo-scroll-shell::after {
+  inset-block-end: 0;
+  background: linear-gradient(to top, var(--canvas), transparent);
+}
+
+.memo-scroll-shell.has-scroll-before::before,
+.memo-scroll-shell.has-scroll-after::after {
+  opacity: 1;
+}
+
+.memo-scroll {
+  height: 100%;
+  padding-bottom: 72px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+
+.memo-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.memo-layout {
+  display: grid;
+  width: min(1020px, calc(100% - 64px));
+  margin: 0 auto;
+  min-height: 0;
+  height: 100%;
+  padding: 32px 0 0;
+  grid-template-columns: minmax(0, 740px) minmax(220px, 248px);
+  gap: 32px;
+  align-items: stretch;
+}
+
+.memo-layout > .memo-scroll-shell {
+  min-height: 0;
+}
+
+.memo-feed {
+  width: 100%;
+  min-width: 0;
+}
+
+.memo-feed-tools {
+  display: flex;
+  min-height: 36px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.memo-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: min(100%, 360px);
+  min-height: 36px;
+  padding: 0 10px;
+  border-radius: var(--radius-md);
+  background: var(--surface-muted);
+  color: var(--muted);
+  transition:
+    background-color var(--motion-fast) var(--motion-ease-out),
+    color var(--motion-fast) var(--motion-ease-out);
+}
+
+.memo-search:hover {
+  background: var(--surface-hover);
+}
+
+.memo-search:focus-within {
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+.memo-search input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--quiet-ink);
+  font: inherit;
+  font-size: 0.82rem;
+  transition: color var(--motion-fast) var(--motion-ease-out);
+}
+
+.memo-search:focus-within input {
+  color: var(--ink);
+}
+
+.memo-search input::placeholder {
+  color: var(--soft-muted);
+}
+
+.memo-search button {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  transition:
+    background-color var(--motion-fast) var(--motion-ease-out),
+    color var(--motion-fast) var(--motion-ease-out),
+    transform var(--motion-panel) var(--motion-spring);
+}
+
+.memo-search button:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+
+.memo-page .memo-search button:active:not(:disabled) {
+  background: var(--surface-selected);
+  color: var(--ink);
+}
+
+.memo-filter-toggle {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: none;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--surface-muted);
+  color: var(--muted);
+  transition:
+    background-color var(--motion-fast) var(--motion-ease-out),
+    color var(--motion-fast) var(--motion-ease-out),
+    transform var(--motion-panel) var(--motion-spring);
+}
+
+.memo-filter-toggle:hover,
+.memo-filter-toggle[aria-expanded="true"] {
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+}
+
+.memo-page .memo-filter-toggle:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+.memo-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+  font: inherit;
+  font-size: 0.76rem;
+  transition:
+    background-color var(--motion-fast) var(--motion-ease-out),
+    color var(--motion-fast) var(--motion-ease-out),
+    transform var(--motion-panel) var(--motion-spring);
+}
+
+.memo-filter-chip:hover {
+  background: var(--surface-selected);
+  color: var(--ink);
+}
+
+.memo-page .memo-filter-chip:active:not(:disabled) {
+  background: var(--surface-selected);
+  color: var(--ink);
+}
+
+.memo-composer {
+  --memo-prose-size: 0.98rem;
+  --memo-prose-leading: 1.65;
+  position: relative;
+  width: 100%;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  transition:
+    background-color var(--motion-micro) var(--motion-ease-out),
+    transform var(--motion-micro) var(--motion-ease-out);
+}
+
+.memo-composer:hover {
+  background: var(--accent-soft);
+}
+
+.memo-composer:focus-within {
+  background: var(--accent-soft);
+}
+
+.memo-card.is-editing .memo-composer {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.memo-composer .ProseMirror,
+.memo-composer-prose {
+  min-height: 0;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--memo-prose-size);
+  line-height: var(--memo-prose-leading);
+  caret-color: var(--accent);
+  transition: background-color var(--motion-fast) var(--motion-ease-out);
+}
+
+.memo-composer .ProseMirror:focus-visible {
+  background: transparent;
+}
+
+.memo-feed > .memo-composer .ProseMirror {
+  min-height: calc(1em * var(--memo-prose-leading));
+}
+
+.memo-composer .ProseMirror > :last-child {
+  margin-bottom: 0;
+}
+
+.memo-composer .ProseMirror p.is-editor-empty:first-child::before {
+  height: 0;
+  float: left;
+  color: var(--prose-placeholder);
+  content: attr(data-placeholder);
+  pointer-events: none;
+}
+
+.memo-timeline {
+  margin-top: 24px;
+}
+
+.memo-day + .memo-day {
+  margin-top: 24px;
+}
+
+.memo-day > h2 {
+  margin: 0 0 8px;
+  color: var(--quiet-ink);
+  font-size: 0.76rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.memo-virtual-list {
+  position: relative;
+}
+
+.memo-virtual-day,
+.memo-virtual-row {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+}
+
+.memo-virtual-day {
+  padding-top: 24px;
+}
+
+.memo-virtual-day.is-first {
+  padding-top: 0;
+}
+
+.memo-virtual-day > h2 {
+  margin: 0 0 8px;
+  color: var(--quiet-ink);
+  font-size: 0.76rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.memo-virtual-row {
+  padding-bottom: 10px;
+}
+
+.memo-virtual-row .memo-card {
+  animation: none;
+}
+
+.memo-day-items {
+  display: grid;
+  gap: 10px;
+}

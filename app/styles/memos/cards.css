@@ -1,0 +1,329 @@
+.memo-card {
+  --memo-prose-size: 0.98rem;
+  --memo-prose-leading: 1.65;
+  position: relative;
+  padding: 16px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  animation: page-content-in var(--motion-panel) var(--motion-ease-out) both;
+  transition:
+    background-color var(--motion-micro) var(--motion-ease-out),
+    filter var(--motion-micro) var(--motion-ease-out),
+    scale var(--motion-panel) var(--motion-spring);
+}
+
+.memo-card:focus-visible {
+  background: var(--accent-soft);
+}
+
+.memo-card.is-editing {
+  border-color: var(--accent);
+  background: var(--surface);
+}
+
+.memo-card:not(.is-editing):active {
+  scale: 0.992;
+  filter: brightness(0.985);
+}
+
+.memo-card-header {
+  display: flex;
+  min-height: 20px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.memo-card-header time {
+  color: var(--soft-muted);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.memo-card-content {
+  min-width: 0;
+}
+
+.memo-markdown {
+  min-width: 0;
+}
+
+.memo-composer .editor-wiki-link {
+  cursor: text;
+}
+
+.memo-image-placeholder {
+  display: inline-flex;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-muted);
+  color: var(--soft-muted);
+  font-size: 0.86em;
+}
+
+.memo-card-content .markdown-render-shell {
+  width: 100%;
+}
+
+.memo-card-content .note-prose {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--memo-prose-size);
+  line-height: var(--memo-prose-leading);
+}
+
+.memo-card .memo-composer-prose {
+  font-size: var(--memo-prose-size);
+  line-height: var(--memo-prose-leading);
+}
+.memo-markdown :is(p, h1, h2, h3, h4, h5, h6, li:not([data-type="taskItem"])) {
+  white-space: break-spaces;
+}
+
+.memo-card-content .note-prose > :first-child,
+.memo-card .memo-composer-prose > :first-child {
+  margin-top: 0;
+}
+
+.memo-card-content .note-prose > :last-child,
+.memo-card .memo-composer-prose > :last-child {
+  margin-bottom: 0;
+}
+
+/* React node views wrap code blocks; make their margins participate in the
+   same flow as the directly rendered preview blocks. */
+.memo-card .memo-composer-prose .node-codeBlock {
+  display: contents;
+}
+
+/* The composer temporarily becomes read-only while the save is in flight. */
+.memo-composer-prose .mermaid-toolbar {
+  display: none;
+}
+
+.memo-card .memo-composer-prose > .node-codeBlock:first-child > pre,
+.memo-card .memo-composer-prose > .node-codeBlock:first-child > .mermaid-code-block,
+.memo-card .memo-composer-prose blockquote > .node-codeBlock:first-child > pre {
+  margin-top: 0;
+}
+
+.memo-card .memo-composer-prose > .node-codeBlock:last-child > pre,
+.memo-card .memo-composer-prose > .node-codeBlock:last-child > .mermaid-code-block,
+.memo-card .memo-composer-prose blockquote > .node-codeBlock:last-child > pre {
+  margin-bottom: 0;
+}
+
+.memo-card-convert {
+  display: none;
+}
+
+.memo-card-error {
+  margin: 8px 0 0;
+  color: var(--danger);
+  font-size: 0.74rem;
+}
+
+.memo-conflict {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.memo-conflict > p {
+  margin: 0 0 8px;
+}
+
+.memo-conflict-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.memo-conflict-actions button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+}
+
+.memo-conflict-notice {
+  margin: 8px 0 0;
+  color: var(--accent-dark);
+}
+
+.memo-conflict details {
+  margin-top: 8px;
+}
+
+.memo-conflict summary {
+  cursor: pointer;
+}
+
+.memo-inline-error {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 0.76rem;
+}
+
+.memo-inline-error span {
+  min-width: 0;
+  flex: 1;
+}
+
+.memo-inline-error button {
+  min-height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--danger);
+  font: inherit;
+  font-weight: 600;
+  transition:
+    background-color var(--motion-fast) var(--motion-ease-out),
+    color var(--motion-fast) var(--motion-ease-out),
+    transform var(--motion-panel) var(--motion-spring);
+}
+
+.memo-inline-error button:hover {
+  background: var(--surface);
+  color: var(--danger-hover);
+}
+
+.memo-load-sentinel {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding-top: 12px;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.memo-load-sentinel button {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+  color: var(--quiet-ink);
+  font: inherit;
+  transition:
+    background-color var(--motion-fast) var(--motion-ease-out),
+    color var(--motion-fast) var(--motion-ease-out),
+    transform var(--motion-panel) var(--motion-spring);
+}
+
+.memo-load-sentinel button:hover {
+  background: var(--surface-selected);
+  color: var(--ink);
+}
+
+.memo-state {
+  display: grid;
+  min-height: 150px;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 24px;
+  border-top: 1px solid var(--border-soft);
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  text-align: center;
+}
+
+.memo-state strong {
+  color: var(--ink);
+  font-size: 0.9rem;
+}
+
+.memo-state span {
+  max-width: 420px;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.memo-state button {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+  font: inherit;
+  font-size: 0.8rem;
+  transition:
+    background-color var(--motion-fast) var(--motion-ease-out),
+    color var(--motion-fast) var(--motion-ease-out),
+    transform var(--motion-panel) var(--motion-spring);
+}
+
+.memo-state button:hover {
+  background: var(--surface-selected);
+  color: var(--ink);
+}
+
+.memo-state--error {
+  color: var(--danger);
+}
+
+.memo-skeleton-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.memo-skeleton {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.memo-skeleton span,
+.memo-skeleton strong,
+.memo-skeleton i {
+  display: block;
+  height: 10px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-selected);
+  animation: memo-skeleton-pulse 1.5s ease-in-out infinite alternate;
+}
+
+.memo-skeleton span {
+  width: 24%;
+}
+
+.memo-skeleton strong {
+  width: 78%;
+  height: 16px;
+}
+
+.memo-skeleton i {
+  width: 48%;
+}
+
+@keyframes memo-skeleton-pulse {
+  from {
+    opacity: 0.42;
+  }
+  to {
+    opacity: 0.8;
+  }
+}

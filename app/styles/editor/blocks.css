@@ -1,0 +1,124 @@
+.note-prose .note-callout {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  margin-block: 1.25em;
+  padding: 14px 16px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: var(--surface-notice);
+  color: var(--ink-soft);
+  font-size: 0.98em;
+  line-height: 1.65;
+}
+.note-prose .note-callout-icon {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+}
+.note-prose .note-callout-icon svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.note-prose .note-callout-content {
+  min-width: 0;
+}
+.note-prose .note-callout-content > :first-child {
+  margin-top: 0;
+}
+.note-prose .note-callout-content > :last-child {
+  margin-bottom: 0;
+}
+.note-prose .note-callout[data-callout="TIP"] {
+  background: var(--tag-soft);
+}
+.note-prose .note-callout[data-callout="TIP"] .note-callout-icon {
+  background: var(--surface);
+  color: var(--tag-color);
+}
+.note-prose .note-callout[data-callout="IMPORTANT"] {
+  background: var(--h3-soft);
+}
+.note-prose .note-callout[data-callout="IMPORTANT"] .note-callout-icon {
+  background: var(--surface);
+  color: var(--accent-dark);
+}
+.note-prose .note-callout[data-callout="WARNING"],
+.note-prose .note-callout[data-callout="CAUTION"] {
+  background: var(--danger-soft);
+}
+.note-prose .note-callout[data-callout="WARNING"] .note-callout-icon,
+.note-prose .note-callout[data-callout="CAUTION"] .note-callout-icon {
+  background: var(--surface);
+  color: var(--danger);
+}
+.note-prose hr {
+  margin-block: 2em;
+  height: 1px;
+  border: 0;
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--border-strong) 15%,
+    var(--border-strong) 85%,
+    transparent
+  );
+}
+.note-prose ul[data-type="taskList"] {
+  padding-left: 0;
+  list-style: none;
+}
+.note-prose ul[data-type="taskList"] li {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  align-items: flex-start;
+  gap: 10px;
+  padding-left: 0;
+  margin-block: 0.35em;
+}
+.note-prose ul[data-type="taskList"] li > div {
+  min-width: 0;
+  flex: 1;
+}
+.note-prose ul[data-type="taskList"] li > label {
+  display: flex;
+  flex: none;
+  align-items: center;
+  height: 1.72em;
+  padding-top: 0;
+  user-select: none;
+}
+.note-prose ul[data-type="taskList"] li > label input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  border-radius: 4px;
+}
+.note-prose ul[data-type="taskList"] li[data-checked="true"] > div {
+  color: var(--soft-muted);
+  /* Underline offset stays aligned when inline code uses a smaller font. */
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-skip-ink: none;
+  text-underline-offset: -0.4em;
+}
+.note-prose ul[data-type="taskList"] li[data-checked="true"] > div p,
+.note-prose ul[data-type="taskList"] li[data-checked="true"] > div strong,
+.note-prose ul[data-type="taskList"] li[data-checked="true"] > div code,
+.note-prose ul[data-type="taskList"] li[data-checked="true"] > div a {
+  color: inherit;
+}

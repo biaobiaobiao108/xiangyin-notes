@@ -1,0 +1,269 @@
+.trashed-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  margin-bottom: 24px;
+  border: 1px solid var(--accent-border);
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+  font-size: 0.84rem;
+}
+.trashed-banner button {
+  font-weight: 600;
+  text-decoration: underline;
+}
+.editor-scroll-shell {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.editor-scroll-shell::before,
+.editor-scroll-shell::after {
+  position: absolute;
+  z-index: 2;
+  inset-inline: 0;
+  height: 32px;
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--motion-fast) var(--motion-ease-out);
+}
+.editor-scroll-shell::before {
+  inset-block-start: 0;
+  background: linear-gradient(to bottom, var(--surface), transparent);
+}
+.editor-scroll-shell::after {
+  inset-block-end: 0;
+  background: linear-gradient(to top, var(--surface), transparent);
+}
+.editor-scroll-shell.has-scroll-before::before,
+.editor-scroll-shell.has-scroll-after::after {
+  opacity: 1;
+}
+.editor-scroll {
+  height: 100%;
+  min-height: 0;
+  overflow-x: clip;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+/* 浏览器会自动聚焦可滚动容器；正文区域无需整页焦点轮廓。 */
+.editor-scroll:focus,
+.editor-scroll:focus-visible {
+  outline: none;
+}
+.editor-document {
+  position: relative;
+  width: min(820px, calc(100% - 96px));
+  margin: 0 auto;
+  padding: 72px 0 128px;
+}
+.editor-scroll.is-typewriter-mode .editor-document,
+.editor-scroll.is-auto-reading .editor-document {
+  padding-bottom: max(50vh, 260px);
+}
+.editor-document--entering {
+  animation: note-fade-in var(--motion-content) var(--motion-ease-out);
+}
+@keyframes page-content-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes note-fade-in {
+  from {
+    opacity: 0.82;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.editor-panel .note-title-input,
+.editor-panel .note-prose,
+.read-only-prose {
+  font-family: inherit;
+}
+.editor-panel .note-title-input {
+  display: block;
+  width: 100%;
+  min-height: 1.25em;
+  height: auto;
+  padding: 0;
+  margin-bottom: 20px;
+  border: 0;
+  outline: 0;
+  resize: none;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  background: transparent;
+  color: var(--ink);
+  font-size: clamp(2rem, 3.5vw, 3.05rem);
+  font-weight: 700;
+  letter-spacing: 0.005em;
+  line-height: 1.22;
+}
+.editor-panel .note-title-input:focus {
+  outline: none;
+  box-shadow: none;
+}
+.note-title-input::placeholder {
+  color: var(--prose-placeholder);
+}
+.note-title-input::selection {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+.note-prose {
+  margin-top: 24px;
+  color: var(--ink-soft);
+  font-size: 1.05rem;
+  line-height: 1.72;
+  letter-spacing: 0.012em;
+  text-spacing-trim: trim-start;
+  -webkit-font-smoothing: antialiased;
+}
+.note-prose,
+.note-prose.ProseMirror {
+  overflow-wrap: anywhere;
+}
+.note-prose .long-text-run {
+  line-break: anywhere;
+}
+.note-prose:focus,
+.note-prose:focus-visible {
+  outline: none;
+}
+.note-image-node {
+  display: block;
+  width: 100%;
+  margin: 1.2em 0;
+}
+.note-image-frame {
+  position: relative;
+  display: block;
+  width: min(var(--image-display-width), 100%);
+  max-width: 100%;
+}
+.note-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: 100%;
+  border-radius: 10px;
+  box-shadow: 0 5px 18px rgba(39, 47, 41, 0.08);
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.note-image-node.is-selected .note-image {
+  outline: none;
+  box-shadow:
+    0 0 0 3px var(--surface),
+    0 0 0 5px var(--image-selection),
+    0 0 0 8px var(--image-selection-soft),
+    0 5px 18px rgba(39, 47, 41, 0.08);
+}
+.note-image-resize-handle {
+  position: absolute;
+  right: -22px;
+  bottom: -22px;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: nwse-resize;
+  opacity: 0;
+  transform: scale(0.9);
+  transition:
+    opacity var(--motion-fast) var(--motion-ease-out),
+    transform var(--motion-fast) var(--motion-ease-out);
+  touch-action: none;
+}
+.note-image-resize-handle::after {
+  position: absolute;
+  right: 13px;
+  bottom: 13px;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--surface);
+  border-radius: 5px;
+  background: var(--accent);
+  box-shadow: 0 2px 8px rgba(39, 47, 41, 0.22);
+  content: "";
+  pointer-events: none;
+}
+.note-image-node.is-selected .note-image-resize-handle {
+  opacity: 1;
+  transform: scale(1);
+}
+.note-image-resize-handle:hover::after {
+  background: var(--accent-dark);
+}
+.note-image-resize-handle:focus-visible::after {
+  box-shadow:
+    0 0 0 2px var(--surface),
+    0 0 0 4px var(--focus-ring),
+    0 2px 8px rgba(39, 47, 41, 0.22);
+}
+.note-image-loading {
+  display: grid;
+  width: min(var(--image-display-width), 100%);
+  min-height: 120px;
+  place-items: center;
+  border: 1px dashed var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface-muted);
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+.note-prose .note-highlight {
+  padding: 0;
+  border-radius: 0.18em;
+  background-color: var(--note-highlight-amber);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  transition: background-color var(--motion-fast) var(--motion-ease-out);
+}
+.note-prose .note-highlight[data-color="sage"] {
+  background-color: var(--note-highlight-sage);
+}
+.note-prose .note-highlight[data-color="sky"] {
+  background-color: var(--note-highlight-sky);
+}
+.note-prose .note-highlight[data-color="rose"] {
+  background-color: var(--note-highlight-rose);
+}
+.note-prose .note-highlight[data-color="lilac"] {
+  background-color: var(--note-highlight-lilac);
+}
+.note-prose .note-highlight[data-color="sand"] {
+  background-color: var(--note-highlight-sand);
+}
+.note-prose .note-annotation {
+  cursor: pointer;
+  text-decoration-line: underline;
+  text-decoration-style: dashed;
+  text-decoration-thickness: 1.5px;
+  text-decoration-color: var(--note-annotation-line);
+  text-underline-offset: 0.28em;
+  background-color: color-mix(in srgb, var(--accent) 9%, transparent);
+  border-radius: 2.5px;
+  padding-inline: 1.5px;
+  transition:
+    background-color var(--motion-fast) var(--motion-ease-out),
+    text-decoration-color var(--motion-fast) var(--motion-ease-out),
+    box-shadow var(--motion-fast) var(--motion-ease-out);
+}

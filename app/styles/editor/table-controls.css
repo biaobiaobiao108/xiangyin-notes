@@ -1,0 +1,222 @@
+.table-edge-controls-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  pointer-events: none;
+}
+.table-edge-rail {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  opacity: 0;
+  pointer-events: none;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  transition: opacity var(--motion-fast) var(--motion-ease-out);
+}
+.table-edge-rail.is-visible,
+.table-edge-rail:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+}
+.table-edge-rail--columns {
+  width: 14px;
+  flex-direction: column;
+}
+.table-edge-rail--rows {
+  height: 14px;
+  flex-direction: row;
+}
+.table-edge-drag-handle {
+  position: relative;
+  display: grid;
+  flex: 1 1 auto;
+  min-inline-size: 24px;
+  min-block-size: 24px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  cursor: grab;
+  touch-action: none;
+}
+.table-edge-rail--columns .table-edge-drag-handle {
+  width: 100%;
+  height: 100%;
+}
+.table-edge-rail--rows .table-edge-drag-handle {
+  width: 100%;
+  height: 100%;
+}
+.table-edge-grip {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background-color: var(--surface-glass);
+  box-shadow: 0 1px 4px rgba(39, 47, 41, 0.1);
+  pointer-events: none;
+  transition:
+    background-color var(--motion-fast) var(--motion-ease-out),
+    border-color var(--motion-fast) var(--motion-ease-out),
+    transform var(--motion-fast) var(--motion-ease-out);
+}
+.table-edge-rail--columns .table-edge-grip {
+  width: 10px;
+  height: 48px;
+}
+.table-edge-rail--rows .table-edge-grip {
+  width: 48px;
+  height: 10px;
+}
+.table-edge-grip-track {
+  position: absolute;
+  border-radius: 999px;
+  background: var(--border-soft);
+}
+.table-edge-rail--columns .table-edge-grip-track {
+  top: 7px;
+  bottom: 7px;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+}
+.table-edge-rail--rows .table-edge-grip-track {
+  top: 50%;
+  right: 7px;
+  left: 7px;
+  height: 1px;
+  transform: translateY(-50%);
+}
+.table-edge-grip-dots {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+}
+.table-edge-rail--columns .table-edge-grip-dots {
+  flex-direction: column;
+}
+.table-edge-rail--rows .table-edge-grip-dots {
+  flex-direction: row;
+}
+.table-edge-grip-dots > span {
+  width: 3px;
+  height: 3px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.table-edge-direction {
+  position: absolute;
+  display: block;
+  width: 6px;
+  height: 8px;
+  color: var(--soft-muted);
+  opacity: 0.8;
+  pointer-events: none;
+}
+.table-edge-rail--columns .table-edge-direction {
+  top: 50%;
+  transform: translateY(-50%);
+}
+.table-edge-rail--columns .table-edge-direction--decrease {
+  right: calc(50% + 8px);
+}
+.table-edge-rail--columns .table-edge-direction--increase {
+  left: calc(50% + 8px);
+}
+.table-edge-rail--columns .table-edge-direction--decrease::after,
+.table-edge-rail--columns .table-edge-direction--increase::after {
+  position: absolute;
+  top: 50%;
+  width: 0;
+  height: 0;
+  border-top: 3px solid transparent;
+  border-bottom: 3px solid transparent;
+  content: "";
+  transform: translateY(-50%);
+}
+.table-edge-rail--columns .table-edge-direction--decrease::after {
+  left: 0;
+  border-right: 4px solid currentColor;
+}
+.table-edge-rail--columns .table-edge-direction--increase::after {
+  right: 0;
+  border-left: 4px solid currentColor;
+}
+.table-edge-rail--rows .table-edge-direction {
+  left: 50%;
+  width: 8px;
+  height: 6px;
+  transform: translateX(-50%);
+}
+.table-edge-rail--rows .table-edge-direction--decrease {
+  bottom: calc(50% + 8px);
+}
+.table-edge-rail--rows .table-edge-direction--increase {
+  top: calc(50% + 8px);
+}
+.table-edge-rail--rows .table-edge-direction--decrease::after,
+.table-edge-rail--rows .table-edge-direction--increase::after {
+  position: absolute;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-right: 3px solid transparent;
+  border-left: 3px solid transparent;
+  content: "";
+  transform: translateX(-50%);
+}
+.table-edge-rail--rows .table-edge-direction--decrease::after {
+  top: 0;
+  border-bottom: 4px solid currentColor;
+}
+.table-edge-rail--rows .table-edge-direction--increase::after {
+  bottom: 0;
+  border-top: 4px solid currentColor;
+}
+.table-edge-drag-handle:hover:not(:disabled) .table-edge-grip,
+.table-edge-drag-handle:focus-visible .table-edge-grip {
+  --table-edge-mark: var(--muted);
+  border-color: var(--muted);
+  background-color: var(--surface);
+  transform: scale(1.04);
+}
+.table-edge-drag-handle:active:not(:disabled) {
+  cursor: grabbing;
+}
+.table-edge-drag-handle:active:not(:disabled) .table-edge-grip {
+  transform: scale(0.98);
+}
+.table-edge-drag-handle:focus-visible {
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+.table-edge-drag-handle:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.table-edge-preview {
+  position: fixed;
+  z-index: 1;
+  padding: 3px 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  box-shadow: 0 2px 6px rgba(39, 47, 41, 0.1);
+  color: var(--ink);
+  font-size: 0.68rem;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+}

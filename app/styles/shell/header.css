@@ -1,0 +1,67 @@
+.list-header,
+.editor-header {
+  height: 62px;
+  min-height: 62px;
+}
+.list-header {
+  position: relative;
+  z-index: 10;
+  justify-content: space-between;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-glass);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.list-header-main {
+  min-width: 0;
+  margin-right: auto;
+}
+.list-header h2 {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 1.04rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.list-header p {
+  margin: 4px 0 0;
+  color: var(--soft-muted);
+  font-size: 0.76rem;
+}
+.list-header-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 12px;
+}
+.empty-trash-button {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+}
+.empty-trash-button:hover:not(:disabled),
+.empty-trash-button:focus-visible {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  color: var(--danger);
+}
+.empty-trash-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+.list-new-note-button {
+  color: var(--accent-dark);
+}
+.list-new-note-button:hover {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+}

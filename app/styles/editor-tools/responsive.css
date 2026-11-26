@@ -1,0 +1,594 @@
+@media (max-width: 1180px) {
+  .app-shell {
+    grid-template-columns: 232px minmax(280px, 330px) minmax(0, 1fr);
+  }
+  .app-shell.sidebar-collapsed {
+    grid-template-columns: 68px minmax(280px, 330px) minmax(0, 1fr);
+  }
+  .app-shell.is-focus-mode {
+    grid-template-columns: 0px minmax(0px, 0px) minmax(0, 1fr);
+  }
+  .editor-header {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+    gap: 8px;
+    padding-inline: 20px;
+  }
+  .editor-header-start .editor-meta {
+    display: none;
+  }
+  .editor-actions {
+    gap: 0;
+  }
+  .editor-actions .icon-button {
+    width: 32px;
+    height: 32px;
+    flex: 0 0 32px;
+  }
+  .editor-document {
+    width: min(760px, calc(100% - 64px));
+  }
+}
+
+@media (max-width: 900px) {
+  /* WebKit samples a fixed top-edge element when coloring the system status bar. */
+  body:has(.app-shell[data-mobile-page]) > .mobile-status-color {
+    display: block;
+    position: fixed;
+    inset: 0 0 auto;
+    height: 12px;
+    z-index: 50;
+    background: var(--canvas);
+    pointer-events: none;
+  }
+  html:has(.app-shell[data-mobile-page]) {
+    height: 100%;
+  }
+  body:has(.app-shell[data-mobile-page]) {
+    position: fixed;
+    inset: 0;
+    height: 100%;
+    padding: 0;
+  }
+  .app-shell,
+  .app-shell.sidebar-collapsed,
+  .app-shell.is-focus-mode {
+    display: block;
+    position: fixed;
+    top: var(--mobile-viewport-top, 0px);
+    left: 0;
+    width: 100%;
+    height: var(--mobile-viewport-height, 100dvh);
+    min-height: 0;
+    max-height: none;
+    overflow: hidden;
+    overflow: clip;
+  }
+  .app-shell[data-mobile-page],
+  .app-shell[data-mobile-page].sidebar-collapsed,
+  .app-shell[data-mobile-page].is-focus-mode {
+    display: flex;
+    flex-direction: column;
+  }
+  .app-shell[data-mobile-page]::before {
+    content: "";
+    position: absolute;
+    z-index: 40;
+    inset: 0 0 auto;
+    height: env(safe-area-inset-top);
+    background: var(--canvas);
+    pointer-events: none;
+  }
+  .app-shell[data-mobile-page="editor"] {
+    height: var(--mobile-editor-height, 100dvh);
+  }
+  .editor-panel.is-focus-mode .editor-header {
+    height: 50px;
+    min-height: 50px;
+  }
+  .editor-panel.is-focus-mode .editor-document {
+    padding-top: max(36px, env(safe-area-inset-top));
+  }
+  .mobile-home-region {
+    flex: 1 1 0;
+    height: 0;
+    min-height: 0;
+    min-width: 0;
+  }
+  .mobile-home-region[hidden] {
+    display: none;
+  }
+  .note-list-panel {
+    position: relative;
+    flex: 1 1 0;
+    width: 100%;
+    height: 0;
+    box-shadow: none;
+    border: 0;
+  }
+  .editor-region {
+    flex: 1 1 0;
+    height: 0;
+    min-height: 0;
+  }
+  .app-shell[data-mobile-page="home"] > .note-list-panel,
+  .app-shell[data-mobile-page="editor"] > .note-list-panel,
+  .app-shell[data-mobile-page="home"] > .editor-region,
+  .app-shell[data-mobile-page="list"] > .editor-region {
+    display: none;
+  }
+  .app-shell[data-mobile-page="list"] > .note-list-panel,
+  .app-shell[data-mobile-page="home"] .mobile-home-scroll,
+  .app-shell[data-mobile-page="editor"] > .editor-region {
+    animation: page-content-in var(--motion-content) var(--motion-ease-out);
+  }
+  .mobile-only {
+    display: inline-grid;
+  }
+  .list-header,
+  .editor-header {
+    height: 56px;
+    min-height: 56px;
+  }
+  .app-shell[data-mobile-page] .mobile-collection-header {
+    position: relative;
+    z-index: 4;
+    display: grid;
+    flex: none;
+    grid-template-columns: 44px minmax(0, 1fr) auto;
+    gap: 4px;
+    height: calc(64px + env(safe-area-inset-top));
+    min-height: calc(64px + env(safe-area-inset-top));
+    align-items: center;
+    padding: env(safe-area-inset-top) max(12px, env(safe-area-inset-right)) 0
+      max(12px, env(safe-area-inset-left));
+    border-bottom: 1px solid var(--line);
+    background: var(--canvas);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .mobile-list-back {
+    display: inline-flex;
+    align-items: center;
+    justify-self: start;
+    gap: 3px;
+    min-height: 44px;
+    padding: 0 10px 0 0;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--accent);
+    font-size: 16px;
+  }
+  .mobile-list-back:focus-visible {
+    background: var(--accent-soft);
+  }
+  .app-shell[data-mobile-page] .mobile-list-back {
+    width: 44px;
+    padding: 0;
+    justify-content: center;
+  }
+  .app-shell[data-mobile-page] .mobile-list-back span {
+    display: none;
+  }
+  .app-shell[data-mobile-page] .list-header-main {
+    grid-column: 2;
+    grid-row: 1;
+    margin: 0;
+    width: 100%;
+    min-width: 0;
+  }
+  .app-shell[data-mobile-page] .list-header h2 {
+    font-size: 20px;
+    font-weight: 650;
+    letter-spacing: -0.025em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .app-shell[data-mobile-page] .list-header p {
+    font-size: 13px;
+    margin-top: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .app-shell[data-mobile-page] .list-header-controls {
+    grid-column: 3;
+    grid-row: 1;
+    margin: 0;
+  }
+  .floating-scrollbar {
+    display: none !important;
+  }
+  .annotation-card-scroll,
+  .annotation-note-editor-shell {
+    padding-right: 10px;
+  }
+  .app-shell[data-mobile-page] .empty-trash-button {
+    width: 44px;
+    height: 44px;
+    justify-content: center;
+  }
+  .app-shell[data-mobile-page] .note-list-panel {
+    background: var(--canvas);
+  }
+  .app-shell[data-mobile-page="home"].is-tasks-open > .tasks-panel,
+  .app-shell[data-mobile-page="list"].is-tasks-open > .tasks-panel,
+  .app-shell[data-mobile-page="tasks"] > .tasks-panel,
+  .app-shell[data-mobile-page="home"].is-kanban-open > .kanban-panel,
+  .app-shell[data-mobile-page="list"].is-kanban-open > .kanban-panel,
+  .app-shell[data-mobile-page="kanban"] > .kanban-panel {
+    flex: 1 1 0;
+    width: 100%;
+    height: 0;
+    min-height: 0;
+  }
+  .app-shell[data-mobile-page].is-tasks-open > .tasks-panel > .tasks-header,
+  .app-shell[data-mobile-page="tasks"] > .tasks-panel > .tasks-header,
+  .app-shell[data-mobile-page].is-kanban-open > .kanban-panel > .kanban-header,
+  .app-shell[data-mobile-page="kanban"] > .kanban-panel > .kanban-header {
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr);
+    gap: 4px;
+    height: calc(64px + env(safe-area-inset-top));
+    min-height: calc(64px + env(safe-area-inset-top));
+    box-sizing: border-box;
+    align-items: center;
+    padding: env(safe-area-inset-top) max(12px, env(safe-area-inset-right)) 0
+      max(12px, env(safe-area-inset-left));
+    border-bottom: 1px solid var(--line);
+    background: var(--canvas);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .app-shell[data-mobile-page].is-tasks-open > .tasks-panel > .tasks-header-back,
+  .app-shell[data-mobile-page="tasks"] > .tasks-panel > .tasks-header-back,
+  .app-shell[data-mobile-page].is-kanban-open > .kanban-panel > .kanban-header-back,
+  .app-shell[data-mobile-page="kanban"] > .kanban-panel > .kanban-header-back {
+    display: inline-flex;
+    grid-column: 1;
+    grid-row: 1;
+    width: 44px;
+    height: 44px;
+    min-height: 44px;
+    align-items: center;
+    justify-content: center;
+    justify-self: start;
+    margin: 0;
+    padding: 0;
+    color: var(--accent);
+  }
+  .app-shell[data-mobile-page].is-tasks-open > .tasks-panel > .tasks-header .list-header-main,
+  .app-shell[data-mobile-page="tasks"] > .tasks-panel > .tasks-header .list-header-main,
+  .app-shell[data-mobile-page].is-kanban-open > .kanban-panel > .kanban-header .list-header-main,
+  .app-shell[data-mobile-page="kanban"] > .kanban-panel > .kanban-header .list-header-main {
+    grid-column: 2;
+    grid-row: 1;
+    width: 100%;
+    min-width: 0;
+    margin: 0;
+  }
+  .app-shell[data-mobile-page].is-tasks-open > .tasks-panel > .tasks-header h2,
+  .app-shell[data-mobile-page="tasks"] > .tasks-panel > .tasks-header h2,
+  .app-shell[data-mobile-page].is-kanban-open > .kanban-panel > .kanban-header h2,
+  .app-shell[data-mobile-page="kanban"] > .kanban-panel > .kanban-header h2 {
+    font-size: 20px;
+    font-weight: 650;
+    letter-spacing: -0.025em;
+    margin: 0;
+  }
+  .app-shell[data-mobile-page].is-tasks-open > .tasks-panel > .tasks-header .tasks-count,
+  .app-shell[data-mobile-page="tasks"] > .tasks-panel > .tasks-header .tasks-count,
+  .app-shell[data-mobile-page].is-kanban-open > .kanban-panel > .kanban-header .kanban-count,
+  .app-shell[data-mobile-page="kanban"] > .kanban-panel > .kanban-header .kanban-count {
+    margin-top: 2px;
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 0;
+  }
+  .tasks-panel {
+    flex-basis: auto;
+  }
+  .tasks-toolbar {
+    min-height: 52px;
+    gap: 6px;
+    padding: 7px max(16px, env(safe-area-inset-right)) 7px max(16px, env(safe-area-inset-left));
+  }
+  .app-shell[data-mobile-page] .tasks-header .list-header-main {
+    grid-column: auto;
+    grid-row: auto;
+    width: auto;
+    flex: 1;
+    margin: 0;
+  }
+  .tasks-back {
+    display: inline-flex;
+    flex: none;
+    min-height: 36px;
+    align-items: center;
+    gap: 2px;
+    margin-right: 2px;
+    padding: 0 6px 0 0;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+  }
+  .tasks-back span {
+    display: none;
+  }
+  .tasks-filter-dropdown:last-child {
+    max-width: 190px;
+  }
+  .tasks-filter-dropdown:first-of-type .tasks-filter-trigger {
+    min-width: 106px;
+  }
+  .tasks-filter-menu-wrap,
+  .tasks-filter-menu {
+    max-height: min(420px, 58dvh);
+  }
+  .tasks-list {
+    padding-bottom: calc(96px + env(safe-area-inset-bottom));
+  }
+  .app-shell[data-mobile-page] .tasks-virtual-list {
+    margin-bottom: calc(72px + env(safe-area-inset-bottom));
+  }
+  .app-shell[data-mobile-page] .tasks-scroll-shell::after {
+    background: linear-gradient(to top, var(--canvas), transparent);
+  }
+  .app-shell[data-mobile-page] .tasks-scroll-shell::before {
+    background: linear-gradient(to bottom, var(--canvas), transparent);
+  }
+  .app-shell[data-mobile-page] .tasks-note-group-header,
+  .app-shell[data-mobile-page] .tasks-virtual-group-marker {
+    background: var(--canvas);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .app-shell[data-mobile-page] .tasks-virtual-sticky-header,
+  .app-shell[data-mobile-page] .tasks-virtual-group-marker {
+    height: 44px;
+  }
+  .app-shell[data-mobile-page] .tasks-virtual-group-marker.is-first {
+    height: 0;
+  }
+  .app-shell[data-mobile-page] .tasks-scroll-shell::before,
+  .app-shell[data-mobile-page] .note-list-scroll-shell::before,
+  .is-mobile-editor .editor-scroll-shell::before,
+  .is-mobile-card-grid .card-grid-scroll-shell::before {
+    height: 20px;
+  }
+  .app-shell[data-mobile-page] .note-list-scroll-shell:has(.note-list-group-header)::before {
+    inset-block-start: 30px;
+  }
+  .app-shell[data-mobile-page] .tasks-scroll-shell:has(.tasks-note-group-header)::before {
+    inset-block-start: 44px;
+  }
+  .app-shell[data-mobile-page] .tasks-note-group-header {
+    min-height: 44px;
+  }
+  .app-shell[data-mobile-page] .tasks-scroll-shell::after,
+  .app-shell[data-mobile-page] .note-list-scroll-shell::after,
+  .is-mobile-editor .editor-scroll-shell::after {
+    height: 20px;
+  }
+  .app-shell[data-mobile-page] .note-list-scroll-shell::after {
+    background: linear-gradient(to top, var(--canvas), transparent);
+  }
+  .app-shell[data-mobile-page] .note-list-scroll-shell::before {
+    background: linear-gradient(to bottom, var(--canvas), transparent);
+  }
+  .app-shell[data-mobile-page] .note-list {
+    padding-bottom: calc(96px + env(safe-area-inset-bottom));
+    scroll-padding-top: 30px;
+  }
+  .app-shell[data-mobile-page] .note-list-group-header,
+  .app-shell[data-mobile-page] .note-list-virtual-group-marker {
+    background: var(--canvas);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .app-shell[data-mobile-page]
+    .note-row-swipe:not(.is-swipe-open)
+    > .note-row:not(.is-selected):not(.is-active):not(:focus-visible) {
+    background: var(--canvas);
+  }
+  .app-shell[data-mobile-page] .note-row-title {
+    font-size: 1.0625rem;
+  }
+  .app-shell[data-mobile-page] .note-row-preview {
+    font-size: 0.9375rem;
+    line-height: 1.55;
+  }
+  .app-shell[data-mobile-page] .note-row-meta {
+    font-size: 0.8125rem;
+  }
+  .note-row:has(.note-row-thumbnail),
+  .note-row.has-thumbnail {
+    grid-template-columns: 64px minmax(0, 1fr);
+  }
+  .note-row-thumbnail {
+    width: 64px;
+    height: 64px;
+  }
+  .note-outline-header .list-header-main {
+    margin-left: 0;
+  }
+  .list-header-controls {
+    margin-left: 8px;
+  }
+  .editor-header {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    padding: 0 16px;
+  }
+  .editor-header-start {
+    min-width: 0;
+    gap: 8px;
+  }
+  .editor-back {
+    flex: none;
+    margin-left: -6px;
+  }
+  .editor-header-start .editor-meta {
+    display: none;
+  }
+  .editor-header-title {
+    font-size: 0.74rem;
+  }
+  .editor-meta {
+    gap: 5px;
+    font-size: 0.68rem;
+  }
+  .editor-actions {
+    gap: 2px;
+  }
+  .save-status--icon {
+    display: inline-grid;
+    width: 28px;
+    height: 28px;
+    flex-basis: 28px;
+    gap: 0;
+    margin-right: 6px;
+  }
+  .editor-document {
+    width: calc(100% - 40px);
+    padding: 38px 0 148px;
+  }
+  .note-title-input {
+    font-size: 2rem;
+  }
+  .note-prose {
+    font-size: 1rem;
+  }
+  .editor-floating-tools {
+    right: 16px;
+    bottom: max(16px, env(safe-area-inset-bottom));
+  }
+  .editor-stats-pill {
+    padding-inline: 11px;
+  }
+  .editor-stat {
+    font-size: 0.7rem;
+  }
+  .editor-stat strong {
+    font-size: 0.78rem;
+  }
+  .outline-trigger {
+    padding-inline: 11px;
+    font-size: 0.74rem;
+  }
+  .note-outline-header {
+    padding-inline: 17px;
+  }
+  .note-outline-scroll {
+    padding: 14px 17px 24px;
+  }
+  .empty-editor {
+    min-height: 82dvh;
+  }
+  .empty-back {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+  }
+  .card-grid-container {
+    padding: max(56px, calc(env(safe-area-inset-top) + 48px)) 16px 48px;
+  }
+  .backlinks-dialog {
+    width: min(100% - 20px, 620px);
+    height: min(560px, calc(100dvh - 24px));
+    border-radius: 16px;
+  }
+  .backlinks-dialog-header {
+    height: 50px;
+    padding: 0 10px 0 14px;
+    gap: 8px;
+  }
+  .backlinks-dialog-title {
+    font-size: 0.95rem;
+  }
+  .backlinks-dialog-body {
+    padding: 12px 14px max(16px, env(safe-area-inset-bottom));
+  }
+  .backlinks-dialog .backlink-card {
+    gap: 7px;
+    padding: 11px 12px;
+  }
+  .backlinks-dialog .backlink-card-header {
+    align-items: flex-start;
+    gap: 6px;
+  }
+  .backlinks-dialog .backlink-card-title-button {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-content: center;
+    gap: 6px;
+  }
+  .backlinks-dialog .backlink-card-title {
+    width: 100%;
+    flex: none;
+    font-size: 14px;
+  }
+  .backlinks-dialog .backlink-card-meta {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    width: 100%;
+    min-width: 0;
+  }
+  .backlinks-dialog .backlink-card-notebook {
+    max-width: min(42vw, 12em);
+  }
+  .backlinks-dialog .backlink-kind-badge.is-linked {
+    display: inline-grid;
+    flex: none;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border-radius: 50%;
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+  .backlinks-dialog .backlink-card-time {
+    flex: none;
+    margin-left: auto;
+    white-space: nowrap;
+    font-size: 11px;
+  }
+  .backlinks-dialog .backlink-card-open-btn {
+    flex: none;
+    margin: 0;
+    opacity: 0.7;
+  }
+  .auth-card {
+    padding: 28px 22px;
+  }
+  .system-notices {
+    right: 16px;
+    bottom: auto;
+    left: 16px;
+    width: auto;
+    justify-items: center;
+    top: calc(
+      var(--mobile-viewport-top, 0px) + var(--mobile-viewport-height, 100dvh) - 88px -
+        var(--mobile-bottom-safe-area, env(safe-area-inset-bottom))
+    );
+    transform: translateY(-100%);
+  }
+  .notice-dismiss {
+    width: 36px;
+    height: 36px;
+  }
+  .toast {
+    max-width: min(360px, 100%);
+    grid-template-columns: 18px minmax(0, 1fr) 36px;
+    padding-block: 4px;
+  }
+  .field input,
+  .dialog-field input,
+  .editor-replace-field input,
+  .kanban-dialog-search input {
+    font-size: 16px;
+  }
+}

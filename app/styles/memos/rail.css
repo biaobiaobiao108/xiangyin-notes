@@ -1,0 +1,378 @@
+.memo-page-rail {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  gap: 32px;
+  padding: 52px 0 32px;
+  overflow: hidden;
+  overflow: clip;
+}
+
+.memo-mini-calendar {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.memo-calendar-heading {
+  display: flex;
+  min-height: 28px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.memo-calendar-heading strong {
+  font-size: 0.84rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.memo-calendar-nav {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.memo-calendar-nav button {
+  display: grid;
+  min-width: 28px;
+  min-height: 28px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  transition:
+    background-color var(--motion-fast) var(--motion-ease-out),
+    color var(--motion-fast) var(--motion-ease-out),
+    transform var(--motion-panel) var(--motion-spring);
+}
+
+.memo-calendar-nav button:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+
+.memo-page .memo-calendar-nav button:active:not(:disabled) {
+  background: var(--surface-selected);
+  color: var(--ink);
+}
+
+.memo-weekdays {
+  display: grid;
+  height: 24px;
+  grid-template-columns: repeat(7, 1fr);
+  align-items: center;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 500;
+  text-align: center;
+}
+
+.memo-mini-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.memo-mini-day {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  aspect-ratio: 1;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--quiet-ink);
+  font: inherit;
+  font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
+  transition:
+    background-color var(--motion-fast) var(--motion-ease-out),
+    color var(--motion-fast) var(--motion-ease-out),
+    transform var(--motion-panel) var(--motion-spring);
+}
+
+.memo-mini-day:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+
+.memo-page .memo-mini-day:active:not(:disabled) {
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+}
+
+.memo-mini-day.is-outside {
+  color: var(--soft-muted);
+  opacity: 0.48;
+}
+
+.memo-mini-day.is-today {
+  background: var(--surface-muted);
+  color: var(--accent-dark);
+  font-weight: 600;
+}
+
+.memo-mini-day.is-today:hover {
+  background: var(--surface-hover);
+}
+
+.memo-mini-day.is-selected {
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+  font-weight: 600;
+}
+
+.memo-mini-day i {
+  position: absolute;
+  bottom: 1px;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.memo-calendar-clear {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  min-height: 30px;
+  margin-top: 6px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.72rem;
+  transition:
+    background-color var(--motion-fast) var(--motion-ease-out),
+    color var(--motion-fast) var(--motion-ease-out),
+    transform var(--motion-panel) var(--motion-spring);
+}
+
+.memo-calendar-clear:hover,
+.memo-calendar-clear:focus-visible {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+
+.memo-page .memo-calendar-clear:active:not(:disabled) {
+  background: var(--surface-selected);
+  color: var(--ink);
+}
+
+.memo-facets-error {
+  margin: 8px 0 0;
+  color: var(--danger);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.memo-tag-section {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1 1 auto;
+}
+
+.memo-tag-section > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.memo-tag-section h2 {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+
+.memo-tag-section > header button {
+  border: 0;
+  background: transparent;
+  color: var(--accent-ink);
+  font: inherit;
+  font-size: 0.72rem;
+  transition:
+    background-color var(--motion-fast) var(--motion-ease-out),
+    color var(--motion-fast) var(--motion-ease-out),
+    transform var(--motion-panel) var(--motion-spring);
+}
+
+.memo-tag-section > header button:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+
+.memo-tag-section > p {
+  margin: 4px 0;
+  color: var(--soft-muted);
+  font-size: 0.74rem;
+}
+
+.memo-tag-list-shell {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.memo-tag-list-shell::before,
+.memo-tag-list-shell::after {
+  position: absolute;
+  z-index: 2;
+  inset-inline: 0;
+  height: 24px;
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--motion-fast) var(--motion-ease-out);
+}
+
+.memo-tag-list-shell::before {
+  inset-block-start: 0;
+  background: linear-gradient(to bottom, var(--canvas), transparent);
+}
+
+.memo-tag-list-shell::after {
+  inset-block-end: 0;
+  background: linear-gradient(to top, var(--canvas), transparent);
+}
+
+.memo-tag-list-shell.has-scroll-before::before,
+.memo-tag-list-shell.has-scroll-after::after {
+  opacity: 1;
+}
+
+.memo-tag-list-shell > .floating-scrollbar--right {
+  inset-inline-end: 0;
+}
+
+.memo-tag-list {
+  display: grid;
+  min-height: 0;
+  flex: 1 1 auto;
+  align-content: start;
+  gap: 2px;
+  padding-inline-end: 16px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.memo-tag-list button {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  gap: 8px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--quiet-ink);
+  font: inherit;
+  font-size: 0.78rem;
+  text-align: left;
+  transition:
+    background-color var(--motion-fast) var(--motion-ease-out),
+    color var(--motion-fast) var(--motion-ease-out),
+    transform var(--motion-panel) var(--motion-spring);
+}
+
+.memo-tag-list button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.memo-tag-list button em {
+  margin-left: auto;
+  color: var(--soft-muted);
+  font-size: 0.7rem;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.memo-tag-list button:hover,
+.memo-tag-list button:focus-visible {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+
+.memo-page .memo-tag-list button:active:not(:disabled) {
+  background: var(--surface-selected);
+  color: var(--ink);
+}
+
+.memo-tag-list button.is-active {
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+  font-weight: 600;
+}
+
+.memo-toast {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 20;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  background: var(--ink);
+  color: var(--canvas);
+  font-size: 0.78rem;
+  animation: page-content-in var(--motion-panel) var(--motion-ease-out) both;
+}
+
+/* The memo surface expresses state with tone and ink, never with an outer focus ring. */
+.memo-page button:focus-visible {
+  outline: none;
+  box-shadow: none;
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+  text-decoration: underline;
+  text-decoration-color: var(--accent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.memo-page :where(button:active:not(:disabled)):not(.floating-scrollbar-thumb) {
+  transform: scale(0.985);
+}
+
+.memo-page .memo-calendar-nav button:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+.memo-page .memo-mini-day:active:not(:disabled) {
+  transform: scale(0.9);
+}
+
+.memo-page .memo-search button:active:not(:disabled),
+.memo-page .memo-filter-chip:active:not(:disabled),
+.memo-page .memo-calendar-clear:active:not(:disabled) {
+  transform: scale(0.96);
+  transition-duration: 0ms;
+}
+
+.memo-page .memo-tag-list button:active:not(:disabled) {
+  transform: scale(0.98);
+  transition-duration: 0ms;
+}

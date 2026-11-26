@@ -1,0 +1,417 @@
+.editor-floating-tools {
+  position: absolute;
+  right: 28px;
+  bottom: max(18px, env(safe-area-inset-bottom));
+  z-index: 40;
+  display: grid;
+  justify-items: end;
+  gap: 10px;
+  pointer-events: none;
+  transition:
+    opacity var(--motion-panel) var(--motion-ease-out),
+    transform var(--motion-panel) var(--motion-ease-out);
+}
+.editor-panel.is-focus-mode .editor-floating-tools {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.editor-panel.is-auto-reading-mode .editor-floating-tools {
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+}
+.editor-panel.is-auto-reading-mode .ProseMirror {
+  caret-color: transparent;
+}
+.editor-panel.is-auto-reading-mode .editor-header {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-8px);
+}
+.editor-panel.is-auto-reading-mode .editor-header:hover,
+.editor-panel.is-auto-reading-mode .editor-header:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+/* 视线段落聚焦：中间段落高亮，其余段落柔和变暗 */
+.editor-scroll.is-focus-reading .note-title-input,
+.editor-scroll.is-focus-reading .note-prose > * {
+  opacity: 0.4;
+  transition: opacity 220ms ease;
+}
+
+.editor-scroll.is-focus-reading .note-title-input.is-reading-focus,
+.editor-scroll.is-focus-reading .note-prose > .is-reading-focus {
+  opacity: 1;
+  color: var(--ink);
+}
+.editor-panel.is-focus-mode .editor-floating-tools:hover,
+.editor-panel.is-focus-mode .editor-floating-tools:focus-within,
+.editor-panel.is-focus-mode:has(.editor-header:hover) .editor-floating-tools,
+.editor-panel.is-focus-mode:has(.editor-header:focus-within) .editor-floating-tools {
+  opacity: 1;
+  transform: translateY(0);
+}
+.editor-floating-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  max-width: calc(100vw - 32px);
+  pointer-events: auto;
+}
+
+/* 自动阅读模式悬浮胶囊 */
+.auto-reading-hud {
+  position: absolute;
+  bottom: max(24px, env(safe-area-inset-bottom) + 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px;
+  background: var(--surface-glass-strong);
+  border: 1px solid var(--border-strong);
+  border-radius: 9999px;
+  max-width: calc(100vw - 24px);
+  box-shadow:
+    0 10px 30px rgba(0, 0, 0, 0.12),
+    0 2px 8px rgba(0, 0, 0, 0.05);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  user-select: none;
+  -webkit-user-select: none;
+  animation: auto-reading-hud-in var(--motion-panel) var(--motion-ease-out);
+}
+
+@keyframes auto-reading-hud-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 10px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+
+.auto-reading-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  border-radius: 9999px;
+  flex: none;
+  transition:
+    background-color var(--motion-fast) ease,
+    color var(--motion-fast) ease,
+    transform var(--motion-fast) ease;
+  padding: 0;
+}
+
+.auto-reading-btn:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+
+.auto-reading-btn:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+.auto-reading-btn:focus-visible {
+  color: var(--ink);
+  background: var(--surface-hover);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+.auto-reading-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.auto-reading-btn--icon {
+  width: 30px;
+  height: 30px;
+}
+
+.auto-reading-btn--play {
+  color: var(--accent);
+}
+
+.auto-reading-btn--play.is-playing {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.auto-reading-btn--focus.is-active {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.auto-reading-dial-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border-soft);
+  border-radius: 9999px;
+  flex: none;
+  padding: 2px 4px 2px 3px;
+}
+
+.auto-reading-btn--dial-arrow {
+  width: 24px;
+  height: 24px;
+  color: var(--muted);
+}
+
+.auto-reading-btn--dial-arrow:hover:not(:disabled) {
+  color: var(--ink);
+  background: var(--surface-hover);
+}
+
+.auto-reading-dial {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 140px;
+  width: 140px;
+  height: 32px;
+  padding: 2px 0 4px;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  border-radius: 8px;
+  background: var(--surface-subtle);
+  mask-image: linear-gradient(to right, transparent, black 16%, black 84%, transparent);
+  -webkit-mask-image: linear-gradient(to right, transparent, black 16%, black 84%, transparent);
+}
+
+.auto-reading-dial:focus-visible {
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+.auto-reading-dial:hover,
+.auto-reading-dial.is-dragging {
+  background: var(--control-hover);
+}
+
+.auto-reading-dial.is-dragging {
+  cursor: grabbing;
+}
+
+/* 拨盘正中央选择指针 */
+.auto-reading-dial-needle {
+  position: absolute;
+  top: 14px;
+  bottom: 3px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+}
+
+.auto-reading-dial-needle-pip {
+  width: 0;
+  height: 0;
+  border-left: 3px solid transparent;
+  border-right: 3px solid transparent;
+  border-top: 4px solid var(--accent);
+  margin-bottom: 1px;
+}
+
+.auto-reading-dial-needle-bar {
+  width: 2px;
+  flex: 1;
+  background: var(--accent);
+  border-radius: 1px;
+  box-shadow: 0 0 3px var(--accent);
+}
+
+/* 移动刻度带容器 */
+.auto-reading-dial-track {
+  position: absolute;
+  top: 18px;
+  bottom: 4px;
+  left: 50%;
+  width: 0;
+  height: 10px;
+  pointer-events: none;
+}
+
+/* 刻度线 */
+.auto-reading-dial-tick {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.auto-reading-dial-tick-line {
+  width: 1.5px;
+  height: 6px;
+  background: var(--soft-muted);
+  border-radius: 1px;
+  opacity: 0.55;
+  transition:
+    height var(--motion-fast) ease,
+    opacity var(--motion-fast) ease,
+    background-color var(--motion-fast) ease;
+}
+
+.auto-reading-dial-tick.is-active .auto-reading-dial-tick-line {
+  height: 9px;
+  background: var(--accent);
+  opacity: 1;
+}
+
+/* 顶部数字读数 */
+.auto-reading-dial-readout {
+  position: absolute;
+  top: 1px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  pointer-events: none;
+}
+
+.auto-reading-dial-mult {
+  font-size: 0.76rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+  line-height: 1;
+}
+
+.auto-reading-divider {
+  width: 1px;
+  height: 16px;
+  background: var(--line);
+  margin: 0 4px;
+}
+
+.auto-reading-btn--exit {
+  gap: 5px;
+  padding: 0 8px 0 10px;
+  height: 30px;
+  flex: none;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.auto-reading-btn--exit:hover {
+  color: var(--ink);
+  background: var(--surface-hover);
+}
+
+.auto-reading-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1px 5px;
+  font-size: 0.68rem;
+  font-family: inherit;
+  font-weight: 600;
+  line-height: 1.2;
+  border-radius: 4px;
+  background: var(--surface-keyboard);
+  border: 1px solid var(--border);
+  color: var(--soft-muted);
+}
+
+.auto-reading-exit-icon {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .auto-reading-kbd {
+    display: none;
+  }
+  .auto-reading-dial {
+    min-width: 120px;
+    width: 120px;
+  }
+}
+
+@media (max-width: 480px) {
+  .auto-reading-hud {
+    gap: 2px;
+    max-width: calc(100vw - 12px);
+    padding: 4px 6px;
+  }
+  .auto-reading-divider {
+    display: none;
+  }
+  .auto-reading-btn--icon {
+    width: 36px;
+    height: 36px;
+    flex-basis: 36px;
+  }
+  .auto-reading-btn--dial-arrow {
+    width: 32px;
+    height: 36px;
+  }
+  .auto-reading-dial-group {
+    gap: 1px;
+    padding: 2px;
+  }
+  .auto-reading-dial {
+    min-width: 90px;
+    width: 90px;
+  }
+  .auto-reading-btn--exit {
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    flex-basis: 36px;
+    padding: 0;
+  }
+  .auto-reading-exit-label {
+    display: none;
+  }
+  .auto-reading-exit-icon {
+    display: block;
+  }
+}
+
+@media (max-width: 360px) {
+  .auto-reading-dial {
+    min-width: 72px;
+    width: 72px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auto-reading-hud {
+    animation: none;
+  }
+  .auto-reading-dial-tick-line,
+  .editor-scroll.is-focus-reading .note-title-input,
+  .editor-scroll.is-focus-reading .note-prose > * {
+    transition: none;
+  }
+  .auto-reading-dial-track {
+    transition: none !important;
+  }
+}

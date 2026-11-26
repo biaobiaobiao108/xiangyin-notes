@@ -1,0 +1,172 @@
+.dialog-heading {
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 24px 24px 18px;
+}
+.dialog-heading p {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+.notebook-dialog {
+  width: min(480px, calc(100% - 24px));
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-float);
+  animation: dialog-in var(--motion-panel) var(--motion-ease-out) both;
+}
+.notebook-dialog .dialog-heading {
+  align-items: center;
+  padding: 20px 24px 20px;
+}
+.notebook-dialog .dialog-heading h2 {
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.notebook-dialog .dialog-heading .icon-button {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+}
+.notebook-dialog .dialog-field {
+  gap: 10px;
+  margin-bottom: 22px;
+  font-size: 13px;
+}
+.notebook-dialog .dialog-field input {
+  min-height: 46px;
+  font-size: 16px;
+  border-color: var(--border-soft);
+  border-radius: var(--radius-md);
+  background: var(--canvas);
+}
+.notebook-dialog .dialog-field input:focus {
+  border-color: var(--accent-border-soft);
+  background: var(--surface);
+}
+.notebook-dialog .dialog-actions {
+  gap: 12px;
+  padding-top: 4px;
+}
+.notebook-dialog .dialog-actions button {
+  flex: 1;
+  min-height: 44px;
+  justify-content: center;
+  font-size: 14px;
+}
+.notebook-dialog .notebook-delete-button {
+  flex: 0 0 auto;
+  padding-inline: 8px;
+  color: var(--danger);
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  font-size: 13px;
+}
+.notebook-dialog .notebook-delete-button:hover,
+.notebook-dialog .notebook-delete-button:focus-visible {
+  background: var(--surface-muted);
+}
+.confirm-dialog {
+  width: min(430px, calc(100% - 32px));
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-float);
+  animation: dialog-in var(--motion-panel) var(--motion-ease-out) both;
+}
+.confirm-dialog .dialog-heading h2 {
+  margin: 0 0 6px;
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+.confirm-dialog .dialog-heading p {
+  max-width: 340px;
+  line-height: 1.55;
+}
+.primary-button.danger-primary {
+  background: var(--danger);
+  color: var(--danger-contrast);
+  box-shadow: 0 6px 18px rgba(195, 75, 53, 0.22);
+}
+.primary-button.danger-primary:hover {
+  background: var(--danger-primary-hover);
+}
+.notebook-icon-field,
+.notebook-color-field {
+  display: grid;
+  gap: 10px;
+  margin: 0 24px 22px;
+  padding: 0;
+  border: 0;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+.notebook-icon-field legend,
+.notebook-color-field legend {
+  padding: 0;
+  margin-bottom: 10px;
+}
+.notebook-icon-options,
+.notebook-color-options {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+}
+.notebook-icon-options {
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+}
+.notebook-color-options {
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+}
+.notebook-icon-option,
+.notebook-color-option {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  height: 44px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.notebook-icon-option:hover,
+.notebook-color-option:hover,
+.notebook-icon-option:focus-visible,
+.notebook-color-option:focus-visible {
+  background: var(--surface-muted);
+  color: var(--ink);
+}
+.notebook-icon-option[aria-checked="true"],
+.notebook-color-option[aria-checked="true"] {
+  border-color: var(--accent-border-soft);
+  background: var(--accent-soft);
+}
+.notebook-color-swatch {
+  display: block;
+  width: 22px;
+  aspect-ratio: 1;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+}
+@media (max-width: 900px) {
+  .notebook-dialog .dialog-heading {
+    padding-inline: 16px;
+  }
+  .notebook-dialog .dialog-field,
+  .notebook-dialog .notebook-icon-field,
+  .notebook-dialog .notebook-color-field {
+    margin-inline: 16px;
+  }
+  .notebook-dialog .dialog-actions {
+    padding-inline: 16px;
+  }
+}

@@ -1,0 +1,136 @@
+.sidebar,
+.note-list-panel,
+.editor-region {
+  min-width: 0;
+  min-height: 0;
+}
+.sidebar {
+  grid-column: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 22px 16px 18px;
+  background: var(--canvas);
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+  transition:
+    transform var(--motion-layout) var(--motion-ease-out),
+    opacity var(--motion-panel) ease,
+    border-color var(--motion-panel) ease,
+    visibility 0s linear 0s;
+  view-transition-name: workspace-sidebar;
+}
+.note-list-panel {
+  grid-column: 2;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+  transition:
+    transform var(--motion-layout) var(--motion-ease-out),
+    opacity var(--motion-panel) ease,
+    border-color var(--motion-panel) ease,
+    visibility 0s linear 0s;
+  view-transition-name: workspace-note-list;
+}
+.editor-region {
+  grid-column: 3;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--surface);
+  view-transition-name: workspace-editor;
+}
+.editor-region.is-split {
+  display: flex;
+  flex-direction: row;
+  position: relative;
+}
+.split-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+}
+.editor-primary-pane {
+  display: contents;
+}
+.split-pane-secondary {
+  position: relative;
+  border-left: 1px solid var(--border);
+}
+.split-resizer {
+  position: relative;
+  z-index: 5;
+  width: 10px;
+  margin-left: -5px;
+  margin-right: -5px;
+  cursor: col-resize;
+  background: transparent;
+  flex-shrink: 0;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.split-resizer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 2px;
+  background: transparent;
+  transition: background-color var(--motion-fast) var(--motion-ease-out);
+}
+.split-resizer:hover::after,
+.split-resizer.is-dragging::after {
+  background-color: var(--accent);
+}
+.editor-region.is-split .editor-panel {
+  height: 100%;
+  min-width: 0;
+}
+.editor-region.is-split .editor-header {
+  padding: 0 16px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr);
+  gap: 8px;
+}
+.editor-region.is-split .editor-document {
+  padding-left: clamp(16px, 3.5vw, 40px);
+  padding-right: clamp(16px, 3.5vw, 40px);
+}
+.split-pane:not(:has(.is-active-pane)) .editor-header-title {
+  opacity: 0.7;
+}
+::view-transition-group(workspace-sidebar),
+::view-transition-group(workspace-note-list),
+::view-transition-group(workspace-editor) {
+  animation-duration: var(--motion-layout);
+  animation-timing-function: var(--motion-ease-out);
+}
+.app-shell.is-focus-mode .sidebar {
+  transform: translateX(-24px);
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  border-right-color: transparent;
+  transition:
+    transform var(--motion-layout) var(--motion-ease-out),
+    opacity var(--motion-panel) ease,
+    border-color var(--motion-panel) ease,
+    visibility 0s linear var(--motion-layout);
+}
+.app-shell.is-focus-mode .note-list-panel {
+  transform: translateX(-32px);
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  border-right-color: transparent;
+  transition:
+    transform var(--motion-layout) var(--motion-ease-out),
+    opacity var(--motion-panel) ease,
+    border-color var(--motion-panel) ease,
+    visibility 0s linear var(--motion-layout);
+}

@@ -1,0 +1,226 @@
+/* The list owns the six-row viewport so font metrics cannot change its bottom inset. */
+.command-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(520px, calc(100% - 32px));
+  height: fit-content;
+  max-height: calc(100dvh - 32px);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-float);
+  animation: dialog-in var(--motion-panel) var(--motion-ease-out) both;
+  overflow: hidden;
+}
+.command-dialog:not([open]) {
+  display: none;
+}
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.975);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.command-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 22px 14px;
+  flex-shrink: 0;
+}
+.command-dialog h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  letter-spacing: 0;
+  font-weight: 600;
+}
+.command-search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 18px 14px;
+  padding: 0 14px;
+  min-height: 46px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: var(--surface-muted);
+  color: var(--muted);
+  flex-shrink: 0;
+  transition:
+    border-color var(--motion-fast) var(--motion-ease-out),
+    box-shadow var(--motion-fast) var(--motion-ease-out),
+    background-color var(--motion-fast) var(--motion-ease-out);
+}
+.command-search-wrap:focus-within {
+  border-color: var(--accent);
+  background: var(--surface);
+  box-shadow: 0 0 0 3px var(--focus-soft);
+}
+.command-search-wrap input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  color: var(--ink);
+  background: transparent;
+}
+.command-list-wrap {
+  position: relative;
+  flex: 0 1 294px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.command-list {
+  --command-list-bottom-inset: 8px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-auto-rows: max-content;
+  gap: 2px;
+  padding: 0 10px 12px;
+  scroll-padding-block-end: var(--command-list-bottom-inset);
+}
+.command-dialog--mobile {
+  max-height: calc(var(--mobile-viewport-height, 100dvh) - 24px);
+  animation-fill-mode: backwards;
+}
+.command-dialog--mobile .command-list-wrap {
+  flex: 0 0 min(294px, max(0px, calc(var(--mobile-viewport-height, 100dvh) - 180px)));
+  height: auto;
+}
+.command-dialog--mobile .command-list {
+  flex: 1 1 0;
+  height: auto;
+  touch-action: pan-y;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.command-dialog--mobile .command-search-wrap input {
+  font-size: 16px;
+}
+.command-section-label {
+  padding: 6px 10px 3px;
+  color: var(--soft-muted);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.command-row {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  min-height: 46px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  cursor: default;
+}
+.command-row.is-selected {
+  background: var(--surface-command-selected);
+}
+.command-row svg {
+  color: var(--muted);
+}
+.command-row--search svg {
+  color: var(--accent);
+}
+
+.command-row-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.command-row-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.command-row-detail {
+  flex: 0 1 40%;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.command-row-trailing {
+  display: inline-flex;
+  align-items: center;
+  justify-self: end;
+  gap: 8px;
+  white-space: nowrap;
+}
+.command-row-current {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  color: var(--accent-dark);
+}
+.command-row-current svg {
+  color: var(--accent-dark);
+}
+.command-empty {
+  padding: 18px 10px;
+  color: var(--muted);
+  text-align: center;
+  font-size: 0.84rem;
+}
+.command-feedback {
+  margin: 0 10px 12px;
+  padding: 11px 12px;
+  border: 1px solid var(--feedback-border);
+  border-radius: 9px;
+  background: var(--surface-success);
+  color: var(--accent-dark);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+.split-note-dialog .command-list-wrap {
+  flex: 0 0 250px;
+  height: 250px;
+}
+.split-note-dialog .command-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 238px;
+  padding: 0 10px;
+}
+.split-note-dialog .command-row-trailing {
+  gap: 12px;
+}
+.split-note-dialog .split-note-notebook {
+  font-size: 0.72rem;
+  color: var(--muted);
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  flex-shrink: 0;
+}
+.split-note-dialog .note-row-date {
+  font-size: 0.72rem;
+  color: var(--soft-muted);
+  width: 62px;
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
