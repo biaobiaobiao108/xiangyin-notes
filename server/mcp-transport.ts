@@ -358,7 +358,7 @@ export async function handleMcpRequest(request: Request, options: ServerOptions)
       "AUTH_NOT_CONFIGURED",
       "请先配置 XIANGYING_USERNAME 和 XIANGYING_PASSWORD",
     );
-  const user = await ensureEnvironmentUser(options.database, credentials);
+  const user = await ensureEnvironmentUser(options.database, credentials, options.realtime);
   const authInfo: AuthInfo = {
     token: suppliedToken,
     clientId: "xiangying-notes-static-token",

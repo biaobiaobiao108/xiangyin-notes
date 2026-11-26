@@ -819,7 +819,7 @@ export async function handleMemoImportRoute(ctx: RouteContext): Promise<Response
   if (contentError) return contentError;
   const created = validateCreatedAtPayload(createdAt);
   if (created === null) return jsonError(400, "INVALID_CREATED_AT", "创建时间无效");
-  const user = await ensureEnvironmentUser(options.database, credentials);
+  const user = await ensureEnvironmentUser(options.database, credentials, options.realtime);
 
   const idempotencyKey = request.headers.get("Idempotency-Key")?.trim() || null;
   if (idempotencyKey && !MEMO_IDEMPOTENCY_KEY_PATTERN.test(idempotencyKey))

@@ -417,6 +417,7 @@ if (import.meta.main) {
         database,
         environment: Bun.env,
         clientRoot,
+        assetRoot,
         realtime,
         clientAddress: server.requestIP(request)?.address,
       };

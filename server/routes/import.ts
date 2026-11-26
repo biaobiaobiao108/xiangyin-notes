@@ -215,7 +215,7 @@ export async function handleImportRoute(ctx: RouteContext): Promise<Response | n
     return jsonError(413, "NOTE_TOO_LARGE", "笔记正文超过 1000000 个字符限制");
   if (!contentMarkdown.trim()) return jsonError(400, "EMPTY_NOTE", "笔记正文不能为空");
 
-  const user = await ensureEnvironmentUser(options.database, credentials);
+  const user = await ensureEnvironmentUser(options.database, credentials, options.realtime);
   const { database } = options;
   const requestedId = idempotencyKey
     ? await deterministicImportNoteId(user.id, idempotencyKey)

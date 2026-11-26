@@ -513,4 +513,49 @@ describe("Realtime HTTP integration", () => {
 
     hub.stop();
   });
+
+  test("revokes active realtime sockets when password changes before import requests", async () => {
+    const hub = new RealtimeHub(database);
+    const login = await request(
+      "/api/auth/login",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          username: environment.XIANGYING_USERNAME,
+          password: environment.XIANGYING_PASSWORD,
+        }),
+      },
+      { realtime: hub },
+    );
+    expect(login.response.status).toBe(200);
+    const socket = fakeSocket(login.body?.user?.id, "client-1");
+    hub.add(socket.socket);
+    expect(socket.closed).toBe(false);
+
+    const updatedEnv = {
+      ...environment,
+      XIANGYING_PASSWORD: "a rotated passphrase 5678",
+    };
+    const importResponse = await handleRequest(
+      new Request("http://xiangying.test/api/import", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${environment.XIANGYING_API_TOKEN}`,
+          "Content-Type": "text/markdown",
+        },
+        body: "rotated password import",
+      }),
+      {
+        database,
+        environment: updatedEnv,
+        assetRoot,
+        realtime: hub,
+        clientAddress: `test-${crypto.randomUUID()}`,
+      },
+    );
+    expect(importResponse.status).toBe(201);
+    expect(socket.closed).toBe(true);
+
+    hub.stop();
+  });
 });
