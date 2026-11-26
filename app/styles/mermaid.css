@@ -144,6 +144,10 @@
   overflow-wrap: anywhere;
 }
 
+.mermaid-code-block .mermaid-status {
+  min-block-size: 44px;
+}
+
 .mermaid-error {
   color: var(--danger);
 }

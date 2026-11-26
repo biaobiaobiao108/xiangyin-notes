@@ -36,7 +36,6 @@ export function MermaidCodeBlock({
     if (typeof start !== "number") return;
     setEdit(true);
     if (sourceRef.current) sourceRef.current.scrollTop = 0;
-    editor.commands.focus(start + 1, { scrollIntoView: false });
   };
   const imageActions = useMermaidImageActions(rootRef, {
     onEditSource: editable ? openSource : undefined,
@@ -110,7 +109,7 @@ export function MermaidCodeBlock({
         event.keyCode === 229
       )
         return;
-      if (!body.contains(event.target as Node)) {
+      if (!body.contains(event.target as Node) && event.target !== ownerDocument.body) {
         const start = getPos();
         const { $head } = editor.state.selection;
         if (event.target !== editorDom || !$head.depth || $head.before() !== start) return;
@@ -123,11 +122,11 @@ export function MermaidCodeBlock({
     };
     ownerDocument.addEventListener("click", closeOutside, true);
     ownerDocument.addEventListener("focusin", closeOutside);
-    editorDom.addEventListener("keydown", handleEscape, true);
+    ownerDocument.addEventListener("keydown", handleEscape, true);
     return () => {
       ownerDocument.removeEventListener("click", closeOutside, true);
       ownerDocument.removeEventListener("focusin", closeOutside);
-      editorDom.removeEventListener("keydown", handleEscape, true);
+      ownerDocument.removeEventListener("keydown", handleEscape, true);
     };
   }, [editable, editor, getPos, showSource]);
 
