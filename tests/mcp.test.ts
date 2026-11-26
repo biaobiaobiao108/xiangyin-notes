@@ -1591,7 +1591,9 @@ describe("remote MCP endpoint", () => {
     const tools = resultOf(listed.body!).tools as { name: string }[];
     for (const { name } of tools) expect(instructions).toMatch(new RegExp(`\\b${name}\\b`));
     expect(instructions).toMatch(/save_note.+create_note.+kanbanStatus/);
-    expect(instructions).toMatch(/Mermaid.+优先使用.+`mermaid`.+围栏代码块/);
+    expect(instructions).toMatch(
+      /Pele.+Mermaid.+全部内置图表类型.+优先使用.+`mermaid`.+围栏代码块/,
+    );
     expect(instructions).toMatch(/structuredContent.+ok.+error\.code/);
     expect(instructions).toMatch(/note\.version.+expectedVersion.+expectedUpdatedAt.+先重读/);
   });

@@ -5,7 +5,7 @@ export const MCP_SERVER_INSTRUCTIONS = [
   "象映笔记管理 Markdown 笔记、笔记本和看板。",
   "查找和读取笔记。search_notes 搜索（view=trash 查回收站），get_note 读单篇正文，get_notes_batch 按 ID 批读。get_note_outline 定位章节，get_note_section 读指定章节。",
   "保存和编辑。save_note 是普通保存入口，默认在目标笔记本内防重名。允许同名时用 create_note，传 kanbanStatus 可直接入板。update_note 改标题或完整正文，append_to_note 在文末追加，insert_into_note 按锚点插入，replace_in_note 替换片段，replace_note_section 替换整节。",
-  "笔记正文支持 Mermaid 图表，流程、时序或架构用图更清楚时，优先使用语言标记为 `mermaid` 的 Markdown 围栏代码块。",
+  "笔记图表由 Pele 渲染，支持 Mermaid 全部内置图表类型（流程、时序、状态、架构、甘特、桑基、XY、思维导图等）；适合用图时优先使用 `mermaid` 围栏代码块。",
   "整理笔记。manage_note 移动、收藏、改标签、移入或恢复回收站，batch_update_notes 批量管理多篇。",
   "笔记本。list_notebooks 列出笔记本，ensure_notebook 按名称获取或创建，create_notebook 创建且重名时报错，update_notebook 改名称、颜色或图标，delete_notebook 删除笔记本并把笔记移入收件箱。",
   "看板。list_kanban_cards 查卡片，manage_kanban_card 加入、移动、排序或移出。",
