@@ -30,7 +30,7 @@ import {
   type UserRow,
   welcomeMarkdown,
 } from "../core";
-import { syncStoredNoteTitleKey } from "../note-links";
+import { normalizeSearchTitle } from "../search-text";
 import { syncNoteSearchIndexes } from "../note-search";
 
 type RuntimeEnvironment = Record<string, string | undefined>;
@@ -390,10 +390,18 @@ export async function ensureEnvironmentUser(
         .run(inboxId, userId, "收件箱", "#d96245", createdAt, createdAt);
       database
         .query(
-          "INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)",
+          "INSERT INTO notes (id, user_id, notebook_id, title, title_normalized, content_markdown, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)",
         )
-        .run(noteId, userId, inboxId, "开始记录你的想法", welcomeMarkdown, createdAt, createdAt);
-      syncStoredNoteTitleKey(database, noteId, "开始记录你的想法");
+        .run(
+          noteId,
+          userId,
+          inboxId,
+          "开始记录你的想法",
+          normalizeSearchTitle("开始记录你的想法"),
+          welcomeMarkdown,
+          createdAt,
+          createdAt,
+        );
       syncNoteTags(database, userId, noteId, welcomeMarkdown);
       syncNoteSearchIndexes(database, userId, noteId, "开始记录你的想法", welcomeMarkdown);
     });

@@ -151,15 +151,17 @@ export const api = {
       method: "DELETE",
       body: JSON.stringify({ version }),
     }),
-  ensureWikiNote: (payload: { title: string; notebookId: string }) =>
-    request<{ note: Note; created: boolean }>("/api/wiki-notes/ensure", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
+  getWikiNoteTitles: (ids: string[], signal?: AbortSignal) => {
+    const search = new URLSearchParams(ids.map((id) => ["id", id]));
+    return request<{ notes: Array<{ id: string; title: string }> }>(
+      `/api/wiki-notes/titles?${search}`,
+      { signal },
+    );
+  },
   searchWikiNoteTitles: (query: string, signal?: AbortSignal) => {
     const search = new URLSearchParams({ query });
     return request<{
-      matches: Array<{ title: string; notebookName: string }>;
+      matches: Array<{ id: string; title: string; notebookName: string }>;
       exactMatch: boolean;
     }>(`/api/wiki-notes/suggestions?${search.toString()}`, { signal });
   },
@@ -196,8 +198,6 @@ export const api = {
       responseMode === "summary" ? `/api/notes/${id}?response=summary` : `/api/notes/${id}`;
     return request<{
       note: Note | NoteSummary;
-      previousTitle?: string;
-      linkedNotesRewritten?: boolean;
     }>(path, {
       method: "PATCH",
       body: JSON.stringify(payload),

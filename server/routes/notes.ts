@@ -38,19 +38,8 @@ import {
   respondNoteList,
   type SearchSort,
 } from "./note-list";
-import {
-  createNote,
-  NoteRenameContentTooLargeError,
-  NoteRenameLinkConflictError,
-  syncNoteTasks,
-  updateNote,
-} from "./note-mutations";
-export {
-  createNote,
-  updateNote,
-  updateNoteInTransaction,
-  NOTE_RENAME_SOURCE_BATCH_SIZE,
-} from "./note-mutations";
+import { createNote, syncNoteTasks, updateNote } from "./note-mutations";
+export { createNote, updateNote, updateNoteInTransaction } from "./note-mutations";
 import { handleTasksRoute } from "./tasks";
 
 const NOTE_SORTS: NoteSort[] = ["updated", "created"];
@@ -476,18 +465,6 @@ export async function handleNotesRoute(
     } catch (error) {
       if (error instanceof InvalidNoteAssetsError)
         return jsonError(400, "INVALID_ASSET", "图片引用无效、不受支持或附件当前不可用");
-      if (error instanceof NoteRenameContentTooLargeError)
-        return jsonError(
-          413,
-          "NOTE_TOO_LARGE",
-          "重命名会使引用这篇笔记的正文超出长度限制，请缩短标题或减少双向链接后重试",
-        );
-      if (error instanceof NoteRenameLinkConflictError)
-        return jsonError(
-          409,
-          "NOTE_RENAME_LINK_CONFLICT",
-          "已有同名笔记，请使用其他标题以保留双向链接",
-        );
       throw error;
     }
     if (!updated) {
@@ -513,16 +490,7 @@ export async function handleNotesRoute(
       },
       request,
     );
-    const rewrittenBody = note && note.content_markdown !== contentMarkdown;
-    return json({
-      note: note
-        ? summaryResponse && !rewrittenBody
-          ? summarizeNote(note)
-          : toFullNote(note)
-        : null,
-      ...(rewrittenBody ? { previousTitle: current.title } : {}),
-      ...(updated.linkedNotesRewritten ? { linkedNotesRewritten: true } : {}),
-    });
+    return json({ note: note ? (summaryResponse ? summarizeNote(note) : toFullNote(note)) : null });
   }
 
   // Delete note permanently

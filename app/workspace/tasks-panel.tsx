@@ -1,3 +1,4 @@
+import { replaceWikiLinksWithText } from "../../shared/wiki-links";
 import { ChevronDown, ChevronLeft, ListTodo, LoaderCircle } from "lucide-react";
 import {
   useEffect,
@@ -205,6 +206,7 @@ export function TasksPanel({
     const busyOrdinal = busyTasks.get(task.noteId);
     const isBusy = busyOrdinal === task.ordinal;
     const toggleDisabled = loading || busyOrdinal !== undefined;
+    const taskLabel = replaceWikiLinksWithText(task.text);
     return (
       <li
         key={task.noteId + ":" + task.ordinal}
@@ -232,8 +234,8 @@ export function TasksPanel({
                 isBusy
                   ? "正在更新任务状态"
                   : task.done
-                    ? `标记为未完成：${task.text}`
-                    : `标记为已完成：${task.text}`
+                    ? `标记为未完成：${taskLabel}`
+                    : `标记为已完成：${taskLabel}`
               }
               checked={task.done}
               disabled={toggleDisabled}
@@ -251,9 +253,9 @@ export function TasksPanel({
             data-task-tab-index={options?.virtual ? 1 : undefined}
             disabled={loading}
             onClick={() => onSelectTask(task)}
-            aria-label={`打开笔记 ${task.noteTitle} 并定位任务：${task.text}`}
+            aria-label={`打开笔记 ${task.noteTitle} 并定位任务：${taskLabel}`}
           >
-            <span className={task.done ? "is-done" : ""}>{task.text}</span>
+            <span className={task.done ? "is-done" : ""}>{taskLabel}</span>
           </button>
         </div>
       </li>

@@ -509,7 +509,7 @@ describe("Realtime HTTP integration", () => {
     expect(renameMessage).toMatchObject({ type: "workspace.changed", resource: "notes" });
     expect(renameMessage).not.toHaveProperty("noteId");
     const updatedSource = await request(`/api/notes/${sourceId}`, {}, { cookie: login.cookie });
-    expect(updatedSource.body?.note?.contentMarkdown).toContain("[[新提及目标]]");
+    expect(updatedSource.body?.note?.contentMarkdown).toContain(`[[${targetId}|提及目标]]`);
 
     hub.stop();
   });

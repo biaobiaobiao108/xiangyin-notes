@@ -16,7 +16,7 @@ describe("image export", () => {
   });
   test("snapshot parser preserves note structures without mounting an editor", () => {
     const editor = createSnapshotEditor(
-      "中文 **强调**\n\n- [x] 完成\n- [ ] 待办\n\n> [!NOTE]\n> 提示\n\n| 列一 | 列二 |\n| --- | --- |\n| 内容 | 示例 |\n\n```ts\nconst a = 1;\n```\n\n![图片](/api/assets/example#width=300&height=200)\n\n[[其他笔记|别名]]",
+      "中文 **强调**\n\n- [x] 完成\n- [ ] 待办\n\n> [!NOTE]\n> 提示\n\n| 列一 | 列二 |\n| --- | --- |\n| 内容 | 示例 |\n\n```ts\nconst a = 1;\n```\n\n![图片](/api/assets/example#width=300&height=200)\n\n[[22222222-2222-4222-8222-222222222222|其他笔记|别名]]",
     );
     try {
       const json = editor.getJSON();

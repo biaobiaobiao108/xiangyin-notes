@@ -2421,7 +2421,7 @@ describe("Bun Server API", () => {
     ).not.toBeNull();
   });
 
-  test("restores a batch atomically, increments versions, and reconnects wiki links", async () => {
+  test("restores a batch atomically, increments versions, and preserves their UUID link targets", async () => {
     const login = await request("/api/auth/login", {
       method: "POST",
       body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
@@ -2435,7 +2435,10 @@ describe("Bun Server API", () => {
       "/api/notes",
       {
         method: "POST",
-        body: JSON.stringify({ title: "批量恢复引用", contentMarkdown: "[[批量恢复目标]]" }),
+        body: JSON.stringify({
+          title: "批量恢复引用",
+          contentMarkdown: `[[${target.body?.note.id}|批量恢复目标]]`,
+        }),
       },
       login.cookie,
     );
@@ -2463,7 +2466,7 @@ describe("Bun Server API", () => {
       database
         .query("SELECT target_note_id FROM note_links WHERE source_note_id = ?")
         .get(source.body?.note.id),
-    ).toEqual({ target_note_id: null });
+    ).toEqual({ target_note_id: target.body?.note.id });
 
     const restored = await request(
       "/api/notes/batch",

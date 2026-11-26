@@ -71,6 +71,34 @@ test("upgrades populated v6 databases to the current schema version", async () =
   }
 });
 
+test("drops title-based link records and rebuilds the UUID index from Markdown", async () => {
+  const database = await createExpectedSchemaDatabase(10);
+  try {
+    const uuid = "11111111-1111-4111-8111-111111111111";
+    const markdown = `[[同名标题]] 和 [[${uuid}|显示标题]]`;
+    database.exec(`
+      INSERT INTO users (id, username, password_hash, password_salt, created_at)
+        VALUES ('owner', 'owner', 'hash', 'salt', 1);
+      INSERT INTO notebooks (id, user_id, name, created_at, updated_at)
+        VALUES ('inbox', 'owner', '收集箱', 1, 1);
+      INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, created_at, updated_at)
+        VALUES ('source', 'owner', 'inbox', '来源', '', 1, 1);
+      INSERT INTO note_links (id, user_id, source_note_id, target_title, created_at)
+        VALUES ('old-link', 'owner', 'source', '同名标题', 1);
+    `);
+    database.query("UPDATE notes SET content_markdown = ? WHERE id = 'source'").run(markdown);
+    await initializeDatabase(database);
+    expect(database.query("SELECT target_note_id FROM note_links").all()).toEqual([
+      { target_note_id: uuid },
+    ]);
+    expect(
+      database.query("SELECT content_markdown, version FROM notes WHERE id = 'source'").get(),
+    ).toEqual({ content_markdown: markdown, version: 1 });
+  } finally {
+    database.close();
+  }
+});
+
 test("resumes an interrupted initialization from an older empty schema", async () => {
   const database = await createExpectedSchemaDatabase(1);
   try {
@@ -162,8 +190,8 @@ test("uses targeted indexes for paged notes and foreign-key cleanup", async () =
     expect(names.has("idx_notes_user_trash_updated")).toBe(true);
     expect(names.has("idx_notes_user_favorites_updated")).toBe(true);
     expect(names.has("idx_sessions_user")).toBe(true);
-    expect(names.has("idx_note_links_source_note")).toBe(true);
-    expect(names.has("idx_note_links_target_note")).toBe(true);
+    expect(names.has("idx_note_links_source_note")).toBe(false);
+    expect(names.has("idx_note_links_user_target")).toBe(true);
     expect(names.has("idx_note_links_source")).toBe(false);
     expect(names.has("idx_note_links_target")).toBe(false);
     expect(names.has("idx_notes_short_overflow_user")).toBe(true);
@@ -194,7 +222,7 @@ test("uses targeted indexes for paged notes and foreign-key cleanup", async () =
       .query("EXPLAIN QUERY PLAN SELECT rowid FROM note_links WHERE source_note_id = ?")
       .all("note") as Array<{ detail: string }>;
     expect(sourceLinkPlan.map(({ detail }) => detail).join(" ")).toContain(
-      "idx_note_links_source_note",
+      "sqlite_autoindex_note_links",
     );
   } finally {
     database.close();

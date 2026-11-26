@@ -1,11 +1,12 @@
 import { Lexer } from "marked";
+import { replaceWikiLinksWithText } from "../shared/wiki-links";
 
 export const NOTE_PREVIEW_LIMIT = 180;
 export const NOTE_PREVIEW_SCAN_LIMIT = NOTE_PREVIEW_LIMIT + 64;
 
+const WIKI_LINK_PREVIEW_SCAN_LIMIT = 8192;
 const NON_BREAKING_SPACE_PATTERN = /\u00a0|&nbsp;|&#0*160;|&#[xX]0*[aA]0;/gu;
 const SPACE_BEFORE_PUNCTUATION_PATTERN = / ([,.;:!?。！？、，；：])/gu;
-const WIKI_LINK_PREVIEW_PATTERN = /\[\[([^\[\]\r\n]*)\]\]|【【([^【】\r\n]*)】】/gu;
 const TASK_LIST_ITEM_PATTERN =
   /^(?:[ \t]{0,3}>[ \t]?)*[ \t]*(?:(?:[-+*]|\d+[.)])[ \t]+)?(?:\[[ xX ]?\]|【[ \u3000xX]?】)(?:[ \t]|$)/u;
 const CALLOUT_START_PATTERN = /^[ \t]*>[ \t]*\[!(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]/iu;
@@ -105,17 +106,10 @@ export function formatPreview(markdown: string) {
 
   const readPlainText = (rawText: string, maximumLength: number) => {
     if (maximumLength <= 0 || !rawText) return "";
-    const text = plainTextFromInlineTokens(new Lexer({ gfm: true }).inlineTokens(rawText))
+    const text = plainTextFromInlineTokens(
+      new Lexer({ gfm: true }).inlineTokens(replaceWikiLinksWithText(rawText, true)),
+    )
       .replace(/^(?:\[[ xX ]?\]|【[ \u3000xX]?】)[ \t\u3000]*/u, "")
-      .replace(
-        WIKI_LINK_PREVIEW_PATTERN,
-        (_match, wiki: string | undefined, fullWidth: string | undefined) => {
-          // 双链只显示可读部分：有别名用别名，否则用目标标题。
-          const body = wiki ?? fullWidth ?? "";
-          const separator = body.search(/[|｜]/u);
-          return separator === -1 ? body : body.slice(separator + 1);
-        },
-      )
       .replace(NON_BREAKING_SPACE_PATTERN, " ")
       .replace(/[ \t]+/gu, " ")
       .replace(SPACE_BEFORE_PUNCTUATION_PATTERN, "$1");
@@ -125,7 +119,10 @@ export function formatPreview(markdown: string) {
   const readLine = (start: number, bounded = true) => {
     const newlineIndex = markdown.indexOf("\n", start);
     const fullEnd = newlineIndex === -1 ? markdown.length : newlineIndex;
-    const end = bounded ? Math.min(fullEnd, start + NOTE_PREVIEW_SCAN_LIMIT) : fullEnd;
+    let end = bounded ? Math.min(fullEnd, start + NOTE_PREVIEW_SCAN_LIMIT) : fullEnd;
+    // Keep a bounded scan while making room for link IDs and escaped labels.
+    if (end < fullEnd && markdown.slice(start, end).includes("[["))
+      end = Math.min(fullEnd, start + WIKI_LINK_PREVIEW_SCAN_LIMIT);
     const contentEnd = end > start && markdown[end - 1] === "\r" ? end - 1 : end;
     return {
       start,

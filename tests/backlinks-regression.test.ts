@@ -76,53 +76,6 @@ test.each(["版本  计划", "a\tb", "release  schedule"])(
   },
 );
 
-test("renaming into an occupied title preserves the destination's existing incoming links", async () => {
-  const target = await createNote("目标");
-  const source = await createNote("来源", "[[目标]]");
-  const other = await createNote("待改名");
-  database.query("UPDATE notes SET updated_at = 1 WHERE id = ?").run(target.id);
-
-  const renamed = await request(`/api/notes/${other.id}`, "PATCH", {
-    version: other.version,
-    title: target.title,
-  });
-
-  expect(renamed.response.status).toBe(409);
-  expect(renamed.body.error.code).toBe("NOTE_RENAME_LINK_CONFLICT");
-  const backlinks = await request(`/api/notes/${target.id}/backlinks`);
-  expect(backlinks.body.linkedReferences).toContainEqual(
-    expect.objectContaining({ sourceNoteId: source.id, targetNoteId: target.id }),
-  );
-  const unchanged = await request(`/api/notes/${other.id}`);
-  expect(unchanged.body.note).toMatchObject({ title: other.title, version: other.version });
-});
-
-test("renaming a target preserves nested code examples while updating real wiki links", async () => {
-  const target = await createNote("旧标题");
-  const examples = "> ~~~md\r\n> [[旧标题]]\r\n> ~~~\r\n\r\n- ~~~md\r\n  [[旧标题]]\r\n  ~~~";
-  const source = await createNote("来源", `[[旧标题]]\r\n\r\n${examples}`);
-  const renamed = await request(`/api/notes/${target.id}`, "PATCH", {
-    version: target.version,
-    title: "新标题",
-  });
-  expect(renamed.response.status).toBe(200);
-  const saved = await request(`/api/notes/${source.id}`);
-  expect(saved.body.note.contentMarkdown).toBe(`[[新标题]]\r\n\r\n${examples}`);
-  expect(saved.body.note.version).toBe(source.version + 1);
-});
-
-test("renaming a note updates its own wiki links", async () => {
-  const note = await createNote("自链接旧标题", "正文 [[自链接旧标题|别名]] 结束");
-  const renamed = await request(`/api/notes/${note.id}`, "PATCH", {
-    version: note.version,
-    title: "自链接新标题",
-  });
-  expect(renamed.response.status).toBe(200);
-  const saved = await request(`/api/notes/${note.id}`);
-  expect(saved.body.note.contentMarkdown).toBe("正文 [[自链接新标题|别名]] 结束");
-  expect(saved.body.note.version).toBe(note.version + 1);
-});
-
 for (const title of ["苹果", "反链测试"]) {
   test(`repeated backlinks requests work after truncating mentions of ${title}`, async () => {
     const target = await createNote(title);
@@ -143,7 +96,7 @@ for (const title of ["苹果", "反链测试"]) {
 test("repeated backlinks requests work after truncating linked references", async () => {
   const target = await createNote("目标笔记");
   for (let index = 0; index <= BACKLINK_REFERENCE_LIMIT; index += 1) {
-    await createNote(`来源 ${index}`, "[[目标笔记]]");
+    await createNote(`来源 ${index}`, `[[${target.id}|目标笔记]]`);
   }
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const result = await request(`/api/notes/${target.id}/backlinks`);
@@ -160,7 +113,7 @@ test("paginates all linked references and repeated mentions without gaps", async
     Array.from({ length: BACKLINK_MENTION_LIMIT + 17 }, () => "分页目标").join("\n\n"),
   );
   for (let index = 0; index < BACKLINK_REFERENCE_LIMIT + 5; index++)
-    await createNote(`引用 ${index}`, "[[分页目标]]");
+    await createNote(`引用 ${index}`, `[[${target.id}|分页目标]]`);
   const links = new Set<string>();
   const positions = new Set<number>();
   let cursor: string | null = null;
@@ -310,7 +263,7 @@ test("link mention rechecks the target after reading a delayed request body", as
   expect(latest.note).toMatchObject({ contentMarkdown: oldTitle, version: source.version });
 });
 
-test("link mention rolls back if saving a same-title source would change the target", async () => {
+test("link mention uses the chosen UUID even when the source has the same title", async () => {
   const title = "同名笔记";
   const source = await createNote(title, title);
   const target = await createNote(title);
@@ -325,10 +278,12 @@ test("link mention rolls back if saving a same-title source would change the tar
     matchEnd: title.length,
     matchText: title,
   });
-  expect(linking.response.status).toBe(409);
-  expect(linking.body.error.code).toBe("MENTION_STALE");
+  expect(linking.response.status).toBe(200);
   const { body: latest } = await request(`/api/notes/${source.id}`);
-  expect(latest.note).toMatchObject({ contentMarkdown: title, version: source.version });
+  expect(latest.note).toMatchObject({
+    contentMarkdown: `[[${target.id}|${title}]]`,
+    version: source.version + 1,
+  });
 });
 
 for (const limit of ["content", "former term-count"] as const) {

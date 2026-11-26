@@ -1,229 +1,33 @@
 import type { SqliteDatabase } from "./db";
-import { all } from "./core";
-import { extractContextSnippet, extractWikiLinks, normalizeLinkTitle } from "../shared/wiki-links";
-
-type ActiveNoteTitleRow = {
-  id: string;
-  title: string;
-};
-
-export function syncStoredNoteTitleKey(database: SqliteDatabase, noteId: string, title: string) {
-  database
-    .query("UPDATE notes SET title_normalized = ? WHERE id = ?")
-    .run(normalizeLinkTitle(title), noteId);
-}
-
-function activeTitleMap(rows: ActiveNoteTitleRow[]) {
-  const targets = new Map<string, string>();
-  for (const row of rows) {
-    const key = normalizeLinkTitle(row.title);
-    if (key && !targets.has(key)) targets.set(key, row.id);
-  }
-  return targets;
-}
-
-function activeTitlesForKeys(database: SqliteDatabase, userId: string, keys: Set<string>) {
-  const rows: ActiveNoteTitleRow[] = [];
-  const lookup = database.query(
-    `SELECT id, title
-     FROM notes
-     WHERE user_id = ? AND deleted_at IS NULL AND title_normalized = ?
-     ORDER BY updated_at DESC, id
-     LIMIT 1`,
-  );
-  // A single-title lookup uses the title index. The old IN (...) + ORDER BY
-  // form let SQLite scan every note for the user before filtering by title.
-  for (const key of keys) {
-    const row = lookup.get(userId, key) as ActiveNoteTitleRow | null;
-    if (row) rows.push(row);
-  }
-  return rows;
-}
-
-function insertNoteLinks(
-  database: SqliteDatabase,
-  userId: string,
-  sourceNoteId: string,
-  contentMarkdown: string,
-  links: ReturnType<typeof extractWikiLinks>,
-  targets: Map<string, string>,
-  createdAt: number,
-) {
-  const insert = database.query(
-    "INSERT INTO note_links (id, user_id, source_note_id, target_title, target_title_normalized, target_note_id, snippet, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-  );
-  const seen = new Set<string>();
-  for (const link of links) {
-    const key = normalizeLinkTitle(link.target);
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    const snippet = extractContextSnippet(contentMarkdown, link.start, link.end);
-    insert.run(
-      crypto.randomUUID(),
-      userId,
-      sourceNoteId,
-      link.target,
-      key,
-      targets.get(key) ?? null,
-      snippet,
-      createdAt,
-    );
-  }
-}
-
-export function findActiveNoteIdByTitle(database: SqliteDatabase, userId: string, title: string) {
-  const normalized = normalizeLinkTitle(title);
-  if (!normalized) return null;
-  const match = database
-    .query(
-      "SELECT id FROM notes WHERE user_id = ? AND deleted_at IS NULL AND title_normalized = ? ORDER BY updated_at DESC, id LIMIT 1",
-    )
-    .get(userId, normalized) as { id: string } | null | undefined;
-  return match?.id ?? null;
-}
-
-export function hasOtherActiveNoteWithTitle(
-  database: SqliteDatabase,
-  userId: string,
-  noteId: string,
-  title: string,
-) {
-  const key = normalizeLinkTitle(title);
-  return (
-    key !== "" &&
-    database
-      .query(
-        `
-    SELECT 1 FROM notes
-    WHERE user_id = ? AND deleted_at IS NULL AND title_normalized = ? AND id != ? LIMIT 1
-  `,
-      )
-      .get(userId, key, noteId) !== null
-  );
-}
+import { extractContextSnippet, extractWikiLinks } from "../shared/wiki-links";
 
 export function syncNoteLinks(
   database: SqliteDatabase,
   userId: string,
   sourceNoteId: string,
   contentMarkdown: string,
-  createdAt: number,
 ) {
-  const links =
-    contentMarkdown && (contentMarkdown.includes("[[") || contentMarkdown.includes("【【"))
-      ? extractWikiLinks(contentMarkdown)
-      : [];
-  const targetKeys = new Set(links.map((link) => normalizeLinkTitle(link.target)).filter(Boolean));
-  const targets = activeTitleMap(activeTitlesForKeys(database, userId, targetKeys));
-  const seen = new Set<string>();
-  const expected = links.flatMap((link) => {
-    const key = normalizeLinkTitle(link.target);
-    if (!key || seen.has(key)) return [];
-    seen.add(key);
-    return [
-      {
-        key,
-        title: link.target,
-        target: targets.get(key) ?? null,
-        snippet: extractContextSnippet(contentMarkdown, link.start, link.end),
-      },
-    ];
-  });
-  const existing = database
-    .query(
-      "SELECT target_title, target_title_normalized, target_note_id, snippet FROM note_links WHERE user_id = ? AND source_note_id = ?",
-    )
-    .all(userId, sourceNoteId) as Array<{
-    target_title: string;
-    target_title_normalized: string;
-    target_note_id: string | null;
-    snippet: string;
-  }>;
-  const byKey = new Map(existing.map((link) => [link.target_title_normalized, link]));
-  if (
-    existing.length === expected.length &&
-    expected.every((link) => {
-      const old = byKey.get(link.key);
-      return (
-        old?.target_title === link.title &&
-        old.target_note_id === link.target &&
-        old.snippet === link.snippet
-      );
-    })
-  )
-    return;
-  database
-    .query("DELETE FROM note_links WHERE user_id = ? AND source_note_id = ?")
-    .run(userId, sourceNoteId);
-  insertNoteLinks(database, userId, sourceNoteId, contentMarkdown, links, targets, createdAt);
-}
-
-export function resolveNoteLinksForUser(database: SqliteDatabase, userId: string) {
-  database
-    .query(
-      `
-    UPDATE note_links
-    SET target_note_id = (
-      SELECT n.id
-      FROM notes n
-      WHERE n.user_id = note_links.user_id
-        AND n.deleted_at IS NULL
-        AND n.title_normalized = note_links.target_title_normalized
-      ORDER BY n.updated_at DESC, n.id
-      LIMIT 1
-    )
-    WHERE user_id = ?
-  `,
-    )
-    .run(userId);
-}
-
-export function resolveNoteLinksForTitles(
-  database: SqliteDatabase,
-  userId: string,
-  titles: Iterable<string>,
-) {
-  const normalizedTargets = new Set(Array.from(titles, normalizeLinkTitle).filter(Boolean));
-  const update = database.query(`
-    UPDATE note_links SET target_note_id = ?
-    WHERE user_id = ? AND target_title_normalized = ? AND target_note_id IS NOT ?
-  `);
-  for (const key of normalizedTargets) {
-    const targetId = findActiveNoteIdByTitle(database, userId, key);
-    update.run(targetId, userId, key, targetId);
+  const links = new Map<string, string>();
+  for (const link of extractWikiLinks(contentMarkdown)) {
+    if (!links.has(link.target))
+      links.set(link.target, extractContextSnippet(contentMarkdown, link.start, link.end));
   }
-}
-
-export function hasLinksToTitle(database: SqliteDatabase, userId: string, title: string) {
-  return (
-    database
-      .query("SELECT 1 FROM note_links WHERE user_id = ? AND target_title_normalized = ? LIMIT 1")
-      .get(userId, normalizeLinkTitle(title)) !== null
+  const rows = database
+    .query<{ id: string; target_note_id: string; snippet: string }, [string, string]>(
+      "SELECT id, target_note_id, snippet FROM note_links WHERE user_id = ? AND source_note_id = ?",
+    )
+    .all(userId, sourceNoteId);
+  const update = database.query("UPDATE note_links SET snippet = ? WHERE id = ?");
+  const remove = database.query("DELETE FROM note_links WHERE id = ?");
+  for (const row of rows) {
+    const snippet = links.get(row.target_note_id);
+    if (snippet === undefined) remove.run(row.id);
+    else if (snippet !== row.snippet) update.run(snippet, row.id);
+    links.delete(row.target_note_id);
+  }
+  const insert = database.query(
+    "INSERT INTO note_links (id, user_id, source_note_id, target_note_id, snippet) VALUES (?, ?, ?, ?, ?)",
   );
-}
-
-export function sourceNoteIdsReferencingTitle(
-  database: SqliteDatabase,
-  userId: string,
-  targetTitle: string,
-  targetNoteId: string,
-  afterSourceNoteId: string,
-  limit: number,
-) {
-  const rows = all<{ source_note_id: string }>(
-    database,
-    `SELECT DISTINCT nl.source_note_id
-     FROM note_links nl
-     JOIN notes n ON n.id = nl.source_note_id AND n.user_id = nl.user_id
-     WHERE nl.user_id = ? AND nl.target_title_normalized = ?
-       AND nl.source_note_id != ? AND nl.source_note_id > ?
-     ORDER BY nl.source_note_id
-     LIMIT ?`,
-    userId,
-    normalizeLinkTitle(targetTitle),
-    targetNoteId,
-    afterSourceNoteId,
-    limit,
-  );
-  return rows.map((row) => row.source_note_id);
+  for (const [id, snippet] of links)
+    insert.run(crypto.randomUUID(), userId, sourceNoteId, id, snippet);
 }

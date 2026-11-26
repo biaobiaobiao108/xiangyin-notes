@@ -3,7 +3,7 @@ import { cleanSnippetForDisplay, highlightSnippetParts } from "../app/editor/bac
 
 test("backlink snippets drop annotation markup while keeping visible text", () => {
   const snippet =
-    '前文 <span data-annotation-id="11111111-1111-4111-8111-111111111111" data-note="隐藏批注">[[目标笔记]]</span> 后文';
+    '前文 <span data-annotation-id="11111111-1111-4111-8111-111111111111" data-note="隐藏批注">[[11111111-1111-4111-8111-111111111111|目标笔记]]</span> 后文';
   expect(cleanSnippetForDisplay(snippet)).toBe("前文 目标笔记 后文");
 });
 

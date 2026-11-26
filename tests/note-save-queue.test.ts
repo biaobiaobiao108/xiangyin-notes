@@ -31,7 +31,6 @@ let splitNoteIdRef: { current: string | null };
 let stored: Note;
 let update: ReturnType<typeof spyOn<typeof api, "updateNote">>;
 let get: ReturnType<typeof spyOn<typeof api, "getNote">>;
-let linkedNoteRefreshes: { sourceId: string; savedVersion: number | undefined }[];
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -47,7 +46,6 @@ beforeEach(() => {
   notesRef = { current: [toNoteSummary(original)] };
   splitSelectedRef = { current: null };
   splitNoteIdRef = { current: null };
-  linkedNoteRefreshes = [];
   update = spyOn(api, "updateNote").mockImplementation(async (_id, payload) => {
     if (payload.version !== stored.version) throw new ApiError(409, "VERSION_CONFLICT", "版本冲突");
     stored = { ...stored, ...payload, version: stored.version + 1 };
@@ -72,9 +70,6 @@ beforeEach(() => {
         setToast: () => {},
         splitSelectedRef,
         splitNoteIdRef,
-        onLinkedNotesRewritten: (sourceId) => {
-          linkedNoteRefreshes.push({ sourceId, savedVersion: selectedRef.current?.version });
-        },
       });
       return null;
     }),
@@ -117,39 +112,6 @@ describe("favorite operations and the save queue", () => {
     );
   });
 
-  test("reconciles other notes after a rename response has applied the saved version", async () => {
-    update.mockResolvedValueOnce({
-      note: toNoteSummary({ ...original, title: "新标题", version: 2 }),
-      linkedNotesRewritten: true,
-    });
-    queue.persist({ ...original, title: "新标题" }, ["title"]);
-    await queue.runSave(original.id);
-    expect(linkedNoteRefreshes).toEqual([{ sourceId: original.id, savedVersion: 2 }]);
-  });
-  test("rebases edits made during a rename on the server-rewritten self link", async () => {
-    const response = deferred<{ note: Note; previousTitle: string }>();
-    let calls = 0;
-    update.mockImplementation(async (_id, payload) => {
-      calls++;
-      if (calls === 1) return response.promise;
-      expect(payload.version).toBe(2);
-      expect(payload.contentMarkdown).toBe("[[新名]] 和新内容");
-      return {
-        note: { ...original, title: "新名", contentMarkdown: payload.contentMarkdown!, version: 3 },
-      };
-    });
-    const before = { ...original, title: "新名", contentMarkdown: "[[旧名]]" };
-    queue.persist(before, ["title"]);
-    const saving = queue.runSave(original.id);
-    queue.persist({ ...before, contentMarkdown: "[[旧名]] 和新内容" }, ["contentMarkdown"]);
-    response.resolve({
-      note: { ...before, contentMarkdown: "[[新名]]", version: 2 },
-      previousTitle: "旧名",
-    });
-    await saving;
-    expect(selectedRef.current?.contentMarkdown).toBe("[[新名]] 和新内容");
-    expect(calls).toBe(2);
-  });
   test("keeps a completed save when an older split load finishes afterwards", async () => {
     splitNoteIdRef.current = original.id;
     selectedRef.current = null;
@@ -224,32 +186,6 @@ describe("favorite operations and the save queue", () => {
     expect(queue.failedSavesRef.current.get(original.id)).toMatchObject({
       code: "VERSION_CONFLICT",
     });
-  });
-
-  test("confirms a lost rename response with rewritten links and saves subsequent edits", async () => {
-    const before = { ...original, title: "新名", contentMarkdown: `[[${original.title}]]` };
-    update.mockImplementationOnce(async () => {
-      stored = { ...before, contentMarkdown: "[[新名]]", version: 2 };
-      throw new TypeError("网络连接中断");
-    });
-    queue.persist(before, ["title"], original.title);
-    await expect(queue.runSave(original.id)).rejects.toThrow("网络连接中断");
-
-    queue.persist({ ...before, contentMarkdown: `${before.contentMarkdown} 新编辑` }, [
-      "contentMarkdown",
-    ]);
-    update.mockRejectedValueOnce(
-      new ApiError(409, "VERSION_CONFLICT", "版本冲突", { error: { current: stored } }),
-    );
-    await queue.retryFailedSaves();
-
-    expect(update.mock.calls.map(([, payload]) => payload)).toEqual([
-      { version: 1, title: "新名" },
-      { version: 1, title: "新名" },
-      { version: 2, contentMarkdown: "[[新名]] 新编辑" },
-    ]);
-    expect(selectedRef.current).toMatchObject({ version: 3, contentMarkdown: "[[新名]] 新编辑" });
-    expect(queue.hasUnsavedWork()).toBe(false);
   });
 
   test("saves an unsaved body together with a card favorite", async () => {

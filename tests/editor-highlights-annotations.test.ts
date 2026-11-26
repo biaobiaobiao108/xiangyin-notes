@@ -153,7 +153,7 @@ describe("annotations", () => {
 
 describe("annotation metadata does not leak into derived Markdown data", () => {
   const markdown =
-    '<span data-annotation-id="a1" data-note="#隐藏标签 [[隐藏链接]]" data-note-extra="#另一个">正文 #真实标签</span>';
+    '<span data-annotation-id="a1" data-note="#隐藏标签 [[11111111-1111-4111-8111-111111111111|隐藏链接]]" data-note-extra="#另一个">正文 #真实标签</span>';
 
   test("preview and statistics only count visible text", () => {
     expect(formatPreview(markdown)).toBe("正文 #真实标签");

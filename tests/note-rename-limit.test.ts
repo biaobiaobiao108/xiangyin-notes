@@ -15,7 +15,13 @@ test("renaming a target keeps trashed backlink tasks out of counts until restora
       .query("SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1")
       .get(user.id) as { id: string };
     const targetId = createNote(database, user.id, inbox.id, "Target", "target");
-    const sourceId = createNote(database, user.id, inbox.id, "Source", "[[Target]]\n- [ ] task");
+    const sourceId = createNote(
+      database,
+      user.id,
+      inbox.id,
+      "Source",
+      `[[${targetId}|Target]]\n- [ ] task`,
+    );
     const update = (id: string, title: string | null, deletedAt: number | null) => {
       const note = getNote(database, user.id, id)!;
       expect(
@@ -41,7 +47,9 @@ test("renaming a target keeps trashed backlink tasks out of counts until restora
     update(sourceId, null, 1);
     expect(counts()).toEqual({ total: 0 });
     update(targetId, "Renamed", null);
-    expect(getNote(database, user.id, sourceId)?.content_markdown).toBe("[[Renamed]]\n- [ ] task");
+    expect(getNote(database, user.id, sourceId)?.content_markdown).toBe(
+      `[[${targetId}|Target]]\n- [ ] task`,
+    );
     expect(counts()).toEqual({ total: 0 });
     expect(
       database.query("SELECT COUNT(*) AS total FROM note_tasks WHERE note_id = ?").get(sourceId),
@@ -54,7 +62,7 @@ test("renaming a target keeps trashed backlink tasks out of counts until restora
   }
 });
 
-test("rejects an oversized backlink rewrite and rolls back the entire rename", async () => {
+test("renames a target without rewriting a large incoming link source", async () => {
   const database = await openDatabase(":memory:");
   const environment = {
     XIANGYING_USERNAME: "rename-test",
@@ -69,13 +77,19 @@ test("rejects an oversized backlink rewrite and rolls back the entire rename", a
       .query("SELECT id FROM notebooks WHERE user_id = ? AND is_system = 1")
       .get(user.id) as { id: string };
     const targetId = createNote(database, user.id, inbox.id, "A", "target #original");
-    const shortSourceId = createNote(database, user.id, inbox.id, "short source", "[[A]]");
+    const shortSourceId = createNote(
+      database,
+      user.id,
+      inbox.id,
+      "short source",
+      `[[${targetId}|A]]`,
+    );
     const longSourceId = createNote(
       database,
       user.id,
       inbox.id,
       "long source",
-      "[[A]] ".repeat(6000),
+      `[[${targetId}|A]] `.repeat(1000),
     );
     const ids = [targetId, shortSourceId, longSourceId];
     const before = ids.map((id) => getNote(database, user.id, id));
@@ -103,26 +117,14 @@ test("rejects an oversized backlink rewrite and rolls back the entire rename", a
         { database, environment },
       );
 
-    const rejected = await patch({
+    const accepted = await patch({
       title: "B".repeat(200),
       contentMarkdown: "changed #replacement",
     });
-    expect(rejected.status).toBe(413);
-    expect(await rejected.json()).toMatchObject({ error: { code: "NOTE_TOO_LARGE" } });
-    expect(ids.map((id) => getNote(database, user.id, id))).toEqual(before);
-    expect(database.query("SELECT * FROM note_links ORDER BY id").all()).toEqual(linksBefore);
-    expect(database.query("SELECT tag FROM note_tags WHERE note_id = ?").all(targetId)).toEqual([
-      { tag: "original" },
-    ]);
-    expect(
-      database.query("SELECT rowid FROM notes_fts WHERE notes_fts MATCH 'replacement'").all(),
-    ).toEqual([]);
-
-    const accepted = await patch({ title: "B" });
     expect(accepted.status).toBe(200);
-    expect(getNote(database, user.id, targetId)?.title).toBe("B");
-    expect(getNote(database, user.id, shortSourceId)?.content_markdown).toBe("[[B]]");
-    expect(getNote(database, user.id, longSourceId)?.content_markdown).toBe("[[B]] ".repeat(6000));
+    expect(getNote(database, user.id, targetId)?.title).toBe("B".repeat(200));
+    expect(ids.slice(1).map((id) => getNote(database, user.id, id))).toEqual(before.slice(1));
+    expect(database.query("SELECT * FROM note_links ORDER BY id").all()).toEqual(linksBefore);
   } finally {
     await waitForOrphanAssetCleanup(database);
     database.close();

@@ -311,10 +311,12 @@ describe("markdown and search helpers", () => {
 
   test("keeps literal brackets and flattens wiki links in previews", () => {
     expect(formatPreview("数组 a[0] 与 a[1]")).toBe("数组 a[0] 与 a[1]");
-    expect(formatPreview("见 [[目标笔记]] 与 [[目标笔记|显示别名]]")).toBe(
-      "见 目标笔记 与 显示别名",
-    );
-    expect(formatPreview("【【目标笔记｜全角别名】】")).toBe("全角别名");
+    expect(
+      formatPreview(
+        "见 [[11111111-1111-4111-8111-111111111111|目标笔记]] 与 [[11111111-1111-4111-8111-111111111111|目标笔记|显示别名]]",
+      ),
+    ).toBe("见 目标笔记 与 显示别名");
+    expect(formatPreview("【【目标笔记｜全角别名】】")).toBe("【【目标笔记｜全角别名】】");
   });
 
   test("skips supported callouts when the marker line also contains text", () => {

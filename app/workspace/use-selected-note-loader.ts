@@ -6,7 +6,6 @@ import {
   noteMatchesDraft,
   readOwnedNoteDraft,
   readMissingNoteDraft,
-  rewrittenDraftTitle,
 } from "./draft-recovery";
 import { noteMetadataSnapshot, toNoteDraft, type NoteDraft } from "./helpers";
 import { latestSelectedNoteSnapshot } from "./selected-note-sync";
@@ -89,11 +88,7 @@ export function useSelectedNoteLoader({
           const recoveredDraft = await readOwnedNoteDraft(userId, result.note);
           if (requestId !== noteLoadRequestRef.current || activeNoteIdRef.current !== id) return;
           loadedNote = latestSelectedNoteSnapshot(loadedNote, selectedRef.current);
-          if (
-            recoveredDraft &&
-            (noteMatchesDraft(result.note, recoveredDraft) ||
-              rewrittenDraftTitle(result.note, recoveredDraft))
-          ) {
+          if (recoveredDraft && noteMatchesDraft(result.note, recoveredDraft)) {
             clearDraftRecovery(userId, id, recoveredDraft);
           } else if (recoveredDraft && !pendingSavesRef.current.has(id)) {
             pendingSavesRef.current.set(id, recoveredDraft);

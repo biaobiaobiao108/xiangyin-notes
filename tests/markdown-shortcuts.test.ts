@@ -83,10 +83,11 @@ describe("Markdown block shortcuts typed in the editor", () => {
     }
   });
 
-  test("parses and serializes Chinese wiki links through the memo editor extensions", () => {
+  test("parses and serializes UUID wiki links through the memo editor extensions", () => {
     const editor = new Editor({
       extensions: createMemoEditorExtensions(),
-      content: "参考 【【目标笔记】】 与 【【其他笔记｜显示别名】】",
+      content:
+        "参考 [[11111111-1111-4111-8111-111111111111|目标笔记]] 与 [[22222222-2222-4222-8222-222222222222|其他笔记|显示别名]]",
       contentType: "markdown",
     });
     try {
@@ -99,11 +100,11 @@ describe("Markdown block shortcuts typed in the editor", () => {
           });
       });
       expect(wikiLinks).toEqual([
-        { target: "目标笔记", alias: null },
-        { target: "其他笔记", alias: "显示别名" },
+        { target: "11111111-1111-4111-8111-111111111111", alias: null },
+        { target: "22222222-2222-4222-8222-222222222222", alias: "显示别名" },
       ]);
       expect((editor as Editor & { getMarkdown: () => string }).getMarkdown()).toBe(
-        "参考 [[目标笔记]] 与 [[其他笔记|显示别名]]",
+        "参考 [[11111111-1111-4111-8111-111111111111|目标笔记]] 与 [[22222222-2222-4222-8222-222222222222|其他笔记|显示别名]]",
       );
     } finally {
       editor.destroy();

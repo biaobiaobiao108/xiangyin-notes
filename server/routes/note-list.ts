@@ -1,5 +1,4 @@
 import type { NoteSort, NoteSummary, NoteView } from "../../shared/types";
-import { normalizeLinkTitle } from "../../shared/wiki-links";
 import {
   json,
   NOTE_LIST_SELECT,
@@ -9,7 +8,7 @@ import {
   type SqlValue,
 } from "../core";
 import { shortSearchToken } from "../note-search";
-import { buildFtsMatchQuery, searchContains } from "../search-text";
+import { buildFtsMatchQuery, normalizeSearchTitle, searchContains } from "../search-text";
 
 export type SearchSort = NoteSort | "relevance";
 type NoteListCursor = {
@@ -128,7 +127,7 @@ export function buildOptimizedNoteListPlan(input: {
       .join(" AND ");
 
   const sortColumn = sort === "created" ? "created_at" : "updated_at";
-  const shortScoreParams = shortTokens.map((term) => normalizeLinkTitle(term));
+  const shortScoreParams = shortTokens.map((term) => normalizeSearchTitle(term));
   const shortScore = shortTokens
     .map(() => "(CASE WHEN instr(n.title_normalized, ?) > 0 THEN -8.0 ELSE 0 END)")
     .join(" + ");

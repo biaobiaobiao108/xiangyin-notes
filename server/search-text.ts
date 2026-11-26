@@ -1,3 +1,4 @@
+import { replaceWikiLinksWithText } from "../shared/wiki-links";
 import { Lexer } from "marked";
 
 const SEARCH_PATTERN_CACHE_LIMIT = 256;
@@ -71,6 +72,10 @@ function appendMarkdownText(token: MarkdownTextToken, output: string[]) {
     output.push("\n");
 }
 
+export function normalizeSearchTitle(title: string) {
+  return title.trim().normalize("NFKC").toLocaleLowerCase("zh-CN");
+}
+
 export function normalizeSearchWhitespace(text: string) {
   return text.replace(/\s+/g, " ").trim();
 }
@@ -81,7 +86,9 @@ export function searchableTextFromMarkdown(
   parsedTokens?: ReturnType<Lexer["lex"]>,
 ) {
   if (!markdown) return "";
-  const tokens = (parsedTokens ?? new Lexer({ gfm: true }).lex(markdown)) as MarkdownTextToken[];
+  const source = replaceWikiLinksWithText(markdown, true);
+  const tokens = ((source === markdown ? parsedTokens : undefined) ??
+    new Lexer({ gfm: true }).lex(source)) as MarkdownTextToken[];
   const output: string[] = [];
   for (const token of tokens) appendMarkdownText(token, output);
   return normalizeSearchWhitespace(output.join(""));

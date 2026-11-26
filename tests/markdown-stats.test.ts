@@ -6,7 +6,7 @@ import TaskItem from "@tiptap/extension-task-item";
 import { countMarkdownStats } from "../shared/markdown-stats";
 import { countTextStats } from "../shared/text-stats";
 import { preserveEscapedHashtagsForEditor } from "../shared/tags";
-import { encodeWikiLinkComponent } from "../shared/wiki-links";
+import { formatWikiLink } from "../shared/wiki-links";
 import { countEditorText } from "../app/editor-metrics";
 import { countEditorDocumentText } from "../app/editor-text-stats";
 import { createMarkdownExtension } from "../app/editor/markdown-config";
@@ -66,8 +66,8 @@ describe("Markdown statistics", () => {
     "    indented **code**\n    <span>literal</span>",
     "| 表头 | Second |\n| --- | --- |\n| **内容** | [label](https://example.com/path) |",
     '[显示文字](https://example.com/very-long-url "标题") [引用][ref]\n\n[ref]: https://example.com/reference',
-    "[[目标]] [[目标|显示别名]] 【【目标｜别名】】",
-    `[[${encodeWikiLinkComponent("含]分隔符")}|${encodeWikiLinkComponent("含]别名", "alias")}]]`,
+    "[[11111111-1111-4111-8111-111111111111|目标]] [[11111111-1111-4111-8111-111111111111|目标|显示别名]] [[22222222-2222-4222-8222-222222222222|目标|别名]]",
+    formatWikiLink("11111111-1111-4111-8111-111111111111", "含]分隔符", "含]别名"),
     "![图片说明不计](https://example.com/image.png)",
     "before ![alt](https://example.com/image.png) after",
     "&lt; &gt; &quot; &amp; &amp;lt; &#65; &nbsp;",
@@ -92,7 +92,9 @@ describe("Markdown statistics", () => {
 
   test("counts wiki-link display names and excludes image descriptions and URLs", () => {
     expect(
-      countMarkdownStats("[[long target|别名]]\n\n![说明](https://example.com/p.png)"),
+      countMarkdownStats(
+        "[[11111111-1111-4111-8111-111111111111|long target|别名]]\n\n![说明](https://example.com/p.png)",
+      ),
     ).toMatchObject({ textCharacterCount: 2, wordCount: 2 });
   });
 

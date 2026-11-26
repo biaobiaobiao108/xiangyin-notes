@@ -35,7 +35,7 @@ export function useEditorProps({
   surfaceSyncRef,
 }: {
   mobileViewportRef: Ref<boolean>;
-  onNavigateWikiLinkRef: Ref<((title: string) => void) | undefined>;
+  onNavigateWikiLinkRef: Ref<((id: string) => void) | undefined>;
   onToggleAnnotationRef: Ref<(id: string) => void>;
   onClearAnnotationRef: Ref<() => void>;
   uploadImageFilesRef: Ref<(files: File[]) => void>;
@@ -60,9 +60,9 @@ export function useEditorProps({
           if (wikiLinkEl) {
             event.preventDefault();
             event.stopPropagation();
-            const targetTitle = wikiLinkEl.getAttribute("data-wiki-link");
-            if (targetTitle && onNavigateWikiLinkRef.current) {
-              onNavigateWikiLinkRef.current(targetTitle);
+            const targetId = wikiLinkEl.getAttribute("data-wiki-link");
+            if (targetId && onNavigateWikiLinkRef.current) {
+              onNavigateWikiLinkRef.current(targetId);
               return true;
             }
           }

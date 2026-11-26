@@ -4,7 +4,7 @@ import { Database } from "bun:sqlite";
 import { snapshotSchema } from "./schema-snapshot";
 import { rebuildNoteShortSearchIndex } from "./note-search";
 import { rebuildMemoShortSearchIndex } from "./memo-search";
-import { resolveNoteLinksForUser } from "./note-links";
+import { syncNoteLinks } from "./note-links";
 import { searchContains, searchableTextFromMarkdown, searchSnippet } from "./search-text";
 import { importContentHash, recordImportRequest } from "./import-idempotency";
 
@@ -13,7 +13,7 @@ const DEFAULT_SCHEMA_PATH = "./database/schema.sql";
 const BASELINE_SCHEMA_VERSION = 1;
 
 export const MIN_SUPPORTED_SCHEMA_VERSION = BASELINE_SCHEMA_VERSION;
-export const CURRENT_SCHEMA_VERSION = 10;
+export const CURRENT_SCHEMA_VERSION = 11;
 export const SEARCH_INDEX_REBUILD_KEY = "search-index-rebuild-required";
 
 type TableCountRow = {
@@ -130,10 +130,8 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
   {
     sourceVersion: 6,
     targetVersion: 7,
-    migrate: (database) => {
-      const users = database.query<{ id: string }, []>("SELECT id FROM users").all();
-      for (const user of users) resolveNoteLinksForUser(database, user.id);
-    },
+    // The title-based index is replaced by the UUID index in version 11.
+    migrate: () => {},
   },
   {
     sourceVersion: 7,
@@ -204,6 +202,38 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
           PRIMARY KEY(user_id, memo_id, memo_version)
         ) WITHOUT ROWID;
       `),
+  },
+  {
+    sourceVersion: 10,
+    targetVersion: 11,
+    migrate: (database) => {
+      database.exec(`
+        DROP TABLE note_links;
+        CREATE TABLE note_links (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          source_note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+          target_note_id TEXT NOT NULL,
+          snippet TEXT NOT NULL,
+          UNIQUE (source_note_id, target_note_id)
+        );
+        CREATE INDEX idx_note_links_user_target ON note_links(user_id, target_note_id);
+      `);
+      const read = database.query<
+        { id: string; user_id: string; content_markdown: string },
+        [string]
+      >(
+        "SELECT id, user_id, content_markdown FROM notes WHERE id > ? AND instr(content_markdown, '[[') > 0 ORDER BY id LIMIT 100",
+      );
+      let lastId = "";
+      while (true) {
+        const rows = read.all(lastId);
+        if (!rows.length) break;
+        for (const note of rows)
+          syncNoteLinks(database, note.user_id, note.id, note.content_markdown);
+        lastId = rows.at(-1)!.id;
+      }
+    },
   },
 ];
 

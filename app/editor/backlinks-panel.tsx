@@ -10,61 +10,50 @@ import { ArrowLeftRight, ExternalLink, Link2, Loader2, Sparkles, X } from "lucid
 import { ApiError, api } from "../api";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import type { NoteBacklinksResponse } from "../../shared/types";
-import { decodeWikiLinkComponent, WIKI_LINK_PATTERN } from "../../shared/wiki-links";
+import {
+  decodeWikiLinkComponent,
+  WIKI_LINK_PATTERN,
+  wikiLinkDisplayText,
+} from "../../shared/wiki-links";
 import { relativeDate } from "../format";
 
 export function cleanDisplayTitle(title: string | null | undefined): string {
-  if (!title) return "未命名笔记";
-  const stripped = title.replace(/^(?:\[\[|【【)\s*|\s*(?:\]\]|】】)$/g, "").trim();
-  return stripped || "未命名笔记";
+  return title?.trim() || "未命名笔记";
 }
 
-export function cleanSnippetForDisplay(snippet: string): string {
-  if (!snippet) return "";
-  return (
-    snippet
-      .replace(
-        new RegExp(WIKI_LINK_PATTERN.source, "g"),
-        (_match, target: string, alias?: string) => {
-          return (alias ? decodeWikiLinkComponent(alias) : decodeWikiLinkComponent(target)).trim();
-        },
-      )
-      // Also remove any stray double brackets if any
-      .replace(/\[\[|\]\]|【【|】】/g, "")
-      // Snippets are stored from Markdown, so drop any HTML tags such as
-      // annotation spans while keeping their visible text.
-      .replace(/<\/?[a-z][^>]*>/gi, "")
-      // Remove leading markdown heading markers
-      .replace(/^#{1,6}\s+/, "")
-  );
+export function cleanSnippetForDisplay(
+  snippet: string,
+  targetId?: string,
+  targetTitle?: string,
+): string {
+  return snippet
+    .replace(/<\/?[a-z][^>]*>/gi, "")
+    .replace(WIKI_LINK_PATTERN, (_match, id: string, label?: string, alias?: string) =>
+      wikiLinkDisplayText(
+        id === targetId ? targetTitle : label && decodeWikiLinkComponent(label),
+        alias && decodeWikiLinkComponent(alias),
+      ),
+    )
+    .replace(/^#{1,6}\s+/, "");
 }
 
 export type SnippetHighlightPart = { text: string; highlighted: boolean };
 
-export function highlightSnippetParts(snippet: string, highlight: string): SnippetHighlightPart[] {
-  const cleanHighlight = cleanDisplayTitle(highlight).trim();
-  const candidates = new Set<string>();
-  if (cleanHighlight) {
-    candidates.add(cleanHighlight);
-  }
+export function highlightSnippetParts(
+  snippet: string,
+  highlight: string,
+  targetId?: string,
+): SnippetHighlightPart[] {
+  const cleanHighlight = highlight.trim();
+  const candidates = new Set<string>([cleanHighlight]);
 
-  // If there are aliases for this target in the snippet, add them to candidate highlights
-  const linkPattern = new RegExp(WIKI_LINK_PATTERN.source, "g");
-  let linkMatch: RegExpExecArray | null;
-  while ((linkMatch = linkPattern.exec(snippet)) !== null) {
-    const target = decodeWikiLinkComponent(linkMatch[1] ?? "").trim();
-    const alias = linkMatch[2] ? decodeWikiLinkComponent(linkMatch[2]).trim() : "";
-    if (
-      target &&
-      cleanHighlight &&
-      target.toLowerCase() === cleanHighlight.toLowerCase() &&
-      alias
-    ) {
-      candidates.add(alias);
+  if (targetId) {
+    for (const match of snippet.matchAll(WIKI_LINK_PATTERN)) {
+      if (match[1] === targetId && match[3]) candidates.add(decodeWikiLinkComponent(match[3]));
     }
   }
 
-  const cleaned = cleanSnippetForDisplay(snippet);
+  const cleaned = cleanSnippetForDisplay(snippet, targetId, cleanHighlight);
   const sortedCandidates = Array.from(candidates)
     .filter(Boolean)
     .sort((a, b) => b.length - a.length);
@@ -77,8 +66,16 @@ export function highlightSnippetParts(snippet: string, highlight: string): Snipp
   return parts.map((text, index) => ({ text, highlighted: index % 2 === 1 }));
 }
 
-function HighlightSnippet({ snippet, highlight }: { snippet: string; highlight: string }) {
-  const parts = highlightSnippetParts(snippet, highlight);
+function HighlightSnippet({
+  snippet,
+  highlight,
+  targetId,
+}: {
+  snippet: string;
+  highlight: string;
+  targetId?: string;
+}) {
+  const parts = highlightSnippetParts(snippet, highlight, targetId);
   return (
     <span className="backlink-snippet-text">
       {parts.map((part, index) =>
@@ -403,7 +400,7 @@ export function BacklinksDialog({
             <div className="backlinks-empty-state">
               <p>暂无其他笔记引用当前文档</p>
               <small>
-                在其他笔记中输入 <code>[[{cleanDisplayTitle(noteTitle)}]]</code> 即可建立反向链接
+                在其他笔记中输入 <code>[[</code>，再选择这篇笔记
               </small>
             </div>
           ) : (
@@ -484,6 +481,7 @@ export function BacklinksDialog({
                       <div className="backlink-card-snippet">
                         <HighlightSnippet
                           snippet={item.snippet}
+                          targetId={isUnlinked ? undefined : noteId}
                           highlight={isUnlinked ? item.matchText : cleanDisplayTitle(noteTitle)}
                         />
                       </div>

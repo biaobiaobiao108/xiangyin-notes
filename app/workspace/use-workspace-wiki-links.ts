@@ -1,7 +1,6 @@
 import { useCallback, useRef, type Dispatch, type SetStateAction } from "react";
-import { normalizeLinkTitle } from "../../shared/wiki-links";
 import type { NoteSummary, NoteView, Notebook } from "../../shared/types";
-import { api } from "../api";
+import { api, ApiError } from "../api";
 import { mergeWikiNoteSummary, toNoteSummary } from "./helpers";
 
 export function useWorkspaceWikiLinks({
@@ -39,55 +38,86 @@ export function useWorkspaceWikiLinks({
   flushSecondaryDraft: () => void;
   notifyError: (message: string) => void;
 }) {
-  const pendingWikiCreationsRef = useRef<Map<string, Promise<NoteSummary | null>>>(new Map());
+  const latestNavigationRef = useRef(0);
+  const openLinkedNote = useCallback(
+    async (id: string, open: () => void) => {
+      const navigation = ++latestNavigationRef.current;
+      try {
+        const { note } = await api.getNoteSummary(id);
+        if (navigation !== latestNavigationRef.current) return;
+        if (!note.deletedAt) {
+          open();
+          return;
+        }
+      } catch (error) {
+        if (navigation !== latestNavigationRef.current) return;
+        if (!(error instanceof ApiError) || error.status !== 404) {
+          notifyError("打开链接笔记失败，请重试");
+          return;
+        }
+      }
+      notifyError("链接的笔记已删除或不存在");
+    },
+    [notifyError],
+  );
 
-  const ensureWikiNoteExists = useCallback(
+  const handleNavigateWikiLinkPrimary = useCallback(
+    (id: string) =>
+      openLinkedNote(id, () => {
+        if (splitNoteId === id) setActivePane("secondary");
+        else selectNote(id);
+      }),
+    [openLinkedNote, selectNote, setActivePane, splitNoteId],
+  );
+
+  const handleNavigateWikiLinkSplit = useCallback(
+    (id: string) =>
+      openLinkedNote(id, () => {
+        if (selectedId === id) {
+          setActivePane("primary");
+          return;
+        }
+        if (splitNoteId && splitNoteId !== id) flushSecondaryDraft();
+        setSplitNoteId(id);
+        setActivePane("secondary");
+      }),
+    [openLinkedNote, flushSecondaryDraft, selectedId, setActivePane, setSplitNoteId, splitNoteId],
+  );
+
+  const handleCreateAndLinkNote = useCallback(
     async (title: string): Promise<NoteSummary | null> => {
-      const cleanTitle = title.replace(/^(?:\[\[|【【)\s*|\s*(?:\]\]|】】)$/g, "").trim();
-      const normalized = normalizeLinkTitle(cleanTitle);
-      if (!normalized) return null;
-      const inFlight = pendingWikiCreationsRef.current.get(normalized);
-      if (inFlight) return await inFlight;
       const defaultNotebook = notebookId
         ? notebooks.find((notebook) => notebook.id === notebookId)
         : (notebooks.find((notebook) => notebook.isSystem) ?? notebooks[0]);
-      if (!defaultNotebook) return null;
+      if (!defaultNotebook) {
+        notifyError("找不到用于创建笔记的笔记本");
+        return null;
+      }
       const scope = listScopeRef.current;
-      const creationPromise = (async () => {
-        try {
-          const result = await api.ensureWikiNote({
-            title: cleanTitle,
-            notebookId: defaultNotebook.id,
-          });
-          const summary = toNoteSummary(result.note);
-
-          if (scope === listScopeRef.current) {
-            const currentNotes = notesRef.current;
-            const merged = mergeWikiNoteSummary(
-              currentNotes,
-              summary,
-              notebooks,
-              view,
-              deferredQuery,
-              notebookId,
-            );
-            if (merged) {
-              replaceList(merged);
-              if (result.created && merged.length > currentNotes.length)
-                setTotalNotes((prev) => prev + 1);
-            }
+      try {
+        const { note } = await api.createNote({ title, notebookId: defaultNotebook.id });
+        const summary = toNoteSummary(note);
+        if (scope === listScopeRef.current) {
+          const currentNotes = notesRef.current;
+          const merged = mergeWikiNoteSummary(
+            currentNotes,
+            summary,
+            notebooks,
+            view,
+            deferredQuery,
+            notebookId,
+          );
+          if (merged) {
+            replaceList(merged);
+            if (merged.length > currentNotes.length) setTotalNotes((prev) => prev + 1);
           }
-          if (result.created) void refreshNotebooks();
-          return summary;
-        } catch {
-          return null;
-        } finally {
-          pendingWikiCreationsRef.current.delete(normalized);
         }
-      })();
-
-      pendingWikiCreationsRef.current.set(normalized, creationPromise);
-      return await creationPromise;
+        void refreshNotebooks();
+        return summary;
+      } catch {
+        notifyError("创建链接笔记失败，请重试");
+        return null;
+      }
     },
     [
       deferredQuery,
@@ -95,60 +125,12 @@ export function useWorkspaceWikiLinks({
       notebookId,
       notebooks,
       notesRef,
+      notifyError,
       refreshNotebooks,
       replaceList,
       setTotalNotes,
       view,
     ],
-  );
-
-  const handleNavigateWikiLinkPrimary = useCallback(
-    async (targetTitle: string) => {
-      const note = await ensureWikiNoteExists(targetTitle);
-      if (!note) {
-        notifyError("打开或创建笔记失败，请重试");
-        return;
-      }
-      if (splitNoteId === note.id) {
-        setActivePane("secondary");
-        return;
-      }
-      selectNote(note.id);
-    },
-    [ensureWikiNoteExists, notifyError, selectNote, setActivePane, splitNoteId],
-  );
-
-  const handleNavigateWikiLinkSplit = useCallback(
-    async (targetTitle: string) => {
-      const note = await ensureWikiNoteExists(targetTitle);
-      if (!note) {
-        notifyError("打开或创建笔记失败，请重试");
-        return;
-      }
-      if (selectedId === note.id) {
-        setActivePane("primary");
-        return;
-      }
-      if (splitNoteId && splitNoteId !== note.id) flushSecondaryDraft();
-      setSplitNoteId(note.id);
-      setActivePane("secondary");
-    },
-    [
-      ensureWikiNoteExists,
-      flushSecondaryDraft,
-      notifyError,
-      selectedId,
-      setActivePane,
-      setSplitNoteId,
-      splitNoteId,
-    ],
-  );
-
-  const handleCreateAndLinkNote = useCallback(
-    async (title: string) => {
-      await ensureWikiNoteExists(title);
-    },
-    [ensureWikiNoteExists],
   );
 
   return { handleNavigateWikiLinkPrimary, handleNavigateWikiLinkSplit, handleCreateAndLinkNote };

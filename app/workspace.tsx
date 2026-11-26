@@ -344,10 +344,6 @@ export function Workspace() {
     trashOperationsRef,
     persistRef,
   });
-  const refreshLinkedNotesRef = useRef<(sourceId: string) => void>(() => undefined);
-  const handleLinkedNotesRewritten = useCallback((sourceId: string) => {
-    refreshLinkedNotesRef.current(sourceId);
-  }, []);
   const handleRewrittenContent = useCallback((noteId: string) => {
     if (activeNoteIdRef.current === noteId) setNoteReloadToken((value) => value + 1);
     if (splitNoteIdRef.current === noteId) setSplitNoteReloadToken((value) => value + 1);
@@ -388,7 +384,6 @@ export function Workspace() {
     setSplitSaveState,
     onSearchableFieldsSaved: handleSearchableFieldsSaved,
     onRewrittenContent: handleRewrittenContent,
-    onLinkedNotesRewritten: handleLinkedNotesRewritten,
   });
   const {
     imageExportSnapshot,
@@ -1073,16 +1068,6 @@ export function Workspace() {
     refreshSplitNoteFromRemote,
     patchNoteFromRemote,
   });
-  refreshLinkedNotesRef.current = (sourceId) => {
-    const activeId = activeNoteIdRef.current;
-    if (activeId && activeId !== sourceId) {
-      void refreshSelectedNoteFromRemote(activeId).finally(reloadNotes);
-    } else reloadNotes();
-    const splitId = splitNoteIdRef.current;
-    if (splitId && splitId !== sourceId) void refreshSplitNoteFromRemote(splitId);
-    if (tasksOpen) setTaskRefreshToken((value) => value + 1);
-    if (kanbanOpen) setKanbanRefreshToken((value) => value + 1);
-  };
   const { selectTask, handleToggleTask, handleTaskNavigationMissing } = useWorkspaceTaskActions({
     flushEditorDraftRef,
     flushSecondaryDraft,

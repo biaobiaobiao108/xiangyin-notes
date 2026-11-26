@@ -67,8 +67,10 @@ describe("memo Markdown rendering", () => {
     expect(html).toContain('<span class="memo-tag">#读书</span>');
   });
 
-  test("renders Chinese wiki links by their target or alias", () => {
-    const html = renderMemoMarkdown("参考 【【目标笔记】】 与 【【技术架构｜架构设计】】");
+  test("renders UUID wiki links by their label or alias", () => {
+    const html = renderMemoMarkdown(
+      "参考 [[11111111-1111-4111-8111-111111111111|目标笔记]] 与 [[22222222-2222-4222-8222-222222222222|技术架构|架构设计]]",
+    );
     expect(html).toContain('<span class="editor-wiki-link">目标笔记</span>');
     expect(html).toContain('<span class="editor-wiki-link">架构设计</span>');
     expect(html).not.toContain("【【");

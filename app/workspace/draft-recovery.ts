@@ -1,6 +1,5 @@
 import type { NoteDraft } from "./helpers";
 import type { Note } from "../../shared/types";
-import { replaceWikiLinkTarget } from "../../shared/wiki-links";
 
 export const DRAFT_RECOVERY_KEY_PREFIX = "xiangying_note_draft_recovery:";
 // 正文上限是 1,000,000 个 UTF-16 code units，按最坏情况转成 UTF-8 后仍要留出
@@ -107,20 +106,6 @@ export function noteMatchesDraft(note: Note, draft: NoteDraft) {
     note.isFavorite === draft.isFavorite &&
     Boolean(note.deletedAt) === Boolean(draft.deletedAt)
   );
-}
-
-export function rewrittenDraftTitle(note: Note, draft: NoteDraft) {
-  const { previousTitle } = draft;
-  if (
-    !previousTitle ||
-    previousTitle === draft.title ||
-    !draft.title.trim() ||
-    note.version !== draft.version + 1
-  )
-    return;
-  const rewritten = replaceWikiLinkTarget(draft.contentMarkdown, previousTitle, draft.title);
-  if (rewritten.count && noteMatchesDraft(note, { ...draft, contentMarkdown: rewritten.content }))
-    return previousTitle;
 }
 
 export function serializeDraftRecovery(draft: NoteDraft) {
@@ -292,9 +277,6 @@ function parseDraftRecoveryRecord(serialized: string, noteId: string) {
         notebookId: value.notebookId,
         isFavorite: value.isFavorite,
         deletedAt: value.deletedAt,
-        ...(typeof value.previousTitle === "string" && value.previousTitle.length <= 200
-          ? { previousTitle: value.previousTitle }
-          : {}),
       },
       updatedAt: typeof updatedAt === "number" && Number.isSafeInteger(updatedAt) ? updatedAt : 0,
     };

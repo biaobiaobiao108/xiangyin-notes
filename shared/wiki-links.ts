@@ -113,41 +113,30 @@ export function findInlineCodeIntervals(
 export type WikiLinkMatch = {
   raw: string;
   target: string;
+  label?: string;
   alias?: string;
   start: number;
   end: number;
 };
 
-/**
- * Components containing a structural delimiter use a `\]` marker followed
- * by a URI-encoded JSON string. The marker cannot begin a valid legacy target,
- * which lets the parser keep interpreting every existing link as before.
- */
+export const WIKI_NOTE_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Markdown table cells escape the field separators when serializing.
 export const WIKI_LINK_PATTERN =
-  /(?:\[\[|【【)(\\\][^\]】\r\n|｜]+|[^\]】\r\n|｜]+)(?:[|｜](\\\][^\]】\r\n|｜]+|[^\]】\r\n]+))?(?:\]\]|】】)/g;
+  /\[\[([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\\?\|(\\\][^\\\]\r\n|]+|[^\\\]\r\n|]+)(?:\\?\|(\\\][^\\\]\r\n|]+|[^\\\]\r\n|]+))?)?\]\]/gi;
 
-export type WikiLinkComponentKind = "target" | "alias";
-
-function isEscapableWikiLinkDelimiter(character: string, kind: WikiLinkComponentKind) {
-  return (
-    character === "]" ||
-    character === "】" ||
-    character === "\r" ||
-    character === "\n" ||
-    (kind === "target" && (character === "|" || character === "｜"))
-  );
+export function encodeWikiLinkComponent(value: string) {
+  return /[\[\]|\x60<\r\n\\]/u.test(value)
+    ? `\\]${encodeURIComponent(JSON.stringify(value))}`
+    : value;
 }
 
-/** Encodes a target or alias so it can be written inside a wiki-link. */
-export function encodeWikiLinkComponent(value: string, kind: WikiLinkComponentKind = "target") {
-  const hasDelimiter = [...value].some((character) =>
-    isEscapableWikiLinkDelimiter(character, kind),
-  );
-  if (!hasDelimiter) return value;
-  return `\\]${encodeURIComponent(JSON.stringify(value))}`;
+export function formatWikiLink(target: string, label?: string, alias?: string | null) {
+  const fallback = label || "未命名笔记";
+  return `[[${target}${label || alias ? `|${encodeWikiLinkComponent(fallback)}` : ""}${alias ? `|${encodeWikiLinkComponent(alias)}` : ""}]]`;
 }
 
-/** Decodes a target or alias captured from wiki-link Markdown. */
+/** Decodes a label or alias captured from wiki-link Markdown. */
 export function decodeWikiLinkComponent(value: string) {
   if (!value.startsWith("\\]")) return value;
   try {
@@ -158,15 +147,40 @@ export function decodeWikiLinkComponent(value: string) {
   }
 }
 
-export function normalizeLinkTitle(title: string) {
-  return title.trim().normalize("NFKC").toLocaleLowerCase("zh-CN");
+export function wikiLinkDisplayText(label?: string | null, alias?: string | null) {
+  return alias || label || "未命名笔记";
+}
+
+export function replaceWikiLinksWithText(markdown: string, preserveMarkdown = false) {
+  let cursor = 0;
+  const parts: string[] = [];
+  for (const link of extractWikiLinks(markdown)) {
+    const label = wikiLinkDisplayText(link.label, link.alias);
+    // Escape punctuation before a second Markdown parse so labels stay literal.
+    const text = preserveMarkdown
+      ? label.replace(/[!-\/:-@\[-`{-~]/g, "\\$&").replace(/\r\n|[\r\n]/g, " ")
+      : label;
+    parts.push(markdown.slice(cursor, link.start), text);
+    cursor = link.end;
+  }
+  return cursor > 0 ? parts.join("") + markdown.slice(cursor) : markdown;
+}
+
+function wikiLinkIsEscaped(source: string, start: number) {
+  let preceding = start;
+  while (preceding > 0 && source[preceding - 1] === "\\") preceding -= 1;
+  return (start - preceding) % 2 === 1;
 }
 
 /**
  * Extracts all Wiki-link matches in Markdown outside code fences and inline code.
  */
 export function extractWikiLinks(markdown: string): WikiLinkMatch[] {
-  if (!markdown || (!markdown.includes("[[") && !markdown.includes("【【"))) return [];
+  if (!markdown || !markdown.includes("[[")) return [];
+
+  const regex = new RegExp(WIKI_LINK_PATTERN.source, WIKI_LINK_PATTERN.flags);
+  if (!regex.test(markdown)) return [];
+  regex.lastIndex = 0;
 
   const source = maskHtmlAttributeValues(markdown);
   const codeFences = findCodeFenceIntervals(source);
@@ -188,17 +202,17 @@ export function extractWikiLinks(markdown: string): WikiLinkMatch[] {
   };
 
   const matches: WikiLinkMatch[] = [];
-  const regex = new RegExp(WIKI_LINK_PATTERN.source, "g");
   let match: RegExpExecArray | null;
 
   while ((match = regex.exec(source)) !== null) {
     const raw = markdown.slice(match.index, match.index + match[0].length);
-    const target = decodeWikiLinkComponent(match[1] ?? "").trim();
-    const alias = match[2] ? decodeWikiLinkComponent(match[2]).trim() : undefined;
+    const target = match[1]!;
+    const label = match[2] ? decodeWikiLinkComponent(match[2]) : undefined;
+    const alias = match[3] ? decodeWikiLinkComponent(match[3]) : undefined;
     const start = match.index;
     const end = start + raw.length;
 
-    if (!target) continue;
+    if (wikiLinkIsEscaped(source, start)) continue;
     const fenceResult = isContainedIn(codeFences, codeFenceIndex, start, end);
     codeFenceIndex = fenceResult.index;
     const inlineResult = isContainedIn(inlineCodes, inlineCodeIndex, start, end);
@@ -208,6 +222,7 @@ export function extractWikiLinks(markdown: string): WikiLinkMatch[] {
     matches.push({
       raw,
       target,
+      label,
       alias: alias || undefined,
       start,
       end,
@@ -215,24 +230,6 @@ export function extractWikiLinks(markdown: string): WikiLinkMatch[] {
   }
 
   return matches;
-}
-
-/**
- * Extracts unique target titles from Markdown.
- */
-export function extractWikiLinkTargets(markdown: string): string[] {
-  const links = extractWikiLinks(markdown);
-  const seen = new Set<string>();
-  const targets: string[] = [];
-
-  for (const link of links) {
-    const key = normalizeLinkTitle(link.target);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    targets.push(link.target);
-  }
-
-  return targets;
 }
 
 /**
@@ -249,52 +246,13 @@ export function extractContextSnippet(
   let lineEnd = markdown.indexOf("\n", matchEnd);
   if (lineEnd === -1) lineEnd = markdown.length;
 
-  let snippet = markdown.slice(lineStart, lineEnd).trim();
-
-  // If the line is very long, center around match
-  if (snippet.length > maxLength) {
-    const offsetInSnippet = matchStart - lineStart;
-    const half = Math.floor(maxLength / 2);
-    const start = Math.max(0, offsetInSnippet - half);
-    const end = Math.min(snippet.length, start + maxLength);
-    const prefix = start > 0 ? "…" : "";
-    const suffix = end < snippet.length ? "…" : "";
-    snippet = `${prefix}${snippet.slice(start, end).trim()}${suffix}`;
-  }
-
-  return snippet;
-}
-
-/**
- * Replaces all Wiki-link references to oldTitle with newTitle outside code blocks.
- */
-export function replaceWikiLinkTarget(
-  markdown: string,
-  oldTitle: string,
-  newTitle: string,
-): { content: string; count: number } {
-  const normalizedOld = normalizeLinkTitle(oldTitle);
-  if (!normalizedOld) return { content: markdown, count: 0 };
-
-  const links = extractWikiLinks(markdown);
-  if (!links.length) return { content: markdown, count: 0 };
-
-  // Filter links matching oldTitle
-  const matchedLinks = links.filter((link) => normalizeLinkTitle(link.target) === normalizedOld);
-  if (!matchedLinks.length) return { content: markdown, count: 0 };
-
-  // Replace from end to start to keep indices valid
-  let result = markdown;
-  for (let i = matchedLinks.length - 1; i >= 0; i--) {
-    const link = matchedLinks[i];
-    const encodedTitle = encodeWikiLinkComponent(newTitle, "target");
-    const replacement = link.alias
-      ? `[[${encodedTitle}|${encodeWikiLinkComponent(link.alias, "alias")}]]`
-      : `[[${encodedTitle}]]`;
-    result = result.slice(0, link.start) + replacement + result.slice(link.end);
-  }
-
-  return { content: result, count: matchedLinks.length };
+  if (lineEnd - lineStart <= maxLength) return markdown.slice(lineStart, lineEnd).trim();
+  const remaining = Math.max(0, maxLength - (matchEnd - matchStart));
+  const start = Math.max(lineStart, matchStart - Math.floor(remaining / 2));
+  const end = Math.min(lineEnd, Math.max(matchEnd, start + maxLength));
+  const prefix = start > lineStart ? "…" : "";
+  const suffix = end < lineEnd ? "…" : "";
+  return `${prefix}${markdown.slice(start, end).trim()}${suffix}`;
 }
 
 export type UnlinkedMentionMatch = {
@@ -343,10 +301,11 @@ export function findUnlinkedMentionsInMarkdown(
   ];
 
   // Exclude existing wiki-links
-  const wikiRegex = new RegExp(WIKI_LINK_PATTERN.source, "g");
+  const wikiRegex = new RegExp(WIKI_LINK_PATTERN.source, WIKI_LINK_PATTERN.flags);
   let wMatch: RegExpExecArray | null;
   while ((wMatch = wikiRegex.exec(source)) !== null) {
-    excludedIntervals.push({ start: wMatch.index, end: wMatch.index + wMatch[0].length });
+    if (!wikiLinkIsEscaped(source, wMatch.index))
+      excludedIntervals.push({ start: wMatch.index, end: wMatch.index + wMatch[0].length });
   }
 
   // Exclude markdown links and images [text](url)
@@ -399,14 +358,13 @@ export function linkMentionInMarkdown(
   markdown: string,
   start: number,
   end: number,
+  targetId: string,
   targetTitle: string,
 ): string {
-  const text = markdown.slice(start, end);
-  const cleanTarget = targetTitle.replace(/^(?:\[\[|【【)\s*|\s*(?:\]\]|】】)$/g, "").trim();
-  const encodedTarget = encodeWikiLinkComponent(cleanTarget, "target");
-  const replacement =
-    text.trim() === cleanTarget
-      ? `[[${encodedTarget}]]`
-      : `[[${encodedTarget}|${encodeWikiLinkComponent(text, "alias")}]]`;
-  return markdown.slice(0, start) + replacement + markdown.slice(end);
+  const mention = markdown.slice(start, end);
+  return (
+    markdown.slice(0, start) +
+    formatWikiLink(targetId, targetTitle, mention === targetTitle ? undefined : mention) +
+    markdown.slice(end)
+  );
 }

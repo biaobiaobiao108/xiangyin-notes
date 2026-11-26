@@ -6,8 +6,7 @@ import { NOTE_PAGE_SIZE } from "../server/core";
 import { applyMigrations, openDatabase, type SqliteDatabase } from "../server/db";
 import { handleRequest } from "../server/index";
 import { waitForOrphanAssetCleanup } from "../server/routes/assets";
-import { NOTE_RENAME_SOURCE_BATCH_SIZE } from "../server/routes/notes";
-import type { Note, NoteBacklinksResponse } from "../shared/types";
+import type { Note } from "../shared/types";
 
 let database: SqliteDatabase;
 let assetRoot: string;
@@ -41,618 +40,134 @@ async function request(path: string, init: RequestInit = {}, cookie?: string) {
   return { response, body, cookie: response.headers.get("Set-Cookie")?.split(";", 1)[0] };
 }
 
-describe("Note links, backlinks, and renaming cascade", () => {
-  test("renames links across bounded source-note batches", async () => {
-    const auth = await request("/api/auth/login", {
+async function signedIn() {
+  const session = await request("/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
+  });
+  expect(session.response.status).toBe(200);
+  return session.cookie!;
+}
+
+async function createNote(cookie: string, title: string, contentMarkdown = "") {
+  const created = await request(
+    "/api/notes",
+    {
       method: "POST",
-      body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
-    });
-    const cookie = auth.cookie!;
-    const target = (
-      await request(
-        "/api/notes",
-        {
-          method: "POST",
-          body: JSON.stringify({ title: "原名", contentMarkdown: "" }),
-        },
-        cookie,
-      )
-    ).body?.note as Note;
-    const sourceIds: string[] = [];
-    for (let index = 0; index < NOTE_RENAME_SOURCE_BATCH_SIZE + 1; index += 1) {
-      const source = (
+      body: JSON.stringify({ title, contentMarkdown }),
+    },
+    cookie,
+  );
+  expect(created.response.status).toBe(201);
+  return created.body!.note as Note;
+}
+
+describe("UUID links and backlinks", () => {
+  test("distinguishes duplicate titles and preserves links through rename, trash and deletion", async () => {
+    const cookie = await signedIn();
+    const original = await createNote(cookie, "同名目标");
+    const duplicate = await createNote(cookie, "同名目标");
+    const markdown = `正文 [[${original.id}|同名目标|别名]]，重复 [[${original.id}]]
+
+\`[[${duplicate.id}|代码]]\`
+
+[[同名目标]]`;
+    const source = await createNote(cookie, "来源", markdown);
+    const refs = async (id: string) =>
+      (await request(`/api/notes/${id}/backlinks`, {}, cookie)).body!.linkedReferences;
+    const titles = async (...ids: string[]) =>
+      (
         await request(
-          "/api/notes",
-          {
-            method: "POST",
-            body: JSON.stringify({ title: `来源 ${index}`, contentMarkdown: "引用 [[原名]]" }),
-          },
+          `/api/wiki-notes/titles?${new URLSearchParams(ids.map((id) => ["id", id]))}`,
+          {},
           cookie,
         )
-      ).body?.note as Note;
-      sourceIds.push(source.id);
-    }
-
-    const renamed = await request(
-      `/api/notes/${target.id}`,
-      {
-        method: "PATCH",
-        body: JSON.stringify({ version: target.version, title: "新名" }),
-      },
-      cookie,
-    );
-
-    expect(renamed.response.status).toBe(200);
-    const placeholders = sourceIds.map(() => "?").join(", ");
-    const updatedCount = database
-      .query(
-        `
-      SELECT COUNT(*) AS count FROM notes
-      WHERE id IN (${placeholders}) AND content_markdown = '引用 [[新名]]' AND version = 2
-    `,
-      )
-      .get(...sourceIds) as { count: number };
-    expect(updatedCount.count).toBe(sourceIds.length);
-  });
-
-  test("renaming a target preserves code examples while updating its real backlinks", async () => {
-    const auth = await request("/api/auth/login", {
-      method: "POST",
-      body: JSON.stringify({ username: "owner", password: "a long passphrase 1234" }),
-    });
-    const cookie = auth.cookie!;
-    const target = (
-      await request(
-        "/api/notes",
-        {
-          method: "POST",
-          body: JSON.stringify({ title: "Alpha", contentMarkdown: "" }),
-        },
-        cookie,
-      )
-    ).body?.note as Note;
-    const examples = ["    [[Alpha]]", "```md\n[[Alpha]]\n```not-closing\n[[Alpha]]\n```"];
-    const sources = [];
-    for (const example of examples) {
-      const source = (
-        await request(
-          "/api/notes",
-          {
-            method: "POST",
-            body: JSON.stringify({ title: "Example", contentMarkdown: `${example}\n\n[[Alpha]]` }),
-          },
-          cookie,
-        )
-      ).body?.note as Note;
-      sources.push({ source, example });
-    }
-    const renamed = await request(
-      `/api/notes/${target.id}`,
-      {
-        method: "PATCH",
-        body: JSON.stringify({ version: target.version, title: "Beta" }),
-      },
-      cookie,
-    );
-    expect(renamed.response.status).toBe(200);
-    for (const { source, example } of sources) {
-      const latest = (await request(`/api/notes/${source.id}`, { method: "GET" }, cookie)).body
-        ?.note as Note;
-      expect(latest.contentMarkdown).toBe(`${example}\n\n[[Beta]]`);
-    }
-  });
-
-  test("batch trash releases link targets and reconnects them to a new note with the same title", async () => {
-    const auth = await request("/api/auth/login", {
-      method: "POST",
-      body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
-    });
-    const cookie = auth.cookie!;
-    const target = (
-      await request(
-        "/api/notes",
-        {
-          method: "POST",
-          body: JSON.stringify({ title: "批量删除目标" }),
-        },
-        cookie,
-      )
-    ).body?.note as Note;
-    const source = (
-      await request(
-        "/api/notes",
-        {
-          method: "POST",
-          body: JSON.stringify({ title: "引用来源", contentMarkdown: "参考 [[批量删除目标]]" }),
-        },
-        cookie,
-      )
-    ).body?.note as Note;
-
-    const trash = await request(
-      "/api/notes/batch",
-      {
-        method: "PATCH",
-        body: JSON.stringify({ notes: [{ id: target.id, version: target.version }] }),
-      },
-      cookie,
-    );
-    expect(trash.response.status).toBe(200);
-    const link = database
-      .query("SELECT target_note_id FROM note_links WHERE source_note_id = ?")
-      .get(source.id) as { target_note_id: string | null };
-    expect(link.target_note_id).toBeNull();
-
-    const renamed = await request(
-      `/api/notes/${target.id}`,
-      {
-        method: "PATCH",
-        body: JSON.stringify({ version: target.version + 1, title: "回收站里的新标题" }),
-      },
-      cookie,
-    );
-    expect(renamed.response.status).toBe(409);
-    expect(renamed.body?.error.code).toBe("NOTE_IN_TRASH");
-    expect((await request(`/api/notes/${source.id}`, {}, cookie)).body?.note.contentMarkdown).toBe(
-      source.contentMarkdown,
-    );
-
-    const replacement = (
-      await request(
-        "/api/notes",
-        {
-          method: "POST",
-          body: JSON.stringify({ title: target.title }),
-        },
-        cookie,
-      )
-    ).body?.note as Note;
-    const backlinks = await request(`/api/notes/${replacement.id}/backlinks`, {}, cookie);
-    expect(backlinks.response.status).toBe(200);
-    expect(
-      backlinks.body?.linkedReferences.map((link: { sourceNoteId: string }) => link.sourceNoteId),
-    ).toContain(source.id);
-  });
-
-  test("renaming a target updates references in trashed source notes", async () => {
-    const auth = await request("/api/auth/login", {
-      method: "POST",
-      body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
-    });
-    const cookie = auth.cookie!;
-    const target = (
-      await request(
-        "/api/notes",
-        {
-          method: "POST",
-          body: JSON.stringify({ title: "原始标题" }),
-        },
-        cookie,
-      )
-    ).body?.note as Note;
-    const source = (
-      await request(
-        "/api/notes",
-        {
-          method: "POST",
-          body: JSON.stringify({ title: "回收站来源", contentMarkdown: "保留 [[原始标题]]" }),
-        },
-        cookie,
-      )
-    ).body?.note as Note;
-    const trashed = await request(
-      `/api/notes/${source.id}`,
-      {
-        method: "PATCH",
-        body: JSON.stringify({ version: source.version, deleted: true }),
-      },
-      cookie,
-    );
-    expect(trashed.response.status).toBe(200);
-
-    const renamed = await request(
-      `/api/notes/${target.id}`,
-      {
-        method: "PATCH",
-        body: JSON.stringify({ version: target.version, title: "新标题" }),
-      },
-      cookie,
-    );
-    expect(renamed.response.status).toBe(200);
-
-    const updatedSource = await request(`/api/notes/${source.id}`, { method: "GET" }, cookie);
-    expect(updatedSource.body?.note.contentMarkdown).toBe("保留 [[新标题]]");
-    expect(updatedSource.body?.note.version).toBe(trashed.body?.note.version + 1);
-
-    const restored = await request(
-      `/api/notes/${source.id}`,
-      {
-        method: "PATCH",
-        body: JSON.stringify({ version: updatedSource.body!.note.version, deleted: false }),
-      },
-      cookie,
-    );
-    expect(restored.response.status).toBe(200);
-    const backlinks = await request(`/api/notes/${target.id}/backlinks`, { method: "GET" }, cookie);
-    expect(
-      backlinks.body?.linkedReferences.map((link: { sourceNoteId: string }) => link.sourceNoteId),
-    ).toContain(source.id);
-  });
-
-  test("creates links, queries backlinks and unlinked mentions, and cascades title updates", async () => {
-    // 1. Authenticate
-    const auth = await request("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: "owner", password: "a long passphrase 1234" }),
-    });
-    expect(auth.response.status).toBe(200);
-    const cookie = auth.cookie!;
-
-    // 2. Create Target Note B
-    const createB = await request(
-      "/api/notes",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "架构设计", contentMarkdown: "这是系统的核心架构说明。" }),
-      },
-      cookie,
-    );
-    expect(createB.response.status).toBe(201);
-    const noteB = createB.body?.note as Note;
-    expect(noteB).toBeDefined();
-
-    // 3. Create Note A with explicit Wiki-link [[架构设计]]
-    const createA = await request(
-      "/api/notes",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: "前端规划",
-          contentMarkdown: "前端页面请参考 [[架构设计]] 规范编写。",
-        }),
-      },
-      cookie,
-    );
-    expect(createA.response.status).toBe(201);
-    const noteA = createA.body?.note as Note;
-
-    // 4. Create Note C with plain text mention of "架构设计"
-    const createC = await request(
-      "/api/notes",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: "项目总结",
-          contentMarkdown: "回顾本次工作，架构设计 非常关键。",
-        }),
-      },
-      cookie,
-    );
-    expect(createC.response.status).toBe(201);
-    const noteC = createC.body?.note as Note;
-
-    // 5. Query backlinks for Note B
-    const backlinksB = await request(`/api/notes/${noteB.id}/backlinks`, { method: "GET" }, cookie);
-    expect(backlinksB.response.status).toBe(200);
-    const backlinksPayload = backlinksB.body as NoteBacklinksResponse;
-
-    // Verify linked references contains Note A
-    expect(backlinksPayload.linkedReferences).toHaveLength(1);
-    expect(backlinksPayload.linkedReferences[0].sourceNoteId).toBe(noteA.id);
-    expect(backlinksPayload.linkedReferences[0].sourceNoteTitle).toBe("前端规划");
-    expect(backlinksPayload.linkedReferences[0].snippet).toContain("[[架构设计]]");
-
-    // Verify unlinked mentions contains Note C
-    expect(backlinksPayload.unlinkedMentions).toHaveLength(1);
-    expect(backlinksPayload.unlinkedMentions[0].sourceNoteId).toBe(noteC.id);
-    expect(backlinksPayload.unlinkedMentions[0].sourceNoteTitle).toBe("项目总结");
-    expect(backlinksPayload.unlinkedMentions[0].snippet).toContain("架构设计");
-
-    // 6. Test link-mention endpoint to convert Note C's mention into a Wiki-link
-    const mention = backlinksPayload.unlinkedMentions[0];
-    const linkRes = await request(
-      `/api/notes/${noteB.id}/link-mention`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sourceNoteId: mention.sourceNoteId,
-          sourceVersion: mention.sourceVersion,
-          matchStart: mention.matchIndex,
-          matchEnd: mention.matchIndex + mention.matchText.length,
-          matchText: mention.matchText,
-        }),
-      },
-      cookie,
-    );
-    expect(linkRes.response.status).toBe(200);
-
-    // Verify Note C was updated
-    const getC = await request(`/api/notes/${noteC.id}`, { method: "GET" }, cookie);
-    expect(getC.body?.note.contentMarkdown).toBe("回顾本次工作，[[架构设计]] 非常关键。");
-
-    // Backlinks for Note B should now have 2 linked references and 0 unlinked mentions
-    const backlinksB2 = await request(
-      `/api/notes/${noteB.id}/backlinks`,
-      { method: "GET" },
-      cookie,
-    );
-    expect(backlinksB2.body?.linkedReferences).toHaveLength(2);
-    expect(backlinksB2.body?.unlinkedMentions).toHaveLength(0);
-
-    // 7. Rename Note B from "架构设计" to "系统架构"
-    const renameRes = await request(
-      `/api/notes/${noteB.id}`,
-      {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ version: noteB.version, title: "系统架构" }),
-      },
-      cookie,
-    );
-    expect(renameRes.response.status).toBe(200);
-
-    // Verify Note A's content was cascaded to [[系统架构]]
-    const getA = await request(`/api/notes/${noteA.id}`, { method: "GET" }, cookie);
-    expect(getA.body?.note.contentMarkdown).toBe("前端页面请参考 [[系统架构]] 规范编写。");
-
-    // Verify Note C's content was cascaded to [[系统架构]]
-    const getC2 = await request(`/api/notes/${noteC.id}`, { method: "GET" }, cookie);
-    expect(getC2.body?.note.contentMarkdown).toBe("回顾本次工作，[[系统架构]] 非常关键。");
-
-    // 8. Delete Note A and check backlinks
-    const trashedA = await request(
-      `/api/notes/${noteA.id}`,
-      {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ version: getA.body?.note.version, deleted: true }),
-      },
-      cookie,
-    );
-    const deleteRes = await request(
-      `/api/notes/${noteA.id}`,
-      { method: "DELETE", body: JSON.stringify({ version: trashedA.body?.note.version }) },
-      cookie,
-    );
-    expect(deleteRes.response.status).toBe(200);
-
-    const backlinksB3 = await request(
-      `/api/notes/${noteB.id}/backlinks`,
-      { method: "GET" },
-      cookie,
-    );
-    expect(backlinksB3.body?.linkedReferences).toHaveLength(1);
-    expect(backlinksB3.body?.linkedReferences[0].sourceNoteId).toBe(noteC.id);
-  });
-
-  test("keeps wiki navigation, backlinks, and renames aligned when titles are duplicated", async () => {
-    const auth = await request("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: "owner", password: "a long passphrase 1234" }),
-    });
-    const cookie = auth.cookie!;
-
-    const firstResponse = await request(
-      "/api/notes",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "重复标题", contentMarkdown: "原始目标" }),
-      },
-      cookie,
-    );
-    const first = firstResponse.body?.note as Note;
-    database.query("UPDATE notes SET updated_at = 1 WHERE id = ?").run(first.id);
-    const sourceResponse = await request(
-      "/api/notes",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "链接来源", contentMarkdown: "请查看 [[重复标题]]。" }),
-      },
-      cookie,
-    );
-    const source = sourceResponse.body?.note as Note;
-    const duplicateResponse = await request(
-      "/api/notes",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "重复标题", contentMarkdown: "第二个目标\n\n[[重复标题]]" }),
-      },
-      cookie,
-    );
-    const duplicate = duplicateResponse.body?.note as Note;
-
-    const ensureTarget = () =>
+      ).body!.notes;
+    const patch = (id: string, payload: Record<string, unknown>) =>
       request(
-        "/api/wiki-notes/ensure",
+        `/api/notes/${id}`,
         {
-          method: "POST",
-          body: JSON.stringify({ title: "重复标题", notebookId: first.notebookId }),
+          method: "PATCH",
+          body: JSON.stringify(payload),
         },
         cookie,
       );
-    expect((await ensureTarget()).body?.note.id).toBe(duplicate.id);
 
+    const suggestions = await request(
+      `/api/wiki-notes/suggestions?query=${encodeURIComponent(original.title)}`,
+      {},
+      cookie,
+    );
+    expect(suggestions.body?.exactMatch).toBe(true);
+    expect(new Set(suggestions.body?.matches.map((note: Note) => note.id))).toEqual(
+      new Set([original.id, duplicate.id]),
+    );
+    expect(await refs(original.id)).toEqual([
+      expect.objectContaining({ sourceNoteId: source.id, targetNoteId: original.id }),
+    ]);
+    expect(await refs(duplicate.id)).toEqual([]);
+
+    expect((await patch(original.id, { version: 1, title: "新标题" })).response.status).toBe(200);
+    expect(await titles(original.id)).toEqual([{ id: original.id, title: "新标题" }]);
+    expect((await request(`/api/notes/${source.id}`, {}, cookie)).body?.note).toMatchObject({
+      version: source.version,
+      contentMarkdown: markdown,
+    });
+    expect(await refs(original.id)).toHaveLength(1);
+
+    expect((await patch(original.id, { version: 2, deleted: true })).response.status).toBe(200);
+    expect(await titles(original.id)).toEqual([]);
+    expect((await patch(original.id, { version: 3, deleted: false })).response.status).toBe(200);
+    expect(await refs(original.id)).toHaveLength(1);
+    expect((await patch(original.id, { version: 4, deleted: true })).response.status).toBe(200);
+    expect(
+      (
+        await request(
+          `/api/notes/${original.id}`,
+          { method: "DELETE", body: JSON.stringify({ version: 5 }) },
+          cookie,
+        )
+      ).response.status,
+    ).toBe(200);
+
+    const replacement = await createNote(cookie, "新标题");
+    expect(await refs(replacement.id)).toEqual([]);
+    expect(await titles(original.id)).toEqual([]);
     expect(
       database
         .query("SELECT target_note_id FROM note_links WHERE source_note_id = ?")
         .get(source.id),
-    ).toEqual({ target_note_id: duplicate.id });
-    const backlinks = await request(
-      `/api/notes/${duplicate.id}/backlinks`,
-      { method: "GET" },
-      cookie,
-    );
-    expect(backlinks.body?.linkedReferences).toMatchObject([{ sourceNoteId: source.id }]);
+    ).toEqual({ target_note_id: original.id });
+  });
 
-    const renamed = await request(
-      `/api/notes/${first.id}`,
-      {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          version: first.version,
-          title: "重复标题二",
-          contentMarkdown: "改名时写入的链接 [[重复标题]]",
-        }),
-      },
-      cookie,
-    );
-    expect(renamed.response.status).toBe(200);
-    expect(renamed.body?.note.contentMarkdown).toBe("改名时写入的链接 [[重复标题]]");
-    expect(renamed.body).not.toHaveProperty("linkedNotesRewritten");
-    expect((await ensureTarget()).body?.note.id).toBe(duplicate.id);
-
-    const unchangedSource = await request(`/api/notes/${source.id}`, { method: "GET" }, cookie);
-    expect(unchangedSource.body?.note.contentMarkdown).toBe("请查看 [[重复标题]]。");
+  test("does not expose another owner's titles or backlink sources", async () => {
+    const cookie = await signedIn();
+    const foreignUser = crypto.randomUUID();
+    const foreignNotebook = crypto.randomUUID();
+    const foreignNote = crypto.randomUUID();
+    database.exec("PRAGMA foreign_keys = ON");
+    database
+      .query(
+        "INSERT INTO users (id, username, password_hash, password_salt, created_at) VALUES (?, ?, 'hash', 'salt', 1)",
+      )
+      .run(foreignUser, foreignUser);
+    database
+      .query(
+        "INSERT INTO notebooks (id, user_id, name, created_at, updated_at) VALUES (?, ?, '私有笔记本', 1, 1)",
+      )
+      .run(foreignNotebook, foreignUser);
+    database
+      .query(
+        "INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, created_at, updated_at) VALUES (?, ?, ?, '私有标题', '', 1, 1)",
+      )
+      .run(foreignNote, foreignUser, foreignNotebook);
+    await createNote(cookie, "来源", `[[${foreignNote}|自定义显示]]`);
     expect(
-      database
-        .query("SELECT target_note_id, target_title FROM note_links WHERE source_note_id = ?")
-        .get(source.id),
-    ).toEqual({ target_note_id: duplicate.id, target_title: "重复标题" });
-
-    const renamedTarget = await request(
-      `/api/notes/${duplicate.id}?response=summary`,
-      { method: "PATCH", body: JSON.stringify({ version: duplicate.version, title: "真实目标" }) },
-      cookie,
+      (await request(`/api/wiki-notes/titles?id=${foreignNote}`, {}, cookie)).body?.notes,
+    ).toEqual([]);
+    expect((await request(`/api/notes/${foreignNote}/backlinks`, {}, cookie)).response.status).toBe(
+      404,
     );
-    expect(renamedTarget.body).toMatchObject({
-      note: { contentMarkdown: "第二个目标\n\n[[真实目标]]" },
-      linkedNotesRewritten: true,
-    });
-    const updatedSource = await request(`/api/notes/${source.id}`, { method: "GET" }, cookie);
-    expect(updatedSource.body?.note.contentMarkdown).toBe("请查看 [[真实目标]]。");
-  });
-
-  test("rejects an ambiguous rename without changing the note or its incoming links", async () => {
-    const { cookie } = await request("/api/auth/login", {
-      method: "POST",
-      body: JSON.stringify({ username: "owner", password: environment.XIANGYING_PASSWORD }),
-    });
-    const create = async (title: string, contentMarkdown: string) =>
-      (
-        await request(
-          "/api/notes",
-          { method: "POST", body: JSON.stringify({ title, contentMarkdown }) },
-          cookie,
-        )
-      ).body?.note as Note;
-    const other = await create("新名", "已有笔记");
-    database.query("UPDATE notes SET updated_at = ? WHERE id = ?").run(4_000_000_000, other.id);
-    const target = await create("旧名", "");
-    const source = await create("来源", "引用 [[旧名]]");
-
-    const renamed = await request(
-      `/api/notes/${target.id}`,
-      { method: "PATCH", body: JSON.stringify({ title: "新名", version: target.version }) },
-      cookie,
-    );
-
-    expect(renamed.response.status).toBe(409);
-    expect(renamed.body?.error.code).toBe("NOTE_RENAME_LINK_CONFLICT");
-    expect((await request(`/api/notes/${target.id}`, {}, cookie)).body?.note).toEqual(target);
-    expect((await request(`/api/notes/${source.id}`, {}, cookie)).body?.note).toEqual(source);
-    const backlinks = await request(`/api/notes/${target.id}/backlinks`, {}, cookie);
-    expect(backlinks.body?.linkedReferences).toMatchObject([{ sourceNoteId: source.id }]);
-  });
-
-  test("matches links with case and space tolerance and links to newly created target note", async () => {
-    const auth = await request("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: "owner", password: "a long passphrase 1234" }),
-    });
-    const cookie = auth.cookie!;
-
-    // 1. Create a note referencing an uncreated note with whitespace and uppercase
-    const createRes1 = await request(
-      "/api/notes",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: "文章一",
-          contentMarkdown: "请阅读 [[ TypeScript 教程 ]] 深入了解。",
-        }),
-      },
-      cookie,
-    );
-    expect(createRes1.response.status).toBe(201);
-    const note1 = createRes1.body?.note as Note;
-
-    // 2. Now create the target note with normalized title
-    const createRes2 = await request(
-      "/api/notes",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "typescript 教程", contentMarkdown: "这是内容。" }),
-      },
-      cookie,
-    );
-    expect(createRes2.response.status).toBe(201);
-    const note2 = createRes2.body?.note as Note;
-
-    // 3. Query backlinks for note2, it should link to note1 despite case/whitespace differences
-    const backlinks2 = await request(`/api/notes/${note2.id}/backlinks`, { method: "GET" }, cookie);
-    expect(backlinks2.body?.linkedReferences).toHaveLength(1);
-    expect(backlinks2.body?.linkedReferences[0].sourceNoteId).toBe(note1.id);
-
-    const renameRes = await request(
-      `/api/notes/${note2.id}`,
-      {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ version: note2.version, title: "TypeScript 指南" }),
-      },
-      cookie,
-    );
-    expect(renameRes.response.status).toBe(200);
-    const renamedSource = await request(`/api/notes/${note1.id}`, { method: "GET" }, cookie);
-    expect(renamedSource.body?.note.contentMarkdown).toBe("请阅读 [[TypeScript 指南]] 深入了解。");
-  });
-
-  test("finds an existing normalized wiki target instead of creating a duplicate", async () => {
-    const auth = await request("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: "owner", password: "a long passphrase 1234" }),
-    });
-    const cookie = auth.cookie!;
-    const created = await request(
-      "/api/notes",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "TypeScript", contentMarkdown: "existing" }),
-      },
-      cookie,
-    );
-    const existing = created.body?.note as Note;
-
-    const ensured = await request(
-      "/api/wiki-notes/ensure",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "ＴＹＰＥＳＣＲＩＰＴ", notebookId: existing.notebookId }),
-      },
-      cookie,
-    );
-    expect(ensured.response.status).toBe(200);
-    expect(ensured.body?.created).toBe(false);
-    expect(ensured.body?.note.id).toBe(existing.id);
-
-    const listed = await request("/api/notes?view=all", { method: "GET" }, cookie);
-    expect(listed.body?.total).toBe(2);
   });
 
   test("searches wiki targets outside the current note page and detects exact titles", async () => {
@@ -694,6 +209,7 @@ describe("Note links, backlinks, and renaming cascade", () => {
     expect(suggestions.response.status).toBe(200);
     expect(suggestions.body?.exactMatch).toBe(false);
     expect(suggestions.body?.matches).toContainEqual({
+      id: target.id,
       title: "页外 Wiki 目标",
       notebookName: expect.any(String),
     });
@@ -849,7 +365,7 @@ describe("Note links, backlinks, and renaming cascade", () => {
     }
   });
 
-  test("persists snippet in note_links and reads it directly, with fallback for empty legacy snippet", async () => {
+  test("persists snippet in note_links and reads it directly", async () => {
     const auth = await request("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -877,7 +393,7 @@ describe("Note links, backlinks, and renaming cascade", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: "来源一",
-          contentMarkdown: "我们在项目中强烈推荐 [[性能目标]]。",
+          contentMarkdown: `我们在项目中强烈推荐 [[${target.id}|性能目标]]。`,
         }),
       },
       cookie,
@@ -889,23 +405,13 @@ describe("Note links, backlinks, and renaming cascade", () => {
       .query("SELECT snippet FROM note_links WHERE source_note_id = ?")
       .get(source.id) as { snippet: string };
     expect(storedLink).toBeDefined();
-    expect(storedLink.snippet).toContain("[[性能目标]]");
+    expect(storedLink.snippet).toContain(`[[${target.id}|性能目标]]`);
 
     // Query backlinks and verify snippet
     const backlinks = await request(`/api/notes/${target.id}/backlinks`, { method: "GET" }, cookie);
     expect(backlinks.response.status).toBe(200);
     expect(backlinks.body?.linkedReferences).toHaveLength(1);
     expect(backlinks.body?.linkedReferences[0].snippet).toBe(storedLink.snippet);
-
-    // Simulate legacy data by clearing snippet in database
-    database.query("UPDATE note_links SET snippet = '' WHERE source_note_id = ?").run(source.id);
-    const legacyBacklinks = await request(
-      `/api/notes/${target.id}/backlinks`,
-      { method: "GET" },
-      cookie,
-    );
-    expect(legacyBacklinks.body?.linkedReferences).toHaveLength(1);
-    expect(legacyBacklinks.body?.linkedReferences[0].snippet).toContain("[[性能目标]]");
   });
 
   test("finds unlinked mentions of 2-character titles", async () => {

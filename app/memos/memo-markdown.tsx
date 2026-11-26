@@ -1,3 +1,4 @@
+import { wikiLinkDisplayText } from "../../shared/wiki-links";
 import { useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { DiagramPreview } from "../mermaid/diagram-preview";
@@ -197,8 +198,8 @@ memoMarked.use({
       start: findWikiLinkStart,
       tokenizer: tokenizeWikiLink,
       renderer(token) {
-        const { target, alias } = token as unknown as { target: string; alias?: string };
-        return `<span class="editor-wiki-link">${renderWrappedText(alias || target)}</span>`;
+        const { label, alias } = token as unknown as { label?: string; alias?: string };
+        return `<span class="editor-wiki-link">${renderWrappedText(wikiLinkDisplayText(label, alias))}</span>`;
       },
     },
   ],

@@ -17,7 +17,7 @@ export function useWorkspaceNoteChange({
   trashOperationsRef: React.MutableRefObject<Set<string>>;
   replaceList: (notes: NoteSummary[]) => void;
   setSelectedNote: (note: Note | null) => void;
-  persist: (note: Note | NoteDraft, fields: (keyof EditorPatch)[], previousTitle?: string) => void;
+  persist: (note: Note | NoteDraft, fields: (keyof EditorPatch)[]) => void;
 }) {
   return useCallback(
     (noteId: string, patch: EditorPatch) => {
@@ -37,7 +37,7 @@ export function useWorkspaceNoteChange({
         );
       }
       if (contentMarkdown !== current.contentMarkdown) fields.push("contentMarkdown");
-      persist(next, fields, title !== current.title ? current.title : undefined);
+      persist(next, fields);
     },
     [notesRef, persist, replaceList, selectedRef, setSelectedNote, trashOperationsRef],
   );

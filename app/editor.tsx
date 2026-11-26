@@ -27,7 +27,7 @@ import { EditorFloatingTools } from "./editor/editor-panels";
 import { ImageNode } from "./editor/image-node";
 import { ImageUploadPositions } from "./editor/image-upload-position";
 import { BacklinksDialog } from "./editor/backlinks-panel";
-import { WikiLinkNode } from "./editor/wiki-link-node";
+import { EditableWikiLinkNode, useWikiLinkTitles, WikiLinkTitles } from "./editor/wiki-link-node";
 import {
   WikiLinkSuggestionExtension,
   type WikiLinkTitleSearch,
@@ -58,6 +58,8 @@ import { useEditorSearch } from "./editor/use-editor-search";
 import { useEditorImageUpload } from "./editor/use-editor-image-upload";
 import { useEditorNoteLifecycle } from "./editor/use-editor-note-lifecycle";
 import "./editor/mobile-editor.css";
+
+const NO_AVAILABLE_NOTES: NoteSummary[] = [];
 
 export function NoteEditor({
   note,
@@ -107,7 +109,7 @@ export function NoteEditor({
   onOutlineItemsChange,
   onOutlineActiveChange,
   onOutlineNavigationReady,
-  availableNotes = [],
+  availableNotes = NO_AVAILABLE_NOTES,
   onNavigateWikiLink,
   onCreateAndLinkNote,
   onSearchWikiLinkTitles,
@@ -171,8 +173,8 @@ export function NoteEditor({
   onOutlineActiveChange: (id: string | null) => void;
   onOutlineNavigationReady: (navigate: ((id: string) => void) | null) => void;
   availableNotes?: NoteSummary[];
-  onNavigateWikiLink?: (targetTitle: string) => void;
-  onCreateAndLinkNote?: (title: string) => void;
+  onNavigateWikiLink?: (id: string) => void;
+  onCreateAndLinkNote?: (title: string) => Promise<{ id: string; title: string } | null>;
   onSearchWikiLinkTitles?: WikiLinkTitleSearch;
   onNavigateToNote?: (id: string) => void;
   onMarkdownReaderChange?: (reader: ((noteId: string) => string | null) | null) => void;
@@ -305,14 +307,14 @@ export function NoteEditor({
       CalloutNode,
       ImageNode,
       ImageUploadPositions,
-      WikiLinkNode,
+      EditableWikiLinkNode,
       SlashCommandExtension.configure({ onPickImage: () => imageFileInputRef.current?.click() }),
       WikiLinkSuggestionExtension.configure({
         getNotes: () => availableNotesRef.current,
         searchTitles: (query, signal) =>
           onSearchWikiLinkTitlesRef.current?.(query, signal) ??
           Promise.resolve({ matches: [], exactMatch: false }),
-        onCreateNote: (title) => onCreateAndLinkNoteRef.current?.(title),
+        onCreateNote: (title) => onCreateAndLinkNoteRef.current?.(title) ?? Promise.resolve(null),
       }),
       SearchHighlightExtension,
     ],
@@ -391,6 +393,7 @@ export function NoteEditor({
       surfaceSyncRef.current(instance, transactionMayChangeOutline(transaction), transaction);
     },
   });
+  const wikiLinkTitles = useWikiLinkTitles(editor, availableNotes);
 
   useLayoutEffect(() => {
     if (!editor) return;
@@ -741,7 +744,9 @@ export function NoteEditor({
             />
             <h1 className="visually-hidden">{note.title.trim() || "未命名笔记"}</h1>
             {/* 临时加载锁通过 inert 阻止交互，避免 Safari 因 contenteditable 变化重排整篇正文。 */}
-            <EditorContent editor={editor} inert={loadingLocked} />
+            <WikiLinkTitles.Provider value={wikiLinkTitles}>
+              <EditorContent editor={editor} inert={loadingLocked} />
+            </WikiLinkTitles.Provider>
             <BlockDragHandle
               editor={editor}
               containerRef={documentRef}

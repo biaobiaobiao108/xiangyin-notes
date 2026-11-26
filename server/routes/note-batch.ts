@@ -9,7 +9,6 @@ import {
   type SqliteDatabase,
   type UserRow,
 } from "../core";
-import { resolveNoteLinksForTitles } from "../note-links";
 import { publishWorkspaceChange } from "../realtime";
 import {
   assetPathsForNotes,
@@ -28,7 +27,6 @@ type BatchNoteEntry = {
 
 type BatchNoteState = {
   id: string;
-  title: string;
   deleted_at: number | null;
   version: number;
   notebook_id: string;
@@ -75,7 +73,7 @@ function parseBatchNoteEntries(payload: unknown): BatchNoteEntry[] | null {
 function getBatchNoteStates(database: SqliteDatabase, userId: string, entries: BatchNoteEntry[]) {
   return all<BatchNoteState>(
     database,
-    `SELECT id, title, deleted_at, version, notebook_id, created_at
+    `SELECT id, deleted_at, version, notebook_id, created_at
      FROM notes WHERE user_id = ? AND id IN (SELECT value FROM json_each(?))`,
     userId,
     JSON.stringify(entries.map((entry) => entry.id)),
@@ -208,11 +206,6 @@ export async function handleNoteBatchRoute(
               if (!update.run(entry.id, user.id, entry.version).changes)
                 throw new BatchNoteConflictError([entry.id]);
             }
-            resolveNoteLinksForTitles(
-              database,
-              user.id,
-              rows.map((row) => row.title),
-            );
             return { restoredIds: entries.map((entry) => entry.id) };
           })
           .immediate();
@@ -241,11 +234,6 @@ export async function handleNoteBatchRoute(
             if (!update.run(deletedAt, entry.id, user.id, entry.version).changes)
               throw new BatchNoteConflictError([entry.id]);
           }
-          resolveNoteLinksForTitles(
-            database,
-            user.id,
-            rows.map((row) => row.title),
-          );
           return { deletedIds: entries.map((entry) => entry.id) };
         })
         .immediate();
@@ -268,16 +256,12 @@ export async function handleNoteBatchRoute(
         const assetPaths = assetPathsForNotes(database, user.id, deletedIds);
         for (const note of rows)
           syncNoteTasks(database, user.id, note.id, note.notebook_id, note.created_at, "");
-        const deleteLinks = database.query(
-          "DELETE FROM note_links WHERE user_id = ? AND source_note_id = ?",
-        );
         const deleteNote = database.query(
           "DELETE FROM notes WHERE id = ? AND user_id = ? AND version = ? AND deleted_at IS NOT NULL",
         );
         for (const entry of entries) {
           if (!deleteNote.run(entry.id, user.id, entry.version).changes)
             throw new BatchNoteConflictError([entry.id]);
-          deleteLinks.run(user.id, entry.id);
         }
         return { deletedIds, assetPaths };
       })

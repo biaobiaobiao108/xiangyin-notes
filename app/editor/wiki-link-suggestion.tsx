@@ -47,6 +47,7 @@ export function findWikiLinkSuggestionMatch(config: {
 }
 
 export type WikiLinkSuggestionItem = {
+  id?: string;
   title: string;
   notebookName?: string;
   isCreate?: boolean;
@@ -56,7 +57,7 @@ export type WikiLinkTitleSearch = (
   query: string,
   signal: AbortSignal,
 ) => Promise<{
-  matches: Array<{ title: string; notebookName: string }>;
+  matches: Array<{ id: string; title: string; notebookName: string }>;
   exactMatch: boolean;
 }>;
 
@@ -214,7 +215,7 @@ export const WikiLinkSuggestionList = forwardRef<
             const isSelected = index === selectedIndex;
             return (
               <button
-                key={item.isCreate ? `create-${item.title}` : `note-${item.title}`}
+                key={item.isCreate ? `create-${item.title}` : item.id}
                 id={`${listboxId}-option-${index}`}
                 type="button"
                 className={`wiki-link-item ${isSelected ? "is-selected" : ""} ${item.isCreate ? "is-create" : ""}`}
@@ -291,7 +292,7 @@ export const WikiLinkSuggestionList = forwardRef<
 export type WikiLinkSuggestionOptions = {
   getNotes: () => NoteSummary[];
   searchTitles: WikiLinkTitleSearch;
-  onCreateNote?: (title: string) => void;
+  onCreateNote?: (title: string) => Promise<{ id: string; title: string } | null>;
 };
 
 export const WikiLinkSuggestionExtension = Extension.create<WikiLinkSuggestionOptions>({
@@ -309,6 +310,7 @@ export const WikiLinkSuggestionExtension = Extension.create<WikiLinkSuggestionOp
     const getNotes = this.options.getNotes;
     const searchTitles = this.options.searchTitles;
     const onCreateNote = this.options.onCreateNote;
+    let pendingCreation: typeof this.editor.state.doc | null = null;
 
     const imeEscapeGuard = new Plugin({
       props: {
@@ -355,23 +357,30 @@ export const WikiLinkSuggestionExtension = Extension.create<WikiLinkSuggestionOp
         allowedPrefixes: null,
         findSuggestionMatch: findWikiLinkSuggestionMatch,
         command: ({ editor, range, props: item }) => {
-          editor
-            .chain()
-            .focus()
-            .insertContentAt(range, [
-              {
-                type: "wikiLink",
-                attrs: { target: item.title },
-              },
-              {
-                type: "text",
-                text: " ",
-              },
-            ])
-            .run();
+          const insertLink = (note: { id: string; title: string }) => {
+            editor
+              .chain()
+              .focus()
+              .insertContentAt(range, [
+                { type: "wikiLink", attrs: { target: note.id, label: note.title } },
+                { type: "text", text: " " },
+              ])
+              .run();
+          };
 
-          if (item.isCreate && onCreateNote) {
-            onCreateNote(item.title);
+          if (item.id) {
+            insertLink({ id: item.id, title: item.title });
+          } else if (item.isCreate && onCreateNote) {
+            const doc = editor.state.doc;
+            if (pendingCreation === doc) return;
+            pendingCreation = doc;
+            void onCreateNote(item.title)
+              .then((note) => {
+                if (note && !editor.isDestroyed && editor.state.doc === doc) insertLink(note);
+              })
+              .finally(() => {
+                if (pendingCreation === doc) pendingCreation = null;
+              });
           }
         },
         items: ({ query, signal }: { query: string; signal: AbortSignal }) => {
@@ -379,6 +388,7 @@ export const WikiLinkSuggestionExtension = Extension.create<WikiLinkSuggestionOp
           const cleanQuery = query.replace(/^(?:\[\[|【【)\s*|\s*(?:\]\]|】】)$/g, "").trim();
           if (!cleanQuery) {
             return allNotes.slice(0, 7).map((note) => ({
+              id: note.id,
               title: note.title.trim() || "未命名笔记",
               notebookName: note.notebookName,
               isCreate: false,
@@ -387,6 +397,7 @@ export const WikiLinkSuggestionExtension = Extension.create<WikiLinkSuggestionOp
 
           return searchTitles(cleanQuery, signal).then(({ matches, exactMatch }) => {
             const result: WikiLinkSuggestionItem[] = matches.map((match) => ({
+              id: match.id,
               title: match.title.trim() || "未命名笔记",
               notebookName: match.notebookName,
               isCreate: false,

@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { Markdown } from "@tiptap/markdown";
+import { createTableExtensions } from "../app/editor/table-extensions";
+import { extractWikiLinks, formatWikiLink } from "../shared/wiki-links";
 import { WikiLinkNode } from "../app/editor/wiki-link-node";
 import { findWikiLinkSuggestionMatch } from "../app/editor/wiki-link-suggestion";
 
@@ -9,32 +11,52 @@ describe("WikiLinkNode markdown integration", () => {
   test("parses and serializes wiki links seamlessly with @tiptap/markdown", () => {
     const editor = new Editor({
       extensions: [StarterKit, Markdown, WikiLinkNode],
-      content: "Hello [[目标笔记]] and [[目标笔记|别名展示]] world!",
+      content:
+        "Hello [[11111111-1111-4111-8111-111111111111|目标笔记]] and [[11111111-1111-4111-8111-111111111111|目标笔记|别名展示]] world!",
       contentType: "markdown",
     });
 
     const json = editor.getJSON();
     expect((json.content?.[0].content?.[1] as any)?.type).toBe("wikiLink");
-    expect((json.content?.[0].content?.[1] as any)?.attrs?.target).toBe("目标笔记");
+    expect((json.content?.[0].content?.[1] as any)?.attrs?.target).toBe(
+      "11111111-1111-4111-8111-111111111111",
+    );
 
     const markdown = (editor as any).getMarkdown();
-    expect(markdown).toBe("Hello [[目标笔记]] and [[目标笔记|别名展示]] world!");
+    expect(markdown).toBe(
+      "Hello [[11111111-1111-4111-8111-111111111111|目标笔记]] and [[11111111-1111-4111-8111-111111111111|目标笔记|别名展示]] world!",
+    );
     editor.destroy();
   });
 
-  test("parses Chinese brackets 【【...】】 and serializes to standard markdown [[...]]", () => {
+  test("round-trips UUID links in Markdown table cells", () => {
+    const target = "11111111-1111-4111-8111-111111111111";
+    const link = formatWikiLink(target, "带|符号", "表格别名");
+    const source = `| 标题 |
+| --- |
+| ${link.replaceAll("|", "\\|")} |`;
     const editor = new Editor({
-      extensions: [StarterKit, Markdown, WikiLinkNode],
-      content: "测试 【【全角笔记】】 以及 【【全角目标｜全角别名】】 完成",
+      extensions: [StarterKit, Markdown, WikiLinkNode, ...createTableExtensions()],
+      content: source,
       contentType: "markdown",
     });
+    try {
+      expect(editor.state.doc.firstChild?.type.name).toBe("table");
+      expect(extractWikiLinks(editor.getMarkdown())).toEqual([
+        expect.objectContaining({ target, label: "带|符号", alias: "表格别名" }),
+      ]);
+    } finally {
+      editor.destroy();
+    }
+  });
 
-    const json = editor.getJSON();
-    expect((json.content?.[0].content?.[1] as any)?.type).toBe("wikiLink");
-    expect((json.content?.[0].content?.[1] as any)?.attrs?.target).toBe("全角笔记");
-
-    const markdown = (editor as any).getMarkdown();
-    expect(markdown).toBe("测试 [[全角笔记]] 以及 [[全角目标|全角别名]] 完成");
+  test("leaves older title-only syntax in plain text", () => {
+    const editor = new Editor({
+      extensions: [StarterKit, Markdown, WikiLinkNode],
+      content: "测试 [[标题]] 以及 【【全角标题】】",
+      contentType: "markdown",
+    });
+    expect(editor.getJSON().content?.[0]?.content?.map(({ type }) => type)).toEqual(["text"]);
     editor.destroy();
   });
 });

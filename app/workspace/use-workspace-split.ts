@@ -6,7 +6,6 @@ import {
   noteMatchesDraft,
   readOwnedNoteDraft,
   readMissingNoteDraft,
-  rewrittenDraftTitle,
 } from "./draft-recovery";
 import { latestSelectedNoteSnapshot } from "./selected-note-sync";
 import { noteMetadataSnapshot, toNoteDraft } from "./helpers";
@@ -143,11 +142,7 @@ export function useWorkspaceSplit({
           const recoveredDraft = await readOwnedNoteDraft(userId, result.note);
           if (requestId !== splitLoadRequestRef.current || splitNoteIdRef.current !== id) return;
           loadedNote = latestSelectedNoteSnapshot(loadedNote, splitSelectedRef.current);
-          if (
-            recoveredDraft &&
-            (noteMatchesDraft(result.note, recoveredDraft) ||
-              rewrittenDraftTitle(result.note, recoveredDraft))
-          ) {
+          if (recoveredDraft && noteMatchesDraft(result.note, recoveredDraft)) {
             clearDraftRecovery(userId, id, recoveredDraft);
           } else if (recoveredDraft && !pendingSavesRef.current.has(id)) {
             pendingSavesRef.current.set(id, recoveredDraft);
@@ -385,11 +380,7 @@ export function useWorkspaceSplit({
           ),
         );
       }
-      persist(
-        next,
-        Object.keys(patch) as Array<"title" | "contentMarkdown" | "notebookId">,
-        next.title !== current.title ? current.title : undefined,
-      );
+      persist(next, Object.keys(patch) as Array<"title" | "contentMarkdown" | "notebookId">);
     },
     [notebooks, persist, replaceList],
   );

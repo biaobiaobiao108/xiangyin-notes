@@ -1,3 +1,4 @@
+import { wikiLinkDisplayText } from "./wiki-links";
 import type { Token } from "marked";
 import {
   createXiangyingMarked,
@@ -175,7 +176,7 @@ function inlineText(tokens: readonly Token[]): string {
         parts.push("\n");
         break;
       case "wikiLink":
-        parts.push(token.alias || token.target || "");
+        parts.push(wikiLinkDisplayText(token.label, token.alias));
         break;
       case "br":
         parts.push("\n");

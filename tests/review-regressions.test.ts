@@ -100,17 +100,21 @@ describe("review regressions", () => {
     expect(unchanged.body.note.version).toBe(version + 1);
   });
 
-  test("returns rewritten body even when a rename requested a summary", async () => {
+  test("returns a summary and preserves self links on rename", async () => {
+    const id = crypto.randomUUID();
+    const body = `[[${id}|旧名]]`;
     const created = await request("/api/notes", "POST", {
+      id,
       title: "旧名",
-      contentMarkdown: "[[旧名]]",
+      contentMarkdown: body,
     });
     const renamed = await request(`/api/notes/${created.body.note.id}?response=summary`, "PATCH", {
       version: 1,
       title: "新名",
     });
-    expect(renamed.body.previousTitle).toBe("旧名");
-    expect(renamed.body.note.contentMarkdown).toBe("[[新名]]");
+    expect(renamed.body.note.title).toBe("新名");
+    expect(renamed.body.note).not.toHaveProperty("contentMarkdown");
+    expect((await request(`/api/notes/${id}`)).body.note.contentMarkdown).toBe(body);
   });
   test("rejects stale notebook and card writes and duplicate card creation", async () => {
     const notebook = (

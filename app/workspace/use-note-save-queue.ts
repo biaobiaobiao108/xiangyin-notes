@@ -2,14 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api } from "../api";
 import type { Note, NoteSummary, Notebook, TaskSummary } from "../../shared/types";
 import { mergeTaskToggleIntoDraft } from "../../shared/tasks";
-import {
-  clearDraftRecovery,
-  noteMatchesDraft,
-  rewrittenDraftTitle,
-  writeDraftRecovery,
-} from "./draft-recovery";
+import { clearDraftRecovery, noteMatchesDraft, writeDraftRecovery } from "./draft-recovery";
 import { errorMessage, toNoteDraft, toNoteSummary, type NoteDraft } from "./helpers";
-import { replaceWikiLinkTarget } from "../../shared/wiki-links";
 
 const KEEPALIVE_BODY_MAX_BYTES = 48 * 1024;
 const ALL_SAVE_FIELDS = [
@@ -58,7 +52,6 @@ export type UseNoteSaveQueueOptions = {
   setSplitSaveState?: (state: SaveState) => void;
   onSearchableFieldsSaved?: () => void;
   onRewrittenContent?: (noteId: string) => void;
-  onLinkedNotesRewritten?: (noteId: string) => void;
 };
 
 export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
@@ -80,7 +73,6 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
     setSplitSaveState,
     onSearchableFieldsSaved,
     onRewrittenContent,
-    onLinkedNotesRewritten,
   } = options;
 
   const [saveState, setSaveState] = useState<SaveState>("idle");
@@ -184,22 +176,7 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
                 if (reason instanceof ApiError && reason.code === "VERSION_CONFLICT") {
                   const current = (reason.details?.error as { current?: Note } | undefined)
                     ?.current;
-                  if (current) {
-                    const previousTitle = unconfirmed
-                      ? rewrittenDraftTitle(current, draft)
-                      : undefined;
-                    if (previousTitle)
-                      return { note: current, previousTitle, linkedNotesRewritten: true };
-                    if (noteMatchesDraft(current, draft)) {
-                      const confirmedRename =
-                        unconfirmed &&
-                        fields.has("title") &&
-                        draft.previousTitle !== undefined &&
-                        draft.previousTitle !== current.title &&
-                        current.version === draft.version + 1;
-                      return { note: current, linkedNotesRewritten: Boolean(confirmedRename) };
-                    }
-                  }
+                  if (current && noteMatchesDraft(current, draft)) return { note: current };
                 }
                 throw reason;
               });
@@ -208,7 +185,6 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
             if (isMissingNoteError(failure)) throw failure;
             unconfirmedSavesRef.current.delete(noteId);
             attempt = undefined;
-            if (result.previousTitle) flushEditorDraftRef.current();
             const savedNote: Note =
               "contentMarkdown" in result.note
                 ? result.note
@@ -218,25 +194,14 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
             const savedSummary = toNoteSummary(savedNote);
 
             const latest = pendingSavesRef.current.get(noteId);
-            let next =
+            const next =
               latest && latest !== draft
                 ? {
                     ...savedNote,
                     ...latest,
                     version: savedNote.version,
-                    previousTitle: latest.title === savedNote.title ? undefined : savedNote.title,
                   }
                 : undefined;
-            if (next && result.previousTitle) {
-              next = {
-                ...next,
-                contentMarkdown: replaceWikiLinkTarget(
-                  next.contentMarkdown,
-                  result.previousTitle,
-                  savedNote.title,
-                ).content,
-              };
-            }
 
             if (next) pendingSavesRef.current.set(noteId, next);
             else pendingSavesRef.current.delete(noteId);
@@ -266,8 +231,6 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
               setSplitSelectedNote?.(splitSelectedRef.current);
               setSplitSaveState?.(next ? "saving" : "saved");
             }
-            if (result.previousTitle) onRewrittenContent?.(noteId);
-            if (result.linkedNotesRewritten) onLinkedNotesRewritten?.(noteId);
           }
           return savedVersion;
         } catch (reason) {
@@ -320,20 +283,14 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
       splitNoteIdRef,
       setSplitSelectedNote,
       setSplitSaveState,
-      flushEditorDraftRef,
       onSearchableFieldsSaved,
-      onRewrittenContent,
-      onLinkedNotesRewritten,
       userId,
     ],
   );
 
   const persist = useCallback(
-    (draft: Note | NoteDraft, changedFields?: SaveField[], previousTitle?: string) => {
+    (draft: Note | NoteDraft, changedFields?: SaveField[]) => {
       const pendingDraft = toNoteDraft(draft);
-      const pending = pendingSavesRef.current.get(pendingDraft.id);
-      pendingDraft.previousTitle =
-        pending?.previousTitle ?? pendingDraft.previousTitle ?? previousTitle;
       pendingSavesRef.current.set(pendingDraft.id, pendingDraft);
       const fields = pendingFieldsRef.current.get(pendingDraft.id) ?? new Set<SaveField>();
       for (const field of changedFields ?? ALL_SAVE_FIELDS) fields.add(field);
@@ -458,7 +415,6 @@ export function useNoteSaveQueue(options: UseNoteSaveQueueOptions) {
   const saveImmediately = useCallback(
     async (draft: Note | NoteDraft, keepalive = false, changedFields?: SaveField[]) => {
       const pendingDraft = toNoteDraft(draft);
-      pendingDraft.previousTitle ??= pendingSavesRef.current.get(pendingDraft.id)?.previousTitle;
       const failure = failedSavesRef.current.get(pendingDraft.id);
       if (isMissingNoteError(failure)) throw failure;
       cancelSaveTimer(pendingDraft.id);

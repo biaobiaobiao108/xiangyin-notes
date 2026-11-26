@@ -22,7 +22,7 @@ test("unrelated edits preserve task and tag indexes while search stays current",
         db.transaction(() =>
           updateNoteInTransaction(db, note, "u", title, content, "b", 0, null),
         )(),
-      ).toEqual({ linkedNotesRewritten: false });
+      ).toBe(true);
     };
     update("新标题", "- [ ] 保留任务\n\n#标签\n\n新的正文");
     expect(db.query("SELECT * FROM index_writes").all()).toEqual([]);
@@ -57,7 +57,7 @@ test("unchanged links keep their records while changed snippets are refreshed", 
       "INSERT INTO notebooks (id, user_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
     ).run("b", "u", "book", 1, 1);
     const target = createNote(db, "u", "b", "目标", "");
-    const body = `链接 [[目标]] 后文 ${"间隔".repeat(100)}`;
+    const body = `链接 [[${target}|目标]] 后文 ${"间隔".repeat(100)}`;
     const id = createNote(db, "u", "b", "来源", body);
     const readLink = () =>
       db
@@ -71,14 +71,14 @@ test("unchanged links keep their records while changed snippets are refreshed", 
       )();
     update(`${body}末尾编辑`);
     expect(readLink()).toEqual(before);
-    update(`修改 [[目标]] 后文 ${"间隔".repeat(100)}`);
+    update(`修改 [[${target}|目标]] 后文 ${"间隔".repeat(100)}`);
     expect(readLink().snippet).toContain("修改");
   } finally {
     db.close();
   }
 });
 
-test("refreshes backlinks when editing a same-title note changes the target order", async () => {
+test("editing a same-title note preserves the original target UUID", async () => {
   const db = await openDatabase(":memory:");
   try {
     db.exec(`
@@ -87,12 +87,10 @@ test("refreshes backlinks when editing a same-title note changes the target orde
       INSERT INTO notebooks (id, user_id, name, created_at, updated_at)
         VALUES ('b', 'u', 'book', 1, 1);
     `);
-    // With the same updated_at, the smaller ID wins. Editing the second note
-    // gives it a later timestamp and should retarget existing links immediately.
-    const first = createNote(db, "u", "b", "目标", "第一篇", "a");
-    const second = createNote(db, "u", "b", "目标", "第二篇", "b");
+    const first = createNote(db, "u", "b", "目标", "第一篇");
+    const second = createNote(db, "u", "b", "目标", "第二篇");
     db.query("UPDATE notes SET updated_at = 1 WHERE id IN (?, ?)").run(first, second);
-    const source = createNote(db, "u", "b", "来源", "[[目标]]");
+    const source = createNote(db, "u", "b", "来源", `[[${first}|目标]]`);
     const readTarget = () =>
       db.query("SELECT target_note_id FROM note_links WHERE source_note_id = ?").get(source);
     expect(readTarget()).toEqual({ target_note_id: first });
@@ -101,8 +99,11 @@ test("refreshes backlinks when editing a same-title note changes the target orde
       updateNoteInTransaction(db, getNote(db, "u", second)!, "u", "目标", "新的正文", "b", 0, null),
     )();
 
-    expect(readTarget()).toEqual({ target_note_id: second });
-    expect(getNote(db, "u", source)).toMatchObject({ content_markdown: "[[目标]]", version: 1 });
+    expect(readTarget()).toEqual({ target_note_id: first });
+    expect(getNote(db, "u", source)).toMatchObject({
+      content_markdown: `[[${first}|目标]]`,
+      version: 1,
+    });
   } finally {
     db.close();
   }

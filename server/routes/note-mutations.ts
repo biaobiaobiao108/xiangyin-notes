@@ -1,10 +1,5 @@
-import { normalizeLinkTitle, replaceWikiLinkTarget } from "../../shared/wiki-links";
 import {
-  all,
   InvalidNoteAssetsError,
-  NOTE_CONTENT_MAX_LENGTH,
-  NOTE_FROM,
-  NOTE_SELECT,
   type NoteRow,
   now,
   syncNoteAssetReferences,
@@ -12,21 +7,11 @@ import {
   type SqliteDatabase,
   type SqlValue,
 } from "../core";
-import {
-  findActiveNoteIdByTitle,
-  hasLinksToTitle,
-  hasOtherActiveNoteWithTitle,
-  resolveNoteLinksForTitles,
-  sourceNoteIdsReferencingTitle,
-  syncNoteLinks,
-  syncStoredNoteTitleKey,
-} from "../note-links";
+import { syncNoteLinks } from "../note-links";
 import { extractMarkdownTasks } from "../../shared/tasks";
-import { syncNoteSearchIndexes, syncNoteShortSearchTerms } from "../note-search";
-import { searchableTextFromMarkdown } from "../search-text";
+import { syncNoteShortSearchTerms } from "../note-search";
+import { normalizeSearchTitle, searchableTextFromMarkdown } from "../search-text";
 import { Lexer } from "marked";
-
-export const NOTE_RENAME_SOURCE_BATCH_SIZE = 16;
 
 export function syncNoteTasks(
   database: SqliteDatabase,
@@ -119,14 +104,6 @@ export function syncNoteTasks(
   }
 }
 
-export class NoteRenameContentTooLargeError extends Error {
-  constructor() {
-    super("note-rename-content-too-large");
-  }
-}
-
-export class NoteRenameLinkConflictError extends Error {}
-
 export function createNote(
   database: SqliteDatabase,
   userId: string,
@@ -142,17 +119,25 @@ export function createNote(
   const transaction = database.transaction(() => {
     database
       .query(
-        "INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, search_text, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)",
+        "INSERT INTO notes (id, user_id, notebook_id, title, title_normalized, content_markdown, search_text, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
       )
-      .run(id, userId, notebookId, title, contentMarkdown, searchText, createdAt, createdAt);
-    syncStoredNoteTitleKey(database, id, title);
+      .run(
+        id,
+        userId,
+        notebookId,
+        title,
+        normalizeSearchTitle(title),
+        contentMarkdown,
+        searchText,
+        createdAt,
+        createdAt,
+      );
     if (!syncNoteAssetReferences(database, userId, id, contentMarkdown))
       throw new Error("invalid-note-assets");
     syncNoteTags(database, userId, id, contentMarkdown);
     syncNoteShortSearchTerms(database, userId, id, title, searchText);
-    syncNoteLinks(database, userId, id, contentMarkdown, createdAt);
+    syncNoteLinks(database, userId, id, contentMarkdown);
     syncNoteTasks(database, userId, id, notebookId, createdAt, contentMarkdown, tokens);
-    resolveNoteLinksForTitles(database, userId, [title]);
   });
   transaction();
   return id;
@@ -169,43 +154,13 @@ export function updateNoteInTransaction(
   deletedAt: number | null,
 ) {
   const titleChanged = current.title !== title;
-  const oldTitle = current.title;
-  // Determine which note the old title opens before changing its name or sort position.
-  const rewriteLinks =
-    titleChanged &&
-    title.trim() !== "" &&
-    findActiveNoteIdByTitle(database, userId, oldTitle) === current.id;
-  if (
-    titleChanged &&
-    deletedAt === null &&
-    normalizeLinkTitle(oldTitle) !== normalizeLinkTitle(title) &&
-    hasOtherActiveNoteWithTitle(database, userId, current.id, title) &&
-    hasLinksToTitle(database, userId, title)
-  )
-    throw new NoteRenameLinkConflictError();
-  let nextContentMarkdown = contentMarkdown;
-  if (rewriteLinks) {
-    const replaced = replaceWikiLinkTarget(contentMarkdown, oldTitle, title);
-    if (
-      normalizeLinkTitle(oldTitle) !== normalizeLinkTitle(title) &&
-      hasOtherActiveNoteWithTitle(database, userId, current.id, title) &&
-      (replaced.count > 0 ||
-        sourceNoteIdsReferencingTitle(database, userId, oldTitle, current.id, "", 1).length > 0)
-    )
-      throw new NoteRenameLinkConflictError();
-    if (replaced.count > 0) {
-      if (replaced.content.length > NOTE_CONTENT_MAX_LENGTH)
-        throw new NoteRenameContentTooLargeError();
-      nextContentMarkdown = replaced.content;
-    }
-  }
-  const contentChanged = current.content_markdown !== nextContentMarkdown;
+  const contentChanged = current.content_markdown !== contentMarkdown;
   const notebookChanged = current.notebook_id !== notebookId;
   const deletedChanged = current.deleted_at !== deletedAt;
   const updatedAt = titleChanged || contentChanged ? now() : current.updated_at;
-  const tokens = contentChanged ? new Lexer({ gfm: true }).lex(nextContentMarkdown) : undefined;
+  const tokens = contentChanged ? new Lexer({ gfm: true }).lex(contentMarkdown) : undefined;
   const searchText = contentChanged
-    ? searchableTextFromMarkdown(nextContentMarkdown, tokens)
+    ? searchableTextFromMarkdown(contentMarkdown, tokens)
     : titleChanged
       ? (
           database
@@ -225,12 +180,12 @@ export function updateNoteInTransaction(
   ];
   const values: SqlValue[] = [notebookId, isFavorite, deletedAt, updatedAt];
   if (titleChanged) {
-    fields.push("title = ?");
-    values.push(title);
+    fields.push("title = ?", "title_normalized = ?");
+    values.push(title, normalizeSearchTitle(title));
   }
   if (contentChanged) {
     fields.push("content_markdown = ?");
-    values.push(nextContentMarkdown);
+    values.push(contentMarkdown);
     fields.push("search_text = ?");
     values.push(searchText);
   }
@@ -240,10 +195,9 @@ export function updateNoteInTransaction(
     )
     .get(...values, current.id, userId, current.version) as { id: string } | null;
   if (!updated) return false;
-  if (titleChanged) syncStoredNoteTitleKey(database, current.id, title);
   if (titleChanged || contentChanged)
     syncNoteShortSearchTerms(database, userId, current.id, title, searchText!);
-  if (contentChanged && !syncNoteAssetReferences(database, userId, current.id, nextContentMarkdown))
+  if (contentChanged && !syncNoteAssetReferences(database, userId, current.id, contentMarkdown))
     throw new InvalidNoteAssetsError();
   if (contentChanged || notebookChanged || deletedChanged) {
     syncNoteTasks(
@@ -252,90 +206,16 @@ export function updateNoteInTransaction(
       current.id,
       notebookId,
       current.created_at,
-      deletedAt === null ? nextContentMarkdown : "",
+      deletedAt === null ? contentMarkdown : "",
       deletedAt === null ? tokens : undefined,
     );
   }
   if (contentChanged) {
-    syncNoteTags(database, userId, current.id, nextContentMarkdown);
-    syncNoteLinks(database, userId, current.id, nextContentMarkdown, updatedAt);
+    syncNoteTags(database, userId, current.id, contentMarkdown);
+    syncNoteLinks(database, userId, current.id, contentMarkdown);
   }
 
-  let linkedNotesRewritten = false;
-  const titlesToResolve = new Set<string>();
-  if (titleChanged || deletedChanged) {
-    titlesToResolve.add(oldTitle);
-    titlesToResolve.add(title);
-  } else if (
-    updatedAt !== current.updated_at &&
-    deletedAt === null &&
-    hasOtherActiveNoteWithTitle(database, userId, current.id, title)
-  ) {
-    titlesToResolve.add(title);
-  }
-  if (rewriteLinks) {
-    let afterSourceNoteId = "";
-    while (true) {
-      const sourceNoteIds = sourceNoteIdsReferencingTitle(
-        database,
-        userId,
-        oldTitle,
-        current.id,
-        afterSourceNoteId,
-        NOTE_RENAME_SOURCE_BATCH_SIZE,
-      );
-      if (sourceNoteIds.length === 0) break;
-      afterSourceNoteId = sourceNoteIds[sourceNoteIds.length - 1]!;
-
-      const placeholders = sourceNoteIds.map(() => "?").join(", ");
-      const referencingNotes = all<NoteRow>(
-        database,
-        `
-        SELECT ${NOTE_SELECT}
-        FROM ${NOTE_FROM}
-        WHERE n.id IN (${placeholders}) AND n.user_id = ?
-      `,
-        ...sourceNoteIds,
-        userId,
-      );
-      for (const refNote of referencingNotes) {
-        const { content: replacedContent, count } = replaceWikiLinkTarget(
-          refNote.content_markdown,
-          oldTitle,
-          title,
-        );
-        if (count === 0) continue;
-        if (replacedContent.length > NOTE_CONTENT_MAX_LENGTH)
-          throw new NoteRenameContentTooLargeError();
-        linkedNotesRewritten = true;
-        if (
-          refNote.deleted_at === null &&
-          refNote.updated_at !== updatedAt &&
-          hasOtherActiveNoteWithTitle(database, userId, refNote.id, refNote.title)
-        )
-          titlesToResolve.add(refNote.title);
-        database
-          .query(
-            "UPDATE notes SET content_markdown = ?, version = version + 1, updated_at = CASE WHEN deleted_at IS NULL THEN ? ELSE updated_at END WHERE id = ? AND user_id = ?",
-          )
-          .run(replacedContent, updatedAt, refNote.id, userId);
-        syncNoteSearchIndexes(database, userId, refNote.id, refNote.title, replacedContent);
-        syncNoteTags(database, userId, refNote.id, replacedContent);
-        syncNoteLinks(database, userId, refNote.id, replacedContent, updatedAt);
-        syncNoteTasks(
-          database,
-          userId,
-          refNote.id,
-          refNote.notebook_id,
-          refNote.created_at,
-          refNote.deleted_at === null ? replacedContent : "",
-        );
-      }
-    }
-  }
-  if (titlesToResolve.size) resolveNoteLinksForTitles(database, userId, titlesToResolve);
-
-  return { linkedNotesRewritten };
+  return true;
 }
 
 export function updateNote(

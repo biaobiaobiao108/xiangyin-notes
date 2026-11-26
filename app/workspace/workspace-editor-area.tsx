@@ -17,8 +17,8 @@ type WorkspaceEditorPaneProps = {
   note: Note;
   contentMarkdown: string;
   availableNotes: NoteSummary[];
-  onNavigateWikiLink: (targetTitle: string) => void;
-  onCreateAndLinkNote: (title: string) => void;
+  onNavigateWikiLink: (id: string) => void;
+  onCreateAndLinkNote: (title: string) => Promise<{ id: string; title: string } | null>;
   onNavigateToNote: (id: string) => void;
   searchQuery: string;
   replaceRequest: { noteId: string; token: number; query: string } | null;
@@ -103,9 +103,9 @@ export type WorkspaceEditorAreaProps = {
   activePane: "primary" | "secondary";
   setActivePane: (pane: "primary" | "secondary") => void;
   notes: NoteSummary[];
-  handleNavigateWikiLinkPrimary: (targetTitle: string) => void;
-  handleNavigateWikiLinkSplit: (targetTitle: string) => void;
-  handleCreateAndLinkNote: (title: string) => void;
+  handleNavigateWikiLinkPrimary: (id: string) => void;
+  handleNavigateWikiLinkSplit: (id: string) => void;
+  handleCreateAndLinkNote: (title: string) => Promise<{ id: string; title: string } | null>;
   selectNote: (id: string | null) => void;
   openInSplit: (id: string) => void;
   resultSearch: { id: string; query: string; token: number } | null;

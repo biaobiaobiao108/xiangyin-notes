@@ -3,19 +3,18 @@ import { decodeWikiLinkComponent, WIKI_LINK_PATTERN } from "./wiki-links";
 import { maskHtmlAttributeValues } from "./markdown-attributes";
 
 export function findWikiLinkStart(source: string) {
-  const ascii = source.indexOf("[[");
-  const fullWidth = source.indexOf("【【");
-  return ascii === -1 ? fullWidth : fullWidth === -1 ? ascii : Math.min(ascii, fullWidth);
+  return source.indexOf("[[");
 }
 
 export function tokenizeWikiLink(source: string) {
-  const match = new RegExp(`^(?:${WIKI_LINK_PATTERN.source})`).exec(source);
+  const match = new RegExp(`^(?:${WIKI_LINK_PATTERN.source})`, "i").exec(source);
   if (!match) return undefined;
   return {
     type: "wikiLink",
     raw: match[0],
-    target: decodeWikiLinkComponent(match[1].trim()),
-    alias: match[2] ? decodeWikiLinkComponent(match[2].trim()) : undefined,
+    target: match[1]!,
+    label: match[2] ? decodeWikiLinkComponent(match[2]) : undefined,
+    alias: match[3] ? decodeWikiLinkComponent(match[3]) : undefined,
   };
 }
 

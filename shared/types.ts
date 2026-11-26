@@ -102,7 +102,7 @@ export type NoteLinkSummary = {
   sourceNoteTitle: string;
   sourceNotebookName: string;
   targetTitle: string;
-  targetNoteId: string | null;
+  targetNoteId: string;
   snippet: string;
   updatedAt: number;
 };
