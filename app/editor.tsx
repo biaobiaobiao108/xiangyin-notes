@@ -664,7 +664,7 @@ export function NoteEditor({
         />
       )}
       <div
-        className={`editor-scroll-shell${editorScrollEdges.before ? " has-scroll-before" : ""}${editorScrollEdges.after ? " has-scroll-after" : ""}`}
+        className={`editor-scroll-shell scroll-edge${editorScrollEdges.before ? " has-scroll-before" : ""}${editorScrollEdges.after ? " has-scroll-after" : ""}`}
       >
         <div
           id="editor-scroll-region"

@@ -1,34 +1,13 @@
 .note-list-scroll-shell {
-  position: relative;
-  flex: 1 1 0;
-  min-height: 0;
   overflow: hidden;
 }
 .note-list-scroll-shell::before,
 .note-list-scroll-shell::after {
-  position: absolute;
   z-index: 2;
-  inset-inline: 0;
   height: 28px;
-  content: "";
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--motion-fast) var(--motion-ease-out);
-}
-.note-list-scroll-shell::before {
-  inset-block-start: 0;
-  background: linear-gradient(to bottom, var(--surface), transparent);
 }
 .note-list-scroll-shell:has(.note-list-group-header)::before {
   inset-block-start: 30px;
-}
-.note-list-scroll-shell::after {
-  inset-block-end: 0;
-  background: linear-gradient(to top, var(--surface), transparent);
-}
-.note-list-scroll-shell.has-scroll-before::before,
-.note-list-scroll-shell.has-scroll-after::after {
-  opacity: 1;
 }
 .floating-scrollbar-target {
   scrollbar-color: transparent transparent;

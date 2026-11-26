@@ -729,7 +729,7 @@ export const NoteListPanel = memo(function NoteListPanel({
             </header>
           )}
           <div
-            className={`note-list-scroll-shell${noteListScrollEdges.before ? " has-scroll-before" : ""}${noteListScrollEdges.after ? " has-scroll-after" : ""}`}
+            className={`note-list-scroll-shell scroll-edge${noteListScrollEdges.before ? " has-scroll-before" : ""}${noteListScrollEdges.after ? " has-scroll-after" : ""}`}
           >
             <div
               id="note-list-scroll-region"

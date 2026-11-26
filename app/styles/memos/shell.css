@@ -15,9 +15,7 @@
 }
 
 .memo-scroll-shell {
-  position: relative;
-  flex: 1 1 0;
-  min-height: 0;
+  --scroll-edge-color: var(--canvas);
 }
 
 .memo-scroll-shell > .floating-scrollbar--right {
@@ -27,29 +25,8 @@
 
 .memo-scroll-shell::before,
 .memo-scroll-shell::after {
-  position: absolute;
   z-index: 2;
-  inset-inline: 0;
   height: 24px;
-  content: "";
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--motion-fast) var(--motion-ease-out);
-}
-
-.memo-scroll-shell::before {
-  inset-block-start: 0;
-  background: linear-gradient(to bottom, var(--canvas), transparent);
-}
-
-.memo-scroll-shell::after {
-  inset-block-end: 0;
-  background: linear-gradient(to top, var(--canvas), transparent);
-}
-
-.memo-scroll-shell.has-scroll-before::before,
-.memo-scroll-shell.has-scroll-after::after {
-  opacity: 1;
 }
 
 .memo-scroll {

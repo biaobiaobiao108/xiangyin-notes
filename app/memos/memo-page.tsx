@@ -424,7 +424,7 @@ export function MemoPage({
       )}
       <div className="memo-layout">
         <div
-          className={`memo-scroll-shell ${scrollEdges.before ? "has-scroll-before" : ""} ${scrollEdges.after ? "has-scroll-after" : ""}`.trim()}
+          className={`memo-scroll-shell scroll-edge ${scrollEdges.before ? "has-scroll-before" : ""} ${scrollEdges.after ? "has-scroll-after" : ""}`.trim()}
         >
           <div
             ref={scrollRef}

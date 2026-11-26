@@ -1,0 +1,30 @@
+.scroll-edge {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.scroll-edge::before,
+.scroll-edge::after {
+  position: absolute;
+  inset-inline: 0;
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--motion-fast) var(--motion-ease-out);
+}
+
+.scroll-edge::before {
+  inset-block-start: 0;
+  background: linear-gradient(to bottom, var(--scroll-edge-color, var(--surface)), transparent);
+}
+
+.scroll-edge::after {
+  inset-block-end: 0;
+  background: linear-gradient(to top, var(--scroll-edge-color, var(--surface)), transparent);
+}
+
+.scroll-edge.has-scroll-before::before,
+.scroll-edge.has-scroll-after::after {
+  opacity: 1;
+}

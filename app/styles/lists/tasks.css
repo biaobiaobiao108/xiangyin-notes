@@ -147,38 +147,17 @@
   box-shadow: inset 0 0 0 2px var(--focus-ring);
 }
 .tasks-scroll-shell {
-  position: relative;
   display: flex;
-  flex: 1 1 0;
   flex-direction: column;
-  min-height: 0;
   overflow: hidden;
 }
 .tasks-scroll-shell::before,
 .tasks-scroll-shell::after {
-  position: absolute;
   z-index: 2;
-  inset-inline: 0;
   height: 28px;
-  content: "";
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--motion-fast) var(--motion-ease-out);
-}
-.tasks-scroll-shell::before {
-  inset-block-start: 0;
-  background: linear-gradient(to bottom, var(--surface), transparent);
 }
 .tasks-scroll-shell:has(.tasks-note-group-header)::before {
   inset-block-start: 34px;
-}
-.tasks-scroll-shell::after {
-  inset-block-end: 0;
-  background: linear-gradient(to top, var(--surface), transparent);
-}
-.tasks-scroll-shell.has-scroll-before::before,
-.tasks-scroll-shell.has-scroll-after::after {
-  opacity: 1;
 }
 .tasks-scroll {
   overflow-anchor: none;

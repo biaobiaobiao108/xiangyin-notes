@@ -349,7 +349,7 @@ export const KanbanColumnView = memo(function KanbanColumnView({
       </div>
 
       <div
-        className={`kanban-column-scroll-shell${scrollEdges.before ? " has-scroll-before" : ""}${scrollEdges.after ? " has-scroll-after" : ""}`}
+        className={`kanban-column-scroll-shell scroll-edge${scrollEdges.before ? " has-scroll-before" : ""}${scrollEdges.after ? " has-scroll-after" : ""}`}
       >
         <div
           ref={setScrollRef}

@@ -230,7 +230,7 @@ export const NoteCardGridPanel = memo(function NoteCardGridPanel({
       inert={inert}
     >
       <div
-        className={`card-grid-scroll-shell${cardGridScrollEdges.before ? " has-scroll-before" : ""}${cardGridScrollEdges.after ? " has-scroll-after" : ""}`}
+        className={`card-grid-scroll-shell scroll-edge${cardGridScrollEdges.before ? " has-scroll-before" : ""}${cardGridScrollEdges.after ? " has-scroll-after" : ""}`}
       >
         {!isMobileViewport && onOpenSidebar && (
           <button

@@ -418,7 +418,7 @@ export const Sidebar = memo(function Sidebar({
           </button>
         </div>
         <div
-          className={`notebook-list-scroll-shell${notebookScrollEdges.before ? " has-scroll-before" : ""}${notebookScrollEdges.after ? " has-scroll-after" : ""}`}
+          className={`notebook-list-scroll-shell scroll-edge${notebookScrollEdges.before ? " has-scroll-before" : ""}${notebookScrollEdges.after ? " has-scroll-after" : ""}`}
         >
           <div
             id="notebook-list-scroll-region"

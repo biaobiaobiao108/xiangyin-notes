@@ -453,7 +453,7 @@ export function TasksPanel({
       </div>
       <div className="note-list-content">
         <div
-          className={`tasks-scroll-shell${scrollEdges.before ? " has-scroll-before" : ""}${scrollEdges.after ? " has-scroll-after" : ""}`}
+          className={`tasks-scroll-shell scroll-edge${scrollEdges.before ? " has-scroll-before" : ""}${scrollEdges.after ? " has-scroll-after" : ""}`}
         >
           <div
             id="tasks-scroll-region"
