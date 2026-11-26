@@ -151,11 +151,15 @@ export function wikiLinkDisplayText(label?: string | null, alias?: string | null
   return alias || label || "未命名笔记";
 }
 
-export function replaceWikiLinksWithText(markdown: string, preserveMarkdown = false) {
+export function replaceWikiLinksWithText(
+  markdown: string,
+  preserveMarkdown = false,
+  display = (link: WikiLinkMatch) => wikiLinkDisplayText(link.label, link.alias),
+) {
   let cursor = 0;
   const parts: string[] = [];
   for (const link of extractWikiLinks(markdown)) {
-    const label = wikiLinkDisplayText(link.label, link.alias);
+    const label = display(link);
     // Escape punctuation before a second Markdown parse so labels stay literal.
     const text = preserveMarkdown
       ? label.replace(/[!-\/:-@\[-`{-~]/g, "\\$&").replace(/\r\n|[\r\n]/g, " ")

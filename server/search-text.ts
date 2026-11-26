@@ -84,9 +84,10 @@ export function normalizeSearchWhitespace(text: string) {
 export function searchableTextFromMarkdown(
   markdown: string,
   parsedTokens?: ReturnType<Lexer["lex"]>,
+  wikiLinkText?: Parameters<typeof replaceWikiLinksWithText>[2],
 ) {
   if (!markdown) return "";
-  const source = replaceWikiLinksWithText(markdown, true);
+  const source = replaceWikiLinksWithText(markdown, true, wikiLinkText);
   const tokens = ((source === markdown ? parsedTokens : undefined) ??
     new Lexer({ gfm: true }).lex(source)) as MarkdownTextToken[];
   const output: string[] = [];

@@ -81,12 +81,23 @@ test("drops title-based link records and rebuilds the UUID index from Markdown",
         VALUES ('owner', 'owner', 'hash', 'salt', 1);
       INSERT INTO notebooks (id, user_id, name, created_at, updated_at)
         VALUES ('inbox', 'owner', '收集箱', 1, 1);
-      INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, created_at, updated_at)
-        VALUES ('source', 'owner', 'inbox', '来源', '', 1, 1);
-      INSERT INTO note_links (id, user_id, source_note_id, target_title, created_at)
-        VALUES ('old-link', 'owner', 'source', '同名标题', 1);
     `);
-    database.query("UPDATE notes SET content_markdown = ? WHERE id = 'source'").run(markdown);
+    database
+      .query(
+        `
+      INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, created_at, updated_at)
+      VALUES ('source', 'owner', 'inbox', '来源', ?, 1, 1)
+    `,
+      )
+      .run(markdown);
+    database
+      .query(
+        `
+      INSERT INTO note_links (id, user_id, source_note_id, target_title, created_at)
+      VALUES ('old-link', 'owner', 'source', '同名标题', 1)
+    `,
+      )
+      .run();
     await initializeDatabase(database);
     expect(database.query("SELECT target_note_id FROM note_links").all()).toEqual([
       { target_note_id: uuid },
@@ -94,6 +105,49 @@ test("drops title-based link records and rebuilds the UUID index from Markdown",
     expect(
       database.query("SELECT content_markdown, version FROM notes WHERE id = 'source'").get(),
     ).toEqual({ content_markdown: markdown, version: 1 });
+  } finally {
+    database.close();
+  }
+});
+
+test("v12 indexes only aliases in stored link text and preserves note versions", async () => {
+  const database = await createExpectedSchemaDatabase(11);
+  try {
+    const source = "11111111-1111-4111-8111-111111111111";
+    const target = "22222222-2222-4222-8222-222222222222";
+    const markdown = `[[${target}|旧标题]] [[${target}|旧标题|别名]]`;
+    database.exec(`
+      INSERT INTO users (id, username, password_hash, password_salt, created_at)
+        VALUES ('owner', 'owner', 'hash', 'salt', 1);
+      INSERT INTO notebooks (id, user_id, name, created_at, updated_at)
+        VALUES ('inbox', 'owner', '收集箱', 1, 1);
+    `);
+    database
+      .query(
+        `
+      INSERT INTO notes (id, user_id, notebook_id, title, content_markdown, search_text, version, created_at, updated_at)
+      VALUES (?, 'owner', 'inbox', ?, ?, ?, 7, 1, 2)
+    `,
+      )
+      .run(source, "来源", markdown, "旧标题 别名");
+    database
+      .query(
+        `
+      INSERT INTO note_links (id, user_id, source_note_id, target_note_id, snippet)
+      VALUES ('old-link', 'owner', ?, ?, ?)
+    `,
+      )
+      .run(source, target, markdown);
+    await initializeDatabase(database);
+    expect(database.query("SELECT id, has_plain_link FROM note_links").all()).toEqual([
+      { id: "old-link", has_plain_link: 1 },
+    ]);
+    expect(
+      database.query("SELECT search_text, content_markdown, version, updated_at FROM notes").get(),
+    ).toEqual({ search_text: "别名", content_markdown: markdown, version: 7, updated_at: 2 });
+    expect(
+      database.query("SELECT rowid FROM notes_fts WHERE notes_fts MATCH ?").all('"旧标题"'),
+    ).toEqual([]);
   } finally {
     database.close();
   }

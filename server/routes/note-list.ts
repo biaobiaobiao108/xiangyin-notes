@@ -7,6 +7,7 @@ import {
   type NoteRow,
   type SqlValue,
 } from "../core";
+import type { SqliteDatabase } from "../db";
 import { shortSearchToken } from "../note-search";
 import { buildFtsMatchQuery, normalizeSearchTitle, searchContains } from "../search-text";
 
@@ -48,6 +49,40 @@ type OptimizedNoteListPlan = {
   params: SqlValue[];
 };
 
+function linkTitleLookup(titleIndex: "notes_fts" | "notes_title_short_fts") {
+  // Start with matching target titles, then look up their incoming UUID links.
+  return `
+    FROM ${titleIndex}
+    CROSS JOIN notes target ON target.rowid = ${titleIndex}.rowid
+    CROSS JOIN note_links link INDEXED BY idx_note_links_search_source
+      ON link.user_id = target.user_id AND link.target_note_id = target.id
+    WHERE ${titleIndex} MATCH ? AND target.user_id = ?
+      AND target.deleted_at IS NULL AND link.has_plain_link = 1
+  `;
+}
+
+export function hasMatchingLinkTitles(
+  database: SqliteDatabase,
+  userId: string,
+  ftsTokens: string[],
+  shortTokens: string[],
+) {
+  if (
+    !database
+      .query("SELECT 1 FROM note_links WHERE user_id = ? AND has_plain_link = 1 LIMIT 1")
+      .get(userId)
+  )
+    return false;
+
+  const longLookup = database.query(`SELECT 1 ${linkTitleLookup("notes_fts")} LIMIT 1`);
+  if (ftsTokens.some((term) => longLookup.get(`title : ${buildFtsMatchQuery([term])}`, userId)))
+    return true;
+  const shortLookup = database.query(
+    `SELECT 1 ${linkTitleLookup("notes_title_short_fts")} LIMIT 1`,
+  );
+  return shortTokens.some((term) => shortLookup.get(shortSearchToken(term), userId));
+}
+
 export function buildOptimizedNoteListPlan(input: {
   userId: string;
   view: NoteView;
@@ -62,6 +97,7 @@ export function buildOptimizedNoteListPlan(input: {
   cursor: { value: number | string; id: string } | null;
   includeTotal: boolean;
   includeMatch: boolean;
+  includeLinkTitles: boolean;
 }): OptimizedNoteListPlan | null {
   const {
     userId,
@@ -77,6 +113,7 @@ export function buildOptimizedNoteListPlan(input: {
     cursor,
     includeTotal,
     includeMatch,
+    includeLinkTitles,
   } = input;
   if (searchTokens.length === 0) return null;
 
@@ -150,28 +187,81 @@ export function buildOptimizedNoteListPlan(input: {
   const candidateFrom = usesFts
     ? "notes_fts JOIN notes n ON n.rowid = notes_fts.rowid"
     : "short_matches_0 short_source JOIN notes n ON n.rowid = short_source.rowid";
-  const candidateCte = `candidates AS MATERIALIZED (
-    SELECT n.rowid AS note_rowid, n.id AS note_id, ${candidateValue}
+  const directCteName = includeLinkTitles ? "direct_candidates" : "candidates";
+  const candidateCte = `${directCteName} AS MATERIALIZED (
+    SELECT n.rowid AS note_rowid, n.id AS note_id, ${candidateValue}, NULL AS matched_link_title
     FROM ${candidateFrom}
     WHERE ${conditions.join(" AND ")}
   )`;
+  const linkCtes: string[] = [];
+  const linkParams: SqlValue[] = [];
+  if (includeLinkTitles) {
+    const terms = [...new Set(ftsTokens), ...new Set(shortTokens)];
+    const needsTermCoverage = terms.length > 1;
+    const termHits: string[] = [];
+    const remainingTerms: string[] = [];
+    const remainingParams: SqlValue[] = [];
+    for (const [index, term] of terms.entries()) {
+      const shortIndex = shortTokens.indexOf(term);
+      const short = shortIndex >= 0;
+      const match = short ? shortSearchToken(term) : buildFtsMatchQuery([term]);
+      const titleIndex = short ? "notes_title_short_fts" : "notes_fts";
+      termHits.push(`
+        SELECT link.source_note_id, ${index} AS token, target.title
+        ${linkTitleLookup(titleIndex)}
+      `);
+      linkParams.push(short ? match : `title : ${match}`, userId);
+      if (needsTermCoverage) {
+        // Build each term's direct match set once, even for high-fanout links.
+        const directMatches = short
+          ? `SELECT rowid FROM short_matches_${shortIndex}`
+          : "SELECT rowid FROM notes_fts WHERE notes_fts MATCH ?";
+        remainingTerms.push(
+          `(instr(link_sources.tokens, ',${index},') > 0 OR n.rowid IN (${directMatches}))`,
+        );
+        if (!short) remainingParams.push(match);
+      }
+    }
+
+    linkCtes.push(
+      `link_sources AS MATERIALIZED (
+        SELECT source_note_id, min(title) AS matched_link_title
+               ${needsTermCoverage ? ", ',' || group_concat(DISTINCT token) || ',' AS tokens" : ""}
+        FROM (${termHits.join(" UNION ALL ")})
+        GROUP BY source_note_id
+      )`,
+      `candidates AS MATERIALIZED (
+        SELECT * FROM direct_candidates
+        UNION ALL
+        SELECT n.rowid, n.id, ${isRanked ? "0" : `n.${sortColumn}`}, link_sources.matched_link_title
+        FROM link_sources
+        CROSS JOIN notes n ON n.id = link_sources.source_note_id
+        WHERE ${noteConditions.join(" AND ")}
+          ${tagWhere ? `AND ${tagWhere}` : ""}
+          AND n.rowid NOT IN (SELECT note_rowid FROM direct_candidates)
+          ${needsTermCoverage ? `AND ${remainingTerms.join(" AND ")}` : ""}
+      )`,
+    );
+    linkParams.push(...noteParams, ...tagParams, ...remainingParams);
+  }
+
   const topCte = isRanked
     ? `top AS MATERIALIZED (
-        SELECT note_rowid, note_id, score
+        SELECT note_rowid, note_id, score, matched_link_title
         FROM candidates
         ${cursor ? "WHERE (score > ? OR (score = ? AND note_id > ?))" : ""}
         ORDER BY score ASC, note_id ASC
         LIMIT ?
       )`
     : `top AS MATERIALIZED (
-        SELECT note_rowid, note_id, sort_value
+        SELECT note_rowid, note_id, sort_value, matched_link_title
         FROM candidates
         ${cursor ? "WHERE (sort_value, note_id) < (?, ?)" : ""}
         ORDER BY sort_value DESC, note_id DESC
         LIMIT ?
       )`;
 
-  const withParts = [...shortCtes, candidateCte, topCte];
+  const withParts = [...shortCtes, candidateCte, ...linkCtes, topCte];
   const candidateParams: SqlValue[] = [
     ...(isRanked && shortTokens.length ? shortScoreParams : []),
     ...(usesFts ? [ftsQuery] : []),
@@ -186,7 +276,7 @@ export function buildOptimizedNoteListPlan(input: {
   // The totals LEFT JOIN can return a row with no note when the page is empty.
   const matchSelect = includeMatch
     ? `, CASE WHEN n.id IS NOT NULL
-        THEN search_snippet(COALESCE(n.search_text, n.content_markdown), ?)
+        THEN COALESCE(top.matched_link_title, search_snippet(COALESCE(n.search_text, n.content_markdown), ?))
       END AS match_snippet`
     : "";
   const detailParams: SqlValue[] = includeMatch ? [JSON.stringify(searchTokens)] : [];
@@ -202,6 +292,7 @@ export function buildOptimizedNoteListPlan(input: {
   const params: SqlValue[] = [
     ...shortParams,
     ...candidateParams,
+    ...linkParams,
     ...cursorParams,
     pageLimit + 1,
     ...detailParams,

@@ -33,6 +33,7 @@ import { handleNoteBacklinksRoute } from "./note-backlinks";
 import { handleNoteBatchRoute } from "./note-batch";
 import {
   buildOptimizedNoteListPlan,
+  hasMatchingLinkTitles,
   decodeNoteListCursor,
   noteListOrder,
   respondNoteList,
@@ -185,32 +186,40 @@ export async function handleNotesRoute(
       conditions.push(`(${tagConditions.join(tagMode === "any" ? " OR " : " AND ")})`);
       params.push(...normalizedTagFilters);
     }
-    const optimizedPlan = parsedSearch
-      ? buildOptimizedNoteListPlan({
-          userId: user.id,
-          view: view as NoteView,
-          sort,
-          notebookIds: filterNotebookIds,
-          searchTokens,
-          ftsTokens: parsedSearch.ftsTokens,
-          shortTokens: parsedSearch.directTokens,
-          normalizedTagFilters,
-          tagMode,
-          pageLimit,
-          cursor: cursor ? { value: cursor.value, id: cursor.id } : null,
-          includeTotal,
-          includeMatch,
-        })
+    // The title preflight and page query share a read snapshot.
+    const resultRows = parsedSearch
+      ? database.transaction(() => {
+          const plan = buildOptimizedNoteListPlan({
+            userId: user.id,
+            view: view as NoteView,
+            sort,
+            notebookIds: filterNotebookIds,
+            searchTokens,
+            ftsTokens: parsedSearch.ftsTokens,
+            shortTokens: parsedSearch.directTokens,
+            normalizedTagFilters,
+            tagMode,
+            pageLimit,
+            cursor: cursor ? { value: cursor.value, id: cursor.id } : null,
+            includeTotal,
+            includeMatch,
+            includeLinkTitles: hasMatchingLinkTitles(
+              database,
+              user.id,
+              parsedSearch.ftsTokens,
+              parsedSearch.directTokens,
+            ),
+          });
+          if (!plan) return null;
+          return database.query(plan.sql).all(...plan.params) as (NoteRow & {
+            tags_json: string;
+            relevance_score: number;
+            match_snippet?: string;
+            search_total?: number;
+          })[];
+        })()
       : null;
-    if (optimizedPlan) {
-      const resultRows = database
-        .query(optimizedPlan.sql)
-        .all(...optimizedPlan.params) as (NoteRow & {
-        tags_json: string;
-        relevance_score: number;
-        match_snippet?: string;
-        search_total?: number;
-      })[];
+    if (resultRows) {
       const rows = resultRows.filter((row) => row.id !== null);
       return respondNoteList(
         rows,

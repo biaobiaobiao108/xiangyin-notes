@@ -2,9 +2,14 @@ import { mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { Database } from "bun:sqlite";
 import { snapshotSchema } from "./schema-snapshot";
-import { rebuildNoteShortSearchIndex } from "./note-search";
+import {
+  rebuildNoteShortSearchIndex,
+  searchableNoteTextFromMarkdown,
+  syncNoteSearchIndexes,
+  syncNoteTitleShortSearchTerms,
+} from "./note-search";
 import { rebuildMemoShortSearchIndex } from "./memo-search";
-import { syncNoteLinks } from "./note-links";
+import { indexNoteLinks, syncNoteLinks } from "./note-links";
 import { searchContains, searchableTextFromMarkdown, searchSnippet } from "./search-text";
 import { importContentHash, recordImportRequest } from "./import-idempotency";
 
@@ -13,7 +18,7 @@ const DEFAULT_SCHEMA_PATH = "./database/schema.sql";
 const BASELINE_SCHEMA_VERSION = 1;
 
 export const MIN_SUPPORTED_SCHEMA_VERSION = BASELINE_SCHEMA_VERSION;
-export const CURRENT_SCHEMA_VERSION = 11;
+export const CURRENT_SCHEMA_VERSION = 12;
 export const SEARCH_INDEX_REBUILD_KEY = "search-index-rebuild-required";
 
 type TableCountRow = {
@@ -225,13 +230,65 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       >(
         "SELECT id, user_id, content_markdown FROM notes WHERE id > ? AND instr(content_markdown, '[[') > 0 ORDER BY id LIMIT 100",
       );
+      const insert = database.query(
+        "INSERT INTO note_links (id, user_id, source_note_id, target_note_id, snippet) VALUES (?, ?, ?, ?, ?)",
+      );
       let lastId = "";
       while (true) {
         const rows = read.all(lastId);
         if (!rows.length) break;
-        for (const note of rows)
-          syncNoteLinks(database, note.user_id, note.id, note.content_markdown);
+        for (const note of rows) {
+          for (const [target, { snippet }] of indexNoteLinks(note.content_markdown))
+            insert.run(crypto.randomUUID(), note.user_id, note.id, target, snippet);
+        }
         lastId = rows.at(-1)!.id;
+      }
+    },
+  },
+  {
+    sourceVersion: 11,
+    targetVersion: 12,
+    migrate: (database) => {
+      database.exec(`
+        ALTER TABLE note_links ADD COLUMN has_plain_link INTEGER NOT NULL DEFAULT 0
+          CHECK (has_plain_link IN (0, 1));
+        CREATE INDEX idx_note_links_search_source
+          ON note_links(user_id, target_note_id, source_note_id) WHERE has_plain_link = 1;
+
+        CREATE VIRTUAL TABLE notes_title_short_fts USING fts5(
+          terms, content='', contentless_delete=1, detail=none, tokenize='ascii'
+        );
+        CREATE TRIGGER notes_title_short_fts_delete AFTER DELETE ON notes BEGIN
+          DELETE FROM notes_title_short_fts WHERE rowid = old.rowid;
+        END;
+      `);
+      const read = database.query<
+        {
+          id: string;
+          user_id: string;
+          title: string;
+          link_content: string | null;
+        },
+        [string]
+      >(`
+        SELECT n.id, n.user_id, n.title, CASE WHEN EXISTS (
+          SELECT 1 FROM note_links WHERE source_note_id = n.id
+        ) THEN n.content_markdown END AS link_content
+        FROM notes n WHERE n.id > ? ORDER BY n.id LIMIT 100
+      `);
+      let lastId = "";
+      while (true) {
+        const notes = read.all(lastId);
+        if (!notes.length) break;
+        for (const note of notes) {
+          if (note.link_content === null) {
+            syncNoteTitleShortSearchTerms(database, note.user_id, note.id, note.title);
+          } else {
+            syncNoteLinks(database, note.user_id, note.id, note.link_content);
+            syncNoteSearchIndexes(database, note.user_id, note.id, note.title, note.link_content);
+          }
+        }
+        lastId = notes.at(-1)!.id;
       }
     },
   },
@@ -294,6 +351,7 @@ export function reclaimDatabaseSpace(database: SqliteDatabase) {
     database.exec(`
       INSERT INTO notes_fts(notes_fts) VALUES('optimize');
       INSERT INTO notes_short_fts(notes_short_fts) VALUES('optimize');
+      INSERT INTO notes_title_short_fts(notes_title_short_fts) VALUES('optimize');
       INSERT INTO memos_short_fts(memos_short_fts) VALUES('optimize');
       INSERT INTO memos_fts(memos_fts) VALUES('optimize');
     `);
@@ -339,7 +397,7 @@ function rebuildSearchIndexes(database: SqliteDatabase) {
         }>;
         if (!notes.length) break;
         for (const note of notes)
-          updateSearchText.run(searchableTextFromMarkdown(note.content_markdown), note.id);
+          updateSearchText.run(searchableNoteTextFromMarkdown(note.content_markdown), note.id);
         lastId = notes[notes.length - 1]!.id;
       }
       const missingMemoSearchText = database.query(

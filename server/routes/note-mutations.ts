@@ -9,8 +9,12 @@ import {
 } from "../core";
 import { syncNoteLinks } from "../note-links";
 import { extractMarkdownTasks } from "../../shared/tasks";
-import { syncNoteShortSearchTerms } from "../note-search";
-import { normalizeSearchTitle, searchableTextFromMarkdown } from "../search-text";
+import {
+  searchableNoteTextFromMarkdown,
+  syncNoteShortSearchTerms,
+  syncNoteTitleShortSearchTerms,
+} from "../note-search";
+import { normalizeSearchTitle } from "../search-text";
 import { Lexer } from "marked";
 
 export function syncNoteTasks(
@@ -115,7 +119,7 @@ export function createNote(
   const id = requestedId ?? crypto.randomUUID();
   const createdAt = now();
   const tokens = new Lexer({ gfm: true }).lex(contentMarkdown);
-  const searchText = searchableTextFromMarkdown(contentMarkdown, tokens);
+  const searchText = searchableNoteTextFromMarkdown(contentMarkdown, tokens);
   const transaction = database.transaction(() => {
     database
       .query(
@@ -136,6 +140,7 @@ export function createNote(
       throw new Error("invalid-note-assets");
     syncNoteTags(database, userId, id, contentMarkdown);
     syncNoteShortSearchTerms(database, userId, id, title, searchText);
+    syncNoteTitleShortSearchTerms(database, userId, id, title);
     syncNoteLinks(database, userId, id, contentMarkdown);
     syncNoteTasks(database, userId, id, notebookId, createdAt, contentMarkdown, tokens);
   });
@@ -160,7 +165,7 @@ export function updateNoteInTransaction(
   const updatedAt = titleChanged || contentChanged ? now() : current.updated_at;
   const tokens = contentChanged ? new Lexer({ gfm: true }).lex(contentMarkdown) : undefined;
   const searchText = contentChanged
-    ? searchableTextFromMarkdown(contentMarkdown, tokens)
+    ? searchableNoteTextFromMarkdown(contentMarkdown, tokens)
     : titleChanged
       ? (
           database
@@ -195,6 +200,7 @@ export function updateNoteInTransaction(
     )
     .get(...values, current.id, userId, current.version) as { id: string } | null;
   if (!updated) return false;
+  if (titleChanged) syncNoteTitleShortSearchTerms(database, userId, current.id, title);
   if (titleChanged || contentChanged)
     syncNoteShortSearchTerms(database, userId, current.id, title, searchText!);
   if (contentChanged && !syncNoteAssetReferences(database, userId, current.id, contentMarkdown))

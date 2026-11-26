@@ -1,3 +1,4 @@
+import type { Lexer } from "marked";
 import type { SqliteDatabase } from "./db";
 import { searchableTextFromMarkdown } from "./search-text";
 
@@ -70,7 +71,29 @@ export function syncNoteShortSearchTerms(
   }
 }
 
-/** Updates the visible-text search column and the short-term index together. */
+export function searchableNoteTextFromMarkdown(
+  markdown: string,
+  parsedTokens?: ReturnType<Lexer["lex"]>,
+) {
+  // Live link titles are looked up at query time. Keep aliases in full-text search.
+  return searchableTextFromMarkdown(markdown, parsedTokens, (link) => link.alias || " ");
+}
+
+export function syncNoteTitleShortSearchTerms(
+  database: SqliteDatabase,
+  userId: string,
+  noteId: string,
+  title: string,
+) {
+  const { tokens } = buildShortSearchTokens(title, "");
+  database
+    .query(
+      "INSERT OR REPLACE INTO notes_title_short_fts(rowid, terms) SELECT rowid, ? FROM notes WHERE id = ? AND user_id = ?",
+    )
+    .run(tokens, noteId, userId);
+}
+
+/** Updates indexes for a newly seeded note. */
 export function syncNoteSearchIndexes(
   database: SqliteDatabase,
   userId: string,
@@ -78,15 +101,18 @@ export function syncNoteSearchIndexes(
   title: string,
   contentMarkdown: string,
 ) {
-  const searchText = searchableTextFromMarkdown(contentMarkdown);
+  const searchText = searchableNoteTextFromMarkdown(contentMarkdown);
   database
     .query("UPDATE notes SET search_text = ? WHERE id = ? AND user_id = ?")
     .run(searchText, noteId, userId);
   syncNoteShortSearchTerms(database, userId, noteId, title, searchText);
+  syncNoteTitleShortSearchTerms(database, userId, noteId, title);
 }
 
 export function rebuildNoteShortSearchIndex(database: SqliteDatabase) {
-  database.exec("DELETE FROM notes_short_fts; DELETE FROM notes_short_overflow;");
+  database.exec(
+    "DELETE FROM notes_short_fts; DELETE FROM notes_short_overflow; DELETE FROM notes_title_short_fts;",
+  );
   const notes = database
     .query(
       "SELECT id, user_id, title, COALESCE(search_text, content_markdown) AS content_markdown FROM notes ORDER BY rowid",
@@ -97,6 +123,8 @@ export function rebuildNoteShortSearchIndex(database: SqliteDatabase) {
     title: string;
     content_markdown: string;
   }>;
-  for (const note of notes)
+  for (const note of notes) {
     syncNoteShortSearchTerms(database, note.user_id, note.id, note.title, note.content_markdown);
+    syncNoteTitleShortSearchTerms(database, note.user_id, note.id, note.title);
+  }
 }

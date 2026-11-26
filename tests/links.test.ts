@@ -6,7 +6,7 @@ import { NOTE_PAGE_SIZE } from "../server/core";
 import { applyMigrations, openDatabase, type SqliteDatabase } from "../server/db";
 import { handleRequest } from "../server/index";
 import { waitForOrphanAssetCleanup } from "../server/routes/assets";
-import type { Note } from "../shared/types";
+import type { Note, NoteSummary } from "../shared/types";
 
 let database: SqliteDatabase;
 let assetRoot: string;
@@ -140,6 +140,109 @@ describe("UUID links and backlinks", () => {
     ).toEqual({ target_note_id: original.id });
   });
 
+  test("searches live link titles and aliases across mixed terms without rewriting the source", async () => {
+    const cookie = await signedIn();
+    const target = await createNote(cookie, "海岛旧计划", "靐 目标私有文字");
+    const extra = await createNote(cookie, "篝火晚会");
+    const other = await createNote(cookie, "孤立笔记", "替换后的旅行");
+    const source = await createNote(
+      cookie,
+      "记录一",
+      `私人备注 [[${target.id}|海岛旧计划|我的明年安排]] [[${target.id}|海岛旧计划]] [[${extra.id}|篝火晚会]]`,
+    );
+    const aliased = await createNote(cookie, "记录二", `[[${target.id}|海岛旧计划|专用别名]]`);
+    const direct = await createNote(cookie, "直接命中", `替换后的旅行 [[${target.id}|海岛旧计划]]`);
+    const search = async (query: string, params = {}) => {
+      const result = await request(
+        `/api/notes?${new URLSearchParams({ query, includeMatch: "1", ...params })}`,
+        {},
+        cookie,
+      );
+      expect(result.response.status).toBe(200);
+      const { notes, total, nextCursor } = result.body! as {
+        notes: NoteSummary[];
+        total: number;
+        nextCursor?: string;
+      };
+      return { notes, total, nextCursor, ids: notes.map((note) => note.id) };
+    };
+    const rename = await request(
+      `/api/notes/${target.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ title: "替换后的旅行", version: target.version }),
+      },
+      cookie,
+    );
+    expect(rename.response.status).toBe(200);
+
+    const current = await search("替换后的旅行", { sort: "relevance", limit: "2" });
+    expect(current.total).toBe(4);
+    const second = await search("替换后的旅行", {
+      sort: "relevance",
+      limit: "2",
+      cursor: current.nextCursor!,
+    });
+    expect(new Set([...current.ids, ...second.ids])).toEqual(
+      new Set([target.id, direct.id, other.id, source.id]),
+    );
+    expect(second.notes.find((note) => note.id === source.id)?.match).toEqual({
+      field: "content",
+      snippet: "替换后的旅行",
+    });
+    expect((await search("海岛旧计划")).ids).toEqual([]);
+    expect((await search("专用别名")).ids).toEqual([aliased.id]);
+    expect((await search("私人备注 旅行")).ids).toEqual([source.id]);
+    expect((await search("替")).ids).toContain(source.id);
+    expect((await search("篝火晚会 替换后的旅行 我的明年安排")).ids).toEqual([source.id]);
+    expect((await search("靐")).ids).toEqual([target.id]);
+    expect((await search("目标私有文字")).ids).toEqual([target.id]);
+    expect((await request(`/api/notes/${source.id}`, {}, cookie)).body?.note).toMatchObject({
+      version: source.version,
+      contentMarkdown: source.contentMarkdown,
+    });
+
+    const movedToTrash = await request(
+      `/api/notes/${target.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ deleted: true, version: target.version + 1 }),
+      },
+      cookie,
+    );
+    expect(movedToTrash.response.status).toBe(200);
+    expect((await search("替换后的旅行")).ids).not.toContain(source.id);
+    expect((await search("专用别名")).ids).toEqual([aliased.id]);
+    expect(
+      (
+        await request(
+          `/api/notes/${target.id}`,
+          {
+            method: "PATCH",
+            body: JSON.stringify({ deleted: false, version: target.version + 2 }),
+          },
+          cookie,
+        )
+      ).response.status,
+    ).toBe(200);
+    expect((await search("旅行")).ids).toContain(source.id);
+
+    const edit = await request(
+      `/api/notes/${source.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          version: source.version,
+          contentMarkdown: `[[${target.id}|海岛旧计划|编辑后的别名]]`,
+        }),
+      },
+      cookie,
+    );
+    expect(edit.response.status).toBe(200);
+    expect((await search("旅行")).ids).not.toContain(source.id);
+    expect((await search("编辑后的别名")).ids).toEqual([source.id]);
+  });
+
   test("does not expose another owner's titles or backlink sources", async () => {
     const cookie = await signedIn();
     const foreignUser = crypto.randomUUID();
@@ -164,6 +267,9 @@ describe("UUID links and backlinks", () => {
     await createNote(cookie, "来源", `[[${foreignNote}|自定义显示]]`);
     expect(
       (await request(`/api/wiki-notes/titles?id=${foreignNote}`, {}, cookie)).body?.notes,
+    ).toEqual([]);
+    expect(
+      (await request(`/api/notes?query=${encodeURIComponent("私有标题")}`, {}, cookie)).body?.notes,
     ).toEqual([]);
     expect((await request(`/api/notes/${foreignNote}/backlinks`, {}, cookie)).response.status).toBe(
       404,
