@@ -342,14 +342,6 @@
   text-overflow: ellipsis;
 }
 
-.note-card-tag {
-  font-size: 0.72rem;
-}
-
-.note-card-tag--overflow {
-  font-size: 0.68rem;
-}
-
 .note-card-date {
   grid-column: 2;
   white-space: nowrap;
@@ -563,20 +555,6 @@
     text-align: right;
     font-size: 0.6875rem;
   }
-  .mobile-collection-header .sort-button-label,
-  .mobile-collection-header .sort-button-arrow {
-    display: none;
-  }
-  .app-shell[data-mobile-page] .mobile-collection-header .sort-button,
-  .app-shell[data-mobile-page] .mobile-layout-toggle {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 44px;
-    height: 44px;
-    padding: 0;
-    flex: 0 0 44px;
-  }
   .mobile-collection-header .list-header-controls {
     flex-shrink: 0;
     gap: 2px;
@@ -645,7 +623,6 @@
   .empty-editor,
   .note-outline-panel,
   .editor-floating-outline,
-  .sort-dropdown,
   .slash-command-menu,
   .block-actions-menu,
   .wiki-link-suggestion-dropdown,
@@ -653,7 +630,6 @@
   .notebook-dialog,
   .confirm-dialog,
   .app-error-card,
-  .link-dialog,
   .backlinks-dialog,
   .toast {
     animation: none !important;

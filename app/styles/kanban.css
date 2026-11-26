@@ -315,30 +315,6 @@
   text-align: center;
 }
 
-.kanban-empty-create-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border: 1px dashed var(--border);
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--muted);
-  font: inherit;
-  font-size: 0.78rem;
-  cursor: pointer;
-  transition:
-    border-color var(--motion-fast) ease,
-    color var(--motion-fast) ease,
-    background-color var(--motion-fast) ease;
-}
-
-.kanban-empty-create-btn:hover {
-  border-color: var(--accent);
-  background: var(--surface);
-  color: var(--accent);
-}
-
 .kanban-card-list {
   display: flex;
   flex-direction: column;
@@ -456,12 +432,6 @@
   overflow-wrap: anywhere;
 }
 
-.kanban-card-star {
-  color: var(--accent);
-  flex: none;
-  margin-top: 2px;
-}
-
 .kanban-card-footer {
   display: flex;
   align-items: center;
@@ -528,7 +498,7 @@
 }
 
 .kanban-column-load-more-btn.is-error {
-  color: var(--danger-text, #b91c1c);
+  color: var(--danger);
 }
 
 /* Corner Drop Zone during Drag (右下角移动到回收站) */

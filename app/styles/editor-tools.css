@@ -625,11 +625,6 @@ dialog::backdrop {
   font-size: 0.78rem;
   line-height: 1.45;
 }
-.command-search-status {
-  padding: 7px 10px 1px;
-  color: var(--soft-muted);
-  font-size: 0.72rem;
-}
 .split-note-dialog .command-list-wrap {
   flex: 0 0 250px;
   height: 250px;
@@ -673,16 +668,6 @@ dialog::backdrop {
   color: var(--muted);
   font-size: 0.82rem;
 }
-.dialog-eyebrow {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 8px;
-  color: var(--accent-dark);
-  font-size: 0.72rem;
-  font-weight: 600;
-}
-
 .notebook-dialog {
   width: min(480px, calc(100% - 24px));
   border: 1px solid var(--border-soft);
@@ -762,9 +747,6 @@ dialog::backdrop {
 .confirm-dialog .dialog-heading p {
   max-width: 340px;
   line-height: 1.55;
-}
-.dialog-eyebrow.is-danger {
-  color: var(--danger);
 }
 .primary-button.danger-primary {
   background: var(--danger);
@@ -848,13 +830,6 @@ dialog::backdrop {
     padding-inline: 16px;
   }
 }
-.link-dialog {
-  width: min(500px, calc(100% - 32px));
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-float);
-  animation: dialog-in var(--motion-panel) var(--motion-ease-out) both;
-}
 .dialog-field {
   display: grid;
   gap: 7px;
@@ -902,8 +877,7 @@ dialog::backdrop {
   color: var(--accent-dark);
   font-size: 0.75rem;
 }
-.text-button:hover,
-.text-link:hover {
+.text-button:hover {
   color: var(--accent-dark);
 }
 .text-danger {
@@ -1241,14 +1215,10 @@ dialog::backdrop {
   background: var(--accent-soft);
   transform: scale(0.94);
 }
-.form-hint,
 .form-error {
   margin: -7px 0 0;
   font-size: 0.76rem;
   line-height: 1.4;
-}
-.form-hint {
-  color: var(--soft-muted);
 }
 .form-error {
   color: var(--danger);
@@ -1313,15 +1283,6 @@ dialog::backdrop {
   margin: 20px 0 0;
   color: var(--soft-muted);
   font-size: 0.74rem;
-}
-
-.text-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--muted);
-  font-size: 0.8rem;
-  text-decoration: none;
 }
 
 @media (max-width: 1180px) {
@@ -1523,30 +1484,12 @@ dialog::backdrop {
     grid-row: 1;
     margin: 0;
   }
-  .app-shell[data-mobile-page] .sort-button {
-    min-height: 44px;
-    padding-inline: 8px;
-    font-size: 14px;
-    background: transparent;
-    border: 0;
-    box-shadow: none;
-  }
-  .app-shell[data-mobile-page] .mobile-collection-header .sort-dropdown {
-    left: auto;
-    right: 0;
-    width: max-content;
-    min-width: 132px;
-    max-width: calc(100vw - 32px);
-  }
   .floating-scrollbar {
     display: none !important;
   }
   .annotation-card-scroll,
   .annotation-note-editor-shell {
     padding-right: 10px;
-  }
-  .app-shell[data-mobile-page] .sort-dropdown button {
-    min-height: 44px;
   }
   .app-shell[data-mobile-page] .empty-trash-button {
     width: 44px;
@@ -1745,9 +1688,6 @@ dialog::backdrop {
     line-height: 1.55;
   }
   .app-shell[data-mobile-page] .note-row-meta {
-    font-size: 0.8125rem;
-  }
-  .app-shell[data-mobile-page] .note-row-tags {
     font-size: 0.8125rem;
   }
   .note-row:has(.note-row-thumbnail),
