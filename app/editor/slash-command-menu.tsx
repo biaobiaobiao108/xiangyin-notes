@@ -6,7 +6,6 @@ import Suggestion, { type SuggestionKeyDownProps } from "@tiptap/suggestion";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { FloatingScrollbar } from "../floating-scrollbar";
 import { suggestionPopupBounds, suggestionViewport } from "./suggestion-popup.helpers";
-import { MERMAID_EXAMPLE } from "../mermaid/protocol";
 import {
   filterSlashCommandItems,
   findSlashCommandMatch,
@@ -313,10 +312,7 @@ export function insertSlashCommand(
       chain.toggleCodeBlock();
       break;
     case "mermaid":
-      chain.setCodeBlock({ language: "mermaid" }).command(({ tr }) => {
-        tr.insertText(MERMAID_EXAMPLE);
-        return true;
-      });
+      chain.setCodeBlock({ language: "mermaid" });
       break;
     case "horizontalRule":
       chain.setHorizontalRule();

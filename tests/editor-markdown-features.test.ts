@@ -1032,6 +1032,26 @@ describe("slash command matching", () => {
     }
   });
 
+  test("inserts an empty Mermaid code block at the cursor", () => {
+    const query = "/mermaid";
+    const editor = createMarkdownEditor(query);
+    try {
+      const item = filterSlashCommandItems("mermaid").find(
+        (candidate) => candidate.id === "mermaid",
+      );
+      expect(item).toBeDefined();
+      editor.commands.setTextSelection(query.length + 1);
+      insertSlashCommand(editor, { from: 1, to: query.length + 1 }, item!);
+
+      expect(editor.state.doc.firstChild?.type.name).toBe("codeBlock");
+      expect(editor.state.doc.firstChild?.attrs.language).toBe("mermaid");
+      expect(editor.state.doc.firstChild?.textContent).toBe("");
+      expect(editor.state.selection.$from.parent.type.name).toBe("codeBlock");
+    } finally {
+      editor.destroy();
+    }
+  });
+
   test("matches a slash command at paragraph start and after whitespace", () => {
     expect(findSlashCommandMatch({ $position: positionAfter("/表格") })).toEqual({
       range: { from: 0, to: 3 },

@@ -1,4 +1,3 @@
-export const MERMAID_EXAMPLE = "flowchart TD\n  A[开始] --> B[完成]";
 export const MERMAID_SOURCE_LIMIT = 50_000;
 
 export function isMermaidLanguage(language: unknown): boolean {

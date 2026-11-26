@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { Editor } from "@tiptap/core";
 import { createReadOnlyExtensions } from "../app/editor/read-only-markdown";
-import { isMermaidLanguage, MERMAID_EXAMPLE } from "../app/mermaid/protocol";
+import { isMermaidLanguage } from "../app/mermaid/protocol";
 import { renderDiagram } from "../app/mermaid/render";
 import { renderMemoMarkdown } from "../app/memos/memo-markdown";
+
+const MERMAID_EXAMPLE = "flowchart TD\n  A[开始] --> B[完成]";
 
 function parseMarkdown(markdown: string) {
   return new Editor({

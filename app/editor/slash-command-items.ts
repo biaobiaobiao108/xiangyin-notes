@@ -203,7 +203,7 @@ export const slashCommands: SlashCommandItem[] = [
   {
     id: "mermaid",
     label: "Mermaid 图表",
-    description: "从流程图示例开始",
+    description: "插入图表代码块",
     keywords: ["mermaid", "diagram", "chart", "图表", "流程图"],
     icon: Network,
     action: "mermaid",
