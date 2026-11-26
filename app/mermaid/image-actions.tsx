@@ -1,4 +1,6 @@
 import type { RefObject } from "react";
+import { Code2 } from "lucide-react";
+import type { ContextMenuItem } from "../context-menu";
 import {
   imageCopyGeometry,
   imagePngBlob,
@@ -34,7 +36,16 @@ function renderedDiagramImage(root: HTMLElement, target: EventTarget | null) {
   return image?.src && image.naturalWidth > 0 ? image : null;
 }
 
-export function useMermaidImageActions(rootRef: RefObject<HTMLElement | null>) {
+export function buildMermaidExtraMenuItems(onEditSource?: () => void): ContextMenuItem[] {
+  return onEditSource
+    ? [{ label: "编辑源码", icon: Code2, separator: true, onSelect: onEditSource }]
+    : [];
+}
+
+export function useMermaidImageActions(
+  rootRef: RefObject<HTMLElement | null>,
+  { onEditSource }: { onEditSource?: () => void } = {},
+) {
   return useImageActions({
     rootRef,
     menuLabel: "图表",
@@ -43,5 +54,6 @@ export function useMermaidImageActions(rootRef: RefObject<HTMLElement | null>) {
     resolveImage: renderedDiagramImage,
     copyImage: copyDiagramImage,
     focusTarget: (root) => root.querySelector<HTMLElement>(".mermaid-edit-trigger"),
+    extraItems: buildMermaidExtraMenuItems(onEditSource),
   });
 }

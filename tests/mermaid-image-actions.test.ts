@@ -5,7 +5,7 @@ import {
   writeImageClipboard,
   type ClipboardItemConstructor,
 } from "../app/image-actions";
-import { diagramCopyGeometry } from "../app/mermaid/image-actions";
+import { buildMermaidExtraMenuItems, diagramCopyGeometry } from "../app/mermaid/image-actions";
 
 function fakeClipboardItem(supported = true) {
   let created: { data: Record<string, Blob | Promise<Blob>> } | undefined;
@@ -38,6 +38,25 @@ describe("Image actions", () => {
     await items[0]!.onSelect();
     await items[1]!.onSelect();
     expect(calls).toEqual(["copy", "expand"]);
+
+    const mermaidItems = buildImageMenuItems(
+      "复制为图片",
+      {
+        copy: () => {
+          calls.push("copy-diagram");
+        },
+        expand: () => {
+          calls.push("expand-diagram");
+        },
+      },
+      buildMermaidExtraMenuItems(() => {
+        calls.push("edit-source");
+      }),
+    );
+    expect(mermaidItems.map((item) => item.label)).toEqual(["复制为图片", "展开显示", "编辑源码"]);
+    expect(mermaidItems[2]!.separator).toBe(true);
+    await mermaidItems[2]!.onSelect();
+    expect(calls).toEqual(["copy", "expand", "edit-source"]);
   });
 
   test("adds paper padding at 2x and caps oversized diagrams", () => {

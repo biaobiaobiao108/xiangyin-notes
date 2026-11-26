@@ -51,10 +51,12 @@ export function buildImageMenuItems(
     copy: () => void | Promise<void>;
     expand: () => void;
   },
+  extraItems: ContextMenuItem[] = [],
 ): ContextMenuItem[] {
   return [
     { label: copyLabel, icon: Copy, onSelect: actions.copy },
     { label: "展开显示", icon: Maximize2, onSelect: actions.expand },
+    ...extraItems,
   ];
 }
 
@@ -154,6 +156,7 @@ export function useImageActions({
   resolveImage,
   copyImage,
   focusTarget,
+  extraItems,
 }: {
   rootRef: RefObject<HTMLElement | null>;
   menuLabel: string;
@@ -162,6 +165,7 @@ export function useImageActions({
   resolveImage: (root: HTMLElement, target: EventTarget | null) => HTMLImageElement | null;
   copyImage: (image: HTMLImageElement) => void | Promise<void>;
   focusTarget?: (root: HTMLElement) => HTMLElement | null;
+  extraItems?: ContextMenuItem[];
 }) {
   const { openMenu, menu } = useContextMenu();
   const [viewer, setViewer] = useState<ImageViewerState>();
@@ -189,20 +193,24 @@ export function useImageActions({
     if (!image) return;
     openMenu(
       event,
-      buildImageMenuItems(copyLabel, {
-        copy: () => copyImage(image),
-        expand: () => {
-          setViewer({
-            src: image.currentSrc || image.src,
-            alt: image.alt.trim() || fallbackAlt,
-            width: image.naturalWidth || Number(image.getAttribute("width")) || 1,
-            height: image.naturalHeight || Number(image.getAttribute("height")) || 1,
-            trigger:
-              focusTarget?.(root) ??
-              (document.activeElement instanceof HTMLElement ? document.activeElement : null),
-          });
+      buildImageMenuItems(
+        copyLabel,
+        {
+          copy: () => copyImage(image),
+          expand: () => {
+            setViewer({
+              src: image.currentSrc || image.src,
+              alt: image.alt.trim() || fallbackAlt,
+              width: image.naturalWidth || Number(image.getAttribute("width")) || 1,
+              height: image.naturalHeight || Number(image.getAttribute("height")) || 1,
+              trigger:
+                focusTarget?.(root) ??
+                (document.activeElement instanceof HTMLElement ? document.activeElement : null),
+            });
+          },
         },
-      }),
+        extraItems,
+      ),
       menuLabel,
     );
   };

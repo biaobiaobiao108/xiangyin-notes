@@ -30,7 +30,17 @@ export function MermaidCodeBlock({
   const previewRef = useRef<HTMLDivElement>(null);
   const sourceRef = useRef<HTMLDivElement>(null);
   const sourceId = useId();
-  const imageActions = useMermaidImageActions(rootRef);
+  const editable = editor.isEditable;
+  const openSource = () => {
+    const start = getPos();
+    if (typeof start !== "number") return;
+    setEdit(true);
+    if (sourceRef.current) sourceRef.current.scrollTop = 0;
+    editor.commands.focus(start + 1, { scrollIntoView: false });
+  };
+  const imageActions = useMermaidImageActions(rootRef, {
+    onEditSource: editable ? openSource : undefined,
+  });
   const position = useEditorState({
     editor,
     selector: ({ editor: current }) => {
@@ -56,7 +66,6 @@ export function MermaidCodeBlock({
   });
   const revealSearch = position.match !== null && position.match !== dismissedMatch;
   const revealSelection = position.selection !== null && position.selection !== dismissedSelection;
-  const editable = editor.isEditable;
   const showSource = editable ? edit || revealSelection || revealSearch : showReadOnlySource;
 
   useEffect(() => {
@@ -75,13 +84,6 @@ export function MermaidCodeBlock({
 
   useDiagramHeight(bodyRef, previewRef);
 
-  const openSource = () => {
-    const start = getPos();
-    if (typeof start !== "number") return;
-    setEdit(true);
-    if (sourceRef.current) sourceRef.current.scrollTop = 0;
-    editor.commands.focus(start + 1, { scrollIntoView: false });
-  };
   const diagramActivation = useDiagramActivation(openSource, true);
 
   const closeSource = useEffectEvent(() => {
