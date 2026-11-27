@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { Editor } from "@tiptap/core";
 import { createReadOnlyExtensions } from "../app/editor/read-only-markdown";
 import { isMermaidLanguage } from "../app/mermaid/protocol";
-import { renderDiagram } from "../app/mermaid/render";
+import { renderDiagram, resolveCssVars, resolveLightDark } from "../app/mermaid/render";
 import { renderMemoMarkdown } from "../app/memos/memo-markdown";
 
 const MERMAID_EXAMPLE = "flowchart TD\n  A[开始] --> B[完成]";
@@ -90,5 +90,23 @@ describe("Mermaid Markdown", () => {
     const canceled = renderDiagram({ ...layout, source }, controller.signal);
     controller.abort(new Error("preview removed"));
     await expect(canceled).rejects.toThrow("preview removed");
+  });
+
+  test("resolves light-dark and CSS variables into standalone SVG colors", () => {
+    expect(resolveLightDark("light-dark(#faf9f6, #1f2224)", true)).toBe("#1f2224");
+    expect(resolveLightDark("light-dark(#faf9f6, #1f2224)", false)).toBe("#faf9f6");
+    expect(resolveLightDark("light-dark(rgba(0, 0, 0, 0.1), rgba(255, 255, 255, 0.2))", true)).toBe(
+      "rgba(255, 255, 255, 0.2)",
+    );
+
+    const vars = new Map<string, string>([
+      ["--pele-bg", resolveLightDark("light-dark(#faf9f6, #1f2224)", true)],
+      ["--pele-surface", resolveLightDark("light-dark(#f2efe8, #262a2c)", true)],
+      ["--_bg", "var(--pele-bg,#fff)"],
+      ["--_s", "var(--pele-surface,#f3f3f3)"],
+    ]);
+    expect(resolveCssVars("var(--_bg)", vars)).toBe("#1f2224");
+    expect(resolveCssVars("var(--_s)", vars)).toBe("#262a2c");
+    expect(resolveCssVars("var(--_r,4px)", vars)).toBe("4px");
   });
 });

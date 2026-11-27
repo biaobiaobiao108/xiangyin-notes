@@ -99,20 +99,218 @@ export function measureDiagram(container: HTMLElement): DiagramLayout {
   };
 }
 
+function findMatchingParen(text: string, openIndex: number): number {
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = openIndex; i < text.length; i += 1) {
+    const ch = text[i];
+    if (quote) {
+      if (ch === "\\" && i + 1 < text.length) {
+        i += 1;
+      } else if (ch === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+    } else if (ch === "(") {
+      depth += 1;
+    } else if (ch === ")") {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+function splitFirstComma(text: string): [string, string] | null {
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (quote) {
+      if (ch === "\\" && i + 1 < text.length) {
+        i += 1;
+      } else if (ch === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+    } else if (ch === "(") {
+      depth += 1;
+    } else if (ch === ")") {
+      depth -= 1;
+    } else if (ch === "," && depth === 0) {
+      return [text.slice(0, i).trim(), text.slice(i + 1).trim()];
+    }
+  }
+  return null;
+}
+
+function replaceCssFunction(
+  value: string,
+  fnName: string,
+  resolveArgs: (inner: string) => string | null,
+): string {
+  const token = `${fnName}(`;
+  let result = "";
+  let cursor = 0;
+  while (cursor < value.length) {
+    const start = value.indexOf(token, cursor);
+    if (start === -1) {
+      result += value.slice(cursor);
+      break;
+    }
+    const open = start + fnName.length;
+    const close = findMatchingParen(value, open);
+    if (close === -1) {
+      result += value.slice(cursor);
+      break;
+    }
+    result += value.slice(cursor, start);
+    const inner = value.slice(open + 1, close);
+    const replacement = resolveArgs(inner);
+    result += replacement ?? value.slice(start, close + 1);
+    cursor = close + 1;
+  }
+  return result;
+}
+
+export function resolveLightDark(value: string, isDark: boolean): string {
+  if (!value.includes("light-dark(")) return value;
+  return replaceCssFunction(value, "light-dark", (inner) => {
+    const parts = splitFirstComma(inner);
+    if (!parts) return null;
+    return resolveLightDark(isDark ? parts[1] : parts[0], isDark);
+  });
+}
+
+export function resolveCssVars(value: string, vars: Map<string, string>, depth = 0): string {
+  if (depth >= 10 || !value.includes("var(")) return value;
+  return replaceCssFunction(value, "var", (inner) => {
+    const comma = splitFirstComma(inner);
+    const name = (comma ? comma[0] : inner).trim();
+    const resolved = vars.get(name);
+    if (resolved !== undefined && resolved !== "") {
+      return resolveCssVars(resolved, vars, depth + 1);
+    }
+    if (comma) {
+      return resolveCssVars(comma[1], vars, depth + 1);
+    }
+    return null;
+  });
+}
+
+function splitStyleDeclarations(styleText: string): string[] {
+  const declarations: string[] = [];
+  let depth = 0;
+  let quote: string | null = null;
+  let start = 0;
+  for (let i = 0; i < styleText.length; i += 1) {
+    const ch = styleText[i];
+    if (quote) {
+      if (ch === "\\" && i + 1 < styleText.length) {
+        i += 1;
+      } else if (ch === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+    } else if (ch === "(") {
+      depth += 1;
+    } else if (ch === ")") {
+      depth -= 1;
+    } else if (ch === ";" && depth === 0) {
+      const part = styleText.slice(start, i).trim();
+      if (part) declarations.push(part);
+      start = i + 1;
+    }
+  }
+  const tail = styleText.slice(start).trim();
+  if (tail) declarations.push(tail);
+  return declarations;
+}
+
 export function diagramImage(result: DiagramResult, container: HTMLElement) {
-  const svg = new DOMParser().parseFromString(result.svg, "image/svg+xml").documentElement;
+  const doc = new DOMParser().parseFromString(result.svg, "image/svg+xml");
+  const svg = doc.documentElement;
   if (svg.namespaceURI !== SVG_NAMESPACE || svg.localName !== "svg") {
     throw new Error("Invalid diagram SVG");
   }
   const style = getComputedStyle(container);
-  const colors = Object.entries(colorRoles)
-    .map(([role, token]) => `--pele-${role}:${style.getPropertyValue(token).trim()};`)
-    .join("");
-  const colorScheme = style.colorScheme === "dark" ? "dark" : "light";
-  svg.setAttribute(
-    "style",
-    `${svg.getAttribute("style") ?? ""};color-scheme:${colorScheme};${colors}`,
-  );
+  const isDark =
+    style.colorScheme === "dark" ||
+    (style.colorScheme !== "light" &&
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-color-scheme: dark)").matches === true);
+
+  const vars = new Map<string, string>();
+  for (const [role, token] of Object.entries(colorRoles)) {
+    const raw = style.getPropertyValue(token).trim();
+    if (raw) vars.set(`--pele-${role}`, resolveLightDark(raw, isDark));
+  }
+  if (style.fontFamily) vars.set("--pele-font", style.fontFamily);
+  const fontMono = style.getPropertyValue("--font-mono").trim();
+  if (fontMono) vars.set("--pele-font-mono", fontMono);
+
+  for (const decl of splitStyleDeclarations(svg.getAttribute("style") ?? "")) {
+    const colon = decl.indexOf(":");
+    if (colon === -1) continue;
+    const prop = decl.slice(0, colon).trim();
+    const val = decl.slice(colon + 1).trim();
+    if (prop.startsWith("--") && val) vars.set(prop, val);
+  }
+  for (const [key, val] of vars) {
+    vars.set(key, resolveLightDark(resolveCssVars(val, vars), isDark));
+  }
+
+  const resolveValue = (value: string) => resolveLightDark(resolveCssVars(value, vars), isDark);
+
+  const elements: Element[] = [svg, ...Array.from(svg.querySelectorAll("*"))];
+  for (const element of elements) {
+    for (const attr of Array.from(element.attributes)) {
+      if (attr.value.includes("var(") || attr.value.includes("light-dark(")) {
+        element.setAttribute(attr.name, resolveValue(attr.value));
+      }
+    }
+    if (element.localName === "rect" && !element.hasAttribute("rx")) {
+      const rxMatch = (element.getAttribute("style") ?? "").match(/(?:^|;)\s*rx\s*:\s*([^;]+)/i);
+      if (rxMatch?.[1]) {
+        element.setAttribute("rx", rxMatch[1].trim().replace(/px$/i, ""));
+      }
+    }
+    if (element.localName === "style" && element.textContent) {
+      if (element.textContent.includes("var(") || element.textContent.includes("light-dark(")) {
+        element.textContent = resolveValue(element.textContent);
+      }
+    }
+  }
+
+  const bgColor = vars.get("--pele-bg") || (isDark ? "#1f2224" : "#faf9f6");
+  const bgRect = doc.createElementNS(SVG_NAMESPACE, "rect");
+  const viewBox = svg
+    .getAttribute("viewBox")
+    ?.trim()
+    .split(/[\s,]+/);
+  if (viewBox && viewBox.length === 4 && viewBox.every((n) => Number.isFinite(Number(n)))) {
+    bgRect.setAttribute("x", viewBox[0]!);
+    bgRect.setAttribute("y", viewBox[1]!);
+    bgRect.setAttribute("width", viewBox[2]!);
+    bgRect.setAttribute("height", viewBox[3]!);
+  } else {
+    bgRect.setAttribute("width", "100%");
+    bgRect.setAttribute("height", "100%");
+  }
+  bgRect.setAttribute("fill", bgColor);
+  svg.insertBefore(bgRect, svg.firstChild);
+
+  const colorScheme = isDark ? "dark" : "light";
+  svg.setAttribute("style", `${svg.getAttribute("style") ?? ""};color-scheme:${colorScheme};`);
   const title = svg.querySelector("title")?.textContent?.trim();
   const description = svg.querySelector("desc")?.textContent?.trim();
   const url = URL.createObjectURL(
