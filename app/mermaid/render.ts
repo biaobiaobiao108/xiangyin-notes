@@ -188,6 +188,59 @@ export function resolveLightDark(value: string, isDark: boolean): string {
   });
 }
 
+function parseHexColor(hex: string): [number, number, number] | null {
+  const match = hex.trim().match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (!match) return null;
+  const raw = match[1]!;
+  if (raw.length === 3) {
+    return [
+      parseInt(raw[0]! + raw[0]!, 16),
+      parseInt(raw[1]! + raw[1]!, 16),
+      parseInt(raw[2]! + raw[2]!, 16),
+    ];
+  }
+  return [
+    parseInt(raw.slice(0, 2), 16),
+    parseInt(raw.slice(2, 4), 16),
+    parseInt(raw.slice(4, 6), 16),
+  ];
+}
+
+function toHexByte(value: number) {
+  return Math.min(255, Math.max(0, Math.round(value)))
+    .toString(16)
+    .padStart(2, "0");
+}
+
+export function normalizeSvgColor(color: string, backgroundHex: string): string {
+  const match = color
+    .trim()
+    .match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*([\d.]+%?))?\s*\)$/i);
+  if (!match) return color;
+  const r = Number(match[1]);
+  const g = Number(match[2]);
+  const b = Number(match[3]);
+  const alphaRaw = match[4];
+  const alpha = alphaRaw
+    ? alphaRaw.endsWith("%")
+      ? Number(alphaRaw.slice(0, -1)) / 100
+      : Number(alphaRaw)
+    : 1;
+  if (
+    !Number.isFinite(r) ||
+    !Number.isFinite(g) ||
+    !Number.isFinite(b) ||
+    !Number.isFinite(alpha)
+  ) {
+    return color;
+  }
+  if (alpha >= 1) return `#${toHexByte(r)}${toHexByte(g)}${toHexByte(b)}`;
+  const bg = parseHexColor(backgroundHex);
+  if (!bg) return color;
+  const clamped = Math.min(1, Math.max(0, alpha));
+  return `#${toHexByte(r * clamped + bg[0] * (1 - clamped))}${toHexByte(g * clamped + bg[1] * (1 - clamped))}${toHexByte(b * clamped + bg[2] * (1 - clamped))}`;
+}
+
 export function resolveCssVars(value: string, vars: Map<string, string>, depth = 0): string {
   if (depth >= 10 || !value.includes("var(")) return value;
   return replaceCssFunction(value, "var", (inner) => {
@@ -250,9 +303,13 @@ export function diagramImage(result: DiagramResult, container: HTMLElement) {
       window.matchMedia?.("(prefers-color-scheme: dark)").matches === true);
 
   const vars = new Map<string, string>();
+  const bgRaw = style.getPropertyValue(colorRoles.bg).trim();
+  const bgFallback = isDark ? "#1f2224" : "#faf9f6";
+  const bgResolved = bgRaw ? resolveLightDark(bgRaw, isDark) : bgFallback;
+  const bgColor = normalizeSvgColor(bgResolved, bgFallback);
   for (const [role, token] of Object.entries(colorRoles)) {
     const raw = style.getPropertyValue(token).trim();
-    if (raw) vars.set(`--pele-${role}`, resolveLightDark(raw, isDark));
+    if (raw) vars.set(`--pele-${role}`, normalizeSvgColor(resolveLightDark(raw, isDark), bgColor));
   }
   if (style.fontFamily) vars.set("--pele-font", style.fontFamily);
   const fontMono = style.getPropertyValue("--font-mono").trim();
@@ -266,10 +323,11 @@ export function diagramImage(result: DiagramResult, container: HTMLElement) {
     if (prop.startsWith("--") && val) vars.set(prop, val);
   }
   for (const [key, val] of vars) {
-    vars.set(key, resolveLightDark(resolveCssVars(val, vars), isDark));
+    vars.set(key, normalizeSvgColor(resolveLightDark(resolveCssVars(val, vars), isDark), bgColor));
   }
 
-  const resolveValue = (value: string) => resolveLightDark(resolveCssVars(value, vars), isDark);
+  const resolveValue = (value: string) =>
+    normalizeSvgColor(resolveLightDark(resolveCssVars(value, vars), isDark), bgColor);
 
   const elements: Element[] = [svg, ...Array.from(svg.querySelectorAll("*"))];
   for (const element of elements) {
@@ -291,7 +349,6 @@ export function diagramImage(result: DiagramResult, container: HTMLElement) {
     }
   }
 
-  const bgColor = vars.get("--pele-bg") || (isDark ? "#1f2224" : "#faf9f6");
   const bgRect = doc.createElementNS(SVG_NAMESPACE, "rect");
   const viewBox = svg
     .getAttribute("viewBox")

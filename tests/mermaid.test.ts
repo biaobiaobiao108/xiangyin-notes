@@ -2,7 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { Editor } from "@tiptap/core";
 import { createReadOnlyExtensions } from "../app/editor/read-only-markdown";
 import { isMermaidLanguage } from "../app/mermaid/protocol";
-import { renderDiagram, resolveCssVars, resolveLightDark } from "../app/mermaid/render";
+import {
+  normalizeSvgColor,
+  renderDiagram,
+  resolveCssVars,
+  resolveLightDark,
+} from "../app/mermaid/render";
 import { renderMemoMarkdown } from "../app/memos/memo-markdown";
 
 const MERMAID_EXAMPLE = "flowchart TD\n  A[开始] --> B[完成]";
@@ -108,5 +113,6 @@ describe("Mermaid Markdown", () => {
     expect(resolveCssVars("var(--_bg)", vars)).toBe("#1f2224");
     expect(resolveCssVars("var(--_s)", vars)).toBe("#262a2c");
     expect(resolveCssVars("var(--_r,4px)", vars)).toBe("4px");
+    expect(normalizeSvgColor("rgba(78, 138, 110, 0.16)", "#1f2224")).toBe("#273330");
   });
 });
