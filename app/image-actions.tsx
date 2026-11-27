@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useEffect,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -148,6 +149,13 @@ export function copyRasterImage(image: HTMLImageElement) {
   return writeImageClipboard(() => imagePngBlob(image));
 }
 
+export type ViewerSource = {
+  src: string;
+  width?: number;
+  height?: number;
+  revoke?: () => void;
+};
+
 export function useImageActions({
   rootRef,
   menuLabel,
@@ -155,6 +163,7 @@ export function useImageActions({
   fallbackAlt,
   resolveImage,
   copyImage,
+  prepareViewer,
   focusTarget,
   extraItems,
 }: {
@@ -164,26 +173,45 @@ export function useImageActions({
   fallbackAlt: string;
   resolveImage: (root: HTMLElement, target: EventTarget | null) => HTMLImageElement | null;
   copyImage: (image: HTMLImageElement) => void | Promise<void>;
+  prepareViewer?: (image: HTMLImageElement) => Promise<ViewerSource>;
   focusTarget?: (root: HTMLElement) => HTMLElement | null;
   extraItems?: ContextMenuItem[];
 }) {
   const { openMenu, menu } = useContextMenu();
   const [viewer, setViewer] = useState<ImageViewerState>();
   const viewerRef = useRef<ImageViewerState | undefined>(undefined);
+  const revokeViewerRef = useRef<(() => void) | undefined>(undefined);
+  const viewerRequestRef = useRef(0);
+  const mountedRef = useRef(true);
   viewerRef.current = viewer;
+
+  const revokeCurrentViewer = useCallback(() => {
+    revokeViewerRef.current?.();
+    revokeViewerRef.current = undefined;
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      revokeCurrentViewer();
+    };
+  }, [revokeCurrentViewer]);
 
   const closeViewer = useCallback(
     (restoreFocus = true) => {
+      viewerRequestRef.current += 1;
       const trigger =
         viewerRef.current?.trigger ??
         (focusTarget && rootRef.current ? focusTarget(rootRef.current) : null);
       setViewer(undefined);
+      revokeCurrentViewer();
       if (!restoreFocus) return;
       requestAnimationFrame(() => {
         if (trigger?.isConnected) trigger.focus({ preventScroll: true });
       });
     },
-    [focusTarget, rootRef],
+    [focusTarget, revokeCurrentViewer, rootRef],
   );
 
   const onContextMenu = (event: ReactMouseEvent<HTMLElement>) => {
@@ -197,15 +225,33 @@ export function useImageActions({
         copyLabel,
         {
           copy: () => copyImage(image),
-          expand: () => {
+          expand: async () => {
+            const requestId = ++viewerRequestRef.current;
+            const trigger =
+              focusTarget?.(root) ??
+              (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+            const fallbackWidth = image.naturalWidth || Number(image.getAttribute("width")) || 1;
+            const fallbackHeight = image.naturalHeight || Number(image.getAttribute("height")) || 1;
+            let source: ViewerSource | undefined;
+            if (prepareViewer) {
+              try {
+                source = await prepareViewer(image);
+              } catch {
+                source = undefined;
+              }
+            }
+            if (!mountedRef.current || requestId !== viewerRequestRef.current) {
+              source?.revoke?.();
+              return;
+            }
+            revokeCurrentViewer();
+            revokeViewerRef.current = source?.revoke;
             setViewer({
-              src: image.currentSrc || image.src,
+              src: source?.src || image.currentSrc || image.src,
               alt: image.alt.trim() || fallbackAlt,
-              width: image.naturalWidth || Number(image.getAttribute("width")) || 1,
-              height: image.naturalHeight || Number(image.getAttribute("height")) || 1,
-              trigger:
-                focusTarget?.(root) ??
-                (document.activeElement instanceof HTMLElement ? document.activeElement : null),
+              width: source?.width ?? fallbackWidth,
+              height: source?.height ?? fallbackHeight,
+              trigger,
             });
           },
         },
