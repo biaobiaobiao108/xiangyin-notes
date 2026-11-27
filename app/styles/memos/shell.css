@@ -212,11 +212,7 @@
     transform var(--motion-micro) var(--motion-ease-out);
 }
 
-.memo-composer:hover {
-  background: var(--accent-soft);
-}
-
-.memo-composer:focus-within {
+.memo-composer:is(:hover, :focus-within) {
   background: var(--accent-soft);
 }
 

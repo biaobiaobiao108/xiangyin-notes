@@ -37,6 +37,13 @@ describe("draft recovery serialization", () => {
     ).toBeNull();
   });
 
+  test("recovers a locally stored draft beyond the server's save limit", () => {
+    const longDraft = { ...draft, contentMarkdown: "字".repeat(1_000_001) };
+    expect(parseDraftRecovery(serializeDraftRecovery(longDraft)!, draft.id)).toEqual(longDraft);
+    const oversized = JSON.stringify({ ...draft, contentMarkdown: "字".repeat(3_000_000) });
+    expect(parseDraftRecovery(oversized, draft.id)).toBeNull();
+  });
+
   test("recognizes a committed draft and preserves differently edited drafts", () => {
     const committed: Note = {
       ...draft,

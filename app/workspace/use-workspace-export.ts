@@ -66,6 +66,9 @@ export function useWorkspaceExport({
       const exportUrl = `/api/export/library?${params}`;
       const response = await fetch(exportUrl, { method: "HEAD" });
       if (!response.ok) throw new Error(`Export check failed: ${response.status}`);
+      const missingAssets = Number(response.headers.get("X-Xiangyin-Missing-Assets"));
+      if (missingAssets > 0)
+        notifyWarning(`整库导出中有 ${missingAssets} 个附件缺失或无法读取，详情见压缩包说明。`);
       const a = document.createElement("a");
       a.href = exportUrl;
       document.body.appendChild(a);

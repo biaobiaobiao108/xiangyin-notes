@@ -300,6 +300,13 @@ async function deleteIndexedDraft(
 }
 
 function parseDraftRecoveryRecord(serialized: string, noteId: string) {
+  // A draft can exceed the server's save limit while the user is editing.
+  if (
+    serialized.length > MAX_DRAFT_RECOVERY_BYTES ||
+    (serialized.length > MAX_DRAFT_RECOVERY_BYTES / 3 &&
+      new TextEncoder().encode(serialized).byteLength > MAX_DRAFT_RECOVERY_BYTES)
+  )
+    return null;
   try {
     const value: unknown = JSON.parse(serialized);
     if (!isRecord(value)) return null;
@@ -308,7 +315,6 @@ function parseDraftRecoveryRecord(serialized: string, noteId: string) {
       typeof value.title !== "string" ||
       value.title.length > 200 ||
       typeof value.contentMarkdown !== "string" ||
-      value.contentMarkdown.length > 1_000_000 ||
       typeof value.notebookId !== "string" ||
       typeof value.isFavorite !== "boolean"
     )

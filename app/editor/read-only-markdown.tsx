@@ -30,6 +30,7 @@ export function ReadOnlyMarkdown({ markdown }: { markdown: string }) {
   const extensions = useMemo(createReadOnlyExtensions, []);
   const editorProps = useMemo(() => ({ attributes: { class: "note-prose read-only-prose" } }), []);
   const editor = useEditor({
+    injectCSS: false,
     editable: false,
     extensions,
     coreExtensionOptions: editorCoreExtensionOptions,

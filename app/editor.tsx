@@ -374,6 +374,7 @@ export function NoteEditor({
   });
 
   const editor = useEditor({
+    injectCSS: false,
     editable: bodyEditable,
     extensions,
     coreExtensionOptions: editorCoreExtensionOptions,

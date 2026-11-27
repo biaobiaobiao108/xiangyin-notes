@@ -30,11 +30,6 @@
   overflow-y: auto;
   overscroll-behavior: contain;
 }
-/* 浏览器会自动聚焦可滚动容器；正文区域无需整页焦点轮廓。 */
-.editor-scroll:focus,
-.editor-scroll:focus-visible {
-  outline: none;
-}
 .editor-document {
   position: relative;
   width: min(820px, calc(100% - 96px));
@@ -81,7 +76,6 @@
   padding: 0;
   margin-bottom: 20px;
   border: 0;
-  outline: 0;
   resize: none;
   overflow: hidden;
   overflow-wrap: anywhere;
@@ -93,7 +87,6 @@
   line-height: 1.22;
 }
 .editor-panel .note-title-input:focus {
-  outline: none;
   box-shadow: none;
 }
 .note-title-input::placeholder {
@@ -109,19 +102,31 @@
   font-size: 1.05rem;
   line-height: 1.72;
   letter-spacing: 0.012em;
+  overflow-wrap: anywhere;
   text-spacing-trim: trim-start;
   -webkit-font-smoothing: antialiased;
 }
-.note-prose,
-.note-prose.ProseMirror {
-  overflow-wrap: anywhere;
+.ProseMirror [contenteditable="false"] {
+  white-space: normal;
+}
+.ProseMirror [contenteditable="false"] [contenteditable="true"] {
+  white-space: pre-wrap;
 }
 .note-prose .long-text-run {
   line-break: anywhere;
 }
-.note-prose:focus,
-.note-prose:focus-visible {
+.ProseMirror .ProseMirror-selectednode {
   outline: none;
+}
+.ProseMirror li.ProseMirror-selectednode::after {
+  content: none;
+}
+.ProseMirror img.ProseMirror-separator {
+  width: 0;
+  height: 0;
+}
+.ProseMirror-gapcursor::after {
+  border-color: currentColor;
 }
 .note-image-node {
   display: block;
@@ -146,7 +151,6 @@
   -webkit-touch-callout: none;
 }
 .note-image-node.is-selected .note-image {
-  outline: none;
   box-shadow:
     0 0 0 3px var(--surface),
     0 0 0 5px var(--image-selection),

@@ -153,18 +153,33 @@ test("exports only saved references and reports both missing attachment files an
     expect(entries.has(`附件/${unpublishedId}.png`)).toBe(false);
 
     const noteId = createNote(database, user.id, inbox.id, "附件", "");
+    const availableMarkdown = `![可用](/api/assets/${unpublishedId})`;
+    const missingMarkdown = `![缺失](/api/assets/${id})`;
     database
       .query("UPDATE notes SET content_markdown = ? WHERE id = ?")
-      .run(`![图片](/api/assets/${id})`, noteId);
-    expect((await exportLibrary("HEAD"))?.status).toBe(500);
-    const rejected = (await exportLibrary("GET"))!;
-    expect(rejected.status).toBe(500);
-    expect((await rejected.json()).error.code).toBe("EXPORT_ASSET_UNAVAILABLE");
+      .run(`${availableMarkdown}\n\n${missingMarkdown}`, noteId);
+    const assertPartialExport = async (reason: string) => {
+      const head = (await exportLibrary("HEAD"))!;
+      expect(head.status).toBe(200);
+      expect(head.headers.get("X-Xiangyin-Missing-Assets")).toBe("1");
+      const response = (await exportLibrary("GET"))!;
+      expect(response.status).toBe(200);
+      expect(response.headers.get("X-Xiangyin-Missing-Assets")).toBe("1");
+      const archive = readZipEntries(new Uint8Array(await response.arrayBuffer()));
+      const decoder = new TextDecoder();
+      const metadata = JSON.parse(decoder.decode(archive.get("metadata.json")));
+      expect(metadata.missingAssets).toEqual([{ id, reason }]);
+      expect(decoder.decode(archive.get("说明.txt"))).toContain("有 1 个附件");
+      expect(decoder.decode(archive.get(`附件/${unpublishedId}.png`))).toBe("image bytes");
+      expect(archive.has(`附件/${id}.png`)).toBe(false);
+      const note = metadata.notes.find((entry: { id: string }) => entry.id === noteId);
+      expect(decoder.decode(archive.get(note.file))).toBe(
+        `![可用](../../附件/${unpublishedId}.png)\n\n${missingMarkdown}`,
+      );
+    };
+    await assertPartialExport("unavailable-file");
     database.query("DELETE FROM image_assets WHERE id = ?").run(id);
-    expect((await exportLibrary("HEAD"))?.status).toBe(500);
-    const missingRow = (await exportLibrary("GET"))!;
-    expect(missingRow.status).toBe(500);
-    expect((await missingRow.json()).error.code).toBe("EXPORT_ASSET_UNAVAILABLE");
+    await assertPartialExport("missing-record");
   } finally {
     database.close();
     await rm(root, { recursive: true, force: true });

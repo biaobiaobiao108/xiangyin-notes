@@ -178,11 +178,50 @@ describe("Memo API", () => {
     ).toHaveLength(1);
   });
 
-  test("rejects invalid attachments without removing the memo", async () => {
+  test("rejects new missing attachment references on create, edit and import", async () => {
     const cookie = await login();
-    const memo = (
-      await createMemo(cookie, "![图片](/api/assets/00000000-0000-4000-8000-000000000000)")
-    ).body!.memo;
+    const contentMarkdown = `![图片](/api/assets/${crypto.randomUUID()})`;
+    const rejected = await createMemo(cookie, contentMarkdown);
+    expect(rejected.response.status).toBe(400);
+    expect(rejected.body?.error.code).toBe("INVALID_ASSET");
+
+    const memo = (await createMemo(cookie, "原正文")).body!.memo;
+    const edit = (markdown: string) =>
+      request(
+        `/api/memos/${memo.id}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ version: memo.version, contentMarkdown: markdown }),
+        },
+        cookie,
+      );
+    const patched = await edit(contentMarkdown);
+    expect(patched.response.status).toBe(400);
+    expect(patched.body?.error.code).toBe("INVALID_ASSET");
+    const imported = await request("/api/memos/import", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${environment.XIANGYING_API_TOKEN}`,
+        "Content-Type": "text/markdown",
+      },
+      body: contentMarkdown,
+    });
+    expect(imported.response.status).toBe(400);
+    expect(imported.body?.error.code).toBe("INVALID_ASSET");
+    expect((await request("/api/memos", {}, cookie)).body?.memos).toEqual([memo]);
+
+    database
+      .query("UPDATE memos SET content_markdown = ? WHERE id = ?")
+      .run(contentMarkdown, memo.id);
+    expect((await edit(`补充正文\n\n${contentMarkdown}`)).response.status).toBe(200);
+  });
+
+  test("rejects conversion of a legacy memo with missing attachments without removing it", async () => {
+    const cookie = await login();
+    const memo = (await createMemo(cookie, "旧随记")).body!.memo;
+    database
+      .query("UPDATE memos SET content_markdown = ? WHERE id = ?")
+      .run(`![图片](/api/assets/${crypto.randomUUID()})`, memo.id);
     const result = await request(
       `/api/memos/${memo.id}/convert`,
       {

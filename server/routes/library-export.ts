@@ -1,4 +1,5 @@
-import { stat } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, stat } from "node:fs/promises";
 import { extname } from "node:path";
 import { Database } from "bun:sqlite";
 import { createZipReadableStream, type ZipStreamEntry } from "../../shared/zip";
@@ -182,9 +183,7 @@ export async function handleLibraryExport(ctx: RouteContext, user: UserRow): Pro
         user.id,
         JSON.stringify([...references]),
       );
-      if (new Set(assets.map(({ id }) => id.toLowerCase())).size !== references.size) {
-        return { missingAssets: true } as const;
-      }
+      for (const { id } of assets) references.delete(id.toLowerCase());
       if (stageContent) {
         // Copy only the exported bodies into SQLite's temporary storage. End
         // the live database read before streaming to a slow client.
@@ -203,14 +202,10 @@ export async function handleLibraryExport(ctx: RouteContext, user: UserRow): Pro
           )
           .run(user.id);
       }
-      return { ...snapshot, assets };
+      return { ...snapshot, assets, missingAssetIds: references };
     })();
     if (!snapshot)
       return jsonError(413, "EXPORT_TOO_LARGE", "整库内容超过 ZIP 导出大小限制，请使用数据库备份");
-    if ("missingAssets" in snapshot) {
-      console.error("[export] 已保存的正文引用了缺失的附件记录");
-      return jsonError(500, "EXPORT_ASSET_UNAVAILABLE", "附件记录缺失，无法完成整库导出");
-    }
     const root = ctx.options.assetRoot ?? assetRootFromEnv(ctx.options.environment);
     if (ctx.method !== "HEAD")
       releaseAssets = retainExportAssets(
@@ -218,26 +213,24 @@ export async function handleLibraryExport(ctx: RouteContext, user: UserRow): Pro
         snapshot.assets.map((asset) => asset.storage_path),
       );
     const assetNames = new Map<string, string>();
+    const missingAssets: Array<{ id: string; reason: "missing-record" | "unavailable-file" }> =
+      Array.from(snapshot.missingAssetIds, (id) => ({ id, reason: "missing-record" }));
     const files: Array<{ name: string; path: string; size: number }> = [];
     for (const asset of snapshot.assets) {
       try {
         const path = assetFilePath(root, asset.storage_path);
         if (!path) throw new Error("Invalid attachment path");
-        const info = await stat(path);
-        if (!info.isFile()) throw new Error("Attachment is not a file");
         const extension = extname(asset.storage_path).toLowerCase();
         if (!/^\.(?:jpg|png|gif|webp)$/u.test(extension))
           throw new Error("Invalid attachment extension");
+        const info = await stat(path);
+        if (!info.isFile()) throw new Error("Attachment is not a file");
+        await access(path, constants.R_OK);
         const name = `${asset.id}${extension}`;
         assetNames.set(asset.id.toLowerCase(), name);
         files.push({ name, path, size: info.size });
-      } catch (error) {
-        console.error("[export] 无法读取附件，已取消整库导出", error);
-        return jsonError(
-          500,
-          "EXPORT_ASSET_UNAVAILABLE",
-          "附件不可读取，无法完成整库导出，请检查服务端日志",
-        );
+      } catch {
+        missingAssets.push({ id: asset.id, reason: "unavailable-file" });
       }
     }
     const folders = notebookFolders(snapshot.notebooks);
@@ -274,6 +267,7 @@ export async function handleLibraryExport(ctx: RouteContext, user: UserRow): Pro
         kanban: snapshot.kanban,
         notes: noteEntries,
         memos: memoMetadata,
+        missingAssets,
         assets: snapshot.assets.flatMap(({ storage_path: _storagePath, ...asset }) => {
           const name = assetNames.get(asset.id.toLowerCase());
           return name ? [{ ...asset, file: `附件/${name}` }] : [];
@@ -283,6 +277,9 @@ export async function handleLibraryExport(ctx: RouteContext, user: UserRow): Pro
       2,
     );
     const readme = `象映笔记整库导出\n\n笔记按笔记本分别存放，每篇为独立 Markdown 文件；回收站笔记也在所属笔记本目录中。随记按创建时间在 ${timeZone} 时区归入每月一个 Markdown 文件，同一文件中按时间排列。每条随记的原始时间和文件内顺序保存在 metadata.json。图片保存在附件目录。笔记本、看板、收藏、回收站状态及时间等信息保存在 metadata.json。正文中的本地图片路径已改为相对路径，代码中的原文保持不变。Wiki 链接和外部图片链接保持原样。\n\n此压缩包用于阅读与迁移，不是完整数据库备份，也不能直接导入象映笔记。未提交到服务的草稿不包含在内。\n`;
+    const missingAssetNotice = missingAssets.length
+      ? `\n有 ${missingAssets.length} 个附件缺失或无法读取。相关正文保留了原始链接，附件 ID 和原因见 metadata.json 的 missingAssets。\n`
+      : "";
     const encoder = new TextEncoder();
     const entriesCount = folders.size + noteEntries.length + memoMonths.size + files.length + 2;
     // Allow for longer local image paths, monthly headings, ZIP headers and the central directory.
@@ -298,11 +295,15 @@ export async function handleLibraryExport(ctx: RouteContext, user: UserRow): Pro
       memoMonths.size * 1024 +
       encoder.encode(metadata).length +
       encoder.encode(readme).length +
+      encoder.encode(missingAssetNotice).length +
       4096;
     if (entriesCount >= 0xffff || estimatedSize >= 0xffffffff)
       return jsonError(413, "EXPORT_TOO_LARGE", "整库内容超过 ZIP 导出大小限制，请使用数据库备份");
-    if (ctx.method === "HEAD")
-      return new Response(null, { status: 200, headers: { "Cache-Control": "no-store" } });
+    const headers = {
+      "Cache-Control": "no-store",
+      "X-Xiangyin-Missing-Assets": String(missingAssets.length),
+    };
+    if (ctx.method === "HEAD") return new Response(null, { status: 200, headers });
     const noteBody = stageContent
       ? database.query<{ content_markdown: string }, [string]>(
           "SELECT content_markdown FROM temp.export_notes WHERE id = ?",
@@ -314,7 +315,7 @@ export async function handleLibraryExport(ctx: RouteContext, user: UserRow): Pro
         )
       : null;
     async function* entries(): AsyncGenerator<ZipStreamEntry> {
-      yield textEntry("说明.txt", readme);
+      yield textEntry("说明.txt", readme + missingAssetNotice);
       yield textEntry("metadata.json", metadata);
       for (const folder of folders.values()) yield textEntry(`${folder}/`, "");
       for (let index = 0; index < noteEntries.length; index++) {
@@ -370,9 +371,9 @@ export async function handleLibraryExport(ctx: RouteContext, user: UserRow): Pro
     );
     const response = new Response(body, {
       headers: {
+        ...headers,
         "Content-Type": "application/zip",
         "Content-Disposition": `attachment; filename="xiangyin-library-${new Date().toISOString().slice(0, 10)}.zip"`,
-        "Cache-Control": "no-store",
       },
     });
     streamOwnsSnapshot = true;

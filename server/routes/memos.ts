@@ -156,6 +156,32 @@ function memoContentError(value: unknown) {
   return null;
 }
 
+function memoHasMissingNewAssets(
+  database: SqliteDatabase,
+  userId: string,
+  markdown: string,
+  previousMarkdown?: string,
+) {
+  const ids = noteAssetIds(markdown);
+  if (!ids.length) return false;
+  const missing = all<{ id: string }>(
+    database,
+    `SELECT refs.value AS id FROM json_each(?) refs WHERE NOT EXISTS (
+       SELECT 1 FROM image_assets a WHERE a.id = refs.value AND a.user_id = ?
+     )`,
+    JSON.stringify(ids),
+    userId,
+  );
+  if (!missing.length) return false;
+  // Existing broken references must not prevent editing or repairing an old memo.
+  const previous = new Set(previousMarkdown ? noteAssetIds(previousMarkdown) : []);
+  return missing.some(({ id }) => !previous.has(id));
+}
+
+function invalidMemoAsset() {
+  return jsonError(400, "INVALID_ASSET", "随记引用的附件不存在或当前不可用");
+}
+
 function validateCreatedAt(value: unknown): value is number {
   return Number.isSafeInteger(value) && (value as number) >= 0 && (value as number) <= 8.64e15;
 }
@@ -441,6 +467,15 @@ function memoMutation(ctx: RouteContext, user: UserRow, memoId: string) {
           if (current.version !== payload.version) return { kind: "conflict" as const, current };
           if (current.content_markdown === payload.contentMarkdown)
             return { kind: "unchanged" as const, current };
+          if (
+            memoHasMissingNewAssets(
+              options.database,
+              user.id,
+              payload.contentMarkdown as string,
+              current.content_markdown,
+            )
+          )
+            return { kind: "invalid-asset" as const };
           const updatedAt = Math.max(current.created_at, Date.now());
           const searchText = searchableTextFromMarkdown(payload.contentMarkdown as string);
           const updated = options.database
@@ -466,6 +501,7 @@ function memoMutation(ctx: RouteContext, user: UserRow, memoId: string) {
         })
         .immediate();
       if (result.kind === "missing") return jsonError(404, "MEMO_NOT_FOUND", "随记不存在");
+      if (result.kind === "invalid-asset") return invalidMemoAsset();
       if (result.kind === "conflict") {
         return json(
           {
@@ -561,6 +597,8 @@ export function handleMemosRoute(
             )
               return { kind: "replayed" as const, memo: existing };
             if (existing) return { kind: "conflict" as const };
+            if (memoHasMissingNewAssets(database, user.id, payload.contentMarkdown as string))
+              return { kind: "invalid-asset" as const };
             createMemo(database, user.id, payload.contentMarkdown as string, memoId, createdAt);
             return { kind: "created" as const };
           })
@@ -568,6 +606,7 @@ export function handleMemosRoute(
         if (result.kind === "replayed") return json({ memo: memoFromRow(result.memo) }, 200);
         if (result.kind === "conflict")
           return jsonError(409, "MEMO_EXISTS", "指定 ID 的随记已存在");
+        if (result.kind === "invalid-asset") return invalidMemoAsset();
         publishWorkspaceChange(ctx.options, user.id, { resource: "memos" }, ctx.request);
         const memo = getMemo(database, user.id, memoId);
         return json({ memo: memo ? memoFromRow(memo) : null }, 201);
@@ -844,6 +883,7 @@ export async function handleMemoImportRoute(ctx: RouteContext): Promise<Response
       }
       if (receipt) return deletedImport("memo");
 
+      if (memoHasMissingNewAssets(database, user.id, markdown)) return invalidMemoAsset();
       createMemo(database, user.id, markdown, memoId, created);
       if (contentHash) recordImportRequest(database, user.id, "memo", memoId, contentHash);
       const memo = getMemo(database, user.id, memoId);

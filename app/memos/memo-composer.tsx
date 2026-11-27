@@ -374,6 +374,7 @@ export const MemoComposer = forwardRef<MemoComposerHandle, MemoComposerProps>(fu
   );
 
   const editor = useEditor({
+    injectCSS: false,
     extensions,
     coreExtensionOptions: editorCoreExtensionOptions,
     content: normalizeMemoComposerContent(initialMarkdown),

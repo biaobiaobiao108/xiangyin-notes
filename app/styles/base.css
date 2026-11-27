@@ -188,7 +188,8 @@ button:disabled {
     transform: none !important;
     scale: none !important;
   }
-  .spin-icon {
+  .spin-icon,
+  .ProseMirror-gapcursor::after {
     animation: none !important;
   }
 }
