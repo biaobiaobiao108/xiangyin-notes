@@ -86,10 +86,11 @@ function withSecurityHeaders(
   environment: Record<string, string | undefined> = {},
   request?: Request,
   clientAddress?: string,
+  requestUrl?: URL,
 ) {
   const headers = new Headers(response.headers);
   for (const [name, value] of Object.entries(SECURITY_HEADERS)) headers.set(name, value);
-  if (request && isMcpPath(new URL(request.url).pathname)) {
+  if (request && isMcpPath((requestUrl ?? new URL(request.url)).pathname)) {
     headers.set("Cache-Control", "no-store");
     headers.set("Referrer-Policy", "no-referrer");
   }
@@ -141,10 +142,11 @@ const DEV_PWA_ASSETS = new Set([
 function invalidCookieMutationOrigin(
   request: Request,
   environment: Record<string, string | undefined>,
+  requestUrl: URL,
 ) {
   if (request.method === "GET" || request.method === "HEAD" || request.method === "OPTIONS")
     return false;
-  const pathname = new URL(request.url).pathname;
+  const pathname = requestUrl.pathname;
   if (
     pathname === "/api/import" ||
     pathname === "/api/memos/import" ||
@@ -157,7 +159,6 @@ function invalidCookieMutationOrigin(
   if (fetchSite === "same-site" || fetchSite === "cross-site") return true;
   const origin = request.headers.get("Origin");
   if (!origin) return false;
-  const requestUrl = new URL(request.url);
   return origin !== requestUrl.origin && origin !== getPublicOrigin(requestUrl, environment);
 }
 
@@ -174,14 +175,118 @@ function acceptsGzipEncoding(header: string | null) {
   return encoding !== undefined && encoding.quality > 0 && encoding.quality <= 1;
 }
 
+type CachedStaticEntry = {
+  rawPath: string;
+  gzPath: string | null;
+  contentType: string;
+  compressible: boolean;
+  cacheControl: string;
+  rawMeta: { size: number; lastModified: number; etag: string } | null;
+  gzMeta: { size: number; lastModified: number; etag: string } | null;
+};
+
+const productionStaticCache = new Map<string, Map<string, CachedStaticEntry | null>>();
+
+function buildStaticMeta(file: ReturnType<typeof Bun.file>) {
+  const lastModified = Math.floor(Number(file.lastModified ?? 0));
+  const size = Number(file.size ?? 0);
+  return {
+    size,
+    lastModified,
+    etag: `W/"${size.toString(16)}-${lastModified.toString(16)}"`,
+  };
+}
+
+async function resolveStaticEntry(
+  rootPath: string,
+  requestedPath: string,
+  relativePath: string,
+  hasExtension: boolean,
+  environment: Record<string, string | undefined>,
+): Promise<CachedStaticEntry | null> {
+  const isProd = environment.NODE_ENV === "production";
+  const cacheKey = `${requestedPath}\0${relativePath}\0${hasExtension ? "1" : "0"}`;
+  if (isProd) {
+    const cached = productionStaticCache.get(rootPath)?.get(cacheKey);
+    if (cached !== undefined) return cached;
+  }
+
+  let rawPath = requestedPath;
+  let rawFile = Bun.file(rawPath);
+  let rawExists = await rawFile.exists();
+  if (
+    !rawExists &&
+    environment.NODE_ENV === "development" &&
+    DEV_PWA_ASSETS.has(relativePath.toLowerCase())
+  ) {
+    rawPath = resolve("app", relativePath);
+    rawFile = Bun.file(rawPath);
+    rawExists = await rawFile.exists();
+  }
+  if (!rawExists) {
+    if (isProd) {
+      let rootCache = productionStaticCache.get(rootPath);
+      if (!rootCache) {
+        rootCache = new Map();
+        productionStaticCache.set(rootPath, rootCache);
+      }
+      rootCache.set(cacheKey, null);
+    }
+    return null;
+  }
+
+  const ext = extname(requestedPath).toLowerCase();
+  const compressible = /\.(?:css|html|js|json|webmanifest)$/u.test(ext);
+  let gzPath: string | null = null;
+  let gzMeta: CachedStaticEntry["gzMeta"] = null;
+  if (compressible && rawPath === requestedPath) {
+    const candidateGz = `${requestedPath}.gz`;
+    const gzFile = Bun.file(candidateGz);
+    if (await gzFile.exists()) {
+      gzPath = candidateGz;
+      gzMeta = buildStaticMeta(gzFile);
+    }
+  }
+
+  const basename = relativePath.toLowerCase();
+  const mutablePwaAsset =
+    basename === "manifest.webmanifest" ||
+    /^(?:favicon\.png|apple-touch-icon\.png|icon-(?:192|512|maskable-(?:512|1024))\.png)$/u.test(
+      basename,
+    );
+  const entry: CachedStaticEntry = {
+    rawPath,
+    gzPath,
+    contentType: MIME_TYPES[ext] ?? rawFile.type ?? "application/octet-stream",
+    compressible,
+    cacheControl:
+      hasExtension && relativePath !== "index.html" && !mutablePwaAsset
+        ? "public, max-age=31536000, immutable"
+        : "no-cache",
+    rawMeta: buildStaticMeta(rawFile),
+    gzMeta,
+  };
+
+  if (isProd) {
+    let rootCache = productionStaticCache.get(rootPath);
+    if (!rootCache) {
+      rootCache = new Map();
+      productionStaticCache.set(rootPath, rootCache);
+    }
+    rootCache.set(cacheKey, entry);
+  }
+  return entry;
+}
+
 async function serveStatic(
   request: Request,
   clientRoot: string,
   environment: Record<string, string | undefined> = {},
+  requestUrl?: URL,
 ) {
   if (request.method !== "GET" && request.method !== "HEAD")
     return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
-  const url = new URL(request.url);
+  const url = requestUrl ?? new URL(request.url);
   let pathname: string;
   try {
     pathname = decodeURIComponent(url.pathname);
@@ -197,7 +302,9 @@ async function serveStatic(
   if (!hasExtension && !CLIENT_ROUTES.has(routePathname))
     return new Response("Not Found", { status: 404 });
   const rootPath = resolve(clientRoot);
-  let requestedPath = hasExtension ? resolve(rootPath, relativePath) : join(rootPath, "index.html");
+  const requestedPath = hasExtension
+    ? resolve(rootPath, relativePath)
+    : join(rootPath, "index.html");
   const pathFromRoot = relative(rootPath, requestedPath);
   if (
     isAbsolute(pathFromRoot) ||
@@ -206,55 +313,33 @@ async function serveStatic(
     pathFromRoot.startsWith(sep)
   )
     return new Response("Forbidden", { status: 403 });
-  let file = Bun.file(requestedPath);
-  let contentEncoding: string | null = null;
-  const acceptsGzip = acceptsGzipEncoding(request.headers.get("Accept-Encoding"));
-  if (acceptsGzip && /\.(?:css|html|js|json|webmanifest)$/iu.test(extname(requestedPath))) {
-    const compressedFile = Bun.file(`${requestedPath}.gz`);
-    if (await compressedFile.exists()) {
-      file = compressedFile;
-      contentEncoding = "gzip";
-    }
-  }
-  if (
-    !(await file.exists()) &&
-    environment.NODE_ENV === "development" &&
-    DEV_PWA_ASSETS.has(relativePath.toLowerCase())
-  ) {
-    file = Bun.file(resolve("app", relativePath));
-    contentEncoding = null;
-  }
-  if (!(await file.exists())) return new Response("Not Found", { status: 404 });
+
+  const entry = await resolveStaticEntry(
+    rootPath,
+    requestedPath,
+    relativePath,
+    hasExtension,
+    environment,
+  );
+  if (!entry) return new Response("Not Found", { status: 404 });
+
+  const useGzip =
+    Boolean(entry.gzPath) && acceptsGzipEncoding(request.headers.get("Accept-Encoding"));
+  const filePath = useGzip && entry.gzPath ? entry.gzPath : entry.rawPath;
+  const meta = useGzip && entry.gzMeta ? entry.gzMeta : entry.rawMeta;
 
   const headers = new Headers();
-  headers.set(
-    "Content-Type",
-    MIME_TYPES[extname(requestedPath).toLowerCase()] ?? file.type ?? "application/octet-stream",
-  );
-  const compressible = /\.(?:css|html|js|json|webmanifest)$/iu.test(extname(requestedPath));
-  if (compressible) headers.set("Vary", "Accept-Encoding");
-  if (contentEncoding) {
-    headers.set("Content-Encoding", contentEncoding);
-  }
-  const basename = relativePath.toLowerCase();
-  const mutablePwaAsset =
-    basename === "manifest.webmanifest" ||
-    /^(?:favicon\.png|apple-touch-icon\.png|icon-(?:192|512|maskable-(?:512|1024))\.png)$/u.test(
-      basename,
-    );
-  headers.set(
-    "Cache-Control",
-    hasExtension && relativePath !== "index.html" && !mutablePwaAsset
-      ? "public, max-age=31536000, immutable"
-      : "no-cache",
-  );
+  headers.set("Content-Type", entry.contentType);
+  if (entry.compressible) headers.set("Vary", "Accept-Encoding");
+  if (useGzip) headers.set("Content-Encoding", "gzip");
+  headers.set("Cache-Control", entry.cacheControl);
 
-  // Revalidate the app shell without resending an unchanged file.
-  const lastModified = Math.floor(Number(file.lastModified ?? 0));
+  const lastModified = meta?.lastModified ?? 0;
   if (Number.isFinite(lastModified) && lastModified > 0)
     headers.set("Last-Modified", new Date(lastModified).toUTCString());
-  const etag = `W/"${Number(file.size ?? 0).toString(16)}-${lastModified.toString(16)}"`;
+  const etag = meta?.etag ?? 'W/"0-0"';
   headers.set("ETag", etag);
+
   const ifNoneMatch = request.headers.get("If-None-Match");
   if (ifNoneMatch) {
     const candidates = ifNoneMatch.split(",").map((value) => value.trim());
@@ -269,15 +354,15 @@ async function serveStatic(
       return new Response(null, { status: 304, headers });
     }
   }
-  return new Response(request.method === "HEAD" ? null : file, { headers });
+  return new Response(request.method === "HEAD" ? null : Bun.file(filePath), { headers });
 }
 
-async function handleApi(request: Request, options: ServerOptions) {
+async function handleApi(request: Request, options: ServerOptions, requestUrl?: URL) {
   const { database, environment = {} } = options;
-  if (invalidCookieMutationOrigin(request, environment))
+  const url = requestUrl ?? new URL(request.url);
+  if (invalidCookieMutationOrigin(request, environment, url))
     return jsonError(403, "FORBIDDEN_ORIGIN", "请求来源无效");
   const assetRoot = resolve(options.assetRoot ?? assetRootFromEnv(environment));
-  const url = new URL(request.url);
   const method = request.method.toUpperCase();
   let segments: string[];
   try {
@@ -343,11 +428,16 @@ export async function handleRequest(request: Request, options: ServerOptions) {
     if (isMcpPath(url.pathname)) {
       response = await handleMcpRequest(request, options);
     } else if (url.pathname.startsWith("/api/")) {
-      response = await handleApi(request, options);
+      response = await handleApi(request, options, url);
     } else {
-      response = await serveStatic(request, options.clientRoot ?? DEFAULT_CLIENT_ROOT, environment);
+      response = await serveStatic(
+        request,
+        options.clientRoot ?? DEFAULT_CLIENT_ROOT,
+        environment,
+        url,
+      );
     }
-    const secured = withSecurityHeaders(response, environment, request, options.clientAddress);
+    const secured = withSecurityHeaders(response, environment, request, options.clientAddress, url);
     secured.headers.set("X-Request-Id", requestId);
     if (
       (environment.NODE_ENV === "production" || environment.NODE_ENV === "development") &&

@@ -1,4 +1,5 @@
-import { constants, copyFileSync } from "node:fs";
+import { constants } from "node:fs";
+import { copyFile } from "node:fs/promises";
 import { extname } from "node:path";
 import {
   all,
@@ -626,7 +627,42 @@ export function handleMemosRoute(
         return jsonError(400, "VERSION_REQUIRED", "转换随记必须携带版本号");
       const database = ctx.options.database;
       const root = ctx.options.assetRoot ?? assetRootFromEnv(ctx.options.environment);
+      const initialMemo = getMemo(database, user.id, memoId);
       const copiedPaths: string[] = [];
+      const preparedAssets: Array<{ sourceId: string; copyId: string; copyPath: string }> = [];
+      const replacements = new Map<string, string>();
+      if (initialMemo && initialMemo.version === payload.version) {
+        const findOwnedAsset = database.query<{ storage_path: string }, [string, string]>(
+          "SELECT storage_path FROM image_assets WHERE id = ? AND user_id = ? AND note_id IS NOT NULL",
+        );
+        try {
+          for (const id of noteAssetIds(initialMemo.content_markdown)) {
+            const asset = findOwnedAsset.get(id, user.id);
+            if (!asset) continue;
+            const copyId = crypto.randomUUID();
+            const copyPath = `${user.id}/${copyId}${extname(asset.storage_path)}`;
+            const from = assetFilePath(root, asset.storage_path);
+            const to = assetFilePath(root, copyPath);
+            if (!from || !to) throw new InvalidNoteAssetsError();
+            try {
+              await copyFile(from, to, constants.COPYFILE_FICLONE | constants.COPYFILE_EXCL);
+            } catch (error) {
+              if ((error as NodeJS.ErrnoException).code === "ENOENT")
+                throw new InvalidNoteAssetsError();
+              throw error;
+            }
+            copiedPaths.push(copyPath);
+            preparedAssets.push({ sourceId: id, copyId, copyPath });
+            replacements.set(id, `/api/assets/${copyId}`);
+          }
+        } catch (error) {
+          if (copiedPaths.length) await removeAssetFiles(root, copiedPaths);
+          if (error instanceof InvalidNoteAssetsError)
+            return jsonError(400, "INVALID_ASSET", "图片引用无效或附件当前不可用，随记未被删除");
+          throw error;
+        }
+      }
+
       const convert = database.transaction(() => {
         const current = getMemo(database, user.id, memoId);
         if (!current) {
@@ -648,33 +684,14 @@ export function handleMemosRoute(
           user.id,
         );
         if (!inbox) return { kind: "no_inbox" as const };
-        const replacements = new Map<string, string>();
-        const findOwnedAsset = database.query<{ storage_path: string }, [string, string]>(
-          "SELECT storage_path FROM image_assets WHERE id = ? AND user_id = ? AND note_id IS NOT NULL",
-        );
         const duplicateAsset = database.query(
           `INSERT INTO image_assets (id, user_id, storage_path, original_name, mime_type, byte_size, width, height, created_at)
              SELECT ?, user_id, ?, original_name, mime_type, byte_size, width, height, ?
              FROM image_assets WHERE id = ? AND user_id = ?`,
         );
-        for (const id of noteAssetIds(current.content_markdown)) {
-          const asset = findOwnedAsset.get(id, user.id);
-          if (!asset) continue;
-          const copyId = crypto.randomUUID();
-          const copyPath = `${user.id}/${copyId}${extname(asset.storage_path)}`;
-          const from = assetFilePath(root, asset.storage_path);
-          const to = assetFilePath(root, copyPath);
-          if (!from || !to) throw new InvalidNoteAssetsError();
-          try {
-            copyFileSync(from, to, constants.COPYFILE_FICLONE | constants.COPYFILE_EXCL);
-          } catch (error) {
-            if ((error as NodeJS.ErrnoException).code === "ENOENT")
-              throw new InvalidNoteAssetsError();
-            throw error;
-          }
-          copiedPaths.push(copyPath);
-          duplicateAsset.run(copyId, copyPath, now(), id, user.id);
-          replacements.set(id, `/api/assets/${copyId}`);
+        const copiedAt = now();
+        for (const item of preparedAssets) {
+          duplicateAsset.run(item.copyId, item.copyPath, copiedAt, item.sourceId, user.id);
         }
         const contentMarkdown = replacements.size
           ? rewriteMarkdownAssetDestinations(current.content_markdown, (id) => replacements.get(id))
@@ -701,6 +718,9 @@ export function handleMemosRoute(
         if (error instanceof InvalidNoteAssetsError)
           return jsonError(400, "INVALID_ASSET", "图片引用无效或附件当前不可用，随记未被删除");
         throw error;
+      }
+      if (result.kind !== "converted" && copiedPaths.length) {
+        await removeAssetFiles(root, copiedPaths);
       }
       if (result.kind === "missing") return jsonError(404, "MEMO_NOT_FOUND", "随记不存在");
       if (result.kind === "conflict")
