@@ -10,6 +10,9 @@ const clientBuild = await Bun.build({
   format: "esm",
   splitting: true,
   minify: true,
+  define: {
+    "process.env.NODE_ENV": '"production"',
+  },
 });
 if (!clientBuild.success) throw new AggregateError(clientBuild.logs, "Client build failed");
 

@@ -1,16 +1,27 @@
-import { lazy, Suspense, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import type { Note, NoteSummary, Notebook } from "../../shared/types";
-import { CommandMenu, type CommandId } from "../command-menu";
+import type { CommandId } from "../command-menu";
 import type { CreateNoteCommand } from "../command-parser";
 import type { ImageExportSnapshot } from "../image-export/render";
 import type { PwaState } from "../pwa";
 import type { ThemePreference } from "../theme";
-import { ConfirmDialog, NotebookDialog, type ConfirmRequest } from "./dialogs";
-import { SplitNoteDialog } from "./split-note-dialog";
+import type { ConfirmRequest } from "./dialogs";
 import { SystemNotices } from "./system-notices";
 import type { Notice, NoticePauseSource } from "./use-notices";
 import type { ViewLayout } from "./use-workspace-preferences";
 
+const LazyCommandMenu = lazy(() =>
+  import("../command-menu").then(({ CommandMenu }) => ({ default: CommandMenu })),
+);
+const LazyConfirmDialog = lazy(() =>
+  import("./dialogs").then(({ ConfirmDialog }) => ({ default: ConfirmDialog })),
+);
+const LazyNotebookDialog = lazy(() =>
+  import("./dialogs").then(({ NotebookDialog }) => ({ default: NotebookDialog })),
+);
+const LazySplitNoteDialog = lazy(() =>
+  import("./split-note-dialog").then(({ SplitNoteDialog }) => ({ default: SplitNoteDialog })),
+);
 const LazyImageExportDialog = lazy(() =>
   import("../image-export/dialog").then(({ ImageExportDialog }) => ({
     default: ImageExportDialog,
@@ -101,35 +112,50 @@ export function WorkspaceDialogs({
   onDismissNotice,
   onPauseNotice,
 }: WorkspaceDialogsProps) {
+  const [commandMounted, setCommandMounted] = useState(commandOpen);
+  const [splitPickerMounted, setSplitPickerMounted] = useState(splitPickerOpen);
+
+  useEffect(() => {
+    if (commandOpen) setCommandMounted(true);
+  }, [commandOpen]);
+
+  useEffect(() => {
+    if (splitPickerOpen) setSplitPickerMounted(true);
+  }, [splitPickerOpen]);
+
   return (
     <>
-      <CommandMenu
-        isMobileViewport={isMobileViewport}
-        open={commandOpen}
-        onClose={onCloseCommandMenu}
-        onCommand={onCommand}
-        onCreateNoteInNotebook={onCreateNoteInNotebook}
-        canRestore={Boolean(commandNoteReady && renderedNote?.deletedAt)}
-        canMoveToTrash={Boolean(commandNoteReady && renderedNote && !renderedNote.deletedAt)}
-        notebooks={notebooks}
-        currentNotebookId={renderedNote?.notebookId}
-        onMoveNoteToNotebook={onMoveCurrentNoteToNotebook}
-        focusMode={focusMode}
-        autoReadingMode={autoReadingMode}
-        canAutoRead={!splitNoteId}
-        typewriterMode={typewriterMode}
-        viewLayout={isMobileViewport ? "three-column" : viewLayout}
-        isSplitActive={Boolean(splitNoteId && !isMobileViewport)}
-        canInstallApp={pwaState.canInstall}
-        showIosInstallHint={pwaState.showIosInstallHint}
-        standalone={pwaState.standalone}
-        hasSelectedNote={commandNoteReady}
-        onSearchInCurrentNote={onSearchInCurrentNote}
-        onReplaceInCurrentNote={onReplaceInCurrentNote}
-        onSearchGlobal={onSearchGlobal}
-        initialQuery={commandInitialQuery}
-        themePreference={themePreference}
-      />
+      {commandMounted && (
+        <Suspense fallback={null}>
+          <LazyCommandMenu
+            isMobileViewport={isMobileViewport}
+            open={commandOpen}
+            onClose={onCloseCommandMenu}
+            onCommand={onCommand}
+            onCreateNoteInNotebook={onCreateNoteInNotebook}
+            canRestore={Boolean(commandNoteReady && renderedNote?.deletedAt)}
+            canMoveToTrash={Boolean(commandNoteReady && renderedNote && !renderedNote.deletedAt)}
+            notebooks={notebooks}
+            currentNotebookId={renderedNote?.notebookId}
+            onMoveNoteToNotebook={onMoveCurrentNoteToNotebook}
+            focusMode={focusMode}
+            autoReadingMode={autoReadingMode}
+            canAutoRead={!splitNoteId}
+            typewriterMode={typewriterMode}
+            viewLayout={isMobileViewport ? "three-column" : viewLayout}
+            isSplitActive={Boolean(splitNoteId && !isMobileViewport)}
+            canInstallApp={pwaState.canInstall}
+            showIosInstallHint={pwaState.showIosInstallHint}
+            standalone={pwaState.standalone}
+            hasSelectedNote={commandNoteReady}
+            onSearchInCurrentNote={onSearchInCurrentNote}
+            onReplaceInCurrentNote={onReplaceInCurrentNote}
+            onSearchGlobal={onSearchGlobal}
+            initialQuery={commandInitialQuery}
+            themePreference={themePreference}
+          />
+        </Suspense>
+      )}
 
       {imageExportSnapshot && (
         <Suspense fallback={null}>
@@ -137,25 +163,37 @@ export function WorkspaceDialogs({
         </Suspense>
       )}
       {editingNotebook !== undefined && (
-        <NotebookDialog
-          key={editingNotebook?.id ?? "new"}
-          notebook={editingNotebook}
-          onClose={onCloseNotebookDialog}
-          onSave={onSaveNotebookDraft}
-          onSaved={onSavedNotebook}
-          onRequestDelete={onRequestDeleteNotebook}
-        />
+        <Suspense fallback={null}>
+          <LazyNotebookDialog
+            key={editingNotebook?.id ?? "new"}
+            notebook={editingNotebook}
+            onClose={onCloseNotebookDialog}
+            onSave={onSaveNotebookDraft}
+            onSaved={onSavedNotebook}
+            onRequestDelete={onRequestDeleteNotebook}
+          />
+        </Suspense>
       )}
       {confirmRequest && (
-        <ConfirmDialog key={confirmRequest.id} request={confirmRequest} onClose={onCloseConfirm} />
+        <Suspense fallback={null}>
+          <LazyConfirmDialog
+            key={confirmRequest.id}
+            request={confirmRequest}
+            onClose={onCloseConfirm}
+          />
+        </Suspense>
       )}
-      <SplitNoteDialog
-        open={splitPickerOpen}
-        onClose={onCloseSplitPicker}
-        onSelectNote={onSelectSplitNote}
-        notes={notes}
-        excludeNoteId={selectedId}
-      />
+      {splitPickerMounted && (
+        <Suspense fallback={null}>
+          <LazySplitNoteDialog
+            open={splitPickerOpen}
+            onClose={onCloseSplitPicker}
+            onSelectNote={onSelectSplitNote}
+            notes={notes}
+            excludeNoteId={selectedId}
+          />
+        </Suspense>
+      )}
       <SystemNotices
         notice={notice}
         offline={offline}
