@@ -1347,6 +1347,61 @@ export function Workspace() {
         ? "搜索结果"
         : (currentNotebook?.name ?? viewLabel(view));
 
+  const handleMemoConverted = useCallback(
+    (note: Note) => {
+      revealCreatedNote(note, { view: "inbox", notebookId: note.notebookId });
+      void refreshNotebooks();
+      notifyInfo("随记已转为笔记，原随记已移除");
+    },
+    [notifyInfo, refreshNotebooks, revealCreatedNote],
+  );
+  const handleRetryTasks = useCallback(
+    () => setTaskRefreshToken((value) => value + 1),
+    [setTaskRefreshToken],
+  );
+  const handleScrollToSplitOutlineItem = useCallback(
+    (id: string) => splitOutlineNavigateRef.current?.(id),
+    [],
+  );
+  const handleFocusSelectedEditor = useCallback(() => {
+    if (selectedId) setEditorFocusNoteId(selectedId);
+  }, [selectedId]);
+  const handleBackToKanban = useCallback(() => {
+    closeSplit();
+    setCardEditingNoteId(null);
+    setKanbanOpen(true);
+    kanbanReturnRef.current = false;
+  }, [closeSplit, setCardEditingNoteId, setKanbanOpen]);
+  const handleBackToCards = useCallback(() => {
+    if (isSplitEditor) closeSplit();
+    setCardEditingNoteId(null);
+  }, [closeSplit, isSplitEditor, setCardEditingNoteId]);
+  const handleMoveCurrentNoteToNotebook = useCallback(
+    (targetNotebookId: string) => {
+      const id = selectedRef.current?.id;
+      if (id) void handleMoveNotesToNotebook([id], targetNotebookId, true);
+    },
+    [handleMoveNotesToNotebook],
+  );
+  const handleCloseNotebookDialog = useCallback(
+    () => setEditingNotebook(undefined),
+    [setEditingNotebook],
+  );
+  const handleRequestDeleteNotebook = useCallback(
+    (target: Notebook) =>
+      requestConfirm({
+        eyebrow: "删除笔记本",
+        title: `删除笔记本“${target.name}”？`,
+        description: "笔记本中的笔记会自动移入收件箱，笔记内容不会被删除。",
+        confirmLabel: "删除笔记本",
+        danger: true,
+        onConfirm: () => deleteNotebook(target.id),
+      }),
+    [deleteNotebook, requestConfirm],
+  );
+  const handleCloseConfirm = useCallback(() => setConfirmRequest(null), [setConfirmRequest]);
+  const handleCloseSplitPicker = useCallback(() => setSplitPickerOpen(false), [setSplitPickerOpen]);
+
   return (
     <MemoWorkspaceProvider
       active={memosOpen}
@@ -1427,12 +1482,8 @@ export function Workspace() {
           onOpenMemos={openMemos}
           onOpenKanban={openKanban}
           onBackMobilePage={backMobilePage}
-          onMemoConverted={(note) => {
-            revealCreatedNote(note, { view: "inbox", notebookId: note.notebookId });
-            void refreshNotebooks();
-            notifyInfo("随记已转为笔记，原随记已移除");
-          }}
-          onRetryTasks={() => setTaskRefreshToken((value) => value + 1)}
+          onMemoConverted={handleMemoConverted}
+          onRetryTasks={handleRetryTasks}
           onTaskNotebookChange={setTaskNotebookId}
           onTaskStatusChange={setTaskStatus}
           onSelectTask={selectTask}
@@ -1479,16 +1530,14 @@ export function Workspace() {
             }
             onScrollToOutlineItem={
               activePane === "secondary" && splitNoteId
-                ? (id) => splitOutlineNavigateRef.current?.(id)
+                ? handleScrollToSplitOutlineItem
                 : handleScrollToOutlineItem
             }
             onCloseOutline={closeOutline}
             onLoadMore={loadMoreNotes}
             isLoadingMore={isLoadingMore}
             virtualizationScope={listScope}
-            onFocusEditor={() => {
-              if (selectedId) setEditorFocusNoteId(selectedId);
-            }}
+            onFocusEditor={handleFocusSelectedEditor}
             inert={isMobileViewport && mobilePage !== "list"}
           />
         )}
@@ -1593,22 +1642,10 @@ export function Workspace() {
               handleSplitPermanentDelete={handleSplitPermanentDelete}
               handleOpenList={handleOpenList}
               mobileBackLabel={mobileBackLabel}
-              onBackToKanban={
-                kanbanReturnRef.current
-                  ? () => {
-                      closeSplit();
-                      setCardEditingNoteId(null);
-                      setKanbanOpen(true);
-                      kanbanReturnRef.current = false;
-                    }
-                  : undefined
-              }
+              onBackToKanban={kanbanReturnRef.current ? handleBackToKanban : undefined}
               onBackToCards={
                 !kanbanReturnRef.current && isCardsLayout && !tasksOpen
-                  ? () => {
-                      if (isSplitEditor) closeSplit();
-                      setCardEditingNoteId(null);
-                    }
+                  ? handleBackToCards
                   : undefined
               }
               handleUploadImage={handleUploadImage}
@@ -1685,29 +1722,17 @@ export function Workspace() {
           onCloseCommandMenu={closeCommandMenu}
           onCommand={command}
           onCreateNoteInNotebook={createNoteInNotebook}
-          onMoveCurrentNoteToNotebook={(targetNotebookId) => {
-            const id = selectedRef.current?.id;
-            if (id) void handleMoveNotesToNotebook([id], targetNotebookId, true);
-          }}
+          onMoveCurrentNoteToNotebook={handleMoveCurrentNoteToNotebook}
           onSearchInCurrentNote={handleSearchInCurrentNote}
           onReplaceInCurrentNote={openReplaceInCurrentNote}
           onSearchGlobal={handleSearchGlobal}
           onCloseImageExport={closeImageExport}
-          onCloseNotebookDialog={() => setEditingNotebook(undefined)}
+          onCloseNotebookDialog={handleCloseNotebookDialog}
           onSaveNotebookDraft={saveNotebookDraft}
           onSavedNotebook={saveNotebook}
-          onRequestDeleteNotebook={(target) =>
-            requestConfirm({
-              eyebrow: "删除笔记本",
-              title: `删除笔记本“${target.name}”？`,
-              description: "笔记本中的笔记会自动移入收件箱，笔记内容不会被删除。",
-              confirmLabel: "删除笔记本",
-              danger: true,
-              onConfirm: () => deleteNotebook(target.id),
-            })
-          }
-          onCloseConfirm={() => setConfirmRequest(null)}
-          onCloseSplitPicker={() => setSplitPickerOpen(false)}
+          onRequestDeleteNotebook={handleRequestDeleteNotebook}
+          onCloseConfirm={handleCloseConfirm}
+          onCloseSplitPicker={handleCloseSplitPicker}
           onSelectSplitNote={handleSelectSplitNote}
           onDismissNotice={dismissNotice}
           onPauseNotice={pauseNotice}

@@ -1,4 +1,4 @@
-import { lazy, Suspense, type Dispatch, type SetStateAction } from "react";
+import { lazy, memo, Suspense, type Dispatch, type SetStateAction } from "react";
 import type {
   KanbanPlacement,
   KanbanStatus,
@@ -85,7 +85,7 @@ export type WorkspaceCollectionsProps = {
 };
 
 /** Renders standalone collection surfaces: mobile home, memos, tasks, and kanban. */
-export function WorkspaceCollections({
+export const WorkspaceCollections = memo(function WorkspaceCollections({
   isMobileViewport,
   mobilePage,
   memosOpen,
@@ -214,4 +214,4 @@ export function WorkspaceCollections({
       )}
     </>
   );
-}
+});

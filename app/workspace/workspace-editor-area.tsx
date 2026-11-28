@@ -184,7 +184,7 @@ export type WorkspaceEditorAreaProps = {
   listTransitionToken: number;
 };
 
-export function WorkspaceEditorArea({
+export const WorkspaceEditorArea = memo(function WorkspaceEditorArea({
   editorRegionRef,
   editorContentInert,
   mountEditor,
@@ -492,4 +492,4 @@ export function WorkspaceEditorArea({
       )}
     </main>
   );
-}
+});

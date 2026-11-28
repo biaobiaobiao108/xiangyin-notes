@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
+import { lazy, memo, Suspense, useEffect, useState, type ReactNode } from "react";
 import type { Note, NoteSummary, Notebook } from "../../shared/types";
 import type { CommandId } from "../command-menu";
 import type { CreateNoteCommand } from "../command-parser";
@@ -71,7 +71,7 @@ export type WorkspaceDialogsProps = {
 };
 
 /** Renders workspace command palette, modal dialogs, notices, and context menu overlays. */
-export function WorkspaceDialogs({
+export const WorkspaceDialogs = memo(function WorkspaceDialogs({
   isMobileViewport,
   commandOpen,
   commandInitialQuery,
@@ -203,4 +203,4 @@ export function WorkspaceDialogs({
       {workspaceMenu}
     </>
   );
-}
+});
