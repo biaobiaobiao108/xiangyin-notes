@@ -49,10 +49,10 @@
   color: var(--accent-dark);
 }
 .text-danger {
-  color: var(--danger) !important;
+  color: var(--danger);
 }
 .text-danger:hover {
-  color: var(--danger-hover) !important;
+  color: var(--danger-hover);
   text-decoration: underline;
 }
 

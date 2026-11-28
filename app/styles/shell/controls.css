@@ -270,35 +270,6 @@ kbd {
   color: var(--ink);
   box-shadow: inset 0 0 0 2px var(--focus-ring);
 }
-.nav-item.is-drop-target,
-.notebook-row-wrap.is-drop-target .notebook-item,
-.notebook-item.is-drop-target {
-  background: var(--accent-soft) !important;
-  color: var(--ink) !important;
-  font-weight: 600;
-  box-shadow: inset 0 0 0 1.5px var(--accent-border) !important;
-  transform: none !important;
-}
-.nav-item.is-drop-target svg,
-.notebook-row-wrap.is-drop-target .notebook-custom-icon,
-.notebook-item.is-drop-target .notebook-custom-icon {
-  transform: scale(1.14);
-  transition: transform 0.15s cubic-bezier(0.2, 0, 0, 1);
-}
-.notebook-row-wrap.is-drop-target .notebook-item em,
-.notebook-item.is-drop-target em {
-  background: var(--accent) !important;
-  color: #ffffff !important;
-  font-weight: 600;
-  transition:
-    background-color 0.15s ease,
-    color 0.15s ease;
-}
-.collapsed-notebook-item.is-drop-target {
-  background: var(--accent-soft) !important;
-  box-shadow: inset 0 0 0 1.5px var(--accent-border) !important;
-  transform: scale(1.05);
-}
 
 .nav-item.is-active {
   border-radius: var(--radius-sm);
@@ -502,6 +473,35 @@ kbd {
 .collapsed-notebook-item.is-active {
   background: var(--surface-sidebar-selected);
   box-shadow: var(--shadow-sm);
+}
+.nav-item.is-drop-target,
+.notebook-row-wrap.is-drop-target .notebook-item,
+.notebook-item.is-drop-target {
+  background: var(--accent-soft);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1.5px var(--accent-border);
+  transform: none;
+}
+.nav-item.is-drop-target svg,
+.notebook-row-wrap.is-drop-target .notebook-custom-icon,
+.notebook-item.is-drop-target .notebook-custom-icon {
+  transform: scale(1.14);
+  transition: transform 0.15s cubic-bezier(0.2, 0, 0, 1);
+}
+.notebook-row-wrap.is-drop-target .notebook-item em,
+.notebook-item.is-drop-target em {
+  background: var(--accent);
+  color: #ffffff;
+  font-weight: 600;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+.collapsed-notebook-item.is-drop-target {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1.5px var(--accent-border);
+  transform: scale(1.05);
 }
 .notebook-custom-icon {
   flex: none;
