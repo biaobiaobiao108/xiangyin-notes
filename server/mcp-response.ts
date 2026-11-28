@@ -85,7 +85,7 @@ const BUSINESS_RECOVERY_ACTIONS: Record<string, string> = {
   AMBIGUOUS_SECTION: "从大纲选择 sectionId，或指定 heading 的 occurrence。",
   VERSION_CONFLICT:
     "重新读取目标笔记或章节，合并修改后使用最新 version 作为 expectedVersion 重试。",
-  NOTE_IN_TRASH: "先用 manage_note 恢复笔记，再执行修改。",
+  NOTE_IN_TRASH: "先用 manage_notes（deleted=false）恢复笔记，再执行修改。",
   SECTION_NOT_FOUND: "重新读取大纲，使用当前 sectionId 或正确的 heading。",
   NOT_FOUND: "使用 search_notes 查找目标笔记，再以正确的 ID 操作。",
   NOTEBOOK_COUNT_MISMATCH: "重新读取笔记本 totalCount，核实后更新 expectedNoteCount。",
@@ -109,8 +109,8 @@ function businessError(value: unknown, includeStats = true): Record<string, unkn
   if (error.code === "NOT_FOUND") {
     if (error.target === "notebook") {
       suggestedAction = "使用 list_notebooks 查找目标笔记本，再以正确的 ID 操作。";
-    } else if (["text", "anchor", "occurrence"].includes(String(error.target))) {
-      suggestedAction = "使用 get_note 读取最新正文，修正 oldText、anchor 或 occurrence 后重试。";
+    } else if (["text", "occurrence"].includes(String(error.target))) {
+      suggestedAction = "使用 get_note 读取最新正文，修正 oldText 或 occurrence 后重试。";
     }
   }
   const current = compactConflictNote(error.current, includeStats);

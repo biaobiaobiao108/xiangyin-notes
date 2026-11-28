@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { first, NOTE_CONTENT_MAX_LENGTH } from "./core";
+import { KANBAN_STATUSES } from "./routes/kanban";
 import { VALID_NOTEBOOK_ICONS } from "./routes/notebooks";
 import { getMarkdownOutline, locateMarkdownSection } from "./mcp-sections";
 import {
@@ -65,11 +66,15 @@ export function registerMcpContentTools(
     {
       title: "保存笔记",
       description:
-        "一次定位或创建笔记本并保存。mode 默认 create，同笔记本已有同标题报 NOTE_EXISTS；create 模式省略笔记本放入收件箱；upsert 必须指定笔记本，按标题匹配，更新需 expectedVersion，多篇拒绝。标题匹配忽略 ASCII 大小写，裁剪查询参数首尾空白。 图片仅接受 HTTPS 地址或当前用户可用于该笔记的已上传附件，MCP 不上传图片。",
+        "一次定位或创建笔记本并保存。mode 默认 create，同笔记本已有同标题报 NOTE_EXISTS（除非 allowDuplicateTitle=true）；create 模式省略笔记本放入收件箱；upsert 必须指定笔记本，按标题匹配，更新需 expectedVersion，多篇拒绝。可传 kanbanStatus 在新建时直接加入看板。标题匹配忽略 ASCII 大小写，裁剪查询参数首尾空白。图片仅接受 HTTPS 地址或当前用户可用于该笔记的已上传附件，MCP 不上传图片。",
       inputSchema: z
         .object({
           title: z.string().trim().min(1).max(200),
-          contentMarkdown: z.string().max(NOTE_CONTENT_MAX_LENGTH),
+          contentMarkdown: z
+            .string()
+            .max(NOTE_CONTENT_MAX_LENGTH)
+            .optional()
+            .describe("Markdown 正文，省略时为空正文；最多 1,000,000 个 UTF-16 code units"),
           notebook: z
             .object({
               notebookId: z.string().min(1).max(200).optional(),
@@ -79,6 +84,14 @@ export function registerMcpContentTools(
             .strict()
             .optional(),
           tags: noteTagsSchema.optional(),
+          kanbanStatus: z
+            .enum(KANBAN_STATUSES)
+            .optional()
+            .describe("新建笔记时加入指定看板列，省略时不加入看板"),
+          allowDuplicateTitle: z
+            .boolean()
+            .optional()
+            .describe("仅 mode=create 时生效；设为 true 时允许在目标笔记本内创建同名笔记"),
           mode: z
             .enum(["create", "upsert"])
             .default("create")
@@ -92,9 +105,11 @@ export function registerMcpContentTools(
     },
     async ({
       title,
-      contentMarkdown,
+      contentMarkdown = "",
       notebook,
       tags = [],
+      kanbanStatus,
+      allowDuplicateTitle = false,
       mode = "create",
       expectedVersion,
       includeContent = false,
@@ -102,6 +117,16 @@ export function registerMcpContentTools(
       if (!user)
         return responseValue(
           { error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } },
+          true,
+        );
+      if (mode === "upsert" && allowDuplicateTitle)
+        return responseValue(
+          {
+            error: {
+              code: "INVALID_ARGUMENT",
+              message: "allowDuplicateTitle 仅适用于 mode=create",
+            },
+          },
           true,
         );
       if (!validMcpTags(tags)) return invalidMcpTagsError(tags);
@@ -131,8 +156,11 @@ export function registerMcpContentTools(
             { error: { code: "NO_NOTEBOOK", message: "没有可用的收件箱" } },
             true,
           );
-        const match = await noteByTitle(options, user, title, false, notebookId);
-        if (mode === "create" && ("noteId" in match || match.error.code !== "NOT_FOUND")) {
+        const match =
+          mode === "create" && allowDuplicateTitle
+            ? undefined
+            : await noteByTitle(options, user, title, false, notebookId);
+        if (mode === "create" && match && ("noteId" in match || match.error.code !== "NOT_FOUND")) {
           const candidates = "noteId" in match ? match.matches : match.error.matches;
           return responseValue(
             {
@@ -150,7 +178,7 @@ export function registerMcpContentTools(
             true,
           );
         }
-        if (mode === "upsert") {
+        if (mode === "upsert" && match) {
           if ("noteId" in match) {
             if (expectedVersion === undefined)
               return responseValue(
@@ -185,7 +213,12 @@ export function registerMcpContentTools(
           "POST",
           ["notes"],
           `/api/notes${includeContent ? "" : "?response=summary"}`,
-          { title, contentMarkdown: markdown, notebookId },
+          {
+            title,
+            contentMarkdown: markdown,
+            notebookId,
+            ...(kanbanStatus === undefined ? {} : { kanbanStatus }),
+          },
         );
         return result.status === 201
           ? responseValue({ ...result.body, created: true }, false, {

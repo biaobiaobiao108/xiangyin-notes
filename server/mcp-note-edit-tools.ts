@@ -2,21 +2,15 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { NOTE_CONTENT_MAX_LENGTH } from "./core";
 import {
-  noteOperationActionSchema,
-  noteOperationInputSchema,
-  validMcpTags,
-  invalidMcpTagsError,
   countUnicodeCharacters,
   findTextMatches,
   routeError,
   isDeletedNote,
   noteInTrashError,
-  noteOperationValidationMessage,
   noteWriteError,
   notesRoute,
   appendToMarkdown,
   updateNoteRoute,
-  resolveNotebook,
   type McpToolContext,
 } from "./mcp-helpers";
 
@@ -216,172 +210,6 @@ export function registerMcpNoteEditTools(
           true,
         );
       }
-    },
-  );
-
-  server.registerTool(
-    "manage_note",
-    {
-      title: "笔记管理操作",
-      description:
-        "移动、设置收藏或标签、移入或恢复回收站；set_tags 必须指定 mode。此工具不提供永久删除。",
-      inputSchema: noteOperationInputSchema,
-    },
-    async (input) => {
-      if (!user)
-        return responseValue(
-          { error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } },
-          true,
-        );
-      const parsedInput = noteOperationActionSchema.safeParse(input);
-      if (!parsedInput.success) {
-        return responseValue(
-          {
-            error: {
-              code: "INVALID_NOTE_OPERATION",
-              message: noteOperationValidationMessage(input, parsedInput.error.issues),
-            },
-          },
-          true,
-        );
-      }
-      const operation = parsedInput.data;
-      if (operation.action === "move") {
-        const current = await notesRoute(
-          options,
-          user,
-          "GET",
-          ["notes", operation.noteId],
-          `/api/notes/${encodeURIComponent(operation.noteId)}`,
-        );
-        if (current.status !== 200) return routeError(current);
-        if (isDeletedNote(current.body.note)) return noteInTrashError();
-        if (!operation.notebookId && !operation.notebookName)
-          return responseValue(
-            {
-              error: {
-                code: "INVALID_NOTE_OPERATION",
-                message: "move 必须提供 notebookId 或 notebookName",
-              },
-            },
-            true,
-          );
-        const resolved = await resolveNotebook(options, user, operation);
-        if (resolved.error) return responseValue({ error: resolved.error }, true);
-        operation.notebookId = resolved.notebook!.id;
-      }
-
-      let currentNote: Record<string, unknown> | undefined;
-      let version = operation.expectedVersion;
-      if (version === undefined) {
-        const current = await notesRoute(
-          options,
-          user,
-          "GET",
-          ["notes", operation.noteId],
-          `/api/notes/${encodeURIComponent(operation.noteId)}`,
-        );
-        if (current.status !== 200) return routeError(current);
-        if (
-          !current.body.note ||
-          typeof current.body.note !== "object" ||
-          Array.isArray(current.body.note)
-        ) {
-          return responseValue(
-            { error: { code: "NOTE_READ_FAILED", message: "读取笔记版本失败" } },
-            true,
-          );
-        }
-        currentNote = current.body.note as Record<string, unknown>;
-        if (typeof currentNote.version !== "number")
-          return responseValue(
-            { error: { code: "NOTE_READ_FAILED", message: "读取笔记版本失败" } },
-            true,
-          );
-        version = currentNote.version;
-      }
-      if (operation.action === "move") {
-        const result = await updateNoteRoute(options, user, {
-          noteId: operation.noteId,
-          version,
-          currentNote,
-          notebookId: operation.notebookId,
-        });
-        if (result.status !== 200) return routeError(result);
-        const note = result.body.note as Record<string, unknown> | undefined;
-        return responseValue(
-          { ...result.body, ...(note?.version === version ? { noop: true } : {}) },
-          false,
-          { writeResult: true },
-        );
-      }
-      if (operation.action === "set_favorite") {
-        const result = await updateNoteRoute(options, user, {
-          noteId: operation.noteId,
-          version,
-          currentNote,
-          isFavorite: operation.isFavorite,
-        });
-        if (result.status !== 200) return routeError(result);
-        const note = result.body.note as Record<string, unknown> | undefined;
-        return responseValue(
-          { ...result.body, ...(note?.version === version ? { noop: true } : {}) },
-          false,
-          { writeResult: true },
-        );
-      }
-      if (operation.action === "set_tags") {
-        if (!validMcpTags(operation.tags)) return invalidMcpTagsError(operation.tags);
-        const tagInput =
-          operation.mode === "add"
-            ? { tags: operation.tags }
-            : operation.mode === "remove"
-              ? { removeTags: operation.tags }
-              : { replaceTags: operation.tags };
-        const result = await updateNoteRoute(options, user, {
-          noteId: operation.noteId,
-          version,
-          currentNote,
-          ...tagInput,
-        });
-        if (result.status !== 200) return routeError(result);
-        const note = result.body.note as Record<string, unknown> | undefined;
-        return responseValue(
-          {
-            ...result.body,
-            mode: operation.mode,
-            ...(note?.version === version ? { noop: true } : {}),
-          },
-          false,
-          { writeResult: true },
-        );
-      }
-      if (operation.action === "trash") {
-        const result = await updateNoteRoute(options, user, {
-          noteId: operation.noteId,
-          version,
-          currentNote,
-          deleted: true,
-        });
-        if (result.status !== 200) return routeError(result);
-        const note = result.body.note as Record<string, unknown> | undefined;
-        const noop = note !== undefined && isDeletedNote(note) && note.version === version;
-        return responseValue({ ...result.body, ...(noop ? { noop: true } : {}) }, false, {
-          writeResult: true,
-        });
-      }
-      const result = await updateNoteRoute(options, user, {
-        noteId: operation.noteId,
-        version,
-        currentNote,
-        deleted: false,
-      });
-      if (result.status !== 200) return routeError(result);
-      const note = result.body.note as Record<string, unknown> | undefined;
-      const noop = note?.deletedAt === null && note.version === version;
-      return responseValue({ ...result.body, ...(noop ? { noop: true } : {}) }, false, {
-        writeResult: true,
-      });
     },
   );
 

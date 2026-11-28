@@ -19,12 +19,10 @@ export const MCP_RATE_LIMIT_WINDOW_SECONDS = 60;
 export const MCP_RATE_LIMIT_MAX_REQUESTS = 240;
 
 const MCP_CONTENT_FIELDS = new Map([
-  ["create_note", "contentMarkdown"],
   ["save_note", "contentMarkdown"],
   ["replace_note_section", "contentMarkdown"],
   ["update_note", "contentMarkdown"],
   ["append_to_note", "contentMarkdown"],
-  ["insert_into_note", "contentMarkdown"],
   ["replace_in_note", "newText"],
 ]);
 

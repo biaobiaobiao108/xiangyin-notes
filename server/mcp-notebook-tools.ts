@@ -26,43 +26,6 @@ export function registerMcpNotebookTools(
   );
 
   server.registerTool(
-    "create_notebook",
-    {
-      title: "创建笔记本",
-      description: "创建笔记本；重名报错。需要幂等创建时用 ensure_notebook。",
-      inputSchema: z
-        .object({
-          name: z.string().trim().min(1).max(40).describe("笔记本名称，最多 40 个字符"),
-          color: z
-            .string()
-            .optional()
-            .describe(
-              "六位十六进制颜色；格式无效时返回 INVALID_ARGUMENT，field=color。预设示例：#718077 松柏绿、#d96245 朱砂、#5b7899 蓝灰、#9c765f 木棕",
-            ),
-          icon: z
-            .enum(VALID_NOTEBOOK_ICONS)
-            .optional()
-            .describe("笔记本图标标识，例如 folder、book 或 bookmark"),
-        })
-        .strict(),
-    },
-    async ({ name, color, icon }) => {
-      if (!user)
-        return responseValue(
-          { error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } },
-          true,
-        );
-      const payload = {
-        name,
-        ...(color === undefined ? {} : { color }),
-        ...(icon === undefined ? {} : { icon }),
-      };
-      const result = await notebooksRoute(options, user, "POST", payload);
-      return result.status === 201 ? responseValue(result.body) : routeError(result);
-    },
-  );
-
-  server.registerTool(
     "update_notebook",
     {
       title: "更新笔记本",

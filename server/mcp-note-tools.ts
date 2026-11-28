@@ -1,6 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { KANBAN_STATUSES } from "./routes/kanban";
 import {
   all,
   NOTE_CONTENT_MAX_LENGTH,
@@ -14,7 +13,6 @@ import {
   invalidMcpTagsError,
   withPreviewLimit,
   withoutNotePreview,
-  appendMarkdownTags,
   conciseWriteNote,
   routeError,
   noteWriteError,
@@ -340,79 +338,6 @@ export function registerMcpNoteTools(
         maxTotalCharacters,
         skippedForCharacterLimit: oversizedIds.length > 0,
       });
-    },
-  );
-
-  server.registerTool(
-    "create_note",
-    {
-      title: "创建笔记",
-      description:
-        "创建 Markdown 笔记并追加 tags，允许同名；省略笔记本放入收件箱。可指定 kanbanStatus 同时加入看板。常规保存或需防重名时用 save_note。图片仅接受 HTTPS 地址或当前用户可用于该笔记的已上传附件。",
-      inputSchema: z
-        .object({
-          title: z.string().min(1).max(200),
-          contentMarkdown: z
-            .string()
-            .max(NOTE_CONTENT_MAX_LENGTH)
-            .optional()
-            .describe(
-              "可直接传入完整 Markdown 正文；普通笔记优先一次创建；只有客户端明确无法承载单次参数或服务端返回 MCP 请求体超过 4.5 MB 的错误时才分段；最多 1,000,000 个 UTF-16 code units",
-            ),
-          notebookId: z.string().min(1).max(200).optional(),
-          notebookName: z.string().trim().min(1).max(40).optional(),
-          kanbanStatus: z
-            .enum(KANBAN_STATUSES)
-            .optional()
-            .describe("新笔记的看板列，省略时只创建笔记"),
-          tags: noteTagsSchema
-            .optional()
-            .describe(
-              "要追加到正文的标签名，仅可含中文、字母、数字、下划线或连字符，不带 #；仅追加，不会覆盖已有标签（整体替换请用 manage_note action=set_tags）",
-            ),
-          includeContent: z
-            .boolean()
-            .optional()
-            .describe("是否在成功结果中回传完整正文，默认 false"),
-        })
-        .strict(),
-    },
-    async ({
-      title,
-      contentMarkdown = "",
-      notebookId,
-      notebookName,
-      kanbanStatus,
-      tags = [],
-      includeContent = false,
-    }) => {
-      if (!user)
-        return responseValue(
-          { error: { code: "UNAUTHENTICATED", message: "MCP 请求未通过认证" } },
-          true,
-        );
-      const resolved = await resolveNotebook(options, user, { notebookId, notebookName });
-      if (resolved.error) return responseValue({ error: resolved.error }, true);
-      notebookId = resolved.notebook?.id;
-
-      if (!validMcpTags(tags)) return invalidMcpTagsError(tags);
-      const payload = {
-        title,
-        contentMarkdown: appendMarkdownTags(contentMarkdown, tags),
-        ...(notebookId === undefined ? {} : { notebookId }),
-        ...(kanbanStatus === undefined ? {} : { kanbanStatus }),
-      };
-      const result = await notesRoute(
-        options,
-        user,
-        "POST",
-        ["notes"],
-        `/api/notes${includeContent ? "" : "?response=summary"}`,
-        payload,
-      );
-      return result.status === 201
-        ? responseValue(result.body, false, { writeResult: true, includeContent })
-        : noteWriteError(result);
     },
   );
 
